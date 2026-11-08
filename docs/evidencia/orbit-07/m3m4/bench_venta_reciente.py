@@ -1,9 +1,11 @@
 """ORBIT 07 M4: costo en CPU de la espera de venta reciente.
 
 Compara la resolucion v2 (base) y v3 (candidato) sobre las mismas entradas
-congeladas de AUTO-03 E.4. No mide SQL: la lectura de productos es la misma y
-la regla nueva solo recorre los `dias_halo` ya leidos, una vez por producto.
-No toca produccion ni Amazon.
+congeladas de AUTO-03 E.4. No mide SQL: el lector actual llega a D-1 y
+alimenta `dias_recientes`; el banco usa los `dias_halo` congelados, la misma
+entrada para v2 y v3. Cada version corre en su propio bloque de rondas
+(primero v2, luego v3), asi que el numero compara la misma carga, no una
+alternancia por ronda. No toca produccion ni Amazon.
 
     uv run --frozen python docs/evidencia/orbit-07/m3m4/bench_venta_reciente.py
 """

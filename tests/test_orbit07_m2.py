@@ -42,7 +42,7 @@ from test_cycle_target_ciclo import (
     _targets_de,
 )
 from test_productos_io import _db as _db_productos
-from test_productos_meta_ciclo import SQL76, _decision, _settings, _target
+from test_productos_meta_ciclo import SQL76, _decision, _evaluacion, _settings, _target
 from test_schema import _postgres_obligatorio_ausente
 
 from app import apply_cola
@@ -500,3 +500,63 @@ def _pausa_de(conn, cycle_id: int, entidad: int) -> dict | None:
         "target_acos_pct_usado": inputs.get("target_acos_pct_usado"),
         "target_snapshot": inputs.get("target_snapshot"),
     }
+
+
+def test_la_sombra_no_mezcla_el_equilibrio_producto_si_su_meta_no_gana():
+    """F14: con la meta en sombra, si un goal de campana gana el target, el
+    veredicto hipotetico usa el mismo equilibrio que el camino real (el de
+    plataforma), no el del producto. El veredicto con y sin meta coincide
+    porque el target resuelto es el mismo."""
+    with _db("orbit_m2_sombra_equilibrio") as conn:
+        ids = _mundo(conn)
+        _config_con_meta(conn, "shadow")
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('campaign', %s, 25, 0.40, 2.50, 'USD', true, 'live')",
+            (ids["camp"],),
+        )
+        kw = ids["kw"]
+        run = _run(conn)
+        fechas = [dt.date(2026, 7, 3) + dt.timedelta(days=i) for i in range(41)]
+        obs_cero = DECIDED_AT - dt.timedelta(minutes=40)
+        obs_dato = DECIDED_AT - dt.timedelta(minutes=20)
+        for fecha in fechas:
+            _metrica(
+                conn,
+                run,
+                kw,
+                fecha,
+                obs_cero,
+                cost="0",
+                ad_revenue="0",
+                clicks=0,
+                orders=0,
+                impressions=0,
+            )
+        for fecha in (
+            dt.date(2026, 7, 20),
+            dt.date(2026, 7, 27),
+            dt.date(2026, 8, 3),
+            dt.date(2026, 8, 5),
+            dt.date(2026, 8, 9),
+        ):
+            _metrica(
+                conn,
+                run,
+                kw,
+                fecha,
+                obs_dato,
+                cost="30",
+                ad_revenue="200",
+                clicks=20,
+                orders=1,
+                impressions=100,
+            )
+
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        _id, resultado = _evaluacion(conn, res.cycle_id)
+        hoja = next(h for h in resultado["sombra_hojas"] if h["hoja_id"] == kw)
+        assert hoja["procedencia_con_meta"] == "goal_campana"
+        assert hoja["veredicto_con_meta"] == hoja["veredicto_actual"]

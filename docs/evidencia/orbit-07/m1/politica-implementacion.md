@@ -42,9 +42,9 @@ fila.
    de la ventana madura (condición nueva, separada por al menos la ventana de
    cortes).
 3. **Pujas no congeladas.** La fila `released` deja de bloquear la hoja cuando
-   hay venta reciente o un episodio activo: el ciclo evalúa el bid y descarta un
-   `Pausar` duplicado. El veto pendiente, el veto del dueño y `applying` siguen
-   bloqueando la hoja entera.
+   hay venta reciente o un episodio persistido (activo o vencido): el ciclo
+   evalúa el bid y descarta un `Pausar` duplicado. El veto pendiente, el veto
+   del dueño y `applying` siguen bloqueando la hoja entera.
 4. **Precedencia económica.** Si la pausa económica califica con datos
    completos, la venta reciente no la oculta.
 5. **Historia.** La ausencia del marcador en `pausa.proteccion` conserva la
@@ -52,8 +52,8 @@ fila.
    nueva. El caso congela `evaluado_el`, la lectura, la ventana de cortes y el
    episodio.
 6. **Fuente incompleta sin episodio.** No se inventa un cero ni se abre una
-   gracia; la pausa histórica sigue. Con un episodio activo, la lectura
-   incompleta no lo cancela.
+   gracia; la pausa histórica sigue. Con un episodio persistido (activo o
+   vencido), la lectura incompleta no lo cancela.
 
 ## Verificación
 

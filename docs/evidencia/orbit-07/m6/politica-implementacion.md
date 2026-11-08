@@ -89,33 +89,29 @@ target.
 ## Activación y reversa
 
 Desplegar este código no enciende la regla: `ads_bid_economia_<plat>` está
-ausente por defecto. El dueño la activa con una `config_version` nueva
-(`economia_cambio_v1`) después de integrar y desplegar:
+ausente por defecto. La receta revisable, con los valores exactos de M1, M2 y
+M5/M6, está en [`activacion-orbit07.md`](../activacion-orbit07.md). Usa el
+escritor existente (`app.cli productos-modo` →
+`config_write.guarda_config`), que copia la config vigente entera, exige que la
+base leída siga siendo la vigente (`ConfigObsoleta` si otra persona guardó
+antes) y deja una `config_version` nueva por cada activación o reversa. No se
+usan INSERT directos: no serializan escritores concurrentes.
 
-```sql
-INSERT INTO config_version (label, settings)
-SELECT 'ORBIT 07 M5/M6 on (David)',
-       settings || jsonb_build_object('ads_bid_economia_amazon_mx',
-                                       'economia_cambio_v1',
-                                       'ads_bid_economia_amazon_us',
-                                       'economia_cambio_v1')
-  FROM config_version
- ORDER BY id DESC
- LIMIT 1
-RETURNING id;
+```bash
+docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_us \
+  --bid-economia economia_cambio_v1
+docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_mx \
+  --bid-economia economia_cambio_v1
 ```
 
 La reversa es una `config_version` nueva que quita la clave (o la deja
 ausente); no se borra ninguna decisión:
 
-```sql
-INSERT INTO config_version (label, settings)
-SELECT 'ORBIT 07 M5/M6 off (David)',
-       settings - 'ads_bid_economia_amazon_mx' - 'ads_bid_economia_amazon_us'
-  FROM config_version
- ORDER BY id DESC
- LIMIT 1
-RETURNING id;
+```bash
+docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_us \
+  --bid-economia off
+docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_mx \
+  --bid-economia off
 ```
 
 Quitar la clave apaga la regla sin regresar el código ni borrar decisiones:
@@ -127,8 +123,9 @@ evaluación de trayectoria.
 
 Desde el primer ciclo con la regla encendida se registran, por mercado y
 moneda: recortes permitidos por el episodio, subidas frenadas
-(`subida_sin_economia`), recortes que quedaron en R16 por falta de evidencia,
-episodios `maduro`/`inmaduro`/`incomparable`, cobertura de ventanas, gasto y
+(`subida_sin_economia`), recortes que siguieron en R16 (`recorte_costo_trafico`,
+`subida_sin_trafico`, `piso_aprendido`), episodios
+`maduro`/`inmaduro`/`incomparable`, cobertura de ventanas, gasto y
 venta de las ventanas y contribución estimada (solo con margen compatible).
 Ante un defecto comprobado se corrige o se apaga la clave; no se espera a
 completar un experimento. No se atribuye causalidad a una comparación antes

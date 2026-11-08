@@ -4,8 +4,10 @@ Comprueba, sobre una base PostgreSQL desechable, que el agregado de M3 no
 duplica gasto (la reobservacion reemplaza la fecha y anadir otro anuncio, grupo
 o campana del mismo producto no reinicia ni multiplica el umbral). Sobre la
 medicion de produccion de AUTO-03 E.4 muestra la diferencia de M4: la regla
-nueva v3 deja en espera los productos que vendieron en [D-29, D-1] y conserva
-la pausa solo en el que no tiene una venta inmadura.
+nueva v3 deja en espera los productos que vendieron en [D-30, D-1] y conserva
+la pausa solo en el que no tiene una venta inmadura. La fuente congelada de
+E.4 observa hasta 2026-11-02: la tabla declara `observado_hasta` y los dias
+no leidos, para no afirmar ausencia de ventas donde no hubo lectura.
 
 No toca produccion ni Amazon. Uso:
 
@@ -202,10 +204,19 @@ def _hueco_dia_30() -> dict:
 def _m4_produccion() -> dict:
     _, entradas = _entradas_e4(E4_US)
     candidatos = []
+    ventana = None
+    observado_hasta = None
     for entrada in entradas:
         pid = entrada.producto.product_id
         if pid not in (273, 315, 356):
             continue
+        ventana = entrada.ventana_venta_reciente or p.ventana_venta_reciente(entrada.decidido_el)
+        observado_hasta = entrada.ventana_halo.hasta_exclusivo - dt.timedelta(days=1)
+        no_leidos = [
+            (ventana.desde + dt.timedelta(days=n)).isoformat()
+            for n in range((ventana.hasta_exclusivo - ventana.desde).days)
+            if ventana.desde + dt.timedelta(days=n) > observado_hasta
+        ]
         ventas = [
             {
                 "fecha": dia.fecha.isoformat(),
@@ -220,6 +231,12 @@ def _m4_produccion() -> dict:
             {
                 "product_id": pid,
                 "anuncios": len(entrada.anuncios),
+                "ventana_reciente": [
+                    ventana.desde.isoformat(),
+                    (ventana.hasta_exclusivo - dt.timedelta(days=1)).isoformat(),
+                ],
+                "observado_hasta": observado_hasta.isoformat(),
+                "dias_no_leidos": no_leidos,
                 "ventas": ventas,
                 "v2": _juicio(entrada, "v2"),
                 "v3": _juicio(entrada, "v3"),
@@ -232,6 +249,16 @@ def _m4_produccion() -> dict:
         "anuncios_afectables_v3": sum(
             len(e.anuncios) for e in entradas if p.cumple_limites_pausa(e)
         ),
+        "ventana_reciente": None
+        if ventana is None
+        else [
+            ventana.desde.isoformat(),
+            (ventana.hasta_exclusivo - dt.timedelta(days=1)).isoformat(),
+        ],
+        "observado_hasta": None if observado_hasta is None else observado_hasta.isoformat(),
+        "nota": "La fuente congelada de E.4 observa hasta el dia anterior a "
+        "ventana_halo.hasta_exclusivo; los dias posteriores de la ventana reciente "
+        "no se leyeron. `no tiene ventas` solo esta probado hasta observado_hasta.",
         "productos": candidatos,
     }
 

@@ -8,8 +8,9 @@ falso corre el comando remoto en local; `docker` falso registra sus argumentos y
 `kill -9` de la corrida en el paso nombrado por ORBIT_SIM_CORTE, despues de cambiar estado.
 
 Los escenarios (a)-(n) son los de docs/evidencia/auto-03/plan/modelo-despliegue/modelo.py con
-el mismo repo E -> Gm -> Fm -> F2 (Fm enciende la meta y trae las migraciones *_auto03_*: la de
-prueba y las reales del repo, asi cada bloque nuevo queda cubierto). (o)-(v) son de esta prueba.
+el mismo repo E -> Gm -> Fm -> F2 (Fm enciende la meta y trae las migraciones de la receta
+(*_auto03_* de AUTO-03 y *_orbit07_* de ORBIT 07): la de prueba y las reales del repo, asi
+cada bloque nuevo queda cubierto). (o)-(v) son de esta prueba.
 """
 
 from __future__ import annotations
@@ -201,7 +202,8 @@ def _crea_repo(repo: Path) -> None:
     _commit(repo, "Gm", {})
     reales = {
         f"migrations/{p.name}": p.read_text(encoding="utf-8")
-        for p in (ROOT / "migrations").glob("*_auto03_*.sql")
+        for patron in ("*_auto03_*.sql", "*_orbit07_*.sql")
+        for p in (ROOT / "migrations").glob(patron)
     }
     _commit(
         repo,
@@ -263,7 +265,7 @@ def banco():
         with psycopg.connect(dsn, dbname=plantilla, autocommit=True) as conn:
             conn.execute("SET TIME ZONE 'UTC'")
             for ruta in sorted((ROOT / "migrations").glob("*.sql")):
-                if any(x in ruta.name for x in ("0011_", "_reversa_", "_auto03_")):
+                if any(x in ruta.name for x in ("0011_", "_reversa_", "_auto03_", "_orbit07_")):
                     continue
                 conn.execute(ruta.read_text(encoding="utf-8"))
             conn.execute(
@@ -462,6 +464,15 @@ def _inicial(s: Servidor):
 def test_a_despliegue_completo_y_checklist_verde(s):
     assert s.motor("Fm") == "ok"
     assert s.sql("SELECT to_regclass('public.auto03_prueba') IS NOT NULL")[0][0] is True
+    assert "MIGRACION=0081_orbit07_proteccion_venta.sql" in s.ultimo()
+    assert s.sql("SELECT to_regclass('public.proteccion_venta_reciente') IS NOT NULL")[0][0] is True
+    assert (
+        s.sql(
+            "SELECT pg_get_constraintdef(oid) LIKE '%espera_proteccion%'"
+            " FROM pg_constraint WHERE conname = 'decision_sin_aplicar_motivo_check'"
+        )[0][0]
+        is True
+    )
     assert s.estado() == (s.rev("Fm"), "Fm", LIVE)
     assert s.estado_diario() == "verificado"
     compose = (s.ctl / "docker.log").read_text()

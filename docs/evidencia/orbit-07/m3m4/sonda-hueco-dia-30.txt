@@ -1,6 +1,7 @@
 ORBIT 07 M4 - sonda del hueco del dia 30
 Fecha: 2026-11-08 (UTC)
-Sonda: C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/4860f422ee1b48e59bc9d29e5180aefc/sonda_hueco.py
+Prueba reproducible: python -m pytest -q tests/test_productos_pausa.py::test_la_venta_reciente_madura_y_la_pausa_vuelve_a_decidir
+Salida historica de una sonda local del MISMO caso (no es salida de pytest).
 Venta 2026-10-09 (900 MXN del mismo SKU); D = venta + offset.
 
 == Base 57a05d8 (antes de la correccion) ==

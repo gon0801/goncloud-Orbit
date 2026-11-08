@@ -1,3 +1,7 @@
+ORBIT 07 M4 - subida con pausa en vuelo (corrida local 2026-11-08)
+Prueba versionada: tests/test_apply_producto.py::test_grupo_exclusivo_con_pausa_en_vuelo_omite_la_subida_y_aplica_la_bajada
+Comando: python -m pytest -q tests/test_apply_producto.py -k "pausa_en_vuelo"
+(la corrida historica de abajo incluyo una prueba de control; selected 2)
 ============================= test session starts =============================
 platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
 rootdir: C:\Users\ehven\.motor-encargos\espacio\enc_be56b9f573270946

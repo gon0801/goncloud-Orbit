@@ -1473,6 +1473,77 @@ SQL81_REV = (
 
 
 @_skip_db
+def test_reversa_0081_aborta_si_hay_episodios_y_no_borra_historia():
+    """F3: la reversa de esquema no puede borrar episodios (regla 5). Con una
+    fila presente aborta y la tabla conserva el episodio."""
+    with _db_temporal_d1("orbit_pv_rev_aborta") as conn:
+        entidad = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, match_type, keyword_text)"
+            " VALUES ('amazon_us', 'keyword', 'pv-rev', 'EXACT', 'pv rev') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+            " ancla, vence_el, abierta_el, observado_el)"
+            " VALUES ('amazon_us', %s, 'proteccion_venta_v1', '2026-11-01', '2026-11-11',"
+            " '2026-11-10T00:00:00Z', '2026-11-09T00:00:00Z')",
+            (entidad,),
+        )
+        with pytest.raises(psycopg.errors.RaiseException, match="tiene episodios"):
+            conn.execute(SQL81_REV)
+        assert (
+            conn.execute("SELECT to_regclass('proteccion_venta_reciente')").fetchone()[0]
+            is not None
+        )
+        assert conn.execute("SELECT count(*) FROM proteccion_venta_reciente").fetchone()[0] == 1
+
+
+def _sonda_0081() -> str:
+    """La sonda de la cabecera, tal como la lee desplegar.sh: la primera linea
+    `-- sonda-aplicada:` de las primeras 10."""
+    for linea in SQL81.splitlines()[:10]:
+        if linea.startswith("-- sonda-aplicada:"):
+            return linea.split(":", 1)[1].strip()
+    raise AssertionError("0081 sin cabecera '-- sonda-aplicada:'")
+
+
+@_skip_db
+def test_sonda_0081_da_t_completa_y_f_sin_tabla_o_incompleta():
+    """Los tres estados que ve desplegar.sh. Antes de 0081 la sonda da f y no
+    revienta: un cast `::regclass` en el ELSE del CASE se evalua al planear
+    (UndefinedTable), por eso la cabecera usa `to_regclass`. Una 0081 a medias
+    (trigger de truncate apagado o secuencia sin USAGE) tampoco acredita la
+    migracion, y la secuencia SI es necesaria para que app_decide inserte."""
+    sonda = _sonda_0081()
+    with _db_temporal_d1("orbit_pv_sonda") as conn:
+        kw = _semilla_d1(conn)["kw"]
+        assert conn.execute(sonda).fetchone()[0] is True
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+                " ancla, vence_el, abierta_el, observado_el) VALUES"
+                " ('amazon_us', %s, 'proteccion_venta_v1', '2026-11-01', '2026-11-11',"
+                " now(), now())",
+                (kw,),
+            )
+        finally:
+            conn.execute("RESET ROLE")
+        for dano in (
+            "DROP TABLE proteccion_venta_reciente CASCADE",
+            "ALTER TABLE proteccion_venta_reciente"
+            " DISABLE TRIGGER proteccion_venta_append_only_truncate",
+            "ALTER TABLE proteccion_venta_reciente DISABLE TRIGGER proteccion_venta_append_only",
+            "ALTER TABLE proteccion_venta_reciente DISABLE TRIGGER proteccion_venta_vence_fijo",
+            "REVOKE USAGE ON SEQUENCE proteccion_venta_reciente_id_seq FROM app_decide",
+        ):
+            conn.execute("BEGIN")
+            conn.execute(dano)
+            assert conn.execute(sonda).fetchone()[0] is False, dano
+            conn.execute("ROLLBACK")
+        assert conn.execute(sonda).fetchone()[0] is True
+
+
+@_skip_db
 def test_reversa_0081_quita_la_tabla_y_restaura_el_check_sin_espera_proteccion():
     from app.apply import MOTIVOS_SIN_APLICAR
 

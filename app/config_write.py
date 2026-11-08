@@ -49,6 +49,7 @@ from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_META
 from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
 from app.optimizer import productos
+from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.cortes import LEGACY_NEGATIVE, NEGATIVE_COST_MIN
 from app.precio.config import MODOS as MODOS_PRECIO
@@ -316,6 +317,34 @@ def _aplica_limites_pausa(
             nuevo[clave] = valor
 
 
+def _aplica_orbit07(
+    nuevo: dict,
+    cambios: list[str],
+    platform: str,
+    *,
+    proteccion_venta: str | None,
+    economia_producto: str | None,
+    economia_cambio: str | None,
+) -> None:
+    """Selecciones ORBIT 07: `off` quita la clave (ausente = semantica
+    historica) y cualquier otro valor se escribe. Los lectores del motor
+    validan la resultante; esta rama no toca meta, pausa ni limites."""
+    for clave, valor in (
+        (subproteccion.CLAVE_ACTIVA, proteccion_venta),
+        (productos.clave_economia(platform), economia_producto),
+        (g.clave_economia_cambio(platform), economia_cambio),
+    ):
+        if valor is None:
+            continue
+        if valor == "off":
+            if clave in nuevo:
+                cambios.append(f"{clave} {nuevo.pop(clave)} -> ausente")
+            continue
+        if nuevo.get(clave) != valor:
+            cambios.append(f"{clave} {_antes(nuevo.get(clave))} -> {valor}")
+            nuevo[clave] = valor
+
+
 def valida_limites_pausa(platform: str, limites: productos.LimitesPausa) -> None:
     """Nunca por debajo de los pisos del camino negative y con el gasto en la
     moneda de la plataforma. La usan el guardado y la simulacion (H.8)."""
@@ -375,6 +404,9 @@ def proxima_config(
     resumen_acos_objetivo: Mapping[str, Decimal | str | None] | None = None,
     producto_modo: Mapping[str, str] | None = None,
     limites_pausa: productos.LimitesPausa | None = None,
+    proteccion_venta: str | None = None,
+    economia_producto: str | None = None,
+    economia_cambio: str | None = None,
     enciende_pausa: bool = False,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
@@ -387,8 +419,9 @@ def proxima_config(
     edicion no pide ack: el manual va a gobernar). Los modos de precio son
     GLOBALES (se guardan igual desde cualquier plataforma) y el objeto por
     universo se FUSIONA por llave (un POST parcial no borra los demas).
-    Una edicion que no cambia nada es invalida (una fila identica seria un
-    rastro que miente)."""
+    Las selecciones ORBIT 07 (`proteccion_venta`, `economia_producto`,
+    `economia_cambio`) usan `off` para quitar la clave; una edicion que no
+    cambia nada es invalida (una fila identica seria un rastro que miente)."""
     nuevo = dict(actual)
     cambios: list[str] = []
 
@@ -442,6 +475,14 @@ def proxima_config(
     _aplica_resumen_acos_objetivo(nuevo, cambios, resumen_acos_objetivo)
     _aplica_producto_modo(nuevo, cambios, platform, producto_modo, enciende_pausa)
     _aplica_limites_pausa(nuevo, cambios, platform, limites_pausa)
+    _aplica_orbit07(
+        nuevo,
+        cambios,
+        platform,
+        proteccion_venta=proteccion_venta,
+        economia_producto=economia_producto,
+        economia_cambio=economia_cambio,
+    )
 
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
@@ -465,7 +506,9 @@ def proxima_config(
         g.politica_bid_desde_settings(nuevo, platform)
         g.economia_cambio_desde_settings(nuevo, platform)
         productos.modos_desde_settings(nuevo, platform)
+        productos.economia_desde_settings(nuevo, platform)
         productos.limites_pausa_desde_settings(nuevo, platform)
+        subproteccion.activa_desde_settings(nuevo)
         exige_limites_guardados(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None

@@ -883,14 +883,15 @@ def cmd_comparar(args) -> int:
             "por ronda sobre esa copia. tx2_ms mide la fase de lecturas completa; "
             "bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del "
             "barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow. "
-            "`proteccion` indica si la plantilla tiene el setting "
-            "ads_proteccion_venta (regla M1 encendida). Con `productos` > 0 la "
+            "`proteccion` indica si el codigo de esa corrida activa la regla M1; "
+            "la base sin activa_desde_settings da False aunque la plantilla traiga "
+            "el setting. Con `productos` > 0 la "
             "plantilla suma grupos exclusivos con margen 8 % y meta live: la "
             "resolucion por lote del peldaño de producto corre en TX2 aunque la "
             "ventana reciente del banco no produzca decisiones. Con `cambios` > 0 "
             "la plantilla suma cambios de bid confirmados y sus ventanas "
-            "economicas; `economia` indica si trae el setting "
-            "ads_bid_economia_amazon_us (regla M5/M6 encendida)."
+            "economicas; el interruptor M5/M6 se documenta en el comando de la "
+            "corrida."
         ),
         "base": _resumen({"rondas": resultados["base"], "sha": _sha(args.code_base)}),
         "candidato": _resumen({"rondas": resultados["candidato"], "sha": _sha(RAIZ)}),

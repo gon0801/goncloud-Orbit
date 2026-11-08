@@ -129,11 +129,12 @@ aplica_clave() {
   srv "docker exec orbit-app-1 python -m app.cli productos-modo --platform $plat --$tipo ${2:-off}"
 }
 
-# migraciones_de <sha>: `archivo<TAB>sonda` de las *_auto03_* sin reversa, en orden.
+# migraciones_de <sha>: `archivo<TAB>sonda` de las migraciones de la receta
+# (*_auto03_* de AUTO-03 y *_orbit07_* de ORBIT 07) sin reversa, en orden.
 migraciones_de() {
   local f s r
   for f in $(git ls-tree --name-only "$1" migrations/ | sed 's#^migrations/##' \
-    | grep '_auto03_' | grep -v '_reversa_' | LC_ALL=C sort); do
+    | grep -E '_(auto03|orbit07)_' | grep -v '_reversa_' | LC_ALL=C sort); do
     if git show "$1:migrations/$f" | tr -d '\r' \
       | grep -Eiq '^[[:space:]]*(BEGIN|START[[:space:]]+TRANSACTION|COMMIT|ROLLBACK)[[:space:]]*(TRANSACTION|WORK)?[[:space:]]*;'; then
       echo "ABORTA: migrations/$f trae control de transaccion propio; desplegar la envuelve en una sola" >&2

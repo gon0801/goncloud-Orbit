@@ -1,4 +1,4 @@
-﻿{
+{
   "fecha": "2026-11-08T07:48:18Z",
   "base": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
   "candidato": "6bca84c0e0222ac0c7d1eea112f57c868f79f852",
@@ -8,7 +8,8 @@
     "filas_metricas_recientes": 18000,
     "episodios": 200,
     "filas_cola": 200,
-    "rondas": 7
+    "rondas_encendida": 7,
+    "rondas_apagada": 5
   },
   "metodo": {
     "script": "tools/bench_orbit07_proteccion.py",

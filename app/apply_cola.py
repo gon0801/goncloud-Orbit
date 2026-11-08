@@ -1181,7 +1181,11 @@ def _revalida_pause(
         or resultado.motivo == motor_bid.MOTIVO_PAUSE_ECONOMICA
         or decision[0].get("target_procedencia") == "margen_producto"
     ):
-        exceso = motor_bid.exceso_economico(fresco, target, motor_bid.PLATAFORMAS_MONEDA[platform])
+        exceso = (
+            motor_bid.exceso_economico(fresco, target, motor_bid.PLATAFORMAS_MONEDA[platform])
+            if target is not None
+            else None
+        )
         _registra_evidencia(
             conn,
             aplicador.cycle_id_ejecutor,
@@ -1193,7 +1197,7 @@ def _revalida_pause(
                 "window_start": fresco.window_start.isoformat() if fresco else None,
                 "window_end": fresco.window_end.isoformat() if fresco else None,
                 "moneda": fresco.metric_currency if fresco else None,
-                "target": str(target),
+                "target": str(target) if target is not None else None,
                 "target_procedencia": procedencia,
                 "cost": str(fresco.cost) if fresco and fresco.cost is not None else None,
                 "revenue": str(fresco.ad_revenue)

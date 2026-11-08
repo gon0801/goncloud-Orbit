@@ -322,10 +322,10 @@ reversa de seleccion de politica: apagarla no borra episodios ni reescribe
 decisiones historicas; solo cambia el comportamiento de las corridas
 nuevas y de la re-validacion de la cola) y `ads_bid_economia_<platform>`
 (ORBIT 07 M5/M6: `economia_cambio_v1` = el ciclo congela el episodio
-economico del ultimo cambio y M6 juzga la repeticion con el; ausente/`off` =
+economico del ultimo cambio y M6 juzga la repeticion con el; ausente =
 semantica historica, SQL de 13 columnas y ningun episodio leido o congelado;
-cualquier otro valor presente = config corrupta, fail-closed. Apagarla no
-borra ni reescribe decisiones historicas).
+`off` presente es config corrupta, igual que cualquier otro valor ajeno,
+fail-closed. Apagarla no borra ni reescribe decisiones historicas).
 **`settings` JAMÁS contiene credenciales**: `app_read` tiene SELECT aquí.
 Contrato fail-closed completo: `ads_optimizer_mode` ausente, NULL o inválida → `off`
 (una config corrupta jamás habilita `live`); si el modo efectivo es `live` sin

@@ -233,10 +233,27 @@
       "anuncios_afectables_v2": 29,
       "candidatos_v3": 1,
       "anuncios_afectables_v3": 12,
+      "ventana_reciente": [
+        "2026-10-08",
+        "2026-11-06"
+      ],
+      "observado_hasta": "2026-11-02",
+      "nota": "La fuente congelada de E.4 observa hasta el dia anterior a ventana_halo.hasta_exclusivo; los dias posteriores de la ventana reciente no se leyeron. `no tiene ventas` solo esta probado hasta observado_hasta.",
       "productos": [
         {
           "product_id": 273,
           "anuncios": 6,
+          "ventana_reciente": [
+            "2026-10-08",
+            "2026-11-06"
+          ],
+          "observado_hasta": "2026-11-02",
+          "dias_no_leidos": [
+            "2026-11-03",
+            "2026-11-04",
+            "2026-11-05",
+            "2026-11-06"
+          ],
           "ventas": [
             {
               "fecha": "2026-10-09",
@@ -282,6 +299,17 @@
         {
           "product_id": 315,
           "anuncios": 11,
+          "ventana_reciente": [
+            "2026-10-08",
+            "2026-11-06"
+          ],
+          "observado_hasta": "2026-11-02",
+          "dias_no_leidos": [
+            "2026-11-03",
+            "2026-11-04",
+            "2026-11-05",
+            "2026-11-06"
+          ],
           "ventas": [
             {
               "fecha": "2026-10-18",
@@ -338,6 +366,17 @@
         {
           "product_id": 356,
           "anuncios": 12,
+          "ventana_reciente": [
+            "2026-10-08",
+            "2026-11-06"
+          ],
+          "observado_hasta": "2026-11-02",
+          "dias_no_leidos": [
+            "2026-11-03",
+            "2026-11-04",
+            "2026-11-05",
+            "2026-11-06"
+          ],
           "ventas": [
             {
               "fecha": "2026-08-28",

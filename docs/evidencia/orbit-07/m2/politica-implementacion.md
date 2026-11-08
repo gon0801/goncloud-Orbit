@@ -66,9 +66,11 @@ ajeno en cualquiera de los dos falla cerrado (`ValueError`, ciclo `failed`).
 La economia efectiva viaja completa: el caso juzga la perdida con el equilibrio del producto cuando su meta gana (8 % en el caso de 8 % x 0.5), no con un promedio de plataforma; y la cola reutiliza el lector familiar del ciclo (subfamilia -> padre y ancla previa de la hoja), no un segundo camino.
 
 Activar M2 es una decision del dueno: `ads_producto_meta_<plat>=live` y
-`ads_producto_economia_<plat>=producto_directo_v1`. Volver a `auto03` conserva
-la meta live, las evaluaciones y las decisiones; solo cambia la regla de
-aplicacion.
+`ads_producto_economia_<plat>=producto_directo_v1`. La receta revisable de
+[`activacion-orbit07.md`](../activacion-orbit07.md) enciende solo la segunda:
+no toca `ads_producto_meta_<plat>` ni la pausa, asi que M2 queda inerte si la
+meta no estaba ya en `live`. Volver a `auto03` conserva la meta live, las
+evaluaciones y las decisiones; solo cambia la regla de aplicacion.
 
 ## Evidencia reproducible
 

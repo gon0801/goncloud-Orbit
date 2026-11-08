@@ -80,20 +80,24 @@ existe, ningún ciclo `running`, ningún `app.cli` en `docker top
 orbit-app-1` y ningún harvest en vuelo; (2) monotonía; (3) respaldo
 `$SRV/despliegue/predeploy-<stamp>` (dump del esquema y copia de `app/`,
 `tools/`, `Dockerfile`, `.dockerignore`, `pyproject.toml` y `uv.lock`,
-comprobada por md5 antes de renombrar el `.parcial`); (4) migraciones;
-(5) código del SHA por `git archive`, md5 contra el SHA, `docker compose
+comprobada por md5 antes de renombrar el `.parcial`); (4) migraciones de la
+receta; (5) código del SHA por `git archive`, md5 contra el SHA, `docker compose
 -p orbit --project-directory $SRV -f $SRV/docker-compose.yml up -d
 --no-deps --build app`, `/health` 200 y `$SRV/despliegue/sha`; (6)
 interruptores. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
 el candado y las guardas.
 
-**Cabecera de sonda.** Toda migración `migrations/*_auto03_*` lleva en
-sus primeras 10 líneas `-- sonda-aplicada: <SELECT booleano>`, que da `t`
-si ya está aplicada y `f` si falta, y trae su `NNNN_reversa_*`.
-`desplegar.sh` aborta antes de tocar nada si una no trae cabecera o
-reversa, o si trae `BEGIN`/`COMMIT`/`ROLLBACK` propios: cada migración
-pendiente corre entera en una transacción (`psql -1 -f -`), y su sonda
-debe dar `t` después. Las migraciones de otros planes no se tocan.
+**Cabecera de sonda.** Toda migración de la receta (`migrations/*_auto03_*`
+de AUTO-03 y `migrations/*_orbit07_*` de ORBIT 07) lleva en sus primeras 10
+líneas `-- sonda-aplicada: <SELECT booleano>`, que da `t` si ya está aplicada
+y `f` si falta, y trae su `NNNN_reversa_*`. `desplegar.sh` aborta antes de
+tocar nada si una no trae cabecera o reversa, o si trae
+`BEGIN`/`COMMIT`/`ROLLBACK` propios: cada migración pendiente corre entera en
+una transacción (`psql -1 -f -`), y su sonda debe dar `t` después. La sonda de
+`0081_orbit07_proteccion_venta.sql` comprueba tabla, permisos (`INSERT` de
+`app_decide`, `SELECT` de `app_read`), constraints, trigger y el CHECK
+`decision_sin_aplicar_motivo_check` con `espera_proteccion`: la existencia de
+la tabla sola no acredita la migración completa.
 
 **Estado deseado de los interruptores.** `tools/despliegue/interruptores.env`
 lista `ads_producto_meta_<plataforma>` y `ads_producto_pausa_<plataforma>`

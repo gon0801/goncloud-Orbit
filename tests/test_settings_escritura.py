@@ -635,3 +635,111 @@ def test_cli_y_endpoint_guardan_limites_de_la_pausa(tmp_path, monkeypatch):
         assert ajustes[f"ads_producto_pausa_clics_{MX}"] == "60"
         assert ajustes[f"ads_producto_pausa_gasto_{MX}"] == "300"
         assert ajustes["ads_optimizer_mode"] == "live"
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 07: activacion y reversa por config_version sin tocar pausa ni meta
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_cli_orbit07_activa_y_revierte_sin_tocar_pausa_ni_meta(monkeypatch):
+    """Las tres selecciones de ORBIT 07 viajan en una fila nueva; la pausa,
+    sus limites, la meta y el modo quedan intactos. `off` las quita. Una base
+    de config obsoleta (escritura concurrente) no se pisa: ConfigObsoleta."""
+    import app.cli as cli
+    import app.config_write as config_write
+
+    with _db_con_rol_admin("orbit_o7_activa") as (conn, dsn_admin, _dsn_l):
+        previa = {
+            "ads_optimizer_mode": "live",
+            "ads_producto_meta_amazon_us": "live",
+            "ads_producto_pausa_amazon_us": "shadow",
+            "ads_producto_pausa_clics_amazon_us": "100",
+            "ads_producto_pausa_gasto_amazon_us": "40",
+        }
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("previa", Json(previa)),
+        )
+        base = _filas_config(conn)[-1][0]
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        concurrente = {**previa, "ads_target_acos_pct_amazon_us": "25"}
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("concurrente", Json(concurrente)),
+        )
+        with pytest.raises(config_write.ConfigObsoleta):
+            config_write.guarda_config(
+                conn,
+                platform="amazon_us",
+                base_config_version_id=base,
+                ahora=dt.datetime.now(dt.UTC),
+                actor="test",
+                economia_producto="producto_directo_v1",
+            )
+
+        assert (
+            cli.main(
+                [
+                    "productos-modo",
+                    "--platform",
+                    "amazon_us",
+                    "--economia",
+                    "producto_directo_v1",
+                    "--bid-economia",
+                    "economia_cambio_v1",
+                    "--proteccion",
+                    "proteccion_venta_v1",
+                ]
+            )
+            == 0
+        )
+        activa = _filas_config(conn)[-1][2]
+        assert activa["ads_proteccion_venta"] == "proteccion_venta_v1"
+        assert activa["ads_producto_economia_amazon_us"] == "producto_directo_v1"
+        assert activa["ads_bid_economia_amazon_us"] == "economia_cambio_v1"
+        assert activa == {
+            **concurrente,
+            **{
+                "ads_proteccion_venta": "proteccion_venta_v1",
+                "ads_producto_economia_amazon_us": "producto_directo_v1",
+                "ads_bid_economia_amazon_us": "economia_cambio_v1",
+            },
+        }
+
+        assert (
+            cli.main(
+                [
+                    "productos-modo",
+                    "--platform",
+                    "amazon_us",
+                    "--economia",
+                    "off",
+                    "--bid-economia",
+                    "off",
+                    "--proteccion",
+                    "off",
+                ]
+            )
+            == 0
+        )
+        revertida = _filas_config(conn)[-1][2]
+        assert revertida == concurrente
+        assert "ads_proteccion_venta" not in revertida
+        assert "ads_producto_economia_amazon_us" not in revertida
+        assert "ads_bid_economia_amazon_us" not in revertida
+
+
+def test_orbit07_rechaza_un_valor_ajeno():
+    """Los lectores del motor validan la config resultante: un valor ajeno es
+    SettingsInvalido y jamas llega a una fila."""
+    import app.config_write as config_write
+
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config({}, PLAT, proteccion_venta="otra")
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config({}, PLAT, economia_producto="otra")
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config({}, PLAT, economia_cambio="otra")

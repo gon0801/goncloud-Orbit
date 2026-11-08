@@ -95,10 +95,6 @@ class CacheProteccion:
             and lectura.pedidos > 0
         )
 
-    def tiene_episodio(self, hoja_id: int) -> bool:
-        """True si la hoja tiene un episodio persistido (activo o vencido)."""
-        return hoja_id in self._episodios
-
     def tiene_proteccion(self, hoja_id: int) -> bool:
         """True si la hoja tiene venta reciente o un episodio persistido. Es
         la puerta para no congelar sus pujas por una fila `released`.

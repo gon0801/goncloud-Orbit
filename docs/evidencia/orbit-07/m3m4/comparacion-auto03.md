@@ -20,13 +20,18 @@ La política de producto sube a `v3` con la espera de venta reciente inmadura;
    por `(asin, sku, fecha)` a la última y suma por producto. Una reobservación
    reemplaza su fecha; añadir keywords, campañas, grupos o anuncios del mismo
    producto no vuelve a sumar el gasto ni reinicia el umbral.
-2. **El freno de subidas no tiene efecto propio en el alcance medido.** Solo
-   aplica en grupos exclusivos. La medición de producción de AUTO-03 E.4 da
-   cero candidatos a pausa en MX (con 6 grupos exclusivos) y cero grupos
-   exclusivos en US (con 3 candidatos): la intersección es cero en ambos
-   mercados. Donde la pausa sí está live y en vuelo, I.5 ya omite la subida
-   (`pausa_producto_pendiente`). No se inventó un umbral de gasto nuevo: el
-   gasto de aprendizaje es el que el dueño ya guarda como límites de la pausa.
+2. **El freno de subidas no tiene efecto propio en el alcance medido.** Su
+   disparador es una pausa **live en vuelo** de un grupo exclusivo que además
+   iba a subir. La medición de producción de AUTO-03 E.4 mide otra cosa:
+   candidatos a pausa y grupos exclusivos por separado. Da cero candidatos a
+   pausa en MX (con 6 grupos exclusivos) y cero grupos exclusivos en US (con 3
+   candidatos), así que la intersección es cero en ambos mercados y además la
+   pausa está en práctica, no live: no hubo pausa en vuelo que frenar. No se
+   midió el efecto del freno porque ese alcance no tiene caso, no porque una
+   medición del freno haya dado cero. Donde la pausa sí está live y en vuelo,
+   I.5 ya omite la subida (`pausa_producto_pendiente`). No se inventó un
+   umbral de gasto nuevo: el gasto de aprendizaje es el que el dueño ya guarda
+   como límites de la pausa.
 
 ### M4, contrato temporal de producto
 
@@ -82,8 +87,12 @@ consultó producción.
 Con v3, los productos 273 y 315 quedan en espera: el 273 vendió el
 2026-10-09 (ancla 10-09, vence 11-08, libera 11-09) y el 315 vendió el 10-18 y
 el 10-26 (ancla 10-18, vence 11-17, libera 11-18; la venta del 10-26 mantiene
-la espera hasta 11-25). El 356 no tiene ventas en `[D-30, D-1]` (vendió 08-28
-y 08-30) y conserva la pausa de sus 12 anuncios. La ventana de pausa
+la espera hasta 11-25). El 356 no tiene ventas observadas en `[D-30, D-1]`
+hasta el 11-02 (vendió 08-28 y 08-30) y conserva la pausa de sus 12 anuncios.
+La fuente congelada de E.4 declara `ventana_halo.hasta_exclusivo = 2026-11-03`,
+así que la ventana reciente `[2026-10-08, 2026-11-06]` solo se observó hasta
+el 11-02: los días 11-03..11-06 **no se leyeron** y el "no tiene ventas" del
+356 está probado hasta 11-02, no en toda la ventana. La ventana de pausa
 `[D-60, D-30)` de los tres está en cero.
 
 El día de madurez (D = venta + 30) la venta sigue en la ventana reciente, así

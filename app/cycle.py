@@ -2542,6 +2542,7 @@ def _anota_sombra(
         equilibrio = (
             margen.margen_neto_pct
             if productos_ciclo.modo_economia == productos.POLITICA_ECONOMIA
+            and procedencia_meta == "margen_producto"
             and isinstance(margen, g.MedicionMargen)
             else None
         )

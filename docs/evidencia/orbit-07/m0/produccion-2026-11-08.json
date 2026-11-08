@@ -1,6 +1,7 @@
 {
   "fecha_consulta": "2026-11-08T04:24:00Z",
-  "fuente": "revision independiente Astra (revision-astra/consulta-produccion.json)",
+  "fuente": "captura de una revision independiente (Astra, revision-astra/consulta-produccion.json); ese JSON de origen NO esta versionado en este repo",
+  "reproducibilidad": "La muestra no se puede re-ejecutar desde este repo: el origen no esta versionado. La consulta con el contrato real esta en consulta-pedidos-recientes.sql; su ejecucion sigue pendiente por falta de orbit_read en el encargo.",
   "rol": "orbit_read",
   "solo_lectura": "on",
   "ventana_sql": "fija D-39..D-10 de la version inicial (consulta-pedidos-recientes.sql); no es aun la ventana por hoja min(max(metric_date)-3, D-10)",

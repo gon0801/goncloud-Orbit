@@ -292,7 +292,7 @@ conservar su evidencia y omitir la construcción correspondiente de M3 y M4.
 
 **Resultado observable.**
 
-- [ ] Con la misma evidencia y fecha de corte, mostrar el mismo gasto aunque cambien joins o se añadan entidades sin actividad. Una reobservación posterior reemplaza el valor de su fecha; no se suma al anterior. Actividad nueva sí aumenta el gasto. Ninguno de esos cambios reinicia el episodio ni multiplica su umbral. Guardar los casos en `m3/aprendizaje.json`.
+- [ ] Con la misma evidencia y fecha de corte, mostrar el mismo gasto aunque cambien joins o se añadan entidades sin actividad. Una reobservación posterior reemplaza el valor de su fecha; no se suma al anterior. Actividad nueva sí aumenta el gasto. Ninguno de esos cambios reinicia el episodio ni multiplica su umbral. Guardar los casos en `docs/evidencia/orbit-07/m3m4/aprendizaje.json` (M3 se omite y su insumo queda junto a M4).
 - [ ] Si M3 se entrega sola, mostrar una subida que la política previa permitía y que el aprendizaje agotado bloquea bajo la regla de M0. Si ese caso no existe en el alcance elegido, presentar el agregado como insumo del retiro de M4. No declarar una reducción de exposición por añadir datos que no cambian decisiones.
 
 **Verificar con pruebas focalizadas.**

@@ -19,5 +19,5 @@
   },
   "diferencia_mediana_ms": 0.44,
   "presupuesto_m0_ms": 150,
-  "nota": "La regla nueva no agrega SQL: usa los dias recientes ya leidos (o dias_halo en una entrada congelada), por producto y no por hoja. La comparacion usa las mismas 368 entradas congeladas para v2 y v3."
+  "nota": "La regla nueva no agrega SQL: usa los dias recientes ya leidos (o dias_halo en una entrada congelada), por producto y no por hoja. La comparacion usa las mismas 368 entradas congeladas para v2 y v3. v2 y v3 corren en bloques separados de rondas, no alternados."
 }

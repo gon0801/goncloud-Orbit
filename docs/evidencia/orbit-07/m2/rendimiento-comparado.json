@@ -16,7 +16,7 @@
     "filas_cola": 200,
     "productos": 40
   },
-  "nota": "Cada corrida clona la MISMA plantilla fija; base y candidato alternan por ronda sobre esa copia. tx2_ms mide la fase de lecturas completa; bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow. `proteccion` indica si la plantilla tiene el setting ads_proteccion_venta (regla M1 encendida). Con `productos` > 0 la plantilla suma grupos exclusivos con margen 8 % y meta live: la resolucion por lote del peldaño de producto corre en TX2 aunque la ventana reciente del banco no produzca decisiones.",
+  "nota": "Cada corrida clona la MISMA plantilla fija; base y candidato alternan por ronda sobre esa copia. tx2_ms mide la fase de lecturas completa; bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow. `proteccion` indica si el codigo de esa corrida activa la regla M1; la base sin activa_desde_settings da False aunque la plantilla traiga el setting. Con `productos` > 0 la plantilla suma grupos exclusivos con margen 8 % y meta live: la resolucion por lote del peldaño de producto corre en TX2 aunque la ventana reciente del banco no produzca decisiones.",
   "base": {
     "sha": "c4121c5c3c4aa45d1fdfd5701416c0df55af5d0b",
     "rondas": 5,
