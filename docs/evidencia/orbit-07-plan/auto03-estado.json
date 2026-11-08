@@ -1,0 +1,84 @@
+{
+  "consultado_en_utc": "2026-11-07T03:14:30.148209+00:00",
+  "host": "pc",
+  "fuente": "motor director ver enc_07844b614147c266 --base C:/Users/ehven/.motor-encargos",
+  "plan_fuente": "C:/dev/goncloud-Orbit/plans/decisiones-producto-01.md",
+  "plan_fuente_sha256": "9564c925ba81483e46f042537ce83bc6bb9fb79b83952e7e1e052969e9263e07",
+  "encargo": "enc_07844b614147c266",
+  "estado": "ejecutando",
+  "fase_activa": "E",
+  "fases": [
+    {
+      "id": "B",
+      "resultado": "el motor puede desplegar Orbit solo, con respaldo, migraciones con su reversa y vuelta atras, probado en simulacion y ensayado en solo lectura contra produccion",
+      "nivel_alcanzado": "integrado",
+      "pr": {
+        "numero": 536,
+        "sha": "cfdb38df44ce42a00fd0fb32d800702731de4f05"
+      }
+    },
+    {
+      "id": "C",
+      "resultado": "Orbit calcula una meta por producto (8% de margen con fraccion 0.5 da 4%) sin usarla en ninguna puja, y los limites de la pausa se pueden guardar por mercado",
+      "nivel_alcanzado": "integrado",
+      "pr": {
+        "numero": 537,
+        "sha": "2f2ac1c9f1804827a2e744b7892f347c1a1d49c1"
+      }
+    },
+    {
+      "id": "D",
+      "resultado": "cada ciclo en produccion evalua los productos y guarda que meta habria puesto, sin tocar ninguna puja",
+      "nivel_alcanzado": "desplegado",
+      "pr": {
+        "numero": 538,
+        "sha": "ae73d34cdb56c377c45582848d05a9bc1a5d3b05"
+      }
+    },
+    {
+      "id": "E",
+      "resultado": "la pantalla de productos muestra por producto margen, meta y grupos alcanzados, y la evaluacion queda conciliada contra Amazon y medida por mercado",
+      "nivel_alcanzado": "ninguno",
+      "pr": {
+        "numero": 0,
+        "sha": ""
+      }
+    },
+    {
+      "id": "F",
+      "resultado": "las keywords de grupos de un solo producto pujan con la meta de ese producto en produccion",
+      "nivel_alcanzado": "ninguno",
+      "pr": {
+        "numero": 0,
+        "sha": ""
+      }
+    },
+    {
+      "id": "G",
+      "resultado": "sacar y regresar anuncios informa anuncio por anuncio y regresar ya no recrea archivados sin confirmacion",
+      "nivel_alcanzado": "ninguno",
+      "pr": {
+        "numero": 0,
+        "sha": ""
+      }
+    },
+    {
+      "id": "H",
+      "resultado": "cada ciclo propone en practica las pausas de anuncios de productos que gastan sin vender, y la pantalla simula otros limites sin guardar",
+      "nivel_alcanzado": "ninguno",
+      "pr": {
+        "numero": 0,
+        "sha": ""
+      }
+    },
+    {
+      "id": "I",
+      "resultado": "la pausa en vivo queda construida y sigue en practica hasta que David guarde sus limites y la encienda con el boton de la pantalla",
+      "nivel_alcanzado": "ninguno",
+      "pr": {
+        "numero": 0,
+        "sha": ""
+      }
+    }
+  ]
+}

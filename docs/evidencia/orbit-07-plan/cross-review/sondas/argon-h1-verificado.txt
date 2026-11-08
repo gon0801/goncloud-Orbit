@@ -1,0 +1,5 @@
+1) Convergencia desde ultimo=4.0: ResolucionMargen(aplicado=Decimal('10.5'), derivado=None, motivo='sin_margen', convergiendo=True)
+2) Paso cuando margen baja de 8% a 6% (ultimo=4.0): ResolucionMargen(aplicado=Decimal('10'), derivado=Decimal('3.00'), motivo=None, convergiendo=False)
+3) R3 con target=4.00 y eq_plataforma=41.43: Mantener(motivo='vende_dentro_del_margen')
+3) R3 con target=4.00 y eq_none=None: Mantener(motivo='vende_dentro_del_margen')
+3) R3 con target=4.00 y eq_producto=8.00: Mover(factor=Decimal('-0.25'), bid_nuevo=Decimal('7.5000'), motivo='pierde_dinero_fuerte', nivel='hoja')

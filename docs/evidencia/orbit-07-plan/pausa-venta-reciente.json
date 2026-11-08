@@ -1,0 +1,172 @@
+[
+  {
+    "caso_sintetico": {
+      "plataforma": "amazon_mx",
+      "hoja_id": 1001,
+      "ad_group_id": 2001,
+      "bid": {
+        "valor": "10.00",
+        "moneda": "MXN",
+        "piso": "0.50",
+        "techo": "50.00"
+      },
+      "economia": {
+        "plataforma": {
+          "moneda": "MXN",
+          "equilibrio_acos_pct": "41.43",
+          "gasto_para_concluir": "350",
+          "confianza_recorte": "0.80",
+          "confianza_subida": "0.70"
+        },
+        "target_acos_pct": "20.72"
+      },
+      "propia": {
+        "reciente": {
+          "clics": 99,
+          "pedidos": 0,
+          "venta": "0",
+          "gasto": "500",
+          "impresiones": 0
+        },
+        "antiguo": {
+          "clics": 0,
+          "pedidos": 0,
+          "venta": "0",
+          "gasto": "0",
+          "impresiones": 0
+        },
+        "esquema": "dos_tramos_v1"
+      },
+      "pedidos_inmaduros": 1,
+      "grupo": null,
+      "cuenta": null,
+      "precio": {
+        "gasto": "0",
+        "clics": 0
+      },
+      "trayectoria": {
+        "cambios": [],
+        "efecto": null
+      },
+      "pausa": {
+        "cortes": {
+          "window_start": "2026-09-20",
+          "window_end": "2026-09-29",
+          "fechas": [
+            "2026-09-20",
+            "2026-09-21",
+            "2026-09-22",
+            "2026-09-23",
+            "2026-09-24",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-09-28",
+            "2026-09-29"
+          ],
+          "metric_currency": "MXN",
+          "cost": "500",
+          "ad_revenue": "0",
+          "revenue_same_sku": "0",
+          "impressions": 5000,
+          "clicks": 99,
+          "orders": 0,
+          "observed_at_max": "2026-09-30T08:40:00+00:00"
+        },
+        "umbral_clics": 100,
+        "gasto_minimo": "500",
+        "expected_clicks": null,
+        "politica_economica": null
+      },
+      "ventana_desde": "2026-07-11",
+      "ventana_hasta": "2026-09-29",
+      "observado_al": "2026-10-09T08:40:00+00:00"
+    },
+    "resultado": "Mantener(motivo='venta_reciente')"
+  },
+  {
+    "caso_sintetico": {
+      "plataforma": "amazon_mx",
+      "hoja_id": 1001,
+      "ad_group_id": 2001,
+      "bid": {
+        "valor": "10.00",
+        "moneda": "MXN",
+        "piso": "0.50",
+        "techo": "50.00"
+      },
+      "economia": {
+        "plataforma": {
+          "moneda": "MXN",
+          "equilibrio_acos_pct": "41.43",
+          "gasto_para_concluir": "350",
+          "confianza_recorte": "0.80",
+          "confianza_subida": "0.70"
+        },
+        "target_acos_pct": "20.72"
+      },
+      "propia": {
+        "reciente": {
+          "clics": 120,
+          "pedidos": 0,
+          "venta": "0",
+          "gasto": "500",
+          "impresiones": 0
+        },
+        "antiguo": {
+          "clics": 0,
+          "pedidos": 0,
+          "venta": "0",
+          "gasto": "0",
+          "impresiones": 0
+        },
+        "esquema": "dos_tramos_v1"
+      },
+      "pedidos_inmaduros": 1,
+      "grupo": null,
+      "cuenta": null,
+      "precio": {
+        "gasto": "0",
+        "clics": 0
+      },
+      "trayectoria": {
+        "cambios": [],
+        "efecto": null
+      },
+      "pausa": {
+        "cortes": {
+          "window_start": "2026-09-20",
+          "window_end": "2026-09-29",
+          "fechas": [
+            "2026-09-20",
+            "2026-09-21",
+            "2026-09-22",
+            "2026-09-23",
+            "2026-09-24",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-09-28",
+            "2026-09-29"
+          ],
+          "metric_currency": "MXN",
+          "cost": "500",
+          "ad_revenue": "0",
+          "revenue_same_sku": "0",
+          "impressions": 5000,
+          "clicks": 120,
+          "orders": 0,
+          "observed_at_max": "2026-09-30T08:40:00+00:00"
+        },
+        "umbral_clics": 100,
+        "gasto_minimo": "500",
+        "expected_clicks": null,
+        "politica_economica": null
+      },
+      "ventana_desde": "2026-07-11",
+      "ventana_hasta": "2026-09-29",
+      "observado_al": "2026-10-09T08:40:00+00:00"
+    },
+    "resultado": "Pausar(motivo='pause_umbral')"
+  }
+]

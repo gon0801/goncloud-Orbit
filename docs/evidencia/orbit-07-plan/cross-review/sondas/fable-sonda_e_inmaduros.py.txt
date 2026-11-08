@@ -1,0 +1,3 @@
+rango inmaduros: 2026-10-28 .. 2026-11-05
+ingesta completa  -> inm_ok = True
+falta solo D-1    -> inm_ok = False (lecturas_caso.py:501-502 => pedidos_inmaduros=None para TODAS las hojas)

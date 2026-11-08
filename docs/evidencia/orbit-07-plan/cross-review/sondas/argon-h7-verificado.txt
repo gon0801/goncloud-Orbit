@@ -1,0 +1,21 @@
+Rama 3 de v_cambio_bid en 0067:
+  SELECT h.hoja_id,
+         a.confirmado_el,
+         h.current_bid,
+         h.current_bid,
+         h.bid_currency,
+         'ajuste_de_campana',
+         NULL::bigint
+    FROM campana_ajuste a
+    JOIN v_hoja_activa h ON h.campana_id = a.campana_id AND h.current_bid IS NOT NULL
+   WHERE a.confirmado_el IS NOT NULL AND a.clase = 'ajuste_ubicacion';
+  
+Columnas leidas hoy en _SQL_EFECTO:
+  THEN sum(v.impressions) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+  THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+  THEN sum(v.impressions) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+  THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+  THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+  THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+  THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+  THEN sum(v.orders) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END

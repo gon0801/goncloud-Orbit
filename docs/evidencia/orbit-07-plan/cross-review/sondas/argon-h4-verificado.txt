@@ -1,0 +1,2 @@
+Firma reproduce: (inputs: 'dict') -> 'tuple[str | None, Decimal | None, str | None]'
+Fallo con clave nueva en CasoHoja.desde_json: caso: claves distintas a ['ad_group_id', 'bid', 'cuenta', 'economia', 'grupo', 'hoja_id', 'observado_al', 'pausa', 'pedidos_inmaduros', 'plataforma', 'precio', 'propia', 'trayectoria', 'ventana_desde', 'ventana_hasta']

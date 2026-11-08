@@ -1,0 +1,9 @@
+MotivoRetiro en retiro_anuncios.py: typing.Literal['impulso', 'sin_pedidos', 'subfamilia']
+repone recrea ARCHIVED en retiro_anuncios.py:514-518:
+          res = archivar.reponer_anuncios(escritor, [reversa], ejecutar=True)
+          if not res or res[0].resultado != "repuesto":
+              detalle = res[0].detalle if res else "sin resultado"
+              raise RuntimeError(f"reposicion de {ad_id} no confirmada: {detalle}")
+          return res[0].ad_id, res[0].estado_previo
+      if estado == "ENABLED":
+KINDS_QUOTA en apply.py: ('bid', 'pause', 'negative', 'harvest')

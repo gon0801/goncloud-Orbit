@@ -1,0 +1,3 @@
+skips= {'veto_pendiente': 1}
+casos_evaluados= 0
+decisiones_pendientes= 0

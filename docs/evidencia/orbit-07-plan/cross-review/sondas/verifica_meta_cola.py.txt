@@ -1,0 +1,6 @@
+meta_general=20 procedencia=margen_plataforma
+meta_producto=4.0
+revalidacion_lee_snapshot_general= True
+revalidacion_resuelve_cascada_general= True
+producto: target=4.0% kind=pause motivo=pause_economica
+general: target=20% kind=None motivo=bids_sin_observaciones

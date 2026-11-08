@@ -1,0 +1,57 @@
+# ORBIT 07: arranque, dependencia y matriz M1-M6
+
+Fecha de arranque: 2026-11-07 (UTC). Plan que manda:
+[`plans/orbit-07-motor-decisiones.md`](../../../plans/orbit-07-motor-decisiones.md).
+No se usa `manifest.active` (`resumen-ads-multicanal`) como estado del ejecutor.
+
+## Dependencia de ejecución
+
+- Encargo predecesor: **AUTO-03**, `enc_07844b614147c266` del registro
+  `C:/Users/ehven/.motor-encargos`.
+- Base recibida: `f86ed7dcd77f0af7b540217c3df9422ebe5c7154` (`origin/master`).
+  El servidor la tuvo desplegada y verificada; `/health` respondio ok. La
+  consulta de arranque no encontro otro encargo activo en la PC ni en la Mac.
+- La captura historica que situaba AUTO-03 en E es historia
+  ([`prearranque`](../orbit-07-plan/prearranque-2026-11-07/README.md)); manda
+  [`preparacion-2026-11-07.json`](preparacion-2026-11-07.json).
+- Revisión de arranque por Opus:
+  [`revision-arranque-opus.md`](revision-arranque-opus.md), con dictamen
+  `APPROVE_START` para M0 necesario para M1 más M1. Su triage:
+  [`triage-revision-arranque.md`](triage-revision-arranque.md).
+
+## Roles, modelos y habilidad
+
+- Implementador exclusivo: **DeepSeek Flash**, referencia
+  `deepseek/deepseek-flash`, proveedor directo `api.deepseek.com` (API propia
+  de David). Sin fallback a otro modelo ni cuenta.
+- Revisor independiente exclusivo: **`anthropic/claude-opus-5-5`**. Lee y
+  aplica poteto-mode para su lectura y juicio; no modifica el producto ni
+  ejecuta el playbook de implementación.
+- poteto-mode aplicado por el implementador:
+  `C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/a2dd4b6fab1a4262b7d49fc23c402fab/poteto/skills/poteto-mode/SKILL.md`.
+  La copia conocida de la PC es
+  `C:/Users/ehven/motor-conf/pstack/skills/poteto-mode/SKILL.md`; sus
+  referencias viven junto a ella. Se adaptaron las herramientas al runtime
+  nativo y prevalecieron las instrucciones del dueño y `AGENTS.md`.
+- Primer trabajo concreto: commit de documentación (plan, evidencia, manifest,
+  esta matriz), después M0 mínimo para M1 y M1 completo con su regresión,
+  recorrido de ciclo/cola y CI.
+
+## Matriz M1-M6
+
+| Fase | Comportamiento requerido | Implementación heredada de AUTO-03 | SHA base | Evidencia | Diferencia pendiente |
+|---|---|---|---|---|---|
+| M1 | Proteger una venta reciente con ancla y vencimiento fijos; esperar sin congelar las pujas; misma subpolítica pura al decidir y revalidar | AUTO-03 dejó la pausa por umbral antes que la venta reciente (`politica.py` R0 antes de R8) y la revalidación de cola solo con ventana madura | `f86ed7d` | Pruebas puras y de integración, `m1/antes-despues.json`, episodio append-only (migración 0081), CI del candidato | SELECT de producción con rol de lectura y activación (fuera de esta entrega) |
+| M2 | Resolver la economía compatible y fresca por un solo camino; aplicar directamente los cambios posteriores de meta del producto | AUTO-03 C-F, `productos.py`, `productos_io.py`, `evaluacion_producto_ciclo`, S3 y F.3/S12 | `f86ed7d` | Pendiente de construcción | Compartir el resolutor con `_target_pause_vigente` y `_revalida_pause`; respaldo completo y excepción a la rampa |
+| M3 | Un episodio de aprendizaje por producto y mercado; agregar sin doble conteo | AUTO-03 D/H ya agrega gasto y propone pausas con límites por mercado | `f86ed7d` | Pendiente; M0 debe acreditar un freno con efecto propio | Solo si M0 prueba una diferencia funcional; umbral de gasto lo elige el dueño |
+| M4 | Extender la pausa existente con el aprendizaje pendiente | AUTO-03 G-I: `kind='pause'` sobre `product_ad`, `apply_producto`, `retiro_anuncios` y reversa | `f86ed7d` | Pendiente | Condición de aprendizaje; sin otro escritor ni otro `kind` |
+| M5 | Episodios económicos del último cambio con ventanas y madurez | AUTO-03 dejó `v_cambio_bid` y métricas point-in-time; M2 aporta la economía compatible | `f86ed7d` | Pendiente | Separar comparabilidad histórica de aplicabilidad; ventanas D+17 |
+| M6 | Aplicar la evaluación económica del último cambio maduro | AUTO-03 conserva la trayectoria vigente y el replay por eras | `f86ed7d` | Pendiente | Regla de repetición y parámetros con evidencia; sin espera global nueva |
+
+## Distinciones de estado
+
+- **Preparado**: el plan, la base y la lectura están disponibles.
+- **Verificado**: la comprobación ejecutable local pasa.
+- **Integrado**: el dueño hizo merge (fuera de este encargo).
+- **Activo**: el modo y el encendido de la pausa los decide el dueño. Una PR
+  no es despliegue ni activación.

@@ -1,0 +1,3 @@
+M3 asigna app/optimizer/politica.py: False
+veredicto actual sin restriccion de aprendizaje: Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('11.5000'), motivo='bajo_target', nivel='hoja')
+CasoHoja tiene campo de aprendizaje: False

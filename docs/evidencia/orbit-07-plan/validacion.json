@@ -1,0 +1,118 @@
+{
+  "fecha": "2026-11-06",
+  "base": "5adf1be0bb8bdd84d46c7b7e8588b66daeea6a99",
+  "alcance": "Plan y registro. Sin cambios de producto, consultas de produccion ni activacion.",
+  "revision_contenido": {
+    "version_inicial": {
+      "primera_ronda": "Dos condiciones y dos notas corregidas",
+      "segunda_ronda": "APROBADO en las cuatro correcciones; sin pendientes en ese alcance"
+    },
+    "ajuste_del_dueno": {
+      "instruccion": "Sin periodos largos de prueba; implementar para optimizar y mejorar.",
+      "cambios": "Cinco entregas funcionales. M0 integrado y M5 mas M6 juntos. Sin pilotos, cohortes experimentales ni periodos de simulacion como requisitos. Seguimiento tras activacion.",
+      "comprobacion": "Autorrevision de dependencias, activacion, madurez por entidad, reversas y ausencia de esperas experimentales obligatorias. La revision independiente anterior corresponde a la version inicial.",
+      "plan_sha256": "9818ffc135d3871c8b6b908cbc98e9d0fcc796081c85bafc77dbca29a03d1a78"
+    },
+    "ajuste_post_cross_review": {
+      "instruccion": "Incorporar al plan las conclusiones aceptadas de la revision cruzada; sin iniciar implementacion.",
+      "base": "5adf1be0bb8bdd84d46c7b7e8588b66daeea6a99",
+      "plan_antes_sha256": "9818ffc135d3871c8b6b908cbc98e9d0fcc796081c85bafc77dbca29a03d1a78",
+      "plan_sha256": "ded1c23ca486c5d5ddd59f81b3fbcbb8d6adc277799b810d17e3c16473633df0",
+      "registro": "ajuste-post-review.md",
+      "revision_origen": "cross-review/README.md",
+      "hallazgos_incorporados": [
+        "R1. Resolutor economico comun entre decision y revalidacion fresca.",
+        "R2. Espera de proteccion sin congelar pujas despues del veto original, con una sola pausa pendiente.",
+        "R3. Meta de producto aplicada directamente, con respaldo completo y limites vigentes de puja."
+      ],
+      "notas_incorporadas": [
+        "M3 con M4 salvo efecto propio del freno; sin agregar una regla redundante.",
+        "M6 usa episodios maduros aplicables al ultimo cambio, sin espera global ni usar episodios antiguos para la puja nueva.",
+        "Reutilizar evaluacion_catalogo y sus pruebas por identidad y fecha."
+      ],
+      "entregas": "Cuatro funcionales por defecto; cinco solo si M3 tiene efecto propio.",
+      "revision_de_esta_edicion": "Autorrevision del diff, dependencias, casos de aceptacion y alcance. Los cuatro informes originales corresponden al hash anterior; no se presentan como una nueva aprobacion.",
+      "check_plan": {
+        "codigo_salida": 1,
+        "salida": "check-plan-ajustado.txt",
+        "limitacion": "Mismas cuatro exigencias de encabezados ingleses. No se cambio el validador ni se agregaron secciones ficticias. El ajuste posterior de M3 no altera estos encabezados."
+      },
+      "enlaces_locales": {
+        "faltantes": []
+      },
+      "manifest_active": "fabrica-01",
+      "pruebas_producto": "No repetidas. Edicion documental; se reutiliza la evidencia de la revision sobre codigo sin cambios.",
+      "pre_commit": "PASO",
+      "git_diff_check": {
+        "codigo_salida": 0,
+        "salida": ""
+      },
+      "pre_commit_archivos": {
+        "codigo_salida": 0,
+        "salida": "Detect hardcoded secrets.................................................Passed\ncheck for merge conflicts................................................Passed\n"
+      },
+      "pre_commit_all_files": {
+        "codigo_salida": 0,
+        "salida": "Detect hardcoded secrets.................................................Passed\ncheck for merge conflicts................................................Passed\n"
+      }
+    },
+    "continuacion_auto03": {
+      "instruccion": "Convertir ORBIT 07 en continuacion de AUTO-03, sin lanzar implementacion.",
+      "fecha_utc": "2026-11-07T03:20:33.485676+00:00",
+      "plan_antes_sha256": "ded1c23ca486c5d5ddd59f81b3fbcbb8d6adc277799b810d17e3c16473633df0",
+      "plan_sha256": "6ade4251cce91960b4d5c57aafbb7eb403c2d96ceb9fa410c7b8d66eb346a9ce",
+      "registro": "continuacion-auto03.md",
+      "estado_consultado": "auto03-estado.json",
+      "predecesor": "enc_07844b614147c266",
+      "plan_predecesor": "decisiones-producto-01",
+      "plan_predecesor_sha256": "9564c925ba81483e46f042537ce83bc6bb9fb79b83952e7e1e052969e9263e07",
+      "dependencia": "Entrega de AUTO-03 integrada y desplegada segun su alcance; pausa puede seguir en practica. Registrar dependencia al encargar, antes de construir.",
+      "ejecucion": "No registrada ni lanzada; no se modifico el encargo en marcha.",
+      "cambios": [
+        "Reutilizar meta, resolutor, lector, evaluacion, agregado, cola y reversa de AUTO-03.",
+        "M2 conserva diferencias de economia compatible, revalidacion fresca y cambios posteriores de meta sin rampa.",
+        "M3 y M4 solo construyen diferencias con efecto demostrado frente a AUTO-03.",
+        "Conservar pause sobre product_ad y activacion por el dueno desde la pantalla.",
+        "Preparacion de lectura paralela; construccion posterior sobre master con AUTO-03 recibido."
+      ],
+      "revision_de_esta_edicion": "Autorrevision del diff contra el plan fuente y el estado real del ejecutor. Sin repetir ni extender el dictamen de los cuatro modelos a esta nueva version.",
+      "check_plan": {
+        "codigo_salida": 1,
+        "salida": "check-plan-continuacion.txt",
+        "limitacion": "Cuatro exigencias de encabezados ingleses ya documentadas; sin nuevos problemas de estilo. Se conserva el plan en espanol y la verificacion proporcional."
+      },
+      "enlaces_locales": {
+        "faltantes": []
+      },
+      "manifest_active": "fabrica-01",
+      "manifest_cambios": "Solo descripcion de ORBIT 07 respecto del inicio de esta edicion.",
+      "pruebas_producto": "No repetidas; edicion documental. La base de ejecucion y la evidencia de AUTO-03 se revalidan al recibirlo.",
+      "pre_commit_all_files": {
+        "codigo_salida": 0,
+        "salida": "Detect hardcoded secrets.................................................Passed\ncheck for merge conflicts................................................Passed\n"
+      },
+      "git_diff_check": {
+        "codigo_salida": 0,
+        "salida": ""
+      },
+      "pre_commit_archivos": {
+        "codigo_salida": 0,
+        "salida": "Detect hardcoded secrets: Passed; check for merge conflicts: Passed. Incluye plan, manifest y cuatro archivos de evidencia de esta edicion."
+      }
+    }
+  },
+  "sonda": "pausa-venta-reciente.json contiene casos sinteticos y resultados del motor actual",
+  "check_plan": {
+    "codigo_salida": 1,
+    "salida": "check-plan.txt",
+    "limitacion": "El validador requiere encabezados ingleses. El plan conserva espanol y verificaciones proporcionales por instrucciones del usuario y AGENTS.md. No se modifico el validador."
+  },
+  "comprobaciones": {
+    "pre_commit_archivos_nuevos": "PASO",
+    "pre_commit_all_files": "PASO",
+    "git_diff_check": "PASO",
+    "enlaces_locales": "Todos los enlaces comprobados existen",
+    "manifest": "JSON valido; plan registrado; active conserva fabrica-01"
+  },
+  "pruebas_producto": "No se ejecuto suite de producto porque solo se escribio el plan. La sonda usa la funcion real sobre datos sinteticos."
+}

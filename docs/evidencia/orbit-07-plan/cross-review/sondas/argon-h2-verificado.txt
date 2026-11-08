@@ -1,0 +1,4 @@
+0065_bids02_impulso.sql -> ['REVOKE SELECT ON impulso, impulso_lectura FROM app_ingest, app_decide;', "OR has_table_privilege('app_decide', 'impulso', 'SELECT')"]
+0066_bids02_retiro_anuncios.sql -> ['REVOKE SELECT ON anuncio_retiro, anuncio_reposicion FROM app_ingest, app_decide;', "OR has_table_privilege('app_decide', 'anuncio_retiro', 'SELECT')"]
+0069_bids02_retiro_intencion.sql -> ['REVOKE SELECT ON anuncio_retiro_intencion FROM app_ingest, app_decide;', "OR has_table_privilege('app_decide', 'anuncio_retiro_intencion', 'SELECT')"]
+PERMITIDOS_IMPORTAR_ADS_WRITE -> ['app/ads/archivar.py', 'app/apply.py', 'app/bloqueo_dueno_efecto.py', 'tools/smoke_apply.py']

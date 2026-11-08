@@ -1,0 +1,33 @@
+{
+  "fecha": "2026-11-07T18:30:00Z",
+  "base": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+  "modelo_implementador": "deepseek/deepseek-flash (api.deepseek.com)",
+  "poteto_mode": "C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/a2dd4b6fab1a4262b7d49fc23c402fab/poteto/skills/poteto-mode/SKILL.md",
+  "caso_sintetico": {
+    "plataforma": "amazon_mx",
+    "gasto_mxn": "500",
+    "clics": 120,
+    "pedidos_maduros": 0,
+    "pedidos_recientes": 1,
+    "ancla_reciente": "2026-10-05",
+    "cortes_ventana": ["2026-09-20", "2026-09-29"],
+    "umbral_clics": 100,
+    "gasto_minimo_mxn": "500",
+    "evaluado_el": "2026-10-09"
+  },
+  "base_sin_marcador": {
+    "veredicto": "Pausar(motivo='pause_umbral')",
+    "explicacion": "R0 evalua la pausa por umbral antes de la venta reciente (R8): el pedido de los ultimos nueve dias no frena la pausa"
+  },
+  "candidato_con_marcador": {
+    "veredicto": "Mantener(motivo='venta_reciente')",
+    "subpolitica": {
+      "accion": "esperar",
+      "ancla": "2026-10-05",
+      "vence_el": "2026-10-15",
+      "abre_episodio": true
+    },
+    "explicacion": "La pausa por cero pedidos se suprime; el juicio de la hoja sigue y R8 mantiene. El episodio queda con ancla y vencimiento fijos"
+  },
+  "comando": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:tests python sonda_m1.py <raiz>"
+}

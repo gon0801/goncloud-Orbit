@@ -1,0 +1,28 @@
+{
+  "fecha": "2026-11-07T18:20:00Z",
+  "base": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+  "carga": {
+    "plataforma": "amazon_us",
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "corridas": 10
+  },
+  "medicion": {
+    "ms_media": 34.19,
+    "ms_max": 35.69,
+    "consultas_por_lectura": 2,
+    "nota": "PostgreSQL 16 local desechable; no es una medicion de percentiles ni de produccion"
+  },
+  "presupuesto": {
+    "latencia_media_ms_max": 150,
+    "consultas_por_plataforma_por_ciclo": 2,
+    "consultas_por_plataforma_por_barrido_de_cola": 2,
+    "consultas_por_hoja": 0,
+    "razon": "la lectura es por lote (pedidos recientes y episodios); no se agrega una consulta por hoja ni por intento de cola"
+  },
+  "comparacion": {
+    "base": "el ciclo no lee proteccion; el presupuesto es el trabajo añadido sobre la misma copia fija",
+    "candidato": "lee 2 SELECT por plataforma en TX2 y 2 por barrido; la escritura del episodio solo ocurre al abrirlo (TX3)"
+  }
+}

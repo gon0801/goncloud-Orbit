@@ -1,0 +1,5 @@
+M2 asigna apply_cola: False
+revalidacion llama: campana, plataforma, settings, estado[1], platform, margen
+target plataforma: 20 margen_plataforma | target M2: 4.0
+target=4% kind=pause motivo=pause_economica
+target=20% kind=None motivo=bids_sin_observaciones

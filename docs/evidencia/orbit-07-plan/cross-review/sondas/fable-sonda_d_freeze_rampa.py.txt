@@ -1,0 +1,7 @@
+SONDA D: desde_json rechaza una clave nueva (contrato de freeze)
+  ValueError: caso: claves distintas a ['ad_group_id', 'bid', 'cuenta', 'economia', 'grupo', 'hoja_id', 
+  ValueError: caso: claves distintas a ['ad_group_id', 'bid', 'cuenta', 'economia', 'grupo', 'hoja_id', 
+SONDA F: peldano margen_plataforma -> banda [10,45] y rampa de bajada 0.5/ciclo
+  margen 8 x 0.5 = derivado 4.0; ultimo=None -> aplicado 10 (motivo None)
+  margen 8 x 0.5 = derivado 4.0; ultimo=20.72 -> aplicado 20.22 (motivo None)
+  constantes: BANDA_MIN 10 BANDA_MAX 45 PASO_BAJADA 0.5

@@ -1,0 +1,79 @@
+{
+  "base": "5adf1be0bb8bdd84d46c7b7e8588b66daeea6a99",
+  "plan_sha256": "9818ffc135d3871c8b6b908cbc98e9d0fcc796081c85bafc77dbca29a03d1a78",
+  "plan_modificado_en_esta_revision": false,
+  "producto_modificado": false,
+  "inspeccion_copias": [
+    {
+      "revisor": "grok",
+      "archivos_tracked_modificados": [
+        "plans/manifest.json"
+      ],
+      "plan_sha256": "9818ffc135d3871c8b6b908cbc98e9d0fcc796081c85bafc77dbca29a03d1a78"
+    },
+    {
+      "revisor": "kimi",
+      "archivos_tracked_modificados": [
+        "plans/manifest.json"
+      ],
+      "plan_sha256": "9818ffc135d3871c8b6b908cbc98e9d0fcc796081c85bafc77dbca29a03d1a78"
+    },
+    {
+      "revisor": "argon",
+      "archivos_tracked_modificados": [
+        "plans/manifest.json"
+      ],
+      "plan_sha256": "9818ffc135d3871c8b6b908cbc98e9d0fcc796081c85bafc77dbca29a03d1a78"
+    },
+    {
+      "revisor": "fable",
+      "archivos_tracked_modificados": [
+        "plans/manifest.json"
+      ],
+      "plan_sha256": "9818ffc135d3871c8b6b908cbc98e9d0fcc796081c85bafc77dbca29a03d1a78"
+    }
+  ],
+  "copias_aisladas_retiradas": true,
+  "sondas_repetidas": {
+    "kimi": {
+      "total": 2,
+      "exit_0": 2
+    },
+    "argon": {
+      "total": 7,
+      "exit_0": 6,
+      "descartada": "H3. TypeError de firma incorrecta; no se presento como pase."
+    },
+    "fable": {
+      "total": 3,
+      "exit_0": 3
+    },
+    "grok": {
+      "total": 1,
+      "exit_0": 1
+    },
+    "coordinador": {
+      "total": 2,
+      "exit_0": 2
+    }
+  },
+  "pruebas_reutilizadas": {
+    "fable": "76 passed, politica y caso, segun comando y salida del cliente",
+    "kimi": "3 passed, tres casos focalizados, segun comando y salida del cliente"
+  },
+  "pruebas_coordinador": "3 passed in 0.22s; colapso y madurez de test_evaluacion_catalogo.py",
+  "comandos_pruebas_coordinador": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:tests .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_evaluacion_catalogo.py::test_relecturas_de_la_misma_fecha_se_colapsan_no_se_suman tests/test_evaluacion_catalogo.py::test_madurez_exactamente_d_mas_30_cuenta tests/test_evaluacion_catalogo.py::test_madurez_es_por_fecha_no_por_maximo_global",
+  "ci": "No ejecutado. No se integro ni se modifico producto.",
+  "pre_commit_evidencia": {
+    "exit_code": 0,
+    "salida": "Detect hardcoded secrets.................................................Passed\ncheck for merge conflicts................................................Passed\n"
+  },
+  "pre_commit_all_files": {
+    "exit_code": 0,
+    "salida": "Detect hardcoded secrets.................................................Passed\ncheck for merge conflicts................................................Passed\n"
+  },
+  "git_diff_check": {
+    "exit_code": 0,
+    "salida": ""
+  }
+}
