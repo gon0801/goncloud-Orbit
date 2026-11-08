@@ -124,7 +124,7 @@ class _ConexionContador:
         return getattr(self._conn, nombre)
 
 
-def _siembra(conn, *, proteccion: bool = True) -> dict:
+def _siembra(conn, *, proteccion: bool = True, productos: int = 0) -> dict:
     from decimal import Decimal
 
     from psycopg.types.json import Json
@@ -137,6 +137,13 @@ def _siembra(conn, *, proteccion: bool = True) -> dict:
         "ads_optimizer_mode": "shadow",
         "ads_bid_politica_amazon_us": "niveles_v3",
     }
+    if productos:
+        # ORBIT 07 M2: carga comparable del peldaño de producto (grupos
+        # exclusivos con margen valido). El goal de plataforma sin target deja
+        # entrar la meta individual; el goal de campana del bloque M1 conserva
+        # su target 25 y no cambia.
+        settings["ads_producto_meta_amazon_us"] = "live"
+        settings["ads_target_fraccion_margen_amazon_us"] = "0.5"
     if proteccion:
         settings["ads_proteccion_venta"] = VERSION_PROTECCION_VENTA
     config_id = conn.execute(
@@ -262,6 +269,7 @@ def _siembra(conn, *, proteccion: bool = True) -> dict:
         " WHERE platform = %s AND decision_id = ANY(%s)",
         (DECIDED_AT - dt.timedelta(hours=3), PLATAFORMA, decisiones),
     )
+    productos_sembrados = _siembra_productos(conn, productos) if productos else 0
     return {
         "config_id": config_id,
         "goal_id": goal_id,
@@ -269,7 +277,114 @@ def _siembra(conn, *, proteccion: bool = True) -> dict:
         "filas_metricas_recientes": len(filas),
         "episodios": len(episodios),
         "filas_cola": len(decisiones),
+        "productos": productos_sembrados,
     }
+
+
+def _siembra_productos(conn, productos: int) -> int:
+    """ORBIT 07 M2: `productos` grupos exclusivos con margen 8 % (meta 4 %),
+    cada uno con su campana sin goal, keyword con metricas y product ad
+    ENABLED. El goal de plataforma sin target deja entrar la meta individual."""
+
+    sincronizado = DECIDED_AT - dt.timedelta(hours=4)
+    hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, enabled, mode)"
+        " VALUES ('platform', %s, NULL, 0.40, 2.50, 'USD', true, 'live')",
+        (PLATAFORMA,),
+    )
+    run_metricas = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('bench-productos') RETURNING id"
+    ).fetchone()[0]
+    run_ventas = conn.execute(
+        "INSERT INTO ingest_run (source, finished_at, ok)"
+        " VALUES ('accounting_ledger_events', now(), true) RETURNING id"
+    ).fetchone()[0]
+    filas_metricas = []
+    for i in range(productos):
+        camp = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES (%s, 'campaign', %s) RETURNING id",
+            (PLATAFORMA, f"pc-{i:05d}"),
+        ).fetchone()[0]
+        ag = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+            " VALUES (%s, 'ad_group', %s, %s) RETURNING id",
+            (PLATAFORMA, f"pg-{i:05d}", camp),
+        ).fetchone()[0]
+        kw = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type,"
+            " keyword_text) VALUES (%s, 'keyword', %s, %s, 'EXACT', %s) RETURNING id",
+            (PLATAFORMA, f"pk-{i:05d}", ag, f"pk {i:05d}"),
+        ).fetchone()[0]
+        for entidad, bid in ((camp, None), (ag, None), (kw, "1.00")):
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+                " status, synced_at) VALUES (%s, %s, %s, 'ENABLED', %s)",
+                (entidad, bid, "USD" if bid is not None else None, sincronizado),
+            )
+        for dia in _fechas(dt.date(2026, 7, 3), dt.date(2026, 8, 12)):
+            filas_metricas.append(
+                (
+                    kw,
+                    dia,
+                    dt.datetime(dia.year, dia.month, dia.day, 1, tzinfo=dt.UTC),
+                    "USD",
+                    "1.0000",
+                    "0.0000",
+                    10,
+                    10,
+                    0,
+                    run_metricas,
+                )
+            )
+        pid = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES (%s, %s) RETURNING id",
+            (f"BENCH-SKU-{i:05d}", f"Producto {i:05d}"),
+        ).fetchone()[0]
+        lid = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, %s, %s, %s) RETURNING id",
+            (pid, PLATAFORMA, f"BENCH-ASIN-{i:05d}", f"BENCH-SS-{i:05d}"),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+            " valid_from, ingest_run_id) VALUES (%s, 82, 'USD', true, %s, %s)",
+            (pid, hoy - dt.timedelta(days=80), run_ventas),
+        )
+        for n in range(40):
+            fecha = hoy - dt.timedelta(days=60 - n)
+            orden = f"b-{i:05d}-{n}"
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, order_id, product_id,"
+                " quantity, amount, amount_currency, ingest_run_id)"
+                " VALUES (%s, 'sale', %s, %s, %s, 1, 100, 'USD', %s)",
+                (PLATAFORMA, fecha, orden, pid, run_ventas),
+            )
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, order_id, amount,"
+                " amount_currency, fee_type, ingest_run_id)"
+                " VALUES (%s, 'fee', %s, %s, -10, 'USD', 'referral', %s)",
+                (PLATAFORMA, fecha, orden, run_ventas),
+            )
+        pa = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES (%s, 'product_ad', %s, %s, %s) RETURNING id",
+            (PLATAFORMA, f"PA-B-{i:05d}", ag, lid),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', %s)",
+            (pa, sincronizado),
+        )
+    conn.cursor().executemany(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        filas_metricas,
+    )
+    return productos
 
 
 def _huella(conn) -> dict:
@@ -289,6 +404,9 @@ def _huella(conn) -> dict:
         if nombre == "filas_metricas_recientes":
             parametros = (PLATAFORMA, RECIENTE_DESDE, RECIENTE_HASTA)
         huella[nombre] = conn.execute(sql, parametros).fetchone()[0]
+    huella["productos"] = conn.execute(
+        "SELECT count(*) FROM ad_entity WHERE kind = 'product_ad'"
+    ).fetchone()[0]
     return huella
 
 
@@ -339,7 +457,7 @@ def cmd_preparar(args) -> int:
         try:
             conn.execute("SET TIME ZONE 'UTC'")
             migraciones = _aplica_migraciones(conn)
-            sembrado = _siembra(conn, proteccion=args.proteccion == "on")
+            sembrado = _siembra(conn, proteccion=args.proteccion == "on", productos=args.productos)
             huella = _huella(conn)
         finally:
             conn.close()
@@ -624,7 +742,10 @@ def cmd_comparar(args) -> int:
 
     comparacion = {
         "fecha": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-        "carga": CARGA,
+        "carga": {
+            **CARGA,
+            **({"productos": huella["productos"]} if huella.get("productos") else {}),
+        },
         "decided_at": DECIDED_AT.isoformat(),
         "plantilla": args.plantilla,
         "huella": huella,
@@ -634,7 +755,10 @@ def cmd_comparar(args) -> int:
             "bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del "
             "barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow. "
             "`proteccion` indica si la plantilla tiene el setting "
-            "ads_proteccion_venta (regla M1 encendida)."
+            "ads_proteccion_venta (regla M1 encendida). Con `productos` > 0 la "
+            "plantilla suma grupos exclusivos con margen 8 % y meta live: la "
+            "resolucion por lote del peldaño de producto corre en TX2 aunque la "
+            "ventana reciente del banco no produzca decisiones."
         ),
         "base": _resumen({"rondas": resultados["base"], "sha": _sha(args.code_base)}),
         "candidato": _resumen({"rondas": resultados["candidato"], "sha": _sha(RAIZ)}),
@@ -653,6 +777,12 @@ def main() -> int:
     p = sub.add_parser("preparar")
     p.add_argument("--plantilla", required=True)
     p.add_argument("--proteccion", choices=("on", "off"), default="on")
+    p.add_argument(
+        "--productos",
+        type=int,
+        default=0,
+        help="grupos exclusivos con margen 8 por ciento para la carga de M2 (default 0)",
+    )
     p.set_defaults(func=cmd_preparar)
 
     p = sub.add_parser("medir")
