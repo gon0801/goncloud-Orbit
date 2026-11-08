@@ -358,6 +358,16 @@ manda para la implementación; este párrafo es el spec delta sellado:
   conserva la rampa y la cola congelada; `producto_directo_v1` activa
   M2) y `ads_producto_meta_<plat>` sigue apagando la meta individual; el
   cambio de version no borra evaluaciones ni decisiones.
+- **Episodio economico del ultimo cambio (ORBIT 07 M5/M6)**: con
+  `ads_bid_economia_<plat> = economia_cambio_v1` el ciclo congela en el caso
+  las ventanas `[x-7, x-1]` y `[x+1, x+7]` del ultimo cambio de bid y separa
+  madurez (D+17), comparabilidad y aplicabilidad. Al repetir la misma
+  direccion, un recorte con ventas conservadas y ACoS mejor salta el freno
+  de trafico de R16; un recorte sin ventas conservadas o sin mejora y una
+  subida cuyo trafico adicional no compensa el gasto se frenan con motivos
+  propios (`recorte_sin_economia`, `subida_sin_economia`). Sin evidencia
+  madura, comparable y aplicable, R14-R17 decide como antes. Ausente/`off`
+  no lee ni congela episodios; apagarla no reescribe decisiones historicas.
 - **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
   `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
 

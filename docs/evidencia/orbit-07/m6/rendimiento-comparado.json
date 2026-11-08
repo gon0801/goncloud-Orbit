@@ -1,0 +1,117 @@
+{
+  "fecha": "2026-11-08T11:49:11+00:00",
+  "carga": {
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200,
+    "cambios": 200
+  },
+  "decided_at": "2026-08-22T12:00:00+00:00",
+  "plantilla": "orbit07_m5m6_tpl",
+  "huella": {
+    "hojas": 2001,
+    "filas_metricas_recientes": 18009,
+    "episodios": 200,
+    "filas_cola": 200,
+    "productos": 0,
+    "cambios": 200
+  },
+  "nota": "Cada corrida clona la MISMA plantilla fija; base y candidato alternan por ronda sobre esa copia. tx2_ms mide la fase de lecturas completa; bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow. `proteccion` indica si la plantilla tiene el setting ads_proteccion_venta (regla M1 encendida). Con `productos` > 0 la plantilla suma grupos exclusivos con margen 8 % y meta live: la resolucion por lote del peldaño de producto corre en TX2 aunque la ventana reciente del banco no produzca decisiones. Con `cambios` > 0 la plantilla suma cambios de bid confirmados y sus ventanas economicas; `economia` indica si trae el setting ads_bid_economia_amazon_us (regla M5/M6 encendida).",
+  "base": {
+    "sha": "4e0e78d3621aee502f56a0648116201c7031ef9d",
+    "rondas": 5,
+    "tx2_ms": {
+      "media": 1972.69,
+      "mediana": 1980.78,
+      "min": 1910.74,
+      "max": 2035.45
+    },
+    "bloque_ms": {
+      "media": 34.24,
+      "mediana": 34.25,
+      "min": 33.58,
+      "max": 34.77
+    },
+    "barrido_ms": {
+      "media": 35.26,
+      "mediana": 35.18,
+      "min": 34.16,
+      "max": 36.1
+    },
+    "ciclo_ms": {
+      "media": 8415.73,
+      "mediana": 8457.26,
+      "min": 8243.37,
+      "max": 8553.13
+    },
+    "persistencia_ms": {
+      "media": 58.13,
+      "mediana": 59.14,
+      "min": 53.65,
+      "max": 60.6
+    },
+    "tx2_consultas": 3830,
+    "bloque_consultas": 3,
+    "barrido_consultas": 3,
+    "ciclo_consultas": 3840,
+    "persistencia_consultas": 1,
+    "proteccion": true,
+    "barrido_filas": 200,
+    "ciclo_decisiones": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "candidato": {
+    "sha": "b2bfd88c95585f8b57c09840cf015f584fe1bca3",
+    "rondas": 5,
+    "tx2_ms": {
+      "media": 1981.78,
+      "mediana": 1975.52,
+      "min": 1959.25,
+      "max": 2018.21
+    },
+    "bloque_ms": {
+      "media": 34.31,
+      "mediana": 34.14,
+      "min": 33.66,
+      "max": 35.13
+    },
+    "barrido_ms": {
+      "media": 34.87,
+      "mediana": 34.12,
+      "min": 33.38,
+      "max": 37.4
+    },
+    "ciclo_ms": {
+      "media": 8439.16,
+      "mediana": 8322.61,
+      "min": 8273.84,
+      "max": 8717.33
+    },
+    "persistencia_ms": {
+      "media": 60.29,
+      "mediana": 56.29,
+      "min": 52.54,
+      "max": 80.83
+    },
+    "tx2_consultas": 3834,
+    "bloque_consultas": 3,
+    "barrido_consultas": 3,
+    "ciclo_consultas": 3844,
+    "persistencia_consultas": 1,
+    "proteccion": true,
+    "barrido_filas": 200,
+    "ciclo_decisiones": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  }
+}
