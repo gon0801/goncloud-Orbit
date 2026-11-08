@@ -52,6 +52,7 @@ def _mundo(conn) -> dict:
         {
             **_settings(conn),
             "ads_producto_meta_amazon_us": "live",
+            "ads_producto_economia_amazon_us": "producto_directo_v1",
             "ads_pause_economica": True,
         },
     )
@@ -185,6 +186,13 @@ def main() -> dict:
                 "target_procedencia": pausa["target_procedencia"],
                 "target_acos_pct_usado": pausa["target_acos_pct_usado"],
                 "snapshot": pausa["target_snapshot"],
+                "caso_target_acos_pct": (
+                    (pausa["inputs"].get("caso") or {}).get("economia") or {}
+                ).get("target_acos_pct"),
+                "caso_equilibrio_acos_pct": (
+                    ((pausa["inputs"].get("caso") or {}).get("economia") or {}).get("plataforma")
+                    or {}
+                ).get("equilibrio_acos_pct"),
             },
         }
 

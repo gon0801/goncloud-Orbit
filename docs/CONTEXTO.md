@@ -354,8 +354,10 @@ manda para la implementación; este párrafo es el spec delta sellado:
   respaldo en ese ciclo y el target individual no se interpola. La
   revalidación de una pausa usa la evaluación fresca del ciclo ejecutor
   (goal, identidad, atribución, moneda y respaldo); apagar
-  `ads_producto_meta_<plat>` restaura la cascada previa sin borrar
-  evaluaciones.
+  `ads_producto_economia_<plat>` elige la version (ausente/`auto03`
+  conserva la rampa y la cola congelada; `producto_directo_v1` activa
+  M2) y `ads_producto_meta_<plat>` sigue apagando la meta individual; el
+  cambio de version no borra evaluaciones ni decisiones.
 - **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
   `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
 

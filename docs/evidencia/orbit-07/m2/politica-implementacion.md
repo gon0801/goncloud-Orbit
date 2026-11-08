@@ -47,6 +47,29 @@ inventa un margen ni un cero.
    la regla (`ads_producto_meta_<plat>` en `off` o `shadow`) restaura la
    cascada previa sin borrar evaluaciones ni reescribir decisiones.
 
+### Selección de versión y reversa
+
+El setting `ads_producto_economia_<plat>` elige la regla economica sin tocar
+el codigo:
+
+- ausente o `auto03`: cascada previa de AUTO-03 (rampa y convergencia de la
+  meta, respaldo solo cuando el producto no mide, cola con el target
+  congelado y descarte por `alcance_cambio`). Es el valor por omision, asi que
+  desplegar este cambio no altera la meta de AUTO-03 hasta que el dueno lo
+  elija.
+- `producto_directo_v1`: M2 (meta directa, respaldo completo, economia fresca
+  en la cola).
+
+`ads_producto_meta_<plat>` sigue siendo el interruptor de la meta individual
+(`off`/`shadow`/`live`); es independiente de la version economica. Un valor
+ajeno en cualquiera de los dos falla cerrado (`ValueError`, ciclo `failed`).
+La economia efectiva viaja completa: el caso juzga la perdida con el equilibrio del producto cuando su meta gana (8 % en el caso de 8 % x 0.5), no con un promedio de plataforma; y la cola reutiliza el lector familiar del ciclo (subfamilia -> padre y ancla previa de la hoja), no un segundo camino.
+
+Activar M2 es una decision del dueno: `ads_producto_meta_<plat>=live` y
+`ads_producto_economia_<plat>=producto_directo_v1`. Volver a `auto03` conserva
+la meta live, las evaluaciones y las decisiones; solo cambia la regla de
+aplicacion.
+
 ## Evidencia reproducible
 
 `docs/evidencia/orbit-07/m2/sonda_economias.py` crea PostgreSQL 16 desechable,
@@ -81,8 +104,8 @@ generada con `tools/bench_orbit07_proteccion.py preparar --productos 40` y
 |---|---|---|
 | Consultas TX2 (fase de lecturas) | 3798 | 3798 |
 | Consultas del ciclo en shadow | 3848 | 3848 |
-| Mediana TX2 | 3525.35 ms | 3578.05 ms (+1.50 %) |
-| Mediana del ciclo | 10321.27 ms | 10374.69 ms (+0.52 %) |
+| Mediana TX2 | 3581.42 ms | 3607.00 ms (+0.71 %) |
+| Mediana del ciclo | 10419.52 ms | 10270.74 ms (-1.43 %) |
 
 No hay consultas nuevas por producto ni por keyword: el peldaño de producto
 se resuelve con la misma lectura por lote y funciones puras. La diferencia de

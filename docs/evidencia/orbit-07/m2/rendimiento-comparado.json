@@ -1,5 +1,5 @@
 {
-  "fecha": "2026-11-08T09:33:14+00:00",
+  "fecha": "2026-11-08T10:36:43+00:00",
   "carga": {
     "hojas": 2000,
     "filas_metricas_recientes": 18000,
@@ -21,10 +21,10 @@
     "sha": "c4121c5c3c4aa45d1fdfd5701416c0df55af5d0b",
     "rondas": 5,
     "tx2_ms": {
-      "media": 5070.21,
-      "mediana": 3525.35,
-      "min": 3509.07,
-      "max": 11262.32
+      "media": 5130.51,
+      "mediana": 3581.42,
+      "min": 3515.93,
+      "max": 11366.99
     },
     "bloque_ms": {
       "media": 0.0,
@@ -33,16 +33,16 @@
       "max": 0.0
     },
     "barrido_ms": {
-      "media": 1.16,
-      "mediana": 1.14,
-      "min": 1.13,
-      "max": 1.23
+      "media": 1.25,
+      "mediana": 1.25,
+      "min": 1.14,
+      "max": 1.35
     },
     "ciclo_ms": {
-      "media": 11875.78,
-      "mediana": 10321.27,
-      "min": 10168.22,
-      "max": 18269.42
+      "media": 11890.47,
+      "mediana": 10419.52,
+      "min": 10184.07,
+      "max": 18140.18
     },
     "persistencia_ms": null,
     "tx2_consultas": 3798,
@@ -61,13 +61,13 @@
     ]
   },
   "candidato": {
-    "sha": "3f2ba19c44cbeed547f03bb3e1337e896290679d",
+    "sha": "682aa9822200dfa905b4505530c2c0f70640902a",
     "rondas": 5,
     "tx2_ms": {
-      "media": 5101.96,
-      "mediana": 3578.05,
-      "min": 3475.78,
-      "max": 11343.73
+      "media": 5122.67,
+      "mediana": 3607.0,
+      "min": 3482.69,
+      "max": 11360.67
     },
     "bloque_ms": {
       "media": 0.0,
@@ -76,16 +76,16 @@
       "max": 0.0
     },
     "barrido_ms": {
-      "media": 1.2,
-      "mediana": 1.19,
-      "min": 1.1,
-      "max": 1.32
+      "media": 1.18,
+      "mediana": 1.17,
+      "min": 1.15,
+      "max": 1.23
     },
     "ciclo_ms": {
-      "media": 11830.97,
-      "mediana": 10374.69,
-      "min": 10218.9,
-      "max": 17905.85
+      "media": 11809.12,
+      "mediana": 10270.74,
+      "min": 10190.79,
+      "max": 17946.21
     },
     "persistencia_ms": null,
     "tx2_consultas": 3798,
