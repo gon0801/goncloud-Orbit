@@ -95,6 +95,7 @@ from app import (
     apply_harvest,
     apply_producto,
     biblioteca,
+    economia_revalidacion_io,
     notifica,
     productos_io,
     proteccion_venta,
@@ -248,6 +249,10 @@ INSERT INTO reactivacion_manual (ad_entity_id) VALUES (%s) ON CONFLICT DO NOTHIN
 
 _SQL_PADRE = """
 SELECT parent_id FROM ad_entity WHERE id = %s
+"""
+
+_SQL_CAMPANA_DE_GRUPO = """
+SELECT parent_id FROM ad_entity WHERE id = %s AND kind = 'ad_group'
 """
 
 _SQL_DECISION_INPUTS = """
@@ -716,37 +721,137 @@ def _peldano_congelado(inputs: dict, peldano: str) -> Decimal | None:
     return Decimal(str(valor)) if valor is not None else None
 
 
-def _alcance_cambio(conn: psycopg.Connection, ad_entity_id: int, inputs: dict) -> bool:
-    """AUTO-03 F.3 (S12): una decision con la meta del producto solo se
-    revalida con ella si la huella del grupo sigue igual a la congelada."""
-    if inputs.get("target_procedencia") != "margen_producto":
-        return False
+def _producto_fresco(
+    conn: psycopg.Connection,
+    platform: str,
+    grupo: int,
+    cycle_id: int,
+    settings: dict,
+    inputs: dict,
+) -> tuple[Decimal | None, dict]:
+    """ORBIT 07 M2: la meta del producto resuelta con la evaluacion del ciclo
+    EJECUTOR, por el mismo resolutor del ciclo y bajo las mismas reglas de
+    goal, identidad, atribucion, moneda y respaldo.
+
+    Devuelve (None, detalle) cuando el peldano individual no aplica: la
+    cascada resuelve entonces el respaldo completo (familia/plataforma/
+    setting) en este mismo ciclo. La seleccion de la version anterior
+    (`ads_producto_meta_<plat>` distinto de live) restaura la cascada previa
+    sin borrar evaluaciones. Los inputs originales de la decision no se
+    tocan: el detalle viaja a notes.revalidaciones_economicas."""
+    detalle: dict = {"grupo_id": grupo}
+    modos = productos.modos_desde_settings(settings, platform)
+    if modos.meta != "live":
+        detalle["motivo"] = "meta_no_live"
+        return (None, detalle)
+    producto = economia_revalidacion_io.producto_exclusivo(conn, grupo)
+    detalle["product_id"] = producto
+    if producto is None:
+        detalle["motivo"] = "grupo_no_exclusivo"
+        return (None, detalle)
     snapshot = inputs.get("target_snapshot")
-    congelada = snapshot.get("huella_alcance") if isinstance(snapshot, dict) else None
-    grupo = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()[0]
-    return congelada is None or productos_io.huella_grupo(conn, grupo) != congelada
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    congelado = snapshot.get("product_id")
+    if congelado is not None and int(congelado) != producto:
+        detalle["motivo"] = "identidad_cambio"
+        return (None, detalle)
+    leida = economia_revalidacion_io.lee_evaluacion_ciclo(conn, cycle_id, platform, producto)
+    if leida is None:
+        detalle["motivo"] = "sin_evaluacion_fresca"
+        return (None, detalle)
+    evaluacion_id, evaluacion = leida
+    detalle.update(
+        {
+            "evaluacion_id": evaluacion_id,
+            "politica": evaluacion.politica,
+            "motivos": list(evaluacion.motivos),
+        }
+    )
+    grupo_apto = next(
+        (gr for gr in evaluacion.entrada.grupos_aptos_para_meta if gr.grupo_id == grupo),
+        None,
+    )
+    if grupo_apto is None:
+        detalle["motivo"] = "grupo_no_apto"
+        return (None, detalle)
+    if grupo_apto.huella_alcance != productos_io.huella_grupo(conn, grupo):
+        detalle["motivo"] = MOTIVO_ALCANCE_CAMBIO
+        return (None, detalle)
+    margen = evaluacion.entrada.margen
+    detalle.update(
+        {
+            "meta_pct": str(evaluacion.meta.porcentaje)
+            if isinstance(evaluacion.meta, productos.MetaReferencia)
+            else None,
+            "equilibrio_pct": str(margen.margen_neto_pct)
+            if isinstance(margen, g.MedicionMargen) and margen.margen_neto_pct is not None
+            else None,
+            "moneda": margen.moneda if isinstance(margen, g.MedicionMargen) else None,
+            "huella_alcance": grupo_apto.huella_alcance,
+        }
+    )
+    resolucion = productos.meta_de_hoja(
+        evaluacion.meta, ultimo=None, destino=None, tiene_previo=False
+    )
+    detalle["motivo"] = resolucion.motivo
+    if resolucion.aplicado is None:
+        return (None, detalle)
+    detalle["target_aplicado"] = str(resolucion.aplicado)
+    return (resolucion.aplicado, detalle)
 
 
-def _target_pause_vigente(
-    conn: psycopg.Connection, platform: str, ad_entity_id: int, cycle_id: int, inputs: dict
-) -> tuple[Decimal | None, str | None]:
+def _familia_respaldo(
+    conn: psycopg.Connection,
+    platform: str,
+    grupo: int,
+    settings: dict,
+    destino: Decimal | None,
+    ahora: dt.datetime,
+) -> tuple[Decimal | None, dict]:
+    """ORBIT 07 M2: el peldano familia del respaldo, fresco, cuando la hoja
+    venia de la meta individual. Usa la misma medicion y el mismo resolutor
+    puro que el ciclo (A5); el target individual no es ancla de la familia."""
+    campana = conn.execute(_SQL_CAMPANA_DE_GRUPO, (grupo,)).fetchone()
+    if campana is None:
+        return (None, {"motivo": "sin_campana"})
+    return economia_revalidacion_io.familia_fresca(
+        conn,
+        platform,
+        campana[0],
+        ahora=ahora,
+        fraccion=g.fraccion_desde_settings(settings, platform),
+        destino=destino,
+    )
+
+
+def _target_pause_vigente_detalle(
+    conn: psycopg.Connection,
+    platform: str,
+    ad_entity_id: int,
+    cycle_id: int,
+    inputs: dict,
+    ahora: dt.datetime,
+) -> tuple[Decimal | None, str | None, dict]:
     """Resuelve la cascada del ciclo aplicador con goal y cache frescos.
 
     El ciclo ya midio el peldano margen y lo sello en notes.target. Si ese
     snapshot falta, no se inventa un margen ausente para caer al default.
-    Los peldanos por entidad (familia y producto, AUTO-03 S12) no se miden
-    por plataforma: salen congelados del target_snapshot de la decision
-    (`inputs`); el de producto llega aqui solo si su huella no cambio.
-    """
+    ORBIT 07 M2: una decision con procedencia `margen_producto` se revalida
+    con la evaluacion fresca del ciclo EJECUTOR (misma regla que el ciclo) y,
+    si el peldano individual perdio elegibilidad, con el respaldo completo
+    (familia fresca + plataforma/setting). Las decisiones de otro peldano
+    conservan su snapshot congelado. El detalle de la resolucion viaja a la
+    evidencia del intento; los inputs de la decision no se reescriben."""
+    detalle: dict = {}
     estado = conn.execute(_SQL_PAUSE_TARGET_STATE, (ad_entity_id,)).fetchone()
     notas_fila = conn.execute(_SQL_NOTAS_CICLO_APLICADOR, (cycle_id,)).fetchone()
     if estado is None or notas_fila is None:
-        return (None, None)
+        return (None, None, detalle)
     try:
         notas = json.loads(notas_fila[0]) if isinstance(notas_fila[0], str) else notas_fila[0]
         snapshot = notas["target"]
         if not isinstance(snapshot, dict) or "target_aplicado" not in snapshot:
-            return (None, None)
+            return (None, None, detalle)
         margen = snapshot["target_aplicado"]
         margen = Decimal(str(margen)) if margen is not None else None
         config = conn.execute(_SQL_CONFIG_TARGET).fetchone()
@@ -773,19 +878,62 @@ def _target_pause_vigente(
                 plataforma = goal
         elegido = g.resuelve_goal(campana, plataforma)
         if elegido is None or not elegido.enabled or elegido.mode == "off":
-            return (None, None)
-        return g.cascada_target_acos_con_procedencia(
+            return (None, None, detalle)
+        # Destino = cascada sin los peldanos por entidad (ancla del respaldo).
+        destino, _ = g.cascada_target_acos_con_procedencia(
+            campana, plataforma, settings, estado[1], platform, margen
+        )
+        detalle["destino"] = str(destino) if destino is not None else None
+        if inputs.get("target_procedencia") == "margen_producto":
+            grupo_fila = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()
+            if grupo_fila is None:
+                return (None, None, detalle)
+            grupo = grupo_fila[0]
+            producto, detalle["producto"] = _producto_fresco(
+                conn, platform, grupo, cycle_id, settings, inputs
+            )
+            familia = None
+            if producto is None:
+                familia, detalle["familia"] = _familia_respaldo(
+                    conn, platform, grupo, settings, destino, ahora
+                )
+        else:
+            producto = None
+            familia = _peldano_congelado(inputs, "margen_familia")
+        target, procedencia = g.cascada_target_acos_con_procedencia(
             campana,
             plataforma,
             settings,
             estado[1],
             platform,
             margen,
-            _peldano_congelado(inputs, "margen_familia"),
-            target_margen_producto=_peldano_congelado(inputs, "margen_producto"),
+            familia,
+            target_margen_producto=producto,
         )
+        detalle["procedencia"] = procedencia
+        detalle["target"] = str(target) if target is not None else None
+        return (target, procedencia, detalle)
     except (KeyError, TypeError, ValueError, ArithmeticError, json.JSONDecodeError):
-        return (None, None)
+        return (None, None, detalle)
+
+
+def _target_pause_vigente(
+    conn: psycopg.Connection,
+    platform: str,
+    ad_entity_id: int,
+    cycle_id: int,
+    inputs: dict,
+    ahora: dt.datetime | None = None,
+    detalle: dict | None = None,
+) -> tuple[Decimal | None, str | None]:
+    """La cascada vigente y, si se pasa el contenedor, su detalle economico
+    para la evidencia del intento (nunca reescribe los inputs de la decision)."""
+    target, procedencia, resolucion = _target_pause_vigente_detalle(
+        conn, platform, ad_entity_id, cycle_id, inputs, ahora or dt.datetime.now(dt.UTC)
+    )
+    if detalle is not None:
+        detalle.update(resolucion)
+    return (target, procedencia)
 
 
 _SQL_HAY_GOAL = """
@@ -892,12 +1040,17 @@ def _revalida_pause(
     decision = conn.execute(_SQL_DECISION_INPUTS, (fila.decision_id,)).fetchone()
     if decision is None or not isinstance(decision[0], dict):
         return MOTIVO_YA_NO_CALIFICA
-    if _alcance_cambio(conn, fila.ad_entity_id, decision[0]):
-        return MOTIVO_ALCANCE_CAMBIO
     razon = decision[0].get("motivo")
     economica = razon == motor_bid.MOTIVO_PAUSE_ECONOMICA
+    resolucion_economica: dict = {}
     target, procedencia = _target_pause_vigente(
-        conn, platform, fila.ad_entity_id, aplicador.cycle_id_ejecutor, decision[0]
+        conn,
+        platform,
+        fila.ad_entity_id,
+        aplicador.cycle_id_ejecutor,
+        decision[0],
+        ahora,
+        resolucion_economica,
     )
     if target is None and economica:
         # Obs4: con goal existente se ESPERA (released, reintenta al ciclo
@@ -913,6 +1066,7 @@ def _revalida_pause(
                 "resultado": MOTIVO_ESPERA_TARGET if espera else MOTIVO_YA_NO_CALIFICA,
                 "motivo": "target_no_confiable",
                 "revalidado_at": ahora.isoformat(),
+                **({"economia": resolucion_economica} if resolucion_economica else {}),
             },
         )
         return MOTIVO_ESPERA_TARGET if espera else MOTIVO_YA_NO_CALIFICA
@@ -951,7 +1105,11 @@ def _revalida_pause(
     # CUALQUIER regla (si ademas califica la umbral, pausar sigue siendo
     # correcto); solo se cancela si ya no califica ninguna.
     califica = resultado.kind == "pause"
-    if economica or resultado.motivo == motor_bid.MOTIVO_PAUSE_ECONOMICA:
+    if (
+        economica
+        or resultado.motivo == motor_bid.MOTIVO_PAUSE_ECONOMICA
+        or decision[0].get("target_procedencia") == "margen_producto"
+    ):
         exceso = motor_bid.exceso_economico(fresco, target, motor_bid.PLATAFORMAS_MONEDA[platform])
         _registra_evidencia(
             conn,
@@ -976,6 +1134,7 @@ def _revalida_pause(
                     motor_bid.EXCESO_MINIMO[motor_bid.PLATAFORMAS_MONEDA[platform]]
                 ),
                 "resultado": "califica" if califica else MOTIVO_YA_NO_CALIFICA,
+                **({"economia": resolucion_economica} if resolucion_economica else {}),
             },
         )
     if califica:

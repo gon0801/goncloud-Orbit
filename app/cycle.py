@@ -746,7 +746,14 @@ class _MetaHoja:
     def snapshot(self) -> dict:
         """target_snapshot de la decision cuando gana margen_producto: la
         evaluacion, el derivado, el paso desde el ancla y la huella del grupo
-        (la revalidacion de una pausa la exige igual, S12)."""
+        (la revalidacion de una pausa la exige igual, S12).
+
+        ORBIT 07 M2 versiona la economia efectiva y conserva sus referencias:
+        meta calculada (eleccion), punto de equilibrio (margen neto antes de
+        publicidad), moneda, ventana del margen, ventana de las ventas
+        evaluadas y huella del alcance. `motivos` deja explicita la causa
+        cuando la evaluacion no publica meta; en ese caso `target_aplicado`
+        es None y la cascada resuelve el respaldo."""
         meta = self.evaluacion.meta
         margen = self.evaluacion.entrada.margen
         ancla = (
@@ -755,7 +762,10 @@ class _MetaHoja:
             else None
         )
         aplicado = self.resolucion.aplicado
+        halo = self.evaluacion.entrada.ventana_halo
         return {
+            "version": productos.POLITICA_ECONOMIA,
+            "procedencia": "margen_producto",
             "product_id": self.product_id,
             "grupo_id": self.grupo.grupo_id,
             "huella_alcance": self.grupo.huella_alcance,
@@ -766,6 +776,21 @@ class _MetaHoja:
             "margen_neto_pct": _dec_str(margen.margen_neto_pct)
             if isinstance(margen, g.MedicionMargen)
             else None,
+            "equilibrio_pct": _dec_str(margen.margen_neto_pct)
+            if isinstance(margen, g.MedicionMargen)
+            else None,
+            "moneda": margen.moneda if isinstance(margen, g.MedicionMargen) else None,
+            "margen_ventana_desde": _fecha_iso(margen.ventana_desde)
+            if isinstance(margen, g.MedicionMargen)
+            else None,
+            "margen_ventana_hasta": _fecha_iso(margen.ventana_hasta)
+            if isinstance(margen, g.MedicionMargen)
+            else None,
+            "ventana_halo": {
+                "desde": _fecha_iso(halo.desde),
+                "hasta_exclusivo": _fecha_iso(halo.hasta_exclusivo),
+            },
+            "motivos": list(self.evaluacion.motivos),
             "motivo": self.resolucion.motivo,
             "derivado": _dec_str(self.resolucion.derivado),
             "target_aplicado": _dec_str(aplicado),
@@ -3046,7 +3071,12 @@ def _margen_familia_de_hoja(
         # la BANDERA tiene_previo exige previo margen_familia (con previo
         # de otro peldano la hoja cae a plataforma, no converge con valor
         # ajeno).
-        ultimo = previo.target if previo is not None else familias.destino
+        # ORBIT 07 M2: el target de producto NO es ancla de la familia. Si
+        # el peldano de producto perdio elegibilidad, la familia arranca
+        # desde su propio respaldo (destino) en vez de interpolar desde el
+        # numero individual.
+        ajeno = previo is not None and previo.procedencia == "margen_producto"
+        ultimo = familias.destino if ajeno or previo is None else previo.target
         tiene_previo = previo is not None and previo.procedencia == "margen_familia"
     res, ganadora = g.resuelve_target_margen_familia(
         etiqueta,

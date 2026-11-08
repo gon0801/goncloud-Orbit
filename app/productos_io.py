@@ -659,6 +659,13 @@ def huella_grupo(conn: psycopg.Connection, ad_group_id: int) -> str:
     return _huella(_Anuncio(*fila) for fila in conn.execute(_SQL_ANUNCIOS_GRUPO, (ad_group_id,)))
 
 
+def productos_del_grupo(conn: psycopg.Connection, ad_group_id: int) -> set[int | None]:
+    """Los product_id de los product ads NO archivados de un ad group. Misma
+    regla S5 que la lectura por lote: la exclusividad la decide el llamador
+    (un solo producto conocido), nunca una identidad adivinada."""
+    return {fila[2] for fila in conn.execute(_SQL_ANUNCIOS_GRUPO, (ad_group_id,))}
+
+
 def huella_producto(entrada: p.EntradaProducto) -> str:
     """Huella del alcance del producto: las de sus grupos aptos, ordenadas."""
     lineas = sorted(

@@ -17,10 +17,14 @@ entrada congelada que la evaluacion trae dentro.
   de 30 dias se acepta sin madurez y deja el motivo halo_sin_madurar.
 - Identidad (S5): los impedimentos que el adaptador encontro (p. ej.
   sku_distinto_en_asin) impiden la meta.
-- Paso por hoja (S2): el ancla es el target previo de la hoja solo si fue
-  margen_producto. Con ella meta_de_hoja sube de una vez y baja <= 0.5 por
-  ciclo, y si el producto se abstiene converge al siguiente peldano
-  (goals.converge_al_destino con piso 0). Sin ella la meta aplica directa.
+- Paso por hoja (S2, ORBIT 07 M2): la meta calculada se aplica DIRECTA desde
+  el primer ciclo elegible y en cada cambio posterior del margen. No hay
+  rampa de 0.5 puntos para este peldano (excepcion explicita a la rampa de
+  la meta): desde un target previo de 25 % y una meta nueva de 4 %, la hoja
+  aplica 4 %, no 24.5 %. Si el producto no tiene economia apta, la hoja
+  resuelve la cascada completa de respaldo en ese ciclo: el peldano de
+  producto no aporta un valor en transicion y el target no se interpola
+  hacia otra economia. Los pasos de cambio de PUJA siguen intactos.
 - Pausa (H.2): con la ventana [D-60, D-30) completa y madura (S6), compras y
   ventas totales en cero observado y clics y gasto en o sobre los limites
   congelados (S8), una PropuestaPausa por AnuncioElegible (S4). Una venta de
@@ -61,6 +65,11 @@ POLITICA_PRODUCTO = "v2"
 POLITICAS: tuple[str, ...] = ("v1", "v2")
 
 MOTIVO_PAUSA = "producto_sin_ventas"
+
+# ORBIT 07 M2: version de la economia del producto que se congela en la
+# decision (`target_snapshot.version`) y se relee al revalidar la cola. La
+# evaluacion persistida conserva su propia version (POLITICA_PRODUCTO).
+POLITICA_ECONOMIA = "producto_directo_v1"
 
 # S17: un anuncio que regresaste no se vuelve a proponer en 7 dias.
 GRACIA_REGRESADO = dt.timedelta(days=7)
@@ -531,25 +540,21 @@ def meta_de_hoja(
     destino: Decimal | None,
     tiene_previo: bool,
 ) -> goals.ResolucionMargen:
-    """El target de producto de una hoja (S2). `ultimo` es el target previo de
-    la hoja, `destino` la cascada sin producto y `tiene_previo` dice si el
-    previo fue margen_producto. Solo ese previo es ancla: con el, la meta sube
-    de una vez y baja <= 0.5 por ciclo, y una abstencion converge al destino.
-    Sin el, la meta aplica directa y una abstencion cae al siguiente peldano."""
+    """El target de producto de una hoja (S2, ORBIT 07 M2).
+
+    Con una meta apta se aplica DIRECTA: ni el ancla ni la rampa de 0.5
+    puntos la frenan (excepcion explicita a la rampa de la meta; los pasos de
+    cambio de puja conservan su limite). Sin meta, el peldano de producto no
+    aporta un valor en transicion: `aplicado` None deja que la cascada
+    resuelva completa su respaldo en este ciclo y jamas interpola el target
+    del producto hacia una economia incompatible.
+
+    `ultimo`, `destino` y `tiene_previo` se conservan en la firma para que
+    los llamadores y la evidencia historica no cambien de camino; el replay
+    lee la evaluacion congelada y no los usa para recalcular."""
     if isinstance(meta, SinDato):
-        motivo = meta.motivos[0]
-        if not tiene_previo:
-            return goals.ResolucionMargen(None, None, motivo, False)
-        return goals.converge_al_destino(ultimo, destino, motivo, piso=Decimal(0))
-    nueva = meta.porcentaje
-    if not tiene_previo or ultimo is None:
-        return goals.ResolucionMargen(nueva, nueva, None, False)
-    ultimo = min(max(ultimo, Decimal(0)), goals.MARGEN_BANDA_MAX)
-    if nueva >= ultimo:
-        return goals.ResolucionMargen(nueva, nueva, None, False)
-    return goals.ResolucionMargen(
-        max(nueva, ultimo - goals.MARGEN_PASO_MAX_BAJADA), nueva, None, False
-    )
+        return goals.ResolucionMargen(None, None, meta.motivos[0], False)
+    return goals.ResolucionMargen(meta.porcentaje, meta.porcentaje, None, False)
 
 
 def ventana_pausa(decidido_el: dt.datetime) -> Ventana:
