@@ -21,17 +21,16 @@ Consulta: 2026-11-07 (UTC). Base: `f86ed7dcd77f0af7b540217c3df9422ebe5c7154`.
 - `app/impulso_io.py`: impulso abierto y su vigia (M3/M4).
 - `app/retiro_anuncios.py`: unico PUT y reversa del retiro (M4).
 
-## Evidencia de produccion y limite de acceso
+## Evidencia de produccion
 
-La revision independiente Astra ejecuto el SELECT inicial con `orbit_read` y
-`READ ONLY` (2026-11-08). Devolvio dos hojas por mercado con pedidos recientes,
-lectura completa D-9..D-1 y cero pedidos en la ventana fija D-39..D-10; el
-resultado redactado esta en
-[`produccion-2026-11-08.json`](produccion-2026-11-08.json). Acredita que el
-disparador de M1 existe en produccion. No acredita pausas elegibles ni perdidas:
-la ventana fija no es el contrato por hoja `min(max(metric_date)-3, D-10)` y la
-consulta no aplica todos los filtros del ciclo. La version corregida queda en
-[`consulta-pedidos-recientes.sql`](consulta-pedidos-recientes.sql); su
-ejecucion con el contrato real sigue pendiente porque este encargo no tiene
-acceso de lectura a produccion (el buzon solo habilita `ci-github`). No se
-inventaron resultados de produccion.
+La muestra inicial con ventana fija se conserva en
+[`produccion-2026-11-08.json`](produccion-2026-11-08.json). Durante el cierre
+se ejecuto la consulta corregida, con el fin de ventana propio de cada hoja,
+usando `orbit_read` y una transaccion `READ ONLY`, el 8 de noviembre de 2026
+a las 16:45 UTC. La consulta y su huella estan identificadas en
+[`produccion-por-hoja-2026-11-08.json`](produccion-por-hoja-2026-11-08.json).
+
+Se observaron ocho hojas de US y trece de MX con pedidos recientes. En cada
+mercado, dos tenian cero pedidos en la ventana madura. Esto acredita el
+disparador con el contrato real; no equivale a contar pausas elegibles ni
+perdidas, pues faltan los filtros de estado, metas, veto y umbrales del ciclo.

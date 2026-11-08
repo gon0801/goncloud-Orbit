@@ -1,8 +1,9 @@
 # ORBIT 07: activacion y reversa de las mejoras
 
-Preparada para revision. No se ejecuto en este encargo: la activacion es una
-escritura de produccion y el usuario solo autorizo desplegar las mejoras, no
-cambiar modos de pausa ni limites del dueno.
+Receta preparada para el cierre autorizado por el usuario: integrar, desplegar
+y activar las mejoras, conservando los modos de pausa y limites del dueno.
+El resultado de su ejecucion se registra en la PR #547; este documento describe
+el procedimiento y por si solo no acredita que se haya ejecutado.
 
 ## Precondiciones
 
@@ -51,9 +52,10 @@ docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_mx \
   --bid-economia economia_cambio_v1
 ```
 
-M4 no lleva comando: es la politica `v3` que ya corre por defecto. No hay
-interruptor que la apague sin volver el codigo; su reversa funcional es el
-conjunto de ventanas ya probado en `tests/test_productos_pausa.py`.
+M4 no lleva comando: es la politica `v3` que corre por defecto. No tiene un
+interruptor propio: revertirla requiere un nuevo commit que restaure la politica
+anterior, con revision, CI y despliegue. La reversa de M1/M2/M5/M6 de abajo no
+revierte M4. Se conserva la tabla 0081 y su historial si ya contiene episodios.
 
 ## Reversa
 
