@@ -345,6 +345,17 @@ manda para la implementación; este párrafo es el spec delta sellado:
   «se va a ir ajustando automaticamente» → ledger y FX en cron diario.
   `v_contribucion_entidad` (por palabra) sigue NO decisoria.
   Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`.
+- **Meta por producto (AUTO-03 C-F; ORBIT 07 M2)**: en un grupo exclusivo
+  y elegible, el peldaño `margen_producto` = `min(fracción × margen del
+  producto, 45)` sin piso de 10. ORBIT 07 M2 aplica esa meta directa desde
+  el primer ciclo elegible y en cada cambio posterior del margen (excepción
+  a la rampa de 0.5 puntos de la meta; los pasos de cambio de puja no
+  cambian). Al perder elegibilidad, la hoja resuelve la cascada completa de
+  respaldo en ese ciclo y el target individual no se interpola. La
+  revalidación de una pausa usa la evaluación fresca del ciclo ejecutor
+  (goal, identidad, atribución, moneda y respaldo); apagar
+  `ads_producto_meta_<plat>` restaura la cascada previa sin borrar
+  evaluaciones.
 - **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
   `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
 
