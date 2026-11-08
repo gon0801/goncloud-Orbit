@@ -41,7 +41,8 @@ def main():
                         print(f"{nivel} {archivo.name} hoja {n} [{nombre}] …{texto[ini:fin]}…")
                         total += nivel == "ERROR"
     print(f"{total} errores")
+    return 1 if total else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

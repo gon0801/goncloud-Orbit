@@ -63,8 +63,9 @@ Origen: dos lectores probaron el entrenamiento `docs/manual-usuario/` contra pro
 - La compuerta muestra las decisiones de la última corrida (`app/api_precios.py:185`), que repite
   el día y guarda 0 (`corrida.py:795`). El total del día está en `precio_compuerta_medicion`.
 - TACoS es de la plataforma y del mes, copiado en cada fila (`app/api_precios.py:436-496`).
-- US está sin evaluar: las 99 decisiones son `oferta_desactualizada`. La ingesta de ofertas de US
-  está atrasada (causa no investigada todavía).
+- US está sin evaluar: las 99 decisiones son `oferta_desactualizada`. Hipótesis, sin confirmar:
+  la ingesta de ofertas de US está atrasada. Ese día `spapi_pricing` de US corrió bien y escribió
+  167 filas, así que la causa puede estar en cómo el motor decide qué oferta es fresca (bloque F.1).
 - SQL de confirmación (solo lectura) en el bloque E del plan.
 
 ## Inertes tarda 235 s
@@ -79,7 +80,7 @@ Origen: dos lectores probaron el entrenamiento `docs/manual-usuario/` contra pro
 ## Formato
 
 - Unos 20 diccionarios sueltos traducen códigos con `.get(codigo, codigo)`; un código nuevo sale
-  crudo sin aviso. Lista en el informe de formato (bloque H del plan).
+  crudo sin aviso. Inventario completo en `inventario-formato.md`.
 - `dinero_ui` (`app/ui.py:81`, 34 usos) no pone separador de miles. `ts_ui` (`app/ui.py:134`)
   deja la hora en UTC. 31 fechas se imprimen sin filtro.
 - Decisiones `decisiones.html:21` y Settings `settings.html:28` imprimen la meta sin redondear.
