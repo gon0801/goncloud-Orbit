@@ -1,5 +1,5 @@
 {
-  "fecha": "2026-11-08T03:38:58+00:00",
+  "fecha": "2026-11-08T03:51:07+00:00",
   "carga": {
     "hojas": 2000,
     "filas_metricas_recientes": 18000,
@@ -19,9 +19,9 @@
     "sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
     "rondas": 5,
     "tx2_ms": {
-      "media": 1713.42,
-      "min": 1658.83,
-      "max": 1757.36
+      "media": 1676.3,
+      "min": 1638.27,
+      "max": 1719.66
     },
     "bloque_ms": {
       "media": 0.0,
@@ -29,14 +29,14 @@
       "max": 0.0
     },
     "barrido_ms": {
-      "media": 1.25,
-      "min": 1.22,
-      "max": 1.31
+      "media": 1.18,
+      "min": 1.15,
+      "max": 1.23
     },
     "ciclo_ms": {
-      "media": 8252.54,
-      "min": 7879.44,
-      "max": 8990.62
+      "media": 8191.14,
+      "min": 8018.43,
+      "max": 8557.59
     },
     "persistencia_ms": null,
     "tx2_consultas": 3627,
@@ -54,32 +54,32 @@
     ]
   },
   "candidato": {
-    "sha": "539c80bd8ee572f7deda79aa008260da91fcf654",
+    "sha": "5878569957fb83d67bcdef363a424b3c40050da3",
     "rondas": 5,
     "tx2_ms": {
-      "media": 1772.04,
-      "min": 1735.78,
-      "max": 1811.16
+      "media": 1737.35,
+      "min": 1691.1,
+      "max": 1766.85
     },
     "bloque_ms": {
-      "media": 34.54,
-      "min": 34.22,
-      "max": 35.05
+      "media": 35.69,
+      "min": 35.12,
+      "max": 36.71
     },
     "barrido_ms": {
-      "media": 34.82,
-      "min": 34.61,
-      "max": 34.95
+      "media": 35.83,
+      "min": 35.4,
+      "max": 36.48
     },
     "ciclo_ms": {
-      "media": 8291.99,
-      "min": 8155.33,
-      "max": 8397.83
+      "media": 8217.29,
+      "min": 8115.13,
+      "max": 8302.09
     },
     "persistencia_ms": {
-      "media": 53.13,
-      "min": 51.98,
-      "max": 54.97
+      "media": 57.24,
+      "min": 52.66,
+      "max": 60.05
     },
     "tx2_consultas": 3630,
     "bloque_consultas": 3,
