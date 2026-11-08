@@ -721,6 +721,31 @@ def _peldano_congelado(inputs: dict, peldano: str) -> Decimal | None:
     return Decimal(str(valor)) if valor is not None else None
 
 
+def _alcance_cambio(conn: psycopg.Connection, ad_entity_id: int, inputs: dict) -> bool:
+    """AUTO-03 F.3 (S12): en la version anterior, una decision con la meta
+    del producto solo se revalida con ella si la huella del grupo sigue igual
+    a la congelada. La version M2 sustituye este descarte por el respaldo
+    fresco."""
+    if inputs.get("target_procedencia") != "margen_producto":
+        return False
+    snapshot = inputs.get("target_snapshot")
+    congelada = snapshot.get("huella_alcance") if isinstance(snapshot, dict) else None
+    grupo = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()[0]
+    return congelada is None or productos_io.huella_grupo(conn, grupo) != congelada
+
+
+def _settings_vigentes(conn: psycopg.Connection) -> dict:
+    config = conn.execute(_SQL_CONFIG_TARGET, ()).fetchone()
+    settings = config[0] if config is not None else {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def _economia_elegida(settings: dict, platform: str) -> str:
+    if platform not in productos.PLATAFORMAS:
+        return productos.ECONOMIA_AUTO03
+    return productos.economia_desde_settings(settings, platform)
+
+
 def _producto_fresco(
     conn: psycopg.Connection,
     platform: str,
@@ -791,7 +816,11 @@ def _producto_fresco(
         }
     )
     resolucion = productos.meta_de_hoja(
-        evaluacion.meta, ultimo=None, destino=None, tiene_previo=False
+        evaluacion.meta,
+        ultimo=None,
+        destino=None,
+        tiene_previo=False,
+        version=productos.POLITICA_ECONOMIA,
     )
     detalle["motivo"] = resolucion.motivo
     if resolucion.aplicado is None:
@@ -807,6 +836,9 @@ def _familia_respaldo(
     settings: dict,
     destino: Decimal | None,
     ahora: dt.datetime,
+    *,
+    ad_entity_id: int,
+    cycle_id: int,
 ) -> tuple[Decimal | None, dict]:
     """ORBIT 07 M2: el peldano familia del respaldo, fresco, cuando la hoja
     venia de la meta individual. Usa la misma medicion y el mismo resolutor
@@ -818,6 +850,8 @@ def _familia_respaldo(
         conn,
         platform,
         campana[0],
+        ad_entity_id=ad_entity_id,
+        cycle_id=cycle_id,
         ahora=ahora,
         fraccion=g.fraccion_desde_settings(settings, platform),
         destino=destino,
@@ -831,6 +865,7 @@ def _target_pause_vigente_detalle(
     cycle_id: int,
     inputs: dict,
     ahora: dt.datetime,
+    economia: str | None = None,
 ) -> tuple[Decimal | None, str | None, dict]:
     """Resuelve la cascada del ciclo aplicador con goal y cache frescos.
 
@@ -856,6 +891,13 @@ def _target_pause_vigente_detalle(
         margen = Decimal(str(margen)) if margen is not None else None
         config = conn.execute(_SQL_CONFIG_TARGET).fetchone()
         settings = config[0] if config is not None else {}
+        if economia is None:
+            economia = (
+                productos.economia_desde_settings(settings, platform)
+                if platform in productos.PLATAFORMAS
+                else productos.ECONOMIA_AUTO03
+            )
+        detalle["version"] = economia
         campana = plataforma = None
         for f in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, estado[0])).fetchall():
             goal = g.Goal(
@@ -884,7 +926,10 @@ def _target_pause_vigente_detalle(
             campana, plataforma, settings, estado[1], platform, margen
         )
         detalle["destino"] = str(destino) if destino is not None else None
-        if inputs.get("target_procedencia") == "margen_producto":
+        if (
+            economia == productos.POLITICA_ECONOMIA
+            and inputs.get("target_procedencia") == "margen_producto"
+        ):
             grupo_fila = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()
             if grupo_fila is None:
                 return (None, None, detalle)
@@ -895,10 +940,22 @@ def _target_pause_vigente_detalle(
             familia = None
             if producto is None:
                 familia, detalle["familia"] = _familia_respaldo(
-                    conn, platform, grupo, settings, destino, ahora
+                    conn,
+                    platform,
+                    grupo,
+                    settings,
+                    destino,
+                    ahora,
+                    ad_entity_id=ad_entity_id,
+                    cycle_id=cycle_id,
                 )
-        else:
+        elif economia == productos.POLITICA_ECONOMIA:
             producto = None
+            familia = _peldano_congelado(inputs, "margen_familia")
+        else:
+            # AUTO-03: los peldaños por entidad salen congelados del snapshot
+            # de la decision, como antes de M2.
+            producto = _peldano_congelado(inputs, "margen_producto")
             familia = _peldano_congelado(inputs, "margen_familia")
         target, procedencia = g.cascada_target_acos_con_procedencia(
             campana,
@@ -925,11 +982,18 @@ def _target_pause_vigente(
     inputs: dict,
     ahora: dt.datetime | None = None,
     detalle: dict | None = None,
+    economia: str | None = None,
 ) -> tuple[Decimal | None, str | None]:
     """La cascada vigente y, si se pasa el contenedor, su detalle economico
     para la evidencia del intento (nunca reescribe los inputs de la decision)."""
     target, procedencia, resolucion = _target_pause_vigente_detalle(
-        conn, platform, ad_entity_id, cycle_id, inputs, ahora or dt.datetime.now(dt.UTC)
+        conn,
+        platform,
+        ad_entity_id,
+        cycle_id,
+        inputs,
+        ahora or dt.datetime.now(dt.UTC),
+        economia,
     )
     if detalle is not None:
         detalle.update(resolucion)
@@ -1042,6 +1106,12 @@ def _revalida_pause(
         return MOTIVO_YA_NO_CALIFICA
     razon = decision[0].get("motivo")
     economica = razon == motor_bid.MOTIVO_PAUSE_ECONOMICA
+    settings = _settings_vigentes(conn)
+    economia = _economia_elegida(settings, platform)
+    if economia == productos.ECONOMIA_AUTO03 and _alcance_cambio(
+        conn, fila.ad_entity_id, decision[0]
+    ):
+        return MOTIVO_ALCANCE_CAMBIO
     resolucion_economica: dict = {}
     target, procedencia = _target_pause_vigente(
         conn,
@@ -1051,6 +1121,7 @@ def _revalida_pause(
         decision[0],
         ahora,
         resolucion_economica,
+        economia,
     )
     if target is None and economica:
         # Obs4: con goal existente se ESPERA (released, reintenta al ciclo

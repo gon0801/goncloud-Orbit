@@ -139,10 +139,11 @@ def _siembra(conn, *, proteccion: bool = True, productos: int = 0) -> dict:
     }
     if productos:
         # ORBIT 07 M2: carga comparable del peldaño de producto (grupos
-        # exclusivos con margen valido). El goal de plataforma sin target deja
-        # entrar la meta individual; el goal de campana del bloque M1 conserva
-        # su target 25 y no cambia.
+        # exclusivos con margen valido). Cada campana nueva nace con un goal
+        # sin target por goals_write.crea_goal; el goal de campana del bloque
+        # M1 conserva su target 25 y no cambia.
         settings["ads_producto_meta_amazon_us"] = "live"
+        settings["ads_producto_economia_amazon_us"] = "producto_directo_v1"
         settings["ads_target_fraccion_margen_amazon_us"] = "0.5"
     if proteccion:
         settings["ads_proteccion_venta"] = VERSION_PROTECCION_VENTA

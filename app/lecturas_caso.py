@@ -18,7 +18,7 @@ menos una fila de alguna hoja de la plataforma en la misma lectura.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -328,11 +328,17 @@ class LecturasPlataforma:
         bid: BidVigente,
         target_acos_pct: Decimal,
         pausa: InsumosPausa,
+        equilibrio_acos_pct: Decimal | None = None,
     ) -> CasoHoja:
         """Arma el caso de una hoja. Cero consultas si la hoja no cambio de
         bid en 90 dias; UNA consulta (`_SQL_EFECTO`) si cambio. La ventana
         de cortes de la pausa la sigue leyendo cycle con windows (llega
-        dentro de `pausa`)."""
+        dentro de `pausa`).
+
+        ORBIT 07 M2: `equilibrio_acos_pct` sustituye el equilibrio de la
+        plataforma por el del producto cuando la meta individual gana. El
+        target y su punto de equilibrio viajan juntos; None conserva la
+        semantica anterior (mismo equilibrio de plataforma)."""
         cambios = self._cambios.get(hoja_id, ())
         if cambios:
             trayectoria = Trayectoria(
@@ -340,12 +346,17 @@ class LecturasPlataforma:
             )
         else:
             trayectoria = Trayectoria(cambios=(), efecto=None)
+        plataforma = (
+            replace(self.economia, equilibrio_acos_pct=equilibrio_acos_pct)
+            if equilibrio_acos_pct is not None
+            else self.economia
+        )
         return CasoHoja(
             plataforma=self.plataforma,
             hoja_id=hoja_id,
             ad_group_id=ad_group_id,
             bid=bid,
-            economia=Economia(plataforma=self.economia, target_acos_pct=target_acos_pct),
+            economia=Economia(plataforma=plataforma, target_acos_pct=target_acos_pct),
             propia=self._por_hoja.get(hoja_id),
             pedidos_inmaduros=self._inmaduros.get(hoja_id),
             grupo=self._por_grupo.get(ad_group_id),

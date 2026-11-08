@@ -29,7 +29,7 @@ SELECT id, entrada, resultado
 """
 
 _SQL_PAREJAS_FAMILIA_CAMPANA = """
-SELECT pf.familia_id
+SELECT pf.familia_id, f.padre_id
   FROM ad_entity camp
   JOIN ad_entity ag ON ag.parent_id = camp.id AND ag.kind = 'ad_group'
   JOIN ad_entity pa ON pa.parent_id = ag.id AND pa.kind = 'product_ad'
@@ -37,6 +37,7 @@ SELECT pf.familia_id
   LEFT JOIN listing li ON li.id = pa.listing_id AND li.platform = camp.platform
   LEFT JOIN producto_familia pf
     ON pf.product_id = li.product_id AND pf.platform = camp.platform
+  LEFT JOIN familia f ON f.id = pf.familia_id
  WHERE camp.id = %s AND camp.platform = %s::platform AND camp.kind = 'campaign'
 """
 
@@ -45,6 +46,19 @@ SELECT familia_id, padre_id, margen_neto_pct, cobertura, dias_con_venta,
        venta_cubierta, ledger_fresco_at, moneda, ventana_desde, ventana_hasta
   FROM v_margen_familia
  WHERE platform = %s::platform AND familia_id = ANY(%s)
+"""
+
+# A5: ultimo target vivo y terminado de UNA hoja, anterior al ciclo ejecutor.
+# Misma regla que cycle._SQL_TARGETS_PREVIOS: la cola camina desde el target
+# familiar previo de la hoja, no desde el destino, en la segunda vuelta.
+_SQL_PREVIO_HOJA = """
+SELECT t.target_acos_pct, t.procedencia
+  FROM target_acos_ciclo t
+  JOIN optimizer_cycle c ON c.id = t.cycle_id
+ WHERE t.ad_entity_id = %s AND c.platform = %s::platform
+   AND c.mode = 'live' AND c.status = 'done' AND c.id < %s
+ ORDER BY c.id DESC
+ LIMIT 1
 """
 
 
@@ -72,41 +86,8 @@ def lee_evaluacion_ciclo(
     return (fila[0], productos_io.evaluacion_de_fila(fila[1], fila[2]))
 
 
-def familia_fresca(
-    conn: psycopg.Connection,
-    platform: str,
-    campaign_id: int,
-    *,
-    ahora: dt.datetime,
-    fraccion: Decimal | None,
-    destino: Decimal | None,
-) -> tuple[Decimal | None, dict]:
-    """El peldano margen_familia de la campana con datos frescos (M2).
-
-    Respaldo completo de la economia del producto: cuando la hoja venia del
-    peldano individual y este dejo de ser elegible, la familia arranca desde
-    `destino` (plataforma o setting), no desde el target individual, y su
-    propia medicion decide. Devuelve (aplicado | None, detalle para la
-    evidencia). Sin familia efectiva o con dato invalido, `aplicado` None y
-    la cascada conserva el respaldo de plataforma/setting."""
-    pares = [
-        (campaign_id, fila[0])
-        for fila in conn.execute(_SQL_PAREJAS_FAMILIA_CAMPANA, (campaign_id, platform))
-    ]
-    familia = g.familia_efectiva_por_campana(pares).get(campaign_id)
-    detalle = {"familia": familia}
-    if familia is None or fraccion is None:
-        detalle["motivo"] = "sin_familia" if familia is None else "sin_fraccion"
-        return (None, detalle)
-    filas = {fila[0]: fila for fila in conn.execute(_SQL_MARGEN_FAMILIA, (platform, [familia]))}
-    fila = filas.get(familia)
-    if fila is None:
-        detalle["motivo"] = "sin_margen"
-        return (None, detalle)
-    padre_id = fila[1]
-    if padre_id is not None and padre_id not in filas:
-        filas.update({f[0]: f for f in conn.execute(_SQL_MARGEN_FAMILIA, (platform, [padre_id]))})
-    medicion = g.MedicionMargen(
+def _medicion(fila) -> g.MedicionMargen:
+    return g.MedicionMargen(
         margen_neto_pct=fila[2],
         cobertura=fila[3],
         dias_con_venta=fila[4],
@@ -116,28 +97,72 @@ def familia_fresca(
         ventana_desde=fila[8],
         ventana_hasta=fila[9],
     )
-    padre = (
-        g.MedicionMargen(
-            margen_neto_pct=filas[padre_id][2],
-            cobertura=filas[padre_id][3],
-            dias_con_venta=filas[padre_id][4],
-            venta_cubierta=filas[padre_id][5],
-            ledger_fresco_at=filas[padre_id][6],
-            moneda=str(filas[padre_id][7]) if filas[padre_id][7] is not None else None,
-            ventana_desde=filas[padre_id][8],
-            ventana_hasta=filas[padre_id][9],
-        )
-        if padre_id is not None and padre_id in filas
-        else None
-    )
+
+
+def familia_fresca(
+    conn: psycopg.Connection,
+    platform: str,
+    campaign_id: int,
+    *,
+    ad_entity_id: int,
+    cycle_id: int,
+    ahora: dt.datetime,
+    fraccion: Decimal | None,
+    destino: Decimal | None,
+) -> tuple[Decimal | None, dict]:
+    """El peldano margen_familia de la hoja con los mismos insumos que el ciclo
+    ejecutor (A5), no un segundo camino.
+
+    - Familia efectiva de la campana y su padre con el mismo colapso puro.
+    - Una subfamilia conocida sin fila en `v_margen_familia` entra como
+      `MEDICION_NULA` y reintenta al padre, como `cycle._margen_familia_de_hoja`.
+    - El ancla es el target familiar previo de la hoja (`target_acos_ciclo`
+      vivo y terminado anterior al ciclo ejecutor); con previo ajeno arranca
+      desde `destino`, con previo familiar camina el paso asimetrico.
+    Devuelve (aplicado | None, detalle para la evidencia)."""
+    pares: list[tuple[int, int | None]] = []
+    padre_par: dict[int, int | None] = {}
+    for fila in conn.execute(_SQL_PAREJAS_FAMILIA_CAMPANA, (campaign_id, platform)):
+        pares.append((campaign_id, fila[0]))
+        if fila[1] is not None:
+            padre_par[fila[0]] = fila[1]
+    familia = g.familia_efectiva_por_campana(pares).get(campaign_id)
+    detalle: dict = {"familia": familia}
+    if familia is None or fraccion is None:
+        detalle["motivo"] = "sin_familia" if familia is None else "sin_fraccion"
+        return (None, detalle)
+    consulta_ids = [familia]
+    padre_id = padre_par.get(familia)
+    if padre_id is not None and padre_id not in consulta_ids:
+        consulta_ids.append(padre_id)
+    filas = {fila[0]: fila for fila in conn.execute(_SQL_MARGEN_FAMILIA, (platform, consulta_ids))}
+    fila = filas.get(familia)
+    if fila is not None and fila[1] is not None:
+        padre_id = fila[1]
+        if padre_id not in filas:
+            filas.update(
+                {f[0]: f for f in conn.execute(_SQL_MARGEN_FAMILIA, (platform, [padre_id]))}
+            )
+    # Etiqueta conocida sin fila = MEDICION_NULA (el ciclo la trata asi y
+    # reintenta al padre); etiqueta ausente = None (no aplica el peldano).
+    medicion = _medicion(fila) if fila is not None else g.MEDICION_NULA
+    padre = _medicion(filas[padre_id]) if padre_id is not None and padre_id in filas else None
+    previo = conn.execute(_SQL_PREVIO_HOJA, (ad_entity_id, platform, cycle_id)).fetchone()
+    if previo is None or previo[1] == "margen_producto":
+        ultimo, tiene_previo = destino, False
+    else:
+        ultimo = Decimal(previo[0])
+        tiene_previo = previo[1] == "margen_familia"
+    detalle["previo"] = str(previo[0]) if previo is not None else None
+    detalle["tiene_previo"] = tiene_previo
     resolucion, ganadora = g.resuelve_target_margen_familia(
         medicion,
         padre,
         fraccion,
         ahora.astimezone(dt.UTC).date(),
+        ultimo,
         destino,
-        destino,
-        tiene_previo=False,
+        tiene_previo=tiene_previo,
     )
     detalle.update(
         {

@@ -74,7 +74,14 @@ def _mundo(conn, *, meta: str | None = "live") -> dict:
     _metrica_r9(conn, _run(conn), kw2)
     ids["kw2"] = kw2
     if meta is not None:
-        _config_version(conn, {**_settings(conn), "ads_producto_meta_amazon_us": meta})
+        _config_version(
+            conn,
+            {
+                **_settings(conn),
+                "ads_producto_meta_amazon_us": meta,
+                "ads_producto_economia_amazon_us": "producto_directo_v1",
+            },
+        )
     return ids
 
 

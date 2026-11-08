@@ -17,14 +17,17 @@ entrada congelada que la evaluacion trae dentro.
   de 30 dias se acepta sin madurez y deja el motivo halo_sin_madurar.
 - Identidad (S5): los impedimentos que el adaptador encontro (p. ej.
   sku_distinto_en_asin) impiden la meta.
-- Paso por hoja (S2, ORBIT 07 M2): la meta calculada se aplica DIRECTA desde
-  el primer ciclo elegible y en cada cambio posterior del margen. No hay
-  rampa de 0.5 puntos para este peldano (excepcion explicita a la rampa de
-  la meta): desde un target previo de 25 % y una meta nueva de 4 %, la hoja
-  aplica 4 %, no 24.5 %. Si el producto no tiene economia apta, la hoja
-  resuelve la cascada completa de respaldo en ese ciclo: el peldano de
-  producto no aporta un valor en transicion y el target no se interpola
-  hacia otra economia. Los pasos de cambio de PUJA siguen intactos.
+- Paso por hoja (S2). Dos versiones seleccionables por
+  `ads_producto_economia_<plat>`: ausente o `auto03` conserva la rampa de
+  0.5 y la convergencia de AUTO-03; `producto_directo_v1` (ORBIT 07 M2)
+  aplica la meta calculada DIRECTA desde el primer ciclo elegible y en cada
+  cambio posterior del margen. No hay rampa para este peldano (excepcion
+  explicita): desde un target previo de 25 % y una meta nueva de 4 %, la
+  hoja aplica 4 %, no 24.5 %. Si el producto no tiene economia apta, la
+  version nueva resuelve la cascada completa de respaldo en ese ciclo: el
+  peldano de producto no aporta un valor en transicion y el target no se
+  interpola hacia otra economia. Los pasos de cambio de PUJA siguen
+  intactos en ambas versiones.
 - Pausa (H.2): con la ventana [D-60, D-30) completa y madura (S6), compras y
   ventas totales en cero observado y clics y gasto en o sobre los limites
   congelados (S8), una PropuestaPausa por AnuncioElegible (S4). Una venta de
@@ -70,6 +73,11 @@ MOTIVO_PAUSA = "producto_sin_ventas"
 # decision (`target_snapshot.version`) y se relee al revalidar la cola. La
 # evaluacion persistida conserva su propia version (POLITICA_PRODUCTO).
 POLITICA_ECONOMIA = "producto_directo_v1"
+# AUTO-03: la version anterior. El setting ads_producto_economia_<plat>
+# selecciona la regla sin regresar el codigo; ausente = auto03 (desplegar no
+# cambia la meta de AUTO-03 hasta que el dueno elija la version nueva).
+ECONOMIA_AUTO03 = "auto03"
+POLITICAS_ECONOMIA: tuple[str, ...] = (ECONOMIA_AUTO03, POLITICA_ECONOMIA)
 
 # S17: un anuncio que regresaste no se vuelve a proponer en 7 dias.
 GRACIA_REGRESADO = dt.timedelta(days=7)
@@ -539,22 +547,34 @@ def meta_de_hoja(
     ultimo: Decimal | None,
     destino: Decimal | None,
     tiene_previo: bool,
+    version: str = ECONOMIA_AUTO03,
 ) -> goals.ResolucionMargen:
-    """El target de producto de una hoja (S2, ORBIT 07 M2).
+    """El target de producto de una hoja (S2) en la version seleccionada.
 
-    Con una meta apta se aplica DIRECTA: ni el ancla ni la rampa de 0.5
-    puntos la frenan (excepcion explicita a la rampa de la meta; los pasos de
-    cambio de puja conservan su limite). Sin meta, el peldano de producto no
-    aporta un valor en transicion: `aplicado` None deja que la cascada
-    resuelva completa su respaldo en este ciclo y jamas interpola el target
-    del producto hacia una economia incompatible.
+    `auto03` conserva la regla anterior: con ancla previa del mismo producto
+    la meta sube de una vez y baja <= 0.5 por ciclo, y una abstencion converge
+    al destino. `producto_directo_v1` (M2) aplica la meta calculada DIRECTA,
+    sin rampa; sin meta, el peldano de producto no aporta un valor en
+    transicion (`aplicado` None) y la cascada resuelve completa su respaldo.
 
-    `ultimo`, `destino` y `tiene_previo` se conservan en la firma para que
-    los llamadores y la evidencia historica no cambien de camino; el replay
-    lee la evaluacion congelada y no los usa para recalcular."""
+    El replay lee la evaluacion y el caso congelados y no recalcula con
+    esta funcion."""
+    if version not in POLITICAS_ECONOMIA:
+        raise ValueError(f"version economica desconocida: {version!r}")
     if isinstance(meta, SinDato):
-        return goals.ResolucionMargen(None, None, meta.motivos[0], False)
-    return goals.ResolucionMargen(meta.porcentaje, meta.porcentaje, None, False)
+        motivo = meta.motivos[0]
+        if version == ECONOMIA_AUTO03 and tiene_previo:
+            return goals.converge_al_destino(ultimo, destino, motivo, piso=Decimal(0))
+        return goals.ResolucionMargen(None, None, motivo, False)
+    nueva = meta.porcentaje
+    if version == ECONOMIA_AUTO03 and tiene_previo and ultimo is not None:
+        ultimo = min(max(ultimo, Decimal(0)), goals.MARGEN_BANDA_MAX)
+        if nueva >= ultimo:
+            return goals.ResolucionMargen(nueva, nueva, None, False)
+        return goals.ResolucionMargen(
+            max(nueva, ultimo - goals.MARGEN_PASO_MAX_BAJADA), nueva, None, False
+        )
+    return goals.ResolucionMargen(nueva, nueva, None, False)
 
 
 def ventana_pausa(decidido_el: dt.datetime) -> Ventana:
@@ -566,6 +586,25 @@ def ventana_pausa(decidido_el: dt.datetime) -> Ventana:
 
 def clave_modo(tipo: Literal["meta", "pausa"], plataforma: str) -> str:
     return f"ads_producto_{tipo}_{plataforma}"
+
+
+def clave_economia(plataforma: str) -> str:
+    return f"ads_producto_economia_{plataforma}"
+
+
+def economia_desde_settings(settings: Mapping, plataforma: str) -> str:
+    """Seleccion de la version economica de la plataforma. Ausente o `auto03`
+    conserva la regla de AUTO-03; `producto_directo_v1` activa M2. Un valor
+    ajeno es config corrupta (ValueError, fail-closed), como los demas
+    interruptores."""
+    _valida_plataforma(plataforma)
+    clave = clave_economia(plataforma)
+    valor = settings.get(clave)
+    if valor is None or valor == ECONOMIA_AUTO03:
+        return ECONOMIA_AUTO03
+    if valor in POLITICAS_ECONOMIA:
+        return valor
+    raise ValueError(f"setting {clave}: debe ser auto03 o {POLITICA_ECONOMIA}, llego {valor!r}")
 
 
 def clave_limite(tipo: Literal["clics", "gasto"], plataforma: str) -> str:

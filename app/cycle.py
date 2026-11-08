@@ -713,6 +713,7 @@ class _ProductosCiclo:
 
     modo_meta: str
     modo_pausa: str = "off"
+    modo_economia: str = productos.ECONOMIA_AUTO03
     evaluaciones: tuple[productos.EvaluacionProducto, ...] = ()
     por_grupo: dict[int, productos.EvaluacionProducto] = field(default_factory=dict)
     sombra: dict[int, list[dict]] = field(default_factory=lambda: defaultdict(list))
@@ -738,10 +739,18 @@ class _MetaHoja:
     resolucion: g.ResolucionMargen
     destino: Decimal | None
     previo: _PrevioHoja | None
+    version: str = productos.ECONOMIA_AUTO03
 
     @property
     def product_id(self) -> int:
         return self.evaluacion.producto.product_id
+
+    @property
+    def equilibrio_pct(self) -> Decimal | None:
+        """Punto de equilibrio del producto (margen neto antes de publicidad)
+        que corresponde a la meta de ESTA hoja. None = el producto no lo mide."""
+        margen = self.evaluacion.entrada.margen
+        return margen.margen_neto_pct if isinstance(margen, g.MedicionMargen) else None
 
     def snapshot(self) -> dict:
         """target_snapshot de la decision cuando gana margen_producto: la
@@ -764,7 +773,7 @@ class _MetaHoja:
         aplicado = self.resolucion.aplicado
         halo = self.evaluacion.entrada.ventana_halo
         return {
-            "version": productos.POLITICA_ECONOMIA,
+            "version": self.version,
             "procedencia": "margen_producto",
             "product_id": self.product_id,
             "grupo_id": self.grupo.grupo_id,
@@ -1975,7 +1984,7 @@ def _procesa_decisora(
         # producto habria dado se congela igual; sus lecturas (ventana de
         # cortes, efecto del caso) van en un SAVEPOINT para que un error no
         # aborte TX2. La hoja sigue saltada con sin_target.
-        def juicio_hipotetico(t: Decimal):
+        def juicio_hipotetico(t: Decimal, equilibrio: Decimal | None):
             with conn.transaction():
                 return _juicio_hoja(
                     conn,
@@ -1992,6 +2001,7 @@ def _procesa_decisora(
                     politica=politica,
                     lecturas=lecturas,
                     proteccion_cache=proteccion_cache,
+                    equilibrio_acos_pct=equilibrio,
                 )
 
         _anota_sombra(
@@ -2066,7 +2076,7 @@ def _procesa_decisora(
             target=target,
             procedencia=procedencia,
             actual=resultado,
-            decide_con=lambda t: bid.decide_pause(
+            decide_con=lambda t, equilibrio: bid.decide_pause(
                 platform=platform,
                 bids=None,
                 cortes=cortes_hoja,
@@ -2130,6 +2140,13 @@ def _procesa_decisora(
         bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
         target_acos_pct=target,
         pausa=pausa,
+        equilibrio_acos_pct=(
+            meta_viva.equilibrio_pct
+            if meta_viva is not None
+            and meta_viva.version == productos.POLITICA_ECONOMIA
+            and procedencia == "margen_producto"
+            else None
+        ),
     )
     veredicto = decide(caso)
     _anota_sombra(
@@ -2145,8 +2162,22 @@ def _procesa_decisora(
         target=target,
         procedencia=procedencia,
         actual=veredicto,
-        decide_con=lambda t: decide(
-            replace(caso, economia=replace(caso.economia, target_acos_pct=t))
+        decide_con=lambda t, equilibrio: decide(
+            replace(
+                caso,
+                economia=replace(
+                    caso.economia,
+                    target_acos_pct=t,
+                    plataforma=replace(
+                        caso.economia.plataforma,
+                        equilibrio_acos_pct=(
+                            equilibrio
+                            if equilibrio is not None
+                            else caso.economia.plataforma.equilibrio_acos_pct
+                        ),
+                    ),
+                ),
+            )
         ),
     )
     tick()
@@ -2262,10 +2293,13 @@ def _juicio_hoja(
     politica: str | None,
     lecturas: LecturasPlataforma | None,
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    equilibrio_acos_pct: Decimal | None = None,
 ):
     """AUTO-03 D.4: el veredicto que el camino de _procesa_decisora daria con
     `target`, con los mismos insumos y sin escribir nada (la sombra de una
-    hoja que hoy no tiene target)."""
+    hoja que hoy no tiene target). ORBIT 07 M2: `equilibrio_acos_pct` es el
+    punto de equilibrio del producto cuando la meta individual gana; None
+    conserva el equilibrio de plataforma de la era anterior."""
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso, cortes_hoja, pausa = _insumos_pausa(
         conn,
@@ -2296,6 +2330,7 @@ def _juicio_hoja(
             bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
             target_acos_pct=target,
             pausa=pausa,
+            equilibrio_acos_pct=equilibrio_acos_pct,
         )
     )
 
@@ -2308,11 +2343,14 @@ def _evalua_productos(
     decided_at: dt.datetime,
     goals: tuple[g.Goal | None, dict[int, g.Goal]],
     modos: productos.ModosProducto,
+    economia: str = productos.ECONOMIA_AUTO03,
 ) -> _ProductosCiclo:
     """AUTO-03 D.4: lectura por lote y resolutor, UNA vez por plataforma en
     TX2. La lectura corre en un SAVEPOINT: un error de SQL no aborta TX2 y
     queda en notes.productos.error (precedente: propuestas_campana)."""
-    resultado = _ProductosCiclo(modo_meta=modos.meta, modo_pausa=modos.pausa)
+    resultado = _ProductosCiclo(
+        modo_meta=modos.meta, modo_pausa=modos.pausa, modo_economia=economia
+    )
     try:
         with conn.transaction():
             entradas = productos_io.lee_entradas_productos(
@@ -2385,8 +2423,16 @@ def _meta_viva(
         ultimo=previo.target if previo is not None else None,
         destino=destino,
         tiene_previo=tiene_previo,
+        version=productos_ciclo.modo_economia,
     )
-    return _MetaHoja(evaluacion, grupo, resolucion, destino, previo)
+    return _MetaHoja(
+        evaluacion,
+        grupo,
+        resolucion,
+        destino,
+        previo,
+        version=productos_ciclo.modo_economia,
+    )
 
 
 def _hoja_sombra(
@@ -2433,7 +2479,7 @@ def _anota_sombra(
     target: Decimal | None,
     procedencia: str | None,
     actual,
-    decide_con: Callable[[Decimal], object],
+    decide_con: Callable[[Decimal, Decimal | None], object],
 ) -> None:
     """AUTO-03 D.4, meta en shadow: para una hoja de grupo apto calcula la
     meta de la hoja (S2: solo un previo margen_producto es ancla; el destino
@@ -2474,6 +2520,7 @@ def _anota_sombra(
             ultimo=previo.target if previo is not None else None,
             destino=target,
             tiene_previo=previo is not None and previo.procedencia == "margen_producto",
+            version=productos_ciclo.modo_economia,
         )
         target_meta = g.cascada_target_acos(
             goal.target_acos_pct,
@@ -2491,7 +2538,14 @@ def _anota_sombra(
             target_margen_familia,
             target_margen_producto=meta.aplicado,
         )
-        con_meta = decide_con(target_meta) if target_meta is not None else None
+        margen = evaluacion.entrada.margen
+        equilibrio = (
+            margen.margen_neto_pct
+            if productos_ciclo.modo_economia == productos.POLITICA_ECONOMIA
+            and isinstance(margen, g.MedicionMargen)
+            else None
+        )
+        con_meta = decide_con(target_meta, equilibrio) if target_meta is not None else None
     except Exception as exc:  # noqa: BLE001 - la sombra jamas cambia la hoja
         productos_ciclo.errores.append(
             f"sombra hoja {entidad_id}: {scrub(str(exc)) or type(exc).__name__}"
@@ -2949,6 +3003,7 @@ class _FamiliasCiclo:
     hoy: dt.date
     destino: Decimal | None
     notas: dict[int, dict]
+    economia: str = productos.ECONOMIA_AUTO03
 
 
 def _lee_familias_ciclo(
@@ -2959,6 +3014,7 @@ def _lee_familias_ciclo(
     hoy: dt.date,
     fraccion: Decimal | None,
     destino: Decimal | None,
+    economia: str = productos.ECONOMIA_AUTO03,
 ) -> _FamiliasCiclo:
     """Tres lecturas (margenes, parejas, previos) + colapso puro. Las notas
     por familia evaluan su motivo con ultimo=None (sin ancla: solo dicen si
@@ -3016,6 +3072,7 @@ def _lee_familias_ciclo(
         hoy,
         destino,
         notas,
+        economia,
     )
 
 
@@ -3071,12 +3128,15 @@ def _margen_familia_de_hoja(
         # la BANDERA tiene_previo exige previo margen_familia (con previo
         # de otro peldano la hoja cae a plataforma, no converge con valor
         # ajeno).
-        # ORBIT 07 M2: el target de producto NO es ancla de la familia. Si
-        # el peldano de producto perdio elegibilidad, la familia arranca
-        # desde su propio respaldo (destino) en vez de interpolar desde el
-        # numero individual.
-        ajeno = previo is not None and previo.procedencia == "margen_producto"
-        ultimo = familias.destino if ajeno or previo is None else previo.target
+        # ORBIT 07 M2: en la version nueva el target de producto NO es ancla
+        # de la familia; al perder elegibilidad la familia arranca desde su
+        # propio respaldo (destino). La version auto03 conserva el ancla
+        # historica (cualquier previo de la hoja).
+        if familias.economia == productos.POLITICA_ECONOMIA:
+            ajeno = previo is not None and previo.procedencia == "margen_producto"
+            ultimo = familias.destino if ajeno or previo is None else previo.target
+        else:
+            ultimo = previo.target if previo is not None else familias.destino
         tiene_previo = previo is not None and previo.procedencia == "margen_familia"
     res, ganadora = g.resuelve_target_margen_familia(
         etiqueta,
@@ -3135,6 +3195,13 @@ def _recorre_plataforma(
         cycle_id=cycle_id,
         decided_at=decided_at,
     )
+    # ORBIT 07 M2: la version economica se selecciona por setting (ausente =
+    # auto03) y se valida UNA vez por plataforma; un valor ajeno falla cerrado.
+    modo_economia = (
+        productos.economia_desde_settings(settings, platform)
+        if platform in productos.PLATAFORMAS
+        else productos.ECONOMIA_AUTO03
+    )
     # A5: insumos del peldano margen_familia, UNA vez por ciclo en TX2
     # (mismo snapshot); el destino del reemplazo es plataforma ?? setting.
     destino_familia = target_ciclo.margen if target_ciclo.margen is not None else setting_target
@@ -3145,6 +3212,7 @@ def _recorre_plataforma(
         hoy=decided_at.date(),
         fraccion=g.fraccion_desde_settings(settings, platform),
         destino=destino_familia,
+        economia=modo_economia,
     )
     target_ciclo = replace(
         target_ciclo, snapshot={**target_ciclo.snapshot, "familias": familias_ciclo.notas}
@@ -3165,6 +3233,7 @@ def _recorre_plataforma(
                 decided_at=decided_at,
                 goals=goals,
                 modos=modos,
+                economia=modo_economia,
             )
     # C.4 B3: sin flag, ni se evaluan (fail-closed: un deploy no avisa
     # propuestas sin el INSERT deliberado de ads_propuestas_campana).
