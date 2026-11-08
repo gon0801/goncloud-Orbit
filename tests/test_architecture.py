@@ -55,6 +55,14 @@ ALLOWLIST_TAMANO = {
         "ejecuta_retiro separaria las dos mitades de la misma exclusion — "
         "jamas partir por partir"
     ),
+    "app/optimizer/caso.py": (
+        "BIDS 02 M.1 y ORBIT 07 M1/M5/M6: el contrato congelado del caso, su "
+        "freeze (`como_json`) y su inversa exacta (`desde_json`, que levanta "
+        "ValueError ante clave ausente, extra o tipo ajeno) viven en UN modulo "
+        "por invariante. El episodio economico M5 es parte del MISMO freeze; "
+        "partirlo separaria el caso de su inversa exacta y del replay que lo "
+        "despacha — jamas partir por partir"
+    ),
     "app/dashboard_resumen.py": (
         "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
         "Ventanas, cobertura por metrica, comparacion y MA7 usan "

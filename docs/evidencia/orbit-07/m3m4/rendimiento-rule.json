@@ -1,0 +1,23 @@
+{
+  "referencia": "ORBIT 07 M4: regla v2 (base) contra v3 (candidato)",
+  "carga": {
+    "productos": 368,
+    "dias_halo": 24180,
+    "fuente": "docs/evidencia/auto-03/ejecucion/E/elegibilidad-{mx,us}.json"
+  },
+  "v2_base": {
+    "rondas": 25,
+    "mediana_ms": 16.786,
+    "minima_ms": 16.489,
+    "maxima_ms": 17.254
+  },
+  "v3_candidato": {
+    "rondas": 25,
+    "mediana_ms": 17.226,
+    "minima_ms": 16.559,
+    "maxima_ms": 18.482
+  },
+  "diferencia_mediana_ms": 0.44,
+  "presupuesto_m0_ms": 150,
+  "nota": "La regla nueva no agrega SQL: usa los dias recientes ya leidos (o dias_halo en una entrada congelada), por producto y no por hoja. La comparacion usa las mismas 368 entradas congeladas para v2 y v3. v2 y v3 corren en bloques separados de rondas, no alternados."
+}

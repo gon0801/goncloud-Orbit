@@ -821,6 +821,12 @@ SQL45 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
 ).read_text(encoding="utf-8")
 
+# ORBIT 07 M1: el CHECK vigente agrega espera_proteccion y la tabla de
+# episodios de venta reciente.
+SQL81 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
+
 
 def _sql46() -> str:
     """0046 (C.2a) se lee AL USARSE (misma idea que _ultima_migracion_con):
@@ -871,6 +877,7 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         yield conn
     finally:
         if conn is not None:
@@ -1369,3 +1376,184 @@ def test_vista_huerfana_excluye_corte_shadow_de_ciclo_live():
         _encolar(conn, dec, ids["kw"], "pause", modo="shadow")
         filas = conn.execute("SELECT decision_id, origen FROM v_decision_huerfana").fetchall()
         assert filas == [], filas
+
+
+# ===========================================================================
+# ORBIT 07 M1 (migracion 0081): proteccion_venta_reciente append-only y
+# vencimiento fijo por trigger.
+# ===========================================================================
+
+
+@_skip_db
+def test_proteccion_venta_append_only_vence_fijo_y_grants():
+    with _db_temporal_d1("orbit_pv_m1") as conn:
+        ids = _semilla_d1(conn)
+        kw = ids["kw"]
+        base = (
+            "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+            " ancla, vence_el, abierta_el, observado_el) VALUES"
+            " ('amazon_us', %s, 'proteccion_venta_v1', %s, %s, %s, %s) RETURNING id"
+        )
+        fila = conn.execute(
+            base,
+            (
+                kw,
+                dt.date(2026, 10, 5),
+                dt.date(2026, 10, 15),
+                dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+            ),
+        ).fetchone()[0]
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                base,
+                (
+                    kw,
+                    dt.date(2026, 10, 5),
+                    dt.date(2026, 10, 15),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+                ),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                base,
+                (
+                    kw,
+                    dt.date(2026, 10, 6),
+                    dt.date(2026, 10, 15),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+                ),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                base,
+                (
+                    kw,
+                    dt.date(2026, 10, 7),
+                    dt.date(2026, 10, 17),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 10, tzinfo=dt.UTC),
+                ),
+            )
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute(
+                "UPDATE proteccion_venta_reciente SET ancla = ancla WHERE id = %s", (fila,)
+            )
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM proteccion_venta_reciente WHERE id = %s", (fila,))
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE proteccion_venta_reciente")
+
+        conn.execute("SET ROLE app_decide")
+        assert conn.execute("SELECT count(*) FROM proteccion_venta_reciente").fetchone()[0] == 1
+        conn.execute("RESET ROLE")
+        conn.execute("SET ROLE app_read")
+        assert conn.execute("SELECT count(*) FROM proteccion_venta_reciente").fetchone()[0] == 1
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(
+                "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+                " ancla, vence_el, abierta_el, observado_el) VALUES"
+                " ('amazon_us', %s, 'proteccion_venta_v1', %s, %s, %s, %s)",
+                (
+                    kw,
+                    dt.date(2026, 10, 6),
+                    dt.date(2026, 10, 16),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+                ),
+            )
+        conn.execute("RESET ROLE")
+
+
+SQL81_REV = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0081_reversa_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
+
+
+@_skip_db
+def test_reversa_0081_aborta_si_hay_episodios_y_no_borra_historia():
+    """F3: la reversa de esquema no puede borrar episodios (regla 5). Con una
+    fila presente aborta y la tabla conserva el episodio."""
+    with _db_temporal_d1("orbit_pv_rev_aborta") as conn:
+        entidad = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, match_type, keyword_text)"
+            " VALUES ('amazon_us', 'keyword', 'pv-rev', 'EXACT', 'pv rev') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+            " ancla, vence_el, abierta_el, observado_el)"
+            " VALUES ('amazon_us', %s, 'proteccion_venta_v1', '2026-11-01', '2026-11-11',"
+            " '2026-11-10T00:00:00Z', '2026-11-09T00:00:00Z')",
+            (entidad,),
+        )
+        with pytest.raises(psycopg.errors.RaiseException, match="tiene episodios"):
+            conn.execute(SQL81_REV)
+        assert (
+            conn.execute("SELECT to_regclass('proteccion_venta_reciente')").fetchone()[0]
+            is not None
+        )
+        assert conn.execute("SELECT count(*) FROM proteccion_venta_reciente").fetchone()[0] == 1
+
+
+def _sonda_0081() -> str:
+    """La sonda de la cabecera, tal como la lee desplegar.sh: la primera linea
+    `-- sonda-aplicada:` de las primeras 10."""
+    for linea in SQL81.splitlines()[:10]:
+        if linea.startswith("-- sonda-aplicada:"):
+            return linea.split(":", 1)[1].strip()
+    raise AssertionError("0081 sin cabecera '-- sonda-aplicada:'")
+
+
+@_skip_db
+def test_sonda_0081_da_t_completa_y_f_sin_tabla_o_incompleta():
+    """Los tres estados que ve desplegar.sh. Antes de 0081 la sonda da f y no
+    revienta: un cast `::regclass` en el ELSE del CASE se evalua al planear
+    (UndefinedTable), por eso la cabecera usa `to_regclass`. Una 0081 a medias
+    (trigger de truncate apagado o secuencia sin USAGE) tampoco acredita la
+    migracion, y la secuencia SI es necesaria para que app_decide inserte."""
+    sonda = _sonda_0081()
+    with _db_temporal_d1("orbit_pv_sonda") as conn:
+        kw = _semilla_d1(conn)["kw"]
+        assert conn.execute(sonda).fetchone()[0] is True
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+                " ancla, vence_el, abierta_el, observado_el) VALUES"
+                " ('amazon_us', %s, 'proteccion_venta_v1', '2026-11-01', '2026-11-11',"
+                " now(), now())",
+                (kw,),
+            )
+        finally:
+            conn.execute("RESET ROLE")
+        for dano in (
+            "DROP TABLE proteccion_venta_reciente CASCADE",
+            "ALTER TABLE proteccion_venta_reciente"
+            " DISABLE TRIGGER proteccion_venta_append_only_truncate",
+            "ALTER TABLE proteccion_venta_reciente DISABLE TRIGGER proteccion_venta_append_only",
+            "ALTER TABLE proteccion_venta_reciente DISABLE TRIGGER proteccion_venta_vence_fijo",
+            "REVOKE USAGE ON SEQUENCE proteccion_venta_reciente_id_seq FROM app_decide",
+        ):
+            conn.execute("BEGIN")
+            conn.execute(dano)
+            assert conn.execute(sonda).fetchone()[0] is False, dano
+            conn.execute("ROLLBACK")
+        assert conn.execute(sonda).fetchone()[0] is True
+
+
+@_skip_db
+def test_reversa_0081_quita_la_tabla_y_restaura_el_check_sin_espera_proteccion():
+    from app.apply import MOTIVOS_SIN_APLICAR
+
+    with _db_temporal_d1("orbit_pv_rev") as conn:
+        conn.execute(SQL81_REV)
+        assert conn.execute("SELECT to_regclass('proteccion_venta_reciente')").fetchone()[0] is None
+        _, defin = conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conrelid = 'decision_sin_aplicar'::regclass AND contype = 'c'"
+            " AND conname = 'decision_sin_aplicar_motivo_check'"
+        ).fetchone()
+        assert "espera_proteccion" not in defin
+        assert tuple(re.findall(r"'([a-z_]+)'", defin)) == MOTIVOS_SIN_APLICAR[:-1]

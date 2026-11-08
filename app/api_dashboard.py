@@ -239,6 +239,9 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     politica.MOTIVO_GASTO_SIN_VENTA: "Gasto sin venta al concluir: -12%",
     politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: "Gasto sin venta al doble de concluir: -25%",
     politica.MOTIVO_GRUPO_SANGRA: "El grupo sangra y la hoja no vende: -12%",
+    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
+        "Subida frenada: el trafico adicional no compenso el gasto"
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -298,6 +301,9 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     politica.MOTIVO_SIN_CLICS_NUEVOS: "Sin clics nuevos al bid vigente: sin ajuste",
     politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Recorte frenado por costo de trafico",
     politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida frenada: sin trafico para medirla",
+    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
+        "Subida frenada: el trafico adicional no compenso el gasto"
+    ),
     politica.MOTIVO_PISO_APRENDIDO: "El recorte tocaria un bid que ya dano: sin ajuste",
     politica.MOTIVO_DATO_FALTANTE: "Dato faltante: sin ajuste",
     politica.MOTIVO_SIN_PRECIO: "Sin precio medido: sin ajuste",

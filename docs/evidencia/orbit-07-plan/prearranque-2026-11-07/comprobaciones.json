@@ -1,0 +1,359 @@
+{
+  "fecha_utc": "2026-11-07T21:35:50.625149+00:00",
+  "alcance": "Comprobacion previa a ORBIT 07; sin iniciar implementacion, cambiar configuracion ni escribir datos operativos.",
+  "resultado": "AUTO-03 terminado y desplegado. Apto para continuar desde un checkout limpio del master verificado. Hay restos de ramas integradas y borradores locales; no se declara limpia la carpeta original.",
+  "encargo": {
+    "encargo": "enc_07844b614147c266",
+    "estado": "terminado",
+    "fase_activa": "I",
+    "consultado_en_utc": "2026-11-07T21:29:58.752036+00:00"
+  },
+  "master_sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+  "prs": [
+    {
+      "number": 536,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-B",
+      "head_sha": "cfdb38df44ce42a00fd0fb32d800702731de4f05",
+      "merge_commit_sha": "5dba91104cc9d94869d65db731e60e5467be3aef",
+      "merged_at": "2026-11-06T23:29:19Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/536"
+    },
+    {
+      "number": 537,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-C",
+      "head_sha": "2f2ac1c9f1804827a2e744b7892f347c1a1d49c1",
+      "merge_commit_sha": "b10d7ef6e88d3e2531ce78bfe828e4f24336960b",
+      "merged_at": "2026-11-07T00:38:18Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/537"
+    },
+    {
+      "number": 538,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-D",
+      "head_sha": "ae73d34cdb56c377c45582848d05a9bc1a5d3b05",
+      "merge_commit_sha": "cc3a48710bc60d9f3c7c2709ae6fd0af70cf4801",
+      "merged_at": "2026-11-07T02:30:15Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/538"
+    },
+    {
+      "number": 541,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-E",
+      "head_sha": "9d3433b0feff0425f6135a95748a4252ff805d2c",
+      "merge_commit_sha": "9320cab7ea080d19c7c59ee221fb708ded63bbcd",
+      "merged_at": "2026-11-07T04:56:59Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/541"
+    },
+    {
+      "number": 542,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-F",
+      "head_sha": "f7e99d106021cf6447281c2f4ae5515bab1ab2e7",
+      "merge_commit_sha": "6c3713ae035559779d72347d88d8036c21351562",
+      "merged_at": "2026-11-07T06:30:28Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/542"
+    },
+    {
+      "number": 543,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-G",
+      "head_sha": "1c0a5f9671a2ae383bbd4bc13e08ed962c27cd8a",
+      "merge_commit_sha": "935331385425f66abdb919c97d318c7fae5a5dc6",
+      "merged_at": "2026-11-07T13:17:27Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/543"
+    },
+    {
+      "number": 544,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-H",
+      "head_sha": "00677b2919486f42c49098c8eba5c0929da48604",
+      "merge_commit_sha": "81c243b8d39b8f298077fa77d9ec4af2d772d3d3",
+      "merged_at": "2026-11-07T17:43:40Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/544"
+    },
+    {
+      "number": 545,
+      "state": "closed",
+      "merged": true,
+      "head": "encargo/enc_07844b614147c266-I",
+      "head_sha": "84056d2f3ae2272c2140c33865d61cca0a43f9d5",
+      "merge_commit_sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+      "merged_at": "2026-11-07T21:02:00Z",
+      "url": "https://github.com/gon0801/goncloud-Orbit/pull/545"
+    }
+  ],
+  "ci_pr_final": {
+    "workflow_runs": [
+      {
+        "id": 42412446838,
+        "name": "Quality",
+        "status": "completed",
+        "conclusion": "success",
+        "run_number": 1978,
+        "jobs_url": "https://api.github.com/repos/gon0801/goncloud-Orbit/actions/runs/42412446838/jobs",
+        "logs_url": "https://api.github.com/repos/gon0801/goncloud-Orbit/actions/runs/42412446838/logs",
+        "workflow_id": 339812156
+      }
+    ]
+  },
+  "ci_master": {
+    "id": 42413887888,
+    "name": "Quality",
+    "event": "push",
+    "head_sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/gon0801/goncloud-Orbit/actions/runs/42413887888"
+  },
+  "recibos": [
+    {
+      "fase": "D",
+      "sha": "cc3a48710bc60d9f3c7c2709ae6fd0af70cf4801",
+      "estado": "aplicado",
+      "hora": "2026-11-07T02:30:07Z",
+      "pasos": [
+        {
+          "paso": "desplegar",
+          "codigo": 0
+        },
+        {
+          "paso": "checklist",
+          "codigo": 0
+        }
+      ]
+    },
+    {
+      "fase": "E",
+      "sha": "9320cab7ea080d19c7c59ee221fb708ded63bbcd",
+      "estado": "aplicado",
+      "hora": "2026-11-07T04:56:50Z",
+      "pasos": [
+        {
+          "paso": "desplegar",
+          "codigo": 0
+        },
+        {
+          "paso": "checklist",
+          "codigo": 0
+        }
+      ]
+    },
+    {
+      "fase": "F",
+      "sha": "6c3713ae035559779d72347d88d8036c21351562",
+      "estado": "aplicado",
+      "hora": "2026-11-07T06:30:20Z",
+      "pasos": [
+        {
+          "paso": "desplegar",
+          "codigo": 0
+        },
+        {
+          "paso": "checklist",
+          "codigo": 0
+        }
+      ]
+    },
+    {
+      "fase": "G",
+      "sha": "935331385425f66abdb919c97d318c7fae5a5dc6",
+      "estado": "aplicado",
+      "hora": "2026-11-07T13:17:17Z",
+      "pasos": [
+        {
+          "paso": "desplegar",
+          "codigo": 0
+        },
+        {
+          "paso": "checklist",
+          "codigo": 0
+        }
+      ]
+    },
+    {
+      "fase": "H",
+      "sha": "81c243b8d39b8f298077fa77d9ec4af2d772d3d3",
+      "estado": "aplicado",
+      "hora": "2026-11-07T17:43:30Z",
+      "pasos": [
+        {
+          "paso": "desplegar",
+          "codigo": 0
+        },
+        {
+          "paso": "checklist",
+          "codigo": 0
+        }
+      ]
+    },
+    {
+      "fase": "I",
+      "sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+      "estado": "aplicado",
+      "hora": "2026-11-07T21:01:44Z",
+      "pasos": [
+        {
+          "paso": "desplegar",
+          "codigo": 0
+        },
+        {
+          "paso": "checklist",
+          "codigo": 0
+        }
+      ]
+    }
+  ],
+  "servidor": {
+    "salida": "2026-11-07T21:30:37Z\norbit-app-1 Up 27 minutes\norbit-db-1 Up 2 months\nf86ed7dcd77f0af7b540217c3df9422ebe5c7154\nMOTOR_SHA=f86ed7dcd77f0af7b540217c3df9422ebe5c7154\nESTADO=guardas\nSHA_PREVIO=81c243b8d39b8f298077fa77d9ec4af2d772d3d3\nESTADO=desplegado\nESTADO=verificado\n{\"status\":\"ok\"}",
+    "huellas_contenedor": {
+      "archivos_comparados": 206,
+      "faltantes": [],
+      "diferencias": []
+    },
+    "respaldo_y_candado": [
+      "RESPALDO_ULTIMO_PRESENTE",
+      "CANDADO_DESPLIEGUE_LIBRE"
+    ]
+  },
+  "migraciones": [
+    "0076_auto03_peldano_producto.sql|t",
+    "0077_auto03_evaluacion_producto.sql|t",
+    "0078_auto03_retiro_decision.sql|t",
+    "0079_auto03_vista_impulso.sql|t",
+    "0080_auto03_retiro_desde_ciclo.sql|t"
+  ],
+  "sondas": [
+    "t|el CHECK de procedencia de target_acos_ciclo admite margen_producto",
+    "t|existe decision.evaluacion_producto_id",
+    "t|ultima config_version con la meta de amazon_mx y amazon_us en live",
+    "t|2 ciclos con la meta en live: 0 hojas margen_producto, todas con su meta congelada",
+    "t|0 hojas de grupo apto con target sin goal que no pasaron por la meta",
+    "t|0 decisiones con procedencia margen_producto sin evaluacion_producto_id",
+    "t|ultima config_version con la pausa de amazon_mx en shadow y la de amazon_us en shadow (shadow o live; en live con sus dos limites)",
+    "t|sin filas",
+    "t|ninguna pausa de product ad applying sin intencion abierta"
+  ],
+  "evaluacion_y_replay": [
+    "{\"abstenciones\": {\"halo_sin_margen\": 90, \"sin_margen\": 91, \"ventana_corta\": 151}, \"alcance_anuncios\": \"S4 completo: impulso abierto, claves en vuelo y regresados fuera\", \"anuncios_afectables\": 0, \"anuncios_elegibles\": 1157, \"anuncios_excluidos\": {\"alta_en_ventana\": 5, \"sin_actividad_en_ventana\": 2443}, \"candidatos_pausa\": 0, \"candidatos_sin_propuesta\": {}, \"con_meta\": 1, \"grupos_aptos\": 6, \"hojas_bajo_grupo_apto\": 104, \"hojas_efectivas\": 0, \"hojas_pisadas_por_goal_con_target\": 0, \"motivos_ventana_pausa\": {\"fecha_desconocida\": 46, \"sin_filas_en_ventana\": 25}, \"plataforma\": \"amazon_mx\", \"politica\": \"v2\", \"productos_con_pausa\": 0, \"productos_evaluados\": 249, \"propuestas_pausa\": 0, \"ventana_pausa_completa\": 178}",
+    "{\"abstenciones\": {\"halo_sin_margen\": 26, \"sin_margen\": 61, \"ventana_corta\": 55}, \"alcance_anuncios\": \"S4 completo: impulso abierto, claves en vuelo y regresados fuera\", \"anuncios_afectables\": 29, \"anuncios_elegibles\": 386, \"anuncios_excluidos\": {\"sin_actividad_en_ventana\": 2784}, \"candidatos_pausa\": 3, \"candidatos_sin_propuesta\": {}, \"con_meta\": 0, \"grupos_aptos\": 0, \"hojas_bajo_grupo_apto\": 0, \"hojas_efectivas\": 0, \"hojas_pisadas_por_goal_con_target\": 0, \"motivos_ventana_pausa\": {\"fecha_desconocida\": 29, \"sin_filas_en_ventana\": 35}, \"plataforma\": \"amazon_us\", \"politica\": \"v2\", \"productos_con_pausa\": 3, \"productos_evaluados\": 119, \"propuestas_pausa\": 29, \"ventana_pausa_completa\": 55}",
+    "replay amazon_mx: diferencias: 0 (ciclo 173, 249 evaluaciones)",
+    "replay amazon_mx: pausas de producto: 0 decisiones, diferencias: 0 (pausa apagada)",
+    "replay amazon_us: diferencias: 0 (ciclo 172, 119 evaluaciones)",
+    "replay amazon_us: pausas de producto: 0 decisiones, diferencias: 0 (pausa apagada)"
+  ],
+  "procesos": {
+    "pc": "0 encargos activos; ningun proceso de AUTO-03; worktrees de sus fases retirados.",
+    "mac": "0 encargos activos.",
+    "mini": "1 encargo de goncloud-motor, PR #414, distinto de Orbit; no es el encargo AUTO-03."
+  },
+  "ramas_remotas": [
+    {
+      "rama": "encargo/enc_07844b614147c266-B",
+      "sha_remoto": "cfdb38df44ce42a00fd0fb32d800702731de4f05",
+      "sha_revisado": "cfdb38df44ce42a00fd0fb32d800702731de4f05",
+      "sin_cambios_posteriores": true,
+      "pr": 536,
+      "integrada": true,
+      "integracion_en_master": true
+    },
+    {
+      "rama": "encargo/enc_07844b614147c266-C",
+      "sha_remoto": "2f2ac1c9f1804827a2e744b7892f347c1a1d49c1",
+      "sha_revisado": "2f2ac1c9f1804827a2e744b7892f347c1a1d49c1",
+      "sin_cambios_posteriores": true,
+      "pr": 537,
+      "integrada": true,
+      "integracion_en_master": true
+    },
+    {
+      "rama": "encargo/enc_07844b614147c266-D",
+      "sha_remoto": "ae73d34cdb56c377c45582848d05a9bc1a5d3b05",
+      "sha_revisado": "ae73d34cdb56c377c45582848d05a9bc1a5d3b05",
+      "sin_cambios_posteriores": true,
+      "pr": 538,
+      "integrada": true,
+      "integracion_en_master": true
+    },
+    {
+      "rama": "encargo/enc_07844b614147c266-E",
+      "sha_remoto": "9d3433b0feff0425f6135a95748a4252ff805d2c",
+      "sha_revisado": "9d3433b0feff0425f6135a95748a4252ff805d2c",
+      "sin_cambios_posteriores": true,
+      "pr": 541,
+      "integrada": true,
+      "integracion_en_master": true
+    },
+    {
+      "rama": "encargo/enc_07844b614147c266-F",
+      "sha_remoto": "f7e99d106021cf6447281c2f4ae5515bab1ab2e7",
+      "sha_revisado": "f7e99d106021cf6447281c2f4ae5515bab1ab2e7",
+      "sin_cambios_posteriores": true,
+      "pr": 542,
+      "integrada": true,
+      "integracion_en_master": true
+    },
+    {
+      "rama": "encargo/enc_07844b614147c266-G",
+      "sha_remoto": "1c0a5f9671a2ae383bbd4bc13e08ed962c27cd8a",
+      "sha_revisado": "1c0a5f9671a2ae383bbd4bc13e08ed962c27cd8a",
+      "sin_cambios_posteriores": true,
+      "pr": 543,
+      "integrada": true,
+      "integracion_en_master": true
+    },
+    {
+      "rama": "encargo/enc_07844b614147c266-H",
+      "sha_remoto": "00677b2919486f42c49098c8eba5c0929da48604",
+      "sha_revisado": "00677b2919486f42c49098c8eba5c0929da48604",
+      "sin_cambios_posteriores": true,
+      "pr": 544,
+      "integrada": true,
+      "integracion_en_master": true
+    },
+    {
+      "rama": "encargo/enc_07844b614147c266-I",
+      "sha_remoto": "84056d2f3ae2272c2140c33865d61cca0a43f9d5",
+      "sha_revisado": "84056d2f3ae2272c2140c33865d61cca0a43f9d5",
+      "sin_cambios_posteriores": true,
+      "pr": 545,
+      "integrada": true,
+      "integracion_en_master": true
+    }
+  ],
+  "carpeta_original": {
+    "rama": "resumen-ads-04-diseno",
+    "sha": "5adf1be0bb8bdd84d46c7b7e8588b66daeea6a99",
+    "estado": "Manifest modificado y borradores/evidencias sin seguimiento preexistentes. Conservados; no usar como base de implementacion."
+  },
+  "checkout_comprobado": {
+    "sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+    "status_porcelain": "",
+    "uso": "Temporal aislado para verificar; se retira al cerrar la comprobacion.",
+    "retirado_al_cerrar": true
+  },
+  "limites": "Meta en live en ambos mercados pero 0 hojas efectivas en la evaluacion actual; no se afirma beneficio comercial. Pausa shadow por decision del dueno. No se ejercio un PUT real ni se activo la pausa.",
+  "evidencia_reutilizada": "Suite Quality del SHA final y master, recibos de despliegue y conciliacion externa de AUTO-03 I. No se repitio la suite ni se solicitaron nuevos reportes a Amazon.",
+  "conector_github": "PRs y CI de PR consultados con el plugin. Su herramienta de workflows filtra a eventos pull_request; el push de master se consulto con gh api.",
+  "conciliacion_heredada": {
+    "fuente": "docs/evidencia/auto-03/ejecucion/I/evidencia.txt en f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+    "diferencias_decisorias": {
+      "amazon_mx": 0,
+      "amazon_us": 0
+    },
+    "observacion": "En relleno informativo US, producto 263 difiere en compras y ventas. Se conserva para M0; no se afirma conciliacion exhaustiva del catalogo."
+  },
+  "verificacion_documental": {
+    "pre_commit_archivos": "Passed: secretos y conflictos",
+    "pre_commit_all_files": "Passed: secretos y conflictos",
+    "git_diff_check": "Passed"
+  }
+}

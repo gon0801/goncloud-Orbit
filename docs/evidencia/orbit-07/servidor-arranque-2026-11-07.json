@@ -1,0 +1,11 @@
+{
+  "sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+  "despliegue": {
+    "MOTOR_SHA": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+    "ESTADO": "verificado",
+    "SHA_PREVIO": "81c243b8d39b8f298077fa77d9ec4af2d772d3d3"
+  },
+  "health": {
+    "status": "ok"
+  }
+}

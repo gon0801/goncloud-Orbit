@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from typing import Literal
 
+from app.optimizer import economia_cambio
+from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
 from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel
 from app.optimizer.evidencia import gamma_p, gamma_q
@@ -61,6 +63,10 @@ MOTIVO_ESPERANDO_PRECIO_MEDIDO = "esperando_precio_medido"
 MOTIVO_SIN_CLICS_NUEVOS = "sin_clics_nuevos"
 MOTIVO_RECORTE_COSTO_TRAFICO = "recorte_costo_trafico"
 MOTIVO_SUBIDA_SIN_TRAFICO = "subida_sin_trafico"
+# ORBIT 07 M6: repeticion juzgada con el episodio economico maduro. Solo se
+# frena la subida sin compensacion; el recorte sin ventas conservadas o sin
+# mejora de ACoS devuelve sin evidencia y R16 decide como antes.
+MOTIVO_SUBIDA_SIN_ECONOMIA = economia_cambio.MOTIVO_SUBIDA_SIN_ECONOMIA
 MOTIVO_PISO_APRENDIDO = "piso_aprendido"
 MOTIVO_DATO_FALTANTE = "dato_faltante"
 MOTIVO_SIN_PRECIO = "sin_precio"
@@ -174,14 +180,21 @@ def decide(caso: CasoHoja) -> Veredicto:
        Cualquier metrica None que la regla consuma -> Mantener(dato_faltante). Sin CPC ->
        Mantener(sin_precio).
 
-    3. Un movimiento se repite solo si el anterior tuvo el efecto buscado (sobre el candidato):
-       R14 direccion contraria al ultimo cambio y clics_post < CLICS_NUEVOS y
-           dias_post < DIAS_SALIDA -> Mantener(esperando_precio_medido)
-       R15 misma direccion y clics_post < CLICS_NUEVOS -> Mantener(sin_clics_nuevos)
-       R16 otro recorte y razon_trafico < RAZON_RETIENE -> Mantener(recorte_costo_trafico)
-           otra subida y razon_trafico < RAZON_CRECE -> Mantener(subida_sin_trafico)
-       R17 recorte que dejaria el bid en o debajo de trayectoria.piso_aprendido ->
-           Mantener(piso_aprendido)
+     3. Un movimiento se repite solo si el anterior tuvo el efecto buscado (sobre el candidato):
+        R14 direccion contraria al ultimo cambio y clics_post < CLICS_NUEVOS y
+            dias_post < DIAS_SALIDA -> Mantener(esperando_precio_medido)
+        R15 misma direccion y clics_post < CLICS_NUEVOS -> Mantener(sin_clics_nuevos)
+        R16 otro recorte y razon_trafico < RAZON_RETIENE -> Mantener(recorte_costo_trafico)
+            otra subida y razon_trafico < RAZON_CREECE -> Mantener(subida_sin_trafico)
+        R16b (ORBIT 07 M6) con episodio economico maduro, comparable y aplicable:
+            recorte con ventas conservadas y ACoS mejor -> permite repetir aunque
+            R16 frenara por trafico; recorte sin ventas conservadas o sin mejora ->
+            sin evidencia y R16 decide como antes (M6 no frena recortes); subida
+            cuyo trafico adicional no compensa el gasto ->
+            Mantener(subida_sin_economia). Sin episodio maduro, R16 decide como
+            antes.
+        R17 recorte que dejaria el bid en o debajo de trayectoria.piso_aprendido ->
+            Mantener(piso_aprendido)
 
     4. _paso(caso.bid, candidato): clamps de hoy (factor en [-30 %, +20 %], [piso, techo],
        delta minimo, rango_bloquea_ajuste) -> Mover, o Mantener con el motivo del clamp.
@@ -191,6 +204,11 @@ def decide(caso: CasoHoja) -> Veredicto:
         raise ValueError(f"target_acos_pct invalido: {target!r} (debe ser > 0)")
 
     # R0: PAUSE decide primero; solo un pause real interrumpe (un bloqueo se descarta y sigue).
+    # ORBIT 07 M1: la pausa por cero pedidos consulta la subpolitica de venta
+    # reciente con la MISMA funcion pura que usa la revalidacion de la cola.
+    resultado_proteccion = (
+        subproteccion.evalua(caso.pausa.proteccion) if caso.pausa.proteccion is not None else None
+    )
     pausa, _motivo_bloqueado = _decide_pause(
         caso.pausa.cortes,
         caso.economia.plataforma.moneda,
@@ -198,11 +216,16 @@ def decide(caso: CasoHoja) -> Veredicto:
         caso.pausa.gasto_minimo,
         target,
         caso.pausa.politica_economica,
+        proteccion=resultado_proteccion,
     )
     if pausa is not None:
         assert pausa.kind == "pause"
         assert pausa.motivo is not None
         return Pausar(pausa.motivo)
+    # ORBIT 07 M1: la proteccion por venta reciente solo SUPRIME la pausa por
+    # cero pedidos; el juicio de pujas sigue su camino normal (R1-R17) y el
+    # ciclo registra el episodio con la misma subpolitica pura. No se devuelve
+    # un Mantener aqui: eso congelaria la hoja y repetiria el defecto R2.
 
     ultimo = caso.trayectoria.ultimo
     if ultimo is not None:
@@ -356,14 +379,26 @@ def _freno_trayectoria(caso, ultimo, efecto, factor: Decimal) -> Mantener | None
             return Mantener(MOTIVO_DATO_FALTANTE)
         if efecto.clics_post < CLICS_NUEVOS:
             return Mantener(MOTIVO_SIN_CLICS_NUEVOS)
-        if efecto.impresiones_pre7 is None or efecto.impresiones_post is None:
-            return Mantener(MOTIVO_DATO_FALTANTE)
-        razon = efecto.razon_trafico()
-        if razon is not None:
-            if factor < 0 and razon < RAZON_RETIENE:
-                return Mantener(MOTIVO_RECORTE_COSTO_TRAFICO)
-            if factor > 0 and razon < RAZON_CRECE:
-                return Mantener(MOTIVO_SUBIDA_SIN_TRAFICO)
+        # ORBIT 07 M6: el episodio economico maduro puede permitir el recorte
+        # (podo trafico que no vendia) o frenar la repeticion. Sin evidencia
+        # madura, R16 de la trayectoria vigente decide como antes.
+        juicio = economia_cambio.juicio_repeticion(
+            caso.trayectoria.episodio,
+            target_acos_pct=caso.economia.target_acos_pct,
+            factor=factor,
+        )
+        if juicio.veredicto == "frena":
+            assert juicio.motivo is not None
+            return Mantener(juicio.motivo)
+        if juicio.veredicto != "permite":
+            if efecto.impresiones_pre7 is None or efecto.impresiones_post is None:
+                return Mantener(MOTIVO_DATO_FALTANTE)
+            razon = efecto.razon_trafico()
+            if razon is not None:
+                if factor < 0 and razon < RAZON_RETIENE:
+                    return Mantener(MOTIVO_RECORTE_COSTO_TRAFICO)
+                if factor > 0 and razon < RAZON_CRECE:
+                    return Mantener(MOTIVO_SUBIDA_SIN_TRAFICO)
     if factor < 0:
         piso = caso.trayectoria.piso_aprendido
         bid = caso.bid.valor

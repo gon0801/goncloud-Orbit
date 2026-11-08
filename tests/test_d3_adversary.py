@@ -23,15 +23,21 @@ class MutacionDetectada(Exception):
 def _escenario_harvest(caso: str):
     conn = Mock()
     conn.transaction.side_effect = lambda: nullcontext()
-    conn.execute.return_value.fetchone.return_value = (1,)
     if caso == "apagado":
-        conn.execute.return_value.fetchall.return_value = [
-            (1, "harvest", 10, "arras", 99, {}, "pending_veto")
-        ]
+        filas_cola = [(1, "harvest", 10, "arras", 99, {}, "pending_veto")]
     else:
-        conn.execute.return_value.fetchall.return_value = [
-            (1, 99, "arras", 10, "pending", {}, "amazon_mx")
-        ]
+        filas_cola = [(1, 99, "arras", 10, "pending", {}, "amazon_mx")]
+    # ORBIT 07 M1: libera_vencidos lee la proteccion de venta reciente con dos
+    # SELECT adicionales; el mock responde vacio para esas dos consultas y
+    # conserva la fila de la cola para las demas.
+    from app import proteccion_venta
+
+    def _execute(sql, params=()):
+        if sql in (proteccion_venta._SQL_RECIENTES, proteccion_venta._SQL_EPISODIOS):
+            return SimpleNamespace(fetchall=lambda: [], fetchone=lambda: None)
+        return SimpleNamespace(fetchall=lambda: filas_cola, fetchone=lambda: (1,))
+
+    conn.execute.side_effect = _execute
     cliente = Mock()
     cliente.crear_negative_exacto.side_effect = MutacionDetectada()
     aplicador = SimpleNamespace(

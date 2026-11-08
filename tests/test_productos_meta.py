@@ -77,7 +77,7 @@ def test_margen_40_con_fraccion_05_da_meta_20():
     ev = p.resolver_producto(_entrada("40", "0.5"))
     assert ev.meta == p.MetaReferencia(Decimal("20.0"), (GRUPO,))
     assert ev.motivos == ("halo_sin_madurar",)
-    assert ev.politica == "v2"
+    assert ev.politica == p.POLITICA_PRODUCTO
 
 
 def test_margen_8_con_fraccion_05_da_meta_4_sin_piso_de_10():
@@ -147,35 +147,94 @@ def test_grupo_no_apto_queda_sin_meta():
     assert p.meta_para_grupo((sin_aptos,), 501) == p.SinDato(("grupo_no_apto",))
 
 
-def test_con_ancla_sube_de_una_vez_y_baja_medio_punto():
+def test_meta_de_producto_se_aplica_directa_sin_rampa():
+    """ORBIT 07 M2: excepcion a la rampa de 0.5 puntos. Desde un target previo
+    de 25 % del mismo producto, una meta calculada de 4 % aplica 4 %, no
+    24.5 %; una subida tambien aplica de una vez."""
     meta_20 = p.MetaReferencia(Decimal("20"), (GRUPO,))
     meta_4 = p.MetaReferencia(Decimal("4"), (GRUPO,))
-    sube = p.meta_de_hoja(meta_20, ultimo=Decimal("10"), destino=None, tiene_previo=True)
+    version = p.POLITICA_ECONOMIA
+    sube = p.meta_de_hoja(
+        meta_20, ultimo=Decimal("10"), destino=None, tiene_previo=True, version=version
+    )
     assert (sube.aplicado, sube.motivo) == (Decimal("20"), None)
-    baja = p.meta_de_hoja(meta_4, ultimo=Decimal("6"), destino=None, tiene_previo=True)
-    assert baja.aplicado == Decimal("5.5")
-    llega = p.meta_de_hoja(meta_4, ultimo=Decimal("4.2"), destino=None, tiene_previo=True)
-    assert llega.aplicado == Decimal("4")
-    sin_ancla = p.meta_de_hoja(meta_4, ultimo=None, destino=None, tiene_previo=False)
+    desde_25 = p.meta_de_hoja(
+        meta_4, ultimo=Decimal("25"), destino=None, tiene_previo=True, version=version
+    )
+    assert desde_25.aplicado == Decimal("4")
+    desde_6 = p.meta_de_hoja(
+        meta_4, ultimo=Decimal("6"), destino=None, tiene_previo=True, version=version
+    )
+    assert desde_6.aplicado == Decimal("4")
+    sin_ancla = p.meta_de_hoja(
+        meta_4, ultimo=None, destino=None, tiene_previo=False, version=version
+    )
     assert sin_ancla.aplicado == Decimal("4")
 
 
-def test_previo_de_otro_peldano_no_es_ancla():
-    """S2: entrar desde familia, plataforma o setting en 20 aplica la meta 4 de
-    una vez; solo un previo margen_producto frena la bajada."""
+def test_previo_de_otro_peldano_no_cambia_la_meta_directa():
+    """S2/M2: entrar desde familia, plataforma o setting aplica la meta 4 de
+    una vez; un previo margen_producto ya no la frena con la rampa."""
     meta_4 = p.resolver_producto(_entrada("8")).meta
-    entra = p.meta_de_hoja(meta_4, ultimo=Decimal("20"), destino=Decimal("20"), tiene_previo=False)
+    version = p.POLITICA_ECONOMIA
+    entra = p.meta_de_hoja(
+        meta_4,
+        ultimo=Decimal("20"),
+        destino=Decimal("20"),
+        tiene_previo=False,
+        version=version,
+    )
     assert (entra.aplicado, entra.derivado, entra.motivo) == (Decimal("4.0"), Decimal("4.0"), None)
-    sigue = p.meta_de_hoja(meta_4, ultimo=Decimal("20"), destino=Decimal("20"), tiene_previo=True)
-    assert sigue.aplicado == Decimal("19.5")
+    sigue = p.meta_de_hoja(
+        meta_4,
+        ultimo=Decimal("20"),
+        destino=Decimal("20"),
+        tiene_previo=True,
+        version=version,
+    )
+    assert sigue.aplicado == Decimal("4.0")
 
 
-def test_dato_invalido_con_ancla_converge_al_destino():
+def test_sin_meta_el_respaldo_es_completo_sin_interpolar():
+    """M2: al perder elegibilidad el peldano de producto no aporta un valor en
+    transicion; la cascada resuelve completa su respaldo en ese ciclo."""
     abstiene = p.SinDato(("ledger_rancio",))
-    res = p.meta_de_hoja(abstiene, ultimo=Decimal("4"), destino=Decimal("20"), tiene_previo=True)
-    assert (res.aplicado, res.motivo, res.convergiendo) == (Decimal("4.5"), "ledger_rancio", True)
-    cae = p.meta_de_hoja(abstiene, ultimo=Decimal("4"), destino=Decimal("20"), tiene_previo=False)
-    assert (cae.aplicado, cae.motivo) == (None, "ledger_rancio")
+    for tiene_previo in (True, False):
+        res = p.meta_de_hoja(
+            abstiene,
+            ultimo=Decimal("4"),
+            destino=Decimal("20"),
+            tiene_previo=tiene_previo,
+            version=p.POLITICA_ECONOMIA,
+        )
+        assert (res.aplicado, res.motivo, res.convergiendo) == (None, "ledger_rancio", False)
+
+
+def test_version_auto03_conserva_la_rampa_y_la_convergencia():
+    """La seleccion ausente/auto03 restaura la regla de AUTO-03: 25 % previo y
+    meta 4 % aplica 24.5 %, y una abstencion con ancla converge al destino."""
+    meta_4 = p.MetaReferencia(Decimal("4"), (GRUPO,))
+    auto03 = p.meta_de_hoja(
+        meta_4,
+        ultimo=Decimal("25"),
+        destino=Decimal("30"),
+        tiene_previo=True,
+        version=p.ECONOMIA_AUTO03,
+    )
+    assert auto03.aplicado == Decimal("24.5")
+    abstiene = p.SinDato(("ledger_rancio",))
+    converge = p.meta_de_hoja(
+        abstiene,
+        ultimo=Decimal("4"),
+        destino=Decimal("20"),
+        tiene_previo=True,
+        version=p.ECONOMIA_AUTO03,
+    )
+    assert (converge.aplicado, converge.motivo, converge.convergiendo) == (
+        Decimal("4.5"),
+        "ledger_rancio",
+        True,
+    )
 
 
 @pytest.mark.parametrize(

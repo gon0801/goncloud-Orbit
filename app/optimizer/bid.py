@@ -88,6 +88,8 @@ import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.optimizer import proteccion as subproteccion
+from app.optimizer.caso import InsumosProteccion, ResultadoProteccion
 from app.optimizer.windows import AgregadoMetricas
 
 # ---------------------------------------------------------------------------
@@ -178,6 +180,9 @@ class ResultadoBid:
     window_start: dt.date | None
     window_end: dt.date | None
     data_observed_at: dt.datetime | None
+    # ORBIT 07 M1: resultado de la subpolitica de venta reciente cuando la
+    # pausa por umbral quedo protegida o el dato reciente es desconocido.
+    proteccion: ResultadoProteccion | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -211,12 +216,18 @@ def _decide_pause(
     costo_piso: Decimal,
     target_acos_pct: Decimal,
     policy_version: str | None,
+    proteccion: ResultadoProteccion | None = None,
 ) -> tuple[ResultadoBid | None, str | None]:
     """El bloque pause: regla de cero pedidos con clicks/cost sobre el
     piso, y despues la economica versionada. El pause no consume bandas:
     es identico en todas las eras (lo usan niveles_v3, la revalidacion
     de la cola y el replay de historia). Devuelve (pause, None) o
-    (None, motivo_de_bloqueo)."""
+    (None, motivo_de_bloqueo).
+
+    ORBIT 07 M1: `proteccion` llega YA EVALUADA por la subpolitica pura. Si la
+    pausa por cero pedidos queda protegida (o el dato reciente es
+    desconocido), no se pausa; la pausa economica, si califica, conserva la
+    precedencia. `proteccion=None` es la semantica historica intacta."""
     if cortes is None:
         return (None, None)
     motivo: str | None = None
@@ -228,52 +239,72 @@ def _decide_pause(
         motivo = MOTIVO_PAUSE_ORDERS_DESCONOCIDO
     elif cortes.clicks is None or cortes.cost is None:
         motivo = MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS
-    elif cortes.orders == 0 and cortes.clicks >= umbral_pause and cortes.cost >= costo_piso:
-        razon = MOTIVO_PAUSE
-        return (
-            ResultadoBid(
-                "pause",
-                razon,
-                None,
-                None,
-                None,
-                None,
-                cortes.window_start,
-                cortes.window_end,
-                cortes.observed_at_max,
-            ),
-            None,
-        )
+    pausa_umbral = (
+        motivo is None
+        and cortes.orders == 0
+        and cortes.clicks >= umbral_pause
+        and cortes.cost >= costo_piso
+    )
     exceso = exceso_economico(cortes, target_acos_pct, moneda)
     # Obs4r2: la regla economica exige orders/clicks CONOCIDOS, como la
     # umbral (pausar con ventas desconocidas es justo lo que
     # pause_orders_desconocido prohibe; el motivo de abstencion ya quedo
     # en `motivo` arriba y manda al no disparar).
-    if (
+    pausa_economica = (
         policy_version == POLITICA_PAUSE_ECONOMICA
         and exceso is not None
         and cortes.orders is not None
         and cortes.clicks is not None
         and cortes.cost > MULT_PAUSE_ECONOMICA * target_acos_pct * cortes.ad_revenue / _CIEN
         and exceso >= EXCESO_MINIMO[moneda]
-    ):
-        return (
-            ResultadoBid(
-                "pause",
-                MOTIVO_PAUSE_ECONOMICA,
-                None,
-                None,
-                None,
-                None,
-                cortes.window_start,
-                cortes.window_end,
-                cortes.observed_at_max,
-            ),
-            None,
-        )
+    )
+    if pausa_umbral:
+        if proteccion is not None and proteccion.accion in ("esperar", "indeterminada"):
+            # La venta reciente no oculta una pausa economica con datos
+            # completos: esa conserva la precedencia.
+            if pausa_economica:
+                return _pausa_economica(cortes)
+            return (None, proteccion.motivo)
+        return _pausa_umbral(cortes)
+    if pausa_economica:
+        return _pausa_economica(cortes)
     if policy_version == POLITICA_PAUSE_ECONOMICA and exceso is None and motivo is None:
         motivo = MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE
     return (None, motivo)
+
+
+def _pausa_umbral(cortes: AgregadoMetricas) -> tuple[ResultadoBid, None]:
+    return (
+        ResultadoBid(
+            "pause",
+            MOTIVO_PAUSE,
+            None,
+            None,
+            None,
+            None,
+            cortes.window_start,
+            cortes.window_end,
+            cortes.observed_at_max,
+        ),
+        None,
+    )
+
+
+def _pausa_economica(cortes: AgregadoMetricas) -> tuple[ResultadoBid, None]:
+    return (
+        ResultadoBid(
+            "pause",
+            MOTIVO_PAUSE_ECONOMICA,
+            None,
+            None,
+            None,
+            None,
+            cortes.window_start,
+            cortes.window_end,
+            cortes.observed_at_max,
+        ),
+        None,
+    )
 
 
 def decide_pause(
@@ -285,13 +316,18 @@ def decide_pause(
     umbral_pause: int,
     cost_min: Decimal | None = None,
     policy_version: str | None = None,
+    proteccion: InsumosProteccion | None = None,
 ) -> ResultadoBid:
     """Decide SOLO la PAUSE con _decide_pause (BIDS 02 M.3): la usan el
     ciclo con la politica apagada y la revalidacion de la cola. Si pausa,
     devuelve el pause con la ventana de cortes; si no, no-op con la
     primera guarda que bloqueo en orden de evaluacion (pause antes que
     bids, como decide_bid; `bids` solo aporta el motivo de bloqueo, jamas
-    se juzga). `cost_min` None = el piso VIGENTE (PAUSE_COST_MIN)."""
+    se juzga). `cost_min` None = el piso VIGENTE (PAUSE_COST_MIN).
+
+    ORBIT 07 M1: `proteccion` son los insumos congelados de la subpolitica; se
+    evalua UNA vez con la misma funcion pura que usa `politica.decide`. Las
+    filas historicas no traen el insumo y conservan la semantica anterior."""
     if platform not in PLATAFORMAS_MONEDA:
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
@@ -302,8 +338,15 @@ def decide_pause(
         raise ValueError(f"politica pause desconocida: {policy_version!r}")
     moneda = PLATAFORMAS_MONEDA[platform]
     costo_piso = cost_min if cost_min is not None else PAUSE_COST_MIN[platform]
+    resultado_proteccion = subproteccion.evalua(proteccion) if proteccion is not None else None
     pausa, motivo_pause_bloqueado = _decide_pause(
-        cortes, moneda, umbral_pause, costo_piso, target_acos_pct, policy_version
+        cortes,
+        moneda,
+        umbral_pause,
+        costo_piso,
+        target_acos_pct,
+        policy_version,
+        proteccion=resultado_proteccion,
     )
     if pausa is not None:
         return pausa
@@ -326,4 +369,5 @@ def decide_pause(
         window_start=None,
         window_end=None,
         data_observed_at=None,
+        proteccion=resultado_proteccion,
     )

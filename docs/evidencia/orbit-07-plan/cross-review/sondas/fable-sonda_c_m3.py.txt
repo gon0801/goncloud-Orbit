@@ -1,0 +1,10 @@
+casos evaluados: 1344
+  Mantener:dato_faltante: 672
+  Mantener:grupo_cumple: 72
+  Mantener:hoja_delgada_sin_dinero_que_mover: 48
+  Mantener:sin_evidencia: 72
+  Mantener:sin_gasto: 96
+  Mover:gasto_sin_venta: 96
+  Mover:gasto_sin_venta_doble: 192
+  Mover:grupo_sangra: 96
+subidas (Mover con factor > 0) con pedidos propios = 0: 0

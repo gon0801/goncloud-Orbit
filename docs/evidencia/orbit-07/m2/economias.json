@@ -1,0 +1,209 @@
+{
+  "version": "producto_directo_v1",
+  "referencia": "ORBIT 07 M2 sobre c4121c5 (M1) / f86ed7dc (AUTO-03)",
+  "sonda": "docs/evidencia/orbit-07/m2/sonda_economias.py",
+  "caso": {
+    "margen_producto_pct": "8",
+    "fraccion": "0.5",
+    "meta_individual_pct": "4",
+    "gasto": "5000 USD",
+    "ventas": "10000 USD",
+    "pedidos": 1,
+    "clics": 120
+  },
+  "ciclo_1": {
+    "cycle_id": 1,
+    "evaluaciones": [
+      {
+        "product_id": 1,
+        "politica": "v2",
+        "meta_pct": "4.0000000000000000000000",
+        "equilibrio_pct": "8.000000000000000000000",
+        "motivos": [
+          "halo_sin_madurar"
+        ],
+        "huella_alcance": "sha256:9114ae700fba4942d97abe135c4f889c2a4a8713454b5dcf69f443258c4ade28",
+        "moneda": "USD",
+        "ventana_desde": "2026-06-23",
+        "ventana_hasta": "2026-07-23"
+      }
+    ],
+    "hojas": [
+      {
+        "hoja_id": 3,
+        "target": "4.0000000000000000000000",
+        "procedencia": "margen_producto"
+      }
+    ],
+    "pausa": {
+      "decision_id": 1,
+      "target_procedencia": "margen_producto",
+      "target_acos_pct_usado": "4.0000000000000000000000",
+      "snapshot": {
+        "paso": null,
+        "ancla": null,
+        "moneda": "USD",
+        "motivo": null,
+        "destino": "29.5",
+        "motivos": [
+          "halo_sin_madurar"
+        ],
+        "version": "producto_directo_v1",
+        "derivado": "4.0000000000000000000000",
+        "grupo_id": 2,
+        "meta_pct": "4.0000000000000000000000",
+        "politica": "v2",
+        "product_id": 1,
+        "procedencia": "margen_producto",
+        "convergiendo": false,
+        "ventana_halo": {
+          "desde": "2026-05-24",
+          "hasta_exclusivo": "2026-08-19"
+        },
+        "equilibrio_pct": "8.000000000000000000000",
+        "huella_alcance": "sha256:fe2364dccb086858c7ef938ce505155b23148238c5d475ae14e23dd95bfa86bf",
+        "margen_neto_pct": "8.000000000000000000000",
+        "target_aplicado": "4.0000000000000000000000",
+        "margen_ventana_desde": "2026-02-20",
+        "margen_ventana_hasta": "2026-10-24"
+      },
+      "caso_target_acos_pct": "4.0000000000000000000000",
+      "caso_equilibrio_acos_pct": "8.000000000000000000000"
+    }
+  },
+  "ciclo_2": {
+    "cycle_id": 2,
+    "evaluaciones": [
+      {
+        "product_id": 1,
+        "politica": "v2",
+        "meta_pct": "4.0000000000000000000000",
+        "equilibrio_pct": "8.000000000000000000000",
+        "motivos": [
+          "halo_sin_madurar"
+        ],
+        "huella_alcance": "sha256:9114ae700fba4942d97abe135c4f889c2a4a8713454b5dcf69f443258c4ade28",
+        "moneda": "USD",
+        "ventana_desde": "2026-06-23",
+        "ventana_hasta": "2026-07-23"
+      }
+    ],
+    "hojas": []
+  },
+  "ciclo_3": {
+    "cycle_id": 3,
+    "evaluaciones": [
+      {
+        "product_id": 1,
+        "politica": "v2",
+        "meta_pct": null,
+        "equilibrio_pct": null,
+        "motivos": [
+          "cobertura_baja",
+          "halo_sin_madurar"
+        ],
+        "huella_alcance": "sha256:9114ae700fba4942d97abe135c4f889c2a4a8713454b5dcf69f443258c4ade28",
+        "moneda": "USD",
+        "ventana_desde": "2026-06-23",
+        "ventana_hasta": "2026-07-23"
+      }
+    ],
+    "hojas": [],
+    "margen_producto": null
+  },
+  "revalidacion_sin_cambio": {
+    "resultado": null,
+    "evidencias": [
+      {
+        "decision_id": 1,
+        "revalidado_at": "2026-11-08T10:29:02.333026+00:00",
+        "version": "economic_pause_v1",
+        "window_start": "2026-07-11",
+        "window_end": "2026-08-09",
+        "moneda": "USD",
+        "target": "4.0000000000000000000000",
+        "target_procedencia": "margen_producto",
+        "cost": "5029.0000",
+        "revenue": "10000.0000",
+        "exceso": "4629.00000000000000000000000",
+        "multiplicador": "3",
+        "exceso_minimo": "80",
+        "resultado": "califica",
+        "economia": {
+          "version": "producto_directo_v1",
+          "destino": "30",
+          "producto": {
+            "grupo_id": 2,
+            "product_id": 1,
+            "evaluacion_id": 2,
+            "politica": "v2",
+            "motivos": [
+              "halo_sin_madurar"
+            ],
+            "meta_pct": "4.0000000000000000000000",
+            "equilibrio_pct": "8.000000000000000000000",
+            "moneda": "USD",
+            "huella_alcance": "sha256:fe2364dccb086858c7ef938ce505155b23148238c5d475ae14e23dd95bfa86bf",
+            "motivo": null,
+            "target_aplicado": "4.0000000000000000000000"
+          },
+          "procedencia": "margen_producto",
+          "target": "4.0000000000000000000000"
+        }
+      }
+    ]
+  },
+  "revalidacion_sin_elegibilidad": {
+    "resultado": "ya_no_califica",
+    "evidencias": [
+      {
+        "decision_id": 1,
+        "revalidado_at": "2026-11-08T10:29:02.580093+00:00",
+        "version": "economic_pause_v1",
+        "window_start": "2026-07-11",
+        "window_end": "2026-08-09",
+        "moneda": "USD",
+        "target": "30",
+        "target_procedencia": "setting_plataforma",
+        "cost": "5029.0000",
+        "revenue": "10000.0000",
+        "exceso": "2029.0000",
+        "multiplicador": "3",
+        "exceso_minimo": "80",
+        "resultado": "ya_no_califica",
+        "economia": {
+          "version": "producto_directo_v1",
+          "destino": "30",
+          "producto": {
+            "grupo_id": 2,
+            "product_id": 1,
+            "evaluacion_id": 3,
+            "politica": "v2",
+            "motivos": [
+              "cobertura_baja",
+              "halo_sin_madurar"
+            ],
+            "meta_pct": null,
+            "equilibrio_pct": null,
+            "moneda": "USD",
+            "huella_alcance": "sha256:fe2364dccb086858c7ef938ce505155b23148238c5d475ae14e23dd95bfa86bf",
+            "motivo": "cobertura_baja"
+          },
+          "familia": {
+            "familia": 1,
+            "previo": null,
+            "tiene_previo": false,
+            "motivo": "cobertura_baja",
+            "derivado": null,
+            "aplicado": null,
+            "usada": null,
+            "margen_neto_pct": null,
+            "moneda": "USD"
+          },
+          "procedencia": "setting_plataforma",
+          "target": "30"
+        }
+      }
+    ]
+  }
+}

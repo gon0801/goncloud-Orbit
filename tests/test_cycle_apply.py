@@ -61,6 +61,7 @@ from test_cycle import (
     SQL42,
     SQL60,
     SQL77,
+    SQL81,
     _config_version,
     _entidad,
     _estado,
@@ -198,6 +199,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
         conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
         conn.execute(SQL60)  # 0060 (M.3): v_hoja_activa/v_cambio_bid/v_metric_latest
+        conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         yield conn, conectar_extra
     finally:
         if conn is not None:

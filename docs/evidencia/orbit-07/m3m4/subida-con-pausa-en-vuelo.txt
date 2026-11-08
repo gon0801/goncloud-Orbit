@@ -1,0 +1,20 @@
+ORBIT 07 M4 - subida con pausa en vuelo (corrida local 2026-11-08)
+Prueba versionada: tests/test_apply_producto.py::test_grupo_exclusivo_con_pausa_en_vuelo_omite_la_subida_y_aplica_la_bajada
+Comando: python -m pytest -q tests/test_apply_producto.py -k "pausa_en_vuelo"
+(la corrida historica de abajo incluyo una prueba de control; selected 2)
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\ehven\.motor-encargos\espacio\enc_be56b9f573270946
+configfile: pyproject.toml
+plugins: anyio-4.14.2
+collected 2 items
+
+tests\test_apply_producto.py ..                                          [100%]
+
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.motor-encargos\espacio\enc_be56b9f573270946\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 2 passed, 1 warning in 5.71s =========================

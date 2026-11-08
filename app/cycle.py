@@ -194,14 +194,30 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from app import apply, apply_cola, apply_harvest, notifica, productos_io, propuestas_campana
+from app import (
+    apply,
+    apply_cola,
+    apply_harvest,
+    notifica,
+    productos_io,
+    propuestas_campana,
+    proteccion_venta,
+)
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
 from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, windows
 from app.optimizer import goals as g
+from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.caso import POLITICA_BID, BidVigente, EconomiaPlataforma, InsumosPausa
+from app.optimizer.caso import (
+    POLITICA_BID,
+    BidVigente,
+    EconomiaPlataforma,
+    InsumosPausa,
+    InsumosProteccion,
+    _proteccion_json,
+)
 from app.optimizer.politica import Mantener, Mover, Pausar, decide
 from app.optimizer.replay import reproduce as reproduce
 from app.redaction import install_scrub_filter, scrub
@@ -682,6 +698,9 @@ class _Contadores:
     targets: dict[int, tuple[Decimal, str]] = field(default_factory=dict)
     # AUTO-03 D.4: evaluacion por producto del ciclo (None = meta en off).
     productos: _ProductosCiclo | None = None
+    # ORBIT 07 M1: episodios de venta reciente abiertos en TX2, escritos en
+    # TX3 (append-only, idempotente por ancla).
+    protecciones: list[proteccion_venta.TransicionProteccion] = field(default_factory=list)
 
 
 @dataclass
@@ -694,6 +713,7 @@ class _ProductosCiclo:
 
     modo_meta: str
     modo_pausa: str = "off"
+    modo_economia: str = productos.ECONOMIA_AUTO03
     evaluaciones: tuple[productos.EvaluacionProducto, ...] = ()
     por_grupo: dict[int, productos.EvaluacionProducto] = field(default_factory=dict)
     sombra: dict[int, list[dict]] = field(default_factory=lambda: defaultdict(list))
@@ -719,15 +739,30 @@ class _MetaHoja:
     resolucion: g.ResolucionMargen
     destino: Decimal | None
     previo: _PrevioHoja | None
+    version: str = productos.ECONOMIA_AUTO03
 
     @property
     def product_id(self) -> int:
         return self.evaluacion.producto.product_id
 
+    @property
+    def equilibrio_pct(self) -> Decimal | None:
+        """Punto de equilibrio del producto (margen neto antes de publicidad)
+        que corresponde a la meta de ESTA hoja. None = el producto no lo mide."""
+        margen = self.evaluacion.entrada.margen
+        return margen.margen_neto_pct if isinstance(margen, g.MedicionMargen) else None
+
     def snapshot(self) -> dict:
         """target_snapshot de la decision cuando gana margen_producto: la
         evaluacion, el derivado, el paso desde el ancla y la huella del grupo
-        (la revalidacion de una pausa la exige igual, S12)."""
+        (la revalidacion de una pausa la exige igual, S12).
+
+        ORBIT 07 M2 versiona la economia efectiva y conserva sus referencias:
+        meta calculada (eleccion), punto de equilibrio (margen neto antes de
+        publicidad), moneda, ventana del margen, ventana de las ventas
+        evaluadas y huella del alcance. `motivos` deja explicita la causa
+        cuando la evaluacion no publica meta; en ese caso `target_aplicado`
+        es None y la cascada resuelve el respaldo."""
         meta = self.evaluacion.meta
         margen = self.evaluacion.entrada.margen
         ancla = (
@@ -736,7 +771,10 @@ class _MetaHoja:
             else None
         )
         aplicado = self.resolucion.aplicado
+        halo = self.evaluacion.entrada.ventana_halo
         return {
+            "version": self.version,
+            "procedencia": "margen_producto",
             "product_id": self.product_id,
             "grupo_id": self.grupo.grupo_id,
             "huella_alcance": self.grupo.huella_alcance,
@@ -747,6 +785,21 @@ class _MetaHoja:
             "margen_neto_pct": _dec_str(margen.margen_neto_pct)
             if isinstance(margen, g.MedicionMargen)
             else None,
+            "equilibrio_pct": _dec_str(margen.margen_neto_pct)
+            if isinstance(margen, g.MedicionMargen)
+            else None,
+            "moneda": margen.moneda if isinstance(margen, g.MedicionMargen) else None,
+            "margen_ventana_desde": _fecha_iso(margen.ventana_desde)
+            if isinstance(margen, g.MedicionMargen)
+            else None,
+            "margen_ventana_hasta": _fecha_iso(margen.ventana_hasta)
+            if isinstance(margen, g.MedicionMargen)
+            else None,
+            "ventana_halo": {
+                "desde": _fecha_iso(halo.desde),
+                "hasta_exclusivo": _fecha_iso(halo.hasta_exclusivo),
+            },
+            "motivos": list(self.evaluacion.motivos),
             "motivo": self.resolucion.motivo,
             "derivado": _dec_str(self.resolucion.derivado),
             "target_aplicado": _dec_str(aplicado),
@@ -1057,11 +1110,16 @@ def _pendiente_pause_apagada(
     evidencia: windows.EvidenciaAdGroup | None,
     cost_min: Decimal,
     policy_version: str | None,
+    proteccion: InsumosProteccion | None = None,
 ) -> _Pendiente:
     """La PAUSE con la politica apagada (BIDS 02 M.3, cambio 4): freeze
     Sin caso ni politica, con la forma de la era anterior (ventanas +
     corte + version economica) para que el replay la re-decida por eras
-    (el pause es identico en todas las eras)."""
+    (el pause es identico en todas las eras).
+
+    ORBIT 07 M1: con la subpolitica nueva el freeze lleva ADEMAS los insumos
+    de proteccion (ancla, vencimiento y lectura reciente). Ausente en las
+    filas historicas."""
     assert resultado.kind == "pause"
     assert cortes is not None
     inputs = {
@@ -1082,6 +1140,7 @@ def _pendiente_pause_apagada(
         "motivo": resultado.motivo,
         "modo": modo,
         "corte": _corte_json(corte, evidencia, cost_min=cost_min),
+        "proteccion": _proteccion_json(proteccion),
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
@@ -1167,6 +1226,67 @@ def _pendiente_termino(
         value_currency=resultado.value_currency,
         inputs=inputs,
     )
+
+
+def _proteccion_activa(
+    *,
+    platform: str,
+    entidad_id: int,
+    target: Decimal,
+    corte_pause: cortes.UmbralResuelto,
+    cortes_hoja: windows.AgregadoMetricas | None,
+    costo_piso: Decimal,
+    pausa: InsumosPausa,
+    proteccion_cache: proteccion_venta.CacheProteccion | None,
+    contadores: _Contadores,
+    decided_at: dt.datetime,
+) -> bool:
+    """ORBIT 07 M1: True si la subpolitica pura frena la pausa por venta
+    reciente. Registra la transicion append-only del episodio cuando la abre.
+
+    Se evalua solo si hay un episodio persistido o una venta reciente; fuera de
+    ese caso no hay nada que proteger y no se paga la segunda evaluacion."""
+    if pausa.proteccion is None:
+        return False
+    if pausa.proteccion.episodio is None and not (
+        proteccion_cache is not None and proteccion_cache.hay_venta(entidad_id)
+    ):
+        return False
+    resultado = bid.decide_pause(
+        platform=platform,
+        bids=None,
+        cortes=cortes_hoja,
+        target_acos_pct=target,
+        umbral_pause=corte_pause.umbral,
+        cost_min=costo_piso,
+        policy_version=pausa.politica_economica,
+        proteccion=pausa.proteccion,
+    )
+    if resultado.proteccion is None or resultado.motivo not in (
+        subproteccion.MOTIVO_PROTEGIDA,
+        subproteccion.MOTIVO_INDETERMINADA,
+    ):
+        return False
+    _registra_proteccion(
+        contadores, proteccion_cache, entidad_id, resultado.proteccion, decidido_el=decided_at
+    )
+    return True
+
+
+def _registra_proteccion(
+    contadores: _Contadores,
+    cache: proteccion_venta.CacheProteccion | None,
+    entidad_id: int,
+    resultado,
+    *,
+    decidido_el: dt.datetime,
+) -> None:
+    """Anexa la transicion append-only del episodio (TX3 la inserta)."""
+    if cache is None:
+        return
+    transicion = cache.transicion(entidad_id, resultado, decidido_el)
+    if transicion is not None:
+        contadores.protecciones.append(transicion)
 
 
 def _notas_cuerpo(
@@ -1747,6 +1867,8 @@ def _procesa_decisora(
     lecturas: LecturasPlataforma | None,
     productos_ciclo: _ProductosCiclo | None = None,
     grupos_pausa_producto: frozenset[int] = frozenset(),
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    claves_released: frozenset[tuple[int, str, str | None]] = frozenset(),
 ) -> None:
     (
         entidad_id,
@@ -1781,7 +1903,11 @@ def _procesa_decisora(
         tick()
         return
     assert goal is not None  # _porta_goal_campana: motivo None implica goal
-    if (entidad_id, "entity_cut", None) in bloqueadas:
+    clave_pausa = (entidad_id, "entity_cut", None)
+    bloqueada = clave_pausa in bloqueadas
+    espera_released = clave_pausa in claves_released
+    protegible = proteccion_cache is not None and proteccion_cache.tiene_proteccion(entidad_id)
+    if bloqueada and not (espera_released and protegible):
         # 2.2 sellado 5 / 2.4: clave de efecto en vuelo (fila NO terminal o
         # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
         # ENTERA del motor de bids (decide da pause o juicio en una
@@ -1789,6 +1915,10 @@ def _procesa_decisora(
         # regla 3 — declarado en el docstring del modulo). CAMPANA ACTIVA 01
         # · 1.6: va DESPUES de los gates — una hoja en campana/grupo no
         # ENABLED se cuenta con el motivo del ANCESTRO, no como veto.
+        # ORBIT 07 M1: una fila `released` con venta reciente NO congela las
+        # pujas; solo se prohibe re-decidir la pausa (el veredicto Pausar se
+        # descarta abajo). Veto pendiente, veto del dueno y applying siguen
+        # bloqueando la hoja entera.
         contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
         tick()
         return
@@ -1854,7 +1984,7 @@ def _procesa_decisora(
         # producto habria dado se congela igual; sus lecturas (ventana de
         # cortes, efecto del caso) van en un SAVEPOINT para que un error no
         # aborte TX2. La hoja sigue saltada con sin_target.
-        def juicio_hipotetico(t: Decimal):
+        def juicio_hipotetico(t: Decimal, equilibrio: Decimal | None):
             with conn.transaction():
                 return _juicio_hoja(
                     conn,
@@ -1870,6 +2000,8 @@ def _procesa_decisora(
                     pause_economica=pause_economica,
                     politica=politica,
                     lecturas=lecturas,
+                    proteccion_cache=proteccion_cache,
+                    equilibrio_acos_pct=equilibrio,
                 )
 
         _anota_sombra(
@@ -1916,6 +2048,7 @@ def _procesa_decisora(
         decided_at=decided_at,
         corte_pause=corte_pause,
         pause_economica=pause_economica,
+        proteccion_cache=proteccion_cache,
     )
     if politica is None:
         # Cambio 4: con la politica apagada solo se decide la PAUSE; la
@@ -1928,6 +2061,7 @@ def _procesa_decisora(
             umbral_pause=corte_pause.umbral,
             cost_min=costo_piso,
             policy_version=pausa.politica_economica,
+            proteccion=pausa.proteccion,
         )
         _anota_sombra(
             productos_ciclo,
@@ -1942,7 +2076,7 @@ def _procesa_decisora(
             target=target,
             procedencia=procedencia,
             actual=resultado,
-            decide_con=lambda t: bid.decide_pause(
+            decide_con=lambda t, equilibrio: bid.decide_pause(
                 platform=platform,
                 bids=None,
                 cortes=cortes_hoja,
@@ -1950,11 +2084,28 @@ def _procesa_decisora(
                 umbral_pause=corte_pause.umbral,
                 cost_min=costo_piso,
                 policy_version=pausa.politica_economica,
+                proteccion=pausa.proteccion,
             ),
         )
         tick()
         if resultado.kind != "pause":
+            if resultado.proteccion is not None and resultado.motivo in (
+                subproteccion.MOTIVO_PROTEGIDA,
+                subproteccion.MOTIVO_INDETERMINADA,
+            ):
+                _registra_proteccion(
+                    contadores,
+                    proteccion_cache,
+                    entidad_id,
+                    resultado.proteccion,
+                    decidido_el=decided_at,
+                )
+                contadores.skips_entidad[resultado.motivo] += 1
+                return
             contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
+            return
+        if bloqueada:
+            contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
             return
         if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind="pause"):
             contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
@@ -1976,6 +2127,7 @@ def _procesa_decisora(
             evidencia=evidencia,
             cost_min=costo_piso,
             policy_version=pausa.politica_economica,
+            proteccion=pausa.proteccion,
         )
         pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
         contadores.decisiones["pause"] += 1
@@ -1988,6 +2140,13 @@ def _procesa_decisora(
         bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
         target_acos_pct=target,
         pausa=pausa,
+        equilibrio_acos_pct=(
+            meta_viva.equilibrio_pct
+            if meta_viva is not None
+            and meta_viva.version == productos.POLITICA_ECONOMIA
+            and procedencia == "margen_producto"
+            else None
+        ),
     )
     veredicto = decide(caso)
     _anota_sombra(
@@ -2003,11 +2162,46 @@ def _procesa_decisora(
         target=target,
         procedencia=procedencia,
         actual=veredicto,
-        decide_con=lambda t: decide(
-            replace(caso, economia=replace(caso.economia, target_acos_pct=t))
+        decide_con=lambda t, equilibrio: decide(
+            replace(
+                caso,
+                economia=replace(
+                    caso.economia,
+                    target_acos_pct=t,
+                    plataforma=replace(
+                        caso.economia.plataforma,
+                        equilibrio_acos_pct=(
+                            equilibrio
+                            if equilibrio is not None
+                            else caso.economia.plataforma.equilibrio_acos_pct
+                        ),
+                    ),
+                ),
+            )
         ),
     )
     tick()
+    # ORBIT 07 M1: la subpolitica pura decide la espera y su transicion. Se
+    # consulta aparte del veredicto para que un Mover autorizado durante la
+    # espera siga su camino (R2: la proteccion solo suprime la pausa).
+    protegida = _proteccion_activa(
+        platform=platform,
+        entidad_id=entidad_id,
+        target=target,
+        corte_pause=corte_pause,
+        cortes_hoja=cortes_hoja,
+        costo_piso=costo_piso,
+        pausa=pausa,
+        proteccion_cache=proteccion_cache,
+        contadores=contadores,
+        decided_at=decided_at,
+    )
+    if isinstance(veredicto, Pausar) and (bloqueada or protegida):
+        # ORBIT 07 M1: la fila released de una pausa protegida conserva el
+        # permiso de pausar. El ciclo no duplica la decision; la cola la
+        # revalida y la aplica o la descarta.
+        contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
+        return
     if isinstance(veredicto, Mantener):
         contadores.skips_entidad[veredicto.motivo] += 1
         return
@@ -2053,19 +2247,32 @@ def _insumos_pausa(
     decided_at: dt.datetime,
     corte_pause: cortes.UmbralResuelto,
     pause_economica: bool,
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
 ) -> tuple[Decimal, windows.AgregadoMetricas | None, InsumosPausa]:
     """Piso de costo, ventana de cortes e insumos de la PAUSE de una hoja.
     BIDS 02 M.3: la ventana de BIDS ya no se lee por hoja (la suficiencia la
     mide la ventana madura de lecturas, no 30 dias anclados en la hoja). La
-    de CORTES se sigue leyendo con windows y viaja en InsumosPausa."""
+    de CORTES se sigue leyendo con windows y viaja en InsumosPausa.
+
+    ORBIT 07 M1: la lectura comun de venta reciente llega en `proteccion_cache`
+    (una por plataforma y ciclo) y se congela en `InsumosPausa.proteccion`;
+    la ventana de cortes del intento viaja para el reevaluo al vencer."""
     costo_piso = bid.PAUSE_COST_MIN[platform]
     cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at)
+    proteccion: InsumosProteccion | None = None
+    if proteccion_cache is not None:
+        proteccion = proteccion_cache.insumos(
+            entidad_id,
+            ventana_desde=cortes_hoja.window_start if cortes_hoja is not None else None,
+            ventana_hasta=cortes_hoja.window_end if cortes_hoja is not None else None,
+        )
     pausa = InsumosPausa(
         cortes=cortes_hoja,
         umbral_clics=corte_pause.umbral,
         gasto_minimo=costo_piso,
         expected_clicks=corte_pause.expected_clicks,
         politica_economica=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+        proteccion=proteccion,
     )
     return costo_piso, cortes_hoja, pausa
 
@@ -2085,10 +2292,14 @@ def _juicio_hoja(
     pause_economica: bool,
     politica: str | None,
     lecturas: LecturasPlataforma | None,
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    equilibrio_acos_pct: Decimal | None = None,
 ):
     """AUTO-03 D.4: el veredicto que el camino de _procesa_decisora daria con
     `target`, con los mismos insumos y sin escribir nada (la sombra de una
-    hoja que hoy no tiene target)."""
+    hoja que hoy no tiene target). ORBIT 07 M2: `equilibrio_acos_pct` es el
+    punto de equilibrio del producto cuando la meta individual gana; None
+    conserva el equilibrio de plataforma de la era anterior."""
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso, cortes_hoja, pausa = _insumos_pausa(
         conn,
@@ -2097,6 +2308,7 @@ def _juicio_hoja(
         decided_at=decided_at,
         corte_pause=corte_pause,
         pause_economica=pause_economica,
+        proteccion_cache=proteccion_cache,
     )
     if politica is None:
         return bid.decide_pause(
@@ -2107,6 +2319,7 @@ def _juicio_hoja(
             umbral_pause=corte_pause.umbral,
             cost_min=costo_piso,
             policy_version=pausa.politica_economica,
+            proteccion=pausa.proteccion,
         )
     assert lecturas is not None  # _recorre_plataforma: politica => lecturas
     return decide(
@@ -2117,6 +2330,7 @@ def _juicio_hoja(
             bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
             target_acos_pct=target,
             pausa=pausa,
+            equilibrio_acos_pct=equilibrio_acos_pct,
         )
     )
 
@@ -2129,11 +2343,14 @@ def _evalua_productos(
     decided_at: dt.datetime,
     goals: tuple[g.Goal | None, dict[int, g.Goal]],
     modos: productos.ModosProducto,
+    economia: str = productos.ECONOMIA_AUTO03,
 ) -> _ProductosCiclo:
     """AUTO-03 D.4: lectura por lote y resolutor, UNA vez por plataforma en
     TX2. La lectura corre en un SAVEPOINT: un error de SQL no aborta TX2 y
     queda en notes.productos.error (precedente: propuestas_campana)."""
-    resultado = _ProductosCiclo(modo_meta=modos.meta, modo_pausa=modos.pausa)
+    resultado = _ProductosCiclo(
+        modo_meta=modos.meta, modo_pausa=modos.pausa, modo_economia=economia
+    )
     try:
         with conn.transaction():
             entradas = productos_io.lee_entradas_productos(
@@ -2206,8 +2423,16 @@ def _meta_viva(
         ultimo=previo.target if previo is not None else None,
         destino=destino,
         tiene_previo=tiene_previo,
+        version=productos_ciclo.modo_economia,
     )
-    return _MetaHoja(evaluacion, grupo, resolucion, destino, previo)
+    return _MetaHoja(
+        evaluacion,
+        grupo,
+        resolucion,
+        destino,
+        previo,
+        version=productos_ciclo.modo_economia,
+    )
 
 
 def _hoja_sombra(
@@ -2254,7 +2479,7 @@ def _anota_sombra(
     target: Decimal | None,
     procedencia: str | None,
     actual,
-    decide_con: Callable[[Decimal], object],
+    decide_con: Callable[[Decimal, Decimal | None], object],
 ) -> None:
     """AUTO-03 D.4, meta en shadow: para una hoja de grupo apto calcula la
     meta de la hoja (S2: solo un previo margen_producto es ancla; el destino
@@ -2295,6 +2520,7 @@ def _anota_sombra(
             ultimo=previo.target if previo is not None else None,
             destino=target,
             tiene_previo=previo is not None and previo.procedencia == "margen_producto",
+            version=productos_ciclo.modo_economia,
         )
         target_meta = g.cascada_target_acos(
             goal.target_acos_pct,
@@ -2312,7 +2538,15 @@ def _anota_sombra(
             target_margen_familia,
             target_margen_producto=meta.aplicado,
         )
-        con_meta = decide_con(target_meta) if target_meta is not None else None
+        margen = evaluacion.entrada.margen
+        equilibrio = (
+            margen.margen_neto_pct
+            if productos_ciclo.modo_economia == productos.POLITICA_ECONOMIA
+            and procedencia_meta == "margen_producto"
+            and isinstance(margen, g.MedicionMargen)
+            else None
+        )
+        con_meta = decide_con(target_meta, equilibrio) if target_meta is not None else None
     except Exception as exc:  # noqa: BLE001 - la sombra jamas cambia la hoja
         productos_ciclo.errores.append(
             f"sombra hoja {entidad_id}: {scrub(str(exc)) or type(exc).__name__}"
@@ -2770,6 +3004,7 @@ class _FamiliasCiclo:
     hoy: dt.date
     destino: Decimal | None
     notas: dict[int, dict]
+    economia: str = productos.ECONOMIA_AUTO03
 
 
 def _lee_familias_ciclo(
@@ -2780,6 +3015,7 @@ def _lee_familias_ciclo(
     hoy: dt.date,
     fraccion: Decimal | None,
     destino: Decimal | None,
+    economia: str = productos.ECONOMIA_AUTO03,
 ) -> _FamiliasCiclo:
     """Tres lecturas (margenes, parejas, previos) + colapso puro. Las notas
     por familia evaluan su motivo con ultimo=None (sin ancla: solo dicen si
@@ -2837,6 +3073,7 @@ def _lee_familias_ciclo(
         hoy,
         destino,
         notas,
+        economia,
     )
 
 
@@ -2892,7 +3129,15 @@ def _margen_familia_de_hoja(
         # la BANDERA tiene_previo exige previo margen_familia (con previo
         # de otro peldano la hoja cae a plataforma, no converge con valor
         # ajeno).
-        ultimo = previo.target if previo is not None else familias.destino
+        # ORBIT 07 M2: en la version nueva el target de producto NO es ancla
+        # de la familia; al perder elegibilidad la familia arranca desde su
+        # propio respaldo (destino). La version auto03 conserva el ancla
+        # historica (cualquier previo de la hoja).
+        if familias.economia == productos.POLITICA_ECONOMIA:
+            ajeno = previo is not None and previo.procedencia == "margen_producto"
+            ultimo = familias.destino if ajeno or previo is None else previo.target
+        else:
+            ultimo = previo.target if previo is not None else familias.destino
         tiene_previo = previo is not None and previo.procedencia == "margen_familia"
     res, ganadora = g.resuelve_target_margen_familia(
         etiqueta,
@@ -2951,6 +3196,13 @@ def _recorre_plataforma(
         cycle_id=cycle_id,
         decided_at=decided_at,
     )
+    # ORBIT 07 M2: la version economica se selecciona por setting (ausente =
+    # auto03) y se valida UNA vez por plataforma; un valor ajeno falla cerrado.
+    modo_economia = (
+        productos.economia_desde_settings(settings, platform)
+        if platform in productos.PLATAFORMAS
+        else productos.ECONOMIA_AUTO03
+    )
     # A5: insumos del peldano margen_familia, UNA vez por ciclo en TX2
     # (mismo snapshot); el destino del reemplazo es plataforma ?? setting.
     destino_familia = target_ciclo.margen if target_ciclo.margen is not None else setting_target
@@ -2961,6 +3213,7 @@ def _recorre_plataforma(
         hoy=decided_at.date(),
         fraccion=g.fraccion_desde_settings(settings, platform),
         destino=destino_familia,
+        economia=modo_economia,
     )
     target_ciclo = replace(
         target_ciclo, snapshot={**target_ciclo.snapshot, "familias": familias_ciclo.notas}
@@ -2981,6 +3234,7 @@ def _recorre_plataforma(
                 decided_at=decided_at,
                 goals=goals,
                 modos=modos,
+                economia=modo_economia,
             )
     # C.4 B3: sin flag, ni se evaluan (fail-closed: un deploy no avisa
     # propuestas sin el INSERT deliberado de ads_propuestas_campana).
@@ -2993,6 +3247,16 @@ def _recorre_plataforma(
             target_margen=target_ciclo.margen,
         )
     evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
+    # ORBIT 07 M1: lectura comun de venta reciente y episodios, UNA vez por
+    # plataforma en TX2. El setting selecciona la politica: ausente = historica
+    # (ni lectura ni excepcion de la fila released); `proteccion_venta_v1` =
+    # regla M1. Disponible tambien con la politica de bids apagada.
+    if subproteccion.activa_desde_settings(settings):
+        proteccion_cache = proteccion_venta.lee_cache(conn, platform, decided_at)
+        claves_released = apply_cola.claves_released(conn, platform)
+    else:
+        proteccion_cache = None
+        claves_released = frozenset()
     # BIDS 01 (D3): hojas inertes de la plataforma, UNA vez por ciclo en TX2
     # (mismo snapshot que la evidencia). Se pasa EXPLICITO a
     # _procesa_decisora (no en `comunes`: el camino de terminos no lo usa).
@@ -3020,6 +3284,10 @@ def _recorre_plataforma(
     # target/fraccion/confianza corruptos). Con la politica apagada no se
     # leen lecturas (el ciclo solo decide PAUSE por hoja).
     politica = g.politica_bid_desde_settings(settings, platform)
+    # ORBIT 07 M5/M6: la regla economica de repeticion se selecciona por
+    # plataforma. Apagada no se leen ni congelan episodios (el replay de las
+    # filas historicas conserva su semantica por la ausencia del marcador).
+    economia_cambio = g.economia_cambio_desde_settings(settings, platform)
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
         # Economia resuelta UNA vez por plataforma (las confianzas A3
@@ -3032,7 +3300,13 @@ def _recorre_plataforma(
             confianza_recorte=g.confianza_recorte_desde_settings(settings, platform),
             confianza_subida=g.confianza_subida_desde_settings(settings, platform),
         )
-        lecturas = lee_plataforma(conn, platform, decided_at, economia=economia)
+        lecturas = lee_plataforma(
+            conn,
+            platform,
+            decided_at,
+            economia=economia,
+            con_economia=economia_cambio,
+        )
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -3064,6 +3338,8 @@ def _recorre_plataforma(
             lecturas=lecturas,
             productos_ciclo=contadores.productos,
             grupos_pausa_producto=grupos_pausa_producto,
+            proteccion_cache=proteccion_cache,
+            claves_released=claves_released,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
@@ -3153,6 +3429,7 @@ def _fase_apply(
     owner: str,
     guard: Callable[[], None],
     aplicador_factory: Callable[..., Aplicador] | None,
+    proteccion_activa: bool = False,
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
 ) -> _FaseApply:
     """TX4 + fase de apply propiamente (decisiones 11/21; docstring del
@@ -3227,7 +3504,12 @@ def _fase_apply(
             )
             caps_saturados += res_bids.caps_saturados
             res_cola = apply_cola.libera_vencidos(
-                conn, platform, ahora=decided_at, aplicador=aplicador, cycle_id=cycle_id
+                conn,
+                platform,
+                ahora=decided_at,
+                aplicador=aplicador,
+                cycle_id=cycle_id,
+                proteccion_activa=proteccion_activa,
             )
             alertas_harvest += res_cola.alertas
             caps_saturados += res_cola.caps_saturados
@@ -3518,6 +3800,9 @@ def _corre_fases(
             _descarta_sin_evidencia(contadores, pendientes, ids_evaluacion, cuerpo)
         _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion)
         _inserta_targets(conn, cycle_id, decided_at, contadores)
+        # ORBIT 07 M1: los episodios de venta reciente abiertos en TX2 se
+        # escriben aqui, en la misma transaccion que las decisiones.
+        proteccion_venta.inserta_transiciones(conn, contadores.protecciones)
         # C.4 B3: la guarda va con el mismo flag que la lectura (con flag
         # apagado no hay nada que persistir; la condicion es cinturon).
         # Obs1: TX3 vuelve a READ COMMITTED (el REPEATABLE READ no tenia
@@ -3543,6 +3828,7 @@ def _corre_fases(
         owner=owner,
         guard=_guard_apply(conn, job_key, owner, tick),
         aplicador_factory=aplicador_factory,
+        proteccion_activa=subproteccion.activa_desde_settings(settings),
         avisos_destino=avisos_destino,
     )
     notas_apply = fase.notas

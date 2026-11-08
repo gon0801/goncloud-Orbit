@@ -314,7 +314,18 @@ valores `off|shadow|live`, ausente → `off` fail-closed),
 `ads_bid_politica_<platform>` (BIDS 02 M.3: `niveles_v3` = el vivo
 decide con niveles_v3, ausente = el motor no mueve bids (solo PAUSE,
 negative y harvest); cualquier otro valor presente = config corrupta,
-fail-closed; solo-nueva, sin migraciones).
+fail-closed; solo-nueva, sin migraciones) y `ads_proteccion_venta`
+(ORBIT 07 M1: `proteccion_venta_v1` = la pausa por cero ventas espera ante
+una venta reciente; ausente = semantica historica y no se lee la tabla de
+episodios; cualquier otro valor = config corrupta, fail-closed. Es la
+reversa de seleccion de politica: apagarla no borra episodios ni reescribe
+decisiones historicas; solo cambia el comportamiento de las corridas
+nuevas y de la re-validacion de la cola) y `ads_bid_economia_<platform>`
+(ORBIT 07 M5/M6: `economia_cambio_v1` = el ciclo congela el episodio
+economico del ultimo cambio y M6 juzga la repeticion con el; ausente =
+semantica historica, SQL de 13 columnas y ningun episodio leido o congelado;
+`off` presente es config corrupta, igual que cualquier otro valor ajeno,
+fail-closed. Apagarla no borra ni reescribe decisiones historicas).
 **`settings` JAMÁS contiene credenciales**: `app_read` tiene SELECT aquí.
 Contrato fail-closed completo: `ads_optimizer_mode` ausente, NULL o inválida → `off`
 (una config corrupta jamás habilita `live`); si el modo efectivo es `live` sin

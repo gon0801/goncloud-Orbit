@@ -1,0 +1,5 @@
+0 PR sections, 4 problems
+plans/orbit-07-motor-decisiones.md:1: no "## How to read this" section
+plans/orbit-07-motor-decisiones.md:1: no "## Program checklist" section
+plans/orbit-07-motor-decisiones.md:1: no "## Close the program" section
+plans/orbit-07-motor-decisiones.md:1: no PR sections between Program checklist and Close the program

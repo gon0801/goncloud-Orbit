@@ -216,6 +216,9 @@ def lee_entradas_productos(
         windows.fin_ventana_bids(watermark) + dt.timedelta(days=1),
     )
     ventana_pausa = p.ventana_pausa(decidido_el)
+    # M4: la venta reciente del producto se lee del reporte de productos hasta
+    # D-1, no del watermark de hojas (que termina en watermark - 3).
+    ventana_reciente = p.ventana_venta_reciente(decidido_el)
 
     grupos: dict[int, list[_Anuncio]] = defaultdict(list)
     campana_de: dict[int, int] = {}
@@ -261,8 +264,12 @@ def lee_entradas_productos(
         conn,
         plataforma,
         asins=sorted({asin for lista in claves.values() for asin, _ in lista}),
-        desde=min(ventana_halo.desde, ventana_pausa.desde),
-        hasta=max(ventana_halo.hasta_exclusivo, ventana_pausa.hasta_exclusivo),
+        desde=min(ventana_halo.desde, ventana_pausa.desde, ventana_reciente.desde),
+        hasta=max(
+            ventana_halo.hasta_exclusivo,
+            ventana_pausa.hasta_exclusivo,
+            ventana_reciente.hasta_exclusivo,
+        ),
         decidido_el=observadas_hasta,
     )
     cubiertas = [
@@ -300,6 +307,7 @@ def lee_entradas_productos(
     for producto in productos_ids:
         mismo_sku, impedimentos = _filas_del_producto(claves[producto], observaciones)
         dias_halo, faltantes = _dias_halo(ventana_halo, mismo_sku, moneda)
+        dias_recientes, _ = _dias_halo(ventana_reciente, mismo_sku, moneda)
         if faltantes:
             impedimentos.append("ads_con_metrica_ausente")
         grupos_aptos = tuple(
@@ -343,6 +351,8 @@ def lee_entradas_productos(
                     if isinstance(actividad, p.AdsCompletos)
                     else None
                 ),
+                ventana_venta_reciente=ventana_reciente,
+                dias_recientes=dias_recientes,
             )
         )
     return tuple(entradas)
@@ -657,6 +667,13 @@ def _huella(anuncios: Iterable[_Anuncio]) -> str:
 def huella_grupo(conn: psycopg.Connection, ad_group_id: int) -> str:
     """La huella vigente de un ad group, con la misma regla que la entrada."""
     return _huella(_Anuncio(*fila) for fila in conn.execute(_SQL_ANUNCIOS_GRUPO, (ad_group_id,)))
+
+
+def productos_del_grupo(conn: psycopg.Connection, ad_group_id: int) -> set[int | None]:
+    """Los product_id de los product ads NO archivados de un ad group. Misma
+    regla S5 que la lectura por lote: la exclusividad la decide el llamador
+    (un solo producto conocido), nunca una identidad adivinada."""
+    return {fila[2] for fila in conn.execute(_SQL_ANUNCIOS_GRUPO, (ad_group_id,))}
 
 
 def huella_producto(entrada: p.EntradaProducto) -> str:

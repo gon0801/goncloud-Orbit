@@ -526,3 +526,56 @@ def test_economica_abstiene_con_orders_o_clicks_desconocidos():
     assert _decide(_corte("127.94", "0", orders=None)).motivo == "pause_orders_desconocido"
     assert _decide(_corte("127.94", "0", clicks=None)).kind is None
     assert _decide(_corte("127.94", "0", clicks=None)).motivo == "pause_clicks_o_cost_desconocidos"
+
+
+def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypatch):
+    """F10: una pausa por umbral con procedencia de producto y target fresco
+    None no revienta al calcular el exceso de su evidencia. La fila califica
+    igual; la evidencia declara target y exceso ausentes, nunca inventados."""
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params=None):
+            class Cursor:
+                def fetchone(self):
+                    if sql == apply_cola._SQL_DECISION_INPUTS:
+                        return (
+                            {
+                                "motivo": "pause_umbral",
+                                "target_procedencia": "margen_producto",
+                            },
+                        )
+                    if sql == apply_cola._SQL_CONFIG_TARGET:
+                        return ({"ads_producto_economia_amazon_us": "producto_directo_v1"},)
+                    if sql == apply_cola._SQL_PADRE:
+                        return (1,)
+                    raise AssertionError(sql)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_target_pause_vigente", lambda *_: (None, None))
+    monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
+    monkeypatch.setattr(
+        apply_cola.windows,
+        "ventana_cortes",
+        lambda *_: _corte("100", "100", clicks=300, orders=0),
+    )
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 100})()
+    )
+    evidencias: list[dict] = []
+    monkeypatch.setattr(
+        apply_cola, "_registra_evidencia", lambda _conn, _cid, ev, item: ev.append(item)
+    )
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    assert apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY, evidencias) is None
+    [evidencia] = evidencias
+    assert evidencia["target"] is None and evidencia["exceso"] is None
+    assert evidencia["resultado"] == "califica"

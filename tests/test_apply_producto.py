@@ -37,7 +37,7 @@ from test_api_write import TOKEN, _db_con_rol_admin, _secrets_token
 from test_cycle import DECIDED_AT, _config_version, _entidad, _siembra_maestra
 from test_cycle import _corre as _corre_ciclo_fijo
 from test_cycle import _db_temporal as _db_ciclo
-from test_productos_io import _anuncio
+from test_productos_io import _anuncio, _fila_reporte, _ingesta
 from test_productos_pausa import _impulso_abierto, _mundo_pausa, _repone, _retiro
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
@@ -569,6 +569,41 @@ def test_dato_invalido_al_revalidar_descarta_esa_fila_sin_tumbar_el_barrido(plan
         assert amazon.lists == 0
 
 
+@pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla, dias):
+    """M4: entre decidir y liberar (48 h de veto) aparecio una venta del
+    producto a 15, 4, 3, 2 o 1 dias, aun inmadura para la fuente de 30 dias.
+    La espera lee el reporte de productos hasta D-1 (no el watermark de hojas):
+    la revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
+    conserva el unico kind='pause' sobre product_ad."""
+    with _db(plantilla, f"orbit_m4_revalida_{dias}") as conn:
+        _mundo_pausa(conn)
+        _config(conn)
+        dec, q = _propuesta(conn)
+        fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=dias)
+        _ingesta(
+            conn,
+            fecha,
+            fecha,
+            [
+                _fila_reporte(
+                    fecha,
+                    asin="ASIN-SKU-A",
+                    sku="SS-SKU-A",
+                    clicks=4,
+                    cost=2.0,
+                    ventas=900,
+                    ad_id="pa1",
+                )
+            ],
+        )
+        amazon = _Amazon({"pa1": "ENABLED"})
+        _sin_cobro(conn, q, "venta_reciente_producto", amazon, _libera(conn, amazon))
+        assert amazon.lists == 0
+        assert _intenciones(conn) == []
+        assert _retiros(conn) == []
+
+
 # ---------------------------------------------------------------------------
 # I.3: el dueno perdido y la muerte antes de la intencion
 # ---------------------------------------------------------------------------
@@ -975,7 +1010,16 @@ def test_practica_sin_limites_guardados_pausa_live_sale_con_settings_invalido_y_
         )
         antes = _vigente(conn)
         monkeypatch.setenv("ORBIT_DSN_ADMIN", make_conninfo(_test_dsn(), dbname=conn.info.dbname))
-        args = SimpleNamespace(platform=PLAT, meta=None, pausa="live", clics=None, gasto=None)
+        args = SimpleNamespace(
+            platform=PLAT,
+            meta=None,
+            pausa="live",
+            clics=None,
+            gasto=None,
+            economia=None,
+            bid_economia=None,
+            proteccion=None,
+        )
         assert cli_productos.corre(args) == 2
         assert "la pausa en vivo exige guardar antes los limites" in capsys.readouterr().err
         with pytest.raises(config_write.SettingsInvalido):

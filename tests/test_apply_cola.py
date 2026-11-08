@@ -102,6 +102,11 @@ SQL45 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
 ).read_text(encoding="utf-8")
 
+# ORBIT 07 M1: la revalidacion de pausa lee la proteccion de venta reciente.
+SQL81 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
 # Patron _db_temporal de test_apply (COPIADO; aplica 0001 + 0002)
@@ -125,6 +130,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         yield conn
     finally:
         if conn is not None:

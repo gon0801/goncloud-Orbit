@@ -1,0 +1,30 @@
+constantes 7 7 days, 0:00:00 10 3
+banda 10 45 paso_bajada 0.5
+peldanos ('goal_campana', 'goal_plataforma', 'margen_familia', 'margen_plataforma', 'setting_plataforma')
+
+=== apendice ===
+99 Mantener(motivo='venta_reciente')
+120 Pausar(motivo='pause_umbral')
+
+=== economica queda detras del umbral ===
+cost 500 exceso 500.00 minimo 1000 motivo_devuelto pause_umbral
+cost 1500 exceso 1500.00 minimo 1000 motivo_devuelto pause_umbral
+
+=== meta 8 x 0.5 ===
+min(fraccion*margen, BANDA_MAX) 4.0
+ultimo None aplicado 10 derivado 4.0 motivo None
+ultimo 25 aplicado 24.5 derivado 4.0 motivo None
+ultimo 10 aplicado 10 derivado 4.0 motivo None
+
+=== cascada ===
+peldano margen_familia
+
+=== reloj repeticion contra ventana madura ===
+delta 7 decision 2026-10-08 dias_post 6 bloquea_efecto True cooldown False window_end 2026-09-28 fin_post 2026-10-08 post_maduro False
+delta 8 decision 2026-10-09 dias_post 7 bloquea_efecto False cooldown False window_end 2026-09-29 fin_post 2026-10-08 post_maduro False
+delta 16 decision 2026-10-17 dias_post 15 bloquea_efecto False cooldown False window_end 2026-10-07 fin_post 2026-10-08 post_maduro False
+delta 17 decision 2026-10-18 dias_post 16 bloquea_efecto False cooldown False window_end 2026-10-08 fin_post 2026-10-08 post_maduro True
+
+=== veredictos vigentes ===
+razon_trafico 1.1 crece_si 1.10 veredicto Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('11.5000'), motivo='bajo_target', nivel='hoja')
+razon_recorte 0.5 retiene_si_menor 0.70 veredicto Mantener(motivo='recorte_costo_trafico')

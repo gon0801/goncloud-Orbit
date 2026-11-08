@@ -1,0 +1,109 @@
+{
+  "fecha": "2026-11-08T07:48:18Z",
+  "base": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+  "candidato": "6bca84c0e0222ac0c7d1eea112f57c868f79f852",
+  "carga": {
+    "plataforma": "amazon_us",
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200,
+    "rondas_encendida": 7,
+    "rondas_apagada": 5
+  },
+  "metodo": {
+    "script": "tools/bench_orbit07_proteccion.py",
+    "comando": "python tools/bench_orbit07_proteccion.py preparar --plantilla orbit07_bench_tpl --proteccion on; python tools/bench_orbit07_proteccion.py comparar --plantilla orbit07_bench_tpl --code-base <worktree f86ed7d> --rondas 7",
+    "comando_apagado": "python tools/bench_orbit07_proteccion.py preparar --plantilla orbit07_bench_tpl_off --proteccion off; python tools/bench_orbit07_proteccion.py comparar --plantilla orbit07_bench_tpl_off --code-base <worktree f86ed7d> --rondas 5",
+    "copia": "cada corrida clona la MISMA plantilla fija (huella abajo) y base y candidato alternan por ronda sobre esa copia",
+    "medido": "tx2 = fase de lecturas completa; bloque = cycle.py:3151-3152; barrido = lectura de apply_cola.py:1333-1334; ciclo = corre_ciclo en shadow",
+    "interruptor": "ads_proteccion_venta=proteccion_venta_v1 enciende la regla; ausente la deja apagada (reversa de seleccion de politica)",
+    "postgres": "PostgreSQL 16 local desechable; no es una medicion de percentiles ni de produccion"
+  },
+  "huella": {
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200
+  },
+  "medicion": {
+    "encendida": {
+      "archivo": "docs/evidencia/orbit-07/m0/rendimiento-comparado.json",
+      "base": {
+        "tx2_ms_media": 1699.19,
+        "tx2_ms_mediana": 1717.02,
+        "tx2_consultas": 3627,
+        "bloque_ms_mediana": 0.0,
+        "bloque_consultas": 0,
+        "barrido_ms_mediana": 1.22,
+        "barrido_consultas": 1,
+        "ciclo_ms_media": 8104.15,
+        "ciclo_ms_mediana": 8121.21,
+        "ciclo_consultas": 3637
+      },
+      "candidato": {
+        "tx2_ms_media": 1763.95,
+        "tx2_ms_mediana": 1769.85,
+        "tx2_consultas": 3630,
+        "bloque_ms_mediana": 35.31,
+        "bloque_consultas": 3,
+        "barrido_ms_mediana": 35.95,
+        "barrido_consultas": 3,
+        "ciclo_ms_media": 8117.22,
+        "ciclo_ms_mediana": 8126.48,
+        "ciclo_consultas": 3640,
+        "persistencia_ms_mediana": 53.82,
+        "persistencia_consultas": 1,
+        "persistencia_filas": 200
+      },
+      "diferencia_mediana": {
+        "tx2_ms": 52.83,
+        "tx2_porcentaje": 3.08,
+        "tx2_consultas": 3,
+        "ciclo_ms": 5.27,
+        "ciclo_porcentaje": 0.06,
+        "ciclo_consultas": 3,
+        "barrido_ms": 34.73,
+        "barrido_consultas": 2
+      }
+    },
+    "apagada": {
+      "archivo": "docs/evidencia/orbit-07/m0/rendimiento-apagado.json",
+      "base": {
+        "tx2_ms_mediana": 1702.67,
+        "tx2_consultas": 3627,
+        "bloque_consultas": 0,
+        "barrido_consultas": 1,
+        "ciclo_ms_mediana": 8147.74,
+        "ciclo_consultas": 3637
+      },
+      "candidato": {
+        "tx2_ms_mediana": 1706.62,
+        "tx2_consultas": 3627,
+        "bloque_consultas": 0,
+        "barrido_consultas": 1,
+        "ciclo_ms_mediana": 8018.62,
+        "ciclo_consultas": 3637
+      },
+      "diferencia_mediana": {
+        "tx2_ms": 3.95,
+        "tx2_porcentaje": 0.23,
+        "tx2_consultas": 0,
+        "ciclo_consultas": 0
+      }
+    },
+    "nota": "El ciclo termina con 0 decisiones en esta carga (sin ventana madura); el trabajo por hoja de la subpolitica (insumos y segunda evaluacion en hojas con venta o episodio) queda incluido en tx2/ciclo. La corrida encendida es la que activa M1; la apagada demuestra que el interruptor devuelve el camino al de la base (0 consultas nuevas)."
+  },
+  "presupuesto": {
+    "latencia_media_ms_max": 150,
+    "consultas_por_plataforma_por_ciclo_encendida": 3,
+    "consultas_por_plataforma_por_ciclo_apagada": 0,
+    "consultas_por_plataforma_por_ciclo_total_encendida": 3640,
+    "consultas_por_plataforma_por_ciclo_total_base": 3637,
+    "consultas_por_plataforma_por_barrido_de_cola_encendida": 3,
+    "consultas_por_plataforma_por_barrido_de_cola_apagada": 1,
+    "consultas_por_plataforma_por_barrido_de_cola_total_base": 1,
+    "consultas_por_hoja": 0,
+    "razon": "encendida, el ciclo ejecuta 2 SELECT de lee_cache y 1 de claves_released por plataforma; el barrido ejecuta 1 SELECT de vencidas y 2 de lee_cache. Apagada no lee episodios y coincide con la base. Ninguna consulta nueva por hoja: la lectura es por lote y la segunda evaluacion de _proteccion_activa es pura."
+  }
+}

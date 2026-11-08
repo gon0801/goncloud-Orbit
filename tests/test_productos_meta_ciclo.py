@@ -74,7 +74,14 @@ def _mundo(conn, *, meta: str | None = "live") -> dict:
     _metrica_r9(conn, _run(conn), kw2)
     ids["kw2"] = kw2
     if meta is not None:
-        _config_version(conn, {**_settings(conn), "ads_producto_meta_amazon_us": meta})
+        _config_version(
+            conn,
+            {
+                **_settings(conn),
+                "ads_producto_meta_amazon_us": meta,
+                "ads_producto_economia_amazon_us": "producto_directo_v1",
+            },
+        )
     return ids
 
 
@@ -164,7 +171,10 @@ def test_grupo_compartido_no_usa_el_producto_aunque_venga_de_la_meta():
         assert _decision(conn, r2.cycle_id, ids["kw"])[3] is None
 
 
-def test_grupo_que_se_volvio_compartido_no_revalida_una_pausa_con_la_meta(monkeypatch):
+def test_grupo_compartido_revalida_con_el_respaldo_y_no_aplica_la_meta(monkeypatch):
+    """ORBIT 07 M2: si la hoja pasa a un grupo compartido durante el veto, la
+    pausa no se revalida con la meta individual congelada ni se descarta por
+    alcance: resuelve la economia completa de respaldo de ese ciclo."""
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     with _ciclo_live("orbit_f4_alcance") as (conn, ids, res):
         decision_id = _decision(conn, res.cycle_id, ids["kw"])[0]
@@ -178,8 +188,14 @@ def test_grupo_que_se_volvio_compartido_no_revalida_una_pausa_con_la_meta(monkey
         antes = apply_cola._revalida_pause(conn, aplicador, "amazon_us", fila, ahora)
         assert antes != "alcance_cambio"
         _comparte_grupo(conn, ids)
-        despues = apply_cola._revalida_pause(conn, aplicador, "amazon_us", fila, ahora)
-        assert despues == "alcance_cambio"
+        evidencias: list[dict] = []
+        despues = apply_cola._revalida_pause(conn, aplicador, "amazon_us", fila, ahora, evidencias)
+        assert despues != "alcance_cambio"
+        assert despues == "ya_no_califica"
+        [evidencia] = evidencias
+        assert evidencia["economia"]["producto"]["motivo"] == "grupo_no_exclusivo"
+        assert evidencia["target_procedencia"] != "margen_producto"
+        assert Decimal(evidencia["target"]) != 4
 
 
 def test_pausa_con_margen_familia_se_revalida_con_la_familia_congelada():

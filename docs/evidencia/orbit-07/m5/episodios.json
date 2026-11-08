@@ -1,0 +1,97 @@
+{
+  "version": "economia_cambio_v1",
+  "referencia": "ORBIT 07 M5/M6 sobre 4e0e78d (M2) / f86ed7dc (AUTO-03)",
+  "sonda": "docs/evidencia/orbit-07/m5/sonda_episodios.py",
+  "cambio": {
+    "fecha": "2026-07-20",
+    "bid_antes": "1.00",
+    "bid_despues": "0.85",
+    "ventanas": "[x-7, x-1] y [x+1, x+7], sin el dia del cambio",
+    "madurez": "D+17 (siete fechas posteriores completas con diez dias de madurez)"
+  },
+  "episodio_util": {
+    "version": "economia_cambio_v1",
+    "fecha_cambio": "2026-07-20",
+    "moneda": "USD",
+    "pre": {
+      "desde": "2026-07-13",
+      "hasta": "2026-07-19",
+      "gasto": "1400.0000",
+      "venta": "7000.0000",
+      "venta_mismo_sku": "7000.0000",
+      "pedidos": 35,
+      "clics": 700
+    },
+    "post": {
+      "desde": "2026-07-21",
+      "hasta": "2026-07-27",
+      "gasto": "1050.0000",
+      "venta": "7000.0000",
+      "venta_mismo_sku": "7000.0000",
+      "pedidos": 35,
+      "clics": 700
+    },
+    "estado": "maduro",
+    "motivo": null,
+    "aplicable": true,
+    "motivo_aplicabilidad": null,
+    "margen_pct": "8",
+    "contribucion_pre": "-840.0000",
+    "contribucion_post": "-490.0000"
+  },
+  "episodio_no_comparable": {
+    "version": "economia_cambio_v1",
+    "fecha_cambio": "2026-07-20",
+    "moneda": "USD",
+    "pre": {
+      "desde": "2026-07-13",
+      "hasta": "2026-07-19",
+      "gasto": "1400.0000",
+      "venta": "7000.0000",
+      "venta_mismo_sku": "7000.0000",
+      "pedidos": 35,
+      "clics": 700
+    },
+    "post": {
+      "desde": "2026-07-21",
+      "hasta": "2026-07-27",
+      "gasto": "1050.0000",
+      "venta": "7000.0000",
+      "venta_mismo_sku": "7000.0000",
+      "pedidos": 35,
+      "clics": 700
+    },
+    "estado": "incomparable",
+    "motivo": "cambio_en_ventana",
+    "aplicable": false,
+    "motivo_aplicabilidad": "cambio_posterior",
+    "margen_pct": "8",
+    "contribucion_pre": "-840.0000",
+    "contribucion_post": "-490.0000"
+  },
+  "juicio_con_episodio_util": {
+    "veredicto": "permite",
+    "motivo": null
+  },
+  "decision_sin_episodio": {
+    "tipo": "Mantener",
+    "motivo": "recorte_costo_trafico",
+    "bid_nuevo": null
+  },
+  "decision_con_episodio_util": {
+    "tipo": "Mover",
+    "motivo": "gasto_sin_venta",
+    "bid_nuevo": "0.7480"
+  },
+  "decision_con_episodio_no_comparable": {
+    "tipo": "Mantener",
+    "motivo": "recorte_costo_trafico",
+    "bid_nuevo": null
+  },
+  "cobertura": {
+    "cambios_leidos": 1,
+    "episodios_utiles": 1,
+    "episodios_no_comparables": 1,
+    "contribucion_requiere_margen": true
+  }
+}

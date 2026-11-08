@@ -87,6 +87,11 @@ SQL45 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0045_sin_aplicar_choque_clave.sql"
 ).read_text(encoding="utf-8")
 
+# ORBIT 07 M1: libera_vencidos lee la proteccion de venta reciente.
+SQL81 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0081_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -130,6 +135,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL14)  # 0014: ledger keyword_archivo_manual (BIDS 01 2.2)
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         yield conn
     finally:
         if conn is not None:

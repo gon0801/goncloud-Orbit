@@ -1,0 +1,19 @@
+ORBIT 07 M4 - sonda del hueco del dia 30
+Fecha: 2026-11-08 (UTC)
+Prueba reproducible: python -m pytest -q tests/test_productos_pausa.py::test_la_venta_reciente_madura_y_la_pausa_vuelve_a_decidir
+Salida historica de una sonda local del MISMO caso (no es salida de pytest).
+Venta 2026-10-09 (900 MXN del mismo SKU); D = venta + offset.
+
+== Base 57a05d8 (antes de la correccion) ==
+D=venta+29 (2026-11-07): ventana_pausa=2026-09-08..<2026-10-08 contiene_venta=False reciente=Ventana(desde=datetime.date(2026, 10, 9), hasta_exclusivo=datetime.date(2026, 11, 7)) contiene_venta=True -> politica=v3 pausas=[] motivos=('venta_reciente_producto',)
+D=venta+30 (2026-11-08): ventana_pausa=2026-09-09..<2026-10-09 contiene_venta=False reciente=Ventana(desde=datetime.date(2026, 10, 10), hasta_exclusivo=datetime.date(2026, 11, 8)) contiene_venta=False -> politica=v3 pausas=[901] motivos=()
+D=venta+31 (2026-11-09): ventana_pausa=2026-09-10..<2026-10-10 contiene_venta=True reciente=Ventana(desde=datetime.date(2026, 10, 11), hasta_exclusivo=datetime.date(2026, 11, 9)) contiene_venta=False -> politica=v3 pausas=[] motivos=('vendio_en_ventana',)
+
+== Candidato (despues de la correccion) ==
+D=venta+29 (2026-11-07): ventana_pausa=2026-09-08..<2026-10-08 contiene_venta=False reciente=Ventana(desde=datetime.date(2026, 10, 8), hasta_exclusivo=datetime.date(2026, 11, 7)) contiene_venta=True -> politica=v3 pausas=[] motivos=('venta_reciente_producto',)
+D=venta+30 (2026-11-08): ventana_pausa=2026-09-09..<2026-10-09 contiene_venta=False reciente=Ventana(desde=datetime.date(2026, 10, 9), hasta_exclusivo=datetime.date(2026, 11, 8)) contiene_venta=True -> politica=v3 pausas=[] motivos=('venta_reciente_producto',)
+D=venta+31 (2026-11-09): ventana_pausa=2026-09-10..<2026-10-10 contiene_venta=True reciente=Ventana(desde=datetime.date(2026, 10, 10), hasta_exclusivo=datetime.date(2026, 11, 9)) contiene_venta=False -> politica=v3 pausas=[] motivos=('vendio_en_ventana',)
+
+Lectura: la base deja el dia de madurez fuera de ambas ventanas y propone la
+pausa de un producto que vendio. El candidato hace contiguas [D-30, D-1] y
+[D-60, D-30): en D=venta+30 espera y en D=venta+31 la venta ya cuenta.

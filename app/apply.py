@@ -243,6 +243,10 @@ MOTIVO_PERDIDA = "perdida"
 # como huerfana). `perdida` SE QUEDA en el vocabulario (puede haber filas
 # historicas) aunque libera_vencidos ya no la escriba.
 MOTIVO_CHOQUE_CLAVE = "choque_clave"
+# ORBIT 07 M1: la pausa por cero ventas espera el vencimiento del episodio de
+# venta reciente. La fila queda released: no cobra cuota, no entra a applying y
+# no reinicia el veto de 48 horas.
+MOTIVO_ESPERA_PROTECCION = "espera_proteccion"
 
 # ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
 # CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
@@ -264,6 +268,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_SIN_RESPUESTA,
     MOTIVO_PERDIDA,
     MOTIVO_CHOQUE_CLAVE,
+    MOTIVO_ESPERA_PROTECCION,
 )
 
 _SQL_SIN_APLICAR = """

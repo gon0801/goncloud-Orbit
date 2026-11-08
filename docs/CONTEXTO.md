@@ -345,6 +345,41 @@ manda para la implementación; este párrafo es el spec delta sellado:
   «se va a ir ajustando automaticamente» → ledger y FX en cron diario.
   `v_contribucion_entidad` (por palabra) sigue NO decisoria.
   Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`.
+- **Meta por producto (AUTO-03 C-F; ORBIT 07 M2)**: en un grupo exclusivo
+  y elegible, el peldaño `margen_producto` = `min(fracción × margen del
+  producto, 45)` sin piso de 10. ORBIT 07 M2 aplica esa meta directa desde
+  el primer ciclo elegible y en cada cambio posterior del margen (excepción
+  a la rampa de 0.5 puntos de la meta; los pasos de cambio de puja no
+  cambian). Al perder elegibilidad, la hoja resuelve la cascada completa de
+  respaldo en ese ciclo y el target individual no se interpola. La
+  revalidación de una pausa usa la evaluación fresca del ciclo ejecutor
+  (goal, identidad, atribución, moneda y respaldo); apagar
+  `ads_producto_economia_<plat>` elige la version (ausente/`auto03`
+  conserva la rampa y la cola congelada; `producto_directo_v1` activa
+  M2) y `ads_producto_meta_<plat>` sigue apagando la meta individual; el
+  cambio de version no borra evaluaciones ni decisiones.
+- **Pausa por producto y venta reciente (ORBIT 07 M4)**: ademas de la ventana
+  madura `[D-60, D-30)` en cero, la politica v3 espera si hay una compra o
+  venta total en `[D-30, D-1]`: la fuente de productos reobserva 30 dias, asi
+  que una venta con menos de 30 dias aun puede cambiar. La espera lee el
+  reporte de productos hasta D-1 (no el watermark de hojas). El ancla es la
+  fecha mas antigua de esa venta, vence a los 30 dias y libera al dia 31,
+  cuando la venta entra a la ventana madura; una reobservacion o una venta
+  posterior no mueven el ancla mientras la anterior siga inmadura. Se aplica al
+  decidir y al revalidar; la fila en cola se descarta con
+  `venta_reciente_producto` sin PUT ni cuota. v2 conserva el replay historico
+  sin la espera.
+- **Episodio economico del ultimo cambio (ORBIT 07 M5/M6)**: con
+  `ads_bid_economia_<plat> = economia_cambio_v1` el ciclo congela en el caso
+  las ventanas `[x-7, x-1]` y `[x+1, x+7]` del ultimo cambio de bid y separa
+  madurez (D+17), comparabilidad y aplicabilidad. Al repetir la misma
+  direccion, un recorte con ventas conservadas y ACoS mejor salta el freno
+  de trafico de R16; si no conserva ventas o no mejora, devuelve sin
+  evidencia y R16 decide como antes (M6 no frena recortes). Una subida cuyo
+  trafico adicional no compensa el gasto se frena con
+  `subida_sin_economia`. Sin evidencia madura, comparable y aplicable,
+  R14-R17 decide como antes. Ausente/`off` no lee ni congela episodios;
+  apagarla no reescribe decisiones historicas.
 - **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
   `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
 

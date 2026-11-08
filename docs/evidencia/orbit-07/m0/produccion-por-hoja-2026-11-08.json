@@ -1,0 +1,256 @@
+{
+  "fecha_utc": "2026-11-08T16:45:32.872917+00:00",
+  "rol": "orbit_read",
+  "solo_lectura": "on",
+  "ventana": "min(max(metric_date de hoja)-3, D-10), treinta dias inclusivos",
+  "muestra_por_hoja": {
+    "amazon_us": [
+      {
+        "ad_entity_id": 5336,
+        "pedidos_recientes": 2,
+        "ancla": "2026-11-06",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 1,
+        "clics_maduros": 68,
+        "gasto_maduro": "50.2700"
+      },
+      {
+        "ad_entity_id": 4924,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-04",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 2,
+        "clics_maduros": 361,
+        "gasto_maduro": "177.3100"
+      },
+      {
+        "ad_entity_id": 4898,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-03",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 0,
+        "clics_maduros": 9,
+        "gasto_maduro": "3.5600"
+      },
+      {
+        "ad_entity_id": 4919,
+        "pedidos_recientes": 2,
+        "ancla": "2026-11-03",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 0,
+        "clics_maduros": 255,
+        "gasto_maduro": "81.4100"
+      },
+      {
+        "ad_entity_id": 5894,
+        "pedidos_recientes": 3,
+        "ancla": "2026-11-02",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 6,
+        "clics_maduros": 840,
+        "gasto_maduro": "341.0700"
+      },
+      {
+        "ad_entity_id": 5567,
+        "pedidos_recientes": 4,
+        "ancla": "2026-11-01",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 1,
+        "clics_maduros": 223,
+        "gasto_maduro": "87.1500"
+      },
+      {
+        "ad_entity_id": 4934,
+        "pedidos_recientes": 1,
+        "ancla": "2026-10-30",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 3,
+        "clics_maduros": 331,
+        "gasto_maduro": "123.7400"
+      },
+      {
+        "ad_entity_id": 5891,
+        "pedidos_recientes": 2,
+        "ancla": "2026-10-30",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 7,
+        "clics_maduros": 821,
+        "gasto_maduro": "327.5200"
+      }
+    ],
+    "amazon_mx": [
+      {
+        "ad_entity_id": 3840,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-07",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 5,
+        "clics_maduros": 83,
+        "gasto_maduro": "240.5000"
+      },
+      {
+        "ad_entity_id": 2875,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-05",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 0,
+        "clics_maduros": 17,
+        "gasto_maduro": "33.3200"
+      },
+      {
+        "ad_entity_id": 2954,
+        "pedidos_recientes": 2,
+        "ancla": "2026-11-04",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 22,
+        "clics_maduros": 1194,
+        "gasto_maduro": "5071.3600"
+      },
+      {
+        "ad_entity_id": 3860,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-04",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 4,
+        "clics_maduros": 341,
+        "gasto_maduro": "609.6200"
+      },
+      {
+        "ad_entity_id": 2917,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-03",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 3,
+        "clics_maduros": 102,
+        "gasto_maduro": "227.8500"
+      },
+      {
+        "ad_entity_id": 3773,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-02",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 0,
+        "clics_maduros": 35,
+        "gasto_maduro": "77.8000"
+      },
+      {
+        "ad_entity_id": 3861,
+        "pedidos_recientes": 6,
+        "ancla": "2026-11-02",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 13,
+        "clics_maduros": 420,
+        "gasto_maduro": "1187.5900"
+      },
+      {
+        "ad_entity_id": 2457,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-01",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 6,
+        "clics_maduros": 493,
+        "gasto_maduro": "1553.1000"
+      },
+      {
+        "ad_entity_id": 2871,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-01",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 5,
+        "clics_maduros": 189,
+        "gasto_maduro": "740.0800"
+      },
+      {
+        "ad_entity_id": 2963,
+        "pedidos_recientes": 3,
+        "ancla": "2026-11-01",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 9,
+        "clics_maduros": 176,
+        "gasto_maduro": "728.8400"
+      },
+      {
+        "ad_entity_id": 2969,
+        "pedidos_recientes": 1,
+        "ancla": "2026-11-01",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 1,
+        "clics_maduros": 27,
+        "gasto_maduro": "116.4500"
+      },
+      {
+        "ad_entity_id": 2964,
+        "pedidos_recientes": 5,
+        "ancla": "2026-10-31",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 19,
+        "clics_maduros": 897,
+        "gasto_maduro": "2363.8600"
+      },
+      {
+        "ad_entity_id": 2999,
+        "pedidos_recientes": 21,
+        "ancla": "2026-10-30",
+        "completa": true,
+        "ultima_fila": "2026-11-07",
+        "window_end": "2026-10-29",
+        "pedidos_maduros": 68,
+        "clics_maduros": 1309,
+        "gasto_maduro": "5452.4000"
+      }
+    ]
+  },
+  "nota": "Ventas recientes no equivalen a pausas elegibles. Faltan gates de estado, goals, veto y umbrales.",
+  "consulta": "consulta-pedidos-recientes.sql",
+  "consulta_sha256": "f2f3af3cb19b85648c42eec7715ffcbcd2186d29aa31758775d0ddc18629012a",
+  "resumen": {
+    "amazon_us": {
+      "hojas_con_pedido_reciente": 8,
+      "con_cero_pedidos_maduros": 2
+    },
+    "amazon_mx": {
+      "hojas_con_pedido_reciente": 13,
+      "con_cero_pedidos_maduros": 2
+    }
+  }
+}

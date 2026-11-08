@@ -1,0 +1,236 @@
+"""Lectura y escritura de la proteccion por venta reciente (ORBIT 07 M1).
+
+`lee_cache` hace DOS consultas de lectura por plataforma y barrido: pedidos
+recientes D-9..D-1 con su fecha mas antigua, y los episodios persistidos. La
+subpolitica pura (`app.optimizer.proteccion`) decide; este modulo solo lleva
+los datos. La escritura es append-only y ocurre en TX3 del ciclo o en la
+transaccion de la cola: una fila por episodio (ancla + vencimiento fijos).
+
+La cobertura del rango reciente es de PLATAFORMA, igual que la lectura de
+inmaduros existente: un dia con ingesta de cualquier hoja keyword/product_target
+cuenta. Entidad sin filas en una plataforma cubierta = cero MEDIDO; metrica
+venenosa = None (desconocido, jamas cero).
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass
+
+import psycopg
+
+from app.lecturas_caso import _completo
+from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.optimizer.caso import (
+    VERSION_PROTECCION_VENTA,
+    EpisodioProteccion,
+    InsumosProteccion,
+    LecturaReciente,
+    ResultadoProteccion,
+)
+
+DIAS_RECIENTES = 9  # D-9..D-1: la misma ventana inmadura que ya lee el caso
+
+_SQL_RECIENTES = """
+SELECT v.ad_entity_id,
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.orders) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       min(v.metric_date) FILTER (WHERE v.orders IS NOT NULL AND v.orders > 0
+                                  AND v.metric_date BETWEEN %s AND %s),
+       max(v.observed_at) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       array_agg(DISTINCT v.metric_date)
+  FROM v_metric_latest v
+  JOIN ad_entity k ON k.id = v.ad_entity_id
+ WHERE k.platform = %s::platform
+   AND k.kind IN ('keyword', 'product_target')
+   AND v.metric_currency = %s
+   AND v.metric_date BETWEEN %s AND %s
+ GROUP BY v.ad_entity_id
+"""
+
+_SQL_EPISODIOS = """
+SELECT ad_entity_id, ancla, vence_el
+  FROM proteccion_venta_reciente
+ WHERE platform = %s::platform AND version = %s
+ ORDER BY ad_entity_id, ancla DESC
+"""
+
+_SQL_INSERT = """
+INSERT INTO proteccion_venta_reciente
+    (platform, ad_entity_id, version, ancla, vence_el, abierta_el, observado_el)
+VALUES (%s::platform, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (platform, ad_entity_id, version, ancla) DO NOTHING
+"""
+
+
+@dataclass(frozen=True)
+class TransicionProteccion:
+    """Fila append-only que el escritor debe insertar al abrir un episodio."""
+
+    platform: str
+    ad_entity_id: int
+    ancla: dt.date
+    vence_el: dt.date
+    abierta_el: dt.datetime
+    observado_el: dt.datetime
+
+
+@dataclass(frozen=True)
+class CacheProteccion:
+    """Lectura por lote del barrido o del ciclo. Sin consultas por hoja."""
+
+    plataforma: str
+    evaluado_el: dt.date
+    cubierta: bool
+    _recientes: dict[int, LecturaReciente]
+    _episodios: dict[int, EpisodioProteccion]
+
+    def hay_venta(self, hoja_id: int) -> bool:
+        lectura = self._recientes.get(hoja_id)
+        return (
+            lectura is not None
+            and lectura.cubierta
+            and lectura.pedidos is not None
+            and lectura.pedidos > 0
+        )
+
+    def tiene_proteccion(self, hoja_id: int) -> bool:
+        """True si la hoja tiene venta reciente o un episodio persistido. Es
+        la puerta para no congelar sus pujas por una fila `released`.
+
+        Un episodio vencido no se trata como veto: mientras la fila released
+        siga esperando, el ciclo evalua la hoja y solo suprime la pausa por
+        cero ventas (el ancla y el vencimiento originales no se tocan). La
+        espera indeterminada (ancla aun fuera de la ventana madura) tampoco
+        bloquea las pujas. El apagado de la regla es el setting de politica,
+        no la simple ausencia de la fila released.
+        """
+        if self.hay_venta(hoja_id):
+            return True
+        return hoja_id in self._episodios
+
+    def insumos(
+        self,
+        hoja_id: int,
+        *,
+        ventana_desde: dt.date | None,
+        ventana_hasta: dt.date | None,
+    ) -> InsumosProteccion:
+        lectura = self._recientes.get(hoja_id)
+        if lectura is None:
+            lectura = LecturaReciente(
+                pedidos=0 if self.cubierta else None,
+                ancla=None,
+                cubierta=self.cubierta,
+                observado_al=None,
+            )
+        return InsumosProteccion(
+            version=VERSION_PROTECCION_VENTA,
+            evaluado_el=self.evaluado_el,
+            reciente=lectura,
+            ventana_desde=ventana_desde,
+            ventana_hasta=ventana_hasta,
+            episodio=self._episodios.get(hoja_id),
+        )
+
+    def transicion(
+        self, hoja_id: int, resultado: ResultadoProteccion, abierta_el: dt.datetime
+    ) -> TransicionProteccion | None:
+        if not resultado.abre_episodio or resultado.ancla is None or resultado.vence_el is None:
+            return None
+        lectura = self._recientes.get(hoja_id)
+        observado = lectura.observado_al if lectura is not None else None
+        observado_el = abierta_el if observado is None else min(abierta_el, observado)
+        return TransicionProteccion(
+            platform=self.plataforma,
+            ad_entity_id=hoja_id,
+            ancla=resultado.ancla,
+            vence_el=resultado.vence_el,
+            abierta_el=abierta_el,
+            observado_el=observado_el,
+        )
+
+
+def lee_cache(conn: psycopg.Connection, platform: str, ahora: dt.datetime) -> CacheProteccion:
+    """DOS SELECT por plataforma. `ahora` es el reloj del intento (tz-aware)."""
+    if ahora.tzinfo is None:
+        raise ValueError("ahora debe ser tz-aware: un naive evaluaria segun la TZ local")
+    evaluado_el = ahora.astimezone(dt.UTC).date()
+    desde = evaluado_el - dt.timedelta(days=DIAS_RECIENTES)
+    hasta = evaluado_el - dt.timedelta(days=1)
+    moneda = PLATAFORMAS_MONEDA[platform]
+    filas = conn.execute(
+        _SQL_RECIENTES,
+        (
+            desde,
+            hasta,
+            desde,
+            hasta,
+            desde,
+            hasta,
+            desde,
+            hasta,
+            platform,
+            moneda,
+            desde,
+            hasta,
+        ),
+    ).fetchall()
+    recientes: dict[int, LecturaReciente] = {}
+    dias: set[dt.date] = set()
+    for hoja, pedidos, ancla, observado, fechas in filas:
+        recientes[hoja] = LecturaReciente(
+            pedidos=pedidos,
+            ancla=ancla,
+            cubierta=True,
+            observado_al=observado,
+        )
+        dias.update(fechas or ())
+    cubierta = _completo(desde, hasta, frozenset(dias))
+    if not cubierta:
+        # La fuente no cubre el rango: lo leido no se convierte en cero.
+        recientes = {
+            hoja: LecturaReciente(
+                pedidos=None,
+                ancla=None,
+                cubierta=False,
+                observado_al=lectura.observado_al,
+            )
+            for hoja, lectura in recientes.items()
+        }
+    episodios: dict[int, EpisodioProteccion] = {}
+    for hoja, ancla, vence_el in conn.execute(
+        _SQL_EPISODIOS, (platform, VERSION_PROTECCION_VENTA)
+    ).fetchall():
+        episodios.setdefault(hoja, EpisodioProteccion(ancla=ancla, vence_el=vence_el))
+    return CacheProteccion(
+        plataforma=platform,
+        evaluado_el=evaluado_el,
+        cubierta=cubierta,
+        _recientes=recientes,
+        _episodios=episodios,
+    )
+
+
+def inserta_transiciones(
+    conn: psycopg.Connection, transiciones: list[TransicionProteccion]
+) -> None:
+    """Append-only e idempotente por (platform, entidad, version, ancla)."""
+    if not transiciones:
+        return
+    conn.cursor().executemany(
+        _SQL_INSERT,
+        [
+            (
+                t.platform,
+                t.ad_entity_id,
+                VERSION_PROTECCION_VENTA,
+                t.ancla,
+                t.vence_el,
+                t.abierta_el,
+                t.observado_el,
+            )
+            for t in transiciones
+        ],
+    )

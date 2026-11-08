@@ -18,26 +18,36 @@ menos una fila de alguna hoja de la plataforma en la misma lectura.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
-from decimal import Decimal
+from dataclasses import dataclass, replace
+from decimal import Decimal, localcontext
 from typing import Any, Protocol
 
 from app.optimizer.caso import (
+    DIAS_ECONOMIA_CAMBIO,
     DIAS_LOOKBACK,
     DIAS_MADUREZ,
+    DIAS_MADUREZ_ECONOMIA,
     DIAS_TRAMO_RECIENTE,
+    MOTIVO_ECONOMIA_CAMBIO_EN_VENTANA,
+    MOTIVO_ECONOMIA_CAMBIO_POSTERIOR,
+    MOTIVO_ECONOMIA_COBERTURA_INCOMPLETA,
+    MOTIVO_ECONOMIA_POST_INMADURO,
+    PRECISION,
+    VERSION_ECONOMIA_CAMBIO,
     BidVigente,
     CambioBid,
     CasoHoja,
     Economia,
     EconomiaPlataforma,
     EfectoCambio,
+    EpisodioEconomico,
     EvidenciaNivel,
     InsumosPausa,
     Plataforma,
     PrecioVentana,
     Tramo,
     Trayectoria,
+    VentanaEconomica,
 )
 from app.optimizer.goals import COOLDOWN
 from app.optimizer.windows import DIAS_FRESCURA_BIDS
@@ -128,9 +138,10 @@ SELECT v.ad_entity_id,
  GROUP BY v.ad_entity_id
 """
 
-# Hojas activas de la plataforma (el roll-up suma solo estas).
+# Hojas activas de la plataforma (el roll-up suma solo estas). La campana se
+# usa para relacionar los eventos de configuracion con su hoja (M5).
 _SQL_HOJAS = """
-SELECT hoja_id, ad_group_id FROM v_hoja_activa WHERE platform = %s
+SELECT hoja_id, ad_group_id, campana_id FROM v_hoja_activa WHERE platform = %s
 """
 
 # Cambios de bid de 90 dias de toda la plataforma, ascendentes por hoja
@@ -145,8 +156,10 @@ SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen, d.new_v
  ORDER BY c.hoja_id, c.confirmado_el, c.decision_id
 """
 
-# Efecto del ULTIMO cambio de UNA hoja: una fila con conteo y sumas por
-# lado del cambio (pre7, trafico post, precio post, precio previo, vendia).
+# Efecto del ULTIMO cambio de UNA hoja (camino historico, regla apagada): una
+# fila con conteo y sumas por lado del cambio (pre7, trafico post, precio
+# post, precio previo, vendia). Se conserva byte a byte el camino de la base
+# para que apagar M5/M6 no pague columnas que no usa.
 _SQL_EFECTO = """
 SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
        CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
@@ -181,6 +194,122 @@ SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
  WHERE v.ad_entity_id = %s
    AND v.metric_currency = %s
    AND v.metric_date BETWEEN %s AND %s
+"""
+
+# ORBIT 07 M5 (regla encendida): el mismo efecto mas las dos ventanas
+# economicas de siete fechas SIN el dia del cambio: [x-7, x-1] y [x+1, x+7].
+# Las ventanas de trafico y precio conservan sus rangos historicos; las
+# economicas son campos aparte para no cambiar R1/R15/R16 ni _precio_de_hoy.
+_SQL_EFECTO_ECONOMIA = """
+SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.impressions) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.impressions) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.orders) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       CASE WHEN bool_and(v.ad_revenue IS NOT NULL AND v.ad_revenue >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.ad_revenue) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       CASE WHEN bool_and(v.revenue_same_sku IS NOT NULL AND v.revenue_same_sku >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.revenue_same_sku) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.orders) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       CASE WHEN bool_and(v.ad_revenue IS NOT NULL AND v.ad_revenue >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.ad_revenue) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       CASE WHEN bool_and(v.revenue_same_sku IS NOT NULL AND v.revenue_same_sku >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.revenue_same_sku) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.orders) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END
+  FROM {fuente}
+ WHERE v.ad_entity_id = %s
+   AND v.metric_currency = %s
+   AND v.metric_date BETWEEN %s AND %s
+"""
+
+# ORBIT 07 M5: eventos que invalidan la comparacion de una ventana. Solo se
+# leen cuando la regla economica esta encendida, en lote por plataforma y con
+# el corte bitemporal (visto_el) de la lectura. ads_campana_config_observation
+# solo inserta filas cuando la config cambio (guarda_config); campana_ajuste
+# solo trae ajustes confirmados; precio_cambio se ata al ad group por sus
+# product ads (listing); un product_ad con first_seen_at nuevo cambia el
+# alcance del grupo.
+_SQL_EVENTOS_CAMPANA = """
+SELECT o.ad_entity_id, o.observed_at
+  FROM ads_campana_config_observation o
+  JOIN ad_entity c ON c.id = o.ad_entity_id AND c.kind = 'campaign'
+ WHERE c.platform = %s::platform
+   AND o.observed_at >= %s AND o.observed_at <= %s
+"""
+
+_SQL_AJUSTES_CAMPANA = """
+SELECT a.campana_id, a.confirmado_el
+  FROM campana_ajuste a
+ WHERE a.platform = %s::platform
+   AND a.confirmado_el IS NOT NULL
+   AND a.confirmado_el >= %s AND a.confirmado_el <= %s
+"""
+
+_SQL_PRECIOS_GRUPO = """
+SELECT pa.parent_id, pc.enviado_at
+  FROM precio_cambio pc
+  JOIN ad_entity pa ON pa.platform = pc.platform
+                   AND pa.kind = 'product_ad'
+                   AND pa.listing_id = pc.listing_id
+ WHERE pc.platform = %s::platform
+   AND pc.aplicado IS TRUE
+   AND pc.estado IN ('enviado', 'confirmado')
+   AND pc.enviado_at IS NOT NULL
+   AND pc.enviado_at >= %s AND pc.enviado_at <= %s
+"""
+
+_SQL_ANUNCIOS_NUEVOS = """
+SELECT a.parent_id, a.first_seen_at
+  FROM ad_entity a
+ WHERE a.platform = %s::platform
+   AND a.kind = 'product_ad'
+   AND a.first_seen_at >= %s AND a.first_seen_at <= %s
 """
 
 
@@ -314,6 +443,10 @@ class LecturasPlataforma:
     _cambios: dict[int, tuple[CambioBid, ...]]
     _precio: dict[int, PrecioVentana]
     _inmaduros: dict[int, int | None]
+    _campanas: dict[int, int]
+    _eventos_campana: dict[int, tuple[dt.date, ...]]
+    _eventos_grupo: dict[int, tuple[dt.date, ...]]
+    _con_economia: bool
     _dias_con_ingesta: frozenset[dt.date]
     _d: dt.date
     _visto_el: dt.datetime | None
@@ -328,16 +461,46 @@ class LecturasPlataforma:
         bid: BidVigente,
         target_acos_pct: Decimal,
         pausa: InsumosPausa,
+        equilibrio_acos_pct: Decimal | None = None,
     ) -> CasoHoja:
         """Arma el caso de una hoja. Cero consultas si la hoja no cambio de
         bid en 90 dias; UNA consulta (`_SQL_EFECTO`) si cambio. La ventana
         de cortes de la pausa la sigue leyendo cycle con windows (llega
-        dentro de `pausa`)."""
+        dentro de `pausa`).
+
+        ORBIT 07 M2: `equilibrio_acos_pct` sustituye el equilibrio de la
+        plataforma por el del producto cuando la meta individual gana. El
+        target y su punto de equilibrio viajan juntos; None conserva la
+        semantica anterior (mismo equilibrio de plataforma).
+
+        ORBIT 07 M5: con la regla economica encendida, la consulta del efecto
+        trae ademas las ventanas economicas del ultimo cambio y el caso
+        congela su episodio. Apagada, no se leen ni congelan episodios y el
+        camino de consultas vuelve al de la base."""
         cambios = self._cambios.get(hoja_id, ())
+        plataforma = (
+            replace(self.economia, equilibrio_acos_pct=equilibrio_acos_pct)
+            if equilibrio_acos_pct is not None
+            else self.economia
+        )
         if cambios:
-            trayectoria = Trayectoria(
-                cambios=cambios, efecto=_lee_efecto(conn, self, hoja_id, cambios)
+            leido = _lee_efecto(conn, self, hoja_id, cambios)
+            if self._con_economia:
+                assert leido.pre_economico is not None and leido.post_economico is not None
+            episodio = (
+                _episodio_economico(
+                    self,
+                    cambios=cambios,
+                    pre=leido.pre_economico,
+                    post=leido.post_economico,
+                    margen_pct=plataforma.equilibrio_acos_pct,
+                    campana_id=self._campanas.get(hoja_id),
+                    ad_group_id=ad_group_id,
+                )
+                if self._con_economia
+                else None
             )
+            trayectoria = Trayectoria(cambios=cambios, efecto=leido.efecto, episodio=episodio)
         else:
             trayectoria = Trayectoria(cambios=(), efecto=None)
         return CasoHoja(
@@ -345,7 +508,7 @@ class LecturasPlataforma:
             hoja_id=hoja_id,
             ad_group_id=ad_group_id,
             bid=bid,
-            economia=Economia(plataforma=self.economia, target_acos_pct=target_acos_pct),
+            economia=Economia(plataforma=plataforma, target_acos_pct=target_acos_pct),
             propia=self._por_hoja.get(hoja_id),
             pedidos_inmaduros=self._inmaduros.get(hoja_id),
             grupo=self._por_grupo.get(ad_group_id),
@@ -359,14 +522,28 @@ class LecturasPlataforma:
         )
 
 
+@dataclass(frozen=True)
+class _EfectoLeido:
+    """La consulta unica del efecto devuelve tambien las dos ventanas
+    economicas (M5) para congelarlas en el episodio sin otra consulta.
+    Apagada la regla, las dos ventanas son None y se ejecuta el SQL historico."""
+
+    efecto: EfectoCambio
+    pre_economico: VentanaEconomica | None
+    post_economico: VentanaEconomica | None
+
+
 def _lee_efecto(
     conn: Conexion,
     lect: LecturasPlataforma,
     hoja_id: int,
     cambios: tuple[CambioBid, ...],
-) -> EfectoCambio:
+) -> _EfectoLeido:
     """Efecto del ultimo cambio de la hoja (UNA consulta). Los rangos son
-    los del prototipo (exporta M.1); `dias_post` cuenta dias con ingesta."""
+    los del prototipo (exporta M.1); `dias_post` cuenta dias con ingesta.
+    Con la regla encendida, la MISMA consulta trae las ventanas economicas de
+    SIETE fechas completas sin el dia del cambio: [x-7, x-1] y [x+1, x+7].
+    Apagada, se ejecuta el SQL historico de 13 columnas."""
     uno = dt.timedelta(days=1)
     x = cambios[-1].fecha
     d = lect._d
@@ -383,11 +560,21 @@ def _lee_efecto(
     )
     prep = (max(previo, x - dt.timedelta(days=DIAS_PRECIO_PREVIO)), x - uno)
     ven = (x - dt.timedelta(days=DIAS_LOOKBACK), x - uno)
+    econ_pre = (x - dt.timedelta(days=DIAS_ECONOMIA_CAMBIO), x - uno)
+    econ_post = (x + uno, x + dt.timedelta(days=DIAS_ECONOMIA_CAMBIO))
     fuente, pv = _fuente(lect._visto_el)
-    fechas = [*pre7] * 5 + [*post] * 3 + [*postp] * 5 + [*prep] * 5 + [*ven] * 3
+    base = [*pre7] * 5 + [*post] * 3 + [*postp] * 5 + [*prep] * 5 + [*ven] * 3
+    if lect._con_economia:
+        sql = _SQL_EFECTO_ECONOMIA
+        fechas = base + [*econ_pre] * 11 + [*econ_post] * 11
+        limite = max(fresco, econ_post[1])
+    else:
+        sql = _SQL_EFECTO
+        fechas = base
+        limite = max(fresco, post[1])
     fila = conn.execute(
-        _SQL_EFECTO.format(fuente=fuente),
-        (*fechas, *pv, hoja_id, lect.economia.moneda, ven[0], max(fresco, post[1])),
+        sql.format(fuente=fuente),
+        (*fechas, *pv, hoja_id, lect.economia.moneda, ven[0], limite),
     ).fetchone()
     (
         n_pre7,
@@ -403,9 +590,9 @@ def _lee_efecto(
         g_prep,
         n_ven,
         p_ven,
-    ) = fila
+    ) = fila[:13]
     vendidos = _mide(n_ven, p_ven, ven[0], ven[1], dias, 0)
-    return EfectoCambio(
+    efecto = EfectoCambio(
         dias_post=dias_post,
         impresiones_pre7=_mide(n_pre7, i_pre7, pre7[0], pre7[1], dias, 0),
         clics_pre7=_mide(n_pre7, c_pre7, pre7[0], pre7[1], dias, 0),
@@ -417,6 +604,156 @@ def _lee_efecto(
         gasto_pre=_mide(n_prep, g_prep, prep[0], prep[1], dias, Decimal(0)),
         vendia=None if vendidos is None else vendidos >= 1,
     )
+    if not lect._con_economia:
+        return _EfectoLeido(efecto=efecto, pre_economico=None, post_economico=None)
+    (
+        n_econ_pre,
+        g_econ_pre,
+        r_econ_pre,
+        rs_econ_pre,
+        o_econ_pre,
+        c_econ_pre,
+        n_econ_post,
+        g_econ_post,
+        r_econ_post,
+        rs_econ_post,
+        o_econ_post,
+        c_econ_post,
+    ) = fila[13:]
+    return _EfectoLeido(
+        efecto=efecto,
+        pre_economico=_ventana_economica(
+            n_econ_pre,
+            econ_pre,
+            dias,
+            gasto=g_econ_pre,
+            venta=r_econ_pre,
+            venta_mismo_sku=rs_econ_pre,
+            pedidos=o_econ_pre,
+            clics=c_econ_pre,
+        ),
+        post_economico=_ventana_economica(
+            n_econ_post,
+            econ_post,
+            dias,
+            gasto=g_econ_post,
+            venta=r_econ_post,
+            venta_mismo_sku=rs_econ_post,
+            pedidos=o_econ_post,
+            clics=c_econ_post,
+        ),
+    )
+
+
+def _ventana_economica(
+    filas: int,
+    rango: tuple[dt.date, dt.date],
+    dias: frozenset[dt.date],
+    *,
+    gasto: Any,
+    venta: Any,
+    venta_mismo_sku: Any,
+    pedidos: Any,
+    clics: Any,
+) -> VentanaEconomica:
+    desde, hasta = rango
+    return VentanaEconomica(
+        desde=desde,
+        hasta=hasta,
+        gasto=_mide(filas, gasto, desde, hasta, dias, Decimal(0)),
+        venta=_mide(filas, venta, desde, hasta, dias, Decimal(0)),
+        venta_mismo_sku=_mide(filas, venta_mismo_sku, desde, hasta, dias, Decimal(0)),
+        pedidos=_mide(filas, pedidos, desde, hasta, dias, 0),
+        clics=_mide(filas, clics, desde, hasta, dias, 0),
+    )
+
+
+def _episodio_economico(
+    lect: LecturasPlataforma,
+    *,
+    cambios: tuple[CambioBid, ...],
+    pre: VentanaEconomica,
+    post: VentanaEconomica,
+    margen_pct: Decimal | None,
+    campana_id: int | None,
+    ad_group_id: int | None,
+) -> EpisodioEconomico | None:
+    """Episodio del ULTIMO cambio de bid real (no un ajuste de campana).
+
+    `estado` separa madurez/comparabilidad de `aplicable`: un cambio de puja,
+    presupuesto, placement, precio o alcance posterior deja el episodio como
+    historia. Un evento DENTRO de [x-7, x+7] contaminaria la comparacion y la
+    marca incomparable, aunque el episodio siga sin cambios posteriores.
+    """
+    reales = [
+        i
+        for i, cambio in enumerate(cambios)
+        if cambio.bid_antes != cambio.bid_despues and cambio.origen != "ajuste_de_campana"
+    ]
+    if not reales:
+        return None
+    indice = reales[-1]
+    cambio = cambios[indice]
+    x = cambio.fecha
+    d = lect._d
+    eventos = [otro.fecha for i, otro in enumerate(cambios) if i != indice]
+    if campana_id is not None:
+        eventos.extend(lect._eventos_campana.get(campana_id, ()))
+    if ad_group_id is not None:
+        eventos.extend(lect._eventos_grupo.get(ad_group_id, ()))
+    desde = x - dt.timedelta(days=DIAS_ECONOMIA_CAMBIO)
+    hasta = x + dt.timedelta(days=DIAS_ECONOMIA_CAMBIO)
+    en_ventana = any(desde <= evento <= hasta for evento in eventos)
+    posteriores = any(evento > x for evento in eventos)
+    aplicable = not posteriores
+    motivo_aplicabilidad = None if aplicable else MOTIVO_ECONOMIA_CAMBIO_POSTERIOR
+    madura = hasta <= d - dt.timedelta(days=DIAS_MADUREZ_ECONOMIA)
+    if not madura:
+        estado = "inmaduro"
+        motivo = MOTIVO_ECONOMIA_POST_INMADURO
+    elif en_ventana:
+        estado = "incomparable"
+        motivo = MOTIVO_ECONOMIA_CAMBIO_EN_VENTANA
+    elif not _ventanas_medidas(pre, post):
+        estado = "incomparable"
+        motivo = MOTIVO_ECONOMIA_COBERTURA_INCOMPLETA
+    else:
+        estado = "maduro"
+        motivo = None
+    return EpisodioEconomico(
+        version=VERSION_ECONOMIA_CAMBIO,
+        fecha_cambio=x,
+        moneda=lect.economia.moneda,
+        pre=pre,
+        post=post,
+        estado=estado,
+        motivo=motivo,
+        aplicable=aplicable,
+        motivo_aplicabilidad=motivo_aplicabilidad,
+        margen_pct=margen_pct,
+        contribucion_pre=_contribucion(pre, margen_pct),
+        contribucion_post=_contribucion(post, margen_pct),
+    )
+
+
+def _ventanas_medidas(pre: VentanaEconomica, post: VentanaEconomica) -> bool:
+    """Las cuatro metricas que la regla necesita, conocidas en ambas ventanas.
+
+    `venta_mismo_sku` se conserva como evidencia pero no condiciona: el
+    margen del producto ya resolvio su compatibilidad y la regla usa la venta
+    total del reporte de ads.
+    """
+    campos = ("gasto", "venta", "pedidos", "clics")
+    return all(getattr(pre, campo) is not None for campo in campos) and all(
+        getattr(post, campo) is not None for campo in campos
+    )
+
+
+def _contribucion(ventana: VentanaEconomica, margen_pct: Decimal | None) -> Decimal | None:
+    if margen_pct is None or ventana.venta is None or ventana.gasto is None:
+        return None
+    with localcontext(prec=PRECISION):
+        return ventana.venta * margen_pct / Decimal(100) - ventana.gasto
 
 
 def lee_plataforma(
@@ -426,12 +763,17 @@ def lee_plataforma(
     *,
     economia: EconomiaPlataforma,
     visto_el: dt.datetime | None = None,
+    con_economia: bool = False,
 ) -> LecturasPlataforma:
     """Cuatro consultas por plataforma. `visto_el` None = ultima observacion
     (v_metric_latest, el ciclo). `visto_el` con fecha = lectura bitemporal
     "como se veia" (metrics_as_of): es lo que usa el rejuego de ciclos
     pasados, y por eso la regla 5 (append-only) alcanza para validar el
-    mismo dia."""
+    mismo dia.
+
+    `con_economia` (ORBIT 07 M5) agrega cuatro consultas por plataforma para
+    los eventos que invalidan un episodio (configuracion de campana, ajustes,
+    precios y product ads nuevos); apagado no las ejecuta."""
     _exige_tz(decidido_el, "decidido_el")
     if visto_el is not None:
         _exige_tz(visto_el, "visto_el")
@@ -466,6 +808,20 @@ def lee_plataforma(
         _SQL_PRECIO.format(fuente=fuente),
         (*p_pre, *p_inm, *pv, plataforma, moneda, pre_desde, ayer),
     ).fetchall()
+    eventos_campana: dict[int, list[dt.date]] = {}
+    eventos_grupo: dict[int, list[dt.date]] = {}
+    if con_economia:
+        corte = visto_el if visto_el is not None else decidido_el
+        bajo = dt.datetime.combine(cal_desde, dt.time.min, tzinfo=dt.UTC)
+        for consulta, destino in (
+            (_SQL_EVENTOS_CAMPANA, eventos_campana),
+            (_SQL_AJUSTES_CAMPANA, eventos_campana),
+        ):
+            for entidad, sello in conn.execute(consulta, (plataforma, bajo, corte)).fetchall():
+                destino.setdefault(entidad, []).append(sello.astimezone(dt.UTC).date())
+        for consulta in (_SQL_PRECIOS_GRUPO, _SQL_ANUNCIOS_NUEVOS):
+            for entidad, sello in conn.execute(consulta, (plataforma, bajo, corte)).fetchall():
+                eventos_grupo.setdefault(entidad, []).append(sello.astimezone(dt.UTC).date())
     dias = frozenset(f for fila in filas_tramos for f in (fila[14] or ()))
     por_hoja = {}
     for fila in filas_tramos:
@@ -478,8 +834,10 @@ def lee_plataforma(
         )
     activas: dict[int, int] = {}
     miembros: dict[int, list[int]] = {}
-    for hoja, grupo in filas_hojas:
+    campanas: dict[int, int] = {}
+    for hoja, grupo, campana in filas_hojas:
         activas[hoja] = grupo
+        campanas[hoja] = campana
         miembros.setdefault(grupo, []).append(hoja)
     por_grupo = {}
     for grupo, hojas in miembros.items():
@@ -516,6 +874,10 @@ def lee_plataforma(
         _cambios=_cambios_por_hoja(filas_cambios),
         _precio=precio,
         _inmaduros=inmaduros,
+        _campanas=campanas,
+        _eventos_campana={k: tuple(v) for k, v in eventos_campana.items()},
+        _eventos_grupo={k: tuple(v) for k, v in eventos_grupo.items()},
+        _con_economia=con_economia,
         _dias_con_ingesta=dias,
         _d=d,
         _visto_el=visto_el,
