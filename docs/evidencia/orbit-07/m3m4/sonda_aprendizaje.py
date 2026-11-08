@@ -27,6 +27,7 @@ from test_productos_io import _anuncio, _entrada, _ventana
 from test_productos_pausa import (
     DECIDIDO,
     _actividad,
+    _actividad_en,
     _db,
     _dia,
     _entrada_mx,
@@ -144,6 +145,7 @@ def _juicio(entrada: p.EntradaProducto, politica: str) -> dict:
         else {
             "ancla": venta.ancla.isoformat(),
             "vence_el": venta.vence_el.isoformat(),
+            "libera_el": venta.libera_el.isoformat(),
             "compras": str(venta.compras),
             "ventas": str(venta.ventas.valor),
         },
@@ -164,6 +166,37 @@ def _m4_puro() -> dict:
             "v3": _juicio(entrada, "v3"),
         }
     return casos
+
+
+def _hueco_dia_30() -> dict:
+    """El dia de madurez (venta+30) sigue en la reciente; al dia siguiente la
+    venta entra a la madura. No hay hueco entre [D-30, D-1] y [D-60, D-30)."""
+    venta = dt.date(2026, 10, 9)
+    salida = {}
+    for offset in (29, 30, 31):
+        D = dt.datetime.combine(venta + dt.timedelta(days=offset), dt.time(12), tzinfo=dt.UTC)
+        vp = p.ventana_pausa(D)
+        en_ventana = vp.contiene(venta)
+        entrada = _entrada_mx(
+            _actividad_en(
+                D,
+                compras="1" if en_ventana else "0",
+                ventas="900" if en_ventana else "0",
+                mismo="900" if en_ventana else "0",
+            ),
+            decidido_el=D,
+            dias_halo=(_dia(venta, compras="1", ventas="900", mismo="900"),),
+        )
+        ev = p.resolver_producto(entrada)
+        reciente = p.ventana_venta_reciente(D)
+        salida[f"D=venta+{offset}"] = {
+            "dia": D.date().isoformat(),
+            "ventana_pausa": [vp.desde.isoformat(), vp.hasta_exclusivo.isoformat()],
+            "ventana_reciente": [reciente.desde.isoformat(), reciente.hasta_exclusivo.isoformat()],
+            "pausas": sorted(x.anuncio.ad_entity_id for x in ev.pausas),
+            "motivos_pausa": list(ev.motivos_pausa),
+        }
+    return salida
 
 
 def _m4_produccion() -> dict:
@@ -259,6 +292,10 @@ def main() -> dict:
         puro = _m4_puro()
         assert puro["d-15"]["v2"]["pausas"] and not puro["d-15"]["v3"]["pausas"]
         assert puro["d-5"]["v2"]["pausas"] and not puro["d-5"]["v3"]["pausas"]
+        hueco = _hueco_dia_30()
+        assert hueco["D=venta+29"]["motivos_pausa"] == ["venta_reciente_producto"]
+        assert hueco["D=venta+30"]["motivos_pausa"] == ["venta_reciente_producto"]
+        assert hueco["D=venta+31"]["motivos_pausa"] == ["vendio_en_ventana"]
 
         return {
             "version": p.POLITICA_PRODUCTO,
@@ -288,9 +325,10 @@ def main() -> dict:
                 },
             },
             "m4_venta_reciente": {
-                "ventana": "[D-29, D-1]; la fuente de productos reobserva 30 dias",
+                "ventana": "[D-30, D-1]; la fuente de productos reobserva 30 dias",
                 "madurez_dias": 30,
                 "puro": puro,
+                "hueco_dia_30": hueco,
                 "produccion_e4": m4,
                 "revalidacion": "tests/test_apply_producto.py"
                 "::test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar",
@@ -312,7 +350,8 @@ def main() -> dict:
             },
             "decision": "M3 omitido: el agregado y el freno de subidas no acreditan una"
             " diferencia funcional propia; M4 implementado: la pausa espera una venta"
-            " inmadura del producto con ancla fija y madurez de 30 dias",
+            " inmadura del producto con ancla fija, ventana [D-30, D-1] contigua y"
+            " madurez de 30 dias; libera al entrar a [D-60, D-30)",
         }
 
 

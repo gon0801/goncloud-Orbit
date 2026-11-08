@@ -46,33 +46,39 @@ Nunca se usa la fecha local ni la de ejecucion para el ancla.
 
 | Ventana | Rango | Fuente | Uso |
 |---|---|---|---|
-| Reciente inmadura | `[D-29, D-1]` | reporte de productos, última observación por fecha | Una compra o venta total ahí deja la pausa en espera |
+| Reciente inmadura | `[D-30, D-1]` | reporte de productos hasta D-1 (no el watermark de hojas), última observación por fecha | Una compra o venta total ahí deja la pausa en espera |
 | Madura de la pausa | `[D-60, D-30)` | reporte de productos | Cero compras y ventas: la pausa procede |
 
 1. **Madurez.** La fuente de productos reobserva cada fecha hasta los 30 días
    (`productos.MADUREZ_PRODUCTO`; AUTO-03 E.4 midió una reatribución en el día
    31). Una fecha con menos de 30 días aún puede cambiar. No se reutiliza el
    vencimiento de 10 días de M1.
-2. **Ancla.** La fecha más antigua con una compra o venta total observada en
+2. **Frescura.** La espera lee las observaciones del reporte de productos hasta
+   D-1 (`productos_io._lee_observaciones` extiende el rango y arma
+   `dias_recientes`). No usa `dias_halo` ni el watermark de hojas, que termina
+   en `watermark - 3` y dejaría fuera las ventas de los últimos días.
+3. **Ancla.** La fecha más antigua con una compra o venta total observada en
    la ventana reciente. `vence_el = ancla + 30 días`.
-3. **Reobservación.** Corregir es una fila nueva. Una reobservación del ancla
+4. **Reobservación.** Corregir es una fila nueva. Una reobservación del ancla
    no la mueve; una venta posterior no mueve el ancla mientras la anterior
    siga inmadura.
-4. **Liberación.** Al cumplir 30 días la venta es madura y la pausa se decide
-   con la regla normal: si el ancla entra a `[D-60, D-30)` cuenta como
-   `vendio_en_ventana` y no hay pausa; si se corrigió a cero, la pausa puede
-   proceder si sus requisitos siguen cumpliéndose.
-5. **Decide y revalida.** La misma subpolítica pura. La fila en cola se
+5. **Contigüidad y liberación.** El día de madurez (`D = ancla + 30`) la venta
+   sigue en la reciente, así que la pausa espera; `libera_el = ancla + 31`, el
+   primer día en que la venta entra a `[D-60, D-30)` y cuenta como
+   `vendio_en_ventana` (o se corrigió a cero y la pausa procede). No hay hueco
+   entre las dos ventanas.
+6. **Decide y revalida.** La misma subpolítica pura. La fila en cola se
    descarta con `venta_reciente_producto`, sin PUT ni cuota; se conserva el
    único `kind='pause'` sobre `product_ad` y el ancla no se renueva al
    revalidar.
-6. **Otro SKU.** Una venta de otro SKU (ventas totales > ventas del mismo SKU)
+7. **Otro SKU.** Una venta de otro SKU (ventas totales > ventas del mismo SKU)
    también deja la pausa en espera: no se puede afirmar cero ventas.
 
 Evidencia: [`../m3m4/comparacion-auto03.md`](../m3m4/comparacion-auto03.md),
 [`../m3m4/aprendizaje.json`](../m3m4/aprendizaje.json),
-[`../m3m4/sonda_aprendizaje.py`](../m3m4/sonda_aprendizaje.py) y
-[`../m3m4/regresion-venta-reciente.txt`](../m3m4/regresion-venta-reciente.txt).
+[`../m3m4/sonda_aprendizaje.py`](../m3m4/sonda_aprendizaje.py),
+[`../m3m4/regresion-venta-reciente.txt`](../m3m4/regresion-venta-reciente.txt) y
+[`../m3m4/regresion-frescura-venta.txt`](../m3m4/regresion-frescura-venta.txt).
 
 ## Evidencia local
 

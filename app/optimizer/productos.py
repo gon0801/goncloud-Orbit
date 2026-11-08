@@ -35,12 +35,13 @@ entrada congelada que la evaluacion trae dentro.
   abierto del producto dejan motivo y ninguna propuesta. La politica v1 (antes
   de H) no tenia esta regla: el replay de una evaluacion v1 la corre sin ella.
 - Venta reciente del producto (M4, politica v3): antes de proponer la pausa se
-  mira la ventana reciente inmadura [D-29, D-1] de la fuente de productos, que
+  mira la ventana reciente inmadura [D-30, D-1] de la fuente de productos, que
   reobserva cada fecha 30 dias. Una compra o venta observada ahi (aunque sea de
   otro SKU) deja la pausa en espera con el ancla en la fecha mas antigua de esa
   venta y vencimiento ancla + 30 dias; una reobservacion o una venta posterior
-  no mueven el ancla. Al madurar el ancla, la pausa se decide con la regla
-  normal (la venta entra a [D-60, D-30) o se corrige a cero). No reutiliza el
+  no mueven el ancla. La ventana y la madura son contiguas: el dia de madurez
+  la venta sigue en la reciente (la pausa espera) y al dia siguiente entra a
+  [D-60, D-30), donde cuenta como venta de la ventana. No reutiliza el
   vencimiento de diez dias de la hoja. La politica v2 conserva el replay
   historico sin esta espera.
 - Simulacion (H.8): simula_pausa corre la misma regla con otros limites sobre
@@ -98,8 +99,9 @@ GRACIA_REGRESADO = dt.timedelta(days=7)
 MADUREZ_HALO = dt.timedelta(days=30)
 
 # M4: la fuente de productos reobserva cada fecha hasta los 30 dias (AUTO-03
-# E.4). Una venta con menos de 30 dias aun puede cambiar; la ventana reciente
-# inmadura es [D-29, D-1] y D-30 ya es madura.
+# E.4). Una venta con menos de 30 dias aun puede cambiar. La ventana reciente
+# inmadura es [D-30, D-1]; el dia de madurez (D-30) sigue en la reciente para
+# que no haya hueco con la ventana madura [D-60, D-30).
 MADUREZ_PRODUCTO = dt.timedelta(days=30)
 
 # Ventana de la pausa (S6/S7): [D-60, D-30) UTC, 30 fechas maduras.
@@ -200,13 +202,15 @@ class AdsCompletos:
 @dataclass(frozen=True)
 class VentaRecienteProducto:
     """M4: la venta inmadura que deja la pausa en espera. `ancla` es la fecha
-    mas antigua con compra o venta observada en [D-29, D-1]; `vence_el` es
-    ancla + 30 dias (la madurez de la fuente). Una reobservacion o una venta
-    posterior no mueve el ancla."""
+    mas antigua con compra o venta observada en [D-30, D-1]; `vence_el` es
+    ancla + 30 dias (la madurez de la fuente) y `libera_el` es el primer dia en
+    que la venta ya esta en [D-60, D-30): recien ahi la pausa vuelve a decidir.
+    Una reobservacion o una venta posterior no mueven el ancla."""
 
     ventana: Ventana
     ancla: dt.date
     vence_el: dt.date
+    libera_el: dt.date
     compras: Decimal
     ventas: Dinero
 
@@ -288,6 +292,11 @@ class EntradaProducto:
     excluidos: tuple[AnuncioExcluido, ...] = ()
     bloqueos_pausa: tuple[str, ...] = ()
     gasto_actuable: Dinero | None = None
+    # M4: la ventana reciente y sus dias, leidos del reporte de productos hasta
+    # D-1 (no del watermark de hojas). Las entradas congeladas antes no los
+    # traen; la regla cae a dias_halo.
+    ventana_venta_reciente: Ventana | None = None
+    dias_recientes: tuple[DiaProducto, ...] = ()
 
     def como_json(self) -> dict:
         return _a_json(self)
@@ -369,24 +378,26 @@ def resolver_producto(
 
 
 def ventana_venta_reciente(decidido_el: dt.datetime) -> Ventana:
-    """M4: [D-29, D-1], la ultima ventana con ventas inmaduras del producto. La
-    fuente reobserva cada fecha hasta los 30 dias, asi que D-30 ya es madura y
-    no se espera por ella."""
+    """M4: [D-30, D-1], contigua con la ventana madura [D-60, D-30). El dia de
+    madurez (D-30) sigue en la reciente; al dia siguiente la venta entra a la
+    madura y la pausa vuelve a decidir."""
     fecha = decidido_el.astimezone(dt.UTC).date()
-    return Ventana(fecha - (MADUREZ_PRODUCTO - dt.timedelta(days=1)), fecha)
+    return Ventana(fecha - MADUREZ_PRODUCTO, fecha)
 
 
 def venta_reciente_producto(entrada: EntradaProducto) -> VentaRecienteProducto | None:
-    """M4: la venta inmadura mas antigua de [D-29, D-1], o None si no hay. Una
+    """M4: la venta inmadura mas antigua de [D-30, D-1], o None si no hay. Usa
+    los dias recientes que el lector tomo del reporte de productos hasta D-1
+    (no el watermark de hojas); una entrada congelada antes cae a dias_halo. Una
     compra o venta total observada (incluye la de otro SKU) deja la pausa en
-    espera; la fecha mas antigua es el ancla y vence a los 30 dias. Una
-    reobservacion o una venta posterior no mueven el ancla."""
-    ventana = ventana_venta_reciente(entrada.decidido_el)
+    espera; la fecha mas antigua es el ancla, vence a los 30 dias y libera al
+    dia siguiente, cuando entra a la ventana madura."""
+    ventana = entrada.ventana_venta_reciente or ventana_venta_reciente(entrada.decidido_el)
     moneda = PLATAFORMAS_MONEDA[entrada.producto.plataforma]
     ancla: dt.date | None = None
     compras = Decimal(0)
     ventas = Decimal(0)
-    for dia in sorted(entrada.dias_halo, key=lambda x: x.fecha):
+    for dia in sorted(entrada.dias_recientes or entrada.dias_halo, key=lambda x: x.fecha):
         if not ventana.contiene(dia.fecha):
             continue
         if dia.ventas.moneda != moneda or dia.ventas_mismo_sku.moneda != moneda:
@@ -403,6 +414,7 @@ def venta_reciente_producto(entrada: EntradaProducto) -> VentaRecienteProducto |
         ventana=ventana,
         ancla=ancla,
         vence_el=ancla + MADUREZ_PRODUCTO,
+        libera_el=ancla + MADUREZ_PRODUCTO + dt.timedelta(days=1),
         compras=compras,
         ventas=Dinero(ventas, moneda),
     )
@@ -412,7 +424,7 @@ def motivos_economicos_pausa(entrada: EntradaProducto, *, reciente: bool = True)
     """La regla de la pausa sin el alcance de anuncios (H.2): vacio si el
     producto gasto sin vender, con la identidad comprobada y sin impulso
     abierto. La regla completa (_regla_pausa) exige ademas anuncios
-    elegibles. Con `reciente` (v3), una venta inmadura de [D-29, D-1] deja la
+    elegibles. Con `reciente` (v3), una venta inmadura de [D-30, D-1] deja la
     pausa en espera; v2 conserva el replay sin esa espera."""
     motivos = list(entrada.bloqueos_pausa)
     motivos.extend(m for m in entrada.impedimentos if m == "sku_distinto_en_asin")

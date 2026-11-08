@@ -204,6 +204,7 @@ def test_el_ancla_no_se_mueve_con_una_venta_posterior_ni_con_la_reobservacion():
     assert venta is not None
     assert venta.ancla == dia15.fecha
     assert venta.vence_el == dia15.fecha + dt.timedelta(days=30)
+    assert venta.libera_el == dia15.fecha + dt.timedelta(days=31)
     assert (venta.compras, venta.ventas.valor) == (Decimal("2"), Decimal("1000"))
     # Una reobservacion de la MISMA fecha no mueve el ancla ni el vencimiento.
     reobservado = _dia(dia15.fecha, compras="1", ventas="950", mismo="950")
@@ -213,19 +214,29 @@ def test_el_ancla_no_se_mueve_con_una_venta_posterior_ni_con_la_reobservacion():
 
 def test_la_venta_reciente_madura_y_la_pausa_vuelve_a_decidir():
     dia15 = _dia(DECIDIDO.date() - dt.timedelta(days=15), compras="1", ventas="900", mismo="900")
-    madura = DECIDIDO + dt.timedelta(days=15)  # la venta cumple 30 dias
-    entrada = _entrada_mx(
-        _actividad_en(madura),
-        decidido_el=madura,
+    # D = venta + 30: la ventana reciente [D-30, D-1] sigue conteniendo la venta
+    # y la pausa espera; no hay hueco con la ventana madura.
+    madura = DECIDIDO + dt.timedelta(days=15)
+    en_madurez = _entrada_mx(_actividad_en(madura), decidido_el=madura, dias_halo=(dia15,))
+    assert p.venta_reciente_producto(en_madurez) is not None
+    assert p.resolver_producto(en_madurez).pausas == ()
+    assert p.resolver_producto(en_madurez).motivos_pausa == ("venta_reciente_producto",)
+
+    # D = venta + 31: la venta ya esta en [D-60, D-30) y cuenta como venta.
+    libera = madura + dt.timedelta(days=1)
+    en_ventana = _entrada_mx(
+        _actividad_en(libera, compras="1", ventas="900", mismo="900"),
+        decidido_el=libera,
         dias_halo=(dia15,),
     )
-    assert p.venta_reciente_producto(entrada) is None
-    assert p.resolver_producto(entrada).pausas != ()
+    assert p.venta_reciente_producto(en_ventana) is None
+    ev = p.resolver_producto(en_ventana)
+    assert ev.pausas == () and ev.motivos_pausa == ("vendio_en_ventana",)
 
-    # Corregida a cero, la pausa procede igual.
+    # Corregida a cero, la pausa procede.
     corregida = _entrada_mx(
-        _actividad_en(madura),
-        decidido_el=madura,
+        _actividad_en(libera),
+        decidido_el=libera,
         dias_halo=(_dia(dia15.fecha, compras="0", ventas="0", mismo="0"),),
     )
     assert p.venta_reciente_producto(corregida) is None
@@ -378,13 +389,14 @@ def test_anuncio_en_ad_group_de_impulso_abierto_queda_fuera_del_alcance():
 
 
 @_skip_db
-def test_base_venta_reciente_inmadura_deja_la_pausa_en_espera():
+@pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+def test_base_venta_reciente_inmadura_deja_la_pausa_en_espera(dias):
     """M4: el producto gasto sin vender en [D-60, D-30) pero vendio ayer o
-    hace 15 dias. La fuente de productos reobserva 30 dias: la pausa espera y
-    el ancla es la fecha de esa venta."""
-    with _db("orbit_m4_venta_reciente") as conn:
+    hace 15 dias. La espera lee el reporte de productos hasta D-1 (no el
+    watermark de hojas): la pausa espera y el ancla es la fecha de esa venta."""
+    with _db(f"orbit_m4_venta_reciente_{dias}") as conn:
         m = _mundo_pausa(conn)
-        fecha = _hoy() - dt.timedelta(days=15)
+        fecha = _hoy() - dt.timedelta(days=dias)
         _ingesta(
             conn,
             fecha,

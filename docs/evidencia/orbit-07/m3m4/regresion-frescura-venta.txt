@@ -1,0 +1,329 @@
+....FF..FFF..FFF                                                         [100%]
+================================== FAILURES ===================================
+__ test_el_ancla_no_se_mueve_con_una_venta_posterior_ni_con_la_reobservacion __
+
+    def test_el_ancla_no_se_mueve_con_una_venta_posterior_ni_con_la_reobservacion():
+        dia15 = _dia(DECIDIDO.date() - dt.timedelta(days=15), compras="1", ventas="900", mismo="900")
+        dia5 = _dia(DECIDIDO.date() - dt.timedelta(days=5), compras="1", ventas="100", mismo="100")
+        entrada = _entrada_mx(_actividad(), dias_halo=(dia15, dia5))
+        venta = p.venta_reciente_producto(entrada)
+        assert venta is not None
+        assert venta.ancla == dia15.fecha
+        assert venta.vence_el == dia15.fecha + dt.timedelta(days=30)
+>       assert venta.libera_el == dia15.fecha + dt.timedelta(days=31)
+               ^^^^^^^^^^^^^^^
+E       AttributeError: 'VentaRecienteProducto' object has no attribute 'libera_el'
+
+tests\test_productos_pausa.py:207: AttributeError
+__________ test_la_venta_reciente_madura_y_la_pausa_vuelve_a_decidir __________
+
+    def test_la_venta_reciente_madura_y_la_pausa_vuelve_a_decidir():
+        dia15 = _dia(DECIDIDO.date() - dt.timedelta(days=15), compras="1", ventas="900", mismo="900")
+        # D = venta + 30: la ventana reciente [D-30, D-1] sigue conteniendo la venta
+        # y la pausa espera; no hay hueco con la ventana madura.
+        madura = DECIDIDO + dt.timedelta(days=15)
+        en_madurez = _entrada_mx(_actividad_en(madura), decidido_el=madura, dias_halo=(dia15,))
+>       assert p.venta_reciente_producto(en_madurez) is not None
+E       AssertionError: assert None is not None
+E        +  where None = <function venta_reciente_producto at 0x0000029317C87C10>(EntradaProducto(producto=Producto(plataforma='amazon_mx', product_id=77), decidido_el=datetime.datetime(2026, 11, 21, ...s_min=100, gasto_min=Dinero(valor=Decimal('500'), moneda='MXN')), excluidos=(), bloqueos_pausa=(), gasto_actuable=None))
+E        +    where <function venta_reciente_producto at 0x0000029317C87C10> = p.venta_reciente_producto
+
+tests\test_productos_pausa.py:221: AssertionError
+________ test_base_venta_reciente_inmadura_deja_la_pausa_en_espera[3] _________
+
+dias = 3
+
+    @_skip_db
+    @pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+    def test_base_venta_reciente_inmadura_deja_la_pausa_en_espera(dias):
+        """M4: el producto gasto sin vender en [D-60, D-30) pero vendio ayer o
+        hace 15 dias. La espera lee el reporte de productos hasta D-1 (no el
+        watermark de hojas): la pausa espera y el ancla es la fecha de esa venta."""
+        with _db(f"orbit_m4_venta_reciente_{dias}") as conn:
+            m = _mundo_pausa(conn)
+            fecha = _hoy() - dt.timedelta(days=dias)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            entrada = _entrada(conn, m["pid"])
+            ev = p.resolver_producto(entrada)
+>           assert ev.pausas == ()
+E           AssertionError: assert (PropuestaPau...sin_ventas'),) == ()
+E             
+E             Left contains one more item: PropuestaPausa(anuncio=AnuncioElegible(ad_entity_id=4, listing_id=1, grupo_id=2, huella_alcance='sha256:e91c16d0b0fdc5a59c27538740c69171a776398a048a01552b3dfaf9a7c73c47'), motivo='producto_sin_ventas')
+E             Use -v to get more diff
+
+tests\test_productos_pausa.py:418: AssertionError
+________ test_base_venta_reciente_inmadura_deja_la_pausa_en_espera[2] _________
+
+dias = 2
+
+    @_skip_db
+    @pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+    def test_base_venta_reciente_inmadura_deja_la_pausa_en_espera(dias):
+        """M4: el producto gasto sin vender en [D-60, D-30) pero vendio ayer o
+        hace 15 dias. La espera lee el reporte de productos hasta D-1 (no el
+        watermark de hojas): la pausa espera y el ancla es la fecha de esa venta."""
+        with _db(f"orbit_m4_venta_reciente_{dias}") as conn:
+            m = _mundo_pausa(conn)
+            fecha = _hoy() - dt.timedelta(days=dias)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            entrada = _entrada(conn, m["pid"])
+            ev = p.resolver_producto(entrada)
+>           assert ev.pausas == ()
+E           AssertionError: assert (PropuestaPau...sin_ventas'),) == ()
+E             
+E             Left contains one more item: PropuestaPausa(anuncio=AnuncioElegible(ad_entity_id=4, listing_id=1, grupo_id=2, huella_alcance='sha256:e91c16d0b0fdc5a59c27538740c69171a776398a048a01552b3dfaf9a7c73c47'), motivo='producto_sin_ventas')
+E             Use -v to get more diff
+
+tests\test_productos_pausa.py:418: AssertionError
+________ test_base_venta_reciente_inmadura_deja_la_pausa_en_espera[1] _________
+
+dias = 1
+
+    @_skip_db
+    @pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+    def test_base_venta_reciente_inmadura_deja_la_pausa_en_espera(dias):
+        """M4: el producto gasto sin vender en [D-60, D-30) pero vendio ayer o
+        hace 15 dias. La espera lee el reporte de productos hasta D-1 (no el
+        watermark de hojas): la pausa espera y el ancla es la fecha de esa venta."""
+        with _db(f"orbit_m4_venta_reciente_{dias}") as conn:
+            m = _mundo_pausa(conn)
+            fecha = _hoy() - dt.timedelta(days=dias)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            entrada = _entrada(conn, m["pid"])
+            ev = p.resolver_producto(entrada)
+>           assert ev.pausas == ()
+E           AssertionError: assert (PropuestaPau...sin_ventas'),) == ()
+E             
+E             Left contains one more item: PropuestaPausa(anuncio=AnuncioElegible(ad_entity_id=4, listing_id=1, grupo_id=2, huella_alcance='sha256:e91c16d0b0fdc5a59c27538740c69171a776398a048a01552b3dfaf9a7c73c47'), motivo='producto_sin_ventas')
+E             Use -v to get more diff
+
+tests\test_productos_pausa.py:418: AssertionError
+_______ test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar[3] ________
+
+plantilla = 'orbit_i_plantilla_gon_pc_17964', dias = 3
+
+    @pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+    def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla, dias):
+        """M4: entre decidir y liberar (48 h de veto) aparecio una venta del
+        producto a 15, 4, 3, 2 o 1 dias, aun inmadura para la fuente de 30 dias.
+        La espera lee el reporte de productos hasta D-1 (no el watermark de hojas):
+        la revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
+        conserva el unico kind='pause' sobre product_ad."""
+        with _db(plantilla, f"orbit_m4_revalida_{dias}") as conn:
+            _mundo_pausa(conn)
+            _config(conn)
+            dec, q = _propuesta(conn)
+            fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=dias)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            amazon = _Amazon({"pa1": "ENABLED"})
+>           _sin_cobro(conn, q, "venta_reciente_producto", amazon, _libera(conn, amazon))
+
+tests\test_apply_producto.py:601: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+conn = <psycopg.Connection [BAD] at 0x2931a3b88c0>, q = 1
+motivo = 'venta_reciente_producto'
+amazon = <test_apply_producto._Amazon object at 0x000002931A457610>
+res = ResultadoLiberacion(liberadas=1, aplicadas=1, fallidas=0, descartadas=[], sin_quota=0, carreras_perdidas=0, revalida_sin_respuesta=0, espera_target=0, espera_proteccion=0, alertas=(), caps_saturados=(), revalidaciones_economicas=())
+
+    def _sin_cobro(conn, q: int, motivo: str, amazon: _Amazon, res) -> None:
+        """Descarte antes de cobrar: la fila discarded con su motivo, ni PUT ni
+        fila de cuota ni intento."""
+>       assert res.descartadas == [motivo]
+E       AssertionError: assert [] == ['venta_reciente_producto']
+E         
+E         Right contains one more item: 'venta_reciente_producto'
+E         Use -v to get more diff
+
+tests\test_apply_producto.py:352: AssertionError
+---------------------------- Captured stdout call -----------------------------
+lectura previa: 1 de 1 adIds existen en la cuenta
+a pausado: 1
+_______ test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar[2] ________
+
+plantilla = 'orbit_i_plantilla_gon_pc_17964', dias = 2
+
+    @pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+    def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla, dias):
+        """M4: entre decidir y liberar (48 h de veto) aparecio una venta del
+        producto a 15, 4, 3, 2 o 1 dias, aun inmadura para la fuente de 30 dias.
+        La espera lee el reporte de productos hasta D-1 (no el watermark de hojas):
+        la revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
+        conserva el unico kind='pause' sobre product_ad."""
+        with _db(plantilla, f"orbit_m4_revalida_{dias}") as conn:
+            _mundo_pausa(conn)
+            _config(conn)
+            dec, q = _propuesta(conn)
+            fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=dias)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            amazon = _Amazon({"pa1": "ENABLED"})
+>           _sin_cobro(conn, q, "venta_reciente_producto", amazon, _libera(conn, amazon))
+
+tests\test_apply_producto.py:601: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+conn = <psycopg.Connection [BAD] at 0x2931a68c320>, q = 1
+motivo = 'venta_reciente_producto'
+amazon = <test_apply_producto._Amazon object at 0x000002931A382650>
+res = ResultadoLiberacion(liberadas=1, aplicadas=1, fallidas=0, descartadas=[], sin_quota=0, carreras_perdidas=0, revalida_sin_respuesta=0, espera_target=0, espera_proteccion=0, alertas=(), caps_saturados=(), revalidaciones_economicas=())
+
+    def _sin_cobro(conn, q: int, motivo: str, amazon: _Amazon, res) -> None:
+        """Descarte antes de cobrar: la fila discarded con su motivo, ni PUT ni
+        fila de cuota ni intento."""
+>       assert res.descartadas == [motivo]
+E       AssertionError: assert [] == ['venta_reciente_producto']
+E         
+E         Right contains one more item: 'venta_reciente_producto'
+E         Use -v to get more diff
+
+tests\test_apply_producto.py:352: AssertionError
+---------------------------- Captured stdout call -----------------------------
+lectura previa: 1 de 1 adIds existen en la cuenta
+a pausado: 1
+_______ test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar[1] ________
+
+plantilla = 'orbit_i_plantilla_gon_pc_17964', dias = 1
+
+    @pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+    def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla, dias):
+        """M4: entre decidir y liberar (48 h de veto) aparecio una venta del
+        producto a 15, 4, 3, 2 o 1 dias, aun inmadura para la fuente de 30 dias.
+        La espera lee el reporte de productos hasta D-1 (no el watermark de hojas):
+        la revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
+        conserva el unico kind='pause' sobre product_ad."""
+        with _db(plantilla, f"orbit_m4_revalida_{dias}") as conn:
+            _mundo_pausa(conn)
+            _config(conn)
+            dec, q = _propuesta(conn)
+            fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=dias)
+            _ingesta(
+                conn,
+                fecha,
+                fecha,
+                [
+                    _fila_reporte(
+                        fecha,
+                        asin="ASIN-SKU-A",
+                        sku="SS-SKU-A",
+                        clicks=4,
+                        cost=2.0,
+                        ventas=900,
+                        ad_id="pa1",
+                    )
+                ],
+            )
+            amazon = _Amazon({"pa1": "ENABLED"})
+>           _sin_cobro(conn, q, "venta_reciente_producto", amazon, _libera(conn, amazon))
+
+tests\test_apply_producto.py:601: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+conn = <psycopg.Connection [BAD] at 0x2931a68d130>, q = 1
+motivo = 'venta_reciente_producto'
+amazon = <test_apply_producto._Amazon object at 0x000002931A382C40>
+res = ResultadoLiberacion(liberadas=1, aplicadas=1, fallidas=0, descartadas=[], sin_quota=0, carreras_perdidas=0, revalida_sin_respuesta=0, espera_target=0, espera_proteccion=0, alertas=(), caps_saturados=(), revalidaciones_economicas=())
+
+    def _sin_cobro(conn, q: int, motivo: str, amazon: _Amazon, res) -> None:
+        """Descarte antes de cobrar: la fila discarded con su motivo, ni PUT ni
+        fila de cuota ni intento."""
+>       assert res.descartadas == [motivo]
+E       AssertionError: assert [] == ['venta_reciente_producto']
+E         
+E         Right contains one more item: 'venta_reciente_producto'
+E         Use -v to get more diff
+
+tests\test_apply_producto.py:352: AssertionError
+---------------------------- Captured stdout call -----------------------------
+lectura previa: 1 de 1 adIds existen en la cuenta
+a pausado: 1
+============================== warnings summary ===============================
+..\..\..\..\..\..\espacio\enc_be56b9f573270946\.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.motor-encargos\espacio\enc_be56b9f573270946\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_productos_pausa.py::test_el_ancla_no_se_mueve_con_una_venta_posterior_ni_con_la_reobservacion
+FAILED tests/test_productos_pausa.py::test_la_venta_reciente_madura_y_la_pausa_vuelve_a_decidir
+FAILED tests/test_productos_pausa.py::test_base_venta_reciente_inmadura_deja_la_pausa_en_espera[3]
+FAILED tests/test_productos_pausa.py::test_base_venta_reciente_inmadura_deja_la_pausa_en_espera[2]
+FAILED tests/test_productos_pausa.py::test_base_venta_reciente_inmadura_deja_la_pausa_en_espera[1]
+FAILED tests/test_apply_producto.py::test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar[3]
+FAILED tests/test_apply_producto.py::test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar[2]
+FAILED tests/test_apply_producto.py::test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar[1]
+8 failed, 8 passed, 20 deselected, 1 warning in 17.38s

@@ -113,7 +113,7 @@
     }
   },
   "m4_venta_reciente": {
-    "ventana": "[D-29, D-1]; la fuente de productos reobserva 30 dias",
+    "ventana": "[D-30, D-1]; la fuente de productos reobserva 30 dias",
     "madurez_dias": 30,
     "puro": {
       "d-15": {
@@ -128,6 +128,7 @@
           "venta_reciente": {
             "ancla": "2026-10-22",
             "vence_el": "2026-11-21",
+            "libera_el": "2026-11-22",
             "compras": "2",
             "ventas": "900"
           }
@@ -141,6 +142,7 @@
           "venta_reciente": {
             "ancla": "2026-10-22",
             "vence_el": "2026-11-21",
+            "libera_el": "2026-11-22",
             "compras": "2",
             "ventas": "900"
           }
@@ -158,6 +160,7 @@
           "venta_reciente": {
             "ancla": "2026-11-01",
             "vence_el": "2026-12-01",
+            "libera_el": "2026-12-02",
             "compras": "2",
             "ventas": "900"
           }
@@ -171,10 +174,58 @@
           "venta_reciente": {
             "ancla": "2026-11-01",
             "vence_el": "2026-12-01",
+            "libera_el": "2026-12-02",
             "compras": "2",
             "ventas": "900"
           }
         }
+      }
+    },
+    "hueco_dia_30": {
+      "D=venta+29": {
+        "dia": "2026-11-07",
+        "ventana_pausa": [
+          "2026-09-08",
+          "2026-10-08"
+        ],
+        "ventana_reciente": [
+          "2026-10-08",
+          "2026-11-07"
+        ],
+        "pausas": [],
+        "motivos_pausa": [
+          "venta_reciente_producto"
+        ]
+      },
+      "D=venta+30": {
+        "dia": "2026-11-08",
+        "ventana_pausa": [
+          "2026-09-09",
+          "2026-10-09"
+        ],
+        "ventana_reciente": [
+          "2026-10-09",
+          "2026-11-08"
+        ],
+        "pausas": [],
+        "motivos_pausa": [
+          "venta_reciente_producto"
+        ]
+      },
+      "D=venta+31": {
+        "dia": "2026-11-09",
+        "ventana_pausa": [
+          "2026-09-10",
+          "2026-10-10"
+        ],
+        "ventana_reciente": [
+          "2026-10-10",
+          "2026-11-09"
+        ],
+        "pausas": [],
+        "motivos_pausa": [
+          "vendio_en_ventana"
+        ]
       }
     },
     "produccion_e4": {
@@ -208,6 +259,7 @@
             "venta_reciente": {
               "ancla": "2026-10-09",
               "vence_el": "2026-11-08",
+              "libera_el": "2026-11-09",
               "compras": "1.0000",
               "ventas": "111.7800"
             }
@@ -221,6 +273,7 @@
             "venta_reciente": {
               "ancla": "2026-10-09",
               "vence_el": "2026-11-08",
+              "libera_el": "2026-11-09",
               "compras": "1.0000",
               "ventas": "111.7800"
             }
@@ -262,6 +315,7 @@
             "venta_reciente": {
               "ancla": "2026-10-18",
               "vence_el": "2026-11-17",
+              "libera_el": "2026-11-18",
               "compras": "2.0000",
               "ventas": "190.9800"
             }
@@ -275,6 +329,7 @@
             "venta_reciente": {
               "ancla": "2026-10-18",
               "vence_el": "2026-11-17",
+              "libera_el": "2026-11-18",
               "compras": "2.0000",
               "ventas": "190.9800"
             }
@@ -371,5 +426,5 @@
     "donde_ya_impide": "I.5 omite la subida con una pausa live en vuelo del grupo exclusivo (tests/test_apply_producto.py)::test_grupo_exclusivo_con_pausa_en_vuelo_omite_la_subida_y_aplica_la_bajada",
     "donde_no_impide": "con la pausa en practica (shadow) AUTO-03 no bloquea subidas; anadir un freno ahi seria una regla nueva y el plan reserva al dueno el gasto de aprendizaje"
   },
-  "decision": "M3 omitido: el agregado y el freno de subidas no acreditan una diferencia funcional propia; M4 implementado: la pausa espera una venta inmadura del producto con ancla fija y madurez de 30 dias"
+  "decision": "M3 omitido: el agregado y el freno de subidas no acreditan una diferencia funcional propia; M4 implementado: la pausa espera una venta inmadura del producto con ancla fija, ventana [D-30, D-1] contigua y madurez de 30 dias; libera al entrar a [D-60, D-30)"
 }

@@ -52,7 +52,7 @@ def main() -> dict:
     v2 = _mide(entradas, "v2")
     v3 = _mide(entradas, "v3")
     return {
-        "referencia": "ORBIT 07 M4 sobre 4953bc1 (v2) / candidato v3",
+        "referencia": "ORBIT 07 M4: regla v2 (base) contra v3 (candidato)",
         "carga": {
             "productos": len(entradas),
             "dias_halo": dias,
@@ -62,9 +62,9 @@ def main() -> dict:
         "v3_candidato": v3,
         "diferencia_mediana_ms": round(v3["mediana_ms"] - v2["mediana_ms"], 3),
         "presupuesto_m0_ms": 150,
-        "nota": "La regla nueva no agrega SQL: recorre una vez los dias_halo ya "
-        "leidos, por producto y no por hoja. La comparacion usa las mismas 368 "
-        "entradas congeladas para v2 y v3.",
+        "nota": "La regla nueva no agrega SQL: usa los dias recientes ya leidos "
+        "(o dias_halo en una entrada congelada), por producto y no por hoja. La "
+        "comparacion usa las mismas 368 entradas congeladas para v2 y v3.",
     }
 
 

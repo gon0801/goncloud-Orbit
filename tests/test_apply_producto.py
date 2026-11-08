@@ -569,16 +569,18 @@ def test_dato_invalido_al_revalidar_descarta_esa_fila_sin_tumbar_el_barrido(plan
         assert amazon.lists == 0
 
 
-def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla):
+@pytest.mark.parametrize("dias", [15, 4, 3, 2, 1])
+def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla, dias):
     """M4: entre decidir y liberar (48 h de veto) aparecio una venta del
-    producto a 15 dias, aun inmadura para la fuente de 30 dias. La
-    revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
+    producto a 15, 4, 3, 2 o 1 dias, aun inmadura para la fuente de 30 dias.
+    La espera lee el reporte de productos hasta D-1 (no el watermark de hojas):
+    la revalidacion descarta con venta_reciente_producto, sin PUT ni cuota, y
     conserva el unico kind='pause' sobre product_ad."""
-    with _db(plantilla, "orbit_m4_revalida") as conn:
+    with _db(plantilla, f"orbit_m4_revalida_{dias}") as conn:
         _mundo_pausa(conn)
         _config(conn)
         dec, q = _propuesta(conn)
-        fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=15)
+        fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=dias)
         _ingesta(
             conn,
             fecha,

@@ -1,0 +1,22 @@
+ORBIT 07 M4 - sonda de frescura (venta en hoy-1..hoy-15) y revalidacion
+Fecha: 2026-11-08 (UTC)
+Sonda: C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/4860f422ee1b48e59bc9d29e5180aefc/sonda_db/test_sonda_frescura.py
+PostgreSQL 16 desechable, ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres
+
+== Base 57a05d8 (antes de la correccion) ==
+venta en hoy-15 (2026-10-24) watermark=2026-11-07 -> cola=('live', 'discarded', 'venta_reciente_producto') aplicadas=0 descartadas=['venta_reciente_producto'] puts=0 intenciones=0
+venta en hoy-4 (2026-11-04) watermark=2026-11-07 -> cola=('live', 'discarded', 'venta_reciente_producto') aplicadas=0 descartadas=['venta_reciente_producto'] puts=0 intenciones=0
+venta en hoy-3 (2026-11-05) watermark=2026-11-07 -> cola=('live', 'applied', None) aplicadas=1 descartadas=[] puts=1 intenciones=1
+venta en hoy-2 (2026-11-06) watermark=2026-11-07 -> cola=('live', 'applied', None) aplicadas=1 descartadas=[] puts=1 intenciones=1
+venta en hoy-1 (2026-11-07) watermark=2026-11-07 -> cola=('live', 'applied', None) aplicadas=1 descartadas=[] puts=1 intenciones=1
+
+== Candidato (despues de la correccion) ==
+venta en hoy-15 (2026-10-24) watermark=2026-11-07 -> cola=('live', 'discarded', 'venta_reciente_producto') aplicadas=0 descartadas=['venta_reciente_producto'] puts=0 intenciones=0
+venta en hoy-4 (2026-11-04) watermark=2026-11-07 -> cola=('live', 'discarded', 'venta_reciente_producto') aplicadas=0 descartadas=['venta_reciente_producto'] puts=0 intenciones=0
+venta en hoy-3 (2026-11-05) watermark=2026-11-07 -> cola=('live', 'discarded', 'venta_reciente_producto') aplicadas=0 descartadas=['venta_reciente_producto'] puts=0 intenciones=0
+venta en hoy-2 (2026-11-06) watermark=2026-11-07 -> cola=('live', 'discarded', 'venta_reciente_producto') aplicadas=0 descartadas=['venta_reciente_producto'] puts=0 intenciones=0
+venta en hoy-1 (2026-11-07) watermark=2026-11-07 -> cola=('live', 'discarded', 'venta_reciente_producto') aplicadas=0 descartadas=['venta_reciente_producto'] puts=0 intenciones=0
+
+Lectura: la base solo ve la venta hasta watermark - 3 (el dias_halo del reporte
+de productos terminaba ahi) y aplica la pausa con una venta de hoy-1, hoy-2 o
+hoy-3. El candidato lee el reporte hasta D-1 y descarta en todos los casos.
