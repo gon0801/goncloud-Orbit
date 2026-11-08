@@ -76,10 +76,38 @@ target.
 
 Desplegar este código no enciende la regla: `ads_bid_economia_<plat>` está
 ausente por defecto. El dueño la activa con una `config_version` nueva
-(`economia_cambio_v1`) después de integrar y desplegar. Quitar la clave la
-apaga sin regresar el código ni borrar decisiones: cada fila conserva su
-`inputs.caso` congelado y el replay sigue reproduciéndola. Las entidades sin
-un episodio maduro conservan la evaluación de trayectoria.
+(`economia_cambio_v1`) después de integrar y desplegar:
+
+```sql
+INSERT INTO config_version (label, settings)
+SELECT 'ORBIT 07 M5/M6 on (David)',
+       settings || jsonb_build_object('ads_bid_economia_amazon_mx',
+                                       'economia_cambio_v1',
+                                       'ads_bid_economia_amazon_us',
+                                       'economia_cambio_v1')
+  FROM config_version
+ ORDER BY id DESC
+ LIMIT 1
+RETURNING id;
+```
+
+La reversa es una `config_version` nueva que quita la clave (o la deja
+ausente); no se borra ninguna decisión:
+
+```sql
+INSERT INTO config_version (label, settings)
+SELECT 'ORBIT 07 M5/M6 off (David)',
+       settings - 'ads_bid_economia_amazon_mx' - 'ads_bid_economia_amazon_us'
+  FROM config_version
+ ORDER BY id DESC
+ LIMIT 1
+RETURNING id;
+```
+
+Quitar la clave apaga la regla sin regresar el código ni borrar decisiones:
+cada fila conserva su `inputs.caso` congelado y el replay sigue
+reproduciéndola. Las entidades sin un episodio maduro conservan la
+evaluación de trayectoria.
 
 ## Seguimiento operativo
 
