@@ -81,8 +81,8 @@ generada con `tools/bench_orbit07_proteccion.py preparar --productos 40` y
 |---|---|---|
 | Consultas TX2 (fase de lecturas) | 3798 | 3798 |
 | Consultas del ciclo en shadow | 3848 | 3848 |
-| Mediana TX2 | 3583.91 ms | 3537.38 ms (-1.30 %) |
-| Mediana del ciclo | 10343.94 ms | 10330.12 ms (-0.13 %) |
+| Mediana TX2 | 3525.35 ms | 3578.05 ms (+1.50 %) |
+| Mediana del ciclo | 10321.27 ms | 10374.69 ms (+0.52 %) |
 
 No hay consultas nuevas por producto ni por keyword: el peldaño de producto
 se resuelve con la misma lectura por lote y funciones puras. La diferencia de

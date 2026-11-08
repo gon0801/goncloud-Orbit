@@ -283,17 +283,15 @@ def _siembra(conn, *, proteccion: bool = True, productos: int = 0) -> dict:
 
 def _siembra_productos(conn, productos: int) -> int:
     """ORBIT 07 M2: `productos` grupos exclusivos con margen 8 % (meta 4 %),
-    cada uno con su campana sin goal, keyword con metricas y product ad
-    ENABLED. El goal de plataforma sin target deja entrar la meta individual."""
+    cada uno con su campana y goal sin target (camino unico
+    goals_write.crea_goal), keyword con metricas y product ad ENABLED."""
+
+    from decimal import Decimal
+
+    from app import goals_write
 
     sincronizado = DECIDED_AT - dt.timedelta(hours=4)
     hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
-    conn.execute(
-        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
-        " bid_ceiling, bid_currency, enabled, mode)"
-        " VALUES ('platform', %s, NULL, 0.40, 2.50, 'USD', true, 'live')",
-        (PLATAFORMA,),
-    )
     run_metricas = conn.execute(
         "INSERT INTO ingest_run (source) VALUES ('bench-productos') RETURNING id"
     ).fetchone()[0]
@@ -308,6 +306,17 @@ def _siembra_productos(conn, productos: int) -> int:
             " VALUES (%s, 'campaign', %s) RETURNING id",
             (PLATAFORMA, f"pc-{i:05d}"),
         ).fetchone()[0]
+        goals_write.crea_goal(
+            conn,
+            ad_entity_id=camp,
+            target_acos_pct=None,
+            bid_currency="USD",
+            mode="live",
+            harvest_campaign_id=f"pch-{i:05d}",
+            harvest_ad_group_id=f"pgh-{i:05d}",
+            harvest_default_bid=Decimal("0.75"),
+            created_at=DECIDED_AT,
+        )
         ag = conn.execute(
             "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
             " VALUES (%s, 'ad_group', %s, %s) RETURNING id",
