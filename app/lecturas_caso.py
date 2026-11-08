@@ -156,13 +156,51 @@ SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen, d.new_v
  ORDER BY c.hoja_id, c.confirmado_el, c.decision_id
 """
 
-# Efecto del ULTIMO cambio de UNA hoja: una fila con conteo y sumas por
-# lado del cambio (pre7, trafico post, precio post, precio previo, vendia) y,
-# desde ORBIT 07 M5, las dos ventanas economicas de siete fechas SIN el dia
-# del cambio: [x-7, x-1] y [x+1, x+7]. Las ventanas de trafico y precio
-# conservan sus rangos historicos; las economicas son campos aparte para no
-# cambiar R1/R15/R16 ni _precio_de_hoy.
+# Efecto del ULTIMO cambio de UNA hoja (camino historico, regla apagada): una
+# fila con conteo y sumas por lado del cambio (pre7, trafico post, precio
+# post, precio previo, vendia). Se conserva byte a byte el camino de la base
+# para que apagar M5/M6 no pague columnas que no usa.
 _SQL_EFECTO = """
+SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.impressions) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.impressions) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.clicks) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END,
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.cost) FILTER (WHERE v.metric_date BETWEEN %s AND %s) END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN %s AND %s)
+            THEN sum(v.orders) FILTER (WHERE v.metric_date BETWEEN %s AND %s)::bigint END
+  FROM {fuente}
+ WHERE v.ad_entity_id = %s
+   AND v.metric_currency = %s
+   AND v.metric_date BETWEEN %s AND %s
+"""
+
+# ORBIT 07 M5 (regla encendida): el mismo efecto mas las dos ventanas
+# economicas de siete fechas SIN el dia del cambio: [x-7, x-1] y [x+1, x+7].
+# Las ventanas de trafico y precio conservan sus rangos historicos; las
+# economicas son campos aparte para no cambiar R1/R15/R16 ni _precio_de_hoy.
+_SQL_EFECTO_ECONOMIA = """
 SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
        CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
                  FILTER (WHERE v.metric_date BETWEEN %s AND %s)
@@ -447,6 +485,8 @@ class LecturasPlataforma:
         )
         if cambios:
             leido = _lee_efecto(conn, self, hoja_id, cambios)
+            if self._con_economia:
+                assert leido.pre_economico is not None and leido.post_economico is not None
             episodio = (
                 _episodio_economico(
                     self,
@@ -485,11 +525,12 @@ class LecturasPlataforma:
 @dataclass(frozen=True)
 class _EfectoLeido:
     """La consulta unica del efecto devuelve tambien las dos ventanas
-    economicas (M5) para congelarlas en el episodio sin otra consulta."""
+    economicas (M5) para congelarlas en el episodio sin otra consulta.
+    Apagada la regla, las dos ventanas son None y se ejecuta el SQL historico."""
 
     efecto: EfectoCambio
-    pre_economico: VentanaEconomica
-    post_economico: VentanaEconomica
+    pre_economico: VentanaEconomica | None
+    post_economico: VentanaEconomica | None
 
 
 def _lee_efecto(
@@ -500,8 +541,9 @@ def _lee_efecto(
 ) -> _EfectoLeido:
     """Efecto del ultimo cambio de la hoja (UNA consulta). Los rangos son
     los del prototipo (exporta M.1); `dias_post` cuenta dias con ingesta.
-    Las ventanas economicas son SIETE fechas completas sin el dia del
-    cambio: [x-7, x-1] y [x+1, x+7]."""
+    Con la regla encendida, la MISMA consulta trae las ventanas economicas de
+    SIETE fechas completas sin el dia del cambio: [x-7, x-1] y [x+1, x+7].
+    Apagada, se ejecuta el SQL historico de 13 columnas."""
     uno = dt.timedelta(days=1)
     x = cambios[-1].fecha
     d = lect._d
@@ -521,25 +563,18 @@ def _lee_efecto(
     econ_pre = (x - dt.timedelta(days=DIAS_ECONOMIA_CAMBIO), x - uno)
     econ_post = (x + uno, x + dt.timedelta(days=DIAS_ECONOMIA_CAMBIO))
     fuente, pv = _fuente(lect._visto_el)
-    fechas = (
-        [*pre7] * 5
-        + [*post] * 3
-        + [*postp] * 5
-        + [*prep] * 5
-        + [*ven] * 3
-        + [*econ_pre] * 11
-        + [*econ_post] * 11
-    )
+    base = [*pre7] * 5 + [*post] * 3 + [*postp] * 5 + [*prep] * 5 + [*ven] * 3
+    if lect._con_economia:
+        sql = _SQL_EFECTO_ECONOMIA
+        fechas = base + [*econ_pre] * 11 + [*econ_post] * 11
+        limite = max(fresco, econ_post[1])
+    else:
+        sql = _SQL_EFECTO
+        fechas = base
+        limite = max(fresco, post[1])
     fila = conn.execute(
-        _SQL_EFECTO.format(fuente=fuente),
-        (
-            *fechas,
-            *pv,
-            hoja_id,
-            lect.economia.moneda,
-            ven[0],
-            max(fresco, econ_post[1]),
-        ),
+        sql.format(fuente=fuente),
+        (*fechas, *pv, hoja_id, lect.economia.moneda, ven[0], limite),
     ).fetchone()
     (
         n_pre7,
@@ -555,6 +590,23 @@ def _lee_efecto(
         g_prep,
         n_ven,
         p_ven,
+    ) = fila[:13]
+    vendidos = _mide(n_ven, p_ven, ven[0], ven[1], dias, 0)
+    efecto = EfectoCambio(
+        dias_post=dias_post,
+        impresiones_pre7=_mide(n_pre7, i_pre7, pre7[0], pre7[1], dias, 0),
+        clics_pre7=_mide(n_pre7, c_pre7, pre7[0], pre7[1], dias, 0),
+        impresiones_post=_mide(n_post, i_post, post[0], post[1], dias, 0),
+        dias_post_trafico=k,
+        clics_post=_mide(n_postp, c_postp, postp[0], postp[1], dias, 0),
+        gasto_post=_mide(n_postp, g_postp, postp[0], postp[1], dias, Decimal(0)),
+        clics_pre=_mide(n_prep, c_prep, prep[0], prep[1], dias, 0),
+        gasto_pre=_mide(n_prep, g_prep, prep[0], prep[1], dias, Decimal(0)),
+        vendia=None if vendidos is None else vendidos >= 1,
+    )
+    if not lect._con_economia:
+        return _EfectoLeido(efecto=efecto, pre_economico=None, post_economico=None)
+    (
         n_econ_pre,
         g_econ_pre,
         r_econ_pre,
@@ -567,21 +619,9 @@ def _lee_efecto(
         rs_econ_post,
         o_econ_post,
         c_econ_post,
-    ) = fila
-    vendidos = _mide(n_ven, p_ven, ven[0], ven[1], dias, 0)
+    ) = fila[13:]
     return _EfectoLeido(
-        efecto=EfectoCambio(
-            dias_post=dias_post,
-            impresiones_pre7=_mide(n_pre7, i_pre7, pre7[0], pre7[1], dias, 0),
-            clics_pre7=_mide(n_pre7, c_pre7, pre7[0], pre7[1], dias, 0),
-            impresiones_post=_mide(n_post, i_post, post[0], post[1], dias, 0),
-            dias_post_trafico=k,
-            clics_post=_mide(n_postp, c_postp, postp[0], postp[1], dias, 0),
-            gasto_post=_mide(n_postp, g_postp, postp[0], postp[1], dias, Decimal(0)),
-            clics_pre=_mide(n_prep, c_prep, prep[0], prep[1], dias, 0),
-            gasto_pre=_mide(n_prep, g_prep, prep[0], prep[1], dias, Decimal(0)),
-            vendia=None if vendidos is None else vendidos >= 1,
-        ),
+        efecto=efecto,
         pre_economico=_ventana_economica(
             n_econ_pre,
             econ_pre,
