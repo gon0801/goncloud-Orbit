@@ -29,10 +29,11 @@ def texto_de(fragmento):
 def main():
     total = 0
     for archivo in sorted((RAIZ / "paginas").glob("*.html")):
-        for m in re.finditer(r"p[áa]g(?:ina|s?\.)\s*\d+", archivo.read_text()):
+        fuente = archivo.read_text(encoding="utf-8")
+        for m in re.finditer(r"p[áa]g(?:ina|s?\.)\s*\d+", fuente):
             print(f"ERROR {archivo.name} [número de página escrito a mano, usa {{{{pag:<id>}}}}] {m.group(0)}")
             total += 1
-        for n, seccion in enumerate(re.findall(r"<section\b.*?</section>", archivo.read_text(), re.S), 1):
+        for n, seccion in enumerate(re.findall(r"<section\b.*?</section>", fuente, re.S), 1):
             texto = texto_de(seccion)
             for nivel, reglas in (("ERROR", PROHIBIDO), ("AVISO", AVISO)):
                 for nombre, patron in reglas.items():

@@ -23,14 +23,14 @@ ATRIBUTO = re.compile(r'([\w-]+)="([^"]*)"')
 
 
 def pantallas_del_menu():
-    base = (REPO / "app/templates/base.html").read_text()
+    base = (REPO / "app/templates/base.html").read_text(encoding="utf-8")
     bloque = base.split("{% set paginas = {", 1)[1].split("} %}", 1)[0]
     return re.findall(r"'([\w-]+)':\s*\('([^']+)'", bloque)
 
 
 def secciones():
     for archivo in sorted((RAIZ / "paginas").glob("*.html")):
-        for attrs, cuerpo in SECCION.findall(archivo.read_text()):
+        for attrs, cuerpo in SECCION.findall(archivo.read_text(encoding="utf-8")):
             yield archivo.name, dict(ATRIBUTO.findall(attrs)), cuerpo
 
 
@@ -78,7 +78,7 @@ def main():
         + "</body></html>"
     )
     destino = RAIZ / f"manual-{os.getpid()}.html" if borrador else RAIZ / "manual.html"
-    destino.write_text(doc)
+    destino.write_text(doc, encoding="utf-8")
 
     def ab(*args):
         r = subprocess.run(["agent-browser", "--session", SESION, *args], capture_output=True, text=True)
