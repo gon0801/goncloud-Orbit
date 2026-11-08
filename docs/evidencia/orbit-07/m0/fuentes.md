@@ -29,6 +29,9 @@ se ejecuto la consulta corregida, con el fin de ventana propio de cada hoja,
 usando `orbit_read` y una transaccion `READ ONLY`, el 8 de noviembre de 2026
 a las 16:45 UTC. La consulta y su huella estan identificadas en
 [`produccion-por-hoja-2026-11-08.json`](produccion-por-hoja-2026-11-08.json).
+La cabecera historica del SQL describe el estado previo a esta ejecucion;
+se conserva el archivo exacto que identifica la huella del resultado. Para
+MX se sustituyen los literales de plataforma y moneda como indica el SQL.
 
 Se observaron ocho hojas de US y trece de MX con pedidos recientes. En cada
 mercado, dos tenian cero pedidos en la ventana madura. Esto acredita el

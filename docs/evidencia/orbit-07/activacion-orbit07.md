@@ -77,6 +77,19 @@ docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_mx \
 como config corrupta). La historia queda intacta: cada decision conserva su
 `inputs.caso` congelado y el replay la reproduce.
 
+Si ademas se revierte el codigo con `rollback.sh`, ejecutar primero los dos
+comandos de apagado anteriores, mientras el CLI nuevo sigue instalado. El CLI
+anterior no reconoce esas opciones y `rollback.sh` solo restaura las claves
+de meta y pausa de su diario. Sin ese apagado, las claves ORBIT 07 seguirian
+guardadas y un despliegue posterior de este codigo volveria a activarlas.
+
+Si M1 ya abrio episodios, la reversa de 0081 aborta para conservarlos.
+`rollback.sh` restaura primero el codigo y el SHA anterior, pero deja
+`rollback_incompleto` (salida 2) por la migracion conservada. Comprobar salud,
+codigo y configuracion antes de declararlo operativo; no borrar episodios
+para forzar el cierre del diario. Para desactivar M1/M2/M5/M6 normalmente
+bastan los comandos anteriores, conservando el codigo que lee su historia.
+
 ## Comprobacion
 
 ```sql
