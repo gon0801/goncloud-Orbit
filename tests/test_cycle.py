@@ -2821,7 +2821,12 @@ def _siembra_r9(conn) -> dict:
     assert caso_mod.POLITICA_BID == "niveles_v3"
     run_id = _run(conn)
     _config_version(
-        conn, {"ads_optimizer_mode": "shadow", "ads_bid_politica_amazon_us": "niveles_v3"}
+        conn,
+        {
+            "ads_optimizer_mode": "shadow",
+            "ads_bid_politica_amazon_us": "niveles_v3",
+            "ads_proteccion_venta": "proteccion_venta_v1",
+        },
     )
     _goal_plataforma(conn)
     camp = _entidad(conn, "amazon_us", "campaign", "9301")

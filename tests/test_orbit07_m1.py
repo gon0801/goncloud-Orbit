@@ -10,6 +10,7 @@ test_apply_cola. Sin acentos en el codigo, por regla del repo.
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal
 
 import pytest
 from test_apply_cola import (
@@ -29,7 +30,10 @@ from test_cycle import (
     DECIDED_AT,
     _corre,
     _decisions_de,
+    _entidad,
+    _estado,
     _obs,
+    _rango,
     _siembra_maestra,
     _siembra_r9,
 )
@@ -39,6 +43,8 @@ from test_cycle import (
 )
 
 from app import apply_cola
+from app.optimizer.caso import EpisodioProteccion
+from app.proteccion_venta import CacheProteccion
 
 _skip_db = pytest.mark.skipif(
     __import__("test_schema")._postgres_obligatorio_ausente(),
@@ -75,7 +81,7 @@ def test_ciclo_con_venta_reciente_no_pausa_y_abre_episodio():
     """El kw_pause maduro calificaria la pausa por umbral; el pedido de 08-20
     la suprime, el juicio de la hoja sigue y el episodio queda persistido."""
     with _db_ciclo("orbit_m1_ciclo") as (conn, _c):
-        ids = _siembra_maestra(conn)
+        ids = _siembra_maestra(conn, settings={"ads_proteccion_venta": "proteccion_venta_v1"})
         run = _run(conn)
         # Cobertura completa de D-9..D-1 (08-13..08-21) con el pedido el 08-20.
         for fecha in _fechas(dt.date(2026, 8, 20), dt.date(2026, 8, 21)):
@@ -194,6 +200,7 @@ def test_cola_espera_la_proteccion_sin_cuota_ni_claim():
             ahora=d,
             aplicador=aplicador,
             cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
         )
 
         assert res.espera_proteccion == 1
@@ -229,7 +236,12 @@ def test_cola_al_vencer_con_ancla_corregida_aplica_y_cobra():
         handler, _vistos = _handler_cortes()
         aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
         apply_cola.libera_vencidos(
-            conn, "amazon_us", ahora=d, aplicador=aplicador, cycle_id=ids["ciclo_ejec"]
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
         )
         assert (
             conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
@@ -254,6 +266,7 @@ def test_cola_al_vencer_con_ancla_corregida_aplica_y_cobra():
             ahora=ahora2,
             aplicador=aplicador,
             cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
         )
 
         assert res.aplicadas == 1, res.descartadas
@@ -287,3 +300,220 @@ def _siembra_maduros_y_recientes(conn, ids, d) -> None:
         orders=1,
         observed=d,
     )
+
+
+def test_cache_proteccion_vencida_no_se_confunde_con_veto():
+    """La sonda de Astra: episodio vencido (ancla 10-05, vence 10-15) el 10-16.
+    La cache no lo puede tratar como si no existiera: esa conclusion era el
+    veto indebido que congelaba las pujas."""
+    cache = CacheProteccion(
+        plataforma="amazon_us",
+        evaluado_el=dt.date(2026, 10, 16),
+        cubierta=True,
+        _recientes={},
+        _episodios={1: EpisodioProteccion(dt.date(2026, 10, 5), dt.date(2026, 10, 15))},
+    )
+
+    assert cache.tiene_proteccion(1) is True
+    assert cache.tiene_proteccion(2) is False
+
+
+def _siembra_proteccion_vencida(conn) -> int:
+    """Hoja con la ultima fila el 08-14 (ventana de cortes hasta 08-11) y un
+    episodio ancla 08-12 que vence 08-22: el 08-22 esta vencido e
+    indeterminado (el ancla aun no entra a la ventana madura)."""
+    ids = _siembra_r9(conn)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9503",
+        parent=ids["ag"],
+        match_type="EXACT",
+        keyword_text="kw vencida",
+    )
+    _estado(
+        conn,
+        kw,
+        synced_at=DECIDED_AT - dt.timedelta(hours=4),
+        current_bid=Decimal("1.00"),
+        bid_currency="USD",
+    )
+    run = _run(conn)
+    for i, fecha in enumerate(_rango(dt.date(2026, 7, 13), dt.date(2026, 8, 14))):
+        _metrica_ciclo(
+            conn,
+            run,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="1.50",
+            ad_revenue="0",
+            clicks=1 if i < 10 else 0,
+            orders=0,
+            impressions=10,
+        )
+    config = conn.execute("SELECT id FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[0]
+    dec = _decision_corte(
+        conn,
+        _ciclo_id(conn),
+        config,
+        kw,
+        "pause",
+        decided_at=DECIDED_AT - dt.timedelta(days=3),
+    )
+    conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id, modo,"
+        " estado, vence_el, request_payload) VALUES ('amazon_us', %s, 'pause', %s,"
+        " 'live', 'pending_veto', %s, '{}'::jsonb)",
+        (kw, dec, DECIDED_AT - dt.timedelta(days=1)),
+    )
+    conn.execute(
+        "UPDATE apply_queue SET estado = 'released', released_at = %s WHERE decision_id = %s",
+        (DECIDED_AT - dt.timedelta(hours=2), dec),
+    )
+    conn.execute(
+        "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+        " ancla, vence_el, abierta_el, observado_el) VALUES ('amazon_us', %s,"
+        " 'proteccion_venta_v1', %s, %s, %s, %s)",
+        (
+            kw,
+            dt.date(2026, 8, 12),
+            dt.date(2026, 8, 22),
+            DECIDED_AT - dt.timedelta(days=1),
+            DECIDED_AT - dt.timedelta(days=2),
+        ),
+    )
+    return kw
+
+
+@_skip_db
+def test_ciclo_proteccion_vencida_no_congela_la_puja():
+    """Regresion del hallazgo 1: una fila released con un episodio vencido e
+    indeterminado no se confunde con veto; la puja autorizada se evalua y el
+    ancla/vencimiento originales no se tocan."""
+    with _db_ciclo("orbit_m1_vencida") as (conn, _c):
+        kw = _siembra_proteccion_vencida(conn)
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        bides = [f for f in filas if f[0] == kw and f[1] == "bid"]
+        assert bides, "la puja autorizada se evalua pese a la espera vencida"
+        assert bides[0][9]["motivo"] == "gasto_sin_venta"
+        assert bides[0][9]["factor"] == "-0.12"
+        assert not [f for f in filas if f[0] == kw and f[1] == "pause"]
+        assert _episodios(conn, kw) == [(dt.date(2026, 8, 12), dt.date(2026, 8, 22))]
+
+
+@_skip_db
+def test_ciclo_sin_setting_conserva_la_pausa_historica_y_no_toca_episodios():
+    """Reversa de seleccion: sin `ads_proteccion_venta` la pausa por umbral
+    procede como antes, el freeze no lleva insumos M1 y el episodio persistido
+    no se borra ni se reescribe."""
+    with _db_ciclo("orbit_m1_apagada") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run = _run(conn)
+        for fecha in _fechas(dt.date(2026, 8, 20), dt.date(2026, 8, 21)):
+            _metrica_ciclo(
+                conn,
+                run,
+                ids["kw_pause"],
+                fecha,
+                _obs(fecha),
+                cost="0.10",
+                ad_revenue="0.10",
+                clicks=1,
+                orders=0,
+                impressions=10,
+            )
+        _metrica_ciclo(
+            conn,
+            run,
+            ids["kw_pause"],
+            dt.date(2026, 8, 20),
+            _obs(dt.date(2026, 8, 21)),
+            cost="0.10",
+            ad_revenue="1.00",
+            clicks=1,
+            orders=1,
+            impressions=10,
+        )
+        conn.execute(
+            "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+            " ancla, vence_el, abierta_el, observado_el) VALUES ('amazon_us', %s,"
+            " 'proteccion_venta_v1', %s, %s, %s, %s)",
+            (
+                ids["kw_pause"],
+                dt.date(2026, 8, 20),
+                dt.date(2026, 8, 30),
+                DECIDED_AT,
+                DECIDED_AT - dt.timedelta(hours=1),
+            ),
+        )
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        pausas = _pausa_de(conn, res.cycle_id, ids["kw_pause"])
+        assert pausas, "sin el setting la pausa por umbral procede"
+        assert pausas[0][1]["proteccion"] is None
+        assert _episodios(conn, ids["kw_pause"]) == [(dt.date(2026, 8, 20), dt.date(2026, 8, 30))]
+
+
+@_skip_db
+def test_cola_sin_politica_no_espera_y_aplica_la_pausa_historica():
+    """La cola respeta la misma seleccion: con la politica apagada revalida
+    como antes y aplica la pausa; el episodio no se borra."""
+    with _db_cola("orbit_m1_cola_apagada") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        conn.execute(
+            "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+            " ancla, vence_el, abierta_el, observado_el) VALUES ('amazon_us', %s,"
+            " 'proteccion_venta_v1', %s, %s, %s, %s)",
+            (
+                ids["kw"],
+                d.date() - dt.timedelta(days=4),
+                d.date() + dt.timedelta(days=6),
+                d,
+                d - dt.timedelta(hours=1),
+            ),
+        )
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.aplicadas == 1, res.descartadas
+        assert res.espera_proteccion == 0
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0] == (
+            "applied"
+        )
+        assert _episodios(conn, ids["kw"]) == [
+            (d.date() - dt.timedelta(days=4), d.date() + dt.timedelta(days=6))
+        ]
+
+
+@_skip_db
+def test_ciclo_con_setting_de_proteccion_desconocido_falla_cerrado():
+    with _db_ciclo("orbit_m1_setting_malo") as (conn, _c):
+        _siembra_maestra(conn, settings={"ads_proteccion_venta": "otra"})
+
+        with pytest.raises(ValueError, match="ads_proteccion_venta"):
+            _corre(conn)
+
+        status = conn.execute(
+            "SELECT status FROM optimizer_cycle ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert status == "failed"

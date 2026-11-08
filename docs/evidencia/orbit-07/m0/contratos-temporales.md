@@ -50,5 +50,11 @@ Nunca se usa la fecha local ni la de ejecucion para el ancla.
   `vence 2026-10-15`.
 - Pruebas: `tests/test_optimizer_proteccion.py` (puro) y
   `tests/test_orbit07_m1.py` (ciclo y cola sobre PostgreSQL desechable).
-- El SELECT de produccion queda pendiente por falta de acceso concedido; no se
-  inventaron resultados.
+- El SELECT de produccion: la revision independiente Astra ejecuto la version
+  inicial (ventana fija D-39..D-10) con `orbit_read` y `READ ONLY`; devolvio
+  dos hojas por mercado con pedido reciente y cero pedidos maduros
+  ([`produccion-2026-11-08.json`](produccion-2026-11-08.json)). La consulta
+  corregida con la ventana por hoja
+  ([`consulta-pedidos-recientes.sql`](consulta-pedidos-recientes.sql)) sigue
+  pendiente de ejecucion: este encargo no tiene acceso de lectura a produccion.
+  La muestra no demuestra pausas elegibles ni cuantifica perdidas.

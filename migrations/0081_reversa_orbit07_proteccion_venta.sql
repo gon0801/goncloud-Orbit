@@ -1,11 +1,15 @@
 -- ---------------------------------------------------------------------------
 -- REVERSA DE LA MIGRACION 0081 (ORBIT 07 M1).
 --
--- Quita la tabla de episodios de venta reciente y restaura el CHECK de
--- decision_sin_aplicar de la 0045 (sin espera_proteccion). Aborta si ya hay
--- episodios: borrarlos reescribiria historia (regla 5). El codigo anterior
--- corre con la 0081 aplicada (solo agrega), asi que el rollback del
--- despliegue sigue aunque esta reversa aborte.
+-- Esta es la reversa de ESQUEMA, no la reversa de comportamiento: el apagado
+-- de la regla es el setting `ads_proteccion_venta` (ausente = historica;
+-- `proteccion_venta_v1` = M1), que no borra episodios ni reescribe el
+-- historial de decisiones. Quita la tabla de episodios de venta reciente y
+-- restaura el CHECK de decision_sin_aplicar de la 0045 (sin
+-- espera_proteccion). Aborta si ya hay episodios: borrarlos reescribiria
+-- historia (regla 5). El codigo anterior corre con la 0081 aplicada (solo
+-- agrega), asi que el rollback del despliegue sigue aunque esta reversa
+-- aborte.
 --
 -- NO se aplica en el despliegue normal: la corre tools/despliegue/rollback.sh
 -- en una sola transaccion (psql -1). No re-runnable.

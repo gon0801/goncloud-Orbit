@@ -95,13 +95,24 @@ class CacheProteccion:
             and lectura.pedidos > 0
         )
 
+    def tiene_episodio(self, hoja_id: int) -> bool:
+        """True si la hoja tiene un episodio persistido (activo o vencido)."""
+        return hoja_id in self._episodios
+
     def tiene_proteccion(self, hoja_id: int) -> bool:
-        """True si la hoja puede estar esperando: hay venta reciente o un
-        episodio activo. Es la puerta para no congelar sus pujas."""
+        """True si la hoja tiene venta reciente o un episodio persistido. Es
+        la puerta para no congelar sus pujas por una fila `released`.
+
+        Un episodio vencido no se trata como veto: mientras la fila released
+        siga esperando, el ciclo evalua la hoja y solo suprime la pausa por
+        cero ventas (el ancla y el vencimiento originales no se tocan). La
+        espera indeterminada (ancla aun fuera de la ventana madura) tampoco
+        bloquea las pujas. El apagado de la regla es el setting de politica,
+        no la simple ausencia de la fila released.
+        """
         if self.hay_venta(hoja_id):
             return True
-        episodio = self._episodios.get(hoja_id)
-        return episodio is not None and self.evaluado_el < episodio.vence_el
+        return hoja_id in self._episodios
 
     def insumos(
         self,

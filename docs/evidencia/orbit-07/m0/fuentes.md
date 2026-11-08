@@ -21,10 +21,17 @@ Consulta: 2026-11-07 (UTC). Base: `f86ed7dcd77f0af7b540217c3df9422ebe5c7154`.
 - `app/impulso_io.py`: impulso abierto y su vigia (M3/M4).
 - `app/retiro_anuncios.py`: unico PUT y reversa del retiro (M4).
 
-## Limite de acceso
+## Evidencia de produccion y limite de acceso
 
-No se concedio acceso de lectura a produccion para este encargo: el buzon solo
-habilita `ci-github` (`remoto.leer`). El SELECT concreto queda en
-[`consulta-pedidos-recientes.sql`](consulta-pedidos-recientes.sql); su causa y
-la evidencia local estan en [`contratos-temporales.md`](contratos-temporales.md).
-No se inventaron resultados de produccion.
+La revision independiente Astra ejecuto el SELECT inicial con `orbit_read` y
+`READ ONLY` (2026-11-08). Devolvio dos hojas por mercado con pedidos recientes,
+lectura completa D-9..D-1 y cero pedidos en la ventana fija D-39..D-10; el
+resultado redactado esta en
+[`produccion-2026-11-08.json`](produccion-2026-11-08.json). Acredita que el
+disparador de M1 existe en produccion. No acredita pausas elegibles ni perdidas:
+la ventana fija no es el contrato por hoja `min(max(metric_date)-3, D-10)` y la
+consulta no aplica todos los filtros del ciclo. La version corregida queda en
+[`consulta-pedidos-recientes.sql`](consulta-pedidos-recientes.sql); su
+ejecucion con el contrato real sigue pendiente porque este encargo no tiene
+acceso de lectura a produccion (el buzon solo habilita `ci-github`). No se
+inventaron resultados de produccion.

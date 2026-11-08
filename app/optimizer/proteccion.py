@@ -38,6 +38,27 @@ MOTIVO_INDETERMINADA = "venta_reciente_indeterminada"
 MOTIVO_CONSUMIDA = "proteccion_consumida"
 MOTIVO_SIN_VENTA = "sin_venta_reciente"
 
+CLAVE_ACTIVA = "ads_proteccion_venta"
+
+
+def activa_desde_settings(settings) -> bool:
+    """Interruptor fail-closed de la regla M1 (reversa de seleccion de politica).
+
+    Ausente -> False: el ciclo y la cola conservan la semantica historica y no
+    leen la tabla de episodios. `proteccion_venta_v1` -> True. Cualquier otro
+    valor -> ValueError (config corrupta, ciclo failed), como el resto de los
+    settings del motor. Apagar la regla no borra episodios ni reescribe
+    decisiones: el codigo nuevo sigue leyendo ambos historiales.
+    """
+    valor = settings.get(CLAVE_ACTIVA)
+    if valor is None:
+        return False
+    if valor == VERSION_PROTECCION_VENTA:
+        return True
+    raise ValueError(
+        f"setting {CLAVE_ACTIVA}: debe ser {VERSION_PROTECCION_VENTA!r}, llego {valor!r}"
+    )
+
 
 def evalua(insumos: InsumosProteccion) -> ResultadoProteccion:
     """Aplica, espera o se abstiene. Pura: sin IO, reloj ni float."""

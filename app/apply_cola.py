@@ -1284,6 +1284,7 @@ def libera_vencidos(
     ahora: dt.datetime,
     aplicador: Aplicador,
     cycle_id: int | None = None,
+    proteccion_activa: bool = False,
 ) -> ResultadoLiberacion:
     """Barrido FIFO de las filas vencidas (pending_veto, modo live, vence_el
     <= ahora; por encolado_at/id) Y de las released no terminales que
@@ -1314,11 +1315,16 @@ def libera_vencidos(
 
     Las filas shadow JAMAS se seleccionan (sellado 6). kind harvest delega al
     hook apply_harvest.aplica_harvest (2.3: harvest_job nace AL LIBERAR,
-    sellado 13) DESPUES de la re-validacion y ANTES del cobro de la cola —
-    la UNICA unidad de la operacion logica la cobra el hook. GK3
+    sellado 13) DESPUES de la re-validacion y ANTES del cobro de la cola — la
+    UNICA unidad de la operacion logica la cobra el hook. GK3
     (cross-review): si el LIST fresco de la re-validacion de una fila muere
-    (AdsApiError), ESA fila queda released con nota y el FIFO continua con
-    las demas — una entidad muerta NO aborta el barrido.
+    (AdsApiError), ESA fila queda released con nota y el FIFO continua con las
+    demas — una entidad muerta NO aborta el barrido.
+
+    ORBIT 07 M1: `proteccion_activa` selecciona la subpolitica. Con False
+    (setting ausente) la re-validacion es la historica y no se leen episodios;
+    con True, la espera por venta reciente deja la fila released sin cuota ni
+    claim. La seleccion la resuelve el ciclo desde el mismo setting.
 
     ADS D.1: con `cycle_id` (el ciclo EJECUTOR; None = no registra, compat
     con callers viejos) los no-applies del barrido quedan en
@@ -1331,7 +1337,11 @@ def libera_vencidos(
     historicas. Los DESCARTES no se graban: su desenlace ya es la fila
     terminal discarded + discard_motivo."""
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
-    proteccion_cache = proteccion_venta.lee_cache(conn, platform, ahora)
+    # ORBIT 07 M1: la misma seleccion de politica que el ciclo. Apagada, la
+    # cola revalida con la semantica historica y no lee la tabla de episodios.
+    proteccion_cache = (
+        proteccion_venta.lee_cache(conn, platform, ahora) if proteccion_activa else None
+    )
 
     def _registra(fila: FilaCola, motivo: str) -> None:
         if cycle_id is not None and fila.decision_id is not None:

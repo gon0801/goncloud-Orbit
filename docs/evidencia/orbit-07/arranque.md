@@ -28,7 +28,7 @@ No se usa `manifest.active` (`resumen-ads-multicanal`) como estado del ejecutor.
   aplica poteto-mode para su lectura y juicio; no modifica el producto ni
   ejecuta el playbook de implementación.
 - poteto-mode aplicado por el implementador:
-  `C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/3785065f02f240b484296d9cb3f9a3eb/poteto/skills/poteto-mode/SKILL.md`.
+  `C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/6b8e2839f90742eeb44624c902baf0a3/poteto/skills/poteto-mode/SKILL.md`.
   La copia conocida de la PC es
   `C:/Users/ehven/motor-conf/pstack/skills/poteto-mode/SKILL.md`; sus
   referencias viven junto a ella. Se adaptaron las herramientas al runtime
@@ -41,7 +41,7 @@ No se usa `manifest.active` (`resumen-ads-multicanal`) como estado del ejecutor.
 
 | Fase | Comportamiento requerido | Implementación heredada de AUTO-03 | SHA base | Evidencia | Diferencia pendiente |
 |---|---|---|---|---|---|
-| M1 | Proteger una venta reciente con ancla y vencimiento fijos; esperar sin congelar las pujas; misma subpolítica pura al decidir y revalidar | AUTO-03 dejó la pausa por umbral antes que la venta reciente (`politica.py` R0 antes de R8) y la revalidación de cola solo con ventana madura | `f86ed7d` | Pruebas puras y de integración, `m1/antes-despues.json`, episodio append-only (migración 0081), CI del candidato | SELECT de producción con rol de lectura y activación (fuera de esta entrega) |
+| M1 | Proteger una venta reciente con ancla y vencimiento fijos; esperar sin congelar las pujas; misma subpolítica pura al decidir y revalidar; reversa de selección por setting | AUTO-03 dejó la pausa por umbral antes que la venta reciente (`politica.py` R0 antes de R8) y la revalidación de cola solo con ventana madura | `f86ed7d` | Pruebas puras y de integración, `m1/antes-despues.json`, episodio append-only (migración 0081), regresión de la espera vencida, selección `ads_proteccion_venta`, CI del candidato | Activación y primer ciclo real (fuera de esta entrega) |
 | M2 | Resolver la economía compatible y fresca por un solo camino; aplicar directamente los cambios posteriores de meta del producto | AUTO-03 C-F, `productos.py`, `productos_io.py`, `evaluacion_producto_ciclo`, S3 y F.3/S12 | `f86ed7d` | Pendiente de construcción | Compartir el resolutor con `_target_pause_vigente` y `_revalida_pause`; respaldo completo y excepción a la rampa |
 | M3 | Un episodio de aprendizaje por producto y mercado; agregar sin doble conteo | AUTO-03 D/H ya agrega gasto y propone pausas con límites por mercado | `f86ed7d` | Pendiente; M0 debe acreditar un freno con efecto propio | Solo si M0 prueba una diferencia funcional; umbral de gasto lo elige el dueño |
 | M4 | Extender la pausa existente con el aprendizaje pendiente | AUTO-03 G-I: `kind='pause'` sobre `product_ad`, `apply_producto`, `retiro_anuncios` y reversa | `f86ed7d` | Pendiente | Condición de aprendizaje; sin otro escritor ni otro `kind` |

@@ -1,0 +1,58 @@
+{
+  "fecha_consulta": "2026-11-08T04:24:00Z",
+  "fuente": "revision independiente Astra (revision-astra/consulta-produccion.json)",
+  "rol": "orbit_read",
+  "solo_lectura": "on",
+  "ventana_sql": "fija D-39..D-10 de la version inicial (consulta-pedidos-recientes.sql); no es aun la ventana por hoja min(max(metric_date)-3, D-10)",
+  "resultados": {
+    "amazon_us": {
+      "total": 2,
+      "filas": [
+        {
+          "ad_entity_id": 4898,
+          "pedidos_recientes": 1,
+          "ancla": "2026-11-03",
+          "completa": true,
+          "pedidos_maduros": 0,
+          "clics_maduros": 9,
+          "gasto_maduro": "3.5600"
+        },
+        {
+          "ad_entity_id": 4919,
+          "pedidos_recientes": 1,
+          "ancla": "2026-11-03",
+          "completa": true,
+          "pedidos_maduros": 0,
+          "clics_maduros": 255,
+          "gasto_maduro": "81.4100"
+        }
+      ]
+    },
+    "amazon_mx": {
+      "total": 2,
+      "filas": [
+        {
+          "ad_entity_id": 2875,
+          "pedidos_recientes": 1,
+          "ancla": "2026-11-05",
+          "completa": true,
+          "pedidos_maduros": 0,
+          "clics_maduros": 17,
+          "gasto_maduro": "33.3200"
+        },
+        {
+          "ad_entity_id": 3773,
+          "pedidos_recientes": 1,
+          "ancla": "2026-11-02",
+          "completa": true,
+          "pedidos_maduros": 0,
+          "clics_maduros": 35,
+          "gasto_maduro": "77.8000"
+        }
+      ]
+    }
+  },
+  "que_acredita": "En la ventana fija consultada existen hojas de ambos mercados con un pedido reciente conocido, lectura completa (D-9..D-1) y cero pedidos en la ventana madura consultada. El disparador de M1 existe en produccion.",
+  "que_no_acredita": "No demuestra cuatro pausas elegibles ni cuantifica perdidas: el SQL de la consulta usa una ventana fija D-39..D-10 y el contrato de cortes usa min(max(metric_date)-3, D-10) por hoja; ademas la consulta no aplica todos los filtros del ciclo (settings, goals, inertes, veto). Tampoco se corrio la version corregida por falta de acceso `orbit_read` en este encargo.",
+  "reconciliacion": "La ventana real esta en app/optimizer/windows.py: fin_ventana_cortes = min(max(metric_date)-3, D-10) e inicio_ventana = fin-29. La consulta corregida queda en consulta-pedidos-recientes.sql; la ejecucion con ese contrato sigue pendiente y no se sustituye por la muestra fija."
+}

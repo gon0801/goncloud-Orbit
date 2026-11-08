@@ -3147,9 +3147,15 @@ def _recorre_plataforma(
         )
     evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
     # ORBIT 07 M1: lectura comun de venta reciente y episodios, UNA vez por
-    # plataforma en TX2. Disponible tambien con la politica de bids apagada.
-    proteccion_cache = proteccion_venta.lee_cache(conn, platform, decided_at)
-    claves_released = apply_cola.claves_released(conn, platform)
+    # plataforma en TX2. El setting selecciona la politica: ausente = historica
+    # (ni lectura ni excepcion de la fila released); `proteccion_venta_v1` =
+    # regla M1. Disponible tambien con la politica de bids apagada.
+    if subproteccion.activa_desde_settings(settings):
+        proteccion_cache = proteccion_venta.lee_cache(conn, platform, decided_at)
+        claves_released = apply_cola.claves_released(conn, platform)
+    else:
+        proteccion_cache = None
+        claves_released = frozenset()
     # BIDS 01 (D3): hojas inertes de la plataforma, UNA vez por ciclo en TX2
     # (mismo snapshot que la evidencia). Se pasa EXPLICITO a
     # _procesa_decisora (no en `comunes`: el camino de terminos no lo usa).
@@ -3312,6 +3318,7 @@ def _fase_apply(
     owner: str,
     guard: Callable[[], None],
     aplicador_factory: Callable[..., Aplicador] | None,
+    proteccion_activa: bool = False,
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
 ) -> _FaseApply:
     """TX4 + fase de apply propiamente (decisiones 11/21; docstring del
@@ -3386,7 +3393,12 @@ def _fase_apply(
             )
             caps_saturados += res_bids.caps_saturados
             res_cola = apply_cola.libera_vencidos(
-                conn, platform, ahora=decided_at, aplicador=aplicador, cycle_id=cycle_id
+                conn,
+                platform,
+                ahora=decided_at,
+                aplicador=aplicador,
+                cycle_id=cycle_id,
+                proteccion_activa=proteccion_activa,
             )
             alertas_harvest += res_cola.alertas
             caps_saturados += res_cola.caps_saturados
@@ -3705,6 +3717,7 @@ def _corre_fases(
         owner=owner,
         guard=_guard_apply(conn, job_key, owner, tick),
         aplicador_factory=aplicador_factory,
+        proteccion_activa=subproteccion.activa_desde_settings(settings),
         avisos_destino=avisos_destino,
     )
     notas_apply = fase.notas
