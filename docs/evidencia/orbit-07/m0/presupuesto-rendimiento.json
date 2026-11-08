@@ -1,28 +1,89 @@
 {
-  "fecha": "2026-11-07T18:20:00Z",
+  "fecha": "2026-11-08T03:38:58Z",
   "base": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+  "candidato": "539c80bd8ee572f7deda79aa008260da91fcf654",
   "carga": {
     "plataforma": "amazon_us",
     "hojas": 2000,
     "filas_metricas_recientes": 18000,
     "episodios": 200,
-    "corridas": 10
+    "filas_cola": 200,
+    "corridas_por_rol": 5
+  },
+  "metodo": {
+    "script": "tools/bench_orbit07_proteccion.py",
+    "comando": "python tools/bench_orbit07_proteccion.py preparar --plantilla orbit07_bench_tpl; python tools/bench_orbit07_proteccion.py comparar --plantilla orbit07_bench_tpl --code-base <worktree f86ed7d> --rondas 5",
+    "copia": "cada corrida clona la MISMA plantilla fija (huella abajo) y base y candidato alternan por ronda sobre esa copia",
+    "medido": "tx2 = fase de lecturas completa; bloque = cycle.py:3151-3152; barrido = lectura de apply_cola.py:1333-1334; ciclo = corre_ciclo en shadow",
+    "rondas": 5,
+    "postgres": "PostgreSQL 16 local desechable; no es una medicion de percentiles ni de produccion"
+  },
+  "huella": {
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200
   },
   "medicion": {
-    "ms_media": 34.19,
-    "ms_max": 35.69,
-    "consultas_por_lectura": 2,
-    "nota": "PostgreSQL 16 local desechable; no es una medicion de percentiles ni de produccion"
+    "base": {
+      "tx2_ms_media": 1713.42,
+      "tx2_ms_min": 1658.83,
+      "tx2_ms_max": 1757.36,
+      "tx2_consultas": 3627,
+      "bloque_ms_media": 0.0,
+      "bloque_consultas": 0,
+      "barrido_ms_media": 1.25,
+      "barrido_consultas": 1,
+      "ciclo_ms_media": 8252.54,
+      "ciclo_ms_min": 7879.44,
+      "ciclo_ms_max": 8990.62,
+      "ciclo_consultas": 3637,
+      "persistencia_ms_media": null
+    },
+    "candidato": {
+      "tx2_ms_media": 1772.04,
+      "tx2_ms_min": 1735.78,
+      "tx2_ms_max": 1811.16,
+      "tx2_consultas": 3630,
+      "bloque_ms_media": 34.54,
+      "bloque_ms_min": 34.22,
+      "bloque_ms_max": 35.05,
+      "bloque_consultas": 3,
+      "barrido_ms_media": 34.82,
+      "barrido_ms_min": 34.61,
+      "barrido_ms_max": 34.95,
+      "barrido_consultas": 3,
+      "ciclo_ms_media": 8291.99,
+      "ciclo_ms_min": 8155.33,
+      "ciclo_ms_max": 8397.83,
+      "ciclo_consultas": 3640,
+      "persistencia_ms_media": 53.13,
+      "persistencia_consultas": 1,
+      "persistencia_filas": 200
+    },
+    "diferencia": {
+      "tx2_ms": 58.62,
+      "tx2_porcentaje": 3.42,
+      "tx2_consultas": 3,
+      "ciclo_ms": 39.45,
+      "ciclo_porcentaje": 0.48,
+      "ciclo_consultas": 3,
+      "barrido_ms": 33.57,
+      "barrido_consultas": 2
+    },
+    "detalle": "docs/evidencia/orbit-07/m0/rendimiento-comparado.json",
+    "nota": "El ciclo termina con 0 decisiones en esta carga (sin ventana madura); el trabajo por hoja de la subpolitica (insumos y segunda evaluacion en hojas con venta o episodio) queda incluido en tx2/ciclo."
   },
   "presupuesto": {
     "latencia_media_ms_max": 150,
-    "consultas_por_plataforma_por_ciclo": 2,
-    "consultas_por_plataforma_por_barrido_de_cola": 2,
+    "consultas_por_plataforma_por_ciclo": 3,
+    "consultas_por_plataforma_por_ciclo_nuevas": 3,
+    "consultas_por_plataforma_por_ciclo_total": 3640,
+    "consultas_por_plataforma_por_ciclo_total_base": 3637,
+    "consultas_por_plataforma_por_barrido_de_cola": 3,
+    "consultas_por_plataforma_por_barrido_de_cola_nuevas": 2,
+    "consultas_por_plataforma_por_barrido_de_cola_total_base": 1,
     "consultas_por_hoja": 0,
-    "razon": "la lectura es por lote (pedidos recientes y episodios); no se agrega una consulta por hoja ni por intento de cola"
-  },
-  "comparacion": {
-    "base": "el ciclo no lee proteccion; el presupuesto es el trabajo añadido sobre la misma copia fija",
-    "candidato": "lee 2 SELECT por plataforma en TX2 y 2 por barrido; la escritura del episodio solo ocurre al abrirlo (TX3)"
+    "razon": "el ciclo ejecuta 2 SELECT de lee_cache y 1 de claves_released por plataforma; el barrido ejecuta 1 SELECT de vencidas y 2 de lee_cache. Ninguna consulta nueva por hoja: la lectura es por lote y la segunda evaluacion de _proteccion_activa es pura."
   }
 }

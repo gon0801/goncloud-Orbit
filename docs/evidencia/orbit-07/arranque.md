@@ -28,7 +28,7 @@ No se usa `manifest.active` (`resumen-ads-multicanal`) como estado del ejecutor.
   aplica poteto-mode para su lectura y juicio; no modifica el producto ni
   ejecuta el playbook de implementación.
 - poteto-mode aplicado por el implementador:
-  `C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/a2dd4b6fab1a4262b7d49fc23c402fab/poteto/skills/poteto-mode/SKILL.md`.
+  `C:/Users/ehven/.motor-encargos/runtime/enc_be56b9f573270946/3785065f02f240b484296d9cb3f9a3eb/poteto/skills/poteto-mode/SKILL.md`.
   La copia conocida de la PC es
   `C:/Users/ehven/motor-conf/pstack/skills/poteto-mode/SKILL.md`; sus
   referencias viven junto a ella. Se adaptaron las herramientas al runtime

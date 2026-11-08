@@ -1,0 +1,98 @@
+{
+  "fecha": "2026-11-08T03:38:58+00:00",
+  "carga": {
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200
+  },
+  "decided_at": "2026-08-22T12:00:00+00:00",
+  "plantilla": "orbit07_bench_tpl",
+  "huella": {
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200
+  },
+  "nota": "Cada corrida clona la MISMA plantilla fija; base y candidato alternan por ronda sobre esa copia. tx2_ms mide la fase de lecturas completa; bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow.",
+  "base": {
+    "sha": "f86ed7dcd77f0af7b540217c3df9422ebe5c7154",
+    "rondas": 5,
+    "tx2_ms": {
+      "media": 1713.42,
+      "min": 1658.83,
+      "max": 1757.36
+    },
+    "bloque_ms": {
+      "media": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "barrido_ms": {
+      "media": 1.25,
+      "min": 1.22,
+      "max": 1.31
+    },
+    "ciclo_ms": {
+      "media": 8252.54,
+      "min": 7879.44,
+      "max": 8990.62
+    },
+    "persistencia_ms": null,
+    "tx2_consultas": 3627,
+    "bloque_consultas": 0,
+    "barrido_consultas": 1,
+    "ciclo_consultas": 3637,
+    "persistencia_consultas": 0,
+    "barrido_filas": 200,
+    "ciclo_decisiones": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "candidato": {
+    "sha": "539c80bd8ee572f7deda79aa008260da91fcf654",
+    "rondas": 5,
+    "tx2_ms": {
+      "media": 1772.04,
+      "min": 1735.78,
+      "max": 1811.16
+    },
+    "bloque_ms": {
+      "media": 34.54,
+      "min": 34.22,
+      "max": 35.05
+    },
+    "barrido_ms": {
+      "media": 34.82,
+      "min": 34.61,
+      "max": 34.95
+    },
+    "ciclo_ms": {
+      "media": 8291.99,
+      "min": 8155.33,
+      "max": 8397.83
+    },
+    "persistencia_ms": {
+      "media": 53.13,
+      "min": 51.98,
+      "max": 54.97
+    },
+    "tx2_consultas": 3630,
+    "bloque_consultas": 3,
+    "barrido_consultas": 3,
+    "ciclo_consultas": 3640,
+    "persistencia_consultas": 1,
+    "barrido_filas": 200,
+    "ciclo_decisiones": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  }
+}
