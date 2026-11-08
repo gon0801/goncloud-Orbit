@@ -1,0 +1,106 @@
+{
+  "fecha": "2026-11-08T09:22:07+00:00",
+  "carga": {
+    "hojas": 2000,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200,
+    "productos": 40
+  },
+  "decided_at": "2026-08-22T12:00:00+00:00",
+  "plantilla": "orbit07_m2_bench_tpl",
+  "huella": {
+    "hojas": 2040,
+    "filas_metricas_recientes": 18000,
+    "episodios": 200,
+    "filas_cola": 200,
+    "productos": 40
+  },
+  "nota": "Cada corrida clona la MISMA plantilla fija; base y candidato alternan por ronda sobre esa copia. tx2_ms mide la fase de lecturas completa; bloque_ms el bloque cycle.py:3151-3152; barrido_ms la lectura del barrido (apply_cola.py:1333-1334); ciclo_ms el ciclo en shadow. `proteccion` indica si la plantilla tiene el setting ads_proteccion_venta (regla M1 encendida). Con `productos` > 0 la plantilla suma grupos exclusivos con margen 8 % y meta live: la resolucion por lote del peldaño de producto corre en TX2 aunque la ventana reciente del banco no produzca decisiones.",
+  "base": {
+    "sha": "c4121c5c3c4aa45d1fdfd5701416c0df55af5d0b",
+    "rondas": 5,
+    "tx2_ms": {
+      "media": 3584.91,
+      "mediana": 3583.91,
+      "min": 3564.99,
+      "max": 3613.1
+    },
+    "bloque_ms": {
+      "media": 0.0,
+      "mediana": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "barrido_ms": {
+      "media": 1.17,
+      "mediana": 1.18,
+      "min": 1.1,
+      "max": 1.23
+    },
+    "ciclo_ms": {
+      "media": 10295.15,
+      "mediana": 10343.94,
+      "min": 10142.36,
+      "max": 10391.43
+    },
+    "persistencia_ms": null,
+    "tx2_consultas": 3798,
+    "bloque_consultas": 0,
+    "barrido_consultas": 1,
+    "ciclo_consultas": 3848,
+    "persistencia_consultas": 0,
+    "proteccion": false,
+    "barrido_filas": 200,
+    "ciclo_decisiones": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "candidato": {
+    "sha": "db6a759b2ee27936334d235608935f75ed38c342",
+    "rondas": 5,
+    "tx2_ms": {
+      "media": 3523.94,
+      "mediana": 3537.38,
+      "min": 3488.3,
+      "max": 3552.51
+    },
+    "bloque_ms": {
+      "media": 0.0,
+      "mediana": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "barrido_ms": {
+      "media": 1.2,
+      "mediana": 1.16,
+      "min": 1.14,
+      "max": 1.33
+    },
+    "ciclo_ms": {
+      "media": 10361.3,
+      "mediana": 10330.12,
+      "min": 10108.44,
+      "max": 10605.69
+    },
+    "persistencia_ms": null,
+    "tx2_consultas": 3798,
+    "bloque_consultas": 0,
+    "barrido_consultas": 1,
+    "ciclo_consultas": 3848,
+    "persistencia_consultas": 0,
+    "proteccion": false,
+    "barrido_filas": 200,
+    "ciclo_decisiones": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  }
+}

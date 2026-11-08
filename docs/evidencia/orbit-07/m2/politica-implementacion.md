@@ -67,6 +67,31 @@ La regresión se demuestra fallando contra el código anterior (`c4121c5`):
 fallan en la base y pasan en el candidato. El detalle de las salidas quedó en
 la evidencia del encargo y en el PR.
 
+## Rendimiento
+
+La comparación usa la misma carga de M0 extendida con **40 grupos exclusivos**
+de producto (2040 keywords: 2000 del banco + 40 del peldaño individual),
+18000 filas de métricas recientes, 200 episodios y 200 filas de cola. Cada
+corrida clona la MISMA plantilla y los roles alternan por ronda (5 rondas por
+rol). Salida en [`rendimiento-comparado.json`](rendimiento-comparado.json),
+generada con `tools/bench_orbit07_proteccion.py preparar --productos 40` y
+`comparar`:
+
+| Medición | Base `c4121c5` | Candidato |
+|---|---|---|
+| Consultas TX2 (fase de lecturas) | 3798 | 3798 |
+| Consultas del ciclo en shadow | 3848 | 3848 |
+| Mediana TX2 | 3583.91 ms | 3537.38 ms (-1.30 %) |
+| Mediana del ciclo | 10343.94 ms | 10330.12 ms (-0.13 %) |
+
+No hay consultas nuevas por producto ni por keyword: el peldaño de producto
+se resuelve con la misma lectura por lote y funciones puras. La diferencia de
+tiempo está dentro del presupuesto de 150 ms del banco y no es una mejora
+atribuible a M2. La cola agrega, solo al revalidar una pausa con procedencia
+`margen_producto`, hasta cuatro lecturas puntuales (producto exclusivo,
+evaluación del ciclo, huella y familia de respaldo); no multiplica trabajo
+por cada combinación de producto y keyword.
+
 ## Límites
 
 - No se despliega ni se enciende la meta o la pausa: el dueño conserva merge,
