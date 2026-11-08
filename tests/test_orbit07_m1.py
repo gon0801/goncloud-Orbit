@@ -1,0 +1,289 @@
+"""ORBIT 07 M1: recorridos de la proteccion de venta reciente.
+
+Ciclo: una hoja con pedido reciente no recibe pausa; la subpolitica abre un
+episodio con ancla y vencimiento fijos. Cola: la pausa ya encolada espera sin
+cobrar cuota y conserva su fila; al vencer con el ancla corregida a cero, la
+pausa procede. PostgreSQL desechable; Amazon es el transporte falso de
+test_apply_cola. Sin acentos en el codigo, por regla del repo.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+
+import pytest
+from test_apply_cola import (
+    _aplicador,
+    _decision_corte,
+    _encola_fila,
+    _fechas,
+    _handler_cortes,
+    _metrica,
+    _payload_pause,
+    _semilla,
+)
+from test_apply_cola import (
+    _db_temporal as _db_cola,
+)
+from test_cycle import (
+    DECIDED_AT,
+    _corre,
+    _decisions_de,
+    _obs,
+    _siembra_maestra,
+    _siembra_r9,
+)
+from test_cycle import _db_temporal as _db_ciclo
+from test_cycle import (
+    _metrica as _metrica_ciclo,
+)
+
+from app import apply_cola
+
+_skip_db = pytest.mark.skipif(
+    __import__("test_schema")._postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+
+
+def _pausa_de(conn, cycle_id: int, entidad: int):
+    return conn.execute(
+        "SELECT id, inputs FROM decision WHERE cycle_id = %s AND ad_entity_id = %s"
+        " AND kind = 'pause'",
+        (cycle_id, entidad),
+    ).fetchall()
+
+
+def _episodios(conn, entidad: int):
+    return conn.execute(
+        "SELECT ancla, vence_el FROM proteccion_venta_reciente"
+        " WHERE ad_entity_id = %s ORDER BY ancla",
+        (entidad,),
+    ).fetchall()
+
+
+def _used_pause(conn) -> int:
+    fila = conn.execute(
+        "SELECT used FROM apply_quota_state WHERE motor = %s",
+        ("ads_optimizer:amazon_us:pause",),
+    ).fetchone()
+    return fila[0] if fila is not None else 0
+
+
+@_skip_db
+def test_ciclo_con_venta_reciente_no_pausa_y_abre_episodio():
+    """El kw_pause maduro calificaria la pausa por umbral; el pedido de 08-20
+    la suprime, el juicio de la hoja sigue y el episodio queda persistido."""
+    with _db_ciclo("orbit_m1_ciclo") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run = _run(conn)
+        # Cobertura completa de D-9..D-1 (08-13..08-21) con el pedido el 08-20.
+        for fecha in _fechas(dt.date(2026, 8, 20), dt.date(2026, 8, 21)):
+            _metrica_ciclo(
+                conn,
+                run,
+                ids["kw_pause"],
+                fecha,
+                _obs(fecha),
+                cost="0.10",
+                ad_revenue="0.10",
+                clicks=1,
+                orders=0,
+                impressions=10,
+            )
+        _metrica_ciclo(
+            conn,
+            run,
+            ids["kw_pause"],
+            dt.date(2026, 8, 20),
+            _obs(dt.date(2026, 8, 21)),
+            cost="0.10",
+            ad_revenue="1.00",
+            clicks=1,
+            orders=1,
+            impressions=10,
+        )
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        assert _pausa_de(conn, res.cycle_id, ids["kw_pause"]) == []
+        assert _episodios(conn, ids["kw_pause"]) == [(dt.date(2026, 8, 20), dt.date(2026, 8, 30))]
+        assert "venta_reciente" in res.notes
+
+
+def _run(conn) -> int:
+    return conn.execute("INSERT INTO ingest_run (source) VALUES ('test') RETURNING id").fetchone()[
+        0
+    ]
+
+
+@_skip_db
+def test_ciclo_permite_la_puja_durante_la_espera_sin_duplicar_la_pausa():
+    """Una fila released de pausa con episodio activo ya no congela la hoja:
+    el mismo evaluador mueve la puja y el ciclo NO crea otra pausa."""
+    with _db_ciclo("orbit_m1_ciclo_puja") as (conn, _c):
+        ids = _siembra_r9(conn)
+        kw = ids["kw"]
+        config = conn.execute("SELECT id FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[
+            0
+        ]
+        dec = _decision_corte(
+            conn,
+            _ciclo_id(conn),
+            config,
+            kw,
+            "pause",
+            decided_at=DECIDED_AT - dt.timedelta(days=3),
+        )
+        conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id, modo,"
+            " estado, vence_el, request_payload) VALUES ('amazon_us', %s, 'pause', %s,"
+            " 'live', 'pending_veto', %s, '{}'::jsonb)",
+            (kw, dec, DECIDED_AT - dt.timedelta(days=1)),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'released', released_at = %s WHERE decision_id = %s",
+            (DECIDED_AT - dt.timedelta(hours=2), dec),
+        )
+        conn.execute(
+            "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+            " ancla, vence_el, abierta_el, observado_el) VALUES ('amazon_us', %s,"
+            " 'proteccion_venta_v1', %s, %s, %s, %s)",
+            (
+                kw,
+                dt.date(2026, 8, 13),
+                dt.date(2026, 8, 23),
+                DECIDED_AT,
+                DECIDED_AT - dt.timedelta(hours=1),
+            ),
+        )
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        kinds = {(f[0], f[1]) for f in filas}
+        assert (kw, "bid") in kinds, "la puja se evaluo y se movio"
+        assert (kw, "pause") not in kinds, "no se duplica la pausa"
+        bides = [f for f in filas if f[0] == kw and f[1] == "bid"]
+        assert bides[0][9]["motivo"] == "gasto_sin_venta"
+        assert bides[0][9]["factor"] == "-0.12"
+
+
+def _ciclo_id(conn) -> int:
+    return conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_cola_espera_la_proteccion_sin_cuota_ni_claim():
+    with _db_cola("orbit_m1_cola_espera") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.espera_proteccion == 1
+        assert res.aplicadas == 0 and res.sin_quota == 0
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("released", None)
+        assert _episodios(conn, ids["kw"]) == [
+            (d.date() - dt.timedelta(days=4), d.date() + dt.timedelta(days=6))
+        ]
+        assert _used_pause(conn) == 0, "esperar no cobra cuota"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        )
+        sin_aplicar = conn.execute(
+            "SELECT motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+        ).fetchall()
+        assert ("espera_proteccion",) in sin_aplicar
+
+
+@_skip_db
+def test_cola_al_vencer_con_ancla_corregida_aplica_y_cobra():
+    with _db_cola("orbit_m1_cola_aplica") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+        apply_cola.libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=aplicador, cycle_id=ids["ciclo_ejec"]
+        )
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "released"
+        )
+
+        # El ancla se corrige a cero y el episodio vence once dias despues.
+        _metrica(
+            conn,
+            ids["run"],
+            ids["kw"],
+            d.date() - dt.timedelta(days=4),
+            clicks=1,
+            cost=0,
+            orders=0,
+            observed=d + dt.timedelta(days=1),
+        )
+        ahora2 = d + dt.timedelta(days=11)
+        res = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ahora2,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.aplicadas == 1, res.descartadas
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "applied"
+        )
+        assert (
+            conn.execute(
+                "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            is True
+        )
+        assert _used_pause(conn) == 1
+
+
+def _siembra_maduros_y_recientes(conn, ids, d) -> None:
+    """Ventana madura con 126 clics / 54 USD sin pedidos; D-9..D-1 completo con
+    un pedido el D-4 (el disparador de la proteccion)."""
+    for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
+        _metrica(conn, ids["run"], ids["kw"], fecha, clicks=7, cost=3, orders=0)
+    for fecha in _fechas(d.date() - dt.timedelta(days=9), d.date() - dt.timedelta(days=1)):
+        _metrica(conn, ids["run"], ids["kw"], fecha, clicks=1, cost=0, orders=0)
+    _metrica(
+        conn,
+        ids["run"],
+        ids["kw"],
+        d.date() - dt.timedelta(days=4),
+        clicks=1,
+        cost=0,
+        orders=1,
+        observed=d,
+    )

@@ -194,14 +194,30 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from app import apply, apply_cola, apply_harvest, notifica, productos_io, propuestas_campana
+from app import (
+    apply,
+    apply_cola,
+    apply_harvest,
+    notifica,
+    productos_io,
+    propuestas_campana,
+    proteccion_venta,
+)
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
 from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, windows
 from app.optimizer import goals as g
+from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.caso import POLITICA_BID, BidVigente, EconomiaPlataforma, InsumosPausa
+from app.optimizer.caso import (
+    POLITICA_BID,
+    BidVigente,
+    EconomiaPlataforma,
+    InsumosPausa,
+    InsumosProteccion,
+    _proteccion_json,
+)
 from app.optimizer.politica import Mantener, Mover, Pausar, decide
 from app.optimizer.replay import reproduce as reproduce
 from app.redaction import install_scrub_filter, scrub
@@ -682,6 +698,9 @@ class _Contadores:
     targets: dict[int, tuple[Decimal, str]] = field(default_factory=dict)
     # AUTO-03 D.4: evaluacion por producto del ciclo (None = meta en off).
     productos: _ProductosCiclo | None = None
+    # ORBIT 07 M1: episodios de venta reciente abiertos en TX2, escritos en
+    # TX3 (append-only, idempotente por ancla).
+    protecciones: list[proteccion_venta.TransicionProteccion] = field(default_factory=list)
 
 
 @dataclass
@@ -1057,11 +1076,16 @@ def _pendiente_pause_apagada(
     evidencia: windows.EvidenciaAdGroup | None,
     cost_min: Decimal,
     policy_version: str | None,
+    proteccion: InsumosProteccion | None = None,
 ) -> _Pendiente:
     """La PAUSE con la politica apagada (BIDS 02 M.3, cambio 4): freeze
     Sin caso ni politica, con la forma de la era anterior (ventanas +
     corte + version economica) para que el replay la re-decida por eras
-    (el pause es identico en todas las eras)."""
+    (el pause es identico en todas las eras).
+
+    ORBIT 07 M1: con la subpolitica nueva el freeze lleva ADEMAS los insumos
+    de proteccion (ancla, vencimiento y lectura reciente). Ausente en las
+    filas historicas."""
     assert resultado.kind == "pause"
     assert cortes is not None
     inputs = {
@@ -1082,6 +1106,7 @@ def _pendiente_pause_apagada(
         "motivo": resultado.motivo,
         "modo": modo,
         "corte": _corte_json(corte, evidencia, cost_min=cost_min),
+        "proteccion": _proteccion_json(proteccion),
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
@@ -1167,6 +1192,67 @@ def _pendiente_termino(
         value_currency=resultado.value_currency,
         inputs=inputs,
     )
+
+
+def _proteccion_activa(
+    *,
+    platform: str,
+    entidad_id: int,
+    target: Decimal,
+    corte_pause: cortes.UmbralResuelto,
+    cortes_hoja: windows.AgregadoMetricas | None,
+    costo_piso: Decimal,
+    pausa: InsumosPausa,
+    proteccion_cache: proteccion_venta.CacheProteccion | None,
+    contadores: _Contadores,
+    decided_at: dt.datetime,
+) -> bool:
+    """ORBIT 07 M1: True si la subpolitica pura frena la pausa por venta
+    reciente. Registra la transicion append-only del episodio cuando la abre.
+
+    Se evalua solo si hay un episodio persistido o una venta reciente; fuera de
+    ese caso no hay nada que proteger y no se paga la segunda evaluacion."""
+    if pausa.proteccion is None:
+        return False
+    if pausa.proteccion.episodio is None and not (
+        proteccion_cache is not None and proteccion_cache.hay_venta(entidad_id)
+    ):
+        return False
+    resultado = bid.decide_pause(
+        platform=platform,
+        bids=None,
+        cortes=cortes_hoja,
+        target_acos_pct=target,
+        umbral_pause=corte_pause.umbral,
+        cost_min=costo_piso,
+        policy_version=pausa.politica_economica,
+        proteccion=pausa.proteccion,
+    )
+    if resultado.proteccion is None or resultado.motivo not in (
+        subproteccion.MOTIVO_PROTEGIDA,
+        subproteccion.MOTIVO_INDETERMINADA,
+    ):
+        return False
+    _registra_proteccion(
+        contadores, proteccion_cache, entidad_id, resultado.proteccion, decidido_el=decided_at
+    )
+    return True
+
+
+def _registra_proteccion(
+    contadores: _Contadores,
+    cache: proteccion_venta.CacheProteccion | None,
+    entidad_id: int,
+    resultado,
+    *,
+    decidido_el: dt.datetime,
+) -> None:
+    """Anexa la transicion append-only del episodio (TX3 la inserta)."""
+    if cache is None:
+        return
+    transicion = cache.transicion(entidad_id, resultado, decidido_el)
+    if transicion is not None:
+        contadores.protecciones.append(transicion)
 
 
 def _notas_cuerpo(
@@ -1747,6 +1833,8 @@ def _procesa_decisora(
     lecturas: LecturasPlataforma | None,
     productos_ciclo: _ProductosCiclo | None = None,
     grupos_pausa_producto: frozenset[int] = frozenset(),
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    claves_released: frozenset[tuple[int, str, str | None]] = frozenset(),
 ) -> None:
     (
         entidad_id,
@@ -1781,7 +1869,11 @@ def _procesa_decisora(
         tick()
         return
     assert goal is not None  # _porta_goal_campana: motivo None implica goal
-    if (entidad_id, "entity_cut", None) in bloqueadas:
+    clave_pausa = (entidad_id, "entity_cut", None)
+    bloqueada = clave_pausa in bloqueadas
+    espera_released = clave_pausa in claves_released
+    protegible = proteccion_cache is not None and proteccion_cache.tiene_proteccion(entidad_id)
+    if bloqueada and not (espera_released and protegible):
         # 2.2 sellado 5 / 2.4: clave de efecto en vuelo (fila NO terminal o
         # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
         # ENTERA del motor de bids (decide da pause o juicio en una
@@ -1789,6 +1881,10 @@ def _procesa_decisora(
         # regla 3 — declarado en el docstring del modulo). CAMPANA ACTIVA 01
         # · 1.6: va DESPUES de los gates — una hoja en campana/grupo no
         # ENABLED se cuenta con el motivo del ANCESTRO, no como veto.
+        # ORBIT 07 M1: una fila `released` con venta reciente NO congela las
+        # pujas; solo se prohibe re-decidir la pausa (el veredicto Pausar se
+        # descarta abajo). Veto pendiente, veto del dueno y applying siguen
+        # bloqueando la hoja entera.
         contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
         tick()
         return
@@ -1870,6 +1966,7 @@ def _procesa_decisora(
                     pause_economica=pause_economica,
                     politica=politica,
                     lecturas=lecturas,
+                    proteccion_cache=proteccion_cache,
                 )
 
         _anota_sombra(
@@ -1916,6 +2013,7 @@ def _procesa_decisora(
         decided_at=decided_at,
         corte_pause=corte_pause,
         pause_economica=pause_economica,
+        proteccion_cache=proteccion_cache,
     )
     if politica is None:
         # Cambio 4: con la politica apagada solo se decide la PAUSE; la
@@ -1928,6 +2026,7 @@ def _procesa_decisora(
             umbral_pause=corte_pause.umbral,
             cost_min=costo_piso,
             policy_version=pausa.politica_economica,
+            proteccion=pausa.proteccion,
         )
         _anota_sombra(
             productos_ciclo,
@@ -1950,11 +2049,28 @@ def _procesa_decisora(
                 umbral_pause=corte_pause.umbral,
                 cost_min=costo_piso,
                 policy_version=pausa.politica_economica,
+                proteccion=pausa.proteccion,
             ),
         )
         tick()
         if resultado.kind != "pause":
+            if resultado.proteccion is not None and resultado.motivo in (
+                subproteccion.MOTIVO_PROTEGIDA,
+                subproteccion.MOTIVO_INDETERMINADA,
+            ):
+                _registra_proteccion(
+                    contadores,
+                    proteccion_cache,
+                    entidad_id,
+                    resultado.proteccion,
+                    decidido_el=decided_at,
+                )
+                contadores.skips_entidad[resultado.motivo] += 1
+                return
             contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
+            return
+        if bloqueada:
+            contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
             return
         if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind="pause"):
             contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
@@ -1976,6 +2092,7 @@ def _procesa_decisora(
             evidencia=evidencia,
             cost_min=costo_piso,
             policy_version=pausa.politica_economica,
+            proteccion=pausa.proteccion,
         )
         pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
         contadores.decisiones["pause"] += 1
@@ -2008,6 +2125,27 @@ def _procesa_decisora(
         ),
     )
     tick()
+    # ORBIT 07 M1: la subpolitica pura decide la espera y su transicion. Se
+    # consulta aparte del veredicto para que un Mover autorizado durante la
+    # espera siga su camino (R2: la proteccion solo suprime la pausa).
+    protegida = _proteccion_activa(
+        platform=platform,
+        entidad_id=entidad_id,
+        target=target,
+        corte_pause=corte_pause,
+        cortes_hoja=cortes_hoja,
+        costo_piso=costo_piso,
+        pausa=pausa,
+        proteccion_cache=proteccion_cache,
+        contadores=contadores,
+        decided_at=decided_at,
+    )
+    if isinstance(veredicto, Pausar) and (bloqueada or protegida):
+        # ORBIT 07 M1: la fila released de una pausa protegida conserva el
+        # permiso de pausar. El ciclo no duplica la decision; la cola la
+        # revalida y la aplica o la descarta.
+        contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
+        return
     if isinstance(veredicto, Mantener):
         contadores.skips_entidad[veredicto.motivo] += 1
         return
@@ -2053,19 +2191,32 @@ def _insumos_pausa(
     decided_at: dt.datetime,
     corte_pause: cortes.UmbralResuelto,
     pause_economica: bool,
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
 ) -> tuple[Decimal, windows.AgregadoMetricas | None, InsumosPausa]:
     """Piso de costo, ventana de cortes e insumos de la PAUSE de una hoja.
     BIDS 02 M.3: la ventana de BIDS ya no se lee por hoja (la suficiencia la
     mide la ventana madura de lecturas, no 30 dias anclados en la hoja). La
-    de CORTES se sigue leyendo con windows y viaja en InsumosPausa."""
+    de CORTES se sigue leyendo con windows y viaja en InsumosPausa.
+
+    ORBIT 07 M1: la lectura comun de venta reciente llega en `proteccion_cache`
+    (una por plataforma y ciclo) y se congela en `InsumosPausa.proteccion`;
+    la ventana de cortes del intento viaja para el reevaluo al vencer."""
     costo_piso = bid.PAUSE_COST_MIN[platform]
     cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at)
+    proteccion: InsumosProteccion | None = None
+    if proteccion_cache is not None:
+        proteccion = proteccion_cache.insumos(
+            entidad_id,
+            ventana_desde=cortes_hoja.window_start if cortes_hoja is not None else None,
+            ventana_hasta=cortes_hoja.window_end if cortes_hoja is not None else None,
+        )
     pausa = InsumosPausa(
         cortes=cortes_hoja,
         umbral_clics=corte_pause.umbral,
         gasto_minimo=costo_piso,
         expected_clicks=corte_pause.expected_clicks,
         politica_economica=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+        proteccion=proteccion,
     )
     return costo_piso, cortes_hoja, pausa
 
@@ -2085,6 +2236,7 @@ def _juicio_hoja(
     pause_economica: bool,
     politica: str | None,
     lecturas: LecturasPlataforma | None,
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
 ):
     """AUTO-03 D.4: el veredicto que el camino de _procesa_decisora daria con
     `target`, con los mismos insumos y sin escribir nada (la sombra de una
@@ -2097,6 +2249,7 @@ def _juicio_hoja(
         decided_at=decided_at,
         corte_pause=corte_pause,
         pause_economica=pause_economica,
+        proteccion_cache=proteccion_cache,
     )
     if politica is None:
         return bid.decide_pause(
@@ -2993,6 +3146,10 @@ def _recorre_plataforma(
             target_margen=target_ciclo.margen,
         )
     evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
+    # ORBIT 07 M1: lectura comun de venta reciente y episodios, UNA vez por
+    # plataforma en TX2. Disponible tambien con la politica de bids apagada.
+    proteccion_cache = proteccion_venta.lee_cache(conn, platform, decided_at)
+    claves_released = apply_cola.claves_released(conn, platform)
     # BIDS 01 (D3): hojas inertes de la plataforma, UNA vez por ciclo en TX2
     # (mismo snapshot que la evidencia). Se pasa EXPLICITO a
     # _procesa_decisora (no en `comunes`: el camino de terminos no lo usa).
@@ -3064,6 +3221,8 @@ def _recorre_plataforma(
             lecturas=lecturas,
             productos_ciclo=contadores.productos,
             grupos_pausa_producto=grupos_pausa_producto,
+            proteccion_cache=proteccion_cache,
+            claves_released=claves_released,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
@@ -3518,6 +3677,9 @@ def _corre_fases(
             _descarta_sin_evidencia(contadores, pendientes, ids_evaluacion, cuerpo)
         _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion)
         _inserta_targets(conn, cycle_id, decided_at, contadores)
+        # ORBIT 07 M1: los episodios de venta reciente abiertos en TX2 se
+        # escriben aqui, en la misma transaccion que las decisiones.
+        proteccion_venta.inserta_transiciones(conn, contadores.protecciones)
         # C.4 B3: la guarda va con el mismo flag que la lectura (con flag
         # apagado no hay nada que persistir; la condicion es cinturon).
         # Obs1: TX3 vuelve a READ COMMITTED (el REPEATABLE READ no tenia

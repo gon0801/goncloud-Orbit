@@ -821,6 +821,12 @@ SQL45 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
 ).read_text(encoding="utf-8")
 
+# ORBIT 07 M1: el CHECK vigente agrega espera_proteccion y la tabla de
+# episodios de venta reciente.
+SQL81 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
+
 
 def _sql46() -> str:
     """0046 (C.2a) se lee AL USARSE (misma idea que _ultima_migracion_con):
@@ -871,6 +877,7 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         yield conn
     finally:
         if conn is not None:
@@ -1369,3 +1376,92 @@ def test_vista_huerfana_excluye_corte_shadow_de_ciclo_live():
         _encolar(conn, dec, ids["kw"], "pause", modo="shadow")
         filas = conn.execute("SELECT decision_id, origen FROM v_decision_huerfana").fetchall()
         assert filas == [], filas
+
+
+# ===========================================================================
+# ORBIT 07 M1 (migracion 0081): proteccion_venta_reciente append-only y
+# vencimiento fijo por trigger.
+# ===========================================================================
+
+
+@_skip_db
+def test_proteccion_venta_append_only_vence_fijo_y_grants():
+    with _db_temporal_d1("orbit_pv_m1") as conn:
+        ids = _semilla_d1(conn)
+        kw = ids["kw"]
+        base = (
+            "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+            " ancla, vence_el, abierta_el, observado_el) VALUES"
+            " ('amazon_us', %s, 'proteccion_venta_v1', %s, %s, %s, %s) RETURNING id"
+        )
+        fila = conn.execute(
+            base,
+            (
+                kw,
+                dt.date(2026, 10, 5),
+                dt.date(2026, 10, 15),
+                dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+            ),
+        ).fetchone()[0]
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                base,
+                (
+                    kw,
+                    dt.date(2026, 10, 5),
+                    dt.date(2026, 10, 15),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+                ),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                base,
+                (
+                    kw,
+                    dt.date(2026, 10, 6),
+                    dt.date(2026, 10, 15),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+                ),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                base,
+                (
+                    kw,
+                    dt.date(2026, 10, 7),
+                    dt.date(2026, 10, 17),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 10, tzinfo=dt.UTC),
+                ),
+            )
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute(
+                "UPDATE proteccion_venta_reciente SET ancla = ancla WHERE id = %s", (fila,)
+            )
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM proteccion_venta_reciente WHERE id = %s", (fila,))
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE proteccion_venta_reciente")
+
+        conn.execute("SET ROLE app_decide")
+        assert conn.execute("SELECT count(*) FROM proteccion_venta_reciente").fetchone()[0] == 1
+        conn.execute("RESET ROLE")
+        conn.execute("SET ROLE app_read")
+        assert conn.execute("SELECT count(*) FROM proteccion_venta_reciente").fetchone()[0] == 1
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(
+                "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
+                " ancla, vence_el, abierta_el, observado_el) VALUES"
+                " ('amazon_us', %s, 'proteccion_venta_v1', %s, %s, %s, %s)",
+                (
+                    kw,
+                    dt.date(2026, 10, 6),
+                    dt.date(2026, 10, 16),
+                    dt.datetime(2026, 10, 9, tzinfo=dt.UTC),
+                    dt.datetime(2026, 10, 8, tzinfo=dt.UTC),
+                ),
+            )
+        conn.execute("RESET ROLE")

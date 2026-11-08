@@ -90,7 +90,15 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply, apply_harvest, apply_producto, biblioteca, notifica, productos_io
+from app import (
+    apply,
+    apply_harvest,
+    apply_producto,
+    biblioteca,
+    notifica,
+    productos_io,
+    proteccion_venta,
+)
 from app.ads.client import AdsApiError
 from app.apply import (
     Aplicador,
@@ -102,6 +110,7 @@ from app.apply import (
 from app.optimizer import bid as motor_bid
 from app.optimizer import cortes, hygiene, productos, windows
 from app.optimizer import goals as g
+from app.optimizer import proteccion as subproteccion
 
 # Ventana de veto de 48h al encolar (sellado 2: el reloj NO se detiene por
 # infra caida). Gracia de reactivacion 7d DESDE detectada_en (sellado 17).
@@ -125,6 +134,9 @@ MOTIVO_ALCANCE_CAMBIO = "alcance_cambio"
 # ADS D.1: el literal vive en apply.MOTIVO_ESPERA_TARGET (vocabulario de
 # decision_sin_aplicar, UNA fuente); este modulo lo reexporta como alias.
 MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
+# ORBIT 07 M1: la pausa por cero ventas espera el vencimiento del episodio de
+# venta reciente sin cobrar cuota ni entrar a applying (fila released).
+MOTIVO_ESPERA_PROTECCION = apply.MOTIVO_ESPERA_PROTECCION
 # CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
 # (la funcion compartida del gate vive en apply, dueno del write client; cycle
 # y los tests siguen importando de AQUI): un corte cuya campaña o ad group
@@ -146,6 +158,16 @@ SELECT ad_entity_id, familia, search_term
  WHERE platform = %s::platform
    AND (estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')
         OR (estado = 'vetoed' AND vence_el > %s))
+"""
+
+# ORBIT 07 M1: una fila released es la unica no terminal que NO congela las
+# pujas cuando hay venta reciente protegida (el ciclo sigue evaluando el bid y
+# solo descarta el veredicto Pausar). Veto pendiente, veto del dueno y applying
+# siguen bloqueando la hoja entera.
+_SQL_CLAVES_RELEASED = """
+SELECT ad_entity_id, familia, search_term
+  FROM apply_queue
+ WHERE platform = %s::platform AND estado = 'released'
 """
 
 _SQL_CORTES_CICLO = """
@@ -336,6 +358,9 @@ class ResultadoLiberacion:
     carreras_perdidas: int
     revalida_sin_respuesta: int = 0
     espera_target: int = 0
+    # ORBIT 07 M1: filas de pausa por cero ventas que esperan el vencimiento
+    # del episodio de venta reciente (siguen released, sin cuota).
+    espera_proteccion: int = 0
     # 3.3 (sellados 13/19): las alertas de harvest failed del barrido viajan
     # al ciclo (con la bandera de envio fallido del canal) para la NOTA
     # notes['telegram'] — antes se caian aqui.
@@ -388,6 +413,18 @@ def claves_bloqueadas(
         (fila[0], fila[1], fila[2])
         for fila in conn.execute(_SQL_CLAVES_BLOQUEADAS, (platform, ahora)).fetchall()
     }
+
+
+def claves_released(
+    conn: psycopg.Connection, platform: str
+) -> frozenset[tuple[int, str, str | None]]:
+    """Claves con una fila released (ORBIT 07 M1). El ciclo solo las deja
+    seguir cuando ademas hay venta reciente protegida: entonces evalua las
+    pujas y descarta un Pausar duplicado."""
+    return frozenset(
+        (fila[0], fila[1], fila[2])
+        for fila in conn.execute(_SQL_CLAVES_RELEASED, (platform,)).fetchall()
+    )
 
 
 def skip_por_clave(
@@ -815,13 +852,20 @@ def _revalida_pause(
     fila: FilaCola,
     ahora: dt.datetime,
     evidencias: list[dict] | None = None,
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
 ) -> str | None:
     """Re-validacion de un pause: re-check de estado vivo por LIST FRESCO
     (jamas el cache, sellado 16; probe 2.5: el GET directo esta retirado) y
     re-decision de la regla completa del motor con el umbral RE-RESUELTO a la
     evidencia FRESCA anclada al reloj de LIBERACION (el decided_at de
     ventanas_evidencia_ad_group es el instante de liberar, NO el de decidir —
-    contrato cross-plan de CORTES 01)."""
+    contrato cross-plan de CORTES 01).
+
+    ORBIT 07 M1: la misma subpolitica pura del ciclo decide la espera por
+    venta reciente con la lectura fresca. Si el episodio esta vigente, la fila
+    queda released (MOTIVO_ESPERA_PROTECCION): sin cuota, sin applying y sin
+    reiniciar el veto. Abrir un episodio escribe la transicion append-only en
+    la MISMA transaccion."""
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return MOTIVO_ENTIDAD_NO_VIVA
@@ -883,6 +927,15 @@ def _revalida_pause(
         if target is not None and _flag_pause_economica(conn)
         else None
     )
+    proteccion = (
+        proteccion_cache.insumos(
+            fila.ad_entity_id,
+            ventana_desde=fresco.window_start if fresco is not None else None,
+            ventana_hasta=fresco.window_end if fresco is not None else None,
+        )
+        if proteccion_cache is not None
+        else None
+    )
     resultado = motor_bid.decide_pause(
         platform=platform,
         bids=None,  # la re-decision es SOLO de la regla pause (cortes)
@@ -892,6 +945,7 @@ def _revalida_pause(
         # C.3 B1: la revalidacion economica rige solo con el flag (con
         # flag apagado, camino pre-economico aunque la fila sea vieja).
         policy_version=version_efectiva,
+        proteccion=proteccion,
     )
     # Obs1: una fila economica aplica si la hoja califica PAUSE por
     # CUALQUIER regla (si ademas califica la umbral, pausar sigue siendo
@@ -926,6 +980,38 @@ def _revalida_pause(
         )
     if califica:
         return None
+    if (
+        resultado.proteccion is not None
+        and resultado.motivo in (subproteccion.MOTIVO_PROTEGIDA, subproteccion.MOTIVO_INDETERMINADA)
+        and resultado.proteccion.accion in ("esperar", "indeterminada")
+    ):
+        # La espera conserva la UNICA fila released y sus ancla/vencimiento
+        # originales. Si la subpolitica abrio el episodio en esta revalidacion,
+        # se persiste aqui para que el ciclo siguiente lo vea y libere las
+        # pujas.
+        if resultado.proteccion.abre_episodio and proteccion_cache is not None:
+            transicion = proteccion_cache.transicion(fila.ad_entity_id, resultado.proteccion, ahora)
+            if transicion is not None:
+                proteccion_venta.inserta_transiciones(conn, [transicion])
+        _registra_evidencia(
+            conn,
+            aplicador.cycle_id_ejecutor,
+            evidencias,
+            {
+                "decision_id": fila.decision_id,
+                "revalidado_at": ahora.isoformat(),
+                "resultado": MOTIVO_ESPERA_PROTECCION,
+                "motivo": resultado.motivo,
+                "ancla": resultado.proteccion.ancla.isoformat()
+                if resultado.proteccion.ancla is not None
+                else None,
+                "vence_el": resultado.proteccion.vence_el.isoformat()
+                if resultado.proteccion.vence_el is not None
+                else None,
+                "abre_episodio": resultado.proteccion.abre_episodio,
+            },
+        )
+        return MOTIVO_ESPERA_PROTECCION
     if not economica and fresco is not None and fresco.orders is not None and fresco.orders > 0:
         return MOTIVO_VENDIO_EN_VENTANA
     return MOTIVO_YA_NO_CALIFICA
@@ -992,6 +1078,7 @@ def _revalida(
     fila: FilaCola,
     ahora: dt.datetime,
     evidencias: list[dict] | None = None,
+    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
 ) -> str | None:
     """None = el corte sigue calificando. Un motivo = discard (PRE-claim: el
     descarte ocurre SIEMPRE antes del cobro, brief §3), SALVO
@@ -1007,7 +1094,7 @@ def _revalida(
         return motivo
     rama = _rama(conn, fila)
     if rama == "pause_hoja":
-        return _revalida_pause(conn, aplicador, platform, fila, ahora, evidencias)
+        return _revalida_pause(conn, aplicador, platform, fila, ahora, evidencias, proteccion_cache)
     if rama == "pause_producto":
         return apply_producto.revalida_pause_producto(conn, aplicador, fila, ahora)
     if rama == "negative":
@@ -1244,6 +1331,7 @@ def libera_vencidos(
     historicas. Los DESCARTES no se graban: su desenlace ya es la fila
     terminal discarded + discard_motivo."""
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
+    proteccion_cache = proteccion_venta.lee_cache(conn, platform, ahora)
 
     def _registra(fila: FilaCola, motivo: str) -> None:
         if cycle_id is not None and fila.decision_id is not None:
@@ -1252,7 +1340,7 @@ def libera_vencidos(
             )
 
     liberadas = aplicadas = fallidas = sin_quota = carreras = sin_respuesta = 0
-    espera_target = 0
+    espera_target = espera_proteccion = 0
     descartadas: list[str] = []
     alertas_harvest: list[apply_harvest.AlertaHarvest] = []
     caps_saturados: list[CapSaturado] = []
@@ -1275,7 +1363,9 @@ def libera_vencidos(
             descartadas.append(MOTIVO_MODO_NO_LIVE)
             continue
         try:
-            motivo = _revalida(conn, aplicador, platform, fila, ahora, revalidaciones_economicas)
+            motivo = _revalida(
+                conn, aplicador, platform, fila, ahora, revalidaciones_economicas, proteccion_cache
+            )
         except AdsApiError:
             # GK3: si el LIST fresco de re-validacion de ESTA fila murio (entidad
             # muerta/path caido): la fila queda released (vetable, reintenta
@@ -1291,6 +1381,13 @@ def libera_vencidos(
             # siguiente; sigue vetable. No se consume cuota ni claim.
             espera_target += 1
             _registra(fila, MOTIVO_ESPERA_TARGET)
+            continue
+        if motivo == MOTIVO_ESPERA_PROTECCION:
+            # ORBIT 07 M1: la pausa por cero ventas espera el vencimiento del
+            # episodio. Queda released (una sola fila, ancla y vencimiento
+            # originales), vetable y sin cobro de cuota ni claim.
+            espera_proteccion += 1
+            _registra(fila, MOTIVO_ESPERA_PROTECCION)
             continue
         if motivo is not None:
             conn.execute(_SQL_DESCARTA, (motivo, fila.id, "released"))
@@ -1349,6 +1446,7 @@ def libera_vencidos(
         carreras_perdidas=carreras,
         revalida_sin_respuesta=sin_respuesta,
         espera_target=espera_target,
+        espera_proteccion=espera_proteccion,
         alertas=tuple(alertas_harvest),
         caps_saturados=tuple(caps_saturados),
         revalidaciones_economicas=tuple(revalidaciones_economicas),

@@ -122,6 +122,11 @@ SQL48 = (Path(__file__).resolve().parents[1] / "migrations" / "0048_margen_famil
 SQL60 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
 ).read_text(encoding="utf-8")
+# ORBIT 07 M1: la TX2 lee la proteccion de venta reciente (tabla + CHECK con
+# espera_proteccion) y la TX3 escribe sus episodios.
+SQL81 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -216,6 +221,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL48)
         # BIDS 02 M.3: v_hoja_activa + v_cambio_bid para niveles_v3.
         conn.execute(SQL60)
+        # ORBIT 07 M1: proteccion de venta reciente (tabla + CHECK).
+        conn.execute(SQL81)
         yield conn, conectar_extra
     finally:
         if conn is not None:

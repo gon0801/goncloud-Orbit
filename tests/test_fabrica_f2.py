@@ -72,6 +72,12 @@ ORDEN_F2 = (
     # I.1: _roster_hermanas lee campana_grupo.tipo (regla 9: sin tolerar
     # columna ausente, el fixture la necesita).
     "0064_bids02_grupo_tipo.sql",
+    # ORBIT 07 M1: corre_ciclo lee la proteccion de venta reciente en TX2 y la
+    # escribe en TX3. 0081 amplia el CHECK de decision_sin_aplicar, que nace en
+    # 0044/0045.
+    "0044_decision_sin_aplicar.sql",
+    "0045_sin_aplicar_choque_clave.sql",
+    "0081_orbit07_proteccion_venta.sql",
     # Nada de F2 depende de migraciones 0005-0012 ni 0020-0037 (verificado
     # por grep en A.2: no mencionan harvest_job/apply_attempt/goals/grupos).
 )

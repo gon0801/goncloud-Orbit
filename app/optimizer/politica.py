@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from typing import Literal
 
+from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
 from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel
 from app.optimizer.evidencia import gamma_p, gamma_q
@@ -191,6 +192,11 @@ def decide(caso: CasoHoja) -> Veredicto:
         raise ValueError(f"target_acos_pct invalido: {target!r} (debe ser > 0)")
 
     # R0: PAUSE decide primero; solo un pause real interrumpe (un bloqueo se descarta y sigue).
+    # ORBIT 07 M1: la pausa por cero pedidos consulta la subpolitica de venta
+    # reciente con la MISMA funcion pura que usa la revalidacion de la cola.
+    resultado_proteccion = (
+        subproteccion.evalua(caso.pausa.proteccion) if caso.pausa.proteccion is not None else None
+    )
     pausa, _motivo_bloqueado = _decide_pause(
         caso.pausa.cortes,
         caso.economia.plataforma.moneda,
@@ -198,11 +204,16 @@ def decide(caso: CasoHoja) -> Veredicto:
         caso.pausa.gasto_minimo,
         target,
         caso.pausa.politica_economica,
+        proteccion=resultado_proteccion,
     )
     if pausa is not None:
         assert pausa.kind == "pause"
         assert pausa.motivo is not None
         return Pausar(pausa.motivo)
+    # ORBIT 07 M1: la proteccion por venta reciente solo SUPRIME la pausa por
+    # cero pedidos; el juicio de pujas sigue su camino normal (R1-R17) y el
+    # ciclo registra el episodio con la misma subpolitica pura. No se devuelve
+    # un Mantener aqui: eso congelaria la hoja y repetiria el defecto R2.
 
     ultimo = caso.trayectoria.ultimo
     if ultimo is not None:

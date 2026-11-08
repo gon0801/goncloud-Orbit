@@ -103,6 +103,17 @@ SQL18 = (
 SQL47 = (Path(__file__).resolve().parents[1] / "migrations" / "0047_familias.sql").read_text(
     encoding="utf-8"
 )
+# ORBIT 07 M1: el ciclo lee la proteccion de venta reciente en TX2. 0081
+# amplia el CHECK de decision_sin_aplicar, que nace en 0044/0045.
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
+SQL45 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+SQL81 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
+).read_text(encoding="utf-8")
 
 TOKEN = "token-escritura-de-test-314159"
 SQL61 = (
@@ -458,6 +469,9 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
         conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
         conn.execute(SQL60)  # 0060 (M.3): base de lectura de niveles_v3 en TX2
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar
+        conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado
+        conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).

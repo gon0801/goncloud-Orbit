@@ -28,6 +28,10 @@ DIAS_MADUREZ = 10  # misma regla 6 que cortes (windows.DIAS_MADUREZ_CORTES): un 
 DIAS_TRAMO_RECIENTE = 41
 DIAS_LOOKBACK = 90  # windows.LOOKBACK_EVIDENCIA
 PRECISION = 28  # espejo de evidencia._PRECISION: el unico contexto de las divisiones puras
+# ORBIT 07 M1: la proteccion de venta reciente vence a los diez dias del dato
+# mas antiguo que la motivo. La fecha la fija la lectura; jamas la corrida.
+VERSION_PROTECCION_VENTA = "proteccion_venta_v1"
+DIAS_PROTECCION_VENTA = 10
 
 
 @dataclass(frozen=True)
@@ -228,6 +232,63 @@ class BidVigente:
 
 
 @dataclass(frozen=True)
+class LecturaReciente:
+    """Pedidos ya vistos en D-9..D-1 y la fecha mas antigua con pedido.
+
+    `pedidos` None = desconocido (fuente incompleta o metrica venenosa); cero
+    solo cuando la ingesta cubre todo el rango. `ancla` es `metric_date` mas
+    antigua con orders > 0 en esa misma lectura.
+    """
+
+    pedidos: int | None
+    ancla: dt.date | None
+    cubierta: bool
+    observado_al: dt.datetime | None
+
+
+@dataclass(frozen=True)
+class EpisodioProteccion:
+    """Episodio persistido: ancla y vencimiento FIJOS (ancla + 10 dias UTC)."""
+
+    ancla: dt.date
+    vence_el: dt.date
+
+
+@dataclass(frozen=True)
+class InsumosProteccion:
+    """Insumos congelados de la subpolitica de pausa por venta reciente.
+
+    `ventana_desde`/`ventana_hasta` son la ventana de CORTES del intento: al
+    vencer, el ancla ya debe estar dentro de la ventana madura para liberar.
+    `episodio` es la fila mas reciente persistida (activa o ya vencida).
+    """
+
+    version: str
+    evaluado_el: dt.date
+    reciente: LecturaReciente
+    ventana_desde: dt.date | None
+    ventana_hasta: dt.date | None
+    episodio: EpisodioProteccion | None
+
+
+@dataclass(frozen=True)
+class ResultadoProteccion:
+    """Salida pura: aplicar la pausa, esperar o abstenerse por dato desconocido.
+
+    `abre_episodio` es la unica transicion de escritura: el escritor inserta la
+    fila (ancla, vence_el) de forma append-only. Cerrar un episodio no escribe:
+    se deriva de `vence_el` y de la ventana madura.
+    """
+
+    version: str
+    accion: Literal["aplicar", "esperar", "indeterminada"]
+    motivo: str
+    ancla: dt.date | None
+    vence_el: dt.date | None
+    abre_episodio: bool
+
+
+@dataclass(frozen=True)
 class InsumosPausa:
     """Lo que PAUSE consume (bid._decide_pause): ventana de cortes y umbrales resueltos."""
 
@@ -236,6 +297,9 @@ class InsumosPausa:
     gasto_minimo: Decimal
     expected_clicks: Decimal | None
     politica_economica: str | None
+    # ORBIT 07 M1: ausente en las filas historicas y en las pausas con bids
+    # apagados anteriores; su ausencia conserva la semantica antigua.
+    proteccion: InsumosProteccion | None = None
 
 
 @dataclass(frozen=True)
@@ -409,6 +473,39 @@ def _pausa_json(pausa: InsumosPausa) -> dict:
         "gasto_minimo": str(pausa.gasto_minimo),
         "expected_clicks": _dinero(pausa.expected_clicks),
         "politica_economica": pausa.politica_economica,
+        "proteccion": _proteccion_json(pausa.proteccion),
+    }
+
+
+def _lectura_reciente_json(lectura: LecturaReciente) -> dict:
+    return {
+        "pedidos": lectura.pedidos,
+        "ancla": lectura.ancla.isoformat() if lectura.ancla is not None else None,
+        "cubierta": lectura.cubierta,
+        "observado_al": lectura.observado_al.isoformat() if lectura.observado_al else None,
+    }
+
+
+def _episodio_json(episodio: EpisodioProteccion | None) -> dict | None:
+    if episodio is None:
+        return None
+    return {"ancla": episodio.ancla.isoformat(), "vence_el": episodio.vence_el.isoformat()}
+
+
+def _proteccion_json(proteccion: InsumosProteccion | None) -> dict | None:
+    if proteccion is None:
+        return None
+    return {
+        "version": proteccion.version,
+        "evaluado_el": proteccion.evaluado_el.isoformat(),
+        "reciente": _lectura_reciente_json(proteccion.reciente),
+        "ventana_desde": proteccion.ventana_desde.isoformat()
+        if proteccion.ventana_desde is not None
+        else None,
+        "ventana_hasta": proteccion.ventana_hasta.isoformat()
+        if proteccion.ventana_hasta is not None
+        else None,
+        "episodio": _episodio_json(proteccion.episodio),
     }
 
 
@@ -659,17 +756,10 @@ def _cortes_desde(datos: Any) -> AgregadoMetricas | None:
 
 
 def _pausa_desde(datos: Any) -> InsumosPausa:
-    d = _objeto(
+    d = _objeto_versionado(
         datos,
-        frozenset(
-            {
-                "cortes",
-                "umbral_clics",
-                "gasto_minimo",
-                "expected_clicks",
-                "politica_economica",
-            }
-        ),
+        _CLAVES_PAUSA,
+        _CLAVES_PAUSA | {"proteccion"},
         "pausa",
     )
     return InsumosPausa(
@@ -678,4 +768,79 @@ def _pausa_desde(datos: Any) -> InsumosPausa:
         gasto_minimo=_decimal(d["gasto_minimo"], "gasto_minimo"),
         expected_clicks=_opcional(d["expected_clicks"], "expected_clicks", _decimal),
         politica_economica=_opcional(d["politica_economica"], "politica_economica", _texto),
+        proteccion=_proteccion_desde(d.get("proteccion")),
+    )
+
+
+_CLAVES_PAUSA = frozenset(
+    {
+        "cortes",
+        "umbral_clics",
+        "gasto_minimo",
+        "expected_clicks",
+        "politica_economica",
+    }
+)
+
+
+def _objeto_versionado(datos: Any, viejo: frozenset, nuevo: frozenset, nombre: str) -> dict:
+    """`_objeto` que acepta la forma historica o la ampliada (M1).
+
+    Las decisiones anteriores a la version nueva no llevan el marcador; su
+    ausencia conserva la semantica de su era. Una clave ajena sigue siendo
+    error.
+    """
+    if not isinstance(datos, dict) or set(datos) not in (viejo, nuevo):
+        raise ValueError(f"{nombre}: claves distintas a {sorted(nuevo)}")
+    return datos
+
+
+def _lectura_reciente_desde(datos: Any, nombre: str) -> LecturaReciente:
+    d = _objeto(
+        datos,
+        frozenset({"pedidos", "ancla", "cubierta", "observado_al"}),
+        f"{nombre}.reciente",
+    )
+    return LecturaReciente(
+        pedidos=_opcional(d["pedidos"], f"{nombre}.pedidos", _entero),
+        ancla=_opcional(d["ancla"], f"{nombre}.ancla", _fecha),
+        cubierta=_booleano(d["cubierta"], f"{nombre}.cubierta"),
+        observado_al=_opcional(d["observado_al"], f"{nombre}.observado_al", _momento),
+    )
+
+
+def _episodio_desde(datos: Any, nombre: str) -> EpisodioProteccion | None:
+    if datos is None:
+        return None
+    d = _objeto(datos, frozenset({"ancla", "vence_el"}), f"{nombre}.episodio")
+    return EpisodioProteccion(
+        ancla=_fecha(d["ancla"], f"{nombre}.ancla"),
+        vence_el=_fecha(d["vence_el"], f"{nombre}.vence_el"),
+    )
+
+
+def _proteccion_desde(datos: Any) -> InsumosProteccion | None:
+    if datos is None:
+        return None
+    d = _objeto(
+        datos,
+        frozenset(
+            {
+                "version",
+                "evaluado_el",
+                "reciente",
+                "ventana_desde",
+                "ventana_hasta",
+                "episodio",
+            }
+        ),
+        "proteccion",
+    )
+    return InsumosProteccion(
+        version=_literal(d["version"], (VERSION_PROTECCION_VENTA,), "proteccion.version"),
+        evaluado_el=_fecha(d["evaluado_el"], "proteccion.evaluado_el"),
+        reciente=_lectura_reciente_desde(d["reciente"], "proteccion"),
+        ventana_desde=_opcional(d["ventana_desde"], "proteccion.ventana_desde", _fecha),
+        ventana_hasta=_opcional(d["ventana_hasta"], "proteccion.ventana_hasta", _fecha),
+        episodio=_episodio_desde(d["episodio"], "proteccion"),
     )
