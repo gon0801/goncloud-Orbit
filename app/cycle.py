@@ -3283,6 +3283,10 @@ def _recorre_plataforma(
     # target/fraccion/confianza corruptos). Con la politica apagada no se
     # leen lecturas (el ciclo solo decide PAUSE por hoja).
     politica = g.politica_bid_desde_settings(settings, platform)
+    # ORBIT 07 M5/M6: la regla economica de repeticion se selecciona por
+    # plataforma. Apagada no se leen ni congelan episodios (el replay de las
+    # filas historicas conserva su semantica por la ausencia del marcador).
+    economia_cambio = g.economia_cambio_desde_settings(settings, platform)
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
         # Economia resuelta UNA vez por plataforma (las confianzas A3
@@ -3295,7 +3299,13 @@ def _recorre_plataforma(
             confianza_recorte=g.confianza_recorte_desde_settings(settings, platform),
             confianza_subida=g.confianza_subida_desde_settings(settings, platform),
         )
-        lecturas = lee_plataforma(conn, platform, decided_at, economia=economia)
+        lecturas = lee_plataforma(
+            conn,
+            platform,
+            decided_at,
+            economia=economia,
+            con_economia=economia_cambio,
+        )
     comunes = dict(
         platform=platform,
         setting_target=setting_target,

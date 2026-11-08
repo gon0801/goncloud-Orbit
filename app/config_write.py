@@ -463,6 +463,7 @@ def proxima_config(
         g.confianza_recorte_desde_settings(nuevo, platform)
         g.confianza_subida_desde_settings(nuevo, platform)
         g.politica_bid_desde_settings(nuevo, platform)
+        g.economia_cambio_desde_settings(nuevo, platform)
         productos.modos_desde_settings(nuevo, platform)
         productos.limites_pausa_desde_settings(nuevo, platform)
         exige_limites_guardados(nuevo, platform)

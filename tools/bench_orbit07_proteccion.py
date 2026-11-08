@@ -124,19 +124,23 @@ class _ConexionContador:
         return getattr(self._conn, nombre)
 
 
-def _siembra(conn, *, proteccion: bool = True, productos: int = 0) -> dict:
+def _siembra(
+    conn, *, proteccion: bool = True, productos: int = 0, economia: bool = False, cambios: int = 0
+) -> dict:
     from decimal import Decimal
 
     from psycopg.types.json import Json
 
     from app import goals_write
-    from app.optimizer.caso import VERSION_PROTECCION_VENTA
+    from app.optimizer.caso import VERSION_ECONOMIA_CAMBIO, VERSION_PROTECCION_VENTA
 
     hojas = CARGA["hojas"]
     settings = {
         "ads_optimizer_mode": "shadow",
         "ads_bid_politica_amazon_us": "niveles_v3",
     }
+    if economia:
+        settings["ads_bid_economia_amazon_us"] = VERSION_ECONOMIA_CAMBIO
     if productos:
         # ORBIT 07 M2: carga comparable del peldaño de producto (grupos
         # exclusivos con margen valido). Cada campana nueva nace con un goal
@@ -271,6 +275,7 @@ def _siembra(conn, *, proteccion: bool = True, productos: int = 0) -> dict:
         (DECIDED_AT - dt.timedelta(hours=3), PLATAFORMA, decisiones),
     )
     productos_sembrados = _siembra_productos(conn, productos) if productos else 0
+    cambios_sembrados = _siembra_cambios(conn, config_id, cambios, hojas_ids) if cambios else 0
     return {
         "config_id": config_id,
         "goal_id": goal_id,
@@ -279,7 +284,109 @@ def _siembra(conn, *, proteccion: bool = True, productos: int = 0) -> dict:
         "episodios": len(episodios),
         "filas_cola": len(decisiones),
         "productos": productos_sembrados,
+        "cambios": cambios_sembrados,
     }
+
+
+def _siembra_cambios(conn, config_id: int, cambios: int, hojas_ids: list[int]) -> int:
+    """ORBIT 07 M5/M6: cambios de bid confirmados y sus ventanas economicas.
+
+    Usa las primeras `cambios` hojas de la carga. Siembra un calendario
+    completo de 180 dias (una hoja PAUSED) para que `_completo` mida las
+    ventanas; las metricas de las hojas cambiadas viven en [x-7, x-1] y
+    [x+1, x+7] con una venta estable y menos gasto despues.
+    """
+    from psycopg.types.json import Json
+
+    x = DECIDED_AT.date() - dt.timedelta(days=33)
+    x_dt = dt.datetime.combine(x, dt.time.min, tzinfo=dt.UTC)
+    run = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('bench-cambios') RETURNING id"
+    ).fetchone()[0]
+    filler = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type,"
+        " keyword_text) VALUES (%s, 'keyword', 'bench-filler', NULL, 'EXACT', 'filler')"
+        " RETURNING id",
+        (PLATAFORMA,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at) VALUES (%s, 'PAUSED', %s)",
+        (filler, DECIDED_AT - dt.timedelta(hours=4)),
+    )
+    ceros = [
+        (
+            filler,
+            dia,
+            dt.datetime(dia.year, dia.month, dia.day, 1, tzinfo=dt.UTC),
+            "USD",
+            "0",
+            "0",
+            0,
+            0,
+            0,
+            run,
+        )
+        for dia in (DECIDED_AT.date() - dt.timedelta(days=n) for n in range(180, 0, -1))
+    ]
+    conn.cursor().executemany(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        ceros,
+    )
+    live = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', %s, 'done', %s, %s) RETURNING id",
+        (PLATAFORMA, DECIDED_AT - dt.timedelta(days=34), DECIDED_AT - dt.timedelta(days=33)),
+    ).fetchone()[0]
+    hojas = hojas_ids[:cambios]
+    decisiones = [
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end, old_value,"
+            " new_value, value_currency, inputs)"
+            " VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 1.00, 0.85, 'USD', %s)"
+            " RETURNING id",
+            (
+                live,
+                hoja,
+                x_dt,
+                config_id,
+                x_dt - dt.timedelta(days=10),
+                x - dt.timedelta(days=30),
+                x - dt.timedelta(days=10),
+                Json({"seed": "bench-cambios"}),
+            ),
+        ).fetchone()[0]
+        for hoja in hojas
+    ]
+    conn.cursor().executemany(
+        "INSERT INTO decision_application (decision_id, attempted_at, confirmed_at,"
+        " verify_ok, platform_ack, applied_cycle_id) VALUES (%s, %s, %s, TRUE, %s, %s)",
+        [
+            (decision, x_dt - dt.timedelta(hours=1), x_dt, Json({"estado": "ok"}), live)
+            for decision in decisiones
+        ],
+    )
+    filas = []
+    for hoja in hojas:
+        for n in range(7):
+            fecha = x - dt.timedelta(days=7) + dt.timedelta(days=n)
+            filas.append((hoja, fecha, _obs_bench(fecha), "USD", "200", "1000", "1000", 100, 5))
+        for n in range(7):
+            fecha = x + dt.timedelta(days=1) + dt.timedelta(days=n)
+            filas.append((hoja, fecha, _obs_bench(fecha), "USD", "150", "1000", "1000", 90, 5))
+    conn.cursor().executemany(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, revenue_same_sku, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        [(*fila, run) for fila in filas],
+    )
+    return len(hojas)
+
+
+def _obs_bench(fecha: dt.date) -> dt.datetime:
+    return dt.datetime(fecha.year, fecha.month, fecha.day, 1, tzinfo=dt.UTC)
 
 
 def _siembra_productos(conn, productos: int) -> int:
@@ -417,6 +524,11 @@ def _huella(conn) -> dict:
     huella["productos"] = conn.execute(
         "SELECT count(*) FROM ad_entity WHERE kind = 'product_ad'"
     ).fetchone()[0]
+    huella["cambios"] = conn.execute(
+        "SELECT count(*) FROM v_cambio_bid c JOIN ad_entity k ON k.id = c.hoja_id"
+        " WHERE k.platform = %s AND c.bid_antes IS DISTINCT FROM c.bid_despues",
+        (PLATAFORMA,),
+    ).fetchone()[0]
     return huella
 
 
@@ -467,7 +579,13 @@ def cmd_preparar(args) -> int:
         try:
             conn.execute("SET TIME ZONE 'UTC'")
             migraciones = _aplica_migraciones(conn)
-            sembrado = _siembra(conn, proteccion=args.proteccion == "on", productos=args.productos)
+            sembrado = _siembra(
+                conn,
+                proteccion=args.proteccion == "on",
+                productos=args.productos,
+                economia=args.economia == "on",
+                cambios=args.cambios,
+            )
             huella = _huella(conn)
         finally:
             conn.close()
@@ -755,6 +873,7 @@ def cmd_comparar(args) -> int:
         "carga": {
             **CARGA,
             **({"productos": huella["productos"]} if huella.get("productos") else {}),
+            **({"cambios": huella["cambios"]} if huella.get("cambios") else {}),
         },
         "decided_at": DECIDED_AT.isoformat(),
         "plantilla": args.plantilla,
@@ -768,7 +887,10 @@ def cmd_comparar(args) -> int:
             "ads_proteccion_venta (regla M1 encendida). Con `productos` > 0 la "
             "plantilla suma grupos exclusivos con margen 8 % y meta live: la "
             "resolucion por lote del peldaño de producto corre en TX2 aunque la "
-            "ventana reciente del banco no produzca decisiones."
+            "ventana reciente del banco no produzca decisiones. Con `cambios` > 0 "
+            "la plantilla suma cambios de bid confirmados y sus ventanas "
+            "economicas; `economia` indica si trae el setting "
+            "ads_bid_economia_amazon_us (regla M5/M6 encendida)."
         ),
         "base": _resumen({"rondas": resultados["base"], "sha": _sha(args.code_base)}),
         "candidato": _resumen({"rondas": resultados["candidato"], "sha": _sha(RAIZ)}),
@@ -792,6 +914,18 @@ def main() -> int:
         type=int,
         default=0,
         help="grupos exclusivos con margen 8 por ciento para la carga de M2 (default 0)",
+    )
+    p.add_argument(
+        "--economia",
+        choices=("on", "off"),
+        default="off",
+        help="setting ads_bid_economia_amazon_us (regla M5/M6) en la plantilla",
+    )
+    p.add_argument(
+        "--cambios",
+        type=int,
+        default=0,
+        help="cambios de bid confirmados con ventanas economicas (default 0)",
     )
     p.set_defaults(func=cmd_preparar)
 

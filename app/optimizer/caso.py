@@ -32,6 +32,17 @@ PRECISION = 28  # espejo de evidencia._PRECISION: el unico contexto de las divis
 # mas antiguo que la motivo. La fecha la fija la lectura; jamas la corrida.
 VERSION_PROTECCION_VENTA = "proteccion_venta_v1"
 DIAS_PROTECCION_VENTA = 10
+# ORBIT 07 M5/M6: episodio economico del ultimo cambio de bid. Las ventanas
+# son de siete dias completos a cada lado, SIN el dia del cambio. La ventana
+# posterior solo cuenta como madura cuando sus siete fechas ya tienen diez
+# dias de madurez: D+17 como pronto.
+VERSION_ECONOMIA_CAMBIO = "economia_cambio_v1"
+DIAS_ECONOMIA_CAMBIO = 7
+DIAS_MADUREZ_ECONOMIA = DIAS_MADUREZ
+MOTIVO_ECONOMIA_POST_INMADURO = "post_inmaduro"
+MOTIVO_ECONOMIA_CAMBIO_EN_VENTANA = "cambio_en_ventana"
+MOTIVO_ECONOMIA_COBERTURA_INCOMPLETA = "cobertura_incompleta"
+MOTIVO_ECONOMIA_CAMBIO_POSTERIOR = "cambio_posterior"
 
 
 @dataclass(frozen=True)
@@ -164,16 +175,73 @@ class EfectoCambio:
 
 
 @dataclass(frozen=True)
+class VentanaEconomica:
+    """Gasto, venta, pedidos y clics de una ventana de siete fechas.
+
+    `desde`/`hasta` son inclusive. Un None por metrica = desconocido (fuente
+    incompleta o metrica venenosa); nunca un cero inventado. La ventana se
+    congela entera para que el replay no vuelva a leer metricas.
+    """
+
+    desde: dt.date
+    hasta: dt.date
+    gasto: Decimal | None
+    venta: Decimal | None
+    venta_mismo_sku: Decimal | None
+    pedidos: int | None
+    clics: int | None
+
+    @property
+    def dias(self) -> int:
+        return (self.hasta - self.desde).days + 1
+
+
+EstadoEpisodio = Literal["maduro", "inmaduro", "incomparable"]
+
+
+@dataclass(frozen=True)
+class EpisodioEconomico:
+    """Episodio del ultimo cambio de bid confirmado de la hoja (ORBIT 07 M5).
+
+    `pre` y `post` son las ventanas economicas [x-7, x-1] y [x+1, x+7] del
+    cambio en `fecha_cambio`; la postal solo se mide completa cuando x+7 ya
+    tiene diez dias de madurez (D+17). `estado` separa la comparabilidad
+    historica de la aplicabilidad: `aplicable` es False cuando un cambio
+    posterior de puja, presupuesto, placement, precio o alcance dejo el
+    episodio como historia y no gobierna la repeticion de un cambio nuevo.
+    `contribucion_*` solo existe con un equilibrio compatible (None = no se
+    inventa una utilidad).
+    """
+
+    version: str
+    fecha_cambio: dt.date
+    moneda: Moneda
+    pre: VentanaEconomica
+    post: VentanaEconomica | None
+    estado: EstadoEpisodio
+    motivo: str | None
+    aplicable: bool
+    motivo_aplicabilidad: str | None
+    margen_pct: Decimal | None
+    contribucion_pre: Decimal | None
+    contribucion_post: Decimal | None
+
+
+@dataclass(frozen=True)
 class Trayectoria:
-    """Historia de bids de la hoja en los ultimos 90 dias (ascendente) y el efecto del
-    ultimo cambio."""
+    """Historia de bids de la hoja en los ultimos 90 dias (ascendente), el efecto del
+    ultimo cambio y, desde ORBIT 07 M5, el episodio economico de su ultimo
+    cambio de bid. `episodio` None conserva la semantica historica."""
 
     cambios: tuple[CambioBid, ...]
     efecto: EfectoCambio | None
+    episodio: EpisodioEconomico | None = None
 
     def __post_init__(self) -> None:
         if (self.efecto is None) == bool(self.cambios):
             raise ValueError("efecto es None si y solo si cambios esta vacio")
+        if self.episodio is not None and not self.cambios:
+            raise ValueError("episodio requiere cambios")
 
     @property
     def ultimo(self) -> CambioBid | None:
@@ -445,6 +513,38 @@ def _trayectoria_json(tray: Trayectoria) -> dict:
         }
         if efecto is not None
         else None,
+        "episodio": _episodio_economico_json(tray.episodio),
+    }
+
+
+def _ventana_economica_json(ventana: VentanaEconomica) -> dict:
+    return {
+        "desde": ventana.desde.isoformat(),
+        "hasta": ventana.hasta.isoformat(),
+        "gasto": _dinero(ventana.gasto),
+        "venta": _dinero(ventana.venta),
+        "venta_mismo_sku": _dinero(ventana.venta_mismo_sku),
+        "pedidos": ventana.pedidos,
+        "clics": ventana.clics,
+    }
+
+
+def _episodio_economico_json(episodio: EpisodioEconomico | None) -> dict | None:
+    if episodio is None:
+        return None
+    return {
+        "version": episodio.version,
+        "fecha_cambio": episodio.fecha_cambio.isoformat(),
+        "moneda": episodio.moneda,
+        "pre": _ventana_economica_json(episodio.pre),
+        "post": _ventana_economica_json(episodio.post) if episodio.post is not None else None,
+        "estado": episodio.estado,
+        "motivo": episodio.motivo,
+        "aplicable": episodio.aplicable,
+        "motivo_aplicabilidad": episodio.motivo_aplicabilidad,
+        "margen_pct": _dinero(episodio.margen_pct),
+        "contribucion_pre": _dinero(episodio.contribucion_pre),
+        "contribucion_post": _dinero(episodio.contribucion_post),
     }
 
 
@@ -707,12 +807,91 @@ def _efecto_desde(datos: Any) -> EfectoCambio | None:
 
 
 def _trayectoria_desde(datos: Any) -> Trayectoria:
-    d = _objeto(datos, frozenset({"cambios", "efecto"}), "trayectoria")
+    d = _objeto_versionado(
+        datos,
+        _CLAVES_TRAYECTORIA,
+        _CLAVES_TRAYECTORIA | {"episodio"},
+        "trayectoria",
+    )
     if not isinstance(d["cambios"], list):
         raise ValueError(f"trayectoria.cambios: lista esperada, llego {d['cambios']!r}")
     return Trayectoria(
         cambios=tuple(_cambio_desde(c) for c in d["cambios"]),
         efecto=_efecto_desde(d["efecto"]),
+        episodio=_episodio_economico_desde(d.get("episodio")),
+    )
+
+
+_CLAVES_TRAYECTORIA = frozenset({"cambios", "efecto"})
+
+
+def _ventana_economica_desde(datos: Any, nombre: str) -> VentanaEconomica:
+    d = _objeto(
+        datos,
+        frozenset({"desde", "hasta", "gasto", "venta", "venta_mismo_sku", "pedidos", "clics"}),
+        nombre,
+    )
+    return VentanaEconomica(
+        desde=_fecha(d["desde"], f"{nombre}.desde"),
+        hasta=_fecha(d["hasta"], f"{nombre}.hasta"),
+        gasto=_opcional(d["gasto"], f"{nombre}.gasto", _decimal),
+        venta=_opcional(d["venta"], f"{nombre}.venta", _decimal),
+        venta_mismo_sku=_opcional(d["venta_mismo_sku"], f"{nombre}.venta_mismo_sku", _decimal),
+        pedidos=_opcional(d["pedidos"], f"{nombre}.pedidos", _entero),
+        clics=_opcional(d["clics"], f"{nombre}.clics", _entero),
+    )
+
+
+def _episodio_economico_desde(datos: Any) -> EpisodioEconomico | None:
+    if datos is None:
+        return None
+    d = _objeto(
+        datos,
+        frozenset(
+            {
+                "version",
+                "fecha_cambio",
+                "moneda",
+                "pre",
+                "post",
+                "estado",
+                "motivo",
+                "aplicable",
+                "motivo_aplicabilidad",
+                "margen_pct",
+                "contribucion_pre",
+                "contribucion_post",
+            }
+        ),
+        "trayectoria.episodio",
+    )
+    return EpisodioEconomico(
+        version=_literal(d["version"], (VERSION_ECONOMIA_CAMBIO,), "trayectoria.episodio.version"),
+        fecha_cambio=_fecha(d["fecha_cambio"], "trayectoria.episodio.fecha_cambio"),
+        moneda=_literal(d["moneda"], ("MXN", "USD"), "trayectoria.episodio.moneda"),
+        pre=_ventana_economica_desde(d["pre"], "trayectoria.episodio.pre"),
+        post=(
+            _ventana_economica_desde(d["post"], "trayectoria.episodio.post")
+            if d["post"] is not None
+            else None
+        ),
+        estado=_literal(
+            d["estado"],
+            ("maduro", "inmaduro", "incomparable"),
+            "trayectoria.episodio.estado",
+        ),
+        motivo=_opcional(d["motivo"], "trayectoria.episodio.motivo", _texto),
+        aplicable=_booleano(d["aplicable"], "trayectoria.episodio.aplicable"),
+        motivo_aplicabilidad=_opcional(
+            d["motivo_aplicabilidad"], "trayectoria.episodio.motivo_aplicabilidad", _texto
+        ),
+        margen_pct=_opcional(d["margen_pct"], "trayectoria.episodio.margen_pct", _decimal),
+        contribucion_pre=_opcional(
+            d["contribucion_pre"], "trayectoria.episodio.contribucion_pre", _decimal
+        ),
+        contribucion_post=_opcional(
+            d["contribucion_post"], "trayectoria.episodio.contribucion_post", _decimal
+        ),
     )
 
 
