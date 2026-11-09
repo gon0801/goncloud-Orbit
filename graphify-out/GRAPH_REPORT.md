@@ -1,23 +1,23 @@
 # Graph Report - enc_aac88a8fb958bed6  (2026-11-08)
 
 ## Corpus Check
-- 1801 files · ~4,236,525 words
+- 1801 files · ~4,236,655 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 94 file(s) not represented in the graph (top: .err 45, (none) 9, .jsonl 7)
 
 ## Summary
-- 27946 nodes · 77540 edges · 931 communities (751 shown, 180 thin omitted)
+- 27949 nodes · 77545 edges · 965 communities (785 shown, 180 thin omitted)
 - Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 7260 edges (avg confidence: 0.93)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a0f25942`
+- Built from commit: `5ddada2a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- os
-- reports.py
+- datetime
+- test_placements.py
 - test_precio_corrida.py
 - cycle.py
 - _producto
@@ -41,14 +41,14 @@
 - chart.umd.min.js
 - test_precio_migracion.py
 - test_cycle.py
-- notifica.py
-- test_impulso_io.py
+- digest_ciclo
+- _db_i3
 - test_aplica_ajuste.py
 - test_estimacion_fees.py
 - jev_senales.py
 - contextlib
 - decide
-- ejecuta_snapshot
+- test_jev_pantallas.py
 - test_precio_write.py
 - Importe
 - kimi-A.1-c1.md
@@ -58,12 +58,12 @@
 - test_archiva_inertes.py
 - main
 - libera_vencidos
-- en_cooldown
+- test_impulso_io.py
 - test_apply_harvest.py
 - test_avisos_campana.py
 - test_estimacion_insumos.py
 - tn
-- F.4: adaptador de Amazon para FBM/US y sonda de escritura
+- test_precio02_mercado.py
 - apply.py
 - test_cobertura.py
 - AdsApiError
@@ -72,7 +72,7 @@
 - proxima_config
 - test_productos_pausa.py
 - test_jev_cli.py
-- Re-mutación R.1 — kimi — SHA 224d5d9
+- test_reversa_harvest.py
 - test_precio_goals.py
 - test_jev_juicios.py
 - orbit-verify
@@ -90,7 +90,7 @@
 - test_campana_config.py
 - repricing-02/diseno/bosquejo.py
 - test_harvest_excepcion.py
-- impulso_pausar
+- edita_goal
 - error
 - test_fabrica_plan.py
 - siembra.py
@@ -99,9 +99,9 @@
 - _impulso_vivo
 - test_optimizer_hygiene.py
 - test_spapi_pricing.py
-- lecturas_caso.py
+- test_orbit07_m5m6.py
 - test_orbit07_m2.py
-- _postgres_obligatorio_ausente
+- test_goals_write.py
 - test_precio_pantalla.py
 - umbral_corte
 - test_apply_schema.py
@@ -110,28 +110,28 @@
 - cambios.py
 - test_precio_cobertura.py
 - test_meli_ads_ingest.py
-- test_reputacion.py
+- httpx
 - test_conciliar_meli_ads.py
 - ui.py
 - cobertura
-- _token_response
+- test_precio02_contratos.py
 - notifica.py
 - jev-ads-02/diseno/bosquejo.py
-- _MercadoLote
+- fabrica_plan.py
 - test_smoke_apply.py
-- jev_catalogo.py
+- jev_fichas.py
 - _skip_sin_pg
-- main_impulso_vigia
+- _dsn_propia
 - test_precio_d0.py
-- _imports_runtime
+- test_dossier_adversarial.py
 - retiro_anuncios.py
 - test_eras.py
 - test_pantalla_dinero.py
 - test_rejuega_niveles.py
-- test_estimacion_amazon.py
+- test_optimizer_caso.py
 - test_optimizer_windows.py
 - _r2b_fila_subir_live
-- test_reputacion_migracion.py
+- evaluar_senal
 - test_lecturas_caso.py
 - app/__init__.py
 - s
@@ -140,24 +140,24 @@
 - test_ledger_sync.py
 - test_despliegue_motor.py
 - test_listings_sync.py
-- optimizer/politica.py
+- gamma_p
 - test_pantalla_ruido.py
 - test_bloqueo_dueno.py
-- .__call__
+- productos_io.py
 - catalogo.py
 - test_reputacion_alertas.py
 - pantalla_dinero.py
-- test_pause_economica.py
+- test_config_write.py
 - _cliente_lista
 - test_cierre_campana.py
 - test_cycle_apply.py
-- AdsClient
+- AdsWriteClient
 - test_snapshot_listas.py
 - api_precios.py
 - kimi-A.6-c2.md
-- test_jev_catalogo.py
+- test_jev_orden_opciones.py
 - smoke_apply.py
-- test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa
+- Exception
 - test_spapi_write_client.py
 - test_jev_senales.py
 - test_spapi_vigilante.py
@@ -166,102 +166,103 @@
 - test_spapi_listings.py
 - _semilla_grupo
 - precios.js
-- a
+- lecturas_caso.py
 - test_precio02_sonda_meli.py
-- leer_anuncios
+- archivar.py
 - Expresion
 - replay_ads_economico.py
 - bloqueo_dueno_efecto.py
-- impulso_io.py
+- test_impulso.py
 - test_ui_tema.py
 - test_spapi_inventario.py
 - test_ui_fabrica.py
 - test_campana_ajustes.py
 - test_pantalla_dinero.py
-- test_reputacion_migracion.borrador.py
+- test_optimizer_windows.py
 - bloque_canal
 - test_bloqueo_dueno_efecto.py
 - test_evaluacion_catalogo.py
 - persistir_escenario
 - MeliAdsError
 - caso.py
-- _db_dinero
-- propuestas_campana.py
+- optimizer/politica.py
+- _entidad
 - estimacion_repository.py
 - test_spapi_salud.py
 - test_disponibilidad.py
 - test_fx_sync.py
 - test_sonda_spapi.py
 - test_costo_historico_0011.py
-- fabrica_web.py
+- crear
 - corrige_meli_skus.py
 - zt
 - api.py
 - bids-02/diseno/bosquejo.py
 - test_optimizer_bid.py
-- test_optimizer_goals.py
+- goals.py
 - sonda_spapi.py
 - _atribuir_ventas
-- 30-revision-78888f3e/scripts/conciliar.py
-- familias.py
+- scrub
+- test_orbit07_m1.py
+- _RelojFijo
 - test_metricas_listas.py
 - E/D.2 — Terna del grupo 1 limpiada (2026-09-15)
 - AUTO-03: decisiones publicitarias por producto
 - test_precio02_escenario_fbm.py
-- REPRICING 02 — el motor de precios en todas las plataformas (diseño)
+- liberar
 - proyeccion_s5
-- _VivoFijo
+- S.4: mutantes (1 obligatorio + uno por prueba nueva)
 - ui_metricas.py
 - test_fabrica_0038.py
 - Conexion
 - test_precio02_meli_catalogo.py
 - test_publicacion_fotos.py
-- auto03_verifica.py
+- _db_temporal_c2a
 - test_optimizer_proteccion.py
 - test_arq_precio_m.py
 - test_api.py
 - test_pantalla_busquedas.py
-- ErrorImpulso
-- ads_ingest.py
+- _frontera_impulso
+- _estado_temporal
 - i
-- psycopg
+- ingest_meli_ads
 - carga.py
 - pez-correccion/README.md
 - bench_orbit07_proteccion.py
 - Sección 1: preparación
 - productos.js
-- PausadorDeCampanas
-- sonda.py
+- test_s6_builders_nuevos_sin_costo_margen_ni_goal
+- db_reputacion
 - 30-revision-10266d91/scripts/revision/orbit_review_d1bdbe5.py
 - test_orbit_bench.py
 - orbit-07-motor-decisiones.md
 - Ronda r1 (auditoria del lead sobre `a9c49f7`; 14 mutantes + cable)
 - _decide
-- P13: publicacion de medidas PEZ confirmadas
+- _target_pause_vigente_detalle
 - APPLY — contrato fino del módulo de escritura (ORBIT 04 / PR2)
 - steps
 - json
 - Brief para Muse: SP-API 01 A.5 — ronda de correcciones (review del lead)
-- Cross review Grok sobre `0c48417` (RESUMEN-ADS-01)
+- _observaciones_en_as_of
 - lee_busquedas
 - n
-- Conexion
+- regreso_del_dueno_todas
 - test_ads_descarga.py
 - test_contribucion_entidad.py
 - plans/ads-proteccion-01.md
 - test_migracion_0062.py
-- decision
-- _lote_campanas
+- Sección 2: el motor
+- Crons de Orbit (crontab de `gon`, ADITIVO)
 - conftest.py
 - test_costs_sync.py
-- totales_por_moneda
-- test_ui_productos.py
+- ErrorImpulso
+- 30-revision-10266d91/scripts/conciliar.py
 - Resumen
 - Ba
 - ro
 - ui_campanas.py
 - DEPLOY — Orbit en goncloud (Postgres 16 + app)
-- _salud_html_fakeado
+- test_ui.py
 - ROADMAP.md
 - Evidencia M.3: margen meli/meli
 - CotizadorMeli
@@ -270,7 +271,7 @@
 - Importe
 - test_api_precios_write.py
 - test_precio02_meli_ledger.py
-- _checks_de
+- disponibilidad.py
 - estimacion_ingest.py
 - Atribucion
 - environment
@@ -283,10 +284,10 @@
 - test_orbit_bench_cases.py
 - comun.sh
 - test_ads_salud.py
-- _v_tacos_viva
+- _comparacion_del_umbral
 - test_precio02_atribucion.py
-- report.py
-- reputacion.py
+- evaluacion_catalogo.py
+- evaluacion
 - oo
 - test_bids02_vistas.py
 - P13: la diferencia proviene de valor publicado retenido frente a materiales actuales
@@ -297,56 +298,56 @@
 - sonda_ajuste_placement.py
 - hygiene.py
 - MARGEN ESTIMADO 01 — Estimacion por venta antes de Ads
-- contabilidad_costo_historico_0011.py
+- Mercado
 - 30-revision-d1bdbe5f/scripts/conciliar.py
 - claves_item
 - test_precio02_cobertura_meli.py
-- R1-PR: la PR queda lista para merge
+- JEV ADS 03 — el dueño bloquea lo que Jev marca como ajeno
 - test_entidad_inerte.py
-- AtribuidorAmazon
+- atribuir_copia.py
 - pantalla_busquedas.py
 - Mercado
 - REPRICING 01 — Motor de precios por goal de margen (M1 / AUTO-07)
 - test_compose_deploy.py
 - SP-API 01 — Plan formal de lecturas SP-API (solo lectura)
 - _fakea_main_keyword
-- goals_modo_grupo.py
+- OrbitDbError
 - modelo.py
 - test_contribucion_multilisting.py
 - sync_costos
 - test_envio_muestras.py
-- test_drive.py
+- RESUMEN-ADS-01 — Cierre de fase (listo para revisión de Limi 3.1)
 - Plataforma
-- LockOcupado
+- _db_temporal_d1
 - ORBIT 07 continúa sobre la entrega de AUTO-03
-- archivar_anuncios
-- reponer_anuncios
+- test_ads_archivar.py
+- pantalla_ruido.py
 - Decimal
 - E.1 — Medición del envío por producto (FBM)
 - 3. Las trampas del dominio — esto es lo que hay que leer
 - test_verify_orbit.py
 - Brief para GLM: FABRICA 02 (F2) — tareas A.0 y A.1
-- precio_reversa.py
+- psycopg_types_json
 - test_precio02_retencion.py
 - linea_entidad
-- ClienteMeli
+- EconomiaProducto
 - capturas.py
 - decidir
 - 30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py
 - Vista de contribucion por entidad publicitaria (ORBIT 06 · 1.1)
-- Elementos
+- SemillasARevisar
 - sonda_fuera_de_amazon.py
 - Fase D — deploy conjunto de D.2, D.1b y C.2a
-- R14-r3: cambios pedidos por el veredicto de R14-r2
+- PausadorDeCampanas
 - Shape
 - corrida.py
-- kimi-A.1-r1-c1.md
+- Cómo construir REPRICING 02
 - Plataforma
 - lee_dinero
 - BIDS 02: el motor de pujas para una cuenta con poca data
-- lee_productos
+- test_jev_bloqueo_api.py
 - test_precio02_base.py
-- lee_ruido
+- _cambio
 - PlanImpulso
 - Brief para Muse: SP-API 01 Fase A — cliente único, ingesta diaria y salud
 - pause_sin_cooldown_bid_desde_settings
@@ -354,14 +355,14 @@
 - FABRICA 02 / 0.1 — Sonda de product targeting (evidencia)
 - test_migracion_0067.py
 - avisar_campanas
-- Nota de síntesis de la arena (2026-10-09)
+- Conexion
 - test_arq_bids_p.py
 - Runbook ADS PROTECCION 01 — ejecucion del plan corregido (PR #336)
 - Forma
 - ORBIT 06 — consolidación post-cutover: el margen deja de ser una promesa
 - ORBIT 07. Continuar las mejoras del motor después de AUTO-03
 - test_reactiva_campanas.py
-- tools/sonda_pausa_product_ad.py
+- lee_danadas
 - test_cleanup_guard.py
 - Candidato B: juicios por término y ficha versionada
 - _estado_de_readback
@@ -369,10 +370,10 @@
 - .apply
 - Forma
 - ORBIT 19 / B.5 — Reporte de pruebas del comparador UI
-- _correr_flujo_fabrica
+- test_pipeline_productos_en_vivo
 - Plan de implementación — correcciones del esquema (ronda cross-review grok)
-- asigna
-- ORBIT 07: arranque, dependencia y matriz M1-M6
+- _hoja_ui
+- _plan_sku
 - test_migracion_0074.py
 - E.0a: veredicto sobre las fuentes de `shipping_fee` (REPRICING 01)
 - Hallazgo por hallazgo, con salida literal
@@ -386,10 +387,10 @@
 - cross-review/README.md
 - Arena de diseño y juicio cruzado (2026-10-08)
 - A.6 (final) — Deploy de A.4 + A.5, cron diario y primeras corridas
-- _FakeResultado
-- M0: contrato temporal de hojas (M1)
+- precio_mercados.py
+- calcular.py
 - _eventos
-- REPRICING 01 — Motor de precios por goal de margen (M1 / AUTO-07 / ORBIT 09)
+- _AmazonPausa
 - Síntesis de arquitectura AUTO-03
 - env
 - Sección 4: ajustar la campaña
@@ -398,9 +399,9 @@
 - check_push_creds.py
 - Contrato
 - test_repo_root.py
-- FABRICA 01 — fábrica de campañas Amazon SP por grupo (Phase F1) — Implementation Plan
+- Cross-review Grok — PR 177 (FABRICA 01 tareas 7–10)
 - E/D.1 — Despliegue de 0038 y del código de F2 (2026-09-15)
-- CLARIDAD 01: causas encontradas (2026-11-08)
+- procesar_run
 - H5 — Plan de deploy B.4 + inicio shadow (PUNTO P3-H5, 2026-09-25 UTC)
 - smoke_playwright.mjs
 - 0.b: crea la base de lectura
@@ -413,7 +414,7 @@
 - aplicar_host_override
 - reviews
 - package.json
-- productos
+- Brief para GLM: FABRICA 02 (F2) — tarea A.5
 - inputs
 - Brief para GLM: FABRICA 02 (F2) — tarea A.3
 - REPUTACION 01 — Brief para GLM: tarea A.2 (ingesta snapshots)
@@ -423,22 +424,22 @@
 - semilla_comparador.py
 - dashboard.js
 - features/README.md
-- ADS PROTECCION 01 C.2 — replay economico sin lookahead
-- Rationale del candidato A (rebanadas por capacidad), plan `decisiones-producto-01`
+- resultado
+- test_sonda_0081_da_t_completa_y_f_sin_tabla_o_incompleta
 - P
 - R1-cod: el POST incierto no sella fallido
-- sonda_economias.py
+- _construye_parser
 - ORBIT 19 / 0.1 — Inventario de catalogo (SKU / margen / lotes)
 - Validación local de las consultas de E.1
-- test_estimacion_meli_commit.py
+- CLARIDAD 01: Orbit dice la verdad en pantalla
 - _vista_de
-- _crea_repo
+- hs
 - Brief para Muse: plan formal `plans/sp-api-01.md` (SP-API lecturas) + higiene de raíz
-- Corregido en el spec v1.3 y el plan v1.2
+- Banda de cero ventas + guarda de entidad sin trafico — APROBADA por el dueno el 2026-09-03 (A' + C; B no)
 - test_ingesta01_d1_desplegar.py
 - test_migracion_0073.py
-- _Cursor
-- dashboard_contribucion.py
+- _ConnFila
+- comprobar_atraso
 - Carril M: Mercado Libre
 - _TextoVisible
 - ConfigCampana
@@ -449,19 +450,19 @@
 - Forma
 - Módulos Avanzados — especificación master
 - status
-- test_ads_archivar.py
+- _monta_perfiles
 - Orbit — contexto del proyecto
 - _aplicar_esquema
-- test_v_tacos_deja_de_duplicar_gasto_campaign_keyword
-- ORBIT 05 — cutover: el motor pasa a LIVE con rampa
+- Tablas
+- _base_a3d
 - test_pantalla_danadas.py
-- test_precio_write.py
+- Nota de síntesis de la arena (2026-10-09)
 - test_spapi_diario.py
 - Orbit
-- _inputs_negative
+- E/0.2 — confirmación contra el HEAD para Jev Ads 01
 - _lee_reviews_1
 - rn
-- test_preflight_1_4.py
+- Orbit — contexto para Claude Chat
 - ORBIT 19 / 0.4 — Politica de comparacion
 - repricing-02/ejecucion/D.2/desplegar.sh
 - repricing-02/ejecucion/D.3/desplegar.sh
@@ -469,16 +470,16 @@
 - E/A.7 salidas — deploy 2026-09-08 (lead, goncloud; sin secretos)
 - Fuentes · 40-catalogo (Reputación, Precios, Familias, Settings)
 - Orbit Bench
-- R09-D: productos.js muestra el mensaje y los fallos, no [object Object]
+- _fallos_por_vivo
 - worker_run_id
 - avisar
 - ADS PROTECCION 01 — datos frescos y cortes que frenan gasto anormal
 - Brief para DeepSeek: plan formal del módulo Reputación (REPUTACION 01)
-- arbol
+- reproduce
 - test_arq_bids_v.py
 - Fuentes · 10-panel (Resumen, Campañas, Decisiones, Salud, Contribución)
 - _fakea_main
-- test_productos_meta.py
+- AUTO-03, candidato B (sombra completa primero): rationale
 - Prototipos del runner A (2026-10-09)
 - ORBIT 19 / 0.3 — Contratos de reporte Ads y disponibilidad comercial
 - D.0/correr.sh
@@ -516,15 +517,15 @@
 - ORBIT 19 / 0.2 — D1–D4
 - E.0/solo-select.py
 - F.0/solo-select.py
-- _inputs_pause_legacy
+- Diseño de JEV ADS 03: el dueño bloquea lo que Jev marca como ajeno
 - Contrato para escribir páginas del manual de Orbit
 - with
-- Brief para Muse: FABRICA 02 (F2) — tarea A.2, migración `0038`
+- origen
 - salud
-- Corrección de los cinco bloqueantes sobre `4d1fa179`
+- _mundo_m5
 - _ColisionTrasMax
 - test_duplicados_id_cuenta_conflicto_real_del_indice
-- C.5 — absorcion opcion b (el nuestro absorbe al otro)
+- Fuentes de 20-decidir-a.html
 - H3 — pre-verificacion de merges (2026-09-25T00:57Z, solo lectura)
 - M1: política de protección por venta reciente
 - CambioBid
@@ -536,7 +537,7 @@
 - D.7/checklist.sh
 - M.3: comandos, salidas y SHA
 - R09-J: candado de esquema impulso -> grupo tipo impulso (migracion 0072)
-- CAMPANAS 01 — Auditoria de campanas pausadas y candidatas a reactivar
+- _dias_halo
 - S.4 — comandos, salidas y SHA (2026-10-06)
 - ORBIT 19 / B.5 — Como reproducir el comparador en navegador
 - kpis_serie
@@ -545,29 +546,29 @@
 - Exception
 - repricing-02/ejecucion/D.3/checklist.sh
 - repricing-02/ejecucion/D.4/checklist.sh
-- AUTO-03, candidato B: controlador previo por producto
-- _inputs_pre_bids
+- modo
+- decide_bid_era_bandas
 - REPUTACION 01 / 0.2 — Sonda Apify (CERRADA)
 - Corrección integral sobre `1a97cec5` (RESUMEN-ADS-01)
 - Cortes adaptativos per-producto (NEGATIVE_EXACT + PAUSE) — v4
 - True
 - steps
-- Brief para GLM: FABRICA 02 (F2) — tarea A.3a
+- E/B2-r4 — correccion de la revision automatica post-push (F1/F2/F3)
 - Brief para Grok: SP-API 01 A.R — revisión independiente de la Fase A
 - CORTES UI 01 — la pantalla de propuestas dejó de mentir
 - Cross-review A.3 — draft 340 @ 2872567 (opus, independiente)
 - test_impulso_vigia_usa_pausador_fabrica
 - test_familias.py
-- test_harvest_moneda_de_config_incoherente_con_plataforma
+- E/B6b — cierre de ledger (cc:DONE + seguimientos R1-R20 + triage)
 - ORBIT 18 — Rediseno del dashboard
 - Decisiones del dueno y cierre de los puntos del analisis Kimi (2026-09-27)
 - Arena AUTO-03: marco (Phase A del skill arena, dentro de architect Phase B)
-- LedgerError
+- _ultima_migracion_con
 - bids-02/ejecucion/D.1/desplegar.sh
 - bids-02/ejecucion/D.3/desplegar.sh
 - D.6/ensayo.sh
 - D.7/desplegar.sh
-- s
+- Result
 - S.0 — Nota de ejecucion de la sonda de latencia
 - 3.1 — Preparación del piloto (lo que falta es de David)
 - 3.2 — Acta de decisión sobre la asesoría V1
@@ -578,19 +579,19 @@
 - S.5/checklist.sh
 - _handler_put
 - MARGEN ESTIMADO 01 · 0.2 — Fees, costos directos y fiscalidad
-- conn_pg
+- JEV ADS 02 — la señal por búsqueda-en-grupo
 - MARGEN ESTIMADO 01 · B.5 — despliegue y cierre
-- plan_ajuste
+- test_quota_precio_sin_clave_revienta
 - ORBIT 19 / B.6 — Validacion final y despliegue del bloque B
-- execute
-- test_proxima_config_exige_ack_si_manual_con_margen_on
+- fecha_corta
+- test_settings_escritura.py
 - repricing-02/ejecucion/D.1/desplegar.sh
 - repricing-02/ejecucion/D.1/ensayo.sh
 - repricing-02/ejecucion/D.2/checklist.sh
 - repricing-02/ejecucion/D.2/ensayo.sh
-- test_proxima_config_guarda_y_limpia_resumen_acos_objetivo
+- Candidato A: evaluación por decisión y contexto completo
 - G.1/comparar.sh
-- test_orbit07_rechaza_un_valor_ajeno
+- Forma
 - REPUTACION 01 / A.2 — Ingesta snapshots (implementado por el lead)
 - Panel adverso Seccion 3 (REPRICING 02): veredicto y seguimiento
 - RESUMEN-ADS-01 — Puerta de fuente (inspección de solo lectura)
@@ -600,19 +601,22 @@
 - ORBIT 19 — Validacion formal de harness-plan
 - REPUTACION 01 — Validación formal de harness-plan
 - Re-review A.3-R2 — draft 340 @ 336afd3 (opus, independiente)
-- fraccion_desde_settings
+- E/B3-r1 — filas 1.3 y 1.4 del plan JEV ADS 01 (transporte y asesor)
+- ORBIT 17 — Brief para GLM: tarea 6 de FABRICA 01
 - Veredicto sobre `78888f3e`
-- test_cli_jev_senales_despacha_con_sus_args
-- ORBIT 07 M2: economía compatible y fresca del producto
+- INGESTA 01 — la descarga diaria de Amazon Ads no falla
+- _ConnPorSql
 - tema.js
 - M6: evaluación económica de la repetición
 - ORBIT 19 A.4 - selector por publicacion y objetivo explicito
 - Ronda r5a (2026-09-17): cast externo sin validar + 3 hallazgos bajos + 1 observación
-- SP-API 01 / A.3 — Pase Pricing con Buy Box (evidencia)
-- Restricciones globales
+- avisos_del_dia
+- R09-E: GRANT SELECT explicito sobre v_impulso_estado (migracion 0071)
 - ORBIT 19 A.5 - preflight de despliegue
+- E/B3-r3 — correccion revisiones automaticas post-push PR 392 (F1/F2 + Lows)
 - H6/H7 — estado 2026-09-25 ~20:05 UTC, actualizado 2026-09-30 UTC
 - Correccion del aborto de precios Mercado Libre
+- B5-r2: ronda correctiva de la revision 2.R (bloqueantes de B5-r1)
 - Lectura de la elegibilidad AUTO-03 (A.3)
 - Encargo común de los lectores frescos del plan AUTO-03
 - D.0 — base de producción lista para la sonda (REPRICING 01)
@@ -644,9 +648,11 @@
 - ORBIT 19 A.5 - cierre de integracion y despliegue
 - ORBIT 19 A.R - revision independiente de Fase A
 - ORBIT 19 / B.1 — Reporte de pruebas
+- R01-B2: propuestas, huella, rechazo y pausa
 - ORBIT 19 / B.3 — Contrato de disponibilidad comercial
 - C6-P2: replay economico RO, 5-nov-2026 UTC
 - ORBIT 19 - Deploy final y auditoria de integracion
+- R1-PR: la PR queda lista para merge
 - D.2: evidencia del paquete (REPRICING 02, seccion 3)
 - repricing-02/ejecucion/D.3/ensayo.sh
 - repricing-02/ejecucion/D.4/ensayo.sh
@@ -657,23 +663,25 @@
 - X.3: evidencia de los scripts (REPRICING 02, seccion 4)
 - P01: conciliación productiva MeLi Ads contra accounting
 - REPUTACION 01 / A.7 — Despliegue (lead, 2026-09-08)
-- kimi-A.2-c1.md
+- DetalleFee
 - Revisión integral de `d1bdbe5f`
 - SP-API 01 / A.2b — Sonda FULFILLMENT + PROCEEDS (solo lectura)
-- Global Constraints
+- PEZ: si hay BOM activos; el problema es la referencia que integra Orbit
 - Orbit Bench Implementation Plan
 - ORBIT 17 — Brief para GLM: tareas 4 y 5 de FABRICA 01
+- _ads_ingest_de
 - Brief para Muse: ronda de correcciones del PR #258 (F2 · A.0 + A.1)
 - ORBIT 05 preflight — candados antes del cutover a live
+- Crear campanas (`/campanas/nuevas`)
 - repos
 - Review A.3-R3 — diff obs4 784ae5f...6aed71b (opus, independiente)
 - _perfiles
 - test_carga_contribucion_digest_execute_falla
 - _respuesta_fees
 - test_cli_precio_reporte_conexion_caida_sin_traceback
-- _db_nueva
+- A.3 — estados, cadencia y observabilidad (DoD H4.2)
 - LEEME — verify/ de Orbit
-- Mutantes de P.2b (botones, regresar, avisos, dinero.js)
+- D.1 — decision_sin_aplicar: merge y deploy
 - ORBIT 19 / B.3 — Reporte de pruebas
 - dinero.js
 - Orbit
@@ -692,6 +700,7 @@
 - bids-02/ejecucion/D.4/rollback.sh
 - D.5/desplegar.sh
 - D.6/rollback.sh
+- Catálogo para Jev asesor — contrato propuesto
 - T.1/ensayo.sh
 - V.1/ensayo.sh
 - V.2/ensayo.sh
@@ -710,21 +719,25 @@
 - R.1/desplegar.sh
 - programar-reconcilia.sh
 - MARGEN ESTIMADO 01 · B.2 — Smoke navegador (Playwright/Chromium)
-- AC10 — como se probo el aislamiento
-- test_0068_hecho_graduado_sin_reencender
+- Jev Ads: how y why verificados
+- ORBIT 07: activacion y reversa de las mejoras
+- Revision de arranque por Opus
+- Ronda r2 (re-auditoría del lead sobre `1428f69`; B1 + 3 mutantes)
+- A.7: readback del recuadro de cobertura en producción (2026-09-18)
 - test_0003_goal_sin_piso_techo_revierte_y_con_bounds_pasa
 - ORBIT 19 A.5 - correcciones de revision
 - Ronda r5c (2026-09-17): corrimiento de ids + fixture que no discriminaba
 - ORBIT 19 / B.5 — Verificacion en navegador (lead)
 - G.2 — rutas de goals y compuerta (REPRICING 02, Sección 3)
-- M.0: sonda de Mercado Libre (solo lectura, dentro de `orbit-app-1`)
+- Mutantes de S.7
 - repricing-02/ejecucion/D.1/rollback.sh
 - repricing-02/ejecucion/D.2/rollback.sh
-- D.3: evidencia del paquete (REPRICING 02, seccion 4)
+- EmptyConnection
 - repricing-02/ejecucion/D.3/rollback.sh
 - repricing-02/ejecucion/D.4/rollback.sh
 - F.2/comprobar.sh
 - F.2: envio con origen y job de muestras
+- JEV ADS 01 — asesoría semántica para Ads
 - X.2/sonda.sh
 - X.3/sonda.sh
 - Panel X.4: scripts de encendido MeLi (ver D.4/panel.md)
@@ -745,8 +758,11 @@
 - test_arq_precio_s.py
 - test_mezcla_evidencias_persistidas_acepta_destino_tupla_sin_base
 - _espera_retry
-- test_0070_app_admin_borra_lote
-- test_probe_rechaza_listener_muerto
+- lee_danadas
+- Evidencia del diseño Jev Ads 01
+- C6 — preparacion, 4-nov-2026
+- Hallazgos que cambiaron el diseño (convergentes entre perspectivas)
+- P.3a: escribe el contrato de keywords dañadas
 - B.3 — replay de PAUSE tras BID, keyword 4925
 - Cross-review rebase3 C.4 (revisor independiente)
 - Registro AUTO-01..10 — estado comprobado 2026-09-06
@@ -769,10 +785,13 @@
 - S.5 J5b: revision (panel GLM + deslop/no-comments a mano)
 - jev-ads-03/ejecucion/D.1/checklist.sh
 - R.1/checklist.sh
+- test_par_fuera_del_allowlist_rechazado_sin_http
 - ORBIT 19 A.1 -- plan versionado y migracion expansiva
 - ORBIT 19 A.3 - Registro, idempotencia y recuperacion v1/v2
 - ORBIT 19 / B.1 — Conciliacion viva de la tabla persistida
+- _CursorFalso
 - prueba-candados.sh
+- test_reversa_solo_de_cambio_real
 - REPRICING 01 E.2 — acta del envio medido
 - kimi-A5-squash.sh
 - kimi-A6-squash.sh
@@ -791,6 +810,7 @@
 - M.3/comprobar.sh
 - M.3: diseno vs triggers 0028 (decision registrada)
 - M.4/comprobar.sh
+- _ClienteInutilizado
 - repricing-02/ejecucion/X.1/apagar.sh
 - repricing-02/ejecucion/X.1/encender.sh
 - X.1/sembrar.sh
@@ -812,10 +832,15 @@
 - Reglas de revisión de Orbit
 - coordinator_run_id
 - head_sha
+- _clave_orden_cambio
 - nulltests
+- _despacha_bids
 - construir_ruta_catalogo
+- ORBIT 19 / B.R — Revision independiente del bloque B
+- M1 — margen sin pasar a tanto por uno
 - despliegue/checklist.sh
 - refresh_costos.sh
+- test_conexion_de_lectura_corre_en_autocommit
 - ocr.swift
 - PausaProductoCorregido
 - copia.sh
@@ -847,10 +872,19 @@
 - 30-revision-78888f3e/scripts/launch_pg_5433.sh
 - manifest.json
 - spapi-diario.sh
-- test_r09r5_f05_put_timeout_declara_incierto
+- execute
+- test_cost_o_revenue_none_harvest_dato_faltante
+- 1.1 — Regla A' (`app/optimizer/bid.py`, `app/cycle.py`, `app/optimizer/replay.py`, `app/apply.py`, `app/api_dashboard.py`)
+- _MercadoEstricto
+- test_cli_precio_fechas_sin_reporte_es_uso
+- test_cli_reconcilia_aplica_orbit_pg_host
 - test_post_1_6a_no_se_combina_con_los_modos_de_resume
+- _decision_sin_siembra
+- test_r1b_b12_sin_consultas_duplicadas_en_ui
+- test_r2_r2_api_usa_validador_compartido_de_notifica
 - despliegue/desplegar.sh
 - refresh_estimacion.sh
+- test_r2b_b2_docstring_movidos_declara_patch_aceptado
 - start.sh
 - cortes/README.md
 - cotejo.md
@@ -952,14 +986,14 @@
 ## Surprising Connections (you probably didn't know these)
 - `Chequeo de banderas rojas` --references--> `preparar_escritor()`  [INFERRED]
   docs/evidencia/auto-03/plan/arena/candidatos/b/rationale.md → app/ads/archivar.py
+- `PUT de campana (verificados 2026-10-11, todos MUEREN)` --references--> `cuerpo_put_campana()`  [INFERRED]
+  docs/evidencia/bids-02/ejecucion/V.3/mutantes.md → app/ads/campana_config.py
 - `Modulo y wiring (verificados 2026-10-10, todos MUEREN)` --references--> `config_vigente()`  [INFERRED]
   docs/evidencia/bids-02/ejecucion/V.1/mutantes.md → app/ads/campana_config.py
 - `2.3 — Reconciliación del ledger (rama bids-01-2-3; base origin/master sin 2.1: no la toca)` --references--> `AdsClient`  [INFERRED]
   plans/bids-01.md → app/ads/client.py
 - `1. Clientes read-only con guardia` --references--> `AdsCredentials`  [INFERRED]
   plans/brief-reputacion-01-A2-glm.md → app/ads/config.py
-- `Sonda real de permisos` --references--> `solicitar_reporte()`  [INFERRED]
-  docs/evidencia/orbit-19/0.3/reporte.md → app/ads/reports.py
 
 ## Import Cycles
 - 1-file cycle: `app/cli.py -> app/cli.py`
@@ -974,115 +1008,115 @@
 - 5-file cycle: `app/apply.py -> app/apply_harvest.py -> app/apply_harvest_reconciliacion.py -> app/apply_cola.py -> app/apply_producto.py -> app/apply.py`
 - 5-file cycle: `app/apply.py -> app/apply_cola.py -> app/apply_harvest.py -> app/apply_harvest_reconciliacion.py -> app/apply_producto.py -> app/apply.py`
 
-## Communities (931 total, 180 thin omitted)
+## Communities (965 total, 180 thin omitted)
 
-### Community 0 - "os"
-Cohesion: 0.02
-Nodes (110): resumen(), _archivar_anuncios(), despacha(), registra(), _ya_salio(), _bool_arg(), _conexion_decide(), _construye_parser() (+102 more)
+### Community 0 - "datetime"
+Cohesion: 0.01
+Nodes (155): _emitir_post(), _FalloDeGrupo, _Intento, ItemDescargado, _Logico, _post_reintentable(), _sondear_intento(), _url_de_completado() (+147 more)
 
-### Community 1 - "reports.py"
-Cohesion: 0.02
-Nodes (151): ResultadoEscritura, _url_de_completado(), _clave_externa(), escribir_grupo(), _FilaPlacement, ingest_placements(), _planea_filas_placements(), sync_placements() (+143 more)
+### Community 1 - "test_placements.py"
+Cohesion: 0.03
+Nodes (79): _clave_externa(), escribir_grupo(), _FilaPlacement, ingest_placements(), _planea_filas_placements(), sync_placements(), escribir_grupo(), _imprimir_resumen() (+71 more)
 
 ### Community 2 - "test_precio_corrida.py"
-Cohesion: 0.02
-Nodes (198): historia_unidad(), A.5 — Catálogo de mutantes (REPRICING 01, carril A), r0 (sobre `32ccf41`), r1 (BRIEF-r1, sobre el HEAD nuevo de r1), r2 (BRIEF-r2, sobre el árbol final de r2), r3 (BRIEF-r3, sobre el árbol final de r3), r4 (BRIEF-r4, sobre el árbol final de r4), r5 (BRIEF-r5, sobre `553377e`) (+190 more)
+Cohesion: 0.03
+Nodes (171): A.5 — Catálogo de mutantes (REPRICING 01, carril A), r0 (sobre `32ccf41`), r1 (BRIEF-r1, sobre el HEAD nuevo de r1), r2 (BRIEF-r2, sobre el árbol final de r2), r3 (BRIEF-r3, sobre el árbol final de r3), r4 (BRIEF-r4, sobre el árbol final de r4), r5 (BRIEF-r5, sobre `553377e`), R.1 bis-r2 — 11 tests que matan los 17 mutantes del lead (r1-cierre-r2) (+163 more)
 
 ### Community 3 - "cycle.py"
 Cohesion: 0.02
-Nodes (136): inertes(), _abre_envelope(), _abre_heartbeat(), _agregado_json(), _anclas_grupo(), _anota_sombra(), _aplicador_real(), ApplyAbortado (+128 more)
+Nodes (149): _goal_editable(), _goal_estado(), claves_released(), _abre_envelope(), _abre_heartbeat(), _agregado_json(), _anclas_grupo(), _anota_sombra() (+141 more)
 
 ### Community 4 - "_producto"
 Cohesion: 0.03
-Nodes (144): AutorizacionDeDecision, AutorizacionHumana, ejecuta_retiro(), plan_de_decision(), planea_retiro(), reconcilia_intenciones(), recrea(), repone() (+136 more)
+Nodes (161): _vigila_uno(), AutorizacionDeDecision, AutorizacionHumana, ejecuta_retiro(), no_resueltos(), plan_de_decision(), planea_retiro(), reconcilia_intenciones() (+153 more)
 
 ### Community 5 - "test_precio_reglas.py"
-Cohesion: 0.02
-Nodes (208): DetalleFee, leer_config(), derivar_ref_fijo(), ErrorObjetivo, margen_a_precio(), paso(), piso_centavo(), precio_estrella() (+200 more)
+Cohesion: 0.05
+Nodes (122): CambioPrevio, HistorialMargen, ObservacionPricing, PideCotizacion, SenalVentas, Equivalentes declarados, Inventario regla → tests (antes de mutar), M10 — S4 #10: el freno exige mejora estricta (+114 more)
 
 ### Community 6 - "apply_harvest.py"
 Cohesion: 0.02
-Nodes (150): CapSaturado, _confirma_resumen(), evento_cap_saturado(), gate_ancestros(), _acks_hermana(), AlertaHarvest, aplica_harvest(), _avanza() (+142 more)
+Nodes (126): CapSaturado, evento_cap_saturado(), _acks_hermana(), AlertaHarvest, aplica_harvest(), _avanza(), bid_efectivo(), bid_sugerido() (+118 more)
 
 ### Community 7 - "test_target_margen.py"
-Cohesion: 0.03
-Nodes (56): ratio_ads_publicable(), replay_bid_con_target(), Revisión del lead sobre el PR #147 (2026-09-04), _cargo(), conn15(), _fila_vista(), _goal_sin_target(), _hoy() (+48 more)
+Cohesion: 0.07
+Nodes (31): bloque_target_margen(), _ratio_ads_venta(), test_salud_bloque_target_sin_clave_da_nulls(), _cargo(), conn15(), _fila_vista(), _goal_sin_target(), _hoy() (+23 more)
 
 ### Community 8 - "_test_dsn"
-Cohesion: 0.03
-Nodes (134): huella_plan_v2(), escenario(), _Amazon, _AmazonConPausa, _AmazonDesarme, _AmazonDesarmeRechaza, _AmazonDesarmeTimeout, _AmazonPausaFalla (+126 more)
+Cohesion: 0.02
+Nodes (150): huella_plan_v2(), _Amazon, _AmazonConPausa, _AmazonDesarme, _AmazonDesarmeRechaza, _AmazonDesarmeTimeout, _AmazonPausaFalla, _AmazonReadbackMalformado (+142 more)
 
 ### Community 9 - "test_api_dashboard.py"
-Cohesion: 0.01
-Nodes (207): AjusteRegresable, FilaTipo, PantallaDinero, J5b: pantallas (senal en /cortes y /gasto-sin-venta), 3. Verde focalizado (después de implementar), Pruebas primero, _campana(), _campana_con_hojas() (+199 more)
+Cohesion: 0.02
+Nodes (133): DecisionARevisar, FilaTipo, PantallaDinero, J5b: pantallas (senal en /cortes y /gasto-sin-venta), Pruebas primero, _campana(), _campana_con_hojas(), _censo_jev() (+125 more)
 
 ### Community 10 - "test_fabrica_f2_hermanas.py"
 Cohesion: 0.03
-Nodes (106): ejecuta_reversa_harvest(), _lista_completa(), PasoReversa, plan_reversa_harvest(), plan_reversa_origen_harvest(), _preexiste_provisional(), reconcilia_harvest(), _reversa_confirmada() (+98 more)
+Nodes (96): reconcilia_harvest(), grupo_de_ad_group(), _rastro_fallo(), registra_keyword(), registra_negative(), tipo_producto_de_grupo(), Notas por mutante (M01–M14), 4. Tests nuevos y fortalecidos (+88 more)
 
 ### Community 11 - "_postgres_obligatorio_ausente"
 Cohesion: 0.03
-Nodes (70): Consulta de aplicada (para desplegar.sh), Dato real antes de escribir (regla 8), Ensayo, Mutante, Prueba primero, R09-E: GRANT SELECT explicito sobre v_impulso_estado (migracion 0071), Tareas 2-3 — migración 0018 y `v_margen_producto` (implementador escribe AQUÍ antes del código), Trampas conocidas (+62 more)
+Nodes (79): Tareas 2-3 — migración 0018 y `v_margen_producto` (implementador escribe AQUÍ antes del código), Trampas conocidas, test_0023_triggers_append_only_bloquean_mutacion(), _grupo(), _ledger_producto(), _lote(), test_0018_aplica_sobre_el_esquema_vivo(), test_0019_permite_dos_listings_y_rechaza_identidad_invalida() (+71 more)
 
 ### Community 12 - "apply_cola.py"
-Cohesion: 0.03
-Nodes (86): Aplicador, _alcance_cambio(), claves_bloqueadas(), claves_released(), _cliente_mutacion(), _economia_elegida(), _ejecuta_negative(), _ejecuta_pause() (+78 more)
+Cohesion: 0.02
+Nodes (101): Aplicador, _alcance_cambio(), claves_bloqueadas(), _cliente_mutacion(), _economia_elegida(), _ejecuta_negative(), _ejecuta_pause(), _ejecuta_rama() (+93 more)
 
 ### Community 13 - "corrige_descripciones_pez.py"
 Cohesion: 0.09
-Nodes (22): escenario(), test_canario_filtra_put_pero_preflight_y_respaldo_son_de_nueve(), test_deriva_entre_preflight_y_put_no_pisa_edicion(), test_deriva_preflight_cero_put(), test_fallo_y_reanudacion_sin_repetir_confirmados(), test_regresion_meli_normaliza_tabs_sin_ocultar_ediciones(), test_respaldo_no_durable_cero_put(), test_respaldo_nuevo_no_apropia_textos_ya_publicados() (+14 more)
+Nodes (24): registrar(), escenario(), test_canario_filtra_put_pero_preflight_y_respaldo_son_de_nueve(), test_deriva_entre_preflight_y_put_no_pisa_edicion(), test_deriva_preflight_cero_put(), test_fallo_y_reanudacion_sin_repetir_confirmados(), test_regresion_meli_normaliza_tabs_sin_ocultar_ediciones(), test_respaldo_no_durable_cero_put() (+16 more)
 
 ### Community 14 - "structure.py"
 Cohesion: 0.02
-Nodes (109): AdsClient, AdsStructureError, EstructuraAds, EstructuraPerfil, _evaluar_perfil(), perfil(), evaluar_perfiles(), _extraer_lista() (+101 more)
+Nodes (140): preparar_escritor(), AdsClient, _clean_path(), _texto_respuesta(), _validate_relative_path(), AdsStructureError, EstructuraAds, EstructuraPerfil (+132 more)
 
 ### Community 15 - "db_f2"
 Cohesion: 0.03
-Nodes (116): decide(), DestinoHarvest, _Lectura, _lee(), _monto(), resolver_destino(), SaltoHarvest, simula_excepcion() (+108 more)
+Nodes (95): libera_vencidos(), decide(), DestinoHarvest, _Lectura, _lee(), _monto(), resolver_destino(), SaltoHarvest (+87 more)
 
 ### Community 16 - "test_api_fabrica.py"
-Cohesion: 0.02
-Nodes (105): AC14 — resumen numerico, Estado por criterio, MARGEN ESTIMADO 01 · B.3 — Reporte AC10–AC14, Pendiente fuera de B.3, SQL en vivo (universo), Tests, _crear(), _db_i5() (+97 more)
+Cohesion: 0.03
+Nodes (84): Estado por criterio, _crear(), _ejecutor_siembra_i5(), escenario(), _escenario_leido(), prohibido(), _ficha_jev_fabrica(), _listing_mx() (+76 more)
 
 ### Community 17 - "listing"
-Cohesion: 0.07
-Nodes (31): Calidad de las fuentes, Costo, moneda y vigencia, Dictamen 0.1, MARGEN ESTIMADO 01 · 0.1 — Inventario de fuentes, Resultado, Unidad de venta, A.7: readback del recuadro de cobertura en producción (2026-09-18), Contraste con el bridge (+23 more)
+Cohesion: 0.05
+Nodes (41): Calidad de las fuentes, Costo, moneda y vigencia, Dictamen 0.1, MARGEN ESTIMADO 01 · 0.1 — Inventario de fuentes, Resultado, Unidad de venta, Comprueba, Diseno (+33 more)
 
 ### Community 18 - "cotizar_a_precio"
-Cohesion: 0.06
-Nodes (38): cotizar_a_precio(), A.2 — Catálogo de mutantes (REPRICING 01, reglas puras), Ayuda fantasma de tests (r3, NO es L2 del brief; r3b la sacó de `app/`), Baseline (sin base: son reglas puras; DSN solo por los tests vecinos), C1 — sin la cota `_MAX_DINERO` (`estimacion_fees.py`), J1a — sin filtro `aplicado`: la sombra compite (`reglas.py`), J1c — las que no compiten se reescriben a cuota (`reglas.py`), J2 — sin guarda de monedas (`reglas.py`) (+30 more)
+Cohesion: 0.05
+Nodes (43): A.2 — Catálogo de mutantes (REPRICING 01, reglas puras), Ayuda fantasma de tests (r3, NO es L2 del brief; r3b la sacó de `app/`), Baseline (sin base: son reglas puras; DSN solo por los tests vecinos), C1 — sin la cota `_MAX_DINERO` (`estimacion_fees.py`), C3 — volver al barrido de texto (`test_architecture.py`), G1 — historial sin ordenar por fecha (`reglas.py`), G2 — `repartir_cupo` devuelve en orden de prioridad (`reglas.py`), G3 — escalón igual al mínimo revienta (`config.py`) (+35 more)
 
 ### Community 19 - "subprocess"
-Cohesion: 0.03
-Nodes (53): Crons de Orbit (crontab de `gon`, ADITIVO), Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada), Profundidad de la tirada diaria de métricas (sello 4.2), Refresco diario contable 08:15 (ORBIT 06 2.2), Vigilante SP-API 07:30 (aviso del silencio), correr(), main(), limpio() (+45 more)
+Cohesion: 0.05
+Nodes (33): correr(), limpio(), main(), _ejecuta_checker(), _linea_documentada(), test_checker_acepta_wrapper_productivo_sin_relajar_el_contrato(), test_checker_cuenta_lineas_exactas(), test_checker_propaga_error_operativo() (+25 more)
 
 ### Community 20 - "test_apply.py"
 Cohesion: 0.04
-Nodes (102): _actor_no_vacio(), bids_del_ciclo(), ConfirmacionDesactualizada, _ledger(), motor_quota(), reconcilia_bids(), regreso_del_dueno(), regreso_del_dueno_todas() (+94 more)
+Nodes (101): _actor_no_vacio(), bids_del_ciclo(), ConfirmacionDesactualizada, motor_quota(), regreso_del_dueno(), regreso_del_dueno_todas(), RegresoHecho, RegresoNoConfirmado (+93 more)
 
 ### Community 21 - "test_economia_observada.py"
-Cohesion: 0.09
-Nodes (21): _a_economia(), EconomiaProducto, por_listing(), por_producto(), 3. Margen, Cobertura de los DoD de B.2, Decision (ADR B.2-1, compartir el motor), Entregable (+13 more)
+Cohesion: 0.15
+Nodes (12): db_economia(), _fee_orden(), _run(), _semilla(), test_0021_crea_solo_la_vista_y_no_toca_v_margen_producto(), _rango(), test_dos_listings_del_mismo_producto_comparten_grano_sin_duplicar(), test_margen_negativo_se_conserva() (+4 more)
 
 ### Community 22 - "chart.umd.min.js"
 Cohesion: 0.02
-Nodes (80): ai(), ao(), at(), b(), beforeLayout(), Bi(), buildLookupTable(), Ci() (+72 more)
+Nodes (71): ai(), ao(), beforeDatasetDraw(), beforeDatasetsDraw(), beforeDraw(), beforeLayout(), Bi(), buildLookupTable() (+63 more)
 
 ### Community 23 - "test_precio_migracion.py"
-Cohesion: 0.04
-Nodes (85): _cambio(), _cambio_virtual(), _config(), _cotizacion(), db_39(), db_58(), _decision(), _decision_58() (+77 more)
+Cohesion: 0.05
+Nodes (76): _cambio(), _cotizacion(), db_39(), db_58(), _decision(), _decision_58(), _ensure_goal(), _escenario() (+68 more)
 
 ### Community 24 - "test_cycle.py"
-Cohesion: 0.02
-Nodes (131): Mutantes de M.3: los 3 obligatorios, todos muertos, Tabla, _config_version(), _corre(), _db_temporal(), _decisions_de(), _entidad(), _envelope() (+123 more)
+Cohesion: 0.04
+Nodes (62): Mutantes de M.3: los 3 obligatorios, todos muertos, Tabla, _corre(), _db_temporal(), _envelope(), _fila_cola_corte(), _goal_campana_disabled(), _goal_campana_sin_target() (+54 more)
 
-### Community 25 - "notifica.py"
-Cohesion: 0.02
-Nodes (78): alerta_biblioteca_no_escrita(), alerta_harvest_hermanas(), _arma_contribucion_digest(), _avisar_resumen_precio(), aviso_precio_cambio_error(), aviso_precio_cohorte(), aviso_precio_compuerta(), aviso_precio_corte_errores() (+70 more)
+### Community 25 - "digest_ciclo"
+Cohesion: 0.05
+Nodes (36): _arma_contribucion_digest(), ContribucionDigest, digest_ciclo(), _formatea_monto(), _linea_banda_margen(), _linea_contribucion(), _linea_target_margen(), _lineas_reputacion() (+28 more)
 
-### Community 26 - "test_impulso_io.py"
-Cohesion: 0.02
-Nodes (148): _ejecutor_lanzar(), grupo_v2_de_plan(), _archiva_lote_vacio(), lanza(), lote_de_plan(), PausadorFabrica, _plan_coincide_con_lote(), previsualiza() (+140 more)
+### Community 26 - "_db_i3"
+Cohesion: 0.06
+Nodes (64): _ejecutor_lanzar(), lanza(), lote_de_plan(), _plan_coincide_con_lote(), previsualiza(), SolicitudImpulso, _con_margen(), _db_i3() (+56 more)
 
 ### Community 27 - "test_aplica_ajuste.py"
 Cohesion: 0.05
@@ -1090,179 +1124,179 @@ Nodes (84): config_vigente(), aplica_ajuste_campana(), regresa_ajuste_campana(),
 
 ### Community 28 - "test_estimacion_fees.py"
 Cohesion: 0.04
-Nodes (100): _codigo_error_item(), construir_fee_canonical_input(), construir_fee_outcome_canonical(), construir_fee_source_event_id(), construir_request_body(), construir_ruta_fees(), cotizar_oferta(), _decimal_a_json_number() (+92 more)
+Nodes (101): _codigo_error_item(), construir_fee_canonical_input(), construir_fee_outcome_canonical(), construir_fee_source_event_id(), construir_request_body(), construir_ruta_fees(), cotizar_a_precio(), cotizar_oferta() (+93 more)
 
 ### Community 29 - "jev_senales.py"
-Cohesion: 0.02
-Nodes (180): _jev_de(), _senal_presentada_vista(), _canonico(), _armado_aviso(), _avisar(), _avisos_de(), _enviar_avisos(), _nombres_grupo() (+172 more)
+Cohesion: 0.04
+Nodes (97): _canonico(), es_asin_like(), ActaDeGrupo, ActaDeListado, Ajustes, ajustes_desde_settings(), anunciados_hoy(), Apagado (+89 more)
 
 ### Community 30 - "contextlib"
-Cohesion: 0.05
-Nodes (89): ack_ok(), Paso, crear(), Cambios, Mutante, Prueba primero, R09-I: desarmar continua el ledger sin chocar UNIQUE(lote, orden), Contrato API (+81 more)
+Cohesion: 0.04
+Nodes (107): ack_ok(), Paso, sugerir_bids(), Cambios, Mutante, Prueba primero, R09-I: desarmar continua el ledger sin chocar UNIQUE(lote, orden), Interfaz draft/biblioteca v1 (+99 more)
 
 ### Community 31 - "decide"
-Cohesion: 0.06
-Nodes (105): BidVigente, CasoHoja, PrecioVentana, decide(), estado_grupo(), Mantener, Mover, Regresar (+97 more)
-
-### Community 32 - "ejecuta_snapshot"
 Cohesion: 0.08
-Nodes (13): _reputacion_snapshot(), ApifyCredentials, _load_json(), _require(), ejecuta_snapshot(), _archivo_pase(), test_401_falla_pase_vencido_sin_intentar_refresh(), test_credenciales_no_exigen_ni_exponen_refresh() (+5 more)
+Nodes (89): BidVigente, PrecioVentana, decide(), Mantener, Mover, Regresar, Mutantes de M.1: uno por regla, todos muertos, Tabla (+81 more)
+
+### Community 32 - "test_jev_pantallas.py"
+Cohesion: 0.03
+Nodes (80): _senal_presentada_vista(), _armado_aviso(), _avisar(), _avisos_de(), _enviar_avisos(), _nombres_grupo(), _como_dinero(), Gasto (+72 more)
 
 ### Community 33 - "test_precio_write.py"
-Cohesion: 0.09
-Nodes (66): aplicar(), _cambio_cerrado(), _cambio_enviado(), _clientes(), _competitivo_body(), _cuerpo_falso(), _db59(), _decision() (+58 more)
+Cohesion: 0.04
+Nodes (120): aplicar(), cerrar_por_observacion(), DecisionSinAccion, revertir(), PrecioVivoAusente, leer_precio_vivo(), A.3 — Catálogo de mutantes (REPRICING 01, escritura y reversa), Baseline (sin base: cliente falso; DSN solo por los tests vecinos) (+112 more)
 
 ### Community 34 - "Importe"
-Cohesion: 0.03
-Nodes (79): _medidas(), leer_config_motor(), CargoEnvio, clasificar_cargo(), costo_de_orden(), Exclusiones, _maximo(), _mediana() (+71 more)
+Cohesion: 0.06
+Nodes (41): _medidas(), CargoEnvio, clasificar_cargo(), costo_de_orden(), Exclusiones, _maximo(), _mediana(), _medianas_por_producto() (+33 more)
 
 ### Community 35 - "kimi-A.1-c1.md"
-Cohesion: 0.05
-Nodes (27): C3 — volver al barrido de texto (`test_architecture.py`), H1 — `repartir_cupo` emparejaba por `id(decision)` (`reglas.py`), H2 — rama redundante del `Call` en `_usos_reloj` (`test_architecture.py`), Ronda r4b (auditoría, 2026-09-17), _escritores_app_precio_goal(), _escritores_crudos_precio_goal(), _puros_precio(), test_candado_precio_goal_caza_update_crudo_en_tools() (+19 more)
+Cohesion: 0.04
+Nodes (38): H1 — `repartir_cupo` emparejaba por `id(decision)` (`reglas.py`), H2 — rama redundante del `Call` en `_usos_reloj` (`test_architecture.py`), Ronda r4b (auditoría, 2026-09-17), _escritores_app_precio_goal(), _puros_precio(), test_corrida_sin_reloj_ni_dinamico(), test_escritura_precio_goal_vive_solo_en_goals_write(), test_fuentes_sin_reloj_ni_entorno_ni_dinamico() (+30 more)
 
 ### Community 36 - "componer"
-Cohesion: 0.03
-Nodes (114): _absorber_pares(), _censo_a_json(), _censo_de_json(), CensoCongelado, componer(), _con_estado_ausente(), es_asin_like(), EstadoAnuncio (+106 more)
+Cohesion: 0.02
+Nodes (119): _jev_de(), _absorber_pares(), _censo_a_json(), _censo_de_json(), CensoCongelado, componer(), _con_estado_ausente(), EstadoAnuncio (+111 more)
 
 ### Community 37 - "api_dashboard.py"
 Cohesion: 0.02
-Nodes (95): bloque_target_margen(), _dos_dec(), _fila_ciclo(), _parse_notes(), _ratio_ads_venta(), _acoso(), _ahora_utc(), _arma_serie() (+87 more)
+Nodes (102): _dos_dec(), _parse_notes(), _acoso(), _ahora_utc(), _arma_serie(), _avisos_campana_de(), _avisos_propuesta_de(), _bloqueos_jev() (+94 more)
 
 ### Community 38 - "AdsCredentials"
 Cohesion: 0.03
-Nodes (66): AdsConfigError, AdsCredentials, directorio_secretos(), _load_json(), _require(), 1.4 — `tools/archiva_inertes.py` + ledger (GLM, rama bids-01-1-4), test_config_archivo_faltante_error_sin_valores(), test_config_carga_ok_y_repr_redactado() (+58 more)
+Nodes (62): AdsConfigError, AdsCredentials, _load_json(), _require(), asesoria_por_huella(), catalogo(), 1.4 — `tools/archiva_inertes.py` + ledger (GLM, rama bids-01-1-4), test_config_archivo_faltante_error_sin_valores() (+54 more)
 
 ### Community 39 - "test_archiva_inertes.py"
 Cohesion: 0.03
-Nodes (64): 2.5 — La reposición no gasta (rama bids-01-2-5; base origin/master sin 2.1/2.3/2.4: no las toca), _argv_reponer(), _cliente_repuesta(), _ClienteFalso, _ConnFalsa, _CursorFalso, _db_21(), _db_ledger() (+56 more)
+Nodes (63): 2.5 — La reposición no gasta (rama bids-01-2-5; base origin/master sin 2.1/2.3/2.4: no las toca), _argv_reponer(), _cliente_repuesta(), _ClienteFalso, _ConnFalsa, _CursorFalso, _db_ledger(), _eventos() (+55 more)
 
 ### Community 40 - "main"
-Cohesion: 0.03
-Nodes (72): main(), job_key_de(), _argv(), _argv_reponer(), _captura(), _FakeConn, _goal_captura(), _monta_archivado() (+64 more)
+Cohesion: 0.02
+Nodes (79): main(), job_key_de(), _argv(), _argv_reponer(), _captura(), _FakeConn, _FakeResultado, _goal_captura() (+71 more)
 
 ### Community 41 - "libera_vencidos"
 Cohesion: 0.07
-Nodes (71): fila_cola(), libera_vencidos(), _payload_pause(), 1.2 — `app/apply_cola.py`, Phase 1 — El gate en los dos momentos [lane:gate], _aplicador(), _db_temporal(), _decision_corte() (+63 more)
+Nodes (66): _payload_pause(), 1.2 — `app/apply_cola.py`, _aplicador(), _db_temporal(), _decision_corte(), _encola_fila(), _entidad(), _estado() (+58 more)
 
-### Community 42 - "en_cooldown"
-Cohesion: 0.11
-Nodes (17): en_cooldown(), Codigo y tests: el poll ya esta en master, y la rama revierte B.2, Docs: la rama esta detras, H3 — clasificacion `fix/ads-report-timeout`: ABANDONAR (2026-09-25 UTC), Veredicto, Profundidad de interfaz, _apply(), _campana() (+9 more)
+### Community 42 - "test_impulso_io.py"
+Cohesion: 0.04
+Nodes (47): AccionVigia, _acumula(), NoLanzable, reconcilia_huerfanos(), sugeridor_amazon(), vigila(), _AmazonImpulsoReal, _con_margen_us() (+39 more)
 
 ### Community 43 - "test_apply_harvest.py"
-Cohesion: 0.04
-Nodes (90): _aplicador(), _claim_fila(), _db_temporal(), _decision_harvest(), _decision_negative(), _encola_fila(), _estado(), _fechas() (+82 more)
+Cohesion: 0.06
+Nodes (76): fila_cola(), reversa_harvest_completo(), _aplicador(), _claim_fila(), _db_temporal(), _decision_harvest(), _decision_negative(), _encola_fila() (+68 more)
 
 ### Community 44 - "test_avisos_campana.py"
-Cohesion: 0.09
+Cohesion: 0.10
 Nodes (26): Aviso, avisos_ajuste_propio(), avisos_del_dia(), mensaje_clase(), _miles(), FilaCampana, FilaUbicacion, _avisos() (+18 more)
 
 ### Community 45 - "test_estimacion_insumos.py"
 Cohesion: 0.04
-Nodes (75): _buscar_corrida_validacion_costos(), construir_canonical_input(), construir_context_fingerprint(), construir_source_event_id(), _corrida_validacion_costos_aceptable(), _costo_vigente_en(), CostoResuelto, evaluar_costo_candidatos() (+67 more)
+Nodes (87): _buscar_corrida_validacion_costos(), construir_canonical_input(), construir_context_fingerprint(), construir_source_event_id(), _corrida_validacion_costos_aceptable(), _costo_vigente_en(), CostoResuelto, evaluar_costo_candidatos() (+79 more)
 
 ### Community 46 - "tn"
 Cohesion: 0.04
-Nodes (9): d(), Di(), dt(), Gs(), ke(), Pn(), Qs(), tn (+1 more)
+Nodes (12): d(), Di(), dt(), Gs(), ke(), kn(), Pn(), qn() (+4 more)
 
-### Community 47 - "F.4: adaptador de Amazon para FBM/US y sonda de escritura"
-Cohesion: 0.40
-Nodes (4): Comprueba, Decisiones, F.4: adaptador de Amazon para FBM/US y sonda de escritura, Pruebas
+### Community 47 - "test_precio02_mercado.py"
+Cohesion: 0.05
+Nodes (55): leer_config(), Acuse, MetaGoal, UnidadPrecio, historia_unidad(), Comprueba, Decisiones, F.4: adaptador de Amazon para FBM/US y sonda de escritura (+47 more)
 
 ### Community 48 - "apply.py"
 Cohesion: 0.02
-Nodes (87): _ajustes(), _config_desde_fila(), config_por_id(), config_vigente_con_id(), ConfigCampana, cuerpo_put_campana(), cuerpo_put_clase(), cuerpo_put_ubicacion() (+79 more)
+Nodes (63): _actualiza_cache(), AjusteHecho, _bid_de_fila(), _bid_de_readback(), _bid_leido(), _cap_de_config(), _celda_cambio(), _clave_cupo() (+55 more)
 
 ### Community 49 - "test_cobertura.py"
-Cohesion: 0.08
-Nodes (12): filas_sin_costo(), medir_cobertura(), resumen_por_plataforma(), Decision D4 · Ventana y vintage, test_cobertura_clasifica_y_pondera_en_vivo(), producto(), test_gasto_sin_fx_no_cuenta_como_cubierto(), test_main_sin_dsn_falla_cerrado() (+4 more)
+Cohesion: 0.09
+Nodes (13): filas_sin_costo(), main(), medir_cobertura(), resumen_por_plataforma(), Decision D4 · Ventana y vintage, test_cobertura_clasifica_y_pondera_en_vivo(), producto(), test_gasto_sin_fx_no_cuenta_como_cubierto() (+5 more)
 
 ### Community 50 - "AdsApiError"
-Cohesion: 0.03
-Nodes (91): AdsApiError, AdsClientError, _conexion_escritura(), OrbitDbError, Como quedo el POST, _exception_chain(), _fake_credentials(), make_client() (+83 more)
+Cohesion: 0.02
+Nodes (115): AdsApiError, AdsAuthError, AdsClientError, MutationNotAllowedError, _id_de_duplicado(), AdsApiErrorMutacion, Despliegue por el motor, Open questions and risks (+107 more)
 
 ### Community 51 - "dashboard_resumen.py"
 Cohesion: 0.11
-Nodes (14): acos_texto(), agrega_filas(), Agregado, _decimal(), _entero(), _ma7(), _pct(), _promedio_ventana() (+6 more)
+Nodes (12): agrega_filas(), Agregado, _cobertura_variacion(), _decimal(), _dinero_variacion(), _entero(), _pct(), _promedio_ventana() (+4 more)
 
 ### Community 52 - "test_precio02_mercado_meli.py"
-Cohesion: 0.04
-Nodes (67): oferta_para_cotizar(), MercadoMeli, _cuerpo_put_precio(), _espera_retry_after(), MeliWriteClient, MutationNotAllowedError, _texto_precio(), EscrituraNoDisponible (+59 more)
+Cohesion: 0.05
+Nodes (59): oferta_para_cotizar(), MercadoMeli, _cuerpo_put_precio(), _espera_retry_after(), MeliWriteClient, MutationNotAllowedError, _texto_precio(), Miembro (+51 more)
 
 ### Community 53 - "proxima_config"
-Cohesion: 0.02
-Nodes (101): _antes(), _aplica_limites_pausa(), _aplica_motor_bid(), _aplica_orbit07(), _aplica_precio_global(), _aplica_precio_modos(), _aplica_precio_universo(), _aplica_producto_modo() (+93 more)
+Cohesion: 0.03
+Nodes (66): _antes(), _aplica_limites_pausa(), _aplica_motor_bid(), _aplica_orbit07(), _aplica_precio_global(), _aplica_precio_modos(), _aplica_precio_universo(), _aplica_producto_modo() (+58 more)
 
 ### Community 54 - "test_productos_pausa.py"
-Cohesion: 0.04
-Nodes (102): AnuncioExcluido, cumple_limites_pausa(), Dinero, EntradaProducto, motivos_economicos_pausa(), PausaSimulada, _regla_pausa(), resolver_producto() (+94 more)
+Cohesion: 0.03
+Nodes (152): _target_pause_vigente(), _a_json(), AdsCompletos, AnuncioElegible, AnuncioExcluido, cumple_limites_pausa(), _de_json(), DiaProducto (+144 more)
 
 ### Community 55 - "test_jev_cli.py"
-Cohesion: 0.04
-Nodes (94): asesoria_por_huella(), DecisionARevisar, HayCompatible, NoComprobable, Obsoleta, Revision, Vigente, AsesorAds (+86 more)
+Cohesion: 0.03
+Nodes (130): PlanSeco, Revision, AsesorAds, sigue_vigente(), censo_grupo(), decision_a_revisar(), _ficha_de_fila(), ficha_vigente() (+122 more)
 
-### Community 56 - "Re-mutación R.1 — kimi — SHA 224d5d9"
-Cohesion: 0.11
-Nodes (17): 1. Baseline ejecutado, 1. Punto 1 (H2 independiente), 2. Tabla M01–M27, 3. M28, 3. Punto 3 (H4 segunda conexión), 4. Diff de la ronda, 5. Mutantes extra, 5. Veredicto (+9 more)
+### Community 56 - "test_reversa_harvest.py"
+Cohesion: 0.04
+Nodes (69): ejecuta_reversa_harvest(), plan_reversa_harvest(), _reversa_confirmada(), avisa_si_fallo(), 1. Baseline ejecutado, 1. Punto 1 (H2 independiente), 2. Punto 2 (DSN), 2. Tabla M01–M27 (+61 more)
 
 ### Community 57 - "test_precio_goals.py"
 Cohesion: 0.06
-Nodes (81): OmitidaPlan, sembrar_goal(), A.1 — Catálogo de mutantes (REPRICING 01, carril A), cierre-r1 (2026-09-18 UTC, sobre `origin/master`, base real, restaurando con copia en `/tmp`), Fila del plan, Notas declaradas, Ronda 1 (auditoría del lead, 2026-09-18 UTC), Runbook (a)–(i) (+73 more)
+Nodes (81): cerrar_goal(), OmitidaPlan, sembrar_goal(), A.1 — Catálogo de mutantes (REPRICING 01, carril A), cierre-r1 (2026-09-18 UTC, sobre `origin/master`, base real, restaurando con copia en `/tmp`), Fila del plan, Notas declaradas, Ronda 1 (auditoría del lead, 2026-09-18 UTC) (+73 more)
 
 ### Community 58 - "test_jev_juicios.py"
 Cohesion: 0.02
-Nodes (96): ClavePar, HechoConFuente, Juicio, SemillasARevisar, pedir(), _canonico_termino(), clave_de(), Contrato (+88 more)
+Nodes (104): ClavePar, FalloProveedor, FichaVersion, HechoConFuente, Juicio, _juicio_de_respuesta(), NoComprobable, Obsoleta (+96 more)
 
 ### Community 59 - "orbit-verify"
 Cohesion: 0.05
 Nodes (20): Driving it with curl, test_sql_del_modulo_dashboard_parsea_como_postgres(), _esquinas(), _fallos_png(), _leer_ico(), _leer_png(), _orejas_blancas_en_borde(), _paeth() (+12 more)
 
 ### Community 60 - "jev-ads-01/README.md"
-Cohesion: 0.04
-Nodes (37): Alternativas consideradas, Candidato A: evaluación por decisión y contexto completo, Compromisos aceptados, Decisión de síntesis, Preguntas y riesgos previos a producción, Problema, Siguiente paso de implementación, Uso desde el caller (+29 more)
+Cohesion: 0.20
+Nodes (5): Rubrica de comparacion (0-5 por criterio), Contrato y expectativas, Ensayo adicional: pares aislados (diseño B), Prototipo sintético Jev Ads, Uso
 
 ### Community 61 - "test_architecture.py"
-Cohesion: 0.02
-Nodes (86): C2 — ilegible tapado por el detector (`tests/test_architecture.py`), C3 — verbo buscado en la línea completa (`tests/test_architecture.py`), C4 — relativos sin exclusión TYPE_CHECKING (`tests/test_architecture.py`), C5 — lecturas sin limitador (`tools/precio_reversa.py` + `precio_write.py`), K13 — import dinámico invisible al candado (`tests/test_architecture.py`), Ronda r6 (CodeRabbit sobre `2c427ba`, cinco menores), r2 (2026-09-18 UTC, sobre `7b86a46`, base real, restaurando con copia en `/tmp`), _candidatos_jev() (+78 more)
+Cohesion: 0.01
+Nodes (130): 4. Invariantes (i)–(iv), 5. Residuales declarados, C2 — ilegible tapado por el detector (`tests/test_architecture.py`), C3 — verbo buscado en la línea completa (`tests/test_architecture.py`), C4 — relativos sin exclusión TYPE_CHECKING (`tests/test_architecture.py`), C5 — lecturas sin limitador (`tools/precio_reversa.py` + `precio_write.py`), K13 — import dinámico invisible al candado (`tests/test_architecture.py`), Ronda r6 (CodeRabbit sobre `2c427ba`, cinco menores) (+122 more)
 
 ### Community 62 - "spapi/precio_mercado.py"
-Cohesion: 0.02
-Nodes (80): _componentes_por_nombre(), CuentaLeida, _detalle_fee(), _importe(), leer_cuenta(), ultimo_contexto(), _cotizacion_de_arbol_meli(), _detalle_fee_meli() (+72 more)
+Cohesion: 0.03
+Nodes (46): _cotizacion_de_arbol_meli(), _detalle_fee_meli(), _disponibilidad_meli(), historia_meli_unidad(), validar_put_item(), _entero(), _fechas_excluidas(), _fraccion() (+38 more)
 
 ### Community 63 - "SpapiClient"
 Cohesion: 0.04
-Nodes (72): _es_pii(), sanear(), ejecutar_ingesta(), _fila_insert(), _formato_skip_reason(), IngestaOrdersError, OrdenOmitida, OrdenParseada (+64 more)
+Nodes (78): _contenedor(), _es_pii(), rate_limit_de(), sanear(), siguiente_token(), _token_de_paginacion(), ejecutar_ingesta(), _fila_insert() (+70 more)
 
 ### Community 64 - "api_fabrica.py"
-Cohesion: 0.05
-Nodes (34): _actor_limpio(), bids_sugeridos(), Confirmacion, _conservar_y_impulso(), crear(), _Cuerpo, CuerpoLanzarImpulso, CuerpoPausarImpulso (+26 more)
+Cohesion: 0.04
+Nodes (52): _actor_limpio(), _as_of_consulta(), asesoria_huella(), bids_sugeridos(), catalogo(), Confirmacion, _conservar_y_impulso(), crear() (+44 more)
 
 ### Community 65 - "api_write.py"
-Cohesion: 0.06
-Nodes (42): _ajuste_de(), aplicar_ajuste(), aprobar_bloqueo(), asignar_familia(), cambiar_pausa_producto(), crear_familia(), CuerpoAplicaAjuste, CuerpoAsignar (+34 more)
+Cohesion: 0.05
+Nodes (51): _ajuste_de(), aplicar_ajuste(), aprobar_bloqueo(), asignar_familia(), cambiar_pausa_producto(), crear_familia(), CuerpoAplicaAjuste, CuerpoAsignar (+43 more)
 
 ### Community 66 - "AgregadoMetricas"
-Cohesion: 0.02
-Nodes (71): familia_fresca(), _medicion(), producto_exclusivo(), decide_pause(), _decide_pause(), exceso_economico(), _pausa_economica(), _pausa_umbral() (+63 more)
+Cohesion: 0.10
+Nodes (22): decide_pause(), _decide_pause(), exceso_economico(), _pausa_economica(), _pausa_umbral(), ResultadoBid, _agregado_sintetico(), _args_replay_bid() (+14 more)
 
 ### Community 67 - "test_apply_producto.py"
 Cohesion: 0.07
-Nodes (64): ahora_db(), _Amazon, _aplicador(), _ciclo_nuevo(), _ciclo_vivo(), fabrica(), _cliente(), _cola() (+56 more)
+Nodes (63): ahora_db(), encola(), _Amazon, _aplicador(), _ciclo_nuevo(), _ciclo_vivo(), fabrica(), _cliente() (+55 more)
 
 ### Community 68 - "test_schema.py"
 Cohesion: 0.03
-Nodes (50): _body_de(), _body_plpgsql(), _check_constraints(), _checks39(), _checks_de(), _cols39(), _grants_sobre_2(), _grants_sobre_39() (+42 more)
+Nodes (78): Convenciones transversales, _body_de(), _body_plpgsql(), _check_constraints(), _checks39(), _checks_de(), _claves_foraneas(), _cols() (+70 more)
 
 ### Community 69 - "test_spapi_client.py"
 Cohesion: 0.04
-Nodes (64): construir_ruta_catalogo(), construir_ruta_fees(), construir_ruta_ofertas(), _contenedor(), CuboTasa, _espera_429(), rate_limit_de(), _retry_after() (+56 more)
+Nodes (68): construir_ruta_catalogo(), construir_ruta_fees(), construir_ruta_ofertas(), CuboTasa, _espera_429(), _retry_after(), SpapiAuthError, SpapiClient (+60 more)
 
 ### Community 70 - "re"
-Cohesion: 0.03
-Nodes (45): main(), sanear(), _agrega_dias(), carga_orbit(), carga_origen(), _columnas(), compara(), _compara_ventana() (+37 more)
+Cohesion: 0.04
+Nodes (34): main(), sanear(), main(), pantallas_del_menu(), secciones(), main(), texto_de(), test_con_variable_es_la_variable() (+26 more)
 
 ### Community 71 - "test_campana_config.py"
-Cohesion: 0.10
-Nodes (35): config_de_payload(), _fuera(), guarda_config(), _campana(), _config(), _db_config(), _filas(), _item() (+27 more)
+Cohesion: 0.04
+Nodes (60): _ajustes(), config_de_payload(), _config_desde_fila(), config_por_id(), config_vigente_con_id(), ConfigCampana, cuerpo_put_campana(), cuerpo_put_clase() (+52 more)
 
 ### Community 72 - "repricing-02/diseno/bosquejo.py"
 Cohesion: 0.02
@@ -1272,293 +1306,297 @@ Nodes (26): Abierta, aviso_precio_resumen(), ConfigInvalida, DiaUnidad, EnvioImp
 Cohesion: 0.07
 Nodes (52): _entidad(), _argv_go(), _argv_go_limpiar(), _argv_limpiar(), _argv_migrar(), _carga_tool(), _como_app_admin(), _destino() (+44 more)
 
-### Community 74 - "impulso_pausar"
-Cohesion: 0.12
-Nodes (9): _as_of_consulta(), asesoria_huella(), catalogo(), detalle(), evaluacion(), imagen_publicacion(), impulso_pausar(), lotes() (+1 more)
+### Community 74 - "edita_goal"
+Cohesion: 0.04
+Nodes (70): _bid_solo_efectivo(), _cambios_edicion(), crea_goal(), edita_goal(), _fila_respuesta(), GoalInexistente, GoalInvalido, _valida_limpia_destino_post_lectura() (+62 more)
 
 ### Community 75 - "error"
-Cohesion: 0.09
-Nodes (24): catalogo(), error(), Estimación por venta antes de Ads (MARGEN ESTIMADO 01, migración `0028`), Motor de precios (REPRICING 01, migración `0039`), Vistas y funciones (lo que la app consume; nadie lee tablas crudas), ACK — aceptar cualquier 2xx (`precio_write.py:_estado_aceptado`), C-DIA — cerrar el mismo día (`precio_write.py:cerrar_por_observacion`), C-IGUAL — confirmar al revés (`precio_write.py:cerrar_por_observacion`) (+16 more)
+Cohesion: 0.11
+Nodes (16): construir_escritor(), ACK — aceptar cualquier 2xx (`precio_write.py:_estado_aceptado`), C-DIA — cerrar el mismo día (`precio_write.py:cerrar_por_observacion`), C-IGUAL — confirmar al revés (`precio_write.py:cerrar_por_observacion`), C-MONEDA — comparar solo importe (`precio_write.py:cerrar_por_observacion`), DRYRUN — el dry-run construye escritor (`tools/precio_reversa.py`), HUELLA — go sin verificar (`tools/precio_reversa.py`), LOCK-a — detector de PATCH crudo roto (`test_architecture.py`) (+8 more)
 
 ### Community 76 - "test_fabrica_plan.py"
-Cohesion: 0.03
-Nodes (119): _bid_objetivo(), _canonico_sin_derivados(), _cumple_harvest(), expresiones_bid(), huella_plan(), id_creado(), lineas_dry_run(), monto_wire() (+111 more)
+Cohesion: 0.05
+Nodes (69): Expresion, Recomendacion, recomendaciones_como_json(), recomendaciones_desde_json(), huella_plan(), ObjetivoPlanV2, _parametro_como_json(), _parametro_desde_json() (+61 more)
 
 ### Community 77 - "siembra.py"
 Cohesion: 0.05
-Nodes (46): UnidadPrecio, _borde(), Candidato, _componente(), _cuantizar_goal(), _fila(), FilaPlan, GoalVigente (+38 more)
+Nodes (48): _pedido_de(), _borde(), Candidato, _componente(), _cuantizar_goal(), _detalle_fee(), _fila(), FilaPlan (+40 more)
 
 ### Community 78 - "fabrica.js"
 Cohesion: 0.07
 Nodes (83): actualizarAvisosPujas(), actualizarBotones(), actualizarConteoBuscador(), actualizarObjetivoManual(), actualizarResumenCatalogo(), actualizarTotal(), avisoMargen(), cambioFormulario() (+75 more)
 
 ### Community 79 - "test_api_write.py"
-Cohesion: 0.03
-Nodes (80): reversa_manual(), resultado(), Cómo se corre, Qué pasó, Rescate de fichas y juicios de Jev (jev-ads-02), Scripts, _creds_fake(), _db_ajustes() (+72 more)
+Cohesion: 0.05
+Nodes (59): reversa_manual(), _creds_fake(), _db_ajustes(), _entidad(), _handler_ajustes(), _handler_reversas(), handler(), _mock_cliente_ajuste() (+51 more)
 
 ### Community 80 - "_impulso_vivo"
 Cohesion: 0.05
-Nodes (39): frase_en_curso(), frase_final(), frase_fuera_de_amazon(), ImpulsoVisto, lee_productos(), _num(), PantallaProductos, ProductoCandidato (+31 more)
+Nodes (41): frase_en_curso(), frase_final(), frase_fuera_de_amazon(), ImpulsoVisto, lee_productos(), _num(), PantallaProductos, ProductoCandidato (+33 more)
 
 ### Community 81 - "test_optimizer_hygiene.py"
-Cohesion: 0.16
-Nodes (10): _db_temporal(), _entidad(), _obs(), _rango(), _run(), _termino(), test_desempate_source_report_id_en_vivo(), test_keywords_campana_destino_en_vivo() (+2 more)
+Cohesion: 0.14
+Nodes (11): _db_temporal(), _entidad(), _obs(), _rango(), _run(), _termino(), test_desempate_source_report_id_en_vivo(), test_keywords_campana_destino_en_vivo() (+3 more)
 
 ### Community 82 - "test_spapi_pricing.py"
 Cohesion: 0.06
-Nodes (60): _Avance, _competitivas_de(), _conteo_fba_resumen(), _conteo_total_resumen(), _dinero(), ejecutar_ingesta(), _entero_no_negativo(), _FalloHttp (+52 more)
+Nodes (61): _Avance, _competitivas_de(), _conteo_fba_resumen(), _conteo_total_resumen(), _dinero(), ejecutar_ingesta(), _entero_no_negativo(), _FalloHttp (+53 more)
 
-### Community 83 - "lecturas_caso.py"
-Cohesion: 0.03
-Nodes (76): _cambios_por_hoja(), _completo(), Conexion, _contribucion(), _EfectoLeido, _enrolla(), _episodio_economico(), _exige_tz() (+68 more)
+### Community 83 - "test_orbit07_m5m6.py"
+Cohesion: 0.08
+Nodes (24): EfectoCambio, EvidenciaNivel, Tramo, _decision(), main(), _cambio_pasado(), _caso(), _caso_desde_lecturas() (+16 more)
 
 ### Community 84 - "test_orbit07_m2.py"
-Cohesion: 0.07
-Nodes (48): _a_live(), _etiqueta(), _familia(), _ledger_ventas(), _mundo_familia(), _product_ad(), _producto_con_listing(), test_conciliacion_familia_de_un_producto_y_padre_sin_doble_conteo() (+40 more)
+Cohesion: 0.05
+Nodes (79): _config_version(), _decisions_de(), _goal_plataforma(), _run(), _siembra_kw_bid(), _a_live(), _ballena(), _etiqueta() (+71 more)
 
-### Community 85 - "_postgres_obligatorio_ausente"
-Cohesion: 0.02
-Nodes (146): _goals_set(), _bid_solo_efectivo(), _cambios_edicion(), crea_goal(), edita_goal(), _fila_respuesta(), GoalInexistente, GoalInvalido (+138 more)
+### Community 85 - "test_goals_write.py"
+Cohesion: 0.03
+Nodes (55): 1. Hallazgo 1 (ALTO) — bid-solo post-D.2 editable, 2. Hallazgo 2 (MEDIO) — mutante sutil en la terna efectiva, 4. Hallazgo 4 (BAJO) — elección de Muse: pin de `mode` ignorado, 5. Hallazgo 5 (BAJO) — fila scope=platform en el cuerpo del PR, 6. Apertura acotada: ni platform ni sueltos, I/O solo si bid-solo, Modo de goals con ceremonia (PR #283) — revisión cruzada de kimi, Ronda #283 — kimi — SHA 8eb5395, Veredicto: APPROVE sobre 8eb5395 (+47 more)
 
 ### Community 86 - "test_precio_pantalla.py"
 Cohesion: 0.05
-Nodes (72): 4. DoD S.6 (clausula por clausula), _cambio_pendiente_pantalla(), _canal_falso(), _config(), _db_temp(), _decision(), _decision_subir_pantalla(), _dias_atras() (+64 more)
+Nodes (57): _avisar_compuerta_precio(), avisar_precio(), _avisar_resumen_precio(), _corrida_cerrada_hoy(), 1. Archivos, 2. Rojo TDD (antes de implementar), 3. Verde final (arbol limpio, mutantes revertidos), 4. DoD S.6 (clausula por clausula) (+49 more)
 
 ### Community 87 - "umbral_corte"
-Cohesion: 0.04
-Nodes (48): _califica(), piso_corte(), umbral_corte(), familia_efectiva_por_campana(), EvidenciaAdGroup, AUTO-03 sobre el código actual: ciclo, cascada, cola, retiro y datos por producto, Cómo funciona, Datos por producto (+40 more)
+Cohesion: 0.05
+Nodes (33): piso_corte(), umbral_corte(), Exact US: gasto, decisiones y demora de reportes, Huecos de decision demostrados, Recuperacion tras el deploy, Resultado observado, Timeout confirmado contra Amazon, CORTES 01 — umbral adaptativo per-producto (NEGATIVE_EXACT + PAUSE) (+25 more)
 
 ### Community 88 - "test_apply_schema.py"
-Cohesion: 0.06
-Nodes (48): Comprobacion del host antes de integrar, Hallazgo nuevo del host: la sonda de 0081 no aguantaba la tabla ausente, Límites, ORBIT 07: cierre de la revisión del PR 547 (2026-11-08), Triage F1-F29, Verificación ejecutada, H6 (MEDIA). M4: los candados de esquema y consumidor de `anuncio_retiro` y `apply_queue` impiden insertar `pause_product_ad` sin ampliar 6 contratos acoplados, _avanzar() (+40 more)
+Cohesion: 0.23
+Nodes (15): _avanzar(), _db_temporal(), _encolar(), _semilla(), test_clave_de_efecto_choques_pause_null_y_negative_vs_harvest(), test_discard_de_fila_shadow_exige_admin_pero_el_motor_descarta_live(), test_fila_shadow_jamas_libera_perimetro_veto_descartar(), test_grants_con_rol_real_y_reactivacion_manual() (+7 more)
 
 ### Community 89 - "test_cli_bids.py"
-Cohesion: 0.10
-Nodes (33): main_avisos_campana(), _parsea_forzar(), _corrida(), _db_avisos(), _dsns(), _hoy(), _obs_avisos(), _siembra_aviso() (+25 more)
+Cohesion: 0.07
+Nodes (46): main_avisos_campana(), _parsea_forzar(), _corrida(), _db_avisos(), _dsns(), _hoy(), _obs_avisos(), _siembra_aviso() (+38 more)
 
 ### Community 90 - "test_precio02_escenario_meli.py"
-Cohesion: 0.12
-Nodes (55): persistir_oferta_observation(), ResultadoPersistenciaOferta, construir_fee_outcome_canonical_meli(), construir_fee_source_event_id_meli(), resolver_oferta_meli(), Consenso (>=2 revisores) -> aplicado, _costo(), _costo_id() (+47 more)
+Cohesion: 0.13
+Nodes (54): persistir_oferta_observation(), ResultadoPersistenciaOferta, construir_fee_source_event_id_meli(), resolver_oferta_meli(), Consenso (>=2 revisores) -> aplicado, _costo(), _costo_id(), _db() (+46 more)
 
 ### Community 91 - "cambios.py"
-Cohesion: 0.07
-Nodes (31): CambioNoReversible, _clasificar_plan(), DecisionSinAccion, _escribir_y_sellar(), _fila_cambio(), FilaReversa, _huella_reversa(), insertar_virtual() (+23 more)
+Cohesion: 0.03
+Nodes (80): CambioNoReversible, cerrar_huerfanas(), _clasificar_plan(), CorridaEnCurso, _escribir_y_sellar(), _fila_cambio(), FilaReversa, _huella_reversa() (+72 more)
 
 ### Community 92 - "test_precio_cobertura.py"
 Cohesion: 0.04
-Nodes (85): mapear_canal(), armar_recuadro(), aviso_puente(), cuadra_exact(), DetalleSinGoal, FilaPublicacion, _motivo_no_evaluada(), Recuadro (+77 more)
+Nodes (80): armar_recuadro(), aviso_puente(), cuadra_exact(), DetalleSinGoal, FilaPublicacion, _motivo_no_evaluada(), Recuadro, _universo_apagado() (+72 more)
 
 ### Community 93 - "test_meli_ads_ingest.py"
-Cohesion: 0.04
-Nodes (99): ingest_meli_ads(), main(), _marcas_corridas(), _nombres_vigentes(), _entero(), leer_origen(), MeliAdsError, Corrección del bloqueante de la revisión (Limi 3.1) (+91 more)
-
-### Community 94 - "test_reputacion.py"
 Cohesion: 0.05
-Nodes (36): ClienteJunglee, ClienteMeli, _pagina(), _creds_apify(), _creds_meli(), _mock_meli_completo(), _sembrar_listing(), test_cli_snapshot_amazon_dry_run_real() (+28 more)
+Nodes (63): main(), _marcas_corridas(), _nombres_vigentes(), leer_origen(), Corrección del bloqueante de la revisión (Limi 3.1), _conteos(), _corrige(), _snapshot() (+55 more)
+
+### Community 94 - "httpx"
+Cohesion: 0.02
+Nodes (127): directorio_secretos(), _clientes_precio(), _reputacion_snapshot(), main(), main(), _abrir_run(), _asin_de_input(), _asin_valido() (+119 more)
 
 ### Community 95 - "test_conciliar_meli_ads.py"
 Cohesion: 0.05
 Nodes (44): _campana(), _carga_script(), _Conexion, _corre(), _dia(), _orbit(), _Resultado, _snapshot() (+36 more)
 
 ### Community 96 - "ui.py"
-Cohesion: 0.04
-Nodes (53): cortes(), _destino_harvest(), _hermanas_de(), _indicador_harvest(), _senal_presentada(), _decimal_o_none(), dinero_miles_ui(), fecha_corta() (+45 more)
+Cohesion: 0.05
+Nodes (43): cortes(), _hermanas_de(), _indicador_harvest(), _senal_presentada(), _decimal_o_none(), dinero_miles_ui(), _fecha_query(), filtra_listings_reputacion() (+35 more)
 
 ### Community 97 - "cobertura"
 Cohesion: 0.10
-Nodes (19): arma_dias(), bloque_canal(), Canal, _cerrado(), cierre_cobertura(), cobertura(), Dia, fila_serie() (+11 more)
+Nodes (18): acos_texto(), arma_dias(), Canal, _cerrado(), cierre_cobertura(), cobertura(), Dia, fila_serie() (+10 more)
 
-### Community 98 - "_token_response"
-Cohesion: 0.12
-Nodes (15): _handler(), handler(), handler(), test_r09r3_pausa_207_con_rechazo_por_item_es_fallo(), handler(), test_r09r4_ar02_relecturas_con_pausa(), handler(), test_r09r4_ar03_archived_no_corta_reintento() (+7 more)
+### Community 98 - "test_precio02_contratos.py"
+Cohesion: 0.04
+Nodes (48): _componentes_por_nombre(), CuentaLeida, _detalle_fee(), _importe(), leer_cuenta(), ultimo_contexto(), logistica_del_universo(), Universo (+40 more)
 
 ### Community 99 - "notifica.py"
 Cohesion: 0.03
-Nodes (65): _fase_notifica(), _latido(), alerta_harvest_failed(), aviso_cap_agotado(), aviso_corte_encolado(), aviso_destino_grupo(), canal_activo(), _config_canal() (+57 more)
+Nodes (56): preparar_lectura_contribucion(), alerta_biblioteca_no_escrita(), alerta_harvest_failed(), alerta_harvest_hermanas(), aviso_cap_agotado(), aviso_corte_encolado(), aviso_destino_grupo(), aviso_propuesta_campana_nueva() (+48 more)
 
 ### Community 100 - "jev-ads-02/diseno/bosquejo.py"
 Cohesion: 0.03
-Nodes (38): ActaDeGrupo, ActaDeListado, Ajustes, ajustes_desde_settings(), anunciados_hoy(), Apagado, banda_de_proporcion(), CierreCorrida (+30 more)
+Nodes (37): ActaDeGrupo, ActaDeListado, Ajustes, ajustes_desde_settings(), anunciados_hoy(), Apagado, banda_de_proporcion(), CierreCorrida (+29 more)
 
-### Community 101 - "_MercadoLote"
-Cohesion: 0.04
-Nodes (53): CorridaEnCurso, SeleccionPorCambios, SeleccionPorCorrida, SeleccionPorFecha, UniversoEnLive, K1 — otro abierto del par revienta el INSERT (`precio_write.py:revertir` + tool), K7 — el go devuelve 0 con reversas en error (`tools/precio_reversa.py`), K8 — sin guarda de autocommit en `revertir`/`cerrar` (`precio_write.py`) (+45 more)
+### Community 101 - "fabrica_plan.py"
+Cohesion: 0.05
+Nodes (52): aviso_mezcla_familias(), _bid_objetivo(), _canonico_sin_derivados(), _cumple_harvest(), expresiones_bid(), id_creado(), lineas_dry_run(), monto_wire() (+44 more)
 
 ### Community 102 - "test_smoke_apply.py"
 Cohesion: 0.06
 Nodes (42): _ConnStub, _creds(), _ctx(), _ctx_sin_db(), _db_temporal(), _estado_inicial(), _handler_negative_campo_id(), _handler_smoke() (+34 more)
 
-### Community 103 - "jev_catalogo.py"
-Cohesion: 0.03
-Nodes (77): FichaVersion, censo_de_plan(), _ficha_de_fila(), ficha_vigente(), fichas_por_id(), hash_ficha(), _hechos_de_json(), registrar_ficha() (+69 more)
+### Community 103 - "jev_fichas.py"
+Cohesion: 0.26
+Nodes (9): _desconocidos(), _fecha(), _hechos_de_archivo(), _listings(), main(), _parser(), _registrar(), _revocar() (+1 more)
 
 ### Community 104 - "_skip_sin_pg"
-Cohesion: 0.07
-Nodes (46): A.6 — bloque PANTALLA (`GET /api/dashboard/precios`, `app/api_dashboard.py`), A.6 — bloque R1 (A3, A4, A5, B1, B9, T3 + C y B12 de pantalla), A.6 — bloque UI (`GET /precios`, `app/ui.py` + plantillas), M1 — margen sin pasar a tanto por uno, M2 — TACoS sin signo de por ciento, Mutantes G.3 (uno por prueba nueva; el plan no lista obligatorios), _cliente_pantalla(), _config_pantalla() (+38 more)
+Cohesion: 0.06
+Nodes (77): salud(), A.6 — bloque PANTALLA (`GET /api/dashboard/precios`, `app/api_dashboard.py`), A.6 — bloque R1 (A3, A4, A5, B1, B9, T3 + C y B12 de pantalla), A.6 — bloque UI (`GET /precios`, `app/ui.py` + plantillas), _cambio_pendiente_pantalla(), _cliente_pantalla(), _config_pantalla(), _db_nueva() (+69 more)
 
-### Community 105 - "main_impulso_vigia"
-Cohesion: 0.15
-Nodes (5): main_impulso_vigia(), Cambios, Mutante, R09-F: el vigia no calla un dia perdido, test_impulso_vigia_sin_impulsos_sale_0()
+### Community 105 - "_dsn_propia"
+Cohesion: 0.08
+Nodes (15): main_impulso_vigia(), Cambios, Mutante, Pruebas primero, R09-F: el vigia no calla un dia perdido, test_impulso_vigia_sin_impulsos_sale_0(), _dsn_propia(), _corre_vigia_cli() (+7 more)
 
 ### Community 106 - "test_precio_d0.py"
 Cohesion: 0.07
-Nodes (30): _cap(), _config_buena(), _corre_d0(), _db(), _git(), _numero_d0(), _pares(), _patrones_del_backup() (+22 more)
+Nodes (32): Contratos que ninguna tarea puede cambiar, _cap(), _config_buena(), _corre_d0(), _db(), _git(), _numero_d0(), _pares() (+24 more)
 
-### Community 107 - "_imports_runtime"
-Cohesion: 0.04
-Nodes (48): Task 10: candado de arquitectura + documentación, _imports_runtime(), test_allowlist_fabrica_caza_import_de_escritura(), test_allowlist_goals_modo_grupo_caza_import_de_escritura(), test_allowlist_harvest_excepcion_caza_import_de_escritura(), test_allowlist_snapshot_caza_import_de_escritura(), test_biblioteca_sin_apply_ni_escritura_ni_red(), test_detector_caza_import_desde_contenedor_y_relativos() (+40 more)
+### Community 107 - "test_dossier_adversarial.py"
+Cohesion: 0.14
+Nodes (14): _claves(), _db_temporal(), _dsn_lectura(), _inputs_bid(), _registro_md(), _siembra(), _siembra_decision_invalida(), test_dossier_aplicada_allowlist_replay_md_permisos() (+6 more)
 
 ### Community 108 - "retiro_anuncios.py"
 Cohesion: 0.04
-Nodes (28): AnuncioARetirar, _abre_intencion(), _actor_de(), AutorizacionInvalida, _bloqueados(), _cierra_intencion(), _detalle_ya_sellado(), _ejecuta_pendientes() (+20 more)
+Nodes (27): AnuncioARetirar, _abre_intencion(), _actor_de(), AutorizacionInvalida, _bloqueados(), _cierra_intencion(), _detalle_ya_sellado(), _ejecuta_pendientes() (+19 more)
 
 ### Community 109 - "test_eras.py"
 Cohesion: 0.06
-Nodes (36): _agregado(), _bids(), _cortes(), _decide_v1(), _inputs_era(), test_ad_revenue_cero_con_cost_positivo_dispara_baja_sin_division(), test_bid_actual_cero_es_dato_roto(), test_bid_actual_none_no_ajustable() (+28 more)
+Nodes (33): 1.1 — Regla A' (GLM, rama bids-01-1.1), _agregado(), _bids(), _cortes(), _decide_v1(), test_ad_revenue_cero_con_cost_positivo_dispara_baja_sin_division(), test_bid_actual_cero_es_dato_roto(), test_bid_actual_none_no_ajustable() (+25 more)
 
 ### Community 110 - "test_pantalla_dinero.py"
-Cohesion: 0.11
-Nodes (29): _fila_camp_ui(), _fila_html(), _fila_ubi_ui(), _fila_ui(), _html_dinero(), _plano(), test_guion_en_cada_celda_campana(), test_guion_en_cada_celda_tipo_y_total() (+21 more)
+Cohesion: 0.10
+Nodes (30): _clases_ui(), _fila_camp_ui(), _fila_html(), _fila_ubi_ui(), _fila_ui(), _html_dinero(), _plano(), test_guion_en_cada_celda_campana() (+22 more)
 
 ### Community 111 - "test_rejuega_niveles.py"
-Cohesion: 0.10
-Nodes (43): _caso_r9(), _ciclo(), _config(), _db_rejuego(), _decision_guardada(), _diarias(), _dsn_de(), _entidad() (+35 more)
+Cohesion: 0.09
+Nodes (46): _caso_r9(), _ciclo(), _config(), _db_rejuego(), _decision_guardada(), _diarias(), _dsn_de(), _entidad() (+38 more)
 
-### Community 112 - "test_estimacion_amazon.py"
-Cohesion: 0.13
-Nodes (21): CotizadorAmazon, partir_fees(), plataformas_con_cotizador(), Comprueba, Decisiones, F.3: universos FBM de MX y US en la estimacion, Pruebas, _cliente() (+13 more)
+### Community 112 - "test_optimizer_caso.py"
+Cohesion: 0.06
+Nodes (38): LecturasPlataforma, CambioBid, CasoHoja, Economia, EconomiaPlataforma, InsumosPausa, Trayectoria, _caso_regreso_dueno() (+30 more)
 
 ### Community 113 - "test_optimizer_windows.py"
-Cohesion: 0.03
-Nodes (69): AdsCompletos, _agrega_metricas(), _fecha_utc(), fin_ventana_bids(), fin_ventana_cortes(), guarda_plataforma(), inicio_ventana(), _max_fecha() (+61 more)
+Cohesion: 0.04
+Nodes (54): _agrega_metricas(), _fecha_utc(), fin_ventana_bids(), fin_ventana_cortes(), guarda_plataforma(), inicio_ventana(), _max_fecha(), MotivoSkip (+46 more)
 
 ### Community 114 - "_r2b_fila_subir_live"
 Cohesion: 0.14
 Nodes (8): A.6 — bloque R3 (N2 + kimi r3-3, solo tests), _r2b_cambio(), _r2b_fila_subir_live(), _r3_fila_bajar_live(), test_r2b_a1_live_cambio_error_como_esta(), test_r2b_a1_live_cambio_pendiente_dice_pendiente(), test_r2b_a1_live_sin_cambio_no_dice_subio(), test_r3_n2_live_bajar_sin_cambio_no_dice_bajo()
 
-### Community 115 - "test_reputacion_migracion.py"
-Cohesion: 0.40
-Nodes (9): db_reputacion(), _sembrar_listing(), test_alert_mutable_solo_para_sellar(), test_grants_por_rol(), test_meli_question_estados_y_dedup(), test_review_event_dedup_por_id_externo_y_rating(), test_seller_reputation_snapshot_append_y_conteos(), test_snapshot_invariantes_muerden() (+1 more)
+### Community 115 - "evaluar_senal"
+Cohesion: 0.06
+Nodes (49): DiaUnidad, HistoriaUnidad, _caida_significativa(), _en_rango(), evaluar_cohorte(), evaluar_senal(), sin_dato(), LecturaCohorte (+41 more)
 
 ### Community 116 - "test_lecturas_caso.py"
-Cohesion: 0.09
-Nodes (41): lee_plataforma(), EconomiaPlataforma, Tramo, _caso_regreso_dueno(), _ajuste_lec(), _arma(), _bid(), _ciclo() (+33 more)
+Cohesion: 0.10
+Nodes (38): lee_plataforma(), _ajuste_lec(), _arma(), _bid(), _ciclo(), _config(), _Contadora, _db_lecturas() (+30 more)
 
 ### Community 117 - "app/__init__.py"
-Cohesion: 0.05
-Nodes (28): lee_evaluacion_ciclo(), _a_json(), _de_json(), EvaluacionProducto, DecisionesProducto, estado_pausa(), _fecha(), GrupoVista (+20 more)
+Cohesion: 0.04
+Nodes (37): DecisionesProducto, estado_pausa(), _fecha(), GrupoVista, _hoja(), HojaVista, lee_decisiones_producto(), lee_limites() (+29 more)
 
 ### Community 118 - "s"
 Cohesion: 0.05
-Nodes (39): addElements(), an(), Bn(), _calculateBarIndexPixels(), _calculateBarValuePixels(), getLabelAndValue(), getMaxOverflow(), getPixelForTick() (+31 more)
+Nodes (43): addElements(), Be(), Bn(), bo, _calculateBarIndexPixels(), _calculateBarValuePixels(), getLabelAndValue(), getMaxOverflow() (+35 more)
 
 ### Community 119 - "handler"
-Cohesion: 0.04
-Nodes (40): make_write_client(), test_401_un_refresh_forzado_y_reemision_con_mismo_scope_vendor(), handler(), test_429_reintenta_hasta_exito(), handler(), test_500_lanza_tras_un_request_sin_reintentar(), handler(), test_ajustar_campana_207_con_errores_anidados_lanza() (+32 more)
+Cohesion: 0.03
+Nodes (48): handler(), test_r09r3_pausa_207_con_rechazo_por_item_es_fallo(), handler(), handler(), handler(), test_r09r4_previa_caida_es_sin_confirmar_no_no_existe(), handler(), test_un_rechazo_de_amazon_no_frena_a_los_demas() (+40 more)
 
 ### Community 120 - "runs.py"
-Cohesion: 0.14
-Nodes (32): _artifacts_present(), _assert_plain_path(), _base_metadata(), BenchError, blind_run(), _canonical_json(), _case_snapshot(), cli() (+24 more)
+Cohesion: 0.10
+Nodes (44): _analyze(), _artifacts_present(), _format_number(), _group_key(), _human_complete(), _metric_summary(), _number(), _run_directories() (+36 more)
 
 ### Community 121 - "test_ledger_sync.py"
 Cohesion: 0.06
-Nodes (42): _amount_decimal(), _desglose_negativo_en_payload(), _dia(), EventoLedger, FilaOrigenLedger, leer_origen(), _lookup_kind(), mapear_destino() (+34 more)
+Nodes (40): _amount_decimal(), _desglose_negativo_en_payload(), _dia(), FilaOrigenLedger, LedgerError, leer_origen(), _lookup_kind(), mapear_destino() (+32 more)
 
 ### Community 122 - "test_despliegue_motor.py"
-Cohesion: 0.13
-Nodes (29): _inicial(), Servidor, test_a_despliegue_completo_y_checklist_verde(), test_apagado_manual_se_respeta(), test_b_checklist_rojo_con_migracion_pendiente_o_clave_distinta(), test_c_h_rollback_deja_todo_igual_y_el_sha_siguiente_reaplica(), test_d_rollback_no_toca_otro_sha_ni_abortado(), test_e_guarda_ocupada_sale_75_sin_cambiar_nada() (+21 more)
+Cohesion: 0.10
+Nodes (37): _commit(), _crea_repo(), _falta_herramienta(), _git(), _inicial(), _interruptores(), s(), Servidor (+29 more)
 
 ### Community 123 - "test_listings_sync.py"
 Cohesion: 0.06
-Nodes (35): _fila_upsert(), FilaListing, _formato_skip_reason(), leer_origen(), ListingsError, OrigenListings, plan_listings(), PlanListing (+27 more)
+Nodes (32): _fila_upsert(), FilaListing, _formato_skip_reason(), leer_origen(), ListingsError, OrigenListings, plan_listings(), PlanListing (+24 more)
 
-### Community 124 - "optimizer/politica.py"
-Cohesion: 0.05
-Nodes (40): _factorial(), gamma_p(), _gamma_p_serie(), gamma_q(), _gamma_q_cabeza(), _valida_gamma(), _Fondo, _fondo_juicio() (+32 more)
+### Community 124 - "gamma_p"
+Cohesion: 0.12
+Nodes (17): _factorial(), gamma_p(), _gamma_p_serie(), gamma_q(), _gamma_q_cabeza(), _valida_gamma(), 3. Pruebas que se retiran con su código, Cambios (+9 more)
 
 ### Community 125 - "test_pantalla_ruido.py"
-Cohesion: 0.04
-Nodes (56): _abstenciones_de(), _bloque(), _celda(), _comparacion(), _cuenta_decisiones(), _en_utc(), _encogimiento(), _fila_ciclo() (+48 more)
+Cohesion: 0.07
+Nodes (43): lee_ruido(), PantallaRuido, _aplicada(), _ciclo(), _config(), _db_ruido(), _decision_caso(), _entidad() (+35 more)
 
 ### Community 126 - "test_bloqueo_dueno.py"
-Cohesion: 0.08
-Nodes (54): _bloqueos_jev(), _arma_pantalla(), Candidata, catalogo_de_miembros(), _huella(), _enriquece(), FichaCatalogo, FilaMotor (+46 more)
+Cohesion: 0.10
+Nodes (45): _arma_pantalla(), Candidata, catalogo_de_miembros(), _motor(), _enriquece(), FichaCatalogo, FilaMotor, _filas_bloqueo() (+37 more)
+
+### Community 127 - "productos_io.py"
+Cohesion: 0.05
+Nodes (32): colapsa_por_fecha(), fecha_madura(), _actividad(), _Alcance, _Anuncio, claves_por_producto(), _Cubierta, _filas_del_producto() (+24 more)
 
 ### Community 128 - "catalogo.py"
-Cohesion: 0.13
-Nodes (20): _aplica_plan(), ClienteCatalogo, _cuenta_mapeo(), _entero_o_none(), _fetch_item(), _formato_skips(), main(), _observa() (+12 more)
+Cohesion: 0.14
+Nodes (18): _aplica_plan(), ClienteCatalogo, _cuenta_mapeo(), _entero_o_none(), _fetch_item(), _formato_skips(), _observa(), PlanItem (+10 more)
 
 ### Community 129 - "test_reputacion_alertas.py"
-Cohesion: 0.05
-Nodes (76): _conexion_lectura(), AlertaNueva, carga_reputacion_digest(), _duplicada(), evalua_caida_rating(), evalua_rating_bajo(), evalua_reclamos_suben(), evalua_resena_1() (+68 more)
+Cohesion: 0.06
+Nodes (51): AlertaNueva, carga_reputacion_digest(), _duplicada(), evalua_caida_rating(), evalua_rating_bajo(), evalua_reclamos_suben(), evalua_resena_1(), evalua_salud_cuenta() (+43 more)
 
 ### Community 130 - "pantalla_dinero.py"
 Cohesion: 0.10
-Nodes (20): _aviso_ajuste_de(), _con_avisos(), _dinero2(), lee_campanas(), lee_dinero(), _fila(), lee_ubicaciones(), _fila() (+12 more)
+Nodes (17): AjusteRegresable, _aviso_ajuste_de(), _con_avisos(), _dinero2(), lee_campanas(), lee_dinero(), _fila(), lee_ubicaciones() (+9 more)
 
-### Community 131 - "test_pause_economica.py"
-Cohesion: 0.05
-Nodes (29): Conn, _corte(), _decide(), test_economica_abstiene_con_orders_o_clicks_desconocidos(), test_evidencia_registra_version_efectiva_no_nominal(), execute(), test_faltante_moneda_erronea_o_inmadurez_no_pausan(), test_fila_economica_que_solo_califica_umbral_sigue_aplicando() (+21 more)
+### Community 131 - "test_config_write.py"
+Cohesion: 0.06
+Nodes (29): guarda_config(), politica_bid_desde_settings(), M14 — `test_s2_proxima_precio_modos_rechaza_vocabulario_y_fuera_de_registro`, M18 — `test_s2_get_settings_expone_precio_modos`, _goal_db(), _base(), _base_precio(), test_cada_plataforma_conserva_sus_valores() (+21 more)
 
 ### Community 132 - "_cliente_lista"
 Cohesion: 0.05
-Nodes (47): _lista_filtrada(), _valida_token_list(), 1. Veredicto preliminar, 4. Invariantes transversales, 5. Residuales declarados, 6. Tests con poco poder discriminante, 7. Lo que no pude verificar, Revisión independiente R.1 — FABRICA 02 Fase A — SHA 7a32ec3 (+39 more)
+Nodes (46): _elemento_list_valido(), _id_list_valido(), _lista_completa(), _lista_filtrada(), _texto_list_valido(), _valida_pagina_list(), _valida_token_list(), Triage (+38 more)
 
 ### Community 133 - "test_cierre_campana.py"
-Cohesion: 0.07
-Nodes (30): descartar_propuesta(), C.5 — cierre humano: descarte en Orbit + pausa manual en Amazon, Condiciones del veredicto forense (C1-C4, aplicadas 2026-09-25), Contrato implementado (DoD fila 103 del plan), Estado de gates (2026-09-25), Paso manual exacto para David (DETENERSE AQUI — no tocar produccion), _campana_cara(), _claves_json() (+22 more)
+Cohesion: 0.06
+Nodes (33): descartar_propuesta(), PropuestaInexistente, PropuestaYaCerrada, C.5 — cierre humano: descarte en Orbit + pausa manual en Amazon, Condiciones del veredicto forense (C1-C4, aplicadas 2026-09-25), Contrato implementado (DoD fila 103 del plan), Decisiones de implementacion, Estado de gates (2026-09-25) (+25 more)
 
 ### Community 134 - "test_cycle_apply.py"
 Cohesion: 0.09
-Nodes (34): _agrega_kw2(), _config_live_caps(), _corre(), _db_temporal(), _fabrica_directa(), fabrica(), _fabrica_real_mock(), fabrica() (+26 more)
+Nodes (32): _config_live_caps(), _corre(), _db_temporal(), _fabrica_directa(), fabrica(), _fabrica_real_mock(), fabrica(), _handler() (+24 more)
 
-### Community 135 - "AdsClient"
-Cohesion: 0.03
-Nodes (46): _es_rechazo_explicito(), _fila_del_grupo(), preparar_escritor(), _sin_crear(), _texto_no_vacio(), AdsAuthError, _clean_path(), MutationNotAllowedError (+38 more)
+### Community 135 - "AdsWriteClient"
+Cohesion: 0.06
+Nodes (15): AdsWriteClient, _bid_payload(), _bid_wire(), _errores_put(), _un_objeto(), _payload_bid(), reversa_bid(), _tick() (+7 more)
 
 ### Community 136 - "test_snapshot_listas.py"
-Cohesion: 0.03
-Nodes (33): _fugas_adaptador(), _fugas_escritura(), test_archivo_del_carril(), test_atribuidor_amazon_no_escribe(), test_candado_de_escritura_detecta_fuga_sembrada(), test_candado_de_sonda_detecta_import_sembrado(), test_sonda_generica_no_importa_adaptadores(), _ClienteFalso (+25 more)
+Cohesion: 0.05
+Nodes (25): _ClienteFalso, _fakea_main(), _perfil(), _perfil_mx(), _perfil_us(), _Respuesta, _snap_minimo(), test_agrupa_por_campana_sin_campaign_id_va_a_la_clave_declarada() (+17 more)
 
 ### Community 137 - "api_precios.py"
-Cohesion: 0.07
-Nodes (26): _dec_str(), _acciones_precio(), _bloque_precios(), _cambios_por_decision(), _con_goal_precio(), _conteo_por_motivo(), _corrida_ausente(), _decisiones_precio_hoy() (+18 more)
+Cohesion: 0.04
+Nodes (41): audit(), campaign_proposals(), _dec_str(), _fila_ciclo(), _fila_propuesta_campana(), _filtros_decision(), _filtros_goals(), goals() (+33 more)
 
 ### Community 138 - "kimi-A.6-c2.md"
 Cohesion: 0.05
-Nodes (45): _precio(), _avisar_buybox_precio(), _avisar_compuerta_precio(), _avisar_grupos_precio(), _avisar_huerfana_precio(), _avisar_noconf_precio(), avisar_precio(), aviso_precio_grupo() (+37 more)
+Nodes (42): _precio(), _avisar_buybox_precio(), _avisar_grupos_precio(), _avisar_huerfana_precio(), _avisar_noconf_precio(), aviso_precio_grupo(), aviso_precio_huerfana(), aviso_precio_producto() (+34 more)
 
-### Community 139 - "test_jev_catalogo.py"
-Cohesion: 0.04
-Nodes (103): censo_grupo(), 4. Bateria completa, B2: captured_at dentro de la transaccion se acepta; el futuro se rechaza, G6 — pruebas de catálogo (`tests/test_jev_catalogo.py`), S.3: mutantes (uno por prueba nombrada), Cambios, Comprueba, Despliega (+95 more)
+### Community 139 - "test_jev_orden_opciones.py"
+Cohesion: 0.06
+Nodes (47): _pares(), _resultados(), _sembrar_par(), test_aviso_cuando_n_no_es_la_muestra_congelada(), test_clasificar_separa_cambio_abstencion_y_fallo(), test_contrato_invertido_cambia_orden_y_sha(), test_cupos_de_cien_son_mitad_y_mitad(), test_el_impar_da_el_extra_a_satisface() (+39 more)
 
 ### Community 140 - "smoke_apply.py"
 Cohesion: 0.06
 Nodes (29): Confirmación operativa previa por fase, auth_coincide(), auth_esperada(), autorizacion_ok(), _bid_valido(), _buscar_por_identidad(), campana_allowlisted(), clave_auth() (+21 more)
 
-### Community 141 - "test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa"
-Cohesion: 0.25
-Nodes (4): _kw_crea(), test_crea_goal_con_target_none_escribe_null(), test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa(), test_crea_goal_rechaza_entidad_que_no_es_campana()
+### Community 141 - "Exception"
+Cohesion: 0.04
+Nodes (34): _ajuste_hacia(), AjusteEnCurso, AjusteInexistente, AjusteNoConfirmado, AjusteSinRegreso, AjusteYaRegresado, _cliente_ajuste(), _cliente_reversa() (+26 more)
 
 ### Community 142 - "test_spapi_write_client.py"
 Cohesion: 0.05
-Nodes (41): construir_ruta_listings(), SpapiApiError, SpapiError, SpapiNoPermitida, _validar_segmento_sku(), _ack_saneado(), _estado_aceptado(), _ruta_sin_sku() (+33 more)
+Nodes (38): construir_ruta_listings(), SpapiApiError, SpapiError, SpapiNoPermitida, _validar_segmento_sku(), _espera_retry_after(), _exigir_cuerpo_serializable(), MutationNotAllowedError (+30 more)
 
 ### Community 143 - "test_jev_senales.py"
-Cohesion: 0.14
-Nodes (40): huella_anuncios(), correr(), main(), S.4 — mutantes (uno por prueba, 2026-10-06), Pruebas primero, _acta(), _ads_de(), _aviso_de_venta() (+32 more)
+Cohesion: 0.15
+Nodes (38): huella_anuncios(), correr(), S.4 — mutantes (uno por prueba, 2026-10-06), _acta(), _ads_de(), _aviso_de_venta(), _ciclo(), _cola() (+30 more)
 
 ### Community 144 - "test_spapi_vigilante.py"
 Cohesion: 0.04
-Nodes (53): avisa_ciego(), faltantes(), _fecha_utc(), lee_ventana(), main(), 1–5, 1. Crontab e instalador, 2. Contenedor, env y logs (+45 more)
+Nodes (50): faltantes(), _fecha_utc(), lee_ventana(), main(), 1–5, 1. Crontab e instalador, 2. Contenedor, env y logs, 3. Ventana y tiempo (+42 more)
 
 ### Community 145 - "precio/goals_write.py"
 Cohesion: 0.04
-Nodes (52): aplicar_goals(), CuerpoAplicar, CuerpoLiberar, CuerpoPlan, _fila_plan_dict(), _importe_str(), liberar_compuerta(), MetaUnidad (+44 more)
+Nodes (55): aplicar_goals(), CuerpoAplicar, CuerpoLiberar, CuerpoPlan, _fila_plan_dict(), _importe_str(), liberar_compuerta(), MetaUnidad (+47 more)
 
 ### Community 146 - "test_dashboard_resumen.py"
-Cohesion: 0.09
-Nodes (19): _cobertura_variacion(), _dinero_variacion(), totales_dias(), variacion(), _bloque(), _dia(), test_acos_prioriza_la_cobertura_sobre_el_dinero_alineado(), test_acos_y_roas_salen_de_sumas_no_del_promedio_de_ratios() (+11 more)
+Cohesion: 0.11
+Nodes (15): totales_dias(), _bloque(), _dia(), test_acos_prioriza_la_cobertura_sobre_el_dinero_alineado(), test_acos_y_roas_salen_de_sumas_no_del_promedio_de_ratios(), test_catalogo_moneda_nativa_sin_ampliar_el_optimizador(), test_meli_no_hereda_la_madurez_d8_de_amazon(), test_serie_un_punto_por_dia_y_ma7_con_calentamiento() (+7 more)
 
 ### Community 147 - "test_spapi_listings.py"
 Cohesion: 0.07
@@ -1569,108 +1607,108 @@ Cohesion: 0.10
 Nodes (30): _semilla_grupo(), _argv_go(), _carga_tool(), _huella_esperada(), _ids_goals_grupo(), _modes_grupo(), _siembra_envolvente(), test_cli_mode_off_aborta() (+22 more)
 
 ### Community 149 - "precios.js"
-Cohesion: 0.28
-Nodes (14): aplicar(), armarPedido(), botonAplicarDe(), dinero(), escapar(), estadoDe(), importeCorto(), pct() (+6 more)
+Cohesion: 0.14
+Nodes (19): _banda_honesta(), gasto_sin_venta(), _proporcion_de(), titulo_de_banda(), aplicar(), armarPedido(), botonAplicarDe(), dinero() (+11 more)
 
-### Community 150 - "a"
-Cohesion: 0.06
-Nodes (21): a(), aa(), Ae(), afterDatasetsUpdate(), configure(), determineDataLimits(), g(), generateLabels() (+13 more)
+### Community 150 - "lecturas_caso.py"
+Cohesion: 0.07
+Nodes (24): _cambios_por_hoja(), _completo(), Conexion, _contribucion(), _EfectoLeido, _enrolla(), _episodio_economico(), _exige_tz() (+16 more)
 
 ### Community 151 - "test_precio02_sonda_meli.py"
-Cohesion: 0.05
-Nodes (47): Decisiones con razon, R05-r3 B1 (sonda prueba la forma con variantes), R05d: filtro sin oferta viva (2026-10-16), Salidas guardadas (todas con su linea exit= al final), X.4: evidencia de los scripts (REPRICING 02, seccion 5), abierto(), _Alto, _Conn (+39 more)
+Cohesion: 0.06
+Nodes (46): Decisiones con razon, R05-r3 B1 (sonda prueba la forma con variantes), R05d: filtro sin oferta viva (2026-10-16), Salidas guardadas (todas con su linea exit= al final), X.4: evidencia de los scripts (REPRICING 02, seccion 5), abierto(), _Alto, _Conn (+38 more)
 
-### Community 152 - "leer_anuncios"
-Cohesion: 0.09
-Nodes (16): _cambiar_estado_anuncios(), estados_actuales(), leer_anuncios(), ListaInvalida, parsear_reversa(), pausar_anuncios(), reactivar_anuncios(), ResultadoAnuncio (+8 more)
+### Community 152 - "archivar.py"
+Cohesion: 0.06
+Nodes (26): anuncios_vivos_del_grupo(), _cambiar_estado_anuncios(), _es_rechazo_explicito(), _fila_del_grupo(), _id_del_ack(), LecturaAmbigua, leer_anuncios(), ListaInvalida (+18 more)
 
 ### Community 153 - "Expresion"
 Cohesion: 0.08
-Nodes (36): bid_inicial(), bid_objetivo(), _clave(), consultar_roles(), _decimal(), error_parametro_amazon(), Expresion, interpretar() (+28 more)
+Nodes (30): bid_inicial(), bid_objetivo(), _clave(), consultar_roles(), _decimal(), error_parametro_amazon(), interpretar(), payload() (+22 more)
 
 ### Community 154 - "replay_ads_economico.py"
 Cohesion: 0.08
-Nodes (16): test_cache_de_hoja_no_da_target_a_hermanas_ni_campana(), test_ciclo_antes_de_medianoche_incluye_observacion_hasta_decided_at(), test_ciclo_con_solo_filas_de_hojas_sin_campana_no_cae_a_decision_inputs(), test_ciclo_pre_0046_con_decision_propia_sale_freeze_entidad(), test_ciclo_sin_decisiones_no_inventa_reloj(), test_ciclo_sin_filas_pre_0046_sale_sin_target_historico(), test_editar_el_goal_despues_del_ciclo_no_cambia_el_replay(), test_replay_usa_decided_at_si_started_at_es_posterior() (+8 more)
+Nodes (18): C.2a — cierre (bloque B3 del loop Orbit Fase D), test_cache_de_hoja_no_da_target_a_hermanas_ni_campana(), test_ciclo_antes_de_medianoche_incluye_observacion_hasta_decided_at(), test_ciclo_con_solo_filas_de_hojas_sin_campana_no_cae_a_decision_inputs(), test_ciclo_pre_0046_con_decision_propia_sale_freeze_entidad(), test_ciclo_sin_decisiones_no_inventa_reloj(), test_ciclo_sin_filas_pre_0046_sale_sin_target_historico(), test_editar_el_goal_despues_del_ciclo_no_cambia_el_replay() (+10 more)
 
 ### Community 155 - "bloqueo_dueno_efecto.py"
-Cohesion: 0.12
-Nodes (49): _abre_intencion(), _anota_incierto(), _anula(), _aprobado(), _aprobar_con_candado(), _cierra_huerfano(), _claves_huerfanas(), _cliente() (+41 more)
+Cohesion: 0.13
+Nodes (47): _abre_intencion(), _anota_incierto(), _anula(), _aprobado(), _aprobar_con_candado(), _cierra_huerfano(), _claves_huerfanas(), _cliente() (+39 more)
 
-### Community 156 - "impulso_io.py"
-Cohesion: 0.03
-Nodes (62): ejecuta(), acota_bids(), AccionVigia, _acumula(), _archiva_vacios(), _conecta_propia(), _descarta_huerfano(), EjecucionFabrica (+54 more)
+### Community 156 - "test_impulso.py"
+Cohesion: 0.08
+Nodes (32): acota_bids(), grupo_v2_de_plan(), _huella_vista(), _plan_producto(), LecturaImpulso, PlanImpulso, presupuesto_diario(), TopeAprendizaje (+24 more)
 
 ### Community 157 - "test_ui_tema.py"
-Cohesion: 0.07
-Nodes (27): _evalua_r1(), dinero_coma_ui(), dinero_ui(), miles_ui(), ts_ui(), Formato, Inventario de formato (2026-11-08, origen/master 7cf7c9a), Decisiones (`/decisiones`) (+19 more)
+Cohesion: 0.09
+Nodes (20): dinero_ui(), miles_ui(), ts_ui(), CLARIDAD 01: causas encontradas (2026-11-08), Formato, Inertes tarda 235 s, Jev no corre desde el 2026-10-21 (Gasto sin venta vacía), Motor de precios con universo de más (+12 more)
 
 ### Community 158 - "test_spapi_inventario.py"
 Cohesion: 0.09
 Nodes (37): _cantidad(), _dia_utc(), ejecutar_ingesta(), _fila_insert(), _formato_skip_reason(), IngestaInventarioError, InventarioOmitido, InventarioParseado (+29 more)
 
 ### Community 159 - "test_ui_fabrica.py"
-Cohesion: 0.12
-Nodes (7): test_boton_retiro_presente_en_detalle_del_lote(), test_entrada_crear_desde_campanas(), test_flujo_js_invalida_plan_bloquea_duplicados_y_recupera_lote(), test_flujo_js_no_se_omite_en_ci_sin_node(), test_formulario_muestra_linea_de_margen_sin_manual(), test_preview_sin_manual_muestra_linea_de_margen(), test_ui_estimacion_etiqueta_separada_y_sin_columna_ancha()
+Cohesion: 0.04
+Nodes (31): Regresion, pytest focal, Regresiones RED contra el codigo anterior, _correr_flujo_fabrica(), Elementos, test_avisos_puja_manual_tienen_elemento_por_rol(), test_boton_retiro_presente_en_detalle_del_lote(), test_buscador_publicaciones_es_accesible() (+23 more)
 
 ### Community 160 - "test_campana_ajustes.py"
-Cohesion: 0.13
-Nodes (20): CambiarAjusteUbicacion, LimitarFueraDeAmazon, _planea(), test_ajuste_que_no_cambia_nada_levanta(), test_clase_sin_sonda_sellada_levanta_antes_de_todo(), test_coincide_clase_mira_solo_lo_que_la_clase_mueve(), test_fuera_de_amazon_fija_minimize_spend(), test_huella_cambia_campo_por_campo() (+12 more)
+Cohesion: 0.07
+Nodes (27): AjusteSinCambio, CambiarAjusteUbicacion, campo_del_ajuste(), coincide_clase(), _dinero_txt(), LimitarFueraDeAmazon, PlanAjuste, planea_ajuste() (+19 more)
 
 ### Community 161 - "test_pantalla_dinero.py"
-Cohesion: 0.10
-Nodes (24): _campanas_r07h(), _cinco_grupos(), _clases_ui(), _ConnFalsa, _CursorFalso, _grupo(), _lee(), _siembra_ajuste_r07h() (+16 more)
+Cohesion: 0.09
+Nodes (25): _campanas_r07h(), _cinco_grupos(), _ConnFalsa, _CursorFalso, _grupo(), _lee(), _notas_target(), _siembra_ajuste_r07h() (+17 more)
 
-### Community 162 - "test_reputacion_migracion.borrador.py"
-Cohesion: 0.53
-Nodes (6): db_reputacion(), _sembrar_listing(), test_alert_mutable_solo_para_sellar(), test_review_event_dedup_por_id_externo_y_rating(), test_snapshot_invariantes_muerden(), test_snapshot_listing_y_cuenta_ok_y_append()
+### Community 162 - "test_optimizer_windows.py"
+Cohesion: 0.08
+Nodes (21): _agregado(), _db_temporal(), _db_temporal_a4(), _entidad(), _estado(), _metrica(), _obs(), _rango() (+13 more)
 
 ### Community 163 - "bloque_canal"
-Cohesion: 0.12
-Nodes (9): _fin_del_dia(), hoy_por_canal(), hoy_resumen(), ventana_resumen(), 9.2 Parámetros, test_hoy_es_la_zona_local_minima_y_d1_queda_cerrado_en_todos(), test_ventana_periodos_terminan_en_d1_y_comparacion_igual(), test_ventana_personalizada_recorta_hoy_y_rechaza_rangos_invalidos() (+1 more)
+Cohesion: 0.09
+Nodes (17): bloque_canal(), _fin_del_dia(), hoy_por_canal(), hoy_resumen(), last_ingest_at(), _maduracion(), max_metric_date(), resumen() (+9 more)
 
 ### Community 164 - "test_bloqueo_dueno_efecto.py"
-Cohesion: 0.12
-Nodes (55): aprobar(), Mutantes, _db(), _dsn_de(), _grupo(), _interruptor(), _log_tiene(), _parche() (+47 more)
+Cohesion: 0.18
+Nodes (44): aprobar(), Mutantes, _cola(), _db(), _grupo(), _interruptor(), _log_tiene(), _parche() (+36 more)
 
 ### Community 165 - "test_evaluacion_catalogo.py"
-Cohesion: 0.02
-Nodes (98): colapsa_por_fecha(), EvaluacionAds, EvaluacionListing, evaluar_ads(), evaluar_listing(), fecha_madura(), motivos_margen(), objetivo_comparacion() (+90 more)
+Cohesion: 0.08
+Nodes (35): evaluar_ads(), ObservacionAds, _con_acos(), _economia(), _listing(), _obs(), test_asin_ausente_del_gzip_completed_es_sin_datos(), test_cero_observado_es_gasto_sin_ventas() (+27 more)
 
 ### Community 166 - "persistir_escenario"
-Cohesion: 0.05
-Nodes (95): leer_escenarios(), persistir_escenario(), resolver_politica_aplicable(), ResultadoPolitica, calcular_contribucion(), ComponenteEconomico, _cuantizar_frontera(), _decimal_setting() (+87 more)
+Cohesion: 0.07
+Nodes (61): calcular_contribucion(), ComponenteEconomico, _cuantizar_frontera(), _decimal_setting(), EntradaCalculo, _normalizar_costo(), PoliticaCalculo, _suma_final_fee_top_level() (+53 more)
 
 ### Community 167 - "MeliAdsError"
-Cohesion: 0.06
-Nodes (26): _abre_origen(), _dinero(), _fila(), FilaMeliAds, _id_con_epoch(), _largo_ok(), _momento_utc(), _nombre() (+18 more)
+Cohesion: 0.07
+Nodes (31): _abre_origen(), _dinero(), _entero(), _fila(), FilaMeliAds, _id_con_epoch(), _largo_ok(), MeliAdsError (+23 more)
 
 ### Community 168 - "caso.py"
-Cohesion: 0.14
-Nodes (41): _bid_desde(), _bid_json(), _booleano(), _cambio_desde(), _cortes_desde(), _cortes_json(), _decimal(), _dinero() (+33 more)
+Cohesion: 0.15
+Nodes (40): _bid_desde(), _bid_json(), _booleano(), _cambio_desde(), _cortes_desde(), _cortes_json(), _decimal(), _dinero() (+32 more)
 
-### Community 169 - "_db_dinero"
-Cohesion: 0.12
-Nodes (16): _db_dinero(), _notas_target(), _siembra_entidad(), _siembra_estado(), _siembra_metrica(), test_pg_grupos_toman_la_ultima_observacion_del_dia(), test_pg_null_envenena_grupo_ubicacion_y_campana(), _kw() (+8 more)
-
-### Community 170 - "propuestas_campana.py"
+### Community 169 - "optimizer/politica.py"
 Cohesion: 0.10
-Nodes (18): DatoCampana, envia_avisos_pendientes(), evalua(), Evaluacion, _evidencia(), guarda_evaluaciones(), lee_evaluaciones(), _goal() (+10 more)
+Nodes (21): estado_grupo(), _evalua_r1(), _Fondo, _fondo_juicio(), _freno_trayectoria(), _juzga_sin_pedidos(), _juzga_vendedora(), _p_bajo() (+13 more)
+
+### Community 170 - "_entidad"
+Cohesion: 0.05
+Nodes (46): DatoCampana, envia_avisos_pendientes(), evalua(), Evaluacion, _evidencia(), guarda_evaluaciones(), lee_evaluaciones(), _goal() (+38 more)
 
 ### Community 171 - "estimacion_repository.py"
-Cohesion: 0.08
-Nodes (36): _canonica_miembros(), _canonical_frozen(), _carga_de(), _cargar_fee(), _cargar_oferta(), _componentes_a_json(), _construir_source_event_id(), CostoFxEscenario (+28 more)
+Cohesion: 0.06
+Nodes (68): leer_escenarios(), _canonica_miembros(), _canonical_frozen(), _carga_de(), _cargar_fee(), _cargar_oferta(), _componentes_a_json(), _construir_source_event_id() (+60 more)
 
 ### Community 172 - "test_spapi_salud.py"
 Cohesion: 0.05
 Nodes (72): _spapi_de(), aviso_spapi_fallo(), bloque_salud(), _clase_inmediata(), evaluar_alertas(), _fila(), _historial(), _una() (+64 more)
 
 ### Community 173 - "test_disponibilidad.py"
-Cohesion: 0.06
-Nodes (39): DisponibilidadError, estado_desde_observaciones(), estado_disponibilidad(), _fila_a_observacion(), FilaFBA, FilaFBM, _formato_skip_reason(), leer_snapshot() (+31 more)
+Cohesion: 0.10
+Nodes (29): estado_desde_observaciones(), leer_snapshot(), plan_disponibilidad(), SnapshotDisponibilidad, Comandos y salida, db_disponibilidad(), _sembrar_catalogo(), _snapshot_bridge() (+21 more)
 
 ### Community 174 - "test_fx_sync.py"
-Cohesion: 0.07
-Nodes (26): detectar_huecos(), _dia(), FilaOrigenFx, _formato_skip_reason(), FxError, leer_origen(), mapear_destino(), _motivo_skip() (+18 more)
+Cohesion: 0.08
+Nodes (27): detectar_huecos(), _dia(), FilaOrigenFx, _formato_skip_reason(), FxError, leer_origen(), main(), mapear_destino() (+19 more)
 
 ### Community 175 - "test_sonda_spapi.py"
 Cohesion: 0.11
@@ -1680,49 +1718,53 @@ Nodes (43): _cliente(), _handler_orders(), handler(), _lineas_json(), _reloj(), 
 Cohesion: 0.07
 Nodes (23): _base_temporal(), _dias_sin_costo(), _sembrar_estado_previo(), _sql_plano(), _tablas_mutadas(), test_0011_aborta_si_el_estado_no_es_el_esperado(), test_0011_deja_las_vigencias_exactas(), test_0011_deja_procedencia_propia() (+15 more)
 
-### Community 177 - "fabrica_web.py"
+### Community 177 - "crear"
 Cohesion: 0.10
-Nodes (18): version_creacion_desde_settings(), argumentos(), _creacion_v2_habilitada(), exportar_semillas(), _fallo_operacion(), _fecha_o_texto(), _fila_lote(), _lote_bloqueado() (+10 more)
+Nodes (19): version_creacion_desde_settings(), argumentos(), _bids_como_json(), _creacion_v2_habilitada(), crear(), detalle_lote(), exportar_semillas(), _huella_plan() (+11 more)
 
 ### Community 178 - "corrige_meli_skus.py"
-Cohesion: 0.14
-Nodes (18): escenario(), foto(), test_aplicar_ensayo_reversa_y_reintento(), test_deriva_aborta_sin_escritura_parcial(), test_reversa_rechaza_deriva_del_estado_aplicado(), aplicar(), _bloquear(), _costo() (+10 more)
+Cohesion: 0.16
+Nodes (17): foto(), test_aplicar_ensayo_reversa_y_reintento(), test_deriva_aborta_sin_escritura_parcial(), test_reversa_rechaza_deriva_del_estado_aplicado(), aplicar(), _bloquear(), _costo(), _entero() (+9 more)
 
 ### Community 179 - "zt"
 Cohesion: 0.06
 Nodes (14): Bt(), Ft(), Gt(), It(), jt(), kt(), mt(), qt() (+6 more)
 
 ### Community 180 - "api.py"
-Cohesion: 0.05
-Nodes (16): audit(), campaign_proposals(), _fila_propuesta_campana(), _filtros_decision(), _filtros_goals(), goals(), propuestas_campana_visibles(), carga_resumen() (+8 more)
+Cohesion: 0.08
+Nodes (13): carga_resumen(), contador(), _previo(), resumen(), _series(), _tendencia(), _url_allowlist(), _HeadersDashboard (+5 more)
 
 ### Community 181 - "bids-02/diseno/bosquejo.py"
 Cohesion: 0.05
-Nodes (32): AnuncioARetirar, Aviso, avisos_del_dia(), CambiarAjusteUbicacion, CambiarPresupuesto, CuerpoLanzarImpulso, CuerpoRegresarBid, FilaAsinAjeno (+24 more)
+Nodes (28): AnuncioARetirar, CambiarAjusteUbicacion, CambiarPresupuesto, CuerpoLanzarImpulso, CuerpoRegresarBid, FilaAsinAjeno, FilaBusqueda, FilaPalabra (+20 more)
 
 ### Community 182 - "test_optimizer_bid.py"
 Cohesion: 0.08
 Nodes (24): _agregado(), _bids(), _cortes(), _decide(), test_bids_incompleto_6_fechas_skip(), test_bids_none_sin_observaciones_skip(), test_clicks_100_cost_39_99_no_pause_us(), test_clicks_99_cost_40_no_pause() (+16 more)
 
-### Community 183 - "test_optimizer_goals.py"
-Cohesion: 0.02
-Nodes (110): cascada_target_acos(), cascada_target_acos_con_procedencia(), converge_al_destino(), elegible(), hoy_de_ventana(), medicion_desde_fila(), MedicionMargen, motivo_dato_invalido() (+102 more)
+### Community 183 - "goals.py"
+Cohesion: 0.01
+Nodes (211): cascada_target_acos(), cascada_target_acos_con_procedencia(), _chequea_modo(), clave_confianza_recorte(), clave_confianza_subida(), clave_gasto_para_concluir(), _confianza_desde_settings(), confianza_recorte_desde_settings() (+203 more)
 
 ### Community 184 - "sonda_spapi.py"
 Cohesion: 0.09
 Nodes (26): test_ventana_orders_formato_zulu_v0_lo_exige(), aviso_deprecacion(), construir_ruta_listings(), construir_ruta_ofertas(), _contenedor(), conteo_items(), _fragmento(), _get_y_linea() (+18 more)
 
 ### Community 185 - "_atribuir_ventas"
-Cohesion: 0.22
-Nodes (5): _atribuir_ventas(), _formato_skip_reason(), _id_de_evento(), _rows_skipped(), Mutantes de 0.a
+Cohesion: 0.15
+Nodes (9): _atribuir_ventas(), EventoLedger, _formato_skip_reason(), _id_de_evento(), _params(), _rows_skipped(), _sellar_run(), _sql_insert_para() (+1 more)
 
-### Community 186 - "30-revision-78888f3e/scripts/conciliar.py"
-Cohesion: 0.11
-Nodes (15): _agrega_dias(), carga_orbit(), carga_origen(), _columnas(), compara(), _compara_ventana(), _comparable(), _con_actividad() (+7 more)
+### Community 186 - "scrub"
+Cohesion: 0.03
+Nodes (70): _snippet_cuerpo(), _archivar_anuncios(), _lineas_de(), _reponer_anuncios(), aviso_spapi_vigilante_ciego(), redact_dsn(), _kv_replace(), redact_url() (+62 more)
 
-### Community 187 - "familias.py"
-Cohesion: 0.12
-Nodes (14): crea(), familia_de_productos(), FamiliaDuplicada, FamiliaInvalida, FamiliaNoExiste, _lee_familia(), _notas_familias(), origen_meta_familia() (+6 more)
+### Community 187 - "test_orbit07_m1.py"
+Cohesion: 0.10
+Nodes (18): _obs(), _rango(), _siembra_kw_pause(), _siembra_r9(), _siembra_hoja_en_cooldown(), _siembra_terminos_mx(), _ciclo_id(), _episodios() (+10 more)
+
+### Community 188 - "_RelojFijo"
+Cohesion: 0.06
+Nodes (20): Conciliación que falla ante cualquier diferencia, Evidencia, Modelo temporal por aceptaciones completas, Pruebas, rendimiento y documentación, Sellado de motivos con NUL y controles, Séptima revisión (corrección integral sobre `1a97cec5`), _RelojFijo, test_campaign_id_con_nul_y_fecha_invalida_sella_la_corrida() (+12 more)
 
 ### Community 189 - "test_metricas_listas.py"
 Cohesion: 0.08
@@ -1733,111 +1775,111 @@ Cohesion: 0.20
 Nodes (9): Checks de /salud (los tres, verificados en base tras el ciclo), Cierre anticipado (2026-09-15 19:40 UTC): ciclo 62 corrido, D.2 verificada, Confirmación base de los goals (readback directo, 19:5x UTC), E/D.2 — Terna del grupo 1 limpiada (2026-09-15), Goals del grupo 1 después de D.2, Migración a `harvest_excepcion`, Residuales, `/salud` después de D.2 (cierre de la fila) (+1 more)
 
 ### Community 191 - "AUTO-03: decisiones publicitarias por producto"
-Cohesion: 0.08
-Nodes (20): AUTO-03: comparacion estructural de candidatos, Injertos precisos en A, Semaforo, Lectura para el diseño de AUTO-03, Límites de esta evidencia, Margen individual observado, Observaciones Ads de producto, Política vigente (+12 more)
+Cohesion: 0.06
+Nodes (29): Alcance compartido y propiedad de escrituras, AUTO-03, candidato B: controlador previo por producto, Balance, riesgos y siguiente paso, Forma y tipos propuestos, Modelo persistido, estados y reversa, Problema y eleccion, Regla economica exacta propuesta, Uso del llamador, escrito primero (+21 more)
 
 ### Community 192 - "test_precio02_escenario_fbm.py"
 Cohesion: 0.15
 Nodes (34): _costo(), _db(), _db_filtro(), _dsn_base(), _dsn_de_db(), _excluidas(), _fee(), _fila_que_llega_al_check() (+26 more)
 
-### Community 193 - "REPRICING 02 — el motor de precios en todas las plataformas (diseño)"
-Cohesion: 0.20
-Nodes (10): Alternativas consideradas, Carriles y primer corte, Costos aceptados, Decisiones del dueño (2026-10-08 UTC, cerradas), Decisión de síntesis, Preguntas abiertas y riesgos, Problema, REPRICING 02 — el motor de precios en todas las plataformas (diseño) (+2 more)
+### Community 193 - "liberar"
+Cohesion: 0.21
+Nodes (5): CorridaSinRetencion, _fila(), Liberacion, liberar(), Carriles y primer corte
 
 ### Community 194 - "proyeccion_s5"
 Cohesion: 0.10
 Nodes (30): adjuntar_estimaciones(), _componente_s5(), _detalle_opcional(), _es_costo(), _es_fee(), _es_politica_comp(), _es_precio(), _fecha_fuente_persistida() (+22 more)
 
-### Community 195 - "_VivoFijo"
-Cohesion: 0.22
-Nodes (6): 1. Archivos, 2. Rojo TDD (antes de implementar), 3. Verde focalizado (después de implementar), 4. Desviaciones con razón, S.4: deja de congelar por errores sin efecto — evidencia, _VivoFijo
+### Community 195 - "S.4: mutantes (1 obligatorio + uno por prueba nueva)"
+Cohesion: 0.08
+Nodes (19): 1. Archivos, 2. Rojo TDD (antes de implementar), 3. Verde focalizado (después de implementar), 4. Desviaciones con razón, S.4: deja de congelar por errores sin efecto — evidencia, M0 — OBLIGATORIO: el cooldown ignora un error con readback nuevo, M10 — `test_s4_racha_sin_efecto_frena_cuarta_corrida`, M2 — `test_s4_error_sin_efecto_no_consume_cooldown` (+11 more)
 
 ### Community 196 - "ui_metricas.py"
-Cohesion: 0.18
-Nodes (19): clase_cambio(), _dec(), _delta_mini(), _dias_gasto_sin_venta(), _estado_tarjeta(), _fmt_dinero(), _fmt_entero(), _frase_tarjeta() (+11 more)
+Cohesion: 0.17
+Nodes (20): clase_cambio(), _dec(), _delta_mini(), _dias_gasto_sin_venta(), _estado_tarjeta(), _fmt_dinero(), _fmt_entero(), _frase_tarjeta() (+12 more)
 
 ### Community 197 - "test_fabrica_0038.py"
-Cohesion: 0.07
-Nodes (24): db_38(), _fases_de_indice(), _goal(), _goal_estado3(), _job(), _semilla_grupo_minimo(), _semilla_harvest(), test_0038_app_decide_bibliotecas_statement_literal() (+16 more)
+Cohesion: 0.09
+Nodes (20): db_38(), _dos_conexiones_38(), _fases_de_indice(), _goal(), _goal_estado3(), _job(), _semilla_grupo_minimo(), _semilla_harvest() (+12 more)
 
 ### Community 198 - "Conexion"
 Cohesion: 0.08
 Nodes (15): _aplicar_pendientes(), cerrar_por_observacion(), ConfigPrecio, _decidir_pendientes(), Exclusiones, Insumos, leer_candidatos(), leer_cuenta() (+7 more)
 
 ### Community 199 - "test_precio02_meli_catalogo.py"
-Cohesion: 0.22
-Nodes (32): _ClienteFalso, _corre(), _db(), _dsn_base(), _dsn_de_db(), _item(), _producto(), _siembra_listing() (+24 more)
+Cohesion: 0.19
+Nodes (34): escenario(), _ClienteFalso, _corre(), _db(), _dsn_base(), _dsn_de_db(), _item(), _producto() (+26 more)
 
 ### Community 200 - "test_publicacion_fotos.py"
-Cohesion: 0.18
-Nodes (10): cliente(), fotos(), test_cache_acota_memoria_al_recorrer_catalogo(), test_cache_separa_mercados_y_expira(), test_error_temporal_se_redacta_y_no_se_repite_en_rafaga(), test_main_correcta_y_cache_evitan_repetir_llamadas(), test_no_confunde_asin_mercado_o_foto_ausente(), test_no_descarga_urls_ajenas() (+2 more)
+Cohesion: 0.14
+Nodes (12): sin_input_privado(), cliente(), manejar(), fotos(), test_cache_acota_memoria_al_recorrer_catalogo(), test_cache_separa_mercados_y_expira(), test_error_temporal_se_redacta_y_no_se_repite_en_rafaga(), test_main_correcta_y_cache_evitan_repetir_llamadas() (+4 more)
 
-### Community 201 - "auto03_verifica.py"
-Cohesion: 0.06
-Nodes (40): Despliegue por el motor, Open questions and risks, Bloqueantes, Lector fresco escéptico, pasada 1 (2026-11-05, master ff28eb33), No bloqueantes, Verificado y correcto (resumen del lector), Bloqueantes, Lector fresco implementador, pasada 1 (2026-11-05, master ff28eb33) (+32 more)
+### Community 201 - "_db_temporal_c2a"
+Cohesion: 0.10
+Nodes (14): Lector fresco implementador, pasada 1 (2026-11-05, master ff28eb33), No bloqueantes, Verificado y correcto (resumen del lector), Hechos medidos por los lectores (solo lectura, 2026-11-05), Lectores frescos del plan AUTO-03: hallazgos y correcciones, No bloqueantes corregidos en la misma ronda, Pasada 2 (solo el diff), Pasada 3 (solo el diff) y cierre (+6 more)
 
 ### Community 202 - "test_optimizer_proteccion.py"
 Cohesion: 0.07
-Nodes (33): EpisodioProteccion, InsumosPausa, InsumosProteccion, LecturaReciente, ResultadoProteccion, Pausar, _abre_otro(), _aplica() (+25 more)
+Nodes (33): EpisodioProteccion, InsumosProteccion, LecturaReciente, ResultadoProteccion, Pausar, _abre_otro(), _aplica(), _espera() (+25 more)
 
 ### Community 203 - "test_arq_precio_m.py"
 Cohesion: 0.07
 Nodes (19): _es_put(), _importadores_de(), _imports_spapi_en(), _metodos_cliente_meli(), _pasa_sonda(), _puts_por_archivo(), _reenvia_sonda(), _sonda_por_archivo() (+11 more)
 
 ### Community 204 - "test_api.py"
-Cohesion: 0.09
-Nodes (27): _ciclo(), _cliente(), _config_version(), _db_temporal(), _decision(), _entidad(), _estado(), _goal_plataforma() (+19 more)
+Cohesion: 0.10
+Nodes (25): _ciclo(), _cliente(), _config_version(), _db_temporal(), _decision(), _entidad(), _estado(), _goal_plataforma() (+17 more)
 
 ### Community 205 - "test_pantalla_busquedas.py"
 Cohesion: 0.09
 Nodes (21): _fila(), _resume(), test_asin_propio_se_marca_no_se_esconde(), test_asin_sumado_en_toda_la_cuenta(), test_metrica_none_no_suma_ni_cuenta_cero(), test_misma_busqueda_en_dos_ad_groups(), test_palabra_corta_no_sale_sola(), test_palabra_sin_pedido_y_medio_camino() (+13 more)
 
-### Community 206 - "ErrorImpulso"
-Cohesion: 0.11
-Nodes (5): ErrorImpulso, Cambio, Mutante, Prueba primero, R09-A: pausar repetido, desarmado o sin campanas responde 409
+### Community 206 - "_frontera_impulso"
+Cohesion: 0.05
+Nodes (28): PausadorFabrica, Cambio, Mutante, Prueba primero, R09-A: pausar repetido, desarmado o sin campanas responde 409, _ClienteLectura, _amazon_estado(), __call__() (+20 more)
 
-### Community 207 - "ads_ingest.py"
-Cohesion: 0.04
-Nodes (48): _Aceptacion, _coincide_con_ultimas(), _contenido(), _contenido_desde(), _decision_temporal(), _entidad(), _estado_temporal(), _formato_skip_reason() (+40 more)
+### Community 207 - "_estado_temporal"
+Cohesion: 0.09
+Nodes (16): _entidad(), _estado_temporal(), _formato_skip_reason(), _max_as_of_observaciones(), _sella_reintento(), _sellar_run(), _skip_reason(), _skip_reason_reintento() (+8 more)
 
 ### Community 208 - "i"
 Cohesion: 0.06
-Nodes (23): bs(), cs, ct(), es(), et(), Fs(), ge(), hs (+15 more)
+Nodes (38): b(), bs(), cn(), ct(), dn(), e(), ei(), eo() (+30 more)
 
-### Community 209 - "psycopg"
-Cohesion: 0.06
-Nodes (31): abrir(), crea_snapshot(), main(), base_temporal(), corrida_ausente(), cuerpo(), duplicados_conflicting(), cuerpo() (+23 more)
+### Community 209 - "ingest_meli_ads"
+Cohesion: 0.15
+Nodes (16): ingest_meli_ads(), OrigenMeliAds, base_temporal(), corrida_ausente(), cuerpo(), duplicados_conflicting(), cuerpo(), updated_at_invalido() (+8 more)
 
 ### Community 210 - "carga.py"
-Cohesion: 0.09
-Nodes (16): razon(), rangos(), spearman(), razon(), suma(), suma_hojas(), arma_caso(), decide() (+8 more)
+Cohesion: 0.06
+Nodes (28): razon(), rangos(), spearman(), razon(), suma(), suma_hojas(), arma_caso(), decide() (+20 more)
 
 ### Community 211 - "pez-correccion/README.md"
-Cohesion: 0.05
-Nodes (34): BOM activos PEZ relacionados por familia, Desglose de las nueve referencias exactas de MeLi, Evidencia y reproduccion, PEZ: si hay BOM activos; el problema es la referencia que integra Orbit, Problema exacto de integracion y siguiente paso concreto, Que esta archivado y por que, Unidades, rendimiento, variantes y sub-BOM, Conciliacion del tercer eslabon: accounting (+26 more)
+Cohesion: 0.06
+Nodes (27): Conciliacion del tercer eslabon: accounting, Evidencia y limites de identidad, Fuente monetaria y entrega operativa, Identidad comercial: nueve PEZ son SET con cofre, Reproduccion y archivos, Comprobación local, Garantías y límites, PEZ 01 P3: lote operativo y reversa (+19 more)
 
 ### Community 212 - "bench_orbit07_proteccion.py"
-Cohesion: 0.08
-Nodes (24): _aplica_migraciones(), _borra(), cmd_comparar(), cmd_medir(), cmd_preparar(), _conecta(), _ConexionContador, _crea_desde_plantilla() (+16 more)
+Cohesion: 0.09
+Nodes (22): _aplica_migraciones(), _borra(), cmd_comparar(), cmd_medir(), cmd_preparar(), _conecta(), _ConexionContador, _crea_desde_plantilla() (+14 more)
 
 ### Community 213 - "Sección 1: preparación"
 Cohesion: 0.13
 Nodes (15): 0.a: incorpora el diseño y el plan al repo, Archivos de la sección, Cambios, Comprueba, Comprueba, Comprueba la sección completa, Pruebas primero, Pruebas primero (+7 more)
 
 ### Community 214 - "productos.js"
-Cohesion: 0.12
-Nodes (39): abrePasoPausa(), cableaPausa(), cajaCosto(), cajaPausa(), cancelaPasoPausa(), cierraPaso(), confirmaPasoPausa(), cuentaAnuncios() (+31 more)
+Cohesion: 0.13
+Nodes (38): abrePasoPausa(), cableaPausa(), cajaCosto(), cajaPausa(), cancelaPasoPausa(), cierraPaso(), confirmaPasoPausa(), cuentaAnuncios() (+30 more)
 
-### Community 215 - "PausadorDeCampanas"
-Cohesion: 0.25
-Nodes (3): AccionVigia, PausadorDeCampanas, vigila()
+### Community 215 - "test_s6_builders_nuevos_sin_costo_margen_ni_goal"
+Cohesion: 0.07
+Nodes (18): aviso_precio_cambio_error(), aviso_precio_cohorte(), aviso_precio_compuerta(), aviso_precio_corte_errores(), aviso_precio_resumen(), aviso_precio_reversa(), CambioErrorPrecio, causa_compuerta_es() (+10 more)
 
-### Community 216 - "sonda.py"
-Cohesion: 0.17
-Nodes (15): cuerpo_de(), esperar_cola(), fase_a_post(), fase_b_c(), fase_d(), fmt_min(), log(), main() (+7 more)
+### Community 216 - "db_reputacion"
+Cohesion: 0.18
+Nodes (25): _conexion_lectura(), db_reputacion(), _alerta(), _get_pagina(), _pregunta(), _render_reputacion(), _resumen_fabricado(), test_api_contador_alertas_abiertas() (+17 more)
 
 ### Community 217 - "30-revision-10266d91/scripts/revision/orbit_review_d1bdbe5.py"
-Cohesion: 0.08
+Cohesion: 0.20
 Nodes (17): fila(), futuro_dentro_de_tolerancia(), reloj_retrocede(), case_clock_collision(), case_future_clock(), case_legacy(), case_mark_interleaving(), recopia_baja_id() (+9 more)
 
 ### Community 218 - "test_orbit_bench.py"
@@ -1846,23 +1888,23 @@ Nodes (28): _complete_review(), _deliver_and_grade(), fake_catalog(), _json(), _
 
 ### Community 219 - "orbit-07-motor-decisiones.md"
 Cohesion: 0.07
-Nodes (21): Cómo continuar sin esta conversación, ORBIT 07: estado de ejecución, Evidencia de produccion, Fuentes de fases posteriores (inventario, sin construir), M0: fuentes de la proteccion de venta reciente, Estados, Evidencia, Fuentes de invalidación (+13 more)
+Nodes (23): Dependencia de ejecución, Distinciones de estado, Matriz M1-M6, ORBIT 07: arranque, dependencia y matriz M1-M6, Roles, modelos y habilidad, Cómo continuar sin esta conversación, ORBIT 07: estado de ejecución, Evidencia de produccion (+15 more)
 
 ### Community 220 - "Ronda r1 (auditoria del lead sobre `a9c49f7`; 14 mutantes + cable)"
-Cohesion: 0.06
-Nodes (34): A.3 — Catálogo de mutantes (REPRICING 01, escritura y reversa), B1 — PATCH antes de que la pendiente sea durable (`precio_write.py` + `tools/precio_reversa.py`), Baseline (sin base: cliente falso; DSN solo por los tests vecinos), COMMIT — el go perdía sus escrituras (`tools/precio_reversa.py`), G1 — PATCH sin `marketplaceIds` (`write_client.py:patch_listing`, ALTO), G2 — `cambiar` con abierto del par (`precio_write.py:cambiar_precio`), G5 — cuerpo con `Decimal`/`float` a la red (`write_client.py`), L1 — escritor de otra platform sin cotejo (`precio_write.py`, MEDIO) (+26 more)
+Cohesion: 0.12
+Nodes (16): COMMIT — el go perdía sus escrituras (`tools/precio_reversa.py`), P11 — `error_code` con el SKU (`precio_write.py:_publicar`), P13 — `revertir` acepta un virtual (`precio_write.py:revertir`), P15 — `revertir` compara solo el importe (`precio_write.py:revertir`), P17 — la observación del mismo día cierra (`precio_write.py:cerrar_por_observacion`), P19 — manda la más vieja (`precio_write.py:cerrar_por_observacion`), P20 — `confirmado_por = 'virtual'` (`precio_write.py:cerrar_por_observacion`), P5 — `subir` en `shadow` mueve precio (`precio_write.py:cambiar_precio`) (+8 more)
 
 ### Community 221 - "_decide"
 Cohesion: 0.09
-Nodes (19): _decide(), _negativo(), _terminos(), test_asin_like_skip_en_negative_y_en_harvest(), test_clicks_o_cost_none_negative_dato_faltante(), test_entidad_6_fechas_todos_skip_incluido_el_que_cumpliria(), test_harvest_acos_borde_inclusivo_y_un_pelo_arriba(), test_harvest_lleva_default_bid_y_moneda_negative_sin_dinero() (+11 more)
+Nodes (19): _decide(), _negativo(), _terminos(), test_asin_like_skip_en_negative_y_en_harvest(), test_clicks_o_cost_none_negative_dato_faltante(), test_entidad_6_fechas_todos_skip_incluido_el_que_cumpliria(), test_harvest_duplicado(), test_harvest_lleva_default_bid_y_moneda_negative_sin_dinero() (+11 more)
 
-### Community 222 - "P13: publicacion de medidas PEZ confirmadas"
-Cohesion: 0.25
-Nodes (8): Alcance, Ejecucion y comprobacion, Fuentes de API, P13: publicacion de medidas PEZ confirmadas, Publicacion inhabilitada, Respaldo y reversa, Resultado comprobado: ocho de nueve, Verificacion del codigo
+### Community 222 - "_target_pause_vigente_detalle"
+Cohesion: 0.08
+Nodes (17): _familia_respaldo(), _peldano_congelado(), _producto_fresco(), _target_pause_vigente_detalle(), familia_fresca(), lee_evaluacion_ciclo(), _medicion(), producto_exclusivo() (+9 more)
 
 ### Community 223 - "APPLY — contrato fino del módulo de escritura (ORBIT 04 / PR2)"
-Cohesion: 0.05
-Nodes (35): _cliente_reversa(), perfil_aceptado_de(), _reversa_ya_hecha(), 0. Checklist 1:1 — decisión sellada → sección → verificación, 10.1 AUTH de escritura (sellado 18), 10.2 Telegram (sellado 19), 10.3 Goals amigables (sellado 26), 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26) (+27 more)
+Cohesion: 0.06
+Nodes (30): 0. Checklist 1:1 — decisión sellada → sección → verificación, 10.1 AUTH de escritura (sellado 18), 10.2 Telegram (sellado 19), 10.3 Goals amigables (sellado 26), 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26), 11. Procedimientos operativos, 11a. Alta de una familia harvest nueva (sellado 15), 11b. Rotación del token estático de escritura (sellado 18) (+22 more)
 
 ### Community 224 - "steps"
 Cohesion: 0.05
@@ -1870,15 +1912,15 @@ Nodes (36): concurrency, cancel-in-progress, group, ORBIT_TEST_DSN, POSTGRES_DB,
 
 ### Community 225 - "json"
 Cohesion: 0.03
-Nodes (64): _parse_payload(), Defecto operativo que impide cerrar A.4, H4 / A.4 — dias 3 y 4 de observacion (28-29 sep UTC), compose(), fingerprint(), live(), main(), NoRedirect (+56 more)
+Nodes (64): _parse_payload(), _precio_decimal(), A.3 — deploy del arreglo del fallo global falso (#369), Defecto operativo que impide cerrar A.4, H4 / A.4 — dias 3 y 4 de observacion (28-29 sep UTC), H4 / A.4 — readback parcial de la ingesta vigilada (días 1-2 de 7), Hallazgo: fallo global falso que nunca se recupera, Pendiente de A.4 (+56 more)
 
 ### Community 226 - "Brief para Muse: SP-API 01 A.5 — ronda de correcciones (review del lead)"
 Cohesion: 0.07
 Nodes (24): _quota_de(), _racha_fallida(), Comandos y salidas (sin secretos), Comandos y salidas (sin secretos), Cuándo alerta y cuándo NO, Migración 0036 (JUSTIFICACIÓN EN EL PR), Mutantes (regla 9), Nota de rama (+16 more)
 
-### Community 227 - "Cross review Grok sobre `0c48417` (RESUMEN-ADS-01)"
-Cohesion: 0.13
-Nodes (14): 1. Mismo as_of legado con contenido distinto (bloqueante), 2. Día interior con gasto y sin campañas (bloqueante), 3. Runbook con archivo no vacío equivocado (media), 4. Duplicado futuro sin aceptación borraba el piso legado (bloqueante), 5. Día posterior a la última campaña o sin campañas (bloqueante), 6. Dos versiones al mismo as-of colapsaban en el dict (media), 7. `mktemp` con XXXXXX antes de la extensión (media), Cross review Grok sobre `0c48417` (RESUMEN-ADS-01) (+6 more)
+### Community 227 - "_observaciones_en_as_of"
+Cohesion: 0.07
+Nodes (24): _coincide_con_ultimas(), _contenido(), _contenido_desde(), _decision_temporal(), _observaciones_en_as_of(), _version_y_as_of(), _versiones_snapshot(), 1. Mismo as_of legado con contenido distinto (bloqueante) (+16 more)
 
 ### Community 228 - "lee_busquedas"
 Cohesion: 0.18
@@ -1886,95 +1928,95 @@ Nodes (19): lee_busquedas(), _ad_group(), _campana(), _db_p6(), _obs(), _run(), 
 
 ### Community 229 - "n"
 Cohesion: 0.09
-Nodes (7): Be(), fn(), gn(), n(), ne(), numeric(), xn()
+Nodes (8): fn(), g(), gn(), g(), n(), pi(), r(), xn()
 
-### Community 230 - "Conexion"
-Cohesion: 0.11
-Nodes (11): AjusteHecho, aplica_ajuste_campana(), Conexion, ejecuta_retiro(), planea_retiro(), PlanRetiro, regresa_ajuste_campana(), regreso_del_dueno() (+3 more)
+### Community 230 - "regreso_del_dueno_todas"
+Cohesion: 0.33
+Nodes (3): regreso_del_dueno(), regreso_del_dueno_todas(), RegresoHecho
 
 ### Community 231 - "test_ads_descarga.py"
 Cohesion: 0.02
-Nodes (94): _Corrida, descarga(), _emitir_post(), _FalloDeGrupo, GrupoDescarga, _id_de_duplicado(), _Intento, ItemDescargado (+86 more)
+Nodes (89): _Corrida, descarga(), GrupoDescarga, _registrar(), ResultadoEscritura, ResultadoGrupo, _envia_mensajes(), _escritor_diario() (+81 more)
 
 ### Community 232 - "test_contribucion_entidad.py"
 Cohesion: 0.12
 Nodes (25): _entidad(), _run_id(), _semilla_mx_completa(), test_catalogo_parcial_ausente(), test_contribucion_mx_publica_par_halo(), test_cost_null_anula_tacos_pct(), test_d8_candado_verde_con_quantity_uno(), test_d8_quantity_distinta_de_uno_falla() (+17 more)
 
 ### Community 233 - "plans/ads-proteccion-01.md"
-Cohesion: 0.05
-Nodes (31): C.2b — aceptacion del dueno (2026-09-25), D.1 — decision_sin_aplicar: merge y deploy, Deploy (2026-09-25 23:53 UTC, dueno con `!`), Merge, Pendiente, Primer ciclo post-deploy (2026-09-26, solo lectura), ADS PROTECCION: evidencia operativa A.4 / B.4, Caso B.4 (+23 more)
+Cohesion: 0.06
+Nodes (25): C.2b — aceptacion del dueno (2026-09-25), ADS PROTECCION: evidencia operativa A.4 / B.4, Caso B.4, Reproduccion, Resultado y alcance del cierre, C6-P1 — fotografia productiva de lectura, Fuentes, alcance y reproduccion, Inventario de escritores para sombra global (+17 more)
 
 ### Community 234 - "test_migracion_0062.py"
 Cohesion: 0.13
 Nodes (17): Mutantes de V.2 (migracion 0062), Panel V.2 (verificados 2026-10-10, todos MUEREN con `1 failed`), _campana(), db_62(), _foto(), _observa(), test_0062_columnas_sin_top_of_search_is(), test_0062_dedupe_absorbe_reingesta() (+9 more)
 
-### Community 235 - "decision"
-Cohesion: 0.02
-Nodes (95): 1.1 Perímetro (sellado 1), 1.2 Tabla de transiciones EXACTA (sellado 4), 1.3 Clave de efecto (sellado 4), 1.4 Ventana de 48h y veto durable 30d (sellados 1, 2, 3), 1.5 Candados de schema (sellado 4), 1.6 Encola la APP; invariante corte↔cola (sellado 4), 1. Máquina de estados de `apply_queue` (0002), Ads, halo, cero pedidos y madurez (+87 more)
+### Community 235 - "Sección 2: el motor"
+Cohesion: 0.05
+Nodes (43): Archivos de la sección, Cambios, Cambios, Cambios, Cambios, Cambios, Cambios, Cambios (+35 more)
 
-### Community 236 - "_lote_campanas"
-Cohesion: 0.09
-Nodes (15): filtra_y_ordena_campanas(), _html_campanas(), _item_campana(), _lote_campanas(), _nombres(), test_estado_fila_sigue_el_orden_del_diseno(), test_filtra_campanas_cost_revenue_nombre_procedencia(), test_filtra_campanas_plataforma_estado_clicks_acos() (+7 more)
+### Community 236 - "Crons de Orbit (crontab de `gon`, ADITIVO)"
+Cohesion: 0.07
+Nodes (19): Crons de Orbit (crontab de `gon`, ADITIVO), Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada), Profundidad de la tirada diaria de métricas (sello 4.2), Refresco diario contable 08:15 (ORBIT 06 2.2), Vigilante SP-API 07:30 (aviso del silencio), D.4: evidencia del paquete (REPRICING 02, seccion 5), Decisiones con razon, Estado de produccion leido el dia del paquete (solo lectura) (+11 more)
 
 ### Community 237 - "conftest.py"
-Cohesion: 0.32
-Nodes (4): _canal_telegram_deshabilitado(), parte_de(), pytest_collection_modifyitems(), _registro_de_secretos_aislado()
+Cohesion: 0.22
+Nodes (7): _canal_telegram_deshabilitado(), parte_de(), pytest_collection_modifyitems(), _registro_de_secretos_aislado(), _recolecta(), test_cada_prueba_cae_en_una_sola_parte(), test_la_union_de_las_partes_es_la_bateria()
 
 ### Community 238 - "test_costs_sync.py"
-Cohesion: 0.08
-Nodes (27): colapsar(), _costo_decimal(), _dia(), FilaCosto, _motivo_rechazo(), _plan_sku(), Vigencia, _fila() (+19 more)
+Cohesion: 0.11
+Nodes (21): colapsar(), FilaCosto, _motivo_rechazo(), _fila(), test_costo_cero_no_se_escribe_y_corta_la_cadena(), test_costo_con_mas_de_4_decimales_rechazado(), test_costo_nulo_rechazado(), test_costo_subcentavo_cuantiza_a_cero_y_se_rechaza() (+13 more)
 
-### Community 239 - "totales_por_moneda"
-Cohesion: 0.22
-Nodes (9): totales_por_moneda(), 9.1 Catálogo y moneda, 9.3 Ventana efectiva y recorte, 9.4 Respuesta por canal, 9.5 Nulos, ceros y ratios, 9.6 Cobertura, 9.8 MA7, 9.9 Compatibilidad (+1 more)
+### Community 239 - "ErrorImpulso"
+Cohesion: 0.07
+Nodes (13): _archiva_lote_vacio(), _archiva_vacios(), _conecta_propia(), _descarta_huerfano(), ErrorImpulso, _pausador_propio(), _reactiva_para_sellar(), _tiene_externals() (+5 more)
 
-### Community 240 - "test_ui_productos.py"
-Cohesion: 0.12
-Nodes (9): Prueba primero, _render_limites(), test_encender_boton_deshabilitado_sin_limites_y_volver_en_vivo(), test_encender_js_simula_confirma_cancela_y_vuelve_a_practica(), test_flujo_js_plan_lanza_y_repone_con_literales(), test_guardar_limites_por_omision_sin_claves_si_envia(), test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object(), test_r09r3_js_pantalla_us_pide_plan_en_us() (+1 more)
+### Community 240 - "30-revision-10266d91/scripts/conciliar.py"
+Cohesion: 0.11
+Nodes (15): _agrega_dias(), carga_orbit(), carga_origen(), _columnas(), compara(), _compara_ventana(), _comparable(), _con_actividad() (+7 more)
 
 ### Community 241 - "Resumen"
 Cohesion: 0.08
 Nodes (25): Resumen, Driving it with curl, Gotchas, How to get to it (user POV), Resumen, Sub-features, Alcance comprobado automaticamente, Cleanup (+17 more)
 
 ### Community 242 - "Ba"
-Cohesion: 0.13
-Nodes (7): afterInit(), Ba, f(), Oi(), Va(), wi(), za()
+Cohesion: 0.08
+Nodes (16): a(), aa(), afterDatasetsUpdate(), afterInit(), Ba, f(), generateLabels(), ki() (+8 more)
 
 ### Community 243 - "ro"
-Cohesion: 0.08
-Nodes (7): bo, buildTicks(), H(), init(), mo(), ro(), xo()
+Cohesion: 0.12
+Nodes (4): buildTicks(), init(), mo(), ro()
 
 ### Community 244 - "ui_campanas.py"
-Cohesion: 0.19
-Nodes (18): estado_de(), EstadoFila, FilaVista, _frase(), _moneda(), _num(), _orden_plataformas(), Pestana (+10 more)
+Cohesion: 0.17
+Nodes (19): dinero_coma_ui(), estado_de(), EstadoFila, FilaVista, _frase(), _moneda(), _num(), _orden_plataformas() (+11 more)
 
 ### Community 245 - "DEPLOY — Orbit en goncloud (Postgres 16 + app)"
-Cohesion: 0.05
-Nodes (37): Activación (orden completo, sin desplegar desde este runbook), Aplicar migraciones, Archivo manual de keywords inertes (BIDS 01), Backups, BIDS 02 D.1 — despliegue del motor + fraccion US 0.8, BIDS 02 D.2 — despliegue de ver la campana + dos lineas de cron, BIDS 02 D.3 — despliegue de los ajustes del dueno (sin cron), BIDS 02 D.4 — despliegue del impulso, los productos y el retiro (con cron) (+29 more)
+Cohesion: 0.06
+Nodes (31): Activación (orden completo, sin desplegar desde este runbook), Backups, BIDS 02 D.1 — despliegue del motor + fraccion US 0.8, BIDS 02 D.2 — despliegue de ver la campana + dos lineas de cron, BIDS 02 D.3 — despliegue de los ajustes del dueno (sin cron), BIDS 02 D.4 — despliegue del impulso, los productos y el retiro (con cron), BIDS 02 D.5 — despliegue de la pantalla de busquedas (sin migracion ni cron), BIDS 02 D.6 y D.7: reversa vigente (+23 more)
 
-### Community 246 - "_salud_html_fakeado"
-Cohesion: 0.07
-Nodes (23): Bloqueantes, Cross-review rebase2 C.4 (revisor independiente), Lo verificado OK, Observaciones (no bloqueantes), _celda(), _ctx_cortes(), _fila_de(), _plataforma_harvest_destino() (+15 more)
+### Community 246 - "test_ui.py"
+Cohesion: 0.01
+Nodes (107): Bloqueantes, Cross-review rebase2 C.4 (revisor independiente), Lo verificado OK, Observaciones (no bloqueantes), 3. Verde focalizado (después de implementar), _ctx_cortes_local(), test_cortes_plantilla_rotula_grupo_sin_destino_y_avisa_si_no_hay_asesoria(), _cara_senal_ui() (+99 more)
 
 ### Community 247 - "ROADMAP.md"
-Cohesion: 0.07
-Nodes (21): Conciliación de planes y pendientes — 4 de noviembre de 2026, Conclusiones y cómo cerrarlas, Fuentes y límites, Reproducibilidad y mantenimiento, Verificación de esta actualización, 2.3 — harvest aplicado por el motor de punta a punta, 2.5 — post-flip (checklist APPLY §12 ítem 10), Defecto del job 2: el harvest se negó a sí mismo (+13 more)
+Cohesion: 0.06
+Nodes (23): Conciliación de planes y pendientes — 4 de noviembre de 2026, Conclusiones y cómo cerrarlas, Fuentes y límites, Reproducibilidad y mantenimiento, Verificación de esta actualización, 2.3 — harvest aplicado por el motor de punta a punta, 2.5 — post-flip (checklist APPLY §12 ítem 10), Defecto del job 2: el harvest se negó a sí mismo (+15 more)
 
 ### Community 248 - "Evidencia M.3: margen meli/meli"
 Cohesion: 0.29
 Nodes (6): Adenda CodeRabbit (cierre): CR-1 + CR-2a (+3 tests netos,, Evidencia M.3: margen meli/meli, Mutantes, Panel, Pruebas, Repro
 
 ### Community 249 - "CotizadorMeli"
-Cohesion: 0.08
-Nodes (28): construir_fee_canonical_input_meli(), construir_oferta_canonical_input_meli(), construir_oferta_source_event_id_meli(), CotizadorMeli, _decimal(), partir_fees_meli(), _variantes_sin_mapear(), Adenda CodeRabbit (cierre seccion 5, PR #456) (+20 more)
+Cohesion: 0.09
+Nodes (23): CotizadorMeli, _fugas_adaptador(), _fugas_escritura(), test_archivo_del_carril(), test_atribuidor_amazon_no_escribe(), test_candado_de_escritura_detecta_fuga_sembrada(), test_candado_de_sonda_detecta_import_sembrado(), test_sonda_generica_no_importa_adaptadores() (+15 more)
 
 ### Community 250 - "BIDS 01 — cero ventas baja −25% (relativo al producto) + entidades sin tráfico fuera del motor, reportadas y archivables"
-Cohesion: 0.12
-Nodes (15): 1.1 — Regla A' (`app/optimizer/bid.py`, `app/cycle.py`, `app/optimizer/replay.py`, `app/apply.py`, `app/api_dashboard.py`), 1.2 — Vista `v_entidad_inerte` + guarda (`migrations/0013_entidad_inerte.sql`, `app/cycle.py`), 2.1 — Sellar la edad (rama bids-01-2-1), BIDS 01 — cero ventas baja −25% (relativo al producto) + entidades sin tráfico fuera del motor, reportadas y archivables, Decisiones y evidencia (GLM / DeepSeek escriben aquí ANTES del código), Estado medido que origina este plan (regla 8, lead, 2026-09-03, `orbit_read`), Guía de implementación, Phase 1 — Motor y vista [lane:gate] (+7 more)
+Cohesion: 0.17
+Nodes (11): 2.1 — Sellar la edad (rama bids-01-2-1), BIDS 01 — cero ventas baja −25% (relativo al producto) + entidades sin tráfico fuera del motor, reportadas y archivables, Decisiones y evidencia (GLM / DeepSeek escriben aquí ANTES del código), Estado medido que origina este plan (regla 8, lead, 2026-09-03, `orbit_read`), Phase 1 — Motor y vista [lane:gate], Phase 2 — Superficie y herramienta [lane:gate], Reglas de proceso para GLM y DeepSeek (NO negociables), Reject (con razón) (+3 more)
 
 ### Community 251 - "ho"
-Cohesion: 0.11
-Nodes (7): _generate(), _getTimestampsForTable(), ho(), lo(), ma(), nt(), Vo()
+Cohesion: 0.06
+Nodes (11): Ae(), configure(), determineDataLimits(), _generate(), _getTimestampsForTable(), ho(), ma(), nt() (+3 more)
 
 ### Community 252 - "Importe"
 Cohesion: 0.10
@@ -1988,13 +2030,13 @@ Nodes (15): G.2 — mutantes, _corrida(), _cuenta(), _medicion(), test_g2_aplica
 Cohesion: 0.25
 Nodes (26): _db(), _atribuciones(), _cargo_directo(), _corre(), _fila_meli(), _listing_meli(), _producto(), _run() (+18 more)
 
-### Community 255 - "_checks_de"
-Cohesion: 0.13
-Nodes (17): Convenciones transversales, _claves_foraneas(), _cols(), _cols2(), _cols_de(), _contypes(), _fks_de_add_column(), _lideres_de_indice_no_parcial() (+9 more)
+### Community 255 - "disponibilidad.py"
+Cohesion: 0.10
+Nodes (10): DisponibilidadError, estado_disponibilidad(), _fila_a_observacion(), FilaFBA, FilaFBM, _formato_skip_reason(), ObservacionDisponibilidad, _parsear_fetched_at() (+2 more)
 
 ### Community 256 - "estimacion_ingest.py"
-Cohesion: 0.09
-Nodes (18): _contar_transicion_negativa_huella(), _cotizar_item(), ejecutar_ingesta(), _formato_skip_reason(), _huella_item(), _huella_meli_actual(), _log_excepcion_item(), _persistir_escenario_item() (+10 more)
+Cohesion: 0.06
+Nodes (25): _contar_transicion_negativa_huella(), _cotizar_item(), ejecutar_ingesta(), _formato_skip_reason(), _huella_item(), _huella_meli_actual(), _log_excepcion_item(), _persistir_escenario_item() (+17 more)
 
 ### Community 257 - "Atribucion"
 Cohesion: 0.11
@@ -2005,8 +2047,8 @@ Cohesion: 0.07
 Nodes (29): build, depends_on, environment, ports, restart, user, volumes, context (+21 more)
 
 ### Community 259 - "Ads Optimizer v2 — diseño y fuente de verdad"
-Cohesion: 0.25
-Nodes (8): Ads Optimizer v2 — diseño y fuente de verdad, Fases, Módulos, Por qué existe, Qué reutiliza (no reescribe), Reglas (con acoplamiento numérico sellado en tests), Residuales declarados (tope del kit de cross-review alcanzado), Tablas propias
+Cohesion: 0.11
+Nodes (15): ADS PROTECCION 01 — decisiones de producto, Campanas: propuesta y pausa manual en Amazon, Datos y calculo economico, Medicion y activacion, Precedencia y aplicacion en hojas, Resultado buscado, Salud de ingesta y avisos, Ads Optimizer v2 — diseño y fuente de verdad (+7 more)
 
 ### Community 260 - "test_migracion_0061.py"
 Cohesion: 0.15
@@ -2017,60 +2059,60 @@ Cohesion: 0.07
 Nodes (10): Atribucion, Cotizador, Cuenta, leer_config(), MeliWriteClient, Miembro, miembro_que_manda(), post_compuerta_liberar() (+2 more)
 
 ### Community 262 - "Cómo construir BIDS 02"
-Cohesion: 0.29
-Nodes (6): Antes de empezar, Cómo construir BIDS 02, Cómo se despliega una sección, Preguntas que siguen abiertas, Quién edita cada archivo compartido, Reglas que valen en todos los pasos
+Cohesion: 0.25
+Nodes (7): Antes de empezar, Cómo construir BIDS 02, Cómo se construye una pantalla, Cómo se despliega una sección, Preguntas que siguen abiertas, Quién edita cada archivo compartido, Reglas que valen en todos los pasos
 
 ### Community 263 - "Sección 5: impulso y estructura"
-Cohesion: 0.07
-Nodes (28): pasos_del_impulso(), Archivos de la sección, Cambios, Cambios, Cambios, Cambios, Comprueba, Comprueba (+20 more)
+Cohesion: 0.06
+Nodes (31): pasos_del_impulso(), Archivos de la sección, Cambios, Cambios, Cambios, Cambios, Cambios, Comprueba (+23 more)
 
 ### Community 264 - "test_estimacion_venta_schema.py"
-Cohesion: 0.08
-Nodes (35): test_migracion_parsea_y_trae_invariantes(), test_0020_parsea_y_sella_append_only(), test_sql_del_modulo_parsea_como_postgres(), test_migracion_parsea_y_trae_invariantes(), test_0021_crea_solo_la_vista_y_no_toca_v_margen_producto(), _rango(), _corrida_costos(), db_estimacion() (+27 more)
+Cohesion: 0.09
+Nodes (36): db_reputacion(), _sembrar_listing(), test_alert_mutable_solo_para_sellar(), test_migracion_parsea_y_trae_invariantes(), test_review_event_dedup_por_id_externo_y_rating(), test_snapshot_invariantes_muerden(), test_snapshot_listing_y_cuenta_ok_y_append(), test_0020_parsea_y_sella_append_only() (+28 more)
 
 ### Community 265 - "test_orbit_bench_cases.py"
-Cohesion: 0.26
-Nodes (19): _correcto_codigo(), _correcto_depuracion(), _correcto_mantenibilidad(), _entrega(), test_caso_desconocido_no_se_convierte_en_aprobacion(), test_casos_humanos_quedan_pendientes_aunque_haya_artefacto(), test_codigo_acepta_frontera_monetaria_y_rechaza_mutante_sin_moneda(), test_codigo_detecta_moneda_incorrecta_y_dato_faltante() (+11 more)
+Cohesion: 0.20
+Nodes (22): _correcto_codigo(), _correcto_depuracion(), _correcto_mantenibilidad(), _entrega(), test_caso_desconocido_no_se_convierte_en_aprobacion(), test_casos_humanos_quedan_pendientes_aunque_haya_artefacto(), test_codigo_acepta_frontera_monetaria_y_rechaza_mutante_sin_moneda(), test_codigo_detecta_moneda_incorrecta_y_dato_faltante() (+14 more)
 
 ### Community 266 - "comun.sh"
 Cohesion: 0.14
 Nodes (23): anota(), aplica_clave(), claves_a_converger(), claves_cambiadas(), compose_up(), corte(), espera_salud(), estado_guardas() (+15 more)
 
 ### Community 267 - "test_ads_salud.py"
-Cohesion: 0.04
-Nodes (51): bloque_salud(), comprobar_atraso(), entregar_pendientes(), incidentes_de_run(), main(), procesar_run(), _texto(), unidades_atrasadas() (+43 more)
+Cohesion: 0.17
+Nodes (10): _cerrar_a3d(), _run(), test_a3d_atraso_nuevo_tras_recovery_pendiente_no_se_pierde(), test_a3d_fallo_nuevo_tras_recovery_pendiente_no_se_pierde(), test_a3d_resumen_ejecutado_cuenta_unidades_y_aperturas(), test_fallo_global_no_se_atribuye_a_un_perfil(), test_fallo_principal_abre_aviso_y_productos_no_lo_cierra(), test_perfil_pais_no_soportado_no_abre_fallo_global() (+2 more)
 
-### Community 268 - "_v_tacos_viva"
-Cohesion: 0.10
-Nodes (13): _comparacion_del_umbral(), _tacos_pct_viva(), test_0012_calla_ante_reconciliacion_imposible_y_grano_perdido(), test_0012_expone_residuo_pct_al_final(), test_0012_residuo_participa_del_case_de_tacos_pct(), test_0012_residuo_se_juzga_en_valor_absoluto(), test_0012_umbral_es_el_medido(), test_allowlist_kinds_en_tres_sitios() (+5 more)
+### Community 268 - "_comparacion_del_umbral"
+Cohesion: 0.29
+Nodes (3): _comparacion_del_umbral(), test_0012_residuo_se_juzga_en_valor_absoluto(), test_0012_umbral_es_el_medido()
 
 ### Community 269 - "test_precio02_atribucion.py"
-Cohesion: 0.22
-Nodes (23): ResultadoSync, _sellar_run(), sync_ledger(), _atribuciones(), _db(), _dsn_base(), _dsn_de_db(), _inventario() (+15 more)
+Cohesion: 0.13
+Nodes (25): AtribuidorAmazon, ResultadoSync, sync_ledger(), _atribuciones(), _db(), _dsn_base(), _dsn_de_db(), _inventario() (+17 more)
 
-### Community 270 - "report.py"
-Cohesion: 0.26
-Nodes (12): _analyze(), _artifacts_present(), _format_number(), _group_key(), _human_complete(), _metric_summary(), _number(), _run_directories() (+4 more)
+### Community 270 - "evaluacion_catalogo.py"
+Cohesion: 0.11
+Nodes (14): EvaluacionAds, EvaluacionListing, evaluar_listing(), motivos_margen(), objetivo_comparacion(), ordenar(), suma_con_veneno(), Decisiones (+6 more)
 
-### Community 271 - "reputacion.py"
-Cohesion: 0.07
-Nodes (44): _abrir_run(), _asin_de_input(), _asin_valido(), _corre_meli(), _ensayo(), _escribe_hechos(), _escribe_todo_meli(), fetch_meli() (+36 more)
+### Community 271 - "evaluacion"
+Cohesion: 0.08
+Nodes (13): evaluacion(), _fecha_o_texto(), _monto_o_texto(), _serializar_evaluacion(), _Conn, db_evaluacion(), _Respuesta, _sembrar_grupo_planeado() (+5 more)
 
 ### Community 272 - "oo"
-Cohesion: 0.09
-Nodes (16): beforeDatasetDraw(), beforeDatasetsDraw(), beforeDraw(), ca, da(), fa(), ia(), Ie() (+8 more)
+Cohesion: 0.18
+Nodes (4): io(), no(), oo, zi()
 
 ### Community 273 - "test_bids02_vistas.py"
-Cohesion: 0.13
-Nodes (20): 0.b: mutantes (obligatorio + uno por prueba nueva), _aplicacion(), _ciclo(), _config(), _db_bids02(), _decision_bid(), _decision_pausa(), _entidad() (+12 more)
+Cohesion: 0.16
+Nodes (18): 0.b: mutantes (obligatorio + uno por prueba nueva), _aplicacion(), _ciclo(), _config(), _db_bids02(), _decision_bid(), _decision_pausa(), _entidad() (+10 more)
 
 ### Community 274 - "P13: la diferencia proviene de valor publicado retenido frente a materiales actuales"
-Cohesion: 0.07
-Nodes (23): Archivos y reproduccion, Cadena causal comprobada, Cifras por SET, MXN por unidad, P13: la diferencia proviene de valor publicado retenido frente a materiales actuales, Por que no se ajustaron automaticamente los SET, Tratamiento propuesto, Matriz de las nueve variantes PEZ, Borrador mínimo, sin publicar (+15 more)
+Cohesion: 0.06
+Nodes (31): Archivos y reproduccion, Cadena causal comprobada, Cifras por SET, MXN por unidad, P13: la diferencia proviene de valor publicado retenido frente a materiales actuales, Por que no se ajustaron automaticamente los SET, Tratamiento propuesto, Matriz de las nueve variantes PEZ, Borrador mínimo, sin publicar (+23 more)
 
 ### Community 275 - "ProductFeesClient"
-Cohesion: 0.06
-Nodes (22): ProductFeesClient, _RateLimiter, _es_imagen(), FotosPublicacion, _url_main(), cliente_compartido(), Cierre, Comandos y salidas (focal, sin secretos) (+14 more)
+Cohesion: 0.04
+Nodes (42): CotizadorAmazon, partir_fees(), ProductFeesClient, _RateLimiter, plataformas_con_cotizador(), _es_imagen(), FotosPublicacion, _url_main() (+34 more)
 
 ### Community 276 - "1. Credenciales — qué existe y dónde"
 Cohesion: 0.07
@@ -2081,8 +2123,8 @@ Cohesion: 0.16
 Nodes (17): _contribucion_html_fakeado(), _fila_de(), _item_ausente(), _item_con_rango(), _payload(), test_lectura_contribucion_desactiva_nestloop(), test_rollup_sql_una_pasada_sin_filtro_por_plataforma(), test_rollup_sql_vistas_materializadas_y_hojas_sin_dias() (+9 more)
 
 ### Community 278 - "dossier_adversarial.py"
-Cohesion: 0.13
-Nodes (20): _ack_id(), _acos_ventana(), _cadena(), _celda(), construir_registros(), escanear_estructura(), recorrer(), escanear_secretos() (+12 more)
+Cohesion: 0.08
+Nodes (28): _ack_id(), _acos_ventana(), _cadena(), _celda(), construir_registros(), escanear_estructura(), recorrer(), escanear_secretos() (+20 more)
 
 ### Community 279 - "sonda_ajuste_placement.py"
 Cohesion: 0.13
@@ -2096,6 +2138,10 @@ Nodes (11): _config_completa(), ConfigHarvest, decide_hygiene(), normaliza_texto
 Cohesion: 0.07
 Nodes (25): Alternativas y clasificacion, Coherencia y gates, Evidencia interna y memoria, Revision independiente, Validacion del plan MARGEN ESTIMADO 01, MARGEN ESTIMADO 01 — Estimacion por venta antes de Ads, Objetivo y precedencia, S1. Tres medidas, tres significados (+17 more)
 
+### Community 282 - "Mercado"
+Cohesion: 0.10
+Nodes (4): Mercado, SinCotizador, SinInsumos, Vitrina
+
 ### Community 283 - "30-revision-d1bdbe5f/scripts/conciliar.py"
 Cohesion: 0.11
 Nodes (15): _agrega_dias(), carga_orbit(), carga_origen(), _columnas(), compara(), _compara_ventana(), _comparable(), _con_actividad() (+7 more)
@@ -2108,17 +2154,17 @@ Nodes (28): 2026-01-01 — `GET /orders/2026-01-01/orders` (searchOrders, versio
 Cohesion: 0.16
 Nodes (16): _db(), _dsn_base(), _dsn_de_db(), _listing(), _mapeada(), _mediodia_servidor(), _miembro(), _obs() (+8 more)
 
-### Community 286 - "R1-PR: la PR queda lista para merge"
-Cohesion: 0.08
-Nodes (22): _elemento_list_valido(), _id_list_valido(), _texto_list_valido(), _valida_pagina_list(), Baterias, CI en el SHA de codigo, Commits, Pendiente (+14 more)
+### Community 286 - "JEV ADS 03 — el dueño bloquea lo que Jev marca como ajeno"
+Cohesion: 0.18
+Nodes (11): Cierre, Contratos, Criterios medidos, Interruptores y reversa, JEV ADS 03 — el dueño bloquea lo que Jev marca como ajeno, Orden y salida, Pruebas que deben discriminar, Residuales (+3 more)
 
 ### Community 287 - "test_entidad_inerte.py"
 Cohesion: 0.26
 Nodes (11): _db_inerte(), _entidad(), _estado(), _filas_por_external(), _metrica(), _run(), test_vista_clasifica_tres_casos_y_excluye_reciente(), test_vista_cuenta_desde_el_watermark_no_desde_now() (+3 more)
 
-### Community 288 - "AtribuidorAmazon"
-Cohesion: 0.14
-Nodes (8): AtribuidorAmazon, contar(), main(), _motivo(), reintento(), _ventas(), test_close_no_olvida_conexion_inyectada(), test_mapea_canales_de_orden_conocidos()
+### Community 288 - "atribuir_copia.py"
+Cohesion: 0.43
+Nodes (5): contar(), main(), _motivo(), reintento(), _ventas()
 
 ### Community 289 - "pantalla_busquedas.py"
 Cohesion: 0.14
@@ -2144,49 +2190,49 @@ Nodes (15): Aceptacion verificable, Confirmacion operativa previa por fase, Deci
 Cohesion: 0.09
 Nodes (11): _ClienteKeywordFalso, _conn_post_1_6a(), _fakea_main_keyword(), _HttpQuePausa, _perfil_us(), test_post_1_6a_esperado_external_desacuerdo_aborta(), test_post_1_6a_keyword_no_enabled_en_la_base_aborta(), test_post_1_6a_keyword_ya_pausada_en_vivo_no_se_muta() (+3 more)
 
-### Community 295 - "goals_modo_grupo.py"
-Cohesion: 0.10
-Nodes (13): _chequea_modo(), modo_desde_settings(), modo_efectivo(), test_modo_desde_settings_fail_closed(), test_modo_efectivo_meet_del_reticulo(), test_modo_efectivo_valor_invalido_raise(), Abortar, _cmd() (+5 more)
+### Community 295 - "OrbitDbError"
+Cohesion: 0.08
+Nodes (19): _conexion_escritura(), OrbitDbError, _reventar(), test_cli_goals_set_fallo_de_conexion_scrubbed(), _reventar(), test_reversa_rechaza_go_de_solo_espacios(), Abortar, _cmd() (+11 more)
 
 ### Community 296 - "modelo.py"
-Cohesion: 0.22
-Nodes (21): anota(), cfg(), checklist(), contiene(), corta(), Corte, crea_repo(), desplegar() (+13 more)
+Cohesion: 0.09
+Nodes (33): anota(), cfg(), checklist(), contiene(), corta(), Corte, crea_repo(), desplegar() (+25 more)
 
 ### Community 297 - "test_contribucion_multilisting.py"
 Cohesion: 0.14
 Nodes (14): _aplicar_esquema(), db(), _entidad(), _producto_us(), _run_id(), _semilla_us(), test_contrib_reconcilia_con_las_columnas_publicadas(), test_contribucion_publica_escala_dinero_4_decimales() (+6 more)
 
 ### Community 298 - "sync_costos"
-Cohesion: 0.08
-Nodes (15): CostsError, _formato_skip_reason(), leer_origen(), OrigenCostos, ResultadoSync, _sellar_run(), sync_costos(), _abiertas_por_sku() (+7 more)
+Cohesion: 0.07
+Nodes (19): CostsError, _formato_skip_reason(), leer_origen(), OrigenCostos, ResultadoSync, _sellar_run(), sync_costos(), Aplicar migraciones (+11 more)
 
 ### Community 299 - "test_envio_muestras.py"
 Cohesion: 0.32
 Nodes (20): _igual(), refrescar_muestras(), _cargo(), _familia(), _muestras(), _producto(), _run(), test_cargo_otros_se_cuenta_y_no_entra_al_costo() (+12 more)
 
-### Community 300 - "test_drive.py"
-Cohesion: 0.48
-Nodes (5): _client(), test_entrar_la_app_responde_salud(), test_ver_el_estado_del_optimizador_por_plataforma(), test_ver_la_lista_de_decisiones_audit_con_pagina(), test_ver_la_lista_de_goals()
+### Community 300 - "RESUMEN-ADS-01 — Cierre de fase (listo para revisión de Limi 3.1)"
+Cohesion: 0.09
+Nodes (19): Alcance entregado, Archivos, Calidad, Contrato comprobado, Cuarta ronda (SHA revisado `d1bdbe5f`), Pendiente, Pruebas, Puerta de fuente (detuvo y se reportó) (+11 more)
 
 ### Community 301 - "Plataforma"
 Cohesion: 0.11
-Nodes (8): EconomiaPlataforma, gasto_para_concluir_desde_settings(), guarda_config(), lee_busquedas(), lee_danadas(), lee_plataforma(), PantallaBusquedas, PantallaDanadas
+Nodes (8): EconomiaPlataforma, gasto_para_concluir_desde_settings(), guarda_config(), lee_plataforma(), lee_productos(), lee_ruido(), PantallaProductos, PantallaRuido
 
-### Community 302 - "LockOcupado"
-Cohesion: 0.40
-Nodes (3): LockOcupado, test_cli_precio_lock_ocupado_sale_cero(), _ocioso()
+### Community 302 - "_db_temporal_d1"
+Cohesion: 0.17
+Nodes (13): _ciclo(), _db_temporal_d1(), _decision(), _semilla_d1(), test_procedencia_target_ciclo_espejo_contra_el_check_vivo(), test_proteccion_venta_append_only_vence_fijo_y_grants(), test_reversa_0081_quita_la_tabla_y_restaura_el_check_sin_espera_proteccion(), test_sin_aplicar_append_only_update_y_delete_rechazados_por_la_app() (+5 more)
 
 ### Community 303 - "ORBIT 07 continúa sobre la entrega de AUTO-03"
 Cohesion: 0.33
 Nodes (5): Dependencia y autorización, Diferencias conservadas y trabajo heredado, Fuente comprobada, ORBIT 07 continúa sobre la entrega de AUTO-03, Verificación de la edición
 
-### Community 304 - "archivar_anuncios"
-Cohesion: 0.12
-Nodes (11): archivar_anuncios(), _errores_del_ack(), reversa_de_fila(), Cambios, _deletes(), test_archiva_solo_los_vivos_y_confirma_con_readback(), test_el_ensayo_no_manda_ni_una_mutacion(), test_ids_repetidos_revientan_antes_de_cualquier_mutacion() (+3 more)
+### Community 304 - "test_ads_archivar.py"
+Cohesion: 0.08
+Nodes (30): archivar_anuncios(), _errores_del_ack(), estados_actuales(), reponer_anuncios(), Cambios, _ad(), _deletes(), _handler() (+22 more)
 
-### Community 305 - "reponer_anuncios"
+### Community 305 - "pantalla_ruido.py"
 Cohesion: 0.15
-Nodes (11): _id_del_ack(), reponer_anuncios(), _handler_create(), handler(), test_ack_con_adId_sin_fila_en_list_es_sin_confirmar(), test_el_ensayo_de_la_reversa_no_crea_nada(), test_el_rechazo_REAL_de_amazon_al_crear_se_lee_como_fallo(), test_la_reversa_repone_y_devuelve_el_id_nuevo() (+3 more)
+Nodes (10): _abstenciones_de(), _bloque(), _celda(), _comparacion(), _cuenta_decisiones(), _en_utc(), _encogimiento(), _fila_ciclo() (+2 more)
 
 ### Community 306 - "Decimal"
 Cohesion: 0.10
@@ -2201,84 +2247,92 @@ Cohesion: 0.08
 Nodes (23): 1. El diagnóstico: no era suciedad, era cableado, 2. Los tres patrones que produjeron todo, 3.1 Maduración: hay tres relojes distintos y desalineados, 3.2 Cuánto cuesta decidir temprano (curva medida), 3.3 Halo: 56–58% del ingreso es de otros SKUs, y varía muchísimo, 3.4 `sales_same_sku` parece lo correcto y mata campañas, 3.5 Tablas point-in-time: inflan 13–17× **e invierten el signo**, 3.6 Monedas: el error de 18.66× y las 48 tablas sin defensa (+15 more)
 
 ### Community 309 - "test_verify_orbit.py"
-Cohesion: 0.14
-Nodes (7): dashboard(), http(), harness(), test_corte_no_combina_campos_de_filas_distintas(), test_drive_fabrica_valida_redisenio_sin_exigir_titulo_duplicado(), test_drive_falla_si_no_hay_captura(), test_drives_conducen_el_dashboard_vigente()
+Cohesion: 0.08
+Nodes (10): _hay_postgres_local(), _psycopg_disponible(), dashboard(), http(), harness(), test_corte_no_combina_campos_de_filas_distintas(), test_drive_fabrica_valida_redisenio_sin_exigir_titulo_duplicado(), test_drive_falla_si_no_hay_captura() (+2 more)
 
 ### Community 310 - "Brief para GLM: FABRICA 02 (F2) — tareas A.0 y A.1"
 Cohesion: 0.33
 Nodes (5): A.0 — Banco de pruebas (no depende de nadie), Antes de escribir una línea, Brief para GLM: FABRICA 02 (F2) — tareas A.0 y A.1, Entrega, Reglas de proceso (el lead las verifica)
 
-### Community 311 - "precio_reversa.py"
-Cohesion: 0.11
-Nodes (14): _clientes_precio(), construir_escritor(), _escritor_otra_platform(), _red_cuenta_pendientes(), test_r2_b1_go_con_pendiente_durable(), test_r5_l1_revertir_escritor_otra_platform_revienta_sin_fila_ni_patch(), Abortar, _corre() (+6 more)
+### Community 311 - "psycopg_types_json"
+Cohesion: 0.14
+Nodes (8): _request_lista(), _request_post(), test_f2_fallo_por_hermana_solo_tumba_su_adgroup(), test_f2_fixture_levanta_con_maquinaria_de_harvest_y_grupos(), test_f2_list_honra_adgroupidfilter(), test_f2_list_pagina_con_nexttoken(), test_f2_semilla_grupo_cinco_roles_con_terna_a_la_exacta(), test_f2_semilla_harvest_reutilizada_siembra_goal_con_terna()
 
 ### Community 312 - "test_precio02_retencion.py"
 Cohesion: 0.22
 Nodes (14): _bloque_0058(), _config(), _corrida(), _db(), _decision_subir(), _dsn_base(), _dsn_de_db(), _listing() (+6 more)
 
 ### Community 313 - "linea_entidad"
-Cohesion: 0.08
-Nodes (29): etiqueta_entidad(), EtiquetaEntidad, _hoja_target(), linea_entidad(), _parece_expression(), _predicado(), _texto_limpio(), _tipo_desconocido() (+21 more)
+Cohesion: 0.17
+Nodes (17): etiqueta_entidad(), EtiquetaEntidad, _hoja_target(), linea_entidad(), _parece_expression(), _predicado(), _texto_limpio(), _tipo_desconocido() (+9 more)
 
-### Community 314 - "ClienteMeli"
-Cohesion: 0.09
-Nodes (18): ReputacionError, cargar_credenciales(), consultar(), cruzar_con_product(), imprimir(), inspeccionar(), main(), pregunta_cargos_y_visitas() (+10 more)
+### Community 314 - "EconomiaProducto"
+Cohesion: 0.16
+Nodes (10): _a_economia(), EconomiaProducto, por_listing(), por_producto(), Cobertura de los DoD de B.2, Decision (ADR B.2-1, compartir el motor), Entregable, Notas / pendientes para el lead (+2 more)
 
 ### Community 315 - "capturas.py"
-Cohesion: 0.11
-Nodes (14): _cambia_a_practica(), _espera_http(), _foco_con_tab(), _get_json(), _helper(), main(), Navegador, _png() (+6 more)
+Cohesion: 0.12
+Nodes (13): _cambia_a_practica(), _espera_http(), _foco_con_tab(), _get_json(), _helper(), main(), Navegador, _png() (+5 more)
 
 ### Community 316 - "decidir"
 Cohesion: 0.09
 Nodes (11): decidir(), Decision, Deriva, EntradaDecision, evaluar(), evaluar_cohorte(), evaluar_senal(), HistoriaUnidad (+3 more)
 
 ### Community 317 - "30-revision-d1bdbe5f/scripts/revision/orbit_review_d1bdbe5.py"
-Cohesion: 0.12
-Nodes (18): Result, fila(), futuro_dentro_de_tolerancia(), reloj_retrocede(), case_clock_collision(), case_future_clock(), case_legacy(), case_mark_interleaving() (+10 more)
+Cohesion: 0.20
+Nodes (17): fila(), futuro_dentro_de_tolerancia(), reloj_retrocede(), case_clock_collision(), case_future_clock(), case_legacy(), case_mark_interleaving(), recopia_baja_id() (+9 more)
 
 ### Community 318 - "Vista de contribucion por entidad publicitaria (ORBIT 06 · 1.1)"
 Cohesion: 0.09
 Nodes (22): Candidatos del obstaculo 4, contra los numeros, Checklist para el sello del lead, D1.bis · Candado de uso (enmienda cross-review), Decision D1 · COGS por entidad (PROPUESTA AL LEAD), Decision D2 · Grano y padres, Decision D3 · Ingreso, gasto, cargos, Decision D5 · Moneda por columna, Decision D6 · Reconciliacion fail-loud (obstaculo 6, misma ola) (+14 more)
 
-### Community 319 - "Elementos"
-Cohesion: 0.11
-Nodes (9): Elementos, test_avisos_puja_manual_tienen_elemento_por_rol(), test_buscador_publicaciones_es_accesible(), test_crear_expone_progreso_y_banner_de_resultado(), test_dinero_vacio_y_token_sin_nombre_para_no_enviarlo_por_formulario(), test_flujo_js_comparador_muestra_ventana_cobertura_y_actualizacion_del_margen(), test_flujo_js_estimacion_estados_detalle_y_seleccion(), test_flujo_js_retiro_solo_applied_y_con_literal() (+1 more)
+### Community 319 - "SemillasARevisar"
+Cohesion: 0.13
+Nodes (13): SemillasARevisar, 2.2 — export del preview + asesoria por huella, Comandos y salida real, E/B4-r1 — filas 2.1 y 2.2 del plan JEV ADS 01 (lecturas y fabrica), Limites respetados, Modelo fijo: verificado contra la documentacion viva, Presupuesto de tamano (hallazgo de la bateria, resuelto), SHA (+5 more)
 
 ### Community 320 - "sonda_fuera_de_amazon.py"
 Cohesion: 0.17
 Nodes (13): _abortado(), _argumentos(), _compara(), _deja_minimo(), _envia(), _errores_put(), _fase_regreso(), _imprime() (+5 more)
 
 ### Community 321 - "Fase D — deploy conjunto de D.2, D.1b y C.2a"
-Cohesion: 0.12
-Nodes (12): C.2a — cierre (bloque B3 del loop Orbit Fase D), D.1b — cierre (bloque B2 del loop Orbit Fase D), D.2 — cierre (bloque B1 del loop Orbit Fase D), Deploy de código 649d104 (lote de residuales, #365), Desviaciones (revisión IA de #364), Fase D — deploy conjunto de D.2, D.1b y C.2a, Por qué fue conjunto, Primer ciclo después del deploy (+4 more)
+Cohesion: 0.14
+Nodes (10): D.1b — cierre (bloque B2 del loop Orbit Fase D), D.2 — cierre (bloque B1 del loop Orbit Fase D), Deploy de código 649d104 (lote de residuales, #365), Desviaciones (revisión IA de #364), Fase D — deploy conjunto de D.2, D.1b y C.2a, Por qué fue conjunto, Primer ciclo después del deploy, Primer intento abortado (+2 more)
 
-### Community 322 - "R14-r3: cambios pedidos por el veredicto de R14-r2"
-Cohesion: 0.33
-Nodes (5): B1: el paso 8 del checklist no podia salir del otro lado, B2: dos sellos del ledger sin prueba que los distinguiera, Lo que queda para R16, No bloqueantes de una linea, R14-r3: cambios pedidos por el veredicto de R14-r2
+### Community 322 - "PausadorDeCampanas"
+Cohesion: 0.06
+Nodes (18): ejecuta(), EjecucionFabrica, EjecutorFabrica, ImpulsoLanzado, _lanza_par_nuevo(), PausadorDeCampanas, _sella_impulso(), _validar_escritor() (+10 more)
 
 ### Community 323 - "Shape"
-Cohesion: 0.09
-Nodes (22): cuenta(), Alternatives considered, Búsquedas que gastan sin vender (agregado el 2026-10-09, decisión D11), Carriles, costuras y encendido, Decisiones del dueño (2026-10-09, cerradas), Diseño sintetizado: una sola política de bid por niveles, y el impulso por producto, Dónde vive cada cosa, Estructuras de datos (+14 more)
+Cohesion: 0.17
+Nodes (12): cuenta(), Búsquedas que gastan sin vender (agregado el 2026-10-09, decisión D11), Carriles, costuras y encendido, Decisiones que cargan el diseño, Dónde vive cada cosa, Estructuras de datos, Flujo, Las diez dudas de la base, y dónde quedan resueltas (+4 more)
 
 ### Community 324 - "corrida.py"
 Cohesion: 0.02
-Nodes (152): Abierta, Anterior, armar_deriva(), Cortacircuito, Deriva, _dispara(), es_nueva(), evaluar() (+144 more)
+Nodes (140): Abierta, Anterior, armar_deriva(), Cortacircuito, Deriva, _dispara(), es_nueva(), evaluar() (+132 more)
 
-### Community 325 - "kimi-A.1-r1-c1.md"
-Cohesion: 0.11
-Nodes (13): _fugas_imports_goals_write(), _goals_write_mas(), _import_prohibido_goals_write(), _imports_goals_write(), _visitar(), test_candado_dinamico_goals_write_caza_dunder_import(), test_candado_imports_caza_fuga_sembrada(), test_candado_imports_goals_write_caza_from_os_getenv() (+5 more)
+### Community 325 - "Cómo construir REPRICING 02"
+Cohesion: 0.12
+Nodes (16): _numero_entero(), validar_freno_dias_error(), 0.a: escribe los contratos sin cambiar el comportamiento, 0.b: pon la corrida detrás del `Mercado`, Antes de empezar, Cambios, Comprueba, Comprueba (+8 more)
 
 ### Community 326 - "Plataforma"
 Cohesion: 0.09
 Nodes (9): abrir(), aviso_precio_compuerta(), modo_efectivo(), MuestraNueva, OrdenMedida, resolver_envio(), Retenida, universo_de() (+1 more)
 
 ### Community 328 - "BIDS 02: el motor de pujas para una cuenta con poca data"
-Cohesion: 0.10
-Nodes (21): BIDS 02: el motor de pujas para una cuenta con poca data, Contratos, Convivencia con REPRICING 02, Criterios de encendido, Decisiones que gobiernan este plan, Interruptores y reversa, Orden y salida, Palabras de este plan (+13 more)
+Cohesion: 0.09
+Nodes (22): BIDS 02: el motor de pujas para una cuenta con poca data, Contratos, Convivencia con REPRICING 02, Criterios de encendido, Decisiones que gobiernan este plan, Interruptores y reversa, Orden y salida, Palabras de este plan (+14 more)
+
+### Community 329 - "test_jev_bloqueo_api.py"
+Cohesion: 0.24
+Nodes (12): _dsn_de(), _apaga(), _cliente(), _nombres(), _post(), _secrets(), _terminos(), test_cortes_consulta_rota_sigue_200() (+4 more)
 
 ### Community 330 - "test_precio02_base.py"
 Cohesion: 0.24
 Nodes (17): _cadena_escenario(), _config_vieja(), _dsn_base(), _dsn_de_db(), _goal(), _hoy(), _insert_decision_de_hoy(), _producto_listing() (+9 more)
+
+### Community 331 - "_cambio"
+Cohesion: 0.29
+Nodes (15): _cambio(), _danada_minima(), _lee(), _metrica(), _nombre(), test_dato_faltante_viaja_none(), test_dos_hojas_ordena_por_venta_previa_y_llena_la_fila(), test_regreso_del_dueno_no_cierra_y_marca_ya_regresada() (+7 more)
 
 ### Community 333 - "Brief para Muse: SP-API 01 Fase A — cliente único, ingesta diaria y salud"
 Cohesion: 0.15
@@ -2288,9 +2342,13 @@ Nodes (12): A.1 · Cliente único (`app/spapi/client.py`) — PR 1, A.2 · Inges
 Cohesion: 0.09
 Nodes (18): pause_sin_cooldown_bid_desde_settings(), Apagado (rollback del flag, con go), B.2a — flag `ads_pause_sin_cooldown_bid` (contencion (a)), Encendido (H5, con go de deploy; comando literal), 1. Resolucion del conflicto (`app/optimizer/goals.py`), 2. La punta es valida (local), 3. CI (gh en solo lectura), 4. Mergeabilidad (+10 more)
 
+### Community 335 - "sn"
+Cohesion: 0.11
+Nodes (8): at(), sn, w(), D.3: evidencia del paquete (REPRICING 02, seccion 4), Decisiones con razon, Estado de produccion leido el dia del paquete (solo lectura), Salidas guardadas (todas con su linea exit= al final), Despliegues
+
 ### Community 336 - "FABRICA 02 / 0.1 — Sonda de product targeting (evidencia)"
-Cohesion: 0.10
-Nodes (18): Alcance de esta corrida (decisión del dueño 2026-09-12), Ceremonia (config, append-only), Cierre, FABRICA 02 / 0.1 — Sonda de product targeting (evidencia), La corrida, Ledger (`apply_attempt`, verificado en la base), Residuales declarados, Shapes re-confirmados (+10 more)
+Cohesion: 0.09
+Nodes (19): Alcance de esta corrida (decisión del dueño 2026-09-12), Ceremonia (config, append-only), Cierre, FABRICA 02 / 0.1 — Sonda de product targeting (evidencia), La corrida, Ledger (`apply_attempt`, verificado en la base), Residuales declarados, Shapes re-confirmados (+11 more)
 
 ### Community 337 - "test_migracion_0067.py"
 Cohesion: 0.24
@@ -2300,9 +2358,9 @@ Nodes (12): _ajuste(), _campana(), _config(), db_67(), _foto(), _hoja(), test_00
 Cohesion: 0.15
 Nodes (8): avisar_campanas(), _Conn9, _conn_campanas(), _Cursor9, test_avisar_campanas_envia_una_clase_y_devuelve_salio(), test_avisar_campanas_fallo_sigue_con_otras_clases(), test_avisar_campanas_lectura_us_fallida_no_tumba_mx(), test_avisar_campanas_sin_casos_no_envia()
 
-### Community 339 - "Nota de síntesis de la arena (2026-10-09)"
-Cohesion: 0.09
-Nodes (14): InformeRejuego, politica_bid_desde_settings(), rejuega(), resuelve_target_margen(), sync_placements(), Agregado después de la síntesis (2026-10-09, pruebas de solo lectura), Base elegida: runner-a, Candidatos (+6 more)
+### Community 339 - "Conexion"
+Cohesion: 0.07
+Nodes (14): AccionVigia, Conexion, ejecuta_retiro(), InformeRejuego, lee_busquedas(), PantallaBusquedas, PausadorDeCampanas, planea_retiro() (+6 more)
 
 ### Community 340 - "test_arq_bids_p.py"
 Cohesion: 0.15
@@ -2322,59 +2380,59 @@ Nodes (20): Corrida real de la 0.1 (2026-08-29, con el pipeline del PR), Corrida
 
 ### Community 344 - "ORBIT 07. Continuar las mejoras del motor después de AUTO-03"
 Cohesion: 0.10
-Nodes (20): Aplicar la evaluación económica y dar seguimiento a su resultado (M6), Apéndice A. Evidencia de planificación y límites, Apéndice B. Alternativas descartadas, Apéndice C. Riesgos y decisiones de negocio, Apéndice D. Fuentes, habilidades y adaptación a Orbit, Asignar responsables y dependencias, Cerrar el programa con evidencia de cada resultado, Compartir el aprendizaje entre anuncios del mismo producto (M3) (+12 more)
+Nodes (21): Aplicar la evaluación económica y dar seguimiento a su resultado (M6), Apéndice A. Evidencia de planificación y límites, Apéndice B. Alternativas descartadas, Apéndice C. Riesgos y decisiones de negocio, Apéndice D. Fuentes, habilidades y adaptación a Orbit, Asignar responsables y dependencias, Cerrar el programa con evidencia de cada resultado, Compartir el aprendizaje entre anuncios del mismo producto (M3) (+13 more)
 
 ### Community 345 - "test_reactiva_campanas.py"
 Cohesion: 0.14
 Nodes (11): _conn_camino_original(), _conn_solo_campana(), test_camino_original_sin_flag_intacto(), test_dedup_1_6a_sin_solo_campana_aborta(), test_main_dry_run_solo_campana_imprime_plan_resuelto(), test_main_esperado_external_sin_solo_campana_aborta(), test_main_solo_campana_mutacion_sin_esperado_external_aborta(), test_main_solo_campana_ya_enabled_no_muta() (+3 more)
 
-### Community 346 - "tools/sonda_pausa_product_ad.py"
+### Community 346 - "lee_danadas"
 Cohesion: 0.18
-Nodes (12): _abortado(), _argumentos(), _compara(), _errores_put(), _fase_regreso(), _imprime(), _lee_anuncio(), _lee_campanas() (+4 more)
+Nodes (8): _celda(), _en_utc(), lee_danadas(), _racha_vigente(), _ConnFalsa, test_acepta_conexion_con_dict_row(), test_sin_metricas_calculado_none_y_vacia(), test_sin_rachas_devuelve_vacia_sin_pedir_metricas_ni_nombres()
 
 ### Community 347 - "test_cleanup_guard.py"
 Cohesion: 0.29
 Nodes (15): _bash_blocks(), _bloque_paso1(), _bloque_paso2(), _log_lineas(), _mktemp_pgdata(), _run(), _script_paso2(), test_paso1_pgdata_ajeno_al_prefijo_es_refusado() (+7 more)
 
 ### Community 348 - "Candidato B: juicios por término y ficha versionada"
-Cohesion: 0.12
-Nodes (16): Alternativas consideradas, APIs y operación, Candidato B: juicios por término y ficha versionada, Costos aceptados, Decisión de síntesis, Forma, Interpretación de los tres usos Ads, Problema (+8 more)
+Cohesion: 0.25
+Nodes (8): Alternativas consideradas, Candidato B: juicios por término y ficha versionada, Costos aceptados, Decisión de síntesis, Problema, Próximo paso de implementación, Riesgos y validaciones antes de producción, Uso desde el caller
 
 ### Community 349 - "_estado_de_readback"
-Cohesion: 0.10
-Nodes (9): _estado_de_readback(), _aplicador_sin_db(), _ClienteListCrudo, _ClienteListPaginado, test_estado_de_readback_por_list_pagina_hasta_hallar_la_entidad(), test_readback_de_bid_por_list_pagina_hasta_hallar_la_entidad(), test_readback_malformado_es_ambiguo_no_ausencia(), test_readback_paginado_corta_en_el_tope_de_paginas() (+1 more)
+Cohesion: 0.12
+Nodes (6): _ClienteListCrudo, _ClienteListPaginado, test_estado_de_readback_por_list_pagina_hasta_hallar_la_entidad(), test_readback_malformado_es_ambiguo_no_ausencia(), test_readback_paginado_corta_en_el_tope_de_paginas(), test_readback_sin_contenedor_es_ambiguo_no_ausencia()
 
 ### Community 350 - "E/D.4 — deploy y remediación del job 2 (2026-10-02 UTC)"
 Cohesion: 0.40
 Nodes (4): Deploy del código (dueño con `!`, `deploy-codigo-8d4890a.sh`), Desviación del runbook (revisión IA de #380), E/D.4 — deploy y remediación del job 2 (2026-10-02 UTC), Remediación (go literal del dueño: «D.4 archivar negativo origen job 2»)
 
 ### Community 351 - ".apply"
-Cohesion: 0.17
-Nodes (6): ce(), de, en, he(), te(), x()
+Cohesion: 0.15
+Nodes (8): ce(), de, en, he(), m(), p(), te(), x()
 
 ### Community 352 - "Forma"
 Cohesion: 0.20
 Nodes (10): API y operación, Catálogo e identidades, Forma, Los tres usos Ads, Pruebas y expansión, Relaciones y composición, Tablas, campos e índices, Tipos y contratos (+2 more)
 
 ### Community 353 - "ORBIT 19 / B.5 — Reporte de pruebas del comparador UI"
-Cohesion: 0.22
-Nodes (7): Alcance, App en vivo con la DB sembrada, Capturas, ORBIT 19 / B.5 — Reporte de pruebas del comparador UI, pytest focal, Ruff, test_comparador_renderiza_controles_de_orden_filtro_y_sin_por_probar()
+Cohesion: 0.33
+Nodes (5): Alcance, App en vivo con la DB sembrada, Capturas, ORBIT 19 / B.5 — Reporte de pruebas del comparador UI, Ruff
 
-### Community 354 - "_correr_flujo_fabrica"
-Cohesion: 0.12
-Nodes (8): _correr_flujo_fabrica(), test_flujo_js_aviso_promedio_por_rol_en_campo_y_revision(), test_flujo_js_buscador_enter_no_envia_el_formulario(), test_flujo_js_buscador_filtra_en_vivo_y_conserva_seleccion(), test_flujo_js_crear_error_de_red_muestra_banner(), test_flujo_js_crear_muestra_progreso_y_banner_con_enlace(), test_flujo_js_puja_manual_sin_sugerencia_visible_en_campo_y_revision(), test_flujo_js_revision_muestra_semillas_por_campana()
+### Community 354 - "test_pipeline_productos_en_vivo"
+Cohesion: 0.17
+Nodes (10): _cliente(), _perfil(), test_body_reporte_productos(), handler(), test_pipeline_productos_en_vivo(), _filas(), handler(), test_pipeline_productos_us_no_verificado_no_inventa_filas() (+2 more)
 
 ### Community 355 - "Plan de implementación — correcciones del esquema (ronda cross-review grok)"
 Cohesion: 0.11
 Nodes (18): Addendum — hallazgos de qwen (cross-review, validados contra el SQL real), D10 [baja] — `revenue_same_sku` fuera del CHECK de no-negativos, D11 [baja] — `harvest_job` acepta nacer en `done`/`failed`, D12 [media] — Test de integración: credenciales por entorno, D13 [baja] — `ledger_desglose_coherente` solo cubre `item_price`, D14 [baja] — NameError potencial en el test de integración, D15 [baja] — Candados estáticos para lo corregido en esta ronda, D1 [alta] — Restaurar cruce de plataforma en `search_term_observation` (REGRESIÓN) (+10 more)
 
-### Community 356 - "asigna"
-Cohesion: 0.19
-Nodes (9): asigna(), _args_fabrica(), _base_fabrica(), test_asigna_producto_inexistente_404(), test_fabrica_avisa_mezcla_y_exige_tipo(), test_fabrica_parcial_no_toma_slug(), test_fabrica_sin_etiqueta_camino_viejo(), test_fabrica_toma_slug_de_familia_unica() (+1 more)
+### Community 356 - "_hoja_ui"
+Cohesion: 0.17
+Nodes (9): _hoja_ui(), _html_danadas(), _plano(), test_pantalla_danadas_fila_pendiente_pinta_tres_lineas_boton_y_frase(), test_pantalla_danadas_fila_regresada_muestra_fecha_y_no_boton(), test_pantalla_danadas_regresar_todas_pide_una_confirmacion(), test_pantalla_danadas_sin_bid_hoy_boton_deshabilitado_con_data(), test_pantalla_danadas_sin_pendientes_no_pinta_regresar_todas() (+1 more)
 
-### Community 357 - "ORBIT 07: arranque, dependencia y matriz M1-M6"
-Cohesion: 0.40
-Nodes (5): Dependencia de ejecución, Distinciones de estado, Matriz M1-M6, ORBIT 07: arranque, dependencia y matriz M1-M6, Roles, modelos y habilidad
+### Community 357 - "_plan_sku"
+Cohesion: 0.15
+Nodes (6): _costo_decimal(), _dia(), _plan_sku(), Vigencia, test_plan_sku_acepta_prefijo_identico_con_moneda_y_tax(), test_plan_sku_rechaza_moneda_o_includes_tax_distinto_de_lo_publicado()
 
 ### Community 358 - "test_migracion_0074.py"
 Cohesion: 0.21
@@ -2385,8 +2443,8 @@ Cohesion: 0.11
 Nodes (17): 1. Insumos, 2.1 Fuentes de `shipping_fee` en la ventana de 90 días — `consultas/00-sonda-formato-90d.sql`, 2.2 Órdenes por número de cargos y por combinación de fuentes (90 días) — `consultas/01-ordenes-por-numero-de-cargos-90d.sql`, 2.3 Las 54 órdenes de US con tres cargos, cargo por cargo — `consultas/02-ordenes-us-tres-cargos-desglose.sql`, 2.4 Par `finance:LabmanLabelPurchase` / `shipping_label` — `consultas/04-pares-labman-shipping-label.sql`, 2.5 Par `finance:ShippingHB` / `shipping_label` — `consultas/05-muestra-shippinghb-shipping-label.sql`, 2.6 Par `finance:LabmanLabelPurchase` / `finance:ShippingHB` — `consultas/06-par-labman-shippinghb.sql`, 2.7 Historia mensual por fuente — `consultas/08-historia-mensual-por-fuente.sql` (+9 more)
 
 ### Community 360 - "Hallazgo por hallazgo, con salida literal"
-Cohesion: 0.12
-Nodes (17): Hallazgo 12 — histéresis: flapeo genuino vs falsa alarma, Hallazgo 18 (ronda r1) y hallazgo 26 (ronda r3) — columna correcta, sin duplicado, Hallazgo 19 — resultado (b) acotado, Hallazgo 1 — top 10 por órdenes a 365 días, tres ventanas SIEMPRE, Hallazgo 20 — grilla completa en efecto-margen.sql, Hallazgo 22 — sonda ampliada, Hallazgo 2 — costo a la fecha de la VENTA, no del cargo, Hallazgo 3 — sin imputación silenciosa (+9 more)
+Cohesion: 0.11
+Nodes (18): Hallazgo 10 — escritura atómica, Hallazgo 12 — histéresis: flapeo genuino vs falsa alarma, Hallazgo 18 (ronda r1) y hallazgo 26 (ronda r3) — columna correcta, sin duplicado, Hallazgo 19 — resultado (b) acotado, Hallazgo 1 — top 10 por órdenes a 365 días, tres ventanas SIEMPRE, Hallazgo 20 — grilla completa en efecto-margen.sql, Hallazgo 22 — sonda ampliada, Hallazgo 2 — costo a la fecha de la VENTA, no del cargo (+10 more)
 
 ### Community 361 - "Cómo construir BIDS 02"
 Cohesion: 0.18
@@ -2397,8 +2455,8 @@ Cohesion: 0.11
 Nodes (17): Aceptación verificable, Alcance puntuado (harness-plan, validación 2026-09-07), Confirmación operativa previa por fase, Convenciones de evidencia y pruebas, Decisiones (cerradas 2026-09-07; acta formal en 0.5), Especificación (Spec skip reason), Etapas y tareas, Fase 0 — Verificación de fuentes y contrato (+9 more)
 
 ### Community 363 - "test_notifica.py"
-Cohesion: 0.04
-Nodes (33): _aviso_biblioteca(), _ConnNestloopObservado, _corre(), _db_contribucion_mx(), _salto_grupo(), test_alerta_biblioteca_no_escrita_contenido_veraz(), test_aviso_destino_grupo_inconsistente_texto_exacto(), test_aviso_destino_grupo_motivo_desconocido_sin_linea_de_accion() (+25 more)
+Cohesion: 0.03
+Nodes (54): _fase_notifica(), _latido(), decide_aviso_target(), Tabla de mutantes — residuales (M28–M29), Auditoría del lead sobre el pre-pase (2026-09-15/16, noche), Decisiones del lead, Residuales declarados en las filas A.3–A.6 vs sección 5 de kimi, Antes de escribir una línea (+46 more)
 
 ### Community 364 - "S.2: construye el apagador — evidencia"
 Cohesion: 0.57
@@ -2409,36 +2467,40 @@ Cohesion: 0.12
 Nodes (6): CasoHoja, decide(), estima(), Estimacion, _precio_de_hoy(), Pruebas primero
 
 ### Community 366 - "Pruebas de lo que faltaba (2026-10-09)"
-Cohesion: 0.12
-Nodes (13): Lo que la lectura en vivo mostró además, Lo único que sigue sin probar, Prueba 1. Cuánto se pasa Amazon de un presupuesto diario, Prueba 2. El reporte por placement con datos diarios, Prueba 3. Pausar un anuncio de producto en vez de archivarlo, Prueba 4. Cuánto tarda el ciclo con la lectura nueva, Pruebas de lo que faltaba (2026-10-09), La tabla (+5 more)
+Cohesion: 0.07
+Nodes (24): Lo que la lectura en vivo mostró además, Lo único que sigue sin probar, Prueba 1. Cuánto se pasa Amazon de un presupuesto diario, Prueba 2. El reporte por placement con datos diarios, Prueba 3. Pausar un anuncio de producto en vez de archivarlo, Prueba 4. Cuánto tarda el ciclo con la lectura nueva, Pruebas de lo que faltaba (2026-10-09), La tabla (+16 more)
 
 ### Community 367 - "Cierre del plan JEV ADS 02"
 Cohesion: 0.12
 Nodes (16): Checklist tras el primer ciclo, Cierre del plan JEV ADS 02, Despliegue del cierre, Despliegue del remate, El job antes del 2026-10-12, J6-21, Lo que no se construye, Los 16 fallos (+8 more)
 
 ### Community 368 - "cross-review/README.md"
-Cohesion: 0.10
-Nodes (16): Ajuste del plan después de la revisión cruzada, Comprobaciones ejecutadas, Hipótesis y limitaciones, 2. M3 agrega el insumo de aprendizaje, pero no asigna el freno al dueño de la subida, Dictamen asesor, Hallazgos verificados, Hipótesis y limitaciones no verificadas, Cambios recomendados antes de implementar (+8 more)
+Cohesion: 0.09
+Nodes (17): Ajuste del plan después de la revisión cruzada, Comprobaciones ejecutadas, Hipótesis y limitaciones, 1. M2 decide con el target del producto, pero revalida con el target de plataforma, 2. M3 agrega el insumo de aprendizaje, pero no asigna el freno al dueño de la subida, Dictamen asesor, Hallazgos verificados, Hipótesis y limitaciones no verificadas (+9 more)
 
 ### Community 369 - "Arena de diseño y juicio cruzado (2026-10-08)"
-Cohesion: 0.20
+Cohesion: 0.13
 Nodes (10): Afirmaciones cotejadas contra el repo, Arena de diseño y juicio cruzado (2026-10-08), Base elegida: A, Dónde coincidieron los tres, Injertos, Lo que los tres pasaron por alto, Los candidatos, Rechazado, y por qué (+2 more)
 
 ### Community 370 - "A.6 (final) — Deploy de A.4 + A.5, cron diario y primeras corridas"
 Cohesion: 0.12
-Nodes (16): 1. Respaldo y migraciones, 2. Verificación de esquema (como `orbit_read`, sin mutaciones), 3. Deploy del código, 4. Cron diario, 5. Primeras corridas reales (MX), 6. Smoke de candados (transacciones revertidas, `DEPLOY.md:1271`), 7. Reversa ensayada, 8. Qué NO se ejercitó todavía (+8 more)
+Nodes (15): 1. Respaldo y migraciones, 2. Verificación de esquema (como `orbit_read`, sin mutaciones), 3. Deploy del código, 4. Cron diario, 5. Primeras corridas reales (MX), 6. Smoke de candados (transacciones revertidas, `DEPLOY.md:1271`), 7. Reversa ensayada, 8. Qué NO se ejercitó todavía (+7 more)
 
-### Community 372 - "M0: contrato temporal de hojas (M1)"
-Cohesion: 0.40
-Nodes (5): Contrato temporal de producto (M4), Evidencia local, M0: contrato temporal de hojas (M1), Reglas, Ventanas
+### Community 371 - "precio_mercados.py"
+Cohesion: 0.16
+Nodes (6): abrir(), ConfigInvalida, _mercado_de(), vitrina(), test_abrir_desconocida_levanta_config_invalida(), test_abrir_meli_da_vitrina_de_solo_lectura()
+
+### Community 372 - "calcular.py"
+Cohesion: 0.16
+Nodes (11): calcular(), convertir(), decimal(), Adenda CodeRabbit (CR-1 + CR-2a, seccion 5 cierre), Mutantes M.3 (39/39 muertos), Adenda CodeRabbit (cierre seccion 5, PR #456), Composicion, Individuales rechazados (con razon) (+3 more)
 
 ### Community 373 - "_eventos"
 Cohesion: 0.16
 Nodes (9): _conn_solo_campana_dedup(), _eventos(), _HttpQueResume, test_dedup_1_6a_plan_trae_exactamente_9_pausas_y_1_resume(), test_main_dedup_1_6a_campana_pausada_a_mitad_no_se_pisa(), test_main_dedup_1_6a_dry_run_imprime_9_pausas_1_resume(), test_main_dedup_1_6a_mutacion_ordena_pausas_antes_del_resume(), test_main_esperado_external_desacuerdo_aborta_fail_closed() (+1 more)
 
-### Community 374 - "REPRICING 01 — Motor de precios por goal de margen (M1 / AUTO-07 / ORBIT 09)"
-Cohesion: 0.13
-Nodes (15): Aceptación verificable, Clasificación (Required / Recommended / Optional / Reject), Decisiones ya cerradas (no se reabren), Diseño (lo que el implementador no decide), Divergencias y residuales declarados, Estado para la siguiente sesión, Etapas y tareas, Fase 0 — política fiscal de Estados Unidos (+7 more)
+### Community 374 - "_AmazonPausa"
+Cohesion: 0.17
+Nodes (6): _AmazonPausa, _lote_pausable(), _pausador_real(), test_r09r3_t06_pausa_exige_readback(), test_r09r3_t07_put_rechazado_detiene_pausa(), test_r09r3_v17_pausador_real_pausa_en_amazon()
 
 ### Community 375 - "Síntesis de arquitectura AUTO-03"
 Cohesion: 0.20
@@ -2457,12 +2519,12 @@ Cohesion: 0.12
 Nodes (16): Archivos de la sección, Cambios, Cambios, Comprueba, Comprueba, Comprueba la sección completa, D.5: despliega la pantalla de búsquedas, P.6: construye la pantalla de búsquedas que gastan sin vender (+8 more)
 
 ### Community 379 - "REPRICING 02: el motor de precios en todas las plataformas"
-Cohesion: 0.08
-Nodes (27): plan(), Candados, Dos fronteras, no una, El puerto, Forma, La compuerta, La corrida: tres pasos sobre filas, Lo que deliberadamente no hace (+19 more)
+Cohesion: 0.07
+Nodes (28): plan(), Candados, Dos fronteras, no una, El puerto, Estructuras de datos, Forma, La compuerta, La corrida: tres pasos sobre filas (+20 more)
 
 ### Community 380 - "check_push_creds.py"
-Cohesion: 0.16
-Nodes (5): test_check_push_creds_con_credencial_pasa(), test_check_push_creds_sin_git_falla_rapido(), test_check_push_creds_timeout_falla(), _hay_credencial(), main()
+Cohesion: 0.21
+Nodes (4): test_check_push_creds_con_credencial_pasa(), test_check_push_creds_sin_git_falla_rapido(), test_check_push_creds_timeout_falla(), main()
 
 ### Community 381 - "Contrato"
 Cohesion: 0.14
@@ -2472,17 +2534,17 @@ Nodes (13): API, CLI y snapshots v2, Comparacion y evidencia, Contrato, Contrato
 Cohesion: 0.22
 Nodes (7): test_repo_path_encuentra_checkout_en_base_tmp(), test_repo_path_falla_rapido_con_bases_probadas(), test_repo_path_ignora_archivos_y_sigue(), test_worktree_path_prefiere_env(), _bases(), repo_path(), worktree_path()
 
-### Community 383 - "FABRICA 01 — fábrica de campañas Amazon SP por grupo (Phase F1) — Implementation Plan"
-Cohesion: 0.05
-Nodes (34): errores_207(), Brief para el implementador — tareas 2 y 3 (una rama, un PR, en ese orden), Decisiones D-CURSOR-177 (correcciones F1-F4 sobre #177), Decisiones y evidencia (se llena durante la ejecución; el implementador escribe AQUÍ antes del código), DoD (las dos tareas, un PR), FABRICA 01 — fábrica de campañas Amazon SP por grupo (Phase F1) — Implementation Plan, Fuera de este plan (F2, spec §7), Lo que ya está decidido (no re-decidir) (+26 more)
+### Community 383 - "Cross-review Grok — PR 177 (FABRICA 01 tareas 7–10)"
+Cohesion: 0.22
+Nodes (8): errores_207(), Conteos, Cross-review Grok — PR 177 (FABRICA 01 tareas 7–10), Dismissed, Lo que ves, Should-fix, Veredicto, test_ack_ok_exige_2xx_sin_errores_207()
 
 ### Community 384 - "E/D.1 — Despliegue de 0038 y del código de F2 (2026-09-15)"
 Cohesion: 0.20
 Nodes (9): Backup del schema (D.1.2), Cap decidido (D.1.1), Deploy y smoke (D.1.4), E/D.1 — Despliegue de 0038 y del código de F2 (2026-09-15), Migración 0038 (D.1.3), verificada como `orbit_read`, Precondiciones (D.1.0), readback posterior, Residuales, SHA desplegado (+1 more)
 
-### Community 385 - "CLARIDAD 01: causas encontradas (2026-11-08)"
-Cohesion: 0.15
-Nodes (10): _RutaFabrica, sin_input_privado(), CLARIDAD 01: causas encontradas (2026-11-08), Inertes tarda 235 s, Jev no corre desde el 2026-10-21 (Gasto sin venta vacía), Motor de precios con universo de más, Propuestas no dice la verdad, Subfamilia (+2 more)
+### Community 385 - "procesar_run"
+Cohesion: 0.19
+Nodes (7): bloque_salud(), entregar_pendientes(), procesar_run(), _texto(), Secuencia 1 — fallo nuevo tras recovery pendiente: CUBIERTA, test_episodio_persiste_reintenta_y_recupera_solo_con_principal(), run()
 
 ### Community 386 - "H5 — Plan de deploy B.4 + inicio shadow (PUNTO P3-H5, 2026-09-25 UTC)"
 Cohesion: 0.13
@@ -2506,11 +2568,11 @@ Nodes (5): Cambios, Comprueba, P.2b: agrega los botones de ajuste y los avisos a
 
 ### Community 391 - "_harvesteable"
 Cohesion: 0.09
-Nodes (12): AgregadoTermino, _harvesteable(), _term(), test_cost_o_revenue_none_harvest_dato_faltante(), test_harvest_ad_revenue_cero_solo_pasa_con_cost_cero(), test_harvest_duplicado(), test_harvest_duplicado_normalizado_strip_y_casefold(), test_harvest_tope_es_min_35_target() (+4 more)
+Nodes (12): AgregadoTermino, _harvesteable(), _term(), test_harvest_acos_borde_inclusivo_y_un_pelo_arriba(), test_harvest_ad_revenue_cero_solo_pasa_con_cost_cero(), test_harvest_moneda_de_config_incoherente_con_plataforma(), test_harvest_sin_config_none_y_parciales(), test_harvest_tope_es_min_35_target() (+4 more)
 
 ### Community 392 - "Sección 3: ver la campaña"
 Cohesion: 0.12
-Nodes (16): Archivos de la sección, Cambios, Cambios, Comprueba, Comprueba, Comprueba la sección completa, D.2: despliega la configuración de campaña, los avisos y la pantalla de dinero, P.1: construye la tabla por tipo de campaña (+8 more)
+Nodes (16): Archivos de la sección, Cambios, Cambios, Comprueba, Comprueba, Comprueba la sección completa, D.2: despliega la configuración de campaña, los avisos y la pantalla de dinero, Pruebas primero (+8 more)
 
 ### Community 393 - "ORBIT 19 — Plan formal de catalogo abierto y evaluacion"
 Cohesion: 0.13
@@ -2532,9 +2594,9 @@ Nodes (13): auto_incremental_review, auto_pause_after_reviewed_commits, language
 Cohesion: 0.15
 Nodes (13): author, dependencies, playwright@^1.63.0, description, keywords, license, main, name (+5 more)
 
-### Community 398 - "productos"
-Cohesion: 0.07
-Nodes (24): productos(), Contrato tecnico cerrado (DoD 0.2), D1–D4 (cerradas), ORBIT 19 / 0.2 — Confirmacion del dueno y cierre de contrato, Precisiones de revision (parte del cierre), API v2 (mismas rutas; discriminacion por campos), Compatibilidad v1 (intacto), GET /catalogo (+16 more)
+### Community 398 - "Brief para GLM: FABRICA 02 (F2) — tarea A.5"
+Cohesion: 0.14
+Nodes (13): 1. Esqueleto y candados de CLI, 2. `--migrar` dry-run y validación, 3. `--migrar` go, 4. `--limpiar-terna` dry-run y validación, Brief para GLM: FABRICA 02 (F2) — tarea A.5, Decisiones cerradas, DSN y rol, Interfaz del tool (+5 more)
 
 ### Community 399 - "inputs"
 Cohesion: 0.14
@@ -2572,25 +2634,25 @@ Nodes (15): colorCss(), datosDe(), graficarBarras(), graficarResumen(), graficar
 Cohesion: 0.05
 Nodes (35): Campanas, Driving it with curl, Gotchas, How to get to it (user POV), Sub-features, Contribucion, Driving it with curl, Gotchas (+27 more)
 
-### Community 408 - "ADS PROTECCION 01 C.2 — replay economico sin lookahead"
-Cohesion: 0.15
-Nodes (10): ADS PROTECCION 01 C.2 — replay economico sin lookahead, Puerta para live, Resultado por grano, Senal MX con ventana vieja, Veto de 48 horas y atribucion tardia, D.2 — decision del dueno: N = 10, Caso 3835 (el que motivó D.2), D.2 — replay de septiembre: inversiones que frena la regla (N = 10 vs N = 7) (+2 more)
+### Community 408 - "resultado"
+Cohesion: 0.07
+Nodes (25): resultado(), ADS PROTECCION 01 C.2 — replay economico sin lookahead, Puerta para live, Resultado por grano, Senal MX con ventana vieja, Veto de 48 horas y atribucion tardia, D.2 — decision del dueno: N = 10, Caso 3835 (el que motivó D.2) (+17 more)
 
-### Community 409 - "Rationale del candidato A (rebanadas por capacidad), plan `decisiones-producto-01`"
-Cohesion: 0.14
-Nodes (13): Alternatives considered, Chequeo de banderas rojas, Cómo lo lee el agente del motor que implementa un bloque, Decisiones del dueño fijadas como supuestos, Llamadas resultantes en el código (derivadas de lo anterior), Mapa de las 28 restricciones, Next implementation step, Problem (+5 more)
+### Community 409 - "test_sonda_0081_da_t_completa_y_f_sin_tabla_o_incompleta"
+Cohesion: 0.15
+Nodes (9): Comprobacion del host antes de integrar, Hallazgo nuevo del host: la sonda de 0081 no aguantaba la tabla ausente, Límites, ORBIT 07: cierre de la revisión del PR 547 (2026-11-08), Triage F1-F29, Verificación ejecutada, _sonda_0081(), test_reversa_0081_aborta_si_hay_episodios_y_no_borra_historia() (+1 more)
 
 ### Community 410 - "P"
-Cohesion: 0.10
-Nodes (10): construir_cuerpo_parche(), FormaParcheSinSellar, P, Alcance actual, Contrato ya cerrado, Exclusiones selladas, Hechos comprobados, MARGEN ESTIMADO 01 · 0.3 — Acta de estado del bloque 0 (+2 more)
+Cohesion: 0.15
+Nodes (7): P, Alcance actual, Contrato ya cerrado, Exclusiones selladas, Hechos comprobados, MARGEN ESTIMADO 01 · 0.3 — Acta de estado del bloque 0, Normalización MX FBA sellada
 
 ### Community 411 - "R1-cod: el POST incierto no sella fallido"
 Cohesion: 0.17
 Nodes (11): Baterias, Cambio de diseno pedido por R.1, Commits, Paquete de produccion, Pendiente, Que cambia para el dueno, R1-cod: el POST incierto no sella fallido, Simulacion de checklist.sh (+3 more)
 
-### Community 412 - "sonda_economias.py"
-Cohesion: 0.28
-Nodes (11): _aplicador(), _db(), _evaluaciones(), _hojas(), main(), _metrica_economica(), _mundo(), _pausa() (+3 more)
+### Community 412 - "_construye_parser"
+Cohesion: 0.18
+Nodes (6): registra(), _bool_arg(), _construye_parser(), _decimal_arg(), _parse(), registra()
 
 ### Community 413 - "ORBIT 19 / 0.1 — Inventario de catalogo (SKU / margen / lotes)"
 Cohesion: 0.15
@@ -2600,53 +2662,45 @@ Nodes (12): 1. Bridge: listings sin mapa Odoo, 2. Product ads sin listing_id, 3.
 Cohesion: 0.15
 Nodes (12): Bordes sembrados en `semilla.sql` (ronda r1 amplía la ronda anterior), Cómo se corrió, Qué NO valida este documento, Regla de no limpieza (ronda r4c en adelante), Ronda r1 (2026-09-17): mismo formato que `correr.sh`, Ronda r2 (2026-09-17): E1-PMIXTO, Ronda r3 (2026-09-17): identidad de fuente real + hallazgos 20/21/22, Ronda r4a (2026-09-17): cuatro hechos que la producción mostró (+4 more)
 
-### Community 415 - "test_estimacion_meli_commit.py"
-Cohesion: 0.24
-Nodes (8): _cliente_meli(), _db_dsn(), _dsn_base(), _dsn_de_db(), _puente_vacio(), _semilla(), test_carril_meli_cuenta_decision(), test_carril_meli_persiste_y_sella_run()
+### Community 415 - "CLARIDAD 01: Orbit dice la verdad en pantalla"
+Cohesion: 0.17
+Nodes (9): Bloque A — Un detector cuenta lo que confunde en cada pantalla, Bloque B — Jev vuelve a correr y avisa si se detiene, Bloque C — Propuestas dice qué se va a aplicar de verdad, Bloque E — El motor de precios decide solo sobre lo que está a la venta, Bloque F — Precios de Estados Unidos vuelve a evaluar, Bloque G — Inertes abre en segundos, Bloque J — El entrenamiento queda al día con las pantallas nuevas, CLARIDAD 01: Orbit dice la verdad en pantalla (+1 more)
 
 ### Community 416 - "_vista_de"
 Cohesion: 0.19
 Nodes (12): Diagnostico (por que 0006 tardaba ~100s por consulta), Evidencia 0007 — equivalencia 0006↔0007 y timing en prod (2026-09-01), Que cambia y que NO cambia, Resultado de la verificacion, _columnas_vista(), test_0007_misma_interfaz_que_0006(), test_0007_parsea_y_reemplaza_ambas_vistas(), test_0008_interfaz_0007_mas_columna_marca() (+4 more)
 
-### Community 417 - "_crea_repo"
-Cohesion: 0.70
-Nodes (4): _commit(), _crea_repo(), _git(), _interruptores()
-
 ### Community 418 - "Brief para Muse: plan formal `plans/sp-api-01.md` (SP-API lecturas) + higiene de raíz"
 Cohesion: 0.15
 Nodes (12): Alcance v1 del plan (fijo; ampliar solo con el dueño), Brief para Muse: plan formal `plans/sp-api-01.md` (SP-API lecturas) + higiene de raíz, Criterio de cierre del brief, Decisiones abiertas mínimas (redáctalas para respuesta sí/no/valor), Ediciones al ROADMAP (mínimas, misma rama), Estructura exigida de `plans/sp-api-01.md`, Hechos verificados por el lead (úsalos, no los re-derives), Higiene incluida (mismo PR, commit aparte) (+4 more)
 
-### Community 419 - "Corregido en el spec v1.3 y el plan v1.2"
-Cohesion: 0.40
-Nodes (4): Corregido en el spec v1.3 y el plan v1.2, Disputa abierta, que por eso es una tarea y no un hecho, Validación de las fases E, B y M — segunda ronda (2026-09-16), Verificado y correcto (no volver a gastar aquí)
+### Community 419 - "Banda de cero ventas + guarda de entidad sin trafico — APROBADA por el dueno el 2026-09-03 (A' + C; B no)"
+Cohesion: 0.17
+Nodes (11): Banda de cero ventas + guarda de entidad sin trafico — APROBADA por el dueno el 2026-09-03 (A' + C; B no), Decision del dueno (2026-09-03) — SELLADO, Evidencia (base viva, 3 dias de shadow), Invariantes que cualquier opcion debe respetar, Lo que un experto haria distinto, Opcion A — Banda dura de cero ventas en el bid (minima), Opcion B — Umbral de pause secundario para cero ventas, Opcion C — Sin ajustes inertes + VISIBILIZAR, no silenciar (corregida por el dueno 2026-08-26) (+3 more)
 
 ### Community 420 - "test_ingesta01_d1_desplegar.py"
 Cohesion: 0.33
 Nodes (9): _corre(), _entorno(), _rev_parse(), test_checkout_shallow_sin_origin_master_llega_a_listo(), test_quality_failure_aborta_sin_esperar(), test_quality_in_progress_espera_y_sigue(), test_quality_no_responde_aborta(), test_sin_argumento_ni_motor_sha_aborta() (+1 more)
 
 ### Community 421 - "test_migracion_0073.py"
-Cohesion: 0.40
+Cohesion: 0.45
 Nodes (9): _db73(), _minimo(), _producto(), test_0073_amazon_feliz_pasa(), test_0073_amazon_intacto(), test_0073_meli_acepta_costo_del_miembro(), test_0073_meli_rechaza_costo_fuera_de_la_unidad(), test_0073_meli_rechaza_miembro_fuera_de_la_unidad() (+1 more)
 
-### Community 422 - "_Cursor"
-Cohesion: 0.28
-Nodes (3): _Cursor, execute(), execute()
+### Community 422 - "_ConnFila"
+Cohesion: 0.18
+Nodes (4): _ConnFila, _fila_mxn(), test_edita_goal_moneda_sin_defaults_revierte_antes_de_persistir(), test_edita_goal_mxn_sin_piso_techo_persiste_defaults_de_su_moneda()
 
-### Community 423 - "dashboard_contribucion.py"
-Cohesion: 0.24
-Nodes (8): contribucion_campanas(), _contribucion_plataforma(), _contribucion_todas(), _dbname(), _fila_contribucion_campana(), _motivo_contribucion_es(), _ventana_de(), preparar_lectura_contribucion()
+### Community 423 - "comprobar_atraso"
+Cohesion: 0.20
+Nodes (7): comprobar_atraso(), unidades_atrasadas(), A.3d — caso reproducible del bloqueo (rama `feat/ads-proteccion-a3`), Opciones (decide el dueno), Secuencia 2 — atraso nuevo tras recovery pendiente: HUECO, test_a3d_resumen_omitido_pre_1030_sin_tocar_db(), test_atraso_solo_para_unidades_sin_exito_de_hoy()
 
 ### Community 424 - "Carril M: Mercado Libre"
 Cohesion: 0.25
 Nodes (6): health(), Archivos, Notas para 0.5, REPUTACION 01 / 0.3 — Sonda MeLi, Veredicto por endpoint, M.1: ingiere el catálogo
 
-### Community 425 - "_TextoVisible"
-Cohesion: 0.16
-Nodes (3): _Navegador, texto_visible(), _TextoVisible
-
 ### Community 426 - "ConfigCampana"
-Cohesion: 0.18
-Nodes (4): config_de_payload(), ConfigCampana, PlanAjuste, planea_ajuste()
+Cohesion: 0.12
+Nodes (7): AjusteHecho, aplica_ajuste_campana(), config_de_payload(), ConfigCampana, PlanAjuste, planea_ajuste(), regresa_ajuste_campana()
 
 ### Community 427 - "pendiente_bid"
 Cohesion: 0.17
@@ -2665,8 +2719,8 @@ Cohesion: 0.17
 Nodes (5): Convertido, convertir(), logistica_del_universo(), TasaFx, Universo
 
 ### Community 431 - "Forma"
-Cohesion: 0.08
-Nodes (25): Alternativas consideradas, Aprobar, Diseño de JEV ADS 03: el dueño bloquea lo que Jev marca como ajeno, Dos módulos, uno por conocimiento, El efecto es una máquina de estados, El rechazo se recuerda por huella de catálogo, Forma, Interruptor y reversa (+17 more)
+Cohesion: 0.12
+Nodes (15): Aprobar, Dos módulos, uno por conocimiento, El efecto es una máquina de estados, El rechazo se recuerda por huella de catálogo, Forma, La pausa es una abstención, Persistencia (migración 0074), Quitar (+7 more)
 
 ### Community 432 - "Módulos Avanzados — especificación master"
 Cohesion: 0.17
@@ -2674,31 +2728,35 @@ Nodes (11): Capas, Dependencias entre módulos, Módulo 1 — Motor de Repricing
 
 ### Community 433 - "status"
 Cohesion: 0.07
-Nodes (27): status(), Configuración y decisiones, Ledger, Métricas de ads (el corazón), Módulo apply (ORBIT 04 — migración 0002, AÚN NO APLICADA), Optimizador (spec: ADS_OPTIMIZER_V2_DESIGN.md), Orbit — Diseño de base de datos, Procedencia y catálogo (+19 more)
+Nodes (27): status(), 1. Identidades de los cargos de envío — `salidas/00-sonda-formato-90d.txt`, 2. Product Fees para una oferta FBM — `salidas/01-sonda-fees-fbm.txt`, 3. FBM sin existencias — `salidas/03-fbm-sin-stock.txt`, `salidas/05-estado-contemporaneo.txt`, `salidas/07-control-estado-por-cantidad.txt`, F.0: tres lecturas de producción, Brief para Muse: SP-API 01 A.4 — ingesta Listings Items + Inventario FBA, Decisiones ya cerradas (no reabrir), Entrega del PR (+19 more)
 
-### Community 434 - "test_ads_archivar.py"
-Cohesion: 0.11
-Nodes (13): anuncios_vivos_del_grupo(), LecturaAmbigua, _ad(), _ClienteDePerfiles, _monta_perfiles(), _paginas(), _perfil_crudo(), test_el_filtro_del_list_por_ad_group_se_llama_exactamente_adGroupIdFilter() (+5 more)
+### Community 434 - "_monta_perfiles"
+Cohesion: 0.20
+Nodes (6): _ClienteDePerfiles, _monta_perfiles(), _perfil_crudo(), test_preparar_escritor_para_si_la_cuenta_tiene_DOS_perfiles_del_pais(), test_preparar_escritor_sella_plataforma_y_perfil(), test_preparar_escritor_sin_perfil_aceptado_no_construye_nada()
 
 ### Community 435 - "Orbit — contexto del proyecto"
 Cohesion: 0.17
 Nodes (12): Cómo leer el diseño v2 (ADS_OPTIMIZER_V2_DESIGN.md), Estado del servidor viejo al planificar la migración (histórico), Fases (adoptadas del diseño v2), Integraciones externas (cadencias y trampas pagadas), Módulo apply (ORBIT 04 — PR2), Módulo dashboard (ORBIT 16 — DASHBOARD 01), Módulos avanzados (spec: `docs/traspaso/MODULOS-AVANZADOS.md`), Orbit — contexto del proyecto (+4 more)
 
 ### Community 436 - "_aplicar_esquema"
-Cohesion: 0.24
-Nodes (5): _aplicar_esquema(), db(), test_set_local_nestloop_no_queda_en_sesion(), test_ui_contribucion_integracion_rollup_campana(), test_ui_contribucion_rollup_no_multiplica_por_dias()
+Cohesion: 0.20
+Nodes (6): _aplicar_esquema(), db(), _db_contribucion_mx(), test_set_local_nestloop_no_queda_en_sesion(), test_ui_contribucion_integracion_rollup_campana(), test_ui_contribucion_rollup_no_multiplica_por_dias()
 
-### Community 438 - "ORBIT 05 — cutover: el motor pasa a LIVE con rampa"
-Cohesion: 0.17
-Nodes (11): 2.1a — decisiones y logs rojos (Cursor), Adjudicación 2.1 — verificación adversarial triple (lead, 2026-09-03 00:40 UTC), Decisiones (brief ↔ codigo), Decisiones SELLADAS (header manda sobre las tareas), Decisión diferida cerrada: AGM2M reactivada (2026-09-04), Log ROJO (regla 9, codigo ausente), ORBIT 05 — cutover: el motor pasa a LIVE con rampa, Phase 1 — Día del flip [lane:release] (+3 more)
+### Community 437 - "Tablas"
+Cohesion: 0.18
+Nodes (10): Configuración y decisiones, Ledger, Métricas de ads (el corazón), Módulo apply (ORBIT 04 — migración 0002, AÚN NO APLICADA), Optimizador (spec: ADS_OPTIMIZER_V2_DESIGN.md), Orbit — Diseño de base de datos, Procedencia y catálogo, Roles y candados (+2 more)
+
+### Community 438 - "_base_a3d"
+Cohesion: 0.20
+Nodes (5): Observabilidad del chequeo 10:30, _base_a3d(), test_a3d_main_heartbeat_ejecutado_tras_1030(), test_a3d_main_heartbeat_omitido_pre_1030(), enviar()
 
 ### Community 439 - "test_pantalla_danadas.py"
-Cohesion: 0.06
-Nodes (47): _celda(), HojaDanada, lee_danadas(), PantallaDanadas, _cambio(), _ciclo(), _config(), _ConnFalsa (+39 more)
+Cohesion: 0.15
+Nodes (15): HojaDanada, PantallaDanadas, _ciclo(), _config(), _entidad(), _estado(), _hoja_llena(), _ingest() (+7 more)
 
-### Community 440 - "test_precio_write.py"
-Cohesion: 0.08
-Nodes (25): cerrar_por_observacion(), PrecioVivoAusente, PrecioVivoAusente, leer_precio_vivo(), G4 — competitivo caído bloquea con oferta propia (`precio_write.py`), Inventario DoD → tests (antes de mutar), _enviado_abierto(), _observacion() (+17 more)
+### Community 440 - "Nota de síntesis de la arena (2026-10-09)"
+Cohesion: 0.18
+Nodes (10): politica_bid_desde_settings(), Agregado después de la síntesis (2026-10-09, pruebas de solo lectura), Base elegida: runner-a, Candidatos, Decisiones del dueño (2026-10-09), Injertos, Lo que queda sin medir (va como pregunta o como sonda antes de construir), Nota de síntesis de la arena (2026-10-09) (+2 more)
 
 ### Community 441 - "test_spapi_diario.py"
 Cohesion: 0.29
@@ -2708,17 +2766,21 @@ Nodes (9): corre(), test_a_las_0615_justas_todavia_repite(), test_despues_de_las
 Cohesion: 0.18
 Nodes (10): Archivos que más importan, Comandos, Convenciones de código, Estructura, Graphify y Feature Map (navegacion y verificacion UI), Orbit, Pruebas y revisiones, Reglas de comportamiento (+2 more)
 
-### Community 443 - "_inputs_negative"
-Cohesion: 0.17
-Nodes (6): _inputs_negative(), test_replay_hygiene_corte_sin_piso_usa_legacy_8(), test_replay_hygiene_lee_inputs_corte_congelado(), test_replay_hygiene_lee_piso_cost_usado_congelado(), test_replay_hygiene_legacy_mx_130_exacto(), test_replay_hygiene_legacy_sin_inputs_corte_usa_20()
+### Community 443 - "E/0.2 — confirmación contra el HEAD para Jev Ads 01"
+Cohesion: 0.18
+Nodes (10): 1. Mapa de archivos por área del plan, 2. Siguiente número de migración: 0049, confirmado libre, 3. Esquema de roles vigente, 4. Procedencia de fichas y roster: `desconocido` donde no hay prueba, 5. Disponibilidad de casos reales para el piloto (SELECT por mercado), 6. Spec sin delta, 7. Anomalía de ejecución: dos actores en el mismo worktree, Comandos ejecutados (+2 more)
 
 ### Community 444 - "_lee_reviews_1"
 Cohesion: 0.18
 Nodes (8): _lee_reviews_1(), Decisiones, Evidencia, REPUTACION 01 / A.5 — Alertas + digest (implementado por el lead), Conciliacion (lead), DoD A.R, REPUTACION 01 / A.R — Revision independiente de fase A (lead integra), Veredictos
 
-### Community 446 - "test_preflight_1_4.py"
-Cohesion: 0.04
-Nodes (36): _cap_de_config(), consume_quota(), consume_quota_y_sello(), estado_quota(), _guarda_ack(), _intentos_hermana(), _intentos_hermana_detalle(), intentos_sin_sello() (+28 more)
+### Community 445 - "rn"
+Cohesion: 0.13
+Nodes (3): an(), on, rn()
+
+### Community 446 - "Orbit — contexto para Claude Chat"
+Cohesion: 0.18
+Nodes (11): Arquitectura (mapa de carpetas), Cómo se construye (roles), Dónde vive todo, Estado actual (se actualiza por phase), Glosario rápido, Instrucciones para el asistente de chat, Orbit — contexto para Claude Chat, Qué es Orbit (+3 more)
 
 ### Community 447 - "ORBIT 19 / 0.4 — Politica de comparacion"
 Cohesion: 0.18
@@ -2748,9 +2810,9 @@ Nodes (10): Familias, Familias, Fuentes · 40-catalogo (Reputación, Precios, Fa
 Cohesion: 0.18
 Nodes (10): Calificar y revisar, Comparar resultados, Correr un modelo, Desarrollo y verificacion, Medidas del operador, Orbit Bench, Preparar el primer intento, Que incluye (+2 more)
 
-### Community 454 - "R09-D: productos.js muestra el mensaje y los fallos, no [object Object]"
-Cohesion: 0.50
-Nodes (3): Cambio, Mutante, R09-D: productos.js muestra el mensaje y los fallos, no [object Object]
+### Community 454 - "_fallos_por_vivo"
+Cohesion: 0.22
+Nodes (7): _fallos_por_vivo(), VistaPreviaImpulso, Ajuste de relectura, Cambios, Mutante, Pruebas primero, R09-H: el lote sigue ante un fallo por producto
 
 ### Community 455 - "worker_run_id"
 Cohesion: 0.18
@@ -2768,9 +2830,9 @@ Nodes (11): ADS PROTECCION 01 — datos frescos y cortes que frenan gasto anorma
 Cohesion: 0.18
 Nodes (10): Alcance v1 (fijo, no ampliable sin el dueño), Brief para DeepSeek: plan formal del módulo Reputación (REPUTACION 01), Criterio de cierre del brief, Decisiones abiertas mínimas (redáctalas accionables), Estructura exigida de `plans/reputacion-01.md`, Hechos verificados (úsalos, no los re-derives), Lee, en este orden, Por qué tú (+2 more)
 
-### Community 459 - "arbol"
-Cohesion: 0.20
-Nodes (6): arbol(), _meta_con_herencia(), _origen_de_nota(), test_arbol_conteo_ventas_y_meta_pais(), test_productos_busca_filtra_y_mide(), _ventas()
+### Community 459 - "reproduce"
+Cohesion: 0.22
+Nodes (8): reproduce(), Comprobaciones ejecutadas, Dictamen asesor, H1 (ALTA). M2: el caso `8 % × 0.5 = 4 %` salta a `10 %` al converger o bajar, y su punto de equilibrio individual no entra a `R3` ni a `estado_grupo`, H5 (MEDIA). M1: mantener una pausa en espera dentro de `apply_queue` bloquea los ajustes de bid de esa hoja en `cycle.py` y rompe `v_decision_huerfana` si se descarta antes de liberar o no registra `decision_sin_aplicar`, H7 (MEDIA). M5: `v_cambio_bid` proyecta hoy el `current_bid` actual en cambios históricos de campaña y `_lee_efecto` hace `1` consulta por hoja con cambio, Hallazgos verificados con evidencia, Hipótesis o limitaciones sin verificar
 
 ### Community 460 - "test_arq_bids_v.py"
 Cohesion: 0.29
@@ -2784,9 +2846,9 @@ Nodes (7): Campañas (`/campanas`), Contribución (`/contribucion`), Fuentes · 
 Cohesion: 0.18
 Nodes (4): _fakea_main(), _HttpFalso, test_dedup_1_6a_con_otra_campana_aborta(), test_dedup_1_6a_keyword_no_enabled_aborta_fail_closed()
 
-### Community 463 - "test_productos_meta.py"
-Cohesion: 0.07
-Nodes (30): DiaProducto, _halo(), meta_de_hoja(), meta_para_grupo(), MetaReferencia, Alternatives considered, AUTO-03, candidato B (sombra completa primero): rationale, Chequeo de banderas rojas (+22 more)
+### Community 463 - "AUTO-03, candidato B (sombra completa primero): rationale"
+Cohesion: 0.20
+Nodes (9): Alternatives considered, AUTO-03, candidato B (sombra completa primero): rationale, Chequeo de banderas rojas, Next implementation step, Open questions and risks, Problem, Salida de `motor valida`, Synthesis decision (+1 more)
 
 ### Community 464 - "Prototipos del runner A (2026-10-09)"
 Cohesion: 0.20
@@ -2829,8 +2891,8 @@ Cohesion: 0.20
 Nodes (9): Archivos del PR, Base verificada, Entrega al lead, Lectura obligatoria, Matriz minima de validacion, ORBIT 17 — Brief para GLM: tareas 7–10 de FABRICA 01, Proceso y limites, Regresiones que deben sobrevivir a este bloque (+1 more)
 
 ### Community 474 - "ORBIT 19: correcciones del cross review Grok/Kimi"
-Cohesion: 0.20
-Nodes (7): Cambios, Dato real antes de las pruebas, GREEN local, ORBIT 19: correcciones del cross review Grok/Kimi, Regresiones RED contra el codigo anterior, test_flujo_js_comparador_etiquetas_orden_filtro_y_cero_escrituras(), test_flujo_js_comparador_recibe_objetivo_manual_y_derivado()
+Cohesion: 0.40
+Nodes (4): Cambios, Dato real antes de las pruebas, GREEN local, ORBIT 19: correcciones del cross review Grok/Kimi
 
 ### Community 475 - "_ConnFalsa"
 Cohesion: 0.20
@@ -2845,8 +2907,8 @@ Cohesion: 0.25
 Nodes (5): invalidar_cache_contribucion(), test_reopen_contribucion_concurrente_un_solo_calculo(), correr(), test_reopen_contribucion_no_recomputa_la_vista(), fake()
 
 ### Community 479 - "Cómo construir el bloque S de JEV ADS 02"
-Cohesion: 0.20
-Nodes (10): Antes de empezar, Comprueba, Cómo construir el bloque S de JEV ADS 02, Despliega, Preguntas que siguen abiertas, Qué vas a encontrar, Reglas que valen en todos los pasos, S.4: construye el job `jev-senales` (+2 more)
+Cohesion: 0.10
+Nodes (21): Antes de empezar, Cambios, Comprueba, Comprueba, Comprueba, Cómo construir el bloque S de JEV ADS 02, Despliega, Despliega (+13 more)
 
 ### Community 480 - "_handler_envio"
 Cohesion: 0.24
@@ -2928,9 +2990,9 @@ Nodes (4): main(), NoSeParte, primera_palabra(), sentencias()
 Cohesion: 0.31
 Nodes (4): main(), NoSeParte, primera_palabra(), sentencias()
 
-### Community 501 - "_inputs_pause_legacy"
+### Community 501 - "Diseño de JEV ADS 03: el dueño bloquea lo que Jev marca como ajeno"
 Cohesion: 0.20
-Nodes (5): _inputs_pause_legacy(), test_replay_fiel_por_construccion_ignora_el_vigente(), test_replay_legacy_pause_sin_inputs_corte_usa_historicos(), test_replay_pause_congelada_cortes01_reproduce_con_piso_historico(), test_replay_pause_lee_el_umbral_congelado_jamas_el_default()
+Nodes (10): Alternativas consideradas, Diseño de JEV ADS 03: el dueño bloquea lo que Jev marca como ajeno, Interruptor y reversa, Lo que el dueño selló, Orden de entrega, Problema, Pruebas que deben discriminar, Qué pasa si (+2 more)
 
 ### Community 502 - "Contrato para escribir páginas del manual de Orbit"
 Cohesion: 0.22
@@ -2940,21 +3002,21 @@ Nodes (8): Antes de terminar, Capturas (opcional, máximo 1 por pantalla), Contr
 Cohesion: 0.22
 Nodes (9): with, fetch-depth, key, name, path, persist-credentials, ref, repository (+1 more)
 
-### Community 504 - "Brief para Muse: FABRICA 02 (F2) — tarea A.2, migración `0038`"
-Cohesion: 0.25
-Nodes (7): Antes de escribir una línea, Brief para Muse: FABRICA 02 (F2) — tarea A.2, migración `0038`, DoD — tests con rol real, rojo primero, Entrega, Lo que A.1 dejó esperándote — y es parte de tu DoD, Número y naturaleza, Reglas de proceso (el lead las verifica)
+### Community 504 - "origen"
+Cohesion: 0.09
+Nodes (26): 4.3 El desenlace "no aplicado": `decision_sin_aplicar` (0044, ADS D.1), Dict y frase (verificados 2026-10-11, todos MUEREN), dinero.js con Node (verificados 2026-10-11, todos MUEREN), Mutantes de P.2b (botones, regresar, avisos, dinero.js), Plantilla (verificados 2026-10-11, todos MUEREN), Antes de escribir una línea, Brief para Muse: FABRICA 02 (F2) — tarea A.2, migración `0038`, DoD — tests con rol real, rojo primero (+18 more)
 
 ### Community 505 - "salud"
-Cohesion: 0.18
-Nodes (9): salud(), Alcance exacto, Brief para Muse: SP-API 01 A.5 — salud en /salud y alertas, Decisiones ya cerradas (no reabrir), Entrega del PR, Evidencia y cierre, Reglas duras (identicas a las de A.1–A.4), Resultado de la tarea (+1 more)
+Cohesion: 0.22
+Nodes (8): Alcance exacto, Brief para Muse: SP-API 01 A.5 — salud en /salud y alertas, Decisiones ya cerradas (no reabrir), Entrega del PR, Evidencia y cierre, Reglas duras (identicas a las de A.1–A.4), Resultado de la tarea, Tests minimos (todos en rojo primero)
 
-### Community 506 - "Corrección de los cinco bloqueantes sobre `4d1fa179`"
-Cohesion: 0.50
-Nodes (3): Corrección de los cinco bloqueantes sobre `4d1fa179`, Evidencia, Pendiente por infraestructura
+### Community 506 - "_mundo_m5"
+Cohesion: 0.40
+Nodes (8): _db_completa(), _lecturas(), _metrica_economica(), _mundo_m5(), test_interruptor_apagado_no_lee_ni_congela_episodio(), test_lectura_congela_el_episodio_maduro_y_su_contribucion(), test_lectura_mantiene_comparable_un_cambio_posterior_fuera_de_ventana(), test_lectura_marca_incomparable_el_cambio_en_ventana_y_posterior()
 
-### Community 509 - "C.5 — absorcion opcion b (el nuestro absorbe al otro)"
-Cohesion: 0.25
-Nodes (7): Bateria completa local (UNA sola corrida, summa-gate regla 1), C.5 — absorcion opcion b (el nuestro absorbe al otro), Cierre, Hallazgo previo (verificado, no supuesto), Que se absorbio, Revisiones, Sombra / prod intactos (solo lectura, ssh gonserver)
+### Community 509 - "Fuentes de 20-decidir-a.html"
+Cohesion: 0.22
+Nodes (7): _calculo_viejo(), Búsquedas que gastan sin vender (/busquedas-sin-venta), Fuentes de 20-decidir-a.html, Gasto sin venta (/gasto-sin-venta), Keywords dañadas (/keywords-danadas), Menú y contador, Ruido (/ruido)
 
 ### Community 510 - "H3 — pre-verificacion de merges (2026-09-25T00:57Z, solo lectura)"
 Cohesion: 0.25
@@ -2989,16 +3051,16 @@ Cohesion: 0.46
 Nodes (7): cuerpo(), gastos_en_dos_decimales(), http(), lee(), moneda_y_plataforma(), revisa(), checklist.sh script
 
 ### Community 519 - "M.3: comandos, salidas y SHA"
-Cohesion: 0.29
-Nodes (6): 1. Prueba primero: rojo por la razon correcta, 2. Comprueba del paso (todos en verde), 3. Mutantes obligatorios (3/3 muertos, ver `mutantes.md`), 5. Ruff a tocados, 6. Archivos, M.3: comandos, salidas y SHA
+Cohesion: 0.25
+Nodes (7): 1. Prueba primero: rojo por la razon correcta, 2. Comprueba del paso (todos en verde), 3. Mutantes obligatorios (3/3 muertos, ver `mutantes.md`), 4. Bateria completa, 5. Ruff a tocados, 6. Archivos, M.3: comandos, salidas y SHA
 
 ### Community 520 - "R09-J: candado de esquema impulso -> grupo tipo impulso (migracion 0072)"
 Cohesion: 0.25
 Nodes (7): Ajuste de relectura, Consulta de aplicada (para desplegar.sh), Ensayo, FK o trigger, Mutante, Prueba primero, R09-J: candado de esquema impulso -> grupo tipo impulso (migracion 0072)
 
-### Community 521 - "CAMPANAS 01 — Auditoria de campanas pausadas y candidatas a reactivar"
-Cohesion: 0.50
-Nodes (4): CAMPANAS 01 — Auditoria de campanas pausadas y candidatas a reactivar, Notas de reactivacion, Phase 1 — Analisis [lane:analisis], Seguimiento Exact US (24-sep-2026 UTC)
+### Community 521 - "_dias_halo"
+Cohesion: 0.25
+Nodes (3): _dias_halo(), _gasto_actuable(), _suma_dia()
 
 ### Community 522 - "S.4 — comandos, salidas y SHA (2026-10-06)"
 Cohesion: 0.25
@@ -3009,8 +3071,8 @@ Cohesion: 0.25
 Nodes (7): 1. Sembrar la DB local, 2. Levantar la app, 3. URL exacta de la vista, 4. Que verificar y capturar, 5. Apagar, Contadores HTTP (cero escrituras), ORBIT 19 / B.5 — Como reproducir el comparador en navegador
 
 ### Community 524 - "kpis_serie"
-Cohesion: 0.33
-Nodes (6): kpis_serie(), test_acos_rechaza_coberturas_iguales_con_dias_distintos(), test_acos_redondea_como_la_serie_del_dashboard(), test_cobertura_por_campo_y_acos_no_mezcla_periodos(), test_resumen_suma_decimales_y_calcula_acos_del_total(), test_resumen_vacio_y_sin_ventas_no_inventa_acos()
+Cohesion: 0.16
+Nodes (13): kpis_serie(), 9.1 Catálogo y moneda, 9.3 Ventana efectiva y recorte, 9.4 Respuesta por canal, 9.5 Nulos, ceros y ratios, 9.8 MA7, 9.9 Compatibilidad, 9. Resumen multicanal — `GET /api/dashboard/resumen` (RESUMEN-ADS-02) (+5 more)
 
 ### Community 525 - "Plan de Resumen Ads multicanal"
 Cohesion: 0.25
@@ -3032,9 +3094,13 @@ Nodes (3): cuerpo(), revisa(), checklist.sh script
 Cohesion: 0.39
 Nodes (5): cobertura(), cuerpo(), lee(), revisa(), checklist.sh script
 
-### Community 530 - "AUTO-03, candidato B: controlador previo por producto"
-Cohesion: 0.22
-Nodes (9): Alcance compartido y propiedad de escrituras, AUTO-03, candidato B: controlador previo por producto, Balance, riesgos y siguiente paso, Forma y tipos propuestos, Modelo persistido, estados y reversa, Problema y eleccion, Regla economica exacta propuesta, Uso del llamador, escrito primero (+1 more)
+### Community 530 - "modo"
+Cohesion: 0.25
+Nodes (8): Revisión cruzada de Astra, pasada 1, El trabajo fuera del ciclo, Comprueba, I.4: saca un producto de sus bolsas compartidas y regrésalo, Pruebas primero, Qué vas a encontrar, test_pausa_de_producto_es_shadow_mientras_la_config_no_la_encienda(), modo()
+
+### Community 531 - "decide_bid_era_bandas"
+Cohesion: 0.16
+Nodes (8): decide_bid_era_bandas(), _inputs_pre_bids(), test_replay_pre_bids_con_expected_congelado_no_aplica_regla_nueva(), _inputs_era(), test_decide_bid_era_bandas_cero_ventas_con_marcador_baja_25(), test_decide_bid_era_bandas_pausa_gana_a_banda(), test_decide_bid_era_bandas_reproduce_banda_menos_12(), _ventana()
 
 ### Community 532 - "REPUTACION 01 / 0.2 — Sonda Apify (CERRADA)"
 Cohesion: 0.25
@@ -3056,9 +3122,9 @@ Nodes (8): types, types, True, issue_comment, pull_request_target, workflow_run,
 Cohesion: 0.25
 Nodes (8): reconcile, if, runs-on, steps, if, name, run, uses
 
-### Community 537 - "Brief para GLM: FABRICA 02 (F2) — tarea A.3a"
-Cohesion: 0.25
-Nodes (7): Antes de escribir una linea, Brief para GLM: FABRICA 02 (F2) — tarea A.3a, Conducta que no se toca, DoD binario, Entrega, Reglas de proceso, Trampas que el lead revisara
+### Community 537 - "E/B2-r4 — correccion de la revision automatica post-push (F1/F2/F3)"
+Cohesion: 0.22
+Nodes (8): Comandos, E/B2-r4 — correccion de la revision automatica post-push (F1/F2/F3), F1 (Medium, 0049:71): ficha con listings vacio pasaba CHECK y trigger, F2 (Medium, jev_catalogo): iterable de un solo uso desalineaba hash y fila, Limites respetados, Rojo -> verde (TDD), SHA, Skills/agentes/modelos
 
 ### Community 538 - "Brief para Grok: SP-API 01 A.R — revisión independiente de la Fase A"
 Cohesion: 0.25
@@ -3073,8 +3139,12 @@ Cohesion: 0.25
 Nodes (7): (a) Simetria cancelar-antes-de-abrir en comprobar_atraso, (b) Tests rojo->verde: SI discriminan, Bloqueantes, (c) DoD H4.2/A.3: incompleto (ver bloqueante 2), Cross-review A.3 — draft 340 @ 2872567 (opus, independiente), (d) Merge de master: OK salvo 1 rojo, Observaciones (no bloqueantes)
 
 ### Community 542 - "test_familias.py"
-Cohesion: 0.12
-Nodes (19): db_familias(), _dsn_temp(), _notas_familias(), _secrets_token(), test_api_crea_asigna_y_errores(), test_api_sin_token_401(), test_asigna_masiva_idempotente(), test_crea_duplicada_409_y_padre_ajeno_422() (+11 more)
+Cohesion: 0.03
+Nodes (74): _RutaFabrica, arbol(), asigna(), crea(), familia_de_productos(), FamiliaDuplicada, FamiliaInvalida, FamiliaNoExiste (+66 more)
+
+### Community 543 - "E/B6b — cierre de ledger (cc:DONE + seguimientos R1-R20 + triage)"
+Cohesion: 0.22
+Nodes (8): Alcance, Comandos, E/B6b — cierre de ledger (cc:DONE + seguimientos R1-R20 + triage), Límites, Precondiciones verificadas, Residuales R1-R20 (TAREA 2), Triage (TAREA 3), Verificación de evidencia por fila (TAREA 1)
 
 ### Community 544 - "ORBIT 18 — Rediseno del dashboard"
 Cohesion: 0.29
@@ -3087,6 +3157,10 @@ Nodes (6): Decisiones, Decisiones del dueno y cierre de los puntos del analisis 
 ### Community 546 - "Arena AUTO-03: marco (Phase A del skill arena, dentro de architect Phase B)"
 Cohesion: 0.29
 Nodes (6): Arena AUTO-03: marco (Phase A del skill arena, dentro de architect Phase B), Artefacto que produce cada candidato, Grounding (leer completo antes de escribir), Runners, Rúbrica (la usa el pick en Phase D; los candidatos solo ven la tarea, pero no está prohibido que la lean), Salidas
+
+### Community 547 - "_ultima_migracion_con"
+Cohesion: 0.22
+Nodes (5): H6 (MEDIA). M4: los candados de esquema y consumidor de `anuncio_retiro` y `apply_queue` impiden insertar `pause_product_ad` sin ampliar 6 contratos acoplados, test_kinds_de_la_vista_huerfana_espejan_kinds_quota(), test_motivos_sin_aplicar_espejo_estatico_del_check(), test_procedencia_target_ciclo_espejo_estatico_del_check(), _ultima_migracion_con()
 
 ### Community 548 - "bids-02/ejecucion/D.1/desplegar.sh"
 Cohesion: 0.57
@@ -3144,13 +3218,29 @@ Nodes (5): _handler_put(), handler(), _puts(), test_pausa_solo_los_enabled_y_rea
 Cohesion: 0.29
 Nodes (6): Componentes observados y faltantes, Finances y cobros de envío reales, MARGEN ESTIMADO 01 · 0.2 — Fees, costos directos y fiscalidad, Matriz de contrato y dictamen 0.2, Política MX sellada para FBA, Product Fees API
 
+### Community 563 - "JEV ADS 02 — la señal por búsqueda-en-grupo"
+Cohesion: 0.22
+Nodes (9): Contratos, Criterios medidos, Huecos conocidos, Interruptores y reversa, JEV ADS 02 — la señal por búsqueda-en-grupo, Orden y salida, Pruebas que deben discriminar, Qué cambió con los prototipos (+1 more)
+
 ### Community 564 - "MARGEN ESTIMADO 01 · B.5 — despliegue y cierre"
 Cohesion: 0.29
 Nodes (6): Aplicacion e ingesta, Backup y migraciones, Integracion, Limites declarados, MARGEN ESTIMADO 01 · B.5 — despliegue y cierre, Smoke y reversa
 
+### Community 565 - "test_quota_precio_sin_clave_revienta"
+Cohesion: 0.22
+Nodes (5): _config(), test_cap_resuelve_los_once_motores(), test_quota_ads_intacta(), test_quota_precio_nace_de_config(), test_quota_precio_sin_clave_revienta()
+
 ### Community 566 - "ORBIT 19 / B.6 — Validacion final y despliegue del bloque B"
 Cohesion: 0.29
 Nodes (6): Conciliacion externa, Despliegue, Incidente y fix, ORBIT 19 / B.6 — Validacion final y despliegue del bloque B, Pendientes declarados (fuentes opcionales / ampliaciones), Smoke productivo (solo GET; cero creacion de campanas)
+
+### Community 567 - "fecha_corta"
+Cohesion: 0.25
+Nodes (5): fecha_corta(), hace(), _parse_fecha(), test_fecha_corta(), test_hace()
+
+### Community 568 - "test_settings_escritura.py"
+Cohesion: 0.06
+Nodes (22): _cli_productos(), _filas_config(), test_cli_orbit07_activa_y_revierte_sin_tocar_pausa_ni_meta(), test_cli_producto_modo_escribe_quita_y_no_repite(), test_cli_producto_modo_rechaza_valor_ajeno_y_pausa_en_vivo(), test_cli_y_endpoint_guardan_limites_de_la_pausa(), test_endpoint_get_settings_expone_procedencia_por_plataforma(), test_endpoint_post_settings_guarda_fila_nueva_y_409_si_base_obsoleta() (+14 more)
 
 ### Community 569 - "repricing-02/ejecucion/D.1/desplegar.sh"
 Cohesion: 0.57
@@ -3168,9 +3258,17 @@ Nodes (3): cuerpo(), revisa(), checklist.sh script
 Cohesion: 0.48
 Nodes (5): aplicar(), reversa_de(), senales(), ensayo.sh script, volcar()
 
+### Community 573 - "Candidato A: evaluación por decisión y contexto completo"
+Cohesion: 0.25
+Nodes (8): Alternativas consideradas, Candidato A: evaluación por decisión y contexto completo, Compromisos aceptados, Decisión de síntesis, Preguntas y riesgos previos a producción, Problema, Siguiente paso de implementación, Uso desde el caller
+
 ### Community 574 - "G.1/comparar.sh"
 Cohesion: 0.48
 Nodes (5): compara(), conteo(), sembrar(), comparar.sh script, tool()
+
+### Community 575 - "Forma"
+Cohesion: 0.25
+Nodes (8): APIs y operación, Forma, Interpretación de los tres usos Ads, Producto real, catálogo incompleto y varios productos, Tablas, índices y dueños, Tiempo, contrato y proveedor, Tipos y firmas, Tres módulos con conocimiento propio
 
 ### Community 576 - "REPUTACION 01 / A.2 — Ingesta snapshots (implementado por el lead)"
 Cohesion: 0.33
@@ -3204,21 +3302,21 @@ Nodes (6): Evidencia y memoria consultadas, Gates de planificación, Puntuación
 Cohesion: 0.29
 Nodes (6): B1: resuelto, B2: resuelto, Merge f31058d: limpio, Mutantes, Observaciones (no bloqueantes), Re-review A.3-R2 — draft 340 @ 336afd3 (opus, independiente)
 
-### Community 586 - "fraccion_desde_settings"
-Cohesion: 0.09
-Nodes (24): aviso_mezcla_familias(), sugerir_bids(), fraccion_desde_settings(), Interfaz draft/biblioteca v1, Base y lectura, Comportamiento que debe quedar probado, Criterio de cierre, Entrega y archivos (+16 more)
+### Community 585 - "E/B3-r1 — filas 1.3 y 1.4 del plan JEV ADS 01 (transporte y asesor)"
+Cohesion: 0.25
+Nodes (7): 1.4 — `AsesorAds.evaluar` (app/jev_ads.py) + `tools/jev_ads.py` (13+5 pruebas), Comandos, E/B3-r1 — filas 1.3 y 1.4 del plan JEV ADS 01 (transporte y asesor), Limites respetados, Modelo fijo: verificado contra la documentacion viva, SHA, Skills/agentes/modelos
+
+### Community 586 - "ORBIT 17 — Brief para GLM: tarea 6 de FABRICA 01"
+Cohesion: 0.33
+Nodes (5): Base y lectura, Comportamiento que debe quedar probado, Criterio de cierre, ORBIT 17 — Brief para GLM: tarea 6 de FABRICA 01, Proceso y pruebas
 
 ### Community 587 - "Veredicto sobre `78888f3e`"
 Cohesion: 0.29
 Nodes (6): sobre(), Hallazgo 21 — rezago-emision reescrita (dos medidas, sin observed_at), Bloqueantes, Gates, Pendientes, Veredicto sobre `78888f3e`
 
-### Community 588 - "test_cli_jev_senales_despacha_con_sus_args"
-Cohesion: 0.33
-Nodes (3): test_cli_jev_senales_despacha_con_sus_args(), test_cli_report_cobertura_despacha_con_sus_args(), _fake_main()
-
-### Community 589 - "ORBIT 07 M2: economía compatible y fresca del producto"
-Cohesion: 0.29
-Nodes (7): Diferencia de M2 respecto de AUTO-03, Evidencia reproducible, Límites, ORBIT 07 M2: economía compatible y fresca del producto, Regla implementada, Rendimiento, Selección de versión y reversa
+### Community 588 - "INGESTA 01 — la descarga diaria de Amazon Ads no falla"
+Cohesion: 0.25
+Nodes (8): Cierre, Criterios medidos, Horarios (UTC, crontab de `gon` en goncloud), INGESTA 01 — la descarga diaria de Amazon Ads no falla, Orden y salida, Sección 0 — sonda (en paralelo con A; no bloquea), Sección D — despliegue, Tareas y dependencias
 
 ### Community 590 - "tema.js"
 Cohesion: 0.47
@@ -3229,24 +3327,28 @@ Cohesion: 0.29
 Nodes (7): Casos que sustentan la regla, Dónde la regla sería incorrecta (y cómo se guarda), M6: evaluación económica de la repetición, Parámetros y por qué, Regla, Rendimiento, Seguimiento operativo
 
 ### Community 592 - "ORBIT 19 A.4 - selector por publicacion y objetivo explicito"
-Cohesion: 0.29
-Nodes (6): Cobertura, ORBIT 19 A.4 - selector por publicacion y objetivo explicito, Pruebas focales, Regresion, Verificacion visual, test_selector_v2_exige_objetivo_y_envia_listings_no_productos()
+Cohesion: 0.40
+Nodes (4): Cobertura, ORBIT 19 A.4 - selector por publicacion y objetivo explicito, Pruebas focales, Verificacion visual
 
 ### Community 593 - "Ronda r5a (2026-09-17): cast externo sin validar + 3 hallazgos bajos + 1 observación"
 Cohesion: 0.29
 Nodes (7): Hallazgo 29 (media) — cast de texto externo sin validar, Hallazgo 30 (baja) — un segundo día de carga inicial, invisible, Hallazgo 32 (baja) — el comentario decía "37 en cada plataforma", Hallazgo 34 (baja) — balde `sin_cociente`, Observación 33 — el par `finance:ShippingHB` / `shipping_label`, Regla de no limpieza (sin cambios desde r4c), Ronda r5a (2026-09-17): cast externo sin validar + 3 hallazgos bajos + 1 observación
 
-### Community 594 - "SP-API 01 / A.3 — Pase Pricing con Buy Box (evidencia)"
+### Community 594 - "avisos_del_dia"
 Cohesion: 0.29
-Nodes (6): Cierre, Comandos y salidas (sin secretos), Conciliación contra E/0.2 (MockTransport), Decisiones con evidencia (no inventadas), Que cambia, SP-API 01 / A.3 — Pase Pricing con Buy Box (evidencia)
+Nodes (4): Aviso, avisos_del_dia(), FilaCampana, FilaUbicacion
 
-### Community 595 - "Restricciones globales"
+### Community 595 - "R09-E: GRANT SELECT explicito sobre v_impulso_estado (migracion 0071)"
 Cohesion: 0.29
-Nodes (6): FABRICA UI 01 — Implementacion, Restricciones globales, Task 1: API y adaptador, Task 2: Pantalla, Task 3: Motor y empaquetado, Task 4: Integracion, revision y entrega
+Nodes (6): Consulta de aplicada (para desplegar.sh), Dato real antes de escribir (regla 8), Ensayo, Mutante, Prueba primero, R09-E: GRANT SELECT explicito sobre v_impulso_estado (migracion 0071)
 
 ### Community 596 - "ORBIT 19 A.5 - preflight de despliegue"
 Cohesion: 0.40
 Nodes (4): Esquema y estado, ORBIT 19 A.5 - preflight de despliegue, Secuencia preparada, Sonda de solo lectura
+
+### Community 597 - "E/B3-r3 — correccion revisiones automaticas post-push PR 392 (F1/F2 + Lows)"
+Cohesion: 0.29
+Nodes (6): B1 (High): --decision-id se parseaba y se IGNORABA, Comandos y salida real, E/B3-r3 — correccion revisiones automaticas post-push PR 392 (F1/F2 + Lows), Limites respetados, SHA, Skills/agentes/modelos
 
 ### Community 598 - "H6/H7 — estado 2026-09-25 ~20:05 UTC, actualizado 2026-09-30 UTC"
 Cohesion: 0.33
@@ -3255,6 +3357,10 @@ Nodes (6): Actualizacion C6 — 4-nov-2026 (lecturas base 5-nov UTC), H6/H7 — 
 ### Community 599 - "Correccion del aborto de precios Mercado Libre"
 Cohesion: 0.33
 Nodes (5): Causa y correccion, Comprobacion real posterior, Correccion del aborto de precios Mercado Libre, Despliegue acotado, Evidencia
+
+### Community 600 - "B5-r2: ronda correctiva de la revision 2.R (bloqueantes de B5-r1)"
+Cohesion: 0.29
+Nodes (6): B5-r2: ronda correctiva de la revision 2.R (bloqueantes de B5-r1), Comandos de reproduccion (desde la raiz del repo), Hallazgo de la correccion que merece registro, Resultado de la auto-revision delta (grok) y decision de parada, Skills/agentes/modelos, Verificacion (salidas completas en este directorio)
 
 ### Community 601 - "Lectura de la elegibilidad AUTO-03 (A.3)"
 Cohesion: 0.33
@@ -3353,8 +3459,8 @@ Cohesion: 0.47
 Nodes (3): q(), revisa(), checklist.sh script
 
 ### Community 625 - "S.2: comandos, salidas y SHA"
-Cohesion: 0.33
-Nodes (5): Comprueba final (tras implementar + revertir los 11 mutantes), Linea base (arbol limpio), Re-corrida J2 sobre el commit del PR (arbol limpio, F1), Rojo de "Pruebas primero" (TDD), S.2: comandos, salidas y SHA
+Cohesion: 0.29
+Nodes (6): Comprueba final (tras implementar + revertir los 11 mutantes), Linea base (arbol limpio), Re-corrida J2 sobre el commit del PR (arbol limpio, F1), Rojo de "Pruebas primero" (TDD), S.2: comandos, salidas y SHA, Sondeo previo al traslado (descartable, /tmp/s2-sondeo-enriquecer.py)
 
 ### Community 626 - "R01-B3: aprobar, rechazar, quitar y reconciliar"
 Cohesion: 0.33
@@ -3380,6 +3486,10 @@ Nodes (5): Alcance revisado, Evidencia, ORBIT 19 A.R - revision independiente de
 Cohesion: 0.33
 Nodes (5): Lint / formato, ORBIT 19 / B.1 — Reporte de pruebas, Pendiente para el lead, pytest_focal, Regresiones vecinas
 
+### Community 632 - "R01-B2: propuestas, huella, rechazo y pausa"
+Cohesion: 0.29
+Nodes (6): Baterias, Commits, Pendiente, Produccion, Que quedo, R01-B2: propuestas, huella, rechazo y pausa
+
 ### Community 633 - "ORBIT 19 / B.3 — Contrato de disponibilidad comercial"
 Cohesion: 0.33
 Nodes (5): Conciliacion con Orbit, Fuentes (tabla (c)/(d) de 0.3, `docs/evidencia/orbit-19/0.3/reporte.md`), ORBIT 19 / B.3 — Contrato de disponibilidad comercial, Persistencia (migrations/0022_disponibilidad_snapshot.sql), Tres estados distinguibles (AC8)
@@ -3391,6 +3501,10 @@ Nodes (6): C6-P2: replay economico RO, 5-nov-2026 UTC, Contraste externo disponi
 ### Community 635 - "ORBIT 19 - Deploy final y auditoria de integracion"
 Cohesion: 0.33
 Nodes (5): Auditoria de Git y resguardo, Codigo, revision y calidad, Deploy y comprobacion productiva, Estado y limites, ORBIT 19 - Deploy final y auditoria de integracion
+
+### Community 636 - "R1-PR: la PR queda lista para merge"
+Cohesion: 0.29
+Nodes (6): Baterias, CI en el SHA de codigo, Commits, Pendiente, Que cambia para el dueno, R1-PR: la PR queda lista para merge
 
 ### Community 637 - "D.2: evidencia del paquete (REPRICING 02, seccion 3)"
 Cohesion: 0.33
@@ -3432,9 +3546,9 @@ Nodes (5): Alcance y límite temporal, Cron posterior, P01: conciliación produc
 Cohesion: 0.33
 Nodes (5): Artefactos (convencion plan §convenciones), DoD, Hallazgos del deploy (operativos), REPUTACION 01 / A.7 — Despliegue (lead, 2026-09-08), Reversa
 
-### Community 647 - "kimi-A.2-c1.md"
+### Community 647 - "DetalleFee"
 Cohesion: 0.03
-Nodes (69): cerrar_huerfanas(), ConfigPrecio, _fechas_excluidas(), _rango_fechas(), ResultadoObjetivo, _revisar_cotizacion(), techo_centavo(), _bajar() (+61 more)
+Nodes (79): DetalleFee, ConfigPrecio, derivar_ref_fijo(), ErrorObjetivo, margen_a_precio(), paso(), piso_centavo(), precio_estrella() (+71 more)
 
 ### Community 648 - "Revisión integral de `d1bdbe5f`"
 Cohesion: 0.33
@@ -3444,17 +3558,21 @@ Nodes (5): Antes, Después, Gates y evidencia operativa, Pendientes de infraestr
 Cohesion: 0.33
 Nodes (5): Comando exacto, Decisiones de mapeo (para la ingesta), Resultado 1 (ventana 1 día): 200, 5 órdenes, Resultados 2 y 3 (valores enum): ventanas vacías, SP-API 01 / A.2b — Sonda FULFILLMENT + PROCEEDS (solo lectura)
 
-### Community 650 - "Global Constraints"
-Cohesion: 0.33
-Nodes (4): Reglas duras, Global Constraints, test_imports_del_cliente_de_escritura_acotados(), test_presupuesto_de_tamano_por_modulo()
+### Community 650 - "PEZ: si hay BOM activos; el problema es la referencia que integra Orbit"
+Cohesion: 0.29
+Nodes (7): BOM activos PEZ relacionados por familia, Desglose de las nueve referencias exactas de MeLi, Evidencia y reproduccion, PEZ: si hay BOM activos; el problema es la referencia que integra Orbit, Problema exacto de integracion y siguiente paso concreto, Que esta archivado y por que, Unidades, rendimiento, variantes y sub-BOM
 
 ### Community 652 - "Orbit Bench Implementation Plan"
 Cohesion: 0.33
 Nodes (5): Global Constraints, Orbit Bench Implementation Plan, Task 1: Casos y evaluacion automatica, Task 2: Intentos, revision e informes, Task 3: Integracion y entrega
 
 ### Community 653 - "ORBIT 17 — Brief para GLM: tareas 4 y 5 de FABRICA 01"
+Cohesion: 0.29
+Nodes (6): Lectura obligatoria, ORBIT 17 — Brief para GLM: tareas 4 y 5 de FABRICA 01, Preparacion y limites, Resultado esperado, Tarea 5 — nucleo puro de la fabrica, Verificacion y entrega
+
+### Community 654 - "_ads_ingest_de"
 Cohesion: 0.33
-Nodes (5): Lectura obligatoria, ORBIT 17 — Brief para GLM: tareas 4 y 5 de FABRICA 01, Preparacion y limites, Resultado esperado, Verificacion y entrega
+Nodes (5): _ads_ingest_de(), (1) Delta: obs1 y obs2 de R3 cerradas, (2) Total: nada nuevo que bloquee, Observaciones (no bloqueantes), Review A.3-R4: cierre del draft PR 340 @ 7accc9e (opus, independiente)
 
 ### Community 655 - "Brief para Muse: ronda de correcciones del PR #258 (F2 · A.0 + A.1)"
 Cohesion: 0.33
@@ -3463,6 +3581,10 @@ Nodes (5): Brief para Muse: ronda de correcciones del PR #258 (F2 · A.0 + A.1),
 ### Community 656 - "ORBIT 05 preflight — candados antes del cutover a live"
 Cohesion: 0.33
 Nodes (5): Decisiones SELLADAS (header manda sobre las tareas), ORBIT 05 preflight — candados antes del cutover a live, Reject (con razón), Residuales declarados, 事前確認
+
+### Community 657 - "Crear campanas (`/campanas/nuevas`)"
+Cohesion: 0.33
+Nodes (5): Crear campanas (`/campanas/nuevas`), Driving it with curl, Gotchas, How to get to it (user POV), Sub-features
 
 ### Community 658 - "repos"
 Cohesion: 0.33
@@ -3480,17 +3602,17 @@ Nodes (6): _perfiles(), _perfiles_item(), uno(), _responde(), handler(), handler
 Cohesion: 0.33
 Nodes (3): test_cli_precio_conexion_caida_sin_traceback(), _cae(), test_cli_precio_reporte_conexion_caida_sin_traceback()
 
-### Community 664 - "_db_nueva"
+### Community 664 - "A.3 — estados, cadencia y observabilidad (DoD H4.2)"
 Cohesion: 0.33
-Nodes (4): _db_nueva(), _dsn_base(), _dsn_de_db(), test_r1_b11_helper_unico_nombre_corto_y_migracion_omitida()
+Nodes (5): A.3 — estados, cadencia y observabilidad (DoD H4.2), Aviso inicial agotado (definido), Cadencia, Estados del episodio (`ads_ingest_incident`), Final de recovery agotada (definido)
 
 ### Community 665 - "LEEME — verify/ de Orbit"
 Cohesion: 0.33
 Nodes (5): Convivencia con la flota DG, Cómo correr, LEEME — verify/ de Orbit, Mapa de funciones (3–5, en español), Qué es
 
-### Community 666 - "Mutantes de P.2b (botones, regresar, avisos, dinero.js)"
-Cohesion: 0.40
-Nodes (4): Dict y frase (verificados 2026-10-11, todos MUEREN), dinero.js con Node (verificados 2026-10-11, todos MUEREN), Mutantes de P.2b (botones, regresar, avisos, dinero.js), Plantilla (verificados 2026-10-11, todos MUEREN)
+### Community 666 - "D.1 — decision_sin_aplicar: merge y deploy"
+Cohesion: 0.33
+Nodes (5): D.1 — decision_sin_aplicar: merge y deploy, Deploy (2026-09-25 23:53 UTC, dueno con `!`), Merge, Pendiente, Primer ciclo post-deploy (2026-09-26, solo lectura)
 
 ### Community 667 - "ORBIT 19 / B.3 — Reporte de pruebas"
 Cohesion: 0.40
@@ -3559,6 +3681,10 @@ Nodes (4): guardas_proceso(), md5_de(), q(), desplegar.sh script
 ### Community 684 - "D.6/rollback.sh"
 Cohesion: 0.70
 Nodes (4): huella_cron(), q(), rollback.sh script, w()
+
+### Community 685 - "Catálogo para Jev asesor — contrato propuesto"
+Cohesion: 0.33
+Nodes (5): Catálogo para Jev asesor — contrato propuesto, Censo agregado preparado (sin textos privados), Completitud y tiempo, Ficha manual mínima versionada, Identidad y recorrido exacto
 
 ### Community 686 - "T.1/ensayo.sh"
 Cohesion: 0.60
@@ -3632,9 +3758,25 @@ Nodes (4): escribir(), leer(), sembrar(), programar-reconcilia.sh script
 Cohesion: 0.40
 Nodes (4): Artefactos, Como reproducir, Comprobado, MARGEN ESTIMADO 01 · B.2 — Smoke navegador (Playwright/Chromium)
 
-### Community 704 - "AC10 — como se probo el aislamiento"
-Cohesion: 0.40
-Nodes (4): AC10 — como se probo el aislamiento, Comandos, Que cubre el test, Que no prueba
+### Community 704 - "Jev Ads: how y why verificados"
+Cohesion: 0.33
+Nodes (5): Brief del diseno, Jev Ads: how y why verificados, Motivos documentados, why, Recorrido actual, verificado por how, TypeSafe leido en docs oficiales
+
+### Community 705 - "ORBIT 07: activacion y reversa de las mejoras"
+Cohesion: 0.33
+Nodes (6): Activacion, Comprobacion, ORBIT 07: activacion y reversa de las mejoras, Precondiciones, Reversa, Valores exactos (verificados en el codigo)
+
+### Community 706 - "Revision de arranque por Opus"
+Cohesion: 0.33
+Nodes (5): Decisiones de negocio para fases posteriores, Dependencias satisfechas, Límite exacto del primer encargo, Puntos que cambian el primer encargo, Revision de arranque por Opus
+
+### Community 707 - "Ronda r2 (re-auditoría del lead sobre `1428f69`; B1 + 3 mutantes)"
+Cohesion: 0.33
+Nodes (6): B1 — PATCH antes de que la pendiente sea durable (`precio_write.py` + `tools/precio_reversa.py`), P20 (r2) — `confirmado_por` exacta en ambos estados (`precio_write.py:cerrar_por_observacion`), P22 — loguear el cuerpo en la rama `enviado` (`precio_write.py:_publicar`), P9 — aceptar `INVALID` (`precio_write.py:_estado_aceptado`), Ronda r2 (re-auditoría del lead sobre `1428f69`; B1 + 3 mutantes), T1 — equivalente (no mutante)
+
+### Community 708 - "A.7: readback del recuadro de cobertura en producción (2026-09-18)"
+Cohesion: 0.33
+Nodes (5): A.7: readback del recuadro de cobertura en producción (2026-09-18), Contraste con el bridge, Qué dice cada número, Reproducir, Resultado
 
 ### Community 710 - "ORBIT 19 A.5 - correcciones de revision"
 Cohesion: 0.40
@@ -3652,9 +3794,9 @@ Nodes (4): Capturas, Nota de accesibilidad, ORBIT 19 / B.5 — Verificacion en n
 Cohesion: 0.50
 Nodes (3): Comandos y salidas, Desviaciones con razón, G.2 — rutas de goals y compuerta (REPRICING 02, Sección 3)
 
-### Community 714 - "M.0: sonda de Mercado Libre (solo lectura, dentro de `orbit-app-1`)"
-Cohesion: 0.50
-Nodes (3): De paso: visitas, Las cuatro conclusiones, M.0: sonda de Mercado Libre (solo lectura, dentro de `orbit-app-1`)
+### Community 714 - "Mutantes de S.7"
+Cohesion: 0.33
+Nodes (5): Lineal y cableado (`reglas.py`, `precio_mercado.py`, `corrida.py`), Mutantes de S.7, Senal (`app/precio/ventas.py`), Tipos (`app/precio/tipos.py`), Trafico y cohorte (`app/precio/ventas.py`)
 
 ### Community 715 - "repricing-02/ejecucion/D.1/rollback.sh"
 Cohesion: 0.70
@@ -3663,10 +3805,6 @@ Nodes (4): huella_cron(), q(), rollback.sh script, w()
 ### Community 716 - "repricing-02/ejecucion/D.2/rollback.sh"
 Cohesion: 0.70
 Nodes (4): q(), revertir_cron(), rollback.sh script, w()
-
-### Community 717 - "D.3: evidencia del paquete (REPRICING 02, seccion 4)"
-Cohesion: 0.40
-Nodes (4): D.3: evidencia del paquete (REPRICING 02, seccion 4), Decisiones con razon, Estado de produccion leido el dia del paquete (solo lectura), Salidas guardadas (todas con su linea exit= al final)
 
 ### Community 718 - "repricing-02/ejecucion/D.3/rollback.sh"
 Cohesion: 0.70
@@ -3683,6 +3821,10 @@ Nodes (3): ORBIT_DSN_DECIDE, PYTHONPATH, comprobar.sh script
 ### Community 721 - "F.2: envio con origen y job de muestras"
 Cohesion: 0.40
 Nodes (4): Comprueba, F.2: envio con origen y job de muestras, Pruebas, Reglas selladas (medidas en prod el 2026-10-15 por `orbit_read`)
+
+### Community 722 - "JEV ADS 01 — asesoría semántica para Ads"
+Cohesion: 0.33
+Nodes (6): Archivos y dueños, Cierre de la implementación (ledger, 2026-10-04), Criterios de salida, JEV ADS 01 — asesoría semántica para Ads, Pruebas que deben discriminar, Tareas y dependencias
 
 ### Community 723 - "X.2/sonda.sh"
 Cohesion: 0.70
@@ -3747,6 +3889,22 @@ Nodes (4): Phase 1 — Base viva en goncloud [lane:gate], Phase 2 — Verificaci
 ### Community 739 - "ORBIT 18 — Rediseno UI"
 Cohesion: 0.40
 Nodes (4): Alcance, DoD, ORBIT 18 — Rediseno UI, Tareas
+
+### Community 744 - "Evidencia del diseño Jev Ads 01"
+Cohesion: 0.40
+Nodes (5): Censo real, sólo lectura, Evidencia del diseño Jev Ads 01, Fuentes TypeSafe, Grounding y comparación, Prototipos con TypeSafe real y datos sintéticos
+
+### Community 745 - "C6 — preparacion, 4-nov-2026"
+Cohesion: 0.40
+Nodes (5): C6 — preparacion, 4-nov-2026, Criterios para el expediente P3, Ejecucion P1/P2 y reproduccion, Evidencia reutilizada y alcance, Revision y limitaciones
+
+### Community 746 - "Hallazgos que cambiaron el diseño (convergentes entre perspectivas)"
+Cohesion: 0.40
+Nodes (4): Hallazgos declarados (no incorporados) y razón, Hallazgos que cambiaron el diseño (convergentes entre perspectivas), Lo que las cinco perspectivas verificaron como correcto (sin observación), Validación del plan REPRICING 01 — cinco perspectivas (2026-09-16 UTC)
+
+### Community 749 - "P.3a: escribe el contrato de keywords dañadas"
+Cohesion: 0.40
+Nodes (5): Cambios, Comprueba, P.3a: escribe el contrato de keywords dañadas, Pruebas primero, Qué vas a encontrar
 
 ### Community 750 - "B.3 — replay de PAUSE tras BID, keyword 4925"
 Cohesion: 0.50
@@ -3835,6 +3993,10 @@ Nodes (3): Incidente operativo y fix, ORBIT 19 / B.1 — Conciliacion viva de la
 ### Community 777 - "prueba-candados.sh"
 Cohesion: 1.00
 Nodes (3): preparar(), probar_fuga(), prueba-candados.sh script
+
+### Community 778 - "test_reversa_solo_de_cambio_real"
+Cohesion: 0.40
+Nodes (3): _cambio_virtual(), test_reversa_solo_de_cambio_real(), _cerrado()
 
 ### Community 779 - "REPRICING 01 E.2 — acta del envio medido"
 Cohesion: 0.50
@@ -3976,13 +4138,21 @@ Nodes (4): description, required, type, coordinator_run_id
 Cohesion: 0.50
 Nodes (4): description, required, type, head_sha
 
+### Community 823 - "ORBIT 19 / B.R — Revision independiente del bloque B"
+Cohesion: 0.50
+Nodes (3): 1a ronda — commit `8b4f7fe` (2026-09-07), Correcciones — commit `8b407cc`, ORBIT 19 / B.R — Revision independiente del bloque B
+
+### Community 824 - "M1 — margen sin pasar a tanto por uno"
+Cohesion: 0.50
+Nodes (3): M1 — margen sin pasar a tanto por uno, M2 — TACoS sin signo de por ciento, Mutantes G.3 (uno por prueba nueva; el plan no lista obligatorios)
+
 ### Community 825 - "despliegue/checklist.sh"
 Cohesion: 0.83
 Nodes (3): falla(), ok(), checklist.sh script
 
 ## Knowledge Gaps
 - **23 isolated node(s):** `AppKit`, `Vision`, `PATH`, `PATH`, `PATH` (+18 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 11305 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 11307 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **180 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
@@ -3994,11 +4164,11 @@ _Questions this graph is uniquely positioned to answer:_
   _`scrub()` has 31 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `AppKit`, `Vision`, `PATH` to the rest of the system?**
   _23 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `os` be split into smaller, more focused modules?**
-  _Cohesion score 0.015150018114152093 - nodes in this community are weakly interconnected._
-- **Why does `scrub()` connect `os` to `estimacion_ingest.py`, `reports.py`, `catalogo.py`, `cycle.py`, `test_precio_corrida.py`, `apply_harvest.py`, `AdsClient`, `test_target_margen.py`, `api_precios.py`, `kimi-A.6-c2.md`, `test_ads_salud.py`, `test_jev_catalogo.py`, `test_precio02_atribucion.py`, `structure.py`, `test_jev_senales.py`, `reputacion.py`, `test_spapi_write_client.py`, `test_spapi_vigilante.py`, `test_spapi_listings.py`, `corrige_descripciones_pez.py`, `smoke_apply.py`, `dossier_adversarial.py`, `sonda_ajuste_placement.py`, `notifica.py`, `P`, `bloqueo_dueno_efecto.py`, `test_estimacion_fees.py`, `jev_senales.py`, `test_spapi_inventario.py`, `30-revision-d1bdbe5f/scripts/conciliar.py`, `ejecuta_snapshot`, `contextlib`, `test_bloqueo_dueno_efecto.py`, `api_dashboard.py`, `test_evaluacion_catalogo.py`, `AdsCredentials`, `sync_costos`, `test_spapi_salud.py`, `test_estimacion_insumos.py`, `test_fx_sync.py`, `apply.py`, `fabrica_web.py`, `AdsApiError`, `corrige_meli_skus.py`, `test_jev_cli.py`, `sonda_spapi.py`, `_atribuir_ventas`, `test_jev_juicios.py`, `30-revision-78888f3e/scripts/conciliar.py`, `test_architecture.py`, `SpapiClient`, `sonda_fuera_de_amazon.py`, `corrida.py`, `test_spapi_client.py`, `re`, `fraccion_desde_settings`, `ads_ingest.py`, `avisar_campanas`, `test_spapi_pricing.py`, `_postgres_obligatorio_ausente`, `sonda.py`, `tools/sonda_pausa_product_ad.py`, `cambios.py`, `test_meli_ads_ingest.py`, `test_reputacion.py`, `ui.py`, `Brief para Muse: SP-API 01 A.5 — ronda de correcciones (review del lead)`, `notifica.py`, `test_ads_descarga.py`, `jev_catalogo.py`, `DEPLOY — Orbit en goncloud (Postgres 16 + app)`, `test_listings_sync.py`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
-- **Should `reports.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.01659809902113775 - nodes in this community are weakly interconnected._
-- **Why does `_test_dsn()` connect `_test_dsn` to `os`, `reports.py`, `test_precio_corrida.py`, `_producto`, `test_api_dashboard.py`, `test_fabrica_f2_hermanas.py`, `_postgres_obligatorio_ausente`, `structure.py`, `db_f2`, `test_api_fabrica.py`, `test_apply.py`, `test_economia_observada.py`, `test_precio_migracion.py`, `test_cycle.py`, `test_aplica_ajuste.py`, `test_estimacion_fees.py`, `jev_senales.py`, `test_familias.py`, `componer`, `test_archiva_inertes.py`, `libera_vencidos`, `en_cooldown`, `test_apply_harvest.py`, `test_estimacion_insumos.py`, `test_cobertura.py`, `conn_pg`, `test_productos_pausa.py`, `test_jev_cli.py`, `SpapiClient`, `test_apply_producto.py`, `test_schema.py`, `test_campana_config.py`, `test_harvest_excepcion.py`, `test_api_write.py`, `test_optimizer_hygiene.py`, `test_spapi_pricing.py`, `lecturas_caso.py`, `_postgres_obligatorio_ausente`, `test_apply_schema.py`, `test_cli_bids.py`, `test_meli_ads_ingest.py`, `test_reputacion.py`, `test_smoke_apply.py`, `test_precio_d0.py`, `_imports_runtime`, `test_rejuega_niveles.py`, `S.2: comandos, salidas y SHA`, `test_optimizer_windows.py`, `test_reputacion_migracion.py`, `test_lecturas_caso.py`, `test_ledger_sync.py`, `test_despliegue_motor.py`, `test_listings_sync.py`, `test_pantalla_ruido.py`, `test_reputacion_alertas.py`, `test_cycle_apply.py`, `test_jev_catalogo.py`, `test_jev_senales.py`, `test_spapi_vigilante.py`, `test_spapi_listings.py`, `test_spapi_inventario.py`, `test_pantalla_dinero.py`, `test_bloqueo_dueno_efecto.py`, `test_evaluacion_catalogo.py`, `persistir_escenario`, `_db_dinero`, `test_spapi_salud.py`, `test_disponibilidad.py`, `test_fx_sync.py`, `test_costo_historico_0011.py`, `test_optimizer_goals.py`, `test_metricas_listas.py`, `test_fabrica_0038.py`, `test_0003_goal_sin_piso_techo_revierte_y_con_bounds_pasa`, `test_api.py`, `test_pantalla_busquedas.py`, `psycopg`, `lee_busquedas`, `test_ads_descarga.py`, `test_contribucion_entidad.py`, `test_migracion_0062.py`, `test_costs_sync.py`, `DEPLOY — Orbit en goncloud (Postgres 16 + app)`, `test_migracion_0061.py`, `test_estimacion_venta_schema.py`, `test_ads_salud.py`, `test_bids02_vistas.py`, `test_ui_contribucion.py`, `test_entidad_inerte.py`, `test_contribucion_multilisting.py`, `sync_costos`, `test_verify_orbit.py`, `test_migracion_0067.py`, `test_notifica.py`, `test_estimacion_meli_commit.py`, `_aplicar_esquema`, `test_v_tacos_deja_de_duplicar_gasto_campaign_keyword`, `test_pantalla_danadas.py`, `test_precio_write.py`, `pg`, `J5b: pantallas (TDD rojo -> verde, mutantes, panel)`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+- **Should `datetime` be split into smaller, more focused modules?**
+  _Cohesion score 0.010406835229248422 - nodes in this community are weakly interconnected._
+- **Why does `scrub()` connect `scrub` to `datetime`, `test_placements.py`, `estimacion_ingest.py`, `cycle.py`, `catalogo.py`, `test_precio_corrida.py`, `apply_harvest.py`, `api_precios.py`, `test_fabrica_f2_hermanas.py`, `kimi-A.6-c2.md`, `apply_cola.py`, `test_precio02_atribucion.py`, `structure.py`, `_ads_ingest_de`, `test_spapi_write_client.py`, `test_spapi_vigilante.py`, `corrige_descripciones_pez.py`, `test_spapi_listings.py`, `test_jev_orden_opciones.py`, `smoke_apply.py`, `dossier_adversarial.py`, `sonda_ajuste_placement.py`, `bloqueo_dueno_efecto.py`, `test_estimacion_fees.py`, `jev_senales.py`, `contextlib`, `test_spapi_inventario.py`, `30-revision-d1bdbe5f/scripts/conciliar.py`, `CLARIDAD 01: Orbit dice la verdad en pantalla`, `componer`, `api_dashboard.py`, `AdsCredentials`, `OrbitDbError`, `sync_costos`, `test_spapi_salud.py`, `test_estimacion_insumos.py`, `test_fx_sync.py`, `apply.py`, `test_cobertura.py`, `AdsApiError`, `crear`, `corrige_meli_skus.py`, `test_jev_cli.py`, `sonda_spapi.py`, `_atribuir_ventas`, `test_jev_juicios.py`, `test_architecture.py`, `spapi/precio_mercado.py`, `SpapiClient`, `sonda_fuera_de_amazon.py`, `corrida.py`, `test_spapi_client.py`, `re`, `test_jev_bloqueo_api.py`, `edita_goal`, `ingest_meli_ads`, `avisar_campanas`, `test_spapi_pricing.py`, `test_precio_pantalla.py`, `cambios.py`, `test_meli_ads_ingest.py`, `httpx`, `ui.py`, `Brief para Muse: SP-API 01 A.5 — ronda de correcciones (review del lead)`, `notifica.py`, `test_ads_descarga.py`, `jev_fichas.py`, `test_notifica.py`, `30-revision-10266d91/scripts/conciliar.py`, `DEPLOY — Orbit en goncloud (Postgres 16 + app)`, `test_listings_sync.py`, `productos_io.py`?**
+  _High betweenness centrality (0.033) - this node is a cross-community bridge._
+- **Should `test_placements.py` be split into smaller, more focused modules?**
+  _Cohesion score 0.032920165267226444 - nodes in this community are weakly interconnected._
+- **Why does `_test_dsn()` connect `_test_dsn` to `datetime`, `test_placements.py`, `test_precio_corrida.py`, `_producto`, `test_api_dashboard.py`, `test_fabrica_f2_hermanas.py`, `_postgres_obligatorio_ausente`, `structure.py`, `db_f2`, `test_api_fabrica.py`, `test_apply.py`, `test_economia_observada.py`, `test_precio_migracion.py`, `test_cycle.py`, `test_aplica_ajuste.py`, `test_estimacion_fees.py`, `jev_senales.py`, `test_familias.py`, `test_jev_pantallas.py`, `test_precio_write.py`, `test_archiva_inertes.py`, `libera_vencidos`, `test_apply_harvest.py`, `test_estimacion_insumos.py`, `test_cobertura.py`, `test_productos_pausa.py`, `test_jev_cli.py`, `test_reversa_harvest.py`, `SpapiClient`, `test_apply_producto.py`, `_PausaAntesLock`, `test_schema.py`, `test_campana_config.py`, `test_harvest_excepcion.py`, `test_api_write.py`, `test_optimizer_hygiene.py`, `test_spapi_pricing.py`, `test_orbit07_m5m6.py`, `test_goals_write.py`, `test_apply_schema.py`, `test_cli_bids.py`, `test_meli_ads_ingest.py`, `httpx`, `test_smoke_apply.py`, `test_precio_d0.py`, `test_dossier_adversarial.py`, `test_rejuega_niveles.py`, `S.2: comandos, salidas y SHA`, `test_lecturas_caso.py`, `test_ledger_sync.py`, `test_despliegue_motor.py`, `test_listings_sync.py`, `test_pantalla_ruido.py`, `test_cycle_apply.py`, `test_jev_senales.py`, `test_spapi_vigilante.py`, `test_spapi_listings.py`, `test_spapi_inventario.py`, `test_pantalla_dinero.py`, `test_optimizer_windows.py`, `test_bloqueo_dueno_efecto.py`, `test_evaluacion_catalogo.py`, `persistir_escenario`, `estimacion_repository.py`, `test_spapi_salud.py`, `test_disponibilidad.py`, `test_fx_sync.py`, `test_costo_historico_0011.py`, `goals.py`, `test_metricas_listas.py`, `test_fabrica_0038.py`, `test_0003_goal_sin_piso_techo_revierte_y_con_bounds_pasa`, `_db_temporal_c2a`, `test_api.py`, `test_pantalla_busquedas.py`, `db_reputacion`, `lee_busquedas`, `test_ads_descarga.py`, `test_contribucion_entidad.py`, `test_migracion_0062.py`, `test_costs_sync.py`, `DEPLOY — Orbit en goncloud (Postgres 16 + app)`, `test_migracion_0061.py`, `test_estimacion_venta_schema.py`, `test_ads_salud.py`, `evaluacion`, `test_bids02_vistas.py`, `test_ui_contribucion.py`, `test_entidad_inerte.py`, `test_contribucion_multilisting.py`, `sync_costos`, `RESUMEN-ADS-01 — Cierre de fase (listo para revisión de Limi 3.1)`, `_db_temporal_d1`, `test_verify_orbit.py`, `psycopg_types_json`, `test_jev_bloqueo_api.py`, `test_migracion_0067.py`, `test_pipeline_productos_en_vivo`, `test_notifica.py`, `procesar_run`, `_aplicar_esquema`, `_base_a3d`, `test_pantalla_danadas.py`, `pg`, `J5b: pantallas (TDD rojo -> verde, mutantes, panel)`, `_mundo_m5`?**
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
