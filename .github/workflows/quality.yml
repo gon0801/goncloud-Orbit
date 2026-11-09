@@ -37,12 +37,21 @@ jobs:
           fetch-depth: 0
 
       - name: Gitleaks
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           v=8.30.1
           sha=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
           t="gitleaks_${v}_linux_x64.tar.gz"
-          base="https://github.com/gitleaks/gitleaks/releases/download/v${v}"
-          curl -sSfL -o "$RUNNER_TEMP/$t" "$base/$t"
+          for intento in 1 2 3 4 5; do
+            gh release download "v${v}" --repo gitleaks/gitleaks --pattern "$t" --dir "$RUNNER_TEMP" --clobber && break
+            if [ "$intento" = 5 ]; then
+              echo "No se pudo bajar Gitleaks tras 5 intentos" >&2
+              exit 1
+            fi
+            echo "Descarga fallida (intento $intento de 5); reintento en $((intento * 15)) s"
+            sleep $((intento * 15))
+          done
           echo "$sha  $RUNNER_TEMP/$t" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$t" -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" git --redact --no-banner --log-opts="HEAD" .
