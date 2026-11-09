@@ -1,0 +1,248 @@
+{
+  "base": "http://10.13.13.1:8010",
+  "fecha": "2026-11-09T04:22:56+00:00",
+  "navegador": true,
+  "por_ruta": {
+    "/": {
+      "monto_sin_miles": 127
+    },
+    "/campanas": {
+      "codigo_interno": 14
+    },
+    "/decisiones": {
+      "decimales_largos": 11,
+      "codigo_interno": 1
+    },
+    "/salud": {
+      "microsegundos": 40,
+      "utc": 1,
+      "entero_sin_miles": 4,
+      "codigo_interno": 15
+    },
+    "/contribucion": {
+      "utc": 1,
+      "monto_sin_miles": 20,
+      "codigo_interno": 10
+    },
+    "/cortes": {
+      "codigo_interno": 3
+    },
+    "/gasto-sin-venta": {},
+    "/busquedas-sin-venta": {},
+    "/keywords-danadas": {
+      "monto_sin_miles": 3
+    },
+    "/ruido": {
+      "monto_sin_miles": 4,
+      "entero_sin_miles": 16,
+      "codigo_interno": 26
+    },
+    "/donde-poner-el-dinero": {
+      "monto_sin_miles": 18,
+      "codigo_interno": 6
+    },
+    "/productos-sin-clics": {
+      "microsegundos": 1,
+      "utc": 1,
+      "monto_sin_miles": 3,
+      "codigo_interno": 12
+    },
+    "/inertes": {
+      "microsegundos": 4,
+      "monto_sin_miles": 1,
+      "codigo_interno": 11
+    },
+    "/campanas/nuevas": {
+      "microsegundos": 2,
+      "utc": 1,
+      "decimales_largos": 111,
+      "monto_sin_miles": 156,
+      "codigo_interno": 3
+    },
+    "/reputacion": {
+      "entero_sin_miles": 27,
+      "codigo_interno": 4
+    },
+    "/precios": {
+      "monto_sin_miles": 23,
+      "codigo_interno": 3
+    },
+    "/familias": {
+      "codigo_interno": 2
+    },
+    "/settings": {
+      "decimales_largos": 2,
+      "codigo_interno": 9
+    }
+  },
+  "ejemplos": {
+    "/": [
+      "23270.77",
+      "172354.68",
+      "1547.42",
+      "3568.50",
+      "19070.61"
+    ],
+    "/campanas": [
+      "amazon_us",
+      "amazon_mx",
+      "goal_campana",
+      "goal_plataforma",
+      "margen_producto"
+    ],
+    "/decisiones": [
+      "19.36610636923199718608899984",
+      "19.56492282474542779884016312",
+      "19.95882789353329571980317630",
+      "19.71288477763541637271073672",
+      "19.80978479641750251817180568",
+      "producto_sin_ventas"
+    ],
+    "/salud": [
+      "08:40:06.701411",
+      "07:11:03.993767",
+      "17:58:07.510638",
+      "05:00:05.374283",
+      "05:37:04.245907",
+      "+00:00",
+      "4387591165211712",
+      "1000000",
+      "3850003733258937",
+      "10000",
+      "amazon_us",
+      "v_metric_latest",
+      "amazon_ads_reports_v3",
+      "search_terms",
+      "config_vigente"
+    ],
+    "/contribucion": [
+      "UTC",
+      "1644.81",
+      "2435.96",
+      "1463.12",
+      "9492.84",
+      "2037.91",
+      "product_target",
+      "amazon_us",
+      "nearest_prior",
+      "amazon_mx",
+      "kit_arras"
+    ],
+    "/cortes": [
+      "amazon_us",
+      "pending_veto",
+      "amazon_mx"
+    ],
+    "/gasto-sin-venta": [],
+    "/busquedas-sin-venta": [],
+    "/keywords-danadas": [
+      "2193.09",
+      "1972.41",
+      "1713.79"
+    ],
+    "/ruido": [
+      "20784.68",
+      "144101.63",
+      "21776.69",
+      "160471.76",
+      "424436",
+      "424450",
+      "424443",
+      "424454",
+      "424459",
+      "estado_no_enabled",
+      "bids_sin_observaciones",
+      "rango_bloquea_ajuste",
+      "sin_banda",
+      "pause_cortes_incompleto"
+    ],
+    "/donde-poner-el-dinero": [
+      "21936.23",
+      "208299.12",
+      "7566.74",
+      "36890.91",
+      "12626.65",
+      "product_targeting",
+      "kit_arras",
+      "category_phrase",
+      "category_broad",
+      "category_exact"
+    ],
+    "/productos-sin-clics": [
+      "23:29:29.894",
+      "UTC",
+      "2781.81",
+      "2125.37",
+      "1588.03",
+      "sin_pedidos",
+      "kit_arras",
+      "category_phrase",
+      "category_exact",
+      "product_targeting"
+    ],
+    "/inertes": [
+      "23:29:29.894",
+      "23:29:29.851",
+      "23:29:29.964",
+      "23:29:29.928",
+      "1165.35",
+      "amazon_mx",
+      "con_ventas_previas",
+      "gasto_sin_ventas",
+      "kit_arras",
+      "category_broad"
+    ],
+    "/campanas/nuevas": [
+      "08:15:05.197012",
+      "03:35:11.153954",
+      "+00:00",
+      "1.00000000000000000000",
+      "3.460197368421052631578947368",
+      "3.249148936170212765957446809",
+      "2.509074733096085409252669039",
+      "3.564565217391304347826086957",
+      "64937.1800",
+      "2961.2100",
+      "123340.1100",
+      "27763.3300",
+      "2748.7800",
+      "costos_periodicos",
+      "gastos_generales",
+      "margen_observado"
+    ],
+    "/reputacion": [
+      "2643084807",
+      "2996270093",
+      "742283124",
+      "3188730888",
+      "3243107948",
+      "resena_1",
+      "rating_bajo",
+      "amazon_mx",
+      "amazon_us"
+    ],
+    "/precios": [
+      "1189.0000",
+      "1009.21",
+      "1189.00",
+      "1208.69",
+      "1188.00",
+      "amazon_us",
+      "amazon_mx",
+      "catalogo_desactualizado"
+    ],
+    "/familias": [
+      "amazon_mx",
+      "amazon_us"
+    ],
+    "/settings": [
+      "19.36610636923199718608899984",
+      "20.02023058311879485576605025",
+      "amazon_us",
+      "margen_plataforma",
+      "amazon_mx",
+      "kit_arras",
+      "category_exact"
+    ]
+  }
+}
