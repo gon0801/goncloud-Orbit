@@ -1,82 +1,121 @@
 """CLARIDAD 01 F: la ingesta de estimacion desplegada sale 1 y nombra la plataforma cuando la copia
 del bridge trae una oferta de Amazon de mas de 6 h, y sale 0 cuando todas estan frescas.
 
-Corre `app.estimacion_ingest.main` y `plataformas_sin_oferta_fresca` reales con filas del bridge
-armadas aqui (la copia de las 12:45 del 9-nov: MX 12:42, US 06:36). La conexion, la ingesta y el
-cliente de MeLi se sustituyen, asi que no lee ni escribe la base, el bridge ni Amazon. Se pasa por
-stdin: `docker exec -i orbit-app-1 python - < salida_ingesta.py`. Sale 0 solo si las dos corridas
-se distinguen.
+Corre el camino real completo: `app.estimacion_ingest.main` -> `ejecutar_ingesta` ->
+`leer_ofertas_bridge` sobre una SQLite temporal con `amazon_listing_prices` ->
+`plataformas_sin_oferta_fresca` -> la linea y la salida de `main`. Solo se sustituyen las fronteras
+externas: la conexion a Postgres (una falsa que entrega dos listings, uno de MX y uno de US, y
+rechaza cualquier otra sentencia, asi cada publicacion cae en su skip aislado y nada se escribe),
+el cliente de Product Fees y las credenciales de MeLi. No lee ni escribe la base, el bridge ni
+Amazon. Las horas son relativas al reloj real: MX hace 3 min, US vieja hace 6 h 33 min (lo que
+vio la corrida de las 13:10 del 9-nov) y US fresca hace 2 min.
+Se pasa por stdin: `docker exec -i orbit-app-1 python - < salida_ingesta.py`. Sale 0 solo si las
+dos corridas se distinguen.
 """
 
 import contextlib
 import io
 import os
+import sqlite3
 import sys
-from datetime import UTC, datetime
+import tempfile
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import app.estimacion_ingest as ei
-from app.estimacion_insumos import FilaOfertaBridge
 
-AHORA = datetime(2026, 11, 9, 12, 45, 10, tzinfo=UTC)
-MX = FilaOfertaBridge(
-    "SS-MX", "B0MX", "A1AM78C64UM0Y8", "amazon_mx", 116.0, "DEFAULT", "2026-11-09T12:42:39+00:00"
-)
-US_VIEJA = FilaOfertaBridge(
-    "SS-US", "B0US", "ATVPDKIKX0DER", "amazon_us", 19.99, "DEFAULT", "2026-11-09T06:36:52+00:00"
-)
-US_FRESCA = FilaOfertaBridge(
-    "SS-US", "B0US", "ATVPDKIKX0DER", "amazon_us", 19.99, "DEFAULT", "2026-11-09T12:48:44+00:00"
-)
+LISTINGS = [(1, "amazon_mx", "B0MX", "SS-MX"), (2, "amazon_us", "B0US", "SS-US")]
+
+
+class _Cursor:
+    def __init__(self, filas):
+        self._filas = filas
+
+    def fetchall(self):
+        return self._filas
+
+    def fetchone(self):
+        return self._filas[0] if self._filas else None
+
+
+class _ConexionSinBase:
+    """Entrega los listings y el id de corrida; cualquier otra sentencia se rechaza."""
+
+    def __init__(self):
+        self.rechazadas = 0
+
+    def transaction(self):
+        return contextlib.nullcontext()
+
+    def execute(self, sql, _params=None):
+        if sql.startswith("SELECT id, platform, external_id, seller_sku"):
+            return _Cursor(LISTINGS)
+        if sql == ei._SQL_ABRIR_RUN:
+            return _Cursor([(0,)])
+        if sql == ei._SQL_SELLAR_RUN:
+            return _Cursor([])
+        self.rechazadas += 1
+        raise RuntimeError("sonda: sin escritura")
+
+    def close(self):
+        pass
+
+
+class _SinFees:
+    def __getattr__(self, nombre):
+        raise RuntimeError(f"sonda: sin Product Fees ({nombre})")
 
 
 def _sin_meli():
     raise OSError("sin credenciales en la prueba")
 
 
-class _Conexion:
-    def close(self):
-        pass
+def _copia(ruta: Path, edad_us: timedelta) -> Path:
+    ahora = datetime.now(UTC)
+    con = sqlite3.connect(ruta)
+    con.execute(
+        "CREATE TABLE amazon_listing_prices (seller_sku TEXT, asin TEXT, marketplace_id TEXT,"
+        " marketplace_name TEXT, price REAL, fulfillment_channel TEXT, fetched_at TEXT)"
+    )
+    con.executemany(
+        "INSERT INTO amazon_listing_prices VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("SS-MX", "B0MX", "A1AM78C64UM0Y8", "amazon_mx", 116.0, "DEFAULT",
+             (ahora - timedelta(minutes=3)).isoformat()),
+            ("SS-US", "B0US", "ATVPDKIKX0DER", "amazon_us", 19.99, "DEFAULT",
+             (ahora - edad_us).isoformat()),
+        ],
+    )  # fmt: skip
+    con.commit()
+    con.close()
+    return ruta
 
 
-def corre(filas):
-    def ingesta(_conn, **_kw):
-        return ei.ResultadoIngestaEstimacion(
-            run_id=0,
-            ok=True,
-            rows_written=0,
-            rows_skipped=0,
-            skip_reason=None,
-            ofertas_nuevas=0,
-            ofertas_reutilizadas=0,
-            fees_nuevos=0,
-            fees_reutilizados=0,
-            fees_error=0,
-            escenarios_nuevos=0,
-            escenarios_reutilizados=0,
-            sin_oferta_fresca=ei.plataformas_sin_oferta_fresca(
-                filas, {"amazon_mx", "amazon_us"}, AHORA
-            ),
-        )
-
-    ei.connect = lambda _dsn: _Conexion()
-    ei.ejecutar_ingesta = ingesta
+def corre(ruta: Path):
+    conexion = _ConexionSinBase()
+    ei.connect = lambda _dsn: conexion
+    ei.ProductFeesClient = _SinFees
     ei.MeliCredentials = type("SinMeli", (), {"from_secrets_dir": staticmethod(_sin_meli)})
     salida = io.StringIO()
     with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(salida):
-        rc = ei.main(["--sqlite", sys.executable])
-    return rc, salida.getvalue()
+        rc = ei.main(["--sqlite", str(ruta)])
+    return rc, salida.getvalue(), conexion.rechazadas
 
 
 os.environ["ORBIT_DSN_INGEST"] = "sin-uso"
-rc_vieja, texto_vieja = corre((MX, US_VIEJA))
-rc_fresca, texto_fresca = corre((MX, US_FRESCA))
-print(f"copia con US de las 06:36: rc={rc_vieja}")
-print(f"copia con US de las 12:48: rc={rc_fresca}")
-aviso = "sin oferta fresca: amazon_us (la mas nueva del bridge: 2026-11-09T06:36:52+00:00)"
+with tempfile.TemporaryDirectory(prefix="claridad-f-") as tmp:
+    rc_vieja, texto_vieja, rech_vieja = corre(
+        _copia(Path(tmp) / "vieja.db", timedelta(hours=6, minutes=33))
+    )
+    rc_fresca, texto_fresca, rech_fresca = corre(
+        _copia(Path(tmp) / "fresca.db", timedelta(minutes=2))
+    )
+print(f"copia con US de hace 6 h 33 min: rc={rc_vieja} (sentencias rechazadas: {rech_vieja})")
+print(f"copia con US de hace 2 min: rc={rc_fresca} (sentencias rechazadas: {rech_fresca})")
 ok = (
     rc_vieja == 1
-    and aviso in texto_vieja
-    and "amazon_mx" not in texto_vieja
+    and "sin oferta fresca: amazon_us (la mas nueva del bridge: " in texto_vieja
+    and "sin oferta fresca: amazon_mx" not in texto_vieja
     and rc_fresca == 0
     and "sin oferta fresca" not in texto_fresca
 )

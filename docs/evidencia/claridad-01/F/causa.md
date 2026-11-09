@@ -81,9 +81,13 @@ Comprueba en producción, solo lectura, lo que el despliegue cambia ese mismo d�
 1. El script que corre el cron espera a `amazon-prices-sync` y es el de `tools/`.
 2. La unidad existe.
 3. La ingesta desplegada distingue las dos copias. `salida_ingesta.py` corre por stdin dentro de
-   `orbit-app-1` el `main` y el `plataformas_sin_oferta_fresca` reales, con la copia de las 12:45 del
-   9-nov (US de las 06:36): debe salir 1 y nombrar `amazon_us`. Con US de las 12:48 debe salir 0 sin
-   aviso. La conexión, la ingesta y MeLi se sustituyen, así que no lee ni escribe la base.
+   `orbit-app-1` el camino real completo: `main`, `ejecutar_ingesta`, la lectura de una SQLite
+   temporal con `amazon_listing_prices` y `plataformas_sin_oferta_fresca`. Con US de hace 6 h 33 min
+   (lo que vio la corrida de las 13:10 del 9-nov) debe salir 1 y nombrar `amazon_us`. Con US de hace
+   2 min debe salir 0 sin aviso. Solo se sustituyen las fronteras externas: la conexión a Postgres
+   (entrega un listing de MX y uno de US y rechaza cualquier otra sentencia), Product Fees y MeLi.
+   No lee ni escribe la base, el bridge ni Amazon; la SQLite vive en un directorio temporal que se
+   borra al salir.
 4. Esa salida llega al aviso: el cron de root envuelve el script en cron-avisa y el script sale con
    el código de la ingesta.
 
@@ -92,7 +96,7 @@ Salida del 2026-11-09 antes del despliegue:
 ```
 FALLA /mnt/data/appdata/orbit/refresh_estimacion.sh no espera a amazon-prices-sync o no es el de tools/
 OK    amazon-prices-sync.service existe (LoadState=loaded)
-FALLA la ingesta desplegada no distingue la copia vieja de la fresca: module 'app.estimacion_ingest' has no attribute 'plataformas_sin_oferta_fresca' ...
+FALLA la ingesta desplegada no distingue la copia vieja de la fresca: ... skip_reason: 2x oferta_persistencia
 FALLA la salida 1 de la ingesta no llega a cron-avisa (cron sin cron-avisa o script que no propaga el codigo)
 == F falta en produccion: 3 falla(s)
 ```
