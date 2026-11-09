@@ -1082,6 +1082,8 @@ MOTIVO_PRECIO_ES = {
     "ledger_hueco": "ventas sin dato (libro rezagado)",
     "historia_corta": "historia de ventas corta",
     "sin_dato": "sin dato",
+    "ventas_sin_dato": "ventas sin dato",
+    "oferta_desactualizada": "oferta sin observacion reciente",
     "n15_insuficiente": "ventas de 15 dias insuficientes",
     "u60_bajo_minimo": "unidades de 60 dias bajo el minimo",
     "racha_incompleta": "racha de senal incompleta",
@@ -1101,6 +1103,7 @@ MOTIVO_PRECIO_ES = {
     "sin_decision": "sin decision",
     "sin_listing": "sin listing",
     "catalogo_desactualizado": "catalogo desactualizado",
+    "no_a_la_venta": "no esta a la venta",
     "canal_sin_dato": "canal sin dato",
     "desconocido": "desconocido",
 }
@@ -1146,8 +1149,9 @@ class HuerfanaPrecio:
 
 def motivo_precio_es(motivo: str | None) -> str:
     """Motivo de precio en palabras (sin costo/margen/goal). `fee_error:<code>`
-    colapsa al codigo corto (el cuerpo del error jamas viaja); motivo
-    desconocido -> id crudo (la evidencia no se pierde)."""
+    colapsa al codigo corto (el cuerpo del error jamas viaja); `base:sub` se
+    traduce por partes; desconocido -> el id sin guiones bajos (CLARIDAD 01
+    E.4: nunca un codigo en la frase)."""
     if not motivo:
         return "desconocido"
     if motivo in MOTIVO_PRECIO_ES:
@@ -1155,7 +1159,10 @@ def motivo_precio_es(motivo: str | None) -> str:
     if motivo.startswith("fee_error"):
         codigo = motivo.partition(":")[2].strip()
         return f"falla de comision ({codigo})" if codigo else "falla de comision"
-    return motivo
+    base, sep, sub = motivo.partition(":")
+    if sep:
+        return f"{motivo_precio_es(base)}: {motivo_precio_es(sub)}"
+    return motivo.replace("_", " ")
 
 
 def aviso_precio_grupo(grupo: GrupoPrecio) -> str:

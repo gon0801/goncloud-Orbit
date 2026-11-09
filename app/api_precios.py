@@ -36,7 +36,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 #   consultas del motor — este modulo no duplica ni una) + las decisiones
 #   del dia por resultado (precio_decision) + las huerfanas pendientes
 #   (precio_cambio pendiente no-reversa) + las listas S7 (`con_goal`,
-#   `acciones`, `no_evaluados_filas`, `divergentes`).
+#   `acciones`, `no_evaluados_filas`, `divergentes`). `no_evaluados_filas`
+#   sale de las filas del recuadro (cuadra con la Cobertura); las decisiones
+#   `no_a_la_venta` de hoy, fuera del catalogo, van contadas aparte.
 # - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
 #   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
 #   decisiones, corrida_ausente}). `cobertura` es la MISMA serializacion
@@ -167,9 +169,19 @@ def _huerfanas_precio(conn: ConexionLectura, plataforma: str) -> int:
     return int(conn.execute(_SQL_HUERFANAS_PRECIO, (plataforma,)).fetchone()[0])
 
 
+_SQL_MEDICION_CORRIDA = (
+    "SELECT canal::text, medidas, nuevas FROM precio_compuerta_medicion"
+    " WHERE corrida_id = %s ORDER BY canal"
+)
+
+
 def _seguridad_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict:
     """`EstadoSeguridad` serializado para /precios (JSON + HTML): modos,
-    ultima corrida, retenciones abiertas del dia y corrida liberable."""
+    ultima corrida, retenciones abiertas del dia y corrida liberable.
+
+    CLARIDAD 01 E.5: la ultima corrida trae su medicion de la compuerta
+    (`medidas` y `nuevas` por canal: miden el dia completo) y las decisiones
+    de su dia, porque una corrida que repite el dia guarda 0 decisiones."""
     estado = fuentes_precio.leer_seguridad(conn, plataforma, hoy=hoy)
     ultima = estado.ultima_corrida
     return {
@@ -186,6 +198,15 @@ def _seguridad_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> d
                 "movidas": ultima.movidas,
                 "retenidas": ultima.retenidas,
                 "errores": ultima.errores,
+                "decisiones_dia": sum(
+                    _decisiones_precio_hoy(conn, plataforma, ultima.fecha).values()
+                ),
+                "medicion": [
+                    {"canal": canal, "medidas": medidas, "nuevas": nuevas}
+                    for canal, medidas, nuevas in conn.execute(
+                        _SQL_MEDICION_CORRIDA, (ultima.corrida_id,)
+                    ).fetchall()
+                ],
             }
         ),
         "retenciones_abiertas": {
@@ -203,22 +224,27 @@ def _seguridad_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> d
     }
 
 
-def _recuadro_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict:
-    """Recuadro S10 serializado (la ecuacion cuadra: cobertura.cuadra_exact).
-    La clave de dias la lee fuentes.py de la config (este modulo no conoce
-    claves); el dinero sale como string (regla 4)."""
+def _recuadro_precio(
+    conn: ConexionLectura, plataforma: str, hoy: dt.date
+) -> cobertura_precio.Recuadro:
+    """Recuadro S10 (la ecuacion cuadra: cobertura.cuadra_exact). La clave
+    de dias la lee fuentes.py de la config (este modulo no conoce claves)."""
     from app import precio_mercados as mercados
 
     settings = fuentes_precio.config_vigente_settings(conn)
     max_dias = fuentes_precio.max_dias_desde_settings(settings)
     with mercados.abrir(plataforma) as vitrina:
         filas = fuentes_precio.leer_publicaciones(conn, vitrina, hoy=hoy)
-    rec = cobertura_precio.armar_recuadro(
+    return cobertura_precio.armar_recuadro(
         filas,
         platform=plataforma,
         max_dias=max_dias,
         universos=fuentes_precio.universos_encendidos(conn),
     )
+
+
+def _cobertura_dict(rec: cobertura_precio.Recuadro) -> dict:
+    """Recuadro serializado; el dinero sale como string (regla 4)."""
     return {
         "activas": rec.activas,
         "evaluadas": rec.evaluadas,
@@ -373,17 +399,17 @@ def _acciones_precio(detalle: list[dict], cambios: dict, plataforma: str) -> lis
     return acciones
 
 
-def _filas_no_evaluados(detalle: list[dict]) -> list[dict]:
-    """Bloque (d): una fila por SKU con su motivo en palabras (sale de las
-    decisiones `no_evaluado` de hoy, no del recuadro en vivo)."""
+def _filas_no_evaluados(rec: cobertura_precio.Recuadro) -> list[dict]:
+    """Bloque (d): una fila por publicacion no evaluada de la Cobertura, con
+    su motivo en palabras (CLARIDAD 01 E.4: las mismas filas que cuenta el
+    recuadro, asi el largo y los motivos cuadran)."""
     return [
         {
-            "sku": fila["sku"],
-            "motivo": fila["motivo"],
-            "motivo_es": motivo_precio_es(fila["motivo"]),
+            "sku": detalle.sku,
+            "motivo": detalle.motivo,
+            "motivo_es": motivo_precio_es(detalle.motivo),
         }
-        for fila in detalle
-        if fila["resultado"] == "no_evaluado"
+        for detalle in rec.no_evaluadas_detalle
     ]
 
 
@@ -435,13 +461,13 @@ def _con_goal_precio(
 
 # G.3: una fila por listing de la plataforma, con lo que el dueno mira
 # antes de sembrar (margen de hoy, goal, precio objetivo, origen del
-# envio, TACoS). Granos fijados: el margen sale del escenario
+# envio). Granos fijados: el margen sale del escenario
 # `disponible` mas reciente (lo mismo que copia "margen de hoy" en
 # G.2); el objetivo, de la decision de hoy (sin decision no hay
 # objetivo: None, nunca un invento); el origen, del escenario
-# (`logistica_origen` de la 0054); el TACoS, de `v_tacos` del mes del
-# corte maduro (mes de hoy - 15: la unica TACoS del sistema, por
-# plataforma y mes, repetida en cada fila).
+# (`logistica_origen` de la 0054). El TACoS es de la plataforma y del mes
+# (`v_tacos` del mes del corte maduro, hoy - 15): va una vez por
+# plataforma (`_tacos_precio`, CLARIDAD 01 E.5), no en cada fila.
 _SQL_UNIDADES_G3 = """
 SELECT l.id, l.seller_sku,
        v.margen_goal_pct, v.mode::text,
@@ -463,18 +489,48 @@ SELECT l.id, l.seller_sku,
 """
 
 _SQL_TACOS_MES_G3 = """
-SELECT tacos_pct FROM v_tacos
+SELECT mes, tacos_pct FROM v_tacos
  WHERE platform = %s::platform
    AND mes = date_trunc('month', (%s::date - 15))::date
 """
 
+_MESES = (
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+)
+
+_NOMBRE_PLATAFORMA_PRECIO = {"amazon_mx": "Amazon MX", "amazon_us": "Amazon US"}
+
+
+def _tacos_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict | None:
+    """TACoS de la plataforma en el mes del corte, para la cabecera de la
+    tabla de goals. `None` sin dato (regla 3)."""
+    fila = conn.execute(_SQL_TACOS_MES_G3, (plataforma, hoy)).fetchone()
+    if fila is None or fila[1] is None:
+        return None
+    mes = fila[0]
+    return {
+        "plataforma": _NOMBRE_PLATAFORMA_PRECIO[plataforma],
+        "mes": mes.isoformat(),
+        "mes_es": f"{_MESES[mes.month - 1]} {mes.year}",
+        "pct": _dec_str(fila[1]),
+    }
+
 
 def _unidades_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> list[dict]:
     """Bloque G.3: una fila por unidad con margen de hoy (tanto por uno),
-    goal vigente, precio objetivo de hoy, origen del envio y TACoS del
-    mes del corte. `None` donde no hay dato (regla 3)."""
-    tacos = conn.execute(_SQL_TACOS_MES_G3, (plataforma, hoy)).fetchone()
-    tacos_str = _dec_str(tacos[0]) if tacos is not None else None
+    goal vigente, precio objetivo de hoy y origen del envio. `None` donde
+    no hay dato (regla 3)."""
     filas = []
     for lid, sku, goal, goal_mode, m_pct, origen, canal, p_obj in conn.execute(
         _SQL_UNIDADES_G3, (hoy, plataforma)
@@ -490,7 +546,6 @@ def _unidades_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> li
                 "goal_mode": goal_mode,
                 "precio_objetivo": _dec_str(p_obj),
                 "envio_origen": origen,
-                "tacos": tacos_str,
             }
         )
     return filas
@@ -554,11 +609,12 @@ def _bloque_precios(
         for dec_id, cambio in cambios.items()
         if cambio.get("real") is True and cambio.get("estado") in _ESTADOS_PRECIO_MOVIERON
     }
+    rec = _recuadro_precio(conn, plataforma, hoy)
     bloque: dict = {
         "hoy": hoy.isoformat(),
         "decisiones": _decisiones_precio_hoy(conn, plataforma, hoy),
         "huerfanas": _huerfanas_precio(conn, plataforma),
-        "cobertura": _recuadro_precio(conn, plataforma, hoy),
+        "cobertura": _cobertura_dict(rec),
         "evaluados": sum(
             1 for fila in detalle if fila["resultado"] in cobertura_precio.RESULTADOS_EVALUADOS
         ),
@@ -579,8 +635,10 @@ def _bloque_precios(
             conn, plataforma, hoy, {fila["listing_id"]: fila for fila in detalle}
         )
         bloque["unidades"] = _unidades_precio(conn, plataforma, hoy)
+        bloque["tacos"] = _tacos_precio(conn, plataforma, hoy)
         bloque["acciones"] = _acciones_precio(detalle, cambios, plataforma)
-        bloque["no_evaluados_filas"] = _filas_no_evaluados(detalle)
+        bloque["no_evaluados_filas"] = _filas_no_evaluados(rec)
+        bloque["no_a_la_venta"] = bloque["no_evaluados"].get("no_a_la_venta", 0)
         bloque["divergentes"] = _divergentes_precio(conn, plataforma, hoy, umbral)
         bloque["divergentes_umbral"] = umbral
     return bloque

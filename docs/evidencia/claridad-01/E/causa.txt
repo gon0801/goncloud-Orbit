@@ -1,0 +1,154 @@
+CLARIDAD 01 E.1: causa confirmada en produccion (solo lectura)
+Lectura: rol orbit_read, transaccion read_only, app.db.connect en orbit-app-1 (ssh goncloud).
+Hora de la base: 2026-11-09 11:53:26.165294+00:00
+buyable = la ultima observacion de spapi_listing_estado_observation trae BUYABLE (_SQL_CANO,
+app/spapi/precio_mercado.py:57-72). q6 la mide a la hora de la corrida (13:10 UTC); q1, q4 y q5, hoy.
+
+Conclusion
+- MX 2026-11-08 a las 13:10: 231 decisiones live; 58 sobre publicaciones fuera del catalogo BUYABLE (q6).
+  3 de esas 58 salieron evaluadas (mantener/en_tolerancia) con oferta reciente: el motor decidio sobre
+  publicaciones que no estaban a la venta (app/precio/corrida.py _decidir_pendientes). Con otra cuenta,
+  la misma ruta habria subido o bajado su precio. Las otras 55 las freno solo la oferta vieja o sin observar.
+- Despues de decidir, 9 publicaciones mas salieron del catalogo (q1/q4: hoy son 12 mantener no BUYABLE).
+  Las corridas de 15:10 a 23:10 volvieron a medir esas decisiones guardadas: cada medicion da
+  124 fba + 48 fbm = 172 = todas las decisiones con m_actual del dia, esten o no a la venta (q3).
+- US 2026-11-08: 99 decisiones, 7 fuera del catalogo; las 99 salen oferta_desactualizada (bloque F).
+- Las corridas de 15:10 a 23:10 repiten el dia y guardan 0 decisiones (q2): la pantalla muestra la ultima.
+- Goals vigentes hoy: MX 164 a la venta + 67 no; US 92 + 7 (q5).
+
+== q6.sql
+WITH al_decidir AS (
+  SELECT DISTINCT ON (e.seller_sku, e.platform) e.seller_sku, e.platform, e.status, e.observed_at
+    FROM spapi_listing_estado_observation e
+   WHERE e.platform IN ('amazon_mx','amazon_us') AND e.observed_at <= '2026-11-08 13:10:00+00'
+   ORDER BY e.seller_sku, e.platform, e.observed_at DESC)
+SELECT 'al_decidir', d.platform, (a.status LIKE '%BUYABLE%') AS buyable_a_las_1310, d.resultado, coalesce(d.motivo,'-'), count(*)
+  FROM precio_decision d JOIN listing l ON l.id = d.listing_id AND l.platform = d.platform
+  LEFT JOIN al_decidir a ON a.seller_sku = l.seller_sku AND a.platform = l.platform
+ WHERE d.platform IN ('amazon_mx','amazon_us') AND d.decision_date = '2026-11-08'
+ GROUP BY 1,2,3,4,5 ORDER BY 1,2,3,4,5
+-- salida
+tag|platform|buyable_a_las_1310|resultado|motivo|n
+al_decidir|amazon_mx|False|mantener|en_tolerancia|3
+al_decidir|amazon_mx|False|no_evaluado|oferta_desactualizada|34
+al_decidir|amazon_mx|False|no_evaluado|precio_sin_observar|20
+al_decidir|amazon_mx|True|frenado|perdiendo_tras_subida|1
+al_decidir|amazon_mx|True|mantener|en_tolerancia|167
+al_decidir|amazon_mx|True|mantener|ventas_sin_dato:historia_corta|1
+al_decidir|amazon_mx|True|no_evaluado|oferta_desactualizada|4
+al_decidir|amazon_mx|None|no_evaluado|precio_sin_observar|1
+al_decidir|amazon_us|False|no_evaluado|oferta_desactualizada|7
+al_decidir|amazon_us|True|no_evaluado|oferta_desactualizada|92
+
+== q1.sql
+WITH cano AS (
+  SELECT seller_sku, platform FROM (
+    SELECT DISTINCT ON (e.seller_sku, e.platform) e.seller_sku, e.platform, e.status
+      FROM spapi_listing_estado_observation e
+     WHERE e.platform IN ('amazon_mx','amazon_us')
+     ORDER BY e.seller_sku, e.platform, e.observed_at DESC) u
+   WHERE u.status LIKE '%BUYABLE%')
+SELECT d.platform, d.decision_date, (c.seller_sku IS NOT NULL) AS buyable, d.mode, d.resultado, coalesce(d.motivo,'-'), count(*)
+  FROM precio_decision d JOIN listing l ON l.id = d.listing_id AND l.platform = d.platform
+  LEFT JOIN cano c ON c.seller_sku = l.seller_sku AND c.platform = l.platform
+ WHERE d.platform IN ('amazon_mx','amazon_us') AND d.decision_date >= (now() AT TIME ZONE 'UTC')::date - 1
+ GROUP BY 1,2,3,4,5,6 ORDER BY 1,2,3,4,5,6
+-- salida
+platform|decision_date|buyable|mode|resultado|motivo|n
+amazon_mx|2026-11-08|False|live|mantener|en_tolerancia|12
+amazon_mx|2026-11-08|False|live|no_evaluado|oferta_desactualizada|34
+amazon_mx|2026-11-08|False|live|no_evaluado|precio_sin_observar|21
+amazon_mx|2026-11-08|True|live|frenado|perdiendo_tras_subida|1
+amazon_mx|2026-11-08|True|live|mantener|en_tolerancia|158
+amazon_mx|2026-11-08|True|live|mantener|ventas_sin_dato:historia_corta|1
+amazon_mx|2026-11-08|True|live|no_evaluado|oferta_desactualizada|4
+amazon_us|2026-11-08|False|live|no_evaluado|oferta_desactualizada|7
+amazon_us|2026-11-08|True|live|no_evaluado|oferta_desactualizada|92
+
+== q4.sql
+WITH ult AS (
+  SELECT DISTINCT ON (e.seller_sku, e.platform) e.seller_sku, e.platform, e.status, e.observed_at
+    FROM spapi_listing_estado_observation e
+   WHERE e.platform IN ('amazon_mx','amazon_us')
+   ORDER BY e.seller_sku, e.platform, e.observed_at DESC)
+SELECT 'no_buyable', d.platform, d.resultado, coalesce(d.motivo,'-'), coalesce(u.status,'(sin observacion)'), count(*), min(u.observed_at)::date, max(u.observed_at)::date
+  FROM precio_decision d JOIN listing l ON l.id = d.listing_id AND l.platform = d.platform
+  LEFT JOIN ult u ON u.seller_sku = l.seller_sku AND u.platform = l.platform
+ WHERE d.platform IN ('amazon_mx','amazon_us') AND d.decision_date = '2026-11-08'
+   AND (u.status IS NULL OR u.status NOT LIKE '%BUYABLE%')
+ GROUP BY 1,2,3,4,5 ORDER BY 1,2,3,4,5
+-- salida
+tag|platform|resultado|motivo|ultimo_status|n|min_observed|max_observed
+no_buyable|amazon_mx|mantener|en_tolerancia|DISCOVERABLE|11|2026-11-09|2026-11-09
+no_buyable|amazon_mx|mantener|en_tolerancia|(sin observacion)|1|2026-11-09|2026-11-09
+no_buyable|amazon_mx|no_evaluado|oferta_desactualizada|DISCOVERABLE|34|2026-11-03|2026-11-03
+no_buyable|amazon_mx|no_evaluado|precio_sin_observar|DISCOVERABLE|20|2026-11-09|2026-11-09
+no_buyable|amazon_mx|no_evaluado|precio_sin_observar|(sin observacion)|1|2026-11-09|2026-11-09
+no_buyable|amazon_us|no_evaluado|oferta_desactualizada|DISCOVERABLE|7|2026-11-09|2026-11-09
+
+== q2.sql
+SELECT 'corrida', c.id, c.platform, c.fecha, c.estado, c.iniciada_at, c.decisiones, c.movidas, c.virtuales, c.retenidas, c.errores
+  FROM precio_corrida c WHERE c.fecha >= (now() AT TIME ZONE 'UTC')::date - 1 AND c.platform IN ('amazon_mx','amazon_us') ORDER BY c.id
+-- salida
+tag|id|platform|fecha|estado|iniciada_at|decisiones|movidas|virtuales|retenidas|errores
+corrida|435|amazon_mx|2026-11-08|cerrada|2026-11-08 13:10:02.616360+00:00|231|0|0|0|0
+corrida|437|amazon_us|2026-11-08|cerrada|2026-11-08 13:10:07.408727+00:00|99|0|0|0|0
+corrida|438|amazon_mx|2026-11-08|cerrada|2026-11-08 15:10:02.665495+00:00|0|0|0|0|0
+corrida|440|amazon_us|2026-11-08|cerrada|2026-11-08 15:10:02.695236+00:00|0|0|0|0|0
+corrida|442|amazon_mx|2026-11-08|cerrada|2026-11-08 17:10:02.897024+00:00|0|0|0|0|0
+corrida|443|amazon_us|2026-11-08|cerrada|2026-11-08 17:10:02.921884+00:00|0|0|0|0|0
+corrida|444|amazon_mx|2026-11-08|cerrada|2026-11-08 19:10:02.507743+00:00|0|0|0|0|0
+corrida|445|amazon_us|2026-11-08|cerrada|2026-11-08 19:10:02.535319+00:00|0|0|0|0|0
+corrida|447|amazon_mx|2026-11-08|cerrada|2026-11-08 21:10:02.968357+00:00|0|0|0|0|0
+corrida|449|amazon_us|2026-11-08|cerrada|2026-11-08 21:10:02.997442+00:00|0|0|0|0|0
+corrida|451|amazon_mx|2026-11-08|cerrada|2026-11-08 23:10:02.903151+00:00|0|0|0|0|0
+corrida|452|amazon_us|2026-11-08|cerrada|2026-11-08 23:10:02.926873+00:00|0|0|0|0|0
+
+== q3.sql
+SELECT 'medicion', m.corrida_id, m.platform, m.fecha, m.canal, m.medidas, m.nuevas, coalesce(m.causa,'-'), coalesce(m.insumo,'-')
+  FROM precio_compuerta_medicion m
+ WHERE m.corrida_id IN (SELECT max(id) FROM precio_corrida WHERE platform IN ('amazon_mx','amazon_us') GROUP BY platform)
+    OR m.fecha >= (now() AT TIME ZONE 'UTC')::date - 1
+ ORDER BY m.corrida_id, m.canal
+-- salida
+tag|corrida_id|platform|fecha|canal|medidas|nuevas|causa|insumo
+medicion|435|amazon_mx|2026-11-08|fba|124|0|-|-
+medicion|435|amazon_mx|2026-11-08|fbm|48|0|-|-
+medicion|436|meli|2026-11-08|meli|39|0|-|-
+medicion|438|amazon_mx|2026-11-08|fba|124|0|-|-
+medicion|438|amazon_mx|2026-11-08|fbm|48|0|-|-
+medicion|439|meli|2026-11-08|meli|39|0|-|-
+medicion|441|meli|2026-11-08|meli|39|0|-|-
+medicion|442|amazon_mx|2026-11-08|fba|124|0|-|-
+medicion|442|amazon_mx|2026-11-08|fbm|48|0|-|-
+medicion|444|amazon_mx|2026-11-08|fba|124|0|-|-
+medicion|444|amazon_mx|2026-11-08|fbm|48|0|-|-
+medicion|446|meli|2026-11-08|meli|39|0|-|-
+medicion|447|amazon_mx|2026-11-08|fba|124|0|-|-
+medicion|447|amazon_mx|2026-11-08|fbm|48|0|-|-
+medicion|448|meli|2026-11-08|meli|39|0|-|-
+medicion|450|meli|2026-11-08|meli|39|0|-|-
+medicion|451|amazon_mx|2026-11-08|fba|124|0|-|-
+medicion|451|amazon_mx|2026-11-08|fbm|48|0|-|-
+
+== q5.sql
+WITH cano AS (
+  SELECT seller_sku, platform FROM (
+    SELECT DISTINCT ON (e.seller_sku, e.platform) e.seller_sku, e.platform, e.status
+      FROM spapi_listing_estado_observation e
+     WHERE e.platform IN ('amazon_mx','amazon_us')
+     ORDER BY e.seller_sku, e.platform, e.observed_at DESC) u
+   WHERE u.status LIKE '%BUYABLE%')
+SELECT 'goal_vigente', g.platform, g.mode::text, (c.seller_sku IS NOT NULL) AS buyable, count(*)
+  FROM precio_goal g JOIN listing l ON l.id = g.listing_id AND l.platform = g.platform
+  LEFT JOIN cano c ON c.seller_sku = l.seller_sku AND c.platform = l.platform
+ WHERE g.platform IN ('amazon_mx','amazon_us') AND g.valid_from <= (now() AT TIME ZONE 'UTC')::date
+   AND (g.valid_to IS NULL OR g.valid_to > (now() AT TIME ZONE 'UTC')::date)
+ GROUP BY 1,2,3,4 ORDER BY 1,2,3,4
+-- salida
+tag|platform|mode|buyable|n
+goal_vigente|amazon_mx|live|False|67
+goal_vigente|amazon_mx|live|True|164
+goal_vigente|amazon_us|live|False|7
+goal_vigente|amazon_us|live|True|92
+

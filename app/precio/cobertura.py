@@ -27,6 +27,7 @@ __all__ = [
     "RESULTADOS_EVALUADOS",
     "UNIVERSO_APAGADO",
     "FilaPublicacion",
+    "DetalleNoEvaluada",
     "DetalleSinGoal",
     "Recuadro",
     "armar_recuadro",
@@ -70,14 +71,26 @@ class DetalleSinGoal:
 
 
 @dataclass(frozen=True)
+class DetalleNoEvaluada:
+    """Una publicacion no evaluada con su motivo (CLARIDAD 01 E.4: la lista
+    «No evaluados» de la pantalla sale de aqui y cuadra con el conteo)."""
+
+    sku: str
+    motivo: str
+    listing_id: int | None = None
+
+
+@dataclass(frozen=True)
 class Recuadro:
     """Recuadro S10 por plataforma. `no_evaluadas` y `fuera_de_alcance`
-    son tuplas de pares `(motivo_o_fase, conteo)`."""
+    son tuplas de pares `(motivo_o_fase, conteo)`; `no_evaluadas` cuenta
+    `no_evaluadas_detalle` por motivo."""
 
     platform: str
     activas: int
     evaluadas: int
     no_evaluadas: tuple[tuple[str, int], ...]
+    no_evaluadas_detalle: tuple[DetalleNoEvaluada, ...]
     sin_goal: tuple[DetalleSinGoal, ...]
     fuera_de_alcance: tuple[tuple[str, int], ...]
     avisos: tuple[str, ...]
@@ -129,7 +142,7 @@ def armar_recuadro(
     """
     propias = [f for f in filas if f.platform == platform]
     evaluadas = 0
-    no_evaluadas: dict[str, int] = {}
+    no_evaluadas: list[DetalleNoEvaluada] = []
     sin_goal: list[DetalleSinGoal] = []
     fuera: dict[str, int] = {}
     for fila in propias:
@@ -138,9 +151,6 @@ def armar_recuadro(
             fuera[apagado] = fuera.get(apagado, 0) + 1
             continue
         motivo = _motivo_no_evaluada(fila, max_dias)
-        if motivo == "catalogo_desactualizado":
-            no_evaluadas[motivo] = no_evaluadas.get(motivo, 0) + 1
-            continue
         if motivo is None and not fila.tiene_goal:
             sin_goal.append(
                 DetalleSinGoal(
@@ -155,18 +165,24 @@ def armar_recuadro(
         if motivo is None:
             evaluadas += 1
             continue
-        no_evaluadas[motivo] = no_evaluadas.get(motivo, 0) + 1
+        no_evaluadas.append(
+            DetalleNoEvaluada(sku=fila.seller_sku, motivo=motivo, listing_id=fila.listing_id)
+        )
+    conteo: dict[str, int] = {}
+    for detalle in no_evaluadas:
+        conteo[detalle.motivo] = conteo.get(detalle.motivo, 0) + 1
     avisos: list[str] = []
-    if no_evaluadas.get("catalogo_desactualizado"):
+    if conteo.get("catalogo_desactualizado"):
         avisos.append(
-            f"aviso: {no_evaluadas['catalogo_desactualizado']} publicaciones sin"
-            f" reportar hace mas de {max_dias} dias (catalogo_desactualizado)"
+            f"aviso: {conteo['catalogo_desactualizado']} publicaciones sin"
+            f" reportar hace mas de {max_dias} dias"
         )
     return Recuadro(
         platform=platform,
         activas=len(propias),
         evaluadas=evaluadas,
-        no_evaluadas=tuple(no_evaluadas.items()),
+        no_evaluadas=tuple(conteo.items()),
+        no_evaluadas_detalle=tuple(no_evaluadas),
         sin_goal=tuple(sin_goal),
         fuera_de_alcance=tuple(fuera.items()),
         avisos=tuple(avisos),
