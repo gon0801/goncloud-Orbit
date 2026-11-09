@@ -10,10 +10,18 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app import fabrica_plan as fp
 from app import fabrica_web as fw
+from app import familias
 from app import impulso_io as io
 from app import retiro_anuncios as ra
 from app.api import ConexionLectura
@@ -37,6 +45,38 @@ def _as_of_consulta(valor: str | None) -> datetime | None:
     return corte.astimezone(UTC)
 
 
+_NOMBRE_CAMPO = {
+    "subfamilia_por_listing": "Subfamilia",
+    "listing_ids": "productos marcados",
+    "retiro_ids": "anuncios",
+    "tope_monto": "Tope",
+    "confirmacion": "Confirmación",
+    "actor": "Actor",
+    "huella": "vista previa (pídela de nuevo)",
+    "tipo_producto": "Tipo de producto",
+    "nombre_base": "Nombre base",
+    "productos": "productos",
+    "budget": "Presupuesto",
+    "bid": "Puja",
+    "acos_pct": "ACoS objetivo",
+}
+
+
+def _campo_fallido(error: dict) -> str:
+    """Nombre en pantalla del campo de un error de Pydantic. Las llaves de
+    un dict (listing ids) y los indices de lista se saltan; un campo que
+    el contrato no conoce no repite su nombre (lo eligio quien envio)."""
+    if error.get("type") == "extra_forbidden":
+        return "un campo que no se esperaba"
+    for parte in reversed(error.get("loc", ())):
+        if isinstance(parte, str) and parte in _NOMBRE_CAMPO:
+            return _NOMBRE_CAMPO[parte]
+    for parte in reversed(error.get("loc", ())):
+        if isinstance(parte, str) and parte.isidentifier() and parte != "body":
+            return parte.replace("_", " ")
+    return "la solicitud"
+
+
 class _RutaFabrica(APIRoute):
     def get_route_handler(self):
         manejar = super().get_route_handler()
@@ -48,13 +88,13 @@ class _RutaFabrica(APIRoute):
                 # Pydantic incluye input crudo (incluidos extras como token).
                 # Excepcion A7 B8: el "no es finito" no lleva el valor (frase
                 # fija del validador) y el plan exige el mensaje, no el generico.
-                for error in exc.errors():
+                errores = exc.errors()
+                for error in errores:
                     mensaje = str(error.get("msg", ""))
                     if "no es finito" in mensaje:
                         raise fw.error(422, mensaje) from None
-                raise fw.error(
-                    422, "Los datos no son válidos. Revisa los campos y la confirmación."
-                ) from None
+                campos = ", ".join(dict.fromkeys(_campo_fallido(e) for e in errores))
+                raise fw.error(422, f"Los datos no son válidos en: {campos}.") from None
 
         return sin_input_privado
 
@@ -363,7 +403,13 @@ def operar(
 # ---------------------------------------------------------------------------
 
 MotivoRetiro = Literal["impulso", "sin_pedidos", "subfamilia"]
-Subfamilia = Annotated[str, Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")]
+# La persona escribe la subfamilia como la nombra ("Arras para boda"); el
+# tipo_producto que la fabrica guarda es su slug (arras_para_boda).
+Subfamilia = Annotated[
+    str,
+    BeforeValidator(familias.slug),
+    Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$"),
+]
 Actor = Annotated[str, Field(min_length=1, max_length=100)]
 
 
@@ -602,6 +648,16 @@ def _conservar_y_impulso(
     return grupo, None
 
 
+def _vista_impulso(conn, vista: io.VistaPreviaImpulso, plataforma: str) -> dict:
+    """La vista previa con `subfamilia_nueva` por plan: una subfamilia sin
+    keywords, negativos ni grupo en la plataforma arranca sin negativos."""
+    conocidas = set(fw.tipos_producto(conn, plataforma))
+    datos = vista.como_dict()
+    for plan in datos["planes"]:
+        plan["subfamilia_nueva"] = plan["subfamilia"] not in conocidas
+    return datos
+
+
 @router.post("/impulso/plan")
 def impulso_plan(cuerpo: SolicitudImpulsoPlan, conn: ConexionLectura):
     import tools.fabrica_campanas as fc
@@ -617,7 +673,7 @@ def impulso_plan(cuerpo: SolicitudImpulsoPlan, conn: ConexionLectura):
         raise _error_impulso(exc) from None
     except fc.Abortar as exc:
         raise fw.error(422, str(exc)) from None
-    return vista.como_dict()
+    return _vista_impulso(conn, vista, cuerpo.plataforma)
 
 
 @router.post("/impulso/lanzar")
@@ -641,9 +697,13 @@ def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoL
             vista = None
             if exc.status == 409:
                 try:
-                    vista = io.previsualiza(
-                        conn, cuerpo.solicitud.como_solicitud(), sugeridor=sugeridor
-                    ).como_dict()
+                    vista = _vista_impulso(
+                        conn,
+                        io.previsualiza(
+                            conn, cuerpo.solicitud.como_solicitud(), sugeridor=sugeridor
+                        ),
+                        cuerpo.solicitud.plataforma,
+                    )
                 except fc.Abortar:
                     vista = None
             raise _error_impulso(exc, vista=vista) from None

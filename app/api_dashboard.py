@@ -2031,11 +2031,12 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
     Funcion delgada: delega en `pantalla_productos.lee_productos` (SOLO
     SELECT) y agrega la frase de clics fuera de Amazon por impulso y las
     decisiones por producto del ultimo ciclo (AUTO-03 E.1,
-    `pantalla_decisiones_producto`). Sin mercado se mira amazon_mx;
-    mercado ajeno es 422."""
+    `pantalla_decisiones_producto`) y las subfamilias conocidas que el
+    campo Subfamilia sugiere (CLARIDAD 01 D.1). Sin mercado se mira
+    amazon_mx; mercado ajeno es 422."""
     import datetime as dt
 
-    from app import pantalla_decisiones_producto, pantalla_productos
+    from app import fabrica_web, pantalla_decisiones_producto, pantalla_productos
 
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
@@ -2048,8 +2049,14 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
             impulso["clics_fuera_de_amazon"], impulso["clics"]
         )
     decisiones = pantalla_decisiones_producto.lee_decisiones_producto(conn, mercado).como_dict()
+    subfamilias = fabrica_web.tipos_producto(conn, mercado)
     conn.commit()
-    return {"plataforma": mercado, **base, "decisiones_producto": decisiones}
+    return {
+        "plataforma": mercado,
+        **base,
+        "decisiones_producto": decisiones,
+        "subfamilias": subfamilias,
+    }
 
 
 @router.get("/productos/simula-pausa")

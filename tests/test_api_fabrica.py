@@ -1565,6 +1565,37 @@ def test_i5_planes_200_sin_escribir(escenario, monkeypatch):
     ) == antes
 
 
+def test_claridad_d_subfamilia_escrita_se_normaliza_y_avisa_si_es_nueva(escenario, monkeypatch):
+    """CLARIDAD 01 D.4 (dinero): la subfamilia elige los negativos de la
+    campana auto. "Arras para boda" daba 422; ahora el plan sale con
+    arras_para_boda y avisa que es nueva (sin negativos). Con kit_arras
+    en la biblioteca, no es nueva."""
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    _sugeridor_fijo_i5(monkeypatch)
+    lid = _lid_de(conn, ids[0])
+    conn.execute(
+        "INSERT INTO negative_biblioteca(tipo_producto, platform, texto, origen)"
+        " VALUES ('kit_arras', 'amazon_mx', 'gratis', 'manual')"
+    )
+
+    def plan(subfamilia):
+        r = cliente.post(
+            "/api/fabrica/impulso/plan",
+            json={
+                "plataforma": "amazon_mx",
+                "listing_ids": [lid],
+                "subfamilia_por_listing": {str(lid): subfamilia},
+            },
+        )
+        assert r.status_code == 200, r.text
+        (p,) = r.json()["planes"]
+        return p["subfamilia"], p["subfamilia_nueva"], p["negatives"]
+
+    assert plan("Arras para boda") == ("arras_para_boda", True, [])
+    assert plan("kit_arras") == ("kit_arras", False, ["gratis"])
+
+
 def test_i5_plan_tope_no_numerico_422(escenario, monkeypatch):
     """N1: tope_monto 'abc' da 422, no 500 (Decimal lanza
     InvalidOperation, no ValueError)."""

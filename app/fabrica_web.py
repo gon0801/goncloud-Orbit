@@ -68,6 +68,15 @@ ORDER BY tipo_producto
 _SQL_CONFIG_VIGENTE = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
 
+def tipos_producto(conn, plataforma: str) -> list[str]:
+    """Subfamilias conocidas de la plataforma: las que ya tienen keywords,
+    negativos o un grupo. Una fuera de esta lista arranca sin negativos."""
+    return [
+        fila[0]
+        for fila in conn.execute(_SQL_TIPOS, (plataforma, plataforma, plataforma)).fetchall()
+    ]
+
+
 def error(codigo: int, mensaje: str, lote: str | None = None) -> HTTPException:
     return HTTPException(codigo, detail={"mensaje": mensaje, "lote": lote})
 
@@ -336,10 +345,7 @@ def catalogo(conn, plataforma: str, as_of: dt.datetime | None = None) -> dict:
     for prod in productos:
         for pub in prod["publicaciones"]:
             pub["estimacion"] = por_listing[pub["id"]]
-    tipos = [
-        fila[0]
-        for fila in conn.execute(_SQL_TIPOS, (plataforma, plataforma, plataforma)).fetchall()
-    ]
+    tipos = tipos_producto(conn, plataforma)
     return {
         "plataforma": plataforma,
         "moneda": fp.MONEDA_POR_PLATAFORMA[plataforma],
