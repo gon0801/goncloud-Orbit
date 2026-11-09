@@ -7,14 +7,16 @@ plataforma (max(metric_date) en v_metric_latest, jamas desde now()).
 Clasificacion sobre 90 dias desde el watermark: con_ventas_previas /
 gasto_sin_ventas / peso_muerto.
 
-Son INTEGRACION (Postgres temporal con 0001+0002+0003+0013): skip
-automatico sin servidor, como el resto de la suite.
+Son INTEGRACION (Postgres temporal con 0001+0002+0003+0013+0082; la 0082
+reescribe la vista en una sola pasada): skip automatico sin servidor, como
+el resto de la suite.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import os
+import random
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
@@ -27,13 +29,14 @@ from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_ds
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL13 = (ROOT / "migrations" / "0013_entidad_inerte.sql").read_text(encoding="utf-8")
+SQL82 = (ROOT / "migrations" / "0082_claridad01_entidad_inerte.sql").read_text(encoding="utf-8")
 
 _ANCLA = dt.datetime(2026, 8, 22, 8, 0, tzinfo=dt.UTC)
 
 
 @contextmanager
 def _db_inerte(prefijo: str):
-    """DB temporal con el esquema + la migracion 0013."""
+    """DB temporal con el esquema + las migraciones 0013 y 0082 (vista vigente)."""
     dsn = _test_dsn()
     db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
     admin = psycopg.connect(dsn, autocommit=True)
@@ -46,6 +49,7 @@ def _db_inerte(prefijo: str):
         conn.execute(SQL2)
         conn.execute(SQL3)
         conn.execute(SQL13)
+        conn.execute(SQL82)
         yield conn
     finally:
         if conn is not None:
@@ -521,3 +525,109 @@ def test_vista_mezcla_de_monedas_anula_gasto_y_moneda():
         assert clas == "gasto_sin_ventas"  # el crudo suma > 0: clasifica igual
         assert gasto90 is None  # mezcla: jamas un numero mezclado
         assert moneda is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_vista_0082_devuelve_las_mismas_filas_que_la_0013():
+    """CLARIDAD 01 G.4: la reescritura de la 0082 devuelve exactamente las
+    filas de la definicion de la 0013 (EXCEPT en los dos sentidos da 0), con
+    datos que cruzan los bordes de 14 y 90 dias, dos watermarks, varias
+    observaciones del mismo dia que cambian el valor, impresiones NULL,
+    estados no ENABLED y mezcla de moneda. tools/archiva_inertes.py archiva
+    en Amazon lo que esta vista devuelve."""
+    azar = random.Random(82)
+    with _db_inerte("orbit_inerte_equiv") as conn:
+        run_id = _run(conn)
+        conn.execute(
+            SQL13.split("COMMENT ON VIEW")[0].replace(
+                "CREATE OR REPLACE VIEW v_entidad_inerte", "CREATE VIEW v_entidad_inerte_0013"
+            )
+        )
+        filas = []
+        mezcla = []
+        for platform, moneda, wm in (
+            ("amazon_mx", "MXN", dt.date(2026, 8, 16)),
+            ("amazon_us", "USD", dt.date(2026, 8, 10)),
+        ):
+            for c in range(3):
+                camp = _entidad(conn, platform, "campaign", f"{platform}-c{c}")
+                filas.append((camp, wm, 1, moneda, "2.00", 0, 30))
+                if azar.random() < 0.9:
+                    _estado(conn, camp, "ENABLED" if c else "PAUSED")
+                for g in range(3):
+                    ag = _entidad(conn, platform, "ad_group", f"{platform}-c{c}g{g}", parent=camp)
+                    if azar.random() < 0.95:
+                        _estado(conn, ag, azar.choice(["ENABLED"] * 6 + ["PAUSED"]))
+                    for h in range(8):
+                        hoja = _entidad(
+                            conn,
+                            platform,
+                            "keyword" if h % 2 else "product_target",
+                            f"{platform}-c{c}g{g}h{h}",
+                            parent=ag,
+                            match_type="EXACT" if h % 2 else None,
+                            keyword_text=f"kw {c}{g}{h}" if h % 2 else None,
+                        )
+                        if azar.random() < 0.95:
+                            _estado(conn, hoja, azar.choice(["ENABLED"] * 8 + ["PAUSED"]))
+                        perfil = azar.choice(["nada", "vieja", "media", "reciente", "mixta"])
+                        if perfil == "nada":
+                            continue
+                        dias = {
+                            "vieja": range(85, 125),
+                            "media": range(10, 95),
+                            "reciente": range(0, 20),
+                            "mixta": range(0, 125),
+                        }[perfil]
+                        for atras in azar.sample(list(dias), k=min(12, len(dias))):
+                            for obs in range(azar.choice([1, 1, 2, 3])):
+                                impresiones = azar.choice([None, 0, 0, 0, 5, 40])
+                                fila = (
+                                    hoja,
+                                    wm - dt.timedelta(days=atras),
+                                    obs + 1,
+                                    moneda,
+                                    azar.choice(["0.00", "0.00", "1.25", "7.50"]),
+                                    azar.choice([0, 0, 0, 1, 2]),
+                                    impresiones,
+                                )
+                                if platform == "amazon_us" and azar.random() < 0.03:
+                                    mezcla.append((*fila[:3], "MXN", *fila[4:]))
+                                else:
+                                    filas.append(fila)
+        ins = (
+            "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+            " metric_currency, cost, orders, impressions, ingest_run_id)"
+            " VALUES (%s, %s, %s::date + make_interval(hours => %s), %s, %s, %s, %s, %s)"
+        )
+
+        def params(lista):
+            return [(e, d, d, h, mon, Decimal(c), o, i, run_id) for e, d, h, mon, c, o, i in lista]
+
+        with conn.cursor() as cur:
+            cur.executemany(ins, params(filas))
+            conn.execute("ALTER TABLE ads_metric_observation DISABLE TRIGGER metric_moneda_sellada")
+            try:
+                cur.executemany(ins, params(mezcla))
+            finally:
+                conn.execute(
+                    "ALTER TABLE ads_metric_observation ENABLE TRIGGER metric_moneda_sellada"
+                )
+
+        def cuenta(consulta: str) -> int:
+            return conn.execute(f"SELECT count(*) FROM ({consulta}) x").fetchone()[0]
+
+        vieja = "SELECT * FROM v_entidad_inerte_0013"
+        nueva = "SELECT * FROM v_entidad_inerte"
+        assert (cuenta(f"{vieja} EXCEPT {nueva}"), cuenta(f"{nueva} EXCEPT {vieja}")) == (0, 0)
+        assert cuenta(f"{vieja} EXCEPT ALL {nueva}") == 0
+        assert cuenta(nueva) == cuenta(vieja)
+        clases = conn.execute(
+            "SELECT clasificacion, count(*), count(*) FILTER (WHERE moneda IS NULL"
+            " AND gasto_90d IS NULL) FROM v_entidad_inerte GROUP BY 1 ORDER BY 1"
+        ).fetchall()
+        assert [c[0] for c in clases] == ["con_ventas_previas", "gasto_sin_ventas", "peso_muerto"]
+        assert sum(c[2] for c in clases) > 0

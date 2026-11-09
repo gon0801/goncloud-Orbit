@@ -1,0 +1,5 @@
+# CLARIDAD 01 G.4. Copia local del respaldo orbit_2026-11-09 con la 0082 aplicada.
+# v_entidad_inerte_0013 = el CREATE VIEW de migrations/0013_entidad_inerte.sql, renombrado.
+# EXCEPT en los dos sentidos contra v_entidad_inerte (0082). Filas: 363 y 363.
+# EXCEPT ALL contra una foto de la vista vieja tomada antes de migrar: 0 y 0.
+vieja_menos_nueva=0 nueva_menos_vieja=0

@@ -1,0 +1,151 @@
+-- CLARIDAD 01 G.2. Misma copia y configuracion, con migrations/0082_claridad01_entidad_inerte.sql.
+-- Tiempo de pared de _SQL_INERTES con psql: 0.12 s en tres corridas (antes 162 s).
+-- Un solo GroupAggregate con loops=1; mismas 363 filas (ver equivalencia.txt).
+--
+-- _SQL_INERTES (app/api_dashboard.py)
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=8569.86..8569.87 rows=1 width=357) (actual time=136.744..136.813 rows=363 loops=1)
+   Sort Key: m.platform, (CASE WHEN (m.ordenes_90d > 0) THEN 'con_ventas_previas'::text WHEN (m.gasto_suma_90d > '0'::numeric) THEN 'gasto_sin_ventas'::text ELSE 'peso_muerto'::text END), (CASE WHEN ((m.filas_90d > 0) AND (m.mon_min_90d IS DISTINCT FROM m.mon_max_90d)) THEN NULL::numeric ELSE m.gasto_suma_90d END) DESC NULLS LAST, m.id
+   Sort Method: quicksort  Memory: 100kB
+   Buffers: shared hit=47868, temp read=1473 written=1477
+   ->  Nested Loop  (cost=8561.56..8569.85 rows=1 width=357) (actual time=113.563..136.159 rows=363 loops=1)
+         Buffers: shared hit=47862, temp read=1473 written=1477
+         ->  Subquery Scan on m  (cost=8561.27..8561.50 rows=1 width=280) (actual time=113.516..135.819 rows=363 loops=1)
+               Buffers: shared hit=46760, temp read=1473 written=1477
+               CTE watermark
+                 ->  Finalize GroupAggregate  (cost=6894.13..6894.89 rows=3 width=8) (actual time=20.919..20.976 rows=3 loops=1)
+                       Group Key: e_1.platform
+                       Buffers: shared hit=1199
+                       ->  Gather Merge  (cost=6894.13..6894.83 rows=6 width=8) (actual time=20.916..20.972 rows=9 loops=1)
+                             Workers Planned: 2
+                             Workers Launched: 2
+                             Buffers: shared hit=1199
+                             ->  Sort  (cost=5894.11..5894.12 rows=3 width=8) (actual time=19.276..19.277 rows=3 loops=3)
+                                   Sort Key: e_1.platform
+                                   Sort Method: quicksort  Memory: 25kB
+                                   Buffers: shared hit=1199
+                                   Worker 0:  Sort Method: quicksort  Memory: 25kB
+                                   Worker 1:  Sort Method: quicksort  Memory: 25kB
+                                   ->  Partial HashAggregate  (cost=5894.05..5894.08 rows=3 width=8) (actual time=19.267..19.268 rows=3 loops=3)
+                                         Group Key: e_1.platform
+                                         Batches: 1  Memory Usage: 24kB
+                                         Buffers: shared hit=1181
+                                         Worker 0:  Batches: 1  Memory Usage: 24kB
+                                         Worker 1:  Batches: 1  Memory Usage: 24kB
+                                         ->  Hash Join  (cost=681.42..5266.49 rows=125512 width=8) (actual time=2.312..13.532 rows=100410 loops=3)
+                                               Hash Cond: (o_1.ad_entity_id = e_1.id)
+                                               Buffers: shared hit=1181
+                                               ->  Parallel Index Only Scan using ads_metric_observation_metric_date_ad_entity_id_idx on ads_metric_observation o_1  (cost=0.42..4255.95 rows=125512 width=12) (actual time=0.011..3.821 rows=100410 loops=3)
+                                                     Heap Fetches: 0
+                                                     Buffers: shared hit=357
+                                               ->  Hash  (cost=449.33..449.33 rows=18533 width=12) (actual time=2.240..2.240 rows=18533 loops=3)
+                                                     Buckets: 32768  Batches: 1  Memory Usage: 1125kB
+                                                     Buffers: shared hit=792
+                                                     ->  Seq Scan on ad_entity e_1  (cost=0.00..449.33 rows=18533 width=12) (actual time=0.006..1.045 rows=18533 loops=3)
+                                                           Buffers: shared hit=792
+               CTE hojas
+                 ->  Nested Loop  (cost=499.94..1013.14 rows=1 width=109) (actual time=0.541..2.884 rows=593 loops=1)
+                       Join Filter: (c.id = sc.ad_entity_id)
+                       Buffers: shared hit=9003
+                       ->  Nested Loop  (cost=499.65..1010.11 rows=1 width=117) (actual time=0.538..2.502 rows=914 loops=1)
+                             Buffers: shared hit=6261
+                             ->  Nested Loop  (cost=499.36..1009.67 rows=1 width=117) (actual time=0.529..1.914 rows=1217 loops=1)
+                                   Join Filter: (e_2.parent_id = g.id)
+                                   Buffers: shared hit=2610
+                                   ->  Nested Loop  (cost=499.08..1007.22 rows=2 width=60) (actual time=0.498..1.046 rows=84 loops=1)
+                                         Buffers: shared hit=1344
+                                         ->  Hash Join  (cost=498.79..995.16 rows=4 width=52) (actual time=0.433..0.860 rows=272 loops=1)
+                                               Hash Cond: (g.parent_id = c.id)
+                                               Buffers: shared hit=528
+                                               ->  Seq Scan on ad_entity g  (cost=0.00..495.66 rows=272 width=30) (actual time=0.003..0.397 rows=272 loops=1)
+                                                     Filter: (kind = 'ad_group'::ad_entity_kind)
+                                                     Rows Removed by Filter: 18261
+                                                     Buffers: shared hit=264
+                                               ->  Hash  (cost=495.66..495.66 rows=250 width=22) (actual time=0.424..0.424 rows=250 loops=1)
+                                                     Buckets: 1024  Batches: 1  Memory Usage: 23kB
+                                                     Buffers: shared hit=264
+                                                     ->  Seq Scan on ad_entity c  (cost=0.00..495.66 rows=250 width=22) (actual time=0.001..0.407 rows=250 loops=1)
+                                                           Filter: (kind = 'campaign'::ad_entity_kind)
+                                                           Rows Removed by Filter: 18283
+                                                           Buffers: shared hit=264
+                                         ->  Index Scan using ad_entity_state_pkey on ad_entity_state sg  (cost=0.29..3.01 rows=1 width=8) (actual time=0.001..0.001 rows=0 loops=272)
+                                               Index Cond: (ad_entity_id = g.id)
+                                               Filter: (status = 'ENABLED'::text)
+                                               Rows Removed by Filter: 1
+                                               Buffers: shared hit=816
+                                   ->  Index Scan using ad_entity_parent_id_idx on ad_entity e_2  (cost=0.29..1.10 rows=10 width=73) (actual time=0.007..0.009 rows=14 loops=84)
+                                         Index Cond: (parent_id = sg.ad_entity_id)
+                                         Filter: (kind = ANY ('{keyword,product_target}'::ad_entity_kind[]))
+                                         Rows Removed by Filter: 144
+                                         Buffers: shared hit=1266
+                             ->  Index Scan using ad_entity_state_pkey on ad_entity_state se  (cost=0.29..0.44 rows=1 width=8) (actual time=0.000..0.000 rows=1 loops=1217)
+                                   Index Cond: (ad_entity_id = e_2.id)
+                                   Filter: (status = 'ENABLED'::text)
+                                   Rows Removed by Filter: 0
+                                   Buffers: shared hit=3651
+                       ->  Index Scan using ad_entity_state_pkey on ad_entity_state sc  (cost=0.29..3.01 rows=1 width=8) (actual time=0.000..0.000 rows=1 loops=914)
+                             Index Cond: (ad_entity_id = g.parent_id)
+                             Filter: (status = 'ENABLED'::text)
+                             Rows Removed by Filter: 0
+                             Buffers: shared hit=2742
+               ->  GroupAggregate  (cost=653.24..653.44 rows=1 width=304) (actual time=113.514..135.711 rows=363 loops=1)
+                     Group Key: h.id, h.platform, h.kind, h.keyword_text, h.name, h.external_id, h.ad_group_id, h.ad_group_name, h.campaign_id, h.campaign_name, w.wm
+                     Filter: ((count(o.ad_entity_id) FILTER (WHERE (o.metric_date > (w.wm - 14))) = 0) OR ((count(o.ad_entity_id) FILTER (WHERE ((o.metric_date > (w.wm - 14)) AND (o.impressions IS NULL))) = 0) AND (COALESCE(sum(o.impressions) FILTER (WHERE (o.metric_date > (w.wm - 14))), '0'::numeric) = '0'::numeric)))
+                     Rows Removed by Filter: 230
+                     Buffers: shared hit=45953, temp read=1473 written=1477
+                     ->  Incremental Sort  (cost=653.24..653.28 rows=2 width=228) (actual time=113.480..133.669 rows=11221 loops=1)
+                           Sort Key: h.id, h.platform, h.kind, h.keyword_text, h.name, h.external_id, h.ad_group_id, h.ad_group_name, h.campaign_id, h.campaign_name, w.wm
+                           Presorted Key: h.id
+                           Full-sort Groups: 188  Sort Method: quicksort  Average Memory: 36kB  Peak Memory: 36kB
+                           Pre-sorted Groups: 170  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+                           Buffers: shared hit=45953, temp read=1473 written=1477
+                           ->  Merge Left Join  (cost=649.03..653.23 rows=1 width=228) (actual time=113.339..129.195 rows=11221 loops=1)
+                                 Merge Cond: (h.id = o.ad_entity_id)
+                                 Buffers: shared hit=45950, temp read=1473 written=1477
+                                 ->  Sort  (cost=0.12..0.13 rows=1 width=196) (actual time=24.080..24.105 rows=593 loops=1)
+                                       Sort Key: h.id
+                                       Sort Method: quicksort  Memory: 134kB
+                                       Buffers: shared hit=9395
+                                       ->  Hash Join  (cost=0.03..0.11 rows=1 width=196) (actual time=23.967..24.006 rows=593 loops=1)
+                                             Hash Cond: (w.platform = h.platform)
+                                             Buffers: shared hit=9395
+                                             ->  CTE Scan on watermark w  (cost=0.00..0.06 rows=3 width=8) (actual time=20.921..20.924 rows=3 loops=1)
+                                                   Buffers: shared hit=392
+                                             ->  Hash  (cost=0.02..0.02 rows=1 width=192) (actual time=3.036..3.036 rows=593 loops=1)
+                                                   Buckets: 1024  Batches: 1  Memory Usage: 118kB
+                                                   Buffers: shared hit=9003
+                                                   ->  CTE Scan on hojas h  (cost=0.00..0.02 rows=1 width=192) (actual time=0.542..2.992 rows=593 loops=1)
+                                                         Buffers: shared hit=9003
+                                 ->  Materialize  (cost=648.90..652.62 rows=186 width=32) (actual time=89.252..104.204 rows=11036 loops=1)
+                                       Buffers: shared hit=36555, temp read=1473 written=1477
+                                       ->  Unique  (cost=648.90..650.30 rows=186 width=40) (actual time=89.250..103.644 rows=11036 loops=1)
+                                             Buffers: shared hit=36555, temp read=1473 written=1477
+                                             ->  Sort  (cost=648.90..649.37 rows=186 width=40) (actual time=89.249..96.990 rows=207458 loops=1)
+                                                   Sort Key: o.ad_entity_id, o.metric_date, o.observed_at DESC
+                                                   Sort Method: external merge  Disk: 11784kB
+                                                   Buffers: shared hit=36555, temp read=1473 written=1477
+                                                   ->  Nested Loop  (cost=6.36..641.89 rows=186 width=40) (actual time=0.101..33.924 rows=207458 loops=1)
+                                                         Buffers: shared hit=36552
+                                                         ->  Hash Join  (cost=0.03..0.11 rows=1 width=12) (actual time=0.060..0.107 rows=593 loops=1)
+                                                               Hash Cond: (w_1.platform = h_1.platform)
+                                                               ->  CTE Scan on watermark w_1  (cost=0.00..0.06 rows=3 width=8) (actual time=0.000..0.002 rows=3 loops=1)
+                                                               ->  Hash  (cost=0.02..0.02 rows=1 width=12) (actual time=0.056..0.057 rows=593 loops=1)
+                                                                     Buckets: 1024  Batches: 1  Memory Usage: 34kB
+                                                                     ->  CTE Scan on hojas h_1  (cost=0.00..0.02 rows=1 width=12) (actual time=0.000..0.027 rows=593 loops=1)
+                                                         ->  Bitmap Heap Scan on ads_metric_observation o  (cost=6.33..639.92 rows=186 width=40) (actual time=0.010..0.036 rows=350 loops=593)
+                                                               Recheck Cond: ((h_1.id = ad_entity_id) AND (metric_date > (w_1.wm - 90)))
+                                                               Heap Blocks: exact=33754
+                                                               Buffers: shared hit=36552
+                                                               ->  Bitmap Index Scan on ads_metric_observation_ad_entity_id_metric_date_observed_at_idx  (cost=0.00..6.29 rows=186 width=0) (actual time=0.008..0.008 rows=350 loops=593)
+                                                                     Index Cond: ((ad_entity_id = h_1.id) AND (metric_date > (w_1.wm - 90)))
+                                                                     Buffers: shared hit=2798
+         ->  Index Scan using ad_entity_pkey on ad_entity e  (cost=0.29..8.30 rows=1 width=16) (actual time=0.000..0.000 rows=1 loops=363)
+               Index Cond: (id = m.id)
+               Buffers: shared hit=1089
+ Planning:
+   Buffers: shared hit=751
+ Planning Time: 2.197 ms
+ Execution Time: 137.602 ms
+(142 rows)
+
