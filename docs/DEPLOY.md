@@ -836,7 +836,7 @@ El server está en UTC: estas horas SON UTC.
 | 08:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; después de la ingesta, antes del ciclo; dentro del bloque desde ingesta-01 A.4) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; dentro del bloque desde ingesta-01 A.4) |
-| 11:00 | `jev-vigia` | `python -m app.cli jev-vigia` (CLARIDAD 01 B.5: si Jev está encendido y su último `inicio` tiene más de 13 h, avisa por Telegram; cubre la línea de jev-senales borrada o un candado colgado. Lee con `ORBIT_DSN_READ`, sin estado. La instala `tools/despliegue/cron_jev_vigia.sh instala`, que corre `desplegar.sh`) |
+| 11:00 | `jev-vigia` | `python -m app.cli jev-vigia` (CLARIDAD 01 B.5: si Jev está encendido y su último `inicio` tiene más de 13 h, avisa por Telegram; cubre la línea de jev-senales borrada o un candado colgado. Lee con `ORBIT_DSN_READ`, sin estado. No va en el bloque instalador de abajo: la instala `tools/despliegue/cron_jev_vigia.sh instala`, que corre `desplegar.sh`, con la línea exacta `0 11 * * * /usr/local/bin/cron-avisa --nombre "Vigía de JEV" --cada 24 -- docker exec orbit-app-1 python -m app.cli jev-vigia >> /mnt/data/appdata/orbit/logs/jev-vigia.log 2>&1`) |
 | 10:00–12:50, /10 min | `ads-salud` | `python -m app.cli ads-salud` (ads-proteccion-01 A.3: salud de la ingesta principal; el cron dispara cada 10 min y el job reporta el atraso desde las 10:30 UTC con reintentos hasta las 12:50; la linea no cambio en ingesta-01 A.4) |
 | 12:15 | `precio-muestras:amazon_mx` | `python -m app.envio_muestras --platform amazon_mx --canal fbm` (REPRICING 02 D.3: job diario de muestras MX antes de la estimacion) |
 | 12:20 | `precio-muestras:amazon_us` | `python -m app.envio_muestras --platform amazon_us --canal fbm` (REPRICING 02 D.3: job diario de muestras US antes de la estimacion) |
@@ -1181,13 +1181,11 @@ ORBIT_BLOCK=$(cat <<'CRON'
 41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 # job_key=jev-senales  JEV ADS 02 S.4 (dentro del bloque desde ingesta-01 A.4)
 30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
-# job_key=jev-vigia  CLARIDAD 01 B.5: avisa si Jev no corre hace mas de 13 h
-0 11 * * * /usr/local/bin/cron-avisa --nombre "Vigía de JEV" --cada 24 -- docker exec orbit-app-1 python -m app.cli jev-vigia >> /mnt/data/appdata/orbit/logs/jev-vigia.log 2>&1
 # job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
 */10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
 CRON
 )
-{ crontab -u gon -l 2>/dev/null | grep -v "Orbit (ORBIT 03" | grep -v "job_key=ingest:" | grep -v "job_key=ads-salud" | grep -v "job_key=ads_optimizer" | grep -v "job_key=avisos-campana" | grep -v "job_key=impulso-vigia" | grep -v "job_key=jev-senales" | grep -v "job_key=jev-vigia" | grep -v "app.cli ingest" | grep -v "app.cli ads-salud" | grep -v "app.cli cycle" | grep -v "app.cli avisos-campana" | grep -v "app.cli impulso-vigia" | grep -v "app.cli jev-senales" | grep -v "app.cli jev-vigia" ; printf "%s\n" "$ORBIT_BLOCK" ; } | crontab -u gon -
+{ crontab -u gon -l 2>/dev/null | grep -v "Orbit (ORBIT 03" | grep -v "job_key=ingest:" | grep -v "job_key=ads-salud" | grep -v "job_key=ads_optimizer" | grep -v "job_key=avisos-campana" | grep -v "job_key=impulso-vigia" | grep -v "job_key=jev-senales" | grep -v "app.cli ingest" | grep -v "app.cli ads-salud" | grep -v "app.cli cycle" | grep -v "app.cli avisos-campana" | grep -v "app.cli impulso-vigia" | grep -v "app.cli jev-senales" ; printf "%s\n" "$ORBIT_BLOCK" ; } | crontab -u gon -
 crontab -u gon -l
 SCRIPT
 ```

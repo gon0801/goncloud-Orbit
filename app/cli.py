@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import importlib
 import json
 import os
 import socket
@@ -843,8 +842,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.comando == "ads-salud":
         return ads_salud.main(rest)
     if args.comando in ("jev-senales", "jev-vigia"):
-        # app.jev_senales y app.jev_vigia: los flags van al main del modulo.
-        return importlib.import_module("app." + args.comando.replace("-", "_")).main(rest)
+        from app import jev_senales, jev_vigia
+
+        return {"jev-senales": jev_senales, "jev-vigia": jev_vigia}[args.comando].main(rest)
     if args.comando == "bloqueo-reconcilia":
         from app import bloqueo_dueno_efecto
 
