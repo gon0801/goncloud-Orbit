@@ -6,7 +6,8 @@ a cada una contra `--base` y cuenta en el texto visible (con `<option>`,
 codigos internos en snake_case, los decimales de 5 digitos o mas, las horas
 con microsegundos, los montos sin separador de miles, los enteros largos sin
 separador y las horas en UTC. Una ruta que no responde 200 dentro del tope
-cuenta como `ruta_falla`. El texto dentro de un elemento con
+cuenta como `ruta_falla`, y una ruta del menu que trae la pagina servida y no
+se midio cuenta como `ruta_sin_medir`. El texto dentro de un elemento con
 `data-dato-libre` (nombres de campana, keywords, busquedas) no se cuenta.
 
 Con `--navegador` lee la pantalla despues de correr JavaScript, con
@@ -39,6 +40,8 @@ BASE_HTML = Path(__file__).resolve().parents[1] / "app" / "templates" / "base.ht
 TOPE_RUTA_S = 300
 EJEMPLOS_POR_TIPO = 5
 RUTA_FALLA = "ruta_falla"
+RUTA_SIN_MEDIR = "ruta_sin_medir"
+_NAV = re.compile(r'<nav id="nav-secciones".*?</nav>', re.S)
 
 # El orden importa: cada coincidencia se tacha del texto antes de buscar el
 # patron siguiente, asi una cifra cuenta una sola vez y en su tipo mas fuerte.
@@ -161,7 +164,7 @@ def hallazgos(texto: str) -> dict[str, list[str]]:
 def rutas_del_menu(base_html: Path = BASE_HTML) -> list[str]:
     """Hrefs internos del `<nav id="nav-secciones">`, en orden y sin repetir."""
     fuente = base_html.read_text(encoding="utf-8")
-    m = re.search(r'<nav id="nav-secciones".*?</nav>', fuente, re.S)
+    m = _NAV.search(fuente)
     if not m:
         raise SystemExit(f"no encontre el menu nav-secciones en {base_html}")
     rutas = re.findall(r"""(?:href="|\(\s*'[\w-]+',\s*')(/[^"'{}\s]*)""", m.group(0))
@@ -259,7 +262,18 @@ class _Navegador:
         )
 
 
-def medir(base: str, rutas: list[str], navegador: bool) -> dict:
+def _menu_servido(htmls: list[str | None]) -> list[str]:
+    """Hrefs del menu en la primera pagina servida que lo trae."""
+    for html in htmls:
+        m = html and _NAV.search(html)
+        if m:
+            return list(dict.fromkeys(re.findall(r'href="(/[^"]*)"', m.group(0))))
+    return []
+
+
+def medir(base: str, rutas: list[str], navegador: bool, menu: bool = False) -> dict:
+    """Cuenta por ruta. Con `menu`, las rutas son el menu entero y las que la
+    pagina servida trae de mas cuentan como `ruta_sin_medir`."""
     base = base.rstrip("/")
     with ThreadPoolExecutor(max_workers=4) as pool:
         pedidos = list(pool.map(lambda r: _pedir(base, r), rutas))
@@ -285,6 +299,11 @@ def medir(base: str, rutas: list[str], navegador: bool) -> dict:
         h = hallazgos(texto or "")
         por_ruta[ruta] = {tipo: len(v) for tipo, v in h.items()}
         ejemplos[ruta] = [x for v in h.values() for x in v[:EJEMPLOS_POR_TIPO]]
+    if menu:
+        for ruta in _menu_servido([html for html, _ in pedidos]):
+            if ruta not in por_ruta:
+                por_ruta[ruta] = {RUTA_SIN_MEDIR: 1}
+                ejemplos[ruta] = ["esta en el menu servido y no salio de base.html"]
     return {
         "base": base,
         "fecha": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -325,9 +344,11 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     rutas = rutas_del_menu()
-    if args.rutas:
+    if args.rutas is not None:
         rutas = [r.strip() for r in args.rutas.split(",") if r.strip()]
-    informe = medir(args.base, rutas, args.navegador)
+    if not rutas:
+        ap.error("no hay ninguna ruta que medir")
+    informe = medir(args.base, rutas, args.navegador, menu=args.rutas is None)
     imprimir(informe, con_ejemplos=not args.solo_cuenta)
     if args.json:
         Path(args.json).write_text(
