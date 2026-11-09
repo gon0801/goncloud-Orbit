@@ -4,9 +4,11 @@
 # 1. El cron de root corre /mnt/data/appdata/orbit/refresh_estimacion.sh: debe ser el desplegado
 #    (igual a tools/ del servidor) y esperar a que termine amazon-prices-sync antes de copiar.
 # 2. La unidad que espera existe en el servidor (un nombre mal escrito se leeria como inactive).
-# 3. La ingesta desplegada en orbit-app-1 sale 1 y nombra amazon_us con la copia de las 12:45 del
-#    9-nov (US de hace 6 h 33 min) y sale 0 con US fresca (salida_ingesta.py por stdin: corre main y
-#    ejecutar_ingesta reales con la base, Product Fees y MeLi sustituidos; no escribe nada).
+# 3. La ingesta desplegada en orbit-app-1 sale 1 y nombra amazon_us con la oferta de US de las 06:36
+#    que traia la copia de las 12:45 del 9-nov (6 h 09 min a las 12:45; la sonda la siembra con
+#    6 h 33 min, la edad que vio la decision de las 13:10) y sale 0 con US fresca
+#    (salida_ingesta.py por stdin: corre main y ejecutar_ingesta reales con la base, Product Fees
+#    y MeLi sustituidos; no escribe nada).
 # 4. Esa salida llega al aviso: el cron de root corre el script dentro de cron-avisa y el script
 #    sale con el codigo de la ingesta.
 # Sale 0 solo si las cuatro se cumplen.

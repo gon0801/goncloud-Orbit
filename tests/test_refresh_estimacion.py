@@ -48,7 +48,12 @@ os.execv({py!r}, [{py!r}, *args])
 """
 
 
-def test_claridad_f_copia_del_bridge_antes_de_que_termine_el_sync(tmp_path):
+SIEMPRE_CORRIENDO = """#!/usr/bin/env bash
+echo activating
+"""
+
+
+def _corre(tmp_path, systemctl):
     bridge = tmp_path / "bridge.db"
     con = sqlite3.connect(bridge)
     con.execute("CREATE TABLE amazon_listing_prices (marketplace_name TEXT, fetched_at TEXT)")
@@ -61,7 +66,7 @@ def test_claridad_f_copia_del_bridge_antes_de_que_termine_el_sync(tmp_path):
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     falsos = {
-        "systemctl": SYSTEMCTL,
+        "systemctl": systemctl,
         "docker": DOCKER,
         "sleep": "#!/bin/sh\n",
         "python3": PYTHON3.format(py=sys.executable, bridge=BRIDGE),
@@ -71,8 +76,7 @@ def test_claridad_f_copia_del_bridge_antes_de_que_termine_el_sync(tmp_path):
         (bin_ / nombre).chmod(0o755)
     (tmp_path / "termina_us.py").write_text(TERMINA_US, encoding="utf-8")
     (tmp_path / "logs").mkdir()
-
-    r = subprocess.run(
+    return subprocess.run(
         [shutil.which("bash") or "bash", str(ROOT / "tools/refresh_estimacion.sh")],
         text=True,
         capture_output=True,
@@ -86,6 +90,10 @@ def test_claridad_f_copia_del_bridge_antes_de_que_termine_el_sync(tmp_path):
         },
     )
 
+
+def test_claridad_f_copia_del_bridge_antes_de_que_termine_el_sync(tmp_path):
+    r = _corre(tmp_path, SYSTEMCTL)
+
     copia = sqlite3.connect(tmp_path / "copia.db")
     us = copia.execute(
         "SELECT fetched_at FROM amazon_listing_prices WHERE marketplace_name = 'amazon_us'"
@@ -94,3 +102,11 @@ def test_claridad_f_copia_del_bridge_antes_de_que_termine_el_sync(tmp_path):
     assert us == ("2026-11-09T12:48:44Z",), "la copia salio antes de que el bridge terminara US"
     assert r.returncode == 0, r.stdout + r.stderr
     assert "ingest estimacion --sqlite" in (tmp_path / "docker.log").read_text()
+
+
+def test_claridad_f_bridge_que_no_termina_avisa(tmp_path):
+    r = _corre(tmp_path, SIEMPRE_CORRIENDO)
+
+    assert "ingest estimacion --sqlite" in (tmp_path / "docker.log").read_text()
+    assert r.returncode != 0, "el bridge no termino y el script salio 0: cron-avisa no avisa"
+    assert "sigue corriendo tras 20 min" in r.stdout
