@@ -3472,6 +3472,26 @@ def test_claridad_e_goal_fuera_del_catalogo_no_sube_ni_baja():
 
 
 @_skip_sin_pg
+def test_claridad_e_sku_repetido_a_la_venta_no_sale_no_a_la_venta():
+    """E.2 (dinero, F1 de la revision): el catalogo es uno por SKU. Un
+    segundo listing con el mismo SKU BUYABLE tambien esta a la venta: se
+    decide con sus insumos, nunca `no_a_la_venta`, y el primero sigue
+    aplicando."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        gemelo = _listing(conn, datos["producto"], ext="B0A5000099", a_la_venta=False)
+        _goal(conn, gemelo, mode="live")
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert res.decisiones == 2
+        motivos = dict(conn.execute("SELECT listing_id, motivo FROM precio_decision").fetchall())
+        assert motivos[gemelo] != "no_a_la_venta"
+        assert motivos[datos["listing"]] is None
+        assert red.n_patch == 1
+
+
+@_skip_sin_pg
 def test_claridad_e_pendiente_que_sale_del_catalogo_no_se_aplica():
     """E.3 (dinero): un `subir` guardado y pendiente cuya publicacion deja de
     estar a la venta antes de la segunda corrida no llega al aplicador

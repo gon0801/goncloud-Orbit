@@ -1845,7 +1845,9 @@ def test_r1b_b1_no_evaluados_filas_cuadran_con_la_cobertura():
     """B1 + CLARIDAD 01 E.4: (d) sale de las filas no evaluadas de la
     Cobertura (una por SKU, motivo en palabras): su largo es la suma de
     `no_evaluadas` y los motivos coinciden. La decision `no_a_la_venta` de un
-    listing fuera del catalogo no entra en la lista: va contada aparte."""
+    listing fuera del catalogo no entra en la lista: va contada aparte. Si
+    el listing volvio a estar a la venta, va en la lista y no se cuenta
+    aparte (F3 de la revision: nunca dos veces)."""
     with _db_temp() as conn:
         _config_pantalla(conn)
         prod = _producto(conn)
@@ -1867,6 +1869,11 @@ def test_r1b_b1_no_evaluados_filas_cuadran_con_la_cobertura():
         fuera = _listing(conn, prod, sku="SKU-B1-5", ext="B0B100005")
         _goal(conn, fuera)
         _decision(conn, fuera, motivo="no_a_la_venta")
+        volvio = _listing(conn, prod, sku="SKU-B1-6", ext="B0B100006")
+        _estado_pantalla(conn, sku="SKU-B1-6")
+        _oferta_pantalla(conn, volvio, sku="SKU-B1-6", ext="B0B100006")
+        _goal(conn, volvio)
+        _decision(conn, volvio, motivo="no_a_la_venta")
         bloque = dash.precios(conn)["plataformas"]["amazon_mx"]
         filas = {f["sku"]: f for f in bloque["no_evaluados_filas"]}
         assert filas == {
@@ -1881,8 +1888,14 @@ def test_r1b_b1_no_evaluados_filas_cuadran_con_la_cobertura():
                 "motivo_es": "ventas sin dato: historia de ventas corta",
             },
             "SKU-B1-3": {"sku": "SKU-B1-3", "motivo": "sin_decision", "motivo_es": "sin decision"},
+            "SKU-B1-6": {
+                "sku": "SKU-B1-6",
+                "motivo": "no_a_la_venta",
+                "motivo_es": "no esta a la venta",
+            },
         }
         assert sorted(bloque["cobertura"]["no_evaluadas"], key=lambda n: n["motivo"]) == [
+            {"motivo": "no_a_la_venta", "count": 1},
             {"motivo": "precio_sin_observar", "count": 1},
             {"motivo": "sin_decision", "count": 1},
             {"motivo": "ventas_sin_dato:historia_corta", "count": 1},
@@ -2735,7 +2748,8 @@ def test_r1b2_m58_goal_anulado_hoy_fuera_de_con_goal():
 def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
     """S.3: /precios trae el bloque de seguridad: modos, ultima corrida,
     retenciones abiertas del dia y el boton Soltar con la corrida liberable;
-    el JSON trae la misma `seguridad`."""
+    el JSON trae la misma `seguridad`. CLARIDAD 01 E.5: la ultima corrida
+    trae las decisiones de su dia y su medicion de la compuerta."""
     with _db_pantalla("s3-seg") as (conn, dsn):
         cfg = _config_pantalla(conn)
         corrida = conn.execute(
@@ -2748,7 +2762,13 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
             " VALUES (%s, 'fba', 158, 80, 'movimiento_masivo')",
             (corrida,),
         )
+        lid = _listing(conn, _producto(conn))
+        _goal(conn, lid)
+        _decision(conn, lid)
         html = _html_precios(conn, dsn, monkeypatch)
+        texto = " ".join(html.split())
+        assert "decisiones nuevas en esta corrida · 1 en el día" in texto
+        assert "Compuerta del día: fba 158 medidas, 80 nuevas" in texto
         assert "bloque-seguridad-amazon_mx" in html
         assert "Soltar" in html
         assert f'data-liberar-corrida="{corrida}"' in html
@@ -2758,6 +2778,8 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
         assert seg["modo_global"] == "live"
         assert seg["modo_universo"]["amazon_mx/fba"] == "live"
         assert seg["ultima_corrida"]["corrida_id"] == corrida
+        assert seg["ultima_corrida"]["decisiones_dia"] == 1
+        assert seg["ultima_corrida"]["medicion"] == [{"canal": "fba", "medidas": 158, "nuevas": 80}]
         assert seg["retenciones_abiertas"]["fba"]["causa"] == "movimiento_masivo"
         assert seg["liberable_corrida_id"] == corrida
         assert seg["cohorte"] is None

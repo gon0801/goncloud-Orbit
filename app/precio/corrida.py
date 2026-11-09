@@ -252,16 +252,19 @@ def validar_freno_dias_error(settings) -> int:
     return _numero_entero(settings, "precio_freno_dias_error", minimo=1, maximo=14)
 
 
+_SQL_LISTINGS_DE_SKUS = "SELECT id FROM listing WHERE platform = %s AND seller_sku = ANY(%s)"
+
+
 def _a_la_venta(conn: psycopg.Connection, mercado, hoy: date) -> frozenset[int] | None:
-    """E.2: `listing_id` del catalogo activo, o `None` si el mercado no
-    filtra por catalogo (MeLi decide sobre todo goal vigente)."""
+    """E.2: `listing_id` cuyo SKU esta en el catalogo activo, o `None` si el
+    mercado no filtra por catalogo (MeLi decide sobre todo goal vigente).
+    El catalogo es uno por SKU: dos listings con el mismo SKU estan los dos
+    a la venta (la unidad del catalogo trae solo uno)."""
     if not mercado.filtra_catalogo:
         return None
-    return frozenset(
-        activa.unidad.listing_id
-        for activa in mercado.catalogo(conn, hoy=hoy)
-        if activa.unidad is not None
-    )
+    skus = sorted({activa.seller_sku for activa in mercado.catalogo(conn, hoy=hoy)})
+    filas = conn.execute(_SQL_LISTINGS_DE_SKUS, (mercado.clave, skus)).fetchall()
+    return frozenset(fila[0] for fila in filas)
 
 
 def _no_evaluado(goal: Decimal, mode: str, motivo: str, diagnostico: str = "") -> Decision:

@@ -38,7 +38,8 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 #   (precio_cambio pendiente no-reversa) + las listas S7 (`con_goal`,
 #   `acciones`, `no_evaluados_filas`, `divergentes`). `no_evaluados_filas`
 #   sale de las filas del recuadro (cuadra con la Cobertura); las decisiones
-#   `no_a_la_venta` de hoy, fuera del catalogo, van contadas aparte.
+#   `no_a_la_venta` de hoy que la Cobertura en vivo no lista (fuera del
+#   catalogo) van contadas aparte.
 # - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
 #   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
 #   decisiones, corrida_ausente}). `cobertura` es la MISMA serializacion
@@ -413,6 +414,21 @@ def _filas_no_evaluados(rec: cobertura_precio.Recuadro) -> list[dict]:
     ]
 
 
+def _no_a_la_venta_fuera(detalle: list[dict], rec: cobertura_precio.Recuadro) -> int:
+    """Decisiones `no_a_la_venta` de hoy cuyo listing no esta en la
+    Cobertura en vivo. Si la publicacion volvio a estar a la venta, la
+    Cobertura ya la lista como no evaluada con ese motivo: no se cuenta dos
+    veces (CLARIDAD 01 E.4)."""
+    en_cobertura = {detalle.listing_id for detalle in rec.no_evaluadas_detalle}
+    return sum(
+        1
+        for fila in detalle
+        if fila["resultado"] == "no_evaluado"
+        and fila["motivo"] == "no_a_la_venta"
+        and fila["listing_id"] not in en_cobertura
+    )
+
+
 def _con_goal_precio(
     conn: ConexionLectura, plataforma: str, hoy: dt.date, por_listing: dict
 ) -> list[dict]:
@@ -638,7 +654,7 @@ def _bloque_precios(
         bloque["tacos"] = _tacos_precio(conn, plataforma, hoy)
         bloque["acciones"] = _acciones_precio(detalle, cambios, plataforma)
         bloque["no_evaluados_filas"] = _filas_no_evaluados(rec)
-        bloque["no_a_la_venta"] = bloque["no_evaluados"].get("no_a_la_venta", 0)
+        bloque["no_a_la_venta"] = _no_a_la_venta_fuera(detalle, rec)
         bloque["divergentes"] = _divergentes_precio(conn, plataforma, hoy, umbral)
         bloque["divergentes_umbral"] = umbral
     return bloque
