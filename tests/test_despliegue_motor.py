@@ -278,6 +278,8 @@ def _crea_repo(repo: Path) -> None:
     for nombre, archivos in ramas.items():
         _git(repo, "checkout", "-q", "-b", nombre.lower(), "E")
         _commit(repo, nombre, archivos)
+    _git(repo, "checkout", "-q", "-b", "convigia2", "ConVigia")
+    _commit(repo, "ConVigia2", {})
     _git(repo, "checkout", "-q", "master")
 
 
@@ -925,3 +927,50 @@ def test_jev_vigia_desplegar_la_instala_el_checklist_la_exige_y_el_rollback_la_q
     assert s.rollback("ConVigia").returncode == 1
     assert s.estado_diario() == "revertido"
     assert crontab.read_bytes() == CRONTAB_GON.encode()
+
+
+def _vigia_en_bloque_orbit(texto: str) -> bool:
+    linea = LINEAS_VIGIA.splitlines()[1]
+    bloque = texto.split("# === Orbit (", 1)[1].split("\n# === ", 1)[0]
+    return texto.count(linea + "\n") == 1 and linea in bloque
+
+
+def test_jev_vigia_fuera_del_bloque_se_mueve_sin_tocar_lo_demas(tmp_path):
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin/crontab").write_text(CRONTAB, encoding="utf-8", newline="\n")
+    (tmp_path / "bin/crontab").chmod(0o755)
+    crontab = tmp_path / "crontab"
+    reputacion = "0 9 * * * docker exec orbit-app-1 python -m app.cli reputacion alertas\n"
+    fuera = CRONTAB_GON.replace(reputacion, reputacion + LINEAS_VIGIA, 1)
+    crontab.write_bytes(fuera.encode())
+
+    assert _cron_vigia(tmp_path, "presente").returncode == 0
+    assert _cron_vigia(tmp_path, "revisa").returncode == 1
+    r = _cron_vigia(tmp_path, "instala")
+    assert (r.returncode, r.stdout) == (0, "movida\n"), r.stderr
+    assert (
+        crontab.read_bytes()
+        == CRONTAB_GON.replace("--aplicar\n", "--aplicar\n" + LINEAS_VIGIA, 1).encode()
+    )
+    assert _cron_vigia(tmp_path, "revisa").returncode == 0
+
+
+def test_jev_vigia_reinstalar_el_bloque_y_desplegar_otra_vez_no_borra_el_vigia(s):
+    """Hallazgo h_62d4909e: el instalador del bloque de docs/DEPLOY.md deja el vigia fuera del
+    bloque; el siguiente despliegue no debe anotarlo como propio ni borrarlo al revertir."""
+    from test_ingesta_cron import _deploy, _reinstala
+
+    crontab = s.ctl / "crontab"
+    crontab.write_bytes(CRONTAB_GON.encode())
+    assert s.motor("ConVigia") == "ok"
+    crontab.write_text(_reinstala(_deploy(), crontab.read_text()))
+    assert "app.cli jev-vigia" in crontab.read_text()
+    assert not _vigia_en_bloque_orbit(crontab.read_text())
+
+    assert s.motor("ConVigia2") == "ok"
+    assert "CRON=jev-vigia" not in s.ultimo()
+    assert _vigia_en_bloque_orbit(crontab.read_text())
+
+    assert s.rollback("ConVigia2").returncode == 1
+    assert s.estado_diario() == "revertido"
+    assert _vigia_en_bloque_orbit(crontab.read_text())

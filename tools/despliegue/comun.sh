@@ -161,7 +161,7 @@ sonda() {
   esac
 }
 
-# cron_vigia <instala|quita|revisa>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
+# cron_vigia <instala|quita|revisa|presente>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
 cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archive bash -s -- $1"; }
 
 salud() { srv "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/health" 2>/dev/null || true; }

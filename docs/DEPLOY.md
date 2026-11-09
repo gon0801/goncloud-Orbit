@@ -84,10 +84,11 @@ comprobada por md5 antes de renombrar el `.parcial`); (4) migraciones de la
 receta; (5) código del SHA por `git archive`, md5 contra el SHA, `docker compose
 -p orbit --project-directory $SRV -f $SRV/docker-compose.yml up -d
 --no-deps --build app`, `/health` 200 y `$SRV/despliegue/sha`; (5b) si el
-SHA trae `tools/despliegue/cron_jev_vigia.sh` y la línea `jev-vigia` falta del
-bloque Orbit del crontab de `gon`, anota `CRON=jev-vigia` y corre `instala`
-(respalda el crontab en `$SRV/archive/` y agrega solo esa línea con su
-`job_key`); (6) interruptores. Con ese archivo en el SHA, `checklist.sh` falla
+SHA trae `tools/despliegue/cron_jev_vigia.sh` y la línea `jev-vigia` no está
+una sola vez dentro del bloque Orbit del crontab de `gon`, corre `instala`
+(respalda el crontab en `$SRV/archive/` y agrega esa línea con su `job_key`, o
+la mueve al bloque si estaba fuera); anota `CRON=jev-vigia` antes, y solo si la
+línea no existía en ninguna parte, así la reversa no borra una línea previa; (6) interruptores. Con ese archivo en el SHA, `checklist.sh` falla
 si la línea efectiva no está una sola vez dentro del bloque. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
 el candado y las guardas.
 
@@ -1189,6 +1190,11 @@ CRON
 crontab -u gon -l
 SCRIPT
 ```
+
+Si el crontab ya traía la línea del vigía (`app.cli jev-vigia`), este bloque la
+deja fuera del bloque Orbit. Para devolverla, desde un checkout del repo:
+`git show origin/master:tools/despliegue/cron_jev_vigia.sh | ssh goncloud 'bash -s -- instala'`
+(imprime `movida`); si no, la mueve `desplegar.sh` en el siguiente despliegue.
 
 Diff obligatorio contra el respaldo: las líneas de accounting deben
 seguir byte-iguales. Solo aparecen las siete líneas del bloque Orbit y sus comentarios.

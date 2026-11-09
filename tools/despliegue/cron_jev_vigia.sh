@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Linea de cron del vigia de Jev (CLARIDAD 01 B.5/B.7) en el crontab de gon.
-# Uso en goncloud: bash cron_jev_vigia.sh instala|quita|revisa
+# Uso en goncloud: bash cron_jev_vigia.sh instala|quita|revisa|presente
 # Desde otra maquina: git show <sha>:tools/despliegue/cron_jev_vigia.sh | ssh goncloud 'bash -s -- instala'
 #
-# instala: agrega la linea (con su job_key) dentro del bloque "# === Orbit (", despues de la de
-# jev-senales; sin esa, al final del bloque. quita: borra solo esas dos lineas. Las dos respaldan
-# el crontab en ORBIT_CRON_ARCHIVO antes de escribirlo, no tocan ninguna otra linea y son
-# idempotentes: si no hay nada que cambiar, no escriben. Imprimen "agregada", "quitada" o
-# "sin cambios". revisa sale 0 si la linea efectiva esta una sola vez dentro del bloque.
+# instala: deja la linea (con su job_key) una sola vez dentro del bloque "# === Orbit (", despues
+# de la de jev-senales; sin esa, al final del bloque. Si ya estaba fuera del bloque o repetida (el
+# instalador del bloque de docs/DEPLOY.md la deja fuera al reescribirlo), la mueve. quita: borra
+# solo esas dos lineas. Las dos respaldan el crontab en ORBIT_CRON_ARCHIVO antes de escribirlo, no
+# tocan ninguna otra linea y son idempotentes: si no hay nada que cambiar, no escriben. Imprimen
+# "agregada", "movida", "quitada" o "sin cambios". revisa sale 0 si la linea efectiva esta una
+# sola vez dentro del bloque; presente, si esta en cualquier parte del crontab.
 set -euo pipefail
 
 ARCHIVO=${ORBIT_CRON_ARCHIVO:-/mnt/data/appdata/orbit/archive}
@@ -17,8 +19,8 @@ LINEA='0 11 * * * /usr/local/bin/cron-avisa --nombre "Vigía de JEV" --cada 24 -
 
 ACCION=${1:-}
 case "$ACCION" in
-  instala | quita | revisa) ;;
-  *) echo "uso: bash cron_jev_vigia.sh instala|quita|revisa" >&2; exit 2 ;;
+  instala | quita | revisa | presente) ;;
+  *) echo "uso: bash cron_jev_vigia.sh instala|quita|revisa|presente" >&2; exit 2 ;;
 esac
 
 ACTUAL=$(mktemp)
@@ -46,15 +48,18 @@ case "$ACCION" in
     if [ "$n" = 1 ]; then echo "linea jev-vigia en el bloque Orbit"; exit 0; fi
     echo "linea jev-vigia en el bloque Orbit: $n veces (se espera 1)" >&2
     exit 1 ;;
+  presente)
+    grep -qxF -- "$LINEA" "$ACTUAL" ;;
   instala)
-    if grep -qxF -- "$LINEA" "$ACTUAL"; then
-      [ "$(en_bloque)" = 1 ] || { echo "la linea jev-vigia esta fuera del bloque Orbit o repetida; no la muevo" >&2; exit 1; }
+    ANTES=$(grep -cxF -- "$LINEA" "$ACTUAL" || true)
+    if [ "$ANTES" = 1 ] && [ "$(en_bloque)" = 1 ]; then
       echo "sin cambios"
       exit 0
     fi
     grep -q '^# === Orbit (' "$ACTUAL" || { echo "no encuentro el bloque '# === Orbit (' en el crontab de $USUARIO" >&2; exit 1; }
     awk -v job="$JOB_KEY" -v linea="$LINEA" '
       function pon() { print job; print linea; puesta = 1 }
+      $0 == job || $0 == linea { next }
       /^# === / {
         if (dentro && !puesta) pon()
         dentro = ($0 ~ /^# === Orbit \(/)
@@ -63,7 +68,7 @@ case "$ACCION" in
       dentro && !puesta && /app\.cli jev-senales/ && !/^#/ { pon() }
       END { if (dentro && !puesta) pon() }' "$ACTUAL" > "$NUEVO"
     escribe
-    echo "agregada" ;;
+    if [ "$ANTES" = 0 ]; then echo "agregada"; else echo "movida"; fi ;;
   quita)
     if ! grep -qxF -- "$LINEA" "$ACTUAL" && ! grep -qxF -- "$JOB_KEY" "$ACTUAL"; then
       echo "sin cambios"

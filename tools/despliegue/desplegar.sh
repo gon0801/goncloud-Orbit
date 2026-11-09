@@ -53,7 +53,7 @@ ensayo() {
   done
   [ -n "$CAMBIADAS" ] || echo "claves: ninguna cambia"
   if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
-    cron_vigia revisa 2>&1 || echo "desplegar instalaria la linea jev-vigia"
+    cron_vigia revisa 2>&1 || echo "desplegar instalaria (o moveria al bloque) la linea jev-vigia"
   fi
 }
 
@@ -195,8 +195,12 @@ if ! git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
 elif cron_vigia revisa; then
   echo "la linea ya estaba"
 else
+  # CRON= solo si la linea no existia: la reversa quita lo que agrego esta corrida, no una
+  # linea previa que el instalador del bloque de docs/DEPLOY.md dejo fuera y aqui se mueve.
   sigue_candado
-  printf '%s\n' "$(lee_ultimo)" | grep -qx 'CRON=jev-vigia' || anota CRON=jev-vigia
+  if ! cron_vigia presente && ! printf '%s\n' "$(lee_ultimo)" | grep -qx 'CRON=jev-vigia'; then
+    anota CRON=jev-vigia
+  fi
   cron_vigia instala
 fi
 
