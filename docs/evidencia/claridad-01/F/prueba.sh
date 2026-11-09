@@ -4,8 +4,11 @@
 # 1. El cron de root corre /mnt/data/appdata/orbit/refresh_estimacion.sh: debe ser el desplegado
 #    (igual a tools/ del servidor) y esperar a que termine amazon-prices-sync antes de copiar.
 # 2. La unidad que espera existe en el servidor (un nombre mal escrito se leeria como inactive).
-# 3. La ingesta desplegada en orbit-app-1 trae el aviso de plataforma sin oferta fresca.
-# Sale 0 solo si las tres se cumplen.
+# 3. La ingesta desplegada en orbit-app-1 sale 1 y nombra amazon_us con la copia de las 12:45 del
+#    9-nov (US de las 06:36) y sale 0 con US fresca (salida_ingesta.py, por stdin: no escribe nada).
+# 4. Esa salida llega al aviso: el cron de root corre el script dentro de cron-avisa y el script
+#    sale con el codigo de la ingesta.
+# Sale 0 solo si las cuatro se cumplen.
 set -uo pipefail
 S="ssh -o ConnectTimeout=20 -o BatchMode=yes goncloud"
 SRV=/mnt/data/appdata/orbit
@@ -26,10 +29,17 @@ else
   falla "amazon-prices-sync.service LoadState='$carga'"
 fi
 
-if $S "docker exec orbit-app-1 python -c 'from app.estimacion_ingest import plataformas_sin_oferta_fresca'" 2>/dev/null; then
-  echo "OK    la ingesta desplegada sale 1 si una plataforma Amazon queda sin oferta fresca"
+if salida=$($S "docker exec -i orbit-app-1 python -" < "$(dirname "$0")/salida_ingesta.py" 2>&1); then
+  echo "OK    la ingesta desplegada sale 1 con US de las 06:36 y 0 con US fresca"
 else
-  falla "la ingesta desplegada no trae plataformas_sin_oferta_fresca"
+  falla "la ingesta desplegada no distingue la copia vieja de la fresca: $(printf '%s' "$salida" | tail -n 3 | tr '\n' ' ')"
+fi
+
+if $S "crontab -l | grep -F $SRV/refresh_estimacion.sh | grep -qF /usr/local/bin/cron-avisa \
+    && grep -qF '|| sal=\$?' $SRV/refresh_estimacion.sh && grep -qxF 'exit \$sal' $SRV/refresh_estimacion.sh"; then
+  echo "OK    el cron de root corre el script dentro de cron-avisa y el script sale con el codigo de la ingesta"
+else
+  falla "la salida 1 de la ingesta no llega a cron-avisa (cron sin cron-avisa o script que no propaga el codigo)"
 fi
 
 [ "$fallas" -eq 0 ] && echo "== F en produccion" || echo "== F falta en produccion: $fallas falla(s)"
