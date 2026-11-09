@@ -19,12 +19,15 @@ Con `--navegador` lee la pantalla despues de correr JavaScript, con
 from __future__ import annotations
 
 import argparse
+import contextlib
 import http.client
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -165,42 +168,47 @@ def rutas_del_menu(base_html: Path = BASE_HTML) -> list[str]:
     return list(dict.fromkeys(rutas))
 
 
-def _queda(limite: float) -> float:
-    queda = limite - time.monotonic()
-    if queda <= 0:
-        raise TimeoutError
-    return queda
-
-
 def _pedir(base: str, ruta: str) -> tuple[str | None, str | None]:
     """HTML de la ruta, o el motivo por el que cuenta como `ruta_falla`.
 
-    Usa http.client y no urllib para no seguir redirecciones (un 302 es una
-    falla de la ruta pedida) y para que el tope cubra la descarga entera: cada
-    lectura espera a lo sumo lo que queda del tope.
+    Usa http.client y no urllib para no seguir redirecciones: un 302 es una
+    falla de la ruta pedida. El timeout del socket solo mide silencios, asi que
+    un reloj cierra el socket al vencer el tope aunque sigan llegando bytes, en
+    las cabeceras o en el cuerpo. Una respuesta mas corta que su Content-Length
+    tambien es falla.
     """
     limite = time.monotonic() + TOPE_RUTA_S
     url = urllib.parse.urlsplit(base + ruta)
     clase = http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
     conexion = clase(url.netloc, timeout=TOPE_RUTA_S)
-    trozos: list[bytes] = []
+    vencido = threading.Event()
+    reloj = None
     try:
-        conexion.request("GET", url.path + (f"?{url.query}" if url.query else ""))
+        conexion.connect()
         sock = conexion.sock
-        sock.settimeout(_queda(limite))
+
+        def cortar() -> None:
+            vencido.set()
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+
+        reloj = threading.Timer(max(0.0, limite - time.monotonic()), cortar)
+        reloj.start()
+        conexion.request("GET", url.path + (f"?{url.query}" if url.query else ""))
         r = conexion.getresponse()
         if r.status != 200:
             return None, f"HTTP {r.status}"
-        while not r.isclosed():
-            sock.settimeout(_queda(limite))
-            trozos.append(r.read1(65536))
-    except TimeoutError:
-        return None, f"no termino en el tope de {TOPE_RUTA_S} s"
+        cuerpo = r.read()
     except (http.client.HTTPException, OSError) as e:
-        return None, f"sin respuesta: {e}"
+        if not vencido.is_set():
+            return None, f"sin respuesta: {e!r}"
     finally:
+        if reloj:
+            reloj.cancel()
         conexion.close()
-    return b"".join(trozos).decode("utf-8", "replace"), None
+    if vencido.is_set():
+        return None, f"no termino en el tope de {TOPE_RUTA_S} s"
+    return cuerpo.decode("utf-8", "replace"), None
 
 
 class _Navegador:
