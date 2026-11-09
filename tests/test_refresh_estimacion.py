@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = "/mnt/data/appdata/bridge/data/bridge.db"
 
@@ -50,6 +52,10 @@ os.execv({py!r}, [{py!r}, *args])
 
 SIEMPRE_CORRIENDO = """#!/usr/bin/env bash
 echo activating
+"""
+
+SIN_ESTADO = """#!/usr/bin/env bash
+exit 1
 """
 
 
@@ -104,9 +110,13 @@ def test_claridad_f_copia_del_bridge_antes_de_que_termine_el_sync(tmp_path):
     assert "ingest estimacion --sqlite" in (tmp_path / "docker.log").read_text()
 
 
-def test_claridad_f_bridge_que_no_termina_avisa(tmp_path):
-    r = _corre(tmp_path, SIEMPRE_CORRIENDO)
+@pytest.mark.parametrize(
+    ("systemctl", "causa"),
+    [(SIEMPRE_CORRIENDO, "sigue corriendo tras 20 min"), (SIN_ESTADO, "sin estado legible")],
+)
+def test_claridad_f_bridge_sin_terminar_avisa(tmp_path, systemctl, causa):
+    r = _corre(tmp_path, systemctl)
 
     assert "ingest estimacion --sqlite" in (tmp_path / "docker.log").read_text()
-    assert r.returncode != 0, "el bridge no termino y el script salio 0: cron-avisa no avisa"
-    assert "sigue corriendo tras 20 min" in r.stdout
+    assert r.returncode != 0, f"{causa} y el script salio 0: cron-avisa no avisa"
+    assert causa in r.stdout

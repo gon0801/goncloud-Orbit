@@ -2,7 +2,8 @@
 # CLARIDAD 01 F: prueba real, en produccion y solo lectura, de lo que el arreglo cambia el mismo dia
 # del despliegue. La decision de precios de US es una al dia (13:10 UTC); esto no la espera.
 # 1. El cron de root corre /mnt/data/appdata/orbit/refresh_estimacion.sh: debe ser el desplegado
-#    (igual a tools/ del servidor) y esperar a que termine amazon-prices-sync antes de copiar.
+#    (igual a tools/ del servidor), esperar hasta 20 min a que termine amazon-prices-sync antes de
+#    copiar y salir 1 si no termina o no se lee su estado.
 # 2. La unidad que espera existe en el servidor (un nombre mal escrito se leeria como inactive).
 # 3. La ingesta desplegada en orbit-app-1 sale 1 y nombra amazon_us con la oferta de US de las 06:36
 #    que traia la copia de las 12:45 del 9-nov (6 h 09 min a las 12:45; la sonda la siembra con
@@ -19,6 +20,8 @@ fallas=0
 falla() { echo "FALLA $*"; fallas=$((fallas + 1)); }
 
 if $S "grep -q 'ActiveState --value amazon-prices-sync.service' $SRV/refresh_estimacion.sh \
+    && grep -qF 'sigue corriendo tras 20 min' $SRV/refresh_estimacion.sh \
+    && grep -qF 'sin estado legible' $SRV/refresh_estimacion.sh \
     && cmp -s $SRV/refresh_estimacion.sh $SRV/tools/refresh_estimacion.sh"; then
   echo "OK    $SRV/refresh_estimacion.sh es el desplegado y espera a amazon-prices-sync"
 else

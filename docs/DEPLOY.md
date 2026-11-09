@@ -442,7 +442,9 @@ bridge (`amazon-prices-sync.timer`, :35), con snapshot único por corrida. Antes
 espera hasta 20 min a que `amazon-prices-sync.service` deje de estar `activating`
 (CLARIDAD 01 F: a las 12:35 Estados Unidos terminaba entre 12:45:38 y 12:51:45 y la copia
 de las 12:45 salía sin US; el motor de precios de las 13:10 no evaluaba ninguna
-publicación de US). La ingesta sale 1 y nombra la plataforma si una plataforma Amazon con
+publicación de US). Si a los 20 min sigue `activating`, o su estado no se puede leer, copia
+lo que hay y sale 1 con la causa en `estimacion.log` («sigue corriendo tras 20 min» o «sin
+estado legible»). La ingesta sale 1 y nombra la plataforma si una plataforma Amazon con
 listings queda sin oferta fresca (más de 6 h) en la copia; cron-avisa avisa por Telegram.
 Copia desplegada: `/mnt/data/appdata/orbit/refresh_estimacion.sh`, que instala
 `tools/despliegue/desplegar.sh` desde `tools/refresh_estimacion.sh`.
