@@ -431,13 +431,25 @@ alias `/propuestas`, misma vista) y agrupa por direccion:
 
 - **Crecen** (harvest): etiqueta «Capturar termino que vende» + indicador
   de ordenes e ingreso de la ventana (de `decision.inputs->'termino'`).
-- **Recortan** (pause/negative): «Apagar palabra» / «Bloquear busqueda».
-- Cada fila dice «se aplica solo el <vence_el>»; el boton dice
-  **Rechazar** y la confirmacion nombra el efecto de esa fila + declara
-  que no se puede deshacer y hasta cuando bloquea. Sin boton aprobar
-  (no actuar ya es aprobar). El endpoint `GET /api/dashboard/cortes`
-  expone por item `etiqueta`, `direccion`, `efecto_rechazo` e
-  `indicador` (regla 22: la UI consume, no reimplementa).
+- **Recortan** (pause/negative): «Bloquear busqueda» para negative; la
+  pausa se nombra por la entidad (CLARIDAD 01 C.4): keyword «Apagar
+  palabra», product_target «Apagar segmentación de producto», product_ad
+  «Pausar anuncio del producto», cada una con su efecto de rechazo.
+- Cada fila real (`modo` `live`) dice «se aplica solo el <vence_el>». Una
+  de práctica (`modo` `shadow`) lleva el chip «Práctica» y dice «No se
+  aplica: es práctica»: nunca vence ni se aplica (trigger de 0002). El
+  boton dice **Rechazar** y la confirmacion nombra el efecto de esa fila
+  (en una de práctica, que no se aplica aunque no la rechace pero que el
+  rechazo sí bloquea de verdad, porque `_SQL_CLAVES_BLOQUEADAS` no filtra
+  por modo) + declara que no se puede deshacer y que bloquea durante los
+  días elegidos, contados desde hoy. Tras rechazar, `cortes.js` muestra
+  «Rechazado hasta el <fecha> (hora del centro de México)». Sin boton
+  aprobar (no actuar ya es aprobar en las reales). El endpoint
+  `GET /api/dashboard/cortes` expone por item `modo`, `etiqueta`,
+  `direccion`, `efecto_rechazo` e `indicador` (regla 22: la UI consume,
+  no reimplementa).
+- El contador del menú y de la barra del celular (`shell.js`) cuenta solo
+  los items `live`; su `aria-label` dice «N pendientes (M de práctica)».
 - FABRICA 02 (A.6): cada item harvest trae `destino` (el congelado de
   `decision.inputs.goal.harvest`, con `motivo_es`) y, si se resolvió por
   grupo, `hermanas` (las campañas del grupo donde se negará el término,
