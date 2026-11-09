@@ -193,6 +193,7 @@ class MercadoMeli:
     clave: str
     moneda: str
     grupo_tasa = "meli"
+    filtra_catalogo = False
 
     def __init__(
         self,

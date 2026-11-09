@@ -21,6 +21,7 @@ from contextlib import nullcontext as _nullcontext
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -148,12 +149,34 @@ def _producto(conn, sku="SKU-A5-1") -> int:
     ).fetchone()[0]
 
 
-def _listing(conn, producto: int, *, platform="amazon_mx", ext="B0A5000001", sku="SKU-A5") -> int:
-    return conn.execute(
+def _listing(
+    conn,
+    producto: int,
+    *,
+    platform="amazon_mx",
+    ext="B0A5000001",
+    sku="SKU-A5",
+    a_la_venta=True,
+) -> int:
+    """En Amazon, `a_la_venta` siembra una observacion BUYABLE vieja (E.2:
+    la corrida solo decide sobre el catalogo activo); una mas reciente la
+    pisa."""
+    lid = conn.execute(
         "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
         " VALUES (%s, %s, %s, %s) RETURNING id",
         (producto, platform, ext, sku),
     ).fetchone()[0]
+    if a_la_venta and platform.startswith("amazon_"):
+        _estado_obs(conn, sku, platform=platform, status="BUYABLE", observed="2026-01-01T00:00Z")
+    return lid
+
+
+def _estado_obs(conn, sku: str, *, platform="amazon_mx", status: str, observed=None) -> None:
+    conn.execute(
+        "INSERT INTO spapi_listing_estado_observation (seller_sku, platform, status,"
+        " api_version, observed_at) VALUES (%s, %s, %s, 'v1', COALESCE(%s, now()))",
+        (sku, platform, status, observed),
+    )
 
 
 def _goal(
@@ -1147,9 +1170,9 @@ def test_compuerta_corre_una_vez_por_plataforma(monkeypatch):
         llamadas = []
         real = corrida_mod._medir_compuerta
 
-        def _espia(conn_e, plataforma, hoy, config, corrida_id):
-            llamadas.append(plataforma)
-            return real(conn_e, plataforma, hoy, config, corrida_id)
+        def _espia(conn_e, mercado, hoy, config, corrida_id):
+            llamadas.append(mercado.clave)
+            return real(conn_e, mercado, hoy, config, corrida_id)
 
         monkeypatch.setattr(corrida_mod, "_medir_compuerta", _espia)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
@@ -1756,7 +1779,8 @@ def test_relanzar_despues_de_morir_en_compuerta(monkeypatch):
 
 @_skip_sin_pg
 def test_falla_de_una_publicacion_no_tumba_a_otra():
-    """B.4: sin `seller_sku` en una: la otra aplica y el error va al resumen."""
+    """B.4: sin `seller_sku` en una, la otra aplica. E.2: sin SKU no esta en
+    el catalogo activo (se cruza por SKU): sale `no_a_la_venta`, sin error."""
     with _db() as (conn, _dsn):
         a = _cadena(conn, sku="SKU-F-A", ext="B0A50000FA", mode="live")
         b = _cadena(conn, sku="SKU-F-B", ext="B0A50000FB", mode="live")
@@ -1769,12 +1793,12 @@ def test_falla_de_una_publicacion_no_tumba_a_otra():
         fila_a = conn.execute(
             "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s", (a["listing"],)
         ).fetchone()
-        assert fila_a[0] == "subir"
+        assert fila_a == ("no_evaluado", "no_a_la_venta")
         fila_b = conn.execute(
             "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s", (b["listing"],)
         ).fetchone()
         assert fila_b[0] == "subir"
-        assert len(res.errores) == 1 and f"listing={a['listing']}" in res.errores[0]
+        assert res.errores == ()
         assert red.n_patch == 1
 
 
@@ -3431,6 +3455,65 @@ def test_s1_segunda_corrida_aplica_lo_pendiente():
 
 
 @_skip_sin_pg
+def test_claridad_e_goal_fuera_del_catalogo_no_sube_ni_baja():
+    """E.3 (dinero): goal `live` con oferta de hoy y cuenta que sube, pero la
+    ultima observacion de la publicacion ya no es BUYABLE: la decision es
+    `no_evaluado(no_a_la_venta)`, sin PATCH ni cambio."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        _estado_obs(conn, datos["sku"], status="DISCOVERABLE")
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas, res.errores) == (1, 0, ())
+        assert _decision_unica(conn)[:2] == ("no_evaluado", "no_a_la_venta")
+        assert red.n_patch == 0
+        assert _cuenta_cambios(conn) == 0
+
+
+@_skip_sin_pg
+def test_claridad_e_sku_repetido_a_la_venta_no_sale_no_a_la_venta():
+    """E.2 (dinero, F1 de la revision): el catalogo es uno por SKU. Un
+    segundo listing con el mismo SKU BUYABLE tambien esta a la venta: se
+    decide con sus insumos, nunca `no_a_la_venta`, y el primero sigue
+    aplicando."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        gemelo = _listing(conn, datos["producto"], ext="B0A5000099", a_la_venta=False)
+        _goal(conn, gemelo, mode="live")
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert res.decisiones == 2
+        motivos = dict(conn.execute("SELECT listing_id, motivo FROM precio_decision").fetchall())
+        assert motivos[gemelo] != "no_a_la_venta"
+        assert motivos[datos["listing"]] is None
+        assert red.n_patch == 1
+
+
+@_skip_sin_pg
+def test_claridad_e_pendiente_que_sale_del_catalogo_no_se_aplica():
+    """E.3 (dinero): un `subir` guardado y pendiente cuya publicacion deja de
+    estar a la venta antes de la segunda corrida no llega al aplicador
+    (cero PATCH, cero cambios) ni cuenta en la medicion de la compuerta."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        skus = {datos["evento"]: datos["sku"]}
+        primera = _corre(conn, _RedFalsa(skus=skus, precio_vivo="999.00"))
+        assert (primera.decisiones, primera.escritas) == (1, 0)
+        assert _decision_unica(conn)[0] == "subir"
+        _estado_obs(conn, datos["sku"], status="DISCOVERABLE")
+        red = _RedFalsa(skus=skus)
+        segunda = _corre(conn, red)
+        assert (segunda.decisiones, segunda.escritas, segunda.retenidas) == (0, 0, 0)
+        assert red.n_patch == 0
+        assert _cuenta_cambios(conn) == 0
+        corrida = conn.execute("SELECT max(id) FROM precio_corrida").fetchone()[0]
+        assert _medicion_de(conn, corrida) == []
+
+
+@_skip_sin_pg
 def test_s1_corrida_abre_cierra_y_aborta_la_anterior(monkeypatch):
     """S.1: cada ejecucion abre y cierra su fila de `precio_corrida`; una
     fila `abierta` de una corrida anterior pasa a `abortada`."""
@@ -3925,10 +4008,24 @@ def _medicion_de(conn, corrida):
     ).fetchall()
 
 
+def _catalogo_mx(conn, *, hoy):
+    from app.spapi.precio_mercado import MercadoAmazon
+
+    return MercadoAmazon("amazon_mx").catalogo(conn, hoy=hoy)
+
+
+_MERCADO_MX = SimpleNamespace(clave="amazon_mx", filtra_catalogo=True, catalogo=_catalogo_mx)
+
+
 class _MercadoEstricto:
-    """Cualquier llamada es un fallo: el repaso ocioso no toca al Mercado."""
+    """El repaso ocioso solo lee el catalogo (base, E.2): cualquier otra
+    llamada al Mercado es un fallo."""
 
     clave = "amazon_mx"
+    filtra_catalogo = True
+
+    def catalogo(self, conn, *, hoy):
+        return _catalogo_mx(conn, hoy=hoy)
 
     def __getattr__(self, nombre):
         raise AssertionError(f"el repaso llamo al Mercado: {nombre}")
@@ -3941,6 +4038,7 @@ def test_meli_sin_miembros_registra_faltante_y_termina_la_corrida():
 
     class MercadoSinPrecios:
         clave = "meli"
+        filtra_catalogo = False
 
         def insumos(self, conn, unidades, **kwargs):
             return {
@@ -3991,6 +4089,10 @@ class _MercadoErrorSiempre:
     """Vivo legible, escritura siempre rechazada (Acuse, no excepcion)."""
 
     clave = "amazon_mx"
+    filtra_catalogo = True
+
+    def catalogo(self, conn, *, hoy):
+        return _catalogo_mx(conn, hoy=hoy)
 
     def __init__(self):
         self.escrituras = 0
@@ -4027,8 +4129,6 @@ class _MercadoExcepcionSiempre(_MercadoErrorSiempre):
 def test_s3_80_intenciones_nuevas_retienen_y_no_escriben_nada():
     """S.3: 80 subir nuevas sobre 158 medidas retienen con
     `movimiento_masivo`: 80 retenciones, cero cambios, cero PATCH."""
-    from types import SimpleNamespace
-
     from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
 
     with _db() as (conn, _dsn):
@@ -4042,11 +4142,11 @@ def test_s3_80_intenciones_nuevas_retienen_y_no_escriben_nada():
                 _decision_s3(conn, lid, resultado="mantener", motivo="en_tolerancia", goal_id=gid)
         corrida = _corrida_s3(conn, cfg)
         motor = _motor_de(SETTINGS)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida)
         assert set(veredictos) == {"fba"}
         assert veredictos["fba"].causa == "movimiento_masivo"
         assert _medicion_de(conn, corrida) == [("fba", 158, 80, "movimiento_masivo", None)]
-        mercado = SimpleNamespace(clave="amazon_mx")
+        mercado = _MERCADO_MX
         resultado = _aplicar_pendientes(
             conn,
             mercado,
@@ -4071,8 +4171,6 @@ def test_s3_80_intenciones_nuevas_retienen_y_no_escriben_nada():
 def test_s3_79_intenciones_pasan_y_aplican():
     """S.3: 79 nuevas sobre 158 medidas no retienen (mayor estricto): la
     corrida aplica las 79 en sombra."""
-    from types import SimpleNamespace
-
     from app.precio.compuerta import Abierta
     from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
 
@@ -4087,10 +4185,10 @@ def test_s3_79_intenciones_pasan_y_aplican():
                 _decision_s3(conn, lid, resultado="mantener", motivo="en_tolerancia", goal_id=gid)
         corrida = _corrida_s3(conn, cfg)
         motor = _motor_de(SETTINGS)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida)
         assert veredictos["fba"] == Abierta(medidas=158, nuevas=79)
         assert _medicion_de(conn, corrida) == [("fba", 158, 79, None, None)]
-        mercado = SimpleNamespace(clave="amazon_mx")
+        mercado = _MERCADO_MX
         resultado = _aplicar_pendientes(
             conn,
             mercado,
@@ -4133,7 +4231,7 @@ def test_s3_no_evaluado_no_cuenta_en_las_medidas():
                 con_cuenta=False,
             )
         corrida = _corrida_s3(conn, cfg)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, _motor_de(SETTINGS), corrida)
         assert veredictos["fba"].medidas == 2
         assert _medicion_de(conn, corrida) == [("fba", 2, 2, None, None)]
 
@@ -4154,7 +4252,7 @@ def test_s3_segunda_ola_al_mismo_goal_no_cuenta_como_nueva():
         lid_b, gid_b = _unidad_s3(conn, "ola-b")
         _decision_s3(conn, lid_b, goal_id=gid_b)
         corrida = _corrida_s3(conn, cfg)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, _motor_de(SETTINGS), corrida)
         assert (veredictos["fba"].medidas, veredictos["fba"].nuevas) == (2, 1)
         assert _medicion_de(conn, corrida) == [("fba", 2, 1, None, None)]
 
@@ -4189,7 +4287,7 @@ def test_s3_costo_20_en_60_retiene_nombrando_costo():
                 c="120" if n < 60 else "100",
             )
         corrida = _corrida_s3(conn, cfg)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, _motor_de(SETTINGS), corrida)
         retenida = veredictos["fba"]
         assert (retenida.causa, retenida.insumo) == ("insumo_sistemico", "costo")
         assert (retenida.medidas, retenida.nuevas) == (158, 0)
@@ -4205,8 +4303,6 @@ def test_s3_costo_20_en_60_retiene_nombrando_costo():
 def test_s3_salto_solo_fbm_retiene_fbm_y_deja_pasar_fba():
     """S.3: con FBA y FBM en la plataforma, un salto que solo afecta a FBM
     retiene FBM (`insumo_sistemico`) y aplica FBA."""
-    from types import SimpleNamespace
-
     from app.precio.compuerta import Abierta
     from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
 
@@ -4261,7 +4357,7 @@ def test_s3_salto_solo_fbm_retiene_fbm_y_deja_pasar_fba():
             _decision_s3(conn, lid, goal_id=gid, canal="fbm")
         corrida = _corrida_s3(conn, cfg)
         motor = _motor_de(settings)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida)
         assert set(veredictos) == {"fba", "fbm"}
         assert veredictos["fba"] == Abierta(medidas=7, nuevas=2)
         assert (veredictos["fbm"].causa, veredictos["fbm"].insumo) == (
@@ -4272,7 +4368,7 @@ def test_s3_salto_solo_fbm_retiene_fbm_y_deja_pasar_fba():
             ("fba", 7, 2, None, None),
             ("fbm", 14, 2, "insumo_sistemico", "costo"),
         ]
-        mercado = SimpleNamespace(clave="amazon_mx")
+        mercado = _MERCADO_MX
         resultado = _aplicar_pendientes(
             conn,
             mercado,
@@ -4296,8 +4392,6 @@ def test_s3_salto_solo_fbm_retiene_fbm_y_deja_pasar_fba():
 def test_s3_liberar_aplica_lo_retenido_de_hoy_y_no_lo_de_ayer():
     """S.3: tras `liberar`, la corrida siguiente aplica lo retenido de hoy;
     lo de ayer nunca es pendiente."""
-    from types import SimpleNamespace
-
     from app.precio.compuerta import Abierta
     from app.precio.corrida import _aplicar_pendientes, _medir_compuerta
     from app.precio.liberaciones import liberar
@@ -4314,9 +4408,9 @@ def test_s3_liberar_aplica_lo_retenido_de_hoy_y_no_lo_de_ayer():
         dec_ayer = _decision_s3(conn, lid_viejo, goal_id=gid_viejo, dia=ayer)
         primera = _corrida_s3(conn, cfg)
         motor = _motor_de(settings)
-        retenidos = _medir_compuerta(conn, "amazon_mx", hoy, motor, primera)
+        retenidos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, primera)
         assert retenidos["fba"].causa == "movimiento_masivo"
-        mercado = SimpleNamespace(clave="amazon_mx")
+        mercado = _MERCADO_MX
         momento = datetime.now(UTC)
         assert _aplicar_pendientes(
             conn,
@@ -4333,7 +4427,7 @@ def test_s3_liberar_aplica_lo_retenido_de_hoy_y_no_lo_de_ayer():
         assert (soltada.corrida_id, soltada.actor) == (primera, "dueno")
         assert soltada.liberada_en is not None
         segunda = _corrida_s3(conn, cfg)
-        abiertos = _medir_compuerta(conn, "amazon_mx", hoy, motor, segunda)
+        abiertos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, segunda)
         assert abiertos["fba"] == Abierta(medidas=3, nuevas=0)
         assert _aplicar_pendientes(
             conn,
@@ -4423,7 +4517,7 @@ def test_s3_cinco_errores_seguidos_cortan_con_corte_errores():
             _decision_s3(conn, lid, mode="live", goal_id=gid)
         corrida = _corrida_s3(conn, cfg)
         motor = _motor_de(SETTINGS)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida)
         assert veredictos["fba"] == Abierta(medidas=7, nuevas=7)  # 7 < minimo 10: pasa
         mercado = _MercadoErrorSiempre()
         resultado = _aplicar_pendientes(
@@ -4467,7 +4561,7 @@ def test_s3_cinco_excepciones_seguidas_cortan_la_corrida():
             _decision_s3(conn, lid, mode="live", goal_id=gid)
         corrida = _corrida_s3(conn, cfg)
         motor = _motor_de(SETTINGS)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, motor, corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida)
         assert veredictos["fba"] == Abierta(medidas=7, nuevas=7)  # 7 < minimo 10: pasa
         mercado = _MercadoExcepcionSiempre()
         resultado = _aplicar_pendientes(
@@ -4556,7 +4650,7 @@ def test_s3_fee_variable_del_escenario_retiene_nombrando_insumo():
                     **({"dia": dia} if dia == ayer else {}),
                 )
         corrida = _corrida_s3(conn, cfg)
-        veredictos = _medir_compuerta(conn, "amazon_mx", hoy, _motor_de(SETTINGS), corrida)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, _motor_de(SETTINGS), corrida)
         retenida = veredictos["fba"]
         assert (retenida.causa, retenida.insumo) == ("insumo_sistemico", "fee_variable")
         assert _medicion_de(conn, corrida) == [("fba", 12, 0, "insumo_sistemico", "fee_variable")]

@@ -18,7 +18,12 @@
   {% endif %}
   {% if seg.ultima_corrida %}
   {% set cor = seg.ultima_corrida %}
-  <p class="mutado">Última corrida #{{ cor.corrida_id }} ({{ cor.fecha }}, {{ cor.estado }}): {{ cor.decisiones if cor.decisiones is not none else "—" }} decisiones, {{ cor.retenidas if cor.retenidas is not none else "—" }} retenidas, {{ cor.errores if cor.errores is not none else "—" }} errores</p>
+  <p class="mutado">Última corrida #{{ cor.corrida_id }} ({{ cor.fecha }}, {{ cor.estado }}): {{ cor.decisiones if cor.decisiones is not none else "—" }} decisiones nuevas en esta corrida · {{ cor.decisiones_dia }} en el día · {{ cor.retenidas if cor.retenidas is not none else "—" }} retenidas, {{ cor.errores if cor.errores is not none else "—" }} errores</p>
+  {% if cor.medicion %}
+  <p data-compuerta-medicion>Compuerta del día: {% for m in cor.medicion %}{{ m.canal }} {{ m.medidas }} medidas, {{ m.nuevas }} nuevas{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  {% else %}
+  <p class="mutado" data-compuerta-medicion>Compuerta: sin publicaciones medidas en esta corrida.</p>
+  {% endif %}
   {% else %}
   <p class="mutado">Sin corridas.</p>
   {% endif %}

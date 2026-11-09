@@ -262,6 +262,7 @@ class MercadoAmazon:
     clave: str
     moneda: str
     grupo_tasa = "spapi"
+    filtra_catalogo = True
 
     def __init__(
         self,

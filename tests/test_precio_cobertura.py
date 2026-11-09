@@ -431,7 +431,7 @@ def test_stale_mas_de_max_dias_es_catalogo_desactualizado():
     rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
     assert dict(rec.no_evaluadas) == {"catalogo_desactualizado": 1}
     assert rec.evaluadas == 1
-    assert any("catalogo_desactualizado" in a for a in rec.avisos)
+    assert rec.avisos == ("aviso: 1 publicaciones sin reportar hace mas de 3 dias",)
 
 
 def test_fuera_estructural_antes_que_stale():

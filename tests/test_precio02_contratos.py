@@ -462,6 +462,7 @@ def test_motivos_no_evaluado_es_estimacion_mas_los_propios_del_motor():
         "variante_sin_mapear",
         "fx_desactualizado",
         "cotizacion_de_otro_goal",
+        "no_a_la_venta",
     }
     assert set(MOTIVOS_NO_EVALUADO) == set(MOTIVOS_ESTIMACION) | propios
     assert len(MOTIVOS_NO_EVALUADO) == len(set(MOTIVOS_NO_EVALUADO))

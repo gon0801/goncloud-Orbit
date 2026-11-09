@@ -252,6 +252,21 @@ def validar_freno_dias_error(settings) -> int:
     return _numero_entero(settings, "precio_freno_dias_error", minimo=1, maximo=14)
 
 
+_SQL_LISTINGS_DE_SKUS = "SELECT id FROM listing WHERE platform = %s AND seller_sku = ANY(%s)"
+
+
+def _a_la_venta(conn: psycopg.Connection, mercado, hoy: date) -> frozenset[int] | None:
+    """E.2: `listing_id` cuyo SKU esta en el catalogo activo, o `None` si el
+    mercado no filtra por catalogo (MeLi decide sobre todo goal vigente).
+    El catalogo es uno por SKU: dos listings con el mismo SKU estan los dos
+    a la venta (la unidad del catalogo trae solo uno)."""
+    if not mercado.filtra_catalogo:
+        return None
+    skus = sorted({activa.seller_sku for activa in mercado.catalogo(conn, hoy=hoy)})
+    filas = conn.execute(_SQL_LISTINGS_DE_SKUS, (mercado.clave, skus)).fetchall()
+    return frozenset(fila[0] for fila in filas)
+
+
 def _no_evaluado(goal: Decimal, mode: str, motivo: str, diagnostico: str = "") -> Decision:
     if diagnostico:
         # K6 (r4): el diagnostico puede traer texto de la excepcion.
@@ -765,7 +780,8 @@ def _decidir_pendientes(
     `persistir_decision`. Devuelve `(decisiones, lineas, errores,
     saltadas)`: `saltadas` cuenta las publicaciones sin fila por reedicion
     del goal a media corrida. Lo que este paso deja, `_aplicar_pendientes`
-    lo lee de la base.
+    lo lee de la base. E.2: un goal fuera del catalogo activo sale
+    `no_evaluado(no_a_la_venta)` antes de los frenos y sin pedir insumos.
     """
     platform = mercado.clave
     goals = conn.execute(
@@ -785,6 +801,8 @@ def _decidir_pendientes(
             (platform, hoy),
         ).fetchall()
     }
+    goals = [goal for goal in goals if goal[1] not in decididas]
+    activas = _a_la_venta(conn, mercado, hoy) if goals else None
     decisiones = 0
     saltadas = 0
     lineas: list[str] = []
@@ -792,12 +810,28 @@ def _decidir_pendientes(
     goal_de: dict[int, int] = {}
     lote: list = []
     for gid, lid, plat, mode, goal_pct, vigente_desde, prod_id, ext, sku in goals:
-        if lid in decididas:
-            continue
         goal_de[lid] = gid
         _latir_claim(conn, platform, owner)
         modo_freno = modo_efectivo(modo_global, "live", mode)
         if modo_freno == "off":
+            continue
+        if activas is not None and lid not in activas:
+            persistida, saltada = _persistir_uno(
+                conn,
+                _no_evaluado(Decimal(goal_pct), modo_freno, "no_a_la_venta"),
+                lid=lid,
+                mode=modo_freno,
+                prod_id=prod_id,
+                canal=None,
+                meta=None,
+                platform=platform,
+                goal_id=gid,
+                cfg_id=cfg_id,
+                lineas=lineas,
+                errores=errores,
+            )
+            decisiones += persistida
+            saltadas += saltada
             continue
         if freno_no_confirmado(conn, lid, plat, desde=vigente_desde):
             persistida, saltada = _persistir_uno(
@@ -983,9 +1017,7 @@ def _par_escenario(escenarios, id_hoy, id_previo, valor: int, par: tuple):
     return (antes, ahora)
 
 
-def _medir_compuerta(
-    conn: psycopg.Connection, plataforma: str, hoy: date, motor, corrida_id: int
-) -> dict:
+def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrida_id: int) -> dict:
     """S.3: arma `Intencion` y `Deriva` desde lo PERSISTIDO hoy, evalua UN
     universo por canal y escribe una fila de `precio_compuerta_medicion`
     por universo con medidas > 0. Devuelve `{canal: Veredicto}`.
@@ -993,9 +1025,15 @@ def _medir_compuerta(
     Mide el dia completo, no solo lo decidido en esta corrida: una segunda
     corrida con goals sembrados a media tarde ve el mismo numerador. Miden
     las decisiones de hoy CON cuenta (`m_actual`), shadow y live juntas,
-    con canal conocido (sin canal no hay universo que medir).
+    con canal conocido (sin canal no hay universo que medir). E.2: si el
+    mercado filtra por catalogo, una publicacion que ya no esta a la venta
+    no mide (su decision de hoy tampoco se aplica).
     """
+    plataforma = mercado.clave
     filas = conn.execute(_SQL_MEDIR_HOY, (plataforma, hoy)).fetchall()
+    activas = _a_la_venta(conn, mercado, hoy) if filas else None
+    if activas is not None:
+        filas = [fila for fila in filas if fila[1] in activas]
     if not filas:
         return {}
     por_listing = {fila[1]: fila for fila in filas}
@@ -1085,6 +1123,27 @@ _SQL_PENDIENTE_LIBERADA = (
 )
 
 
+def _modo_releido(conn, platform: str, canal, mode: str) -> str:
+    """Modo efectivo con la config vigente releida; ilegible a media
+    corrida = `off` (fail closed)."""
+    try:
+        fila_cfg = conn.execute(_SQL_SETTINGS_VIGENTE).fetchone()
+        settings = fila_cfg[0] if fila_cfg is not None else None
+        if settings is None:
+            raise ValueError("config sin precio_modo_global: sin config_version")
+        return modo_efectivo(
+            _modo_config(settings, "precio_modo_global"),
+            _modo_universo_config(settings, "precio_modo_universo").get(
+                f"{platform}/{canal}", "off"
+            ),
+            mode,
+        )
+    except psycopg.Error:
+        raise
+    except Exception:  # noqa: BLE001 - config ilegible a media corrida: fail closed
+        return "off"
+
+
 def _retener_por_compuerta(conn, corrida_id, veredictos, liberadas, canal, did) -> bool:
     """Retencion del universo `Retenida` no liberado, con su causa (S.3).
 
@@ -1122,8 +1181,10 @@ def _aplicar_pendientes(
     `corte_errores`; en `shadow`, virtual; en `live`, `cambios.aplicar` y
     el resultado alimenta el `Cortacircuito` (`limite` = `corte`). Devuelve
     `(escritas, virtuales, retenidas, errores)`: `escritas` cuenta cambios
-    reales creados (= PATCH intentados); una publicacion no tumba a las
-    demas (B.4); `EscrituraNoDisponible` deja de aplicar `live` el resto de
+    reales creados (= PATCH intentados); E.2: el catalogo activo se relee
+    antes de cada cambio y lo que ya no esta a la venta no se aplica ni se
+    retiene (queda sin cambio); una publicacion no tumba a las demas
+    (B.4); `EscrituraNoDisponible` deja de aplicar `live` el resto de
     la corrida (fallaria igual en cada una y lo pendiente se reintenta en
     la siguiente); un error de base aborta.
     """
@@ -1171,25 +1232,16 @@ def _aplicar_pendientes(
             logger.error("corrida %s", msg)
             errores.append(msg)
             continue
+        activas = _a_la_venta(conn, mercado, hoy)
+        if activas is not None and lid not in activas:
+            logger.info(
+                "corrida listing=%s %s no_a_la_venta: decision %s sin aplicar", lid, platform, did
+            )
+            continue
         if _retener_por_compuerta(conn, corrida_id, veredictos, liberadas, canal, did):
             retenidas += 1
             continue
-        try:
-            fila_cfg = conn.execute(_SQL_SETTINGS_VIGENTE).fetchone()
-            settings = fila_cfg[0] if fila_cfg is not None else None
-            if settings is None:
-                raise ValueError("config sin precio_modo_global: sin config_version")
-            efectivo = modo_efectivo(
-                _modo_config(settings, "precio_modo_global"),
-                _modo_universo_config(settings, "precio_modo_universo").get(
-                    f"{platform}/{canal}", "off"
-                ),
-                mode,
-            )
-        except psycopg.Error:
-            raise
-        except Exception:  # noqa: BLE001 - config ilegible a media corrida: fail closed
-            efectivo = "off"
+        efectivo = _modo_releido(conn, platform, canal, mode)
         alcanza = efectivo == "live" if mode == "live" else efectivo != "off"
         if not alcanza:
             conn.execute(_SQL_RETENER, (did, corrida_id, "apagador"))
@@ -1363,7 +1415,7 @@ def correr(
                 modo_global=modo_global,
                 modo_universo=modo_universo,
             )
-        veredictos = _medir_compuerta(conn, platform, hoy, motor, corrida_id)
+        veredictos = _medir_compuerta(conn, mercado, hoy, motor, corrida_id)
         escritas, virtuales, retenidas, errores_apl = _aplicar_pendientes(
             conn,
             mercado,

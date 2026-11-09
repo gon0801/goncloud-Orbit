@@ -106,6 +106,9 @@ _MOTIVOS_PROPIOS_DEL_MOTOR = frozenset(
         # REPRICING 02 (S.1): el goal cambio a media tarde y la cotizacion
         # guardada ya no corresponde a esta decision.
         "cotizacion_de_otro_goal",
+        # CLARIDAD 01 E.2: goal sobre una publicacion fuera del catalogo
+        # activo (en Amazon, no BUYABLE): no se piden insumos ni se cotiza.
+        "no_a_la_venta",
     }
 )
 
