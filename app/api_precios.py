@@ -38,8 +38,8 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 #   (precio_cambio pendiente no-reversa) + las listas S7 (`con_goal`,
 #   `acciones`, `no_evaluados_filas`, `divergentes`). `no_evaluados_filas`
 #   sale de las filas del recuadro (cuadra con la Cobertura); las decisiones
-#   `no_a_la_venta` de hoy que la Cobertura en vivo no lista (fuera del
-#   catalogo) van contadas aparte.
+#   `no_a_la_venta` de hoy cuyo SKU no esta en el catalogo en vivo van
+#   contadas aparte.
 # - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
 #   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
 #   decisiones, corrida_ausente}). `cobertura` es la MISMA serializacion
@@ -227,21 +227,23 @@ def _seguridad_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> d
 
 def _recuadro_precio(
     conn: ConexionLectura, plataforma: str, hoy: dt.date
-) -> cobertura_precio.Recuadro:
-    """Recuadro S10 (la ecuacion cuadra: cobertura.cuadra_exact). La clave
-    de dias la lee fuentes.py de la config (este modulo no conoce claves)."""
+) -> tuple[cobertura_precio.Recuadro, frozenset[str]]:
+    """Recuadro S10 (la ecuacion cuadra: cobertura.cuadra_exact) y los SKU
+    del catalogo en vivo con que se armo. La clave de dias la lee fuentes.py
+    de la config (este modulo no conoce claves)."""
     from app import precio_mercados as mercados
 
     settings = fuentes_precio.config_vigente_settings(conn)
     max_dias = fuentes_precio.max_dias_desde_settings(settings)
     with mercados.abrir(plataforma) as vitrina:
         filas = fuentes_precio.leer_publicaciones(conn, vitrina, hoy=hoy)
-    return cobertura_precio.armar_recuadro(
+    rec = cobertura_precio.armar_recuadro(
         filas,
         platform=plataforma,
         max_dias=max_dias,
         universos=fuentes_precio.universos_encendidos(conn),
     )
+    return rec, frozenset(fila.seller_sku for fila in filas)
 
 
 def _cobertura_dict(rec: cobertura_precio.Recuadro) -> dict:
@@ -414,18 +416,18 @@ def _filas_no_evaluados(rec: cobertura_precio.Recuadro) -> list[dict]:
     ]
 
 
-def _no_a_la_venta_fuera(detalle: list[dict], rec: cobertura_precio.Recuadro) -> int:
-    """Decisiones `no_a_la_venta` de hoy cuyo listing no esta en la
-    Cobertura en vivo. Si la publicacion volvio a estar a la venta, la
-    Cobertura ya la lista como no evaluada con ese motivo: no se cuenta dos
-    veces (CLARIDAD 01 E.4)."""
-    en_cobertura = {detalle.listing_id for detalle in rec.no_evaluadas_detalle}
+def _no_a_la_venta_fuera(detalle: list[dict], skus_activas: frozenset[str]) -> int:
+    """Decisiones `no_a_la_venta` de hoy cuyo SKU no esta en el catalogo en
+    vivo. Si la publicacion volvio a estar a la venta, la Cobertura ya la
+    cuenta (no evaluada, sin goal o fuera de alcance si su universo esta
+    apagado): nunca se cuenta dos veces (CLARIDAD 01 E.4). El cruce es por
+    SKU, como el catalogo."""
     return sum(
         1
         for fila in detalle
         if fila["resultado"] == "no_evaluado"
         and fila["motivo"] == "no_a_la_venta"
-        and fila["listing_id"] not in en_cobertura
+        and fila["sku"] not in skus_activas
     )
 
 
@@ -625,7 +627,7 @@ def _bloque_precios(
         for dec_id, cambio in cambios.items()
         if cambio.get("real") is True and cambio.get("estado") in _ESTADOS_PRECIO_MOVIERON
     }
-    rec = _recuadro_precio(conn, plataforma, hoy)
+    rec, skus_activas = _recuadro_precio(conn, plataforma, hoy)
     bloque: dict = {
         "hoy": hoy.isoformat(),
         "decisiones": _decisiones_precio_hoy(conn, plataforma, hoy),
@@ -654,7 +656,7 @@ def _bloque_precios(
         bloque["tacos"] = _tacos_precio(conn, plataforma, hoy)
         bloque["acciones"] = _acciones_precio(detalle, cambios, plataforma)
         bloque["no_evaluados_filas"] = _filas_no_evaluados(rec)
-        bloque["no_a_la_venta"] = _no_a_la_venta_fuera(detalle, rec)
+        bloque["no_a_la_venta"] = _no_a_la_venta_fuera(detalle, skus_activas)
         bloque["divergentes"] = _divergentes_precio(conn, plataforma, hoy, umbral)
         bloque["divergentes_umbral"] = umbral
     return bloque

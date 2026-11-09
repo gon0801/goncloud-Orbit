@@ -1846,8 +1846,9 @@ def test_r1b_b1_no_evaluados_filas_cuadran_con_la_cobertura():
     Cobertura (una por SKU, motivo en palabras): su largo es la suma de
     `no_evaluadas` y los motivos coinciden. La decision `no_a_la_venta` de un
     listing fuera del catalogo no entra en la lista: va contada aparte. Si
-    el listing volvio a estar a la venta, va en la lista y no se cuenta
-    aparte (F3 de la revision: nunca dos veces)."""
+    el listing volvio a estar a la venta, va en la lista (o fuera de alcance
+    con su universo apagado) y no se cuenta aparte (F3 y h_33c4260b de la
+    revision: nunca dos veces)."""
     with _db_temp() as conn:
         _config_pantalla(conn)
         prod = _producto(conn)
@@ -1874,6 +1875,11 @@ def test_r1b_b1_no_evaluados_filas_cuadran_con_la_cobertura():
         _oferta_pantalla(conn, volvio, sku="SKU-B1-6", ext="B0B100006")
         _goal(conn, volvio)
         _decision(conn, volvio, motivo="no_a_la_venta")
+        apagada = _listing(conn, prod, sku="SKU-B1-7", ext="B0B100007")
+        _estado_pantalla(conn, sku="SKU-B1-7")
+        _oferta_pantalla(conn, apagada, sku="SKU-B1-7", ext="B0B100007", canal="fbm")
+        _goal(conn, apagada)
+        _decision(conn, apagada, motivo="no_a_la_venta")
         bloque = dash.precios(conn)["plataformas"]["amazon_mx"]
         filas = {f["sku"]: f for f in bloque["no_evaluados_filas"]}
         assert filas == {
@@ -1900,6 +1906,7 @@ def test_r1b_b1_no_evaluados_filas_cuadran_con_la_cobertura():
             {"motivo": "sin_decision", "count": 1},
             {"motivo": "ventas_sin_dato:historia_corta", "count": 1},
         ]
+        assert bloque["cobertura"]["fuera_de_alcance"] == [{"fase": "universo_apagado", "count": 1}]
         assert bloque["no_a_la_venta"] == 1
 
 
