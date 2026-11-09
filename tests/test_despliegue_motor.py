@@ -75,7 +75,8 @@ case "$*" in
   *"echo CANDADO"*)
     if [ -f "$ORBIT_FAKE_CTL/candado_setsid" ]; then
       echo $$ > "$ORBIT_FAKE_CTL/candado.pid"
-      exec setsid bash -c "$*"
+      # setsid no existe en macOS; os.setsid hace lo mismo en Linux y en la Mac.
+      exec python3 -c 'import os,sys;os.setsid();os.execvp("bash",["bash","-c",sys.argv[1]])' "$*"
     fi ;;
 esac
 exec bash -c "$*"

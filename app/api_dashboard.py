@@ -231,16 +231,26 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     ),
     bid.MOTIVO_PAUSE_ECONOMICA: "Pausa economica: venta cara sobre 3x del target",
     # BIDS 02 M.3: motivos de niveles_v3 (los que emiten Mover y Regresar).
-    politica.MOTIVO_REGRESO_DESPLOME: "Regreso: el bid nuevo desplomo el trafico",
-    politica.MOTIVO_PIERDE_DINERO: "ACoS sobre el equilibrio: -12%",
-    politica.MOTIVO_PIERDE_DINERO_FUERTE: "ACoS sobre el equilibrio con fuerza: -25%",
-    politica.MOTIVO_GRUPO_SANGRA_VENDEDORA: "La hoja vende pero su grupo sangra: -12%",
-    politica.MOTIVO_BAJO_TARGET: "ACoS bajo el target: +15%",
-    politica.MOTIVO_GASTO_SIN_VENTA: "Gasto sin venta al concluir: -12%",
-    politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: "Gasto sin venta al doble de concluir: -25%",
-    politica.MOTIVO_GRUPO_SANGRA: "El grupo sangra y la hoja no vende: -12%",
+    politica.MOTIVO_REGRESO_DESPLOME: (
+        "{que} regresó a su puja anterior: la nueva hizo caer sus visitas"
+    ),
+    politica.MOTIVO_PIERDE_DINERO: "{que} pierde dinero: baja su puja 12 %",
+    politica.MOTIVO_PIERDE_DINERO_FUERTE: "{que} pierde mucho dinero: baja su puja 25 %",
+    politica.MOTIVO_GRUPO_SANGRA_VENDEDORA: (
+        "{que} vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %"
+    ),
+    politica.MOTIVO_BAJO_TARGET: "{que} tiene el ACoS por debajo de la meta: sube su puja 15 %",
+    politica.MOTIVO_GASTO_SIN_VENTA: (
+        "{que} ya gastó lo necesario para decidir y no vendió: baja su puja 12 %"
+    ),
+    politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: (
+        "{que} gastó el doble de lo necesario para decidir y no vendió: baja su puja 25 %"
+    ),
+    politica.MOTIVO_GRUPO_SANGRA: (
+        "{que} no vende y su grupo de anuncios pierde dinero: baja su puja 12 %"
+    ),
     politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
-        "Subida frenada: el trafico adicional no compenso el gasto"
+        "{que}: subida de puja frenada, las visitas de más no pagaron el gasto extra"
     ),
 }
 
@@ -302,7 +312,7 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Recorte frenado por costo de trafico",
     politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida frenada: sin trafico para medirla",
     politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
-        "Subida frenada: el trafico adicional no compenso el gasto"
+        "{que}: subida de puja frenada, las visitas de más no pagaron el gasto extra"
     ),
     politica.MOTIVO_PISO_APRENDIDO: "El recorte tocaria un bid que ya dano: sin ajuste",
     politica.MOTIVO_DATO_FALTANTE: "Dato faltante: sin ajuste",
@@ -368,6 +378,23 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
         "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
     ),
 }
+
+
+# Sujeto de los motivos con {que}: la persona tiene que saber qué vende o pierde dinero.
+SUJETO_POR_ENTIDAD: dict[str, str] = {
+    "keyword": "La keyword",
+    "product_target": "El producto objetivo",
+    "product_ad": "El anuncio del producto",
+    "ad_group": "El grupo de anuncios",
+    "campaign": "La campaña",
+}
+
+
+def motivo_decision_es(motivo: str | None, entidad_kind: str | None) -> str | None:
+    if motivo is None:
+        return None
+    texto = MOTIVOS_ES_DECISIONES.get(motivo, MOTIVOS_ES_SALUD.get(motivo, motivo))
+    return texto.replace("{que}", SUJETO_POR_ENTIDAD.get(entidad_kind or "", "Este elemento"))
 
 
 def motivo_es(motivo: str | None) -> str | None:
@@ -939,13 +966,7 @@ def _fila_decision(fila) -> dict:
         evidencia_v2 = {
             "kind": veredicto.get("kind"),
             "motivo": motivo_mostrado,
-            "motivo_es": (
-                MOTIVOS_ES_DECISIONES.get(
-                    motivo_mostrado, MOTIVOS_ES_SALUD.get(motivo_mostrado, motivo_mostrado)
-                )
-                if motivo_mostrado is not None
-                else None
-            ),
+            "motivo_es": motivo_decision_es(motivo_mostrado, fila[12]),
             "factor": veredicto.get("factor"),
             "new_value": veredicto.get("new_value"),
             "mantiene": (
@@ -981,7 +1002,7 @@ def _fila_decision(fila) -> dict:
         "new_value": _dec_str(fila[9]),
         "value_currency": fila[10],
         "target_acos_pct_usado": inputs.get("target_acos_pct_usado"),
-        "motivo_es": MOTIVOS_ES_DECISIONES.get(motivo, motivo) if motivo is not None else None,
+        "motivo_es": motivo_decision_es(motivo, fila[12]),
         "harvest_job": harvest_job,
         "evidencia_v2": evidencia_v2,
     }

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from conftest import ahora_db
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
@@ -1370,19 +1371,28 @@ def _juicio_simple(termino, ficha, relacion="satisface"):
 NOW_FABRICA = dt.datetime(2026, 10, 4, tzinfo=dt.UTC)
 
 
-def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(escenario, tmp_path):
+def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(
+    escenario, tmp_path, monkeypatch
+):
     """R2 y bloqueante de codex en B10: el CLI no confia en un export editado.
     Recibe la MISMA solicitud del preview, calcula el export por el camino del
     endpoint y la asesoria queda en la huella del plan; una solicitud que no
     valida sale 2 sin escribir."""
+    import functools
     import uuid as _uuid
     from decimal import Decimal
 
+    import tools.jev_ads as tool_jev
     from app.jev_ads import ClavePar, Juicio
+    from app.jev_asesor import AsesorAds
     from app.jev_juicios import ResultadoPar
     from tools.jev_ads import main as cli_jev
 
     cliente, conn, solicitud, fw, ids = escenario
+    # captured_at con el reloj de la base: el trigger lo compara con clock_timestamp().
+    monkeypatch.setattr(
+        tool_jev, "AsesorAds", functools.partial(AsesorAds, ahora=lambda: ahora_db(conn))
+    )
     listing = conn.execute(
         "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
     ).fetchone()[0]

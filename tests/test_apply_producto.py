@@ -29,6 +29,7 @@ from types import SimpleNamespace
 import httpx
 import psycopg
 import pytest
+from conftest import ahora_db
 from fastapi.testclient import TestClient
 from psycopg import sql as pgsql
 from psycopg.conninfo import make_conninfo
@@ -256,7 +257,7 @@ def _ciclo_nuevo(conn) -> int:
 def _decision(conn) -> int:
     """La decision pause de pa1 con los inputs que congela el ciclo
     (cycle._pendientes_pausa_producto sobre la evaluacion de ahora)."""
-    ahora = dt.datetime.now(dt.UTC)
+    ahora = ahora_db(conn)
     config_id, settings = conn.execute(
         "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
     ).fetchone()
@@ -291,7 +292,7 @@ def _propuesta(conn, *, hace: dt.timedelta = dt.timedelta(hours=49)) -> tuple[in
     dec = _decision(conn)
     ciclo_id = conn.execute("SELECT cycle_id FROM decision WHERE id = %s", (dec,)).fetchone()[0]
     apply_cola.encola_cortes(
-        conn, object(), ciclo_id, modo_envelope="live", ahora=dt.datetime.now(dt.UTC) - hace
+        conn, object(), ciclo_id, modo_envelope="live", ahora=ahora_db(conn) - hace
     )
     (q,) = conn.execute("SELECT id FROM apply_queue WHERE decision_id = %s", (dec,)).fetchone()
     return dec, q
@@ -303,7 +304,7 @@ def _libera(conn, amazon: _Amazon, *, guard=None):
         return apply_cola.libera_vencidos(
             conn,
             PLAT,
-            ahora=dt.datetime.now(dt.UTC),
+            ahora=ahora_db(conn),
             aplicador=_aplicador(conn, amazon, ejecutor, guard),
             cycle_id=ejecutor,
         )
@@ -692,7 +693,7 @@ def test_retiro_reactivacion_manual_y_8_dias_despues_put_nuevo_y_retiro_nuevo(pl
             (entrada,) = productos_io.lee_entradas_productos(
                 conn,
                 PLAT,
-                decidido_el=dt.datetime.now(dt.UTC),
+                decidido_el=ahora_db(conn),
                 settings={},
                 goals=_goals(conn),
             )
@@ -840,7 +841,7 @@ def _enciende(conn, modo: str = "live") -> dict:
     otra = _otra_conexion(conn)
     try:
         return productos_modo.cambia_pausa(
-            otra, PLAT, modo, _vigente(conn), dt.datetime.now(dt.UTC), actor="test"
+            otra, PLAT, modo, _vigente(conn), ahora_db(conn), actor="test"
         )
     finally:
         otra.close()
@@ -863,7 +864,7 @@ def _ciclo_vivo(conn):
         conn,
         platform=PLAT,
         owner="test-host:i7",
-        decided_at=dt.datetime.now(dt.UTC),
+        decided_at=ahora_db(conn),
         heartbeat_cada=1,
         aplicador_factory=fabrica,
     )

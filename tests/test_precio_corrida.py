@@ -26,6 +26,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 import psycopg
 import pytest
+from conftest import ahora_db
 from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente
 
@@ -190,7 +191,7 @@ def _oferta_obs(
     fetched=None,
     observed=None,
 ) -> int:
-    base = datetime.now(UTC)
+    base = ahora_db(conn)
     evento = evento or f"oferta-{sku}"
     return conn.execute(
         "INSERT INTO estimacion_oferta_observation (listing_id, platform, seller_sku, asin,"
@@ -243,7 +244,7 @@ def _fee_obs(
     fetched=None,
     observed=None,
 ) -> int:
-    base = datetime.now(UTC)
+    base = ahora_db(conn)
     evento = evento or f"fee-{sku}"
     return conn.execute(
         "INSERT INTO estimacion_fee_observation (oferta_observation_id, listing_id, platform,"
@@ -365,7 +366,8 @@ def _escenario(
     fee_fijo=None,
 ) -> int:
     evento = evento or f"esc-{sku}"
-    observed = datetime.now(UTC)
+    # Reloj de la base: el trigger exige politica.created_at (now()) <= observed_at.
+    observed = ahora_db(conn)
     valoracion = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
     # `estimacion_escenario_no_disponible_sin_total`: fuera de `disponible`
     # van NULL moneda, contribucion y contribucion_pct.
@@ -416,7 +418,7 @@ def _cadena(conn, *, sku="SKU-A5", ext="B0A5000001", mode="shadow", costo="60"):
     listing = _listing(conn, prod, ext=ext, sku=sku)
     _config(conn)
     _goal(conn, listing, mode=mode)
-    marca = datetime.now(UTC)
+    marca = ahora_db(conn)
     huella = f"ctx-{sku}"
     oferta = _oferta_obs(
         conn, listing, ext=ext, sku=sku, huella=huella, fetched=marca, observed=marca
@@ -518,7 +520,7 @@ def _respuesta_fees(request: httpx.Request, *, skus: dict, fee_time=None) -> htt
     referral = (Decimal("0.12") * precio).quantize(Decimal("0.01"))
     fba = Decimal("3.00")
     total = referral + fba
-    t = (fee_time or datetime.now(UTC)).isoformat()
+    t = (fee_time() if callable(fee_time) else fee_time or datetime.now(UTC)).isoformat()
     return httpx.Response(
         200,
         json={
@@ -666,8 +668,7 @@ def _mercado(red, platform="amazon_mx", *, construir_cuerpo=_cuerpo_falso, cubo=
 def _corre(conn, red, platform="amazon_mx", **kw):
     """`correr` con red falsa y cubo sin dormir de verdad."""
     clock, sleep, _estado = _reloj_falso()
-    fijar_fee = kw.pop("fijar_fee", True)
-    if red.fee_time is None and fijar_fee:
+    if red.fee_time is None:
         red.fee_time = _fee_time(conn)
     kw.pop("construir_cuerpo", None)
     cubo = kw.pop("limitador", None)
@@ -1291,7 +1292,7 @@ def test_virtual_de_sombra_dispara_freno_6():
         lid = _listing(conn, prod, ext="B0A50000F6", sku="SKU-F6")
         _config(conn, ajustes)
         _goal(conn, lid, mode="shadow")
-        marca = datetime.now(UTC)
+        marca = ahora_db(conn)
         oferta = _oferta_obs(
             conn,
             lid,
@@ -1340,7 +1341,7 @@ def test_virtual_de_sombra_dispara_freno_6():
         )
         _price_obs(conn, asin="B0A50000F6")
         hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
-        ahora = datetime.now(UTC)
+        ahora = ahora_db(conn)
         config = leer_config(ajustes)
         cuenta = leer_cuenta(conn, lid, as_of=ahora)
         assert cuenta is not None and not isinstance(cuenta, str)
@@ -1874,8 +1875,9 @@ def test_cotizacion_con_reloj_de_amazon():
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="live")
         _price_obs(conn)
-        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
-        res = _corre(conn, red, fijar_fee=False)
+        # Amazon estampa al recibir, con un reloj al dia con el de la base.
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]}, fee_time=lambda: ahora_db(conn))
+        res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (1, 1)
         assert _decision_unica(conn)[0] == "subir"
 
@@ -2599,7 +2601,7 @@ def test_escenario_no_disponible_da_motivo():
         lid = _listing(conn, prod, ext="B0A50000RD", sku="SKU-R3-D")
         _config(conn)
         _goal(conn, lid, mode="live")
-        marca = datetime.now(UTC)
+        marca = ahora_db(conn)
         oferta = _oferta_obs(
             conn,
             lid,
@@ -2646,7 +2648,7 @@ def test_escenario_sin_motivos_da_desconocido():
         lid = _listing(conn, prod, ext="B0A50000RE", sku="SKU-R3-E")
         _config(conn)
         _goal(conn, lid, mode="live")
-        marca = datetime.now(UTC)
+        marca = ahora_db(conn)
         oferta = _oferta_obs(
             conn,
             lid,
@@ -2711,7 +2713,7 @@ def test_motivo_fuera_de_vocabulario_da_desconocido():
         lid = _listing(conn, prod, ext="B0A50000RA", sku="SKU-R4-A")
         _config(conn)
         _goal(conn, lid, mode="live")
-        marca = datetime.now(UTC)
+        marca = ahora_db(conn)
         oferta = _oferta_obs(
             conn,
             lid,

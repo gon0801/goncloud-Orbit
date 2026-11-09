@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import psycopg
 import pytest
+from conftest import ahora_db
 from test_cycle import _config_version, _corre, _db_temporal, _decisions_de, _entidad, _estado
 from test_cycle import _metrica as _metrica_hoja
 from test_cycle_target_ciclo import _mundo_familia, _producto_con_listing, _targets_de
@@ -90,7 +91,7 @@ def _mundo(conn) -> dict:
     """Campana -> ad group con una keyword (da el watermark) y un product ad
     ENABLED del producto SKU-A (ASIN-SKU-A, seller SS-SKU-A)."""
     run = _run(conn)
-    ahora = dt.datetime.now(dt.UTC)
+    ahora = ahora_db(conn)
     camp = _entidad(conn, "amazon_us", "campaign", "c1")
     ag = _entidad(conn, "amazon_us", "ad_group", "g1", parent=camp)
     kw = _entidad(
@@ -107,7 +108,7 @@ def _mundo(conn) -> dict:
 def _otro_producto(conn, m) -> int:
     """SKU-B (ASIN-SKU-B, seller SS-SKU-B) anunciado en su propio ad group."""
     ag = _entidad(conn, "amazon_us", "ad_group", "g2", parent=m["camp"])
-    _estado(conn, ag, synced_at=dt.datetime.now(dt.UTC))
+    _estado(conn, ag, synced_at=ahora_db(conn))
     pid, lid = _producto_con_listing(conn, "SKU-B")
     _anuncio(conn, ag, lid, "pa-b", "ENABLED")
     return pid
@@ -125,7 +126,7 @@ def _anuncio(conn, ag, lid, externo, estado) -> int:
         " VALUES ('amazon_us', 'product_ad', %s, %s, %s) RETURNING id",
         (externo, ag, lid),
     ).fetchone()[0]
-    _estado(conn, pa, synced_at=dt.datetime.now(dt.UTC), status=estado)
+    _estado(conn, pa, synced_at=ahora_db(conn), status=estado)
     return pa
 
 
@@ -181,7 +182,7 @@ def _entradas(conn) -> tuple[p.EntradaProducto, ...]:
     return productos_io.lee_entradas_productos(
         conn,
         "amazon_us",
-        decidido_el=dt.datetime.now(dt.UTC),
+        decidido_el=ahora_db(conn),
         settings={},
         goals=lee_goals(conn, "amazon_us", campanas),
     )

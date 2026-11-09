@@ -20,6 +20,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 import pytest
+from conftest import ahora_db
 from psycopg.types.json import Json
 from test_precio_corrida import (
     ORDEN59,
@@ -329,7 +330,7 @@ def test_leer_cuenta_da_los_mismos_importes_que_la_entrada_del_adaptador():
         datos = _cadena(conn)
         _price_obs(conn)
         hoy = _hoy(conn)
-        ahora = datetime.now(UTC)
+        ahora = ahora_db(conn)
         from app.precio.config import leer_config
         from app.precio.puerto import Miembro, UnidadPrecio
 
@@ -510,7 +511,7 @@ def test_sin_referral_unico_en_tolerancia_mantiene_y_bajo_el_goal_no_evalua():
         datos = _cadena_sin_referral(conn)
         _price_obs(conn)
         hoy = _hoy(conn)
-        ahora = datetime.now(UTC)
+        ahora = ahora_db(conn)
         config = leer_config(SETTINGS)
         mercado = MercadoAmazon("amazon_mx")
 
@@ -563,7 +564,7 @@ def test_sin_referral_unico_en_tolerancia_mantiene_y_bajo_el_goal_no_evalua():
 
 
 def _run_ledger(conn, *, source="accounting_ledger_events", ok=True):
-    marca = datetime.now(UTC)
+    marca = ahora_db(conn)
     return conn.execute(
         "INSERT INTO ingest_run (source, started_at, finished_at, rows_written,"
         " rows_skipped, ok) VALUES (%s, %s, %s, 1, 0, %s) RETURNING id",
@@ -880,7 +881,7 @@ def test_insumos_adjunta_historia_a_la_lectura():
         datos = _cadena(conn)
         _price_obs(conn)
         hoy = _hoy(conn)
-        ahora = datetime.now(UTC)
+        ahora = ahora_db(conn)
         dia = hoy - timedelta(days=1)
         _estado_obs(conn, sku=datos["sku"], observed=_mediodia(dia))
         _inventario(conn, sku=datos["sku"], dia=dia, qty=3)
@@ -940,7 +941,7 @@ def test_senal_por_unidad_no_ve_las_ventas_de_otra_publicacion():
         datos = _cadena(conn)
         _price_obs(conn)
         hoy = _hoy(conn)
-        ahora = datetime.now(UTC)
+        ahora = ahora_db(conn)
         otro = _listing(conn, datos["producto"], ext="B0F4W10002", sku="SKU-W1-B")
         run = _run_ledger(conn)
         _atribuir(
@@ -999,7 +1000,7 @@ def test_senal_usa_ultima_subida_y_trafico():
         )
         _goal(conn, datos["listing"], mode="live", desde=hoy)
         _price_obs(conn)
-        ahora = datetime.now(UTC)
+        ahora = ahora_db(conn)
         subida = hoy - timedelta(days=10)
         _cambio_subida(
             conn,
@@ -1090,7 +1091,7 @@ def test_senal_sin_clave_de_trafico_falla_fuerte():
         datos = _cadena(conn)
         _price_obs(conn)
         hoy = _hoy(conn)
-        ahora = datetime.now(UTC)
+        ahora = ahora_db(conn)
         ajuste = {k: v for k, v in SETTINGS.items() if k != "precio_senal_trafico_min"}
         _config_corrida(conn, ajuste)
         with pytest.raises(ValueError, match="precio_senal_trafico_min"):

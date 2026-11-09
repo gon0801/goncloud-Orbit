@@ -13,7 +13,21 @@ corto de un fixture no deforme los textos de las pruebas siguientes.
 
 from __future__ import annotations
 
+import os
+import time
+
 import pytest
+
+# La base y el CI fechan en UTC; sin esto date.today() da otro dia en la Mac (UTC-7) por la tarde.
+os.environ["TZ"] = "UTC"
+time.tzset()
+
+
+def ahora_db(conn):
+    """El "ahora" de Postgres. Las filas que sella now() se comparan contra
+    este reloj y no contra datetime.now() de Python: en Docker de la Mac la
+    base y Python difieren unos ms y una fila recien escrita queda en el futuro."""
+    return conn.execute("SELECT clock_timestamp()").fetchone()[0]
 
 
 @pytest.fixture(autouse=True)
