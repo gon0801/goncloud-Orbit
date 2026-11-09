@@ -22,6 +22,8 @@ INTERRUPTORES=tools/despliegue/interruptores.env
 TERMINALES=" verificado sin_cambios abortado_sin_cambios revertido "
 CAMBIO_RE='^(CODIGO|MIGRACION|CLAVE|CRON)='
 CRON_VIGIA=tools/despliegue/cron_jev_vigia.sh
+# CLARIDAD 01 F: el cron de root corre $SRV/refresh_estimacion.sh; desplegar lo instala desde tools/.
+REFRESCO=refresh_estimacion.sh
 
 srv() { ssh goncloud "$@"; }
 
@@ -272,7 +274,9 @@ revierte() {
     P=$DESP/$CODIGO
     sigue_candado
     if srv "set -e; cd $SRV; test -d $P/app; test -d $P/tools; rm -rf app tools; cp -a $P/app $P/tools .; \
-        cp -a $P/Dockerfile $P/.dockerignore $P/pyproject.toml $P/uv.lock ." \
+        cp -a $P/Dockerfile $P/.dockerignore $P/pyproject.toml $P/uv.lock .; \
+        if [ -f $P/$REFRESCO ]; then install -m 755 $P/$REFRESCO $REFRESCO; \
+        elif [ -f $P/$REFRESCO.ausente ]; then rm -f $REFRESCO; fi" \
       && compose_up && espera_salud; then
       echo "codigo restaurado de $CODIGO; /health 200"
     else

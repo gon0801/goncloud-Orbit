@@ -79,9 +79,14 @@ cambio) y abre el diario; (1) espera las guardas: `meli_sku_alias`
 existe, ningún ciclo `running`, ningún `app.cli` en `docker top
 orbit-app-1` y ningún harvest en vuelo; (2) monotonía; (3) respaldo
 `$SRV/despliegue/predeploy-<stamp>` (dump del esquema y copia de `app/`,
-`tools/`, `Dockerfile`, `.dockerignore`, `pyproject.toml` y `uv.lock`,
+`tools/`, `Dockerfile`, `.dockerignore`, `pyproject.toml`, `uv.lock` y
+`refresh_estimacion.sh`, o la marca `refresh_estimacion.sh.ausente` si no estaba,
 comprobada por md5 antes de renombrar el `.parcial`); (4) migraciones de la
-receta; (5) código del SHA por `git archive`, md5 contra el SHA, `docker compose
+receta; (5) código del SHA por `git archive`, md5 contra el SHA; si el SHA trae
+`tools/refresh_estimacion.sh` lo instala con `install -m 755` en
+`$SRV/refresh_estimacion.sh`, que corre el cron de root (CLARIDAD 01 F; antes se
+copiaba a mano), y la reversa restaura la copia del respaldo o la borra si estaba la
+marca; `docker compose
 -p orbit --project-directory $SRV -f $SRV/docker-compose.yml up -d
 --no-deps --build app`, `/health` 200 y `$SRV/despliegue/sha`; (5b) si el
 SHA trae `tools/despliegue/cron_jev_vigia.sh` y la línea `jev-vigia` no está
@@ -90,7 +95,9 @@ una sola vez dentro del bloque Orbit del crontab de `gon`, corre `instala`
 la mueve al bloque si estaba fuera); anota `CRON=jev-vigia` antes, y solo si leyó
 el crontab y la línea no existía en ninguna parte, así la reversa no borra una
 línea previa. Si no puede leer el crontab, aborta (sale 1) sin anotar ni instalar; (6) interruptores. Con ese archivo en el SHA, `checklist.sh` falla
-si la línea efectiva no está una sola vez dentro del bloque. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
+si la línea efectiva no está una sola vez dentro del bloque. Con
+`tools/refresh_estimacion.sh` en el SHA, falla si `$SRV/refresh_estimacion.sh` no es
+igual a `$SRV/tools/refresh_estimacion.sh`. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
 el candado y las guardas.
 
 **Cabecera de sonda.** Toda migración de la receta (`migrations/*_auto03_*`
@@ -429,14 +436,20 @@ rm /tmp/bridge-estimacion-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/bridge-estimacion-snapshot.db
 ```
 
-Cadencia recomendada: **`refresh_estimacion.sh`** cada 6 h (:45), diez minutos
-después del refresco acreditado del bridge a :35, con snapshot único por corrida. Copia desplegada:
-`/mnt/data/appdata/orbit/refresh_estimacion.sh` (origen: `tools/refresh_estimacion.sh`).
+Cadencia: **`refresh_estimacion.sh`** cada 6 h (:45), después del refresco del
+bridge (`amazon-prices-sync.timer`, :35), con snapshot único por corrida. Antes de copiar
+espera hasta 20 min a que `amazon-prices-sync.service` deje de estar `activating`
+(CLARIDAD 01 F: a las 12:35 Estados Unidos terminaba entre 12:45:38 y 12:51:45 y la copia
+de las 12:45 salía sin US; el motor de precios de las 13:10 no evaluaba ninguna
+publicación de US). La ingesta sale 1 y nombra la plataforma si una plataforma Amazon con
+listings queda sin oferta fresca (más de 6 h) en la copia; cron-avisa avisa por Telegram.
+Copia desplegada: `/mnt/data/appdata/orbit/refresh_estimacion.sh`, que instala
+`tools/despliegue/desplegar.sh` desde `tools/refresh_estimacion.sh`.
 
-Cron sugerido (usuario `gon`):
+Cron de root:
 
 ```cron
-45 */6 * * * /mnt/data/appdata/orbit/refresh_estimacion.sh >> /mnt/data/appdata/orbit/logs/estimacion.log 2>&1
+45 */6 * * * /usr/local/bin/cron-avisa --nombre "Actualización de estimaciones de Orbit" --cada 6 -- /bin/bash -c '/mnt/data/appdata/orbit/refresh_estimacion.sh' >> /mnt/data/appdata/orbit/logs/estimacion.log 2>&1
 ```
 
 Re-correr con el mismo evento fuente es no-op (dedupe por `source_event_id`).
