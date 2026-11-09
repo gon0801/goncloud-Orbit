@@ -1,0 +1,197 @@
+<section data-pantalla="resumen" data-etiqueta="Panel · Resumen">
+  <h1>Mira cómo va tu publicidad</h1>
+  <p class="lead">Resumen es la primera pantalla de Orbit. Junta en una sola vista el gasto, las ventas y el ACoS de Amazon México, Amazon Estados Unidos y Mercado Libre, y los compara con el periodo anterior.</p>
+  <ol class="pasos">
+    <li>Pulsa <b>Resumen</b> en el menú. También se abre al entrar a Orbit.</li>
+    <li>En <b>Canal</b> elige <b>Todos</b>, <b>Amazon MX</b>, <b>Amazon US</b> o <b>Mercado Libre</b>.</li>
+    <li>En <b>Periodo</b> elige <b>7 dias</b>, <b>30 dias</b> o <b>90 dias</b>. Debajo, la línea <b>Ventana</b> dice qué fechas estás viendo. El día de hoy siempre queda fuera porque aún no termina.</li>
+    <li>Para fechas exactas abre <b>Rango personalizado</b>. Adentro vienen otra vez <b>Canal</b> y <b>Periodo</b>, más <b>Desde</b> y <b>Hasta</b>. Llena las dos fechas y pulsa <b>Filtrar</b>. Con las dos fechas, el rango manda y el periodo se ignora. <b>Limpiar</b> aparece solo después de filtrar y regresa a 30 días y todos los canales.</li>
+  </ol>
+  <figure><img src="img/resumen.png" alt="Pantalla Resumen con los filtros de canal y periodo y una tarjeta por mercado"><figcaption>Arriba, los filtros. Debajo, una tarjeta por mercado con su ACoS, sus ventas, su gasto y su ROAS.</figcaption></figure>
+  <p>La pantalla tiene cinco partes numeradas. <b>1. Cómo va cada canal</b> muestra una tarjeta por mercado. <b>2. Qué revisar</b> lista los avisos del periodo, «Ordenado por impacto», con enlaces a la pantalla donde se atienden. El número 1 es el que más pesa. <b>3. Tendencia</b> dibuja ventas y gasto día por día. <b>4. Totales por moneda</b> suma pesos con pesos y dólares con dólares. <b>5. Tablas detalladas</b> guarda las mismas cifras en tablas. Ábrelas con un clic.</p>
+  <p class="nota">Esta pantalla es solo de lectura. Los filtros cambian lo que ves, no lo que hace Orbit.</p>
+</section>
+
+<section data-etiqueta="Panel · Resumen · leer las tarjetas">
+  <h1>Lee una tarjeta y la gráfica</h1>
+  <p class="lead">Cada tarjeta habla de un mercado en su propia moneda. La etiqueta de arriba a la derecha dice si conviene mirarlo con calma.</p>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td><b>Bien</b> / <b>Atención</b> / <b>Sin dato</b></td><td>Con meta de ACoS, Bien es estar en la meta o abajo. Sin meta, Bien es que las ventas subieron y el ACoS bajó. Lo demás es Atención. Sin dato, no hay cifras.</td></tr>
+    <tr><td><b>▼ -0.83 pp</b> y <b>ROAS 7.41×</b></td><td>El ACoS bajó 0.83 puntos porcentuales, y en el ACoS bajar es bueno. ROAS es ventas entre gasto. 7.41 pesos vendidos por cada peso de publicidad.</td></tr>
+    <tr><td><b>Meta ACoS: sin configurar</b></td><td>Nadie fijó una meta para ese mercado. <b>Configurar</b> te lleva a Settings (página {{pag:settings}}).</td></tr>
+    <tr><td><b>Cifras inmaduras del … al …</b></td><td>Los últimos 8 días de Amazon todavía cambian porque siguen llegando ventas. En las tablas diarias llevan asterisco (*). Mercado Libre trae otra nota. Ahí cambian las cifras de ayer.</td></tr>
+    <tr><td><b>Gasto sin venta en Amazon US</b>, en Qué revisar</td><td>Cuenta <b>días</b> con gasto y cero ventas. Su enlace <b>Ver gasto sin venta</b> abre otra pantalla, que lista <b>búsquedas</b> y puede estar vacía.</td></tr>
+    <tr><td><b>cobertura incompleta</b>, en Totales</td><td>A algún canal de esa moneda le faltan días con cifras. La suma se queda corta.</td></tr>
+    <tr><td>Línea fina y línea gruesa en <b>Tendencia</b></td><td>La fina es cada día. La gruesa es la media de 7 días. «ya trae el contrato» quiere decir que Orbit la calcula antes de dibujarla. Un hueco es un dato que falta, no un cero.</td></tr>
+  </table>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>Gastas 1,000 MXN y vendes 5,000 MXN. El ACoS es 20&nbsp;% y el ROAS 5×. Antes fue 25&nbsp;%, así que la tarjeta muestra ▼ -5.00 pp.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>Con 30 días, <b>Amazon MX</b> decía Bien con ACoS 13.50&nbsp;%. <b>Amazon US</b> decía Atención con 43.36&nbsp;%. El punto 1 de Qué revisar era Gasto sin venta en Amazon US, 12 de 30 días ($620.53 USD).</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Sabes elegir fechas y leer si el ACoS mejoró.</p>
+  </div>
+</section>
+
+<section data-pantalla="campanas" data-etiqueta="Panel · Campañas">
+  <h1>Revisa cada campaña contra su meta</h1>
+  <p class="lead">Campañas muestra las campañas de Amazon que tienen cifras en los últimos 30 días, aunque sean cero, con su gasto, sus ventas y su ACoS, junto a la meta que Orbit usó con ellas.</p>
+  <ol class="pasos">
+    <li>Pulsa <b>Campañas</b> en el menú. Arriba, la franja amarilla recuerda que los últimos 8 días todavía cambian.</li>
+    <li>Lee <b>Campañas contra su target</b>. Hay una tarjeta por mercado con su <b>Target efectivo</b>, su ACoS total y una barra que cuenta campañas <b>En target</b>, <b>Sobre target</b>, <b>Gasto sin venta</b> y <b>Sin actividad</b>. Aquí Gasto sin venta quiere decir campañas que gastaron y no vendieron nada en 30 días.</li>
+    <li>En <b>Lista de campañas</b>, las pestañas <b>Todas</b>, <b>Sobre target</b>, <b>Gasto sin venta</b>, <b>En target</b> y <b>Sin actividad</b> dejan solo ese grupo. El número de cada pestaña dice cuántas hay.</li>
+    <li>Para buscar algo más fino usa <b>Plataforma</b> (amazon_mx o amazon_us), <b>Estado</b>, <b>Campaña</b> (parte del nombre) y <b>Procedencia</b>, y pulsa <b>Filtrar</b>. <b>Limpiar</b> quita todo.</li>
+  </ol>
+  <p>Una campaña sin cifras en esos 30 días no sale, aunque exista en Amazon. Por eso <b>Estado</b> ofrece pausada y archivada, pero casi siempre dan 0 campañas. Y por eso una campaña que ves en Decisiones o en Contribucion, como A1U - Category Exact - US, puede no aparecer aquí.</p>
+  <h2>Filtros por métricas</h2>
+  <p>Abre casillas para Cost, Revenue Ads, Clicks, ACoS y Target. No son un mínimo y no aceptan «&gt;100». Cost, Revenue Ads, ACoS y Target buscan el texto que escribes dentro de la cifra. «45» deja las campañas cuyo gasto contiene 45, como 45.52 o 1245.10. Escribe las cifras sin comas. En ACoS también puedes escribir «sin ventas». En Clicks, un número entero busca exactamente esos clics.</p>
+  <h2>Cómo se ordena la tabla</h2>
+  <p>Sin tocar nada, salen primero las de Estados Unidos y luego las de México. Pulsa el nombre de una columna para ordenar. En cifras, el primer clic pone arriba la más alta. En texto, ordena de la A a la Z. Una flecha ↓ o ↑ marca la columna elegida y un segundo clic invierte el orden. Las filas sin dato quedan al final.</p>
+  <div class="caja aviso">
+    <h4>Ordenar sin elegir mercado mezcla pesos y dólares</h4>
+    <p>La columna <b>Cost (30d)</b> ordena por la cifra y no mira la moneda. Con Plataforma en todas, 9,015.78 MXN queda arriba de 466.14 USD aunque valen distinto. Para comparar gasto, elige primero amazon_mx o amazon_us.</p>
+  </div>
+</section>
+
+<section data-etiqueta="Panel · Campañas · target efectivo">
+  <h1>Entiende el target efectivo</h1>
+  <p class="lead">El <b>Target efectivo</b> es el ACoS meta que Orbit usó con las keywords y los targets de esa campaña en su último ciclo en live que terminó, aunque ese ciclo no haya cambiado nada.</p>
+  <p>Si la campaña usó metas distintas, verás un rango, como 19.50–20.10&nbsp;%. <b>sin target</b> es que ese ciclo no evaluó nada de ella. La <b>Procedencia</b> dice de dónde salió la meta. Orbit revisa las fuentes en el orden de la tabla y usa la primera que tenga un valor.</p>
+  <table>
+    <tr><th>Procedencia</th><th>De dónde sale la meta</th></tr>
+    <tr><td>goal_campana</td><td>Una meta escrita a mano solo para esa campaña.</td></tr>
+    <tr><td>goal_plataforma</td><td>Una meta escrita a mano para todo el mercado.</td></tr>
+    <tr><td>margen_producto</td><td>La meta del producto, calculada con su margen. Solo aplica en grupos que anuncian un único producto.</td></tr>
+    <tr><td>margen_familia</td><td>La meta de la familia de productos (página {{pag:familias}}).</td></tr>
+    <tr><td>margen_plataforma</td><td>Una meta calculada con el margen de tus ventas en ese mercado. Se mueve entre 10&nbsp;% y 45&nbsp;%.</td></tr>
+    <tr><td>setting_plataforma</td><td>El ACoS que alguien escribió en Settings para ese mercado.</td></tr>
+    <tr><td>mixto</td><td>Las keywords de la campaña usaron fuentes distintas.</td></tr>
+  </table>
+  <p>Bajo el nombre, <b>platform · live · floor 0.1000 · ceiling 2.5000</b> dice qué regla manda (platform, del mercado, o campaign), si los cambios son reales (live) o simulados (shadow) y el bid mínimo y máximo. <b>sin goal</b> es que no tiene regla. Si ves la meta con muchos decimales, solo cuentan los dos primeros, redondeados.</p>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>Con target 20&nbsp;% y ACoS 26&nbsp;%, la campaña sale en naranja con <b>+6.00 pp sobre target</b>.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p><b>AC - Category Exact - MX</b> gastó 9,015.78 MXN y vendió 95,514.51 MXN, con ACoS 9.44&nbsp;% En target, target 20.02&nbsp;% y procedencia margen_plataforma. <b>USPerNog - Category Exact - US</b> marcaba 71.57&nbsp;%, +52.20 pp sobre 19.37&nbsp;%. Ese target salió de la revisión extra de las 17:58 UTC, que tomó 0 decisiones.</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Sabes qué meta usó Orbit con una campaña, de dónde salió y cuánto se aleja su ACoS. La pantalla es solo de lectura. <b>Crear campañas</b> te lleva a otra pantalla (página {{pag:fabrica}}).</p>
+  </div>
+</section>
+
+<section data-pantalla="decisiones" data-etiqueta="Panel · Decisiones">
+  <h1>Lee qué decidió Orbit y por qué</h1>
+  <p class="lead">Decisiones es la bitácora de Orbit. Cada fila es un cambio que decidió en un ciclo, con su motivo. La más nueva va arriba y hay 50 por página.</p>
+  <ol class="pasos">
+    <li>Pulsa <b>Decisiones</b> en el menú. Arriba van el total y los enlaces <b>anterior</b> y <b>siguiente</b>.</li>
+    <li>Lee <b>Entidad</b>. Primero va la keyword o el producto y después del punto la campaña. Los números con # son internos.</li>
+    <li><b>Kind</b> es el tipo de cambio. bid sube o baja la puja. pause y resume pausan o encienden. negative bloquea la búsqueda de <b>Search term</b>. harvest vuelve keyword una búsqueda que vende.</li>
+    <li>En <b>Motivo</b>, el porcentaje dice cuánto se movió el bid. <b>Decidida</b> está en hora UTC, 6 horas adelante de la Ciudad de México.</li>
+  </ol>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td>«hoja» en un motivo</td><td>Una keyword o un target solo, la pieza más chica que lleva bid.</td></tr>
+    <tr><td>«su grupo sangra»</td><td>El grupo de anuncios gasta más de 15&nbsp;% arriba de su meta, o gastó el mínimo sin vender.</td></tr>
+    <tr><td>«sobre el equilibrio»</td><td>El ACoS en que la publicidad se come todo el margen. Arriba de él, cada venta pierde dinero.</td></tr>
+    <tr><td>«al doble de concluir»</td><td>Gastó dos veces el mínimo para juzgar sin ventas, 350 MXN o 36 USD por omisión.</td></tr>
+    <tr><td>«sustituto», «mismo ASIN B07FP1GH8Q» y las que terminan en «amplia» o «cercana»</td><td>No son keywords escritas, son blancos automáticos de Amazon. mismo ASIN es la página de ese producto. sustituto, productos que compiten con el tuyo. amplia y cercana, búsquedas poco o muy parecidas a tu producto.</td></tr>
+    <tr><td><b>Target usado</b> 19.36610636923199718608899984%</td><td>La meta de ese momento. Solo cuentan dos decimales, redondeados. Es 19.37&nbsp;%.</td></tr>
+    <tr><td><b>Bid</b> «— → —»</td><td>No aplica. Una pausa no cambia el bid.</td></tr>
+  </table>
+  <div class="caja aviso">
+    <h4>Decidido no siempre es aplicado</h4>
+    <p>Una fila no confirma el cambio en Amazon. Las pausas esperan 48 horas en Propuestas (página {{pag:cortes}}). producto_sin_ventas sale sin traducir. Es la pausa del anuncio de un producto que no vende.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>Había 2900. La #2868, en <b>arras · AU2 - Category Phrase - US</b>, subió el bid de 0.22 a 0.30 USD con «Regreso: el bid nuevo desplomo el trafico». Pantalla solo de lectura.</p>
+  </div>
+</section>
+
+<section data-pantalla="salud" data-etiqueta="Panel · Salud">
+  <h1>Comprueba que Orbit revisó a tiempo</h1>
+  <p class="lead">Salud dice si el último ciclo de cada mercado terminó y si llegaron los datos de Amazon. Ábrela cuando algo no cuadre.</p>
+  <ol class="pasos">
+    <li>Pulsa <b>Salud</b> en el menú. Hay una tarjeta por mercado, <b>amazon_us</b> y <b>amazon_mx</b>. Junto al nombre van el estado del ciclo y el modo.</li>
+    <li>Lee <b>Ultimo ciclo</b>. Dice su número, su hora, sus decisiones y cuántas aplicó (applies). La hora sale larga, como 2026-11-08 17:58:07.510638+00:00. Lee hasta los minutos. «+00:00» quiere decir hora UTC.</li>
+    <li>Baja a <b>Historico (14d)</b>. Son los últimos 14 ciclos, no 14 días de calendario.</li>
+  </ol>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td><b>done</b> en verde y <b>live</b></td><td>El ciclo terminó. También puede decir running (corriendo), skipped (no corrió), degraded (con fallas) o failed (falló), estos dos en rojo. live cambia cosas en Amazon, shadow solo simula y off está apagado.</td></tr>
+    <tr><td><b>Skips del ultimo ciclo</b></td><td>Un skip es algo que Orbit revisó y decidió no tocar. La gráfica cuenta cuántos hubo por motivo. Las etiquetas largas salen cortadas a la izquierda. Pasa el cursor sobre una barra para leer el motivo completo y su número.</td></tr>
+    <tr><td><b>Watermark</b> y <b>Sync estructura</b></td><td>El último día con cifras de ese mercado y la última vez que Orbit leyó tus campañas en Amazon.</td></tr>
+    <tr><td><b>Ingesta Ads principal</b></td><td>Reportes descargados de Amazon. <b>written</b> es que se guardaron. Edad de 1 día es normal.</td></tr>
+    <tr><td>Línea roja con <b>telegram</b></td><td>El ciclo terminó pero el aviso al celular no salió. Aunque diga done, revísalo.</td></tr>
+  </table>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>Un ciclo revisa 2,000 keywords de campañas pausadas o sin clics nuevos. Son 2,000 skips y 0 decisiones. No es una falla.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>Los dos mercados decían done y live. En Estados Unidos, el ciclo #174 de las 08:40 UTC tomó 33 decisiones y el #176 de las 17:58 UTC, una corrida extra, tomó 0. La barra más larga de Estados Unidos era «Campaña no habilitada (pausada/archivada o sin estado)», con 1,620 casos.</p>
+  </div>
+  <p>La página siguiente explica el resto de la tarjeta.</p>
+</section>
+
+<section data-etiqueta="Panel · Salud · el resto de la pantalla">
+  <h1>Lee el resto de Salud</h1>
+  <p class="lead">Debajo del último ciclo hay más secciones. Mira si hay algo en rojo. Desde aquí no se arregla nada.</p>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td><b>Quota del dia</b></td><td>Cambios de cada tipo hechos hoy (<b>Usado</b>) contra el tope diario (<b>Cap</b>). <b>saturada</b>, en rojo, llegó al tope y el resto espera.</td></tr>
+    <tr><td>La tabla de spapi_orders, spapi_pricing y dos filas más</td><td>Otra conexión que lee pedidos, precios, publicaciones e inventario de Amazon. <b>ok</b> en verde, la última lectura terminó. <b>fallo</b> en rojo, no.</td></tr>
+    <tr><td><b>Motivo</b> como «49x http_404, 1x red»</td><td>Productos que quedaron fuera. http_404, Amazon no los encontró. red, falla de conexión. Con ok, el resto sí se leyó.</td></tr>
+    <tr><td><b>Destino de harvest</b> «por terna 8 (migracion … pendiente)»</td><td>Adónde lleva Orbit las búsquedas que venden. «por terna» es que usó la campaña y el grupo escritos en la meta de la campaña. La nota avisa que falta pasarlo a la forma nueva, y no es una falla. <b>Campañas de grupo sin destino</b>, en rojo, sí.</td></tr>
+    <tr><td><b>Precios</b> y <b>Avisos de campaña</b></td><td>El conteo de hoy del motor de precios (página {{pag:precios}}) y las frases del día que llegan por Telegram.</td></tr>
+    <tr><td><b>Jev</b>, al final, «Encendido»</td><td>Jev compara búsquedas con la ficha de tus productos. Encendido solo dice que su interruptor está prendido, y <b>Última corrida</b> no trae fecha. Para saber si corre, mira <b>Calculado el</b> en Gasto sin venta (página {{pag:gasto-sin-venta}}).</td></tr>
+  </table>
+  <div class="caja aviso">
+    <h4>Si algo sale en rojo o falla</h4>
+    <p>Toma una captura y avisa al responsable. Igual si el recuadro <b>Último ciclo</b>, abajo del menú, dice «No se pudo consultar». «Sin consultar» sale mientras la pantalla carga, y en pantallas lentas como Inertes dura más. Si ya cargó y sigue, recarga.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>En Estados Unidos, spapi_listings decía ok con «49x http_404, 1x red». Jev decía Encendido con «Llamadas hoy: 0», pero Gasto sin venta seguía con Calculado el 2026-10-21.</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Sabes cuándo avisar. Pantalla solo de lectura.</p>
+  </div>
+</section>
+
+<section data-pantalla="contribucion" data-etiqueta="Panel · Contribución">
+  <h1>Estima cuánto deja cada campaña</h1>
+  <p class="lead">Pulsa <b>Contribucion</b> en el menú. Estima cuánto dinero dejó cada campaña después de pagar el producto y la publicidad. Mira 90 días ya cerrados y muestra un rango, no una cifra exacta.</p>
+  <p>La cuenta es ventas atribuidas a la campaña, menos lo que te cuesta el producto, menos el gasto en publicidad. <b>rango pre-cargos</b> quiere decir que todavía no resta comisiones de Amazon, devoluciones ni impuestos retenidos. Lo que te queda es menos.</p>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td><b>-187.54 .. 93.99</b></td><td>La primera cifra cuenta solo ventas del producto anunciado. La segunda suma otros productos que el comprador se llevó después del clic.</td></tr>
+    <tr><td><b>90d maduros</b> y «vintage D-15 UTC»</td><td>90 días que terminan 15 días antes de hoy, contados en hora UTC. Amazon ya terminó de contar esas ventas.</td></tr>
+    <tr><td>«El rollup suma las entidades hijas … (D2)»</td><td>Orbit suma las cifras de las keywords y los targets de la campaña.</td></tr>
+    <tr><td><b>— (catalogo parcial)</b></td><td>Falta información, por ejemplo el costo de algún producto. No es cero.</td></tr>
+    <tr><td><b>precio min multilisting</b> y <b>FX aproximado · nearest_prior</b></td><td>Se usó el precio más bajo entre varias publicaciones, o el tipo de cambio del día previo más cercano.</td></tr>
+  </table>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>-100 .. 400 MXN quiere decir que con el producto anunciado perdió 100 pesos y, contando lo demás que compraron sus clientes, dejó hasta 400. Si esas compras llegaron por el anuncio, ganó. Si habrían pasado igual, perdió. Orbit no sabe cuál. Con las dos cifras negativas, perdió aun en el mejor caso.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>Ventana del 27 de julio al 24 de octubre. <b>A1U - Category Phrase - US</b> cruzaba el cero con -187.54 .. 93.99 USD. <b>A1U - Category Exact - US</b> era negativa en las dos puntas, -540.73 .. -264.56 USD. Esa no salía en Campañas, porque no tuvo cifras en los últimos 30 días.</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Sabes leer el rango y por qué no es la ganancia final. Solo lectura. Orbit no usa esta cifra para decidir («no decisoria»).</p>
+  </div>
+</section>

@@ -1,0 +1,249 @@
+<section data-pantalla="cortes" data-etiqueta="Decidir · Propuestas">
+  <h1>Revisa lo que está por aplicarse</h1>
+  <p class="lead">Propuestas reúne los cambios que Orbit quiere hacer y que esperan 48 horas antes de aplicarse. Ves qué se va a cambiar, en qué mercado y cuándo vence, y puedes rechazarlo.</p>
+  <div class="flujo">
+    <div><b>Orbit propone</b>En uno de sus ciclos</div><i>→</i>
+    <div><b>Espera 48 horas</b>Puedes rechazarla</div><i>→</i>
+    <div><b>Revisa otra vez</b>Al vencer el plazo</div><i>→</i>
+    <div><b>Se aplica</b>Si es real y todavía hace falta</div>
+  </div>
+  <p>Solo esperan aquí tres tipos de cambio. Apagar, bloquear una búsqueda y crear una keyword. Los cambios de bid se aplican en el ciclo y los ves en Decisiones (página {{pag:decisiones}}).</p>
+  <ol class="pasos">
+    <li>Abre <b>Propuestas</b> en el menú. El número junto al nombre cuenta las filas de <b>Crecen</b> y <b>Recortan</b>, de los dos mercados juntos.</li>
+    <li><b>Crecen</b> son keywords por crear. <b>Recortan</b> son cosas por apagar o bloquear. En cada fila, <b>Entidad</b> dice qué se cambia, en qué campaña y en qué mercado.</li>
+    <li>Lee <b>Vence</b>. «se aplica solo el 2026-11-10 08:40» está en hora UTC, 6 horas adelante de la Ciudad de México. Debajo, «pending_veto · encolado 2026-11-08 08:40» dice que todavía puedes rechazarla y cuándo entró a la espera.</li>
+  </ol>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td>Apagar palabra</td><td>Pausar una keyword, un target o un anuncio. Si la Entidad empieza con un código como B0CR78WCH5, se pausa el anuncio de ese producto. Es una pausa por producto (página siguiente).</td></tr>
+    <tr><td>Bloquear busqueda</td><td>Agregar un negative. Tu anuncio deja de salir para esa búsqueda en ese grupo.</td></tr>
+    <tr><td>Capturar termino que vende</td><td>Crear una keyword con una búsqueda que ya vendió y bloquear esa búsqueda en el grupo de donde salió.</td></tr>
+    <tr><td><b>Por que</b> con «—»</td><td>Solo Capturar muestra órdenes e ingreso. En las demás filas el guion quiere decir «no aplica».</td></tr>
+    <tr><td>Señal con «Jev: 16 de 16» y <b>desactualizada</b></td><td>Jev es la revisión automática de Orbit que compara una búsqueda con la ficha de cada producto. Revisó 16 productos y coincidió con los 16. desactualizada es que esa revisión ya es vieja.</td></tr>
+  </table>
+</section>
+
+<section data-ancla="cortes-practica" data-etiqueta="Decidir · Propuestas · práctica o real">
+  <h1>¿Esta pausa es de práctica o real?</h1>
+  <p class="lead">La tabla de Propuestas no distingue las propuestas de práctica de las reales. Para una pausa por producto, la respuesta está en Productos sin clics.</p>
+  <ol class="pasos">
+    <li>Si la Entidad empieza con un código como B0CR78WCH5, es una pausa por producto.</li>
+    <li>Antes de rechazarla, abre <b>Productos sin clics</b>, elige el mercado y busca <b>Encendido de la pausa</b> (página {{pag:productos-sin-clics-pausa}}).</li>
+    <li>Si dice <b>Práctica</b>, esas pausas no se ejecutan. Al vencer el plazo no pasa nada con ellas: Orbit solo ejecuta propuestas reales, así que pueden seguir apareciendo en Propuestas. Si una propuesta real llega a vencer cuando la pausa ya volvió a práctica, Orbit la descarta. No hace falta rechazarlas.</li>
+    <li>Si dice <b>En vivo</b>, trátala como real y decide si la rechazas (página {{pag:cortes-rechazar}}).</li>
+  </ol>
+  <h2>¿Por qué Productos sin clics dice 0 propuestas?</h2>
+  <p>Su sección <b>Pausa por producto</b> solo lee el último ciclo. Un anuncio que ya tiene una pausa esperando en Propuestas no se vuelve a proponer. Por eso el ciclo siguiente cuenta 0, mientras Propuestas sigue mostrando las pausas de antes. Las dos pantallas dicen la verdad.</p>
+  <div class="flujo">
+    <div><b>08:40 UTC</b>El ciclo propone 31 pausas</div><i>→</i>
+    <div><b>Propuestas</b>Las guarda 48 horas</div><i>→</i>
+    <div><b>17:58 UTC</b>Otro ciclo las salta porque ya esperan</div><i>→</i>
+    <div><b>Productos sin clics</b>Muestra 0 con propuesta</div>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>Había 32 propuestas de Estados Unidos que vencían el 2026-11-10 08:40. Una era <b>Bloquear busqueda</b> para wedding arras. Las otras 31 eran <b>Apagar palabra</b> sobre anuncios de producto, como B0CR78WCH5.</p>
+    <p>Encendido de la pausa decía Práctica en los dos mercados. En Amazon US, Pausa por producto decía «0 de 119 con propuesta» y «Ciclo 176 · la pausa está en práctica: las propuestas quedan registradas y no pausan ningún anuncio».</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Sabes si una pausa por producto se va a ejecutar antes de decidir si la rechazas.</p>
+  </div>
+</section>
+
+<section data-ancla="cortes-rechazar" data-etiqueta="Decidir · Propuestas · rechazar">
+  <h1>Rechaza una propuesta</h1>
+  <p class="lead">Rechazar impide que la propuesta se aplique y evita que Orbit la repita durante los días que elijas. No hacer nada no es rechazar.</p>
+  <ol class="pasos">
+    <li>Pulsa <b>Rechazar</b> en la fila. En una pausa, el recuadro dice «Rechazar: la palabra NO se apagara (seguira gastando)», aunque sea un anuncio de producto. Quiere decir que no se pausa.</li>
+    <li>En <b>Dias</b> deja 30 o escribe de 1 a 365. Es el tiempo que Orbit no volverá a proponer ese mismo cambio.</li>
+    <li>Escribe tu nombre en <b>Actor</b> y la clave en <b>Token</b>. Pulsa <b>Confirmar rechazo</b>. Debe aparecer «Rechazado hasta» con la fecha en que termina el bloqueo.</li>
+  </ol>
+  <div class="caja aviso">
+    <h4>El rechazo no se puede deshacer</h4>
+    <p>No hay botón para quitarlo y no reactiva algo ya pausado. Si ya se está enviando a Amazon, sale un error y no se frena. Al terminar el bloqueo, Orbit puede volver a proponerla.</p>
+  </div>
+  <p class="nota">El recuadro dice «bloquea la propuesta hasta el» con la fecha de Vence, pero el bloqueo dura los días de Dias. Confírmalo en «Rechazado hasta».</p>
+  <h2>Otras secciones de Propuestas</h2>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td><b>Campañas</b>, botón <b>Descartar</b></td><td>Campañas que gastan de más. No se aplican solas. Si estás de acuerdo, pausa esa campaña tú en la consola de Amazon Ads, el sitio donde Amazon administra tus campañas. Descartar solo cierra el aviso en Orbit, pide Actor y Token, y no se deshace.</td></tr>
+    <tr><td><b>Búsquedas que Jev marca como ajenas</b>, <b>Bloquear</b> y <b>Rechazar</b></td><td>Búsquedas que no son de tus productos. Bloquear agrega el negative en Amazon al momento. Rechazar guarda que no la quieres bloquear. Piden Token.</td></tr>
+    <tr><td><b>Tus bloqueos</b>, botón <b>Quitar</b></td><td>Los bloqueos que aprobaste. Quitar retira ese negative de Amazon.</td></tr>
+  </table>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>No había sección Campañas. Las búsquedas ajenas decían «sin propuestas» y Tus bloqueos, «sin bloqueos».</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Distingues «se propone», «se aplicó» y «lo rechacé».</p>
+  </div>
+</section>
+
+<section data-pantalla="gasto-sin-venta" data-etiqueta="Decidir · Gasto sin venta">
+  <h1>Revisa búsqueda por búsqueda</h1>
+  <p class="lead">Lista búsquedas que gastaron sin conseguir órdenes y te dice, para cada una, si corresponde a tus productos. Es solo de lectura. No tiene botones.</p>
+  <p class="nota">El mismo nombre sale en otros lados con otro sentido. En Resumen, Gasto sin venta cuenta días. En Campañas es una pestaña de campañas. Esta pantalla habla de búsquedas.</p>
+  <ol class="pasos">
+    <li>Abre <b>Gasto sin venta</b> y elige <b>Amazon MX</b> o <b>Amazon US</b>.</li>
+    <li>Mira <b>Calculado el</b>. Si aparece «Sin cálculo reciente», la lista tiene más de 36 horas y puede estar vieja. Avisa al responsable.</li>
+    <li>Las secciones agrupan las búsquedas según lo que Orbit concluyó de ellas. En una fila, <b>Productos que dijeron que sí</b> muestra con qué productos coincide.</li>
+  </ol>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td>Vendió aquí</td><td>Ya consiguió órdenes en ese grupo en otro momento. Bloquearla es arriesgado.</td></tr>
+    <tr><td>Vende en otro ad group</td><td>Vende en otro grupo. Bloquearla aquí evita que los anuncios de este grupo participen por esa búsqueda; el grupo donde sí vende sigue compitiendo por ella.</td></tr>
+    <tr><td>Corresponde y no vende en ninguno</td><td>Es de tu catálogo y no convierte. Se divide en Ninguno, Pocos (hasta 15%), Una parte, Todos (95% o más) y Sin dato, según cuántos productos dijeron que sí.</td></tr>
+    <tr><td>Ajena</td><td>No corresponde a ninguno de tus productos. La pantalla sugiere bloquearla pronto.</td></tr>
+    <tr><td>Sin lectura</td><td>Falta un dato para concluir. Un dato faltante no es cero.</td></tr>
+    <tr><td>Jev: 3 de 16</td><td>Jev, la revisión automática, comparó la búsqueda con 16 productos y 3 coincidieron.</td></tr>
+  </table>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>«cofre de madera» gastó 120 MXN sin órdenes, con Jev 0 de 16. Sale como <b>Ajena</b>. «arras doradas» gastó 90 MXN, con Jev 14 de 16, y vende en otro grupo. Sale como <b>Vende en otro ad group</b>.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>Estaba vacía en los dos mercados, con «Calculado el 2026-10-21 09:34» y «Sin cálculo reciente». Decía «el job sigue apagado o nada gasta sin vender». El job es la revisión de Jev. Salud decía Jev Encendido, pero eso solo dice que el interruptor está prendido. Mira Calculado el. Vacío no quiere decir que nada gaste sin vender.</p>
+  </div>
+</section>
+
+<section data-pantalla="busquedas-sin-venta" data-etiqueta="Decidir · Búsquedas que gastan sin vender">
+  <h1>Búsquedas que gastan sin vender</h1>
+  <p class="lead">Suma 90 días de búsquedas de tus campañas encendidas y te muestra dónde se va el dinero sin una sola orden. Es solo de lectura. Cómo bloquear algo está en la página siguiente.</p>
+  <ol class="pasos">
+    <li>Abre la pantalla y elige <b>Amazon MX</b> o <b>Amazon US</b>.</li>
+    <li>Lee la primera frase. Compara qué parte de tu gasto cayó en búsquedas sin venta con lo que daría el azar.</li>
+    <li>Revisa <b>Páginas de producto ajenas</b>. Son páginas de otros productos (ASIN, el código de 10 caracteres de Amazon) donde tu anuncio salió y no vendió. «es un producto tuyo» marca uno tuyo.</li>
+    <li>Revisa <b>Palabras y frases</b>. Palabras sueltas o de dos en dos que se repiten en búsquedas sin venta, con hasta tres <b>Ejemplos</b>.</li>
+  </ol>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td>Quién entra a la lista</td><td>Lo que ya gastó el mínimo para concluir sin ninguna orden. Por omisión, 350 MXN o 36 USD.</td></tr>
+    <tr><td>«de arras» con 30 en Búsquedas</td><td>Juntó 30 búsquedas distintas que contienen «de arras». Ninguna vendió en esos 90 días.</td></tr>
+    <tr><td>A medio camino</td><td>Cuántas llevan entre la mitad y el total del mínimo, todavía sin vender.</td></tr>
+  </table>
+  <div class="caja aviso">
+    <h4>No bloquees una palabra suelta</h4>
+    <p>Si bloqueas «set» o «sin» como negative de frase, tu anuncio deja de salir también en búsquedas buenas que la contienen, como «set de arras matrimoniales». Usa esta lista para entender, y bloquea búsquedas completas.</p>
+  </div>
+  <p>«El azar daría 29 %» es la parte del gasto que caería en búsquedas sin venta aunque todas vendieran como el promedio de tu cuenta. Solo la diferencia contra el azar se podría recuperar.</p>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>De cada 100 pesos, 40 caen en búsquedas sin venta y el azar daría 30. Bloquear todo recuperaría a lo mucho 10, y bloquearía búsquedas buenas con mala suerte.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>En México decía «39 % de tu gasto cayó en búsquedas que no vendieron. Con la conversión de tu cuenta, el azar daría 29 %». El ASIN B0C11QJPKV sumaba 655.79 MXN sin vender. En Estados Unidos, 62 % contra 59 %.</p>
+  </div>
+</section>
+
+<section data-etiqueta="Decidir · dos pantallas parecidas">
+  <h1>¿Gasto sin venta o Búsquedas que gastan sin vender?</h1>
+  <p class="lead">Las dos hablan de búsquedas que se llevan dinero sin vender, y ninguna de las dos tiene botones. Cambian de dónde sale la lista, qué periodo miran y qué te ayudan a decidir.</p>
+  <table>
+    <tr><th>Pregunta</th><th>Cómo responde cada pantalla</th></tr>
+    <tr><td>¿Qué cuenta como «sin venta»?</td><td><b>Gasto sin venta</b> incluye toda búsqueda con gasto y cero órdenes, desde el primer peso.<br><b>Búsquedas</b> incluye solo lo que ya gastó el mínimo, 350 MXN o 36 USD, en 90 días.</td></tr>
+    <tr><td>¿Cómo arma la lista?</td><td><b>Gasto sin venta</b> pone una fila por búsqueda dentro de su grupo.<br><b>Búsquedas</b> junta por página de producto y por palabra repetida.</td></tr>
+    <tr><td>¿Qué te dice además?</td><td><b>Gasto sin venta</b> dice si la búsqueda corresponde a tus productos.<br><b>Búsquedas</b> dice cuánto del gasto perdido se explica por azar.</td></tr>
+    <tr><td>¿Cuándo se actualiza?</td><td><b>Gasto sin venta</b>, cuando corre la revisión de Jev. Avisa si tiene más de 36 horas.<br><b>Búsquedas</b>, al abrirla, con datos hasta tres días antes de hoy.</td></tr>
+    <tr><td>¿Cómo actúo?</td><td>Desde ninguna. En la consola de Amazon Ads abre la campaña y el grupo de esa búsqueda, y agrégala como negative de tipo exacto, el que usa Orbit. Si sale como ajena en Propuestas, usa ahí <b>Bloquear</b> (página {{pag:cortes-rechazar}}).</td></tr>
+  </table>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>«cofre de madera» gastó 400 MXN sin vender en Búsquedas y sale como Ajena en Gasto sin venta. Las dos coinciden y bloquearla tiene sentido.</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>Búsquedas mostraba en México «estuche para» con 9 búsquedas y 735.35 MXN sin vender. Gasto sin venta no podía decir si eran de tus productos, porque su último cálculo era del 21 de octubre y estaba vacío.</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Sabes qué pantalla abrir para ver el panorama del gasto perdido, cuál para revisar una búsqueda concreta y dónde se bloquea.</p>
+  </div>
+</section>
+
+<section data-pantalla="keywords-danadas" data-etiqueta="Decidir · Keywords dañadas">
+  <h1>Regresa un bid que bajó de más</h1>
+  <p class="lead">Muestra keywords que vendían, recibieron uno o más recortes de bid seguidos y casi se quedaron sin clics. Esta pantalla sí cambia algo. Regresar una keyword le sube el bid en Amazon en ese momento.</p>
+  <ol class="pasos">
+    <li>Abre <b>Keywords dañadas</b> y elige <b>Amazon MX</b> o <b>Amazon US</b>. Las que más vendían salen arriba.</li>
+    <li>Cada tarjeta lleva la keyword y su campaña. «sustituto» o «mismo ASIN …» son blancos automáticos de Amazon (página {{pag:decisiones}}). Compara <b>Clics cada 2 semanas</b> y el <b>Bid</b>, antes y hoy.</li>
+    <li>Si alguien ya la regresó, la tarjeta dice <b>Regresada el</b> con la fecha y no tiene botón. Si sigue sin clics con el bid de antes, quizá el bid no era la causa. Avisa al responsable.</li>
+  </ol>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td>Vendía 3 pedidos (2193.09 MXN)</td><td>Pedidos y ventas en los 3 meses antes del primer recorte.</td></tr>
+    <tr><td>Clics cada 2 semanas: 8 antes, 0 ahora</td><td>Entra a la lista cuando ahora recibe menos del 30 % de los clics que tenía antes de los recortes.</td></tr>
+    <tr><td>tras 5 recortes</td><td>Cuántas veces seguidas Orbit bajó su bid. Puede ser una sola.</td></tr>
+    <tr><td>Regresar el bid a 3.95 · Regresar todas</td><td>El botón de cada tarjeta devuelve el bid de antes de la racha. El recuadro de arriba regresa todas las pendientes.</td></tr>
+  </table>
+  <div class="caja aviso">
+    <h4>Regresar cambia el bid en Amazon ahora</h4>
+    <p><b>Regresar el bid a…</b> pide Actor y Token, y luego <b>Confirmar regreso</b>. <b>Regresar todas</b> además pide escribir la frase que muestra, por ejemplo REGRESAR 2 KEYWORDS. Un bid más alto puede traer más gasto.</p>
+    <p>Después Orbit espera 7 días sin tocarla. Luego no la recorta hasta que junte 20 clics o pasen 14 días, y nunca la vuelve a bajar hasta el bid que la dañó. Comprueba el mensaje «Regresado a…» o «Regresadas 2 de 2».</p>
+  </div>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>México tenía 3 tarjetas. «sustituto», en ASEM - Auto Discovery - MX, vendía 3 pedidos (2193.09 MXN). Sus clics pasaron de 8 a 0 y su bid de 3.95 a 2.09 tras 5 recortes. «mismo ASIN B086TVLJ43» decía Regresada el 2026-10-11, con bid de 36.99 antes y hoy, y seguía en 0 clics.</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Reconoces una keyword que perdió su tráfico por recortes y sabes qué pasa antes y después de regresarla.</p>
+  </div>
+</section>
+
+<section data-pantalla="ruido" data-etiqueta="Decidir · Ruido">
+  <h1>Cuánto es señal y cuánto es azar</h1>
+  <p class="lead">Cada ciclo Orbit revisa miles de keywords y decide si cambia su bid. Ruido te muestra cuántas cambió, cuántas dejó igual y por qué. Así ves si Orbit actúa con evidencia o se deja llevar por casualidades. Es solo de lectura.</p>
+  <h2>Señal y azar, sin fórmulas</h2>
+  <p>Con pocos clics, los números engañan. Una keyword puede pasar 20 clics sin vender por mala suerte y vender tres veces en los 20 siguientes. Si Orbit bajara el bid en cada mala racha, se movería por azar.</p>
+  <p>Por eso Orbit cambia un bid solo cuando la diferencia ya es clara. Eso es la señal. Si todavía puede ser casualidad, deja el bid igual y lo anota como <b>azar_lo_explica</b>. Dejarlo igual se llama abstenerse.</p>
+  <div class="flujo">
+    <div><b>Lee los datos</b>Clics, gasto y ventas</div><i>→</i>
+    <div><b>¿Ya es claro?</b>O puede ser suerte</div><i>→</i>
+    <div><b>Sí, decide</b>Sube o baja el bid</div><i>→</i>
+    <div><b>No, se abstiene</b>Lo deja igual y anota por qué</div>
+  </div>
+  <div class="caja ejemplo">
+    <h4>Ejemplo para aprender</h4>
+    <p>Lanzas una moneda 4 veces y sale águila 3 veces. No concluyes que la moneda está cargada. Con 400 lanzamientos y 300 águilas, sí. Una keyword con 1 venta en 10 clics se parece a la primera moneda. Una con 40 ventas en 400 clics, a la segunda.</p>
+  </div>
+  <ol class="pasos">
+    <li>Abre <b>Ruido</b> y elige <b>Amazon MX</b> o <b>Amazon US</b>.</li>
+    <li>En <b>Por ciclo</b> hay una tarjeta por ciclo, de la más vieja a la más nueva. En México eran 89. El último ciclo es la tarjeta justo antes del título <b>Encogimiento por hoja</b>.</li>
+    <li>En cada tarjeta lee <b>Decisiones por motivo y nivel</b> (lo que cambió) y <b>Abstenciones por motivo</b> (lo que dejó igual).</li>
+    <li>Si aparece «Shadow, no aplicado», son decisiones de práctica que no cambiaron nada en Amazon.</li>
+  </ol>
+  <h3>Encogimiento por hoja</h3>
+  <p>«Hoja 3861 · Bid: 13.64 antes, 3.71 hoy (MXN). Quedó en 27.20 %» quiere decir que el bid de hoy es el 27 % del que tenía antes de su primer cambio en los últimos 90 días. Una hoja es una keyword o un target. La tarjeta da su número interno, no su nombre.</p>
+  <h3>Antes y después del encendido</h3>
+  <p>Al final, compara gasto, pedidos, venta y ACoS de los 30 días antes de encender la forma actual de decidir bids con los días desde entonces. No prueba que Orbit causó la diferencia. La temporada, los precios o las campañas nuevas también mueven estos números.</p>
+  <p>La página {{pag:inicio}} explica ciclo, bid y ACoS. La página siguiente traduce los motivos.</p>
+</section>
+
+<section data-etiqueta="Decidir · Ruido · cómo leerlo">
+  <h1>Lee los motivos de Ruido</h1>
+  <p class="lead">Ruido muestra los motivos con su nombre interno. Esta tabla traduce los que más aparecen. Para otros, la gráfica de skips de Salud muestra los motivos del último ciclo en palabras al pasar el cursor (página {{pag:salud}}).</p>
+  <table>
+    <tr><th>Lo que ves</th><th>Qué significa</th></tr>
+    <tr><td>bajo_target · hoja: 7</td><td>Subió 7 bids un 15 % porque el ACoS de esas keywords está por debajo de la meta. «hoja» es la keyword sola. «ad_group» quiere decir que juzgó a todo su grupo.</td></tr>
+    <tr><td>grupo_sangra_vendedora</td><td>La keyword vende, pero su grupo gasta más de 15 % arriba de su meta. Bajó el bid 12 %.</td></tr>
+    <tr><td>regreso_por_desplome</td><td>Regresó un bid porque el cambio anterior hizo caer el tráfico.</td></tr>
+    <tr><td>azar_lo_explica</td><td>Se abstuvo. La diferencia todavía puede ser casualidad.</td></tr>
+    <tr><td>grupo_cumple · sin_evidencia</td><td>Se abstuvo. El grupo ya cumple la meta, o no hay datos suficientes ni en la keyword ni en su grupo.</td></tr>
+    <tr><td>esperando_efecto · sin_clics_nuevos</td><td>Se abstuvo. El último cambio de bid es reciente y espera 7 días o clics nuevos para medirlo.</td></tr>
+    <tr><td>sin_gasto · venta_reciente · dato_faltante</td><td>Se abstuvo. No gastó, vendió hace poco y esa venta todavía puede crecer, o falta un dato.</td></tr>
+    <tr><td>campana_no_enabled · estado_no_enabled · entidad_inerte</td><td>Ni siquiera la juzgó. La campaña o la keyword no está habilitada, o no tuvo impresiones en 14 días.</td></tr>
+  </table>
+  <div class="caja cuenta">
+    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
+    <p>En México, el último ciclo (Ciclo 177 · 2026-11-08 17:58) no tuvo decisiones y anotó 22 veces azar_lo_explica. Encendido el 2026-10-11, el ACoS de México pasó de 14.42 % a 13.57 % y el de Estados Unidos de 33.70 % a 50.93 %.</p>
+    <p>En Estados Unidos, la Hoja 5338 decía «Bid: 0.68 antes, 0.23 hoy (USD)». En Keywords dañadas, «arras de boda cristiana» tiene ese mismo bid, así la reconoces.</p>
+  </div>
+  <div class="caja comprobar">
+    <h4>Lo que ya puedes comprobar</h4>
+    <p>Sabes si Orbit está cambiando bids o absteniéndose, y por qué. Lees el antes y después sin tomarlo como prueba.</p>
+  </div>
+</section>

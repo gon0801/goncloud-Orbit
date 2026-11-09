@@ -1,0 +1,68 @@
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; }
+body {
+  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  color: #3b4652; font-size: 10.6pt; line-height: 1.45;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.hoja {
+  width: 210mm; height: 297mm; padding: 13mm 15mm 0 15mm;
+  position: relative; overflow: hidden; page-break-after: always; break-after: page;
+}
+.hoja:last-child { page-break-after: auto; break-after: auto; }
+.encabezado { display: flex; justify-content: space-between; font-size: 8.4pt; letter-spacing: .02em; margin-bottom: 9mm; }
+.encabezado .marca { color: #0f7a74; font-weight: 700; }
+.encabezado .seccion { color: #6b7682; text-transform: uppercase; }
+.cuerpo { height: 252mm; overflow: hidden; }
+.pie {
+  position: absolute; left: 15mm; right: 15mm; bottom: 10mm;
+  border-top: 1px solid #e3e8ec; padding-top: 2.5mm;
+  display: flex; justify-content: space-between; font-size: 8pt; color: #6b7682;
+}
+h1 { font-size: 25pt; line-height: 1.12; color: #1d2b3a; margin: 0 0 4mm; font-weight: 700; }
+.portada h1 { font-size: 30pt; margin-bottom: 5mm; }
+h2 { font-size: 14pt; color: #1d2b3a; margin: 6mm 0 2.5mm; }
+h3 { font-size: 11.5pt; color: #1d2b3a; margin: 4.5mm 0 1.5mm; }
+p { margin: 0 0 2.6mm; }
+.lead { font-size: 12.2pt; line-height: 1.5; color: #3b4652; margin-bottom: 5mm; }
+b, strong { color: #1d2b3a; }
+.caja { border-radius: 3mm; padding: 3.6mm 5mm 3.2mm 6mm; margin: 4mm 0; position: relative; background: #e9f4f3; }
+.caja::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1.4mm; border-radius: 3mm 0 0 3mm; background: #0f7a74; }
+.caja h4 { margin: 0 0 1mm; font-size: 10.6pt; color: #1d2b3a; }
+.caja p { margin: 0 0 1.4mm; }
+.caja p:last-child { margin-bottom: 0; }
+.caja.aviso { background: #fdf4e3; }
+.caja.aviso::before { background: #a0590b; }
+.caja.cuenta, .caja.comprobar, .caja.ejemplo { background: #e9f4f3; }
+.flujo { display: flex; align-items: stretch; gap: 0; margin: 5mm 0; }
+.flujo > div { flex: 1; background: #e9f4f3; border-radius: 3mm; padding: 4mm 4.5mm; min-height: 22mm; }
+.flujo > div:nth-child(odd) { background: #e9f4f3; }
+.flujo > div:nth-child(even) { background: #f1f5f7; }
+.flujo > div b { display: block; color: #1d2b3a; margin-bottom: .8mm; }
+.flujo > i { flex: 0 0 7mm; display: flex; align-items: center; justify-content: center; color: #0f7a74; font-style: normal; font-size: 12pt; }
+ol.pasos { list-style: none; counter-reset: paso; padding: 0; margin: 3mm 0 4mm; }
+ol.pasos > li { counter-increment: paso; position: relative; padding-left: 11mm; margin-bottom: 2.8mm; min-height: 6mm; }
+ol.pasos > li::before {
+  content: counter(paso); position: absolute; left: 0; top: -.4mm; width: 6.4mm; height: 6.4mm;
+  border-radius: 1.6mm; background: #e9f4f3; color: #0f7a74; font-weight: 700; font-size: 8.6pt;
+  display: flex; align-items: center; justify-content: center;
+}
+ul { margin: 2mm 0 3.5mm; padding-left: 5mm; }
+ul li { margin-bottom: 1.6mm; }
+ul li::marker { color: #0f7a74; }
+table { width: 100%; border-collapse: collapse; margin: 3mm 0 4mm; font-size: 9.8pt; }
+th { background: #e9f4f3; color: #0f7a74; text-align: left; font-size: 8.8pt; font-weight: 700; padding: 2.6mm 3.5mm; }
+td { padding: 1.9mm 3.5mm; border-bottom: 1px solid #e3e8ec; vertical-align: top; }
+tr:nth-child(even) td { background: #f5f8fa; }
+td:first-child { width: 40%; }
+.nota { font-size: 8.8pt; color: #6b7682; }
+figure { margin: 4mm 0; text-align: center; }
+figure img { max-width: 100%; max-height: 92mm; border: 1px solid #e3e8ec; border-radius: 2mm; }
+figcaption { font-size: 8.6pt; color: #6b7682; margin-top: 1.5mm; text-align: left; }
+.recorrido h3 { margin: 3.2mm 0 0; font-size: 10.6pt; }
+.recorrido p { margin: 0; color: #6b7682; font-size: 9.6pt; }
+.bloque-titulo { font-size: 8.6pt; color: #0f7a74; font-weight: 700; text-transform: uppercase; margin: 5.5mm 0 0; letter-spacing: .03em; }
+.dos-col { columns: 2; column-gap: 8mm; }
+.dos-col > * { break-inside: avoid; }
+.ficha p { margin: 0 0 2mm; font-weight: 700; color: #1d2b3a; }
