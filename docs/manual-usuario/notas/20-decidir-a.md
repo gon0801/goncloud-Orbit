@@ -30,6 +30,19 @@ Producción: `http://10.13.13.1:8010`, solo GET, el 8-nov-2026.
 - Búsquedas ajenas de Jev: `cortes.html:210-277` (Bloquear / Rechazar con Token solo). Tus bloqueos / Quitar `:278-329`. Efectos: `app/bloqueo_dueno_efecto.py` (docstring: «Efecto del bloqueo que el dueño aprueba: ledger, Amazon…»). `rechazar` inserta un veredicto 'rechazado', `quitar` hace la reversa en Amazon (`_quitar_con_candado`).
 - Señal «desactualizada»: `app/templates/_senal.html:8`.
 
+## CLARIDAD 01 C (2026-11-09): lo que cambió en Propuestas
+Las hojas 1-3 de Propuestas se corrigieron solo donde la pantalla nueva las contradecía. Las cajas
+«Tu cuenta» siguen con la consulta del 8-nov; las recaptura el bloque J. Las líneas de arriba que
+citan `datos.items.length`, «hasta el {{ item.vence_el }}» o «La API no expone el modo por fila»
+describen la versión anterior.
+- Contador = solo items `modo == "live"`; `aria-label` «N pendientes (M de práctica)»: `app/static/js/shell.js:28-33`.
+- Cada item de `GET /api/dashboard/cortes` trae `modo`: `app/api_dashboard.py` `_SQL_CORTES_PENDIENTES` y `cortes()`.
+- Chip «Práctica» en Tipo y «No se aplica: es práctica» en Vence para `modo == "shadow"`: `app/templates/cortes.html:23`, `:34`.
+- Recuadro de una de práctica, «El rechazo sí bloquea esta propuesta de verdad…»: `cortes.html:80-81`. El veto bloquea la clave sin mirar el modo, también para una propuesta real futura: `app/apply_cola.py:156-162` (`_SQL_CLAVES_BLOQUEADAS`).
+- «Bloquea la propuesta durante los días que pongas abajo, contados desde hoy.»: `cortes.html:86`; `vence_el = now() + N días` en `app/api_write.py:279`.
+- Etiqueta de la pausa por entidad (Apagar palabra, Apagar segmentación de producto, Pausar anuncio del producto) y su efecto («el anuncio del producto NO se pausará»): `app/api_dashboard.py` `ETIQUETA_POR_KIND`, `EFECTO_RECHAZO_POR_KIND` (~l.1362-1384).
+- «Rechazado hasta el <fecha> (hora del centro de México)»: `app/static/js/cortes.js:64` y `fechaLegible`.
+
 ## Gasto sin venta (/gasto-sin-venta)
 - Plantilla: `app/templates/gasto_sin_venta.html`. Mercado `:11-12`, «Calculado el» `:15`, aviso de 36 h `:18`, «Productos que dijeron que sí» `:40`, vacío «Sin filas en este mercado…» `:70`. Sin botones.
 - Filas: señales vigentes con `ordenes = 0 AND gasto > 0`: `app/jev_salud.py:257-279`. Aviso de más de 36 h: `app/api_dashboard.py` `_calculo_viejo`.
