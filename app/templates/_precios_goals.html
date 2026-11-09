@@ -11,13 +11,16 @@
 
   <section id="bloque-goals-{{ plataforma }}" aria-label="Goals {{ plataforma }}">
   <h3>Goals — siembra y cambio</h3>
+  {% if datos.tacos %}
+  <p data-tacos>TACoS {{ datos.tacos.plataforma }}, {{ datos.tacos.mes_es }}: {{ datos.tacos.pct | dinero_ui }} %</p>
+  {% endif %}
   {% if datos.unidades %}
   <div class="tabla-scroll" role="region" aria-label="Unidades {{ plataforma }}" tabindex="0">
   <table>
-    <thead><tr><th>Sel</th><th>SKU</th><th>Canal</th><th class="num">Margen hoy</th><th class="num">Goal</th><th>Modo</th><th class="num">Precio objetivo</th><th>Origen envío</th><th class="num">TACoS</th></tr></thead>
+    <thead><tr><th>Sel</th><th>SKU</th><th>Canal</th><th class="num">Margen hoy</th><th class="num">Goal</th><th>Modo</th><th class="num">Precio objetivo</th><th>Origen envío</th></tr></thead>
     <tbody>
       {% for u in datos.unidades %}
-      <tr><td><input type="checkbox" class="precios-check" value="{{ u.listing_id }}" data-sku="{{ u.sku }}" aria-label="Elegir {{ u.sku }}"></td><td class="mono">{{ u.sku }}</td><td>{{ u.canal or "—" }}</td><td class="num">{{ u.margen_hoy | porcentaje_ui or "—" }}</td><td class="num">{{ u.goal | porcentaje_ui or "—" }}</td><td>{{ u.goal_mode or "—" }}</td><td class="num">{{ u.precio_objetivo | dinero_ui or "—" }}</td><td>{% if u.envio_origen in ("familia", "marketplace") %}<span class="chip alerta">{{ u.envio_origen }}</span>{% else %}{{ u.envio_origen or "—" }}{% endif %}</td><td class="num">{% if u.tacos %}{{ u.tacos | dinero_ui }} %{% else %}—{% endif %}</td></tr>
+      <tr><td><input type="checkbox" class="precios-check" value="{{ u.listing_id }}" data-sku="{{ u.sku }}" aria-label="Elegir {{ u.sku }}"></td><td class="mono">{{ u.sku }}</td><td>{{ u.canal or "—" }}</td><td class="num">{{ u.margen_hoy | porcentaje_ui or "—" }}</td><td class="num">{{ u.goal | porcentaje_ui or "—" }}</td><td>{{ u.goal_mode or "—" }}</td><td class="num">{{ u.precio_objetivo | dinero_ui or "—" }}</td><td>{% if u.envio_origen in ("familia", "marketplace") %}<span class="chip alerta">{{ u.envio_origen }}</span>{% else %}{{ u.envio_origen or "—" }}{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -139,6 +142,9 @@
 
   <section id="bloque-no-evaluados-{{ plataforma }}" aria-label="No evaluados">
   <h3>No evaluados</h3>
+  {% if datos.no_a_la_venta %}
+  <p data-no-a-la-venta>Con objetivo pero sin estar a la venta: {{ datos.no_a_la_venta }}. El motor no evalúa ni cambia el precio de estas publicaciones.</p>
+  {% endif %}
   {% if datos.no_evaluados_filas %}
   <div class="tabla-scroll" role="region" aria-label="No evaluados del dia" tabindex="0">
   <table>

@@ -211,6 +211,9 @@ class Vitrina(Protocol):
 
     clave: Plataforma
     moneda: Moneda
+    # CLARIDAD 01 E.2: la corrida decide, mide y aplica solo sobre `catalogo`
+    # (Amazon: lo que esta a la venta); sin el, sobre todo goal vigente (MeLi).
+    filtra_catalogo: bool
 
     def catalogo(self, conn: Conexion, *, hoy: date) -> tuple[UnidadActiva, ...]:
         """Activas canonicas. UNA definicion por plataforma, usada por la

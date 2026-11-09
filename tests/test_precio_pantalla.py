@@ -1841,29 +1841,73 @@ def test_r1b_a5_divergente_racha_de_tres():
 
 
 @_skip_sin_pg
-def test_r1b_b1_no_evaluados_filas_del_dia_en_palabras():
-    """B1: (d) sale de las decisiones `no_evaluado` de hoy (una fila por
-    SKU, motivo en palabras), aunque el listing no este en el recuadro."""
+def test_r1b_b1_no_evaluados_filas_cuadran_con_la_cobertura():
+    """B1 + CLARIDAD 01 E.4: (d) sale de las filas no evaluadas de la
+    Cobertura (una por SKU, motivo en palabras): su largo es la suma de
+    `no_evaluadas` y los motivos coinciden. La decision `no_a_la_venta` de un
+    listing fuera del catalogo no entra en la lista: va contada aparte. Si
+    el listing volvio a estar a la venta, va en la lista (o fuera de alcance
+    con su universo apagado) y no se cuenta aparte (F3 y h_33c4260b de la
+    revision: nunca dos veces)."""
     with _db_temp() as conn:
         _config_pantalla(conn)
         prod = _producto(conn)
-        lid1 = _listing(conn, prod, sku="SKU-B1-1", ext="B0B100001")
-        _goal(conn, lid1)
-        _decision(conn, lid1, motivo="precio_sin_observar")
-        lid2 = _listing(conn, prod, sku="SKU-B1-2", ext="B0B100002")
-        _goal(conn, lid2)
-        _decision(conn, lid2, motivo="moneda_divergente")
-        lid3 = _listing(conn, prod, sku="SKU-B1-3", ext="B0B100003")
-        _goal(conn, lid3)
-        _decision_subir_pantalla(conn, lid3)
+        filas_sembradas = (
+            ("SKU-B1-1", "B0B100001", "precio_sin_observar"),
+            ("SKU-B1-2", "B0B100002", "ventas_sin_dato:historia_corta"),
+            ("SKU-B1-3", "B0B100003", None),
+            ("SKU-B1-4", "B0B100004", "subir"),
+        )
+        for sku, ext, motivo in filas_sembradas:
+            lid = _listing(conn, prod, sku=sku, ext=ext)
+            _estado_pantalla(conn, sku=sku)
+            _oferta_pantalla(conn, lid, sku=sku, ext=ext)
+            _goal(conn, lid)
+            if motivo == "subir":
+                _decision_subir_pantalla(conn, lid)
+            elif motivo is not None:
+                _decision(conn, lid, motivo=motivo)
+        fuera = _listing(conn, prod, sku="SKU-B1-5", ext="B0B100005")
+        _goal(conn, fuera)
+        _decision(conn, fuera, motivo="no_a_la_venta")
+        volvio = _listing(conn, prod, sku="SKU-B1-6", ext="B0B100006")
+        _estado_pantalla(conn, sku="SKU-B1-6")
+        _oferta_pantalla(conn, volvio, sku="SKU-B1-6", ext="B0B100006")
+        _goal(conn, volvio)
+        _decision(conn, volvio, motivo="no_a_la_venta")
+        apagada = _listing(conn, prod, sku="SKU-B1-7", ext="B0B100007")
+        _estado_pantalla(conn, sku="SKU-B1-7")
+        _oferta_pantalla(conn, apagada, sku="SKU-B1-7", ext="B0B100007", canal="fbm")
+        _goal(conn, apagada)
+        _decision(conn, apagada, motivo="no_a_la_venta")
         bloque = dash.precios(conn)["plataformas"]["amazon_mx"]
         filas = {f["sku"]: f for f in bloque["no_evaluados_filas"]}
-        assert set(filas) == {"SKU-B1-1", "SKU-B1-2"}
-        assert filas["SKU-B1-1"]["motivo_es"] == "sin observacion de precio del dia"
-        assert filas["SKU-B1-2"]["motivo_es"] == "moneda distinta entre observacion y escenario"
-        for f in filas.values():
-            assert f["motivo"] in ("precio_sin_observar", "moneda_divergente")
-        assert bloque["no_evaluados"] == {"precio_sin_observar": 1, "moneda_divergente": 1}
+        assert filas == {
+            "SKU-B1-1": {
+                "sku": "SKU-B1-1",
+                "motivo": "precio_sin_observar",
+                "motivo_es": "sin observacion de precio del dia",
+            },
+            "SKU-B1-2": {
+                "sku": "SKU-B1-2",
+                "motivo": "ventas_sin_dato:historia_corta",
+                "motivo_es": "ventas sin dato: historia de ventas corta",
+            },
+            "SKU-B1-3": {"sku": "SKU-B1-3", "motivo": "sin_decision", "motivo_es": "sin decision"},
+            "SKU-B1-6": {
+                "sku": "SKU-B1-6",
+                "motivo": "no_a_la_venta",
+                "motivo_es": "no esta a la venta",
+            },
+        }
+        assert sorted(bloque["cobertura"]["no_evaluadas"], key=lambda n: n["motivo"]) == [
+            {"motivo": "no_a_la_venta", "count": 1},
+            {"motivo": "precio_sin_observar", "count": 1},
+            {"motivo": "sin_decision", "count": 1},
+            {"motivo": "ventas_sin_dato:historia_corta", "count": 1},
+        ]
+        assert bloque["cobertura"]["fuera_de_alcance"] == [{"fase": "universo_apagado", "count": 1}]
+        assert bloque["no_a_la_venta"] == 1
 
 
 @_skip_sin_pg
@@ -2711,7 +2755,8 @@ def test_r1b2_m58_goal_anulado_hoy_fuera_de_con_goal():
 def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
     """S.3: /precios trae el bloque de seguridad: modos, ultima corrida,
     retenciones abiertas del dia y el boton Soltar con la corrida liberable;
-    el JSON trae la misma `seguridad`."""
+    el JSON trae la misma `seguridad`. CLARIDAD 01 E.5: la ultima corrida
+    trae las decisiones de su dia y su medicion de la compuerta."""
     with _db_pantalla("s3-seg") as (conn, dsn):
         cfg = _config_pantalla(conn)
         corrida = conn.execute(
@@ -2724,7 +2769,13 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
             " VALUES (%s, 'fba', 158, 80, 'movimiento_masivo')",
             (corrida,),
         )
+        lid = _listing(conn, _producto(conn))
+        _goal(conn, lid)
+        _decision(conn, lid)
         html = _html_precios(conn, dsn, monkeypatch)
+        texto = " ".join(html.split())
+        assert "decisiones nuevas en esta corrida · 1 en el día" in texto
+        assert "Compuerta del día: fba 158 medidas, 80 nuevas" in texto
         assert "bloque-seguridad-amazon_mx" in html
         assert "Soltar" in html
         assert f'data-liberar-corrida="{corrida}"' in html
@@ -2734,6 +2785,8 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
         assert seg["modo_global"] == "live"
         assert seg["modo_universo"]["amazon_mx/fba"] == "live"
         assert seg["ultima_corrida"]["corrida_id"] == corrida
+        assert seg["ultima_corrida"]["decisiones_dia"] == 1
+        assert seg["ultima_corrida"]["medicion"] == [{"canal": "fba", "medidas": 158, "nuevas": 80}]
         assert seg["retenciones_abiertas"]["fba"]["causa"] == "movimiento_masivo"
         assert seg["liberable_corrida_id"] == corrida
         assert seg["cohorte"] is None
@@ -3269,8 +3322,9 @@ def _g3_semilla(conn):
 
 @_skip_sin_pg
 def test_g3_precios_unidades_traen_margen_goal_objetivo_origen_y_tacos(monkeypatch):
-    """G.3: el JSON trae por unidad margen de hoy, goal, precio objetivo,
-    origen del envio y TACoS del mes del corte (None donde no hay dato)."""
+    """G.3: el JSON trae por unidad margen de hoy, goal, precio objetivo y
+    origen del envio (None donde no hay dato). CLARIDAD 01 E.5: el TACoS del
+    mes del corte va una vez por plataforma, no en cada fila."""
     with _db_pantalla("g3-json") as (conn, dsn):
         sku_a, sku_b = _g3_semilla(conn)
         data = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios").json()
@@ -3280,12 +3334,13 @@ def test_g3_precios_unidades_traen_margen_goal_objetivo_origen_y_tacos(monkeypat
         assert a["goal"] is None
         assert a["precio_objetivo"] is None
         assert a["envio_origen"] == "familia"
-        assert a["tacos"] == "10.00"
         assert b["margen_hoy"] == "0.3000"
         assert b["goal"] == "0.2500"
         assert b["precio_objetivo"] == "127.6000"
         assert b["envio_origen"] == "politica"
-        assert b["tacos"] == "10.00"
+        assert all("tacos" not in u for u in uni.values())
+        tacos = data["plataformas"]["amazon_mx"]["tacos"]
+        assert (tacos["plataforma"], tacos["pct"]) == ("Amazon MX", "10.00")
 
 
 @_skip_sin_pg

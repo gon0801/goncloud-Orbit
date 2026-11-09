@@ -99,6 +99,7 @@ class _MercadoFalso:
     clave = "amazon_mx"
     moneda = "MXN"
     grupo_tasa = "spapi"
+    filtra_catalogo = True
 
     def __init__(self, *, vivo="116.00"):
         from app.spapi.precio_mercado import MercadoAmazon
