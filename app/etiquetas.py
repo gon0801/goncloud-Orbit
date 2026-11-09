@@ -95,8 +95,11 @@ MOTIVO_SALUD: dict[str, str] = {
         "Grupo de anuncios no habilitado (pausado, archivado o sin estado)"
     ),
     ciclo.MOTIVO_ENTIDAD_INERTE: "Sin impresiones en 14 días: Orbit no mueve su puja",
+    # Lo cuentan la espera tras cualquier cambio aplicado (puja o pausa) y la de
+    # una pausa aplicada aunque el dueno la haya revertido (goals.en_cooldown).
     ciclo.MOTIVO_COOLDOWN_7D: (
-        "Orbit cambió su puja hace menos de 7 días: espera antes de volver a moverla"
+        "Orbit ya le aplicó un cambio en Amazon hace menos de 7 días (una puja o una pausa,"
+        " aunque después se haya revertido): espera antes de volver a actuar"
     ),
     ciclo.MOTIVO_ESCALERA_OFF: "El motor de pujas está apagado en todas las plataformas",
     ciclo.MOTIVO_POLITICA_APAGADA: "El motor de pujas está apagado en esta plataforma",
