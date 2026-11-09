@@ -127,6 +127,7 @@ prueba-real: python3 tools/pantallas_claras.py --base http://10.13.13.1:8010 --r
 | H.3 | `app/formato.py` con los filtros de `app/ui.py:81-207`: `dinero` con miles y 2 decimales (cambia el cuerpo de `dinero_ui`, que arregla sus 34 usos, y borra `dinero_coma_ui`), `pct` para valores que ya vienen en porcentaje (2 decimales: «19.37 %», igual para metas y ACoS), `numero` con miles y `fecha_hora` en `America/Mexico_City` («8 nov, 11:58») en lugar de `ts_ui`. Una leyenda en `base.html` dice «Horas del centro de México». | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui.py tests/test_ui_metricas.py tests/test_ui_contribucion.py |
 | H.4 | Recorrer las plantillas Jinja: todo campo con código pasa por `etiqueta`, toda cifra por `dinero`/`numero`/`pct` y toda fecha por `fecha_hora` (incluidas las 31 que hoy se imprimen sin filtro y la meta de `decisiones.html:21` y `settings.html:28`). Los nombres de campaña, keywords, búsquedas y subfamilias llevan `data-dato-libre`. Nunca se formatea dentro de `value=`, `data-` ni campos de formulario: un «1,500» en el cap de `settings.html:122` dejaría el campo vacío y guardaría un cap vacío. El código crudo puede quedar en `title=` para diagnóstico. Fichas de `features/` actualizadas. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui.py tests/test_api_dashboard.py tests/test_ui_productos.py tests/test_ui_reputacion.py tests/test_precio_pantalla.py |
 | H.5 | Textos que el detector de H ya cuenta. Reescribir sin jerga los subtítulos del diccionario `paginas` de `base.html:21-41` (hoy «vintage D-15 UTC», «procedencia», «quota y skips») y los párrafos técnicos de `settings.html:5-7`, `contribucion.html:4`, `campanas.html:132-133` y `salud.html:98`. | bash -c '! grep -nE "UTC\|vintage\|x-orbit-token" app/templates/base.html app/templates/contribucion.html app/templates/settings.html' |
+| H.6 | Textos de los motivos sin jerga del motor. «Hoja» (el elemento con puja propia: una keyword o un producto objetivo) y «sangra» (pierde dinero) son palabras del diseño interno de BIDS 02 (PR #423) que llegaron a la pantalla, por ejemplo `politica.MOTIVO_GRUPO_SANGRA_VENDEDORA` («La hoja vende pero su grupo sangra: -12%», `app/api_dashboard.py:237`) y `MOTIVO_GRUPO_SANGRA` (`:241`). Al mudarlos al registro, escribir cada texto en palabras del usuario: «La keyword vende, pero su grupo pierde dinero: baja 12 %». Lo mismo con cualquier otro motivo que use jerga del motor. | bash -c 'test -f app/etiquetas.py && ! grep -rniE "\\bhoja\\b\|sangra" app/etiquetas.py app/templates' |
 
 ## Bloque I — Gráficas, scripts y textos de pantalla sin jerga
 lane: release
@@ -141,9 +142,21 @@ prueba-real: python3 tools/pantallas_claras.py --base http://10.13.13.1:8010 --n
 | I.3 | Ruido. Ciclos del más nuevo al más viejo (`pantalla_ruido._SQL_CICLOS`, `ORDER BY c.id DESC`); el encogimiento muestra el nombre de la hoja con `_SQL_NOMBRES` y `etiqueta_entidad`, como `pantalla_danadas`. Keywords dañadas: las tarjetas recorren solo `pendientes`; las regresadas van en un `<details>` «Ya regresadas (n)». | bash -c 'grep -q "ORDER BY c.id DESC" app/pantalla_ruido.py && grep -q "Ya regresadas" app/templates/keywords_danadas.html && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_pantalla_ruido.py tests/test_pantalla_danadas.py' |
 | I.4 | Productos sin clics deja de mostrar JSON crudo como nombre de hoja (`etiqueta_entidad`). `shell.js` (`:53-77`) pinta el recuadro Último ciclo con `Orbit.fechaHora` y `Orbit.etiqueta` (estado y modo traducidos, hora del centro de México), igual que la leyenda de H.3. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui.py tests/test_ui_copy_campana.py |
 
+## Bloque K — El regreso de puja usa la misma evidencia de ventas que la pausa
+lane: release
+depende: -
+pruebas: dinero
+despliegue: desplegar=tools/despliegue/desplegar.sh checklist=tools/despliegue/checklist.sh rollback=tools/despliegue/rollback.sh
+aviso: Orbit ya no le sube la puja a una keyword que lleva un mes sin vender solo porque vendió hace más de 40 días.
+prueba-real: ssh goncloud 'docker exec orbit-app-1 python -m app.cli cycle --help' > /dev/null
+| Fila | Contenido | Acepta |
+| --- | --- | --- |
+| K.1 | Caso real (decisión #2868, 2026-11-08): la keyword «arras» de AU2 - Category Phrase - US tuvo 100 clics o más, 40 USD o más y cero compras (`purchases30d`, cualquier producto) entre el 26-sep y el 25-oct, y Orbit propuso pausarla el 4-nov. El 8-nov la regla de regreso (`_evalua_r1`, `app/optimizer/politica.py`) le subió la puja de 0.22 a 0.30 USD porque `vendia` (`app/lecturas_caso.py:562`, ventana `ven` de `DIAS_LOOKBACK` = 90 días antes del cambio) encontró una venta anterior al 26-sep. Arreglo: `vendia` se mide con la misma evidencia que la pausa, la ventana de 30 días de `windows.ventana_cortes` (que termina 10 días antes), no con 90 días. No cambiar `DIAS_LOOKBACK` para los demás usos. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_optimizer_politica.py tests/test_optimizer_caso.py tests/test_lecturas_caso.py |
+| K.2 | Prueba (dinero), una, en `tests/test_optimizer_politica.py`: una keyword con una venta hace 45 días, cero compras en la ventana de la pausa y un desplome de tráfico tras una bajada no regresa su puja (sale «Mantener» o sigue al juicio normal, nunca «Regresar»). Con una compra dentro de la ventana, sí regresa. El primer caso falla en `7cf7c9a`. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_optimizer_politica.py -k "regreso and venta" |
+
 ## Bloque J — El entrenamiento queda al día con las pantallas nuevas
 lane: fast
-depende: B, C, D, E, F, G, I
+depende: B, C, D, E, F, G, I, K
 aviso: El entrenamiento completo de Orbit está al día con las pantallas corregidas y reemplaza al manual de Decisiones por producto.
 prueba-real: python3 docs/manual-usuario/build.py /tmp/claridad-manual.pdf
 | Fila | Contenido | Acepta |

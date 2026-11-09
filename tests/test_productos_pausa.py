@@ -15,6 +15,7 @@ from decimal import Decimal
 
 import psycopg
 import pytest
+from conftest import ahora_db
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 from test_cycle import OWNER, _config_version, _entidad, _estado
@@ -288,7 +289,7 @@ def _ciclo(conn, **interruptores: str):
         conn,
         platform="amazon_us",
         owner=OWNER,
-        decided_at=dt.datetime.now(dt.UTC),
+        decided_at=ahora_db(conn),
         heartbeat_cada=1,
     )
     assert res.status == "done", res.notes
@@ -452,7 +453,7 @@ def test_ciclo_en_practica_encola_la_pausa_shadow_y_nunca_la_libera():
         liberacion = apply_cola.libera_vencidos(
             conn,
             "amazon_us",
-            ahora=dt.datetime.now(dt.UTC) + dt.timedelta(days=3),
+            ahora=ahora_db(conn) + dt.timedelta(days=3),
             aplicador=object(),
         )
         assert (liberacion.liberadas, liberacion.aplicadas, liberacion.descartadas) == (0, 0, [])
@@ -502,7 +503,7 @@ def test_revalida_lanza_ante_un_kind_o_una_entidad_sin_rama():
         def fila(kind: str, entidad: int) -> FilaCola:
             return FilaCola(1, kind, entidad, None, 1, {}, "released")
 
-        ahora = dt.datetime.now(dt.UTC)
+        ahora = ahora_db(conn)
         assert apply_cola._rama(conn, fila("pause", m["pa"])) == "pause_producto"
         with pytest.raises(ValueError, match="sin rama para resume"):
             apply_cola._revalida(conn, object(), "amazon_us", fila("resume", m["kw"]), ahora)
@@ -660,7 +661,7 @@ def _simula(conn, limites: p.LimitesPausa) -> p.SimulacionPausa:
     return productos_io.simula_pausa(
         conn,
         "amazon_us",
-        ahora=dt.datetime.now(dt.UTC),
+        ahora=ahora_db(conn),
         settings={},
         goals=_goals(conn),
         limites=limites,
@@ -675,7 +676,7 @@ def _producto_b(conn, m) -> int:
     """SKU-B, en su propio ad group, gasto 0.5 USD con 1 clic cada dia de la
     ventana sin vender: 30 clics y 15 USD, bajo los limites por omision."""
     ag = _entidad(conn, "amazon_us", "ad_group", "g-b", parent=m["camp"])
-    _estado(conn, ag, synced_at=dt.datetime.now(dt.UTC))
+    _estado(conn, ag, synced_at=ahora_db(conn))
     pid = conn.execute(
         "INSERT INTO product (odoo_sku, name) VALUES ('SKU-B', 'SKU-B') RETURNING id"
     ).fetchone()[0]

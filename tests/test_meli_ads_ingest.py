@@ -281,7 +281,8 @@ def test_leer_filas_rechaza_identidad_ausente(tmp_path):
 
 
 def test_leer_filas_rechaza_fecha_futura(tmp_path):
-    futura = (HOY + dt.timedelta(days=1)).isoformat()
+    # "Hoy" al correr, no al importar: si la bateria cruza la medianoche UTC, HOY + 1 ya es hoy.
+    futura = (dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1)).isoformat()
     origen = leer_origen(
         _snapshot(tmp_path / "futura.db", [(futura, "C1", "ALFA", 1, 2, 3.0, 4.0)])
     )
