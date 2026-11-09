@@ -3,11 +3,13 @@
 {% block contenido %}
 <h2>Propuestas pendientes de decision</h2>
 <p class="mutado">
-  Lo que CRECE (terminos que venden) y lo que RECORTA (palabras que se apagan
-  o busquedas que se bloquean). Si no rechazas una propuesta, se aplica sola
-  al vencer su ventana. Rechazarla la bloquea de forma durable (30 dias por
-  defecto, editable): el motor no vuelve a proponerla hasta que venza el
-  bloqueo, y el rechazo <strong>no se puede deshacer.</strong>
+  Lo que CRECE (términos que venden) y lo que RECORTA (palabras,
+  segmentaciones de producto o anuncios que se apagan, y búsquedas que se
+  bloquean). Una propuesta real se aplica sola al vencer su ventana si no la
+  rechazas. Las marcadas «Práctica» nunca se aplican. Rechazar bloquea la
+  propuesta durante los días que elijas (30 por defecto), también si es de
+  práctica: el motor no vuelve a proponerla en ese plazo, y el rechazo
+  <strong>no se puede deshacer.</strong>
 </p>
 {% if asesoria_disponible is defined and not asesoria_disponible %}
 <p class="chip">Asesoria Jev no disponible por ahora: las propuestas se muestran sin su asesoria.</p>
@@ -18,7 +20,7 @@
 {% macro filas(direccion) %}
   {% for item in items if item.direccion == direccion %}
       <tr>
-        <td><span class="chip">{{ item.direccion|capitalize }}</span> {{ item.etiqueta or "—" }}{% if item.hermanas %} <span class="detalle-celda">se negara tambien en: {% for h in item.hermanas %}{{ h.nombre }} ({{ h.rol }}){% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}{% if item.destino and item.destino.motivo %} <span class="chip">{{ item.destino.motivo_es }}</span>{% endif %}</td>
+        <td><span class="chip">{{ item.direccion|capitalize }}</span>{% if item.modo == "shadow" %} <span class="chip">Práctica</span>{% endif %} {{ item.etiqueta or "—" }}{% if item.hermanas %} <span class="detalle-celda">se negara tambien en: {% for h in item.hermanas %}{{ h.nombre }} ({{ h.rol }}){% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}{% if item.destino and item.destino.motivo %} <span class="chip">{{ item.destino.motivo_es }}</span>{% endif %}</td>
         <td>{{ item.nombre or "—" }} <span class="detalle-celda mono">#{{ item.ad_entity_id }} · propuesta #{{ item.id }}</span><span class="detalle-celda">{{ item.plataforma }}</span></td>
         {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
         <td>{{ item.search_term or "—" }}</td>
@@ -29,7 +31,7 @@
           —
           {% endif %}
         </td>
-        <td class="mutado">se aplica solo el {{ item.vence_el|ts_ui }}<span class="detalle-celda">{{ item.estado }} · encolado {{ item.encolado_at|ts_ui }}</span></td>
+        <td class="mutado">{% if item.modo == "shadow" %}No se aplica: es práctica{% else %}se aplica solo el {{ item.vence_el|ts_ui }}{% endif %}<span class="detalle-celda">{{ item.estado }} · encolado {{ item.encolado_at|ts_ui }}</span></td>
         <td>
           {# el click lo cablea /static/js/cortes.js (onclick= inline lo bloquea la CSP) #}
           <button type="button" data-vetar="{{ item.id }}">Rechazar</button>
@@ -72,14 +74,16 @@
       <tr hidden id="form-{{ item.id }}">
         <td colspan="6">
           <form data-veto="{{ item.id }}">
-            {% if item.efecto_rechazo %}
+            {# C.2: una de practica no se aplica aunque no la rechaces, pero
+               su veto si bloquea la clave (apply_cola._SQL_CLAVES_BLOQUEADAS
+               no filtra por modo). #}
+            {% if item.modo == "shadow" %}
+            <p>Es de práctica: no se aplica aunque no la rechaces. El rechazo sí bloquea esta propuesta de verdad durante los días que elijas.</p>
+            {% elif item.efecto_rechazo %}
             <p>{{ item.efecto_rechazo }}</p>
             {% endif %}
             {% if item.hermanas %}<p>Tampoco se negara en: {% for h in item.hermanas %}{{ h.nombre }} ({{ h.rol }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
-            <p class="mutado">
-              Este rechazo NO se puede deshacer y bloquea la propuesta
-              hasta el {{ item.vence_el|ts_ui }}.
-            </p>
+            <p class="mutado">Este rechazo no se puede deshacer. Bloquea la propuesta durante los días que pongas abajo, contados desde hoy.</p>
             <label>Dias <input type="number" name="dias" min="1" max="365" value="30"></label>
             <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien rechaza" required></label>
             <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
