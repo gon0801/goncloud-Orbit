@@ -300,19 +300,19 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     # BIDS 02 M.3: motivos de niveles_v3 (los que emite Mantener).
     politica.MOTIVO_ESPERANDO_EFECTO: "Bid reciente: esperando su efecto (7 dias)",
     politica.MOTIVO_VIGENTE_ENCIMA: "Bid vigente por encima del regreso: sin ajuste",
-    politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "La hoja vende dentro del margen: sin ajuste",
+    politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "Vende dentro del margen: sin cambio de puja",
     politica.MOTIVO_AZAR_LO_EXPLICA: "El azar lo explica: sin ajuste",
     politica.MOTIVO_VENTA_RECIENTE: "Venta reciente en ventana inmadura: sin ajuste",
-    politica.MOTIVO_SIN_GASTO: "Hoja sin gasto: sin ajuste",
-    politica.MOTIVO_HOJA_DELGADA: "Hoja delgada sin dinero que mover: sin ajuste",
+    politica.MOTIVO_SIN_GASTO: "Sin gasto: sin cambio de puja",
+    politica.MOTIVO_HOJA_DELGADA: "Gasta tan poco que no vale la pena mover la puja",
     politica.MOTIVO_GRUPO_CUMPLE: "El grupo cumple: sin ajuste",
-    politica.MOTIVO_SIN_EVIDENCIA: "Sin evidencia en hoja ni grupo: sin ajuste",
+    politica.MOTIVO_SIN_EVIDENCIA: "Sin datos suficientes en la keyword ni en su grupo: sin cambio",
     politica.MOTIVO_ESPERANDO_PRECIO_MEDIDO: "Bid reciente: esperando precio medido",
     politica.MOTIVO_SIN_CLICS_NUEVOS: "Sin clics nuevos al bid vigente: sin ajuste",
     politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Recorte frenado por costo de trafico",
     politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida frenada: sin trafico para medirla",
     politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
-        "{que}: subida de puja frenada, las visitas de más no pagaron el gasto extra"
+        "Subida de puja frenada: las visitas de más no pagaron el gasto extra"
     ),
     politica.MOTIVO_PISO_APRENDIDO: "El recorte tocaria un bid que ya dano: sin ajuste",
     politica.MOTIVO_DATO_FALTANTE: "Dato faltante: sin ajuste",

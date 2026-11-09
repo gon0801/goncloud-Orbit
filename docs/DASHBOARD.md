@@ -231,7 +231,9 @@ Respuesta 200:
 - `nombre` viene del JOIN a `ad_entity.name` (nullable → `null`, no revienta).
 - `motivo_es`: dict de traducción que IMPORTA las constantes `MOTIVO_*` de
   `app/optimizer/bid.py`/`hygiene.py`; motivo desconocido → fallback SIN crash
-  (se devuelve el id crudo del motivo, jamas se pierde información).
+  (se devuelve el id crudo del motivo, jamas se pierde información). Los motivos
+  de pujas llevan `{que}`: `motivo_decision_es(motivo, kind)` lo cambia por el
+  sujeto de la entidad (`SUJETO_POR_ENTIDAD`: La keyword, El producto objetivo...).
 - `old_value`/`new_value`/`value_currency` pueden ser `null` (trampa real: los
   pause traen los tres NULL — el CHECK del esquema solo exige moneda en kinds
   que mueven dinero): el feed los renderiza null sin inventar 0 ni crashear.
