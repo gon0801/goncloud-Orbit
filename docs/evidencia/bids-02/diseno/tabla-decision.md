@@ -29,7 +29,7 @@ campaña y ad group encendidos, hoja encendida, hoja sin veto pendiente y hoja c
 | # | Condición | Acción | Motivo guardado |
 |---|---|---|---|
 | R0 | Cero pedidos, clics y gasto sobre los umbrales de pausa, con datos de 10 días de madurez (regla de hoy, sin cambios). | PAUSE con veto de 48 horas | `pause_umbral` |
-| R1 | El último cambio fue un recorte del motor, la hoja vendía (1 pedido o más en los 90 días previos), tenía volumen (1,000 impresiones o 20 clics en 7 días), ya hay 4 días posteriores y la razón de tráfico es menor a 0.30. | Regresar al bid anterior al recorte | `regreso_por_desplome` |
+| R1 | El último cambio fue un recorte del motor, la hoja vendía (1 pedido o más en la ventana de cortes de la pausa, los 30 días de `windows.ventana_cortes` que terminan a más tardar 10 días antes de decidir; desde CLARIDAD 01 K, antes eran los 90 días previos al recorte), tenía volumen (1,000 impresiones o 20 clics en 7 días), ya hay 4 días posteriores y la razón de tráfico es menor a 0.30. | Regresar al bid anterior al recorte | `regreso_por_desplome` |
 | R2 | Han pasado menos de 7 días desde el último cambio de bid, sea del motor o del dueño, o desde un ajuste por ubicación que el dueño hizo en la campaña de la hoja. | No mover | `esperando_efecto` |
 | R3 | Tiene pedidos y es seguro que su ACoS al bid de hoy supera el equilibrio. | Recorte de 12 %. De 25 % si además es seguro que supera 1.35 × target. | `pierde_dinero`, `pierde_dinero_fuerte` |
 | R4 | Tiene pedidos, no cae en R3, su ACoS al bid de hoy supera el target y su ad group sangra. | Recorte de 12 %, nunca de 25 % | `grupo_sangra_vendedora` |

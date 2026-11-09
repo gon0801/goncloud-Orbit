@@ -156,7 +156,7 @@ class EfectoCambio:
     gasto_post: Decimal | None
     clics_pre: int | None  # tramo de precio anterior al cambio (hasta 30 dias o el cambio previo)
     gasto_pre: Decimal | None
-    vendia: bool | None  # >= 1 pedido en los 90 dias previos al cambio
+    vendia: bool | None  # >= 1 pedido en la ventana de cortes de la pausa (CLARIDAD 01 K)
 
     def razon_trafico(self) -> Decimal | None:
         """(impresiones_post / dias_post_trafico) / (impresiones_pre7 / 7). None sin base
