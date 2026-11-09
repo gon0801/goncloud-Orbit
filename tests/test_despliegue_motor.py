@@ -69,6 +69,9 @@ ALTER TABLE public.config_version DROP COLUMN auto03_prueba_col;
 
 SSH = """#!/usr/bin/env bash
 [ -f "$ORBIT_FAKE_CTL/ssh_falla" ] && { echo "ssh falso: falla" >&2; exit 255; }
+if [ -f "$ORBIT_FAKE_CTL/ssh_falla_presente" ]; then
+  case "$*" in *"bash -s -- presente"*) echo "ssh falso: sin lectura" >&2; exit 255 ;; esac
+fi
 while [ $# -gt 0 ]; do case "$1" in -n | -T) shift ;; -o) shift 2 ;; *) break ;; esac; done
 shift
 case "$*" in
@@ -973,4 +976,38 @@ def test_jev_vigia_reinstalar_el_bloque_y_desplegar_otra_vez_no_borra_el_vigia(s
 
     assert s.rollback("ConVigia2").returncode == 1
     assert s.estado_diario() == "revertido"
+    assert _vigia_en_bloque_orbit(crontab.read_text())
+
+
+def test_jev_vigia_presente_distingue_ausencia_de_lectura_fallida(tmp_path):
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin/crontab").write_text(CRONTAB, encoding="utf-8", newline="\n")
+    (tmp_path / "bin/crontab").chmod(0o755)
+    assert _cron_vigia(tmp_path, "presente").returncode == 1, "sin crontab legible no hay ausencia"
+    (tmp_path / "crontab").write_bytes(CRONTAB_GON.encode())
+    assert _cron_vigia(tmp_path, "presente").returncode == 10
+    assert _cron_vigia(tmp_path, "instala").stdout == "agregada\n"
+    assert _cron_vigia(tmp_path, "presente").returncode == 0
+
+
+def test_jev_vigia_lectura_fallida_no_anota_ni_instala_y_la_reversa_conserva_el_vigia(s):
+    """Hallazgo h_62d4909e (segunda ronda): una lectura de presencia fallida (ssh 255) no es
+    ausencia; desplegar aborta sin anotar CRON= y la reversa no borra la linea previa."""
+    from test_ingesta_cron import _deploy, _reinstala
+
+    crontab = s.ctl / "crontab"
+    crontab.write_bytes(CRONTAB_GON.encode())
+    assert s.motor("ConVigia") == "ok"
+    previo = _reinstala(_deploy(), crontab.read_text())
+    crontab.write_text(previo)
+    (s.ctl / "ssh_falla_presente").touch()
+
+    assert s.motor("ConVigia2") == "fallo_1"
+    assert "CRON=jev-vigia" not in s.ultimo()
+    assert s.estado_diario() == "revertido"
+    assert crontab.read_text() == previo
+
+    (s.ctl / "ssh_falla_presente").unlink()
+    assert s.motor("ConVigia2") == "ok"
+    assert "CRON=jev-vigia" not in s.ultimo()
     assert _vigia_en_bloque_orbit(crontab.read_text())

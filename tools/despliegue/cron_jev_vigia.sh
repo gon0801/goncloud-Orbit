@@ -9,7 +9,9 @@
 # solo esas dos lineas. Las dos respaldan el crontab en ORBIT_CRON_ARCHIVO antes de escribirlo, no
 # tocan ninguna otra linea y son idempotentes: si no hay nada que cambiar, no escriben. Imprimen
 # "agregada", "movida", "quitada" o "sin cambios". revisa sale 0 si la linea efectiva esta una
-# sola vez dentro del bloque; presente, si esta en cualquier parte del crontab.
+# sola vez dentro del bloque. presente sale 0 si la linea esta en cualquier parte del crontab y
+# 10 si se leyo el crontab y no esta; cualquier otra salida (1 si no pudo leer el crontab, 255 de
+# ssh) es "no se sabe", nunca ausencia.
 set -euo pipefail
 
 ARCHIVO=${ORBIT_CRON_ARCHIVO:-/mnt/data/appdata/orbit/archive}
@@ -49,7 +51,7 @@ case "$ACCION" in
     echo "linea jev-vigia en el bloque Orbit: $n veces (se espera 1)" >&2
     exit 1 ;;
   presente)
-    grep -qxF -- "$LINEA" "$ACTUAL" ;;
+    grep -qxF -- "$LINEA" "$ACTUAL" || exit 10 ;;
   instala)
     ANTES=$(grep -cxF -- "$LINEA" "$ACTUAL" || true)
     if [ "$ANTES" = 1 ] && [ "$(en_bloque)" = 1 ]; then

@@ -195,12 +195,17 @@ if ! git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
 elif cron_vigia revisa; then
   echo "la linea ya estaba"
 else
-  # CRON= solo si la linea no existia: la reversa quita lo que agrego esta corrida, no una
-  # linea previa que el instalador del bloque de docs/DEPLOY.md dejo fuera y aqui se mueve.
+  # CRON= solo con la ausencia comprobada (presente sale 10): la reversa quita lo que agrego esta
+  # corrida, no una linea previa que el instalador del bloque de docs/DEPLOY.md dejo fuera y aqui
+  # se mueve. Si no se pudo leer el crontab, no se anota ni se instala.
   sigue_candado
-  if ! cron_vigia presente && ! printf '%s\n' "$(lee_ultimo)" | grep -qx 'CRON=jev-vigia'; then
-    anota CRON=jev-vigia
-  fi
+  rc=0
+  cron_vigia presente || rc=$?
+  case "$rc" in
+    0) ;;
+    10) printf '%s\n' "$(lee_ultimo)" | grep -qx 'CRON=jev-vigia' || anota CRON=jev-vigia ;;
+    *) echo "ABORTA: no pude leer si el crontab de gon ya trae la linea jev-vigia (salida $rc)" >&2; exit 1 ;;
+  esac
   cron_vigia instala
 fi
 
