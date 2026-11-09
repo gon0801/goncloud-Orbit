@@ -1,0 +1,110 @@
+# Lectura de produccion (orbit_read, read_only) 2026-11-09T14:57:23Z
+
+## q1
+SELECT d.platform, d.decision_date, d.mode, d.resultado, coalesce(d.motivo,'-'), count(*), min(d.created_at), max(d.created_at)
+  FROM precio_decision d
+ WHERE d.platform IN ('amazon_mx','amazon_us') AND d.decision_date >= '2026-11-01'
+ GROUP BY 1,2,3,4,5 ORDER BY 1,2,3,4,5
+-- salida
+amazon_mx|2026-11-08|live|frenado|perdiendo_tras_subida|1|2026-11-08 13:10:07.001396+00:00|2026-11-08 13:10:07.001396+00:00
+amazon_mx|2026-11-08|live|mantener|en_tolerancia|170|2026-11-08 13:10:06.904774+00:00|2026-11-08 13:10:07.084313+00:00
+amazon_mx|2026-11-08|live|mantener|ventas_sin_dato:historia_corta|1|2026-11-08 13:10:06.990081+00:00|2026-11-08 13:10:06.990081+00:00
+amazon_mx|2026-11-08|live|no_evaluado|oferta_desactualizada|38|2026-11-08 13:10:06.917241+00:00|2026-11-08 13:10:07.042959+00:00
+amazon_mx|2026-11-08|live|no_evaluado|precio_sin_observar|21|2026-11-08 13:10:06.924826+00:00|2026-11-08 13:10:07.005499+00:00
+amazon_mx|2026-11-09|live|frenado|perdiendo_tras_subida|1|2026-11-09 13:10:05.638679+00:00|2026-11-09 13:10:05.638679+00:00
+amazon_mx|2026-11-09|live|mantener|en_tolerancia|160|2026-11-09 13:10:05.556441+00:00|2026-11-09 13:10:05.715608+00:00
+amazon_mx|2026-11-09|live|mantener|ventas_sin_dato:historia_corta|1|2026-11-09 13:10:05.627343+00:00|2026-11-09 13:10:05.627343+00:00
+amazon_mx|2026-11-09|live|no_evaluado|oferta_desactualizada|38|2026-11-09 13:10:05.565066+00:00|2026-11-09 13:10:05.676694+00:00
+amazon_mx|2026-11-09|live|no_evaluado|precio_sin_observar|31|2026-11-09 13:10:05.572942+00:00|2026-11-09 13:10:05.642678+00:00
+amazon_us|2026-11-01|live|mantener|cooldown|5|2026-11-01 13:10:08.944898+00:00|2026-11-01 13:10:08.982726+00:00
+amazon_us|2026-11-01|live|mantener|ventas_sin_dato:historia_corta|47|2026-11-01 13:10:08.942888+00:00|2026-11-01 13:10:09.003400+00:00
+amazon_us|2026-11-01|live|mantener|ventas_sin_dato:u60_bajo_minimo|23|2026-11-01 13:10:08.948314+00:00|2026-11-01 13:10:09.000610+00:00
+amazon_us|2026-11-01|live|mantener|ventas_sin_dato:venta_sin_publicacion|22|2026-11-01 13:10:08.940236+00:00|2026-11-01 13:10:09.002087+00:00
+amazon_us|2026-11-01|live|no_evaluado|precio_sin_observar|2|2026-11-01 13:10:08.970452+00:00|2026-11-01 13:10:08.986443+00:00
+amazon_us|2026-11-02|live|no_evaluado|oferta_desactualizada|99|2026-11-02 13:10:08.304849+00:00|2026-11-02 13:10:08.386691+00:00
+amazon_us|2026-11-03|live|no_evaluado|oferta_desactualizada|99|2026-11-03 13:10:21.974898+00:00|2026-11-03 13:10:22.042018+00:00
+amazon_us|2026-11-04|live|no_evaluado|oferta_desactualizada|99|2026-11-04 13:10:06.794451+00:00|2026-11-04 13:10:06.867220+00:00
+amazon_us|2026-11-05|live|no_evaluado|oferta_desactualizada|99|2026-11-05 13:10:07.349277+00:00|2026-11-05 13:10:07.414834+00:00
+amazon_us|2026-11-06|live|no_evaluado|oferta_desactualizada|99|2026-11-06 13:10:08.851300+00:00|2026-11-06 13:10:08.920145+00:00
+amazon_us|2026-11-07|live|no_evaluado|oferta_desactualizada|99|2026-11-07 13:10:07.817226+00:00|2026-11-07 13:10:07.904059+00:00
+amazon_us|2026-11-08|live|no_evaluado|oferta_desactualizada|99|2026-11-08 13:10:07.603168+00:00|2026-11-08 13:10:07.665231+00:00
+amazon_us|2026-11-09|live|no_evaluado|oferta_desactualizada|99|2026-11-09 13:10:06.245485+00:00|2026-11-09 13:10:06.318991+00:00
+
+## q3
+SELECT platform, date_trunc('hour', observed_at) AS obs, min(fetched_at), max(fetched_at), count(*), count(DISTINCT canonical_input->>'seller_sku')
+  FROM estimacion_oferta_observation WHERE observed_at >= '2026-11-07' AND platform::text LIKE 'amazon%'
+ GROUP BY 1,2 ORDER BY 1,2
+-- salida
+amazon_mx|2026-11-08 00:00:00+00:00|2026-11-08 00:35:35+00:00|2026-11-08 00:35:35+00:00|285|285
+amazon_mx|2026-11-08 06:00:00+00:00|2026-11-08 06:35:37+00:00|2026-11-08 06:35:37+00:00|285|285
+amazon_mx|2026-11-08 12:00:00+00:00|2026-11-08 12:42:39+00:00|2026-11-08 12:42:39+00:00|285|285
+amazon_mx|2026-11-08 18:00:00+00:00|2026-11-08 18:35:49+00:00|2026-11-08 18:35:49+00:00|285|285
+amazon_mx|2026-11-09 00:00:00+00:00|2026-11-09 00:35:49+00:00|2026-11-09 00:35:49+00:00|285|285
+amazon_mx|2026-11-09 06:00:00+00:00|2026-11-09 06:35:49+00:00|2026-11-09 06:35:49+00:00|285|285
+amazon_mx|2026-11-09 12:00:00+00:00|2026-11-09 12:42:39+00:00|2026-11-09 12:42:39+00:00|285|285
+amazon_us|2026-11-07 00:00:00+00:00|2026-11-07 00:36:40+00:00|2026-11-07 00:36:40+00:00|102|102
+amazon_us|2026-11-07 06:00:00+00:00|2026-11-07 06:36:52+00:00|2026-11-07 06:36:52+00:00|102|102
+amazon_us|2026-11-07 18:00:00+00:00|2026-11-07 18:36:52+00:00|2026-11-07 18:36:52+00:00|102|102
+amazon_us|2026-11-08 00:00:00+00:00|2026-11-08 00:36:38+00:00|2026-11-08 00:36:38+00:00|102|102
+amazon_us|2026-11-08 06:00:00+00:00|2026-11-08 06:36:40+00:00|2026-11-08 06:36:40+00:00|102|102
+amazon_us|2026-11-08 18:00:00+00:00|2026-11-08 18:36:52+00:00|2026-11-08 18:36:52+00:00|102|102
+amazon_us|2026-11-09 00:00:00+00:00|2026-11-09 00:36:52+00:00|2026-11-09 00:36:52+00:00|102|102
+amazon_us|2026-11-09 06:00:00+00:00|2026-11-09 06:36:52+00:00|2026-11-09 06:36:52+00:00|102|102
+
+## q4
+SELECT d.decision_date, count(*) AS decisiones,
+       max(e.observed_at) AS ultima_estimacion, max(o.fetched_at) AS oferta_mas_nueva,
+       to_char(min(d.created_at) - max(o.fetched_at), 'HH24:MI:SS') AS edad_oferta_al_decidir
+  FROM precio_decision d
+  JOIN LATERAL (SELECT e.* FROM estimacion_escenario e
+                 WHERE e.listing_id = d.listing_id AND e.observed_at <= d.created_at
+                 ORDER BY e.observed_at DESC, e.id DESC LIMIT 1) e ON true
+  LEFT JOIN estimacion_oferta_observation o ON o.id = e.oferta_observation_id
+ WHERE d.platform = 'amazon_us' AND d.decision_date >= '2026-10-30'
+   AND d.created_at::time < '14:00'
+ GROUP BY 1 ORDER BY 1
+-- salida
+2026-10-30|99|2026-10-30 12:45:09.291232+00:00|None|None
+2026-10-31|99|2026-10-31 12:52:52.666763+00:00|2026-10-31 12:44:42+00:00|00:25:55
+2026-11-01|99|2026-11-01 12:52:49.038209+00:00|2026-11-01 12:44:38+00:00|00:25:30
+2026-11-02|99|2026-11-02 12:45:08.256686+00:00|None|None
+2026-11-03|99|2026-11-03 12:45:09.031027+00:00|None|None
+2026-11-04|99|2026-11-04 12:45:08.973078+00:00|None|None
+2026-11-05|99|2026-11-05 12:45:09.619154+00:00|None|None
+2026-11-06|99|2026-11-06 12:45:10.030501+00:00|None|None
+2026-11-07|99|2026-11-07 12:45:10.489704+00:00|None|None
+2026-11-08|99|2026-11-08 12:45:09.643842+00:00|None|None
+2026-11-09|99|2026-11-09 12:45:08.937723+00:00|None|None
+
+## q6
+SELECT decision_date, resultado, coalesce(motivo,'-'), count(*) FROM precio_decision
+ WHERE platform='amazon_us' AND decision_date BETWEEN '2026-10-25' AND '2026-10-31' GROUP BY 1,2,3 ORDER BY 1,2,3
+-- salida
+2026-10-25|mantener|cooldown|5
+2026-10-25|mantener|en_tolerancia|13
+2026-10-25|mantener|ventas_sin_dato:historia_corta|39
+2026-10-25|mantener|ventas_sin_dato:u60_bajo_minimo|21
+2026-10-25|mantener|ventas_sin_dato:venta_sin_publicacion|14
+2026-10-25|no_evaluado|precio_sin_observar|7
+2026-10-26|mantener|cooldown|5
+2026-10-26|mantener|en_tolerancia|9
+2026-10-26|mantener|ventas_sin_dato:historia_corta|41
+2026-10-26|mantener|ventas_sin_dato:u60_bajo_minimo|20
+2026-10-26|mantener|ventas_sin_dato:venta_sin_publicacion|17
+2026-10-26|no_evaluado|precio_sin_observar|7
+2026-10-27|mantener|cooldown|1
+2026-10-27|mantener|en_tolerancia|85
+2026-10-27|mantener|ventas_sin_dato:historia_corta|2
+2026-10-27|mantener|ventas_sin_dato:u60_bajo_minimo|2
+2026-10-27|mantener|ventas_sin_dato:venta_sin_publicacion|1
+2026-10-27|no_evaluado|precio_sin_observar|7
+2026-10-27|subir|-|1
+2026-10-28|no_evaluado|oferta_desactualizada|99
+2026-10-29|no_evaluado|oferta_desactualizada|99
+2026-10-30|no_evaluado|oferta_desactualizada|99
+2026-10-31|mantener|cooldown|1
+2026-10-31|mantener|ventas_sin_dato:historia_corta|47
+2026-10-31|mantener|ventas_sin_dato:u60_bajo_minimo|23
+2026-10-31|mantener|ventas_sin_dato:venta_sin_publicacion|22
+2026-10-31|no_evaluado|precio_sin_observar|2
+2026-10-31|subir|-|4

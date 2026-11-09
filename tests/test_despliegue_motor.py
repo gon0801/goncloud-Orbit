@@ -270,6 +270,11 @@ def _crea_repo(repo: Path) -> None:
                 ROOT / "tools/despliegue/cron_jev_vigia.sh"
             ).read_text(encoding="utf-8")
         },
+        "ConRefresco": {
+            "tools/refresh_estimacion.sh": (ROOT / "tools/refresh_estimacion.sh").read_text(
+                encoding="utf-8"
+            )
+        },
         "ConTransaccion": {
             "migrations/9005_auto03_tx.sql": "-- sonda-aplicada: "
             "SELECT to_regclass('public.auto03_tx') IS NOT NULL\n"
@@ -1011,3 +1016,29 @@ def test_jev_vigia_lectura_fallida_no_anota_ni_instala_y_la_reversa_conserva_el_
     assert s.motor("ConVigia2") == "ok"
     assert "CRON=jev-vigia" not in s.ultimo()
     assert _vigia_en_bloque_orbit(crontab.read_text())
+
+
+def test_refresh_estimacion_desplegar_lo_instala_el_checklist_lo_exige_y_el_rollback_lo_restaura(s):
+    """CLARIDAD 01 F: el cron de root corre $SRV/refresh_estimacion.sh, que antes se copiaba a
+    mano. desplegar lo instala desde tools/, checklist exige que sea igual y la reversa deja la
+    copia anterior byte por byte."""
+    instalado = s.srv / "refresh_estimacion.sh"
+    instalado.write_text("#!/bin/bash\necho viejo\n")
+    instalado.chmod(0o755)
+
+    assert s.desplegar("ConRefresco").returncode == 0
+    assert instalado.read_bytes() == (ROOT / "tools/refresh_estimacion.sh").read_bytes()
+    assert instalado.stat().st_mode & 0o777 == 0o755
+    assert s.checklist("ConRefresco").returncode == 0
+
+    nuevo = instalado.read_bytes()
+    instalado.write_text("#!/bin/bash\necho a mano\n")
+    r = s.checklist("ConRefresco")
+    assert r.returncode == 1
+    assert "refresh_estimacion.sh distinto" in r.stdout
+    instalado.write_bytes(nuevo)
+
+    assert s.rollback("ConRefresco").returncode == 1
+    assert s.estado_diario() == "revertido"
+    assert instalado.read_text() == "#!/bin/bash\necho viejo\n"
+    assert not (s.srv / "tools/refresh_estimacion.sh").exists()

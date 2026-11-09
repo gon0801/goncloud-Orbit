@@ -1,0 +1,59 @@
+# journalctl -u amazon-prices-sync (corridas de las 12:35 UTC), 2026-11-09T14:57:34Z
+Nov 01 12:35:00 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 01 12:41:04 goncloud amazon-prices-sync[1089973]: 2026-11-01 12:41:04,244 | INFO | [amazon_mx] 548 listings guardados, 0 sin SKU ignorados
+Nov 01 12:44:38 goncloud amazon-prices-sync[1089973]: 2026-11-01 12:44:38,137 | INFO | [amazon_us] 258 listings guardados, 0 sin SKU ignorados
+Nov 02 12:35:09 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 02 12:40:43 goncloud amazon-prices-sync[3798129]: 2026-11-02 12:40:43,253 | INFO | [amazon_mx] 548 listings guardados, 0 sin SKU ignorados
+Nov 02 12:47:18 goncloud amazon-prices-sync[3798129]: 2026-11-02 12:47:18,296 | INFO | [amazon_us] 258 listings guardados, 0 sin SKU ignorados
+Nov 03 12:35:00 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 03 12:41:34 goncloud amazon-prices-sync[1972546]: 2026-11-03 12:41:34,746 | INFO | [amazon_mx] 428 listings guardados, 0 sin SKU ignorados
+Nov 03 12:45:38 goncloud amazon-prices-sync[1972546]: 2026-11-03 12:45:38,977 | INFO | [amazon_us] 171 listings guardados, 0 sin SKU ignorados
+Nov 04 12:35:05 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 04 12:41:09 goncloud amazon-prices-sync[95348]: 2026-11-04 12:41:09,303 | INFO | [amazon_mx] 428 listings guardados, 0 sin SKU ignorados
+Nov 04 12:46:43 goncloud amazon-prices-sync[95348]: 2026-11-04 12:46:43,880 | INFO | [amazon_us] 171 listings guardados, 0 sin SKU ignorados
+Nov 05 12:35:05 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 05 12:44:40 goncloud amazon-prices-sync[2447169]: 2026-11-05 12:44:40,590 | INFO | [amazon_mx] 428 listings guardados, 0 sin SKU ignorados
+Nov 05 12:51:45 goncloud amazon-prices-sync[2447169]: 2026-11-05 12:51:45,941 | INFO | [amazon_us] 171 listings guardados, 0 sin SKU ignorados
+Nov 06 12:35:08 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 06 12:42:13 goncloud amazon-prices-sync[621316]: 2026-11-06 12:42:13,305 | INFO | [amazon_mx] 428 listings guardados, 0 sin SKU ignorados
+Nov 06 12:46:17 goncloud amazon-prices-sync[621316]: 2026-11-06 12:46:17,336 | INFO | [amazon_us] 171 listings guardados, 0 sin SKU ignorados
+Nov 07 12:35:11 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 07 12:42:45 goncloud amazon-prices-sync[3011781]: 2026-11-07 12:42:45,743 | INFO | [amazon_mx] 428 listings guardados, 0 sin SKU ignorados
+Nov 07 12:46:49 goncloud amazon-prices-sync[3011781]: 2026-11-07 12:46:49,831 | INFO | [amazon_us] 171 listings guardados, 0 sin SKU ignorados
+Nov 08 12:35:05 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 08 12:42:39 goncloud amazon-prices-sync[1170796]: 2026-11-08 12:42:39,765 | INFO | [amazon_mx] 428 listings guardados, 0 sin SKU ignorados
+Nov 08 12:46:43 goncloud amazon-prices-sync[1170796]: 2026-11-08 12:46:43,778 | INFO | [amazon_us] 171 listings guardados, 0 sin SKU ignorados
+Nov 09 12:35:05 goncloud systemd[1]: Starting amazon-prices-sync.service - Amazon SP-API — sync precios propios a bridge.db...
+Nov 09 12:42:39 goncloud amazon-prices-sync[3402432]: 2026-11-09 12:42:39,856 | INFO | [amazon_mx] 428 listings guardados, 0 sin SKU ignorados
+Nov 09 12:48:44 goncloud amazon-prices-sync[3402432]: 2026-11-09 12:48:44,582 | INFO | [amazon_us] 171 listings guardados, 0 sin SKU ignorados
+
+# crontab de root (estimacion)
+45 */6 * * * /usr/local/bin/cron-avisa --nombre "Actualización de estimaciones de Orbit" --cada 6 -- /bin/bash -c '/mnt/data/appdata/orbit/refresh_estimacion.sh' >> /mnt/data/appdata/orbit/logs/estimacion.log 2>&1
+
+# crontab de gon (corrida de precios Amazon)
+10 13 * * * /usr/local/bin/cron-avisa --nombre "Corrida de precios de Amazon" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us' >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+10 15-23/2 * * * /usr/local/bin/cron-avisa --nombre "Corrida de precios de Amazon" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us' >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+
+# /mnt/data/appdata/orbit/logs/estimacion.log, corridas del 9-nov
+2026-11-08 estimacion rc=0 (detalle: /mnt/data/appdata/orbit/logs/estimacion.log)
+ingest_run=1457 ok=True
+rows_written=1279 rows_skipped=186
+ofertas nuevas=387 reutilizadas=0
+fees nuevos=387 reutilizados=0 errores=1
+escenarios nuevos=505 reutilizados=0
+skip_reason: 1x fee_http_429_agotado; 8x oferta_ausente; 112x oferta_desactualizada; 65x universo_no_soportado
+2026-11-09 estimacion rc=0 (detalle: /mnt/data/appdata/orbit/logs/estimacion.log)
+ingest_run=1466 ok=True
+rows_written=1161 rows_skipped=185
+ofertas nuevas=387 reutilizadas=0
+fees nuevos=387 reutilizados=0 errores=0
+escenarios nuevos=387 reutilizados=118
+skip_reason: 8x oferta_ausente; 112x oferta_desactualizada; 65x universo_no_soportado
+2026-11-09 estimacion rc=0 (detalle: /mnt/data/appdata/orbit/logs/estimacion.log)
+ingest_run=1481 ok=True
+rows_written=1095 rows_skipped=244
+ofertas nuevas=328 reutilizadas=0
+fees nuevos=328 reutilizados=0 errores=0
+escenarios nuevos=439 reutilizados=66
+skip_reason: 11x oferta_ausente; 168x oferta_desactualizada; 65x universo_no_soportado
+2026-11-09 estimacion rc=0 (detalle: /mnt/data/appdata/orbit/logs/estimacion.log)

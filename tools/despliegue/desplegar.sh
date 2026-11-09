@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Despliegue de Orbit por el motor (AUTO-03 B.1). Uso: MOTOR_SHA=<sha> bash desplegar.sh [--ensayo]
 # Pasos: (0) candado y diario, (1) guardas, (2) monotonia, (3) respaldo, (4) migraciones
-# de la receta (*_auto03_* y *_orbit07_*) con sonda, (5) codigo y build, (5b) linea de cron del
-# vigia de Jev, (6) interruptores. Salidas: 0 bien; 75 no es el
+# de la receta (*_auto03_* y *_orbit07_*) con sonda, (5) codigo y build (con $SRV/refresh_estimacion.sh),
+# (5b) linea de cron del vigia de Jev, (6) interruptores. Salidas: 0 bien; 75 no es el
 # codigo (guardas o candado ocupados; si el diario ya traia cambios, los revierte antes);
 # otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
@@ -54,6 +54,13 @@ ensayo() {
   [ -n "$CAMBIADAS" ] || echo "claves: ninguna cambia"
   if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
     cron_vigia revisa 2>&1 || echo "desplegar instalaria (o moveria al bloque) la linea jev-vigia"
+  fi
+  if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then
+    if git show "$SHA:tools/$REFRESCO" | srv "cmp -s - $SRV/$REFRESCO"; then
+      echo "$SRV/$REFRESCO ya es el de $SHA"
+    else
+      echo "desplegar instalaria $SRV/$REFRESCO desde tools/$REFRESCO"
+    fi
   fi
 }
 
@@ -136,7 +143,8 @@ if [ -z "$(primero CODIGO "$L")" ]; then
   ARCH_RESPALDO="Dockerfile .dockerignore pyproject.toml uv.lock"
   srv "set -e; cd $SRV; rm -rf $DESP/predeploy-*.parcial; mkdir -p $P.parcial; cp -a app $P.parcial/"
   corte 3a
-  srv "set -e; cd $SRV; cp -a tools $ARCH_RESPALDO $P.parcial/"
+  srv "set -e; cd $SRV; cp -a tools $ARCH_RESPALDO $P.parcial/; \
+    if [ -f $REFRESCO ]; then cp -a $REFRESCO $P.parcial/; else touch $P.parcial/$REFRESCO.ausente; fi"
   if [ "$SIM" = 1 ]; then
     pg_dump "$DSN_SIM" --schema-only > "$P.parcial/esquema.sql"
   else
@@ -144,7 +152,8 @@ if [ -z "$(primero CODIGO "$L")" ]; then
   fi
   srv "set -e; cd $SRV; test -s $P.parcial/esquema.sql; \
     grep -q 'PostgreSQL database dump complete' $P.parcial/esquema.sql; \
-    find app tools $ARCH_RESPALDO -type f -exec md5sum {} + | LC_ALL=C sort > $P.parcial/md5.txt; \
+    R=\$(ls $REFRESCO 2>/dev/null || true); \
+    find app tools $ARCH_RESPALDO \$R -type f -exec md5sum {} + | LC_ALL=C sort > $P.parcial/md5.txt; \
     (cd $P.parcial && md5sum -c --quiet md5.txt); mv $P.parcial $P"
   anota "CODIGO=predeploy-$STAMP"
   echo "respaldo $P completo"
@@ -170,6 +179,7 @@ echo "== (5) codigo de $SHA"
 sigue_candado
 TOOLS=$(git show "$SHA:Dockerfile" | tr -d '\r' | sed -n 's#^COPY \(tools/[^ ]*\) .*#\1#p')
 ARCHIVOS="app Dockerfile .dockerignore pyproject.toml uv.lock $TOOLS"
+if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then ARCHIVOS="$ARCHIVOS tools/$REFRESCO"; fi
 TMPC=$(mktemp -d "${TMPDIR:-/tmp}/auto03-codigo.XXXXXX")
 trap 'rm -rf "$TMPC"' EXIT
 git archive --format=tar "$SHA" $ARCHIVOS | tar -xf - -C "$TMPC"
@@ -178,10 +188,16 @@ N=$DESP/codigo.nuevo
 sigue_candado
 git archive --format=tar "$SHA" $ARCHIVOS | srv "set -e; cd $SRV; rm -rf $N; mkdir -p $N; tar -xf - -C $N; \
   rm -rf app; mv $N/app app; cp -f $N/Dockerfile $N/.dockerignore $N/pyproject.toml $N/uv.lock .; \
-  if [ -d $N/tools ]; then mkdir -p tools; cp -f $N/tools/* tools/; fi; rm -rf $N"
+  if [ -d $N/tools ]; then mkdir -p tools; cp -f $N/tools/* tools/; fi; \
+  if [ -f $N/tools/$REFRESCO ]; then install -m 755 $N/tools/$REFRESCO $REFRESCO; fi; rm -rf $N"
 printf '%s\n' "$MD5" | srv "cd $SRV && md5sum -c --quiet -" \
   || { echo "ABORTA: el md5 del codigo en el servidor no coincide con $SHA" >&2; exit 1; }
 echo "md5 OK: $(printf '%s\n' "$MD5" | wc -l) archivos"
+if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then
+  srv "cmp -s $SRV/tools/$REFRESCO $SRV/$REFRESCO" \
+    || { echo "ABORTA: $SRV/$REFRESCO no quedo igual a tools/$REFRESCO" >&2; exit 1; }
+  echo "$SRV/$REFRESCO = tools/$REFRESCO de $SHA"
+fi
 compose_up
 espera_salud || { echo "ABORTA: /health no da 200 tras el build" >&2; exit 1; }
 sigue_candado

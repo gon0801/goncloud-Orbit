@@ -32,9 +32,13 @@ from app.estimacion_fees import (
     persistir_fee_observation,
 )
 from app.estimacion_insumos import (
+    FRESHNESS_LIMIT,
+    FilaOfertaBridge,
     InsumosError,
     construir_huella_snapshot_listing,
     leer_ofertas_bridge,
+    mapear_plataforma,
+    parse_fetched_at_utc,
     persistir_oferta_observation,
     resolver_oferta_para_listing,
 )
@@ -105,6 +109,7 @@ class ResultadoIngestaEstimacion:
     fees_error: int
     escenarios_nuevos: int
     escenarios_reutilizados: int
+    sin_oferta_fresca: tuple[tuple[str, datetime | None], ...] = ()
 
 
 @dataclass
@@ -152,6 +157,27 @@ def _formato_skip_reason(skips: Counter[str]) -> str | None:
         return None
     partes = [f"{n}x {motivo}" for motivo, n in sorted(skips.items())]
     return "; ".join(partes)
+
+
+def plataformas_sin_oferta_fresca(
+    filas_bridge: tuple[FilaOfertaBridge, ...],
+    plataformas: set[str],
+    ahora: datetime,
+) -> tuple[tuple[str, datetime | None], ...]:
+    """CLARIDAD 01 F: plataformas cuya oferta mas nueva del snapshot ya no es fresca
+    (o que no traen ninguna), con esa fecha. Todas sus publicaciones saldrian
+    `oferta_desactualizada` y el motor de precios no evaluaria ninguna."""
+    mas_nueva: dict[str, datetime] = {}
+    for fila in filas_bridge:
+        plataforma = mapear_plataforma(fila.marketplace_id)
+        fetched = parse_fetched_at_utc(fila.fetched_at)
+        if plataforma in plataformas and fetched is not None:
+            mas_nueva[plataforma] = max(fetched, mas_nueva.get(plataforma, fetched))
+    return tuple(
+        (plataforma, mas_nueva.get(plataforma))
+        for plataforma in sorted(plataformas)
+        if plataforma not in mas_nueva or ahora - mas_nueva[plataforma] > FRESHNESS_LIMIT
+    )
 
 
 def _log_excepcion_item(motivo: str, exc: BaseException) -> None:
@@ -523,6 +549,9 @@ def ejecutar_ingesta(
         fees_error=tally.fees_error,
         escenarios_nuevos=tally.escenarios_nuevos,
         escenarios_reutilizados=tally.escenarios_reutilizados,
+        sin_oferta_fresca=plataformas_sin_oferta_fresca(
+            filas_bridge, {plataforma for _, plataforma, _, _ in listings} - {"meli"}, ahora
+        ),
     )
 
 
@@ -605,7 +634,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     if resultado.skip_reason:
         print(f"skip_reason: {resultado.skip_reason}")
-    return 0
+    for plataforma, mas_nueva in resultado.sin_oferta_fresca:
+        print(
+            f"sin oferta fresca: {plataforma}"
+            f" (la mas nueva del bridge: {mas_nueva.isoformat() if mas_nueva else 'ninguna'});"
+            " el motor de precios no evaluara sus publicaciones",
+            file=sys.stderr,
+        )
+    return 1 if resultado.sin_oferta_fresca else 0
 
 
 if __name__ == "__main__":
