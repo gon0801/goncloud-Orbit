@@ -19,14 +19,14 @@ Con `--navegador` lee la pantalla despues de correr JavaScript, con
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -42,7 +42,7 @@ RUTA_FALLA = "ruta_falla"
 PATRONES: dict[str, re.Pattern[str]] = {
     "microsegundos": re.compile(r"\d{2}:\d{2}:\d{2}\.\d+"),
     "utc": re.compile(r"\bUTC\b|\+00:00"),
-    "decimales_largos": re.compile(r"(?<![\d.,:])\d+\.\d{5,}"),
+    "decimales_largos": re.compile(r"(?<![\d.:])(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{5,}"),
     "monto_sin_miles": re.compile(r"(?<![\d.,:])\d{4,}\.\d+"),
     "entero_sin_miles": re.compile(r"(?<![#\w.,:])\d{5,}(?!\d)"),
     "codigo_interno": re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b"),
@@ -59,13 +59,17 @@ _ATRIBUTOS = ("title", "aria-label", "placeholder")
 # tarda 235 s), asi que el HTML se pide por HTTP con su tope y se escribe en una
 # pagina del mismo origen, donde los scripts corren y piden sus APIs igual.
 # document.open conserva el window, asi que el contador de fetch sigue vivo y
-# dice cuando terminaron las lecturas que pintan la pantalla.
+# dice cuando terminaron las lecturas que pintan la pantalla. Un fetch cuenta
+# como pendiente hasta que llega todo su cuerpo, no solo los headers.
 _JS_ESCRIBIR = """
 window.__pendientes = 0;
 const original = window.fetch;
+const listo = () => window.__pendientes--;
 window.fetch = (...args) => {
   window.__pendientes++;
-  return original.apply(window, args).finally(() => window.__pendientes--);
+  return original.apply(window, args).then(
+    r => { r.clone().arrayBuffer().then(listo, listo); return r; },
+    e => { listo(); throw e; });
 };
 history.replaceState(null, '', %s);
 document.open(); document.write(%s); document.close(); true
@@ -161,23 +165,42 @@ def rutas_del_menu(base_html: Path = BASE_HTML) -> list[str]:
     return list(dict.fromkeys(rutas))
 
 
+def _queda(limite: float) -> float:
+    queda = limite - time.monotonic()
+    if queda <= 0:
+        raise TimeoutError
+    return queda
+
+
 def _pedir(base: str, ruta: str) -> tuple[str | None, str | None]:
-    """HTML de la ruta, o el motivo por el que cuenta como `ruta_falla`."""
-    inicio = time.monotonic()
+    """HTML de la ruta, o el motivo por el que cuenta como `ruta_falla`.
+
+    Usa http.client y no urllib para no seguir redirecciones (un 302 es una
+    falla de la ruta pedida) y para que el tope cubra la descarga entera: cada
+    lectura espera a lo sumo lo que queda del tope.
+    """
+    limite = time.monotonic() + TOPE_RUTA_S
+    url = urllib.parse.urlsplit(base + ruta)
+    clase = http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
+    conexion = clase(url.netloc, timeout=TOPE_RUTA_S)
+    trozos: list[bytes] = []
     try:
-        with urllib.request.urlopen(base + ruta, timeout=TOPE_RUTA_S) as r:
-            cuerpo = r.read().decode("utf-8", "replace")
-            estado = r.status
-    except urllib.error.HTTPError as e:
-        return None, f"HTTP {e.code}"
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
-        return None, f"sin respuesta: {getattr(e, 'reason', e)}"
-    segundos = time.monotonic() - inicio
-    if segundos > TOPE_RUTA_S:
-        return None, f"tardo {segundos:.0f} s (tope {TOPE_RUTA_S} s)"
-    if estado != 200:
-        return None, f"HTTP {estado}"
-    return cuerpo, None
+        conexion.request("GET", url.path + (f"?{url.query}" if url.query else ""))
+        sock = conexion.sock
+        sock.settimeout(_queda(limite))
+        r = conexion.getresponse()
+        if r.status != 200:
+            return None, f"HTTP {r.status}"
+        while not r.isclosed():
+            sock.settimeout(_queda(limite))
+            trozos.append(r.read1(65536))
+    except TimeoutError:
+        return None, f"no termino en el tope de {TOPE_RUTA_S} s"
+    except (http.client.HTTPException, OSError) as e:
+        return None, f"sin respuesta: {e}"
+    finally:
+        conexion.close()
+    return b"".join(trozos).decode("utf-8", "replace"), None
 
 
 class _Navegador:
