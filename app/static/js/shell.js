@@ -23,9 +23,12 @@ document.addEventListener("DOMContentLoaded", function () {
     return respuesta.json();
   }
 
+  // CLARIDAD 01 C.5: las de practica (modo shadow) nunca se aplican; el
+  // numero cuenta solo las reales y la etiqueta nombra las de practica.
   leer("cortes").then(datos => {
-    const n = datos.items.length;
-    const etiqueta = n + " propuestas pendientes";
+    const n = datos.items.filter(item => item.modo === "live").length;
+    const practica = datos.items.filter(item => item.modo === "shadow").length;
+    const etiqueta = n + " pendientes (" + practica + " de práctica)";
     pintarBadge(contador, n, etiqueta);
     badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, n, etiqueta); });
   }).catch(() => {

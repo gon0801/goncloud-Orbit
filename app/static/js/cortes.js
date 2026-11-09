@@ -6,6 +6,38 @@
 // /api/ads-optimizer/veto con el token en el header x-orbit-token (la query
 // string JAMAS autentica, sellado 18). El fetch y el payload NO cambian.
 
+// CLARIDAD 01 C.3: el 422 de FastAPI trae detail como lista de
+// {loc, msg}; un 401/409 lo trae como texto. Sin esto se pinta
+// "[object Object]".
+var CAMPOS = { dias: "Días", actor: "Actor", queue_id: "Propuesta" };
+
+function mensajeError(data) {
+  var detalle = data && data.detail;
+  if (Array.isArray(detalle)) {
+    return detalle
+      .map(function (d) {
+        var campo = d && d.loc ? d.loc[d.loc.length - 1] : null;
+        var nombre = CAMPOS[campo] || campo;
+        return (nombre ? nombre + ": " : "") + ((d && d.msg) || "valor no válido");
+      })
+      .join("; ");
+  }
+  if (typeof detalle === "string") return detalle;
+  return "la respuesta no trae detalle";
+}
+
+function fechaLegible(iso) {
+  var fecha = new Date(iso);
+  if (!iso || isNaN(fecha.getTime())) return "?";
+  return (
+    fecha.toLocaleString("es-MX", {
+      dateStyle: "long",
+      timeStyle: "short",
+      timeZone: "America/Mexico_City",
+    }) + " (hora del centro de México)"
+  );
+}
+
 function vetar(form) {
   var estado = form.querySelector("[data-estado]");
   estado.textContent = "Enviando…";
@@ -29,9 +61,9 @@ function vetar(form) {
     })
     .then(function (r) {
       if (r.ok) {
-        estado.textContent = "Rechazado hasta " + (r.data.vence_el || "?") + ".";
+        estado.textContent = "Rechazado hasta el " + fechaLegible(r.data.vence_el) + ".";
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
       }
     })
     .catch(function () {
@@ -68,7 +100,7 @@ function descartar(form) {
       if (r.ok) {
         estado.textContent = "Descartada (propuesta " + (r.data.id || "?") + ").";
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
       }
     })
     .catch(function () {
@@ -107,7 +139,7 @@ function postBloqueo(form) {
         var motivo = r.data.motivo ? " (" + r.data.motivo + ")" : "";
         estado.textContent = (r.data.paso || "ok") + motivo + ".";
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data) + ".";
         if (boton) boton.disabled = false;
       }
     })
