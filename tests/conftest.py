@@ -20,7 +20,8 @@ import pytest
 
 # La base y el CI fechan en UTC; sin esto date.today() da otro dia en la Mac (UTC-7) por la tarde.
 os.environ["TZ"] = "UTC"
-time.tzset()
+if hasattr(time, "tzset"):  # Windows no tiene tzset; ahí TZ solo afecta a subprocesos
+    time.tzset()
 
 
 def ahora_db(conn):

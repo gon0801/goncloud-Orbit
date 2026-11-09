@@ -1,6 +1,6 @@
 # Decisiones
 
-Decisiones lista entidades que SI decidieron (una fila por `decision`). El motivo sale en espanol solo si el id esta en `MOTIVOS_ES_DECISIONES`; si no, el id crudo. El search_term del comprador va escapado. La pagina HTML pagina por `?page=` (PageWindow). El JSON `/api/dashboard/decisiones` sigue siendo feed por cursor.
+Decisiones lista entidades que SI decidieron (una fila por `decision`). El motivo sale en espanol solo si el id esta en `MOTIVOS_ES_DECISIONES` (o en `MOTIVOS_ES_SALUD`); si no, el id crudo. Los motivos de pujas llevan `{que}`, que `motivo_decision_es` cambia por el sujeto segun el kind de la entidad (La keyword, El producto objetivo...). El search_term del comprador va escapado. La pagina HTML pagina por `?page=` (PageWindow). El JSON `/api/dashboard/decisiones` sigue siendo feed por cursor.
 
 ## Sub-features
 
