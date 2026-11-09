@@ -764,6 +764,11 @@ def _construye_parser() -> argparse.ArgumentParser:
         help="sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar)",
     )
     sub.add_parser(
+        "jev-vigia",
+        add_help=False,
+        help="avisa por Telegram si Jev esta encendido y no corre hace mas de 13 h",
+    )
+    sub.add_parser(
         "bloqueo-reconcilia",
         help="cierra intenciones huerfanas del bloqueo del dueno (ORBIT_DSN_ADMIN)",
     )
@@ -836,10 +841,10 @@ def main(argv: list[str] | None = None) -> int:
         return spapi_vigilante.main(rest)
     if args.comando == "ads-salud":
         return ads_salud.main(rest)
-    if args.comando == "jev-senales":
-        from app import jev_senales
+    if args.comando in ("jev-senales", "jev-vigia"):
+        from app import jev_senales, jev_vigia
 
-        return jev_senales.main(rest)
+        return {"jev-senales": jev_senales, "jev-vigia": jev_vigia}[args.comando].main(rest)
     if args.comando == "bloqueo-reconcilia":
         from app import bloqueo_dueno_efecto
 

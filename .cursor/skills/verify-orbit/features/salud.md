@@ -10,6 +10,7 @@ Salud muestra, por plataforma, el ultimo ciclo (status, mode, decisiones, applie
 - `salud-quota` tabla `Quota del dia` (usado / cap / fuente). Cap nulo se pinta `— (sin clave)` o `— (config rota)`.
 - `salud-historico` tabla `Historico (14d)`: ultimos 14 ciclos, no 14 dias de calendario.
 - `salud-telegram` si `notes.telegram` existe, aparece `p.alerta` cuyo texto empieza `telegram: fallo del canal (` y lista las claves del dict (digest, …) `sin entregar — ver notes`. El chip `done` del h2 no pasa a alerta.
+- `salud-jev` tarjeta `Jev — señal por búsqueda-en-grupo` (si hay tablas de Jev): `Último cálculo terminado: <fecha> (<hace>)` sale del ultimo `fin` de `jev_corrida`. Con Jev encendido y mas de 13 h sin `fin` (o ninguno), el parrafo es `p.alerta` y agrega `Pasaron más de 13 horas: Gasto sin venta está desactualizado.` (CLARIDAD 01 B.6). El JSON trae `jev.ultima_fin` y `jev.fin_viejo`.
 - `salud-api` `GET /api/dashboard/salud` trae el mismo ciclo, skips, quota e historico. El JSON tambien lleva `target_margen`; el HTML no lo pinta.
 
 ## How to get to it (user POV)
@@ -35,6 +36,7 @@ Preconditions:
 - El h3 dice `Historico (14d)`. El SQL es `ORDER BY id DESC LIMIT 14` (ultimos 14 ciclos, no 14 dias de calendario).
 - `applied_count=0` en shadow es el caso normal. Pintarlo como `—` fue un bug de presentacion.
 - Quota con `cap` null se muestra `— (sin clave)` o `— (config rota)`, nunca un tope 0 inventado.
+- `jev.fin_viejo` es verdadero tambien sin ningun `fin`; con Jev apagado no se pinta en alerta. Gasto sin venta (`/gasto-sin-venta`) usa su propio umbral de 36 h: con el calculo viejo, el aviso es `p.alerta[role=alert]` y la lista vacia dice `No hay cálculo vigente desde <fecha>. La lista está vacía porque la revisión no ha corrido.`
 - La nota `telegram` es la unica visibilidad del canal caido. El HTML no es la frase corta `telegram: fallo del canal`: concatena las keys. Si el JSON trae `notes.telegram` y no hay `p.alerta`, es regresion. La semilla baseline no trae esa nota.
 - Watermark (`v_metric_latest`) y `synced_at` pueden ser `—` si no hay estado: eso es dato faltante, no fallo.
 - CAMPANA ACTIVA 01 agrego dos motivos de skip en `MOTIVOS_ES_SALUD` (`campana_no_enabled` → «Campaña no habilitada…», `grupo_no_enabled` → «Ad group no habilitado…»). La semilla baseline sigue usando solo `estado_no_enabled`; si el JSON trae los nuevos, el canvas debe mostrar el `motivo_es` en español, no el id crudo.

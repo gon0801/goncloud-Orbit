@@ -796,6 +796,8 @@ def main(argv: list[str]) -> int:
     if args.aplicar and not dsn_jev:
         print("jev-senales: --aplicar exige ORBIT_DSN_JEV", file=sys.stderr)
         return 2
+    from app import notifica
+
     lector = None
     escritor = None
     try:
@@ -810,18 +812,21 @@ def main(argv: list[str]) -> int:
             return 0
         if args.aplicar:
             escritor = connect(dsn_jev, autocommit=True)
-        from app.notifica import envia_aviso
-
         correr(
             lector,
             escritor,
             ahora=datetime.now(UTC),
             aplicar=args.aplicar,
             api_key=leer_api_key(),
-            avisar=envia_aviso,
+            avisar=notifica.envia_aviso,
         )
     except Exception as exc:
-        print(f"jev-senales fallo: {type(exc).__name__}: {scrub(str(exc))}", file=sys.stderr)
+        error = f"{type(exc).__name__}: {scrub(str(exc))}"
+        print(f"jev-senales fallo: {error}", file=sys.stderr)
+        notifica.envia_aviso(
+            "[Orbit] Gasto sin venta no se calculó: la revisión de Jev falló."
+            f" La pantalla sigue con el cálculo anterior.\nError: {error}"
+        )
         return 1
     finally:
         if escritor is not None:

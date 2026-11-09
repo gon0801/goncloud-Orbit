@@ -30,12 +30,15 @@ from app.jev_lectura import (
 )
 from app.jev_libro import intenciones_del_dia
 from app.jev_senales import CierreCorrida, _ajustes, _propuestas
+from app.jev_vigia import HORAS_SIN_CORRER as HORAS_FIN_VIEJO
 
 
 @dataclass(frozen=True)
 class SaludJev:
     interruptor: Ajustes | Apagado
     ultima_corrida: CierreCorrida | None
+    ultima_fin: datetime | None
+    fin_viejo: bool
     ultima_inicio: datetime | None
     ultima_sin_cierre: bool
     llamadas_hoy: int
@@ -71,6 +74,8 @@ class SaludJev:
                 "avisos": ultima.avisos_enviados,
                 "avisos_error": ultima.avisos_error,
             },
+            "ultima_fin": self.ultima_fin.isoformat() if self.ultima_fin else None,
+            "fin_viejo": self.fin_viejo,
             "ultima_inicio": self.ultima_inicio.isoformat() if self.ultima_inicio else None,
             "ultima_sin_cierre": self.ultima_sin_cierre,
             "llamadas_hoy": self.llamadas_hoy,
@@ -122,6 +127,8 @@ def salud(conn, *, ahora: datetime) -> SaludJev:
     return SaludJev(
         interruptor,
         ultima,
+        fin_at,
+        fin_at is None or ahora - fin_at > timedelta(hours=HORAS_FIN_VIEJO),
         inicio,
         inicio is not None and (fin_at is None or inicio > fin_at),
         intenciones_del_dia(conn, ahora),

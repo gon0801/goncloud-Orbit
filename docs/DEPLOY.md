@@ -83,8 +83,14 @@ orbit-app-1` y ningún harvest en vuelo; (2) monotonía; (3) respaldo
 comprobada por md5 antes de renombrar el `.parcial`); (4) migraciones de la
 receta; (5) código del SHA por `git archive`, md5 contra el SHA, `docker compose
 -p orbit --project-directory $SRV -f $SRV/docker-compose.yml up -d
---no-deps --build app`, `/health` 200 y `$SRV/despliegue/sha`; (6)
-interruptores. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
+--no-deps --build app`, `/health` 200 y `$SRV/despliegue/sha`; (5b) si el
+SHA trae `tools/despliegue/cron_jev_vigia.sh` y la línea `jev-vigia` no está
+una sola vez dentro del bloque Orbit del crontab de `gon`, corre `instala`
+(respalda el crontab en `$SRV/archive/` y agrega esa línea con su `job_key`, o
+la mueve al bloque si estaba fuera); anota `CRON=jev-vigia` antes, y solo si leyó
+el crontab y la línea no existía en ninguna parte, así la reversa no borra una
+línea previa. Si no puede leer el crontab, aborta (sale 1) sin anotar ni instalar; (6) interruptores. Con ese archivo en el SHA, `checklist.sh` falla
+si la línea efectiva no está una sola vez dentro del bloque. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
 el candado y las guardas.
 
 **Cabecera de sonda.** Toda migración de la receta (`migrations/*_auto03_*`
@@ -152,7 +158,8 @@ archivo.
 la última corrida: `MOTOR_SHA`, `SHA_PREVIO` (el contenido de
 `$SRV/despliegue/sha` al empezar; una reanudación del mismo `MOTOR_SHA`
 conserva el de la primera corrida), una línea por cambio anotada antes
-de hacerlo (`MIGRACION=<archivo>`, `CLAVE=<clave>:<valor previo>`) y
+de hacerlo (`MIGRACION=<archivo>`, `CLAVE=<clave>:<valor previo>`,
+`CRON=jev-vigia`) y
 `CODIGO=predeploy-<stamp>`, que se anota solo con el respaldo completo y
 sin la cual no corre ninguna migración ni sustitución de código. Las
 líneas `ESTADO=` se agregan en orden; vale la última. Terminales:
@@ -167,7 +174,8 @@ si el diario falta, es de otro `MOTOR_SHA`, terminó en
 falle (pero antes de cada cambio comprueba que su sesión sigue
 sosteniendo el candado; si la perdió, sale 1 sin hacer el siguiente
 cambio, el diario queda en `revirtiendo` y la próxima corrida continúa):
-las claves anotadas a su valor previo (vía `productos-modo`), los
+las claves anotadas a su valor previo (vía `productos-modo`), la línea
+`jev-vigia` si se anotó `CRON=jev-vigia` (`cron_jev_vigia.sh quita`), los
 archivos de `predeploy-<stamp>` (borra `app/` y `tools/` y los copia del
 respaldo) con rebuild y `/health` 200, `$SRV/despliegue/sha` a
 `SHA_PREVIO` (lo borra si venía vacío) y, en orden inverso, la reversa
@@ -830,6 +838,7 @@ El server está en UTC: estas horas SON UTC.
 | 08:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; después de la ingesta, antes del ciclo; dentro del bloque desde ingesta-01 A.4) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; dentro del bloque desde ingesta-01 A.4) |
+| 11:00 | `jev-vigia` | `python -m app.cli jev-vigia` (CLARIDAD 01 B.5: si Jev está encendido y su último `inicio` tiene más de 13 h, avisa por Telegram; cubre la línea de jev-senales borrada o un candado colgado. Lee con `ORBIT_DSN_READ`, sin estado. No va en el bloque instalador de abajo: la instala `tools/despliegue/cron_jev_vigia.sh instala`, que corre `desplegar.sh`, con la línea exacta `0 11 * * * /usr/local/bin/cron-avisa --nombre "Vigía de JEV" --cada 24 -- docker exec orbit-app-1 python -m app.cli jev-vigia >> /mnt/data/appdata/orbit/logs/jev-vigia.log 2>&1`) |
 | 10:00–12:50, /10 min | `ads-salud` | `python -m app.cli ads-salud` (ads-proteccion-01 A.3: salud de la ingesta principal; el cron dispara cada 10 min y el job reporta el atraso desde las 10:30 UTC con reintentos hasta las 12:50; la linea no cambio en ingesta-01 A.4) |
 | 12:15 | `precio-muestras:amazon_mx` | `python -m app.envio_muestras --platform amazon_mx --canal fbm` (REPRICING 02 D.3: job diario de muestras MX antes de la estimacion) |
 | 12:20 | `precio-muestras:amazon_us` | `python -m app.envio_muestras --platform amazon_us --canal fbm` (REPRICING 02 D.3: job diario de muestras US antes de la estimacion) |
@@ -1182,6 +1191,11 @@ CRON
 crontab -u gon -l
 SCRIPT
 ```
+
+Si el crontab ya traía la línea del vigía (`app.cli jev-vigia`), este bloque la
+deja fuera del bloque Orbit. Para devolverla, desde un checkout del repo:
+`git show origin/master:tools/despliegue/cron_jev_vigia.sh | ssh goncloud 'bash -s -- instala'`
+(imprime `movida`); si no, la mueve `desplegar.sh` en el siguiente despliegue.
 
 Diff obligatorio contra el respaldo: las líneas de accounting deben
 seguir byte-iguales. Solo aparecen las siete líneas del bloque Orbit y sus comentarios.

@@ -1,0 +1,24 @@
+# B.1, leido en goncloud el 2026-11-09T06:00Z (solo lectura)
+$ grep -c ActiveSqlTransaction /mnt/data/appdata/orbit/logs/jev-senales.log
+36
+$ tail -n 20 /mnt/data/appdata/orbit/logs/jev-senales.log
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query
+jev-senales fallo: ActiveSqlTransaction: SET TRANSACTION ISOLATION LEVEL must be called before any query

@@ -19,8 +19,10 @@ monkeypatch al punto de entrada:
 from __future__ import annotations
 
 import datetime as dt
+import types
 from decimal import Decimal
 
+import psycopg
 import pytest
 
 from app import cli
@@ -40,12 +42,20 @@ class _FakeResultado:
         return [self._fila] if self._fila is not None else []
 
 
+# La guarda de metricas lee el estado de la transaccion al entrar (CLARIDAD 01 B.2).
+_INFO_EN_TRANSACCION = types.SimpleNamespace(
+    transaction_status=psycopg.pq.TransactionStatus.INTRANS
+)
+
+
 class _FakeConn:
     """Conexion falsa: el test verifica que el CLI la pasa tal cual al
     orquestador (el CLI no debe tocar su contenido). `close` existe porque el
     CLI SIEMPRE cierra la conexion en un finally. `execute` responde solo las
     guardas de ingesta-01 A.3 (metricas de ayer listas, sin ciclo hoy) para
     que el CLI llegue al orquestador, que es lo que estos tests miden."""
+
+    info = _INFO_EN_TRANSACCION
 
     def close(self) -> None:
         pass
@@ -992,6 +1002,8 @@ def test_impulso_vigia_sin_impulsos_sale_0(monkeypatch, capsys):
             return None
 
     class _Conn:
+        info = _INFO_EN_TRANSACCION
+
         def execute(self, *a, **k):
             return _Nada()
 
@@ -1031,6 +1043,8 @@ def test_impulso_vigia_usa_pausador_fabrica(monkeypatch):
             return None
 
     class _Conn:
+        info = _INFO_EN_TRANSACCION
+
         def execute(self, *a, **k):
             return _Nada()
 

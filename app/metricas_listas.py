@@ -119,12 +119,21 @@ def guarda(
 ) -> bool:
     """True si el comando puede correr: con --forzar siempre; si no, cada
     plataforma pedida debe tener las metricas de ayer (y, con
-    exigir_placements, la corrida de placements de hoy)."""
+    exigir_placements, la corrida de placements de hoy).
+
+    Deja la conexion como la recibio: sin autocommit, el SELECT abre una
+    transaccion y el `SET TRANSACTION ISOLATION LEVEL` que viene despues
+    (jev-senales, `_leer_mundo`) revienta con ActiveSqlTransaction."""
     if forzar:
         return True
-    for plataforma in plataformas:
-        if not metricas_de_ayer_listas(conn, plataforma, hoy=hoy):
-            return False
-        if exigir_placements and not placements_de_ayer_listos(conn, plataforma, hoy=hoy):
-            return False
-    return True
+    sin_transaccion = conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    try:
+        for plataforma in plataformas:
+            if not metricas_de_ayer_listas(conn, plataforma, hoy=hoy):
+                return False
+            if exigir_placements and not placements_de_ayer_listos(conn, plataforma, hoy=hoy):
+                return False
+        return True
+    finally:
+        if sin_transaccion:
+            conn.rollback()
