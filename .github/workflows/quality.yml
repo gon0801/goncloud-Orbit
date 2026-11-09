@@ -56,7 +56,21 @@ jobs:
       - name: El codigo carga
         run: python -m compileall -q app tools verify
 
+      - name: Qué cambió
+        id: cambios
+        run: |
+          # Un PR que solo toca docs/, plans/ o .md no cambia código: no corre la batería de 20 min.
+          codigo=si
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if ! git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | grep -vE '^(docs/|plans/)|\.md$' | grep -q .; then
+              codigo=no
+            fi
+          fi
+          echo "codigo=$codigo" >> "$GITHUB_OUTPUT"
+          echo "Cambia código: $codigo"
+
       - name: Pruebas (una vez)
+        if: steps.cambios.outputs.codigo == 'si'
         env:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
         run: |
