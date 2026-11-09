@@ -125,7 +125,7 @@
 {% set dp = decisiones_producto | default(none) %}
 <div class="tarjeta" id="decisiones-producto">
   <h3>Meta por producto
-    {% if dp and dp.cycle_id %}<span class="chip">{{ dp.con_meta }} de {{ dp.productos | length }} con meta</span>{% endif %}
+    {% if dp and dp.cycle_id %}<span class="chip">{{ dp.con_meta | numero }} de {{ dp.productos | length | numero }} con meta</span>{% endif %}
   </h3>
   <p class="mutado">
     La meta de ACoS que Orbit calcula para cada producto con su margen, solo en los grupos que anuncian
@@ -152,10 +152,10 @@
   <label>Mostrar
     <select id="decisiones-filtro" aria-controls="decisiones-tabla">
       <option value="">todos ({{ dp.productos | length }})</option>
-      <option value="con-meta">con meta ({{ dp.con_meta }})</option>
+      <option value="con-meta">con meta ({{ dp.con_meta | numero }})</option>
       <option value="sin-meta">sin meta ({{ dp.productos | length - dp.con_meta }})</option>
       {% for m in dp.motivos_presentes %}
-      <option value="motivo:{{ m.codigo }}">{{ m.etiqueta }} ({{ m.n }})</option>
+      <option value="motivo:{{ m.codigo }}">{{ m.etiqueta }} ({{ m.n | numero }})</option>
       {% endfor %}
     </select>
   </label>
@@ -238,8 +238,8 @@
         </td>
         <td data-gasto-actuable>{{ (pr.gasto_actuable | dinero ~ " " ~ pr.moneda) if pr.gasto_actuable is not none else "—" }}</td>
         <td>
-          {{ pr.elegibles }} al alcance
-          {% if pr.excluidos %}<ul>{% for x in pr.excluidos %}<li data-excluido="{{ x.codigo }}">{{ x.n }} fuera: {{ x.etiqueta }}</li>{% endfor %}</ul>{% endif %}
+          {{ pr.elegibles | numero }} al alcance
+          {% if pr.excluidos %}<ul>{% for x in pr.excluidos %}<li data-excluido="{{ x.codigo }}">{{ x.n | numero }} fuera: {{ x.etiqueta }}</li>{% endfor %}</ul>{% endif %}
         </td>
         <td>
           {% if pr.propuestas %}

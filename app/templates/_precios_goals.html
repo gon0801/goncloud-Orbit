@@ -38,12 +38,12 @@
     </label>
     <label>Modo
       <select name="mode">
-        <option value="shadow">shadow</option>
-        <option value="live">live</option>
+        <option value="shadow">{{ "shadow" | etiqueta("modo") }}</option>
+        <option value="live">{{ "live" | etiqueta("modo") }}</option>
       </select>
     </label>
     <label>Go literal
-      <input type="text" name="go_literal" placeholder="solo live" autocomplete="off">
+      <input type="text" name="go_literal" placeholder="solo en vivo" autocomplete="off">
     </label>
     <label>Actor
       <input type="text" name="actor" placeholder="quien aplica" autocomplete="off">
@@ -143,7 +143,7 @@
   <section id="bloque-no-evaluados-{{ plataforma }}" aria-label="No evaluados">
   <h3>No evaluados</h3>
   {% if datos.no_a_la_venta %}
-  <p data-no-a-la-venta>Con objetivo pero sin estar a la venta: {{ datos.no_a_la_venta }}. El motor no evalúa ni cambia el precio de estas publicaciones.</p>
+  <p data-no-a-la-venta>Con objetivo pero sin estar a la venta: {{ datos.no_a_la_venta | numero }}. El motor no evalúa ni cambia el precio de estas publicaciones.</p>
   {% endif %}
   {% if datos.no_evaluados_filas %}
   <div class="tabla-scroll" role="region" aria-label="No evaluados del dia" tabindex="0">

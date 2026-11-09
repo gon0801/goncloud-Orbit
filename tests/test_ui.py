@@ -128,20 +128,20 @@ def test_ui_decisiones_fallback_v1_marca_abstencion():
     ctx_fb = _ctx_decisiones()
     ctx_fb["items"][0]["evidencia_v2"] = {
         "motivo": "evidencia_insuficiente",
-        "motivo_es": "Sin evidencia: la posterior no alcanza la confianza para ajustar",
+        "motivo_es": "Todavía no hay datos suficientes para estar seguros: sin cambio de puja",
         "fallback_v1": True,
     }
     html_fb = ui.templates.env.get_template("decisiones.html").render(**ctx_fb)
-    assert "(abstuvo, decidió v1)" in html_fb
+    assert "(no concluyó; decidió la regla anterior)" in html_fb
     ctx_v2 = _ctx_decisiones()
     ctx_v2["items"][0]["evidencia_v2"] = {
         "motivo": "banda_menos_12",
-        "motivo_es": "ACoS sobre 1.15x del target: -12%",
+        "motivo_es": "ACoS 15 % arriba de la meta: baja la puja 12 %",
         "fallback_v1": False,
     }
     html_v2 = ui.templates.env.get_template("decisiones.html").render(**ctx_v2)
-    assert "(abstuvo, decidió v1)" not in html_v2
-    assert "v2: ACoS sobre 1.15x del target: -12%" in html_v2
+    assert "(no concluyó; decidió la regla anterior)" not in html_v2
+    assert "Cálculo con evidencia: ACoS 15 % arriba de la meta: baja la puja 12 %" in html_v2
 
 
 # ---------------------------------------------------------------------------
@@ -1518,7 +1518,8 @@ def _ctx_cortes_hermanas() -> dict:
                     "grupo_id": 1,
                     "motivo": "migracion_pendiente",
                     "motivo_es": (
-                        "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+                        "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o"
+                        " a una excepción)"
                     ),
                 },
                 "hermanas": [
@@ -1535,7 +1536,10 @@ def test_ui_cortes_harvest_nombra_hermanas_y_chip_de_motivo():
     trae el motivo traducido y la confirmacion del rechazo las repite."""
     html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes_hermanas())
     assert "se negara tambien en: Auto (Automática), Broad (Amplia de la categoría)" in html
-    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert (
+        "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción)"
+        in html
+    )
     assert "Tampoco se negara en: Auto (Automática), Broad (Amplia de la categoría)" in html
 
 
@@ -1709,13 +1713,17 @@ def _plataforma_harvest_destino(*, con_bloque: bool) -> dict:
     tarjeta["harvest_destino"] = (
         {
             "resueltos": {"grupo": 3, "excepcion": 0, "terna": 241},
-            "terna_es": ("Destino por terna del goal (migracion a grupo o excepcion pendiente)"),
+            "terna_es": (
+                "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una"
+                " excepción)"
+            ),
             "saltos_grupo": [
                 {
                     "campaign_id": 6102,
                     "motivo": "destino_inconsistente",
                     "motivo_es": (
-                        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+                        "Captura detenida: el destino de la meta de la campaña no coincide"
+                        " con su grupo exacto"
                     ),
                 }
             ],
@@ -1736,10 +1744,16 @@ def test_ui_salud_muestra_destino_de_harvest_y_saltos(monkeypatch):
     assert "por grupo 3" in html
     assert "por excepcion 0" in html
     assert "por terna 241" in html
-    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert (
+        "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción)"
+        in html
+    )
     assert "Campañas de grupo sin destino" in html
     assert "#6102" in html
-    assert "Harvest bloqueado: la terna del goal contradice la exacta del grupo" in html
+    assert (
+        "Captura detenida: el destino de la meta de la campaña no coincide con su grupo exacto"
+        in html
+    )
 
 
 def test_ui_salud_sin_bloque_no_muestra_destino_de_harvest(monkeypatch):
@@ -1782,15 +1796,18 @@ def test_ui_decisiones_muestra_linea_de_sombra_v2():
     ctx["items"][0]["evidencia_v2"] = {
         "kind": None,
         "motivo": "cpc_post_cambio_insuficiente",
-        "motivo_es": "CPC desconocido tras el cambio: menos de 20 clics al bid vigente",
+        "motivo_es": (
+            "Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada"
+            " clic"
+        ),
         "factor": None,
         "new_value": None,
         "mantiene": False,
     }
     html = ui.templates.env.get_template("decisiones.html").render(**ctx)
-    assert "v2: CPC desconocido tras el cambio" in html
+    assert "Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja" in html
     html_vieja = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
-    assert "v2:" not in html_vieja
+    assert "Cálculo con evidencia:" not in html_vieja
 
 
 # ---------------------------------------------------------------------------

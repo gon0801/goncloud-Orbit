@@ -25,7 +25,7 @@
       <tr data-familia-id="{{ nodo.id }}">
         <td data-dato-libre>{{ nodo.nombre }}</td>
         <td>familia</td>
-        <td class="num">{{ nodo.productos }}</td>
+        <td class="num">{{ nodo.productos | numero }}</td>
         <td class="num">{{ nodo.ventas_90d | numero }}</td>
         <td class="num">{% if nodo.target_familia %}{{ nodo.target_familia | pct }}{% else %}—{% endif %}</td>
         <td>{{ nodo.origen_meta }}</td>
@@ -34,7 +34,7 @@
       <tr data-familia-id="{{ hija.id }}">
         <td>— <span data-dato-libre>{{ hija.nombre }}</span></td>
         <td>subfamilia</td>
-        <td class="num">{{ hija.productos }}</td>
+        <td class="num">{{ hija.productos | numero }}</td>
         <td class="num">{{ hija.ventas_90d | numero }}</td>
         <td class="num">{% if hija.target_familia %}{{ hija.target_familia | pct }}{% else %}—{% endif %}</td>
         <td>{{ hija.origen_meta }}</td>

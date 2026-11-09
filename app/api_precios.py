@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from decimal import Decimal
 
 import psycopg.errors
 from fastapi import APIRouter, HTTPException
@@ -17,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from app.api import ConexionLectura
 from app.api_common import _dec_str
 from app.etiquetas import etiqueta
+from app.formato import dinero
 from app.notifica import validar_precio_aviso_dias
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.precio import cobertura as cobertura_precio
@@ -259,10 +259,10 @@ def _cobertura_dict(rec: cobertura_precio.Recuadro) -> dict:
 
 
 def _dinero_2(valor) -> str | None:
-    """Dinero para la frase de pantalla: 2 decimales (el JSON lleva _dec_str)."""
+    """Dinero para la frase de pantalla: miles y 2 decimales (el JSON lleva _dec_str)."""
     if valor is None:
         return None
-    return f"{Decimal(str(valor)):.2f}"
+    return dinero(valor)
 
 
 def _detalle_decisiones_hoy(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> list[dict]:

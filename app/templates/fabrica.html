@@ -4,8 +4,8 @@
 <div class="fabrica">
   <p><a href="/campanas">← Volver a campañas</a></p>
   <p class="fabrica-aviso"><strong>Las campañas se crean ACTIVAS y pueden gastar en ambos modos.</strong>
-    En shadow, el optimizador observa los ajustes sin aplicarlos. En live, puede aplicarlos según
-    sus reglas y límites. Shadow no es una simulación de la creación.</p>
+    En {{ "shadow" | etiqueta("modo") | lower }}, el optimizador observa los ajustes sin aplicarlos. En vivo,
+    puede aplicarlos según sus reglas y límites. La práctica no es una simulación de la creación.</p>
   <noscript>Esta pantalla necesita JavaScript para consultar productos y revisar el plan.</noscript>
 
   <form id="fabrica-plan" class="tarjeta">
@@ -32,8 +32,8 @@
         <label for="fabrica-modo">Modo del optimizador
           <select id="fabrica-modo" name="modo" required>
             <option value="">Selecciona un modo</option>
-            <option value="shadow">shadow — observar ajustes</option>
-            <option value="live">live — aplicar ajustes</option>
+            <option value="shadow">{{ "shadow" | etiqueta("modo") }}: observar ajustes</option>
+            <option value="live">{{ "live" | etiqueta("modo") }}: aplicar ajustes</option>
           </select>
         </label>
         <label for="fabrica-objetivo-origen">Objetivo ACoS

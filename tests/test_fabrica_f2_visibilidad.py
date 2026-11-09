@@ -419,7 +419,7 @@ def test_a6_cortes_harvest_terna_sin_hermanas_y_motivo_traducido(monkeypatch):
         assert len(items) == 1
         assert items[0]["hermanas"] is None
         assert items[0]["destino"]["motivo_es"] == (
-            "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+            "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción)"
         )
 
 

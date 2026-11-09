@@ -17,7 +17,7 @@
     {% for tarjeta in presentacion.tarjetas %}
     <article class="tarjeta-plataforma">
       <div class="tarjeta-cabeza">
-        <h3>{{ tarjeta.etiqueta }} <span class="cifra tarjeta-meta">{{ tarjeta.moneda }} · {{ tarjeta.n }} campañas</span></h3>
+        <h3>{{ tarjeta.etiqueta }} <span class="cifra tarjeta-meta">{{ tarjeta.moneda }} · {{ tarjeta.n | numero }} campañas</span></h3>
         <span class="cifra target-plataforma">Target efectivo {{ tarjeta.target }}</span>
       </div>
       <dl class="metricas-plataforma">
@@ -32,7 +32,7 @@
         </div>
         <ul class="leyenda-estados">
           {% for segmento in tarjeta.segmentos %}
-          <li><span class="punto punto-{{ segmento.clave }}" aria-hidden="true"></span>{{ segmento.etiqueta }} <span class="cifra">{{ segmento.n }}</span></li>
+          <li><span class="punto punto-{{ segmento.clave }}" aria-hidden="true"></span>{{ segmento.etiqueta }} <span class="cifra">{{ segmento.n | numero }}</span></li>
           {% endfor %}
         </ul>
       </div>
@@ -47,7 +47,7 @@
     <h2 id="h-lista">Lista de campañas</h2>
     <div role="tablist" aria-label="Vista rápida">
       {% for pestana in presentacion.pestanas %}
-      <a role="tab" href="{{ pestana.href }}" aria-selected="{{ 'true' if pestana.activa else 'false' }}">{{ pestana.etiqueta }} <span class="cifra">{{ pestana.n }}</span></a>
+      <a role="tab" href="{{ pestana.href }}" aria-selected="{{ 'true' if pestana.activa else 'false' }}">{{ pestana.etiqueta }} <span class="cifra">{{ pestana.n | numero }}</span></a>
       {% endfor %}
     </div>
   </div>
@@ -106,7 +106,7 @@
     </details>
   </form>
 
-  <p class="leyenda"><span class="cifra">{{ presentacion.mostradas }} de {{ presentacion.total }} campañas · ventana 30d incluye inmaduros</span><span>Clic en una columna para ordenar</span></p>
+  <p class="leyenda"><span class="cifra">{{ presentacion.mostradas | numero }} de {{ presentacion.total | numero }} campañas · ventana 30d incluye inmaduros</span><span>Clic en una columna para ordenar</span></p>
 
   <div class="tabla-scroll" role="region" aria-label="Tabla de campañas" tabindex="0">
   <table>

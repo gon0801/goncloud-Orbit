@@ -1607,7 +1607,7 @@ def cmd_drive_decisiones(args: argparse.Namespace) -> None:
         "old_1_00": ">1.00<" in texto,
         "new_0_88": ">0.88<" in texto,
         "neg_zapato": "zapato blanco" in texto,
-        "motive_acos": "ACoS sobre 1.15x del target" in texto,
+        "motive_acos": "ACoS 15 % arriba de la meta" in texto,
         "motive_term_sin_ventas": "Term sin ventas" in texto,
     }
 
@@ -1696,7 +1696,7 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
     skip_data = json.loads(raw)
     motivo_es = ((skip_data.get("entidad") or {}).get("estado_no_enabled") or {}).get("motivo_es")
     checks["skips_motivo_es_human"] = isinstance(motivo_es, str) and (
-        "no habilitada" in motivo_es or "no habilitado" in motivo_es
+        "no está habilitado" in motivo_es
     )
 
     stj, _, rawj = _http(f"{base}/api/dashboard/salud")

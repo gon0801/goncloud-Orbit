@@ -111,11 +111,11 @@ DIAS_PAUSA_HASTA = 30
 # Vocabulario cerrado. Los cinco primeros son los de goals.motivo_dato_invalido
 # y sin_fraccion; los demas son propios del producto.
 MOTIVOS_PRODUCTO: dict[str, str] = {
-    "sin_fraccion": "sin fraccion configurada para la plataforma",
+    "sin_fraccion": "sin la fracción del margen configurada para la plataforma",
     "sin_margen": "sin margen medido en la ventana",
     "cobertura_baja": "cobertura de costos bajo el minimo",
     "ventana_corta": "pocos dias con venta en la ventana",
-    "ledger_rancio": "ledger sin refrescar mas de 3 dias",
+    "ledger_rancio": "las ventas del libro llevan más de 3 días sin actualizarse",
     "margen_no_positivo": "margen medido cero o negativo: no es una meta de cero",
     "halo_sin_margen": "ventas atribuidas de otro SKU: su margen no es el del producto",
     "sku_distinto_en_asin": "otro SKU con gasto en el ASIN del producto",

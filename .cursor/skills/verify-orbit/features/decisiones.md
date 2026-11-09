@@ -22,7 +22,7 @@ Preconditions:
 - Semilla: al menos una decision bid sobre `Campana A` con motivo `banda_menos_12` y `target_acos_pct_usado` 25.00.
 
 - **Abrir el feed.** Corre `curl -sS "$BASE/decisiones"`. Status 200. El HTML contiene `data-pantalla="decisiones"` y `h2` `Decisiones`.
-- **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `Puja` (kind `bid`), `25.00 %`, Bid `1.00` → `0.88` USD, `2 decisiones`, motivo `ACoS sobre 1.15x del target` en la bid y `Term sin ventas` (humanizado, ya no crudo) en el negative.
+- **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `Puja` (kind `bid`), `25.00 %`, Bid `1.00` → `0.88` USD, `2 decisiones`, motivo `ACoS 15 % arriba de la meta` en la bid y `Term sin ventas` (humanizado, ya no crudo) en el negative.
 - **Pagina (si `a[rel=next]` existe).** Corre `curl -sS "$BASE/decisiones?page=2"`. El HTML dice `pagina 2 de` y trae `rel="prev"`. Si no hay `rel=next`, el feed cabe en una pagina: anotalo, no inventes una pagina.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/decisiones"`. Status 200. `items` incluye la bid de `Campana A`.
 - **Proof.** Guarda HTML de `?page=1` y `?page=2` (si aplica) y el JSON bajo `evidence/<run_id>/decisiones/`.
