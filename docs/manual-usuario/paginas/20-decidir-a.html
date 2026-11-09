@@ -9,13 +9,13 @@
   </div>
   <p>Solo esperan aquí tres tipos de cambio. Apagar, bloquear una búsqueda y crear una keyword. Los cambios de bid se aplican en el ciclo y los ves en Decisiones (página {{pag:decisiones}}).</p>
   <ol class="pasos">
-    <li>Abre <b>Propuestas</b> en el menú. El número junto al nombre cuenta las filas de <b>Crecen</b> y <b>Recortan</b>, de los dos mercados juntos.</li>
+    <li>Abre <b>Propuestas</b> en el menú. El número junto al nombre cuenta solo las propuestas reales de <b>Crecen</b> y <b>Recortan</b>, de los dos mercados juntos.</li>
     <li><b>Crecen</b> son keywords por crear. <b>Recortan</b> son cosas por apagar o bloquear. En cada fila, <b>Entidad</b> dice qué se cambia, en qué campaña y en qué mercado.</li>
-    <li>Lee <b>Vence</b>. «se aplica solo el 2026-11-10 08:40» está en hora UTC, 6 horas adelante de la Ciudad de México. Debajo, «pending_veto · encolado 2026-11-08 08:40» dice que todavía puedes rechazarla y cuándo entró a la espera.</li>
+    <li>Lee <b>Vence</b>. «se aplica solo el 2026-11-10 08:40» está en hora UTC, 6 horas adelante de la Ciudad de México. Debajo, «pending_veto · encolado 2026-11-08 08:40» dice que todavía puedes rechazarla y cuándo entró a la espera. Si dice «No se aplica: es práctica», nunca se aplica (página {{pag:cortes-practica}}).</li>
   </ol>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>
-    <tr><td>Apagar palabra</td><td>Pausar una keyword, un target o un anuncio. Si la Entidad empieza con un código como B0CR78WCH5, se pausa el anuncio de ese producto. Es una pausa por producto (página siguiente).</td></tr>
+    <tr><td>Apagar palabra, Apagar segmentación de producto, Pausar anuncio del producto</td><td>Pausar una keyword, un target o el anuncio de un producto. En el anuncio, la Entidad empieza con un código como B0CR78WCH5. Es una pausa por producto (página siguiente).</td></tr>
     <tr><td>Bloquear busqueda</td><td>Agregar un negative. Tu anuncio deja de salir para esa búsqueda en ese grupo.</td></tr>
     <tr><td>Capturar termino que vende</td><td>Crear una keyword con una búsqueda que ya vendió y bloquear esa búsqueda en el grupo de donde salió.</td></tr>
     <tr><td><b>Por que</b> con «—»</td><td>Solo Capturar muestra órdenes e ingreso. En las demás filas el guion quiere decir «no aplica».</td></tr>
@@ -25,12 +25,12 @@
 
 <section data-ancla="cortes-practica" data-etiqueta="Decidir · Propuestas · práctica o real">
   <h1>¿Esta pausa es de práctica o real?</h1>
-  <p class="lead">La tabla de Propuestas no distingue las propuestas de práctica de las reales. Para una pausa por producto, la respuesta está en Productos sin clics.</p>
+  <p class="lead">Propuestas marca cada propuesta de práctica con la etiqueta <b>Práctica</b>. Las demás son reales.</p>
   <ol class="pasos">
-    <li>Si la Entidad empieza con un código como B0CR78WCH5, es una pausa por producto.</li>
-    <li>Antes de rechazarla, abre <b>Productos sin clics</b>, elige el mercado y busca <b>Encendido de la pausa</b> (página {{pag:productos-sin-clics-pausa}}).</li>
-    <li>Si dice <b>Práctica</b>, esas pausas no se ejecutan. Al vencer el plazo no pasa nada con ellas: Orbit solo ejecuta propuestas reales, así que pueden seguir apareciendo en Propuestas. Si una propuesta real llega a vencer cuando la pausa ya volvió a práctica, Orbit la descarta. No hace falta rechazarlas.</li>
-    <li>Si dice <b>En vivo</b>, trátala como real y decide si la rechazas (página {{pag:cortes-rechazar}}).</li>
+    <li>Busca la etiqueta <b>Práctica</b> junto a Recorta o Crece, en la columna <b>Tipo</b>.</li>
+    <li>Con esa etiqueta, <b>Vence</b> dice «No se aplica: es práctica». Al vencer el plazo no pasa nada y puede seguir apareciendo. No hace falta rechazarla.</li>
+    <li>Si la rechazas, el rechazo sí cuenta. Orbit no vuelve a proponer ese mismo cambio durante los días que elijas, tampoco como propuesta real.</li>
+    <li>Sin la etiqueta, la propuesta es real. Decide si la rechazas (página {{pag:cortes-rechazar}}). Para una pausa por producto, <b>Encendido de la pausa</b> en <b>Productos sin clics</b> dice si la pausa está en práctica o en vivo (página {{pag:productos-sin-clics-pausa}}).</li>
   </ol>
   <h2>¿Por qué Productos sin clics dice 0 propuestas?</h2>
   <p>Su sección <b>Pausa por producto</b> solo lee el último ciclo. Un anuncio que ya tiene una pausa esperando en Propuestas no se vuelve a proponer. Por eso el ciclo siguiente cuenta 0, mientras Propuestas sigue mostrando las pausas de antes. Las dos pantallas dicen la verdad.</p>
@@ -55,7 +55,7 @@
   <h1>Rechaza una propuesta</h1>
   <p class="lead">Rechazar impide que la propuesta se aplique y evita que Orbit la repita durante los días que elijas. No hacer nada no es rechazar.</p>
   <ol class="pasos">
-    <li>Pulsa <b>Rechazar</b> en la fila. En una pausa, el recuadro dice «Rechazar: la palabra NO se apagara (seguira gastando)», aunque sea un anuncio de producto. Quiere decir que no se pausa.</li>
+    <li>Pulsa <b>Rechazar</b> en la fila. El recuadro dice qué no va a pasar, por ejemplo «el anuncio del producto NO se pausará». En una de práctica avisa que el rechazo sí la bloquea.</li>
     <li>En <b>Dias</b> deja 30 o escribe de 1 a 365. Es el tiempo que Orbit no volverá a proponer ese mismo cambio.</li>
     <li>Escribe tu nombre en <b>Actor</b> y la clave en <b>Token</b>. Pulsa <b>Confirmar rechazo</b>. Debe aparecer «Rechazado hasta» con la fecha en que termina el bloqueo.</li>
   </ol>
@@ -63,7 +63,7 @@
     <h4>El rechazo no se puede deshacer</h4>
     <p>No hay botón para quitarlo y no reactiva algo ya pausado. Si ya se está enviando a Amazon, sale un error y no se frena. Al terminar el bloqueo, Orbit puede volver a proponerla.</p>
   </div>
-  <p class="nota">El recuadro dice «bloquea la propuesta hasta el» con la fecha de Vence, pero el bloqueo dura los días de Dias. Confírmalo en «Rechazado hasta».</p>
+  <p class="nota">El bloqueo dura los días que escribes en Dias, contados desde hoy. «Rechazado hasta» muestra la fecha en hora del centro de México.</p>
   <h2>Otras secciones de Propuestas</h2>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>

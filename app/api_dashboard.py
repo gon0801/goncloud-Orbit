@@ -1310,6 +1310,10 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 # y los terminales no se vetan. ORDER BY vence_el: lo que vence primero se ve
 # primero.
 #
+# CLARIDAD 01 C.1: modo separa las de practica. Una fila shadow nunca vence
+# ni se aplica (trigger de migrations/0002_apply.sql:203), pero su veto si
+# bloquea la clave (apply_cola._SQL_CLAVES_BLOQUEADAS no filtra por modo).
+#
 # CORTES UI 01: el indicador del harvest se lee de decision.inputs->'termino'
 # (shape real en app/cycle.py: termino = {search_term, cost, ad_revenue,
 # clicks, orders, fechas_distintas, moneda, ...}). Se trae el JSON entero y
@@ -1319,7 +1323,7 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 _SQL_CORTES_PENDIENTES = (
     """
 SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
-       q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id,
+       q.search_term, q.estado, q.modo, q.vence_el, q.encolado_at, q.decision_id,
        e.kind::text AS entidad_kind, e.name, e.keyword_text,
        d.inputs AS decision_inputs,
        """
@@ -1350,12 +1354,17 @@ SELECT r.rol::text, c.external_id, c.name
 
 # CORTES UI 01 (D2-D4): la pantalla se llama Propuestas y cada fila declara
 # su tipo por KIND (pause/negative/harvest: familia solo distingue
-# entity_cut/term_cut y no alcanza para tres etiquetas). Espanol llano, sin
-# acentos; strings exactos pineados por tests.
+# entity_cut/term_cut y no alcanza para tres etiquetas). Strings exactos
+# pineados por tests.
+# CLARIDAD 01 C.4: la pausa apaga la hoja y solo la keyword es una palabra,
+# asi que pause se nombra por (kind, entidad_kind); negative y harvest no
+# dependen de la entidad y van con None (ver _clave_texto).
 ETIQUETA_POR_KIND = {
-    "pause": "Apagar palabra",
-    "negative": "Bloquear busqueda",
-    "harvest": "Capturar termino que vende",
+    ("pause", "keyword"): "Apagar palabra",
+    ("pause", "product_target"): "Apagar segmentación de producto",
+    ("pause", "product_ad"): "Pausar anuncio del producto",
+    ("negative", None): "Bloquear busqueda",
+    ("harvest", None): "Capturar termino que vende",
 }
 DIRECCION_POR_KIND = {
     "pause": "recorta",
@@ -1363,10 +1372,18 @@ DIRECCION_POR_KIND = {
     "harvest": "crece",
 }
 EFECTO_RECHAZO_POR_KIND = {
-    "pause": "Rechazar: la palabra NO se apagara (seguira gastando)",
-    "negative": "Rechazar: la busqueda NO se bloqueara",
-    "harvest": "Rechazar: la palabra NO se creara",
+    ("pause", "keyword"): "Rechazar: la palabra NO se apagara (seguira gastando)",
+    ("pause", "product_target"): (
+        "Rechazar: la segmentación de producto NO se apagará (seguirá gastando)"
+    ),
+    ("pause", "product_ad"): "Rechazar: el anuncio del producto NO se pausará (seguirá gastando)",
+    ("negative", None): "Rechazar: la busqueda NO se bloqueara",
+    ("harvest", None): "Rechazar: la palabra NO se creara",
 }
+
+
+def _clave_texto(kind: str, entidad_kind: str | None) -> tuple[str, str | None]:
+    return (kind, entidad_kind if kind == "pause" else None)
 
 
 def _indicador_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
@@ -1560,6 +1577,7 @@ def cortes(conn: ConexionLectura) -> dict:
             and fila["campana_id"] is not None
         ):
             hermanas = _hermanas_de(conn, destino["grupo_id"], fila["campana_id"])
+        clave_texto = _clave_texto(fila["kind"], fila["entidad_kind"])
         items.append(
             {
                 "id": fila["id"],
@@ -1576,12 +1594,13 @@ def cortes(conn: ConexionLectura) -> dict:
                 ),
                 "search_term": fila["search_term"],
                 "estado": fila["estado"],
+                "modo": fila["modo"],
                 "vence_el": fila["vence_el"].isoformat(),
                 "encolado_at": fila["encolado_at"].isoformat(),
                 "decision_id": fila["decision_id"],
-                "etiqueta": ETIQUETA_POR_KIND.get(fila["kind"]),
+                "etiqueta": ETIQUETA_POR_KIND.get(clave_texto),
                 "direccion": DIRECCION_POR_KIND.get(fila["kind"]),
-                "efecto_rechazo": EFECTO_RECHAZO_POR_KIND.get(fila["kind"]),
+                "efecto_rechazo": EFECTO_RECHAZO_POR_KIND.get(clave_texto),
                 "indicador": _indicador_harvest(fila["kind"], fila["decision_inputs"]),
                 "destino": destino,
                 "hermanas": hermanas,
@@ -2012,11 +2031,12 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
     Funcion delgada: delega en `pantalla_productos.lee_productos` (SOLO
     SELECT) y agrega la frase de clics fuera de Amazon por impulso y las
     decisiones por producto del ultimo ciclo (AUTO-03 E.1,
-    `pantalla_decisiones_producto`). Sin mercado se mira amazon_mx;
-    mercado ajeno es 422."""
+    `pantalla_decisiones_producto`) y las subfamilias conocidas que el
+    campo Subfamilia sugiere (CLARIDAD 01 D.1). Sin mercado se mira
+    amazon_mx; mercado ajeno es 422."""
     import datetime as dt
 
-    from app import pantalla_decisiones_producto, pantalla_productos
+    from app import fabrica_web, pantalla_decisiones_producto, pantalla_productos
 
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
@@ -2029,8 +2049,14 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
             impulso["clics_fuera_de_amazon"], impulso["clics"]
         )
     decisiones = pantalla_decisiones_producto.lee_decisiones_producto(conn, mercado).como_dict()
+    subfamilias = fabrica_web.tipos_producto(conn, mercado)
     conn.commit()
-    return {"plataforma": mercado, **base, "decisiones_producto": decisiones}
+    return {
+        "plataforma": mercado,
+        **base,
+        "decisiones_producto": decisiones,
+        "subfamilias": subfamilias,
+    }
 
 
 @router.get("/productos/simula-pausa")

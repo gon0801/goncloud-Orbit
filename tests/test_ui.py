@@ -1468,8 +1468,9 @@ def test_ui_propuestas_rechazar_con_efecto_e_irreversibilidad():
     assert "Rechazar: la palabra NO se creara" in html
     assert "Rechazar: la palabra NO se apagara (seguira gastando)" in html
     assert "Rechazar: la busqueda NO se bloqueara" in html
-    assert "NO se puede deshacer" in html
-    assert "hasta el 2026-09-25 12:00" in html
+    assert "no se puede deshacer" in html
+    assert "durante los días que pongas abajo, contados desde hoy" in html
+    assert "hasta el 2026-09-25" not in html, "C.3: el bloqueo no dura hasta el Vence"
 
 
 def test_ui_propuestas_titulo_y_menu_d1():
@@ -1595,10 +1596,12 @@ def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
         ciclo = _ciclo(conn, platform="amazon_us")
         config = _config_version(conn, {"ads_optimizer_mode": "shadow"})
         camp = _campana(conn, "amazon_us", "9002", name="Campana B")
+        # C.4: la etiqueta de pause sale por entidad; una keyword es "Apagar palabra".
+        kw = _keyword(conn, "amazon_us", "9202", _grupo(conn, "amazon_us", "9102", camp), "zapato")
         dec = _decision(
             conn,
             ciclo,
-            camp,
+            kw,
             kind="pause",
             config_id=config,
             inputs={"motivo": "x"},
@@ -1609,7 +1612,7 @@ def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
             " modo, estado, vence_el, request_payload)"
             " VALUES ('amazon_us', %s, 'pause', %s, 'live', 'pending_veto',"
             " now() + interval '48 hours', '{}'::jsonb)",
-            (camp, dec),
+            (kw, dec),
         )
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
         cliente = TestClient(app)

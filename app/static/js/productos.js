@@ -3,8 +3,9 @@
 // `default-src 'self'`: los <script> inline y los handlers on*= quedan
 // BLOQUEADOS por esa politica. "Ver lanzamiento" pide POST
 // /api/fabrica/impulso/plan con los listings marcados y pinta la vista
-// previa; "Lanzar impulso" exige el literal LANZAR IMPULSO DE <N>
-// PRODUCTOS antes de mandar POST /api/fabrica/impulso/lanzar.
+// previa (avisa la subfamilia nueva, que arranca sin negativos); "Lanzar
+// impulso" exige el literal LANZAR IMPULSO DE <N> PRODUCTOS antes de
+// mandar POST /api/fabrica/impulso/lanzar.
 // "Regresarlo a sus grupos de antes" exige REGRESAR <N> ANUNCIOS y manda
 // POST /api/fabrica/retiro/reponer. Sacar y regresar dicen "n de m" y
 // nombran cada anuncio que no quedo (AUTO-03 G.4); los adoptados y los
@@ -54,11 +55,12 @@ function marcados(selector) {
   return { listings: listings, subfamilias: subfamilias, faltan: faltan };
 }
 
+// Sin el punto final: quien llama cierra la frase con el suyo.
 function mensajeError(data) {
   var detalle = data && data.detail;
-  if (typeof detalle === "string") return detalle;
+  if (typeof detalle === "string") return detalle.replace(/\.$/, "");
   if (detalle && detalle.mensaje) {
-    var texto = detalle.mensaje;
+    var texto = detalle.mensaje.replace(/\.$/, "");
     var lanzados = detalle.lanzados || [];
     if (lanzados.length) texto += " · lanzados: " + lanzados.length;
     var fallos = detalle.fallos || {};
@@ -88,6 +90,22 @@ function pintaVista(zona, vista) {
   vista.planes.forEach(function (plan) {
     var div = document.createElement("div");
     div.appendChild(parrafo(plan.seller_sku + " · " + plan.subfamilia));
+    if (plan.subfamilia_nueva) {
+      var aviso = parrafo(
+        "Subfamilia nueva: arranca sin negativos; Orbit los aprende con este impulso."
+      );
+      aviso.className = "aviso";
+      aviso.setAttribute("data-subfamilia-nueva", "");
+      div.appendChild(aviso);
+    } else if (plan.sin_negativos) {
+      var avisoNeg = parrafo(
+        "Esta subfamilia todavía no tiene negativos: arranca sin negativos; " +
+          "Orbit los aprende con este impulso."
+      );
+      avisoNeg.className = "aviso";
+      avisoNeg.setAttribute("data-sin-negativos", "");
+      div.appendChild(avisoNeg);
+    }
     div.appendChild(
       parrafo(
         "Tope " +
