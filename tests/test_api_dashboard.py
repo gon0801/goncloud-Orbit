@@ -51,6 +51,7 @@ from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import api_dashboard as dash
+from app.etiquetas import ETIQUETAS
 from app.main import app
 from app.optimizer import hygiene
 
@@ -1503,7 +1504,7 @@ def test_decisiones_motivo_desconocido_fallback_y_nombre_null(monkeypatch):
         )
         item = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones").json()["items"][0]
         assert item["nombre"] is None  # name NULL no revienta
-        assert item["motivo_es"] == "motivo_futuro_desconocido"  # fallback sin crash
+        assert item["motivo_es"] == "Motivo futuro desconocido"  # fallback sin snake_case
 
 
 @pytest.mark.skipif(
@@ -1797,7 +1798,7 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
             "motivo_es": "Harvest sin destino: sin grupo, sin excepcion y sin terna",
         }
         # motivo desconocido -> fallback al id crudo, sin crash
-        assert skips["termino"]["motivo_futuro"]["motivo_es"] == "motivo_futuro"
+        assert skips["termino"]["motivo_futuro"]["motivo_es"] == "Motivo futuro"
 
 
 # ---------------------------------------------------------------------------
@@ -1831,42 +1832,44 @@ MOTIVOS_ES_F2 = [
 @pytest.mark.parametrize("motivo, esperado", MOTIVOS_ES_F2)
 def test_salud_motivos_f2_traducidos_con_texto_exacto(motivo, esperado):
     """A.6: los cinco motivos que A.1 agrego a hygiene entran a
-    MOTIVOS_ES_SALUD con su texto exacto. El `!=` mata al mutante que
+    el registro (motivo_salud) con su texto exacto. El `!=` mata al mutante que
     devuelve el id crudo (el fallback de _skips_traducidos lo tragaria)."""
-    assert dash.MOTIVOS_ES_SALUD[motivo] != motivo
-    assert dash.MOTIVOS_ES_SALUD[motivo] == esperado
+    assert ETIQUETAS["motivo_salud"][motivo] != motivo
+    assert ETIQUETAS["motivo_salud"][motivo] == esperado
 
 
 def test_salud_sin_target_traducido_con_texto_exacto():
-    """R03-(a): sin_target entra a MOTIVOS_ES_SALUD con su texto exacto.
+    """R03-(a): sin_target entra a el registro (motivo_salud) con su texto exacto.
     El `!=` mata al mutante que devuelve el id crudo."""
     from app import cycle as ciclo
 
-    assert dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET] != ciclo.MOTIVO_SIN_TARGET
+    assert ETIQUETAS["motivo_salud"][ciclo.MOTIVO_SIN_TARGET] != ciclo.MOTIVO_SIN_TARGET
     assert (
-        dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET]
+        ETIQUETAS["motivo_salud"][ciclo.MOTIVO_SIN_TARGET]
         == "Sin target (ningun peldano resolvio): sin ajuste"
     )
 
 
 def test_salud_vigente_por_encima_traducido_con_texto_exacto():
-    """R03-B1: vigente_por_encima entra a MOTIVOS_ES_SALUD con su texto exacto."""
+    """R03-B1: vigente_por_encima entra a el registro (motivo_salud) con su texto exacto."""
     from app.optimizer import politica
 
-    assert dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA] != politica.MOTIVO_VIGENTE_ENCIMA
     assert (
-        dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA]
+        ETIQUETAS["motivo_salud"][politica.MOTIVO_VIGENTE_ENCIMA] != politica.MOTIVO_VIGENTE_ENCIMA
+    )
+    assert (
+        ETIQUETAS["motivo_salud"][politica.MOTIVO_VIGENTE_ENCIMA]
         == "Bid vigente por encima del regreso: sin ajuste"
     )
 
 
 def test_salud_motivo_es_helper_fallback_y_none():
-    """A.6: `motivo_es` traduce por MOTIVOS_ES_SALUD, cae al id crudo con
+    """A.6: `motivo_es` traduce por el registro, humaniza los
     motivos desconocidos y pasa None a None (regla 3)."""
     assert dash.motivo_es(hygiene.MOTIVO_DESTINO_INCONSISTENTE) == (
         "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
     )
-    assert dash.motivo_es("motivo_futuro") == "motivo_futuro"
+    assert dash.motivo_es("motivo_futuro") == "Motivo futuro"
     assert dash.motivo_es(None) is None
 
 
@@ -1986,19 +1989,17 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
     """CAMPANA ACTIVA 01: los dos motivos nuevos del orquestador tienen
     traduccion en /salud (sin ella la pantalla mostraria el id crudo)."""
     from app import cycle as ciclo
-    from app.api_dashboard import MOTIVOS_ES_SALUD
 
-    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campaña")
-    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
+    assert ETIQUETAS["motivo_salud"][ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campaña")
+    assert ETIQUETAS["motivo_salud"][ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
 
 
 def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
     """BIDS 01: el motivo nuevo de cero ventas tiene traduccion en el feed
     (sin ella la pantalla mostraria el id crudo)."""
-    from app.api_dashboard import MOTIVOS_ES_DECISIONES
     from app.optimizer import eras as eras_mod
 
-    assert MOTIVOS_ES_DECISIONES[eras_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
+    assert ETIQUETAS["motivo_decision"][eras_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
         "Cero ventas"
     )
 
@@ -2512,19 +2513,18 @@ def test_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
 def test_motivos_v2_en_ambos_dicts_es():
     """A4: las abstenciones v2 viven en DECISIONES (plan-literal) y en
     SALUD (clase no-op, forward-A6; precedente MOTIVO_PAUSE dual)."""
-    from app.api_dashboard import MOTIVOS_ES_DECISIONES, MOTIVOS_ES_SALUD
     from app.optimizer import evidencia as ev
 
-    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+    assert ETIQUETAS["motivo_decision"][ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     )
-    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+    assert ETIQUETAS["motivo_decision"][ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     )
-    assert MOTIVOS_ES_SALUD[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+    assert ETIQUETAS["motivo_salud"][ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
         "Sin evidencia: la posterior no alcanza la confianza para ajustar"
     )
-    assert MOTIVOS_ES_SALUD[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+    assert ETIQUETAS["motivo_salud"][ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
         "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
     )
 

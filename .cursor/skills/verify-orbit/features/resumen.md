@@ -8,6 +8,7 @@ curso. Cada canal conserva su moneda. None se ve como raya. El cero se ve como
 ## Sub-features
 
 - `resumen-nav` abre `/` desde el sidebar (`aside.sidebar`) y deja `aria-current="page"` en Resumen.
+- `resumen-leyenda` el header (`header.pagina-header`) trae `span.leyenda-zona` «Horas del centro de México», igual que toda pantalla del dashboard. Las horas se ven «8 nov, 11:58», sin la palabra UTC.
 - `resumen-filtros` muestra píldoras de canal (`Todos`, `Amazon MX`, `Amazon US`, `Mercado Libre`), píldoras de periodo (`7 dias`, `30 dias`, `90 dias`), y `<details class="custom-range">` plegado con `form.filtros` (`desde`/`hasta`). Al enviar, la elección queda en la URL y en los controles.
 - `resumen-tarjetas` (sección `1. Cómo va cada canal`) muestra 1 tarjeta por canal visible con etiqueta `Bien` / `Atención` / `Sin dato`, ACoS grande con variación y valor previo, `Meta ACoS` con enlace `Configurar` a `/settings`, mini-sparkline SVG de `ma7.ad_revenue`, 3 mini-KPIs (`Ventas`, `Gasto`, `ROAS`) y frase resumen.
 - `resumen-que-revisar` (sección `2. Qué revisar`) lista diagnósticos priorizados calculados desde las cifras del periodo elegido con enlaces a `/gasto-sin-venta`, `/busquedas-sin-venta`, `/campanas` y `/decisiones`.
@@ -29,7 +30,7 @@ Preconditions:
 - Doctor en verde sobre la instancia de este run.
 - Semilla presente (amazon_us tiene al menos un dia con cost/revenue).
 
-- **Abrir Resumen.** Corre `curl -sS -D - "$BASE/"`. Status 200. El HTML contiene `data-pantalla="resumen"`, `<title>` `Orbit — Dashboard`, `<h1>` `Resumen`, `aside.sidebar`, `nav a[href="/"]` con `aria-current="page"`, `href="/inertes"`, `href="/campanas/nuevas"` y `href="/settings"`, `html[data-tema="dia"]` y `button#btn-tema`. También `Resumen de publicidad`, `value="" selected`, `value="30" selected`, `id="datos-resumen"`, `Tabla por canal`, `Periodo anterior`, `id="tendencia-amazon_us"`, `id="serie-amazon_us"`, `media de 7 dias` y `Amazon MX · Amazon US · Mercado Libre`.
+- **Abrir Resumen.** Corre `curl -sS -D - "$BASE/"`. Status 200. El HTML contiene `data-pantalla="resumen"`, `<title>` `Orbit — Dashboard`, `<h1>` `Resumen`, `aside.sidebar`, `nav a[href="/"]` con `aria-current="page"`, `href="/inertes"`, `href="/campanas/nuevas"` y `href="/settings"`, `html[data-tema="dia"]`, `button#btn-tema` y `class="leyenda-zona"` con `Horas del centro de México`. También `Resumen de publicidad`, `value="" selected`, `value="30" selected`, `id="datos-resumen"`, `Tabla por canal`, `Periodo anterior`, `id="tendencia-amazon_us"`, `id="serie-amazon_us"`, `media de 7 dias` y `Amazon MX · Amazon US · Mercado Libre`.
 - **Cambiar canal y periodo.** Corre `curl -sS "$BASE/?canal=meli&periodo=7"`. Status 200. El HTML contiene `value="meli" selected` y `value="7" selected`. El tramo de `<h2>Mercado Libre` no contiene `Cifras inmaduras`.
 - **Periodo 90.** Corre `curl -sS "$BASE/?periodo=90"`. Status 200 y `value="90" selected`.
 - **Rango.** Corre `curl -sS "$BASE/?desde=2026-10-01&hasta=2026-10-07"`. Status 200, las dos fechas en los inputs y el texto `rango personalizado`.

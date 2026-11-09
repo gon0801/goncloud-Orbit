@@ -1036,7 +1036,7 @@ def test_r2_pantalla_dice_por_confirmar_al_recargar(monkeypatch):
             bloqueos_disponibles=True,
             bloqueos_jev=lectura.lee_pantalla(conn),
         )
-        assert 'intencion <span class="detalle-celda">por_confirmar</span>' in html
+        assert 'Por aplicar <span class="detalle-celda">por confirmar en Amazon</span>' in html
 
 
 @_skip_db

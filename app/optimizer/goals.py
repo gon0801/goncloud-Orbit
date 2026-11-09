@@ -622,8 +622,8 @@ MARGEN_DIAS_MIN_FAMILIA = 30  # A5: guards de producto, no de plataforma
 MARGEN_RANCIO_DIAS = 3  # ledger_fresco_at < hoy-3 dias -> rancio
 
 # Vocabulario CERRADO de abstenciones (spec §5, orden = orden de evaluacion
-# en resuelve_target_margen). Etiquetas ES sin acentos (van al digest y a
-# /salud; el codigo va sin acentos).
+# en resuelve_target_margen). Sus textos viven en app/etiquetas
+# (dominio motivo_abstencion).
 MOTIVOS_ABSTENCION = (
     "sin_margen",
     "cobertura_baja",
@@ -632,15 +632,6 @@ MOTIVOS_ABSTENCION = (
     "ledger_rancio",
     "sin_familia",
 )
-
-ETIQUETA_ABSTENCION = {
-    "sin_margen": "sin margen medido en la ventana",
-    "cobertura_baja": "cobertura de costos bajo el minimo",
-    "ventana_corta": "pocos dias con venta en la ventana",
-    "sin_fraccion": "sin fraccion configurada para la plataforma",
-    "ledger_rancio": "ledger sin refrescar mas de 3 dias",
-    "sin_familia": "hoja sin familia etiquetada (el peldano no aplica)",
-}
 
 
 @dataclass(frozen=True)

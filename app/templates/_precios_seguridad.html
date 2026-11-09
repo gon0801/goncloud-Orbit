@@ -8,19 +8,19 @@
 {% for plataforma, datos in plataformas.items() %}
 {% set seg = datos.seguridad %}
 <div class="tarjeta">
-  <section id="bloque-seguridad-{{ plataforma }}" aria-label="Seguridad {{ plataforma }}">
-  <h3>{{ plataforma }} — compuerta</h3>
+  <section id="bloque-seguridad-{{ plataforma }}" aria-label="Seguridad de {{ plataforma | etiqueta('plataforma') }}">
+  <h3>{{ plataforma | etiqueta("plataforma") }}: compuerta</h3>
   {% if seg.modo_global is none or seg.modo_universo is none %}
   <p class="mutado">Apagador sin configurar (faltan claves de modo).</p>
   {% else %}
-  <p>Modo global: {{ seg.modo_global }} ·
-  {% for universo, modo in seg.modo_universo.items() if universo.startswith(plataforma ~ "/") %}{{ universo }}: {{ modo }}{% if not loop.last %}, {% endif %}{% else %}sin universos configurados{% endfor %}</p>
+  <p>Modo global: {{ seg.modo_global | etiqueta("modo") }} ·
+  {% for universo, modo in seg.modo_universo.items() if universo.startswith(plataforma ~ "/") %}{{ universo.split("/")[-1] | upper }}: {{ modo | etiqueta("modo") }}{% if not loop.last %}, {% endif %}{% else %}sin universos configurados{% endfor %}</p>
   {% endif %}
   {% if seg.ultima_corrida %}
   {% set cor = seg.ultima_corrida %}
-  <p class="mutado">Última corrida #{{ cor.corrida_id }} ({{ cor.fecha }}, {{ cor.estado }}): {{ cor.decisiones if cor.decisiones is not none else "—" }} decisiones nuevas en esta corrida · {{ cor.decisiones_dia }} en el día · {{ cor.retenidas if cor.retenidas is not none else "—" }} retenidas, {{ cor.errores if cor.errores is not none else "—" }} errores</p>
+  <p class="mutado">Última corrida #{{ cor.corrida_id }} ({{ cor.fecha }}, {{ cor.estado | etiqueta("estado_ciclo") }}): {{ cor.decisiones | numero }} decisiones nuevas en esta corrida · {{ cor.decisiones_dia | numero }} en el día · {{ cor.retenidas | numero }} retenidas, {{ cor.errores | numero }} errores</p>
   {% if cor.medicion %}
-  <p data-compuerta-medicion>Compuerta del día: {% for m in cor.medicion %}{{ m.canal }} {{ m.medidas }} medidas, {{ m.nuevas }} nuevas{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <p data-compuerta-medicion>Compuerta del día: {% for m in cor.medicion %}{{ m.canal }} {{ m.medidas | numero }} medidas, {{ m.nuevas | numero }} nuevas{% if not loop.last %} · {% endif %}{% endfor %}</p>
   {% else %}
   <p class="mutado" data-compuerta-medicion>Compuerta: sin publicaciones medidas en esta corrida.</p>
   {% endif %}
@@ -30,7 +30,7 @@
   {% if seg.retenciones_abiertas %}
   <ul>
     {% for canal, ret in seg.retenciones_abiertas.items() %}
-    <li>{{ canal }}: {{ ret.causa }} ({{ ret.nuevas }} nuevas de {{ ret.medidas }} medidas){% if ret.insumo %} — insumo {{ ret.insumo }}{% endif %}{% if ret.detalle %} · {{ ret.detalle }}{% endif %}</li>
+    <li>{{ canal }}: {{ ret.causa | etiqueta("causa_compuerta") }} ({{ ret.nuevas | numero }} nuevas de {{ ret.medidas | numero }} medidas){% if ret.insumo %}, insumo {{ ret.insumo | etiqueta("insumo_compuerta") }}{% endif %}{% if ret.detalle %} · {{ ret.detalle }}{% endif %}</li>
     {% endfor %}
   </ul>
   {% else %}

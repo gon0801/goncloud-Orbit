@@ -383,6 +383,9 @@ _PERMITIDOS_PUROS = {
     "__future__",
     "app.jev_ads",
     "app.jev_lectura",
+    # Registro de textos de pantalla (CLARIDAD 01 H.1): solo diccionarios y
+    # `etiqueta`; su alcance de modulo no abre red ni base.
+    "app.etiquetas",
     "collections.abc",
     "dataclasses",
     "datetime",

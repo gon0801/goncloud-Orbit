@@ -13,17 +13,17 @@
   </section>
   <section class="kpi" aria-label="Reviews verificadas">
     <p class="kpi-etiqueta">Reviews verificadas</p>
-    <div class="kpi-valor">{{ "{:,}".format(resumen.kpi_reviews_meli.total).replace(",", ".") }}</div>
+    <div class="kpi-valor">{{ resumen.kpi_reviews_meli.total | numero }}</div>
     <div class="kpi-contexto">MeLi · Amazon sin verificar</div>
   </section>
   <section class="kpi" aria-label="Preguntas pendientes">
     <p class="kpi-etiqueta">Preguntas pendientes</p>
-    <div class="kpi-valor acento">{{ resumen.total_pendientes }}</div>
+    <div class="kpi-valor acento">{{ resumen.total_pendientes | numero }}</div>
     <div class="kpi-contexto">sin responder · tope de lista 50</div>
   </section>
   <section class="kpi" aria-label="Alertas abiertas">
     <p class="kpi-etiqueta">Alertas abiertas</p>
-    <div class="kpi-valor alerta">{{ resumen.total_alertas }}</div>
+    <div class="kpi-valor alerta">{{ resumen.total_alertas | numero }}</div>
     <div class="kpi-contexto">{{ sev.critica }} crítica{{ "s" if sev.critica != 1 }} · {{ sev.aviso }} aviso{{ "s" if sev.aviso != 1 }}{% if sev.info %} · {{ sev.info }} info{% endif %}</div>
   </section>
 </div>
@@ -40,11 +40,11 @@
     {% elif al.severidad == "aviso" %}<span class="chip aviso">aviso</span>
     {% else %}<span class="chip">{{ al.severidad }}</span>{% endif %}
     <div class="rep-crece">
-      <div><span class="rep-tipo">{{ al.tipo }}</span>
-        <span class="mono mutado">{{ al.external_id or "cuenta" }}</span></div>
-      <div class="rep-msg">{{ al.mensaje }}</div>
+      <div><span class="rep-tipo">{{ al.tipo | etiqueta("tipo_alerta") }}</span>
+        <span class="mono mutado" data-dato-libre>{{ al.external_id or "cuenta" }}</span></div>
+      <div class="rep-msg" data-dato-libre>{{ al.mensaje }}</div>
     </div>
-    <span class="rep-tiempo">{{ al.created_at|fecha_corta(true) }}</span>
+    <span class="rep-tiempo">{{ al.created_at | fecha_hora }}</span>
   </div>
   {% else %}
   <p class="rep-vacio"><span class="mutado">Sin datos</span></p>
@@ -59,7 +59,7 @@
       <select name="plataforma" aria-label="Plataforma">
         <option value="">Plataforma · todas</option>
         {% for p in ("meli", "amazon_mx", "amazon_us") %}
-        <option value="{{ p }}"{% if filtros.plataforma == p %} selected{% endif %}>{{ p }}</option>
+        <option value="{{ p }}"{% if filtros.plataforma == p %} selected{% endif %}>{{ p | etiqueta("plataforma") }}</option>
         {% endfor %}
       </select>
       <select name="tendencia" aria-label="Tendencia">
@@ -89,9 +89,9 @@
     <tbody>
       {% for li in resumen.listings %}
       <tr>
-        <td><span class="mono"><strong>{{ li.external_id }}</strong></span><span class="detalle-celda">{{ li.platform }} · snapshot {{ li.metric_date|fecha_corta }}</span></td>
+        <td><span class="mono" data-dato-libre><strong>{{ li.external_id }}</strong></span><span class="detalle-celda">{{ li.platform | etiqueta("plataforma") }} · dato del {{ li.metric_date|fecha_corta }}</span></td>
         <td>{% if li.rating is none %}<span class="mutado">—</span>{% else %}<span class="rep-rating-flex"><span class="rep-rating">{{ li.rating }}</span> {{ estrellas(li.rating) }}</span>{% endif %}</td>
-        <td class="num">{% if li.review_count is none %}<span class="mutado">—</span>{% else %}{{ li.review_count }}{% endif %}</td>
+        <td class="num">{% if li.review_count is none %}<span class="mutado">—</span>{% else %}{{ li.review_count | numero }}{% endif %}</td>
         <td>{% if li.tendencia == "sube" %}<span class="chip ok">sube</span>
           {% elif li.tendencia == "baja" %}<span class="chip alerta">baja</span>
           {% elif li.tendencia == "estable" %}<span class="chip">estable</span>
@@ -123,11 +123,11 @@
     <div class="rep-crece">
       <div class="rep-linea">
         {% if rv.rating is none %}<span class="mutado">—</span>{% else %}<span class="rep-rating-chico">{{ rv.rating }}</span> {{ estrellas(rv.rating) }}{% endif %}
-        <span class="mono mutado">{{ rv.external_id }} · {{ rv.review_external_id }}</span>
+        <span class="mono mutado" data-dato-libre>{{ rv.external_id }} · {{ rv.review_external_id }}</span>
         <span class="rep-tiempo">{{ rv.published_at|fecha_corta }}</span>
       </div>
-      {% if rv.titulo %}<div class="rep-titulo">{{ rv.titulo }}</div>{% endif %}
-      {% if rv.texto %}<div class="rep-msg">{{ rv.texto }}</div>{% else %}<div class="mutado">— sin texto</div>{% endif %}
+      {% if rv.titulo %}<div class="rep-titulo" data-dato-libre>{{ rv.titulo }}</div>{% endif %}
+      {% if rv.texto %}<div class="rep-msg" data-dato-libre>{{ rv.texto }}</div>{% else %}<div class="mutado">— sin texto</div>{% endif %}
     </div>
   </div>
   {% else %}
@@ -144,8 +144,8 @@
   {% for pg in resumen.preguntas_pendientes %}
   <div class="rep-fila">
     <div class="rep-crece">
-      <div class="mono mutado">{{ pg.external_id }} · {{ pg.question_external_id }}</div>
-      <div class="rep-pregunta">{{ pg.texto or "— sin texto" }}</div>
+      <div class="mono mutado" data-dato-libre>{{ pg.external_id }} · {{ pg.question_external_id }}</div>
+      <div class="rep-pregunta" data-dato-libre>{{ pg.texto or "— sin texto" }}</div>
       <div class="mutado">{{ (pg.asked_at or pg.observed_at)|hace(ahora) }}</div>
     </div>
     <span class="mutado" title="v1 es solo lectura: se responde en MeLi">Responder en MeLi</span>
@@ -157,14 +157,14 @@
 </div>
 
 <section class="tarjeta" aria-label="Cuenta MeLi">
-  <h3>Cuenta MeLi{% if resumen.cuenta_meli %} <span class="mutado">· snapshot {{ resumen.cuenta_meli.metric_date|fecha_corta }}</span>{% endif %}</h3>
+  <h3>Cuenta MeLi{% if resumen.cuenta_meli %} <span class="mutado">· dato del {{ resumen.cuenta_meli.metric_date|fecha_corta }}</span>{% endif %}</h3>
   {% if resumen.cuenta_meli %}
   {% set cuenta = resumen.cuenta_meli %}
   <div class="rep-cuenta">
     <div><p class="rep-dato-et">Level</p><p class="rep-dato-val">{{ cuenta.level_id or "—" }}</p></div>
     <div><p class="rep-dato-et">Power seller</p><p class="rep-dato-val">{{ cuenta.power_seller or "—" }}</p></div>
-    <div><p class="rep-dato-et">Disputas abiertas</p><p class="rep-dato-val{% if cuenta.disputas_abiertas %} alerta{% endif %}">{% if cuenta.disputas_abiertas is none %}—{% else %}{{ cuenta.disputas_abiertas }}{% endif %}</p></div>
-    <div><p class="rep-dato-et">Disputas totales</p><p class="rep-dato-val">{% if cuenta.disputas_total is none %}—{% else %}{{ cuenta.disputas_total }}{% endif %}</p></div>
+    <div><p class="rep-dato-et">Disputas abiertas</p><p class="rep-dato-val{% if cuenta.disputas_abiertas %} alerta{% endif %}">{% if cuenta.disputas_abiertas is none %}—{% else %}{{ cuenta.disputas_abiertas | numero }}{% endif %}</p></div>
+    <div><p class="rep-dato-et">Disputas totales</p><p class="rep-dato-val">{% if cuenta.disputas_total is none %}—{% else %}{{ cuenta.disputas_total | numero }}{% endif %}</p></div>
   </div>
   {% else %}
   <p><span class="mutado">Sin datos</span></p>

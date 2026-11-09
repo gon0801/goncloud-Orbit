@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 {% block contenido %}
 {% set kpis = items | kpis_inertes %}
-<h2>Entidades sin trafico</h2>
+<h2>Keywords y productos sin visitas</h2>
 <p class="mutado">
-  Hojas activas que Amazon no sirve desde hace 14 dias o mas (contados desde
-  el watermark de cada plataforma). Revivirlas es decision humana desde este
-  reporte: el motor ya no las ajusta.
+  Keywords y productos objetivo activos que Amazon no muestra desde hace 14 días
+  o más, contados desde el último día con datos de cada plataforma. Revivirlos
+  lo decides tú desde esta pantalla: el motor ya no les mueve la puja.
 </p>
 <div class="kpis">
-  <section class="kpi"><p class="kpi-etiqueta">Hojas sin trafico</p><div class="kpi-valor">{{ kpis.hojas }}</div><div class="kpi-contexto">Activas sin impresiones recientes</div></section>
-  <section class="kpi"><p class="kpi-etiqueta">Antiguedad cumplida</p><div class="kpi-valor acento">{{ items | selectattr('en_espera', 'sameas', false) | list | length }}</div><div class="kpi-contexto">Revisar clasificacion antes de archivar</div></section>
-  <section class="kpi"><p class="kpi-etiqueta">En espera</p><div class="kpi-valor">{{ kpis.en_espera }}</div><div class="kpi-contexto">{{ kpis.sin_antiguedad }} sin dato de antiguedad</div></section>
-  <section class="kpi"><p class="kpi-etiqueta">Gasto 90d inmovil</p>{% for moneda, total in kpis.gasto.items() %}<div class="kpi-valor">{{ total if total is not none else '—' }} <small>{{ moneda }}</small></div>{% else %}<div class="kpi-valor">—</div>{% endfor %}<div class="kpi-contexto">Suma observada por moneda</div></section>
+  <section class="kpi"><p class="kpi-etiqueta">Sin visitas</p><div class="kpi-valor">{{ kpis.hojas | numero }}</div><div class="kpi-contexto">Activas sin impresiones recientes</div></section>
+  <section class="kpi"><p class="kpi-etiqueta">Antigüedad cumplida</p><div class="kpi-valor acento">{{ items | selectattr('en_espera', 'sameas', false) | list | length | numero }}</div><div class="kpi-contexto">Revisa la clasificación antes de archivar</div></section>
+  <section class="kpi"><p class="kpi-etiqueta">En espera</p><div class="kpi-valor">{{ kpis.en_espera | numero }}</div><div class="kpi-contexto">{{ kpis.sin_antiguedad | numero }} sin dato de antigüedad</div></section>
+  <section class="kpi"><p class="kpi-etiqueta">Gasto de 90 días sin visitas</p>{% for moneda, total in kpis.gasto.items() %}<div class="kpi-valor">{{ total | dinero }} <small>{{ moneda }}</small></div>{% else %}<div class="kpi-valor">—</div>{% endfor %}<div class="kpi-contexto">Suma observada por moneda</div></section>
 </div>
 <div class="tarjeta">
   {% if items %}
@@ -21,33 +21,33 @@
       <tr>
         <th>Plataforma</th>
         <th>Campaña</th>
-        <th>Ad group</th>
-        <th>Keyword/target</th>
-        <th>Clasificacion</th>
-        <th class="num">Dias sin impresiones</th>
-        <th class="num">Gasto 90d</th>
-        <th class="num">Ordenes 90d</th>
-        <th>Ultima impresion</th>
+        <th>Grupo de anuncios</th>
+        <th>Keyword o producto</th>
+        <th>Clasificación</th>
+        <th class="num">Días sin impresiones</th>
+        <th class="num">Gasto 90 días</th>
+        <th class="num">Órdenes 90 días</th>
+        <th>Última impresión</th>
         <th>Archivable desde</th>
       </tr>
     </thead>
     <tbody>
       {% for item in items %}
       <tr>
-        <td>{{ item.plataforma }}</td>
-        <td>{{ item.campana or "—" }}</td>
-        <td>{{ item.ad_group or "—" }}</td>
+        <td>{{ item.plataforma | etiqueta("plataforma") }}</td>
+        <td data-dato-libre>{{ item.campana or "—" }}</td>
+        <td data-dato-libre>{{ item.ad_group or "—" }}</td>
         {# El texto es libre (keyword_text del anunciante): AUTOESCAPE lo escapa #}
-        <td>{{ item.texto or "—" }}</td>
+        <td data-dato-libre>{{ item.texto or "—" }}</td>
         <td>
-          <span class="chip">{{ item.clasificacion }}</span>
+          <span class="chip">{{ item.clasificacion | etiqueta("clasificacion_inerte") }}</span>
           {% if item.en_espera %}
-          <span class="chip" title="Recien vista por el sistema; se puede archivar 30 dias despues de su primera vista">en espera</span>
+          <span class="chip" title="Recién vista por Orbit; se puede archivar 30 días después de su primera vista">en espera</span>
           {% endif %}
         </td>
-        <td class="num">{% if item.dias_sin_impresiones is none %}<span class="mutado">—</span>{% else %}{{ item.dias_sin_impresiones }}{% endif %}</td>
-        <td class="num">{% if item.gasto_90d is none %}<span class="mutado">—</span>{% else %}{{ item.gasto_90d }}{% if item.moneda %} {{ item.moneda }}{% endif %}{% endif %}</td>
-        <td class="num">{{ item.ordenes_90d }}</td>
+        <td class="num">{% if item.dias_sin_impresiones is none %}<span class="mutado">—</span>{% else %}{{ item.dias_sin_impresiones | numero }}{% endif %}</td>
+        <td class="num">{% if item.gasto_90d is none %}<span class="mutado">—</span>{% else %}{{ item.gasto_90d | dinero }}{% if item.moneda %} {{ item.moneda }}{% endif %}{% endif %}</td>
+        <td class="num">{{ item.ordenes_90d | numero }}</td>
         <td class="mutado">{{ item.ultima_impresion or "—" }}</td>
         <td class="mutado">{{ item.archivable_desde or "—" }}</td>
       </tr>
@@ -56,28 +56,28 @@
   </table>
   </div>
   {% else %}
-  <p>sin entidades inertes: todo lo activo tiene trafico reciente.</p>
+  <p>Sin keywords ni productos inertes: todo lo activo tiene visitas recientes.</p>
   {% endif %}
 </div>
 <div class="tarjeta">
-  <h3>Resumen por plataforma y clasificacion</h3>
+  <h3>Resumen por plataforma y clasificación</h3>
   {% if totales %}
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead>
       <tr>
         <th>Plataforma</th>
-        <th>Clasificacion</th>
-        <th class="num">Hojas</th>
+        <th>Clasificación</th>
+        <th class="num">Keywords y productos</th>
       </tr>
     </thead>
     <tbody>
       {% for plataforma, por_clase in totales.items() %}
       {% for clasificacion, n in por_clase.items() %}
       <tr>
-        <td>{{ plataforma }}</td>
-        <td><span class="chip">{{ clasificacion }}</span></td>
-        <td class="num">{{ n }}</td>
+        <td>{{ plataforma | etiqueta("plataforma") }}</td>
+        <td><span class="chip">{{ clasificacion | etiqueta("clasificacion_inerte") }}</span></td>
+        <td class="num">{{ n | numero }}</td>
       </tr>
       {% endfor %}
       {% endfor %}
@@ -85,7 +85,7 @@
   </table>
   </div>
   {% else %}
-  <p>sin entidades inertes: todo lo activo tiene trafico reciente.</p>
+  <p>Sin keywords ni productos inertes: todo lo activo tiene visitas recientes.</p>
   {% endif %}
 </div>
 <div class="tarjeta">
@@ -98,27 +98,27 @@
         <th>Lote</th>
         <th>Fecha</th>
         <th class="num">Planeado</th>
-        <th class="num">Applied</th>
-        <th class="num">Failed</th>
+        <th class="num">Archivadas</th>
+        <th class="num">Fallidas</th>
         <th class="num">Repuesto</th>
       </tr>
     </thead>
     <tbody>
       {% for lote in lotes %}
       <tr>
-        <td>{{ lote.lote }}</td>
+        <td data-dato-libre>{{ lote.lote }}</td>
         <td class="mutado">{{ lote.fecha }}</td>
-        <td class="num">{{ lote.planeado }}</td>
-        <td class="num">{{ lote.applied }}</td>
-        <td class="num">{{ lote.failed }}</td>
-        <td class="num">{{ lote.repuesto }}</td>
+        <td class="num">{{ lote.planeado | numero }}</td>
+        <td class="num">{{ lote.applied | numero }}</td>
+        <td class="num">{{ lote.failed | numero }}</td>
+        <td class="num">{{ lote.repuesto | numero }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
   {% else %}
-  <p>sin lotes de archivado todavia.</p>
+  <p>Sin lotes de archivado todavía.</p>
   {% endif %}
 </div>
 {% endblock %}

@@ -107,7 +107,7 @@ def test_ui_contribucion_rango_se_ve_como_rango(monkeypatch):
     assert "26.0000" not in fila and "50.0000" not in fila
     assert "26.00 .. 50.00" in fila or ("26.00" in fila and ".." in fila and "50.00" in fila)
     assert "MXN" in html
-    tarjeta_mx = html.split("<h2>amazon_mx")[1].split("<h2>amazon_us")[0]
+    tarjeta_mx = html.split("<h2>Amazon MX")[1].split("<h2>Amazon US")[0]
     assert "MXN" in tarjeta_mx
     assert "2026-05-28" in html and "2026-08-16" in html
 
@@ -132,8 +132,8 @@ def test_ui_contribucion_plataforma_vacia_no_rompe(monkeypatch):
         monkeypatch,
         _payload(mx_items=[_item_con_rango()], us_items=[]),
     )
-    assert "<h2>amazon_mx" in html
-    assert "<h2>amazon_us" in html
+    assert "<h2>Amazon MX" in html
+    assert "<h2>Amazon US" in html
     assert "sin campañas con actividad" in html.lower() or "—" in html
 
 
@@ -153,7 +153,7 @@ def test_ui_contribucion_fx_source_visible_cuando_aplica(monkeypatch):
         ),
     )
     fila = _fila_de(html, "Camp US")
-    assert "nearest_prior" in fila or "FX aproximado" in fila
+    assert "Tipo de cambio aproximado" in fila
 
 
 def test_ui_contribucion_edad_de_dato_en_la_fila(monkeypatch):

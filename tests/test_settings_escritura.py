@@ -358,7 +358,7 @@ def test_pagina_settings_muestra_procedencia_y_advertencia_con_margen(monkeypatc
         assert 'data-pantalla="settings"' in html
         # El ciclo sembrado resolvio margen_plataforma (notes TEXT con JSON):
         # la pantalla debe decir ESE peldano y su aplicado, no el setting.
-        assert "margen_plataforma" in html and "19.5" in html
+        assert "Margen de la plataforma" in html and "19.5" in html
         assert ADVERTENCIA_RESPALDO.split(";")[0] in html.lower() or (
             "NO gobierna" in html or "no gobierna" in html.lower()
         )

@@ -16,7 +16,8 @@ from fastapi import APIRouter, HTTPException
 
 from app.api import ConexionLectura
 from app.api_common import _dec_str
-from app.notifica import motivo_precio_es, validar_precio_aviso_dias
+from app.etiquetas import etiqueta
+from app.notifica import validar_precio_aviso_dias
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
@@ -144,15 +145,6 @@ def _hay_esquema_precio(conn: ConexionLectura) -> bool:
     except psycopg.errors.UndefinedTable:
         return False
     return True
-
-
-_ESTADO_CAMBIO_ES = {
-    "pendiente": "pendiente de confirmación",
-    "enviado": "enviado",
-    "error": "en error",
-    "confirmado": "confirmado",
-    "no_confirmado": "no confirmado por la observación",
-}
 
 
 def _decisiones_precio_hoy(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict[str, int]:
@@ -339,6 +331,7 @@ def _frase_accion(
     («...; pendiente de confirmación») y en `error` como ya estaba
     (`saltado` no existe en el ledger: el CHECK de `precio_cambio` solo
     admite pendiente/enviado/error/confirmado/no_confirmado)."""
+    motivo_es = etiqueta(motivo or "desconocido", "motivo_precio")
     if resultado == "subir":
         if mode == "live" and cambio_estado is None:
             return f"{sku} decidió subir de {antes} a {despues} {moneda}; sin cambio aplicado"
@@ -350,11 +343,11 @@ def _frase_accion(
         verbo = "habría bajado" if mode == "shadow" else "bajó"
         frase = f"{sku} {verbo} de {antes} a {despues} {moneda}"
     elif resultado == "mantener":
-        frase = f"{sku} se mantuvo en {antes} {moneda} ({motivo_precio_es(motivo)})"
+        frase = f"{sku} se mantuvo en {antes} {moneda} ({motivo_es})"
     elif resultado == "frenado":
-        frase = f"{sku} se frenó: {motivo_precio_es(motivo)}"
+        frase = f"{sku} se frenó: {motivo_es}"
     else:  # goal_inalcanzable (las no_evaluado van al bloque (d), no aqui)
-        frase = f"{sku} con objetivo inalcanzable: {motivo_precio_es(motivo)}"
+        frase = f"{sku} con objetivo inalcanzable: {motivo_es}"
     if cambio_estado == "error":
         frase += "; el cambio quedó en error"
     elif cambio_estado == "pendiente":
@@ -410,7 +403,7 @@ def _filas_no_evaluados(rec: cobertura_precio.Recuadro) -> list[dict]:
         {
             "sku": detalle.sku,
             "motivo": detalle.motivo,
-            "motivo_es": motivo_precio_es(detalle.motivo),
+            "motivo_es": etiqueta(detalle.motivo or "desconocido", "motivo_precio"),
         }
         for detalle in rec.no_evaluadas_detalle
     ]
@@ -454,7 +447,7 @@ def _con_goal_precio(
                     "despues": _dec_str(despues),
                     "moneda": despues_mon or antes_mon,
                     "estado": estado,
-                    "estado_es": _ESTADO_CAMBIO_ES.get(estado, estado),
+                    "estado_es": etiqueta(estado, "estado_cambio_precio"),
                 }
     con_goal = []
     for fila in filas:
@@ -527,8 +520,6 @@ _MESES = (
     "diciembre",
 )
 
-_NOMBRE_PLATAFORMA_PRECIO = {"amazon_mx": "Amazon MX", "amazon_us": "Amazon US"}
-
 
 def _tacos_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict | None:
     """TACoS de la plataforma en el mes del corte, para la cabecera de la
@@ -538,7 +529,7 @@ def _tacos_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict 
         return None
     mes = fila[0]
     return {
-        "plataforma": _NOMBRE_PLATAFORMA_PRECIO[plataforma],
+        "plataforma": etiqueta(plataforma, "plataforma"),
         "mes": mes.isoformat(),
         "mes_es": f"{_MESES[mes.month - 1]} {mes.year}",
         "pct": _dec_str(fila[1]),

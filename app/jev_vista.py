@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
+from app.etiquetas import etiqueta
 from app.jev_ads import (
     FichaVersion,
     HayCompatible,
@@ -174,13 +175,6 @@ FRASE_POR_LECTURA = {
     "relevante_sin_venta": "Es del catálogo y no convierte.",
 }
 
-MOTIVO_SIN_LECTURA_ES = {
-    "dato_de_venta_faltante": "falta un dato de venta",
-    "sin_observaciones": "sin observaciones",
-    "jev_sin_veredicto": "Jev no concluyó",
-    "jev_no_evaluada": "Jev no la evaluó",
-}
-
 
 def titulo_de_lectura(lectura: str) -> str:
     """Cabecera de seccion por lectura (diseno S.5). Lectura ajena al
@@ -210,7 +204,7 @@ def frase_de_lectura(
             base += f"; lista comprobada con el listado de Amazon del {listado_de[:10]}"
         return base + ". Bloquear, y pronto."
     if lectura == "sin_lectura":
-        detalle = ", ".join(MOTIVO_SIN_LECTURA_ES.get(motivo, motivo) for motivo in motivos)
+        detalle = ", ".join(etiqueta(motivo, "motivo_sin_lectura") for motivo in motivos)
         return f"Sin lectura: {detalle or 'sin motivo'}. Un dato faltante no es cero."
     return FRASE_POR_LECTURA[lectura]
 
@@ -264,7 +258,7 @@ def _cuerpo(lectura: str, vista: SenalVista, destino_ilegible: bool) -> str:
         return "SIN LECTURA\nEl destino no se puede leer. Un dato faltante no es cero."
     if lectura == "sin_lectura":
         detalle = ", ".join(
-            MOTIVO_SIN_LECTURA_ES.get(motivo, motivo) for motivo in sorted(vista.motivos)
+            etiqueta(motivo, "motivo_sin_lectura") for motivo in sorted(vista.motivos)
         )
         return f"SIN LECTURA\nMotivo: {detalle or 'sin motivo'}. Un dato faltante no es cero."
     if lectura == "ajena" and vista.roster_probado:

@@ -897,7 +897,7 @@ def test_pantalla_danadas_fila_pendiente_pinta_tres_lineas_boton_y_frase():
     html = _html_danadas([_hoja_ui()])
     plano = _plano(html)
     assert "gorra roja · AC - Category Exact - MX" in plano
-    assert "Vendía 31 pedidos (28672.00 MXN) en los 3 meses antes de los recortes." in plano
+    assert "Vendía 31 pedidos (28,672.00 MXN) en los 3 meses antes de los recortes." in plano
     assert (
         "Clics cada 2 semanas: 133 antes, 16 ahora. Bid: 9.74 antes, 3.73 hoy, tras 5 recortes."
     ) in plano

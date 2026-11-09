@@ -37,6 +37,7 @@ from decimal import Decimal
 
 from app import config_write, productos_io
 from app.cycle import lee_goals
+from app.etiquetas import etiqueta, motivo_decision_es
 from app.optimizer import goals as g
 from app.optimizer import productos as p
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -91,7 +92,6 @@ SELECT ad_entity_id, target_acos_pct, procedencia
  WHERE cycle_id = %s AND ad_entity_id = ANY(%s)
 """
 
-MODOS_TEXTO = {"off": "apagada", "shadow": "en práctica", "live": "en vivo"}
 # Estado de la pausa en la seccion de limites (I.8).
 ESTADOS_PAUSA = {"off": "Apagada", "shadow": "Práctica", "live": "En vivo"}
 _PROCEDENCIAS_GOAL = frozenset({"goal_campana", "goal_plataforma"})
@@ -299,7 +299,7 @@ class DecisionesProducto:
             "cycle_id": self.cycle_id,
             "decidido_el": self.decidido_el,
             "modo_meta": self.modo_meta,
-            "modo_meta_texto": MODOS_TEXTO.get(self.modo_meta or "off"),
+            "modo_meta_texto": etiqueta(self.modo_meta or "off", "modo_frase"),
             "error": self.error,
             "resumen": self.resumen,
             "con_meta": self.con_meta,
@@ -325,7 +325,7 @@ class DecisionesProducto:
         )
         return {
             "modo": self.modo_pausa,
-            "modo_texto": MODOS_TEXTO.get(self.modo_pausa or "off"),
+            "modo_texto": etiqueta(self.modo_pausa or "off", "modo_frase"),
             "con_propuestas": sum(pr.pausa.total > 0 for pr in con_pausa),
             "propuestas": sum(pr.pausa.total for pr in con_pausa),
             "confirmados": sum(pr.pausa.confirmados for pr in con_pausa),
@@ -595,7 +595,7 @@ def _hoja(
 
 
 def veredicto_texto(veredicto: dict) -> str:
-    """Mantener · sin_target; Mover -12 % a 0.88 · gasto_sin_venta. Sin la
+    """«Mantener · Sin target…»; «Mover -12 % a 0.88 · Este elemento ya gastó…». Sin la
     politica de bids el ciclo juzga con bid.ResultadoBid (pause o no-op)."""
     if veredicto["tipo"] == "ResultadoBid":
         partes = ["Pausar" if veredicto.get("kind") == "pause" else "Mantener"]
@@ -605,7 +605,7 @@ def veredicto_texto(veredicto: dict) -> str:
             partes.append(f"{_numero(Decimal(veredicto['factor']) * 100)} %")
         if veredicto.get("bid_nuevo") is not None:
             partes.append(f"a {_numero(veredicto['bid_nuevo'])}")
-    motivo = veredicto.get("motivo")
+    motivo = motivo_decision_es(veredicto.get("motivo"), None)
     return " ".join(partes) + (f" · {motivo}" if motivo else "")
 
 

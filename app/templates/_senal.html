@@ -9,13 +9,13 @@
   <p>{{ v.frase }}</p>
   {% if v.economia.aqui %}
   {% set aqui = v.economia.aqui %}
-  <p class="detalle-celda">Aquí en la ventana: {{ aqui.gasto if aqui.gasto is not none else "—" }} {{ v.economia.moneda }} de gasto, {{ aqui.ordenes if aqui.ordenes is not none else "—" }} ordenes ({{ aqui.clics if aqui.clics is not none else "—" }} clics).</p>
+  <p class="detalle-celda">Aquí en la ventana: {{ aqui.gasto | dinero }} {{ v.economia.moneda }} de gasto, {{ aqui.ordenes | numero }} ordenes ({{ aqui.clics | numero }} clics).</p>
   {% endif %}
   {% if v.economia.otros_que_venden %}
-  <p class="detalle-celda">Vende en otros grupos:{% for otro in v.economia.otros_que_venden %} grupo {{ otro.ad_group_id }} ({{ otro.ordenes }} ordenes){% if not loop.last %},{% endif %}{% endfor %}</p>
+  <p class="detalle-celda">Vende en otros grupos:{% for otro in v.economia.otros_que_venden %} grupo <span data-dato-libre>{{ otro.ad_group_id }}</span> ({{ otro.ordenes | numero }} ordenes){% if not loop.last %},{% endif %}{% endfor %}</p>
   {% endif %}
   {% if v.economia.historial %}
-  <p class="detalle-celda">Historial aquí: {{ v.economia.historial.ordenes_conocidas }} ordenes conocidas en {{ v.economia.historial.clics if v.economia.historial.clics is not none else "—" }} clics.</p>
+  <p class="detalle-celda">Historial aquí: {{ v.economia.historial.ordenes_conocidas | numero }} ordenes conocidas en {{ v.economia.historial.clics | numero }} clics.</p>
   {% endif %}
   <p class="detalle-celda">Jev: {{ v.satisfacen }} de {{ v.evaluados }}</p>
 </div>

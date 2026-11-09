@@ -37,7 +37,7 @@ function escapar(texto) {
     .replace(/"/g, "&quot;");
 }
 
-// Espejos de porcentaje_ui y dinero_ui (app/ui.py) para la vista previa.
+// Espejos de porcentaje_ui (app/ui.py) y formato.dinero (app/formato.py) para la vista previa.
 function pct(fraccion) {
   if (fraccion === null || fraccion === undefined) return "—";
   var n = Number(fraccion);

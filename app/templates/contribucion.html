@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block contenido %}
-<h2>Contribucion por campaña — rango pre-cargos (90d maduros)</h2>
-<p class="mutado">Ventana con vintage D-15 UTC. El rollup suma las entidades hijas
-   (keyword / product_target); la campaña no publica fila propia (D2).</p>
+<h2>Contribución por campaña antes de cargos (90 días cerrados)</h2>
+<p class="mutado">Son 90 días que terminan hace 15, cuando las ventas ya no cambian.
+   Cada campaña suma lo que dejan sus keywords y sus productos objetivo.</p>
 {% for plataforma, datos in plataformas.items() %}
 <div class="tarjeta">
-  <h2>{{ plataforma }}
+  <h2>{{ plataforma | etiqueta("plataforma") }}
     {% if datos.ventana %}
     <span class="mutado">· {{ datos.ventana.desde }} .. {{ datos.ventana.hasta }}</span>
     {% endif %}
@@ -14,24 +14,24 @@
   <p class="leyenda">
     {{ datos.filas[0].etiqueta }}
     · {{ datos.filas[0].moneda or "—" }}
-    · FX aproximado se marca en la fila
+    · el tipo de cambio aproximado se marca en la fila
   </p>
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead>
       <tr>
         <th>Campaña</th>
-        <th class="num">Contribucion</th>
+        <th class="num">Contribución</th>
         <th>Datos</th>
       </tr>
     </thead>
     <tbody>
       {% for item in datos.filas %}
       <tr>
-        <td>{{ item.nombre or "—" }}</td>
+        <td data-dato-libre>{{ item.nombre or "—" }}</td>
         <td class="num">
           {% if item.contrib_sin_halo is not none and item.contrib_con_halo is not none %}
-            {{ item.contrib_sin_halo | dinero_ui }} .. {{ item.contrib_con_halo | dinero_ui }}
+            {{ item.contrib_sin_halo | dinero }} .. {{ item.contrib_con_halo | dinero }}
             {% if item.precio_min_multilisting %}
             <br><span class="chip alerta">precio min multilisting</span>
             {% endif %}
@@ -49,7 +49,7 @@
             <span class="mutado">—</span>
           {% endif %}
           {% if item.fx_source == "nearest_prior" %}
-            <br><span class="chip aviso">FX aproximado · {{ item.fx_source }}</span>
+            <br><span class="chip aviso">Tipo de cambio aproximado: {{ item.fx_source | etiqueta("metodo_fx") }}</span>
           {% endif %}
         </td>
       </tr>

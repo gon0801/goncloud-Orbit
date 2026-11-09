@@ -536,7 +536,7 @@ def test_pagina_ruido_ciclo_pinta_decisiones_y_abstenciones_ausentes():
         ]
     )
     plano = _plano(html)
-    assert "gasto_sin_venta" in plano
+    assert "ya gastó lo necesario para decidir y no vendió" in plano
     assert "Sin conteo de abstenciones" in plano
 
 

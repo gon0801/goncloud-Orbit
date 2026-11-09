@@ -47,7 +47,7 @@ MOTIVO_REGRESO_DESPLOME = "regreso_por_desplome"
 MOTIVO_ESPERANDO_EFECTO = "esperando_efecto"
 MOTIVO_PIERDE_DINERO = "pierde_dinero"
 MOTIVO_PIERDE_DINERO_FUERTE = "pierde_dinero_fuerte"
-MOTIVO_GRUPO_SANGRA_VENDEDORA = "grupo_sangra_vendedora"
+MOTIVO_GRUPO_PIERDE_VENDEDORA = "grupo_sangra_vendedora"
 MOTIVO_VENDE_DENTRO_DEL_MARGEN = "vende_dentro_del_margen"
 MOTIVO_BAJO_TARGET = "bajo_target"
 MOTIVO_AZAR_LO_EXPLICA = "azar_lo_explica"
@@ -55,7 +55,7 @@ MOTIVO_VENTA_RECIENTE = "venta_reciente"
 MOTIVO_GASTO_SIN_VENTA = "gasto_sin_venta"
 MOTIVO_GASTO_SIN_VENTA_DOBLE = "gasto_sin_venta_doble"
 MOTIVO_SIN_GASTO = "sin_gasto"
-MOTIVO_GRUPO_SANGRA = "grupo_sangra"
+MOTIVO_GRUPO_PIERDE = "grupo_sangra"
 MOTIVO_HOJA_DELGADA = "hoja_delgada_sin_dinero_que_mover"
 MOTIVO_GRUPO_CUMPLE = "grupo_cumple"
 MOTIVO_SIN_EVIDENCIA = "sin_evidencia"
@@ -329,7 +329,7 @@ def _juzga_vendedora(
             return (PASO_BAJA_FUERTE, MOTIVO_PIERDE_DINERO_FUERTE, "hoja")
         return (PASO_BAJA_SUAVE, MOTIVO_PIERDE_DINERO, "hoja")
     if fondo.acos_hoy_pct > target and estado == "sangra":
-        return (PASO_BAJA_SUAVE, MOTIVO_GRUPO_SANGRA_VENDEDORA, "ad_group")
+        return (PASO_BAJA_SUAVE, MOTIVO_GRUPO_PIERDE_VENDEDORA, "ad_group")
     if _p_sobre(fondo, MULT_BAJA_SUAVE * target) >= confianza:
         return Mantener(MOTIVO_VENDE_DENTRO_DEL_MARGEN)
     previa = _previa(caso.cuenta, caso.grupo, propia)
@@ -360,7 +360,7 @@ def _juzga_sin_pedidos(
         return Mantener(MOTIVO_SIN_GASTO)
     if estado == "sangra":
         if gasto >= MATERIALIDAD_GRUPO * concluir:
-            return (PASO_BAJA_SUAVE, MOTIVO_GRUPO_SANGRA, "ad_group")
+            return (PASO_BAJA_SUAVE, MOTIVO_GRUPO_PIERDE, "ad_group")
         return Mantener(MOTIVO_HOJA_DELGADA)
     if estado == "cumple":
         return Mantener(MOTIVO_GRUPO_CUMPLE)

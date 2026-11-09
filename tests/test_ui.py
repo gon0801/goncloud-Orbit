@@ -55,6 +55,7 @@ from test_schema import _postgres_obligatorio_ausente
 from app import ui
 from app.api import _conexion_lectura
 from app.api_dashboard import PageWindow
+from app.etiquetas import etiqueta
 from app.main import app
 
 PANTALLAS = {
@@ -114,8 +115,7 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
     on, cubierto por el test anterior)."""
     loader = jinja2.FileSystemLoader(str(ui._TEMPLATES_DIR))
     sin_escape = jinja2.Environment(loader=loader, autoescape=False)
-    sin_escape.filters["dinero_ui"] = ui.dinero_ui
-    sin_escape.filters["ts_ui"] = ui.ts_ui
+    sin_escape.filters.update(ui.templates.env.filters)
     sin_escape.filters["clase_cambio"] = ui.clase_cambio
     html = sin_escape.get_template("decisiones.html").render(**_ctx_decisiones())
     assert PAYLOAD_XSS in html, "con autoescape off el payload DEBE aparecer crudo"
@@ -339,15 +339,15 @@ def test_ui_cortes_pinta_propuestas_campana_y_escapa_nombre():
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
     assert "Campañas" in html
-    assert "642.6500 USD" in html
-    assert "477.4000 USD" in html
-    assert "17.56%" in html
-    assert "exceso_economico" in html
-    assert "pending" in html
+    assert "642.65 USD" in html
+    assert "477.40 USD" in html
+    assert "17.56 %" in html
+    assert "Gasta mucho más de lo que permite su meta" in html
+    assert "Por enviar" in html
     # Obs3r2: la pausada muestra chip de riesgo y "—" en aviso (jamas
     # "pending": no es accionable y nunca envia).
     assert "riesgo</span>" in html
-    assert html.count('class="mutado">pending<') == 1
+    assert html.count('class="mutado">Por enviar<') == 1
 
 
 def test_ui_cortes_vacio_muestra_sin_pendientes():
@@ -355,7 +355,7 @@ def test_ui_cortes_vacio_muestra_sin_pendientes():
     jamas una tabla mentirosa. CORTES UI 01 D1: la pantalla se llama
     Propuestas tambien en el vacio."""
     html = ui.templates.env.get_template("cortes.html").render(pantalla="cortes", items=[])
-    assert "sin propuestas pendientes" in html
+    assert "Sin propuestas pendientes" in html
     assert "sin cortes pendientes" not in html
 
 
@@ -766,7 +766,7 @@ def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
             "clicks=0 debe renderizarse como 0, jamas como dato faltante"
         )
         salud_html = cliente.get("/salud").text
-        assert "applies: 0" in salud_html, (
+        assert "aplicadas: 0" in salud_html, (
             "applied_count=0 (lo normal en shadow) debe verse como 0, no como —"
         )
 
@@ -910,17 +910,18 @@ def test_ui_salud_ads_ingest_muestra_fecha_y_entrega_pendiente(monkeypatch):
     }
     html = _salud_html_fakeado(monkeypatch, {"amazon_us": plataforma})
     assert "Ingesta Ads principal" in html
-    assert "amazon_ads_reports_v3" in html
+    assert "Reportes de Amazon Ads" in html
     assert "2026-09-22" in html
     assert "2 dias" in html
     assert "pendiente" in html
-    assert "campanas" in html
+    assert "Campañas" in html
 
 
 def _fila_de(html: str, forma: str) -> str:
     """La fila <tr> de UNA forma de la tabla de quota (aserciones por fila:
     el used/cap de una forma no se confunde con el de otra)."""
-    filas = [fila for fila in html.split("<tr>") if fila.startswith(f"<td>{forma}</td>")]
+    texto = etiqueta(forma, "kind")
+    filas = [fila for fila in html.split("<tr>") if fila.startswith(f"<td>{texto}</td>")]
     assert len(filas) == 1, f"la forma {forma} debe aparecer en exactamente una fila"
     return filas[0]
 
@@ -936,9 +937,11 @@ def test_ui_salud_quota_muestra_las_cuatro_formas_con_sus_numeros(monkeypatch):
     fila por forma (KINDS_QUOTA) y su used/cap: el dueno responde de un
     vistazo cuanto lleva hoy y contra que tope."""
     html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
-    assert "<h3>Quota del dia</h3>" in html
+    assert "<h3>Cambios permitidos hoy</h3>" in html
     for forma in _QUOTA_BASE:
-        assert _celda(_fila_de(html, forma), 0) == forma, "la 1a celda es la forma"
+        assert _celda(_fila_de(html, forma), 0) == etiqueta(forma, "kind"), (
+            "la 1a celda es la forma"
+        )
     fila_bid = _fila_de(html, "bid")
     assert _celda(fila_bid, 1) == "3", "used de bid"
     assert _celda(fila_bid, 2) == "10", "cap de bid (fila_del_dia)"
@@ -948,8 +951,8 @@ def test_ui_salud_quota_muestra_las_cuatro_formas_con_sus_numeros(monkeypatch):
     # config_vigente (chip neutro), con su nombre legible en la fila
     assert 'class="chip ok"' in _fila_de(html, "bid")
     assert 'class="chip ok"' not in _fila_de(html, "pause")
-    assert "fila_del_dia" in _celda(_fila_de(html, "bid"), 3)
-    assert "config_vigente" in _celda(_fila_de(html, "pause"), 3)
+    assert etiqueta("fila_del_dia", "fuente_quota") in _celda(_fila_de(html, "bid"), 3)
+    assert etiqueta("config_vigente", "fuente_quota") in _celda(_fila_de(html, "pause"), 3)
 
 
 def test_ui_salud_quota_cap_nulo_sin_clave_no_se_pinta_como_cero(monkeypatch):
@@ -958,7 +961,7 @@ def test_ui_salud_quota_cap_nulo_sin_clave_no_se_pinta_como_cero(monkeypatch):
     html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
     fila = _fila_de(html, "negative")
     cap = _celda(fila, 2)
-    assert "—" in cap and "sin clave" in cap, "cap nulo: guion + etiqueta"
+    assert "—" in cap and "sin tope" in cap, "cap nulo: guion + etiqueta"
     assert "0" not in cap, "cap nulo jamas se pinta como 0 (no es tope cero)"
     assert "None" not in cap, "cap nulo jamas se pinta como el literal None"
     assert 'class="chip alerta"' in _celda(fila, 3), "sin_clave se marca como alerta"
@@ -972,13 +975,11 @@ def test_ui_salud_quota_config_rota_marcada_como_alerta(monkeypatch):
     fila = _fila_de(html, "harvest")
     estado = _celda(fila, 3)
     assert 'class="chip alerta"' in estado, "config_rota se marca como alerta"
-    assert "config_rota" in estado
+    assert etiqueta("config_rota", "fuente_quota") in estado
     cap = _celda(fila, 2)
-    assert "—" in cap and "config rota" in cap, "cap nulo con SU etiqueta (rota)"
+    assert "—" in cap and "configuración ilegible" in cap, "cap nulo con SU etiqueta (rota)"
     assert "0" not in cap and "None" not in cap
-    assert "sin clave" not in estado and "sin_clave" not in estado, (
-        "etiquetas distintas de sin_clave"
-    )
+    assert etiqueta("sin_clave", "fuente_quota") not in estado, "etiquetas distintas de sin_clave"
 
 
 def test_ui_salud_quota_used_igual_cap_se_ve_saturada(monkeypatch):
@@ -1005,9 +1006,9 @@ def test_ui_salud_sin_bloque_quota_no_rompe_la_pantalla(monkeypatch):
     vieja = _plataforma_quota()
     del vieja["quota"]
     html = _salud_html_fakeado(monkeypatch, {"amazon_mx": vieja, "amazon_us": _plataforma_quota()})
-    assert html.count("Quota del dia") == 1, "solo la tarjeta CON quota dibuja la tabla"
-    assert "<h2>amazon_mx" in html, "la tarjeta vieja sigue renderizando"
-    assert "Historico (14d)" in html, "las secciones existentes quedan intactas"
+    assert html.count("Cambios permitidos hoy") == 1, "solo la tarjeta CON quota dibuja la tabla"
+    assert "<h2>Amazon MX" in html, "la tarjeta vieja sigue renderizando"
+    assert "Últimos 14 ciclos" in html, "las secciones existentes quedan intactas"
 
 
 # ---------------------------------------------------------------------------
@@ -1202,9 +1203,12 @@ def test_estado_fila_sigue_el_orden_del_diseno():
     assert estado_de(_item_campana("Z", cost="0.0000", revenue="0.0000", target=None)).clave == (
         "inactiva"
     )
-    assert estado_de(
-        _item_campana("Z", cost="1.0000", revenue="0.0000", sin_ventas=True, target=None)
-    ).clave == "gasto"
+    assert (
+        estado_de(
+            _item_campana("Z", cost="1.0000", revenue="0.0000", sin_ventas=True, target=None)
+        ).clave
+        == "gasto"
+    )
     assert estado_de(_item_campana("Z", cost="1.0000", revenue="3.0000", target=None)).clave == (
         "sint"
     )
@@ -1349,7 +1353,7 @@ def test_ui_inertes_200_con_clasificacion_y_escape(monkeypatch):
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
         resp = TestClient(app).get("/inertes")
         assert resp.status_code == 200, resp.text
-        assert "gasto_sin_ventas" in resp.text
+        assert "Gastó sin vender" in resp.text
         assert PAYLOAD_XSS not in resp.text
         assert "&lt;script&gt;" in resp.text
 
@@ -1437,7 +1441,7 @@ def test_ui_propuestas_etiquetas_exactas_por_kind():
     assert "Bloquear busqueda" in html
     assert "Capturar termino que vende" in html
     assert "2 ordenes" in html
-    assert "203.2000 USD" in html
+    assert "203.20 USD" in html
 
 
 def test_ui_propuestas_separa_crecen_de_recortan():
@@ -1464,7 +1468,7 @@ def test_ui_propuestas_rechazar_con_efecto_e_irreversibilidad():
     assert "Rechazar" in html
     assert ">Vetar<" not in html
     assert "Confirmar veto" not in html
-    assert "se aplica solo el 2026-09-25 12:00" in html
+    assert "se aplica solo el 25 sep, 06:00" in html
     assert "Rechazar: la palabra NO se creara" in html
     assert "Rechazar: la palabra NO se apagara (seguira gastando)" in html
     assert "Rechazar: la busqueda NO se bloqueara" in html
@@ -1530,9 +1534,9 @@ def test_ui_cortes_harvest_nombra_hermanas_y_chip_de_motivo():
     """A.6: la fila harvest nombra las hermanas bajo la etiqueta, el chip
     trae el motivo traducido y la confirmacion del rechazo las repite."""
     html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes_hermanas())
-    assert "se negara tambien en: Auto (auto_discovery), Broad (category_broad)" in html
+    assert "se negara tambien en: Auto (Automática), Broad (Amplia de la categoría)" in html
     assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
-    assert "Tampoco se negara en: Auto (auto_discovery), Broad (category_broad)" in html
+    assert "Tampoco se negara en: Auto (Automática), Broad (Amplia de la categoría)" in html
 
 
 def test_ui_cortes_sin_hermanas_no_nombra_nada():
@@ -1679,7 +1683,10 @@ def test_ui_decisiones_muestra_fase_y_job_con_pendientes():
     html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones_job())
     assert "Negando el termino en las campanas hermanas" in html
     assert "job #7" in html
-    assert "hermanas pendientes: product_targeting: pt_no_acepta_negative_keyword" in html
+    assert (
+        "hermanas pendientes: Por producto: la campaña por producto no acepta negativos de keyword"
+        in html
+    )
 
 
 def test_ui_decisiones_sin_job_no_muestra_etiqueta():
@@ -2046,7 +2053,7 @@ def test_ui_settings_global_shadow_no_trae_ausente():
     html = _html_settings_global("shadow")
     assert "ausente</option>" not in html
     bloque = html.split('name="precio_modo_global"')[1].split("</select>")[0]
-    assert '<option value="shadow" selected>shadow</option>' in bloque
+    assert '<option value="shadow" selected>Práctica</option>' in bloque
 
 
 def test_ui_campanas_sin_target_dice_sin_target(monkeypatch):
@@ -2982,8 +2989,8 @@ def test_ui_busquedas_sin_venta_200_frase_tablas_y_menu(monkeypatch):
     assert resp.status_code == 200, resp.text
     assert 'data-pantalla="busquedas-sin-venta"' in resp.text
     assert (
-        "60 % de tu gasto cayó en búsquedas que no vendieron."
-        " Con la conversión de tu cuenta, el azar daría 25 %." in resp.text
+        "60.00 % de tu gasto cayó en búsquedas que no vendieron."
+        " Con la conversión de tu cuenta, el azar daría 25.00 %." in resp.text
     )
     assert "Páginas de producto ajenas" in resp.text
     assert "B0AJENO001" in resp.text and "B0PROPIO01" in resp.text
@@ -3080,7 +3087,7 @@ def test_r13f_pagina_pinta_el_gasto_de_la_palabra():
     html = ui.templates.env.get_template("busquedas_sin_venta.html").render(
         pantalla="busquedas-sin-venta", **datos
     )
-    assert "777 MXN" in html
+    assert "777.00 MXN" in html
 
 
 def test_r13f_pagina_escapa_el_asin():
