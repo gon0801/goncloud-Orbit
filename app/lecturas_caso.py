@@ -50,7 +50,7 @@ from app.optimizer.caso import (
     VentanaEconomica,
 )
 from app.optimizer.goals import COOLDOWN
-from app.optimizer.windows import DIAS_FRESCURA_BIDS
+from app.optimizer.windows import DIAS_FRESCURA_BIDS, AgregadoMetricas
 
 DIAS_EFECTO = COOLDOWN.days  # pre7/post7 de EfectoCambio
 DIAS_PRECIO_DESDE = 33  # PrecioVentana cubre D-33..D-3 (docstring de caso, exporta M.1)
@@ -68,7 +68,7 @@ class Conexion(Protocol):
 # anula solo ESA metrica), conteo de filas por tramo, sello maximo y las
 # fechas con fila (de ahi sale el calendario de ingesta). La ventana de
 # fechas leida (D-180..D-1) cubre tramos, precio, inmaduros y todos los
-# rangos del efecto (el mas hondo es vendia: x-90 con x >= D-90).
+# rangos del efecto (el mas hondo es el precio previo: x-30 con x >= D-90).
 _SQL_TRAMOS = """
 SELECT v.ad_entity_id,
        count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
@@ -158,8 +158,8 @@ SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen, d.new_v
 
 # Efecto del ULTIMO cambio de UNA hoja (camino historico, regla apagada): una
 # fila con conteo y sumas por lado del cambio (pre7, trafico post, precio
-# post, precio previo, vendia). Se conserva byte a byte el camino de la base
-# para que apagar M5/M6 no pague columnas que no usa.
+# post, precio previo, pedidos de cortes). Se conserva byte a byte el camino
+# de la base para que apagar M5/M6 no pague columnas que no usa.
 _SQL_EFECTO = """
 SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
        CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
@@ -484,7 +484,7 @@ class LecturasPlataforma:
             else self.economia
         )
         if cambios:
-            leido = _lee_efecto(conn, self, hoja_id, cambios)
+            leido = _lee_efecto(conn, self, hoja_id, cambios, pausa.cortes)
             if self._con_economia:
                 assert leido.pre_economico is not None and leido.post_economico is not None
             episodio = (
@@ -521,6 +521,15 @@ class LecturasPlataforma:
             observado_al=self._observado_al,
         )
 
+    def efecto(
+        self, conn: Conexion, *, hoja_id: int, cortes: AgregadoMetricas | None
+    ) -> tuple[CambioBid, EfectoCambio] | None:
+        """Ultimo cambio y su efecto como en `caso`; None sin cambio en 90 dias."""
+        cambios = self._cambios.get(hoja_id, ())
+        if not cambios:
+            return None
+        return cambios[-1], _lee_efecto(conn, self, hoja_id, cambios, cortes).efecto
+
 
 @dataclass(frozen=True)
 class _EfectoLeido:
@@ -538,9 +547,13 @@ def _lee_efecto(
     lect: LecturasPlataforma,
     hoja_id: int,
     cambios: tuple[CambioBid, ...],
+    cortes: AgregadoMetricas | None,
 ) -> _EfectoLeido:
     """Efecto del ultimo cambio de la hoja (UNA consulta). Los rangos son
     los del prototipo (exporta M.1); `dias_post` cuenta dias con ingesta.
+    CLARIDAD 01 K: `vendia` se mide en la ventana de CORTES de la pausa
+    (windows.ventana_cortes), no en los 90 dias previos al cambio: una venta
+    vieja no regresa la puja de una keyword sin pedidos. Sin cortes, None.
     Con la regla encendida, la MISMA consulta trae las ventanas economicas de
     SIETE fechas completas sin el dia del cambio: [x-7, x-1] y [x+1, x+7].
     Apagada, se ejecuta el SQL historico de 13 columnas."""
@@ -559,7 +572,8 @@ def _lee_efecto(
         cambios[-2].fecha + uno if len(cambios) > 1 else x - dt.timedelta(days=DIAS_PRECIO_PREVIO)
     )
     prep = (max(previo, x - dt.timedelta(days=DIAS_PRECIO_PREVIO)), x - uno)
-    ven = (x - dt.timedelta(days=DIAS_LOOKBACK), x - uno)
+    # Sin cortes, un rango vacio: el FILTER de pedidos no cuenta filas.
+    ven = (cortes.window_start, cortes.window_end) if cortes is not None else (x, x - uno)
     econ_pre = (x - dt.timedelta(days=DIAS_ECONOMIA_CAMBIO), x - uno)
     econ_post = (x + uno, x + dt.timedelta(days=DIAS_ECONOMIA_CAMBIO))
     fuente, pv = _fuente(lect._visto_el)
@@ -572,9 +586,10 @@ def _lee_efecto(
         sql = _SQL_EFECTO
         fechas = base
         limite = max(fresco, post[1])
+    desde = min(pre7[0], prep[0], econ_pre[0], ven[0])
     fila = conn.execute(
         sql.format(fuente=fuente),
-        (*fechas, *pv, hoja_id, lect.economia.moneda, ven[0], limite),
+        (*fechas, *pv, hoja_id, lect.economia.moneda, desde, limite),
     ).fetchone()
     (
         n_pre7,
@@ -591,7 +606,7 @@ def _lee_efecto(
         n_ven,
         p_ven,
     ) = fila[:13]
-    vendidos = _mide(n_ven, p_ven, ven[0], ven[1], dias, 0)
+    vendidos = None if cortes is None else _mide(n_ven, p_ven, ven[0], ven[1], dias, 0)
     efecto = EfectoCambio(
         dias_post=dias_post,
         impresiones_pre7=_mide(n_pre7, i_pre7, pre7[0], pre7[1], dias, 0),
