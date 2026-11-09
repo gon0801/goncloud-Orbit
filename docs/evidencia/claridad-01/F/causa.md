@@ -63,7 +63,8 @@ salida distinta de 0. El aviso `no_evaluado` del motor de precios avisa una vez 
 1. `tools/refresh_estimacion.sh` espera a que `amazon-prices-sync.service` deje de estar
    `activating` (hasta 20 min) antes de copiar `bridge.db`. Con la peor hora vista (12:51:45) y la
    ingesta de unos 8 min (12:45 a 12:52 el 31-oct y el 1-nov), la estimación queda escrita hacia las
-   13:00, antes de la corrida de las 13:10.
+   13:00, antes de la corrida de las 13:10. Si a los 20 min sigue `activating`, o su estado no se
+   puede leer, copia lo que hay y sale 1 con la causa en `estimacion.log`, y cron-avisa avisa.
 2. `python -m app.cli ingest estimacion` sale 1 y nombra la plataforma Amazon cuya oferta más nueva
    en la copia ya pasó las 6 h. cron-avisa, que ya envuelve `refresh_estimacion.sh`, avisa por
    Telegram una vez y avisa otra cuando vuelve a correr bien.

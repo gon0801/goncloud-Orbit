@@ -13,11 +13,16 @@
 # las 12:45 (12:45:38 a 12:51:45 del 2 al 9-nov); la copia salia sin US y el motor de
 # precios de las 13:10 no evaluaba ninguna publicacion de US. Por eso se espera al bridge.
 # La ingesta sale 1 si una plataforma Amazon queda sin oferta fresca y cron-avisa avisa.
+# Si tras 20 min el bridge sigue corriendo, o no se puede leer su estado, se copia lo que hay
+# (México suele estar fresco) y el script sale 1 para que cron-avisa avise.
 set -euo pipefail
 LOGDIR=${ORBIT_LOGDIR:-/mnt/data/appdata/orbit/logs}
 HOY=$(date -u +%F)
+espera="sigue corriendo tras 20 min"
 for _ in $(seq 80); do
-  [ "$(systemctl show -p ActiveState --value amazon-prices-sync.service 2>/dev/null)" = activating ] || break
+  estado=$(systemctl show -p ActiveState --value amazon-prices-sync.service 2>/dev/null || true)
+  if [ -z "$estado" ]; then espera="sin estado legible"; break; fi
+  if [ "$estado" != activating ]; then espera=""; break; fi
   sleep 15
 done
 SNAP=$(mktemp /tmp/bridge-estimacion-snapshot.XXXXXXXX.db)
@@ -32,4 +37,8 @@ docker exec -u 0 orbit-app-1 chmod 644 "$SNAP"
 sal=0
 docker exec orbit-app-1 python -m app.cli ingest estimacion --sqlite "$SNAP" >>"$LOGDIR/estimacion.log" 2>&1 || sal=$?
 echo "$HOY estimacion rc=$sal (detalle: $LOGDIR/estimacion.log)"
+if [ -n "$espera" ]; then
+  echo "$HOY amazon-prices-sync $espera: la copia puede traer ofertas viejas"
+  [ "$sal" -ne 0 ] || sal=1
+fi
 exit $sal
