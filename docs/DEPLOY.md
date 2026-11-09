@@ -101,7 +101,8 @@ igual a `$SRV/tools/refresh_estimacion.sh`. `AUTO03_ESPERA_S` (600 por omisión)
 el candado y las guardas.
 
 **Cabecera de sonda.** Toda migración de la receta (`migrations/*_auto03_*`
-de AUTO-03 y `migrations/*_orbit07_*` de ORBIT 07) lleva en sus primeras 10
+de AUTO-03, `migrations/*_orbit07_*` de ORBIT 07 y `migrations/*_claridad01_*`
+de CLARIDAD 01) lleva en sus primeras 10
 líneas `-- sonda-aplicada: <SELECT booleano>`, que da `t` si ya está aplicada
 y `f` si falta, y trae su `NNNN_reversa_*`. `desplegar.sh` aborta antes de
 tocar nada si una no trae cabecera o reversa, o si trae

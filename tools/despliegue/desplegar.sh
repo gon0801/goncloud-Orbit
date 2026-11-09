@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Despliegue de Orbit por el motor (AUTO-03 B.1). Uso: MOTOR_SHA=<sha> bash desplegar.sh [--ensayo]
 # Pasos: (0) candado y diario, (1) guardas, (2) monotonia, (3) respaldo, (4) migraciones
-# de la receta (*_auto03_* y *_orbit07_*) con sonda, (5) codigo y build (con $SRV/refresh_estimacion.sh),
-# (5b) linea de cron del vigia de Jev, (6) interruptores. Salidas: 0 bien; 75 no es el
-# codigo (guardas o candado ocupados; si el diario ya traia cambios, los revierte antes);
-# otra, falla. Contrato completo: docs/DEPLOY.md.
+# de la receta (*_auto03_*, *_orbit07_* y *_claridad01_*) con sonda, (5) codigo y build
+# (con $SRV/refresh_estimacion.sh), (5b) linea de cron del vigia de Jev, (6) interruptores.
+# Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados; si el diario ya traia
+# cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
 
 ENSAYO=0
@@ -44,7 +44,7 @@ ensayo() {
     s=$(sonda "$s") || exit 1
     [ "$s" = t ] && echo "migracion aplicada: $m" || echo "migracion pendiente: $m"
   done 3<<< "$MIGS"
-  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*): ninguna en $SHA"
+  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*): ninguna en $SHA"
   VIEJO=$(interruptores_de "$previo") || exit 1
   CAMBIADAS=$(claves_a_converger "$previo" "$VIEJO" "$NUEVO")
   for k in $CAMBIADAS; do
@@ -162,7 +162,7 @@ else
 fi
 corte 3
 
-echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*)"
+echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*)"
 sigue_candado
 while IFS=$'\t' read -r m s <&3; do
   [ -n "$m" ] || continue

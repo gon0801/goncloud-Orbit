@@ -9,8 +9,9 @@ falso corre el comando remoto en local; `docker` falso registra sus argumentos y
 
 Los escenarios (a)-(n) son los de docs/evidencia/auto-03/plan/modelo-despliegue/modelo.py con
 el mismo repo E -> Gm -> Fm -> F2 (Fm enciende la meta y trae las migraciones de la receta
-(*_auto03_* de AUTO-03 y *_orbit07_* de ORBIT 07): la de prueba y las reales del repo, asi
-cada bloque nuevo queda cubierto). (o)-(v) son de esta prueba.
+(*_auto03_* de AUTO-03, *_orbit07_* de ORBIT 07 y *_claridad01_* de CLARIDAD 01): la de
+prueba y las reales del repo, asi cada bloque nuevo queda cubierto). (o)-(v) son de esta
+prueba.
 """
 
 from __future__ import annotations
@@ -233,7 +234,7 @@ def _crea_repo(repo: Path) -> None:
     _commit(repo, "Gm", {})
     reales = {
         f"migrations/{p.name}": p.read_text(encoding="utf-8")
-        for patron in ("*_auto03_*.sql", "*_orbit07_*.sql")
+        for patron in ("*_auto03_*.sql", "*_orbit07_*.sql", "*_claridad01_*.sql")
         for p in (ROOT / "migrations").glob(patron)
     }
     _commit(
@@ -309,7 +310,10 @@ def banco():
         with psycopg.connect(dsn, dbname=plantilla, autocommit=True) as conn:
             conn.execute("SET TIME ZONE 'UTC'")
             for ruta in sorted((ROOT / "migrations").glob("*.sql")):
-                if any(x in ruta.name for x in ("0011_", "_reversa_", "_auto03_", "_orbit07_")):
+                if any(
+                    x in ruta.name
+                    for x in ("0011_", "_reversa_", "_auto03_", "_orbit07_", "_claridad01_")
+                ):
                     continue
                 conn.execute(ruta.read_text(encoding="utf-8"))
             conn.execute(
