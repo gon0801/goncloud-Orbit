@@ -946,3 +946,65 @@ def test_sin_jev_avisos_no_inserta_ni_llama():
             assert conn.execute("SELECT count(*) FROM jev_senal").fetchone()[0] >= 1
             assert conn.execute("SELECT count(*) FROM jev_aviso").fetchone()[0] == 0
             assert conn.execute("SELECT count(*) FROM jev_aviso_entrega").fetchone()[0] == 0
+
+
+def _metricas_de_ayer(conn) -> None:
+    """La corrida de metricas de hoy con filas de ayer en los dos mercados:
+    lo que pide `metricas_listas.guarda` para dejar correr a jev-senales."""
+    run = conn.execute(
+        "INSERT INTO ingest_run (source, ok, finished_at)"
+        " VALUES ('amazon_ads_reports_v3', true, now()) RETURNING id"
+    ).fetchone()[0]
+    for plataforma, moneda in (("amazon_us", "USD"), ("amazon_mx", "MXN")):
+        entidad = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES (%s, 'campaign', %s) RETURNING id",
+            (plataforma, f"guarda-{plataforma}"),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+            " metric_currency, cost, source_report_id, ingest_run_id)"
+            " VALUES (%s, (now() AT TIME ZONE 'UTC')::date - 1, now(), %s, 1.0, 'r', %s)",
+            (entidad, moneda, run),
+        )
+
+
+@_skip_db
+def test_seco_sin_forzar_pasa_la_guarda_y_corre(capsys, monkeypatch):
+    """Falla real (2026-10-21 a 2026-11-08, CLARIDAD 01 B): la guarda dejaba
+    abierta una transaccion en la conexion de lectura y `_leer_mundo` reventaba
+    con ActiveSqlTransaction en cada corrida del cron."""
+    from app import jev_senales
+
+    with db_s4() as conn:
+        _config(conn, ON)
+        _metricas_de_ayer(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", _dsn_s4())
+        monkeypatch.delenv("ORBIT_DSN_JEV", raising=False)
+        salida = jev_senales.main([])
+        capturado = capsys.readouterr()
+        assert salida == 0, capturado.err
+        assert "jev-senales seco" in capturado.out
+
+
+@_skip_db
+def test_corrida_que_falla_manda_aviso(capsys, monkeypatch):
+    from app import jev_senales, notifica
+    from app.redaction import REDACTED, register_secret
+
+    register_secret("clave-jev-prueba")
+    avisos: list[str] = []
+    monkeypatch.setattr(notifica, "envia_aviso", lambda texto: avisos.append(texto) or True)
+
+    def revienta(*_a, **_k):
+        raise RuntimeError("se cayo con clave-jev-prueba")
+
+    monkeypatch.setattr(jev_senales, "correr", revienta)
+    with db_s4():
+        monkeypatch.setenv("ORBIT_DSN_READ", _dsn_s4())
+        assert jev_senales.main(["--forzar"]) == 1
+    assert len(avisos) == 1
+    assert "RuntimeError" in avisos[0]
+    assert REDACTED in avisos[0]
+    assert "clave-jev-prueba" not in avisos[0]
+    assert "clave-jev-prueba" not in capsys.readouterr().err

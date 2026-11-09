@@ -185,6 +185,7 @@
   {% else %}
   <p class="mutado">Apagado{% if jev.interruptor.motivo_apagado %} ({{ jev.interruptor.motivo_apagado }}){% endif %}</p>
   {% endif %}
+  <p{% if jev.fin_viejo and jev.interruptor.encendido %} class="alerta"{% endif %}>Último cálculo terminado: {% if jev.ultima_fin %}{{ jev.ultima_fin|fecha_corta(true) }} ({{ jev.ultima_fin|hace }}){% else %}ninguno{% endif %}{% if jev.fin_viejo and jev.interruptor.encendido %}. Pasaron más de 13 horas: Gasto sin venta está desactualizado.{% endif %}</p>
   {% if jev.ultima_corrida %}
   <p>Última corrida: {{ jev.ultima_corrida.motivo }} · {{ jev.ultima_corrida.unidades }} unidades · {{ jev.ultima_corrida.llamadas }} llamadas · {{ jev.ultima_corrida.senales }} señales{% if jev.ultima_corrida.avisos_error %} · <span class="alerta">el aviso falló ({{ jev.ultima_corrida.avisos_error }})</span>{% endif %}{% if jev.ultima_sin_cierre %} · <span class="alerta">inicio sin fin</span>{% endif %}</p>
   {% elif jev.ultima_inicio %}

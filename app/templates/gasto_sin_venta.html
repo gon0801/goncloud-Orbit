@@ -15,7 +15,7 @@
 <p class="mutado">Calculado el {{ calculado_el|ts_ui }}.</p>
 {% endif %}
 {% if aviso_desactualizado %}
-<p class="chip">Sin cálculo reciente: la última corrida tiene más de 36 horas o aún no corre.</p>
+<p class="alerta" role="alert">Sin cálculo reciente: la última corrida tiene más de 36 horas o aún no corre.</p>
 {% endif %}
 {% macro filas_tabla(filas) %}
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
@@ -67,6 +67,10 @@
   {% endif %}
 </div>
 {% else %}
+{% if aviso_desactualizado %}
+<p>No hay cálculo vigente{% if calculado_el %} desde {{ calculado_el|fecha_corta(true) }}{% endif %}. La lista está vacía porque la revisión no ha corrido.</p>
+{% else %}
 <p>Sin filas en este mercado: el job sigue apagado o nada gasta sin vender.</p>
+{% endif %}
 {% endfor %}
 {% endblock %}

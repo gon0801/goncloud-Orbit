@@ -22,6 +22,7 @@ import socket
 import types
 from pathlib import Path
 
+import psycopg
 import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
@@ -61,6 +62,8 @@ class _R:
 
 class _ConnGuarda:
     """Responde las consultas de metricas_listas con plataformas canned."""
+
+    info = types.SimpleNamespace(transaction_status=psycopg.pq.TransactionStatus.INTRANS)
 
     def __init__(self, *, metricas=(), placements=()):
         self._metricas = set(metricas)

@@ -144,6 +144,33 @@ fi
 printf '%s\\n' "$sql" | "$ORBIT_REAL_PSQL" "$@"
 """
 
+CRONTAB = """#!/usr/bin/env bash
+F=${ORBIT_FAKE_CRONTAB:?crontab falso sin ORBIT_FAKE_CRONTAB}
+[ "$1" = -u ] && shift 2
+case "$1" in
+  -l) [ -f "$F" ] || { echo "no crontab" >&2; exit 1; }; cat "$F" ;;
+  -) cat > "$F" ;;
+  *) cp "$1" "$F" ;;
+esac
+"""
+
+CRONTAB_GON = (
+    'MAILTO=""\n'
+    "# === Orbit reputacion (REPUTACION 01 / A.7) ===\n"
+    "0 9 * * * docker exec orbit-app-1 python -m app.cli reputacion alertas\n"
+    "# === Orbit (ORBIT 03 / 4.2; tabla de horarios ingesta-01 A.4) ===\n"
+    "# job_key=jev-senales  JEV ADS 02 S.4\n"
+    "30 9,21 * * * docker exec orbit-app-1 python -m app.cli jev-senales --aplicar\n"
+    "# job_key=ads-salud\n"
+    "*/10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud\n"
+)
+LINEAS_VIGIA = (
+    "# job_key=jev-vigia  CLARIDAD 01 B.5: avisa si Jev no corre hace mas de 13 h\n"
+    '0 11 * * * /usr/local/bin/cron-avisa --nombre "Vigía de JEV" --cada 24 --'
+    " docker exec orbit-app-1 python -m app.cli jev-vigia"
+    " >> /mnt/data/appdata/orbit/logs/jev-vigia.log 2>&1\n"
+)
+
 
 def _git(repo: Path, *args: str) -> str:
     env = {
@@ -235,6 +262,11 @@ def _crea_repo(repo: Path) -> None:
             "migrations/9004_reversa_auto03_revienta.sql": "DROP TABLE public.auto03_revienta;\n",
         },
         "PausaLive": {inter: "ads_producto_pausa_amazon_mx=live\n"},
+        "ConVigia": {
+            "tools/despliegue/cron_jev_vigia.sh": (
+                ROOT / "tools/despliegue/cron_jev_vigia.sh"
+            ).read_text(encoding="utf-8")
+        },
         "ConTransaccion": {
             "migrations/9005_auto03_tx.sql": "-- sonda-aplicada: "
             "SELECT to_regclass('public.auto03_tx') IS NOT NULL\n"
@@ -259,7 +291,8 @@ def banco():
         _crea_repo(raiz / "repo")
         bin_ = raiz / "bin"
         bin_.mkdir()
-        for nombre, texto in {"ssh": SSH, "docker": DOCKER, "curl": CURL, "psql": PSQL}.items():
+        falsos = {"ssh": SSH, "docker": DOCKER, "curl": CURL, "psql": PSQL, "crontab": CRONTAB}
+        for nombre, texto in falsos.items():
             (bin_ / nombre).write_text(texto, encoding="utf-8", newline="\n")
             (bin_ / nombre).chmod(0o755)
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(plantilla)))
@@ -345,6 +378,7 @@ class Servidor:
             "ORBIT_SIM_DSN": self.dsn,
             "ORBIT_FAKE_CTL": str(self.ctl),
             "ORBIT_REAL_PSQL": self.b["real_psql"],
+            "ORBIT_FAKE_CRONTAB": str(self.ctl / "crontab"),
             "AUTO03_ESPERA_S": "20",
         }
         env.pop("ORBIT_SIM_CORTE", None)
@@ -829,3 +863,65 @@ def test_interruptores_del_repo_son_los_del_lector():
     assert deseado and set(deseado) <= claves
     for plataforma in productos.PLATAFORMAS:
         productos.modos_desde_settings(deseado, plataforma)
+
+
+def _cron_vigia(tmp: Path, accion: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["bash", str(ROOT / "tools/despliegue/cron_jev_vigia.sh"), accion],
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PATH": f"{tmp / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "ORBIT_FAKE_CRONTAB": str(tmp / "crontab"),
+            "ORBIT_CRON_ARCHIVO": str(tmp / "archive"),
+        },
+    )
+
+
+def test_jev_vigia_instalar_dos_veces_y_quitar_deja_el_crontab_igual(tmp_path):
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin/crontab").write_text(CRONTAB, encoding="utf-8", newline="\n")
+    (tmp_path / "bin/crontab").chmod(0o755)
+    crontab = tmp_path / "crontab"
+    crontab.write_bytes(CRONTAB_GON.encode())
+    con_vigia = CRONTAB_GON.replace("--aplicar\n", "--aplicar\n" + LINEAS_VIGIA, 1)
+
+    assert _cron_vigia(tmp_path, "revisa").returncode == 1
+    r = _cron_vigia(tmp_path, "instala")
+    assert (r.returncode, r.stdout) == (0, "agregada\n"), r.stderr
+    assert crontab.read_bytes() == con_vigia.encode()
+    r = _cron_vigia(tmp_path, "instala")
+    assert (r.returncode, r.stdout) == (0, "sin cambios\n"), r.stderr
+    assert crontab.read_bytes() == con_vigia.encode()
+    assert _cron_vigia(tmp_path, "revisa").returncode == 0
+
+    r = _cron_vigia(tmp_path, "quita")
+    assert (r.returncode, r.stdout) == (0, "quitada\n"), r.stderr
+    assert crontab.read_bytes() == CRONTAB_GON.encode()
+    r = _cron_vigia(tmp_path, "quita")
+    assert (r.returncode, r.stdout) == (0, "sin cambios\n"), r.stderr
+    assert crontab.read_bytes() == CRONTAB_GON.encode()
+
+    respaldos = sorted((tmp_path / "archive").iterdir())
+    assert [p.read_bytes() for p in respaldos] == [CRONTAB_GON.encode(), con_vigia.encode()]
+
+
+def test_jev_vigia_desplegar_la_instala_el_checklist_la_exige_y_el_rollback_la_quita(s):
+    crontab = s.ctl / "crontab"
+    crontab.write_bytes(CRONTAB_GON.encode())
+    assert s.desplegar("ConVigia").returncode == 0
+    assert "CRON=jev-vigia" in s.ultimo()
+    con_vigia = crontab.read_bytes()
+    assert con_vigia == CRONTAB_GON.replace("--aplicar\n", "--aplicar\n" + LINEAS_VIGIA).encode()
+    assert s.checklist("ConVigia").returncode == 0
+
+    crontab.write_bytes(CRONTAB_GON.encode())
+    r = s.checklist("ConVigia")
+    assert r.returncode == 1
+    assert "FALLA cron del vigia de Jev" in r.stdout
+    crontab.write_bytes(con_vigia)
+
+    assert s.rollback("ConVigia").returncode == 1
+    assert s.estado_diario() == "revertido"
+    assert crontab.read_bytes() == CRONTAB_GON.encode()

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Despliegue de Orbit por el motor (AUTO-03 B.1). Uso: MOTOR_SHA=<sha> bash desplegar.sh [--ensayo]
 # Pasos: (0) candado y diario, (1) guardas, (2) monotonia, (3) respaldo, (4) migraciones
-# de la receta (*_auto03_* y *_orbit07_*) con sonda, (5) codigo y build, (6) interruptores. Salidas: 0 bien; 75 no es el
+# de la receta (*_auto03_* y *_orbit07_*) con sonda, (5) codigo y build, (5b) linea de cron del
+# vigia de Jev, (6) interruptores. Salidas: 0 bien; 75 no es el
 # codigo (guardas o candado ocupados; si el diario ya traia cambios, los revierte antes);
 # otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
@@ -51,6 +52,9 @@ ensayo() {
     echo "clave que cambiaria: $k: vigente '$vig' -> '$(valor "$k" "$NUEVO")'"
   done
   [ -n "$CAMBIADAS" ] || echo "claves: ninguna cambia"
+  if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
+    cron_vigia revisa 2>&1 || echo "desplegar instalaria la linea jev-vigia"
+  fi
 }
 
 if [ "$ENSAYO" = 1 ]; then
@@ -184,6 +188,17 @@ sigue_candado
 srv "printf '%s\n' $SHA > $DESP/sha"
 echo "/health 200; $DESP/sha = $SHA"
 corte 5
+
+echo "== (5b) linea de cron del vigia de Jev"
+if ! git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
+  echo "$SHA no trae $CRON_VIGIA"
+elif cron_vigia revisa; then
+  echo "la linea ya estaba"
+else
+  sigue_candado
+  printf '%s\n' "$(lee_ultimo)" | grep -qx 'CRON=jev-vigia' || anota CRON=jev-vigia
+  cron_vigia instala
+fi
 
 echo "== (6) interruptores frente a SHA_PREVIO"
 sigue_candado

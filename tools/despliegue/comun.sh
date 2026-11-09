@@ -20,7 +20,8 @@ ULTIMO=$DESP/ultimo.env
 ESPERA=${AUTO03_ESPERA_S:-600}
 INTERRUPTORES=tools/despliegue/interruptores.env
 TERMINALES=" verificado sin_cambios abortado_sin_cambios revertido "
-CAMBIO_RE='^(CODIGO|MIGRACION|CLAVE)='
+CAMBIO_RE='^(CODIGO|MIGRACION|CLAVE|CRON)='
+CRON_VIGIA=tools/despliegue/cron_jev_vigia.sh
 
 srv() { ssh goncloud "$@"; }
 
@@ -160,6 +161,9 @@ sonda() {
   esac
 }
 
+# cron_vigia <instala|quita|revisa>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
+cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archive bash -s -- $1"; }
+
 salud() { srv "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/health" 2>/dev/null || true; }
 
 espera_salud() {
@@ -222,7 +226,7 @@ sigue_candado() {
 
 # revierte: la reversa de B.2 bajo el candado ya tomado; la usan rollback.sh y desplegar.sh
 # (salida 75 con cambios, porque el motor no corre rollback con 75). Deshace solo lo anotado
-# en ultimo.env por $SHA, en orden: claves, codigo, sha y reversas de las migraciones
+# en ultimo.env por $SHA, en orden: claves, cron, codigo, sha y reversas de las migraciones
 # (inverso), siguiendo aunque un paso falle. Antes de cada cambio comprueba que sigue el
 # candado: sin el sale 1 dejando ESTADO=revirtiendo, y otra corrida continua la reversa.
 # Sale 0 si no habia nada que deshacer, 1 con ESTADO=revertido y 2 con rollback_incompleto.
@@ -255,6 +259,12 @@ revierte() {
     fi
     corte rb
   done 3<<< "$(printf '%s\n' "$L" | sed -n 's/^CLAVE=//p')"
+
+  echo "== cron"
+  if printf '%s\n' "$L" | grep -qx 'CRON=jev-vigia'; then
+    sigue_candado
+    cron_vigia quita || PEND="$PEND cron:jev-vigia"
+  fi
 
   echo "== codigo"
   CODIGO=$(primero CODIGO "$L")
