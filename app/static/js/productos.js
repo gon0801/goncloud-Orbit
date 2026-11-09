@@ -97,6 +97,14 @@ function pintaVista(zona, vista) {
       aviso.className = "aviso";
       aviso.setAttribute("data-subfamilia-nueva", "");
       div.appendChild(aviso);
+    } else if (plan.sin_negativos) {
+      var avisoNeg = parrafo(
+        "Esta subfamilia todavía no tiene negativos: arranca sin negativos; " +
+          "Orbit los aprende con este impulso."
+      );
+      avisoNeg.className = "aviso";
+      avisoNeg.setAttribute("data-sin-negativos", "");
+      div.appendChild(avisoNeg);
     }
     div.appendChild(
       parrafo(

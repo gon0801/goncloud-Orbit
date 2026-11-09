@@ -649,12 +649,15 @@ def _conservar_y_impulso(
 
 
 def _vista_impulso(conn, vista: io.VistaPreviaImpulso, plataforma: str) -> dict:
-    """La vista previa con `subfamilia_nueva` por plan: una subfamilia sin
-    keywords, negativos ni grupo en la plataforma arranca sin negativos."""
+    """La vista previa con dos marcas por plan. `subfamilia_nueva`: la
+    subfamilia no tiene keywords, negativos ni grupo en la plataforma.
+    `sin_negativos`: la campana auto arranca sin negativos, tambien con una
+    subfamilia conocida que solo tiene keywords o grupo."""
     conocidas = set(fw.tipos_producto(conn, plataforma))
     datos = vista.como_dict()
     for plan in datos["planes"]:
         plan["subfamilia_nueva"] = plan["subfamilia"] not in conocidas
+        plan["sin_negativos"] = not plan["negatives"]
     return datos
 
 

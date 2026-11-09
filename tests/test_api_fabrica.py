@@ -1569,7 +1569,7 @@ def test_claridad_d_subfamilia_escrita_se_normaliza_y_avisa_si_es_nueva(escenari
     """CLARIDAD 01 D.4 (dinero): la subfamilia elige los negativos de la
     campana auto. "Arras para boda" daba 422; ahora el plan sale con
     arras_para_boda y avisa que es nueva (sin negativos). Con kit_arras
-    en la biblioteca, no es nueva."""
+    en la biblioteca, no es nueva. Una conocida sin negativos tambien avisa."""
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
     _sugeridor_fijo_i5(monkeypatch)
@@ -1590,10 +1590,13 @@ def test_claridad_d_subfamilia_escrita_se_normaliza_y_avisa_si_es_nueva(escenari
         )
         assert r.status_code == 200, r.text
         (p,) = r.json()["planes"]
-        return p["subfamilia"], p["subfamilia_nueva"], p["negatives"]
+        return p["subfamilia"], p["subfamilia_nueva"], p["sin_negativos"], p["negatives"]
 
-    assert plan("Arras para boda") == ("arras_para_boda", True, [])
-    assert plan("kit_arras") == ("kit_arras", False, ["gratis"])
+    assert plan("Arras para boda") == ("arras_para_boda", True, True, [])
+    assert plan("kit_arras") == ("kit_arras", False, False, ["gratis"])
+    # collar_perro tiene keywords en la biblioteca pero ningun negativo:
+    # no es nueva y aun asi la auto arranca sin negativos.
+    assert plan("collar_perro") == ("collar_perro", False, True, [])
 
 
 def test_i5_plan_tope_no_numerico_422(escenario, monkeypatch):
