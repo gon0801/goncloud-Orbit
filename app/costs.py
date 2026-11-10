@@ -23,7 +23,8 @@ con su evidencia medida; este docstring es el resumen operativo):
    nuevo entra AL DIA SIGUIENTE de su ultimo cambio: el dia UTC de la corrida
    todavia puede cambiar (D2) y no se publica. Lo ya publicado es inmutable:
    si el origen reescribe historia, se conserva y el SKU sigue al origen desde
-   ayer (convergencia, sin congelarse); un SKU ausente del origen cierra su
+   ayer (convergencia, sin congelarse); un SKU ausente del origen o presente
+   sin vigencia publicable (solape o todas sus filas rechazadas) cierra su
    vigencia abierta en ayer y queda sin costo. Un estado imposible aborta la
    corrida entera en vez de dejar un costo viejo abierto.
 3. `includes_tax = false`: `sku_costs.cost` es el `standard_price` de Odoo
@@ -644,11 +645,13 @@ def sync_costos(
                         productos_actualizados += 1
 
             # Un solo bucle sobre TODOS los productos de Orbit: los que traen
-            # vigencias del origen y los que desaparecieron de el. Los
-            # primeros ya se dieron de alta arriba; los ausentes conservan su
-            # fila de product y aqui se les cierra la vigencia abierta en ayer.
+            # vigencias del origen, los ausentes y los presentes sin vigencia
+            # publicable (solape o todas rechazadas). Ausentes y no publicables
+            # cierran su abierta en ayer y quedan sin costo; el detalle
+            # distingue el motivo y ambos cuentan para la guarda del 10 %.
             productos = dict(conn.execute("SELECT odoo_sku, id FROM product").fetchall())
             skus_origen = {f.sku for f in origen.filas}
+            sin_vigencia_publicable = skus_origen - set(vigencias_por_sku)
             planes: list[tuple[str, int, PlanSku]] = []
             con_abierta = 0
             candidatos_sin_costo = 0
@@ -659,17 +662,8 @@ def sync_costos(
                         _SQL_VIGENCIAS_PUBLICADAS, (product_id,)
                     )
                 }
-                tiene_abierta = any(pub[1] is None for pub in publicadas.values())
-                if tiene_abierta:
+                if any(pub[1] is None for pub in publicadas.values()):
                     con_abierta += 1
-                if sku in skus_origen and sku not in vigencias_por_sku:
-                    # El origen lo trae pero sin vigencia publicable (solape o
-                    # todas rechazadas): no se toca su abierta y sus skips ya
-                    # se contaron. Si tiene abierta, cuenta para la guarda como
-                    # candidato a quedar sin costo (copia corrupta no pasa muda).
-                    if tiene_abierta:
-                        candidatos_sin_costo += 1
-                    continue
                 plan = planear_sku(vigencias_por_sku.get(sku), publicadas, corte=corte)
                 planes.append((sku, product_id, plan))
                 if plan.sin_costo:
@@ -712,7 +706,10 @@ def sync_costos(
                     detalle.append(f"{sku}: {plan.convergencia}")
                 if plan.sin_costo:
                     sin_costo_en_origen += 1
-                    detalle.append(f"{sku}: sin costo en el origen; su costo cerro ayer")
+                    if sku in sin_vigencia_publicable:
+                        detalle.append(f"{sku}: sin vigencia publicable; su costo cerro ayer")
+                    else:
+                        detalle.append(f"{sku}: sin costo en el origen; su costo cerro ayer")
 
             skip_reason = _formato_skip_reason(skips)
             _sellar_run(

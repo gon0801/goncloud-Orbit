@@ -1095,11 +1095,13 @@ def test_arreglos01_f_un_sku_sin_costo_no_frena_y_el_cierre_masivo_aborta(tmp_pa
     not _DSN_EXPLICITO and not _hay_postgres_local(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_arreglos01_f_una_fila_rechazada_solapada_no_cierra_la_abierta(tmp_path):
-    """ARREGLOS 01 F.4: el origen sigue trayendo el SKU (con una fila rechazada
-    que solapa); el SKU queda sin escribir pero su vigencia abierta NO se cierra."""
+def test_arreglos01_f_una_fila_rechazada_solapada_cierra_la_abierta(tmp_path):
+    """ARREGLOS 01 h_106ff43d: el origen trae el SKU sin vigencia publicable
+    (fila rechazada que solapa); se cierra en ayer y el costo viejo no valida."""
     psycopg = pytest.importorskip("psycopg")
     from psycopg import sql as pgsql
+
+    from app.estimacion_insumos import resolver_costo
 
     dsn = _test_dsn()
     db = f"orbit_costs_f4_{socket.gethostname().lower()}_{os.getpid()}"
@@ -1119,19 +1121,25 @@ def test_arreglos01_f_una_fila_rechazada_solapada_no_cierra_la_abierta(tmp_path)
 
         solapada = ("S-04", 0.0, "MXN", "2026-06-01 10:00:00", "2026-07-01 10:00:00", "", "")
         snap2 = _snapshot(tmp_path / "f4-2.db", [abierta, solapada], [])
-        antes = _estado(conn)
         r2 = sync_costos(conn, snap2, corte=corte, acepto_cierre_masivo=True)
         assert r2.ok is True
-        assert r2.rows_written == 0
-        assert r2.sin_costo_en_origen == 0
+        assert r2.rows_written == 1
+        assert r2.vigencias_cerradas == 1
+        assert r2.sin_costo_en_origen == 1
         assert r2.convergencias == 0
         assert "vigencia solapada en el origen (sku completo sin escribir)" in r2.skip_reason
-        assert _estado(conn) == antes
+        assert any("S-04: sin vigencia publicable" in linea for linea in r2.detalle)
         sigue = conn.execute(
             "SELECT c.valid_from, c.valid_to FROM sku_cost c"
             " JOIN product p ON p.id = c.product_id WHERE p.odoo_sku = 'S-04'"
         ).fetchall()
-        assert sigue == [(date(2026, 1, 1), None)]
+        assert sigue == [(date(2026, 1, 1), corte - dt.timedelta(days=1))]
+
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku = 'S-04'").fetchone()[0]
+        ahora = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        costo = resolver_costo(conn, product_id=pid, fecha_escenario=corte, now_utc=ahora)
+        assert costo.motivo == "costo_no_vigente"
+        assert costo.costo is None
     finally:
         if conn is not None:
             conn.close()
@@ -1148,9 +1156,10 @@ def test_arreglos01_f_una_fila_rechazada_solapada_no_cierra_la_abierta(tmp_path)
 def test_arreglos01_f_el_sku_sin_vigencia_publicable_cuenta_para_el_cierre_masivo(
     tmp_path, monkeypatch
 ):
-    """ARREGLOS 01 F.5: un SKU que sigue en el origen pero sin vigencias
-    publicables (solape) es candidato a cierre y cuenta para el tope del 10 %;
-    si el tope no se pasa, no se toca su vigencia abierta."""
+    """ARREGLOS 01 F.5 + h_106ff43d: un SKU que sigue en el origen pero sin
+    vigencias publicables (solape) es candidato a cierre y cuenta para el tope
+    del 10 %; si el tope no se pasa, su abierta se cierra en ayer y el costo
+    viejo deja de validar."""
     psycopg = pytest.importorskip("psycopg")
     from psycopg import sql as pgsql
 
@@ -1195,10 +1204,18 @@ def test_arreglos01_f_el_sku_sin_vigencia_publicable_cuenta_para_el_cierre_masiv
         snap3 = _snapshot(tmp_path / "f5-3.db", base + solapadas[1:], [])
         r3 = sync_costos(conn, snap3, corte=corte)
         assert r3.ok is True
-        assert r3.rows_written == 0
-        assert r3.sin_costo_en_origen == 0
+        assert r3.rows_written == 1
+        assert r3.vigencias_cerradas == 1
+        assert r3.sin_costo_en_origen == 1
+        assert r3.convergencias == 0
         assert "vigencia solapada en el origen (sku completo sin escribir)" in r3.skip_reason
-        assert _estado(conn) == antes
+        assert any("SKU-10: sin vigencia publicable" in linea for linea in r3.detalle)
+        assert _abiertas_por_sku(conn) == {sku: 1 for sku in todos if sku != "SKU-10"}
+        cerrada = conn.execute(
+            "SELECT c.valid_to FROM sku_cost c JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'SKU-10' ORDER BY c.valid_from DESC LIMIT 1"
+        ).fetchone()
+        assert cerrada == (corte - dt.timedelta(days=1),)
     finally:
         if conn is not None:
             conn.close()
