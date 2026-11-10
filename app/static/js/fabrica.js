@@ -393,6 +393,11 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
+  // El valor (keyword o ASIN) es dato libre y va tal cual.
+  function objetivoPuja(r) {
+    return Orbit.etiqueta(r.tipo, "objetivo_puja") + (r.valor ? ": " + r.valor : "");
+  }
+
   function mostrarDetalleBids(contenedor, datosPorRol, moneda, incluirFaltantes = false) {
     if (!datosPorRol) return;
     const conDatos = roles.filter(rol => {
@@ -411,7 +416,7 @@ document.addEventListener("DOMContentLoaded", function () {
         contenedor,
         ["Objetivo", "Mínimo", "Sugerido", "Máximo", "Puja que se usa"],
         recomendaciones.map(r => [
-          r.tipo + (r.valor ? ": " + r.valor : ""),
+          objetivoPuja(r),
           dinero(r.minimo, moneda),
           dinero(r.sugerido, moneda),
           dinero(r.maximo, moneda),
@@ -421,7 +426,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const faltantes = Array.isArray(datos && datos.faltantes) ? datos.faltantes : [];
       if (incluirFaltantes && faltantes.length) {
         contenedor.append(conClase("p", "alerta", "Captura manual requerida. Amazon no sugirió: "
-          + faltantes.map(r => r.tipo + (r.valor ? ": " + r.valor : "")).join(", ") + "."));
+          + faltantes.map(objetivoPuja).join(", ") + "."));
       }
     });
   }
@@ -1044,8 +1049,9 @@ document.addEventListener("DOMContentLoaded", function () {
     ficha(contenedor, [["Plataforma", Orbit.etiqueta(datos.plataforma, "plataforma")], ["Estado", Orbit.etiqueta(datos.estado, "estado_lote")], ["Detalle", datos.detalle],
       ["Creado", fechaHora(datos.created_at)], ["Finalizado", fechaHora(datos.finished_at)]]);
     tabla(contenedor, ["Paso", "Rol", "Recurso", "ID externo", "Estado", "Verificación de creación"], datos.pasos.map(paso => [
-      paso.orden, nombreRol(paso.rol), paso.recurso, paso.external_id,
-      Orbit.etiqueta(paso.estado, "estado_paso"), paso.readback_estado,
+      paso.orden, nombreRol(paso.rol), Orbit.etiqueta(paso.recurso, "recurso_fabrica"), paso.external_id,
+      Orbit.etiqueta(paso.estado, "estado_paso"),
+      ausente(paso.readback_estado) ? null : Orbit.etiqueta(paso.readback_estado, "estado_campana"),
     ]));
     if (datos.plan) {
       const detalle = nodo("details"); detalle.append(nodo("summary", "Ver plan persistido del lote"));

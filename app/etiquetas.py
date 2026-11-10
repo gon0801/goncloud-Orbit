@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Literal, get_args
 
-from app import apply_cola
+from app import apply_cola, fabrica_plan
 from app import cycle as ciclo
 from app import disponibilidad as disp
 from app import evaluacion_catalogo as evaluacion
@@ -96,6 +96,8 @@ Dominio = Literal[
     "motivo_siembra",
     "motivo_producto",
     "origen_objetivo",
+    "recurso_fabrica",
+    "objetivo_puja",
 ]
 
 _SUBIDA_SIN_ECONOMIA = "Subida de puja frenada: las visitas de más no pagaron el gasto extra"
@@ -677,6 +679,28 @@ ESTADO_LOTE: dict[str, str] = {
     "desarmado": "Pausado",
 }
 
+# Que crea cada paso de un lote (fabrica_lote_paso.recurso, CHECK de 0018).
+RECURSO_FABRICA: dict[str, str] = {
+    "campaign": "Campaña",
+    "ad_group": "Grupo de anuncios",
+    "product_ad": "Anuncio de producto",
+    "keyword": "Keyword",
+    "target": "Producto objetivo",
+    "negative_keyword": "Keyword negativa",
+}
+
+# A que se le sugiere la puja (fabrica_plan.EXPRESION_BID_POR_ROL y EXPRESIONES_AUTO).
+OBJETIVO_PUJA: dict[str, str] = {
+    "KEYWORD_EXACT_MATCH": "Keyword exacta",
+    "KEYWORD_PHRASE_MATCH": "Keyword de frase",
+    "KEYWORD_BROAD_MATCH": "Keyword amplia",
+    "PAT_ASIN": "Producto (ASIN)",
+    "CLOSE_MATCH": "Búsquedas muy parecidas",
+    "LOOSE_MATCH": "Búsquedas parecidas",
+    "SUBSTITUTES": "Productos sustitutos",
+    "COMPLEMENTS": "Productos complementarios",
+}
+
 # Paso de un lote (fabrica_paso.estado, CHECK de 0018).
 ESTADO_PASO: dict[str, str] = {"planeado": "Pendiente", "applied": "Verificado", "failed": "Falló"}
 
@@ -879,6 +903,8 @@ ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "motivo_siembra": MOTIVO_SIEMBRA,
     "motivo_producto": productos.MOTIVOS_PRODUCTO,
     "origen_objetivo": ORIGEN_OBJETIVO,
+    "recurso_fabrica": RECURSO_FABRICA,
+    "objetivo_puja": OBJETIVO_PUJA,
 }
 
 # Vocabularios cerrados de su modulo dueno: si uno crece sin etiqueta, truena
@@ -898,6 +924,10 @@ for _dominio, _vocabulario in (
     ("resultado_retiro", get_args(ResultadoRetiro)),
     ("resultado_regreso", get_args(ResultadoRegreso)),
     ("bloqueo_siembra", get_args(BloqueoSiembra)),
+    (
+        "objetivo_puja",
+        (*fabrica_plan.EXPRESION_BID_POR_ROL.values(), *fabrica_plan.EXPRESIONES_AUTO),
+    ),
 ):
     _faltan = set(_vocabulario) - set(ETIQUETAS[_dominio])
     if _faltan:

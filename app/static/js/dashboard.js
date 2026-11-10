@@ -10,6 +10,23 @@ function numero(s) {
   return Number(s);
 }
 
+// La cifra del tooltip con el formato comun (formato.js), igual que la tabla:
+// dinero con 2 decimales, ACoS como porcentaje y conteos con miles. Los datos
+// que dibujan la linea no cambian.
+function formatoDeClave(clave) {
+  if (clave === "cost" || clave === "ad_revenue") return Orbit.dinero;
+  if (clave === "acos") return Orbit.pct;
+  return function (valor) { return Orbit.numero(valor); };
+}
+
+function tooltipCon(formatos) {
+  return {
+    label: function (ctx) {
+      return ctx.dataset.label + ": " + formatos[ctx.datasetIndex](ctx.raw);
+    }
+  };
+}
+
 function colorCss(nombre, respaldo) {
   var valor = getComputedStyle(document.documentElement).getPropertyValue(nombre).trim();
   return valor || respaldo;
@@ -106,7 +123,7 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
       animation: false,
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: !spark, position: "top", align: "end", labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 } }, tooltip: { enabled: !spark } },
+      plugins: { legend: { display: !spark, position: "top", align: "end", labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 } }, tooltip: { enabled: !spark, callbacks: tooltipCon(seriesClaves.map(formatoDeClave)) } },
       scales: {
         x: { display: !spark, ticks: { color: tinta.mutado, maxTicksLimit: 4 }, grid: { color: tinta.borde } },
         y: { display: !spark, ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
@@ -149,7 +166,10 @@ function graficarBarras(canvasId, etiquetas, valores, color) {
       maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { title: function (items) { return etiquetas[items[0].dataIndex]; } } }
+        tooltip: { callbacks: {
+          title: function (items) { return etiquetas[items[0].dataIndex]; },
+          label: function (ctx) { return ctx.dataset.label + ": " + Orbit.numero(ctx.raw); }
+        } }
       },
       scales: {
         x: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } },
@@ -264,7 +284,7 @@ function graficarResumen() {
             align: "end",
             labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 }
           },
-          tooltip: { enabled: true }
+          tooltip: { enabled: true, callbacks: tooltipCon(pares.map(function (par) { return formatoDeClave(par[0]); })) }
         },
         scales: {
           x: { ticks: { color: tinta.mutado, maxTicksLimit: 8 }, grid: { color: tinta.borde } },
