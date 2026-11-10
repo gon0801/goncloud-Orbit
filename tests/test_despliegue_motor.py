@@ -1046,3 +1046,38 @@ def test_refresh_estimacion_desplegar_lo_instala_el_checklist_lo_exige_y_el_roll
     assert s.estado_diario() == "revertido"
     assert instalado.read_text() == "#!/bin/bash\necho viejo\n"
     assert not (s.srv / "tools/refresh_estimacion.sh").exists()
+
+
+def test_arreglos01_a_las_migraciones_del_plan_entran_en_el_despliegue(tmp_path):
+    """ARREGLOS 01 A: migraciones_de incluye las migraciones *_arreglos01_* con cabecera y
+    reversa, para que el despliegue las aplique en vez de saltarlas."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master")
+    _git(repo, "config", "core.autocrlf", "false")
+    (repo / "tools/despliegue").mkdir(parents=True)
+    shutil.copy(ROOT / "tools/despliegue/comun.sh", repo / "tools/despliegue/comun.sh")
+    migrations = repo / "migrations"
+    migrations.mkdir()
+    (migrations / "0083_arreglos01_prueba.sql").write_text(
+        "-- sonda-aplicada: SELECT to_regclass('public.arreglos01_prueba') IS NOT NULL\n"
+        "SELECT 1;\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    (migrations / "0083_reversa_arreglos01_prueba.sql").write_text(
+        "SELECT 1;\n", encoding="utf-8", newline="\n"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "arreglos01 a")
+
+    r = subprocess.run(
+        ["bash", "-c", ". tools/despliegue/comun.sh && migraciones_de HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "ORBIT_SIMULACION": "0"},
+    )
+
+    assert r.returncode == 0, r.stderr
+    assert "0083_arreglos01_prueba.sql\tSELECT to_regclass" in r.stdout

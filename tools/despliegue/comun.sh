@@ -133,12 +133,13 @@ aplica_clave() {
 }
 
 # migraciones_de <sha>: `archivo<TAB>sonda` de las migraciones de la receta
-# (*_auto03_* de AUTO-03, *_orbit07_* de ORBIT 07 y *_claridad01_* de CLARIDAD 01) sin reversa,
+# (*_auto03_* de AUTO-03, *_orbit07_* de ORBIT 07, *_claridad01_* de CLARIDAD 01 y
+# *_arreglos01_* de ARREGLOS 01) sin reversa,
 # en orden.
 migraciones_de() {
   local f s r
   for f in $(git ls-tree --name-only "$1" migrations/ | sed 's#^migrations/##' \
-    | grep -E '_(auto03|orbit07|claridad01)_' | grep -v '_reversa_' | LC_ALL=C sort); do
+    | grep -E '_(auto03|orbit07|claridad01|arreglos01)_' | grep -v '_reversa_' | LC_ALL=C sort); do
     if git show "$1:migrations/$f" | tr -d '\r' \
       | grep -Eiq '^[[:space:]]*(BEGIN|START[[:space:]]+TRANSACTION|COMMIT|ROLLBACK)[[:space:]]*(TRANSACTION|WORK)?[[:space:]]*;'; then
       echo "ABORTA: migrations/$f trae control de transaccion propio; desplegar la envuelve en una sola" >&2
