@@ -99,7 +99,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -311,6 +311,37 @@ def registra_sin_aplicar(
 # nueva del dueno (sellado 8), aca y en el trigger.
 KINDS_QUOTA = ("bid", "pause", "negative", "harvest")
 
+# apply_quota_state.cap es INTEGER (0001:823) y el trigger apply_cap_de_config
+# castea ::INTEGER (0039:1175): un cap que no cabe ahi revienta el INSERT de la
+# fila del dia. Es el techo del dominio que ya vive en el schema.
+CAP_MAXIMO = 2_147_483_647
+
+
+def cap_desde_settings(settings: Mapping, platform: str, kind: str) -> int | None:
+    """Lector UNICO del cap `ads_apply_cap_<platform>_<kind>`.
+
+    None = clave ausente o JSON null (fail-closed: no nace fila del dia).
+    Presente: int (no bool) o str de digitos ASCII, en [0, CAP_MAXIMO].
+    Cualquier otra cosa es config ROTA (regla 3): ValueError ruidoso, jamas
+    disfraz de cap infinito. El motor al aplicar y `proxima_config` al
+    guardar pasan por aqui, asi que lo que se guarda es lo que el schema
+    admite."""
+    clave = f"ads_apply_cap_{platform}_{kind}"
+    valor = settings.get(clave)
+    if valor is None:
+        return None
+    if isinstance(valor, bool):
+        raise ValueError(f"{clave}: cap booleano en la config vigente: {valor!r}")
+    if isinstance(valor, int):
+        n = valor
+    elif isinstance(valor, str) and valor.isascii() and valor.isdigit():
+        n = int(valor)
+    else:
+        raise ValueError(f"{clave}: valor no entero en la config vigente: {valor!r}")
+    if not 0 <= n <= CAP_MAXIMO:
+        raise ValueError(f"cap {kind} fuera de rango 0..{CAP_MAXIMO}, llego {n}")
+    return n
+
 
 def motor_quota(platform: str, kind: str) -> str:
     """Clave del motor de quota: `ads_optimizer:<platform>:<kind>`.
@@ -330,22 +361,12 @@ SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
 def _cap_de_config(conn: psycopg.Connection, platform: str, kind: str) -> int | None:
     """Cap de la config VIGENTE (ultima config_version por id — la misma
     resolucion que el trigger apply_cap_de_config de 0002). None = sin clave
-    o sin config: fail-closed, no nace fila del dia."""
+    o sin config: fail-closed, no nace fila del dia. El valor lo interpreta
+    `cap_desde_settings`, el mismo lector que valida el guardado."""
     fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
     if fila is None:
         return None
-    settings = fila[0] or {}
-    valor = settings.get(f"ads_apply_cap_{platform}_{kind}")
-    if valor is None:
-        return None
-    try:
-        return int(valor)
-    except (TypeError, ValueError):
-        # Clave presente pero corrupta es config ROTA, no dato faltante
-        # (regla 3): ruidoso, jamas disfraz de cap infinito.
-        raise ValueError(
-            f"ads_apply_cap_{platform}_{kind}: valor no numerico en la config vigente: {valor!r}"
-        ) from None
+    return cap_desde_settings(fila[0] or {}, platform, kind)
 
 
 def consume_quota_y_sello(conn: psycopg.Connection, platform: str, kind: str) -> tuple[bool, bool]:
