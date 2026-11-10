@@ -1,0 +1,10 @@
+ARREGLOS 01 bloque A.1: cola 26 (decision 2869, amazon_us, negative EXACT "wedding arras").
+Lectura con lee_prod.sh (rol orbit_read, transaccion de solo lectura).
+
+Consulta: select id, estado, modo from apply_queue where id = 26
+2026-11-10T06:34:21Z lectura 1: 26|vetoed|live
+2026-11-10T06:34:21Z lectura 2: 26|vetoed|live
+
+Estado vetoed: el plan dice "Si ya esta vetoed, no hacer nada", asi que no se llama al
+endpoint /api/ads-optimizer/veto. La propuesta 2869 no se aplica y no deja nada que revertir
+en el bloque C.
