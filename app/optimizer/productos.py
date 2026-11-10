@@ -135,7 +135,7 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia",
     "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa",
     # Por que un anuncio ENABLED del producto queda fuera del alcance (S4, S17).
-    "goal_no_live": "el goal de su campana no esta encendido en vivo",
+    "goal_no_live": "la meta de su campaña no está encendida en vivo",
     "alta_en_ventana": "el anuncio no existia antes de la ventana",
     "sin_actividad_en_ventana": "el anuncio no aparece en las filas de la ventana",
     "clave_en_vuelo": "el anuncio ya tiene una pausa en la cola o un veto vigente",

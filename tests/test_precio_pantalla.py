@@ -23,6 +23,7 @@ import httpx
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from formato_js import sin_registro
 from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente
 
@@ -912,7 +913,7 @@ def _semilla_cobertura_ui(conn):
 def _html_precios(conn, dsn, monkeypatch):
     resp = _cliente_pantalla(dsn, monkeypatch).get("/precios")
     assert resp.status_code == 200
-    return resp.text
+    return sin_registro(resp.text)
 
 
 # ---------------------------------------------------------------------------

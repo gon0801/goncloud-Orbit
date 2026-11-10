@@ -31,6 +31,7 @@ from pathlib import Path
 import jinja2
 import pytest
 from fastapi.testclient import TestClient
+from formato_js import con_formato, sin_registro
 from test_api_dashboard import (
     SQL02,
     SQL13,
@@ -335,7 +336,7 @@ def test_ui_cortes_pinta_propuestas_campana_y_escapa_nombre():
             "riesgo_ignorando_estado": True,
         },
     ]
-    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    html = sin_registro(ui.templates.env.get_template("cortes.html").render(**ctx))
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
     assert "Campañas" in html
@@ -724,7 +725,7 @@ def test_ui_decisiones_entidad_no_vuelca_json_de_target(monkeypatch):
             moneda="USD",
         )
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
-        html = TestClient(app).get("/decisiones").text
+        html = sin_registro(TestClient(app).get("/decisiones").text)
         assert "mismo ASIN B086TVLJ43" in html
         assert "Campana A" in html
         assert "ASIN_SAME_AS" not in html
@@ -1907,7 +1908,7 @@ def test_ui_cortes_senal_antes_de_asesoria_y_sin_error():
         "destino_ilegible": False,
     }
     ctx["senal_disponible"] = True
-    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    html = sin_registro(ui.templates.env.get_template("cortes.html").render(**ctx))
     assert 'class="senal-jev"' in html
     assert html.index('class="senal-jev"') < html.index('class="asesoria-jev"')
     assert "Es del catálogo y no convierte." in html
@@ -1938,7 +1939,7 @@ def test_ui_senal_metrica_ausente_pinta_guion_y_cero_se_conserva():
         "destino_ilegible": False,
     }
     ctx["senal_disponible"] = True
-    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    html = sin_registro(ui.templates.env.get_template("cortes.html").render(**ctx))
     assert "None ordenes" not in html
     assert "None clics" not in html
     assert "None MXN" not in html
@@ -2107,7 +2108,7 @@ def test_ui_cortes_propuesta_sin_target_dice_sin_target():
             "riesgo_ignorando_estado": True,
         },
     ]
-    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    html = sin_registro(ui.templates.env.get_template("cortes.html").render(**ctx))
     assert "sin target" in html
     assert "None%" not in html
 
@@ -2245,7 +2246,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, str(archivo)],
+        [node, "-e", con_formato(guion), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -2377,7 +2378,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, str(archivo)],
+        [node, "-e", con_formato(guion), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -2442,7 +2443,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, str(archivo)],
+        [node, "-e", con_formato(guion), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -2638,7 +2639,7 @@ def _corre_guion_dinero(node, archivo, cuerpo):
 
     guion = _guion_dinero_base() + cuerpo
     resultado = subprocess.run(
-        [node, "-e", guion, str(archivo)],
+        [node, "-e", con_formato(guion), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -3144,6 +3145,6 @@ def test_ui_cortes_consulta_caida_no_pinta_sin_bloqueos():
     ctx = _ctx_bloqueos()
     ctx["bloqueos_disponibles"] = False
     ctx["bloqueos_jev"]["bloqueos"] = []
-    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    html = sin_registro(ui.templates.env.get_template("cortes.html").render(**ctx))
     assert "no se pudo leer tus bloqueos" in html
     assert "sin bloqueos" not in html

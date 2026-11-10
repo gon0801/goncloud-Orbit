@@ -15,15 +15,20 @@ from __future__ import annotations
 import logging
 from typing import Literal, get_args
 
+from app import apply_cola, fabrica_plan
 from app import cycle as ciclo
+from app import disponibilidad as disp
+from app import evaluacion_catalogo as evaluacion
 from app.bloqueo_dueno import PASOS_VIVOS
+from app.estimacion_venta import EXCLUSIONES_FIJAS, MOTIVOS_ESTIMACION
 from app.optimizer import bid, eras, hygiene, politica, productos
 from app.optimizer import evidencia as ev
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.pantalla_dinero import TIPOS, UBICACIONES, EstrategiaPuja
+from app.precio.siembra import Bloqueo as BloqueoSiembra
 from app.propuestas_campana import TIPO_RIESGO
-from app.retiro_anuncios import MotivoRetiro
+from app.retiro_anuncios import MotivoRetiro, ResultadoRegreso, ResultadoRetiro
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +81,23 @@ Dominio = Literal[
     "motivo_contribucion",
     "tipo_alerta",
     "alcance_goal",
+    "estado_lote",
+    "estado_paso",
+    "etiqueta_ads",
+    "estado_disponibilidad",
+    "estado_estimacion",
+    "motivo_estimacion",
+    "exclusion_estimacion",
+    "componente_estimacion",
+    "resultado_retiro",
+    "resultado_regreso",
+    "accion_siembra",
+    "bloqueo_siembra",
+    "motivo_siembra",
+    "motivo_producto",
+    "origen_objetivo",
+    "recurso_fabrica",
+    "objetivo_puja",
 ]
 
 _SUBIDA_SIN_ECONOMIA = "Subida de puja frenada: las visitas de más no pagaron el gasto extra"
@@ -100,6 +122,9 @@ MOTIVO_SALUD: dict[str, str] = {
     ciclo.MOTIVO_COOLDOWN_7D: (
         "Orbit ya le aplicó un cambio en Amazon hace menos de 7 días (una puja o una pausa,"
         " aunque después se haya revertido): espera antes de volver a actuar"
+    ),
+    apply_cola.MOTIVO_VETO_PENDIENTE: (
+        "Tiene una propuesta esperando tu revisión: Orbit no la vuelve a decidir"
     ),
     ciclo.MOTIVO_ESCALERA_OFF: "El motor de pujas está apagado en todas las plataformas",
     ciclo.MOTIVO_POLITICA_APAGADA: "El motor de pujas está apagado en esta plataforma",
@@ -307,6 +332,10 @@ ESTADO_CICLO: dict[str, str] = {
     "degraded": "Con fallas",
     "skipped": "Saltado",
     "failed": "Falló",
+    # Corrida del motor de precios (precio_corrida.estado, CHECK de 0054).
+    "abierta": "En curso",
+    "cerrada": "Completa",
+    "abortada": "Abortada",
 }
 
 ESTADO_COLA: dict[str, str] = {
@@ -641,6 +670,175 @@ ALCANCE_GOAL: dict[str, str] = {
     "platform": "Plataforma",
 }
 
+# Lote de la fabrica (fabrica_lote.estado, CHECK de 0018 y 0065).
+ESTADO_LOTE: dict[str, str] = {
+    "planeado": "Pendiente de verificación",
+    "applied": "Creado y registrado",
+    "failed": "Interrumpido",
+    "pausado": "Pausado",
+    "desarmado": "Pausado",
+}
+
+# Que crea cada paso de un lote (fabrica_lote_paso.recurso, CHECK de 0018).
+RECURSO_FABRICA: dict[str, str] = {
+    "campaign": "Campaña",
+    "ad_group": "Grupo de anuncios",
+    "product_ad": "Anuncio de producto",
+    "keyword": "Keyword",
+    "target": "Producto objetivo",
+    "negative_keyword": "Keyword negativa",
+}
+
+# A que se le sugiere la puja (fabrica_plan.EXPRESION_BID_POR_ROL y EXPRESIONES_AUTO).
+OBJETIVO_PUJA: dict[str, str] = {
+    "KEYWORD_EXACT_MATCH": "Keyword exacta",
+    "KEYWORD_PHRASE_MATCH": "Keyword de frase",
+    "KEYWORD_BROAD_MATCH": "Keyword amplia",
+    "PAT_ASIN": "Producto (ASIN)",
+    "CLOSE_MATCH": "Búsquedas muy parecidas",
+    "LOOSE_MATCH": "Búsquedas parecidas",
+    "SUBSTITUTES": "Productos sustitutos",
+    "COMPLEMENTS": "Productos complementarios",
+}
+
+# Paso de un lote (fabrica_paso.estado, CHECK de 0018).
+ESTADO_PASO: dict[str, str] = {"planeado": "Pendiente", "applied": "Verificado", "failed": "Falló"}
+
+ETIQUETA_ADS: dict[str, str] = {
+    evaluacion.ETIQUETA_SIN_DATOS: "Sin datos",
+    evaluacion.ETIQUETA_GASTO_SIN_VENTAS: "Gasto sin ventas",
+    evaluacion.ETIQUETA_DENTRO_DEL_OBJETIVO: "Dentro del objetivo",
+    evaluacion.ETIQUETA_POR_ENCIMA_DEL_OBJETIVO: "Por encima del objetivo",
+}
+
+ESTADO_DISPONIBILIDAD: dict[str, str] = {
+    disp.ESTADO_POSITIVO: "Con stock",
+    disp.ESTADO_CERO: "Stock en 0",
+    disp.ESTADO_DESCONOCIDO: "Desconocido",
+    disp.ESTADO_SIN_VERIFICAR: "Sin verificar",
+}
+
+# Estado de la contribucion estimada (estimacion_venta.calcula).
+ESTADO_ESTIMACION: dict[str, str] = {
+    "disponible": "Disponible",
+    "incompleta": "Incompleta",
+    "desactualizada": "Desactualizada",
+    "identidad_ambigua": "Identidad ambigua",
+}
+
+MOTIVO_ESTIMACION: dict[str, str] = {
+    "costo_ambiguo": "Hay más de un costo posible para el producto",
+    "costo_ausente": "Falta el costo del producto",
+    "costo_base_fiscal_ausente": "Falta la base fiscal del costo",
+    "costo_desactualizado": "El costo no corresponde a la corrida del día",
+    "costo_impuesto_incompatible": "El costo incluye impuesto incompatible",
+    "costo_invalido": "El costo del producto no es válido",
+    "costo_no_vigente": "El costo no está vigente en la fecha de valoración",
+    "envio_sin_historia": "Sin historia de envíos para calcular la logística",
+    "fee_ausente": "Falta la cotización de comisiones",
+    "fee_incompatible": "La cotización de comisiones no concilia",
+    "fee_invalido": "La cotización de comisiones no es válida",
+    "fee_item_error": "Amazon devolvió un error al cotizar la comisión",
+    "fee_universo_no_soportado": "Amazon no cotiza comisiones para este canal",
+    "fx_ausente": "Falta el tipo de cambio",
+    "fx_desactualizado": "El tipo de cambio no es del día",
+    "fx_direccion_invalida": "El tipo de cambio no apunta a la moneda de venta",
+    "fx_tasa_invalida": "La tasa de cambio no es válida",
+    "identidad_ambigua": "Hay más de una oferta compatible",
+    "impuesto_fee_pendiente": "La cotización trae impuesto pendiente de política",
+    "logistica_fbm_pendiente": "Falta la logística de envío propio",
+    "oferta_ausente": "Falta la oferta de publicación",
+    "oferta_desactualizada": "La oferta de publicación ya no está vigente",
+    "oferta_futura": "La oferta de publicación tiene fecha después del corte",
+    "politica_ambigua": "Hay más de una política aplicable",
+    "politica_ausente": "Falta la política de cálculo",
+    "politica_invalida": "La política de cálculo no es válida",
+    "politica_no_vigente": "La política de cálculo no está vigente",
+    "precio_ausente": "Falta el precio de publicación",
+    "precio_invalido": "El precio de publicación no es válido",
+    "universo_no_soportado": "El canal o mercado no está en el universo liberado",
+    "us_sin_politica_prospectiva": "Amazon US aún no tiene política de cálculo",
+    "valoracion_desactualizada": "La fecha de valoración no coincide con el corte",
+    "variantes_sin_mapear": "Hay variantes del producto sin asignar",
+}
+
+# Lo que la estimacion deja fuera a proposito (estimacion_venta.EXCLUSIONES_FIJAS).
+EXCLUSION_ESTIMACION: dict[str, str] = {
+    "ads": "publicidad",
+    "reembolsos": "reembolsos",
+    "almacenamiento": "almacenamiento",
+    "devoluciones": "devoluciones",
+    "costos_periodicos": "costos periódicos",
+    "gastos_generales": "gastos generales",
+}
+
+# Renglones del desglose y base del porcentaje (estimacion_venta.calcula).
+COMPONENTE_ESTIMACION: dict[str, str] = {
+    "costo_original": "Costo original",
+    "costo_normalizado": "Costo en la moneda de venta",
+    "fx": "Tipo de cambio",
+    "precio_bruto": "Precio con impuestos",
+    "ingreso_normalizado": "Ingreso sin impuestos",
+    "fee_total": "Comisiones de Amazon",
+    "logistica": "Logística",
+    "isr": "Retención de ISR",
+    "retencion_iva_conciliacion": "Retención de IVA",
+}
+
+# Que le paso a cada anuncio al retirarlo o regresarlo (retiro_anuncios).
+RESULTADO_RETIRO: dict[str, str] = {
+    "retirado": "retirado",
+    "adoptado": "ya estaba pausado: queda adoptado",
+    "ya_retirado": "ya estaba retirado",
+    "cerrado": "archivado o inexistente en Amazon",
+    "pendiente": "sin confirmar: se reintenta",
+    "rechazado": "Amazon lo rechazó",
+    "no_existe": "no existe en Amazon",
+    "archivado": "archivado en Amazon",
+}
+
+RESULTADO_REGRESO: dict[str, str] = {
+    "repuesto": "regresado",
+    "recreado": "recreado",
+    "ya_repuesto": "ya estaba regresado",
+    "adoptado_sin_reposicion": "adoptado: Orbit lo encontró ya pausado",
+    "requiere_recreacion": "archivado en Amazon: regresar no lo recrea",
+    "no_requiere_recreacion": "no está archivado: usa regresar",
+    "fallo": "no se pudo",
+}
+
+# De donde sale el objetivo de ACoS de un grupo de la fabrica y la cabeza de su
+# procedencia (fabrica_plan.target_del_grupo; tools/fabrica_campanas).
+ORIGEN_OBJETIVO: dict[str, str] = {
+    "margen_medido": "Margen medido",
+    "manual_lanzamiento": "Manual de lanzamiento",
+    "manual_lanzamiento confirmado": "Manual de lanzamiento, confirmado",
+    "margen_minimo_grupo": "Margen más bajo del grupo",
+}
+
+# Vista previa de goals de precio (precio.siembra).
+ACCION_SIEMBRA: dict[str, str] = {
+    "sembrar": "Poner meta",
+    "reemplazar": "Cambiar meta",
+    "cerrar": "Quitar meta",
+    "nada": "Sin cambio",
+}
+
+BLOQUEO_SIEMBRA: dict[str, str] = {
+    "sin_escenario": "sin margen de hoy que copiar",
+    "fuera_de_banda": "el margen de hoy queda fuera de la banda permitida",
+    "salto_mayor_25": "el precio objetivo se aleja más de 25 % del actual",
+    "sin_referencia": "sin precio objetivo de referencia",
+    "live_sin_escenario": "no se enciende en vivo sin margen de hoy",
+    "sin_cambio": "ya tiene esa meta y ese modo",
+}
+
+MOTIVO_SIEMBRA: dict[str, str] = {
+    "sin_escenario": "sin escenario de margen",
+    "oferta_ausente": "falta la oferta de publicación",
+    "fee_no_utilizable": "la comisión no se puede usar",
+}
+
 ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "plataforma": PLATAFORMA,
     "motivo_decision": MOTIVO_DECISION,
@@ -690,6 +888,23 @@ ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "motivo_contribucion": MOTIVO_CONTRIBUCION,
     "tipo_alerta": TIPO_ALERTA,
     "alcance_goal": ALCANCE_GOAL,
+    "estado_lote": ESTADO_LOTE,
+    "estado_paso": ESTADO_PASO,
+    "etiqueta_ads": ETIQUETA_ADS,
+    "estado_disponibilidad": ESTADO_DISPONIBILIDAD,
+    "estado_estimacion": ESTADO_ESTIMACION,
+    "motivo_estimacion": MOTIVO_ESTIMACION,
+    "exclusion_estimacion": EXCLUSION_ESTIMACION,
+    "componente_estimacion": COMPONENTE_ESTIMACION,
+    "resultado_retiro": RESULTADO_RETIRO,
+    "resultado_regreso": RESULTADO_REGRESO,
+    "accion_siembra": ACCION_SIEMBRA,
+    "bloqueo_siembra": BLOQUEO_SIEMBRA,
+    "motivo_siembra": MOTIVO_SIEMBRA,
+    "motivo_producto": productos.MOTIVOS_PRODUCTO,
+    "origen_objetivo": ORIGEN_OBJETIVO,
+    "recurso_fabrica": RECURSO_FABRICA,
+    "objetivo_puja": OBJETIVO_PUJA,
 }
 
 # Vocabularios cerrados de su modulo dueno: si uno crece sin etiqueta, truena
@@ -704,6 +919,15 @@ for _dominio, _vocabulario in (
     ("motivo_retiro", get_args(MotivoRetiro)),
     ("motivo_abstencion", g.MOTIVOS_ABSTENCION),
     ("paso_bloqueo", PASOS_VIVOS),
+    ("motivo_estimacion", MOTIVOS_ESTIMACION),
+    ("exclusion_estimacion", EXCLUSIONES_FIJAS),
+    ("resultado_retiro", get_args(ResultadoRetiro)),
+    ("resultado_regreso", get_args(ResultadoRegreso)),
+    ("bloqueo_siembra", get_args(BloqueoSiembra)),
+    (
+        "objetivo_puja",
+        (*fabrica_plan.EXPRESION_BID_POR_ROL.values(), *fabrica_plan.EXPRESIONES_AUTO),
+    ),
 ):
     _faltan = set(_vocabulario) - set(ETIQUETAS[_dominio])
     if _faltan:
@@ -713,6 +937,12 @@ for _dominio, _vocabulario in (
 # `fee_error:<codigo>` trae el codigo de error del proveedor, no un motivo del
 # vocabulario: va entre parentesis tal cual (sin guiones bajos).
 _SUFIJO_LIBRE = {("motivo_precio", "fee_error")}
+
+
+def registro_navegador() -> dict:
+    """El registro y la regla del sufijo libre para `Orbit.etiqueta`
+    (app/static/js/formato.js): el navegador traduce con los mismos textos."""
+    return {"etiquetas": ETIQUETAS, "sufijo_libre": sorted(_SUFIJO_LIBRE)}
 
 
 def _humaniza(codigo: str) -> str:

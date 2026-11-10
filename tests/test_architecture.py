@@ -47,6 +47,14 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/etiquetas.py": (
+        "CLARIDAD 01 H/I: registro unico de etiquetas de pantalla. Es dato "
+        "(un dict por vocabulario, con las constantes del modulo dueno como "
+        "claves), no logica; las comprobaciones de vocabulario cerrado al "
+        "importar y el registro que viaja al navegador (formato.js) recorren "
+        "el registro entero. Partirlo por dominio volveria a los diccionarios "
+        "sueltos que H borro — no se parte por partir"
+    ),
     "app/retiro_anuncios.py": (
         "AUTO-03 G: unico propietario del ledger de retiro de product ads "
         "(spec decisiones-producto): sacar, regresar, recrear y reconciliar "
