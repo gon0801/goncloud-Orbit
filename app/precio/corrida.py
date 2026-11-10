@@ -943,7 +943,7 @@ def _decidir_pendientes(
 _SQL_MEDIR_HOY = (
     "SELECT d.id, d.listing_id, d.canal::text, d.resultado, d.motivo, d.goal_id,"
     " d.c_valor, d.c_currency::text, d.l_valor, d.l_currency::text,"
-    " d.r_valor, d.r_currency::text, d.escenario_id"
+    " d.r_valor, d.r_currency::text, d.escenario_id, d.i_valor, d.i_currency::text"
     " FROM precio_decision d"
     " WHERE d.platform = %s AND d.decision_date = %s AND d.m_actual IS NOT NULL"
     " AND d.canal IS NOT NULL"
@@ -953,9 +953,18 @@ _SQL_MEDIR_HOY = (
 _SQL_MEDIR_PREVIA = (
     "SELECT DISTINCT ON (d.listing_id) NULL, d.listing_id, NULL, d.resultado, d.motivo,"
     " d.goal_id, d.c_valor, d.c_currency::text, d.l_valor, d.l_currency::text,"
-    " d.r_valor, d.r_currency::text, d.escenario_id"
+    " d.r_valor, d.r_currency::text, d.escenario_id, d.i_valor, d.i_currency::text"
     " FROM precio_decision d"
     " WHERE d.platform = %s AND d.decision_date < %s AND d.listing_id = ANY(%s)"
+    # Dia retenido y no soltado del mismo universo: no es linea base (G-H1).
+    # Regla espejo de liberaciones.py: solo lo SOLTADO deja de contar.
+    " AND NOT EXISTS ("
+    "   SELECT 1 FROM precio_retencion r"
+    "   JOIN precio_decision dr ON dr.id = r.decision_id"
+    "   WHERE r.causa IN ('movimiento_masivo', 'insumo_sistemico')"
+    "     AND dr.platform = d.platform AND dr.decision_date = d.decision_date"
+    "     AND dr.canal = d.canal"
+    "     AND r.decision_id NOT IN (SELECT decision_id FROM v_precio_decision_liberada))"
     " ORDER BY d.listing_id, d.decision_date DESC, d.id DESC"
 )
 
@@ -986,6 +995,29 @@ _SQL_MEDIR_INSERT = (
 _INSUMO_DECISION = {"costo": (6, 7), "envio": (8, 9), "retencion": (10, 11)}
 _INSUMO_ESCENARIO = {"fx": (1, (2, 3)), "fee_fijo": (5, (6,)), "fee_variable": (4, (6,))}
 _INSUMOS_MEDIR = ("costo", "envio", "retencion", "fx", "fee_fijo", "fee_variable")
+
+# Ingreso de la misma decision, tras `escenario_id` en las dos consultas (G-H3).
+_INGRESO = (13, 14)
+# Insumos que escalan con el precio: se comparan como tasa sobre I (G-H3).
+_INSUMOS_POR_INGRESO = frozenset({"retencion", "fee_variable"})
+
+
+def _tasa(importe: Decimal | None, ingreso: Decimal | None) -> Decimal | None:
+    """`importe / ingreso`, o None si falta un lado o el ingreso no es positivo
+    (regla 3: no comparable, nunca inventado)."""
+    if importe is None or ingreso is None or ingreso <= 0:
+        return None
+    return importe / ingreso
+
+
+def _sobre_ingreso(fila, importe: Decimal | None, moneda_importe: str | None) -> Decimal | None:
+    """Tasa del importe sobre el I de la misma fila; None si la moneda del
+    importe no es la de I (el fee_variable vive en la moneda del escenario)."""
+    if fila is None or importe is None or moneda_importe is None:
+        return None
+    if moneda_importe != fila[_INGRESO[1]]:
+        return None
+    return _tasa(importe, fila[_INGRESO[0]])
 
 
 def _par_decision(fila_hoy, fila_previa, valor: int, moneda: int):
@@ -1085,6 +1117,11 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                 )
             for insumo, (valor, moneda) in _INSUMO_DECISION.items():
                 antes, ahora = _par_decision(fila, previa, valor, moneda)
+                if insumo in _INSUMOS_POR_INGRESO:
+                    antes = _sobre_ingreso(
+                        previa, antes, previa[moneda] if previa is not None else None
+                    )
+                    ahora = _sobre_ingreso(fila, ahora, fila[moneda])
                 pares[insumo].append((antes, ahora, liberada))
             for insumo, (valor, par) in _INSUMO_ESCENARIO.items():
                 antes, ahora = _par_escenario(
@@ -1094,6 +1131,17 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                     valor,
                     par,
                 )
+                if insumo in _INSUMOS_POR_INGRESO:
+                    esc_hoy = escenarios.get(fila[12]) if fila[12] is not None else None
+                    esc_previa = (
+                        escenarios.get(previa[12])
+                        if previa is not None and previa[12] is not None
+                        else None
+                    )
+                    antes = _sobre_ingreso(
+                        previa, antes, esc_previa[6] if esc_previa is not None else None
+                    )
+                    ahora = _sobre_ingreso(fila, ahora, esc_hoy[6] if esc_hoy is not None else None)
                 pares[insumo].append((antes, ahora, liberada))
         derivas = [
             armar_deriva(canal, insumo, pares[insumo], pct=motor.insumo_salto_pct)
