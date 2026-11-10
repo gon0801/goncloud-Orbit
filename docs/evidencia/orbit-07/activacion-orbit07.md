@@ -83,6 +83,13 @@ anterior no reconoce esas opciones y `rollback.sh` solo restaura las claves
 de meta y pausa de su diario. Sin ese apagado, las claves ORBIT 07 seguirian
 guardadas y un despliegue posterior de este codigo volveria a activarlas.
 
+Apagar la proteccion con el CLI nuevo descarta, en la misma transaccion, las
+pausas `released` que estaban esperando por venta reciente: quedan `discarded`
+con `discard_motivo = 'proteccion_apagada'`, sin cobrar cuota ni mandar HTTP.
+El ciclo siguiente las vuelve a proponer con su veto de 48 h si siguen
+calificando. Por eso ese apagado va antes de `rollback.sh`: el codigo anterior
+no las descarta y las aplicaria de golpe.
+
 Si M1 ya abrio episodios, la reversa de 0081 aborta para conservarlos.
 `rollback.sh` restaura primero el codigo y el SHA anterior, pero deja
 `rollback_incompleto` (salida 2) por la migracion conservada. Comprobar salud,

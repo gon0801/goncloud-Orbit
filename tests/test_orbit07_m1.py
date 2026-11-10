@@ -20,6 +20,7 @@ from test_apply_cola import (
     _fechas,
     _handler_cortes,
     _metrica,
+    _mutaciones,
     _payload_pause,
     _semilla,
 )
@@ -228,6 +229,60 @@ def test_cola_espera_la_proteccion_sin_cuota_ni_claim():
             "SELECT motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
         ).fetchall()
         assert ("espera_proteccion",) in sin_aplicar
+
+
+@_skip_db
+def test_arreglos01_i_apagar_proteccion_descarta_la_espera():
+    """D-H1: una pausa released que esperaba por venta reciente se descarta al
+    apagar la proteccion, ANTES del claim: queda discarded/proteccion_apagada,
+    sin cobro de cuota, sin PUT y sin decision_application. Sin el arreglo, el
+    mismo barrido la revalida con la semantica historica y la aplica de golpe."""
+    with _db_cola("orbit_m1_cola_apagada_descarta") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
+        )
+        assert res.espera_proteccion == 1
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "released"
+        )
+
+        res = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=False,
+        )
+
+        assert res.descartadas == ["proteccion_apagada"]
+        assert res.aplicadas == 0 and res.sin_quota == 0
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", "proteccion_apagada")
+        assert _used_pause(conn) == 0, "descartar no cobra cuota"
+        assert _mutaciones(vistos) == [], "descartar no manda ningun PUT"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        )
 
 
 @_skip_db
