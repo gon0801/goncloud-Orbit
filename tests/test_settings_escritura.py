@@ -181,6 +181,20 @@ def test_proxima_config_manual_igual_con_margen_on_no_exige_ack():
     assert cambios == ["cap bid ausente -> 3"]
 
 
+def test_arreglos01_d_proxima_config_rechaza_tope_diario_imposible():
+    """D.1 (I-H1, ALTO): un cap que no cabe en apply_quota_state.cap INTEGER
+    se rechaza al guardarlo. Antes se guardaba y tumbaba la fase de apply del
+    ciclo; el tope del dominio (CAP_MAXIMO) se acepta tal cual."""
+    import app.config_write as config_write
+    from app.apply import CAP_MAXIMO
+
+    actual = {CLAVE_TARGET: "20"}
+    with pytest.raises(config_write.SettingsInvalido, match="fuera de rango"):
+        config_write.proxima_config(actual, PLAT, caps={"bid": 2**31})
+    nuevo, _ = config_write.proxima_config(actual, PLAT, caps={"bid": CAP_MAXIMO})
+    assert nuevo[f"ads_apply_cap_{PLAT}_bid"] == str(CAP_MAXIMO)
+
+
 def test_proxima_config_fraccion_null_cuenta_como_apagada():
     """Una clave con JSON null es margen APAGADO para el resolver
     (fraccion_desde_settings -> None): editar el manual no pide ack y apagar
