@@ -786,27 +786,34 @@ def notifica_spapi_recuperada(
 # pinza y vigilante.py garantiza los 8 pares.
 _TOTAL_PARES_SPAPI = 8
 
+# Texto unico del aviso del vigilante: el par no dejo una corrida ok en
+# `ingest_run`, porque fallo (salud solo avisa en la segunda falla
+# seguida) o porque el cron no corrio. Vive aqui porque el builder es el
+# dueno del texto; app/spapi/vigilante.py ya importa de notifica.
+MOTIVO_FALLO_O_FALTA = (
+    "El cron de las 05:00 UTC no dejó estas corridas ok en ingest_run: "
+    "falló o no corrió. Revisar crontab de gon, flock, spapi-diario.log "
+    "y el aviso de salud de cada fuente."
+)
+
 
 def aviso_spapi_silencio(faltantes, desde, hasta) -> str:
-    """Builder PURO del aviso de silencio SP-API (vigilante): una linea
-    por par faltante en el orden del caller (el vigilante pasa el orden
-    fuente→plataforma del catalogo: FUENTES_SPAPI x PLATAFORMAS_SPAPI).
-    `desde`/`hasta` aware (el vigilante los trae de `_fecha_utc`); se
-    normalizan a UTC para que la etiqueta no mienta con otro offset.
-    Sin secretos."""
+    """Builder PURO del aviso de silencio o falla SP-API (vigilante): una
+    linea por par faltante en el orden del caller (el vigilante pasa el
+    orden fuente→plataforma del catalogo: FUENTES_SPAPI x
+    PLATAFORMAS_SPAPI). `desde`/`hasta` aware (el vigilante los trae de
+    `_fecha_utc`); se normalizan a UTC para que la etiqueta no mienta con
+    otro offset. Sin secretos."""
     desde_utc = desde.astimezone(dt.UTC)
     hasta_utc = hasta.astimezone(dt.UTC)
     ventana = f"{desde_utc:%Y-%m-%d %H:%M} UTC → {hasta_utc:%Y-%m-%d %H:%M} UTC"
     lineas = [
-        "[Orbit] ALERTA SP-API sin corrida",
+        "[Orbit] ALERTA SP-API sin corrida ok",
         f"ventana: {ventana}",
         f"faltan {len(faltantes)} de {_TOTAL_PARES_SPAPI}:",
     ]
     lineas.extend(f"- {fuente} / {plataforma}" for fuente, plataforma in faltantes)
-    lineas.append(
-        "El cron de las 05:00 UTC no dejó estas corridas en ingest_run. "
-        "Revisar crontab de gon, flock y el log spapi-diario.log."
-    )
+    lineas.append(MOTIVO_FALLO_O_FALTA)
     return "\n".join(lineas)
 
 
