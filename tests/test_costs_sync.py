@@ -1223,3 +1223,59 @@ def test_arreglos01_f_el_sku_sin_vigencia_publicable_cuenta_para_el_cierre_masiv
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_arreglos01_f_un_solape_de_dos_abiertas_se_cierra_y_no_valida(tmp_path):
+    """Reproduccion exacta de h_106ff43d: el origen no cerro el 100 y trae un
+    150 abierto. El SKU se cierra en ayer y precios no usa el 100 viejo."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    from app.estimacion_insumos import resolver_costo
+
+    dsn = _test_dsn()
+    db = f"orbit_costs_h106_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        corte = dt.datetime.now(dt.UTC).date()
+
+        viejo = ("S-50", 100.0, "MXN", "2026-01-01 10:00:00", None, "odoo_sync", "")
+        r1 = sync_costos(conn, _snapshot(tmp_path / "h106-1.db", [viejo], []), corte=corte)
+        assert r1.ok is True and r1.vigencias_insertadas == 1
+
+        nuevo = ("S-50", 150.0, "MXN", "2026-11-01 10:00:00", None, "odoo_sync", "")
+        snap2 = _snapshot(tmp_path / "h106-2.db", [viejo, nuevo], [])
+        r2 = sync_costos(conn, snap2, corte=corte, acepto_cierre_masivo=True)
+        assert r2.ok is True
+        assert r2.rows_written == 1
+        assert r2.vigencias_cerradas == 1
+        assert r2.sin_costo_en_origen == 1
+        assert "2x vigencia solapada en el origen (sku completo sin escribir)" in r2.skip_reason
+        assert any("S-50: sin vigencia publicable" in linea for linea in r2.detalle)
+        cerrada = conn.execute(
+            "SELECT c.valid_to FROM sku_cost c JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'S-50' ORDER BY c.valid_from DESC LIMIT 1"
+        ).fetchone()
+        assert cerrada == (corte - dt.timedelta(days=1),)
+
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku = 'S-50'").fetchone()[0]
+        ahora = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        costo = resolver_costo(conn, product_id=pid, fecha_escenario=corte, now_utc=ahora)
+        assert costo.motivo == "costo_no_vigente"
+        assert costo.costo is None
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
