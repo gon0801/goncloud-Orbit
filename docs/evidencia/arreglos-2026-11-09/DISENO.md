@@ -63,8 +63,9 @@ Cada unidad lleva una sola prueba nueva, dentro de la regla de los 4 casos. Est�
 
 ## 3. Decisiones del dueño (tomadas el 2026-11-09)
 
-David aceptó las 18 recomendaciones. El plan que las implementa es `plans/arreglos-01.md`
-(implementa `deepseek_flash`, revisa `opus`). Ningún bloque del plan espera otro permiso.
+David aceptó las 18 recomendaciones. El plan que las implementa es `plans/arreglos-01.md`. Se entrega
+como encargo del motor (`motor director encargar`): implementa `deepseek/deepseek-flash` y revisa
+`anthropic/claude-opus-5-5`. Ningún bloque del plan espera otro permiso.
 
 | # | Unidad | Decisión | Bloque del plan |
 |---|---|---|---|

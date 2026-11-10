@@ -2,8 +2,6 @@
 autopiloto: motor
 plan: arreglos-01
 repo: git@github.com:gon0801/goncloud-Orbit.git
-implementa: deepseek_flash
-revisa: opus
 
 Base: rama desde `origin/master` (`3c841f4` o posterior). Migraciones nuevas: llevan la etiqueta `_arreglos01_` en el nombre (`0083_arreglos01_<tema>.sql`), su `_reversa_`, la cabecera `-- sonda-aplicada: <select que da t solo con la migración aplicada>` en sus primeras 10 líneas y van sin BEGIN/COMMIT (`tools/despliegue/comun.sh`). Números: F usa `0083`, Q `0084`, Y `0085`; si el número ya existe en master al abrir el PR, toma el siguiente libre. Donde el diseño nombra una migración con otro número o sin la etiqueta, vale el nombre de este plan.
 Precondición: este plan, `docs/evidencia/arreglos-2026-11-09/` y `docs/evidencia/arreglos-01/` llegan juntos a master en el PR del plan; se entrega al motor después de ese merge (fila A.0).
