@@ -1,0 +1,35 @@
+﻿D.3 - Topes diarios vigentes en produccion antes del despliegue (bloque D)
+fecha_utc: 2026-11-10T09:45:50Z
+fuente: docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read, transaccion de solo lectura)
+CAP_MAXIMO del arreglo: 2147483647 (apply_quota_state.cap es INTEGER)
+
+consulta:
+  select k, v from config_version c, jsonb_each_text(c.settings) e(k, v)
+   where c.id = (select max(id) from config_version)
+     and k like 'ads_apply_cap_%'
+   order by 1
+
+lectura:
+ads_apply_cap_amazon_mx_bid|1000000
+ads_apply_cap_amazon_mx_harvest|1000000
+ads_apply_cap_amazon_mx_negative|1000000
+ads_apply_cap_amazon_mx_pause|1000000
+ads_apply_cap_amazon_us_bid|1000000
+ads_apply_cap_amazon_us_harvest|1000000
+ads_apply_cap_amazon_us_negative|1000000
+ads_apply_cap_amazon_us_pause|1000000
+
+consulta de control (cuantas claves pasan CAP_MAXIMO y cual es el maximo):
+  select count(*) filter (where v::numeric > 2147483647) as por_encima_de_cap_maximo,
+         max(v::numeric) as maximo, count(*) as claves
+    from config_version c, jsonb_each_text(c.settings) e(k, v)
+   where c.id = (select max(id) from config_version)
+     and k like 'ads_apply_cap_%'
+
+lectura de control (por_encima_de_cap_maximo|maximo|claves):
+0|1000000|8
+
+veredicto: ninguno_pasa_CAP_MAXIMO
+Ninguna clave pasa de CAP_MAXIMO, asi que el arreglo no hace fallar el ciclo con los
+topes de hoy. Los topes se quedan como estan: la unica puerta nueva solo rechaza
+valores que antes guardaban una fila imposible.
