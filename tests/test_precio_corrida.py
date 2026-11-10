@@ -4499,6 +4499,73 @@ def test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base():
         )
         assert resultado == (0, 0, 3, [])
         assert _cuenta_cambios(conn) == 0
+        # Solo lo soltado deja de contar: con la liberacion del dia 1, el dia 1
+        # vuelve a ser la previa y el dia 2 ya no es una intencion nueva.
+        from app.precio.compuerta import Abierta
+        from app.precio.liberaciones import liberar
+
+        conn.execute(
+            "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas, causa)"
+            " VALUES (%s, 'fba', 3, 3, 'movimiento_masivo')",
+            (corrida_ayer,),
+        )
+        liberar(conn, corrida_id=corrida_ayer, actor="dueno", nota="ola real, soltar")
+        suelta = _corrida_s3(conn, cfg)
+        abiertos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, suelta)
+        assert abiertos["fba"] == Abierta(medidas=3, nuevas=0)
+        assert _aplicar_pendientes(
+            conn,
+            _MERCADO_MX,
+            abiertos,
+            hoy,
+            owner="tdd",
+            ahora=datetime.now(UTC),
+            corrida_id=suelta,
+            corte=motor.corte_errores_consecutivos,
+        ) == (0, 3, 0, [])
+        assert _cuenta_cambios(conn) == 3
+
+
+@_skip_sin_pg
+def test_arreglos01_e_la_retencion_no_salta_cuando_solo_se_movio_el_precio():
+    """E (G-H3): con el precio +10 % (ingreso 10 a 11) y el ISR como tasa
+    constante (0.8 a 0.88), la retencion NO es deriva sistemica: Abierta."""
+    from app.precio.compuerta import Abierta
+    from app.precio.corrida import _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        for n in range(12):
+            lid, gid = _unidad_s3(conn, f"tasa-{n:02d}")
+            _decision_s3(
+                conn,
+                lid,
+                resultado="mantener",
+                motivo="en_tolerancia",
+                goal_id=gid,
+                dia=ayer,
+                i="10",
+                r="0.8",
+                p_actual="100",
+            )
+            sube = n < 2
+            _decision_s3(
+                conn,
+                lid,
+                resultado="subir" if sube else "mantener",
+                motivo=None if sube else "en_tolerancia",
+                goal_id=gid,
+                i="11",
+                r="0.88",
+                p_actual="110",
+                p_objetivo="121" if sube else "110",
+                p_aplicado="121" if sube else "110",
+            )
+        corrida = _corrida_s3(conn, cfg)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, _motor_de(SETTINGS), corrida)
+        assert veredictos["fba"] == Abierta(medidas=12, nuevas=2)
 
 
 @_skip_sin_pg
