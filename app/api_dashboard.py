@@ -884,7 +884,8 @@ def _motivo_ciclo(status: str, notes) -> str | None:
             return etiqueta(motivo_skip, "motivo_salud")
         degradacion = notes.get("degradacion_live")
         if degradacion:
-            return etiqueta(degradacion, "degradacion_ciclo")
+            # Texto libre del ciclo: la frase conocida se traduce, otra pasa tal cual.
+            return ETIQUETAS["degradacion_ciclo"].get(degradacion, degradacion)
         # ciclos failed reales: _sello_fallido persiste el error scrubbeado
         # bajo notes.error (grok r2: no se leia y el historico lo mostraba
         # sin motivo)
@@ -1435,6 +1436,10 @@ def cortes(conn: ConexionLectura) -> dict:
     }
 
 
+def _motivo_sin_lectura(motivo: str) -> str:
+    return etiqueta(motivo, "motivo_sin_lectura")
+
+
 def _bloqueos_jev(conn) -> tuple[dict, bool]:
     from app.bloqueo_dueno import lee_pantalla
     from app.jev_vista import frase_de_lectura
@@ -1447,6 +1452,7 @@ def _bloqueos_jev(conn) -> tuple[dict, bool]:
                 propuesta.pop("motivos") or (),
                 int(propuesta.pop("miembros") or 0),
                 propuesta.pop("listado_de"),
+                motivo_texto=_motivo_sin_lectura,
             )
     return pantalla, True
 
@@ -1555,6 +1561,7 @@ def _senal_presentada_vista(vista) -> dict | None:
         fila.get("motivos") or [],
         fila.get("miembros", 0),
         fila.get("listado_de"),
+        motivo_texto=_motivo_sin_lectura,
     )
     return fila
 

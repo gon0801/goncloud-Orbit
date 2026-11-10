@@ -675,10 +675,15 @@ def test_frase_ajena_usa_el_dia_del_listado_no_el_de_las_ventas():
 
 
 def test_frase_sin_lectura_muestra_el_motivo():
+    from app.etiquetas import etiqueta
     from app.jev_vista import frase_de_lectura
 
     assert (
-        frase_de_lectura("sin_lectura", ["dato_de_venta_faltante", "jev_no_evaluada"])
+        frase_de_lectura(
+            "sin_lectura",
+            ["dato_de_venta_faltante", "jev_no_evaluada"],
+            motivo_texto=lambda motivo: etiqueta(motivo, "motivo_sin_lectura"),
+        )
         == "Sin lectura: falta un dato de venta, Jev no la evaluó."
         " Un dato faltante no es cero."
     )

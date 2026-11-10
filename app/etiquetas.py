@@ -565,10 +565,10 @@ MOTIVO_CIERRE_JEV: dict[str, str] = {
     "sin_api_key": "sin llave del proveedor",
 }
 
-# Notas que degradan un ciclo en vivo (cycle.py).
+# Frase fija con la que el ciclo marca que el modo en vivo corrio en
+# practica (notes.degradacion_live; goals.resuelve_modo).
 DEGRADACION_CICLO: dict[str, str] = {
-    "apply_abortado_owner": "Se detuvo la aplicación: otro proceso tomó el turno",
-    "apply_error": "Falló la aplicación de cambios",
+    g.NOTA_LIVE_DEGRADADO: "Se pidió el modo en vivo, pero el ciclo corrió en práctica",
 }
 
 # Por que una variacion del Resumen no se calcula (dashboard_resumen).
