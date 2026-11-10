@@ -121,25 +121,25 @@
   <h1>Comprueba que Orbit revisó a tiempo</h1>
   <p class="lead">Salud dice si el último ciclo de cada mercado terminó y si llegaron los datos de Amazon. Ábrela cuando algo no cuadre.</p>
   <ol class="pasos">
-    <li>Pulsa <b>Salud</b> en el menú. Hay una tarjeta por mercado, <b>amazon_us</b> y <b>amazon_mx</b>. Junto al nombre van el estado del ciclo y el modo.</li>
-    <li>Lee <b>Ultimo ciclo</b>. Dice su número, su hora, sus decisiones y cuántas aplicó (applies). La hora sale larga, como 2026-11-08 17:58:07.510638+00:00. Lee hasta los minutos. «+00:00» quiere decir hora UTC.</li>
-    <li>Baja a <b>Historico (14d)</b>. Son los últimos 14 ciclos, no 14 días de calendario.</li>
+    <li>Pulsa <b>Salud</b> en el menú. Hay una tarjeta por mercado, <b>Amazon US</b> y <b>Amazon MX</b>. Junto al nombre van el estado del ciclo y el modo.</li>
+    <li>Lee <b>Último ciclo</b>. Dice su número, su hora, sus decisiones y cuántas aplicó, como «#176 · 8 nov, 11:58 · decisiones: 0 · aplicadas: 0». Todas las horas son del centro de México, como dice el aviso de arriba a la derecha.</li>
+    <li>Baja a <b>Últimos 14 ciclos</b>. Son los últimos 14 ciclos, no 14 días de calendario.</li>
   </ol>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>
-    <tr><td><b>done</b> en verde y <b>live</b></td><td>El ciclo terminó. También puede decir running (corriendo), skipped (no corrió), degraded (con fallas) o failed (falló), estos dos en rojo. live cambia cosas en Amazon, shadow solo simula y off está apagado.</td></tr>
-    <tr><td><b>Skips del ultimo ciclo</b></td><td>Un skip es algo que Orbit revisó y decidió no tocar. La gráfica cuenta cuántos hubo por motivo, del más contado arriba al menos contado abajo. Cada motivo ocupa hasta dos renglones. Pasa el cursor sobre una barra para leer el motivo completo y su número. Un motivo que se repite en las búsquedas termina en «(búsquedas)».</td></tr>
+    <tr><td><b>Completo</b> en verde y <b>En vivo</b></td><td>El ciclo terminó. También puede decir En curso, Saltado (no corrió), Con fallas o Falló, estos dos en rojo. En vivo cambia cosas en Amazon, Práctica solo simula y Apagado no hace nada.</td></tr>
+    <tr><td><b>Lo que se saltó en el último ciclo</b></td><td>Lo que Orbit revisó y decidió no tocar. La gráfica cuenta cuántos hubo por motivo, del más contado arriba al menos contado abajo. Cada motivo ocupa hasta dos renglones. Pasa el cursor sobre una barra para leer el motivo completo y su número. Un motivo que se repite en las búsquedas termina en «(búsquedas)».</td></tr>
     <tr><td><b>Últimos datos de métricas</b> y <b>Estructura sincronizada</b></td><td>El último día con cifras de ese mercado y la última vez que Orbit leyó tus campañas en Amazon.</td></tr>
-    <tr><td><b>Ingesta Ads principal</b></td><td>Reportes descargados de Amazon. <b>written</b> es que se guardaron. Edad de 1 día es normal.</td></tr>
-    <tr><td>Línea roja con <b>telegram</b></td><td>El ciclo terminó pero el aviso al celular no salió. Aunque diga done, revísalo.</td></tr>
+    <tr><td><b>Ingesta Ads principal</b></td><td>Reportes descargados de Amazon. <b>Escrito</b> quiere decir que se guardaron. Una edad de 1 a 3 días es normal.</td></tr>
+    <tr><td>Línea roja con <b>telegram</b></td><td>El ciclo terminó pero el aviso al celular no salió. Aunque diga Completo, revísalo.</td></tr>
   </table>
   <div class="caja ejemplo">
     <h4>Ejemplo para aprender</h4>
-    <p>Un ciclo revisa 2,000 keywords de campañas pausadas o sin clics nuevos. Son 2,000 skips y 0 decisiones. No es una falla.</p>
+    <p>Un ciclo revisa 2,000 keywords de campañas pausadas o sin clics nuevos. Son 2,000 cosas saltadas y 0 decisiones. No es una falla.</p>
   </div>
   <div class="caja cuenta">
     <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>Los dos mercados decían done y live. En Estados Unidos, el ciclo #174 de las 08:40 UTC tomó 33 decisiones y el #176 de las 17:58 UTC, una corrida extra, tomó 0. La barra más larga de Estados Unidos era «Campaña no habilitada (pausada/archivada o sin estado)», con 1,620 casos.</p>
+    <p>Los dos mercados decían Completo y En vivo. En Estados Unidos, el ciclo #174 de las 02:40 tomó 33 decisiones y el #176 de las 11:58, una corrida extra, tomó 0. La barra más larga de Estados Unidos era «Campaña no habilitada (pausada, archivada o sin estado)», con 1,620 casos.</p>
   </div>
   <p>La página siguiente explica el resto de la tarjeta.</p>
 </section>
@@ -149,20 +149,20 @@
   <p class="lead">Debajo del último ciclo hay más secciones. Mira si hay algo en rojo. Desde aquí no se arregla nada.</p>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>
-    <tr><td><b>Quota del dia</b></td><td>Cambios de cada tipo hechos hoy (<b>Usado</b>) contra el tope diario (<b>Cap</b>). <b>saturada</b>, en rojo, llegó al tope y el resto espera.</td></tr>
-    <tr><td>La tabla de spapi_orders, spapi_pricing y dos filas más</td><td>Otra conexión que lee pedidos, precios, publicaciones e inventario de Amazon. <b>ok</b> en verde, la última lectura terminó. <b>fallo</b> en rojo, no.</td></tr>
-    <tr><td><b>Motivo</b> como «49x http_404, 1x red»</td><td>Productos que quedaron fuera. http_404, Amazon no los encontró. red, falla de conexión. Con ok, el resto sí se leyó.</td></tr>
-    <tr><td><b>Destino de harvest</b> «por terna 8 (migracion … pendiente)»</td><td>Adónde lleva Orbit las búsquedas que venden. «por terna» es que usó la campaña y el grupo escritos en la meta de la campaña. La nota avisa que falta pasarlo a la forma nueva, y no es una falla. <b>Campañas de grupo sin destino</b>, en rojo, sí.</td></tr>
+    <tr><td><b>Cambios permitidos hoy</b></td><td>Cambios de cada tipo hechos hoy (<b>Usados</b>) contra el tope diario (<b>Tope</b>). <b>saturada</b>, en rojo, quiere decir que llegó al tope y el resto espera.</td></tr>
+    <tr><td>La tabla de <b>Pedidos de Amazon</b>, <b>Precios de Amazon</b> y dos filas más</td><td>Otra conexión que lee pedidos, precios, publicaciones e inventario de Amazon. <b>ok</b> en verde, la última lectura terminó. <b>fallo</b> en rojo, no.</td></tr>
+    <tr><td><b>Motivo</b> como «49x http 404, 1x red»</td><td>Productos que quedaron fuera. «http 404» quiere decir que Amazon no los encontró y «red», una falla de conexión. Con ok, el resto sí se leyó.</td></tr>
+    <tr><td><b>Destino de harvest</b> «por terna 8 (Destino tomado de la meta de la campaña…)»</td><td>Adónde lleva Orbit las búsquedas que venden. «por terna» es que usó la campaña y el grupo escritos en la meta de la campaña. La nota avisa que falta pasarlo a la forma nueva, y no es una falla. <b>Campañas de grupo sin destino</b>, en rojo, sí.</td></tr>
     <tr><td><b>Precios</b> y <b>Avisos de campaña</b></td><td>El conteo de hoy del motor de precios (página {{pag:precios}}) y las frases del día que llegan por Telegram.</td></tr>
-    <tr><td><b>Jev</b>, al final, «Encendido»</td><td>Jev compara búsquedas con la ficha de tus productos. Encendido solo dice que su interruptor está prendido, y <b>Última corrida</b> no trae fecha. Para saber si corre, mira <b>Calculado el</b> en Gasto sin venta (página {{pag:gasto-sin-venta}}).</td></tr>
+    <tr><td><b>Jev</b>, al final, «Encendido» y <b>Último cálculo terminado</b></td><td>Jev compara búsquedas con la ficha de tus productos. Encendido solo dice que su interruptor está prendido. <b>Último cálculo terminado</b> dice cuándo terminó por última vez; si pasaron más de 13 horas sale en rojo y Gasto sin venta está desactualizado (página {{pag:gasto-sin-venta}}).</td></tr>
   </table>
   <div class="caja aviso">
     <h4>Si algo sale en rojo o falla</h4>
-    <p>Toma una captura y avisa al responsable. Igual si el recuadro <b>Último ciclo</b>, abajo del menú, dice «No se pudo consultar». «Sin consultar» sale mientras la pantalla carga, y en pantallas lentas como Inertes dura más. Si ya cargó y sigue, recarga.</p>
+    <p>Toma una captura y avisa al responsable. Igual si el recuadro <b>Último ciclo</b>, abajo del menú, dice «No se pudo consultar». «Sin consultar» sale mientras la pantalla carga. Si ya cargó y sigue, recarga.</p>
   </div>
   <div class="caja cuenta">
     <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>En Estados Unidos, spapi_listings decía ok con «49x http_404, 1x red». Jev decía Encendido con «Llamadas hoy: 0», pero Gasto sin venta seguía con Calculado el 2026-10-21.</p>
+    <p>En Estados Unidos, Publicaciones de Amazon decía ok con «49x http 404, 1x red». Jev decía Encendido con «Llamadas hoy: 0», y Gasto sin venta seguía con su cálculo del 21 de octubre.</p>
   </div>
   <div class="caja comprobar">
     <h4>Lo que ya puedes comprobar</h4>
