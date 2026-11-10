@@ -108,11 +108,13 @@ def _decide(
     target: str = "25",
     config: h.ConfigHarvest | None = CONFIG,
     keywords: frozenset[str] = frozenset(),
+    propias: frozenset[str] = frozenset(),
     piso: Decimal | None = None,
 ) -> dict[str, h.ResultadoTermino]:
     """decide_hygiene + indexado por search_term (tests de un vistazo).
     `piso` (CORTES 01 1.4) solo viaja cuando NO es None: el default del motor
-    es el legacy de cost por plataforma (8/130), igual que umbral_negative."""
+    es el legacy de cost por plataforma (8/130), igual que umbral_negative.
+    `propias` son las keywords EXACT del ad group de ORIGEN (ARREGLOS 01 B)."""
     extra: dict = {} if piso is None else {"piso_negative": piso}
     resultados = h.decide_hygiene(
         platform=platform,
@@ -120,6 +122,7 @@ def _decide(
         target_acos_pct=Decimal(target),
         config_harvest=config,
         keywords_existentes=keywords,
+        keywords_propias=propias,
         **extra,
     )
     return {r.search_term: r for r in resultados}
@@ -229,6 +232,34 @@ def test_asin_like_skip_en_negative_y_en_harvest():
 
 
 # ---------------------------------------------------------------------------
+# ARREGLOS 01 B (E-S1, ALTO): un termino que es keyword EXACT propia del
+# mismo ad group no se negativiza ni se harvestea (apagaria la keyword).
+# ---------------------------------------------------------------------------
+
+
+def test_arreglos01_b_termino_que_es_keyword_propia_no_da_negative_ni_harvest():
+    """E-S1: «Arras de Boda » (0 pedidos, 25 clics, cost sobre el piso) es la
+    keyword EXACT «arras de boda» del MISMO ad group. Hoy la rama negative la
+    negativizaria (y el harvest crearia un negative EXACT en el origen); el
+    salto `termino_es_keyword_propia` corre antes de separar negative y
+    harvest, asi que los dos caminos dan kind None. La comparacion es
+    normalizada (strip + casefold)."""
+    negativo = _decide(
+        _terminos([_negativo(search_term="Arras de Boda ", clicks=25)]),
+        propias=frozenset({"arras de boda"}),
+    )["Arras de Boda "]
+    assert negativo.kind is None
+    assert negativo.motivo == "termino_es_keyword_propia"
+    harvest = _decide(
+        _terminos([_harvesteable(search_term="Arras de Boda ")]),
+        propias=frozenset({"arras de boda"}),
+    )["Arras de Boda "]
+    assert harvest.kind is None
+    assert harvest.motivo == "termino_es_keyword_propia"
+    assert harvest.new_value is None
+
+
+# ---------------------------------------------------------------------------
 # HARVEST: config, dedupe, ACoS inclusivo, moneda
 # ---------------------------------------------------------------------------
 
@@ -305,6 +336,7 @@ def test_harvest_duplicado_intra_llamada_mismo_texto_normalizado():
         target_acos_pct=Decimal("25"),
         config_harvest=CONFIG,
         keywords_existentes=frozenset(),
+        keywords_propias=frozenset(),
     )
     assert resultados[0].search_term == "Yoga Mat"
     assert resultados[0].kind == "harvest"
@@ -821,6 +853,7 @@ def test_keywords_campana_destino_en_vivo():
             target_acos_pct=Decimal("25"),
             config_harvest=CONFIG,
             keywords_existentes=kws,
+            keywords_propias=frozenset(),
         )
         assert resultados[0].search_term == "frase unica phrase"
         assert resultados[0].kind == "harvest"
