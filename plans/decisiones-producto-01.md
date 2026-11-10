@@ -1,7 +1,4 @@
 # AUTO-03: meta publicitaria y pausa por producto (Amazon MX y US)
-autopiloto: motor
-plan: decisiones-producto-01
-repo: git@github.com:gon0801/goncloud-Orbit.git
 
 Base: rama desde `origin/master` (`e6bab315` o posterior); migraciones 0076..0080 en el orden de los bloques, o la siguiente libre al abrir cada PR.
 Spec: `docs/superpowers/specs/2026-10-24-decisiones-producto-design.md`. Restricciones del código con archivo:línea en `docs/evidencia/auto-03/plan/ground/00-explicacion.md` (gotchas g1..g28). Síntesis de este plan: `docs/evidencia/auto-03/plan/sintesis.md`.

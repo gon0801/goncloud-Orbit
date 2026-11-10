@@ -1,7 +1,4 @@
 # CLARIDAD 01: Orbit dice la verdad en pantalla
-autopiloto: motor
-plan: claridad-01
-repo: git@github.com:gon0801/goncloud-Orbit.git
 
 Base: rama desde `origin/master` (`7cf7c9a` o posterior). Migración nueva: la siguiente libre (hoy `0082`), con su `_reversa_`, la cabecera `-- sonda-aplicada: <select que da t solo con la migración aplicada>` en sus primeras 10 líneas y sin BEGIN/COMMIT (`tools/despliegue/comun.sh`).
 Precondición: este plan, `docs/manual-usuario/` y `docs/evidencia/claridad-01/` llegan juntos a master en el PR del plan; se entrega al motor después de ese merge (fila A.0).
