@@ -1285,6 +1285,11 @@ def _revalida_negative(
         target_acos_pct=_TARGET_REVALIDA,
         config_harvest=None,
         keywords_existentes=frozenset(),
+        # ARREGLOS 01 B (E-S1): el negative no debe apagar una keyword EXACT
+        # propia del mismo ad group aunque el texto venga de una propuesta.
+        keywords_propias=hygiene.keywords_exactas_por_grupo(conn, platform, solo_grupo=grupo).get(
+            grupo, frozenset()
+        ),
         umbral_negative=umbral,
         piso_negative=piso,
     )
