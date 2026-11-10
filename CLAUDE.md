@@ -8,7 +8,7 @@ código viejo; solo se migran credenciales y datos verificados.
 del dominio, qué se migra y qué no, fases. Las fuentes verbatim están en
 `docs/traspaso/` (diseño v2 = fuente de verdad de reglas y umbrales).
 
-Los planes de Orbit se corren con el motor (`autopiloto: motor`).
+Los planes de Orbit se entregan al motor como encargo (`motor director encargar`).
 
 ## Pruebas y revisiones
 - Pruebas nuevas SOLO en 4 casos: dinero (pujas, precios, presupuestos, cobros), escribir datos de produccion

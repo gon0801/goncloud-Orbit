@@ -1,10 +1,7 @@
 # ARREGLOS 01: los 4 altos y 23 medios de la revisión del 2026-11-09
-autopiloto: motor
-plan: arreglos-01
-repo: git@github.com:gon0801/goncloud-Orbit.git
 
 Base: rama desde `origin/master` (`3c841f4` o posterior). Migraciones nuevas: llevan la etiqueta `_arreglos01_` en el nombre (`0083_arreglos01_<tema>.sql`), su `_reversa_`, la cabecera `-- sonda-aplicada: <select que da t solo con la migración aplicada>` en sus primeras 10 líneas y van sin BEGIN/COMMIT (`tools/despliegue/comun.sh`). Números: F usa `0083`, Q `0084`, Y `0085`; si el número ya existe en master al abrir el PR, toma el siguiente libre. Donde el diseño nombra una migración con otro número o sin la etiqueta, vale el nombre de este plan.
-Precondición: este plan, `docs/evidencia/arreglos-2026-11-09/` y `docs/evidencia/arreglos-01/` llegan juntos a master en el PR del plan; se entrega al motor después de ese merge (fila A.0).
+Precondición: este plan, `docs/evidencia/arreglos-2026-11-09/` y `docs/evidencia/arreglos-01/` ya están en master (fila A.0). El plan se entrega como encargo con `motor director encargar`.
 Origen: revisión de toda la app del 2026-11-09 (`docs/evidencia/arreglos-2026-11-09/HALLAZGOS.md`, 4 altos y 23 medios) y su diseño de arreglos (`docs/evidencia/arreglos-2026-11-09/DISENO.md`, 24 unidades).
 Decisiones: las 18 decisiones del dueño están tomadas (2026-11-09) en la sección 3 de `DISENO.md`. Ningún bloque espera permiso: este plan es la autorización completa, incluidas las lecturas, los despliegues y las escrituras a producción que nombran A, C, N y U.
 Diseño: cada bloque implementa una unidad. La forma decidida está en `docs/evidencia/arreglos-2026-11-09/<frente>/SINTESIS.md` y manda sobre los candidatos; las firmas y el seudocódigo están en la sección del candidato que cita la primera fila del bloque. Lee las dos antes de tocar código. Si el código real contradice el diseño, para el bloque y escribe la diferencia en `docs/evidencia/arreglos-01/<bloque>/diferencia.md`; no inventes una forma nueva.
