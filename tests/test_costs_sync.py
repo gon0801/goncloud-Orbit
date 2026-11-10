@@ -1139,3 +1139,70 @@ def test_arreglos01_f_una_fila_rechazada_solapada_no_cierra_la_abierta(tmp_path)
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_arreglos01_f_el_sku_sin_vigencia_publicable_cuenta_para_el_cierre_masivo(
+    tmp_path, monkeypatch
+):
+    """ARREGLOS 01 F.5: un SKU que sigue en el origen pero sin vigencias
+    publicables (solape) es candidato a cierre y cuenta para el tope del 10 %;
+    si el tope no se pasa, no se toca su vigencia abierta."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"orbit_costs_f5_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        corte = dt.datetime.now(dt.UTC).date()
+
+        todos = [f"SKU-{i:02d}" for i in range(1, 11)]
+        base = _filas_diez(todos)
+        r1 = sync_costos(conn, _snapshot(tmp_path / "f5-1.db", base, []), corte=corte)
+        assert r1.ok is True and r1.productos_nuevos == 10
+        antes = _estado(conn)
+
+        solapadas = [
+            (
+                f"SKU-{i:02d}",
+                0.0,
+                "MXN",
+                "2026-06-01 10:00:00",
+                "2026-07-01 10:00:00",
+                "odoo_sync",
+                "2026-01-01 10:00:00",
+            )
+            for i in (9, 10)
+        ]
+        avisos: list[str] = []
+        monkeypatch.setattr("app.costs.envia_aviso", lambda texto: avisos.append(texto) or True)
+
+        snap2 = _snapshot(tmp_path / "f5-2.db", base + solapadas, [])
+        with pytest.raises(CostsError, match="se detuvo"):
+            sync_costos(conn, snap2, corte=corte)
+        assert _estado(conn) == antes
+        assert len(avisos) == 1 and "2 de 10" in avisos[0]
+
+        snap3 = _snapshot(tmp_path / "f5-3.db", base + solapadas[1:], [])
+        r3 = sync_costos(conn, snap3, corte=corte)
+        assert r3.ok is True
+        assert r3.rows_written == 0
+        assert r3.sin_costo_en_origen == 0
+        assert "vigencia solapada en el origen (sku completo sin escribir)" in r3.skip_reason
+        assert _estado(conn) == antes
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()

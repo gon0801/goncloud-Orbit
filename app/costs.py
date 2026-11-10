@@ -31,10 +31,10 @@ con su evidencia medida; este docstring es el resumen operativo):
    componentes netos; ninguna herramienta del ecosistema aplica IVA al costo).
    Residual declarado en el plan: si un alta manual de Odoo tuviera precio
    con IVA, declarar false SUBESTIMA margen (conservador), jamas lo infla.
-4. Un cierre masivo (mas del 10 % de los productos con vigencia abierta) es
-   senal de una copia truncada o de un sync de contabilidad a medias: la
-   corrida aborta sin escribir y avisa por Telegram. La bandera
-   `--acepto-cierre-masivo` lo permite con conocimiento de causa.
+4. Un cierre masivo (mas del 10 % de los productos con vigencia abierta que
+   quedarian sin costo por desaparicion del origen o por falta de vigencia
+   publicable) es senal de una copia truncada o de un sync a medias: la corrida
+   aborta sin escribir y avisa. `--acepto-cierre-masivo` lo permite a sabiendas.
 
 Sellado 1 (regla 3): costo 0 o NULL = dato faltante -> la fila NO se escribe,
 queda contada en `rows_skipped`, y ADEMAS corta la cadena (los dias que esa
@@ -651,7 +651,7 @@ def sync_costos(
             skus_origen = {f.sku for f in origen.filas}
             planes: list[tuple[str, int, PlanSku]] = []
             con_abierta = 0
-            cierres_sin_costo = 0
+            candidatos_sin_costo = 0
             for sku, product_id in sorted(productos.items()):
                 publicadas = {
                     vf: (costo, hasta, moneda, tax)
@@ -659,30 +659,35 @@ def sync_costos(
                         _SQL_VIGENCIAS_PUBLICADAS, (product_id,)
                     )
                 }
-                if any(pub[1] is None for pub in publicadas.values()):
+                tiene_abierta = any(pub[1] is None for pub in publicadas.values())
+                if tiene_abierta:
                     con_abierta += 1
                 if sku in skus_origen and sku not in vigencias_por_sku:
-                    # El origen lo trae pero no hay vigencia publicable (solape
-                    # o todas las filas rechazadas): el SKU queda sin escribir
-                    # y su vigencia abierta NO se toca. Sus skips ya se contaron.
+                    # El origen lo trae pero sin vigencia publicable (solape o
+                    # todas rechazadas): no se toca su abierta y sus skips ya
+                    # se contaron. Si tiene abierta, cuenta para la guarda como
+                    # candidato a quedar sin costo (copia corrupta no pasa muda).
+                    if tiene_abierta:
+                        candidatos_sin_costo += 1
                     continue
                 plan = planear_sku(vigencias_por_sku.get(sku), publicadas, corte=corte)
                 planes.append((sku, product_id, plan))
                 if plan.sin_costo:
-                    cierres_sin_costo += 1
+                    candidatos_sin_costo += 1
 
-            # Una copia truncada no puede cerrar media cartera: 10 * n > total
-            # equivale a "pasa del 10 %" sin floats.
+            # Una copia truncada no puede dejar media cartera sin costo:
+            # 10 * n > total equivale a "pasa del 10 %" sin floats.
             if (
                 not acepto_cierre_masivo
                 and con_abierta > 0
-                and cierres_sin_costo * 10 > con_abierta
+                and candidatos_sin_costo * 10 > con_abierta
             ):
                 aviso = (
-                    f"Costos: la corrida cerraria {cierres_sin_costo} de"
-                    f" {con_abierta} productos sin costo en el origen; se detuvo"
-                    " sin escribir. Si la copia de contabilidad esta completa,"
-                    " corre con --acepto-cierre-masivo."
+                    f"Costos: la corrida dejaria {candidatos_sin_costo} de"
+                    f" {con_abierta} productos sin costo (ausentes del origen o"
+                    " sin vigencia publicable); se detuvo sin escribir. Si la"
+                    " copia de contabilidad esta completa, corre con"
+                    " --acepto-cierre-masivo."
                 )
                 envia_aviso(aviso)
                 raise CostsError(aviso)
@@ -819,8 +824,9 @@ def main(argv: list[str] | None = None) -> int:
         "--acepto-cierre-masivo",
         action="store_true",
         help=(
-            "permite cerrar mas del 10 %% de los productos sin costo en el origen"
-            " (solo si la copia de contabilidad esta completa)"
+            "permite seguir cuando mas del 10 %% de los productos quedaria sin"
+            " costo (ausentes del origen o sin vigencia publicable); solo si la"
+            " copia de contabilidad esta completa"
         ),
     )
     args = parser.parse_args(argv)
