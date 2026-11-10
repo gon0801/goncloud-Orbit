@@ -546,13 +546,10 @@ def planear_sku(
         )
         if v is None:
             return PlanSku([], [], None, False)
-        if u >= corte:
-            return PlanSku(
-                [],
-                [],
-                "el origen reescribio historia publicada; el costo nuevo entra manana",
-                False,
-            )
+        if u == corte:
+            # Se publicaria hoy: se reconcilia manana, sin aviso (no hubo
+            # escritura y el estado se repite hasta que el dia sea firme).
+            return PlanSku([], [], None, False)
         return PlanSku(
             [],
             [Vigencia(v.sku, v.costo, v.moneda, u, None)],
@@ -581,16 +578,13 @@ def planear_sku(
 
     convergencia = "el origen reescribio historia publicada; sigue al origen desde " + u.isoformat()
     if (v.costo, v.moneda) == (costo, moneda) and tax == INCLUDES_TAX:
-        return PlanSku([], [], convergencia, False)
-    if u >= corte:
+        # La divergencia es de historia ya publicada (inmutable) y el costo
+        # abierto ya coincide con el origen: no hay escritura ni aviso diario.
+        return PlanSku([], [], None, False)
+    if u == corte:
         # La abierta empezo ayer: cerrarla hoy dejaria el costo nuevo a partir
         # de hoy (el dia que todavia puede cambiar). Se reconcilia manana.
-        return PlanSku(
-            [],
-            [],
-            "el origen reescribio historia publicada; el costo nuevo entra manana",
-            False,
-        )
+        return PlanSku([], [], None, False)
     return PlanSku(
         [Cierre(desde_abierta, u)],
         [Vigencia(v.sku, v.costo, v.moneda, u, None)],
@@ -654,6 +648,7 @@ def sync_costos(
             # primeros ya se dieron de alta arriba; los ausentes conservan su
             # fila de product y aqui se les cierra la vigencia abierta en ayer.
             productos = dict(conn.execute("SELECT odoo_sku, id FROM product").fetchall())
+            skus_origen = {f.sku for f in origen.filas}
             planes: list[tuple[str, int, PlanSku]] = []
             con_abierta = 0
             cierres_sin_costo = 0
@@ -666,6 +661,11 @@ def sync_costos(
                 }
                 if any(pub[1] is None for pub in publicadas.values()):
                     con_abierta += 1
+                if sku in skus_origen and sku not in vigencias_por_sku:
+                    # El origen lo trae pero no hay vigencia publicable (solape
+                    # o todas las filas rechazadas): el SKU queda sin escribir
+                    # y su vigencia abierta NO se toca. Sus skips ya se contaron.
+                    continue
                 plan = planear_sku(vigencias_por_sku.get(sku), publicadas, corte=corte)
                 planes.append((sku, product_id, plan))
                 if plan.sin_costo:
@@ -780,11 +780,26 @@ def _sellar_run(
 # ---------------------------------------------------------------------------
 
 
+# Telegram corta cerca de 4096 caracteres: un cambio masivo no puede perder el
+# aviso entero. Se listan los primeros y se resume el resto.
+_MAX_DETALLES_AVISO = 20
+_MAX_TEXTO_AVISO = 3900
+
+
 def _texto_aviso_costos(detalle: tuple[str, ...]) -> str:
     """Texto unico del aviso de convergencias y cierres por falta de costo."""
-    return (
-        "Costos: " + "; ".join(detalle) + ". Orbit sigue al origen sin reescribir lo ya publicado."
+    visibles = detalle[:_MAX_DETALLES_AVISO]
+    resto = len(detalle) - len(visibles)
+    cuerpo = "; ".join(visibles)
+    if resto > 0:
+        cuerpo += f"; y {resto} mas"
+    texto = (
+        f"Costos: {len(detalle)} avisos: {cuerpo}."
+        " Orbit sigue al origen sin reescribir lo ya publicado."
     )
+    if len(texto) > _MAX_TEXTO_AVISO:
+        texto = texto[: _MAX_TEXTO_AVISO - 3] + "..."
+    return texto
 
 
 def main(argv: list[str] | None = None) -> int:
