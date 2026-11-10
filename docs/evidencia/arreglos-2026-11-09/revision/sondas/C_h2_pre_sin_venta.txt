@@ -1,0 +1,7 @@
+== H2 ==
+  pre 0 ventas/10 gasto, post 0 ventas/20 gasto (la venta no crecio)
+     contribucion pre=None post=None juicio=sin_evidencia decide=Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+  pre 0/10, post 10 venta/50 gasto, margen 8 (contribucion -10 -> -49.2)
+     contribucion pre=-10 post=-49.2 juicio=sin_evidencia decide=Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+  control: pre 1 centavo de venta, mismo post
+     contribucion pre=None post=None juicio=frena decide=Mantener(motivo='subida_sin_economia')

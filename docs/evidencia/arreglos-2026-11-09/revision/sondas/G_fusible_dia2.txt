@@ -1,0 +1,3 @@
+DIA 1: Retenida(causa='insumo_sistemico', medidas=158, nuevas=91, insumo='costo', detalle='costo salto en 91 de 158 comparables (salto 0.05, frac 0.30)')
+DIA 2: Abierta(medidas=158, nuevas=0)
+es_nueva(Anterior('subir', None, 7), goal_id=7) = False

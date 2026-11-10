@@ -1,0 +1,33 @@
+commit 7cf7c9ab19e3b37db1a171dbcc8a1afe1294a419
+Author: gon <112044144+gon0801@users.noreply.github.com>
+Date:   Sun Nov 8 10:52:40 2026 -0700
+
+    feat: ORBIT 07, ventas recientes y decisiones economicas del motor (#547)
+    
+    Integra M1, M2, M4 y M5/M6 sobre AUTO-03; M3 conserva la implementacion heredada. Incluye migracion 0081, instalacion y comandos de activacion/reversa que preservan modos y limites de pausa.
+    
+    Implementacion por DeepSeek Flash con API directa; revision independiente de Opus PASS sobre c247eca1a6750200dde98de5ecdc53112f163493. Quality: 5884 passed sobre PostgreSQL 16; gitleaks y pre-commit verdes.
+
+diff --git a/app/apply.py b/app/apply.py
+index e1a5984..c8d7835 100644
+--- a/app/apply.py
++++ b/app/apply.py
+@@ -243,6 +243,10 @@ MOTIVO_PERDIDA = "perdida"
+ # como huerfana). `perdida` SE QUEDA en el vocabulario (puede haber filas
+ # historicas) aunque libera_vencidos ya no la escriba.
+ MOTIVO_CHOQUE_CLAVE = "choque_clave"
++# ORBIT 07 M1: la pausa por cero ventas espera el vencimiento del episodio de
++# venta reciente. La fila queda released: no cobra cuota, no entra a applying y
++# no reinicia el veto de 48 horas.
++MOTIVO_ESPERA_PROTECCION = "espera_proteccion"
+ 
+ # ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
+ # CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
+@@ -264,6 +268,7 @@ MOTIVOS_SIN_APLICAR = (
+     MOTIVO_SIN_RESPUESTA,
+     MOTIVO_PERDIDA,
+     MOTIVO_CHOQUE_CLAVE,
++    MOTIVO_ESPERA_PROTECCION,
+ )
+ 
+ _SQL_SIN_APLICAR = """

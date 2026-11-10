@@ -1,0 +1,11 @@
+== M1 + M2 + M6 ==
+  subpolitica M1: ResultadoProteccion(version='proteccion_venta_v1', accion='esperar', motivo='venta_reciente_protegida', ancla=datetime.date(2026, 11, 6), vence_el=datetime.date(2026, 11, 16), abre_episodio=True)
+  sin episodio         equilibrio=None  con M1 -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja') | sin M1 -> Pausar(motivo='pause_umbral')
+  sin episodio         equilibrio=30    con M1 -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja') | sin M1 -> Pausar(motivo='pause_umbral')
+  sin episodio         equilibrio=12    con M1 -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja') | sin M1 -> Pausar(motivo='pause_umbral')
+  episodio frena       equilibrio=None  con M1 -> Mantener(motivo='subida_sin_economia') | sin M1 -> Pausar(motivo='pause_umbral')
+  episodio frena       equilibrio=30    con M1 -> Mantener(motivo='subida_sin_economia') | sin M1 -> Pausar(motivo='pause_umbral')
+  episodio frena       equilibrio=12    con M1 -> Mantener(motivo='subida_sin_economia') | sin M1 -> Pausar(motivo='pause_umbral')
+  episodio venta igual equilibrio=None  con M1 -> Mantener(motivo='subida_sin_economia') | sin M1 -> Pausar(motivo='pause_umbral')
+  episodio venta igual equilibrio=30    con M1 -> Mantener(motivo='subida_sin_economia') | sin M1 -> Pausar(motivo='pause_umbral')
+  episodio venta igual equilibrio=12    con M1 -> Mantener(motivo='subida_sin_economia') | sin M1 -> Pausar(motivo='pause_umbral')

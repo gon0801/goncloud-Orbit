@@ -1,0 +1,5 @@
+ACoS 15 %:
+  M2 producto elegible (target 4, equilibrio producto 8): Mover(factor=Decimal('-0.25'), bid_nuevo=Decimal('1.5000'), motivo='pierde_dinero_fuerte', nivel='hoja')
+  AUTO-03 tras perder elegibilidad (target 4.5, eq. 51):   Mover(factor=Decimal('-0.12'), bid_nuevo=Decimal('1.7600'), motivo='grupo_sangra_vendedora', nivel='ad_group')
+  M2 tras perder elegibilidad (target 25.0, eq. 51):       Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('2.3000'), motivo='bajo_target', nivel='hoja')
+  economia de la familia (target 12, eq. 51):              Mover(factor=Decimal('-0.12'), bid_nuevo=Decimal('1.7600'), motivo='grupo_sangra_vendedora', nivel='ad_group')

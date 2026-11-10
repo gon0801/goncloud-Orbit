@@ -1,0 +1,8 @@
+escritores de synced_at=now() fuera del sync de estructura:
+  apply._SQL_ACTUALIZA_CACHE: UPDATE ad_entity_state SET current_bid = %s, synced_at = now() WHERE ad_entity_id = %s
+  apply_cola._SQL_CACHE_ESTADO: UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
+  apply_producto._SQL_CACHE_ESTADO: UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
+  apply_harvest_reconciliacion._SQL_CACHE_ESTADO: UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
+guarda lee: SELECT max(s.synced_at) FROM ad_entity_state s JOIN ad_entity e ON e.id = s.ad_entity_id WHERE e.platform = %s::platform
+sin applies recientes -> MotivoSkip(guarda='synced_at', detalle='plataforma amazon_mx: estructura sincronizada hace 10 days, 0:00:00 > 48h')
+con 1 bid aplicado ayer -> None

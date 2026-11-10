@@ -1,0 +1,6 @@
+cambios derivados:
+   2026-10-01 motor antes 1.00 despues 1.15 direccion 1
+   2026-10-03 regreso_del_dueno antes 1.15 despues 1.00 direccion -1
+piso_aprendido = 1.15
+solo la subida del motor (sin la reversa): Mover(factor=Decimal('-0.25'), bid_nuevo=Decimal('0.7500'), motivo='pierde_dinero_fuerte', nivel='hoja')
+subida + reversa del dueno               : Mantener(motivo='piso_aprendido')

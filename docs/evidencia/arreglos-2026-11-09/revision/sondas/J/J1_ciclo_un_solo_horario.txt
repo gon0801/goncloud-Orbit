@@ -1,0 +1,13 @@
+cycle amazon_us sin D-1: exit=0 stdout='sin métricas de ayer: espera al siguiente horario' stderr='' corre_ciclo_llamado=False
+impulso-vigia con 1 impulso vivo y sin D-1: exit=0 stdout='sin métricas de ayer: espera al siguiente horario' stderr=''
+docstring R09-F: con impulsos vivos y ninguno atendido (todos fallaron o sin ingesta) avisa y sale 1, para que el cron no calle un dia perdido.
+DEPLOY.md bloque instalador, app.cli cycle: ['40 8 * * *', '41 8 * * *']
+DEPLOY.md bloque instalador, app.cli impulso-vigia: ['20 8 * * *']
+DEPLOY.md bloque instalador, app.cli avisos-campana: ['5 8 * * *']
+DEPLOY.md bloque instalador, app.cli ingest diario: ['10 7 * * *', '40 10 * * *', '15 13 * * *']
+plan ingesta-01: | 10:05 · 10:08 · 10:10 · 10:11 | reintento de avisos · vigía · cycle US · cycle MX |
+plan ingesta-01: | 13:05 · 13:08 · 13:10 · 13:11 | reintento de avisos · vigía · cycle US · cycle MX |
+plan ingesta-01: | 16:05 · 16:08 · 16:10 · 16:11 | último reintento de avisos · vigía · cycle US · cycle MX, con la misma guarda |
+crontab instalado 2026-10-21, lineas de cycle: ['40 8 * * *', '41 8 * * *']
+HORARIOS_INGESTA: ('07:10', '10:40', '13:15') TOPE_PARED_SEGUNDOS: 2.75 h
+texto de aviso de productos/ubicaciones: Amazon no entregó a tiempo las métricas por producto de US (esperamos 2 h 30 min). Orbit lo vuelve a intentar a las 10:40 UTC; mientras, el ciclo de pujas espera.

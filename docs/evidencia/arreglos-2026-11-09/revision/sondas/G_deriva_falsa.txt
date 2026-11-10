@@ -1,0 +1,4 @@
+Deriva(canal='fba', insumo='costo', comparables=158, con_salto=0)
+Deriva(canal='fba', insumo='retencion', comparables=158, con_salto=60)
+Deriva(canal='fba', insumo='fee_variable', comparables=158, con_salto=60)
+veredicto del dia siguiente: Retenida(causa='insumo_sistemico', medidas=158, nuevas=15, insumo='retencion', detalle='retencion salto en 60 de 158 comparables (salto 0.05, frac 0.30)')
