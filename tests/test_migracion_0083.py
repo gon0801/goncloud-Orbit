@@ -30,6 +30,7 @@ _CONTADOR = itertools.count()
 
 @contextmanager
 def _db83():
+    """Postgres temporal con las migraciones de la 0073 mas la 0083."""
     from psycopg import sql as pgsql
 
     dsn = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@localhost:5432/postgres")
@@ -58,6 +59,7 @@ def _db83():
 
 @_skip_db
 def test_0083_una_corrida_con_skips_si_valida_el_costo():
+    """Con la 0083, una corrida ok con skips por fila si valida el costo."""
     with _db83() as conn:
         pa = _producto(conn, "SKU-83-A")
         _minimo(conn, (pa,), plataforma="amazon_mx", miembro=None, costo=pa, rows_skipped=1)
@@ -65,6 +67,7 @@ def test_0083_una_corrida_con_skips_si_valida_el_costo():
 
 @_skip_db
 def test_0083_reversa_restaura_la_compuerta_de_skips():
+    """La reversa de la 0083 vuelve a exigir rows_skipped = 0 en la 0073."""
     reversa = (MIGRACIONES / "0083_reversa_arreglos01_costos_sin_compuerta.sql").read_text(
         encoding="utf-8"
     )

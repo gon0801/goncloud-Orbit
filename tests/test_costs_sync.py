@@ -426,6 +426,34 @@ def test_arreglos01_f_un_costo_nuevo_entra_al_dia_siguiente():
     assert plan_d1.inserciones == [Vigencia("NH", Decimal("120"), "MXN", d, None)]
 
 
+def test_arreglos01_f_la_convergencia_no_publica_el_dia_de_la_corrida():
+    """Una abierta que empezo ayer no se convierte en un costo nuevo hoy: la
+    convergencia se reconcilia al dia siguiente, cuando el dia ya es firme."""
+    corte = date(2026, 11, 10)
+    publicadas = {date(2026, 11, 9): (Decimal("100"), None, "MXN", False)}
+    serie = [Vigencia("X", Decimal("200"), "MXN", date(2026, 11, 9), None)]
+
+    plan = planear_sku(serie, publicadas, corte=corte)
+    assert plan.cierres == [] and plan.inserciones == []
+    assert plan.convergencia is not None and "manana" in plan.convergencia
+
+    plan_d1 = planear_sku(serie, publicadas, corte=corte + dt.timedelta(days=1))
+    assert plan_d1.cierres == [Cierre(date(2026, 11, 9), corte)]
+    assert plan_d1.inserciones == [Vigencia("X", Decimal("200"), "MXN", corte, None)]
+
+
+def test_arreglos01_f_una_fila_rechazada_que_solapa_corta_el_sku():
+    """Una fila omitida (costo cero) que solapa la vigencia abierta es un
+    origen inconsistente: no puede validarse el costo viejo de ese SKU."""
+    filas = [
+        _fila("O", 100.0, "2026-04-01 10:00:00", None),
+        _fila("O", 0.0, "2026-04-03 09:00:00", "2026-04-10 09:00:00"),
+    ]
+    vigencias, skips, _ = colapsar(filas)
+    assert vigencias == {}
+    assert skips == Counter({"vigencia solapada en el origen (sku completo sin escribir)": 2})
+
+
 # ---------------------------------------------------------------------------
 # (a) leer_origen: snapshot real de SQLite
 # ---------------------------------------------------------------------------
@@ -830,19 +858,26 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
         snap6 = _snapshot(tmp_path / "v6.db", filas_v6, _NOMBRES_V1)
         r6 = sync_costos(conn, snap6, corte=_CORTE, acepto_cierre_masivo=True)
         assert r6.ok is True
-        # ARR converge desde ayer (la reapertura de la corrida 5 otra vez se
-        # reescribio en el origen) y SKU-C-CERO se cierra.
-        assert r6.rows_written == 3
-        assert r6.vigencias_cerradas == 2
-        assert r6.vigencias_insertadas == 1
+        # ARR no publica hoy: su abierta empezo ayer y la convergencia se
+        # reconcilia manana. SKU-C-CERO si se cierra en ayer.
+        assert r6.rows_written == 1
+        assert r6.vigencias_cerradas == 1
+        assert r6.vigencias_insertadas == 0
         assert r6.convergencias == 1
         assert r6.sin_costo_en_origen == 1
         assert any("SKU-C-CERO: sin costo en el origen" in linea for linea in r6.detalle)
+        assert any("el costo nuevo entra manana" in linea for linea in r6.detalle)
         cerrada = conn.execute(
             "SELECT c.valid_to FROM sku_cost c JOIN product p ON p.id = c.product_id"
             " WHERE p.odoo_sku = 'SKU-C-CERO' ORDER BY c.valid_from DESC LIMIT 1"
         ).fetchone()
         assert cerrada == (date(2026, 11, 9),)
+        abierta_arr = conn.execute(
+            "SELECT c.valid_from, c.cost_amount FROM sku_cost c"
+            " JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'ARR-16-001' AND c.valid_to IS NULL"
+        ).fetchone()
+        assert abierta_arr == (date(2026, 11, 9), Decimal("305"))
 
         # -------- corrida 7: el nombre real NUNCA degrada a derivado --------
         # (hallazgo 2 de codex, media): si bom_headers pierde el nombre de un

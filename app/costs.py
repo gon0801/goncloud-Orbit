@@ -323,10 +323,22 @@ def colapsar(
                 skips["vigencia solapada en el origen (sku completo sin escribir)"] += 1
                 continue
             motivo = _motivo_rechazo(fila)
-            if motivo is not None:
-                skips[motivo] += 1
-                continue
             desde = _dia(fila.inicio) or _dia(fila.creado)
+            if motivo is not None:
+                # Una fila rechazada tambien puede solapar la vigencia abierta
+                # del origen: si lo hace, el SKU entero queda sin escribir (no
+                # se valida el costo viejo sobre un origen inconsistente).
+                if (
+                    desde is not None
+                    and serie
+                    and (serie[-1].hasta is None or serie[-1].hasta > desde)
+                ):
+                    solape = True
+                else:
+                    skips[motivo] += 1
+                    continue
+                skips["vigencia solapada en el origen (sku completo sin escribir)"] += 1
+                continue
             hasta = _dia(fila.fin)
             assert desde is not None  # _motivo_rechazo ya valido el inicio
             if hasta is not None and hasta < desde:
@@ -483,6 +495,7 @@ def _plan_prefijo(
     publicadas: dict[dt.date, tuple[Decimal, dt.date | None, str, bool]],
     firme: list[Vigencia],
 ) -> PlanSku:
+    """Plan de escritura cuando lo publicado es prefijo de la serie firme."""
     cierres = [
         Cierre(v.desde, v.hasta)
         for v in firme
@@ -533,6 +546,13 @@ def planear_sku(
         )
         if v is None:
             return PlanSku([], [], None, False)
+        if u >= corte:
+            return PlanSku(
+                [],
+                [],
+                "el origen reescribio historia publicada; el costo nuevo entra manana",
+                False,
+            )
         return PlanSku(
             [],
             [Vigencia(v.sku, v.costo, v.moneda, u, None)],
@@ -562,6 +582,15 @@ def planear_sku(
     convergencia = "el origen reescribio historia publicada; sigue al origen desde " + u.isoformat()
     if (v.costo, v.moneda) == (costo, moneda) and tax == INCLUDES_TAX:
         return PlanSku([], [], convergencia, False)
+    if u >= corte:
+        # La abierta empezo ayer: cerrarla hoy dejaria el costo nuevo a partir
+        # de hoy (el dia que todavia puede cambiar). Se reconcilia manana.
+        return PlanSku(
+            [],
+            [],
+            "el origen reescribio historia publicada; el costo nuevo entra manana",
+            False,
+        )
     return PlanSku(
         [Cierre(desde_abierta, u)],
         [Vigencia(v.sku, v.costo, v.moneda, u, None)],
@@ -752,10 +781,9 @@ def _sellar_run(
 
 
 def _texto_aviso_costos(detalle: tuple[str, ...]) -> str:
+    """Texto unico del aviso de convergencias y cierres por falta de costo."""
     return (
-        "Costos: "
-        + "; ".join(detalle)
-        + ". Orbit usa el costo nuevo desde ayer; lo anterior queda como se publico."
+        "Costos: " + "; ".join(detalle) + ". Orbit sigue al origen sin reescribir lo ya publicado."
     )
 
 

@@ -337,10 +337,11 @@ son garantías del esquema. Corregidos en el mismo PR, cada uno con su test:
    granularidad DATE: el día queda sin costo (dato faltante) y se cuenta
    aparte (`segmentos_intradia_en_borde`), distinto del ruido con sucesor.
 4. **Moneda/`includes_tax` distintos en lo publicado** con igual importe ya no
-   son no-op: divergencia y SKU completo sin escribir (regla 4).
-5. **SKU ausente del origen** queda contado (antes: silencio con vigencia
-   abierta huérfana). NO se cierra su vigencia (sería inventar que dejó de
-   aplicar) ni se desactiva el producto.
+   son no-op: convergen desde ayer como cualquier otra divergencia (regla 4: un
+   número sin su moneda es otro número), sin reescribir lo publicado.
+5. **SKU ausente del origen**: cierra su vigencia abierta en ayer y queda sin
+   costo (antes: silencio con vigencia abierta huérfana). No se desactiva el
+   producto.
 6. **`UPDATE product.name`** del upsert (cuando el nombre mejora): queda
    DECLARADO — está dentro de la autorización del dueño para esta tarea
    ("escritura en `product`"), el catálogo es la excepción mutable por diseño
