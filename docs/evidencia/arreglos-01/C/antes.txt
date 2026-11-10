@@ -1,0 +1,83 @@
+ARREGLOS 01 bloque C (unidad R2): estado ANTES de revertir.
+Lecturas con docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read, transaccion
+de solo lectura). Fecha de las lecturas: 2026-11-10T09:14Z (aprox, UTC).
+
+1) Colas 10 (decision 2321), 11 (decision 2322) y 26 (decision 2869)
+   Consulta:
+   select id, platform, ad_entity_id, kind, search_term, estado, modo,
+          decision_id, applied_at, vence_el
+     from apply_queue where id in (10, 11, 26) order by id
+
+   Salida:
+   10|amazon_us|3989|negative|arras de boda|applied|live|2321|2026-09-16 08:40:05.743150+00:00|2026-09-16 08:40:02.354345+00:00
+   11|amazon_us|3989|negative|arras for wedding ceremony|applied|live|2322|2026-09-16 08:40:06.190488+00:00|2026-09-16 08:40:02.354345+00:00
+   26|amazon_us|4012|negative|wedding arras|vetoed|live|2869|None|2026-12-10 00:42:27.128291+00:00
+
+   Lectura: 10 y 11 estan applied desde el 2026-09-16 (los negatives que el
+   plan manda revertir). La 26 esta vetoed (no applied): el plan dice revertirla
+   solo si alcanzo a aplicarse, asi que no se toca. La lectura de A.1 y su
+   motivo queda en docs/evidencia/arreglos-01/A/cola-26.txt.
+
+2) Ledger de aplicacion de esas decisiones (app/apply.py:1665 reversa_manual
+   documenta donde queda el registro: apply_attempt)
+   Consulta:
+   select a.decision_id, a.seq, a.tipo, a.resultado, a.finished_at, a.ack
+     from apply_attempt a where a.decision_id in (2321, 2322, 2869)
+    order by a.decision_id, a.seq
+
+   Salida:
+   2321|1|normal|ok|2026-09-16 08:40:05.743150+00:00|{'negativeKeywords': {'error': [], 'success': [{'index': 0, 'negativeKeywordId': '142235318359372'}]}}
+   2322|1|normal|ok|2026-09-16 08:40:06.190488+00:00|{'negativeKeywords': {'error': [], 'success': [{'index': 0, 'negativeKeywordId': '245412704892037'}]}}
+
+   Lectura: las dos decisiones solo tienen su intento normal ok; NINGUNA tiene
+   fila tipo='reversa' con resultado='ok'. El negative_id del DELETE sale del
+   ack (ADV-2): 142235318359372 para la 2321 y 245412704892037 para la 2322.
+   La 2869 no tiene ninguna fila en el ledger (nunca se aplico).
+
+3) Los terminos negados son keywords EXACT propias del mismo ad group
+   Consulta:
+   select a.id, a.platform, a.kind, a.external_id, a.name, a.match_type,
+          a.keyword_text, a.parent_id, s.status, s.synced_at
+     from ad_entity a left join ad_entity_state s on s.ad_entity_id = a.id
+    where a.id in (3989, 4012, 4925, 4926)
+
+   Salida:
+   3989|amazon_us|ad_group|173126756628427|AU2 - Category Exact - US - AdGroup|None|None|3926|ENABLED|2026-11-10 06:45:58.085338+00:00
+   4012|amazon_us|ad_group|522582072501798|USPerNog - Category Exact - US - AdGroup|None|None|3919|ENABLED|2026-11-10 06:45:58.085338+00:00
+   4925|amazon_us|keyword|257305422484342|None|EXACT|arras for wedding ceremony|3989|PAUSED|2026-11-10 06:45:58.085338+00:00
+   4926|amazon_us|keyword|149894867176055|None|EXACT|arras de boda|3989|ENABLED|2026-11-10 06:45:58.085338+00:00
+
+   Lectura: las dos colas applied apuntan al ad group 3989 y su search_term es
+   exactamente (case-fold) la keyword EXACT 4925/4926 de ese mismo ad group.
+   La keyword 4925 esta PAUSED y la 4926 ENABLED hoy.
+
+4) La prueba-real del bloque FALLA hoy (C.1 lo exige)
+   $ bash docs/evidencia/arreglos-01/C/prueba.sh
+   cola 10 (decision 2321): SIN reversa confirmada (sin reversa)
+   cola 11 (decision 2322): SIN reversa confirmada (sin reversa)
+   rc=1
+   Fecha de la corrida: 2026-11-10T09:16:29Z.
+
+5) Completitud del conjunto (lectura, no amplia el alcance del plan)
+   Consulta: todos los negative aplicados cuyo termino coincide con una keyword
+   propia del mismo ad group y plataforma
+   select q.id, q.decision_id, q.platform, q.ad_entity_id, q.search_term,
+          q.kind, q.estado
+     from apply_queue q
+     join ad_entity k on k.parent_id = q.ad_entity_id
+                      and k.kind = 'keyword' and k.platform = q.platform
+    where q.kind = 'negative' and q.estado = 'applied'
+      and lower(btrim(k.keyword_text)) = lower(btrim(q.search_term))
+    order by q.id
+
+   Salida:
+   10|2321|amazon_us|3989|arras de boda|negative|applied
+   11|2322|amazon_us|3989|arras for wedding ceremony|negative|applied
+
+   Lectura: no hay mas negatives aplicados que apaguen una keyword propia; el
+   conjunto del plan (10, 11 y 26) cubre todo lo que hoy esta applied.
+
+Conclusion: hay 2 colas applied sin reversa confirmada (10 y 11). La 26 esta
+vetoed y no requiere accion. El bloque C.2 revierte las dos por la ruta ya
+existente (POST /api/ads-optimizer/reversa/negative) y guarda cada respuesta
+completa en docs/evidencia/arreglos-01/C/reversa.txt.
