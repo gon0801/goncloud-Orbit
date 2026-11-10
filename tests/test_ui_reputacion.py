@@ -398,7 +398,7 @@ def test_pagina_pregunta_muestra_antiguedad():
 def test_fecha_corta():
     from app import ui
 
-    assert ui.fecha_corta("2026-09-06T04:10:00", True) == "6 sep 04:10"
+    assert ui.fecha_corta("2026-09-06T04:10:00") == "5 sep"
     assert ui.fecha_corta("2026-09-06") == "6 sep"
     assert ui.fecha_corta(dt.date(2026, 9, 6)) == "6 sep"
     assert ui.fecha_corta(None) == "—"

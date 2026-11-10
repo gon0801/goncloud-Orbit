@@ -113,7 +113,7 @@ def bloque_target_margen(ultimo_ciclo: dict | None, hoy=None) -> dict:
     bloque = notes.get("target")
     if not isinstance(bloque, dict):
         return vacio
-    from app.optimizer import goals as g
+    from app.etiquetas import etiqueta
 
     motivo = bloque.get("motivo_abstencion")
     fresco = bloque.get("ledger_fresco_at")
@@ -143,7 +143,7 @@ def bloque_target_margen(ultimo_ciclo: dict | None, hoy=None) -> dict:
         "ledger_edad_dias": edad,
         "ratio_ads_venta": ratio,
         "motivo_abstencion": motivo,
-        "motivo_etiqueta": g.ETIQUETA_ABSTENCION.get(motivo, motivo) if motivo else None,
+        "motivo_etiqueta": etiqueta(motivo, "motivo_abstencion") if motivo else None,
     }
 
 

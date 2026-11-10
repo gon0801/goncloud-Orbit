@@ -2,31 +2,32 @@
 {% block contenido %}
 <h2>Settings</h2>
 <p class="mutado">
-  Target vigente por plataforma con su procedencia (cascada). Editar config
-  escribe una fila NUEVA; editar un goal hace UPDATE. Auth: header
-  x-orbit-token (campo Token abajo). Mode global y harvest son solo lectura.
+  La meta de ACoS que usa cada plataforma y de dónde sale. Guardar la configuración
+  crea una versión nueva y la anterior queda en el historial; guardar una meta de
+  campaña la cambia en su lugar. Para guardar hace falta el token de escritura
+  (campo Token abajo). El modo global y la captura de búsquedas solo se consultan aquí.
 </p>
 
 <section class="tarjeta settings-sesion">
 <p>
   Config vigente: <code>{{ datos.config_version_id or "—" }}</code>
-  · Modo global (solo lectura): <strong>{{ datos.modo_global or "—" }}</strong>
+  · Modo global (solo lectura): <strong>{{ datos.modo_global | etiqueta("modo") }}</strong>
 </p>
 
 <label>Token
-  <input type="password" id="settings-token" name="token" placeholder="x-orbit-token" required>
+  <input type="password" id="settings-token" name="token" placeholder="Token de escritura" required>
 </label>
 
 </section>
 
 {% for p in datos.plataformas %}
 <section class="tarjeta" data-plataforma="{{ p.plataforma }}">
-  <h3>{{ p.plataforma }} <span class="mutado">({{ p.moneda }})</span></h3>
+  <h3>{{ p.plataforma | etiqueta("plataforma") }} <span class="mutado">({{ p.moneda }})</span></h3>
   <p>
-    Target vigente:
+    Meta vigente:
     {% if p.target_vigente.valor is none %}<span class="mutado">sin target</span>
-    {% else %}<strong>{{ p.target_vigente.valor }}</strong>
-    · procedencia <code>{{ p.target_vigente.peldano }}</code>{% endif %}
+    {% else %}<strong>{{ p.target_vigente.valor | pct }}</strong>
+    · sale de: {{ p.target_vigente.peldano | etiqueta("procedencia") }}{% endif %}
   </p>
 
   <form data-settings-config="{{ p.plataforma }}" data-config-id="{{ datos.config_version_id }}">
@@ -85,19 +86,20 @@
       <label>Modo global
         <select name="precio_modo_global">
           {% if datos.precio_modo_global is none %}<option value="" selected disabled>ausente</option>{% endif %}
-          <option value="off" {% if datos.precio_modo_global == "off" %}selected{% endif %}>off</option>
-          <option value="shadow" {% if datos.precio_modo_global == "shadow" %}selected{% endif %}>shadow</option>
-          <option value="live" {% if datos.precio_modo_global == "live" %}selected{% endif %}>live</option>
+          <option value="off" {% if datos.precio_modo_global == "off" %}selected{% endif %}>{{ "off" | etiqueta("modo") }}</option>
+          <option value="shadow" {% if datos.precio_modo_global == "shadow" %}selected{% endif %}>{{ "shadow" | etiqueta("modo") }}</option>
+          <option value="live" {% if datos.precio_modo_global == "live" %}selected{% endif %}>{{ "live" | etiqueta("modo") }}</option>
         </select>
       </label>
-      <p class="mutado">Vive: {{ datos.precio_modo_global or "ausente" }}.</p>
+      <p class="mutado">Vive: {% if datos.precio_modo_global %}{{ datos.precio_modo_global | etiqueta("modo") }}{% else %}ausente{% endif %}.</p>
       {% for u in datos.precio_universos or [] %}
       {% set modo_u = (datos.precio_modo_universo or {}).get(u) or "off" %}
-      <label>{{ u }}
+      {% set partes_u = u.split("/") %}
+      <label>{{ partes_u[0] | etiqueta("plataforma") }}{% if partes_u | length > 1 %} · {{ partes_u[1] | upper }}{% endif %}
         <select name="precio_modo_universo" data-precio-universo="{{ u }}">
-          <option value="off" {% if modo_u == "off" %}selected{% endif %}>off</option>
-          <option value="shadow" {% if modo_u == "shadow" %}selected{% endif %}>shadow</option>
-          <option value="live" {% if modo_u == "live" %}selected{% endif %}>live</option>
+          <option value="off" {% if modo_u == "off" %}selected{% endif %}>{{ "off" | etiqueta("modo") }}</option>
+          <option value="shadow" {% if modo_u == "shadow" %}selected{% endif %}>{{ "shadow" | etiqueta("modo") }}</option>
+          <option value="live" {% if modo_u == "live" %}selected{% endif %}>{{ "live" | etiqueta("modo") }}</option>
         </select>
       </label>
       {% endfor %}
@@ -108,7 +110,7 @@
       <legend>ACoS objetivo del Resumen (opcional, %)</legend>
       {% for c in datos.resumen_canales or ['amazon_mx', 'amazon_us', 'meli'] %}
       {% set meta_c = (datos.resumen_acos_objetivo or {}).get(c) or '' %}
-      <label>{{ c }}
+      <label>{{ c | etiqueta("plataforma") }}
         <input type="text" name="resumen_acos_{{ c }}" data-resumen-acos="{{ c }}" value="{{ meta_c }}" inputmode="decimal" placeholder="sin configurar">
       </label>
       {% endfor %}
@@ -118,20 +120,20 @@
     <fieldset>
       <legend>Caps diarios</legend>
       {% for kind, valor in p.caps.items() %}
-      <label>{{ kind }}
+      <label>{{ kind | etiqueta("kind") }}
         <input type="number" name="cap_{{ kind }}" min="0" step="1" value="{{ valor or '' }}">
       </label>
       {% endfor %}
     </fieldset>
 
-    <button type="submit">Guardar config {{ p.plataforma }}</button>
+    <button type="submit">Guardar configuración de {{ p.plataforma | etiqueta("plataforma") }}</button>
     <span data-estado class="mutado"></span>
   </form>
 
   {% if p.goal %}
   <form data-settings-goal="{{ p.goal.id }}">
     <h4>Goal de plataforma #{{ p.goal.id }}</h4>
-    <p class="mutado">mode (solo lectura): {{ p.goal.mode }}</p>
+    <p class="mutado">Modo (solo lectura): {{ p.goal.mode | etiqueta("modo") }}</p>
     <label>Target ACoS
       <input type="text" name="target_acos_pct" value="{{ p.goal.target or '' }}">
     </label>
@@ -155,18 +157,18 @@
 <section class="tarjeta">
   <h3>Goals de campaña</h3>
   <p class="mutado">
-    Un goal de campaña pisa TODO lo de abajo (goal de plataforma, margen y
-    target manual), incluido enabled=false como opt-out; cada uno dice a
-    quien pisa hoy.
+    Una meta de campaña manda sobre todo lo demás (meta de la plataforma, margen
+    y meta manual), aun si está apagada para sacar la campaña del motor; cada una
+    dice a quién pisa hoy.
   </p>
   {% for goal in datos.goals if goal.scope == "campaign" %}
   <form data-settings-goal="{{ goal.id }}">
     <h4>
-      Goal #{{ goal.id }} · {{ goal.plataforma or "?" }} ·
-      {{ goal.nombre or "campaña sin nombre" }} <span class="mutado">#{{ goal.ad_entity_id }}</span>
+      Meta #{{ goal.id }} · {{ goal.plataforma | etiqueta("plataforma") }} ·
+      <span data-dato-libre>{{ goal.nombre or "campaña sin nombre" }}</span> <span class="mutado">#{{ goal.ad_entity_id }}</span>
     </h4>
     {% if goal.pisa_a %}<p class="alerta">{{ goal.pisa_a }}</p>{% endif %}
-    <p class="mutado">mode (solo lectura): {{ goal.mode }}</p>
+    <p class="mutado">Modo (solo lectura): {{ goal.mode | etiqueta("modo") }}</p>
     <label>Target ACoS
       <input type="text" name="target_acos_pct" value="{{ goal.target or '' }}">
     </label>

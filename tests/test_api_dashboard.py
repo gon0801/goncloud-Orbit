@@ -51,6 +51,7 @@ from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import api_dashboard as dash
+from app.etiquetas import ETIQUETAS
 from app.main import app
 from app.optimizer import hygiene
 
@@ -1460,19 +1461,19 @@ def test_decisiones_trampa_pause_null_y_target_desde_inputs(monkeypatch):
 
         bid = por_id[id_bid]
         assert bid["target_acos_pct_usado"] == "25.00"  # de inputs, no del goal null
-        assert bid["motivo_es"] == "ACoS sobre 1.15x del target: -12%"
+        assert bid["motivo_es"] == "ACoS 15 % arriba de la meta: baja la puja 12 %"
 
         pause = por_id[id_pause]
         assert pause["old_value"] is None and pause["new_value"] is None
         assert pause["value_currency"] is None
-        assert pause["motivo_es"] == "Pausa: sin ventas con clicks y costo sobre el umbral"
+        assert pause["motivo_es"] == "Pausa: tuvo clics y gasto sobre el umbral sin vender"
 
         negative = por_id[id_negative]
         assert negative["search_term"] == "tortugas ninja"
         assert negative["kind"] == "negative"
         assert (
             negative["motivo_es"]
-            == "Negativo: termino sin ventas con clicks y costo sobre el umbral"
+            == "Negativo: la búsqueda tuvo clics y gasto sobre el umbral sin vender"
         )
 
 
@@ -1503,7 +1504,7 @@ def test_decisiones_motivo_desconocido_fallback_y_nombre_null(monkeypatch):
         )
         item = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones").json()["items"][0]
         assert item["nombre"] is None  # name NULL no revienta
-        assert item["motivo_es"] == "motivo_futuro_desconocido"  # fallback sin crash
+        assert item["motivo_es"] == "Motivo futuro desconocido"  # fallback sin snake_case
 
 
 @pytest.mark.skipif(
@@ -1729,11 +1730,11 @@ def test_salud_notes_mixto_y_ciclos_degradado_failed_con_motivo(monkeypatch):
         # next(...) revienta con StopIteration si el status no aparece: eso ES
         # el assert (el `assert por_id` que habia aqui no discriminaba nada)
         degradado = next(h for h in historico if h["status"] == "degraded")
-        assert degradado["motivo"] == "Watermark de la plataforma vencido (> 7 dias)"
+        assert degradado["motivo"] == "Los datos de la plataforma tienen más de 7 días de atraso"
         motivos_failed = {h["motivo"] for h in historico if h["status"] == "failed"}
         assert motivos_failed == {"rastro: fallo del ciclo", "ValueError: sin watermark"}
         saltado = next(h for h in historico if h["status"] == "skipped")
-        assert saltado["motivo"] == "Escalera global off"
+        assert saltado["motivo"] == "El motor de pujas está apagado en todas las plataformas"
 
 
 @pytest.mark.skipif(
@@ -1773,31 +1774,39 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
         )
         assert skips["entidad"]["estado_no_enabled"] == {
             "count": 3200,
-            "motivo_es": "Entidad sin estado o no habilitada",
+            "motivo_es": "La keyword o el producto no está habilitado o no tiene estado",
         }
         assert (
             skips["entidad"]["rango_bloquea_ajuste"]["motivo_es"]
-            == "Rango [floor, ceiling] bloquea el ajuste"
+            == "La puja mínima o máxima configurada impide el cambio"
         )
         assert skips["termino"]["asin_like"]["count"] == 84
         assert skips["termino"]["sin_umbral_negative"]["motivo_es"] == (
-            "Sin umbral de negative (clicks o costo bajo)"
+            "La búsqueda no llega a los clics o al gasto para bloquearla"
         )
         # A.6: los motivos F2 del resolutor llegan traducidos a /salud
         assert skips["termino"]["origen_es_destino"] == {
             "count": 2,
-            "motivo_es": "Harvest saltado: el ad group de origen es el destino de la campaña",
+            "motivo_es": (
+                "Captura saltada: el grupo de anuncios de origen ya es el destino de la campaña"
+            ),
         }
         assert skips["termino"]["destino_inconsistente"] == {
             "count": 1,
-            "motivo_es": "Harvest bloqueado: la terna del goal contradice la exacta del grupo",
+            "motivo_es": (
+                "Captura detenida: el destino de la meta de la campaña no coincide con su grupo"
+                " exacto"
+            ),
         }
         assert skips["termino"]["sin_destino_de_harvest"] == {
             "count": 7,
-            "motivo_es": "Harvest sin destino: sin grupo, sin excepcion y sin terna",
+            "motivo_es": (
+                "Captura sin destino: falta el grupo exacto, la excepción o el destino en la"
+                " meta de la campaña"
+            ),
         }
         # motivo desconocido -> fallback al id crudo, sin crash
-        assert skips["termino"]["motivo_futuro"]["motivo_es"] == "motivo_futuro"
+        assert skips["termino"]["motivo_futuro"]["motivo_es"] == "Motivo futuro"
 
 
 # ---------------------------------------------------------------------------
@@ -1807,23 +1816,26 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
 MOTIVOS_ES_F2 = [
     (
         hygiene.MOTIVO_ORIGEN_ES_DESTINO,
-        "Harvest saltado: el ad group de origen es el destino de la campaña",
+        "Captura saltada: el grupo de anuncios de origen ya es el destino de la campaña",
     ),
     (
         hygiene.MOTIVO_SIN_DESTINO_HARVEST,
-        "Harvest sin destino: sin grupo, sin excepcion y sin terna",
+        (
+            "Captura sin destino: falta el grupo exacto, la excepción o el destino en la meta de"
+            " la campaña"
+        ),
     ),
     (
         hygiene.MOTIVO_DESTINO_INCONSISTENTE,
-        "Harvest bloqueado: la terna del goal contradice la exacta del grupo",
+        "Captura detenida: el destino de la meta de la campaña no coincide con su grupo exacto",
     ),
     (
         hygiene.MOTIVO_DESTINO_DESINCRONIZADO,
-        "Harvest descartado: la exacta del grupo cambio despues de decidir",
+        "Captura descartada: el grupo exacto cambió después de decidir",
     ),
     (
         hygiene.MOTIVO_MIGRACION_PENDIENTE,
-        "Destino por terna del goal (migracion a grupo o excepcion pendiente)",
+        "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción)",
     ),
 ]
 
@@ -1831,42 +1843,44 @@ MOTIVOS_ES_F2 = [
 @pytest.mark.parametrize("motivo, esperado", MOTIVOS_ES_F2)
 def test_salud_motivos_f2_traducidos_con_texto_exacto(motivo, esperado):
     """A.6: los cinco motivos que A.1 agrego a hygiene entran a
-    MOTIVOS_ES_SALUD con su texto exacto. El `!=` mata al mutante que
+    el registro (motivo_salud) con su texto exacto. El `!=` mata al mutante que
     devuelve el id crudo (el fallback de _skips_traducidos lo tragaria)."""
-    assert dash.MOTIVOS_ES_SALUD[motivo] != motivo
-    assert dash.MOTIVOS_ES_SALUD[motivo] == esperado
+    assert ETIQUETAS["motivo_salud"][motivo] != motivo
+    assert ETIQUETAS["motivo_salud"][motivo] == esperado
 
 
 def test_salud_sin_target_traducido_con_texto_exacto():
-    """R03-(a): sin_target entra a MOTIVOS_ES_SALUD con su texto exacto.
+    """R03-(a): sin_target entra a el registro (motivo_salud) con su texto exacto.
     El `!=` mata al mutante que devuelve el id crudo."""
     from app import cycle as ciclo
 
-    assert dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET] != ciclo.MOTIVO_SIN_TARGET
+    assert ETIQUETAS["motivo_salud"][ciclo.MOTIVO_SIN_TARGET] != ciclo.MOTIVO_SIN_TARGET
     assert (
-        dash.MOTIVOS_ES_SALUD[ciclo.MOTIVO_SIN_TARGET]
-        == "Sin target (ningun peldano resolvio): sin ajuste"
+        ETIQUETAS["motivo_salud"][ciclo.MOTIVO_SIN_TARGET]
+        == "No se pudo calcular una meta de ACoS: sin cambio de puja"
     )
 
 
 def test_salud_vigente_por_encima_traducido_con_texto_exacto():
-    """R03-B1: vigente_por_encima entra a MOTIVOS_ES_SALUD con su texto exacto."""
+    """R03-B1: vigente_por_encima entra a el registro (motivo_salud) con su texto exacto."""
     from app.optimizer import politica
 
-    assert dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA] != politica.MOTIVO_VIGENTE_ENCIMA
     assert (
-        dash.MOTIVOS_ES_SALUD[politica.MOTIVO_VIGENTE_ENCIMA]
-        == "Bid vigente por encima del regreso: sin ajuste"
+        ETIQUETAS["motivo_salud"][politica.MOTIVO_VIGENTE_ENCIMA] != politica.MOTIVO_VIGENTE_ENCIMA
+    )
+    assert (
+        ETIQUETAS["motivo_salud"][politica.MOTIVO_VIGENTE_ENCIMA]
+        == "La puja actual ya está arriba de la puja a la que regresaría: sin cambio"
     )
 
 
 def test_salud_motivo_es_helper_fallback_y_none():
-    """A.6: `motivo_es` traduce por MOTIVOS_ES_SALUD, cae al id crudo con
+    """A.6: `motivo_es` traduce por el registro, humaniza los
     motivos desconocidos y pasa None a None (regla 3)."""
     assert dash.motivo_es(hygiene.MOTIVO_DESTINO_INCONSISTENTE) == (
-        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+        "Captura detenida: el destino de la meta de la campaña no coincide con su grupo exacto"
     )
-    assert dash.motivo_es("motivo_futuro") == "motivo_futuro"
+    assert dash.motivo_es("motivo_futuro") == "Motivo futuro"
     assert dash.motivo_es(None) is None
 
 
@@ -1900,13 +1914,17 @@ def test_salud_harvest_destino_bloque_con_resueltos_y_saltos(monkeypatch):
         )
         assert bloque == {
             "resueltos": {"grupo": 3, "excepcion": 0, "terna": 241},
-            "terna_es": ("Destino por terna del goal (migracion a grupo o excepcion pendiente)"),
+            "terna_es": (
+                "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una"
+                " excepción)"
+            ),
             "saltos_grupo": [
                 {
                     "campaign_id": 6102,
                     "motivo": "destino_inconsistente",
                     "motivo_es": (
-                        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+                        "Captura detenida: el destino de la meta de la campaña no coincide"
+                        " con su grupo exacto"
                     ),
                 }
             ],
@@ -1986,19 +2004,17 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
     """CAMPANA ACTIVA 01: los dos motivos nuevos del orquestador tienen
     traduccion en /salud (sin ella la pantalla mostraria el id crudo)."""
     from app import cycle as ciclo
-    from app.api_dashboard import MOTIVOS_ES_SALUD
 
-    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campaña")
-    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
+    assert ETIQUETAS["motivo_salud"][ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campaña")
+    assert ETIQUETAS["motivo_salud"][ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Grupo de anuncios")
 
 
 def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
     """BIDS 01: el motivo nuevo de cero ventas tiene traduccion en el feed
     (sin ella la pantalla mostraria el id crudo)."""
-    from app.api_dashboard import MOTIVOS_ES_DECISIONES
     from app.optimizer import eras as eras_mod
 
-    assert MOTIVOS_ES_DECISIONES[eras_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
+    assert ETIQUETAS["motivo_decision"][eras_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
         "Cero ventas"
     )
 
@@ -2512,20 +2528,19 @@ def test_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
 def test_motivos_v2_en_ambos_dicts_es():
     """A4: las abstenciones v2 viven en DECISIONES (plan-literal) y en
     SALUD (clase no-op, forward-A6; precedente MOTIVO_PAUSE dual)."""
-    from app.api_dashboard import MOTIVOS_ES_DECISIONES, MOTIVOS_ES_SALUD
     from app.optimizer import evidencia as ev
 
-    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
-        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
+    assert ETIQUETAS["motivo_decision"][ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+        "Todavía no hay datos suficientes para estar seguros: sin cambio de puja"
     )
-    assert MOTIVOS_ES_DECISIONES[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
-        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+    assert ETIQUETAS["motivo_decision"][ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+        "Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic"
     )
-    assert MOTIVOS_ES_SALUD[ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
-        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
+    assert ETIQUETAS["motivo_salud"][ev.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+        "Todavía no hay datos suficientes para estar seguros: sin cambio de puja"
     )
-    assert MOTIVOS_ES_SALUD[ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
-        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+    assert ETIQUETAS["motivo_salud"][ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+        "Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic"
     )
 
 
@@ -2627,17 +2642,18 @@ def test_decisiones_feed_evidencia_v2_union_y_mantiene(monkeypatch):
         abstiene = por_id[id_abstiene]["evidencia_v2"]
         assert abstiene["motivo"] == "cpc_post_cambio_insuficiente"
         assert abstiene["motivo_es"] == (
-            "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+            "Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta"
+            " cada clic"
         )
         assert abstiene["mantiene"] is False
 
         banda = por_id[id_banda]["evidencia_v2"]
-        assert banda["motivo_es"] == "ACoS sobre 1.15x del target: -12%"
+        assert banda["motivo_es"] == "ACoS 15 % arriba de la meta: baja la puja 12 %"
         assert banda["mantiene"] is True
         assert banda["new_value"] == "0.8800"
 
         salud = por_id[id_salud]["evidencia_v2"]
-        assert salud["motivo_es"] == "Rango [floor, ceiling] bloquea el ajuste"
+        assert salud["motivo_es"] == "La puja mínima o máxima configurada impide el cambio"
 
         assert por_id[id_vieja]["evidencia_v2"] is None
 

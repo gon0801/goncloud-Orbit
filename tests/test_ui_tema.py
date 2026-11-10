@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 from app import ui
 from app.api import _conexion_lectura
 from app.api_dashboard import PageWindow
+from app.formato import dinero, fecha_hora
 from app.main import app
-from app.ui import dinero_ui
 
 _RAIZ = Path(ui.__file__).resolve().parent
 
@@ -87,15 +87,15 @@ def test_css_tokens_noche_y_celdas_envuelven():
     assert "overflow-x: visible" in tarjeta.group(0)
 
 
-def test_dinero_ui_presentacion_sin_inventar():
-    assert dinero_ui("26.0000") == "26.00"
-    assert dinero_ui(None) is None
-    assert dinero_ui("x") == "x"
+def test_dinero_presentacion_sin_inventar():
+    assert dinero("26.0000") == "26.00"
+    assert dinero(None) == "—"
+    assert dinero("x") == "x"
 
 
-def test_ts_ui_recorta_microsegundos():
-    assert ui.ts_ui("2026-09-04 01:40:19.865606+00:00") == "2026-09-04 01:40"
-    assert ui.ts_ui(None) == "—"
+def test_fecha_hora_sin_microsegundos_en_hora_de_mexico():
+    assert fecha_hora("2026-09-04 01:40:19.865606+00:00") == "3 sep, 19:40"
+    assert fecha_hora(None) == "—"
 
 
 def test_campanas_html_dinero_a_2_decimales_clicks_enteros(monkeypatch):
@@ -180,10 +180,10 @@ def test_css_campanas_hace_scroll_horizontal_en_40rem():
     )
 
 
-def test_miles_ui_miles_y_none():
-    from app.ui import miles_ui
+def test_numero_miles_y_none():
+    from app.formato import numero
 
-    assert miles_ui("1735") == "1,735"
-    assert miles_ui(1127) == "1,127"
-    assert miles_ui(None) is None
-    assert miles_ui("xyz") == "xyz"
+    assert numero("1735") == "1,735"
+    assert numero(1127) == "1,127"
+    assert numero(None) == "—"
+    assert numero("xyz") == "xyz"

@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 from app.ads.campana_config import ConfigCampana
+from app.etiquetas import etiqueta
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 CLASES_SELLADAS = frozenset({"fuera_de_amazon", "ajuste_ubicacion", "presupuesto"})
@@ -31,11 +32,10 @@ _CAMPO_POR_UBICACION = {
     "resto_de_busqueda": "ajuste_resto_pct",
     "paginas_de_producto": "ajuste_producto_pct",
 }
-_NOMBRE_UBICACION = {
-    "arriba_de_busqueda": "arriba de búsqueda",
-    "resto_de_busqueda": "resto de búsqueda",
-    "paginas_de_producto": "páginas de producto",
-}
+
+
+def _en_frase(texto: str) -> str:
+    return texto[:1].lower() + texto[1:]
 
 
 @dataclass(frozen=True)
@@ -185,7 +185,7 @@ def planea_ajuste(
             raise AjusteSinCambio("el ajuste no cambia nada")
         despues = replace(vigente, **{campo: ajuste.porcentaje})
         frase = (
-            f"Orbit cambia el ajuste de {_NOMBRE_UBICACION[ajuste.ubicacion]}"
+            f"Orbit cambia el ajuste de {_en_frase(etiqueta(ajuste.ubicacion, 'ubicacion'))}"
             f" de +{actual} % a +{ajuste.porcentaje} %"
             f" en campaña {vigente.campana_externa}"
         )

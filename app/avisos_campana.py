@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
+from app.etiquetas import etiqueta
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.pantalla_dinero import FilaCampana, FilaUbicacion, Plataforma
 
@@ -24,13 +25,6 @@ CLASES: tuple[str, ...] = (
     "campana_sin_presupuesto",
     "presupuesto_expuesto",
 )
-
-NOMBRES_UBICACION = {
-    "arriba_de_busqueda": "Arriba de búsqueda",
-    "resto_de_busqueda": "Resto de búsqueda",
-    "paginas_de_producto": "Páginas de producto",
-    "fuera_de_amazon": "Fuera de Amazon",
-}
 
 
 @dataclass(frozen=True)
@@ -51,7 +45,7 @@ class Aviso:
 
 def _miles(valor: Decimal | int) -> str:
     """Entero con separador de miles, redondeo HALF_EVEN (espejo del
-    filtro `miles_ui`, que vive en la capa web y aqui no se importa)."""
+    filtro `numero` de app/formato.py, que vive en la capa web)."""
     return f"{round(valor):,}"
 
 
@@ -75,7 +69,7 @@ def avisos_del_dia(
                     clase="ubicacion_gasta_sin_vender",
                     campana_id=None,
                     frase=(
-                        f"{NOMBRES_UBICACION[fila.ubicacion]}: {_miles(fila.gasto)}"
+                        f"{etiqueta(fila.ubicacion, 'ubicacion')}: {_miles(fila.gasto)}"
                         f" {moneda} en 30 días, {clics} clics, ningún pedido."
                     ),
                 )

@@ -342,6 +342,14 @@ def _linea_banda_margen(plataforma, target: dict) -> str | None:
     )
 
 
+def _etiqueta(codigo: str | None, dominio) -> str:
+    """El registro de pantalla (app.etiquetas) importa app.cycle, que importa
+    este modulo: el import va aqui para no cerrar el ciclo."""
+    from app.etiquetas import etiqueta
+
+    return etiqueta(codigo, dominio)
+
+
 def _linea_target_margen(plataforma, target, ancla) -> str | None:
     """Linea del target de margen para el digest (ORBIT 06 2.3 segunda
     vuelta, D-2.3.7/D-2.3.14, spec §9): `target margen {plat}: {ancla} ->
@@ -350,15 +358,14 @@ def _linea_target_margen(plataforma, target, ancla) -> str | None:
     se abstiene. Cualquier ausente (sin bloque, sin aplicado, motivo sin
     etiqueta conocida -> id crudo) = None: la linea no sale (regla 3).
     Pura."""
-    from app.optimizer import goals as g
 
     if not isinstance(target, dict):
         return None
     plat = plataforma if isinstance(plataforma, str) and plataforma else "?"
     motivo = target.get("motivo_abstencion")
     if motivo:
-        etiqueta = g.ETIQUETA_ABSTENCION.get(motivo, motivo)
-        return f"target margen {plat}: abstencion {motivo} ({etiqueta})"
+        texto = _etiqueta(motivo, "motivo_abstencion")
+        return f"target margen {plat}: abstencion {motivo} ({texto})"
     emitir, _ = decide_aviso_target(target.get("target_aplicado"), ancla)
     if not emitir:
         return None
@@ -1010,11 +1017,11 @@ def notifica_destino_grupo(
 #
 # El texto lleva solo SKU, plataforma, precios, estado y motivo en
 # palabras: nunca costo, margen, goal ni cuerpos de error. Por eso el motivo
-# viaja traducido por `MOTIVO_PRECIO_ES` y el estado por `ESTADO_PRECIO_ES`
+# viaja traducido por el registro `app.etiquetas` (motivo_precio y estado_precio)
 # (los ids crudos `precio_no_cubre_costo`, `sobre_goal_sin_perdida` y
 # `goal_inalcanzable` contienen esas palabras); el ASIN solo sale en
 # plataformas Amazon (fuera de Amazon el id externo no es un ASIN);
-# el motivo desconocido cae al id crudo (la evidencia jamas se pierde).
+# un motivo desconocido sale en palabras y deja un aviso en el log.
 # Los builders son puros (sin red, sin secretos) y no reciben ningun campo
 # de costo/margen/goal/error: la ausencia es estructural, no un filtro.
 # El flanco lo decide `avisar_precio` (gancho `avisar` de la corrida A.5)
@@ -1065,49 +1072,6 @@ FRASEO_TIPO_PRECIO = {
     "cohorte": "cohorte",
 }
 
-MOTIVO_PRECIO_ES = {
-    "precio_divergente": "precio observado distinto del publicado",
-    "moneda_divergente": "moneda distinta entre observacion y escenario",
-    "precio_sin_observar": "sin observacion de precio del dia",
-    "precio_ausente": "sin precio publicado",
-    "fee_ausente": "sin cotizacion de comision",
-    "fee_no_lineal": "comision no lineal",
-    "impuesto_fee_pendiente": "impuesto pendiente en la comision",
-    "escenario_incoherente": "escenario incoherente",
-    "estimacion_motivo_desconocido": "motivo de estimacion desconocido",
-    "ingreso_no_positivo": "ingreso no positivo",
-    "precio_no_cubre_costo": "precio bajo el piso de rentabilidad",
-    "precio_mayor_al_doble": "precio mayor al doble del objetivo",
-    "sobre_goal_sin_perdida": "por encima del objetivo sin perdida",
-    "ledger_hueco": "ventas sin dato (libro rezagado)",
-    "historia_corta": "historia de ventas corta",
-    "sin_dato": "sin dato",
-    "ventas_sin_dato": "ventas sin dato",
-    "oferta_desactualizada": "oferta sin observacion reciente",
-    "n15_insuficiente": "ventas de 15 dias insuficientes",
-    "u60_bajo_minimo": "unidades de 60 dias bajo el minimo",
-    "racha_incompleta": "racha de senal incompleta",
-    "ventana_60_excluida": "ventana de 60 dias excluida",
-    "dia_no_disponible": "dia no disponible",
-    "dia_sin_observacion": "dia sin observacion",
-    "venta_sin_publicacion": "venta sin publicacion",
-    "evidencia_insuficiente": "evidencia insuficiente",
-    "no_converge": "sin convergencia tras el cambio de direccion",
-    "perdiendo_tras_subida": "perdiendo tras la subida",
-    "api_error": "falla de la API",
-    "no_confirmado": "no confirmado por la observacion",
-    "buy_box_perdida": "buy box perdida",
-    "cooldown": "enfriamiento entre cambios",
-    "en_tolerancia": "dentro de la tolerancia",
-    "movimiento_minimo": "movimiento bajo el minimo",
-    "sin_decision": "sin decision",
-    "sin_listing": "sin listing",
-    "catalogo_desactualizado": "catalogo desactualizado",
-    "no_a_la_venta": "no esta a la venta",
-    "canal_sin_dato": "canal sin dato",
-    "desconocido": "desconocido",
-}
-
 
 @dataclass(frozen=True)
 class GrupoPrecio:
@@ -1147,31 +1111,13 @@ class HuerfanaPrecio:
     tipo: str = "huerfana_sin_patch"
 
 
-def motivo_precio_es(motivo: str | None) -> str:
-    """Motivo de precio en palabras (sin costo/margen/goal). `fee_error:<code>`
-    colapsa al codigo corto (el cuerpo del error jamas viaja); `base:sub` se
-    traduce por partes; desconocido -> el id sin guiones bajos (CLARIDAD 01
-    E.4: nunca un codigo en la frase)."""
-    if not motivo:
-        return "desconocido"
-    if motivo in MOTIVO_PRECIO_ES:
-        return MOTIVO_PRECIO_ES[motivo]
-    if motivo.startswith("fee_error"):
-        codigo = motivo.partition(":")[2].strip()
-        return f"falla de comision ({codigo})" if codigo else "falla de comision"
-    base, sep, sub = motivo.partition(":")
-    if sep:
-        return f"{motivo_precio_es(base)}: {motivo_precio_es(sub)}"
-    return motivo.replace("_", " ")
-
-
 def aviso_precio_grupo(grupo: GrupoPrecio) -> str:
     """Builder PURO del aviso por (plataforma, motivo): conteo + hasta 5
     SKUs + resto contado (200 con el mismo motivo -> UN aviso)."""
     lineas = [
         f"[Orbit] precio: {FRASEO_TIPO_PRECIO[grupo.tipo]}",
         f"plataforma: {grupo.platform}",
-        f"motivo: {motivo_precio_es(grupo.motivo)}",
+        f"motivo: {_etiqueta(grupo.motivo, 'motivo_precio')}",
         f"total: {grupo.total}",
     ]
     skus = tuple(grupo.skus)[:TOPE_SKUS_PRECIO]
@@ -1181,26 +1127,6 @@ def aviso_precio_grupo(grupo: GrupoPrecio) -> str:
     if resto > 0:
         lineas.append(f"y {resto} mas")
     return "\n".join(lineas)
-
-
-ESTADO_PRECIO_ES = {
-    "subir": "subida",
-    "bajar": "bajada",
-    "mantener": "mantenido",
-    "no_evaluado": "no evaluado",
-    "goal_inalcanzable": "objetivo inalcanzable",
-    "frenado": "frenado",
-    "no_confirmado": "no confirmado",
-    "buy_box_perdida": "buy box perdida",
-}
-
-
-def estado_precio_es(estado: str | None) -> str:
-    """Estado de precio en palabras (B5: jamas el id crudo con «goal»).
-    Estado desconocido -> id crudo (la evidencia no se pierde)."""
-    if not estado:
-        return "desconocido"
-    return ESTADO_PRECIO_ES.get(estado, estado)
 
 
 def _es_plataforma_amazon(platform: str | None) -> bool:
@@ -1230,9 +1156,9 @@ def aviso_precio_producto(item: ProductoPrecio) -> str:
     if precio is not None:
         lineas.append(f"precio: {precio}" + (f" {item.moneda}" if item.moneda else ""))
     if item.estado:
-        lineas.append(f"estado: {estado_precio_es(item.estado)}")
+        lineas.append(f"estado: {_etiqueta(item.estado, 'estado_precio')}")
     if item.motivo:
-        lineas.append(f"motivo: {motivo_precio_es(item.motivo)}")
+        lineas.append(f"motivo: {_etiqueta(item.motivo, 'motivo_precio')}")
     return "\n".join(lineas)
 
 
@@ -1309,33 +1235,6 @@ class CompuertaPrecio:
     tipo: str = "compuerta"
 
 
-CAUSA_COMPUERTA_ES = {
-    "movimiento_masivo": "movimiento masivo",
-    "insumo_sistemico": "insumo sistemico",
-}
-
-# El nombre del insumo sale en el aviso (bosquejo U); "costo" literal esta
-# vetado en los textos (DoD S.6), asi que viaja como "coste".
-INSUMO_COMPUERTA_ES = {
-    "costo": "coste",
-    "envio": "envio",
-    "retencion": "retencion",
-    "fx": "fx",
-    "fee_fijo": "comision fija",
-    "fee_variable": "comision variable",
-}
-
-
-def causa_compuerta_es(causa: str) -> str:
-    """Causa en palabras; desconocida -> id crudo (la evidencia no se pierde)."""
-    return CAUSA_COMPUERTA_ES.get(causa, causa)
-
-
-def insumo_compuerta_es(insumo: str) -> str:
-    """Insumo en palabras, sin el literal "costo"; desconocido -> crudo."""
-    return INSUMO_COMPUERTA_ES.get(insumo, insumo)
-
-
 def aviso_precio_compuerta(aviso: CompuertaPrecio) -> str:
     """Builder PURO del aviso de compuerta: N de M quieren moverse hoy, no
     se aplico nada, y donde soltarlo. Con `insumo_sistemico` nombra el
@@ -1345,10 +1244,10 @@ def aviso_precio_compuerta(aviso: CompuertaPrecio) -> str:
         f"plataforma: {aviso.platform}",
         f"dia: {aviso.dia.isoformat()}",
         f"universo: {aviso.platform}/{aviso.canal}",
-        f"causa: {causa_compuerta_es(aviso.causa)}",
+        f"causa: {_etiqueta(aviso.causa, 'causa_compuerta')}",
     ]
     if aviso.insumo:
-        lineas.append(f"insumo: {insumo_compuerta_es(aviso.insumo)}")
+        lineas.append(f"insumo: {_etiqueta(aviso.insumo, 'insumo_compuerta')}")
     lineas.append(
         f"{aviso.nuevas} de {aviso.medidas} quieren moverse hoy;"
         " no se aplico nada. Entra a /precios para soltarlo."
@@ -1356,7 +1255,7 @@ def aviso_precio_compuerta(aviso: CompuertaPrecio) -> str:
     if aviso.detalle:
         detalle = aviso.detalle
         if aviso.insumo:
-            detalle = detalle.replace(aviso.insumo, insumo_compuerta_es(aviso.insumo), 1)
+            detalle = detalle.replace(aviso.insumo, _etiqueta(aviso.insumo, "insumo_compuerta"), 1)
         lineas.append(f"detalle: {detalle}")
     return "\n".join(lineas)
 
@@ -1389,7 +1288,7 @@ def aviso_precio_cambio_error(aviso: CambioErrorPrecio) -> str:
         else:
             lineas.append(f"id externo: {aviso.asin}")
     if aviso.motivo:
-        lineas.append(f"motivo: {motivo_precio_es(aviso.motivo)}")
+        lineas.append(f"motivo: {_etiqueta(aviso.motivo, 'motivo_precio')}")
     lineas.append("el cambio quedo en error: revisar y reintentar en el repaso")
     return "\n".join(lineas)
 

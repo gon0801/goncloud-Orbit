@@ -137,8 +137,8 @@ CANALES: dict[str, Canal] = {
         "America/Mexico_City",
         None,
         (
-            "meli no publica madurez de atribucion D-8 (no hereda la de Amazon); "
-            "cierra sus cifras en T+1/T+2, asi que su D-1 aun puede cambiar"
+            "Mercado Libre no dice cuándo maduran sus ventas atribuidas: cierra sus "
+            "cifras uno o dos días después, así que lo de ayer aún puede cambiar"
         ),
     ),
 }

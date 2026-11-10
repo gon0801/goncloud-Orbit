@@ -2779,7 +2779,7 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
         assert "bloque-seguridad-amazon_mx" in html
         assert "Soltar" in html
         assert f'data-liberar-corrida="{corrida}"' in html
-        assert "movimiento_masivo" in html
+        assert "movimiento masivo" in html
         data = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios").json()
         seg = data["plataformas"]["amazon_mx"]["seguridad"]
         assert seg["modo_global"] == "live"

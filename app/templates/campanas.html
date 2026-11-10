@@ -17,7 +17,7 @@
     {% for tarjeta in presentacion.tarjetas %}
     <article class="tarjeta-plataforma">
       <div class="tarjeta-cabeza">
-        <h3>{{ tarjeta.etiqueta }} <span class="cifra tarjeta-meta">{{ tarjeta.moneda }} · {{ tarjeta.n }} campañas</span></h3>
+        <h3>{{ tarjeta.etiqueta }} <span class="cifra tarjeta-meta">{{ tarjeta.moneda }} · {{ tarjeta.n | numero }} campañas</span></h3>
         <span class="cifra target-plataforma">Target efectivo {{ tarjeta.target }}</span>
       </div>
       <dl class="metricas-plataforma">
@@ -32,7 +32,7 @@
         </div>
         <ul class="leyenda-estados">
           {% for segmento in tarjeta.segmentos %}
-          <li><span class="punto punto-{{ segmento.clave }}" aria-hidden="true"></span>{{ segmento.etiqueta }} <span class="cifra">{{ segmento.n }}</span></li>
+          <li><span class="punto punto-{{ segmento.clave }}" aria-hidden="true"></span>{{ segmento.etiqueta }} <span class="cifra">{{ segmento.n | numero }}</span></li>
           {% endfor %}
         </ul>
       </div>
@@ -47,7 +47,7 @@
     <h2 id="h-lista">Lista de campañas</h2>
     <div role="tablist" aria-label="Vista rápida">
       {% for pestana in presentacion.pestanas %}
-      <a role="tab" href="{{ pestana.href }}" aria-selected="{{ 'true' if pestana.activa else 'false' }}">{{ pestana.etiqueta }} <span class="cifra">{{ pestana.n }}</span></a>
+      <a role="tab" href="{{ pestana.href }}" aria-selected="{{ 'true' if pestana.activa else 'false' }}">{{ pestana.etiqueta }} <span class="cifra">{{ pestana.n | numero }}</span></a>
       {% endfor %}
     </div>
   </div>
@@ -60,7 +60,7 @@
       <select name="plataforma">
         <option value="">todas</option>
         {% for p in vista.plataformas %}
-        <option value="{{ p }}"{% if vista.filtros.plataforma == p %} selected{% endif %}>{{ p }}</option>
+        <option value="{{ p }}"{% if vista.filtros.plataforma == p %} selected{% endif %}>{{ p | etiqueta("plataforma") }}</option>
         {% endfor %}
       </select>
     </label>
@@ -79,7 +79,7 @@
       <select name="procedencia">
         <option value="">todas</option>
         {% for p in vista.peldanos %}
-        <option value="{{ p }}"{% if vista.filtros.procedencia == p %} selected{% endif %}>{{ p }}</option>
+        <option value="{{ p }}"{% if vista.filtros.procedencia == p %} selected{% endif %}>{{ p | etiqueta("procedencia") }}</option>
         {% endfor %}
       </select>
     </label>
@@ -106,7 +106,7 @@
     </details>
   </form>
 
-  <p class="leyenda"><span class="cifra">{{ presentacion.mostradas }} de {{ presentacion.total }} campañas · ventana 30d incluye inmaduros</span><span>Clic en una columna para ordenar</span></p>
+  <p class="leyenda"><span class="cifra">{{ presentacion.mostradas | numero }} de {{ presentacion.total | numero }} campañas · ventana 30d incluye inmaduros</span><span>Clic en una columna para ordenar</span></p>
 
   <div class="tabla-scroll" role="region" aria-label="Tabla de campañas" tabindex="0">
   <table>
@@ -127,31 +127,31 @@
       {% for fila in filas %}
       {% set item = fila.item %}
       <tr{% if fila.clase %} class="{{ fila.clase }}"{% endif %}>
-        <td>{{ item.nombre or "—" }}
+        <td><span data-dato-libre>{{ item.nombre or "—" }}</span>
           {% if item.goal %}
-          <div class="mutado">{{ item.goal.scope }} · {{ item.goal.mode }}
-            · floor {{ item.goal.floor }} · ceiling {{ item.goal.ceiling }}{% if not item.goal.enabled %} · <span class="alerta">disabled</span>{% endif %}</div>
+          <div class="mutado">Meta por {{ item.goal.scope | etiqueta("alcance_goal") | lower }} · {{ item.goal.mode | etiqueta("modo") }}
+            · puja mínima {{ item.goal.floor | dinero }} · máxima {{ item.goal.ceiling | dinero }}{% if not item.goal.enabled %} · <span class="alerta">apagada</span>{% endif %}</div>
           {% else %}<div class="mutado">sin goal</div>{% endif %}
         </td>
         <td>
           {% if item.status == "ENABLED" %}<span class="chip ok">activa</span>
           {% elif item.status == "PAUSED" %}<span class="chip">pausada</span>
           {% elif item.status == "ARCHIVED" %}<span class="chip mutado">archivada</span>
-          {% elif item.status %}<span class="chip">{{ item.status }}</span>
+          {% elif item.status %}<span class="chip">{{ item.status | etiqueta("estado_campana") }}</span>
           {% else %}<span class="mutado">—</span>{% endif %}
         </td>
-        <td>{{ item.plataforma }} · {{ item.moneda }}</td>
-        <td class="num">{% if item.metricas_30d.cost is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.cost | dinero_coma_ui }}{% endif %}</td>
-        <td class="num">{% if item.metricas_30d.ad_revenue is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.ad_revenue | dinero_coma_ui }}{% endif %}</td>
-        <td class="num">{% if item.metricas_30d.clicks is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.clicks | miles_ui }}{% endif %}</td>
+        <td>{{ item.plataforma | etiqueta("plataforma") }} · {{ item.moneda }}</td>
+        <td class="num">{% if item.metricas_30d.cost is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.cost | dinero }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.ad_revenue is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.ad_revenue | dinero }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.clicks is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.clicks | numero }}{% endif %}</td>
         <td class="num celda-acos">
           {% if item.metricas_30d.sin_ventas %}<span class="chip chip-sinventas">sin ventas</span>
-          {% elif item.metricas_30d.acos %}<span class="acos{% if fila.estado %} acos-{{ fila.estado.clave }}{% endif %}">{{ item.metricas_30d.acos }}%</span>
+          {% elif item.metricas_30d.acos %}<span class="acos{% if fila.estado %} acos-{{ fila.estado.clave }}{% endif %}">{{ item.metricas_30d.acos | pct }}</span>
           {% else %}<span class="mutado">—</span>{% endif %}
           {% if fila.estado %}<span class="estado-etiqueta estado-{{ fila.estado.clave }}">{{ fila.estado.etiqueta }}</span>{% endif %}
         </td>
-        <td class="num">{% if item.target_efectivo is none or item.target_efectivo.valor is none %}<span class="mutado">sin target</span>{% else %}{{ item.target_efectivo.valor }}%{% endif %}</td>
-        <td>{% if item.target_efectivo is none or item.target_efectivo.peldano is none %}<span class="mutado">sin target</span>{% else %}<span class="chip">{{ item.target_efectivo.peldano }}</span>{% endif %}</td>
+        <td class="num">{% if item.target_efectivo is none or item.target_efectivo.valor is none %}<span class="mutado">sin target</span>{% else %}{{ item.target_efectivo.valor | pct }}{% endif %}</td>
+        <td>{% if item.target_efectivo is none or item.target_efectivo.peldano is none %}<span class="mutado">sin target</span>{% else %}<span class="chip">{{ item.target_efectivo.peldano | etiqueta("procedencia") }}</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

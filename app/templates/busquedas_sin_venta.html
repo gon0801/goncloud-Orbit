@@ -10,7 +10,7 @@
   <a href="/busquedas-sin-venta?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
 </p>
 {% if referencia.visto_pct is not none %}
-<p>{{ referencia.visto_pct }} % de tu gasto cayó en búsquedas que no vendieron. Con la conversión de tu cuenta, el azar daría {{ referencia.azar_pct }} %. La diferencia es lo único que un negative podría recuperar.</p>
+<p>{{ referencia.visto_pct | pct }} de tu gasto cayó en búsquedas que no vendieron. Con la conversión de tu cuenta, el azar daría {{ referencia.azar_pct | pct }}. La diferencia es lo único que un negative podría recuperar.</p>
 {% else %}
 <p>Sin pedidos o sin clics en estos 90 días: no hay referencia de azar.</p>
 {% endif %}
@@ -30,10 +30,10 @@
     <tbody>
       {% for fila in asins %}
       <tr>
-        <td>{{ fila.asin }}{% if fila.es_propio %} <span class="chip">es un producto tuyo</span>{% endif %}</td>
-        <td class="num">{{ fila.clics }}</td>
-        <td class="num">{{ fila.gasto }} {{ moneda }}</td>
-        <td>{{ fila.campanas | join(", ") }}</td>
+        <td><span data-dato-libre>{{ fila.asin }}</span>{% if fila.es_propio %} <span class="chip">es un producto tuyo</span>{% endif %}</td>
+        <td class="num">{{ fila.clics | numero }}</td>
+        <td class="num">{{ fila.gasto | dinero }} {{ moneda }}</td>
+        <td data-dato-libre>{{ fila.campanas | join(", ") }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -60,11 +60,11 @@
     <tbody>
       {% for fila in palabras %}
       <tr>
-        <td>{{ fila.palabra }}</td>
-        <td class="num">{{ fila.busquedas }}</td>
-        <td class="num">{{ fila.clics }}</td>
-        <td class="num">{{ fila.gasto }} {{ moneda }}</td>
-        <td>{{ fila.ejemplos | join(", ") }}</td>
+        <td data-dato-libre>{{ fila.palabra }}</td>
+        <td class="num">{{ fila.busquedas | numero }}</td>
+        <td class="num">{{ fila.clics | numero }}</td>
+        <td class="num">{{ fila.gasto | dinero }} {{ moneda }}</td>
+        <td data-dato-libre>{{ fila.ejemplos | join(", ") }}</td>
       </tr>
       {% endfor %}
     </tbody>

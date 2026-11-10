@@ -507,12 +507,9 @@ def test_r09r4_t01_t07_retiros_abiertos_form_ids_escape():
     (T03/T04 XSS). Render puro, sin base."""
     from types import SimpleNamespace
 
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    from app.ui import templates
 
-    env = Environment(
-        loader=FileSystemLoader("app/templates"),
-        autoescape=select_autoescape(["html"]),
-    )
+    env = templates.env
     html = env.get_template("productos_sin_clics.html").render(
         plataforma="amazon_mx",
         pantalla="productos-sin-clics",
@@ -542,7 +539,7 @@ def test_r09r4_t01_t07_retiros_abiertos_form_ids_escape():
     assert 'data-reponer data-retiros="9"' in html
     assert html.count('data-esperada="REGRESAR 1 ANUNCIOS"') == 2
     assert html.count("data-reponer") == 2
-    assert "<td>subfamilia</td>" in html
+    assert "<td>Su subfamilia se retira</td>" in html
     assert "<script>" not in html and "&lt;script&gt;" in html
     assert "ad-<b>x" not in html and "ad-&lt;b&gt;x" in html
 
@@ -621,12 +618,9 @@ async function corre(guardados) {
 
 
 def _render_limites(limites: dict) -> str:
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    from app.ui import templates
 
-    env = Environment(
-        loader=FileSystemLoader(str(RAIZ / "app" / "templates")),
-        autoescape=select_autoescape(["html"]),
-    )
+    env = templates.env
     html = env.get_template("productos_sin_clics.html").render(
         plataforma="amazon_mx",
         pantalla="productos-sin-clics",

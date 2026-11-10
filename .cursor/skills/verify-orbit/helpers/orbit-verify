@@ -1263,11 +1263,11 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
         "fila_campana_a": "Campana A" in texto,
         "chip_activa": "activa" in texto,
-        "plataforma_usd": "amazon_us · USD" in texto,
+        "plataforma_usd": "Amazon US · USD" in texto,
         "cost_semilla": ">12.34<" in texto and "12.3400" not in texto,
         "revenue_semilla": ">45.67<" in texto and "45.6700" not in texto,
-        "target_25": "25.00%" in texto or ">25.00%<" in texto,
-        "peldano_goal_plataforma": "goal_plataforma" in texto,
+        "target_25": "25.00 %" in texto,
+        "peldano_goal_plataforma": "Meta de la plataforma" in texto,
         "th_procedencia": "Procedencia" in texto,
         "enlace_crear": 'href="/campanas/nuevas"' in texto,
         "filtros_avanzados": "Filtros por métricas" in texto,
@@ -1468,7 +1468,7 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     )
 
     checks["meli_sin_ventana_amazon"] = bool(meli_bloque) and "Cifras inmaduras" not in meli_bloque
-    checks["meli_motivo_sin_madurez"] = "no publica madurez" in meli_bloque
+    checks["meli_motivo_sin_madurez"] = "no dice cuándo maduran" in meli_bloque
     checks["amazon_tiene_ventana"] = "Cifras inmaduras" in texto
 
     st7, html7 = _get_html(base, "/?canal=meli&periodo=7")
@@ -1603,12 +1603,12 @@ def cmd_drive_decisiones(args: argparse.Namespace) -> None:
         "pagina_1_de_1": "pagina 1 de 1" in texto,
         "sin_rel_next": 'rel="next"' not in texto,
         "campana_a": "Campana A" in texto,
-        "target_25": "25.00%" in texto,
+        "target_25": "25.00 %" in texto,
         "old_1_00": ">1.00<" in texto,
         "new_0_88": ">0.88<" in texto,
         "neg_zapato": "zapato blanco" in texto,
-        "motive_acos": "ACoS sobre 1.15x del target" in texto,
-        "motive_term_sin_ventas": "term_sin_ventas" in texto,
+        "motive_acos": "ACoS 15 % arriba de la meta" in texto,
+        "motive_term_sin_ventas": "Term sin ventas" in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/decisiones")
@@ -1632,7 +1632,7 @@ def cmd_drive_decisiones(args: argparse.Namespace) -> None:
     checks["api_has_negative_zapato"] = any(
         i.get("kind") == "negative"
         and i.get("search_term") == "zapato blanco"
-        and i.get("motivo_es") == "term_sin_ventas"
+        and i.get("motivo_es") == "Term sin ventas"
         for i in items
     )
 
@@ -1674,14 +1674,14 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=salud": 'data-pantalla="salud"' in texto,
-        "h2_salud": "Salud — ultimo ciclo" in texto,
+        "h2_salud": "Salud: último ciclo" in texto,
         "decisiones_2": "decisiones: 2" in texto,
-        "applies_0": "applies: 0" in texto,
+        "applies_0": "aplicadas: 0" in texto,
         "canvas_skips_amazon_us": 'id="skips-amazon_us"' in texto,
         "script_skips_amazon_us": 'id="datos-skips-amazon_us"' in texto,
-        "quota_del_dia": "Quota del dia" in texto,
-        "quota_sin_clave": "— (sin clave)" in texto,
-        "historico_14d": "Historico (14d)" in texto,
+        "quota_del_dia": "Cambios permitidos hoy" in texto,
+        "quota_sin_clave": "— (sin tope)" in texto,
+        "historico_14d": "Últimos 14 ciclos" in texto,
     }
 
     # Validacion de motivo_es en script del canvas de skips.
@@ -1696,7 +1696,7 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
     skip_data = json.loads(raw)
     motivo_es = ((skip_data.get("entidad") or {}).get("estado_no_enabled") or {}).get("motivo_es")
     checks["skips_motivo_es_human"] = isinstance(motivo_es, str) and (
-        "no habilitada" in motivo_es or "no habilitado" in motivo_es
+        "no está habilitado" in motivo_es
     )
 
     stj, _, rawj = _http(f"{base}/api/dashboard/salud")
@@ -1752,7 +1752,7 @@ def cmd_drive_contribucion(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=contribucion": 'data-pantalla="contribucion"' in texto,
-        "h2_contribucion": "Contribucion por campaña" in texto,
+        "h2_contribucion": "Contribución por campaña" in texto,
         "no_hay_filas": "Sin campañas con actividad madura en la ventana." in texto,
     }
 
@@ -1809,7 +1809,7 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=cortes": 'data-pantalla="cortes"' in texto,
-        "h2_cortes": "Propuestas pendientes de decision" in texto,
+        "h2_cortes": "Propuestas pendientes de decisión" in texto,
         "bloque_crecen": "Crecen" in texto,
         "bloque_recortan": "Recortan" in texto,
         "columna_por_que": "Por que" in texto,
@@ -1876,12 +1876,12 @@ def cmd_drive_inertes(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=inertes": 'data-pantalla="inertes"' in texto,
-        "h2_inertes": "<h2>Entidades sin trafico</h2>" in texto,
+        "h2_inertes": "<h2>Keywords y productos sin visitas</h2>" in texto,
         "nav_aria_current": 'href="/inertes"' in texto and 'aria-current="page"' in texto,
-        "vacio_semilla": "sin entidades inertes: todo lo activo tiene trafico reciente." in texto,
-        "kpi_hojas": "Hojas sin trafico" in texto,
+        "vacio_semilla": "Sin keywords ni productos inertes: todo lo activo tiene visitas recientes." in texto,
+        "kpi_hojas": "Sin visitas" in texto,
         "h3_lotes": "Lotes de archivado" in texto,
-        "vacio_lotes": "sin lotes de archivado todavia." in texto,
+        "vacio_lotes": "Sin lotes de archivado todavía." in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/inertes")
@@ -2001,7 +2001,7 @@ def cmd_drive_settings(args: argparse.Namespace) -> None:
         "nav_aria_current": 'href="/settings"' in texto and 'aria-current="page"' in texto,
         "token_input": 'id="settings-token"' in texto,
         "plataforma_us": 'data-plataforma="amazon_us"' in texto,
-        "peldano_goal_plataforma": "goal_plataforma" in texto,
+        "peldano_goal_plataforma": "Meta de la plataforma" in texto,
         "target_25": "25.00" in texto,
         "sin_goals_campana": "sin goals de campaña" in texto,
     }
@@ -2298,9 +2298,9 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         "collar_grupo_y_campana": "Grupo collar" in fila_collar and "Campana P" in fila_collar,
         "hoja_target_vigente": "collar plata" in fila_collar
         and "10.00 %" in fila_collar
-        and "margen_plataforma" in fila_collar,
-        "hoja_veredicto_actual_vs_meta": "Mantener · dentro_de_banda" in fila_collar
-        and "Mover -12.00 % a 0.88 · acos_sobre_target" in fila_collar
+        and "Margen de la plataforma" in fila_collar,
+        "hoja_veredicto_actual_vs_meta": "Mantener · Dentro de banda" in fila_collar
+        and "Mover -12.00 % a 0.88 · Acos sobre target" in fila_collar
         and ">cambia<" in fila_collar,
         "aretes_sin_meta_por_halo": "Aretes demo" in fila_aretes
         and "sin meta" in fila_aretes

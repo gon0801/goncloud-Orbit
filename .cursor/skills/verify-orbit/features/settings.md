@@ -5,8 +5,8 @@ Settings muestra la cascada vigente por plataforma (target, procedencia, caps, i
 ## Sub-features
 
 - `settings-nav` abre `/settings` desde el pie del sidebar y marca `aria-current="page"`.
-- `settings-sesion` muestra `config_version_id`, modo global y el campo `#settings-token`.
-- `settings-plataforma` una tarjeta `data-plataforma` por `amazon_us` / `amazon_mx` con target vigente + peldano, target manual, margen, confianzas, motor de bids, motor de precios, `ACoS objetivo del Resumen (opcional, %)` (`input[data-resumen-acos]` para `amazon_mx`, `amazon_us` y `meli`) y caps.
+- `settings-sesion` muestra `config_version_id`, modo global («Modo global (solo lectura): Práctica») y el campo `#settings-token` (placeholder «Token de escritura»).
+- `settings-plataforma` una tarjeta `data-plataforma` por `amazon_us` / `amazon_mx` (h3 «Amazon US (USD)») con «Meta vigente: `25.00 %` · sale de: <procedencia en español>», target manual, margen, confianzas, motor de bids, motor de precios, `ACoS objetivo del Resumen (opcional, %)` (`input[data-resumen-acos]` para `amazon_mx`, `amazon_us` y `meli`) y caps. El botón dice «Guardar configuración de Amazon US».
 - `settings-goals` goals de plataforma en su tarjeta; goals de campana en seccion propia. Sin goals de campana muestra `sin goals de campaña`.
 - `settings-api` `GET /api/dashboard/settings` es el mismo snapshot.
 
@@ -22,13 +22,13 @@ Preconditions:
 - Semilla: `config_version` con `ads_optimizer_mode=shadow` y un goal de plataforma amazon_us a 25%.
 
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
-- **Seguir el nav.** Corre `curl -sS "$BASE/settings"`. Status 200. El HTML contiene `data-pantalla="settings"`, `h1` `Settings`, `h2` `Settings`, `href="/settings"` junto a `aria-current="page"`, `#settings-token`, `data-plataforma="amazon_us"`, `goal_plataforma`, `25.00` y `sin goals de campaña`.
+- **Seguir el nav.** Corre `curl -sS "$BASE/settings"`. Status 200. El HTML contiene `data-pantalla="settings"`, `h1` `Settings`, `h2` `Settings`, `href="/settings"` junto a `aria-current="page"`, `#settings-token`, `data-plataforma="amazon_us"`, `Meta de la plataforma` (la procedencia `goal_plataforma`), `25.00 %` y `sin goals de campaña`.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/settings"`. Status 200. `modo_global` es `shadow`. `plataformas` trae amazon_us con `target_vigente.valor` `25.00` y `peldano` `goal_plataforma`. Hay un goal `scope=platform` de amazon_us. No hay goal `scope=campaign`.
 - **Proof.** Guarda HTML de `/` y `/settings` mas el JSON bajo `evidence/<run_id>/settings/`. O corre `.cursor/skills/verify-orbit/helpers/orbit-verify drive-settings`.
 
 ## Gotchas
 
 - El submit lo cablea `/static/js/settings.js` con header `x-orbit-token`. No POSTees escritura en el baseline.
-- amazon_mx puede mostrar un peldano `default` si no hay goal sembrado. Eso es la cascada del motor, no un hueco de template.
+- amazon_mx puede mostrar un peldano `default` si no hay goal sembrado (sin etiqueta propia: sale humanizado, «Default»). Eso es la cascada del motor, no un hueco de template.
 - `margen_habilitado` es "clave presente", no un booleano inventado. La semilla no prende margen.
 - Mode global ausente se pinta `—`. La semilla trae `shadow`.

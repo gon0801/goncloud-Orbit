@@ -303,7 +303,7 @@ def test_a6_pagina_decisiones_muestra_etiqueta_del_job(monkeypatch):
         html = _cliente_f2(conn, monkeypatch).get("/decisiones").text
         assert "Negando el termino en las campanas hermanas" in html
         assert f"job #{jid}" in html
-        assert "product_targeting: pt_no_acepta_negative_keyword" in html
+        assert "Por producto: la campaña por producto no acepta negativos de keyword" in html
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +419,7 @@ def test_a6_cortes_harvest_terna_sin_hermanas_y_motivo_traducido(monkeypatch):
         assert len(items) == 1
         assert items[0]["hermanas"] is None
         assert items[0]["destino"]["motivo_es"] == (
-            "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+            "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción)"
         )
 
 
@@ -466,7 +466,7 @@ def test_a6_pagina_cortes_nombra_hermanas_y_escapa_nombre(monkeypatch):
         )
         html = _cliente_f2(conn, monkeypatch).get("/cortes").text
         assert "se negara tambien en:" in html
-        assert "category_broad" in html and "product_targeting" in html
+        assert "Amplia de la categoría" in html and "Por producto" in html
         assert "Tampoco se negara en:" in html
         assert "<script>alert('xss')</script>" not in html
         assert "&lt;script&gt;" in html

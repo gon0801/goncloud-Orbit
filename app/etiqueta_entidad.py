@@ -5,27 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-TIPOS_TARGET: dict[str, str] = {
-    "ASIN_SAME_AS": "mismo ASIN",
-    "ASIN_ACCESSORY_RELATED": "accesorio",
-    "ASIN_SUBSTITUTE_RELATED": "sustituto",
-    "ASIN_ACCESSORY": "accesorio",
-    "ASIN_BRAND_SAME_AS": "misma marca",
-    "ASIN_CATEGORY_SAME_AS": "misma categoria",
-    "ASIN_EXPANDED_FROM": "expandido de",
-    "ASIN_AGE_RANGE_SAME_AS": "misma edad",
-    "ASIN_GENRE_SAME_AS": "mismo genero",
-    "ASIN_IS_PRIME_SHIPPING_ELIGIBLE": "Prime",
-    "ASIN_PRICE_LESS_THAN": "precio menor a",
-    "ASIN_PRICE_GREATER_THAN": "precio mayor a",
-    "ASIN_PRICE_BETWEEN": "precio entre",
-    "ASIN_REVIEW_RATING_LESS_THAN": "rating menor a",
-    "ASIN_REVIEW_RATING_GREATER_THAN": "rating mayor a",
-    "ASIN_REVIEW_RATING_BETWEEN": "rating entre",
-    "QUERY_BROAD_REL_MATCHES": "query amplia",
-    "QUERY_HIGH_REL_MATCHES": "query cercana",
-}
-
 
 @dataclass(frozen=True, slots=True)
 class EtiquetaEntidad:
@@ -119,11 +98,14 @@ def _predicado(pred: object) -> str | None:
     tipo = pred.get("type")
     if not isinstance(tipo, str) or not tipo.strip():
         return None
-    etiqueta = TIPOS_TARGET.get(tipo) or _tipo_desconocido(tipo)
+    # app.cycle llega aqui por apply y el registro importa app.cycle: import tardio.
+    from app.etiquetas import ETIQUETAS
+
+    texto = ETIQUETAS["tipo_target"].get(tipo) or _tipo_desconocido(tipo)
     valor = pred.get("value")
     if valor is None or valor == "":
-        return etiqueta
-    return f"{etiqueta} {valor}"
+        return texto
+    return f"{texto} {valor}"
 
 
 def _tipo_desconocido(tipo: str) -> str:

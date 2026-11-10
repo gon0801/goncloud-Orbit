@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.api_dashboard import MOTIVOS_ES_DECISIONES, MOTIVOS_ES_SALUD
+from app.etiquetas import ETIQUETAS
 
 _TEMPLATES = Path(__file__).resolve().parents[1] / "app" / "templates"
 _CAMPANA_ASCII = re.compile(r"\bcampanas?\b", re.IGNORECASE)
@@ -31,10 +31,7 @@ def test_templates_sin_campana_ascii_en_copia_visible():
 
 def test_motivos_es_sin_campana_ascii():
     restos: list[str] = []
-    for nombre, tabla in (
-        ("MOTIVOS_ES_DECISIONES", MOTIVOS_ES_DECISIONES),
-        ("MOTIVOS_ES_SALUD", MOTIVOS_ES_SALUD),
-    ):
+    for nombre, tabla in ETIQUETAS.items():
         for valor in tabla.values():
             hallado = _CAMPANA_ASCII.search(valor)
             if hallado is not None:

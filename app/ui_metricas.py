@@ -11,12 +11,7 @@ from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 
 from app.dashboard_resumen import acos_texto, agrega_filas, roas_texto, variacion
-
-ETIQUETAS_CANAL = {
-    "amazon_mx": "Amazon MX",
-    "amazon_us": "Amazon US",
-    "meli": "Mercado Libre",
-}
+from app.etiquetas import etiqueta as etiqueta_de
 
 
 def _dec(valor) -> Decimal | None:
@@ -367,7 +362,7 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
     linea_svg, area_svg = _spark_paths(series)
     return {
         "nombre": nombre,
-        "etiqueta": ETIQUETAS_CANAL.get(nombre, nombre),
+        "etiqueta": etiqueta_de(nombre, "plataforma"),
         "moneda": moneda,
         "meta_acos": meta_str,
         "estado_texto": estado_texto,
@@ -393,7 +388,7 @@ def _item_gasto_sin_venta(
     dias_sv = _dias_gasto_sin_venta(series)
     if not dias_sv:
         return None
-    etiqueta = ETIQUETAS_CANAL.get(nombre, nombre)
+    etiqueta = etiqueta_de(nombre, "plataforma")
     moneda = bloque.get("moneda", "")
     tot = bloque.get("totals") or {}
     mad = bloque.get("maduracion") or {}
@@ -453,7 +448,7 @@ def _item_caida_ma7(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | None
     picos = _picos_ma7(series)
     if picos is None or picos["caida_pct"] > Decimal("-10.0"):
         return None
-    etiqueta = ETIQUETAS_CANAL.get(nombre, nombre)
+    etiqueta = etiqueta_de(nombre, "plataforma")
     mad = bloque.get("maduracion") or {}
     evidencia = (
         f"La media de 7 dias de gasto paso de {_fmt_dinero(picos['pico_cost'])}/dia "
@@ -499,7 +494,7 @@ def _item_ultima_semana(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | 
         or (c_ult == 0 and c_prev == 0)
     ):
         return None
-    etiqueta = ETIQUETAS_CANAL.get(nombre, nombre)
+    etiqueta = etiqueta_de(nombre, "plataforma")
     moneda = bloque.get("moneda", "")
     mad = bloque.get("maduracion") or {}
     r_pct = _dec(var7.get("ad_revenue_pct"))
