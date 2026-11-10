@@ -2,7 +2,8 @@
 # Prueba-real del bloque C (ARREGLOS 01): cada cola 10, 11 o 26 que llego a
 # applied tiene su reversa confirmada en el ledger (una reversa es UNA por
 # decision: apply_attempt con tipo='reversa' y resultado='ok').
-# Sale 0 solo si no queda ninguna cola aplicada sin reversa confirmada.
+# Sale 0 solo si no queda ninguna cola aplicada sin reversa confirmada y la
+# consulta devolvio filas: un resultado vacio no es evidencia y falla.
 set -euo pipefail
 aqui=$(cd "$(dirname "$0")" && pwd)
 
@@ -25,6 +26,10 @@ SQL
 )
 
 filas=$(printf '%s\n' "$sql" | bash "$aqui/../lee_prod.sh")
+if [ -z "$filas" ]; then
+    echo "sin filas: la consulta no devolvio evidencia del estado de las colas 10, 11 y 26" >&2
+    exit 1
+fi
 fallo=0
 while IFS='|' read -r cola decision resultado; do
     [ -n "${cola:-}" ] || continue
