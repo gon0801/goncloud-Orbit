@@ -758,7 +758,7 @@ def test_pg_campanas_igual_que_control_tope_y_estrategias():
         assert por_id[c9].dias_al_tope_7d == 0
         assert por_id[c1].dias_al_tope_7d == 5
         assert por_id[c1].gasto_medio_diario == Decimal("64.29")
-        assert por_id[c1].uso_presupuesto_pct == Decimal("64.3")
+        assert por_id[c1].uso_presupuesto_pct == Decimal("64.29")
         assert por_id[c1].gasto_fuera_de_amazon == Decimal("25")
         assert por_id[c1].avisos == ()
         assert por_id[c2].dias_al_tope_7d is None
@@ -823,7 +823,7 @@ def test_como_dict_trae_ubicaciones_y_campanas_con_settings():
         ["paginas_de_producto", 10],
     ]
     assert dato["por_campana"][0]["gasto_medio_diario"] == "90.00"
-    assert dato["por_campana"][0]["uso_presupuesto_pct"] == "90.0"
+    assert Decimal(dato["por_campana"][0]["uso_presupuesto_pct"]) == Decimal("90")
     assert dato["por_campana"][0]["avisos"] == []
 
 
@@ -1279,8 +1279,9 @@ def test_pantalla_enlace_amazon_us_abre_us():
     assert 'href="/donde-poner-el-dinero?plataforma=amazon_us"' in html
 
 
-def test_como_dict_target_se_pinta_con_un_decimal():
-    """NB1: el target largo sale como '20.8 %', no con 26 decimales."""
+def test_como_dict_target_conserva_precision_y_se_pinta_con_dos_decimales():
+    """NB1 + CLARIDAD 01 h_26f91a68: el target llega entero hasta el formato
+    comun, que lo pinta '20.77 %' como Settings, no '20.80 %' ni 26 decimales."""
     from app.pantalla_dinero import FilaTipo, PantallaDinero
 
     total = FilaTipo(
@@ -1302,7 +1303,10 @@ def test_como_dict_target_se_pinta_con_un_decimal():
         hojas_sin_clasificar=0,
         target_acos_pct=Decimal("20.76500719978248922407256205"),
     )
-    assert pantalla.como_dict()["target_acos_pct"] == "20.8"
+    dato = pantalla.como_dict()
+    assert dato["target_acos_pct"] == "20.76500719978248922407256205"
+    html = _plano(_html_dinero([_fila_ui()], target_acos_pct=dato["target_acos_pct"]))
+    assert "(meta 20.77 %)" in html
 
 
 @_skip_db

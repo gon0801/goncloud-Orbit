@@ -42,7 +42,7 @@ Las hojas 32 y 33 describen el detalle del lote («87 pasos en Verificado con Ac
 
 Los 11 hallazgos se corrigieron en las hojas, con la fuente en `docs/manual-usuario/notas/`.
 
-1. Hoja de Dónde poner el dinero: la meta entre paréntesis lleva un decimal menos que en Settings.
+1. Dónde poner el dinero: la pantalla redondeaba la meta y los porcentajes a una décima antes del formato común. Se corrigió en el código (`app/pantalla_dinero.py`, revisión h_26f91a68). Ahora muestra «(meta 20.02 %)», como Settings, y los ACoS con sus dos decimales reales. La hoja 22 lo dice así.
 2. Hoja de Propuestas: la fila Señal sale solo en propuestas que Jev revisó; la hoja de Rechazar explica la Señal de las búsquedas ajenas.
 3. Keywords dañadas: «Calculado el 8 nov.» es el último día con cifras, no un atraso.
 4. Salud: «Tope de la configuración» quiere decir que el tope sale de Settings.

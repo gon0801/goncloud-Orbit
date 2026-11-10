@@ -116,6 +116,6 @@ Código en el árbol de trabajo (HEAD 1e2a66b). Producción solo con GET el 9 de
 
 ## J.2, correcciones del lector fresco (`docs/evidencia/claridad-01/J/lector.md`)
 
-- «(meta 20.00 %)» en Dónde poner el dinero es la meta del ciclo redondeada a un decimal: `app/pantalla_dinero.py:328` (`quantize(Decimal("0.1"))`) sobre `app/api_dashboard.py:542`; Settings y Campañas muestran 20.02 %.
+- Dónde poner el dinero redondeaba meta y porcentajes a una décima (`app/pantalla_dinero.py`, `como_dict` y `_pct`). Desde h_26f91a68 los entrega sin redondear y solo los redondea `formato.pct` a dos decimales: «(meta 20.02 %)», como Settings (`app/api_dashboard.py:542`, `_target_margen_del_ciclo`). Cifras de la hoja 22 y 23 recalculadas con gasto y venta de `GET /api/dashboard/donde-poner-el-dinero?plataforma=amazon_mx` del 9-nov: Total 54,837.77 / 401,733.72 = 13.65 %; Exacta 22,078.54 / 208,609.47 = 10.58 % y 40.26 % del gasto; Fuera de Amazon 3,444.05 / 1,971.56 = 174.69 %; AC - Category Exact - MX 298.56 / 300.00 = 99.52 %.
 - La línea gris de ventanas sigue el día de la base: a las 22:04 del 9-nov (hora del centro) decía «Ventana por tipo 2026-08-11 a 2026-11-09» (prod `/donde-poner-el-dinero?plataforma=amazon_mx`).
 - Ancla `productos-sin-clics-meta` en la hoja «no venden y meta», para que Settings apunte a la explicación de la meta por producto.
