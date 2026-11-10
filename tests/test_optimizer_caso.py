@@ -412,6 +412,22 @@ def test_piso_aprendido_none_sin_regresos():
     assert trayectoria().piso_aprendido is None
 
 
+def test_arreglos01_h_piso_aprendido_ignora_revertir_una_subida():
+    """E-H2: una subida del motor 1.00 -> 1.15 revertida por el dueno deja el bid
+    en 1.00 y no ensena ningun piso; un regreso que deshace un recorte (3.73 ->
+    5.00) si lo ensena."""
+    subida_revertida = [
+        cambio(dt.date(2026, 9, 1), "1.00", "1.15", "motor"),
+        cambio(dt.date(2026, 9, 5), "1.15", "1.00", "regreso_del_dueno"),
+    ]
+    assert trayectoria(subida_revertida, efecto()).piso_aprendido is None
+    regreso_de_recorte = [
+        cambio(dt.date(2026, 9, 1), "9.74", "3.73", "motor"),
+        cambio(dt.date(2026, 9, 5), "3.73", "5.00", "regreso_del_dueno"),
+    ]
+    assert trayectoria(regreso_de_recorte, efecto()).piso_aprendido == Decimal("3.73")
+
+
 def test_razon_trafico_compara_dias_promedio():
     assert efecto(pre_impr=7000, post_impr=700, dias_trafico=7).razon_trafico() == Decimal("0.1")
 
