@@ -4455,6 +4455,53 @@ def test_s3_liberar_aplica_lo_retenido_de_hoy_y_no_lo_de_ayer():
 
 
 @_skip_sin_pg
+def test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base():
+    """E (G-H1): un dia retenido por `movimiento_masivo` y no soltado no entra
+    como previa del dia siguiente: el dia 2 vuelve a retener y no escribe."""
+    from app.precio.compuerta import Retenida
+    from app.precio.corrida import _SQL_RETENER, _aplicar_pendientes, _medir_compuerta
+
+    settings = {**SETTINGS, "precio_fusible_min_movimientos": 2}
+    with _db() as (conn, _dsn):
+        cfg = _config(conn, settings)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        corrida_ayer = _corrida_s3(conn, cfg)
+        unidades = []
+        for n in range(3):
+            lid, gid = _unidad_s3(conn, f"e-{n}")
+            dec = _decision_s3(conn, lid, goal_id=gid, dia=ayer)
+            unidades.append((lid, gid, dec))
+        # El dia 1 retuvo la ola; nadie la solto.
+        conn.execute("ALTER TABLE precio_retencion DISABLE TRIGGER USER")
+        try:
+            for _lid, _gid, dec in unidades:
+                conn.execute(_SQL_RETENER, (dec, corrida_ayer, "movimiento_masivo"))
+        finally:
+            conn.execute("ALTER TABLE precio_retencion ENABLE TRIGGER USER")
+        for lid, gid, _dec in unidades:
+            _decision_s3(conn, lid, goal_id=gid)
+        corrida = _corrida_s3(conn, cfg)
+        motor = _motor_de(settings)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida)
+        retenida = veredictos["fba"]
+        assert isinstance(retenida, Retenida)
+        assert (retenida.causa, retenida.nuevas) == ("movimiento_masivo", 3)
+        resultado = _aplicar_pendientes(
+            conn,
+            _MERCADO_MX,
+            veredictos,
+            hoy,
+            owner="tdd",
+            ahora=datetime.now(UTC),
+            corrida_id=corrida,
+            corte=motor.corte_errores_consecutivos,
+        )
+        assert resultado == (0, 0, 3, [])
+        assert _cuenta_cambios(conn) == 0
+
+
+@_skip_sin_pg
 def test_s3_liberar_dos_veces_devuelve_la_fila_y_sin_retencion_levanta():
     """S.3: `liberar` es idempotente por corrida; sin medicion con causa
     (o sin medicion, o corrida inexistente) levanta `CorridaSinRetencion`."""
