@@ -13,9 +13,9 @@ Producción: `http://10.13.13.1:8010`, solo GET, el 8-nov-2026.
 - Prod: `/api/dashboard/cortes` → 32 items (31 pause + 1 negative, todos amazon_us, todos pending_veto, vence 2026-11-10T08:40Z, encolados 2026-11-08T08:40Z), 0 propuestas_campana, bloqueos_jev con interruptor true, propuestas [] en MX y US, bloqueos [].
 
 ## Propuestas (/cortes)
-- Plantilla: `app/templates/cortes.html`. Crecen/Recortan `:95`, `:115`. Columnas Tipo, Entidad, Search term, Por que, Vence, Accion `:100-105`. «se aplica solo el …» `:32`. Botón Rechazar `:35`. Formulario con efecto, «Este rechazo NO se puede deshacer y bloquea la propuesta hasta el {{ item.vence_el }}», Dias 30 (1-365), Actor, Token, Confirmar rechazo `:72-90`. Mercado en detalle de Entidad `:22`.
+- Plantilla: `app/templates/cortes.html`. Crecen/Recortan `:99`, `:119`. Columnas Tipo, Entidad, Search term, Por que, Vence, Accion `:104-109`. «se aplica solo el …» `:34`. Botón Rechazar `:37`. Formulario con efecto, «Este rechazo no se puede deshacer. Bloquea la propuesta durante los días que pongas abajo, contados desde hoy.», Días 30 (1-365), Actor, Token, Confirmar rechazo `:76-92`. Mercado en detalle de Entidad `:24`.
 - Etiquetas por tipo y efecto del rechazo: `app/api_dashboard.py` `ETIQUETA_POR_KIND`, `DIRECCION_POR_KIND`, `EFECTO_RECHAZO_POR_KIND` (~l.1325-1340).
-- La hora se pinta sin zona (`ts_ui`, `app/ui.py:135-140`), y el valor es UTC (`vence_el` ISO +00:00 en la API). La diferencia de 6 h con CDMX está en `paginas/90-cierre.html`.
+- (Reemplazado en J) La hora ya no se pinta en UTC: ver la sección CLARIDAD 01 J al final.
 - Ventana de 48 h: `app/apply_cola.py:108` (`VENTANA_VETO = timedelta(hours=48)`), y `vence = ahora + VENTANA_VETO` al encolar (~l.530 en master). Docs: `docs/APPLY.md` §1.4.
 - Solo pause/negative/harvest pasan por la cola. Los bids se aplican en su ciclo: `docs/APPLY.md` §1.1.
 - Al vencer: `libera_vencidos` vuelve a validar antes de aplicar y descarta si ya no procede (docstring en `app/apply_cola.py`, master ~l.1514+). Solo selecciona `modo = 'live'`: `_SQL_VENCIDAS` en master l.198-204. Las filas shadow nunca se aplican.
@@ -77,17 +77,96 @@ Código de `origin/master` 7cf7c9a (copias en `scratchpad/fixa-src/`). Producci�
   - «0 de N con propuesta»: Pausa por producto lee solo el último ciclo done (`app/pantalla_decisiones_producto.py:53-59`, `ORDER BY id DESC LIMIT 1`); un anuncio con pausa en cola se excluye con `clave_en_vuelo` («el anuncio ya tiene una pausa en la cola o un veto vigente», `app/optimizer/productos.py:141`; `app/productos_io.py:445`).
   - Prod: `GET /api/dashboard/productos/pausa?platform=amazon_us|amazon_mx` → `modo_texto "Práctica"`. `GET /api/dashboard/productos-sin-clics?plataforma=amazon_us` → `cycle_id 176`, `propuestas_pausa 0`, `anuncios_excluidos.clave_en_vuelo 31`. `GET /productos-sin-clics?plataforma=amazon_us` → «Pausa por producto 0 de 119 con propuesta», «Ciclo 176 · la pausa está en práctica: las propuestas quedan registradas y no pausan ningún anuncio». `GET /api/dashboard/cortes` → 31 pause + 1 negative, pending_veto, encolados 08:40.
   - Referencia a la hoja de la pausa por producto: `{{pag:productos-sin-clics-pausa}}` (ancla del otro ayudante).
-- «pending_veto · encolado …» bajo Vence: `app/templates/cortes.html:32`; pending_veto es el estado que todavía acepta veto (`_SQL_VETO` en `app/api_write.py`).
+- (Reemplazado en J) Bajo Vence ya no sale «pending_veto · encolado …»: ver la sección CLARIDAD 01 J.
 - «Por que» con «—»: solo harvest trae indicador (`cortes.html:26-31`, `_indicador_harvest` en `app/api_dashboard.py:1351+`).
 - Jev definido en la hoja de Propuestas antes de usarse: «Jev: k de n» = satisfacen de evaluados (`app/templates/_senal.html:20`), «desactualizada» = señal no vigente (`_senal.html:8`).
 - Texto del rechazo para cualquier pause, también de anuncio: `EFECTO_RECHAZO_POR_KIND["pause"]` en `app/api_dashboard.py:1344-1348`.
 - Ancla `data-ancla="cortes-rechazar"` en «Rechaza una propuesta». La hoja de las dos pantallas apunta ahí para Bloquear.
 - «a mano en Amazon» = consola de Amazon Ads, dentro de la campaña: `cortes.html` sección Campañas («Pausar a mano en Amazon; Orbit no toca campañas»). Orbit bloquea con negative exacto: `app/ads/write.py:378-393` (`matchType NEGATIVE_EXACT`). Que un negative de frase sobre una palabra suelta bloquee toda búsqueda que la contiene es comportamiento de Amazon, no de Orbit (no verificable en el repo).
 - Gasto sin venta: el mismo nombre en Resumen (días, `app/ui_metricas.py:407-447`) y en Campañas (campañas con gasto y venta 0, `app/ui_campanas.py` `estado_de`). Mensaje vacío «Sin filas en este mercado: el job sigue apagado o nada gasta sin vender»: prod `GET /gasto-sin-venta?plataforma=amazon_mx`. Ya no afirma «Jev no corría desde el 21 de octubre»; dice lo que se comprueba hoy, «Calculado el 2026-10-21 09:34». Salud «Encendido» = interruptor (`app/templates/salud.html:183-186`).
-- Keywords dañadas: la racha puede ser de 1 recorte (prod US «wedding coins gold … tras 1 recortes»); «mismo ASIN B086TVLJ43» Regresada el 2026-10-11 con «Bid: 36.99 antes, 36.99 hoy» y 0 clics (prod `GET /keywords-danadas?plataforma=amazon_mx`). Consejo de avisar si sigue sin clics: criterio de la guía, no regla de Orbit.
+- Keywords dañadas: la racha puede ser de 1 recorte (prod US del 8-nov «wedding coins gold … tras 1 recortes»). El consejo «si sigue sin clics, avisa» se quitó en J: la lista Ya regresadas ya no muestra clics.
 - Ruido: 89 tarjetas en MX y la última va justo antes de «Encogimiento por hoja» (`app/templates/ruido.html:13-40`, ciclos en orden ascendente en `app/pantalla_ruido.py`). Hoja 5338 = «arras de boda cristiana»: `GET /api/dashboard/keywords-danadas?plataforma=amazon_us` (`hoja_id 5338`, 0.68 → 0.23) y `GET /ruido?plataforma=amazon_us` («Hoja 5338 · Bid: 0.68 antes, 0.23 hoy (USD)»). Motivos nuevos en la tabla con su traducción de `MOTIVOS_ES_SALUD` (`app/api_dashboard.py:272-330`): esperando_efecto, sin_clics_nuevos, sin_gasto, venta_reciente, dato_faltante, estado_no_enabled. Salud traduce los skips del último ciclo con ese mismo diccionario.
 - «Antes y después del encendido» pasó a la primera hoja de Ruido por espacio; el texto no cambió.
 
 ## CLARIDAD 01 I (pantallas de navegador y Ruido/Keywords dañadas)
 - Keywords dañadas: las tarjetas recorren solo las pendientes y las regresadas van en `<details>` «Ya regresadas (n)» con «regresada el <fecha corta> a <puja> <moneda>»; los textos dicen «Puja» y «Regresar la puja a …»: `app/templates/keywords_danadas.html`. Mensaje «Regresada a …»: `app/static/js/danadas.js`. Copia del respaldo del 9-nov: MX 2 tarjetas y «Ya regresadas (1)».
 - Ruido: ciclos del más nuevo al más viejo (`_SQL_CICLOS ORDER BY c.id DESC`, `app/pantalla_ruido.py`), hora del centro (`fecha_hora`), «De práctica, no aplicadas», h3 «Cuánto bajó cada puja» con el nombre de la keyword o producto objetivo y su campaña (`_con_nombres`, `etiqueta_entidad`): `app/templates/ruido.html`. Copia del 9-nov: MX encogimiento #3861 = «sustituto · AGM2M - Auto Discovery - MX»; US #5338 = «arras de boda cristiana · USPerNog - Category Exact - US». Los motivos salen del registro `app/etiquetas.py` (`motivo_decision`, `motivo_salud`, `nivel`).
+
+## CLARIDAD 01 J (9-nov-2026): recaptura y textos de hoy
+Código del checkout en 1e2a66b (incluye 4be5081, lo desplegado). Producción solo con GET, leída el
+9-nov-2026 entre 21:50 y 22:10 hora del centro (10-nov 03:50-04:10 UTC). Todas las cajas «Tu cuenta»
+de esta hoja salen de esas lecturas; las cifras del 8-nov citadas arriba ya no están en el manual.
+
+Propuestas
+- Vence: «se aplica solo el {{ vence_el | fecha_hora }}» o «No se aplica: es práctica», y debajo
+  «{{ estado | etiqueta("estado_cola") }} · propuesta el {{ encolado_at | fecha_hora }}»:
+  `app/templates/cortes.html:34`. `fecha_hora` = «9 nov, 02:40» en hora del centro: `app/formato.py:77-84`.
+  Leyenda «Horas del centro de México»: `app/formato.py:17` (prod la muestra arriba en `/cortes`).
+- Estados traducidos: `pending_veto` «Esperando tu revisión», `released` «Lista para aplicarse»:
+  `app/etiquetas.py:341-348`. El veto acepta `pending_veto` y `released` (`app/api_write.py:277-283`);
+  solo `applying` da error 409 (`:309-315`).
+- Etiquetas de Tipo, letra por letra (`app/etiquetas.py:304-311`): «Apagar palabra», «Apagar segmentación
+  de producto», «Pausar anuncio del producto», «Bloquear busqueda», «Capturar termino que vende».
+- Recuadro de Rechazar: práctica «Es de práctica: no se aplica aunque no la rechaces. El rechazo sí bloquea
+  esta propuesta de verdad durante los días que elijas.» (`cortes.html:80-81`); real = `efecto_rechazo`,
+  palabra «Rechazar: la palabra NO se apagara (seguira gastando)» (`app/etiquetas.py:313-322`). Campo
+  «Días» con acento: `cortes.html:87`. Mensaje «Rechazado hasta el <fecha> (hora del centro de México).»:
+  `app/static/js/cortes.js:29-39`, `:64`.
+- Contador del menú = items con `modo == "live"`: `app/static/js/shell.js:26-33`; siempre visible (`:10-15`).
+- Prod `GET /api/dashboard/cortes` y `GET /cortes`: 32 items, todos amazon_us, `pending_veto`, dirección
+  recorta (Crecen 0, Recortan 32). 31 `modo shadow`, etiqueta «Pausar anuncio del producto» (p. ej. #27
+  «B0CR78WCH5 · A1U - Category Exact - US»), Vence «No se aplica: es práctica», «Esperando tu revisión ·
+  propuesta el 8 nov, 02:40». 1 `modo live`, #58 «wedding arras · USPerNog - Category Exact - US»,
+  «Apagar palabra», «se aplica solo el 11 nov, 02:40», «propuesta el 9 nov, 02:40», recuadro «Rechazar: la
+  palabra NO se apagara (seguira gastando)». Contador: 1 live. Ningún item trae señal ni asesoría hoy.
+  `propuestas_campana` vacío. Búsquedas ajenas: 61 en amazon_mx, 36 en amazon_us; primera MX «arras
+  matrimoniales de oro 14 k», Arras Manual, 202.96 MXN, 86 clics. Tus bloqueos «sin bloqueos».
+- Pausa por producto (hoja práctica o real): `GET /api/dashboard/productos/pausa?platform=amazon_us|amazon_mx`
+  → `modo_texto "Práctica"`. `GET /productos-sin-clics?plataforma=amazon_us` → «Pausa por producto 0 de 119
+  con propuesta», «Ciclo 178 · la pausa está en práctica: las propuestas quedan registradas y no pausan
+  ningún anuncio.». `GET /api/dashboard/productos-sin-clics?plataforma=amazon_us` →
+  `decisiones_producto.cycle_id 178`, `propuestas_pausa 0`, `anuncios_excluidos.clave_en_vuelo 31`.
+  Flujo: las 31 se propusieron el 8 nov, 02:40 (encolado_at 2026-11-08T08:40Z); el ciclo 178 (9 nov, 02:40,
+  `GET /ruido?plataforma=amazon_us`) las excluyó.
+
+Gasto sin venta
+- «Calculado el {{ calculado_el | fecha_hora }}.» `app/templates/gasto_sin_venta.html:15`; aviso «Sin cálculo
+  reciente: la última corrida tiene más de 36 horas o aún no corre.» `:18`; vacío con cálculo viejo «No hay
+  cálculo vigente desde el …» `:71`. Umbral de 36 h: `app/api_dashboard.py:1579-1591`.
+- «Productos que dijeron que sí (n)» lista `#<id>` de producto, sin nombre: `gasto_sin_venta.html:39-47`.
+- Prod `GET /api/dashboard/gasto-sin-venta?plataforma=amazon_mx` → `calculado_el 2026-11-09T21:30:19Z`
+  («Calculado el 9 nov, 15:30» en `/gasto-sin-venta?plataforma=amazon_mx`), `aviso_desactualizado false`,
+  `total_filas 187` en cinco secciones (Vendió aquí 21, Vende en otro ad group 25, Corresponde y no vende en
+  ninguno 75, Ajena 61, Sin lectura 5). Ajena encabezada por «arras matrimoniales de oro 14 k», grupo #297,
+  202.96 MXN, «Jev: 0 de 208». «estuche para arras de boda sin arras», grupo #342, Ajena, «Jev: 0 de 177».
+  amazon_us: 179 filas, sin aviso.
+- Salud: «Último cálculo terminado: 9 nov, 15:30 (hace 6 h)» en `GET /salud`; plantilla
+  `app/templates/salud.html:189`.
+
+Búsquedas que gastan sin vender
+- Frase con `pct` de dos decimales: `app/templates/busquedas_sin_venta.html:13`.
+- Prod `GET /busquedas-sin-venta?plataforma=amazon_mx`: «39.00 % … el azar daría 29.00 %», B0C11QJPKV 122
+  clics 717.15 MXN, «estuche para» 9 búsquedas 729.28 MXN con ejemplo «estuche para arras de boda sin
+  arras». amazon_us: «62.00 % … 58.00 %».
+
+Keywords dañadas
+- «Ya regresadas (n)» solo con «regresada el <fecha> a <puja> <moneda>», sin clics:
+  `app/templates/keywords_danadas.html:58-67`.
+- Prod `GET /keywords-danadas?plataforma=amazon_mx`: «Regresar todas 2», sustituto (ASEM - Auto Discovery -
+  MX, 3 pedidos 2,193.09 MXN, clics 8 → 0, puja 3.95 → 2.09, 5 recortes), «Ya regresadas (1)» con «mismo
+  ASIN B086TVLJ43 · AGMX - Product Targeting - MX · regresada el 11 oct a 36.99 MXN». amazon_us: «arras de
+  boda cristiana», puja 0.68 → 0.23, 5 recortes.
+
+Ruido
+- Prod `GET /ruido?plataforma=amazon_mx`: 90 tarjetas de ciclo, la primera «Ciclo 179 · 9 nov, 02:41» sin
+  decisiones y «La diferencia puede ser suerte: sin cambio de puja: 22». Antes y después: «Encendido el
+  11 oct», ACoS 14.42 % → 13.37 %. amazon_us: ACoS 33.70 % → 50.13 %; «arras de boda cristiana ·
+  USPerNog - Category Exact - US», «Puja: 0.68 antes, 0.23 hoy (USD). Quedó en 33.82 %». Los textos de
+  motivos de la tabla coinciden con lo que pinta prod (`motivo_decision`, `motivo_salud`, `nivel` en
+  `app/etiquetas.py`).
+
+## J.2, correcciones del lector fresco (`docs/evidencia/claridad-01/J/lector.md`)
+
+- Fila Señal de Propuestas: solo sale si la propuesta trae `senal` (`app/templates/cortes.html:51-57`); «Jev: k de n» y el chip «desactualizada» en `app/templates/_senal.html:8,20`. El 9-nov ninguna propuesta la traía.
+- Señal de búsquedas ajenas, «No corresponde a ninguno de los 208 productos…»: prod `/cortes`, sección «Búsquedas que Jev marca como ajenas»; la frase es `v.frase` de `_senal.html`.
+- Keywords dañadas, «Calculado el 8 nov.»: es HOY, la última fecha con métricas de la plataforma, sin hora (`app/pantalla_danadas.py:15-26`, `app/templates/keywords_danadas.html:13-16`); coincide con «Cifras hasta · MX: 2026-11-08».

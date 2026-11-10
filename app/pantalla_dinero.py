@@ -322,24 +322,20 @@ class PantallaDinero:
             "filas": [fila.como_dict() for fila in self.filas],
             "total": self.total.como_dict(),
             "hojas_sin_clasificar": self.hojas_sin_clasificar,
-            "target_acos_pct": (
-                None
-                if self.target_acos_pct is None
-                else str(self.target_acos_pct.quantize(Decimal("0.1"), rounding=ROUND_HALF_EVEN))
-            ),
+            "target_acos_pct": None if self.target_acos_pct is None else str(self.target_acos_pct),
             "por_ubicacion": [fila.como_dict() for fila in self.por_ubicacion],
             "por_campana": [fila.como_dict() for fila in self.por_campana],
         }
 
 
 def _pct(numerador: Decimal | int | None, denominador: Decimal | int | None) -> Decimal | None:
-    """Porcentaje 0-100 a 1 decimal (HALF_EVEN, precedente `_dos_dec`).
-    Denominador None o 0 da None, nunca division."""
+    """Porcentaje 0-100 sin redondear: lo redondea solo el formato comun
+    (`formato.pct`, dos decimales). Denominador None o 0 da None, nunca division."""
     if numerador is None or denominador is None or denominador == 0:
         return None
     num = Decimal(numerador) if isinstance(numerador, int) else numerador
     den = Decimal(denominador) if isinstance(denominador, int) else denominador
-    return (num / den * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_EVEN)
+    return num / den * 100
 
 
 def _dinero2(valor: Decimal | None) -> Decimal | None:
