@@ -11,7 +11,7 @@
   <ol class="pasos">
     <li>Abre <b>Propuestas</b> en el menú. El número junto al nombre cuenta solo las propuestas reales de <b>Crecen</b> y <b>Recortan</b>, de los dos mercados juntos.</li>
     <li><b>Crecen</b> son keywords por crear. <b>Recortan</b> son cosas por apagar o bloquear. En cada fila, <b>Entidad</b> dice qué se cambia, en qué campaña y en qué mercado.</li>
-    <li>Lee <b>Vence</b>. «se aplica solo el 2026-11-10 08:40» está en hora UTC, 6 horas adelante de la Ciudad de México. Debajo, «pending_veto · encolado 2026-11-08 08:40» dice que todavía puedes rechazarla y cuándo entró a la espera. Si dice «No se aplica: es práctica», nunca se aplica (página {{pag:cortes-practica}}).</li>
+    <li>Lee <b>Vence</b>, en hora del centro de México. «se aplica solo el 11 nov, 02:40» es cuándo se aplica si no la rechazas. Debajo, «Esperando tu revisión · propuesta el 9 nov, 02:40» dice que todavía puedes rechazarla y cuándo se propuso. «Lista para aplicarse» es que el plazo ya venció, y aún puedes rechazarla. Si dice «No se aplica: es práctica», nunca se aplica (página {{pag:cortes-practica}}).</li>
   </ol>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>
@@ -19,7 +19,7 @@
     <tr><td>Bloquear busqueda</td><td>Agregar un negative. Tu anuncio deja de salir para esa búsqueda en ese grupo.</td></tr>
     <tr><td>Capturar termino que vende</td><td>Crear una keyword con una búsqueda que ya vendió y bloquear esa búsqueda en el grupo de donde salió.</td></tr>
     <tr><td><b>Por que</b> con «—»</td><td>Solo Capturar muestra órdenes e ingreso. En las demás filas el guion quiere decir «no aplica».</td></tr>
-    <tr><td>Señal con «Jev: 16 de 16» y <b>desactualizada</b></td><td>Jev es la revisión automática de Orbit que compara una búsqueda con la ficha de cada producto. Revisó 16 productos y coincidió con los 16. desactualizada es que esa revisión ya es vieja.</td></tr>
+    <tr><td>Fila <b>Señal</b> con «Jev: 16 de 16»</td><td>Sale solo en las propuestas que Jev revisó. Jev compara una búsqueda con la ficha de cada producto. Aquí revisó 16 y coincidió con los 16. Con <b>desactualizada</b>, esa revisión ya es vieja.</td></tr>
   </table>
 </section>
 
@@ -35,15 +35,15 @@
   <h2>¿Por qué Productos sin clics dice 0 propuestas?</h2>
   <p>Su sección <b>Pausa por producto</b> solo lee el último ciclo. Un anuncio que ya tiene una pausa esperando en Propuestas no se vuelve a proponer. Por eso el ciclo siguiente cuenta 0, mientras Propuestas sigue mostrando las pausas de antes. Las dos pantallas dicen la verdad.</p>
   <div class="flujo">
-    <div><b>08:40 UTC</b>El ciclo propone 31 pausas</div><i>→</i>
+    <div><b>8 nov, 02:40</b>El ciclo propone 31 pausas</div><i>→</i>
     <div><b>Propuestas</b>Las guarda 48 horas</div><i>→</i>
-    <div><b>17:58 UTC</b>Otro ciclo las salta porque ya esperan</div><i>→</i>
+    <div><b>9 nov, 02:40</b>Otro ciclo las salta porque ya esperan</div><i>→</i>
     <div><b>Productos sin clics</b>Muestra 0 con propuesta</div>
   </div>
   <div class="caja cuenta">
-    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>Había 32 propuestas de Estados Unidos que vencían el 2026-11-10 08:40. Una era <b>Bloquear busqueda</b> para wedding arras. Las otras 31 eran <b>Apagar palabra</b> sobre anuncios de producto, como B0CR78WCH5.</p>
-    <p>Encendido de la pausa decía Práctica en los dos mercados. En Amazon US, Pausa por producto decía «0 de 119 con propuesta» y «Ciclo 176 · la pausa está en práctica: las propuestas quedan registradas y no pausan ningún anuncio».</p>
+    <h4>Tu cuenta · consulta del 9 de noviembre</h4>
+    <p>Recortan tenía 32 propuestas de Estados Unidos y el número del menú decía 1. Las 31 de práctica eran <b>Pausar anuncio del producto</b>, como B0CR78WCH5, con «No se aplica: es práctica». La real era <b>Apagar palabra</b> para wedding arras, con «se aplica solo el 11 nov, 02:40».</p>
+    <p>Encendido de la pausa decía Práctica en los dos mercados. En Amazon US, Pausa por producto decía «0 de 119 con propuesta» y «Ciclo 178 · la pausa está en práctica».</p>
   </div>
   <div class="caja comprobar">
     <h4>Lo que ya puedes comprobar</h4>
@@ -55,25 +55,24 @@
   <h1>Rechaza una propuesta</h1>
   <p class="lead">Rechazar impide que la propuesta se aplique y evita que Orbit la repita durante los días que elijas. No hacer nada no es rechazar.</p>
   <ol class="pasos">
-    <li>Pulsa <b>Rechazar</b> en la fila. El recuadro dice qué no va a pasar, por ejemplo «el anuncio del producto NO se pausará». En una de práctica avisa que el rechazo sí la bloquea.</li>
-    <li>En <b>Dias</b> deja 30 o escribe de 1 a 365. Es el tiempo que Orbit no volverá a proponer ese mismo cambio.</li>
-    <li>Escribe tu nombre en <b>Actor</b> y la clave en <b>Token</b>. Pulsa <b>Confirmar rechazo</b>. Debe aparecer «Rechazado hasta» con la fecha en que termina el bloqueo.</li>
+    <li>Pulsa <b>Rechazar</b> en la fila. En una real, el recuadro dice qué no va a pasar, como «Rechazar: la palabra NO se apagara (seguira gastando)». En una de práctica dice «Es de práctica: no se aplica aunque no la rechaces» y avisa que el rechazo sí la bloquea.</li>
+    <li>En <b>Días</b> deja 30 o escribe de 1 a 365. Es el tiempo, contado desde hoy, que Orbit no volverá a proponer ese mismo cambio.</li>
+    <li>Escribe tu nombre en <b>Actor</b> y la clave en <b>Token</b>. Pulsa <b>Confirmar rechazo</b>. Debe aparecer «Rechazado hasta el» con la fecha en que termina el bloqueo, en hora del centro de México.</li>
   </ol>
   <div class="caja aviso">
     <h4>El rechazo no se puede deshacer</h4>
     <p>No hay botón para quitarlo y no reactiva algo ya pausado. Si ya se está enviando a Amazon, sale un error y no se frena. Al terminar el bloqueo, Orbit puede volver a proponerla.</p>
   </div>
-  <p class="nota">El bloqueo dura los días que escribes en Dias, contados desde hoy. «Rechazado hasta» muestra la fecha en hora del centro de México.</p>
   <h2>Otras secciones de Propuestas</h2>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>
-    <tr><td><b>Campañas</b>, botón <b>Descartar</b></td><td>Campañas que gastan de más. No se aplican solas. Si estás de acuerdo, pausa esa campaña tú en la consola de Amazon Ads, el sitio donde Amazon administra tus campañas. Descartar solo cierra el aviso en Orbit, pide Actor y Token, y no se deshace.</td></tr>
-    <tr><td><b>Búsquedas que Jev marca como ajenas</b>, <b>Bloquear</b> y <b>Rechazar</b></td><td>Búsquedas que no son de tus productos. Bloquear agrega el negative en Amazon al momento. Rechazar guarda que no la quieres bloquear. Piden Token.</td></tr>
+    <tr><td><b>Campañas</b>, botón <b>Descartar</b></td><td>Campañas que gastan de más. No se aplican solas. Si estás de acuerdo, pausa esa campaña tú en la consola de Amazon Ads. Descartar solo cierra el aviso en Orbit, pide Actor y Token, y no se deshace.</td></tr>
+    <tr><td><b>Búsquedas que Jev marca como ajenas</b>, <b>Bloquear</b> y <b>Rechazar</b></td><td>Búsquedas que no son de tus productos. Su Señal, «No corresponde a ninguno de los 208 productos…», dice que Jev no halló ninguno que coincida. Bloquear agrega el negative en Amazon al momento. Rechazar guarda que no la quieres bloquear. Piden Token.</td></tr>
     <tr><td><b>Tus bloqueos</b>, botón <b>Quitar</b></td><td>Los bloqueos que aprobaste. Quitar retira ese negative de Amazon.</td></tr>
   </table>
   <div class="caja cuenta">
-    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>No había sección Campañas. Las búsquedas ajenas decían «sin propuestas» y Tus bloqueos, «sin bloqueos».</p>
+    <h4>Tu cuenta · consulta del 9 de noviembre</h4>
+    <p>No había sección Campañas. Las búsquedas ajenas eran 61 en Amazon MX y 36 en Amazon US. Tus bloqueos decía «sin bloqueos».</p>
   </div>
   <div class="caja comprobar">
     <h4>Lo que ya puedes comprobar</h4>
@@ -87,8 +86,8 @@
   <p class="nota">El mismo nombre sale en otros lados con otro sentido. En Resumen, Gasto sin venta cuenta días. En Campañas es una pestaña de campañas. Esta pantalla habla de búsquedas.</p>
   <ol class="pasos">
     <li>Abre <b>Gasto sin venta</b> y elige <b>Amazon MX</b> o <b>Amazon US</b>.</li>
-    <li>Mira <b>Calculado el</b>. Si aparece «Sin cálculo reciente», la lista tiene más de 36 horas y puede estar vieja. Avisa al responsable.</li>
-    <li>Las secciones agrupan las búsquedas según lo que Orbit concluyó de ellas. En una fila, <b>Productos que dijeron que sí</b> muestra con qué productos coincide.</li>
+    <li>Mira <b>Calculado el</b>, por ejemplo «Calculado el 9 nov, 15:30». Si aparece «Sin cálculo reciente», la lista tiene más de 36 horas y puede estar vieja. Avisa al responsable.</li>
+    <li>Las secciones agrupan las búsquedas según lo que Orbit concluyó de ellas. En una fila, <b>Productos que dijeron que sí</b> se abre y lista los productos que coinciden, por número (#327), no por nombre.</li>
   </ol>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>
@@ -104,8 +103,8 @@
     <p>«cofre de madera» gastó 120 MXN sin órdenes, con Jev 0 de 16. Sale como <b>Ajena</b>. «arras doradas» gastó 90 MXN, con Jev 14 de 16, y vende en otro grupo. Sale como <b>Vende en otro ad group</b>.</p>
   </div>
   <div class="caja cuenta">
-    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>Estaba vacía en los dos mercados, con «Calculado el 2026-10-21 09:34» y «Sin cálculo reciente». Decía «el job sigue apagado o nada gasta sin vender». El job es la revisión de Jev. Salud decía Jev Encendido, pero eso solo dice que el interruptor está prendido. Mira Calculado el. Vacío no quiere decir que nada gaste sin vender.</p>
+    <h4>Tu cuenta · consulta del 9 de noviembre</h4>
+    <p>Amazon MX decía «Calculado el 9 nov, 15:30», sin aviso, con 187 búsquedas en cinco secciones. En <b>Ajena</b>, la que más gastó era «arras matrimoniales de oro 14 k», con 202.96 MXN y Jev 0 de 208. Es la misma que encabeza las búsquedas ajenas en Propuestas. Salud decía «Último cálculo terminado: 9 nov, 15:30».</p>
   </div>
 </section>
 
@@ -128,14 +127,14 @@
     <h4>No bloquees una palabra suelta</h4>
     <p>Si bloqueas «set» o «sin» como negative de frase, tu anuncio deja de salir también en búsquedas buenas que la contienen, como «set de arras matrimoniales». Usa esta lista para entender, y bloquea búsquedas completas.</p>
   </div>
-  <p>«El azar daría 29 %» es la parte del gasto que caería en búsquedas sin venta aunque todas vendieran como el promedio de tu cuenta. Solo la diferencia contra el azar se podría recuperar.</p>
+  <p>En la frase, «el azar daría 29.00 %» es la parte del gasto que caería en búsquedas sin venta aunque todas vendieran como el promedio de tu cuenta. Solo la diferencia contra el azar se podría recuperar.</p>
   <div class="caja ejemplo">
     <h4>Ejemplo para aprender</h4>
     <p>De cada 100 pesos, 40 caen en búsquedas sin venta y el azar daría 30. Bloquear todo recuperaría a lo mucho 10, y bloquearía búsquedas buenas con mala suerte.</p>
   </div>
   <div class="caja cuenta">
-    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>En México decía «39 % de tu gasto cayó en búsquedas que no vendieron. Con la conversión de tu cuenta, el azar daría 29 %». El ASIN B0C11QJPKV sumaba 655.79 MXN sin vender. En Estados Unidos, 62 % contra 59 %.</p>
+    <h4>Tu cuenta · consulta del 9 de noviembre</h4>
+    <p>En México decía «39.00 % de tu gasto cayó en búsquedas que no vendieron. Con la conversión de tu cuenta, el azar daría 29.00 %». El ASIN B0C11QJPKV sumaba 717.15 MXN sin vender. En Estados Unidos, 62.00 % contra 58.00 %.</p>
   </div>
 </section>
 
@@ -155,8 +154,8 @@
     <p>«cofre de madera» gastó 400 MXN sin vender en Búsquedas y sale como Ajena en Gasto sin venta. Las dos coinciden y bloquearla tiene sentido.</p>
   </div>
   <div class="caja cuenta">
-    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>Búsquedas mostraba en México «estuche para» con 9 búsquedas y 735.35 MXN sin vender. Gasto sin venta no podía decir si eran de tus productos, porque su último cálculo era del 21 de octubre y estaba vacío.</p>
+    <h4>Tu cuenta · consulta del 9 de noviembre</h4>
+    <p>Búsquedas mostraba en México «estuche para» con 9 búsquedas y 729.28 MXN sin vender. Uno de sus ejemplos, «estuche para arras de boda sin arras», salía en Gasto sin venta como <b>Ajena</b>, con Jev 0 de 177.</p>
   </div>
   <div class="caja comprobar">
     <h4>Lo que ya puedes comprobar</h4>
@@ -166,11 +165,11 @@
 
 <section data-pantalla="keywords-danadas" data-etiqueta="Decidir · Keywords dañadas">
   <h1>Regresa una puja que bajó de más</h1>
-  <p class="lead">Muestra keywords que vendían, recibieron uno o más recortes de puja seguidos y casi se quedaron sin clics. Esta pantalla sí cambia algo. Regresar una keyword le sube la puja en Amazon en ese momento.</p>
+  <p class="lead">Keywords que vendían, recibieron uno o más recortes de puja seguidos y casi se quedaron sin clics. Esta pantalla sí cambia algo. Regresar una keyword le sube la puja en Amazon al momento.</p>
   <ol class="pasos">
-    <li>Abre <b>Keywords dañadas</b> y elige <b>Amazon MX</b> o <b>Amazon US</b>. Las que más vendían salen arriba.</li>
+    <li>Abre <b>Keywords dañadas</b> y elige <b>Amazon MX</b> o <b>Amazon US</b>. Las que más vendían salen arriba. «Calculado el 8 nov.» es el último día con cifras, no un atraso.</li>
     <li>Cada tarjeta lleva la keyword y su campaña. «sustituto» o «mismo ASIN …» son blancos automáticos de Amazon (página {{pag:decisiones}}). Compara <b>Clics cada 2 semanas</b> y la <b>Puja</b>, antes y hoy.</li>
-    <li>Las tarjetas son las pendientes. Las ya regresadas van al final, en <b>Ya regresadas (n)</b>, con su fecha y su puja. Si una sigue sin clics, quizá la puja no era la causa. Avisa al responsable.</li>
+    <li>Las tarjetas son las pendientes. Las ya regresadas van al final, en <b>Ya regresadas (n)</b>, solo con su fecha y la puja a la que volvieron.</li>
   </ol>
   <table>
     <tr><th>Lo que ves</th><th>Qué significa</th></tr>
@@ -185,12 +184,12 @@
     <p>Después Orbit espera 7 días sin tocarla. Luego no la recorta hasta que junte 20 clics con la puja nueva o pasen 14 días, y nunca la vuelve a bajar hasta la puja que la dañó. Comprueba el mensaje «Regresada a…» o «Regresadas 2 de 2».</p>
   </div>
   <div class="caja cuenta">
-    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>México tenía 2 tarjetas pendientes y 1 en Ya regresadas. «sustituto», en ASEM - Auto Discovery - MX, vendía 3 pedidos (2,193.09 MXN). Sus clics pasaron de 8 a 0 y su puja de 3.95 a 2.09 tras 5 recortes. «mismo ASIN B086TVLJ43» se regresó el 11 oct a 36.99 MXN y seguía en 0 clics.</p>
+    <h4>Tu cuenta · consulta del 9 de noviembre</h4>
+    <p>México tenía 2 tarjetas pendientes y «Ya regresadas (1)». «sustituto», en ASEM - Auto Discovery - MX, vendía 3 pedidos (2,193.09 MXN). Sus clics pasaron de 8 a 0 y su puja de 3.95 a 2.09 tras 5 recortes. «mismo ASIN B086TVLJ43» decía «regresada el 11 oct a 36.99 MXN».</p>
   </div>
   <div class="caja comprobar">
     <h4>Lo que ya puedes comprobar</h4>
-    <p>Reconoces una keyword que perdió su tráfico por recortes y sabes qué pasa antes y después de regresarla.</p>
+    <p>Reconoces una keyword dañada por recortes y sabes qué pasa al regresarla.</p>
   </div>
 </section>
 
@@ -212,7 +211,7 @@
   </div>
   <ol class="pasos">
     <li>Abre <b>Ruido</b> y elige <b>Amazon MX</b> o <b>Amazon US</b>.</li>
-    <li>En <b>Por ciclo</b> hay una tarjeta por ciclo, de la más nueva a la más vieja. En México eran 89.</li>
+    <li>En <b>Por ciclo</b> hay una tarjeta por ciclo, de la más nueva a la más vieja. En México eran 90.</li>
     <li>En cada tarjeta lee <b>Decisiones por motivo y por dónde se midió</b> (lo que cambió) y <b>Abstenciones por motivo</b> (lo que dejó igual).</li>
     <li>Si aparece «De práctica, no aplicadas», son decisiones de práctica que no cambiaron nada en Amazon.</li>
   </ol>
@@ -237,8 +236,8 @@
     <tr><td>«Campaña no habilitada…» · «Sin impresiones en 14 días…»</td><td>Ni siquiera la juzgó.</td></tr>
   </table>
   <div class="caja cuenta">
-    <h4>Tu cuenta · consulta del 8 de noviembre</h4>
-    <p>En México, el último ciclo (Ciclo 177 · 8 nov, 11:58) no tuvo decisiones y anotó 22 veces «La diferencia puede ser suerte». Encendido el 11 oct, el ACoS de México pasó de 14.42 % a 13.57 % y el de Estados Unidos de 33.70 % a 50.93 %.</p>
+    <h4>Tu cuenta · consulta del 9 de noviembre</h4>
+    <p>En México, el último ciclo (Ciclo 179 · 9 nov, 02:41) no tuvo decisiones y anotó 22 veces «La diferencia puede ser suerte». Encendido el 11 oct, el ACoS de México pasó de 14.42 % a 13.37 % y el de Estados Unidos de 33.70 % a 50.13 %.</p>
     <p>En Estados Unidos, «arras de boda cristiana · USPerNog - Category Exact - US» decía «Puja: 0.68 antes, 0.23 hoy (USD)». En Keywords dañadas aparece con esa misma puja.</p>
   </div>
   <div class="caja comprobar">

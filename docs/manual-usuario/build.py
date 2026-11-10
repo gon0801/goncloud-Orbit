@@ -13,7 +13,7 @@ import sys
 
 RAIZ = pathlib.Path(__file__).resolve().parent
 REPO = RAIZ.parents[1]
-FECHA = "8 de noviembre de 2026"
+FECHA = "9 de noviembre de 2026"
 PIE = f"ORBIT | Entrenamiento completo | {FECHA}"
 MARCA = "ORBIT / SISTEMA COMPLETO"
 SESION = f"manual-orbit-build-{os.getpid()}"
