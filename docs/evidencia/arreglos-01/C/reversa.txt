@@ -1,0 +1,36 @@
+ARREGLOS 01 bloque C (unidad R2): reversa de los negatives aplicados.
+Ruta ya existente: POST /api/ads-optimizer/reversa/negative (app/api_write.py:409
+-> apply.reversa_manual, app/apply.py:1665). El negative_id del DELETE sale
+SIEMPRE del ack del ledger de esa fila (ADV-2), nunca del cuerpo. Respuestas
+completas (HTTP + cuerpo), sin llaves ni tokens.
+
+Llamada previa mal formada (error local de comillas al invocar el script, NO
+llego a revertir nada; se conserva por completitud):
+  2026-11-10T09:16:46Z queue_id 10
+  422 {"detail":[{"type":"json_invalid","loc":["body",1],"msg":"JSON decode error","input":{},"ctx":{"error":"Expecting property name enclosed in double quotes"}}]}
+
+Cola 10 (decision 2321, search_term "arras de boda"):
+  $ bash docs/evidencia/arreglos-01/escribe_api.sh \
+      /api/ads-optimizer/reversa/negative '{"queue_id": 10}'
+  200 {"tipo":"negative","queue_id":10,"negative_id":"142235318359372","confirmada":true}
+
+Cola 11 (decision 2322, search_term "arras for wedding ceremony"):
+  $ bash docs/evidencia/arreglos-01/escribe_api.sh \
+      /api/ads-optimizer/reversa/negative '{"queue_id": 11}'
+  200 {"tipo":"negative","queue_id":11,"negative_id":"245412704892037","confirmada":true}
+
+Cola 26 (decision 2869, search_term "wedding arras"):
+  NO se llama: la fila esta `vetoed` (no `applied`) desde antes de este bloque
+  (ver docs/evidencia/arreglos-01/A/cola-26.txt). El plan dice revertirla solo
+  si alcanzo a aplicarse.
+
+Ledger resultante (lee_prod.sh, mismo consulta de antes):
+  2321|2|reversa|ok|2026-11-10 09:17:08.153816+00:00|{'negativeKeywordIdFilter': {'include': ['142235318359372']}}|{'negativeKeywords': {'error': [], 'success': [{'index': 0, 'negativeKeywordId': '142235318359372'}]}}
+  2322|2|reversa|ok|2026-11-10 09:17:14.597439+00:00|{'negativeKeywordIdFilter': {'include': ['245412704892037']}}|{'negativeKeywords': {'error': [], 'success': [{'index': 0, 'negativeKeywordId': '245412704892037'}]}}
+
+Las dos respuestas traen confirmada=true y el ledger sella resultado='ok' con el
+mismo negative_id del ack original. La prueba-real del bloque pasa despues:
+  $ bash docs/evidencia/arreglos-01/C/prueba.sh
+  cola 10 (decision 2321): reversa confirmada
+  cola 11 (decision 2322): reversa confirmada
+  rc=0   (2026-11-10T09:17:20Z)
