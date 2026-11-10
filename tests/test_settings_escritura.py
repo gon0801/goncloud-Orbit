@@ -195,6 +195,30 @@ def test_arreglos01_d_proxima_config_rechaza_tope_diario_imposible():
     assert nuevo[f"ads_apply_cap_{PLAT}_bid"] == str(CAP_MAXIMO)
 
 
+def test_arreglos01_d_el_motor_lee_el_cap_con_el_mismo_lector():
+    """D.2 (I-H1): el motor aplica el cap con `cap_desde_settings`. Un cap
+    booleano o fuera de rango en la config vigente es ValueError; antes
+    `int(True)` daba 1 y 2**31 se colaba al INSERT de quota del dia."""
+    from app.apply import _cap_de_config
+
+    class _ConnConfigFija:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def execute(self, _sql):
+            return self
+
+        def fetchone(self):
+            return (self.settings,)
+
+    clave = f"ads_apply_cap_{PLAT}_bid"
+    assert _cap_de_config(_ConnConfigFija({clave: "50"}), PLAT, "bid") == 50
+    with pytest.raises(ValueError, match="fuera de rango"):
+        _cap_de_config(_ConnConfigFija({clave: 2**31}), PLAT, "bid")
+    with pytest.raises(ValueError, match="booleano"):
+        _cap_de_config(_ConnConfigFija({clave: True}), PLAT, "bid")
+
+
 def test_proxima_config_fraccion_null_cuenta_como_apagada():
     """Una clave con JSON null es margen APAGADO para el resolver
     (fraccion_desde_settings -> None): editar el manual no pide ack y apagar
