@@ -1,0 +1,33 @@
+=== P1. M1 metrica venenosa en D-9..D-1 con un pedido CONOCIDO ===
+lectura: LecturaReciente(pedidos=None, ancla=datetime.date(2026, 11, 6), cubierta=True, observado_al=datetime.datetime(2026, 11, 9, 7, 40, tzinfo=datetime.timezone.utc))
+hay_venta: False | tiene_proteccion: False
+evalua -> aplicar venta_reciente_indeterminada
+decide_pause -> pause pause_umbral
+misma hoja SIN el NULL (control):
+decide_pause -> None venta_reciente_protegida
+comparacion: el mismo NULL en la ventana MADURA:
+decide_pause -> None pause_orders_desconocido
+
+=== P2. M1 fuente incompleta (falta D-1 en la plataforma) con pedido conocido ===
+cubierta: False | lectura: LecturaReciente(pedidos=None, ancla=None, cubierta=False, observado_al=datetime.datetime(2026, 11, 9, 7, 40, tzinfo=datetime.timezone.utc))
+decide_pause -> pause pause_umbral
+
+=== P3. Hueco entre ventanas cuando la hoja deja de tener filas (agotado) ===
+ultima fila 2026-10-30 venta 2026-10-30: ventana madura 2026-09-28..2026-10-27, reciente 2026-10-31..2026-11-08
+  venta dentro de la madura: False
+  sin episodio previo -> decide_pause: pause pause_umbral
+  con episodio abierto antes -> decide_pause: None venta_reciente_indeterminada
+ultima fila 2026-11-01 venta 2026-10-30: ventana madura 2026-09-30..2026-10-29, reciente 2026-10-31..2026-11-08
+  venta dentro de la madura: False
+  sin episodio previo -> decide_pause: pause pause_umbral
+  con episodio abierto antes -> decide_pause: None venta_reciente_indeterminada
+
+=== P4. M1 limites de fecha del episodio (ancla + 10, ventana D-10) ===
+hoy 2026-11-08 ventana_hasta 2026-10-29: esperar venta_reciente_protegida
+hoy 2026-11-09 ventana_hasta 2026-10-30: aplicar proteccion_consumida
+
+=== P5. M4: dia de venta reciente con una metrica ausente ===
+dias_recientes: () | faltantes (descartado en productos_io.py:310): True
+venta_reciente_producto: None
+motivos_economicos_pausa (vacio = la pausa procede): ()
+cumple_limites_pausa: True

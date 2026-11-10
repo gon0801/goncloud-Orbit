@@ -1,0 +1,4 @@
+ultimo sync de estructura: 2026-11-04T08:40:00+00:00 (5 dias)
+max(synced_at) que ve la guarda: 2026-11-08T08:40:00+00:00
+guarda_plataforma -> None
+sin el apply del motor -> MotivoSkip(guarda='synced_at', detalle='plataforma amazon_us: estructura sincronizada hace 5 days, 0:00:00 > 48h')

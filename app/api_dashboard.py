@@ -67,7 +67,6 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row, tuple_row
 
-from app import cycle as ciclo
 from app.ads.salud import bloque_salud as bloque_ads_ingest
 from app.api import KINDS_DECISION, ConexionLectura, propuestas_campana_visibles
 from app.api_common import (
@@ -108,9 +107,9 @@ from app.dashboard_resumen import (
 )
 from app.dashboard_resumen import resumen as resumen_multicanal
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
-from app.optimizer import bid, eras, hygiene, politica
-from app.optimizer import evidencia as ev
+from app.etiquetas import ETIQUETAS, etiqueta, motivo_decision_es
 from app.optimizer import goals as g
+from app.optimizer import hygiene
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
 from app.redaction import install_scrub_filter, scrub
@@ -206,54 +205,6 @@ _SQL_CONFIG_VIGENTE = """
 SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
-# Motivos de DECISION -> espanol (decisión 11 del header): dict que IMPORTA
-# las constantes MOTIVO_* de bid/hygiene (los que persisten en inputs.motivo
-# de filas en `decision`). Si el vocabulario cambia, falla RUIDOSO en import
-# (KeyError), jamas silencioso. Motivo desconocido -> el id crudo (fallback
-# sin crash: no se pierde informacion).
-MOTIVOS_ES_DECISIONES: dict[str, str] = {
-    bid.MOTIVO_PAUSE: "Pausa: sin ventas con clicks y costo sobre el umbral",
-    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS sobre 1.35x del target: -25%",
-    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS sobre 1.15x del target: -12%",
-    eras.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
-        "Cero ventas con los clicks de una venta y gasto sobre el piso: -25%"
-    ),
-    eras._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
-    hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
-    hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campaña manual",
-    # A4: abstenciones del contrafactual v2 (viven en inputs.evidencia_v2,
-    # jamas en inputs.motivo; el feed las traduce con lookup de union).
-    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: (
-        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
-    ),
-    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
-        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
-    ),
-    bid.MOTIVO_PAUSE_ECONOMICA: "Pausa economica: venta cara sobre 3x del target",
-    # BIDS 02 M.3: motivos de niveles_v3 (los que emiten Mover y Regresar).
-    politica.MOTIVO_REGRESO_DESPLOME: (
-        "{que} regresó a su puja anterior: la nueva hizo caer sus visitas"
-    ),
-    politica.MOTIVO_PIERDE_DINERO: "{que} pierde dinero: baja su puja 12 %",
-    politica.MOTIVO_PIERDE_DINERO_FUERTE: "{que} pierde mucho dinero: baja su puja 25 %",
-    politica.MOTIVO_GRUPO_SANGRA_VENDEDORA: (
-        "{que} vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %"
-    ),
-    politica.MOTIVO_BAJO_TARGET: "{que} tiene el ACoS por debajo de la meta: sube su puja 15 %",
-    politica.MOTIVO_GASTO_SIN_VENTA: (
-        "{que} ya gastó lo necesario para decidir y no vendió: baja su puja 12 %"
-    ),
-    politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: (
-        "{que} gastó el doble de lo necesario para decidir y no vendió: baja su puja 25 %"
-    ),
-    politica.MOTIVO_GRUPO_SANGRA: (
-        "{que} no vende y su grupo de anuncios pierde dinero: baja su puja 12 %"
-    ),
-    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
-        "{que}: subida de puja frenada, las visitas de más no pagaron el gasto extra"
-    ),
-}
-
 # ---------------------------------------------------------------------------
 # 1.5 - /salud: historico 14d y motivos de skip del ORQUESTADOR
 # ---------------------------------------------------------------------------
@@ -271,140 +222,13 @@ SELECT id, mode, platform, started_at, finished_at, decisions_count,
  LIMIT 14
 """
 
-# Motivos de SKIP -> espanol (decision 11): el vocabulario que el ORQUESTADOR
-# persiste en notes.skips — los MOTIVO_* propios de cycle.py + los guarda_*
-# (windows.py) + los MOTIVO_* de bid/hygiene que cycle importa a sus
-# contadores (evidencia real 2026-08-24: estado_no_enabled, bids_sin_observaciones,
-# rango_bloquea_ajuste, sin_banda, pause_cortes_incompleto, bid_actual_ausente,
-# sin_umbral_negative, asin_like, acos_sobre_tope, harvest_sin_config,
-# entidad_incompleta). DOS diccionarios (este y el del feed), cada uno
-# importando su fuente. Motivo desconocido -> id crudo (fallback sin crash).
-MOTIVOS_ES_SALUD: dict[str, str] = {
-    # motivos del ORQUESTADOR (cycle.py; su fuente)
-    ciclo.MOTIVO_SIN_GOAL: "Entidad sin goal (la campaña no esta configurada)",
-    ciclo.MOTIVO_GOAL_DISABLED: "Goal de campaña deshabilitado (opt-out)",
-    ciclo.MOTIVO_GOAL_MODE_OFF: "Goal en modo off",
-    ciclo.MOTIVO_ESTADO_NO_ENABLED: "Entidad sin estado o no habilitada",
-    ciclo.MOTIVO_CAMPANA_NO_ENABLED: "Campaña no habilitada (pausada/archivada o sin estado)",
-    ciclo.MOTIVO_GRUPO_NO_ENABLED: "Ad group no habilitado (pausado/archivado o sin estado)",
-    ciclo.MOTIVO_ENTIDAD_INERTE: (
-        "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
-    ),
-    ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
-    ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
-    ciclo.MOTIVO_POLITICA_APAGADA: "Motor de bids apagado (sin ads_bid_politica): sin ajuste",
-    ciclo.MOTIVO_SIN_TARGET: "Sin target (ningun peldano resolvio): sin ajuste",
-    ciclo.MOTIVO_PRODUCTO_SIN_EVIDENCIA: (
-        "Meta por producto sin evaluacion guardada en este ciclo: sin ajuste"
-    ),
-    # BIDS 02 M.3: motivos de niveles_v3 (los que emite Mantener).
-    politica.MOTIVO_ESPERANDO_EFECTO: "Bid reciente: esperando su efecto (7 dias)",
-    politica.MOTIVO_VIGENTE_ENCIMA: "Bid vigente por encima del regreso: sin ajuste",
-    politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "Vende dentro del margen: sin cambio de puja",
-    politica.MOTIVO_AZAR_LO_EXPLICA: "El azar lo explica: sin ajuste",
-    politica.MOTIVO_VENTA_RECIENTE: "Venta reciente en ventana inmadura: sin ajuste",
-    politica.MOTIVO_SIN_GASTO: "Sin gasto: sin cambio de puja",
-    politica.MOTIVO_HOJA_DELGADA: "Gasta tan poco que no vale la pena mover la puja",
-    politica.MOTIVO_GRUPO_CUMPLE: "El grupo cumple: sin ajuste",
-    politica.MOTIVO_SIN_EVIDENCIA: "Sin datos suficientes en la keyword ni en su grupo: sin cambio",
-    politica.MOTIVO_ESPERANDO_PRECIO_MEDIDO: "Bid reciente: esperando precio medido",
-    politica.MOTIVO_SIN_CLICS_NUEVOS: "Sin clics nuevos al bid vigente: sin ajuste",
-    politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Recorte frenado por costo de trafico",
-    politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida frenada: sin trafico para medirla",
-    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
-        "Subida de puja frenada: las visitas de más no pagaron el gasto extra"
-    ),
-    politica.MOTIVO_PISO_APRENDIDO: "El recorte tocaria un bid que ya dano: sin ajuste",
-    politica.MOTIVO_DATO_FALTANTE: "Dato faltante: sin ajuste",
-    politica.MOTIVO_SIN_PRECIO: "Sin precio medido: sin ajuste",
-    # guardas de plataforma (windows.py; el envelope las persiste como
-    # motivo_skip = guarda_<guarda>)
-    "guarda_watermark": "Watermark de la plataforma vencido (> 7 dias)",
-    "guarda_synced_at": "Estructura sincronizada hace > 48h",
-    "guarda_sin_datos": "Plataforma sin metricas ni estado",
-    # MOTIVO_* de bid (skips que el orquestador importa a sus contadores)
-    bid.MOTIVO_PAUSE: "Pausa: sin ventas con clicks y costo sobre el umbral",
-    bid.MOTIVO_PAUSE_CORTES_INCOMPLETO: "Pausa bloqueada: ventana de cortes incompleta",
-    bid.MOTIVO_PAUSE_MONEDA_INVALIDA: "Pausa bloqueada: moneda del agregado invalida",
-    bid.MOTIVO_PAUSE_ORDERS_DESCONOCIDO: "Pausa bloqueada: orders desconocidos",
-    bid.MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS: "Pausa bloqueada: clicks o costo desconocidos",
-    bid.MOTIVO_BIDS_SIN_OBSERVACIONES: "Bid sin observaciones en la ventana",
-    bid.MOTIVO_BIDS_INCOMPLETO: "Bid bloqueado: ventana incompleta (< 7 fechas)",
-    bid.MOTIVO_BIDS_MONEDA_INVALIDA: "Bid bloqueado: moneda del agregado invalida",
-    bid.MOTIVO_ACOS_DESCONOCIDO: "ACoS desconocido (cost o revenue faltante)",
-    bid.MOTIVO_RANGO_BLOQUEA_AJUSTE: "Rango [floor, ceiling] bloquea el ajuste",
-    bid.MOTIVO_BID_ACTUAL_INVALIDO: "Bid actual invalido",
-    bid.MOTIVO_BID_ACTUAL_AUSENTE: "Bid actual ausente",
-    bid.MOTIVO_BID_MONEDA_INVALIDA: "Bid con moneda invalida",
-    bid.MOTIVO_SIN_BANDA: "Sin banda de ajuste (ACoS dentro del rango)",
-    bid.MOTIVO_DELTA_BAJO_UMBRAL: "Cambio menor a 0.01: no-op",
-    # A4: abstenciones v2 (clase no-op; en A4 nada las escribe en
-    # notes.skips — forward-A6 — pero el feed las traduce por union;
-    # precedente del doble-dict: MOTIVO_PAUSE).
-    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: (
-        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
-    ),
-    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
-        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
-    ),
-    # MOTIVO_* de hygiene (idem)
-    hygiene.MOTIVO_ENTIDAD_INCOMPLETA: "Entidad incompleta: sin umbral de fechas",
-    hygiene.MOTIVO_ASIN_LIKE: "Termino ASIN-like: se salta siempre",
-    hygiene.MOTIVO_ORDERS_DESCONOCIDO: "Orders desconocidos: sin umbral",
-    hygiene.MOTIVO_DATO_FALTANTE: "Dato faltante del termino",
-    hygiene.MOTIVO_SIN_UMBRAL_NEGATIVE: "Sin umbral de negative (clicks o costo bajo)",
-    hygiene.MOTIVO_ACOS_SOBRE_TOPE: "ACoS sobre el tope de harvest",
-    hygiene.MOTIVO_HARVEST_SIN_CONFIG: "Harvest sin config de campaña manual",
-    hygiene.MOTIVO_HARVEST_DUPLICADO: "Harvest duplicado: ya existe la keyword",
-    hygiene.MOTIVO_HARVEST_MONEDA_INCOHERENTE: "Harvest con moneda incoherente",
-    hygiene.MOTIVO_MONEDA_INCOHERENTE: "Moneda incoherente",
-    # FABRICA 02 (A.6): motivos del resolutor de destino (hygiene, A.1) que el
-    # ciclo cuenta en skips.termino — la unica superficie donde se ven.
-    hygiene.MOTIVO_ORIGEN_ES_DESTINO: (
-        # "campaña" con ñ: test_ui_copy_campana.py exige ñ en la copia
-        # visible de MOTIVOS_ES_* (el dict ya la usa: "la campaña no esta").
-        # D.4: el motivo cubre grupo, terna y excepcion (el ad group de
-        # origen es el destino), no solo la exacta del grupo.
-        "Harvest saltado: el ad group de origen es el destino de la campaña"
-    ),
-    hygiene.MOTIVO_SIN_DESTINO_HARVEST: "Harvest sin destino: sin grupo, sin excepcion y sin terna",
-    hygiene.MOTIVO_DESTINO_INCONSISTENTE: (
-        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
-    ),
-    hygiene.MOTIVO_DESTINO_DESINCRONIZADO: (
-        "Harvest descartado: la exacta del grupo cambio despues de decidir"
-    ),
-    hygiene.MOTIVO_MIGRACION_PENDIENTE: (
-        "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
-    ),
-}
-
-
-# Sujeto de los motivos con {que}: la persona tiene que saber qué vende o pierde dinero.
-SUJETO_POR_ENTIDAD: dict[str, str] = {
-    "keyword": "La keyword",
-    "product_target": "El producto objetivo",
-    "product_ad": "El anuncio del producto",
-    "ad_group": "El grupo de anuncios",
-    "campaign": "La campaña",
-}
-
-
-def motivo_decision_es(motivo: str | None, entidad_kind: str | None) -> str | None:
-    if motivo is None:
-        return None
-    texto = MOTIVOS_ES_DECISIONES.get(motivo, MOTIVOS_ES_SALUD.get(motivo, motivo))
-    return texto.replace("{que}", SUJETO_POR_ENTIDAD.get(entidad_kind or "", "Este elemento"))
-
 
 def motivo_es(motivo: str | None) -> str | None:
-    """Un motivo al espanol de /salud (FABRICA 02, A.6): traduce por
-    MOTIVOS_ES_SALUD, cae al id crudo con motivos desconocidos (la
-    evidencia jamas se pierde) y pasa None a None (regla 3). Lo usan
-    /cortes y el feed; _skips_traducidos no cambia."""
+    """Un motivo de /salud en palabras (FABRICA 02, A.6); None queda None
+    (regla 3). Lo usan /cortes y el feed."""
     if motivo is None:
         return None
-    return MOTIVOS_ES_SALUD.get(motivo, motivo)
+    return etiqueta(motivo, "motivo_salud")
 
 
 def _hoy_utc() -> dt.date:
@@ -1057,10 +881,11 @@ def _motivo_ciclo(status: str, notes) -> str | None:
     if isinstance(notes, dict):
         motivo_skip = notes.get("motivo_skip")
         if motivo_skip is not None:
-            return MOTIVOS_ES_SALUD.get(motivo_skip, motivo_skip)
+            return etiqueta(motivo_skip, "motivo_salud")
         degradacion = notes.get("degradacion_live")
         if degradacion:
-            return degradacion
+            # Texto libre del ciclo: la frase conocida se traduce, otra pasa tal cual.
+            return ETIQUETAS["degradacion_ciclo"].get(degradacion, degradacion)
         # ciclos failed reales: _sello_fallido persiste el error scrubbeado
         # bajo notes.error (grok r2: no se leia y el historico lo mostraba
         # sin motivo)
@@ -1088,13 +913,14 @@ def _fila_historico(fila) -> dict:
     }
 
 
-def _skips_traducidos(contadores: dict) -> dict:
-    """{motivo: {count, motivo_es}}; motivo desconocido -> id crudo (fallback
-    sin crash: la evidencia del skip jamas se pierde)."""
-    return {
-        motivo: {"count": count, "motivo_es": MOTIVOS_ES_SALUD.get(motivo, motivo)}
-        for motivo, count in contadores.items()
-    }
+def _skips_traducidos(contadores: dict) -> list[dict]:
+    """[{motivo, count, motivo_es}] del mas contado al menos contado (empate:
+    por motivo). La lista conserva el orden hasta la grafica: un dict lo
+    pierde en `tojson`, que ordena las claves."""
+    return [
+        {"motivo": motivo, "count": count, "motivo_es": etiqueta(motivo, "motivo_salud")}
+        for motivo, count in sorted(contadores.items(), key=lambda par: (-par[1], par[0]))
+    ]
 
 
 def _skips_de(ultimo_ciclo: dict | None) -> dict:
@@ -1103,7 +929,7 @@ def _skips_de(ultimo_ciclo: dict | None) -> dict:
     traducidos (decision 11). Sin ciclo o sin notes -> vacio, jamas null
     inventado."""
     if ultimo_ciclo is None or ultimo_ciclo.get("notes") is None:
-        return {"entidad": {}, "termino": {}}
+        return {"entidad": [], "termino": []}
     skips = ultimo_ciclo["notes"].get("skips") or {}
     return {
         "entidad": _skips_traducidos(skips.get("entidad") or {}),
@@ -1127,7 +953,7 @@ def _harvest_destino_de(ultimo_ciclo: dict | None) -> dict | None:
     saltos = bloque.get("saltos_grupo") or {}
     return {
         "resueltos": {k: resueltos.get(k, 0) for k in ("grupo", "excepcion", "terna")},
-        "terna_es": MOTIVOS_ES_SALUD[hygiene.MOTIVO_MIGRACION_PENDIENTE],
+        "terna_es": ETIQUETAS["motivo_salud"][hygiene.MOTIVO_MIGRACION_PENDIENTE],
         "saltos_grupo": [
             {"campaign_id": int(camp), "motivo": motivo, "motivo_es": motivo_es(motivo)}
             for camp, motivo in sorted(saltos.items(), key=lambda par: int(par[0]))
@@ -1353,37 +1179,17 @@ SELECT r.rol::text, c.external_id, c.name
 """
 
 # CORTES UI 01 (D2-D4): la pantalla se llama Propuestas y cada fila declara
-# su tipo por KIND (pause/negative/harvest: familia solo distingue
-# entity_cut/term_cut y no alcanza para tres etiquetas). Strings exactos
-# pineados por tests.
-# CLARIDAD 01 C.4: la pausa apaga la hoja y solo la keyword es una palabra,
-# asi que pause se nombra por (kind, entidad_kind); negative y harvest no
-# dependen de la entidad y van con None (ver _clave_texto).
-ETIQUETA_POR_KIND = {
-    ("pause", "keyword"): "Apagar palabra",
-    ("pause", "product_target"): "Apagar segmentación de producto",
-    ("pause", "product_ad"): "Pausar anuncio del producto",
-    ("negative", None): "Bloquear busqueda",
-    ("harvest", None): "Capturar termino que vende",
-}
+# su tipo por KIND. La pausa se nombra por `kind:entidad_kind` (CLARIDAD 01
+# C.4); los textos viven en app/etiquetas (dominios propuesta y efecto_rechazo).
 DIRECCION_POR_KIND = {
     "pause": "recorta",
     "negative": "recorta",
     "harvest": "crece",
 }
-EFECTO_RECHAZO_POR_KIND = {
-    ("pause", "keyword"): "Rechazar: la palabra NO se apagara (seguira gastando)",
-    ("pause", "product_target"): (
-        "Rechazar: la segmentación de producto NO se apagará (seguirá gastando)"
-    ),
-    ("pause", "product_ad"): "Rechazar: el anuncio del producto NO se pausará (seguirá gastando)",
-    ("negative", None): "Rechazar: la busqueda NO se bloqueara",
-    ("harvest", None): "Rechazar: la palabra NO se creara",
-}
 
 
-def _clave_texto(kind: str, entidad_kind: str | None) -> tuple[str, str | None]:
-    return (kind, entidad_kind if kind == "pause" else None)
+def _clave_texto(kind: str, entidad_kind: str | None) -> str:
+    return f"{kind}:{entidad_kind}" if kind == "pause" and entidad_kind else kind
 
 
 def _indicador_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
@@ -1598,9 +1404,9 @@ def cortes(conn: ConexionLectura) -> dict:
                 "vence_el": fila["vence_el"].isoformat(),
                 "encolado_at": fila["encolado_at"].isoformat(),
                 "decision_id": fila["decision_id"],
-                "etiqueta": ETIQUETA_POR_KIND.get(clave_texto),
+                "etiqueta": etiqueta(clave_texto, "propuesta"),
                 "direccion": DIRECCION_POR_KIND.get(fila["kind"]),
-                "efecto_rechazo": EFECTO_RECHAZO_POR_KIND.get(clave_texto),
+                "efecto_rechazo": etiqueta(clave_texto, "efecto_rechazo"),
                 "indicador": _indicador_harvest(fila["kind"], fila["decision_inputs"]),
                 "destino": destino,
                 "hermanas": hermanas,
@@ -1632,6 +1438,10 @@ def cortes(conn: ConexionLectura) -> dict:
     }
 
 
+def _motivo_sin_lectura(motivo: str) -> str:
+    return etiqueta(motivo, "motivo_sin_lectura")
+
+
 def _bloqueos_jev(conn) -> tuple[dict, bool]:
     from app.bloqueo_dueno import lee_pantalla
     from app.jev_vista import frase_de_lectura
@@ -1644,6 +1454,7 @@ def _bloqueos_jev(conn) -> tuple[dict, bool]:
                 propuesta.pop("motivos") or (),
                 int(propuesta.pop("miembros") or 0),
                 propuesta.pop("listado_de"),
+                motivo_texto=_motivo_sin_lectura,
             )
     return pantalla, True
 
@@ -1752,6 +1563,7 @@ def _senal_presentada_vista(vista) -> dict | None:
         fila.get("motivos") or [],
         fila.get("miembros", 0),
         fila.get("listado_de"),
+        motivo_texto=_motivo_sin_lectura,
     )
     return fila
 
@@ -1857,15 +1669,7 @@ SELECT g.id, g.scope, g.ad_entity_id, g.platform, g.target_acos_pct, g.bid_floor
 # pantalla dice a QUIEN pisa segun el peldano que gobierna la plataforma sin
 # ese goal. Se deriva de PELDANOS_CASCADA: un peldano sin etiqueta revienta
 # al importar (KeyError), no inventa un texto.
-_ETIQUETA_PISA: dict[str, str] = {
-    "goal_campana": "pisa al goal de otra campana",
-    "goal_plataforma": "pisa al goal de la plataforma",
-    "margen_producto": "pisa a la meta por producto",
-    "margen_familia": "pisa al target por margen de la familia",
-    "margen_plataforma": "pisa al target por margen de la plataforma",
-    "setting_plataforma": "pisa al target manual de la plataforma",
-}
-PISA_POR_PELDANO: dict[str, str] = {p: _ETIQUETA_PISA[p] for p in g.PELDANOS_CASCADA}
+PISA_POR_PELDANO: dict[str, str] = {p: ETIQUETAS["pisa"][p] for p in g.PELDANOS_CASCADA}
 
 
 def _goal_editable(goal_id: int, goal: g.Goal, plataforma, nombre, pisa_a) -> dict:

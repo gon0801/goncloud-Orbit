@@ -16,6 +16,8 @@ from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 from app.ads.campana_config import ConfigCampana
+from app.etiquetas import etiqueta
+from app.formato import dinero
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 CLASES_SELLADAS = frozenset({"fuera_de_amazon", "ajuste_ubicacion", "presupuesto"})
@@ -31,11 +33,10 @@ _CAMPO_POR_UBICACION = {
     "resto_de_busqueda": "ajuste_resto_pct",
     "paginas_de_producto": "ajuste_producto_pct",
 }
-_NOMBRE_UBICACION = {
-    "arriba_de_busqueda": "arriba de búsqueda",
-    "resto_de_busqueda": "resto de búsqueda",
-    "paginas_de_producto": "páginas de producto",
-}
+
+
+def _en_frase(texto: str) -> str:
+    return texto[:1].lower() + texto[1:]
 
 
 @dataclass(frozen=True)
@@ -111,13 +112,6 @@ class PlanAjuste:
         }
 
 
-def _dinero_txt(valor: Decimal) -> str:
-    """Dinero para la frase del dueno: sin ceros de mas ("100.0000" ->
-    "100"). Solo presentacion; el valor viaja intacto."""
-    texto = format(valor, "f")
-    return texto.rstrip("0").rstrip(".") if "." in texto else texto
-
-
 def _ya_limitado(fuera: str | None) -> bool:
     if not fuera:
         return False
@@ -160,13 +154,13 @@ def planea_ajuste(
         )
         if vigente.presupuesto_diario is None:
             frase = (
-                f"Orbit pone el presupuesto diario en {_dinero_txt(monto)}"
+                f"Orbit pone el presupuesto diario en {dinero(monto)}"
                 f" {despues.moneda} en campaña {vigente.campana_externa} (antes sin presupuesto)"
             )
         else:
             frase = (
-                f"Orbit cambia el presupuesto diario de {_dinero_txt(vigente.presupuesto_diario)}"
-                f" {vigente.moneda} a {_dinero_txt(monto)} {vigente.moneda}"
+                f"Orbit cambia el presupuesto diario de {dinero(vigente.presupuesto_diario)}"
+                f" {vigente.moneda} a {dinero(monto)} {vigente.moneda}"
                 f" en campaña {vigente.campana_externa}"
             )
     elif isinstance(ajuste, CambiarAjusteUbicacion):
@@ -185,7 +179,7 @@ def planea_ajuste(
             raise AjusteSinCambio("el ajuste no cambia nada")
         despues = replace(vigente, **{campo: ajuste.porcentaje})
         frase = (
-            f"Orbit cambia el ajuste de {_NOMBRE_UBICACION[ajuste.ubicacion]}"
+            f"Orbit cambia el ajuste de {_en_frase(etiqueta(ajuste.ubicacion, 'ubicacion'))}"
             f" de +{actual} % a +{ajuste.porcentaje} %"
             f" en campaña {vigente.campana_externa}"
         )
@@ -194,8 +188,7 @@ def planea_ajuste(
             raise AjusteSinCambio("el ajuste no cambia nada")
         despues = replace(vigente, fuera_de_amazon=_FUERA_LIMITADO)
         frase = (
-            "Orbit limita el gasto fuera de Amazon (MINIMIZE_SPEND)"
-            f" en campaña {vigente.campana_externa}"
+            f"Orbit limita el gasto fuera de Amazon al mínimo en campaña {vigente.campana_externa}"
         )
     return PlanAjuste(
         campana_id=campana_id,

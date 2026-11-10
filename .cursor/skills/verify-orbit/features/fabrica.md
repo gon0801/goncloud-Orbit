@@ -9,6 +9,7 @@ Crear campanas es el formulario de un grupo de cinco campanas de Sponsored Produ
 - `fabrica-form` `form#fabrica-plan` pide plataforma, tipo, nombre, modo, origen del objetivo ACoS, presupuestos y pujas de los cinco roles.
 - `fabrica-confirmar` pide token y la frase `CREAR 5 CAMPAÑAS`. El boton nace deshabilitado.
 - `fabrica-api` `GET /api/fabrica/catalogo?plataforma=amazon_us` y `GET /api/fabrica/lotes?plataforma=amazon_us` son el lado JSON. La semilla baseline llega sin listings ni lotes.
+- `fabrica-textos` (CLARIDAD 01 I.1): roles, estados de lote y paso, etiqueta Ads, disponibilidad y estimación salen del registro con `Orbit.etiqueta` (dominios `rol_campana`, `estado_lote`, `estado_paso`, `etiqueta_ads`, `estado_disponibilidad`, `estado_estimacion`, `motivo_estimacion`, `exclusion_estimacion`, `componente_estimacion`, `origen_objetivo`, `recurso_fabrica`, `objetivo_puja`); los pasos de un lote dicen «Grupo de anuncios · Verificado · Activa» y las pujas sugeridas «Búsquedas muy parecidas» o «Keyword exacta: <keyword>»; p. ej. «Exacta de la categoría», «Creado y registrado», «Oferta destacada: sin verificar». Montos con miles y 2 decimales (`66,185.18 MXN`; el `title` de la celda trae 4), porcentajes con 2 (`48.02 %`), cobertura del margen como porcentaje (`100.00 %`) y horas del centro de México (`8 nov, 02:15`). El historial dice `<lote> · Creado y registrado · 8 sep, 21:35`.
 
 ## How to get to it (user POV)
 

@@ -19,23 +19,23 @@
 </head>
 <body data-pantalla="{{ pantalla }}">
   {% set paginas = {
-    'resumen': ('Resumen', 'Publicidad por canal · periodo a elegir, dia en curso excluido'),
-    'campanas': ('Campañas', 'Métricas 30d y target efectivo con procedencia'),
-    'decisiones': ('Decisiones', 'Solo entidades que decidieron · una fila por decision'),
-    'salud': ('Salud', 'Ultimo ciclo, historico 14d, quota y skips'),
-    'contribucion': ('Contribucion', 'Rango pre-cargos · 90d maduros con vintage D-15 UTC'),
-    'cortes': ('Propuestas', 'Pendientes de decision · se aplican solas al vencer'),
-    'gasto-sin-venta': ('Gasto sin venta', 'Busquedas que gastan y no venden, por lectura'),
+    'resumen': ('Resumen', 'Publicidad por canal · el periodo que elijas, sin el día en curso'),
+    'campanas': ('Campañas', 'Gasto y ventas de 30 días, con la meta de ACoS de cada campaña y de dónde sale'),
+    'decisiones': ('Decisiones', 'Lo que Orbit decidió · una fila por decisión'),
+    'salud': ('Salud', 'Cómo corrió el último ciclo, los 14 anteriores y lo que se saltó'),
+    'contribucion': ('Contribucion', 'Lo que deja cada campaña antes de cargos · 90 días ya cerrados'),
+    'cortes': ('Propuestas', 'Pendientes de tu revisión · las que están en vivo se aplican solas al vencer'),
+    'gasto-sin-venta': ('Gasto sin venta', 'Búsquedas que gastan y no venden, agrupadas por lectura'),
     'busquedas-sin-venta': ('Búsquedas que gastan sin vender', 'Solo campañas encendidas · últimos 90 días'),
-    'keywords-danadas': ('Keywords dañadas', 'Vendian y perdieron su trafico tras un recorte'),
-    'ruido': ('Ruido', 'Decisiones y abstenciones por ciclo, encogimiento y antes/despues'),
+    'keywords-danadas': ('Keywords dañadas', 'Vendían y perdieron sus visitas después de bajarles la puja'),
+    'ruido': ('Ruido', 'Decisiones y abstenciones por ciclo, cuánto se encogió cada cambio y el antes y después'),
     'donde-poner-el-dinero': ('Dónde poner el dinero', 'Gasto y ACoS por tipo de campaña, solo lo encendido'),
     'productos-sin-clics': ('Productos sin clics', 'Venden y casi no reciben clics · impulsos'),
-    'inertes': ('Inertes', 'Hojas activas sin trafico desde 14 dias o mas'),
-    'settings': ('Settings', 'Cascada de targets, caps diarios y goals'),
+    'inertes': ('Inertes', 'Keywords y productos activos sin visitas desde hace 14 días o más'),
+    'settings': ('Settings', 'Metas de ACoS, topes diarios y metas por campaña'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
-    'reputacion': ('Reputación', 'Rating, reviews, preguntas y alertas por listing'),
-    'precios': ('Precios', 'Cobertura, decisiones y divergencias del motor de precios'),
+    'reputacion': ('Reputación', 'Calificación, reseñas, preguntas y alertas por publicación'),
+    'precios': ('Precios', 'Qué publicaciones revisa el motor de precios, qué decidió y qué no cuadra'),
     'familias': ('Familias', 'Etiquetas de producto en dos niveles para la fábrica')
   } %}
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
@@ -90,7 +90,8 @@
       <div><h1>{{ paginas[pantalla][0] }}</h1><p>{{ paginas[pantalla][1] }}</p></div>
       <div class="header-acciones">
         {% block cabecera_accion %}{% endblock %}
-        <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
+        <span class="leyenda-zona">{{ leyenda_zona }}</span>
+        <span id="watermark-resumen" class="chip-watermark">Cifras hasta: sin consultar</span>
         <span class="alcance">{% if pantalla == 'resumen' %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
@@ -184,6 +185,8 @@
     </a>
     {% endfor %}
   </nav>
+  <script type="application/json" id="orbit-etiquetas">{{ registro_etiquetas }}</script>
+  <script src="/static/js/formato.js?v={{ asset_version }}"></script>
   <script src="/static/vendor/chart.umd.min.js?v={{ asset_version }}"></script>
   <script src="/static/js/shell.js?v={{ asset_version }}"></script>
   <script src="/static/js/dashboard.js?v={{ asset_version }}"></script>

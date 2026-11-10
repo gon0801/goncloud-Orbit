@@ -2,8 +2,8 @@
 {% block contenido %}
 <h2>Ruido</h2>
 <p class="mutado">
-  Cuántas hojas movió el motor por ciclo y por qué, cuánto se encogió cada
-  bid en 90 días y cómo se compara el antes y el después del encendido.
+  Cuántas keywords y productos movió el motor por ciclo y por qué, cuánto bajó
+  cada puja en 90 días y cómo se compara el antes y el después del encendido.
 </p>
 {# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
 <p>
@@ -13,11 +13,11 @@
 <h3>Por ciclo</h3>
 {% for ciclo in ciclos %}
 <div class="tarjeta">
-  <h4>Ciclo {{ ciclo.cycle_id }} · {{ ciclo.started_at|ts_ui }}</h4>
-  <p>Decisiones por motivo y nivel:</p>
+  <h4>Ciclo {{ ciclo.cycle_id }} · {{ ciclo.started_at | fecha_hora }}</h4>
+  <p>Decisiones por motivo y por dónde se midió:</p>
   <ul>
     {% for d in ciclo.decisiones %}
-    <li>{{ d.motivo or "—" }} · {{ d.nivel or "—" }}: {{ d.count }}</li>
+    <li>{{ d.motivo | etiqueta("motivo_decision") | replace("{que}", "La keyword o el producto") }}{% if d.nivel %} · medido en {{ d.nivel | etiqueta("nivel") }}{% endif %}: {{ d.count | numero }}</li>
     {% endfor %}
   </ul>
   {% if ciclo.abstenciones is none %}
@@ -26,41 +26,41 @@
   <p>Abstenciones por motivo:</p>
   <ul>
     {% for motivo, veces in ciclo.abstenciones.items() %}
-    <li>{{ motivo }}: {{ veces }}</li>
+    <li>{{ motivo | etiqueta("motivo_salud") }}: {{ veces | numero }}</li>
     {% endfor %}
   </ul>
   {% endif %}
   {% if ciclo.shadow %}
-  <p>Shadow, no aplicado: {{ ciclo.shadow }}.</p>
+  <p>De práctica, no aplicadas: {{ ciclo.shadow | numero }}.</p>
   {% endif %}
 </div>
 {% else %}
 <p>Sin ciclos del motor en este mercado.</p>
 {% endfor %}
-<h3>Encogimiento por hoja</h3>
-{% for hoja in encogimiento %}
+<h3>Cuánto bajó cada puja</h3>
+{% for item in encogimiento %}
 <div class="tarjeta">
-  <h4>Hoja {{ hoja.hoja_id }}</h4>
-  <p>Bid: {{ hoja.bid_base|dinero_ui }} antes, {{ hoja.bid_hoy|dinero_ui }} hoy ({{ hoja.moneda }}). Quedó en {{ hoja.razon|porcentaje_ui }}.</p>
+  <h4 title="#{{ item.hoja_id }}"><span data-dato-libre>{{ item.nombre or "Keyword o producto sin nombre" }}</span>{% if item.campana %} <span class="mutado">· <span data-dato-libre>{{ item.campana }}</span></span>{% endif %}</h4>
+  <p>Puja: {{ item.bid_base | dinero }} antes, {{ item.bid_hoy | dinero }} hoy ({{ item.moneda }}). Quedó en {{ item.razon | porcentaje_ui }}.</p>
 </div>
 {% else %}
-<p>Sin hojas con cambios de bid en los últimos 90 días.</p>
+<p>Sin keywords ni productos con cambios de puja en los últimos 90 días.</p>
 {% endfor %}
 <h3>Antes y después del encendido</h3>
 <p>Es una comparación simple de antes y después. No es causal.</p>
 {% if antes_y_despues %}
-<p>Encendido el {{ antes_y_despues.encendido_el }}.</p>
+<p>Encendido el {{ antes_y_despues.encendido_el | fecha_corta }}.</p>
 <h4>Antes del encendido ({{ antes_y_despues.dias_antes }} día{% if antes_y_despues.dias_antes != 1 %}s{% endif %})</h4>
 {% set bloque = antes_y_despues.antes %}
 {% if bloque %}
-<p>Gasto {{ bloque.gasto|dinero_ui or "—" }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos if bloque.pedidos is not none else "—" }} pedidos, venta {{ bloque.venta|dinero_ui or "—" }}, ACoS {{ bloque.acos_pct or "—" }} %.</p>
+<p>Gasto {{ bloque.gasto | dinero }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos | numero }} pedidos, venta {{ bloque.venta | dinero }}, ACoS {{ bloque.acos_pct | pct }}.</p>
 {% else %}
 <p>Sin datos.</p>
 {% endif %}
 <h4>Después del encendido ({{ antes_y_despues.dias_despues }} día{% if antes_y_despues.dias_despues != 1 %}s{% endif %})</h4>
 {% set bloque = antes_y_despues.despues %}
 {% if bloque %}
-<p>Gasto {{ bloque.gasto|dinero_ui or "—" }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos if bloque.pedidos is not none else "—" }} pedidos, venta {{ bloque.venta|dinero_ui or "—" }}, ACoS {{ bloque.acos_pct or "—" }} %.</p>
+<p>Gasto {{ bloque.gasto | dinero }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos | numero }} pedidos, venta {{ bloque.venta | dinero }}, ACoS {{ bloque.acos_pct | pct }}.</p>
 {% else %}
 <p>Sin datos.</p>
 {% endif %}

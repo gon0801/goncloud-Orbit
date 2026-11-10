@@ -1,0 +1,11 @@
+patrones grep -v del instalador: ['Orbit (ORBIT 03', 'job_key=ingest:', 'job_key=ads-salud', 'job_key=ads_optimizer', 'job_key=avisos-campana', 'job_key=impulso-vigia', 'job_key=jev-senales', 'app.cli ingest', 'app.cli ads-salud', 'app.cli cycle', 'app.cli avisos-campana', 'app.cli impulso-vigia', 'app.cli jev-senales']
+
+ANTES (lineas con cron-avisa de la evidencia):
+   15 8 * * * /usr/local/bin/cron-avisa --nombre "Costos de Orbit" --cada 24 -- /bin/bash -c '/mnt/data/appdata/orbit/refresh_costos.sh' >> /mnt/data/app
+   # job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
+   */10 10-12 * * * /usr/local/bin/cron-avisa --nombre "Salud de la publicidad" --cada 24 --tras 3 -- /bin/bash -c 'docker exec orbit-app-1 python -m app
+   10 13 * * * /usr/local/bin/cron-avisa --nombre "Corrida de precios de Amazon" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/precio-spapi.loc
+
+DESPUES de correr el instalador, lineas de ads-salud:
+   # job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50 | cron-avisa: False
+   */10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1 | cron-avisa: False

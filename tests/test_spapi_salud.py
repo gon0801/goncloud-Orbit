@@ -971,8 +971,8 @@ def test_ui_salud_renderiza_spapi(monkeypatch):
         # '-'): chip ok, #id, filas, skips y motivo. (La plantilla no
         # muestra llamadas: se afirman las celdas que SI renderiza.)
         # (La tarjeta MX es la segunda: PLATAFORMAS_MONEDA arranca en US.)
-        mx = resp.text.split("<h2>amazon_mx", 1)[1]
-        m = re.search(r"<td>spapi_orders</td>(.*?)</tr>", mx, re.S)
+        mx = resp.text.split("<h2>Amazon MX", 1)[1]
+        m = re.search(r"<td>Pedidos de Amazon</td>(.*?)</tr>", mx, re.S)
         assert m, "fila spapi_orders de MX presente"
         fila = m.group(1)
         assert ">ok<" in fila
@@ -1008,7 +1008,7 @@ def test_ui_salud_sobrevive_bloque_spapi_roto(monkeypatch):
         monkeypatch.setattr(api_dashboard, "bloque_salud", roto)
         pagina = TestClient(app).get("/salud")
         assert pagina.status_code == 200
-        assert "Historico" in pagina.text
+        assert "Últimos 14 ciclos" in pagina.text
         assert "<h3>SP-API</h3>" not in pagina.text
         data = TestClient(app).get("/api/dashboard/salud").json()["plataformas"]
         assert data["amazon_mx"]["spapi"] is None

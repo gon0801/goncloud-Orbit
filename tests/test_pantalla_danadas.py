@@ -897,16 +897,16 @@ def test_pantalla_danadas_fila_pendiente_pinta_tres_lineas_boton_y_frase():
     html = _html_danadas([_hoja_ui()])
     plano = _plano(html)
     assert "gorra roja · AC - Category Exact - MX" in plano
-    assert "Vendía 31 pedidos (28672.00 MXN) en los 3 meses antes de los recortes." in plano
+    assert "Vendía 31 pedidos (28,672.00 MXN) en los 3 meses antes de los recortes." in plano
     assert (
-        "Clics cada 2 semanas: 133 antes, 16 ahora. Bid: 9.74 antes, 3.73 hoy, tras 5 recortes."
+        "Clics cada 2 semanas: 133 antes, 16 ahora. Puja: 9.74 antes, 3.73 hoy, tras 5 recortes."
     ) in plano
-    assert "Regresar el bid a 9.74" in plano
+    assert "Regresar la puja a 9.74" in plano
     assert 'data-regresar="2963"' in html
     assert (
-        "Orbit cambia ahora el bid en Amazon de 3.73 a 9.74 MXN. "
+        "Orbit cambia ahora la puja en Amazon de 3.73 a 9.74 MXN. "
         "El motor espera 7 días. Después no la recorta hasta que junte "
-        "20 clics al bid nuevo o pasen 14 días, y nunca la baja del bid "
+        "20 clics con la puja nueva o pasen 14 días, y nunca la baja de la puja "
         "que la dañó."
     ) in plano
 
@@ -923,8 +923,9 @@ def test_pantalla_danadas_fila_regresada_muestra_fecha_y_no_boton():
     """P.3b Comprueba: una fila con `ya_regresada` muestra la fecha de
     `regresada_el` y no pinta el boton."""
     html = _html_danadas([_hoja_ui(ya_regresada=True, regresada_el="2026-10-09")])
-    assert "2026-10-09" in html
-    assert "Regresar el bid" not in html
+    assert "Ya regresadas (1)" in html
+    assert "regresada el 9 oct" in html
+    assert "Regresar la puja" not in html
     assert "data-regresar=" not in html
 
 

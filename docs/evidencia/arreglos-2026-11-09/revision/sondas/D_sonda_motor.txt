@@ -1,0 +1,26 @@
+== 1. validadores de settings (TX2 los llama sin try)
+activa_desde_settings(None): OK -> False
+activa_desde_settings('off'): ValueError: setting ads_proteccion_venta: debe ser 'proteccion_venta_v1', llego 'off'
+activa_desde_settings(''): ValueError: setting ads_proteccion_venta: debe ser 'proteccion_venta_v1', llego ''
+activa_desde_settings(True): ValueError: setting ads_proteccion_venta: debe ser 'proteccion_venta_v1', llego True
+activa_desde_settings('proteccion_venta_v1'): OK -> True
+economia_desde_settings(None): OK -> 'auto03'
+economia_desde_settings('off'): ValueError: setting ads_producto_economia_amazon_us: debe ser auto03 o producto_directo_v1, llego 'off'
+economia_desde_settings('auto03'): OK -> 'auto03'
+economia_desde_settings('producto_directo_v1'): OK -> 'producto_directo_v1'
+economia_cambio_desde_settings(None): OK -> False
+economia_cambio_desde_settings('off'): ValueError: setting ads_bid_economia_amazon_mx: debe ser 'economia_cambio_v1', llego 'off'
+economia_cambio_desde_settings('economia_cambio_v1'): OK -> True
+
+== 2. misma hoja, misma ventana madura: M1 encendida vs apagada (reversa)
+M1 encendida (cola con proteccion_activa=True): kind=None motivo=venta_reciente_protegida
+M1 apagada / codigo anterior (proteccion=None):   kind=pause motivo=pause_umbral
+orders en la ventana fresca de la revalidacion = 0 -> no aplica vendio_en_ventana
+
+== 3. puerta de pujas del ciclo: episodio viejo y vencido, sin venta reciente
+hay_venta(7)=False tiene_proteccion(7)=True
+
+== 4. escritor de config: off quita la clave, el resto se conserva
+proxima_config(--proteccion off --bid-economia off): OK -> ({'ads_optimizer_mode': 'live', 'ads_producto_meta_amazon_us': 'live', 'ads_producto_pausa_amazon_us': 'shadow', 'ads_producto_pausa_amazon_mx': 'shadow', 'ads_producto_economia_amazon_us': 'producto_directo_v1', 'ads_bid_economia_amazon_mx': 'economia_cambio_v1'}, ['ads_proteccion_venta proteccion_venta_v1 -> ausente', 'ads_bid_economia_amazon_us economia_cambio_v1 -> ausente'])
+proxima_config(edicion de pantalla: caps): OK -> ['ads_bid_economia_amazon_mx', 'ads_bid_economia_amazon_us', 'ads_producto_economia_amazon_us', 'ads_proteccion_venta']
+proxima_config sobre config con 'off' literal (otra pantalla guardando): SettingsInvalido: setting ads_proteccion_venta: debe ser 'proteccion_venta_v1', llego 'off'

@@ -4,17 +4,17 @@
 <p class="mutado">
   Etiquetas de producto en dos niveles (familia · subfamilia). La fábrica
   toma el tipo de producto de la familia y avisa si un grupo mezcla
-  familias. Auth: header x-orbit-token (campo Token).
+  familias. Para guardar hace falta el token de escritura (campo Token).
 </p>
 
 <section class="tarjeta">
   <label>Token
-    <input type="password" id="familias-token" name="token" placeholder="x-orbit-token" autocomplete="off">
+    <input type="password" id="familias-token" name="token" placeholder="Token de escritura" autocomplete="off">
   </label>
 </section>
 
 <section class="tarjeta">
-  <h3>Árbol de familias · {{ filtros.plataforma }}</h3>
+  <h3>Árbol de familias · {{ filtros.plataforma | etiqueta("plataforma") }}</h3>
   {% if arbol %}
   <table id="familias-arbol">
     <thead>
@@ -23,20 +23,20 @@
     <tbody>
       {% for nodo in arbol %}
       <tr data-familia-id="{{ nodo.id }}">
-        <td>{{ nodo.nombre }}</td>
+        <td data-dato-libre>{{ nodo.nombre }}</td>
         <td>familia</td>
-        <td class="num">{{ nodo.productos }}</td>
-        <td class="num">{{ nodo.ventas_90d }}</td>
-        <td class="num">{% if nodo.target_familia %}{{ nodo.target_familia }} %{% else %}—{% endif %}</td>
+        <td class="num">{{ nodo.productos | numero }}</td>
+        <td class="num">{{ nodo.ventas_90d | numero }}</td>
+        <td class="num">{% if nodo.target_familia %}{{ nodo.target_familia | pct }}{% else %}—{% endif %}</td>
         <td>{{ nodo.origen_meta }}</td>
       </tr>
       {% for hija in nodo.hijas %}
       <tr data-familia-id="{{ hija.id }}">
-        <td>— {{ hija.nombre }}</td>
+        <td>— <span data-dato-libre>{{ hija.nombre }}</span></td>
         <td>subfamilia</td>
-        <td class="num">{{ hija.productos }}</td>
-        <td class="num">{{ hija.ventas_90d }}</td>
-        <td class="num">{% if hija.target_familia %}{{ hija.target_familia }} %{% else %}—{% endif %}</td>
+        <td class="num">{{ hija.productos | numero }}</td>
+        <td class="num">{{ hija.ventas_90d | numero }}</td>
+        <td class="num">{% if hija.target_familia %}{{ hija.target_familia | pct }}{% else %}—{% endif %}</td>
         <td>{{ hija.origen_meta }}</td>
       </tr>
       {% endfor %}
@@ -58,7 +58,7 @@
       <select name="padre_id">
         <option value="">— primer nivel —</option>
         {% for nodo in arbol %}
-        <option value="{{ nodo.id }}">{{ nodo.nombre }}</option>
+        <option value="{{ nodo.id }}" data-dato-libre>{{ nodo.nombre }}</option>
         {% endfor %}
       </select>
     </label>
@@ -72,8 +72,8 @@
   <form method="get" action="/familias" id="familias-filtros">
     <label>Plataforma
       <select name="plataforma">
-        <option value="amazon_mx" {% if filtros.plataforma == 'amazon_mx' %}selected{% endif %}>amazon_mx</option>
-        <option value="amazon_us" {% if filtros.plataforma == 'amazon_us' %}selected{% endif %}>amazon_us</option>
+        <option value="amazon_mx" {% if filtros.plataforma == 'amazon_mx' %}selected{% endif %}>{{ 'amazon_mx' | etiqueta('plataforma') }}</option>
+        <option value="amazon_us" {% if filtros.plataforma == 'amazon_us' %}selected{% endif %}>{{ 'amazon_us' | etiqueta('plataforma') }}</option>
       </select>
     </label>
     <label>Buscar
@@ -91,9 +91,9 @@
       <select name="familia_id" required>
         <option value="">— elige familia —</option>
         {% for nodo in arbol %}
-        <option value="{{ nodo.id }}">{{ nodo.nombre }}</option>
+        <option value="{{ nodo.id }}" data-dato-libre>{{ nodo.nombre }}</option>
         {% for hija in nodo.hijas %}
-        <option value="{{ hija.id }}">— {{ hija.nombre }}</option>
+        <option value="{{ hija.id }}" data-dato-libre>— {{ hija.nombre }}</option>
         {% endfor %}
         {% endfor %}
       </select>
@@ -110,16 +110,16 @@
       {% for item in items %}
       <tr data-producto-id="{{ item.id }}">
         <td><input type="checkbox" class="familias-check" value="{{ item.id }}" aria-label="Seleccionar {{ item.name }}"></td>
-        <td>{{ item.name }}</td>
-        <td><code>{{ item.odoo_sku }}</code></td>
+        <td data-dato-libre>{{ item.name }}</td>
+        <td data-dato-libre><code>{{ item.odoo_sku }}</code></td>
         <td>
           {% if item.familia %}
-          <span class="chip">{{ item.familia.nombre }}</span>
+          <span class="chip" data-dato-libre>{{ item.familia.nombre }}</span>
           {% else %}
           <span class="chip chip-sin-familia">sin familia</span>
           {% endif %}
         </td>
-        <td class="num">{{ item.ventas_90d }}</td>
+        <td class="num">{{ item.ventas_90d | numero }}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
@@ -174,13 +174,6 @@ FRASE_POR_LECTURA = {
     "relevante_sin_venta": "Es del catálogo y no convierte.",
 }
 
-MOTIVO_SIN_LECTURA_ES = {
-    "dato_de_venta_faltante": "falta un dato de venta",
-    "sin_observaciones": "sin observaciones",
-    "jev_sin_veredicto": "Jev no concluyó",
-    "jev_no_evaluada": "Jev no la evaluó",
-}
-
 
 def titulo_de_lectura(lectura: str) -> str:
     """Cabecera de seccion por lectura (diseno S.5). Lectura ajena al
@@ -193,24 +186,32 @@ def titulo_de_banda(banda: str) -> str:
     return TITULO_POR_BANDA[banda]
 
 
+def _motivo_legible(motivo: str) -> str:
+    return motivo.replace("_", " ")
+
+
 def frase_de_lectura(
     lectura: str,
     motivos: tuple[str, ...] | list[str] = (),
     miembros: int = 0,
     listado_de: str | None = None,
+    *,
+    motivo_texto: Callable[[str], str] = _motivo_legible,
 ) -> str:
     """La frase que la pantalla pinta junto a la lectura (diseno S.5,
     "Que le dice al dueno"): SOLO PRESENTACION, pura, sin IO. `motivos`
     son los `motivos_lectura` guardados; `miembros` y `listado_de` (ISO del
     acta de listado, no el `datos_hasta` de las ventas) solo se usan para
-    la frase de `ajena`."""
+    la frase de `ajena`. `motivo_texto` traduce cada motivo: lo pasa el
+    llamador con el registro de pantalla (app.etiquetas), que este modulo puro
+    no importa porque el registro trae modulos con base."""
     if lectura == "ajena":
         base = f"No corresponde a ninguno de los {miembros} productos"
         if listado_de:
             base += f"; lista comprobada con el listado de Amazon del {listado_de[:10]}"
         return base + ". Bloquear, y pronto."
     if lectura == "sin_lectura":
-        detalle = ", ".join(MOTIVO_SIN_LECTURA_ES.get(motivo, motivo) for motivo in motivos)
+        detalle = ", ".join(motivo_texto(motivo) for motivo in motivos)
         return f"Sin lectura: {detalle or 'sin motivo'}. Un dato faltante no es cero."
     return FRASE_POR_LECTURA[lectura]
 
@@ -259,13 +260,16 @@ def _linea_vendio(vista: SenalVista) -> str:
     )
 
 
-def _cuerpo(lectura: str, vista: SenalVista, destino_ilegible: bool) -> str:
+def _cuerpo(
+    lectura: str,
+    vista: SenalVista,
+    destino_ilegible: bool,
+    motivo_texto: Callable[[str], str],
+) -> str:
     if destino_ilegible:
         return "SIN LECTURA\nEl destino no se puede leer. Un dato faltante no es cero."
     if lectura == "sin_lectura":
-        detalle = ", ".join(
-            MOTIVO_SIN_LECTURA_ES.get(motivo, motivo) for motivo in sorted(vista.motivos)
-        )
+        detalle = ", ".join(motivo_texto(motivo) for motivo in sorted(vista.motivos))
         return f"SIN LECTURA\nMotivo: {detalle or 'sin motivo'}. Un dato faltante no es cero."
     if lectura == "ajena" and vista.roster_probado:
         fecha = ""
@@ -297,6 +301,8 @@ def texto_aviso(
     propuesta: PropuestaEnVeto,
     senal: SenalPropuesta,
     nombre_grupo: Mapping[int, str],
+    *,
+    motivo_texto: Callable[[str], str] = _motivo_legible,
 ) -> str:
     """Texto plano del aviso de Telegram de UNA propuesta (S.8). Lleva la
     fecha y hora UTC en que se aplica (`vence_el`), nunca "faltan n horas":
@@ -309,7 +315,7 @@ def texto_aviso(
         f"{vista.clave.plataforma} · ad group {nombre}",
         _linea_aplica(propuesta),
         "",
-        _cuerpo(lectura, vista, destino_ilegible),
+        _cuerpo(lectura, vista, destino_ilegible, motivo_texto),
     ]
     if not destino_ilegible and lectura != "sin_lectura" and vista.evaluados:
         lineas.append(

@@ -37,24 +37,16 @@ function escapar(texto) {
     .replace(/"/g, "&quot;");
 }
 
-// Espejos de porcentaje_ui y dinero_ui (app/ui.py) para la vista previa.
+// Las fracciones del plan (0.30 = 30 %) pasan a porcentaje para Orbit.pct.
 function pct(fraccion) {
   if (fraccion === null || fraccion === undefined) return "—";
   var n = Number(fraccion);
-  if (isNaN(n)) return String(fraccion);
-  return (n * 100).toFixed(2) + " %";
-}
-
-function dinero(valor) {
-  if (valor === null || valor === undefined) return "—";
-  var n = Number(valor);
-  if (isNaN(n)) return String(valor);
-  return n.toFixed(2);
+  return isNaN(n) ? String(fraccion) : Orbit.pct(n * 100);
 }
 
 function importeCorto(importe) {
   if (!importe) return "—";
-  return dinero(importe.valor) + " " + (importe.moneda || "");
+  return Orbit.dinero(importe.valor) + " " + (importe.moneda || "");
 }
 
 function estadoDe(form) {
@@ -104,15 +96,15 @@ function pintarVista(form, plan) {
   var celdas = plan.filas.map(function (f) {
     if (f.bloqueo) bloqueadas += 1;
     var meta = pct(f.goal_actual) + " → " + pct(f.goal_propuesto);
-    var bloq = f.bloqueo || "—";
-    if (f.motivo) bloq += " (" + f.motivo + ")";
+    var bloq = f.bloqueo ? Orbit.etiqueta(f.bloqueo, "bloqueo_siembra") : "—";
+    if (f.motivo) bloq += " (" + Orbit.etiqueta(f.motivo, "motivo_siembra") + ")";
     var confirma = "";
     if (f.bloqueo && f.confirmable) {
       confirma = '<input type="checkbox" data-confirmar="' + f.listing_id +
         '" aria-label="Confirmar ' + escapar(f.seller_sku || f.listing_id) + '">';
     }
     return "<tr><td class=\"mono\">" + escapar(f.seller_sku || f.listing_id) +
-      "</td><td>" + escapar(f.accion) +
+      "</td><td>" + escapar(Orbit.etiqueta(f.accion, "accion_siembra")) +
       "</td><td class=\"num\">" + pct(f.m_hoy) +
       "</td><td class=\"num\">" + meta +
       "</td><td class=\"num\">" + escapar(importeCorto(f.p_estrella)) +
@@ -120,11 +112,11 @@ function pintarVista(form, plan) {
       "</td><td>" + confirma + "</td></tr>";
   });
   vista.innerHTML =
-    "<p class=\"mutado\">huella " + escapar(plan.huella) + " · " +
-    plan.filas.length + " filas · " + bloqueadas + " bloqueadas</p>" +
+    "<p class=\"mutado\">Huella " + escapar(plan.huella) + " · " +
+    Orbit.numero(plan.filas.length) + " filas · " + Orbit.numero(bloqueadas) + " bloqueadas</p>" +
     "<div class=\"tabla-scroll\" role=\"region\" aria-label=\"Vista previa del plan\" tabindex=\"0\">" +
-    "<table><thead><tr><th>SKU</th><th>Accion</th><th class=\"num\">M hoy</th>" +
-    "<th class=\"num\">Goal</th><th class=\"num\">P*</th><th>Bloqueo</th><th>Confirmar</th></tr></thead>" +
+    "<table><thead><tr><th>SKU</th><th>Acción</th><th class=\"num\">Margen hoy</th>" +
+    "<th class=\"num\">Meta</th><th class=\"num\">Precio objetivo</th><th>Bloqueo</th><th>Confirmar</th></tr></thead>" +
     "<tbody>" + celdas.join("") + "</tbody></table></div>";
 }
 
@@ -204,12 +196,12 @@ function aplicar(form) {
         delete planesVistos[plataforma];
         botonAplicarDe(form).disabled = true;
         var lineas = r.data.hechos.map(function (h) {
-          return "<li>" + escapar(h.platform) + " #" + h.listing_id + ": " +
-            escapar(h.accion) + "</li>";
+          return "<li>" + escapar(Orbit.etiqueta(h.platform, "plataforma")) + " #" + h.listing_id + ": " +
+            escapar(Orbit.etiqueta(h.accion, "accion_siembra")) + "</li>";
         });
         vista.innerHTML =
-          "<p>Aplicado: " + r.data.sembrados + " sembrados, " +
-          r.data.cerrados + " cerrados (lote " + escapar(r.data.lote) + "). " +
+          "<p>Aplicado: " + Orbit.numero(r.data.sembrados) + " metas puestas, " +
+          Orbit.numero(r.data.cerrados) + " quitadas (lote " + escapar(r.data.lote) + "). " +
           "Las bloqueadas quedaron fuera; recarga para ver la tabla al dia.</p>" +
           (lineas.length ? "<ul>" + lineas.join("") + "</ul>" : "") +
           "<p><button type=\"button\" data-recargar>Recargar</button></p>" +

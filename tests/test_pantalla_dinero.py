@@ -473,7 +473,7 @@ def test_pantalla_dinero_pinta_aviso_renglones_y_target():
         "Solo cuenta lo que hoy está encendido. Lo que apagaste no aparece, "
         "así que el total no coincide con el Resumen." in html
     )
-    assert "exact" in html and "target 13.3 %" in html
+    assert "Exacta" in html and "meta 13.30 %" in html
 
 
 def test_pantalla_dinero_venta_cero_dice_sin_ventas_y_null_pinta_guion():
@@ -495,7 +495,7 @@ def test_pantalla_dinero_venta_cero_dice_sin_ventas_y_null_pinta_guion():
     )
     assert "sin ventas" in html
     assert "—" in html
-    assert "2 hojas sin clasificar entran al total." in html
+    assert "2 keywords o productos sin clasificar entran al total." in html
 
 
 # ---------------------------------------------------------------------------
@@ -1014,7 +1014,7 @@ def test_guion_en_cada_celda_tipo_y_total():
         [_fila_ui(**nulos)],
         total=_fila_ui(tipo="", **nulos),
     )
-    assert _fila_html(html, ">exact<").count("—") == 5
+    assert _fila_html(html, ">Exacta<").count("—") == 5
     assert _fila_html(html, ">Total<").count("—") == 5
     sin_ventas = _html_dinero(
         [_fila_ui()],
@@ -1039,7 +1039,7 @@ def test_guion_en_cada_celda_ubicacion():
             )
         ],
     )
-    assert _fila_html(html, ">fuera de Amazon<").count("—") == 6
+    assert _fila_html(html, ">Fuera de Amazon<").count("—") == 6
 
 
 def test_guion_en_frase_ubicacion_con_nones():

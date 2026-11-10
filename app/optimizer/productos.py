@@ -111,11 +111,11 @@ DIAS_PAUSA_HASTA = 30
 # Vocabulario cerrado. Los cinco primeros son los de goals.motivo_dato_invalido
 # y sin_fraccion; los demas son propios del producto.
 MOTIVOS_PRODUCTO: dict[str, str] = {
-    "sin_fraccion": goals.ETIQUETA_ABSTENCION["sin_fraccion"],
-    "sin_margen": goals.ETIQUETA_ABSTENCION["sin_margen"],
-    "cobertura_baja": goals.ETIQUETA_ABSTENCION["cobertura_baja"],
-    "ventana_corta": goals.ETIQUETA_ABSTENCION["ventana_corta"],
-    "ledger_rancio": goals.ETIQUETA_ABSTENCION["ledger_rancio"],
+    "sin_fraccion": "sin la fracción del margen configurada para la plataforma",
+    "sin_margen": "sin margen medido en la ventana",
+    "cobertura_baja": "cobertura de costos bajo el minimo",
+    "ventana_corta": "pocos dias con venta en la ventana",
+    "ledger_rancio": "las ventas del libro llevan más de 3 días sin actualizarse",
     "margen_no_positivo": "margen medido cero o negativo: no es una meta de cero",
     "halo_sin_margen": "ventas atribuidas de otro SKU: su margen no es el del producto",
     "sku_distinto_en_asin": "otro SKU con gasto en el ASIN del producto",
@@ -135,7 +135,7 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia",
     "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa",
     # Por que un anuncio ENABLED del producto queda fuera del alcance (S4, S17).
-    "goal_no_live": "el goal de su campana no esta encendido en vivo",
+    "goal_no_live": "la meta de su campaña no está encendida en vivo",
     "alta_en_ventana": "el anuncio no existia antes de la ventana",
     "sin_actividad_en_ventana": "el anuncio no aparece en las filas de la ventana",
     "clave_en_vuelo": "el anuncio ya tiene una pausa en la cola o un veto vigente",

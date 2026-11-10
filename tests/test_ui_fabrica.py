@@ -12,9 +12,11 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from formato_js import con_formato
 
 from app import ui
 from app.api import _conexion_lectura
+from app.etiquetas import ETIQUETAS
 from app.main import app
 
 RAIZ = Path(ui.__file__).resolve().parent
@@ -65,7 +67,8 @@ def test_pantalla_sin_db_con_semantica_de_gasto_y_activos_locales():
     for tag, attrs in Elementos(respuesta.text).elementos:
         assert not any(nombre.startswith("on") for nombre in attrs)
         assert "style" not in attrs
-        if tag == "script":
+        # El unico script sin src es el registro inerte de base.html (CSP).
+        if tag == "script" and attrs.get("type") != "application/json":
             assert attrs.get("src", "").startswith("/static/")
 
 
@@ -347,11 +350,11 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   const labels = el("productos").querySelectorAll("*").filter(e => e.htmlFor);
   assert.ok(labels.every(label => !label.querySelectorAll("*").some(e => e.href)),
     "Abrir Amazon no debe seleccionar un producto: los enlaces van fuera del label");
-  assert.match(text(el("productos")), /40 %/);
-  assert.match(text(el("productos")), /Muestra de margen: 70 dias con venta/);
-  assert.match(text(el("productos")), /Muestra limitada: 12 dias con venta/);
+  assert.match(text(el("productos")), /40\.00 %/);
+  assert.match(text(el("productos")), /Muestra de margen: 70 días con venta/);
+  assert.match(text(el("productos")), /Muestra limitada: 12 días con venta/);
   assert.equal(
-    (text(el("productos")).match(/Muestra de margen: 70 dias con venta/g) || []).length,
+    (text(el("productos")).match(/Muestra de margen: 70 días con venta/g) || []).length,
     2,
     "Un margen sin medir con 70 dias conserva muestra de margen normal",
   );
@@ -380,7 +383,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
     {origen: "manual_lanzamiento", acos_pct: "25.00"}); assert.equal(solicitud.modo, "shadow");
   assert.match(text(el("preview-datos")), /600.00 MXN/);
   assert.match(text(el("preview-datos")), /SKU-AMAZON-A/);
-  assert.match(text(el("preview-datos")), /manual_lanzamiento/);
+  assert.match(text(el("preview-datos")), /Manual de lanzamiento/);
   await emit("plan", "input");
   assert.equal(el("preview").hidden, true); assert.equal(el("crear-boton").disabled, true);
   demorarPlan = true;
@@ -434,7 +437,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        [node, "-e", con_formato(guion), json.dumps(elementos), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -633,10 +636,10 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   for (const esperado of ["Dentro del objetivo", "Gasto sin ventas", "Sin datos",
     "Por encima del objetivo (provisional)"]) assert.ok(tabla.includes(esperado), esperado);
   assert.ok(!tabla.includes("Por probar"), "Por probar no existe");
-  assert.match(tabla, /Limitada\s+12 días con venta, margen -5 %/);
+  assert.match(tabla, /Limitada\s+12 días con venta, margen -5\.00 %/);
   assert.match(tabla, /Margen negativo\./);
   assert.match(tabla, /Stock en 0\s+FBA 0/);
-  assert.match(tabla, /Desconocido\s+Featured Offer: Sin verificar/);
+  assert.match(tabla, /Desconocido\s+Oferta destacada: sin verificar/);
   assert.match(tabla, /Con stock\s+FBA 12/);
   assert.match(text(datos), /Objetivo ACoS del grupo en preparación\s*25\.00 %/);
   assert.match(tabla, /70 días con venta/);
@@ -679,7 +682,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        [node, "-e", con_formato(guion), json.dumps(elementos), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -831,7 +834,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        [node, "-e", con_formato(guion), json.dumps(elementos), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -945,8 +948,8 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   for (const esperado of ["Ventana del margen", "Cobertura del margen",
     "Actualización del margen"]) assert.ok(ficha.includes(esperado), esperado);
   assert.match(ficha, /Ventana del margen 2026-02-20 a 2026-08-22/);
-  assert.match(ficha, /Cobertura del margen 1\b/);
-  assert.match(ficha, /Actualización del margen 2026-09-05T10:00:00\+00:00/);
+  assert.match(ficha, /Cobertura del margen 100\.00 %/);
+  assert.match(ficha, /Actualización del margen 5 sep, 04:00/);
   await emit("comparador-recargar", "click");
   const variada = text(datos);
   // Al variar se DECLARA y ademas se listan los valores individuales para
@@ -955,17 +958,13 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
     variada,
     /Ventana del margen Varia por publicacion: 2026-02-20 a 2026-08-22; 2026-03-01 a 2026-08-30/,
   );
-  assert.match(variada, /Cobertura del margen Varia por publicacion: 1; 0\.5/);
-  assert.match(
-    variada,
-    new RegExp(
-      "Actualización del margen Varia por publicacion: 2026-09-05T10:00:00\\+00:00; "
-      + "2026-09-01T09:00:00\\+00:00"),
-  );
+  assert.match(variada, /Cobertura del margen Varia por publicacion: 100\.00 %; 50\.00 %/);
+  assert.match(variada,
+    /Actualización del margen Varia por publicacion: 5 sep, 04:00; 1 sep, 03:00/);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        [node, "-e", con_formato(guion), json.dumps(elementos), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -990,16 +989,22 @@ def test_ui_estimacion_etiqueta_separada_y_sin_columna_ancha():
     assert "no disponible para anunciar" not in js.lower()
     for prohibido in ("break-even", "rentable", "bueno", "malo"):
         assert prohibido not in js.lower()
-    assert "motivosEstimacion" in js
+    assert '"motivo_estimacion"' in js
     assert "asOfEstimacion" in js
     assert "pertenece al total" in js or "fuera del total" in js
-    assert "politica_ausente" in js
-    assert "Falta la política de cálculo" in js
+    assert ETIQUETAS["motivo_estimacion"]["politica_ausente"] == "Falta la política de cálculo"
     assert '["Publicación", 1, 2], ["Margen observado · antes de Ads", 3, 1]' in js
     assert '["Estim' not in js
     respuesta = TestClient(app).get("/campanas/nuevas")
     assert 'value="margen_observado"' in respuesta.text
-    assert "estimacion" not in respuesta.text.lower()
+    # El registro de etiquetas (base.html) es dato inerte para formato.js.
+    html = re.sub(
+        r'<script type="application/json" id="orbit-etiquetas">.*?</script>',
+        "",
+        respuesta.text,
+        flags=re.S,
+    )
+    assert "estimacion" not in html.lower()
 
 
 def test_flujo_js_estimacion_estados_detalle_y_seleccion():
@@ -1161,10 +1166,10 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   }
   assert.match(catalogoTxt, /42\.50 MXN/);
   assert.match(catalogoTxt, /36\.64\s*%/);
-  assert.match(catalogoTxt, /ingreso_normalizado/);
+  assert.match(catalogoTxt, /sobre ingreso sin impuestos/);
   assert.match(catalogoTxt, /2026-09-08/);
-  assert.match(catalogoTxt, /fba/);
-  assert.match(catalogoTxt, /iva_trasladado/);
+  assert.match(catalogoTxt, /FBA/);
+  assert.match(catalogoTxt, /Sin contar: Iva trasladado/);
   assert.match(catalogoTxt, /39\.00 MXN/, "sin ventas sigue mostrando el estimado");
   assert.match(catalogoTxt, /Incompleta/);
   assert.match(catalogoTxt, /Falta la cotización de comisiones/);
@@ -1188,11 +1193,11 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   const detalles = all(productos).filter(e => e.tagName === "details");
   assert.ok(detalles.length >= 7, "El desglose es plegable en cada tarjeta");
   const desglose = text(detalles[0]);
-  assert.match(desglose, /referral/);
-  assert.match(desglose, /product_fees/);
-  assert.match(desglose, /15\.0000/);
+  assert.match(desglose, /Referral/);
+  assert.match(desglose, /Product fees/);
+  assert.match(desglose, /15\.00 MXN/);
   assert.match(desglose, /fecha 2026-09-08/);
-  assert.match(desglose, /captura 2026-09-08T12:00:00/);
+  assert.match(desglose, /captura 8 sep, 06:00/);
   assert.match(desglose, /vigencia 2026-09-08/);
   assert.match(desglose, /pertenece al total/);
   assert.ok(!/estado incluido/.test(desglose), "estado no se inventa desde pertenencia");
@@ -1201,7 +1206,8 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   const incompleta = all(productos).filter(e => e.tagName === "li")[2];
   const principalInc = text(all(incompleta).find(e => e.className === "fabrica-estimacion"));
   assert.ok(!principalInc.includes("42.50"), "detalle congelado no es el principal");
-  assert.match(text(incompleta), /42\.5000/, "el numero congelado vive en el desglose");
+  assert.match(text(incompleta), /Número congelado \(no actual\): 42\.50/,
+    "el numero congelado vive en el desglose");
   const fotos = all(productos).filter(e => e.src);
   fotos[0].events.error();
   assert.equal(cajas[0].checked, false, "La foto no cambia la seleccion");
@@ -1246,7 +1252,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        [node, "-e", con_formato(guion), json.dumps(elementos), str(archivo)],
         capture_output=True,
         text=True,
         check=False,
@@ -1333,7 +1339,7 @@ def _correr_flujo_fabrica(guion: str):
         [
             node,
             "-e",
-            _PRELUDIO_FABRICA_JS + guion,
+            con_formato(_PRELUDIO_FABRICA_JS + guion),
             json.dumps(elementos),
             str(RAIZ / "static/js/fabrica.js"),
         ],
@@ -2017,7 +2023,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
-        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        [node, "-e", con_formato(guion), json.dumps(elementos), str(archivo)],
         capture_output=True,
         text=True,
         check=False,

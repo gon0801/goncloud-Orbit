@@ -33,7 +33,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Literal
 
-from app.etiqueta_entidad import etiqueta_entidad
+from app.etiqueta_entidad import SQL_NOMBRES, etiqueta_entidad
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 Plataforma = Literal["amazon_mx", "amazon_us"]
@@ -61,14 +61,6 @@ _SQL_METRICAS = """
 SELECT m.ad_entity_id, m.metric_date, m.clicks, m.orders, m.ad_revenue
   FROM v_metric_latest m
  WHERE m.ad_entity_id = ANY(%s) AND m.metric_date >= %s
-"""
-
-_SQL_NOMBRES = """
-SELECT e.id, e.kind, e.name, e.keyword_text, c.name AS campana
-  FROM ad_entity e
-  JOIN ad_entity g ON g.id = e.parent_id
-  JOIN ad_entity c ON c.id = g.parent_id
- WHERE e.id = ANY(%s)
 """
 
 
@@ -256,7 +248,7 @@ def lee_danadas(conn, *, plataforma: Plataforma) -> PantallaDanadas:
 
     nombres = {
         _celda(f, 0, "id"): f
-        for f in conn.execute(_SQL_NOMBRES, ([c.hoja_id for c in candidatas],)).fetchall()
+        for f in conn.execute(SQL_NOMBRES, ([c.hoja_id for c in candidatas],)).fetchall()
     }
     hojas = []
     for cand in candidatas:

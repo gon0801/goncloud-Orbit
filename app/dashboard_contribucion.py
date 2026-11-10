@@ -14,19 +14,10 @@ import time
 from app.api import ConexionLectura
 from app.api_common import _dec_str
 from app.db import preparar_lectura_contribucion
+from app.etiquetas import etiqueta
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 ETIQUETA_CONTRIBUCION = "contribucion pre-cargos · no decisoria"
-
-MOTIVOS_ES_CONTRIBUCION: dict[str, str] = {
-    "kind_fuera": "kind fuera",
-    "sin_padre": "sin padre",
-    "serie_incompleta": "serie incompleta",
-    "catalogo_parcial": "catalogo parcial",
-    "sin_precio": "sin precio",
-    "sin_mezcla_ledger": "sin mezcla ledger",
-    "sin_fx": "sin FX",
-}
 
 # Una sola pasada, ambas plataformas. Filtrar por plataforma aqui re-evaluaba
 # las vistas 4 veces (ent + cob, que JOINea entidad, x MX + US). Medido
@@ -150,7 +141,7 @@ def invalidar_cache_contribucion() -> None:
 def _motivo_contribucion_es(motivo: str | None) -> str | None:
     if motivo is None:
         return None
-    return MOTIVOS_ES_CONTRIBUCION.get(motivo, motivo)
+    return etiqueta(motivo, "motivo_contribucion")
 
 
 def _fila_contribucion_campana(fila) -> dict:

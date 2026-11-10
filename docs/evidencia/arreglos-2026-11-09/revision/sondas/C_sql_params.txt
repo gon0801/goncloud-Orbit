@@ -1,0 +1,5 @@
+
+
+columnas historico: 13 economico: 25 13 primeras iguales: True
+con_economia=False: placeholders=46 parametros=46 efecto=EfectoCambio(dias_post=39, impresiones_pre7=700, clics_pre7=20, impresiones_post=840, dias_post_trafico=7, clics_post=40, gasto_post=Decimal('20'), clics_pre=20, gasto_pre=Decimal('17'), vendia=None)
+con_economia=True: placeholders=90 parametros=90 efecto=EfectoCambio(dias_post=39, impresiones_pre7=700, clics_pre7=20, impresiones_post=840, dias_post_trafico=7, clics_post=40, gasto_post=Decimal('20'), clics_pre=20, gasto_pre=Decimal('17'), vendia=None)

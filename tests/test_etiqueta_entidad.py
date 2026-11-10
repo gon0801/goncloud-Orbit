@@ -33,7 +33,7 @@ def test_target_accessory_y_query_sin_value():
         campana="Campana A",
     )
     assert accesorio == "accesorio · Campana A"
-    assert query == "query cercana · Campana A"
+    assert query == "búsqueda cercana · Campana A"
     assert "ASIN_ACCESSORY_RELATED" not in accesorio
     assert "QUERY_HIGH_REL_MATCHES" not in query
 

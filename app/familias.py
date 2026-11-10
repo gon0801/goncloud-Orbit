@@ -20,8 +20,8 @@ import unicodedata
 import psycopg
 
 from app.api_common import _dos_dec
+from app.etiquetas import etiqueta
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.goals import ETIQUETA_ABSTENCION
 
 PLATAFORMAS = frozenset(PLATAFORMAS_MONEDA)
 
@@ -337,8 +337,7 @@ def _origen_de_nota(nota) -> tuple[str | None, str]:
     if motivo is None:
         aplicado = nota.get("aplicado")
         return (str(aplicado) if aplicado is not None else None, ORIGEN_MARGEN_FAMILIA)
-    etiqueta = ETIQUETA_ABSTENCION.get(motivo, motivo)
-    return (None, f"{ORIGEN_META_PAIS} ({etiqueta})")
+    return (None, f"{ORIGEN_META_PAIS} ({etiqueta(motivo, 'motivo_abstencion')})")
 
 
 def _meta_con_herencia(nota_crud, nota_padre_cruda) -> tuple[str | None, str]:

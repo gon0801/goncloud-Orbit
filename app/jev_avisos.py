@@ -46,6 +46,7 @@ def _armado_aviso(propuesta: PropuestaEnVeto, vistas: dict):
 
 def _enviar_avisos(escritor, lote, propuestas, vistas, nombres, avisar) -> int:
     """Fila en jev_aviso (autocommit) antes de enviar. Reintento: el texto guardado."""
+    from app.etiquetas import etiqueta
     from app.jev_vista import texto_aviso
 
     enviados = 0
@@ -63,7 +64,12 @@ def _enviar_avisos(escritor, lote, propuestas, vistas, nombres, avisar) -> int:
         if fila is not None and fila[2]:
             continue
         if fila is None:
-            texto = texto_aviso(propuesta, senal, nombres)
+            texto = texto_aviso(
+                propuesta,
+                senal,
+                nombres,
+                motivo_texto=lambda motivo: etiqueta(motivo, "motivo_sin_lectura"),
+            )
             nuevo = escritor.execute(
                 "INSERT INTO jev_aviso (id, lote_id, cola_id, decision_id,"
                 " senal_origen_id, senal_destino_id, lectura, texto)"

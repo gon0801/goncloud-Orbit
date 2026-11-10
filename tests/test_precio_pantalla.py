@@ -23,6 +23,7 @@ import httpx
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from formato_js import sin_registro
 from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente
 
@@ -912,7 +913,7 @@ def _semilla_cobertura_ui(conn):
 def _html_precios(conn, dsn, monkeypatch):
     resp = _cliente_pantalla(dsn, monkeypatch).get("/precios")
     assert resp.status_code == 200
-    return resp.text
+    return sin_registro(resp.text)
 
 
 # ---------------------------------------------------------------------------
@@ -2779,7 +2780,7 @@ def test_s3_precios_trae_bloque_seguridad_con_soltar(monkeypatch):
         assert "bloque-seguridad-amazon_mx" in html
         assert "Soltar" in html
         assert f'data-liberar-corrida="{corrida}"' in html
-        assert "movimiento_masivo" in html
+        assert "movimiento masivo" in html
         data = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios").json()
         seg = data["plataformas"]["amazon_mx"]["seguridad"]
         assert seg["modo_global"] == "live"

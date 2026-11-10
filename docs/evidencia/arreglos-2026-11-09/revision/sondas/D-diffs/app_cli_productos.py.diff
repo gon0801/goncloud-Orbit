@@ -1,0 +1,97 @@
+commit 7cf7c9ab19e3b37db1a171dbcc8a1afe1294a419
+Author: gon <112044144+gon0801@users.noreply.github.com>
+Date:   Sun Nov 8 10:52:40 2026 -0700
+
+    feat: ORBIT 07, ventas recientes y decisiones economicas del motor (#547)
+    
+    Integra M1, M2, M4 y M5/M6 sobre AUTO-03; M3 conserva la implementacion heredada. Incluye migracion 0081, instalacion y comandos de activacion/reversa que preservan modos y limites de pausa.
+    
+    Implementacion por DeepSeek Flash con API directa; revision independiente de Opus PASS sobre c247eca1a6750200dde98de5ecdc53112f163493. Quality: 5884 passed sobre PostgreSQL 16; gitleaks y pre-commit verdes.
+
+diff --git a/app/cli_productos.py b/app/cli_productos.py
+index ba34bd5..8c4e543 100644
+--- a/app/cli_productos.py
++++ b/app/cli_productos.py
+@@ -30,7 +30,10 @@ def registra(sub) -> None:
+     """Agrega el subparser `productos-modo` al CLI principal."""
+     p = sub.add_parser(
+         "productos-modo",
+-        help="interruptores de meta y pausa por producto y limites de la pausa (ORBIT_DSN_ADMIN)",
++        help=(
++            "interruptores de meta y pausa por producto, limites de la pausa y"
++            " selecciones ORBIT 07 (ORBIT_DSN_ADMIN)"
++        ),
+     )
+     p.add_argument("--platform", required=True, choices=productos.PLATAFORMAS)
+     p.add_argument("--meta", choices=("off", "shadow", "live"), default=None)
+@@ -39,12 +42,37 @@ def registra(sub) -> None:
+     p.add_argument(
+         "--gasto", default=None, help="gasto minimo de la pausa en la moneda de la plataforma"
+     )
++    p.add_argument(
++        "--economia",
++        choices=("auto03", "producto_directo_v1", "off"),
++        default=None,
++        help="seleccion ORBIT 07 M2 (off = ausente)",
++    )
++    p.add_argument(
++        "--bid-economia",
++        choices=("economia_cambio_v1", "off"),
++        default=None,
++        help="seleccion ORBIT 07 M5/M6 (off = ausente)",
++    )
++    p.add_argument(
++        "--proteccion",
++        choices=("proteccion_venta_v1", "off"),
++        default=None,
++        help="seleccion ORBIT 07 M1, global (off = ausente)",
++    )
+ 
+ 
+ def corre(args) -> int:
+     if args.pausa is not None:
+-        if args.meta is not None or args.clics is not None or args.gasto is not None:
+-            print("--pausa va solo: --meta y --clics/--gasto en otra llamada", file=sys.stderr)
++        if (
++            args.meta is not None
++            or args.clics is not None
++            or args.gasto is not None
++            or args.economia is not None
++            or args.bid_economia is not None
++            or args.proteccion is not None
++        ):
++            print("--pausa va solo: las demas claves en otra llamada", file=sys.stderr)
+             return 2
+         return _corre_pausa(args.platform, args.pausa)
+     modo = {t: v for t, v in (("meta", args.meta), ("pausa", args.pausa)) if v is not None}
+@@ -60,8 +88,18 @@ def corre(args) -> int:
+             return 2
+         moneda = PLATAFORMAS_MONEDA[args.platform]
+         limites = productos.LimitesPausa(args.clics, productos.Dinero(gasto, moneda))
+-    if not modo and limites is None:
+-        print("productos-modo necesita --meta, --pausa o --clics/--gasto", file=sys.stderr)
++    if (
++        not modo
++        and limites is None
++        and args.economia is None
++        and args.bid_economia is None
++        and args.proteccion is None
++    ):
++        print(
++            "productos-modo necesita --meta, --pausa, --clics/--gasto, --economia,"
++            " --bid-economia o --proteccion",
++            file=sys.stderr,
++        )
+         return 2
+     dsn = os.environ.get("ORBIT_DSN_ADMIN")
+     if not dsn:
+@@ -82,6 +120,9 @@ def corre(args) -> int:
+                 actor="productos-modo",
+                 producto_modo=modo or None,
+                 limites_pausa=limites,
++                proteccion_venta=args.proteccion,
++                economia_producto=args.economia,
++                economia_cambio=args.bid_economia,
+             )
+         finally:
+             conn.close()

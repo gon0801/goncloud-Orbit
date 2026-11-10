@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from formato_js import con_formato
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -157,10 +158,10 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(esperada.textContent, "LANZAR IMPULSO DE 2 PRODUCTOS");
   const texto = JSON.stringify(zona.children.flatMap(c => [c.textContent,
     ...c.children.map(p => p.textContent)]));
-  assert.match(texto, /acotados/);
+  assert.match(texto, /Pujas acotadas al tope: R1/);
   assert.match(texto, /No lanzable 99/);
   assert.match(texto, /Sin sugerencia/);
-  assert.match(texto, /category_exact/);
+  assert.match(texto, /Exacta de la categoría/);
   // Literal distinto: no manda.
   form.elements.confirmacion.value = "LANZAR IMPULSO DE 3 PRODUCTOS";
   api.lanzar(form);
@@ -253,7 +254,7 @@ const api = vm.runInThisContext("this.__api");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     proc = subprocess.run(
-        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
@@ -405,7 +406,7 @@ const api = vm.runInThisContext("this.__api");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     proc = subprocess.run(
-        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
@@ -495,7 +496,7 @@ const api = vm.runInThisContext("this.__api");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     proc = subprocess.run(
-        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
@@ -507,12 +508,9 @@ def test_r09r4_t01_t07_retiros_abiertos_form_ids_escape():
     (T03/T04 XSS). Render puro, sin base."""
     from types import SimpleNamespace
 
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    from app.ui import templates
 
-    env = Environment(
-        loader=FileSystemLoader("app/templates"),
-        autoescape=select_autoescape(["html"]),
-    )
+    env = templates.env
     html = env.get_template("productos_sin_clics.html").render(
         plataforma="amazon_mx",
         pantalla="productos-sin-clics",
@@ -542,7 +540,7 @@ def test_r09r4_t01_t07_retiros_abiertos_form_ids_escape():
     assert 'data-reponer data-retiros="9"' in html
     assert html.count('data-esperada="REGRESAR 1 ANUNCIOS"') == 2
     assert html.count("data-reponer") == 2
-    assert "<td>subfamilia</td>" in html
+    assert "<td>Su subfamilia se retira</td>" in html
     assert "<script>" not in html and "&lt;script&gt;" in html
     assert "ad-<b>x" not in html and "ad-&lt;b&gt;x" in html
 
@@ -615,18 +613,15 @@ async function corre(guardados) {
 })().catch((e) => { console.error(e); process.exit(1); });
 """
     proc = subprocess.run(
-        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
 
 def _render_limites(limites: dict) -> str:
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    from app.ui import templates
 
-    env = Environment(
-        loader=FileSystemLoader(str(RAIZ / "app" / "templates")),
-        autoescape=select_autoescape(["html"]),
-    )
+    env = templates.env
     html = env.get_template("productos_sin_clics.html").render(
         plataforma="amazon_mx",
         pantalla="productos-sin-clics",
@@ -773,6 +768,7 @@ async function escena({modo = "shadow", disabled = false, respuestaPost = {ok: t
       return Promise.resolve({ok: r.ok, status: r.status, json: () => Promise.resolve(r.data)});
     },
     console,
+    Orbit,
   };
   vm.createContext(ctx);
   vm.runInContext(codigo, ctx);
@@ -867,6 +863,6 @@ async function escena({modo = "shadow", disabled = false, respuestaPost = {ok: t
 })().catch((err) => { console.error(err); process.exit(1); });
 """
     proc = subprocess.run(
-        [node, "-e", guion, str(archivo)], capture_output=True, text=True, timeout=60
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout

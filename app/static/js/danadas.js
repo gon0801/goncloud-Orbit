@@ -30,7 +30,7 @@ function regresar(form) {
     .then(function (r) {
       if (r.ok) {
         estado.textContent =
-          "Regresado a " + (r.data.bid_ahora || "?") + " " + (r.data.moneda || "") + ".";
+          "Regresada a " + Orbit.dinero(r.data.bid_ahora) + " " + (r.data.moneda || "") + ".";
       } else {
         estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
       }

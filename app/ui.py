@@ -38,20 +38,21 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from jinja2.utils import htmlsafe_json_dumps
 
 from app import api_dashboard as dash
 from app import api_reputacion as reput
-from app import familias
+from app import familias, formato
 from app.api import ConexionLectura
 from app.dashboard_resumen import CANALES as CANALES_RESUMEN
 from app.dashboard_resumen import CANALES_POR_DEFECTO, PERIODOS
-from app.notifica import estado_precio_es, motivo_precio_es
+from app.etiquetas import etiqueta, registro_navegador
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
-from app.ui_campanas import VISTAS_RAPIDAS, dinero_coma_ui, presenta_campanas
 from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
+from app.ui_campanas import VISTAS_RAPIDAS, presenta_campanas
 from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie, vista_resumen
 
 logger = logging.getLogger(__name__)
@@ -79,16 +80,6 @@ def version_estaticos(raiz: Path) -> str:
 templates.env.globals["asset_version"] = version_estaticos(_TEMPLATES_DIR.parent / "static")
 
 
-def dinero_ui(valor: str | None) -> str | None:
-    """Presentacion a 2 decimales. None queda None; si no parsea, se deja igual."""
-    if valor is None:
-        return None
-    try:
-        return f"{Decimal(valor):.2f}"
-    except (InvalidOperation, ValueError):
-        return valor
-
-
 def dinero_miles_ui(valor: str | None) -> str | None:
     """Presentacion con signo de pesos/dolares, separador de miles y 2 decimales."""
     if valor is None:
@@ -110,37 +101,19 @@ def porcentaje_ui(valor: str | None) -> str | None:
         return valor
 
 
-def miles_ui(valor) -> str | None:
-    """Entero con separador de miles («1735» -> «1,735»). None queda None;
-    si no parsea, se deja igual. Redondea a entero (HALF_EVEN)."""
-    if valor is None:
-        return None
-    try:
-        return f"{round(Decimal(str(valor))):,}"
-    except (InvalidOperation, ValueError):
-        return valor
-
-
-templates.env.filters["dinero_ui"] = dinero_ui
-templates.env.filters["dinero_coma_ui"] = dinero_coma_ui
+templates.env.filters.update(formato.FILTROS)
+templates.env.filters["etiqueta"] = etiqueta
+templates.env.globals["leyenda_zona"] = formato.LEYENDA_ZONA
+# El registro viaja una vez por pagina (base.html) para Orbit.etiqueta; se
+# serializa al arrancar porque no cambia en vida del proceso.
+templates.env.globals["registro_etiquetas"] = htmlsafe_json_dumps(registro_navegador())
 templates.env.filters["dinero_miles_ui"] = dinero_miles_ui
 templates.env.filters["porcentaje_ui"] = porcentaje_ui
-templates.env.filters["miles_ui"] = miles_ui
 templates.env.filters["kpis_serie"] = kpis_serie
 templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes
 templates.env.filters["vista_resumen"] = vista_resumen
 
-
-def ts_ui(valor) -> str:
-    """Fecha de decision para la tabla: YYYY-MM-DD HH:MM, sin microsegundos."""
-    if valor is None:
-        return "—"
-    texto = valor.isoformat() if hasattr(valor, "isoformat") else str(valor)
-    return texto.replace("T", " ")[:16]
-
-
-templates.env.filters["ts_ui"] = ts_ui
 
 _MESES_CORTO = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 
@@ -163,15 +136,13 @@ def _parse_fecha(valor):
     return momento
 
 
-def fecha_corta(valor, con_hora: bool = False) -> str:
-    """6 sep / 6 sep 04:10. None o inparseable = dato visible, no excepcion."""
-    momento = _parse_fecha(valor)
+def fecha_corta(valor) -> str:
+    """6 sep. Un instante cuenta en su dia del centro de Mexico. None o
+    inparseable = dato visible, no excepcion. Las horas van por `fecha_hora`."""
+    momento = formato.momento_local(valor) or _parse_fecha(valor)
     if momento is None:
         return "—" if valor is None else str(valor)
-    base = f"{momento.day} {_MESES_CORTO[momento.month - 1]}"
-    if con_hora:
-        base += f" {momento.hour:02d}:{momento.minute:02d}"
-    return base
+    return f"{momento.day} {_MESES_CORTO[momento.month - 1]}"
 
 
 def hace(valor, ahora=None) -> str:
@@ -199,12 +170,6 @@ def hace(valor, ahora=None) -> str:
 
 templates.env.filters["fecha_corta"] = fecha_corta
 templates.env.filters["hace"] = hace
-# Motivo de precio en palabras (el mismo mapa de los avisos: los ids crudos
-# nunca se muestran en la pantalla).
-templates.env.filters["motivo_precio_es"] = motivo_precio_es
-# Estado de precio en palabras (el mismo mapa de los avisos: los ids crudos
-# nunca se muestran en la pantalla).
-templates.env.filters["estado_precio_es"] = estado_precio_es
 
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (

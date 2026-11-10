@@ -215,7 +215,11 @@ def test_pagina_escapa_texto_externo():
         # estatico /static, permitido por default-src 'self').
         import re
 
-        inlines = [s for s in re.findall(r"<script[^>]*>", html) if "src=" not in s]
+        inlines = [
+            s
+            for s in re.findall(r"<script[^>]*>", html)
+            if "src=" not in s and 'type="application/json"' not in s
+        ]
         assert inlines == []
 
 
@@ -398,7 +402,7 @@ def test_pagina_pregunta_muestra_antiguedad():
 def test_fecha_corta():
     from app import ui
 
-    assert ui.fecha_corta("2026-09-06T04:10:00", True) == "6 sep 04:10"
+    assert ui.fecha_corta("2026-09-06T04:10:00") == "5 sep"
     assert ui.fecha_corta("2026-09-06") == "6 sep"
     assert ui.fecha_corta(dt.date(2026, 9, 6)) == "6 sep"
     assert ui.fecha_corta(None) == "—"
@@ -506,5 +510,9 @@ def test_plantilla_reputacion_render_sin_db():
     assert "hace 4 h" in html and "Responder en MeLi</span>" in html
     assert "No hay reviews de Amazon en esta versi" in html
     assert 'href="http' not in html
-    inlines = [s for s in re.findall(r"<script[^>]*>", html) if "src=" not in s]
+    inlines = [
+        s
+        for s in re.findall(r"<script[^>]*>", html)
+        if "src=" not in s and 'type="application/json"' not in s
+    ]
     assert inlines == []

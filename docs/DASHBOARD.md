@@ -260,7 +260,7 @@ Respuesta 200:
       "synced_at": "2026-08-23T00:46:00Z",
       "ultimo_ciclo": {"id": 5, "mode": "shadow", "status": "done", "started_at": "2026-08-22T00:46:00Z", "finished_at": "2026-08-22T00:50:00Z", "decisions_count": 124, "applied_count": 0, "notes": {"skips": {"entidad": {"estado_no_enabled": 3200}}, "decisiones": {"bid": 124}}},
       "historico_14d": [{"cycle_id": 5, "fecha": "2026-08-22T00:46:00Z", "status": "done", "decisions_count": 124}, {"cycle_id": 4, "fecha": "2026-08-21T00:47:00Z", "status": "degraded", "decisions_count": 0, "motivo": "Watermark de la plataforma vencido"}],
-      "skips": {"entidad": {"estado_no_enabled": {"count": 3200, "motivo_es": "Entidad sin estado o no habilitada"}}, "termino": {"asin_like": {"count": 84, "motivo_es": "Termino ASIN-like: se salta siempre"}}},
+      "skips": {"entidad": [{"motivo": "estado_no_enabled", "count": 3200, "motivo_es": "La keyword o el producto no está habilitado o no tiene estado"}], "termino": [{"motivo": "asin_like", "count": 84, "motivo_es": "La búsqueda es un código de producto: no se bloquea ni se captura"}]},
       "harvest_destino": {"resueltos": {"grupo": 4, "excepcion": 0, "terna": 0}, "terna_es": "Destino por terna del goal (migracion a grupo o excepcion pendiente)", "saltos_grupo": [{"campaign_id": 3, "motivo": "destino_inconsistente", "motivo_es": "Harvest bloqueado: la terna del goal contradice la exacta del grupo"}]},
       "target_margen": {"target_vigente": "20", "procedencia": "margen_plataforma", "margen_neto_pct": "40", "fraccion": "0.5", "cobertura": "0.98", "ventana_desde": "2026-05-22", "ventana_hasta": "2026-08-20", "ledger_edad_dias": 1, "ratio_ads_venta": "0.104", "motivo_abstencion": null, "motivo_etiqueta": null}
     }
@@ -276,14 +276,18 @@ Respuesta 200:
   `status` y, cuando aplique, el `motivo` en español (degradado/failed visible
   con motivo; de `notes.motivo_skip` — guarda_watermark/synced_at/sin_datos — o
   el texto del notes).
-- `skips`: los contadores del notes del ORQUESTADOR (`cycle.py`: sin_goal,
+- `skips`: por lado (`entidad`, `termino`), una lista `[{motivo, count,
+  motivo_es}]` del más contado al menos contado, con empate por motivo
+  (CLARIDAD 01 I.2: un dict perdía el orden en `tojson`, que ordena las claves).
+  Sin ciclo o sin notes, las dos listas van vacías. Son los contadores del notes
+  del ORQUESTADOR (`cycle.py`: sin_goal,
   goal_disabled, campana_no_enabled, grupo_no_enabled, estado_no_enabled,
   entidad_inerte (BIDS 01: hoja sin impresiones en 14d desde el watermark),
   cooldown_7d, escalera_off, … + los
   `MOTIVO_*` de bid/hygiene que el orquestador importa a sus contadores) con su
-  traducción `motivo_es`; DOS diccionarios de traducción (este y el de §3.4),
-  cada uno importando su fuente (decisión 11); motivo desconocido → fallback sin
-  crash. Los cinco motivos F2 del resolutor (`origen_es_destino`,
+  traducción `motivo_es` del registro `app/etiquetas.py` (dominio
+  `motivo_salud`, claves importadas de su fuente); motivo desconocido → texto
+  sin guiones bajos y aviso en el log, sin crash. Los cinco motivos F2 del resolutor (`origen_es_destino`,
   `sin_destino_de_harvest`, `destino_inconsistente`,
   `destino_desincronizado`, `migracion_pendiente`) se traducen aquí.
 - `harvest_destino` (FABRICA 02, A.6, por plataforma junto a `skips`):

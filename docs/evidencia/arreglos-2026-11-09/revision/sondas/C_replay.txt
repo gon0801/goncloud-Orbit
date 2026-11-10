@@ -1,0 +1,4 @@
+== Replay ==
+  subida frenada: igual=True decide=Mantener(motivo='subida_sin_economia') replay=(None, None, None)
+  sin episodio: igual=True decide=Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja') replay=('bid', Decimal('1.1500'), 'USD')
+  episodio margen 8 con contribucion de 28 digitos: igual=True decide=Mantener(motivo='subida_sin_economia') replay=(None, None, None)

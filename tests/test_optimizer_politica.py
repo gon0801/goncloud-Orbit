@@ -12,6 +12,21 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+from test_lecturas_caso import (
+    _D,
+    _DECIDIDO,
+    FALTA_PG,
+    _bid,
+    _ciclo,
+    _config,
+    _db_lecturas,
+    _economia,
+    _ingest,
+    _metrica,
+    _recorte,
+    _relleno,
+    _triple,
+)
 from test_optimizer_caso import (
     cambio,
     cortes,
@@ -24,6 +39,8 @@ from test_optimizer_caso import (
     trayectoria,
 )
 
+from app.lecturas_caso import lee_plataforma
+from app.optimizer import windows
 from app.optimizer.caso import (
     BidVigente,
     InsumosPausa,
@@ -209,6 +226,65 @@ def test_r2_espera_antes_de_7_dias():
         ),
     )
     assert decide(caso) == Mantener("esperando_efecto")
+
+
+@FALTA_PG
+def test_regreso_exige_venta_en_la_ventana_de_la_pausa():
+    """CLARIDAD 01 K (decision 2868, keyword 4919): recorte del motor el 10-01
+    y desplome de trafico. La keyword que vendio hace 45 dias y nada en la
+    ventana de cortes de la pausa (08-31..09-29) no regresa su puja; la que
+    compro dentro de esa ventana si regresa."""
+    with _db_lecturas() as conn:
+        config = _config(conn)
+        ingest = _ingest(conn)
+        obs = dt.datetime(2026, 10, 8, 12, 0, tzinfo=dt.UTC)
+        _, _, rell = _triple(conn, tag="rell", campana="PAUSED")
+        _relleno(conn, ingest, rell, _D - dt.timedelta(days=180), _D - dt.timedelta(days=1), obs)
+        ejecutor = _ciclo(conn, "live")
+        hojas = {}
+        for tag, venta in (
+            ("vieja", _D - dt.timedelta(days=45)),
+            ("en_ventana", dt.date(2026, 9, 10)),
+        ):
+            _, g, h = _triple(conn, tag=tag, bid=Decimal("6"))
+            hojas[tag] = (g, h)
+            _recorte(
+                conn,
+                hoja=h,
+                config=config,
+                ejecutor=ejecutor,
+                old=Decimal("10"),
+                new=Decimal("6"),
+                confirmado=dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC),
+            )
+            _metrica(
+                conn, ingest, h, venta, obs, clics=2, pedidos=1, venta=300, gasto=2, impresiones=900
+            )
+            for n in range(24, 31):
+                _metrica(
+                    conn, ingest, h, dt.date(2026, 9, n), obs, clics=3, gasto=1, impresiones=1000
+                )
+            for n in range(2, 9):
+                _metrica(conn, ingest, h, dt.date(2026, 10, n), obs, impresiones=10)
+        lecturas = lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia())
+
+        def veredicto(tag):
+            g, h = hojas[tag]
+            pausa = InsumosPausa(
+                windows.ventana_cortes(conn, h, _DECIDIDO), 1000, Decimal("350"), None, None
+            )
+            caso = lecturas.caso(
+                conn,
+                hoja_id=h,
+                ad_group_id=g,
+                bid=_bid(),
+                target_acos_pct=Decimal("15"),
+                pausa=pausa,
+            )
+            return decide(caso)
+
+        assert not isinstance(veredicto("vieja"), Regresar)
+        assert veredicto("en_ventana") == Regresar(Decimal("10"), "regreso_por_desplome")
 
 
 # ---------------------------------------------------------------------------

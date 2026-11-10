@@ -8,6 +8,7 @@ marca lo enviado con ORBIT_DSN_INGEST. Sale 0 aunque Telegram falle
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import os
 import sys
@@ -143,7 +144,85 @@ def main_impulso_vigia(argv: list[str]) -> int:
     return 0
 
 
-COMANDOS = {"avisos-campana": main_avisos_campana, "impulso-vigia": main_impulso_vigia}
+_SQL_HOJA = """
+SELECT platform FROM ad_entity WHERE id = %s AND kind IN ('keyword', 'product_target')
+"""
+
+_SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+
+
+def main_efecto_hoja(argv: list[str]) -> int:
+    """Efecto del ultimo cambio de puja de una hoja como lo arma el ciclo
+    (CLARIDAD 01 K.3). Solo lectura con ORBIT_DSN_READ. `ventana_venta` es
+    la ventana de cortes de la pausa, donde se mide `vendia`. 2 sin DSN; 1 si
+    la hoja no existe o no cambio de puja en 90 dias."""
+    from app import lecturas_caso
+    from app.db import connect
+    from app.optimizer import goals, windows
+    from app.optimizer.bid import PLATAFORMAS_MONEDA
+    from app.optimizer.caso import EconomiaPlataforma
+
+    parser = argparse.ArgumentParser(
+        prog="python -m app.cli efecto-hoja",
+        description=(
+            "Efecto del ultimo cambio de puja de una hoja y la ventana donde se mide"
+            " si vendia (solo lectura, requiere ORBIT_DSN_READ)."
+        ),
+    )
+    parser.add_argument("ad_entity_id", type=int, help="id de la keyword o producto objetivo")
+    hoja_id = parser.parse_args(argv).ad_entity_id
+    dsn = os.environ.get("ORBIT_DSN_READ")
+    if not dsn:
+        print("efecto-hoja: falta ORBIT_DSN_READ", file=sys.stderr)
+        return 2
+    ahora = dt.datetime.now(dt.UTC)
+    conn = connect(dsn)
+    conn.read_only = True
+    try:
+        fila = conn.execute(_SQL_HOJA, (hoja_id,)).fetchone()
+        if fila is None or fila[0] not in PLATAFORMAS_MONEDA:
+            print(
+                f"efecto-hoja: {hoja_id} no es una keyword ni un producto objetivo de Amazon",
+                file=sys.stderr,
+            )
+            return 1
+        plataforma = fila[0]
+        config = conn.execute(_SQL_CONFIG).fetchone()
+        settings = config[0] if config is not None else {}
+        economia = EconomiaPlataforma(
+            moneda=PLATAFORMAS_MONEDA[plataforma],
+            equilibrio_acos_pct=None,
+            gasto_para_concluir=goals.gasto_para_concluir_desde_settings(settings, plataforma),
+            confianza_recorte=goals.confianza_recorte_desde_settings(settings, plataforma),
+            confianza_subida=goals.confianza_subida_desde_settings(settings, plataforma),
+        )
+        lecturas = lecturas_caso.lee_plataforma(conn, plataforma, ahora, economia=economia)
+        cortes = windows.ventana_cortes(conn, hoja_id, ahora)
+        leido = lecturas.efecto(conn, hoja_id=hoja_id, cortes=cortes)
+    finally:
+        conn.close()
+    if leido is None:
+        print(f"efecto-hoja: {hoja_id} no cambio de puja en 90 dias", file=sys.stderr)
+        return 1
+    cambio, efecto = leido
+    print(f"hoja={hoja_id}")
+    print(f"plataforma={plataforma}")
+    print(f"decidido_el={ahora.isoformat()}")
+    print(f"cambio={cambio.fecha} {cambio.bid_antes}->{cambio.bid_despues} origen={cambio.origen}")
+    for campo, valor in vars(efecto).items():
+        if campo != "vendia":
+            print(f"{campo}={valor}")
+    venta = f"{cortes.window_start}..{cortes.window_end}" if cortes is not None else None
+    print(f"ventana_venta={venta}")
+    print(f"vendia={efecto.vendia}")
+    return 0
+
+
+COMANDOS = {
+    "avisos-campana": main_avisos_campana,
+    "impulso-vigia": main_impulso_vigia,
+    "efecto-hoja": main_efecto_hoja,
+}
 
 
 def registra(sub) -> None:
@@ -157,6 +236,14 @@ def registra(sub) -> None:
     p_vigia = sub.add_parser("impulso-vigia", help="vigia diario del impulso (BIDS 02 I.3)")
     p_vigia.add_argument(
         "--forzar", action="store_true", help="corre sin las guardas de métricas de ayer"
+    )
+    sub.add_parser(
+        "efecto-hoja",
+        add_help=False,
+        help=(
+            "efecto del ultimo cambio de puja de una hoja y la ventana donde se mide"
+            " si vendia (CLARIDAD 01 K.3; solo lectura, requiere ORBIT_DSN_READ)"
+        ),
     )
 
 

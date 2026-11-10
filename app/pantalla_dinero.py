@@ -149,10 +149,14 @@ SELECT a.campana_id, max((a.confirmado_el AT TIME ZONE 'UTC')::date)
    AND a.clase = 'ajuste_ubicacion'
  GROUP BY a.campana_id
 """
-_TEXTO_CLASE_AJUSTE = {
-    "presupuesto": "el presupuesto",
-    "ajuste_ubicacion": "el ajuste de ubicación",
-}
+
+
+def _etiqueta(codigo: str, dominio) -> str:
+    """El registro (app.etiquetas) importa este modulo para comprobar sus
+    vocabularios: el import va aqui para no cerrar el ciclo."""
+    from app.etiquetas import etiqueta
+
+    return etiqueta(codigo, dominio)
 
 
 def _aviso_ajuste_de(confirmado: dt.date | None, hasta: dt.date) -> str | None:
@@ -435,7 +439,7 @@ def lee_campanas(
             AjusteRegresable(
                 ajuste_id=aid,
                 clase=clase,
-                texto=_TEXTO_CLASE_AJUSTE[clase],
+                texto=_etiqueta(clase, "clase_ajuste"),
                 confirmado_el=confirmado,
             )
         )

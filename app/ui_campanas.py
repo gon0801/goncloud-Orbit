@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from app.dashboard_resumen import acos_texto
+from app.etiquetas import etiqueta as etiqueta_de
 
 VISTAS_RAPIDAS = frozenset({"todas", "sobre", "gasto", "en", "inactiva"})
 
@@ -29,18 +30,7 @@ _BARRA = (
     ("sint", "Sin target"),
     ("inactiva", "Sin actividad"),
 )
-_NOMBRE_PLATAFORMA = {"amazon_mx": "Amazon MX", "amazon_us": "Amazon US"}
 _ORDEN_PLATAFORMA = ("amazon_mx", "amazon_us")
-
-
-def dinero_coma_ui(valor) -> str | None:
-    """2 decimales con separador de miles. None queda None; si no parsea, igual."""
-    if valor is None:
-        return None
-    try:
-        return f"{Decimal(str(valor)):,.2f}"
-    except (InvalidOperation, ValueError):
-        return str(valor)
 
 
 def _num(valor) -> Decimal | None:
@@ -256,9 +246,7 @@ def _frase(
 def _tarjeta(plataforma: str, filas: list[FilaVista]) -> TarjetaPlataforma:
     conteo = Counter(fila.estado.clave for fila in filas if fila.estado)
     costs = [_num((fila.item.get("metricas_30d") or {}).get("cost")) for fila in filas]
-    revenues = [
-        _num((fila.item.get("metricas_30d") or {}).get("ad_revenue")) for fila in filas
-    ]
+    revenues = [_num((fila.item.get("metricas_30d") or {}).get("ad_revenue")) for fila in filas]
     clicks = [_num((fila.item.get("metricas_30d") or {}).get("clicks")) for fila in filas]
     cost_sum = _suma(costs)
     rev_sum = _suma(revenues)
@@ -280,9 +268,7 @@ def _tarjeta(plataforma: str, filas: list[FilaVista]) -> TarjetaPlataforma:
             else:
                 tono = "en"
     segmentos = tuple(
-        Segmento(clave, etiqueta, conteo[clave])
-        for clave, etiqueta in _BARRA
-        if conteo[clave] > 0
+        Segmento(clave, etiqueta, conteo[clave]) for clave, etiqueta in _BARRA if conteo[clave] > 0
     )
     unidades = tuple(segmento.clave for segmento in segmentos for _ in range(segmento.n))
     sinv_costos = [
@@ -292,7 +278,7 @@ def _tarjeta(plataforma: str, filas: list[FilaVista]) -> TarjetaPlataforma:
     ]
     gasto = _texto_dinero(_suma(sinv_costos) if sinv_costos else Decimal(0))
     return TarjetaPlataforma(
-        etiqueta=_NOMBRE_PLATAFORMA.get(plataforma, plataforma),
+        etiqueta=etiqueta_de(plataforma, "plataforma"),
         moneda=_moneda(filas),
         n=len(filas),
         target=target_txt,
