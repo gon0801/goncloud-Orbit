@@ -234,6 +234,12 @@ def revalida_harvest(
         target_acos_pct=target,
         config_harvest=config,
         keywords_existentes=keywords,
+        # ARREGLOS 01 B (E-S1): el harvest crea un negative EXACT en el
+        # ORIGEN; un termino que es keyword EXACT propia de ese ad group no se
+        # cosecha.
+        keywords_propias=hygiene.keywords_exactas_por_grupo(conn, platform, solo_grupo=grupo).get(
+            grupo, frozenset()
+        ),
         umbral_negative=umbral,
         piso_negative=piso,
     )

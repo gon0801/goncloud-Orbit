@@ -101,6 +101,10 @@ def _replay_hygiene(inputs: dict) -> hygiene.ResultadoTermino:
         # keywords_existentes vacio: una decision de harvest solo existe si el
         # termino NO estaba duplicado al decidir (replay contra nada bloquea).
         keywords_existentes=frozenset(),
+        # ARREGLOS 01 B (E-S1): vacio EXPLICITO. La decision congelada existio
+        # solo porque el termino no era keyword propia del ad group; el replay
+        # sigue fiel a lo decidido.
+        keywords_propias=frozenset(),
         umbral_negative=umbral_negative,
         piso_negative=piso,
     )
