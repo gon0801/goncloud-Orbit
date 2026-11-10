@@ -4457,7 +4457,11 @@ def test_s3_liberar_aplica_lo_retenido_de_hoy_y_no_lo_de_ayer():
 @_skip_sin_pg
 def test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base():
     """E (G-H1): un dia retenido por `movimiento_masivo` y no soltado no entra
-    como previa del dia siguiente: el dia 2 vuelve a retener y no escribe."""
+    como previa del dia siguiente: el dia 2 vuelve a retener y no escribe.
+
+    La cuarta unidad no tiene retencion: su `subir` de ayer solo desaparece si
+    se excluye el dia COMPLETO del universo, no solo las filas retenidas.
+    """
     from app.precio.compuerta import Retenida
     from app.precio.corrida import _SQL_RETENER, _aplicar_pendientes, _medir_compuerta
 
@@ -4471,22 +4475,26 @@ def test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base():
         for n in range(3):
             lid, gid = _unidad_s3(conn, f"e-{n}")
             dec = _decision_s3(conn, lid, goal_id=gid, dia=ayer)
-            unidades.append((lid, gid, dec))
+            unidades.append((lid, gid, dec, True))
+        lid, gid = _unidad_s3(conn, "e-libre")
+        dec = _decision_s3(conn, lid, goal_id=gid, dia=ayer)
+        unidades.append((lid, gid, dec, False))
         # El dia 1 retuvo la ola; nadie la solto.
         conn.execute("ALTER TABLE precio_retencion DISABLE TRIGGER USER")
         try:
-            for _lid, _gid, dec in unidades:
-                conn.execute(_SQL_RETENER, (dec, corrida_ayer, "movimiento_masivo"))
+            for _lid, _gid, dec, retener in unidades:
+                if retener:
+                    conn.execute(_SQL_RETENER, (dec, corrida_ayer, "movimiento_masivo"))
         finally:
             conn.execute("ALTER TABLE precio_retencion ENABLE TRIGGER USER")
-        for lid, gid, _dec in unidades:
+        for lid, gid, _dec, _ret in unidades:
             _decision_s3(conn, lid, goal_id=gid)
         corrida = _corrida_s3(conn, cfg)
         motor = _motor_de(settings)
         veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida)
         retenida = veredictos["fba"]
         assert isinstance(retenida, Retenida)
-        assert (retenida.causa, retenida.nuevas) == ("movimiento_masivo", 3)
+        assert (retenida.causa, retenida.nuevas) == ("movimiento_masivo", 4)
         resultado = _aplicar_pendientes(
             conn,
             _MERCADO_MX,
@@ -4497,7 +4505,7 @@ def test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base():
             corrida_id=corrida,
             corte=motor.corte_errores_consecutivos,
         )
-        assert resultado == (0, 0, 3, [])
+        assert resultado == (0, 0, 4, [])
         assert _cuenta_cambios(conn) == 0
         # Solo lo soltado deja de contar: con la liberacion del dia 1, el dia 1
         # vuelve a ser la previa y el dia 2 ya no es una intencion nueva.
@@ -4506,13 +4514,13 @@ def test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base():
 
         conn.execute(
             "INSERT INTO precio_compuerta_medicion (corrida_id, canal, medidas, nuevas, causa)"
-            " VALUES (%s, 'fba', 3, 3, 'movimiento_masivo')",
+            " VALUES (%s, 'fba', 4, 4, 'movimiento_masivo')",
             (corrida_ayer,),
         )
         liberar(conn, corrida_id=corrida_ayer, actor="dueno", nota="ola real, soltar")
         suelta = _corrida_s3(conn, cfg)
         abiertos = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, suelta)
-        assert abiertos["fba"] == Abierta(medidas=3, nuevas=0)
+        assert abiertos["fba"] == Abierta(medidas=4, nuevas=0)
         assert _aplicar_pendientes(
             conn,
             _MERCADO_MX,
@@ -4522,8 +4530,8 @@ def test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base():
             ahora=datetime.now(UTC),
             corrida_id=suelta,
             corte=motor.corte_errores_consecutivos,
-        ) == (0, 3, 0, [])
-        assert _cuenta_cambios(conn) == 3
+        ) == (0, 4, 0, [])
+        assert _cuenta_cambios(conn) == 4
 
 
 @_skip_sin_pg
@@ -4768,6 +4776,77 @@ def test_s3_fee_variable_del_escenario_retiene_nombrando_insumo():
         retenida = veredictos["fba"]
         assert (retenida.causa, retenida.insumo) == ("insumo_sistemico", "fee_variable")
         assert _medicion_de(conn, corrida) == [("fba", 12, 0, "insumo_sistemico", "fee_variable")]
+
+
+@_skip_sin_pg
+def test_arreglos01_e_la_tasa_de_fee_variable_no_salta_cuando_solo_se_movio_el_precio():
+    """E (G-H3, F1): el fee_variable del escenario se compara como tasa sobre
+    el ingreso. Con fee 1.00 -> 1.10 e ingreso 10 -> 11 la tasa queda en 0.10:
+    el importe salta +10 % pero no hay deriva sistemica."""
+    from app.precio.compuerta import Abierta
+    from app.precio.corrida import _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        ayer = hoy - timedelta(days=1)
+        pol = _politica(conn)
+        run_id, validada_en = _run(conn)
+        for n in range(12):
+            tag = f"tfv-{n:02d}"
+            prod = _producto(conn, f"ODOO-S3-{tag}")
+            lid = _listing(conn, prod, ext=f"B0S3{tag}", sku=f"SKU-S3-{tag}")
+            gid = _goal(conn, lid, mode="shadow")
+            costo_id = _costo(conn, prod)
+            for dia, variable, ingreso in ((ayer, "1.00", "10"), (hoy, "1.10", "11")):
+                sello = dia.isoformat()
+                oferta = _oferta_obs(
+                    conn,
+                    lid,
+                    ext=f"B0S3{tag}",
+                    sku=f"SKU-S3-{tag}",
+                    evento=f"oferta-{tag}-{sello}",
+                    huella=f"ctx-{tag}-{sello}",
+                )
+                fee = _fee_obs(
+                    conn,
+                    oferta,
+                    lid,
+                    ext=f"B0S3{tag}",
+                    sku=f"SKU-S3-{tag}",
+                    evento=f"fee-{tag}-{sello}",
+                    huella=f"ctx-{tag}-{sello}",
+                )
+                esc = _escenario(
+                    conn,
+                    lid,
+                    oferta,
+                    fee,
+                    pol,
+                    costo_id,
+                    run_id,
+                    validada_en,
+                    ext=f"B0S3{tag}",
+                    sku=f"SKU-S3-{tag}",
+                    evento=f"esc-{tag}-{sello}",
+                    huella=f"ctx-{tag}-{sello}",
+                    fee_variable=variable,
+                    fee_fijo="3.00",
+                )
+                _decision_s3(
+                    conn,
+                    lid,
+                    resultado="mantener",
+                    motivo="en_tolerancia",
+                    goal_id=gid,
+                    escenario_id=esc,
+                    i=ingreso,
+                    r="0",
+                    **({"dia": dia} if dia == ayer else {}),
+                )
+        corrida = _corrida_s3(conn, cfg)
+        veredictos = _medir_compuerta(conn, _MERCADO_MX, hoy, _motor_de(SETTINGS), corrida)
+        assert veredictos["fba"] == Abierta(medidas=12, nuevas=0)
 
 
 # ---------------------------------------------------------------------------
