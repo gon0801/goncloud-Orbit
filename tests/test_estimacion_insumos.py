@@ -16,7 +16,7 @@ import os
 import socket
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -439,9 +439,18 @@ def db_insumos(prefijo: str = "orbit_margen_a2"):
     finally:
         if conn is not None:
             conn.close()
-        admin.execute(
-            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
-        )
+        try:
+            admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(db)))
+        except psycopg.errors.ObjectInUse:
+            # El rol de pruebas no puede terminar el backend ocasional
+            # (autovacuum u otro): el nombre es unico y no colisiona con la
+            # siguiente corrida.
+            with suppress(psycopg.errors.InsufficientPrivilege):
+                admin.execute(
+                    pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+                        pgsql.Identifier(db)
+                    )
+                )
         admin.close()
 
 
