@@ -1,6 +1,6 @@
 # Fuentes de 30-decidir-b.html
 
-Primera versión: código leído en `origin/master` (7cf7c9a) y producción consultada solo con GET el 8 de noviembre de 2026. Recaptura del 9 de noviembre (CLARIDAD 01 J.1): código leído en el árbol de trabajo (HEAD 1e2a66b, que incluye 4be5081, lo desplegado) y producción consultada solo con GET el 9 de noviembre (ver la sección «Recaptura 9-nov» al final). Donde una línea de abajo choca con esa sección, manda la sección.
+Primera versión: código leído en `origin/master` (7cf7c9a) y producción consultada solo con GET el 8 de noviembre de 2026. Recaptura del 9 de noviembre (CLARIDAD 01 J.1): código leído en el árbol de trabajo (HEAD 1e2a66b, que incluye 4be5081, lo desplegado) y producción consultada solo con GET el 9 de noviembre (ver la sección «Recaptura 9-nov» al final). Donde una línea de abajo choca con esa sección, manda la sección; la sección «J.2» del final, posterior, manda sobre las dos.
 
 ## Dónde poner el dinero (hojas 1 y 2)
 - Título, subtítulo «Solo cuenta lo que hoy está encendido… no coincide con el Resumen», enlaces Amazon MX/US: `app/templates/donde_poner_el_dinero.html:3-12`.
@@ -91,8 +91,8 @@ Código en el árbol de trabajo (HEAD 1e2a66b). Producción solo con GET el 9 de
 - Dinero con dos decimales y miles, porcentajes con dos decimales: `app/formato.py:32-57`. Horas «8 sep, 21:35» en hora del centro: `app/formato.py:77-84`; leyenda «Horas del centro de México»: `app/formato.py:17`, presente en las cuatro pantallas (`<span class="leyenda-zona">`).
 
 ### Dónde poner el dinero (hojas 1 a 3)
-- `GET /donde-poner-el-dinero?plataforma=amazon_mx`: «Ventana por tipo 2026-08-11 a 2026-11-09 (MXN)»; Exacta 22,078.54 / 40.30 % / ACoS 10.60 % (meta 20.00 %); Total 54,837.77, ACoS 13.70 % (meta 20.00 %); Fuera de Amazon 3,444.05, 15.20 %, 3 pedidos, ACoS 174.70 %; AC - Category Exact - MX 300.00 / 298.56 / 99.50 % con «se queda sin presupuesto. Usó 90 % o más en 5 de los últimos 7 días.»; Arras Auto 2 293.94 / 2.59 con «este presupuesto no limita. 294 MXN al día y gasta 3.»; Ajustes «+9 % en arriba de búsqueda; …». Las cinco campañas «kit_arras | Personalizado | … | 2026-09-09» siguen en la tabla Por campaña.
-- `?plataforma=amazon_us`: meta 19.20 %, mismas etiquetas de tipo.
+- `GET /donde-poner-el-dinero?plataforma=amazon_mx`: «Ventana por tipo 2026-08-11 a 2026-11-09 (MXN)». Porcentajes con la precisión que entrega `app/pantalla_dinero.py` desde h_26f91a68 (sin redondeo previo; `formato.pct` a dos decimales), calculados con gasto y venta de `GET /api/dashboard/donde-poner-el-dinero?plataforma=amazon_mx`: Exacta 22,078.54 / 40.26 % / ACoS 10.58 % (meta 20.02 %); Total 54,837.77, ACoS 13.65 % (meta 20.02 %); Fuera de Amazon 3,444.05, 15.16 % del gasto por ubicación, 3 pedidos, ACoS 174.69 %; AC - Category Exact - MX 300.00 / 298.56 / 99.52 % con «se queda sin presupuesto. Usó 90 % o más en 5 de los últimos 7 días.»; Arras Auto 2 293.94 / 2.59 con «este presupuesto no limita. 294 MXN al día y gasta 3.»; Ajustes «+9 % en arriba de búsqueda; …». Las cinco campañas «kit_arras | Personalizado | … | 2026-09-09» siguen en la tabla Por campaña.
+- `?plataforma=amazon_us`: meta 19.22 % (`target_vigente.valor` 19.2248… en `GET /api/dashboard/settings`), mismas etiquetas de tipo.
 - Texto del aviso de presupuesto: `app/avisos_campana.py:84-111`.
 
 ### Productos sin clics (hojas 4 a 7)
