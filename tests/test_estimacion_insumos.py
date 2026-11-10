@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import socket
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -422,7 +423,9 @@ def db_insumos(prefijo: str = "orbit_margen_a2"):
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
-    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    # Nombre unico por corrida: dos procesos con el mismo PID (o una limpieza
+    # fallida anterior) no pueden chocar con un DROP pendiente.
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}_{uuid.uuid4().hex[:10]}"
     admin = psycopg.connect(dsn, autocommit=True)
     conn = None
     try:
