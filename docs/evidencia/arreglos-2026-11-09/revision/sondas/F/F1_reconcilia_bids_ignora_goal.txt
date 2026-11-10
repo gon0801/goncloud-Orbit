@@ -1,0 +1,5 @@
+goal mode='shadow' enabled=True: modo_efectivo (lo que usa aplica_bids)='shadow'; reconcilia_bids -> (confirmadas, fallidas)=(1, 0); PUTs enviados a Amazon=[{'keywords': [{'keywordId': 'KW1', 'bid': 1.5}]}]
+goal mode='off' enabled=True: modo_efectivo (lo que usa aplica_bids)='off'; reconcilia_bids -> (confirmadas, fallidas)=(1, 0); PUTs enviados a Amazon=[{'keywords': [{'keywordId': 'KW1', 'bid': 1.5}]}]
+goal mode='live' enabled=False: modo_efectivo (lo que usa aplica_bids)='shadow'; reconcilia_bids -> (confirmadas, fallidas)=(1, 0); PUTs enviados a Amazon=[{'keywords': [{'keywordId': 'KW1', 'bid': 1.5}]}]
+-- Amazon tiene 0.80 (decision posterior ya aplicada):
+goal mode='live' enabled=True: modo_efectivo (lo que usa aplica_bids)='live'; reconcilia_bids -> (confirmadas, fallidas)=(1, 0); PUTs enviados a Amazon=[{'keywords': [{'keywordId': 'KW1', 'bid': 1.5}]}]

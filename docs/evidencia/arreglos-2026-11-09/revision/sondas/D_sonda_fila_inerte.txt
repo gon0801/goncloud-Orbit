@@ -1,0 +1,4 @@
+hoy=A+10: ventana_cortes_fin=2026-10-31 (< ancla 2026-11-03) -> accion=indeterminada motivo=venta_reciente_indeterminada
+hoy=A+15: ventana_cortes_fin=2026-10-31 (< ancla 2026-11-03) -> accion=indeterminada motivo=venta_reciente_indeterminada
+hoy=A+30: ventana_cortes_fin=2026-10-31 (< ancla 2026-11-03) -> accion=indeterminada motivo=venta_reciente_indeterminada
+hoy=A+60: ventana_cortes_fin=2026-10-31 (< ancla 2026-11-03) -> accion=indeterminada motivo=venta_reciente_indeterminada

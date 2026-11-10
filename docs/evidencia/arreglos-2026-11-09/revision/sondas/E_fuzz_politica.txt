@@ -1,0 +1,8 @@
+casos=30000
+      48 regresar_sobre_20pct
+violaciones=0
+excepciones=0
+casos=30000
+      33 regresar_sobre_20pct
+violaciones=0
+excepciones=0

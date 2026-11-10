@@ -1,0 +1,7 @@
+cycle amazon_mx con fallo: exit=1 stderr="ciclo fallo (el envelope quedo sellado 'failed' cuando fue posible): server closed the connection unexpectedly (lectura de ventanas)" telegram_enviados=0
+_sello_fallido llama a notifica: False
+corre_ciclo except llama a notifica: False
+app/ads/salud.py menciona optimizer_cycle: False
+atraso con la ingesta terminada hoy a las 08:50: []
+linea documentada: 40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1 | cron-avisa: False
+linea documentada: 41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1 | cron-avisa: False

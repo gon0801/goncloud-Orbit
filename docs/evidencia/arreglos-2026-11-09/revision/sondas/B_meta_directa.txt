@@ -1,0 +1,31 @@
+== 1. Entradas extremas -> meta -> peldano de la cascada (M2, sin rampa) ==
+  margen 0.0001 %              meta=0.00005 aplicado=0.00005 -> target=0.00005 peldano=margen_producto
+  margen 0                     meta=SinDato(motivos=('margen_no_positivo',)) aplicado=None -> target=25 peldano=margen_plataforma
+  margen -5                    meta=SinDato(motivos=('margen_no_positivo',)) aplicado=None -> target=25 peldano=margen_plataforma
+  margen 150 %                 meta=45 aplicado=45 -> target=45 peldano=margen_producto
+  margen None (vista NULL)     meta=SinDato(motivos=('sin_margen',)) aplicado=None -> target=25 peldano=margen_plataforma
+  cobertura 0.90               meta=SinDato(motivos=('cobertura_baja',)) aplicado=None -> target=25 peldano=margen_plataforma
+  dias con venta 10            meta=SinDato(motivos=('ventana_corta',)) aplicado=None -> target=25 peldano=margen_plataforma
+  ledger de hace 4 dias        meta=SinDato(motivos=('ledger_rancio',)) aplicado=None -> target=25 peldano=margen_plataforma
+  venta_cubierta 0             meta=SinDato(motivos=('sin_margen',)) aplicado=None -> target=25 peldano=margen_plataforma
+  producto sin fila (SinDato)  meta=SinDato(motivos=('sin_margen',)) aplicado=None -> target=25 peldano=margen_plataforma
+
+== 2. Bajada directa vs rampa: previo 25 %, meta nueva 4 % ==
+  auto03               aplicado=24.5
+  producto_directo_v1  aplicado=4.0
+
+== 3. Ledger sin refrescar 4 dias: el producto (meta 4 %) pierde elegibilidad ==
+  motivos de la evaluacion: ('ledger_rancio',)
+  plataforma: aplicado=25.5 motivo=ledger_rancio (margen_neto_pct al caso = None)
+  auto03               peldano producto=4.5 -> target de la hoja=4.5 (margen_producto)
+  producto_directo_v1  peldano producto=None -> target de la hoja=25.5 (margen_plataforma)
+
+== 4. Misma keyword vendedora (ACoS 10 %), veredicto segun el target que gane ==
+  M2 elegible (target 4, equilibrio 8):        Mover(factor=Decimal('-0.25'), bid_nuevo=Decimal('1.5000'), motivo='pierde_dinero_fuerte', nivel='hoja')
+  M2 ledger rancio (target 25.5, equilibrio -): Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('2.3000'), motivo='bajo_target', nivel='hoja')
+  AUTO-03 ledger rancio (target 4.5, eq. -):   Mover(factor=Decimal('-0.12'), bid_nuevo=Decimal('1.7600'), motivo='grupo_sangra_vendedora', nivel='ad_group')
+
+== 5. Topes despues de la meta directa (target 0.00005 %) ==
+  bid 2.00, piso 1.00: Mover(factor=Decimal('-0.25'), bid_nuevo=Decimal('1.5000'), motivo='pierde_dinero_fuerte', nivel='hoja')
+  bid 1.20, piso 1.00: Mover(factor=Decimal('-0.25'), bid_nuevo=Decimal('1.00'), motivo='pierde_dinero_fuerte', nivel='hoja')
+  bid 1.00 (en piso):  Mantener(motivo='delta_bajo_umbral')

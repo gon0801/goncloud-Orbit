@@ -1,0 +1,17 @@
+== 1. Persistencia del freno de subida (sin otros eventos) ==
+  D=x+ 16: episodio estado=inmaduro aplicable=True -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+  D=x+ 17: episodio estado=maduro aplicable=True -> Mantener(motivo='subida_sin_economia')
+  D=x+ 30: episodio estado=maduro aplicable=True -> Mantener(motivo='subida_sin_economia')
+  D=x+ 60: episodio estado=maduro aplicable=True -> Mantener(motivo='subida_sin_economia')
+  D=x+ 90: episodio estado=maduro aplicable=True -> Mantener(motivo='subida_sin_economia')
+  D=x+ 91: sin cambios en 90 dias -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+
+== 2. Cambio previo dentro de [x-7, x-1] que sale de la ventana de 90 dias ==
+  D=x+60: cambios visibles=['2026-07-29', '2026-08-01'] estado=incomparable motivo=cambio_en_ventana pre=2026-07-25..2026-07-31 -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+  D=x+86: cambios visibles=['2026-07-29', '2026-08-01'] estado=incomparable motivo=cambio_en_ventana pre=2026-07-25..2026-07-31 -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+  D=x+87: cambios visibles=['2026-07-29', '2026-08-01'] estado=incomparable motivo=cambio_en_ventana pre=2026-07-25..2026-07-31 -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+  D=x+88: cambios visibles=['2026-08-01'] estado=maduro motivo=None pre=2026-07-25..2026-07-31 -> Mantener(motivo='subida_sin_economia')
+
+== 3. Ajuste de campana posterior al cambio real ==
+  fecha_cambio=2026-08-01 pre=2026-07-30..2026-08-05 post=2026-08-07..2026-08-13
+  estado=incomparable aplicable=False motivo_aplicabilidad=cambio_posterior -> Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')

@@ -1,0 +1,5 @@
+costo 1.50 (100x bajo), perdiendo            -> bajar             None                   P=500 P*=116.29 aplicado=450.00
+costo 15000 (100x alto)                      -> goal_inalcanzable precio_mayor_al_doble  P=500 P*=None aplicado=None
+goal 0.60, referral 0.30                     -> goal_inalcanzable precio_mayor_al_doble  P=500 P*=None aplicado=None
+P actual 0.50 MXN                            -> mantener          sobre_goal_sin_perdida P=0.50 P*=None aplicado=None
+costo 0.01, fijo 0, perdiendo                -> goal_inalcanzable fee_no_lineal          P=500 P*=None aplicado=None

@@ -1,0 +1,34 @@
+commit 7cf7c9ab19e3b37db1a171dbcc8a1afe1294a419
+Author: gon <112044144+gon0801@users.noreply.github.com>
+Date:   Sun Nov 8 10:52:40 2026 -0700
+
+    feat: ORBIT 07, ventas recientes y decisiones economicas del motor (#547)
+    
+    Integra M1, M2, M4 y M5/M6 sobre AUTO-03; M3 conserva la implementacion heredada. Incluye migracion 0081, instalacion y comandos de activacion/reversa que preservan modos y limites de pausa.
+    
+    Implementacion por DeepSeek Flash con API directa; revision independiente de Opus PASS sobre c247eca1a6750200dde98de5ecdc53112f163493. Quality: 5884 passed sobre PostgreSQL 16; gitleaks y pre-commit verdes.
+
+diff --git a/app/api_dashboard.py b/app/api_dashboard.py
+index aa381c6..fe3bdad 100644
+--- a/app/api_dashboard.py
++++ b/app/api_dashboard.py
+@@ -239,6 +239,9 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
+     politica.MOTIVO_GASTO_SIN_VENTA: "Gasto sin venta al concluir: -12%",
+     politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: "Gasto sin venta al doble de concluir: -25%",
+     politica.MOTIVO_GRUPO_SANGRA: "El grupo sangra y la hoja no vende: -12%",
++    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
++        "Subida frenada: el trafico adicional no compenso el gasto"
++    ),
+ }
+ 
+ # ---------------------------------------------------------------------------
+@@ -298,6 +301,9 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
+     politica.MOTIVO_SIN_CLICS_NUEVOS: "Sin clics nuevos al bid vigente: sin ajuste",
+     politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Recorte frenado por costo de trafico",
+     politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida frenada: sin trafico para medirla",
++    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
++        "Subida frenada: el trafico adicional no compenso el gasto"
++    ),
+     politica.MOTIVO_PISO_APRENDIDO: "El recorte tocaria un bid que ya dano: sin ajuste",
+     politica.MOTIVO_DATO_FALTANTE: "Dato faltante: sin ajuste",
+     politica.MOTIVO_SIN_PRECIO: "Sin precio medido: sin ajuste",

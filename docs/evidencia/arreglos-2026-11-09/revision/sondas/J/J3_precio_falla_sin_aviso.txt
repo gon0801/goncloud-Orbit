@@ -1,0 +1,4 @@
+precio meli con fallo a media corrida: exit=1 stderr='precio: precio_decision: product_id 375 no es miembro del listing 1556' avisar_precio_llamado=0 telegram_enviados=0
+linea documentada MeLi: 10 13 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli >>  | cron-avisa: False
+linea documentada MeLi: 10 15-23/2 * * * /usr/bin/flock -n /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform mel | cron-avisa: False
+precedente 25-oct: Corridas MeLi observadas: seis abortadas el 22/10, seis el 23, seis el 24; dos abortadas hoy (13:10/15:10 UTC) y una abierta de 17:10 UTC, sin proceso de precio encontrado en el contenedor al consultar. La consulta demuestra corridas fallidas desde al menos el

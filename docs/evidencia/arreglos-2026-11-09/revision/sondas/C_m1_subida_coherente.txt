@@ -1,0 +1,6 @@
+== M1 con datos coherentes, hoja sin cambios en 90 dias ==
+  con M1 (venta reciente protege): Mantener(motivo='dato_faltante')
+  sin M1 (semantica previa)      : Pausar(motivo='pause_umbral')
+  con grupo/cuenta coherentes:
+    con M1 (venta reciente protege): Mover(factor=Decimal('0.15'), bid_nuevo=Decimal('1.1500'), motivo='bajo_target', nivel='hoja')
+    sin M1 (semantica previa)      : Pausar(motivo='pause_umbral')

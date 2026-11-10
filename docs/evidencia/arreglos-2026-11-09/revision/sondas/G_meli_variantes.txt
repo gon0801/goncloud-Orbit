@@ -1,0 +1,6 @@
+unidad de aplicar: (Miembro(product_id=55, seller_sku='SKU-A', variante=None),)
+sin variaciones -> PUTs: [('MLM123', [], Decimal('550.00'))]
+con variaciones (unidad de aplicar) -> ValueError: variaciones vivas sin mapear (MLM123): 111,222; sin PUT
+PUTs: []
+con variaciones (unidad con miembros) -> PUTs: [('MLM123', ['111', '222'], Decimal('550.00'))]
+tras 5 items con variaciones seguidos: corte.abierto = True
