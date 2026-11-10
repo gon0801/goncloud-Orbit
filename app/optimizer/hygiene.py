@@ -5,8 +5,10 @@ Decide NEGATIVE_EXACT y HARVEST sobre los terminos YA COLAPSADOS de
 hay conn ni now() escondido; psycopg solo aparece como anotacion). El
 orquestador (3.1) obtiene terminos_cortes, resuelve el goal (la config de
 harvest llega como ConfigHarvest, task 2.4) y llama decide_hygiene por
-entidad; la persistencia (`decision`) es de 3.1, no de aqui. La UNICA IO
-del modulo es keywords_campana_destino (LECTURA) para el dedupe del harvest.
+entidad; la persistencia (`decision`) es de 3.1, no de aqui. Las UNICAS IO
+del modulo son keywords_campana_destino (LECTURA, dedupe del harvest) y
+keywords_exactas_por_grupo (LECTURA, keywords propias del ad group de
+origen para E-S1).
 
 Reglas selladas (plans/orbit-03.md task 2.3 + diseno v2; el diseno manda):
 
@@ -111,6 +113,7 @@ ventana (misma semantica que ResultadoBid: nada decidio, nada congela).
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -153,6 +156,11 @@ MOTIVO_HARVEST_SIN_CONFIG = "harvest_sin_config"
 MOTIVO_HARVEST_DUPLICADO = "harvest_duplicado"
 MOTIVO_HARVEST_MONEDA_INCOHERENTE = "harvest_moneda_incoherente"
 MOTIVO_MONEDA_INCOHERENTE = "moneda_incoherente"
+# ARREGLOS 01 B (E-S1, ALTO): el termino es una keyword EXACT del MISMO ad
+# group de origen. Un negative EXACT a nivel ad group apaga esa keyword; el
+# harvest crea justo ese negative en el origen. El salto va antes de separar
+# negative y harvest (decision del dueno Q5).
+MOTIVO_KEYWORD_PROPIA = "termino_es_keyword_propia"
 
 # FABRICA 02 (A.1): motivos del resolutor de destino
 # (`app/optimizer/harvest_destino.py`). Viven aqui porque este modulo es el
@@ -257,6 +265,7 @@ def decide_hygiene(
     target_acos_pct: Decimal,
     config_harvest: ConfigHarvest | None,
     keywords_existentes: frozenset[str],
+    keywords_propias: frozenset[str],
     umbral_negative: int = LEGACY_NEGATIVE,
     piso_negative: Decimal | None = None,
 ) -> tuple[ResultadoTermino, ...]:
@@ -289,6 +298,10 @@ def decide_hygiene(
     umbral_cost = piso_negative if piso_negative is not None else NEGATIVE_COST_MIN[platform]
     tope_pct = min(HARVEST_ACOS_TOPE_FIJO_PCT, target_acos_pct)
     keywords_norm = frozenset(_normaliza_texto(k) for k in keywords_existentes)
+    # Keywords EXACT del MISMO ad group de origen (E-S1): un negative de ese
+    # texto apaga la keyword propia. La comparacion es normalizada (strip +
+    # casefold), igual que el dedupe del harvest.
+    propias_norm = frozenset(_normaliza_texto(k) for k in keywords_propias)
 
     if not terminos.completa:
         # Unidad de completitud sellada: la ENTIDAD. Cortar/pausar exige
@@ -301,6 +314,12 @@ def decide_hygiene(
         # (2) ASIN-like: SIEMPRE skip, ambos kinds (decision sellada del lead)
         if t.is_asin_like:
             resultados.append(_skip(t.search_term, MOTIVO_ASIN_LIKE))
+            continue
+        # (2b) keyword EXACT PROPIA del ad group de origen: skip antes de
+        # separar negative y harvest (E-S1). El negative la apagaria y el
+        # harvest crearia ese negative en el origen.
+        if _normaliza_texto(t.search_term) in propias_norm:
+            resultados.append(_skip(t.search_term, MOTIVO_KEYWORD_PROPIA))
             continue
         # (3) orders None es DESCONOCIDO, no 0: jamas un corte por dato faltante
         if t.orders is None:
@@ -424,3 +443,40 @@ def keywords_campana_destino(
         )
     filas = conn.execute(_SQL_KEYWORDS_CAMPANA, (platform, harvest_campaign_id)).fetchall()
     return frozenset(fila[0] for fila in filas)
+
+
+# ARREGLOS 01 B (E-S1): keywords EXACT por ad group de ORIGEN, UNA consulta
+# para todos los ad groups de la plataforma. La igualdad de plataforma va en
+# TODA la cadena (misma defensa ante datos degenerados que el dedupe del
+# harvest). El filtro por grupo es opcional para la revalidacion de la cola.
+_SQL_EXACTAS_POR_GRUPO = """
+SELECT k.parent_id, k.keyword_text
+  FROM ad_entity k
+  JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
+                     AND ag.platform = k.platform
+ WHERE k.kind = 'keyword' AND k.match_type = 'EXACT'
+   AND k.platform = %s::platform
+   {filtro_grupo}
+"""
+
+
+def keywords_exactas_por_grupo(
+    conn: psycopg.Connection, platform: str, *, solo_grupo: int | None = None
+) -> Mapping[int, frozenset[str]]:
+    """Textos EXACT por ad group (LECTURA) del ORIGEN de la decision.
+
+    Igual que `keywords_campana_destino`, no mira el estado a proposito: una
+    keyword PAUSED o ARCHIVED que el dueno reactive no debe encontrarse ya
+    negada. Un ad group sin keywords no aparece en el resultado (regla 3).
+    `solo_grupo` acota la consulta a un ad group (revalidacion de la cola)."""
+    if platform not in PLATAFORMAS_MONEDA:
+        raise ValueError(
+            f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
+        )
+    filtro = "AND k.parent_id = %s" if solo_grupo is not None else ""
+    sql = _SQL_EXACTAS_POR_GRUPO.format(filtro_grupo=filtro)
+    params: tuple = (platform,) if solo_grupo is None else (platform, solo_grupo)
+    por_grupo: dict[int, set[str]] = {}
+    for grupo_id, texto in conn.execute(sql, params).fetchall():
+        por_grupo.setdefault(grupo_id, set()).add(texto)
+    return {grupo_id: frozenset(textos) for grupo_id, textos in por_grupo.items()}
