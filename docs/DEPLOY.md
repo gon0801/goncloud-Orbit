@@ -1049,18 +1049,17 @@ spapi:diario` después de re-aplicarlo), y que el wrapper sea ejecutable
 y su log exista tras la primera corrida. Instalar es A.6 (dueño), no
 esta tarea.
 
-### Vigilante SP-API 07:30 (aviso del silencio)
+### Vigilante SP-API 07:30 (aviso del silencio o la falla)
 
-Si una ingesta **falla**, ella misma sella su `ingest_run` y `salud.py`
-avisa. Pero si el cron **no dispara** (crontab pisado, `flock` atorado,
-reinicio en la ventana), no hay fila que fallar y nadie se entera. El
-vigilante (`app/spapi/vigilante.py`, solo lectura con `ORBIT_DSN_READ`)
-convierte el silencio en aviso: a las 07:30 UTC revisa la ventana
-04:30–07:30 de `ingest_run` y, si faltan corridas, manda UN Telegram
-con los pares ausentes. En verde es silencioso (no envía nada); si no
-puede leer, manda el aviso ciego. No verifica el contenido de las
-corridas (eso es `salud.py`): una corrida presente, aunque sea
-`ok = false` o `rows_written = 0`, no es silencio.
+Si una ingesta **falla**, ella misma sella su `ingest_run`, pero `salud.py`
+avisa a la segunda falla seguida (salvo `lwa_fallido` y `http_429`, que
+avisan de inmediato). Si el cron **no dispara** (crontab pisado, `flock`
+atorado, reinicio en la ventana), no hay fila que fallar. El vigilante
+(`app/spapi/vigilante.py`, solo lectura con `ORBIT_DSN_READ`) avisa de
+ambos casos: a las 07:30 UTC revisa la ventana 04:30–07:30 de `ingest_run`
+y, si falta una corrida ok, manda UN Telegram con los pares afectados. En
+verde es silencioso (no envía nada); si no puede leer, manda el aviso
+ciego. `rows_written = 0` sigue contando como corrida ok.
 
 **Límite conocido: contenedor caído no avisa.** El vigilante corre
 dentro de `orbit-app-1` vía `docker exec`: si el contenedor no está
