@@ -33,6 +33,8 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 - [Campanas](./campanas.md) — tabla 30d, target efectivo/procedencia, filtros GET y sort por headers.
 - [Decisiones](./decisiones.md) — pagina numerada de entidades que decidieron.
 - [Salud](./salud.md) — ultimo ciclo, los 14 ciclos anteriores, lo que se saltó y cambios permitidos hoy.
+
+Todas las pantallas cargan `app/static/js/formato.js` antes que sus scripts: `base.html` emite el registro de `app/etiquetas.py` en `script#orbit-etiquetas[type=application/json]` y los scripts traducen y dan formato con `Orbit.etiqueta`, `Orbit.dinero`, `Orbit.numero`, `Orbit.pct` y `Orbit.fechaHora` (CLARIDAD 01 I.1), igual que los filtros de las plantillas.
 - [Contribucion](./contribucion.md) — rango pre-cargos por campana (90d maduros).
 - [Propuestas](./cortes.md) — cola de decisiones pendientes (lectura). El POST Rechazar queda fuera del baseline.
 - [Inertes](./inertes.md) — keywords y productos sin visitas 14d (lectura). La semilla baseline llega vacia.

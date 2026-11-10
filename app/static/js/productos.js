@@ -109,20 +109,22 @@ function pintaVista(zona, vista) {
     div.appendChild(
       parrafo(
         "Tope " +
-          plan.tope.monto +
+          Orbit.dinero(plan.tope.monto) +
           " " +
           plan.tope.moneda +
           " · " +
-          plan.tope.presupuesto_diario +
+          Orbit.dinero(plan.tope.presupuesto_diario) +
           " al día · " +
-          plan.keywords_exact.length +
+          Orbit.numero(plan.keywords_exact.length) +
           " keywords · " +
-          plan.negatives.length +
-          " negatives"
+          Orbit.numero(plan.negatives.length) +
+          " negativos"
       )
     );
     if (plan.bids_acotados && plan.bids_acotados.length) {
-      div.appendChild(parrafo("Bids acotados: " + plan.bids_acotados.join(", ")));
+      div.appendChild(parrafo("Pujas acotadas al tope: " + plan.bids_acotados.map(function (rol) {
+        return Orbit.etiqueta(rol, "rol_campana");
+      }).join(", ")));
     }
     var sinSugerencia = plan.bid_por_rol
       ? Object.keys(plan.bid_por_rol).filter(function (rol) {
@@ -131,7 +133,10 @@ function pintaVista(zona, vista) {
       : [];
     if (sinSugerencia.length) {
       div.appendChild(
-        parrafo("Sin sugerencia (salen al diario de su campana): " + sinSugerencia.join(", "))
+        parrafo(
+          "Sin sugerencia de Amazon (usan el presupuesto diario de su campaña): " +
+            sinSugerencia.map(function (rol) { return Orbit.etiqueta(rol, "rol_campana"); }).join(", ")
+        )
       );
     }
     if (plan.retiros && plan.retiros.length) {
@@ -244,27 +249,6 @@ function lanzar(form) {
     });
 }
 
-var ETIQUETA_RETIRO = {
-  retirado: "retirado",
-  adoptado: "ya estaba pausado: queda adoptado",
-  ya_retirado: "ya estaba retirado",
-  cerrado: "archivado o inexistente en Amazon",
-  pendiente: "sin confirmar: se reintenta",
-  rechazado: "Amazon lo rechazó",
-  no_existe: "no existe en Amazon",
-  archivado: "archivado en Amazon",
-};
-
-var ETIQUETA_REGRESO = {
-  repuesto: "regresado",
-  recreado: "recreado",
-  ya_repuesto: "ya estaba regresado",
-  adoptado_sin_reposicion: "adoptado: Orbit lo encontró ya pausado",
-  requiere_recreacion: "archivado en Amazon: regresar no lo recrea",
-  no_requiere_recreacion: "no está archivado: usa regresar",
-  fallo: "no se pudo",
-};
-
 function postJson(url, token, cuerpo) {
   return fetch(url, {
     method: "POST",
@@ -289,11 +273,11 @@ function zonaResultado(form) {
 
 // Una linea por anuncio que no quedo como se pidio (los que si, solo
 // cuentan en el n de "n de m").
-function pintaAnuncios(zona, anuncios, etiquetas, bien) {
+function pintaAnuncios(zona, anuncios, dominio, bien) {
   zona.replaceChildren();
   anuncios.forEach(function (a) {
     if (bien.indexOf(a.resultado) !== -1) return;
-    var texto = a.ad_id_externo + " · " + (etiquetas[a.resultado] || a.resultado);
+    var texto = a.ad_id_externo + " · " + Orbit.etiqueta(a.resultado, dominio);
     zona.appendChild(parrafo(a.detalle ? texto + " (" + a.detalle + ")" : texto));
   });
 }
@@ -346,7 +330,7 @@ function regresar(form, ids, confirmacion, incluyeAdoptados, estado, zona) {
         return;
       }
       estado.textContent = "Regresados " + r.data.repuestos + " de " + r.data.total + ".";
-      pintaAnuncios(zona, r.data.anuncios || [], ETIQUETA_REGRESO, ["repuesto", "ya_repuesto"]);
+      pintaAnuncios(zona, r.data.anuncios || [], "resultado_regreso", ["repuesto", "ya_repuesto"]);
       var adoptados = r.data.adoptados || [];
       var archivados = r.data.requieren_recreacion || [];
       if (adoptados.length) {
@@ -384,7 +368,7 @@ function recrear(form, ids, confirmacion, estado) {
       });
       var texto = "Recreados " + r.data.recreados + " de " + r.data.total + ".";
       fallidos.forEach(function (a) {
-        texto += " " + a.ad_id_externo + ": " + (ETIQUETA_REGRESO[a.resultado] || a.resultado);
+        texto += " " + a.ad_id_externo + ": " + Orbit.etiqueta(a.resultado, "resultado_regreso");
         texto += a.detalle ? " (" + a.detalle + ")." : ".";
       });
       estado.textContent = texto;
@@ -531,7 +515,7 @@ function ejecutarRetiro(form) {
       retiroGuardado = null;
       form.elements.token.value = "";
       estado.textContent = "Retirados " + r.data.retirados + " de " + r.data.total + ".";
-      pintaAnuncios(zonaResultado(form), r.data.anuncios || [], ETIQUETA_RETIRO, ["retirado"]);
+      pintaAnuncios(zonaResultado(form), r.data.anuncios || [], "resultado_retiro", ["retirado"]);
     })
     .catch(function () {
       estado.textContent = "Error de red al ejecutar el retiro.";
@@ -549,19 +533,8 @@ function filtraDecisiones(valor) {
   });
 }
 
-// Texto de un Decimal del servidor sin pasar por float: recorta ceros de
-// sobra a dos decimales ("600.0000" -> "600.00") y deja intacto lo demas.
-function decimalTexto(texto) {
-  var s = String(texto);
-  var m = s.match(/^(-?\d+)(?:\.(\d*))?$/);
-  if (!m) return s;
-  var dec = m[2] || "";
-  if (!/^0*$/.test(dec.slice(2))) return s;
-  return m[1] + "." + (dec + "00").slice(0, 2);
-}
-
 function dineroTexto(d) {
-  return decimalTexto(d.valor) + " " + d.moneda;
+  return Orbit.dinero(d.valor) + " " + d.moneda;
 }
 
 function cuentaProductos(n) {
@@ -598,15 +571,15 @@ function tablaSimulacion(sim) {
     fila.dataset.simulado = String(x.producto.product_id);
     fila.appendChild(nodo("td", nombreProducto(x.producto.product_id)));
     fila.appendChild(nodo("td", dineroTexto(x.gasto)));
-    fila.appendChild(nodo("td", String(x.clics)));
-    fila.appendChild(nodo("td", String(x.anuncios)));
+    fila.appendChild(nodo("td", Orbit.numero(x.clics)));
+    fila.appendChild(nodo("td", Orbit.numero(x.anuncios)));
     cuerpo.appendChild(fila);
   });
   var total = nodo("tr");
   total.appendChild(nodo("th", "Total"));
   total.appendChild(nodo("td", dineroTexto(sim.gasto_total)));
   total.appendChild(nodo("td", ""));
-  total.appendChild(nodo("td", String(sim.anuncios_total)));
+  total.appendChild(nodo("td", Orbit.numero(sim.anuncios_total)));
   tabla.appendChild(nodo("tfoot")).appendChild(total);
   envoltura.appendChild(tabla);
   return envoltura;
@@ -625,7 +598,9 @@ function cajaCosto(titulo, dato, marca, sim) {
         ? "Sin historia: el reporte de productos empieza el " + sim.primer_dato +
           ", después del " + sim.ventana_anterior.desde + "."
         : "Sin historia: todavía no hay datos del reporte de productos."
-      : "Sin dato: " + (dato.motivos || []).join(", ") + ".";
+      : "Sin dato: " + (dato.motivos || []).map(function (m) {
+        return Orbit.etiqueta(m, "motivo_producto");
+      }).join(", ") + ".";
     caja.appendChild(nodo("p", porque, "kpi-contexto"));
   } else {
     caja.appendChild(nodo("p", dineroTexto(dato), "kpi-valor"));
@@ -644,7 +619,7 @@ function pintaSimulacion(zona, sim) {
   var lim = sim.limites;
   zona.appendChild(
     parrafo(
-      "Con " + lim.clics_min + " clics y " + dineroTexto(lim.gasto_min) +
+      "Con " + Orbit.numero(lim.clics_min) + " clics y " + dineroTexto(lim.gasto_min) +
         " como mínimos, en la ventana " + ventanaTexto(sim.ventana) + " se pausaría:"
     )
   );
@@ -660,7 +635,7 @@ function pintaSimulacion(zona, sim) {
       "p",
       cuentaProductos(sim.sin_cobertura_d7) + (sim.sin_cobertura_d7 === 1 ? " no se puede" : " no se pueden") +
         " juzgar: alguna fecha de la ventana no " +
-        "tiene fila ni cobertura demostrada del reporte (D.7). No es cero: falta el dato.",
+        "tiene fila ni cobertura demostrada del reporte. No es cero: falta el dato.",
       "aviso"
     );
     cobertura.dataset.sinCobertura = String(sim.sin_cobertura_d7);
@@ -839,7 +814,7 @@ function resumenEncender(sim) {
   var lim = sim.limites;
   var partes = [
     parrafo(
-      "Con tus límites guardados (" + lim.clics_min + " clics y " + dineroTexto(lim.gasto_min) +
+      "Con tus límites guardados (" + Orbit.numero(lim.clics_min) + " clics y " + dineroTexto(lim.gasto_min) +
         "), Orbit pausaría " + cuentaAnuncios(sim.anuncios_total) + " de " +
         cuentaProductos(sim.productos.length) + ", que gastaron " + dineroTexto(sim.gasto_total) +
         " en la ventana " + ventanaTexto(sim.ventana) + "."
@@ -850,7 +825,7 @@ function resumenEncender(sim) {
     var cobertura = nodo(
       "p",
       cuentaProductos(sim.sin_cobertura_d7) + (sim.sin_cobertura_d7 === 1 ? " no se puede" : " no se pueden") +
-        " juzgar todavía: falta cobertura del reporte (D.7). No se pausan hasta tener el dato.",
+        " juzgar todavía: falta cobertura del reporte. No se pausan hasta tener el dato.",
       "aviso"
     );
     cobertura.dataset.sinCobertura = String(sim.sin_cobertura_d7);

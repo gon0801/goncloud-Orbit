@@ -31,6 +31,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from typing import Literal
 
 from app.api_common import _parse_notes
+from app.etiqueta_entidad import SQL_NOMBRES, EtiquetaEntidad, etiqueta_entidad
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.caso import POLITICA_BID, CasoHoja
 
@@ -52,7 +53,7 @@ _SQL_CICLOS = """
 SELECT c.id, c.started_at, c.notes
   FROM optimizer_cycle c
  WHERE c.id = ANY(%s)
- ORDER BY c.id
+ ORDER BY c.id DESC
 """
 
 _SQL_CICLOS_MOTOR = """
@@ -97,7 +98,7 @@ class PantallaRuido:
 
     plataforma: Plataforma
     ciclos: tuple[dict, ...]  # por ciclo: decisiones por motivo y nivel, abstenciones por motivo
-    encogimiento: tuple[dict, ...]  # por hoja: bid de hoy entre el bid mas antiguo de 90 dias
+    encogimiento: tuple[dict, ...]  # por hoja: nombre y bid de hoy entre el mas antiguo de 90 dias
     antes_y_despues: dict | None  # gasto, pedidos, venta y ACoS antes/desde el encendido
 
     def como_dict(self) -> dict:
@@ -229,6 +230,29 @@ def _encogimiento(filas, moneda: Moneda) -> tuple[dict, ...]:
     )
 
 
+def _con_nombres(conn, encogimiento: tuple[dict, ...]) -> tuple[dict, ...]:
+    """Cada hoja con su texto y su campana (etiqueta_entidad, como Keywords
+    danadas); None si la hoja ya no esta en ad_entity o no trae texto."""
+    if not encogimiento:
+        return encogimiento
+    filas = conn.execute(SQL_NOMBRES, ([h["hoja_id"] for h in encogimiento],)).fetchall()
+    etiquetas = {
+        _celda(f, 0, "id"): etiqueta_entidad(
+            kind=_celda(f, 1, "kind"),
+            name=_celda(f, 2, "name"),
+            keyword_text=_celda(f, 3, "keyword_text"),
+            campana=_celda(f, 4, "campana"),
+        )
+        for f in filas
+    }
+    sin_nombre = EtiquetaEntidad(hoja=None, campana=None)
+    con_nombre = []
+    for h in encogimiento:
+        e = etiquetas.get(h["hoja_id"], sin_nombre)
+        con_nombre.append({"hoja_id": h["hoja_id"], "nombre": e.hoja, "campana": e.campana, **h})
+    return tuple(con_nombre)
+
+
 def _suma(valores) -> Decimal | int | None:
     medidos = [v for v in valores if v is not None]
     if not medidos:
@@ -297,5 +321,5 @@ def lee_ruido(conn, *, plataforma: Plataforma, dias: int = 30) -> PantallaRuido:
         for fila in filas_ciclos
     )
     filas_cambios = conn.execute(_SQL_CAMBIOS, (plataforma, DIAS_ENCOGIMIENTO)).fetchall()
-    encogimiento = _encogimiento(filas_cambios, PLATAFORMAS_MONEDA[plataforma])
+    encogimiento = _con_nombres(conn, _encogimiento(filas_cambios, PLATAFORMAS_MONEDA[plataforma]))
     return PantallaRuido(plataforma, ciclos, encogimiento, _comparacion(conn, plataforma, dias))

@@ -215,7 +215,11 @@ def test_pagina_escapa_texto_externo():
         # estatico /static, permitido por default-src 'self').
         import re
 
-        inlines = [s for s in re.findall(r"<script[^>]*>", html) if "src=" not in s]
+        inlines = [
+            s
+            for s in re.findall(r"<script[^>]*>", html)
+            if "src=" not in s and 'type="application/json"' not in s
+        ]
         assert inlines == []
 
 
@@ -506,5 +510,9 @@ def test_plantilla_reputacion_render_sin_db():
     assert "hace 4 h" in html and "Responder en MeLi</span>" in html
     assert "No hay reviews de Amazon en esta versi" in html
     assert 'href="http' not in html
-    inlines = [s for s in re.findall(r"<script[^>]*>", html) if "src=" not in s]
+    inlines = [
+        s
+        for s in re.findall(r"<script[^>]*>", html)
+        if "src=" not in s and 'type="application/json"' not in s
+    ]
     assert inlines == []

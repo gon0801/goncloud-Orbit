@@ -5,65 +5,13 @@ document.addEventListener("DOMContentLoaded", function () {
   const formulario = porId("plan");
   if (!formulario) return;
   const roles = ["category_exact", "category_phrase", "category_broad", "product_targeting", "auto_discovery"];
-  const etiquetas = {
-    category_exact: "Categoría · exacta", category_phrase: "Categoría · frase",
-    category_broad: "Categoría · amplia", product_targeting: "Segmentación por producto",
-    auto_discovery: "Descubrimiento automático",
-  };
   const confirmaciones = {
     pausar: "PAUSAR GRUPO", reconciliar: "RECONCILIAR GRUPO", registrar: "REGISTRAR GRUPO",
   };
-  const estadosLote = {
-    applied: "Creado y registrado", desarmado: "Pausado", failed: "Interrumpido",
-    planeado: "Pendiente de verificación",
-  };
-  const estadosPaso = {applied: "Verificado", failed: "Falló", planeado: "Pendiente"};
   // Comparador (ORBIT 19 B.5): SOLO presenta lo que devuelve /evaluacion.
   // El orden lo resuelve la API (null al final); el filtro es de presentacion
   // y jamas toca la seleccion del catalogo (AC10). Cero escrituras.
-  const etiquetasAds = {
-    gasto_sin_ventas: "Gasto sin ventas",
-    dentro_del_objetivo: "Dentro del objetivo",
-    por_encima_del_objetivo: "Por encima del objetivo",
-  };
-  const estadosDisponibilidad = {
-    positivo: "Con stock", cero: "Stock en 0", desconocido: "Desconocido",
-  };
-  const estadosEstimacion = {
-    incompleta: "Incompleta",
-    desactualizada: "Desactualizada",
-    identidad_ambigua: "Identidad ambigua",
-  };
-  const motivosEstimacion = {
-    escenario_ausente: "Sin escenario guardado para esta publicación",
-    oferta_ausente: "Falta la oferta de publicación",
-    oferta_desactualizada: "La oferta de publicación ya no está vigente",
-    oferta_futura: "La oferta de publicación es posterior al corte",
-    valoracion_desactualizada: "La fecha de valoración no coincide con el corte",
-    identidad_ambigua: "Hay más de una oferta compatible",
-    precio_ausente: "Falta el precio de publicación",
-    precio_invalido: "El precio de publicación no es válido",
-    costo_ausente: "Falta el costo del producto",
-    costo_invalido: "El costo del producto no es válido",
-    costo_desactualizado: "El costo no corresponde a la corrida del día",
-    costo_no_vigente: "El costo no está vigente en la fecha de valoración",
-    costo_impuesto_incompatible: "El costo incluye impuesto incompatible",
-    costo_base_fiscal_ausente: "Falta la base fiscal del costo",
-    fee_ausente: "Falta la cotización de comisiones",
-    fee_incompatible: "La cotización de comisiones no concilia",
-    fee_invalido: "La cotización de comisiones no es válida",
-    impuesto_fee_pendiente: "La cotización trae impuesto pendiente de política",
-    fx_ausente: "Falta el tipo de cambio",
-    fx_direccion_invalida: "El tipo de cambio no apunta a la moneda de venta",
-    fx_tasa_invalida: "La tasa de cambio no es válida",
-    politica_ausente: "Falta la política de cálculo",
-    politica_no_vigente: "La política de cálculo no está vigente",
-    politica_ambigua: "Hay más de una política aplicable",
-    politica_invalida: "La política de cálculo no es válida",
-    logistica_fbm_pendiente: "Falta la logística prospectiva FBM",
-    us_sin_politica_prospectiva: "Amazon US aún no tiene política prospectiva",
-    universo_no_soportado: "El canal o mercado no está en el universo liberado",
-  };
+  const nombreRol = codigo => Orbit.etiqueta(codigo, "rol_campana");
   let revision = 0;
   let versionCatalogo = 0;
   let versionHistorial = 0;
@@ -146,12 +94,12 @@ document.addEventListener("DOMContentLoaded", function () {
       conClase("span", "fabrica-catalogo-total", "· " + resumenCatalogo.totalProductos + " productos en el catálogo"));
   }
 
-  function valor(dato) { return dato === null || dato === undefined ? "Sin dato" : String(dato); }
-  function porcentaje(dato) {
-    if (dato === null || dato === undefined) return "Sin dato";
-    // Solo presentacion de porcentajes; el dinero conserva su string original.
-    return new Intl.NumberFormat("es-MX", {maximumFractionDigits: 2}).format(Number(dato)) + " %";
-  }
+  const ausente = dato => dato === null || dato === undefined;
+  function valor(dato) { return ausente(dato) ? "Sin dato" : String(dato); }
+  function porcentaje(dato) { return ausente(dato) ? "Sin dato" : Orbit.pct(dato); }
+  function fechaHora(dato) { return ausente(dato) ? "Sin dato" : Orbit.fechaHora(dato); }
+  // Fraccion (1 = todo) como porcentaje.
+  function fraccion(dato) { return ausente(dato) ? "Sin dato" : Orbit.pct(Number(dato) * 100); }
 
   function estado(nombre, mensaje, error = false) {
     const elemento = porId(nombre);
@@ -214,7 +162,7 @@ document.addEventListener("DOMContentLoaded", function () {
       centavos += BigInt(entero) * 100n + BigInt(fraccion.padEnd(2, "0"));
     }
     salida.textContent = moneda === "—" ? "Moneda sin consultar"
-      : (centavos / 100n) + "." + String(centavos % 100n).padStart(2, "0") + " " + moneda;
+      : dinero((centavos / 100n) + "." + String(centavos % 100n).padStart(2, "0"), moneda);
   }
 
   function invalidar(conservarSugerencias = false) {
@@ -290,8 +238,26 @@ document.addEventListener("DOMContentLoaded", function () {
     const hasta = publicacion.ventana_hasta;
     if (dias === null || dias === undefined || !desde || !hasta) return "Muestra de margen: sin dato.";
     const limitada = Number(dias) < 30;
-    return (limitada ? "Muestra limitada: " : "Muestra de margen: ") + dias
-      + " dias con venta, ventana [" + desde + ", " + hasta + ").";
+    return (limitada ? "Muestra limitada: " : "Muestra de margen: ") + Orbit.numero(dias)
+      + " días con venta, del " + desde + " hasta antes del " + hasta + ".";
+  }
+
+  function exclusiones(codigos) {
+    return codigos.map(codigo => Orbit.etiqueta(codigo, "exclusion_estimacion")).join(", ");
+  }
+
+  // La procedencia la arma app/fabrica_plan.py con el calculo crudo
+  // («margen_minimo_grupo: 0.5 x 42.157… = 21.078… -> redondeo NUMERIC(6,2) = 21.08»):
+  // se lee con el origen traducido y cifras de 2 decimales.
+  function textoProcedencia(texto) {
+    if (ausente(texto)) return "Sin dato";
+    const corte = String(texto).indexOf(":");
+    const origen = corte < 0 ? String(texto) : String(texto).slice(0, corte);
+    const calculo = corte < 0 ? "" : String(texto).slice(corte + 1)
+      .replace(/ -> clamp /g, " → acotado a la banda ")
+      .replace(/ -> redondeo NUMERIC\(6,2\)/g, " → redondeado")
+      .replace(/\d+\.\d{3,}/g, cifra => Orbit.numero(cifra, 2));
+    return Orbit.etiqueta(origen, "origen_objetivo") + (calculo ? ":" + calculo : "");
   }
 
   function mostrarPlan(contenedor, plan) {
@@ -305,12 +271,12 @@ document.addEventListener("DOMContentLoaded", function () {
       : "target: margen de la plataforma (se ajusta cada ciclo)";
     ficha(contenedor, [
       ["Grupo", plan.nombre_base], ["Tipo de producto", plan.tipo_producto],
-      ["Plataforma / moneda", plan.platform + " / " + plan.moneda], ["Fecha del plan", plan.fecha],
-      ["Modo del optimizador", plan.modo], ["Target ACoS aplicado", aplicado],
-      ["Origen del objetivo", esV2 ? objetivo.origen : "margen_medido"],
+      ["Plataforma / moneda", Orbit.etiqueta(plan.platform, "plataforma") + " / " + plan.moneda], ["Fecha del plan", plan.fecha],
+      ["Modo del optimizador", Orbit.etiqueta(plan.modo, "modo")], ["Target ACoS aplicado", aplicado],
+      ["Origen del objetivo", Orbit.etiqueta(esV2 ? objetivo.origen : "margen_medido", "origen_objetivo")],
       ["Target derivado del margen", esV2 ? porcentaje(objetivo.derivado) : porcentaje(plan.target_derivado_pct)],
       ["Fracción del margen", esV2 ? objetivo.fraccion : plan.fraccion],
-      ["Procedencia del target", esV2 ? objetivo.procedencia : plan.target_procedencia],
+      ["Procedencia del target", textoProcedencia(esV2 ? objetivo.procedencia : plan.target_procedencia)],
     ]);
     const publicaciones = esV2 ? plan.publicaciones : plan.productos;
     contenedor.append(nodo("h4", esV2 ? "Publicaciones y márgenes netos" : "Productos y márgenes netos"));
@@ -364,13 +330,13 @@ document.addEventListener("DOMContentLoaded", function () {
     mostrarPlan(contenedor, datos.plan);
     contenedor.append(nodo("h4", "Las cinco campañas"));
     tabla(contenedor, ["Rol", "Nombre", "Presupuesto diario", "Puja predeterminada del grupo", "Fuente"], datos.campanas.map(campana => [
-      etiquetas[campana.rol] || campana.rol, campana.nombre,
-      campana.budget + " " + datos.plan.moneda, campana.bid + " " + datos.plan.moneda,
+      nombreRol(campana.rol), campana.nombre,
+      dinero(campana.budget, datos.plan.moneda), dinero(campana.bid, datos.plan.moneda),
       campana.fuente_bid === "amazon_v4" ? "Amazon sugerido" : "Manual",
     ]));
     contenedor.append(nodo("h4", "Semillas y puja por campaña"));
     datos.campanas.forEach(campana => {
-      contenedor.append(nodo("h5", etiquetas[campana.rol] || campana.rol));
+      contenedor.append(nodo("h5", nombreRol(campana.rol)));
       const semillas = semillasDeCampana(datos.plan.semillas || {}, campana.rol);
       if (!semillas.length) contenedor.append(nodo("p", "0 semillas para esta campaña."));
       else {
@@ -388,7 +354,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (objetivos.length) {
           linea += ". Amazon no devolvió sugerencia para " + objetivos.length
             + " de " + todos + ": usan el promedio del rol ("
-            + objetivos[0].sugerido + " " + datos.plan.moneda + ")";
+            + dinero(objetivos[0].sugerido, datos.plan.moneda) + ")";
         }
       } else if (pujaManualSinSugerencia.has(campana.rol)) {
         linea += ". Amazon no devolvió sugerencia: puja manual";
@@ -396,7 +362,7 @@ document.addEventListener("DOMContentLoaded", function () {
       contenedor.append(nodo("p", linea));
     });
     mostrarDetalleBids(contenedor, datos.bids, datos.plan.moneda);
-    contenedor.append(nodo("p", "Presupuesto diario total: " + datos.presupuesto_diario_total + " " + datos.plan.moneda));
+    contenedor.append(nodo("p", "Presupuesto diario total: " + dinero(datos.presupuesto_diario_total, datos.plan.moneda)));
     contenedor.append(nodo("h4", "Campañas existentes para estos productos"));
     if (datos.existentes.length) {
       contenedor.append(nodo("p", "Ya existen campañas. Revisa posibles duplicados antes de confirmar."));
@@ -421,7 +387,7 @@ document.addEventListener("DOMContentLoaded", function () {
       } else if (detalle && detalle.disponible && detalle.promediadas > 0) {
         texto = "Amazon no devolvió sugerencia para " + detalle.promediadas
           + " de " + detalle.total + ": usan el promedio del rol ("
-          + detalle.promedio + " " + detalle.moneda + ")";
+          + dinero(detalle.promedio, detalle.moneda) + ")";
       }
       porId(rol + "-bid-aviso").textContent = texto;
     });
@@ -440,17 +406,16 @@ document.addEventListener("DOMContentLoaded", function () {
     conDatos.forEach(rol => {
       const datos = datosPorRol[rol];
       const recomendaciones = Array.isArray(datos) ? datos : (datos.recomendaciones || []);
-      contenedor.append(nodo("h5", etiquetas[rol] || rol));
+      contenedor.append(nodo("h5", nombreRol(rol)));
       if (recomendaciones.length) tabla(
         contenedor,
-        ["Objetivo", "Mínimo", "Sugerido", "Máximo", "Bid efectivo"],
+        ["Objetivo", "Mínimo", "Sugerido", "Máximo", "Puja que se usa"],
         recomendaciones.map(r => [
           r.tipo + (r.valor ? ": " + r.valor : ""),
-          r.minimo + " " + moneda,
-          r.sugerido + " " + moneda,
-          r.maximo + " " + moneda,
-          r.bid_efectivo === null || r.bid_efectivo === undefined
-            ? "Captura manual" : r.bid_efectivo + " " + moneda,
+          dinero(r.minimo, moneda),
+          dinero(r.sugerido, moneda),
+          dinero(r.maximo, moneda),
+          ausente(r.bid_efectivo) ? "Captura manual" : dinero(r.bid_efectivo, moneda),
         ]),
       );
       const faltantes = Array.isArray(datos && datos.faltantes) ? datos.faltantes : [];
@@ -475,23 +440,15 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function dinero(monto, moneda) {
-    if (monto === null || monto === undefined) return "Sin dato";
-    // Redondeo solo visual a centavos, sin convertir dinero a float.
-    const partes = /^(-?)(\d+)(?:\.(\d+))?$/.exec(String(monto));
-    if (!partes) return String(monto) + (moneda ? " " + moneda : "");
-    const fraccion = partes[3] || "";
-    let centavos = BigInt(partes[2]) * 100n + BigInt((fraccion + "00").slice(0, 2));
-    if (fraccion.length > 2 && fraccion[2] >= "5") centavos += 1n;
-    const entero = (centavos / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    return (centavos === 0n ? "" : partes[1]) + entero + "."
-      + (centavos % 100n).toString().padStart(2, "0") + (moneda ? " " + moneda : "");
+    if (ausente(monto)) return "Sin dato";
+    return Orbit.dinero(monto) + (moneda ? " " + moneda : "");
   }
 
   function textoEtiquetaAds(ads) {
     // Precedencia 0.4 §4 presentada tal cual; sin cobertura demostrada no
     // existe otra etiqueta que "Sin datos" (regla cerrada).
     if (!ads || ads.muestra === 0) return "Sin datos";
-    const base = etiquetasAds[ads.etiqueta] || "Datos sin etiqueta";
+    const base = ads.etiqueta ? Orbit.etiqueta(ads.etiqueta, "etiqueta_ads") : "Datos sin etiqueta";
     return base + (ads.provisional ? " (provisional)" : "");
   }
 
@@ -508,12 +465,13 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function textoDisponibilidad(disp) {
-    const featured = "Featured Offer: Sin verificar";
+    const featured = "Oferta destacada: sin verificar";
     if (!disp || !disp.estado) return "Sin dato. " + featured;
-    const base = estadosDisponibilidad[disp.estado] || disp.estado;
+    const base = Orbit.etiqueta(disp.estado, "estado_disponibilidad");
     const porFuente = disp.cantidad && typeof disp.cantidad === "object"
       ? Object.keys(disp.cantidad).map(fuente =>
-        fuente.toUpperCase() + " " + valor(disp.cantidad[fuente]) + " (desde " + valor((disp.freshness || {})[fuente]) + ")")
+        fuente.toUpperCase() + " " + (ausente(disp.cantidad[fuente]) ? "Sin dato" : Orbit.numero(disp.cantidad[fuente]))
+          + " (desde " + fechaHora((disp.freshness || {})[fuente]) + ")")
       : [];
     return porFuente.length ? base + ": " + porFuente.join(", ") + ". " + featured
       : base + ". " + featured;
@@ -524,7 +482,7 @@ document.addEventListener("DOMContentLoaded", function () {
       publicaciones.filter(p => p.objetivo_acos_pct !== null && p.objetivo_acos_pct !== undefined)
         .map(p => p.objetivo_acos_pct))];
     if (!valores.length) return "Sin objetivo de comparación";
-    return valores.map(v => v + " %").join(", ");
+    return valores.map(Orbit.pct).join(", ");
   }
 
   // Ficha del margen (hallazgo cross-review 2026-09-07): el payload trae por
@@ -562,7 +520,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function celdaDinero(monto, moneda) {
     const celda = celdaNumero(dinero(monto, moneda));
-    celda.title = valor(monto) + (moneda ? " " + moneda : "");
+    celda.title = ausente(monto) ? "Sin dato" : Orbit.numero(monto, 4) + (moneda ? " " + moneda : "");
     return celda;
   }
 
@@ -579,7 +537,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function celdaDisponibilidad(disp) {
     const celda = conClase("td", "fabrica-disponibilidad");
     const estadoStock = disp && disp.estado;
-    const etiqueta = estadosDisponibilidad[estadoStock] || "Sin dato";
+    const etiqueta = estadoStock ? Orbit.etiqueta(estadoStock, "estado_disponibilidad") : "Sin dato";
     const tono = estadoStock === "positivo" ? "positivo" : estadoStock === "cero" ? "negativo" : "neutro";
     const detalle = textoDisponibilidad(disp);
     celda.append(chip(etiqueta, tono, detalle),
@@ -588,7 +546,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function textoMotivoEstimacion(codigo) {
-    return motivosEstimacion[codigo] || codigo;
+    return Orbit.etiqueta(codigo, "motivo_estimacion");
   }
 
   function textosMotivosEstimacion(motivos) {
@@ -610,41 +568,45 @@ document.addEventListener("DOMContentLoaded", function () {
       if (est.contribucion_pct !== null && est.contribucion_pct !== undefined) {
         meta.push(porcentaje(est.contribucion_pct));
       }
-      if (est.base_porcentaje) meta.push("base " + est.base_porcentaje);
+      if (est.base_porcentaje) meta.push("sobre " + Orbit.etiqueta(est.base_porcentaje, "componente_estimacion").toLowerCase());
       if (escenario.unidad) meta.push("unidad " + escenario.unidad);
       if (escenario.fecha_valoracion) meta.push(escenario.fecha_valoracion);
-      if (escenario.canal) meta.push(escenario.canal);
+      if (escenario.canal) meta.push(String(escenario.canal).toUpperCase());
       if (meta.length) principal.append(conClase("span", "fabrica-apoyo", meta.join(" · ")));
     } else {
       principal.append(conClase("strong", "fabrica-sin-dato",
-        estadosEstimacion[est.estado] || valor(est.estado)));
+        est.estado ? Orbit.etiqueta(est.estado, "estado_estimacion") : "Sin dato"));
       const textos = textosMotivosEstimacion(est.motivos);
       if (textos.length) {
         principal.append(conClase("span", "fabrica-apoyo", textos.join(" · ")));
       }
     }
     if (est.exclusiones && est.exclusiones.length) {
-      principal.append(conClase("span", "fabrica-apoyo", "Exclusiones: " + est.exclusiones.join(", ")));
+      principal.append(conClase("span", "fabrica-apoyo", "Sin contar: " + exclusiones(est.exclusiones)));
     }
     const detalle = conClase("details", "fabrica-estimacion-detalle");
     detalle.append(nodo("summary", "Ver desglose de la estimación"));
     (est.componentes || []).forEach(componente => {
       const linea = conClase("div", "fabrica-estimacion-componente");
       const meta = [
-        componente.fuente,
+        componente.fuente ? Orbit.etiqueta(componente.fuente, "fuente_ingesta") : null,
         componente.fecha_fuente ? ("fecha " + componente.fecha_fuente) : null,
-        componente.observed_at ? ("captura " + componente.observed_at) : null,
+        componente.observed_at ? ("captura " + Orbit.fechaHora(componente.observed_at)) : null,
         componente.vigencia ? ("vigencia " + componente.vigencia) : null,
-        componente.estado ? ("estado " + componente.estado) : null,
+        componente.estado ? ("estado " + Orbit.etiqueta(componente.estado, "estado_estimacion").toLowerCase()) : null,
         componente.pertenencia === true ? "pertenece al total"
           : componente.pertenencia === false ? "fuera del total" : null,
       ].filter(Boolean).join(" · ");
-      linea.append(conClase("strong", "fabrica-estimacion-componente-nombre", valor(componente.nombre)));
+      linea.append(conClase("strong", "fabrica-estimacion-componente-nombre",
+        ausente(componente.nombre) ? "Sin dato" : Orbit.etiqueta(componente.nombre, "componente_estimacion")));
       if (meta) linea.append(conClase("span", "fabrica-apoyo", meta));
+      // El tipo de cambio necesita sus 4 decimales; lo demas es dinero.
+      const importe = monto => ausente(monto) ? "Sin dato"
+        : componente.nombre === "fx" ? Orbit.numero(monto, 4) : Orbit.dinero(monto);
       linea.append(
-        conClase("span", "fabrica-apoyo", "Original: " + valor(componente.importe_original)
+        conClase("span", "fabrica-apoyo", "Original: " + importe(componente.importe_original)
           + (componente.moneda_original ? " " + componente.moneda_original : "")),
-        conClase("span", "fabrica-apoyo", "Normalizado: " + valor(componente.importe_normalizado)
+        conClase("span", "fabrica-apoyo", "En moneda de venta: " + importe(componente.importe_normalizado)
           + (componente.moneda_normalizada ? " " + componente.moneda_normalizada : "")),
       );
       detalle.append(linea);
@@ -654,7 +616,7 @@ document.addEventListener("DOMContentLoaded", function () {
       detalle.append(conClase("span", "fabrica-apoyo", "Motivos: " + textosDetalle.join(" · ")));
     }
     if (est.exclusiones && est.exclusiones.length) {
-      detalle.append(conClase("span", "fabrica-apoyo", "Exclusiones: " + est.exclusiones.join(", ")));
+      detalle.append(conClase("span", "fabrica-apoyo", "Sin contar: " + exclusiones(est.exclusiones)));
     }
     const versiones = [];
     if (escenario.version_formula) versiones.push(escenario.version_formula);
@@ -664,11 +626,9 @@ document.addEventListener("DOMContentLoaded", function () {
     if (escenario.unidad) versiones.push("unidad " + escenario.unidad);
     if (versiones.length) detalle.append(conClase("span", "fabrica-apoyo", versiones.join(" · ")));
     if (est.detalle) {
-      const partes = ["Numero congelado (no actual): " + valor(est.detalle.contribucion)];
-      if (est.detalle.contribucion_pct !== null && est.detalle.contribucion_pct !== undefined) {
-        partes.push(valor(est.detalle.contribucion_pct));
-      }
-      if (est.detalle.estado) partes.push(est.detalle.estado);
+      const partes = ["Número congelado (no actual): " + dinero(est.detalle.contribucion)];
+      if (!ausente(est.detalle.contribucion_pct)) partes.push(porcentaje(est.detalle.contribucion_pct));
+      if (est.detalle.estado) partes.push(Orbit.etiqueta(est.detalle.estado, "estado_estimacion"));
       detalle.append(conClase("span", "fabrica-apoyo", partes.join(" · ")));
     }
     return {principal, detalle};
@@ -686,8 +646,8 @@ document.addEventListener("DOMContentLoaded", function () {
       ["Grano de comparación", "Publicación (ASIN + SKU de Amazon), sumas por fila"],
       ["Objetivo ACoS del grupo en preparación", objetivoComparador(publicaciones)],
       ["Ventana del margen", ventanaMargen(publicaciones)],
-      ["Cobertura del margen", valorUnicoMargen(publicaciones, e => e.cobertura)],
-      ["Actualización del margen", valorUnicoMargen(publicaciones, e => e.ledger_fresco_at)],
+      ["Cobertura del margen", valorUnicoMargen(publicaciones, e => ausente(e.cobertura) ? null : fraccion(e.cobertura))],
+      ["Actualización del margen", valorUnicoMargen(publicaciones, e => ausente(e.ledger_fresco_at) ? null : fechaHora(e.ledger_fresco_at))],
     ].forEach(([nombre, dato]) => {
       const par = nodo("div");
       par.append(nodo("dt", nombre), nodo("dd", valor(dato)));
@@ -703,8 +663,10 @@ document.addEventListener("DOMContentLoaded", function () {
     const envoltura = conClase("div", "fabrica-tabla fabrica-comparacion-scroll");
     envoltura.tabIndex = 0;
     envoltura.setAttribute("role", "region");
+    const orden = porId("comparador-orden");
+    const opcion = orden.options && orden.options[orden.selectedIndex];
     envoltura.setAttribute("aria-label", "Comparación de publicaciones ordenada por "
-      + porId("comparador-orden").value);
+      + (opcion ? opcion.text.toLowerCase() : orden.value));
     const tabla = conClase("table", "fabrica-comparacion");
     const thead = nodo("thead"), tbody = nodo("tbody"), grupos = nodo("tr"), encabezado = nodo("tr");
     [["Publicación", 1, 2], ["Margen observado · antes de Ads", 3, 1],
@@ -745,7 +707,8 @@ document.addEventListener("DOMContentLoaded", function () {
         celdaDinero(p.ads.sales30d, p.ads.moneda), celdaDinero(p.ads.cost, p.ads.moneda),
         celdaNumero(porcentaje(p.ads.acos_pct), superaObjetivo ? "fabrica-negativo" : ""),
         celdaDinero(p.ads.cpc, p.ads.moneda), celdaNumero(porcentaje(p.ads.cvr_pct)),
-        celdaNumero(valor(p.ads.purchases30d)), celdaNumero(p.ads.muestra + (p.ads.muestra === 1 ? " fecha" : " fechas")),
+        celdaNumero(ausente(p.ads.purchases30d) ? "Sin dato" : Orbit.numero(p.ads.purchases30d)),
+        celdaNumero(Orbit.numero(p.ads.muestra) + (p.ads.muestra === 1 ? " fecha" : " fechas")),
         etiqueta, celdaDisponibilidad(p.disponibilidad), celdaNumero(porcentaje(p.objetivo_acos_pct)));
       tbody.append(fila);
     });
@@ -1008,7 +971,7 @@ document.addEventListener("DOMContentLoaded", function () {
       mostrarDetalleBids(detalle, datos.roles, porId("moneda").textContent, true);
       detalle.hidden = false;
       const pendientes = roles.filter(rol => !datos.roles[rol].disponible)
-        .map(rol => etiquetas[rol]).join(", ");
+        .map(nombreRol).join(", ");
       estado("estado", cargadas + " de 5 pujas sugeridas por Amazon cargadas."
         + (pendientes ? " Captura manualmente: " + pendientes + "." : "")
         + " Revisa presupuestos y prepara el plan.");
@@ -1078,18 +1041,18 @@ document.addEventListener("DOMContentLoaded", function () {
       : "El retiro solo se ofrece con el lote creado y registrado."));
     const contenedor = porId("lote-datos");
     contenedor.replaceChildren();
-    ficha(contenedor, [["Plataforma", datos.plataforma], ["Estado", estadosLote[datos.estado] || datos.estado], ["Detalle", datos.detalle],
-      ["Creado", datos.created_at], ["Finalizado", datos.finished_at]]);
+    ficha(contenedor, [["Plataforma", Orbit.etiqueta(datos.plataforma, "plataforma")], ["Estado", Orbit.etiqueta(datos.estado, "estado_lote")], ["Detalle", datos.detalle],
+      ["Creado", fechaHora(datos.created_at)], ["Finalizado", fechaHora(datos.finished_at)]]);
     tabla(contenedor, ["Paso", "Rol", "Recurso", "ID externo", "Estado", "Verificación de creación"], datos.pasos.map(paso => [
-      paso.orden, etiquetas[paso.rol] || paso.rol, paso.recurso, paso.external_id,
-      estadosPaso[paso.estado] || paso.estado, paso.readback_estado,
+      paso.orden, nombreRol(paso.rol), paso.recurso, paso.external_id,
+      Orbit.etiqueta(paso.estado, "estado_paso"), paso.readback_estado,
     ]));
     if (datos.plan) {
       const detalle = nodo("details"); detalle.append(nodo("summary", "Ver plan persistido del lote"));
       mostrarPlan(detalle, datos.plan);
       if (datos.plan.parametros) tabla(detalle, ["Rol", "Presupuesto diario", "Puja inicial", "Fuente"], roles.map(rol => [
-        etiquetas[rol], datos.plan.parametros[rol].budget + " " + datos.plan.moneda,
-        datos.plan.parametros[rol].bid + " " + datos.plan.moneda,
+        nombreRol(rol), dinero(datos.plan.parametros[rol].budget, datos.plan.moneda),
+        dinero(datos.plan.parametros[rol].bid, datos.plan.moneda),
         datos.plan.parametros[rol].fuente_bid === "amazon_v4" ? "Amazon sugerido" : "Manual",
       ]));
       mostrarDetalleBids(detalle, datos.bids, datos.plan.moneda);
@@ -1119,7 +1082,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (version !== versionHistorial) return;
       const lista = nodo("ul");
       datos.items.forEach(lote => {
-        const fila = nodo("li"), enlace = nodo("a", lote.lote + " · " + (estadosLote[lote.estado] || lote.estado) + " · " + lote.created_at);
+        const fila = nodo("li"), enlace = nodo("a", lote.lote + " · " + Orbit.etiqueta(lote.estado, "estado_lote") + " · " + Orbit.fechaHora(lote.created_at));
         enlace.href = "/campanas/nuevas?lote=" + encodeURIComponent(lote.lote);
         enlace.addEventListener("click", evento => {
           evento.preventDefault(); if (mutando) return;
@@ -1187,9 +1150,9 @@ document.addEventListener("DOMContentLoaded", function () {
       }, token);
       versionDetalle += 1;
       mostrarLote(resultado);
-      mostrarResultadoCrear("Grupo creado: " + (estadosLote[resultado.estado] || resultado.estado), resultado.lote);
+      mostrarResultadoCrear("Grupo creado: " + Orbit.etiqueta(resultado.estado, "estado_lote"), resultado.lote);
       estado("estado", "Solicitud finalizada. Revisa el estado y los pasos del lote.");
-      estado("lote-estado", "Resultado recibido: " + (estadosLote[resultado.estado] || resultado.estado));
+      estado("lote-estado", "Resultado recibido: " + Orbit.etiqueta(resultado.estado, "estado_lote"));
     } catch (error) {
       versionDetalle += 1;
       if (error.status === 401) {

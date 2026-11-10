@@ -46,6 +46,7 @@ import psycopg
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from formato_js import sin_registro
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
@@ -1772,6 +1773,20 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
             .get("/api/dashboard/salud")
             .json()["plataformas"]["amazon_us"]["skips"]
         )
+        # I.2: cada lado es una lista del mas contado al menos contado (tojson
+        # ordenaba las claves del dict y la grafica salia alfabetica).
+        assert [s["motivo"] for s in skips["termino"]] == [
+            "sin_umbral_negative",
+            "asin_like",
+            "sin_destino_de_harvest",
+            "origen_es_destino",
+            "destino_inconsistente",
+            "motivo_futuro",
+        ]
+        skips = {
+            lado: {s["motivo"]: {"count": s["count"], "motivo_es": s["motivo_es"]} for s in lista}
+            for lado, lista in skips.items()
+        }
         assert skips["entidad"]["estado_no_enabled"] == {
             "count": 3200,
             "motivo_es": "La keyword o el producto no está habilitado o no tiene estado",
@@ -1963,7 +1978,7 @@ def test_salud_plataforma_sin_datos_devuelve_null_y_vacio(monkeypatch):
         for p in ("amazon_us", "amazon_mx"):
             assert plataformas[p]["ultimo_ciclo"] is None
             assert plataformas[p]["historico_14d"] == []
-            assert plataformas[p]["skips"] == {"entidad": {}, "termino": {}}
+            assert plataformas[p]["skips"] == {"entidad": [], "termino": []}
             assert plataformas[p]["watermark"] is None
             assert plataformas[p]["synced_at"] is None
 
@@ -3456,7 +3471,7 @@ def test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible():
     assert "sin compatibilidad" in html
     # Relevancia compatible jamas se presenta como error economico: la
     # palabra "error" no aparece en el HTML renderizado de esta pantalla.
-    assert "error" not in html.lower()
+    assert "error" not in sin_registro(html).lower()
     # El veto permanece visible.
     assert "se aplica solo el" in html
 
@@ -3503,7 +3518,7 @@ def test_cortes_plantilla_rotula_grupo_sin_destino_y_avisa_si_no_hay_asesoria():
     assert "Asesoria Jev no disponible" not in plano
     plano = " ".join(plantilla.render(**ctx, asesoria_disponible=False).split())
     assert "Asesoria Jev no disponible" in plano
-    assert "error" not in plano.lower()
+    assert "error" not in sin_registro(plano).lower()
 
 
 def _ctx_cortes_local():
@@ -3785,7 +3800,7 @@ def test_cortes_senal_harvest_dos_bloques_y_destino_ilegible(monkeypatch):
         assert html.text.count('class="senal-bloque"') == 2
         assert "Señal · origen ·" in html.text
         assert "Señal · destino ·" in html.text
-        assert "error" not in html.text.lower()
+        assert "error" not in sin_registro(html.text).lower()
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
@@ -3813,7 +3828,7 @@ def test_cortes_senal_ilegible_se_avisa_y_la_pantalla_sigue(monkeypatch):
         html = cliente.get("/cortes")
         assert html.status_code == 200
         assert "Señal Jev no disponible" in html.text
-        assert "error" not in html.text.lower()
+        assert "error" not in sin_registro(html.text).lower()
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")

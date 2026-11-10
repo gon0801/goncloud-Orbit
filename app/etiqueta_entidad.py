@@ -5,6 +5,16 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+# Lo que etiqueta_entidad necesita de una keyword o producto objetivo: su
+# texto y el nombre de su campana (hoja -> grupo -> campana).
+SQL_NOMBRES = """
+SELECT e.id, e.kind, e.name, e.keyword_text, c.name AS campana
+  FROM ad_entity e
+  JOIN ad_entity g ON g.id = e.parent_id
+  JOIN ad_entity c ON c.id = g.parent_id
+ WHERE e.id = ANY(%s)
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class EtiquetaEntidad:

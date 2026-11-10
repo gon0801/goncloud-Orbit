@@ -65,17 +65,18 @@ document.addEventListener("DOMContentLoaded", function () {
       else {
         const estado = document.createElement("span");
         estado.className = "chip " + (ultimo.status === "done" ? "ok" : ["failed", "degraded"].includes(ultimo.status) ? "alerta" : "");
-        estado.textContent = nombre + " · " + ultimo.status + " · " + ultimo.mode;
+        estado.textContent = nombre + " · " + Orbit.etiqueta(ultimo.status, "estado_ciclo") + " · " + Orbit.etiqueta(ultimo.mode, "modo");
+        estado.title = ultimo.status + " · " + ultimo.mode;
         const detalle = document.createElement("small");
         detalle.className = "mutado";
-        detalle.textContent = String(ultimo.started_at).replace("T", " ").slice(0, 16) + " · " + ultimo.decisions_count + " decisiones";
+        detalle.textContent = Orbit.fechaHora(ultimo.started_at) + " · " + Orbit.numero(ultimo.decisions_count) + " decisiones";
         linea.append(estado, detalle);
       }
       ciclo.append(linea);
     });
-    watermark.textContent = "Watermark · " + marcas.join(" · ");
+    watermark.textContent = "Cifras hasta · " + marcas.join(" · ");
   }).catch(() => {
     ciclo.textContent = "No se pudo consultar";
-    watermark.textContent = "Watermark: no disponible";
+    watermark.textContent = "Cifras hasta: no disponible";
   });
 });

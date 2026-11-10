@@ -37,6 +37,7 @@ from decimal import Decimal
 
 from app import config_write, productos_io
 from app.cycle import lee_goals
+from app.etiqueta_entidad import etiqueta_entidad
 from app.etiquetas import etiqueta, motivo_decision_es
 from app.optimizer import goals as g
 from app.optimizer import productos as p
@@ -68,7 +69,7 @@ SELECT e.product_id, pr.odoo_sku, pr.name, e.entrada, e.resultado, e.id
 """
 
 _SQL_ENTIDADES = """
-SELECT id, coalesce(name, keyword_text, external_id) FROM ad_entity WHERE id = ANY(%s)
+SELECT id, kind, name, keyword_text, external_id FROM ad_entity WHERE id = ANY(%s)
 """
 
 _SQL_ANUNCIOS = """
@@ -441,6 +442,18 @@ def simula_pausa(
     )
 
 
+def _nombres(conn, ids: list[int]) -> dict[int, str]:
+    """Texto de pantalla de cada entidad: el de etiqueta_entidad (un producto
+    objetivo trae su expresion en JSON, nunca se muestra cruda) o su id externo."""
+    if not ids:
+        return {}
+    nombres = {}
+    for id_, kind, name, keyword_text, externo in conn.execute(_SQL_ENTIDADES, (ids,)).fetchall():
+        e = etiqueta_entidad(kind=kind, name=name, keyword_text=keyword_text, campana=None)
+        nombres[id_] = e.hoja or e.campana or externo
+    return nombres
+
+
 def _productos(conn, cycle_id: int, filas) -> list[ProductoVista]:
     evaluaciones = [
         (pid, sku, nombre, evaluacion_de_fila(entrada, resultado), resultado)
@@ -450,7 +463,7 @@ def _productos(conn, cycle_id: int, filas) -> list[ProductoVista]:
     grupos = [gr for *_, ev, _ in evaluaciones for gr in ev.entrada.grupos_aptos_para_meta]
     hojas = sorted({h for gr in grupos for h in gr.hojas})
     ids = sorted({*hojas, *(gr.grupo_id for gr in grupos), *(gr.campana_id for gr in grupos)})
-    nombres = dict(conn.execute(_SQL_ENTIDADES, (ids,)).fetchall()) if ids else {}
+    nombres = _nombres(conn, ids)
     vigentes = {
         fila[0]: (fila[1], fila[2])
         for fila in (
@@ -510,7 +523,7 @@ def _pausas(
         if propuestos
         else {}
     )
-    nombres = dict(conn.execute(_SQL_ENTIDADES, (grupos,)).fetchall()) if grupos else {}
+    nombres = _nombres(conn, grupos)
     cola = (
         {(f[0], f[1]): f[2] for f in conn.execute(_SQL_COLA_PAUSAS, (cycle_id,))}
         if propuestos

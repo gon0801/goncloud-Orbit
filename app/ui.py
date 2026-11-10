@@ -38,6 +38,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from jinja2.utils import htmlsafe_json_dumps
 
 from app import api_dashboard as dash
 from app import api_reputacion as reput
@@ -45,7 +46,7 @@ from app import familias, formato
 from app.api import ConexionLectura
 from app.dashboard_resumen import CANALES as CANALES_RESUMEN
 from app.dashboard_resumen import CANALES_POR_DEFECTO, PERIODOS
-from app.etiquetas import etiqueta
+from app.etiquetas import etiqueta, registro_navegador
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
 from app.precio import cobertura as cobertura_precio
@@ -103,6 +104,9 @@ def porcentaje_ui(valor: str | None) -> str | None:
 templates.env.filters.update(formato.FILTROS)
 templates.env.filters["etiqueta"] = etiqueta
 templates.env.globals["leyenda_zona"] = formato.LEYENDA_ZONA
+# El registro viaja una vez por pagina (base.html) para Orbit.etiqueta; se
+# serializa al arrancar porque no cambia en vida del proceso.
+templates.env.globals["registro_etiquetas"] = htmlsafe_json_dumps(registro_navegador())
 templates.env.filters["dinero_miles_ui"] = dinero_miles_ui
 templates.env.filters["porcentaje_ui"] = porcentaje_ui
 templates.env.filters["kpis_serie"] = kpis_serie

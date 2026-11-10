@@ -133,6 +133,7 @@ def _respuestas_vacias(*, encendido=None):
         "SELECT c.id FROM": [],
         "c.id = ANY": [],
         "v_cambio_bid": [],
+        "FROM ad_entity e": [],
         "config_version": [(encendido,)],
         "v_metric_latest": [],
     }
@@ -267,7 +268,15 @@ def test_encogimiento_diez_a_cuatro_da_cero_cuatro_y_sin_cambios_no_sale():
     pantalla, _conn = _lee(respuestas)
     assert pantalla.ciclos == ()
     assert pantalla.encogimiento == (
-        {"hoja_id": 11, "bid_base": "10", "bid_hoy": "4", "razon": "0.4", "moneda": "MXN"},
+        {
+            "hoja_id": 11,
+            "nombre": None,
+            "campana": None,
+            "bid_base": "10",
+            "bid_hoy": "4",
+            "razon": "0.4",
+            "moneda": "MXN",
+        },
     )
 
 
@@ -518,7 +527,7 @@ def test_pagina_ruido_pinta_dias_y_shadow():
     plano = _plano(html)
     assert "Antes del encendido (2 días)" in plano
     assert "Después del encendido (1 día)" in plano
-    assert "Shadow, no aplicado: 2." in plano
+    assert "De práctica, no aplicadas: 2." in plano
 
 
 def test_pagina_ruido_ciclo_pinta_decisiones_y_abstenciones_ausentes():
@@ -861,20 +870,29 @@ def test_lee_ruido_punta_a_punta_mx_no_trae_us():
 
         mx = lee_ruido(conn, plataforma="amazon_mx").como_dict()
 
-    assert [c["cycle_id"] for c in mx["ciclos"]] == [vivo, ciclo_mx, ciclo_mx2]
-    assert mx["ciclos"][0]["decisiones"] == []
-    assert mx["ciclos"][0]["abstenciones"] is None
+    # I.3: del ciclo mas nuevo al mas viejo.
+    assert [c["cycle_id"] for c in mx["ciclos"]] == [ciclo_mx2, ciclo_mx, vivo]
+    assert mx["ciclos"][2]["decisiones"] == []
+    assert mx["ciclos"][2]["abstenciones"] is None
     assert mx["ciclos"][1]["decisiones"] == [
         {"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 2},
         {"motivo": "grupo_sangra", "nivel": "ad_group", "count": 1},
     ]
     assert mx["ciclos"][1]["abstenciones"] == {"espera_precio": 2}
-    assert mx["ciclos"][2]["decisiones"] == [
+    assert mx["ciclos"][0]["decisiones"] == [
         {"motivo": "gasto_sin_venta", "nivel": "hoja", "count": 2}
     ]
-    assert mx["ciclos"][2]["abstenciones"] is None
+    assert mx["ciclos"][0]["abstenciones"] is None
     assert mx["encogimiento"] == [
-        {"hoja_id": h1, "bid_base": "10.0000", "bid_hoy": "4.0000", "razon": "0.4", "moneda": "MXN"}
+        {
+            "hoja_id": h1,
+            "nombre": "kw-encoge",
+            "campana": "Camp encoge",
+            "bid_base": "10.0000",
+            "bid_hoy": "4.0000",
+            "razon": "0.4",
+            "moneda": "MXN",
+        }
     ]
     assert mx["antes_y_despues"] == {
         "encendido_el": "2026-09-15",
@@ -946,6 +964,8 @@ def test_encogimiento_ignora_ajuste_de_campana_antiguo():
     assert pantalla["encogimiento"] == [
         {
             "hoja_id": hoja,
+            "nombre": "kw-enc",
+            "campana": "Camp enc",
             "bid_base": "10.0000",
             "bid_hoy": "4.0000",
             "razon": "0.4",

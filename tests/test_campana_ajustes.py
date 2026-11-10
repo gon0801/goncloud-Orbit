@@ -157,7 +157,7 @@ def test_presupuesto_sin_previo_estrena_moneda_del_perfil():
         vigente=_vigente(presupuesto_diario=None, moneda=None),
     )
     assert plan.despues.moneda == "MXN"
-    assert "120 MXN" in plan.frase
+    assert "120.00 MXN" in plan.frase
 
 
 def test_ubicacion_sin_dynamicBidding_previo_se_rechaza():

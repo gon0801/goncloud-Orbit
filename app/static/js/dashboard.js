@@ -102,6 +102,7 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
       }
     }],
     options: {
+      locale: "es-MX",
       animation: false,
       responsive: true,
       maintainAspectRatio: false,
@@ -116,22 +117,43 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
   graficas.push(chart);
 }
 
+// Un motivo largo en dos renglones de hasta 36 letras; el tooltip lo trae
+// completo. Sin esto el eje corta el principio del texto.
+function renglones(texto) {
+  var lineas = [""];
+  texto.split(" ").forEach(function (palabra) {
+    var ultima = lineas[lineas.length - 1];
+    if (ultima && (ultima + " " + palabra).length > 36) lineas.push(palabra);
+    else lineas[lineas.length - 1] = ultima ? ultima + " " + palabra : palabra;
+  });
+  return lineas.length <= 2 ? lineas : [lineas[0], lineas.slice(1).join(" ").slice(0, 35) + "…"];
+}
+
+// Una barra por motivo, 24 px cada una: Chart.js no salta etiquetas y el
+// lienzo crece con la lista en vez de apretarla.
 function graficarBarras(canvasId, etiquetas, valores, color) {
   var canvas = document.getElementById(canvasId);
   if (!canvas) return;
   var tinta = pintura();
+  if (canvas.parentNode && canvas.parentNode.style) {
+    canvas.parentNode.style.height = (etiquetas.length * 24 + 48) + "px";
+  }
   var chart = new Chart(canvas, {
     type: "bar",
-    data: { labels: etiquetas, datasets: [{ label: "conteo", data: valores, backgroundColor: color || tinta.series[2] }] },
+    data: { labels: etiquetas.map(renglones), datasets: [{ label: "Veces", data: valores, backgroundColor: color || tinta.series[2] }] },
     options: {
       indexAxis: "y",
+      locale: "es-MX",
       animation: false,
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { title: function (items) { return etiquetas[items[0].dataIndex]; } } }
+      },
       scales: {
         x: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } },
-        y: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
+        y: { ticks: { color: tinta.mutado, autoSkip: false, font: { size: 11, lineHeight: 1 } }, grid: { color: tinta.borde } }
       }
     }
   });
@@ -231,6 +253,7 @@ function graficarResumen() {
         }
       }],
       options: {
+        locale: "es-MX",
         animation: false,
         responsive: true,
         maintainAspectRatio: false,
@@ -291,14 +314,19 @@ document.addEventListener("DOMContentLoaded", function () {
     function (el) {
       var plataforma = el.id.slice("datos-skips-".length);
       var datos = JSON.parse(el.textContent);
-      var etiquetas = [];
-      var valores = [];
-      ["entidad", "termino"].forEach(function (lado) {
-        Object.keys(datos[lado] || {}).forEach(function (motivo) {
-          etiquetas.push(datos[lado][motivo].motivo_es || motivo);
-          valores.push(datos[lado][motivo].count);
-        });
-      });
+      // Cada lado llega ordenado por conteo (_skips_traducidos); juntos se
+      // vuelven a ordenar para que la barra mas larga quede arriba. Un motivo
+      // que se repite en las busquedas lo dice, para no ver dos barras iguales.
+      var texto = function (s) { return s.motivo_es || Orbit.etiqueta(s.motivo, "motivo_salud"); };
+      var deEntidad = (datos.entidad || []).map(texto);
+      var skips = (datos.entidad || []).map(function (s) { return {texto: texto(s), count: s.count}; })
+        .concat((datos.termino || []).map(function (s) {
+          var t = texto(s);
+          return {texto: deEntidad.indexOf(t) === -1 ? t : t + " (búsquedas)", count: s.count};
+        }))
+        .sort(function (a, b) { return b.count - a.count; });
+      var etiquetas = skips.map(function (s) { return s.texto; });
+      var valores = skips.map(function (s) { return s.count; });
       if (etiquetas.length) graficarBarras("skips-" + plataforma, etiquetas, valores, pintura().series[2]);
     }
   );

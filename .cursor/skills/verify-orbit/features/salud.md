@@ -6,12 +6,13 @@ Salud muestra, por plataforma, el ultimo ciclo (estado, modo, decisiones, aplica
 
 - `salud-nav` abre `/salud` y marca `aria-current="page"`.
 - `salud-ciclo` muestra `#<id>`, started_at en hora del centro de México («8 nov, 11:58»), `decisiones:` y `aplicadas:` (el 0 de práctica es dato). Los chips del h2 van en español: `done` es «Completo» y `shadow` «Práctica» (estados: En curso, Completo, Con fallas, Saltado, Falló; modos: Apagado, Práctica, En vivo).
-- `salud-skips` bajo el h3 `Lo que se saltó en el último ciclo` dibuja `canvas#skips-<plataforma>` desde `script#datos-skips-<plataforma>`.
+- `salud-skips` bajo el h3 `Lo que se saltó en el último ciclo` dibuja `canvas#skips-<plataforma>` desde `script#datos-skips-<plataforma>`. El JSON trae `entidad` y `termino` como listas `[{motivo, count, motivo_es}]` del más contado al menos contado (CLARIDAD 01 I.2). La gráfica junta los dos lados en orden de conteo, una barra de 24 px por motivo sin saltar etiquetas (`ticks.autoSkip: false`); el motivo va en dos renglones y el tooltip lo trae completo. Un motivo repetido en las búsquedas termina en «(búsquedas)».
 - `salud-quota` tabla bajo el h3 `Cambios permitidos hoy` (columnas Tipo / Usados / Tope / Estado; el tipo va en español, p. ej. «Puja»). Tope nulo se pinta `— (sin tope)` o `— (configuración ilegible)`; el chip de estado dice «Contado hoy», «Tope de la configuración», «Sin tope configurado: no se aplica nada» o «Configuración ilegible: revisar».
 - `salud-historico` tabla `Últimos 14 ciclos` (Ciclo, Fecha, Estado, Decisiones, Motivo): ultimos 14 ciclos, no 14 dias de calendario.
 - `salud-telegram` si `notes.telegram` existe, aparece `p.alerta` cuyo texto empieza `telegram: fallo del canal (` y lista las claves del dict (digest, …) `sin entregar)`. El chip «Completo» (`done`) del h2 no pasa a alerta.
 - `salud-jev` tarjeta `Jev: señal por búsqueda en cada grupo` (si hay tablas de Jev): `Último cálculo terminado: <8 nov, 11:58> (<hace>)` sale del ultimo `fin` de `jev_corrida`. Con Jev encendido y mas de 13 h sin `fin` (o ninguno), el parrafo es `p.alerta` y agrega `Pasaron más de 13 horas: Gasto sin venta está desactualizado.` (CLARIDAD 01 B.6). El JSON trae `jev.ultima_fin` y `jev.fin_viejo`.
 - `salud-api` `GET /api/dashboard/salud` trae el mismo ciclo, skips, quota e historico. El JSON tambien lleva `target_margen`; el HTML no lo pinta.
+- `shell-ultimo-ciclo` (todas las pantallas) es el recuadro «Ultimo ciclo» del sidebar que pinta `shell.js` con `/api/dashboard/salud`: `US · Completo · En vivo` y `8 nov, 11:58 · 0 decisiones` (estado y modo con `Orbit.etiqueta`, hora del centro de México con `Orbit.fechaHora`; el `title` del chip conserva `done · live`). El chip del encabezado dice `Cifras hasta · US: 2026-11-07 · MX: 2026-11-07` (antes «Watermark»).
 
 ## How to get to it (user POV)
 

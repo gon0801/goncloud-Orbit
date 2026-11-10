@@ -913,12 +913,14 @@ def _fila_historico(fila) -> dict:
     }
 
 
-def _skips_traducidos(contadores: dict) -> dict:
-    """{motivo: {count, motivo_es}}; el codigo crudo queda en la clave."""
-    return {
-        motivo: {"count": count, "motivo_es": etiqueta(motivo, "motivo_salud")}
-        for motivo, count in contadores.items()
-    }
+def _skips_traducidos(contadores: dict) -> list[dict]:
+    """[{motivo, count, motivo_es}] del mas contado al menos contado (empate:
+    por motivo). La lista conserva el orden hasta la grafica: un dict lo
+    pierde en `tojson`, que ordena las claves."""
+    return [
+        {"motivo": motivo, "count": count, "motivo_es": etiqueta(motivo, "motivo_salud")}
+        for motivo, count in sorted(contadores.items(), key=lambda par: (-par[1], par[0]))
+    ]
 
 
 def _skips_de(ultimo_ciclo: dict | None) -> dict:
@@ -927,7 +929,7 @@ def _skips_de(ultimo_ciclo: dict | None) -> dict:
     traducidos (decision 11). Sin ciclo o sin notes -> vacio, jamas null
     inventado."""
     if ultimo_ciclo is None or ultimo_ciclo.get("notes") is None:
-        return {"entidad": {}, "termino": {}}
+        return {"entidad": [], "termino": []}
     skips = ultimo_ciclo["notes"].get("skips") or {}
     return {
         "entidad": _skips_traducidos(skips.get("entidad") or {}),

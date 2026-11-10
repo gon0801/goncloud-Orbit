@@ -31,7 +31,7 @@
   </ul>
   {% endif %}
   {% if ciclo.shadow %}
-  <p>Shadow, no aplicado: {{ ciclo.shadow | numero }}.</p>
+  <p>De práctica, no aplicadas: {{ ciclo.shadow | numero }}.</p>
   {% endif %}
 </div>
 {% else %}
@@ -40,7 +40,7 @@
 <h3>Cuánto bajó cada puja</h3>
 {% for item in encogimiento %}
 <div class="tarjeta">
-  <h4>Keyword o producto #{{ item.hoja_id }}</h4>
+  <h4 title="#{{ item.hoja_id }}"><span data-dato-libre>{{ item.nombre or "Keyword o producto sin nombre" }}</span>{% if item.campana %} <span class="mutado">· <span data-dato-libre>{{ item.campana }}</span></span>{% endif %}</h4>
   <p>Puja: {{ item.bid_base | dinero }} antes, {{ item.bid_hoy | dinero }} hoy ({{ item.moneda }}). Quedó en {{ item.razon | porcentaje_ui }}.</p>
 </div>
 {% else %}
@@ -49,7 +49,7 @@
 <h3>Antes y después del encendido</h3>
 <p>Es una comparación simple de antes y después. No es causal.</p>
 {% if antes_y_despues %}
-<p>Encendido el {{ antes_y_despues.encendido_el }}.</p>
+<p>Encendido el {{ antes_y_despues.encendido_el | fecha_corta }}.</p>
 <h4>Antes del encendido ({{ antes_y_despues.dias_antes }} día{% if antes_y_despues.dias_antes != 1 %}s{% endif %})</h4>
 {% set bloque = antes_y_despues.antes %}
 {% if bloque %}

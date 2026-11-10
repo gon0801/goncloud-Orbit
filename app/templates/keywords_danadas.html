@@ -34,30 +34,37 @@
   </form>
 </div>
 {% endif %}
-{% for kw in hojas %}
+{% for kw in pendientes %}
 <div class="tarjeta">
   {# El nombre es texto libre de la keyword: AUTOESCAPE lo escapa #}
   <h3 data-dato-libre>{{ kw.nombre or "—" }} · {{ kw.campana or "—" }} - {{ "MX" if plataforma == "amazon_mx" else "US" }}</h3>
   <p>Vendía {{ kw.pedidos_antes_90d | numero }} pedidos ({{ kw.venta_antes_90d | dinero }} {{ kw.moneda }}) en los 3 meses antes de los recortes.</p>
-  <p>Clics cada 2 semanas: {{ kw.clics_antes_14d | numero }} antes, {{ kw.clics_ahora_14d | numero }} ahora. Bid: {{ kw.bid_antes | dinero }} antes, {{ kw.bid_hoy | dinero }} hoy, tras {{ kw.recortes }} recortes.</p>
-  {% if kw.ya_regresada %}
-  <p>Regresada el {{ kw.regresada_el }}.</p>
-  {% else %}
+  <p>Clics cada 2 semanas: {{ kw.clics_antes_14d | numero }} antes, {{ kw.clics_ahora_14d | numero }} ahora. Puja: {{ kw.bid_antes | dinero }} antes, {{ kw.bid_hoy | dinero }} hoy, tras {{ kw.recortes }} recortes.</p>
   {# el click lo cablea /static/js/danadas.js (onclick= inline lo bloquea la CSP) #}
-  <button type="button" data-regresar="{{ kw.hoja_id }}"{% if kw.bid_hoy is none %} disabled{% endif %}>Regresar el bid a {{ kw.bid_antes | dinero }}</button>
+  <button type="button" data-regresar="{{ kw.hoja_id }}"{% if kw.bid_hoy is none %} disabled{% endif %}>Regresar la puja a {{ kw.bid_antes | dinero }}</button>
   <div hidden id="regreso-{{ kw.hoja_id }}">
     <form data-regreso="{{ kw.hoja_id }}">
-      <p>Orbit cambia ahora el bid en Amazon de {{ kw.bid_hoy | dinero }} a {{ kw.bid_antes | dinero }} {{ kw.moneda }}. El motor espera 7 días. Después no la recorta hasta que junte 20 clics al bid nuevo o pasen 14 días, y nunca la baja del bid que la dañó.</p>
+      <p>Orbit cambia ahora la puja en Amazon de {{ kw.bid_hoy | dinero }} a {{ kw.bid_antes | dinero }} {{ kw.moneda }}. El motor espera 7 días. Después no la recorta hasta que junte 20 clics con la puja nueva o pasen 14 días, y nunca la baja de la puja que la dañó.</p>
       <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien regresa" required></label>
       <label>Token <input type="password" name="token" placeholder="Token de escritura" required></label>
       <button type="submit">Confirmar regreso</button>
       <span data-estado class="mutado"></span>
     </form>
   </div>
-  {% endif %}
 </div>
 {% else %}
-<p>Sin keywords dañadas en este mercado: nada que regresar.</p>
+<p>{% if hojas %}Ninguna pendiente: todas ya se regresaron.{% else %}Sin keywords dañadas en este mercado: nada que regresar.{% endif %}</p>
 {% endfor %}
+{% set regresadas = hojas | selectattr("ya_regresada") | list %}
+{% if regresadas %}
+<details class="tarjeta">
+  <summary>Ya regresadas ({{ regresadas | length }})</summary>
+  <ul>
+    {% for kw in regresadas %}
+    <li><span data-dato-libre>{{ kw.nombre or "—" }} · {{ kw.campana or "—" }}</span> · regresada el {{ kw.regresada_el | fecha_corta }} a {{ kw.bid_antes | dinero }} {{ kw.moneda }}</li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
 {% endblock %}
 {% block scripts %}<script src="/static/js/danadas.js?v={{ asset_version }}"></script>{% endblock %}

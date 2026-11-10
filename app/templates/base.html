@@ -91,7 +91,7 @@
       <div class="header-acciones">
         {% block cabecera_accion %}{% endblock %}
         <span class="leyenda-zona">{{ leyenda_zona }}</span>
-        <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
+        <span id="watermark-resumen" class="chip-watermark">Cifras hasta: sin consultar</span>
         <span class="alcance">{% if pantalla == 'resumen' %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
@@ -185,6 +185,8 @@
     </a>
     {% endfor %}
   </nav>
+  <script type="application/json" id="orbit-etiquetas">{{ registro_etiquetas }}</script>
+  <script src="/static/js/formato.js?v={{ asset_version }}"></script>
   <script src="/static/vendor/chart.umd.min.js?v={{ asset_version }}"></script>
   <script src="/static/js/shell.js?v={{ asset_version }}"></script>
   <script src="/static/js/dashboard.js?v={{ asset_version }}"></script>

@@ -1694,7 +1694,10 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
         _die("drive-salud FALLA: no encontre script#datos-skips-amazon_us")
     raw = html_lib.unescape(skip_script.group(1).strip())
     skip_data = json.loads(raw)
-    motivo_es = ((skip_data.get("entidad") or {}).get("estado_no_enabled") or {}).get("motivo_es")
+    motivo_es = next(
+        (s.get("motivo_es") for s in skip_data.get("entidad") or [] if s.get("motivo") == "estado_no_enabled"),
+        None,
+    )
     checks["skips_motivo_es_human"] = isinstance(motivo_es, str) and (
         "no está habilitado" in motivo_es
     )
