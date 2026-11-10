@@ -80,3 +80,8 @@ Código de `origin/master` 7cf7c9a (copias en `scratchpad/fixa-src/`). Producci�
 - Contribución: rango que cruza cero = sin halo negativo, con halo positivo (`docs/MARGEN-ENTIDAD.md:24-40`). Prod `GET /api/dashboard/contribucion`: A1U - Category Phrase - US -187.54 .. 93.99. «vintage D-15 UTC» y «El rollup suma las entidades hijas … (D2)»: `contribucion.html:3-5`, ventana `app/dashboard_contribucion.py:39-42`. «FX aproximado · nearest_prior»: `contribucion.html:52-54`.
 - Nombre del menú «Contribucion» sin acento: `base.html:26`, `:52`.
 - Se quitó la captura `img/campanas.png` de la hoja de Campañas para hacer espacio a los filtros y al aviso de monedas.
+
+## CLARIDAD 01 I
+- Recuadro Último ciclo: «US · Completo · En vivo» y «8 nov, 11:58 · N decisiones» con `Orbit.etiqueta` (`estado_ciclo`, `modo`) y `Orbit.fechaHora`; chip del encabezado «Cifras hasta · US: …»: `app/static/js/shell.js`, `app/templates/base.html`.
+- Gráfica de skips de Salud: del más contado al menos contado, autoSkip falso, 24 px por barra, motivo en hasta dos renglones con el texto completo en el tooltip y «(búsquedas)» para un motivo repetido: `app/static/js/dashboard.js` (`graficarBarras`, `renglones`), `app/api_dashboard.py` (`_skips_traducidos`).
+- «Últimos datos de métricas» y «Estructura sincronizada» en la tarjeta: `app/templates/salud.html:13-14`.
