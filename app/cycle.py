@@ -183,7 +183,7 @@ import datetime as dt
 import json
 import logging
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, fields, replace
 from decimal import Decimal
 from typing import NamedTuple
@@ -2713,6 +2713,7 @@ def _procesa_grupo(
     pendientes: list[_Pendiente],
     tick,
     evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
+    keywords_propias: Mapping[int, frozenset[str]],
     bloqueadas: set[tuple[int, str, str | None]],
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
@@ -2801,6 +2802,7 @@ def _procesa_grupo(
         target_acos_pct=target,
         config_harvest=config_harvest,
         keywords_existentes=keywords,
+        keywords_propias=keywords_propias.get(grupo_id, frozenset()),
         umbral_negative=corte_negativo.umbral,
         piso_negative=piso_neg.piso_cost,
     )
@@ -3247,6 +3249,11 @@ def _recorre_plataforma(
             target_margen=target_ciclo.margen,
         )
     evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
+    # ARREGLOS 01 B (E-S1): keywords EXACT por ad group de ORIGEN, UNA
+    # consulta por plataforma en TX2 (mismo snapshot REPEATABLE READ) junto a
+    # la evidencia. Un termino que es keyword propia de su ad group no se
+    # negativiza ni se harvestea.
+    keywords_propias = hygiene.keywords_exactas_por_grupo(conn, platform)
     # ORBIT 07 M1: lectura comun de venta reciente y episodios, UNA vez por
     # plataforma en TX2. El setting selecciona la politica: ausente = historica
     # (ni lectura ni excepcion de la fila released); `proteccion_venta_v1` =
@@ -3344,7 +3351,13 @@ def _recorre_plataforma(
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1
-        _procesa_grupo(conn, fila=fila, acos_campanas=acos_campanas, **comunes)
+        _procesa_grupo(
+            conn,
+            fila=fila,
+            acos_campanas=acos_campanas,
+            keywords_propias=keywords_propias,
+            **comunes,
+        )
     if contadores.productos is not None and contadores.productos.modo_pausa != "off":
         for pendiente in _pendientes_pausa_producto(contadores.productos, decided_at=decided_at):
             pendientes.append(pendiente)

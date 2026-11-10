@@ -258,6 +258,7 @@ def test_revalidacion_harvest_respeta_target_del_goal(target_congelado):
         patch.object(windows, "ventanas_evidencia_ad_group", return_value={}),
         patch.object(windows, "terminos_cortes", return_value=ventana),
         patch.object(hygiene, "keywords_campana_destino", return_value=frozenset()),
+        patch.object(hygiene, "keywords_exactas_por_grupo", return_value={}),
     ):
         motivo = apply_harvest_reconciliacion.revalida_harvest(
             Memoria(),
