@@ -19,16 +19,22 @@ con su evidencia medida; este docstring es el resumen operativo):
    fila no puede probar cobertura anterior a su creacion (regla 3).
 2. Re-corrida contra el esquema real: vigencia identica ya presente = no-op;
    vigencia nueva CIERRA la abierta (`UPDATE valid_to`, unica transicion que
-   el trigger `sku_cost_solo_cierra_vigencia` permite) e inserta; cualquier
-   divergencia con lo ya publicado (costo distinto, cierre movido, fila
-   desaparecida, retroactiva) rechaza el SKU COMPLETO con su skip contado:
-   el importe y valid_from publicados son inmutables y el pipeline jamas
-   intenta el UPDATE/DELETE que el trigger rechazaria.
+   el trigger `sku_cost_solo_cierra_vigencia` permite) e inserta. Un costo
+   nuevo entra AL DIA SIGUIENTE de su ultimo cambio: el dia UTC de la corrida
+   todavia puede cambiar (D2) y no se publica. Lo ya publicado es inmutable:
+   si el origen reescribe historia, se conserva y el SKU sigue al origen desde
+   ayer (convergencia, sin congelarse); un SKU ausente del origen cierra su
+   vigencia abierta en ayer y queda sin costo. Un estado imposible aborta la
+   corrida entera en vez de dejar un costo viejo abierto.
 3. `includes_tax = false`: `sku_costs.cost` es el `standard_price` de Odoo
    verbatim (costo de VALORACION: kits calculados con compute_price, que suma
    componentes netos; ninguna herramienta del ecosistema aplica IVA al costo).
    Residual declarado en el plan: si un alta manual de Odoo tuviera precio
    con IVA, declarar false SUBESTIMA margen (conservador), jamas lo infla.
+4. Un cierre masivo (mas del 10 % de los productos con vigencia abierta) es
+   senal de una copia truncada o de un sync de contabilidad a medias: la
+   corrida aborta sin escribir y avisa por Telegram. La bandera
+   `--acepto-cierre-masivo` lo permite con conocimiento de causa.
 
 Sellado 1 (regla 3): costo 0 o NULL = dato faltante -> la fila NO se escribe,
 queda contada en `rows_skipped`, y ADEMAS corta la cadena (los dias que esa
@@ -65,6 +71,7 @@ from typing import NamedTuple
 import psycopg
 
 from app.db import connect
+from app.notifica import envia_aviso
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -122,6 +129,26 @@ class Vigencia(NamedTuple):
     hasta: dt.date | None  # None = abierta
 
 
+class Cierre(NamedTuple):
+    """Una vigencia publicada abierta que se cierra en `valid_to`."""
+
+    valid_from: dt.date
+    valid_to: dt.date
+
+
+class PlanSku(NamedTuple):
+    """La escritura que necesita un SKU contra lo ya publicado.
+
+    `convergencia` es informativa (el origen reescribio historia ya publicada);
+    `sin_costo` avisa que el origen no da costo para el ultimo dia cerrado.
+    """
+
+    cierres: list[Cierre]
+    inserciones: list[Vigencia]
+    convergencia: str | None
+    sin_costo: bool
+
+
 @dataclass(frozen=True)
 class OrigenCostos:
     filas: tuple[FilaCosto, ...]
@@ -153,6 +180,9 @@ class ResultadoSync:
     segmentos_intradia_colapsados: int
     segmentos_intradia_en_borde: int
     fusiones: int
+    convergencias: int = 0
+    sin_costo_en_origen: int = 0
+    detalle: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +417,6 @@ ON CONFLICT (odoo_sku) DO UPDATE SET name = EXCLUDED.name
 RETURNING id, (xmax = 0) AS es_nuevo
 """
 
-_SQL_ID_PRODUCTO = "SELECT id FROM product WHERE odoo_sku = %s"
-
 _SQL_VIGENCIAS_PUBLICADAS = (
     "SELECT valid_from, cost_amount, valid_to, cost_currency, includes_tax"
     " FROM sku_cost WHERE product_id = %s ORDER BY valid_from"
@@ -413,57 +441,149 @@ def _formato_skip_reason(skips: Counter) -> str | None:
     return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
 
-def _plan_sku(
-    serie: list[Vigencia],
-    publicadas: dict[dt.date, tuple[Decimal, dt.date | None, str, bool]],
-) -> tuple[list[Vigencia], list[Vigencia], str | None]:
-    """Compara la serie colapsada contra lo YA publicado y planifica la write.
+def recortar(serie: list[Vigencia], *, corte: dt.date) -> list[Vigencia]:
+    """Lo firme de la serie: el dia `corte` todavia puede cambiar (D2).
 
-    Contrato: lo publicado es un prefijo inmutable de la serie. Si el origen
-    diverge (costo distinto, cierre movido/reabierto, fila desaparecida,
-    vigencia retroactiva que solaparia, moneda o includes_tax distintos —
-    hallazgo 4 del adversario: mismo importe con otra moneda es OTRO numero)
-    se rechaza el SKU COMPLETO: cero escrituras parciales. Devuelve
-    (cierres, inserciones, motivo | None).
+    Quita las vigencias que empiezan en `corte` o despues y deja abierta
+    (`hasta=None`) la que llega a `corte` o lo pasa. Asi el costo nuevo entra
+    al dia siguiente de su ultimo cambio, nunca el mismo dia de la corrida.
     """
-    if not publicadas:
-        return [], list(serie), None
-    max_desde = max(publicadas)
-    desdes_serie = {v.desde for v in serie}
-
+    firme: list[Vigencia] = []
     for v in serie:
-        pub = publicadas.get(v.desde)
-        if pub is None:
-            if v.desde <= max_desde:
-                return [], [], "vigencia retroactiva no publicable (solaparia)"
+        if v.desde >= corte:
             continue
-        costo_pub, hasta_pub, moneda_pub, tax_pub = pub
-        if costo_pub != v.costo:
-            return [], [], "costo distinto para vigencia ya publicada"
-        if moneda_pub != v.moneda:
-            return [], [], "moneda distinta para vigencia ya publicada"
-        if tax_pub != INCLUDES_TAX:
-            return [], [], "includes_tax distinto en vigencia ya publicada"
-        if hasta_pub is not None and v.hasta != hasta_pub:
-            if v.hasta is None:
-                return [], [], "origen reabre vigencia ya publicada"
-            return [], [], "origen reescribe el cierre de una vigencia publicada"
+        if v.hasta is None or v.hasta >= corte:
+            firme.append(v._replace(hasta=None))
+        else:
+            firme.append(v)
+    return firme
 
-    for desde_pub in publicadas:
-        if desde_pub not in desdes_serie:
-            return [], [], "vigencia publicada desaparecio del origen"
 
+def _prefijo(
+    publicadas: dict[dt.date, tuple[Decimal, dt.date | None, str, bool]],
+    firme: list[Vigencia],
+) -> bool:
+    """True si lo publicado es prefijo inmutable de `firme` (mismos importes)."""
+    if not publicadas:
+        return True
+    max_desde = max(publicadas)
+    por_desde = {v.desde: v for v in firme}
+    for desde_pub, (costo, hasta, moneda, tax) in publicadas.items():
+        v = por_desde.get(desde_pub)
+        if v is None:
+            return False
+        if v.costo != costo or v.moneda != moneda or tax != INCLUDES_TAX:
+            return False
+        if hasta is not None and v.hasta != hasta:
+            return False
+    return all(not (v.desde <= max_desde and v.desde not in publicadas) for v in firme)
+
+
+def _plan_prefijo(
+    publicadas: dict[dt.date, tuple[Decimal, dt.date | None, str, bool]],
+    firme: list[Vigencia],
+) -> PlanSku:
     cierres = [
-        v
-        for v in serie
+        Cierre(v.desde, v.hasta)
+        for v in firme
         if v.desde in publicadas and publicadas[v.desde][1] is None and v.hasta is not None
     ]
-    inserciones = [v for v in serie if v.desde not in publicadas]
-    return cierres, inserciones, None
+    inserciones = [v for v in firme if v.desde not in publicadas]
+    return PlanSku(cierres, inserciones, None, False)
 
 
-def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
-    """Corre la ingesta completa y sella su ingest_run (patron structure.sync)."""
+def planear_sku(
+    serie: list[Vigencia] | None,
+    publicadas: dict[dt.date, tuple[Decimal, dt.date | None, str, bool]],
+    *,
+    corte: dt.date,
+) -> PlanSku:
+    """Lo publicado es inmutable; lo que Orbit no ha fijado sigue al origen.
+
+    Si lo publicado es prefijo de `firme`, cierra e inserta como siempre. Si
+    el origen reescribio historia, borro filas o el SKU desaparecio, converge
+    hacia adelante desde U = max(corte - 1 dia, abierta.valid_from + 1 dia):
+    nunca toca dias anteriores a U. Un estado imposible levanta CostsError en
+    vez de dejar un costo viejo abierto.
+    """
+    firme = recortar(list(serie or []), corte=corte)
+    if _prefijo(publicadas, firme):
+        return _plan_prefijo(publicadas, firme)
+
+    abiertas = [(desde, pub) for desde, pub in publicadas.items() if pub[1] is None]
+    if len(abiertas) > 1:
+        raise CostsError(
+            f"estado imposible: hay mas de una vigencia publicada abierta ({len(abiertas)})"
+        )
+
+    if not abiertas:
+        # Un SKU que desaparecio y volvio no tiene vigencia abierta que cerrar:
+        # su ultima cerrada manda el piso. Se reabre desde ayer o desde ese
+        # cierre, nunca antes (lo publicado queda igual).
+        ultimo_cierre = max(
+            (pub[1] for pub in publicadas.values() if pub[1] is not None),
+            default=None,
+        )
+        if ultimo_cierre is None:
+            raise CostsError("estado imposible: lo publicado no tiene vigencia abierta ni cerrada")
+        u = max(corte - dt.timedelta(days=1), ultimo_cierre)
+        v = next(
+            (x for x in firme if x.desde <= u and (x.hasta is None or x.hasta > u)),
+            None,
+        )
+        if v is None:
+            return PlanSku([], [], None, False)
+        return PlanSku(
+            [],
+            [Vigencia(v.sku, v.costo, v.moneda, u, None)],
+            "el origen reescribio historia publicada; sigue al origen desde " + u.isoformat(),
+            False,
+        )
+
+    desde_abierta, (costo, _, moneda, tax) = abiertas[0]
+    u = max(corte - dt.timedelta(days=1), desde_abierta + dt.timedelta(days=1))
+    if desde_abierta >= u:
+        raise CostsError(
+            f"estado imposible: la vigencia abierta ({desde_abierta}) no termina antes de {u}"
+        )
+    for hasta in (pub[1] for pub in publicadas.values() if pub[1] is not None):
+        if hasta > u:
+            raise CostsError(
+                f"estado imposible: una vigencia cerrada termina en {hasta}, despues de {u}"
+            )
+
+    v = next(
+        (x for x in firme if x.desde <= u and (x.hasta is None or x.hasta > u)),
+        None,
+    )
+    if v is None:
+        return PlanSku([Cierre(desde_abierta, u)], [], None, True)
+
+    convergencia = "el origen reescribio historia publicada; sigue al origen desde " + u.isoformat()
+    if (v.costo, v.moneda) == (costo, moneda) and tax == INCLUDES_TAX:
+        return PlanSku([], [], convergencia, False)
+    return PlanSku(
+        [Cierre(desde_abierta, u)],
+        [Vigencia(v.sku, v.costo, v.moneda, u, None)],
+        convergencia,
+        False,
+    )
+
+
+def sync_costos(
+    conn: psycopg.Connection,
+    ruta_sqlite: Path | str,
+    *,
+    corte: dt.date,
+    acepto_cierre_masivo: bool = False,
+) -> ResultadoSync:
+    """Corre la ingesta completa y sella su ingest_run (patron structure.sync).
+
+    `corte` es el dia UTC de la corrida: ese dia todavia puede cambiar (D2) y
+    no se publica hasta la corrida siguiente. Antes de escribir, un cierre por
+    falta de costo de mas del 10 % de los productos con vigencia abierta
+    aborta la corrida (copia truncada) salvo `acepto_cierre_masivo`.
+    """
     origen = leer_origen(ruta_sqlite)
     vigencias_por_sku, skips, stats = colapsar(origen.filas)
 
@@ -475,6 +595,9 @@ def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
     nombres_derivados = 0
     insertadas = 0
     cerradas = 0
+    convergencias = 0
+    sin_costo_en_origen = 0
+    detalle: list[str] = []
     try:
         with conn.transaction():
             for sku in sorted(vigencias_por_sku):
@@ -488,45 +611,74 @@ def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
                 ).fetchone()
                 if fila is None:
                     # Nombre identico O protegido contra degradacion: el WHERE
-                    # corto el UPDATE; leer el id existente sin tocar la fila.
-                    product_id = conn.execute(_SQL_ID_PRODUCTO, (sku,)).fetchone()[0]
+                    # corto el UPDATE; la fila existente ya esta en `productos`.
+                    pass
                 else:
-                    product_id, es_nuevo = fila
+                    _, es_nuevo = fila
                     if es_nuevo:
                         productos_nuevos += 1
                     else:
                         productos_actualizados += 1
 
+            # Un solo bucle sobre TODOS los productos de Orbit: los que traen
+            # vigencias del origen y los que desaparecieron de el. Los
+            # primeros ya se dieron de alta arriba; los ausentes conservan su
+            # fila de product y aqui se les cierra la vigencia abierta en ayer.
+            productos = dict(conn.execute("SELECT odoo_sku, id FROM product").fetchall())
+            planes: list[tuple[str, int, PlanSku]] = []
+            con_abierta = 0
+            cierres_sin_costo = 0
+            for sku, product_id in sorted(productos.items()):
                 publicadas = {
                     vf: (costo, hasta, moneda, tax)
                     for vf, costo, hasta, moneda, tax in conn.execute(
                         _SQL_VIGENCIAS_PUBLICADAS, (product_id,)
                     )
                 }
-                cierres, inserciones, motivo = _plan_sku(vigencias_por_sku[sku], publicadas)
-                if motivo is not None:
-                    skips[f"{motivo} (sku completo sin escribir)"] += 1
-                    continue
+                if any(pub[1] is None for pub in publicadas.values()):
+                    con_abierta += 1
+                plan = planear_sku(vigencias_por_sku.get(sku), publicadas, corte=corte)
+                planes.append((sku, product_id, plan))
+                if plan.sin_costo:
+                    cierres_sin_costo += 1
+
+            # Una copia truncada no puede cerrar media cartera: 10 * n > total
+            # equivale a "pasa del 10 %" sin floats.
+            if (
+                not acepto_cierre_masivo
+                and con_abierta > 0
+                and cierres_sin_costo * 10 > con_abierta
+            ):
+                aviso = (
+                    f"Costos: la corrida cerraria {cierres_sin_costo} de"
+                    f" {con_abierta} productos sin costo en el origen; se detuvo"
+                    " sin escribir. Si la copia de contabilidad esta completa,"
+                    " corre con --acepto-cierre-masivo."
+                )
+                envia_aviso(aviso)
+                raise CostsError(aviso)
+
+            for sku, product_id, plan in planes:
                 # Primero los cierres: la vigencia nueva que empieza donde la
                 # abierta se cierra chocaria el EXCLUDE si se insertara antes.
-                for v in cierres:
-                    conn.execute(_SQL_CERRAR_VIGENCIA, (v.hasta, product_id, v.desde))
+                for cierre in plan.cierres:
+                    conn.execute(
+                        _SQL_CERRAR_VIGENCIA,
+                        (cierre.valid_to, product_id, cierre.valid_from),
+                    )
                     cerradas += 1
-                for v in inserciones:
+                for v in plan.inserciones:
                     conn.execute(
                         _SQL_INSERTAR_VIGENCIA,
                         (product_id, v.costo, v.moneda, INCLUDES_TAX, v.desde, v.hasta, run_id),
                     )
                     insertadas += 1
-
-            # Hallazgo 5 del adversario: un SKU que desaparece ENTERO del
-            # origen no puede quedar en silencio con su vigencia abierta
-            # huerfana. Se cuenta; NO se cierra su vigencia (eso seria inventar
-            # que dejo de aplicar) ni se desactiva el producto.
-            skus_origen = {f.sku for f in origen.filas}
-            for (odoo_sku,) in conn.execute("SELECT odoo_sku FROM product"):
-                if odoo_sku not in skus_origen:
-                    skips["sku ausente del origen (su vigencia abierta queda huerfana)"] += 1
+                if plan.convergencia is not None:
+                    convergencias += 1
+                    detalle.append(f"{sku}: {plan.convergencia}")
+                if plan.sin_costo:
+                    sin_costo_en_origen += 1
+                    detalle.append(f"{sku}: sin costo en el origen; su costo cerro ayer")
 
             skip_reason = _formato_skip_reason(skips)
             _sellar_run(
@@ -576,6 +728,9 @@ def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
         segmentos_intradia_colapsados=stats["segmentos_intradia_colapsados"],
         segmentos_intradia_en_borde=stats["segmentos_intradia_en_borde"],
         fusiones=stats["fusiones"],
+        convergencias=convergencias,
+        sin_costo_en_origen=sin_costo_en_origen,
+        detalle=tuple(detalle),
     )
 
 
@@ -596,6 +751,14 @@ def _sellar_run(
 # ---------------------------------------------------------------------------
 
 
+def _texto_aviso_costos(detalle: tuple[str, ...]) -> str:
+    return (
+        "Costos: "
+        + "; ".join(detalle)
+        + ". Orbit usa el costo nuevo desde ayer; lo anterior queda como se publico."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.cli ingest costs",
@@ -608,6 +771,14 @@ def main(argv: list[str] | None = None) -> int:
         "--sqlite",
         required=True,
         help="ruta del snapshot (producido con la API .backup(); ver runbook)",
+    )
+    parser.add_argument(
+        "--acepto-cierre-masivo",
+        action="store_true",
+        help=(
+            "permite cerrar mas del 10 %% de los productos sin costo en el origen"
+            " (solo si la copia de contabilidad esta completa)"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -625,10 +796,16 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    corte = dt.datetime.now(dt.UTC).date()
     try:
         conn = connect(dsn)
         try:
-            resultado = sync_costos(conn, ruta)
+            resultado = sync_costos(
+                conn,
+                ruta,
+                corte=corte,
+                acepto_cierre_masivo=args.acepto_cierre_masivo,
+            )
         finally:
             conn.close()
     except Exception as exc:
@@ -649,12 +826,16 @@ def main(argv: list[str] | None = None) -> int:
         f" actualizados={resultado.productos_actualizados}"
         f" nombres_derivados={resultado.nombres_derivados}"
     )
+    print(f"corte={corte.isoformat()} (el dia de hoy queda para manana: D2, ultimo valor del dia)")
     print(
         f"vigencias: insertadas={resultado.vigencias_insertadas}"
         f" cerradas={resultado.vigencias_cerradas}"
         f" finales={resultado.vigencias_finales} (filas origen:"
         f" {resultado.filas_origen})"
     )
+    convergencias = f" ({'; '.join(resultado.detalle)})" if resultado.detalle else ""
+    print(f"convergencias={resultado.convergencias}{convergencias}")
+    print(f"sin_costo_en_origen={resultado.sin_costo_en_origen}")
     # Evidencia del colapso (hallazgo 3 del adversario + revision): los dias
     # intradia en el borde PIERDEN su costo y tienen que ser visibles, igual
     # que el ruido colapsado y las fusiones — un contador que no se ve no cuenta.
@@ -665,4 +846,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     if resultado.skip_reason:
         print(f"skips: {resultado.skip_reason}")
+    if resultado.detalle:
+        envia_aviso(_texto_aviso_costos(resultado.detalle))
     return 0

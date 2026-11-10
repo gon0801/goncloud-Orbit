@@ -811,8 +811,8 @@ def test_resolver_costo_desactualizado_corrida_sin_finished_at():
 
 
 @_skip_db
-def test_resolver_costo_desactualizado_corrida_global_con_rows_skipped():
-    """Una corrida con skips no acredita el costo; una limpia posterior si."""
+def test_resolver_costo_corrida_global_con_rows_skipped_no_frena():
+    """ARREGLOS 01 F: un skip por SKU es informativo y ya no bloquea a los demas."""
     with db_insumos() as conn:
         pid, _ = _sembrar_listing(conn)
         ayer = date(2026, 9, 7)
@@ -833,8 +833,12 @@ def test_resolver_costo_desactualizado_corrida_global_con_rows_skipped():
         )
         conn.commit()
         resultado = resolver_costo(conn, product_id=pid, fecha_escenario=hoy, now_utc=NOW)
-        assert resultado.motivo == "costo_desactualizado"
-        assert resultado.costo is None
+        assert resultado.motivo is None
+        assert resultado.costo is not None
+        assert resultado.costo.cost_amount == Decimal("40.0000")
+        assert resultado.costo.ingest_run_id == run_ayer
+        assert resultado.costo.validation_run_id == run_sucia
+        assert resultado.costo.validated_at == datetime(2026, 9, 8, 8, 10, tzinfo=UTC)
 
         run_limpia = _sembrar_corrida_costos(
             conn,
@@ -846,8 +850,6 @@ def test_resolver_costo_desactualizado_corrida_global_con_rows_skipped():
         resultado2 = resolver_costo(conn, product_id=pid, fecha_escenario=hoy, now_utc=NOW)
         assert resultado2.motivo is None
         assert resultado2.costo is not None
-        assert resultado2.costo.cost_amount == Decimal("40.0000")
-        assert resultado2.costo.ingest_run_id == run_ayer
         assert resultado2.costo.validation_run_id == run_limpia
         assert resultado2.costo.validated_at == datetime(2026, 9, 8, 8, 25, tzinfo=UTC)
         assert run_sucia != run_limpia

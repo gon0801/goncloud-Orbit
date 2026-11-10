@@ -231,9 +231,12 @@ diferencia > 0.01 MXN): no es solo rotación idéntica — la regla "último val
 del día" decide qué costo manda ese día. Semántica de re-corrida contra el
 esquema real: vigencia idéntica ya presente ⇒ **no-op**; vigencia nueva ⇒ cierra
 la abierta (`UPDATE valid_to`, la única transición que el trigger
-`sku_cost_solo_cierra_vigencia` permite) e inserta la nueva; costo DISTINTO para
-un período ya publicado ⇒ **skip contado** (el importe es inmutable; jamás se
-intenta el UPDATE que el trigger rechazaría).
+`sku_cost_solo_cierra_vigencia` permite) e inserta la nueva; un costo nuevo entra
+al **día siguiente** de su último cambio (el día de la corrida todavía puede
+cambiar). Costo distinto para un período ya publicado ⇒ **convergencia**: lo
+publicado es inmutable y el SKU sigue al origen desde ayer, nunca se congela; un
+SKU que desaparece cierra su vigencia abierta en ayer. Un cierre de más del 10 %
+de los productos con vigencia abierta aborta la corrida sin escribir y avisa.
 
 **D3 · `includes_tax = false` (costo NETO de IVA), declarado con la cadena de
 evidencia completa; `product.name` derivado del SKU para los sin nombre.**
