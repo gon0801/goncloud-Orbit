@@ -195,6 +195,9 @@ MOTIVO_SALUD: dict[str, str] = {
     hygiene.MOTIVO_ACOS_SOBRE_TOPE: "El ACoS de la búsqueda pasa el tope para capturarla",
     hygiene.MOTIVO_HARVEST_SIN_CONFIG: "No hay campaña manual configurada para capturar búsquedas",
     hygiene.MOTIVO_HARVEST_DUPLICADO: "La búsqueda ya existe como keyword: no se captura otra vez",
+    hygiene.MOTIVO_KEYWORD_PROPIA: (
+        "La búsqueda es una keyword propia de su grupo de anuncios: no se bloquea ni se captura"
+    ),
     hygiene.MOTIVO_HARVEST_MONEDA_INCOHERENTE: "Captura detenida: la moneda no cuadra",
     hygiene.MOTIVO_MONEDA_INCOHERENTE: "La moneda no cuadra",
     hygiene.MOTIVO_ORIGEN_ES_DESTINO: (

@@ -559,6 +559,13 @@ def test_sql_del_modulo_parsea_como_postgres():
     for nombre in ("_SQL_KEYWORDS_CAMPANA",):
         sql = getattr(h, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
+    # ARREGLOS 01 B (E-S1): el lector de keywords propias trae un filtro
+    # opcional; se cubren sus DOS formas.
+    for filtro in ("", "AND k.parent_id = %s"):
+        sql = h._SQL_EXACTAS_POR_GRUPO.format(filtro_grupo=filtro)
+        assert pglast.parse_sql(sql.replace("%s", "NULL")), (
+            f"_SQL_EXACTAS_POR_GRUPO no parseo (filtro {filtro!r})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -889,6 +896,79 @@ def test_keywords_campana_destino_incluye_archivadas():
             (kw,),
         )
         assert h.keywords_campana_destino(conn, "amazon_us", "9002") == frozenset({"zapato rojo"})
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_arreglos01_b_keywords_exactas_por_grupo_lee_filas():
+    """ARREGLOS 01 B (E-S1): el lector por lote devuelve SOLO las keywords
+    EXACT de cada ad group de la plataforma, con el texto tal cual (la
+    normalizacion la hace decide_hygiene) y sin mirar el estado: una
+    ARCHIVED sigue porque el dueno puede reactivarla y no debe encontrarse
+    ya negada. Un PHRASE, otra plataforma y un grupo sin keywords no
+    aparecen; solo_grupo acota la consulta (revalidacion de la cola)."""
+    with _db_temporal("orbit_hyg_propias") as conn:
+        _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9001")
+        ag_a = _entidad(conn, "amazon_us", "ad_group", "9101", parent=camp)
+        ag_b = _entidad(conn, "amazon_us", "ad_group", "9103", parent=camp)
+        ag_vacio = _entidad(conn, "amazon_us", "ad_group", "9105", parent=camp)
+        kw_a = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9201",
+            parent=ag_a,
+            match_type="EXACT",
+            keyword_text="Arras de Boda",
+        )
+        _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9202",
+            parent=ag_a,
+            match_type="PHRASE",
+            keyword_text="arras phrase",
+        )
+        _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9203",
+            parent=ag_b,
+            match_type="EXACT",
+            keyword_text="zapato rojo",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+            " status, synced_at) VALUES (%s, 1.00, 'USD', 'ARCHIVED', now())",
+            (kw_a,),
+        )
+        camp_mx = _entidad(conn, "amazon_mx", "campaign", "9001")
+        ag_mx = _entidad(conn, "amazon_mx", "ad_group", "9101", parent=camp_mx)
+        _entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "9204",
+            parent=ag_mx,
+            match_type="EXACT",
+            keyword_text="arras de boda",
+        )
+
+        propias = h.keywords_exactas_por_grupo(conn, "amazon_us")
+        assert propias == {
+            ag_a: frozenset({"Arras de Boda"}),
+            ag_b: frozenset({"zapato rojo"}),
+        }
+        assert ag_vacio not in propias
+        assert h.keywords_exactas_por_grupo(conn, "amazon_us", solo_grupo=ag_b) == {
+            ag_b: frozenset({"zapato rojo"})
+        }
+        # Grupo sin keywords: ausencia declarada (regla 3), no una entrada vacia.
+        assert h.keywords_exactas_por_grupo(conn, "amazon_us", solo_grupo=ag_vacio) == {}
+        with pytest.raises(ValueError, match="vocabulario sellado"):
+            h.keywords_exactas_por_grupo(None, "shopify")
 
 
 def test_negative_cost_129_99_no_mx():
