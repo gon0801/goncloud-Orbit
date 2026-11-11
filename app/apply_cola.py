@@ -233,9 +233,12 @@ RETURNING id
 """
 
 # D-H1: descarte masivo PRE-claim de las pausas live que esperaban por venta
-# reciente. La marca es el ULTIMO no-apply registrado de la decision: si una
-# espera vieja por proteccion ya fue reemplazada por otro motivo (p.ej. quota),
-# la fila no espera por M1 y no se descarta. No se adivina por estado.
+# reciente. La marca es el ULTIMO no-apply CONCLUYENTE de la decision: los
+# transitorios sin_respuesta (LIST de re-validacion muerto) y espera_target (sin
+# target confiable) no dicen si M1 sigue encendida, asi que no tapan una espera
+# por proteccion. Si una espera vieja ya fue reemplazada por un motivo
+# concluyente (p.ej. quota), la fila no espera por M1 y no se descarta. No se
+# adivina por estado.
 _SQL_DESCARTA_ESPERAS = """
 UPDATE apply_queue q
    SET estado = 'discarded', discarded_at = now(), discard_motivo = %s
@@ -245,6 +248,7 @@ UPDATE apply_queue q
    AND (SELECT s.motivo
           FROM decision_sin_aplicar s
          WHERE s.decision_id = q.decision_id
+           AND s.motivo NOT IN ('sin_respuesta', 'espera_target')
          ORDER BY s.cycle_id DESC
          LIMIT 1) = 'espera_proteccion'
 RETURNING q.id
@@ -1540,11 +1544,12 @@ def _ejecuta_rama(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola
 
 def descarta_esperas_proteccion(conn: psycopg.Connection, platform: str) -> int:
     """Descarta, antes del claim (sin cuota ni HTTP), las pausas released cuyo
-    ULTIMO no-apply registrado fue `espera_proteccion`: si una espera vieja ya
-    fue reemplazada por otro motivo (p.ej. quota), la fila no espera por M1.
-    Es idempotente: la segunda corrida no encuentra filas. Si el llamador
-    revierte su transaccion, la fila sigue released y la proxima corrida la
-    vuelve a encontrar."""
+    ULTIMO no-apply CONCLUYENTE fue `espera_proteccion` (se ignoran los
+    transitorios `sin_respuesta` y `espera_target`, que no dicen si M1 sigue
+    encendida): si una espera vieja ya fue reemplazada por un motivo concluyente
+    (p.ej. quota), la fila no espera por M1. Es idempotente: la segunda corrida
+    no encuentra filas. Si el llamador revierte su transaccion, la fila sigue
+    released y la proxima corrida la vuelve a encontrar."""
     filas = conn.execute(_SQL_DESCARTA_ESPERAS, (MOTIVO_PROTECCION_APAGADA, platform)).fetchall()
     return len(filas)
 
@@ -1620,11 +1625,11 @@ def libera_vencidos(
     terminal discarded + discard_motivo.
 
     D-H1: con la proteccion APAGADA, primero se descartan las pausas released
-    cuyo ULTIMO no-apply registrado fue `espera_proteccion` (sin cuota ni HTTP y
-    antes de la seleccion FIFO), asi no caen de golpe con la semantica
-    historica. Las que apaguen la proteccion vuelven a proponerse con su veto de
-    48h; una espera vieja ya reemplazada por otro motivo (p.ej. quota) no se
-    toca."""
+    cuyo ULTIMO no-apply CONCLUYENTE fue `espera_proteccion` (se ignoran
+    `sin_respuesta` y `espera_target`; sin cuota ni HTTP y antes de la seleccion
+    FIFO), asi no caen de golpe con la semantica historica. Las que apaguen la
+    proteccion vuelven a proponerse con su veto de 48h; una espera vieja ya
+    reemplazada por un motivo concluyente (p.ej. quota) no se toca."""
     descartadas = _descartes_al_apagar_proteccion(conn, platform, proteccion_activa)
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
     # ORBIT 07 M1: la misma seleccion de politica que el ciclo. Apagada, la

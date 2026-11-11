@@ -355,6 +355,53 @@ def test_arreglos01_i_descarte_solo_si_el_ultimo_motivo_es_la_espera():
 
 
 @_skip_db
+@pytest.mark.parametrize("motivo", ["sin_respuesta", "espera_target"])
+def test_arreglos01_i_descarte_ignora_motivos_transitorios(motivo):
+    """F5: un LIST de re-validacion muerto (sin_respuesta) o una espera sin
+    target confiable (espera_target) no tapan la espera por proteccion. Si el
+    ultimo motivo CONCLUYENTE fue espera_proteccion, apagar la proteccion
+    descarta la pausa."""
+    with _db_cola(f"orbit_m1_transitorio_{motivo}") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+        apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
+        )
+        ciclo_posterior = _ciclo_id(conn)
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo) VALUES (%s, %s, %s)",
+            (dec, ciclo_posterior, motivo),
+        )
+
+        res = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=False,
+        )
+
+        assert res.descartadas == ["proteccion_apagada"]
+        assert res.aplicadas == 0
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "discarded"
+        )
+        assert _used_pause(conn) == 0
+
+
+@_skip_db
 def test_arreglos01_i_cli_apaga_proteccion_y_descarta_en_una_transaccion(monkeypatch):
     """F2: el CLI guarda la config y descarta las esperas de ambas plataformas
     en una sola transaccion, e informa cuantas descarto."""
