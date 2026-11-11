@@ -211,6 +211,20 @@ def _sembrar(conn) -> dict:
     window_end = hoy - timedelta(days=15)
     window_start = window_end - timedelta(days=29)
 
+    # A8 (ARREGLOS 01 J): /salud mide la ultima corrida ok del sync de
+    # estructura con acta por plataforma, no ad_entity_state.synced_at. Va
+    # ANTES de la corrida de productos para no le robe la ultima corrida por id.
+    run_estructura = conn.execute(
+        "INSERT INTO ingest_run (source, started_at, ok)"
+        " VALUES ('amazon_ads_structure_v2', %s, true) RETURNING id",
+        (decided_at,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_listado_plataforma (ingest_run_id, platform,"
+        " ad_groups_recibidos, product_ads_recibidos, product_ads_sin_grupo)"
+        " VALUES (%s, 'amazon_us', 0, 0, 0)",
+        (run_estructura,),
+    )
     run_id = conn.execute(
         "INSERT INTO ingest_run (source) VALUES ('verify-orbit') RETURNING id"
     ).fetchone()[0]
@@ -246,19 +260,6 @@ def _sembrar(conn) -> dict:
         "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
         " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', %s)",
         (camp_b_id, decided_at),
-    )
-    # A8 (ARREGLOS 01 J): /salud mide la ultima corrida ok del sync de
-    # estructura con acta por plataforma, no ad_entity_state.synced_at.
-    run_estructura = conn.execute(
-        "INSERT INTO ingest_run (source, started_at, ok)"
-        " VALUES ('amazon_ads_structure_v2', %s, true) RETURNING id",
-        (decided_at,),
-    ).fetchone()[0]
-    conn.execute(
-        "INSERT INTO ads_listado_plataforma (ingest_run_id, platform,"
-        " ad_groups_recibidos, product_ads_recibidos, product_ads_sin_grupo)"
-        " VALUES (%s, 'amazon_us', 0, 0, 0)",
-        (run_estructura,),
     )
     conn.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
