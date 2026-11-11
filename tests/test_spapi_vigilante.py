@@ -5,7 +5,7 @@ plataformas, wrapper spapi-diario.sh). Si el cron NO dispara, no hay fila
 que fallar y `salud.py` no tiene nada que evaluar: este modulo convierte
 la ausencia en aviso. Solo lee (`ORBIT_DSN_READ`); sin migracion.
 
-Bloques: `faltantes` pura (ventana [desde, hasta), ok=false cuenta,
+Bloques: `faltantes` pura (ventana [desde, hasta), ok=false no cuenta,
 finished NULL es ausencia), builders con igualdad exacta, sender
 fail-silent, validacion de ventana, lector con DSN real, CLI
 (`--dry-run`, exits 0/1/2) y candado de la linea de crontab.
@@ -56,11 +56,15 @@ def test_faltantes_fuente_sin_fila_devuelve_sus_dos_pares():
     ]
 
 
-def test_faltantes_ok_false_cuenta_como_presente():
-    """Una corrida fallida ya aviso por su camino (salud.py); el
-    vigilante no re-avisa fallos, solo ausencias."""
+def test_arreglos01_g_faltantes_ok_false_cuenta_como_faltante():
+    """Una corrida fallida no dejo su corrida ok: salud solo avisa en la
+    segunda falla seguida y la repeticion puede no correr, asi que el
+    vigilante la reporta. Si despues llega un ok true en la misma
+    ventana, el par queda presente."""
     filas = _ocho_presentes()
     filas[0] = _fila("spapi_orders", "amazon_mx", ok=False)
+    assert faltantes(filas, desde=DESDE, hasta=HASTA) == [("spapi_orders", "amazon_mx")]
+    filas.append(_fila("spapi_orders", "amazon_mx", ok=True))
     assert faltantes(filas, desde=DESDE, hasta=HASTA) == []
 
 
