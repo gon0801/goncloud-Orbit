@@ -138,6 +138,10 @@ MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
 # ORBIT 07 M1: la pausa por cero ventas espera el vencimiento del episodio de
 # venta reciente sin cobrar cuota ni entrar a applying (fila released).
 MOTIVO_ESPERA_PROTECCION = apply.MOTIVO_ESPERA_PROTECCION
+# D-H1: apagar la proteccion descarta, antes del claim, las pausas released
+# que esperaban por venta reciente (sin cuota ni HTTP). Sin esto caerian de
+# golpe con la semantica historica.
+MOTIVO_PROTECCION_APAGADA = "proteccion_apagada"
 # CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
 # (la funcion compartida del gate vive en apply, dueno del write client; cycle
 # y los tests siguen importando de AQUI): un corte cuya campaña o ad group
@@ -226,6 +230,28 @@ _SQL_DESCARTA = """
 UPDATE apply_queue SET estado = 'discarded', discarded_at = now(), discard_motivo = %s
  WHERE id = %s AND estado = %s
 RETURNING id
+"""
+
+# D-H1: descarte masivo PRE-claim de las pausas live que esperaban por venta
+# reciente. La marca es el ULTIMO no-apply CONCLUYENTE de la decision: los
+# transitorios sin_respuesta (LIST de re-validacion muerto) y espera_target (sin
+# target confiable) no dicen si M1 sigue encendida, asi que no tapan una espera
+# por proteccion. Si una espera vieja ya fue reemplazada por un motivo
+# concluyente (p.ej. quota), la fila no espera por M1 y no se descarta. No se
+# adivina por estado.
+_SQL_DESCARTA_ESPERAS = """
+UPDATE apply_queue q
+   SET estado = 'discarded', discarded_at = now(), discard_motivo = %s
+  FROM ad_entity e
+ WHERE e.id = q.ad_entity_id AND e.platform = %s::platform
+   AND q.estado = 'released' AND q.modo = 'live' AND q.kind = 'pause'
+   AND (SELECT s.motivo
+          FROM decision_sin_aplicar s
+         WHERE s.decision_id = q.decision_id
+           AND s.motivo NOT IN ('sin_respuesta', 'espera_target')
+         ORDER BY s.cycle_id DESC
+         LIMIT 1) = 'espera_proteccion'
+RETURNING q.id
 """
 
 # Sellado 17: la gracia vive en reactivacion_manual (detectada_en PK por
@@ -1516,6 +1542,28 @@ def _ejecuta_rama(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola
 # ---------------------------------------------------------------------------
 
 
+def descarta_esperas_proteccion(conn: psycopg.Connection, platform: str) -> int:
+    """Descarta, antes del claim (sin cuota ni HTTP), las pausas released cuyo
+    ULTIMO no-apply CONCLUYENTE fue `espera_proteccion` (se ignoran los
+    transitorios `sin_respuesta` y `espera_target`, que no dicen si M1 sigue
+    encendida): si una espera vieja ya fue reemplazada por un motivo concluyente
+    (p.ej. quota), la fila no espera por M1. Es idempotente: la segunda corrida
+    no encuentra filas. Si el llamador revierte su transaccion, la fila sigue
+    released y la proxima corrida la vuelve a encontrar."""
+    filas = conn.execute(_SQL_DESCARTA_ESPERAS, (MOTIVO_PROTECCION_APAGADA, platform)).fetchall()
+    return len(filas)
+
+
+def _descartes_al_apagar_proteccion(
+    conn: psycopg.Connection, platform: str, proteccion_activa: bool
+) -> list[str]:
+    """D-H1: descartes del inicio del barrido. Con M1 encendida no hay nada que
+    descartar por este camino; el detalle del porque vive en libera_vencidos."""
+    if proteccion_activa:
+        return []
+    return [MOTIVO_PROTECCION_APAGADA] * descarta_esperas_proteccion(conn, platform)
+
+
 def libera_vencidos(
     conn: psycopg.Connection,
     platform: str,
@@ -1574,7 +1622,15 @@ def libera_vencidos(
     (carreras_perdidas) y su desenlace ya es visible en la fila de la cola
     ('vetoed'); el motivo sigue en el vocabulario y el CHECK por las filas
     historicas. Los DESCARTES no se graban: su desenlace ya es la fila
-    terminal discarded + discard_motivo."""
+    terminal discarded + discard_motivo.
+
+    D-H1: con la proteccion APAGADA, primero se descartan las pausas released
+    cuyo ULTIMO no-apply CONCLUYENTE fue `espera_proteccion` (se ignoran
+    `sin_respuesta` y `espera_target`; sin cuota ni HTTP y antes de la seleccion
+    FIFO), asi no caen de golpe con la semantica historica. Las que apaguen la
+    proteccion vuelven a proponerse con su veto de 48h; una espera vieja ya
+    reemplazada por un motivo concluyente (p.ej. quota) no se toca."""
+    descartadas = _descartes_al_apagar_proteccion(conn, platform, proteccion_activa)
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
     # ORBIT 07 M1: la misma seleccion de politica que el ciclo. Apagada, la
     # cola revalida con la semantica historica y no lee la tabla de episodios.
@@ -1590,7 +1646,6 @@ def libera_vencidos(
 
     liberadas = aplicadas = fallidas = sin_quota = carreras = sin_respuesta = 0
     espera_target = espera_proteccion = 0
-    descartadas: list[str] = []
     alertas_harvest: list[apply_harvest.AlertaHarvest] = []
     caps_saturados: list[CapSaturado] = []
     revalidaciones_economicas: list[dict] = []
