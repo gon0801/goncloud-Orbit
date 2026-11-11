@@ -907,6 +907,8 @@ def db_pantalla(prefijo: str = "orbit_spapi_a5ui"):
             "0034_ingest_run_llamadas_grant.sql",
             "0036_ingest_run_platform.sql",
             "0037_ingest_run_salud_idx.sql",
+            # ARREGLOS 01 J: /salud lee el acta de listado por plataforma (0051).
+            "0051_ads_acta_listado.sql",
         ):
             conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
         from psycopg.conninfo import make_conninfo

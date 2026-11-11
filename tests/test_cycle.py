@@ -127,6 +127,12 @@ SQL60 = (
 SQL81 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
 ).read_text(encoding="utf-8")
+# ARREGLOS 01 J: la guarda de frescura de estructura lee el acta de listado
+# por plataforma (0051), no ad_entity_state.synced_at; sin la tabla TODO
+# ciclo con metricas revienta en TX2 al evaluar la guarda.
+SQL51 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -223,6 +229,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL60)
         # ORBIT 07 M1: proteccion de venta reciente (tabla + CHECK).
         conn.execute(SQL81)
+        # ARREGLOS 01 J: acta de listado por plataforma (la guarda la lee).
+        conn.execute(SQL51)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -322,6 +330,22 @@ def _termino(
     )
 
 
+def _acta_sync(conn, platform: str, started_at: dt.datetime) -> None:
+    """Corrida ok del sync de estructura con acta de UNA plataforma (0051):
+    la guarda de frescura lee de aqui, no de ad_entity_state.synced_at."""
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source, started_at, ok)"
+        " VALUES ('amazon_ads_structure_v2', %s, true) RETURNING id",
+        (started_at,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_listado_plataforma (ingest_run_id, platform,"
+        " ad_groups_recibidos, product_ads_recibidos, product_ads_sin_grupo)"
+        " VALUES (%s, %s, 0, 0, 0)",
+        (run_id, platform),
+    )
+
+
 def _estado(
     conn,
     ad_entity_id,
@@ -337,6 +361,12 @@ def _estado(
         " acos_target, synced_at) VALUES (%s, %s, %s, %s, %s, %s)",
         (ad_entity_id, current_bid, bid_currency, status, acos_target, synced_at),
     )
+    # El sync de estructura escribe el estado por fila Y su acta por
+    # plataforma; la guarda de frescura mide el acta (ARREGLOS 01 J).
+    platform = conn.execute(
+        "SELECT platform FROM ad_entity WHERE id = %s", (ad_entity_id,)
+    ).fetchone()[0]
+    _acta_sync(conn, platform, synced_at)
 
 
 def _config_version(conn, settings: dict) -> int:

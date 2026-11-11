@@ -109,6 +109,12 @@ SQL48 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0048_margen_familia.sql"
 ).read_text(encoding="utf-8")
 
+# ARREGLOS 01 J: la guarda de frescura de estructura lee el acta de listado
+# por plataforma (0051), no ad_entity_state.synced_at.
+SQL51 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0051_ads_acta_listado.sql"
+).read_text(encoding="utf-8")
+
 # BIDS 01 2.6: /inertes muestra la puerta de antiguedad del archivado
 # (first_seen_at, migracion 0017) y el resumen del ledger de lotes
 # (keyword_archivo_manual, migracion 0014).
@@ -148,6 +154,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL46)  # 0046 (A5): snapshot target_acos_ciclo
         conn.execute(SQL47)  # 0047 (A5): membresia producto_familia
         conn.execute(SQL48)  # 0048 (A5): vista v_margen_familia
+        conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         dsn_lectura = make_conninfo(dsn, dbname=db)
         yield conn, dsn_lectura
     finally:
@@ -281,6 +288,22 @@ def _goal_db(
     ).fetchone()[0]
 
 
+def _acta_sync(conn, platform: str, started_at) -> None:
+    """Corrida ok del sync de estructura con acta de UNA plataforma (0051):
+    la guarda de frescura lee de aqui, no de ad_entity_state.synced_at."""
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source, started_at, ok)"
+        " VALUES ('amazon_ads_structure_v2', %s, true) RETURNING id",
+        (started_at,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_listado_plataforma (ingest_run_id, platform,"
+        " ad_groups_recibidos, product_ads_recibidos, product_ads_sin_grupo)"
+        " VALUES (%s, %s, 0, 0, 0)",
+        (run_id, platform),
+    )
+
+
 def _estado_acos(conn, ad_entity_id, acos_target) -> None:
     """ad_entity_state con cache del acos_target publicado (4to peldano)."""
     conn.execute(
@@ -288,6 +311,10 @@ def _estado_acos(conn, ad_entity_id, acos_target) -> None:
         " acos_target, synced_at) VALUES (%s, NULL, NULL, 'ENABLED', %s, %s)",
         (ad_entity_id, acos_target, AHORA),
     )
+    platform = conn.execute(
+        "SELECT platform FROM ad_entity WHERE id = %s", (ad_entity_id,)
+    ).fetchone()[0]
+    _acta_sync(conn, platform, AHORA)
 
 
 def _ciclo(conn, *, platform: str, status: str = "done", notes=None) -> int:

@@ -268,7 +268,7 @@ Respuesta 200:
 }
 ```
 - `watermark`/`synced_at`: las MISMAS fuentes del motor (v_metric_latest y
-  ad_entity_state.synced_at, constantes de `windows.py`) — regla 2.
+  ingest_run.started_at de la ultima corrida ok del sync de estructura (acta en ads_listado_plataforma), constantes de `windows.py`) — regla 2.
 - `ultimo_ciclo` REUTILIZA `_parse_notes` (formato mixto JSON / texto `rastro: …`)
   y el SQL de último ciclo de `api.py` (extraídos a `app/api_common.py`, no
   copiados — decisión 6).

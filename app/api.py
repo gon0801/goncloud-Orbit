@@ -18,8 +18,9 @@ Contrato de lectura sellado (task 3.2 + diseno v2):
 
 - `/status`: ultimo ciclo POR PLATAFORMA + watermarks + notes del ciclo. Los
   watermarks salen de la MISMA fuente del motor (regla 2, un numero una
-  fuente): `v_metric_latest` y `ad_entity_state.synced_at` -- las constantes
-  SQL se IMPORTAN de `app.optimizer.windows` (la puerta de datos), no se
+  fuente): `v_metric_latest` y la ultima corrida ok del sync de estructura con acta
+  por plataforma (ingest_run.started_at + ads_listado_plataforma) -- las
+  constantes SQL se IMPORTAN de `app.optimizer.windows` (la puerta de datos), no se
   copian. El notes es de FORMATO MIXTO (residual declarado del plan): JSON
   en ciclos normales, texto plano `rastro: ...` en ciclos muertos reclamados
   -- el endpoint tolera AMBOS sin reventar (JSON parseado; texto bajo la
@@ -190,8 +191,9 @@ def status(conn: ConexionLectura) -> dict:
     """Ultimo ciclo por plataforma + watermarks + skips estructurados del notes.
 
     `watermark` es max(metric_date) colapsado (v_metric_latest) de la
-    plataforma y `synced_at` es max(ad_entity_state.synced_at): exactamente
-    las dos fuentes que evalua `windows.guarda_plataforma` (regla 2). Una
+    plataforma y `synced_at` es la ultima corrida ok del sync de estructura
+    con acta de esa plataforma (ads_listado_plataforma): exactamente las dos
+    fuentes que evalua `windows.guarda_plataforma` (regla 2). Una
     plataforma sin datos aparece con nulls, no con 404: el status es un
     panorama de TODAS las plataformas del vocabulario sellado.
 

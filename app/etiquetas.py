@@ -161,7 +161,7 @@ MOTIVO_SALUD: dict[str, str] = {
     # motivo_skip = guarda_<guarda>)
     "guarda_watermark": "Los datos de la plataforma tienen más de 7 días de atraso",
     "guarda_synced_at": "Las campañas no se sincronizan con Amazon desde hace más de 48 horas",
-    "guarda_sin_datos": "La plataforma no tiene métricas ni estado",
+    "guarda_sin_datos": "La plataforma no tiene métricas ni una lectura correcta de sus campañas",
     bid.MOTIVO_PAUSE: _PAUSA,
     bid.MOTIVO_PAUSE_CORTES_INCOMPLETO: "Pausa detenida: faltan días en la ventana de la pausa",
     bid.MOTIVO_PAUSE_MONEDA_INVALIDA: (
