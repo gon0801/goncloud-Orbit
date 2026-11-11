@@ -44,7 +44,7 @@ from decimal import Decimal, InvalidOperation
 import psycopg
 from psycopg.types.json import Json
 
-from app.apply import KINDS_QUOTA
+from app.apply import KINDS_QUOTA, cap_desde_settings
 from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_META
 from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
@@ -489,8 +489,6 @@ def proxima_config(
             raise SettingsInvalido(f"cap desconocido {kind!r}: los kinds son {KINDS_QUOTA}")
         if cap is None:
             continue
-        if cap < 0:
-            raise SettingsInvalido(f"cap {kind} debe ser >= 0, llego {cap}")
         k_cap = clave_cap(platform, kind)
         if nuevo.get(k_cap) != str(cap):
             cambios.append(f"cap {kind} {_antes(nuevo.get(k_cap))} -> {cap}")
@@ -510,6 +508,8 @@ def proxima_config(
         productos.limites_pausa_desde_settings(nuevo, platform)
         subproteccion.activa_desde_settings(nuevo)
         exige_limites_guardados(nuevo, platform)
+        for kind in KINDS_QUOTA:
+            cap_desde_settings(nuevo, platform, kind)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     # S.2: la resultante se valida con el vocabulario del motor de precios
