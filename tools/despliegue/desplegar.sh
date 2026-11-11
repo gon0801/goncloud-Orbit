@@ -75,7 +75,13 @@ fi
 # los deshace aqui (el motor no corre rollback con 75); sale 1 si la reversa no termino.
 sal_75_con_cambios() {
   echo "$1"
-  if tiene_cambios "$(lee_ultimo)"; then
+  local diario rc=0
+  diario=$(lee_ultimo) || rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "ABORTA: no pude leer $ULTIMO (salida $rc); salgo 1 para que el motor corra rollback.sh" >&2
+    exit 1
+  fi
+  if tiene_cambios "$diario"; then
     anota ESTADO=guardas_con_cambios
     echo "el diario ya trae cambios de esta corrida y el motor no corre rollback con 75: los deshago aqui"
     ( set +e; revierte ) || true

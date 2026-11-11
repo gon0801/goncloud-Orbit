@@ -101,7 +101,9 @@ case "$1" in
       case "$1" in build | up) sub=$1 ;; esac
       shift
     done
-    (cd "$dir" && find app -type f | LC_ALL=C sort | xargs md5sum) > "$C/compose-md5.txt"
+    if [ "$sub" = build ]; then
+      (cd "$dir" && find app -type f | LC_ALL=C sort | xargs md5sum) > "$C/compose-md5.txt"
+    fi
     touch "$C/arranque"
     # Un trabajo que arranca durante el build: la guarda del paso 5 tiene que verlo.
     if [ "$sub" = build ] && [ -f "$C/cli_vivo" ]; then

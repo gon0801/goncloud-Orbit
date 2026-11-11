@@ -71,7 +71,14 @@ recrea_contenedor() {
 set -u
 fin=$(( $(date +%s) + ESPERA_R ))
 while :; do
-  n=$(docker top orbit-app-1 2>/dev/null | grep -c 'app\.cli' || true)
+  sal=''
+  if ! sal=$(docker top orbit-app-1 2>&1); then
+    case "$sal" in
+      *"is not running"* | *"o such container"*) sal='' ;;
+      *) echo "ABORTA: docker top orbit-app-1: $sal" >&2; exit 1 ;;
+    esac
+  fi
+  n=$(printf '%s\n' "$sal" | grep -c 'app\.cli' || true)
   [ "$n" -eq 0 ] && break
   if [ "$(date +%s)" -ge "$fin" ]; then
     if [ "$MODO_R" = reversa ]; then
