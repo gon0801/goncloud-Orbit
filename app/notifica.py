@@ -1904,6 +1904,10 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
     S.6: el resumen diario y la compuerta van FUERA de la guarda B2 (sin
     decisiones tambien salen: el repaso no-op reintenta lo fallido); el que
     no repite es el sello (`resumen_enviado_at` / `avisada_at`).
+
+    J-H3: una corrida que espera el insumo del dia (`resumen.espera_insumos`)
+    no manda ni sella el resumen diario: lo manda la corrida que si decide,
+    para que el dia se resuma con sus decisiones y cambios reales.
     """
     try:
         fila = conn.execute(_SQL_PRECIO_CONFIG).fetchone()
@@ -1921,7 +1925,8 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
             enviados += _avisar_buybox_precio(conn, platform, hoy, ayer)
             enviados += _avisar_noconf_precio(conn, platform, hoy, ayer)
         enviados += _avisar_huerfana_precio(platform, resumen)
-        enviados += _avisar_resumen_precio(conn, platform, hoy)
+        if not getattr(resumen, "espera_insumos", False):
+            enviados += _avisar_resumen_precio(conn, platform, hoy)
         enviados += _avisar_compuerta_precio(conn, platform, hoy)
         return enviados
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)

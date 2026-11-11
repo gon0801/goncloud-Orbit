@@ -869,7 +869,10 @@ en serie: la diaria de las 13:10 UTC mas los repasos de las 15:10 a las
 dueno; sin nada pendiente no toca la plataforma). `meli` se agenda en
 su fase (D.4, bloque MeLi abajo). El job de muestras corre antes de
 la estimacion (12:15 MX, 12:20 US); el dia del despliegue no hay
-muestras hasta las 12:15 UTC.
+muestras hasta las 12:15 UTC. J-H3: si la mayoria de las publicaciones
+del lote no tiene el insumo del dia (oferta o valoracion) antes de las
+21:00 UTC, la corrida no escribe decisiones y espera al repaso
+siguiente; desde las 21:00 UTC decide con lo que haya.
 Lineas EXACTAS del crontab de `gon` (la prueba
 `test_linea_crontab_en_deploy` las pinza de
 `tests/test_precio_corrida.py::LINEA_CRONTAB_PRECIO`,
