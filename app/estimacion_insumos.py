@@ -448,15 +448,16 @@ def _corrida_validacion_costos_aceptable(
     source: str | None,
     ok: bool | None,
     finished_at: datetime | None,
-    rows_skipped: int | None,
     *,
     fecha_escenario: date,
     now_utc: datetime,
 ) -> bool:
-    """Corrida GLOBAL accounting_sku_costs ok del mismo dia UTC, sin skips, terminada <= now_utc."""
+    """Corrida GLOBAL accounting_sku_costs ok del mismo dia UTC, terminada <= now_utc.
+
+    Ya no mira rows_skipped: tras una corrida ok, cada costo abierto coincide
+    con el origen o no existe (planear_sku lo garantiza por SKU).
+    """
     if source != SOURCE_COSTOS or ok is not True or finished_at is None:
-        return False
-    if rows_skipped is None or rows_skipped > 0:
         return False
     fin = finished_at if finished_at.tzinfo is not None else finished_at.replace(tzinfo=UTC)
     fin_utc = fin.astimezone(UTC)
@@ -473,10 +474,9 @@ def _buscar_corrida_validacion_costos(
 ) -> tuple[int, datetime] | None:
     """Corrida diaria global mas reciente que valida costos en fecha_escenario."""
     fila = conn.execute(
-        "SELECT ir.id, ir.source, ir.ok, ir.finished_at, ir.rows_skipped"
+        "SELECT ir.id, ir.source, ir.ok, ir.finished_at"
         " FROM ingest_run ir"
         " WHERE ir.source = %s AND ir.ok = true AND ir.finished_at IS NOT NULL"
-        " AND ir.rows_skipped = 0"
         " AND (ir.finished_at AT TIME ZONE 'UTC')::date = %s"
         " AND ir.finished_at <= %s"
         " ORDER BY ir.finished_at DESC"
@@ -485,12 +485,11 @@ def _buscar_corrida_validacion_costos(
     ).fetchone()
     if fila is None:
         return None
-    run_id, source, ok, finished_at, rows_skipped = fila
+    run_id, source, ok, finished_at = fila
     if not _corrida_validacion_costos_aceptable(
         source,
         ok,
         finished_at,
-        rows_skipped,
         fecha_escenario=fecha_escenario,
         now_utc=now_utc,
     ):

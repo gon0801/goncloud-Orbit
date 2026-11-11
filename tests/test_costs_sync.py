@@ -22,6 +22,7 @@ Regla 9: los tests de skip AFIRMAN el skip y su motivo.
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import socket
 import sqlite3
@@ -35,12 +36,16 @@ from test_schema import SQL, _hay_postgres_local, _test_dsn
 
 from app.costs import (
     NOMBRE_SIN_ODOO,
+    Cierre,
+    CostsError,
     FilaCosto,
     Vigencia,
-    _plan_sku,
+    _texto_aviso_costos,
     colapsar,
     leer_origen,
     main,
+    planear_sku,
+    recortar,
     sync_costos,
 )
 
@@ -364,27 +369,129 @@ def test_intradia_en_el_borde_de_la_serie_pierde_el_dia_y_queda_contado():
     assert stats["segmentos_intradia_colapsados"] == 0
 
 
-def test_plan_sku_rechaza_moneda_o_includes_tax_distinto_de_lo_publicado():
-    """Hallazgo 4 (bajo): lo publicado con MISMO importe pero otra moneda (o
-    includes_tax distinto) NO es un no-op: es divergencia y el SKU completo
-    queda sin escribir (regla 4: un numero sin su moneda es otro numero)."""
+def test_planear_sku_converge_si_lo_publicado_tiene_otra_moneda_o_tax():
+    """Hallazgo 4 (bajo) bajo la regla nueva: lo publicado es inmutable y el
+    SKU sigue al origen desde ayer (regla 4: un numero sin su moneda es otro
+    numero), en vez de quedar congelado."""
+    corte = date(2026, 5, 10)
     serie = [Vigencia("M", Decimal("100"), "USD", date(2026, 4, 1), None)]
-    _, _, motivo = _plan_sku(serie, {date(2026, 4, 1): (Decimal("100"), None, "MXN", False)})
-    assert motivo == "moneda distinta para vigencia ya publicada"
+    plan = planear_sku(serie, {date(2026, 4, 1): (Decimal("100"), None, "MXN", False)}, corte=corte)
+    assert plan.cierres == [Cierre(date(2026, 4, 1), date(2026, 5, 9))]
+    assert plan.inserciones == [Vigencia("M", Decimal("100"), "USD", date(2026, 5, 9), None)]
+    assert "sigue al origen desde 2026-05-09" in plan.convergencia
+    assert plan.sin_costo is False
+
     serie_mx = [Vigencia("M", Decimal("100"), "MXN", date(2026, 4, 1), None)]
-    _, _, motivo = _plan_sku(serie_mx, {date(2026, 4, 1): (Decimal("100"), None, "MXN", True)})
-    assert motivo == "includes_tax distinto en vigencia ya publicada"
+    plan = planear_sku(
+        serie_mx, {date(2026, 4, 1): (Decimal("100"), None, "MXN", True)}, corte=corte
+    )
+    assert plan.cierres == [Cierre(date(2026, 4, 1), date(2026, 5, 9))]
+    assert plan.inserciones == [Vigencia("M", Decimal("100"), "MXN", date(2026, 5, 9), None)]
 
 
-def test_plan_sku_acepta_prefijo_identico_con_moneda_y_tax():
+def test_planear_sku_acepta_prefijo_identico_con_moneda_y_tax():
     """Cara complementaria del hallazgo 4: moneda e includes_tax identicos a
     lo publicado siguen siendo no-op (el caso comun, 100% MXN / false)."""
     serie = [Vigencia("M", Decimal("100"), "MXN", date(2026, 4, 1), None)]
-    cierres, inserciones, motivo = _plan_sku(
-        serie, {date(2026, 4, 1): (Decimal("100"), None, "MXN", False)}
+    plan = planear_sku(
+        serie,
+        {date(2026, 4, 1): (Decimal("100"), None, "MXN", False)},
+        corte=date(2026, 5, 10),
     )
-    assert motivo is None
-    assert cierres == [] and inserciones == []
+    assert plan.cierres == [] and plan.inserciones == []
+    assert plan.convergencia is None and plan.sin_costo is False
+
+
+def test_arreglos01_f_un_costo_nuevo_entra_al_dia_siguiente():
+    """ARREGLOS 01 F.1 (puro): la corrida de D no publica el costo que cambio
+    ese dia; la de D+1 cierra el anterior en D e inserta el nuevo desde D."""
+    d = date(2026, 11, 3)
+    serie = [
+        Vigencia("NH", Decimal("100"), "MXN", date(2026, 10, 24), d),
+        Vigencia("NH", Decimal("110"), "MXN", d, None),
+    ]
+    assert recortar(serie, corte=d) == [
+        Vigencia("NH", Decimal("100"), "MXN", date(2026, 10, 24), None)
+    ]
+    plan = planear_sku(serie, {}, corte=d)
+    assert plan.inserciones == [Vigencia("NH", Decimal("100"), "MXN", date(2026, 10, 24), None)]
+    assert all(v.desde != d for v in plan.inserciones)
+
+    publicadas = {v.desde: (v.costo, v.hasta, v.moneda, False) for v in plan.inserciones}
+    serie_d1 = [
+        Vigencia("NH", Decimal("100"), "MXN", date(2026, 10, 24), d),
+        Vigencia("NH", Decimal("120"), "MXN", d, None),
+    ]
+    plan_d1 = planear_sku(serie_d1, publicadas, corte=d + dt.timedelta(days=1))
+    assert plan_d1.cierres == [Cierre(date(2026, 10, 24), d)]
+    assert plan_d1.inserciones == [Vigencia("NH", Decimal("120"), "MXN", d, None)]
+
+
+def test_arreglos01_f_la_convergencia_no_publica_el_dia_de_la_corrida():
+    """Una abierta que empezo ayer no se convierte en un costo nuevo hoy: la
+    convergencia se reconcilia al dia siguiente, cuando el dia ya es firme."""
+    corte = date(2026, 11, 10)
+    publicadas = {date(2026, 11, 9): (Decimal("100"), None, "MXN", False)}
+    serie = [Vigencia("X", Decimal("200"), "MXN", date(2026, 11, 9), None)]
+
+    plan = planear_sku(serie, publicadas, corte=corte)
+    assert plan.cierres == [] and plan.inserciones == []
+    assert plan.convergencia is None  # sin escritura no hay aviso diario
+
+    plan_d1 = planear_sku(serie, publicadas, corte=corte + dt.timedelta(days=1))
+    assert plan_d1.cierres == [Cierre(date(2026, 11, 9), corte)]
+    assert plan_d1.inserciones == [Vigencia("X", Decimal("200"), "MXN", corte, None)]
+    assert plan_d1.convergencia is not None
+
+
+def test_arreglos01_f_una_convergencia_sin_escritura_no_se_repite_en_aviso():
+    """La divergencia de historia ya publicada es permanente (no se reescribe):
+    si el costo abierto ya coincide con el origen, no hay aviso cada dia."""
+    publicadas = {
+        date(2026, 1, 1): (Decimal("100"), date(2026, 3, 1), "MXN", False),
+        date(2026, 3, 1): (Decimal("100"), None, "MXN", False),
+    }
+    serie = [
+        Vigencia("X", Decimal("100"), "MXN", date(2026, 1, 1), date(2026, 3, 15)),
+        Vigencia("X", Decimal("100"), "MXN", date(2026, 3, 15), None),
+    ]
+    plan = planear_sku(serie, publicadas, corte=date(2026, 11, 10))
+    assert plan.cierres == [] and plan.inserciones == []
+    assert plan.convergencia is None
+
+
+def test_arreglos01_f_una_convergencia_con_u_futuro_se_aplica_de_una_vez():
+    """Un cierre publicado en el futuro no se difiere todos los dias: U > corte
+    no publica el dia en curso y se aplica en la primera corrida."""
+    publicadas = {date(2026, 1, 1): (Decimal("100"), date(2026, 12, 31), "MXN", False)}
+    serie = [Vigencia("X", Decimal("200"), "MXN", date(2026, 1, 1), None)]
+    plan = planear_sku(serie, publicadas, corte=date(2026, 11, 10))
+    assert plan.cierres == []
+    assert plan.inserciones == [Vigencia("X", Decimal("200"), "MXN", date(2026, 12, 31), None)]
+
+
+def test_arreglos01_f_el_aviso_tiene_tope_y_resume_los_que_sobran():
+    """Telegram tiene un limite de longitud: un cambio masivo no puede perder
+    el aviso entero por mandar una linea por SKU."""
+    detalle = tuple(f"SKU-{i:04d}: el origen reescribio historia publicada" for i in range(500))
+    texto = _texto_aviso_costos(detalle)
+    assert len(texto) <= 3900
+    assert "500 avisos" in texto
+    assert "SKU-0000" in texto
+    assert "y 480 mas" in texto or "480 mas" in texto
+    assert "SKU-0499" not in texto
+
+
+def test_arreglos01_f_una_fila_rechazada_que_solapa_corta_el_sku():
+    """Una fila omitida (costo cero) que solapa la vigencia abierta es un
+    origen inconsistente: no puede validarse el costo viejo de ese SKU."""
+    filas = [
+        _fila("O", 100.0, "2026-04-01 10:00:00", None),
+        _fila("O", 0.0, "2026-04-03 09:00:00", "2026-04-10 09:00:00"),
+    ]
+    vigencias, skips, _ = colapsar(filas)
+    assert vigencias == {}
+    assert skips == Counter({"vigencia solapada en el origen (sku completo sin escribir)": 2})
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +548,7 @@ def test_main_exige_flag_sqlite(monkeypatch):
 # ---------------------------------------------------------------------------
 
 _DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
+_CORTE = date(2026, 11, 10)
 
 
 def _filas_v1() -> list[tuple]:
@@ -572,7 +680,7 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
 
         # ---------------- corrida 1: colapso + escritura ----------------
         snap1 = _snapshot(tmp_path / "v1.db", _filas_v1(), _NOMBRES_V1)
-        r1 = sync_costos(conn, snap1)
+        r1 = sync_costos(conn, snap1, corte=_CORTE)
 
         assert r1.ok is True
         assert r1.rows_written == 5  # 5 vigencias insertadas, 0 cierres
@@ -672,7 +780,7 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
 
         # ---------------- corrida 2: no-op REAL ----------------
         antes = _estado(conn)
-        r2 = sync_costos(conn, snap1)
+        r2 = sync_costos(conn, snap1, corte=_CORTE)
         assert r2.ok is True
         assert r2.rows_written == 0
         assert r2.rows_skipped == 1  # el cero sigue contado en cada corrida
@@ -709,7 +817,7 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
             )
         )
         snap3 = _snapshot(tmp_path / "v3.db", filas_v3, _NOMBRES_V1)
-        r3 = sync_costos(conn, snap3)
+        r3 = sync_costos(conn, snap3, corte=_CORTE)
         assert r3.ok is True
         assert r3.vigencias_cerradas == 1
         assert r3.vigencias_insertadas == 1
@@ -745,16 +853,20 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
         )
         snap4 = _snapshot(tmp_path / "v4.db", filas_v4, _NOMBRES_V1)
         antes4 = _estado(conn)
-        r4 = sync_costos(conn, snap4)
-        assert r4.ok is True  # la corrida no revienta: el SKU se rechaza completo
+        r4 = sync_costos(conn, snap4, corte=_CORTE)
+        assert r4.ok is True
+        # La correccion es de historia ya publicada: no se reescribe. El costo
+        # abierto ya coincide con el origen y no hay aviso (la divergencia es
+        # permanente y no debe repetirse cada dia).
         assert r4.rows_written == 0
-        assert "costo distinto para vigencia ya publicada" in r4.skip_reason
-        assert _estado(conn) == antes4  # ni cierres ni insert del SKU divergente
+        assert r4.convergencias == 0
+        assert r4.detalle == ()
+        assert _estado(conn) == antes4
 
-        # -------- corrida 5: reabrir vigencia publicada tampoco se escribe --------
+        # -------- corrida 5: una vigencia publicada reabierta converge --------
         # El origen REABRE: la rotacion nueva desaparece y la fila publicada
-        # como cerrada vuelve con valid_to NULL. (Dejar AMBIAS filas abiertas
-        # seria un solape del origen, que el colapso caza ANTES de _plan_sku.)
+        # como cerrada vuelve con valid_to NULL. No se toca el pasado: la
+        # abierta se cierra en ayer y el origen manda desde ahi.
         filas_v5 = list(filas_v3)[:-1]
         filas_v5[3] = (
             "ARR-16-001",
@@ -766,26 +878,46 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
             "2026-02-07 12:25:00",
         )
         snap5 = _snapshot(tmp_path / "v5.db", filas_v5, _NOMBRES_V1)
-        antes5 = _estado(conn)
-        r5 = sync_costos(conn, snap5)
+        r5 = sync_costos(conn, snap5, corte=_CORTE)
         assert r5.ok is True
-        assert r5.rows_written == 0
-        assert "origen reabre vigencia ya publicada" in r5.skip_reason
-        assert _estado(conn) == antes5
+        assert r5.vigencias_cerradas == 1
+        assert r5.vigencias_insertadas == 1
+        assert r5.rows_written == 2
+        abierta = conn.execute(
+            "SELECT c.valid_from, c.cost_amount FROM sku_cost c"
+            " JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'ARR-16-001' AND c.valid_to IS NULL"
+        ).fetchone()
+        assert abierta == (date(2026, 11, 9), Decimal("305"))
 
-        # -------- corrida 6: SKU ausente del origen queda CONTADO --------
+        # -------- corrida 6: SKU ausente del origen se cierra en ayer --------
         # (hallazgo 5 del adversario, bajo): un SKU que desaparece entero del
-        # origen no puede quedar en silencio con su vigencia abierta huerfana.
+        # origen ya no queda con su vigencia abierta huerfana; se cierra en
+        # ayer y queda sin costo. El cierre es 1 de 3 abiertas (> 10 %), asi
+        # que exige la bandera de cierre masivo.
         filas_v6 = [f for f in filas_v3 if f[0] != "SKU-C-CERO"]
         snap6 = _snapshot(tmp_path / "v6.db", filas_v6, _NOMBRES_V1)
-        antes6 = _estado(conn)
-        r6 = sync_costos(conn, snap6)
+        r6 = sync_costos(conn, snap6, corte=_CORTE, acepto_cierre_masivo=True)
         assert r6.ok is True
-        assert r6.rows_written == 0
-        assert "1x sku ausente del origen (su vigencia abierta queda huerfana)" in r6.skip_reason
-        # no se ESCRIBE nada del ausente (ni cerrar su vigencia: eso seria
-        # inventar que dejo de aplicar), y la base queda identica
-        assert _estado(conn) == antes6
+        # ARR no publica hoy: su abierta empezo ayer y la convergencia se
+        # reconcilia manana. SKU-C-CERO si se cierra en ayer.
+        assert r6.rows_written == 1
+        assert r6.vigencias_cerradas == 1
+        assert r6.vigencias_insertadas == 0
+        assert r6.convergencias == 0
+        assert r6.sin_costo_en_origen == 1
+        assert all("SKU-C-CERO: sin costo en el origen" in linea for linea in r6.detalle)
+        cerrada = conn.execute(
+            "SELECT c.valid_to FROM sku_cost c JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'SKU-C-CERO' ORDER BY c.valid_from DESC LIMIT 1"
+        ).fetchone()
+        assert cerrada == (date(2026, 11, 9),)
+        abierta_arr = conn.execute(
+            "SELECT c.valid_from, c.cost_amount FROM sku_cost c"
+            " JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'ARR-16-001' AND c.valid_to IS NULL"
+        ).fetchone()
+        assert abierta_arr == (date(2026, 11, 9), Decimal("305"))
 
         # -------- corrida 7: el nombre real NUNCA degrada a derivado --------
         # (hallazgo 2 de codex, media): si bom_headers pierde el nombre de un
@@ -793,15 +925,353 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
         # upsert no puede pisarlo con "[sin nombre en Odoo] SKU": solo se
         # actualiza cuando el nombre MEJORA (derivado -> real, o real -> real).
         snap7 = _snapshot(tmp_path / "v7.db", filas_v3, [(2, "SKU-C-CERO", "Producto C")])
-        antes7 = _estado(conn)
-        r7 = sync_costos(conn, snap7)
+        r7 = sync_costos(conn, snap7, corte=_CORTE)
         assert r7.ok is True
         # ARR-16-001 sin nombre en el origen: conserva el nombre publicado
         nombre_arr = conn.execute(
             "SELECT name FROM product WHERE odoo_sku = 'ARR-16-001'"
         ).fetchone()[0]
         assert nombre_arr == "Arra 16mm"
-        assert _estado(conn) == antes7  # nada cambio: ni nombre ni vigencias
+        # SKU-C-CERO volvio al origen tras haber desaparecido: se reabre desde
+        # su ultimo cierre (ayer), sin reescribir lo publicado.
+        assert r7.vigencias_insertadas == 1
+        reabierta = conn.execute(
+            "SELECT c.valid_from, c.cost_amount FROM sku_cost c"
+            " JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'SKU-C-CERO' AND c.valid_to IS NULL"
+        ).fetchone()
+        assert reabierta == (date(2026, 11, 9), Decimal("110"))
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _filas_diez(skus: list[str]) -> list[tuple]:
+    """Diez SKUs; SKU-01 trae un costo cero intermedio (skip informativo)."""
+    filas = []
+    for sku in skus:
+        if sku == "SKU-01":
+            filas.extend(
+                [
+                    (
+                        sku,
+                        100.0,
+                        "MXN",
+                        "2026-01-01 10:00:00",
+                        "2026-02-01 05:00:00",
+                        "odoo_sync",
+                        "2026-01-01 10:00:00",
+                    ),
+                    (
+                        sku,
+                        0.0,
+                        "MXN",
+                        "2026-02-01 05:00:00",
+                        "2026-03-01 05:00:00",
+                        "odoo_sync",
+                        "2026-01-01 10:00:00",
+                    ),
+                    (
+                        sku,
+                        100.0,
+                        "MXN",
+                        "2026-03-01 05:00:00",
+                        None,
+                        "odoo_sync",
+                        "2026-01-01 10:00:00",
+                    ),
+                ]
+            )
+        else:
+            filas.append(
+                (
+                    sku,
+                    100.0,
+                    "MXN",
+                    "2026-01-01 10:00:00",
+                    None,
+                    "odoo_sync",
+                    "2026-01-01 10:00:00",
+                )
+            )
+    return filas
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_arreglos01_f_un_sku_sin_costo_no_frena_y_el_cierre_masivo_aborta(tmp_path, monkeypatch):
+    """ARREGLOS 01 F.1: un SKU sin costo no congela a los demas y un cierre de
+    mas del 10 % aborta sin escribir (la bandera lo permite)."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    from app.estimacion_insumos import resolver_costo
+
+    dsn = _test_dsn()
+    db = f"orbit_costs_f_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+
+        corte = dt.datetime.now(dt.UTC).date()
+        todos = [f"SKU-{i:02d}" for i in range(1, 11)]
+        snap1 = _snapshot(tmp_path / "f1.db", _filas_diez(todos), [])
+        r1 = sync_costos(conn, snap1, corte=corte)
+        assert r1.ok is True
+        assert r1.productos_nuevos == 10
+        assert r1.vigencias_insertadas == 11  # SKU-01 tiene dos tramos
+        assert r1.rows_skipped == 1  # el costo cero de SKU-01
+        assert _abiertas_por_sku(conn) == {sku: 1 for sku in todos}
+
+        # Una copia truncada (2 de 10 SKUs, 20 %) aborta sin escribir y avisa.
+        antes = _estado(conn)
+        avisos: list[str] = []
+        monkeypatch.setattr("app.costs.envia_aviso", lambda texto: avisos.append(texto) or True)
+        snap2 = _snapshot(
+            tmp_path / "f2.db",
+            _filas_diez([sku for sku in todos if sku not in ("SKU-09", "SKU-10")]),
+            [],
+        )
+        with pytest.raises(CostsError, match="se detuvo"):
+            sync_costos(conn, snap2, corte=corte)
+        assert _estado(conn) == antes
+        assert len(avisos) == 1 and "2 de 10" in avisos[0]
+        fallo = conn.execute(
+            "SELECT ok, rows_written, rows_skipped FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert fallo == (False, 0, 0)
+
+        # Un solo SKU ausente (10 %) se cierra en ayer y NO frena a los demas:
+        # la corrida queda ok con su skip por fila y el costo sano resuelve.
+        snap3 = _snapshot(
+            tmp_path / "f3.db",
+            _filas_diez([sku for sku in todos if sku != "SKU-10"]),
+            [],
+        )
+        r3 = sync_costos(conn, snap3, corte=corte)
+        assert r3.ok is True
+        assert r3.vigencias_cerradas == 1
+        assert r3.sin_costo_en_origen == 1
+        assert r3.rows_written == 1
+        assert r3.rows_skipped == 1
+        assert _abiertas_por_sku(conn) == {sku: 1 for sku in todos if sku != "SKU-10"}
+
+        ahora = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        pid_sano = conn.execute("SELECT id FROM product WHERE odoo_sku = 'SKU-02'").fetchone()[0]
+        sano = resolver_costo(conn, product_id=pid_sano, fecha_escenario=corte, now_utc=ahora)
+        assert sano.motivo is None
+        assert sano.costo is not None
+        assert sano.costo.cost_amount == Decimal("100")
+        assert sano.costo.validation_run_id == r3.run_id
+
+        pid_falta = conn.execute("SELECT id FROM product WHERE odoo_sku = 'SKU-10'").fetchone()[0]
+        falta = resolver_costo(conn, product_id=pid_falta, fecha_escenario=corte, now_utc=ahora)
+        assert falta.motivo == "costo_no_vigente"
+
+        r4 = sync_costos(conn, snap2, corte=corte, acepto_cierre_masivo=True)
+        assert r4.ok is True
+        assert r4.sin_costo_en_origen == 1
+        assert r4.rows_written == 1
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_arreglos01_f_una_fila_rechazada_solapada_cierra_la_abierta(tmp_path):
+    """ARREGLOS 01 h_106ff43d: el origen trae el SKU sin vigencia publicable
+    (fila rechazada que solapa); se cierra en ayer y el costo viejo no valida."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    from app.estimacion_insumos import resolver_costo
+
+    dsn = _test_dsn()
+    db = f"orbit_costs_f4_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        corte = dt.datetime.now(dt.UTC).date()
+
+        abierta = ("S-04", 100.0, "MXN", "2026-01-01 10:00:00", None, "odoo_sync", "")
+        snap1 = _snapshot(tmp_path / "f4-1.db", [abierta], [])
+        r1 = sync_costos(conn, snap1, corte=corte)
+        assert r1.ok is True and r1.vigencias_insertadas == 1
+
+        solapada = ("S-04", 0.0, "MXN", "2026-06-01 10:00:00", "2026-07-01 10:00:00", "", "")
+        snap2 = _snapshot(tmp_path / "f4-2.db", [abierta, solapada], [])
+        r2 = sync_costos(conn, snap2, corte=corte, acepto_cierre_masivo=True)
+        assert r2.ok is True
+        assert r2.rows_written == 1
+        assert r2.vigencias_cerradas == 1
+        assert r2.sin_costo_en_origen == 1
+        assert r2.convergencias == 0
+        assert "vigencia solapada en el origen (sku completo sin escribir)" in r2.skip_reason
+        assert any("S-04: sin vigencia publicable" in linea for linea in r2.detalle)
+        sigue = conn.execute(
+            "SELECT c.valid_from, c.valid_to FROM sku_cost c"
+            " JOIN product p ON p.id = c.product_id WHERE p.odoo_sku = 'S-04'"
+        ).fetchall()
+        assert sigue == [(date(2026, 1, 1), corte - dt.timedelta(days=1))]
+
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku = 'S-04'").fetchone()[0]
+        ahora = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        costo = resolver_costo(conn, product_id=pid, fecha_escenario=corte, now_utc=ahora)
+        assert costo.motivo == "costo_no_vigente"
+        assert costo.costo is None
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_arreglos01_f_el_sku_sin_vigencia_publicable_cuenta_para_el_cierre_masivo(
+    tmp_path, monkeypatch
+):
+    """ARREGLOS 01 F.5 + h_106ff43d: un SKU que sigue en el origen pero sin
+    vigencias publicables (solape) es candidato a cierre y cuenta para el tope
+    del 10 %; si el tope no se pasa, su abierta se cierra en ayer y el costo
+    viejo deja de validar."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"orbit_costs_f5_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        corte = dt.datetime.now(dt.UTC).date()
+
+        todos = [f"SKU-{i:02d}" for i in range(1, 11)]
+        base = _filas_diez(todos)
+        r1 = sync_costos(conn, _snapshot(tmp_path / "f5-1.db", base, []), corte=corte)
+        assert r1.ok is True and r1.productos_nuevos == 10
+        antes = _estado(conn)
+
+        solapadas = [
+            (
+                f"SKU-{i:02d}",
+                0.0,
+                "MXN",
+                "2026-06-01 10:00:00",
+                "2026-07-01 10:00:00",
+                "odoo_sync",
+                "2026-01-01 10:00:00",
+            )
+            for i in (9, 10)
+        ]
+        avisos: list[str] = []
+        monkeypatch.setattr("app.costs.envia_aviso", lambda texto: avisos.append(texto) or True)
+
+        snap2 = _snapshot(tmp_path / "f5-2.db", base + solapadas, [])
+        with pytest.raises(CostsError, match="se detuvo"):
+            sync_costos(conn, snap2, corte=corte)
+        assert _estado(conn) == antes
+        assert len(avisos) == 1 and "2 de 10" in avisos[0]
+
+        snap3 = _snapshot(tmp_path / "f5-3.db", base + solapadas[1:], [])
+        r3 = sync_costos(conn, snap3, corte=corte)
+        assert r3.ok is True
+        assert r3.rows_written == 1
+        assert r3.vigencias_cerradas == 1
+        assert r3.sin_costo_en_origen == 1
+        assert r3.convergencias == 0
+        assert "vigencia solapada en el origen (sku completo sin escribir)" in r3.skip_reason
+        assert any("SKU-10: sin vigencia publicable" in linea for linea in r3.detalle)
+        assert _abiertas_por_sku(conn) == {sku: 1 for sku in todos if sku != "SKU-10"}
+        cerrada = conn.execute(
+            "SELECT c.valid_to FROM sku_cost c JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'SKU-10' ORDER BY c.valid_from DESC LIMIT 1"
+        ).fetchone()
+        assert cerrada == (corte - dt.timedelta(days=1),)
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_arreglos01_f_un_solape_de_dos_abiertas_se_cierra_y_no_valida(tmp_path):
+    """Reproduccion exacta de h_106ff43d: el origen no cerro el 100 y trae un
+    150 abierto. El SKU se cierra en ayer y precios no usa el 100 viejo."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    from app.estimacion_insumos import resolver_costo
+
+    dsn = _test_dsn()
+    db = f"orbit_costs_h106_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        corte = dt.datetime.now(dt.UTC).date()
+
+        viejo = ("S-50", 100.0, "MXN", "2026-01-01 10:00:00", None, "odoo_sync", "")
+        r1 = sync_costos(conn, _snapshot(tmp_path / "h106-1.db", [viejo], []), corte=corte)
+        assert r1.ok is True and r1.vigencias_insertadas == 1
+
+        nuevo = ("S-50", 150.0, "MXN", "2026-11-01 10:00:00", None, "odoo_sync", "")
+        snap2 = _snapshot(tmp_path / "h106-2.db", [viejo, nuevo], [])
+        r2 = sync_costos(conn, snap2, corte=corte, acepto_cierre_masivo=True)
+        assert r2.ok is True
+        assert r2.rows_written == 1
+        assert r2.vigencias_cerradas == 1
+        assert r2.sin_costo_en_origen == 1
+        assert "2x vigencia solapada en el origen (sku completo sin escribir)" in r2.skip_reason
+        assert any("S-50: sin vigencia publicable" in linea for linea in r2.detalle)
+        cerrada = conn.execute(
+            "SELECT c.valid_to FROM sku_cost c JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku = 'S-50' ORDER BY c.valid_from DESC LIMIT 1"
+        ).fetchone()
+        assert cerrada == (corte - dt.timedelta(days=1),)
+
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku = 'S-50'").fetchone()[0]
+        ahora = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        costo = resolver_costo(conn, product_id=pid, fecha_escenario=corte, now_utc=ahora)
+        assert costo.motivo == "costo_no_vigente"
+        assert costo.costo is None
     finally:
         if conn is not None:
             conn.close()

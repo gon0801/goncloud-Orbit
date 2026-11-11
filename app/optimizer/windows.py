@@ -60,12 +60,15 @@ Decisiones selladas (plans/orbit-03.md task 2.1 + Spec delta de CONTEXTO.md):
   * watermark = MAX(metric_date) en v_metric_latest entre las entidades de la
     plataforma (JOIN con ad_entity por platform). Si (hoy UTC) - watermark
     > 7d -> plataforma saltada con motivo.
-  * frescura de estructura = MAX(ad_entity_state.synced_at) de la plataforma.
-    Si now(UTC) - synced_at > 48h -> plataforma saltada con motivo.
+  * frescura de estructura = ultima corrida OK del sync de estructura que
+    levanto acta de ESTA plataforma (ads_listado_plataforma, 0051).
+    Si now(UTC) - started_at > 48h -> plataforma saltada con motivo. NO es
+    MAX(ad_entity_state.synced_at): los aplicadores tambien escriben esa
+    columna por fila (patron ledger_fresco_at, 0016).
   * comparadores ESTRICTOS: exactamente 7d o exactamente 48h NO salta.
-  * plataforma sin metricas NI estado: motivo explicito 'sin_datos', jamas
-    excepcion. Fallo parcial (solo metricas o solo estado) tambien salta con
-    su motivo: fail-closed.
+  * plataforma sin metricas NI corrida ok del sync: motivo explicito
+    'sin_datos', jamas excepcion. Fallo parcial (solo metricas o solo corrida
+    ok) tambien salta con su motivo: fail-closed.
 - DETERMINISMO: no hay now() escondido; decided_at/ahora llegan por
   parametro y SIEMPRE tz-aware (uno naive evaluaria segun la TZ local del
   proceso: se rechaza ruidosamente). guarda_plataforma deriva su `hoy` del
@@ -355,11 +358,24 @@ SELECT max(v.metric_date)
  WHERE e.platform = %s::platform
 """
 
+# Frescura de estructura = ultima corrida OK del sync de estructura que levanto
+# acta de ESTA plataforma (ads_listado_plataforma, 0051). NO max(
+# ad_entity_state.synced_at): los aplicadores tambien escriben esa columna por
+# fila (patron ledger_fresco_at, 0016). Fuente literal del source:
+# app/ads/structure.py:177. Se usa started_at porque sync_structure recibe la
+# estructura ya descargada y abre la corrida despues; la edad medida nunca es
+# mas fresca que la foto real. ads_listado_plataforma se escribe por plataforma
+# en la misma transaccion que sella la corrida ok: si el perfil de una
+# plataforma fue rechazado, esa plataforma no tiene acta y la guarda salta
+# (falla cerrada, que es lo correcto). ingest_run.platform no sirve aqui: el
+# sync abre una sola corrida para las dos plataformas.
 _SQL_SYNC_PLATAFORMA = """
-SELECT max(s.synced_at)
-  FROM ad_entity_state s
-  JOIN ad_entity e ON e.id = s.ad_entity_id
- WHERE e.platform = %s::platform
+SELECT max(r.started_at)
+  FROM ingest_run r
+  JOIN ads_listado_plataforma p ON p.ingest_run_id = r.id
+ WHERE r.source = 'amazon_ads_structure_v2'
+   AND r.ok
+   AND p.platform = %s::platform
 """
 
 # CORTES 01 (task 1.1): evidencia por ad group = suma de las HOJAS
@@ -556,8 +572,9 @@ def guarda_plataforma(
 
     - watermark: MAX(metric_date) en v_metric_latest entre las entidades de la
       plataforma; (hoy - watermark) > 7d -> salta.
-    - frescura de estructura: MAX(ad_entity_state.synced_at);
-      (ahora - synced_at) > 48h -> salta.
+    - frescura de estructura: max(ingest_run.started_at) de la ultima corrida
+      ok de 'amazon_ads_structure_v2' con acta de ESA plataforma en
+      ads_listado_plataforma; (ahora - started_at) > 48h -> salta.
     - sin metricas NI estado -> 'sin_datos'; falta solo una de las dos -> salta
       por su guarda (fail-closed: metricas sin estructura no son operables)."""
     hoy = _fecha_utc(ahora)  # un naive revienta aqui con mensaje claro, no en la resta
@@ -566,7 +583,7 @@ def guarda_plataforma(
     if watermark is None and synced_at is None:
         return MotivoSkip(
             guarda="sin_datos",
-            detalle=f"plataforma {platform} sin metricas ni estado de estructura",
+            detalle=f"plataforma {platform} sin metricas ni corrida ok del sync de estructura",
         )
     if watermark is None:
         return MotivoSkip(
@@ -576,7 +593,7 @@ def guarda_plataforma(
     if synced_at is None:
         return MotivoSkip(
             guarda="synced_at",
-            detalle=f"plataforma {platform} sin filas en ad_entity_state",
+            detalle=f"plataforma {platform} sin corrida ok del sync de estructura",
         )
     if salta_por_watermark(hoy, watermark):
         return MotivoSkip(

@@ -75,7 +75,16 @@ def _producto(conn, sku: str) -> int:
     ).fetchone()[0]
 
 
-def _minimo(conn, pids: tuple[int, ...], *, plataforma: str, miembro: int | None, costo: int):
+def _minimo(
+    conn,
+    pids: tuple[int, ...],
+    *,
+    plataforma: str,
+    miembro: int | None,
+    costo: int,
+    rows_skipped: int = 0,
+    skip_reason: str | None = None,
+):
     """Fila minima que llega al chequeo de costo del trigger."""
     ahora = "2026-09-08 12:00:00+00"
     ancla = pids[0]
@@ -93,11 +102,13 @@ def _minimo(conn, pids: tuple[int, ...], *, plataforma: str, miembro: int | None
                 " VALUES (%s, 'meli', %s, %s, %s, true, %s)",
                 (lids, f"v-{i}", f"SKU-73-{i}", pid, ahora),
             )
+    if rows_skipped > 0 and skip_reason is None:
+        skip_reason = "1x costo cero o nulo (dato faltante)"
     run = conn.execute(
         "INSERT INTO ingest_run (source, started_at, finished_at, rows_written,"
-        " rows_skipped, ok) VALUES ('accounting_sku_costs', %s, %s, 1, 0, TRUE)"
-        " RETURNING id",
-        (ahora, ahora),
+        " rows_skipped, skip_reason, ok) VALUES ('accounting_sku_costs', %s, %s, 1, %s,"
+        " %s, TRUE) RETURNING id",
+        (ahora, ahora, rows_skipped, skip_reason),
     ).fetchone()[0]
     costo_id = conn.execute(
         "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
@@ -109,9 +120,10 @@ def _minimo(conn, pids: tuple[int, ...], *, plataforma: str, miembro: int | None
         "INSERT INTO estimacion_escenario (listing_id, platform, seller_sku, asin, canal,"
         " valoracion_date, observed_at, formula_version, estado, motivos, componentes,"
         " exclusiones, canonical_input, context_fingerprint, source_event_id,"
-        " miembro_product_id, sku_cost_id)"
+        " miembro_product_id, sku_cost_id, costo_validation_run_id, costo_validated_at)"
         " VALUES (%s, %s, 'SKU-73', 'EXT-73', %s, '2026-09-08', %s, 'S3',"
-        " 'incompleta', '[\"costo_ausente\"]', '[]', '[]', '{}', 'fp73', 'ev73', %s, %s)",
+        " 'incompleta', '[\"costo_ausente\"]', '[]', '[]', '{}', 'fp73', 'ev73', %s, %s,"
+        " %s, %s)",
         (
             lids,
             plataforma,
@@ -119,6 +131,8 @@ def _minimo(conn, pids: tuple[int, ...], *, plataforma: str, miembro: int | None
             ahora,
             miembro,
             costo_id,
+            run,
+            ahora,
         ),
     )
 

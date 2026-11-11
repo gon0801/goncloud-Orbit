@@ -114,6 +114,10 @@ SQL45 = (
 SQL81 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
 ).read_text(encoding="utf-8")
+# ARREGLOS 01 J: la guarda de estructura lee el acta de listado (0051).
+SQL51 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
+).read_text(encoding="utf-8")
 
 TOKEN = "token-escritura-de-test-314159"
 SQL61 = (
@@ -472,6 +476,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
+        conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).
