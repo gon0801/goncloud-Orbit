@@ -95,9 +95,18 @@ case "$1" in
     else printf 'UID PID CMD\\n10001 1 uvicorn app.main:app\\n'; fi ;;
   compose)
     dir=""
-    while [ $# -gt 0 ]; do [ "$1" = --project-directory ] && dir=$2; shift; done
+    sub=""
+    while [ $# -gt 0 ]; do
+      [ "$1" = --project-directory ] && dir=$2
+      case "$1" in build | up) sub=$1 ;; esac
+      shift
+    done
     (cd "$dir" && find app -type f | LC_ALL=C sort | xargs md5sum) > "$C/compose-md5.txt"
-    touch "$C/arranque" ;;
+    touch "$C/arranque"
+    # Un trabajo que arranca durante el build: la guarda del paso 5 tiene que verlo.
+    if [ "$sub" = build ] && [ -f "$C/cli_vivo" ]; then
+      printf 'UID PID CMD\\n10001 9 python -m app.cli cycle\\n' > "$C/top"
+    fi ;;
   exec)
     case "$*" in
       *productos-modo*)
@@ -436,7 +445,7 @@ class Servidor:
             return "ok"
         if muere_antes_rb:
             return "cortado"
-        r = self.rollback(tag, **({"ORBIT_SIM_CORTE": corte_rb} if corte_rb else {}))
+        r = self.rollback(tag, **({"ORBIT_SIM_CORTE": corte_rb} if corte_rb else {}), **extra)
         if r.returncode == CORTADO:
             return "cortado"
         return f"fallo_{d.returncode}"
@@ -526,7 +535,8 @@ def test_a_despliegue_completo_y_checklist_verde(s):
     assert s.estado_diario() == "verificado"
     compose = (s.ctl / "docker.log").read_text()
     proyecto = f"-p orbit --project-directory {s.srv} -f {s.srv}/docker-compose.yml"
-    assert f"compose {proyecto} up -d --no-deps --build app" in compose
+    assert f"compose {proyecto} build app" in compose
+    assert f"compose {proyecto} up -d --no-deps --no-build app" in compose
     assert (
         f"{s.md5_git('Fm', 'app/etiqueta.txt')}  app/etiqueta.txt"
         in (s.ctl / "compose-md5.txt").read_text()
@@ -643,7 +653,7 @@ def test_k_corte_tras_la_primera_clave_y_guarda_ocupada(s):
     inicial = _inicial(s)
     assert s.motor("Fm", corte="6") == "cortado"
     (s.ctl / "top").write_text("UID PID CMD\n10001 9 python -m app.cli ingest\n")
-    assert s.motor("Fm", AUTO03_ESPERA_S="1") == "reintenta"
+    assert s.motor("Fm", AUTO03_ESPERA_S="1", AUTO03_ESPERA_REVERSA_S="1") == "reintenta"
     estados = [ln for ln in s.ultimo() if ln.startswith("ESTADO=")]
     assert estados[-3:] == ["ESTADO=guardas_con_cambios", "ESTADO=revirtiendo", "ESTADO=revertido"]
     assert _inicial(s) == inicial
@@ -657,11 +667,11 @@ def test_k_guarda_ocupada_y_reversa_incompleta_sale_1_y_el_motor_la_termina(s):
     assert s.motor("Fm", corte="6") == "cortado"
     (s.ctl / "top").write_text("UID PID CMD\n10001 9 python -m app.cli ingest\n")
     (s.ctl / "psql_falla_vigente").touch()
-    assert s.motor("Fm", AUTO03_ESPERA_S="1") == "fallo_1"
+    assert s.motor("Fm", AUTO03_ESPERA_S="1", AUTO03_ESPERA_REVERSA_S="1") == "fallo_1"
     assert s.estado_diario() == "rollback_incompleto"
     assert s.desplegar("F2").returncode == 1
     (s.ctl / "psql_falla_vigente").unlink()
-    assert s.rollback("Fm").returncode == 1
+    assert s.rollback("Fm", AUTO03_ESPERA_REVERSA_S="1").returncode == 1
     assert _inicial(s) == inicial and s.estado_diario() == "revertido"
 
 
@@ -1081,3 +1091,37 @@ def test_arreglos01_a_las_migraciones_del_plan_entran_en_el_despliegue(tmp_path)
 
     assert r.returncode == 0, r.stderr
     assert "0083_arreglos01_prueba.sql\tSELECT to_regclass" in r.stdout
+
+
+def _compose_log(s: Servidor) -> list[str]:
+    return [ln for ln in (s.ctl / "docker.log").read_text().splitlines() if " compose " in ln]
+
+
+def test_arreglos01_m_con_app_cli_vivo_el_despliegue_no_recrea_y_sale_75(s):
+    """ARREGLOS 01 M.1: un trabajo que arranca durante el build no se corta; el paso 5 sale 75
+    sin recrear y la reversa (que no puede quedar bloqueada) recrea con AVISO."""
+    inicial = _inicial(s)
+    (s.ctl / "cli_vivo").touch()
+    r = s.desplegar("Fm", AUTO03_ESPERA_S="1", AUTO03_ESPERA_REVERSA_S="1")
+    assert r.returncode == 75, r.stdout + r.stderr
+    lineas = _compose_log(s)
+    builds = [i for i, ln in enumerate(lineas) if ln.endswith(" build app")]
+    ups = [i for i, ln in enumerate(lineas) if " up " in ln]
+    assert builds and ups, lineas
+    # El unico up es el de la reversa: el paso 5 no recreo con el app.cli vivo.
+    assert ups[0] > builds[-1], lineas
+    assert "AVISO: procesos app.cli vivos" in r.stderr
+    assert _inicial(s) == inicial
+    assert s.estado_diario() == "revertido"
+
+
+def test_arreglos01_m_sin_procesos_el_despliegue_recrea_y_sale_0(s):
+    """ARREGLOS 01 M.1: sin procesos app.cli el paso 5 recrea la imagen ya construida."""
+    r = s.desplegar("Fm")
+    assert r.returncode == 0, r.stdout + r.stderr
+    lineas = _compose_log(s)
+    build = next(i for i, ln in enumerate(lineas) if ln.endswith(" build app"))
+    up = next(i for i, ln in enumerate(lineas) if ln.endswith(" up -d --no-deps --no-build app"))
+    assert build < up, lineas
+    assert s.sha_srv() == s.rev("Fm")
+    assert s.estado() == (s.rev("Fm"), "Fm", LIVE)

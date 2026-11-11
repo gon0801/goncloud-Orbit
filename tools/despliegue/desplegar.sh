@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Despliegue de Orbit por el motor (AUTO-03 B.1). Uso: MOTOR_SHA=<sha> bash desplegar.sh [--ensayo]
 # Pasos: (0) candado y diario, (1) guardas, (2) monotonia, (3) respaldo, (4) migraciones
-# de la receta (*_auto03_*, *_orbit07_* y *_claridad01_*) con sonda, (5) codigo y build
-# (con $SRV/refresh_estimacion.sh), (5b) linea de cron del vigia de Jev, (6) interruptores.
+# de la receta (*_auto03_*, *_orbit07_* y *_claridad01_*) con sonda, (5) codigo, build aparte y
+# recreacion que espera cero procesos app.cli (con $SRV/refresh_estimacion.sh), (5b) linea de
+# cron del vigia de Jev, (6) interruptores.
 # Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados; si el diario ya traia
 # cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
@@ -70,6 +71,25 @@ if [ "$ENSAYO" = 1 ]; then
   exit 0
 fi
 
+# sal_75_con_cambios <motivo>: sale 75 sin recrear. Si el diario ya trae cambios de esta corrida
+# los deshace aqui (el motor no corre rollback con 75); sale 1 si la reversa no termino.
+sal_75_con_cambios() {
+  echo "$1"
+  if tiene_cambios "$(lee_ultimo)"; then
+    anota ESTADO=guardas_con_cambios
+    echo "el diario ya trae cambios de esta corrida y el motor no corre rollback con 75: los deshago aqui"
+    ( set +e; revierte ) || true
+    if [ "$(ultimo_de ESTADO "$(lee_ultimo)")" != revertido ]; then
+      echo "ABORTA: la reversa no termino; salgo 1 para que el motor corra rollback.sh" >&2
+      exit 1
+    fi
+  else
+    anota ESTADO=abortado_sin_cambios
+    echo "no cambie nada"
+  fi
+  exit 75
+}
+
 echo "== (0) candado y diario"
 rc=0
 toma_candado || rc=$?
@@ -106,20 +126,7 @@ while :; do
   G=$(estado_guardas) || { echo "ERROR: no pude leer las guardas" >&2; exit 1; }
   [ "$G" = "$GUARDAS_LIBRES" ] && break
   if [ "$SECONDS" -ge "$FIN" ]; then
-    echo "guardas ocupadas al agotar el plazo: $G"
-    if tiene_cambios "$(lee_ultimo)"; then
-      anota ESTADO=guardas_con_cambios
-      echo "el diario ya trae cambios de esta corrida y el motor no corre rollback con 75: los deshago aqui"
-      ( set +e; revierte ) || true
-      if [ "$(ultimo_de ESTADO "$(lee_ultimo)")" != revertido ]; then
-        echo "ABORTA: la reversa no termino; salgo 1 para que el motor corra rollback.sh" >&2
-        exit 1
-      fi
-    else
-      anota ESTADO=abortado_sin_cambios
-      echo "no cambie nada"
-    fi
-    exit 75
+    sal_75_con_cambios "guardas ocupadas al agotar el plazo: $G"
   fi
   echo "guardas ocupadas ($G); reviso en 15 s"
   r=$((FIN - SECONDS))
@@ -198,11 +205,17 @@ if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then
     || { echo "ABORTA: $SRV/$REFRESCO no quedo igual a tools/$REFRESCO" >&2; exit 1; }
   echo "$SRV/$REFRESCO = tools/$REFRESCO de $SHA"
 fi
-compose_up
+rc=0
+recrea_contenedor || rc=$?
+case "$rc" in
+  0) ;;
+  75) sal_75_con_cambios "procesos app.cli vivos al recrear" ;;
+  *) echo "ABORTA: no pude recrear orbit-app-1" >&2; exit 1 ;;
+esac
 espera_salud || { echo "ABORTA: /health no da 200 tras el build" >&2; exit 1; }
 sigue_candado
 srv "printf '%s\n' $SHA > $DESP/sha"
-echo "/health 200; $DESP/sha = $SHA"
+echo "recreado; /health 200; $DESP/sha = $SHA"
 corte 5
 
 echo "== (5b) linea de cron del vigia de Jev"

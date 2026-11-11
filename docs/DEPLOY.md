@@ -86,9 +86,14 @@ receta; (5) código del SHA por `git archive`, md5 contra el SHA; si el SHA trae
 `tools/refresh_estimacion.sh` lo instala con `install -m 755` en
 `$SRV/refresh_estimacion.sh`, que corre el cron de root (CLARIDAD 01 F; antes se
 copiaba a mano), y la reversa restaura la copia del respaldo o la borra si estaba la
-marca; `docker compose
--p orbit --project-directory $SRV -f $SRV/docker-compose.yml up -d
---no-deps --build app`, `/health` 200 y `$SRV/despliegue/sha`; (5b) si el
+marca; construye la imagen aparte (`docker compose -p orbit
+--project-directory $SRV -f $SRV/docker-compose.yml build app`, sin tocar
+el contenedor vivo) y en **un solo comando remoto** espera a que `docker top
+orbit-app-1` no tenga procesos `app.cli` y recién entonces recrea (`up -d
+--no-deps --no-build app`): la última mirada y la recreación comparten shell,
+así un ciclo que arranque durante el build no se corta. Si el plazo agota con
+procesos vivos sale 75 y revierte (`AVISO` y recreación forzada en la reversa);
+después, `/health` 200 y `$SRV/despliegue/sha`; (5b) si el
 SHA trae `tools/despliegue/cron_jev_vigia.sh` y la línea `jev-vigia` no está
 una sola vez dentro del bloque Orbit del crontab de `gon`, corre `instala`
 (respalda el crontab en `$SRV/archive/` y agrega esa línea con su `job_key`, o
@@ -98,7 +103,8 @@ línea previa. Si no puede leer el crontab, aborta (sale 1) sin anotar ni instal
 si la línea efectiva no está una sola vez dentro del bloque. Con
 `tools/refresh_estimacion.sh` en el SHA, falla si `$SRV/refresh_estimacion.sh` no es
 igual a `$SRV/tools/refresh_estimacion.sh`. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
-el candado y las guardas.
+el candado, las guardas y la espera de `app.cli` antes de recrear; `AUTO03_ESPERA_REVERSA_S` (300)
+es el de la reversa, que espera ese plazo y recrea de todos modos con `AVISO`.
 
 **Cabecera de sonda.** Toda migración de la receta (`migrations/*_auto03_*`
 de AUTO-03, `migrations/*_orbit07_*` de ORBIT 07 y `migrations/*_claridad01_*`
