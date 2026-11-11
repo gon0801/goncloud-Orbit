@@ -5164,3 +5164,145 @@ def test_s4_racha_sin_efecto_frena_cuarta_corrida():
         ).fetchone()
         assert fila == ("frenado", "api_error")
         assert red.n_patch == 0
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 01 L (J-H3): la corrida espera el insumo del dia
+# ---------------------------------------------------------------------------
+
+
+class _MercadoInsumoAtrasado:
+    """Mercado falso: cada listing trae el motivo que se le diga."""
+
+    clave = "amazon_mx"
+    filtra_catalogo = False
+
+    def __init__(self, motivos):
+        self._motivos = motivos
+
+    def insumos(self, conn, unidades, *, hoy, ahora, config, metas):
+        from app.precio.puerto import Lectura
+
+        return {
+            u.listing_id: Lectura(
+                entrada=None,
+                motivo=self._motivos[u.listing_id],
+                diagnostico="sin insumos del dia",
+                ids=None,
+                cotizable=None,
+                fees_escenario=self._motivos[u.listing_id],
+            )
+            for u in unidades
+        }
+
+
+@_skip_sin_pg
+def test_arreglos01_l_mayoria_sin_insumo_no_escribe_hasta_las_21():
+    """J-H3: a las 13:10 UTC un lote con mayoria oferta/valoracion atrasada no
+    escribe decisiones; el mismo lote a las 21:10 UTC decide (no_evaluado)."""
+    from app.precio.config import leer_config
+    from app.precio.corrida import _decidir_pendientes
+
+    with _db() as (conn, _dsn):
+        cfg_id = _config(conn)
+        config = leer_config(SETTINGS)
+        lids = []
+        for i, sku in enumerate(("SKU-L-1", "SKU-L-2", "SKU-L-3")):
+            prod = _producto(conn, sku)
+            lid = _listing(conn, prod, ext=f"B0A5L{i}", sku=sku)
+            _goal(conn, lid)
+            lids.append(lid)
+        _oferta_obs(conn, lids[0], ext="B0A5L0", sku="SKU-L-1")
+        mercado = _MercadoInsumoAtrasado(
+            {
+                lids[0]: "oferta_desactualizada",
+                lids[1]: "oferta_desactualizada",
+                lids[2]: "valoracion_desactualizada",
+            }
+        )
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+
+        def corre(hora):
+            return _decidir_pendientes(
+                conn,
+                mercado,
+                config,
+                hoy,
+                datetime(hoy.year, hoy.month, hoy.day, hora, 10, tzinfo=UTC),
+                owner="tdd",
+                freno_dias=3,
+                cfg_id=cfg_id,
+                modo_global="live",
+                modo_universo={},
+            )
+
+        decisiones, lineas, errores, saltadas, espera = corre(13)
+        assert (decisiones, saltadas, errores) == (0, 0, [])
+        assert espera is True
+        assert lineas == [
+            "amazon_mx: 3 de 3 con el insumo del dia sin llegar; decide el siguiente repaso"
+        ]
+        assert conn.execute("SELECT count(*) FROM precio_decision").fetchone()[0] == 0
+
+        decisiones, _lineas, errores, saltadas, espera = corre(21)
+        assert (decisiones, saltadas, errores) == (3, 0, [])
+        assert espera is False
+        filas = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision ORDER BY listing_id"
+        ).fetchall()
+        assert filas == [
+            ("no_evaluado", "oferta_desactualizada"),
+            ("no_evaluado", "oferta_desactualizada"),
+            ("no_evaluado", "valoracion_desactualizada"),
+        ]
+
+
+@_skip_sin_pg
+def test_arreglos01_l_la_corrida_que_espera_no_manda_ni_sella_el_resumen(monkeypatch):
+    """J-H3 (h_8162e4c1): la corrida que espera no manda ni sella el resumen
+    diario; lo manda el repaso que si decide, con el dia completo."""
+    import app.notifica as notifica
+    import app.precio.corrida as corrida_mod
+
+    capturados = []
+
+    def _captura(tipo, payload):
+        capturados.append((tipo, payload))
+        return True
+
+    monkeypatch.setattr(notifica, "notifica_precio", _captura)
+    with _db() as (conn, _dsn):
+        _config(conn)
+        lids = []
+        for i, sku in enumerate(("SKU-LW-1", "SKU-LW-2", "SKU-LW-3")):
+            prod = _producto(conn, sku)
+            lid = _listing(conn, prod, ext=f"B0A5LW{i}", sku=sku)
+            _goal(conn, lid)
+            lids.append(lid)
+        _oferta_obs(conn, lids[0], ext="B0A5LW0", sku="SKU-LW-1")
+        mercado = _MercadoInsumoAtrasado(dict.fromkeys(lids, "oferta_desactualizada"))
+        llamadas = {"n": 0}
+
+        def _espera_una_vez(motivos, *, ahora_utc):
+            llamadas["n"] += 1
+            return "3 de 3 con el insumo del dia sin llegar" if llamadas["n"] == 1 else None
+
+        monkeypatch.setattr(corrida_mod, "insumo_atrasado", _espera_una_vez)
+
+        res1 = correr(conn, mercado, owner="tdd", avisar=notifica.avisar_precio)
+        assert [t for t, _ in capturados if t == "resumen_diario"] == []
+        assert res1.espera_insumos is True
+        filas1 = conn.execute(
+            "SELECT resumen_enviado_at FROM precio_corrida ORDER BY id"
+        ).fetchall()
+        assert [f[0] for f in filas1] == [None]
+
+        res2 = correr(conn, mercado, owner="tdd", avisar=notifica.avisar_precio)
+        assert res2.espera_insumos is False
+        resumenes = [p for t, p in capturados if t == "resumen_diario"]
+        assert len(resumenes) == 1
+        assert resumenes[0].sin_evaluar == 3
+        filas2 = conn.execute(
+            "SELECT resumen_enviado_at FROM precio_corrida ORDER BY id"
+        ).fetchall()
+        assert [f[0] is None for f in filas2] == [True, False]

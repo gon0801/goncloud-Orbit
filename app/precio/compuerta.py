@@ -1,7 +1,8 @@
 """Compuerta del motor de precios (REPRICING 02, bosquejo E).
 
-Apagador (`modo_efectivo`), fusible por universo, insumo sistemico y corte
-por errores. Puro: sin I/O, sin reloj, sin red.
+Apagador (`modo_efectivo`), fusible por universo, insumo sistemico, corte
+por errores y espera del insumo del dia (J-H3). Puro: sin I/O, sin reloj, sin
+red.
 
 Desviacion declarada del bosquejo: `evaluar` recibe `ConfigMotor`, no
 `ConfigPrecio` (el corte 0.a partio la config y las claves del fusible
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
@@ -33,6 +35,9 @@ __all__ = [
     "armar_deriva",
     "evaluar",
     "Cortacircuito",
+    "MOTIVOS_INSUMO_ATRASADO",
+    "ESPERA_INSUMOS_HASTA",
+    "insumo_atrasado",
 ]
 
 _ORDEN_MODO = {"off": 0, "shadow": 1, "live": 2}
@@ -65,6 +70,27 @@ INSUMOS_VIGILADOS: tuple[str, ...] = (
     "fee_fijo",
     "fee_variable",
 )
+
+# Motivos de `no_evaluado` que significan "el insumo del dia todavia no
+# llego" (J-H3), no "esta publicacion no se puede evaluar".
+MOTIVOS_INSUMO_ATRASADO = frozenset({"oferta_desactualizada", "valoracion_desactualizada"})
+# Ultima hora UTC en que un repaso todavia espera: la ultima estimacion util es
+# la de 18:45 (cron 45 */6) y la toma el repaso de 19:10; 21:10 y 23:10 deciden
+# con lo que haya. Atado al cron de docs/DEPLOY.md (corrida 13:10 + repasos
+# 15-23/2).
+ESPERA_INSUMOS_HASTA = time(21, 0)
+
+
+def insumo_atrasado(motivos: Sequence[str | None], *, ahora_utc: datetime) -> str | None:
+    """Texto de espera si la MAYORIA del lote no tiene el insumo del dia y aun
+    hay repasos que lo pueden usar; None = decidir ya. Un motivo atrasado
+    aislado no detiene nada: esa publicacion sale no_evaluado como hoy."""
+    if ahora_utc.time() >= ESPERA_INSUMOS_HASTA:
+        return None
+    atrasadas = sum(1 for motivo in motivos if motivo in MOTIVOS_INSUMO_ATRASADO)
+    if atrasadas * 2 <= len(motivos):
+        return None
+    return f"{atrasadas} de {len(motivos)} con el insumo del dia sin llegar"
 
 
 @dataclass(frozen=True)
