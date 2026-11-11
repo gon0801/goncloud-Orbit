@@ -249,13 +249,14 @@ class Trayectoria:
 
     @property
     def piso_aprendido(self) -> Decimal | None:
-        """El bid mas alto DESDE el que hubo que regresar (por desplome o por el dueno):
-        a ese bid la hoja perdio su trafico. Derivado de `cambios`; no se guarda en
+        """El bid mas alto desde el que hubo que REGRESAR HACIA ARRIBA (por desplome o
+        por el dueno): a ese bid la hoja perdio su trafico. Revertir una subida
+        (direccion -1) no ensena ningun piso. Derivado de `cambios`; no se guarda en
         ninguna tabla."""
         pisos = [
             c.bid_antes
             for c in self.cambios
-            if c.origen in ("regreso_por_desplome", "regreso_del_dueno")
+            if c.origen in ("regreso_por_desplome", "regreso_del_dueno") and c.direccion == 1
         ]
         return max(pisos) if pisos else None
 
