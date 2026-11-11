@@ -1551,14 +1551,15 @@ def test_aviso_spapi_silencio_texto_exacto():
         hasta,
     )
     assert texto == (
-        "[Orbit] ALERTA SP-API sin corrida\n"
+        "[Orbit] ALERTA SP-API sin corrida ok\n"
         "ventana: 2026-09-16 04:30 UTC → 2026-09-16 07:30 UTC\n"
         "faltan 3 de 8:\n"
         "- spapi_pricing / amazon_mx\n"
         "- spapi_pricing / amazon_us\n"
         "- spapi_inventario / amazon_us\n"
-        "El cron de las 05:00 UTC no dejó estas corridas en ingest_run. "
-        "Revisar crontab de gon, flock y el log spapi-diario.log."
+        "El cron de las 05:00 UTC no dejó estas corridas ok en ingest_run: "
+        "falló o no corrió. Revisar crontab de gon, flock, spapi-diario.log "
+        "y el aviso de salud de cada fuente."
     )
     # Un --desde con offset distinto se imprime en UTC: sin normalizar,
     # la etiqueta UTC mentiria (23:30-05:00 no es 23:30 UTC).
