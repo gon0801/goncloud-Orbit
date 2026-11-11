@@ -28,12 +28,18 @@ import os
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import pglast
 import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.optimizer import windows as w
+
+# La guarda de frescura lee el acta de listado (0051), no solo el 0001.
+_SQL51 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO del fixture (determinismo: el modulo jamas esconde un now())
@@ -234,6 +240,7 @@ def _db_temporal(prefijo: str):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
+        conn.execute(_SQL51)  # JEV ADS 02 S.1: acta de listado
         yield conn
     finally:
         if conn is not None:
@@ -263,6 +270,23 @@ def _estado(conn, ad_entity_id: int, synced_at: dt.datetime) -> None:
         "INSERT INTO ad_entity_state (ad_entity_id, synced_at) VALUES (%s, %s)",
         (ad_entity_id, synced_at),
     )
+
+
+def _acta_sync(conn, platform: str, started_at: dt.datetime) -> int:
+    """Corrida ok de estructura con acta de UNA plataforma (0051): la guarda
+    de frescura lee de aqui, no de ad_entity_state.synced_at."""
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source, started_at, ok)"
+        " VALUES ('amazon_ads_structure_v2', %s, true) RETURNING id",
+        (started_at,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_listado_plataforma (ingest_run_id, platform,"
+        " ad_groups_recibidos, product_ads_recibidos, product_ads_sin_grupo)"
+        " VALUES (%s, %s, 0, 0, 0)",
+        (run_id, platform),
+    )
+    return run_id
 
 
 def _metrica(
@@ -583,6 +607,7 @@ def test_guardas_y_trigger_en_vivo():
             orders=0,
         )
         _estado(conn, camp_us, AHORA - dt.timedelta(hours=47))
+        _acta_sync(conn, "amazon_us", AHORA - dt.timedelta(hours=47))
         assert w.guarda_plataforma(conn, "amazon_us", ahora=AHORA) is None
 
         # amazon_mx: watermark de 8d -> salta por watermark
@@ -602,6 +627,7 @@ def test_guardas_y_trigger_en_vivo():
             orders=0,
         )
         _estado(conn, camp_mx, AHORA - dt.timedelta(hours=47))
+        _acta_sync(conn, "amazon_mx", AHORA - dt.timedelta(hours=47))
         motivo = w.guarda_plataforma(conn, "amazon_mx", ahora=AHORA)
         assert motivo is not None
         assert motivo.guarda == "watermark"
@@ -623,6 +649,7 @@ def test_guardas_y_trigger_en_vivo():
             orders=0,
         )
         _estado(conn, camp_meli, AHORA - dt.timedelta(hours=49))
+        _acta_sync(conn, "meli", AHORA - dt.timedelta(hours=49))
         motivo = w.guarda_plataforma(conn, "meli", ahora=AHORA)
         assert motivo is not None
         assert motivo.guarda == "synced_at"
@@ -707,6 +734,51 @@ def test_guardas_y_trigger_en_vivo():
             (kw,),
         ).fetchone()
         assert fila == ("pause", INICIO_CORTES, FIN_CORTES)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_arreglos01_j_la_guarda_mide_el_sync_de_estructura_no_el_aplicador():
+    """J.1 (E-H1 = F-H2): la guarda de 48 h mira la ultima corrida ok del sync
+    de estructura que levanto acta, no ad_entity_state.synced_at (que tambien
+    escriben los aplicadores por fila). Con el acta de hace 60 h y una
+    escritura del aplicador de hace 1 h, la estructura esta vieja. Con el
+    codigo anterior (MAX(synced_at)) daba None: la fila del aplicador
+    bastaba para dar la plataforma entera por fresca."""
+    pytest.importorskip("psycopg")
+
+    with _db_temporal("orbit_j_test") as conn:
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9301")
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            HOY - _DIA,
+            _obs(HOY),
+            moneda="USD",
+            report_id="R-J",
+            cost=Decimal("1.00"),
+            ad_revenue=Decimal("2.00"),
+            clicks=1,
+            orders=0,
+        )
+        # El aplicador escribio la columna por fila hace 1 h.
+        _estado(conn, camp, AHORA - dt.timedelta(hours=1))
+        # El ultimo sync ok de estructura levanto acta hace 60 h.
+        _acta_sync(conn, "amazon_us", AHORA - dt.timedelta(hours=60))
+
+        motivo = w.guarda_plataforma(conn, "amazon_us", ahora=AHORA)
+        assert motivo is not None
+        assert motivo.guarda == "synced_at"
+        assert "48h" in motivo.detalle
+
+        # Control: un acta fresca (47 h) apaga la guarda aunque el aplicador
+        # haya escrito hace 1 h; manda la ultima sincronizacion real.
+        _acta_sync(conn, "amazon_us", AHORA - dt.timedelta(hours=47))
+        assert w.guarda_plataforma(conn, "amazon_us", ahora=AHORA) is None
 
 
 # ---------------------------------------------------------------------------
