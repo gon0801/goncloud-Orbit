@@ -1971,6 +1971,7 @@ def test_pause_cuya_entidad_vive_en_la_pagina_dos_del_list_aplica():
         assert resultado == "ok"
 
 
+@_skip_db
 def test_libera_descarta_pause_en_campana_pausada():
     """CAMPANA ACTIVA 01 (regla 9): un pause vencido cuya CAMPAÑA se pauso
     durante la ventana de veto es moot -> discard PRE-claim con motivo
@@ -2005,6 +2006,7 @@ def test_libera_descarta_pause_en_campana_pausada():
         assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
 
 
+@_skip_db
 def test_libera_descarta_negative_en_grupo_pausado():
     """CAMPANA ACTIVA 01: para negative/harvest la fila ES el ad group; su
     propio status PAUSED es el gate de grupo -> 'grupo_no_enabled' ANTES de
