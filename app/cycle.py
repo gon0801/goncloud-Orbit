@@ -282,6 +282,10 @@ MOTIVO_ESTADO_NO_ENABLED = "estado_no_enabled"
 # de apply (funcion UNICA gate_ancestros): UNA fuente del vocabulario.
 MOTIVO_CAMPANA_NO_ENABLED = apply.MOTIVO_CAMPANA_NO_ENABLED
 MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
+# ARREGLOS 01 K (E-H3): la hoja tiene un bid 'normal' sin sello (resultado
+# dudoso): no recibe otro movimiento de bid hasta que se confirme o se cierre.
+# Fuente unica: apply (misma constante y mismo SQL que reconcilia_bids).
+MOTIVO_BID_EN_VUELO = apply.MOTIVO_BID_EN_VUELO
 # BIDS 01 (D3): hoja sin impresiones en 14d desde el watermark (vista
 # v_entidad_inerte, migracion 0013): ajustar su bid seria inerte, Amazon no
 # la sirve. Se salta ANTES de resolver ventanas (no gasta consultas ni cupo).
@@ -1867,6 +1871,7 @@ def _procesa_decisora(
     lecturas: LecturasPlataforma | None,
     productos_ciclo: _ProductosCiclo | None = None,
     grupos_pausa_producto: frozenset[int] = frozenset(),
+    hojas_bid_en_vuelo: frozenset[int] = frozenset(),
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
     claves_released: frozenset[tuple[int, str, str | None]] = frozenset(),
 ) -> None:
@@ -2204,6 +2209,12 @@ def _procesa_decisora(
         return
     if isinstance(veredicto, Mantener):
         contadores.skips_entidad[veredicto.motivo] += 1
+        return
+    if entidad_id in hojas_bid_en_vuelo and not isinstance(veredicto, Pausar):
+        # ARREGLOS 01 K (E-H3): un bid sin sello (resultado dudoso) espera a
+        # confirmarse en la fase de apply. Solo se bloquean los movimientos de
+        # bid; la pausa va a la cola con su veto y revalidacion.
+        contadores.skips_entidad[MOTIVO_BID_EN_VUELO] += 1
         return
     if (
         ad_group_id in grupos_pausa_producto
@@ -3273,6 +3284,9 @@ def _recorre_plataforma(
     grupos_pausa_producto = frozenset(
         f[0] for f in conn.execute(_SQL_GRUPOS_PAUSA_PRODUCTO, (platform,)).fetchall()
     )
+    # ARREGLOS 01 K (E-H3): hojas con un bid sin sello, UNA vez por ciclo en TX2
+    # (mismo snapshot REPEATABLE READ que el resto de la decision).
+    hojas_bid_en_vuelo = apply.hojas_con_bid_sin_sello(conn, platform)
     # CORTES 01 (1.2/1.3): evidencia por ad group, UNA consulta por
     # plataforma DENTRO de TX2 junto a las demas lecturas (mismo snapshot
     # REPEATABLE READ; spec: una ventana, una elegibilidad, un multiplicador).
@@ -3345,6 +3359,7 @@ def _recorre_plataforma(
             lecturas=lecturas,
             productos_ciclo=contadores.productos,
             grupos_pausa_producto=grupos_pausa_producto,
+            hojas_bid_en_vuelo=hojas_bid_en_vuelo,
             proteccion_cache=proteccion_cache,
             claves_released=claves_released,
             **comunes,

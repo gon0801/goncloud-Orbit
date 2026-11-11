@@ -1272,11 +1272,11 @@ def test_reconcilia_bids_get_igual_confirma():
 
 
 @_skip_db
-def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
-    """Veredicto LIST != pedido (divergencia): la fila original se sella
-    'fallo:divergencia_readback', se REINTENTA bajo tope (fila nueva + PUT) y
-    la divergencia persistente sella tambien el reintento — verify_ok FALSE,
-    sin applied_cycle_id, cache con LO LEIDO."""
+def test_reconcilia_bids_divergencia_sella_y_no_reenvia():
+    """ARREGLOS 01 K (F-H1): LIST != pedido (divergencia) sella la fila
+    'fallo:divergencia_readback', CERO PUT (el unico escritor de bids es
+    aplica_bids) — verify_ok FALSE, sin applied_cycle_id, cache con LO LEIDO
+    y ninguna fila nueva del ledger."""
     from app.apply import reconcilia_bids
 
     with _db_temporal("orbit_apply_rbid2") as conn:
@@ -1299,9 +1299,7 @@ def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
             " ORDER BY seq",
             (dec,),
         ).fetchall()
-        assert [f[0] for f in filas] == [1, 2], "el reintento nace como fila nueva del ledger"
-        assert all(f[1] == "fallo:divergencia_readback" for f in filas)
-        assert filas[1][2] is False, "el reintento NO recobra (la unidad ya estaba cobrada)"
+        assert filas == [(1, "fallo:divergencia_readback", True)], "sin fila de reintento"
         resumen = conn.execute(
             "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
             (dec,),
@@ -1311,7 +1309,7 @@ def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
             "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()[0]
         assert cache == Decimal("0.90"), "cache con LO LEIDO (divergencia incluida)"
-        assert len(_puts(vistos)) == 1, "UN reintento del tope (no un bucle)"
+        assert _puts(vistos) == [], "la reconciliacion JAMAS reenvia un bid"
 
 
 @_skip_db

@@ -52,6 +52,7 @@ from pathlib import Path
 import httpx
 import psycopg
 import pytest
+from psycopg.types.json import Json
 from test_cycle import (
     DECIDED_AT,
     JOB_KEY,
@@ -416,8 +417,9 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
     """El zombie perdio el lock (el sucesor reclamo tras el TTL) y lo descubre
     en el ownership-check PRE-HTTP: aborta SIN nigun HTTP de mutacion (regla
     9: sin el check, el zombie habria hecho el PUT tambien — dos procesos
-    escribiendo a Amazon). El sucesor aplica normal y NO re-decide las claves
-    que el zombie dejo en vuelo (skip veto_pendiente)."""
+    escribiendo a Amazon). El sucesor NO re-decide las claves que el zombie
+    dejo en vuelo (skip veto_pendiente) y la hoja del bid sin sello espera a
+    confirmarse (ARREGLOS 01 K, E-H3: skip bid_en_vuelo, cero PUT nuevo)."""
     with _db_temporal("orbit_cyc_zombie") as (conn, _c):
         _siembra_maestra(conn, escalera="live")
         _config_live_caps(conn)
@@ -465,12 +467,13 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         res_s = _corre(conn, factory=_fabrica_real_mock(handler), owner="sucesor")
 
         assert res_s.status == "done"
-        assert len(_puts(vistos)) == 1, "solo el sucesor muto; el zombie jamas salio por HTTP"
-        assert json.loads(res_s.notes)["apply"]["bids_aplicados"] == 1
+        assert _puts(vistos) == [], "el rastro en vuelo del zombie bloquea otro PUT de bid"
+        assert json.loads(res_s.notes)["apply"]["bids_aplicados"] == 0
         # El sucesor NO re-decide las claves que el zombie dejo en vuelo: la
         # pause de kw_pause y los terminos de la negative y del HARVEST
         # (term_cut: negative y harvest CHOCAN por el mismo termino, sellado 4)
         notas_s = json.loads(res_s.notes)
+        assert notas_s["skips"]["entidad"].get(ciclo.MOTIVO_BID_EN_VUELO) == 1  # bid de kw_bid
         assert notas_s["skips"]["entidad"].get("veto_pendiente") == 1  # pause de kw_pause
         assert notas_s["skips"]["termino"].get("veto_pendiente") == 2  # tortugas + buena yarda
         assert notas_s["apply"]["cortes_encolados"] == {"live": 0, "shadow": 0, "choques": 0}
@@ -482,8 +485,8 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
             conn.execute(
                 "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (res_s.cycle_id,)
             ).fetchone()[0]
-            == 2
-        ), "1 bid aplicado por el sucesor + 1 reconciliado del zombie (ejecutor)"
+            == 1
+        ), "solo 1 reconciliado del zombie (ejecutor): no hubo segundo bid"
 
 
 # ---------------------------------------------------------------------------
@@ -1146,3 +1149,51 @@ def test_envelope_live_goal_shadow_registra_modo_no_live(secrets_falsos):
         # Los cortes shadow encolados NO graban: su fila de cola (modo
         # shadow, pending_veto) ya es su desenlace visible.
         assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+
+
+# ===========================================================================
+# ARREGLOS 01 K (E-H3): un bid con resultado dudoso espera a confirmarse
+# antes de volver a moverse.
+# ===========================================================================
+
+
+@_skip_db
+def test_arreglos01_k_hoja_con_bid_sin_sello_no_recibe_otro_recorte():
+    """Una hoja con un intento 'normal' de bid SIN sello (el PUT de ayer quedo
+    ambiguo) no recibe otro recorte en el ciclo siguiente: sale del motor con
+    bid_en_vuelo y no nace decision bid para esa hoja. Regla 9: contra el
+    codigo anterior la hoja se recortaba igual (una decision bid nueva)."""
+    with _db_temporal("orbit_cyc_k_bidvuelo") as (conn, _c):
+        ids = _siembra_maestra(conn, escalera="shadow")
+        ciclo_ayer = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('shadow', 'amazon_us')"
+            " RETURNING id"
+        ).fetchone()[0]
+        dec_ayer = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+            " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+            " inputs) VALUES (%s, %s, 'bid', %s, now() - interval '1 day',"
+            " CURRENT_DATE - 31, CURRENT_DATE - 1, 1.00, 0.88, 'USD', %s) RETURNING id",
+            (ciclo_ayer, ids["kw_bid"], ids["config_id"], Json({})),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec_ayer, Json({"keywordId": "9201", "bid": "0.88"})),
+        )
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        decisions = conn.execute(
+            "SELECT count(*) FROM decision WHERE cycle_id = %s AND ad_entity_id = %s"
+            " AND kind = 'bid'",
+            (res.cycle_id, ids["kw_bid"]),
+        ).fetchone()[0]
+        assert decisions == 0, "la hoja con bid en vuelo no recibe otro recorte"
+        notas = json.loads(
+            conn.execute(
+                "SELECT notes FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
+            ).fetchone()[0]
+        )
+        assert notas["skips"]["entidad"][ciclo.MOTIVO_BID_EN_VUELO] == 1
