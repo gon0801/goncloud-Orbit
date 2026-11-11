@@ -15,7 +15,8 @@ from __future__ import annotations
 import os
 import socket
 import sqlite3
-from contextlib import contextmanager
+import uuid
+from contextlib import contextmanager, suppress
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -422,7 +423,9 @@ def db_insumos(prefijo: str = "orbit_margen_a2"):
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
-    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    # Nombre unico por corrida: dos procesos con el mismo PID (o una limpieza
+    # fallida anterior) no pueden chocar con un DROP pendiente.
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}_{uuid.uuid4().hex[:10]}"
     admin = psycopg.connect(dsn, autocommit=True)
     conn = None
     try:
@@ -436,9 +439,18 @@ def db_insumos(prefijo: str = "orbit_margen_a2"):
     finally:
         if conn is not None:
             conn.close()
-        admin.execute(
-            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
-        )
+        try:
+            admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(db)))
+        except psycopg.errors.ObjectInUse:
+            # El rol de pruebas no puede terminar el backend ocasional
+            # (autovacuum u otro): el nombre es unico y no colisiona con la
+            # siguiente corrida.
+            with suppress(psycopg.errors.InsufficientPrivilege):
+                admin.execute(
+                    pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+                        pgsql.Identifier(db)
+                    )
+                )
         admin.close()
 
 
@@ -811,8 +823,8 @@ def test_resolver_costo_desactualizado_corrida_sin_finished_at():
 
 
 @_skip_db
-def test_resolver_costo_desactualizado_corrida_global_con_rows_skipped():
-    """Una corrida con skips no acredita el costo; una limpia posterior si."""
+def test_resolver_costo_corrida_global_con_rows_skipped_no_frena():
+    """ARREGLOS 01 F: un skip por SKU es informativo y ya no bloquea a los demas."""
     with db_insumos() as conn:
         pid, _ = _sembrar_listing(conn)
         ayer = date(2026, 9, 7)
@@ -833,8 +845,12 @@ def test_resolver_costo_desactualizado_corrida_global_con_rows_skipped():
         )
         conn.commit()
         resultado = resolver_costo(conn, product_id=pid, fecha_escenario=hoy, now_utc=NOW)
-        assert resultado.motivo == "costo_desactualizado"
-        assert resultado.costo is None
+        assert resultado.motivo is None
+        assert resultado.costo is not None
+        assert resultado.costo.cost_amount == Decimal("40.0000")
+        assert resultado.costo.ingest_run_id == run_ayer
+        assert resultado.costo.validation_run_id == run_sucia
+        assert resultado.costo.validated_at == datetime(2026, 9, 8, 8, 10, tzinfo=UTC)
 
         run_limpia = _sembrar_corrida_costos(
             conn,
@@ -846,8 +862,6 @@ def test_resolver_costo_desactualizado_corrida_global_con_rows_skipped():
         resultado2 = resolver_costo(conn, product_id=pid, fecha_escenario=hoy, now_utc=NOW)
         assert resultado2.motivo is None
         assert resultado2.costo is not None
-        assert resultado2.costo.cost_amount == Decimal("40.0000")
-        assert resultado2.costo.ingest_run_id == run_ayer
         assert resultado2.costo.validation_run_id == run_limpia
         assert resultado2.costo.validated_at == datetime(2026, 9, 8, 8, 25, tzinfo=UTC)
         assert run_sucia != run_limpia
