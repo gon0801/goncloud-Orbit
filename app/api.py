@@ -190,8 +190,9 @@ def status(conn: ConexionLectura) -> dict:
     """Ultimo ciclo por plataforma + watermarks + skips estructurados del notes.
 
     `watermark` es max(metric_date) colapsado (v_metric_latest) de la
-    plataforma y `synced_at` es max(ad_entity_state.synced_at): exactamente
-    las dos fuentes que evalua `windows.guarda_plataforma` (regla 2). Una
+    plataforma y `synced_at` es la ultima corrida ok del sync de estructura
+    con acta de esa plataforma (ads_listado_plataforma): exactamente las dos
+    fuentes que evalua `windows.guarda_plataforma` (regla 2). Una
     plataforma sin datos aparece con nulls, no con 404: el status es un
     panorama de TODAS las plataformas del vocabulario sellado.
 

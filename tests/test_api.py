@@ -38,6 +38,7 @@ import os
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import pglast
 import psycopg
@@ -49,6 +50,12 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app import api as api_mod
 from app.main import app
+
+# ARREGLOS 01 J: la guarda de frescura de estructura lee el acta de listado
+# por plataforma (0051), no ad_entity_state.synced_at.
+SQL51 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
+).read_text(encoding="utf-8")
 
 DECIDED_AT = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
 SYNCED_AT = DECIDED_AT - dt.timedelta(hours=4)
@@ -82,6 +89,7 @@ def _db_temporal(prefijo: str):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
+        conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         # DSN del rol de lectura apuntando a la MISMA DB temporal: el router
         # lee via app.db.connect(ORBIT_DSN_READ), como en el deploy.
         dsn_lectura = make_conninfo(dsn, dbname=db)
@@ -120,12 +128,32 @@ def _entidad(conn, platform: str, kind: str, external: str, parent=None, **extra
     ).fetchone()[0]
 
 
+def _acta_sync(conn, platform: str, started_at) -> None:
+    """Corrida ok del sync de estructura con acta de UNA plataforma (0051):
+    la guarda de frescura lee de aqui, no de ad_entity_state.synced_at."""
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source, started_at, ok)"
+        " VALUES ('amazon_ads_structure_v2', %s, true) RETURNING id",
+        (started_at,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_listado_plataforma (ingest_run_id, platform,"
+        " ad_groups_recibidos, product_ads_recibidos, product_ads_sin_grupo)"
+        " VALUES (%s, %s, 0, 0, 0)",
+        (run_id, platform),
+    )
+
+
 def _estado(conn, ad_entity_id, *, synced_at, current_bid=None, bid_currency=None) -> None:
     conn.execute(
         "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
         " acos_target, synced_at) VALUES (%s, %s, %s, 'ENABLED', NULL, %s)",
         (ad_entity_id, current_bid, bid_currency, synced_at),
     )
+    platform = conn.execute(
+        "SELECT platform FROM ad_entity WHERE id = %s", (ad_entity_id,)
+    ).fetchone()[0]
+    _acta_sync(conn, platform, synced_at)
 
 
 def _metrica(conn, run_id, ad_entity_id, fecha, *, cost, ad_revenue, clicks, orders) -> None:
