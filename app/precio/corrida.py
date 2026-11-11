@@ -108,7 +108,12 @@ class ConfigInvalida(ValueError):
 
 @dataclass
 class Resumen:
-    """Lo que imprime el CLI: lineas por goal + `decisiones=N escritas=M`."""
+    """Lo que imprime el CLI: lineas por goal + `decisiones=N escritas=M`.
+
+    `espera_insumos`: esta corrida no decidio porque el insumo del dia no
+    habia llegado (J-H3). El gancho `avisar` no manda ni sella el resumen
+    diario: lo manda la corrida que si decide.
+    """
 
     decisiones: int = 0
     escritas: int = 0
@@ -117,6 +122,7 @@ class Resumen:
     lineas: tuple = ()
     errores: tuple = ()
     retenidas: int = 0
+    espera_insumos: bool = False
 
 
 def motor_lock(platform: str) -> str:
@@ -771,7 +777,7 @@ def _decidir_pendientes(
     cfg_id,
     modo_global: str,
     modo_universo: dict,
-) -> tuple[int, list[str], list[str], int]:
+) -> tuple[int, list[str], list[str], int, bool]:
     """Una decision persistida por goal vigente sin decision hoy (J).
 
     S.2: cada fila guarda su modo efectivo (los frenos, sin canal
@@ -779,12 +785,13 @@ def _decidir_pendientes(
     pedir insumos), UNA llamada `mercado.insumos` por lote para las no
     frenadas y, por unidad, la maquina de cotizaciones con su
     `persistir_decision`. Devuelve `(decisiones, lineas, errores,
-    saltadas)`: `saltadas` cuenta las publicaciones sin fila por reedicion
-    del goal a media corrida. Lo que este paso deja, `_aplicar_pendientes`
-    lo lee de la base. E.2: un goal fuera del catalogo activo sale
-    `no_evaluado(no_a_la_venta)` antes de los frenos y sin pedir insumos.
-    J-H3: si la mayoria del lote no tiene el insumo del dia antes de las
-    21:00 UTC, no se escribe ninguna decision y el repaso siguiente reevalua.
+    saltadas, espera_insumos)`: `saltadas` cuenta las publicaciones sin
+    fila por reedicion del goal a media corrida. Lo que este paso deja,
+    `_aplicar_pendientes` lo lee de la base. E.2: un goal fuera del
+    catalogo activo sale `no_evaluado(no_a_la_venta)` antes de los frenos
+    y sin pedir insumos. J-H3: si la mayoria del lote no tiene el insumo
+    del dia antes de las 21:00 UTC, no se escribe ninguna decision, el
+    repaso siguiente reevalua y `espera_insumos` sale True.
     """
     platform = mercado.clave
     goals = conn.execute(
@@ -919,7 +926,7 @@ def _decidir_pendientes(
         espera = insumo_atrasado([lectura.motivo for lectura in lecturas.values()], ahora_utc=ahora)
         if espera is not None:
             lineas.append(f"{platform}: {espera}; decide el siguiente repaso")
-            return decisiones, lineas, errores, saltadas
+            return decisiones, lineas, errores, saltadas, True
         for unidad, mode, goal_pct, _vigente, prod_id in lote:
             persistida, saltada = _decidir_lectura(
                 conn,
@@ -941,7 +948,7 @@ def _decidir_pendientes(
             )
             decisiones += persistida
             saltadas += saltada
-    return decisiones, lineas, errores, saltadas
+    return decisiones, lineas, errores, saltadas, False
 
 
 # La medicion de la compuerta, UNA por corrida y universo (S.3): fusible
@@ -1458,9 +1465,9 @@ def correr(
         huerfanas = cambios_mod.cerrar_huerfanas(conn, mercado)
         cerrados = cambios_mod.cerrar_por_observacion(conn, mercado, hoy)
         if modo_global == "off":
-            decisiones, lineas, errores, saltadas = 0, [], [], 0
+            decisiones, lineas, errores, saltadas, espera_insumos = 0, [], [], 0, False
         else:
-            decisiones, lineas, errores, saltadas = _decidir_pendientes(
+            decisiones, lineas, errores, saltadas, espera_insumos = _decidir_pendientes(
                 conn,
                 mercado,
                 config,
@@ -1502,6 +1509,7 @@ def correr(
             lineas=tuple(lineas),
             errores=tuple(errores),
             retenidas=retenidas,
+            espera_insumos=espera_insumos,
         )
         if avisar is not None:
             try:
