@@ -65,6 +65,7 @@ from app.precio.compuerta import (
     armar_deriva,
     es_nueva,
     evaluar,
+    insumo_atrasado,
     modo_efectivo,
 )
 from app.precio.config import ConfigPrecio, leer_config, leer_config_motor
@@ -782,6 +783,8 @@ def _decidir_pendientes(
     del goal a media corrida. Lo que este paso deja, `_aplicar_pendientes`
     lo lee de la base. E.2: un goal fuera del catalogo activo sale
     `no_evaluado(no_a_la_venta)` antes de los frenos y sin pedir insumos.
+    J-H3: si la mayoria del lote no tiene el insumo del dia antes de las
+    21:00 UTC, no se escribe ninguna decision y el repaso siguiente reevalua.
     """
     platform = mercado.clave
     goals = conn.execute(
@@ -911,6 +914,12 @@ def _decidir_pendientes(
             config=config,
             metas=metas,
         )
+        # J-H3: con la mayoria del lote sin el insumo del dia, no se gasta la
+        # decision del dia con datos viejos; el repaso siguiente lo reevalua.
+        espera = insumo_atrasado([lectura.motivo for lectura in lecturas.values()], ahora_utc=ahora)
+        if espera is not None:
+            lineas.append(f"{platform}: {espera}; decide el siguiente repaso")
+            return decisiones, lineas, errores, saltadas
         for unidad, mode, goal_pct, _vigente, prod_id in lote:
             persistida, saltada = _decidir_lectura(
                 conn,
