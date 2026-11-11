@@ -9,9 +9,13 @@ test_apply_cola. Sin acentos en el codigo, por regla del repo.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import io
 from decimal import Decimal
+from types import SimpleNamespace
 
+import psycopg
 import pytest
 from test_apply_cola import (
     _aplicador,
@@ -42,8 +46,9 @@ from test_cycle import _db_temporal as _db_ciclo
 from test_cycle import (
     _metrica as _metrica_ciclo,
 )
+from test_schema import _test_dsn
 
-from app import apply_cola
+from app import apply_cola, cli_productos
 from app import cycle as ciclo
 from app.optimizer import cortes as cortes_mod
 from app.optimizer import goals as g
@@ -282,6 +287,167 @@ def test_arreglos01_i_apagar_proteccion_descarta_la_espera():
                 "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
             ).fetchone()[0]
             == 0
+        )
+
+
+def _args_proteccion_off():
+    return SimpleNamespace(
+        platform="amazon_us",
+        meta=None,
+        pausa=None,
+        clics=None,
+        gasto=None,
+        economia=None,
+        bid_economia=None,
+        proteccion="off",
+    )
+
+
+def _dsn_admin_de(conn) -> str:
+    db = conn.execute("SELECT current_database()").fetchone()[0]
+    return psycopg.conninfo.make_conninfo(_test_dsn(), dbname=db)
+
+
+@_skip_db
+def test_arreglos01_i_descarte_solo_si_el_ultimo_motivo_es_la_espera():
+    """F1: una espera_proteccion historica no basta. Si un ciclo posterior dejo
+    otro motivo como el ULTIMO de la decision (aqui sin_quota), apagar la
+    proteccion no descarta la fila: se procesa con la semantica historica."""
+    with _db_cola("orbit_m1_ultimo_motivo") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+        apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
+        )
+        ciclo_posterior = _ciclo_id(conn)
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " VALUES (%s, %s, 'sin_quota')",
+            (dec, ciclo_posterior),
+        )
+
+        res = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=False,
+        )
+
+        assert res.descartadas == [], "la espera vieja no se descarta"
+        assert res.aplicadas == 1
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "applied"
+        )
+        assert _used_pause(conn) == 1
+
+
+@_skip_db
+def test_arreglos01_i_cli_apaga_proteccion_y_descarta_en_una_transaccion(monkeypatch):
+    """F2: el CLI guarda la config y descarta las esperas de ambas plataformas
+    en una sola transaccion, e informa cuantas descarto."""
+    with _db_cola("orbit_m1_cli_atomico") as conn:
+        ids = _semilla(
+            conn,
+            caps={
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_proteccion_venta": "proteccion_venta_v1",
+            },
+        )
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+        apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
+        )
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", _dsn_admin_de(conn))
+
+        salida = io.StringIO()
+        with contextlib.redirect_stdout(salida):
+            rc = cli_productos.corre(_args_proteccion_off())
+
+        assert rc == 0
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", "proteccion_apagada")
+        settings = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert "ads_proteccion_venta" not in settings
+        assert _used_pause(conn) == 0
+        assert _mutaciones(vistos) == []
+        assert "1 pausas en espera por venta reciente descartadas" in salida.getvalue()
+
+
+@_skip_db
+def test_arreglos01_i_cli_si_falla_el_descarte_no_guarda_la_config(monkeypatch):
+    """F2: si el descarte falla, la config nueva NO queda guardada: el commit es
+    uno solo al final de la transaccion config + descarte."""
+    with _db_cola("orbit_m1_cli_rollback") as conn:
+        ids = _semilla(
+            conn,
+            caps={
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_proteccion_venta": "proteccion_venta_v1",
+            },
+        )
+        d = ids["ahora"]
+        _siembra_maduros_y_recientes(conn, ids, d)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+        apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ids["ciclo_ejec"],
+            proteccion_activa=True,
+        )
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", _dsn_admin_de(conn))
+
+        def _falla(conn, platform):
+            raise RuntimeError("fallo simulado del descarte")
+
+        monkeypatch.setattr(apply_cola, "descarta_esperas_proteccion", _falla)
+        with (
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            rc = cli_productos.corre(_args_proteccion_off())
+
+        assert rc == 1
+        ids_config = [f[0] for f in conn.execute("SELECT id FROM config_version ORDER BY id")]
+        assert ids_config == [ids["config"]]
+        settings = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert "ads_proteccion_venta" in settings
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "released"
         )
 
 
