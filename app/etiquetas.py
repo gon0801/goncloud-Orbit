@@ -132,6 +132,9 @@ MOTIVO_SALUD: dict[str, str] = {
     ciclo.MOTIVO_PRODUCTO_SIN_EVIDENCIA: (
         "La meta por producto no se evaluó en este ciclo: sin cambio de puja"
     ),
+    ciclo.MOTIVO_BID_EN_VUELO: (
+        "El último cambio de puja aún no se confirma en Amazon: se decide cuando lo confirme"
+    ),
     politica.MOTIVO_ESPERANDO_EFECTO: "Puja cambiada hace poco: espera 7 días para ver su efecto",
     politica.MOTIVO_VIGENTE_ENCIMA: (
         "La puja actual ya está arriba de la puja a la que regresaría: sin cambio"
