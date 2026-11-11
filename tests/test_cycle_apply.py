@@ -1161,8 +1161,10 @@ def test_envelope_live_goal_shadow_registra_modo_no_live(secrets_falsos):
 def test_arreglos01_k_hoja_con_bid_sin_sello_no_recibe_otro_recorte():
     """Una hoja con un intento 'normal' de bid SIN sello (el PUT de ayer quedo
     ambiguo) no recibe otro recorte en el ciclo siguiente: sale del motor con
-    bid_en_vuelo y no nace decision bid para esa hoja. Regla 9: contra el
-    codigo anterior la hoja se recortaba igual (una decision bid nueva)."""
+    bid_en_vuelo y no nace decision bid para esa hoja. La pausa NO se bloquea
+    (F1): la hoja con el mismo bid en vuelo y veredicto Pausar sigue decidiendo
+    su pausa. Regla 9: contra el codigo anterior la hoja se recortaba igual
+    (una decision bid nueva)."""
     with _db_temporal("orbit_cyc_k_bidvuelo") as (conn, _c):
         ids = _siembra_maestra(conn, escalera="shadow")
         ciclo_ayer = conn.execute(
@@ -1181,6 +1183,20 @@ def test_arreglos01_k_hoja_con_bid_sin_sello_no_recibe_otro_recorte():
             " VALUES (%s, 1, 'normal', %s, true)",
             (dec_ayer, Json({"keywordId": "9201", "bid": "0.88"})),
         )
+        # F1 (DeepSeek): un bid en vuelo no congela la PAUSA de la hoja. La
+        # kw de pausa lleva su propio intento de bid sin sello de ayer.
+        dec_ayer_pause = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+            " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+            " inputs) VALUES (%s, %s, 'bid', %s, now() - interval '1 day',"
+            " CURRENT_DATE - 31, CURRENT_DATE - 1, 1.00, 0.88, 'USD', %s) RETURNING id",
+            (ciclo_ayer, ids["kw_pause"], ids["config_id"], Json({})),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec_ayer_pause, Json({"keywordId": "9202", "bid": "0.88"})),
+        )
 
         res = _corre(conn)
 
@@ -1191,6 +1207,12 @@ def test_arreglos01_k_hoja_con_bid_sin_sello_no_recibe_otro_recorte():
             (res.cycle_id, ids["kw_bid"]),
         ).fetchone()[0]
         assert decisions == 0, "la hoja con bid en vuelo no recibe otro recorte"
+        pausas = conn.execute(
+            "SELECT count(*) FROM decision WHERE cycle_id = %s AND ad_entity_id = %s"
+            " AND kind = 'pause'",
+            (res.cycle_id, ids["kw_pause"]),
+        ).fetchone()[0]
+        assert pausas == 1, "un bid en vuelo no bloquea la pausa de la hoja"
         notas = json.loads(
             conn.execute(
                 "SELECT notes FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
