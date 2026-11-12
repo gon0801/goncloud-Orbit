@@ -489,6 +489,16 @@ def _revertir_fila(
         logger.info("revertir cambio=%s saltado=original_abierto", cambio_id)
         return ResultadoReversion(id_reversa=None, estado="saltado", motivo="original_abierto")
     unidad = _unidad(mercado, conn, listing_id)
+    # Igual que `aplicar`: una variacion agregada despues del cambio original
+    # (sin producto/costo) no recibe la reversa. Mismo vocabulario.
+    sin_producto = sum(1 for m in unidad.miembros if m.product_id is None)
+    if sin_producto:
+        logger.info(
+            "revertir cambio=%s saltado=variante_sin_mapear (%s sin producto)",
+            cambio_id,
+            sin_producto,
+        )
+        return ResultadoReversion(id_reversa=None, estado="saltado", motivo="variante_sin_mapear")
     mercado.validar_destino(unidad)
     otro_abierto = conn.execute(
         "SELECT count(*) FROM precio_cambio"
@@ -807,9 +817,10 @@ def _revertir_una(
 
     Un `pendiente` se salta (`original_abierto`): su COMMIT sin escritura lo
     resuelve la corrida al arrancar. Una fila que ya no es revertible se
-    salta (`no_es_real`, `sin_sku`); una explosion al escribir sella su fila
-    y sigue el lote (`error`). Solo la infra (`psycopg.Error`) o la forma
-    sin sellar (`EscrituraNoDisponible`) abortan el lote.
+    salta (`no_es_real`, `sin_sku`, `variante_sin_mapear`); una explosion al
+    escribir sella su fila y sigue el lote (`error`). Solo la infra
+    (`psycopg.Error`) o la forma sin sellar (`EscrituraNoDisponible`) abortan
+    el lote.
     """
     cid = fila[0]
     if fila[8] == "pendiente":

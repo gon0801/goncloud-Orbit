@@ -2721,3 +2721,69 @@ def test_arreglos01_r_variacion_nueva_sin_producto_no_recibe_precio():
         assert (res.estado, res.motivo) == ("saltado", "variante_sin_mapear")
         assert escritor.llamadas == []
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
+
+
+def test_arreglos01_r_reversa_salta_variacion_sin_producto():
+    """F2 DeepSeek: la reversa tampoco manda precio a una variacion agregada
+    despues del cambio original sin producto/costo. La fila se salta con
+    `variante_sin_mapear` y no se inserta la reversa ni se llama al escritor.
+    """
+    from app.meli.precio_mercado import MercadoMeli
+    from app.precio.puerto import Acuse
+
+    class _LectorMeli:
+        def __init__(self):
+            self.gets = 0
+
+        def get(self, path, params=None):
+            self.gets += 1
+            return {
+                "price": 110.0,
+                "currency_id": "MXN",
+                "variations": [
+                    {"id": 111, "price": 110.0},
+                    {"id": 222, "price": 110.0},
+                    {"id": 333, "price": 110.0},
+                ],
+            }, datetime.now(UTC)
+
+    class _EscritorMeli:
+        def __init__(self):
+            self.llamadas = []
+
+        def exigir_sello(self):
+            return None
+
+        def poner_precio(self, item, variantes, valor, moneda, *, sonda=False):
+            self.llamadas.append((item, list(variantes), valor, moneda, sonda))
+            return Acuse(aceptada=True, codigo=None, cuerpo={"ok": True})
+
+    with _db59() as conn:
+        prod = _producto(conn, sku="SKU-MELI-R3")
+        lid = _listing(conn, prod, platform="meli", asin="MLM125", sku="SKU-ANCLA-3")
+        conn.execute(
+            "INSERT INTO listing_miembro (listing_id, platform, variante_ext, seller_sku,"
+            " product_id, activo, visto_at) VALUES"
+            " (%s, 'meli', '111', 'SKU-111', %s, true, now()),"
+            " (%s, 'meli', '222', 'SKU-222', %s, true, now())",
+            (lid, prod, lid, prod),
+        )
+        gid = _goal59(conn, lid, platform="meli", mode="live")
+        dec = _decision59(conn, lid, gid, platform="meli", mode="live", canal=None)
+        cid = _cambio59(conn, dec, lid, platform="meli", estado="confirmado", enviado=ANTES)
+        conn.execute(
+            "INSERT INTO listing_miembro (listing_id, platform, variante_ext, seller_sku,"
+            " product_id, activo, visto_at)"
+            " VALUES (%s, 'meli', '333', 'SKU-333', NULL, true, now())",
+            (lid,),
+        )
+        lector = _LectorMeli()
+        escritor = _EscritorMeli()
+        mercado = MercadoMeli("meli", lector=lector, escritor=escritor, fees=object())
+
+        res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
+        assert (res.estado, res.motivo) == ("saltado", "variante_sin_mapear")
+        assert escritor.llamadas == []
+        assert (
+            conn.execute("SELECT count(*) FROM precio_cambio WHERE es_reversa").fetchone()[0] == 0
+        )
