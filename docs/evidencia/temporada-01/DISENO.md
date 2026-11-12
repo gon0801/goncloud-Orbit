@@ -31,7 +31,7 @@ Lo que hace que la forma no sea obvia, comprobado en el código:
    `ads_target_fraccion_margen_amazon_{mx,us}`). Medido el 2026-11-12
    en `target_acos_ciclo`: las 136 keywords de MX deciden con `margen_plataforma` = 20.08 % y las 89
    de US con 19.16 %. El equilibrio que recibe el motor es el margen neto (`app/cycle.py:3319`), así que
-   hoy ronda 40.2 % en MX (20.08 / 0.5) y 24.0 % en US (19.16 / 0.8). Por eso la meta de alta es **absoluta (25 %) y se aplica
+   el 2026-11-12 era 40.26 % en MX y 23.81 % en US (`optimizer_cycle.notes.target.margen_neto_pct`, ciclos 185 y 184), calculado con el costo de cada venta pasada (ver «Punto de equilibrio con el costo vigente»). Por eso la meta de alta es **absoluta (25 %) y se aplica
    después de la cascada**. Un escalón nuevo en la cascada no tocaría ninguna keyword, y sumar puntos no
    daría 25.
 2. **Un bid no puede bajar más de 30 % en una decisión.** `_paso` corta el factor a `[-0.30, +0.20]`
@@ -116,14 +116,17 @@ por plataforma. Un solo botón guarda todo lo de la tarjeta.
 │                                                                                              │
 │                     Meta de ACoS en temporada alta   Modo                                     │
 │ Amazon MX           [ 25 ] %  (de 10 a 45)           ( ) Apagado (•) Práctica ( ) En vivo       │
-│    Hoy tu meta es 20.1 % (sale de tu margen). En temporada alta: 25 %.                        │
+│    Hoy tu meta es 20.1 % (sale de tu margen). En temporada alta: 25 %.                       │
+│    Punto de equilibrio con el costo de hoy: 40.3 %. Arriba de ese ACoS pierdes dinero.       │
 │ Amazon US           [ 25 ] %  (de 10 a 45)           ( ) Apagado (•) Práctica ( ) En vivo       │
-│    Hoy tu meta es 19.2 % (sale de tu margen). En temporada alta: 24 % (tu equilibrio).        │
-│ La meta de alta nunca pasa de tu margen. 3 campañas con meta propia no cambian.              │
+│    Hoy tu meta es 19.2 % (sale de tu margen). En temporada alta: 25 %.                       │
+│    Punto de equilibrio con el costo de hoy: 23.8 %. Arriba de ese ACoS pierdes dinero.       │
+│    ⚠ Con 25 % en temporada alta pierdes dinero en cada venta de Amazon US.                   │
+│ 3 campañas con meta propia no cambian.                                                       │
 │ Práctica: Orbit calcula lo que haría y te lo enseña cada día, sin tocar Amazon.              │
 │                                                                                              │
 │ Así queda tu año (hora UTC, la del motor)                                                     │
-│  Hoy (12 nov): temporada alta. Meta de ACoS 25 % en MX y 24 % en US.                         │
+│  Hoy (12 nov): temporada alta. Meta de ACoS 25 % en MX y US.                                 │
 │  1 dic       La meta de ACoS regresa a la normal.                                            │
 │  1 ene       Empieza la temporada baja: Orbit baja todos los bids 30 %.                       │
 │  8 feb       Empieza la preparación: los bids regresan a como estaban antes de la baja y      │
@@ -444,8 +447,9 @@ cada regreso. Cuentan confirmaciones, no decisiones. Sin costo, margen ni meta e
    confirmado. Grupo y cuenta usan la cerca de la plataforma: el día siguiente a la primera confirmación
    de la última transición. La cerca caduca a los 90 días.
 9. **Alta: meta absoluta por plataforma, después de la cascada, solo para el juicio de bids.** En alta,
-   `decide` juzga R3–R13 con `min(equilibrio, max(base, meta_alta))` cuando hay equilibrio y la base está
-   debajo de él. No toca R0, negatives ni harvest. Las metas escritas a mano (`goal_campana`,
+   `decide` juzga R3–R13 con `max(base, meta_alta)`. La meta es libre: puede pasar el equilibrio. Si lo
+   pasa, R3 usa la meta como límite de pérdida (el dueño aceptó perder hasta ahí) y Ajustes lo avisa en
+   rojo. No toca R0, negatives ni harvest. Las metas escritas a mano (`goal_campana`,
    `goal_plataforma`) no cambian.
 10. **Presupuesto: Orbit propone montos absolutos por episodio, David aprueba.** La temporada no escribe
     presupuestos. El escritor de presupuestos se coordina por campaña y campo, para que una orden vieja
@@ -856,10 +860,19 @@ def meta_del_juicio(caso: CasoHoja) -> Decimal:
     # base = caso.economia.target_acos_pct
     # t = caso.temporada
     # if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual: return base
+    # return max(base, t.meta_alta_pct)        # libre: puede pasar el equilibrio (decisión 4 del plan)
+    # MX hoy: max(20.13, 25) = 25; US: max(19.05, 25) = 25 (arriba de su equilibrio 23.81: Ajustes avisa)"""
+    raise NotImplementedError
+
+def equilibrio_del_juicio(caso: CasoHoja) -> Decimal | None:
+    """El límite de R3 en el juicio. En alta, si el dueño puso una meta arriba del equilibrio, aceptó perder
+    hasta esa meta: R3 recorta solo arriba de ella. Fuera de alta, o con meta manual, el equilibrio de hoy.
     # eq = caso.economia.plataforma.equilibrio_acos_pct
-    # if eq is None or eq <= 0 or base >= eq: return base       # no amplía riesgo sin margen conocido
-    # return min(eq, max(base, t.meta_alta_pct))
-    # MX hoy: min(40.16, max(20.08, 25)) = 25; US: min(23.95, max(19.16, 25)) = 23.95 (el equilibrio topa la alta de US)"""
+    # if eq is None or eq <= 0: return eq
+    # t = caso.temporada
+    # if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual: return eq
+    # return max(eq, meta_del_juicio(caso))
+    # US hoy en alta: max(23.81, 25) = 25; MX: max(40.26, 25) = 40.26"""
     raise NotImplementedError
 
 def propuesta_presupuesto(
@@ -1016,7 +1029,9 @@ def decide(caso: CasoHoja) -> Veredicto:
     # R1   como hoy, salvo t and t.frontera.fase_hoja == "baja" -> no aplica
     # R2   como hoy
     # caso_j = replace(caso, economia=replace(caso.economia,
-    #                  target_acos_pct=temporada.meta_del_juicio(caso)))
+    #                  target_acos_pct=temporada.meta_del_juicio(caso),
+    #                  plataforma=replace(caso.economia.plataforma,
+    #                                     equilibrio_acos_pct=temporada.equilibrio_del_juicio(caso))))
     # juicio R3-R13 con caso_j; en R6:
     #     d = recuperacion.destino_recuperacion(caso_j, a_subida=..., arg_subida=...)
     #     si d: candidato = Recupera(d)                      (tipo interno, no sale de decide)
@@ -1422,7 +1437,7 @@ Para seguir una decisión de bid: `cycle._procesa_decisora` → `politica.decide
 | La baja multiplica todos los cortes, al decidir y al liberar | `cortes.py` con `mult_baja` obligatorio; `frontera_hoja` en la cola |
 | R1 nunca regresa un movimiento de temporada | origen `temporada` en `v_cambio_bid` + guarda de fase |
 | En baja no hay recortes por evidencia ni subidas sobre el techo de baja | HOLD + `techo_de_baja` en R6 y R6r |
-| En alta la meta del juicio nunca pasa del equilibrio | `meta_del_juicio` |
+| En alta la meta del juicio es `max(base, meta_alta)` y R3 no recorta debajo de la meta que aceptó el dueño | `meta_del_juicio`, `equilibrio_del_juicio` |
 | Ningún presupuesto cambia sin `APLICAR AJUSTE`; una orden vieja nunca pisa una nueva | la temporada solo produce `PropuestaPresupuesto`; candado por campaña y campo en `_aplica_y_confirma` |
 | Solo se reactivan pausas de Orbit, confirmadas, decididas en baja, de un episodio cerrado | `_SQL_PAUSAS_DE_BAJA` + guardas de `aplica_reactivaciones` |
 | El replay de filas viejas no cambia | marcadores opcionales; consulta previa en 0 para la vista |
@@ -1628,8 +1643,9 @@ El primer ciclo en que la fase deja de ser baja (o el siguiente a «Terminar la 
 
 ### Temporada alta
 
-- `meta_del_juicio = min(equilibrio, max(base, meta_alta))` para R3–R13, solo si hay equilibrio y la
-  base está debajo de él. Con las metas de hoy, 25 % en MX y ~23.95 % en US: en US el equilibrio (19.16 / 0.8) queda debajo de 25 y la alta se topa ahí para no perder dinero por venta. R6 sube cuando P(ACoS < 21.25 %) ≥
+- `meta_del_juicio = max(base, meta_alta)` para R3–R13. La meta es libre: con las metas de hoy, 25 % en
+  MX y en US. En US el equilibrio (23.81 %) queda debajo de 25: cada venta con ACoS entre 23.81 y 25
+  pierde dinero, Ajustes lo dice en rojo y R3 usa 25 como límite (`equilibrio_del_juicio`). R6 sube cuando P(ACoS < 21.25 %) ≥
   la confianza de subida; R4 solo recorta con ACoS sobre 25 %.
 - Las metas escritas a mano (`goal_campana`, `goal_plataforma`) no cambian: son la decisión más
   específica de David (`goals.py:319-320`). La pantalla lo dice junto a cada una.
@@ -1701,6 +1717,72 @@ la leen el aviso de Telegram (`avisos_campana.py:79`), la columna de «Dónde po
 el caso). David no ve dos verdades.
 
 ---
+
+## Punto de equilibrio con el costo vigente
+
+**Hoy (comprobado en `868a8cd2`).** El punto de equilibrio es el margen neto antes de publicidad. La
+vista de plataforma `v_target_margen_plataforma` (`migrations/0016_target_margen_correcciones.sql:25-155`,
+leída en `cycle.py:525-530`) y la de producto `v_margen_producto`
+(`migrations/0018_fabrica_campanas.sql:283-419`, leída en `productos_io.py:89-93`) calculan
+`100 × (venta_cubierta + cargos_con_orden + cargos_sin_orden × cobertura − COGS) / venta_cubierta`, con
+precio, comisiones, envío, devoluciones e ISR de `ledger_event`. El COGS es `sku_cost.cost_amount ×
+quantity` con el costo vigente **en la fecha de cada venta** (`0016:45-48`, `0018:298-301`). La ventana de
+plataforma es de hoy−105 a hoy−15; la de producto empieza fija el 2026-02-20. No hay caché: la vista se
+recalcula en cada lectura. El resultado:
+
+- Un costo que baja hoy entra a la ventana a los 16 días (costo publicado al día siguiente, `costs.py:586-588`,
+  más 15 de maduración) y pesa por completo en la plataforma hasta los 106 días. En producto casi nunca
+  pesa por completo, porque la ventana crece desde febrero.
+- El equilibrio que ve el motor es un promedio de costos viejos y nuevos, ponderado por venta.
+- Ajustes no muestra el margen ni el equilibrio (`settings.html:24-58`); solo la meta vigente.
+
+**Lo que cambia.**
+
+1. Las dos vistas agregan al final, sin quitar columnas, `cogs_vigente`, `cobertura_vigente` y
+   `margen_vigente_pct`: la misma fórmula, los mismos cargos y las mismas guardas (moneda, `fees_sin_tipo`,
+   días con venta, frescura del ledger), con COGS = Σ `quantity × cost_amount` del costo **abierto**
+   (`sku_cost.valid_to IS NULL`) en la misma moneda de la venta. Una venta cuyo producto no tiene costo
+   abierto en esa moneda queda no cubierta; con `cobertura_vigente < 0.95` el margen vigente es NULL. No se
+   rellena ni se estima.
+2. El margen que gobierna es el vigente. La meta derivada (fracción × margen, `goals.py:983`) y
+   `equilibrio_acos_pct` (plataforma `cycle.py:2987` y `:3318`; producto `cycle.py:757`) salen de
+   `margen_vigente_pct`. `notes.target` guarda los dos: `margen_neto_pct` (vigente) y
+   `margen_historico_pct`. Los motivos de NULL (`cobertura_baja`, `ledger_rancio`, `ventana_corta`,
+   `fees_sin_tipo`) se conservan.
+3. Un costo nuevo mueve el equilibrio entero desde el ciclo siguiente a su publicación. Si el costo baja,
+   la meta derivada sube de una vez; si sube, la meta baja 0.5 por ciclo como hoy (`goals.py:985-991`),
+   pero R3 juzga desde el primer día con el equilibrio nuevo.
+4. Precio, comisiones, envío y devoluciones siguen saliendo de la ventana. Escalan con el precio cobrado;
+   si el precio cambió, el margen usa el precio de la ventana (límite declarado).
+5. Antes de desplegar, la consulta nueva corre en solo lectura y deja en la evidencia el margen
+   histórico y el vigente por plataforma y por producto con meta propia: cuánto se moverá cada meta.
+
+**En Ajustes.** Por plataforma, junto a la meta:
+
+> Punto de equilibrio con el costo de hoy: 23.8 %. Arriba de ese ACoS pierdes dinero en cada venta.
+
+Si la meta vigente o la meta de alta es igual o mayor que el equilibrio, el aviso sale en rojo:
+
+> Con una meta de 25 % en temporada alta pierdes dinero en cada venta de Amazon US: tu punto de
+> equilibrio es 23.8 %.
+
+Vale también cuando la banda [10, 45] (`goals.py:608-609`) deja la meta en 10 sobre un equilibrio menor.
+Sin equilibrio, la línea dice por qué, en llano: «faltan costos de algunos productos»
+(`cobertura_baja`), «los datos de ventas tienen más de 3 días» (`ledger_rancio`), «hay pocas ventas en los
+últimos 90 días» (`ventana_corta`), «hay cargos de Amazon sin clasificar» (`fees_sin_tipo`). La vista
+previa devuelve el equilibrio y el aviso, así que se ven al escribir la meta, antes de guardar. La
+pantalla de productos muestra el margen vigente de cada producto donde hoy muestra el histórico
+(`productos_sin_clics.html:169`).
+
+**Prueba (dinero).** `test_temporada01_i_equilibrio_con_costo_vigente`, con base, producto MX,
+fracción 0.5: 10 ventas maduras de 1,000 MXN con cargos de −300 cada una y costo 500 hasta el día D, 5
+antes y 5 después de D.
+- El costo baja a 300 desde D: histórico (10,000 − 3,000 − 4,000) / 10,000 = 30 %; vigente
+  (10,000 − 3,000 − 3,000) / 10,000 = **40 %**. Equilibrio 40 y meta derivada 20.
+- El costo sube a 700: vigente **0 %**. Equilibrio 0, y Ajustes avisa que la meta de 10 de la banda pierde
+  dinero.
+- Costo abierto en USD con venta en MXN, o producto sin costo abierto: la venta queda no cubierta.
+- Un costo publicado hoy no cuenta hasta mañana.
 
 ## Ejemplo de una keyword durante un año
 
@@ -1774,7 +1856,7 @@ empezar: integrar sobre el SHA final de ARREGLOS 01 y releer las firmas de P, T,
 | A — Calendario y Ajustes | `temporada.py` (config, `valida` con tipos crudos, lectores, `resuelve`, `eventos`, `resumen`); `config_write` + `CuerpoSettings` + vista previa; tarjeta, campos de plataforma, «Terminar la baja hoy», «Mantener pausada»; `ads_campana_topada` leído por avisos y dinero; fichas en `features/` | dinero: `test_temporada01_a_fechas_del_calendario` (1 ene baja; 8 feb 2027 y 9 feb 2028 regreso; ago-sep-oct con 42 días → 20 ago; dic-feb un solo bloque; `fin_anticipado`). Escribe en producción: `test_temporada01_a_post_rechaza_booleanos` (`true`/`false` dan 422 y la config no cambia; `"25"` y `25` se aceptan) | ninguno (sin interruptores) |
 | B — Episodio, origen e historia | migración y reversa; `OrigenCambio`, `CambioFechado`, `HistoriaBid`; `recuperacion.cadena_bid`; `temporada.pendiente`, `destino_entrada`, `frontera`; `temporada_io` (`lee_estado`, `registra_ciclo`, `estampa`, `abre_efectos`); cierre de efectos en `_confirma_resumen` y `registra_sin_aplicar`; `pantalla_danadas` ignora `temporada` | dinero: `test_temporada01_b_pendiente` (entra una vez; cambiar mayo a normal con junio en baja no recorta 5.60 → 3.92; 30 → 20 da 6.40; mano de David no regresa; el regreso nunca baja). Escribe en producción: `test_temporada01_b_episodio_reparado_tras_caida` (con base: entrada confirmada y efecto abierto como tras una caída; el ciclo siguiente cierra el efecto, deja un episodio y un efecto, y no decide otra entrada) | ninguno |
 | C — Subida rápida (práctica) | `techo_conocido`, `multiplicador_sostenible`, `destino_recuperacion`, `presupuesto_topado`; R6r y BUD; frenos del primer y segundo salto; `MOTIVOS_ES`; campos de plataforma | dinero: `test_temporada01_c_recupera_con_evidencia` (caso D da `Regresar(7.10)`; topada 5 de 7 da `Mantener("presupuesto_topado")`; misma evidencia no salta dos veces) | `ads_bid_recuperacion_<plat>=shadow` en MX y US |
-| D — Temporada en la política (práctica) | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja en R6 y R6r, frenos; `cortes` con `mult_baja` y exceso económico; `windows` y tramos con cerca; revalidación de la cola con `frontera_hoja`; inertes en vivo; sombra en `notes.temporada` | dinero: `test_temporada01_d_salida_antes_de_pausa` (5.60, regreso pendiente, 200 clics, 1,000 MXN, 0 pedidos → `Regresar(8.00)` y ningún `Pausar`; al liberar con regreso pendiente usa ×2 y la cerca vieja; tras el regreso confirmado no hay pausa sin evidencia nueva). Dinero: `test_temporada01_d_dia_mixto_excluido` (regreso a las 23:55 del 1 jul; 150 clics y 750 MXN ese día; ni la decisión ni la revalidación de 48 h pausan; con la cerca del 2 jul hay 7 fechas sin gasto). Dinero: `test_temporada01_d_centavos_de_la_entrada` (0.15 USD → 0.11; 1.55 MXN → 1.09; 0.10 USD sin centavo factible → excluida; lo congelado = lo enviado). Dinero: `test_temporada01_d_techo_de_baja_compartido` (20 → 10 → 7: R6r ≤ 14 y R6 ≤ 14; 8 → 5.60 sin recortes previos no sube en baja). Dinero: `test_temporada01_d_baja_entra_y_retiene` (entrada −30 %; R9 retenido; R1 no regresa la entrada). Dinero: `test_temporada01_d_meta_alta` (MX 20.08 con equilibrio 40.16 → 25; US 19.16 con equilibrio 23.95 → 23.95; meta de campaña 15 sigue en 15; base 20 con equilibrio 22 → 22; base 30 con equilibrio 22 → 30). Dinero: `test_temporada01_d_cortes_por_multiplicador` (umbral, piso y exceso económico ×2 en baja, al decidir y al liberar; iguales fuera) | `ads_temporada_<plat>=shadow` con los meses de David, MX y US |
+| D — Temporada en la política (práctica) | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja en R6 y R6r, frenos; `cortes` con `mult_baja` y exceso económico; `windows` y tramos con cerca; revalidación de la cola con `frontera_hoja`; inertes en vivo; sombra en `notes.temporada` | dinero: `test_temporada01_d_salida_antes_de_pausa` (5.60, regreso pendiente, 200 clics, 1,000 MXN, 0 pedidos → `Regresar(8.00)` y ningún `Pausar`; al liberar con regreso pendiente usa ×2 y la cerca vieja; tras el regreso confirmado no hay pausa sin evidencia nueva). Dinero: `test_temporada01_d_dia_mixto_excluido` (regreso a las 23:55 del 1 jul; 150 clics y 750 MXN ese día; ni la decisión ni la revalidación de 48 h pausan; con la cerca del 2 jul hay 7 fechas sin gasto). Dinero: `test_temporada01_d_centavos_de_la_entrada` (0.15 USD → 0.11; 1.55 MXN → 1.09; 0.10 USD sin centavo factible → excluida; lo congelado = lo enviado). Dinero: `test_temporada01_d_techo_de_baja_compartido` (20 → 10 → 7: R6r ≤ 14 y R6 ≤ 14; 8 → 5.60 sin recortes previos no sube en baja). Dinero: `test_temporada01_d_baja_entra_y_retiene` (entrada −30 %; R9 retenido; R1 no regresa la entrada). Dinero: `test_temporada01_d_meta_alta` (MX 20.13 → 25; US 19.05 con equilibrio 23.81 → 25 y `equilibrio_del_juicio` 25; meta de campaña 15 sigue en 15; base 30 → 30; sin equilibrio → 25). Dinero: `test_temporada01_d_cortes_por_multiplicador` (umbral, piso y exceso económico ×2 en baja, al decidir y al liberar; iguales fuera) | `ads_temporada_<plat>=shadow` con los meses de David, MX y US |
 | E — Lectura fresca y mano de David | lectura antes de cuota y PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano y por divergencia; prioridad bajo cupo | escribe en Amazon: `test_temporada01_e_mano_del_dueno_excluye` (bid 8.00, decisión 5.60, Amazon en 7.00 → cero PUT, exclusión guardada; al día siguiente no hay entrada y sigue en 7.00) | cambia el envío de los bids en vivo de hoy: un GET más por bid y cero PUT si David cambió el bid |
 | F — Fin de la baja | `reactivaciones_pendientes`, `pendiente_reactivacion`, `aplica_reactivaciones` con sus guardas, `_SQL_PAUSE_PROPIO`, replay del motor `temporada`, `aviso_del_dia` | escribe en Amazon: `test_temporada01_f_reactiva_solo_pausas_de_baja` (con base: pausa de Orbit confirmada de la baja con episodio cerrado → `resume`; pausa del dueño, reactivada por el dueño, ya revertida, en «Mantener pausada» o de episodio abierto → no). Escribe en Amazon: `test_temporada01_f_reactivar_no_bloquea_pausas` (tras la reversa de temporada, una pausa nueva no inserta `reactivacion_manual`) | en práctica se listan en `notes.temporada.reactivaciones` |
 | G — Presupuestos | `propuesta_presupuesto`; columna y botón en «Dónde poner el dinero» con `APLICAR AJUSTE`; candado por campaña y campo en `_aplica_y_confirma` (también al regresar); tope de X; ficha en `features/` | dinero: `test_temporada01_g_propuestas_absolutas` (baja 300 → 210; fin 210 → 300; alta 300 → 375 una vez y nada tras aprobar; 250 a mano → sin fin de baja; tope de X). Escribe en Amazon: `test_temporada01_g_presupuesto_misma_campana_en_orden` (A aprueba 375, B ordena 270 después y termina primero; A no envía; final 270) | el candado corrige hoy el flujo de ajustes de David; las propuestas no escriben |
@@ -1808,8 +1890,9 @@ solo lectura confirma 0 decisiones `resume` del motor `temporada`.
    editable.
 7. **La proyección del CPC de R6r en saltos de ×2 a ×3 no está medida.** Es lineal y pesimista; la
    práctica compara lo proyectado con lo medido antes de encender.
-8. **La meta de alta no garantiza utilidad.** Se topa en el equilibrio cuando se conoce; sin equilibrio o
-   con la base ya encima, no se amplía.
+8. **La meta de alta puede perder dinero.** Es libre: si pasa el equilibrio, cada venta con ACoS entre
+   el equilibrio y la meta pierde. Ajustes lo muestra en rojo con el equilibrio calculado con el costo
+   de hoy.
 9. **El cupo de 1,000,000 cuenta operaciones, no dinero.** La entrada suele salir en un ciclo, pero un
    fallo HTTP la deja para mañana; los conteos de la tarjeta son confirmaciones.
 10. **Propuestas de presupuesto con huecos de historial.** Sin fila en `ads_campana_config_observation`
