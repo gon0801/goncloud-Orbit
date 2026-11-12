@@ -1374,3 +1374,12 @@ def test_arreglos01_n_el_despliegue_instala_el_bloque_orbit(s):
         ORBIT_CRON_AVISA=str(avisa),
     )
     assert _corre_cron_orbit(entorno, "revisa").returncode == 0
+
+    diario = s.ultimo()
+    assert "CRON=orbit" in diario
+    respaldo = [ln for ln in diario if ln.startswith("CRON_ARCHIVO=")]
+    assert len(respaldo) == 1, diario
+    r = s.rollback("ConCronOrbit")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert s.estado_diario() == "revertido"
+    assert crontab.read_text(encoding="utf-8") == CRONTAB_GON

@@ -256,7 +256,17 @@ elif cron_orbit revisa; then
   echo "el bloque Orbit ya era el canonico"
 else
   sigue_candado
-  cron_orbit instala || { echo "ABORTA: no pude instalar el bloque Orbit del crontab" >&2; exit 1; }
+  if ! salida=$(cron_orbit instala); then
+    printf '%s\n' "$salida"
+    echo "ABORTA: no pude instalar el bloque Orbit del crontab" >&2
+    exit 1
+  fi
+  printf '%s\n' "$salida"
+  respaldo=$(printf '%s\n' "$salida" | sed -n 's/^respaldo=//p' | head -n 1)
+  if [ -n "$respaldo" ]; then
+    anota CRON=orbit
+    anota "CRON_ARCHIVO=$respaldo"
+  fi
 fi
 
 echo "== (6) interruptores frente a SHA_PREVIO"

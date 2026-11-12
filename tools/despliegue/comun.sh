@@ -228,16 +228,18 @@ sonda() {
 # cron_vigia <instala|quita|revisa|presente>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
 cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archive bash -s -- $1"; }
 
-# cron_orbit <instala|revisa>: el instalador del bloque de cron de Orbit de $SHA, corrido
-# en goncloud. El bloque canonico viaja como archivo (unica fuente en el repo) a /tmp.
+# cron_orbit <instala|revisa|restaura> [respaldo]: el instalador del bloque de cron de
+# Orbit de $SHA, corrido en goncloud. El bloque canonico viaja como archivo (unica
+# fuente en el repo) a un mktemp del servidor. restaura recibe el crontab de respaldo.
 cron_orbit() {
-  local remoto rc=0
+  local remoto rc=0 accion=$1 respaldo=${2:-}
   local extra=""
   remoto=$(srv "mktemp /tmp/cron-orbit-bloque.XXXXXX") || return 1
   [ -z "${ORBIT_CRON_AVISA:-}" ] || extra=" ORBIT_CRON_AVISA=$ORBIT_CRON_AVISA"
+  [ -z "$respaldo" ] || extra="$extra ORBIT_CRON_RESPALDO=$respaldo"
   git show "$SHA:$CRON_BLOQUE" | srv "cat > $remoto" || { srv "rm -f $remoto" || true; return 1; }
   git show "$SHA:$CRON_ORBIT" \
-    | srv "ORBIT_CRON_ARCHIVO=$SRV/archive ORBIT_CRON_BLOQUE=$remoto$extra bash -s -- $1" \
+    | srv "ORBIT_CRON_ARCHIVO=$SRV/archive ORBIT_CRON_BLOQUE=$remoto$extra bash -s -- $accion" \
     || rc=$?
   srv "rm -f $remoto" || true
   return "$rc"
@@ -305,7 +307,7 @@ sigue_candado() {
 
 # revierte: la reversa de B.2 bajo el candado ya tomado; la usan rollback.sh y desplegar.sh
 # (salida 75 con cambios, porque el motor no corre rollback con 75). Deshace solo lo anotado
-# en ultimo.env por $SHA, en orden: claves, cron, codigo, sha y reversas de las migraciones
+# en ultimo.env por $SHA, en orden: claves, cron (bloque Orbit y jev-vigia), codigo, sha y reversas de las migraciones
 # (inverso), siguiendo aunque un paso falle. Antes de cada cambio comprueba que sigue el
 # candado: sin el sale 1 dejando ESTADO=revirtiendo, y otra corrida continua la reversa.
 # Sale 0 si no habia nada que deshacer, 1 con ESTADO=revertido y 2 con rollback_incompleto.
@@ -340,6 +342,17 @@ revierte() {
   done 3<<< "$(printf '%s\n' "$L" | sed -n 's/^CLAVE=//p')"
 
   echo "== cron"
+  # El bloque Orbit se restaura primero: el respaldo de instala se tomo despues del
+  # paso 5b, asi que puede incluir jev-vigia; el quita de abajo lo vuelve a quitar.
+  if printf '%s\n' "$L" | grep -qx 'CRON=orbit'; then
+    respaldo=$(ultimo_de CRON_ARCHIVO "$L")
+    if [ -n "$respaldo" ]; then
+      sigue_candado
+      cron_orbit restaura "$respaldo" || PEND="$PEND cron:orbit"
+    else
+      PEND="$PEND cron:orbit"
+    fi
+  fi
   if printf '%s\n' "$L" | grep -qx 'CRON=jev-vigia'; then
     sigue_candado
     cron_vigia quita || PEND="$PEND cron:jev-vigia"

@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Bloque de cron de Orbit (ARREGLOS 01 N.1/N.2). La unica fuente es
-# tools/despliegue/crontab-orbit.txt; este script lo instala o lo revisa.
-# Uso en goncloud: bash cron_orbit.sh instala|revisa
+# tools/despliegue/crontab-orbit.txt; este script lo instala, lo revisa o restaura
+# el bloque anterior.
+# Uso en goncloud: bash cron_orbit.sh instala|revisa|restaura
 #   (ORBIT_CRON_BLOQUE apunta al archivo; por omision, el de junto al script).
+#   restaura usa ORBIT_CRON_RESPALDO, un crontab completo del respaldo que deja instala.
 # Desde otra maquina: subir crontab-orbit.txt y pasar su ruta en ORBIT_CRON_BLOQUE.
 #
-# Las dos acciones exigen cron-avisa en el host (ORBIT_CRON_AVISA, por omision
+# instala y revisa exigen cron-avisa en el host (ORBIT_CRON_AVISA, por omision
 # /usr/local/bin/cron-avisa) cuando el bloque lo usa, y rechazan un crontab con mas
 # de un bloque "# === Orbit (".
-# instala: respalda el crontab en ORBIT_CRON_ARCHIVO y reemplaza SOLO el bloque
-# "# === Orbit (" por el canonico. Cuenta las lineas con cron-avisa antes y
-# despues: si bajan, ABORTA sin escribir. Idempotente: si ya es igual dice
-# "sin cambios". Las lineas fuera del bloque no se tocan.
+# instala: respalda el crontab en ORBIT_CRON_ARCHIVO e imprime `respaldo=<ruta>`,
+# reemplaza SOLO el bloque "# === Orbit (" por el canonico. Cuenta las lineas con
+# cron-avisa antes y despues: si bajan, ABORTA sin escribir. Idempotente: si ya es
+# igual dice "sin cambios". Las lineas fuera del bloque no se tocan.
 # revisa: compara el bloque del host contra el archivo; sale 0 si es igual y 1 con
 # el diff si no. Cualquier otra salida es error.
+# restaura: toma el bloque "# === Orbit (" del respaldo y lo pone en el crontab
+# actual; es la reversa de instala y no aplica la guarda de avisos.
 set -euo pipefail
 
 ARCHIVO=${ORBIT_CRON_ARCHIVO:-/mnt/data/appdata/orbit/archive}
@@ -22,20 +26,25 @@ AVISA=${ORBIT_CRON_AVISA:-/usr/local/bin/cron-avisa}
 
 AQUI=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
 BLOQUE=${ORBIT_CRON_BLOQUE:-$AQUI/crontab-orbit.txt}
+RESPALDO=${ORBIT_CRON_RESPALDO:-}
 
 ACCION=${1:-}
 case "$ACCION" in
-  instala | revisa) ;;
-  *) echo "uso: bash cron_orbit.sh instala|revisa" >&2; exit 2 ;;
+  instala | revisa | restaura) ;;
+  *) echo "uso: bash cron_orbit.sh instala|revisa|restaura" >&2; exit 2 ;;
 esac
 
-[ -f "$BLOQUE" ] && [ -s "$BLOQUE" ] || {
-  echo "no encuentro el bloque canonico: $BLOQUE" >&2
-  exit 1
-}
-if grep -q 'cron-avisa' "$BLOQUE" && [ ! -x "$AVISA" ]; then
-  echo "ABORTA: falta $AVISA en el host y el bloque canonico lo usa" >&2
-  exit 1
+if [ "$ACCION" = restaura ]; then
+  [ -f "$RESPALDO" ] || { echo "no encuentro el respaldo: $RESPALDO" >&2; exit 1; }
+else
+  [ -f "$BLOQUE" ] && [ -s "$BLOQUE" ] || {
+    echo "no encuentro el bloque canonico: $BLOQUE" >&2
+    exit 1
+  }
+  if grep -q 'cron-avisa' "$BLOQUE" && [ ! -x "$AVISA" ]; then
+    echo "ABORTA: falta $AVISA en el host y el bloque canonico lo usa" >&2
+    exit 1
+  fi
 fi
 
 ACTUAL=$(mktemp)
@@ -51,9 +60,36 @@ fi
 
 cuenta_avisos() { grep -c 'cron-avisa' "$1" || true; }
 
+extrae_bloque() {
+  awk '/^# === / { dentro = ($0 ~ /^# === Orbit \(/) } dentro { print }' "$1" > "$2"
+}
+
+reemplaza_bloque() {
+  awk -v canon="$1" '
+    BEGIN { while ((getline l < canon) > 0) bloque = bloque l "\n"; close(canon) }
+    /^# === / {
+      if (dentro) dentro = 0
+      if (!puesto && $0 ~ /^# === Orbit \(/) {
+        printf "%s", bloque
+        puesto = 1
+        dentro = 1
+        next
+      }
+    }
+    !dentro { print }
+    END { if (!puesto) exit 3 }' "$ACTUAL" > "$NUEVO"
+}
+
+respalda() {
+  mkdir -p "$ARCHIVO"
+  respaldo="$ARCHIVO/crontab-$USUARIO.$(date -u +%Y%m%d-%H%M%S).cron-orbit-$1"
+  cp "$ACTUAL" "$respaldo"
+  printf 'respaldo=%s\n' "$respaldo"
+}
+
 case "$ACCION" in
   revisa)
-    awk '/^# === / { dentro = ($0 ~ /^# === Orbit \(/) } dentro { print }' "$ACTUAL" > "$HOST"
+    extrae_bloque "$ACTUAL" "$HOST"
     if [ ! -s "$HOST" ]; then
       echo "el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
       exit 1
@@ -65,19 +101,7 @@ case "$ACCION" in
     echo "el bloque Orbit del crontab de $USUARIO no es el canonico" >&2
     exit 1 ;;
   instala)
-    awk -v canon="$BLOQUE" '
-      BEGIN { while ((getline l < canon) > 0) bloque = bloque l "\n"; close(canon) }
-      /^# === / {
-        if (dentro) dentro = 0
-        if (!puesto && $0 ~ /^# === Orbit \(/) {
-          printf "%s", bloque
-          puesto = 1
-          dentro = 1
-          next
-        }
-      }
-      !dentro { print }
-      END { if (!puesto) exit 3 }' "$ACTUAL" > "$NUEVO" || {
+    reemplaza_bloque "$BLOQUE" || {
       echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
       exit 1
     }
@@ -91,8 +115,24 @@ case "$ACCION" in
       echo "ABORTA: el bloque canonico dejaria menos avisos ($despues < $antes); no escribo" >&2
       exit 1
     fi
-    mkdir -p "$ARCHIVO"
-    cp "$ACTUAL" "$ARCHIVO/crontab-$USUARIO.$(date -u +%Y%m%d-%H%M%S).cron-orbit-$ACCION"
+    respalda instala
     crontab -u "$USUARIO" "$NUEVO"
     echo "bloque Orbit instalado" ;;
+  restaura)
+    extrae_bloque "$RESPALDO" "$HOST"
+    if [ ! -s "$HOST" ]; then
+      echo "el respaldo no trae el bloque '# === Orbit ('" >&2
+      exit 1
+    fi
+    reemplaza_bloque "$HOST" || {
+      echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
+      exit 1
+    }
+    if cmp -s "$NUEVO" "$ACTUAL"; then
+      echo "sin cambios"
+      exit 0
+    fi
+    respalda restaura
+    crontab -u "$USUARIO" "$NUEVO"
+    echo "bloque Orbit restaurado" ;;
 esac

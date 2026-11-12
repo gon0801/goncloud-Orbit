@@ -959,10 +959,12 @@ pinza en `tests/test_impulso_vigia_cron.py`.
 Prerrequisitos: migraciones 0051 y 0052 aplicadas, login `orbit_jev` y
 `ORBIT_DSN_JEV` en el `.env` (bloque S.3 de más abajo), y `ORBIT_DSN_READ`
 presente **dentro** de `orbit-app-1` (`docker exec` no pasa el entorno del
-host). Instalación (dueño, posterior al merge): respaldar el crontab de
-`gon`, agregar la línea con `crontab -e` (nada más se toca) y comprobar que
-solo se agregó esa línea. La **reversa** es borrar la línea del crontab y
-las tablas `jev_*` quedan intactas (el job apagado no escribe).
+host). Las líneas de `jev-senales` e `impulso-vigia` ya están en el bloque
+canónico; `tools/despliegue/cron_orbit.sh instala` las deja en el crontab (el
+despliegue lo hace solo). No se agregan a mano. La **reversa** del bloque la
+hace `rollback.sh`: restaura el bloque anterior desde el respaldo que deja
+`cron_orbit.sh instala`; las tablas `jev_*` quedan intactas (el job apagado no
+escribe).
 
 Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05 UTC, tras la
 ingesta del diario y antes del ciclo (08:40). La línea efectiva está en
@@ -973,11 +975,12 @@ prueba `test_el_bloque_canonico_trae_una_sola_linea_de_avisos` la pinza en
 
 Prerrequisitos: migraciones 0061 y 0062 aplicadas, `ORBIT_DSN_READ` y
 `ORBIT_DSN_INGEST` presentes **dentro** de `orbit-app-1` (`docker exec` no
-pasa el entorno del host). Instalación (dueño, posterior al merge):
-respaldar el crontab de `gon`, agregar la línea con `crontab -e` (nada más
-se toca) y comprobar que solo se agregó esa línea. La **reversa** es borrar
-la línea del crontab (el job apagado no escribe; las marcas quedan en
-`ingest_run` como historia).
+pasa el entorno del host). La línea de `avisos-campana` ya está en el bloque
+canónico; `tools/despliegue/cron_orbit.sh instala` la deja en el crontab (el
+despliegue lo hace solo). No se agrega a mano. La **reversa** del bloque la
+hace `rollback.sh`: restaura el bloque anterior desde el respaldo de
+`cron_orbit.sh instala`; el job apagado no escribe y las marcas quedan en
+`ingest_run` como historia.
 
 ADS PROTECCION 01 A.3 requiere aplicar `0040_ads_report_result.sql` y despues
 `0041_ads_ingest_alert.sql` antes de actualizar `orbit-app-1`. La 0041 guarda
@@ -1165,7 +1168,9 @@ instala o revisa `tools/despliegue/cron_orbit.sh instala|revisa` (respalda el
 crontab en `archive/` antes de escribir, exige `cron-avisa` en el host y aborta
 sin escribir si el número de líneas envueltas bajara). El despliegue corre
 `revisa` en el ensayo e `instala` al desplegar; las líneas fuera del bloque no
-se tocan. La tabla de horarios es la del apartado de arriba y sus minutos salen
+se tocan. Si `instala` cambia algo, anota `CRON=orbit` y `CRON_ARCHIVO=<ruta>`
+en el diario; `rollback.sh` restaura con `cron_orbit.sh restaura <ruta>` el
+bloque que había antes. La tabla de horarios es la del apartado de arriba y sus minutos salen
 de `HORARIOS_INGESTA` (`app/ads/diario.py`; la prueba `tests/test_ingesta_cron.py`
 fija que coincidan). El uso manual en `goncloud` está en la cabecera del script.
 
