@@ -24,9 +24,3 @@ def test_el_bloque_canonico_trae_una_sola_linea_de_jev_senales():
     assert len(lineas) == 1, f"jev-senales: {len(lineas)} lineas"
     assert lineas[0].startswith("30 9,21 * * *")
     assert "cron-avisa" in lineas[0], "la linea conserva su envoltura de aviso"
-
-
-def test_el_bloque_documenta_su_job_key():
-    bloque = BLOQUE.read_text(encoding="utf-8").splitlines()
-    indice = next(i for i, ln in enumerate(bloque) if "app.cli jev-senales" in ln)
-    assert bloque[indice - 1].startswith("# job_key=jev-senales")

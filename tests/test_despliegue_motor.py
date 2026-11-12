@@ -1334,6 +1334,22 @@ def test_arreglos01_n_el_instalador_no_quita_cron_avisa(tmp_path):
     assert "menos avisos" in r.stderr
     assert crontab2.read_text(encoding="utf-8") == antes
 
+    # Dos bloques Orbit: aborta sin escribir.
+    doble = CRONTAB_N + "# === Orbit (duplicado) ===\n0 1 * * * echo otro\n"
+    entorno3, crontab3 = _instalador_cron_orbit(tmp_path / "doble", doble, BLOQUE_N)
+    antes3 = crontab3.read_text(encoding="utf-8")
+    r = _corre_cron_orbit(entorno3, "instala")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "2 bloques" in r.stderr
+    assert crontab3.read_text(encoding="utf-8") == antes3
+
+    # Sin cron-avisa en el host, revisa tambien falla: el bloque no podria correr.
+    entorno4, _ = _instalador_cron_orbit(tmp_path / "sin-avisa", CRONTAB_N, BLOQUE_N)
+    entorno4["ORBIT_CRON_AVISA"] = str(tmp_path / "sin-avisa" / "no-existe")
+    r = _corre_cron_orbit(entorno4, "revisa")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "falta" in r.stderr
+
 
 def test_arreglos01_n_el_despliegue_instala_el_bloque_orbit(s):
     """N.3: el despliegue corre revisa en el ensayo e instala el bloque canonico al
@@ -1353,5 +1369,8 @@ def test_arreglos01_n_el_despliegue_instala_el_bloque_orbit(s):
     assert 'MAILTO=""' in texto
     assert texto.count("cron-avisa") == canon.count("cron-avisa")
 
-    entorno = s.entorno(ORBIT_CRON_BLOQUE=str(ROOT / "tools/despliegue/crontab-orbit.txt"))
+    entorno = s.entorno(
+        ORBIT_CRON_BLOQUE=str(ROOT / "tools/despliegue/crontab-orbit.txt"),
+        ORBIT_CRON_AVISA=str(avisa),
+    )
     assert _corre_cron_orbit(entorno, "revisa").returncode == 0

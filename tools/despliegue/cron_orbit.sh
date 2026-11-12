@@ -5,10 +5,12 @@
 #   (ORBIT_CRON_BLOQUE apunta al archivo; por omision, el de junto al script).
 # Desde otra maquina: subir crontab-orbit.txt y pasar su ruta en ORBIT_CRON_BLOQUE.
 #
-# instala: exige cron-avisa en el host (ORBIT_CRON_AVISA, por omision
-# /usr/local/bin/cron-avisa), respalda el crontab en ORBIT_CRON_ARCHIVO y reemplaza
-# SOLO el bloque "# === Orbit (" por el canonico. Cuenta las lineas con cron-avisa
-# antes y despues: si bajan, ABORTA sin escribir. Idempotente: si ya es igual dice
+# Las dos acciones exigen cron-avisa en el host (ORBIT_CRON_AVISA, por omision
+# /usr/local/bin/cron-avisa) cuando el bloque lo usa, y rechazan un crontab con mas
+# de un bloque "# === Orbit (".
+# instala: respalda el crontab en ORBIT_CRON_ARCHIVO y reemplaza SOLO el bloque
+# "# === Orbit (" por el canonico. Cuenta las lineas con cron-avisa antes y
+# despues: si bajan, ABORTA sin escribir. Idempotente: si ya es igual dice
 # "sin cambios". Las lineas fuera del bloque no se tocan.
 # revisa: compara el bloque del host contra el archivo; sale 0 si es igual y 1 con
 # el diff si no. Cualquier otra salida es error.
@@ -31,12 +33,21 @@ esac
   echo "no encuentro el bloque canonico: $BLOQUE" >&2
   exit 1
 }
+if grep -q 'cron-avisa' "$BLOQUE" && [ ! -x "$AVISA" ]; then
+  echo "ABORTA: falta $AVISA en el host y el bloque canonico lo usa" >&2
+  exit 1
+fi
 
 ACTUAL=$(mktemp)
 NUEVO=$(mktemp)
 HOST=$(mktemp)
 trap 'rm -f "$ACTUAL" "$NUEVO" "$HOST"' EXIT
 crontab -u "$USUARIO" -l > "$ACTUAL" || { echo "no pude leer el crontab de $USUARIO" >&2; exit 1; }
+bloques=$(grep -c '^# === Orbit (' "$ACTUAL" || true)
+if [ "$bloques" -gt 1 ]; then
+  echo "ABORTA: el crontab de $USUARIO trae $bloques bloques '# === Orbit ('" >&2
+  exit 1
+fi
 
 cuenta_avisos() { grep -c 'cron-avisa' "$1" || true; }
 
@@ -54,10 +65,6 @@ case "$ACCION" in
     echo "el bloque Orbit del crontab de $USUARIO no es el canonico" >&2
     exit 1 ;;
   instala)
-    if grep -q 'cron-avisa' "$BLOQUE" && [ ! -x "$AVISA" ]; then
-      echo "ABORTA: falta $AVISA en el host y el bloque canonico lo usa" >&2
-      exit 1
-    fi
     awk -v canon="$BLOQUE" '
       BEGIN { while ((getline l < canon) > 0) bloque = bloque l "\n"; close(canon) }
       /^# === / {

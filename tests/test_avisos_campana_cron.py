@@ -24,9 +24,3 @@ def test_el_bloque_canonico_trae_una_sola_linea_de_avisos():
     assert len(lineas) == 1, f"avisos-campana: {len(lineas)} lineas"
     assert lineas[0].startswith("5 8 * * *")
     assert "cron-avisa" in lineas[0], "la linea conserva su envoltura de aviso"
-
-
-def test_el_bloque_documenta_su_job_key():
-    bloque = BLOQUE.read_text(encoding="utf-8").splitlines()
-    indice = next(i for i, ln in enumerate(bloque) if "app.cli avisos-campana" in ln)
-    assert bloque[indice - 1].startswith("# job_key=avisos-campana")

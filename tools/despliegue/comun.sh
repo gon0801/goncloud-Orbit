@@ -231,10 +231,11 @@ cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archiv
 # cron_orbit <instala|revisa>: el instalador del bloque de cron de Orbit de $SHA, corrido
 # en goncloud. El bloque canonico viaja como archivo (unica fuente en el repo) a /tmp.
 cron_orbit() {
-  local remoto=/tmp/cron-orbit-bloque.$$.txt rc=0
+  local remoto rc=0
   local extra=""
+  remoto=$(srv "mktemp /tmp/cron-orbit-bloque.XXXXXX") || return 1
   [ -z "${ORBIT_CRON_AVISA:-}" ] || extra=" ORBIT_CRON_AVISA=$ORBIT_CRON_AVISA"
-  git show "$SHA:$CRON_BLOQUE" | srv "cat > $remoto" || return 1
+  git show "$SHA:$CRON_BLOQUE" | srv "cat > $remoto" || { srv "rm -f $remoto" || true; return 1; }
   git show "$SHA:$CRON_ORBIT" \
     | srv "ORBIT_CRON_ARCHIVO=$SRV/archive ORBIT_CRON_BLOQUE=$remoto$extra bash -s -- $1" \
     || rc=$?

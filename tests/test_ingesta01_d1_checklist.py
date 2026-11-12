@@ -94,7 +94,13 @@ def _entorno(tmp_path, modo):
         check=True,
         cwd=RAIZ,
     ).stdout.strip()
-    bloque = (RAIZ / "tools/despliegue/crontab-orbit.txt").read_text(encoding="utf-8").splitlines()
+    bloque = subprocess.run(
+        ["git", "show", f"{sha}:tools/despliegue/crontab-orbit.txt"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=RAIZ,
+    ).stdout.splitlines()
     orbit = lambda linea: any(p in linea for p in PATS)  # noqa: E731
     previo = (DIR / "crontab-antes.txt").read_text(encoding="utf-8").splitlines()
     cron = "\n".join([linea for linea in previo if not orbit(linea)] + bloque) + "\n"
