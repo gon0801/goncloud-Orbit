@@ -176,7 +176,7 @@ la última corrida: `MOTOR_SHA`, `SHA_PREVIO` (el contenido de
 `$SRV/despliegue/sha` al empezar; una reanudación del mismo `MOTOR_SHA`
 conserva el de la primera corrida), una línea por cambio anotada antes
 de hacerlo (`MIGRACION=<archivo>`, `CLAVE=<clave>:<valor previo>`,
-`CRON=jev-vigia`, `CRON=orbit` y `CRON_ARCHIVO=<respaldo>`) y
+`CRON=jev-vigia`, `CRON_ARCHIVO=<respaldo>` y `CRON=orbit`) y
 `CODIGO=predeploy-<stamp>`, que se anota solo con el respaldo completo y
 sin la cual no corre ninguna migración ni sustitución de código. Las
 líneas `ESTADO=` se agregan en orden; vale la última. Terminales:
@@ -1172,7 +1172,7 @@ crontab en `archive/` antes de escribir, exige `cron-avisa` en el host y aborta
 sin escribir si el número de líneas envueltas bajara). El despliegue corre
 `revisa` en el ensayo e `instala` al desplegar; las líneas fuera del bloque no
 se tocan. Antes de escribir, `prepara` deja el respaldo y el diario anota
-`CRON=orbit` y `CRON_ARCHIVO=<ruta>`; recién entonces `instala` escribe, así
+`CRON_ARCHIVO=<ruta>` y `CRON=orbit`; recién entonces `instala` escribe, así
 que si la corrida muere entre las dos la reversa tiene con qué restaurar.
 `rollback.sh` restaura con `cron_orbit.sh restaura <ruta>` el bloque que había
 antes. La tabla de horarios es la del apartado de arriba y sus minutos salen

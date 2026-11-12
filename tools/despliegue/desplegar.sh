@@ -264,10 +264,11 @@ else
   printf '%s\n' "$salida"
   respaldo=$(printf '%s\n' "$salida" | sed -n 's/^respaldo=//p' | head -n 1)
   if [ -n "$respaldo" ]; then
-    # Primero el diario y su respaldo, despues la escritura: si la corrida muere
-    # entre las dos, la reversa tiene con que restaurar y no hay cambio que perder.
-    anota CRON=orbit
+    # Primero la ruta del respaldo y despues CRON=orbit, antes de escribir: si la
+    # corrida muere en medio, no queda un CRON=orbit sin respaldo que la reversa no
+    # pueda resolver.
     anota "CRON_ARCHIVO=$respaldo"
+    anota CRON=orbit
     cron_orbit instala "$respaldo" || {
       echo "ABORTA: no pude instalar el bloque Orbit del crontab" >&2
       exit 1

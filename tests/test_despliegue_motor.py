@@ -69,6 +69,17 @@ ALTER TABLE public.config_version DROP COLUMN auto03_prueba_col;
 """
 
 SSH = """#!/usr/bin/env bash
+COMANDO=$*
+anota_evento() {
+  case "$COMANDO" in
+    *"$1"*"ultimo.env"*) printf '%s\\n' "$2" >> "$ORBIT_FAKE_CTL/eventos.log" ;;
+  esac
+}
+if [ -n "${ORBIT_FAKE_CTL:-}" ]; then
+  printf '%s\\n' "$COMANDO" >> "$ORBIT_FAKE_CTL/ssh.log"
+  anota_evento 'CRON_ARCHIVO=' DIARIO:CRON_ARCHIVO
+  anota_evento 'CRON=orbit' DIARIO:CRON=orbit
+fi
 [ -f "$ORBIT_FAKE_CTL/ssh_falla" ] && { echo "ssh falso: falla" >&2; exit 255; }
 if [ -f "$ORBIT_FAKE_CTL/ssh_falla_presente" ]; then
   case "$*" in *"bash -s -- presente"*) echo "ssh falso: sin lectura" >&2; exit 255 ;; esac
@@ -178,10 +189,14 @@ printf '%s\\n' "$sql" | "$ORBIT_REAL_PSQL" "$@"
 CRONTAB = """#!/usr/bin/env bash
 F=${ORBIT_FAKE_CRONTAB:?crontab falso sin ORBIT_FAKE_CRONTAB}
 [ "$1" = -u ] && shift 2
+escribe() {
+  [ -z "${ORBIT_FAKE_CTL:-}" ] && return 0
+  printf '%s\\n' ESCRITURA >> "$ORBIT_FAKE_CTL/eventos.log"
+}
 case "$1" in
   -l) [ -f "$F" ] || { echo "no crontab" >&2; exit 1; }; cat "$F" ;;
-  -) cat > "$F" ;;
-  *) cp "$1" "$F" ;;
+  -) escribe; cat > "$F" ;;
+  *) escribe; cp "$1" "$F" ;;
 esac
 """
 
@@ -1406,6 +1421,8 @@ def test_arreglos01_n_el_despliegue_instala_el_bloque_orbit(s):
     assert "CRON=orbit" in diario
     respaldo = [ln for ln in diario if ln.startswith("CRON_ARCHIVO=")]
     assert len(respaldo) == 1, diario
+    eventos = (s.ctl / "eventos.log").read_text(encoding="utf-8").splitlines()
+    assert eventos == ["DIARIO:CRON_ARCHIVO", "DIARIO:CRON=orbit", "ESCRITURA"], eventos
     r = s.rollback("ConCronOrbit")
     assert r.returncode == 1, r.stdout + r.stderr
     assert s.estado_diario() == "revertido"
