@@ -1,13 +1,16 @@
-"""Vigilante del cron SP-API: el silencio avisa.
+"""Vigilante del cron SP-API: el silencio y la falla avisan.
 
-Si una ingesta FALLA, ella misma sella su `ingest_run` y `salud.py`
-avisa. Pero si el cron NO dispara (crontab pisado, `flock` atorado,
+Si una ingesta FALLA, ella misma sella su `ingest_run`, pero `salud.py`
+solo avisa en la SEGUNDA falla seguida (y las clases inmediatas son
+`lwa_fallido` y `http_429`): la primera falla de otra clase se queda
+callada. Y si el cron NO dispara (crontab pisado, `flock` atorado,
 reinicio en la ventana), no hay fila que fallar y nadie se entera.
-Este modulo convierte el silencio en aviso: lee la ventana de
+Este modulo convierte ambos silencios en aviso: lee la ventana de
 `ingest_run` (UNICA fuente, regla 2 — igual que salud.py) y reporta
-los pares (fuente, plataforma) sin corrida terminada. Limite: si el
-contenedor esta caido, `docker exec` falla en el host y NO hay aviso
-(solo el error de docker en el log; ver docs/DEPLOY.md).
+los pares (fuente, plataforma) sin corrida terminada con `ok` distinto
+de false. Limite: si el contenedor esta caido, `docker exec` falla en
+el host y NO hay aviso (solo el error de docker en el log; ver
+docs/DEPLOY.md).
 
 Solo lee (`ORBIT_DSN_READ`); sin migracion; sin canal nuevo (reusa
 `_envia_texto` via los senders de app.notifica). En verde es
@@ -45,17 +48,20 @@ PLATAFORMAS_SPAPI = ("amazon_mx", "amazon_us")
 
 
 def faltantes(filas, *, desde: datetime, hasta: datetime) -> list[tuple[str, str]]:
-    """Pares (fuente, plataforma) SIN corrida terminada en la ventana.
+    """Pares (fuente, plataforma) SIN corrida ok en la ventana.
 
     `filas`: tuplas (source, platform, started_at, finished_at, ok) tal
     cual las trae `lee_ventana`. Presente = `started_at` en [desde,
-    hasta) Y `finished_at IS NOT NULL`. `ok = false` CUENTA como
-    presente (ya aviso por su camino); empezada y no terminada cuenta
-    como ausente (colgada es silencio). Source ajena o platform NULL
-    (pre-A.5): invisibles, nunca error. Orden estable fuente→plataforma.
+    hasta), `finished_at IS NOT NULL` Y `ok` no es false: una corrida
+    fallida no dejo su corrida ok, y salud solo avisa en la segunda
+    falla seguida (la repeticion puede no correr). `ok NULL` con
+    `finished_at` presente sigue contando presente (no deberia existir
+    y se deja como estaba). Empezada y no terminada cuenta como ausente
+    (colgada es silencio). Source ajena o platform NULL (pre-A.5):
+    invisibles, nunca error. Orden estable fuente→plataforma.
     """
     presentes: set[tuple[str, str]] = set()
-    for source, platform, started_at, finished_at, _ok in filas:
+    for source, platform, started_at, finished_at, ok in filas:
         if source not in FUENTES_SPAPI:
             continue
         if platform is None or platform not in PLATAFORMAS_SPAPI:
@@ -63,6 +69,8 @@ def faltantes(filas, *, desde: datetime, hasta: datetime) -> list[tuple[str, str
         if started_at is None or not (desde <= started_at < hasta):
             continue
         if finished_at is None:
+            continue
+        if ok is False:
             continue
         presentes.add((source, platform))
     return [
