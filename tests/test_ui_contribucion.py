@@ -115,6 +115,26 @@ def test_ui_contribucion_rango_se_ve_como_rango(monkeypatch):
     assert "2026-05-28" in html and "2026-08-16" in html
 
 
+def test_ui_contribucion_rango_fuera_de_escala_conserva_marca_y_rotulo(monkeypatch):
+    """h_c4b8e201: si todo el rango supera el eje recortado, la campana sigue
+    marcada en el borde con su valor real; no desaparece la barra."""
+    filas = [
+        _item_con_rango(nombre="Arras Manual", sin_halo="1250.4645", con_halo="10102.3877"),
+        _item_con_rango(
+            nombre="AC - Category Exact - MX",
+            sin_halo="34765.9600",
+            con_halo="122380.5500",
+        ),
+    ]
+    html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=filas))
+    assert "20,000" in html
+    fila = _fila_de(html, "AC - Category Exact - MX")
+    assert "contribucion-fuera" in fila
+    assert "contribucion-rango" not in fila
+    assert "contribucion-linea-cero" in fila
+    assert "▸ valor real: 122,380.55" in fila
+
+
 def test_ui_contribucion_ausencia_no_se_pinta_como_cero(monkeypatch):
     """Regla 3 en presentacion (mismo criterio que quota 1.5): sin contribucion
     -> guion CON etiqueta del motivo dominante, jamas 0."""

@@ -145,6 +145,7 @@ def _fila(item: dict, eje: dict | None) -> dict:
         "punto": False,
         "izquierda": 0,
         "ancho": 0,
+        "fuera_escala": False,
         "recortado": False,
         "real_texto": "",
     }
@@ -158,6 +159,9 @@ def _fila(item: dict, eje: dict | None) -> dict:
     fila["izquierda"] = _clase_pct(izquierda)
     if sin_halo == con_halo:
         fila["punto"] = True
+    elif sin_halo >= eje["maximo"]:
+        # Todo el rango cae fuera del borde recortado: se marca el borde.
+        fila["fuera_escala"] = True
     else:
         ancho = max(1, _clase_pct(derecha - izquierda))
         fila["ancho"] = min(ancho, 100 - fila["izquierda"])

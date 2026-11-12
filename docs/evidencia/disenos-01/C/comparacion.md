@@ -48,6 +48,22 @@ sin diferencias
 - Escala recortada: `AC - Category Exact - MX` (122,380.55 MXN) termina en el
   borde de 50,000 y muestra `▸ valor real: 122,380.55`.
 
+## Caso de borde: todo el rango fuera de la escala (h_c4b8e201)
+
+Con solo las filas reales `Arras Manual` y `AC - Category Exact - MX`, el eje
+termina en 20,000 y el rango completo de AC (34,765.96 .. 122,380.55) queda
+fuera. El HTML `despues/contribucion-recorte.html` conserva la marca de borde
+(`contribucion-fuera`), la linea en cero y `▸ valor real: 122,380.55`; no finge
+un rango dentro de la escala. La comprobacion repetible es:
+
+```text
+python -B docs/evidencia/disenos-01/C/compara.py --recorte
+```
+
+La prueba de regresion `test_ui_contribucion_rango_fuera_de_escala_conserva_marca_y_rotulo`
+falla contra el codigo anterior (no existe `contribucion-fuera`) y pasa con este
+cambio.
+
 ## Movil
 
 `mide_390.py --html docs/evidencia/disenos-01/C/despues/contribucion.html`:

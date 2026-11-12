@@ -81,11 +81,13 @@
           {% endif %}
         </td>
         <td class="contribucion-col-barra">
-          {% if item.punto or item.ancho %}
+          {% if item.punto or item.ancho or item.fuera_escala %}
           <span class="contribucion-barra" aria-hidden="true">
             <span class="contribucion-linea-base"></span>
             <span class="contribucion-linea-cero contribucion-izq-{{ p.eje.cero_clase }}"></span>
-            {% if item.punto %}
+            {% if item.fuera_escala %}
+            <span class="contribucion-fuera contribucion-barra-{{ item.clase }}"></span>
+            {% elif item.punto %}
             <span class="contribucion-punto contribucion-barra-{{ item.clase }} contribucion-izq-{{ item.izquierda }}"></span>
             {% else %}
             <span class="contribucion-rango contribucion-barra-{{ item.clase }} contribucion-izq-{{ item.izquierda }} contribucion-ancho-{{ item.ancho }}"></span>

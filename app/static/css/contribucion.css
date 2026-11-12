@@ -51,6 +51,7 @@
 .contribucion-linea-base { position: absolute; left: 0; right: 0; top: 10px; height: 2px; background: #F3F4F6; }
 .contribucion-linea-cero { position: absolute; top: 0; bottom: 0; width: 1px; background: #9CA3AF; }
 .contribucion-rango { position: absolute; top: 5px; height: 12px; border-radius: 6px; }
+.contribucion-fuera { position: absolute; top: 4px; right: 0; width: 7px; height: 14px; border-radius: 3px; }
 .contribucion-punto { position: absolute; top: 4px; width: 14px; height: 14px; border-radius: 50%; transform: translateX(-50%); }
 .contribucion-barra-pos { background: #14B8A6; }
 .contribucion-barra-cruza { background: #64748B; }

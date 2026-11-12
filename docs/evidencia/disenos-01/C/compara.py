@@ -29,6 +29,8 @@ AQUI = Path(__file__).resolve().parent
 ANTES = AQUI / "antes" / "api-contribucion.json"
 ANTES_HTML = AQUI / "antes" / "contribucion.html"
 DESPUES = AQUI / "despues" / "contribucion.html"
+RECORTE = AQUI / "despues" / "contribucion-recorte.html"
+NOMBRES_RECORTE = ("Arras Manual", "AC - Category Exact - MX")
 NUMERO = re.compile(r"-?[\d,]+\.\d{2}")
 FECHA = re.compile(r"\d{4}-\d{2}-\d{2}")
 FILA_VIEJA = re.compile(
@@ -156,7 +158,7 @@ def _texto_eje(valor: Decimal) -> str:
     return _dinero(valor).replace(".00", "") or "0"
 
 
-def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
+def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:  # noqa: PLR0915
     viejas = _filas_viejas()
     total = 0
     faltan: list[str] = []
@@ -223,6 +225,15 @@ def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
                 )
                 if lo == hi:
                     exige("contribucion-punto" in nueva, f"{plataforma}: punto {nombre}")
+                elif hi > maximo and lo >= maximo:
+                    exige(
+                        "contribucion-fuera" in nueva,
+                        f"{plataforma}: marca de borde {nombre}",
+                    )
+                    exige(
+                        "contribucion-rango" not in nueva,
+                        f"{plataforma}: rango fuera de escala {nombre}",
+                    )
                 else:
                     exige("contribucion-rango" in nueva, f"{plataforma}: barra {nombre}")
                 if hi > maximo:
@@ -271,17 +282,67 @@ def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
     return total, faltan
 
 
+def _comparar_recorte() -> tuple[int, list[str]]:
+    """Caso bloqueante h_c4b8e201: todo el rango queda fuera de la escala."""
+    if not RECORTE.is_file():
+        raise SystemExit(f"no existe {RECORTE}")
+    datos = json.loads(ANTES.read_text(encoding="utf-8"))
+    plataforma = datos["plataformas"]["amazon_mx"]
+    plataforma["filas"] = [
+        fila for fila in plataforma["filas"] if fila["nombre"] in NOMBRES_RECORTE
+    ]
+    filas = plataforma["filas"]
+    rangos = [
+        (Decimal(f["contrib_sin_halo"]), Decimal(f["contrib_con_halo"]))
+        for f in filas
+        if f.get("contrib_sin_halo") is not None and f.get("contrib_con_halo") is not None
+    ]
+    _, maximo, _ = _escala(rangos)
+    pagina = RECORTE.read_text(encoding="utf-8")
+    seccion = _seccion(pagina, "amazon_mx")
+    nuevas = _filas_nuevas(seccion)
+    total = 0
+    faltan: list[str] = []
+
+    def exige(cond: bool, descripcion: str) -> None:
+        nonlocal total
+        total += 1
+        if not cond:
+            faltan.append(descripcion)
+
+    arras = nuevas.get("Arras Manual") or ""
+    ac = nuevas.get("AC - Category Exact - MX") or ""
+    exige(_texto_eje(maximo) in seccion, "eje maximo recortado")
+    exige("contribucion-rango" in arras, "Arras Manual conserva su barra")
+    exige("contribucion-fuera" not in arras, "Arras Manual no es marca de borde")
+    exige("contribucion-fuera" in ac, "AC conserva la marca de borde")
+    exige("contribucion-rango" not in ac, "AC no finge un rango dentro de la escala")
+    exige("contribucion-linea-cero" in ac, "AC conserva la linea en cero")
+    exige("▸ valor real: 122,380.55" in ac, "AC conserva el valor real")
+    exige("34,765.96 .. 122,380.55" in _limpiar(ac), "AC conserva el rango textual")
+    return total, faltan
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", help="instancia viva; sin el, usa antes/ y despues/")
     parser.add_argument("--html", help="HTML nuevo ya renderizado")
+    parser.add_argument(
+        "--recorte",
+        action="store_true",
+        help="caso de una campana cuyo rango completo queda fuera de la escala",
+    )
     args = parser.parse_args(argv)
     with contextlib.suppress(AttributeError):
         sys.stdout.reconfigure(encoding="utf-8")
 
-    if args.base:
+    if args.recorte:
+        total, faltan = _comparar_recorte()
+        origen = str(RECORTE)
+    elif args.base:
         datos, pagina = _bajar(args.base)
         origen = f"vivo {args.base}"
+        total, faltan = _comparar(datos, pagina)
     else:
         datos = json.loads(ANTES.read_text(encoding="utf-8"))
         ruta = Path(args.html) if args.html else DESPUES
@@ -289,8 +350,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"no existe {ruta}: genera el HTML nuevo o pasa --html/--base")
         pagina = ruta.read_text(encoding="utf-8")
         origen = str(ruta)
+        total, faltan = _comparar(datos, pagina)
 
-    total, faltan = _comparar(datos, pagina)
     print(f"origen del payload: {origen}")
     print(f"filas comprobadas: {total}")
     if faltan:
