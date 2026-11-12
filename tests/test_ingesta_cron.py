@@ -1,14 +1,14 @@
 """Cron de la ingesta diaria (ingesta-01 A.4).
 
-Sobre un crontab de ejemplo con el estado de hoy (lineas Orbit viejas dentro
-del bloque, las sueltas de avisos-campana / impulso-vigia / jev-senales
-fuera de el, mas accounting, precio y spapi), el instalador documentado en
-docs/DEPLOY.md: deja cada linea de la tabla una sola vez, borra las viejas
-(07:10 / 07:20 / 07:25 de metricas), no toca las ajenas y agenda el diario
-en los minutos de HORARIOS_INGESTA (la misma constante que usan los textos
-de reintento del diario, app.ads.diario).
+Sobre un crontab de ejemplo con el estado viejo (lineas Orbit dentro del bloque,
+mas accounting, precio y spapi fuera), `tools/despliegue/cron_orbit.sh instala`
+reemplaza SOLO el bloque Orbit por `tools/despliegue/crontab-orbit.txt`: deja
+cada linea canonica una sola vez, borra las viejas de metricas (07:10 / 07:20 /
+07:25), no toca las ajenas y agenda el diario en los minutos de HORARIOS_INGESTA
+(la misma constante que usan los textos de reintento del diario, app.ads.diario).
 """
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -16,9 +16,21 @@ from pathlib import Path
 from app.ads.diario import HORARIOS_INGESTA
 
 RAIZ = Path(__file__).resolve().parents[1]
+CRON_ORBIT = RAIZ / "tools/despliegue/cron_orbit.sh"
+BLOQUE = RAIZ / "tools/despliegue/crontab-orbit.txt"
 
-# Un crontab real de "hoy": bloque viejo (con las tres de metricas), las
-# sueltas de avisos-campana / impulso-vigia / jev-senales, y lineas ajenas.
+CRONTAB_FALSO = """#!/usr/bin/env bash
+F=${ORBIT_FAKE_CRONTAB:?}
+[ "$1" = -u ] && shift 2
+case "$1" in
+  -l) [ -f "$F" ] || { echo "no crontab" >&2; exit 1; }; cat "$F" ;;
+  -) cat > "$F" ;;
+  *) cp "$1" "$F" ;;
+esac
+"""
+
+# Un crontab viejo: el bloque Orbit con las tres de metricas y las lineas sin
+# envolver, mas lineas ajenas fuera del bloque.
 CRONTAB_DE_HOY = "\n".join(
     [
         "# === Orbit (ORBIT 03 / 4.2) ===",
@@ -58,8 +70,6 @@ CRONTAB_DE_HOY = "\n".join(
             "*/10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud"
             " >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1"
         ),
-        "# accounting",
-        "17 3 * * * /usr/bin/accounting-job >> /var/log/accounting.log 2>&1",
         (
             "5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock docker exec orbit-app-1"
             " python -m app.cli avisos-campana"
@@ -75,6 +85,8 @@ CRONTAB_DE_HOY = "\n".join(
             " python -m app.cli jev-senales --aplicar"
             " >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1"
         ),
+        "# === Accounting ===",
+        "17 3 * * * /usr/bin/accounting-job >> /var/log/accounting.log 2>&1",
         (
             "10 13 * * * /usr/bin/flock -n /tmp/precio-spapi.lock docker exec orbit-app-1"
             " python -m app.cli precio --platform amazon_mx --platform amazon_us"
@@ -89,58 +101,64 @@ CRONTAB_DE_HOY = "\n".join(
 )
 
 
-def _instalador(deploy: str) -> tuple[list[str], str]:
-    lineas = deploy.splitlines()
-    inicio = next(i for i, ln in enumerate(lineas) if ln.startswith("ORBIT_BLOCK=$(cat <<'CRON'"))
-    fin = next(i for i in range(inicio, len(lineas)) if lineas[i] == "CRON")
-    bloque = [ln for ln in lineas[inicio + 1 : fin] if ln.strip()]
-    fila = next(ln for ln in lineas if "crontab -u gon -l 2>/dev/null | grep -v" in ln)
-    filtros = fila.split("crontab -u gon -l 2>/dev/null | ", 1)[1].split(" ; printf", 1)[0]
-    return bloque, filtros
+def _bloque() -> list[str]:
+    return [ln for ln in BLOQUE.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 
-def _reinstala(deploy: str, crontab_actual: str) -> str:
-    bloque, filtros = _instalador(deploy)
+def _prepara(tmp_path: Path, actual: str) -> tuple[dict[str, str], Path]:
+    bin_ = tmp_path / "bin"
+    bin_.mkdir(exist_ok=True)
+    (bin_ / "crontab").write_text(CRONTAB_FALSO, encoding="utf-8", newline="\n")
+    (bin_ / "crontab").chmod(0o755)
+    avisa = bin_ / "cron-avisa"
+    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    avisa.chmod(0o755)
+    crontab = tmp_path / "crontab"
+    crontab.write_text(actual, encoding="utf-8", newline="\n")
+    entorno = {
+        **os.environ,
+        "PATH": f"{bin_}{os.pathsep}{os.environ['PATH']}",
+        "ORBIT_FAKE_CRONTAB": str(crontab),
+        "ORBIT_CRON_ARCHIVO": str(tmp_path / "archive"),
+        "ORBIT_CRON_AVISA": str(avisa),
+    }
+    return entorno, crontab
+
+
+def _instala(tmp_path: Path, actual: str) -> str:
+    entorno, crontab = _prepara(tmp_path, actual)
     resultado = subprocess.run(
-        ["bash", "-c", f"cat | {filtros}"],
-        input=crontab_actual,
+        ["bash", str(CRON_ORBIT), "instala"],
+        env=entorno,
         text=True,
         capture_output=True,
-        check=True,
+        check=False,
     )
-    return resultado.stdout + "\n".join(bloque) + "\n"
+    assert resultado.returncode == 0, resultado.stderr
+    return crontab.read_text(encoding="utf-8")
 
 
-def _deploy() -> str:
-    return (RAIZ / "docs/DEPLOY.md").read_text()
+def test_cada_linea_del_bloque_queda_una_sola_vez_y_las_viejas_se_boran(tmp_path):
+    reinstalado = _instala(tmp_path, CRONTAB_DE_HOY)
+    bloque = _bloque()
 
-
-def test_cada_linea_del_bloque_queda_una_sola_vez_y_las_viejas_se_boran():
-    reinstalado = _reinstala(_deploy(), CRONTAB_DE_HOY)
-    bloque, _ = _instalador(_deploy())
-
-    # cada linea de comando del bloque queda exactamente una vez
     for linea in bloque:
         if linea.startswith("#"):
             continue
         assert reinstalado.count(linea + "\n") == 1, f"linea duplicada o ausente: {linea}"
 
-    # las viejas de metricas (07:10/07:20/07:25) desaparecen por completo
     assert "app.cli ingest metrics" not in reinstalado
     assert "ingest-metrics.log" not in reinstalado
     assert "ingest-productos.log" not in reinstalado
     assert "ingest-placements.log" not in reinstalado
-
-    # nada del header viejo queda duplicado
     assert reinstalado.count("# === Orbit (") == 1
 
 
-def test_las_lineas_ajenas_sobreviven_intactas():
-    reinstalado = _reinstala(_deploy(), CRONTAB_DE_HOY)
-    assert "# accounting\n17 3 * * * /usr/bin/accounting-job" in reinstalado
+def test_las_lineas_ajenas_sobreviven_intactas(tmp_path):
+    reinstalado = _instala(tmp_path, CRONTAB_DE_HOY)
+    assert "# === Accounting ===\n17 3 * * * /usr/bin/accounting-job" in reinstalado
     assert "precio --platform amazon_mx --platform amazon_us" in reinstalado
     assert "spapi_vigilante" in reinstalado
-    # las sueltas de avisos/impulso/jev se funden con las del bloque: una vez
     for comando in ("avisos-campana", "impulso-vigia", "jev-senales --aplicar"):
         lineas = [
             ln
@@ -150,8 +168,8 @@ def test_las_lineas_ajenas_sobreviven_intactas():
         assert len(lineas) == 1, f"{comando}: {len(lineas)} lineas"
 
 
-def test_el_diario_se_agenda_en_los_minutos_de_HORARIOS_INGESTA():
-    reinstalado = _reinstala(_deploy(), CRONTAB_DE_HOY)
+def test_el_diario_se_agenda_en_los_minutos_de_HORARIOS_INGESTA(tmp_path):
+    reinstalado = _instala(tmp_path, CRONTAB_DE_HOY)
     diario = [
         ln for ln in reinstalado.splitlines() if "app.cli ingest diario" in ln and ln[:1].isdigit()
     ]
@@ -161,8 +179,8 @@ def test_el_diario_se_agenda_en_los_minutos_de_HORARIOS_INGESTA():
     assert vistos == esperados, "los minutos del crontab deben salir de HORARIOS_INGESTA"
 
 
-def test_los_reintentos_y_el_primer_horario_llevan_solo_faltantes():
-    reinstalado = _reinstala(_deploy(), CRONTAB_DE_HOY)
+def test_los_reintentos_y_el_primer_horario_llevan_solo_faltantes(tmp_path):
+    reinstalado = _instala(tmp_path, CRONTAB_DE_HOY)
     diario = [
         ln for ln in reinstalado.splitlines() if "app.cli ingest diario" in ln and ln[:1].isdigit()
     ]
@@ -172,18 +190,14 @@ def test_los_reintentos_y_el_primer_horario_llevan_solo_faltantes():
 
 
 def test_la_tabla_de_horarios_documenta_los_mismos_minutos():
-    deploy = _deploy()
+    deploy = (RAIZ / "docs/DEPLOY.md").read_text(encoding="utf-8")
     assert f"| {', '.join(HORARIOS_INGESTA)} | `ingest:diario` |" in deploy
 
 
 def test_la_tabla_documenta_ads_salud_que_instala_el_bloque():
-    """La tabla "Crons de Orbit" documenta el mismo conjunto que instala el
-    bloque: ads-salud vive en el bloque (*/10 10-12) y no puede ser el
-    unico cron de Orbit invisible en la tabla."""
-    deploy = _deploy()
-    bloque, _ = _instalador(deploy)
-    lineas = [ln for ln in bloque if "app.cli ads-salud" in ln and not ln.startswith("#")]
-    assert len(lineas) == 1, "el bloque instalador debe traer una sola linea de ads-salud"
+    deploy = (RAIZ / "docs/DEPLOY.md").read_text(encoding="utf-8")
+    lineas = [ln for ln in _bloque() if "app.cli ads-salud" in ln and not ln.startswith("#")]
+    assert len(lineas) == 1, "el bloque canonico debe traer una sola linea de ads-salud"
     assert lineas[0].startswith("*/10 10-12 * * *")
     filas = [ln for ln in deploy.splitlines() if ln.startswith("| ") and "ads-salud" in ln]
     assert len(filas) == 1, "la tabla de crons debe documentar ads-salud una sola vez"
@@ -191,14 +205,23 @@ def test_la_tabla_documenta_ads_salud_que_instala_el_bloque():
 
 
 def test_cada_linea_del_bloque_lleva_su_job_key():
-    bloque, _ = _instalador(_deploy())
+    bloque = _bloque()
     for i, linea in enumerate(bloque):
         if linea.startswith("#"):
             continue
         assert bloque[i - 1].startswith("# job_key="), f"sin job_key: {linea}"
 
 
-def test_reinstalar_dos_veces_es_idempotente():
-    una = _reinstala(_deploy(), CRONTAB_DE_HOY)
-    dos = _reinstala(_deploy(), una)
-    assert dos == una
+def test_reinstalar_dos_veces_es_idempotente(tmp_path):
+    una = _instala(tmp_path, CRONTAB_DE_HOY)
+    entorno, crontab = _prepara(tmp_path, una)
+    resultado = subprocess.run(
+        ["bash", str(CRON_ORBIT), "instala"],
+        env=entorno,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert resultado.returncode == 0, resultado.stderr
+    assert "sin cambios" in resultado.stdout
+    assert crontab.read_text(encoding="utf-8") == una

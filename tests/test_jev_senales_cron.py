@@ -1,47 +1,26 @@
 """Contrato de la linea de cron de `jev-senales` (JEV ADS 02, S.4).
 
-Desde ingesta-01 A.4 la linea vive DENTRO del bloque instalador de
-docs/DEPLOY.md (con `job_key=jev-senales`): el instalador la reinstala y su
-filtro BORRA la vieja linea suelta, para no duplicarla.
+Desde ARREGLOS 01 N la linea vive en el bloque canonico
+`tools/despliegue/crontab-orbit.txt` (con `job_key=jev-senales`), que instala
+`tools/despliegue/cron_orbit.sh`; el despliegue reinstala ese bloque completo.
 """
 
-import subprocess
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
-
-LINEA_JEV_SENALES = (
-    "30 9,21 * * * /usr/bin/flock -n /tmp/jev-senales.lock"
-    " docker exec orbit-app-1 python -m app.cli jev-senales --aplicar"
-    " >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1"
-)
+BLOQUE = RAIZ / "tools/despliegue/crontab-orbit.txt"
 
 
-def _filtro_instalador(deploy: str) -> str:
-    instalador = next(
-        linea for linea in deploy.splitlines() if "crontab -u gon -l 2>/dev/null | grep -v" in linea
-    )
-    return instalador.split("crontab -u gon -l 2>/dev/null | ", 1)[1].split(" ; printf", 1)[0]
+def _lineas(comando: str) -> list[str]:
+    return [
+        ln
+        for ln in BLOQUE.read_text(encoding="utf-8").splitlines()
+        if f"app.cli {comando}" in ln and not ln.startswith("#")
+    ]
 
 
-def test_deploy_documenta_la_linea_de_jev_senales():
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
-    assert LINEA_JEV_SENALES in deploy
-
-
-def test_instalador_reemplaza_la_linea_de_jev_senales():
-    """El filtro borra la vieja linea suelta: la reinstalacion deja la del
-    bloque una sola vez, no dos."""
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
-    assert LINEA_JEV_SENALES in deploy
-    filtros = _filtro_instalador(deploy)
-    actual = f"{LINEA_JEV_SENALES}\n# accounting\n0 0 * * * accounting\n"
-    resultado = subprocess.run(
-        ["bash", "-c", f"cat | {filtros}"],
-        input=actual,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    assert LINEA_JEV_SENALES not in resultado.stdout
-    assert "# accounting\n0 0 * * * accounting\n" in resultado.stdout
+def test_el_bloque_canonico_trae_una_sola_linea_de_jev_senales():
+    lineas = _lineas("jev-senales --aplicar")
+    assert len(lineas) == 1, f"jev-senales: {len(lineas)} lineas"
+    assert lineas[0].startswith("30 9,21 * * *")
+    assert "cron-avisa" in lineas[0], "la linea conserva su envoltura de aviso"

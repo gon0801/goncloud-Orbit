@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Orbit — Salud</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EEF0F3}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+.num{font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+summary{list-style:none}summary::-webkit-details-marker{display:none}
+details[open] > summary .chev{transform:rotate(90deg)}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif; color: #111827; background: #EEF0F3">
+
+<a href="#contenido" style="position: absolute; left: -9999px">Saltar al contenido</a>
+
+<!-- Sidebar -->
+<nav aria-label="Navegación principal" style="flex: 1 1 232px; max-width: 100%; background: #0F172A; color: #CBD5E1; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px">
+  <a href="/" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #F8FAFC; padding: 0 8px">
+    <span style="width: 32px; height: 32px; border-radius: 8px; border: 2px solid #F8FAFC; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">O</span>
+    <span style="display: flex; flex-direction: column; gap: 2px">
+      <span style="font-weight: 700; letter-spacing: 0.12em; font-size: 15px">ORBIT</span>
+      <span style="font-size: 12px; color: #94A3B8">Ads y marketplaces</span>
+    </span>
+  </a>
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8; padding: 0 8px 6px">Panel</span>
+    <a href="/" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Resumen</a>
+    <a href="/campanas" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Campañas</a>
+    <a href="/decisiones" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Decisiones</a>
+    <a href="/salud" aria-current="page" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; background: #1E293B; color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 600">Salud</a>
+    <a href="/contribucion" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Contribución</a>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8; padding: 0 8px 6px">Decidir</span>
+    <a href="/cortes" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Propuestas</a>
+    <a href="/gasto-sin-venta" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Gasto sin venta</a>
+    <a href="/busquedas-sin-venta" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Búsquedas que gastan sin vender</a>
+    <a href="/keywords-danadas" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Keywords dañadas</a>
+    <a href="/ruido" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Ruido</a>
+    <a href="/donde-poner-el-dinero" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Dónde poner el dinero</a>
+    <a href="/productos-sin-clics" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Productos sin clics</a>
+    <a href="/inertes" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Inertes</a>
+    <a href="/campanas/nuevas" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Crear campañas</a>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8; padding: 0 8px 6px">Catálogo</span>
+    <a href="/reputacion" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Reputación</a>
+    <a href="/precios" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Precios</a>
+    <a href="/familias" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Familias</a>
+  </div>
+  <a href="/settings" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Settings</a>
+  <div style="margin-top: auto; border: 1px solid #334155; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8">Último ciclo</span>
+    <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #F8FAFC"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #94A3B8"></span>Sin consultar</span>
+    <a href="/salud" style="font-size: 13px; color: #93C5FD">Ver salud por plataforma</a>
+  </div>
+</nav>
+
+
+
+<main id="contenido" style="flex: 999 1 640px; min-width: 0; padding: 28px 40px 48px; box-sizing: border-box">
+<div style="max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px">
+
+  <header style="display: flex; flex-direction: column; gap: 6px">
+    <span style="font-size: 13px; color: #4B5563">Último ciclo, los 14 anteriores y lo que se saltó</span>
+    <h1 style="margin: 0; font-size: 30px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em">Salud</h1>
+  </header>
+
+  <!-- Overview -->
+  <section aria-label="Estado por plataforma" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 16px">
+    <sc-for list="{{overview}}" as="p" hint-placeholder-count="2">
+      <article style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px">
+          <h2 style="margin: 0; font-size: 18px; font-weight: 600">{{p.name}}</h2>
+          <span style="display: flex; gap: 6px">
+            <span style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; background: #CCFBF1; color: #115E59; font-size: 12px; font-weight: 600"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #0F766E"></span>Completo</span>
+            <span style="display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: #F3F4F6; color: #374151; font-size: 12px; font-weight: 600">En vivo</span>
+          </span>
+        </div>
+        <span class="num" style="font-size: 12px; color: #4B5563">{{p.datos}}</span>
+        <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; border-top: 1px solid #F3F4F6">
+          <sc-for list="{{p.checks}}" as="c" hint-placeholder-count="6">
+            <li style="display: grid; grid-template-columns: 18px 150px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid #F3F4F6">
+              <span aria-hidden="true" style="{{c.dot}}"></span>
+              <span style="font-size: 13px; font-weight: 600; color: #374151">{{c.label}}</span>
+              <span class="num" style="font-size: 13px; color: {{c.tone}}">{{c.value}}</span>
+            </li>
+          </sc-for>
+        </ul>
+      </article>
+    </sc-for>
+  </section>
+
+  <!-- Detail tabs -->
+  <section aria-labelledby="h-det" style="display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+      <h2 id="h-det" style="margin: 0; font-size: 17px; font-weight: 600">Detalle de {{cur.name}}</h2>
+      <div role="tablist" aria-label="Plataforma" style="display: flex; gap: 4px; background: #FFFFFF; border: 1px solid #E5E7EB; padding: 4px; border-radius: 8px">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="2">
+          <sc-if value="{{t.on}}" hint-placeholder-val="{{false}}">
+            <button type="button" role="tab" aria-selected="true" onClick="{{t.pick}}" style="height: 34px; padding: 0 14px; border: 0; border-radius: 6px; background: #111827; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">{{t.label}}</button>
+          </sc-if>
+          <sc-if value="{{t.off}}" hint-placeholder-val="{{true}}">
+            <button type="button" role="tab" aria-selected="false" onClick="{{t.pick}}" style="height: 34px; padding: 0 14px; border: 0; border-radius: 6px; background: transparent; color: #374151; font: inherit; font-size: 13px; cursor: pointer">{{t.label}}</button>
+          </sc-if>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(480px, 100%), 1fr)); gap: 16px">
+      <!-- Cycles -->
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px">
+          <h3 style="margin: 0; font-size: 15px; font-weight: 600">Últimos 14 ciclos</h3>
+          <span class="num" style="font-size: 12px; color: #4B5563">{{cur.ciclosResumen}}</span>
+        </div>
+        <span style="font-size: 12px; color: #4B5563">Decisiones por ciclo, del más antiguo al más reciente</span>
+        <div role="img" aria-label="{{cur.ciclosLabel}}" style="display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; align-items: end; height: 150px; border-bottom: 1px solid #9CA3AF">
+          <sc-for list="{{cur.bars}}" as="b" hint-placeholder-count="14">
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%">
+              <span class="num" style="font-size: 11px; color: #374151">{{b.n}}</span>
+              <span style="{{b.bar}}"></span>
+            </div>
+          </sc-for>
+        </div>
+        <div aria-hidden="true" class="num" style="display: flex; justify-content: space-between; font-size: 11px; color: #4B5563"><span>{{cur.firstDate}}</span><span>{{cur.lastDate}}</span></div>
+        <details>
+          <summary style="cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #1D4ED8; font-weight: 500">
+            <svg class="chev" aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition: transform .15s"><path d="M9 6l6 6-6 6"></path></svg>
+            Ver tabla de ciclos
+          </summary>
+          <div role="table" aria-label="Últimos 14 ciclos" style="font-size: 12px; margin-top: 6px">
+            <div role="row" style="display: grid; grid-template-columns: 60px 1fr 90px 80px 60px; color: #4B5563; border-bottom: 1px solid #E5E7EB">
+              <span role="columnheader" style="padding: 6px 0">Ciclo</span><span role="columnheader" style="padding: 6px 0">Fecha</span><span role="columnheader" style="padding: 6px 0">Estado</span><span role="columnheader" style="padding: 6px 0; text-align: right">Decisiones</span><span role="columnheader" style="padding: 6px 0; text-align: right">Motivo</span>
+            </div>
+            <sc-for list="{{cur.ciclos}}" as="c" hint-placeholder-count="14">
+              <div role="row" class="num" style="display: grid; grid-template-columns: 60px 1fr 90px 80px 60px; border-bottom: 1px solid #F3F4F6">
+                <span role="cell" style="padding: 6px 0">{{c.id}}</span><span role="cell" style="padding: 6px 0">{{c.fecha}}</span><span role="cell" style="padding: 6px 0; color: #0F766E">{{c.estado}}</span><span role="cell" style="padding: 6px 0; text-align: right">{{c.dec}}</span><span role="cell" style="padding: 6px 0; text-align: right">{{c.motivo}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </details>
+      </div>
+
+      <!-- Campaign alerts -->
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px">
+          <h3 style="margin: 0; font-size: 15px; font-weight: 600">Avisos de campaña</h3>
+          <span class="num" style="font-size: 12px; color: #4B5563">{{cur.avisosResumen}}</span>
+        </div>
+        <sc-for list="{{cur.avisoGroups}}" as="g" hint-placeholder-count="2">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="{{g.chip}}">{{g.label}} · {{g.n}}</span>
+            <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column">
+              <sc-for list="{{g.items}}" as="a" hint-placeholder-count="3">
+                <li style="padding: 8px 0; border-bottom: 1px solid #F3F4F6; font-size: 13px; line-height: 1.45"><strong style="font-weight: 600">{{a.camp}}</strong>: <span style="color: #374151">{{a.text}}</span></li>
+              </sc-for>
+            </ul>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- Skipped -->
+    <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px">
+        <h3 style="margin: 0; font-size: 15px; font-weight: 600">Lo que se saltó en el último ciclo</h3>
+        <span class="num" style="font-size: 12px; color: #4B5563">Ciclo {{cur.cicloId}} · {{cur.cicloFecha}}</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 24px">
+        <sc-for list="{{cur.skipCols}}" as="s" hint-placeholder-count="2">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <span style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600"><span>{{s.title}}</span><span class="num" style="color: #4B5563; font-weight: 500">{{s.total}}</span></span>
+            <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px">
+              <sc-for list="{{s.items}}" as="i" hint-placeholder-count="6">
+                <li style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #374151"><span>{{i.text}}</span><span class="num" style="font-weight: 600; color: #111827">{{i.n}}</span></span>
+                  <span aria-hidden="true" style="display: flex; height: 6px; border-radius: 3px; background: #F3F4F6"><span style="{{i.bar}}"></span></span>
+                </li>
+              </sc-for>
+            </ul>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- Ingestion + SP-API -->
+    <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px">
+          <h3 style="margin: 0; font-size: 15px; font-weight: 600">Ingesta Ads principal</h3>
+          <span style="font-size: 12px; color: #4B5563">Fuente: Reportes de Amazon Ads</span>
+        </div>
+        <div style="overflow-x: auto">
+          <div role="table" aria-label="Ingesta Ads principal" style="min-width: 760px; font-size: 13px">
+            <div role="row" style="display: grid; grid-template-columns: 1.4fr 1.2fr 1fr 1fr 0.7fr 0.8fr; font-size: 12px; color: #4B5563; border-bottom: 1px solid #E5E7EB">
+              <span role="columnheader" style="padding: 8px 0">Perfil</span><span role="columnheader" style="padding: 8px 0">Reporte</span><span role="columnheader" style="padding: 8px 0">Último éxito</span><span role="columnheader" style="padding: 8px 0">Fecha de la métrica</span><span role="columnheader" style="padding: 8px 0">Edad</span><span role="columnheader" style="padding: 8px 0">Último estado</span>
+            </div>
+            <sc-for list="{{cur.ingesta}}" as="r" hint-placeholder-count="4">
+              <div role="row" style="display: grid; grid-template-columns: 1.4fr 1.2fr 1fr 1fr 0.7fr 0.8fr; border-bottom: 1px solid #F3F4F6">
+                <span role="cell" class="num" style="padding: 8px 0; color: #4B5563">{{r.a}}</span><span role="cell" style="padding: 8px 0; font-weight: 600">{{r.b}}</span><span role="cell" class="num" style="padding: 8px 0">{{r.c}}</span><span role="cell" class="num" style="padding: 8px 0">{{r.d}}</span><span role="cell" class="num" style="padding: 8px 0">{{r.e}}</span><span role="cell" style="padding: 8px 0; color: #0F766E">{{r.f}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <h3 style="margin: 0; font-size: 15px; font-weight: 600">SP-API</h3>
+        <div style="overflow-x: auto">
+          <div role="table" aria-label="SP-API" style="min-width: 900px; font-size: 13px">
+            <div role="row" style="display: grid; grid-template-columns: 1.3fr 1.4fr 0.5fr 0.6fr 1.4fr 1fr 1fr; font-size: 12px; color: #4B5563; border-bottom: 1px solid #E5E7EB">
+              <span role="columnheader" style="padding: 8px 0">Fuente</span><span role="columnheader" style="padding: 8px 0">Última</span><span role="columnheader" style="padding: 8px 0; text-align: right">Filas</span><span role="columnheader" style="padding: 8px 0; text-align: right">Saltadas</span><span role="columnheader" style="padding: 8px 0 8px 16px">Motivo</span><span role="columnheader" style="padding: 8px 0">Último límite de Amazon</span><span role="columnheader" style="padding: 8px 0">Última falla de acceso</span>
+            </div>
+            <sc-for list="{{cur.spapi}}" as="r" hint-placeholder-count="4">
+              <div role="row" style="display: grid; grid-template-columns: 1.3fr 1.4fr 0.5fr 0.6fr 1.4fr 1fr 1fr; border-bottom: 1px solid #F3F4F6">
+                <span role="cell" style="padding: 8px 0; font-weight: 600">{{r.a}}</span><span role="cell" class="num" style="padding: 8px 0"><span style="color: #0F766E; font-weight: 600">ok</span> {{r.b}}</span><span role="cell" class="num" style="padding: 8px 0; text-align: right">{{r.c}}</span><span role="cell" class="num" style="padding: 8px 0; text-align: right; color: {{r.dTone}}; font-weight: {{r.dWeight}}">{{r.d}}</span><span role="cell" class="num" style="padding: 8px 0 8px 16px; color: #374151">{{r.e}}</span><span role="cell" class="num" style="padding: 8px 0">{{r.f}}</span><span role="cell" class="num" style="padding: 8px 0">{{r.g}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Small facts -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 16px">
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+        <h3 style="margin: 0; font-size: 15px; font-weight: 600">Último ciclo</h3>
+        <span class="num" style="font-size: 13px">{{cur.ciclo}}</span>
+        <span style="font-size: 13px; color: #374151">Avisos de propuesta: <span class="num">{{cur.propuestas}}</span></span>
+        <span style="font-size: 13px; color: #374151; line-height: 1.5">Destino de harvest: <span class="num">{{cur.harvest}}</span></span>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+        <h3 style="margin: 0; font-size: 15px; font-weight: 600">Cambios permitidos hoy</h3>
+        <div role="table" aria-label="Cambios permitidos hoy" style="font-size: 13px">
+          <div role="row" style="display: grid; grid-template-columns: 1fr 0.6fr 1fr 1.6fr; font-size: 12px; color: #4B5563; border-bottom: 1px solid #E5E7EB">
+            <span role="columnheader" style="padding: 6px 0">Tipo</span><span role="columnheader" style="padding: 6px 0; text-align: right">Usados</span><span role="columnheader" style="padding: 6px 0; text-align: right">Tope</span><span role="columnheader" style="padding: 6px 0 6px 16px">Estado</span>
+          </div>
+          <sc-for list="{{cur.cambios}}" as="r" hint-placeholder-count="4">
+            <div role="row" style="display: grid; grid-template-columns: 1fr 0.6fr 1fr 1.6fr; border-bottom: 1px solid #F3F4F6">
+              <span role="cell" style="padding: 6px 0; font-weight: 600">{{r.a}}</span><span role="cell" class="num" style="padding: 6px 0; text-align: right">{{r.b}}</span><span role="cell" class="num" style="padding: 6px 0; text-align: right">{{r.c}}</span><span role="cell" style="padding: 6px 0 6px 16px; color: #4B5563">{{r.d}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+        <h3 style="margin: 0; font-size: 15px; font-weight: 600">Precios</h3>
+        <span class="num" style="font-size: 13px; line-height: 1.6; color: #374151">{{cur.precios}}</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Jev -->
+  <section aria-labelledby="h-jev" style="background: #0F172A; color: #F8FAFC; border-radius: 12px; padding: 20px 22px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <h2 id="h-jev" style="margin: 0; font-size: 17px; font-weight: 600">Jev: señal por búsqueda en cada grupo</h2>
+    </div>
+    <sc-for list="{{jev}}" as="j" hint-placeholder-count="4">
+      <span class="num" style="font-size: 13px; color: #CBD5E1; line-height: 1.5">{{j}}</span>
+    </sc-for>
+  </section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2400}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { tab: 'us' }; }
+  renderVals() {
+    var self = this;
+    // Datos tal cual /salud (11 nov). Solo los conteos y sumas marcados se calculan aquí.
+    var DATA = {"P": [{"id": "us", "name": "Amazon US", "chips": ["Completo", "En vivo"], "datos": "Últimos datos de métricas: 2026-11-10 · Estructura sincronizada: 11 nov, 00:45", "ingesta": [["4387591165211712", "Campañas", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"], ["4387591165211712", "Keywords", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"], ["4387591165211712", "Búsquedas", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"], ["4387591165211712", "Productos objetivo", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"]], "ciclo": "#182 · 11 nov, 02:40 · decisiones: 0 · aplicadas: 0", "cicloDec": "0", "cicloApl": "0", "cicloId": "#182", "cicloFecha": "11 nov, 02:40", "propuestas": "0 pendientes", "harvest": "por grupo 0 · por excepcion 0 · por terna 8 (Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción))", "cambios": [["Puja", "0", "1,000,000", "Tope de la configuración"], ["Pausa", "0", "1,000,000", "Tope de la configuración"], ["Negativo", "0", "1,000,000", "Tope de la configuración"], ["Captura", "0", "1,000,000", "Tope de la configuración"]], "spapi": [["Pedidos de Amazon", "ok #1511 · 10 nov, 23:00", "7", "0", "—", "—", "—"], ["Precios de Amazon", "ok #1517 · 10 nov, 23:36", "167", "9", "9x http 400", "—", "—"], ["Publicaciones de Amazon", "ok #1513 · 10 nov, 23:02", "127", "49", "49x http 404", "—", "—"], ["Inventario de Amazon", "ok #1515 · 10 nov, 23:02", "1,071", "0", "—", "—", "—"]], "precios": "Hoy 2026-11-12 · evaluados 0 · movidos 0 · en práctica 0 · no evaluados 0 · frenados 0 · objetivo inalcanzable 0 · huerfanas pendientes: 0", "avisos": [["USPerNog - Category Exact - US", "se queda sin presupuesto. Usó 90 % o más en 6 de los últimos 7 días."], ["AU2 - Auto Discovery - US", "se queda sin presupuesto. Usó 90 % o más en 5 de los últimos 7 días."], ["Wedding Coin - Asin Targeting", "este presupuesto no limita. 26 USD al día y gasta 0."]], "ciclos": [["#182", "11 nov, 02:40", "Completo", 0, "—"], ["#180", "10 nov, 02:40", "Completo", 1, "—"], ["#178", "9 nov, 02:40", "Completo", 1, "—"], ["#176", "8 nov, 11:58", "Completo", 0, "—"], ["#174", "8 nov, 02:40", "Completo", 33, "—"], ["#172", "7 nov, 02:40", "Completo", 3, "—"], ["#170", "6 nov, 02:40", "Completo", 0, "—"], ["#168", "5 nov, 02:40", "Completo", 1, "—"], ["#166", "4 nov, 02:40", "Completo", 2, "—"], ["#164", "3 nov, 02:40", "Completo", 1, "—"], ["#162", "2 nov, 02:40", "Completo", 1, "—"], ["#160", "1 nov, 02:40", "Completo", 0, "—"], ["#158", "31 oct, 02:40", "Completo", 0, "—"], ["#156", "30 oct, 02:40", "Completo", 4, "—"]], "skips": {"entidad": [[1620, "Campaña no habilitada (pausada, archivada o sin estado)"], [145, "Sin impresiones en 14 días: Orbit no mueve su puja"], [47, "Sin gasto: sin cambio de puja"], [34, "La keyword o el producto no está habilitado o no tiene estado"], [11, "Sin datos suficientes en la keyword ni en su grupo: sin cambio"], [10, "Gasta tan poco que no vale la pena mover la puja"], [7, "Puja cambiada hace poco: espera 7 días para ver su efecto"], [6, "Sin clics nuevos desde el último cambio de puja"], [4, "La diferencia puede ser suerte: sin cambio de puja"], [2, "Bajada de puja frenada: perdería demasiadas visitas"], [2, "Vendió hace poco y esos días todavía pueden cambiar: sin cambio de puja"], [1, "Tiene una propuesta esperando tu revisión: Orbit no la vuelve a decidir"]], "termino": [[948, "La búsqueda no llega a los clics o al gasto para bloquearla"], [626, "Campaña no habilitada (pausada, archivada o sin estado)"], [63, "La búsqueda es un código de producto: no se bloquea ni se captura"], [18, "El ACoS está dentro del rango de la meta: sin cambio de puja"], [6, "La búsqueda es una keyword propia de su grupo de anuncios: no se bloquea ni se captura"], [2, "La búsqueda ya existe como keyword: no se captura otra vez"], [1, "Tiene una propuesta esperando tu revisión: Orbit no la vuelve a decidir"]]}}, {"id": "mx", "name": "Amazon MX", "chips": ["Completo", "En vivo"], "datos": "Últimos datos de métricas: 2026-11-10 · Estructura sincronizada: 11 nov, 00:45", "ingesta": [["3850003733258937", "Campañas", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"], ["3850003733258937", "Keywords", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"], ["3850003733258937", "Búsquedas", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"], ["3850003733258937", "Productos objetivo", "11 nov, 01:13", "2026-11-10", "2 dias", "Escrito"]], "ciclo": "#183 · 11 nov, 02:41 · decisiones: 1 · aplicadas: 1", "cicloDec": "1", "cicloApl": "1", "cicloId": "#183", "cicloFecha": "11 nov, 02:41", "propuestas": "0 pendientes", "harvest": "por grupo 4 · por excepcion 0 · por terna 28 (Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción))", "cambios": [["Puja", "0", "1,000,000", "Tope de la configuración"], ["Pausa", "0", "1,000,000", "Tope de la configuración"], ["Negativo", "0", "1,000,000", "Tope de la configuración"], ["Captura", "0", "1,000,000", "Tope de la configuración"]], "spapi": [["Pedidos de Amazon", "ok #1510 · 10 nov, 23:00", "45", "0", "—", "—", "—"], ["Precios de Amazon", "ok #1516 · 10 nov, 23:25", "338", "4", "4x http 400", "—", "—"], ["Publicaciones de Amazon", "ok #1512 · 10 nov, 23:01", "285", "57", "43x http 404, 14x sin summary", "—", "—"], ["Inventario de Amazon", "ok #1514 · 10 nov, 23:02", "1,071", "0", "—", "#1005 · 21 oct, 23:02", "—"]], "precios": "Hoy 2026-11-12 · evaluados 0 · movidos 0 · en práctica 0 · no evaluados 0 · frenados 0 · objetivo inalcanzable 0 · huerfanas pendientes: 0", "avisos": [["Arras Auto", "este presupuesto no limita. 50 MXN al día y gasta 1."], ["Arras Auto 2", "este presupuesto no limita. 294 MXN al día y gasta 3."], ["ASEM - Category Exact - MX", "este presupuesto no limita. 85 MXN al día y gasta 0."], ["AC - Category Exact - MX", "se queda sin presupuesto. Usó 90 % o más en 5 de los últimos 7 días."], ["ASEM - Category Phrase - MX", "este presupuesto no limita. 200 MXN al día y gasta 11."], ["AC - Auto Discovery - MX", "este presupuesto no limita. 317 MXN al día y gasta 8."], ["AGMX - Category Exact - MX", "este presupuesto no limita. 134 MXN al día y gasta 1."], ["AGMX - Product Targeting - MX", "este presupuesto no limita. 365 MXN al día y gasta 15."], ["AD_READY: B0D9F4V1CC", "este presupuesto no limita. 100 MXN al día y gasta 0."], ["kit_arras | Personalizado | product_targeting | 2026-09-09", "este presupuesto no limita. 20 MXN al día y gasta 0."]], "ciclos": [["#183", "11 nov, 02:41", "Completo", 1, "—"], ["#181", "10 nov, 02:41", "Completo", 0, "—"], ["#179", "9 nov, 02:41", "Completo", 0, "—"], ["#177", "8 nov, 11:58", "Completo", 0, "—"], ["#175", "8 nov, 02:41", "Completo", 0, "—"], ["#173", "7 nov, 02:41", "Completo", 0, "—"], ["#171", "6 nov, 02:41", "Completo", 1, "—"], ["#169", "5 nov, 02:41", "Completo", 0, "—"], ["#167", "4 nov, 02:41", "Completo", 0, "—"], ["#165", "3 nov, 02:41", "Completo", 2, "—"], ["#163", "2 nov, 02:41", "Completo", 1, "—"], ["#161", "1 nov, 02:41", "Completo", 0, "—"], ["#159", "31 oct, 02:41", "Completo", 2, "—"], ["#157", "30 oct, 02:41", "Completo", 0, "—"]], "skips": {"entidad": [[3111, "Campaña no habilitada (pausada, archivada o sin estado)"], [222, "Sin impresiones en 14 días: Orbit no mueve su puja"], [121, "La keyword o el producto no está habilitado o no tiene estado"], [40, "Sin gasto: sin cambio de puja"], [37, "Sin datos suficientes en la keyword ni en su grupo: sin cambio"], [22, "La diferencia puede ser suerte: sin cambio de puja"], [22, "Su grupo de anuncios cumple la meta: sin cambio de puja"], [5, "Sin clics nuevos desde el último cambio de puja"], [3, "Subida de puja frenada: no hay visitas para medirla"], [2, "La puja mínima o máxima configurada impide el cambio"], [1, "Falta un dato de la búsqueda"], [1, "Puja cambiada hace poco: espera 7 días para ver su efecto"], [1, "Vende dentro del margen: sin cambio de puja"], [1, "Vendió hace poco y esos días todavía pueden cambiar: sin cambio de puja"]], "termino": [[688, "La búsqueda no llega a los clics o al gasto para bloquearla"], [174, "La búsqueda es un código de producto: no se bloquea ni se captura"], [32, "El ACoS está dentro del rango de la meta: sin cambio de puja"], [29, "La búsqueda es una keyword propia de su grupo de anuncios: no se bloquea ni se captura"], [7, "La búsqueda ya existe como keyword: no se captura otra vez"], [5, "Faltan días de datos para decidir"], [3, "Campaña no habilitada (pausada, archivada o sin estado)"]]}}], "JEV": ["Encendido · tope diario 10,000 · mínimo de clics 3 · avisos no", "Último cálculo terminado: 11 nov, 15:30 (hace 7 h)", "Última corrida: completa · 379 unidades · 0 llamadas · 0 señales", "Llamadas hoy: 0 · pendientes de Jev: 0 · grupos probados: 29 de 29 · ajena impedida: 10 · avisos sin entrega: 0 · fichas por vencer: 0"]};
+    var P = DATA.P;
+    var OK = '#0F766E', WARN = '#B45309', MUTED = '#374151';
+    function dot(c) { return 'width: 9px; height: 9px; border-radius: 50%; background: ' + c + '; display: inline-block'; }
+
+    var overview = P.map(function (p) {
+      var escritos = p.ingesta.filter(function (r) { return r[5] === 'Escrito'; }).length;
+      var oks = p.spapi.length;
+      var saltadas = p.spapi.reduce(function (s, r) { return s + parseInt(r[3].replace(/,/g, ''), 10); }, 0);
+      var comp = p.ciclos.filter(function (c) { return c[2] === 'Completo'; }).length;
+      var dec = p.ciclos.reduce(function (s, c) { return s + c[3]; }, 0);
+      var sinPres = p.avisos.filter(function (a) { return a[1].indexOf('se queda sin presupuesto') === 0; }).length;
+      var noLim = p.avisos.length - sinPres;
+      return { name: p.name, datos: p.datos, checks: [
+        { label: 'Ingesta Ads', value: escritos + ' de ' + p.ingesta.length + ' reportes escritos · métrica ' + p.ingesta[0][3] + ' · ' + p.ingesta[0][4], dot: dot(OK), tone: '#111827' },
+        { label: 'SP-API', value: oks + ' de ' + p.spapi.length + ' fuentes ok · ' + saltadas + ' filas saltadas', dot: dot(saltadas ? WARN : OK), tone: '#111827' },
+        { label: 'Último ciclo', value: p.cicloId + ' · ' + p.cicloFecha + ' · decisiones ' + p.cicloDec + ' · aplicadas ' + p.cicloApl, dot: dot(OK), tone: '#111827' },
+        { label: 'Últimos 14 ciclos', value: comp + ' de 14 completos · ' + dec + ' decisiones', dot: dot(OK), tone: '#111827' },
+        { label: 'Avisos de campaña', value: sinPres + ' sin presupuesto · ' + noLim + ' con presupuesto que no limita', dot: dot(sinPres ? WARN : OK), tone: '#111827' },
+        { label: 'Avisos de propuesta', value: p.propuestas, dot: dot(OK), tone: '#111827' }
+      ] };
+    });
+
+    var tab = this.state.tab;
+    var tabs = P.map(function (p) { return { label: p.name, on: tab === p.id, off: tab !== p.id, pick: function () { self.setState({ tab: p.id }); } }; });
+    var p = P.filter(function (x) { return x.id === tab; })[0];
+
+    var ciclosAsc = p.ciclos.slice().reverse();
+    var maxDec = Math.max.apply(null, ciclosAsc.map(function (c) { return c[3]; })) || 1;
+    var bars = ciclosAsc.map(function (c) {
+      var h = c[3] === 0 ? 2 : Math.max(6, Math.round(c[3] / maxDec * 110));
+      return { n: String(c[3]), bar: 'width: 100%; max-width: 28px; height: ' + h + 'px; border-radius: 4px 4px 0 0; background: ' + (c[3] === 0 ? '#D1D5DB' : '#1D4ED8') };
+    });
+    var dec = p.ciclos.reduce(function (s, c) { return s + c[3]; }, 0);
+
+    var CHIP = 'align-self: flex-start; display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; ';
+    var sin = p.avisos.filter(function (a) { return a[1].indexOf('se queda sin presupuesto') === 0; });
+    var nol = p.avisos.filter(function (a) { return a[1].indexOf('se queda sin presupuesto') !== 0; });
+    var avisoGroups = [];
+    if (sin.length) avisoGroups.push({ label: 'Se queda sin presupuesto', n: String(sin.length), chip: CHIP + 'background: #FEF3C7; color: #92400E', items: sin.map(function (a) { return { camp: a[0], text: a[1] }; }) });
+    if (nol.length) avisoGroups.push({ label: 'El presupuesto no limita', n: String(nol.length), chip: CHIP + 'background: #F3F4F6; color: #374151', items: nol.map(function (a) { return { camp: a[0], text: a[1] }; }) });
+
+    function skipCol(title, list) {
+      var max = list[0][0], total = list.reduce(function (s, x) { return s + x[0]; }, 0);
+      return { title: title, total: total.toLocaleString('es-MX') + ' en total', items: list.map(function (x) {
+        return { text: x[1], n: x[0].toLocaleString('es-MX'), bar: 'width: ' + Math.max(1, x[0] / max * 100).toFixed(1) + '%; height: 100%; border-radius: 3px; background: #64748B' };
+      }) };
+    }
+
+    var cur = {
+      name: p.name, cicloId: p.cicloId, cicloFecha: p.cicloFecha, ciclo: p.ciclo, propuestas: p.propuestas, harvest: p.harvest, precios: p.precios,
+      ciclosResumen: '14 de 14 completos · ' + dec + ' decisiones',
+      ciclosLabel: 'Decisiones por ciclo en ' + p.name + ': ' + ciclosAsc.map(function (c) { return c[1] + ' ' + c[3]; }).join(', '),
+      bars: bars, firstDate: ciclosAsc[0][1], lastDate: ciclosAsc[13][1],
+      ciclos: p.ciclos.map(function (c) { return { id: c[0], fecha: c[1], estado: c[2], dec: String(c[3]), motivo: c[4] }; }),
+      avisosResumen: p.avisos.length + ' avisos', avisoGroups: avisoGroups,
+      skipCols: [skipCol('Entidades', p.skips.entidad), skipCol('Términos', p.skips.termino)],
+      ingesta: p.ingesta.map(function (r) { return { a: r[0], b: r[1], c: r[2], d: r[3], e: r[4], f: r[5] }; }),
+      spapi: p.spapi.map(function (r) { var n = parseInt(r[3], 10); return { a: r[0], b: r[1].replace(/^ok /, ''), c: r[2], d: r[3], dTone: n ? WARN : MUTED, dWeight: n ? '600' : '400', e: r[4], f: r[5], g: r[6] }; }),
+      cambios: p.cambios.map(function (r) { return { a: r[0], b: r[1], c: r[2], d: r[3] }; })
+    };
+
+    return { overview: overview, tabs: tabs, cur: cur, jev: DATA.JEV };
+  }
+}
+</script>
+</body>
+</html>
