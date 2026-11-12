@@ -2132,6 +2132,63 @@ def test_arreglos01_q_impulso_desarmado_cierra_limpio():
         assert frase_final("desarmado") == "Lo pausaste desde la fábrica. Ya no gasta."
 
 
+@_skip_db
+def test_arreglos01_z_impulso_pausado_por_dueno_cierra_limpio():
+    """ARREGLOS 01 Z.1: un impulso que el dueno pauso con su propio boton
+    (lote 'pausado', pausado_por='dueno') no se queda vivo para siempre.
+    Con metricas que no llegan a un veredicto final (19 dias, 5000
+    impresiones, 40 clics, 300 de 1000 MXN) el vigia guarda UNA lectura
+    final 'desarmado' y verifica Amazon con pausa_huerfanas; la segunda
+    corrida ya no ve el impulso vivo."""
+    from app import impulso as im
+    from app.pantalla_productos import frase_final
+
+    with _db_i3("orbit_z_impulso_pausado") as conn:
+        ids = _impulso_vivo(
+            conn,
+            lote="impulso-z-pausado-1",
+            tope="1000",
+            diario="25",
+            lanzado=HOY - dt.timedelta(days=20),
+        )
+        conn.execute(
+            "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = 'dueno' WHERE lote = %s",
+            (ids["lote"],),
+        )
+        conn.commit()
+        primer_dia = HOY - dt.timedelta(days=19)
+        for i in range(18):
+            _observa(
+                conn,
+                ids["camps"][0],
+                primer_dia + dt.timedelta(days=i),
+                impr=263,
+                clics=2,
+                gasto="15",
+            )
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), impr=266, clics=4, gasto="30")
+
+        class _PausadorQueNoPausa(_Pausador):
+            def pausa(self, lote):
+                self.pausados.append(lote)
+                raise AssertionError(f"no debe pausar el lote pausado {lote}")
+
+        pausador = _PausadorQueNoPausa()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+
+        assert len(acciones) == 1
+        assert acciones[0].veredicto == im.VeredictoImpulso("desarmado", True, "pausar")
+        assert acciones[0].hecho == "pausado"
+        assert pausador.pausados == []
+        assert pausador.aseguradas == [ids["lote"]]
+        assert conn.execute(
+            "SELECT veredicto, es_final, hecho FROM impulso_lectura WHERE impulso_id = %s",
+            (ids["impulso"],),
+        ).fetchone() == ("desarmado", True, "pausado")
+        assert frase_final("desarmado") == "Lo pausaste desde la fábrica. Ya no gasta."
+        assert io.vigila(conn, _Pausador(), hoy=HOY) == []
+
+
 def _con_margen_us(conn, *, sku="SS-US", asin="B0US000001", seller_sku="SS-US"):
     pid, lid = _producto(conn, sku=sku, asin=asin, platform="amazon_us", seller_sku=seller_sku)
     _ledger_producto(conn, pid, hoy=HOY - dt.timedelta(days=1), platform="amazon_us")
