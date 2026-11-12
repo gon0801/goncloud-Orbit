@@ -2205,8 +2205,17 @@ class _MercadoLote:
         self.lecturas = 0
         self.escrituras = []
 
+    def unidades(self, conn, listing_ids):
+        from app.precio_mercados import vitrina
+
+        return vitrina(self.clave).unidades(conn, listing_ids)
+
     def validar_destino(self, unidad):
-        return None
+        sku = unidad.miembros[0].seller_sku if unidad.miembros else ""
+        if not sku:
+            from app.precio.cambios import PublicacionSinSku
+
+            raise PublicacionSinSku("listing_sin_sku: sin seller_sku no hay ruta que escribir")
 
     def precio_vivo(self, unidad):
         from app.precio.puerto import Importe, PrecioVivoAusente
@@ -2585,3 +2594,67 @@ def test_s5_tool_ids_validan_existencia_y_plataforma(monkeypatch):
             tool.main(["--cambio-id", "424242"], mercado=mercado)
         with pytest.raises(tool.Abortar, match="multi-plataforma"):
             tool.main(["--cambio-id", str(mx["cambio"]), "--cambio-id", str(us)], mercado=mercado)
+
+
+# ------------------------------------------- ARREGLOS 01 R (G-H2): variantes MeLi
+
+
+def test_arreglos01_r_meli_con_variaciones_recibe_precio():
+    """G-H2: la unidad de MeLi lleva sus miembros reales y el PUT va a todos.
+
+    Antes `_unidad_de_listing` armaba UN miembro sin variante; `escribir`
+    veia las variaciones vivas como huerfanas y levantaba ValueError sin
+    PUT. Ahora `Vitrina.unidades` lee `listing_miembro` y `aplicar` manda
+    `poner_precio('MLM123', ['111', '222'], ...)`.
+    """
+    from app.meli.precio_mercado import MercadoMeli
+    from app.precio.puerto import Acuse
+
+    class _LectorMeli:
+        def __init__(self):
+            self.gets = 0
+
+        def get(self, path, params=None):
+            self.gets += 1
+            return {
+                "price": 100.0,
+                "currency_id": "MXN",
+                "variations": [
+                    {"id": 111, "price": 100.0},
+                    {"id": 222, "price": 100.0},
+                ],
+            }, datetime.now(UTC)
+
+    class _EscritorMeli:
+        def __init__(self):
+            self.llamadas = []
+
+        def exigir_sello(self):
+            return None
+
+        def poner_precio(self, item, variantes, valor, moneda, *, sonda=False):
+            self.llamadas.append((item, list(variantes), valor, moneda, sonda))
+            return Acuse(aceptada=True, codigo=None, cuerpo={"ok": True})
+
+    with _db59() as conn:
+        prod = _producto(conn, sku="SKU-MELI-R")
+        lid = _listing(conn, prod, platform="meli", asin="MLM123", sku="SKU-ANCLA")
+        conn.execute(
+            "INSERT INTO listing_miembro (listing_id, platform, variante_ext, seller_sku,"
+            " product_id, activo, visto_at) VALUES"
+            " (%s, 'meli', '111', 'SKU-111', %s, true, now()),"
+            " (%s, 'meli', '222', 'SKU-222', %s, true, now())",
+            (lid, prod, lid, prod),
+        )
+        gid = _goal59(conn, lid, platform="meli", mode="live")
+        dec = _decision59(conn, lid, gid, platform="meli", mode="live", canal=None)
+        lector = _LectorMeli()
+        escritor = _EscritorMeli()
+        mercado = MercadoMeli("meli", lector=lector, escritor=escritor, fees=object())
+
+        res = aplicar(conn, mercado, dec)
+        assert res.estado == "enviado"
+        assert escritor.llamadas == [("MLM123", ["111", "222"], Decimal("110.00"), "MXN", False)]
+        assert conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE decision_id = %s", (dec,)
+        ).fetchone() == ("enviado", None)

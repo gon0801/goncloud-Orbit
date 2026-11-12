@@ -342,6 +342,31 @@ class MercadoAmazon:
             )
         return tuple(activas)
 
+    def unidades(self, conn, listing_ids: Sequence[int]) -> Mapping[int, puerto.UnidadPrecio]:
+        """La unidad de cada listing de Amazon, por lote: un solo miembro
+        `(product_id, seller_sku, None)`, como hoy. Un listing que no existe o
+        no es de esta plataforma no viene en el mapa.
+        """
+        ids = list(dict.fromkeys(listing_ids))
+        if not ids:
+            return {}
+        filas = conn.execute(
+            "SELECT id, product_id, external_id, seller_sku FROM listing"
+            " WHERE id = ANY(%s) AND platform = %s",
+            (ids, self.clave),
+        ).fetchall()
+        return {
+            lid: puerto.UnidadPrecio(
+                listing_id=lid,
+                plataforma=self.clave,
+                externo=externo,
+                canal=None,
+                producto_ancla=product_id,
+                miembros=(puerto.Miembro(product_id, sku or "", None),),
+            )
+            for lid, product_id, externo, sku in filas
+        }
+
     def insumos(
         self,
         conn,

@@ -72,6 +72,34 @@ _SQL_MIEMBROS = (
 )
 
 
+def _unidades(conn, filas_listing) -> dict[int, puerto.UnidadPrecio]:
+    """listing + listing_miembro activos (la consulta de `_SQL_MIEMBROS`).
+
+    `filas_listing` son `(listing_id, external_id, product_id)` de esta
+    plataforma. La usan `catalogo` y `unidades`: una sola consulta de miembros.
+    Un listing sin miembros activos sale con la tupla vacia (la decision lo
+    trata como `costo_ausente`); no se inventa un miembro falso.
+    """
+    if not filas_listing:
+        return {}
+    por_lid: dict[int, list[puerto.Miembro]] = {}
+    for lid, sku, pid, variante in conn.execute(
+        _SQL_MIEMBROS, ([f[0] for f in filas_listing],)
+    ).fetchall():
+        por_lid.setdefault(lid, []).append(puerto.Miembro(pid, str(sku), variante))
+    return {
+        lid: puerto.UnidadPrecio(
+            listing_id=lid,
+            plataforma="meli",
+            externo=externo,
+            canal=None,
+            producto_ancla=producto,
+            miembros=tuple(por_lid.get(lid, [])),
+        )
+        for lid, externo, producto in filas_listing
+    }
+
+
 def _detalle_fee_meli(nodo: dict) -> DetalleFee:
     """Nodo MeLi (`fee_type`/`final_fee`, sin tax) a `DetalleFee`.
 
@@ -233,30 +261,34 @@ class MercadoMeli:
         filas = conn.execute(_SQL_CATALOGO).fetchall()
         if not filas:
             return ()
-        miembros_por_lid: dict[int, list] = {}
-        for lid, sku, pid, variante in conn.execute(
-            _SQL_MIEMBROS, ([f[0] for f in filas],)
-        ).fetchall():
-            miembros_por_lid.setdefault(lid, []).append(puerto.Miembro(pid, str(sku), variante))
+        unidades = _unidades(conn, [(f[0], f[3], f[2]) for f in filas])
         activas = []
-        for lid, ancla, producto, externo, _precio, _moneda, observado_en in filas:
-            miembros = miembros_por_lid.get(lid, [])
+        for lid, ancla, _producto, _externo, _precio, _moneda, observado_en in filas:
             activas.append(
                 puerto.UnidadActiva(
-                    unidad=puerto.UnidadPrecio(
-                        listing_id=lid,
-                        plataforma=self.clave,
-                        externo=externo,
-                        canal=None,
-                        producto_ancla=producto,
-                        miembros=tuple(miembros),
-                    ),
+                    unidad=unidades[lid],
                     seller_sku=str(ancla),
                     precio=None,
                     dias_sin_reportar=(hoy - observado_en).days,
                 )
             )
         return tuple(activas)
+
+    def unidades(self, conn, listing_ids: Sequence[int]) -> Mapping[int, puerto.UnidadPrecio]:
+        """La unidad de cada listing de MeLi, por lote, con sus miembros reales.
+
+        Una sola consulta de miembros para todo el lote (`_SQL_MIEMBROS`). Un
+        listing que no existe o no es de `meli` no viene en el mapa.
+        """
+        ids = list(dict.fromkeys(listing_ids))
+        if not ids:
+            return {}
+        filas = conn.execute(
+            "SELECT id, external_id, product_id FROM listing"
+            " WHERE id = ANY(%s) AND platform = 'meli'",
+            (ids,),
+        ).fetchall()
+        return _unidades(conn, filas)
 
     def insumos(
         self,
@@ -590,6 +622,9 @@ class MercadoMeli:
         """PUT del precio via `MeliWriteClient`; devuelve el acuse saneado."""
         self._exigir_clientes()
         self.validar_destino(unidad)
+        # Al entrar: cualquier fallo posterior (sello, vivo u huerfanas) sella
+        # su fila con la ruta real del item, no con "escribir".
+        self._ruta_error = f"/items/{unidad.externo}"
         assert self._escritor is not None
         # Pre-chequeo (cero red sin sello: el DoD M.4 exige
         # `EscrituraNoDisponible` sin tocar la red, y la verificacion
@@ -609,7 +644,6 @@ class MercadoMeli:
             raise ValueError(
                 f"variaciones vivas sin mapear ({unidad.externo}): {','.join(huerfanas)}; sin PUT"
             )
-        self._ruta_error = f"/items/{unidad.externo}"
         return self._escritor.poner_precio(
             unidad.externo, variantes, precio.valor, precio.moneda, sonda=sonda
         )

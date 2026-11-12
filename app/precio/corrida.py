@@ -72,7 +72,7 @@ from app.precio.config import ConfigPrecio, leer_config, leer_config_motor
 from app.precio.config import _entero as _entero_config
 from app.precio.config import _modo as _modo_config
 from app.precio.config import _modo_universo as _modo_universo_config
-from app.precio.puerto import EscrituraNoDisponible, Miembro, UnidadPrecio
+from app.precio.puerto import EscrituraNoDisponible
 from app.precio.reglas import decidir
 from app.precio.tipos import (
     Decision,
@@ -813,13 +813,14 @@ def _decidir_pendientes(
     }
     goals = [goal for goal in goals if goal[1] not in decididas]
     activas = _a_la_venta(conn, mercado, hoy) if goals else None
+    unidades = mercado.unidades(conn, [goal[1] for goal in goals]) if goals else {}
     decisiones = 0
     saltadas = 0
     lineas: list[str] = []
     errores: list[str] = []
     goal_de: dict[int, int] = {}
     lote: list = []
-    for gid, lid, plat, mode, goal_pct, vigente_desde, prod_id, ext, sku in goals:
+    for gid, lid, plat, mode, goal_pct, vigente_desde, prod_id, _ext, _sku in goals:
         goal_de[lid] = gid
         _latir_claim(conn, platform, owner)
         modo_freno = modo_efectivo(modo_global, "live", mode)
@@ -891,14 +892,7 @@ def _decidir_pendientes(
             continue
         lote.append(
             (
-                UnidadPrecio(
-                    listing_id=lid,
-                    plataforma=platform,
-                    externo=ext,
-                    canal=None,
-                    producto_ancla=prod_id,
-                    miembros=(Miembro(prod_id, sku, None),),
-                ),
+                unidades[lid],
                 mode,
                 goal_pct,
                 vigente_desde,

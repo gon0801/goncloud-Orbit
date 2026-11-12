@@ -220,6 +220,13 @@ class Vitrina(Protocol):
         cobertura y por el denominador del fusible."""
         ...
 
+    def unidades(self, conn: Conexion, listing_ids: Sequence[int]) -> Mapping[int, UnidadPrecio]:
+        """La unidad de cada listing, por lote, con sus miembros reales. UNICA
+        construccion de `UnidadPrecio` fuera de las pruebas: la que decide, la
+        que escribe, la que revierte y la que confirma son la misma. Un listing
+        que no existe o no es de esta plataforma no viene en el mapa."""
+        ...
+
     def insumos(
         self, conn: Conexion, unidades: Sequence[UnidadPrecio], *, hoy: date, ahora: datetime
     ) -> Mapping[int, Insumos | SinInsumos]:
