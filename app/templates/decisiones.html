@@ -1,35 +1,148 @@
 {% extends "base.html" %}
+
+{% macro paginador(v, prev_href, next_href) -%}
+<nav class="paginador paginador-decisiones" aria-label="Páginas">
+  {% if prev_href %}<a rel="prev" href="{{ prev_href }}">anterior</a>{% else %}<span class="mutado">anterior</span>{% endif %}
+  <span aria-current="page">página {{ v.page }} de {{ v.pages }}</span>
+  {% if next_href %}<a rel="next" href="{{ next_href }}">siguiente</a>{% else %}<span class="mutado">siguiente</span>{% endif %}
+  <span class="mutado">{{ v.total | numero }} decisiones</span>
+</nav>
+{%- endmacro %}
+
+{% block subtitulo_pagina %}{{ ventana.total | numero }} decisiones · de la más reciente a la más antigua{% endblock %}
+
+{% block cabecera_accion %}
+{% if href_prev is defined %}{% set prev_href = href_prev %}{% else %}{% set prev_href = ('?page=' ~ ventana.prev) if ventana.prev else none %}{% endif %}
+{% if href_next is defined %}{% set next_href = href_next %}{% else %}{% set next_href = ('?page=' ~ ventana.next) if ventana.next else none %}{% endif %}
+{{ paginador(ventana, prev_href, next_href) }}
+{% endblock %}
+
 {% block contenido %}
-<h2>Decisiones</h2>
-<div class="tarjeta">
-  <nav class="paginador" aria-label="Paginas">
-    {% if ventana.prev %}<a rel="prev" href="?page={{ ventana.prev }}">anterior</a>{% else %}<span class="mutado">anterior</span>{% endif %}
-    <span aria-current="page">pagina {{ ventana.page }} de {{ ventana.pages }}</span>
-    {% if ventana.next %}<a rel="next" href="?page={{ ventana.next }}">siguiente</a>{% else %}<span class="mutado">siguiente</span>{% endif %}
-    <span class="mutado">{{ ventana.total | numero }} decisiones</span>
-  </nav>
-  <div class="tabla-scroll" role="region" aria-label="Decisiones" tabindex="0">
-  <table>
-    <thead><tr><th>Entidad</th><th>Kind</th><th>Search term</th><th>Motivo</th><th class="num">Target usado</th><th>Bid</th><th>Decidida</th></tr></thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td><span data-dato-libre>{{ item.nombre or "—" }}</span> <span class="detalle-celda mono">#{{ item.ad_entity_id }} · decision #{{ item.id }}</span></td>
-        <td><span class="chip">{{ item.kind | etiqueta("kind") }}</span>{% if item.harvest_job %} <span class="chip">{{ item.harvest_job.fase_es }}</span> <span class="detalle-celda mono">job #{{ item.harvest_job.id }}</span>{% if item.harvest_job.hermanas_pendientes %} <span class="detalle-celda alerta">hermanas pendientes: {% for rol, motivo in item.harvest_job.hermanas_pendientes.items() %}{{ rol | etiqueta("rol_campana") }}: {{ motivo | etiqueta("motivo_hermana") }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}{% endif %}</td>
-        <td data-dato-libre>{{ item.search_term or "—" }}</td>
-        <td>{{ item.motivo_es or "—" }}{% if item.evidencia_v2 %} <span class="detalle-celda">Cálculo con evidencia: {{ item.evidencia_v2.motivo_es or "—" }}{% if item.evidencia_v2.fallback_v1 %} (no concluyó; decidió la regla anterior){% endif %}</span>{% endif %}</td>
-        <td class="num">{% if item.target_acos_pct_usado is none %}<span class="mutado">—</span>{% else %}{{ item.target_acos_pct_usado | pct }}{% endif %}</td>
-        <td class="cambio">
-          <span class="cambio-anterior">{{ item.old_value | dinero }}</span>
-          <span aria-label="a">→</span>
-          <span class="{{ item.new_value | clase_cambio(item.old_value) }}">{{ item.new_value | dinero }}</span>
-          <small class="detalle-celda">{{ item.value_currency or "—" }}</small>
-        </td>
-        <td class="mutado">{{ item.decided_at | fecha_hora }}</td>
-      </tr>
-      {% else %}<tr><td colspan="7" class="mutado">Sin decisiones en esta pagina.</td></tr>{% endfor %}
-    </tbody>
-  </table>
+{% set vista = items | vista_decisiones %}
+{% set filtro = filtro | default({'tipo': 'todas', 'q': ''}) %}
+{% set limpiar = href_limpiar | default('/decisiones') %}
+
+<section class="tarjeta decisiones-resumen" aria-labelledby="h-res">
+  <div class="decisiones-resumen-cab">
+    <h2 id="h-res">En esta página</h2>
+    {% if vista.rango %}<span class="num mutado">{{ vista.rango }}</span>{% endif %}
   </div>
-</div>
+  <div class="kpis decisiones-kpis">
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-pausa" aria-hidden="true"></span>Pausas</div>
+      <div class="kpi-valor">{{ vista.en_pagina.pausa | numero }}</div>
+      <div class="kpi-contexto">de {{ vista.en_pagina.total | numero }} en esta página</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-puja-sube" aria-hidden="true"></span>Pujas subidas</div>
+      <div class="kpi-valor">{{ vista.en_pagina.puja_sube | numero }}</div>
+      <div class="kpi-contexto">de {{ vista.en_pagina.total | numero }} en esta página</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-puja-baja" aria-hidden="true"></span>Pujas bajadas</div>
+      <div class="kpi-valor">{{ vista.en_pagina.puja_baja | numero }}</div>
+      <div class="kpi-contexto">de {{ vista.en_pagina.total | numero }} en esta página</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-negativo" aria-hidden="true"></span>Negativos</div>
+      <div class="kpi-valor">{{ vista.en_pagina.negativo | numero }}</div>
+      <div class="kpi-contexto">de {{ vista.en_pagina.total | numero }} en esta página</div>
+    </div>
+  </div>
+</section>
+
+{% if tabs %}
+<form class="decisiones-filtros" method="get" action="/decisiones" role="search">
+  <div class="seg" role="group" aria-label="Tipo de decisión">
+    {% for t in tabs %}
+    <a class="seg-btn{% if t.activo %} active{% endif %}" href="{{ t.href }}" aria-pressed="{{ 'true' if t.activo else 'false' }}">{{ t.label }} <span class="num">{{ t.n | numero }}</span></a>
+    {% endfor %}
+  </div>
+  <div class="decisiones-buscar">
+    <label for="f-buscar">Buscar</label>
+    <input id="f-buscar" type="search" name="q" value="{{ filtro.q }}" placeholder="campaña, keyword o ASIN">
+    {% if filtro.tipo != 'todas' %}<input type="hidden" name="tipo" value="{{ filtro.tipo }}">{% endif %}
+    <button type="submit">Buscar</button>
+    {% if filtro.q %}<a class="btn-limpiar" href="{{ limpiar }}">Limpiar</a>{% endif %}
+  </div>
+</form>
+{% endif %}
+
+{% if vista.dias %}
+<section class="decisiones-timeline" aria-label="Decisiones por día">
+{% for dia in vista.dias %}
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">{{ dia.fecha }}</h2>
+      <span class="mutado">{{ dia.resumen }}</span>
+    </div>
+    <div class="decisiones-lista">
+      {% for g in dia.grupos %}
+        {% if g.single %}
+          {% set f = g.first %}
+          <div class="decisiones-fila">
+            <span class="chip {{ f.chip_clase }}">{{ f.chip_label }}</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad" data-dato-libre><strong>{{ f.entidad }}</strong>{% if f.campana and f.campana != f.entidad %} <span class="mutado">· {{ f.campana }}</span>{% endif %}</span>
+              {% if f.motivo %}<span class="decisiones-motivo">{{ f.motivo }}</span>{% endif %}
+              {% if f.evidencia_v2 %}<span class="decisiones-meta">Cálculo con evidencia: {{ f.evidencia_v2.motivo_es or "—" }}{% if f.evidencia_v2.fallback_v1 %} (no concluyó; decidió la regla anterior){% endif %}</span>{% endif %}
+              <span class="decisiones-meta num">{{ f.meta }}</span>
+              {% if f.search_term %}<span class="decisiones-meta num" data-dato-libre>search term: {{ f.search_term }}</span>{% endif %}
+              {% if f.harvest_job %}
+              <span class="decisiones-meta">{{ f.harvest_job.fase_es }}</span>
+              <span class="decisiones-meta num">job #{{ f.harvest_job.id }}</span>
+              {% if f.harvest_job.hermanas_pendientes %}
+              <span class="decisiones-meta alerta">hermanas pendientes: {% for rol, motivo in f.harvest_job.hermanas_pendientes.items() %}{{ rol | etiqueta("rol_campana") }}: {{ motivo | etiqueta("motivo_hermana") }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+              {% endif %}
+              {% endif %}
+            </div>
+            <div class="decisiones-lado">
+              {% if f.tiene_bid %}
+              <span class="decisiones-bid num"><span class="mutado">{{ f.bid_antes | dinero }}</span> → <strong class="{{ f.tono_bid }}">{{ f.bid_despues | dinero }}</strong> <span class="decisiones-meta">{{ f.moneda or "—" }}</span></span>
+              {% endif %}
+              <span class="decisiones-meta num">Target usado {% if f.target is none %}<span class="mutado">—</span>{% else %}{{ f.target | pct }}{% endif %}</span>
+            </div>
+            <span class="decisiones-hora">{{ f.hora }}</span>
+          </div>
+        {% else %}
+          <details class="decisiones-grupo">
+            <summary class="decisiones-fila">
+              <span class="chip {{ g.chip_clase }}">{{ g.chip_label }}</span>
+              <span class="decisiones-cuerpo">
+                <span class="decisiones-entidad"><strong>{{ g.count_label }}</strong> <span class="mutado">· {{ g.scope }}</span></span>
+                {% if g.motivo %}<span class="decisiones-motivo">{{ g.motivo }}</span>{% endif %}
+                <span class="decisiones-ver"><svg class="decisiones-chev" aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>{{ g.ver }}</span>
+              </span>
+              <span class="decisiones-lado">
+                <span class="decisiones-meta num">Target usado {% if g.target is none %}<span class="mutado">—</span>{% elif g.target == "varios" %}varios{% else %}{{ g.target | pct }}{% endif %}</span>
+              </span>
+              <span class="decisiones-hora">{{ g.hora }}</span>
+            </summary>
+            <div class="decisiones-grupo-items">
+              {% for f in g.filas %}
+              <div class="decisiones-grupo-item">
+                <div class="decisiones-cuerpo">
+                  <span data-dato-libre><strong class="num">{{ f.entidad }}</strong>{% if f.campana and f.campana != f.entidad %} <span class="mutado">· {{ f.campana }}</span>{% endif %}</span>
+                  <span class="decisiones-meta num">{{ f.meta }}{% if f.search_term %} · <span data-dato-libre>search term: {{ f.search_term }}</span>{% endif %}</span>
+                  {% if f.evidencia_v2 %}<span class="decisiones-meta">Cálculo con evidencia: {{ f.evidencia_v2.motivo_es or "—" }}{% if f.evidencia_v2.fallback_v1 %} (no concluyó; decidió la regla anterior){% endif %}</span>{% endif %}
+                </div>
+                <div class="decisiones-lado">
+                  <span class="decisiones-meta num">Target usado {% if f.target is none %}<span class="mutado">—</span>{% else %}{{ f.target | pct }}{% endif %}</span>
+                  <span class="decisiones-hora">{{ f.hora }}</span>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+{% endfor %}
+</section>
+{% else %}
+<div class="tarjeta"><p class="mutado">Sin decisiones con este filtro.</p></div>
+{% endif %}
+
+{{ paginador(ventana, href_prev if href_prev is defined else (('?page=' ~ ventana.prev) if ventana.prev else none), href_next if href_next is defined else (('?page=' ~ ventana.next) if ventana.next else none)) }}
 {% endblock %}

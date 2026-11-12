@@ -57,9 +57,41 @@ SELECT d.id, d.cycle_id, d.ad_entity_id, e.name, e.platform, d.kind,
 _SQL_DECISIONES_FEED = _SQL_DECISIONES_SELECT + " WHERE {filtros}\n ORDER BY d.id DESC\n LIMIT %s\n"
 
 # Pagina HTML: OFFSET sobre una PageWindow ya clampada. Candado propio.
-_SQL_DECISIONES_PAGINA = _SQL_DECISIONES_SELECT + " ORDER BY d.id DESC\n LIMIT %s OFFSET %s\n"
+_SQL_DECISIONES_PAGINA = (
+    _SQL_DECISIONES_SELECT + " WHERE {filtros}\n ORDER BY d.id DESC\n LIMIT %s OFFSET %s\n"
+)
 
 _SQL_DECISIONES_TOTAL = "SELECT count(*)" + _DECISIONES_FROM
+
+# Totales de la pagina filtrada (tipo + busqueda). El total sin filtros sigue
+# siendo _SQL_DECISIONES_TOTAL: el conteo global no depende de la vista.
+_SQL_DECISIONES_TOTAL_FILTRADO = "SELECT count(*)" + _DECISIONES_FROM + " WHERE {filtros}"
+
+# Conteo por tipo de TODAS las decisiones que cumplen la busqueda: las
+# pestanas muestran ese numero, no el de la pagina (decision del dueno 1).
+_SQL_DECISIONES_CONTEOS = (
+    """
+SELECT count(*) AS todas,
+       count(*) FILTER (WHERE d.kind = 'pause'::decision_kind) AS pausa,
+       count(*) FILTER (WHERE d.kind = 'negative'::decision_kind) AS negativo,
+       count(*) FILTER (WHERE d.kind = 'harvest'::decision_kind) AS captura,
+       count(*) FILTER (
+           WHERE d.kind = 'bid'::decision_kind
+             AND d.new_value IS NOT NULL AND d.old_value IS NOT NULL
+             AND d.new_value > d.old_value
+       ) AS puja_sube,
+       count(*) FILTER (
+           WHERE d.kind = 'bid'::decision_kind
+             AND d.new_value IS NOT NULL AND d.old_value IS NOT NULL
+             AND d.new_value < d.old_value
+       ) AS puja_baja
+"""
+    + _DECISIONES_FROM
+    + " WHERE {filtros}\n"
+)
+
+# Tipos del filtro de Decisiones. Cualquier otro valor se trata como `todas`.
+TIPOS_DECISION = ("todas", "pausa", "puja_sube", "puja_baja", "negativo", "captura")
 
 
 @dataclass(frozen=True, slots=True)

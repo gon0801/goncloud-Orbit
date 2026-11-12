@@ -53,6 +53,7 @@ from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
 from app.ui_campanas import VISTAS_RAPIDAS, presenta_campanas
+from app.ui_decisiones import TIPOS_TAB, vista_decisiones
 from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie, vista_resumen
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,7 @@ templates.env.filters["kpis_serie"] = kpis_serie
 templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes
 templates.env.filters["vista_resumen"] = vista_resumen
+templates.env.filters["vista_decisiones"] = vista_decisiones
 
 
 _MESES_CORTO = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
@@ -496,21 +498,66 @@ def pagina_fabrica(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "fabrica.html", {"pantalla": "fabrica"})
 
 
+def _href_decisiones(page: int | None, tipo: str, q: str | None) -> str:
+    """Enlace relativo que CONSERVA tipo y busqueda al paginar."""
+    params: list[tuple[str, str]] = []
+    if page is not None:
+        params.append(("page", str(page)))
+    if tipo != "todas":
+        params.append(("tipo", tipo))
+    if q:
+        params.append(("q", q))
+    return "?" + urlencode(params) if params else "/decisiones"
+
+
 @router.get("/decisiones", response_class=HTMLResponse)
 def pagina_decisiones(
     request: Request,
     conn: ConexionLectura,
     page: Annotated[int, Query(ge=1)] = 1,
+    tipo: Annotated[str | None, Query()] = None,
+    q: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    """Decisiones: pagina numerada. El search_term se renderiza ESCAPADO.
-    `?page=` es un GET sin JS (reemplaza el boton Cargar mas)."""
+    """Decisiones: pagina numerada con filtro por tipo y busqueda en TODAS las
+    decisiones (decision del dueno 1). `?page=` es un GET sin JS; el
+    search_term se renderiza ESCAPADO."""
+    tipo_id = tipo if tipo in dash.TIPOS_DECISION else "todas"
+    busqueda = (q or "").strip()[:200] or None
     items, ventana = dash.decisiones_pagina(
-        conn=conn, page=page, page_size=dash.LIMITE_FEED_DEFAULT
+        conn=conn,
+        page=page,
+        page_size=dash.LIMITE_FEED_DEFAULT,
+        tipo=tipo_id,
+        q=busqueda,
     )
+    conteos = dash.decisiones_conteos(conn=conn, q=busqueda)
+    tabs = [
+        {
+            "id": clave,
+            "label": etiqueta,
+            "n": conteos.get(clave, 0),
+            "activo": clave == tipo_id,
+            "href": _href_decisiones(None, clave, busqueda),
+        }
+        for clave, etiqueta in TIPOS_TAB
+    ]
     return templates.TemplateResponse(
         request,
         "decisiones.html",
-        {"pantalla": "decisiones", "items": items, "ventana": ventana},
+        {
+            "pantalla": "decisiones",
+            "items": items,
+            "ventana": ventana,
+            "tabs": tabs,
+            "filtro": {"tipo": tipo_id, "q": busqueda or ""},
+            "href_prev": _href_decisiones(ventana.prev, tipo_id, busqueda)
+            if ventana.prev
+            else None,
+            "href_next": _href_decisiones(ventana.next, tipo_id, busqueda)
+            if ventana.next
+            else None,
+            "href_limpiar": _href_decisiones(None, tipo_id, None),
+        },
     )
 
 
