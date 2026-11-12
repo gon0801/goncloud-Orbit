@@ -72,8 +72,7 @@ def main_avisos_campana(argv: list[str]) -> int:
         if not metricas_listas.guarda(
             conn_read, PLATAFORMAS_MONEDA, forzar=forzar, exigir_placements=True
         ):
-            print(metricas_listas.TEXTO_ESPERA)
-            return 0
+            return metricas_listas.salida_sin_metricas("avisos-campana")
         pendientes = {
             (plataforma, clase)
             for plataforma in PLATAFORMAS_MONEDA
@@ -98,9 +97,11 @@ def main_avisos_campana(argv: list[str]) -> int:
 
 def main_impulso_vigia(argv: list[str]) -> int:
     """Vigia diario del impulso (BIDS 02 I.3): lee, guarda y actua. Sin
-    impulsos vivos sale 0 sin tocar la red. 2 sin DSN o con args extra.
-    R09-F: con impulsos vivos y ninguno atendido (todos fallaron o sin
-    ingesta) avisa y sale 1, para que el cron no calle un dia perdido."""
+    impulsos vivos sale 0 sin tocar la red. 2 sin DSN o con args extra. Sin
+    metricas de ayer sale 75 mientras queda horario hoy y 1 desde el fin de
+    intentos (S.3: el cron avisa de que el dia se perdio). R09-F: con impulsos
+    vivos y ninguno atendido (todos fallaron o sin ingesta) avisa y sale 1,
+    para que el cron no calle un dia perdido."""
     from app import impulso_io
     from app.db import connect
 
@@ -123,8 +124,7 @@ def main_impulso_vigia(argv: list[str]) -> int:
         # las metricas de ayer de TODAS las plataformas con impulso vivo no
         # abre nada (cero impulso_lectura, cero fabrica_lote, cero goals).
         if not metricas_listas.guarda(conn, plataformas, forzar=forzar):
-            print(metricas_listas.TEXTO_ESPERA)
-            return 0
+            return metricas_listas.salida_sin_metricas("impulso-vigia")
         hoy = dt.datetime.now(dt.UTC).date()
         acciones = impulso_io.vigila(conn, impulso_io.PausadorFabrica(conn), hoy=hoy)
     finally:
