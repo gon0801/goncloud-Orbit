@@ -76,6 +76,7 @@ from app.precio.siembra import (
     ValorPorUnidad,
     planear,
 )
+from app.precio_mercados import vitrina as vitrina_de
 
 
 class Abortar(RuntimeError):
@@ -252,7 +253,7 @@ def _planear_tool(conn, entradas, args):
     for lid, plat, _goal, numero in entradas:
         prefijo = f"linea {numero}: " if numero else ""
         try:
-            (cand,) = leer_candidatos(conn, filtro=PorIds(pares=((lid, plat),)))
+            (cand,) = leer_candidatos(conn, filtro=PorIds(pares=((lid, plat),)), vitrina=vitrina_de)
         except (PrecioGoalAusente, PrecioGoalInvalido) as exc:
             raise Abortar(f"{prefijo}{exc}") from exc
         candidatos.append(cand)
@@ -363,6 +364,7 @@ def _go_con_ceremonia(conn, plan: PlanGoals, args, textos, banda, lineas) -> int
             confirmados=frozenset(args.confirmar_salto or ()),
             go_literal=go_literal,
             actor="precio_goal",
+            vitrina=vitrina_de,
             estricto=True,
         )
     except HuellaDistinta as exc:
