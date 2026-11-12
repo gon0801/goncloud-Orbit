@@ -307,31 +307,10 @@ class MercadoAmazon:
         """Activas canonicas con su unidad (o `None` sin fila en listing)."""
         cano = conn.execute(_SQL_CANO, (self.clave,)).fetchall()
         ids = [fila[0] for fila in cano if fila[0] is not None]
-        listings = (
-            {
-                fila[0]: (fila[1], fila[2])
-                for fila in conn.execute(
-                    "SELECT id, product_id, external_id FROM listing"
-                    " WHERE id = ANY(%s) AND platform = %s",
-                    (ids, self.clave),
-                ).fetchall()
-            }
-            if ids
-            else {}
-        )
+        unidades = self.unidades(conn, ids)
         activas: list[puerto.UnidadActiva] = []
         for listing_id, sku, _plat, _asin, _status, observed in cano:
-            unidad = None
-            if listing_id is not None and listing_id in listings:
-                product_id, externo = listings[listing_id]
-                unidad = puerto.UnidadPrecio(
-                    listing_id=listing_id,
-                    plataforma=self.clave,
-                    externo=externo,
-                    canal=None,
-                    producto_ancla=product_id,
-                    miembros=(puerto.Miembro(product_id, sku, None),),
-                )
+            unidad = unidades.get(listing_id) if listing_id is not None else None
             activas.append(
                 puerto.UnidadActiva(
                     unidad=unidad,
@@ -341,6 +320,31 @@ class MercadoAmazon:
                 )
             )
         return tuple(activas)
+
+    def unidades(self, conn, listing_ids: Sequence[int]) -> Mapping[int, puerto.UnidadPrecio]:
+        """La unidad de cada listing de Amazon, por lote: un solo miembro
+        `(product_id, seller_sku, None)`, como hoy. Un listing que no existe o
+        no es de esta plataforma no viene en el mapa.
+        """
+        ids = list(dict.fromkeys(listing_ids))
+        if not ids:
+            return {}
+        filas = conn.execute(
+            "SELECT id, product_id, external_id, seller_sku FROM listing"
+            " WHERE id = ANY(%s) AND platform = %s",
+            (ids, self.clave),
+        ).fetchall()
+        return {
+            lid: puerto.UnidadPrecio(
+                listing_id=lid,
+                plataforma=self.clave,
+                externo=externo,
+                canal=None,
+                producto_ancla=product_id,
+                miembros=(puerto.Miembro(product_id, sku or "", None),),
+            )
+            for lid, product_id, externo, sku in filas
+        }
 
     def insumos(
         self,

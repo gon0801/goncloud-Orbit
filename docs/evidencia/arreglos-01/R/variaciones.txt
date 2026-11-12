@@ -1,0 +1,87 @@
+R.3 - VARIACIONES DE MELI CON PRECIOS DISTINTOS
+================================================
+Medido el 2026-11-12 a las 11:39 UTC contra la base y la API de produccion,
+solo lectura. Cero escrituras: no se llamo a ningun PUT ni a escribe_api.sh.
+
+Poblacion
+---------
+Los listings de MeLi que la escritura puede tocar: los que tienen mas de un
+miembro activo en `listing_miembro` (la misma unidad que arma
+`Vitrina.unidades`). Un listing con una sola variacion no tiene precios que
+comparar.
+
+Por que no basta un SELECT
+--------------------------
+`meli_publicacion_observation.variantes` guarda `variante_ext`, `seller_sku`
+y `stock`; NO guarda el precio de cada variacion. La consulta de la clave
+`price` sobre el JSONB da 0, y un muestreo de las filas lo confirma. El
+precio por variacion solo esta en el GET /items/{id} de MeLi. Por eso:
+  1. `lee_prod.sh` (rol orbit_read, `read_only`) fija la poblacion.
+  2. El lector de produccion (`ClienteMeli`, solo GET) compara los precios
+     vivos de cada publicacion.
+Los dos pasos son de lectura.
+
+Salidas de lee_prod.sh
+----------------------
+# activas canonicas (ultima observacion por item, estado active)
+43|37
+# variantes guardadas con la clave price
+0
+# ultimo metric_date observado
+64|47
+# listings meli y listings con mas de un miembro activo
+54|37
+# listings meli con goal vigente hoy
+45
+
+Conteo de precios distintos (GET /items/{id} por publicacion)
+-------------------------------------------------------------
+medido_en_utc 2026-11-12T11:39:15.343677+00:00
+listings_meli=37
+con_precios_distintos=0
+ilegibles=0
+MLM2158744542|n=6|precios=1989.0|distintos=no
+MLM2163407464|n=6|precios=1189|distintos=no
+MLM1890653227|n=6|precios=1189|distintos=no
+MLM1890605671|n=6|precios=1189|distintos=no
+MLM1890562805|n=6|precios=1645|distintos=no
+MLM1890540229|n=6|precios=1488.54|distintos=no
+MLM1890527451|n=6|precios=2489|distintos=no
+MLM1890080447|n=6|precios=1889|distintos=no
+MLM2028581351|n=6|precios=989|distintos=no
+MLM3010253470|n=6|precios=889|distintos=no
+MLM3010335544|n=6|precios=989|distintos=no
+MLM3249024532|n=6|precios=1189|distintos=no
+MLM3249118014|n=6|precios=889|distintos=no
+MLM3249067064|n=6|precios=989|distintos=no
+MLM3249055236|n=6|precios=889|distintos=no
+MLM3249053848|n=6|precios=989|distintos=no
+MLM4616310354|n=6|precios=2489|distintos=no
+MLM4735255462|n=6|precios=1489|distintos=no
+MLM2724304859|n=6|precios=989|distintos=no
+MLM2724173559|n=6|precios=1089|distintos=no
+MLM2727488085|n=6|precios=989|distintos=no
+MLM2727363007|n=6|precios=1889|distintos=no
+MLM2727328203|n=6|precios=1885|distintos=no
+MLM4749600210|n=6|precios=1689|distintos=no
+MLM4749562406|n=6|precios=989|distintos=no
+MLM4761614056|n=6|precios=988|distintos=no
+MLM4761545076|n=6|precios=1489|distintos=no
+MLM2735443771|n=6|precios=1489|distintos=no
+MLM2736115339|n=6|precios=1880|distintos=no
+MLM2735985645|n=6|precios=1889.0|distintos=no
+MLM2735912253|n=6|precios=1989|distintos=no
+MLM2735888029|n=6|precios=1989|distintos=no
+MLM2735855869|n=6|precios=988|distintos=no
+MLM4766746790|n=6|precios=1889|distintos=no
+MLM2737034243|n=6|precios=1889|distintos=no
+MLM4773847938|n=6|precios=1889|distintos=no
+MLM4773834354|n=6|precios=1885|distintos=no
+
+Conclusion
+----------
+0 publicaciones de MeLi con variaciones tienen precios distintos hoy. No hay
+publicaciones que retener con motivo propio: la escritura de las 37
+publicaciones con variaciones puede seguir con la forma acordada (todas las
+variaciones al mismo precio). Si el conteo hubiera sido mayor que 0, esas
+publicaciones quedarian retenidas hasta que el dueno decida.

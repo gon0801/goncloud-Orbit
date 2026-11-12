@@ -112,6 +112,9 @@ class _MercadoFalso:
     def catalogo(self, conn, *, hoy):
         return self._real.catalogo(conn, hoy=hoy)
 
+    def unidades(self, conn, listing_ids):
+        return self._real.unidades(conn, listing_ids)
+
     def insumos(self, conn, unidades, *, hoy, ahora, config, metas):
         return self._real.insumos(conn, unidades, hoy=hoy, ahora=ahora, config=config, metas=metas)
 
