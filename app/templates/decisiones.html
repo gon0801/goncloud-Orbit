@@ -83,7 +83,7 @@
           <div class="decisiones-fila">
             <span class="chip {{ f.chip_clase }}">{{ f.chip_label }}</span>
             <div class="decisiones-cuerpo">
-              <span class="decisiones-entidad"><strong>{{ f.entidad }}</strong>{% if f.campana %} <span class="mutado">· {{ f.campana }}</span>{% endif %}</span>
+              <span class="decisiones-entidad" data-dato-libre><strong>{{ f.entidad }}</strong>{% if f.campana and f.campana != f.entidad %} <span class="mutado">· {{ f.campana }}</span>{% endif %}</span>
               {% if f.motivo %}<span class="decisiones-motivo">{{ f.motivo }}</span>{% endif %}
               {% if f.evidencia_v2 %}<span class="decisiones-meta">Cálculo con evidencia: {{ f.evidencia_v2.motivo_es or "—" }}{% if f.evidencia_v2.fallback_v1 %} (no concluyó; decidió la regla anterior){% endif %}</span>{% endif %}
               <span class="decisiones-meta num">{{ f.meta }}</span>
@@ -121,8 +121,15 @@
             <div class="decisiones-grupo-items">
               {% for f in g.filas %}
               <div class="decisiones-grupo-item">
-                <span><strong class="num">{{ f.entidad }}</strong>{% if f.campana %} <span class="mutado">· {{ f.campana }}</span>{% endif %}</span>
-                <span class="decisiones-meta num">{{ f.meta }}{% if f.search_term %} · <span data-dato-libre>search term: {{ f.search_term }}</span>{% endif %}</span>
+                <div class="decisiones-cuerpo">
+                  <span data-dato-libre><strong class="num">{{ f.entidad }}</strong>{% if f.campana and f.campana != f.entidad %} <span class="mutado">· {{ f.campana }}</span>{% endif %}</span>
+                  <span class="decisiones-meta num">{{ f.meta }}{% if f.search_term %} · <span data-dato-libre>search term: {{ f.search_term }}</span>{% endif %}</span>
+                  {% if f.evidencia_v2 %}<span class="decisiones-meta">Cálculo con evidencia: {{ f.evidencia_v2.motivo_es or "—" }}{% if f.evidencia_v2.fallback_v1 %} (no concluyó; decidió la regla anterior){% endif %}</span>{% endif %}
+                </div>
+                <div class="decisiones-lado">
+                  <span class="decisiones-meta num">Target usado {% if f.target is none %}<span class="mutado">—</span>{% else %}{{ f.target | pct }}{% endif %}</span>
+                  <span class="decisiones-hora">{{ f.hora }}</span>
+                </div>
               </div>
               {% endfor %}
             </div>

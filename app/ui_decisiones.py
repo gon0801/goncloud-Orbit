@@ -108,8 +108,11 @@ def _fila(item: dict) -> dict:
     if search_term in (None, "", "—"):
         search_term = None
     etiqueta_entidad = item.get("entidad") or item.get("nombre") or "—"
+    momento = formato.momento_local(item.get("decided_at"))
+    fecha_key = momento.date().isoformat() if momento is not None else str(item.get("decided_at"))
     return {
         "id": item.get("id"),
+        "ad_entity_id": item.get("ad_entity_id"),
         "tipo": tipo,
         "chip_label": _ETIQUETA_TIPO.get(tipo) or etiqueta(kind, "kind"),
         "chip_clase": _CLASE_CHIP.get(tipo, "chip-tipo-pausa"),
@@ -127,22 +130,27 @@ def _fila(item: dict) -> dict:
         "moneda": item.get("value_currency"),
         "tono_bid": tono,
         "fecha": formato.fecha_dia(item.get("decided_at")),
+        "fecha_key": fecha_key,
         "hora": formato.hora(item.get("decided_at")),
     }
 
 
+def _plural(cantidad: int, singular: str, plural: str) -> str:
+    return singular if cantidad == 1 else plural
+
+
 def _grupo(filas: list[dict]) -> dict:
     primera = filas[0]
-    entidades = {f["entidad"] for f in filas if f["entidad"]}
+    entidades = {f["ad_entity_id"] for f in filas if f["ad_entity_id"] is not None}
+    if not entidades:
+        entidades = {f["entidad"] for f in filas if f["entidad"]}
     campanas = {f["campana"] for f in filas if f["campana"]}
-    objetivos = {f["target"] for f in filas if f["target"] is not None}
-    if not objetivos:
-        objetivo = None
-    elif len(objetivos) == 1:
-        objetivo = primera["target"]
-    else:
-        objetivo = "varios"
+    objetivos = {f["target"] for f in filas}
+    objetivo = next(iter(objetivos)) if len(objetivos) == 1 else "varios"
     cantidad = len(filas)
+    alcance = f"{len(entidades)} {_plural(len(entidades), 'entidad', 'entidades')}"
+    if campanas:
+        alcance += f" en {len(campanas)} {_plural(len(campanas), 'campaña', 'campañas')}"
     return {
         "single": cantidad == 1,
         "multi": cantidad > 1,
@@ -152,7 +160,7 @@ def _grupo(filas: list[dict]) -> dict:
         "chip_clase": primera["chip_clase"],
         "motivo": primera["motivo"],
         "count_label": f"{cantidad} {_nombre(primera['tipo'], cantidad)}",
-        "scope": f"{len(entidades)} entidades en {len(campanas)} campañas",
+        "scope": alcance,
         "target": objetivo,
         "hora": primera["hora"],
         "first": primera,
@@ -175,31 +183,31 @@ def _dias(filas: list[dict]) -> list[dict]:
     orden: list[str] = []
     por_fecha: dict[str, list[dict]] = {}
     for fila in filas:
-        fecha = fila["fecha"]
-        if fecha not in por_fecha:
-            por_fecha[fecha] = []
-            orden.append(fecha)
-        por_fecha[fecha].append(fila)
+        clave = fila["fecha_key"]
+        if clave not in por_fecha:
+            por_fecha[clave] = []
+            orden.append(clave)
+        por_fecha[clave].append(fila)
     dias: list[dict] = []
-    for fecha in orden:
-        filas_dia = por_fecha[fecha]
+    for clave in orden:
+        filas_dia = por_fecha[clave]
         grupos: list[dict] = []
         indices: dict[tuple[str, str | None], dict] = {}
         for fila in filas_dia:
             if fila["tipo"] in ("pausa", "negativo"):
-                clave = (fila["tipo"], fila["motivo"])
-                grupo = indices.get(clave)
+                indice = (fila["tipo"], fila["motivo"])
+                grupo = indices.get(indice)
                 if grupo is not None:
                     grupo["filas"].append(fila)
                     continue
                 grupo = {"filas": [fila]}
-                indices[clave] = grupo
+                indices[indice] = grupo
                 grupos.append(grupo)
             else:
                 grupos.append({"filas": [fila]})
         dias.append(
             {
-                "fecha": fecha,
+                "fecha": filas_dia[0]["fecha"],
                 "resumen": _resumen_dia(filas_dia),
                 "grupos": [_grupo(g["filas"]) for g in grupos],
             }
@@ -213,7 +221,10 @@ def vista_decisiones(items: list[dict] | None) -> dict:
     cuenta = Counter(f["tipo"] for f in filas)
     rango = ""
     if filas:
-        rango = f"{len(filas)} decisiones · {filas[-1]['fecha']} – {filas[0]['fecha']}"
+        rango = (
+            f"{len(filas)} {_nombre('otro', len(filas))} · "
+            f"{filas[-1]['fecha']} – {filas[0]['fecha']}"
+        )
     en_pagina = {
         "total": len(filas),
         "pausa": cuenta.get("pausa", 0),

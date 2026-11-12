@@ -77,7 +77,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `nav a[aria-current="page"]` | pagina activa |
 | `html[data-tema]`, `button#btn-tema` | chrome tema dia/noche |
 | `h1` = nombre de la pantalla (`Resumen`, `Campañas`, …); `<title>` = `Orbit — Dashboard` | header |
-| `h2` Resumen / Campanas / Decisiones / Salud / Contribucion / Propuestas / Entidades sin trafico / Crear campañas / Settings | cada template |
+| `h2` Resumen / Campanas / Salud / Contribucion / Propuestas / Entidades sin trafico / Crear campañas / Settings (Decisiones usa `h2#h-res` «En esta página») | cada template |
 | `form.filtros[action="/campanas"]`, `th[aria-sort]`, `a[href^="/campanas?ordenar="]` | `campanas.html` |
 | `canvas#tendencia-amazon_us`, `table#serie-amazon_us`, `form.filtros` | `resumen.html` |
 | `script#datos-resumen[type=application/json]` | contrato del Resumen |
