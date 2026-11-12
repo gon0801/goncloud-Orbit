@@ -1,0 +1,20 @@
+# Horas reales de la corrida de precios (L.1, 2026-11-11)
+# Fuente: ssh goncloud "crontab -u gon -l" | grep -iE 'precio|Corrida de precios'
+# El servidor esta en Etc/UTC (date '+%Z' = UTC; date -u == date local).
+# Salida literal (solo las lineas de precios):
+10 13 * * * /usr/local/bin/cron-avisa --nombre "Corrida de precios de Amazon" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us' >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+10 15-23/2 * * * /usr/local/bin/cron-avisa --nombre "Corrida de precios de Amazon" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/precio-spapi.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx --platform amazon_us' >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+15 12 * * * /usr/local/bin/cron-avisa --nombre "Muestras de envío de Amazon México" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_mx --canal fbm' >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
+20 12 * * * /usr/local/bin/cron-avisa --nombre "Muestras de envío de Amazon Estados Unidos" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.envio_muestras --platform amazon_us --canal fbm' >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
+25 12 * * * /usr/local/bin/cron-avisa --nombre "Muestras de envío de MercadoLibre" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.envio_muestras --platform meli --canal meli' >> /mnt/data/appdata/orbit/logs/precio-muestras.log 2>&1
+10 13 * * * /usr/local/bin/cron-avisa --nombre "Corrida de precios de MercadoLibre" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli' >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1
+10 15-23/2 * * * /usr/local/bin/cron-avisa --nombre "Corrida de precios de MercadoLibre" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/precio-meli.lock docker exec orbit-app-1 python -m app.cli precio --platform meli' >> /mnt/data/appdata/orbit/logs/precio-meli.log 2>&1
+
+# Lectura: la corrida diaria es a las 13:10 UTC y los repasos van cada 2 h de
+# 15:10 a 23:10 UTC. Hay corridas DESPUES de las 21:00 UTC (21:10 y 23:10 UTC),
+# asi que la espera deja decidir: el bloque L procede.
+#
+# Comprobacion de zona horaria (misma sesion ssh):
+# $ date -u '+%Y-%m-%d %H:%M:%S UTC'  ->  2026-11-11 19:25:31 UTC
+# $ date '+%Y-%m-%d %H:%M:%S %Z'      ->  2026-11-11 19:25:31 UTC
+# $ cat /etc/timezone                 ->  Etc/UTC

@@ -7,6 +7,7 @@ Puro, sin DB.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -21,6 +22,7 @@ from app.precio.compuerta import (
     armar_deriva,
     es_nueva,
     evaluar,
+    insumo_atrasado,
     modo_efectivo,
     salto,
 )
@@ -223,3 +225,45 @@ def test_s3_cortacircuito_abre_tras_n_y_exito_lo_reinicia():
         corte.tras("boom")
     with pytest.raises(ValueError, match="limite"):
         Cortacircuito(seguidos=0, limite=0)
+
+
+# ---------------------------------------------------------------------------
+# J-H3: la corrida espera el insumo del dia (puro)
+# ---------------------------------------------------------------------------
+
+
+def _ahora_utc(hora: int, minuto: int = 0) -> datetime:
+    return datetime(2026, 11, 9, hora, minuto, tzinfo=UTC)
+
+
+def test_arreglos01_l_mayoria_sin_insumo_espera_y_a_las_21_decide():
+    """J-H3: 90 de 100 con la oferta/valoracion atrasada a las 13:10 UTC
+    devuelve motivo de espera; el mismo lote a las 21:10 UTC decide (None)."""
+    motivos = ["oferta_desactualizada"] * 50 + ["valoracion_desactualizada"] * 40 + [None] * 10
+    espera = insumo_atrasado(motivos, ahora_utc=_ahora_utc(13, 10))
+    assert espera is not None
+    assert "insumo del dia sin llegar" in espera
+    assert "90 de 100" in espera
+    assert insumo_atrasado(motivos, ahora_utc=_ahora_utc(21, 10)) is None
+
+
+def test_arreglos01_l_a_las_21_en_punto_ya_decide():
+    """J-H3: desde las 21:00 UTC la corrida decide con lo que haya."""
+    motivos = ["oferta_desactualizada"] * 100
+    assert insumo_atrasado(motivos, ahora_utc=_ahora_utc(20, 59)) is not None
+    assert insumo_atrasado(motivos, ahora_utc=_ahora_utc(21, 0)) is None
+
+
+def test_arreglos01_l_minoria_o_motivo_aislado_no_detiene():
+    """J-H3: solo la MAYORIA estricta espera; un motivo atrasado aislado o
+    la mitad exacta salen no_evaluado como hoy."""
+    assert (
+        insumo_atrasado(["oferta_desactualizada"] + [None] * 99, ahora_utc=_ahora_utc(13, 10))
+        is None
+    )
+    assert (
+        insumo_atrasado(["oferta_desactualizada"] * 50 + [None] * 50, ahora_utc=_ahora_utc(13, 10))
+        is None
+    )
+    assert insumo_atrasado([], ahora_utc=_ahora_utc(13, 10)) is None
+    assert insumo_atrasado(["oferta_desactualizada"] * 51, ahora_utc=_ahora_utc(13, 10)) is not None
