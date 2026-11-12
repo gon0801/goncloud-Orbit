@@ -969,8 +969,9 @@ hace `rollback.sh`: restaura el bloque anterior desde el respaldo que deja
 `cron_orbit.sh instala`; las tablas `jev_*` quedan intactas (el job apagado no
 escribe).
 
-Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05 UTC, tras la
-ingesta del diario y antes del ciclo (08:40). La línea efectiva está en
+Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05, 10:05, 13:05 y
+16:05 UTC; los reintentos cubren la ingesta del diario cuando llega tarde y
+corren antes del ciclo de esa hora. La línea efectiva está en
 `tools/despliegue/crontab-orbit.txt` (bloque canónico) con
 `job_key=avisos-campana`; `cron_orbit.sh instala` la reemplaza completa. La
 prueba `test_el_bloque_canonico_trae_una_sola_linea_de_avisos` la pinza en
@@ -2990,8 +2991,8 @@ Despliega la seccion 5 (I.1 a I.5, P.4, E.1): grupos de dos en
 su reposicion, pantalla de productos sin clics y botones de retiro.
 Corre en cuanto claw lo encarga tras el merge del PR de codigo,
 despues de D.3. Instala UNA linea de cron: la suelta de
-`impulso-vigia` (08:20 UTC, tras las ingestas de 07:10/07:20/07:25 y
-antes del ciclo de 08:40). Scripts en
+`impulso-vigia` (08:20, 10:20, 13:20 y 16:20 UTC; cada intento va tras su
+ingesta y antes del ciclo de esa hora). Scripts en
 `docs/evidencia/bids-02/ejecucion/D.4/`, patron D.2 (cron) + D.3
 (pasos). Orden:
 
