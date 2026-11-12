@@ -929,10 +929,11 @@ def _acumula(filas):
 def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
     """Un impulso vivo: lee, actua y guarda. Devuelve la accion y el
     escritor de retiro (se crea al primer retiro y se reusa). Si el
-    lote ya esta pausado (crash entre pausar y guardar) o desarmado
-    (el dueno pauso el grupo en la fabrica), no llama a pausa():
-    verifica Amazon y registra pausado, y un desarmado cierra con
-    veredicto 'desarmado'."""
+    lote ya esta pausado (crash entre pausar y guardar, o el dueno lo
+    pauso con su boton) o desarmado (el dueno pauso el grupo en la
+    fabrica), no llama a pausa(): verifica Amazon y registra pausado,
+    y un desarmado o una pausa del dueno cierran con veredicto
+    'desarmado'."""
     (imp, platform, lote, monto, moneda, diario, plazo, lanzado, grupo, listing, go) = fila
     tope = im.TopeAprendizaje(Decimal(monto), moneda, Decimal(diario), plazo)
     corte = conn.execute(_SQL_CORTE_PLATAFORMA, (platform,)).fetchone()[0]
@@ -978,7 +979,20 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
     # lectura final en vez de que la pausa aborte con 409 todos los dias.
     # Se conserva la precedencia de 'graduar' (desarmado + vende: goals a
     # live sin reencender).
-    if estado_lote is not None and estado_lote[0] == "desarmado" and veredicto.accion != "graduar":
+    # arreglos01_z (decision 8): un impulso pausado con su propio boton deja
+    # el lote en 'pausado' (actor 'dueno'), no en 'desarmado'. Con las
+    # campanas detenidas puede juntar >=2000 impresiones y >=20 clics sin
+    # venta y gasto bajo el tope, y veredicto_impulso devuelve en_curso para
+    # siempre: se quedaria vivo y bloquearia un impulso nuevo del producto.
+    # El dueno lo cerro, asi que se cierra igual que un desarmado.
+    pausado_por_dueno = (
+        estado_lote is not None and estado_lote[0] == "pausado" and estado_lote[1] == "dueno"
+    )
+    if (
+        estado_lote is not None
+        and veredicto.accion != "graduar"
+        and (estado_lote[0] == "desarmado" or pausado_por_dueno)
+    ):
         veredicto = im.VEREDICTO_DESARMADO
     if veredicto.accion == "pausar":
         if estado_lote is None or estado_lote[0] not in ("pausado", "desarmado"):
