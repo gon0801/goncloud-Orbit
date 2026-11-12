@@ -19,7 +19,7 @@ import os
 import sys
 from decimal import Decimal, InvalidOperation
 
-from app import config_write, productos_modo
+from app import apply_cola, config_write, productos_modo
 from app.db import connect
 from app.optimizer import productos
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -105,6 +105,11 @@ def corre(args) -> int:
     if not dsn:
         print("ORBIT_DSN_ADMIN no esta definido (fail-closed)", file=sys.stderr)
         return 2
+    # D-H1: apagar la proteccion descarta en la MISMA transaccion las pausas
+    # que esperaban por venta reciente (antes de que un rollback quede con el
+    # codigo viejo, que las aplicaria de golpe).
+    apaga_proteccion = args.proteccion == "off"
+    descartadas_proteccion = 0
     try:
         conn = connect(dsn)
         try:
@@ -118,12 +123,18 @@ def corre(args) -> int:
                 base_config_version_id=base,
                 ahora=dt.datetime.now(dt.UTC),
                 actor="productos-modo",
+                confirma=not apaga_proteccion,
                 producto_modo=modo or None,
                 limites_pausa=limites,
                 proteccion_venta=args.proteccion,
                 economia_producto=args.economia,
                 economia_cambio=args.bid_economia,
             )
+            if apaga_proteccion:
+                descartadas_proteccion = sum(
+                    apply_cola.descarta_esperas_proteccion(conn, p) for p in PLATAFORMAS_MONEDA
+                )
+                conn.commit()
         finally:
             conn.close()
     except config_write.EdicionVacia:
@@ -136,6 +147,11 @@ def corre(args) -> int:
         print(f"productos-modo fallo: {scrub(str(exc))}", file=sys.stderr)
         return 1
     print(f"config_version {resultado['config_version_id']}: {resultado['label']}")
+    if apaga_proteccion:
+        print(
+            f"{descartadas_proteccion} pausas en espera por venta reciente"
+            " descartadas (proteccion_apagada)"
+        )
     return 0
 
 
