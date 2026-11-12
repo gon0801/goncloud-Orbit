@@ -102,9 +102,11 @@ el crontab y la línea no existía en ninguna parte, así la reversa no borra un
 línea previa. Si no puede leer el crontab, aborta (sale 1) sin anotar ni instalar; (6) interruptores. Con ese archivo en el SHA, `checklist.sh` falla
 si la línea efectiva no está una sola vez dentro del bloque. Con
 `tools/refresh_estimacion.sh` en el SHA, falla si `$SRV/refresh_estimacion.sh` no es
-igual a `$SRV/tools/refresh_estimacion.sh`. `AUTO03_ESPERA_S` (600 por omisión) es un solo plazo para
-el candado, las guardas y la espera de `app.cli` antes de recrear; `AUTO03_ESPERA_REVERSA_S` (300)
-es el de la reversa, que espera ese plazo y recrea de todos modos con `AVISO`.
+igual a `$SRV/tools/refresh_estimacion.sh`. `AUTO03_ESPERA_S` (600 por omisión) es el plazo del
+candado y de las guardas, y el tope de la espera de `app.cli` antes de recrear; esa espera se acota
+además al presupuesto que queda del tope de despliegue del motor (`AUTO03_TOPE_MOTOR_S`, 900), para
+que el propio paso 5 no provoque el corte `124`. `AUTO03_ESPERA_REVERSA_S` (300) es el de la
+reversa, que espera ese plazo y recrea de todos modos con `AVISO`.
 
 **Cabecera de sonda.** Toda migración de la receta (`migrations/*_auto03_*`
 de AUTO-03, `migrations/*_orbit07_*` de ORBIT 07 y `migrations/*_claridad01_*`
@@ -149,7 +151,8 @@ archivo.
 - `75` con `ESTADO=abortado_sin_cambios`: las guardas no se liberaron y
   no cambió nada.
 - `75` con `ESTADO=guardas_con_cambios`, o `124` (tope de despliegue del
-  motor): una corrida anterior del mismo `MOTOR_SHA` ya cambió algo, y se
+  motor): una corrida anterior del mismo `MOTOR_SHA` ya cambió algo, o el
+  `app.cli` siguió vivo hasta agotar la espera de recrear (mismo camino), y se
   deshace lo anotado. Con `124` lo deshace el `rollback.sh` que corre el
   motor. Con `75` el motor no corre rollback (lo trata como "reintenta
   luego"), así que `desplegar.sh`, antes de salir y sin soltar el

@@ -20,6 +20,9 @@ ULTIMO=$DESP/ultimo.env
 ESPERA=${AUTO03_ESPERA_S:-600}
 # ARREGLOS 01 M.2: la reversa no puede quedar bloqueada por un ciclo; espera y recrea de todos modos.
 ESPERA_REVERSA=${AUTO03_ESPERA_REVERSA_S:-300}
+# El motor corta el despliegue a los 900 s (salida 124); la espera de app.cli se acota al
+# presupuesto que queda de ese tope para que el propio paso 5 no provoque el corte.
+TOPE_MOTOR=${AUTO03_TOPE_MOTOR_S:-900}
 INTERRUPTORES=tools/despliegue/interruptores.env
 TERMINALES=" verificado sin_cambios abortado_sin_cambios revertido "
 CAMBIO_RE='^(CODIGO|MIGRACION|CLAVE|CRON)='
@@ -49,13 +52,14 @@ w() {
 
 # recrea_contenedor [--reversa]: UNICA forma de recrear orbit-app-1 (paso 5 y revierte).
 # Construye la imagen aparte, sin tocar el contenedor vivo, y en UN solo comando remoto espera a
-# que `docker top` no tenga procesos app.cli (plazo $ESPERA) y recrea sin build: la ultima mirada
+# que `docker top` no tenga procesos app.cli (plazo $ESPERA, acotado al presupuesto de TOPE_MOTOR)
+# y recrea sin build: la ultima mirada
 # y el `up` corren en el mismo shell. Sale 0 recreado, 75 plazo agotado con procesos vivos (no
 # recreo) y cualquier otra cosa es error. Con --reversa espera $ESPERA_REVERSA y recrea de todos
 # modos con una linea AVISO: una reversa no puede quedar bloqueada por un ciclo.
 # Idempotente: otra corrida reconstruye (cache) y recrea la misma imagen.
 recrea_contenedor() {
-  local modo=adelante espera=$ESPERA rc=0
+  local modo=adelante espera=$ESPERA rc=0 rest
   case "${1:-}" in
     "") ;;
     --reversa) modo=reversa; espera=$ESPERA_REVERSA ;;
@@ -65,6 +69,11 @@ recrea_contenedor() {
   srv "docker compose -p orbit --project-directory $SRV -f $SRV/docker-compose.yml build app" \
     || return 1
   echo "imagen construida (el contenedor vivo no se toco)"
+  if [ "$modo" = adelante ] && [ -n "${FIN_MOTOR:-}" ]; then
+    rest=$((FIN_MOTOR - $(date +%s)))
+    [ "$rest" -lt 0 ] && rest=0
+    [ "$rest" -lt "$espera" ] && espera=$rest
+  fi
   echo "espero a que orbit-app-1 no tenga procesos app.cli (plazo ${espera}s)"
   sigue_candado
   srv "MODO_R=$modo ESPERA_R=$espera SRV_R=$SRV bash -s" <<'REMOTO' || rc=$?

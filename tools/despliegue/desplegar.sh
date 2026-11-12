@@ -4,8 +4,8 @@
 # de la receta (*_auto03_*, *_orbit07_* y *_claridad01_*) con sonda, (5) codigo, build aparte y
 # recreacion que espera cero procesos app.cli (con $SRV/refresh_estimacion.sh), (5b) linea de
 # cron del vigia de Jev, (6) interruptores.
-# Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados; si el diario ya traia
-# cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
+# Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados, o app.cli vivo al recrear; si
+# el diario ya traia cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
 
 ENSAYO=0
@@ -18,6 +18,8 @@ esac
 
 SHA=$(git rev-parse --verify "${MOTOR_SHA:?falta MOTOR_SHA}^{commit}")
 FIN=$((SECONDS + ESPERA))
+FIN_MOTOR=$(( $(date +%s) + TOPE_MOTOR ))
+export FIN_MOTOR
 
 MIGS=$(migraciones_de "$SHA") || exit 1
 NUEVO=$(interruptores_de "$SHA") || exit 1
