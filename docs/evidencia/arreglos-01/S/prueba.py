@@ -10,8 +10,9 @@ import sys
 from pathlib import Path
 
 # Al correr el archivo, sys.path[0] es esta carpeta y no la raiz del repo;
-# en_prod.sh lo pasa por stdin y el contenedor tiene /app en el path.
-if "__file__" in globals():
+# en_prod.sh lo pasa por stdin (__file__ = "<stdin>") y el contenedor ya
+# tiene /app en el path.
+if globals().get("__file__", "") not in ("", "<stdin>"):
     raiz = Path(__file__).resolve().parents[4]
     if str(raiz) not in sys.path:
         sys.path.insert(0, str(raiz))

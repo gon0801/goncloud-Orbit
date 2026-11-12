@@ -2991,8 +2991,9 @@ Despliega la seccion 5 (I.1 a I.5, P.4, E.1): grupos de dos en
 su reposicion, pantalla de productos sin clics y botones de retiro.
 Corre en cuanto claw lo encarga tras el merge del PR de codigo,
 despues de D.3. Instala UNA linea de cron: la suelta de
-`impulso-vigia` (08:20, 10:20, 13:20 y 16:20 UTC; cada intento va tras su
-ingesta y antes del ciclo de esa hora). Scripts en
+`impulso-vigia` (08:20, 10:20, 13:20 y 16:20 UTC, antes del ciclo de esa
+hora; el de las 10:20 corre antes del reintento de ingesta de las 10:40).
+Scripts en
 `docs/evidencia/bids-02/ejecucion/D.4/`, patron D.2 (cron) + D.3
 (pasos). Orden:
 
