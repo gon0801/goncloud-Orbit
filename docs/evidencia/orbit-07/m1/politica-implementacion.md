@@ -7,10 +7,12 @@ Plan: `plans/orbit-07-motor-decisiones.md`. Migración:
 ## Regla
 
 Una pausa por **cero pedidos maduros** que además tenga un **pedido reciente
-conocido** en `[D-9, D-1]` espera. El ancla es la `metric_date` más antigua con
-pedido en esa lectura y el vencimiento es `ancla + 10 días UTC`. Ni la corrida,
-ni una reobservación, ni una propuesta, ni una venta posterior mueven esos
-valores.
+conocido** espera. La lectura reciente de cada hoja empieza el día siguiente al
+fin de su ventana de cortes (nunca antes de `D-9`) y termina en `D-1`; así un
+pedido en el hueco entre la ventana madura y `D-9` también cuenta. El ancla es
+la `metric_date` más antigua con pedido en esa lectura y el vencimiento es
+`ancla + 10 días UTC`. Ni la corrida, ni una reobservación, ni una propuesta, ni
+una venta posterior mueven esos valores.
 
 La subpolítica es una función pura (`app/optimizer/proteccion.py`) y la usan:
 
@@ -25,7 +27,7 @@ La subpolítica es una función pura (`app/optimizer/proteccion.py`) y la usan:
 |---|---|---|
 | Ausente | Sin pedido reciente conocido | La pausa sigue su curso histórico |
 | Activa | `hoy < vence_el` con pedido ancla conocido | Esperar; solo se suprime la pausa |
-| Indeterminada | Fuente incompleta o ancla aún fuera de la ventana madura | Esperar; no se abre gracia nueva |
+| Indeterminada | Fuente incompleta sin pedido conocido, o ancla aún fuera de la ventana madura | Esperar; no se abre gracia nueva |
 | Consumida | `hoy >= vence_el` y el ancla ya está madura | La pausa procede si sus requisitos se cumplen |
 
 La única escritura es la apertura del episodio (append-only). El cierre se
@@ -42,27 +44,31 @@ fila.
    de la ventana madura (condición nueva, separada por al menos la ventana de
    cortes).
 3. **Pujas no congeladas.** La fila `released` deja de bloquear la hoja cuando
-   hay venta reciente o un episodio persistido (activo o vencido): el ciclo
-   evalúa el bid y descarta un `Pausar` duplicado. El veto pendiente, el veto
-   del dueño y `applying` siguen bloqueando la hoja entera.
+   hay un pedido conocido (ancla) o un episodio persistido (activo o vencido):
+   el ciclo evalúa el bid y descarta un `Pausar` duplicado. El veto pendiente,
+   el veto del dueño y `applying` siguen bloqueando la hoja entera.
 4. **Precedencia económica.** Si la pausa económica califica con datos
    completos, la venta reciente no la oculta.
 5. **Historia.** La ausencia del marcador en `pausa.proteccion` conserva la
    semántica anterior: el replay de las decisiones viejas no adopta la regla
    nueva. El caso congela `evaluado_el`, la lectura, la ventana de cortes y el
    episodio.
-6. **Fuente incompleta sin episodio.** No se inventa un cero ni se abre una
-   gracia; la pausa histórica sigue. Con un episodio persistido (activo o
-   vencido), la lectura incompleta no lo cancela.
+6. **Fuente incompleta sin episodio.** Sin un pedido conocido no se inventa un
+   cero ni se abre una gracia; la pausa histórica sigue. Un ancla vista se
+   conserva aunque falte cobertura o un día venga envenenado, y manda sobre la
+   ausencia de dato. Con un episodio persistido (activo o vencido), la lectura
+   incompleta no lo cancela.
 
 ## Verificación
 
-- `tests/test_optimizer_proteccion.py`: 12 casos puros (regresión histórica,
-  ancla fija, vencimiento, corrección a cero, ausencia de datos, precedencia
-  económica, puja autorizada durante la espera y freeze/replay).
+- `tests/test_optimizer_proteccion.py`: 13 casos puros (regresión histórica,
+  ancla fija, vencimiento, corrección a cero, ausencia de datos, pedido conocido
+  con dato incompleto, precedencia económica, puja autorizada durante la espera
+  y freeze/replay).
 - `tests/test_orbit07_m1.py`: ciclo con venta reciente (no pausa, abre
-  episodio), cola que espera sin cuota, vencimiento que aplica y cobra, y puja
-  que se mueve durante la espera sin duplicar la pausa.
+  episodio), venta en el hueco entre la ventana madura y la reciente, cola que
+  espera sin cuota, vencimiento que aplica y cobra, y puja que se mueve durante
+  la espera sin duplicar la pausa.
 - `tests/test_apply_schema.py`: tabla append-only, vencimiento por trigger,
   unicidad y permisos.
 - La sonda de regresión está en [`antes-despues.json`](antes-despues.json): la

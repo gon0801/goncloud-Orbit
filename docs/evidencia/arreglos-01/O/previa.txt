@@ -1,0 +1,10 @@
+Consulta "antes de desplegar" de la unidad AD-U3 (A-H1 + A-H2), leida con
+docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read, transaccion read_only)
+contra la base de produccion el 2026-11-11.
+
+SELECT id FROM decision
+ WHERE inputs->'caso'->'pausa'->'proteccion'->'reciente'->>'pedidos' IS NULL
+   AND inputs->'caso'->'pausa'->'proteccion'->'reciente'->>'ancla' IS NOT NULL;
+
+(sin filas)
+filas=0

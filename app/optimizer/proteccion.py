@@ -1,9 +1,10 @@
 """Subpolitica pura de proteccion por venta reciente (ORBIT 07 M1).
 
 El motor de cortes pausa por cero pedidos sobre la ventana madura, que termina
-en D-10. Un pedido de los ultimos nueve dias todavia no entra a esa ventana: sin
-esta subpolitica, la hoja se pausa aunque acaba de vender. La proteccion se abre
-una sola vez por pedido, con ancla y vencimiento FIJOS (ancla + 10 dias UTC).
+en D-10. Un pedido posterior al fin de la ventana de cortes de la hoja todavia
+no entra a esa ventana: sin esta subpolitica, la hoja se pausa aunque acaba de
+vender. La proteccion se abre una sola vez por pedido, con ancla y vencimiento
+FIJOS (ancla + 10 dias UTC).
 
 Reglas selladas por la entrega M1:
 
@@ -80,8 +81,12 @@ def evalua(insumos: InsumosProteccion) -> ResultadoProteccion:
             return _espera(lectura.ancla, nuevo, MOTIVO_PROTEGIDA, abre=True)
         return _aplica(MOTIVO_CONSUMIDA, episodio.ancla, episodio.vence_el)
 
+    if lectura.ancla is not None:
+        # Un pedido visto es conocido aunque falte un dia o la fuente no cubra
+        # todo el rango: manda sobre la ausencia de dato (A-H1/A-H2).
+        return _espera(lectura.ancla, _vence(lectura.ancla), MOTIVO_PROTEGIDA, abre=True)
     if not lectura.cubierta or lectura.pedidos is None:
-        # Sin episodio previo, una fuente incompleta no acredita una venta
+        # Sin pedido conocido, una fuente incompleta no acredita una venta
         # reciente: no se inventa un cero ni se abre una gracia nueva, y la
         # pausa sigue su curso historico. Un episodio ACTIVO si se respeta
         # con la lectura incompleta (el bloque de arriba).
@@ -95,15 +100,12 @@ def evalua(insumos: InsumosProteccion) -> ResultadoProteccion:
 
 def _abre_otro(insumos: InsumosProteccion, episodio) -> bool:
     """Un pedido posterior abre otro episodio solo cuando el ancla vieja ya
-    salio de la ventana madura. Evita renovar la gracia con pedidos sucesivos."""
+    salio de la ventana madura. Evita renovar la gracia con pedidos sucesivos.
+
+    Basta el ancla: un pedido visto es conocido aunque la fuente no cubra todo
+    el rango o un dia venga envenenado."""
     lectura = insumos.reciente
-    if (
-        insumos.ventana_desde is None
-        or not lectura.cubierta
-        or lectura.pedidos is None
-        or lectura.pedidos <= 0
-        or lectura.ancla is None
-    ):
+    if insumos.ventana_desde is None or lectura.ancla is None:
         return False
     return lectura.ancla > episodio.vence_el and episodio.ancla < insumos.ventana_desde
 

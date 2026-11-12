@@ -1248,13 +1248,12 @@ def _proteccion_activa(
     """ORBIT 07 M1: True si la subpolitica pura frena la pausa por venta
     reciente. Registra la transicion append-only del episodio cuando la abre.
 
-    Se evalua solo si hay un episodio persistido o una venta reciente; fuera de
-    ese caso no hay nada que proteger y no se paga la segunda evaluacion."""
+    Se evalua solo si hay un episodio persistido o un pedido conocido (ancla);
+    fuera de ese caso no hay nada que proteger y no se paga la segunda
+    evaluacion."""
     if pausa.proteccion is None:
         return False
-    if pausa.proteccion.episodio is None and not (
-        proteccion_cache is not None and proteccion_cache.hay_venta(entidad_id)
-    ):
+    if pausa.proteccion.episodio is None and pausa.proteccion.reciente.ancla is None:
         return False
     resultado = bid.decide_pause(
         platform=platform,
