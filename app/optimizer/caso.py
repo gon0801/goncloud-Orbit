@@ -302,11 +302,14 @@ class BidVigente:
 
 @dataclass(frozen=True)
 class LecturaReciente:
-    """Pedidos ya vistos en D-9..D-1 y la fecha mas antigua con pedido.
+    """Pedidos ya vistos despues de la ventana de cortes de la hoja (desde el
+    dia siguiente a su fin, nunca antes de D-9, hasta D-1) y la fecha mas
+    antigua con pedido.
 
     `pedidos` None = desconocido (fuente incompleta o metrica venenosa); cero
     solo cuando la ingesta cubre todo el rango. `ancla` es `metric_date` mas
-    antigua con orders > 0 en esa misma lectura.
+    antigua con orders > 0 en esa misma lectura; un pedido visto no se borra
+    por un dia venenoso ni por falta de cobertura.
     """
 
     pedidos: int | None

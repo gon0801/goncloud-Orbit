@@ -1,9 +1,10 @@
 """Subpolitica pura de proteccion por venta reciente (ORBIT 07 M1).
 
 El motor de cortes pausa por cero pedidos sobre la ventana madura, que termina
-en D-10. Un pedido de los ultimos nueve dias todavia no entra a esa ventana: sin
-esta subpolitica, la hoja se pausa aunque acaba de vender. La proteccion se abre
-una sola vez por pedido, con ancla y vencimiento FIJOS (ancla + 10 dias UTC).
+en D-10. Un pedido posterior al fin de la ventana de cortes de la hoja todavia
+no entra a esa ventana: sin esta subpolitica, la hoja se pausa aunque acaba de
+vender. La proteccion se abre una sola vez por pedido, con ancla y vencimiento
+FIJOS (ancla + 10 dias UTC).
 
 Reglas selladas por la entrega M1:
 
