@@ -7,7 +7,7 @@ Subcomandos:
   drive-resumen   Receta curl de la pantalla Resumen + evidencia (canvas y JSON)
   drive-decisiones Receta curl de la pantalla Decisiones + evidencia (HTML y JSON)
   drive-salud     Receta curl de la pantalla Salud + evidencia (canvas, HTML y JSON)
-  drive-contribucion Receta curl de la pantalla Contribucion + evidencia (HTML y JSON)
+  drive-contribucion Receta curl de la pantalla Contribucion + HTML, JSON y capturas
   drive-cortes    Receta curl de la pantalla Cortes + evidencia (HTML y JSON)
   drive-inertes   Receta curl de la pantalla Inertes + evidencia (HTML y JSON)
   drive-fabrica   Receta curl de Crear campanas + evidencia (HTML y JSON)
@@ -1792,8 +1792,11 @@ def cmd_drive_contribucion(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=contribucion": 'data-pantalla="contribucion"' in texto,
-        "h2_contribucion": "Contribución por campaña" in texto,
+        "h1_contribucion": "Contribución por campaña" in texto,
+        "tarjetas_plataforma": "contribucion-plataformas" in texto
+        and texto.count('class="tarjeta contribucion-tarjeta"') == 2,
         "no_hay_filas": "Sin campañas con actividad madura en la ventana." in texto,
+        "sin_estilos_inline": "style=" not in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/contribucion")
@@ -1811,11 +1814,28 @@ def cmd_drive_contribucion(args: argparse.Namespace) -> None:
         checks[f"api_{p}_filas_vacias"] = filas == []
         checks[f"api_{p}_ventana_keys"] = "desde" in ventana and "hasta" in ventana
 
+    checks["screenshot"] = _chrome_screenshot(
+        base + "/contribucion",
+        evidence / "04-contribucion.png",
+        evidence / "04-chrome.stderr.txt",
+        timeout_s=30,
+        ancho=1440,
+        alto=2400,
+    )
+    checks["screenshot_390"] = _chrome_screenshot(
+        base + "/contribucion",
+        evidence / "05-contribucion-390.png",
+        evidence / "05-chrome.stderr.txt",
+        timeout_s=30,
+        ancho=390,
+        alto=2400,
+    )
+
     prueba = {
         "feature": "contribucion",
         "entry_point": "nav /contribucion",
         "base_url": base,
-        "action": "GET /contribucion y GET /api/dashboard/contribucion",
+        "action": "GET /contribucion, GET /api/dashboard/contribucion y capturas 1440/390",
         "checks": checks,
         "ok": all(checks.values()),
         "evidence_dir": str(evidence),

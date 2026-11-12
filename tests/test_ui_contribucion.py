@@ -7,6 +7,7 @@ plataforma sin contribucion no rompe la pantalla. Patron de tests/test_ui.py
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from decimal import Decimal
@@ -89,7 +90,7 @@ def _contribucion_html_fakeado(monkeypatch, payload: dict) -> str:
 
 
 def _fila_de(html: str, nombre: str) -> str:
-    filas = [f for f in html.split("<tr>") if f">{nombre}</td>" in f]
+    filas = [f for f in re.findall(r"<tr>.*?</tr>", html, re.S) if f">{nombre}</td>" in f]
     assert len(filas) == 1, f"la campana {nombre} debe aparecer en una sola fila"
     return filas[0]
 
@@ -106,10 +107,62 @@ def test_ui_contribucion_rango_se_ve_como_rango(monkeypatch):
     assert "26.00" in fila and "50.00" in fila
     assert "26.0000" not in fila and "50.0000" not in fila
     assert "26.00 .. 50.00" in fila or ("26.00" in fila and ".." in fila and "50.00" in fila)
+    assert "contribucion-pos" in fila
+    assert "contribucion-barra-pos" in fila
     assert "MXN" in html
     tarjeta_mx = html.split("<h2>Amazon MX")[1].split("<h2>Amazon US")[0]
     assert "MXN" in tarjeta_mx
     assert "2026-05-28" in html and "2026-08-16" in html
+
+
+def test_ui_contribucion_rango_fuera_de_escala_conserva_marca_y_rotulo(monkeypatch):
+    """h_c4b8e201: si todo el rango supera el eje recortado, la campana sigue
+    marcada en el borde con su valor real; no desaparece la barra."""
+    filas = [
+        _item_con_rango(nombre="Arras Manual", sin_halo="1250.4645", con_halo="10102.3877"),
+        _item_con_rango(
+            nombre="AC - Category Exact - MX",
+            sin_halo="34765.9600",
+            con_halo="122380.5500",
+        ),
+    ]
+    html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=filas))
+    assert "20,000" in html
+    fila = _fila_de(html, "AC - Category Exact - MX")
+    assert "contribucion-fuera" in fila
+    assert "contribucion-rango" not in fila
+    assert "contribucion-linea-cero" in fila
+    assert "▸ valor real: 122,380.55" in fila
+
+
+def test_ui_contribucion_eje_con_segundo_maximo_cero_conserva_lado_positivo(monkeypatch):
+    """F1: no se recorta el eje contra un segundo maximo en cero o negativo."""
+    filas = [
+        _item_con_rango(nombre="Positiva", sin_halo="50.0000", con_halo="100.0000"),
+        _item_con_rango(nombre="Cero", sin_halo="-10.0000", con_halo="0.0000"),
+    ]
+    html = _contribucion_html_fakeado(monkeypatch, _payload(us_items=filas))
+    fila = _fila_de(html, "Positiva")
+    assert "contribucion-rango" in fila
+    assert "contribucion-fuera" not in fila
+    assert "contribucion-eje-max" in html and ">100<" in html
+
+
+def test_ui_contribucion_borde_recortado_con_izquierda_100_conserva_marca(monkeypatch):
+    """F2: si el redondeo deja izquierda=100, la fila recortada no pierde barra."""
+    filas = [
+        _item_con_rango(nombre="Arras Manual", sin_halo="1250.4645", con_halo="10102.3877"),
+        _item_con_rango(
+            nombre="Casi borde",
+            sin_halo="19999.9900",
+            con_halo="122380.5500",
+        ),
+    ]
+    html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=filas))
+    fila = _fila_de(html, "Casi borde")
+    assert "contribucion-fuera" in fila
+    assert "contribucion-linea-cero" in fila
+    assert "▸ valor real: 122,380.55" in fila
 
 
 def test_ui_contribucion_ausencia_no_se_pinta_como_cero(monkeypatch):
@@ -207,7 +260,7 @@ def test_ui_contribucion_etiqueta_una_vez_por_plataforma(monkeypatch):
         _item_con_rango(nombre="Camp MX 3", sin_halo="3.0000", con_halo="4.0000"),
     ]
     html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=filas))
-    assert html.count(ETIQUETA) == 1
+    assert html.count(ETIQUETA) == html.count('class="leyenda"')
     assert 'class="leyenda"' in html
     assert ETIQUETA not in _fila_de(html, "Camp MX")
     assert ETIQUETA not in _fila_de(html, "Camp MX 2")
