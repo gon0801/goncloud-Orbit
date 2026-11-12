@@ -23,7 +23,9 @@ CREATE TABLE ledger_reatribucion (
 );
 
 CREATE INDEX ON ledger_reatribucion (ledger_event_id);
-CREATE INDEX ON ledger_reatribucion (ingest_run_id) WHERE ingest_run_id IS NOT NULL;
+CREATE INDEX ON ledger_reatribucion (product_antes);
+CREATE INDEX ON ledger_reatribucion (product_despues);
+CREATE INDEX ON ledger_reatribucion (ingest_run_id);
 
 CREATE TRIGGER ledger_reatribucion_append_only
     BEFORE UPDATE OR DELETE ON ledger_reatribucion
@@ -35,9 +37,11 @@ CREATE TRIGGER ledger_reatribucion_append_only_truncate
 
 -- Sustituye ledger_append_only: el DELETE sigue prohibido; el UPDATE solo
 -- admite product_id de una venta de Amazon, de un producto a otro. La
--- auditoria se escribe aqui mismo, dentro del candado.
-CREATE FUNCTION ledger_solo_reatribuye() RETURNS trigger
-LANGUAGE plpgsql
+-- auditoria se escribe aqui mismo, dentro del candado, con una funcion
+-- SECURITY DEFINER de app_admin: app_ingest no puede fabricar filas de
+-- auditoria, solo disparar el trigger con el UPDATE que tiene concedido.
+CREATE FUNCTION public.ledger_solo_reatribuye() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 DECLARE
@@ -60,23 +64,32 @@ BEGIN
             USING ERRCODE = 'restrict_violation';
     END IF;
     v_ingest_run_id := nullif(current_setting('orbit.ingest_run_id', true), '')::bigint;
-    INSERT INTO ledger_reatribucion
+    INSERT INTO public.ledger_reatribucion
         (ledger_event_id, product_antes, product_despues, ingest_run_id)
     VALUES (OLD.id, OLD.product_id, NEW.product_id, v_ingest_run_id);
     RETURN NEW;
 END;
 $$;
 
+ALTER FUNCTION public.ledger_solo_reatribuye() OWNER TO app_admin;
+
+COMMENT ON FUNCTION public.ledger_solo_reatribuye() IS
+  'ARREGLOS 01 Y (H-H4): unico UPDATE admitido en ledger_event (product_id de '
+  'una venta de Amazon, de un producto a otro). Escribe la auditoria en '
+  'public.ledger_reatribucion. SECURITY DEFINER de app_admin: app_ingest '
+  'dispara el trigger sin INSERT directo sobre la auditoria.';
+
 DROP TRIGGER ledger_append_only ON ledger_event;
 CREATE TRIGGER ledger_solo_reatribuye
     BEFORE UPDATE OR DELETE ON ledger_event
-    FOR EACH ROW EXECUTE FUNCTION ledger_solo_reatribuye();
+    FOR EACH ROW EXECUTE FUNCTION public.ledger_solo_reatribuye();
 
--- El rol de ingesta puede corregir SOLO product_id; el trigger acota que. Y
--- necesita INSERT en la auditoria: el trigger corre con los permisos de quien
--- hace el UPDATE.
+-- El rol de ingesta puede corregir SOLO product_id; el trigger acota que. La
+-- auditoria la inserta la funcion SECURITY DEFINER de app_admin, que necesita
+-- INSERT en la tabla y USAGE en la secuencia de la identidad.
 GRANT UPDATE (product_id) ON ledger_event TO app_ingest;
-GRANT INSERT ON ledger_reatribucion TO app_ingest;
+GRANT INSERT ON ledger_reatribucion TO app_admin;
+GRANT USAGE ON SEQUENCE public.ledger_reatribucion_id_seq TO app_admin;
 
 COMMENT ON TABLE ledger_reatribucion IS
   'Auditoria append-only de las reatribuciones de product_id en ledger_event '

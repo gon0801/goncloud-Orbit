@@ -46,16 +46,17 @@
   operación; `apply_quota_state` solo consume (`UPDATE (used)`); `sku_cost`
   solo cierra vigencias (`UPDATE (valid_to)`); el resto del catálogo
   (`product`, `listing`, `ad_entity`) admite correcciones controladas.
-  `sku_cost` es la única con **candado propio** en vez de simple ausencia de
-  GRANT: el trigger `sku_cost_solo_cierra_vigencia` permite cambiar `valid_to`
-  y **nada más**, y prohíbe el `DELETE` (borrar una vigencia publicada
-  reescribe el histórico de márgenes hacia atrás). **Cerrar es una transición
-  única `NULL → fecha`**: mover el corte de una vigencia ya cerrada
+  `sku_cost` y `ledger_event` son las dos tablas con **candado propio** en vez
+  de simple ausencia de GRANT. `sku_cost_solo_cierra_vigencia` permite cambiar
+  `valid_to` y **nada más**, y prohíbe el `DELETE` (borrar una vigencia
+  publicada reescribe el histórico de márgenes hacia atrás). **Cerrar es una
+  transición única `NULL → fecha`**: mover el corte de una vigencia ya cerrada
   (`DATE → DATE`) o reabrirla (`DATE → NULL`) también reescribe el período en
   que ese costo aplicó, y el `EXCLUDE` **no lo detecta** — encoger un rango
   nunca solapa, y extenderlo tampoco si la fila no tiene sucesora. Precio
   declarado: cerrar en la fecha equivocada se corrige con una migración, no
-  con un UPDATE.
+  con un UPDATE. `ledger_solo_reatribuye` solo mueve `product_id` de una venta
+  de Amazon, de un producto a otro, y audita en `ledger_reatribucion`.
 - **Toda FK tiene índice de apoyo**: PostgreSQL no crea uno por el
   `REFERENCES`. Sin él, cada verificación de integridad al tocar la tabla
   padre barre la hija entera y los JOIN que el propio esquema declara

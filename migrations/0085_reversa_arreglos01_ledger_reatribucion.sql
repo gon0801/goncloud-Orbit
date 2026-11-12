@@ -21,13 +21,14 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM ledger_reatribucion) THEN
         DROP TABLE ledger_reatribucion;
     ELSE
-        REVOKE INSERT ON ledger_reatribucion FROM app_ingest;
+        REVOKE INSERT ON ledger_reatribucion FROM app_admin;
+        REVOKE USAGE ON SEQUENCE public.ledger_reatribucion_id_seq FROM app_admin;
     END IF;
 END
 $$;
 
 DROP TRIGGER ledger_solo_reatribuye ON ledger_event;
-DROP FUNCTION ledger_solo_reatribuye();
+DROP FUNCTION public.ledger_solo_reatribuye();
 
 CREATE TRIGGER ledger_append_only
     BEFORE UPDATE OR DELETE ON ledger_event
