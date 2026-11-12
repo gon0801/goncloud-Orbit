@@ -1690,15 +1690,29 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=salud": 'data-pantalla="salud"' in texto,
-        "h2_salud": "Salud: último ciclo" in texto,
+        "tarjeta_por_plataforma": 'class="tarjeta salud-tarjeta"' in texto,
+        "checks_por_plataforma": 'class="salud-checks"' in texto,
+        "tab_amazon_us": 'href="/salud?plataforma=amazon_us"' in texto,
+        "tab_amazon_mx": 'href="/salud?plataforma=amazon_mx"' in texto,
+        "detalle_activo_us": 'id="detalle-amazon_us" aria-label' in texto,
+        "detalle_oculto_mx": 'id="detalle-amazon_mx" hidden aria-label' in texto,
         "decisiones_2": "decisiones: 2" in texto,
         "applies_0": "aplicadas: 0" in texto,
-        "canvas_skips_amazon_us": 'id="skips-amazon_us"' in texto,
+        "barras_ciclos": "salud-ciclos-barras" in texto,
+        "barras_skips": "salud-skip-barra" in texto,
         "script_skips_amazon_us": 'id="datos-skips-amazon_us"' in texto,
         "quota_del_dia": "Cambios permitidos hoy" in texto,
         "quota_sin_clave": "— (sin tope)" in texto,
         "historico_14d": "Últimos 14 ciclos" in texto,
     }
+
+    st_mx, html_mx = _get_html(base, "/salud?plataforma=amazon_mx")
+    texto_mx = html_mx.decode("utf-8", errors="replace")
+    checks["tab_mx_activa"] = (
+        st_mx == 200
+        and 'id="detalle-amazon_mx" aria-label' in texto_mx
+        and 'id="detalle-amazon_us" hidden aria-label' in texto_mx
+    )
 
     # Validacion de motivo_es en script del canvas de skips.
     skip_script = re.search(
@@ -1731,7 +1745,14 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
 
     png = evidence / "04-salud.png"
     stderr = evidence / "04-chrome.stderr.txt"
-    checks["screenshot"] = _chrome_screenshot(base + "/salud", png, stderr, timeout_s=30)
+    checks["screenshot"] = _chrome_screenshot(
+        base + "/salud", png, stderr, timeout_s=30, ancho=1440, alto=2400
+    )
+    png_movil = evidence / "05-salud-390.png"
+    stderr_movil = evidence / "05-chrome.stderr.txt"
+    checks["screenshot_390"] = _chrome_screenshot(
+        base + "/salud", png_movil, stderr_movil, timeout_s=30, ancho=390, alto=2400
+    )
 
     prueba = {
         "feature": "salud",
