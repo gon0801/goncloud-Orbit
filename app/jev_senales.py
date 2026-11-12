@@ -776,7 +776,8 @@ def correr(
 
 def main(argv: list[str]) -> int:
     """`python -m app.cli jev-senales`: 0 corrio, apagado u ocupado; 1 fallo;
-    2 falta DSN. El seco solo necesita ORBIT_DSN_READ."""
+    2 falta DSN. Sin metricas de ayer sale 75 mientras queda horario hoy y 1
+    desde el fin de intentos. El seco solo necesita ORBIT_DSN_READ."""
     parser = argparse.ArgumentParser(
         prog="python -m app.cli jev-senales",
         description="Sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar).",
@@ -808,8 +809,7 @@ def main(argv: list[str]) -> int:
         from app import metricas_listas
 
         if not metricas_listas.guarda(lector, ("amazon_us", "amazon_mx"), forzar=args.forzar):
-            print(metricas_listas.TEXTO_ESPERA)
-            return 0
+            return metricas_listas.salida_sin_metricas("jev-senales")
         if args.aplicar:
             escritor = connect(dsn_jev, autocommit=True)
         correr(

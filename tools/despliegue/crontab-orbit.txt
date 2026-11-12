@@ -8,13 +8,13 @@
 # job_key=ingest:diario  ultimo reintento del dia (13:15)
 15 13 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
 # job_key=avisos-campana  BIDS 02 V.4 (dentro del bloque desde ingesta-01 A.4)
-5 8 * * * /usr/local/bin/cron-avisa --nombre "Avisos de campañas" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana' >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
+5 8,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Avisos de campañas" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana' >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
 # job_key=impulso-vigia  BIDS 02 I.3 (dentro del bloque desde ingesta-01 A.4)
-20 8 * * * /usr/local/bin/cron-avisa --nombre "Vigía de impulso" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/impulso-vigia.lock docker exec orbit-app-1 python -m app.cli impulso-vigia' >> /mnt/data/appdata/orbit/logs/impulso-vigia.log 2>&1
+20 8,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Vigía de impulso" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/impulso-vigia.lock docker exec orbit-app-1 python -m app.cli impulso-vigia' >> /mnt/data/appdata/orbit/logs/impulso-vigia.log 2>&1
 # job_key=ads_optimizer:amazon_us
-40 8 * * * /usr/local/bin/cron-avisa --nombre "Optimizador de publicidad de Amazon Estados Unidos" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us' >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+40 8,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Optimizador de publicidad de Amazon Estados Unidos" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us' >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 # job_key=ads_optimizer:amazon_mx
-41 8 * * * /usr/local/bin/cron-avisa --nombre "Optimizador de publicidad de Amazon México" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx' >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+41 8,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Optimizador de publicidad de Amazon México" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx' >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 # job_key=jev-senales  JEV ADS 02 S.4 (dentro del bloque desde ingesta-01 A.4)
 30 9,21 * * * /usr/local/bin/cron-avisa --nombre "Señales de publicidad de JEV" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar' >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
 # job_key=jev-vigia  CLARIDAD 01 B.5: avisa si Jev no corre hace mas de 13 h

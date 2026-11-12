@@ -862,9 +862,9 @@ El server está en UTC: estas horas SON UTC.
 |-------|---------|---------|
 | 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
 | 07:10, 10:40, 13:15 | `ingest:diario` | `python -m app.cli ingest diario` (ingesta-01 A.2: métricas + productos + placements en UNA descarga, rango D-31..D-1; los tres horarios salen de `HORARIOS_INGESTA` en `app/ads/diario.py` y cada corrida reintenta lo que faltó: `--solo-faltantes` salta los grupos ya al día) |
-| 08:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; tras la ingesta, antes del ciclo; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
-| 08:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; después de la ingesta, antes del ciclo; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
-| 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
+| 08:05, 10:05, 13:05, 16:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; reintenta si la ingesta llega tarde; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
+| 08:20, 10:20, 13:20, 16:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; reintenta si la ingesta llega tarde; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
+| 08:40/08:41, 10:40/10:41, 13:40/13:41, 16:40/16:41 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (US y MX arrancan con un minuto de diferencia y pueden solaparse si US sigue activo; cada plataforma tiene su candado; los reintentos corren si la ingesta llega tarde y no repiten un ciclo cerrado) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
 | 11:00 | `jev-vigia` | `python -m app.cli jev-vigia` (CLARIDAD 01 B.5: si Jev está encendido y su último `inicio` tiene más de 13 h, avisa por Telegram; cubre la línea de jev-senales borrada o un candado colgado. Lee con `ORBIT_DSN_READ`, sin estado. Vive en el bloque canónico `tools/despliegue/crontab-orbit.txt`; `tools/despliegue/cron_jev_vigia.sh instala` la mueve ahí si el crontab la tenía fuera) |
 | 10:00–12:50, /10 min | `ads-salud` | `python -m app.cli ads-salud` (ads-proteccion-01 A.3: salud de la ingesta principal; el cron dispara cada 10 min y el job reporta el atraso desde las 10:30 UTC con reintentos hasta las 12:50; la linea no cambio en ingesta-01 A.4) |
@@ -969,8 +969,9 @@ hace `rollback.sh`: restaura el bloque anterior desde el respaldo que deja
 `cron_orbit.sh instala`; las tablas `jev_*` quedan intactas (el job apagado no
 escribe).
 
-Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05 UTC, tras la
-ingesta del diario y antes del ciclo (08:40). La línea efectiva está en
+Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05, 10:05, 13:05 y
+16:05 UTC; los reintentos cubren la ingesta del diario cuando llega tarde y
+corren antes del ciclo de esa hora. La línea efectiva está en
 `tools/despliegue/crontab-orbit.txt` (bloque canónico) con
 `job_key=avisos-campana`; `cron_orbit.sh instala` la reemplaza completa. La
 prueba `test_el_bloque_canonico_trae_una_sola_linea_de_avisos` la pinza en
@@ -2990,8 +2991,9 @@ Despliega la seccion 5 (I.1 a I.5, P.4, E.1): grupos de dos en
 su reposicion, pantalla de productos sin clics y botones de retiro.
 Corre en cuanto claw lo encarga tras el merge del PR de codigo,
 despues de D.3. Instala UNA linea de cron: la suelta de
-`impulso-vigia` (08:20 UTC, tras las ingestas de 07:10/07:20/07:25 y
-antes del ciclo de 08:40). Scripts en
+`impulso-vigia` (08:20, 10:20, 13:20 y 16:20 UTC, antes del ciclo de esa
+hora; el de las 10:20 corre antes del reintento de ingesta de las 10:40).
+Scripts en
 `docs/evidencia/bids-02/ejecucion/D.4/`, patron D.2 (cron) + D.3
 (pasos). Orden:
 

@@ -22,5 +22,5 @@ def _lineas(comando: str) -> list[str]:
 def test_el_bloque_canonico_trae_una_sola_linea_de_avisos():
     lineas = _lineas("avisos-campana")
     assert len(lineas) == 1, f"avisos-campana: {len(lineas)} lineas"
-    assert lineas[0].startswith("5 8 * * *")
+    assert lineas[0].startswith("5 8,10,13,16 * * *")
     assert "cron-avisa" in lineas[0], "la linea conserva su envoltura de aviso"
