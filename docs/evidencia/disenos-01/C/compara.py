@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Compara la pagina Contribucion anterior con la nueva (DISENOS 01, bloque C).
 
-Modo local: renderiza el template nuevo con el JSON de `antes/` y comprueba que
-cada fila y cada valor visible siga ahi, ademas de las barras y los conteos.
-Modo `--base`: baja el JSON y el HTML de una instancia viva; el JSON es la
-pagina de antes (no cambia) y el HTML, la nueva.
+Modo local: compara el HTML nuevo ya renderizado en `despues/contribucion.html`
+con el JSON y la pagina de antes. Modo `--base`: baja el JSON y el HTML de una
+instancia viva; el JSON es la pagina de antes (no cambia) y el HTML, la nueva.
+
+Solo usa la biblioteca estandar: no necesita el entorno del proyecto ni psycopg.
 
 Uso:
     python docs/evidencia/disenos-01/C/compara.py
@@ -24,18 +25,10 @@ import urllib.request
 from decimal import Decimal
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(RAIZ))
-
-from app import formato  # noqa: E402
-from app.etiquetas import etiqueta  # noqa: E402
-from app.ui import templates  # noqa: E402
-from app.ui_contribucion import vista_contribucion  # noqa: E402
-
 AQUI = Path(__file__).resolve().parent
 ANTES = AQUI / "antes" / "api-contribucion.json"
 ANTES_HTML = AQUI / "antes" / "contribucion.html"
-DESPUES = AQUI / "despues"
+DESPUES = AQUI / "despues" / "contribucion.html"
 NUMERO = re.compile(r"-?[\d,]+\.\d{2}")
 FECHA = re.compile(r"\d{4}-\d{2}-\d{2}")
 FILA_VIEJA = re.compile(
@@ -44,11 +37,18 @@ FILA_VIEJA = re.compile(
     re.S,
 )
 CHIP_MULTILISTING = "precio min multilisting"
+FX_NEAREST_PRIOR = "del último día con dato"
 ETIQUETA_CLASE = {"pos": "Positiva", "cruza": "Cruza 0", "neg": "Negativa", "sin": "Sin dato"}
 
 
 def _limpiar(fragmento: str) -> str:
     return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", fragmento)).split())
+
+
+def _dinero(valor) -> str:
+    if valor is None:
+        return "—"
+    return f"{Decimal(str(valor)):,.2f}"
 
 
 def _seccion(texto: str, plataforma: str) -> str:
@@ -112,13 +112,6 @@ def _textos_viejos(fila: dict[str, str]) -> list[str]:
     return tokens
 
 
-def _render_local(datos: dict) -> str:
-    return templates.env.get_template("contribucion.html").render(
-        pantalla="contribucion",
-        vista=vista_contribucion(datos.get("plataformas") or {}),
-    )
-
-
 def _bajar(base: str) -> tuple[dict, str]:
     with urllib.request.urlopen(f"{base.rstrip('/')}/api/dashboard/contribucion", timeout=60) as r:
         datos = json.loads(r.read().decode("utf-8"))
@@ -160,7 +153,7 @@ def _escala(filas: list[tuple[Decimal, Decimal]]) -> tuple[Decimal, Decimal, Dec
 
 
 def _texto_eje(valor: Decimal) -> str:
-    return formato.dinero(valor).replace(".00", "") or "0"
+    return _dinero(valor).replace(".00", "") or "0"
 
 
 def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
@@ -222,7 +215,7 @@ def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
                 hi = Decimal(con_halo)
                 clase = _clase(lo, hi)
                 conteos[clase] += 1
-                rango = f"{formato.dinero(lo)} .. {formato.dinero(hi)}"
+                rango = f"{_dinero(lo)} .. {_dinero(hi)}"
                 exige(rango in texto_nuevo, f"{plataforma}: rango {nombre}")
                 exige(
                     f"contribucion-barra-{clase}" in nueva,
@@ -234,7 +227,7 @@ def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
                     exige("contribucion-rango" in nueva, f"{plataforma}: barra {nombre}")
                 if hi > maximo:
                     exige(
-                        f"▸ valor real: {formato.dinero(hi)}" in nueva,
+                        f"▸ valor real: {_dinero(hi)}" in nueva,
                         f"{plataforma}: valor real {nombre}",
                     )
                 else:
@@ -245,9 +238,7 @@ def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
                 if fila.get("precio_min_multilisting"):
                     exige(CHIP_MULTILISTING in texto_nuevo, f"{plataforma}: multilisting {nombre}")
                 if fila.get("fx_source") == "nearest_prior":
-                    fx = "Tipo de cambio aproximado: " + etiqueta(
-                        fila.get("fx_source"), "metodo_fx"
-                    )
+                    fx = "Tipo de cambio aproximado: " + FX_NEAREST_PRIOR
                     exige(fx in texto_nuevo, f"{plataforma}: fx {nombre}")
                 if motivo:
                     exige(f"parcial: {motivo}" in texto_nuevo, f"{plataforma}: parcial {nombre}")
@@ -282,8 +273,8 @@ def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", help="instancia viva; sin el, usa antes/ y el template local")
-    parser.add_argument("--html", help="HTML nuevo ya renderizado para comparar contra antes/")
+    parser.add_argument("--base", help="instancia viva; sin el, usa antes/ y despues/")
+    parser.add_argument("--html", help="HTML nuevo ya renderizado")
     args = parser.parse_args(argv)
     with contextlib.suppress(AttributeError):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -293,14 +284,11 @@ def main(argv: list[str] | None = None) -> int:
         origen = f"vivo {args.base}"
     else:
         datos = json.loads(ANTES.read_text(encoding="utf-8"))
-        if args.html:
-            pagina = Path(args.html).read_text(encoding="utf-8")
-            origen = args.html
-        else:
-            pagina = _render_local(datos)
-            DESPUES.mkdir(parents=True, exist_ok=True)
-            (DESPUES / "contribucion.html").write_text(pagina, encoding="utf-8")
-            origen = str(ANTES)
+        ruta = Path(args.html) if args.html else DESPUES
+        if not ruta.is_file():
+            raise SystemExit(f"no existe {ruta}: genera el HTML nuevo o pasa --html/--base")
+        pagina = ruta.read_text(encoding="utf-8")
+        origen = str(ruta)
 
     total, faltan = _comparar(datos, pagina)
     print(f"origen del payload: {origen}")

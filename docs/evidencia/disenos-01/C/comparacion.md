@@ -11,8 +11,10 @@ El JSON es la fuente que alimenta la pagina y no cambia con este bloque.
 
 ## Metodo
 
-`compara.py` renderiza el template nuevo con el JSON de antes y, para cada una
-de las 38 filas (Amazon US 11, Amazon MX 27), exige:
+`compara.py` usa solo la biblioteca estandar (no importa `app`, Jinja, FastAPI
+ni psycopg) y compara el HTML nuevo ya renderizado en
+`despues/contribucion.html` con el JSON de antes y la pagina anterior. Para cada
+una de las 38 filas (Amazon US 11, Amazon MX 27) exige:
 
 - nombre, rango `sin halo .. con halo` (o `— (motivo)`), fechas, chip de
   `precio min multilisting`, chip de tipo de cambio aproximado y motivo parcial;
