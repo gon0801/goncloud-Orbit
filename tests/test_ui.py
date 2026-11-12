@@ -848,6 +848,12 @@ def test_ui_salud_muestra_nota_telegram_del_ciclo(monkeypatch):
         salud_html = TestClient(app).get("/salud").text
         assert "telegram" in salud_html, "la NOTA debe verse en Salud (sellado 2)"
         assert "digest" in salud_html, "la clave que fallo es la evidencia visible"
+        resumen = salud_html.split('class="salud-checks"', 1)[1]
+        fila_ciclo = next(fila for fila in resumen.split("<li>") if "Último ciclo" in fila)
+        assert "salud-dot-aviso" in fila_ciclo, (
+            "el resumen visible no puede quedar verde con Telegram caído"
+        )
+        assert "Telegram caído" in fila_ciclo, "el aviso debe verse fuera de la pestaña oculta"
 
 
 # ---------------------------------------------------------------------------
@@ -2618,7 +2624,8 @@ def test_ui_salud_muestra_avisos_campana_y_sin_bloque_no_rompe(monkeypatch):
     base = _plataforma_quota()
     base["avisos_campana"] = ["Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics."]
     html = _salud_html_fakeado(monkeypatch, {"amazon_mx": base})
-    assert "Fuera de Amazon: 1,735 MXN en 30 días, 1,127 clics." in html
+    assert "Fuera de Amazon" in html
+    assert "1,735 MXN en 30 días, 1,127 clics." in html
     html2 = _salud_html_fakeado(monkeypatch, {"amazon_mx": _plataforma_quota()})
     assert "bloque-avisos-campana" not in html2
 
