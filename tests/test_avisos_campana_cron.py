@@ -1,47 +1,26 @@
 """Contrato de la linea de cron de `avisos-campana` (BIDS 02, V.4).
 
-Desde ingesta-01 A.4 la linea vive DENTRO del bloque instalador de
-docs/DEPLOY.md (con `job_key=avisos-campana`): el instalador la reinstala y
-su filtro BORRA la vieja linea suelta, para no duplicarla.
+Desde ARREGLOS 01 N la linea vive en el bloque canonico
+`tools/despliegue/crontab-orbit.txt` (con `job_key=avisos-campana`), que instala
+`tools/despliegue/cron_orbit.sh`; el despliegue reinstala ese bloque completo.
 """
 
-import subprocess
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
-
-LINEA_AVISOS_CAMPANA = (
-    "5 8 * * * /usr/bin/flock -n /tmp/avisos-campana.lock"
-    " docker exec orbit-app-1 python -m app.cli avisos-campana"
-    " >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1"
-)
+BLOQUE = RAIZ / "tools/despliegue/crontab-orbit.txt"
 
 
-def _filtro_instalador(deploy: str) -> str:
-    instalador = next(
-        linea for linea in deploy.splitlines() if "crontab -u gon -l 2>/dev/null | grep -v" in linea
-    )
-    return instalador.split("crontab -u gon -l 2>/dev/null | ", 1)[1].split(" ; printf", 1)[0]
+def _lineas(comando: str) -> list[str]:
+    return [
+        ln
+        for ln in BLOQUE.read_text(encoding="utf-8").splitlines()
+        if f"app.cli {comando}" in ln and not ln.startswith("#")
+    ]
 
 
-def test_deploy_documenta_la_linea_de_avisos():
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
-    assert LINEA_AVISOS_CAMPANA in deploy
-
-
-def test_instalador_reemplaza_la_linea_de_avisos():
-    """El filtro borra la vieja linea suelta: la reinstalacion deja la del
-    bloque una sola vez, no dos."""
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
-    assert LINEA_AVISOS_CAMPANA in deploy
-    filtros = _filtro_instalador(deploy)
-    actual = f"{LINEA_AVISOS_CAMPANA}\n# accounting\n0 0 * * * accounting\n"
-    resultado = subprocess.run(
-        ["bash", "-c", f"cat | {filtros}"],
-        input=actual,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    assert LINEA_AVISOS_CAMPANA not in resultado.stdout
-    assert "# accounting\n0 0 * * * accounting\n" in resultado.stdout
+def test_el_bloque_canonico_trae_una_sola_linea_de_avisos():
+    lineas = _lineas("avisos-campana")
+    assert len(lineas) == 1, f"avisos-campana: {len(lineas)} lineas"
+    assert lineas[0].startswith("5 8 * * *")
+    assert "cron-avisa" in lineas[0], "la linea conserva su envoltura de aviso"
