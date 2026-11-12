@@ -53,6 +53,7 @@ from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
 from app.ui_campanas import VISTAS_RAPIDAS, presenta_campanas
+from app.ui_contribucion import vista_contribucion
 from app.ui_decisiones import TIPOS_TAB, vista_decisiones
 from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie, vista_resumen
 from app.ui_salud import vista_salud
@@ -627,7 +628,7 @@ def pagina_contribucion(request: Request, conn: ConexionLectura) -> HTMLResponse
     return templates.TemplateResponse(
         request,
         "contribucion.html",
-        {"pantalla": "contribucion", "plataformas": datos["plataformas"]},
+        {"pantalla": "contribucion", "vista": vista_contribucion(datos["plataformas"])},
     )
 
 
