@@ -36,11 +36,14 @@ SALIDA_ESPERA = 75
 
 
 def fin_de_intentos(hoy: dt.date) -> dt.datetime:
-    """Momento UTC en que ya no puede llegar D-1 hoy: inicio del ultimo
-    HORARIOS_INGESTA mas TOPE_PARED_SEGUNDOS (13:15 + 2 h 45 = 16:00).
+    """Momento UTC en que ya no quedan intentos programados de la ingesta:
+    inicio del ultimo HORARIOS_INGESTA mas el presupuesto TOPE_PARED_SEGUNDOS
+    (13:15 + 2 h 45 = 16:00).
 
-    Derivado de app.ads.diario, no copiado (un numero, una fuente). Import
-    local: diario importa este modulo."""
+    El sondeo de reportes tiene su propio tope duro (PLAZO_SONDEO_SEGUNDOS,
+    2 h 30, en app.ads.descarga); los 15 min restantes son la holgura de
+    escrituras y avisos del diseno. Derivado de app.ads.diario, no copiado
+    (un numero, una fuente). Import local: diario importa este modulo."""
     from app.ads.diario import HORARIOS_INGESTA, TOPE_PARED_SEGUNDOS
 
     hora, minuto = (int(parte) for parte in HORARIOS_INGESTA[-1].split(":"))
@@ -65,7 +68,7 @@ def salida_sin_metricas(comando: str, *, ahora: dt.datetime | None = None) -> in
         return SALIDA_ESPERA
     print(
         f"{comando}: hoy no corrió; las métricas de ayer no llegaron en ningún"
-        f" intento de la ingesta (el último terminó a las {fin:%H:%M} UTC)."
+        f" intento de la ingesta (el último intento programado termina a las {fin:%H:%M} UTC)."
         " Mañana se intenta otra vez.",
         file=sys.stderr,
     )
