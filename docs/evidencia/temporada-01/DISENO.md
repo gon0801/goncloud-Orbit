@@ -839,6 +839,8 @@ def pendiente(caso: CasoHoja) -> Pendiente:
     # if t.episodio and t.episodio.id in t.excluida_en           -> SinPendiente("dueno_decidio")
     # if algún cad.manos_del_dueno >= inicio_episodio(t.episodio, e.dia)
     #                                                            -> SinPendiente("dueno_decidio")
+    # if cad.dueno_al_final                                      -> SinPendiente("dueno_decidio")
+    #     # cambio sin registro: Amazon no da su fecha, cuenta como mano de esta baja
     # d = destino_entrada(bid, e.reduccion_baja, piso, techo); None -> SinPendiente("sin_centavo_factible")
     # -> EntradaPendiente(d)"""
     raise NotImplementedError
@@ -1308,7 +1310,7 @@ def proxima_config(actual, platform, *, ...,                        # parámetro
 después de ARREGLOS 01. Sin `BEGIN/COMMIT`: el despliegue la aplica en una sola transacción, como 0080.
 
 ```sql
--- sonda-aplicada: SELECT to_regclass('public.temporada_efecto') IS NOT NULL AND has_table_privilege('app_decide', 'public.temporada_episodio', 'INSERT') AND pg_get_viewdef('public.v_cambio_bid'::regclass) LIKE '%temporada%'
+-- sonda-aplicada: SELECT CASE WHEN to_regclass('public.temporada_episodio') IS NULL OR to_regclass('public.temporada_fin_reduccion') IS NULL THEN false ELSE has_table_privilege('app_decide', 'public.temporada_episodio', 'INSERT') AND pg_get_viewdef('public.v_cambio_bid'::regclass) LIKE '%temporada%' END
 -- Consulta previa (0 filas antes de desplegar; los motivos nacen en este plan):
 --   SELECT count(*) FROM decision
 --    WHERE inputs->>'motivo' IN ('entra_temporada_baja','ajusta_temporada_baja','sale_temporada_baja');
@@ -1384,7 +1386,9 @@ CREATE TABLE temporada_exclusion (
 
 -- Triggers solo-cierre en episodio y efecto (patrón de 0069/0078: el único UPDATE válido pasa
 -- cerrado_el de NULL a un valor; con search_path fijo como 0080).
--- 5. decision_sin_aplicar admite 'bid_cambiado_fuera' (CHECK de 0044, ampliado por 0045 y 0081).
+-- 5. decision_sin_aplicar admite 'bid_cambiado_fuera' (CHECK de 0044, ampliado por 0045 y 0081), con el
+--    mismo DROP/ADD CONSTRAINT decision_sin_aplicar_motivo_check de 0081. MOTIVOS_SIN_APLICAR lo suma en el
+--    mismo bloque (test_apply_schema exige que coincidan).
 -- 6. Permisos mínimos:
 GRANT SELECT, INSERT ON temporada_episodio, temporada_efecto, temporada_exclusion, temporada_fin_reduccion TO app_decide;
 GRANT UPDATE (cerrado_el, cerrado_en_ciclo) ON temporada_episodio TO app_decide;
@@ -1395,7 +1399,8 @@ GRANT SELECT ON temporada_episodio, temporada_efecto, temporada_exclusion, tempo
 
 **Reversa.** Falla con mensaje claro si hay filas en `temporada_episodio` o decisiones con los motivos
 nuevos («ya hubo episodios de temporada; desactiva la temporada y conserva el rastro»). Si no hay,
-restaura la vista de 0067, el CHECK anterior de `decision_sin_aplicar` y borra las tres tablas.
+restaura la vista de 0067, el CHECK anterior de `decision_sin_aplicar` y borra las cuatro tablas, primero
+`temporada_fin_reduccion` y `temporada_exclusion` (apuntan al episodio).
 
 ### Mapa de módulos
 
@@ -1740,15 +1745,17 @@ recalcula en cada lectura. El resultado:
 
 1. Las dos vistas agregan al final, sin quitar columnas, `cogs_vigente`, `cobertura_vigente` y
    `margen_vigente_pct`: la misma fórmula, los mismos cargos y las mismas guardas (moneda, `fees_sin_tipo`,
-   días con venta, frescura del ledger), con COGS = Σ `quantity × cost_amount` del costo **abierto**
-   (`sku_cost.valid_to IS NULL`) en la misma moneda de la venta. Una venta cuyo producto no tiene costo
-   abierto en esa moneda queda no cubierta; con `cobertura_vigente < 0.95` el margen vigente es NULL. No se
+   días con venta, frescura del ledger), con COGS = Σ `quantity × cost_amount` del costo **de hoy** en la misma moneda de la venta:
+   `c.valid_from <= hoy AND (c.valid_to IS NULL OR hoy < c.valid_to)` con `hoy = (now() AT TIME ZONE 'UTC')::date`,
+   el mismo rango que hoy se aplica a la fecha de la venta (`0016:47-48`). `valid_to IS NULL` solo no sirve: el
+   costo publicado hoy ya nace abierto con inicio mañana. `v_margen_familia` (respaldo de familia) cambia igual.
+   Una venta cuyo producto no tiene costo de hoy en esa moneda queda no cubierta; con `cobertura_vigente < 0.95` el margen vigente es NULL. No se
    rellena ni se estima.
 2. El margen que gobierna es el vigente. La meta derivada (fracción × margen, `goals.py:983`) y
    `equilibrio_acos_pct` (plataforma `cycle.py:2987` y `:3318`; producto `cycle.py:757`) salen de
    `margen_vigente_pct`. `notes.target` guarda los dos: `margen_neto_pct` (vigente) y
    `margen_historico_pct`. Los motivos de NULL (`cobertura_baja`, `ledger_rancio`, `ventana_corta`,
-   `fees_sin_tipo`) se conservan.
+   `sin_margen`) se conservan; Ajustes distingue los cargos sin clasificar por la columna `fees_sin_tipo`.
 3. Un costo nuevo mueve el equilibrio entero desde el ciclo siguiente a su publicación. Si el costo baja,
    la meta derivada sube de una vez; si sube, la meta baja 0.5 por ciclo como hoy (`goals.py:985-991`),
    pero R3 juzga desde el primer día con el equilibrio nuevo.
@@ -1857,6 +1864,7 @@ empezar: integrar sobre el SHA final de ARREGLOS 01 y releer las firmas de P, T,
 | B — Episodio, origen e historia | migración y reversa; `OrigenCambio`, `CambioFechado`, `HistoriaBid`; `recuperacion.cadena_bid`; `temporada.pendiente`, `destino_entrada`, `frontera`; `temporada_io` (`lee_estado`, `registra_ciclo`, `estampa`, `abre_efectos`); cierre de efectos en `_confirma_resumen` y `registra_sin_aplicar`; `pantalla_danadas` ignora `temporada` | dinero: `test_temporada01_b_pendiente` (entra una vez; cambiar mayo a normal con junio en baja no recorta 5.60 → 3.92; 30 → 20 da 6.40; mano de David no regresa; el regreso nunca baja). Escribe en producción: `test_temporada01_b_episodio_reparado_tras_caida` (con base: entrada confirmada y efecto abierto como tras una caída; el ciclo siguiente cierra el efecto, deja un episodio y un efecto, y no decide otra entrada) | ninguno |
 | C — Subida rápida (práctica) | `techo_conocido`, `multiplicador_sostenible`, `destino_recuperacion`, `presupuesto_topado`; R6r y BUD; frenos del primer y segundo salto; `MOTIVOS_ES`; campos de plataforma | dinero: `test_temporada01_c_recupera_con_evidencia` (caso D da `Regresar(7.10)`; topada 5 de 7 da `Mantener("presupuesto_topado")`; misma evidencia no salta dos veces) | `ads_bid_recuperacion_<plat>=shadow` en MX y US |
 | D — Temporada en la política (práctica) | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja en R6 y R6r, frenos; `cortes` con `mult_baja` y exceso económico; `windows` y tramos con cerca; revalidación de la cola con `frontera_hoja`; inertes en vivo; sombra en `notes.temporada` | dinero: `test_temporada01_d_salida_antes_de_pausa` (5.60, regreso pendiente, 200 clics, 1,000 MXN, 0 pedidos → `Regresar(8.00)` y ningún `Pausar`; al liberar con regreso pendiente usa ×2 y la cerca vieja; tras el regreso confirmado no hay pausa sin evidencia nueva). Dinero: `test_temporada01_d_dia_mixto_excluido` (regreso a las 23:55 del 1 jul; 150 clics y 750 MXN ese día; ni la decisión ni la revalidación de 48 h pausan; con la cerca del 2 jul hay 7 fechas sin gasto). Dinero: `test_temporada01_d_centavos_de_la_entrada` (0.15 USD → 0.11; 1.55 MXN → 1.09; 0.10 USD sin centavo factible → excluida; lo congelado = lo enviado). Dinero: `test_temporada01_d_techo_de_baja_compartido` (20 → 10 → 7: R6r ≤ 14 y R6 ≤ 14; 8 → 5.60 sin recortes previos no sube en baja). Dinero: `test_temporada01_d_baja_entra_y_retiene` (entrada −30 %; R9 retenido; R1 no regresa la entrada). Dinero: `test_temporada01_d_meta_alta` (MX 20.13 → 25; US 19.05 con equilibrio 23.81 → 25 y `equilibrio_del_juicio` 25; meta de campaña 15 sigue en 15; base 30 → 30; sin equilibrio → 25). Dinero: `test_temporada01_d_cortes_por_multiplicador` (umbral, piso y exceso económico ×2 en baja, al decidir y al liberar; iguales fuera) | `ads_temporada_<plat>=shadow` con los meses de David, MX y US |
+| P — Práctica encendida | `ads_bid_recuperacion_*` y `ads_temporada_*` en `shadow` con `escribe_api.sh`, con C y D ya desplegados | sin prueba nueva (lane gate) |  |
 | E — Lectura fresca y mano de David | lectura antes de cuota y PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano y por divergencia; prioridad bajo cupo | escribe en Amazon: `test_temporada01_e_mano_del_dueno_excluye` (bid 8.00, decisión 5.60, Amazon en 7.00 → cero PUT, exclusión guardada; al día siguiente no hay entrada y sigue en 7.00) | cambia el envío de los bids en vivo de hoy: un GET más por bid y cero PUT si David cambió el bid |
 | F — Fin de la baja | `reactivaciones_pendientes`, `pendiente_reactivacion`, `aplica_reactivaciones` con sus guardas, `_SQL_PAUSE_PROPIO`, replay del motor `temporada`, `aviso_del_dia` | escribe en Amazon: `test_temporada01_f_reactiva_solo_pausas_de_baja` (con base: pausa de Orbit confirmada de la baja con episodio cerrado → `resume`; pausa del dueño, reactivada por el dueño, ya revertida, en «Mantener pausada» o de episodio abierto → no). Escribe en Amazon: `test_temporada01_f_reactivar_no_bloquea_pausas` (tras la reversa de temporada, una pausa nueva no inserta `reactivacion_manual`) | en práctica se listan en `notes.temporada.reactivaciones` |
 | G — Presupuestos | `propuesta_presupuesto`; columna y botón en «Dónde poner el dinero» con `APLICAR AJUSTE`; candado por campaña y campo en `_aplica_y_confirma` (también al regresar); tope de X; ficha en `features/` | dinero: `test_temporada01_g_propuestas_absolutas` (baja 300 → 210; fin 210 → 300; alta 300 → 375 una vez y nada tras aprobar; 250 a mano → sin fin de baja; tope de X). Escribe en Amazon: `test_temporada01_g_presupuesto_misma_campana_en_orden` (A aprueba 375, B ordena 270 después y termina primero; A no envía; final 270) | el candado corrige hoy el flujo de ajustes de David; las propuestas no escriben |
