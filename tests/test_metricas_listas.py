@@ -84,6 +84,25 @@ def test_arreglos01_s_la_espera_sale_75_antes_del_fin_y_1_despues(capsys):
     assert "termina a las 16:00" not in capturado.err
 
 
+def test_arreglos01_s_el_aviso_de_avisos_nombra_los_placements(capsys):
+    """F1 de la revision: avisos-campana exige tambien placements, asi que su
+    aviso de dia perdido nombra las dos fuentes; cycle solo nombra metricas."""
+    fin = metricas_listas.fin_de_intentos(dt.date(2026, 11, 9))
+
+    assert (
+        metricas_listas.salida_sin_metricas("avisos-campana", ahora=fin, incluye_placements=True)
+        == 1
+    )
+    capturado = capsys.readouterr()
+    assert "las métricas o los placements de ayer no llegaron" in capturado.err
+    assert "El último intento empieza a las 13:15 UTC" in capturado.err
+
+    assert metricas_listas.salida_sin_metricas("cycle amazon_us", ahora=fin) == 1
+    capturado = capsys.readouterr()
+    assert "las métricas de ayer no llegaron" in capturado.err
+    assert "placements" not in capturado.err
+
+
 def test_arreglos01_s_cada_consumidor_tiene_horario_tras_el_ultimo_plazo_de_ingesta():
     """S.2 (falla que ya paso): los consumidores de metricas reintentan despues
     del ultimo plazo de ingesta; en la base solo corrian a las 08:xx."""

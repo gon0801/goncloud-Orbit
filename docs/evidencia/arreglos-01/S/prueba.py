@@ -47,4 +47,14 @@ assert "se corta solo a las 15:45 UTC" in err.getvalue(), err.getvalue()
 assert "desde las 16:00 UTC la guarda da el día por perdido" in err.getvalue(), err.getvalue()
 assert "termina a las 16:00" not in err.getvalue(), err.getvalue()
 print(f"16:00 UTC: rc={rc} (avisa)")
+
+# avisos-campana exige tambien la corrida de placements: su aviso no atribuye
+# a las metricas una falta que puede ser de los placements.
+out, err = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+    rc = salida_sin_metricas("avisos-campana", ahora=despues, incluye_placements=True)
+assert rc == 1, rc
+assert "las métricas o los placements de ayer no llegaron" in err.getvalue(), err.getvalue()
+assert "El último intento empieza a las 13:15 UTC" in err.getvalue(), err.getvalue()
+print("avisos-campana: el aviso nombra metricas o placements")
 print("S OK")

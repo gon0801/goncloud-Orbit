@@ -72,7 +72,7 @@ def main_avisos_campana(argv: list[str]) -> int:
         if not metricas_listas.guarda(
             conn_read, PLATAFORMAS_MONEDA, forzar=forzar, exigir_placements=True
         ):
-            return metricas_listas.salida_sin_metricas("avisos-campana")
+            return metricas_listas.salida_sin_metricas("avisos-campana", incluye_placements=True)
         pendientes = {
             (plataforma, clase)
             for plataforma in PLATAFORMAS_MONEDA

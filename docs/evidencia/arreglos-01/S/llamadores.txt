@@ -1,15 +1,33 @@
 S.1 - quien lee el codigo de salida de cycle, bids, avisos-campana, impulso-vigia y jev-senales
-Fecha: 2026-11-12 (UTC). Base de codigo: rama encargo/enc_484a6203c51a2c6f-S, HEAD 76856e0.
+Fecha: 2026-11-12 (UTC). Base de codigo: rama encargo/enc_3e47fb6740bed95a-S, sobre master
+f53ad3f; revision de la version 9f873ad.
 
-Busqueda en el repo (git grep / rg sobre tools, scripts, verify, tests, docs/DEPLOY.md):
-- No hay ningun script del repo que ejecute `python -m app.cli cycle`, `app.cli bids`,
-  `app.cli avisos-campana`, `app.cli impulso-vigia` ni `app.cli jev-senales` y lea su codigo.
+Busqueda en el repo (git grep / rg sobre tools, scripts, verify, tests, docs/DEPLOY.md y
+docs/evidencia), 2026-11-12:
 - No existe el subcomando `bids`: el modulo app/cli_bids.py solo registra `avisos-campana`,
   `impulso-vigia` y `efecto-hoja`.
-- Las menciones en docs/DEPLOY.md son ejemplos manuales; nadie interpreta el codigo de salida.
-- Los scripts de despliegue usan 75 para "candado ocupado" (tools/despliegue/rollback.sh:13,
-  desplegar.sh:101,107, comun.sh:102, checklist.sh:62). No tienen relacion con las guardas de
-  metricas, pero confirman que 75 ya se usa como "saltada" en la operacion.
+- Las menciones en docs/DEPLOY.md son ejemplos manuales; ningun cron del repo las copia ni
+  interpreta su codigo de salida.
+- SI hay scripts del repo que ejecutan los comandos y leen su codigo de salida. Todos son
+  evidencias de despliegue de bloques anteriores, se corren a mano una vez y tratan cualquier
+  codigo distinto de 0 (incluido 75) como fallo:
+  - docs/evidencia/bids-02/ejecucion/D.4/desplegar.sh:326,328 corre impulso-vigia y aborta
+    con `|| { ... exit 1; }`.
+  - docs/evidencia/bids-02/ejecucion/D.6/desplegar.sh:284,286 hace lo mismo con impulso-vigia.
+  - docs/evidencia/jev-ads-02/ejecucion/S.4/desplegar.sh:89-95 y S.4/checklist.sh:64-67
+    corren jev-senales y exigen RC=0.
+  - docs/evidencia/jev-ads-02/ejecucion/S.5/desplegar.sh:90-97 y S.5/checklist.sh:86-90
+    hacen lo mismo con jev-senales.
+  - docs/evidencia/ingesta-01/ejecucion/D.1/checklist.sh:104 corre `cycle --help` y solo lee
+    la ayuda; la guarda no se ejecuta con `--help`.
+  - docs/evidencia/jev-ads-02/ejecucion/cierre/checklist.sh:72-74 corre jev-senales, pero
+    pasa la salida por `tail -1`: el codigo que lee es el de `tail`, y solo mira el texto.
+- No se encontro ningun script del repo que ejecute avisos-campana ni los dos cycle de verdad
+  (fuera de `--help`) y lea su codigo.
+- Los scripts de la receta de despliegue usan 75 para "candado ocupado"
+  (tools/despliegue/rollback.sh:13, desplegar.sh:101,107, comun.sh:102, checklist.sh:62). No
+  tienen relacion con las guardas de metricas, pero confirman que 75 ya se usa como "saltada"
+  en la operacion.
 
 Busqueda en el servidor goncloud (crontab -u gon -l, leido 2026-11-12; y grep en
 /mnt/data/appdata/orbit/*.sh, sin resultados):
@@ -30,5 +48,14 @@ El unico lector del codigo de salida es /usr/local/bin/cron-avisa (leido complet
 - Un codigo distinto de 0 incrementa la racha de fallos y avisa a Telegram segun --tras.
 - cron-avisa devuelve el mismo codigo del comando; nadie mas lo reinterpreta.
 
-Conclusion: ninguno de los lectores trata el 75 como falla. El bloque S puede usar 75 como
-"espera: aun queda horario hoy" sin romper los avisos.
+Conclusion:
+- El lector de la operacion programada es /usr/local/bin/cron-avisa: trata 75 como SALTADA y
+  no como falla. Ese es el camino de produccion de las guardas.
+- Los scripts de evidencia de despliegue listados arriba SI tratan el 75 como falla, porque
+  corren el comando una vez como "seco". No son consumidores programados: ningun cron ni
+  servicio del servidor los invoca, y se usaron una vez al desplegar su bloque.
+- Riesgo registrado: si alguien vuelve a correr esos secos mientras la guarda espera (antes de
+  las 16:00 UTC y sin metricas), abortan y no instalan su cron. No afecta la alerta programada
+  ni la salida 75 de produccion.
+
+El bloque S puede usar 75 como "espera: aun queda horario hoy" sin romper los avisos.

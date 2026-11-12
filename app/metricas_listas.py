@@ -53,14 +53,20 @@ def fin_de_intentos(hoy: dt.date) -> dt.datetime:
     return inicio + dt.timedelta(seconds=TOPE_PARED_SEGUNDOS)
 
 
-def salida_sin_metricas(comando: str, *, ahora: dt.datetime | None = None) -> int:
+def salida_sin_metricas(
+    comando: str, *, ahora: dt.datetime | None = None, incluye_placements: bool = False
+) -> int:
     """Lo que hace un consumidor cuando `guarda` dijo que no.
 
     Antes de fin_de_intentos(hoy): imprime TEXTO_ESPERA en stdout y devuelve
     SALIDA_ESPERA (75), porque queda otro horario hoy. Desde ese momento
     imprime en stderr que el dia se perdio y devuelve 1 para que cron-avisa
     avise. Nunca escribe en la base ni manda Telegram por su cuenta (el canal
-    de "trabajo que no hizo su trabajo" es cron-avisa)."""
+    de "trabajo que no hizo su trabajo" es cron-avisa).
+
+    `incluye_placements` lo pasa avisos-campana porque su guarda exige ademas
+    la corrida de placements: el aviso nombra las dos fuentes y no atribuye a
+    las metricas una falta que puede ser de los placements."""
     ahora = ahora or dt.datetime.now(dt.UTC)
     if ahora.tzinfo is None:
         ahora = ahora.replace(tzinfo=dt.UTC)
@@ -73,8 +79,11 @@ def salida_sin_metricas(comando: str, *, ahora: dt.datetime | None = None) -> in
 
     inicio = fin - dt.timedelta(seconds=TOPE_PARED_SEGUNDOS)
     sondeo = inicio + dt.timedelta(seconds=PLAZO_SONDEO_SEGUNDOS)
+    faltan = (
+        "las métricas o los placements de ayer" if incluye_placements else "las métricas de ayer"
+    )
     print(
-        f"{comando}: hoy no corrió; las métricas de ayer no llegaron en ningún"
+        f"{comando}: hoy no corrió; {faltan} no llegaron en ningún"
         " intento de la ingesta."
         f" El último intento empieza a las {inicio:%H:%M} UTC y su sondeo se corta"
         f" solo a las {sondeo:%H:%M} UTC; desde las {fin:%H:%M} UTC la guarda da el"

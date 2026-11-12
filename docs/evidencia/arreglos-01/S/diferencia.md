@@ -41,6 +41,15 @@ UTC y desde las 16:00 UTC la guarda da el dia por perdido. El docstring,
 `S/prueba.py` y este documento dicen lo mismo, asi que no prometen un corte
 que no existe.
 
+## El aviso del dia perdido nombra lo que falta (F1 de la revision)
+
+`avisos-campana` es el unico consumidor cuya guarda exige ademas la corrida de
+placements (`exigir_placements=True`). Su aviso de dia perdido no puede decir
+que faltaron "las metricas" cuando lo que falto pudo ser la corrida de
+placements. `salida_sin_metricas(..., incluye_placements=True)` nombra "las
+metricas o los placements de ayer"; los otros tres consumidores conservan "las
+metricas de ayer". El codigo 75/1 y las horas no cambian.
+
 ## Lo medido en produccion (solo lectura, 2026-11-12)
 
 - 180 dias: 189 corridas de los tres sources del diario; la mas larga tardo
