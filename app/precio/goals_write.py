@@ -28,7 +28,7 @@ modulo lo lee (`leer_candidatos`) y lo escribe entero o nada
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -37,7 +37,7 @@ import psycopg.errors
 
 from app.precio.config import _fraccion as config_fraccion
 from app.precio.config import _numero as config_numero
-from app.precio.puerto import Miembro, UnidadPrecio
+from app.precio.puerto import UnidadPrecio
 from app.precio.siembra import (
     Candidato,
     GoalVigente,
@@ -373,7 +373,23 @@ _SQL_FEE = (
 )
 
 
-def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds) -> tuple[Candidato, ...]:
+def _unidades_por_listing(conn, pares, vitrina) -> dict[int, UnidadPrecio]:
+    """La unidad real de cada par, leida por lote y por plataforma.
+
+    `vitrina` es la raiz de composicion (`precio_mercados.vitrina`): este
+    modulo no conoce adaptadores. Usa el unico lector (`Vitrina.unidades`):
+    el plan de goals ve los mismos miembros que la corrida y la escritura.
+    """
+    por_plataforma: dict[str, list[int]] = {}
+    for lid, platform in pares:
+        por_plataforma.setdefault(platform, []).append(lid)
+    unidades: dict[int, UnidadPrecio] = {}
+    for platform, lids in por_plataforma.items():
+        unidades.update(vitrina(platform).unidades(conn, lids))
+    return unidades
+
+
+def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds, vitrina) -> tuple[Candidato, ...]:
     """Unidades pedidas con su goal vigente y su lectura de hoy (solo base).
 
     G.1 lee `listing` + `v_precio_goal_vigente` + el escenario disponible
@@ -397,12 +413,13 @@ def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds) -> tuple[Candid
                 " el lote se aborta antes del plan"
             )
         vistos.add((lid, plat))
+    unidades = _unidades_por_listing(conn, filtro.pares, vitrina)
     candidatos: list[Candidato] = []
     for lid, plat in filtro.pares:
         fila = conn.execute(_SQL_LISTING, (lid, plat)).fetchone()
         if fila is None:
             raise PrecioGoalAusente(f"listing {lid} inexistente en {plat}: sin listing no hay goal")
-        _id, product_id, externo, sku = fila
+        _id, _product_id, _externo, sku = fila
         vig = conn.execute(_SQL_VIGENTE, (lid, plat)).fetchone()
         vigente = None if vig is None else GoalVigente(id=int(vig[0]), goal=vig[1], mode=vig[2])
         esc = conn.execute(_SQL_ESCENARIO, (lid, plat)).fetchone()
@@ -422,16 +439,12 @@ def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds) -> tuple[Candid
                 fee_detalles=None if fee is None else fee[1],
                 fee_estado=None if fee is None else fee[3],
             )
+        unidad = unidades.get(lid)
+        if unidad is None:
+            raise PrecioGoalAusente(f"listing {lid} inexistente en {plat}: sin listing no hay goal")
         candidatos.append(
             Candidato(
-                unidad=UnidadPrecio(
-                    listing_id=lid,
-                    plataforma=plat,
-                    externo=externo,
-                    canal=canal,
-                    producto_ancla=product_id,
-                    miembros=(Miembro(product_id, sku, None),),
-                ),
+                unidad=replace(unidad, canal=canal),
                 seller_sku=sku,
                 goal_vigente=vigente,
                 lectura=lectura,
@@ -470,6 +483,7 @@ def aplicar_plan(
     confirmados: frozenset[int],
     go_literal: str | None,
     actor: str,
+    vitrina,
     estricto: bool = False,
 ) -> ResultadoPlan:
     """Escribe el plan ENTERO en una transaccion o no escribe nada.
@@ -492,7 +506,7 @@ def aplicar_plan(
     ajenos = sorted(set(confirmados) - {lid for lid, _plat in pares})
     if ajenos:
         raise PrecioGoalInvalido(f"confirmados fuera del plan: {ajenos}")
-    candidatos = leer_candidatos(conn, filtro=PorIds(pares=pares))
+    candidatos = leer_candidatos(conn, filtro=PorIds(pares=pares), vitrina=vitrina)
     minimo, maximo = banda_desde_settings(config_vigente_settings(conn))
     nuevo = planear(candidatos, pedido=plan.pedido, banda=(minimo, maximo))
     if nuevo.huella != huella:

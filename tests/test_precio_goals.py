@@ -40,6 +40,15 @@ from test_architecture import (
 from test_schema import _postgres_obligatorio_ausente
 
 RAIZ = Path(__file__).resolve().parents[1]
+
+
+def _vitrina_de(platform):
+    """Raiz de composicion: el adaptador de lectura de la plataforma."""
+    from app.precio_mercados import vitrina
+
+    return vitrina(platform)
+
+
 # G.1: la lista termina en la 0054 (reedicion el mismo dia por indice
 # parcial + columnas origen/lote/m_referencia). La 0054 necesita la 0047
 # por la FK a `familia` (patron ORDEN02 de `test_precio02_base.py`).
@@ -2000,7 +2009,7 @@ def _g1_plan(conn, pares, pedido, banda=BANDA_G1):
     from app.precio.siembra import planear
 
     return planear(
-        leer_candidatos(conn, filtro=PorIds(pares=tuple(pares))),
+        leer_candidatos(conn, filtro=PorIds(pares=tuple(pares)), vitrina=_vitrina_de),
         pedido=pedido,
         banda=banda,
     )
@@ -2032,7 +2041,7 @@ def test_g1_contrato_siembra_reproduce_el_plan_del_tool():
         assert seco.returncode == 0, seco.stderr
         huella_tool = seco.stdout.split("huella: ")[1].split()[0]
         plan = planear(
-            leer_candidatos(conn, filtro=PorIds(pares=((lid, "amazon_mx"),))),
+            leer_candidatos(conn, filtro=PorIds(pares=((lid, "amazon_mx"),)), vitrina=_vitrina_de),
             pedido=PedidoValores(
                 goals=(ValorPorUnidad(lid, "amazon_mx", Decimal("0.3000")),),
                 mode="shadow",
@@ -2284,6 +2293,7 @@ def test_g1_aplicar_huella_distinta_no_escribe():
             aplicar_plan(
                 conn,
                 plan,
+                vitrina=_vitrina_de,
                 huella=plan.huella,
                 confirmados=frozenset(),
                 go_literal=None,
@@ -2328,6 +2338,7 @@ def test_g1_aplicar_fallo_a_mitad_no_deja_ninguna():
                 aplicar_plan(
                     conn,
                     plan,
+                    vitrina=_vitrina_de,
                     huella=plan.huella,
                     confirmados=frozenset(),
                     go_literal=None,
@@ -2364,6 +2375,7 @@ def test_g1_aplicar_omite_bloqueo_y_cuenta():
         res = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset(),
             go_literal=None,
@@ -2379,6 +2391,7 @@ def test_g1_aplicar_omite_bloqueo_y_cuenta():
             aplicar_plan(
                 conn,
                 plan,
+                vitrina=_vitrina_de,
                 huella=plan.huella,
                 confirmados=frozenset({b["listing"]}),
                 go_literal=None,
@@ -2397,6 +2410,7 @@ def test_g1_aplicar_omite_bloqueo_y_cuenta():
         res2 = aplicar_plan(
             conn,
             plan2,
+            vitrina=_vitrina_de,
             huella=plan2.huella,
             confirmados=frozenset({b["listing"]}),
             go_literal=None,
@@ -2430,6 +2444,7 @@ def test_g1_aplicar_estricto_aborta_con_bloqueo():
             aplicar_plan(
                 conn,
                 plan,
+                vitrina=_vitrina_de,
                 huella=plan.huella,
                 confirmados=frozenset(),
                 go_literal=None,
@@ -2441,6 +2456,7 @@ def test_g1_aplicar_estricto_aborta_con_bloqueo():
         res = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset({lid}),
             go_literal=None,
@@ -2472,6 +2488,7 @@ def test_g1_aplicar_live_sin_go_no_escribe():
             aplicar_plan(
                 conn,
                 plan,
+                vitrina=_vitrina_de,
                 huella=plan.huella,
                 confirmados=frozenset(),
                 go_literal=None,
@@ -2481,6 +2498,7 @@ def test_g1_aplicar_live_sin_go_no_escribe():
         res = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset(),
             go_literal="enciende",
@@ -2513,6 +2531,7 @@ def test_g1_aplicar_omite_lista_omitidas_con_bloqueo_y_motivo():
         res = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset(),
             go_literal=None,
@@ -2595,6 +2614,7 @@ def test_g1_aplicar_live_valor_sin_lectura_omite_y_confirma():
         res = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset(),
             go_literal="enciende",
@@ -2605,6 +2625,7 @@ def test_g1_aplicar_live_valor_sin_lectura_omite_y_confirma():
         res2 = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset({lid}),
             go_literal="enciende",
@@ -2677,6 +2698,7 @@ def test_g1_aplicar_live_valor_sin_derivar_omite_y_confirma():
         res = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset(),
             go_literal="enciende",
@@ -2689,6 +2711,7 @@ def test_g1_aplicar_live_valor_sin_derivar_omite_y_confirma():
         res2 = aplicar_plan(
             conn,
             plan,
+            vitrina=_vitrina_de,
             huella=plan.huella,
             confirmados=frozenset({lid}),
             go_literal="enciende",

@@ -4040,6 +4040,11 @@ def test_meli_sin_miembros_registra_faltante_y_termina_la_corrida():
         clave = "meli"
         filtra_catalogo = False
 
+        def unidades(self, conn, listing_ids):
+            from app.meli.precio_mercado import MercadoMeli
+
+            return MercadoMeli("meli").unidades(conn, listing_ids)
+
         def insumos(self, conn, unidades, **kwargs):
             return {
                 u.listing_id: Lectura(
@@ -4093,6 +4098,11 @@ class _MercadoErrorSiempre:
 
     def catalogo(self, conn, *, hoy):
         return _catalogo_mx(conn, hoy=hoy)
+
+    def unidades(self, conn, listing_ids):
+        from app.spapi.precio_mercado import MercadoAmazon
+
+        return MercadoAmazon("amazon_mx").unidades(conn, listing_ids)
 
     def __init__(self):
         self.escrituras = 0
@@ -4875,6 +4885,11 @@ class _VivoFijo:
         self.vivo = vivo
         self.lecturas = 0
 
+    def unidades(self, conn, listing_ids):
+        from app.spapi.precio_mercado import MercadoAmazon
+
+        return MercadoAmazon("amazon_mx").unidades(conn, listing_ids)
+
     def precio_vivo(self, unidad):
         from app.precio.puerto import PrecioVivoAusente
         from app.precio.tipos import Importe
@@ -5179,6 +5194,11 @@ class _MercadoInsumoAtrasado:
 
     def __init__(self, motivos):
         self._motivos = motivos
+
+    def unidades(self, conn, listing_ids):
+        from app.spapi.precio_mercado import MercadoAmazon
+
+        return MercadoAmazon("amazon_mx").unidades(conn, listing_ids)
 
     def insumos(self, conn, unidades, *, hoy, ahora, config, metas):
         from app.precio.puerto import Lectura

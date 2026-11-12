@@ -65,6 +65,7 @@ from app.precio.siembra import (
     ValorPorUnidad,
     planear,
 )
+from app.precio_mercados import vitrina as vitrina_de
 
 router = APIRouter(prefix="/api/precios", tags=["precios-write"])
 
@@ -208,7 +209,9 @@ def _plan_fresco(conn, cuerpo: CuerpoPlan) -> PlanGoals:
     aplicar: aplicar_plan lo vuelve a recalcular adentro y exige la
     huella contra SU recalculo)."""
     pedido = _pedido_de(cuerpo.pedido, cuerpo.platform)
-    candidatos = leer_candidatos(conn, filtro=PorIds(pares=_seleccion(conn, cuerpo)))
+    candidatos = leer_candidatos(
+        conn, filtro=PorIds(pares=_seleccion(conn, cuerpo)), vitrina=vitrina_de
+    )
     return planear(
         candidatos, pedido=pedido, banda=banda_desde_settings(config_vigente_settings(conn))
     )
@@ -295,6 +298,7 @@ def aplicar_goals(
             confirmados=frozenset(cuerpo.confirmados),
             go_literal=cuerpo.go_literal,
             actor=cuerpo.actor,
+            vitrina=vitrina_de,
         )
     except HuellaDistinta as exc:
         raise HTTPException(
