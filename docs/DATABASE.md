@@ -297,7 +297,7 @@ silencio. Los dos últimos usan la clave natural `(platform, kind,
 **`NULLS NOT DISTINCT`** — la moneda va en la clave (sin ella 100 USD y 100
 MXN colisionan y un cargo se pierde) y sin NULLS NOT DISTINCT dos cargos con
 `fee_type` NULL nunca chocarían.
-*Cómo se audita*: trigger `prohibir_mutacion`; conflictos de dedupe contados
+*Cómo se audita*: trigger `ledger_solo_reatribuye`; conflictos de dedupe contados
 en `ingest_run.rows_skipped`; `v_margen_plataforma` expone el margen con y sin
 cargos no atribuibles; `external_reconciliation` es el chequeo final.
 `product_id` de una venta de Amazon se puede corregir cuando el mapa
@@ -1010,8 +1010,10 @@ por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +
   `match_type`/`keyword_text` son inmutables por permisos (mutarlos rompería
   el sello de moneda y los goals); cierres por
   columna: `ingest_run` (`finished_at`, `rows_written`, `rows_skipped`,
-  `skip_reason`, `ok`) y `sku_cost` (**solo `valid_to`** — cerrar vigencias
-  sí, reescribir importes jamás).
+  `skip_reason`, `ok`), `sku_cost` (**solo `valid_to`** — cerrar vigencias
+  sí, reescribir importes jamás) y, desde ARREGLOS 01 Y, `ledger_event`
+  (**solo `product_id`**) — el trigger `ledger_solo_reatribuye` acota esa
+  mutación (venta de Amazon, de producto a producto) y la audita.
 - **`app_decide`** — motores: INSERT en `decision`, `decision_application`,
   envelope/quota/harvest y, desde `0039`, en `precio_decision`,
   `precio_cotizacion`, `precio_envio_muestra` y `precio_cambio` (este último
@@ -1029,11 +1031,13 @@ por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +
 - **`app_read`** — dashboard/análisis: SELECT.
 - Los permisos solos no bastan (un `GRANT ALL` futuro los derrotaría en
   silencio): el candado real es el trigger `prohibir_mutacion`, que bloquea
-  UPDATE/DELETE en las siete tablas append-only **aunque el rol tenga
-  permiso** — y `sku_cost_solo_cierra_vigencia`, que hace lo propio con la
-  única mutación acotada del esquema. Lo que sigue descansando sólo en el
-  GRANT por columna, y queda declarado: la identidad inmutable de `ad_entity`,
-  los cierres por columna de `ingest_run`/`optimizer_cycle` y el `cap` de
-  `apply_quota_state`.
+  UPDATE/DELETE en las tablas append-only **aunque el rol tenga permiso**, más
+  `sku_cost_solo_cierra_vigencia` y `ledger_solo_reatribuye`, que hacen lo
+  propio con las dos mutaciones acotadas del esquema (cerrar una vigencia de
+  costo y corregir el `product_id` de una venta de Amazon). Lo que sigue
+  descansando sólo en el GRANT por columna, y queda declarado: la identidad
+  inmutable de `ad_entity`, los cierres por columna de
+  `ingest_run`/`optimizer_cycle`, el `product_id` de `ledger_event` y el `cap`
+  de `apply_quota_state`.
 - `REVOKE ALL … FROM PUBLIC` + default privileges de solo lectura: ningún rol
   futuro hereda escritura por accidente.
