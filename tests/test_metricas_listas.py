@@ -2,9 +2,11 @@
 
 Los cuatro comandos que deciden con las métricas del día anterior —cycle,
 impulso-vigia, avisos-campana y jev-senales— consultan la guarda antes de
-abrir nada: sin la corrida ok de hoy con filas de D-1 imprimen
-`sin métricas de ayer: espera al siguiente horario` y salen 0, con cero
-envelopes, cero escrituras y cero mensajes. Con la corrida lista corren;
+abrir nada: sin la corrida ok de hoy con filas de D-1 llaman a
+`salida_sin_metricas`: antes del fin de intentos imprimen
+`sin métricas de ayer: espera al siguiente horario` y salen 75; desde el fin
+salen 1 con el aviso en stderr. En ambos casos hay cero envelopes, cero
+escrituras y cero mensajes. Con la corrida lista corren;
 `--forzar` salta la guarda. cycle además no repite un ciclo done/degraded
 de hoy ni interrumpe uno running de menos de 3 h (un running más viejo es
 huérfano y sí se reintenta: el rastro lo cierra al ganar el claim).
@@ -46,6 +48,64 @@ _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+
+BLOQUE_CRON = Path(__file__).resolve().parents[1] / "tools/despliegue/crontab-orbit.txt"
+
+
+@pytest.fixture
+def antes_del_fin(monkeypatch):
+    """Fija el fin de intentos en el futuro: la guarda sale 75 (espera)."""
+    monkeypatch.setattr(
+        metricas_listas,
+        "fin_de_intentos",
+        lambda hoy: dt.datetime.now(dt.UTC) + dt.timedelta(days=1),
+    )
+
+
+def test_arreglos01_s_la_espera_sale_75_antes_del_fin_y_1_despues(capsys):
+    """S.3: sin metricas, antes del fin el comando espera (75) y despues avisa (1)."""
+    assert metricas_listas.SALIDA_ESPERA == 75
+    fin = metricas_listas.fin_de_intentos(dt.date(2026, 11, 9))
+    assert fin == dt.datetime(2026, 11, 9, 16, 0, tzinfo=dt.UTC), fin
+
+    antes = fin - dt.timedelta(seconds=1)
+    assert metricas_listas.salida_sin_metricas("cycle amazon_us", ahora=antes) == 75
+    capturado = capsys.readouterr()
+    assert metricas_listas.TEXTO_ESPERA in capturado.out
+    assert capturado.err == ""
+
+    assert metricas_listas.salida_sin_metricas("cycle amazon_us", ahora=fin) == 1
+    capturado = capsys.readouterr()
+    assert capturado.out == ""
+    assert "cycle amazon_us: hoy no corrió" in capturado.err
+    assert "16:00 UTC" in capturado.err
+
+
+def test_arreglos01_s_cada_consumidor_tiene_horario_tras_el_ultimo_plazo_de_ingesta():
+    """S.2 (falla que ya paso): los consumidores de metricas reintentan despues
+    del ultimo plazo de ingesta; en la base solo corrian a las 08:xx."""
+    fin = metricas_listas.fin_de_intentos(HOY)
+    limite = fin.hour * 60 + fin.minute
+    consumidores = {
+        "cycle amazon_us": "app.cli cycle --platform amazon_us",
+        "cycle amazon_mx": "app.cli cycle --platform amazon_mx",
+        "impulso-vigia": "app.cli impulso-vigia",
+        "avisos-campana": "app.cli avisos-campana",
+    }
+    for nombre, comando in consumidores.items():
+        horarios = []
+        for linea in BLOQUE_CRON.read_text(encoding="utf-8").splitlines():
+            if linea.startswith("#") or comando not in linea:
+                continue
+            campos = linea.split(None, 5)
+            assert len(campos) >= 6, linea
+            minuto = int(campos[0])
+            for hora in campos[1].split(","):
+                horarios.append((int(hora), minuto))
+        assert horarios, f"{nombre} no esta en {BLOQUE_CRON.name}"
+        assert {hora for hora, _ in horarios} >= {8, 10, 13, 16}, f"{nombre}: horas {horarios}"
+        ultimo = max(hora * 60 + minuto for hora, minuto in horarios)
+        assert ultimo >= limite, f"{nombre}: ultimo horario antes de {fin:%H:%M} UTC"
 
 
 class _R:
@@ -253,21 +313,23 @@ def _corre_cycle(conn_pg, monkeypatch, capsys, argv=("cycle", "--platform", "ama
 
 
 @_skip_db
-def test_cycle_sin_metricas_no_abre_envelope(conn_pg, monkeypatch, capsys):
+def test_cycle_sin_metricas_no_abre_envelope(conn_pg, monkeypatch, capsys, antes_del_fin):
     salida, llamados, out = _corre_cycle(conn_pg, monkeypatch, capsys)
     conn, _ = conn_pg
-    assert salida == 0
+    assert salida == metricas_listas.SALIDA_ESPERA
     assert llamados == [], "la guarda bloquea antes del orquestador"
     assert metricas_listas.TEXTO_ESPERA in out
     assert conn.execute("SELECT count(*) FROM optimizer_cycle").fetchone()[0] == 0
 
 
 @_skip_db
-def test_cycle_con_corrida_que_no_trae_d1_tampoco_corre(conn_pg, monkeypatch, capsys):
+def test_cycle_con_corrida_que_no_trae_d1_tampoco_corre(
+    conn_pg, monkeypatch, capsys, antes_del_fin
+):
     conn, _ = conn_pg
     _siembra_metricas(conn, metric_date=HOY)  # filas de HOY, no de D-1
     salida, llamados, out = _corre_cycle(conn_pg, monkeypatch, capsys)
-    assert salida == 0 and llamados == []
+    assert salida == metricas_listas.SALIDA_ESPERA and llamados == []
     assert metricas_listas.TEXTO_ESPERA in out
 
 
@@ -374,9 +436,11 @@ def _corre_vigia(conn_pg, monkeypatch, capsys, argv=("impulso-vigia",)):
 
 
 @_skip_db
-def test_vigia_sin_metricas_no_abre_nada(conn_pg, monkeypatch, capsys):
+def test_vigia_sin_metricas_no_abre_nada(conn_pg, monkeypatch, capsys, antes_del_fin):
     salida, llamados, out = _corre_vigia(conn_pg, monkeypatch, capsys)
-    assert salida == 0 and llamados == [], "sin vigila no hay impulso_lectura ni fabrica_lote"
+    assert salida == metricas_listas.SALIDA_ESPERA and llamados == [], (
+        "sin vigila no hay impulso_lectura ni fabrica_lote"
+    )
     assert metricas_listas.TEXTO_ESPERA in out
 
 
@@ -412,10 +476,10 @@ def _corre_avisos(conn_pg, monkeypatch, capsys, argv=("avisos-campana",)):
 
 
 @_skip_db
-def test_avisos_sin_metricas_no_envia_ni_marca(conn_pg, monkeypatch, capsys):
+def test_avisos_sin_metricas_no_envia_ni_marca(conn_pg, monkeypatch, capsys, antes_del_fin):
     salida, enviados, out = _corre_avisos(conn_pg, monkeypatch, capsys)
     conn, _ = conn_pg
-    assert salida == 0 and enviados == []
+    assert salida == metricas_listas.SALIDA_ESPERA and enviados == []
     assert metricas_listas.TEXTO_ESPERA in out
     marcas = conn.execute(
         "SELECT count(*) FROM ingest_run WHERE source LIKE 'avisos_campana%'"
@@ -424,11 +488,15 @@ def test_avisos_sin_metricas_no_envia_ni_marca(conn_pg, monkeypatch, capsys):
 
 
 @_skip_db
-def test_avisos_exigen_tambien_la_corrida_de_placements(conn_pg, monkeypatch, capsys):
+def test_avisos_exigen_tambien_la_corrida_de_placements(
+    conn_pg, monkeypatch, capsys, antes_del_fin
+):
     conn, _ = conn_pg
     _siembra_metricas(conn)
     salida, enviados, out = _corre_avisos(conn_pg, monkeypatch, capsys)
-    assert salida == 0 and enviados == [], "lee ubicaciones: sin placements no corre"
+    assert salida == metricas_listas.SALIDA_ESPERA and enviados == [], (
+        "lee ubicaciones: sin placements no corre"
+    )
     assert metricas_listas.TEXTO_ESPERA in out
     _siembra_placements(conn)
     salida, enviados, _ = _corre_avisos(conn_pg, monkeypatch, capsys)
@@ -460,9 +528,11 @@ def _corre_jev(conn_pg, monkeypatch, capsys, argv=("jev-senales",)):
 
 
 @_skip_db
-def test_jev_sin_metricas_no_abre_nada(conn_pg, monkeypatch, capsys):
+def test_jev_sin_metricas_no_abre_nada(conn_pg, monkeypatch, capsys, antes_del_fin):
     salida, llamados, out = _corre_jev(conn_pg, monkeypatch, capsys)
-    assert salida == 0 and llamados == [], "sin correr no hay candado ni jev_corrida"
+    assert salida == metricas_listas.SALIDA_ESPERA and llamados == [], (
+        "sin correr no hay candado ni jev_corrida"
+    )
     assert metricas_listas.TEXTO_ESPERA in out
 
 

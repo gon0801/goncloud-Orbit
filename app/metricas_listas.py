@@ -3,9 +3,13 @@
 Ningun comando que decide con las metricas del dia anterior lo hace sobre
 datos que no llegaron: `cycle`, `impulso-vigia`, `avisos-campana` y
 `jev-senales` consultan estas guardas ANTES de abrir envelopes, escrituras o
-mensajes; sin la corrida ok de hoy con filas de D-1 imprimen
-`sin métricas de ayer: espera al siguiente horario` y salen 0. Los cuatro
-aceptan `--forzar` para correr a mano sin guarda.
+mensajes; sin la corrida ok de hoy con filas de D-1 llaman a
+`salida_sin_metricas`. Antes del fin de intentos imprimen
+`sin métricas de ayer: espera al siguiente horario` y salen 75 (espera: aun
+queda un horario hoy, y `cron-avisa` no cuenta el 75 como fallo ni como
+exito). Desde `fin_de_intentos` avisan por stderr y salen 1 para que el cron
+reporte el dia perdido. Los cuatro aceptan `--forzar` para correr a mano sin
+guarda.
 
 Un número, una fuente (regla 2): la verdad de "llegaron las métricas" es la
 misma consulta para todos los consumidores, viva en este modulo. Los
@@ -16,6 +20,7 @@ del esquema.
 from __future__ import annotations
 
 import datetime as dt
+import sys
 
 import psycopg
 
@@ -24,6 +29,51 @@ SOURCE_PRODUCTOS = "amazon_ads_products_v3"
 SOURCE_PLACEMENTS = "amazon_ads_placements_v3"
 
 TEXTO_ESPERA = "sin métricas de ayer: espera al siguiente horario"
+
+# Mismo codigo que cron-avisa trata como "saltada" (no cuenta como fallo ni
+# como exito y no toca el estado del aviso): el dia aun puede tener metricas.
+SALIDA_ESPERA = 75
+
+
+def fin_de_intentos(hoy: dt.date) -> dt.datetime:
+    """Momento UTC en que ya no quedan intentos programados de la ingesta:
+    inicio del ultimo HORARIOS_INGESTA mas el presupuesto TOPE_PARED_SEGUNDOS
+    (13:15 + 2 h 45 = 16:00).
+
+    El sondeo de reportes tiene su propio tope duro (PLAZO_SONDEO_SEGUNDOS,
+    2 h 30, en app.ads.descarga); los 15 min restantes son la holgura de
+    escrituras y avisos del diseno. Derivado de app.ads.diario, no copiado
+    (un numero, una fuente). Import local: diario importa este modulo."""
+    from app.ads.diario import HORARIOS_INGESTA, TOPE_PARED_SEGUNDOS
+
+    hora, minuto = (int(parte) for parte in HORARIOS_INGESTA[-1].split(":"))
+    inicio = dt.datetime.combine(hoy, dt.time(hora, minuto), tzinfo=dt.UTC)
+    return inicio + dt.timedelta(seconds=TOPE_PARED_SEGUNDOS)
+
+
+def salida_sin_metricas(comando: str, *, ahora: dt.datetime | None = None) -> int:
+    """Lo que hace un consumidor cuando `guarda` dijo que no.
+
+    Antes de fin_de_intentos(hoy): imprime TEXTO_ESPERA en stdout y devuelve
+    SALIDA_ESPERA (75), porque queda otro horario hoy. Desde ese momento
+    imprime en stderr que el dia se perdio y devuelve 1 para que cron-avisa
+    avise. Nunca escribe en la base ni manda Telegram por su cuenta (el canal
+    de "trabajo que no hizo su trabajo" es cron-avisa)."""
+    ahora = ahora or dt.datetime.now(dt.UTC)
+    if ahora.tzinfo is None:
+        ahora = ahora.replace(tzinfo=dt.UTC)
+    fin = fin_de_intentos(ahora.date())
+    if ahora < fin:
+        print(TEXTO_ESPERA)
+        return SALIDA_ESPERA
+    print(
+        f"{comando}: hoy no corrió; las métricas de ayer no llegaron en ningún"
+        f" intento de la ingesta (el último intento programado termina a las {fin:%H:%M} UTC)."
+        " Mañana se intenta otra vez.",
+        file=sys.stderr,
+    )
+    return 1
+
 
 # ads_metric_observation no tiene platform: la cruza con ad_entity (la
 # plataforma de la entidad es la unica fuente).

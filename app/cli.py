@@ -20,7 +20,9 @@ lock lo garantiza, el trabajo ya esta en curso (cron + manual coincidiendo),
 no es un fallo de esta corrida; 1 fallo (el error va scrubbado: jamas un
 secreto en la salida; para `goals set`, goal inexistente); 2 config ausente o
 uso invalido (patron de los mains de app.ads: DSN sin definir -> mensaje
-claro y fail-closed; edicion de goal invalida).
+claro y fail-closed; edicion de goal invalida). 75 espera: las metricas de
+ayer aun pueden llegar (el cron no lo cuenta como fallo); desde el fin de
+intentos la guarda sale 1 para que el cron avise.
 """
 
 from __future__ import annotations
@@ -111,8 +113,7 @@ def _cycle(args) -> int:
             from app import metricas_listas
 
             if not metricas_listas.guarda(conn, (args.platform,), forzar=args.forzar):
-                print(metricas_listas.TEXTO_ESPERA)
-                return 0
+                return metricas_listas.salida_sin_metricas(f"cycle {args.platform}")
             if not args.forzar:
                 salto = ciclo.motivo_de_salto(conn, args.platform)
                 if salto is not None:
