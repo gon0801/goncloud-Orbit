@@ -181,6 +181,7 @@ FRASES_FINALES = {
     "impresiones_sin_clics": "Recibió impresiones y casi ningún clic. Orbit lo pausó.",
     "clics_sin_ventas": "Recibió clics y no vendió. Orbit lo pausó.",
     "vende": "Vende. Sigue encendido y ya lo cuida el motor.",
+    "desarmado": "Lo pausaste desde la fábrica. Ya no gasta.",
 }
 
 
