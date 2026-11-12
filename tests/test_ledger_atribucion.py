@@ -5,20 +5,29 @@ devuelve una atribucion la escribe en `ledger_event_atribucion` (append-only,
 ON CONFLICT DO NOTHING); cuando devuelve None no escribe y cuenta
 `venta_sin_atribuir` en skip_reason sin sumar a rows_skipped. La ingesta
 atribuye toda venta del plan, tambien la que ya estaba en ledger_event.
+
+ARREGLOS 01 Y: la reatribucion de product_id de una venta de Amazon deja su
+fila en `ledger_reatribucion`; el resto de los UPDATE sigue rechazado.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import socket
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
+import psycopg
 import pytest
-from test_precio02_base import _db, _producto_listing
+from test_precio02_base import _db, _dsn_base, _dsn_de_db, _producto_listing
 from test_schema import _postgres_obligatorio_ausente
 
 from app.ledger import sync_ledger
 from app.ledger_atribucion import Atribucion
+
+RAIZ = Path(__file__).resolve().parents[1]
 
 _skip_sin_pg = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -148,3 +157,112 @@ def test_atribuidor_que_no_puede_no_escribe_y_no_suma_rows_skipped(tmp_path):
         assert saltadas == 0
         assert r.rows_skipped == 0
         assert "venta_sin_atribuir" in (motivo or "")
+
+
+@contextmanager
+def _db_0085():
+    """Base temporal con 0001 + la migracion 0085 (trigger y auditoria)."""
+    from psycopg import sql as pgsql
+
+    dsn = _dsn_base()
+    db = f"ledger_y_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(_dsn_de_db(dsn, db), autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute((RAIZ / "migrations" / "0001_initial.sql").read_text(encoding="utf-8"))
+        conn.execute(
+            (RAIZ / "migrations" / "0085_arreglos01_ledger_reatribucion.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@_skip_sin_pg
+def test_arreglos01_y_reatribuye_venta_con_rastro_y_sigue_bloqueando(tmp_path):
+    """H-H4: si el mapa ASIN -> listing cambia, la venta ya ingerida se mueve
+    al producto nuevo y el trigger deja la fila de auditoria. Un UPDATE de
+    otro campo y un UPDATE de sin producto a producto siguen rechazados."""
+    with _db_0085() as conn:
+        pid_antes, lid = _producto_listing(conn, sku="SKU-Y-ANTES", ext="B0R02ATRIB")
+        pid_despues = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('SKU-Y-DESPUES', 'Producto despues')"
+            " RETURNING id"
+        ).fetchone()[0]
+        snap = _snapshot(tmp_path / "led.db", "src-y-1")
+        sync_ledger(conn, snap, atribuidores={"amazon_mx": _AtribuidorQueNoPuede()})
+        eid, product_id = conn.execute(
+            "SELECT id, product_id FROM ledger_event WHERE source_event_id = 'src-y-1'"
+        ).fetchone()
+        assert product_id == pid_antes
+
+        conn.execute("UPDATE listing SET product_id = %s WHERE id = %s", (pid_despues, lid))
+        r = sync_ledger(conn, snap, atribuidores={"amazon_mx": _AtribuidorQueNoPuede()})
+
+        assert (
+            conn.execute("SELECT product_id FROM ledger_event WHERE id = %s", (eid,)).fetchone()[0]
+            == pid_despues
+        )
+        assert r.reatribuidas == 1
+        assert conn.execute(
+            "SELECT ledger_event_id, product_antes, product_despues, ingest_run_id"
+            " FROM ledger_reatribucion"
+        ).fetchall() == [(eid, pid_antes, pid_despues, r.run_id)]
+
+        r2 = sync_ledger(conn, snap, atribuidores={"amazon_mx": _AtribuidorQueNoPuede()})
+        assert r2.reatribuidas == 0
+        assert conn.execute("SELECT count(*) FROM ledger_reatribucion").fetchone()[0] == 1
+
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("UPDATE ledger_event SET amount = amount + 1 WHERE id = %s", (eid,))
+
+        conn.execute(
+            "INSERT INTO ledger_event"
+            " (platform, kind, event_date, order_id, product_id, quantity, amount,"
+            " amount_currency, ingest_run_id)"
+            " VALUES ('amazon_mx', 'sale', '2026-01-01', 'Y-SIN-PRODUCTO', NULL, 1,"
+            " 100.00, 'MXN', %s)",
+            (r.run_id,),
+        )
+        sin_producto = conn.execute(
+            "SELECT id FROM ledger_event WHERE order_id = 'Y-SIN-PRODUCTO'"
+        ).fetchone()[0]
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute(
+                "UPDATE ledger_event SET product_id = %s WHERE id = %s",
+                (pid_despues, sin_producto),
+            )
+
+        # Separacion de privilegios con el rol real: app_ingest puede disparar
+        # el trigger (UPDATE product_id), pero no insertar la auditoria a mano.
+        conn.execute("SET ROLE app_ingest")
+        try:
+            conn.execute("SELECT set_config('orbit.ingest_run_id', %s, false)", (str(r.run_id),))
+            conn.execute("UPDATE ledger_event SET product_id = %s WHERE id = %s", (pid_antes, eid))
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO ledger_reatribucion"
+                    " (ledger_event_id, product_antes, product_despues)"
+                    " VALUES (%s, %s, %s)",
+                    (eid, pid_antes, pid_despues),
+                )
+        finally:
+            conn.execute("RESET ROLE")
+        assert conn.execute(
+            "SELECT product_antes, product_despues FROM ledger_reatribucion"
+            " WHERE ledger_event_id = %s ORDER BY id",
+            (eid,),
+        ).fetchall() == [(pid_antes, pid_despues), (pid_despues, pid_antes)]

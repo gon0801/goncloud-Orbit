@@ -187,11 +187,26 @@ TRIGGERS39 = _stmts39(ast.CreateTrigStmt)
 INDEXES39 = _stmts39(ast.IndexStmt)
 FUNCTIONS39 = {f.funcname[-1].sval: f for f in _stmts39(ast.CreateFunctionStmt)}
 
+# 0085 (ARREGLOS 01 Y): ledger_reatribucion y el candado acotado de
+# ledger_event. Se parsea para el invariante transversal de FK con indice.
+SQL85 = (ROOT / "migrations" / "0085_arreglos01_ledger_reatribucion.sql").read_text(
+    encoding="utf-8"
+)
+STMTS85 = tuple(pglast.parse_sql(SQL85))
+
+
+def _stmts85(cls):
+    return [s.stmt for s in STMTS85 if isinstance(s.stmt, cls)]
+
+
+TABLES85 = {t.relation.relname: t for t in _stmts85(ast.CreateStmt)}
+INDEXES85 = _stmts85(ast.IndexStmt)
+
 # Union para los invariantes TRANSVERSALES (regla del repo que vale igual para
 # toda migracion): toda FK con indice de apoyo, nada de float para dinero,
 # ningun CHECK dependiente de la TimeZone de sesion.
-TABLAS_TOTALES = {**TABLES, **TABLES2, **TABLES39}
-INDEXES_TOTALES = (*INDEXES, *INDEXES2, *INDEXES39)
+TABLAS_TOTALES = {**TABLES, **TABLES2, **TABLES39, **TABLES85}
+INDEXES_TOTALES = (*INDEXES, *INDEXES2, *INDEXES39, *INDEXES85)
 
 
 def _cols(tabla):
@@ -756,14 +771,17 @@ def test_toda_fk_tiene_indice_de_apoyo():
     # de integridad al tocar la tabla padre barre la hija entera, y los JOIN
     # que el esquema mismo declara (v_margen_plataforma cruza ledger_event por
     # product_id; v_tacos cruza las metricas por ad_entity_id) salen a
-    # secuencial. Vale para 0001, 0002 (sellado 24: test_schema parsea 0002)
-    # y 0039 (incluye las FKs diferidas por ALTER ADD CONSTRAINT).
+    # secuencial. Vale para 0001, 0002 (sellado 24: test_schema parsea 0002),
+    # 0039 (incluye las FKs diferidas por ALTER ADD CONSTRAINT) y 0085
+    # (ledger_reatribucion, ARREGLOS 01 Y).
     fks = (
         set(_claves_foraneas(TABLES))
         | set(_claves_foraneas(TABLES2))
         | set(_claves_foraneas(TABLES39))
+        | set(_claves_foraneas(TABLES85))
         | set(_fks_de_add_column(STMTS2))
         | set(_fks_de_add_column(STMTS39))
+        | set(_fks_de_add_column(STMTS85))
     )
     sin_indice = sorted(fk for fk in fks if fk not in _lideres_de_indice_no_parcial())
     assert not sin_indice, f"FKs sin indice de apoyo: {sin_indice}"
