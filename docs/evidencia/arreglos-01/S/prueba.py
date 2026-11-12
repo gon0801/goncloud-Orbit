@@ -6,6 +6,15 @@ Se corre con `bash docs/evidencia/arreglos-01/en_prod.sh .../S/prueba.py`.
 import contextlib
 import datetime as dt
 import io
+import sys
+from pathlib import Path
+
+# Al correr el archivo, sys.path[0] es esta carpeta y no la raiz del repo;
+# en_prod.sh lo pasa por stdin y el contenedor tiene /app en el path.
+if "__file__" in globals():
+    raiz = Path(__file__).resolve().parents[4]
+    if str(raiz) not in sys.path:
+        sys.path.insert(0, str(raiz))
 
 from app.metricas_listas import SALIDA_ESPERA, fin_de_intentos, salida_sin_metricas
 
