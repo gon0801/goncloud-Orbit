@@ -221,10 +221,11 @@ class Vitrina(Protocol):
         ...
 
     def unidades(self, conn: Conexion, listing_ids: Sequence[int]) -> Mapping[int, UnidadPrecio]:
-        """La unidad de cada listing, por lote, con sus miembros reales. UNICA
-        construccion de `UnidadPrecio` fuera de las pruebas: la que decide, la
-        que escribe, la que revierte y la que confirma son la misma. Un listing
-        que no existe o no es de esta plataforma no viene en el mapa."""
+        """La unidad de cada listing, por lote, con sus miembros reales. UNICO
+        constructor de `UnidadPrecio` fuera de las pruebas (lo implementa cada
+        adaptador): la que decide, la que escribe, la que revierte, la que
+        confirma y la del catalogo son la misma. Un listing que no existe o no
+        es de esta plataforma no viene en el mapa."""
         ...
 
     def insumos(

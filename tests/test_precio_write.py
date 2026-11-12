@@ -2658,3 +2658,66 @@ def test_arreglos01_r_meli_con_variaciones_recibe_precio():
         assert conn.execute(
             "SELECT estado, error_code FROM precio_cambio WHERE decision_id = %s", (dec,)
         ).fetchone() == ("enviado", None)
+
+
+def test_arreglos01_r_variacion_nueva_sin_producto_no_recibe_precio():
+    """Una variacion agregada despues de decidir, sin producto, no recibe el
+    precio. `aplicar` la salta con `variante_sin_mapear` (CodeRabbit: no se
+    manda precio a miembros que no entraron a la cuenta del dia).
+    """
+    from app.meli.precio_mercado import MercadoMeli
+    from app.precio.puerto import Acuse
+
+    class _LectorMeli:
+        def __init__(self):
+            self.gets = 0
+
+        def get(self, path, params=None):
+            self.gets += 1
+            return {
+                "price": 100.0,
+                "currency_id": "MXN",
+                "variations": [
+                    {"id": 111, "price": 100.0},
+                    {"id": 222, "price": 100.0},
+                    {"id": 333, "price": 100.0},
+                ],
+            }, datetime.now(UTC)
+
+    class _EscritorMeli:
+        def __init__(self):
+            self.llamadas = []
+
+        def exigir_sello(self):
+            return None
+
+        def poner_precio(self, item, variantes, valor, moneda, *, sonda=False):
+            self.llamadas.append((item, list(variantes), valor, moneda, sonda))
+            return Acuse(aceptada=True, codigo=None, cuerpo={"ok": True})
+
+    with _db59() as conn:
+        prod = _producto(conn, sku="SKU-MELI-R2")
+        lid = _listing(conn, prod, platform="meli", asin="MLM124", sku="SKU-ANCLA-2")
+        conn.execute(
+            "INSERT INTO listing_miembro (listing_id, platform, variante_ext, seller_sku,"
+            " product_id, activo, visto_at) VALUES"
+            " (%s, 'meli', '111', 'SKU-111', %s, true, now()),"
+            " (%s, 'meli', '222', 'SKU-222', %s, true, now())",
+            (lid, prod, lid, prod),
+        )
+        gid = _goal59(conn, lid, platform="meli", mode="live")
+        dec = _decision59(conn, lid, gid, platform="meli", mode="live", canal=None)
+        conn.execute(
+            "INSERT INTO listing_miembro (listing_id, platform, variante_ext, seller_sku,"
+            " product_id, activo, visto_at)"
+            " VALUES (%s, 'meli', '333', 'SKU-333', NULL, true, now())",
+            (lid,),
+        )
+        lector = _LectorMeli()
+        escritor = _EscritorMeli()
+        mercado = MercadoMeli("meli", lector=lector, escritor=escritor, fees=object())
+
+        res = aplicar(conn, mercado, dec)
+        assert (res.estado, res.motivo) == ("saltado", "variante_sin_mapear")
+        assert escritor.llamadas == []
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0

@@ -362,6 +362,17 @@ def aplicar(
             f" llego {resultado}/{mode}"
         )
     unidad = _unidad(mercado, conn, listing_id)
+    # Una variacion agregada despues de decidir (o un miembro sin producto)
+    # no recibio la cuenta del dia: no se le manda el precio. Sigue el mismo
+    # vocabulario que el motivo de decision `variante_sin_mapear`.
+    sin_producto = sum(1 for m in unidad.miembros if m.product_id is None)
+    if sin_producto:
+        logger.info(
+            "aplicar decision=%s saltado=variante_sin_mapear (%s sin producto)",
+            decision_id,
+            sin_producto,
+        )
+        return ResultadoCambio(id_cambio=None, estado="saltado", motivo="variante_sin_mapear")
     mercado.validar_destino(unidad)
     destino = Importe(Decimal(p_aplicado), p_moneda)
     try:
