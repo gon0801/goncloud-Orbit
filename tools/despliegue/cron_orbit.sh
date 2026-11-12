@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # Bloque de cron de Orbit (ARREGLOS 01 N.1/N.2). La unica fuente es
-# tools/despliegue/crontab-orbit.txt; este script lo instala, lo revisa o restaura
-# el bloque anterior.
-# Uso en goncloud: bash cron_orbit.sh instala|revisa|restaura
+# tools/despliegue/crontab-orbit.txt; este script lo prepara, lo instala, lo revisa
+# o restaura el bloque anterior.
+# Uso en goncloud: bash cron_orbit.sh prepara|instala|revisa|restaura
 #   (ORBIT_CRON_BLOQUE apunta al archivo; por omision, el de junto al script).
 #   restaura usa ORBIT_CRON_RESPALDO, un crontab completo del respaldo que deja instala.
+#   instala acepta ORBIT_CRON_RESPALDO_NUEVO: el respaldo que creo prepara.
 # Desde otra maquina: subir crontab-orbit.txt y pasar su ruta en ORBIT_CRON_BLOQUE.
 #
-# instala y revisa exigen cron-avisa en el host (ORBIT_CRON_AVISA, por omision
-# /usr/local/bin/cron-avisa) cuando el bloque lo usa, y rechazan un crontab con mas
-# de un bloque "# === Orbit (".
-# instala: respalda el crontab en ORBIT_CRON_ARCHIVO e imprime `respaldo=<ruta>`,
-# reemplaza SOLO el bloque "# === Orbit (" por el canonico. Cuenta las lineas con
+# prepara, instala y revisa exigen cron-avisa en el host (ORBIT_CRON_AVISA, por
+# omision /usr/local/bin/cron-avisa) cuando el bloque lo usa, y rechazan un crontab
+# con mas de un bloque "# === Orbit (".
+# prepara: si el bloque cambiaria, respalda el crontab en ORBIT_CRON_ARCHIVO e
+# imprime `respaldo=<ruta>` SIN escribirlo. Si ya es igual dice "sin cambios".
+# instala: con ORBIT_CRON_RESPALDO_NUEVO usa ese respaldo (y comprueba que el
+# crontab no cambio desde prepara); sin el, respalda e imprime `respaldo=<ruta>`.
+# Reemplaza SOLO el bloque "# === Orbit (" por el canonico. Cuenta las lineas con
 # cron-avisa antes y despues: si bajan, ABORTA sin escribir. Idempotente: si ya es
 # igual dice "sin cambios". Las lineas fuera del bloque no se tocan.
 # revisa: compara el bloque del host contra el archivo; sale 0 si es igual y 1 con
@@ -27,12 +31,16 @@ AVISA=${ORBIT_CRON_AVISA:-/usr/local/bin/cron-avisa}
 AQUI=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
 BLOQUE=${ORBIT_CRON_BLOQUE:-$AQUI/crontab-orbit.txt}
 RESPALDO=${ORBIT_CRON_RESPALDO:-}
+RESPALDO_NUEVO=${ORBIT_CRON_RESPALDO_NUEVO:-}
 
 ACCION=${1:-}
 case "$ACCION" in
-  instala | revisa | restaura) ;;
-  *) echo "uso: bash cron_orbit.sh instala|revisa|restaura" >&2; exit 2 ;;
+  prepara | instala | revisa | restaura) ;;
+  *) echo "uso: bash cron_orbit.sh prepara|instala|revisa|restaura" >&2; exit 2 ;;
 esac
+if [ -n "${2:-}" ]; then
+  if [ "$ACCION" = restaura ]; then RESPALDO=$2; else RESPALDO_NUEVO=$2; fi
+fi
 
 if [ "$ACCION" = restaura ]; then
   [ -f "$RESPALDO" ] || { echo "no encuentro el respaldo: $RESPALDO" >&2; exit 1; }
@@ -87,6 +95,26 @@ respalda() {
   printf 'respaldo=%s\n' "$respaldo"
 }
 
+# Prepara el reemplazo: NO escribe el crontab. Sale 0 con `sin cambios` o con un
+# respaldo existente en `respaldo=<ruta>`.
+prepara_reemplazo() {
+  reemplaza_bloque "$BLOQUE" || {
+    echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
+    return 1
+  }
+  if cmp -s "$NUEVO" "$ACTUAL"; then
+    echo "sin cambios"
+    return 0
+  fi
+  antes=$(cuenta_avisos "$ACTUAL")
+  despues=$(cuenta_avisos "$NUEVO")
+  if [ "$despues" -lt "$antes" ]; then
+    echo "ABORTA: el bloque canonico dejaria menos avisos ($despues < $antes); no escribo" >&2
+    return 1
+  fi
+  respalda prepara
+}
+
 case "$ACCION" in
   revisa)
     extrae_bloque "$ACTUAL" "$HOST"
@@ -100,6 +128,8 @@ case "$ACCION" in
     fi
     echo "el bloque Orbit del crontab de $USUARIO no es el canonico" >&2
     exit 1 ;;
+  prepara)
+    prepara_reemplazo ;;
   instala)
     reemplaza_bloque "$BLOQUE" || {
       echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
@@ -115,7 +145,16 @@ case "$ACCION" in
       echo "ABORTA: el bloque canonico dejaria menos avisos ($despues < $antes); no escribo" >&2
       exit 1
     fi
-    respalda instala
+    if [ -n "$RESPALDO_NUEVO" ]; then
+      [ -f "$RESPALDO_NUEVO" ] || { echo "no encuentro el respaldo de prepara: $RESPALDO_NUEVO" >&2; exit 1; }
+      cmp -s "$ACTUAL" "$RESPALDO_NUEVO" || {
+        echo "ABORTA: el crontab cambio entre prepara e instala; vuelve a intentarlo" >&2
+        exit 1
+      }
+      respaldo=$RESPALDO_NUEVO
+    else
+      respalda instala
+    fi
     crontab -u "$USUARIO" "$NUEVO"
     echo "bloque Orbit instalado" ;;
   restaura)

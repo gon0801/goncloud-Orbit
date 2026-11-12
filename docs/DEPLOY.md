@@ -176,7 +176,7 @@ la última corrida: `MOTOR_SHA`, `SHA_PREVIO` (el contenido de
 `$SRV/despliegue/sha` al empezar; una reanudación del mismo `MOTOR_SHA`
 conserva el de la primera corrida), una línea por cambio anotada antes
 de hacerlo (`MIGRACION=<archivo>`, `CLAVE=<clave>:<valor previo>`,
-`CRON=jev-vigia`) y
+`CRON=jev-vigia`, `CRON=orbit` y `CRON_ARCHIVO=<respaldo>`) y
 `CODIGO=predeploy-<stamp>`, que se anota solo con el respaldo completo y
 sin la cual no corre ninguna migración ni sustitución de código. Las
 líneas `ESTADO=` se agregan en orden; vale la última. Terminales:
@@ -191,8 +191,11 @@ si el diario falta, es de otro `MOTOR_SHA`, terminó en
 falle (pero antes de cada cambio comprueba que su sesión sigue
 sosteniendo el candado; si la perdió, sale 1 sin hacer el siguiente
 cambio, el diario queda en `revirtiendo` y la próxima corrida continúa):
-las claves anotadas a su valor previo (vía `productos-modo`), la línea
-`jev-vigia` si se anotó `CRON=jev-vigia` (`cron_jev_vigia.sh quita`), los
+las claves anotadas a su valor previo (vía `productos-modo`), el bloque
+`# === Orbit (` si se anotó `CRON=orbit` (`cron_orbit.sh restaura
+<CRON_ARCHIVO>`, antes de la línea del vigía porque el respaldo puede
+incluirla), la línea `jev-vigia` si se anotó `CRON=jev-vigia`
+(`cron_jev_vigia.sh quita`), los
 archivos de `predeploy-<stamp>` (borra `app/` y `tools/` y los copia del
 respaldo) con rebuild y `/health` 200, `$SRV/despliegue/sha` a
 `SHA_PREVIO` (lo borra si venía vacío) y, en orden inverso, la reversa
@@ -1168,9 +1171,11 @@ instala o revisa `tools/despliegue/cron_orbit.sh instala|revisa` (respalda el
 crontab en `archive/` antes de escribir, exige `cron-avisa` en el host y aborta
 sin escribir si el número de líneas envueltas bajara). El despliegue corre
 `revisa` en el ensayo e `instala` al desplegar; las líneas fuera del bloque no
-se tocan. Si `instala` cambia algo, anota `CRON=orbit` y `CRON_ARCHIVO=<ruta>`
-en el diario; `rollback.sh` restaura con `cron_orbit.sh restaura <ruta>` el
-bloque que había antes. La tabla de horarios es la del apartado de arriba y sus minutos salen
+se tocan. Antes de escribir, `prepara` deja el respaldo y el diario anota
+`CRON=orbit` y `CRON_ARCHIVO=<ruta>`; recién entonces `instala` escribe, así
+que si la corrida muere entre las dos la reversa tiene con qué restaurar.
+`rollback.sh` restaura con `cron_orbit.sh restaura <ruta>` el bloque que había
+antes. La tabla de horarios es la del apartado de arriba y sus minutos salen
 de `HORARIOS_INGESTA` (`app/ads/diario.py`; la prueba `tests/test_ingesta_cron.py`
 fija que coincidan). El uso manual en `goncloud` está en la cabecera del script.
 

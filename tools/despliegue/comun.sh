@@ -228,15 +228,22 @@ sonda() {
 # cron_vigia <instala|quita|revisa|presente>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
 cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archive bash -s -- $1"; }
 
-# cron_orbit <instala|revisa|restaura> [respaldo]: el instalador del bloque de cron de
-# Orbit de $SHA, corrido en goncloud. El bloque canonico viaja como archivo (unica
-# fuente en el repo) a un mktemp del servidor. restaura recibe el crontab de respaldo.
+# cron_orbit <prepara|instala|revisa|restaura> [respaldo]: el instalador del bloque de
+# cron de Orbit de $SHA, corrido en goncloud. El bloque canonico viaja como archivo
+# (unica fuente en el repo) a un mktemp del servidor. restaura recibe el crontab de
+# respaldo; instala recibe el respaldo que creo prepara.
 cron_orbit() {
   local remoto rc=0 accion=$1 respaldo=${2:-}
   local extra=""
   remoto=$(srv "mktemp /tmp/cron-orbit-bloque.XXXXXX") || return 1
   [ -z "${ORBIT_CRON_AVISA:-}" ] || extra=" ORBIT_CRON_AVISA=$ORBIT_CRON_AVISA"
-  [ -z "$respaldo" ] || extra="$extra ORBIT_CRON_RESPALDO=$respaldo"
+  if [ -n "$respaldo" ]; then
+    if [ "$accion" = restaura ]; then
+      extra="$extra ORBIT_CRON_RESPALDO=$respaldo"
+    else
+      extra="$extra ORBIT_CRON_RESPALDO_NUEVO=$respaldo"
+    fi
+  fi
   git show "$SHA:$CRON_BLOQUE" | srv "cat > $remoto" || { srv "rm -f $remoto" || true; return 1; }
   git show "$SHA:$CRON_ORBIT" \
     | srv "ORBIT_CRON_ARCHIVO=$SRV/archive ORBIT_CRON_BLOQUE=$remoto$extra bash -s -- $accion" \

@@ -1253,9 +1253,11 @@ def _instalador_cron_orbit(tmp_path: Path, actual: str, bloque: str):
     return entorno, crontab
 
 
-def _corre_cron_orbit(entorno: dict[str, str], accion: str) -> subprocess.CompletedProcess:
+def _corre_cron_orbit(
+    entorno: dict[str, str], accion: str, *args: str
+) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["bash", str(ROOT / "tools/despliegue/cron_orbit.sh"), accion],
+        ["bash", str(ROOT / "tools/despliegue/cron_orbit.sh"), accion, *args],
         env=entorno,
         text=True,
         capture_output=True,
@@ -1324,6 +1326,31 @@ def test_arreglos01_n_el_instalador_no_quita_cron_avisa(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "sin cambios" in r.stdout
     assert crontab.read_text(encoding="utf-8") == texto
+
+    # prepara deja respaldo y NO escribe; instala usa ese respaldo.
+    entorno_p, crontab_p = _instalador_cron_orbit(tmp_path / "prepara", CRONTAB_N, BLOQUE_N)
+    r = _corre_cron_orbit(entorno_p, "prepara")
+    assert r.returncode == 0, r.stderr
+    respaldo_p = next(
+        ln.split("=", 1)[1] for ln in r.stdout.splitlines() if ln.startswith("respaldo=")
+    )
+    assert crontab_p.read_text(encoding="utf-8") == CRONTAB_N, "prepara no debe escribir"
+    assert Path(respaldo_p).read_text(encoding="utf-8") == CRONTAB_N
+    r = _corre_cron_orbit(entorno_p, "instala", respaldo_p)
+    assert r.returncode == 0, r.stderr
+    assert "bloque Orbit instalado" in r.stdout
+    assert BLOQUE_N.rstrip("\n") in crontab_p.read_text(encoding="utf-8")
+
+    # Si el crontab cambia entre prepara e instala, aborta en vez de pisarlo.
+    entorno_r, crontab_r = _instalador_cron_orbit(tmp_path / "carrera", CRONTAB_N, BLOQUE_N)
+    r = _corre_cron_orbit(entorno_r, "prepara")
+    respaldo_r = next(
+        ln.split("=", 1)[1] for ln in r.stdout.splitlines() if ln.startswith("respaldo=")
+    )
+    crontab_r.write_text(CRONTAB_N + "# cambio a mano\n", encoding="utf-8", newline="\n")
+    r = _corre_cron_orbit(entorno_r, "instala", respaldo_r)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "cambio entre prepara" in r.stderr
 
     # Un bloque canonico con menos avisos que el del host aborta sin escribir.
     bloque_corto = BLOQUE_N.split("# job_key=ads_optimizer")[0]

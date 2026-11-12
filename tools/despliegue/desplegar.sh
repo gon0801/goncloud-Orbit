@@ -256,16 +256,22 @@ elif cron_orbit revisa; then
   echo "el bloque Orbit ya era el canonico"
 else
   sigue_candado
-  if ! salida=$(cron_orbit instala); then
+  if ! salida=$(cron_orbit prepara); then
     printf '%s\n' "$salida"
-    echo "ABORTA: no pude instalar el bloque Orbit del crontab" >&2
+    echo "ABORTA: no pude preparar el bloque Orbit del crontab" >&2
     exit 1
   fi
   printf '%s\n' "$salida"
   respaldo=$(printf '%s\n' "$salida" | sed -n 's/^respaldo=//p' | head -n 1)
   if [ -n "$respaldo" ]; then
+    # Primero el diario y su respaldo, despues la escritura: si la corrida muere
+    # entre las dos, la reversa tiene con que restaurar y no hay cambio que perder.
     anota CRON=orbit
     anota "CRON_ARCHIVO=$respaldo"
+    cron_orbit instala "$respaldo" || {
+      echo "ABORTA: no pude instalar el bloque Orbit del crontab" >&2
+      exit 1
+    }
   fi
 fi
 
