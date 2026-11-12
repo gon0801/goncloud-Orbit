@@ -339,6 +339,8 @@ hoja entra a `decide` y RT decide antes que el juicio.
 ```python
 ep = temporada_io.registra_ciclo(conn, platform, cycle_id=cycle_id, decidido_el=decided_at,
                                  plataforma=plat_t)              # reconcilia, abre o cierra episodio
+temporada_io.registra_fines(conn, platform, cycle_id=cycle_id, episodio_abierto=ep,
+                            fines=fines_de(pendientes))           # FronteraHoja.fin de cada hoja
 pendientes = [temporada_io.estampa(p, ep) for p in pendientes]  # inputs.temporada_episodio_id
 ids = _inserta_decisiones(conn, pendientes)                      # como hoy
 temporada_io.abre_efectos(conn, ep, pendientes, ids)            # uno por decisión de temporada
@@ -537,6 +539,7 @@ class TemporadaCaso:
     """Presente sii ads_temporada_<plat> decide este caso (live) o en el caso de sombra."""
     estacion: Estacion
     episodio: EpisodioVigente | None      # None: no hay episodio abierto (o se abre en este ciclo)
+    fin: FinReduccion | None = None       # la reducción vieja termina en este ciclo (TX3 lo guarda)
     excluida_en: frozenset[int]           # episodios donde el aplicador vio la mano de David
     meta_alta_pct: Decimal
     meta_manual: bool                     # procedencia goal_campana o goal_plataforma
@@ -632,6 +635,7 @@ class HistoriaBid:
     La leen solo recuperacion.cadena_bid y la temporada; Trayectoria (90 días) no cambia."""
     desde: dt.date
     cambios: tuple[CambioFechado, ...]    # ascendentes por (confirmado_el, decision_id)
+    fines: frozenset[int] = frozenset()   # episodios con fila en temporada_fin_reduccion para la hoja
 
 @dataclass(frozen=True)
 class PresupuestoCampana:
@@ -762,13 +766,38 @@ def frontera(estacion: Estacion, cadena: CadenaBid | None, *, episodio: Episodio
              excluida_en: frozenset[int], cerca_plataforma: dt.date | None,
              bid: Decimal | None, piso: Decimal, techo: Decimal) -> FronteraHoja:
     """Una sola función para el ciclo (decidir) y la cola (liberar).
-    # p = _pendiente_desde(estacion, cadena, episodio, excluida_en, bid, piso, techo)
+    # red, fin = reduccion_vigente(cadena, en_baja=estacion.fase == "baja", episodio=episodio, bid=bid, piso=piso, techo=techo)
+    # p = _pendiente_desde(estacion, cadena, episodio, excluida_en, bid, piso, techo)   # usa la misma
     # fase_hoja = "baja" si estacion.fase == "baja" o isinstance(p, RestauracionPendiente)
     #             si no estacion.fase
     # mult = estacion.mult_cortes_baja si fase_hoja == "baja" si no 1
     # ultimo = último movimiento de temporada confirmado de la cadena
     # cerca_hoja = ultimo.confirmado_el (fecha UTC) + 1 día; None si no hay o si < estacion.dia - 90
-    # episodio_id = cadena.reduccion.episodio_id si hay reducción, si no episodio.id si hay"""
+    # episodio_id = red.episodio_id si red, si no episodio.id si hay   (red resuelta, no cadena.reduccion)
+    # fin = fin   (FronteraHoja.fin: TX3 lo guarda con temporada_io.registra_fines)"""
+    raise NotImplementedError
+
+@dataclass(frozen=True)
+class FinReduccion:
+    episodio_id: int                                   # episodio de la reducción que termina
+    motivo: Literal["ya_arriba", "mano_del_dueno"]
+    excluye_abierto: bool                              # la mano se vio con otro episodio abierto
+
+def reduccion_vigente(cadena: CadenaBid, *, en_baja: bool, episodio: EpisodioVigente | None, bid: Decimal,
+                      piso: Decimal, techo: Decimal) -> tuple[ReduccionVigente | None, FinReduccion | None]:
+    """La única resolución de «¿esta hoja sigue reducida?». La usan pendiente, frontera (y por ella
+    estampa y la revalidación de la cola) y TX3. cadena.reduccion ya omite las reducciones con fila en
+    temporada_fin_reduccion (HistoriaBid.fines, congelado en inputs), así que un fin guardado no revive.
+    # red = cadena.reduccion
+    # if red is None or (episodio is not None and red.episodio_id == episodio.id): return red, None
+    # manos = [m for m in cadena.manos_del_dueno if m > red.ultimo_el]
+    # if manos or cadena.dueno_al_final:
+    #     ahora = cadena.dueno_al_final or (episodio is not None and max(manos) >= episodio.abierto_el)
+    #     # en_baja sin episodio = TX3 lo abre en este ciclo; la exclusión va a ese episodio
+    #     return None, FinReduccion(red.episodio_id, "mano_del_dueno", excluye_abierto=en_baja and ahora)
+    # if bid >= min(max(red.base, piso), techo):
+    #     return None, FinReduccion(red.episodio_id, "ya_arriba", excluye_abierto=False)
+    # return red, None          # su regreso sigue pendiente (p. ej. retenido): sigue reducida"""
     raise NotImplementedError
 
 def pendiente(caso: CasoHoja) -> Pendiente:
@@ -776,14 +805,8 @@ def pendiente(caso: CasoHoja) -> Pendiente:
     # t = caso.temporada; e = t.estacion; bid = caso.bid.valor
     # bid None                                   -> SinPendiente("bid_heredado")
     # cad = recuperacion.cadena_bid(caso); None  -> SinPendiente("dato_faltante")
-    # red = cad.reduccion
-    # Una reducción de un episodio que ya no es el abierto termina si el bid ya llegó a su nivel o si
-    # el dueño movió el bid después de ella. Sin esto, una keyword que regresó con `ya_arriba` o que
-    # el dueño tocó nunca recibiría la entrada de la siguiente baja.
-    # if red is not None and (t.episodio is None or red.episodio_id != t.episodio.id) and (
-    #         bid >= min(max(red.base, piso), techo)
-    #         or algún cad.manos_del_dueno > red.ultimo_el or cad.dueno_al_final):
-    #     red = None
+    # red, fin = reduccion_vigente(cad, en_baja=e.fase == "baja", episodio=t.episodio, bid=bid, piso=piso, techo=techo)
+    # if fin is not None and fin.excluye_abierto                 -> SinPendiente("dueno_decidio")
     # if red is not None:                                        # la hoja lleva una reducción
     #     if red.episodio_id in t.excluida_en                   -> SinPendiente("dueno_decidio")
     #     if algún cad.manos_del_dueno > red.ultimo_el or cad.dueno_al_final
@@ -889,7 +912,8 @@ def cadena_bid(caso: CasoHoja) -> CadenaBid | None:
     #   prev = c
     # dueno_al_final = prev is not None and caso.bid.valor is not None
     #                  and abs(caso.bid.valor - prev.bid_despues) > TOLERANCIA_CADENA
-    # reduccion: último c con origen "temporada"; si su motivo es "entra" o "ajusta" ->
+    # reduccion: último c con origen "temporada"; si su motivo es "entra" o "ajusta" y su
+    #   episodio_id no está en historia.fines ->
     #   ReduccionVigente(episodio_id=c.episodio_id,
     #                    base=bid_antes del primer c de ese episodio, primer_el=su instante,
     #                    ultimo_bid=c.bid_despues, ultimo_el=c.confirmado_el,
@@ -918,6 +942,10 @@ def multiplicador_sostenible(a_subida: Decimal, arg_subida: Decimal, confianza: 
 def destino_recuperacion(caso: CasoHoja, *, a_subida: Decimal, arg_subida: Decimal) -> Decimal | None:
     """R6r. None = decide el R6 de hoy (la recuperación solo acelera, nunca frena).
     # if caso.recuperacion is None: return None
+    # t = caso.temporada
+    # cad = cadena_bid(caso)
+    # if t and ((t.episodio and t.episodio.id in t.excluida_en) or (cad and cad.dueno_al_final)):
+    #     return None                                   # terreno del dueño (decisión 7 del plan)
     # bid = caso.bid.valor; techo = techo_conocido(caso)
     # if techo is None or bid is None: return None
     # tb = temporada.techo_de_baja(caso)
@@ -1076,6 +1104,14 @@ def registra_ciclo(conn, platform: str, *, cycle_id: int, decidido_el: dt.dateti
     # 2. fase == "baja" y sin episodio abierto -> INSERT temporada_episodio (índice único por
     #    plataforma: un segundo INSERT concurrente falla y el ciclo falla cerrado)
     #    fase != "baja" y episodio abierto      -> UPDATE cerrado_el, cerrado_en_ciclo"""
+    raise NotImplementedError
+
+def registra_fines(conn, platform: str, *, cycle_id: int, episodio_abierto: int | None,
+                   fines: Mapping[int, FinReduccion]) -> None:
+    """TX3, en la misma transacción que el INSERT de decisiones. Solo en modo live.
+    # por cada (ad_entity_id, fin): INSERT temporada_fin_reduccion ON CONFLICT DO NOTHING
+    # si fin.excluye_abierto: INSERT temporada_exclusion(episodio_abierto, ad_entity_id,
+    #                         'mano_del_dueno') ON CONFLICT DO NOTHING"""
     raise NotImplementedError
 
 def estampa(pendiente: _Pendiente, episodio_id: int | None) -> _Pendiente:
@@ -1296,26 +1332,38 @@ CREATE TABLE temporada_efecto (
 CREATE UNIQUE INDEX temporada_efecto_uno_pendiente ON temporada_efecto (ad_entity_id)
     WHERE cerrado_el IS NULL;
 
+-- 3b. Fin de una reducción sin enviar nada (ya_arriba o mano del dueño). Append-only: un fin no revive.
+CREATE TABLE temporada_fin_reduccion (
+    episodio_id   BIGINT      NOT NULL REFERENCES temporada_episodio(id),
+    ad_entity_id  BIGINT      NOT NULL REFERENCES ad_entity(id),
+    motivo        TEXT        NOT NULL CHECK (motivo IN ('ya_arriba', 'mano_del_dueno')),
+    cycle_id      BIGINT      NOT NULL,
+    cerrado_el    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (episodio_id, ad_entity_id)
+);
+
 -- 4. Exclusión durable: la mano de David vista por el aplicador. Append-only.
 CREATE TABLE temporada_exclusion (
     episodio_id   BIGINT      NOT NULL REFERENCES temporada_episodio(id),
     ad_entity_id  BIGINT      NOT NULL REFERENCES ad_entity(id),
     motivo        TEXT        NOT NULL CHECK (motivo IN ('mano_del_dueno', 'divergencia')),
     bid_visto     NUMERIC(14,4) NULL,
+    bid_visto_moneda currency   NULL,
     decision_id   BIGINT      NULL REFERENCES decision(id),
     detectada_el  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (episodio_id, ad_entity_id)
+    PRIMARY KEY (episodio_id, ad_entity_id),
+    CHECK ((bid_visto IS NULL) = (bid_visto_moneda IS NULL))
 );
 
 -- Triggers solo-cierre en episodio y efecto (patrón de 0069/0078: el único UPDATE válido pasa
 -- cerrado_el de NULL a un valor; con search_path fijo como 0080).
 -- 5. decision_sin_aplicar admite 'bid_cambiado_fuera' (CHECK de 0044, ampliado por 0045 y 0081).
 -- 6. Permisos mínimos:
-GRANT SELECT, INSERT ON temporada_episodio, temporada_efecto, temporada_exclusion TO app_decide;
+GRANT SELECT, INSERT ON temporada_episodio, temporada_efecto, temporada_exclusion, temporada_fin_reduccion TO app_decide;
 GRANT UPDATE (cerrado_el, cerrado_en_ciclo) ON temporada_episodio TO app_decide;
 GRANT UPDATE (cerrado_el, desenlace) ON temporada_efecto TO app_decide;
 GRANT USAGE ON SEQUENCE temporada_episodio_id_seq, temporada_efecto_id_seq TO app_decide;
-GRANT SELECT ON temporada_episodio, temporada_efecto, temporada_exclusion TO app_read, app_admin;
+GRANT SELECT ON temporada_episodio, temporada_efecto, temporada_exclusion, temporada_fin_reduccion TO app_read, app_admin;
 ```
 
 **Reversa.** Falla con mensaje claro si hay filas en `temporada_episodio` o decisiones con los motivos
@@ -1351,7 +1399,7 @@ Para seguir una decisión de bid: `cycle._procesa_decisora` → `politica.decide
 | Invariante | Dónde |
 | --- | --- |
 | Lo enviado nunca baja más que la reducción (≤ 30 %) | `temporada.destino_entrada` (centavo hacia arriba) + `_paso_a_centavo` (magnitud) + `valida` (rango) |
-| Una keyword reducida nunca recibe otra entrada en el mismo episodio | `pendiente`: con `cadena.reduccion` vigente solo hay ajuste del mismo episodio o regreso; la reducción de un episodio anterior que ya llegó a su nivel o que el dueño movió deja de contar |
+| Una keyword reducida nunca recibe otra entrada en el mismo episodio | `pendiente`: con `cadena.reduccion` vigente solo hay ajuste del mismo episodio o regreso; la reducción de un episodio anterior que ya llegó a su nivel o que el dueño movió termina en `reduccion_vigente` (la única resolución, compartida por `pendiente`, `frontera`, `estampa` y TX3) y queda en `temporada_fin_reduccion`, que no se borra |
 | Dos decisiones de temporada de la misma hoja nunca están abiertas a la vez | índice `temporada_efecto_uno_pendiente` + `lee_estado` (en vuelo) |
 | Un episodio abierto por plataforma | índice `temporada_episodio_uno_abierto` |
 | Una caída después de confirmar no produce otro recorte | el efecto se cierra en la misma transacción que `decision_application`; la cadena confirmada dice «reducida» |
@@ -1677,7 +1725,7 @@ tiene 8.10; el siguiente `old_value` (8.10) difiere 0.004 y no cuenta como mano 
   cosa (R6; R6r no, porque es terreno de David).
 - **David pone 7.00 en Amazon el 1 de enero, entre la decisión y el envío.** El aplicador lee 7.00, que no
   es el 8.00 que vio Orbit: cero PUT, `bid_cambiado_fuera`, exclusión (E1, keyword). El 2 de enero no hay
-  otra entrada. Sigue en 7.00 toda la baja y el 8 de febrero no hay nada que regresar. Ajustes la lista
+  otra entrada. En esa baja no recibe la entrada, el regreso ni la subida rápida; el R6 de hoy puede moverlo con evidencia, desde 7.00. El 8 de febrero no hay nada que regresar. Ajustes la lista
   como «sin tocar: cambiaste tú el bid».
 - **Se queda inerte en junio** (0 impresiones en 14 días). El 1 de julio regresa a 9.20 igual.
 - **El 1 de julio su campaña se queda sin presupuesto.** El regreso espera; la keyword sigue con cortes
