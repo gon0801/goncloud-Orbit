@@ -42,7 +42,8 @@ Busqueda en el servidor goncloud (crontab -u gon -l, leido 2026-11-12; y grep en
 - 30 9,21 * * * cron-avisa --nombre "Señales de publicidad de JEV" --cada 24 -- /bin/bash -c
   '/usr/bin/flock -n -E 75 /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar'
 
-El unico lector del codigo de salida es /usr/local/bin/cron-avisa (leido completo el 2026-11-12):
+El lector programado del codigo de salida es /usr/local/bin/cron-avisa (leido completo el
+2026-11-12):
 - SALTADA = 75; en envuelve(), `if codigo == SALTADA: return codigo` antes de leer o escribir
   estado. El 75 no cuenta como fallo ni como exito y no toca el estado del aviso.
 - Un codigo distinto de 0 incrementa la racha de fallos y avisa a Telegram segun --tras.
