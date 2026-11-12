@@ -3,13 +3,16 @@
 Uso local, sin red:  python docs/evidencia/disenos-01/A/compara.py
 Contra produccion:   python docs/evidencia/disenos-01/A/compara.py --base http://10.13.13.1:8010
 
-Sale 0 solo si el total, las 50 decisiones de las paginas 1 y 2, el JSON del
-feed y el encabezado del dia partido coinciden. No escribe nada.
+Sale 0 solo si el total, las 50 decisiones de las paginas 1 y 2 con sus
+valores, el JSON del feed y el encabezado del dia partido coinciden. No
+escribe nada.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import html as _html
 import json
 import pathlib
 import re
@@ -20,10 +23,40 @@ RAIZ = pathlib.Path(__file__).resolve().parent
 ANTES = RAIZ / "antes"
 DESPUES = RAIZ / "despues"
 
+for _flujo in (sys.stdout, sys.stderr):
+    with contextlib.suppress(AttributeError, ValueError):
+        _flujo.reconfigure(encoding="utf-8", errors="replace")
+
 
 def _descarga(base: str, ruta: str) -> str:
     with urllib.request.urlopen(base.rstrip("/") + ruta, timeout=60) as respuesta:
         return respuesta.read().decode("utf-8")
+
+
+def _texto(fragmento: str) -> str:
+    """Texto visible de un fragmento HTML, con espacios normalizados."""
+    return " ".join(_html.unescape(re.sub(r"<[^>]+>", " ", fragmento)).split())
+
+
+def _bloques(fragmento: str, etiqueta: str, clase: str):
+    """Inicio y fin de cada `<etiqueta ... class=... clase ...>` con su cierre."""
+    patron = re.compile(rf'<{etiqueta}\b[^>]*class="[^"]*\b{re.escape(clase)}\b[^"]*"[^>]*>')
+    for encontrado in patron.finditer(fragmento):
+        profundidad = 1
+        pos = encontrado.end()
+        while profundidad and pos < len(fragmento):
+            abre = fragmento.find(f"<{etiqueta}", pos)
+            cierra = fragmento.find(f"</{etiqueta}>", pos)
+            if cierra < 0:
+                break
+            if 0 <= abre < cierra:
+                profundidad += 1
+                pos = abre + len(etiqueta) + 1
+            else:
+                profundidad -= 1
+                pos = cierra + len(etiqueta) + 3
+        if profundidad == 0:
+            yield encontrado.start(), pos
 
 
 def _ids(html: str) -> list[tuple[str, str]]:
@@ -37,6 +70,99 @@ def _total(html: str) -> int | None:
 
 def _dias(html: str) -> list[str]:
     return re.findall(r'<div class="decisiones-dia-cab">\s*<h2 class="num">([^<]+)</h2>', html)
+
+
+def _filas_viejas(html: str) -> dict[int, dict[str, str]]:
+    """Valores visibles de cada decision en la tabla anterior, por id."""
+    filas: dict[int, dict[str, str]] = {}
+    for encontrado in re.finditer(r"<tr\b[^>]*>(.*?)</tr>", html, re.S):
+        celdas = re.findall(r"<td\b[^>]*>(.*?)</td>", encontrado.group(1), re.S)
+        if len(celdas) < 7:
+            continue
+        cabecera = _texto(celdas[0])
+        ident = re.search(r"#(\d+) · decision #(\d+)", cabecera)
+        if not ident:
+            continue
+        filas[int(ident.group(2))] = {
+            "entidad": re.sub(r"\s*#\d+ · decision #\d+\s*$", "", cabecera),
+            "kind": _texto(celdas[1]).split(" ")[0],
+            "search": _texto(celdas[2]),
+            "motivo": _texto(celdas[3]),
+            "target": _texto(celdas[4]),
+            "bid": _texto(celdas[5]),
+            "fecha": _texto(celdas[6]),
+        }
+    return filas
+
+
+def _contenedores(html: str) -> dict[int, str]:
+    """Texto de cada decision en la pagina nueva, por id; incluye el resumen del grupo."""
+    mapa: dict[int, str] = {}
+    for inicio, fin in _bloques(html, "details", "decisiones-grupo"):
+        grupo = html[inicio:fin]
+        corte = grupo.find("</summary>")
+        resumen = _texto(grupo[: corte + len("</summary>")]) if corte >= 0 else ""
+        for i2, f2 in _bloques(grupo, "div", "decisiones-grupo-item"):
+            texto = _texto(grupo[i2:f2])
+            ident = re.search(r"decision #(\d+)", texto)
+            if ident:
+                mapa[int(ident.group(1))] = f"{resumen} {texto}"
+    for inicio, fin in _bloques(html, "div", "decisiones-fila"):
+        texto = _texto(html[inicio:fin])
+        ident = re.search(r"decision #(\d+)", texto)
+        if ident:
+            mapa[int(ident.group(1))] = texto
+    return mapa
+
+
+def _diferencias_valores(
+    filas: dict[int, dict[str, str]],
+    contenedores: dict[int, str],
+    dias: set[str],
+) -> list[str]:
+    """Compara los valores visibles de cada decision entre A.1 y la pagina nueva."""
+    diferencias: list[str] = []
+    for id_decision, fila in filas.items():
+        texto = contenedores.get(id_decision)
+        if texto is None:
+            diferencias.append(f"decision #{id_decision}: no aparece en la pagina nueva")
+            continue
+        entidad = fila["entidad"]
+        if entidad and entidad not in texto:
+            diferencias.append(f"decision #{id_decision}: entidad {entidad!r} no aparece")
+        kind = fila["kind"]
+        if kind == "Puja":
+            if "Puja" not in texto:
+                diferencias.append(f"decision #{id_decision}: falta el chip Puja")
+        elif kind and kind not in texto:
+            diferencias.append(f"decision #{id_decision}: falta el chip {kind}")
+        search = fila["search"]
+        if search not in ("", "—") and search not in texto:
+            diferencias.append(f"decision #{id_decision}: search term {search!r} no aparece")
+        motivo, _, evidencia = fila["motivo"].partition("Cálculo con evidencia:")
+        motivo = motivo.strip()
+        if motivo and motivo != "—" and motivo not in texto:
+            diferencias.append(f"decision #{id_decision}: motivo {motivo!r} no aparece")
+        evidencia = evidencia.strip()
+        if evidencia and f"Cálculo con evidencia: {evidencia}" not in texto:
+            diferencias.append(f"decision #{id_decision}: evidencia {evidencia!r} no aparece")
+        target = fila["target"]
+        if target in ("", "—"):
+            if "Target usado —" not in texto:
+                diferencias.append(f"decision #{id_decision}: falta Target usado vacio")
+        elif target not in texto:
+            diferencias.append(f"decision #{id_decision}: target {target!r} no aparece")
+        bid = fila["bid"]
+        if bid and bid not in ("— → — —", "—") and bid not in texto:
+            diferencias.append(f"decision #{id_decision}: bid {bid!r} no aparece")
+        fecha = fila["fecha"]
+        if ", " in fecha:
+            dia, hora = fecha.split(", ", 1)
+            if dia not in dias:
+                diferencias.append(f"decision #{id_decision}: dia {dia!r} sin encabezado")
+            if hora not in texto:
+                diferencias.append(f"decision #{id_decision}: hora {hora!r} no aparece")
+    return diferencias
 
 
 def _fuente(base: str | None, nombre: str) -> str:
@@ -71,6 +197,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         if sorted(ids_viejos) != sorted(ids_nuevos):
             diferencias.append(f"pagina {pagina}: ids/entidades distintos")
+        diferencias.extend(
+            f"pagina {pagina} {texto}"
+            for texto in _diferencias_valores(
+                _filas_viejas(viejo), _contenedores(nuevo), set(_dias(nuevo))
+            )
+        )
 
     antes_api = json.loads((ANTES / "api-decisiones.json").read_text(encoding="utf-8"))
     after_api = (
@@ -89,6 +221,10 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"pagina 1: {len(_ids(antes_1))} antes · {len(_ids(nueva_1))} despues; "
         f"pagina 2: {len(_ids(antes_2))} antes · {len(_ids(nueva_2))} despues"
+    )
+    print(
+        "valores por decision: pagina 1 "
+        f"{len(_filas_viejas(antes_1))} · pagina 2 {len(_filas_viejas(antes_2))}"
     )
     print(
         "dia partido 9 oct: pagina 2 "
