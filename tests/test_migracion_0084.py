@@ -2,13 +2,16 @@
 
 Un impulso cuyo grupo se pauso desde la fabrica queda con lote terminal
 'desarmado'; el vigia debe cerrarlo con una lectura final 'desarmado'. La
-reversa no bloquea el rollback: borra esas lecturas (solo las que escribio
-este codigo) y restaura el CHECK y el trigger append-only de la 0065, para que
-el codigo anterior no se encuentre un veredicto que no sabe mapear.
+reversa no bloquea el rollback: archiva esas lecturas (solo las que escribio
+este codigo), las saca de la tabla viva y restaura el CHECK y el trigger
+append-only de la 0065, para que el codigo anterior no se encuentre un
+veredicto que no sabe mapear. El archivo permite reponerlas al reaplicar la
+0084 con restaura_impulso_lectura_desarmado().
 """
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import psycopg
@@ -58,9 +61,10 @@ def test_0084_lectura_desarmado_se_inserta():
 
 
 @_skip_db
-def test_0084_reversa_no_bloquea_el_rollback_y_borra_solo_desarmado():
-    """La reversa no falla con filas 'desarmado': las borra (solo esas),
-    restaura el CHECK de la 0065 y vuelve a encender el trigger append-only."""
+def test_0084_reversa_archiva_y_saca_solo_desarmado_con_vuelta_atras():
+    """La reversa no falla con filas 'desarmado': las archiva, las saca de la
+    tabla viva, restaura el CHECK de la 0065 y vuelve a encender el trigger
+    append-only. Al reaplicar la 0084, la funcion de vuelta atras las repone."""
     with db_fabrica("arreglos01q84_rev") as conn:
         conn.execute(SQL64)
         conn.execute(SQL65)
@@ -72,10 +76,21 @@ def test_0084_reversa_no_bloquea_el_rollback_y_borra_solo_desarmado():
         assert conn.execute("SELECT veredicto FROM impulso_lectura ORDER BY corte").fetchall() == [
             ("sin_impresiones",)
         ]
+        assert conn.execute(
+            "SELECT veredicto, corte, es_final, hecho, archivado_el IS NOT NULL"
+            " FROM impulso_lectura_desarmado_archivo"
+        ).fetchall() == [("desarmado", dt.date(2026, 10, 9), True, "pausado", True)]
         with pytest.raises(psycopg.errors.CheckViolation, match="lectura_veredicto"):
             _lectura(conn, imp, "desarmado", corte="2026-10-10")
         with pytest.raises(psycopg.errors.RaiseException, match="inmutable"):
             conn.execute("DELETE FROM impulso_lectura")
+        conn.execute(SQL84)
+        assert conn.execute("SELECT restaura_impulso_lectura_desarmado()").fetchone() == (1,)
+        assert conn.execute("SELECT veredicto FROM impulso_lectura ORDER BY corte").fetchall() == [
+            ("sin_impresiones",),
+            ("desarmado",),
+        ]
+        assert conn.execute("SELECT restaura_impulso_lectura_desarmado()").fetchone() == (0,)
 
 
 @_skip_db
