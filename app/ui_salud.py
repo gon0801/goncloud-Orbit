@@ -94,6 +94,11 @@ def _resumen_spapi(spapi: dict | None) -> dict:
     return {"valor": valor, "tono": _tono(bool(saltadas == 0 and ok == len(filas)))}
 
 
+def _telegram_de(ciclo: dict) -> dict | None:
+    notas = ciclo.get("notes") if isinstance(ciclo.get("notes"), dict) else {}
+    return notas.get("telegram")
+
+
 def _resumen_ciclo(ciclo: dict) -> dict:
     if not ciclo:
         return {"valor": "—", "tono": "neutro"}
@@ -102,7 +107,16 @@ def _resumen_ciclo(ciclo: dict) -> dict:
         f" · decisiones {formato.numero(ciclo.get('decisions_count'))}"
         f" · aplicadas {formato.numero(ciclo.get('applied_count'))}"
     )
-    return {"valor": valor, "tono": _tono(ciclo.get("status") == "done")}
+    telegram = _telegram_de(ciclo)
+    if telegram:
+        claves = (
+            ", ".join(str(clave) for clave in telegram) if isinstance(telegram, dict) else telegram
+        )
+        valor = f"{valor} · Telegram caído ({claves})"
+    return {
+        "valor": valor,
+        "tono": _tono(ciclo.get("status") == "done" and not telegram),
+    }
 
 
 def _resumen_historico(historico: list[dict]) -> dict:
@@ -363,13 +377,12 @@ def _precios(precios: dict | None) -> dict:
 def _ultimo(ciclo: dict) -> dict | None:
     if not ciclo:
         return None
-    notas = ciclo.get("notes") if isinstance(ciclo.get("notes"), dict) else {}
     return {
         "id": ciclo.get("id"),
         "fecha": formato.fecha_hora(ciclo.get("started_at")),
         "decisiones": formato.numero(ciclo.get("decisions_count")),
         "aplicadas": formato.numero(ciclo.get("applied_count")),
-        "telegram": notas.get("telegram"),
+        "telegram": _telegram_de(ciclo),
     }
 
 

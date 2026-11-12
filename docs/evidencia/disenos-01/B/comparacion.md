@@ -65,6 +65,40 @@ ensanchaba la página por las tablas dentro de contenedores flex; se corrigió
 con `min-width: 0` en los contenedores y con la tabla de quota sin mínimo de
 640 px.
 
+## Corrección F1: valores de un dígito
+
+El comparador ya no acepta una presencia suelta. Para cada fila exige las celdas
+completas (ciclo, reporte de Ads, fuente SP-API, quota) y para cada lista exige
+el motivo y su conteo juntos. Así un `1` no pasa por aparecer en una fecha como
+`10 nov`.
+
+Rojo: en `despues/salud.html`, cambiar las decisiones del ciclo `#180` de `1` a
+`7` deja `1` presente en la fecha (`presencia_de_1 True`), pero el comparador
+nuevo sale 1 con `amazon_us: fila del ciclo 180`. Verde: 557 valores, sin
+diferencias, contra el JSON de antes y contra la copia nueva en vivo.
+
+## Corrección F2: Telegram caído en el resumen
+
+Cuando `notes.telegram` existe, el chequeo visible `Último ciclo` pasa a ámbar y
+su valor termina en `· Telegram caído (<claves>)`. El detalle conserva su
+`p.alerta` con el mismo aviso. La prueba
+`test_ui_salud_muestra_nota_telegram_del_ciclo` exige `salud-dot-aviso` y
+`Telegram caído` en la tarjeta de resumen; contra el código de `7e50c52` falla
+con `el resumen visible no puede quedar verde con Telegram caído`.
+
+## Corrección F6: 390 px con comprobación repetible
+
+```text
+python docs/evidencia/disenos-01/B/mide_390.py
+{"ancho": 390, "scrollWidth": 390, "bodyScrollWidth": 390, "bodyClientWidth": 390, "bodyScroll": false}
+sin desborde a 390 px
+```
+
+El comando sirve `despues/salud-vivo.html` y el CSS real, emula 390 px en un
+navegador headless y falla si el documento supera 390 o si el body tiene scroll
+horizontal. Está declarado en `.interno/comprobaciones.json`. Antes de la
+corrección de CSS la misma medición daba `ancho: 678, bodyScroll: true`.
+
 ## Después del despliegue
 
 La misma comparación contra la instancia viva es:
