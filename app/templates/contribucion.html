@@ -1,55 +1,108 @@
 {% extends "base.html" %}
+{% block estilos %}
+<link rel="stylesheet" href="/static/css/contribucion.css?v={{ asset_version }}">
+{% endblock %}
+{% block titulo_pagina %}Contribución por campaña{% endblock %}
+{% block subtitulo_pagina %}antes de cargos (90 días cerrados){% endblock %}
 {% block contenido %}
-<h2>Contribución por campaña antes de cargos (90 días cerrados)</h2>
-<p class="mutado">Son 90 días que terminan hace 15, cuando las ventas ya no cambian.
+<p class="contribucion-intro">Son 90 días que terminan hace 15, cuando las ventas ya no cambian.
    Cada campaña suma lo que dejan sus keywords y sus productos objetivo.</p>
-{% for plataforma, datos in plataformas.items() %}
-<div class="tarjeta">
-  <h2>{{ plataforma | etiqueta("plataforma") }}
-    {% if datos.ventana %}
-    <span class="mutado">· {{ datos.ventana.desde }} .. {{ datos.ventana.hasta }}</span>
+
+<section class="contribucion-plataformas" aria-label="Resumen por plataforma">
+{% for p in vista.plataformas %}
+  <article class="tarjeta contribucion-tarjeta" id="contribucion-card-{{ p.id }}">
+    <div class="contribucion-cab">
+      <h2>{{ p.nombre }} <span class="num mutado">{{ p.moneda }} · {{ p.campanas }}</span></h2>
+      <span class="num mutado">{{ p.rango }}</span>
+    </div>
+    {% if p.segmentos %}
+    <div class="contribucion-segmentos" role="img" aria-label="Clases de contribución de {{ p.nombre }}: {{ p.segmentos | map(attribute='etiqueta') | join(', ') }}">
+      {% for s in p.segmentos %}
+      <span class="contribucion-segmento contribucion-seg-{{ s.clase }} contribucion-ancho-{{ s.ancho }}"></span>
+      {% endfor %}
+    </div>
+    <ul class="contribucion-clases">
+      {% for s in p.segmentos %}
+      <li><span class="contribucion-swatch contribucion-seg-{{ s.clase }}" aria-hidden="true"></span>{{ s.etiqueta }} <span class="num">{{ s.n }}</span></li>
+      {% endfor %}
+    </ul>
     {% endif %}
-  </h2>
-  {% if datos.filas %}
-  <p class="leyenda">
-    {{ datos.filas[0].etiqueta }}
-    · {{ datos.filas[0].moneda or "—" }}
-    · el tipo de cambio aproximado se marca en la fila
-  </p>
-  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
-  <table>
+    <span class="leyenda">{{ p.leyenda }}</span>
+  </article>
+{% endfor %}
+</section>
+
+<p class="contribucion-explica">Cada barra va del valor más bajo al más alto del rango.
+   <strong>Positiva</strong>: todo el rango arriba de 0 ·
+   <strong>Negativa</strong>: todo el rango abajo de 0 ·
+   <strong>Cruza 0</strong>: el rango incluye ganar y perder.</p>
+
+{% for p in vista.plataformas %}
+<section class="tarjeta contribucion-tabla-tarjeta" aria-labelledby="h-contribucion-{{ p.id }}">
+  <div class="contribucion-cab">
+    <h2 id="h-contribucion-{{ p.id }}">{{ p.nombre }} <span class="num mutado">· {{ p.rango }}</span></h2>
+    {% if p.filas %}
+    <span class="leyenda">{{ p.leyenda }}</span>
+    {% endif %}
+  </div>
+  {% if p.filas %}
+  <div class="tabla-scroll" role="region" aria-label="Tabla de contribución {{ p.nombre }}" tabindex="0">
+  <table class="contribucion-tabla">
+    <colgroup>
+      <col class="contribucion-col-campana">
+      <col class="contribucion-col-valor">
+      <col class="contribucion-col-barra">
+      <col class="contribucion-col-datos">
+    </colgroup>
     <thead>
       <tr>
         <th>Campaña</th>
-        <th class="num">Contribución</th>
+        <th class="num">Contribución ({{ p.moneda }})</th>
+        <th class="contribucion-col-eje">
+          <span class="contribucion-eje" aria-hidden="true">
+            {% if p.eje.mostrar_min %}<span class="num contribucion-eje-min">{{ p.eje.min_texto }}</span>{% endif %}
+            <span class="num contribucion-eje-cero contribucion-izq-{{ p.eje.cero_clase }}">0</span>
+            <span class="num contribucion-eje-max">{{ p.eje.max_texto }}</span>
+          </span>
+          <span class="contribucion-eje-titulo">Rango de contribución</span>
+        </th>
         <th>Datos</th>
       </tr>
     </thead>
     <tbody>
-      {% for item in datos.filas %}
+      {% for item in p.filas %}
       <tr>
-        <td data-dato-libre>{{ item.nombre or "—" }}</td>
-        <td class="num">
-          {% if item.contrib_sin_halo is not none and item.contrib_con_halo is not none %}
-            {{ item.contrib_sin_halo | dinero }} .. {{ item.contrib_con_halo | dinero }}
-            {% if item.precio_min_multilisting %}
-            <br><span class="chip alerta">precio min multilisting</span>
+        <td data-dato-libre>{{ item.nombre }}</td>
+        <td class="num contribucion-valor contribucion-{{ item.clase }}">
+          {{ item.texto }}
+          <span class="contribucion-etiqueta">{{ item.etiqueta }}</span>
+          {% if item.mostrar_parcial %}
+          <br><span class="mutado">parcial: {{ item.motivo }}</span>
+          {% endif %}
+        </td>
+        <td class="contribucion-col-barra">
+          {% if item.punto or item.ancho %}
+          <span class="contribucion-barra" aria-hidden="true">
+            <span class="contribucion-linea-base"></span>
+            <span class="contribucion-linea-cero contribucion-izq-{{ p.eje.cero_clase }}"></span>
+            {% if item.punto %}
+            <span class="contribucion-punto contribucion-barra-{{ item.clase }} contribucion-izq-{{ item.izquierda }}"></span>
+            {% else %}
+            <span class="contribucion-rango contribucion-barra-{{ item.clase }} contribucion-izq-{{ item.izquierda }} contribucion-ancho-{{ item.ancho }}"></span>
             {% endif %}
-            {% if item.motivo_ausencia %}
-            <br><span class="mutado">parcial: {{ item.motivo_ausencia }}</span>
-            {% endif %}
-          {% else %}
-            <span class="mutado">—{% if item.motivo_ausencia %} ({{ item.motivo_ausencia }}){% endif %}</span>
+          </span>
+          {% if item.recortado %}
+          <span class="contribucion-real num">▸ valor real: {{ item.real_texto }}</span>
+          {% endif %}
           {% endif %}
         </td>
         <td>
-          {% if item.metric_date_from and item.metric_date_to %}
-            {{ item.metric_date_from }} .. {{ item.metric_date_to }}
-          {% else %}
-            <span class="mutado">—</span>
+          {{ item.datos }}
+          {% if item.multilisting %}
+            <br><span class="chip alerta">precio min multilisting</span>
           {% endif %}
-          {% if item.fx_source == "nearest_prior" %}
-            <br><span class="chip aviso">Tipo de cambio aproximado: {{ item.fx_source | etiqueta("metodo_fx") }}</span>
+          {% if item.fx_texto %}
+            <br><span class="chip aviso">{{ item.fx_texto }}</span>
           {% endif %}
         </td>
       </tr>
@@ -60,6 +113,6 @@
   {% else %}
   <p class="mutado">Sin campañas con actividad madura en la ventana.</p>
   {% endif %}
-</div>
+</section>
 {% endfor %}
 {% endblock %}

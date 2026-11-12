@@ -85,6 +85,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `nav.salud-tabs a[href="/salud?plataforma=amazon_us"]`, `section#detalle-amazon_us` | `salud.html` (detalle en pestanas) |
 | `details.salud-ciclos-tabla`, `.salud-ciclos-barras`, `.salud-skip-barra` | `salud.html` (barras y tabla plegada) |
 | `script#datos-skips-amazon_us[type=application/json]` | datos de skips |
+| `section.contribucion-plataformas`, `article.contribucion-tarjeta#contribucion-card-amazon_us`, `table.contribucion-tabla`, `.contribucion-barra`, `.contribucion-rango`, `.contribucion-punto`, `.contribucion-real`, `.contribucion-eje` | `contribucion.html` (tarjeta por plataforma y barra de rango) |
 | `nav.paginador a[rel="next"]`, `a[rel="prev"]`, `[aria-current="page"]` | `decisiones.html` |
 | `form.decisiones-filtros`, `input#f-buscar[name="q"]`, `a.seg-btn[href^="?tipo="]`, `section.decisiones-dia`, `details.decisiones-grupo` | `decisiones.html` |
 | `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
@@ -166,6 +167,8 @@ Directorio nombrado (sobrevive cleanup):
     01-resumen.html
     02-contribucion.html
     03-contribucion.json
+    04-contribucion.png
+    05-contribucion-390.png
     PROOF.json
   cortes/
     01-resumen.html

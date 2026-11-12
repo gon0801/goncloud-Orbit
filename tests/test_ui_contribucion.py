@@ -7,6 +7,7 @@ plataforma sin contribucion no rompe la pantalla. Patron de tests/test_ui.py
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from decimal import Decimal
@@ -89,7 +90,7 @@ def _contribucion_html_fakeado(monkeypatch, payload: dict) -> str:
 
 
 def _fila_de(html: str, nombre: str) -> str:
-    filas = [f for f in html.split("<tr>") if f">{nombre}</td>" in f]
+    filas = [f for f in re.findall(r"<tr>.*?</tr>", html, re.S) if f">{nombre}</td>" in f]
     assert len(filas) == 1, f"la campana {nombre} debe aparecer en una sola fila"
     return filas[0]
 
@@ -106,6 +107,8 @@ def test_ui_contribucion_rango_se_ve_como_rango(monkeypatch):
     assert "26.00" in fila and "50.00" in fila
     assert "26.0000" not in fila and "50.0000" not in fila
     assert "26.00 .. 50.00" in fila or ("26.00" in fila and ".." in fila and "50.00" in fila)
+    assert "contribucion-pos" in fila
+    assert "contribucion-barra-pos" in fila
     assert "MXN" in html
     tarjeta_mx = html.split("<h2>Amazon MX")[1].split("<h2>Amazon US")[0]
     assert "MXN" in tarjeta_mx
@@ -207,7 +210,7 @@ def test_ui_contribucion_etiqueta_una_vez_por_plataforma(monkeypatch):
         _item_con_rango(nombre="Camp MX 3", sin_halo="3.0000", con_halo="4.0000"),
     ]
     html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=filas))
-    assert html.count(ETIQUETA) == 1
+    assert html.count(ETIQUETA) == html.count('class="leyenda"')
     assert 'class="leyenda"' in html
     assert ETIQUETA not in _fila_de(html, "Camp MX")
     assert ETIQUETA not in _fila_de(html, "Camp MX 2")
