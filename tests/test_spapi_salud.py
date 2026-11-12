@@ -972,8 +972,8 @@ def test_ui_salud_renderiza_spapi(monkeypatch):
         # Fila spapi_orders de MX con celdas REALES (mata las 6 celdas en
         # '-'): chip ok, #id, filas, skips y motivo. (La plantilla no
         # muestra llamadas: se afirman las celdas que SI renderiza.)
-        # (La tarjeta MX es la segunda: PLATAFORMAS_MONEDA arranca en US.)
-        mx = resp.text.split("<h2>Amazon MX", 1)[1]
+        # El detalle vive en su seccion: el resumen y el detalle de US van antes.
+        mx = resp.text.split('id="detalle-amazon_mx"', 1)[1]
         m = re.search(r"<td>Pedidos de Amazon</td>(.*?)</tr>", mx, re.S)
         assert m, "fila spapi_orders de MX presente"
         fila = m.group(1)
