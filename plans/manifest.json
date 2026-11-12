@@ -214,7 +214,12 @@
       "name": "claridad-01",
       "path": "plans/claridad-01.md",
       "description": "CLARIDAD 01 — Orbit dice la verdad en pantalla: Jev, Propuestas, Subfamilia, precios a la venta, ofertas US, Inertes, registro de etiquetas y manual. Pendiente de lanzar en el motor."
+    },
+    {
+      "name": "disenos-01",
+      "path": "plans/disenos-01.md",
+      "description": "DISEÑOS 01 — Decisiones, Salud y Contribución con el diseño nuevo: una fase por bloque (A, B, C), sin migraciones y sin cambiar los datos que muestran."
     }
   ],
-  "active": "resumen-ads-multicanal"
+  "active": "disenos-01"
 }

@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="es" data-tema="dia">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Orbit — Dashboard</title>
+  <link rel="icon" href="/static/favicon/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/favicon-16.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon/favicon-192.png">
+  <link rel="apple-touch-icon" href="/static/favicon/favicon-180.png">
+  
+  <script src="/static/js/tema.js?v=b8c29221345442d5"></script>
+  <link rel="stylesheet" href="/static/css/dashboard.css?v=b8c29221345442d5">
+  
+</head>
+<body data-pantalla="decisiones">
+  
+  <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
+  <aside class="sidebar" aria-label="Navegacion principal">
+    <a class="marca" href="/" aria-label="Orbit, inicio">
+      <span class="marca-icono" aria-hidden="true">O</span>
+      <span><strong>ORBIT</strong><small>Ads y marketplaces</small></span>
+    </a>
+    <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
+    <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Panel</p>
+        
+        <a href="/" >Resumen</a>
+        
+        <a href="/campanas" >Campañas</a>
+        
+        <a href="/decisiones" aria-current="page">Decisiones</a>
+        
+        <a href="/salud" >Salud</a>
+        
+        <a href="/contribucion" >Contribucion</a>
+        
+      </div>
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Decidir</p>
+        
+        <a href="/cortes" >Propuestas<span id="propuestas-contador" class="contador" hidden></span></a>
+        
+        <a href="/gasto-sin-venta" >Gasto sin venta</a>
+        
+        <a href="/busquedas-sin-venta" >Búsquedas que gastan sin vender</a>
+        
+        <a href="/keywords-danadas" >Keywords dañadas</a>
+        
+        <a href="/ruido" >Ruido</a>
+        
+        <a href="/donde-poner-el-dinero" >Dónde poner el dinero</a>
+        
+        <a href="/productos-sin-clics" >Productos sin clics</a>
+        
+        <a href="/inertes" >Inertes</a>
+        
+        <a href="/campanas/nuevas" >Crear campañas</a>
+        
+      </div>
+      
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Catalogo</p>
+        
+        <a href="/reputacion" >Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
+        <a href="/precios" >Precios</a>
+        <a href="/familias" >Familias</a>
+      </div>
+      <div class="nav-pie">
+        <a href="/settings" >Settings</a>
+      </div>
+    </nav>
+    <div class="ultimo-ciclo">
+      <p class="nav-etiqueta">Ultimo ciclo</p>
+      <div id="ciclo-resumen" role="status"><span class="mutado">Sin consultar</span></div>
+      <a href="/salud">Ver salud por plataforma</a>
+    </div>
+  </aside>
+  <div class="app-contenido">
+    <header class="pagina-header">
+      <div><h1>Decisiones</h1><p>2,903 decisiones · de la más reciente a la más antigua</p></div>
+      <div class="header-acciones">
+        
+
+
+<nav class="paginador paginador-decisiones" aria-label="Páginas">
+  <a rel="prev" href="?page=1">anterior</a>
+  <span aria-current="page">página 2 de 59</span>
+  <a rel="next" href="?page=3">siguiente</a>
+  <span class="mutado">2,903 decisiones</span>
+</nav>
+
+        <span class="leyenda-zona">Horas del centro de México</span>
+        <span id="watermark-resumen" class="chip-watermark">Cifras hasta: sin consultar</span>
+        <span class="alcance">Amazon MX · Amazon US</span>
+        <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
+      </div>
+    </header>
+    <main id="contenido" tabindex="-1">
+    
+
+
+
+
+<section class="tarjeta decisiones-resumen" aria-labelledby="h-res">
+  <div class="decisiones-resumen-cab">
+    <h2 id="h-res">En esta página</h2>
+    <span class="num mutado">50 decisiones · 9 oct – 30 oct</span>
+  </div>
+  <div class="kpis decisiones-kpis">
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-pausa" aria-hidden="true"></span>Pausas</div>
+      <div class="kpi-valor">0</div>
+      <div class="kpi-contexto">de 50 en esta página</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-puja-sube" aria-hidden="true"></span>Pujas subidas</div>
+      <div class="kpi-valor">19</div>
+      <div class="kpi-contexto">de 50 en esta página</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-puja-baja" aria-hidden="true"></span>Pujas bajadas</div>
+      <div class="kpi-valor">26</div>
+      <div class="kpi-contexto">de 50 en esta página</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-etiqueta"><span class="dot dot-negativo" aria-hidden="true"></span>Negativos</div>
+      <div class="kpi-valor">0</div>
+      <div class="kpi-contexto">de 50 en esta página</div>
+    </div>
+  </div>
+</section>
+
+
+<form class="decisiones-filtros" method="get" action="/decisiones" role="search">
+  <div class="seg" role="group" aria-label="Tipo de decisión">
+    
+    <a class="seg-btn active" href="/decisiones" aria-pressed="true">Todas <span class="num">2,903</span></a>
+    
+    <a class="seg-btn" href="?tipo=pausa" aria-pressed="false">Pausas <span class="num">69</span></a>
+    
+    <a class="seg-btn" href="?tipo=puja_sube" aria-pressed="false">Pujas ↑ <span class="num">162</span></a>
+    
+    <a class="seg-btn" href="?tipo=puja_baja" aria-pressed="false">Pujas ↓ <span class="num">2,603</span></a>
+    
+    <a class="seg-btn" href="?tipo=negativo" aria-pressed="false">Negativos <span class="num">53</span></a>
+    
+    <a class="seg-btn" href="?tipo=captura" aria-pressed="false">Captura <span class="num">16</span></a>
+    
+  </div>
+  <div class="decisiones-buscar">
+    <label for="f-buscar">Buscar</label>
+    <input id="f-buscar" type="search" name="q" value="" placeholder="campaña, keyword o ASIN">
+    
+    <button type="submit">Buscar</button>
+    
+  </div>
+</form>
+
+
+
+<section class="decisiones-timeline" aria-label="Decisiones por día">
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">30 oct</h2>
+      <span class="mutado">4 decisiones · 1 puja subida · 3 pujas bajadas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B07FP1GH8Q</strong> <span class="mutado">· AU2 - Product Targeting - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#5567 · decision #2853</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.40</span> → <strong class="decisiones-bid-baja">0.35</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.60 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>wedding arras</strong> <span class="mutado">· AU2 - Category Broad - US</span></span>
+              <span class="decisiones-motivo">La keyword regresó a su puja anterior: la nueva hizo caer sus visitas</span>
+              
+              <span class="decisiones-meta num">#4934 · decision #2852</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.29</span> → <strong class="decisiones-bid-sube">0.33</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.60 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras para boda</strong> <span class="mutado">· AU2 - Category Phrase - US</span></span>
+              <span class="decisiones-motivo">La keyword pierde mucho dinero: baja su puja 25 %</span>
+              
+              <span class="decisiones-meta num">#4924 · decision #2851</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.35</span> → <strong class="decisiones-bid-baja">0.26</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.60 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras</strong> <span class="mutado">· AU2 - Category Phrase - US</span></span>
+              <span class="decisiones-motivo">La keyword pierde mucho dinero: baja su puja 25 %</span>
+              
+              <span class="decisiones-meta num">#4919 · decision #2850</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.30</span> → <strong class="decisiones-bid-baja">0.22</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.60 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">29 oct</h2>
+      <span class="mutado">2 decisiones · 1 puja subida · 1 captura</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-captura">Captura</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>AC - Category Phrase - MX - AdGroup</strong> <span class="mutado">· AC - Category Phrase - MX</span></span>
+              <span class="decisiones-motivo">Captura: la búsqueda vende con ACoS bajo el tope y pasa a la campaña manual</span>
+              
+              <span class="decisiones-meta num">#342 · decision #2849</span>
+              <span class="decisiones-meta num" data-dato-libre>search term: arras para boda catolica</span>
+              
+              <span class="decisiones-meta">Aplicado</span>
+              <span class="decisiones-meta num">job #11</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-meta num">Target usado 20.16 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>sustituto</strong> <span class="mutado">· AGM2M - Auto Discovery - MX</span></span>
+              <span class="decisiones-motivo">El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#3861 · decision #2848</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">3.23</span> → <strong class="decisiones-bid-sube">3.71</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.16 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">28 oct</h2>
+      <span class="mutado">2 decisiones · 2 pujas bajadas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>accesorio</strong> <span class="mutado">· AU2 - Auto Discovery - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#5896 · decision #2847</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.21</span> → <strong class="decisiones-bid-baja">0.18</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 21.60 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>búsqueda amplia</strong> <span class="mutado">· AU2 - Auto Discovery - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#5895 · decision #2846</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.14</span> → <strong class="decisiones-bid-baja">0.12</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 21.60 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">26 oct</h2>
+      <span class="mutado">1 decision · 1 puja bajada</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>wedding arras</strong> <span class="mutado">· USPerNog - Category Exact - US</span></span>
+              <span class="decisiones-motivo">La keyword no vende y su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#1107058 · decision #2845</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.68</span> → <strong class="decisiones-bid-baja">0.60</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 22.19 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">25 oct</h2>
+      <span class="mutado">3 decisiones · 1 puja subida · 1 puja bajada · 1 captura</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-captura">Captura</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>Arras MAtrimoniales Broad</strong> <span class="mutado">· arras matrimoniales broad exact</span></span>
+              <span class="decisiones-motivo">Captura: la búsqueda vende con ACoS bajo el tope y pasa a la campaña manual</span>
+              
+              <span class="decisiones-meta num">#339 · decision #2844</span>
+              <span class="decisiones-meta num" data-dato-libre>search term: arras matrimoniales plata .925</span>
+              
+              <span class="decisiones-meta">Aplicado</span>
+              <span class="decisiones-meta num">job #10</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-meta num">Target usado 20.68 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de matrimonio</strong> <span class="mutado">· AC - Category Exact - MX</span></span>
+              <span class="decisiones-motivo">La keyword tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#2965 · decision #2843</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">3.32</span> → <strong class="decisiones-bid-sube">3.82</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.68 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>wedding arras</strong> <span class="mutado">· AU2 - Category Broad - US</span></span>
+              <span class="decisiones-motivo">La keyword vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#4934 · decision #2842</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.33</span> → <strong class="decisiones-bid-baja">0.29</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 22.38 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">24 oct</h2>
+      <span class="mutado">1 decision · 1 puja subida</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de oro de 14 kilates para boda</strong> <span class="mutado">· AC - Category Exact - MX</span></span>
+              <span class="decisiones-motivo">La keyword tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#2486 · decision #2841</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">3.63</span> → <strong class="decisiones-bid-sube">4.17</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.60 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">23 oct</h2>
+      <span class="mutado">2 decisiones · 2 pujas subidas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de plata</strong> <span class="mutado">· AC - Category Phrase - MX</span></span>
+              <span class="decisiones-motivo">La keyword tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#2889 · decision #2840</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">10.07</span> → <strong class="decisiones-bid-sube">11.58</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.55 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>wedding coins arras</strong> <span class="mutado">· USPerNog - Category Exact - US</span></span>
+              <span class="decisiones-motivo">La keyword regresó a su puja anterior: la nueva hizo caer sus visitas</span>
+              
+              <span class="decisiones-meta num">#5336 · decision #2839</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.42</span> → <strong class="decisiones-bid-sube">0.48</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 22.41 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">22 oct</h2>
+      <span class="mutado">3 decisiones · 3 pujas bajadas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>búsqueda cercana</strong> <span class="mutado">· AU2 - Auto Discovery - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#5894 · decision #2838</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.39</span> → <strong class="decisiones-bid-baja">0.34</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 22.66 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras para boda</strong> <span class="mutado">· AU2 - Category Phrase - US</span></span>
+              <span class="decisiones-motivo">La keyword vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#4924 · decision #2837</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.40</span> → <strong class="decisiones-bid-baja">0.35</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 22.66 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras</strong> <span class="mutado">· AU2 - Category Phrase - US</span></span>
+              <span class="decisiones-motivo">La keyword pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#4919 · decision #2836</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.34</span> → <strong class="decisiones-bid-baja">0.30</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 22.66 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">18 oct</h2>
+      <span class="mutado">1 decision · 1 puja bajada</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>wedding coins arras</strong> <span class="mutado">· USPerNog - Category Exact - US</span></span>
+              <span class="decisiones-motivo">La keyword vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %</span>
+              
+              <span class="decisiones-meta num">#5336 · decision #2835</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.48</span> → <strong class="decisiones-bid-baja">0.42</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 23.73 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">17 oct</h2>
+      <span class="mutado">3 decisiones · 3 pujas subidas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B0FQHGPNDH</strong> <span class="mutado">· AC - Product Targeting - MX</span></span>
+              <span class="decisiones-motivo">El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#3760 · decision #2834</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">12.64</span> → <strong class="decisiones-bid-sube">14.54</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.78 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B0DH2JM8FH</strong> <span class="mutado">· AU2 - Product Targeting - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo regresó a su puja anterior: la nueva hizo caer sus visitas</span>
+              
+              <span class="decisiones-meta num">#5565 · decision #2833</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.20</span> → <strong class="decisiones-bid-sube">0.26</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 23.95 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>wedding arras</strong> <span class="mutado">· AU2 - Category Broad - US</span></span>
+              <span class="decisiones-motivo">La keyword regresó a su puja anterior: la nueva hizo caer sus visitas</span>
+              
+              <span class="decisiones-meta num">#4934 · decision #2832</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.25</span> → <strong class="decisiones-bid-sube">0.33</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 23.95 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">15 oct</h2>
+      <span class="mutado">3 decisiones · 3 capturas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-captura">Captura</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>AGMX - Category Phrase - MX - AdGroup</strong> <span class="mutado">· AGMX - Category Phrase - MX</span></span>
+              <span class="decisiones-motivo">Captura: la búsqueda vende con ACoS bajo el tope y pasa a la campaña manual</span>
+              
+              <span class="decisiones-meta num">#354 · decision #2831</span>
+              <span class="decisiones-meta num" data-dato-libre>search term: arras matrimoniales de plata 925</span>
+              
+              <span class="decisiones-meta">Aplicado</span>
+              <span class="decisiones-meta num">job #9</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-meta num">Target usado 20.75 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-captura">Captura</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>AU2 - Category Broad - US - AdGroup</strong> <span class="mutado">· AU2 - Category Broad - US</span></span>
+              <span class="decisiones-motivo">Captura: la búsqueda vende con ACoS bajo el tope y pasa a la campaña manual</span>
+              
+              <span class="decisiones-meta num">#3993 · decision #2830</span>
+              <span class="decisiones-meta num" data-dato-libre>search term: wedding arras</span>
+              
+              <span class="decisiones-meta">Aplicado</span>
+              <span class="decisiones-meta num">job #8</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-meta num">Target usado 24.43 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-captura">Captura</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>AU2 - Category Broad - US - AdGroup</strong> <span class="mutado">· AU2 - Category Broad - US</span></span>
+              <span class="decisiones-motivo">Captura: la búsqueda vende con ACoS bajo el tope y pasa a la campaña manual</span>
+              
+              <span class="decisiones-meta num">#3993 · decision #2829</span>
+              <span class="decisiones-meta num" data-dato-libre>search term: arras de plata para boda</span>
+              
+              <span class="decisiones-meta">Aplicado</span>
+              <span class="decisiones-meta num">job #7</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-meta num">Target usado 24.43 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">13 oct</h2>
+      <span class="mutado">3 decisiones · 3 pujas subidas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B0C11QJPKV</strong> <span class="mutado">· AC - Product Targeting - MX</span></span>
+              <span class="decisiones-motivo">El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#3848 · decision #2828</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">29.85</span> → <strong class="decisiones-bid-sube">34.33</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.70 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>accesorio</strong> <span class="mutado">· AU2 - Auto Discovery - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo regresó a su puja anterior: la nueva hizo caer sus visitas</span>
+              
+              <span class="decisiones-meta num">#5896 · decision #2827</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.16</span> → <strong class="decisiones-bid-sube">0.21</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 24.71 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>búsqueda amplia</strong> <span class="mutado">· AU2 - Auto Discovery - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo regresó a su puja anterior: la nueva hizo caer sus visitas</span>
+              
+              <span class="decisiones-meta num">#5895 · decision #2826</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.12</span> → <strong class="decisiones-bid-sube">0.14</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 24.71 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">12 oct</h2>
+      <span class="mutado">3 decisiones · 3 pujas subidas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de plata .925 para boda</strong> <span class="mutado">· AC - Category Exact - MX</span></span>
+              <span class="decisiones-motivo">La keyword tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#2967 · decision #2825</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">7.68</span> → <strong class="decisiones-bid-sube">8.83</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.71 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras para boda cristiana</strong> <span class="mutado">· USPerNog - Category Exact - US</span></span>
+              <span class="decisiones-motivo">La keyword tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#363926 · decision #2824</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.28</span> → <strong class="decisiones-bid-sube">0.32</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 24.85 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B07FP1GH8Q</strong> <span class="mutado">· AU2 - Product Targeting - US</span></span>
+              <span class="decisiones-motivo">El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %</span>
+              
+              <span class="decisiones-meta num">#5567 · decision #2823</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.35</span> → <strong class="decisiones-bid-sube">0.40</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 24.85 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">10 oct</h2>
+      <span class="mutado">8 decisiones · 8 pujas bajadas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras</strong> <span class="mutado">· kit_arras | Personalizado | category_phrase | 2026-09-09</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#424450 · decision #2822</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">8.52</span> → <strong class="decisiones-bid-baja">7.50</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.77 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras matrimoniales personalizadas</strong> <span class="mutado">· kit_arras | Personalizado | category_exact | 2026-09-09</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#424436 · decision #2821</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">13.73</span> → <strong class="decisiones-bid-baja">12.08</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.77 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B0G6CN615K</strong> <span class="mutado">· AC - Product Targeting - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#3793 · decision #2820</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">2.43</span> → <strong class="decisiones-bid-baja">2.14</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.77 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de plata</strong> <span class="mutado">· ASEM - Category Phrase - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#2872 · decision #2819</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">13.80</span> → <strong class="decisiones-bid-baja">12.14</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.77 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de boda</strong> <span class="mutado">· AC - Category Phrase - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#2871 · decision #2818</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">9.99</span> → <strong class="decisiones-bid-baja">8.79</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.77 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B01J6RVWPO</strong> <span class="mutado">· Wedding Coin - Asin Targeting</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#5819 · decision #2817</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.15</span> → <strong class="decisiones-bid-baja">0.13</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 21.29 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B0B374R3LD</strong> <span class="mutado">· Wedding Coin - Asin Targeting</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#5695 · decision #2816</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.16</span> → <strong class="decisiones-bid-baja">0.14</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 21.29 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>wedding arras</strong> <span class="mutado">· AU2 - Category Broad - US</span></span>
+              <span class="decisiones-motivo">ACoS 35 % arriba de la meta: baja la puja 25 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta num">#4934 · decision #2815</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">0.33</span> → <strong class="decisiones-bid-baja">0.25</strong> <span class="decisiones-meta">USD</span></span>
+              
+              <span class="decisiones-meta num">Target usado 21.29 %</span>
+            </div>
+            <span class="decisiones-hora">02:40</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+  <section class="decisiones-dia">
+    <div class="decisiones-dia-cab">
+      <h2 class="num">9 oct</h2>
+      <span class="mutado">11 decisiones · 4 pujas subidas · 7 pujas bajadas</span>
+    </div>
+    <div class="decisiones-lista">
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de boda oro</strong> <span class="mutado">· kit_arras | Personalizado | category_broad | 2026-09-09</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Pausa detenida: faltan días en la ventana de la pausa</span>
+              <span class="decisiones-meta num">#424455 · decision #2814</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">11.00</span> → <strong class="decisiones-bid-baja">9.68</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B0DS273K3J</strong> <span class="mutado">· AC - Product Targeting - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % abajo de la meta: sube la puja 15 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: ACoS 15 % abajo de la meta: sube la puja 15 %</span>
+              <span class="decisiones-meta num">#3853 · decision #2813</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">25.77</span> → <strong class="decisiones-bid-sube">29.64</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>mismo ASIN B0FLD912C7</strong> <span class="mutado">· AGMX - Product Targeting - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#3768 · decision #2812</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">37.51</span> → <strong class="decisiones-bid-baja">33.01</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras</strong> <span class="mutado">· AC - Category Exact - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % abajo de la meta: sube la puja 15 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: ACoS 15 % abajo de la meta: sube la puja 15 %</span>
+              <span class="decisiones-meta num">#2964 · decision #2811</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">26.27</span> → <strong class="decisiones-bid-sube">30.21</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras</strong> <span class="mutado">· Arras Manual</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#2917 · decision #2810</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">5.71</span> → <strong class="decisiones-bid-baja">5.02</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras matrimoniales</strong> <span class="mutado">· AGMX - Category Phrase - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % abajo de la meta: sube la puja 15 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: ACoS 15 % abajo de la meta: sube la puja 15 %</span>
+              <span class="decisiones-meta num">#2891 · decision #2809</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">27.35</span> → <strong class="decisiones-bid-sube">31.45</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras para boda</strong> <span class="mutado">· AC - Category Phrase - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#2886 · decision #2808</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">10.48</span> → <strong class="decisiones-bid-baja">9.22</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de plata</strong> <span class="mutado">· ASEM - Category Exact - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#2733 · decision #2807</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">7.86</span> → <strong class="decisiones-bid-baja">6.92</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de plata</strong> <span class="mutado">· AGMX - Category Exact - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#2732 · decision #2806</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">4.72</span> → <strong class="decisiones-bid-baja">4.15</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-baja">Puja ↓</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de oro de 14 kilates para boda</strong> <span class="mutado">· AC - Category Exact - MX</span></span>
+              <span class="decisiones-motivo">ACoS 15 % arriba de la meta: baja la puja 12 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Menos de 20 clics desde el último cambio de puja: aún no se sabe cuánto cuesta cada clic</span>
+              <span class="decisiones-meta num">#2486 · decision #2805</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">4.12</span> → <strong class="decisiones-bid-baja">3.63</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+        
+          
+          <div class="decisiones-fila">
+            <span class="chip chip-tipo-puja-sube">Puja ↑</span>
+            <div class="decisiones-cuerpo">
+              <span class="decisiones-entidad"><strong>arras de oro</strong> <span class="mutado">· Arras Manual</span></span>
+              <span class="decisiones-motivo">ACoS 15 % abajo de la meta: sube la puja 15 %</span>
+              <span class="decisiones-meta">Cálculo con evidencia: Todavía no hay datos suficientes para estar seguros: sin cambio de puja</span>
+              <span class="decisiones-meta num">#2457 · decision #2804</span>
+              
+              
+            </div>
+            <div class="decisiones-lado">
+              
+              <span class="decisiones-bid num"><span class="mutado">20.17</span> → <strong class="decisiones-bid-sube">23.20</strong> <span class="decisiones-meta">MXN</span></span>
+              
+              <span class="decisiones-meta num">Target usado 20.72 %</span>
+            </div>
+            <span class="decisiones-hora">02:41</span>
+          </div>
+        
+      
+    </div>
+  </section>
+
+</section>
+
+
+<nav class="paginador paginador-decisiones" aria-label="Páginas">
+  <a rel="prev" href="?page=1">anterior</a>
+  <span aria-current="page">página 2 de 59</span>
+  <a rel="next" href="?page=3">siguiente</a>
+  <span class="mutado">2,903 decisiones</span>
+</nav>
+
+    </main>
+  </div>
+  
+  
+  
+  <nav class="tab-bar" aria-label="Navegacion movil">
+    <svg class="tab-sprite" aria-hidden="true" focusable="false">
+      <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 10.5 12 4.25l7.5 6.25V19a1.5 1.5 0 0 1-1.5 1.5h-4.25v-6h-3.5v6H6A1.5 1.5 0 0 1 4.5 19z"/>
+      </symbol>
+      <symbol id="ico-casa-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.4 3.7 10.2a.95.95 0 0 0 1.2 1.47L6 10.7V18.6A1.9 1.9 0 0 0 7.9 20.5h2.7v-6.3h2.8v6.3h2.7a1.9 1.9 0 0 0 1.9-1.9v-7.9l1.1.97a.95.95 0 1 0 1.2-1.47L12 3.4z"/>
+      </symbol>
+      <symbol id="ico-barras" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M6 19V10M12 19V5M18 19v-7"/>
+      </symbol>
+      <symbol id="ico-barras-fill" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="4.6" y="9.2" width="2.8" height="10.3" rx="1.2"/>
+        <rect x="10.6" y="4.5" width="2.8" height="15" rx="1.2"/>
+        <rect x="16.6" y="11.2" width="2.8" height="8.3" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-cubo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M12 3.4 20.2 8v8L12 20.6 3.8 16V8L12 3.4zM12 12l8.2-4M12 12v8.6M12 12 3.8 8"/>
+      </symbol>
+      <symbol id="ico-cubo-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2.8 20.5 7.5v9l-8.5 4.7-8.5-4.7v-9L12 2.8zm0 2.2L6.2 8.2 12 11.4l5.8-3.2L12 5zm6.6 4.4L13 12.7v6.6l5.6-3.1V9.4zM11 19.3v-6.6L5.4 9.4v6.4L11 19.3z"/>
+      </symbol>
+      <symbol id="ico-lista" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M9 7h11M9 12h11M9 17h11M5 7h.01M5 12h.01M5 17h.01"/>
+      </symbol>
+      <symbol id="ico-lista-fill" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="7" r="1.35"/><rect x="8.2" y="5.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="12" r="1.35"/><rect x="8.2" y="10.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="17" r="1.35"/><rect x="8.2" y="15.8" width="11.5" height="2.4" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-billetera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M3.5 8.5h17A1.5 1.5 0 0 1 22 10v8a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 2 18V8.5A1.5 1.5 0 0 1 3.5 7h12V8.5"/>
+        <circle cx="17" cy="14" r="1"/>
+      </symbol>
+      <symbol id="ico-billetera-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3.6 6.6h11.7v1.5H3.7A1.2 1.2 0 0 0 2.5 9.3v8.4A2.1 2.1 0 0 0 4.6 19.8h14.8a2.1 2.1 0 0 0 2.1-2.1v-7.3a2.1 2.1 0 0 0-2.1-2.1H3.6V6.6zm13.7 6.2a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z"/>
+      </symbol>
+      <symbol id="ico-banco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 10 12 5l8 5M6.5 10v8.5M12 10v8.5M17.5 10v8.5M4 19.5h16"/>
+      </symbol>
+      <symbol id="ico-banco-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.8 3.4 9.2a1 1 0 0 0 .6 1.8h16a1 1 0 0 0 .6-1.8L12 3.8zM5.4 12.2h2.4V18H5.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zM3.8 19.2h16.4a.9.9 0 0 1 0 1.8H3.8a.9.9 0 0 1 0-1.8z"/>
+      </symbol>
+      <symbol id="ico-aviso" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M12 4.2 20.7 19.3H3.3L12 4.2zM12 10v4.3M12 16.7v.4"/>
+      </symbol>
+      <symbol id="ico-aviso-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
+      </symbol>
+    </svg>
+    
+    <a class="tab" href="/">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-casa"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-casa-fill"/></svg>
+      <span class="tab-label">Resumen</span>
+      
+    </a>
+    
+    <a class="tab" href="/contribucion">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-barras"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-barras-fill"/></svg>
+      <span class="tab-label">Contribucion</span>
+      
+    </a>
+    
+    <a class="tab" href="/reputacion">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-cubo"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-cubo-fill"/></svg>
+      <span class="tab-label">Reputacion</span>
+      <span class="contador tab-badge" data-rol="reputacion" hidden></span>
+    </a>
+    
+    <a class="tab tab-activo" href="/decisiones" aria-current="page">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-lista"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-lista-fill"/></svg>
+      <span class="tab-label">Decisiones</span>
+      
+    </a>
+    
+    <a class="tab" href="/campanas">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-billetera"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-billetera-fill"/></svg>
+      <span class="tab-label">Campañas</span>
+      
+    </a>
+    
+    <a class="tab" href="/settings">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-banco"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-banco-fill"/></svg>
+      <span class="tab-label">Settings</span>
+      
+    </a>
+    
+    <a class="tab" href="/cortes">
+      <svg class="tab-ico tab-ico-off"><use href="#ico-aviso"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-aviso-fill"/></svg>
+      <span class="tab-label">Propuestas</span>
+      <span class="contador tab-badge" data-rol="propuestas" hidden></span>
+    </a>
+    
+  </nav>
+  <script type="application/json" id="orbit-etiquetas">{"etiquetas": {"plataforma": {"amazon_mx": "Amazon MX", "amazon_us": "Amazon US", "meli": "Mercado Libre"}, "motivo_decision": {"pause_umbral": "Pausa: tuvo clics y gasto sobre el umbral sin vender", "banda_menos_25": "ACoS 35 % arriba de la meta: baja la puja 25 %", "banda_menos_12": "ACoS 15 % arriba de la meta: baja la puja 12 %", "banda_menos_25_cero_ventas": "Cero ventas con los clics de una venta y gasto sobre el m\u00ednimo: baja la puja 25 %", "banda_mas_15": "ACoS 15 % abajo de la meta: sube la puja 15 %", "negative_umbral": "Negativo: la b\u00fasqueda tuvo clics y gasto sobre el umbral sin vender", "harvest_umbral": "Captura: la b\u00fasqueda vende con ACoS bajo el tope y pasa a la campa\u00f1a manual", "evidencia_insuficiente": "Todav\u00eda no hay datos suficientes para estar seguros: sin cambio de puja", "cpc_post_cambio_insuficiente": "Menos de 20 clics desde el \u00faltimo cambio de puja: a\u00fan no se sabe cu\u00e1nto cuesta cada clic", "pause_economica": "Pausa por costo: cada venta cuesta m\u00e1s de 3 veces la meta", "regreso_por_desplome": "{que} regres\u00f3 a su puja anterior: la nueva hizo caer sus visitas", "pierde_dinero": "{que} pierde dinero: baja su puja 12 %", "pierde_dinero_fuerte": "{que} pierde mucho dinero: baja su puja 25 %", "grupo_sangra_vendedora": "{que} vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "bajo_target": "{que} tiene el ACoS por debajo de la meta: sube su puja 15 %", "gasto_sin_venta": "{que} ya gast\u00f3 lo necesario para decidir y no vendi\u00f3: baja su puja 12 %", "gasto_sin_venta_doble": "{que} gast\u00f3 el doble de lo necesario para decidir y no vendi\u00f3: baja su puja 25 %", "grupo_sangra": "{que} no vende y su grupo de anuncios pierde dinero: baja su puja 12 %", "subida_sin_economia": "{que}: subida de puja frenada, las visitas de m\u00e1s no pagaron el gasto extra", "producto_sin_ventas": "Pausa del anuncio: el producto no vendi\u00f3 en la ventana de la pausa"}, "motivo_salud": {"sin_goal": "La campa\u00f1a no tiene meta configurada: Orbit no mueve su puja", "goal_disabled": "La meta de la campa\u00f1a est\u00e1 apagada: Orbit no mueve su puja", "goal_mode_off": "La meta est\u00e1 apagada: Orbit no mueve su puja", "estado_no_enabled": "La keyword o el producto no est\u00e1 habilitado o no tiene estado", "campana_no_enabled": "Campa\u00f1a no habilitada (pausada, archivada o sin estado)", "grupo_no_enabled": "Grupo de anuncios no habilitado (pausado, archivado o sin estado)", "entidad_inerte": "Sin impresiones en 14 d\u00edas: Orbit no mueve su puja", "cooldown_7d": "Orbit ya le aplic\u00f3 un cambio en Amazon hace menos de 7 d\u00edas (una puja o una pausa, aunque despu\u00e9s se haya revertido): espera antes de volver a actuar", "veto_pendiente": "Tiene una propuesta esperando tu revisi\u00f3n: Orbit no la vuelve a decidir", "escalera_off": "El motor de pujas est\u00e1 apagado en todas las plataformas", "politica_apagada": "El motor de pujas est\u00e1 apagado en esta plataforma", "sin_target": "No se pudo calcular una meta de ACoS: sin cambio de puja", "producto_sin_evidencia": "La meta por producto no se evalu\u00f3 en este ciclo: sin cambio de puja", "bid_en_vuelo": "El \u00faltimo cambio de puja a\u00fan no se confirma en Amazon: se decide cuando lo confirme", "esperando_efecto": "Puja cambiada hace poco: espera 7 d\u00edas para ver su efecto", "vigente_por_encima": "La puja actual ya est\u00e1 arriba de la puja a la que regresar\u00eda: sin cambio", "vende_dentro_del_margen": "Vende dentro del margen: sin cambio de puja", "azar_lo_explica": "La diferencia puede ser suerte: sin cambio de puja", "venta_reciente": "Vendi\u00f3 hace poco y esos d\u00edas todav\u00eda pueden cambiar: sin cambio de puja", "sin_gasto": "Sin gasto: sin cambio de puja", "hoja_delgada_sin_dinero_que_mover": "Gasta tan poco que no vale la pena mover la puja", "grupo_cumple": "Su grupo de anuncios cumple la meta: sin cambio de puja", "sin_evidencia": "Sin datos suficientes en la keyword ni en su grupo: sin cambio", "esperando_precio_medido": "Puja cambiada hace poco: espera a medir cu\u00e1nto cuesta cada clic", "sin_clics_nuevos": "Sin clics nuevos desde el \u00faltimo cambio de puja", "recorte_costo_trafico": "Bajada de puja frenada: perder\u00eda demasiadas visitas", "subida_sin_trafico": "Subida de puja frenada: no hay visitas para medirla", "subida_sin_economia": "Subida de puja frenada: las visitas de m\u00e1s no pagaron el gasto extra", "piso_aprendido": "La bajada llegar\u00eda a una puja que ya le hizo da\u00f1o: sin cambio de puja", "dato_faltante": "Falta un dato de la b\u00fasqueda", "sin_precio": "No se sabe cu\u00e1nto cuesta cada clic: sin cambio de puja", "guarda_watermark": "Los datos de la plataforma tienen m\u00e1s de 7 d\u00edas de atraso", "guarda_synced_at": "Las campa\u00f1as no se sincronizan con Amazon desde hace m\u00e1s de 48 horas", "guarda_sin_datos": "La plataforma no tiene m\u00e9tricas ni una lectura correcta de sus campa\u00f1as", "pause_umbral": "Pausa: tuvo clics y gasto sobre el umbral sin vender", "pause_cortes_incompleto": "Pausa detenida: faltan d\u00edas en la ventana de la pausa", "pause_moneda_agregado_invalida": "Pausa detenida: la moneda de las m\u00e9tricas no es la de la plataforma", "pause_orders_desconocido": "Pausa detenida: no se sabe cu\u00e1ntos pedidos tuvo", "pause_clicks_o_cost_desconocidos": "Pausa detenida: no se saben sus clics o su gasto", "bids_sin_observaciones": "Sin datos de su puja en la ventana", "bids_incompleto": "Cambio de puja detenido: la ventana tiene menos de 7 d\u00edas con datos", "bids_moneda_agregado_invalida": "Cambio de puja detenido: la moneda de las m\u00e9tricas no es la de la plataforma", "acos_desconocido": "No se sabe el ACoS: falta el gasto o las ventas", "rango_bloquea_ajuste": "La puja m\u00ednima o m\u00e1xima configurada impide el cambio", "bid_actual_invalido": "La puja actual no es v\u00e1lida", "bid_actual_ausente": "No se sabe la puja actual", "bid_moneda_invalida": "La puja tiene una moneda que no es la de la plataforma", "sin_banda": "El ACoS est\u00e1 dentro del rango de la meta: sin cambio de puja", "delta_bajo_umbral": "El cambio ser\u00eda menor a 0.01: no se hace", "evidencia_insuficiente": "Todav\u00eda no hay datos suficientes para estar seguros: sin cambio de puja", "cpc_post_cambio_insuficiente": "Menos de 20 clics desde el \u00faltimo cambio de puja: a\u00fan no se sabe cu\u00e1nto cuesta cada clic", "entidad_incompleta": "Faltan d\u00edas de datos para decidir", "asin_like": "La b\u00fasqueda es un c\u00f3digo de producto: no se bloquea ni se captura", "orders_desconocido": "No se sabe cu\u00e1ntos pedidos tuvo la b\u00fasqueda", "sin_umbral_negative": "La b\u00fasqueda no llega a los clics o al gasto para bloquearla", "acos_sobre_tope": "El ACoS de la b\u00fasqueda pasa el tope para capturarla", "harvest_sin_config": "No hay campa\u00f1a manual configurada para capturar b\u00fasquedas", "harvest_duplicado": "La b\u00fasqueda ya existe como keyword: no se captura otra vez", "termino_es_keyword_propia": "La b\u00fasqueda es una keyword propia de su grupo de anuncios: no se bloquea ni se captura", "harvest_moneda_incoherente": "Captura detenida: la moneda no cuadra", "moneda_incoherente": "La moneda no cuadra", "origen_es_destino": "Captura saltada: el grupo de anuncios de origen ya es el destino de la campa\u00f1a", "sin_destino_de_harvest": "Captura sin destino: falta el grupo exacto, la excepci\u00f3n o el destino en la meta de la campa\u00f1a", "destino_inconsistente": "Captura detenida: el destino de la meta de la campa\u00f1a no coincide con su grupo exacto", "destino_desincronizado": "Captura descartada: el grupo exacto cambi\u00f3 despu\u00e9s de decidir", "migracion_pendiente": "Destino tomado de la meta de la campa\u00f1a (falta pasarlo a un grupo o a una excepci\u00f3n)"}, "procedencia": {"goal_campana": "Meta de la campa\u00f1a", "goal_plataforma": "Meta de la plataforma", "margen_producto": "Meta por producto", "margen_familia": "Margen de la familia", "margen_plataforma": "Margen de la plataforma", "setting_plataforma": "Meta manual de la plataforma"}, "pisa": {"goal_campana": "pisa a la meta de otra campa\u00f1a", "goal_plataforma": "pisa a la meta de la plataforma", "margen_producto": "pisa a la meta por producto", "margen_familia": "pisa a la meta por margen de la familia", "margen_plataforma": "pisa a la meta por margen de la plataforma", "setting_plataforma": "pisa a la meta manual de la plataforma"}, "kind": {"bid": "Puja", "budget": "Presupuesto", "pause": "Pausa", "resume": "Reactivaci\u00f3n", "negative": "Negativo", "harvest": "Captura"}, "nivel": {"hoja": "la keyword o el producto", "ad_group": "el grupo de anuncios"}, "propuesta": {"pause:keyword": "Apagar palabra", "pause:product_target": "Apagar segmentaci\u00f3n de producto", "pause:product_ad": "Pausar anuncio del producto", "pause": "Apagar", "negative": "Bloquear busqueda", "harvest": "Capturar termino que vende"}, "efecto_rechazo": {"pause:keyword": "Rechazar: la palabra NO se apagara (seguira gastando)", "pause:product_target": "Rechazar: la segmentaci\u00f3n de producto NO se apagar\u00e1 (seguir\u00e1 gastando)", "pause:product_ad": "Rechazar: el anuncio del producto NO se pausar\u00e1 (seguir\u00e1 gastando)", "pause": "Rechazar: NO se apagar\u00e1 (seguir\u00e1 gastando)", "negative": "Rechazar: la busqueda NO se bloqueara", "harvest": "Rechazar: la palabra NO se creara"}, "modo": {"off": "Apagado", "shadow": "Pr\u00e1ctica", "live": "En vivo"}, "modo_frase": {"off": "apagada", "shadow": "en pr\u00e1ctica", "live": "en vivo"}, "estado_ciclo": {"running": "En curso", "done": "Completo", "degraded": "Con fallas", "skipped": "Saltado", "failed": "Fall\u00f3", "abierta": "En curso", "cerrada": "Completa", "abortada": "Abortada"}, "estado_cola": {"pending_veto": "Esperando tu revisi\u00f3n", "released": "Lista para aplicarse", "vetoed": "Rechazada", "applied": "Aplicada", "failed": "Fall\u00f3", "discarded": "Descartada"}, "estado_campana": {"ENABLED": "Activa", "PAUSED": "Pausada", "ARCHIVED": "Archivada"}, "estado_propuesta": {"open": "Abierta", "resolved": "Resuelta", "dismissed": "Descartada", "paused_observed": "Ya pausada", "paused_external": "Pausada fuera de Orbit"}, "estado_aviso": {"pending": "Por enviar", "sent": "Enviado"}, "motivo_propuesta_campana": {"exceso_economico": "Gasta mucho m\u00e1s de lo que permite su meta", "bajo_limite": "Dentro de su l\u00edmite", "estado_vencido": "Estado de la campa\u00f1a sin actualizar", "campana_no_enabled": "La campa\u00f1a no est\u00e1 activa", "goal_disabled": "Su meta est\u00e1 apagada", "ventana_incompleta": "Faltan d\u00edas en la ventana", "ventana_inmadura": "La ventana a\u00fan no madura", "moneda_invalida": "Moneda que no es la de la plataforma", "cost_ausente": "Sin dato de gasto", "revenue_ausente": "Sin dato de ventas", "target_ausente": "Sin meta", "dato_invalido": "Dato inv\u00e1lido"}, "paso_bloqueo": {"intencion": "Por aplicar", "aplicado": "Aplicado", "reversa_intencion": "Quit\u00e1ndose", "reversa_fallida": "No se pudo quitar"}, "motivo_bloqueo": {"por_confirmar": "por confirmar en Amazon"}, "estado_reporte": {"written": "Escrito", "pending": "Pendiente", "requested": "Pedido", "failed": "Fall\u00f3", "rejected": "Rechazado", "global_failed": "Fall\u00f3 en todos los perfiles"}, "clasificacion_inerte": {"con_ventas_previas": "Vendi\u00f3 antes", "gasto_sin_ventas": "Gast\u00f3 sin vender", "peso_muerto": "Sin gasto ni ventas"}, "tipo_campana": {"exact": "Exacta", "phrase": "Frase", "broad": "Amplia", "automatica": "Autom\u00e1tica", "product_targeting": "Por producto"}, "rol_campana": {"category_exact": "Exacta de la categor\u00eda", "category_phrase": "Frase de la categor\u00eda", "category_broad": "Amplia de la categor\u00eda", "product_targeting": "Por producto", "auto_discovery": "Autom\u00e1tica"}, "motivo_hermana": {"pt_no_acepta_negative_keyword": "la campa\u00f1a por producto no acepta negativos de keyword", "http_5xx": "Amazon fall\u00f3 de su lado", "http_400": "Amazon rechaz\u00f3 el cambio", "ack_sin_id": "Amazon respondi\u00f3 sin confirmar", "red_ambigua": "falla de red sin respuesta clara"}, "motivo_retiro": {"impulso": "Termin\u00f3 su impulso", "sin_pedidos": "Sin pedidos", "subfamilia": "Su subfamilia se retira", "producto_sin_ventas": "El producto no vende"}, "ubicacion": {"arriba_de_busqueda": "Arriba de b\u00fasqueda", "resto_de_busqueda": "Resto de b\u00fasqueda", "paginas_de_producto": "P\u00e1ginas de producto", "fuera_de_amazon": "Fuera de Amazon"}, "estrategia_puja": {"solo_hacia_abajo": "solo hacia abajo", "arriba_y_abajo": "hacia arriba y hacia abajo", "fija": "fija", "otra": "otra"}, "clase_ajuste": {"presupuesto": "el presupuesto", "ajuste_ubicacion": "el ajuste de ubicaci\u00f3n"}, "tipo_target": {"ASIN_SAME_AS": "mismo ASIN", "ASIN_ACCESSORY_RELATED": "accesorio", "ASIN_SUBSTITUTE_RELATED": "sustituto", "ASIN_ACCESSORY": "accesorio", "ASIN_BRAND_SAME_AS": "misma marca", "ASIN_CATEGORY_SAME_AS": "misma categoria", "ASIN_EXPANDED_FROM": "expandido de", "ASIN_AGE_RANGE_SAME_AS": "misma edad", "ASIN_GENRE_SAME_AS": "mismo genero", "ASIN_IS_PRIME_SHIPPING_ELIGIBLE": "Prime", "ASIN_PRICE_LESS_THAN": "precio menor a", "ASIN_PRICE_GREATER_THAN": "precio mayor a", "ASIN_PRICE_BETWEEN": "precio entre", "ASIN_REVIEW_RATING_LESS_THAN": "calificaci\u00f3n menor a", "ASIN_REVIEW_RATING_GREATER_THAN": "calificaci\u00f3n mayor a", "ASIN_REVIEW_RATING_BETWEEN": "calificaci\u00f3n entre", "QUERY_BROAD_REL_MATCHES": "b\u00fasqueda amplia", "QUERY_HIGH_REL_MATCHES": "b\u00fasqueda cercana"}, "motivo_precio": {"precio_divergente": "precio observado distinto del publicado", "moneda_divergente": "moneda distinta entre observacion y escenario", "precio_sin_observar": "sin observacion de precio del dia", "precio_ausente": "sin precio publicado", "fee_ausente": "sin cotizacion de comision", "fee_no_lineal": "comision no lineal", "fee_error": "falla de comision", "impuesto_fee_pendiente": "impuesto pendiente en la comision", "escenario_incoherente": "escenario incoherente", "estimacion_motivo_desconocido": "motivo de estimacion desconocido", "ingreso_no_positivo": "ingreso no positivo", "precio_no_cubre_costo": "precio bajo el piso de rentabilidad", "precio_mayor_al_doble": "precio mayor al doble del objetivo", "sobre_goal_sin_perdida": "por encima del objetivo sin perdida", "ledger_hueco": "ventas sin dato (libro rezagado)", "historia_corta": "historia de ventas corta", "sin_dato": "sin dato", "ventas_sin_dato": "ventas sin dato", "oferta_desactualizada": "oferta sin observacion reciente", "n15_insuficiente": "ventas de 15 dias insuficientes", "u60_bajo_minimo": "unidades de 60 dias bajo el minimo", "racha_incompleta": "racha de senal incompleta", "ventana_60_excluida": "ventana de 60 dias excluida", "dia_no_disponible": "dia no disponible", "dia_sin_observacion": "dia sin observacion", "venta_sin_publicacion": "venta sin publicacion", "evidencia_insuficiente": "evidencia insuficiente", "no_converge": "sin convergencia tras el cambio de direccion", "perdiendo_tras_subida": "perdiendo tras la subida", "api_error": "falla de la API", "no_confirmado": "no confirmado por la observacion", "buy_box_perdida": "buy box perdida", "cooldown": "enfriamiento entre cambios", "en_tolerancia": "dentro de la tolerancia", "movimiento_minimo": "movimiento bajo el minimo", "sin_decision": "sin decision", "sin_listing": "sin publicaci\u00f3n", "catalogo_desactualizado": "catalogo desactualizado", "no_a_la_venta": "no esta a la venta", "canal_sin_dato": "canal sin dato", "desconocido": "desconocido", "universo_apagado": "motor apagado en este canal"}, "estado_precio": {"subir": "subida", "bajar": "bajada", "mantener": "mantenido", "no_evaluado": "no evaluado", "goal_inalcanzable": "objetivo inalcanzable", "frenado": "frenado", "no_confirmado": "no confirmado", "buy_box_perdida": "buy box perdida"}, "estado_cambio_precio": {"pendiente": "pendiente de confirmaci\u00f3n", "enviado": "enviado", "error": "en error", "confirmado": "confirmado", "no_confirmado": "no confirmado por la observaci\u00f3n"}, "causa_compuerta": {"movimiento_masivo": "movimiento masivo", "insumo_sistemico": "insumo sistemico"}, "insumo_compuerta": {"costo": "coste", "envio": "envio", "retencion": "retencion", "fx": "fx", "fee_fijo": "comision fija", "fee_variable": "comision variable"}, "motivo_abstencion": {"sin_margen": "sin margen medido en la ventana", "cobertura_baja": "cobertura de costos bajo el minimo", "ventana_corta": "pocos dias con venta en la ventana", "sin_fraccion": "sin la fracci\u00f3n del margen configurada para la plataforma", "ledger_rancio": "las ventas del libro llevan m\u00e1s de 3 d\u00edas sin actualizarse", "sin_familia": "keyword sin familia etiquetada (no se usa el margen de la familia)"}, "motivo_sin_lectura": {"dato_de_venta_faltante": "falta un dato de venta", "sin_observaciones": "sin observaciones", "jev_sin_veredicto": "Jev no concluy\u00f3", "jev_no_evaluada": "Jev no la evalu\u00f3"}, "motivo_indeterminado": {"ficha_ausente": "falta la ficha del producto", "juicio_ausente": "falta el juicio", "juicio_insuficiente": "juicio insuficiente", "universo_desconocido": "no se sabe qu\u00e9 productos anuncia el grupo", "universo_vacio": "el grupo no anuncia productos", "fallo_proveedor": "fall\u00f3 el proveedor", "texto_no_aplica": "el texto no aplica", "no_anunciado": "producto no anunciado", "missing_state": "falta el estado"}, "motivo_cierre_jev": {"apagado": "apagado", "ocupado": "otra corrida en curso", "completa": "completa", "tope": "lleg\u00f3 al tope diario", "proveedor_caido": "el proveedor no respondi\u00f3", "sin_api_key": "sin llave del proveedor"}, "degradacion_ciclo": {"live degradado a shadow: sin modulo apply en PR1": "Se pidi\u00f3 el modo en vivo, pero el ciclo corri\u00f3 en pr\u00e1ctica"}, "motivo_variacion": {"cobertura_desconocida": "cobertura desconocida en alguno de los periodos", "cobertura_distinta": "cobertura distinta entre periodos", "cobertura_incompleta": "cobertura incompleta en alguno de los periodos", "dinero_no_alineado": "gasto y ventas no cubren los mismos dias"}, "fuente_ingesta": {"amazon_ads_reports_v3": "Reportes de Amazon Ads", "search_terms": "B\u00fasquedas de los compradores", "spapi_pricing": "Precios de Amazon", "spapi_catalog": "Cat\u00e1logo de Amazon", "spapi_orders": "Pedidos de Amazon", "spapi_inventory": "Inventario de Amazon", "spapi_finances": "Finanzas de Amazon", "spapi_listings": "Publicaciones de Amazon", "spapi_fees": "Comisiones de Amazon", "spapi_inventario": "Inventario de Amazon"}, "reporte_ads": {"campanas": "Campa\u00f1as", "keywords": "Keywords", "targets": "Productos objetivo", "search_terms": "B\u00fasquedas", "productos": "Productos anunciados"}, "fuente_quota": {"fila_del_dia": "Contado hoy", "config_vigente": "Tope de la configuraci\u00f3n", "sin_clave": "Sin tope configurado: no se aplica nada", "config_rota": "Configuraci\u00f3n ilegible: revisar"}, "incidente_ingesta": {"fallo": "fall\u00f3", "atraso": "atrasada", "recuperacion": "recuperada"}, "metodo_fx": {"exact": "del d\u00eda", "nearest_prior": "del \u00faltimo d\u00eda con dato"}, "motivo_contribucion": {"kind_fuera": "tipo de anuncio que no entra al c\u00e1lculo", "sin_padre": "sin campa\u00f1a a la que sumar", "serie_incompleta": "faltan d\u00edas en la serie", "catalogo_parcial": "cat\u00e1logo incompleto", "sin_precio": "sin precio", "sin_mezcla_ledger": "sin ventas en el libro para repartir", "sin_fx": "sin tipo de cambio"}, "tipo_alerta": {"resena_1": "Rese\u00f1a de 1 estrella", "rating_bajo": "Calificaci\u00f3n baja", "caida_rating": "Ca\u00edda de calificaci\u00f3n", "reclamos_suben": "Suben los reclamos", "salud_cuenta": "Salud de la cuenta"}, "alcance_goal": {"campaign": "Campa\u00f1a", "platform": "Plataforma"}, "estado_lote": {"planeado": "Pendiente de verificaci\u00f3n", "applied": "Creado y registrado", "failed": "Interrumpido", "pausado": "Pausado", "desarmado": "Pausado"}, "estado_paso": {"planeado": "Pendiente", "applied": "Verificado", "failed": "Fall\u00f3"}, "etiqueta_ads": {"sin_datos": "Sin datos", "gasto_sin_ventas": "Gasto sin ventas", "dentro_del_objetivo": "Dentro del objetivo", "por_encima_del_objetivo": "Por encima del objetivo"}, "estado_disponibilidad": {"positivo": "Con stock", "cero": "Stock en 0", "desconocido": "Desconocido", "sin_verificar": "Sin verificar"}, "estado_estimacion": {"disponible": "Disponible", "incompleta": "Incompleta", "desactualizada": "Desactualizada", "identidad_ambigua": "Identidad ambigua"}, "motivo_estimacion": {"costo_ambiguo": "Hay m\u00e1s de un costo posible para el producto", "costo_ausente": "Falta el costo del producto", "costo_base_fiscal_ausente": "Falta la base fiscal del costo", "costo_desactualizado": "El costo no corresponde a la corrida del d\u00eda", "costo_impuesto_incompatible": "El costo incluye impuesto incompatible", "costo_invalido": "El costo del producto no es v\u00e1lido", "costo_no_vigente": "El costo no est\u00e1 vigente en la fecha de valoraci\u00f3n", "envio_sin_historia": "Sin historia de env\u00edos para calcular la log\u00edstica", "fee_ausente": "Falta la cotizaci\u00f3n de comisiones", "fee_incompatible": "La cotizaci\u00f3n de comisiones no concilia", "fee_invalido": "La cotizaci\u00f3n de comisiones no es v\u00e1lida", "fee_item_error": "Amazon devolvi\u00f3 un error al cotizar la comisi\u00f3n", "fee_universo_no_soportado": "Amazon no cotiza comisiones para este canal", "fx_ausente": "Falta el tipo de cambio", "fx_desactualizado": "El tipo de cambio no es del d\u00eda", "fx_direccion_invalida": "El tipo de cambio no apunta a la moneda de venta", "fx_tasa_invalida": "La tasa de cambio no es v\u00e1lida", "identidad_ambigua": "Hay m\u00e1s de una oferta compatible", "impuesto_fee_pendiente": "La cotizaci\u00f3n trae impuesto pendiente de pol\u00edtica", "logistica_fbm_pendiente": "Falta la log\u00edstica de env\u00edo propio", "oferta_ausente": "Falta la oferta de publicaci\u00f3n", "oferta_desactualizada": "La oferta de publicaci\u00f3n ya no est\u00e1 vigente", "oferta_futura": "La oferta de publicaci\u00f3n tiene fecha despu\u00e9s del corte", "politica_ambigua": "Hay m\u00e1s de una pol\u00edtica aplicable", "politica_ausente": "Falta la pol\u00edtica de c\u00e1lculo", "politica_invalida": "La pol\u00edtica de c\u00e1lculo no es v\u00e1lida", "politica_no_vigente": "La pol\u00edtica de c\u00e1lculo no est\u00e1 vigente", "precio_ausente": "Falta el precio de publicaci\u00f3n", "precio_invalido": "El precio de publicaci\u00f3n no es v\u00e1lido", "universo_no_soportado": "El canal o mercado no est\u00e1 en el universo liberado", "us_sin_politica_prospectiva": "Amazon US a\u00fan no tiene pol\u00edtica de c\u00e1lculo", "valoracion_desactualizada": "La fecha de valoraci\u00f3n no coincide con el corte", "variantes_sin_mapear": "Hay variantes del producto sin asignar"}, "exclusion_estimacion": {"ads": "publicidad", "reembolsos": "reembolsos", "almacenamiento": "almacenamiento", "devoluciones": "devoluciones", "costos_periodicos": "costos peri\u00f3dicos", "gastos_generales": "gastos generales"}, "componente_estimacion": {"costo_original": "Costo original", "costo_normalizado": "Costo en la moneda de venta", "fx": "Tipo de cambio", "precio_bruto": "Precio con impuestos", "ingreso_normalizado": "Ingreso sin impuestos", "fee_total": "Comisiones de Amazon", "logistica": "Log\u00edstica", "isr": "Retenci\u00f3n de ISR", "retencion_iva_conciliacion": "Retenci\u00f3n de IVA"}, "resultado_retiro": {"retirado": "retirado", "adoptado": "ya estaba pausado: queda adoptado", "ya_retirado": "ya estaba retirado", "cerrado": "archivado o inexistente en Amazon", "pendiente": "sin confirmar: se reintenta", "rechazado": "Amazon lo rechaz\u00f3", "no_existe": "no existe en Amazon", "archivado": "archivado en Amazon"}, "resultado_regreso": {"repuesto": "regresado", "recreado": "recreado", "ya_repuesto": "ya estaba regresado", "adoptado_sin_reposicion": "adoptado: Orbit lo encontr\u00f3 ya pausado", "requiere_recreacion": "archivado en Amazon: regresar no lo recrea", "no_requiere_recreacion": "no est\u00e1 archivado: usa regresar", "fallo": "no se pudo"}, "accion_siembra": {"sembrar": "Poner meta", "reemplazar": "Cambiar meta", "cerrar": "Quitar meta", "nada": "Sin cambio"}, "bloqueo_siembra": {"sin_escenario": "sin margen de hoy que copiar", "fuera_de_banda": "el margen de hoy queda fuera de la banda permitida", "salto_mayor_25": "el precio objetivo se aleja m\u00e1s de 25 % del actual", "sin_referencia": "sin precio objetivo de referencia", "live_sin_escenario": "no se enciende en vivo sin margen de hoy", "sin_cambio": "ya tiene esa meta y ese modo"}, "motivo_siembra": {"sin_escenario": "sin escenario de margen", "oferta_ausente": "falta la oferta de publicaci\u00f3n", "fee_no_utilizable": "la comisi\u00f3n no se puede usar"}, "motivo_producto": {"sin_fraccion": "sin la fracci\u00f3n del margen configurada para la plataforma", "sin_margen": "sin margen medido en la ventana", "cobertura_baja": "cobertura de costos bajo el minimo", "ventana_corta": "pocos dias con venta en la ventana", "ledger_rancio": "las ventas del libro llevan m\u00e1s de 3 d\u00edas sin actualizarse", "margen_no_positivo": "margen medido cero o negativo: no es una meta de cero", "halo_sin_margen": "ventas atribuidas de otro SKU: su margen no es el del producto", "sku_distinto_en_asin": "otro SKU con gasto en el ASIN del producto", "halo_sin_madurar": "el tramo del halo de menos de 30 dias todavia puede cambiar", "sin_grupo_apto": "ningun grupo exclusivo y apto: la meta no llega a ninguna puja", "grupo_no_apto": "el grupo no es exclusivo del producto o no esta comprobado", "ads_con_metrica_ausente": "una fecha del reporte trae una metrica ausente: no se puede sumar", "fecha_desconocida": "una fecha sin fila ni cobertura demostrada de la ingesta", "fecha_inmadura": "una fecha todavia sin su reobservacion de 30 dias", "sin_filas_en_ventana": "el producto no tiene ninguna fila en la ventana", "vendio_en_ventana": "el producto vendio en la ventana de la pausa", "venta_otro_sku": "ventas atribuidas de otro SKU en la ventana: no son cero ventas", "venta_reciente_producto": "una venta reciente del producto aun no madura: la pausa espera", "bajo_limites": "no llega a los clics o al gasto minimos de la pausa", "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia", "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa", "goal_no_live": "la meta de su campa\u00f1a no est\u00e1 encendida en vivo", "alta_en_ventana": "el anuncio no existia antes de la ventana", "sin_actividad_en_ventana": "el anuncio no aparece en las filas de la ventana", "clave_en_vuelo": "el anuncio ya tiene una pausa en la cola o un veto vigente", "regresado_por_ti": "lo regresaste hace menos de 7 dias", "sin_historia": "la ventana es anterior al primer dato del reporte de productos: no es cero"}, "origen_objetivo": {"margen_medido": "Margen medido", "manual_lanzamiento": "Manual de lanzamiento", "manual_lanzamiento confirmado": "Manual de lanzamiento, confirmado", "margen_minimo_grupo": "Margen m\u00e1s bajo del grupo"}, "recurso_fabrica": {"campaign": "Campa\u00f1a", "ad_group": "Grupo de anuncios", "product_ad": "Anuncio de producto", "keyword": "Keyword", "target": "Producto objetivo", "negative_keyword": "Keyword negativa"}, "objetivo_puja": {"KEYWORD_EXACT_MATCH": "Keyword exacta", "KEYWORD_PHRASE_MATCH": "Keyword de frase", "KEYWORD_BROAD_MATCH": "Keyword amplia", "PAT_ASIN": "Producto (ASIN)", "CLOSE_MATCH": "B\u00fasquedas muy parecidas", "LOOSE_MATCH": "B\u00fasquedas parecidas", "SUBSTITUTES": "Productos sustitutos", "COMPLEMENTS": "Productos complementarios"}}, "sufijo_libre": [["motivo_precio", "fee_error"]]}</script>
+  <script src="/static/js/formato.js?v=b8c29221345442d5"></script>
+  <script src="/static/vendor/chart.umd.min.js?v=b8c29221345442d5"></script>
+  <script src="/static/js/shell.js?v=b8c29221345442d5"></script>
+  <script src="/static/js/dashboard.js?v=b8c29221345442d5"></script>
+  <script src="/static/js/cortes.js?v=b8c29221345442d5"></script>
+  <script src="/static/js/settings.js?v=b8c29221345442d5"></script>
+  
+</body>
+</html>

@@ -84,6 +84,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `canvas#skips-amazon_us` | `salud.html` |
 | `script#datos-skips-amazon_us[type=application/json]` | datos de skips |
 | `nav.paginador a[rel="next"]`, `a[rel="prev"]`, `[aria-current="page"]` | `decisiones.html` |
+| `form.decisiones-filtros`, `input#f-buscar[name="q"]`, `a.seg-btn[href^="?tipo="]`, `section.decisiones-dia`, `details.decisiones-grupo` | `decisiones.html` |
 | `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
 | `form#fabrica-plan`, `#fabrica-plataforma`, `#fabrica-token` | `fabrica.html` |
 | `#settings-token`, `[data-plataforma]`, `[data-settings-config]`, `[data-settings-goal]` | `settings.html` |

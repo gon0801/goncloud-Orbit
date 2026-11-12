@@ -92,9 +92,11 @@ from app.dashboard_contribucion import contribucion_campanas as _contribucion_ca
 from app.dashboard_pagina import (
     _CAMPANA_ANCESTRO,
     _JOINS_ANCESTROS,
+    _SQL_DECISIONES_CONTEOS,
     _SQL_DECISIONES_FEED,
     _SQL_DECISIONES_PAGINA,
-    _SQL_DECISIONES_TOTAL,
+    _SQL_DECISIONES_TOTAL_FILTRADO,
+    TIPOS_DECISION,
     PageWindow,
 )
 from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_POR_DEFECTO
@@ -753,14 +755,105 @@ def _filtros_feed(platform, kind) -> tuple[list[str], list]:
     return (clausulas, params)
 
 
+_CAMPOS_BUSQUEDA_DECISIONES = (
+    "coalesce(" + _CAMPANA_ANCESTRO + ", '')",
+    "coalesce(e.name, '')",
+    "coalesce(e.keyword_text, '')",
+    "coalesce(d.search_term, '')",
+)
+
+
+def _filtros_decisiones(tipo: str | None, q: str | None) -> tuple[str, list]:
+    """Clausulas del filtro de Decisiones (decision del dueno 1).
+
+    `tipo` es vocabulario cerrado: se traduce a fragmentos SQL literales de
+    este modulo y cualquier valor desconocido cae en `todas`. La busqueda va
+    como parametro y usa `strpos`: el texto del usuario nunca se interpola ni
+    se interpreta como patron LIKE.
+    """
+    clausulas: list[str] = []
+    params: list = []
+    texto = (q or "").strip()
+    if texto:
+        busqueda = " OR ".join(
+            f"strpos(lower({campo}), lower(%s)) > 0" for campo in _CAMPOS_BUSQUEDA_DECISIONES
+        )
+        clausulas.append(f"({busqueda})")
+        params.extend([texto] * len(_CAMPOS_BUSQUEDA_DECISIONES))
+    tipo = tipo if tipo in TIPOS_DECISION else "todas"
+    if tipo == "pausa":
+        clausulas.append("d.kind = 'pause'::decision_kind")
+    elif tipo == "negativo":
+        clausulas.append("d.kind = 'negative'::decision_kind")
+    elif tipo == "captura":
+        clausulas.append("d.kind = 'harvest'::decision_kind")
+    elif tipo == "puja_sube":
+        clausulas.append(
+            "d.kind = 'bid'::decision_kind"
+            " AND d.new_value IS NOT NULL AND d.old_value IS NOT NULL"
+            " AND d.new_value > d.old_value"
+        )
+    elif tipo == "puja_baja":
+        clausulas.append(
+            "d.kind = 'bid'::decision_kind"
+            " AND d.new_value IS NOT NULL AND d.old_value IS NOT NULL"
+            " AND d.new_value < d.old_value"
+        )
+    return (" AND ".join(clausulas) or "true"), params
+
+
+def _fila_decision_pagina(fila) -> dict:
+    """Fila del HTML: el shape del feed + la entidad y la campana separadas
+    (el diseno las pinta en la misma linea). El feed JSON NO las recibe:
+    su contrato no cambia."""
+    item = _fila_decision(fila)
+    etiqueta_ent = etiqueta_entidad(
+        kind=fila[12],
+        name=fila[3],
+        keyword_text=fila[13],
+        campana=fila[14],
+    )
+    item["entidad"] = etiqueta_ent.hoja
+    item["campana"] = etiqueta_ent.campana
+    return item
+
+
 def decisiones_pagina(
-    conn: ConexionLectura, page: int, page_size: int
+    conn: ConexionLectura,
+    page: int,
+    page_size: int,
+    tipo: str | None = "todas",
+    q: str | None = None,
 ) -> tuple[list[dict], PageWindow]:
-    """Pagina HTML: count -> ventana clampada -> LIMIT/OFFSET. No es ruta."""
-    total = conn.execute(_SQL_DECISIONES_TOTAL).fetchone()[0]
+    """Pagina HTML: count filtrado -> ventana clampada -> LIMIT/OFFSET.
+
+    El total y la pagina usan las MISMAS clausulas: un filtro no puede pintar
+    una ventana que no corresponde con su total. No es ruta.
+    """
+    filtros, params = _filtros_decisiones(tipo, q)
+    consulta = conn.execute(_SQL_DECISIONES_TOTAL_FILTRADO.format(filtros=filtros), params)
+    total = consulta.fetchone()[0]
     ventana = PageWindow.desde_total(total=total, page=page, page_size=page_size)
-    filas = conn.execute(_SQL_DECISIONES_PAGINA, (ventana.page_size, ventana.offset)).fetchall()
-    return [_fila_decision(fila) for fila in filas], ventana
+    filas = conn.execute(
+        _SQL_DECISIONES_PAGINA.format(filtros=filtros),
+        [*params, ventana.page_size, ventana.offset],
+    ).fetchall()
+    return [_fila_decision_pagina(fila) for fila in filas], ventana
+
+
+def decisiones_conteos(conn: ConexionLectura, q: str | None = None) -> dict[str, int]:
+    """Cuenta TODAS las decisiones que cumplen la busqueda, por tipo: es el
+    numero que muestran las pestanas (no el de la pagina actual)."""
+    filtros, params = _filtros_decisiones("todas", q)
+    fila = conn.execute(_SQL_DECISIONES_CONTEOS.format(filtros=filtros), params).fetchone()
+    return {
+        "todas": fila[0],
+        "pausa": fila[1],
+        "negativo": fila[2],
+        "captura": fila[3],
+        "puja_sube": fila[4],
+        "puja_baja": fila[5],
+    }
 
 
 def _fila_decision(fila) -> dict:
