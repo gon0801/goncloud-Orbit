@@ -62,13 +62,24 @@ echo "== 2) crontab de gon: lineas Orbit = tabla de DEPLOY.md (una vez cada una)
 python3 - "$SHA" "$DIR/crontab-antes.txt" > /tmp/ck-ingesta01.out 2>&1 <<'PY'
 import re, subprocess, sys
 sha, antes = sys.argv[1], sys.argv[2]
-doc = subprocess.run(["git", "show", f"{sha}:docs/DEPLOY.md"], capture_output=True, text=True, check=True).stdout
-m = re.search(r"ORBIT_BLOCK=\$\(cat <<'CRON'\n(.*?)\nCRON\n", doc, re.S)
-bloque = m.group(1).splitlines()
+r = subprocess.run(["git", "show", f"{sha}:tools/despliegue/crontab-orbit.txt"], capture_output=True, text=True, encoding="utf-8")
+if r.returncode == 0:
+    bloque = r.stdout.splitlines()
+else:
+    # SHA archivados anteriores a ARREGLOS 01 N: el bloque vivia en el heredoc de DEPLOY.md.
+    doc = subprocess.run(["git", "show", f"{sha}:docs/DEPLOY.md"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    m = re.search(r"ORBIT_BLOCK=\$\(cat <<'CRON'\n(.*?)\nCRON\n", doc, re.S)
+    if not m:
+        print("bloque_orbit_error", file=sys.stderr)
+        print("orbit_igual_tabla False")
+        print("cada_una_una_vez False")
+        print("ajenas_iguales False")
+        sys.exit(0)
+    bloque = m.group(1).splitlines()
 # patrones que el instalador borra (los mismos grep -v de su linea)
 pats = ["Orbit (ORBIT 03", "job_key=ingest:", "job_key=ads-salud", "job_key=ads_optimizer", "job_key=avisos-campana",
-        "job_key=impulso-vigia", "job_key=jev-senales", "app.cli ingest", "app.cli ads-salud", "app.cli cycle",
-        "app.cli avisos-campana", "app.cli impulso-vigia", "app.cli jev-senales"]
+        "job_key=impulso-vigia", "job_key=jev-senales", "job_key=jev-vigia", "app.cli ingest", "app.cli ads-salud", "app.cli cycle",
+        "app.cli avisos-campana", "app.cli impulso-vigia", "app.cli jev-senales", "app.cli jev-vigia"]
 orbit = lambda l: any(p in l for p in pats)
 ahora = subprocess.run(["ssh", "gonserver", "sudo crontab -u gon -l"], capture_output=True, text=True, check=True).stdout.splitlines()
 previo = open(antes, encoding="utf-8").read().splitlines()

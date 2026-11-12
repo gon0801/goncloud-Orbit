@@ -84,4 +84,31 @@ def fecha_hora(valor) -> str:
     return f"{momento.day} {_MESES[momento.month - 1]}, {momento.hour:02d}:{momento.minute:02d}"
 
 
-FILTROS = {"dinero": dinero, "pct": pct, "numero": numero, "fecha_hora": fecha_hora}
+def fecha_dia(valor) -> str:
+    """Dia visible de un instante: «2026-11-08T17:58:03+00:00» -> «8 nov»."""
+    if valor is None:
+        return _RAYA
+    momento = momento_local(valor)
+    if momento is None:
+        return str(valor)
+    return f"{momento.day} {_MESES[momento.month - 1]}"
+
+
+def hora(valor) -> str:
+    """Hora visible de un instante: «2026-11-08T17:58:03+00:00» -> «11:58»."""
+    if valor is None:
+        return _RAYA
+    momento = momento_local(valor)
+    if momento is None:
+        return str(valor)
+    return f"{momento.hour:02d}:{momento.minute:02d}"
+
+
+FILTROS = {
+    "dinero": dinero,
+    "pct": pct,
+    "numero": numero,
+    "fecha_hora": fecha_hora,
+    "fecha_dia": fecha_dia,
+    "hora": hora,
+}

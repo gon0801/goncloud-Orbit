@@ -613,21 +613,31 @@ def test_ui_decisiones_paginador_es_html_sin_js():
     assert 'rel="next" href="?page=2"' in html
     assert 'id="btn-mas"' not in html
     assert "data-cursor" not in html
-    assert "pagina 1 de 3" in html
+    assert "página 1 de 3" in html
 
 
 def test_ui_cambio_en_una_celda_con_moneda_y_ausencia_explicita():
-    """Handoff ORBIT 18: old -> new conserva moneda y ausencia en PAUSE."""
+    """Handoff ORBIT 18: el bid conserva antes -> despues y su moneda; una
+    decision sin cambio de puja no pinta bid (la ausencia es visible). Una
+    captura conserva la puja inicial (antes ausente) y su moneda."""
     ctx = _ctx_decisiones()
-    ctx["items"][0].update(old_value="1.0000", new_value="0.8800", value_currency="USD")
+    ctx["items"][0].update(kind="bid", old_value="1.0000", new_value="0.8800", value_currency="USD")
     html = ui.templates.env.get_template("decisiones.html").render(**ctx)
-    assert ">Bid</th>" in html
-    assert 'class="cambio-anterior">1.00</span>' in html
-    assert 'class="alerta">0.88</span>' in html
-    assert "USD</small>" in html
+    assert "decisiones-bid" in html
+    assert ">1.00<" in html
+    assert 'class="decisiones-bid-baja">0.88</strong>' in html
+    assert "USD" in html
+    ctx_captura = _ctx_decisiones()
+    ctx_captura["items"][0].update(
+        kind="harvest", old_value=None, new_value="2.50", value_currency="MXN"
+    )
+    html_captura = ui.templates.env.get_template("decisiones.html").render(**ctx_captura)
+    assert "decisiones-bid" in html_captura
+    assert '<span class="mutado">—</span> → <strong class="mutado">2.50</strong>' in html_captura
+    assert "MXN" in html_captura
     html_pause = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
-    assert 'class="cambio-anterior">—</span>' in html_pause
-    assert 'class="mutado">—</span>' in html_pause
+    assert "decisiones-bid" not in html_pause
+    assert "Target usado" in html_pause
 
 
 def test_ui_canvas_siempre_dentro_de_lienzo():
@@ -691,9 +701,9 @@ def test_ui_decisiones_pagina_2_trae_los_ids_siguientes(monkeypatch):
         assert f"decision #{ids[1]}</span>" not in html and f"decision #{ids[2]}</span>" not in html
         assert 'rel="prev" href="?page=1"' in html
         assert 'rel="next"' not in html
-        assert "pagina 2 de 2" in html
+        assert "página 2 de 2" in html
         html_clamp = TestClient(app).get("/decisiones", params={"page": 9}).text
-        assert "pagina 2 de 2" in html_clamp
+        assert "página 2 de 2" in html_clamp
         assert f"decision #{ids[0]}</span>" in html_clamp
 
 
