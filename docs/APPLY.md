@@ -526,7 +526,7 @@ matchType, state}`. La tarea 1.3 amplía `LIST_REQUEST_TYPES` con este path.
 | Estado local | Qué se consulta | Identidad completa exigida | Veredicto → acción |
 |---|---|---|---|
 | Cola `pending_veto` / `released` | NADA (no hay mutación en vuelo) | — | Sin acción: la ventana sigue su reloj (§1.4) |
-| Ledger sin sello — bid (los bids NO van a la cola, §1.1) | readback GET fresco (keyword / product_target por id externo) | plataforma/profile + entidad + `new_value` quantizado | GET == pedido → confirmar (sellar ledger §4, resumen, `applied_cycle_id`); GET != pedido → divergencia → reintento (tope COUNT) o `failed`; GET ambiguo/5xx → `failed` SIN reintento (conserva su cobro) |
+| Ledger sin sello — bid (los bids NO van a la cola, §1.1) | readback GET fresco (keyword / product_target por id externo) | plataforma/profile + entidad + `new_value` quantizado | GET == pedido → confirmar (sellar ledger §4, resumen, `applied_cycle_id`); GET != pedido → divergencia → `failed` (nunca reenvía: el único escritor de bids es `aplica_bids`; la hoja se decide de nuevo con el bid leído); GET ambiguo/5xx → `failed` SIN reintento (conserva su cobro) |
 | Cola `applying` huérfana — pause | GET fresco de estado | plataforma/profile + entidad | PAUSED → confirmar; ENABLED → `failed` y además, si "pause verificado propio + ENABLED vivo" → marcar `reactivacion_manual` (§3.3) |
 | Cola `applying` huérfana — negative | negativeKeywords list (evidencia arriba) | plataforma/profile + adGroupId destino + keywordText + matchType | Existe con identidad → confirmar; existe SOLO en otro ad group (señuelo) → NO confirma → `failed`; no existe → reintento (tope) o `failed` |
 | `harvest_job` fase `pending` | negativeKeywords list del ad group ORIGEN | plataforma/profile + adGroupId origen + keyword_text + match_type | Negativo NO existe → reintentar el POST (seguro: la fuente confirma que no está; el job en vuelo bloquea duplicados); existe → avanzar a `negative_created` |
@@ -538,9 +538,10 @@ matchType, state}`. La tarea 1.3 amplía `LIST_REQUEST_TYPES` con este path.
 Reglas de la matriz:
 
 - **Gate de ancestros en los REINTENTOS (CAMPANA ACTIVA 01 · 1.6):** antes de
-  cualquier HTTP de reconciliación que pueda reintentar una mutación (bids sin
-  sello en `reconcilia_bids`, negatives applying huérfanos en
-  `_reconcilia_negativas`, jobs en vuelo de `reconcilia_harvest`), se verifica
+  cualquier HTTP de reconciliación (el readback de bids sin sello en
+  `reconcilia_bids`, que ya no reenvía, y las mutaciones que sí reintentan los
+  negatives applying huérfanos en `_reconcilia_negativas` y los jobs en vuelo
+  de `reconcilia_harvest`), se verifica
   campaña y ad group ENABLED en el cache `ad_entity_state` con la MISMA
   función que la cola al liberar (`apply.gate_ancestros`; sin fila de state =
   fuera, regla 3). Si falla: sello `fallo:ancestro_no_enabled`, fila/job

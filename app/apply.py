@@ -226,6 +226,10 @@ RESULTADO_ANCESTRO_NO_ENABLED = "fallo:ancestro_no_enabled"
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
 MOTIVO_YA_APLICADA = "ya_aplicada"
 MOTIVO_TOPE_INTENTOS = "tope_intentos"
+# ARREGLOS 01 K (E-H3): una hoja con un bid 'normal' sin sello (resultado
+# dudoso) no vuelve a moverse hasta que la reconciliacion lo confirme o lo
+# cierre. La guarda del ciclo y reconcilia_bids comparten el MISMO predicado.
+MOTIVO_BID_EN_VUELO = "bid_en_vuelo"
 MOTIVO_FUERA_DE_CAP = "fuera_de_cap"
 MOTIVO_FALLO_HTTP = "fallo_http"
 MOTIVO_BID_INCOMPLETO = "bid_incompleto"
@@ -735,6 +739,14 @@ SELECT a.id, a.decision_id, a.request_payload, d.ad_entity_id, d.new_value,
 """
 
 
+def hojas_con_bid_sin_sello(conn: psycopg.Connection, platform: str) -> frozenset[int]:
+    """ARREGLOS 01 K (E-H3): ad_entity_id con un intento tipo 'normal' de
+    decision kind bid SIN sello en la plataforma. Solo lectura; usa el MISMO
+    SQL que reconcilia_bids, asi la guarda del ciclo bloquea exactamente las
+    filas que el reconciliador sella en la fase de apply del mismo ciclo."""
+    return frozenset(f[3] for f in conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)))
+
+
 def reconcilia_bids(
     conn: psycopg.Connection, aplicador: Aplicador, platform: str
 ) -> tuple[int, int]:
@@ -748,19 +760,17 @@ def reconcilia_bids(
       resumen con verify_ok + applied_cycle_id del EJECUTOR + cache con lo
       LEIDO (sellado 16);
     - divergencia → sello 'fallo:divergencia_readback' (resumen verify_ok
-      FALSE, cache con lo leido) y REINTENTO bajo tope-3 (fila nueva del
-      ledger, quota_cobrada=false: la unidad la pago el intento original);
+      FALSE, cache con lo leido). JAMAS REENVIA: el unico escritor de bids es
+      aplica_bids (ARREGLOS 01 K, F-H1); la hoja se decide de nuevo con el bid
+      real leido;
     - ambiguo (5xx agotado / sin bid legible) → failed SIN reintento
       (conserva su cobro, matriz §6.1).
 
-    El reintento divergente se resuelve en la MISMA pasada (PUT + readback);
-    un ambiguo del reintento deja la fila nueva SIN sello: ES el rastro del
-    proximo ciclo. Devuelve (confirmadas, fallidas).
+    Devuelve (confirmadas, fallidas).
 
     CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO, antes de cualquier
     HTTP (readback incluido) — campaña/ad group no ENABLED en el cache sella
-    'fallo:ancestro_no_enabled' y cubre tambien el reintento divergente (la
-    entidad ya fue gateada antes de que nazca su fila de ledger)."""
+    'fallo:ancestro_no_enabled'."""
     filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)).fetchall()
     if not filas:
         return (0, 0)
@@ -769,7 +779,7 @@ def reconcilia_bids(
     # lanza y dejaria sin sellar intentos que el gate ya habia cerrado.
     cliente = None
     confirmadas = fallidas = 0
-    for id_attempt, decision_id, payload, ad_entity_id, new_value, moneda in filas:
+    for id_attempt, decision_id, _payload, ad_entity_id, new_value, _moneda in filas:
         if gate_ancestros(conn, ad_entity_id) is not None:
             with conn.transaction():
                 _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
@@ -814,84 +824,8 @@ def reconcilia_bids(
             if bid_leido is not None:
                 _actualiza_cache(conn, ad_entity_id, bid_leido)  # sellado 16: lo LEIDO
             _confirma_resumen(conn, decision_id, ack or {}, False, aplicador.cycle_id_ejecutor)
-        if bid_leido is None:
-            fallidas += 1  # ambiguo: failed SIN reintento (matriz §6.1)
-            continue
-        # Divergencia con tope disponible → UN reintento (quota ya cobrada).
-        count = conn.execute(_SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
-        rescata = False
-        if count < TOPE_INTENTOS:
-            id_retry = _ledger(conn, decision_id, "normal", payload, quota_cobrada=False)
-            if id_retry is not None:
-                conn.commit()  # intencion durable PRE-HTTP
-                rescata = _reintento_divergente(
-                    conn,
-                    cliente,
-                    id_retry,
-                    decision_id,
-                    ad_entity_id,
-                    identidad,
-                    new_value,
-                    moneda,
-                    aplicador,
-                )
-        if rescata:
-            confirmadas += 1
-        else:
-            fallidas += 1
+        fallidas += 1
     return (confirmadas, fallidas)
-
-
-def _reintento_divergente(
-    conn: psycopg.Connection,
-    cliente: AdsWriteClient,
-    id_retry: int,
-    decision_id: int,
-    ad_entity_id: int,
-    identidad: tuple[str, str],
-    new_value: Decimal,
-    moneda: str | None,
-    aplicador: Aplicador,
-) -> bool:
-    """El UNICO reintento de un bid divergente reconciliado (tope-3 del
-    ledger, quota ya cobrada por el intento original). True = el reintento
-    quedo confirmado por readback. Ambiguo del PUT → la fila nueva queda SIN
-    sello: ES el rastro del proximo ciclo (misma semantica que _ejecuta_mutacion)."""
-    kind, external_id = identidad
-    _, path, contenedor, param = _KINDS_DECISORAS[kind]
-    try:
-        _tick(aplicador._tick_fn)
-        if kind == "keyword":
-            resp_http = cliente.actualizar_bid_keyword(external_id, new_value, moneda)
-        else:
-            resp_http = cliente.actualizar_bid_target(external_id, new_value, moneda)
-    except AdsApiErrorMutacion as exc:
-        _sella_ledger(conn, id_retry, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}")
-        conn.commit()
-        return False
-    except AdsApiError:
-        return False  # ambiguo: la fila sin sello ES el rastro
-    ack_http = _json_seguro(resp_http)
-    _tick(aplicador._tick_fn)
-    try:
-        # CX1/QW1: readback paginado (la entidad puede vivir en pagina 2+).
-        bid2 = _bid_de_readback(cliente, path, contenedor, param, external_id)
-    except AdsApiError:
-        _sella_ledger(conn, id_retry, ack=ack_http, resultado="fallo:readback_ambiguo")
-        conn.commit()
-        return False
-    ok = bid2 is not None and bid2 == Decimal(_bid_payload(new_value))
-    resultado2 = (
-        "ok"
-        if ok
-        else ("fallo:divergencia_readback" if bid2 is not None else "fallo:readback_sin_bid")
-    )
-    with conn.transaction():
-        _sella_ledger(conn, id_retry, ack=ack_http, resultado=resultado2)
-        _confirma_resumen(conn, decision_id, ack_http, ok, aplicador.cycle_id_ejecutor)
-        if bid2 is not None:
-            _actualiza_cache(conn, ad_entity_id, bid2)
-    return ok
 
 
 def _ledger(
