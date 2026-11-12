@@ -776,22 +776,42 @@ def _normaliza_busqueda(texto: str) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", sin_acentos.lower()).split())
 
 
-def _pares_busqueda_decisiones(texto: str) -> list[tuple[str, str]]:
-    """Cada (expresion SQL, parametro) donde busca q en las decisiones.
+def _pares_busqueda_decisiones(texto: str) -> list[tuple[str, tuple[str, ...]]]:
+    """Cada (expresion SQL, parametros) donde busca q en las decisiones.
 
     La entidad se pinta traducida por `etiqueta_entidad` (por ejemplo
-    «busqueda amplia» para `QUERY_BROAD_REL_MATCHES`). El usuario no debe
-    conocer el codigo interno: se agregan los codigos cuyo texto visible
-    contiene q y el nombre crudo sin signos, para los codigos sin etiqueta.
+    «busqueda amplia» para `QUERY_BROAD_REL_MATCHES`, o «mismo ASIN B0...»
+    para un target con valor). El usuario no debe conocer el codigo interno:
+    se agregan los codigos cuyo texto visible esta en q. Cuando q trae tambien
+    el valor, la condicion exige codigo y valor en el mismo `e.name`; si no,
+    agregaria todos los targets del mismo tipo.
     """
-    pares = [(campo, texto) for campo in _CAMPOS_BUSQUEDA_DECISIONES]
+    pares: list[tuple[str, tuple[str, ...]]] = [
+        (f"strpos(lower({campo}), lower(%s)) > 0", (texto,))
+        for campo in _CAMPOS_BUSQUEDA_DECISIONES
+    ]
     normalizado = _normaliza_busqueda(texto)
     if not normalizado:
         return pares
     for codigo, etiqueta_target in TIPO_TARGET.items():
-        if normalizado in _normaliza_busqueda(etiqueta_target):
-            pares.append(("e.name", codigo))
-    pares.append((_NOMBRE_SIN_SIGNOS, normalizado))
+        etiqueta = _normaliza_busqueda(etiqueta_target)
+        if not etiqueta:
+            continue
+        if etiqueta in normalizado:
+            resto = normalizado.replace(etiqueta, "", 1).strip()
+            if resto:
+                pares.append(
+                    (
+                        "(strpos(lower(e.name), lower(%s)) > 0"
+                        " AND strpos(lower(e.name), lower(%s)) > 0)",
+                        (codigo, resto),
+                    )
+                )
+            else:
+                pares.append(("strpos(lower(e.name), lower(%s)) > 0", (codigo,)))
+        elif normalizado in etiqueta:
+            pares.append(("strpos(lower(e.name), lower(%s)) > 0", (codigo,)))
+    pares.append((f"strpos(lower({_NOMBRE_SIN_SIGNOS}), lower(%s)) > 0", (normalizado,)))
     return pares
 
 
@@ -808,9 +828,9 @@ def _filtros_decisiones(tipo: str | None, q: str | None) -> tuple[str, list]:
     texto = (q or "").strip()
     if texto:
         pares = _pares_busqueda_decisiones(texto)
-        busqueda = " OR ".join(f"strpos(lower({campo}), lower(%s)) > 0" for campo, _valor in pares)
+        busqueda = " OR ".join(expresion for expresion, _valores in pares)
         clausulas.append(f"({busqueda})")
-        params.extend(valor for _campo, valor in pares)
+        params.extend(valor for _expresion, valores in pares for valor in valores)
     tipo = tipo if tipo in TIPOS_DECISION else "todas"
     if tipo == "pausa":
         clausulas.append("d.kind = 'pause'::decision_kind")
