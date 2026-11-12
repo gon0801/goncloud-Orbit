@@ -26,7 +26,12 @@ DIAS_DE_MARGEN_DEL_VIGIA = 2
 PRESUPUESTO_MINIMO_CAMPANA: dict[str, Decimal | None] = {"MXN": None, "USD": None}
 
 EstadoVeredicto = Literal[
-    "en_curso", "vende", "clics_sin_ventas", "impresiones_sin_clics", "sin_impresiones"
+    "en_curso",
+    "vende",
+    "clics_sin_ventas",
+    "impresiones_sin_clics",
+    "sin_impresiones",
+    "desarmado",
 ]
 AccionVeredicto = Literal["seguir", "pausar", "graduar"]
 
@@ -163,6 +168,11 @@ class VeredictoImpulso:
     estado: EstadoVeredicto
     final: bool
     accion: AccionVeredicto
+
+
+# ARREGLOS 01 Q: el grupo lo pauso el dueno desde la fabrica (lote desarmado,
+# terminal). El vigia cierra el impulso con esta lectura final; no lo pausa.
+VEREDICTO_DESARMADO = VeredictoImpulso("desarmado", True, "pausar")
 
 
 def veredicto_impulso(lectura: LecturaImpulso, tope: TopeAprendizaje) -> VeredictoImpulso:

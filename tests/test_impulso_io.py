@@ -19,6 +19,7 @@ from test_migracion_0066 import SQL66
 from test_migracion_0068 import SQL68
 from test_migracion_0069 import SQL69
 from test_migracion_0072 import SQL72
+from test_migracion_0084 import SQL84
 from test_retiro_anuncios import SQL78, SQL79, _bolsa, _escritor, _fila
 from test_schema import _postgres_obligatorio_ausente
 
@@ -33,7 +34,7 @@ _skip_db = pytest.mark.skipif(
 
 
 def _db_i3(prefijo):
-    """db_fabrica (ORDEN) mas 0064 y 0065, con fraccion vigente."""
+    """db_fabrica (ORDEN) mas 0064, 0065 y 0084, con fraccion vigente."""
 
     class _Db:
         def __enter__(self):
@@ -49,6 +50,7 @@ def _db_i3(prefijo):
             conn.execute(SQL78)
             conn.execute(SQL79)
             conn.execute(SQL72)
+            conn.execute(SQL84)
             conn.execute(
                 "INSERT INTO config_version(label,settings) VALUES ('fabrica',%s)",
                 (Json({"ads_target_fraccion_margen_amazon_mx": "0.5"}),),
@@ -2075,6 +2077,59 @@ def test_vigia_graduar_lote_desarmado_no_revive():
         acciones = io.vigila(conn, pausador, hoy=HOY)
         assert acciones[0].hecho == "graduado"
         assert pausador.reactivados == []
+
+
+@_skip_db
+def test_arreglos01_q_impulso_desarmado_cierra_limpio():
+    """ARREGLOS 01 Q.1 (I-H2): un lote desarmado no se vuelve a pausar. Con
+    metricas estancadas (19 dias, 5000 impresiones, 40 clics, 0 pedidos) el
+    vigia guarda UNA lectura final 'desarmado' y verifica Amazon con
+    pausa_huerfanas, sin llamar a pausa()."""
+    from app import impulso as im
+    from app.pantalla_productos import frase_final
+
+    with _db_i3("orbit_q_impulso_desarmado") as conn:
+        ids = _impulso_vivo(
+            conn,
+            lote="impulso-q-desarmado-1",
+            tope="1000",
+            diario="25",
+            lanzado=HOY - dt.timedelta(days=20),
+        )
+        conn.execute("UPDATE fabrica_lote SET estado = 'desarmado' WHERE lote = %s", (ids["lote"],))
+        conn.commit()
+        primer_dia = HOY - dt.timedelta(days=19)
+        for i in range(18):
+            _observa(
+                conn,
+                ids["camps"][0],
+                primer_dia + dt.timedelta(days=i),
+                impr=263,
+                clics=2,
+            )
+        _observa(conn, ids["camps"][0], HOY - dt.timedelta(days=1), impr=266, clics=4)
+
+        class _PausadorQueNoPausa(_Pausador):
+            def pausa(self, lote):
+                self.pausados.append(lote)
+                raise AssertionError(f"no debe pausar el lote desarmado {lote}")
+
+        pausador = _PausadorQueNoPausa()
+        acciones = io.vigila(conn, pausador, hoy=HOY)
+
+        assert len(acciones) == 1
+        assert acciones[0].veredicto == im.VeredictoImpulso("desarmado", True, "pausar")
+        assert acciones[0].hecho == "pausado"
+        assert pausador.pausados == []
+        assert pausador.aseguradas == [ids["lote"]]
+        assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (1,)
+        assert conn.execute(
+            "SELECT veredicto, es_final, hecho FROM impulso_lectura WHERE impulso_id = %s",
+            (ids["impulso"],),
+        ).fetchone() == ("desarmado", True, "pausado")
+        assert frase_final("desarmado") == "Lo pausaste desde la fábrica. Ya no gasta."
 
 
 def _con_margen_us(conn, *, sku="SS-US", asin="B0US000001", seller_sku="SS-US"):
