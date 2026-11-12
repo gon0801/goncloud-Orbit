@@ -55,6 +55,7 @@ from app.redaction import scrub
 from app.ui_campanas import VISTAS_RAPIDAS, presenta_campanas
 from app.ui_decisiones import TIPOS_TAB, vista_decisiones
 from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie, vista_resumen
+from app.ui_salud import vista_salud
 
 logger = logging.getLogger(__name__)
 
@@ -562,15 +563,13 @@ def pagina_decisiones(
 
 
 @router.get("/salud", response_class=HTMLResponse)
-def pagina_salud(request: Request, conn: ConexionLectura) -> HTMLResponse:
-    """Salud: snapshot del ultimo ciclo por plataforma + historico 14d +
-    watermarks + skips traducidos."""
+def pagina_salud(
+    request: Request, conn: ConexionLectura, plataforma: str | None = None
+) -> HTMLResponse:
+    """Salud: snapshot por plataforma + historico 14d + skips, en pestanas."""
     datos = dash.salud(conn=conn)
-    return templates.TemplateResponse(
-        request,
-        "salud.html",
-        {"pantalla": "salud", "plataformas": datos["plataformas"], "jev": datos.get("jev")},
-    )
+    vista = vista_salud(datos.get("plataformas"), datos.get("jev"), plataforma)
+    return templates.TemplateResponse(request, "salud.html", {"pantalla": "salud", "vista": vista})
 
 
 @router.get("/precios", response_class=HTMLResponse)

@@ -1025,3 +1025,129 @@ details.detail-box[open] > summary {
 .decisiones-grupo-items { padding: 0 18px 12px 146px; display: flex; flex-direction: column; }
 .decisiones-grupo-item { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; padding: 8px 0; border-top: 1px dashed var(--o-borde); font-size: 12.5px; }
 @media (max-width: 720px) { .decisiones-fila { grid-template-columns: minmax(0, 1fr); } .decisiones-lado { align-items: flex-start; text-align: left; } .decisiones-hora { text-align: left; } .decisiones-grupo-items { padding-left: 18px; } }
+
+
+/* DISENOS 01 B: Salud con tarjeta por plataforma y detalle en pestanas. */
+.salud-plataformas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.salud-tarjeta { display: flex; flex-direction: column; gap: 12px; margin-bottom: 0; }
+.salud-cab { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.salud-cab h2 { margin: 0; font-size: 16px; }
+.salud-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.salud-datos { margin: 0; font-size: 11.5px; color: var(--o-ink2); overflow-wrap: anywhere; }
+.salud-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--o-borde2); }
+.salud-checks li { display: grid; grid-template-columns: 18px 150px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--o-borde2); }
+.salud-check-label { font-size: 12px; font-weight: 600; color: var(--o-ink2); }
+.salud-check-valor { font-size: 12px; overflow-wrap: anywhere; }
+.salud-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--o-ink3); }
+.salud-dot-ok { background: var(--o-ok); }
+.salud-dot-aviso { background: var(--o-oro); }
+.salud-dot-neutro { background: var(--o-ink4); }
+.salud-detalle-cab { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.salud-detalle-cab h2 { margin: 0; font-size: 15px; }
+.salud-detalle { display: flex; flex-direction: column; gap: 16px; }
+.salud-detalle .tarjeta { margin-bottom: 0; }
+.salud-par { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(480px, 100%), 1fr)); gap: 16px; }
+.salud-card-cab { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px; }
+.salud-card-cab h3 { margin: 0; }
+.salud-ciclos-barras {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 6px;
+  align-items: end;
+  height: 150px;
+  border-bottom: 1px solid var(--o-ink4);
+}
+.salud-barra-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+.salud-barra-col > .num { font-size: 10px; color: var(--o-ink2); }
+.salud-barra { display: block; width: 100%; max-width: 28px; border-radius: 4px 4px 0 0; background: #1D4ED8; }
+.salud-barra-0 { height: 2px; background: #D1D5DB; }
+.salud-barra-1 { height: 8px; }
+.salud-barra-2 { height: 16px; }
+.salud-barra-3 { height: 24px; }
+.salud-barra-4 { height: 32px; }
+.salud-barra-5 { height: 40px; }
+.salud-barra-6 { height: 48px; }
+.salud-barra-7 { height: 56px; }
+.salud-barra-8 { height: 64px; }
+.salud-barra-9 { height: 72px; }
+.salud-barra-10 { height: 80px; }
+.salud-barra-11 { height: 88px; }
+.salud-barra-12 { height: 96px; }
+.salud-barra-13 { height: 104px; }
+.salud-barra-14 { height: 112px; }
+.salud-fechas { display: flex; justify-content: space-between; font-size: 10px; }
+.salud-ciclos-tabla { margin-top: 4px; }
+.salud-ciclos-tabla > summary { cursor: pointer; list-style: none; min-height: 32px; display: inline-flex; align-items: center; font-size: 12px; color: var(--o-ac); font-weight: 500; }
+.salud-ciclos-tabla > summary::-webkit-details-marker { display: none; }
+.salud-avisos-lista { list-style: none; margin: 0 0 8px; padding: 0; }
+.salud-avisos-lista li { padding: 7px 0; border-bottom: 1px solid var(--o-borde2); font-size: 12px; line-height: 1.45; }
+.salud-skips { display: flex; flex-direction: column; gap: 12px; }
+.salud-skip-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 24px; }
+.salud-skip-col { display: flex; flex-direction: column; gap: 8px; }
+.salud-skip-cab { display: flex; justify-content: space-between; gap: 12px; margin: 0; font-size: 12px; font-weight: 600; }
+.salud-skip-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.salud-skip-lista li { display: flex; flex-direction: column; gap: 4px; }
+.salud-skip-texto { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; color: var(--o-ink2); }
+.salud-skip-texto .num { font-weight: 600; color: var(--o-ink); }
+.salud-skip-barra { display: block; height: 6px; border-radius: 3px; background: var(--o-chip); }
+.salud-skip-barra > span { display: block; height: 100%; border-radius: 3px; background: #64748B; }
+.salud-ancho-0 { width: 0; }
+.salud-ancho-1 { width: 5%; }
+.salud-ancho-2 { width: 10%; }
+.salud-ancho-3 { width: 15%; }
+.salud-ancho-4 { width: 20%; }
+.salud-ancho-5 { width: 25%; }
+.salud-ancho-6 { width: 30%; }
+.salud-ancho-7 { width: 35%; }
+.salud-ancho-8 { width: 40%; }
+.salud-ancho-9 { width: 45%; }
+.salud-ancho-10 { width: 50%; }
+.salud-ancho-11 { width: 55%; }
+.salud-ancho-12 { width: 60%; }
+.salud-ancho-13 { width: 65%; }
+.salud-ancho-14 { width: 70%; }
+.salud-ancho-15 { width: 75%; }
+.salud-ancho-16 { width: 80%; }
+.salud-ancho-17 { width: 85%; }
+.salud-ancho-18 { width: 90%; }
+.salud-ancho-19 { width: 95%; }
+.salud-ancho-20 { width: 100%; }
+.salud-ingesta { display: flex; flex-direction: column; gap: 18px; }
+.salud-bloque { display: flex; flex-direction: column; gap: 8px; }
+.salud-bloque > h3 { margin: 0; }
+.salud-saltadas { color: var(--o-warn-tx); font-weight: 600; }
+.salud-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 16px; }
+.salud-hecho { margin-bottom: 0; }
+.salud-jev { background: #0F172A; color: #F8FAFC; border-color: #1E293B; }
+.salud-jev h2 { color: #F8FAFC; }
+.salud-jev p { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: #CBD5E1; }
+.salud-jev .mutado { color: #94A3B8; }
+.salud-jev .alerta { color: #FCA5A5; }
+@media (max-width: 720px) {
+  .salud-checks li { grid-template-columns: 18px minmax(90px, 120px) minmax(0, 1fr); }
+  .salud-par,
+  .salud-facts,
+  .salud-skip-grid,
+  .salud-plataformas { grid-template-columns: 1fr; }
+}
+
+/* El detalle vive en flex/grid: sin min-width 0 una tabla con scroll ensancha la pagina. */
+.salud-tarjeta,
+.salud-detalle,
+.salud-detalle > *,
+.salud-par > *,
+.salud-facts > *,
+.salud-ingesta,
+.salud-skips,
+.salud-ciclos,
+.salud-avisos,
+.salud-checks li { min-width: 0; }
+.salud-hecho .tabla-scroll table { min-width: 0; }
+.salud-datos.num,
+.salud-hecho p.num,
+.salud-jev p.num { text-align: left; }
