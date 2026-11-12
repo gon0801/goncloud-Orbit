@@ -153,6 +153,7 @@ class ResultadoSync:
     ventas_meli_sin_sku: int = 0
     ventas_meli_sin_producto: int = 0
     ventas_meli_sin_cantidad: int = 0
+    reatribuidas: int = 0
     rango_min: date | None = None
     rango_max: date | None = None
 
@@ -561,6 +562,18 @@ VALUES (%s, %s, %s, %s, %s, %s)
 ON CONFLICT (ledger_event_id) DO NOTHING
 """
 
+# Solo ventas de Amazon: la atribucion de MeLi sale del SKU y no del mapa
+# ASIN -> listing (ver el diseno de H-H4).
+_PLATAFORMAS_REATRIBUIBLES = frozenset({"amazon_mx", "amazon_us"})
+
+_SQL_REATRIBUIR = """
+UPDATE ledger_event
+   SET product_id = %s
+ WHERE id = %s
+   AND product_id IS NOT NULL
+   AND product_id <> %s
+"""
+
 
 def _id_de_evento(conn: psycopg.Connection, ev: EventoLedger) -> int | None:
     """Id del evento en ledger_event por su llave de dedupe, insertado ahora
@@ -642,6 +655,38 @@ def _atribuir_ventas(
     return sin_atribuir
 
 
+def _reatribuir_ventas(
+    conn: psycopg.Connection,
+    ventas: list[EventoLedger],
+    *,
+    run_id: int,
+) -> int:
+    """Corrige el product_id de ventas de Amazon ya ingeridas cuando el mapa
+    ASIN -> listing cambio desde la primera ingesta. El trigger
+    ledger_solo_reatribuye escribe la auditoria en ledger_reatribucion.
+
+    No toca ventas sin producto (Q3: no se reatribuye NULL -> producto) ni
+    ventas cuyo producto ahora es NULL (el mapa no decide, se conserva el
+    viejo). Devuelve cuantas filas cambio.
+    """
+    cambiadas = 0
+    # El trigger lee esta marca local para sellar ingest_run_id en la auditoria.
+    conn.execute("SELECT set_config('orbit.ingest_run_id', %s, true)", (str(run_id),))
+    for ev in ventas:
+        if (
+            ev.kind != "sale"
+            or ev.platform not in _PLATAFORMAS_REATRIBUIBLES
+            or ev.product_id is None
+        ):
+            continue
+        eid = _id_de_evento(conn, ev)
+        if eid is None:
+            continue
+        cur = conn.execute(_SQL_REATRIBUIR, (ev.product_id, eid, ev.product_id))
+        cambiadas += cur.rowcount or 0
+    return cambiadas
+
+
 def sync_ledger(
     conn: psycopg.Connection,
     ruta_sqlite: Path | str,
@@ -687,14 +732,16 @@ def sync_ledger(
                     por_kind[ev.kind] += 1
                 else:
                     skips["conflicto dedupe"] += 1
+            ventas = [ev for ev in eventos if ev.kind == "sale"]
             skips.update(
                 _atribuir_ventas(
                     conn,
-                    [ev for ev in eventos if ev.kind == "sale"],
+                    ventas,
                     run_id=run_id,
                     atribuidores=despacho,
                 )
             )
+            reatribuidas = _reatribuir_ventas(conn, ventas, run_id=run_id)
 
             skip_reason = _formato_skip_reason(skips)
             _sellar_run(
@@ -742,6 +789,7 @@ def sync_ledger(
         ventas_meli_sin_sku=huecos["venta meli sin sku"],
         ventas_meli_sin_producto=huecos["venta meli sin producto"],
         ventas_meli_sin_cantidad=huecos["venta meli sin cantidad"],
+        reatribuidas=reatribuidas,
         rango_min=min(fechas) if fechas else None,
         rango_max=max(fechas) if fechas else None,
     )
@@ -812,6 +860,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"run_id={resultado.run_id} ok={resultado.ok}"
         f" rows_written={resultado.rows_written} rows_skipped={resultado.rows_skipped}"
+        f" reatribuidas={resultado.reatribuidas}"
     )
     print(
         f"origen={resultado.filas_origen} planificados={resultado.eventos_finales}"

@@ -30,11 +30,14 @@
   en lectura, y eso ES la fecha_fx. Que nadie lo "corrija" después agregando
   columnas convertidas.
 - **Append-only**: `ads_metric_observation`, `search_term_observation`,
-  `ledger_event`, `config_version`, `decision`, `fx_rate` y
-  `external_reconciliation` tienen trigger `prohibir_mutacion`
-  (`BEFORE UPDATE OR DELETE`). Corregir = insertar una fila nueva, jamás pisar
-  (regla 5: el UPSERT in-place invalidó todos los backtests del sistema viejo
-  sin dar síntoma).
+  `config_version`, `decision`, `fx_rate` y `external_reconciliation` tienen
+  trigger `prohibir_mutacion` (`BEFORE UPDATE OR DELETE`). Corregir = insertar
+  una fila nueva, jamás pisar (regla 5: el UPSERT in-place invalidó todos los
+  backtests del sistema viejo sin dar síntoma). `ledger_event` conserva el
+  candado append-only con su trigger propio `ledger_solo_reatribuye`
+  (ARREGLOS 01 Y): prohíbe el DELETE y todo UPDATE, salvo corregir
+  `product_id` de una venta de Amazon, de un producto a otro, y lo audita en
+  `ledger_reatribucion`.
 - **Excepciones mutables deliberadas** (todas documentadas en su tabla):
   `ingest_run` y `optimizer_cycle` nacen abiertas y se cierran con UPDATE
   acotado por columna; `decision_application` se pisa solo por readback;
@@ -43,16 +46,17 @@
   operación; `apply_quota_state` solo consume (`UPDATE (used)`); `sku_cost`
   solo cierra vigencias (`UPDATE (valid_to)`); el resto del catálogo
   (`product`, `listing`, `ad_entity`) admite correcciones controladas.
-  `sku_cost` es la única con **candado propio** en vez de simple ausencia de
-  GRANT: el trigger `sku_cost_solo_cierra_vigencia` permite cambiar `valid_to`
-  y **nada más**, y prohíbe el `DELETE` (borrar una vigencia publicada
-  reescribe el histórico de márgenes hacia atrás). **Cerrar es una transición
-  única `NULL → fecha`**: mover el corte de una vigencia ya cerrada
+  `sku_cost` y `ledger_event` son las dos tablas con **candado propio** en vez
+  de simple ausencia de GRANT. `sku_cost_solo_cierra_vigencia` permite cambiar
+  `valid_to` y **nada más**, y prohíbe el `DELETE` (borrar una vigencia
+  publicada reescribe el histórico de márgenes hacia atrás). **Cerrar es una
+  transición única `NULL → fecha`**: mover el corte de una vigencia ya cerrada
   (`DATE → DATE`) o reabrirla (`DATE → NULL`) también reescribe el período en
   que ese costo aplicó, y el `EXCLUDE` **no lo detecta** — encoger un rango
   nunca solapa, y extenderlo tampoco si la fila no tiene sucesora. Precio
   declarado: cerrar en la fecha equivocada se corrige con una migración, no
-  con un UPDATE.
+  con un UPDATE. `ledger_solo_reatribuye` solo mueve `product_id` de una venta
+  de Amazon, de un producto a otro, y audita en `ledger_reatribucion`.
 - **Toda FK tiene índice de apoyo**: PostgreSQL no crea uno por el
   `REFERENCES`. Sin él, cada verificación de integridad al tocar la tabla
   padre barre la hija entera y los JOIN que el propio esquema declara
@@ -293,9 +297,14 @@ silencio. Los dos últimos usan la clave natural `(platform, kind,
 **`NULLS NOT DISTINCT`** — la moneda va en la clave (sin ella 100 USD y 100
 MXN colisionan y un cargo se pierde) y sin NULLS NOT DISTINCT dos cargos con
 `fee_type` NULL nunca chocarían.
-*Cómo se audita*: trigger `prohibir_mutacion`; conflictos de dedupe contados
+*Cómo se audita*: trigger `ledger_solo_reatribuye`; conflictos de dedupe contados
 en `ingest_run.rows_skipped`; `v_margen_plataforma` expone el margen con y sin
 cargos no atribuibles; `external_reconciliation` es el chequeo final.
+`product_id` de una venta de Amazon se puede corregir cuando el mapa
+ASIN → `listing` cambió: el trigger `ledger_solo_reatribuye` (ARREGLOS 01 Y)
+solo admite esa mutación (venta de Amazon, de producto a producto) y escribe
+la fila de auditoría en `ledger_reatribucion`; las ventas sin producto no se
+tocan (decisión Q3).
 
 ### Configuración y decisiones
 
@@ -1001,8 +1010,10 @@ por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +
   `match_type`/`keyword_text` son inmutables por permisos (mutarlos rompería
   el sello de moneda y los goals); cierres por
   columna: `ingest_run` (`finished_at`, `rows_written`, `rows_skipped`,
-  `skip_reason`, `ok`) y `sku_cost` (**solo `valid_to`** — cerrar vigencias
-  sí, reescribir importes jamás).
+  `skip_reason`, `ok`), `sku_cost` (**solo `valid_to`** — cerrar vigencias
+  sí, reescribir importes jamás) y, desde ARREGLOS 01 Y, `ledger_event`
+  (**solo `product_id`**) — el trigger `ledger_solo_reatribuye` acota esa
+  mutación (venta de Amazon, de producto a producto) y la audita.
 - **`app_decide`** — motores: INSERT en `decision`, `decision_application`,
   envelope/quota/harvest y, desde `0039`, en `precio_decision`,
   `precio_cotizacion`, `precio_envio_muestra` y `precio_cambio` (este último
@@ -1020,11 +1031,13 @@ por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +
 - **`app_read`** — dashboard/análisis: SELECT.
 - Los permisos solos no bastan (un `GRANT ALL` futuro los derrotaría en
   silencio): el candado real es el trigger `prohibir_mutacion`, que bloquea
-  UPDATE/DELETE en las siete tablas append-only **aunque el rol tenga
-  permiso** — y `sku_cost_solo_cierra_vigencia`, que hace lo propio con la
-  única mutación acotada del esquema. Lo que sigue descansando sólo en el
-  GRANT por columna, y queda declarado: la identidad inmutable de `ad_entity`,
-  los cierres por columna de `ingest_run`/`optimizer_cycle` y el `cap` de
-  `apply_quota_state`.
+  UPDATE/DELETE en las tablas append-only **aunque el rol tenga permiso**, más
+  `sku_cost_solo_cierra_vigencia` y `ledger_solo_reatribuye`, que hacen lo
+  propio con las dos mutaciones acotadas del esquema (cerrar una vigencia de
+  costo y corregir el `product_id` de una venta de Amazon). Lo que sigue
+  descansando sólo en el GRANT por columna, y queda declarado: la identidad
+  inmutable de `ad_entity`, los cierres por columna de
+  `ingest_run`/`optimizer_cycle`, el `product_id` de `ledger_event` y el `cap`
+  de `apply_quota_state`.
 - `REVOKE ALL … FROM PUBLIC` + default privileges de solo lectura: ningún rol
   futuro hereda escritura por accidente.
