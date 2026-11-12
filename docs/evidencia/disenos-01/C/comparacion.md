@@ -11,10 +11,12 @@ El JSON es la fuente que alimenta la pagina y no cambia con este bloque.
 
 ## Metodo
 
-`compara.py` usa solo la biblioteca estandar (no importa `app`, Jinja, FastAPI
-ni psycopg) y compara el HTML nuevo ya renderizado en
-`despues/contribucion.html` con el JSON de antes y la pagina anterior. Para cada
-una de las 38 filas (Amazon US 11, Amazon MX 27) exige:
+`compara.py` renderiza el template actual (`contribucion.html` +
+`vista_contribucion`) con el JSON de antes y compara cada fila y valor con la
+pagina anterior. La vista no importa psycopg ni FastAPI; si el Python en uso no
+tiene Jinja2 y existe `.venv`, el comparador se reejecuta con ese interprete; si
+tampoco hay `.venv`, usa el HTML guardado solo como respaldo y lo declara en la
+salida. Para cada una de las 38 filas (Amazon US 11, Amazon MX 27) exige:
 
 - nombre, rango `sin halo .. con halo` (o `— (motivo)`), fechas, chip de
   `precio min multilisting`, chip de tipo de cambio aproximado y motivo parcial;
@@ -27,7 +29,7 @@ una de las 38 filas (Amazon US 11, Amazon MX 27) exige:
 ## Resultado con los datos de antes
 
 ```text
-origen del payload: docs/evidencia/disenos-01/C/antes/api-contribucion.json
+origen del payload: template actual
 filas comprobadas: 421
 sin diferencias
 ```
@@ -52,17 +54,23 @@ sin diferencias
 
 Con solo las filas reales `Arras Manual` y `AC - Category Exact - MX`, el eje
 termina en 20,000 y el rango completo de AC (34,765.96 .. 122,380.55) queda
-fuera. El HTML `despues/contribucion-recorte.html` conserva la marca de borde
-(`contribucion-fuera`), la linea en cero y `▸ valor real: 122,380.55`; no finge
-un rango dentro de la escala. La comprobacion repetible es:
+fuera. `compara.py --recorte` renderiza ese subconjunto con el template actual y
+conserva la marca de borde (`contribucion-fuera`), la linea en cero y
+`▸ valor real: 122,380.55`; no finge un rango dentro de la escala. La
+comprobacion repetible es:
 
 ```text
 python -B docs/evidencia/disenos-01/C/compara.py --recorte
+origen del payload: template actual (recorte)
+filas comprobadas: 8
+sin diferencias
 ```
 
 La prueba de regresion `test_ui_contribucion_rango_fuera_de_escala_conserva_marca_y_rotulo`
 falla contra el codigo anterior (no existe `contribucion-fuera`) y pasa con este
-cambio.
+cambio. Las pruebas `test_ui_contribucion_eje_con_segundo_maximo_cero_conserva_lado_positivo`
+(F1) y `test_ui_contribucion_borde_recortado_con_izquierda_100_conserva_marca`
+(F2) cubren los otros dos bordes.
 
 ## Movil
 

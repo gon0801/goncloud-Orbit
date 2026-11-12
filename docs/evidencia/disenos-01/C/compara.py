@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Compara la pagina Contribucion anterior con la nueva (DISENOS 01, bloque C).
 
-Modo local: compara el HTML nuevo ya renderizado en `despues/contribucion.html`
-con el JSON y la pagina de antes. Modo `--base`: baja el JSON y el HTML de una
-instancia viva; el JSON es la pagina de antes (no cambia) y el HTML, la nueva.
+Modo local: renderiza el template actual (`contribucion.html` +
+`vista_contribucion`) con el JSON de `antes/` y compara cada fila y valor con
+la pagina anterior. Modo `--base`: baja el JSON y el HTML de una instancia
+viva; el JSON es la pagina de antes (no cambia) y el HTML, la nueva.
 
-Solo usa la biblioteca estandar: no necesita el entorno del proyecto ni psycopg.
+El render usa Jinja2 y `app.ui_contribucion`, que solo depende de la biblioteca
+estandar y del motor puro de bids (sin psycopg). Si el Python en uso no tiene
+Jinja2, se reejecuta con `.venv` cuando existe.
 
 Uso:
     python docs/evidencia/disenos-01/C/compara.py
     python docs/evidencia/disenos-01/C/compara.py --html <html-nuevo>
     python docs/evidencia/disenos-01/C/compara.py --base http://10.13.13.1:8010
+    python docs/evidencia/disenos-01/C/compara.py --recorte
 """
 
 from __future__ import annotations
@@ -19,16 +23,41 @@ import argparse
 import contextlib
 import html
 import json
+import os
 import re
+import subprocess
 import sys
 import urllib.request
 from decimal import Decimal
 from pathlib import Path
 
+RAIZ = Path(__file__).resolve().parents[4]
 AQUI = Path(__file__).resolve().parent
+DESPUES = AQUI / "despues" / "contribucion.html"
+sys.path.insert(0, str(RAIZ))
+
+try:
+    from jinja2 import Environment, FileSystemLoader
+except ModuleNotFoundError:
+    Environment = FileSystemLoader = None
+    venv = RAIZ / ".venv" / "Scripts" / "python.exe"
+    if not venv.is_file():
+        venv = RAIZ / ".venv" / "bin" / "python"
+    if (
+        venv.is_file()
+        and os.environ.get("ORBIT_COMPARA_REEXEC") != "1"
+        and sys.executable != str(venv)
+    ):
+        env = os.environ.copy()
+        env["ORBIT_COMPARA_REEXEC"] = "1"
+        raise SystemExit(
+            subprocess.run([str(venv), *sys.argv], env=env, check=False).returncode
+        ) from None
+
+from app.ui_contribucion import vista_contribucion  # noqa: E402
+
 ANTES = AQUI / "antes" / "api-contribucion.json"
 ANTES_HTML = AQUI / "antes" / "contribucion.html"
-DESPUES = AQUI / "despues" / "contribucion.html"
 RECORTE = AQUI / "despues" / "contribucion-recorte.html"
 NOMBRES_RECORTE = ("Arras Manual", "AC - Category Exact - MX")
 NUMERO = re.compile(r"-?[\d,]+\.\d{2}")
@@ -41,6 +70,7 @@ FILA_VIEJA = re.compile(
 CHIP_MULTILISTING = "precio min multilisting"
 FX_NEAREST_PRIOR = "del último día con dato"
 ETIQUETA_CLASE = {"pos": "Positiva", "cruza": "Cruza 0", "neg": "Negativa", "sin": "Sin dato"}
+_ORIGEN_RENDER = "template actual"
 
 
 def _limpiar(fragmento: str) -> str:
@@ -114,6 +144,31 @@ def _textos_viejos(fila: dict[str, str]) -> list[str]:
     return tokens
 
 
+def _render_local(datos: dict, congelado: Path = DESPUES) -> str:
+    global _ORIGEN_RENDER
+    if Environment is None or FileSystemLoader is None:
+        if not congelado.is_file():
+            raise SystemExit(
+                "falta jinja2 y no hay HTML guardado como respaldo; "
+                "corre con el Python del proyecto"
+            )
+        _ORIGEN_RENDER = f"HTML congelado (sin Jinja2): {congelado}"
+        print(f"aviso: sin Jinja2; se usa {congelado}", file=sys.stderr)
+        return congelado.read_text(encoding="utf-8")
+    _ORIGEN_RENDER = "template actual"
+    entorno = Environment(
+        loader=FileSystemLoader(str(RAIZ / "app" / "templates")),
+        autoescape=True,
+    )
+    return entorno.get_template("contribucion.html").render(
+        pantalla="contribucion",
+        vista=vista_contribucion(datos.get("plataformas") or {}),
+        asset_version="evidencia",
+        leyenda_zona="Horas del centro de México",
+        registro_etiquetas="{}",
+    )
+
+
 def _bajar(base: str) -> tuple[dict, str]:
     with urllib.request.urlopen(f"{base.rstrip('/')}/api/dashboard/contribucion", timeout=60) as r:
         datos = json.loads(r.read().decode("utf-8"))
@@ -145,7 +200,7 @@ def _escala(filas: list[tuple[Decimal, Decimal]]) -> tuple[Decimal, Decimal, Dec
     highs = sorted((hi for _, hi in filas), reverse=True)
     minimo = -_nice(max(Decimal(0), -min(Decimal(0), min(lows))))
     tope = highs[0]
-    if len(highs) > 1 and highs[0] > highs[1] * 3:
+    if len(highs) > 1 and highs[1] > 0 and highs[0] > highs[1] * 3:
         tope = highs[1] * Decimal("1.1")
     maximo = _nice(max(Decimal(0), tope))
     if maximo == minimo:
@@ -282,15 +337,18 @@ def _comparar(datos: dict, pagina: str) -> tuple[int, list[str]]:  # noqa: PLR09
     return total, faltan
 
 
-def _comparar_recorte() -> tuple[int, list[str]]:
-    """Caso bloqueante h_c4b8e201: todo el rango queda fuera de la escala."""
-    if not RECORTE.is_file():
-        raise SystemExit(f"no existe {RECORTE}")
+def _datos_recorte() -> dict:
     datos = json.loads(ANTES.read_text(encoding="utf-8"))
     plataforma = datos["plataformas"]["amazon_mx"]
     plataforma["filas"] = [
         fila for fila in plataforma["filas"] if fila["nombre"] in NOMBRES_RECORTE
     ]
+    return datos
+
+
+def _comparar_recorte(datos: dict, pagina: str) -> tuple[int, list[str]]:
+    """Caso bloqueante h_c4b8e201: todo el rango queda fuera de la escala."""
+    plataforma = datos["plataformas"]["amazon_mx"]
     filas = plataforma["filas"]
     rangos = [
         (Decimal(f["contrib_sin_halo"]), Decimal(f["contrib_con_halo"]))
@@ -298,7 +356,6 @@ def _comparar_recorte() -> tuple[int, list[str]]:
         if f.get("contrib_sin_halo") is not None and f.get("contrib_con_halo") is not None
     ]
     _, maximo, _ = _escala(rangos)
-    pagina = RECORTE.read_text(encoding="utf-8")
     seccion = _seccion(pagina, "amazon_mx")
     nuevas = _filas_nuevas(seccion)
     total = 0
@@ -325,7 +382,7 @@ def _comparar_recorte() -> tuple[int, list[str]]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", help="instancia viva; sin el, usa antes/ y despues/")
+    parser.add_argument("--base", help="instancia viva; sin el, renderiza el template actual")
     parser.add_argument("--html", help="HTML nuevo ya renderizado")
     parser.add_argument(
         "--recorte",
@@ -337,19 +394,22 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8")
 
     if args.recorte:
-        total, faltan = _comparar_recorte()
-        origen = str(RECORTE)
+        datos = _datos_recorte()
+        pagina = _render_local(datos, RECORTE)
+        origen = f"{_ORIGEN_RENDER} (recorte)"
+        total, faltan = _comparar_recorte(datos, pagina)
     elif args.base:
         datos, pagina = _bajar(args.base)
         origen = f"vivo {args.base}"
         total, faltan = _comparar(datos, pagina)
     else:
         datos = json.loads(ANTES.read_text(encoding="utf-8"))
-        ruta = Path(args.html) if args.html else DESPUES
-        if not ruta.is_file():
-            raise SystemExit(f"no existe {ruta}: genera el HTML nuevo o pasa --html/--base")
-        pagina = ruta.read_text(encoding="utf-8")
-        origen = str(ruta)
+        if args.html:
+            pagina = Path(args.html).read_text(encoding="utf-8")
+            origen = args.html
+        else:
+            pagina = _render_local(datos)
+            origen = _ORIGEN_RENDER
         total, faltan = _comparar(datos, pagina)
 
     print(f"origen del payload: {origen}")

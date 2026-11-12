@@ -10,9 +10,6 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
-from app.dashboard_contribucion import ETIQUETA_CONTRIBUCION
-from app.etiquetas import etiqueta
-from app.formato import dinero
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 _CLASES = {
@@ -24,6 +21,9 @@ _CLASES = {
 _ORDEN_CLASES = ("pos", "cruza", "neg", "sin")
 _RAYA = "—"
 _PASOS_NICE = (Decimal(1), Decimal(2), Decimal("2.5"), Decimal(5), Decimal(10))
+_PLATAFORMA = {"amazon_us": "Amazon US", "amazon_mx": "Amazon MX"}
+_METODO_FX = {"nearest_prior": "del último día con dato"}
+_ETIQUETA_FALLBACK = "contribucion pre-cargos · no decisoria"
 
 
 def _dec(valor) -> Decimal | None:
@@ -58,7 +58,13 @@ def _clase_pct(valor: Decimal) -> int:
 
 
 def _texto_eje(valor: Decimal) -> str:
-    return dinero(valor).replace(".00", "") or "0"
+    return _dinero(valor).replace(".00", "") or "0"
+
+
+def _dinero(valor) -> str:
+    if valor is None:
+        return _RAYA
+    return f"{Decimal(str(valor)):,.2f}"
 
 
 def _clase_rango(sin_halo: Decimal, con_halo: Decimal) -> str:
@@ -87,7 +93,7 @@ def _eje(filas: list[tuple[Decimal, Decimal]]) -> dict | None:
     highs = sorted((con for _, con in filas), reverse=True)
     minimo = -_nice(max(Decimal(0), -min(Decimal(0), min(lows))))
     tope = highs[0]
-    if len(highs) > 1 and highs[0] > highs[1] * 3:
+    if len(highs) > 1 and highs[1] > 0 and highs[0] > highs[1] * 3:
         tope = highs[1] * Decimal("1.1")
     maximo = _nice(max(Decimal(0), tope))
     if maximo == minimo:
@@ -129,14 +135,14 @@ def _fila(item: dict, eje: dict | None) -> dict:
     fecha_hasta = item.get("metric_date_to")
     fx_texto = None
     if item.get("fx_source") == "nearest_prior":
-        fx_texto = "Tipo de cambio aproximado: " + etiqueta(item.get("fx_source"), "metodo_fx")
+        fx_texto = "Tipo de cambio aproximado: " + _METODO_FX["nearest_prior"]
     fila = {
         "nombre": item.get("nombre") or _RAYA,
         "clase": clase,
         "etiqueta": _CLASES[clase],
         "texto": _sin_dato_texto(motivo)
         if ausente
-        else (f"{dinero(sin_halo)} .. {dinero(con_halo)}"),
+        else (f"{_dinero(sin_halo)} .. {_dinero(con_halo)}"),
         "motivo": motivo or "",
         "mostrar_parcial": bool(motivo) and not ausente,
         "datos": f"{fecha_desde} .. {fecha_hasta}" if fecha_desde and fecha_hasta else _RAYA,
@@ -155,7 +161,7 @@ def _fila(item: dict, eje: dict | None) -> dict:
     izquierda = _pct(sin_halo, eje["minimo"], span)
     derecha = _pct(min(con_halo, eje["maximo"]), eje["minimo"], span)
     fila["recortado"] = con_halo > eje["maximo"]
-    fila["real_texto"] = dinero(con_halo)
+    fila["real_texto"] = _dinero(con_halo)
     fila["izquierda"] = _clase_pct(izquierda)
     if sin_halo == con_halo:
         fila["punto"] = True
@@ -164,7 +170,12 @@ def _fila(item: dict, eje: dict | None) -> dict:
         fila["fuera_escala"] = True
     else:
         ancho = max(1, _clase_pct(derecha - izquierda))
-        fila["ancho"] = min(ancho, 100 - fila["izquierda"])
+        ancho = min(ancho, 100 - fila["izquierda"])
+        if ancho <= 0:
+            # El redondeo dejo la barra en el borde: se marca, no se oculta.
+            fila["fuera_escala"] = True
+        else:
+            fila["ancho"] = ancho
     return fila
 
 
@@ -172,6 +183,9 @@ def _plataforma(plataforma: str, datos: dict) -> dict:
     filas = datos.get("filas") or []
     moneda = next((f.get("moneda") for f in filas if f.get("moneda")), None)
     moneda = moneda or PLATAFORMAS_MONEDA.get(plataforma, "")
+    etiqueta_contribucion = next(
+        (f.get("etiqueta") for f in filas if f.get("etiqueta")), _ETIQUETA_FALLBACK
+    )
     rangos = [
         (lo, hi)
         for lo, hi in (
@@ -195,13 +209,13 @@ def _plataforma(plataforma: str, datos: dict) -> dict:
         }
     return {
         "id": plataforma,
-        "nombre": etiqueta(plataforma, "plataforma"),
+        "nombre": _PLATAFORMA.get(plataforma, plataforma),
         "moneda": moneda,
         "rango": _rango(datos),
         "n": total,
         "campanas": campanas,
         "leyenda": (
-            f"{ETIQUETA_CONTRIBUCION} · {moneda} · el tipo de cambio aproximado se marca en la fila"
+            f"{etiqueta_contribucion} · {moneda} · el tipo de cambio aproximado se marca en la fila"
         ),
         "segmentos": _segmentos(conteos, total) if total else [],
         "eje": eje,

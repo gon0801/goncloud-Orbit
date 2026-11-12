@@ -135,6 +135,36 @@ def test_ui_contribucion_rango_fuera_de_escala_conserva_marca_y_rotulo(monkeypat
     assert "▸ valor real: 122,380.55" in fila
 
 
+def test_ui_contribucion_eje_con_segundo_maximo_cero_conserva_lado_positivo(monkeypatch):
+    """F1: no se recorta el eje contra un segundo maximo en cero o negativo."""
+    filas = [
+        _item_con_rango(nombre="Positiva", sin_halo="50.0000", con_halo="100.0000"),
+        _item_con_rango(nombre="Cero", sin_halo="-10.0000", con_halo="0.0000"),
+    ]
+    html = _contribucion_html_fakeado(monkeypatch, _payload(us_items=filas))
+    fila = _fila_de(html, "Positiva")
+    assert "contribucion-rango" in fila
+    assert "contribucion-fuera" not in fila
+    assert "contribucion-eje-max" in html and ">100<" in html
+
+
+def test_ui_contribucion_borde_recortado_con_izquierda_100_conserva_marca(monkeypatch):
+    """F2: si el redondeo deja izquierda=100, la fila recortada no pierde barra."""
+    filas = [
+        _item_con_rango(nombre="Arras Manual", sin_halo="1250.4645", con_halo="10102.3877"),
+        _item_con_rango(
+            nombre="Casi borde",
+            sin_halo="19999.9900",
+            con_halo="122380.5500",
+        ),
+    ]
+    html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=filas))
+    fila = _fila_de(html, "Casi borde")
+    assert "contribucion-fuera" in fila
+    assert "contribucion-linea-cero" in fila
+    assert "▸ valor real: 122,380.55" in fila
+
+
 def test_ui_contribucion_ausencia_no_se_pinta_como_cero(monkeypatch):
     """Regla 3 en presentacion (mismo criterio que quota 1.5): sin contribucion
     -> guion CON etiqueta del motivo dominante, jamas 0."""
