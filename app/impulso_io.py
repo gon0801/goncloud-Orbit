@@ -929,8 +929,10 @@ def _acumula(filas):
 def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
     """Un impulso vivo: lee, actua y guarda. Devuelve la accion y el
     escritor de retiro (se crea al primer retiro y se reusa). Si el
-    lote ya esta pausado (crash entre pausar y guardar), no llama al
-    pausador: registra pausado y sigue."""
+    lote ya esta pausado (crash entre pausar y guardar) o desarmado
+    (el dueno pauso el grupo en la fabrica), no llama a pausa():
+    verifica Amazon y registra pausado, y un desarmado cierra con
+    veredicto 'desarmado'."""
     (imp, platform, lote, monto, moneda, diario, plazo, lanzado, grupo, listing, go) = fila
     tope = im.TopeAprendizaje(Decimal(monto), moneda, Decimal(diario), plazo)
     corte = conn.execute(_SQL_CORTE_PLATAFORMA, (platform,)).fetchone()[0]
@@ -970,9 +972,16 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
     if ya is not None:
         conn.commit()
         return AccionVigia(imp, lectura, veredicto, ya[0]), escritor_retiro
+    estado_lote = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+    # Q.2 (I-H2): el dueno pauso el grupo desde la fabrica. El lote es
+    # terminal ('desarmado: nunca revive'), asi que el impulso se cierra con
+    # lectura final en vez de que la pausa aborte con 409 todos los dias.
+    # Se conserva la precedencia de 'graduar' (desarmado + vende: goals a
+    # live sin reencender).
+    if estado_lote is not None and estado_lote[0] == "desarmado" and veredicto.accion != "graduar":
+        veredicto = im.VEREDICTO_DESARMADO
     if veredicto.accion == "pausar":
-        estado_lote = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
-        if estado_lote is None or estado_lote[0] != "pausado":
+        if estado_lote is None or estado_lote[0] not in ("pausado", "desarmado"):
             pausador.pausa(lote)
             conn.execute(
                 "UPDATE fabrica_lote SET estado = 'pausado', pausado_por = 'impulso-vigia'"
@@ -980,9 +989,9 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
                 (lote,),
             )
         else:
-            # G7: el lote ya dice pausado, pero el dueno pudo
-            # reencender en consola (no hay boton de reanudar):
-            # leer Amazon y pausar las que sigan ENABLED (PUT +
+            # G7: el lote ya dice pausado (o lo desarmo el dueno en la
+            # fabrica), pero pudo reencender en consola (no hay boton de
+            # reanudar): leer Amazon y pausar las que sigan ENABLED (PUT +
             # readback). Nunca anotar "pausado" sin verificar.
             pausador.pausa_huerfanas(lote)
         hecho = "pausado"
@@ -992,7 +1001,6 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
         # (lista exacta: dueno o consola/NULL no se tocan): gradua
         # sin reencender y lo dice (hecho y detalle del lote).
         # Desarmado no revive: solo goals.
-        estado_lote = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
         reencendio = (
             estado_lote is not None
             and estado_lote[0] != "desarmado"
