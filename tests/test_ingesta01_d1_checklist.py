@@ -12,7 +12,6 @@ exit 128 (run 39673772920). HEAD existe en cualquier checkout.
 """
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -70,12 +69,14 @@ PATS = [
     "job_key=avisos-campana",
     "job_key=impulso-vigia",
     "job_key=jev-senales",
+    "job_key=jev-vigia",
     "app.cli ingest",
     "app.cli ads-salud",
     "app.cli cycle",
     "app.cli avisos-campana",
     "app.cli impulso-vigia",
     "app.cli jev-senales",
+    "app.cli jev-vigia",
 ]
 
 
@@ -93,15 +94,13 @@ def _entorno(tmp_path, modo):
         check=True,
         cwd=RAIZ,
     ).stdout.strip()
-    deploy = subprocess.run(
-        ["git", "show", f"{sha}:docs/DEPLOY.md"],
+    bloque = subprocess.run(
+        ["git", "show", f"{sha}:tools/despliegue/crontab-orbit.txt"],
         capture_output=True,
         text=True,
         check=True,
         cwd=RAIZ,
-    ).stdout
-    bloque_doc = re.search(r"ORBIT_BLOCK=\$\(cat <<'CRON'\n(.*?)\nCRON\n", deploy, re.S).group(1)
-    bloque = bloque_doc.splitlines()
+    ).stdout.splitlines()
     orbit = lambda linea: any(p in linea for p in PATS)  # noqa: E731
     previo = (DIR / "crontab-antes.txt").read_text(encoding="utf-8").splitlines()
     cron = "\n".join([linea for linea in previo if not orbit(linea)] + bloque) + "\n"

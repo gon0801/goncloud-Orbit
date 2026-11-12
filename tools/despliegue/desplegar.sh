@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Despliegue de Orbit por el motor (AUTO-03 B.1). Uso: MOTOR_SHA=<sha> bash desplegar.sh [--ensayo]
 # Pasos: (0) candado y diario, (1) guardas, (2) monotonia, (3) respaldo, (4) migraciones
-# de la receta (*_auto03_*, *_orbit07_* y *_claridad01_*) con sonda, (5) codigo y build
-# (con $SRV/refresh_estimacion.sh), (5b) linea de cron del vigia de Jev, (6) interruptores.
-# Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados; si el diario ya traia
-# cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
+# de la receta (*_auto03_*, *_orbit07_*, *_claridad01_* y *_arreglos01_*) con sonda, (5) codigo,
+# build aparte y recreacion que espera cero procesos app.cli (con $SRV/refresh_estimacion.sh),
+# (5b) linea de cron del vigia de Jev, (5c) bloque de cron de Orbit, (6) interruptores.
+# Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados, o app.cli vivo al recrear; si
+# el diario ya traia cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
 
 ENSAYO=0
@@ -17,6 +18,8 @@ esac
 
 SHA=$(git rev-parse --verify "${MOTOR_SHA:?falta MOTOR_SHA}^{commit}")
 FIN=$((SECONDS + ESPERA))
+FIN_MOTOR=$(( $(date +%s) + TOPE_MOTOR ))
+export FIN_MOTOR
 
 MIGS=$(migraciones_de "$SHA") || exit 1
 NUEVO=$(interruptores_de "$SHA") || exit 1
@@ -44,7 +47,7 @@ ensayo() {
     s=$(sonda "$s") || exit 1
     [ "$s" = t ] && echo "migracion aplicada: $m" || echo "migracion pendiente: $m"
   done 3<<< "$MIGS"
-  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*): ninguna en $SHA"
+  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_* y *_arreglos01_*): ninguna en $SHA"
   VIEJO=$(interruptores_de "$previo") || exit 1
   CAMBIADAS=$(claves_a_converger "$previo" "$VIEJO" "$NUEVO")
   for k in $CAMBIADAS; do
@@ -54,6 +57,9 @@ ensayo() {
   [ -n "$CAMBIADAS" ] || echo "claves: ninguna cambia"
   if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
     cron_vigia revisa 2>&1 || echo "desplegar instalaria (o moveria al bloque) la linea jev-vigia"
+  fi
+  if git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null; then
+    cron_orbit revisa 2>&1 || echo "desplegar instalaria el bloque Orbit del crontab"
   fi
   if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then
     if git show "$SHA:tools/$REFRESCO" | srv "cmp -s - $SRV/$REFRESCO"; then
@@ -69,6 +75,31 @@ if [ "$ENSAYO" = 1 ]; then
   echo "== ENSAYO OK"
   exit 0
 fi
+
+# sal_75_con_cambios <motivo>: sale 75 sin recrear. Si el diario ya trae cambios de esta corrida
+# los deshace aqui (el motor no corre rollback con 75); sale 1 si la reversa no termino.
+sal_75_con_cambios() {
+  echo "$1"
+  local diario rc=0
+  diario=$(lee_ultimo) || rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "ABORTA: no pude leer $ULTIMO (salida $rc); salgo 1 para que el motor corra rollback.sh" >&2
+    exit 1
+  fi
+  if tiene_cambios "$diario"; then
+    anota ESTADO=guardas_con_cambios
+    echo "el diario ya trae cambios de esta corrida y el motor no corre rollback con 75: los deshago aqui"
+    ( set +e; revierte ) || true
+    if [ "$(ultimo_de ESTADO "$(lee_ultimo)")" != revertido ]; then
+      echo "ABORTA: la reversa no termino; salgo 1 para que el motor corra rollback.sh" >&2
+      exit 1
+    fi
+  else
+    anota ESTADO=abortado_sin_cambios
+    echo "no cambie nada"
+  fi
+  exit 75
+}
 
 echo "== (0) candado y diario"
 rc=0
@@ -106,20 +137,7 @@ while :; do
   G=$(estado_guardas) || { echo "ERROR: no pude leer las guardas" >&2; exit 1; }
   [ "$G" = "$GUARDAS_LIBRES" ] && break
   if [ "$SECONDS" -ge "$FIN" ]; then
-    echo "guardas ocupadas al agotar el plazo: $G"
-    if tiene_cambios "$(lee_ultimo)"; then
-      anota ESTADO=guardas_con_cambios
-      echo "el diario ya trae cambios de esta corrida y el motor no corre rollback con 75: los deshago aqui"
-      ( set +e; revierte ) || true
-      if [ "$(ultimo_de ESTADO "$(lee_ultimo)")" != revertido ]; then
-        echo "ABORTA: la reversa no termino; salgo 1 para que el motor corra rollback.sh" >&2
-        exit 1
-      fi
-    else
-      anota ESTADO=abortado_sin_cambios
-      echo "no cambie nada"
-    fi
-    exit 75
+    sal_75_con_cambios "guardas ocupadas al agotar el plazo: $G"
   fi
   echo "guardas ocupadas ($G); reviso en 15 s"
   r=$((FIN - SECONDS))
@@ -162,7 +180,7 @@ else
 fi
 corte 3
 
-echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*)"
+echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_* y *_arreglos01_*)"
 sigue_candado
 while IFS=$'\t' read -r m s <&3; do
   [ -n "$m" ] || continue
@@ -198,11 +216,17 @@ if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then
     || { echo "ABORTA: $SRV/$REFRESCO no quedo igual a tools/$REFRESCO" >&2; exit 1; }
   echo "$SRV/$REFRESCO = tools/$REFRESCO de $SHA"
 fi
-compose_up
+rc=0
+recrea_contenedor || rc=$?
+case "$rc" in
+  0) ;;
+  75) sal_75_con_cambios "procesos app.cli vivos al recrear" ;;
+  *) echo "ABORTA: no pude recrear orbit-app-1" >&2; exit 1 ;;
+esac
 espera_salud || { echo "ABORTA: /health no da 200 tras el build" >&2; exit 1; }
 sigue_candado
 srv "printf '%s\n' $SHA > $DESP/sha"
-echo "/health 200; $DESP/sha = $SHA"
+echo "recreado; /health 200; $DESP/sha = $SHA"
 corte 5
 
 echo "== (5b) linea de cron del vigia de Jev"
@@ -223,6 +247,33 @@ else
     *) echo "ABORTA: no pude leer si el crontab de gon ya trae la linea jev-vigia (salida $rc)" >&2; exit 1 ;;
   esac
   cron_vigia instala
+fi
+
+echo "== (5c) bloque de cron de Orbit"
+if ! git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null; then
+  echo "$SHA no trae $CRON_ORBIT"
+elif cron_orbit revisa; then
+  echo "el bloque Orbit ya era el canonico"
+else
+  sigue_candado
+  if ! salida=$(cron_orbit prepara); then
+    printf '%s\n' "$salida"
+    echo "ABORTA: no pude preparar el bloque Orbit del crontab" >&2
+    exit 1
+  fi
+  printf '%s\n' "$salida"
+  respaldo=$(printf '%s\n' "$salida" | sed -n 's/^respaldo=//p' | head -n 1)
+  if [ -n "$respaldo" ]; then
+    # Primero la ruta del respaldo y despues CRON=orbit, antes de escribir: si la
+    # corrida muere en medio, no queda un CRON=orbit sin respaldo que la reversa no
+    # pueda resolver.
+    anota "CRON_ARCHIVO=$respaldo"
+    anota CRON=orbit
+    cron_orbit instala "$respaldo" || {
+      echo "ABORTA: no pude instalar el bloque Orbit del crontab" >&2
+      exit 1
+    }
+  fi
 fi
 
 echo "== (6) interruptores frente a SHA_PREVIO"

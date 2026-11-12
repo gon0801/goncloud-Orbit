@@ -18,10 +18,19 @@ fi
 DESP=$SRV/despliegue
 ULTIMO=$DESP/ultimo.env
 ESPERA=${AUTO03_ESPERA_S:-600}
+# ARREGLOS 01 M.2: la reversa no puede quedar bloqueada por un ciclo; espera y recrea de todos modos.
+ESPERA_REVERSA=${AUTO03_ESPERA_REVERSA_S:-300}
+# El motor corta el despliegue a los 900 s (salida 124); la espera de app.cli se acota al
+# presupuesto que queda de ese tope para que el propio paso 5 no provoque el corte.
+TOPE_MOTOR=${AUTO03_TOPE_MOTOR_S:-900}
 INTERRUPTORES=tools/despliegue/interruptores.env
 TERMINALES=" verificado sin_cambios abortado_sin_cambios revertido "
 CAMBIO_RE='^(CODIGO|MIGRACION|CLAVE|CRON)='
 CRON_VIGIA=tools/despliegue/cron_jev_vigia.sh
+# ARREGLOS 01 N: el bloque de cron de Orbit vive en un archivo del repo; el instalador
+# reemplaza SOLO ese bloque y nunca quita avisos.
+CRON_ORBIT=tools/despliegue/cron_orbit.sh
+CRON_BLOQUE=tools/despliegue/crontab-orbit.txt
 # CLARIDAD 01 F: el cron de root corre $SRV/refresh_estimacion.sh; desplegar lo instala desde tools/.
 REFRESCO=refresh_estimacion.sh
 
@@ -45,9 +54,60 @@ w() {
   fi
 }
 
-compose_up() {
+# recrea_contenedor [--reversa]: UNICA forma de recrear orbit-app-1 (paso 5 y revierte).
+# Construye la imagen aparte, sin tocar el contenedor vivo, y en UN solo comando remoto espera a
+# que `docker top` no tenga procesos app.cli (plazo $ESPERA, acotado al presupuesto de TOPE_MOTOR)
+# y recrea sin build: la ultima mirada
+# y el `up` corren en el mismo shell. Sale 0 recreado, 75 plazo agotado con procesos vivos (no
+# recreo) y cualquier otra cosa es error. Con --reversa espera $ESPERA_REVERSA y recrea de todos
+# modos con una linea AVISO: una reversa no puede quedar bloqueada por un ciclo.
+# Idempotente: otra corrida reconstruye (cache) y recrea la misma imagen.
+recrea_contenedor() {
+  local modo=adelante espera=$ESPERA rc=0 rest
+  case "${1:-}" in
+    "") ;;
+    --reversa) modo=reversa; espera=$ESPERA_REVERSA ;;
+    *) echo "recrea_contenedor: argumento invalido: $1" >&2; return 2 ;;
+  esac
   sigue_candado
-  srv "docker compose -p orbit --project-directory $SRV -f $SRV/docker-compose.yml up -d --no-deps --build app"
+  srv "docker compose -p orbit --project-directory $SRV -f $SRV/docker-compose.yml build app" \
+    || return 1
+  echo "imagen construida (el contenedor vivo no se toco)"
+  if [ "$modo" = adelante ] && [ -n "${FIN_MOTOR:-}" ]; then
+    rest=$((FIN_MOTOR - $(date +%s)))
+    [ "$rest" -lt 0 ] && rest=0
+    [ "$rest" -lt "$espera" ] && espera=$rest
+  fi
+  echo "espero a que orbit-app-1 no tenga procesos app.cli (plazo ${espera}s)"
+  sigue_candado
+  srv "MODO_R=$modo ESPERA_R=$espera SRV_R=$SRV bash -s" <<'REMOTO' || rc=$?
+set -u
+fin=$(( $(date +%s) + ESPERA_R ))
+while :; do
+  sal=''
+  if ! sal=$(docker top orbit-app-1 2>&1); then
+    case "$sal" in
+      *"is not running"* | *"o such container"*) sal='' ;;
+      *) echo "ABORTA: docker top orbit-app-1: $sal" >&2; exit 1 ;;
+    esac
+  fi
+  n=$(printf '%s\n' "$sal" | grep -c 'app\.cli' || true)
+  [ "$n" -eq 0 ] && break
+  if [ "$(date +%s)" -ge "$fin" ]; then
+    if [ "$MODO_R" = reversa ]; then
+      echo "AVISO: procesos app.cli vivos ($n) al recrear; la reversa recrea de todos modos" >&2
+      break
+    fi
+    echo "procesos app.cli vivos ($n) al agotar ${ESPERA_R}s" >&2
+    exit 75
+  fi
+  echo "procesos app.cli vivos ($n); reviso en 5 s"
+  sleep 5
+done
+docker compose -p orbit --project-directory "$SRV_R" -f "$SRV_R/docker-compose.yml" \
+  up -d --no-deps --no-build app
+REMOTO
+  [ "$rc" = 0 ] || return "$rc"
 }
 
 corte() {
@@ -168,6 +228,30 @@ sonda() {
 # cron_vigia <instala|quita|revisa|presente>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
 cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archive bash -s -- $1"; }
 
+# cron_orbit <prepara|instala|revisa|restaura> [respaldo]: el instalador del bloque de
+# cron de Orbit de $SHA, corrido en goncloud. El bloque canonico viaja como archivo
+# (unica fuente en el repo) a un mktemp del servidor. restaura recibe el crontab de
+# respaldo; instala recibe el respaldo que creo prepara.
+cron_orbit() {
+  local remoto rc=0 accion=$1 respaldo=${2:-}
+  local extra=""
+  remoto=$(srv "mktemp /tmp/cron-orbit-bloque.XXXXXX") || return 1
+  [ -z "${ORBIT_CRON_AVISA:-}" ] || extra=" ORBIT_CRON_AVISA=$ORBIT_CRON_AVISA"
+  if [ -n "$respaldo" ]; then
+    if [ "$accion" = restaura ]; then
+      extra="$extra ORBIT_CRON_RESPALDO=$respaldo"
+    else
+      extra="$extra ORBIT_CRON_RESPALDO_NUEVO=$respaldo"
+    fi
+  fi
+  git show "$SHA:$CRON_BLOQUE" | srv "cat > $remoto" || { srv "rm -f $remoto" || true; return 1; }
+  git show "$SHA:$CRON_ORBIT" \
+    | srv "ORBIT_CRON_ARCHIVO=$SRV/archive ORBIT_CRON_BLOQUE=$remoto$extra bash -s -- $accion" \
+    || rc=$?
+  srv "rm -f $remoto" || true
+  return "$rc"
+}
+
 salud() { srv "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/health" 2>/dev/null || true; }
 
 espera_salud() {
@@ -230,7 +314,7 @@ sigue_candado() {
 
 # revierte: la reversa de B.2 bajo el candado ya tomado; la usan rollback.sh y desplegar.sh
 # (salida 75 con cambios, porque el motor no corre rollback con 75). Deshace solo lo anotado
-# en ultimo.env por $SHA, en orden: claves, cron, codigo, sha y reversas de las migraciones
+# en ultimo.env por $SHA, en orden: claves, cron (bloque Orbit y jev-vigia), codigo, sha y reversas de las migraciones
 # (inverso), siguiendo aunque un paso falle. Antes de cada cambio comprueba que sigue el
 # candado: sin el sale 1 dejando ESTADO=revirtiendo, y otra corrida continua la reversa.
 # Sale 0 si no habia nada que deshacer, 1 con ESTADO=revertido y 2 con rollback_incompleto.
@@ -265,6 +349,17 @@ revierte() {
   done 3<<< "$(printf '%s\n' "$L" | sed -n 's/^CLAVE=//p')"
 
   echo "== cron"
+  # El bloque Orbit se restaura primero: el respaldo de instala se tomo despues del
+  # paso 5b, asi que puede incluir jev-vigia; el quita de abajo lo vuelve a quitar.
+  if printf '%s\n' "$L" | grep -qx 'CRON=orbit'; then
+    respaldo=$(ultimo_de CRON_ARCHIVO "$L")
+    if [ -n "$respaldo" ]; then
+      sigue_candado
+      cron_orbit restaura "$respaldo" || PEND="$PEND cron:orbit"
+    else
+      PEND="$PEND cron:orbit"
+    fi
+  fi
   if printf '%s\n' "$L" | grep -qx 'CRON=jev-vigia'; then
     sigue_candado
     cron_vigia quita || PEND="$PEND cron:jev-vigia"
@@ -279,7 +374,7 @@ revierte() {
         cp -a $P/Dockerfile $P/.dockerignore $P/pyproject.toml $P/uv.lock .; \
         if [ -f $P/$REFRESCO ]; then install -m 755 $P/$REFRESCO $REFRESCO; \
         elif [ -f $P/$REFRESCO.ausente ]; then rm -f $REFRESCO; fi" \
-      && compose_up && espera_salud; then
+      && recrea_contenedor --reversa && espera_salud; then
       echo "codigo restaurado de $CODIGO; /health 200"
     else
       PEND="$PEND codigo:$CODIGO"
