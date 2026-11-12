@@ -1135,3 +1135,19 @@ details.detail-box[open] > summary {
   .salud-skip-grid,
   .salud-plataformas { grid-template-columns: 1fr; }
 }
+
+/* El detalle vive en flex/grid: sin min-width 0 una tabla con scroll ensancha la pagina. */
+.salud-tarjeta,
+.salud-detalle,
+.salud-detalle > *,
+.salud-par > *,
+.salud-facts > *,
+.salud-ingesta,
+.salud-skips,
+.salud-ciclos,
+.salud-avisos,
+.salud-checks li { min-width: 0; }
+.salud-hecho .tabla-scroll table { min-width: 0; }
+.salud-datos.num,
+.salud-hecho p.num,
+.salud-jev p.num { text-align: left; }

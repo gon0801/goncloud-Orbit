@@ -55,6 +55,16 @@ total: 0 hallazgos en 1 rutas
 borró al terminar. Esta corrida reproduce el estado que tendrá producción con
 el código nuevo; no es el recibo del despliegue.
 
+## Capturas
+
+`despues/salud-1440.png` y `despues/salud-390.png` son la página servida en vivo,
+tomadas con el viewport emulado de 1440 y 390 px. En 390 px el ancho real es
+390 (`document.documentElement.scrollWidth` = 390) y las tablas largas se
+desplazan dentro de su caja; la página no desborda. La primera versión
+ensanchaba la página por las tablas dentro de contenedores flex; se corrigió
+con `min-width: 0` en los contenedores y con la tabla de quota sin mínimo de
+640 px.
+
 ## Después del despliegue
 
 La misma comparación contra la instancia viva es:
