@@ -45,6 +45,8 @@ ORDEN59 = (
     "0053_precio02_canal_meli.sql",
     "0054_precio02_base.sql",
     "0058_precio02_decision_exige.sql",
+    # ARREGLOS 01 J: /salud lee el acta de listado por plataforma (0051).
+    "0051_ads_acta_listado.sql",
 )
 
 _skip_sin_pg = pytest.mark.skipif(

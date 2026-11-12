@@ -57,6 +57,8 @@ ORDEN_F2 = (
     "0018_fabrica_campanas.sql",
     "0019_fabrica_grupo_publicacion_v2.sql",
     "0038_fabrica_hermanas_biblioteca.sql",
+    # ARREGLOS 01 J: la guarda de estructura lee el acta de listado (0051).
+    "0051_ads_acta_listado.sql",
     # AUTO-03 F.2: corre_ciclo escribe decision.evaluacion_producto_id (0077,
     # que tambien amplia ads_report_result de la 0040).
     "0040_ads_report_result.sql",
