@@ -4,8 +4,10 @@ Uso local, sin red:  python docs/evidencia/disenos-01/A/compara.py
 Contra produccion:   python docs/evidencia/disenos-01/A/compara.py --base http://10.13.13.1:8010
 
 Sale 0 solo si el total, las 50 decisiones de las paginas 1 y 2 con sus
-valores, el JSON del feed y el encabezado del dia partido coinciden. No
-escribe nada.
+valores, el JSON del feed y el encabezado del dia partido coinciden. En local
+exige el total exacto; contra produccion permite decisiones nuevas porque la
+data crece y exige que cada decision de A.1 conserve sus valores. No escribe
+nada.
 """
 
 from __future__ import annotations
@@ -187,22 +189,34 @@ def main(argv: list[str] | None = None) -> int:
     nueva_1, nueva_2, nueva_3 = nuevas[""], nuevas["?page=2"], nuevas["?page=3"]
 
     diferencias: list[str] = []
-    if _total(antes_1) != _total(nueva_1):
-        diferencias.append(f"total: antes {_total(antes_1)} != despues {_total(nueva_1)}")
-    for pagina, viejo, nuevo in (("1", antes_1, nueva_1), ("2", antes_2, nueva_2)):
-        ids_viejos, ids_nuevos = _ids(viejo), _ids(nuevo)
-        if len(ids_viejos) != len(ids_nuevos):
-            diferencias.append(
-                f"pagina {pagina}: {len(ids_viejos)} decisiones antes != {len(ids_nuevos)} despues"
+    total_antes, total_despues = _total(antes_1), _total(nueva_1)
+    if total_despues is None or (total_antes is not None and total_despues < total_antes):
+        diferencias.append(f"total: antes {total_antes} > despues {total_despues} (datos perdidos)")
+    elif not args.base and total_antes != total_despues:
+        diferencias.append(f"total: antes {total_antes} != despues {total_despues}")
+    if args.base:
+        filas_base = {**_filas_viejas(antes_1), **_filas_viejas(antes_2)}
+        contenedores_base: dict[int, str] = {}
+        for html_nuevo in (nueva_1, nueva_2, nueva_3):
+            contenedores_base.update(_contenedores(html_nuevo))
+        dias_base = set(_dias(nueva_1)) | set(_dias(nueva_2)) | set(_dias(nueva_3))
+        diferencias.extend(_diferencias_valores(filas_base, contenedores_base, dias_base))
+    else:
+        for pagina, viejo, nuevo in (("1", antes_1, nueva_1), ("2", antes_2, nueva_2)):
+            ids_viejos, ids_nuevos = _ids(viejo), _ids(nuevo)
+            if len(ids_viejos) != len(ids_nuevos):
+                diferencias.append(
+                    f"pagina {pagina}: {len(ids_viejos)} decisiones antes != "
+                    f"{len(ids_nuevos)} despues"
+                )
+            if sorted(ids_viejos) != sorted(ids_nuevos):
+                diferencias.append(f"pagina {pagina}: ids/entidades distintos")
+            diferencias.extend(
+                f"pagina {pagina} {texto}"
+                for texto in _diferencias_valores(
+                    _filas_viejas(viejo), _contenedores(nuevo), set(_dias(nuevo))
+                )
             )
-        if sorted(ids_viejos) != sorted(ids_nuevos):
-            diferencias.append(f"pagina {pagina}: ids/entidades distintos")
-        diferencias.extend(
-            f"pagina {pagina} {texto}"
-            for texto in _diferencias_valores(
-                _filas_viejas(viejo), _contenedores(nuevo), set(_dias(nuevo))
-            )
-        )
 
     antes_api = json.loads((ANTES / "api-decisiones.json").read_text(encoding="utf-8"))
     after_api = (
@@ -210,7 +224,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.base
         else json.loads((DESPUES / "api-decisiones.json").read_text(encoding="utf-8"))
     )
-    if antes_api != after_api:
+    if args.base:
+        nuevos = {int(item["id"]): item for item in after_api.get("items", [])}
+        for item in antes_api.get("items", []):
+            if int(item["id"]) in nuevos and nuevos[int(item["id"])] != item:
+                diferencias.append(f"JSON decision #{item['id']} distinto")
+    elif antes_api != after_api:
         diferencias.append("JSON /api/dashboard/decisiones distinto")
 
     dias_2, dias_3 = _dias(nueva_2), _dias(nueva_3)
@@ -218,6 +237,13 @@ def main(argv: list[str] | None = None) -> int:
         diferencias.append("el dia 9 oct no encabeza el corte entre las paginas 2 y 3")
 
     print(f"total antes: {_total(antes_1)} · total despues: {_total(nueva_1)}")
+    if (
+        args.base
+        and total_despues is not None
+        and total_antes is not None
+        and total_despues > total_antes
+    ):
+        print(f"nuevas decisiones desde A.1: {total_despues - total_antes}")
     print(
         f"pagina 1: {len(_ids(antes_1))} antes · {len(_ids(nueva_1))} despues; "
         f"pagina 2: {len(_ids(antes_2))} antes · {len(_ids(nueva_2))} despues"
