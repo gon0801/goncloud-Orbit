@@ -95,8 +95,9 @@ def _fila(item: dict) -> dict:
     tipo = tipo_de_decision(item)
     nuevo = _decimal(item.get("new_value"))
     anterior = _decimal(item.get("old_value"))
-    tiene_bid = kind == "bid" and nuevo is not None and anterior is not None
-    if not tiene_bid:
+    moneda = item.get("value_currency")
+    tiene_bid = nuevo is not None or anterior is not None or moneda not in (None, "", "—")
+    if not tiene_bid or nuevo is None or anterior is None:
         tono = "mutado"
     elif nuevo > anterior:
         tono = "decisiones-bid-sube"

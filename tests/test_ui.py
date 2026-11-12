@@ -618,7 +618,8 @@ def test_ui_decisiones_paginador_es_html_sin_js():
 
 def test_ui_cambio_en_una_celda_con_moneda_y_ausencia_explicita():
     """Handoff ORBIT 18: el bid conserva antes -> despues y su moneda; una
-    decision sin cambio de puja no pinta bid (la ausencia es visible)."""
+    decision sin cambio de puja no pinta bid (la ausencia es visible). Una
+    captura conserva la puja inicial (antes ausente) y su moneda."""
     ctx = _ctx_decisiones()
     ctx["items"][0].update(kind="bid", old_value="1.0000", new_value="0.8800", value_currency="USD")
     html = ui.templates.env.get_template("decisiones.html").render(**ctx)
@@ -626,6 +627,14 @@ def test_ui_cambio_en_una_celda_con_moneda_y_ausencia_explicita():
     assert ">1.00<" in html
     assert 'class="decisiones-bid-baja">0.88</strong>' in html
     assert "USD" in html
+    ctx_captura = _ctx_decisiones()
+    ctx_captura["items"][0].update(
+        kind="harvest", old_value=None, new_value="2.50", value_currency="MXN"
+    )
+    html_captura = ui.templates.env.get_template("decisiones.html").render(**ctx_captura)
+    assert "decisiones-bid" in html_captura
+    assert '<span class="mutado">—</span> → <strong class="mutado">2.50</strong>' in html_captura
+    assert "MXN" in html_captura
     html_pause = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
     assert "decisiones-bid" not in html_pause
     assert "Target usado" in html_pause

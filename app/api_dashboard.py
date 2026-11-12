@@ -60,6 +60,8 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
+import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Literal
@@ -109,7 +111,7 @@ from app.dashboard_resumen import (
 )
 from app.dashboard_resumen import resumen as resumen_multicanal
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
-from app.etiquetas import ETIQUETAS, etiqueta, motivo_decision_es
+from app.etiquetas import ETIQUETAS, TIPO_TARGET, etiqueta, motivo_decision_es
 from app.optimizer import goals as g
 from app.optimizer import hygiene
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -761,6 +763,36 @@ _CAMPOS_BUSQUEDA_DECISIONES = (
     "coalesce(e.keyword_text, '')",
     "coalesce(d.search_term, '')",
 )
+_NOMBRE_SIN_SIGNOS = "regexp_replace(lower(e.name), '[^a-z0-9]+', ' ', 'g')"
+
+
+def _normaliza_busqueda(texto: str) -> str:
+    """Texto comparable contra la etiqueta visible: minusculas y sin acentos."""
+    sin_acentos = "".join(
+        caracter
+        for caracter in unicodedata.normalize("NFKD", texto)
+        if not unicodedata.combining(caracter)
+    )
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", sin_acentos.lower()).split())
+
+
+def _pares_busqueda_decisiones(texto: str) -> list[tuple[str, str]]:
+    """Cada (expresion SQL, parametro) donde busca q en las decisiones.
+
+    La entidad se pinta traducida por `etiqueta_entidad` (por ejemplo
+    «busqueda amplia» para `QUERY_BROAD_REL_MATCHES`). El usuario no debe
+    conocer el codigo interno: se agregan los codigos cuyo texto visible
+    contiene q y el nombre crudo sin signos, para los codigos sin etiqueta.
+    """
+    pares = [(campo, texto) for campo in _CAMPOS_BUSQUEDA_DECISIONES]
+    normalizado = _normaliza_busqueda(texto)
+    if not normalizado:
+        return pares
+    for codigo, etiqueta_target in TIPO_TARGET.items():
+        if normalizado in _normaliza_busqueda(etiqueta_target):
+            pares.append(("e.name", codigo))
+    pares.append((_NOMBRE_SIN_SIGNOS, normalizado))
+    return pares
 
 
 def _filtros_decisiones(tipo: str | None, q: str | None) -> tuple[str, list]:
@@ -775,11 +807,10 @@ def _filtros_decisiones(tipo: str | None, q: str | None) -> tuple[str, list]:
     params: list = []
     texto = (q or "").strip()
     if texto:
-        busqueda = " OR ".join(
-            f"strpos(lower({campo}), lower(%s)) > 0" for campo in _CAMPOS_BUSQUEDA_DECISIONES
-        )
+        pares = _pares_busqueda_decisiones(texto)
+        busqueda = " OR ".join(f"strpos(lower({campo}), lower(%s)) > 0" for campo, _valor in pares)
         clausulas.append(f"({busqueda})")
-        params.extend([texto] * len(_CAMPOS_BUSQUEDA_DECISIONES))
+        params.extend(valor for _campo, valor in pares)
     tipo = tipo if tipo in TIPOS_DECISION else "todas"
     if tipo == "pausa":
         clausulas.append("d.kind = 'pause'::decision_kind")
