@@ -340,11 +340,16 @@ hoja entra a `decide` y RT decide antes que el juicio.
 ep = temporada_io.registra_ciclo(conn, platform, cycle_id=cycle_id, decidido_el=decided_at,
                                  plataforma=plat_t)              # reconcilia, abre o cierra episodio
 temporada_io.registra_fines(conn, platform, cycle_id=cycle_id, episodio_abierto=ep,
-                            fines=fines_de(pendientes))           # FronteraHoja.fin de cada hoja
+                            fines=fines)                          # de TODAS las hojas leídas en TX2
 pendientes = [temporada_io.estampa(p, ep) for p in pendientes]  # inputs.temporada_episodio_id
 ids = _inserta_decisiones(conn, pendientes)                      # como hoy
 temporada_io.abre_efectos(conn, ep, pendientes, ids)            # uno por decisión de temporada
 ```
+
+`fines` no sale de las decisiones: TX2 arma `fines: dict[int, FinReduccion]` con `FronteraHoja.fin`
+de cada hoja que leyó con temporada, también las que terminan en `Mantener` (`cycle.py:2209` regresa
+antes de agregar una decisión), las inertes y las que no deciden nada. En práctica no se escribe ningún
+fin ni exclusión.
 
 **d) Fase de apply (`cycle.py:3523-3531`).** `apply.reconcilia_bids` y `aplicador.aplica_bids` como hoy,
 con la lectura fresca dentro del aplicador. Después, `aplicador.aplica_reactivaciones(...)` con las
@@ -532,6 +537,7 @@ class FronteraHoja:
     cerca_hoja: dt.date | None            # día UTC siguiente a su último movimiento de temporada confirmado
     cerca_plataforma: dt.date | None      # para grupo, cuenta y términos
     episodio_id: int | None               # el de su reducción vigente, o el abierto
+    fin: FinReduccion | None = None       # la reducción vieja termina en este ciclo (TX3 lo guarda)
 
 
 @dataclass(frozen=True)
@@ -539,7 +545,6 @@ class TemporadaCaso:
     """Presente sii ads_temporada_<plat> decide este caso (live) o en el caso de sombra."""
     estacion: Estacion
     episodio: EpisodioVigente | None      # None: no hay episodio abierto (o se abre en este ciclo)
-    fin: FinReduccion | None = None       # la reducción vieja termina en este ciclo (TX3 lo guarda)
     excluida_en: frozenset[int]           # episodios donde el aplicador vio la mano de David
     meta_alta_pct: Decimal
     meta_manual: bool                     # procedencia goal_campana o goal_plataforma
@@ -766,7 +771,7 @@ def frontera(estacion: Estacion, cadena: CadenaBid | None, *, episodio: Episodio
              excluida_en: frozenset[int], cerca_plataforma: dt.date | None,
              bid: Decimal | None, piso: Decimal, techo: Decimal) -> FronteraHoja:
     """Una sola función para el ciclo (decidir) y la cola (liberar).
-    # red, fin = reduccion_vigente(cadena, en_baja=estacion.fase == "baja", episodio=episodio, bid=bid, piso=piso, techo=techo)
+    # red, fin = reduccion_vigente(cadena, en_baja=estacion.fase == "baja", dia=estacion.dia, episodio=episodio, bid=bid, piso=piso, techo=techo)
     # p = _pendiente_desde(estacion, cadena, episodio, excluida_en, bid, piso, techo)   # usa la misma
     # fase_hoja = "baja" si estacion.fase == "baja" o isinstance(p, RestauracionPendiente)
     #             si no estacion.fase
@@ -777,13 +782,20 @@ def frontera(estacion: Estacion, cadena: CadenaBid | None, *, episodio: Episodio
     # fin = fin   (FronteraHoja.fin: TX3 lo guarda con temporada_io.registra_fines)"""
     raise NotImplementedError
 
+def inicio_episodio(episodio: EpisodioVigente | None, dia: dt.date) -> dt.datetime:
+    """Desde cuándo una mano del dueño cuenta como de esta baja: el inicio del día UTC en que se abrió
+    el episodio. El día en que TX3 lo abre, TX2 todavía no lo ve y usa `dia`. Así una mano de esa
+    mañana protege la keyword ese día y los siguientes, aunque `abierto_el` sea posterior.
+    # return datetime.combine(episodio.abierto_el.date() if episodio else dia, time(0), UTC)"""
+    raise NotImplementedError
+
 @dataclass(frozen=True)
 class FinReduccion:
     episodio_id: int                                   # episodio de la reducción que termina
     motivo: Literal["ya_arriba", "mano_del_dueno"]
     excluye_abierto: bool                              # la mano se vio con otro episodio abierto
 
-def reduccion_vigente(cadena: CadenaBid, *, en_baja: bool, episodio: EpisodioVigente | None, bid: Decimal,
+def reduccion_vigente(cadena: CadenaBid, *, en_baja: bool, dia: dt.date, episodio: EpisodioVigente | None, bid: Decimal,
                       piso: Decimal, techo: Decimal) -> tuple[ReduccionVigente | None, FinReduccion | None]:
     """La única resolución de «¿esta hoja sigue reducida?». La usan pendiente, frontera (y por ella
     estampa y la revalidación de la cola) y TX3. cadena.reduccion ya omite las reducciones con fila en
@@ -792,7 +804,7 @@ def reduccion_vigente(cadena: CadenaBid, *, en_baja: bool, episodio: EpisodioVig
     # if red is None or (episodio is not None and red.episodio_id == episodio.id): return red, None
     # manos = [m for m in cadena.manos_del_dueno if m > red.ultimo_el]
     # if manos or cadena.dueno_al_final:
-    #     ahora = cadena.dueno_al_final or (episodio is not None and max(manos) >= episodio.abierto_el)
+    #     ahora = cadena.dueno_al_final or (en_baja and max(manos) >= inicio_episodio(episodio, dia))
     #     # en_baja sin episodio = TX3 lo abre en este ciclo; la exclusión va a ese episodio
     #     return None, FinReduccion(red.episodio_id, "mano_del_dueno", excluye_abierto=en_baja and ahora)
     # if bid >= min(max(red.base, piso), techo):
@@ -805,7 +817,7 @@ def pendiente(caso: CasoHoja) -> Pendiente:
     # t = caso.temporada; e = t.estacion; bid = caso.bid.valor
     # bid None                                   -> SinPendiente("bid_heredado")
     # cad = recuperacion.cadena_bid(caso); None  -> SinPendiente("dato_faltante")
-    # red, fin = reduccion_vigente(cad, en_baja=e.fase == "baja", episodio=t.episodio, bid=bid, piso=piso, techo=techo)
+    # red, fin = reduccion_vigente(cad, en_baja=e.fase == "baja", dia=e.dia, episodio=t.episodio, bid=bid, piso=piso, techo=techo)
     # if fin is not None and fin.excluye_abierto                 -> SinPendiente("dueno_decidio")
     # if red is not None:                                        # la hoja lleva una reducción
     #     if red.episodio_id in t.excluida_en                   -> SinPendiente("dueno_decidio")
@@ -821,7 +833,7 @@ def pendiente(caso: CasoHoja) -> Pendiente:
     #     -> RestauracionPendiente(nivel, red.episodio_id)
     # if e.fase != "baja"                                        -> SinPendiente("fuera_de_temporada")
     # if t.episodio and t.episodio.id in t.excluida_en           -> SinPendiente("dueno_decidio")
-    # if t.episodio and algún cad.manos_del_dueno > t.episodio.abierto_el
+    # if algún cad.manos_del_dueno >= inicio_episodio(t.episodio, e.dia)
     #                                                            -> SinPendiente("dueno_decidio")
     # d = destino_entrada(bid, e.reduccion_baja, piso, techo); None -> SinPendiente("sin_centavo_factible")
     # -> EntradaPendiente(d)"""
