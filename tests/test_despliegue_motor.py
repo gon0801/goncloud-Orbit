@@ -73,6 +73,11 @@ SSH = """#!/usr/bin/env bash
 if [ -f "$ORBIT_FAKE_CTL/ssh_falla_presente" ]; then
   case "$*" in *"bash -s -- presente"*) echo "ssh falso: sin lectura" >&2; exit 255 ;; esac
 fi
+if [ -f "$ORBIT_FAKE_CTL/ssh_falla_ultimo" ] && [ -f "$ORBIT_FAKE_CTL/guardas_leidas" ]; then
+  case "$*" in
+    *"cat "*/despliegue/ultimo.env*) echo "ssh falso: diario ilegible" >&2; exit 255 ;;
+  esac
+fi
 while [ $# -gt 0 ]; do case "$1" in -n | -T) shift ;; -o) shift 2 ;; *) break ;; esac; done
 shift
 case "$*" in
@@ -91,13 +96,32 @@ C=$ORBIT_FAKE_CTL
 echo "docker $*" >> "$C/docker.log"
 case "$1" in
   top)
+    # Despues del build: el contenedor parado se tolera y un error distinto aborta; antes del
+    # build el paso 1 sigue leyendo el top normal.
+    if [ -f "$C/top_parado" ] && [ -f "$C/arranque" ]; then
+      echo "Error response from daemon: Container abc is not running" >&2; exit 1
+    fi
+    if [ -f "$C/top_error" ] && [ -f "$C/arranque" ]; then
+      echo "Error response from daemon: boom" >&2; exit 1
+    fi
     if [ -f "$C/top" ]; then cat "$C/top"
     else printf 'UID PID CMD\\n10001 1 uvicorn app.main:app\\n'; fi ;;
   compose)
     dir=""
-    while [ $# -gt 0 ]; do [ "$1" = --project-directory ] && dir=$2; shift; done
-    (cd "$dir" && find app -type f | LC_ALL=C sort | xargs md5sum) > "$C/compose-md5.txt"
-    touch "$C/arranque" ;;
+    sub=""
+    while [ $# -gt 0 ]; do
+      [ "$1" = --project-directory ] && dir=$2
+      case "$1" in build | up) sub=$1 ;; esac
+      shift
+    done
+    if [ "$sub" = build ]; then
+      (cd "$dir" && find app -type f | LC_ALL=C sort | xargs md5sum) > "$C/compose-md5.txt"
+    fi
+    touch "$C/arranque"
+    # Un trabajo que arranca durante el build: la guarda del paso 5 tiene que verlo.
+    if [ "$sub" = build ] && [ -f "$C/cli_vivo" ]; then
+      printf 'UID PID CMD\\n10001 9 python -m app.cli cycle\\n' > "$C/top"
+    fi ;;
   exec)
     case "$*" in
       *productos-modo*)
@@ -142,6 +166,9 @@ fi
 PSQL = """#!/usr/bin/env bash
 case " $* " in *" -c "*) exec "$ORBIT_REAL_PSQL" "$@" ;; esac
 sql=$(cat)
+case "$sql" in
+  *"optimizer_cycle"*"status = 'running'"*) touch "$ORBIT_FAKE_CTL/guardas_leidas" ;;
+esac
 if [ -f "$ORBIT_FAKE_CTL/psql_falla_vigente" ]; then
   case "$sql" in *"settings ->>"*) echo "psql falso: falla la lectura vigente" >&2; exit 2 ;; esac
 fi
@@ -436,7 +463,7 @@ class Servidor:
             return "ok"
         if muere_antes_rb:
             return "cortado"
-        r = self.rollback(tag, **({"ORBIT_SIM_CORTE": corte_rb} if corte_rb else {}))
+        r = self.rollback(tag, **({"ORBIT_SIM_CORTE": corte_rb} if corte_rb else {}), **extra)
         if r.returncode == CORTADO:
             return "cortado"
         return f"fallo_{d.returncode}"
@@ -526,7 +553,8 @@ def test_a_despliegue_completo_y_checklist_verde(s):
     assert s.estado_diario() == "verificado"
     compose = (s.ctl / "docker.log").read_text()
     proyecto = f"-p orbit --project-directory {s.srv} -f {s.srv}/docker-compose.yml"
-    assert f"compose {proyecto} up -d --no-deps --build app" in compose
+    assert f"compose {proyecto} build app" in compose
+    assert f"compose {proyecto} up -d --no-deps --no-build app" in compose
     assert (
         f"{s.md5_git('Fm', 'app/etiqueta.txt')}  app/etiqueta.txt"
         in (s.ctl / "compose-md5.txt").read_text()
@@ -643,7 +671,7 @@ def test_k_corte_tras_la_primera_clave_y_guarda_ocupada(s):
     inicial = _inicial(s)
     assert s.motor("Fm", corte="6") == "cortado"
     (s.ctl / "top").write_text("UID PID CMD\n10001 9 python -m app.cli ingest\n")
-    assert s.motor("Fm", AUTO03_ESPERA_S="1") == "reintenta"
+    assert s.motor("Fm", AUTO03_ESPERA_S="1", AUTO03_ESPERA_REVERSA_S="1") == "reintenta"
     estados = [ln for ln in s.ultimo() if ln.startswith("ESTADO=")]
     assert estados[-3:] == ["ESTADO=guardas_con_cambios", "ESTADO=revirtiendo", "ESTADO=revertido"]
     assert _inicial(s) == inicial
@@ -657,11 +685,11 @@ def test_k_guarda_ocupada_y_reversa_incompleta_sale_1_y_el_motor_la_termina(s):
     assert s.motor("Fm", corte="6") == "cortado"
     (s.ctl / "top").write_text("UID PID CMD\n10001 9 python -m app.cli ingest\n")
     (s.ctl / "psql_falla_vigente").touch()
-    assert s.motor("Fm", AUTO03_ESPERA_S="1") == "fallo_1"
+    assert s.motor("Fm", AUTO03_ESPERA_S="1", AUTO03_ESPERA_REVERSA_S="1") == "fallo_1"
     assert s.estado_diario() == "rollback_incompleto"
     assert s.desplegar("F2").returncode == 1
     (s.ctl / "psql_falla_vigente").unlink()
-    assert s.rollback("Fm").returncode == 1
+    assert s.rollback("Fm", AUTO03_ESPERA_REVERSA_S="1").returncode == 1
     assert _inicial(s) == inicial and s.estado_diario() == "revertido"
 
 
@@ -1081,3 +1109,97 @@ def test_arreglos01_a_las_migraciones_del_plan_entran_en_el_despliegue(tmp_path)
 
     assert r.returncode == 0, r.stderr
     assert "0083_arreglos01_prueba.sql\tSELECT to_regclass" in r.stdout
+
+
+def _compose_log(s: Servidor) -> list[str]:
+    return [ln for ln in (s.ctl / "docker.log").read_text().splitlines() if " compose " in ln]
+
+
+def test_arreglos01_m_con_app_cli_vivo_el_despliegue_no_recrea_y_sale_75(s):
+    """ARREGLOS 01 M.1: un trabajo que arranca durante el build no se corta; el paso 5 sale 75
+    sin recrear y la reversa (que no puede quedar bloqueada) recrea con AVISO."""
+    inicial = _inicial(s)
+    (s.ctl / "cli_vivo").touch()
+    r = s.desplegar("Fm", AUTO03_ESPERA_S="1", AUTO03_ESPERA_REVERSA_S="1")
+    assert r.returncode == 75, r.stdout + r.stderr
+    lineas = _compose_log(s)
+    builds = [i for i, ln in enumerate(lineas) if ln.endswith(" build app")]
+    ups = [i for i, ln in enumerate(lineas) if " up " in ln]
+    assert builds and ups, lineas
+    # El unico up es el de la reversa: el paso 5 no recreo con el app.cli vivo.
+    assert ups[0] > builds[-1], lineas
+    assert "AVISO: procesos app.cli vivos" in r.stderr
+    assert _inicial(s) == inicial
+    assert s.estado_diario() == "revertido"
+
+
+def test_arreglos01_m_sin_procesos_el_despliegue_recrea_y_sale_0(s):
+    """ARREGLOS 01 M.1: sin procesos app.cli el paso 5 recrea la imagen ya construida."""
+    r = s.desplegar("Fm")
+    assert r.returncode == 0, r.stdout + r.stderr
+    lineas = _compose_log(s)
+    build = next(i for i, ln in enumerate(lineas) if ln.endswith(" build app"))
+    up = next(i for i, ln in enumerate(lineas) if ln.endswith(" up -d --no-deps --no-build app"))
+    assert build < up, lineas
+    assert s.sha_srv() == s.rev("Fm")
+    assert s.estado() == (s.rev("Fm"), "Fm", LIVE)
+
+
+def test_arreglos01_m_docker_top_con_contenedor_parado_recrea_y_sale_0(s):
+    """F4: "is not running" es contenedor parado, no un proceso vivo; recrea y sale 0."""
+    (s.ctl / "top_parado").touch()
+    r = s.desplegar("Fm")
+    assert r.returncode == 0, r.stdout + r.stderr
+    lineas = _compose_log(s)
+    build = next(i for i, ln in enumerate(lineas) if ln.endswith(" build app"))
+    up = next(i for i, ln in enumerate(lineas) if ln.endswith(" up -d --no-deps --no-build app"))
+    assert build < up, lineas
+    assert s.estado() == (s.rev("Fm"), "Fm", LIVE)
+
+
+def test_arreglos01_m_docker_top_con_error_desconocido_aborta_sin_recrear(s):
+    """F4: un fallo de docker top distinto de parado/ausente aborta antes del up."""
+    (s.ctl / "top_error").touch()
+    r = s.desplegar("Fm")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "ABORTA: docker top orbit-app-1" in r.stderr
+    lineas = _compose_log(s)
+    assert any(ln.endswith(" build app") for ln in lineas), lineas
+    assert not any(" up " in ln for ln in lineas), lineas
+
+
+def test_arreglos01_m_guarda_ocupada_con_diario_ilegible_sale_1_sin_estado_terminal(s):
+    """F4: si falla la lectura del diario al salir 75, sale 1 y no anota estado terminal."""
+    (s.ctl / "top").write_text("UID PID CMD\n10001 9 python -m app.cli ingest\n")
+    (s.ctl / "ssh_falla_ultimo").touch()
+    r = s.desplegar("Fm", AUTO03_ESPERA_S="1", AUTO03_ESPERA_REVERSA_S="1")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "ABORTA: no pude leer" in r.stderr
+    estados = [ln for ln in s.ultimo() if ln.startswith("ESTADO=")]
+    assert estados[-1] == "ESTADO=guardas", estados
+    assert not any(
+        e in ("ESTADO=abortado_sin_cambios", "ESTADO=guardas_con_cambios") for e in estados
+    ), estados
+
+
+def test_arreglos01_m_la_espera_no_pasa_del_tope_del_motor(s):
+    """F1: la espera de app.cli se acota al presupuesto que queda del tope del motor."""
+    inicial = _inicial(s)
+    (s.ctl / "cli_vivo").touch()
+    t0 = time.monotonic()
+    r = s.desplegar(
+        "Fm",
+        AUTO03_ESPERA_S="600",
+        AUTO03_ESPERA_REVERSA_S="1",
+        AUTO03_TOPE_MOTOR_S="3",
+    )
+    assert r.returncode == 75, r.stdout + r.stderr
+    assert time.monotonic() - t0 < 60
+    lineas = _compose_log(s)
+    builds = [i for i, ln in enumerate(lineas) if ln.endswith(" build app")]
+    ups = [i for i, ln in enumerate(lineas) if " up " in ln]
+    assert builds and ups, lineas
+    assert ups[0] > builds[-1], lineas
+    assert "AVISO: procesos app.cli vivos" in r.stderr
+    assert _inicial(s) == inicial
+    assert s.estado_diario() == "revertido"
