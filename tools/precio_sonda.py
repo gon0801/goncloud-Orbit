@@ -28,7 +28,7 @@ from decimal import Decimal
 
 import app.precio_mercados as mercados
 from app.db import OrbitDbError, connect
-from app.precio.puerto import Acuse, Importe, Miembro, PrecioVivoAusente, UnidadPrecio
+from app.precio.puerto import Acuse, Importe, PrecioVivoAusente, UnidadPrecio
 
 CENTAVO = Decimal("0.01")
 
@@ -87,36 +87,19 @@ def _unidad(conn, *, listing_id: int, platform: str) -> UnidadPrecio:
     ).fetchone()
     if fila is None:
         raise Abortar(f"listing {listing_id} inexistente")
-    _lid, producto, plat, externo, sku = fila
+    _lid, _producto, plat, _externo, sku = fila
     if plat != platform:
         raise Abortar(f"listing {listing_id} es de otra plataforma ({plat}, se pidio {platform})")
     if not sku:
         raise Abortar(f"listing {listing_id} sin seller_sku: no hay ruta que escribir")
-    if platform == "meli":
-        # R05-r3 B1: igual que `MercadoMeli.catalogo` (misma consulta,
-        # mismo orden): la unidad lleva las variantes mapeadas para que
-        # el PUT pruebe la forma candidata. Sin miembros no hay ruta.
-        miembros = tuple(
-            Miembro(pid, str(msku), variante)
-            for msku, pid, variante in conn.execute(
-                "SELECT seller_sku, product_id, variante_ext FROM listing_miembro"
-                " WHERE listing_id = %s AND platform = 'meli' AND activo"
-                " ORDER BY seller_sku",
-                (listing_id,),
-            ).fetchall()
-        )
-        if not miembros:
-            raise Abortar(f"listing {listing_id} sin miembros activos: no hay ruta que escribir")
-    else:
-        miembros = (Miembro(producto, sku, None),)
-    return UnidadPrecio(
-        listing_id=listing_id,
-        plataforma=platform,
-        externo=externo,
-        canal=None,
-        producto_ancla=producto,
-        miembros=miembros,
-    )
+    # R.2: la unidad sale del UNICO lector (`Vitrina.unidades`), el mismo que
+    # decide, escribe y revierte. Sin miembros activos no hay ruta.
+    unidad = mercados.vitrina(platform).unidades(conn, [listing_id]).get(listing_id)
+    if unidad is None:
+        raise Abortar(f"listing {listing_id} inexistente")
+    if platform == "meli" and not unidad.miembros:
+        raise Abortar(f"listing {listing_id} sin miembros activos: no hay ruta que escribir")
+    return unidad
 
 
 def _lee(conn, mercado, unidad: UnidadPrecio) -> int:

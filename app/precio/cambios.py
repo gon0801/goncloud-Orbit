@@ -30,7 +30,7 @@ from psycopg.types.json import Jsonb
 from app.precio.compuerta import modo_efectivo
 from app.precio.config import _modo as _modo_config
 from app.precio.config import _modo_universo as _modo_universo_config
-from app.precio.puerto import EscrituraNoDisponible, Importe, Miembro, UnidadPrecio
+from app.precio.puerto import EscrituraNoDisponible, Importe, UnidadPrecio
 
 logger = logging.getLogger(__name__)
 
@@ -170,18 +170,16 @@ def _normalizar_ahora(ahora: datetime | None) -> datetime:
     return ahora.astimezone(UTC)
 
 
-def _unidad_de_listing(
-    listing_id: int, platform: str, product_id: int | None, sku: str | None, asin: str | None
-) -> UnidadPrecio:
-    """La unidad del cambio: fila de `listing` con su (unico) miembro Amazon."""
-    return UnidadPrecio(
-        listing_id=listing_id,
-        plataforma=platform,
-        externo=asin or "",
-        canal=None,
-        producto_ancla=product_id or 0,
-        miembros=(Miembro(product_id, sku or "", None),),
-    )
+def _unidad(mercado, conn: psycopg.Connection, listing_id: int) -> UnidadPrecio:
+    """La unidad real del listing: la MISMA que decide y escribe.
+
+    Sale del unico lector (`Vitrina.unidades`); sin ella no hay ruta que
+    escribir (`PublicacionSinSku`), nunca se arma un miembro falso.
+    """
+    unidad = mercado.unidades(conn, [listing_id]).get(listing_id)
+    if unidad is None:
+        raise PublicacionSinSku(f"listing_sin_unidad: listing {listing_id}")
+    return unidad
 
 
 def _fila_cambio(conn: psycopg.Connection, cambio_id: int):
@@ -349,9 +347,9 @@ def aplicar(
         p_actual_moneda,
         p_aplicado,
         p_moneda,
-        sku,
-        asin,
-        product_id,
+        _sku,
+        _asin,
+        _product_id,
     ) = dec
     if platform != mercado.clave:
         raise ValueError(
@@ -363,9 +361,18 @@ def aplicar(
             f"decision {decision_id}: solo subir/bajar en live mueven precio,"
             f" llego {resultado}/{mode}"
         )
-    if not sku:
-        raise PublicacionSinSku("listing_sin_sku: sin seller_sku no hay ruta que escribir")
-    unidad = _unidad_de_listing(listing_id, platform, product_id, sku, asin)
+    unidad = _unidad(mercado, conn, listing_id)
+    # Una variacion agregada despues de decidir (o un miembro sin producto)
+    # no recibio la cuenta del dia: no se le manda el precio. Sigue el mismo
+    # vocabulario que el motivo de decision `variante_sin_mapear`.
+    sin_producto = sum(1 for m in unidad.miembros if m.product_id is None)
+    if sin_producto:
+        logger.info(
+            "aplicar decision=%s saltado=variante_sin_mapear (%s sin producto)",
+            decision_id,
+            sin_producto,
+        )
+        return ResultadoCambio(id_cambio=None, estado="saltado", motivo="variante_sin_mapear")
     mercado.validar_destino(unidad)
     destino = Importe(Decimal(p_aplicado), p_moneda)
     try:
@@ -470,9 +477,9 @@ def _revertir_fila(
         estado,
         enviado_at,
         es_reversa,
-        sku,
-        asin,
-        product_id,
+        _sku,
+        _asin,
+        _product_id,
     ) = fila[:14]
     if es_reversa or not aplicado or enviado_at is None:
         raise CambioNoReversible(
@@ -481,9 +488,17 @@ def _revertir_fila(
     if estado in ("pendiente", "enviado"):
         logger.info("revertir cambio=%s saltado=original_abierto", cambio_id)
         return ResultadoReversion(id_reversa=None, estado="saltado", motivo="original_abierto")
-    if not sku:
-        raise PublicacionSinSku("listing_sin_sku: sin seller_sku no hay ruta que escribir")
-    unidad = _unidad_de_listing(listing_id, platform, product_id, sku, asin)
+    unidad = _unidad(mercado, conn, listing_id)
+    # Igual que `aplicar`: una variacion agregada despues del cambio original
+    # (sin producto/costo) no recibe la reversa. Mismo vocabulario.
+    sin_producto = sum(1 for m in unidad.miembros if m.product_id is None)
+    if sin_producto:
+        logger.info(
+            "revertir cambio=%s saltado=variante_sin_mapear (%s sin producto)",
+            cambio_id,
+            sin_producto,
+        )
+        return ResultadoReversion(id_reversa=None, estado="saltado", motivo="variante_sin_mapear")
     mercado.validar_destino(unidad)
     otro_abierto = conn.execute(
         "SELECT count(*) FROM precio_cambio"
@@ -802,16 +817,17 @@ def _revertir_una(
 
     Un `pendiente` se salta (`original_abierto`): su COMMIT sin escritura lo
     resuelve la corrida al arrancar. Una fila que ya no es revertible se
-    salta (`no_es_real`, `sin_sku`); una explosion al escribir sella su fila
-    y sigue el lote (`error`). Solo la infra (`psycopg.Error`) o la forma
-    sin sellar (`EscrituraNoDisponible`) abortan el lote.
+    salta (`no_es_real`, `sin_sku`, `variante_sin_mapear`); una explosion al
+    escribir sella su fila y sigue el lote (`error`). Solo la infra
+    (`psycopg.Error`) o la forma sin sellar (`EscrituraNoDisponible`) abortan
+    el lote.
     """
     cid = fila[0]
     if fila[8] == "pendiente":
         logger.info("revertir_lote cambio=%s saltado=original_abierto", cid)
         return ResultadoReversion(id_reversa=None, estado="saltado", motivo="original_abierto")
     if fila[8] == "enviado":
-        unidad = _unidad_de_listing(fila[1], fila[2], fila[13], fila[11], fila[12])
+        unidad = _unidad(mercado, conn, fila[1])
         vivo = _leer_vivo_suave(mercado, unidad)
         if vivo is None:
             logger.info("revertir_lote cambio=%s saltado=sin_precio_vivo", cid)
@@ -920,8 +936,8 @@ SELECT c.id, c.listing_id, c.precio_antes, c.precio_antes_currency,
 def cerrar_huerfanas(conn: psycopg.Connection, mercado) -> int:
     """Resuelve huerfanas de la plataforma del mercado; devuelve cuantas."""
     huerfanas = conn.execute(_SQL_HUERFANAS_ABIERTAS, (mercado.clave,)).fetchall()
-    for cid, lid, antes, antes_moneda, despues, despues_moneda, sku, asin, pid in huerfanas:
-        unidad = _unidad_de_listing(lid, mercado.clave, pid, sku, asin)
+    for cid, lid, antes, antes_moneda, despues, despues_moneda, _sku, _asin, _pid in huerfanas:
+        unidad = _unidad(mercado, conn, lid)
         try:
             vivo = mercado.precio_vivo(unidad)
         except Exception as exc:  # noqa: BLE001 - ilegible se sella sin_patch
@@ -973,8 +989,8 @@ def cerrar_por_observacion(conn: psycopg.Connection, vitrina, hoy) -> dict:
         (vitrina.clave, hoy),
     ).fetchall()
     cuenta = {"confirmado": 0, "no_confirmado": 0, "intactos": 0}
-    for cid, lid, despues, despues_moneda, dia_envio, sku, asin, product_id in abiertos:
-        unidad = _unidad_de_listing(lid, vitrina.clave, product_id, sku, asin)
+    for cid, lid, despues, despues_moneda, dia_envio, _sku, _asin, _product_id in abiertos:
+        unidad = _unidad(vitrina, conn, lid)
         obs = vitrina.observado(conn, unidad, despues_de=dia_envio, hasta=hoy)
         if obs is None:
             cuenta["intactos"] += 1
