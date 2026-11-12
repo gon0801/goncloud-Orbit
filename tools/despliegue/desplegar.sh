@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Despliegue de Orbit por el motor (AUTO-03 B.1). Uso: MOTOR_SHA=<sha> bash desplegar.sh [--ensayo]
 # Pasos: (0) candado y diario, (1) guardas, (2) monotonia, (3) respaldo, (4) migraciones
-# de la receta (*_auto03_*, *_orbit07_* y *_claridad01_*) con sonda, (5) codigo, build aparte y
-# recreacion que espera cero procesos app.cli (con $SRV/refresh_estimacion.sh), (5b) linea de
-# cron del vigia de Jev, (6) interruptores.
+# de la receta (*_auto03_*, *_orbit07_*, *_claridad01_* y *_arreglos01_*) con sonda, (5) codigo,
+# build aparte y recreacion que espera cero procesos app.cli (con $SRV/refresh_estimacion.sh),
+# (5b) linea de cron del vigia de Jev, (5c) bloque de cron de Orbit, (6) interruptores.
 # Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados, o app.cli vivo al recrear; si
 # el diario ya traia cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
@@ -47,7 +47,7 @@ ensayo() {
     s=$(sonda "$s") || exit 1
     [ "$s" = t ] && echo "migracion aplicada: $m" || echo "migracion pendiente: $m"
   done 3<<< "$MIGS"
-  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*): ninguna en $SHA"
+  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_* y *_arreglos01_*): ninguna en $SHA"
   VIEJO=$(interruptores_de "$previo") || exit 1
   CAMBIADAS=$(claves_a_converger "$previo" "$VIEJO" "$NUEVO")
   for k in $CAMBIADAS; do
@@ -57,6 +57,9 @@ ensayo() {
   [ -n "$CAMBIADAS" ] || echo "claves: ninguna cambia"
   if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
     cron_vigia revisa 2>&1 || echo "desplegar instalaria (o moveria al bloque) la linea jev-vigia"
+  fi
+  if git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null; then
+    cron_orbit revisa 2>&1 || echo "desplegar instalaria el bloque Orbit del crontab"
   fi
   if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then
     if git show "$SHA:tools/$REFRESCO" | srv "cmp -s - $SRV/$REFRESCO"; then
@@ -177,7 +180,7 @@ else
 fi
 corte 3
 
-echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*)"
+echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_* y *_arreglos01_*)"
 sigue_candado
 while IFS=$'\t' read -r m s <&3; do
   [ -n "$m" ] || continue
@@ -244,6 +247,16 @@ else
     *) echo "ABORTA: no pude leer si el crontab de gon ya trae la linea jev-vigia (salida $rc)" >&2; exit 1 ;;
   esac
   cron_vigia instala
+fi
+
+echo "== (5c) bloque de cron de Orbit"
+if ! git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null; then
+  echo "$SHA no trae $CRON_ORBIT"
+elif cron_orbit revisa; then
+  echo "el bloque Orbit ya era el canonico"
+else
+  sigue_candado
+  cron_orbit instala || { echo "ABORTA: no pude instalar el bloque Orbit del crontab" >&2; exit 1; }
 fi
 
 echo "== (6) interruptores frente a SHA_PREVIO"

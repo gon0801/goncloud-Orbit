@@ -1,4 +1,4 @@
-"""Contrato del cron de salud con el instalador documentado."""
+"""Contrato del cron de salud con el bloque canonico (ARREGLOS 01 N)."""
 
 import os
 import subprocess
@@ -7,40 +7,37 @@ from pathlib import Path
 import pytest
 
 RAIZ = Path(__file__).resolve().parents[1]
+BLOQUE = RAIZ / "tools/despliegue/crontab-orbit.txt"
 
 
-def test_reinstalar_orbit_conserva_una_sola_linea_de_salud():
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
-    linea = next(linea for linea in deploy.splitlines() if "app.cli ads-salud >>" in linea)
-    comentario = next(
-        linea for linea in deploy.splitlines() if linea.startswith("# job_key=ads-salud")
+def _linea_canonica() -> str:
+    return next(
+        linea
+        for linea in BLOQUE.read_text(encoding="utf-8").splitlines()
+        if "app.cli ads-salud" in linea and not linea.startswith("#")
     )
-    instalador = next(
-        linea for linea in deploy.splitlines() if "crontab -u gon -l 2>/dev/null | grep -v" in linea
-    )
-    filtros = instalador.split("crontab -u gon -l 2>/dev/null | ", 1)[1].split(" ; printf", 1)[0]
 
-    actual = f"{comentario}\n{linea}\n# accounting\n0 0 * * * accounting\n"
-    resultado = subprocess.run(
-        ["bash", "-c", f"cat | {filtros}"],
-        input=actual,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    reinstalado = resultado.stdout + comentario + "\n" + linea + "\n"
 
-    assert reinstalado.count(linea + "\n") == 1
-    assert sum(linea.startswith("# job_key=ads-salud") for linea in reinstalado.splitlines()) == 1
-    assert "# accounting\n0 0 * * * accounting\n" in reinstalado
+def test_el_bloque_canonico_trae_una_sola_linea_de_salud():
+    lineas = [
+        linea
+        for linea in BLOQUE.read_text(encoding="utf-8").splitlines()
+        if "app.cli ads-salud" in linea and not linea.startswith("#")
+    ]
+    assert len(lineas) == 1, f"ads-salud: {len(lineas)} lineas"
+    assert lineas[0].startswith("*/10 10-12 * * *")
+    assert "cron-avisa" in lineas[0], "la linea conserva su envoltura de aviso"
 
 
 def test_comentario_documentado_coincide_con_el_instalado():
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
     documentado = next(
-        linea for linea in deploy.splitlines() if linea.startswith("# job_key=ads-salud")
+        linea
+        for linea in BLOQUE.read_text(encoding="utf-8").splitlines()
+        if linea.startswith("# job_key=ads-salud")
     )
-    evidencia = (RAIZ / "docs/evidencia/ads-proteccion-01/H4/cron-instalado.md").read_text()
+    evidencia = (RAIZ / "docs/evidencia/ads-proteccion-01/H4/cron-instalado.md").read_text(
+        encoding="utf-8"
+    )
     instalado = next(linea for linea in evidencia.splitlines() if linea.startswith("comentario='"))
     assert documentado == instalado.removeprefix("comentario='").removesuffix("'")
 
@@ -71,8 +68,7 @@ def _ejecuta_checker(tmp_path, *, salida="", error="", estado=0):
 
 
 def _linea_documentada():
-    deploy = (RAIZ / "docs/DEPLOY.md").read_text()
-    return next(linea for linea in deploy.splitlines() if "app.cli ads-salud >>" in linea)
+    return _linea_canonica()
 
 
 def test_checker_sin_crontab_informa_cero_lineas(tmp_path):

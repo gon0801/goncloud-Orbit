@@ -298,6 +298,14 @@ def _crea_repo(repo: Path) -> None:
                 ROOT / "tools/despliegue/cron_jev_vigia.sh"
             ).read_text(encoding="utf-8")
         },
+        "ConCronOrbit": {
+            "tools/despliegue/cron_orbit.sh": (ROOT / "tools/despliegue/cron_orbit.sh").read_text(
+                encoding="utf-8"
+            ),
+            "tools/despliegue/crontab-orbit.txt": (
+                ROOT / "tools/despliegue/crontab-orbit.txt"
+            ).read_text(encoding="utf-8"),
+        },
         "ConRefresco": {
             "tools/refresh_estimacion.sh": (ROOT / "tools/refresh_estimacion.sh").read_text(
                 encoding="utf-8"
@@ -995,17 +1003,29 @@ def test_jev_vigia_fuera_del_bloque_se_mueve_sin_tocar_lo_demas(tmp_path):
     assert _cron_vigia(tmp_path, "revisa").returncode == 0
 
 
-def test_jev_vigia_reinstalar_el_bloque_y_desplegar_otra_vez_no_borra_el_vigia(s):
-    """Hallazgo h_62d4909e: el instalador del bloque de docs/DEPLOY.md deja el vigia fuera del
-    bloque; el siguiente despliegue no debe anotarlo como propio ni borrarlo al revertir."""
-    from test_ingesta_cron import _deploy, _reinstala
+def _reinstala_bloque_orbit(s: Servidor) -> str:
+    avisa = s.ctl / "cron-avisa"
+    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    avisa.chmod(0o755)
+    entorno = s.entorno(
+        ORBIT_CRON_BLOQUE=str(ROOT / "tools/despliegue/crontab-orbit.txt"),
+        ORBIT_CRON_AVISA=str(avisa),
+        ORBIT_CRON_ARCHIVO=str(s.srv / "archive"),
+    )
+    r = _corre_cron_orbit(entorno, "instala")
+    assert r.returncode == 0, r.stderr
+    return (s.ctl / "crontab").read_text(encoding="utf-8")
 
+
+def test_jev_vigia_reinstalar_el_bloque_y_desplegar_otra_vez_no_borra_el_vigia(s):
+    """Hallazgo h_62d4909e: el bloque canonico incluye jev-vigia; el siguiente despliegue no
+    debe anotarlo como propio ni borrarlo al revertir."""
     crontab = s.ctl / "crontab"
     crontab.write_bytes(CRONTAB_GON.encode())
     assert s.motor("ConVigia") == "ok"
-    crontab.write_text(_reinstala(_deploy(), crontab.read_text()))
+    _reinstala_bloque_orbit(s)
     assert "app.cli jev-vigia" in crontab.read_text()
-    assert not _vigia_en_bloque_orbit(crontab.read_text())
+    assert _vigia_en_bloque_orbit(crontab.read_text())
 
     assert s.motor("ConVigia2") == "ok"
     assert "CRON=jev-vigia" not in s.ultimo()
@@ -1030,13 +1050,18 @@ def test_jev_vigia_presente_distingue_ausencia_de_lectura_fallida(tmp_path):
 def test_jev_vigia_lectura_fallida_no_anota_ni_instala_y_la_reversa_conserva_el_vigia(s):
     """Hallazgo h_62d4909e (segunda ronda): una lectura de presencia fallida (ssh 255) no es
     ausencia; desplegar aborta sin anotar CRON= y la reversa no borra la linea previa."""
-    from test_ingesta_cron import _deploy, _reinstala
-
     crontab = s.ctl / "crontab"
     crontab.write_bytes(CRONTAB_GON.encode())
     assert s.motor("ConVigia") == "ok"
-    previo = _reinstala(_deploy(), crontab.read_text())
-    crontab.write_text(previo)
+    texto = _reinstala_bloque_orbit(s)
+    sin_vigia = [
+        ln
+        for ln in texto.splitlines()
+        if "app.cli jev-vigia" not in ln and not ln.startswith("# job_key=jev-vigia")
+    ]
+    previo = LINEAS_VIGIA + "\n".join(sin_vigia) + "\n"
+    crontab.write_text(previo, encoding="utf-8", newline="\n")
+    assert not _vigia_en_bloque_orbit(previo)
     (s.ctl / "ssh_falla_presente").touch()
 
     assert s.motor("ConVigia2") == "fallo_1"
@@ -1203,3 +1228,130 @@ def test_arreglos01_m_la_espera_no_pasa_del_tope_del_motor(s):
     assert "AVISO: procesos app.cli vivos" in r.stderr
     assert _inicial(s) == inicial
     assert s.estado_diario() == "revertido"
+
+
+def _instalador_cron_orbit(tmp_path: Path, actual: str, bloque: str):
+    bin_ = tmp_path / "bin"
+    bin_.mkdir(parents=True, exist_ok=True)
+    (bin_ / "crontab").write_text(CRONTAB, encoding="utf-8", newline="\n")
+    (bin_ / "crontab").chmod(0o755)
+    avisa = bin_ / "cron-avisa"
+    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    avisa.chmod(0o755)
+    ruta_bloque = tmp_path / "crontab-orbit.txt"
+    ruta_bloque.write_text(bloque, encoding="utf-8", newline="\n")
+    crontab = tmp_path / "crontab"
+    crontab.write_text(actual, encoding="utf-8", newline="\n")
+    entorno = {
+        **os.environ,
+        "PATH": f"{bin_}{os.pathsep}{os.environ['PATH']}",
+        "ORBIT_FAKE_CRONTAB": str(crontab),
+        "ORBIT_CRON_ARCHIVO": str(tmp_path / "archive"),
+        "ORBIT_CRON_AVISA": str(avisa),
+        "ORBIT_CRON_BLOQUE": str(ruta_bloque),
+    }
+    return entorno, crontab
+
+
+def _corre_cron_orbit(entorno: dict[str, str], accion: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["bash", str(ROOT / "tools/despliegue/cron_orbit.sh"), accion],
+        env=entorno,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+BLOQUE_N = (
+    "# === Orbit (prueba N) ===\n"
+    "# job_key=avisos-campana\n"
+    '5 8 * * * /usr/local/bin/cron-avisa --nombre "Avisos" --cada 24 -- /bin/bash -c '
+    "'docker exec orbit-app-1 python -m app.cli avisos-campana'"
+    " >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1\n"
+    "# job_key=ads_optimizer:amazon_us\n"
+    '40 8 * * * /usr/local/bin/cron-avisa --nombre "Optimizador" --cada 24 -- /bin/bash -c '
+    "'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us'"
+    " >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1\n"
+)
+
+CRONTAB_N_MUCHOS = (
+    "# === Orbit (viejo) ===\n"
+    "# job_key=avisos-campana\n"
+    '5 8 * * * /usr/local/bin/cron-avisa --nombre "A" --cada 24 -- /bin/sh -c "echo a"\n'
+    "# job_key=x\n"
+    '6 8 * * * /usr/local/bin/cron-avisa --nombre "B" --cada 24 -- /bin/sh -c "echo b"\n'
+    "# job_key=y\n"
+    '7 8 * * * /usr/local/bin/cron-avisa --nombre "C" --cada 24 -- /bin/sh -c "echo c"\n'
+    "# === Accounting ===\n"
+    "0 0 * * * /usr/bin/accounting >> /var/log/accounting.log 2>&1\n"
+    '0 8 * * * /usr/local/bin/cron-avisa --nombre "Fuera" --cada 24 -- /bin/sh -c "echo fuera"\n'
+)
+
+CRONTAB_N = (
+    "# === Orbit (viejo) ===\n"
+    "# job_key=avisos-campana\n"
+    "5 8 * * * docker exec orbit-app-1 python -m app.cli avisos-campana"
+    " >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1\n"
+    "# job_key=ads_optimizer:amazon_us\n"
+    "40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us"
+    " >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1\n"
+    "# job_key=ads-salud\n"
+    "*/10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud"
+    " >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1\n"
+    "# === Accounting ===\n"
+    "0 0 * * * /usr/bin/accounting >> /var/log/accounting.log 2>&1\n"
+    '0 8 * * * /usr/local/bin/cron-avisa --nombre "Fuera" --cada 24 -- /bin/sh -c "echo fuera"\n'
+)
+
+
+def test_arreglos01_n_el_instalador_no_quita_cron_avisa(tmp_path):
+    """N.2: instalar el bloque canonico conserva las envolturas cron-avisa, no toca lo
+    de fuera y es idempotente; si el bloque dejaria menos avisos, aborta sin escribir."""
+    entorno, crontab = _instalador_cron_orbit(tmp_path / "ok", CRONTAB_N, BLOQUE_N)
+    r = _corre_cron_orbit(entorno, "instala")
+    assert r.returncode == 0, r.stderr
+    texto = crontab.read_text(encoding="utf-8")
+    assert texto.count(BLOQUE_N.rstrip("\n")) == 1
+    assert "5 8 * * * docker exec orbit-app-1 python -m app.cli avisos-campana" not in texto
+    assert "*/10 10-12 * * * docker exec" not in texto
+    assert "# === Accounting ===\n0 0 * * * /usr/bin/accounting" in texto
+    assert 'cron-avisa --nombre "Fuera"' in texto
+    assert texto.count("cron-avisa") == 3, "dos del bloque y la de fuera"
+
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 0
+    r = _corre_cron_orbit(entorno, "instala")
+    assert r.returncode == 0, r.stderr
+    assert "sin cambios" in r.stdout
+    assert crontab.read_text(encoding="utf-8") == texto
+
+    # Un bloque canonico con menos avisos que el del host aborta sin escribir.
+    bloque_corto = BLOQUE_N.split("# job_key=ads_optimizer")[0]
+    entorno2, crontab2 = _instalador_cron_orbit(tmp_path / "corto", CRONTAB_N_MUCHOS, bloque_corto)
+    antes = crontab2.read_text(encoding="utf-8")
+    r = _corre_cron_orbit(entorno2, "instala")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "menos avisos" in r.stderr
+    assert crontab2.read_text(encoding="utf-8") == antes
+
+
+def test_arreglos01_n_el_despliegue_instala_el_bloque_orbit(s):
+    """N.3: el despliegue corre revisa en el ensayo e instala el bloque canonico al
+    desplegar; el resto del crontab (reputacion) queda igual y no se pierden avisos."""
+    crontab = s.ctl / "crontab"
+    crontab.write_text(CRONTAB_GON, encoding="utf-8", newline="\n")
+    avisa = s.ctl / "cron-avisa"
+    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    avisa.chmod(0o755)
+    r = s.desplegar("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa))
+    assert r.returncode == 0, r.stdout + r.stderr
+    texto = crontab.read_text(encoding="utf-8")
+    canon = (ROOT / "tools/despliegue/crontab-orbit.txt").read_text(encoding="utf-8")
+    assert texto.count("# === Orbit (") == 1
+    assert canon.rstrip("\n") in texto
+    assert "reputacion alertas" in texto
+    assert 'MAILTO=""' in texto
+    assert texto.count("cron-avisa") == canon.count("cron-avisa")
+
+    entorno = s.entorno(ORBIT_CRON_BLOQUE=str(ROOT / "tools/despliegue/crontab-orbit.txt"))
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 0

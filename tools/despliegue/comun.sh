@@ -27,6 +27,10 @@ INTERRUPTORES=tools/despliegue/interruptores.env
 TERMINALES=" verificado sin_cambios abortado_sin_cambios revertido "
 CAMBIO_RE='^(CODIGO|MIGRACION|CLAVE|CRON)='
 CRON_VIGIA=tools/despliegue/cron_jev_vigia.sh
+# ARREGLOS 01 N: el bloque de cron de Orbit vive en un archivo del repo; el instalador
+# reemplaza SOLO ese bloque y nunca quita avisos.
+CRON_ORBIT=tools/despliegue/cron_orbit.sh
+CRON_BLOQUE=tools/despliegue/crontab-orbit.txt
 # CLARIDAD 01 F: el cron de root corre $SRV/refresh_estimacion.sh; desplegar lo instala desde tools/.
 REFRESCO=refresh_estimacion.sh
 
@@ -223,6 +227,20 @@ sonda() {
 
 # cron_vigia <instala|quita|revisa|presente>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
 cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archive bash -s -- $1"; }
+
+# cron_orbit <instala|revisa>: el instalador del bloque de cron de Orbit de $SHA, corrido
+# en goncloud. El bloque canonico viaja como archivo (unica fuente en el repo) a /tmp.
+cron_orbit() {
+  local remoto=/tmp/cron-orbit-bloque.$$.txt rc=0
+  local extra=""
+  [ -z "${ORBIT_CRON_AVISA:-}" ] || extra=" ORBIT_CRON_AVISA=$ORBIT_CRON_AVISA"
+  git show "$SHA:$CRON_BLOQUE" | srv "cat > $remoto" || return 1
+  git show "$SHA:$CRON_ORBIT" \
+    | srv "ORBIT_CRON_ARCHIVO=$SRV/archive ORBIT_CRON_BLOQUE=$remoto$extra bash -s -- $1" \
+    || rc=$?
+  srv "rm -f $remoto" || true
+  return "$rc"
+}
 
 salud() { srv "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/health" 2>/dev/null || true; }
 
