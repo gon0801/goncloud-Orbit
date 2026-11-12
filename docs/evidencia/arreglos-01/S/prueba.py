@@ -1,5 +1,5 @@
-"""S (H-H2): el codigo desplegado espera las metricas hasta las 16:00 UTC y
-despues avisa. Funcion pura: sin base ni red.
+"""S (H-H2): el codigo desplegado espera las metricas hasta que la guarda da
+el dia por perdido (16:00 UTC) y despues avisa. Funcion pura: sin base ni red.
 Se corre con `bash docs/evidencia/arreglos-01/en_prod.sh .../S/prueba.py`.
 """
 
@@ -41,6 +41,9 @@ with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
 assert rc == 1, rc
 assert out.getvalue() == "", out.getvalue()
 assert "cycle amazon_us: hoy no corrió" in err.getvalue(), err.getvalue()
-assert "16:00 UTC" in err.getvalue(), err.getvalue()
+assert "El último intento empieza a las 13:15 UTC" in err.getvalue(), err.getvalue()
+assert "se corta solo a las 15:45 UTC" in err.getvalue(), err.getvalue()
+assert "desde las 16:00 UTC la guarda da el día por perdido" in err.getvalue(), err.getvalue()
+assert "termina a las 16:00" not in err.getvalue(), err.getvalue()
 print(f"16:00 UTC: rc={rc} (avisa)")
 print("S OK")

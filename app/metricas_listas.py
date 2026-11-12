@@ -4,10 +4,11 @@ Ningun comando que decide con las metricas del dia anterior lo hace sobre
 datos que no llegaron: `cycle`, `impulso-vigia`, `avisos-campana` y
 `jev-senales` consultan estas guardas ANTES de abrir envelopes, escrituras o
 mensajes; sin la corrida ok de hoy con filas de D-1 llaman a
-`salida_sin_metricas`. Antes del fin de intentos imprimen
+`salida_sin_metricas`. Antes de `fin_de_intentos` (la hora desde la que la
+guarda da el dia por perdido) imprimen
 `sin métricas de ayer: espera al siguiente horario` y salen 75 (espera: aun
 queda un horario hoy, y `cron-avisa` no cuenta el 75 como fallo ni como
-exito). Desde `fin_de_intentos` avisan por stderr y salen 1 para que el cron
+exito). Desde esa hora avisan por stderr y salen 1 para que el cron
 reporte el dia perdido. Los cuatro aceptan `--forzar` para correr a mano sin
 guarda.
 
@@ -36,14 +37,15 @@ SALIDA_ESPERA = 75
 
 
 def fin_de_intentos(hoy: dt.date) -> dt.datetime:
-    """Momento UTC en que ya no quedan intentos programados de la ingesta:
-    inicio del ultimo HORARIOS_INGESTA mas el presupuesto TOPE_PARED_SEGUNDOS
-    (13:15 + 2 h 45 = 16:00).
+    """Momento UTC desde el que la guarda da el dia por perdido: inicio del
+    ultimo HORARIOS_INGESTA mas TOPE_PARED_SEGUNDOS (13:15 + 2 h 45 = 16:00).
 
-    El sondeo de reportes tiene su propio tope duro (PLAZO_SONDEO_SEGUNDOS,
-    2 h 30, en app.ads.descarga); los 15 min restantes son la holgura de
-    escrituras y avisos del diseno. Derivado de app.ads.diario, no copiado
-    (un numero, una fuente). Import local: diario importa este modulo."""
+    La ingesta no se corta a esa hora. El ultimo intento empieza a las 13:15
+    y su sondeo tiene tope duro PLAZO_SONDEO_SEGUNDOS (2 h 30, 15:45, en
+    app.ads.descarga); los 15 min restantes son la holgura de escrituras y
+    avisos del diseno. Derivado de app.ads.diario y app.ads.descarga, no
+    copiado (un numero, una fuente). Import local: diario importa este
+    modulo."""
     from app.ads.diario import HORARIOS_INGESTA, TOPE_PARED_SEGUNDOS
 
     hora, minuto = (int(parte) for parte in HORARIOS_INGESTA[-1].split(":"))
@@ -66,10 +68,17 @@ def salida_sin_metricas(comando: str, *, ahora: dt.datetime | None = None) -> in
     if ahora < fin:
         print(TEXTO_ESPERA)
         return SALIDA_ESPERA
+    from app.ads.descarga import PLAZO_SONDEO_SEGUNDOS
+    from app.ads.diario import TOPE_PARED_SEGUNDOS
+
+    inicio = fin - dt.timedelta(seconds=TOPE_PARED_SEGUNDOS)
+    sondeo = inicio + dt.timedelta(seconds=PLAZO_SONDEO_SEGUNDOS)
     print(
         f"{comando}: hoy no corrió; las métricas de ayer no llegaron en ningún"
-        f" intento de la ingesta (el último intento programado termina a las {fin:%H:%M} UTC)."
-        " Mañana se intenta otra vez.",
+        " intento de la ingesta."
+        f" El último intento empieza a las {inicio:%H:%M} UTC y su sondeo se corta"
+        f" solo a las {sondeo:%H:%M} UTC; desde las {fin:%H:%M} UTC la guarda da el"
+        " día por perdido. Mañana se intenta otra vez.",
         file=sys.stderr,
     )
     return 1

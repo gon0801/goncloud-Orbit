@@ -78,7 +78,10 @@ def test_arreglos01_s_la_espera_sale_75_antes_del_fin_y_1_despues(capsys):
     capturado = capsys.readouterr()
     assert capturado.out == ""
     assert "cycle amazon_us: hoy no corrió" in capturado.err
-    assert "16:00 UTC" in capturado.err
+    assert "El último intento empieza a las 13:15 UTC" in capturado.err
+    assert "se corta solo a las 15:45 UTC" in capturado.err
+    assert "desde las 16:00 UTC la guarda da el día por perdido" in capturado.err
+    assert "termina a las 16:00" not in capturado.err
 
 
 def test_arreglos01_s_cada_consumidor_tiene_horario_tras_el_ultimo_plazo_de_ingesta():
