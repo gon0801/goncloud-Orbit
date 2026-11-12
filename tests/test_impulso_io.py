@@ -2123,6 +2123,9 @@ def test_arreglos01_q_impulso_desarmado_cierra_limpio():
         assert pausador.pausados == []
         assert pausador.aseguradas == [ids["lote"]]
         assert conn.execute(
+            "SELECT count(*) FROM impulso_lectura WHERE impulso_id = %s", (ids["impulso"],)
+        ).fetchone() == (1,)
+        assert conn.execute(
             "SELECT veredicto, es_final, hecho FROM impulso_lectura WHERE impulso_id = %s",
             (ids["impulso"],),
         ).fetchone() == ("desarmado", True, "pausado")
