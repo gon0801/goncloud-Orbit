@@ -30,14 +30,14 @@
   en lectura, y eso ES la fecha_fx. Que nadie lo "corrija" después agregando
   columnas convertidas.
 - **Append-only**: `ads_metric_observation`, `search_term_observation`,
-  `ledger_event`, `config_version`, `decision`, `fx_rate` y
-  `external_reconciliation` tienen trigger `prohibir_mutacion`
-  (`BEFORE UPDATE OR DELETE`). Corregir = insertar una fila nueva, jamás pisar
-  (regla 5: el UPSERT in-place invalidó todos los backtests del sistema viejo
-  sin dar síntoma). `ledger_event` tiene un candado propio posterior
-  (`ledger_solo_reatribuye`, ARREGLOS 01 Y): solo permite corregir
-  `product_id` de una venta de Amazon, de un producto a otro, y audita el
-  cambio en `ledger_reatribucion`.
+  `config_version`, `decision`, `fx_rate` y `external_reconciliation` tienen
+  trigger `prohibir_mutacion` (`BEFORE UPDATE OR DELETE`). Corregir = insertar
+  una fila nueva, jamás pisar (regla 5: el UPSERT in-place invalidó todos los
+  backtests del sistema viejo sin dar síntoma). `ledger_event` conserva el
+  candado append-only con su trigger propio `ledger_solo_reatribuye`
+  (ARREGLOS 01 Y): prohíbe el DELETE y todo UPDATE, salvo corregir
+  `product_id` de una venta de Amazon, de un producto a otro, y lo audita en
+  `ledger_reatribucion`.
 - **Excepciones mutables deliberadas** (todas documentadas en su tabla):
   `ingest_run` y `optimizer_cycle` nacen abiertas y se cierran con UPDATE
   acotado por columna; `decision_application` se pisa solo por readback;

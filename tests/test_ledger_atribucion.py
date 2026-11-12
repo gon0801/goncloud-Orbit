@@ -245,3 +245,24 @@ def test_arreglos01_y_reatribuye_venta_con_rastro_y_sigue_bloqueando(tmp_path):
                 "UPDATE ledger_event SET product_id = %s WHERE id = %s",
                 (pid_despues, sin_producto),
             )
+
+        # Separacion de privilegios con el rol real: app_ingest puede disparar
+        # el trigger (UPDATE product_id), pero no insertar la auditoria a mano.
+        conn.execute("SET ROLE app_ingest")
+        try:
+            conn.execute("SELECT set_config('orbit.ingest_run_id', %s, false)", (str(r.run_id),))
+            conn.execute("UPDATE ledger_event SET product_id = %s WHERE id = %s", (pid_antes, eid))
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO ledger_reatribucion"
+                    " (ledger_event_id, product_antes, product_despues)"
+                    " VALUES (%s, %s, %s)",
+                    (eid, pid_antes, pid_despues),
+                )
+        finally:
+            conn.execute("RESET ROLE")
+        assert conn.execute(
+            "SELECT product_antes, product_despues FROM ledger_reatribucion"
+            " WHERE ledger_event_id = %s ORDER BY id",
+            (eid,),
+        ).fetchall() == [(pid_antes, pid_despues), (pid_despues, pid_antes)]
