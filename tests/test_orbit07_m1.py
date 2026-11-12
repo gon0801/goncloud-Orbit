@@ -582,8 +582,9 @@ def test_cache_proteccion_vencida_no_se_confunde_con_veto():
     cache = CacheProteccion(
         plataforma="amazon_us",
         evaluado_el=dt.date(2026, 10, 16),
-        cubierta=True,
-        _recientes={},
+        _lee_desde=dt.date(2026, 9, 6),
+        _dias_plataforma=frozenset(),
+        _historia={},
         _episodios={1: EpisodioProteccion(dt.date(2026, 10, 5), dt.date(2026, 10, 15))},
     )
 
@@ -678,6 +679,83 @@ def test_ciclo_proteccion_vencida_no_congela_la_puja():
         assert bides[0][9]["factor"] == "-0.12"
         assert not [f for f in filas if f[0] == kw and f[1] == "pause"]
         assert _episodios(conn, kw) == [(dt.date(2026, 8, 12), dt.date(2026, 8, 22))]
+
+
+def _siembra_venta_en_el_hueco(conn) -> int:
+    """Hoja con su ultima fila el 08-12 (ventana de cortes hasta 08-09) y un
+    pedido ese dia: cae entre el fin de la ventana madura y la reciente
+    historica D-9..D-1. La ventana madura califica la pausa (150 clics, 60 USD,
+    cero pedidos)."""
+    ids = _siembra_r9(conn)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9505",
+        parent=ids["ag"],
+        match_type="EXACT",
+        keyword_text="kw hueco",
+    )
+    _estado(
+        conn,
+        kw,
+        synced_at=DECIDED_AT - dt.timedelta(hours=4),
+        current_bid=Decimal("1.00"),
+        bid_currency="USD",
+    )
+    run = _run(conn)
+    for fecha in _rango(dt.date(2026, 7, 11), dt.date(2026, 8, 11)):
+        _metrica_ciclo(
+            conn,
+            run,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="2.00",
+            ad_revenue="0",
+            clicks=5,
+            orders=0,
+            impressions=10,
+        )
+    _metrica_ciclo(
+        conn,
+        run,
+        kw,
+        dt.date(2026, 8, 12),
+        _obs(dt.date(2026, 8, 13)),
+        cost="2.00",
+        ad_revenue="5.00",
+        clicks=1,
+        orders=1,
+        impressions=10,
+    )
+    return kw
+
+
+@_skip_db
+def test_arreglos01_o_venta_en_el_hueco_detiene_la_pausa():
+    """A-H2: el pedido del 08-12 cae entre el fin de la ventana de cortes
+    (08-09) y la reciente historica (08-13..08-21). El ciclo no pausa y abre
+    un episodio con ancla en la fecha del pedido; la cache lo lee desde el dia
+    siguiente al fin de la ventana de cortes."""
+    with _db_ciclo("orbit_m1_hueco") as (conn, _c):
+        kw = _siembra_venta_en_el_hueco(conn)
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        assert _pausa_de(conn, res.cycle_id, kw) == []
+        assert _episodios(conn, kw) == [(dt.date(2026, 8, 12), dt.date(2026, 8, 22))]
+        cache = lee_cache(conn, "amazon_us", DECIDED_AT)
+        lectura = cache.insumos(
+            kw,
+            ventana_desde=dt.date(2026, 7, 11),
+            ventana_hasta=dt.date(2026, 8, 9),
+        ).reciente
+        assert lectura.cubierta is True
+        assert lectura.pedidos == 1
+        assert lectura.ancla == dt.date(2026, 8, 12)
+        assert cache.tiene_proteccion(kw) is True
 
 
 @_skip_db

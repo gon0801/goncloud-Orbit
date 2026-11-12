@@ -1028,7 +1028,7 @@ def test_page_window_clampa_y_deriva():
 
 
 def test_sql_pagina_decisiones_offset_sobre_el_mismo_from():
-    sql = dash._SQL_DECISIONES_PAGINA.replace("%s", "NULL")
+    sql = dash._SQL_DECISIONES_PAGINA.replace("{filtros}", "true").replace("%s", "NULL")
     normalizada = " ".join(pglast.prettify(sql).lower().split())
     assert "join ad_entity" in normalizada
     assert "order by d.id desc" in normalizada

@@ -134,10 +134,18 @@ def test_paginas_siguen_200_con_data_pantalla(monkeypatch):
     html_decisiones = _html_sin_db(
         monkeypatch,
         "/decisiones",
-        decisiones_pagina=lambda conn, page=1, page_size=50: (
+        decisiones_pagina=lambda conn, page=1, page_size=50, tipo="todas", q=None: (
             [],
             PageWindow.desde_total(total=0, page=page, page_size=page_size),
         ),
+        decisiones_conteos=lambda conn, q=None: {
+            "todas": 0,
+            "pausa": 0,
+            "puja_sube": 0,
+            "puja_baja": 0,
+            "negativo": 0,
+            "captura": 0,
+        },
     )
     assert 'data-pantalla="decisiones"' in html_decisiones
     html_contrib = _html_sin_db(

@@ -144,14 +144,29 @@ def test_otro_pedido_inmaduro_no_renueva_el_episodio_consumido():
 
 
 def test_fuente_incompleta_sin_episodio_no_abre_gracia_y_la_pausa_sigue():
-    """Sin episodio previo, una fuente incompleta no acredita venta reciente:
-    no se inventa un cero ni se abre una gracia nueva. La pausa historica
-    sigue y la lectura queda como indeterminada en el resultado."""
-    insumos = _proteccion(reciente=_reciente(cubierta=False))
+    """Sin episodio previo ni pedido conocido, una fuente incompleta no
+    acredita venta reciente: no se inventa un cero ni se abre una gracia
+    nueva. La pausa historica sigue y la lectura queda como indeterminada en
+    el resultado."""
+    insumos = _proteccion(reciente=_reciente(pedidos=None, ancla=None, cubierta=False))
     resultado = subproteccion.evalua(insumos)
     assert resultado.accion == "aplicar"
     assert resultado.motivo == subproteccion.MOTIVO_INDETERMINADA
     assert decide(_caso(proteccion=insumos)) == Pausar("pause_umbral")
+
+
+def test_arreglos01_o_pedido_conocido_sin_dato_completo_espera_y_abre():
+    """A-H1: el ancla de un pedido visto manda aunque `pedidos` sea
+    desconocido por una fuente incompleta o por un dia venenoso."""
+    for cubierta in (True, False):
+        resultado = subproteccion.evalua(
+            _proteccion(reciente=_reciente(pedidos=None, ancla=ANCLA, cubierta=cubierta))
+        )
+        assert resultado.accion == "esperar", cubierta
+        assert resultado.motivo == subproteccion.MOTIVO_PROTEGIDA, cubierta
+        assert resultado.ancla == ANCLA, cubierta
+        assert resultado.vence_el == VENCE, cubierta
+        assert resultado.abre_episodio is True, cubierta
 
 
 def test_fuente_incompleta_con_episodio_activo_conserva_la_espera():

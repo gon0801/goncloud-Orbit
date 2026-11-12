@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Orbit — Decisiones</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EEF0F3}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+.num{font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+summary{list-style:none}summary::-webkit-details-marker{display:none}
+details[open] > summary .chev{transform:rotate(90deg)}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; align-items: stretch; font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif; color: #111827; background: #EEF0F3">
+
+<a href="#contenido" style="position: absolute; left: -9999px">Saltar al contenido</a>
+
+<!-- Sidebar -->
+<nav aria-label="Navegación principal" style="flex: 1 1 232px; max-width: 100%; background: #0F172A; color: #CBD5E1; padding: 24px 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px">
+  <a href="/" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #F8FAFC; padding: 0 8px">
+    <span style="width: 32px; height: 32px; border-radius: 8px; border: 2px solid #F8FAFC; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">O</span>
+    <span style="display: flex; flex-direction: column; gap: 2px">
+      <span style="font-weight: 700; letter-spacing: 0.12em; font-size: 15px">ORBIT</span>
+      <span style="font-size: 12px; color: #94A3B8">Ads y marketplaces</span>
+    </span>
+  </a>
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8; padding: 0 8px 6px">Panel</span>
+    <a href="/" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Resumen</a>
+    <a href="/campanas" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Campañas</a>
+    <a href="/decisiones" aria-current="page" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; background: #1E293B; color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 600">Decisiones</a>
+    <a href="/salud" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Salud</a>
+    <a href="/contribucion" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Contribución</a>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8; padding: 0 8px 6px">Decidir</span>
+    <a href="/cortes" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Propuestas</a>
+    <a href="/gasto-sin-venta" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Gasto sin venta</a>
+    <a href="/busquedas-sin-venta" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Búsquedas que gastan sin vender</a>
+    <a href="/keywords-danadas" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Keywords dañadas</a>
+    <a href="/ruido" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Ruido</a>
+    <a href="/donde-poner-el-dinero" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Dónde poner el dinero</a>
+    <a href="/productos-sin-clics" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Productos sin clics</a>
+    <a href="/inertes" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Inertes</a>
+    <a href="/campanas/nuevas" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Crear campañas</a>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8; padding: 0 8px 6px">Catálogo</span>
+    <a href="/reputacion" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Reputación</a>
+    <a href="/precios" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Precios</a>
+    <a href="/familias" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Familias</a>
+  </div>
+  <a href="/settings" style="display: flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 6px; color: #CBD5E1; text-decoration: none; font-size: 14px">Settings</a>
+  <div style="margin-top: auto; border: 1px solid #334155; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+    <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #94A3B8">Último ciclo</span>
+    <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #F8FAFC"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #94A3B8"></span>Sin consultar</span>
+    <a href="/salud" style="font-size: 13px; color: #93C5FD">Ver salud por plataforma</a>
+  </div>
+</nav>
+
+<!-- Main -->
+<main id="contenido" style="flex: 999 1 640px; min-width: 0; padding: 28px 40px 48px; box-sizing: border-box">
+<div style="max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px">
+
+  <!-- Header -->
+  <header style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span class="num" style="font-size: 13px; color: #4B5563">2,903 decisiones · de la más reciente a la más antigua</span>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em">Decisiones</h1>
+    </div>
+    <nav aria-label="Paginación" style="display: flex; align-items: center; gap: 8px">
+      <span aria-disabled="true" style="display: inline-flex; align-items: center; height: 40px; padding: 0 14px; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 13px; color: #9CA3AF; background: #F9FAFB">anterior</span>
+      <span class="num" style="font-size: 13px; color: #374151; padding: 0 6px">página 1 de 59</span>
+      <a href="?page=2" style="display: inline-flex; align-items: center; height: 40px; padding: 0 14px; border: 1px solid #D1D5DB; border-radius: 8px; font-size: 13px; color: #111827; text-decoration: none; background: #FFFFFF">siguiente</a>
+    </nav>
+  </header>
+
+  <!-- Summary of this page -->
+  <section aria-labelledby="h-res" style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px">
+      <h2 id="h-res" style="margin: 0; font-size: 16px; font-weight: 600">En esta página</h2>
+      <span class="num" style="font-size: 12px; color: #4B5563">{{rangeLabel}}</span>
+    </div>
+    <dl style="margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 12px">
+      <sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
+        <div style="border: 1px solid #F3F4F6; background: #F9FAFB; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+          <dt style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #374151"><span aria-hidden="true" style="{{k.dot}}"></span>{{k.label}}</dt>
+          <dd class="num" style="margin: 0; font-size: 28px; font-weight: 600; line-height: 1">{{k.n}}</dd>
+          <dd style="margin: 0; font-size: 12px; color: #4B5563">{{k.sub}}</dd>
+        </div>
+      </sc-for>
+    </dl>
+  </section>
+
+  <!-- Filters (new) -->
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px">
+    <div role="group" aria-label="Tipo de decisión" style="display: flex; flex-wrap: wrap; gap: 4px; background: #FFFFFF; border: 1px solid #E5E7EB; padding: 4px; border-radius: 8px">
+      <sc-for list="{{filters}}" as="f" hint-placeholder-count="5">
+        <sc-if value="{{f.on}}" hint-placeholder-val="{{false}}">
+          <button type="button" aria-pressed="true" onClick="{{f.pick}}" style="height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: #111827; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px">{{f.label}} <span class="num" style="font-size: 12px; color: #D1D5DB">{{f.n}}</span></button>
+        </sc-if>
+        <sc-if value="{{f.off}}" hint-placeholder-val="{{true}}">
+          <button type="button" aria-pressed="false" onClick="{{f.pick}}" style="height: 34px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #374151; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px">{{f.label}} <span class="num" style="font-size: 12px; color: #4B5563">{{f.n}}</span></button>
+        </sc-if>
+      </sc-for>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 260px">
+      <label for="f-buscar" style="font-size: 12px; font-weight: 600; color: #374151">Buscar</label>
+      <input id="f-buscar" type="search" placeholder="campaña, keyword o ASIN" style="flex: 1 1 auto; height: 42px; padding: 0 12px; border: 1px solid #D1D5DB; border-radius: 8px; font: inherit; font-size: 13px; color: #111827; background: #FFFFFF">
+    </div>
+  </div>
+
+  <!-- Timeline by day -->
+  <section aria-label="Decisiones por día" style="display: flex; flex-direction: column; gap: 18px">
+    <sc-for list="{{days}}" as="d" hint-placeholder-count="4">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 0 4px">
+          <h2 class="num" style="margin: 0; font-size: 15px; font-weight: 600">{{d.date}}</h2>
+          <span style="font-size: 12px; color: #4B5563">{{d.summary}}</span>
+        </div>
+        <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden">
+          <sc-for list="{{d.groups}}" as="g" hint-placeholder-count="2">
+
+            <sc-if value="{{g.single}}" hint-placeholder-val="{{true}}">
+              <div style="display: grid; grid-template-columns: 112px minmax(0, 1fr) 160px 56px; gap: 8px 16px; align-items: start; padding: 14px 18px; border-top: 1px solid #F3F4F6">
+                <span style="{{g.chip}}">{{g.kindLabel}}</span>
+                <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                  <span style="font-size: 14px; line-height: 1.4"><strong style="font-weight: 600">{{g.first.entidad}}</strong> <span style="color: #4B5563">· {{g.first.camp}}</span></span>
+                  <span style="font-size: 13px; line-height: 1.45; color: #374151">{{g.motivo}}</span>
+                  <span class="num" style="font-size: 11px; color: #4B5563">{{g.first.meta}}</span>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px">
+                  <sc-if value="{{g.first.hasBid}}" hint-placeholder-val="{{true}}">
+                    <span class="num" style="font-size: 14px; white-space: nowrap"><span style="color: #4B5563">{{g.first.from}}</span> → <strong style="font-weight: 600; color: {{g.first.bidTone}}">{{g.first.to}}</strong> <span style="font-size: 11px; color: #4B5563">{{g.first.cur}}</span></span>
+                  </sc-if>
+                  <span class="num" style="font-size: 11px; color: #4B5563">Target usado {{g.first.target}}</span>
+                </div>
+                <span class="num" style="font-size: 12px; color: #4B5563; text-align: right">{{g.first.time}}</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{g.multi}}" hint-placeholder-val="{{false}}">
+              <details style="border-top: 1px solid #F3F4F6">
+                <summary style="cursor: pointer; display: grid; grid-template-columns: 112px minmax(0, 1fr) 160px 56px; gap: 8px 16px; align-items: start; padding: 14px 18px">
+                  <span style="{{g.chip}}">{{g.kindLabel}}</span>
+                  <span style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                    <span style="font-size: 14px; line-height: 1.4"><strong style="font-weight: 600">{{g.countLabel}}</strong> <span style="color: #4B5563">· {{g.scope}}</span></span>
+                    <span style="font-size: 13px; line-height: 1.45; color: #374151">{{g.motivo}}</span>
+                    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #1D4ED8; font-weight: 500">
+                      <svg class="chev" aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition: transform .15s"><path d="M9 6l6 6-6 6"></path></svg>
+                      Ver las {{g.n}} decisiones
+                    </span>
+                  </span>
+                  <span class="num" style="font-size: 11px; color: #4B5563; text-align: right">Target usado {{g.target}}</span>
+                  <span class="num" style="font-size: 12px; color: #4B5563; text-align: right">{{g.time}}</span>
+                </summary>
+                <div style="padding: 0 18px 12px 146px; display: flex; flex-direction: column">
+                  <sc-for list="{{g.items}}" as="x" hint-placeholder-count="5">
+                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; padding: 8px 0; border-top: 1px dashed #E5E7EB; font-size: 13px">
+                      <span><strong class="num" style="font-weight: 600">{{x.entidad}}</strong> <span style="color: #4B5563">· {{x.camp}}</span></span>
+                      <span class="num" style="font-size: 11px; color: #4B5563">{{x.meta}}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </details>
+            </sc-if>
+
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </section>
+
+  <nav aria-label="Paginación" style="display: flex; justify-content: center; align-items: center; gap: 8px; padding-top: 4px">
+    <span aria-disabled="true" style="display: inline-flex; align-items: center; height: 40px; padding: 0 14px; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 13px; color: #9CA3AF; background: #F9FAFB">anterior</span>
+    <span class="num" style="font-size: 13px; color: #374151; padding: 0 6px">página 1 de 59 · 2,903 decisiones</span>
+    <a href="?page=2" style="display: inline-flex; align-items: center; height: 40px; padding: 0 14px; border: 1px solid #D1D5DB; border-radius: 8px; font-size: 13px; color: #111827; text-decoration: none; background: #FFFFFF">siguiente</a>
+  </nav>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2760}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { kind: 'todas' };
+  }
+  renderVals() {
+    var self = this;
+    // [entidad, campaña, ids, kind, search term, motivo, target usado, bid antes, bid después, moneda, fecha, hora] — página 1 de /decisiones tal cual
+    var D = [
+      ["búsqueda amplia", "ASEM - Auto Discovery - MX", "#3840 · decision #2903", "Puja", "—", "El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %", "20.08 %", "5.34", "6.14", "MXN", "11 nov", "02:41"],
+      ["búsqueda amplia", "USPerNog - Auto Discovery - US", "#5891 · decision #2902", "Puja", "—", "El producto objetivo vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "19.15 %", "0.33", "0.29", "USD", "10 nov", "02:40"],
+      ["wedding arras", "USPerNog - Category Exact - US", "#1107058 · decision #2901", "Pausa", "—", "Pausa: tuvo clics y gasto sobre el umbral sin vender", "19.22 %", "—", "—", "—", "9 nov", "02:40"],
+      ["B0B3846ZS4", "A1U - Auto Discovery - US", "#86786 · decision #2900", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B3846ZS4", "A1U - Category Phrase - US", "#86686 · decision #2899", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "AU2 - Category Phrase - US", "#87296 · decision #2898", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "AU2 - Category Exact - US", "#87274 · decision #2897", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "AU2 - Product Targeting - US", "#87252 · decision #2896", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "AU2 - Category Broad - US", "#87230 · decision #2895", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "AU2 - Auto Discovery - US", "#87208 · decision #2894", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CKB2413S", "USPerNog - Auto Discovery - US", "#87024 · decision #2893", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CKB2413S", "USPerNog - Category Exact - US", "#87008 · decision #2892", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "USPerNog - Category Exact - US", "#86996 · decision #2891", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "A1U - Category Exact - US", "#86888 · decision #2890", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "A1U - Auto Discovery - US", "#86779 · decision #2889", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CKB2413S", "A1U - Category Phrase - US", "#86721 · decision #2888", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0B36NHWY5", "A1U - Category Phrase - US", "#86679 · decision #2887", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "AU2 - Category Phrase - US", "#87295 · decision #2886", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "AU2 - Category Exact - US", "#87273 · decision #2885", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "AU2 - Product Targeting - US", "#87251 · decision #2884", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "AU2 - Category Broad - US", "#87229 · decision #2883", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "AU2 - Auto Discovery - US", "#87207 · decision #2882", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CH97L6WW", "A1U - Category Exact - US", "#86927 · decision #2881", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "A1U - Category Exact - US", "#86886 · decision #2880", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CH97L6WW", "A1U - Auto Discovery - US", "#86818 · decision #2879", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "A1U - Auto Discovery - US", "#86777 · decision #2878", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CH97L6WW", "A1U - Category Phrase - US", "#86718 · decision #2877", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B09QC5PK3S", "A1U - Category Phrase - US", "#86677 · decision #2876", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CR78WCH5", "AU2 - Category Phrase - US", "#87311 · decision #2875", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CR78WCH5", "AU2 - Category Exact - US", "#87289 · decision #2874", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CR78WCH5", "AU2 - Product Targeting - US", "#87267 · decision #2873", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CR78WCH5", "AU2 - Category Broad - US", "#87245 · decision #2872", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CR78WCH5", "AU2 - Auto Discovery - US", "#87223 · decision #2871", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["B0CR78WCH5", "A1U - Category Exact - US", "#86494 · decision #2870", "Pausa", "—", "Pausa del anuncio: el producto no vendió en la ventana de la pausa", "—", "—", "—", "—", "8 nov", "02:40"],
+      ["USPerNog - Category Exact - US - AdGroup", "USPerNog - Category Exact - US", "#4012 · decision #2869", "Negativo", "wedding arras", "Negativo: la búsqueda tuvo clics y gasto sobre el umbral sin vender", "19.37 %", "—", "—", "—", "8 nov", "02:40"],
+      ["arras", "AU2 - Category Phrase - US", "#4919 · decision #2868", "Puja", "—", "La keyword regresó a su puja anterior: la nueva hizo caer sus visitas", "19.37 %", "0.22", "0.30", "USD", "8 nov", "02:40"],
+      ["mismo ASIN B07FP1GH8Q", "AU2 - Product Targeting - US", "#5567 · decision #2867", "Puja", "—", "El producto objetivo vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "19.56 %", "0.35", "0.31", "USD", "7 nov", "02:40"],
+      ["wedding coins arras", "USPerNog - Category Exact - US", "#5336 · decision #2866", "Puja", "—", "La keyword vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "19.56 %", "0.48", "0.42", "USD", "7 nov", "02:40"],
+      ["wedding arras", "AU2 - Category Broad - US", "#4934 · decision #2865", "Puja", "—", "La keyword vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "19.56 %", "0.33", "0.29", "USD", "7 nov", "02:40"],
+      ["arras para boda", "AC - Category Exact - MX", "#2963 · decision #2864", "Puja", "—", "La keyword tiene el ACoS por debajo de la meta: sube su puja 15 %", "19.96 %", "9.74", "11.20", "MXN", "6 nov", "02:41"],
+      ["arras for catholic wedding", "A1U - Category Phrase - US", "#4902 · decision #2863", "Puja", "—", "La keyword vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "19.71 %", "0.58", "0.51", "USD", "5 nov", "02:40"],
+      ["arras para boda", "AU2 - Category Phrase - US", "#4924 · decision #2862", "Puja", "—", "La keyword regresó a su puja anterior: la nueva hizo caer sus visitas", "19.81 %", "0.26", "0.35", "USD", "4 nov", "02:40"],
+      ["arras", "AU2 - Category Phrase - US", "#4919 · decision #2861", "Pausa", "—", "Pausa: tuvo clics y gasto sobre el umbral sin vender", "19.81 %", "—", "—", "—", "4 nov", "02:40"],
+      ["búsqueda amplia", "ASEM - Auto Discovery - MX", "#3840 · decision #2860", "Puja", "—", "El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %", "20.01 %", "4.64", "5.34", "MXN", "3 nov", "02:41"],
+      ["búsqueda cercana", "Arras Auto 2", "#3781 · decision #2859", "Puja", "—", "El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %", "20.01 %", "1.19", "1.37", "MXN", "3 nov", "02:41"],
+      ["wedding arras", "USPerNog - Category Exact - US", "#1107058 · decision #2858", "Puja", "—", "La keyword gastó el doble de lo necesario para decidir y no vendió: baja su puja 25 %", "19.87 %", "0.60", "0.45", "USD", "3 nov", "02:40"],
+      ["búsqueda cercana", "AC - Auto Discovery - MX", "#3835 · decision #2857", "Puja", "—", "El producto objetivo tiene el ACoS por debajo de la meta: sube su puja 15 %", "20.19 %", "8.33", "9.58", "MXN", "2 nov", "02:41"],
+      ["búsqueda amplia", "USPerNog - Auto Discovery - US", "#5891 · decision #2856", "Puja", "—", "El producto objetivo vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "20.00 %", "0.38", "0.33", "USD", "2 nov", "02:40"],
+      ["arras de matrimonio", "AC - Category Phrase - MX", "#2883 · decision #2855", "Puja", "—", "La keyword tiene el ACoS por debajo de la meta: sube su puja 15 %", "20.16 %", "7.15", "8.22", "MXN", "31 oct", "02:41"],
+      ["arras de oro", "Arras Manual", "#2457 · decision #2854", "Puja", "—", "La keyword vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %", "20.16 %", "23.20", "20.42", "MXN", "31 oct", "02:41"]
+    ];
+
+    var DOT = 'width: 10px; height: 10px; border-radius: 3px; background: ';
+    var CHIP = 'justify-self: start; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; ';
+    var K = {
+      up:   { label: 'Puja ↑',   chip: CHIP + 'background: #CCFBF1; color: #115E59', dot: DOT + '#14B8A6', tone: '#0F766E' },
+      down: { label: 'Puja ↓',   chip: CHIP + 'background: #FEF3C7; color: #92400E', dot: DOT + '#F59E0B', tone: '#B45309' },
+      pausa:{ label: 'Pausa',    chip: CHIP + 'background: #E5E7EB; color: #1F2937', dot: DOT + '#6B7280', tone: '#374151' },
+      neg:  { label: 'Negativo', chip: CHIP + 'background: #FFEDD5; color: #9A3412', dot: DOT + '#C2410C', tone: '#9A3412' }
+    };
+    function key(r) {
+      if (r[3] === 'Pausa') return 'pausa';
+      if (r[3] === 'Negativo') return 'neg';
+      return parseFloat(r[8]) > parseFloat(r[7]) ? 'up' : 'down';
+    }
+    var all = D.map(function (r) { return { r: r, k: key(r) }; });
+    var cnt = { todas: all.length, up: 0, down: 0, pausa: 0, neg: 0 };
+    all.forEach(function (x) { cnt[x.k]++; });
+
+    var kpis = [
+      { label: 'Pausas', n: String(cnt.pausa), sub: 'de 50 en esta página', dot: K.pausa.dot },
+      { label: 'Pujas subidas', n: String(cnt.up), sub: 'de 50 en esta página', dot: K.up.dot },
+      { label: 'Pujas bajadas', n: String(cnt.down), sub: 'de 50 en esta página', dot: K.down.dot },
+      { label: 'Negativos', n: String(cnt.neg), sub: 'de 50 en esta página', dot: K.neg.dot }
+    ];
+
+    var sel = this.state.kind;
+    var filters = [['todas', 'Todas'], ['pausa', 'Pausas'], ['up', 'Pujas ↑'], ['down', 'Pujas ↓'], ['neg', 'Negativos']].map(function (f) {
+      return { label: f[1], n: String(cnt[f[0]]), on: sel === f[0], off: sel !== f[0], pick: function () { self.setState({ kind: f[0] }); } };
+    });
+
+    function item(r, k) {
+      return { entidad: r[0], camp: r[1], meta: r[2] + (r[4] !== '—' ? ' · search term: ' + r[4] : ''),
+        hasBid: r[7] !== '—', from: r[7], to: r[8], cur: r[9], bidTone: K[k].tone, target: r[6], time: r[11] };
+    }
+
+    var shown = all.filter(function (x) { return sel === 'todas' || x.k === sel; });
+    var order = [], byDay = {};
+    shown.forEach(function (x) { var d = x.r[10]; if (!byDay[d]) { byDay[d] = []; order.push(d); } byDay[d].push(x); });
+
+    var NAMES = { up: ['puja subida', 'pujas subidas'], down: ['puja bajada', 'pujas bajadas'], pausa: ['pausa', 'pausas'], neg: ['negativo', 'negativos'] };
+    var days = order.map(function (d) {
+      var xs = byDay[d], gOrder = [], gMap = {}, c = {};
+      xs.forEach(function (x) {
+        c[x.k] = (c[x.k] || 0) + 1;
+        var gk = x.k + '|' + x.r[5] + (x.r[7] !== '—' ? '|' + x.r[2] : '');
+        if (!gMap[gk]) { gMap[gk] = []; gOrder.push(gk); }
+        gMap[gk].push(x);
+      });
+      var parts = ['pausa', 'up', 'down', 'neg'].filter(function (k) { return c[k]; }).map(function (k) { return c[k] + ' ' + NAMES[k][c[k] === 1 ? 0 : 1]; });
+      var groups = gOrder.map(function (gk) {
+        var g = gMap[gk], k = g[0].k, r0 = g[0].r;
+        var camps = {}; g.forEach(function (x) { camps[x.r[1]] = 1; });
+        var ents = {}; g.forEach(function (x) { ents[x.r[0]] = 1; });
+        var targets = {}; g.forEach(function (x) { targets[x.r[6]] = 1; });
+        return {
+          single: g.length === 1, multi: g.length > 1, n: String(g.length),
+          chip: K[k].chip, kindLabel: K[k].label, motivo: r0[5], time: r0[11],
+          target: Object.keys(targets).length === 1 ? r0[6] : 'varios',
+          countLabel: g.length + ' ' + NAMES[k][1],
+          scope: Object.keys(ents).length + ' entidades en ' + Object.keys(camps).length + ' campañas',
+          first: item(r0, k),
+          items: g.map(function (x) { return item(x.r, k); })
+        };
+      });
+      return { date: d, summary: xs.length + (xs.length === 1 ? ' decisión' : ' decisiones') + ' · ' + parts.join(' · '), groups: groups };
+    });
+
+    return { kpis: kpis, filters: filters, days: days,
+      rangeLabel: '50 decisiones · ' + D[D.length - 1][10] + ' – ' + D[0][10] };
+  }
+}
+</script>
+</body>
+</html>

@@ -87,7 +87,7 @@
   </aside>
   <div class="app-contenido">
     <header class="pagina-header">
-      <div><h1>{{ paginas[pantalla][0] }}</h1><p>{{ paginas[pantalla][1] }}</p></div>
+      <div><h1>{% block titulo_pagina %}{{ paginas[pantalla][0] }}{% endblock %}</h1><p>{% block subtitulo_pagina %}{{ paginas[pantalla][1] }}{% endblock %}</p></div>
       <div class="header-acciones">
         {% block cabecera_accion %}{% endblock %}
         <span class="leyenda-zona">{{ leyenda_zona }}</span>
