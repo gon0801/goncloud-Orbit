@@ -34,7 +34,10 @@
   `external_reconciliation` tienen trigger `prohibir_mutacion`
   (`BEFORE UPDATE OR DELETE`). Corregir = insertar una fila nueva, jamás pisar
   (regla 5: el UPSERT in-place invalidó todos los backtests del sistema viejo
-  sin dar síntoma).
+  sin dar síntoma). `ledger_event` tiene un candado propio posterior
+  (`ledger_solo_reatribuye`, ARREGLOS 01 Y): solo permite corregir
+  `product_id` de una venta de Amazon, de un producto a otro, y audita el
+  cambio en `ledger_reatribucion`.
 - **Excepciones mutables deliberadas** (todas documentadas en su tabla):
   `ingest_run` y `optimizer_cycle` nacen abiertas y se cierran con UPDATE
   acotado por columna; `decision_application` se pisa solo por readback;
@@ -296,6 +299,11 @@ MXN colisionan y un cargo se pierde) y sin NULLS NOT DISTINCT dos cargos con
 *Cómo se audita*: trigger `prohibir_mutacion`; conflictos de dedupe contados
 en `ingest_run.rows_skipped`; `v_margen_plataforma` expone el margen con y sin
 cargos no atribuibles; `external_reconciliation` es el chequeo final.
+`product_id` de una venta de Amazon se puede corregir cuando el mapa
+ASIN → `listing` cambió: el trigger `ledger_solo_reatribuye` (ARREGLOS 01 Y)
+solo admite esa mutación (venta de Amazon, de producto a producto) y escribe
+la fila de auditoría en `ledger_reatribucion`; las ventas sin producto no se
+tocan (decisión Q3).
 
 ### Configuración y decisiones
 
