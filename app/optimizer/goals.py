@@ -91,7 +91,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 
-from app.optimizer.caso import VERSION_ECONOMIA_CAMBIO
+from app.optimizer.caso import VERSIONES_ECONOMIA_CAMBIO
 
 if TYPE_CHECKING:
     import psycopg
@@ -872,11 +872,12 @@ def clave_economia_cambio(plataforma: str) -> str:
     return f"ads_bid_economia_{plataforma}"
 
 
-def economia_cambio_desde_settings(settings: Mapping, plataforma: str) -> bool:
-    """Interruptor fail-closed de la regla M5/M6.
+def version_economia_cambio_desde_settings(settings: Mapping, plataforma: str) -> str | None:
+    """Interruptor fail-closed de la regla M5/M6 y su version.
 
-    Ausente -> False: el ciclo no lee ni congela episodios economicos y el
-    camino de consultas vuelve al de la base. `economia_cambio_v1` -> True.
+    Ausente -> None: el ciclo no lee ni congela episodios economicos y el
+    camino de consultas vuelve al de la base. `economia_cambio_v1` o
+    `economia_cambio_v2` -> esa version, que estampa el episodio nuevo.
     Cualquier otro valor -> ValueError (config corrupta, ciclo failed), como
     el resto de los settings del motor. Apagar la regla no borra decisiones
     historicas ni reescribe sus inputs: el replay lee el caso congelado.
@@ -884,10 +885,10 @@ def economia_cambio_desde_settings(settings: Mapping, plataforma: str) -> bool:
     clave = clave_economia_cambio(plataforma)
     valor = settings.get(clave)
     if valor is None:
-        return False
-    if valor == VERSION_ECONOMIA_CAMBIO:
-        return True
-    raise ValueError(f"setting {clave}: debe ser {VERSION_ECONOMIA_CAMBIO!r}, llego {valor!r}")
+        return None
+    if valor in VERSIONES_ECONOMIA_CAMBIO:
+        return valor
+    raise ValueError(f"setting {clave}: debe ser {VERSIONES_ECONOMIA_CAMBIO}, llego {valor!r}")
 
 
 def ratio_ads_publicable(

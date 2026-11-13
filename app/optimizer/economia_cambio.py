@@ -18,6 +18,11 @@ sigue aplicable al ultimo cambio:
   trayectoria vigente (R14-R17) decide como antes. La falta de datos no es un
   permiso para gastar ni un bloqueo para todas las hojas.
 
+La version del episodio elige el juicio. V1 conserva el historico. V2 exige
+`clics_minimos` clics en la ventana posterior para juzgar y, en una subida,
+mira "no crecio la venta" antes de "la semana previa no vendio" (C-H1.1 y
+C-H2). El recorte no cambia en ninguna version.
+
 Sin IO, reloj, float ni red. El target es el ya resuelto para el caso.
 """
 
@@ -29,7 +34,8 @@ from typing import Literal
 
 from app.optimizer.caso import (
     PRECISION,
-    VERSION_ECONOMIA_CAMBIO,
+    VERSION_ECONOMIA_CAMBIO_V2,
+    VERSIONES_ECONOMIA_CAMBIO,
     EpisodioEconomico,
     VentanaEconomica,
 )
@@ -60,11 +66,16 @@ def juicio_repeticion(
     *,
     target_acos_pct: Decimal,
     factor: Decimal,
+    clics_minimos: int,
 ) -> JuicioRepeticion:
     """Juicio de repeticion para un movimiento de la misma direccion.
 
     El llamador solo lo usa con `factor` del mismo signo que el ultimo cambio.
     Un factor cero o un episodio no utilizable devuelven `sin_evidencia`.
+
+    En v2 la ventana posterior necesita `clics_minimos` clics para juzgar,
+    tanto una subida como un recorte (C-H1.1). V1 conserva el juicio historico
+    para el replay de las decisiones ya congeladas.
     """
     if not _utilizable(episodio):
         return SIN_EVIDENCIA
@@ -74,10 +85,20 @@ def juicio_repeticion(
     assert post is not None
     if not _ventanas_medidas(pre, post):
         return SIN_EVIDENCIA
+    if episodio.version == VERSION_ECONOMIA_CAMBIO_V2:
+        assert post.clics is not None
+        if post.clics < clics_minimos:
+            return SIN_EVIDENCIA
     if factor < 0:
+        if pre.gasto is None or pre.gasto <= 0:
+            return SIN_EVIDENCIA
         return _juicio_recorte(pre, post)
     if factor > 0:
-        return _juicio_subida(episodio, pre, post, target_acos_pct)
+        if episodio.version == VERSION_ECONOMIA_CAMBIO_V2:
+            return _juicio_subida_v2(episodio, pre, post, target_acos_pct)
+        if pre.gasto is None or pre.gasto <= 0:
+            return SIN_EVIDENCIA
+        return _juicio_subida_v1(episodio, pre, post, target_acos_pct)
     return SIN_EVIDENCIA
 
 
@@ -102,12 +123,13 @@ def _juicio_recorte(pre: VentanaEconomica, post: VentanaEconomica) -> JuicioRepe
     return SIN_EVIDENCIA
 
 
-def _juicio_subida(
+def _juicio_subida_v1(
     episodio: EpisodioEconomico,
     pre: VentanaEconomica,
     post: VentanaEconomica,
     target_acos_pct: Decimal,
 ) -> JuicioRepeticion:
+    """Juicio historico: una previa sin ventas se abstiene antes de comparar."""
     assert pre.venta is not None and post.venta is not None
     if pre.venta <= 0:
         return SIN_EVIDENCIA
@@ -131,10 +153,39 @@ def _juicio_subida(
     return JuicioRepeticion("frena", MOTIVO_SUBIDA_SIN_ECONOMIA)
 
 
+def _juicio_subida_v2(
+    episodio: EpisodioEconomico,
+    pre: VentanaEconomica,
+    post: VentanaEconomica,
+    target_acos_pct: Decimal,
+) -> JuicioRepeticion:
+    """C-H2: de 0 a 0 ventas no crecio, asi que frena antes de abstenerse."""
+    assert pre.venta is not None and post.venta is not None
+    if post.venta <= pre.venta:
+        return JuicioRepeticion("frena", MOTIVO_SUBIDA_SIN_ECONOMIA)
+    if episodio.contribucion_pre is not None and episodio.contribucion_post is not None:
+        if episodio.contribucion_post > episodio.contribucion_pre:
+            return SIN_EVIDENCIA
+        return JuicioRepeticion("frena", MOTIVO_SUBIDA_SIN_ECONOMIA)
+    if pre.venta <= 0 or pre.gasto <= 0:
+        # Subio sobre una semana sin ventas o sin gasto y sin margen con el
+        # que comparar.
+        return SIN_EVIDENCIA
+    acos_pre = _acos(pre)
+    acos_post = _acos(post)
+    if acos_pre is None or acos_post is None:
+        return SIN_EVIDENCIA
+    if acos_post <= target_acos_pct:
+        return SIN_EVIDENCIA
+    if acos_post <= acos_pre:
+        return SIN_EVIDENCIA
+    return JuicioRepeticion("frena", MOTIVO_SUBIDA_SIN_ECONOMIA)
+
+
 def _utilizable(episodio: EpisodioEconomico | None) -> bool:
     return (
         episodio is not None
-        and episodio.version == VERSION_ECONOMIA_CAMBIO
+        and episodio.version in VERSIONES_ECONOMIA_CAMBIO
         and episodio.estado == "maduro"
         and episodio.motivo is None
         and episodio.aplicable
@@ -143,16 +194,22 @@ def _utilizable(episodio: EpisodioEconomico | None) -> bool:
 
 
 def _ventanas_medidas(pre: VentanaEconomica, post: VentanaEconomica) -> bool:
-    """Solo con gasto, venta, pedidos y clics conocidos en AMBAS ventanas.
+    """Solo exige que gasto, venta, pedidos y clics existan en AMBAS ventanas.
 
-    Un pre sin gasto no tiene ACoS que comparar; un post sin venta no demuestra
-    conservacion. No se rellenan None con cero (regla 3).
+    No se rellenan None con cero (regla 3). La exigencia de gasto previo > 0
+    vive donde se compara: antes del recorte, antes de v1 y en v2 justo antes
+    de comparar ACoS.
     """
-    if pre.gasto is None or pre.venta is None or pre.pedidos is None or pre.clics is None:
-        return False
-    if post.gasto is None or post.venta is None or post.pedidos is None or post.clics is None:
-        return False
-    return pre.gasto > 0
+    return not (
+        pre.gasto is None
+        or pre.venta is None
+        or pre.pedidos is None
+        or pre.clics is None
+        or post.gasto is None
+        or post.venta is None
+        or post.pedidos is None
+        or post.clics is None
+    )
 
 
 def _acos(ventana: VentanaEconomica) -> Decimal | None:

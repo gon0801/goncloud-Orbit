@@ -407,6 +407,7 @@ def _freno_trayectoria(caso, ultimo, efecto, factor: Decimal) -> Mantener | None
             caso.trayectoria.episodio,
             target_acos_pct=caso.economia.target_acos_pct,
             factor=factor,
+            clics_minimos=CLICS_NUEVOS,
         )
         if juicio.veredicto == "frena":
             assert juicio.motivo is not None

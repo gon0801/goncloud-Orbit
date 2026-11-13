@@ -35,7 +35,6 @@ from app.optimizer.caso import (
     MOTIVO_ECONOMIA_EVIDENCIA_VENCIDA,
     MOTIVO_ECONOMIA_POST_INMADURO,
     PRECISION,
-    VERSION_ECONOMIA_CAMBIO,
     BidVigente,
     CambioBid,
     CasoHoja,
@@ -468,7 +467,7 @@ class LecturasPlataforma:
     _campanas: dict[int, int]
     _eventos_campana: dict[int, tuple[dt.date, ...]]
     _eventos_grupo: dict[int, tuple[dt.date, ...]]
-    _con_economia: bool
+    _version_economia: str | None
     _dias_con_ingesta: frozenset[dt.date]
     _d: dt.date
     _visto_el: dt.datetime | None
@@ -507,7 +506,7 @@ class LecturasPlataforma:
         )
         if cambios:
             leido = _lee_efecto(conn, self, hoja_id, cambios, pausa.cortes)
-            if self._con_economia:
+            if self._version_economia is not None:
                 assert leido.pre_economico is not None and leido.post_economico is not None
             episodio = (
                 _episodio_economico(
@@ -519,7 +518,7 @@ class LecturasPlataforma:
                     campana_id=self._campanas.get(hoja_id),
                     ad_group_id=ad_group_id,
                 )
-                if self._con_economia
+                if self._version_economia is not None
                 else None
             )
             trayectoria = Trayectoria(cambios=cambios, efecto=leido.efecto, episodio=episodio)
@@ -600,7 +599,7 @@ def _lee_efecto(
     econ_post = (x + uno, x + dt.timedelta(days=DIAS_ECONOMIA_CAMBIO))
     fuente, pv = _fuente(lect._visto_el)
     base = [*pre7] * 5 + [*post] * 3 + [*postp] * 5 + [*prep] * 5 + [*ven] * 3
-    if lect._con_economia:
+    if lect._version_economia is not None:
         sql = _SQL_EFECTO_ECONOMIA
         fechas = base + [*econ_pre] * 11 + [*econ_post] * 11
         limite = max(fresco, econ_post[1])
@@ -641,7 +640,7 @@ def _lee_efecto(
         gasto_pre=_mide(n_prep, g_prep, prep[0], prep[1], dias, Decimal(0)),
         vendia=None if vendidos is None else vendidos >= 1,
     )
-    if not lect._con_economia:
+    if lect._version_economia is None:
         return _EfectoLeido(efecto=efecto, pre_economico=None, post_economico=None)
     (
         n_econ_pre,
@@ -735,6 +734,8 @@ def _episodio_economico(
     cambio = cambios[indice]
     x = cambio.fecha
     d = lect._d
+    version = lect._version_economia
+    assert version is not None
     eventos = [otro.fecha for i, otro in enumerate(cambios) if i != indice]
     if campana_id is not None:
         eventos.extend(lect._eventos_campana.get(campana_id, ()))
@@ -766,7 +767,7 @@ def _episodio_economico(
         estado = "maduro"
         motivo = None
     return EpisodioEconomico(
-        version=VERSION_ECONOMIA_CAMBIO,
+        version=version,
         fecha_cambio=x,
         moneda=lect.economia.moneda,
         pre=pre,
@@ -808,7 +809,7 @@ def lee_plataforma(
     *,
     economia: EconomiaPlataforma,
     visto_el: dt.datetime | None = None,
-    con_economia: bool = False,
+    version_economia: str | None = None,
 ) -> LecturasPlataforma:
     """Cuatro consultas por plataforma. `visto_el` None = ultima observacion
     (v_metric_latest, el ciclo). `visto_el` con fecha = lectura bitemporal
@@ -816,10 +817,11 @@ def lee_plataforma(
     pasados, y por eso la regla 5 (append-only) alcanza para validar el
     mismo dia.
 
-    `con_economia` (ORBIT 07 M5) agrega cinco consultas por plataforma para
-    los eventos que invalidan un episodio (configuracion de campana, ajustes,
-    precios, product ads nuevos y negatives o harvests aplicados en el mismo
-    ad group); apagado no las ejecuta."""
+    `version_economia` (ORBIT 07 M5) agrega cinco consultas por plataforma
+    para los eventos que invalidan un episodio (configuracion de campana,
+    ajustes, precios, product ads nuevos y negatives o harvests aplicados en
+    el mismo ad group) y estampa esa version en el episodio nuevo. None no las
+    ejecuta y deja el camino de consultas historico."""
     _exige_tz(decidido_el, "decidido_el")
     if visto_el is not None:
         _exige_tz(visto_el, "visto_el")
@@ -856,7 +858,7 @@ def lee_plataforma(
     ).fetchall()
     eventos_campana: dict[int, list[dt.date]] = {}
     eventos_grupo: dict[int, list[dt.date]] = {}
-    if con_economia:
+    if version_economia is not None:
         corte = visto_el if visto_el is not None else decidido_el
         bajo = dt.datetime.combine(cal_desde, dt.time.min, tzinfo=dt.UTC)
         for consulta, destino in (
@@ -923,7 +925,7 @@ def lee_plataforma(
         _campanas=campanas,
         _eventos_campana={k: tuple(v) for k, v in eventos_campana.items()},
         _eventos_grupo={k: tuple(v) for k, v in eventos_grupo.items()},
-        _con_economia=con_economia,
+        _version_economia=version_economia,
         _dias_con_ingesta=dias,
         _d=d,
         _visto_el=visto_el,

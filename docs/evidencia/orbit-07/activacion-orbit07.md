@@ -23,7 +23,7 @@ el procedimiento y por si solo no acredita que se haya ejecutado.
 |---|---|---|---|
 | M1, proteccion por venta reciente | `ads_proteccion_venta` (global, sin sufijo de plataforma) | `proteccion_venta_v1` | quitar la clave (`off`) |
 | M2, economia directa de producto | `ads_producto_economia_<plat>` | `producto_directo_v1` | `auto03` o quitar la clave |
-| M5/M6, economia del ultimo cambio | `ads_bid_economia_<plat>` | `economia_cambio_v1` | quitar la clave (`off`) |
+| M5/M6, economia del ultimo cambio | `ads_bid_economia_<plat>` | `economia_cambio_v2` | quitar la clave (`off`) |
 | M4, pausa por venta reciente del producto | politica `v3` (default del codigo) | sin clave | no aplica |
 
 `ads_proteccion_venta` es global: `app/optimizer/proteccion.py` la lee sin
@@ -43,14 +43,18 @@ repetir el comando: vuelve a leer la config vigente.
 # US: enciende M2 y M5/M6 en esa plataforma y M1 (global) una sola vez.
 docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_us \
   --economia producto_directo_v1 \
-  --bid-economia economia_cambio_v1 \
+  --bid-economia economia_cambio_v2 \
   --proteccion proteccion_venta_v1
 
 # MX: enciende M2 y M5/M6; M1 ya quedo global con la llamada anterior.
 docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_mx \
   --economia producto_directo_v1 \
-  --bid-economia economia_cambio_v1
+  --bid-economia economia_cambio_v2
 ```
+
+Cada ciclo juzga el ultimo cambio de puja con la version vigente del setting,
+incluidas las subidas hechas antes de encenderla. Las decisiones ya guardadas
+conservan la version con la que se juzgaron.
 
 M4 no lleva comando: es la politica `v3` que corre por defecto. No tiene un
 interruptor propio: revertirla requiere un nuevo commit que restaure la politica
