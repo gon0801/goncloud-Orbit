@@ -400,8 +400,9 @@ def test_el_juicio_de_perdida_usa_el_equilibrio_del_producto():
 
 
 def test_cola_camina_el_respaldo_familiar_desde_el_previo_de_la_hoja():
-    """h_32743606 (2): en la segunda vuelta del respaldo, la cola usa el
-    target familiar previo de la hoja y coincide con el ciclo ejecutor."""
+    """B-H1: al ganar el peldano familiar, la version nueva aplica el derivado
+    de la familia (10) en el primer ciclo, sin caminar desde la plataforma. La
+    cola usa el mismo ancla y coincide con el ciclo ejecutor."""
     with _db("orbit_m2_cola_rampa_familia") as conn:
         ids = _mundo_familia(conn, margen_familia=20)
         ids["ag"] = conn.execute(
@@ -417,16 +418,16 @@ def test_cola_camina_el_respaldo_familiar_desde_el_previo_de_la_hoja():
         )
         r1 = _corre(conn)
         assert r1.status == "done", r1.notes
-        assert _target(conn, r1.cycle_id, ids["kw"]) == (Decimal("29.5"), "margen_familia")
+        assert _target(conn, r1.cycle_id, ids["kw"]) == (Decimal("10"), "margen_familia")
         _a_live(conn, r1.cycle_id)
         r2 = _corre(conn)
         assert r2.status == "done", r2.notes
-        assert _target(conn, r2.cycle_id, ids["kw"]) == (Decimal("29.0"), "margen_familia")
+        assert _target(conn, r2.cycle_id, ids["kw"]) == (Decimal("10"), "margen_familia")
         _a_live(conn, r2.cycle_id)
         r3 = _corre(conn)
         assert r3.status == "done", r3.notes
         ejecutor = _targets_de(conn, r3.cycle_id)[ids["kw"]]
-        assert (ejecutor[2], ejecutor[3]) == (Decimal("28.5"), "margen_familia")
+        assert (ejecutor[2], ejecutor[3]) == (Decimal("10"), "margen_familia")
 
         vigente = apply_cola._target_pause_vigente(
             conn,
@@ -435,7 +436,7 @@ def test_cola_camina_el_respaldo_familiar_desde_el_previo_de_la_hoja():
             r3.cycle_id,
             {"target_procedencia": "margen_producto", "target_snapshot": {}},
         )
-        assert vigente == (Decimal("28.5"), "margen_familia")
+        assert vigente == (Decimal("10"), "margen_familia")
 
 
 def test_cola_reintenta_el_padre_de_la_subfamilia_sin_fila():
@@ -474,7 +475,7 @@ def test_cola_reintenta_el_padre_de_la_subfamilia_sin_fila():
 
         assert res.status == "done", res.notes
         ejecutor = _targets_de(conn, res.cycle_id)[ids["kw"]]
-        assert (ejecutor[2], ejecutor[3]) == (Decimal("29.5"), "margen_familia")
+        assert (ejecutor[2], ejecutor[3]) == (Decimal("10"), "margen_familia")
         vigente = apply_cola._target_pause_vigente(
             conn,
             "amazon_us",
@@ -482,7 +483,7 @@ def test_cola_reintenta_el_padre_de_la_subfamilia_sin_fila():
             res.cycle_id,
             {"target_procedencia": "margen_producto", "target_snapshot": {}},
         )
-        assert vigente == (Decimal("29.5"), "margen_familia")
+        assert vigente == (Decimal("10"), "margen_familia")
 
 
 def _pausa_de(conn, cycle_id: int, entidad: int) -> dict | None:

@@ -36,6 +36,7 @@ from psycopg.types.json import Json
 from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
 
 from app.optimizer import goals as g
+from app.optimizer import productos as p
 
 
 def _goal(**sobreescribe) -> g.Goal:
@@ -1264,3 +1265,33 @@ def test_politica_bid_solo_niveles_exacta_y_lo_demas_corrupto():
     for malo in ("", "bandas_v1", "evidencia_v2", "NIVELES_V3", "niveles", " ", 1, True):
         with pytest.raises(ValueError, match="politica de bids"):
             g.politica_bid_desde_settings({"ads_bid_politica_amazon_us": malo}, "amazon_us")
+
+
+def test_arreglos01_v_ledger_rancio_converge():
+    """B-H1 escenario B: con producto_directo_v1 y un previo de la hoja, un
+    motivo transitorio (ledger_rancio) converge al destino a 0.5 por ciclo en
+    vez de soltar el peldano de producto y saltar a la plataforma."""
+    converge = p.meta_de_hoja(
+        p.SinDato(("ledger_rancio",)),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=True,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert converge == g.ResolucionMargen(Decimal("4.5"), None, "ledger_rancio", True)
+    sin_previo = p.meta_de_hoja(
+        p.SinDato(("ledger_rancio",)),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=False,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert sin_previo == g.ResolucionMargen(None, None, "ledger_rancio", False)
+    ajeno = p.meta_de_hoja(
+        p.SinDato(("cobertura_baja",)),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=True,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert ajeno == g.ResolucionMargen(None, None, "cobertura_baja", False)
