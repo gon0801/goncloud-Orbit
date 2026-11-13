@@ -31,14 +31,16 @@ Lo que hace que la forma no sea obvia, comprobado en el código:
    `ads_target_fraccion_margen_amazon_{mx,us}`). Medido el 2026-11-12
    en `target_acos_ciclo`: las 136 keywords de MX deciden con `margen_plataforma` = 20.08 % y las 89
    de US con 19.16 %. El equilibrio que recibe el motor es el margen neto (`app/cycle.py:3318`), así que
-   el 2026-11-12 era 40.26 % en MX y 23.81 % en US (`optimizer_cycle.notes.target.margen_neto_pct`, ciclos 185 y 184), calculado con el costo de cada venta pasada (ver «Punto de equilibrio con el costo vigente»). Las metas de `target_acos_ciclo` (20.08 y 19.16) y las de `notes.target` (20.13 y 19.05, la mitad y el 0.8 de esos márgenes) son ciclos distintos del mismo día; el ejemplo del año usa 20.08 y 40.16, y las pruebas 20.13 y 19.05. Por eso la meta de alta es **absoluta (25 %) y se aplica
+   el 2026-11-12 era 40.26 % en MX y 23.81 % en US (`optimizer_cycle.notes.target.margen_neto_pct`, ciclos 185 y 184), calculado con el costo de cada venta pasada (ver «Punto de equilibrio con el costo vigente»). Esas dos cifras traían la comisión de Amazon contada dos veces; sin ella son 45.5 % y 29.0 % (ARREGLOS 02, bloque D), y las metas de `notes.target` pasan a cerca de 22.75 y 23.19. Las metas de `target_acos_ciclo` (20.08 y 19.16) y las de `notes.target` (20.13 y 19.05, la mitad y el 0.8 de esos márgenes) son ciclos distintos del mismo día; el ejemplo del año usa 20.08 y 40.16, y las pruebas 20.13 y 19.05. Por eso la meta de alta es **absoluta (25 %) y se aplica
    después de la cascada**. Un escalón nuevo en la cascada no tocaría ninguna keyword, y sumar puntos no
    daría 25.
 2. **Un bid no puede bajar más de 30 % en una decisión.** `_paso` corta el factor a `[-0.30, +0.20]`
    (`app/optimizer/politica.py:30-31`, `:612-622`). Pero el envío redondea a centavos con
    `ROUND_HALF_EVEN` después de decidir (`app/ads/write.py:187-198`). Con 0.15 USD, `_paso` da 0.1050 y
    Amazon recibe 0.10: un recorte de 33.3 %. El destino de temporada se resuelve en centavos antes de
-   congelarlo.
+   congelarlo. Desde ARREGLOS 02 B, `_paso` ya decide en centavos con `centavo_hacia` de
+   `app/optimizer/centavos.py` (0.15 USD con −30 % da 0.11, no 0.1050); el destino de temporada usa la
+   misma función.
 3. **R1 leería la reducción como un recorte que tiró el tráfico.** R1 solo mira el último cambio con
    origen `motor` y dirección −1 (`politica.py:280-282`). `v_cambio_bid` solo distingue
    `regreso_por_desplome` (`migrations/0067_bids02_campana_ajuste.sql:65-77`). Sin un origen propio, R1
@@ -116,12 +118,11 @@ por plataforma. Un solo botón guarda todo lo de la tarjeta.
 │                                                                                              │
 │                     Meta de ACoS en temporada alta   Modo                                     │
 │ Amazon MX           [ 25 ] %  (de 10 a 45)           ( ) Apagado (•) Práctica ( ) En vivo       │
-│    Hoy tu meta es 20.1 % (sale de tu margen). En temporada alta: 25 %.                       │
-│    Punto de equilibrio con el costo de hoy: 40.3 %. Arriba de ese ACoS pierdes dinero.       │
+│    Hoy tu meta es 22.8 % (sale de tu margen). En temporada alta: 25 %.                       │
+│    Punto de equilibrio con el costo de hoy: 45.5 %. Arriba de ese ACoS pierdes dinero.       │
 │ Amazon US           [ 25 ] %  (de 10 a 45)           ( ) Apagado (•) Práctica ( ) En vivo       │
-│    Hoy tu meta es 19.2 % (sale de tu margen). En temporada alta: 25 %.                       │
-│    Punto de equilibrio con el costo de hoy: 23.8 %. Arriba de ese ACoS pierdes dinero.       │
-│    ⚠ Con 25 % en temporada alta aceptas ventas que pierden dinero en Amazon US (ACoS de 23.8 a 25 %). │
+│    Hoy tu meta es 23.2 % (sale de tu margen). En temporada alta: 25 %.                       │
+│    Punto de equilibrio con el costo de hoy: 29.0 %. Arriba de ese ACoS pierdes dinero.       │
 │ 3 campañas con meta propia no cambian.                                                       │
 │ Práctica: Orbit calcula lo que haría y te lo enseña cada día, sin tocar Amazon.              │
 │                                                                                              │
@@ -497,7 +498,7 @@ META_ALTA_MIN, META_ALTA_MAX = Decimal("10"), Decimal("45")
 MANTENER_PAUSADAS_MAX = 500
 DIAS_CERCA = 90                                          # caso.DIAS_LOOKBACK
 DIAS_PROPUESTA_FIN_BAJA = 30
-CENTAVO = Decimal("0.01")
+from app.optimizer.centavos import CENTAVO, centavo_hacia   # ARREGLOS 02 B: un solo centavo
 MESES_POR_DEFECTO: tuple[TipoMes, ...] = (
     "baja", "baja", "alta", "alta", "baja", "baja",
     "normal", "normal", "normal", "alta", "alta", "normal",
@@ -692,7 +693,9 @@ class CasoHoja:
     recuperacion: InsumosRecuperacion | None = None
     presupuesto: PresupuestoCampana | None = None   # presente si temporada o recuperación deciden
     # desde_json: _objeto_con_opcionales(datos, _CLAVES_CASO,
-    #                                    {"temporada", "historia", "recuperacion", "presupuesto"})
+    #                                    {"revision", "temporada", "historia", "recuperacion", "presupuesto"})
+    # _objeto_con_opcionales y la opcional "revision" ya existen desde ARREGLOS 02 B: aquí solo se suman
+    # las cuatro claves de temporada, sin quitar "revision".
 ```
 
 ```python
@@ -784,7 +787,7 @@ def resumen(config: ConfigTemporada, hoy: dt.date, *, antes: ConfigTemporada | N
 
 def destino_entrada(bid: Decimal, reduccion: Decimal, piso: Decimal, techo: Decimal) -> Decimal | None:
     """El centavo más bajo que no baja más de `reduccion`.
-    # d = (bid * (1 - reduccion)).quantize(CENTAVO, ROUND_CEILING)
+    # d = centavo_hacia(bid * (1 - reduccion), desde=bid)   # centavo hacia arriba (ARREGLOS 02 B)
     # d = min(max(d, piso), techo)
     # None si bid - d < CENTAVO (sin centavo factible)
     # 0.15 USD, 30 % -> 0.11 (26.7 %); 1.55 MXN -> 1.09 (29.7 %); 8.00 -> 5.60; 0.10 USD con piso 0.10 -> None"""
@@ -900,7 +903,9 @@ def meta_del_juicio(caso: CasoHoja) -> Decimal:
     # t = caso.temporada
     # if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual: return base
     # return max(base, t.meta_alta_pct)        # libre: puede pasar el equilibrio (decisión 4 del plan)
-    # MX hoy: max(20.13, 25) = 25; US: max(19.05, 25) = 25 (arriba de su equilibrio 23.81: Ajustes avisa)"""
+    # Ejemplo: max(19.05, 25) = 25; con un equilibrio de 23.81, Ajustes avisaría.
+    # Con los datos del 2026-11-12 sin la comisión contada dos veces (ARREGLOS 02 D): MX max(22.75, 25) = 25
+    # y US max(23.19, 25) = 25, las dos debajo de su equilibrio (45.5 y 29.0)."""
     raise NotImplementedError
 
 def equilibrio_del_juicio(caso: CasoHoja) -> Decimal | None:
@@ -911,7 +916,8 @@ def equilibrio_del_juicio(caso: CasoHoja) -> Decimal | None:
     # t = caso.temporada
     # if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual: return eq
     # return max(eq, meta_del_juicio(caso))
-    # US hoy en alta: max(23.81, 25) = 25; MX: max(40.26, 25) = 40.26"""
+    # Ejemplo en alta: max(23.81, 25) = 25. Con los datos del 2026-11-12 sin la comisión contada dos veces
+    # (ARREGLOS 02 D): US max(29.0, 25) = 29.0 y MX max(45.5, 25) = 45.5."""
     raise NotImplementedError
 
 def propuesta_presupuesto(
@@ -1089,13 +1095,17 @@ def decide(caso: CasoHoja) -> Veredicto:
     # BUD   subida y caso.presupuesto presente:
     #           presupuesto_topado(caso) in (True, None)   -> Mantener(MOTIVO_PRESUPUESTO_TOPADO)
     # FRENOS
-    #   ultimo.origen == "temporada"                      -> solo R17 (R2 ya pasó)
+    #   ultimo.origen == "temporada"                      -> ningún freno de _freno_trayectoria (R2 ya pasó);
+    #                                                        el piso aprendido (R17) lo aplica _paso
+    #                                                        (ARREGLOS 02 B lo dejó solo ahí)
     #   Recupera tras recorte o sin cambio previo          -> solo R14; sin R15, R16, R16b
     #   Recupera tras subida (otro salto)                  -> R14-R16b como R6 (evidencia nueva al precio nuevo)
     #   resto                                              -> _freno_trayectoria como hoy
     # Recupera(d) -> Regresar(d, MOTIVO_RECUPERA_NIVEL)
-    # _paso(caso.bid, factor, motivo, nivel, piso_aprendido, techo_extra=techo_de_baja si factor > 0)
+    # _paso(caso.bid, factor, motivo, nivel, piso_aprendido, techo_extra=techo_de_baja si factor > 0,
+    #       centavos=caso.revision >= 1)
     #   (si techo_extra deja el delta bajo un centavo -> Mantener(MOTIVO_TECHO_DE_BAJA))
+    #   techo_extra se aplica antes de centavo_hacia, junto con piso y techo (ARREGLOS 02 B)
     raise NotImplementedError
 ```
 
@@ -1465,7 +1475,7 @@ restaura la vista de 0067, el CHECK anterior de `decision_sin_aplicar` y borra l
 | --- | --- | --- |
 | `app/optimizer/temporada.py` (nuevo, puro) | config y lectores, `resuelve`, `eventos`, `resumen`, `destino_entrada`, `frontera`, `pendiente`, `techo_de_baja`, `meta_del_juicio`, `propuesta_presupuesto`, `aviso_del_dia` | qué día es qué fase y qué le toca a cada keyword y campaña |
 | `app/optimizer/recuperacion.py` (nuevo, puro) | `cadena_bid`, `techo_conocido`, `multiplicador_sostenible`, `destino_recuperacion`, `presupuesto_topado`, lectores | la memoria del bid |
-| `app/optimizer/caso.py` | `OrigenCambio` + `temporada`; `CambioFechado`, `HistoriaBid`, `PresupuestoCampana`, `InsumosRecuperacion`, `TemporadaCaso`; `InsumosPausa.exceso_minimo`; `_objeto_con_opcionales` | el formato congelado |
+| `app/optimizer/caso.py` | `OrigenCambio` + `temporada`; `CambioFechado`, `HistoriaBid`, `PresupuestoCampana`, `InsumosRecuperacion`, `TemporadaCaso`; `InsumosPausa.exceso_minimo`; las cuatro opcionales de temporada en `desde_json` (`_objeto_con_opcionales` ya existe desde ARREGLOS 02 B) | el formato congelado |
 | `app/optimizer/politica.py` | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja, R6r, BUD, frenos | el orden de las reglas |
 | `app/optimizer/cortes.py`, `bid.py`, `windows.py` | `mult_baja` obligatorio, exceso económico, `cerca` | cuánto exige un corte y qué ventana mira |
 | `app/lecturas_caso.py` | historia con instantes, cerca por hoja, presupuesto, `frontera`, `tiene_pendiente`, `casos` | lo que se lee una vez por plataforma |
@@ -1564,7 +1574,8 @@ den: repetir no acumula riesgo. Solo sube más si llega evidencia nueva.
 - Un **segundo salto** seguido (el último cambio fue una subida, incluido otro `recupera_nivel`) pasa por
   todos los frenos de R6: 20 clics nuevos al precio nuevo y un juicio económico comparable. El CPC del
   primer salto tiene que estar medido antes de otro.
-- Si el último cambio fue de temporada, solo R17: un movimiento planeado no se juzga como si buscara un
+- Si el último cambio fue de temporada, ningún freno de `_freno_trayectoria`; el piso aprendido (R17) lo
+  aplica `_paso` (ARREGLOS 02 B lo dejó solo ahí). Un movimiento planeado no se juzga como si buscara un
   efecto.
 
 ### Topes de dinero (todos a la vez)
@@ -1715,8 +1726,10 @@ El primer ciclo en que la fase deja de ser baja (o el siguiente a «Terminar la 
 ### Temporada alta
 
 - `meta_del_juicio = max(base, meta_alta)` para R3–R13. La meta es libre: con las metas de hoy, 25 % en
-  MX y en US. En US el equilibrio (23.81 %) queda debajo de 25: cada venta con ACoS entre 23.81 y 25
-  pierde dinero, Ajustes lo dice en rojo y R3 usa 25 como límite (`equilibrio_del_juicio`). R6 sube cuando P(ACoS < 21.25 %) ≥
+  MX y en US. Cuando el equilibrio queda debajo de la meta (por ejemplo, un equilibrio de 23.81 % con
+  meta de 25), cada venta con ACoS entre los dos pierde dinero, Ajustes lo dice en rojo y R3 usa 25 como
+  límite (`equilibrio_del_juicio`). Con los datos del 2026-11-12 sin la comisión contada dos veces
+  (ARREGLOS 02, bloque D) no pasa en ninguna plataforma: 45.5 % en MX y 29.0 % en US. R6 sube cuando P(ACoS < 21.25 %) ≥
   la confianza de subida; R4 solo recorta con ACoS sobre 25 %.
 - Las metas escritas a mano (`goal_campana`, `goal_plataforma`) no cambian: son la decisión más
   específica de David (`goals.py:319-320`). La pantalla lo dice junto a cada una.
@@ -1732,7 +1745,8 @@ El primer ciclo en que la fase deja de ser baja (o el siguiente a «Terminar la 
 
 Sin rampa. El 1 de diciembre la meta vuelve de 25 % a la base (~20 %). Eso reactiva R4 en keywords con
 ACoS entre la base y 25 %, frena R6 y además puede endurecer R3: su recorte fuerte compara con 1.35 ×
-meta (`politica.py:327-329`), que baja de 33.75 % a 27.1 %. Con el equilibrio de hoy (~40 %), una keyword
+meta (`politica.py:327-329`), que baja de 33.75 % a 27.1 %. Con un equilibrio de ~40 % (el de MX antes de
+ARREGLOS 02 D; sin la comisión contada dos veces es 45.5 %, y la conclusión no cambia), una keyword
 que abre R3 ya cae en el recorte fuerte en las dos fases (si P(ACoS > 40.16 %) pasa la confianza,
 P(ACoS > 33.75 %) también). El cambio de −12 % a −25 % aparece en keywords cuyo equilibrio quede entre
 27.1 % y 33.75 %, por ejemplo con una meta de producto o familia de otro margen. El motor ya se comporta
@@ -1741,8 +1755,8 @@ así con cualquier cambio de meta.
 ### Lo que hacen los frenos con un movimiento de temporada
 
 R14, R15, R16 y R16b preguntan «¿el movimiento anterior tuvo el efecto buscado?». Una reducción o un
-regreso planeado no buscaba un efecto. Si el último cambio tiene origen `temporada`, solo aplican R2 y
-R17. Un movimiento de temporada nunca abre ni prolonga un episodio económico (U, con su caducidad de T)
+regreso planeado no buscaba un efecto. Si el último cambio tiene origen `temporada`, solo aplica R2 de
+los frenos; el piso aprendido (R17) lo aplica `_paso` (ARREGLOS 02 B lo dejó solo ahí). Un movimiento de temporada nunca abre ni prolonga un episodio económico (U, con su caducidad de T)
 *(contrato de ARREGLOS 01)*.
 
 ---
@@ -1810,7 +1824,7 @@ recalcula en cada lectura. El resultado:
 **Lo que cambia.**
 
 1. Las dos vistas agregan al final, sin quitar columnas, `cogs_vigente`, `cobertura_vigente` y
-   `margen_vigente_pct`: la misma fórmula, los mismos cargos y las mismas guardas (moneda, `fees_sin_tipo`,
+   `margen_vigente_pct`: la misma fórmula, los mismos cargos (de `v_ledger_cargo`, ARREGLOS 02 bloque D) y las mismas guardas (moneda, `fees_sin_tipo`,
    días con venta, frescura del ledger), con COGS = Σ `quantity × cost_amount` del costo **de hoy** en la misma moneda de la venta:
    `c.valid_from <= hoy AND (c.valid_to IS NULL OR hoy < c.valid_to)` con `hoy = (now() AT TIME ZONE 'UTC')::date`,
    el mismo rango que hoy se aplica a la fecha de la venta (`0016:47-48`). `valid_to IS NULL` solo no sirve: el
@@ -1830,7 +1844,9 @@ recalcula en cada lectura. El resultado:
 5. Antes de desplegar, la consulta nueva corre en solo lectura y deja en la evidencia el margen
    histórico y el vigente por plataforma y por producto con meta propia: cuánto se moverá cada meta.
 
-**En Ajustes.** Por plataforma, junto a la meta:
+**En Ajustes.** Por plataforma, junto a la meta. Los textos usan como ejemplo un equilibrio de 23.8 %,
+debajo de la meta de alta. No es el de hoy: con los datos del 2026-11-12, sin la comisión contada dos veces
+(ARREGLOS 02 D), es 45.5 % en MX y 29.0 % en US, y la pantalla muestra el valor vivo.
 
 > Punto de equilibrio con el costo de hoy: 23.8 %. Arriba de ese ACoS pierdes dinero en cada venta.
 
@@ -1860,7 +1876,8 @@ antes y 5 después de D.
 ## Ejemplo de una keyword durante un año
 
 Amazon MX, calendario por defecto. Keyword «funda impermeable 30L», bid de 8.00 MXN el 31 de diciembre de
-2026, meta por margen de plataforma 20.08 % (la medida hoy), equilibrio ~40.16 % (el margen neto: la
+2026, meta por margen de plataforma 20.08 % (la medida el 2026-11-12, antes de ARREGLOS 02 D; el ejemplo la
+conserva), equilibrio ~40.16 % (el margen neto: la
 meta es 0.5 × margen), meta de alta 25 %, piso del goal 1.00, techo 45.00. Su campaña tiene 300 MXN al
 día.
 
@@ -1875,10 +1892,10 @@ día.
 | 1 may | baja | E2 abre. Entrada: 9.20 × 0.70 | 6.44 |
 | jun | baja | Gasto sin venta: retenido. Una pausa sería posible solo con 200 clics y 1,000 MXN sin pedido desde el 2 may | 6.44 |
 | 1 jul | normal | E2 cierra. Regreso a 9.20 antes de R0. Meta 20.08 %. Cerca: 2 jul | 9.20 |
-| 16 ago | normal | Evidencia del 2 jul al 6 ago: ACoS 23 % > 20.08 % y el grupo pierde → R4 −12 %: `_paso` da 8.0960, Amazon recibe 8.10 | 8.10 |
+| 16 ago | normal | Evidencia del 2 jul al 6 ago: ACoS 23 % > 20.08 % y el grupo pierde → R4 −12 %: 8.096 al centavo de arriba, `_paso` da 8.10 (ARREGLOS 02 B) y Amazon recibe 8.10 | 8.10 |
 | 10–30 sep | normal (previa) | Nada que regresar (no viene de baja). Aviso: el 1 oct empieza la alta; propuestas de presupuesto si la campaña topa | 8.10 |
 | oct – nov | alta | Meta 25 %: con ACoS 23 % R4 ya no recorta, y R6 no sube (pide P(ACoS < 21.25 %) ≥ 0.70) | 8.10 |
-| 10 dic | normal | Meta 20.08 % otra vez: R4 −12 % → 7.128, Amazon recibe 7.13. Si la keyword perdiera dinero (R3 abierto), su recorte fuerte compararía con 27.1 % en vez de 33.75 % | 7.13 |
+| 10 dic | normal | Meta 20.08 % otra vez: R4 −12 % → 7.128 al centavo de arriba: 7.13. Si la keyword perdiera dinero (R3 abierto), su recorte fuerte compararía con 27.1 % en vez de 33.75 % | 7.13 |
 | 1 ene 2028 | baja | Entrada: 7.13 × 0.70 = 4.991 → el centavo que no pasa de 30 % es 5.00 (29.87 %) | 5.00 |
 | 9 feb 2028 | normal (preparación) | Regreso a 7.13 (año bisiesto: un día después que en 2027) | 7.13 |
 

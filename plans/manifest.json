@@ -219,6 +219,21 @@
       "name": "disenos-01",
       "path": "plans/disenos-01.md",
       "description": "DISEÑOS 01 — Decisiones, Salud y Contribución con el diseño nuevo: una fase por bloque (A, B, C), sin migraciones y sin cambiar los datos que muestran."
+    },
+    {
+      "name": "arreglos-02",
+      "path": "plans/arreglos-02.md",
+      "description": "ARREGLOS 02 — lo que mueve dinero hoy, de la revision del 2026-11-12: la comision de Amazon contada dos veces en el margen, el piso aprendido que se cruzaba por redondeo, el ajuste de campana que contaba como subida y la regla vieja de 10 dias. Va antes de TEMPORADA 01."
+    },
+    {
+      "name": "arreglos-03",
+      "path": "plans/arreglos-03.md",
+      "description": "ARREGLOS 03 — datos y precios, de la revision del 2026-11-12: dia cerrado por plataforma y horarios, search terms, libro (devoluciones de MeLi e importe en dolares), tareas que decian ok sin hacer nada, reputacion y precios. En paralelo con TEMPORADA 01."
+    },
+    {
+      "name": "arreglos-04",
+      "path": "plans/arreglos-04.md",
+      "description": "ARREGLOS 04 — pantallas, fabrica y bloqueos, de la revision del 2026-11-12: reloj unico y cifras maduras en pantallas, errores legibles, avisos de cortes, fabrica (retiro, pausa de lote, negative cruzado) y bloqueos confirmados contra Amazon. En paralelo con TEMPORADA 01."
     }
   ],
   "active": "disenos-01"
