@@ -51,10 +51,12 @@ from app.optimizer.caso import (
     VentanaEconomica,
 )
 from app.optimizer.economia_cambio import (
+    PERMITE,
     SIN_EVIDENCIA,
     JuicioRepeticion,
     juicio_repeticion,
 )
+from app.optimizer.goals import version_economia_cambio_desde_settings
 from app.optimizer.politica import MOTIVO_SUBIDA_SIN_ECONOMIA
 
 _SIN_PG = pytest.mark.skipif(
@@ -547,7 +549,7 @@ def _metrica_economica(conn, run_id, kw, fecha, *, gasto, venta, pedidos=5, clic
     )
 
 
-def _mundo_m5(conn, *, edad: int = 30) -> dict:
+def _mundo_m5(conn, *, edad: int = 30, version_economia=VERSION_ECONOMIA_CAMBIO) -> dict:
     run_id = _run(conn)
     _filler_calendario(conn, run_id)
     x = DECIDED_AT.date() - dt.timedelta(days=edad)
@@ -570,7 +572,7 @@ def _mundo_m5(conn, *, edad: int = 30) -> dict:
         {
             "ads_optimizer_mode": "shadow",
             "ads_bid_politica_amazon_us": "niveles_v3",
-            "ads_bid_economia_amazon_us": VERSION_ECONOMIA_CAMBIO,
+            "ads_bid_economia_amazon_us": version_economia,
         },
     )
     live = conn.execute(
@@ -1018,4 +1020,61 @@ def test_arreglos01_u_previa_sin_gasto_tambien_frena():
             clics_minimos=20,
         )
         == SIN_EVIDENCIA
+    )
+
+
+@_SIN_PG
+def test_arreglos01_u_la_lectura_estampa_v2_en_el_episodio():
+    with _db_completa("orbit_u_estampa_v2") as (conn, _c):
+        ids = _mundo_m5(conn, version_economia=_V2)
+        settings = conn.execute(
+            "SELECT settings FROM config_version WHERE id = %s", (ids["config"],)
+        ).fetchone()[0]
+        version = version_economia_cambio_desde_settings(settings, "amazon_us")
+        assert version == _V2
+        caso = _caso_desde_lecturas(conn, _lecturas(conn, version_economia=version), ids)
+        episodio = caso.trayectoria.episodio
+        assert episodio is not None
+        assert episodio.version == _V2
+        assert episodio.estado == "maduro"
+
+
+def test_arreglos01_u_v2_exige_clics_minimos_tambien_en_el_recorte():
+    """El minimo de clics de v2 aplica al recorte; v1 conserva su juicio."""
+    con_pocos = _episodio(pre_gasto="200", post_gasto="150", version=_V2, post_clics=3)
+    assert (
+        juicio_repeticion(
+            con_pocos,
+            target_acos_pct=Decimal("25"),
+            factor=Decimal("-0.15"),
+            clics_minimos=20,
+        )
+        == SIN_EVIDENCIA
+    )
+
+    con_muestra = _episodio(pre_gasto="200", post_gasto="150", version=_V2, post_clics=25)
+    assert (
+        juicio_repeticion(
+            con_muestra,
+            target_acos_pct=Decimal("25"),
+            factor=Decimal("-0.15"),
+            clics_minimos=20,
+        )
+        == PERMITE
+    )
+
+    v1 = _episodio(
+        pre_gasto="200",
+        post_gasto="150",
+        version=VERSION_ECONOMIA_CAMBIO,
+        post_clics=3,
+    )
+    assert (
+        juicio_repeticion(
+            v1,
+            target_acos_pct=Decimal("25"),
+            factor=Decimal("-0.15"),
+            clics_minimos=20,
+        )
+        == PERMITE
     )
