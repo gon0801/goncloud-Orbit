@@ -320,16 +320,18 @@ SELECT a.parent_id, a.first_seen_at
 # origen. Se lee en el mismo lote de eventos por ad group. 'ok' y
 # 'ok:reconciliado' son los dos sellos de un intento aplicado (la misma regla
 # que tools/dossier_adversarial.py:125): el reconciliador confirma un PUT
-# ambiguo y el corte si ocurrio.
+# ambiguo y el corte si ocurrio. La fecha del corte es `started_at`, el intento
+# real que nace antes del HTTP; `finished_at` sella la reconciliacion y puede
+# caer en otro ciclo, asi que no sirve para ubicar el corte en la ventana.
 _SQL_CORTES_GRUPO = """
-SELECT d.ad_entity_id, a.finished_at
+SELECT d.ad_entity_id, a.started_at
   FROM apply_attempt a
   JOIN decision d  ON d.id = a.decision_id AND d.kind IN ('negative','harvest')
   JOIN ad_entity g ON g.id = d.ad_entity_id AND g.kind = 'ad_group'
  WHERE g.platform = %s::platform
    AND a.resultado IN ('ok','ok:reconciliado')
    AND a.tipo IN ('normal','reversa')
-   AND a.finished_at >= %s AND a.finished_at <= %s
+   AND a.started_at >= %s AND a.started_at <= %s
 """
 
 
