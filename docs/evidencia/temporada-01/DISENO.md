@@ -435,13 +435,20 @@ cada regreso. Cuentan confirmaciones, no decisiones. Sin costo, margen ni meta e
    discontinuidad de la cadena (un `bid_antes` que no coincide con el `bid_despues` anterior, tolerancia
    0.005) posterior a la frontera que importa; (b) para el regreso, un bid vigente distinto del último
    confirmado; (c) una exclusión durable que escribe el aplicador cuando el bid fresco de Amazon ya no es
-   el que Orbit vio al decidir. Con cualquiera, la temporada deja esa keyword en paz en ese episodio.
+   el que Orbit vio al decidir. Con cualquiera, la temporada deja esa keyword en paz en ese episodio:
+   sin entrada, regreso ni R6r, y también sin las reglas de la baja. La recortan, la pausan y la suben
+   las reglas de hoy, desde el valor que él dejó (decisión 7 del plan, confirmada el 2026-11-12).
 6. **El regreso pendiente va antes que la pausa.** Si una keyword tiene que regresar, RT devuelve el
    `Regresar` antes de R0. Los cortes se vuelven a juzgar solo con evidencia desde el primer día UTC
    completo después del regreso confirmado. Si el regreso queda retenido (campaña sin presupuesto), la
    hoja sigue en «baja» para los cortes: umbrales ×2 y la cerca de su entrada.
-7. **Durante la baja, cero recortes por evidencia y cero R1.** Todo candidato con factor < 0 da
-   `Mantener("temporada_baja")`. Las subidas siguen, con un techo de baja común a R6 y R6r: el techo
+7. **Durante la baja, solo recorta R3 (`pierde_dinero`): la keyword vende y pierde dinero.** Los
+   recortes que dependen de que no haya ventas o que afinan hacia la meta (R4, R9 y R11) dan
+   `Mantener("temporada_baja")`, y R1 no aplica. Razón: la evidencia de la baja mezcla la caída de
+   conversión del mes con el precio nuevo, así que no sirve para afinar hacia la meta ni para castigar la
+   falta de ventas, pero sí para ver que una keyword que vende pierde dinero, y el dueño no quiere pagar
+   eso en ningún mes (decisión del dueño, 2026-11-12). Si R3 recorta, el regreso conserva ese recorte en
+   proporción (`nivel_de_regreso`). Las subidas siguen, con un techo de baja común a R6 y R6r: el techo
    económico recuperable por `(1 − reducción)`. Pausas y negatives siguen con el multiplicador del dueño.
 8. **Cerca de evidencia por hechos, no por fechas del calendario.** Ninguna ventana de evidencia de
    falla de una keyword empieza antes del día UTC siguiente a su último movimiento de temporada
@@ -538,7 +545,7 @@ class EpisodioVigente:
 @dataclass(frozen=True)
 class FronteraHoja:
     """Lo que la temporada dice de UNA keyword para cortes y juicio. Sale de `frontera`."""
-    fase_hoja: Fase                       # "baja" si el calendario dice baja o la hoja sigue reducida
+    fase_hoja: Fase                       # "baja" si el calendario dice baja o la hoja sigue reducida; "normal" si es terreno de David en esa baja
     mult_cortes: Decimal                  # 1 salvo fase_hoja == "baja"
     cerca_hoja: dt.date | None            # día UTC siguiente a su último movimiento de temporada confirmado
     cerca_plataforma: dt.date | None      # para grupo, cuenta y términos
@@ -789,7 +796,10 @@ def frontera(estacion: Estacion, cadena: CadenaBid | None, *, episodio: Episodio
     """Una sola función para el ciclo (decidir) y la cola (liberar).
     # red, fin = reduccion_vigente(cadena, en_baja=estacion.fase == "baja", dia=estacion.dia, episodio=episodio, bid=bid, piso=piso, techo=techo)
     # p = _pendiente_desde(estacion, cadena, episodio, excluida_en, bid, piso, techo)   # usa la misma
-    # fase_hoja = "baja" si estacion.fase == "baja" o isinstance(p, RestauracionPendiente)
+    # terreno_de_david = estacion.fase == "baja" and cadena is not None and
+    #                    ((episodio is not None and episodio.id in excluida_en) or cadena.dueno_al_final)
+    # fase_hoja = "normal" si terreno_de_david                 (decisión 7 del plan: sin reglas de la baja)
+    #             si no "baja" si estacion.fase == "baja" o isinstance(p, RestauracionPendiente)
     #             si no estacion.fase
     # mult = estacion.mult_cortes_baja si fase_hoja == "baja" si no 1
     # ultimo = último movimiento de temporada confirmado de la cadena
@@ -833,9 +843,9 @@ def reduccion_vigente(cadena: CadenaBid, *, en_baja: bool, dia: dt.date, episodi
     raise NotImplementedError
 
 def nivel_de_regreso(red: ReduccionVigente, bid: Decimal, piso: Decimal, techo: Decimal) -> Decimal:
-    """A dónde regresa una hoja reducida. Con la temporada encendida nadie recorta en la baja (HOLD), así
-    que es la base. Si Orbit recortó por evidencia después de la entrada (temporada apagada o en práctica
-    a media baja), el regreso conserva esos recortes en proporción; nunca baja.
+    """A dónde regresa una hoja reducida. Sin recortes después de la entrada es la base. Si Orbit recortó
+    después de la entrada (R3 en la baja, o cualquier recorte con la temporada apagada o en práctica a
+    media baja), el regreso conserva esos recortes en proporción; nunca baja.
     # factor = 1 if red.solo_temporada_despues or bid >= red.ultimo_bid else bid / red.ultimo_bid
     # -> min(max((red.base * factor).quantize(CENTAVO, ROUND_FLOOR), piso), techo)
     # 8 -> 5.60 (entrada) -> 3.15 (dos recortes con la temporada apagada): 8 × 3.15 / 5.60 = 4.50, no 8.00"""
@@ -1073,7 +1083,8 @@ def decide(caso: CasoHoja) -> Veredicto:
     #     d = recuperacion.destino_recuperacion(caso_j, a_subida=..., arg_subida=...)
     #     si d: candidato = Recupera(d)                      (tipo interno, no sale de decide)
     #     si no: factor = PASO_SUBIDA con techo_extra = temporada.techo_de_baja(caso)
-    # HOLD  t and fase_hoja == "baja" and factor < 0       -> Mantener(MOTIVO_TEMPORADA_BAJA)
+    # HOLD  t and fase_hoja == "baja" and factor < 0 and la regla no es R3 -> Mantener(MOTIVO_TEMPORADA_BAJA)
+    #       (R3, `pierde_dinero`, recorta como hoy: vende y pierde; decisión del dueño 2026-11-12)
     # P     subida (factor > 0 o Recupera) en espera de venta -> Mantener (contrato de ARREGLOS 01, P)
     # BUD   subida y caso.presupuesto presente:
     #           presupuesto_topado(caso) in (True, None)   -> Mantener(MOTIVO_PRESUPUESTO_TOPADO)
@@ -1487,7 +1498,8 @@ Para seguir una decisión de bid: `cycle._procesa_decisora` → `politica.decide
 | Los cortes solo juzgan evidencia posterior al último movimiento de temporada de la hoja | `temporada.frontera` (cerca = día siguiente) + `windows` + tramos |
 | La baja multiplica todos los cortes, al decidir y al liberar | `cortes.py` con `mult_baja` obligatorio; `frontera_hoja` en la cola |
 | R1 nunca regresa un movimiento de temporada | origen `temporada` en `v_cambio_bid` + guarda de fase |
-| En baja no hay recortes por evidencia ni subidas sobre el techo de baja | HOLD + `techo_de_baja` en R6 y R6r |
+| En baja solo recorta R3 (pierde dinero); R4, R9 y R11 se retienen, y no hay subidas sobre el techo de baja | HOLD + `techo_de_baja` en R6 y R6r |
+| Una keyword que es terreno de David en esa baja no lleva reglas de la baja | `frontera` da `fase_hoja = "normal"` |
 | En alta la meta del juicio es `max(base, meta_alta)` y R3 no recorta debajo de la meta que aceptó el dueño | `meta_del_juicio`, `equilibrio_del_juicio` |
 | Ningún presupuesto cambia sin `APLICAR AJUSTE`; una orden vieja nunca pisa una nueva | la temporada solo produce `PropuestaPresupuesto`; candado por campaña y campo en `_aplica_y_confirma` |
 | Solo se reactivan pausas de Orbit, confirmadas, decididas en baja, de un episodio cerrado | `_SQL_PAUSAS_DE_BAJA` + guardas de `aplica_reactivaciones` |
@@ -1650,7 +1662,11 @@ cerca de cada keyword es el día siguiente a su movimiento real, no el 1 de ener
 
 ### Durante la baja
 
-- Ningún recorte por evidencia: R3, R4, R9 y R11 dan `Mantener("temporada_baja")`. R1 no aplica.
+- Solo recorta R3 (`pierde_dinero`: vende y su ACoS pasa el equilibrio); R4, R9 y R11 dan
+  `Mantener("temporada_baja")`. R1 no aplica. Si R3 recorta, el regreso conserva ese recorte en
+  proporción (`nivel_de_regreso`).
+- Una keyword que es terreno de David en esa baja (excluida o `dueno_al_final`) no lleva nada de esto:
+  la juzgan las reglas de hoy, con los umbrales de hoy, desde el valor que él dejó.
 - Subidas con techo de baja (R6 y R6r).
 - Pausas y negatives con el multiplicador del dueño (×2 por defecto) en clics, gasto mínimo y exceso de
   la pausa económica (`EXCESO_MINIMO`, `app/optimizer/bid.py:135`, `:253-260`), al decidir y al liberar.
@@ -1672,8 +1688,8 @@ El primer ciclo en que la fase deja de ser baja (o el siguiente a «Terminar la 
 2. Cada keyword reducida con regreso pendiente recibe `Regresar(nivel, "sale_temporada_baja")` **antes de
    R0**, aunque sea inerte y aunque haya vendido en los últimos 10 días: la espera por venta reciente
    (`DIAS_PROTECCION_VENTA = 10`, `app/optimizer/caso.py:34`) no retiene un regreso planeado. El nivel
-   es la base de la entrada; solo si Orbit recortó por evidencia después de la entrada (temporada
-   apagada o en práctica a media baja) el regreso conserva esos recortes en proporción
+   es la base de la entrada; si Orbit recortó después de la entrada (R3 en la baja, o cualquier recorte
+   con la temporada apagada o en práctica a media baja) el regreso conserva esos recortes en proporción
    (`nivel_de_regreso`: 5.60 → 3.15 regresa a 4.50, no a 8.00).
 3. Ese día la pausa no se juzga con datos de la baja. Desde el regreso confirmado, la cerca de la keyword
    es el día UTC siguiente: si se confirmó el 1 de julio a las 23:55, la evidencia nueva empieza el 2 de
@@ -1873,10 +1889,10 @@ tiene 8.10; el siguiente `old_value` (8.10) difiere 0.004 y no cuenta como mano 
 
 - **David la mueve a mano a 7.00 el 20 de mayo.** El bid vigente ya no es el último de Orbit
   (`dueno_al_final`): el 1 de julio no regresa a 9.20. Se queda en 7.00 hasta que la evidencia diga otra
-  cosa (R6; R6r no, porque es terreno de David).
+  cosa, con las reglas de hoy y sin las de la baja (R6r no, porque es terreno de David).
 - **David pone 7.00 en Amazon el 1 de enero, entre la decisión y el envío.** El aplicador lee 7.00, que no
   es el 8.00 que vio Orbit: cero PUT, `bid_cambiado_fuera`, exclusión (E1, keyword). El 2 de enero no hay
-  otra entrada. En esa baja no recibe la entrada, el regreso ni la subida rápida; el R6 de hoy puede moverlo con evidencia, desde 7.00. El 8 de febrero no hay nada que regresar. Ajustes la lista
+  otra entrada. En esa baja no recibe la entrada, el regreso ni la subida rápida, y tampoco las reglas de la baja: los recortes, las pausas y el R6 de hoy la juzgan como en un mes normal, desde 7.00. El 8 de febrero no hay nada que regresar. Ajustes la lista
   como «sin tocar: cambiaste tú el bid».
 - **Se queda inerte en junio** (0 impresiones en 14 días). El 1 de julio regresa a 9.20 igual.
 - **El 1 de julio su campaña se queda sin presupuesto.** El regreso espera; la keyword sigue con cortes
@@ -1914,9 +1930,9 @@ empezar: integrar sobre el SHA final de ARREGLOS 01 y releer las firmas de P, T,
 | A — Calendario y Ajustes | `temporada.py` (config, `valida` con tipos crudos, lectores, `resuelve`, `eventos`, `resumen`); `config_write` + `CuerpoSettings` + vista previa; tarjeta, campos de plataforma, «Terminar la baja hoy», «Mantener pausada»; `ads_campana_topada` leído por avisos y dinero; fichas en `features/` | dinero: `test_temporada01_a_fechas_del_calendario` (1 ene baja; 8 feb 2027 y 9 feb 2028 regreso; ago-sep-oct con 42 días → 20 ago; dic-feb un solo bloque; `fin_anticipado`). Escribe en producción: `test_temporada01_a_post_rechaza_booleanos` (`true`/`false` dan 422 y la config no cambia; `"25"` y `25` se aceptan) | ninguno (sin interruptores) |
 | B — Episodio, origen e historia | migración y reversa; `OrigenCambio`, `CambioFechado`, `HistoriaBid`; `recuperacion.cadena_bid`; `temporada.pendiente`, `destino_entrada`, `frontera`; `temporada.reduccion_vigente`; `temporada_io` (`lee_estado`, `registra_ciclo`, `estampa`, `abre_efectos`, `registra_fines` en `temporada_fin_reduccion`); cierre de efectos en `_confirma_resumen` y `registra_sin_aplicar`; `pantalla_danadas` ignora `temporada` | dinero: `test_temporada01_b_pendiente` (entra una vez; cambiar mayo a normal con junio en baja no recorta 5.60 → 3.92; 30 → 20 da 6.40; mano de David no regresa; el regreso nunca baja). Escribe en producción: `test_temporada01_b_episodio_reparado_tras_caida` (con base: entrada confirmada y efecto abierto como tras una caída; el ciclo siguiente cierra el efecto, deja un episodio y un efecto, y no decide otra entrada). Escribe en producción: `test_temporada01_b_fin_de_reduccion` (los casos 1 a 7 de la fila B.2 del plan: fin guardado al salir sin regreso y entrada nueva en E2; exclusión por la mano de David con E2 abierto, también el día de la apertura; `Mantener` e inertes; mano de la mañana de la apertura; nada en práctica; `dueno_al_final` sin fecha; (8) temporada apagada a media baja con recortes 5.60 → 4.20 → 3.15: al encender, el regreso va a 4.50 y un episodio de otra baja se cierra; (9) Orbit pausó en la baja y David reactivó el día 10: el día 11 no hay entrada) | ninguno |
 | C — Subida rápida (práctica) | `techo_conocido`, `multiplicador_sostenible`, `destino_recuperacion`, `presupuesto_topado`; R6r y BUD; frenos del primer y segundo salto; `MOTIVOS_ES`; campos de plataforma | dinero: `test_temporada01_c_recupera_con_evidencia` (caso D da `Regresar(7.10)`; topada 5 de 7 da `Mantener("presupuesto_topado")`; misma evidencia no salta dos veces) | ninguno hasta P, que pone `ads_bid_recuperacion_<plat>=shadow` en MX y US |
-| D — Temporada en la política (práctica) | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja en R6 y R6r, frenos; `cortes` con `mult_baja` y exceso económico; `windows` y tramos con cerca; revalidación de la cola con `frontera_hoja`; inertes en vivo; sombra en `notes.temporada` | dinero: `test_temporada01_d_salida_antes_de_pausa` (5.60, regreso pendiente, 200 clics, 1,000 MXN, 0 pedidos → `Regresar(8.00)` y ningún `Pausar`; al liberar con regreso pendiente usa ×2 y la cerca vieja; tras el regreso confirmado no hay pausa sin evidencia nueva; con la campaña topada el regreso no sale, se anota `regreso_espera_presupuesto` y la hoja sigue en baja con ×2 y HOLD). Dinero: `test_temporada01_d_dia_mixto_excluido` (regreso a las 23:55 del 1 jul; 150 clics y 750 MXN ese día; ni la decisión ni la revalidación de 48 h pausan; con la cerca del 2 jul hay 7 fechas sin gasto). Dinero: `test_temporada01_d_centavos_de_la_entrada` (0.15 USD → 0.11; 1.55 MXN → 1.09; 0.10 USD con piso 0.10 sin centavo factible → excluida; lo congelado = lo enviado). Dinero: `test_temporada01_d_techo_de_baja_compartido` (20 → 10 → 7: R6r ≤ 14 y R6 ≤ 14; 8 → 5.60 sin recortes previos no sube en baja). Dinero: `test_temporada01_d_baja_entra_y_retiene` (entrada −30 %; R9 retenido; R1 no regresa la entrada). Dinero: `test_temporada01_d_meta_alta` (MX 20.13 → 25; US 19.05 con equilibrio 23.81 → 25 y `equilibrio_del_juicio` 25; meta de campaña 15 sigue en 15; base 30 → 30; sin equilibrio → 25; fuera de alta R3 vuelve a 23.81). Dinero: `test_temporada01_d_cortes_por_multiplicador` (umbral, piso y exceso económico ×2 en baja, al decidir y al liberar; iguales fuera) | ninguno hasta P, que pone `ads_temporada_<plat>=shadow` con los meses de David en MX y US |
+| D — Temporada en la política (práctica) | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja en R6 y R6r, frenos; `cortes` con `mult_baja` y exceso económico; `windows` y tramos con cerca; revalidación de la cola con `frontera_hoja`; inertes en vivo; sombra en `notes.temporada` | dinero: `test_temporada01_d_salida_antes_de_pausa` (5.60, regreso pendiente, 200 clics, 1,000 MXN, 0 pedidos → `Regresar(8.00)` y ningún `Pausar`; al liberar con regreso pendiente usa ×2 y la cerca vieja; tras el regreso confirmado no hay pausa sin evidencia nueva; con la campaña topada el regreso no sale, se anota `regreso_espera_presupuesto` y la hoja sigue en baja con ×2 y HOLD). Dinero: `test_temporada01_d_dia_mixto_excluido` (regreso a las 23:55 del 1 jul; 150 clics y 750 MXN ese día; ni la decisión ni la revalidación de 48 h pausan; con la cerca del 2 jul hay 7 fechas sin gasto). Dinero: `test_temporada01_d_centavos_de_la_entrada` (0.15 USD → 0.11; 1.55 MXN → 1.09; 0.10 USD con piso 0.10 sin centavo factible → excluida; lo congelado = lo enviado). Dinero: `test_temporada01_d_techo_de_baja_compartido` (20 → 10 → 7: R6r ≤ 14 y R6 ≤ 14; 8 → 5.60 sin recortes previos no sube en baja). Dinero: `test_temporada01_d_baja_entra_y_retiene` (entrada −30 %; R9 retenido; R3 con ACoS sobre el equilibrio sí recorta y el regreso conserva ese recorte en proporción; R1 no regresa la entrada). Dinero: `test_temporada01_d_meta_alta` (MX 20.13 → 25; US 19.05 con equilibrio 23.81 → 25 y `equilibrio_del_juicio` 25; meta de campaña 15 sigue en 15; base 30 → 30; sin equilibrio → 25; fuera de alta R3 vuelve a 23.81). Dinero: `test_temporada01_d_cortes_por_multiplicador` (umbral, piso y exceso económico ×2 en baja, al decidir y al liberar; iguales fuera) | ninguno hasta P, que pone `ads_temporada_<plat>=shadow` con los meses de David en MX y US |
 | P — Práctica encendida | `ads_bid_recuperacion_*` y `ads_temporada_*` en `shadow` con `escribe_api.sh`, con C y D ya desplegados | sin prueba nueva (lane gate) |  |
-| E — Lectura fresca y mano de David | lectura antes de cuota y PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano y por divergencia; prioridad bajo cupo | escribe en Amazon: `test_temporada01_e_mano_del_dueno_excluye` (bid 8.00, decisión 5.60, Amazon en 7.00 → cero PUT, exclusión guardada; al día siguiente no hay entrada y sigue en 7.00, y con evidencia que dispararía R6r no hay `Recupera`) | cambia el envío de los bids en vivo de hoy: un GET más por bid y cero PUT si David cambió el bid |
+| E — Lectura fresca y mano de David | lectura antes de cuota y PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano y por divergencia; prioridad bajo cupo | escribe en Amazon: `test_temporada01_e_mano_del_dueno_excluye` (bid 8.00, decisión 5.60, Amazon en 7.00 → cero PUT, exclusión guardada; al día siguiente no hay entrada y sigue en 7.00, y con evidencia que dispararía R6r no hay `Recupera`; en esa baja la juzgan las reglas de hoy: con evidencia de R4 sí recorta, sin HOLD ni ×2) | cambia el envío de los bids en vivo de hoy: un GET más por bid y cero PUT si David cambió el bid |
 | F — Fin de la baja | `reactivaciones_pendientes`, `pendiente_reactivacion`, `aplica_reactivaciones` con sus guardas, `_SQL_PAUSE_PROPIO`, replay del motor `temporada`, `aviso_del_dia` | escribe en Amazon: `test_temporada01_f_reactiva_solo_pausas_de_baja` (con base: pausa de Orbit confirmada de la baja con episodio cerrado → `resume`; pausa del dueño, reactivada por el dueño, ya revertida, en «Mantener pausada» o de episodio abierto → no). Escribe en Amazon: `test_temporada01_f_reactivar_no_bloquea_pausas` (tras la reversa de temporada, una pausa nueva no inserta `reactivacion_manual`) | en práctica se listan en `notes.temporada.reactivaciones` |
 | G — Presupuestos | `propuesta_presupuesto`; columna y botón en «Dónde poner el dinero» con `APLICAR AJUSTE`; candado por campaña y campo en `_aplica_y_confirma` (también al regresar); tope de X; ficha en `features/` | dinero: `test_temporada01_g_propuestas_absolutas` (baja 300 → 210; fin 210 → 300; alta 300 → 375 una vez y nada tras aprobar; fin de baja aprobado el 9 feb y campaña topada en marzo → 375; 250 a mano → sin fin de baja; tope de X). Escribe en Amazon: `test_temporada01_g_presupuesto_misma_campana_en_orden` (A aprueba 375, B ordena 270 después y termina primero; A no envía; final 270) | el candado corrige hoy el flujo de ajustes de David; las propuestas no escriben |
 | H — En vivo, MX y US juntos | Subida rápida y temporada a `live` en las dos plataformas después de un ciclo completo de práctica, revisando en `notes.temporada` cuántos `recupera_nivel`, el m* máximo, el gasto extra proyectado, las entradas, los retenidos, las metas de alta y las reactivaciones. Se para si un bid enviado baja más que la reducción, si un regreso baja un bid, si sale un PUT después de una lectura fresca distinta, si una keyword recibe dos entradas en un episodio o si un presupuesto se escribe sin `APLICAR AJUSTE` | — | las cuatro claves a `live` con `escribe_api.sh`; chequeos con `at` el día siguiente al encendido y el día de cada transición del calendario y el siguiente; se deshace con «Terminar la baja hoy» (los bids regresan) o quitando la clave (apagar no deshace) |
@@ -2008,4 +2024,7 @@ fechó la mano sin registro al verse (antes excluía la keyword de todas las baj
 del dueño a la reactivación manual, conservó en proporción los recortes hechos con la temporada apagada,
 cierra un episodio de otra baja, dejó que el regreso del presupuesto no bloquee la propuesta de alta, no
 excluye por una escritura que no llegó a Amazon, y corrigió el riesgo 2, el ejemplo del 21 de marzo, el
-aviso rojo, la lista de negatives, la tabla de bloques y la vigilancia de las transiciones en H.
+aviso rojo, la lista de negatives, la tabla de bloques y la vigilancia de las transiciones en H. Con esos
+hallazgos el dueño tomó dos decisiones el 2026-11-12: en la baja R3 sigue recortando lo que vende
+perdiendo dinero y solo se retienen R4, R9 y R11; y una keyword que él tocó queda fuera de las reglas de
+la baja, no solo de la entrada, el regreso y R6r.

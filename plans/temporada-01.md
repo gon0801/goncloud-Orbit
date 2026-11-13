@@ -13,11 +13,12 @@ Decisiones del dueño (2026-11-11 y 2026-11-12). Ningún bloque espera permiso: 
 4. La meta de alta es libre: puede pasar el punto de equilibrio. Si lo pasa, el motor acepta perder hasta esa meta (R3 recorta solo arriba de ella) y Ajustes lo avisa en rojo. Hoy, con 25 %, US queda arriba de su equilibrio de 23.8 % y MX debajo del suyo de 40.3 %.
 5. Los bids recortados suben rápido cuando la evidencia lo justifica, con los topes del diseño.
 6. Los presupuestos solo se proponen. Se aplican cuando el dueño escribe `APLICAR AJUSTE`.
-7. Lo último que hace el dueño siempre gana: si él cambió un bid o una pausa, Orbit no lo deshace. En esa temporada esa keyword no recibe la bajada, el regreso ni la subida rápida, y su pausa no se reactiva. Los ajustes normales por evidencia siguen como hoy, desde el valor que él dejó (diseño, «Variantes de la misma keyword»).
+7. Lo último que hace el dueño siempre gana: si él cambió un bid o una pausa, Orbit no lo deshace. En esa temporada esa keyword no recibe la bajada, el regreso ni la subida rápida, y su pausa no se reactiva. Los ajustes normales por evidencia siguen como hoy, desde el valor que él dejó, sin las reglas de la baja: ni la retención de recortes ni el doble de exigencia para pausar (diseño, «Variantes de la misma keyword»; confirmado el 2026-11-12).
 8. El calendario y todos los parámetros se editan en Ajustes.
 9. Temporada encendida desde el principio en Amazon MX y Amazon US, las dos juntas.
 10. El punto de equilibrio se calcula siempre con el costo de hoy de cada producto. Un costo que baja o sube cuenta desde el día siguiente a su publicación, no después de meses de ventas (bloque I).
 11. Ajustes muestra el punto de equilibrio de cada plataforma junto a su meta, para que el dueño vea si va a perder dinero, y avisa en rojo cuando una meta lo pasa.
+12. Durante la baja, Orbit sigue recortando las keywords que venden perdiendo dinero (R3). Los demás recortes por evidencia, los que dependen de que no haya ventas o afinan hacia la meta (R4, R9 y R11), se retienen hasta el regreso, y R1 no aplica. Si R3 recorta, el regreso conserva ese recorte en proporción (decisión del 2026-11-12).
 
 Reglas para todos los bloques:
 - Quien implementa sigue poteto-mode completo en cada bloque: nombra la forma de los datos antes del código, prueba contra lo real y no declara terminado sin evidencia. El motor ya exige su marca de poteto en cada intento.
@@ -111,7 +112,7 @@ aviso: Antes de cambiar un bid, Orbit lee el que tiene Amazon. Si el dueño lo c
 prueba-real: bash docs/evidencia/arreglos-01/desplegado.sh bid_cambiado_fuera
 | Fila | Contenido | Acepta |
 | --- | --- | --- |
-| E.1 | Diseño, `apply.py` en «Firmas y seudocódigo»: lectura fresca antes del cupo y del PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano del dueño y por diferencia; prioridad bajo cupo. Una keyword excluida no recibe entrada, regreso ni `Recupera` en ese episodio (decisión 7). Prueba (escribe en Amazon): `test_temporada01_e_mano_del_dueno_excluye`, que además comprueba que al día siguiente, con evidencia que dispararía R6r, no hay `Recupera`. | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests -k temporada01_e_ && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_apply.py tests/test_cycle_apply.py tests/test_smoke_apply.py |
+| E.1 | Diseño, `apply.py` en «Firmas y seudocódigo»: lectura fresca antes del cupo y del PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano del dueño y por diferencia; prioridad bajo cupo. Una keyword excluida no recibe entrada, regreso ni `Recupera` en ese episodio (decisión 7). Prueba (escribe en Amazon): `test_temporada01_e_mano_del_dueno_excluye`, que además comprueba que al día siguiente, con evidencia que dispararía R6r, no hay `Recupera`, y que en esa baja la juzgan las reglas de hoy: con evidencia de R4 sí recorta, sin retención ni ×2 (decisión 7). | PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests -k temporada01_e_ && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_apply.py tests/test_cycle_apply.py tests/test_smoke_apply.py |
 
 ## Bloque F — Fin de la baja: reactivar lo que Orbit pausó
 lane: release
