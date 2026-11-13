@@ -10,6 +10,12 @@
 # absoluta, sin redondear); 1 si alguna queda fuera, falta su fila o su margen
 # no es un numero; 2 si no se pudo leer produccion o pasaron mas de 3 dias
 # (cifras de referencia vencidas).
+#
+# La comparacion con la tolerancia es decimal exacta sobre el texto que devuelve
+# la vista (numeric de precision arbitraria): estar dentro es
+# ref - tolerancia <= margen <= ref + tolerancia, comparado digito a digito.
+# El doble de awk daria 46.70 - 45.50 = 1.2000000000000028 > 1.2 y rechazaria
+# un margen justo en la frontera (h_d7489cb0).
 set -uo pipefail
 AQUI=$(cd "$(dirname "$0")" && pwd)
 LEE="$AQUI/../../arreglos-01/lee_prod.sh"
@@ -26,6 +32,71 @@ if [ $? -ne 0 ] || [ -z "$salida" ]; then
 fi
 
 printf '%s\n' "$salida" | awk -F'|' -v refmx="$REF_MX" -v refus="$REF_US" '
+  # Aritmetica decimal exacta sobre cadenas: sin dobles en la decision.
+  function partes(x, p) {
+    split(x, p, ".")
+    if (!(2 in p)) p[2] = ""
+  }
+  function cmp(x, y,   xp, yp, xs, ys, xi, yi, a, b, r) {
+    xs = (x ~ /^-/) ? -1 : 1
+    ys = (y ~ /^-/) ? -1 : 1
+    if (xs != ys) return (xs < ys) ? -1 : 1
+    sub(/^-/, "", x)
+    sub(/^-/, "", y)
+    partes(x, xp)
+    partes(y, yp)
+    while (length(xp[2]) < length(yp[2])) xp[2] = xp[2] "0"
+    while (length(yp[2]) < length(xp[2])) yp[2] = yp[2] "0"
+    xi = xp[1]
+    yi = yp[1]
+    sub(/^0+/, "", xi)
+    sub(/^0+/, "", yi)
+    if (xi == "") xi = "0"
+    if (yi == "") yi = "0"
+    if (length(xi) != length(yi))
+      r = (length(xi) < length(yi)) ? -1 : 1
+    else {
+      a = xi xp[2]
+      b = yi yp[2]
+      if (a == b) r = 0
+      else r = (a < b) ? -1 : 1
+    }
+    return (xs < 0) ? -r : r
+  }
+  function suma(a, b,   ap, bp, frac, lleva, i, d) {
+    partes(a, ap)
+    partes(b, bp)
+    while (length(ap[2]) < length(bp[2])) ap[2] = ap[2] "0"
+    while (length(bp[2]) < length(ap[2])) bp[2] = bp[2] "0"
+    frac = ""
+    lleva = 0
+    for (i = length(ap[2]); i >= 1; i--) {
+      d = substr(ap[2], i, 1) + substr(bp[2], i, 1) + lleva
+      lleva = int(d / 10)
+      frac = (d % 10) frac
+    }
+    if (frac == "") frac = "0"
+    return (ap[1] + bp[1] + lleva) "." frac
+  }
+  function resta(a, b,   ap, bp, frac, presta, i, da, db) {
+    partes(a, ap)
+    partes(b, bp)
+    while (length(ap[2]) < length(bp[2])) ap[2] = ap[2] "0"
+    while (length(bp[2]) < length(ap[2])) bp[2] = bp[2] "0"
+    frac = ""
+    presta = 0
+    for (i = length(ap[2]); i >= 1; i--) {
+      da = substr(ap[2], i, 1) - presta
+      db = substr(bp[2], i, 1)
+      if (da < db) {
+        da += 10
+        presta = 1
+      } else presta = 0
+      frac = (da - db) frac
+    }
+    if (frac == "") frac = "0"
+    return (ap[1] - bp[1] - presta) "." frac
+  }
   $1 == "amazon_mx" || $1 == "amazon_us" {
     if ($1 == "amazon_mx") { ref = refmx; hay_mx = 1 } else { ref = refus; hay_us = 1 }
     if ($3 > 3) vencidas = 1
@@ -34,12 +105,14 @@ printf '%s\n' "$salida" | awk -F'|' -v refmx="$REF_MX" -v refus="$REF_US" '
       mal = 1
       next
     }
-    diferencia = $2 - ref
-    if (diferencia < 0) diferencia = -diferencia
-    tolerancia = ($3 <= 1) ? 1.2 : 2.0
+    tolerancia = ($3 <= 1) ? "1.2" : "2.0"
+    inf = resta(ref, tolerancia)
+    sup = suma(ref, tolerancia)
+    dif = $2 - ref
+    if (dif < 0) dif = -dif
     printf "%s margen=%.2f referencia=%.2f diferencia=%.2f dias=%s tolerancia=%.1f\n", \
-           $1, $2, ref, diferencia, $3, tolerancia
-    if (diferencia > tolerancia) mal = 1
+           $1, $2, ref, dif, $3, tolerancia
+    if (cmp($2, inf) < 0 || cmp($2, sup) > 0) mal = 1
   }
   END {
     if (vencidas) {
