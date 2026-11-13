@@ -915,10 +915,10 @@ def test_despacho_prioriza_reconciliar_registrar_y_desarmar(monkeypatch):
 
 @_skip_db
 @pytest.mark.parametrize(
-    ("plataforma", "moneda", "bid"),
-    [("amazon_mx", "MXN", "5.00"), ("amazon_us", "USD", "0.50")],
+    ("plataforma", "moneda", "bid", "budget"),
+    [("amazon_mx", "MXN", "5.00", "150"), ("amazon_us", "USD", "0.50", "30")],
 )
-def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid):
+def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid, budget):
     """El margen del ledger MXN sirve tambien al plan US, cuyos bids son USD."""
     with db_fabrica("orbit_fab_cli") as conn:
         pid, lid = _producto(
@@ -933,6 +933,7 @@ def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid)
         args[args.index("--plataforma") + 1] = plataforma
         for rol in ("auto", "phrase", "product", "broad", "exact"):
             args[args.index(f"--bid-{rol}") + 1] = bid
+            args[args.index(f"--budget-{rol}") + 1] = budget
         env = {k: v for k, v in os.environ.items() if not k.startswith("ORBIT_")}
         env.update(ORBIT_DSN_READ=dsn_db, PYTHONPATH=str(RAIZ))
         fuente = (RAIZ / "tools" / "fabrica_campanas.py").read_text(encoding="utf-8")
