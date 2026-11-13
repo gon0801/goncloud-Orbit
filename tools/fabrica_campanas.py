@@ -69,8 +69,7 @@ from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles, fetch_structure, sync_structure
 from app.db import connect
-from app.optimizer import goals as g
-from app.optimizer.goals import fraccion_desde_settings
+from app.optimizer.goals import exige_bajo_techo, fraccion_desde_settings
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 install_scrub_filter(logging.getLogger())
@@ -578,7 +577,7 @@ def _tipo_desde_familia(
 def _exige_techos_humanos(parametros: dict[str, fp.ParametrosRol], moneda: str) -> None:
     try:
         for p in parametros.values():
-            g.exige_bajo_techo("presupuesto_diario", p.budget, moneda)
+            exige_bajo_techo("presupuesto_diario", p.budget, moneda)
     except ValueError as exc:
         raise Abortar(str(exc)) from None
 
