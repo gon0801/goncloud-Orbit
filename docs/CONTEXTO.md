@@ -224,6 +224,9 @@ No dependen del código. Resumen mínimo (detalle y números en Traspaso 2 §3):
   (inflan 13–17× e invierten el signo de tendencias).
 - **Monedas**: `sales_history` reportaba MXN hasta para amazon_us → error de
   18.66× siempre a favor de "todo es rentabilísimo".
+- **El dueño no paga más impuestos que los que las plataformas retienen** (confirmado
+  2026-11-13). La venta del libro incluye IVA y el margen resta solo el IVA y el ISR
+  retenidos: es correcto, no «falta» restar la otra mitad del IVA.
 - **ISR de Amazon nunca trae `order_id`** y llega en bultos quincenales: los
   costos sin order_id se prorratean explícitamente o se excluyen por escrito.
 - **MeLi es estructuralmente incomparable con Amazon** (cero halo, lag de 1
