@@ -626,5 +626,3 @@ SELECT a.platform,
   JOIN venta_plataforma vp ON vp.platform = a.platform
   CROSS JOIN fresco fr
   LEFT JOIN plataforma p ON p.platform = a.platform;
-
-
