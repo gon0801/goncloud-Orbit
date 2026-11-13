@@ -7,7 +7,7 @@ Decisiones del dueño (2026-11-12). Ningún bloque espera permiso: este plan es 
 1. Invertir un bid pide 20 clics o 14 días. El párrafo viejo de 10 días sale de `docs/CONTEXTO.md` (bloque A).
 2. El IVA dentro del margen se le pregunta al contador. Este plan no lo toca.
 3. Habrá un tope real de unas 150 pujas por ciclo (ARREGLOS 05) y se respeta la confirmación arriba de 50 cambios de precio en un día (ARREGLOS 03).
-4. En Mercado Libre las variantes sin existencias no fijan el precio de la publicación. Espera que el dueño la confirme con lo que se midió al diseñarla (`docs/evidencia/arreglos-03/PENDIENTE-P-E.md`); hoy no está en ningún plan.
+4. Variantes sin existencias en Mercado Libre: el dueño decidió el 2026-11-13 dejarlo como está hoy. No está en ningún plan.
 5. Se borra el código de modos que producción no usa. Va en ARREGLOS 05, después de TEMPORADA 01; la razón está en el diseño, sección «Decisión 5 del dueño».
 Diseño: `docs/evidencia/arreglos-02/DISENO.md` es el contrato. Las formas elegidas, las firmas, el seudocódigo, el SQL de la vista y lo medido en producción están ahí; cada bloque cita su sección. Léela antes de tocar código. Si el código real contradice el diseño, para el bloque y escribe la diferencia en `docs/evidencia/arreglos-02/<bloque>/diferencia.md`; no inventes una forma nueva.
 Para quién: el dueño de la cuenta. Hoy el motor cuenta dos veces la comisión de Amazon y por eso fija, en México y en Estados Unidos, una meta de ACoS más baja de la que manda su regla. También regresa keywords que venden al bid donde ya habían perdido su tráfico, y trataría un ajuste de campaña como si el bid hubiera subido.

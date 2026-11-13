@@ -1,6 +1,6 @@
-# Bloque en espera de decisión del dueño
+# Regla estricta de semillas: descartada por el dueño el 2026-11-13
 
-Este bloque no está en `plans/arreglos-04.md`. Con la regla estricta del spec (semillas solo de anuncios del mismo producto), 248 de 249 productos de México y los 119 de Estados Unidos arrancarían sin semillas. Entra al plan cuando el dueño decida entre la regla estricta y conservar las semillas del grupo. Diseño: sección `## W-K` de `docs/evidencia/arreglos-04/DISENO.md`.
+El dueño decidió dejar la siembra como hoy y avisarlo en la revisión del plan (bloque W-K de `plans/arreglos-04.md`). Este archivo conserva, solo como registro, el bloque de la regla estricta (semillas únicamente de anuncios del mismo producto): con ella 248 de 249 productos de México y los 119 de Estados Unidos arrancarían sin semillas. No se ejecuta. Su diseño es la sección `## W-K` de `docs/evidencia/arreglos-04/DISENO.md`.
 
 ## Bloque W-K — Las campañas nuevas de un producto solo se siembran con sus propias búsquedas
 lane: release

@@ -2,7 +2,7 @@
 
 Base: `master a4644aad` (lo que corre en producción). Todo `archivo:línea` es de ese SHA.
 Hallazgos: `docs/evidencia/arreglos-2026-11-12/precio.md` (F1 a F5, S2, E1, E4) y `estimacion.md` (F2).
-Decisiones del dueño que aplican: 3 (se respeta la confirmación arriba de 50 cambios de precio al día; las claves `precio_cap_*` se borran). La 4 (en MeLi las variantes sin existencias no fijan el precio) espera la confirmación del dueño: su sección «P-E» no entra al plan (`PENDIENTE-P-E.md`).
+Decisiones del dueño que aplican: 3 (se respeta la confirmación arriba de 50 cambios de precio al día; las claves `precio_cap_*` se borran). La 4 (variantes sin existencias en MeLi) la cambió el dueño el 2026-11-13: se queda como está hoy. Su sección «P-E» no se hace (`DESCARTADO-variantes-sin-existencias.md`).
 Bloques: P-A a P-D y P-F, en cadena (P-F depende de P-D) porque comparten `app/precio/`. Las letras son provisionales. Al pegarlos en el plan, la letra final cambia también el nombre de las pruebas (`test_arreglos03_pa_...` pasa a `test_arreglos03_<letra>_...`) y la carpeta de evidencia (`docs/evidencia/arreglos-03/P-D/` pasa a `docs/evidencia/arreglos-03/<letra>/`).
 
 ## Estado de hoy, medido
@@ -336,7 +336,7 @@ print("ok")
 
 ## P-E. Decisión 4: en MeLi las variantes sin existencias no fijan el precio
 
-**No entra al plan.** Espera que el dueño confirme la decisión 4 con lo medido (`docs/evidencia/arreglos-03/PENDIENTE-P-E.md`). Se conserva como diseño listo.
+**No se hace.** El dueño decidió el 2026-11-13 dejarlo como está hoy (`docs/evidencia/arreglos-03/DESCARTADO-variantes-sin-existencias.md`). Se conserva como registro.
 
 **Qué pasa hoy.** Con variantes, manda la de mayor costo más envío (`app/estimacion_repository.py:660-664`), tenga o no existencias. Además hay una segunda regla de «quién manda» que nadie llama: `puerto.miembro_que_manda` (`app/precio/puerto.py:310-334`), solo usada por dos pruebas.
 

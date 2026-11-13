@@ -68,14 +68,14 @@ Planes:
 | 4 | Pueden moverse más de 50 precios en un día sin confirmación. | ARREGLOS 03, P-D (decisión del dueño) |
 | 5 | El historial guarda la hora de arranque de la corrida, no la real. | ARREGLOS 03, P-C |
 
-La sospecha S2 (en Mercado Libre una variante sin existencias fija el precio) es la decisión 4 del dueño. Su bloque está escrito y en espera de que el dueño la confirme con lo que se midió al diseñarla (`docs/evidencia/arreglos-03/PENDIENTE-P-E.md`).
+La sospecha S2 (en Mercado Libre una variante sin existencias fija el precio): el dueño decidió el 2026-11-13 dejarlo como está hoy. No se hace (`docs/evidencia/arreglos-03/DESCARTADO-variantes-sin-existencias.md`).
 
 ## Fábrica y catálogo (`fabrica.md`)
 
 | Falla | Qué pasa | Plan y bloque |
 |---|---|---|
 | 1 | El retiro «sin pedidos» no comprueba que el producto no vendió. | ARREGLOS 04, W-M |
-| 2 | Las semillas de un producto salen de ventas de otros productos. | En espera de decisión del dueño (`docs/evidencia/arreglos-04/PENDIENTE-W-K.md`) |
+| 2 | Las semillas de un producto salen de ventas de otros productos. | ARREGLOS 04, W-K. Decisión del dueño (2026-11-13): la siembra se queda como hoy y la revisión del plan lo avisa. |
 | 3 | La exact nace sin negative cruzado. | ARREGLOS 04, W-L |
 | 4 | Pausar un lote interrumpido deja viva una campaña con id conocido. | ARREGLOS 04, W-J |
 | 5 | La lista de candidatos suma clics de otro SKU del mismo ASIN. | ARREGLOS 04, W-M |
@@ -109,13 +109,14 @@ La sospecha S2 (en Mercado Libre una variante sin existencias fija el precio) es
 | 9 | Un tope escrito como «1,000» se tira en silencio. | ARREGLOS 05 |
 | 10 | La tarjeta dice «Sin ventas» cuando faltan datos. | ARREGLOS 04, W-D |
 
-## Decisiones del dueño (2026-11-12)
+## Decisiones del dueño (2026-11-12 y 2026-11-13)
 
 1. Invertir una puja pide 20 clics o 14 días; se borra el párrafo viejo de 10 días. ARREGLOS 02, A.
 2. El IVA dentro del margen se le pregunta al contador. Ningún plan lo toca todavía.
 3. Tope real de unas 150 pujas por ciclo (ARREGLOS 05) y confirmación arriba de 50 cambios de precio en un día (ARREGLOS 03, P-D).
-4. En Mercado Libre las variantes sin existencias no fijan el precio. En espera de que el dueño la confirme: hoy 14 publicaciones tienen solo 2 unidades de la variante que fija su precio y, al venderse, su precio objetivo bajaría entre 8 y 28 % (`docs/evidencia/arreglos-03/PENDIENTE-P-E.md`).
+4. Variantes sin existencias en Mercado Libre: el 2026-11-12 el dueño decidió que no fijaran el precio; el 2026-11-13, con lo medido (14 publicaciones bajarían de 8 a 28 %), decidió dejarlo como está hoy. No se hace.
 5. Se borra el código que producción no usa. Fuera del ciclo: ARREGLOS 03 (D-A a D-C y P-A) y ARREGLOS 04 (W-A, W-B y B-A). Quitar las dos corridas de estimación que no sirven no entró: obliga a tocar el crontab de root, donde vive el respaldo diario. Los modos del ciclo: ARREGLOS 05.
+6. Semillas de la fábrica (2026-11-13): se quedan como hoy, con aviso en la revisión del plan. ARREGLOS 04, W-K.
 
 ## Lo que la revisión propone y no es una falla
 
