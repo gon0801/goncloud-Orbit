@@ -109,6 +109,7 @@ def familia_fresca(
     ahora: dt.datetime,
     fraccion: Decimal | None,
     destino: Decimal | None,
+    version: str,
 ) -> tuple[Decimal | None, dict]:
     """El peldano margen_familia de la hoja con los mismos insumos que el ciclo
     ejecutor (A5), no un segundo camino.
@@ -116,9 +117,10 @@ def familia_fresca(
     - Familia efectiva de la campana y su padre con el mismo colapso puro.
     - Una subfamilia conocida sin fila en `v_margen_familia` entra como
       `MEDICION_NULA` y reintenta al padre, como `cycle._margen_familia_de_hoja`.
-    - El ancla es el target familiar previo de la hoja (`target_acos_ciclo`
-      vivo y terminado anterior al ciclo ejecutor); con previo ajeno arranca
-      desde `destino`, con previo familiar camina el paso asimetrico.
+    - El ancla sale de `productos.ancla_familia`, la misma regla del ciclo
+      ejecutor: auto03 usa cualquier previo de la hoja; producto_directo_v1
+      solo ancla con previo margen_familia y, con uno ajeno o ausente, deja
+      que la familia aplique su derivado en este ciclo.
     Devuelve (aplicado | None, detalle para la evidencia)."""
     pares: list[tuple[int, int | None]] = []
     padre_par: dict[int, int | None] = {}
@@ -148,11 +150,11 @@ def familia_fresca(
     medicion = _medicion(fila) if fila is not None else g.MEDICION_NULA
     padre = _medicion(filas[padre_id]) if padre_id is not None and padre_id in filas else None
     previo = conn.execute(_SQL_PREVIO_HOJA, (ad_entity_id, platform, cycle_id)).fetchone()
-    if previo is None or previo[1] == "margen_producto":
-        ultimo, tiene_previo = destino, False
-    else:
-        ultimo = Decimal(previo[0])
-        tiene_previo = previo[1] == "margen_familia"
+    ultimo, tiene_previo = p.ancla_familia(
+        (Decimal(previo[0]), previo[1]) if previo is not None else None,
+        destino,
+        version=version,
+    )
     detalle["previo"] = str(previo[0]) if previo is not None else None
     detalle["tiene_previo"] = tiene_previo
     resolucion, ganadora = g.resuelve_target_margen_familia(

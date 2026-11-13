@@ -865,6 +865,7 @@ def _familia_respaldo(
     *,
     ad_entity_id: int,
     cycle_id: int,
+    economia: str,
 ) -> tuple[Decimal | None, dict]:
     """ORBIT 07 M2: el peldano familia del respaldo, fresco, cuando la hoja
     venia de la meta individual. Usa la misma medicion y el mismo resolutor
@@ -881,6 +882,7 @@ def _familia_respaldo(
         ahora=ahora,
         fraccion=g.fraccion_desde_settings(settings, platform),
         destino=destino,
+        version=economia,
     )
 
 
@@ -974,6 +976,7 @@ def _target_pause_vigente_detalle(
                     ahora,
                     ad_entity_id=ad_entity_id,
                     cycle_id=cycle_id,
+                    economia=economia,
                 )
         elif economia == productos.POLITICA_ECONOMIA:
             producto = None
