@@ -790,7 +790,9 @@ def resumen_cobertura(
     cumple productos.cumple_limites_pausa; sus anuncios afectables son los
     AnuncioElegible de su entrada. Las propuestas de pausa son las de la
     regla completa (H.2): una por anuncio elegible de un producto sin ventas,
-    sin impulso abierto ni impedimento de identidad."""
+    sin impulso abierto ni impedimento de identidad. El motivo
+    `venta_reciente_sin_medir` de A-H3 cuenta como candidato sin propuesta
+    porque el predicado conserva la exclusion de M4."""
     goal_plataforma, por_campana = goals
     grupos_aptos = hojas = pisadas = efectivas = con_meta = completas = 0
     candidatos = afectables = elegibles = con_pausa = propuestas = 0
