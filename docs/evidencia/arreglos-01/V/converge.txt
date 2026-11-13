@@ -1,0 +1,36 @@
+ARREGLOS 01 bloque V (unidad AD-U8, hallazgo B-H1): comportamiento de
+goals.converge_al_destino antes de tocar el codigo, medido el 2026-11-13 sobre
+la base 4302bea (master con S, P, T, U y los planes de arreglos 02-04). V.1 pedia comprobar la inferencia de
+que converge_al_destino(None, ...) cae a la meta de plataforma.
+
+Comando (Python 3.12 del venv, sin base ni red):
+
+  .\.venv\Scripts\python.exe -c "from decimal import Decimal; from app.optimizer import goals as g; print(g.converge_al_destino(None, Decimal('25.5'), 'ledger_rancio', piso=Decimal(0))); print(g.converge_al_destino(None, None, 'ledger_rancio', piso=Decimal(0))); print(g.converge_al_destino(Decimal('4'), Decimal('25.5'), 'ledger_rancio', piso=Decimal(0)))"
+
+Salida literal:
+
+converge_al_destino(None, 25.5, ledger_rancio) =
+ResolucionMargen(aplicado=None, derivado=None, motivo='ledger_rancio', convergiendo=False)
+
+converge_al_destino(None, None, ledger_rancio) =
+ResolucionMargen(aplicado=None, derivado=None, motivo='ledger_rancio', convergiendo=False)
+
+converge_al_destino(4, 25.5, ledger_rancio) =
+ResolucionMargen(aplicado=Decimal('4.5'), derivado=None, motivo='ledger_rancio', convergiendo=True)
+
+Lectura: sin ancla (ultimo=None) el helper no inventa una base; devuelve
+(aplicado=None, derivado=None, convergiendo=False) y el peldano cae. En
+meta_de_hoja eso significa ResolucionMargen(None, None, motivo, False): el
+peldano de producto no aporta valor y la cascada sigue con familia y
+plataforma. Con el producto sin elegibilidad y la familia igual de rancia, la
+hoja termina en la meta de plataforma (25.5). La inferencia del diseno queda
+confirmada en el helper, que es donde nace la caida.
+
+Comprobacion complementaria antes del arreglo:
+
+  .\.venv\Scripts\python.exe -c "from decimal import Decimal; from app.optimizer import productos as p; print(p.meta_de_hoja(p.SinDato(('ledger_rancio',)), ultimo=Decimal('4'), destino=Decimal('25.5'), tiene_previo=True, version=p.POLITICA_ECONOMIA))"
+
+Salida: ResolucionMargen(aplicado=None, derivado=None, motivo='ledger_rancio',
+convergiendo=False). Es el salto que corrige V.3: con previo de producto y un
+motivo transitorio, la version producto_directo_v1 debe converger al destino a
+0.5 por ciclo (4 -> 4.5) en vez de abandonar el peldano.

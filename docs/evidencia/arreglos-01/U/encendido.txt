@@ -1,0 +1,28 @@
+ARREGLOS 01 bloque U (AD-U6b, hallazgo C-H2): encendido de economia_cambio_v2
+en produccion, 2026-11-13. Las dos plataformas que en antes.txt tenian el
+juicio anterior (economia_cambio_v1) son amazon_mx y amazon_us.
+
+Antes, U/prueba.sh (UTC 2026-11-13T10:12:16Z):
+ads_bid_economia_amazon_mx=economia_cambio_v1 (esperado economia_cambio_v2)
+ads_bid_economia_amazon_us=economia_cambio_v1 (esperado economia_cambio_v2)
+rc=1
+
+Paso 1, amazon_mx (UTC 2026-11-13T10:12:25Z):
+ssh goncloud "docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_mx --bid-economia economia_cambio_v2"
+config_version 52: settings UI · productos-modo · 2026-11-13 · amazon_mx: ads_bid_economia_amazon_mx economia_cambio_v1 -> economia_cambio_v2
+rc=0
+
+Paso 1, amazon_us (UTC 2026-11-13T10:12:32Z):
+ssh goncloud "docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_us --bid-economia economia_cambio_v2"
+config_version 53: settings UI · productos-modo · 2026-11-13 · amazon_us: ads_bid_economia_amazon_us economia_cambio_v1 -> economia_cambio_v2
+rc=0
+
+Paso 2, prueba real del bloque U (UTC 2026-11-13T10:12:42Z):
+bash docs/evidencia/arreglos-01/desplegado.sh economia_cambio_v2 && bash docs/evidencia/arreglos-01/U/prueba.sh
+ads_bid_economia_amazon_mx=economia_cambio_v2 (esperado economia_cambio_v2)
+ads_bid_economia_amazon_us=economia_cambio_v2 (esperado economia_cambio_v2)
+rc=0
+
+El codigo desplegado trae economia_cambio_v2 y la config vigente lo tiene en
+las dos plataformas. Para deshacerlo, los mismos dos comandos del paso 1 con
+economia_cambio_v1.

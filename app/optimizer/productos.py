@@ -93,6 +93,11 @@ POLITICA_ECONOMIA = "producto_directo_v1"
 ECONOMIA_AUTO03 = "auto03"
 POLITICAS_ECONOMIA: tuple[str, ...] = (ECONOMIA_AUTO03, POLITICA_ECONOMIA)
 
+# B-H1: motivos de abstencion por un dato que puede volver. Con
+# producto_directo_v1 la hoja converge al destino a <=0.5 por ciclo en vez de
+# soltar el peldano y saltar a la plataforma.
+MOTIVOS_DATO_TRANSITORIO = frozenset({"ledger_rancio"})
+
 # S17: un anuncio que regresaste no se vuelve a proponer en 7 dias.
 GRACIA_REGRESADO = dt.timedelta(days=7)
 
@@ -633,6 +638,33 @@ def meta_para_grupo(
     return SinDato(("grupo_no_apto",))
 
 
+def ancla_familia(
+    previo: tuple[Decimal, str] | None,
+    destino: Decimal | None,
+    *,
+    version: str,
+) -> tuple[Decimal | None, bool]:
+    """(ultimo, tiene_previo) del peldano margen_familia. UNICA fuente para el
+    ciclo ejecutor y la cola de revalidacion.
+
+    `previo` es (target, procedencia) del ultimo ciclo live de la hoja.
+    `auto03` conserva la regla historica: cualquier previo de la hoja ancla el
+    paso; sin previo, camina desde el destino de plataforma.
+    `producto_directo_v1` no interpola entre economias: solo un previo
+    margen_familia es ancla. Un previo margen_producto (o uno de otro peldano,
+    o ausente) deja la familia sin ancla para que aplique su propio derivado
+    en ese mismo ciclo."""
+    if version not in POLITICAS_ECONOMIA:
+        raise ValueError(f"version economica desconocida: {version!r}")
+    if version == ECONOMIA_AUTO03:
+        if previo is None:
+            return (destino, False)
+        return (previo[0], previo[1] == "margen_familia")
+    if previo is not None and previo[1] == "margen_familia":
+        return (previo[0], True)
+    return (None, False)
+
+
 def meta_de_hoja(
     meta: MetaReferencia | SinDato,
     *,
@@ -647,7 +679,9 @@ def meta_de_hoja(
     la meta sube de una vez y baja <= 0.5 por ciclo, y una abstencion converge
     al destino. `producto_directo_v1` (M2) aplica la meta calculada DIRECTA,
     sin rampa; sin meta, el peldano de producto no aporta un valor en
-    transicion (`aplicado` None) y la cascada resuelve completa su respaldo.
+    transicion (`aplicado` None) y la cascada resuelve completa su respaldo,
+    salvo un motivo transitorio (B-H1): ahi converge al destino a <=0.5 por
+    ciclo para no saltar de economia.
 
     El replay lee la evaluacion y el caso congelados y no recalcula con
     esta funcion."""
@@ -655,7 +689,12 @@ def meta_de_hoja(
         raise ValueError(f"version economica desconocida: {version!r}")
     if isinstance(meta, SinDato):
         motivo = meta.motivos[0]
-        if version == ECONOMIA_AUTO03 and tiene_previo:
+        # B-H1: solo converge si TODOS los motivos son transitorios. Un
+        # impedimento no transitorio (p. ej. halo de otro SKU) debe dejar la
+        # hoja en su respaldo, aunque el ledger tambien venga rancio.
+        if tiene_previo and (
+            version == ECONOMIA_AUTO03 or all(m in MOTIVOS_DATO_TRANSITORIO for m in meta.motivos)
+        ):
             return goals.converge_al_destino(ultimo, destino, motivo, piso=Decimal(0))
         return goals.ResolucionMargen(None, None, motivo, False)
     nueva = meta.porcentaje

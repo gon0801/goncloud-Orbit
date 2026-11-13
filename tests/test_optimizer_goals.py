@@ -33,9 +33,14 @@ from decimal import Decimal
 import pglast
 import pytest
 from psycopg.types.json import Json
+from test_optimizer_caso import economia_mx, fabrica_caso, nivel, tramo
 from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
 
+from app import cycle
 from app.optimizer import goals as g
+from app.optimizer import politica as pol
+from app.optimizer import productos as p
+from app.optimizer.caso import BidVigente, PrecioVentana
 
 
 def _goal(**sobreescribe) -> g.Goal:
@@ -1264,3 +1269,116 @@ def test_politica_bid_solo_niveles_exacta_y_lo_demas_corrupto():
     for malo in ("", "bandas_v1", "evidencia_v2", "NIVELES_V3", "niveles", " ", 1, True):
         with pytest.raises(ValueError, match="politica de bids"):
             g.politica_bid_desde_settings({"ads_bid_politica_amazon_us": malo}, "amazon_us")
+
+
+def test_arreglos01_v_ledger_rancio_converge():
+    """B-H1 escenario B: con producto_directo_v1 y un previo de la hoja, un
+    motivo transitorio (ledger_rancio) converge al destino a 0.5 por ciclo en
+    vez de soltar el peldano de producto y saltar a la plataforma."""
+    converge = p.meta_de_hoja(
+        p.SinDato(("ledger_rancio",)),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=True,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert converge == g.ResolucionMargen(Decimal("4.5"), None, "ledger_rancio", True)
+    sin_previo = p.meta_de_hoja(
+        p.SinDato(("ledger_rancio",)),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=False,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert sin_previo == g.ResolucionMargen(None, None, "ledger_rancio", False)
+    ajeno = p.meta_de_hoja(
+        p.SinDato(("cobertura_baja",)),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=True,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert ajeno == g.ResolucionMargen(None, None, "cobertura_baja", False)
+    con_halo = p.meta_de_hoja(
+        p.SinDato(("ledger_rancio", "halo_sin_margen")),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=True,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert con_halo == g.ResolucionMargen(None, None, "ledger_rancio", False)
+
+
+def test_arreglos01_v_el_ledger_rancio_no_enciende_r3():
+    """h_924aa2d4: con producto_directo_v1 y el ledger rancio la hoja converge
+    a 4.5 con procedencia margen_producto, pero el equilibrio del producto no
+    se publica: R3 queda apagado y el veredicto es el -12 % del grupo, no el
+    -25 % de pierde_dinero_fuerte."""
+    ahora = dt.datetime(2026, 11, 9, 14, 0, tzinfo=dt.UTC)
+    hoy = ahora.date()
+    grupo = p.GrupoAptoParaMeta(
+        grupo_id=6,
+        campana_id=5,
+        hojas=(7,),
+        ventana_evidencia_hojas=p.Ventana(hoy - dt.timedelta(days=90), hoy - dt.timedelta(days=3)),
+        referencias_identidad_y_halo=(),
+        huella_alcance="sha256:x",
+    )
+    entrada = p.EntradaProducto(
+        producto=p.Producto("amazon_mx", 4),
+        decidido_el=ahora,
+        margen=g.MedicionMargen(
+            margen_neto_pct=Decimal("8"),
+            cobertura=Decimal("1"),
+            dias_con_venta=60,
+            venta_cubierta=Decimal("1000"),
+            ledger_fresco_at=ahora - dt.timedelta(days=4),
+            moneda="MXN",
+            ventana_desde=dt.date(2026, 2, 20),
+            ventana_hasta=hoy - dt.timedelta(days=15),
+        ),
+        fraccion=Decimal("0.5"),
+        ventana_halo=p.Ventana(hoy - dt.timedelta(days=90), hoy - dt.timedelta(days=60)),
+        dias_halo=(),
+        actividad_pausa=p.SinDato(("sin_filas_en_ventana",)),
+        anuncios=(),
+        grupos_aptos_para_meta=(grupo,),
+        impedimentos=(),
+        limites_pausa=p.LimitesPausa(100, p.Dinero(Decimal("500"), "MXN")),
+    )
+    evaluacion = p.resolver_producto(entrada)
+    ciclo = cycle._ProductosCiclo(
+        modo_meta="live",
+        modo_economia=p.POLITICA_ECONOMIA,
+        por_grupo={6: evaluacion},
+        resumen={},
+    )
+    meta = cycle._meta_viva(
+        ciclo,
+        goal=_goal(platform="amazon_mx", target_acos_pct=None, mode="live"),
+        ad_group_id=6,
+        previo=cycle._PrevioHoja(Decimal("4"), "margen_producto", 1, 2),
+        destino=Decimal("25.5"),
+    )
+    assert isinstance(meta, cycle._MetaHoja), meta
+    assert meta.resolucion == g.ResolucionMargen(Decimal("4.5"), None, "ledger_rancio", True)
+    equilibrio = meta.equilibrio_pct
+    propia = nivel(tramo(clics=400, pedidos=20, venta="2000", gasto="200", impresiones=20000))
+    caso = fabrica_caso(
+        economia=economia_mx(
+            target="4.5",
+            equilibrio=str(equilibrio) if equilibrio is not None else None,
+        ),
+        propia=propia,
+        grupo=propia,
+        cuenta=propia,
+        precio=PrecioVentana(Decimal("200"), 400),
+        ventana_desde=hoy - dt.timedelta(days=90),
+        ventana_hasta=hoy - dt.timedelta(days=10),
+        observado_al=ahora - dt.timedelta(days=3),
+        bid=BidVigente(Decimal("2.00"), "MXN", Decimal("1.00"), Decimal("45.00")),
+    )
+    assert pol.decide(caso) == pol.Mover(
+        Decimal("-0.12"), Decimal("1.7600"), "grupo_sangra_vendedora", "ad_group"
+    )
+    assert equilibrio is None

@@ -752,7 +752,11 @@ class _MetaHoja:
     @property
     def equilibrio_pct(self) -> Decimal | None:
         """Punto de equilibrio del producto (margen neto antes de publicidad)
-        que corresponde a la meta de ESTA hoja. None = el producto no lo mide."""
+        que corresponde a la meta de ESTA hoja. None = el producto no lo mide
+        o la resolucion converge por un dato invalido (B-H1: con el ledger
+        rancio el equilibrio no se publica y R3 queda apagado)."""
+        if self.resolucion.motivo is not None:
+            return None
         margen = self.evaluacion.entrada.margen
         return margen.margen_neto_pct if isinstance(margen, g.MedicionMargen) else None
 
@@ -2553,6 +2557,7 @@ def _anota_sombra(
             margen.margen_neto_pct
             if productos_ciclo.modo_economia == productos.POLITICA_ECONOMIA
             and procedencia_meta == "margen_producto"
+            and meta.motivo is None
             and isinstance(margen, g.MedicionMargen)
             else None
         )
@@ -3137,20 +3142,16 @@ def _margen_familia_de_hoja(
     elif hoja_id is None:
         ultimo, tiene_previo, ancla = familias.destino, False, "destino"
     else:
-        # A5-r2 (B1): el ANCLA es el ultimo numero sin filtro (B-F9), pero
-        # la BANDERA tiene_previo exige previo margen_familia (con previo
-        # de otro peldano la hoja cae a plataforma, no converge con valor
-        # ajeno).
-        # ORBIT 07 M2: en la version nueva el target de producto NO es ancla
-        # de la familia; al perder elegibilidad la familia arranca desde su
-        # propio respaldo (destino). La version auto03 conserva el ancla
-        # historica (cualquier previo de la hoja).
-        if familias.economia == productos.POLITICA_ECONOMIA:
-            ajeno = previo is not None and previo.procedencia == "margen_producto"
-            ultimo = familias.destino if ajeno or previo is None else previo.target
-        else:
-            ultimo = previo.target if previo is not None else familias.destino
-        tiene_previo = previo is not None and previo.procedencia == "margen_familia"
+        # A5-r2 (B1) + ORBIT 07 M2: la regla del ancla vive en
+        # productos.ancla_familia, UNICA fuente para el ciclo y la cola. auto03
+        # conserva el ancla historica (cualquier previo de la hoja); la version
+        # nueva solo ancla con previo margen_familia y no interpola entre
+        # economias.
+        ultimo, tiene_previo = productos.ancla_familia(
+            (previo.target, previo.procedencia) if previo is not None else None,
+            familias.destino,
+            version=familias.economia,
+        )
     res, ganadora = g.resuelve_target_margen_familia(
         etiqueta,
         padre,
