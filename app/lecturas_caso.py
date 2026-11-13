@@ -28,9 +28,11 @@ from app.optimizer.caso import (
     DIAS_MADUREZ,
     DIAS_MADUREZ_ECONOMIA,
     DIAS_TRAMO_RECIENTE,
+    DIAS_VIGENCIA_ECONOMIA_CAMBIO,
     MOTIVO_ECONOMIA_CAMBIO_EN_VENTANA,
     MOTIVO_ECONOMIA_CAMBIO_POSTERIOR,
     MOTIVO_ECONOMIA_COBERTURA_INCOMPLETA,
+    MOTIVO_ECONOMIA_EVIDENCIA_VENCIDA,
     MOTIVO_ECONOMIA_POST_INMADURO,
     PRECISION,
     VERSION_ECONOMIA_CAMBIO,
@@ -310,6 +312,19 @@ SELECT a.parent_id, a.first_seen_at
  WHERE a.platform = %s::platform
    AND a.kind = 'product_ad'
    AND a.first_seen_at >= %s AND a.first_seen_at <= %s
+"""
+
+# ARREGLOS 01 T (unidad AD-U6a, C-H1): quinta fuente de invalidacion. Un
+# negative o un harvest aplicado en el MISMO ad group cambia el alcance del
+# grupo y contamina [x-7, x+7]; el harvest crea ademas un negative EXACT en el
+# origen. Se lee en el mismo lote de eventos por ad group.
+_SQL_CORTES_GRUPO = """
+SELECT d.ad_entity_id, a.finished_at
+  FROM apply_attempt a
+  JOIN decision d  ON d.id = a.decision_id AND d.kind IN ('negative','harvest')
+  JOIN ad_entity g ON g.id = d.ad_entity_id AND g.kind = 'ad_group'
+ WHERE g.platform = %s::platform AND a.resultado = 'ok' AND a.tipo IN ('normal','reversa')
+   AND a.finished_at >= %s AND a.finished_at <= %s
 """
 
 
@@ -698,7 +713,9 @@ def _episodio_economico(
     `estado` separa madurez/comparabilidad de `aplicable`: un cambio de puja,
     presupuesto, placement, precio o alcance posterior deja el episodio como
     historia. Un evento DENTRO de [x-7, x+7] contaminaria la comparacion y la
-    marca incomparable, aunque el episodio siga sin cambios posteriores.
+    marca incomparable, aunque el episodio siga sin cambios posteriores. El
+    episodio tambien caduca a los 31 dias del cambio (14 despues de madurar):
+    mas viejo no gobierna la repeticion y R16 decide como antes.
     """
     reales = [
         i
@@ -720,8 +737,14 @@ def _episodio_economico(
     hasta = x + dt.timedelta(days=DIAS_ECONOMIA_CAMBIO)
     en_ventana = any(desde <= evento <= hasta for evento in eventos)
     posteriores = any(evento > x for evento in eventos)
-    aplicable = not posteriores
-    motivo_aplicabilidad = None if aplicable else MOTIVO_ECONOMIA_CAMBIO_POSTERIOR
+    vencida = d >= x + dt.timedelta(days=DIAS_VIGENCIA_ECONOMIA_CAMBIO)
+    aplicable = not posteriores and not vencida
+    if aplicable:
+        motivo_aplicabilidad = None
+    elif vencida:
+        motivo_aplicabilidad = MOTIVO_ECONOMIA_EVIDENCIA_VENCIDA
+    else:
+        motivo_aplicabilidad = MOTIVO_ECONOMIA_CAMBIO_POSTERIOR
     madura = hasta <= d - dt.timedelta(days=DIAS_MADUREZ_ECONOMIA)
     if not madura:
         estado = "inmaduro"
@@ -786,9 +809,10 @@ def lee_plataforma(
     pasados, y por eso la regla 5 (append-only) alcanza para validar el
     mismo dia.
 
-    `con_economia` (ORBIT 07 M5) agrega cuatro consultas por plataforma para
+    `con_economia` (ORBIT 07 M5) agrega cinco consultas por plataforma para
     los eventos que invalidan un episodio (configuracion de campana, ajustes,
-    precios y product ads nuevos); apagado no las ejecuta."""
+    precios, product ads nuevos y negatives o harvests aplicados en el mismo
+    ad group); apagado no las ejecuta."""
     _exige_tz(decidido_el, "decidido_el")
     if visto_el is not None:
         _exige_tz(visto_el, "visto_el")
@@ -834,7 +858,7 @@ def lee_plataforma(
         ):
             for entidad, sello in conn.execute(consulta, (plataforma, bajo, corte)).fetchall():
                 destino.setdefault(entidad, []).append(sello.astimezone(dt.UTC).date())
-        for consulta in (_SQL_PRECIOS_GRUPO, _SQL_ANUNCIOS_NUEVOS):
+        for consulta in (_SQL_PRECIOS_GRUPO, _SQL_ANUNCIOS_NUEVOS, _SQL_CORTES_GRUPO):
             for entidad, sello in conn.execute(consulta, (plataforma, bajo, corte)).fetchall():
                 eventos_grupo.setdefault(entidad, []).append(sello.astimezone(dt.UTC).date())
     dias = frozenset(f for fila in filas_tramos for f in (fila[14] or ()))
