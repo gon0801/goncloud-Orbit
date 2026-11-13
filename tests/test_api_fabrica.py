@@ -375,6 +375,7 @@ def test_arreglos01_x_preview_rechaza_presupuesto_sobre_el_techo(escenario):
     solicitud["parametros"]["category_exact"]["budget"] = "20000"
     r = cliente.post("/api/fabrica/plan", json=solicitud)
     assert r.status_code == 422
+    assert "presupuesto diario" in r.text and "supera el maximo" in r.text
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
 
 
