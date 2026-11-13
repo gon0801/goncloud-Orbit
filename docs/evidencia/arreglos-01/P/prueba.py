@@ -23,6 +23,7 @@ from app.optimizer.caso import (
 )
 from app.optimizer.politica import MOTIVO_SUBIDA_EN_ESPERA, Mantener, Mover, decide
 from app.optimizer.windows import AgregadoMetricas
+from app.proteccion_venta import CacheProteccion
 
 HOY = dt.date(2026, 11, 9)
 ANCLA = HOY - dt.timedelta(days=4)
@@ -74,13 +75,17 @@ def proteccion(*, frena_subidas):
 
 
 def caso(frena_subidas):
+    return _caso_con_proteccion(proteccion(frena_subidas=frena_subidas))
+
+
+def _caso_con_proteccion(insumos):
     pausa = InsumosPausa(
         cortes(),
         100,
         Decimal("500"),
         None,
         None,
-        proteccion=proteccion(frena_subidas=frena_subidas),
+        proteccion=insumos,
     )
     propia = nivel(tramo(clics=50, pedidos=5, venta="5000", gasto="200", impresiones=2000))
     cuenta = nivel(
@@ -126,4 +131,22 @@ print(f"frena_subidas=False: {historica}")
 congelado = CasoHoja.desde_json(caso(True).como_json())
 assert decide(congelado) == en_espera
 print("congelado: reproduce la espera")
+
+cache = CacheProteccion(
+    plataforma="amazon_mx",
+    evaluado_el=HOY,
+    _lee_desde=HOY - dt.timedelta(days=9),
+    _dias_plataforma=frozenset(),
+    _historia={},
+    _episodios={1001: EpisodioProteccion(ancla=ANCLA, vence_el=VENCE)},
+)
+insumos_cache = cache.insumos(
+    1001,
+    ventana_desde=HOY - dt.timedelta(days=20),
+    ventana_hasta=HOY - dt.timedelta(days=11),
+)
+assert insumos_cache.frena_subidas is True, insumos_cache
+veredicto_cache = decide(_caso_con_proteccion(insumos_cache))
+assert veredicto_cache == Mantener(MOTIVO_SUBIDA_EN_ESPERA), veredicto_cache
+print(f"cache de produccion: frena_subidas=True y {veredicto_cache}")
 print("P OK")
