@@ -746,8 +746,9 @@ def test_arreglos01_t_el_episodio_caduca_a_los_31_dias():
 
 @_SIN_PG
 @pytest.mark.parametrize("kind", ["negative", "harvest"])
-def test_arreglos01_t_un_corte_en_el_mismo_ad_group_invalida_el_episodio(kind):
-    with _db_completa(f"orbit_m5_corte_{kind}") as (conn, _c):
+@pytest.mark.parametrize("resultado", ["ok", "ok:reconciliado"])
+def test_arreglos01_t_un_corte_en_el_mismo_ad_group_invalida_el_episodio(kind, resultado):
+    with _db_completa(f"orbit_m5_corte_{kind}_{resultado.replace(':', '_')}") as (conn, _c):
         ids = _mundo_m5(conn)
         corte = conn.execute(
             "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
@@ -770,8 +771,8 @@ def test_arreglos01_t_un_corte_en_el_mismo_ad_group_invalida_el_episodio(kind):
         conn.execute(
             "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
             " quota_cobrada, resultado, finished_at)"
-            " VALUES (%s, 1, 'normal', %s, true, 'ok', %s)",
-            (corte, Json({"seed": "corte"}), ids["x"] + dt.timedelta(days=3)),
+            " VALUES (%s, 1, 'normal', %s, true, %s, %s)",
+            (corte, Json({"seed": "corte"}), resultado, ids["x"] + dt.timedelta(days=3)),
         )
         episodio = _caso_desde_lecturas(conn, _lecturas(conn), ids).trayectoria.episodio
         assert episodio is not None
