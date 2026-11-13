@@ -908,6 +908,17 @@ def test_despacho_prioriza_reconciliar_registrar_y_desarmar(monkeypatch):
     assert fc.main() == 0 and llamados == ["desarmar"]
 
 
+def test_arreglos01_x_el_cli_rechaza_un_presupuesto_sobre_el_techo():
+    """El tope del CLI (tools/fabrica_campanas.py) rechaza 20000 MXN y acepta
+    150 MXN en los cinco roles. Puro: sin base ni red."""
+    roles = fp.ROLES_ORDEN_CREACION
+    caro = {rol: fp.ParametrosRol(rol, Decimal("20000"), Decimal("5.00")) for rol in roles}
+    with pytest.raises(fc.Abortar, match="supera el maximo"):
+        fc._exige_techos_humanos(caro, "MXN")
+    barato = {rol: fp.ParametrosRol(rol, Decimal("150"), Decimal("5.00")) for rol in roles}
+    fc._exige_techos_humanos(barato, "MXN")
+
+
 # ---------------------------------------------------------------------------
 # CLI end-to-end sobre la DB de pruebas (stdin y archivo)
 # ---------------------------------------------------------------------------
@@ -955,6 +966,33 @@ def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid,
                 for e in eventos
             )
             assert "existente (solo se informa" in corrida.stdout
+
+
+@_skip_db
+def test_arreglos01_x_el_cli_end_to_end_rechaza_presupuesto_sobre_el_techo():
+    """El dry-run del CLI rechaza 20000 MXN con el motivo del tope y sin
+    huella; antes del arreglo el plan salia con huella (rc=0)."""
+    with db_fabrica("orbit_fab_cli_techo") as conn:
+        pid, lid = _producto(
+            conn, sku="CLI", asin="B0CLICLI01", seller_sku="SS-CLI", platform="amazon_mx"
+        )
+        _ledger_producto(conn, pid, hoy=HOY, platform="amazon_mx")
+        _config(conn, "0.5", platform="amazon_mx")
+        _campana_con_producto(conn, lid, external="c-vieja", status="PAUSED", platform="amazon_mx")
+        dsn_db = _test_dsn().rsplit("/", 1)[0] + "/" + conn.info.dbname
+        args = ARGS_BASE.copy()
+        args[args.index("--productos") + 1] = str(pid)
+        for rol in ("auto", "phrase", "product", "broad", "exact"):
+            args[args.index(f"--budget-{rol}") + 1] = "20000"
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ORBIT_")}
+        env.update(ORBIT_DSN_READ=dsn_db, PYTHONPATH=str(RAIZ))
+        fuente = (RAIZ / "tools" / "fabrica_campanas.py").read_text(encoding="utf-8")
+        corrida = subprocess.run(
+            [sys.executable, "-", *args], input=fuente, env=env, capture_output=True, text=True
+        )
+        assert corrida.returncode == 2, corrida.stderr
+        assert "supera el maximo" in corrida.stdout
+        assert "huella del conjunto:" not in corrida.stdout
 
 
 # ---------------------------------------------------------------------------
