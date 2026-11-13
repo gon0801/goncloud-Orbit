@@ -41,9 +41,11 @@ entrada congelada que la evaluacion trae dentro.
   venta y vencimiento ancla + 30 dias; una reobservacion o una venta posterior
   no mueven el ancla. La ventana y la madura son contiguas: el dia de madurez
   la venta sigue en la reciente (la pausa espera) y al dia siguiente entra a
-  [D-60, D-30), donde cuenta como venta de la ventana. No reutiliza el
-  vencimiento de diez dias de la hoja. La politica v2 conserva el replay
-  historico sin esta espera.
+   [D-60, D-30), donde cuenta como venta de la ventana. No reutiliza el
+   vencimiento de diez dias de la hoja. La politica v2 conserva el replay
+   historico sin esta espera. A-H3 tambien espera si una fecha de la ventana
+   reciente se descarto por una metrica ausente y pudo tener venta; su motivo
+   es `venta_reciente_sin_medir` y no bloquea la meta del producto.
 - Simulacion (H.8): simula_pausa corre la misma regla con otros limites sobre
   las entradas de hoy y, para el costo de equivocarse, sobre las de hace 30
   dias.
@@ -74,7 +76,8 @@ PLATAFORMAS: tuple[str, ...] = get_args(Plataforma)
 
 # Version de la politica, congelada en cada evaluacion: el replay sabe con que
 # reglas se calculo una evaluacion vieja. v1 = meta (C/D); v2 = meta y pausa (H);
-# v3 = pausa con la espera de venta reciente inmadura del producto (ORBIT 07 M4).
+# v3 = pausa con la espera de venta reciente inmadura del producto (ORBIT 07 M4)
+# y por una fecha reciente sin medir (A-H3).
 POLITICA_PRODUCTO = "v3"
 POLITICAS: tuple[str, ...] = ("v1", "v2", "v3")
 
@@ -82,6 +85,9 @@ MOTIVO_PAUSA = "producto_sin_ventas"
 # M4: una venta del producto con menos de 30 dias todavia puede cambiar de
 # atribucion; la pausa espera con un ancla fija.
 MOTIVO_VENTA_RECIENTE = "venta_reciente_producto"
+# A-H3: una fecha reciente que el lector descarto por una metrica ausente
+# puede esconder una venta; la pausa espera en vez de darla por cero.
+MOTIVO_VENTA_RECIENTE_SIN_MEDIR = "venta_reciente_sin_medir"
 
 # ORBIT 07 M2: version de la economia del producto que se congela en la
 # decision (`target_snapshot.version`) y se relee al revalidar la cola. La
@@ -136,6 +142,7 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     "vendio_en_ventana": "el producto vendio en la ventana de la pausa",
     "venta_otro_sku": "ventas atribuidas de otro SKU en la ventana: no son cero ventas",
     "venta_reciente_producto": "una venta reciente del producto aun no madura: la pausa espera",
+    "venta_reciente_sin_medir": "un día reciente al que le falta una métrica: la pausa espera",
     "bajo_limites": "no llega a los clics o al gasto minimos de la pausa",
     "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia",
     "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa",
@@ -302,6 +309,10 @@ class EntradaProducto:
     # traen; la regla cae a dias_halo.
     ventana_venta_reciente: Ventana | None = None
     dias_recientes: tuple[DiaProducto, ...] = ()
+    # A-H3: fechas de la ventana reciente que se descartaron por una metrica
+    # ausente y que pueden esconder una venta (compra o venta desconocida, o
+    # conocida > 0). Las entradas congeladas antes no la traen: ().
+    dias_recientes_sin_medir: tuple[dt.date, ...] = ()
 
     def como_json(self) -> dict:
         return _a_json(self)
@@ -430,7 +441,9 @@ def motivos_economicos_pausa(entrada: EntradaProducto, *, reciente: bool = True)
     producto gasto sin vender, con la identidad comprobada y sin impulso
     abierto. La regla completa (_regla_pausa) exige ademas anuncios
     elegibles. Con `reciente` (v3), una venta inmadura de [D-30, D-1] deja la
-    pausa en espera; v2 conserva el replay sin esa espera."""
+    pausa en espera; tambien espera si una fecha de esa ventana se descarto por
+    una metrica ausente y pudo tener venta (`venta_reciente_sin_medir`). v2
+    conserva el replay sin esas esperas."""
     motivos = list(entrada.bloqueos_pausa)
     motivos.extend(m for m in entrada.impedimentos if m == "sku_distinto_en_asin")
     actividad = entrada.actividad_pausa
@@ -450,8 +463,12 @@ def motivos_economicos_pausa(entrada: EntradaProducto, *, reciente: bool = True)
             motivos.append("vendio_en_ventana")
         elif actividad.clics < limites.clics_min or actividad.gasto.valor < limites.gasto_min.valor:
             motivos.append("bajo_limites")
-        elif reciente and venta_reciente_producto(entrada) is not None:
-            motivos.append(MOTIVO_VENTA_RECIENTE)
+        elif reciente:
+            venta = venta_reciente_producto(entrada)
+            if venta is not None:
+                motivos.append(MOTIVO_VENTA_RECIENTE)
+            elif entrada.dias_recientes_sin_medir:
+                motivos.append(MOTIVO_VENTA_RECIENTE_SIN_MEDIR)
     return tuple(dict.fromkeys(motivos))
 
 
@@ -505,7 +522,9 @@ def cumple_limites_pausa(entrada: EntradaProducto) -> bool:
     """El producto gasto sin vender en la ventana de la pausa: actividad
     completa (S6), compras y ventas totales en cero observado, clics y gasto en
     o sobre los limites congelados (S8) y sin una venta inmadura reciente
-    (M4)."""
+    (M4). No aplica la espera de A-H3 por un dia reciente sin medir: ese motivo
+    se reporta como candidato sin propuesta en `resumen_cobertura`, a
+    diferencia de M4."""
     actividad = entrada.actividad_pausa
     limites = entrada.limites_pausa
     return (

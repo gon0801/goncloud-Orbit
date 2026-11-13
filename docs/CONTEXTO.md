@@ -371,7 +371,12 @@ manda para la implementación; este párrafo es el spec delta sellado:
   posterior no mueven el ancla mientras la anterior siga inmadura. Se aplica al
   decidir y al revalidar; la fila en cola se descarta con
   `venta_reciente_producto` sin PUT ni cuota. v2 conserva el replay historico
-  sin la espera.
+  sin la espera. Desde A-H3 la espera tambien cubre una fecha reciente sin
+  medir: si el lector descarto una fecha de `[D-30, D-1]` por una metrica
+  ausente y pudo haber venta (compra o venta desconocida, o conocida mayor que
+  cero), la pausa espera con `venta_reciente_sin_medir`. Un dia con compra y
+  venta conocidas en cero no cuenta y el motivo no bloquea la meta del
+  producto.
 - **Episodio economico del ultimo cambio (ORBIT 07 M5/M6)**: con
   `ads_bid_economia_<plat> = economia_cambio_v1` o `economia_cambio_v2` el
   ciclo congela en el caso

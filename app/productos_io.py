@@ -308,6 +308,7 @@ def lee_entradas_productos(
         mismo_sku, impedimentos = _filas_del_producto(claves[producto], observaciones)
         dias_halo, faltantes = _dias_halo(ventana_halo, mismo_sku, moneda)
         dias_recientes, _ = _dias_halo(ventana_reciente, mismo_sku, moneda)
+        dias_recientes_sin_medir = _recientes_sin_medir(ventana_reciente, mismo_sku)
         if faltantes:
             impedimentos.append("ads_con_metrica_ausente")
         grupos_aptos = tuple(
@@ -353,6 +354,7 @@ def lee_entradas_productos(
                 ),
                 ventana_venta_reciente=ventana_reciente,
                 dias_recientes=dias_recientes,
+                dias_recientes_sin_medir=dias_recientes_sin_medir,
             )
         )
     return tuple(entradas)
@@ -590,6 +592,24 @@ def _dias_halo(
     return tuple(dias), faltantes
 
 
+def _recientes_sin_medir(
+    ventana: p.Ventana, por_fecha: Mapping[dt.date, list[ObservacionAds]]
+) -> tuple[dt.date, ...]:
+    """A-H3: fechas de la ventana que _dias_halo descarto y que PUEDEN tener
+    venta: compra o venta desconocida, o conocida > 0 en un dia al que le falta
+    otra metrica. Un dia con compra=0 y venta=0 conocidas no esconde una venta."""
+    dias = []
+    for fecha in sorted(f for f in por_fecha if ventana.contiene(f)):
+        filas = por_fecha[fecha]
+        if _suma_dia(filas) is not None:
+            continue
+        compras = suma_con_veneno(f.purchases30d for f in filas)
+        ventas = suma_con_veneno(f.sales30d for f in filas)
+        if compras is None or ventas is None or compras > 0 or ventas > 0:
+            dias.append(fecha)
+    return tuple(dias)
+
+
 def _suma_dia(
     filas: Iterable[ObservacionAds],
 ) -> tuple[Decimal, int, Decimal, Decimal, Decimal] | None:
@@ -770,7 +790,9 @@ def resumen_cobertura(
     cumple productos.cumple_limites_pausa; sus anuncios afectables son los
     AnuncioElegible de su entrada. Las propuestas de pausa son las de la
     regla completa (H.2): una por anuncio elegible de un producto sin ventas,
-    sin impulso abierto ni impedimento de identidad."""
+    sin impulso abierto ni impedimento de identidad. El motivo
+    `venta_reciente_sin_medir` de A-H3 cuenta como candidato sin propuesta
+    porque el predicado conserva la exclusion de M4."""
     goal_plataforma, por_campana = goals
     grupos_aptos = hojas = pisadas = efectivas = con_meta = completas = 0
     candidatos = afectables = elegibles = con_pausa = propuestas = 0
