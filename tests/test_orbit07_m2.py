@@ -486,6 +486,32 @@ def test_cola_reintenta_el_padre_de_la_subfamilia_sin_fila():
         assert vigente == (Decimal("10"), "margen_familia")
 
 
+def test_arreglos01_v_la_cola_converge_con_el_previo_del_ciclo():
+    """F2: con ledger rancio el ciclo aplica 4.5 margen_producto; la cola usa
+    el mismo previo y procedencia en vez de caer a la plataforma."""
+    with _db("orbit_m2_cola_ledger_rancio") as conn:
+        ids = _mundo(conn)
+        r1 = _corre(conn)
+        assert r1.status == "done", r1.notes
+        assert _target(conn, r1.cycle_id, ids["kw"]) == (Decimal("4"), "margen_producto")
+        _a_live(conn, r1.cycle_id)
+        conn.execute(
+            "UPDATE ingest_run SET started_at = %s WHERE source = 'accounting_ledger_events'",
+            (dt.datetime(2026, 6, 1, tzinfo=dt.UTC),),
+        )
+        r2 = _corre(conn)
+        assert r2.status == "done", r2.notes
+        assert _target(conn, r2.cycle_id, ids["kw"]) == (Decimal("4.5"), "margen_producto")
+        vigente = apply_cola._target_pause_vigente(
+            conn,
+            "amazon_us",
+            ids["kw"],
+            r2.cycle_id,
+            {"target_procedencia": "margen_producto", "target_snapshot": {}},
+        )
+        assert vigente == (Decimal("4.5"), "margen_producto")
+
+
 def _pausa_de(conn, cycle_id: int, entidad: int) -> dict | None:
     fila = conn.execute(
         "SELECT id, inputs FROM decision WHERE cycle_id = %s AND ad_entity_id = %s"
