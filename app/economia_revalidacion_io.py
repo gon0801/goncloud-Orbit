@@ -99,6 +99,16 @@ def _medicion(fila) -> g.MedicionMargen:
     )
 
 
+def previo_hoja(
+    conn: psycopg.Connection, ad_entity_id: int, platform: str, cycle_id: int
+) -> tuple[Decimal, str] | None:
+    """(target, procedencia) del ultimo ciclo live y terminado de la hoja,
+    anterior al ciclo ejecutor. Misma regla que el ciclo (`_meta_viva` y
+    `_margen_familia_de_hoja`): UNICA fuente para la cola."""
+    fila = conn.execute(_SQL_PREVIO_HOJA, (ad_entity_id, platform, cycle_id)).fetchone()
+    return (Decimal(fila[0]), fila[1]) if fila is not None else None
+
+
 def familia_fresca(
     conn: psycopg.Connection,
     platform: str,
@@ -149,12 +159,8 @@ def familia_fresca(
     # reintenta al padre); etiqueta ausente = None (no aplica el peldano).
     medicion = _medicion(fila) if fila is not None else g.MEDICION_NULA
     padre = _medicion(filas[padre_id]) if padre_id is not None and padre_id in filas else None
-    previo = conn.execute(_SQL_PREVIO_HOJA, (ad_entity_id, platform, cycle_id)).fetchone()
-    ultimo, tiene_previo = p.ancla_familia(
-        (Decimal(previo[0]), previo[1]) if previo is not None else None,
-        destino,
-        version=version,
-    )
+    previo = previo_hoja(conn, ad_entity_id, platform, cycle_id)
+    ultimo, tiene_previo = p.ancla_familia(previo, destino, version=version)
     detalle["previo"] = str(previo[0]) if previo is not None else None
     detalle["tiene_previo"] = tiene_previo
     resolucion, ganadora = g.resuelve_target_margen_familia(

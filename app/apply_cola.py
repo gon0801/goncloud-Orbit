@@ -779,16 +779,21 @@ def _producto_fresco(
     cycle_id: int,
     settings: dict,
     inputs: dict,
+    *,
+    ad_entity_id: int,
+    destino: Decimal | None,
 ) -> tuple[Decimal | None, dict]:
     """ORBIT 07 M2: la meta del producto resuelta con la evaluacion del ciclo
     EJECUTOR, por el mismo resolutor del ciclo y bajo las mismas reglas de
     goal, identidad, atribucion, moneda y respaldo.
 
-    Devuelve (None, detalle) cuando el peldano individual no aplica: la
-    cascada resuelve entonces el respaldo completo (familia/plataforma/
-    setting) en este mismo ciclo. La seleccion de la version anterior
-    (`ads_producto_meta_<plat>` distinto de live) restaura la cascada previa
-    sin borrar evaluaciones. Los inputs originales de la decision no se
+    Usa el mismo previo y destino que `cycle._meta_viva`: con un motivo
+    transitorio (ledger_rancio) el peldano de producto converge y la cola no
+    cae a la plataforma. Devuelve (None, detalle) cuando el peldano individual
+    no aplica: la cascada resuelve entonces el respaldo completo (familia/
+    plataforma/setting) en este mismo ciclo. La seleccion de la version
+    anterior (`ads_producto_meta_<plat>` distinto de live) restaura la cascada
+    previa sin borrar evaluaciones. Los inputs originales de la decision no se
     tocan: el detalle viaja a notes.revalidaciones_economicas."""
     detalle: dict = {"grupo_id": grupo}
     modos = productos.modos_desde_settings(settings, platform)
@@ -841,14 +846,18 @@ def _producto_fresco(
             "huella_alcance": grupo_apto.huella_alcance,
         }
     )
+    previo = economia_revalidacion_io.previo_hoja(conn, ad_entity_id, platform, cycle_id)
+    tiene_previo = previo is not None and previo[1] == "margen_producto"
     resolucion = productos.meta_de_hoja(
         evaluacion.meta,
-        ultimo=None,
-        destino=None,
-        tiene_previo=False,
+        ultimo=previo[0] if previo is not None else None,
+        destino=destino,
+        tiene_previo=tiene_previo,
         version=productos.POLITICA_ECONOMIA,
     )
     detalle["motivo"] = resolucion.motivo
+    detalle["previo"] = str(previo[0]) if previo is not None else None
+    detalle["tiene_previo"] = tiene_previo
     if resolucion.aplicado is None:
         return (None, detalle)
     detalle["target_aplicado"] = str(resolucion.aplicado)
@@ -963,7 +972,14 @@ def _target_pause_vigente_detalle(
                 return (None, None, detalle)
             grupo = grupo_fila[0]
             producto, detalle["producto"] = _producto_fresco(
-                conn, platform, grupo, cycle_id, settings, inputs
+                conn,
+                platform,
+                grupo,
+                cycle_id,
+                settings,
+                inputs,
+                ad_entity_id=ad_entity_id,
+                destino=destino,
             )
             familia = None
             if producto is None:
