@@ -770,14 +770,68 @@ def test_arreglos01_t_un_corte_en_el_mismo_ad_group_invalida_el_episodio(kind, r
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
-            " quota_cobrada, resultado, finished_at)"
-            " VALUES (%s, 1, 'normal', %s, true, %s, %s)",
-            (corte, Json({"seed": "corte"}), resultado, ids["x"] + dt.timedelta(days=3)),
+            " quota_cobrada, started_at, resultado, finished_at)"
+            " VALUES (%s, 1, 'normal', %s, true, %s, %s, %s)",
+            (
+                corte,
+                Json({"seed": "corte"}),
+                ids["x"] + dt.timedelta(days=3),
+                resultado,
+                ids["x"] + dt.timedelta(days=3),
+            ),
         )
         episodio = _caso_desde_lecturas(conn, _lecturas(conn), ids).trayectoria.episodio
         assert episodio is not None
         assert episodio.estado == "incomparable"
         assert episodio.motivo == "cambio_en_ventana"
+
+
+@_SIN_PG
+@pytest.mark.parametrize(
+    ("intento", "sello", "invalida"),
+    [
+        (dt.timedelta(days=-3), dt.timedelta(days=10), True),
+        (dt.timedelta(days=-20), dt.timedelta(days=3), False),
+    ],
+)
+def test_arreglos01_t_el_corte_se_fecha_con_el_intento_real(intento, sello, invalida):
+    with _db_completa(f"orbit_m5_corte_fecha_{'invalida' if invalida else 'no'}") as (conn, _c):
+        ids = _mundo_m5(conn)
+        corte = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end, search_term,"
+            " inputs) VALUES (%s, %s, 'negative', %s, %s, %s, %s, %s,"
+            " 'termino corte', %s) RETURNING id",
+            (
+                ids["ciclo"],
+                ids["ag"],
+                ids["x"] + intento,
+                ids["config"],
+                ids["x"] + intento,
+                ids["x"] - dt.timedelta(days=30),
+                ids["x"] - dt.timedelta(days=9),
+                Json({"seed": "corte"}),
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, started_at, resultado, finished_at)"
+            " VALUES (%s, 1, 'normal', %s, true, %s, 'ok:reconciliado', %s)",
+            (
+                corte,
+                Json({"seed": "corte"}),
+                ids["x"] + intento,
+                ids["x"] + sello,
+            ),
+        )
+        episodio = _caso_desde_lecturas(conn, _lecturas(conn), ids).trayectoria.episodio
+        assert episodio is not None
+        if invalida:
+            assert episodio.estado == "incomparable"
+            assert episodio.motivo == "cambio_en_ventana"
+        else:
+            assert episodio.estado == "maduro"
+            assert episodio.motivo is None
 
 
 @_SIN_PG
