@@ -1,6 +1,6 @@
-# Bloque en espera de que el dueño confirme su decisión
+# Variantes sin existencias en Mercado Libre: descartado por el dueño el 2026-11-13
 
-Este bloque no está en `plans/arreglos-03.md`. El dueño decidió el 2026-11-12 que en Mercado Libre las variantes sin existencias no fijen el precio de la publicación. Al diseñarlo se midió algo que entonces no se sabía: hoy 14 publicaciones tienen solo 2 unidades de la variante que fija su precio. Cuando se vendan, el precio objetivo de toda la publicación bajaría entre 8 y 28 % (en 9 de ellas, más de 10 %), y si esa variante vuelve a tener existencias el precio se queda así hasta 7 días. No queda bajo costo, pero cada unidad de la variante cara deja menos. Entra al plan cuando el dueño lo confirme con ese número. Diseño: sección «P-E» de `docs/evidencia/arreglos-03/DISENO-precios.md`. En el plan, el bloque P-F pasó a depender de P-D.
+El dueño decidió dejarlo como está hoy: la variante más cara fija el precio de la publicación aunque no tenga existencias. Al diseñar el cambio se midió que 14 publicaciones tienen solo 2 unidades de la variante que fija su precio y que, al venderse, su precio objetivo bajaría entre 8 y 28 %. Este archivo conserva el bloque solo como registro. No se ejecuta.
 
 ## Bloque P-E — En Mercado Libre, las variantes sin existencias ya no fijan el precio de la publicación
 lane: release

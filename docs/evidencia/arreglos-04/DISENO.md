@@ -2,7 +2,7 @@
 
 Base: master `a4644aad` (lo que corre en producción). Hallazgos: `docs/evidencia/arreglos-2026-11-12/web.md` y `fabrica.md`.
 Bloques: `plans/arreglos-04.md` (W-A a W-J, W-L y W-M).
-Alcance vigente: el de `plans/arreglos-04.md`. W-K (semillas, falla 2 de `fabrica.md`) está en `PENDIENTE-W-K.md` y
+Alcance vigente: el de `plans/arreglos-04.md`. W-K (semillas, falla 2 de `fabrica.md`) está en `DESCARTADO-semillas-estrictas.md` y
 no forma parte del plan; donde este diseño diga otra cosa, manda el plan.
 
 Para quién: el dueño. Hoy dos pantallas le dan gastos distintos para los mismos 30 días, el Resumen le dice «las ventas
@@ -23,7 +23,7 @@ Todo lo medido en producción se leyó con `docs/evidencia/arreglos-01/lee_prod.
 | web F1, mitad de Ajustes (meta manual de la plataforma) | Fuera, a un plan después de TEMPORADA 01 | Toca `config_write.proxima_config` y `CuerpoSettings` (`app/api_write.py:242-257`). TEMPORADA 01 bloque A rehace los dos (`DISENO.md:1341-1352` y fila A.2 de `plans/temporada-01.md:55`). |
 | web F9 (tope «1,000» se tira) | Fuera, a un plan después de TEMPORADA 01 | El arreglo vive en `app/static/js/settings.js:99` o en `config_write._aplica_caps` (`app/config_write.py:490-491`). Los dos archivos los reescribe TEMPORADA 01 bloque A. El mensaje de error que verá David cuando se arregle ya lo deja listo W-F. |
 | fábrica F1, F3, F4 y F5 | Dentro (W-J, W-L, W-M) | Crean, pausan o retiran en Amazon: van con prueba de dinero. |
-| fábrica F2 (semillas de otro producto) | Fuera, en espera (`PENDIENTE-W-K.md`) | Con la regla estricta casi ningún producto tendría semillas (pregunta c): lo decide el dueño. |
+| fábrica F2 (semillas de otro producto) | Fuera, en espera (`DESCARTADO-semillas-estrictas.md`) | Con la regla estricta casi ningún producto tendría semillas (pregunta c): lo decide el dueño. |
 | Borrar `/series` y sus ayudantes | Dentro (W-A) | Nada los usa (ver W-A). Va antes de W-C y W-D, que tocan los mismos archivos. |
 | Borrar el plan v1 de la fábrica | Dentro (W-B) | Producción no lo usa (ver W-B). Va antes de W-J y W-L. |
 
@@ -608,7 +608,9 @@ aquí: la causa es el filtro, y los 5 bucles tocan la pausa del impulso que ARRE
 
 ## W-K — Las semillas salen solo de ad groups del mismo producto (fábrica F2): fuera de ARREGLOS 04
 
-Esta sección no forma parte del plan: espera decisión del dueño (`PENDIENTE-W-K.md`). Se conserva como diseño listo.
+> Decisión del dueño (2026-11-13): la regla estricta de esta sección NO se hace. La siembra se queda como hoy y el bloque W-K del plan solo agrega un aviso en la revisión del plan, con este texto exacto: «Estas búsquedas vendieron en campañas donde esta publicación se anuncia junto con otros productos. Alguna puede ser de otro producto del mismo grupo, por ejemplo de otra medida. Revisa la lista antes de crear.» Lo que sigue queda como registro.
+
+Esta sección no forma parte del plan: espera decisión del dueño (`DESCARTADO-semillas-estrictas.md`). Se conserva como diseño listo.
 
 **Hoy.** `_SQL_TERMINOS` (`tools/fabrica_campanas.py:127-165`) toma la campaña de cada product ad y de ahí todos sus
 ad groups. El NH- hereda las búsquedas que vendió el SET- del mismo ad group.
@@ -824,7 +826,7 @@ W-G F7: False True                    (sin aviso agrupado; el texto de práctica
 W-H F2: acepta futuro 2026-12-23 04:31:12+00:00
 W-I F1: X presente False False
 W-J F4: filtro estado en desarmar True True
-W-K F2: siembra por campaña True       (W-K fuera del plan: PENDIENTE-W-K.md)
+W-K F2: siembra por campaña True       (W-K fuera del plan: DESCARTADO-semillas-estrictas.md)
 W-L F3: False
 W-M F1: ['conn', 'plataforma', 'listing_ids', 'motivo', 'conservar_grupo_id'] False
 ```
