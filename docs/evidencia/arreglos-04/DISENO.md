@@ -73,10 +73,10 @@ funciones de esos archivos (series, campañas, filtros de plantilla), no Decisio
 
 | Plan | Archivo compartido | Cómo se evita |
 | --- | --- | --- |
-| ARREGLOS 01 X | `tools/fabrica_campanas.py` (X llama `exige_bajo_techo` en `:587` y `:612`; `:612` está en la rama v1 de `_arma_plan`) | W-B, al borrar la rama v1, conserva la llamada en el camino v2. W-I usa las funciones de X tal como X las define. |
+| ARREGLOS 01 X | `tools/fabrica_campanas.py` (X llama `_exige_techos_humanos` en `:595` y `:621`; `:621` está en la rama v1 de `_arma_plan`) | W-B, al borrar la rama v1, conserva la llamada en el camino v2. W-I usa las funciones de X tal como X las define. W-N quita después esas llamadas (sección `## W-N`). |
 | ARREGLOS 01 Q y Z | `tools/fabrica_campanas.py` (pausa y reanudación del impulso) | W-J cambia solo la consulta de «campañas del lote»; el impulso sigue con `_SQL_EXTERNALS_CAMPANA_DEL_LOTE`, que ya no filtra por estado. |
 | TEMPORADA 01 A | `app/api_dashboard.py` (datos de Ajustes), `tests/test_api_write.py` | W-C toca otras funciones de `api_dashboard.py`. W-F cambia una sola aserción de `tests/test_api_write.py:1705`. |
-| TEMPORADA 01 G | `app/pantalla_dinero.py`, `app/static/js/dinero.js` | W-C no toca `pantalla_dinero.py`: le pasa `hasta` desde `api_dashboard.py:1973`. W-F arregla F8 en el servidor y no toca `dinero.js`. |
+| TEMPORADA 01 G | `app/pantalla_dinero.py`, `app/static/js/dinero.js` | W-C no toca `pantalla_dinero.py`: le pasa `hasta` desde `api_dashboard.py:1973`. W-F arregla F8 en el servidor y no toca `dinero.js`. W-N sí lo toca: ver «Cruce con TEMPORADA 01, bloque G» en `## W-N`. |
 | TEMPORADA 01 (C a F) | `app/cycle.py`, `app/notifica.py` | W-G cambia un bucle de 6 líneas en `cycle._fase_notifica` (`app/cycle.py:3645-3654`) y agrega funciones en `notifica.py`. Si TEMPORADA agrega su aviso en el mismo bloque, el choque es de texto y se resuelve a mano. |
 | ARREGLOS 03 D-F.3 | `app/dashboard_resumen.py` (`Canal.zona`, `hoy_por_canal`, la línea `"zonas"` de `resumen()`) | W-C y W-M usan `hoy_resumen` tal como quede (pregunta a). W-D edita `bloque_canal` y `resumen()`: si D-F.3 ya entró, sobre su versión, conservando su línea `"zonas"`. |
 | ARREGLOS 03 D-A, D-B, D-K, P-B | `app/cli.py` (`_construye_parser`, `main`), `app/notifica.py` | W-H edita `_parse_decided_at`; W-G agrega funciones nuevas en `notifica.py` y borra dos. Funciones distintas, por contenido. |
@@ -810,6 +810,161 @@ más claro sacar los que sí cumplen y decirle cuáles se quedan.
 publicación sin producto) y `::test_cat_candidatos_cuentan_clics_de_otro_sku_del_mismo_asin`, y una nueva con el libro
 de hace 3 días que no saca nada; en `tests/test_retiro_anuncios.py` y `tests/test_pantalla_productos.py`. Usan Postgres:
 su `Acepta` lleva `CI=1` para que no se salten en silencio.
+
+## W-N — El presupuesto diario alto pide confirmación en vez de rechazarse
+
+> Decisión del dueño (2026-11-13): un presupuesto diario alto ya no se rechaza. Orbit avisa y lo aplica solo con una confirmación expresa. El tope de puja (10 USD y 180 MXN) y la banda de la meta manual de ACoS (10 a 45 %) siguen rechazando: no se tocan.
+
+**Hoy** (master `976df4dc`, con el bloque X de ARREGLOS 01 ya integrado). `exige_bajo_techo("presupuesto_diario", …)` (`app/optimizer/goals.py:138-161`) lanza `ValueError` si el monto pasa de una constante medida el 2026-11-13: 53 USD y 10,708 MXN, el doble del presupuesto más alto de ese día (`TECHOS_HUMANOS_POR_MONEDA`, `:132-135`). Se llama en cuatro lugares:
+
+| Camino | Dónde | Qué ve la persona |
+| --- | --- | --- |
+| Fábrica, pantalla `/campanas/nuevas` | validador de `SolicitudPlan` (`app/api_fabrica.py:240-242`; corre en `/plan`, `/crear` y `/export-semillas`) | 422 «el presupuesto diario de 20000 MXN supera el maximo de 10708 MXN» |
+| Fábrica, armado del plan | `_exige_techos_humanos` (`tools/fabrica_campanas.py:577-582`), llamada en `_arma_plan` (`:595` y `:621`). La web pasa por ahí: `app/fabrica_web.py:104` | `Abortar`, salida 2 en la terminal |
+| Ajuste de una campaña, pantalla `/donde-poner-el-dinero` | `planea_ajuste` (`app/campana_ajustes.py:152`), que es pura. La re-llaman `app/apply.py:2248` y `:2338` | 422 con el mismo texto, pintado como «Error: … .» (`app/static/js/dinero.js`) |
+| Impulso, pantalla de productos sin clics | `_exige_diario_por_campana` (`app/impulso_io.py:308-313`), sobre el diario que el impulso pone a cada campaña. Sale del gasto para concluir de Ajustes: la pantalla no manda monto | el producto cae en `no_lanzables` con «por campana: … supera el maximo …» |
+
+Los tres caminos de pantalla ya son de dos pasos y el segundo queda ligado a la cifra exacta del primero:
+
+- Fábrica: `POST /api/fabrica/plan` y luego `/crear` con `{solicitud, huella, confirmacion: "CREAR 5 CAMPAÑAS"}`. La huella firma el JSON del plan, que lleva `budget` por campaña (`app/fabrica_plan.py:515` y `:719-722`). Si cambió, 409 (`app/fabrica_web.py:697-699`).
+- Ajuste: `GET /api/ads-optimizer/campana-ajuste/plan` y luego `POST …/aplicar` con `{…, huella, confirmacion: "APLICAR AJUSTE", presupuesto}`. La huella incluye `despues` (`app/campana_ajustes.py:89-101`). Si cambió, 409 (`app/apply.py:2248-2251`, `app/api_write.py:803-811`).
+- Impulso: `POST /api/fabrica/impulso/plan` y luego `/lanzar`. `lanza` vuelve a previsualizar y da 409 si la huella cambió (`app/impulso_io.py:753-768`).
+
+**Medido** (producción, 2026-11-13, campañas ENABLED con presupuesto diario):
+
+| Moneda | Campañas | Mediana | P90 | Más alto | Un cero de más pasa sin aviso con «el doble del más alto» | Y con «el doble del P90» |
+| --- | --- | --- | --- | --- | --- | --- |
+| MXN | 34 | 123.07 | 312.08 | 5,353.78 | en 33 campañas | en 7, las de 62 MXN o menos |
+| USD | 9 | 15.00 | 24.57 | 26.22 | en 0 | en 0 |
+
+La regla del 2026-11-09 (el doble del más alto) casi no protege en pesos: una sola campaña de 5,353.78 pone el umbral en 10,707, y un presupuesto de 300 tecleado como 3,000 pasa. Además el más alto sube con cada ajuste aplicado (`app/apply.py:2149-2151` guarda la lectura nueva al confirmar): un alto ya confirmado deja mudo el aviso para todas las demás campañas. La tabla `ads_campana_config_observation` todavía no guarda ningún cambio de presupuesto, así que no hay historia para medir cada cuánto se sube uno a más del doble.
+
+**Forma.** Un presupuesto es alto cuando es más del doble de su referencia. Nunca se rechaza por eso. La referencia depende de si la campaña ya existe:
+
+- Ajuste de una campaña: el presupuesto diario que esa campaña tiene hoy (el `antes` del plan). No necesita leer nada más.
+- Campaña nueva (fábrica, terminal e impulso): el P90 del presupuesto diario de las campañas ENABLED en esa moneda, o sea la cifra que 9 de cada 10 no pasan. Hoy 312.08 MXN y 24.57 USD, así que el aviso salta arriba de 624.16 MXN y de 49.14 USD. Una campaña muy alta no lo mueve, y muchas campañas chicas (las del impulso nacen con uno o dos dólares diarios) tampoco lo hunden, como sí hunden la mediana. Con pocas campañas el P90 es casi el más alto y la regla vuelve a ser la del 2026-11-09.
+- Sin referencia (la campaña no tiene presupuesto anterior, o no hay campañas activas en esa moneda): se compara contra el número fijo de la tabla, 53 USD y 10,708 MXN.
+
+Todo lo que hoy se rechaza sigue avisando: el número fijo es el doble del más alto, y ni el doble de una campaña ni el doble del P90 pueden pasarlo mientras el más alto no cambie. Un dedazo es un salto de 10 o de 100 veces. En un ajuste, el doble lo atrapa también cuando la persona quería bajar (campaña de 26.22 USD, quería 12.50 y teclea 125).
+
+```python
+# app/optimizer/goals.py, puro
+VECES_PRESUPUESTO_ALTO = 2
+
+
+@dataclass(frozen=True)
+class PresupuestoAlto:
+    monto: Decimal                      # por campaña y por día
+    moneda: str
+    referencia: Decimal | None          # None: no hay con qué comparar
+    contra: Literal["esta_campana", "tus_campanas"]
+
+    def texto(self) -> str: ...         # las frases exactas de «Textos»
+
+
+def presupuesto_alto(
+    monto: Decimal,
+    moneda: str,
+    referencia: Decimal | None,
+    contra: Literal["esta_campana", "tus_campanas"],
+) -> PresupuestoAlto | None:
+    techo = TECHOS_HUMANOS_POR_MONEDA.get(moneda)
+    if techo is None:
+        raise ValueError(f"moneda {moneda!r} sin tope humano: TECHOS_HUMANOS_POR_MONEDA")   # como hoy
+    umbral = techo.presupuesto_diario if referencia is None else VECES_PRESUPUESTO_ALTO * referencia
+    return PresupuestoAlto(monto, moneda, referencia, contra) if monto > umbral else None
+```
+
+`exige_bajo_techo` y `TECHOS_HUMANOS_POR_MONEDA` no cambian. `TechoHumano.presupuesto_diario` es el número fijo del caso sin referencia, y TEMPORADA 01 acota con `exige_bajo_techo("presupuesto_diario", …)` las propuestas que arma Orbit (`docs/evidencia/temporada-01/DISENO.md:1784-1785`): ese tope es para lo que propone la máquina y sigue rechazando. Este bloque solo quita las cuatro llamadas de lo que teclea una persona.
+
+```python
+# app/ads/campana_config.py, lectura
+def presupuesto_p90(conn, moneda: str) -> Decimal | None:
+    """P90 del presupuesto diario de las campañas ENABLED en esa moneda; None si no hay ninguna."""
+    # SELECT (percentile_cont(0.9) WITHIN GROUP (ORDER BY c.presupuesto_diario))::numeric(14,2)
+    #   FROM v_campana_config_vigente c
+    #   JOIN ad_entity e ON e.id = c.ad_entity_id
+    #   JOIN ad_entity_state s ON s.ad_entity_id = c.ad_entity_id
+    #  WHERE e.kind = 'campaign' AND s.status = 'ENABLED'
+    #    AND c.presupuesto_diario IS NOT NULL AND c.presupuesto_moneda::text = %s
+```
+
+Es la consulta de `docs/evidencia/arreglos-01/X/presupuestos.txt` con el P90 en lugar del máximo y filtrada por moneda. Sin campañas devuelve una fila con `NULL`. Se lee una vez por previa, no una vez por campaña ni por producto. El ajuste no la usa.
+
+**Regla de los dos pasos**, igual en los tres caminos de pantalla:
+
+1. La previa nunca rechaza por presupuesto alto. Devuelve el aviso en un campo propio.
+2. El segundo paso vuelve a calcular el aviso. Si hay alguno y el cuerpo no trae `acepto_presupuesto_alto: true`, responde 422 con el texto «Falta confirmar…» y no escribe nada, ni en la base ni en Amazon. Con `true` sigue como hoy.
+3. El aviso no entra en ninguna huella. La huella ya liga la cifra; si la cifra cambia hay 409 y previa nueva.
+4. La pantalla pinta el aviso como alerta junto a la confirmación y muestra la casilla «Sí, quiero ese presupuesto», sin marcar. Con aviso y la casilla sin marcar, el botón del segundo paso no manda nada: la página pinta «Marca «Sí, quiero ese presupuesto» para continuar». El 422 del servidor queda como defensa, para una pestaña vieja o una carrera.
+5. El campo `acepto_presupuesto_alto` se manda solo cuando la casilla está marcada. Los cuerpos de la fábrica rechazan campos de más (`extra="forbid"`, `app/api_fabrica.py:116`): así, en una reversa del servidor con la página nueva abierta, solo fallan las peticiones con presupuesto alto.
+6. Cada previa nueva deja la casilla sin marcar, y sin aviso la casilla no se ve.
+
+| Camino | Monto que se juzga | Referencia | Campo de la previa | Cuerpo que gana `acepto_presupuesto_alto: bool = False` |
+| --- | --- | --- | --- | --- |
+| Fábrica | el `budget` de cada campaña del plan | el P90 | `avisos_presupuesto: list[str]`, una línea por campaña alta, en el orden de `campanas` | `SolicitudCrear` (`app/api_fabrica.py`) |
+| Ajuste | `despues.presupuesto_diario`, solo con `clase = presupuesto` | `antes.presupuesto_diario` de esa campaña | `aviso_presupuesto: str \| None` | `CuerpoAplicaAjuste` (`app/api_write.py`) |
+| Impulso | el diario que el impulso pone a cada campaña: `(tope.presupuesto_diario / 2)` cuantizado a centavos, la misma cuenta de `_exige_diario_por_campana` y de `app/impulso.py:225` | el P90 | `presupuesto_alto: str \| None` en cada plan, junto a `subfamilia_nueva` y `sin_negativos` | `CuerpoLanzarImpulso` (`app/api_fabrica.py`) |
+
+Dónde se calcula y en qué orden responde el segundo paso:
+
+- **Ajuste.** Todo es puro y vive en `app/campana_ajustes.py`: `planea_ajuste` pierde la línea del tope (`:152`) y `PlanAjuste` gana la propiedad calculada `aviso_presupuesto`, que usa `presupuesto_alto(despues, moneda, antes, "esta_campana")`, sale en `como_dict()` y no entra en `huella()`. Es propiedad y no campo porque `app/apply.py:2398` construye `PlanAjuste(...)` a mano y ese archivo no se toca. Así la previa y el `plan_nuevo` del 409 lo traen sin cambiar las rutas. `app/api_write.py` solo gana el campo del cuerpo y, en `aplicar_ajuste`, el 422 después de `_plan_de` y antes de `apply.aplica_ajuste_campana`. En este camino el 422 va antes que el 409, porque el 409 nace dentro de `aplica_ajuste_campana` (`app/apply.py:2251`). Ese archivo tiene 899 líneas y el tope es 900 (`MAX_LINEAS_MODULO`, `tests/test_architecture.py:46`): antes de agregar nada, `_ajuste_de` (`:687-711`, pura, arma el ajuste desde la petición con clases de `app/campana_ajustes.py`) se muda a ese módulo y las rutas la llaman desde ahí. No se agrega el archivo a `ALLOWLIST_TAMANO`. «Regresar» un ajuste no pasa por el aviso: restaura un valor que ya estuvo puesto.
+- **Fábrica.** `fw.previsualizar` lee el P90 con su conexión y devuelve `avisos_presupuesto`. `fw.crear` hoy es `crear(solicitud, huella, confirmacion)` y no recibe conexión: gana `acepto_presupuesto_alto: bool = False`, calcula los avisos con la conexión de lectura que ya abre para planificar (`app/fabrica_web.py:690-697`) y responde primero el 409 de la huella (`:698`) y después el 422, antes del `try` de `:705`. Ahí todavía no hay lote: el lote se inserta dentro de `fc._mutar` o en el `except` de `:710-712`. Ese 422 lleva en `detail`, además de `mensaje` y `lote`, la llave `falta_confirmar: true`. Las líneas del aviso las arma un ayudante puro de `tools/fabrica_campanas.py`, que recibe el plan y el P90; la terminal usa el mismo. `app/api_fabrica.py` está en 891 de 900 líneas: lo que no sea el campo del cuerpo y pasar el valor vive en `app/fabrica_web.py`.
+- **Pantalla de la fábrica.** El aviso va arriba de la revisión del plan, junto a `advertencia_mezcla`, y la casilla junto al botón de crear. `crear` de `app/static/js/fabrica.js` mete la huella en `intentados` antes del `POST` y solo un 401 la libera; cualquier otro error pinta «…no se reintentará la creación» y da el plan por perdido (`:1143`, `:1164-1175`). Por eso, con aviso y la casilla sin marcar, `crear` sale antes de tocar `intentados` (el patrón ya existe en `:1137-1143`), y un 422 con `falta_confirmar` se trata como el 401: libera la huella, pinta solo el mensaje y deja la previa en pie.
+- **Terminal** (`tools/fabrica_campanas.py`). Se borra `_exige_techos_humanos`. La corrida de práctica (sin `--acepto-mutacion-real`) imprime cada aviso, sigue imprimiendo «huella del conjunto:» y sale 0. La corrida que crea (con `--acepto-mutacion-real`) entra por `_crear` (`:773-809`): con algún aviso y sin `--acepto-presupuesto-alto` aborta con el aviso y «Repite con --acepto-presupuesto-alto para crearlas así», salida 2. La lista de imports permitidos de la herramienta (`tests/test_architecture.py:676-737`) es positiva: se agregan `app.ads.campana_config`, `app.ads.campana_config.presupuesto_p90` y `app.optimizer.goals.presupuesto_alto`, y se quita `exige_bajo_techo` (`:719`) si la herramienta ya no lo importa.
+- **Impulso.** No se agrega nada a `PlanImpulso` (`app/impulso.py:74`) ni a su `como_json()`, que es lo que firma la huella; `app/impulso.py` no cambia. `previsualiza` (`app/impulso_io.py:390`) lee el P90 una vez y lo deja en `VistaPreviaImpulso`, que tiene un solo constructor (`:451`) y cuya huella solo firma los planes. Un ayudante puro de `app/impulso_io.py` devuelve el aviso de cada plan; lo usan `_vista_impulso` (`app/api_fabrica.py:660-670`, donde hoy se arman `subfamilia_nueva` y `sin_negativos`) y `lanza`. Se borran `_exige_diario_por_campana` y el `except` que volvía el producto no lanzable (`app/impulso_io.py:353-356`). `lanza` responde en este orden: 409 de la huella, 422 de la frase de confirmación como hoy, y al final el 422 del presupuesto, antes de crear nada. Ese chequeo va en una función aparte: `lanza` ya está en el límite de complejidad de ruff (C901, 22 de 22).
+
+Arneses de prueba. Las bases de prueba de la fábrica y del impulso no cargan la migración `0061_bids02_campana_config.sql`, que crea `v_campana_config_vigente`: con la consulta nueva dan `UndefinedTable` (probado el 2026-11-13 sobre `db_fabrica`). Se agrega la 0061 a `ORDEN` de `tests/test_fabrica_migracion.py:42-57` y nada más: `escenario` (`tests/test_api_fabrica.py:42`) y `_db_i3` (`tests/test_impulso_io.py:37-54`) arman su base con `db_fabrica`, y la 0061 no se puede aplicar dos veces. Probado: con la 0061 en `ORDEN` pasan las mismas 561 pruebas de los 19 archivos que usan ese arnés. Las pruebas de terminal no usan base: `_ConnFalsa` (`tests/test_fabrica_campanas.py:315-424`) truena con toda consulta que no conoce, así que aprende la del P90 y devuelve la fila `(None,)`. Sin esa línea fallan 30 pruebas con «SQL inesperado». Con esas bases sin campañas activas no hay referencia y vale el número fijo: ningún presupuesto de las pruebas existentes por debajo de 10,708 MXN o 53 USD avisa.
+
+Se borra además, si sigue ahí cuando corra este bloque, la rama de `_RutaFabrica` que deja pasar el texto «supera el maximo» (`app/api_fabrica.py`, cerca de `:97-102`): ya nada en esas rutas produce ese texto. El bloque W-F reescribe esa clase; se cambia por contenido.
+
+**Textos** (exactos). Las cifras van con coma de miles y dos decimales, también el `antes` del ajuste, que la base entrega con cuatro:
+
+- Ajuste: «Vas a poner 125.00 USD diarios. Es más del doble de lo que esta campaña tiene hoy (26.22 USD).»
+- Ajuste sin referencia: «Vas a poner 20,000.00 MXN diarios. Esta campaña no tiene un presupuesto anterior para comparar.»
+- Campaña nueva: «Vas a poner 1,500.00 MXN diarios. 9 de cada 10 de tus campañas activas tienen 312.08 MXN o menos.»
+- Campaña nueva sin referencia: «Vas a poner 20,000.00 MXN diarios. Hoy no tienes campañas activas en MXN para comparar.»
+- Fábrica, cada línea de `avisos_presupuesto`: el nombre de la campaña, dos puntos y el texto.
+- Impulso, `presupuesto_alto` de cada plan: «Cada campaña de este producto: » y el texto.
+- Casilla, en las tres pantallas: «Sí, quiero ese presupuesto».
+- Botón con aviso y casilla sin marcar (lo pinta la página, no viaja al servidor): «Marca «Sí, quiero ese presupuesto» para continuar».
+- 422 del segundo paso sin confirmación: «Falta confirmar el presupuesto alto: recarga la página, vuelve a ver el plan y marca «Sí, quiero ese presupuesto»». Va sin punto final: `dinero.js` y `productos.js` le agregan uno al pintar un error, y `fabrica.js` lo pinta solo, sin la frase del lote.
+
+Selectores nuevos: el aviso lleva `data-aviso-presupuesto` y la casilla `data-acepto-presupuesto-alto`, en `app/templates/donde_poner_el_dinero.html` con `app/static/js/dinero.js`, en `app/static/js/fabrica.js` (junto a `advertencia_mezcla`) y en `app/static/js/productos.js` (junto a las marcas `data-subfamilia-nueva` y `data-sin-negativos`).
+
+**Límites conocidos.** No hay techo absoluto: es la decisión, con la confirmación cualquier cifra pasa. Subir una campaña en varios pasos de hasta el doble no avisa: cada paso es una decisión con su frase «APLICAR AJUSTE». Un cero de más que caiga dentro de lo normal no se puede distinguir: en una campaña nueva de 62 MXN o menos, o al bajar una campaña a menos de la quinta parte. El P90 sigue a lo que el dueño crea: si una de cada diez campañas ya es alta, el aviso sube con ellas. Si el sync deja de leer una campaña, su último presupuesto sigue contando.
+
+**La otra forma.** Quitar el tope: se descarta, un cero de más pasaría directo a Amazon. El doble del más alto como única referencia (la regla del 2026-11-09): se descarta con la medición de arriba, una sola campaña alta la deja muda. Cinco veces la mediana: se probó y se descartó; deja pasar cifras que hoy se rechazan (70 USD en una campaña nueva) y diez campañas de impulso de un dólar hunden la mediana hasta que todo avisa. Un tope que el dueño edita en Ajustes: es un paso extra cada vez y otra clave que mantener. Un eco del monto en lugar de una casilla: no hace falta, la huella ya liga la cifra.
+
+**Cruce con TEMPORADA 01, bloque G.** Sus propuestas de presupuesto se aplican por las mismas rutas `campana-ajuste/plan` y `/aplicar` y desde `app/static/js/dinero.js` (`docs/evidencia/temporada-01/DISENO.md:371-373`). Una propuesta de más del doble del presupuesto actual trae `aviso_presupuesto` y, sin `acepto_presupuesto_alto`, `/aplicar` responde 422. El bloque que entre segundo deja las dos cosas juntas: el diálogo «Revisar» de TEMPORADA pinta el aviso y la casilla igual que el formulario del ajuste. La fila W-C de la tabla «Cruces con los otros planes» sigue siendo cierta para W-F; este bloque sí toca `dinero.js`.
+
+**Pruebas.** Dinero: son presupuestos que Amazon puede gastar el mismo día. Las seis pruebas `arreglos01_x_` que hoy afirman el rechazo del presupuesto se reescriben para afirmar lo nuevo y cambian su nombre a lo que ahora afirman, con el prefijo `test_arreglos04_w_n_`; no se borran sin reemplazo: `tests/test_optimizer_goals.py::test_arreglos01_x_planea_ajuste_rechaza_presupuesto_sobre_el_techo`, `tests/test_fabrica_campanas.py::test_arreglos01_x_el_cli_rechaza_un_presupuesto_sobre_el_techo` y `::test_arreglos01_x_el_cli_end_to_end_rechaza_presupuesto_sobre_el_techo`, `tests/test_impulso_io.py::test_arreglos01_x_el_tope_del_diario_derivado_del_impulso` y `::test_arreglos01_x_el_impulso_mide_el_diario_por_campana`, y `tests/test_api_fabrica.py::test_arreglos01_x_preview_rechaza_presupuesto_sobre_el_techo`. Las cuatro `arreglos01_x_` de puja y de banda de meta no cambian. En el impulso, un rol sin puja sugerida toma como puja el diario de su campaña (`app/impulso.py:210-211`) y el producto queda no lanzable por la puja: con `_sugeridor_fijo()` a secas (`tests/test_impulso_io.py:207`) el producto nunca llega a `planes`, ni con 300000 MXN ni con 800 USD. Las pruebas del impulso usan un sugeridor que da puja a todos los roles. `tests/test_ui.py:2381-2383` fija el cuerpo exacto del `POST` de aplicar y su formulario falso (`:2300-2304`) no tiene los nodos nuevos: se actualiza. `docs/evidencia/arreglos-01/X/prueba.py` sigue pasando: `exige_bajo_techo` no cambia. Ningún documento de `docs/` fuera de `docs/evidencia/` describe el rechazo: no hay otro texto que actualizar.
+
+## W-O — Salud explica los motivos que hoy salen sin texto
+
+**Hoy.** Salud traduce cada motivo de `notes.skips.entidad` con `etiqueta(motivo, "motivo_salud")` (`app/api_dashboard.py:1062-1080`, `app/ui_salud.py:43-47`). Un motivo sin entrada sale armado a partir de su nombre interno y deja un aviso en el log (`app/etiquetas.py:973-974`). Cuatro motivos que el ciclo puede contar no tienen texto:
+
+| Motivo | Dónde se cuenta | Qué significa |
+| --- | --- | --- |
+| `subida_en_espera_de_venta` | `politica.MOTIVO_SUBIDA_EN_ESPERA` (`app/optimizer/politica.py:55`, usado en `:278`), del bloque P de ARREGLOS 01 | Orbit no sube la puja de una keyword cuya pausa está en espera por una venta reciente |
+| `venta_reciente_protegida` | `proteccion.MOTIVO_PROTEGIDA` (`app/optimizer/proteccion.py:37`), contado en `app/cycle.py:2099-2111` | la pausa por cero pedidos espera: hay un pedido reciente que todavía no entra a la ventana madura |
+| `venta_reciente_indeterminada` | `proteccion.MOTIVO_INDETERMINADA` (`:38`), contado en el mismo lugar | la pausa espera: la lectura de pedidos recientes vino incompleta |
+| `pausa_producto_pendiente` | `MOTIVO_PAUSA_PRODUCTO_PENDIENTE` (`app/cycle.py:308`, contado en `:2230`) | no se sube la puja en un grupo cuyo producto tiene una pausa en camino |
+
+**Medido** (2026-11-13). Sobre master `976df4dc`: `etiqueta("subida_en_espera_de_venta", "motivo_salud")` da «Subida en espera de venta», y los otros tres salen igual de armados. De los 28 `MOTIVO_*` de `politica`, 19 tienen texto en `MOTIVO_SALUD`, 8 en `motivo_decision` y falta solo ese. En producción, los 27 motivos que los ciclos contaron en los últimos 30 días tienen texto: estos cuatro todavía no han salido en pantalla.
+
+**Forma.** Cuatro entradas en `MOTIVO_SALUD` (`app/etiquetas.py:110`), junto a `politica.MOTIVO_VENTA_RECIENTE`:
+
+```python
+politica.MOTIVO_SUBIDA_EN_ESPERA: "Su pausa está en espera por una venta reciente: Orbit no sube la puja mientras tanto",
+proteccion.MOTIVO_PROTEGIDA: "Iba a pausarse, pero tiene un pedido reciente: la pausa espera",
+proteccion.MOTIVO_INDETERMINADA: "Iba a pausarse, pero falta el dato de sus pedidos recientes: la pausa espera",
+ciclo.MOTIVO_PAUSA_PRODUCTO_PENDIENTE: "La pausa de su producto está en camino: Orbit no sube la puja de lo que va a pausar",
+```
+
+`app/etiquetas.py` ya importa `app.cycle` como `ciclo` (`:19`) y `politica` (`:24`); a esa línea se le agrega `proteccion`. El texto llega solo al navegador por `registro_navegador()` y `Orbit.etiqueta` (`app/static/js/formato.js`); no se toca JS.
+
+**Para que no vuelva a pasar.** `app/etiquetas.py` ya truena al importar cuando un vocabulario cerrado crece sin texto (el bucle de `:916-940`). Se agrega ahí el vocabulario de Salud con el dominio `motivo_salud`: las constantes `MOTIVO_*` de texto de `politica` que no están en `MOTIVO_DECISION`, las de `ciclo`, y `proteccion.MOTIVO_PROTEGIDA` y `proteccion.MOTIVO_INDETERMINADA`. Contra `976df4dc` ese vocabulario tiene exactamente cuatro motivos sin texto, los de la tabla. Las otras dos constantes de `proteccion` (`proteccion_consumida` y `sin_venta_reciente`) no se cuentan como motivo de Salud y quedan fuera. Es estructura y no una prueba nueva: el caso no está entre los cuatro de `AGENTS.md`, porque el defecto está desplegado pero todavía no salió en pantalla. Con un motivo nuevo sin texto, la aplicación no importa y ninguna prueba corre.
 
 ## Lo medido en producción el 2026-11-12 con los ayudantes
 
