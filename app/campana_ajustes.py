@@ -18,6 +18,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from app.ads.campana_config import ConfigCampana
 from app.etiquetas import etiqueta
 from app.formato import dinero
+from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 CLASES_SELLADAS = frozenset({"fuera_de_amazon", "ajuste_ubicacion", "presupuesto"})
@@ -147,10 +148,12 @@ def planea_ajuste(
             raise ValueError(f"presupuesto debe ser > 0, llego {ajuste.presupuesto_diario}")
         if vigente.presupuesto_diario == monto:
             raise AjusteSinCambio("el ajuste no cambia nada")
+        moneda = vigente.moneda or PLATAFORMAS_MONEDA[plataforma]
+        g.exige_bajo_techo("presupuesto_diario", monto, moneda)
         despues = replace(
             vigente,
             presupuesto_diario=monto,
-            moneda=vigente.moneda or PLATAFORMAS_MONEDA[plataforma],
+            moneda=moneda,
         )
         if vigente.presupuesto_diario is None:
             frase = (

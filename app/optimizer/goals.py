@@ -113,6 +113,54 @@ DEFAULTS_POR_MONEDA: dict[str, tuple[Decimal, Decimal]] = {
     "MXN": (Decimal("1.00"), Decimal("45.00")),
 }
 
+
+@dataclass(frozen=True)
+class TechoHumano:
+    """Tope de lo que TECLEA una persona (no del motor): decision del dueno
+    del 2026-11-09. Se aplica al construir o cambiar un valor, jamas al
+    releer lo guardado."""
+
+    bid: Decimal
+    presupuesto_diario: Decimal
+
+
+# Medido el 2026-11-13 con docs/evidencia/arreglos-01/lee_prod.sh sobre las
+# campanas ENABLED: el presupuesto diario mas alto era 5353.78 MXN y 26.22
+# USD; el tope es el doble redondeado hacia arriba al entero (10708 / 53).
+# La lectura y la consulta quedan en
+# docs/evidencia/arreglos-01/X/presupuestos.txt.
+TECHOS_HUMANOS_POR_MONEDA: dict[str, TechoHumano] = {
+    "USD": TechoHumano(bid=Decimal("10"), presupuesto_diario=Decimal("53")),
+    "MXN": TechoHumano(bid=Decimal("180"), presupuesto_diario=Decimal("10708")),
+}
+
+
+def exige_bajo_techo(
+    clase: Literal["bid", "presupuesto_diario"], monto: Decimal, moneda: str
+) -> None:
+    """ValueError en espanol si `monto` supera el tope humano de su moneda.
+
+    Moneda fuera de la tabla = ValueError (regla 3, mismo trato que
+    DEFAULTS_POR_MONEDA): no se inventan techos. Es validacion de BORDE para
+    lo que teclea una persona; el motor no pasa por aqui y lo ya guardado no
+    se revalida. Cada llamador traduce a su excepcion (PlanInvalido,
+    GoalInvalido, SettingsInvalido o 422).
+    """
+    techo = TECHOS_HUMANOS_POR_MONEDA.get(moneda)
+    if techo is None:
+        raise ValueError(f"moneda {moneda!r} sin tope humano: TECHOS_HUMANOS_POR_MONEDA")
+    if clase == "bid":
+        maximo, nombre = techo.bid, "la puja"
+    elif clase == "presupuesto_diario":
+        maximo, nombre = techo.presupuesto_diario, "el presupuesto diario"
+    else:
+        raise ValueError(f"clase de techo desconocida: {clase!r}")
+    if not monto.is_finite():
+        raise ValueError(f"{nombre} debe ser un numero finito")
+    if monto > maximo:
+        raise ValueError(f"{nombre} de {monto} {moneda} supera el maximo de {maximo} {moneda}")
+
+
 # Clave NUEVA de config_version.settings (sellada en esta task; la siembra
 # humana de 4.3 escribe la escalera global aqui; valores off|shadow|live).
 CLAVE_SETTING_MODO = "ads_optimizer_mode"
@@ -607,6 +655,22 @@ def en_cooldown(
 
 MARGEN_BANDA_MIN = Decimal("10")  # banda dura del spec §5 (inclusiva)
 MARGEN_BANDA_MAX = Decimal("45")
+
+
+def exige_banda_meta_manual(acos_pct: Decimal) -> None:
+    """La meta manual tecleada vive en [MARGEN_BANDA_MIN, MARGEN_BANDA_MAX]
+    (inclusiva). ValueError en espanol; cada llamador traduce a su excepcion
+    de borde. Valida finitud primero: NaN lanzaria InvalidOperation al
+    comparar (mismo motivo que valida_banda_manual)."""
+    if not acos_pct.is_finite():
+        raise ValueError("la meta manual de ACoS debe ser un Decimal finito")
+    if not (MARGEN_BANDA_MIN <= acos_pct <= MARGEN_BANDA_MAX):
+        raise ValueError(
+            f"la meta manual de ACoS {acos_pct} % esta fuera de la banda"
+            f" [{MARGEN_BANDA_MIN}, {MARGEN_BANDA_MAX}] %"
+        )
+
+
 MARGEN_PASO_MAX = Decimal("0.5")  # puntos por ciclo (spec §7)
 # BIDS 02 T.1: el paso de 0.5 frena solo las BAJADAS (la razon escrita del
 # 0.5 protege contra bajadas bruscas y vaiven; una subida solo afloja y

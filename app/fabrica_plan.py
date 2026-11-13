@@ -264,16 +264,13 @@ def valida_banda_manual(acos_pct: Decimal) -> None:
     (tool `_datos_plan_v2`, unico sitio de alta: CLI, preview, crear y
     bids-sugeridos); jamas al releer lotes persistidos (F1 AI-review
     PR #381: una regla de creacion no puede ser candado retroactivo
-    de lectura). Valida finitud primero (F4: sin esto NaN lanza
-    InvalidOperation en la comparacion, no PlanInvalido)."""
-    if not acos_pct.is_finite():
-        raise PlanInvalido("objetivo manual v2 debe ser Decimal finito")
-    if not (g.MARGEN_BANDA_MIN <= acos_pct <= g.MARGEN_BANDA_MAX):
-        raise PlanInvalido(
-            f"objetivo manual v2 {acos_pct} fuera de la banda"
-            f" [{g.MARGEN_BANDA_MIN}, {g.MARGEN_BANDA_MAX}]: el lanzamiento manual"
-            " vive dentro de la banda del margen"
-        )
+    de lectura). La banda y la finitud viven en
+    `goals.exige_banda_meta_manual` (un mensaje, una fuente); aqui solo se
+    traduce a PlanInvalido."""
+    try:
+        g.exige_banda_meta_manual(acos_pct)
+    except ValueError as exc:
+        raise PlanInvalido(str(exc)) from None
 
 
 def valida_forma_objetivo(acos_pct: Decimal) -> None:

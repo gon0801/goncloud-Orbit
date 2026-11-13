@@ -26,6 +26,7 @@ from app import impulso_io as io
 from app import retiro_anuncios as ra
 from app.api import ConexionLectura
 from app.api_write import exige_token
+from app.optimizer import goals as g
 from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
 
 
@@ -223,13 +224,16 @@ class SolicitudPlan(_Cuerpo):
             raise ValueError("usa solo productos v1 o listing_ids y objetivo v2")
         if set(self.parametros) != set(fp.ROLES_ORDEN_CREACION):
             raise ValueError("se requieren exactamente los cinco roles")
+        moneda = fp.MONEDA_POR_PLATAFORMA[self.plataforma]
         fp.valida_parametros(
             {
                 rol: fp.ParametrosRol(rol, Decimal(p.budget), Decimal(p.bid))
                 for rol, p in self.parametros.items()
             },
-            fp.MONEDA_POR_PLATAFORMA[self.plataforma],
+            moneda,
         )
+        for p in self.parametros.values():
+            g.exige_bajo_techo("presupuesto_diario", Decimal(p.budget), moneda)
         return self
 
 

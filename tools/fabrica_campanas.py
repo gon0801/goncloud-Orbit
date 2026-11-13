@@ -69,6 +69,7 @@ from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles, fetch_structure, sync_structure
 from app.db import connect
+from app.optimizer import goals as g
 from app.optimizer.goals import fraccion_desde_settings
 from app.redaction import install_scrub_filter, register_secret, scrub
 
@@ -574,6 +575,14 @@ def _tipo_desde_familia(
     return tipo_dado, None, " · ".join(avisos) or None
 
 
+def _exige_techos_humanos(parametros: dict[str, fp.ParametrosRol], moneda: str) -> None:
+    try:
+        for p in parametros.values():
+            g.exige_bajo_techo("presupuesto_diario", p.budget, moneda)
+    except ValueError as exc:
+        raise Abortar(str(exc)) from None
+
+
 def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGrupoV2:
     """Plan completo desde la base + validacion SIN HTTP (spec §5.1)."""
     try:
@@ -584,6 +593,7 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGru
         )
         moneda = fp.MONEDA_POR_PLATAFORMA[args.plataforma]
         parametros = _parametros(args)
+        _exige_techos_humanos(parametros, moneda)
         fp.valida_parametros(parametros, moneda)
         if not args.nombre_base or not args.nombre_base.strip():
             raise Abortar("--nombre-base no puede ser vacio")
@@ -609,6 +619,7 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGru
         semillas = fp.semillas_desde_terminos(
             terminos, kws, negs, target.aplicado, terminos_exact=terminos_exact
         )
+        _exige_techos_humanos(parametros, moneda)
         fp.valida_parametros(parametros, moneda, semillas)
         existentes = tuple(_existentes(conn_read, args.plataforma, listings))
     except fp.PlanInvalido as exc:

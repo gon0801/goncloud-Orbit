@@ -74,6 +74,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from app.api_common import _dec_str
+from app.optimizer import goals as g
 from app.optimizer.goals import MODOS, resuelve_floor_ceiling
 
 
@@ -224,6 +225,16 @@ def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_so
         raise GoalInvalido(
             f"bid_floor {floor} > bid_ceiling {ceiling}: el piso no puede superar el techo"
         )
+
+    for valor in (
+        cambios.get("bid_ceiling"),
+        cambios.get("harvest_default_bid"),
+    ):
+        if valor is not None:
+            try:
+                g.exige_bajo_techo("bid", valor, fila["bid_currency"])
+            except ValueError as exc:
+                raise GoalInvalido(str(exc)) from None
 
     bid_harvest = efectivo("harvest_default_bid")
     if bid_harvest is not None and bid_harvest <= 0:
