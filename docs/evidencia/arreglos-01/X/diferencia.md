@@ -39,3 +39,23 @@ aceptar.
   produccion.
 - El comportamiento, el aviso y el texto del mensaje dicen lo mismo: el tope
   es el doble del maximo de hoy, medido y guardado en `presupuestos.txt`.
+
+## Ajuste tras la revision: el impulso se mide por campana
+
+El diseno (`## I-H4`, Uso primero) dice validar `tope.presupuesto_diario`, el
+diario del impulso ENTERO. Ese valor se reparte entre las dos campanas del
+impulso (`app/impulso.py:grupo_v2_de_plan`, cada una lleva la mitad); el tope
+humano es el de UNA campana. Validar el total rechazaba un impulso valido:
+800 USD de tope dan 57.14 al dia y 28.57 por campana, dentro de 53. Ahora se
+valida la mitad (misma cuenta y redondeo que `grupo_v2_de_plan`) y el mensaje
+dice "por campana". Un tope de 300000 MXN (10714.29 por campana) si se
+rechaza; 299000 (10678.57 por campana) se acepta.
+
+## Ajuste tras la revision: el 422 del plan conserva el motivo
+
+`_RutaFabrica` sustituia cualquier mensaje de un validador de modelo por "Los
+datos no son validos en: la solicitud", asi que la pantalla no veia el tope.
+Se conserva el mensaje controlado de `exige_bajo_techo` (contiene la cifra
+tecleada y el maximo, nunca el cuerpo crudo), igual que la excepcion A7 ya
+hacia con "no es finito". La prueba vuelve a exigir "presupuesto diario" y
+"supera el maximo" en la respuesta.

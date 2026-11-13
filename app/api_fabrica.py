@@ -94,6 +94,11 @@ class _RutaFabrica(APIRoute):
                     mensaje = str(error.get("msg", ""))
                     if "no es finito" in mensaje:
                         raise fw.error(422, mensaje) from None
+                    # El tope humano arma un mensaje controlado con la cifra
+                    # tecleada y el maximo; no es input crudo, y la pantalla
+                    # necesita el motivo (no el generico "datos no validos").
+                    if "supera el maximo" in mensaje:
+                        raise fw.error(422, mensaje.removeprefix("Value error, ")) from None
                 campos = ", ".join(dict.fromkeys(_campo_fallido(e) for e in errores))
                 raise fw.error(422, f"Los datos no son válidos en: {campos}.") from None
 

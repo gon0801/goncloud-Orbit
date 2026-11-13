@@ -343,10 +343,14 @@ def _plan_producto(
     else:
         monto = gasto_para_concluir_desde_settings(settings, plataforma)
     tope = im.TopeAprendizaje(monto, moneda, im.presupuesto_diario(monto, moneda))
+    # El tope humano es de UNA campana; `grupo_v2_de_plan` reparte el diario
+    # del impulso entre sus dos campanas. Validar el total rechazaria un
+    # impulso valido (800 USD -> 28.57 por campana, dentro de 53).
+    mitad = (tope.presupuesto_diario / 2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     try:
-        g.exige_bajo_techo("presupuesto_diario", tope.presupuesto_diario, moneda)
+        g.exige_bajo_techo("presupuesto_diario", mitad, moneda)
     except ValueError as exc:
-        raise fp.PlanInvalido(str(exc)) from None
+        raise fp.PlanInvalido(f"por campana: {exc}") from None
     expresiones = {rol: fp.expresiones_bid(semillas, rol) for rol in im.ROLES_IMPULSO}
     bids = sugeridor((pub.asin,), expresiones)
     bid_por_rol = {rol: bids.get(rol) for rol in im.ROLES_IMPULSO}
