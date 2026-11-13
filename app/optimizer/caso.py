@@ -333,6 +333,8 @@ class InsumosProteccion:
     `ventana_desde`/`ventana_hasta` son la ventana de CORTES del intento: al
     vencer, el ancla ya debe estar dentro de la ventana madura para liberar.
     `episodio` es la fila mas reciente persistida (activa o ya vencida).
+    `frena_subidas` congela la regla que impide subir el bid mientras la pausa
+    espera por venta reciente; ausente en las decisiones historicas.
     """
 
     version: str
@@ -341,6 +343,7 @@ class InsumosProteccion:
     ventana_desde: dt.date | None
     ventana_hasta: dt.date | None
     episodio: EpisodioProteccion | None
+    frena_subidas: bool = False
 
 
 @dataclass(frozen=True)
@@ -610,6 +613,7 @@ def _proteccion_json(proteccion: InsumosProteccion | None) -> dict | None:
         if proteccion.ventana_hasta is not None
         else None,
         "episodio": _episodio_json(proteccion.episodio),
+        "frena_subidas": proteccion.frena_subidas,
     }
 
 
@@ -630,6 +634,17 @@ _CLAVES_CASO = frozenset(
         "ventana_desde",
         "ventana_hasta",
         "observado_al",
+    }
+)
+
+_CLAVES_PROTECCION = frozenset(
+    {
+        "version",
+        "evaluado_el",
+        "reciente",
+        "ventana_desde",
+        "ventana_hasta",
+        "episodio",
     }
 )
 
@@ -1005,18 +1020,10 @@ def _episodio_desde(datos: Any, nombre: str) -> EpisodioProteccion | None:
 def _proteccion_desde(datos: Any) -> InsumosProteccion | None:
     if datos is None:
         return None
-    d = _objeto(
+    d = _objeto_versionado(
         datos,
-        frozenset(
-            {
-                "version",
-                "evaluado_el",
-                "reciente",
-                "ventana_desde",
-                "ventana_hasta",
-                "episodio",
-            }
-        ),
+        _CLAVES_PROTECCION,
+        _CLAVES_PROTECCION | {"frena_subidas"},
         "proteccion",
     )
     return InsumosProteccion(
@@ -1026,4 +1033,7 @@ def _proteccion_desde(datos: Any) -> InsumosProteccion | None:
         ventana_desde=_opcional(d["ventana_desde"], "proteccion.ventana_desde", _fecha),
         ventana_hasta=_opcional(d["ventana_hasta"], "proteccion.ventana_hasta", _fecha),
         episodio=_episodio_desde(d["episodio"], "proteccion"),
+        frena_subidas=_booleano(d["frena_subidas"], "proteccion.frena_subidas")
+        if "frena_subidas" in d
+        else False,
     )
