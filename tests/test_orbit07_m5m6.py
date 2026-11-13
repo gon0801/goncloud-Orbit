@@ -797,6 +797,7 @@ def test_arreglos01_t_un_corte_en_el_mismo_ad_group_invalida_el_episodio(kind, r
 def test_arreglos01_t_el_corte_se_fecha_con_el_intento_real(intento, sello, invalida):
     with _db_completa(f"orbit_m5_corte_fecha_{'invalida' if invalida else 'no'}") as (conn, _c):
         ids = _mundo_m5(conn)
+        ventana_fin = ids["x"] + intento - dt.timedelta(days=10)
         corte = conn.execute(
             "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
             " config_version_id, data_observed_at, window_start, window_end, search_term,"
@@ -808,8 +809,8 @@ def test_arreglos01_t_el_corte_se_fecha_con_el_intento_real(intento, sello, inva
                 ids["x"] + intento,
                 ids["config"],
                 ids["x"] + intento,
-                ids["x"] - dt.timedelta(days=30),
-                ids["x"] - dt.timedelta(days=9),
+                ventana_fin - dt.timedelta(days=30),
+                ventana_fin,
                 Json({"seed": "corte"}),
             ),
         ).fetchone()[0]
