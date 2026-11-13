@@ -124,13 +124,16 @@ def _episodio(
     motivo=None,
     aplicable=True,
     margen="8",
+    version=VERSION_ECONOMIA_CAMBIO,
+    pre_clics=100,
+    post_clics=100,
 ):
     return EpisodioEconomico(
-        version=VERSION_ECONOMIA_CAMBIO,
+        version=version,
         fecha_cambio=_X,
         moneda="USD",
-        pre=_ventana(_X - dt.timedelta(days=7), pre_gasto, pre_venta),
-        post=_ventana(_X + dt.timedelta(days=1), post_gasto, post_venta),
+        pre=_ventana(_X - dt.timedelta(days=7), pre_gasto, pre_venta, clics=pre_clics),
+        post=_ventana(_X + dt.timedelta(days=1), post_gasto, post_venta, clics=post_clics),
         estado=estado,
         motivo=motivo,
         aplicable=aplicable,
@@ -739,6 +742,7 @@ def test_arreglos01_t_el_episodio_caduca_a_los_31_dias():
                 episodio,
                 target_acos_pct=Decimal("25"),
                 factor=Decimal("0.15"),
+                clics_minimos=20,
             )
             == SIN_EVIDENCIA
         )
@@ -860,3 +864,114 @@ def test_freeze_acepta_la_forma_historica_sin_episodio():
     reconstruido = CasoHoja.desde_json(datos)
     assert reconstruido.trayectoria.episodio is None
     assert reconstruido == caso
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 01 U: juicio v2 del cambio de bid (C-H1.1 y C-H2)
+# ---------------------------------------------------------------------------
+
+_V2 = "economia_cambio_v2"
+
+
+def test_arreglos01_u_v2_exige_clics_minimos_para_juzgar(monkeypatch):
+    """El mismo episodio v2 se abstiene con 3 clics y frena con 25."""
+    sin_muestra = _caso(
+        propia=_propia_vendedora(),
+        bid="0.70",
+        cambios=(_cambio_pasado(antes="0.50", despues="0.70"),),
+        efecto=_efecto_subida(),
+        episodio=_episodio(
+            pre_gasto="40",
+            pre_venta="30",
+            post_gasto="60",
+            post_venta="0",
+            margen=None,
+            version=_V2,
+            post_clics=3,
+        ),
+    )
+    pendientes, _ = _corre_decisora(monkeypatch, sin_muestra)
+    assert [(p.kind, p.new_value) for p in pendientes] == [("bid", Decimal("0.805"))]
+
+    con_muestra = _caso(
+        propia=_propia_vendedora(),
+        bid="0.70",
+        cambios=(_cambio_pasado(antes="0.50", despues="0.70"),),
+        efecto=_efecto_subida(),
+        episodio=_episodio(
+            pre_gasto="40",
+            pre_venta="30",
+            post_gasto="60",
+            post_venta="0",
+            margen=None,
+            version=_V2,
+            post_clics=25,
+        ),
+    )
+    pendientes, contadores = _corre_decisora(monkeypatch, con_muestra)
+    assert pendientes == []
+    assert contadores.skips_entidad == {MOTIVO_SUBIDA_SIN_ECONOMIA: 1}
+
+
+def test_arreglos01_u_v2_frena_la_subida_aunque_pre_no_vendiera(monkeypatch):
+    """C-H2: de 0 a 0 ventas no crecio; v2 frena y v1 conserva su veredicto."""
+    comun = dict(
+        propia=_propia_vendedora(),
+        bid="0.70",
+        cambios=(_cambio_pasado(antes="0.50", despues="0.70"),),
+        efecto=_efecto_subida(),
+        episodio=_episodio(
+            pre_gasto="10",
+            pre_venta="0",
+            post_gasto="20",
+            post_venta="0",
+            margen=None,
+            version=_V2,
+            post_clics=25,
+        ),
+    )
+    pendientes, contadores = _corre_decisora(monkeypatch, _caso(**comun))
+    assert pendientes == []
+    assert contadores.skips_entidad == {MOTIVO_SUBIDA_SIN_ECONOMIA: 1}
+
+    v1 = dict(comun)
+    v1["episodio"] = _episodio(
+        pre_gasto="10",
+        pre_venta="0",
+        post_gasto="20",
+        post_venta="0",
+        margen=None,
+        version=VERSION_ECONOMIA_CAMBIO,
+        post_clics=25,
+    )
+    pendientes, _ = _corre_decisora(monkeypatch, _caso(**v1))
+    assert [(p.kind, p.new_value) for p in pendientes] == [("bid", Decimal("0.805"))]
+
+
+def test_arreglos01_u_el_interruptor_enciende_v2():
+    from app.optimizer import goals as g
+
+    clave = g.clave_economia_cambio("amazon_us")
+    assert g.version_economia_cambio_desde_settings({}, "amazon_us") is None
+    assert (
+        g.version_economia_cambio_desde_settings({clave: VERSION_ECONOMIA_CAMBIO}, "amazon_us")
+        == VERSION_ECONOMIA_CAMBIO
+    )
+    assert g.version_economia_cambio_desde_settings({clave: _V2}, "amazon_us") == _V2
+    with pytest.raises(ValueError):
+        g.version_economia_cambio_desde_settings({clave: "economia_cambio_v3"}, "amazon_us")
+
+
+def test_arreglos01_u_el_freeze_acepta_el_episodio_v2():
+    caso = _caso(
+        propia=_propia_sin_pedidos(),
+        bid="0.85",
+        cambios=(_cambio_pasado(),),
+        efecto=_efecto_corte(),
+        episodio=_episodio(version=_V2),
+    )
+    datos = caso.como_json()
+    assert datos["trayectoria"]["episodio"]["version"] == _V2
+    from app.optimizer.caso import CasoHoja
+
+    assert CasoHoja.desde_json(datos) == caso
