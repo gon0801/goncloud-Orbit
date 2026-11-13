@@ -387,6 +387,13 @@ def exige_limites_guardados(settings: Mapping, platform: str) -> None:
         )
 
 
+def _exige_banda_manual(acos_pct: Decimal) -> None:
+    try:
+        g.exige_banda_meta_manual(acos_pct)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -447,6 +454,7 @@ def proxima_config(
     if target_manual_pct is not None:
         valor = _texto(target_manual_pct)
         if nuevo.get(k_target) != valor:
+            _exige_banda_manual(target_manual_pct)
             if nuevo.get(k_fraccion) is not None and not ack_respaldo:
                 raise SettingsInvalido(
                     f"target manual con el margen encendido: {ADVERTENCIA_RESPALDO}."

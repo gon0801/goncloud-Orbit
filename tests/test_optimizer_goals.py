@@ -36,7 +36,9 @@ from psycopg.types.json import Json
 from test_optimizer_caso import economia_mx, fabrica_caso, nivel, tramo
 from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
 
+from app import campana_ajustes as ca
 from app import cycle
+from app.ads.campana_config import ConfigCampana
 from app.optimizer import goals as g
 from app.optimizer import politica as pol
 from app.optimizer import productos as p
@@ -1382,3 +1384,49 @@ def test_arreglos01_v_el_ledger_rancio_no_enciende_r3():
         Decimal("-0.12"), Decimal("1.7600"), "grupo_sangra_vendedora", "ad_group"
     )
     assert equilibrio is None
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 01 X: topes humanos de dinero (AE-U5)
+# ---------------------------------------------------------------------------
+
+
+def test_arreglos01_x_un_bid_manual_de_11_usd_se_rechaza():
+    g.exige_bajo_techo("bid", Decimal("10"), "USD")
+    with pytest.raises(ValueError, match="supera el maximo"):
+        g.exige_bajo_techo("bid", Decimal("11"), "USD")
+
+
+def test_arreglos01_x_una_meta_manual_fuera_de_banda_se_rechaza():
+    g.exige_banda_meta_manual(Decimal("10"))
+    g.exige_banda_meta_manual(Decimal("45"))
+    for fuera in (Decimal("5"), Decimal("60")):
+        with pytest.raises(ValueError, match="fuera de la banda"):
+            g.exige_banda_meta_manual(fuera)
+
+
+def test_arreglos01_x_planea_ajuste_rechaza_presupuesto_sobre_el_techo():
+    vigente = ConfigCampana(
+        campana_externa="93529333080113",
+        presupuesto_diario=Decimal("100"),
+        moneda="MXN",
+        estrategia_puja="LEGACY_FOR_SALES",
+        ajuste_top_pct=0,
+        ajuste_resto_pct=0,
+        ajuste_producto_pct=40,
+        fuera_de_amazon=None,
+    )
+    with pytest.raises(ValueError, match="supera el maximo"):
+        ca.planea_ajuste(
+            vigente,
+            ca.CambiarPresupuesto(presupuesto_diario=Decimal("20000")),
+            campana_id=7,
+            plataforma="amazon_mx",
+        )
+    plan = ca.planea_ajuste(
+        vigente,
+        ca.CambiarPresupuesto(presupuesto_diario=Decimal("5353.78")),
+        campana_id=7,
+        plataforma="amazon_mx",
+    )
+    assert plan.despues.presupuesto_diario == Decimal("5353.78")

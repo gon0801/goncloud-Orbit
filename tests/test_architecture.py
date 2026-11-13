@@ -716,6 +716,7 @@ ALLOWLIST_IMPORTS_FABRICA_CAMPANAS = frozenset(
         "app.db",
         "app.db.connect",
         "app.optimizer.goals",
+        "app.optimizer.goals.exige_bajo_techo",
         "app.optimizer.goals.fraccion_desde_settings",
         "app.redaction",
         "app.redaction.install_scrub_filter",

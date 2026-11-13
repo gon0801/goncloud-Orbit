@@ -626,3 +626,14 @@ def test_s2_get_settings_expone_precio_modos(monkeypatch):
         assert resp.status_code == 200, resp.text
         assert resp.json()["precio_modo_global"] is None
         assert resp.json()["precio_modo_universo"] == {}
+
+
+def test_arreglos01_x_la_meta_manual_de_settings_vive_en_la_banda():
+    for fuera in (Decimal("5"), Decimal("60")):
+        with pytest.raises(config_write.SettingsInvalido, match="banda"):
+            config_write.proxima_config(_base(), PLAT, target_manual_pct=fuera, ack_respaldo=True)
+    nuevo, cambios = config_write.proxima_config(
+        _base(), PLAT, target_manual_pct=Decimal("10"), ack_respaldo=True
+    )
+    assert nuevo[f"ads_target_acos_pct_{PLAT}"] == "10"
+    assert cambios == ["target manual 20 -> 10"]

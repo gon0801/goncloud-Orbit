@@ -1,0 +1,25 @@
+X.1 - Presupuesto diario mas alto de hoy por moneda (campanas ENABLED)
+fecha_utc: 2026-11-13T13:16:24Z
+fuente: docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read, transaccion de solo lectura)
+consulta:
+  SELECT c.presupuesto_moneda::text AS moneda,
+         max(c.presupuesto_diario)::text AS max_diario,
+         count(*)::text AS campanas
+    FROM v_campana_config_vigente c
+    JOIN ad_entity e ON e.id = c.ad_entity_id
+    JOIN ad_entity_state s ON s.ad_entity_id = c.ad_entity_id
+   WHERE e.kind = 'campaign' AND s.status = 'ENABLED'
+     AND c.presupuesto_diario IS NOT NULL
+   GROUP BY 1 ORDER BY 1;
+
+lectura (moneda|max_diario|campanas):
+MXN|5353.7800|34
+USD|26.2200|9
+
+tope = el doble del maximo, redondeado hacia arriba al entero:
+MXN|10708
+USD|53
+
+nota: la campana MXN mas alta es "Arras Manual - Harvest" (ad_entity 163).
+El tope es una decision del dueno (2026-11-09), no un hecho del esquema: no
+hay CHECK en la base y el motor no pasa por el. Lo ya guardado no se revalida.

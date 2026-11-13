@@ -26,6 +26,7 @@ from app import impulso_io as io
 from app import retiro_anuncios as ra
 from app.api import ConexionLectura
 from app.api_write import exige_token
+from app.optimizer import goals as g
 from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
 
 
@@ -93,6 +94,11 @@ class _RutaFabrica(APIRoute):
                     mensaje = str(error.get("msg", ""))
                     if "no es finito" in mensaje:
                         raise fw.error(422, mensaje) from None
+                    # El tope humano arma un mensaje controlado con la cifra
+                    # tecleada y el maximo; no es input crudo, y la pantalla
+                    # necesita el motivo (no el generico "datos no validos").
+                    if "supera el maximo" in mensaje:
+                        raise fw.error(422, mensaje.removeprefix("Value error, ")) from None
                 campos = ", ".join(dict.fromkeys(_campo_fallido(e) for e in errores))
                 raise fw.error(422, f"Los datos no son válidos en: {campos}.") from None
 
@@ -223,13 +229,16 @@ class SolicitudPlan(_Cuerpo):
             raise ValueError("usa solo productos v1 o listing_ids y objetivo v2")
         if set(self.parametros) != set(fp.ROLES_ORDEN_CREACION):
             raise ValueError("se requieren exactamente los cinco roles")
+        moneda = fp.MONEDA_POR_PLATAFORMA[self.plataforma]
         fp.valida_parametros(
             {
                 rol: fp.ParametrosRol(rol, Decimal(p.budget), Decimal(p.bid))
                 for rol, p in self.parametros.items()
             },
-            fp.MONEDA_POR_PLATAFORMA[self.plataforma],
+            moneda,
         )
+        for p in self.parametros.values():
+            g.exige_bajo_techo("presupuesto_diario", Decimal(p.budget), moneda)
         return self
 
 

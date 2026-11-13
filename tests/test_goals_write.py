@@ -471,6 +471,24 @@ def test_floor_mayor_que_ceiling_combinado_con_valor_existente():
 
 
 @_skip_db
+def test_arreglos01_x_editar_bid_ceiling_de_11_usd_se_rechaza():
+    with _db_con_rol_admin("orbit_g_techo") as (conn, dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        conn_admin = psycopg.connect(dsn_admin)
+        try:
+            with pytest.raises(goals_write.GoalInvalido, match="supera el maximo"):
+                goals_write.edita_goal(
+                    conn_admin, goal_id, bid_ceiling=Decimal("11"), updated_at=T_EDITADO
+                )
+            fila = goals_write.edita_goal(
+                conn_admin, goal_id, bid_ceiling=Decimal("10"), updated_at=T_EDITADO
+            )
+        finally:
+            conn_admin.close()
+        assert fila["bid_ceiling"] == "10.0000"
+
+
+@_skip_db
 def test_harvest_all_or_nothing_terna_o_nada():
     """DoD: la terna harvest es all-or-nothing (CHECK goal_harvest_completo,
     pre-validado con mensaje claro ANTES del UPDATE):

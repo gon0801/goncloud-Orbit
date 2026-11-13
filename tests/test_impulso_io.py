@@ -23,6 +23,7 @@ from test_migracion_0084 import SQL84
 from test_retiro_anuncios import SQL78, SQL79, _bolsa, _escritor, _fila
 from test_schema import _postgres_obligatorio_ausente
 
+from app import impulso as im
 from app import impulso_io as io
 
 HOY = dt.date(2026, 10, 9)
@@ -90,6 +91,21 @@ def _sugeridor_fijo(**por_rol):
 
     sugiere.llamadas = llamadas
     return sugiere
+
+
+def test_arreglos01_x_el_tope_del_diario_derivado_del_impulso():
+    """El tope humano del diario derivado del impulso se mide por campana:
+    800 USD de tope dan 28.57 por campana (pasa); 1600 dan 57.14 (rechaza).
+    Sin base: ejercita la misma derivacion que `_plan_producto`."""
+    io._exige_diario_por_campana(
+        im.TopeAprendizaje(Decimal("800"), "USD", im.presupuesto_diario(Decimal("800"), "USD"))
+    )
+    with pytest.raises(ValueError, match="supera el maximo"):
+        io._exige_diario_por_campana(
+            im.TopeAprendizaje(
+                Decimal("1600"), "USD", im.presupuesto_diario(Decimal("1600"), "USD")
+            )
+        )
 
 
 @_skip_db
@@ -172,6 +188,27 @@ def test_r09b_previa_tope_bajo_el_piso_no_lanzable_y_lanza_sin_502():
         assert exc.value.status == 422
         assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone() == (0,)
         assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
+
+
+@_skip_db
+def test_arreglos01_x_el_impulso_mide_el_diario_por_campana():
+    """El tope humano es de UNA campana: el diario del impulso se reparte
+    entre sus dos campanas. 300000 MXN de tope dan 21428.57 al dia y
+    10714.29 por campana (sobre 10708): no lanzable, con el motivo del tope
+    por campana (no por el total)."""
+    with _db_i3("orbit_i3_techo") as conn:
+        _, lid = _con_margen(conn)
+        alto = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("300000"),
+        )
+        vista = io.previsualiza(conn, alto, sugeridor=_sugeridor_fijo())
+        assert vista.planes == ()
+        assert [n.listing_id for n in vista.no_lanzables] == [lid]
+        assert "por campana" in vista.no_lanzables[0].motivo
+        assert "supera el maximo" in vista.no_lanzables[0].motivo
 
 
 @_skip_db
