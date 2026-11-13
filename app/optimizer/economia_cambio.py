@@ -90,10 +90,14 @@ def juicio_repeticion(
         if post.clics < clics_minimos:
             return SIN_EVIDENCIA
     if factor < 0:
+        if pre.gasto is None or pre.gasto <= 0:
+            return SIN_EVIDENCIA
         return _juicio_recorte(pre, post)
     if factor > 0:
         if episodio.version == VERSION_ECONOMIA_CAMBIO_V2:
             return _juicio_subida_v2(episodio, pre, post, target_acos_pct)
+        if pre.gasto is None or pre.gasto <= 0:
+            return SIN_EVIDENCIA
         return _juicio_subida_v1(episodio, pre, post, target_acos_pct)
     return SIN_EVIDENCIA
 
@@ -163,8 +167,9 @@ def _juicio_subida_v2(
         if episodio.contribucion_post > episodio.contribucion_pre:
             return SIN_EVIDENCIA
         return JuicioRepeticion("frena", MOTIVO_SUBIDA_SIN_ECONOMIA)
-    if pre.venta <= 0:
-        # Subio sobre una semana sin ventas y sin margen con el que comparar.
+    if pre.venta <= 0 or pre.gasto <= 0:
+        # Subio sobre una semana sin ventas o sin gasto y sin margen con el
+        # que comparar.
         return SIN_EVIDENCIA
     acos_pre = _acos(pre)
     acos_post = _acos(post)
@@ -189,16 +194,22 @@ def _utilizable(episodio: EpisodioEconomico | None) -> bool:
 
 
 def _ventanas_medidas(pre: VentanaEconomica, post: VentanaEconomica) -> bool:
-    """Solo con gasto, venta, pedidos y clics conocidos en AMBAS ventanas.
+    """Solo exige que gasto, venta, pedidos y clics existan en AMBAS ventanas.
 
-    Un pre sin gasto no tiene ACoS que comparar; un post sin venta no demuestra
-    conservacion. No se rellenan None con cero (regla 3).
+    No se rellenan None con cero (regla 3). La exigencia de gasto previo > 0
+    vive donde se compara: antes del recorte, antes de v1 y en v2 justo antes
+    de comparar ACoS.
     """
-    if pre.gasto is None or pre.venta is None or pre.pedidos is None or pre.clics is None:
-        return False
-    if post.gasto is None or post.venta is None or post.pedidos is None or post.clics is None:
-        return False
-    return pre.gasto > 0
+    return not (
+        pre.gasto is None
+        or pre.venta is None
+        or pre.pedidos is None
+        or pre.clics is None
+        or post.gasto is None
+        or post.venta is None
+        or post.pedidos is None
+        or post.clics is None
+    )
 
 
 def _acos(ventana: VentanaEconomica) -> Decimal | None:

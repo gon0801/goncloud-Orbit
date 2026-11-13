@@ -52,9 +52,9 @@ docker exec orbit-app-1 python -m app.cli productos-modo --platform amazon_mx \
   --bid-economia economia_cambio_v2
 ```
 
-`economia_cambio_v1` sigue siendo un valor valido para las decisiones que ya
-se juzgaron con esa version: el replay lee el episodio congelado y no lo
-recalcula. Solo los episodios nuevos usan la version que diga el setting.
+Cada ciclo juzga el ultimo cambio de puja con la version vigente del setting,
+incluidas las subidas hechas antes de encenderla. Las decisiones ya guardadas
+conservan la version con la que se juzgaron.
 
 M4 no lleva comando: es la politica `v3` que corre por defecto. No tiene un
 interruptor propio: revertirla requiere un nuevo commit que restaure la politica
