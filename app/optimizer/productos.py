@@ -689,7 +689,12 @@ def meta_de_hoja(
         raise ValueError(f"version economica desconocida: {version!r}")
     if isinstance(meta, SinDato):
         motivo = meta.motivos[0]
-        if tiene_previo and (version == ECONOMIA_AUTO03 or motivo in MOTIVOS_DATO_TRANSITORIO):
+        # B-H1: solo converge si TODOS los motivos son transitorios. Un
+        # impedimento no transitorio (p. ej. halo de otro SKU) debe dejar la
+        # hoja en su respaldo, aunque el ledger tambien venga rancio.
+        if tiene_previo and (
+            version == ECONOMIA_AUTO03 or all(m in MOTIVOS_DATO_TRANSITORIO for m in meta.motivos)
+        ):
             return goals.converge_al_destino(ultimo, destino, motivo, piso=Decimal(0))
         return goals.ResolucionMargen(None, None, motivo, False)
     nueva = meta.porcentaje

@@ -1295,3 +1295,11 @@ def test_arreglos01_v_ledger_rancio_converge():
         version=p.POLITICA_ECONOMIA,
     )
     assert ajeno == g.ResolucionMargen(None, None, "cobertura_baja", False)
+    con_halo = p.meta_de_hoja(
+        p.SinDato(("ledger_rancio", "halo_sin_margen")),
+        ultimo=Decimal("4"),
+        destino=Decimal("25.5"),
+        tiene_previo=True,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert con_halo == g.ResolucionMargen(None, None, "ledger_rancio", False)

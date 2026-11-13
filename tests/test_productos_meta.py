@@ -197,17 +197,33 @@ def test_previo_de_otro_peldano_no_cambia_la_meta_directa():
 
 def test_sin_meta_el_respaldo_es_completo_sin_interpolar():
     """M2: al perder elegibilidad el peldano de producto no aporta un valor en
-    transicion; la cascada resuelve completa su respaldo en ese ciclo."""
+    transicion. B-H1: un motivo transitorio con previo converge 0.5 por ciclo
+    en el mismo peldano; sin previo, la cascada resuelve el respaldo."""
     abstiene = p.SinDato(("ledger_rancio",))
-    for tiene_previo in (True, False):
-        res = p.meta_de_hoja(
-            abstiene,
-            ultimo=Decimal("4"),
-            destino=Decimal("20"),
-            tiene_previo=tiene_previo,
-            version=p.POLITICA_ECONOMIA,
-        )
-        assert (res.aplicado, res.motivo, res.convergiendo) == (None, "ledger_rancio", False)
+    converge = p.meta_de_hoja(
+        abstiene,
+        ultimo=Decimal("4"),
+        destino=Decimal("20"),
+        tiene_previo=True,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert (converge.aplicado, converge.motivo, converge.convergiendo) == (
+        Decimal("4.5"),
+        "ledger_rancio",
+        True,
+    )
+    sin_previo = p.meta_de_hoja(
+        abstiene,
+        ultimo=Decimal("4"),
+        destino=Decimal("20"),
+        tiene_previo=False,
+        version=p.POLITICA_ECONOMIA,
+    )
+    assert (sin_previo.aplicado, sin_previo.motivo, sin_previo.convergiendo) == (
+        None,
+        "ledger_rancio",
+        False,
+    )
 
 
 def test_version_auto03_conserva_la_rampa_y_la_convergencia():
