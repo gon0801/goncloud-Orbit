@@ -39,10 +39,15 @@ DIAS_PROTECCION_VENTA = 10
 VERSION_ECONOMIA_CAMBIO = "economia_cambio_v1"
 DIAS_ECONOMIA_CAMBIO = 7
 DIAS_MADUREZ_ECONOMIA = DIAS_MADUREZ
+# Decision del dueno (2026-11-09): el freno dura 14 dias despues de madurar, o
+# sea, caduca el dia 31 desde el cambio. Mas viejo deja de gobernar: la
+# trayectoria vigente (R14-R17) decide como antes.
+DIAS_VIGENCIA_ECONOMIA_CAMBIO = 31
 MOTIVO_ECONOMIA_POST_INMADURO = "post_inmaduro"
 MOTIVO_ECONOMIA_CAMBIO_EN_VENTANA = "cambio_en_ventana"
 MOTIVO_ECONOMIA_COBERTURA_INCOMPLETA = "cobertura_incompleta"
 MOTIVO_ECONOMIA_CAMBIO_POSTERIOR = "cambio_posterior"
+MOTIVO_ECONOMIA_EVIDENCIA_VENCIDA = "evidencia_vencida"
 
 
 @dataclass(frozen=True)

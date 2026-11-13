@@ -50,6 +50,7 @@ from app.optimizer.caso import (
     Trayectoria,
     VentanaEconomica,
 )
+from app.optimizer.economia_cambio import SIN_EVIDENCIA, juicio_repeticion
 from app.optimizer.politica import MOTIVO_SUBIDA_SIN_ECONOMIA
 
 _SIN_PG = pytest.mark.skipif(
@@ -539,9 +540,10 @@ def _metrica_economica(conn, run_id, kw, fecha, *, gasto, venta, pedidos=5, clic
     )
 
 
-def _mundo_m5(conn) -> dict:
+def _mundo_m5(conn, *, edad: int = 30) -> dict:
     run_id = _run(conn)
     _filler_calendario(conn, run_id)
+    x = DECIDED_AT.date() - dt.timedelta(days=edad)
     camp = _entidad(conn, "amazon_us", "campaign", "9501")
     ag = _entidad(conn, "amazon_us", "ad_group", "9511", parent=camp)
     kw = _entidad(
@@ -567,7 +569,10 @@ def _mundo_m5(conn) -> dict:
     live = conn.execute(
         "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
         " VALUES ('live', 'amazon_us', 'done', %s, %s) RETURNING id",
-        (DECIDED_AT - dt.timedelta(days=34), DECIDED_AT - dt.timedelta(days=33)),
+        (
+            DECIDED_AT - dt.timedelta(days=edad + 1),
+            DECIDED_AT - dt.timedelta(days=edad),
+        ),
     ).fetchone()[0]
     decision_id = conn.execute(
         "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
@@ -577,11 +582,11 @@ def _mundo_m5(conn) -> dict:
         (
             live,
             kw,
-            DECIDED_AT - dt.timedelta(days=33, hours=2),
+            DECIDED_AT - dt.timedelta(days=edad, hours=2),
             config_id,
-            DECIDED_AT - dt.timedelta(days=33, hours=3),
-            _X - dt.timedelta(days=30),
-            _X - dt.timedelta(days=9),
+            DECIDED_AT - dt.timedelta(days=edad, hours=3),
+            x - dt.timedelta(days=30),
+            x - dt.timedelta(days=9),
             Json({"seed": "m5"}),
         ),
     ).fetchone()[0]
@@ -590,19 +595,19 @@ def _mundo_m5(conn) -> dict:
         " verify_ok, platform_ack, applied_cycle_id) VALUES (%s, %s, %s, TRUE, %s, %s)",
         (
             decision_id,
-            DECIDED_AT - dt.timedelta(days=33, hours=2),
-            DECIDED_AT - dt.timedelta(days=33),
+            DECIDED_AT - dt.timedelta(days=edad, hours=2),
+            DECIDED_AT - dt.timedelta(days=edad),
             Json({"estado": "ok"}),
             live,
         ),
     )
     for n in range(7):
-        fecha = _X - dt.timedelta(days=7) + dt.timedelta(days=n)
+        fecha = x - dt.timedelta(days=7) + dt.timedelta(days=n)
         _metrica_economica(conn, run_id, kw, fecha, gasto="200", venta="1000")
     for n in range(7):
-        fecha = _X + dt.timedelta(days=1) + dt.timedelta(days=n)
+        fecha = x + dt.timedelta(days=1) + dt.timedelta(days=n)
         _metrica_economica(conn, run_id, kw, fecha, gasto="150", venta="1000")
-    return {"kw": kw, "ag": ag, "camp": camp}
+    return {"kw": kw, "ag": ag, "camp": camp, "ciclo": live, "config": config_id, "x": x}
 
 
 def _lecturas(conn, *, con_economia=True):
@@ -654,14 +659,14 @@ def test_lectura_congela_el_episodio_maduro_y_su_contribucion():
         assert episodio.estado == "maduro"
         assert episodio.motivo is None
         assert episodio.aplicable is True
-        assert episodio.fecha_cambio == _X
+        assert episodio.fecha_cambio == ids["x"]
         assert (episodio.pre.desde, episodio.pre.hasta) == (
-            _X - dt.timedelta(days=7),
-            _X - dt.timedelta(days=1),
+            ids["x"] - dt.timedelta(days=7),
+            ids["x"] - dt.timedelta(days=1),
         )
         assert (episodio.post.desde, episodio.post.hasta) == (
-            _X + dt.timedelta(days=1),
-            _X + dt.timedelta(days=7),
+            ids["x"] + dt.timedelta(days=1),
+            ids["x"] + dt.timedelta(days=7),
         )
         assert (episodio.pre.gasto, episodio.pre.venta, episodio.pre.pedidos) == (
             Decimal("1400"),
@@ -689,7 +694,7 @@ def test_lectura_marca_incomparable_el_cambio_en_ventana_y_posterior():
             " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct,"
             " ajuste_resto_pct, ajuste_producto_pct, fuera_de_amazon)"
             " VALUES (%s, %s, 100, 'USD', 'AUTO', 0, 0, 0, NULL)",
-            (ids["camp"], DECIDED_AT - dt.timedelta(days=30)),
+            (ids["camp"], ids["x"] + dt.timedelta(days=3)),
         )
         episodio = _caso_desde_lecturas(conn, _lecturas(conn), ids).trayectoria.episodio
         assert episodio is not None
@@ -716,6 +721,118 @@ def test_lectura_mantiene_comparable_un_cambio_posterior_fuera_de_ventana():
         assert episodio.motivo is None
         assert episodio.aplicable is False
         assert episodio.motivo_aplicabilidad == "cambio_posterior"
+
+
+@_SIN_PG
+def test_arreglos01_t_el_episodio_caduca_a_los_31_dias():
+    with _db_completa("orbit_m5_vencido") as (conn, _c):
+        ids = _mundo_m5(conn, edad=31)
+        episodio = _caso_desde_lecturas(conn, _lecturas(conn), ids).trayectoria.episodio
+        assert episodio is not None
+        assert episodio.fecha_cambio == ids["x"]
+        assert episodio.estado == "maduro"
+        assert episodio.motivo is None
+        assert episodio.aplicable is False
+        assert episodio.motivo_aplicabilidad == "evidencia_vencida"
+        assert (
+            juicio_repeticion(
+                episodio,
+                target_acos_pct=Decimal("25"),
+                factor=Decimal("0.15"),
+            )
+            == SIN_EVIDENCIA
+        )
+
+
+@_SIN_PG
+@pytest.mark.parametrize("kind", ["negative", "harvest"])
+@pytest.mark.parametrize("resultado", ["ok", "ok:reconciliado"])
+def test_arreglos01_t_un_corte_en_el_mismo_ad_group_invalida_el_episodio(kind, resultado):
+    with _db_completa(f"orbit_m5_corte_{kind}_{resultado.replace(':', '_')}") as (conn, _c):
+        ids = _mundo_m5(conn)
+        corte = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end, search_term,"
+            " new_value, value_currency, inputs) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,"
+            " 'termino corte', 0.85, %s, %s) RETURNING id",
+            (
+                ids["ciclo"],
+                ids["ag"],
+                kind,
+                ids["x"] + dt.timedelta(days=3),
+                ids["config"],
+                ids["x"] + dt.timedelta(days=3),
+                ids["x"] - dt.timedelta(days=30),
+                ids["x"] - dt.timedelta(days=9),
+                "USD" if kind == "harvest" else None,
+                Json({"seed": "corte"}),
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, started_at, resultado, finished_at)"
+            " VALUES (%s, 1, 'normal', %s, true, %s, %s, %s)",
+            (
+                corte,
+                Json({"seed": "corte"}),
+                ids["x"] + dt.timedelta(days=3),
+                resultado,
+                ids["x"] + dt.timedelta(days=3),
+            ),
+        )
+        episodio = _caso_desde_lecturas(conn, _lecturas(conn), ids).trayectoria.episodio
+        assert episodio is not None
+        assert episodio.estado == "incomparable"
+        assert episodio.motivo == "cambio_en_ventana"
+
+
+@_SIN_PG
+@pytest.mark.parametrize(
+    ("intento", "sello", "invalida"),
+    [
+        (dt.timedelta(days=-3), dt.timedelta(days=10), True),
+        (dt.timedelta(days=-20), dt.timedelta(days=3), False),
+    ],
+)
+def test_arreglos01_t_el_corte_se_fecha_con_el_intento_real(intento, sello, invalida):
+    with _db_completa(f"orbit_m5_corte_fecha_{'invalida' if invalida else 'no'}") as (conn, _c):
+        ids = _mundo_m5(conn)
+        ventana_fin = ids["x"] + intento - dt.timedelta(days=10)
+        corte = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end, search_term,"
+            " inputs) VALUES (%s, %s, 'negative', %s, %s, %s, %s, %s,"
+            " 'termino corte', %s) RETURNING id",
+            (
+                ids["ciclo"],
+                ids["ag"],
+                ids["x"] + intento,
+                ids["config"],
+                ids["x"] + intento,
+                ventana_fin - dt.timedelta(days=30),
+                ventana_fin,
+                Json({"seed": "corte"}),
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, started_at, resultado, finished_at)"
+            " VALUES (%s, 1, 'normal', %s, true, %s, 'ok:reconciliado', %s)",
+            (
+                corte,
+                Json({"seed": "corte"}),
+                ids["x"] + intento,
+                ids["x"] + sello,
+            ),
+        )
+        episodio = _caso_desde_lecturas(conn, _lecturas(conn), ids).trayectoria.episodio
+        assert episodio is not None
+        if invalida:
+            assert episodio.estado == "incomparable"
+            assert episodio.motivo == "cambio_en_ventana"
+        else:
+            assert episodio.estado == "maduro"
+            assert episodio.motivo is None
 
 
 @_SIN_PG

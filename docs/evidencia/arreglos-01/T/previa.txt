@@ -1,0 +1,40 @@
+ARREGLOS 01 bloque T (unidad AD-U6a, hallazgos C-H1 y C-H3): consulta de
+"antes de desplegar" de la regla de replay. Lectura con el mismo cliente de
+solo lectura de docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read,
+transaccion read_only) contra la base de produccion, 2026-11-12.
+
+La caducidad y la quinta fuente cambian la LECTURA de un episodio nuevo; el
+episodio ya decidido vive congelado en decision.inputs y el replay lo lee, no
+lo recalcula. La consulta confirma que hoy no hay ningun episodio congelado
+utilizable que la regla nueva pudiera voltear al desplegar.
+
+SELECT d.id
+  FROM decision d
+ WHERE d.inputs->'caso'->'trayectoria'->'episodio'->>'estado' = 'maduro'
+   AND d.inputs->'caso'->'trayectoria'->'episodio'->>'motivo' IS NULL
+   AND d.inputs->'caso'->'trayectoria'->'episodio'->>'aplicable' = 'true'
+ ORDER BY d.id;
+
+Salida:
+(sin filas)
+filas=0
+
+Contexto medido en la misma lectura (los 8 episodios congelados que existen):
+id|ad_entity_id|decided_at|x|estado|motivo|aplicable|motivo_aplicabilidad
+2901|1107058|2026-11-09|2026-11-03|inmaduro|post_inmaduro|true|None
+2902|5891|2026-11-10|2026-11-02|inmaduro|post_inmaduro|true|None
+2903|3840|2026-11-11|2026-11-03|inmaduro|post_inmaduro|true|None
+2904|4924|2026-11-12|2026-11-04|inmaduro|post_inmaduro|true|None
+2905|4934|2026-11-12|2026-11-07|inmaduro|post_inmaduro|true|None
+2906|5336|2026-11-12|2026-11-07|inmaduro|post_inmaduro|true|None
+2907|5567|2026-11-12|2026-11-07|inmaduro|post_inmaduro|true|None
+2908|2874|2026-11-12|2026-09-05|incomparable|cambio_en_ventana|false|cambio_posterior
+
+Lectura: cero episodios congelados son utiles hoy (7 inmaduros y 1
+incomparable), asi que el despliegue no cambia ninguna decision historica. El
+interruptor esta encendido en las dos plataformas
+(ads_bid_economia_amazon_mx = ads_bid_economia_amazon_us =
+economia_cambio_v1). Los episodios nuevos son los que empiezan a caducar a los
+31 dias y los que invalidan los negatives y harvests del mismo ad group.
+
+filas=0
