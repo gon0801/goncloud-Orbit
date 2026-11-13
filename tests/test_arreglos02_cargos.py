@@ -161,6 +161,33 @@ def test_arreglos02_d_la_estimada_no_se_suma_a_la_comision_real():
 
 
 @FALTA_POSTGRES
+def test_arreglos02_d_el_cargo_sin_source_event_id_no_se_descarta():
+    """Un cargo con order_id pero SIN source_event_id (el re-sync de fees del
+    indice ledger_dedupe_con_orden, 0001) no esta identificado como estimada:
+    nunca se descarta, aunque exista la comision real del mismo pedido. En SQL,
+    NULL = 'fee_estimate' da NULL y con contraparte real la fila se caia en
+    silencio (F1 de la revision del 2026-11-13)."""
+    with _db_arreglos02("orbit_arreglos02_d3") as conn:
+        pid, fid = _siembra(conn)
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        run = conn.execute("SELECT id FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, order_id, amount,"
+            " amount_currency, fee_type, source_event_id, ingest_run_id)"
+            " VALUES ('amazon_mx', 'fee', %s, 'O1', %s, 'MXN', 'referral_fee', NULL, %s)",
+            (hoy - dt.timedelta(days=40), Decimal("-10"), run),
+        )
+
+        cargos = _cargos_con_orden(conn, pid, fid)
+        assert cargos == {
+            "v_target_margen_plataforma": Decimal("-260"),
+            "v_margen_producto": Decimal("-260"),
+            "v_economia_producto": Decimal("-260"),
+            "v_margen_familia": Decimal("-260"),
+        }, cargos
+
+
+@FALTA_POSTGRES
 def test_arreglos02_d_la_reversa_regresa_las_vistas():
     with _db_arreglos02("orbit_arreglos02_d2") as conn:
         pid, fid = _siembra(conn)

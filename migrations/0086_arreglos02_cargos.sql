@@ -17,20 +17,28 @@
 -- Sin BEGIN/COMMIT: tools/despliegue/desplegar.sh la aplica en una sola
 -- transaccion (psql -1). No re-runnable. Reversa:
 -- 0086_reversa_arreglos02_cargos.sql.
+--
+-- El source_event_id se pasa por coalesce: un cargo CON order_id pero SIN id
+-- de fuente es un caso esperado del libro (0001, indice
+-- ledger_dedupe_con_orden: un re-sync de fees con orden pero sin event id) y
+-- NULL = 'fee_estimate' da NULL, que con contraparte real descartaba el cargo
+-- en silencio (F1 de la revision del 2026-11-13). Con el coalesce solo la
+-- estimada IDENTIFICADA por su id se ignora, y una real sin id cuenta como
+-- real.
 
 CREATE VIEW v_ledger_cargo AS
 SELECT l.*
   FROM ledger_event l
  WHERE l.kind IN ('fee', 'refund', 'withholding')
    AND NOT (
-         split_part(l.source_event_id, '|', 2) = 'fee_estimate'
+         split_part(coalesce(l.source_event_id, ''), '|', 2) = 'fee_estimate'
          AND EXISTS (
              SELECT 1 FROM ledger_event r
               WHERE r.platform = l.platform
                 AND r.order_id = l.order_id
                 AND r.kind = l.kind
                 AND r.fee_type IS NOT DISTINCT FROM l.fee_type
-                AND split_part(r.source_event_id, '|', 2) <> 'fee_estimate'));
+                AND split_part(coalesce(r.source_event_id, ''), '|', 2) <> 'fee_estimate'));
 
 COMMENT ON VIEW v_ledger_cargo IS
   'ARREGLOS 02 D: los cargos del libro SIN la comision estimada cuando ya '
