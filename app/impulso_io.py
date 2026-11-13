@@ -305,6 +305,14 @@ SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
 
+def _exige_diario_por_campana(tope: im.TopeAprendizaje) -> None:
+    """El tope humano es de UNA campana; `grupo_v2_de_plan` reparte el diario
+    del impulso entre sus dos campanas. Validar el total rechazaria un
+    impulso valido (800 USD -> 28.57 por campana, dentro de 53)."""
+    mitad = (tope.presupuesto_diario / 2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    g.exige_bajo_techo("presupuesto_diario", mitad, tope.moneda)
+
+
 def _plan_producto(
     conn,
     plataforma: str,
@@ -343,12 +351,8 @@ def _plan_producto(
     else:
         monto = gasto_para_concluir_desde_settings(settings, plataforma)
     tope = im.TopeAprendizaje(monto, moneda, im.presupuesto_diario(monto, moneda))
-    # El tope humano es de UNA campana; `grupo_v2_de_plan` reparte el diario
-    # del impulso entre sus dos campanas. Validar el total rechazaria un
-    # impulso valido (800 USD -> 28.57 por campana, dentro de 53).
-    mitad = (tope.presupuesto_diario / 2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     try:
-        g.exige_bajo_techo("presupuesto_diario", mitad, moneda)
+        _exige_diario_por_campana(tope)
     except ValueError as exc:
         raise fp.PlanInvalido(f"por campana: {exc}") from None
     expresiones = {rol: fp.expresiones_bid(semillas, rol) for rol in im.ROLES_IMPULSO}

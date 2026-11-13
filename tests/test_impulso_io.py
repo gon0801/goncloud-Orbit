@@ -177,9 +177,9 @@ def test_r09b_previa_tope_bajo_el_piso_no_lanzable_y_lanza_sin_502():
 @_skip_db
 def test_arreglos01_x_el_impulso_mide_el_diario_por_campana():
     """El tope humano es de UNA campana: el diario del impulso se reparte
-    entre sus dos campanas. 300000 MXN de tope dan 21428.57 al dia y 10714.29
-    por campana (sobre 10708): no lanzable. 299000 dan 10678.57 por campana
-    (bajo el tope): lanzable."""
+    entre sus dos campanas. 300000 MXN de tope dan 21428.57 al dia y
+    10714.29 por campana (sobre 10708): no lanzable, con el motivo del tope
+    por campana (no por el total)."""
     with _db_i3("orbit_i3_techo") as conn:
         _, lid = _con_margen(conn)
         alto = io.SolicitudImpulso(
@@ -193,15 +193,6 @@ def test_arreglos01_x_el_impulso_mide_el_diario_por_campana():
         assert [n.listing_id for n in vista.no_lanzables] == [lid]
         assert "por campana" in vista.no_lanzables[0].motivo
         assert "supera el maximo" in vista.no_lanzables[0].motivo
-        ok = io.SolicitudImpulso(
-            plataforma="amazon_mx",
-            listing_ids=(lid,),
-            subfamilia_por_listing={lid: "aros"},
-            tope_monto=Decimal("299000"),
-        )
-        vista_ok = io.previsualiza(conn, ok, sugeridor=_sugeridor_fijo())
-        assert [p.listing_id for p in vista_ok.planes] == [lid]
-        assert vista_ok.no_lanzables == ()
 
 
 @_skip_db

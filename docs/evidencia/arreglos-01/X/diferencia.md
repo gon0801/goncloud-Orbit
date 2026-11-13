@@ -48,8 +48,10 @@ impulso (`app/impulso.py:grupo_v2_de_plan`, cada una lleva la mitad); el tope
 humano es el de UNA campana. Validar el total rechazaba un impulso valido:
 800 USD de tope dan 57.14 al dia y 28.57 por campana, dentro de 53. Ahora se
 valida la mitad (misma cuenta y redondeo que `grupo_v2_de_plan`) y el mensaje
-dice "por campana". Un tope de 300000 MXN (10714.29 por campana) si se
-rechaza; 299000 (10678.57 por campana) se acepta.
+dice "por campana". La prueba pura acepta 800 USD y rechaza 1600 USD (57.14
+por campana); la vista previa rechaza 300000 MXN (10714.29 por campana) antes
+de mirar el bid de respaldo. Un impulso de tope enorme sin bids sugeridos
+sigue sin ser lanzable por el techo de bid, que es otra regla.
 
 ## Ajuste tras la revision: el 422 del plan conserva el motivo
 

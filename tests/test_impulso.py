@@ -10,6 +10,7 @@ import pytest
 
 from app import fabrica_plan as fp
 from app import impulso as im
+from app import impulso_io as io
 
 FECHA = dt.date(2026, 10, 9)
 
@@ -187,3 +188,15 @@ def test_grupo_no_levanta_con_bid_mayor_que_diario():
 def test_r09r3_grupo_v2_de_plan_nace_en_shadow():
     """R09 B12 (P16): los goals nacen en shadow, no en live."""
     assert im.grupo_v2_de_plan(_plan()).modo == "shadow"
+
+
+def test_arreglos01_x_el_impulso_acepta_el_diario_por_campana():
+    io._exige_diario_por_campana(
+        im.TopeAprendizaje(Decimal("800"), "USD", im.presupuesto_diario(Decimal("800"), "USD"))
+    )
+    with pytest.raises(ValueError, match="supera el maximo"):
+        io._exige_diario_por_campana(
+            im.TopeAprendizaje(
+                Decimal("1600"), "USD", im.presupuesto_diario(Decimal("1600"), "USD")
+            )
+        )
