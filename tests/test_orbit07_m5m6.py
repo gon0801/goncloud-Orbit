@@ -613,7 +613,7 @@ def _mundo_m5(conn, *, edad: int = 30) -> dict:
     return {"kw": kw, "ag": ag, "camp": camp, "ciclo": live, "config": config_id, "x": x}
 
 
-def _lecturas(conn, *, con_economia=True):
+def _lecturas(conn, *, version_economia=VERSION_ECONOMIA_CAMBIO):
     from app.optimizer.caso import EconomiaPlataforma
 
     return lee_plataforma(
@@ -627,7 +627,7 @@ def _lecturas(conn, *, con_economia=True):
             confianza_recorte=Decimal("0.80"),
             confianza_subida=Decimal("0.70"),
         ),
-        con_economia=con_economia,
+        version_economia=version_economia,
     )
 
 
@@ -843,7 +843,7 @@ def test_arreglos01_t_el_corte_se_fecha_con_el_intento_real(intento, sello, inva
 def test_interruptor_apagado_no_lee_ni_congela_episodio():
     with _db_completa("orbit_m5_apagado") as (conn, _c):
         ids = _mundo_m5(conn)
-        caso = _caso_desde_lecturas(conn, _lecturas(conn, con_economia=False), ids)
+        caso = _caso_desde_lecturas(conn, _lecturas(conn, version_economia=None), ids)
         assert caso.trayectoria.episodio is None
         assert caso.trayectoria.efecto is not None
 

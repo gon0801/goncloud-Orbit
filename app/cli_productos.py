@@ -50,7 +50,7 @@ def registra(sub) -> None:
     )
     p.add_argument(
         "--bid-economia",
-        choices=("economia_cambio_v1", "off"),
+        choices=("economia_cambio_v1", "economia_cambio_v2", "off"),
         default=None,
         help="seleccion ORBIT 07 M5/M6 (off = ausente)",
     )

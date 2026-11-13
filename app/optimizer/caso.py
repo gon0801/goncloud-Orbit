@@ -37,6 +37,10 @@ DIAS_PROTECCION_VENTA = 10
 # posterior solo cuenta como madura cuando sus siete fechas ya tienen diez
 # dias de madurez: D+17 como pronto.
 VERSION_ECONOMIA_CAMBIO = "economia_cambio_v1"
+# V2: minimo de clics para juzgar (C-H1.1) y "no crecio la venta" antes de
+# "la semana previa no vendio" (C-H2). V1 queda para el replay de lo congelado.
+VERSION_ECONOMIA_CAMBIO_V2 = "economia_cambio_v2"
+VERSIONES_ECONOMIA_CAMBIO = (VERSION_ECONOMIA_CAMBIO, VERSION_ECONOMIA_CAMBIO_V2)
 DIAS_ECONOMIA_CAMBIO = 7
 DIAS_MADUREZ_ECONOMIA = DIAS_MADUREZ
 # Decision del dueno (2026-11-09): el freno dura 14 dias despues de madurar, o
@@ -890,7 +894,7 @@ def _episodio_economico_desde(datos: Any) -> EpisodioEconomico | None:
         "trayectoria.episodio",
     )
     return EpisodioEconomico(
-        version=_literal(d["version"], (VERSION_ECONOMIA_CAMBIO,), "trayectoria.episodio.version"),
+        version=_literal(d["version"], VERSIONES_ECONOMIA_CAMBIO, "trayectoria.episodio.version"),
         fecha_cambio=_fecha(d["fecha_cambio"], "trayectoria.episodio.fecha_cambio"),
         moneda=_literal(d["moneda"], ("MXN", "USD"), "trayectoria.episodio.moneda"),
         pre=_ventana_economica_desde(d["pre"], "trayectoria.episodio.pre"),

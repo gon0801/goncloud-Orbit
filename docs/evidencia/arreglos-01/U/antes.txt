@@ -1,0 +1,25 @@
+ARREGLOS 01 bloque U (unidad AD-U6b, hallazgo C-H2): economia de bid por
+plataforma antes de desplegar. Lectura con docs/evidencia/arreglos-01/lee_prod.sh
+(rol orbit_read, transaccion read_only) contra la base de produccion, 2026-11-12.
+
+SELECT id, settings->>'ads_bid_economia_amazon_mx' AS mx,
+       settings->>'ads_bid_economia_amazon_us' AS us
+  FROM config_version ORDER BY id DESC LIMIT 1;
+
+Salida:
+51|economia_cambio_v1|economia_cambio_v1
+
+Las dos plataformas tenian el juicio anterior (v1), asi que U.4 les enciende
+economia_cambio_v2. Ninguna plataforma estaba apagada.
+
+Regla de replay (misma lectura): los episodios ya congelados en decision.inputs
+conservan su version y su veredicto. El juicio v1 queda literal en el codigo.
+
+SELECT coalesce(d.inputs->'caso'->'trayectoria'->'episodio'->>'version',
+                'episodio_nulo') AS version, count(*)
+  FROM decision d
+ WHERE d.inputs->'caso'->'trayectoria' ? 'episodio'
+ GROUP BY 1 ORDER BY 1;
+
+Salida:
+economia_cambio_v1|8
