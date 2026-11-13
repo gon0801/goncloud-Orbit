@@ -182,6 +182,16 @@ ALLOWLIST_TAMANO = {
         "motores, builders puros + un sender por motor; estaba en 899 "
         "antes de A.6."
     ),
+    "app/lecturas_caso.py": (
+        "ARREGLOS 01 T (AD-U6a): una sola lectura por plataforma reune "
+        "tramos, cambios de bid, precio, inmaduros y el lote de eventos que "
+        "invalidan el episodio economico. La caducidad del episodio y la "
+        "quinta fuente son parte de la misma derivacion "
+        "(`_episodio_economico`); separarlas dejaria la regla repartida "
+        "entre dos lecturas y dos fuentes de verdad. Cruzo el umbral con 24 "
+        "lineas; revisar la separacion del lote de eventos la proxima vez "
+        "que se toque en grande."
+    ),
 }
 
 
