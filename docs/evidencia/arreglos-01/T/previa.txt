@@ -8,13 +8,16 @@ episodio ya decidido vive congelado en decision.inputs y el replay lo lee, no
 lo recalcula. La consulta confirma que hoy no hay ningun episodio congelado
 utilizable que la regla nueva pudiera voltear al desplegar.
 
-SELECT count(*) FROM decision d
+SELECT d.id
+  FROM decision d
  WHERE d.inputs->'caso'->'trayectoria'->'episodio'->>'estado' = 'maduro'
    AND d.inputs->'caso'->'trayectoria'->'episodio'->>'motivo' IS NULL
-   AND d.inputs->'caso'->'trayectoria'->'episodio'->>'aplicable' = 'true';
+   AND d.inputs->'caso'->'trayectoria'->'episodio'->>'aplicable' = 'true'
+ ORDER BY d.id;
 
 Salida:
-0
+(sin filas)
+filas=0
 
 Contexto medido en la misma lectura (los 8 episodios congelados que existen):
 id|ad_entity_id|decided_at|x|estado|motivo|aplicable|motivo_aplicabilidad
