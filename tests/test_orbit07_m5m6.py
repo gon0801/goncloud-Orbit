@@ -50,7 +50,11 @@ from app.optimizer.caso import (
     Trayectoria,
     VentanaEconomica,
 )
-from app.optimizer.economia_cambio import SIN_EVIDENCIA, juicio_repeticion
+from app.optimizer.economia_cambio import (
+    SIN_EVIDENCIA,
+    JuicioRepeticion,
+    juicio_repeticion,
+)
 from app.optimizer.politica import MOTIVO_SUBIDA_SIN_ECONOMIA
 
 _SIN_PG = pytest.mark.skipif(
@@ -975,3 +979,43 @@ def test_arreglos01_u_el_freeze_acepta_el_episodio_v2():
     from app.optimizer.caso import CasoHoja
 
     assert CasoHoja.desde_json(datos) == caso
+
+
+def test_arreglos01_u_previa_sin_gasto_tambien_frena():
+    """C-H2 con previa de 0 gasto: v2 frena y v1 se abstiene."""
+    episodio_v2 = _episodio(
+        pre_gasto="0",
+        pre_venta="0",
+        post_gasto="12",
+        post_venta="0",
+        margen=None,
+        version=_V2,
+        pre_clics=0,
+        post_clics=25,
+    )
+    assert juicio_repeticion(
+        episodio_v2,
+        target_acos_pct=Decimal("30"),
+        factor=Decimal("0.1"),
+        clics_minimos=20,
+    ) == JuicioRepeticion("frena", "subida_sin_economia")
+
+    episodio_v1 = _episodio(
+        pre_gasto="0",
+        pre_venta="0",
+        post_gasto="12",
+        post_venta="0",
+        margen=None,
+        version=VERSION_ECONOMIA_CAMBIO,
+        pre_clics=0,
+        post_clics=25,
+    )
+    assert (
+        juicio_repeticion(
+            episodio_v1,
+            target_acos_pct=Decimal("30"),
+            factor=Decimal("0.1"),
+            clics_minimos=20,
+        )
+        == SIN_EVIDENCIA
+    )
