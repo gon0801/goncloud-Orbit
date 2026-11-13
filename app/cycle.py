@@ -752,7 +752,11 @@ class _MetaHoja:
     @property
     def equilibrio_pct(self) -> Decimal | None:
         """Punto de equilibrio del producto (margen neto antes de publicidad)
-        que corresponde a la meta de ESTA hoja. None = el producto no lo mide."""
+        que corresponde a la meta de ESTA hoja. None = el producto no lo mide
+        o la resolucion converge por un dato invalido (B-H1: con el ledger
+        rancio el equilibrio no se publica y R3 queda apagado)."""
+        if self.resolucion.motivo is not None:
+            return None
         margen = self.evaluacion.entrada.margen
         return margen.margen_neto_pct if isinstance(margen, g.MedicionMargen) else None
 
@@ -2553,6 +2557,7 @@ def _anota_sombra(
             margen.margen_neto_pct
             if productos_ciclo.modo_economia == productos.POLITICA_ECONOMIA
             and procedencia_meta == "margen_producto"
+            and meta.motivo is None
             and isinstance(margen, g.MedicionMargen)
             else None
         )
