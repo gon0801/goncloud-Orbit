@@ -127,7 +127,9 @@ class CacheProteccion:
         ventana_hasta: dt.date | None,
     ) -> InsumosProteccion:
         """La lectura reciente de la hoja empieza el dia siguiente al fin de SU
-        ventana de cortes (nunca antes que D-9) y termina en D-1."""
+        ventana de cortes (nunca antes que D-9) y termina en D-1. Los insumos
+        nuevos nacen con `frena_subidas=True`: la hoja no sube el bid mientras
+        su pausa espera por una venta reciente (C-H4)."""
         desde = self.evaluado_el - dt.timedelta(days=DIAS_RECIENTES)
         if ventana_hasta is not None:
             desde = min(desde, ventana_hasta + dt.timedelta(days=1))
@@ -139,6 +141,7 @@ class CacheProteccion:
             ventana_desde=ventana_desde,
             ventana_hasta=ventana_hasta,
             episodio=self._episodios.get(hoja_id),
+            frena_subidas=True,
         )
 
     def _lectura(self, hoja_id: int, desde: dt.date, hasta: dt.date) -> LecturaReciente:

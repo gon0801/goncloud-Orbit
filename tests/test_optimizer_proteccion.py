@@ -22,8 +22,10 @@ from app.optimizer.caso import (
     InsumosPausa,
     InsumosProteccion,
     LecturaReciente,
+    PrecioVentana,
 )
 from app.optimizer.politica import Mantener, Mover, Pausar, decide
+from app.proteccion_venta import CacheProteccion
 
 HOY = dt.date(2026, 10, 9)
 ANCLA = dt.date(2026, 10, 5)
@@ -46,6 +48,7 @@ def _proteccion(
     hoy=HOY,
     ventana_desde=dt.date(2026, 9, 20),
     ventana_hasta=dt.date(2026, 9, 29),
+    frena_subidas=False,
 ):
     return InsumosProteccion(
         version=VERSION_PROTECCION_VENTA,
@@ -54,6 +57,7 @@ def _proteccion(
         ventana_desde=ventana_desde,
         ventana_hasta=ventana_hasta,
         episodio=episodio,
+        frena_subidas=frena_subidas,
     )
 
 
@@ -223,3 +227,82 @@ def test_freeze_roundtrip_con_proteccion():
     assert CasoHoja.desde_json(caso.como_json()) == caso
     assert caso.como_json()["pausa"]["proteccion"]["episodio"]["ancla"] == ANCLA.isoformat()
     assert decide(CasoHoja.desde_json(caso.como_json())) == decide(caso)
+
+
+def test_arreglos01_p_no_sube_el_bid_durante_la_espera():
+    """C-H4: la hoja cuya pausa espera por una venta reciente no recibe +15 %.
+    El marcador congelado deja el juicio de su era intacto."""
+    propia = nivel(tramo(clics=50, pedidos=5, venta="5000", gasto="200", impresiones=2000))
+    cuenta = nivel(
+        tramo(clics=10000, pedidos=100, venta="100000", gasto="9000", impresiones=400000)
+    )
+
+    def caso(proteccion):
+        pausa = InsumosPausa(
+            cortes(clicks=120, cost="500", orders=0),
+            100,
+            Decimal("500"),
+            None,
+            None,
+            proteccion=proteccion,
+        )
+        return fabrica_caso(
+            propia=propia,
+            grupo=propia,
+            cuenta=cuenta,
+            precio=PrecioVentana(Decimal("100"), 50),
+            pausa=pausa,
+        )
+
+    episodio = EpisodioProteccion(ANCLA, VENCE)
+    espera = _proteccion(episodio=episodio, frena_subidas=True)
+    veredicto = decide(caso(espera))
+    assert veredicto == Mantener("subida_en_espera_de_venta")
+    congelado = caso(espera).como_json()["pausa"]["proteccion"]
+    assert congelado["frena_subidas"] is True
+    assert decide(CasoHoja.desde_json(caso(espera).como_json())) == veredicto
+
+    historica = _proteccion(episodio=episodio)
+    assert decide(caso(historica)) == Mover(
+        Decimal("0.15"), Decimal("11.5000"), "bajo_target", "hoja"
+    )
+
+
+def test_arreglos01_p_el_cableado_de_la_cache_frena_la_subida():
+    """F1 de DeepSeek: el cableado de produccion no se salta. La cache que arma
+    el ciclo nace con `frena_subidas=True` y su hoja espera la subida."""
+    cache = CacheProteccion(
+        plataforma="amazon_mx",
+        evaluado_el=HOY,
+        _lee_desde=HOY - dt.timedelta(days=9),
+        _dias_plataforma=frozenset(),
+        _historia={},
+        _episodios={1001: EpisodioProteccion(ANCLA, VENCE)},
+    )
+    insumos = cache.insumos(
+        1001,
+        ventana_desde=dt.date(2026, 9, 20),
+        ventana_hasta=dt.date(2026, 9, 29),
+    )
+    assert insumos.frena_subidas is True
+
+    propia = nivel(tramo(clics=50, pedidos=5, venta="5000", gasto="200", impresiones=2000))
+    cuenta = nivel(
+        tramo(clics=10000, pedidos=100, venta="100000", gasto="9000", impresiones=400000)
+    )
+    pausa = InsumosPausa(
+        cortes(clicks=120, cost="500", orders=0),
+        100,
+        Decimal("500"),
+        None,
+        None,
+        proteccion=insumos,
+    )
+    caso = fabrica_caso(
+        propia=propia,
+        grupo=propia,
+        cuenta=cuenta,
+        precio=PrecioVentana(Decimal("100"), 50),
+        pausa=pausa,
+    )
+    assert decide(caso) == Mantener("subida_en_espera_de_venta")

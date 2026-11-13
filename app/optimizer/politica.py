@@ -16,7 +16,7 @@ from typing import Literal
 from app.optimizer import economia_cambio
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
-from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel
+from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel, InsumosProteccion
 from app.optimizer.evidencia import gamma_p, gamma_q
 
 # Bandas y pasos: los de hoy (docs/CONTEXTO.md), sin tocar.
@@ -52,6 +52,7 @@ MOTIVO_VENDE_DENTRO_DEL_MARGEN = "vende_dentro_del_margen"
 MOTIVO_BAJO_TARGET = "bajo_target"
 MOTIVO_AZAR_LO_EXPLICA = "azar_lo_explica"
 MOTIVO_VENTA_RECIENTE = "venta_reciente"
+MOTIVO_SUBIDA_EN_ESPERA = "subida_en_espera_de_venta"
 MOTIVO_GASTO_SIN_VENTA = "gasto_sin_venta"
 MOTIVO_GASTO_SIN_VENTA_DOBLE = "gasto_sin_venta_doble"
 MOTIVO_SIN_GASTO = "sin_gasto"
@@ -180,7 +181,9 @@ def decide(caso: CasoHoja) -> Veredicto:
        Cualquier metrica None que la regla consuma -> Mantener(dato_faltante). Sin CPC ->
        Mantener(sin_precio).
 
-     3. Un movimiento se repite solo si el anterior tuvo el efecto buscado (sobre el candidato):
+     3. Un movimiento se repite solo si el anterior tuvo el efecto buscado (sobre el candidato).
+        Antes de R14, una subida (factor > 0) con la pausa en espera por venta
+        reciente -> Mantener(subida_en_espera_de_venta).
         R14 direccion contraria al ultimo cambio y clics_post < CLICS_NUEVOS y
             dias_post < DIAS_SALIDA -> Mantener(esperando_precio_medido)
         R15 misma direccion y clics_post < CLICS_NUEVOS -> Mantener(sin_clics_nuevos)
@@ -226,6 +229,9 @@ def decide(caso: CasoHoja) -> Veredicto:
     # cero pedidos; el juicio de pujas sigue su camino normal (R1-R17) y el
     # ciclo registra el episodio con la misma subpolitica pura. No se devuelve
     # un Mantener aqui: eso congelaria la hoja y repetiria el defecto R2.
+    # ARREGLOS 01 P (C-H4): la excepcion es una SUBIDA mientras la espera
+    # sigue viva; se corta abajo, despues de juzgar, para no congelar los
+    # recortes ni R1.
 
     ultimo = caso.trayectoria.ultimo
     if ultimo is not None:
@@ -268,6 +274,8 @@ def decide(caso: CasoHoja) -> Veredicto:
             if isinstance(fallo, Mantener):
                 return fallo
         factor, motivo, nivel = fallo
+        if factor > 0 and _subida_en_espera(caso.pausa.proteccion, _motivo_bloqueado):
+            return Mantener(MOTIVO_SUBIDA_EN_ESPERA)
         if ultimo is not None:
             efecto = caso.trayectoria.efecto
             assert efecto is not None
@@ -275,6 +283,19 @@ def decide(caso: CasoHoja) -> Veredicto:
             if freno is not None:
                 return freno
         return _paso(caso.bid, factor, motivo, nivel, caso.trayectoria.piso_aprendido)
+
+
+def _subida_en_espera(proteccion: InsumosProteccion | None, motivo_bloqueado: str | None) -> bool:
+    """True si una subida debe esperar: la pausa se suprimio porque hay una
+    venta reciente conocida (espera activa), no porque el dato faltara.
+
+    El marcador `frena_subidas` deja intacta la semantica de las decisiones
+    historicas, que no lo llevan (regla de replay)."""
+    return (
+        proteccion is not None
+        and proteccion.frena_subidas
+        and motivo_bloqueado in (subproteccion.MOTIVO_PROTEGIDA, subproteccion.MOTIVO_INDETERMINADA)
+    )
 
 
 def _evalua_r1(ultimo, efecto) -> bool | None:
