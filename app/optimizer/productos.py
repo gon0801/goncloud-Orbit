@@ -82,6 +82,9 @@ MOTIVO_PAUSA = "producto_sin_ventas"
 # M4: una venta del producto con menos de 30 dias todavia puede cambiar de
 # atribucion; la pausa espera con un ancla fija.
 MOTIVO_VENTA_RECIENTE = "venta_reciente_producto"
+# A-H3: una fecha reciente que el lector descarto por una metrica ausente
+# puede esconder una venta; la pausa espera en vez de darla por cero.
+MOTIVO_VENTA_RECIENTE_SIN_MEDIR = "venta_reciente_sin_medir"
 
 # ORBIT 07 M2: version de la economia del producto que se congela en la
 # decision (`target_snapshot.version`) y se relee al revalidar la cola. La
@@ -136,6 +139,7 @@ MOTIVOS_PRODUCTO: dict[str, str] = {
     "vendio_en_ventana": "el producto vendio en la ventana de la pausa",
     "venta_otro_sku": "ventas atribuidas de otro SKU en la ventana: no son cero ventas",
     "venta_reciente_producto": "una venta reciente del producto aun no madura: la pausa espera",
+    "venta_reciente_sin_medir": "un día reciente al que le falta una métrica: la pausa espera",
     "bajo_limites": "no llega a los clics o al gasto minimos de la pausa",
     "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia",
     "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa",
@@ -302,6 +306,10 @@ class EntradaProducto:
     # traen; la regla cae a dias_halo.
     ventana_venta_reciente: Ventana | None = None
     dias_recientes: tuple[DiaProducto, ...] = ()
+    # A-H3: fechas de la ventana reciente que se descartaron por una metrica
+    # ausente y que pueden esconder una venta (compra o venta desconocida, o
+    # conocida > 0). Las entradas congeladas antes no la traen: ().
+    dias_recientes_sin_medir: tuple[dt.date, ...] = ()
 
     def como_json(self) -> dict:
         return _a_json(self)
@@ -450,8 +458,12 @@ def motivos_economicos_pausa(entrada: EntradaProducto, *, reciente: bool = True)
             motivos.append("vendio_en_ventana")
         elif actividad.clics < limites.clics_min or actividad.gasto.valor < limites.gasto_min.valor:
             motivos.append("bajo_limites")
-        elif reciente and venta_reciente_producto(entrada) is not None:
-            motivos.append(MOTIVO_VENTA_RECIENTE)
+        elif reciente:
+            venta = venta_reciente_producto(entrada)
+            if venta is not None:
+                motivos.append(MOTIVO_VENTA_RECIENTE)
+            elif entrada.dias_recientes_sin_medir:
+                motivos.append(MOTIVO_VENTA_RECIENTE_SIN_MEDIR)
     return tuple(dict.fromkeys(motivos))
 
 
