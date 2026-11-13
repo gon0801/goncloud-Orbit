@@ -112,7 +112,7 @@ La sospecha S2 (en Mercado Libre una variante sin existencias fija el precio): e
 ## Decisiones del dueño (2026-11-12 y 2026-11-13)
 
 1. Invertir una puja pide 20 clics o 14 días; se borra el párrafo viejo de 10 días. ARREGLOS 02, A.
-2. El IVA dentro del margen se le pregunta al contador. Ningún plan lo toca todavía.
+2. IVA dentro del margen: el dueño confirmó el 2026-11-13 que no paga más impuestos que los que las plataformas le retienen. El margen ya resta solo lo retenido y eso es correcto: no falta restar la otra mitad del IVA. Queda una consecuencia por revisar al diseñar ARREGLOS 05: si tampoco recupera el IVA de las comisiones, la estimación que usa el motor de precios cuenta la comisión sin ese IVA y su contribución saldría unos 2 puntos alta (sospecha 1 de `estimacion.md`). Precios está en práctica, así que no mueve dinero hoy.
 3. Tope real de unas 150 pujas por ciclo (ARREGLOS 05) y confirmación arriba de 50 cambios de precio en un día (ARREGLOS 03, P-D).
 4. Variantes sin existencias en Mercado Libre: el 2026-11-12 el dueño decidió que no fijaran el precio; el 2026-11-13, con lo medido (14 publicaciones bajarían de 8 a 28 %), decidió dejarlo como está hoy. No se hace.
 5. Se borra el código que producción no usa. Fuera del ciclo: ARREGLOS 03 (D-A a D-C y P-A) y ARREGLOS 04 (W-A, W-B y B-A). Quitar las dos corridas de estimación que no sirven no entró: obliga a tocar el crontab de root, donde vive el respaldo diario. Los modos del ciclo: ARREGLOS 05.
