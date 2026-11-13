@@ -1,7 +1,7 @@
 # TEMPORADA 01: invertir según la temporada (contrato de diseño v5)
 
 Contrato de diseño del plan `plans/temporada-01.md`. Donde el plan y este documento difieren, vale el
-plan. Repo leído en `289f9dd`. Todas las citas `archivo:línea` apuntan a ese SHA.
+plan. Repo leído en `289f9dd`; las citas `archivo:línea` se revisaron contra `de895d18` el 2026-11-12.
 Las piezas de ARREGLOS 01 que todavía no están en el código (P, T, U, V, W, X) se citan por su plan
 (`plans/arreglos-01.md`) y se marcan así: *(contrato de ARREGLOS 01)*.
 
@@ -30,8 +30,8 @@ Lo que hace que la forma no sea obvia, comprobado en el código:
    (`goals.py:983`), y la fracción vale `0.5` en MX y `0.8` en US (medido en `config_version` el 2026-11-12;
    `ads_target_fraccion_margen_amazon_{mx,us}`). Medido el 2026-11-12
    en `target_acos_ciclo`: las 136 keywords de MX deciden con `margen_plataforma` = 20.08 % y las 89
-   de US con 19.16 %. El equilibrio que recibe el motor es el margen neto (`app/cycle.py:3319`), así que
-   el 2026-11-12 era 40.26 % en MX y 23.81 % en US (`optimizer_cycle.notes.target.margen_neto_pct`, ciclos 185 y 184), calculado con el costo de cada venta pasada (ver «Punto de equilibrio con el costo vigente»). Por eso la meta de alta es **absoluta (25 %) y se aplica
+   de US con 19.16 %. El equilibrio que recibe el motor es el margen neto (`app/cycle.py:3318`), así que
+   el 2026-11-12 era 40.26 % en MX y 23.81 % en US (`optimizer_cycle.notes.target.margen_neto_pct`, ciclos 185 y 184), calculado con el costo de cada venta pasada (ver «Punto de equilibrio con el costo vigente»). Las metas de `target_acos_ciclo` (20.08 y 19.16) y las de `notes.target` (20.13 y 19.05, la mitad y el 0.8 de esos márgenes) son ciclos distintos del mismo día; el ejemplo del año usa 20.08 y 40.16, y las pruebas 20.13 y 19.05. Por eso la meta de alta es **absoluta (25 %) y se aplica
    después de la cascada**. Un escalón nuevo en la cascada no tocaría ninguna keyword, y sumar puntos no
    daría 25.
 2. **Un bid no puede bajar más de 30 % en una decisión.** `_paso` corta el factor a `[-0.30, +0.20]`
@@ -89,7 +89,7 @@ nada de llaves en el repo.
 
 ### 1. Ajustes: lo que ve y hace David
 
-Tarjeta nueva **«Temporadas de venta»** en `/settings` (`app/ui.py:758-766`), arriba de las tarjetas
+Tarjeta nueva **«Temporadas de venta»** en `/settings` (`app/ui.py:805-813`), arriba de las tarjetas
 por plataforma. Un solo botón guarda todo lo de la tarjeta.
 
 ```
@@ -121,7 +121,7 @@ por plataforma. Un solo botón guarda todo lo de la tarjeta.
 │ Amazon US           [ 25 ] %  (de 10 a 45)           ( ) Apagado (•) Práctica ( ) En vivo       │
 │    Hoy tu meta es 19.2 % (sale de tu margen). En temporada alta: 25 %.                       │
 │    Punto de equilibrio con el costo de hoy: 23.8 %. Arriba de ese ACoS pierdes dinero.       │
-│    ⚠ Con 25 % en temporada alta pierdes dinero en cada venta de Amazon US.                   │
+│    ⚠ Con 25 % en temporada alta aceptas ventas que pierden dinero en Amazon US (ACoS de 23.8 a 25 %). │
 │ 3 campañas con meta propia no cambian.                                                       │
 │ Práctica: Orbit calcula lo que haría y te lo enseña cada día, sin tocar Amazon.              │
 │                                                                                              │
@@ -351,8 +351,9 @@ temporada_io.abre_efectos(conn, ep, pendientes, ids)            # uno por decisi
 
 `fines` no sale de las decisiones: TX2 arma `fines: dict[int, FinReduccion]` con `FronteraHoja.fin`
 de cada hoja que leyó con temporada, también las que terminan en `Mantener` (`cycle.py:2209` regresa
-antes de agregar una decisión), las inertes y las que no deciden nada. En práctica no se escribe ningún
-fin ni exclusión.
+antes de agregar una decisión), las inertes y las que no deciden nada. Igual arma `exclusiones: dict[int,
+Decimal]` con `FronteraHoja.exclusion_hoy` (la mano sin fecha vista hoy, con su bid). En práctica no se
+escribe ningún fin ni exclusión.
 
 **d) Fase de apply (`cycle.py:3523-3531`).** `apply.reconcilia_bids` y `aplicador.aplica_bids` como hoy,
 con la lectura fresca dentro del aplicador. Después, `aplicador.aplica_reactivaciones(...)` con las
@@ -525,6 +526,7 @@ class Estacion:
     previa_alta: bool                     # dentro de los días de preparación de un bloque alto
     reduccion_baja: Decimal               # parámetros vigentes ese día (el replay no relee settings)
     mult_cortes_baja: Decimal
+    inicio_bloque: dt.date                # primer día del bloque de fase vigente; cierra un episodio de otra baja
 
 
 @dataclass(frozen=True)
@@ -542,6 +544,7 @@ class FronteraHoja:
     cerca_plataforma: dt.date | None      # para grupo, cuenta y términos
     episodio_id: int | None               # el de su reducción vigente, o el abierto
     fin: FinReduccion | None = None       # la reducción vieja termina en este ciclo (TX3 lo guarda)
+    exclusion_hoy: Decimal | None = None  # mano sin fecha vista hoy en baja: TX3 la guarda con este bid_visto
 
 
 @dataclass(frozen=True)
@@ -549,7 +552,7 @@ class TemporadaCaso:
     """Presente sii ads_temporada_<plat> decide este caso (live) o en el caso de sombra."""
     estacion: Estacion
     episodio: EpisodioVigente | None      # None: no hay episodio abierto (o se abre en este ciclo)
-    excluida_en: frozenset[int]           # episodios donde el aplicador vio la mano de David
+    excluida_en: frozenset[int]           # episodios donde el aplicador o TX3 vieron la mano de David
     meta_alta_pct: Decimal
     meta_manual: bool                     # procedencia goal_campana o goal_plataforma
     frontera: FronteraHoja
@@ -638,6 +641,14 @@ class CambioFechado:
     episodio_id: int | None
 
 @dataclass(frozen=True)
+class ManoExterna:
+    """Una mano de David que no pasa por v_cambio_bid, con fecha: una fila de temporada_exclusion con
+    bid_visto (del aplicador o de TX3) o una reactivación manual (reactivacion_manual.detectada_en)."""
+    instante: dt.datetime
+    bid_visto: Decimal | None             # None en la reactivación manual
+    origen: Literal["exclusion", "reactivacion_manual"]
+
+@dataclass(frozen=True)
 class HistoriaBid:
     """Todos los cambios confirmados de la hoja desde `desde`, con instante. `desde` es D−365, o
     antes si la hoja sigue reducida por un episodio más viejo (un episodio abierto no caduca).
@@ -645,6 +656,7 @@ class HistoriaBid:
     desde: dt.date
     cambios: tuple[CambioFechado, ...]    # ascendentes por (confirmado_el, decision_id)
     fines: frozenset[int] = frozenset()   # episodios con fila en temporada_fin_reduccion para la hoja
+    manos_externas: tuple[ManoExterna, ...] = ()   # exclusiones con bid_visto y reactivaciones manuales desde `desde`
 
 @dataclass(frozen=True)
 class PresupuestoCampana:
@@ -699,7 +711,7 @@ class CadenaBid:
     cambios: tuple[CambioFechado, ...]            # sin ajuste_de_campana, ascendentes
     manos_del_dueno: tuple[dt.datetime, ...]      # regreso_del_dueno o discontinuidad, fechadas
     bid_de_la_ultima_mano: Decimal | None
-    dueno_al_final: bool                          # bid vigente != último bid_despues
+    dueno_al_final: bool                          # bid vigente != último bid conocido (bid_despues de Orbit o bid_visto de una exclusión)
     reduccion: ReduccionVigente | None
     ultimo_salto_recuperacion: bool               # el último cambio fue un recupera_nivel
 ```
@@ -768,7 +780,7 @@ def destino_entrada(bid: Decimal, reduccion: Decimal, piso: Decimal, techo: Deci
     # d = (bid * (1 - reduccion)).quantize(CENTAVO, ROUND_CEILING)
     # d = min(max(d, piso), techo)
     # None si bid - d < CENTAVO (sin centavo factible)
-    # 0.15 USD, 30 % -> 0.11 (26.7 %); 1.55 MXN -> 1.09 (29.7 %); 8.00 -> 5.60; 0.10 USD -> None"""
+    # 0.15 USD, 30 % -> 0.11 (26.7 %); 1.55 MXN -> 1.09 (29.7 %); 8.00 -> 5.60; 0.10 USD con piso 0.10 -> None"""
     raise NotImplementedError
 
 def frontera(estacion: Estacion, cadena: CadenaBid | None, *, episodio: EpisodioVigente | None,
@@ -783,7 +795,10 @@ def frontera(estacion: Estacion, cadena: CadenaBid | None, *, episodio: Episodio
     # ultimo = último movimiento de temporada confirmado de la cadena
     # cerca_hoja = ultimo.confirmado_el (fecha UTC) + 1 día; None si no hay o si < estacion.dia - 90
     # episodio_id = red.episodio_id si red, si no episodio.id si hay   (red resuelta, no cadena.reduccion)
-    # fin = fin   (FronteraHoja.fin: TX3 lo guarda con temporada_io.registra_fines)"""
+    # fin = fin   (FronteraHoja.fin: TX3 lo guarda con temporada_io.registra_fines)
+    # exclusion_hoy = bid si estacion.fase == "baja" y cadena.dueno_al_final
+    #                 y (episodio is None or episodio.id not in excluida_en); si no None
+    #                 (mano sin fecha vista hoy: TX3 la guarda en temporada_exclusion con este bid_visto)"""
     raise NotImplementedError
 
 def inicio_episodio(episodio: EpisodioVigente | None, dia: dt.date) -> dt.datetime:
@@ -798,6 +813,7 @@ class FinReduccion:
     episodio_id: int                                   # episodio de la reducción que termina
     motivo: Literal["ya_arriba", "mano_del_dueno"]
     excluye_abierto: bool                              # la mano se vio con otro episodio abierto
+    bid_visto: Decimal | None = None                   # bid vigente al verse la mano; va a temporada_exclusion
 
 def reduccion_vigente(cadena: CadenaBid, *, en_baja: bool, dia: dt.date, episodio: EpisodioVigente | None, bid: Decimal,
                       piso: Decimal, techo: Decimal) -> tuple[ReduccionVigente | None, FinReduccion | None]:
@@ -810,10 +826,19 @@ def reduccion_vigente(cadena: CadenaBid, *, en_baja: bool, dia: dt.date, episodi
     # if manos or cadena.dueno_al_final:
     #     ahora = cadena.dueno_al_final or (en_baja and max(manos) >= inicio_episodio(episodio, dia))
     #     # en_baja sin episodio = TX3 lo abre en este ciclo; la exclusión va a ese episodio
-    #     return None, FinReduccion(red.episodio_id, "mano_del_dueno", excluye_abierto=en_baja and ahora)
-    # if bid >= min(max(red.base, piso), techo):
+    #     return None, FinReduccion(red.episodio_id, "mano_del_dueno", excluye_abierto=en_baja and ahora, bid_visto=bid)
+    # if bid >= nivel_de_regreso(red, bid, piso, techo):
     #     return None, FinReduccion(red.episodio_id, "ya_arriba", excluye_abierto=False)
     # return red, None          # su regreso sigue pendiente (p. ej. retenido): sigue reducida"""
+    raise NotImplementedError
+
+def nivel_de_regreso(red: ReduccionVigente, bid: Decimal, piso: Decimal, techo: Decimal) -> Decimal:
+    """A dónde regresa una hoja reducida. Con la temporada encendida nadie recorta en la baja (HOLD), así
+    que es la base. Si Orbit recortó por evidencia después de la entrada (temporada apagada o en práctica
+    a media baja), el regreso conserva esos recortes en proporción; nunca baja.
+    # factor = 1 if red.solo_temporada_despues or bid >= red.ultimo_bid else bid / red.ultimo_bid
+    # -> min(max((red.base * factor).quantize(CENTAVO, ROUND_FLOOR), piso), techo)
+    # 8 -> 5.60 (entrada) -> 3.15 (dos recortes con la temporada apagada): 8 × 3.15 / 5.60 = 4.50, no 8.00"""
     raise NotImplementedError
 
 def pendiente(caso: CasoHoja) -> Pendiente:
@@ -832,7 +857,7 @@ def pendiente(caso: CasoHoja) -> Pendiente:
     #             d = destino_entrada(red.base, e.reduccion_baja, piso, techo)
     #             if d is not None and abs(d - bid) >= CENTAVO -> AjustePendiente(d)
     #         -> SinPendiente("ya_entro")                       # nunca otra entrada
-    #     nivel = min(max(red.base, piso), techo)
+    #     nivel = nivel_de_regreso(red, bid, piso, techo)
     #     if bid >= nivel                                        -> SinPendiente("ya_arriba")
     #     -> RestauracionPendiente(nivel, red.episodio_id)
     # if e.fase != "baja"                                        -> SinPendiente("fuera_de_temporada")
@@ -840,14 +865,16 @@ def pendiente(caso: CasoHoja) -> Pendiente:
     # if algún cad.manos_del_dueno >= inicio_episodio(t.episodio, e.dia)
     #                                                            -> SinPendiente("dueno_decidio")
     # if cad.dueno_al_final                                      -> SinPendiente("dueno_decidio")
-    #     # cambio sin registro: Amazon no da su fecha, cuenta como mano de esta baja
+    #     # cambio sin registro: Amazon no da su fecha, cuenta como mano de esta baja; frontera la deja
+    #     # en exclusion_hoy y TX3 la guarda fechada con bid_visto, así en la siguiente baja ya es vieja
     # d = destino_entrada(bid, e.reduccion_baja, piso, techo); None -> SinPendiente("sin_centavo_factible")
     # -> EntradaPendiente(d)"""
     raise NotImplementedError
 
 def techo_de_baja(caso: CasoHoja) -> Decimal | None:
     """Techo común de R6 y R6r mientras la hoja está en baja (fase_hoja == "baja").
-    # None si caso.temporada is None, fase_hoja != "baja" o la cadena no tiene reducción
+    # None si caso.temporada is None, fase_hoja != "baja", la cadena no tiene reducción o
+    #   frontera.fin is not None (la reducción termina este ciclo: mano de David o ya arriba)
     #   (sin entrada no hay ahorro planeado que proteger; p. ej. excluida por David)
     # red = cadena.reduccion
     # r_efectiva = 1 - red.ultimo_bid / red.base           (la reducción real, con su centavo)
@@ -897,8 +924,9 @@ def propuesta_presupuesto(
     #     cambios_desde(episodio.abierto_el) vacío -> «baja»
     # fin de baja (hoy - episodio.cerrado_el < 30): si el único cambio desde abierto_el es
     #     exactamente obj (la propuesta aprobada) -> «fin_de_baja» a `antes`
-    # previa o alta: dias_topados_7d >= topada.dias, aumento > 0 y ningún aumento desde
-    #     inicio_bloque_alto -> min(q(vigente * (1 + aumento)), techo_humano) «alta_sin_presupuesto»
+    # previa o alta: dias_topados_7d >= topada.dias, aumento > 0 y ningún aumento por encima de `antes`
+    #     desde inicio_bloque_alto (sin episodio: ningún aumento; volver a `antes` por «fin de la baja»
+    #     no cuenta) -> min(q(vigente * (1 + aumento)), techo_humano) «alta_sin_presupuesto»
     # si aplican fin_de_baja y alta_sin_presupuesto, gana el monto mayor"""
     raise NotImplementedError
 
@@ -930,15 +958,22 @@ def insumos_desde_settings(settings, plataforma, modo) -> InsumosRecuperacion | 
     raise NotImplementedError
 
 def cadena_bid(caso: CasoHoja) -> CadenaBid | None:
-    """historia.cambios sin ajustes de campaña. None sin historia.
-    # prev = None; manos = []
-    # for c in cambios:
+    """historia.cambios sin ajustes de campaña, intercalados por instante con historia.manos_externas.
+    None sin historia.
+    # prev = None; manos = []; conocido = None        # conocido: el último bid que Orbit sabe que hubo
+    # for e in ordenados(cambios + manos_externas):
+    #   if e es ManoExterna: manos.append(e.instante); mano_bid = e.bid_visto
+    #       if e.bid_visto is not None: conocido = e.bid_visto     # la exclusión fecha la mano
+    #       continue
+    #   c = e
     #   if c.origen == "regreso_del_dueno": manos.append(c.confirmado_el); mano_bid = c.bid_despues
-    #   elif prev is not None and abs(c.bid_antes - prev.bid_despues) > TOLERANCIA_CADENA:
+    #   elif conocido is not None and abs(c.bid_antes - conocido) > TOLERANCIA_CADENA:
     #       manos.append(c.confirmado_el); mano_bid = c.bid_antes   # se fecha en el cambio posterior
-    #   prev = c
-    # dueno_al_final = prev is not None and caso.bid.valor is not None
-    #                  and abs(caso.bid.valor - prev.bid_despues) > TOLERANCIA_CADENA
+    #   prev = c; conocido = c.bid_despues
+    # dueno_al_final = conocido is not None and caso.bid.valor is not None
+    #                  and abs(caso.bid.valor - conocido) > TOLERANCIA_CADENA
+    #   (una mano ya guardada en temporada_exclusion con bid_visto deja de ser «sin fecha»: en la
+    #    siguiente baja es una mano vieja y la entrada sí sale; plan B.2, casos 2 y 7)
     # reduccion: último c con origen "temporada"; si su motivo es "entra" o "ajusta" y su
     #   episodio_id no está en historia.fines ->
     #   ReduccionVigente(episodio_id=c.episodio_id,
@@ -1060,7 +1095,7 @@ def umbral_corte(evidencia, regla: Regla, *, mult_baja: Decimal | None) -> Umbra
     # como hoy (cortes.py:118); con mult: ceil(umbral × mult)
 def piso_corte(evidencia, platform: str, *, mult_baja: Decimal | None) -> PisoResuelto: ...
 def piso_pausa(platform: str, *, mult_baja: Decimal | None) -> Decimal: ...
-    # bid.PAUSE_COST_MIN[platform] × mult; sustituye la lectura directa de cycle.py:2271
+    # bid.PAUSE_COST_MIN[platform] × mult; sustituye la lectura directa de cycle.py:2270
 def exceso_minimo(moneda: str, *, mult_baja: Decimal | None) -> Decimal: ...
     # bid.EXCESO_MINIMO[moneda] × mult (bid.py:135); llega a _decide_pause por InsumosPausa
 
@@ -1132,15 +1167,23 @@ def registra_ciclo(conn, platform: str, *, cycle_id: int, decidido_el: dt.dateti
     #    decisión tiene desenlace (confirmado | divergencia | sin_aplicar) o quedó abandonada
     # 2. fase == "baja" y sin episodio abierto -> INSERT temporada_episodio (índice único por
     #    plataforma: un segundo INSERT concurrente falla y el ciclo falla cerrado)
-    #    fase != "baja" y episodio abierto      -> UPDATE cerrado_el, cerrado_en_ciclo"""
+    #    fase != "baja" y episodio abierto      -> UPDATE cerrado_el, cerrado_en_ciclo
+    #    fase == "baja" y episodio abierto con abierto_el < estacion.inicio_bloque (es de otra baja: la
+    #    temporada estuvo apagada o en práctica entre las dos) -> cerrarlo e INSERT uno nuevo"""
     raise NotImplementedError
 
 def registra_fines(conn, platform: str, *, cycle_id: int, episodio_abierto: int | None,
-                   fines: Mapping[int, FinReduccion]) -> None:
+                   fines: Mapping[int, FinReduccion], exclusiones: Mapping[int, Decimal],
+                   moneda: str) -> None:
     """TX3, en la misma transacción que el INSERT de decisiones. Solo en modo live.
     # por cada (ad_entity_id, fin): INSERT temporada_fin_reduccion ON CONFLICT DO NOTHING
     # si fin.excluye_abierto: INSERT temporada_exclusion(episodio_abierto, ad_entity_id,
-    #                         'mano_del_dueno') ON CONFLICT DO NOTHING"""
+    #                         'mano_del_dueno', fin.bid_visto, moneda) ON CONFLICT DO NOTHING
+    # por cada (ad_entity_id, bid) de exclusiones (mano sin fecha vista hoy, sin reducción previa):
+    #     INSERT temporada_exclusion(episodio_abierto, ad_entity_id, 'mano_del_dueno', bid, moneda)
+    #     ON CONFLICT DO NOTHING
+    # Con bid_visto, esa mano queda fechada: HistoriaBid.manos_externas la lee y en la siguiente baja
+    # ya no bloquea la entrada (plan B.2, casos 2 y 7)."""
     raise NotImplementedError
 
 def estampa(pendiente: _Pendiente, episodio_id: int | None) -> _Pendiente:
@@ -1247,7 +1290,10 @@ def _confirma_resumen(conn, decision_id, ack, verify_ok, cycle_id_ejecutor) -> N
     # UPDATE temporada_efecto SET cerrado_el = now(),
     #        desenlace = CASE WHEN verify_ok THEN 'confirmado' ELSE 'divergencia' END
     #  WHERE decision_id = %s AND cerrado_el IS NULL
-    # si divergencia y la decisión es de temporada: INSERT temporada_exclusion(..., 'divergencia')
+    # si divergencia y la decisión es de temporada: INSERT temporada_exclusion(..., 'divergencia', leido)
+    #   solo si el bid leído difiere también del old_value de la decisión. Si Amazon tiene el bid de
+    #   antes, el cambio no llegó (caída entre el intento y el PUT, o 5xx): sin exclusión, el efecto
+    #   cierra y mañana la hoja se deriva otra vez.
     Cubre los tres caminos de confirmación: aplica_bids (:1439) y reconcilia_bids (:814, :826)."""
 
 def registra_sin_aplicar(conn, decision_id, cycle_id, motivo, *, detalle=None) -> None:
@@ -1272,7 +1318,7 @@ SELECT EXISTS (
 
 # app/apply.py — escritor de presupuestos (H1)
 def _aplica_y_confirma(conn, cliente, plataforma, clase, destino, ajuste, *, ajuste_id, llave, previa):
-    """(apply.py:2085) La llave del candado pasa a ser por campaña y campo:
+    """(apply.py:2087) La llave del candado pasa a ser por campaña y campo:
     # llave = f"campana:{destino.campana_id}:{campo_del_ajuste(ajuste)}"   (también al regresar)
     # bajo el candado y ANTES del PUT:
     #   si existe un campana_ajuste aceptado posterior (id mayor) de la misma campaña y campo
@@ -1315,7 +1361,7 @@ después de ARREGLOS 01. Sin `BEGIN/COMMIT`: el despliegue la aplica en una sola
 --   SELECT count(*) FROM decision
 --    WHERE inputs->>'motivo' IN ('entra_temporada_baja','ajusta_temporada_baja','sale_temporada_baja');
 
--- 1. Origen 'temporada'. Se redefine la vista de 0067 (0067:65-95); las dos columnas nuevas van al
+-- 1. Origen 'temporada'. Se redefine la vista de 0067 (0067:65-100); las dos columnas nuevas van al
 --    final (CREATE OR REPLACE VIEW solo deja agregar columnas al final); las otras ramas dan NULL.
 CREATE OR REPLACE VIEW v_cambio_bid AS
 SELECT d.ad_entity_id AS hoja_id, da.confirmed_at AS confirmado_el, d.old_value AS bid_antes,
@@ -1412,7 +1458,7 @@ restaura la vista de 0067, el CHECK anterior de `decision_sin_aplicar` y borra l
 | `app/optimizer/politica.py` | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja, R6r, BUD, frenos | el orden de las reglas |
 | `app/optimizer/cortes.py`, `bid.py`, `windows.py` | `mult_baja` obligatorio, exceso económico, `cerca` | cuánto exige un corte y qué ventana mira |
 | `app/lecturas_caso.py` | historia con instantes, cerca por hoja, presupuesto, `frontera`, `tiene_pendiente`, `casos` | lo que se lee una vez por plataforma |
-| `app/temporada_io.py` (nuevo) | `lee_estado`, `registra_ciclo`, `estampa`, `abre_efectos`, `frontera_hoja`, `episodios`, `reactivaciones_pendientes` | el episodio y sus efectos |
+| `app/temporada_io.py` (nuevo) | `lee_estado`, `registra_ciclo`, `estampa`, `abre_efectos`, `registra_fines`, `frontera_hoja`, `episodios`, `reactivaciones_pendientes` | el episodio y sus efectos |
 | `app/cycle.py` | estación, frontera, inertes en vivo, sombra, TX3 de temporada, reactivaciones, aviso, `notes.temporada` | orquestación |
 | `app/apply.py`, `app/apply_cola.py` | lectura fresca, exclusión, cierre de efectos en la confirmación, `aplica_reactivaciones`, `_SQL_PAUSE_PROPIO`, revalidación con frontera, candado de presupuesto por campaña | escribir a Amazon |
 | `migrations/NNNN` | vista, episodio, efecto, exclusión, motivo, permisos | la identidad durable |
@@ -1450,8 +1496,9 @@ Para seguir una decisión de bid: `cycle._procesa_decisora` → `politica.decide
 ### Lo que el diseño no hace
 
 - No escribe presupuestos solo. No estima índices estacionales.
-- No revierte negatives de la baja: quedan marcados (`inputs.caso.temporada`) y la pantalla los lista
-  para el botón `/reversa/negative` que ya existe.
+- No revierte negatives de la baja: quedan marcados (`inputs.caso.temporada`). Deshacer uno es una
+  llamada a `POST /reversa/negative` (`app/api_write.py:409`), que hoy no tiene botón en ninguna
+  pantalla; la temporada no agrega esa lista.
 - No toca bids heredados del ad group (`bid.valor` None, `app/optimizer/caso.py:296`): quedan como
   exclusión visible.
 - No cambia la meta de pausas, negatives ni harvest en alta. No adelanta la meta de alta a la
@@ -1482,7 +1529,7 @@ ARREGLOS 01, U: `plans/arreglos-01.md:281`)*. En la práctica, la keyword no reg
 R6r calcula el bid más alto que la evidencia sostiene, con la misma gamma y la misma previa de R6:
 
 - `arg_subida` = `clics_sub × cpc / (0.85 × meta / 100 × ticket_sub)`, el argumento que `_p_bajo` pasa a
-  `gamma_q` al CPC de hoy (`politica.py:444-446`; `gamma_q` en `app/optimizer/evidencia.py:44`). La meta
+  `gamma_q` al CPC de hoy (`politica.py:444-446`; `gamma_q` en `app/optimizer/evidencia.py:46`). La meta
   es la del juicio (25 % en alta).
 - `m*` es el multiplicador del CPC con el que `gamma_q(a_subida, m* × arg_subida)` cae exactamente a
   `confianza_subida`. El CPC se proyecta lineal con el bid, lo cual es pesimista: en una subasta de
@@ -1606,7 +1653,7 @@ cerca de cada keyword es el día siguiente a su movimiento real, no el 1 de ener
 - Ningún recorte por evidencia: R3, R4, R9 y R11 dan `Mantener("temporada_baja")`. R1 no aplica.
 - Subidas con techo de baja (R6 y R6r).
 - Pausas y negatives con el multiplicador del dueño (×2 por defecto) en clics, gasto mínimo y exceso de
-  la pausa económica (`EXCESO_MINIMO`, `app/optimizer/bid.py:135`, `:253-258`), al decidir y al liberar.
+  la pausa económica (`EXCESO_MINIMO`, `app/optimizer/bid.py:135`, `:253-260`), al decidir y al liberar.
   Con ×2, la pausa pide 200 clics y 1,000 MXN (80 USD) sin pedidos en la ventana, y la pausa económica un
   exceso de 2,000 MXN (160 USD). La protección por venta reciente de O sigue igual.
 - Por qué ×2: con conversión `c`, la probabilidad de ver 0 pedidos por azar en `n` clics es `(1 − c)^n`.
@@ -1624,7 +1671,10 @@ El primer ciclo en que la fase deja de ser baja (o el siguiente a «Terminar la 
 1. TX3 cierra el episodio.
 2. Cada keyword reducida con regreso pendiente recibe `Regresar(nivel, "sale_temporada_baja")` **antes de
    R0**, aunque sea inerte y aunque haya vendido en los últimos 10 días: la espera por venta reciente
-   (`DIAS_PROTECCION_VENTA = 10`, `app/optimizer/caso.py:34`) no retiene un regreso planeado.
+   (`DIAS_PROTECCION_VENTA = 10`, `app/optimizer/caso.py:34`) no retiene un regreso planeado. El nivel
+   es la base de la entrada; solo si Orbit recortó por evidencia después de la entrada (temporada
+   apagada o en práctica a media baja) el regreso conserva esos recortes en proporción
+   (`nivel_de_regreso`: 5.60 → 3.15 regresa a 4.50, no a 8.00).
 3. Ese día la pausa no se juzga con datos de la baja. Desde el regreso confirmado, la cerca de la keyword
    es el día UTC siguiente: si se confirmó el 1 de julio a las 23:55, la evidencia nueva empieza el 2 de
    julio y el día mixto queda fuera, en la hoja y en la revalidación de la cola. Con 7 fechas completas y
@@ -1695,7 +1745,7 @@ Una propuesta por momento:
 | --- | --- | --- |
 | Baja (episodio abierto) | `q(antes × (1 − reducción))`, si el vigente es mayor. `antes` = presupuesto vigente al abrir el episodio | en cuanto hay cualquier cambio de presupuesto desde que abrió el episodio |
 | Fin de la baja (30 días desde el cierre del episodio) | regresar a `antes` | si David puso otro monto: solo sale si el único cambio desde que abrió el episodio fue exactamente la propuesta de baja |
-| Preparación y alta | `min(q(vigente × (1 + aumento)), tope humano de X)` en campañas sin presupuesto (5 de 7 días al 90 %) | en cuanto hay un aumento desde que empezó la preparación o el bloque alto: 300 → 375 una vez, nunca 468.75 al recargar |
+| Preparación y alta | `min(q(vigente × (1 + aumento)), tope humano de X)` en campañas sin presupuesto (5 de 7 días al 90 %) | en cuanto hay un aumento por encima de `antes` desde que empezó la preparación o el bloque alto (el regreso a `antes` por «fin de la baja» no cuenta): 300 → 375 una vez, nunca 468.75 al recargar |
 
 Si aplican «fin de la baja» y «alta sin presupuesto», gana el monto mayor. Una propuesta sola hace cero
 escrituras. La frase dice «baja de pujas» y muestra el gasto observado aparte: un presupuesto menor y un
@@ -1770,8 +1820,8 @@ recalcula en cada lectura. El resultado:
 
 Si la meta vigente o la meta de alta es igual o mayor que el equilibrio, el aviso sale en rojo:
 
-> Con una meta de 25 % en temporada alta pierdes dinero en cada venta de Amazon US: tu punto de
-> equilibrio es 23.8 %.
+> Con una meta de 25 % en temporada alta, Orbit acepta ventas que pierden dinero en Amazon US: las que
+> salen con un ACoS entre tu punto de equilibrio, 23.8 %, y 25 %.
 
 Vale también cuando la banda [10, 45] (`goals.py:608-609`) deja la meta en 10 sobre un equilibrio menor.
 Sin equilibrio, la línea dice por qué, en llano: «faltan costos de algunos productos»
@@ -1804,7 +1854,7 @@ día.
 | 1 ene 2027 | baja | TX3 abre el episodio E1. R0 no pausa. Entrada: `ceil_centavo(8.00 × 0.70)` → `Mover(-0.30, 5.60, "entra_temporada_baja")`. Amazon confirma ese ciclo. Cerca de la keyword: 2 ene | 5.60 |
 | 1 feb | baja | Del 2 al 22 ene gastó 400 MXN sin venta: R9 daría −12 % → `Mantener("temporada_baja")`. R1 no mira el cambio (origen `temporada`) | 5.60 |
 | 8 feb | normal (preparación) | E1 cierra. Regreso pendiente antes de R0: `Regresar(8.00, "sale_temporada_baja")`, aunque haya vendido ayer. Cerca: 9 feb | 8.00 |
-| 21 mar | alta | Meta del juicio `min(40.16, max(20.08, 25))` = 25 %. Evidencia desde el 9 feb: 3 pedidos, ACoS 12 %; P(ACoS < 21.25 %) ≥ 0.70 → R6 +15 %. Los frenos de repetición no juzgan el regreso (solo R2, cumplido) | 9.20 |
+| 21 mar | alta | Meta del juicio `max(20.08, 25)` = 25 % (libre: no la acota el equilibrio). Evidencia desde el 9 feb: 3 pedidos, ACoS 12 %; P(ACoS < 21.25 %) ≥ 0.70 → R6 +15 %. Los frenos de repetición no juzgan el regreso (solo R2, cumplido) | 9.20 |
 | 30 abr | alta | Sin cambio: R15 pide 20 clics nuevos al bid de 9.20 | 9.20 |
 | 1 may | baja | E2 abre. Entrada: 9.20 × 0.70 | 6.44 |
 | jun | baja | Gasto sin venta: retenido. Una pausa sería posible solo con 200 clics y 1,000 MXN sin pedido desde el 2 may | 6.44 |
@@ -1856,19 +1906,20 @@ Plan TEMPORADA 01, entregado con `motor director encargar`. Los bloques van en c
 `cycle.py`, `politica.py`, `lecturas_caso.py`, `apply.py`). Cada prueba se llama
 `test_temporada01_<bloque>_<qué>` y debe fallar en el SHA previo al bloque. Una prueba por unidad nueva
 que mueve dinero o escribe en producción o en Amazon; lo demás se comprueba corriendo lo real. Antes de
-empezar: integrar sobre el SHA final de ARREGLOS 01 y releer las firmas de P, T, U, V y X en el código.
+empezar: integrar sobre el SHA final de ARREGLOS 01 y releer las firmas de P, T, U, V, W y X en el código.
 
 | Bloque | Contenido | Prueba (caso del repo) | Efecto en vivo |
 | --- | --- | --- | --- |
+| I — Equilibrio con el costo de hoy | migración `<n>_temporada01_margen_vigente.sql` y reversa; `cogs_vigente`, `cobertura_vigente` y `margen_vigente_pct` en `v_target_margen_plataforma`, `v_margen_producto` y `v_margen_familia`; meta derivada y `equilibrio_acos_pct` desde el margen vigente; `notes.target` con los dos márgenes; `migraciones_de` reconoce `temporada01` | instalar: `test_temporada01_i_migracion_en_migraciones_de` (una migración `<n>_temporada01_x.sql` con cabecera y reversa sale en `migraciones_de`). Dinero: `test_temporada01_i_equilibrio_con_costo_vigente` (los casos de «Punto de equilibrio con el costo vigente») | la meta derivada y el equilibrio de MX y US cambian desde el ciclo siguiente al despliegue; `I/antes.md` dice cuánto |
 | A — Calendario y Ajustes | `temporada.py` (config, `valida` con tipos crudos, lectores, `resuelve`, `eventos`, `resumen`); `config_write` + `CuerpoSettings` + vista previa; tarjeta, campos de plataforma, «Terminar la baja hoy», «Mantener pausada»; `ads_campana_topada` leído por avisos y dinero; fichas en `features/` | dinero: `test_temporada01_a_fechas_del_calendario` (1 ene baja; 8 feb 2027 y 9 feb 2028 regreso; ago-sep-oct con 42 días → 20 ago; dic-feb un solo bloque; `fin_anticipado`). Escribe en producción: `test_temporada01_a_post_rechaza_booleanos` (`true`/`false` dan 422 y la config no cambia; `"25"` y `25` se aceptan) | ninguno (sin interruptores) |
-| B — Episodio, origen e historia | migración y reversa; `OrigenCambio`, `CambioFechado`, `HistoriaBid`; `recuperacion.cadena_bid`; `temporada.pendiente`, `destino_entrada`, `frontera`; `temporada_io` (`lee_estado`, `registra_ciclo`, `estampa`, `abre_efectos`); cierre de efectos en `_confirma_resumen` y `registra_sin_aplicar`; `pantalla_danadas` ignora `temporada` | dinero: `test_temporada01_b_pendiente` (entra una vez; cambiar mayo a normal con junio en baja no recorta 5.60 → 3.92; 30 → 20 da 6.40; mano de David no regresa; el regreso nunca baja). Escribe en producción: `test_temporada01_b_episodio_reparado_tras_caida` (con base: entrada confirmada y efecto abierto como tras una caída; el ciclo siguiente cierra el efecto, deja un episodio y un efecto, y no decide otra entrada) | ninguno |
-| C — Subida rápida (práctica) | `techo_conocido`, `multiplicador_sostenible`, `destino_recuperacion`, `presupuesto_topado`; R6r y BUD; frenos del primer y segundo salto; `MOTIVOS_ES`; campos de plataforma | dinero: `test_temporada01_c_recupera_con_evidencia` (caso D da `Regresar(7.10)`; topada 5 de 7 da `Mantener("presupuesto_topado")`; misma evidencia no salta dos veces) | `ads_bid_recuperacion_<plat>=shadow` en MX y US |
-| D — Temporada en la política (práctica) | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja en R6 y R6r, frenos; `cortes` con `mult_baja` y exceso económico; `windows` y tramos con cerca; revalidación de la cola con `frontera_hoja`; inertes en vivo; sombra en `notes.temporada` | dinero: `test_temporada01_d_salida_antes_de_pausa` (5.60, regreso pendiente, 200 clics, 1,000 MXN, 0 pedidos → `Regresar(8.00)` y ningún `Pausar`; al liberar con regreso pendiente usa ×2 y la cerca vieja; tras el regreso confirmado no hay pausa sin evidencia nueva). Dinero: `test_temporada01_d_dia_mixto_excluido` (regreso a las 23:55 del 1 jul; 150 clics y 750 MXN ese día; ni la decisión ni la revalidación de 48 h pausan; con la cerca del 2 jul hay 7 fechas sin gasto). Dinero: `test_temporada01_d_centavos_de_la_entrada` (0.15 USD → 0.11; 1.55 MXN → 1.09; 0.10 USD sin centavo factible → excluida; lo congelado = lo enviado). Dinero: `test_temporada01_d_techo_de_baja_compartido` (20 → 10 → 7: R6r ≤ 14 y R6 ≤ 14; 8 → 5.60 sin recortes previos no sube en baja). Dinero: `test_temporada01_d_baja_entra_y_retiene` (entrada −30 %; R9 retenido; R1 no regresa la entrada). Dinero: `test_temporada01_d_meta_alta` (MX 20.13 → 25; US 19.05 con equilibrio 23.81 → 25 y `equilibrio_del_juicio` 25; meta de campaña 15 sigue en 15; base 30 → 30; sin equilibrio → 25). Dinero: `test_temporada01_d_cortes_por_multiplicador` (umbral, piso y exceso económico ×2 en baja, al decidir y al liberar; iguales fuera) | `ads_temporada_<plat>=shadow` con los meses de David, MX y US |
+| B — Episodio, origen e historia | migración y reversa; `OrigenCambio`, `CambioFechado`, `HistoriaBid`; `recuperacion.cadena_bid`; `temporada.pendiente`, `destino_entrada`, `frontera`; `temporada.reduccion_vigente`; `temporada_io` (`lee_estado`, `registra_ciclo`, `estampa`, `abre_efectos`, `registra_fines` en `temporada_fin_reduccion`); cierre de efectos en `_confirma_resumen` y `registra_sin_aplicar`; `pantalla_danadas` ignora `temporada` | dinero: `test_temporada01_b_pendiente` (entra una vez; cambiar mayo a normal con junio en baja no recorta 5.60 → 3.92; 30 → 20 da 6.40; mano de David no regresa; el regreso nunca baja). Escribe en producción: `test_temporada01_b_episodio_reparado_tras_caida` (con base: entrada confirmada y efecto abierto como tras una caída; el ciclo siguiente cierra el efecto, deja un episodio y un efecto, y no decide otra entrada). Escribe en producción: `test_temporada01_b_fin_de_reduccion` (los casos 1 a 7 de la fila B.2 del plan: fin guardado al salir sin regreso y entrada nueva en E2; exclusión por la mano de David con E2 abierto, también el día de la apertura; `Mantener` e inertes; mano de la mañana de la apertura; nada en práctica; `dueno_al_final` sin fecha; (8) temporada apagada a media baja con recortes 5.60 → 4.20 → 3.15: al encender, el regreso va a 4.50 y un episodio de otra baja se cierra; (9) Orbit pausó en la baja y David reactivó el día 10: el día 11 no hay entrada) | ninguno |
+| C — Subida rápida (práctica) | `techo_conocido`, `multiplicador_sostenible`, `destino_recuperacion`, `presupuesto_topado`; R6r y BUD; frenos del primer y segundo salto; `MOTIVOS_ES`; campos de plataforma | dinero: `test_temporada01_c_recupera_con_evidencia` (caso D da `Regresar(7.10)`; topada 5 de 7 da `Mantener("presupuesto_topado")`; misma evidencia no salta dos veces) | ninguno hasta P, que pone `ads_bid_recuperacion_<plat>=shadow` en MX y US |
+| D — Temporada en la política (práctica) | RTs antes de R0, RTe, `_paso_a_centavo`, guarda de R1, meta del juicio, HOLD, techo de baja en R6 y R6r, frenos; `cortes` con `mult_baja` y exceso económico; `windows` y tramos con cerca; revalidación de la cola con `frontera_hoja`; inertes en vivo; sombra en `notes.temporada` | dinero: `test_temporada01_d_salida_antes_de_pausa` (5.60, regreso pendiente, 200 clics, 1,000 MXN, 0 pedidos → `Regresar(8.00)` y ningún `Pausar`; al liberar con regreso pendiente usa ×2 y la cerca vieja; tras el regreso confirmado no hay pausa sin evidencia nueva; con la campaña topada el regreso no sale, se anota `regreso_espera_presupuesto` y la hoja sigue en baja con ×2 y HOLD). Dinero: `test_temporada01_d_dia_mixto_excluido` (regreso a las 23:55 del 1 jul; 150 clics y 750 MXN ese día; ni la decisión ni la revalidación de 48 h pausan; con la cerca del 2 jul hay 7 fechas sin gasto). Dinero: `test_temporada01_d_centavos_de_la_entrada` (0.15 USD → 0.11; 1.55 MXN → 1.09; 0.10 USD con piso 0.10 sin centavo factible → excluida; lo congelado = lo enviado). Dinero: `test_temporada01_d_techo_de_baja_compartido` (20 → 10 → 7: R6r ≤ 14 y R6 ≤ 14; 8 → 5.60 sin recortes previos no sube en baja). Dinero: `test_temporada01_d_baja_entra_y_retiene` (entrada −30 %; R9 retenido; R1 no regresa la entrada). Dinero: `test_temporada01_d_meta_alta` (MX 20.13 → 25; US 19.05 con equilibrio 23.81 → 25 y `equilibrio_del_juicio` 25; meta de campaña 15 sigue en 15; base 30 → 30; sin equilibrio → 25; fuera de alta R3 vuelve a 23.81). Dinero: `test_temporada01_d_cortes_por_multiplicador` (umbral, piso y exceso económico ×2 en baja, al decidir y al liberar; iguales fuera) | ninguno hasta P, que pone `ads_temporada_<plat>=shadow` con los meses de David en MX y US |
 | P — Práctica encendida | `ads_bid_recuperacion_*` y `ads_temporada_*` en `shadow` con `escribe_api.sh`, con C y D ya desplegados | sin prueba nueva (lane gate) |  |
-| E — Lectura fresca y mano de David | lectura antes de cuota y PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano y por divergencia; prioridad bajo cupo | escribe en Amazon: `test_temporada01_e_mano_del_dueno_excluye` (bid 8.00, decisión 5.60, Amazon en 7.00 → cero PUT, exclusión guardada; al día siguiente no hay entrada y sigue en 7.00) | cambia el envío de los bids en vivo de hoy: un GET más por bid y cero PUT si David cambió el bid |
+| E — Lectura fresca y mano de David | lectura antes de cuota y PUT para toda decisión de bid; `bid_cambiado_fuera`; `temporada_exclusion` por mano y por divergencia; prioridad bajo cupo | escribe en Amazon: `test_temporada01_e_mano_del_dueno_excluye` (bid 8.00, decisión 5.60, Amazon en 7.00 → cero PUT, exclusión guardada; al día siguiente no hay entrada y sigue en 7.00, y con evidencia que dispararía R6r no hay `Recupera`) | cambia el envío de los bids en vivo de hoy: un GET más por bid y cero PUT si David cambió el bid |
 | F — Fin de la baja | `reactivaciones_pendientes`, `pendiente_reactivacion`, `aplica_reactivaciones` con sus guardas, `_SQL_PAUSE_PROPIO`, replay del motor `temporada`, `aviso_del_dia` | escribe en Amazon: `test_temporada01_f_reactiva_solo_pausas_de_baja` (con base: pausa de Orbit confirmada de la baja con episodio cerrado → `resume`; pausa del dueño, reactivada por el dueño, ya revertida, en «Mantener pausada» o de episodio abierto → no). Escribe en Amazon: `test_temporada01_f_reactivar_no_bloquea_pausas` (tras la reversa de temporada, una pausa nueva no inserta `reactivacion_manual`) | en práctica se listan en `notes.temporada.reactivaciones` |
-| G — Presupuestos | `propuesta_presupuesto`; columna y botón en «Dónde poner el dinero» con `APLICAR AJUSTE`; candado por campaña y campo en `_aplica_y_confirma` (también al regresar); tope de X; ficha en `features/` | dinero: `test_temporada01_g_propuestas_absolutas` (baja 300 → 210; fin 210 → 300; alta 300 → 375 una vez y nada tras aprobar; 250 a mano → sin fin de baja; tope de X). Escribe en Amazon: `test_temporada01_g_presupuesto_misma_campana_en_orden` (A aprueba 375, B ordena 270 después y termina primero; A no envía; final 270) | el candado corrige hoy el flujo de ajustes de David; las propuestas no escriben |
-| H — En vivo, MX y US juntos | Subida rápida y temporada a `live` en las dos plataformas después de un ciclo completo de práctica, revisando en `notes.temporada` cuántos `recupera_nivel`, el m* máximo, el gasto extra proyectado, las entradas, los retenidos, las metas de alta y las reactivaciones. Se para si un bid enviado baja más que la reducción, si un regreso baja un bid, si sale un PUT después de una lectura fresca distinta, si una keyword recibe dos entradas en un episodio o si un presupuesto se escribe sin `APLICAR AJUSTE` | — | escritura de settings desde Ajustes; se deshace con «Terminar la baja hoy» (los bids regresan) o quitando la clave (apagar no deshace) |
+| G — Presupuestos | `propuesta_presupuesto`; columna y botón en «Dónde poner el dinero» con `APLICAR AJUSTE`; candado por campaña y campo en `_aplica_y_confirma` (también al regresar); tope de X; ficha en `features/` | dinero: `test_temporada01_g_propuestas_absolutas` (baja 300 → 210; fin 210 → 300; alta 300 → 375 una vez y nada tras aprobar; fin de baja aprobado el 9 feb y campaña topada en marzo → 375; 250 a mano → sin fin de baja; tope de X). Escribe en Amazon: `test_temporada01_g_presupuesto_misma_campana_en_orden` (A aprueba 375, B ordena 270 después y termina primero; A no envía; final 270) | el candado corrige hoy el flujo de ajustes de David; las propuestas no escriben |
+| H — En vivo, MX y US juntos | Subida rápida y temporada a `live` en las dos plataformas después de un ciclo completo de práctica, revisando en `notes.temporada` cuántos `recupera_nivel`, el m* máximo, el gasto extra proyectado, las entradas, los retenidos, las metas de alta y las reactivaciones. Se para si un bid enviado baja más que la reducción, si un regreso baja un bid, si sale un PUT después de una lectura fresca distinta, si una keyword recibe dos entradas en un episodio o si un presupuesto se escribe sin `APLICAR AJUSTE` | — | las cuatro claves a `live` con `escribe_api.sh`; chequeos con `at` el día siguiente al encendido y el día de cada transición del calendario y el siguiente; se deshace con «Terminar la baja hoy» (los bids regresan) o quitando la clave (apagar no deshace) |
 
 Regla de replay del repo: todo lo que toca `decide` va detrás de marcadores congelados. La vista
 `v_cambio_bid` cambia la clasificación de origen: la consulta previa de la migración da 0 filas con los
@@ -1883,11 +1934,17 @@ solo lectura confirma 0 decisiones `resume` del motor `temporada`.
 1. **Amazon no ofrece compare-and-set.** La lectura fresca reduce la carrera, no la elimina: si David
    cambia el bid entre el GET y el PUT (segundos), Orbit lo pisa, el readback ve el valor de Orbit y la
    cadena queda continua. No se promete atomicidad; se reconcilia con lo que Amazon confirma.
-2. **Una mano de David anterior a la decisión de entrada no se puede fechar.** Si cambió el bid en
-   Amazon después del 1 de enero y el sync ya lo trajo antes de que Orbit decidiera, la entrada se aplica
-   sobre su bid. No hay historia del bid fuera de Orbit (`app/ads/structure.py:199-210`).
+2. **Una mano de David sin fecha.** Amazon no dice cuándo cambió él un bid; Orbit solo ve que el bid
+   vigente no es el último que confirmó (`dueno_al_final`, con la historia de 365 días). Para una keyword
+   que Orbit movió en ese plazo, ese bid distinto cuenta como su mano de esta baja aunque sea de meses
+   antes, y la keyword no recibe la entrada (plan B.2, caso 7). Para una keyword que Orbit no tocó en 365
+   días no hay con qué comparar: la entrada baja 30 % el bid que tenga, sea de quien sea, y el regreso lo
+   restituye. Medido en producción el 2026-11-12: 0 keywords con `dueno_al_final` en MX y en US; sin
+   cambio de Orbit en 365 días, 271 de 353 en MX y 189 de 234 en US. Un cambio de menos de 0.005 no se
+   distingue. No hay historia del bid fuera de Orbit (`app/ads/structure.py:199-210`).
 3. **Un regreso retenido por presupuesto puede cruzar meses.** Mientras David no apruebe la propuesta, la
-   keyword sigue reducida y con cortes ×2. La pantalla lo dice. Es deliberado: con la campaña topada, un
+   keyword sigue reducida y con cortes ×2, también en plena alta: juzga con la meta base, no con 25, y
+   no sube. La pantalla lo dice. Es deliberado: con la campaña topada, un
    bid más bajo da más clics por el mismo gasto.
 4. **La cerca retrasa decisiones.** Después de cada entrada y cada regreso, los cortes esperan 7 fechas
    completas más la madurez de 10 días; el primer mes de la alta y de un mes normal tras la baja tienen
@@ -1900,20 +1957,27 @@ solo lectura confirma 0 decisiones `resume` del motor `temporada`.
    práctica compara lo proyectado con lo medido antes de encender.
 8. **La meta de alta puede perder dinero.** Es libre: si pasa el equilibrio, cada venta con ACoS entre
    el equilibrio y la meta pierde. Ajustes lo muestra en rojo con el equilibrio calculado con el costo
-   de hoy.
+   de hoy. El aviso es por plataforma: una keyword que decida con meta de producto o de familia (V) y
+   un equilibrio propio bajo 25 pierde sin aviso propio; en la lectura del 2026-11-12 ninguna decidía así.
 9. **El cupo de 1,000,000 cuenta operaciones, no dinero.** La entrada suele salir en un ciclo, pero un
    fallo HTTP la deja para mañana; los conteos de la tarjeta son confirmaciones.
 10. **Propuestas de presupuesto con huecos de historial.** Sin fila en `ads_campana_config_observation`
     anterior al episodio no hay propuesta.
 11. **Apagar no es deshacer.** Apagar la temporada a media baja deja los bids reducidos y el episodio
-    abierto; al volver a encender se retoma. Para terminar la baja está «Terminar la baja hoy».
+    abierto; al volver a encender se retoma. Mientras está apagada (o en práctica) rigen las reglas de hoy
+    y Orbit puede recortar por evidencia; al volver, el regreso conserva esos recortes en proporción
+    (`nivel_de_regreso`) y un episodio de otra baja se cierra y se abre uno nuevo. Para terminar la baja
+    está «Terminar la baja hoy».
 12. **Las pausas anteriores al encendido no se reactivan.** No tienen episodio; «pausa de la baja» es un
     dato de la decisión, no una inferencia por fechas.
 13. **Una pausa en la cola el día de la salida retrasa el regreso** hasta que la cola la resuelva (hasta
     48 horas).
-14. **El contrato de ARREGLOS 01 no está en el código de `289f9dd`.** P (`frena_subidas`), T, U
-    (`version_economia`), V y X (`TECHOS_HUMANOS_POR_MONEDA`, `exige_bajo_techo`) se citan por su plan.
-    El bloque A empieza releyendo sus firmas reales.
+14. **El contrato de ARREGLOS 01 no está en el código de `289f9dd` ni en `de895d18`.** P (`frena_subidas`), T, U
+    (`version_economia`), V, W y X (`TECHOS_HUMANOS_POR_MONEDA`, `exige_bajo_techo`) se citan por su plan.
+    `version_economia` viene del diseño que U.1 manda leer
+    (`docs/evidencia/arreglos-2026-11-09/ads-decision/opus/DISENO.md`), no del texto del plan de U; si U
+    lo integra con otro nombre o conserva `con_economia`, vale el código real. El plan relee todas estas
+    firmas antes del bloque I.
 15. **El historial congelado crece.** `HistoriaBid` guarda hasta 365 días (o más, si una keyword sigue
     reducida) con instantes; es más JSON por decisión a cambio de no tocar la semántica de R1, R2,
     R14–R17 ni `piso_aprendido`.
@@ -1938,4 +2002,10 @@ porcentajes. La revisión cruzada de Kimi y Grok (las dos con cambios) pidió qu
 antes de R0, que la mano de David vista al aplicar se guarde como exclusión, que el episodio tenga un solo
 escritor ligado a la confirmación con reconciliación y su migración, una prueba por cada unidad nueva de
 dinero o escritura, un solo contrato sin anexos, y corregir tres afirmaciones (R3 al salir de la alta, la
-espera por venta reciente en el regreso y «todas dañadas el primer día»).
+espera por venta reciente en el regreso y «todas dañadas el primer día»). La verificación del 2026-11-12
+contra `de895d18` (tres lectores: anclas de código, trazabilidad de las decisiones y adversario de dinero)
+fechó la mano sin registro al verse (antes excluía la keyword de todas las bajas siguientes), hizo mano
+del dueño a la reactivación manual, conservó en proporción los recortes hechos con la temporada apagada,
+cierra un episodio de otra baja, dejó que el regreso del presupuesto no bloquee la propuesta de alta, no
+excluye por una escritura que no llegó a Amazon, y corrigió el riesgo 2, el ejemplo del 21 de marzo, el
+aviso rojo, la lista de negatives, la tabla de bloques y la vigilancia de las transiciones en H.
