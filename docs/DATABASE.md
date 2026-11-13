@@ -773,6 +773,14 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   **Fuente única** de «inerte» para el ciclo (guarda `entidad_inerte`), la
   página `/inertes`, el digest y la herramienta de archivo; ausencia de
   fila = NO inerte.
+- **`v_ledger_cargo`** (ARREGLOS 02, migración `0086`) — los cargos del libro
+  (`fee`/`refund`/`withholding`) **sin la comisión estimada cuando ya llegó la
+  real del mismo pedido** (misma plataforma, `order_id`, `kind` y `fee_type`;
+  la estimada es `source_event_id` con `fee_estimate` en su segunda parte).
+  La fuente de cargos de las cuatro vistas de margen
+  (`v_target_margen_plataforma`, `v_margen_producto`, `v_economia_producto`,
+  `v_margen_familia`); la estimada de un pedido sin liquidar sigue contando
+  (es el mejor costo conocido). Reversa en `0086_reversa_arreglos02_cargos.sql`.
 - **`v_target_margen_plataforma`** (ORBIT 06, migración `0015`) — **margen
   neto %** por plataforma sobre la ventana **[D-105, D-15)** con hoy =
   `CURRENT_DATE` UTC (15 días de maduración, regla 6; 90 de historia;
