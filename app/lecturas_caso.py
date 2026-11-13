@@ -317,13 +317,18 @@ SELECT a.parent_id, a.first_seen_at
 # ARREGLOS 01 T (unidad AD-U6a, C-H1): quinta fuente de invalidacion. Un
 # negative o un harvest aplicado en el MISMO ad group cambia el alcance del
 # grupo y contamina [x-7, x+7]; el harvest crea ademas un negative EXACT en el
-# origen. Se lee en el mismo lote de eventos por ad group.
+# origen. Se lee en el mismo lote de eventos por ad group. 'ok' y
+# 'ok:reconciliado' son los dos sellos de un intento aplicado (la misma regla
+# que tools/dossier_adversarial.py:125): el reconciliador confirma un PUT
+# ambiguo y el corte si ocurrio.
 _SQL_CORTES_GRUPO = """
 SELECT d.ad_entity_id, a.finished_at
   FROM apply_attempt a
   JOIN decision d  ON d.id = a.decision_id AND d.kind IN ('negative','harvest')
   JOIN ad_entity g ON g.id = d.ad_entity_id AND g.kind = 'ad_group'
- WHERE g.platform = %s::platform AND a.resultado = 'ok' AND a.tipo IN ('normal','reversa')
+ WHERE g.platform = %s::platform
+   AND a.resultado IN ('ok','ok:reconciliado')
+   AND a.tipo IN ('normal','reversa')
    AND a.finished_at >= %s AND a.finished_at <= %s
 """
 
