@@ -25,17 +25,25 @@ en amazon_mx), así que con el dato de hoy el redondeo era identidad respecto
 del rango. El esquema no garantiza centavos (NUMERIC), y el invariante
 declarado manda.
 
-**Corrección.** La regla vive en `app/optimizer/centavos.py`
-(`centavo_en_rango`): el centavo de `centavo_hacia` vale solo si queda dentro
-de `[piso, techo]`; si el redondeo hacia el bid de hoy lo saca del rango, el
-otro centavo se aleja del bid de hoy más que el paso decidido, así que ningún
-bid de Amazon cumple a la vez el paso y el rango: el ajuste no sale
-(`Mantener(rango_bloquea_ajuste)`, motivo existente del vocabulario cerrado).
-Se aplica en los dos sitios que redondean (`_paso` y R1): el patrón completo,
-no solo la línea anclada. Con pisos y techos de centavos el comportamiento es
-idéntico al del diseño (la comprobación del rango nunca dispara).
+**Corrección (F1 y su continuación F3).** La regla vive en
+`app/optimizer/centavos.py` (`centavo_en_rango`): el bid decidido es un
+centavo dentro de `[piso, techo]`. Se prefiere el centavo que no se aleja del
+bid de hoy más que `destino`; si ese cae fuera del rango del goal, se toma el
+del lado contrario, que obedece al goal aunque se aleje un centavo más (F3:
+sin él, un bid que ya quedó fuera del rango por un cambio de goal se
+congelaría para siempre, porque ningún redondeo hacia el bid de hoy cabría:
+0.50 con techo 0.435 recorta a 0.43 y 0.10 con piso 0.118 sube a 0.12).
+`None` solo cuando el rango no contiene ningún centavo (p. ej. piso 0.105 con
+techo 0.108): el ajuste no sale (`Mantener(rango_bloquea_ajuste)`, motivo
+existente del vocabulario cerrado). Los clamps de dirección y magnitud de
+`_paso` siguen validando el resultado. La regla se aplica en los dos sitios
+que redondean (`_paso` y R1): el patrón completo, no solo la línea anclada.
+Con pisos y techos de centavos el comportamiento es idéntico al del diseño
+(la comprobación del rango nunca dispara).
 
 Prueba: `test_arreglos02_b_el_redondeo_no_sale_del_rango_del_goal`
 (`tests/test_optimizer_politica.py`), roja contra `0e1fd46` con los dos casos
 de arriba (`Mover(-0.12, 0.44)` sobre techo `0.435` y `Mover(0.15, 0.11)`
-bajo piso `0.118`) y verde con la corrección.
+bajo piso `0.118`) y verde con la corrección: `Mover(-0.12, 0.43)` y
+`Mover(0.15, 0.12)` dentro del rango, y `Mantener` solo con un rango sin
+ningún centavo dentro.

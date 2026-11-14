@@ -653,8 +653,9 @@ def _paso(
     nuevo = valor * (_UNO + factor_c)
     nuevo = min(max(nuevo, bid.piso), bid.techo)
     if centavos:
-        # F1: un piso o techo que no es centavo puede dejar al redondeo fuera
-        # del rango del goal; el ajuste no sale (regla de app.optimizer.centavos).
+        # F1/F3: un piso o techo que no es centavo puede dejar al redondeo
+        # fuera del rango del goal; la regla de app.optimizer.centavos elige
+        # el centavo dentro del rango y None solo si ninguno cabe.
         redondeado = centavo_en_rango(nuevo, desde=valor, piso=bid.piso, techo=bid.techo)
         if redondeado is None:
             return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)

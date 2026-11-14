@@ -960,9 +960,7 @@ def test_arreglos02_b_el_redondeo_no_sale_del_rango_del_goal():
         propia=nivel(tramo(clics=60, pedidos=0, venta="0", gasto="40", impresiones=3000)),
         revision=1,
     )
-    assert decide(recorte) == Mover(
-        Decimal("-0.12"), Decimal("0.43"), "gasto_sin_venta", "hoja"
-    )
+    assert decide(recorte) == Mover(Decimal("-0.12"), Decimal("0.43"), "gasto_sin_venta", "hoja")
 
     propia = nivel(tramo(clics=50, pedidos=5, venta="5000", gasto="200", impresiones=2000))
     subida = fabrica_caso(
