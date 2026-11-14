@@ -408,6 +408,10 @@ def _juzga_sin_pedidos(
 
 
 def _freno_trayectoria(caso, ultimo, efecto, factor: Decimal) -> Mantener | None:
+    # Un ajuste de campana (direccion 0) no mueve el bid: no hay trayectoria
+    # de bid que repetir ni invertir; solo R2 espera por el precio del clic.
+    if ultimo.direccion == 0:
+        return None
     misma = (-1 if factor < 0 else 1) == ultimo.direccion
     if not misma:
         if efecto.clics_post is None:

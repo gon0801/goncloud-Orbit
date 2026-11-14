@@ -146,8 +146,11 @@ class CambioBid:
     origen: OrigenCambio
 
     @property
-    def direccion(self) -> Literal[-1, 1]:
-        return 1 if self.bid_despues >= self.bid_antes else -1
+    def direccion(self) -> Literal[-1, 0, 1]:
+        # 0 si bid_despues == bid_antes (ajuste de campana); 1 si sube; -1 si baja
+        if self.bid_despues == self.bid_antes:
+            return 0
+        return 1 if self.bid_despues > self.bid_antes else -1
 
 
 @dataclass(frozen=True)

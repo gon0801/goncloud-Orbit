@@ -387,7 +387,7 @@ def test_derivados_propagan_none_de_cualquier_tramo():
 def test_direccion_subida_bajada_y_ajuste():
     assert cambio(antes="10.00", despues="12.00").direccion == 1
     assert cambio(antes="12.00", despues="10.00").direccion == -1
-    assert cambio(antes="10.00", despues="10.00").direccion == 1
+    assert cambio(antes="10.00", despues="10.00").direccion == 0
 
 
 def test_ultimo_none_sin_cambios():
