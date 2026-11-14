@@ -55,6 +55,7 @@ from app.optimizer.politica import (
     Mover,
     Pausar,
     Regresar,
+    _precio_de_hoy,
     decide,
     estado_grupo,
 )
@@ -730,7 +731,7 @@ def test_ajuste_r2_espera():
 
 def test_ajuste_escalera_no_proyecta():
     caso = _caso_ajuste(10)
-    assert decide(caso) == Mantener("esperando_precio_medido")
+    assert _precio_de_hoy(caso)[1] == "ventana_madura"
 
 
 # ---------------------------------------------------------------------------
@@ -760,7 +761,7 @@ def test_ajuste_no_dispara_r1():
     caso = _caso_ajuste(10)
     veredicto = decide(caso)
     assert not isinstance(veredicto, Regresar)
-    assert veredicto == Mantener("esperando_precio_medido")
+    assert veredicto == Mover(Decimal("-0.12"), Decimal("8.80"), "gasto_sin_venta", "hoja")
 
 
 # ---------------------------------------------------------------------------
