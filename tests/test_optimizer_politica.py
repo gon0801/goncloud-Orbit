@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from test_lecturas_caso import (
     _D,
     _DECIDIDO,
@@ -39,10 +41,12 @@ from test_optimizer_caso import (
     trayectoria,
 )
 
+from app.ads.write import _bid_payload
 from app.lecturas_caso import lee_plataforma
 from app.optimizer import windows
 from app.optimizer.caso import (
     BidVigente,
+    CasoHoja,
     InsumosPausa,
     PrecioVentana,
 )
@@ -54,6 +58,7 @@ from app.optimizer.politica import (
     decide,
     estado_grupo,
 )
+from app.optimizer.replay import reproduce
 
 RAIZ = Path(__file__).resolve().parents[1]
 DORADA = RAIZ / "tests" / "fixtures" / "politica_dorada_a1.json"
@@ -874,3 +879,107 @@ def test_hoja_2963_no_recibe_cambios():
     assert len(bruto["casos"]) == 38
     for entrada in bruto["casos"]:
         _revisa_veredicto(entrada["caso"], _esperado(entrada))
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 02 B: el motor decide bids en centavos (revision 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("decision_id", "guardado", "centavo"),
+    [(2865, "0.2904", "0.30"), (2866, "0.4224", "0.43"), (2904, "0.2625", "0.27")],
+)
+def test_arreglos02_b_piso_aprendido_en_centavos(decision_id, guardado, centavo):
+    """Hojas 4934, 5336 y 4924 de Estados Unidos (falla F1 de la revision del
+    2026-11-12): el recorte de hoy queda cuatro decimales arriba del piso
+    aprendido y Amazon lo recibe redondeado EN el piso, donde la hoja ya habia
+    perdido su trafico. Con revision=1 el motor decide el centavo: un recorte
+    redondea hacia arriba y el bid que sale queda arriba del piso, nunca en
+    el; lo decidido es lo que Amazon recibe."""
+    inputs = json.loads(
+        (RAIZ / "tests" / "fixtures" / f"arreglos02_decision_{decision_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    caso = CasoHoja.desde_json(inputs["caso"])
+    assert reproduce(inputs) == ("bid", Decimal(guardado), "USD")
+    veredicto = decide(replace(caso, revision=1))
+    assert isinstance(veredicto, Mover), veredicto
+    assert veredicto.bid_nuevo == Decimal(centavo)
+    assert veredicto.bid_nuevo > caso.trayectoria.piso_aprendido
+    assert _bid_payload(veredicto.bid_nuevo) == str(veredicto.bid_nuevo)
+
+
+def test_arreglos02_b_el_redondeo_no_pasa_del_paso():
+    """Un recorte redondea hacia arriba y una subida hacia abajo: el centavo
+    queda un centavo mas cerca del bid de hoy, nunca mas lejos que el paso.
+    0.06 USD con -25 % da hoy 0.0450, que Amazon recibe como 0.04 (-33 %,
+    fuera del clamp del motor); el piso de 0.02 queda lejos para que mande el
+    redondeo y no el piso. El caso sintetico de F1 con revision=1 corta el
+    circulo: 0.30 en vez de 0.2904 (recibido 0.29, el piso)."""
+    doble = fabrica_caso(
+        plataforma="amazon_us",
+        bid=BidVigente(Decimal("0.06"), "USD", Decimal("0.02"), Decimal("2.50")),
+        economia=economia_us(),
+        propia=nivel(tramo(clics=100, pedidos=0, venta="0", gasto="80", impresiones=3000)),
+        revision=1,
+    )
+    assert decide(doble) == Mover(
+        Decimal("-0.25"), Decimal("0.05"), "gasto_sin_venta_doble", "hoja"
+    )
+
+    sintetico = fabrica_caso(
+        plataforma="amazon_us",
+        bid=BidVigente(Decimal("0.33"), "USD", Decimal("0.10"), Decimal("2.50")),
+        economia=economia_us(),
+        propia=nivel(tramo(clics=60, pedidos=0, venta="0", gasto="40", impresiones=3000)),
+        trayectoria=trayectoria(
+            [
+                cambio(dt.date(2026, 10, 25), "0.33", "0.2904", "motor"),
+                cambio(dt.date(2026, 10, 30), "0.29", "0.33", "regreso_por_desplome"),
+            ],
+            efecto(dias_post=8, clics_post=25, gasto_post="9", vendia=False),
+        ),
+        revision=1,
+    )
+    assert decide(sintetico) == Mover(Decimal("-0.12"), Decimal("0.30"), "gasto_sin_venta", "hoja")
+
+
+def test_arreglos02_b_el_redondeo_no_sale_del_rango_del_goal():
+    """F1 y F3 de la revision del bloque: con un piso o techo del goal que NO
+    es centavo, el redondeo nunca saca el bid del rango (0.50 con techo 0.435
+    recortaba a 0.44; 0.10 con piso 0.118 subia a 0.11) y tampoco congela un
+    bid que ya esta fuera del rango: el recorte obedece al techo (0.43) y la
+    subida al piso (0.12), dentro de [piso, techo]. Solo un rango sin ningun
+    centavo dentro (piso 0.105, techo 0.108) no deja ajuste posible."""
+    recorte = fabrica_caso(
+        plataforma="amazon_us",
+        bid=BidVigente(Decimal("0.50"), "USD", Decimal("0.02"), Decimal("0.435")),
+        economia=economia_us(),
+        propia=nivel(tramo(clics=60, pedidos=0, venta="0", gasto="40", impresiones=3000)),
+        revision=1,
+    )
+    assert decide(recorte) == Mover(Decimal("-0.12"), Decimal("0.43"), "gasto_sin_venta", "hoja")
+
+    propia = nivel(tramo(clics=50, pedidos=5, venta="5000", gasto="200", impresiones=2000))
+    subida = fabrica_caso(
+        plataforma="amazon_us",
+        bid=BidVigente(Decimal("0.10"), "USD", Decimal("0.118"), Decimal("2.50")),
+        economia=economia_us(),
+        propia=propia,
+        grupo=propia,
+        cuenta=_cuenta_llena(),
+        precio=PrecioVentana(Decimal("100"), 50),
+        revision=1,
+    )
+    assert decide(subida) == Mover(Decimal("0.15"), Decimal("0.12"), "bajo_target", "hoja")
+
+    sin_centavo = fabrica_caso(
+        plataforma="amazon_us",
+        bid=BidVigente(Decimal("0.50"), "USD", Decimal("0.105"), Decimal("0.108")),
+        economia=economia_us(),
+        propia=nivel(tramo(clics=60, pedidos=0, venta="0", gasto="40", impresiones=3000)),
+        revision=1,
+    )
+    assert decide(sin_centavo) == Mantener("rango_bloquea_ajuste")
