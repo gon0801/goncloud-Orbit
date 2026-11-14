@@ -76,6 +76,7 @@ from app.ads.client import (
     _validate_relative_path,
 )
 from app.ads.config import AdsCredentials
+from app.optimizer.centavos import CENTAVO
 from app.redaction import redact_url, scrub
 
 MODO_CONFIRMADO_LIVE = "live"
@@ -190,12 +191,15 @@ def _bid_payload(bid: Decimal) -> str:
     (regla 4) y json.dumps no serializa Decimal. El modo de redondeo va
     EXPLICITO (hallazgo reviewer r1): ROUND_HALF_EVEN, el default del
     contexto Decimal — declararlo evita que el modo dependa de un contexto
-    global que nadie mira; cambiarlo es decision del dueno en el probe 2.5."""
+    global que nadie mira; cambiarlo es decision del dueno en el probe 2.5.
+    ARREGLOS 02 B: el motor ya decide en centavos, para su bid esto es
+    identidad; HALF_EVEN se conserva por los bids que el motor no decide
+    (fabrica, reversas, harvest)."""
     if not isinstance(bid, Decimal):
         raise TypeError(
             f"bid debe ser Decimal, no {type(bid).__name__} (float prohibido para dinero)"
         )
-    return str(bid.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN))
+    return str(bid.quantize(CENTAVO, rounding=ROUND_HALF_EVEN))
 
 
 class AdsApiErrorMutacion(AdsApiError):

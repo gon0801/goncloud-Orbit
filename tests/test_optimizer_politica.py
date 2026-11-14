@@ -14,7 +14,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
 from test_lecturas_caso import (
     _D,
     _DECIDIDO,
@@ -42,6 +41,7 @@ from test_optimizer_caso import (
     trayectoria,
 )
 
+from app.ads.write import _bid_payload
 from app.lecturas_caso import lee_plataforma
 from app.optimizer import windows
 from app.optimizer.caso import (
@@ -59,7 +59,6 @@ from app.optimizer.politica import (
     estado_grupo,
 )
 from app.optimizer.replay import reproduce
-from app.ads.write import _bid_payload
 
 RAIZ = Path(__file__).resolve().parents[1]
 DORADA = RAIZ / "tests" / "fixtures" / "politica_dorada_a1.json"
@@ -944,6 +943,4 @@ def test_arreglos02_b_el_redondeo_no_pasa_del_paso():
         ),
         revision=1,
     )
-    assert decide(sintetico) == Mover(
-        Decimal("-0.12"), Decimal("0.30"), "gasto_sin_venta", "hoja"
-    )
+    assert decide(sintetico) == Mover(Decimal("-0.12"), Decimal("0.30"), "gasto_sin_venta", "hoja")

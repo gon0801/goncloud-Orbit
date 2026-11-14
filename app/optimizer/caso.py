@@ -22,6 +22,9 @@ Plataforma = Literal["amazon_mx", "amazon_us"]
 Moneda = Literal["MXN", "USD"]
 
 POLITICA_BID = "niveles_v3"  # se congela en inputs.politica; el replay despacha por esta clave
+# ARREGLOS 02 B: revision 1 = el motor decide bids en centavos. Ausente en las
+# decisiones viejas: su replay conserva la semantica de su era (4 decimales).
+REVISION_POLITICA = 1
 ESQUEMA_PESOS = "dos_tramos_v1"  # reciente D-50..D-10 peso 1; antiguo D-90..D-51 peso 1/2 (A5)
 PESO_ANTIGUO = Decimal("0.5")
 DIAS_MADUREZ = 10  # misma regla 6 que cortes (windows.DIAS_MADUREZ_CORTES): un numero, una fuente
@@ -407,10 +410,13 @@ class CasoHoja:
     ventana_desde: dt.date
     ventana_hasta: dt.date
     observado_al: dt.datetime | None
+    # Marcador de replay (ARREGLOS 02 B): 0 = semantica de su era. No llega a
+    # las decisiones viejas; `como_json` solo lo escribe si es > 0.
+    revision: int = 0
 
     def como_json(self) -> dict:
         """Freeze. Decimal como string, fechas ISO, None explicito. Unica serializacion del caso."""
-        return {
+        caso = {
             "plataforma": self.plataforma,
             "hoja_id": self.hoja_id,
             "ad_group_id": self.ad_group_id,
@@ -427,12 +433,15 @@ class CasoHoja:
             "ventana_hasta": self.ventana_hasta.isoformat(),
             "observado_al": self.observado_al.isoformat() if self.observado_al else None,
         }
+        if self.revision > 0:
+            caso["revision"] = self.revision
+        return caso
 
     @classmethod
     def desde_json(cls, datos: dict) -> CasoHoja:
         """Inversa exacta de `como_json`; clave ausente o tipo ajeno levanta ValueError
-        (frontera)."""
-        d = _objeto(datos, _CLAVES_CASO, "caso")
+        (frontera). `revision` es opcional: ausente = 0 = semantica de su era."""
+        d = _objeto_con_opcionales(datos, _CLAVES_CASO, _OPCIONALES_CASO, "caso")
         return cls(
             plataforma=_literal(d["plataforma"], ("amazon_mx", "amazon_us"), "plataforma"),
             hoja_id=_entero(d["hoja_id"], "hoja_id"),
@@ -449,6 +458,7 @@ class CasoHoja:
             ventana_desde=_fecha(d["ventana_desde"], "ventana_desde"),
             ventana_hasta=_fecha(d["ventana_hasta"], "ventana_hasta"),
             observado_al=_opcional(d["observado_al"], "observado_al", _momento),
+            revision=_entero(d["revision"], "revision") if "revision" in d else 0,
         )
 
 
@@ -646,6 +656,10 @@ _CLAVES_CASO = frozenset(
     }
 )
 
+# Claves que solo algunas eras congelan (ARREGLOS 02 B: revision). TEMPORADA 01
+# sumara las suyas aqui.
+_OPCIONALES_CASO = frozenset({"revision"})
+
 _CLAVES_PROTECCION = frozenset(
     {
         "version",
@@ -661,6 +675,15 @@ _CLAVES_PROTECCION = frozenset(
 def _objeto(datos: Any, claves: frozenset, nombre: str) -> dict:
     if not isinstance(datos, dict) or set(datos) != claves:
         raise ValueError(f"{nombre}: claves distintas a {sorted(claves)}")
+    return datos
+
+
+def _objeto_con_opcionales(
+    datos: Any, obligatorias: frozenset, opcionales: frozenset, nombre: str
+) -> dict:
+    """Como `_objeto`, pero acepta cualquier subconjunto de `opcionales`. Clave ajena = error."""
+    if not isinstance(datos, dict) or not (obligatorias <= set(datos) <= obligatorias | opcionales):
+        raise ValueError(f"{nombre}: claves distintas a {sorted(obligatorias | opcionales)}")
     return datos
 
 

@@ -581,6 +581,7 @@ def test_caso_igual_a_valor_literal():
             ventana_desde=_D - dt.timedelta(days=90),
             ventana_hasta=_D - dt.timedelta(days=10),
             observado_al=obs,
+            revision=1,
         )
         assert _arma(lecturas, conn, h, g) == esperado
 

@@ -35,6 +35,7 @@ from app.optimizer.caso import (
     MOTIVO_ECONOMIA_EVIDENCIA_VENCIDA,
     MOTIVO_ECONOMIA_POST_INMADURO,
     PRECISION,
+    REVISION_POLITICA,
     BidVigente,
     CambioBid,
     CasoHoja,
@@ -540,6 +541,7 @@ class LecturasPlataforma:
             ventana_desde=self._d - dt.timedelta(days=DIAS_LOOKBACK),
             ventana_hasta=self._d - dt.timedelta(days=DIAS_MADUREZ),
             observado_al=self._observado_al,
+            revision=REVISION_POLITICA,
         )
 
     def efecto(

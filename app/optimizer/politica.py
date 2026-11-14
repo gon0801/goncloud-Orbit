@@ -17,6 +17,7 @@ from app.optimizer import economia_cambio
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
 from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel, InsumosProteccion
+from app.optimizer.centavos import centavo_hacia
 from app.optimizer.evidencia import gamma_p, gamma_q
 
 # Bandas y pasos: los de hoy (docs/CONTEXTO.md), sin tocar.
@@ -196,11 +197,11 @@ def decide(caso: CasoHoja) -> Veredicto:
             cuyo trafico adicional no compensa el gasto ->
             Mantener(subida_sin_economia). Sin episodio maduro, R16 decide como
             antes.
-        R17 recorte que dejaria el bid en o debajo de trayectoria.piso_aprendido ->
-            Mantener(piso_aprendido)
 
     4. _paso(caso.bid, candidato): clamps de hoy (factor en [-30 %, +20 %], [piso, techo],
-       delta minimo, rango_bloquea_ajuste) -> Mover, o Mantener con el motivo del clamp.
+       delta minimo, rango_bloquea_ajuste) y, con revision >= 1, redondeo a centavos hacia
+       el bid de hoy; R17 (piso aprendido) se aplica aqui, sobre el bid que Amazon recibe
+       -> Mover, o Mantener con el motivo del clamp.
     """
     target = caso.economia.target_acos_pct
     if not target.is_finite() or target <= 0:
@@ -234,6 +235,7 @@ def decide(caso: CasoHoja) -> Veredicto:
     # recortes ni R1.
 
     ultimo = caso.trayectoria.ultimo
+    centavos = caso.revision >= 1
     if ultimo is not None:
         efecto = caso.trayectoria.efecto
         assert efecto is not None  # lo sella Trayectoria.__post_init__
@@ -245,9 +247,14 @@ def decide(caso: CasoHoja) -> Veredicto:
             if valor is None:
                 return Mantener(MOTIVO_DATO_FALTANTE)
             # Espejo de _paso (mismas constantes y motivos): el destino es un
-            # bid viejo y el goal pudo cambiar; se clampea a [piso, techo].
-            # Sin factor que clampear: la direccion honesta es hacia bid_antes.
+            # bid viejo y el goal pudo cambiar; se clampea a [piso, techo] y,
+            # con revision >= 1, se redondea a centavos hacia el bid de hoy
+            # (hoy es identidad: bid_antes ya viene en centavos; deja el
+            # invariante completo). Sin factor que clampear: la direccion
+            # honesta es hacia bid_antes.
             destino = min(max(ultimo.bid_antes, caso.bid.piso), caso.bid.techo)
+            if centavos:
+                destino = centavo_hacia(destino, desde=valor)
             if abs(destino - valor) < MIN_DELTA_ABSOLUTO:
                 return Mantener(MOTIVO_DELTA_BAJO_UMBRAL)
             if destino <= valor:
@@ -282,7 +289,14 @@ def decide(caso: CasoHoja) -> Veredicto:
             freno = _freno_trayectoria(caso, ultimo, efecto, factor)
             if freno is not None:
                 return freno
-        return _paso(caso.bid, factor, motivo, nivel, caso.trayectoria.piso_aprendido)
+        return _paso(
+            caso.bid,
+            factor,
+            motivo,
+            nivel,
+            caso.trayectoria.piso_aprendido,
+            centavos=centavos,
+        )
 
 
 def _subida_en_espera(proteccion: InsumosProteccion | None, motivo_bloqueado: str | None) -> bool:
@@ -421,11 +435,6 @@ def _freno_trayectoria(caso, ultimo, efecto, factor: Decimal) -> Mantener | None
                     return Mantener(MOTIVO_RECORTE_COSTO_TRAFICO)
                 if factor > 0 and razon < RAZON_CRECE:
                     return Mantener(MOTIVO_SUBIDA_SIN_TRAFICO)
-    if factor < 0:
-        piso = caso.trayectoria.piso_aprendido
-        bid = caso.bid.valor
-        if piso is not None and bid is not None and bid * (_UNO + factor) <= piso:
-            return Mantener(MOTIVO_PISO_APRENDIDO)
     return None
 
 
@@ -626,14 +635,19 @@ def _paso(
     motivo: str,
     nivel: NivelQueJuzga,
     piso_aprendido: Decimal | None,
+    *,
+    centavos: bool,
 ) -> Mover | Mantener:
-    """Cola de clamps de hoy: piso aprendido, delta minimo, rango. Solo aqui nace un Mover."""
+    """Cola de clamps de hoy: redondeo a centavos (revision >= 1), piso
+    aprendido, delta minimo, rango. Solo aqui nace un Mover."""
     valor = bid.valor
     if valor is None or valor <= 0:
         return Mantener(MOTIVO_DATO_FALTANTE)
     factor_c = min(max(factor, CLAMP_FACTOR_MIN), CLAMP_FACTOR_MAX)
     nuevo = valor * (_UNO + factor_c)
     nuevo = min(max(nuevo, bid.piso), bid.techo)
+    if centavos:
+        nuevo = centavo_hacia(nuevo, desde=valor)
     if factor_c < 0 and piso_aprendido is not None and nuevo <= piso_aprendido:
         return Mantener(MOTIVO_PISO_APRENDIDO)
     if abs(nuevo - valor) < MIN_DELTA_ABSOLUTO:
