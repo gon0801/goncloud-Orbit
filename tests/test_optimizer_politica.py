@@ -983,3 +983,49 @@ def test_arreglos02_b_el_redondeo_no_sale_del_rango_del_goal():
         revision=1,
     )
     assert decide(sin_centavo) == Mantener("rango_bloquea_ajuste")
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 02 C: un ajuste de campana no cuenta como subida de bid
+# ---------------------------------------------------------------------------
+
+
+def test_arreglos02_c_un_ajuste_de_campana_no_es_subida():
+    """Un ajuste de campana no mueve el bid y la trayectoria ya no lo cuenta
+    como subida: no frena la subida siguiente (F4 de la revision del
+    2026-11-12, que daba subida_sin_trafico) ni hace esperar el recorte como
+    precio por medir (que daba esperando_precio_medido)."""
+    vendedora_barata = nivel(
+        tramo(clics=200, pedidos=8, venta="4000", gasto="300", impresiones=9000)
+    )
+    mx = fabrica_caso(
+        economia=economia_mx(),
+        propia=vendedora_barata,
+        grupo=vendedora_barata,
+        cuenta=nivel(tramo(clics=10000, pedidos=100, venta="100000", gasto="9000")),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 15), "10.00", "10.00", "ajuste_de_campana")],
+            efecto(
+                dias_post=10,
+                pre_impr=7000,
+                post_impr=6300,
+                clics_post=30,
+                gasto_post="45",
+                clics_pre=60,
+                gasto_pre="90",
+            ),
+        ),
+    )
+    assert decide(mx) == Mover(Decimal("0.15"), Decimal("11.50"), "bajo_target", "hoja")
+
+    us = fabrica_caso(
+        plataforma="amazon_us",
+        bid=BidVigente(Decimal("10.00"), "USD", Decimal("0.02"), Decimal("20.00")),
+        economia=economia_us(),
+        propia=nivel(tramo(clics=100, pedidos=0, venta="0", gasto="80", impresiones=3000)),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2026, 9, 29), "10.00", "10.00", "ajuste_de_campana")],
+            efecto(dias_post=10, clics_post=5, vendia=False),
+        ),
+    )
+    assert decide(us) == Mover(Decimal("-0.25"), Decimal("7.50"), "gasto_sin_venta_doble", "hoja")
