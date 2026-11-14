@@ -20,3 +20,15 @@ def centavo_hacia(destino: Decimal, *, desde: Decimal) -> Decimal:
     un piso por redondeo."""
     modo = ROUND_CEILING if destino < desde else ROUND_FLOOR
     return destino.quantize(CENTAVO, rounding=modo)
+
+
+def centavo_en_rango(
+    destino: Decimal, *, desde: Decimal, piso: Decimal, techo: Decimal
+) -> Decimal | None:
+    """El centavo de `centavo_hacia` cuando queda dentro de [piso, techo]; None
+    si el redondeo hacia `desde` lo saca del rango del goal (ARREGLOS 02 B, F1:
+    un piso o techo que no es centavo puede dejar al redondeo fuera; el centavo
+    del otro lado se aleja del bid de hoy mas que el paso, asi que ningun bid
+    de Amazon cumple a la vez el paso y el rango y el ajuste no sale)."""
+    redondeado = centavo_hacia(destino, desde=desde)
+    return redondeado if piso <= redondeado <= techo else None

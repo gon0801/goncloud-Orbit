@@ -17,7 +17,7 @@ from app.optimizer import economia_cambio
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
 from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel, InsumosProteccion
-from app.optimizer.centavos import centavo_hacia
+from app.optimizer.centavos import centavo_en_rango
 from app.optimizer.evidencia import gamma_p, gamma_q
 
 # Bandas y pasos: los de hoy (docs/CONTEXTO.md), sin tocar.
@@ -250,11 +250,16 @@ def decide(caso: CasoHoja) -> Veredicto:
             # bid viejo y el goal pudo cambiar; se clampea a [piso, techo] y,
             # con revision >= 1, se redondea a centavos hacia el bid de hoy
             # (hoy es identidad: bid_antes ya viene en centavos; deja el
-            # invariante completo). Sin factor que clampear: la direccion
+            # invariante completo; si el redondeo no cabe en el rango del
+            # goal, el regreso no sale). Sin factor que clampear: la direccion
             # honesta es hacia bid_antes.
             destino = min(max(ultimo.bid_antes, caso.bid.piso), caso.bid.techo)
             if centavos:
-                destino = centavo_hacia(destino, desde=valor)
+                destino = centavo_en_rango(
+                    destino, desde=valor, piso=caso.bid.piso, techo=caso.bid.techo
+                )
+                if destino is None:
+                    return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
             if abs(destino - valor) < MIN_DELTA_ABSOLUTO:
                 return Mantener(MOTIVO_DELTA_BAJO_UMBRAL)
             if destino <= valor:
@@ -638,8 +643,9 @@ def _paso(
     *,
     centavos: bool,
 ) -> Mover | Mantener:
-    """Cola de clamps de hoy: redondeo a centavos (revision >= 1), piso
-    aprendido, delta minimo, rango. Solo aqui nace un Mover."""
+    """Cola de clamps de hoy: redondeo a centavos (revision >= 1, sin salir del
+    rango del goal), piso aprendido, delta minimo, rango. Solo aqui nace un
+    Mover."""
     valor = bid.valor
     if valor is None or valor <= 0:
         return Mantener(MOTIVO_DATO_FALTANTE)
@@ -647,7 +653,12 @@ def _paso(
     nuevo = valor * (_UNO + factor_c)
     nuevo = min(max(nuevo, bid.piso), bid.techo)
     if centavos:
-        nuevo = centavo_hacia(nuevo, desde=valor)
+        # F1: un piso o techo que no es centavo puede dejar al redondeo fuera
+        # del rango del goal; el ajuste no sale (regla de app.optimizer.centavos).
+        redondeado = centavo_en_rango(nuevo, desde=valor, piso=bid.piso, techo=bid.techo)
+        if redondeado is None:
+            return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
+        nuevo = redondeado
     if factor_c < 0 and piso_aprendido is not None and nuevo <= piso_aprendido:
         return Mantener(MOTIVO_PISO_APRENDIDO)
     if abs(nuevo - valor) < MIN_DELTA_ABSOLUTO:
