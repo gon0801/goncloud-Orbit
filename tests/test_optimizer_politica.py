@@ -947,11 +947,12 @@ def test_arreglos02_b_el_redondeo_no_pasa_del_paso():
 
 
 def test_arreglos02_b_el_redondeo_no_sale_del_rango_del_goal():
-    """F1 de la revision del bloque: con un piso o techo del goal que NO es
-    centavo, el redondeo hacia el bid de hoy poda dejar el bid fuera del
-    rango (0.50 con techo 0.435 recortaba a 0.44; 0.10 con piso 0.118 subia a
-    0.11). Ningun bid de Amazon cumple a la vez el paso y el rango: el ajuste
-    no sale (rango_bloquea_ajuste), nunca un Mover fuera de [piso, techo]."""
+    """F1 y F3 de la revision del bloque: con un piso o techo del goal que NO
+    es centavo, el redondeo nunca saca el bid del rango (0.50 con techo 0.435
+    recortaba a 0.44; 0.10 con piso 0.118 subia a 0.11) y tampoco congela un
+    bid que ya esta fuera del rango: el recorte obedece al techo (0.43) y la
+    subida al piso (0.12), dentro de [piso, techo]. Solo un rango sin ningun
+    centavo dentro (piso 0.105, techo 0.108) no deja ajuste posible."""
     recorte = fabrica_caso(
         plataforma="amazon_us",
         bid=BidVigente(Decimal("0.50"), "USD", Decimal("0.02"), Decimal("0.435")),
@@ -959,7 +960,9 @@ def test_arreglos02_b_el_redondeo_no_sale_del_rango_del_goal():
         propia=nivel(tramo(clics=60, pedidos=0, venta="0", gasto="40", impresiones=3000)),
         revision=1,
     )
-    assert decide(recorte) == Mantener("rango_bloquea_ajuste")
+    assert decide(recorte) == Mover(
+        Decimal("-0.12"), Decimal("0.43"), "gasto_sin_venta", "hoja"
+    )
 
     propia = nivel(tramo(clics=50, pedidos=5, venta="5000", gasto="200", impresiones=2000))
     subida = fabrica_caso(
@@ -972,4 +975,13 @@ def test_arreglos02_b_el_redondeo_no_sale_del_rango_del_goal():
         precio=PrecioVentana(Decimal("100"), 50),
         revision=1,
     )
-    assert decide(subida) == Mantener("rango_bloquea_ajuste")
+    assert decide(subida) == Mover(Decimal("0.15"), Decimal("0.12"), "bajo_target", "hoja")
+
+    sin_centavo = fabrica_caso(
+        plataforma="amazon_us",
+        bid=BidVigente(Decimal("0.50"), "USD", Decimal("0.105"), Decimal("0.108")),
+        economia=economia_us(),
+        propia=nivel(tramo(clics=60, pedidos=0, venta="0", gasto="40", impresiones=3000)),
+        revision=1,
+    )
+    assert decide(sin_centavo) == Mantener("rango_bloquea_ajuste")
