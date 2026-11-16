@@ -38,7 +38,7 @@
     {
       "name": "ads-proteccion-01",
       "path": "plans/ads-proteccion-01.md",
-      "description": "ADS PROTECCION 01 — A.4/A.4r/B.4 cerrados (#523). C6-P1 inventariado; P2 ejecutado con 48 cruces, cobertura/maduracion/elegibilidad incompletas, gate no satisfecho. Economica apagada; completar evidencia P2 antes de P3 (ROADMAP P03)."
+      "description": "ADS PROTECCION 01 — codigo entregado; A.4/A.4r/B.4 cerrados. C.6/P03 conserva P2 incompleto (cobertura, maduracion y elegibilidad); economica apagada en la ultima foto documentada. P3/P4/P5 separados; no inferir encendido por runtime. Ver ORDEN-IMPLEMENTACION."
     },
     {
       "name": "ads-proteccion-01-fase-d",
@@ -108,7 +108,7 @@
     {
       "name": "reputacion-01",
       "path": "plans/reputacion-01.md",
-      "description": "REPUTACION 01 — v1 CERRADA 2026-09-08; MeLi operativo, Amazon sin ingesta exitosa al 2026-11-04. REP-FOLLOW-2 en P05; mejoras opcionales en P10/P11."
+      "description": "REPUTACION 01 — v1 MeLi entregada; Amazon sin ingesta exitosa en la ultima foto. P05/P11 se reconcilian con ARREGLOS 03 D-B: retirar Apify, no recargar ni activar el camino anterior. P10 opcional; v2 sin brief."
     },
     {
       "name": "margen-estimado-01",
@@ -118,7 +118,7 @@
     {
       "name": "reputacion-02",
       "path": "plans/reputacion-02.md",
-      "description": "REPUTACION 02 / AUTO-09 — PENDIENTE DE BRIEF: stub de respuestas asistidas, Account Health, Buy Box, fakes, sentimiento y acciones. Depende de datos Amazon (P05)."
+      "description": "REPUTACION 02 / AUTO-09 — futuro no autorizado, stub sin brief ejecutable. Fuente Amazon por redefinir tras retirada de Apify en ARREGLOS 03 D-B; P05 no autoriza reactivacion. Ver ORDEN-IMPLEMENTACION."
     },
     {
       "name": "sp-api-01",
@@ -163,12 +163,12 @@
     {
       "name": "repricing-02-construccion",
       "path": "plans/repricing-02-construccion.md",
-      "description": "REPRICING 02 — guia de construccion COMPLETADA con el plan cerrado 2026-10-17. No es trabajo pendiente; cobertura residual en P04."
+      "description": "REPRICING 02 — guia completada con el plan cerrado el 17-oct-2026; no es otro plan pendiente. P04 cerrado por PEZ 01; solo P13 de medidas/categoria conserva seguimiento."
     },
     {
       "name": "bids-02",
       "path": "plans/bids-02.md",
-      "description": "BIDS 02 — construido, desplegado y encendido; remate cerrado 2026-10-13. Automatismos restantes AUTO-03 a AUTO-06 en ROADMAP."
+      "description": "BIDS 02 — construido y encendido documentadamente; remate cerrado 13-oct. AUTO-03 entregado despues en DECISIONES PRODUCTO 01/ORBIT 07; AUTO-04 a AUTO-06 son futuros sin plan ejecutable, fuera de la cola autorizada."
     },
     {
       "name": "bids-02-construccion",
@@ -183,12 +183,12 @@
     {
       "name": "sp-api-02",
       "path": "plans/sp-api-02.md",
-      "description": "SP-API 02 — CERRADO 2026-10-22, desplegado en f273213: reintentos 429, repeticion nocturna acotada y aviso de recuperacion."
+      "description": "SP-API 02 — codigo y despliegue cerrados 22-oct (f273213): 429, repeticion nocturna y recuperacion. El acta conserva nocturna previa al deploy; recuperar evidencia posterior sin afirmar que no haya corrido. Seguimiento en ORDEN-IMPLEMENTACION."
     },
     {
       "name": "resumen-ads-multicanal",
       "path": "plans/resumen-ads-multicanal.md",
-      "description": "RESUMEN ADS 01-04 — integrado y desplegado (04: #524, 10/10 hashes de app/ iguales entre master 9fb5a63f y contenedor, 5-nov 03:22 UTC, docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json); P01 CERRADO 5-nov-2026 09:00 UTC: job 10 estado=OK, corrida 1374 con misma huella/as-of, conciliacion 812/812 y 203/203 dias sin diferencias, T+0 4/4 (docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/resultado-job10-20261105T090000Z.json)."
+      "description": "RESUMEN ADS 01-04 — integrado y desplegado (04: #524, 10/10 hashes de app/ iguales entre master 9fb5a63f y contenedor, 5-nov 03:22 UTC, docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json); P01 CERRADO 5-nov-2026 09:00 UTC: job 10 estado=OK, corrida 1374 con misma huella/as-of, conciliacion 812/812 y 203/203 dias sin diferencias, T+0 4/4 (docs/evidencia/quick-wins-2026-11-04/seguimiento-meli/resultado-job10-20261105T090000Z.json). Revision visual productiva pendiente de acta; runtime y conciliacion no la sustituyen."
     },
     {
       "name": "pez-01",
@@ -208,33 +208,48 @@
     {
       "name": "orbit-07-motor-decisiones",
       "path": "plans/orbit-07-motor-decisiones.md",
-      "description": "ORBIT 07 - continuacion de AUTO-03 (f86ed7dc): proteccion de venta reciente con vencimiento fijo (M1), economia compatible y fresca (M2), aprendizaje (M3/M4) y evaluacion economica del ultimo cambio (M5/M6). Estado en docs/evidencia/orbit-07/estado.md."
+      "description": "ORBIT 07 — M1/M2/M4/M5/M6 integrados en 7cf7c9ab; M3 omitido con justificacion. Runtime de ff03ed61 coincidente con produccion (202 archivos, 15-nov). No reejecutar; actas/configuracion residuales separadas en ORDEN-IMPLEMENTACION."
     },
     {
       "name": "claridad-01",
       "path": "plans/claridad-01.md",
-      "description": "CLARIDAD 01 — Orbit dice la verdad en pantalla: Jev, Propuestas, Subfamilia, precios a la venta, ofertas US, Inertes, registro de etiquetas y manual. Pendiente de lanzar en el motor."
+      "description": "CLARIDAD 01 — implementada e integrada (c44bd995, 4be5081c, 0e5abaf0), manual actualizado. Runtime de ff03ed61 coincide con produccion al 15-nov. No volver a lanzar implementacion; consolidar solo actas operativas residuales."
     },
     {
       "name": "disenos-01",
       "path": "plans/disenos-01.md",
-      "description": "DISEÑOS 01 — Decisiones, Salud y Contribución con el diseño nuevo: una fase por bloque (A, B, C), sin migraciones y sin cambiar los datos que muestran."
+      "description": "DISEÑOS 01 — A/B/C integrados (19c2c7b3, f15ffc77, c6cb744f); runtime de ff03ed61 coincide con produccion al 15-nov. No reejecutar; comparaciones productivas finales siguen separadas de las locales. Ya no es el siguiente plan."
     },
     {
       "name": "arreglos-02",
       "path": "plans/arreglos-02.md",
-      "description": "ARREGLOS 02 — lo que mueve dinero hoy, de la revision del 2026-11-12: la comision de Amazon contada dos veces en el margen, el piso aprendido que se cruzaba por redondeo, el ajuste de campana que contaba como subida y la regla vieja de 10 dias. Va antes de TEMPORADA 01."
+      "description": "ARREGLOS 02 — A/D/B/C integrados (dabfac13, 9f0181f6, 5b73e2ed, 8d5a84c9), runtime ff03ed61 coincidente con produccion. No reejecutar. Aplicacion de 0086 y acta D.4 se acreditan aparte; base de la cola 03 -> 04 -> TEMPORADA 01 -> 05."
     },
     {
       "name": "arreglos-03",
       "path": "plans/arreglos-03.md",
-      "description": "ARREGLOS 03 — datos y precios, de la revision del 2026-11-12: dia cerrado por plataforma y horarios, search terms, libro (devoluciones de MeLi e importe en dolares), tareas que decian ok sin hacer nada, reputacion y precios. En paralelo con TEMPORADA 01."
+      "description": "ARREGLOS 03 — siguiente plan, sin lanzamiento por este registro. Datos y precios; D-G cierra 05, nuevos D-M 06/14, D-N S1 y P-G 07. Despues de la base 01/02 integrada y antes de ARREGLOS 04, en serie segun ORDEN-IMPLEMENTACION."
     },
     {
       "name": "arreglos-04",
       "path": "plans/arreglos-04.md",
-      "description": "ARREGLOS 04 — pantallas, fabrica y bloqueos, de la revision del 2026-11-12: reloj unico y cifras maduras en pantallas, errores legibles, avisos de cortes, fabrica (retiro, pausa de lote, negative cruzado), presupuesto alto con confirmacion en vez de rechazo, texto de Salud y bloqueos confirmados contra Amazon. En paralelo con TEMPORADA 01."
+      "description": "ARREGLOS 04 — pendiente, despues de ARREGLOS 03 y antes de TEMPORADA 01, en serie. B-C cierra 02 completo (incluido contenedor ausente), W-P nuevo cierra 04, W-E cierra 15 y W-D 16; conserva pantallas, fabrica, bloqueos y confirmacion de presupuesto alto."
+    },
+    {
+      "name": "arreglos-01",
+      "path": "plans/arreglos-01.md",
+      "description": "ARREGLOS 01 — A-Z integrados; X 976df4dc, Y ac539365, Z f53ad3f8. Runtime ff03ed61 coincide con produccion al 15-nov. No reejecutar. Actas/migraciones residuales separadas; A/C/U tienen evidencia operativa propia."
+    },
+    {
+      "name": "temporada-01",
+      "path": "plans/temporada-01.md",
+      "description": "TEMPORADA 01 — pendiente de implementar, despues de ARREGLOS 04 y antes de ARREGLOS 05, en serie. Base ARREGLOS 01/02 ya integrada; consume contratos de 03/04. Calendario, margen vigente, episodios, practica, readback, regreso y propuestas de presupuesto."
+    },
+    {
+      "name": "arreglos-05",
+      "path": "plans/arreglos-05.md",
+      "description": "ARREGLOS 05 — plan disenado ahora para ejecutar despues de TEMPORADA 01. BASE; A ciclo; B reversas 03/10; C reposicion 11; D frontera Ads; E shadow; F target 12; G sello 13; H150; I settings; J modos; K fees; Z aceptacion global de los 14 hallazgos con correcciones de 03/04. No implementado."
     }
   ],
-  "active": "disenos-01"
+  "active": "arreglos-03"
 }

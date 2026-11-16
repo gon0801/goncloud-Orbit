@@ -1,0 +1,45 @@
+{
+  "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+  "casos": 31,
+  "fallan_por_defectos": 17,
+  "pasan": 14,
+  "errores_fixture_finales": 0,
+  "omitidos": 0,
+  "pendientes": [
+    "02",
+    "03",
+    "04",
+    "05",
+    "06",
+    "07",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "S1"
+  ],
+  "resueltos_originales": [
+    "01",
+    "08",
+    "09"
+  ],
+  "artefactos_sha256": {
+    "acceptance-initial.xml": "caff06c36d2dd44342db1370a773491ebd347b52ddc56e8c996d22c05cf7a30c",
+    "acceptance.xml": "d6a05a27501b42380d1c836163403f5921d680434d8c21c78c0b295e4007fae4",
+    "ingest.py": "09bf32902de63b72b40fcbb32cdcc89c4bbad3ded55a5ed5bdf0c0d239268fa9",
+    "optimizer.py": "ee41a3fbacb6b4df469aebff0b351e63e2af2955653546aa159e64289f621ccf",
+    "pricing.py": "8059ac90a9e996362900d857b7cc11f9c469ba6cb4952972beb4acea9af1fbe4",
+    "run-acceptance.sh": "a375689941ebfea79db1e1fd265cec0b24301f1f656bf19db18046a5a8aa9bb5",
+    "test_accept_ingest.py": "7adbc4b754dfce127d172536c816eaf270b84777ae37121fa3eda8a20ede2e42",
+    "test_accept_optimizer.py": "50bd8e1ad658805337379ea3d31cf8d9725de0ce97334bf25762dc0b55f752f2",
+    "test_accept_pricing.py": "83f334bba81f8d7896c7e70f71ffb7a1597f11c8d99b0e2b84ddc39509a8f7c1",
+    "test_accept_ui.py": "da796df454505ae94efc2987c14901a20e66a54e88899da3d7c8ff923eb6b273",
+    "test_accept_writes.py": "57035bb0ec98540e60c3792f70ff779ac069bb64a097cd2b13ca6347aee42f46",
+    "ui.js": "23ffc1da249408d3e05249f92d07656f5afca4a45a3f18cbaf90179ee2c2210e",
+    "ui.py": "cebfaa20859c435fd26e03669d9f607561752697619f6ab2b6d1cc00538fb761",
+    "writes.py": "45c1591deca49db78d2b26c3f4dac996a6b132bb089ee85ce1a3b977b2908bcd"
+  }
+}

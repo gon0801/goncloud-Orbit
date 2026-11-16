@@ -1,0 +1,142 @@
+{
+  "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+  "archivos_python": 163,
+  "lineas": 86524,
+  "archivos_mayores_1000": [
+    {
+      "archivo": "app/ads/reports.py",
+      "lineas": 2078,
+      "funcion_mayor": [
+        219,
+        "_planea_filas_productos",
+        1160
+      ]
+    },
+    {
+      "archivo": "app/api_dashboard.py",
+      "lineas": 2079,
+      "funcion_mayor": [
+        111,
+        "cortes",
+        1472
+      ]
+    },
+    {
+      "archivo": "app/apply.py",
+      "lineas": 2479,
+      "funcion_mayor": [
+        99,
+        "aplica_ajuste_campana",
+        2189
+      ]
+    },
+    {
+      "archivo": "app/apply_cola.py",
+      "lineas": 1885,
+      "funcion_mayor": [
+        192,
+        "_revalida_pause",
+        1105
+      ]
+    },
+    {
+      "archivo": "app/apply_harvest.py",
+      "lineas": 2271,
+      "funcion_mayor": [
+        144,
+        "_paso_hermanas",
+        2029
+      ]
+    },
+    {
+      "archivo": "app/cycle.py",
+      "lineas": 4013,
+      "funcion_mayor": [
+        401,
+        "_procesa_decisora",
+        1853
+      ]
+    },
+    {
+      "archivo": "app/estimacion_repository.py",
+      "lineas": 1399,
+      "funcion_mayor": [
+        256,
+        "sembrar_escenario_desde_refs",
+        976
+      ]
+    },
+    {
+      "archivo": "app/fabrica_plan.py",
+      "lineas": 1011,
+      "funcion_mayor": [
+        53,
+        "semillas_desde_terminos",
+        439
+      ]
+    },
+    {
+      "archivo": "app/impulso_io.py",
+      "lineas": 1212,
+      "funcion_mayor": [
+        182,
+        "_vigila_uno",
+        942
+      ]
+    },
+    {
+      "archivo": "app/notifica.py",
+      "lineas": 1984,
+      "funcion_mayor": [
+        73,
+        "digest_ciclo",
+        446
+      ]
+    },
+    {
+      "archivo": "app/optimizer/caso.py",
+      "lineas": 1074,
+      "funcion_mayor": [
+        51,
+        "_episodio_economico_desde",
+        899
+      ]
+    },
+    {
+      "archivo": "app/optimizer/goals.py",
+      "lineas": 1175,
+      "funcion_mayor": [
+        61,
+        "resuelve_target_margen_familia",
+        1115
+      ]
+    },
+    {
+      "archivo": "app/precio/cambios.py",
+      "lineas": 1042,
+      "funcion_mayor": [
+        146,
+        "aplicar",
+        305
+      ]
+    },
+    {
+      "archivo": "app/precio/corrida.py",
+      "lineas": 1585,
+      "funcion_mayor": [
+        178,
+        "_decidir_pendientes",
+        768
+      ]
+    },
+    {
+      "archivo": "app/retiro_anuncios.py",
+      "lineas": 1341,
+      "funcion_mayor": [
+        139,
+        "recrea",
+        898
+      ]
+    }
+  ]
+}

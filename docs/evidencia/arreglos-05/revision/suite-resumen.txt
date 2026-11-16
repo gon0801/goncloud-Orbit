@@ -1,0 +1,20 @@
+SHA: ff03ed61f7a847ab190b1695c2efe8d785baa364
+Entorno: Linux, Python 3.12.15, PostgreSQL 16 desechable.
+
+5996 pruebas existentes verificadas en cuatro tramos sin contar duplicados:
+- suite-initial.log: 5750 pasaron; 49 skips; una falla de entorno Git.
+- deploy-tests.log: las 47 omitidas por herramientas ausentes al recolectar,
+  ya con psql/pg_dump instalados, pasaron.
+- suite-permissions.log: las 2 omitidas por correr como root pasaron como nobody.
+- suite-tail.log: 197 pasaron, desde el test de Git fallido hasta el final.
+Total de casos distintos que pasan: 5750 + 47 + 2 + 197 = 5996.
+
+La falla intermedia no era del producto: la copia del checkout en Docker
+tenia objetos Git y HEAD, pero el indice de clone --no-checkout estaba vacio.
+git read-tree HEAD restauro el indice sin modificar codigo; uv.lock aparecio
+como versionado y el test paso. git diff de app/tools/tests/migrations vacio.
+Los IDs omitidos estan en suite-skipped-ids.txt; el orden en collected.txt.
+No se presenta la corrida inicial como verde ni como una corrida continua.
+
+Evidencia independiente: CI push del mismo SHA, run 43781301318,
+5996 passed en una corrida, sin skips. Ver ci-resumen.txt y ci-jobs.json.

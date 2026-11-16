@@ -1,0 +1,8 @@
+momento_utc|2026-11-16 01:43:11.108855
+ciclos_por_modo_estado|[{"n": 159, "mode": "live", "status": "done"}, {"n": 2, "mode": "off", "status": "skipped"}, {"n": 30, "mode": "shadow", "status": "done"}]
+colas_por_modo_estado|[{"n": 16, "modo": "live", "estado": "applied"}, {"n": 3, "modo": "live", "estado": "discarded"}, {"n": 2, "modo": "live", "estado": "vetoed"}, {"n": 3, "modo": "shadow", "estado": "discarded"}, {"n": 31, "modo": "shadow", "estado": "pending_veto"}, {"n": 2, "modo": "shadow", "estado": "vetoed"}]
+goals|[{"n": 1, "mode": "live", "enabled": true, "platform": "amazon_mx"}, {"n": 1, "mode": "live", "enabled": true, "platform": "amazon_us"}, {"n": 7, "mode": "live", "enabled": true, "platform": null}]
+reposicion_estados|None
+reposicion_ids_duplicados|0
+settings_seleccionados|{"precio_modo_global": "shadow", "precio_modo_universo": {"meli/meli": "live", "amazon_mx/fba": "live", "amazon_mx/fbm": "live", "amazon_us/fbm": "live"}, "ads_bid_politica_amazon_mx": "niveles_v3", "ads_bid_politica_amazon_us": "niveles_v3", "ads_apply_cap_amazon_mx_bid": 1000000, "ads_apply_cap_amazon_us_bid": 1000000, "ads_producto_meta_amazon_mx": "live", "ads_producto_meta_amazon_us": "live", "ads_producto_pausa_amazon_mx": "shadow", "ads_producto_pausa_amazon_us": "shadow", "ads_apply_cap_amazon_mx_pause": 1000000, "ads_apply_cap_amazon_us_pause": 1000000, "ads_apply_cap_amazon_mx_harvest": 1000000, "ads_apply_cap_amazon_us_harvest": 1000000, "ads_producto_economia_amazon_mx": "producto_directo_v1", "ads_producto_economia_amazon_us": "producto_directo_v1", "ads_apply_cap_amazon_mx_negative": 1000000, "ads_apply_cap_amazon_us_negative": 1000000}
+negatives_reconciliados|{"n": 0, "sin_ack": 0}

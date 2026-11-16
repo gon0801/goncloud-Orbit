@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="16" skipped="0" tests="31" time="38.034" timestamp="2026-11-16T01:26:56.347545+00:00" hostname="60ba19e93353"><testcase classname="test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[shadow-True]" time="0.606" /><testcase classname="test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[off-True]" time="0.665" /><testcase classname="test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[live-False]" time="0.523" /><testcase classname="test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[live-True]" time="0.538" /><testcase classname="test_accept_writes" name="test_02_lista_incompleta_no_autoriza_repost[missing]" time="0.527"><failure message="AssertionError: {'shape': 'missing', 'reposts': 1, 'queue': 'applied'}&#10;assert 1 == 0">shape = 'missing'
+
+    @pytest.mark.parametrize("shape", ["missing", "truncated"])
+    def test_02_lista_incompleta_no_autoriza_repost(shape):
+        result = writes.scenario02(shape)
+        print(json.dumps(result))
+&gt;       assert result["reposts"] == 0, result
+E       AssertionError: {'shape': 'missing', 'reposts': 1, 'queue': 'applied'}
+E       assert 1 == 0
+
+/evidence/test_accept_writes.py:24: AssertionError</failure></testcase><testcase classname="test_accept_writes" name="test_02_lista_incompleta_no_autoriza_repost[truncated]" time="0.591"><failure message="AssertionError: {'shape': 'truncated', 'reposts': 1, 'queue': 'applied'}&#10;assert 1 == 0">shape = 'truncated'
+
+    @pytest.mark.parametrize("shape", ["missing", "truncated"])
+    def test_02_lista_incompleta_no_autoriza_repost(shape):
+        result = writes.scenario02(shape)
+        print(json.dumps(result))
+&gt;       assert result["reposts"] == 0, result
+E       AssertionError: {'shape': 'truncated', 'reposts': 1, 'queue': 'applied'}
+E       assert 1 == 0
+
+/evidence/test_accept_writes.py:24: AssertionError</failure></testcase><testcase classname="test_accept_writes" name="test_03_harvest_y_reversa_no_archivan_keyword_ajena" time="0.618"><failure message="AssertionError: {'fase': 'done', 'external_ids': {'hermanas': {'auto_discovery': {'creada': True, 'negative_id': 'n-3'}, 'category_bro...eywords': {'error': [], 'success': [{...}]}},)], 'deletes_keyword': [{'keywordIdFilter': {'include': ['ajena']}}], ...}&#10;assert not True&#10; +  where True = any(&lt;generator object test_03_harvest_y_reversa_no_archivan_keyword_ajena.&lt;locals&gt;.&lt;genexpr&gt; at 0xe5ad77baf850&gt;)">def test_03_harvest_y_reversa_no_archivan_keyword_ajena():
+        result = writes.scenario03()
+        print(json.dumps(result, default=str))
+&gt;       assert not any("ajena" in b["keywordIdFilter"]["include"] for b in result["deletes_keyword"]), result
+E       AssertionError: {'fase': 'done', 'external_ids': {'hermanas': {'auto_discovery': {'creada': True, 'negative_id': 'n-3'}, 'category_bro...eywords': {'error': [], 'success': [{...}]}},)], 'deletes_keyword': [{'keywordIdFilter': {'include': ['ajena']}}], ...}
+E       assert not True
+E        +  where True = any(&lt;generator object test_03_harvest_y_reversa_no_archivan_keyword_ajena.&lt;locals&gt;.&lt;genexpr&gt; at 0xe5ad77baf850&gt;)
+
+/evidence/test_accept_writes.py:31: AssertionError</failure></testcase><testcase classname="test_accept_writes" name="test_10_negative_reconciliado_conserva_reversa" time="0.669"><failure message="AssertionError: {'status': 422, 'result': 'no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)', 'ledger': [('ok:reconciliado', None)], 'summary': {'fuente': 'list', 'keywordId': 'n-1'}, ...}&#10;assert 422 == 200">def test_10_negative_reconciliado_conserva_reversa():
+        result = writes.scenario10()
+        print(json.dumps(result, default=str))
+&gt;       assert result["status"] == 200, result
+E       AssertionError: {'status': 422, 'result': 'no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)', 'ledger': [('ok:reconciliado', None)], 'summary': {'fuente': 'list', 'keywordId': 'n-1'}, ...}
+E       assert 422 == 200
+
+/evidence/test_accept_writes.py:38: AssertionError</failure></testcase><testcase classname="test_accept_writes" name="test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo" time="16.179"><failure message="AssertionError: {'posts': 2, 'ledger': ('applied', None, None), 'outcomes': ['readback de la repuesta k-1 no cuadra con el ledger (tex...e', 'readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene']}&#10;assert 2 == 1">def test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo():
+        result = writes.scenario11()
+        print(json.dumps(result, default=str))
+&gt;       assert result["posts"] == 1, result
+E       AssertionError: {'posts': 2, 'ledger': ('applied', None, None), 'outcomes': ['readback de la repuesta k-1 no cuadra con el ledger (tex...e', 'readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene']}
+E       assert 2 == 1
+
+/evidence/test_accept_writes.py:46: AssertionError</failure></testcase><testcase classname="test_accept_ingest" name="test_09_jev_cron_cierra_corrida_sin_forzar_y_preserva_tx_ajena" time="0.832" /><testcase classname="test_accept_ingest" name="test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave" time="0.989"><failure message="AttributeError: 'list' object has no attribute 'get'">db = (&lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xe5ad77bd27e0&gt;, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave(db):
+&gt;       r = ingest.caso05(*db)
+            ^^^^^^^^^^^^^^^^^^
+
+/evidence/test_accept_ingest.py:19: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/evidence/ingest.py:174: in caso05
+    perfil = evaluar_perfiles([{"profileId": 202, "countryCode": "MX", "currencyCode": "MXN", "accountInfo": {"type": "seller", "id": "2"}}])[0]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+client = [{'profileId': 202, 'countryCode': 'MX', 'currencyCode': 'MXN', 'accountInfo': {'type': 'seller', 'id': '2'}}]
+
+    def evaluar_perfiles(client: AdsClient) -&gt; list[PerfilAds]:
+        """GET /v2/profiles + sello: TODOS los perfiles vistos, ya evaluados.
+    
+        Unica fuente del gate seller/pais/moneda/1-pais-por-pais (regla 2): la
+        usan fetch_structure (evidencia completa) y perfiles_aceptados (la vista
+        de los syncs que solo necesitan los aceptados, p.ej. app.ads.reports).
+        Los rechazados llevan su motivo en el propio PerfilAds.
+        """
+        perfiles: list[PerfilAds] = []
+        paises_aceptados: set[str] = set()
+        for raw in _extraer_lista(
+&gt;           _json_de(client.get(PATH_PROFILES), "GET", PATH_PROFILES), PATH_PROFILES
+                     ^^^^^^^^^^
+        ):
+E       AttributeError: 'list' object has no attribute 'get'
+
+app/ads/structure_api.py:297: AttributeError</failure></testcase><testcase classname="test_accept_ingest" name="test_06_scan_incompleto_no_desactiva_ausentes" time="0.930"><failure message="AssertionError: {'exit': 0, 'miembros': [('MLM1001', True), ('MLM1002', False)], 'variantes_scan': [(['MLM1001'], False), (['MLM1001', 'MLM1001'], False)]}&#10;assert False&#10; +  where False = all(&lt;generator object test_06_scan_incompleto_no_desactiva_ausentes.&lt;locals&gt;.&lt;genexpr&gt; at 0xe5ad77a94930&gt;)">db = (&lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xe5ad77a47680&gt;, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_06_scan_incompleto_no_desactiva_ausentes(db):
+        r = ingest.caso06(*db)
+&gt;       assert all(activo for _,activo in r["miembros"]), r
+E       AssertionError: {'exit': 0, 'miembros': [('MLM1001', True), ('MLM1002', False)], 'variantes_scan': [(['MLM1001'], False), (['MLM1001', 'MLM1001'], False)]}
+E       assert False
+E        +  where False = all(&lt;generator object test_06_scan_incompleto_no_desactiva_ausentes.&lt;locals&gt;.&lt;genexpr&gt; at 0xe5ad77a94930&gt;)
+
+/evidence/test_accept_ingest.py:25: AssertionError</failure></testcase><testcase classname="test_accept_ingest" name="test_14_contencion_no_declara_escrituras_revertidas" time="1.096"><failure message="AssertionError: {'observaciones_reales': 0, 'observadas': 1, 'ok': True, 'sello': (True, 1, 1)}&#10;assert 1 == 0">db = (&lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xe5ad77a47050&gt;, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_14_contencion_no_declara_escrituras_revertidas(db):
+        r = ingest.caso14(*db)
+&gt;       assert r["observadas"] == r["observaciones_reales"] == r["sello"][1], r
+E       AssertionError: {'observaciones_reales': 0, 'observadas': 1, 'ok': True, 'sello': (True, 1, 1)}
+E       assert 1 == 0
+
+/evidence/test_accept_ingest.py:31: AssertionError</failure></testcase><testcase classname="test_accept_ingest" name="test_S1_error_de_proveedor_redactado_antes_de_persistir" time="0.902"><failure message="psycopg.errors.CheckViolation: new row for relation &quot;jev_ficha_version&quot; violates check constraint &quot;jev_ficha_listings_no_vacios&quot;&#10;DETAIL:  Failing row contains (abd34897-9afb-4a0a-afff-3b1a4f052b34, 1, amazon_mx, {}, [{&quot;texto&quot;: &quot;hecho&quot;, &quot;fuente&quot;: &quot;fuente&quot;}], {}, ba7c00d0d85f4ceaa1fc954c9ad7ab29ba7c00d0d85f4ceaa1fc954c9ad7ab29, aprobador, 2026-11-16 01:27:22.344857+00, 2026-12-16 01:27:22.344857+00, 2026-11-16 01:27:22.345143+00).">db = (&lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xe5ad77a9d130&gt;, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_S1_error_de_proveedor_redactado_antes_de_persistir(db):
+&gt;       r = ingest.casoS1(*db)
+            ^^^^^^^^^^^^^^^^^^
+
+/evidence/test_accept_ingest.py:36: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/evidence/ingest.py:251: in casoS1
+    fid = _ficha(c,pid,(),observado=ahora,vence=ahora+dt.timedelta(days=30))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_jev_catalogo.py:233: in _ficha
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xe5ad77a9d130&gt;
+query = "INSERT INTO jev_ficha_version (id, producto_id, plataforma, listings, hechos, desconocidos, sha256, aprobador, observado_at, revisar_antes_de) VALUES (%s, %s, %s, %s, %s::jsonb, '{}', %s, 'aprobador', %s, %s)"
+params = (UUID('abd34897-9afb-4a0a-afff-3b1a4f052b34'), 1, 'amazon_mx', [], '[{"texto": "hecho", "fuente": "fuente"}]', 'ba7c00d0d85f4ceaa1fc954c9ad7ab29ba7c00d0d85f4ceaa1fc954c9ad7ab29', ...)
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -&gt; Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+&gt;           raise ex.with_traceback(None)
+E           psycopg.errors.CheckViolation: new row for relation "jev_ficha_version" violates check constraint "jev_ficha_listings_no_vacios"
+E           DETAIL:  Failing row contains (abd34897-9afb-4a0a-afff-3b1a4f052b34, 1, amazon_mx, {}, [{"texto": "hecho", "fuente": "fuente"}], {}, ba7c00d0d85f4ceaa1fc954c9ad7ab29ba7c00d0d85f4ceaa1fc954c9ad7ab29, aprobador, 2026-11-16 01:27:22.344857+00, 2026-12-16 01:27:22.344857+00, 2026-11-16 01:27:22.345143+00).
+
+/usr/local/lib/python3.12/site-packages/psycopg/connection.py:304: CheckViolation</failure></testcase><testcase classname="test_accept_ingest" name="test_control_productos_no_publica_subtotal_en_ningun_orden" time="0.001" /><testcase classname="test_accept_optimizer" name="test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio" time="1.263" /><testcase classname="test_accept_optimizer" name="test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo" time="1.342"><failure message="AssertionError: {'status': 'failed', 'constraint': 'decision_dato_no_del_futuro', 'persisted': 0}&#10;assert 'failed' == 'done'&#10;  &#10;  - done&#10;  + failed">def test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo():
+        print(review.metadata())
+        with review.database() as conn:
+            control = review.harvest_scenario(conn)
+            assert control["status"] == "done", control
+            assert set(control["kinds"]) == {"pause", "negative", "harvest"}, control
+            for row in control["rows"]:
+                assert review.replay.reproduce(row[9]) == (row[1], row[4], row[5])
+        with review.database() as conn:
+            result = review.harvest_scenario(conn, reobservado=True)
+&gt;       assert result["status"] == "done", result
+E       AssertionError: {'status': 'failed', 'constraint': 'decision_dato_no_del_futuro', 'persisted': 0}
+E       assert 'failed' == 'done'
+E         
+E         - done
+E         + failed
+
+/evidence/test_accept_optimizer.py:31: AssertionError</failure></testcase><testcase classname="test_accept_optimizer" name="test_control_arreglos01_b_no_harvestea_keyword_exact_propia" time="0.680" /><testcase classname="test_accept_pricing" name="test_07_corrida_meli_conserva_fecha_y_detalle[corriente]" time="0.856"><failure message="AssertionError: ('costo_desactualizado', 'escenario no disponible: costo_desactualizado')&#10;assert None is not None&#10; +  where None = Lectura(entrada=None, motivo='costo_desactualizado', diagnostico='escenario no disponible: costo_desactualizado', ids=None, cotizable=None, fees_escenario='costo_desactualizado', historia=None).entrada">guardada = False
+
+    @pytest.mark.parametrize('guardada', [False, True], ids=['corriente', 'persistida'])
+    def test_07_corrida_meli_conserva_fecha_y_detalle(guardada):
+        from app.precio import corrida
+        from app.precio.reglas import decidir
+        from app.precio.tipos import PideCotizacion
+        with base() as (conn, _):
+&gt;           mercado, lectura, config, ahora, calls = preparar_meli(conn)
+                                                     ^^^^^^^^^^^^^^^^^^^
+
+/evidence/test_accept_pricing.py:125: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+conn = &lt;psycopg.Connection [BAD] at 0xe5ad77a46ab0&gt;
+
+    def preparar_meli(conn):
+        import test_precio02_escenario_meli as semillas
+        from test_precio_corrida import SETTINGS, _config, _goal
+        from app.precio.config import leer_config
+        from app.meli.precio_mercado import MercadoMeli
+        from app.meli.estimacion import CotizadorMeli
+        from app.meli.write_client import MeliWriteClient
+        from app.reputacion_clientes import ClienteMeli, MeliCredentials
+        from app.precio.puerto import MetaGoal
+    
+        ahora = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+        pid = semillas._producto(conn, 'SKU-ACCEPT-07')
+        lid = semillas._publicacion(conn, 'MLM1', [('SKU-ACCEPT-07', pid)],
+                                   observado=ahora-timedelta(hours=1))
+        semillas._costo(conn, pid)
+        semillas._muestra(conn, pid)
+        semillas._politica(conn)
+        semillas._siembra(conn, lid, ahora=ahora, observed_at=ahora, valoracion=ahora.date())
+        settings = {**SETTINGS, 'precio_modo_global': 'shadow',
+                    'precio_modo_universo': {'meli/meli': 'shadow'}}
+        _config(conn, settings)
+        _goal(conn, lid, platform='meli', mode='shadow')
+        calls = []
+    
+        def respuesta(request):
+            calls.append((request.method, request.url.path))
+            assert request.method == 'GET', 'Este caso shadow no debe escribir'
+            assert request.url.path == '/sites/MLM/listing_prices'
+            precio = D(request.url.params['price'])
+            fee = (precio * D('.195')).quantize(D('.01'))
+            return httpx.Response(200, json={
+                'currency_id': 'MXN', 'sale_fee_amount': str(fee),
+                'sale_fee_details': {'percentage_fee': '19.5', 'fixed_fee': '0'},
+                'listing_fee_amount': '0',
+            })
+    
+        creds = MeliCredentials(access_token='synthetic-acceptance')
+        transport = httpx.MockTransport(respuesta)
+        mercado = MercadoMeli('meli',
+            lector=ClienteMeli(creds, transport=transport, backoff_base=0),
+            fees=CotizadorMeli(ClienteMeli(creds, transport=transport, backoff_base=0)),
+            escritor=MeliWriteClient(modo_confirmado='live', creds=creds, transport=transport))
+        config = leer_config(settings)
+        unidad = mercado.unidades(conn, [lid])[lid]
+        lectura = mercado.insumos(conn, [unidad], hoy=ahora.date(), ahora=ahora,
+            config=config, metas={lid: MetaGoal(goal=D('.30'), mode='shadow',
+            goal_vigente_desde=ahora.date()-timedelta(days=30))})[lid]
+&gt;       assert lectura.entrada is not None, (lectura.motivo, lectura.diagnostico)
+E       AssertionError: ('costo_desactualizado', 'escenario no disponible: costo_desactualizado')
+E       assert None is not None
+E        +  where None = Lectura(entrada=None, motivo='costo_desactualizado', diagnostico='escenario no disponible: costo_desactualizado', ids=None, cotizable=None, fees_escenario='costo_desactualizado', historia=None).entrada
+
+/evidence/test_accept_pricing.py:115: AssertionError</failure></testcase><testcase classname="test_accept_pricing" name="test_07_corrida_meli_conserva_fecha_y_detalle[persistida]" time="0.642"><failure message="AssertionError: ('costo_desactualizado', 'escenario no disponible: costo_desactualizado')&#10;assert None is not None&#10; +  where None = Lectura(entrada=None, motivo='costo_desactualizado', diagnostico='escenario no disponible: costo_desactualizado', ids=None, cotizable=None, fees_escenario='costo_desactualizado', historia=None).entrada">guardada = True
+
+    @pytest.mark.parametrize('guardada', [False, True], ids=['corriente', 'persistida'])
+    def test_07_corrida_meli_conserva_fecha_y_detalle(guardada):
+        from app.precio import corrida
+        from app.precio.reglas import decidir
+        from app.precio.tipos import PideCotizacion
+        with base() as (conn, _):
+&gt;           mercado, lectura, config, ahora, calls = preparar_meli(conn)
+                                                     ^^^^^^^^^^^^^^^^^^^
+
+/evidence/test_accept_pricing.py:125: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+conn = &lt;psycopg.Connection [BAD] at 0xe5ad77bc9670&gt;
+
+    def preparar_meli(conn):
+        import test_precio02_escenario_meli as semillas
+        from test_precio_corrida import SETTINGS, _config, _goal
+        from app.precio.config import leer_config
+        from app.meli.precio_mercado import MercadoMeli
+        from app.meli.estimacion import CotizadorMeli
+        from app.meli.write_client import MeliWriteClient
+        from app.reputacion_clientes import ClienteMeli, MeliCredentials
+        from app.precio.puerto import MetaGoal
+    
+        ahora = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+        pid = semillas._producto(conn, 'SKU-ACCEPT-07')
+        lid = semillas._publicacion(conn, 'MLM1', [('SKU-ACCEPT-07', pid)],
+                                   observado=ahora-timedelta(hours=1))
+        semillas._costo(conn, pid)
+        semillas._muestra(conn, pid)
+        semillas._politica(conn)
+        semillas._siembra(conn, lid, ahora=ahora, observed_at=ahora, valoracion=ahora.date())
+        settings = {**SETTINGS, 'precio_modo_global': 'shadow',
+                    'precio_modo_universo': {'meli/meli': 'shadow'}}
+        _config(conn, settings)
+        _goal(conn, lid, platform='meli', mode='shadow')
+        calls = []
+    
+        def respuesta(request):
+            calls.append((request.method, request.url.path))
+            assert request.method == 'GET', 'Este caso shadow no debe escribir'
+            assert request.url.path == '/sites/MLM/listing_prices'
+            precio = D(request.url.params['price'])
+            fee = (precio * D('.195')).quantize(D('.01'))
+            return httpx.Response(200, json={
+                'currency_id': 'MXN', 'sale_fee_amount': str(fee),
+                'sale_fee_details': {'percentage_fee': '19.5', 'fixed_fee': '0'},
+                'listing_fee_amount': '0',
+            })
+    
+        creds = MeliCredentials(access_token='synthetic-acceptance')
+        transport = httpx.MockTransport(respuesta)
+        mercado = MercadoMeli('meli',
+            lector=ClienteMeli(creds, transport=transport, backoff_base=0),
+            fees=CotizadorMeli(ClienteMeli(creds, transport=transport, backoff_base=0)),
+            escritor=MeliWriteClient(modo_confirmado='live', creds=creds, transport=transport))
+        config = leer_config(settings)
+        unidad = mercado.unidades(conn, [lid])[lid]
+        lectura = mercado.insumos(conn, [unidad], hoy=ahora.date(), ahora=ahora,
+            config=config, metas={lid: MetaGoal(goal=D('.30'), mode='shadow',
+            goal_vigente_desde=ahora.date()-timedelta(days=30))})[lid]
+&gt;       assert lectura.entrada is not None, (lectura.motivo, lectura.diagnostico)
+E       AssertionError: ('costo_desactualizado', 'escenario no disponible: costo_desactualizado')
+E       assert None is not None
+E        +  where None = Lectura(entrada=None, motivo='costo_desactualizado', diagnostico='escenario no disponible: costo_desactualizado', ids=None, cotizable=None, fees_escenario='costo_desactualizado', historia=None).entrada
+
+/evidence/test_accept_pricing.py:115: AssertionError</failure></testcase><testcase classname="test_accept_pricing" name="test_08_aplicar_y_guardas_reversa_con_unidades_reales" time="1.239" /><testcase classname="test_accept_pricing" name="test_D2_retencion_ayer_sin_liberar_no_abre_hoy" time="0.487" /><testcase classname="test_accept_pricing" name="test_arreglos02_cargos_y_reversa_existentes[test_arreglos02_d_la_estimada_no_se_suma_a_la_comision_real]" time="0.910" /><testcase classname="test_accept_pricing" name="test_arreglos02_cargos_y_reversa_existentes[test_arreglos02_d_el_cargo_sin_source_event_id_no_se_descarta]" time="0.824" /><testcase classname="test_accept_pricing" name="test_arreglos02_cargos_y_reversa_existentes[test_arreglos02_d_la_reversa_regresa_las_vistas]" time="1.005" /><testcase classname="test_accept_ui" name="test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa" time="1.759"><failure message="AssertionError: {'modo': 'retiro', 'dom': {'previaA': 'UI-1 · g-ui-1', 'errorB': 'Error: Fallo controlado de la nueva consulta.', 'eje...': [11], 'motivo': 'sin_pedidos', 'huella': '4fe823748546a407fb55901deb2be56ce4d3a14cc4b54adff61ec8ebceb38a42', ...}}]}&#10;assert not [{'url': '/api/fabrica/retiro/ejecutar', 'body': {'plataforma': 'amazon_mx', 'listing_ids': [11], 'motivo': 'sin_pedidos', 'huella': '4fe823748546a407fb55901deb2be56ce4d3a14cc4b54adff61ec8ebceb38a42', ...}}]">escenario = {'conn': &lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xe5ad7761...a6ba0&gt;, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa(escenario):
+        observado = ui.browser(escenario, "retiro")
+&gt;       assert not observado["escrituras_capturadas"], observado
+E       AssertionError: {'modo': 'retiro', 'dom': {'previaA': 'UI-1 · g-ui-1', 'errorB': 'Error: Fallo controlado de la nueva consulta.', 'eje...': [11], 'motivo': 'sin_pedidos', 'huella': '4fe823748546a407fb55901deb2be56ce4d3a14cc4b54adff61ec8ebceb38a42', ...}}]}
+E       assert not [{'url': '/api/fabrica/retiro/ejecutar', 'body': {'plataforma': 'amazon_mx', 'listing_ids': [11], 'motivo': 'sin_pedidos', 'huella': '4fe823748546a407fb55901deb2be56ce4d3a14cc4b54adff61ec8ebceb38a42', ...}}]
+
+/evidence/test_accept_ui.py:16: AssertionError</failure></testcase><testcase classname="test_accept_ui" name="test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa" time="0.779"><failure message="AssertionError: {'modo': 'impulso', 'dom': {'previaA': 'UI-1 · uiTope 100.00 MXN · 5.00 al día · 0 keywords · 0 negativos', 'errorB': ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'confirmacion': 'LANZAR IMPULSO DE 1 PRODUCTOS', 'actor': 'review-local'}}]}&#10;[+1 more line; full report in element text]">escenario = {'conn': &lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xe5ad7761...a6ba0&gt;, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa(escenario):
+        observado = ui.browser(escenario, "impulso")
+&gt;       assert not observado["escrituras_capturadas"], observado
+E       AssertionError: {'modo': 'impulso', 'dom': {'previaA': 'UI-1 · uiTope 100.00 MXN · 5.00 al día · 0 keywords · 0 negativos', 'errorB': ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'confirmacion': 'LANZAR IMPULSO DE 1 PRODUCTOS', 'actor': 'review-local'}}]}
+E       assert not [{'url': '/api/fabrica/impulso/lanzar', 'body': {'solicitud': {'plataforma': 'amazon_mx', 'listing_ids': [11], 'subfam...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'confirmacion': 'LANZAR IMPULSO DE 1 PRODUCTOS', 'actor': 'review-local'}}]
+
+/evidence/test_accept_ui.py:21: AssertionError</failure></testcase><testcase classname="test_accept_ui" name="test_15_ruido_no_publica_acos_con_gasto_desconocido" time="0.037"><failure message="AssertionError: {'ruido': {'encendido_el': '2026-10-02', 'moneda': 'MXN', 'dias_antes': 0, 'dias_despues': 1, ...}, 'resumen': {'cost'...ders': 2, ...}, 'frase': 'Sin ventas atribuidas frente a la meta de 30%.', 'html_con_afirmacion_sin_ventas': True, ...}&#10;assert '5.00' is None">escenario = {'conn': &lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xe5ad7761...a6ba0&gt;, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_15_ruido_no_publica_acos_con_gasto_desconocido(escenario):
+        observado = ui.metricas(escenario)
+&gt;       assert observado["ruido"]["despues"]["acos_pct"] is None, observado
+E       AssertionError: {'ruido': {'encendido_el': '2026-10-02', 'moneda': 'MXN', 'dias_antes': 0, 'dias_despues': 1, ...}, 'resumen': {'cost'...ders': 2, ...}, 'frase': 'Sin ventas atribuidas frente a la meta de 30%.', 'html_con_afirmacion_sin_ventas': True, ...}
+E       assert '5.00' is None
+
+/evidence/test_accept_ui.py:26: AssertionError</failure></testcase><testcase classname="test_accept_ui" name="test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta" time="0.011"><failure message="AssertionError: {'ruido': {'encendido_el': '2026-10-02', 'moneda': 'MXN', 'dias_antes': 0, 'dias_despues': 1, ...}, 'resumen': {'cost'...ders': 2, ...}, 'frase': 'Sin ventas atribuidas frente a la meta de 30%.', 'html_con_afirmacion_sin_ventas': True, ...}&#10;assert not True">escenario = {'conn': &lt;psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xe5ad7761...a6ba0&gt;, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta(escenario):
+        observado = ui.metricas(escenario)
+        assert observado["resumen"]["sin_ventas"] is False
+&gt;       assert not observado["html_con_afirmacion_sin_ventas"], observado
+E       AssertionError: {'ruido': {'encendido_el': '2026-10-02', 'moneda': 'MXN', 'dias_antes': 0, 'dias_despues': 1, ...}, 'resumen': {'cost'...ders': 2, ...}, 'frase': 'Sin ventas atribuidas frente a la meta de 30%.', 'html_con_afirmacion_sin_ventas': True, ...}
+E       assert not True
+
+/evidence/test_accept_ui.py:32: AssertionError</failure></testcase><testcase classname="test_accept_ui" name="test_control_contrato_resumen_conserva_desconocido_y_csp" time="0.010" /><testcase classname="test_accept_ui" name="test_control_auth_query_y_form_no_sustituyen_header" time="0.039" /></testsuite></testsuites>

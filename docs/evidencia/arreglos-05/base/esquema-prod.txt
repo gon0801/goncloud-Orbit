@@ -1,0 +1,8 @@
+ads_optimizer_goal|id,scope,ad_entity_id,platform,target_acos_pct,bid_floor,bid_ceiling,bid_currency,harvest_campaign_id,harvest_ad_group_id,harvest_default_bid,enabled,mode,created_at,updated_at
+apply_attempt|id,decision_id,seq,tipo,request_payload,quota_cobrada,started_at,ack,resultado,finished_at
+apply_queue|id,platform,ad_entity_id,familia,search_term,kind,decision_id,modo,estado,vence_el,encolado_at,released_at,applying_at,applied_at,failed_at,discarded_at,vetoed_at,vetoed_by,discard_motivo,request_payload
+decision_application|decision_id,attempted_at,confirmed_at,verify_ok,platform_ack,error,applied_cycle_id
+harvest_job|id,decision_id,search_term,platform,ad_entity_id,fase,external_ids,created_at,updated_at
+keyword_archivo_manual|id,lote,ad_entity_id,platform,campaign_external,ad_group_external,keyword_external,keyword_text,match_type,bid,bid_currency,clasificacion,dias_sin_impresiones,go_literal,intentado_at,ack,readback_estado,estado,repuesto_at,repuesto_external,repuesto_ack
+optimizer_cycle|id,motor,mode,platform,started_at,finished_at,decisions_count,applied_count,status,notes
+sku_cost|id,product_id,cost_amount,cost_currency,includes_tax,valid_from,valid_to,ingest_run_id

@@ -4,8 +4,9 @@ Alcance vigente: el de `plans/arreglos-04.md` (bloques B-A a B-D). La falla 11 d
 (`tools/archiva_inertes.py --reponer`) va en ARREGLOS 05; donde este diseño diga otra cosa, manda el plan.
 
 Frente: las fallas 3, 4, 8, 9, 10 y la segunda viñeta de la 12 de
-`docs/evidencia/arreglos-2026-11-12/apply.md`. Código leído en `a4644aad` (lo que corre en
-producción), worktree `plan/arreglos-02`. Las citas `archivo:línea` son de ese SHA.
+`docs/evidencia/arreglos-2026-11-12/apply.md`. Código histórico leído en `a4644aad` (foto de producción del 12-nov), worktree `plan/arreglos-02`. Las citas `archivo:línea` son de ese SHA.
+
+En las tablas, `\|` representa una barra vertical dentro de la celda; al copiar SQL o resultados se quita el escape de Markdown.
 
 Resumen de la forma:
 
@@ -21,9 +22,10 @@ Resumen de la forma:
 - Un paso de operación revisa en Amazon los 48 bloqueos «aplicados» y repara solo los que Amazon
   confirma que no bloquean (pregunta a).
 
-Ningún arreglo toca los cinco archivos de TEMPORADA 01 (`app/cycle.py`, `app/optimizer/politica.py`,
-`app/lecturas_caso.py`, `app/apply.py`, `app/apply_cola.py`). Ninguno lleva migración, así que no
-toca `tools/despliegue/comun.sh`, que TEMPORADA 01 sí cambia. La falla 11 queda fuera, en ARREGLOS 05.
+B-C adapta los callers reales del lector también en `app/apply.py` o
+`app/apply_cola.py` si BASE los encuentra; no cambia su política ni la del ciclo.
+La cola integra este plan antes de TEMPORADA. Ninguno de estos bloques lleva
+migración ni necesita cambiar `tools/despliegue/comun.sh`. La falla11 queda en05.
 
 ## Medido en producción (12-nov-2026, solo lectura)
 
@@ -31,16 +33,16 @@ Todas con `echo "<select>" | bash docs/evidencia/arreglos-01/lee_prod.sh`.
 
 | Pregunta | Consulta | Resultado |
 | --- | --- | --- |
-| Bloqueos por último paso | `select ult.paso, count(*), min(v.created_at)::date, max(v.created_at)::date from bloqueo_veredicto v join lateral (select e.paso from bloqueo_efecto e where e.veredicto_id=v.id order by e.created_at desc, e.id desc limit 1) ult on true where v.tipo='aprobado' group by 1` | `aplicado|48|2026-11-12|2026-11-12`. Los 48 se aprobaron hoy entre 04:40 y 04:44 UTC. |
+| Bloqueos por último paso | `select ult.paso, count(*), min(v.created_at)::date, max(v.created_at)::date from bloqueo_veredicto v join lateral (select e.paso from bloqueo_efecto e where e.veredicto_id=v.id order by e.created_at desc, e.id desc limit 1) ult on true where v.tipo='aprobado' group by 1` | `aplicado\|48\|2026-11-12\|2026-11-12`. Los 48 se aprobaron hoy entre 04:40 y 04:44 UTC. |
 | Tiempo entre intención y aplicado | `select v.plataforma, count(*), min(...), percentile_cont(0.5) ..., max(...) from bloqueo_veredicto v join bloqueo_efecto i on ... paso='intencion' join bloqueo_efecto a on ... paso='aplicado' where v.tipo='aprobado' group by 1` | MX 25: mínimo 0.01 s, mediana 0.02 s, máximo 2176.55 s. US 23: 0.01 a 0.02 s. |
-| ¿Algún id de bloqueo lo creó el motor? | `select count(*) filter (where exists (select 1 from apply_attempt t where t.ack::text like '%'||e.negative_keyword_id||'%' or t.resultado like '%'||e.negative_keyword_id||'%')), count(*) from bloqueo_efecto e where e.paso='aplicado'` | `0|48` |
-| ¿Alguno lo creó la fábrica? | `select count(*) from bloqueo_efecto e where e.paso='aplicado' and exists (select 1 from fabrica_lote_paso p where p::text like '%'||e.negative_keyword_id||'%')` | `0` |
+| ¿Algún id de bloqueo lo creó el motor? | `select count(*) filter (where exists (select 1 from apply_attempt t where t.ack::text like '%'\|\|e.negative_keyword_id\|\|'%' or t.resultado like '%'\|\|e.negative_keyword_id\|\|'%')), count(*) from bloqueo_efecto e where e.paso='aplicado'` | `0\|48` |
+| ¿Alguno lo creó la fábrica? | `select count(*) from bloqueo_efecto e where e.paso='aplicado' and exists (select 1 from fabrica_lote_paso p where p::text like '%'\|\|e.negative_keyword_id\|\|'%')` | `0` |
 | Tablas que guardan ids de negatives | `select table_name from information_schema.columns where column_name ilike '%negative%' or (data_type='jsonb' and table_name ilike '%fabrica%') group by 1` | Solo `bloqueo_efecto`, `fabrica_lote` y `fabrica_lote_paso`. Los negatives no entran a `ad_entity`. |
-| Señal vigente de cada clave bloqueada | `select v.vigente, v.lectura, count(*) from bloqueo_veredicto b join jev_senal_vigente v on v.ad_group_id=b.ad_group_id join jev_senal s on s.id=v.senal_id and s.termino_sha256=b.termino_sha256 where b.tipo='aprobado' group by 1,2` | `True|ajena|47`, `True|sin_lectura|1`. Ninguna con el mismo `senal_id` que se aprobó (`left join jev_senal_vigente s on s.senal_id=v.senal_id` da 48 nulos). |
+| Señal vigente de cada clave bloqueada | `select v.vigente, v.lectura, count(*) from bloqueo_veredicto b join jev_senal_vigente v on v.ad_group_id=b.ad_group_id join jev_senal s on s.id=v.senal_id and s.termino_sha256=b.termino_sha256 where b.tipo='aprobado' group by 1,2` | `True\|ajena\|47`, `True\|sin_lectura\|1`. Ninguna con el mismo `senal_id` que se aprobó (`left join jev_senal_vigente s on s.senal_id=v.senal_id` da 48 nulos). |
 | Keywords por cuenta | `select e.platform, e.kind, coalesce(s.status,'(sin estado)'), count(*) from ad_entity e left join ad_entity_state s on s.ad_entity_id=e.id where e.kind in ('keyword','ad_group','product_ad') group by 1,2,3` | MX 2,719 keywords (305 ENABLED, 76 PAUSED, 2,338 ARCHIVED). US 1,340 (292, 122, 926). |
 | Harvests y negatives del ciclo | `select j.platform, j.fase, count(*), max(j.created_at)::date from harvest_job j group by 1,2` y `select q.platform, q.kind, q.estado, count(*) from apply_queue q where q.kind in ('negative','harvest') group by 1,2,3` | MX 8 harvests `done` (último 31-oct), US 3 (15-oct). US 2 negatives `applied`. |
-| Uso de las herramientas de archivo | `select (select count(*) from anuncio_retiro), (select count(*) from anuncio_recreacion_intento), (select count(*) from keyword_archivo_manual)` | `0|0|0` |
-| Uso de la sonda | `select tipo, count(*), min(started_at)::date, max(started_at)::date from apply_attempt group by 1` | `probe|31|2026-08-26|2026-09-12`, `normal|512|...|2026-11-12`, `reversa|14|...|2026-11-12` |
+| Uso de las herramientas de archivo | `select (select count(*) from anuncio_retiro), (select count(*) from anuncio_recreacion_intento), (select count(*) from keyword_archivo_manual)` | `0\|0\|0` |
+| Uso de la sonda | `select tipo, count(*), min(started_at)::date, max(started_at)::date from apply_attempt group by 1` | `probe\|31\|2026-08-26\|2026-09-12`, `normal\|512\|...\|2026-11-12`, `reversa\|14\|...\|2026-11-12` |
 | Anuncios sin publicación | `select e.platform, s.status, count(*) from ad_entity e join ad_entity_state s on s.ad_entity_id=e.id where e.kind='product_ad' and e.listing_id is null group by 1,2` | MX 1,168 ENABLED, 429 PAUSED, 1,063 ARCHIVED. US 920, 23, 264. |
 | ¿Gastan los anuncios sin publicación? | `select e.platform, count(distinct e.id), sum(o.cost) from ad_entity e join ads_metric_observation o on o.ad_entity_id=e.id where e.kind='product_ad' and e.listing_id is null and o.metric_date >= current_date - 30 and o.cost > 0 group by 1` | Sin filas: cero gasto en 30 días. |
 
@@ -146,7 +148,7 @@ hay uno PAUSED y otro ENABLED, pueden mirar el equivocado.
 
 ```python
 # app/bloqueo_dueno_efecto.py
-from app.apply_harvest import _coincidencias, _errores_de_ack, _lista_filtrada
+from app.apply_harvest import _coincidencias, _errores_de_ack
 
 def _negative_que_bloquea(items: list[dict], grupo_ext: str, termino: str) -> dict | None:
     """Solo un negative ENABLED bloquea: PAUSED no niega nada y ARCHIVED está muerto."""
@@ -161,7 +163,7 @@ def _negative_que_bloquea(items: list[dict], grupo_ext: str, termino: str) -> di
 - `_readback`: `item = _negative_que_bloquea(...) if estado == "ok" else None`; si hay item, sella
   aplicado. Desaparece la comprobación de estado aparte.
 - `_cierra_huerfano`, rama `intencion`: lo mismo.
-- `_identidad` sale del import.
+- `_identidad` sale del import. `_lista_o` ya consume el lector único integrado por B-C: llama `_lista_completa(cliente, "/sp/negativeKeywords/list", grupos=(str(grupo_ext),))` y traduce `ListaIncompleta`/`AdsApiError` a lectura desconocida. No importar ni restaurar `_lista_filtrada`; la lectura desconocida impide adoptar, crear o borrar.
 
 Ítems de ejemplo (los usa la prueba de producción de B-B.6):
 
@@ -323,40 +325,23 @@ necesitar para la fábrica.
 (`:1510`, `:1521`), `_paso_negative` (`:1570`), `_paso_keyword` (`:1650`, `:1673`), `_paso_readback`
 (`:1802`) y `apply_harvest_reconciliacion._reconcilia_negativas` (`:393`).
 
-**Forma elegida.** `_lista_todos` dice que no leyó todo lanzando `ListaIncompleta`, que hereda de
-`AdsApiError`. No cambia ningún llamador: el harvest ya trata `AdsApiError` como ambiguo («sube»,
-el job queda en su fase, `apply_harvest.py:2180-2186`), la reconciliación de negatives ya lo atrapa y
-sigue el próximo ciclo (`apply_harvest_reconciliacion.py:392-397`), la reconciliación de harvest lo
-atrapa por job (`:647-650`) y `_reversa_automatica` lo atrapa como `AdsClientError` y no borra
-(`apply_harvest.py:1532-1533`).
+**Contrato único vigente.** Implementar exclusivamente B-C/TN02 de
+[DISENO.md](DISENO.md), sección «Un solo lector, contenedor estricto y paginación completa».
+Ese contrato sustituye el pseudocódigo permisivo anterior; aquí no se mantiene una segunda
+implementación. Exige contenedor presente/lista, todos los items válidos, filtro preservado y
+fin de paginación probado; reutiliza los validadores existentes y un solo `_lista_completa`.
+Migrar creación, readback, conciliación, reversa, hermanas y bloqueos en el mismo bloque;
+retirar `_lista_todos` y el bucle `_lista_filtrada`. No basta cambiar el corte de páginas.
+`ListaIncompleta(AdsApiError)` conserva el resultado desconocido: cero POST/delete y ningún
+sello applied/failed por una ausencia no demostrada. Los consumidores pueden traducir la
+causa a su vocabulario, pero no volver a paginar ni tratar el subtotal como completo.
+La lectura completa no acredita autoría: TN03/TN10 pertenecen a 05. El aislamiento del ciclo
+y TN13 están fuera de este bloque; no cambiar sus contratos para acomodar el lector.
 
-```python
-class ListaIncompleta(AdsApiError):
-    """Amazon no entregó la lista completa: no prueba que algo falte."""
-
-def _lista_todos(cliente, path: str, profile_id: str | int) -> list[dict]:
-    contenedor = _CONTENEDORES_LIST[path]
-    items, token, vistos = [], None, set()
-    for _ in range(TOPE_PAGINAS_LIST):
-        body = {"nextToken": token} if token else {}
-        data = ... (igual que hoy, ilegible lanza AdsApiError)
-        items.extend(x for x in data.get(contenedor) or [] if isinstance(x, dict))
-        estado = _valida_token_list(data.get("nextToken"))
-        if estado == "fin":
-            return items
-        if estado == "ambiguo":
-            raise ListaIncompleta(f"nextToken ilegible: {contenedor}")
-        token = data.get("nextToken")
-        if token in vistos:
-            raise ListaIncompleta(f"nextToken repetido: {contenedor}")
-        vistos.add(token)
-    raise ListaIncompleta(f"mas de {TOPE_PAGINAS_LIST} paginas: {contenedor}")
-```
-
-Qué ve el dueño: si una cuenta pasa del corte, el harvest se detiene en su fase con el aviso del ciclo
-en vez de duplicar un negative o borrar una keyword recién creada. El primer ciclo que lo encuentra
-corta su fase de apply, igual que hoy un 5xx en el harvest; los siguientes lo saltan en la
-reconciliación. Para que eso no pase el día del despliegue, el tope sale de la medición de abajo.
+Qué ve el dueño: lectura pendiente con su causa y sin duplicación ni borrado inferido. El
+siguiente intento puede repetir la lectura. El comportamiento de fases de apply es el vigente
+al rebasar, no una orden de reinstalar el antiguo aborto global. El tope se dimensiona con
+la medición siguiente; ampliar el tope no remedia un contenedor inválido.
 
 **Medición antes del cambio (fila B-C.0).** Con `ListaIncompleta`, una lista más larga que el tope ya
 no se trunca en silencio: detiene el harvest de esa cuenta. Por eso, antes de tocar código, se mide
@@ -369,24 +354,36 @@ desde el contenedor con el cliente de lectura (`AdsClient` rechaza PUT, PATCH y 
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import perfiles_aceptados
-from app.apply_harvest import _CONTENEDORES_LIST, TOPE_PAGINAS_LIST
+from app.apply_harvest import (
+    _CONTENEDORES_LIST, TOPE_PAGINAS_LIST, _valida_pagina_list, _valida_token_list,
+)
 
 TOPE_MEDICION = 500
 cliente = AdsClient(AdsCredentials.from_secrets_dir())
 for perfil in perfiles_aceptados(cliente):
     for path, contenedor in _CONTENEDORES_LIST.items():
         paginas, items, primera, token, fin = 0, 0, None, None, False
+        vistos = set()
         while paginas < TOPE_MEDICION:
             body = {"nextToken": token} if token else {}
             datos = cliente.list_objects(path, body, profile_id=perfil.profile_id).json()
             paginas += 1
-            n = len(datos.get(contenedor) or [])
+            pagina, valida = _valida_pagina_list(datos, contenedor)
+            if not valida:
+                break  # sin_fin: un contenedor/item invalido no dimensiona una lista completa.
+            n = len(pagina)
             items += n
             primera = n if primera is None else primera
-            token = datos.get("nextToken")
-            if not token:
+            estado = _valida_token_list(datos.get("nextToken"))
+            if estado == "fin":
                 fin = True
                 break
+            if estado == "ambiguo":
+                break
+            token = datos["nextToken"]
+            if token in vistos:
+                break
+            vistos.add(token)
         print(f"{perfil.platform}|{path}|{paginas}|{items}|{primera}|{'fin' if fin else 'sin_fin'}")
         if paginas > TOPE_PAGINAS_LIST:
             print(f"corte_callado|{perfil.platform}|{path}|{paginas} páginas contra el tope de {TOPE_PAGINAS_LIST}")
@@ -395,27 +392,24 @@ for perfil in perfiles_aceptados(cliente):
 Con la salida en `docs/evidencia/arreglos-04/B-C/paginas.txt`, `TOPE_PAGINAS_LIST` queda en
 `max(20, 4 × páginas de la lista más larga)`, redondeado hacia arriba a la decena. Una línea
 `corte_callado` dice que hoy el harvest ya trabaja con una lista cortada sin saberlo: se anota en la
-evidencia del PR y el tope nuevo lo cubre. Una lista `sin_fin` (más de 500 páginas) para el bloque.
+evidencia del PR y el tope nuevo lo cubre. Una lista `sin_fin` (tope de 500 páginas, contenedor/item inválido o token ambiguo/repetido) para el bloque; conservar la causa en la evidencia y no dimensionar el tope con esa lista.
 B-D ya no mide páginas.
 
-Prototipo. Con esta forma montada como parche, `tests/test_apply_harvest.py`, `test_d3_adversary.py`,
-`test_fabrica_f2_hermanas.py`, `test_cycle_apply.py`, `test_apply_cola.py` y la reproducción del
-negative huérfano: 238 pasan y 2 fallan. Una es la reproducción de la keyword, que ahora sale por
-`ListaIncompleta` antes del POST de la keyword (la prueba promovida espera esa excepción y cero
-borrados). La otra es `test_fabrica_f2_hermanas.py::test_previo_truncado_cero_post_y_pendientes`: su
-transporte trunca todas las listas de negatives, y el paso del negative en origen pasaba solo porque
-el corte callado lo dejaba postear. Se arregla la prueba, no el código: el truncado se limita al LIST
-filtrado por ad group.
+**Evidencia histórica y aceptación vigente.** Los resultados del prototipo anterior no
+certifican el contrato estricto TN02. Reutilizar controles válidos y ejecutar los casos portados
+missing/truncated y vecinos descritos en B-C de `plans/arreglos-04.md`, con el entorno de
+`docs/evidencia/arreglos-05/ACEPTACION.md`. Si fixtures antiguos producen items incompletos,
+corregirlos contra el shape verificado; no debilitar validadores para conservar su pase.
+`test_previo_truncado_cero_post_y_pendientes` sigue truncando solo el LIST filtrado para que
+compruebe hermanas sin depender de una lectura incompleta anterior aceptada por error.
 
-**Formas descartadas.**
-- Cambiar los siete usos a `_lista_completa` (`:517`), que valida cada ítem. Con ese parche fallan 14
-  pruebas que hoy pasan: la validación estricta convierte en «incompleta» filas que el harvest hoy sí
-  usa, y eso cambia el comportamiento en producción más allá de la falla.
-- El movimiento 2 completo (un lector único con filtro por ad group, también para
-  `apply._fila_de_readback`). Toca `app/apply.py`, de TEMPORADA 01. Queda para un plan posterior.
+**Alternativas descartadas.** Mantener un lector permisivo para callers históricos, aceptar
+subtotales como ausencia o crear un cuarto paginador. La migración a validación estricta y
+lector único ya no está diferida: es B-C. La receta de medición no es una segunda API runtime.
 
-**Cruces.** El frente de la falla 7 (otro plan) toca `apply_harvest_reconciliacion.py`; este bloque
-no cambia ese archivo. TEMPORADA 01 no toca `apply_harvest.py`.
+**Cruces.** B-C adapta también `apply_harvest_reconciliacion.py` y los callers reales de apply
+que encuentre BASE; 05 consume ese contrato para reversas/propiedad. B-B y B-D integran
+sobre B-C. Resolver por contenido contra master; no reintroducir los lectores retirados.
 
 ## Revisión en Amazon de los bloqueos aplicados (pregunta a)
 
@@ -459,7 +453,7 @@ cliente = AdsClient(AdsCredentials.from_secrets_dir())
 perfiles = {p.platform: p.profile_id for p in perfiles_aceptados(cliente)}
 
 
-class _Sellado:  # adapta el cliente de lectura a _lista_filtrada
+class _Sellado:  # adapta el cliente de lectura al lector unico de B-C
     def __init__(self, pid):
         self.pid = pid
 
@@ -468,7 +462,7 @@ class _Sellado:  # adapta el cliente de lectura a _lista_filtrada
 
 
 def _lee(pid, grupo_ext):
-    # _lista_o envuelve _lista_filtrada y convierte un error de Amazon en "ambiguo"
+    # _lista_o traduce el lector unico de B-C; error/incompletitud -> "ambiguo"
     items, estado = bde._lista_o(_Sellado(pid), grupo_ext)
     if estado != "ok":                      # una segunda oportunidad antes de rendirse
         time.sleep(30)

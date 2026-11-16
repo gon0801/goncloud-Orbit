@@ -1,0 +1,110 @@
+ORBIT — REVALIDACION DEL REVIEW THERMO-NUCLEAR
+15 de noviembre de 2026, America/Vancouver.
+SHA revisado: ff03ed61f7a847ab190b1695c2efe8d785baa364.
+origin/master seguia en ese SHA al comprobarlo durante el cierre.
+VEREDICTO: NO PASA. 14 hallazgos originales siguen pendientes.
+
+Esta es la referencia vigente para corregir. Sustituye el veredicto aplicado
+a la rama antigua 5adf1be0; aquella revision no describia master actualizado.
+No se modificaron producto, planes ni produccion.
+
+RESULTADO DEPURADO
+
+- 01, 08 y 09 ya estan corregidos y sus controles pasan: conciliacion sin
+  reenvio de puja, variantes MeLi y transaccion de la guarda de Jev.
+- Siguen reproducidos 13 fallos de comportamiento/datos: 02,03,04,05,06,07,
+  10,11,12,13,14,15,16.
+- S1 sigue reproducido como incumplimiento condicional de redaccion: si el
+  proveedor devuelve un secreto registrado en model/choice invalidos, se
+  persiste sin redactar. Se uso una clave ficticia; no hubo filtracion real.
+- D2 (fusible entre dias) tambien esta corregida; era nota aparte de los 17.
+- D1 (formula del prior frente a la frase solo frena) queda como nota de
+  contrato, no como defecto de implementacion que impida aprobar.
+
+EVIDENCIA FINAL
+
+31 casos especificos, sobre el mismo codigo y esquema actual:
+17 fallan por los defectos esperados; 14 controles pasan; 0 errores de fixture
+o recoleccion; 0 omitidos. Los 17 casos rojos representan 14 hallazgos:02,04 y07
+tienen dos variantes cada uno. acceptance.log y acceptance.xml son la corrida
+final conjunta, no una suma de ejecuciones repetidas.
+
+Las expectativas exigen el comportamiento correcto, sin xfail. La suite
+externa debe ponerse verde con los arreglos. run-acceptance.sh es el comando
+comun; reproducir.txt describe el entorno. manifest.json registra los hashes.
+
+Se recorrieron clientes y consumidores reales, esquema de 83 migraciones en
+PG16, ciclo y replay, CLI de recuperacion/reversa y API/HTML/JS en Chromium.
+Se simularon las fronteras HTTP; no se hicieron mutaciones externas.
+Los limites de cada caso estan en hallazgos.json. En particular, el caso de
+impulso usa una previa sintetica: demuestra envio de una solicitud anterior,
+no que Amazon acepte el impulso. Retiro usa la previa real de API/PG.
+
+Validacion existente:
+- Quality del SHA exacto: 5996 passed, sin skips; compilacion y Gitleaks verdes.
+  https://github.com/gon0801/goncloud-Orbit/actions/runs/43781301318
+- Reejecucion Linux Python3.12/PG16: los 5996 casos pasan por tramos; detalle
+  y errores iniciales de entorno resueltos en suite-resumen.txt.
+- Recorrido basico de las 10 pantallas del Feature Map: pasa con Chromium y
+  PostgreSQL desechable. Evidencia en ui/ y ui-drive.log.
+- Ruff y pre-commit del checkout revisado pasaron; no hay diff de producto.
+
+CORRECCIONES A LA PROPIA REVISION
+
+09 no era un fallo actual: metricas_listas.guarda ya cierra solo su propia
+transaccion. El control observa guarda=True, entrada IDLE y retorno completo
+de _leer_mundo, cierre de corrida y conservacion de una transaccion ajena.
+
+12 tuvo un pase provisional invalido: la semilla envejecia finished_at, pero
+la vista toma started_at. Corregida la semilla y exigido ledger_rancio, tres
+ciclos repiten 29, 29, 29 en lugar de 29, 28.5, 28. Sigue pendiente.
+
+Los primeros casos 05/S1 tenian datos de prueba invalidos; 07 tenia un costo
+de prueba vencido. Esos errores NO se atribuyeron al producto. Se corrigieron
+los fixtures, se uso la cadena SQL completa sin omitir DO/grants y se repitio
+la aceptacion final. 05 ahora publica subtotal con entidad_completa=True.
+Los logs iniciales se conservan como trazabilidad; el veredicto usa el final.
+
+COBERTURA DE LOS 14 PENDIENTES EN LOS PLANES ACTUALES
+
+2 tienen tarea concreta: 05 en ARREGLOS03 D-G; 16 en ARREGLOS04 W-D.2/W-D.4.
+1 tiene cobertura parcial: 02 en ARREGLOS04 B-C. Trata la paginacion, pero deja
+sin cerrar la respuesta sin contenedor, que tambien permite repetir POST.
+2 estan remitidos al futuro ARREGLOS05: 10 y 11. El plan aun no existe.
+9 carecen de tarea especifica que cierre su caso: 03,04,06,07,12,13,14,15,S1.
+
+Por tanto, ejecutar los planes TAL COMO ESTAN no basta para cerrar el review.
+matriz.tsv relaciona cada ID con el archivo, el plan y su prueba de cierre.
+No se modificaron los planes en esta tarea de comprobacion.
+
+ESTRUCTURA: REMEDIOS LIGADOS A LOS FALLOS, NO BLOQUEOS NUEVOS DE ESTILO
+
+- Lecturas completas y evidencia de propiedad comunes a creacion, reintento
+  y reversa; una coincidencia de texto no acredita autoria de una keyword.
+- Un estado de previa por seleccion que gobierne detalle, confirmacion y
+  payload; invalidar la seleccion anterior y respuestas fuera de revision.
+- Cotizacion tipada que conserva precio, fecha y desglose tanto fresca como
+  persistida; no reconstruir datos parciales en cada adaptador.
+- Estado aplicado separado del origen de su medicion; sello temporal comun
+  a toda decision antes de persistir el lote.
+- Cobertura explicita en agregados y ratios; contadores solo de escrituras
+  que sobreviven al savepoint; redaccion antes de persistir errores.
+
+El censo actual tiene 163 archivos Python y 86524 lineas en app/; 15 archivos
+superan 1000 lineas (estructura.json). Esto localiza responsabilidades para
+simplificar, no prueba 15 defectos adicionales. Conforme a AGENTS.md, no se
+exige partir archivos por longitud como condicion nueva para aprobar.
+
+CUANDO PASA
+
+Cerrar los 14 hallazgos con sus criterios observables, conservar los controles
+de los ya corregidos, integrar los cambios y ejecutar aceptacion, CI/secretos
+y los flujos UI afectados sobre ESE MISMO COMMIT. Revisar los caminos vecinos
+que comparten la causa, incluidos reintento/reversa y lectura fresca/cache.
+criterio-cierre.txt fija la regla; un nuevo bloqueo requiere reproduccion e
+impacto concretos, no una preferencia retrospectiva.
+
+Esto valida estos casos y este codigo. No certifica cada linea, frecuencia
+de fallos, permisos/configuracion desplegados, conciliacion con cuentas
+externas ni ausencia universal de errores. No se inspecciono internamente
+Chart.js ni se hizo pentest. Ninguna correccion del producto esta incluida.

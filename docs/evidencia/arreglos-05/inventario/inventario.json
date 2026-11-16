@@ -1,0 +1,2282 @@
+{
+  "fecha": "2026-11-15",
+  "repo": "/Users/dn/dev/goncloud-Orbit-arreglos-05-plan",
+  "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+  "solo_lectura": true,
+  "produccion_consultada": false,
+  "suite_ejecutada": false,
+  "red_consultada": false,
+  "cobertura": {
+    "markdown_en_plans": 74,
+    "entradas_manifest": 47,
+    "markdown_fuera_manifest": 27,
+    "ausentes_principales": [
+      "arreglos-01",
+      "temporada-01"
+    ],
+    "active": "disenos-01",
+    "active_obsoleto_para_construccion": true
+  },
+  "criterio": "Integracion Git, evidencia de implementacion y recibos documentados separados. Ningun estado certifica produccion actual. Pendientes por marcas antiguas no se presumen.",
+  "planes_y_auxiliares": [
+    {
+      "id": "ROADMAP",
+      "archivo": "plans/ROADMAP.md",
+      "en_manifest": false,
+      "estado": "registro_desactualizado",
+      "evidencia": [
+        "plans/ROADMAP.md:3",
+        "plans/ROADMAP.md:19",
+        "plans/ROADMAP.md:52"
+      ],
+      "resto": "Base operativa 4/5-nov; no incluye cola completa de noviembre. Separar seguimientos P de ideas AUTO."
+    },
+    {
+      "id": "ads-proteccion-01-fase-d",
+      "archivo": "plans/ads-proteccion-01-fase-d.md",
+      "en_manifest": true,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/ads-proteccion-01.md:103",
+        "plans/ads-proteccion-01.md:114"
+      ],
+      "resto": "Guia D.2/D.1b/C.2a entregada; no sumar otro plan abierto."
+    },
+    {
+      "id": "ads-proteccion-01",
+      "archivo": "plans/ads-proteccion-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/ads-proteccion-01.md:103",
+        "plans/ads-proteccion-01.md:213",
+        "plans/ads-proteccion-01.md:261"
+      ],
+      "resto": "C.6/P03: P2 parcial, completar cobertura/eligibilidad/maduracion; P3 expediente, P4 cinco ciclos propios, P5 live separado. Residuales antiguos no bloqueantes sin revalidar."
+    },
+    {
+      "id": "arreglos-01",
+      "archivo": "plans/arreglos-01.md",
+      "en_manifest": false,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "3524b41b",
+        "976df4dc",
+        "de895d18",
+        "ac539365",
+        "f53ad3f8",
+        "docs/evidencia/arreglos-01/C/reversa.txt:1",
+        "docs/evidencia/arreglos-01/U/encendido.txt:1",
+        "docs/evidencia/arreglos-05/base/huella-local.json",
+        "docs/evidencia/arreglos-05/base/huella-prod.json"
+      ],
+      "resto": "A-Z integrados; A/C/U tienen evidencia operativa concreta. Falta consolidar recibos restantes, no reimplementar. Review01/08/09/D2 resueltos.",
+      "bloques": [
+        {
+          "id": "A",
+          "titulo": "Base: la propuesta 2869 no se aplica y las migraciones del plan sí entran",
+          "linea": 16,
+          "depende": []
+        },
+        {
+          "id": "B",
+          "titulo": "El motor no bloquea ni cosecha un término que ya es keyword propia del ad group",
+          "linea": 28,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "C",
+          "titulo": "Se quitan los negatives que ya apagaron keywords propias",
+          "linea": 42,
+          "depende": [
+            "B"
+          ]
+        },
+        {
+          "id": "D",
+          "titulo": "Un tope diario imposible se rechaza al guardarlo",
+          "linea": 52,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "E",
+          "titulo": "El freno de precios no se suelta solo",
+          "linea": 65,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "F",
+          "titulo": "Un costo corregido ya no congela el SKU ni deja a todos sin evaluar",
+          "linea": 77,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "G",
+          "titulo": "El vigilante de SP-API avisa cuando la corrida falló",
+          "linea": 91,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "H",
+          "titulo": "Revertir una subida ya no deja un piso que bloquea recortes",
+          "linea": 103,
+          "depende": [
+            "B"
+          ]
+        },
+        {
+          "id": "I",
+          "titulo": "Apagar la protección de venta descarta las pausas en espera",
+          "linea": 116,
+          "depende": [
+            "H"
+          ]
+        },
+        {
+          "id": "J",
+          "titulo": "La guarda de «estructura vieja» mira la última sincronización real",
+          "linea": 128,
+          "depende": [
+            "I"
+          ]
+        },
+        {
+          "id": "K",
+          "titulo": "Un bid con resultado dudoso espera a confirmarse",
+          "linea": 141,
+          "depende": [
+            "D",
+            "J"
+          ]
+        },
+        {
+          "id": "L",
+          "titulo": "La corrida de precios espera el insumo del día",
+          "linea": 153,
+          "depende": [
+            "E"
+          ]
+        },
+        {
+          "id": "M",
+          "titulo": "El despliegue espera a que no haya un ciclo corriendo",
+          "linea": 167,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "N",
+          "titulo": "El cron de Orbit vive en el repo y su instalador nunca quita los avisos",
+          "linea": 179,
+          "depende": [
+            "M"
+          ]
+        },
+        {
+          "id": "O",
+          "titulo": "Una venta reciente conocida detiene la pausa",
+          "linea": 192,
+          "depende": [
+            "K"
+          ]
+        },
+        {
+          "id": "P",
+          "titulo": "No se sube el bid de una keyword que está en espera de venta",
+          "linea": 206,
+          "depende": [
+            "O"
+          ]
+        },
+        {
+          "id": "Q",
+          "titulo": "Un impulso cuyo grupo pausaste se cierra limpio",
+          "linea": 219,
+          "depende": [
+            "F"
+          ]
+        },
+        {
+          "id": "R",
+          "titulo": "Las publicaciones de MeLi con variaciones sí reciben su precio",
+          "linea": 232,
+          "depende": [
+            "L"
+          ]
+        },
+        {
+          "id": "S",
+          "titulo": "El ciclo reintenta si las métricas llegan tarde",
+          "linea": 245,
+          "depende": [
+            "K",
+            "N"
+          ]
+        },
+        {
+          "id": "T",
+          "titulo": "El freno por un cambio caduca y se invalida si hubo cortes en el mismo ad group",
+          "linea": 259,
+          "depende": [
+            "P"
+          ]
+        },
+        {
+          "id": "U",
+          "titulo": "Juicio v2 del cambio de bid, encendido",
+          "linea": 271,
+          "depende": [
+            "T"
+          ]
+        },
+        {
+          "id": "V",
+          "titulo": "Una keyword que pierde la meta de su producto pasa a la de su familia",
+          "linea": 285,
+          "depende": [
+            "U"
+          ]
+        },
+        {
+          "id": "W",
+          "titulo": "La pausa de producto no ignora un día reciente sin medir",
+          "linea": 299,
+          "depende": [
+            "V"
+          ]
+        },
+        {
+          "id": "X",
+          "titulo": "Tope máximo para las cifras de dinero tecleadas a mano",
+          "linea": 309,
+          "depende": [
+            "W"
+          ]
+        },
+        {
+          "id": "Y",
+          "titulo": "Corregir el producto de un ASIN mueve sus ventas pasadas, con rastro",
+          "linea": 323,
+          "depende": [
+            "Q"
+          ]
+        },
+        {
+          "id": "Z",
+          "titulo": "Un impulso pausado con su propio botón no se queda atorado",
+          "linea": 336,
+          "depende": [
+            "Q"
+          ]
+        }
+      ],
+      "runtime": "coincidente_con_ff03ed61_documentado_por_lead",
+      "limite_operativo": "Solo faltan cierres especificos no acreditados; no implementacion ni presencia del runtime."
+    },
+    {
+      "id": "arreglos-02",
+      "archivo": "plans/arreglos-02.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "dabfac13",
+        "9f0181f6",
+        "5b73e2ed",
+        "8d5a84c9",
+        "docs/evidencia/arreglos-02/B/replay.txt:1",
+        "docs/evidencia/arreglos-02/C/previa.txt:1",
+        "docs/evidencia/arreglos-05/base/huella-local.json",
+        "docs/evidencia/arreglos-05/base/huella-prod.json"
+      ],
+      "resto": "A/D/B/C integrados; replay B/C distintas 0. Runtime comprobado por lead; no se encontro salida postdeploy D ni recibos operativos finales B/C. D/despues.sh vence tras 3 dias; no reutilizar referencias vencidas como cierre.",
+      "bloques": [
+        {
+          "id": "A",
+          "titulo": "La regla vieja de «10 días para invertir» sale del documento y las migraciones del plan entran al despliegue",
+          "linea": 24,
+          "depende": []
+        },
+        {
+          "id": "D",
+          "titulo": "La comisión de Amazon ya no se cuenta dos veces en tu margen",
+          "linea": 36,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "B",
+          "titulo": "Un recorte ya no regresa una keyword al bid donde perdió su tráfico",
+          "linea": 50,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "C",
+          "titulo": "Un ajuste de campaña ya no cuenta como subida",
+          "linea": 64,
+          "depende": [
+            "B"
+          ]
+        }
+      ],
+      "runtime": "coincidente_con_ff03ed61_documentado_por_lead",
+      "limite_operativo": "Solo faltan cierres especificos no acreditados; no implementacion ni presencia del runtime."
+    },
+    {
+      "id": "arreglos-03",
+      "archivo": "plans/arreglos-03.md",
+      "en_manifest": true,
+      "estado": "implementacion_pendiente",
+      "evidencia": [
+        "plans/arreglos-03.md:3",
+        "plans/arreglos-03.md:25",
+        "app/ads/reports.py:1846",
+        "app/reputacion_clientes.py:199"
+      ],
+      "resto": "17 bloques; solo plan/disenos integrados. No estan migraciones arreglos03 ni modulo dia_cerrado. D-G cubre review05; no cubre automaticamente 06/07/14/S1.",
+      "bloques": [
+        {
+          "id": "BASE",
+          "titulo": "La evidencia del plan está en master y sus migraciones entran al despliegue",
+          "linea": 25,
+          "depende": []
+        },
+        {
+          "id": "D-A",
+          "titulo": "Se borra la segunda forma de bajar las métricas de Amazon",
+          "linea": 36,
+          "depende": []
+        },
+        {
+          "id": "D-B",
+          "titulo": "Se borra el código de reputación que el horario no usa y Apify",
+          "linea": 48,
+          "depende": []
+        },
+        {
+          "id": "D-C",
+          "titulo": "Se borran el experimento de JEV y la asesoría por decisión en Cortes",
+          "linea": 60,
+          "depende": []
+        },
+        {
+          "id": "D-E",
+          "titulo": "El «ayer» de Amazon Estados Unidos llega completo",
+          "linea": 73,
+          "depende": [
+            "D-A"
+          ]
+        },
+        {
+          "id": "D-F",
+          "titulo": "Mercado Libre Ads no guarda el día en curso",
+          "linea": 89,
+          "depende": [
+            "D-E"
+          ]
+        },
+        {
+          "id": "D-G",
+          "titulo": "Un search term partido en filas no se guarda con 0 pedidos",
+          "linea": 104,
+          "depende": [
+            "D-E"
+          ]
+        },
+        {
+          "id": "D-H",
+          "titulo": "El margen de Mercado Libre vuelve a calcularse",
+          "linea": 117,
+          "depende": [
+            "BASE"
+          ]
+        },
+        {
+          "id": "D-I",
+          "titulo": "Las ventas de Amazon Estados Unidos guardan su importe en dólares",
+          "linea": 132,
+          "depende": [
+            "D-H"
+          ]
+        },
+        {
+          "id": "D-J",
+          "titulo": "La estimación y JEV avisan cuando no hicieron nada",
+          "linea": 147,
+          "depende": []
+        },
+        {
+          "id": "D-K",
+          "titulo": "Las alertas de reputación de Mercado Libre llegan solas y una vez",
+          "linea": 161,
+          "depende": [
+            "BASE",
+            "D-B"
+          ]
+        },
+        {
+          "id": "D-L",
+          "titulo": "La pantalla de reputación ya no muestra preguntas borradas ni reclamos inventados",
+          "linea": 178,
+          "depende": [
+            "D-K"
+          ]
+        },
+        {
+          "id": "P-A",
+          "titulo": "Se quita código de precios que no se usaba y «revertir por corrida» revierte solo esa corrida",
+          "linea": 193,
+          "depende": [
+            "BASE"
+          ]
+        },
+        {
+          "id": "P-B",
+          "titulo": "Una publicación con un dato que la base rechaza ya no deja sin precios a toda la plataforma, y una corrida caída avisa",
+          "linea": 207,
+          "depende": [
+            "P-A"
+          ]
+        },
+        {
+          "id": "P-C",
+          "titulo": "Un cambio de precio que la plataforma tardó en mostrar ya respeta los 7 días, y el historial guarda la hora real",
+          "linea": 220,
+          "depende": [
+            "P-B"
+          ]
+        },
+        {
+          "id": "P-D",
+          "titulo": "Más de 50 cambios de precio en un día esperan a que los sueltes, también el día que precios regrese a en vivo",
+          "linea": 234,
+          "depende": [
+            "P-C"
+          ]
+        },
+        {
+          "id": "P-F",
+          "titulo": "El plan de metas de precio ya calcula el precio objetivo de Mercado Libre",
+          "linea": 249,
+          "depende": [
+            "P-D"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "arreglos-04",
+      "archivo": "plans/arreglos-04.md",
+      "en_manifest": true,
+      "estado": "implementacion_pendiente",
+      "evidencia": [
+        "plans/arreglos-04.md:3",
+        "plans/arreglos-04.md:192",
+        "plans/arreglos-04.md:252",
+        "app/apply_harvest.py:418"
+      ],
+      "resto": "19 bloques; W-N/W-O son cambios de plan, no producto. W-D cubre16, B-C solo parte de02; faltan04/15 exactos.",
+      "bloques": [
+        {
+          "id": "W-A",
+          "titulo": "Se quita una ruta vieja de pantallas que nadie usaba",
+          "linea": 23,
+          "depende": []
+        },
+        {
+          "id": "W-B",
+          "titulo": "Se quita la forma vieja de armar campañas por producto",
+          "linea": 37,
+          "depende": []
+        },
+        {
+          "id": "W-C",
+          "titulo": "Campañas y Resumen dan el mismo gasto de 30 días a cualquier hora",
+          "linea": 49,
+          "depende": [
+            "W-A"
+          ]
+        },
+        {
+          "id": "W-D",
+          "titulo": "El Resumen ya no dice que las ventas bajaron solo porque todavía no llegan",
+          "linea": 61,
+          "depende": [
+            "W-C"
+          ]
+        },
+        {
+          "id": "W-E",
+          "titulo": "Búsquedas sin venta y ruido ya no usan días cuyas ventas todavía llegan",
+          "linea": 75,
+          "depende": [
+            "W-C"
+          ]
+        },
+        {
+          "id": "W-F",
+          "titulo": "Un error al guardar dice en español qué dato revisar",
+          "linea": 89,
+          "depende": [
+            "W-B"
+          ]
+        },
+        {
+          "id": "W-G",
+          "titulo": "Los cortes de un ciclo llegan en un solo mensaje y los de práctica no prometen aplicarse",
+          "linea": 101,
+          "depende": []
+        },
+        {
+          "id": "W-H",
+          "titulo": "Ya no se puede correr un ciclo a mano con una fecha futura",
+          "linea": 114,
+          "depende": []
+        },
+        {
+          "id": "W-I",
+          "titulo": "La meta y las pujas de un goal ya no aceptan cualquier número",
+          "linea": 127,
+          "depende": []
+        },
+        {
+          "id": "W-J",
+          "titulo": "Pausar un lote de campañas nuevas pausa todas las que Amazon creó",
+          "linea": 141,
+          "depende": [
+            "W-B"
+          ]
+        },
+        {
+          "id": "W-K",
+          "titulo": "La fábrica avisa que las semillas vienen del grupo y no solo de ese producto",
+          "linea": 154,
+          "depende": [
+            "W-J"
+          ]
+        },
+        {
+          "id": "W-L",
+          "titulo": "Lo que la fábrica pone en exacta nace bloqueado en frase, amplia y automática",
+          "linea": 165,
+          "depende": [
+            "W-J"
+          ]
+        },
+        {
+          "id": "W-M",
+          "titulo": "Sacar anuncios «sin pedidos» revisa que de verdad no vendió",
+          "linea": 178,
+          "depende": [
+            "W-C"
+          ]
+        },
+        {
+          "id": "W-N",
+          "titulo": "Un presupuesto diario alto ya no se rechaza: Orbit avisa y pide tu confirmación",
+          "linea": 192,
+          "depende": [
+            "W-F",
+            "W-I",
+            "W-K",
+            "W-L",
+            "W-M"
+          ]
+        },
+        {
+          "id": "W-O",
+          "titulo": "Salud explica los motivos que hoy salen sin texto",
+          "linea": 210,
+          "depende": []
+        },
+        {
+          "id": "B-A",
+          "titulo": "Orbit ya no archiva anuncios por terminal sin dejar registro",
+          "linea": 222,
+          "depende": []
+        },
+        {
+          "id": "B-B",
+          "titulo": "Un término bloqueado está bloqueado de verdad, y quitarlo no se queda colgado",
+          "linea": 236,
+          "depende": []
+        },
+        {
+          "id": "B-C",
+          "titulo": "Si Amazon no entrega la lista completa, el harvest no crea duplicados ni borra lo que sí se creó",
+          "linea": 252,
+          "depende": []
+        },
+        {
+          "id": "B-D",
+          "titulo": "Los términos que la pantalla da por bloqueados están bloqueados en Amazon",
+          "linea": 267,
+          "depende": [
+            "B-B"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bids-01",
+      "archivo": "plans/bids-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/bids-01.md:124",
+        "plans/bids-01.md:1302",
+        "plans/ROADMAP.md:37"
+      ],
+      "resto": "Codigo cerrado; P07 primer lote manual no ejecutado segun ultima lectura. Esperar arreglo de reposicion ID11 antes del lote."
+    },
+    {
+      "id": "bids-02-construccion",
+      "archivo": "plans/bids-02-construccion.md",
+      "en_manifest": true,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/bids-02-construccion.md:3",
+        "docs/CHAT-CONTEXT.md:20"
+      ],
+      "resto": "Guia completada con BIDS02, no duplicar."
+    },
+    {
+      "id": "bids-02",
+      "archivo": "plans/bids-02.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/bids-02.md:3",
+        "docs/CHAT-CONTEXT.md:20",
+        "app/optimizer/politica.py"
+      ],
+      "resto": "niveles_v3 y ajustes manuales entregados; AUTO04-06 no quedan autorizados."
+    },
+    {
+      "id": "brief-fabrica-01-4-5-glm",
+      "archivo": "plans/brief-fabrica-01-4-5-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-01-4-5-glm.md:1",
+        "plans/fabrica-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-01"
+    },
+    {
+      "id": "brief-fabrica-01-6-glm",
+      "archivo": "plans/brief-fabrica-01-6-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-01-6-glm.md:1",
+        "plans/fabrica-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-01"
+    },
+    {
+      "id": "brief-fabrica-01-7-10-glm",
+      "archivo": "plans/brief-fabrica-01-7-10-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-01-7-10-glm.md:1",
+        "plans/fabrica-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-01"
+    },
+    {
+      "id": "brief-fabrica-02-a0-a1-glm",
+      "archivo": "plans/brief-fabrica-02-a0-a1-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-a0-a1-glm.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-fabrica-02-a0-a1-ronda-review",
+      "archivo": "plans/brief-fabrica-02-a0-a1-ronda-review.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-a0-a1-ronda-review.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-fabrica-02-a2-muse",
+      "archivo": "plans/brief-fabrica-02-a2-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-a2-muse.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-fabrica-02-a3-glm",
+      "archivo": "plans/brief-fabrica-02-a3-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-a3-glm.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-fabrica-02-a3a-glm",
+      "archivo": "plans/brief-fabrica-02-a3a-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-a3a-glm.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-fabrica-02-a4-glm",
+      "archivo": "plans/brief-fabrica-02-a4-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-a4-glm.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-fabrica-02-a5-glm",
+      "archivo": "plans/brief-fabrica-02-a5-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-a5-glm.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-fabrica-02-r1-muse",
+      "archivo": "plans/brief-fabrica-02-r1-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-fabrica-02-r1-muse.md:1",
+        "plans/fabrica-02.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-goals-modo-muse",
+      "archivo": "plans/brief-goals-modo-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-goals-modo-muse.md:1",
+        "plans/fabrica-02.md:1",
+        "858c767a"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-02"
+    },
+    {
+      "id": "brief-pr177-correcciones-cursor",
+      "archivo": "plans/brief-pr177-correcciones-cursor.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-pr177-correcciones-cursor.md:1",
+        "plans/fabrica-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "fabrica-01"
+    },
+    {
+      "id": "brief-reputacion-01-A2-glm",
+      "archivo": "plans/brief-reputacion-01-A2-glm.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-reputacion-01-A2-glm.md:1",
+        "plans/reputacion-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "reputacion-01"
+    },
+    {
+      "id": "brief-reputacion-01-deepseek",
+      "archivo": "plans/brief-reputacion-01-deepseek.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-reputacion-01-deepseek.md:1",
+        "plans/reputacion-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "reputacion-01"
+    },
+    {
+      "id": "brief-sp-api-01-a4-muse",
+      "archivo": "plans/brief-sp-api-01-a4-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-sp-api-01-a4-muse.md:1",
+        "plans/sp-api-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "sp-api-01"
+    },
+    {
+      "id": "brief-sp-api-01-a5-muse",
+      "archivo": "plans/brief-sp-api-01-a5-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-sp-api-01-a5-muse.md:1",
+        "plans/sp-api-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "sp-api-01"
+    },
+    {
+      "id": "brief-sp-api-01-a5-ronda-review",
+      "archivo": "plans/brief-sp-api-01-a5-ronda-review.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-sp-api-01-a5-ronda-review.md:1",
+        "plans/sp-api-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "sp-api-01"
+    },
+    {
+      "id": "brief-sp-api-01-ar-grok",
+      "archivo": "plans/brief-sp-api-01-ar-grok.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-sp-api-01-ar-grok.md:1",
+        "plans/sp-api-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "sp-api-01"
+    },
+    {
+      "id": "brief-sp-api-01-fase-a-muse",
+      "archivo": "plans/brief-sp-api-01-fase-a-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-sp-api-01-fase-a-muse.md:1",
+        "plans/sp-api-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "sp-api-01"
+    },
+    {
+      "id": "brief-sp-api-01-muse",
+      "archivo": "plans/brief-sp-api-01-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-sp-api-01-muse.md:1",
+        "plans/sp-api-01.md:1"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "sp-api-01"
+    },
+    {
+      "id": "brief-vigilante-cron-muse",
+      "archivo": "plans/brief-vigilante-cron-muse.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/brief-vigilante-cron-muse.md:1",
+        "plans/sp-api-01.md:1",
+        "359f1f85",
+        "ebc56d55"
+      ],
+      "resto": "Encargo historico integrado o sustituido por el padre; no contar como otra implementacion.",
+      "plan_padre": "sp-api-01"
+    },
+    {
+      "id": "campana-activa-01",
+      "archivo": "plans/campana-activa-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/campana-activa-01.md:126",
+        "app/apply.py"
+      ],
+      "resto": "Ancestros ENABLED implementados al decidir y aplicar; entrega historica con evidencia en plan."
+    },
+    {
+      "id": "campanas-01",
+      "archivo": "plans/campanas-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/campanas-01.md:18",
+        "7923f23d"
+      ],
+      "resto": "Auditoria/reactivacion manual ejecutada; no equivale a automatismos AUTO-04/05/06."
+    },
+    {
+      "id": "catalogo-campanas-01-validacion",
+      "archivo": "plans/catalogo-campanas-01-validacion.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/catalogo-campanas-01-validacion.md:3",
+        "plans/catalogo-campanas-01.md:116"
+      ],
+      "resto": "Snapshot de validacion anterior al cierre, no otro plan."
+    },
+    {
+      "id": "catalogo-campanas-01",
+      "archivo": "plans/catalogo-campanas-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/catalogo-campanas-01.md:98",
+        "plans/catalogo-campanas-01.md:116",
+        "plans/ROADMAP.md:39"
+      ],
+      "resto": "ORBIT19 nucleo entregado; P09 conciliacion 0.3, cobertura solo-actividad y Featured Offer del consumidor sin cierre especifico."
+    },
+    {
+      "id": "claridad-01",
+      "archivo": "plans/claridad-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "c44bd995",
+        "4be5081c",
+        "0e5abaf0",
+        "docs/evidencia/claridad-01/J/lector.md:1",
+        "docs/evidencia/arreglos-05/base/huella-local.json",
+        "docs/evidencia/arreglos-05/base/huella-prod.json"
+      ],
+      "resto": "A-K implementados, manual actualizado y lectura productiva documentada. Manifest dice pendiente de lanzar: obsoleto. Runtime acreditado por lead; acta operativa integral no localizada.",
+      "runtime": "coincidente_con_ff03ed61_documentado_por_lead",
+      "limite_operativo": "Solo faltan cierres especificos no acreditados; no implementacion ni presencia del runtime."
+    },
+    {
+      "id": "cortes-01",
+      "archivo": "plans/cortes-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/cortes-01.md:25",
+        "69685402"
+      ],
+      "resto": "Adaptativos implementados; no rehacer umbrales por cambios posteriores de politica."
+    },
+    {
+      "id": "cortes-ui-01",
+      "archivo": "plans/cortes-ui-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/cortes-ui-01.md:62"
+      ],
+      "resto": "1.2 confirmada por el dueno el 15-sep; no sigue esperando aprobacion."
+    },
+    {
+      "id": "dashboard-01",
+      "archivo": "plans/dashboard-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/dashboard-01.md:149",
+        "plans/ROADMAP.md:69"
+      ],
+      "resto": "ORBIT 16: lectura, VPN y settings; cierre con edicion real config 14 documentado."
+    },
+    {
+      "id": "decisiones-producto-01",
+      "archivo": "plans/decisiones-producto-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "f86ed7dc",
+        "plans/decisiones-producto-01.md:145",
+        "plans/orbit-07-motor-decisiones.md:6",
+        "docs/evidencia/arreglos-05/base/huella-local.json",
+        "docs/evidencia/arreglos-05/base/huella-prod.json"
+      ],
+      "resto": "A-I implementados. Pausa lista pero en practica por decision; encendido del dueno no es implementacion pendiente.",
+      "runtime": "coincidente_con_ff03ed61_documentado_por_lead",
+      "limite_operativo": "Solo faltan cierres especificos no acreditados; no implementacion ni presencia del runtime."
+    },
+    {
+      "id": "disenos-01",
+      "archivo": "plans/disenos-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "19c2c7b3",
+        "f15ffc77",
+        "c6cb744f",
+        "docs/evidencia/disenos-01/B/comparacion.md:54",
+        "docs/evidencia/arreglos-05/base/huella-local.json",
+        "docs/evidencia/arreglos-05/base/huella-prod.json"
+      ],
+      "resto": "A/B/C integrados; comparaciones/capturas locales o copia RO. El lead acredita ahora presencia del runtime; comparacion productiva final aun sin acta propia. Active obsoleto como cola de construccion.",
+      "runtime": "coincidente_con_ff03ed61_documentado_por_lead",
+      "limite_operativo": "Solo faltan cierres especificos no acreditados; no implementacion ni presencia del runtime."
+    },
+    {
+      "id": "estructura-01",
+      "archivo": "plans/estructura-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/estructura-01.md:193",
+        "plans/estructura-01.md:194",
+        "app/ads/structure_plan.py"
+      ],
+      "resto": "Separacion API/plan/DB presente; despliegue historico documentado."
+    },
+    {
+      "id": "fabrica-01",
+      "archivo": "plans/fabrica-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/fabrica-01.md:5102",
+        "plans/fabrica-01.md:5110",
+        "plans/ROADMAP.md:32"
+      ],
+      "resto": "Implementacion y sonda 9-sep hechas; anexar cierre del paso 4 de tarea 11, junto a P02, sin repetir creacion."
+    },
+    {
+      "id": "fabrica-02",
+      "archivo": "plans/fabrica-02.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/fabrica-02.md:417",
+        "plans/fabrica-02.md:418",
+        "plans/ROADMAP.md:32"
+      ],
+      "resto": "D.3: primer harvest natural por grupo, hermanas/biblioteca/ledger y ensayo de reversa. D.4 cerrada; no reabrirla."
+    },
+    {
+      "id": "fabrica-ui-01",
+      "archivo": "plans/fabrica-ui-01.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/fabrica-ui-01.md:3",
+        "81c1cffb",
+        "plans/ROADMAP.md:32"
+      ],
+      "resto": "Interfaz entregada/usada; mismo cierre P02, no otro desarrollo."
+    },
+    {
+      "id": "guardrails-01",
+      "archivo": "plans/guardrails-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/guardrails-01.md:35",
+        "c1d2b4e3",
+        "tests/test_architecture.py"
+      ],
+      "resto": "Candados existentes; no es permiso para otra reestructuracion."
+    },
+    {
+      "id": "ingesta-01",
+      "archivo": "plans/ingesta-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/ingesta-01.md:3",
+        "docs/evidencia/estado-planes-2026-11-04/README.md:1"
+      ],
+      "resto": "21 corridas/14 ciclos documentados; informe 28-oct recuperado. Nuevos fallos en ARREGLOS03."
+    },
+    {
+      "id": "jev-ads-01",
+      "archivo": "plans/jev-ads-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/jev-ads-01.md:1",
+        "plans/ROADMAP.md:78",
+        "app/jev_ads.py"
+      ],
+      "resto": "Entregado; piloto y ampliacion posteriores en JEV02."
+    },
+    {
+      "id": "jev-ads-02-bloque-s",
+      "archivo": "plans/jev-ads-02-bloque-s.md",
+      "en_manifest": true,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/jev-ads-02-bloque-s.md:1",
+        "plans/jev-ads-02.md:1"
+      ],
+      "resto": "Guia de bloque S cerrado; no otro plan."
+    },
+    {
+      "id": "jev-ads-02",
+      "archivo": "plans/jev-ads-02.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/jev-ads-02.md:1",
+        "plans/ROADMAP.md:78",
+        "docs/CHAT-CONTEXT.md:26"
+      ],
+      "resto": "Senales entregadas; avisos apagados por decision. E.1/E.3/fabrica no quedan autorizados por este cierre."
+    },
+    {
+      "id": "jev-ads-03",
+      "archivo": "plans/jev-ads-03.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/jev-ads-03.md:107",
+        "plans/jev-ads-03.md:108",
+        "plans/ROADMAP.md:38"
+      ],
+      "resto": "Implementado/encendido documentado; P08 medir 30 dias el 17-nov 09:00 UTC. R.1/R.2 ya cerradas."
+    },
+    {
+      "id": "margen-estimado-01",
+      "archivo": "plans/margen-estimado-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/margen-estimado-01.md:1",
+        "plans/ROADMAP.md:75",
+        "app/estimacion_fees.py"
+      ],
+      "resto": "AUTO-10 original FBA MX entregado; FBM/US/MeLi ya en REPRICING02."
+    },
+    {
+      "id": "orbit-01",
+      "archivo": "plans/orbit-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/orbit-01.md:23",
+        "2418544e"
+      ],
+      "resto": "Esquema e infraestructura entregados; cierre productivo historico documentado."
+    },
+    {
+      "id": "orbit-02",
+      "archivo": "plans/orbit-02.md",
+      "en_manifest": true,
+      "estado": "bloqueado_externo",
+      "evidencia": [
+        "plans/orbit-02.md:62",
+        "plans/ROADMAP.md:36"
+      ],
+      "resto": "Migracion y apagado cerrados; solo 3.4/P06: inventario de rutas y ventana para cloudflared."
+    },
+    {
+      "id": "orbit-03",
+      "archivo": "plans/orbit-03.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/orbit-03.md:75",
+        "2bf6b012",
+        "00d9ec2e"
+      ],
+      "resto": "Ingesta y shadow entregados; apply y live continuaron en 04/05."
+    },
+    {
+      "id": "orbit-04",
+      "archivo": "plans/orbit-04.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/orbit-04.md:293",
+        "8d118530",
+        "plans/orbit-04.md:319"
+      ],
+      "resto": "Apply, veto, reversas y auth entregados. Defectos actuales se siguen en ARREGLOS, sin reconstruir 04."
+    },
+    {
+      "id": "orbit-05-preflight",
+      "archivo": "plans/orbit-05-preflight.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/orbit-05-preflight.md:56",
+        "plans/ROADMAP.md:70"
+      ],
+      "resto": "Preflight cerrado; no repetir cutover."
+    },
+    {
+      "id": "orbit-05",
+      "archivo": "plans/orbit-05.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/orbit-05.md:126",
+        "docs/evidencia/orbit-05/cierre-2026-10-01.md"
+      ],
+      "resto": "AUTO-01 cerrado; harvest por grupo pertenece a FABRICA 02 D.3."
+    },
+    {
+      "id": "orbit-06",
+      "archivo": "plans/orbit-06.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/orbit-06.md:3",
+        "plans/orbit-06.md:122",
+        "plans/orbit-06.md:987"
+      ],
+      "resto": "Datos, margen, digest y encendido historico documentados. Evolucion posterior en 07/ARREGLOS/TEMPORADA."
+    },
+    {
+      "id": "orbit-07-motor-decisiones",
+      "archivo": "plans/orbit-07-motor-decisiones.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "7cf7c9ab",
+        "docs/evidencia/orbit-07/estado.md:14",
+        "docs/evidencia/orbit-07/activacion-orbit07.md:3",
+        "docs/evidencia/arreglos-01/U/encendido.txt:1",
+        "docs/evidencia/arreglos-05/base/huella-local.json",
+        "docs/evidencia/arreglos-05/base/huella-prod.json"
+      ],
+      "resto": "M1/M2/M4/M5/M6 integrados; M3 omitido justificadamente. Checks viejos abiertos no son trabajo. Despliegue/activacion parcial documentada despues; falta recibo integral para cerrar operacion.",
+      "runtime": "coincidente_con_ff03ed61_documentado_por_lead",
+      "limite_operativo": "Solo faltan cierres especificos no acreditados; no implementacion ni presencia del runtime."
+    },
+    {
+      "id": "orbit-ui-01",
+      "archivo": "plans/orbit-ui-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/orbit-ui-01.md:14",
+        "plans/orbit-ui-01.md:21",
+        "plans/orbit-ui-01.md:27"
+      ],
+      "resto": "ORBIT 18 integrado en PR181. Su DoD excluia despliegue; no convertirlo en trabajo nuevo."
+    },
+    {
+      "id": "pez-01",
+      "archivo": "plans/pez-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/pez-01.md:63",
+        "3470797f",
+        "docs/evidencia/quick-wins-2026-11-04/pez-correccion/README.md"
+      ],
+      "resto": "9/9 costos e identidades conciliados y aplicados documentadamente; P13 aparte."
+    },
+    {
+      "id": "pez-02",
+      "archivo": "plans/pez-02.md",
+      "en_manifest": true,
+      "estado": "bloqueado_externo",
+      "evidencia": [
+        "plans/pez-02.md:3",
+        "plans/pez-02.md:77",
+        "b509acb2"
+      ],
+      "resto": "8/9 descripciones publicadas; MLM2727437671 bloqueada por categoria. Medida 22mm ya confirmada; no repetir pregunta."
+    },
+    {
+      "id": "repricing-01",
+      "archivo": "plans/repricing-01.md",
+      "en_manifest": true,
+      "estado": "historico_sustituido",
+      "evidencia": [
+        "plans/repricing-01.md:3",
+        "plans/repricing-02.md:167"
+      ],
+      "resto": "D.2/D.3/E/0/B/M sustituidos por REPRICING02; sus filas viejas abiertas no se ejecutan."
+    },
+    {
+      "id": "repricing-02-construccion",
+      "archivo": "plans/repricing-02-construccion.md",
+      "en_manifest": true,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/repricing-02-construccion.md:3",
+        "plans/repricing-02.md:224"
+      ],
+      "resto": "Guia entregada; P04 ya cerrado por PEZ01, referencia residual vieja."
+    },
+    {
+      "id": "repricing-02",
+      "archivo": "plans/repricing-02.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/repricing-02.md:167",
+        "plans/repricing-02.md:216",
+        "3470797f",
+        "plans/ROADMAP.md:80"
+      ],
+      "resto": "AUTO-07 entregado; P04 cerrado por PEZ01. Live de octubre no certifica modo actual: evidencia de noviembre dice practica."
+    },
+    {
+      "id": "reputacion-01-validacion",
+      "archivo": "plans/reputacion-01-validacion.md",
+      "en_manifest": false,
+      "estado": "historico_auxiliar",
+      "evidencia": [
+        "plans/reputacion-01-validacion.md:3",
+        "plans/reputacion-01.md:128"
+      ],
+      "resto": "Validacion del padre; no otro plan."
+    },
+    {
+      "id": "reputacion-01",
+      "archivo": "plans/reputacion-01.md",
+      "en_manifest": true,
+      "estado": "bloqueado_externo",
+      "evidencia": [
+        "plans/reputacion-01.md:3",
+        "plans/reputacion-01.md:128",
+        "plans/arreglos-03.md:48"
+      ],
+      "resto": "v1 MeLi entregada; P05 Amazon sin datos/credito historico. ARREGLOS03 D-B prevé retirar Apify: reconciliar ese seguimiento, no recargar por roadmap viejo."
+    },
+    {
+      "id": "reputacion-02",
+      "archivo": "plans/reputacion-02.md",
+      "en_manifest": true,
+      "estado": "futuro_no_autorizado",
+      "evidencia": [
+        "plans/reputacion-02.md:3",
+        "plans/reputacion-02.md:5"
+      ],
+      "resto": "Stub sin brief ejecutable; dependencia Amazon/P05 debe redefinirse frente a retirada de Apify."
+    },
+    {
+      "id": "resumen-ads-multicanal",
+      "archivo": "plans/resumen-ads-multicanal.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/resumen-ads-multicanal.md:127",
+        "plans/ROADMAP.md:31",
+        "docs/evidencia/resumen-ads-multicanal/04-despliegue/hashes.json"
+      ],
+      "resto": "01-04 integrados y hashes documentados; P01 conciliacion cerrada. Falta revision visual productiva que el propio plan declara."
+    },
+    {
+      "id": "sp-api-01",
+      "archivo": "plans/sp-api-01.md",
+      "en_manifest": true,
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "plans/sp-api-01.md:113",
+        "plans/sp-api-01.md:119"
+      ],
+      "resto": "Cinco lecturas y cliente unico entregados; consumo no se presume por disponer del cliente."
+    },
+    {
+      "id": "sp-api-02",
+      "archivo": "plans/sp-api-02.md",
+      "en_manifest": true,
+      "estado": "implementado_falta_verificacion_despliegue",
+      "evidencia": [
+        "plans/sp-api-02.md:3",
+        "plans/sp-api-02.md:9",
+        "docs/evidencia/sp-api-02/ejecucion/C.1/NOTA.md:20"
+      ],
+      "resto": "Codigo/despliegue cerrados; observacion primera nocturna posterior a 22-oct sin recibo en el acta. No afirmar que no haya corrido."
+    },
+    {
+      "id": "temporada-01",
+      "archivo": "plans/temporada-01.md",
+      "en_manifest": false,
+      "estado": "implementacion_pendiente",
+      "evidencia": [
+        "plans/temporada-01.md:3",
+        "plans/temporada-01.md:33",
+        "b82f8f85"
+      ],
+      "resto": "10 bloques I-A-B-C-D-P-E-F-G-H. Plan y contrato integrados; sin modulos/migraciones temporada. Depende de ARREGLOS01/02 integrados; no de que cambie manifest.active.",
+      "bloques": [
+        {
+          "id": "I",
+          "titulo": "El punto de equilibrio con el costo de hoy",
+          "linea": 33,
+          "depende": []
+        },
+        {
+          "id": "A",
+          "titulo": "Calendario y parámetros en Ajustes",
+          "linea": 47,
+          "depende": [
+            "I"
+          ]
+        },
+        {
+          "id": "B",
+          "titulo": "Registro de cada temporada baja y origen de los cambios",
+          "linea": 59,
+          "depende": [
+            "A"
+          ]
+        },
+        {
+          "id": "C",
+          "titulo": "Subida rápida de bids recortados, en práctica",
+          "linea": 72,
+          "depende": [
+            "B"
+          ]
+        },
+        {
+          "id": "D",
+          "titulo": "Temporada en las decisiones, en práctica",
+          "linea": 84,
+          "depende": [
+            "C"
+          ]
+        },
+        {
+          "id": "P",
+          "titulo": "Práctica encendida en MX y US",
+          "linea": 97,
+          "depende": [
+            "D"
+          ]
+        },
+        {
+          "id": "E",
+          "titulo": "Lectura del bid antes de enviarlo y la mano del dueño",
+          "linea": 107,
+          "depende": [
+            "P"
+          ]
+        },
+        {
+          "id": "F",
+          "titulo": "Fin de la baja: reactivar lo que Orbit pausó",
+          "linea": 118,
+          "depende": [
+            "E"
+          ]
+        },
+        {
+          "id": "G",
+          "titulo": "Propuestas de presupuesto que aprueba el dueño",
+          "linea": 130,
+          "depende": [
+            "F"
+          ]
+        },
+        {
+          "id": "H",
+          "titulo": "En vivo en MX y US",
+          "linea": 141,
+          "depende": [
+            "G"
+          ]
+        }
+      ]
+    }
+  ],
+  "fuera_catalogo": [
+    {
+      "id": "arreglos-05",
+      "archivo": null,
+      "estado": "implementacion_pendiente_plan_por_escribir",
+      "evidencia": [
+        "docs/evidencia/arreglos-2026-11-12/HALLAZGOS.md:13",
+        "plans/arreglos-02.md:9",
+        "peticion actual"
+      ],
+      "resto": "Legacy ciclo/apply/settings, tope ~150 y modos sin uso; cierre verificable de los 14 IDs, reutilizando correcciones de03/04."
+    },
+    {
+      "id": "jev-ads-03-copia-E",
+      "archivo": "plans/jev-ads-03.md-E",
+      "estado": "historico_sustituido",
+      "evidencia": [
+        "plans/jev-ads-03.md-E:61",
+        "plans/jev-ads-03.md:107"
+      ],
+      "resto": "Copia anterior con TODO; no duplica JEV03 ni reabre construccion."
+    },
+    {
+      "id": "esquema-grok",
+      "archivo": "docs/PLAN-DB-GROK.md",
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "docs/PLAN-DB-GROK.md:3",
+        "2418544e"
+      ],
+      "resto": "Correcciones del esquema inicial integradas en PR1."
+    },
+    {
+      "id": "orbit-bench",
+      "archivo": "docs/superpowers/plans/2026-09-05-orbit-bench.md",
+      "estado": "historico_cerrado",
+      "evidencia": [
+        "docs/superpowers/plans/2026-09-05-orbit-bench.md:3",
+        "ba24c44c"
+      ],
+      "resto": "Implementacion en tools/orbit_bench; checks viejos no implican pendiente."
+    }
+  ],
+  "seguimientos": [
+    {
+      "id": "P01",
+      "estado": "historico_cerrado",
+      "plan": "resumen-ads-multicanal",
+      "evidencia": "plans/ROADMAP.md:31",
+      "siguiente": "Conciliacion 812/812 y203/203, job10 OK documentado."
+    },
+    {
+      "id": "P02",
+      "estado": "implementado_falta_verificacion_despliegue",
+      "plan": "fabrica-01/fabrica-ui-01/fabrica-02",
+      "evidencia": "plans/ROADMAP.md:32",
+      "siguiente": "Primer harvest natural de grupo y reversa; despues de reparar02/03/10 para no certificar ruta defectuosa."
+    },
+    {
+      "id": "P03",
+      "estado": "implementado_falta_verificacion_despliegue",
+      "plan": "ads-proteccion-01",
+      "evidencia": "plans/ROADMAP.md:33",
+      "siguiente": "P2 incompleto; P3/P4/P5 separados. No compartir sombra global con encendido TEMPORADA."
+    },
+    {
+      "id": "P04",
+      "estado": "historico_cerrado",
+      "plan": "pez-01/repricing-02",
+      "evidencia": "plans/ROADMAP.md:34",
+      "siguiente": "Nueve correspondencias/costos documentados; no recostear porP13."
+    },
+    {
+      "id": "P05",
+      "estado": "bloqueado_externo_y_en_conflicto",
+      "plan": "reputacion-01",
+      "evidencia": "plans/ROADMAP.md:35",
+      "siguiente": "Credito/ingesta Amazon historico; ARREGLOS03 D-B retira Apify. No activar automaticamente."
+    },
+    {
+      "id": "P06",
+      "estado": "bloqueado_externo",
+      "plan": "orbit-02",
+      "evidencia": "plans/ROADMAP.md:36",
+      "siguiente": "Inventario Cloudflare y ventana de rotacion pendientes; no revalidado."
+    },
+    {
+      "id": "P07",
+      "estado": "implementado_falta_verificacion_despliegue",
+      "plan": "bids-01",
+      "evidencia": "plans/ROADMAP.md:37",
+      "siguiente": "Lote manual requiere datos actuales y go existente; corregir11 antes de operar."
+    },
+    {
+      "id": "P08",
+      "estado": "implementado_falta_verificacion_despliegue",
+      "plan": "jev-ads-03",
+      "evidencia": "plans/ROADMAP.md:38",
+      "siguiente": "Leer medicion del17-nov09:00UTC cuando exista; no inferir ejecucion por fecha."
+    },
+    {
+      "id": "P09",
+      "estado": "implementado_falta_verificacion_despliegue",
+      "plan": "catalogo-campanas-01",
+      "evidencia": "plans/ROADMAP.md:39",
+      "siguiente": "Conciliacion0.3, cobertura solo-actividad y Featured Offer de este consumidor."
+    },
+    {
+      "id": "P10",
+      "estado": "futuro_opcional",
+      "plan": "reputacion-01",
+      "evidencia": "plans/ROADMAP.md:40",
+      "siguiente": "Resenas compartidas: medir impacto antes de definir identidad/atribucion."
+    },
+    {
+      "id": "P11",
+      "estado": "futuro_condicional_en_conflicto",
+      "plan": "reputacion-01",
+      "evidencia": "plans/ROADMAP.md:41",
+      "siguiente": "Lotes Apify solo si se conserva fuente y medicion lo justifica; contradice retirada D-B."
+    },
+    {
+      "id": "P12",
+      "estado": "futuro_sin_plan",
+      "plan": "transversal",
+      "evidencia": "plans/ROADMAP.md:42",
+      "siguiente": "Cifrado/observabilidad requieren alcance; no son otra implementacion autorizada."
+    },
+    {
+      "id": "P13",
+      "estado": "bloqueado_externo",
+      "plan": "pez-02",
+      "evidencia": "plans/ROADMAP.md:43",
+      "siguiente": "Solo publicacion inhabilitada por categoria; 22mm ya confirmado."
+    },
+    {
+      "id": "R-SP2",
+      "estado": "implementado_falta_verificacion_despliegue",
+      "plan": "sp-api-02",
+      "evidencia": "docs/evidencia/sp-api-02/ejecucion/C.1/NOTA.md:20",
+      "siguiente": "Acta solo conserva nocturna previa al deploy; recuperar recibo posterior, sin asumir fallo."
+    },
+    {
+      "id": "R-RESUMEN-VISUAL",
+      "estado": "implementado_falta_verificacion_despliegue",
+      "plan": "resumen-ads-multicanal",
+      "evidencia": "plans/resumen-ads-multicanal.md:127",
+      "siguiente": "Revision visual productiva expresamente no acreditada en plan127."
+    }
+  ],
+  "futuro_no_autorizado": [
+    {
+      "id": "AUTO-04 placements",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:53"
+    },
+    {
+      "id": "AUTO-05 presupuestos",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:54"
+    },
+    {
+      "id": "AUTO-06 reactivacion/limpieza",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:55"
+    },
+    {
+      "id": "meli-ads-01",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:56"
+    },
+    {
+      "id": "AUTO-08/promociones-01",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:57"
+    },
+    {
+      "id": "envios-01",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:58"
+    },
+    {
+      "id": "AUTO-09/reputacion-02",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:59"
+    },
+    {
+      "id": "integraciones-cruzadas",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "plans/ROADMAP.md:60"
+    },
+    {
+      "id": "JEV E.1/E.3/fabrica",
+      "estado": "excluido_del_cierre",
+      "evidencia": "plans/jev-ads-03.md:20"
+    },
+    {
+      "id": "estructura-posterior",
+      "estado": "futuro_no_autorizado",
+      "evidencia": "docs/evidencia/arreglos-2026-11-12/HALLAZGOS.md:123"
+    }
+  ],
+  "review": {
+    "fuente": "/private/tmp/orbit-review-current-evidence",
+    "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+    "hashes_verificados": 14,
+    "hashes_discrepantes": 0,
+    "casos_documentados": 31,
+    "rojos_documentados": 17,
+    "controles_verdes_documentados": 14,
+    "pendientes": [
+      {
+        "id": "02",
+        "problema": "Lista incompleta permite repetir creacion",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Parcial / ARREGLOS04 B-C omite contenedor ausente",
+        "propiedad_propuesta": "ARREGLOS04 B-C parcial; completar en ARREGLOS05",
+        "codigo": "['app/apply_harvest.py:433', 'app/apply_harvest_reconciliacion.py:393']",
+        "cierre": "Lista truncada, token invalido/repetido o contenedor ausente no prueban ausencia: cero POST/DELETE y estado pendiente auditable.",
+        "pruebas_existentes": "test_02_lista_incompleta_no_autoriza_repost[missing]; test_02_lista_incompleta_no_autoriza_repost[truncated]",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:3"
+      },
+      {
+        "id": "03",
+        "problema": "Reversa archiva keyword ajena",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta",
+        "propiedad_propuesta": "ARREGLOS05",
+        "codigo": "['app/apply_harvest.py:1831', 'app/apply_harvest.py:1243']",
+        "cierre": "Reversa solo archiva keyword cuya creacion propia esta acreditada; coincidencia de texto no basta.",
+        "pruebas_existentes": "test_03_harvest_y_reversa_no_archivan_keyword_ajena",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:4"
+      },
+      {
+        "id": "04",
+        "problema": "Retiro/impulso envia seleccion anterior",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta para ambos flujos",
+        "propiedad_propuesta": "ARREGLOS05, tras ARREGLOS04 W-M/W-N",
+        "codigo": "app/static/js/productos.js:445",
+        "cierre": "Fallo o respuesta tardia de nueva previa invalida plan anterior, botones, confirmacion y payload en retiro e impulso.",
+        "pruebas_existentes": "test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa; test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:5"
+      },
+      {
+        "id": "05",
+        "problema": "Search terms publica subtotal corrupto",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "ARREGLOS03 D-G",
+        "propiedad_propuesta": "ARREGLOS03 D-G; aceptacion de ARREGLOS05",
+        "codigo": "app/ads/reports.py:981; app/ads/reports.py:1037; app/ads/reports.py:1517",
+        "cierre": "Fila corrupta no publica subtotal ni recrea clave invalidada como entidad completa.",
+        "pruebas_existentes": "test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:6"
+      },
+      {
+        "id": "06",
+        "problema": "Scan MeLi incompleto da bajas",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta",
+        "propiedad_propuesta": "ARREGLOS05, tras ARREGLOS03 D-B",
+        "codigo": "app/reputacion_clientes.py:188; app/meli/catalogo.py:407",
+        "cierre": "Scan incompleto no desactiva publicaciones ausentes; completitud explicita antes de bajas.",
+        "pruebas_existentes": "test_06_scan_incompleto_no_desactiva_ausentes",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:7"
+      },
+      {
+        "id": "07",
+        "problema": "Cotizacion MeLi pierde fecha/detalle",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta; P-B no corrige causa",
+        "propiedad_propuesta": "ARREGLOS05, tras ARREGLOS03 P-B/P-F",
+        "codigo": "app/meli/precio_mercado.py:189; app/meli/precio_mercado.py:524; app/meli/precio_mercado.py:548; app/precio/corrida.py:341",
+        "cierre": "Cotizacion conserva fecha y desglose por camino fresco y persistido hasta la corrida.",
+        "pruebas_existentes": "test_07_corrida_meli_conserva_fecha_y_detalle[corriente]; test_07_corrida_meli_conserva_fecha_y_detalle[persistida]",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:8"
+      },
+      {
+        "id": "10",
+        "problema": "Negativo reconciliado sin reversa",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Futuro ARREGLOS05 sin plan escrito",
+        "propiedad_propuesta": "ARREGLOS05",
+        "codigo": "['app/apply_harvest_reconciliacion.py:402', 'app/apply.py:1559', 'app/apply.py:1602']",
+        "cierre": "Negative confirmado por LIST conserva identidad durable suficiente para reversa ejecutable.",
+        "pruebas_existentes": "test_10_negative_reconciliado_conserva_reversa",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:11"
+      },
+      {
+        "id": "11",
+        "problema": "Reposicion repite POST tras fallo de lectura",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Futuro ARREGLOS05 sin plan escrito",
+        "propiedad_propuesta": "ARREGLOS05",
+        "codigo": "['tools/archiva_inertes.py:850', 'tools/archiva_inertes.py:915']",
+        "cierre": "Tras ACK y lectura ambigua no se repite POST; intencion durable antes de crear y reconciliacion antes de reintentar.",
+        "pruebas_existentes": "test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:12"
+      },
+      {
+        "id": "12",
+        "problema": "Target no avanza con ledger vencido",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta",
+        "propiedad_propuesta": "ARREGLOS05, tras TEMPORADA I/D",
+        "codigo": "app/cycle.py:2928",
+        "cierre": "Con ledger rancio, target de respaldo avanza desde estado aplicado: 29,28.5,28; sin inventar margen fresco.",
+        "pruebas_existentes": "test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:13"
+      },
+      {
+        "id": "13",
+        "problema": "Harvest revierte lote por sello temporal",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta",
+        "propiedad_propuesta": "ARREGLOS05, tras TEMPORADA B/D",
+        "codigo": "app/cycle.py:1224",
+        "cierre": "Termino maduro reobservado no aborta lote por observed_at posterior al sello; reloj comun antes de persistir.",
+        "pruebas_existentes": "test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:14"
+      },
+      {
+        "id": "14",
+        "problema": "Catalogo cuenta escrituras revertidas",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta",
+        "propiedad_propuesta": "ARREGLOS05, con06",
+        "codigo": "app/meli/catalogo.py:289; app/meli/catalogo.py:394; app/meli/catalogo.py:405; app/meli/catalogo.py:409",
+        "cierre": "Savepoint revertido no suma escrituras al contador publicado.",
+        "pruebas_existentes": "test_14_contencion_no_declara_escrituras_revertidas",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:15"
+      },
+      {
+        "id": "15",
+        "problema": "Ruido publica ACoS con gasto desconocido",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "Sin tarea exacta; W-E trata madurez",
+        "propiedad_propuesta": "ARREGLOS05, tras ARREGLOS04 W-E",
+        "codigo": "app/pantalla_ruido.py:274",
+        "cierre": "Gasto desconocido no produce ACoS numerico aunque exista venta; cobertura explicita.",
+        "pruebas_existentes": "test_15_ruido_no_publica_acos_con_gasto_desconocido",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:16"
+      },
+      {
+        "id": "16",
+        "problema": "Resumen dice sin ventas pese a ventas",
+        "estado": "Pendiente reproducido",
+        "cobertura_actual": "ARREGLOS04 W-D.2/W-D.4",
+        "propiedad_propuesta": "ARREGLOS04 W-D; aceptacion de ARREGLOS05",
+        "codigo": "app/ui_metricas.py:259",
+        "cierre": "Ventas conocidas con ACoS incompleto se muestran como datos faltantes, nunca sin ventas.",
+        "pruebas_existentes": "test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:17"
+      },
+      {
+        "id": "S1",
+        "problema": "Error Jev persiste clave si proveedor la devuelve",
+        "estado": "Pendiente condicional",
+        "cobertura_actual": "Sin tarea exacta",
+        "propiedad_propuesta": "ARREGLOS05, tras ARREGLOS03 D-J",
+        "codigo": "app/jev_juicios.py:287; app/jev_juicios.py:316; app/jev_juicios.py:325; app/jev_libro.py:248",
+        "cierre": "Error de model/choice invalido se redacta antes de persistir en Jev, con clave ficticia y sin copiar secretos.",
+        "pruebas_existentes": "test_S1_error_de_proveedor_redactado_antes_de_persistir",
+        "evidencia": "/private/tmp/orbit-review-current-evidence/matriz.tsv:20"
+      }
+    ],
+    "resueltos": [
+      "01",
+      "08",
+      "09",
+      "D2"
+    ],
+    "nota_no_bloqueante": "D1",
+    "aceptacion": "bash /private/tmp/orbit-review-current-evidence/run-acceptance.sh (NO ejecutado en este inventario)"
+  },
+  "dependencias": [
+    {
+      "antes": "arreglos-01",
+      "despues": "arreglos-02",
+      "tipo": "base_integrada",
+      "razon": "X y politica previos; satisfecho en Git"
+    },
+    {
+      "antes": "arreglos-01",
+      "despues": "temporada-01",
+      "tipo": "base_integrada",
+      "razon": "P/T/U/V/W/X y reversas; codigo satisfecho, recibos por consolidar"
+    },
+    {
+      "antes": "arreglos-02",
+      "despues": "temporada-01",
+      "tipo": "contrato_datos_codigo",
+      "razon": "I debe partir de0086 v_ledger_cargo; politica usa centavos/revision1"
+    },
+    {
+      "antes": "arreglos-02",
+      "despues": "arreglos-03",
+      "tipo": "base_declarada",
+      "razon": "C integrado;03 no tiene implementacion"
+    },
+    {
+      "antes": "arreglos-01",
+      "despues": "arreglos-04",
+      "tipo": "base_declarada",
+      "razon": "X integrado;04 W-I/W-N consumen topes"
+    },
+    {
+      "antes": "arreglos-03:D-E",
+      "despues": "arreglos-04:W-C",
+      "tipo": "orden_recomendado_no_bloqueo",
+      "razon": "Un unico reloj:03 extrae dia_cerrado y04 consume hoy_resumen"
+    },
+    {
+      "antes": "arreglos-04:W-N",
+      "despues": "temporada-01:G",
+      "tipo": "contrato_condicional",
+      "razon": "Integrar aviso/confirmacion si W-N ya existe; no rechazo absoluto al presupuesto humano"
+    },
+    {
+      "antes": "temporada-01",
+      "despues": "arreglos-05:legacy",
+      "tipo": "secuencia_explicita",
+      "razon": "HALLAZGOS13 y DISENO arreglos02:417; cambia ciclo/apply/cola/settings y reversas"
+    },
+    {
+      "antes": "arreglos-03:D-G",
+      "despues": "arreglos-05:aceptacion05",
+      "tipo": "reutilizar_correccion",
+      "razon": "No duplicar implementacion; exigir caso actual verde"
+    },
+    {
+      "antes": "arreglos-04:W-D",
+      "despues": "arreglos-05:aceptacion16",
+      "tipo": "reutilizar_correccion",
+      "razon": "No duplicar implementacion; exigir caso actual verde"
+    },
+    {
+      "antes": "arreglos-04:B-C",
+      "despues": "arreglos-05:02-03-10",
+      "tipo": "conflicto_mismo_lector",
+      "razon": "B-C no valida contenedor ausente; completar una sola lectura y propiedad"
+    },
+    {
+      "antes": "arreglos-04:W-M/W-N",
+      "despues": "arreglos-05:04",
+      "tipo": "conflicto_mismo_archivo",
+      "razon": "productos.js retiro/impulso/confirmacion"
+    },
+    {
+      "antes": "arreglos-03:P-B/P-F",
+      "despues": "arreglos-05:07",
+      "tipo": "conflicto_mismo_adaptador",
+      "razon": "Cotizacion MeLi y corrida; reparar causa fresca/persistida"
+    },
+    {
+      "antes": "arreglos-05:02-03-10",
+      "despues": "P02",
+      "tipo": "seguridad_de_operacion",
+      "razon": "Revalidar harvest y reversa antes de observar/certificar cierre"
+    },
+    {
+      "antes": "arreglos-05:11",
+      "despues": "P07",
+      "tipo": "seguridad_de_operacion",
+      "razon": "Reposicion sin POST duplicado antes del primer archivo manual"
+    }
+  ],
+  "conflictos": [
+    {
+      "frentes": [
+        "TEMPORADA01",
+        "ARREGLOS05"
+      ],
+      "archivos": [
+        "app/cycle.py",
+        "app/apply.py",
+        "app/apply_cola.py",
+        "app/lecturas_caso.py",
+        "app/optimizer/caso.py",
+        "app/optimizer/politica.py",
+        "app/config_write.py",
+        "app/api_write.py",
+        "app/static/js/settings.js",
+        "app/templates/settings.html"
+      ],
+      "regla": "Secuenciar05 legacy despues de temporada; conservar JSON historico y reversas."
+    },
+    {
+      "frentes": [
+        "ARREGLOS03 D-E",
+        "ARREGLOS04 W-C/W-D"
+      ],
+      "archivos": [
+        "app/dia_cerrado.py",
+        "app/dashboard_resumen.py",
+        "app/api_dashboard.py"
+      ],
+      "regla": "Una fuente de zonas/dia cerrado. Preferir03 D-E primero; no dependencia tecnica absoluta."
+    },
+    {
+      "frentes": [
+        "ARREGLOS03",
+        "ARREGLOS04"
+      ],
+      "archivos": [
+        "app/cli.py",
+        "app/notifica.py",
+        "app/api_dashboard.py",
+        "app/ui.py",
+        "app/templates/cortes.html",
+        "tools/despliegue/crontab-orbit.txt"
+      ],
+      "regla": "Serializar ediciones compartidas, aunque planes permitan paralelo."
+    },
+    {
+      "frentes": [
+        "ARREGLOS04 B-C/B-B",
+        "ARREGLOS05 02/03/10"
+      ],
+      "archivos": [
+        "app/apply_harvest.py",
+        "app/apply_harvest_reconciliacion.py",
+        "app/apply.py",
+        "app/bloqueo_dueno_efecto.py"
+      ],
+      "regla": "Un contrato de lista completa y propiedad; no confundir identidad coincidente con creacion propia."
+    },
+    {
+      "frentes": [
+        "ARREGLOS04 W-M/W-N",
+        "ARREGLOS05 04"
+      ],
+      "archivos": [
+        "app/static/js/productos.js",
+        "app/api_fabrica.py",
+        "app/impulso_io.py",
+        "app/retiro_anuncios.py"
+      ],
+      "regla": "Un estado vigente de previa para ambos flujos; confirmacion ligada a su plan."
+    },
+    {
+      "frentes": [
+        "ARREGLOS03 D-B/D-L",
+        "ARREGLOS05 06/14"
+      ],
+      "archivos": [
+        "app/reputacion_clientes.py",
+        "app/meli/catalogo.py"
+      ],
+      "regla": "Retirar Apify sin perder completitud del scan MeLi; contadores tras savepoint exitoso."
+    },
+    {
+      "frentes": [
+        "ARREGLOS03 P-B/P-F",
+        "ARREGLOS05 07"
+      ],
+      "archivos": [
+        "app/meli/precio_mercado.py",
+        "app/precio/corrida.py",
+        "app/precio/puerto.py"
+      ],
+      "regla": "Cotizacion con fecha/desglose conservados; ambos caminos."
+    },
+    {
+      "frentes": [
+        "ARREGLOS03 D-J",
+        "ARREGLOS05 S1"
+      ],
+      "archivos": [
+        "app/jev_senales.py",
+        "app/jev_juicios.py",
+        "app/jev_libro.py"
+      ],
+      "regla": "Avisos/estado y redaccion se verifican juntos; no basta salida stderr saneada."
+    },
+    {
+      "frentes": [
+        "ARREGLOS04 W-E/W-D",
+        "ARREGLOS05 15/16"
+      ],
+      "archivos": [
+        "app/pantalla_ruido.py",
+        "app/ui_metricas.py"
+      ],
+      "regla": "Madurez y cobertura son condiciones distintas."
+    },
+    {
+      "frentes": [
+        "ARREGLOS03",
+        "TEMPORADA01",
+        "ARREGLOS05"
+      ],
+      "archivos": [
+        "migrations/",
+        "tools/despliegue/comun.sh",
+        "tools/despliegue/desplegar.sh",
+        "tests/test_despliegue_motor.py",
+        "docs/DATABASE.md",
+        "docs/DEPLOY.md"
+      ],
+      "regla": "Numerar tras ultimo master; conservar etiquetas y reversas.0086 ya pertenece a ARREGLOS02. Referencias a checklist no implican todas edicion."
+    }
+  ],
+  "cola_conservadora": [
+    {
+      "orden": 0,
+      "entrega": "Conciliar solo migraciones y actas operativas pendientes",
+      "tipo": "evidencia_residual",
+      "razon": "Lead acredita202 archivos de runtime iguales a ff03ed61. ARREGLOS01/02, ORBIT07, CLARIDAD y DISENOS ya integrados y presentes en runtime; no reiniciar implementacion ni redesplegar por falta de acta."
+    },
+    {
+      "orden": 1,
+      "entrega": "ARREGLOS03",
+      "tipo": "implementacion",
+      "razon": "Cerrar datos/precios antes de sumar politica;17 bloques con dependencias del plan. ID05 se reutiliza en05."
+    },
+    {
+      "orden": 2,
+      "entrega": "ARREGLOS04",
+      "tipo": "implementacion",
+      "razon": "19 bloques; consumir reloj compartido, W-N completo antes de TEMPORADA G;16 cubierto y02 parcial."
+    },
+    {
+      "orden": 3,
+      "entrega": "TEMPORADA01",
+      "tipo": "implementacion",
+      "razon": "10 bloques en ordenI,A,B,C,D,P,E,F,G,H. ARREGLOS02 ya aporta su base; no crear nuevo tope150 aqui."
+    },
+    {
+      "orden": 4,
+      "entrega": "ARREGLOS05",
+      "tipo": "plan_nuevo_e_implementacion",
+      "razon": "Cerrar legacy y14 IDs en SHA combinado. De03/04 tomar evidencia valida, no duplicar arreglos."
+    },
+    {
+      "orden": 5,
+      "entrega": "Cierres operativos independientes P02/P03/P07 y pendientes documentales",
+      "tipo": "operacion_condicionada",
+      "razon": "No bloquean todo desarrollo; cada uno conserva datos, madurez, autorizaciones y reversa propias. P08 por calendario; P06/P13 por bloqueo externo."
+    }
+  ],
+  "notas_historicas_ads_proteccion": [
+    {
+      "id": "R-D2-3",
+      "evidencia": "plans/ads-proteccion-01.md:127",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-D1b-1",
+      "evidencia": "plans/ads-proteccion-01.md:129",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-D1b-2",
+      "evidencia": "plans/ads-proteccion-01.md:130",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-D1b-4",
+      "evidencia": "plans/ads-proteccion-01.md:132",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-D1b-5",
+      "evidencia": "plans/ads-proteccion-01.md:133",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-D1b-6",
+      "evidencia": "plans/ads-proteccion-01.md:134",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-C2a-1",
+      "evidencia": "plans/ads-proteccion-01.md:135",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-C2a-4",
+      "evidencia": "plans/ads-proteccion-01.md:138",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    },
+    {
+      "id": "R-C2a-6",
+      "evidencia": "plans/ads-proteccion-01.md:140",
+      "estado": "nota_historica_no_revalidada_no_autorizacion_nueva"
+    }
+  ],
+  "verificacion": {
+    "checkout_inicial_limpio": true,
+    "graphify_existe": false,
+    "commits_clave_ancestros_comprobados": [
+      "dabfac13",
+      "9f0181f6",
+      "5b73e2ed",
+      "8d5a84c9",
+      "976df4dc",
+      "de895d18",
+      "19c2c7b3",
+      "f15ffc77",
+      "c6cb744f",
+      "f86ed7dc",
+      "7cf7c9ab",
+      "ba24c44c",
+      "2418544e",
+      "858c767a",
+      "359f1f85"
+    ],
+    "gitleaks": "Aprobado sobre los dos artefactos: no leaks found; no se ejecuto pre-commit ni suite del repositorio.",
+    "cobertura_archivos": "74/74 comprobada; IDs unicos;14 hallazgos.",
+    "estado_final_git": "Sin cambios a archivos versionados. Aparecio ?? docs/evidencia/arreglos-05/, consistente con la evidencia que el lead comunico durante la tarea; este inventario no la creo ni modifico."
+  },
+  "runtime_documentado": {
+    "fuente": "Lectura de produccion SOLO LECTURA realizada por el lead y comunicada en este turno; no repetida por este inventario",
+    "snapshot": "ff03ed61",
+    "archivos": 202,
+    "extensiones": [
+      ".py",
+      ".js",
+      ".css",
+      ".html"
+    ],
+    "coinciden": true,
+    "sha_conjunto_abreviado_comunicado": "e13a6f...a597967",
+    "evidencia": [
+      "docs/evidencia/arreglos-05/base/huella-local.json",
+      "docs/evidencia/arreglos-05/base/huella-prod.json"
+    ],
+    "limite": "Igualdad de runtime no acredita todas las migraciones aplicadas, configuracion, crons, actas operativas ni cierres externos. Consulta de estado/esquema comunicada, contenido no revisado aqui."
+  },
+  "dudas_resolubles_por_evidencia": [
+    {
+      "tema": "Migraciones0083-0086 y reversas vigentes",
+      "resolver": "Cruzar consulta de esquema aportada por lead con las sondas y actas de cada bloque. No repetir despliegues por ausencia documental."
+    },
+    {
+      "tema": "ARREGLOS02 D.4",
+      "resolver": "Recuperar resultado posterior a0086; despues.sh declara referencias vencidas tras3 dias, asi que recuperar evidencia de su fecha o renovar referencia verificada antes de comparar."
+    },
+    {
+      "tema": "DISEÑOS comparacion final",
+      "resolver": "Recuperar recibo de supervisor/comparaciones productivas A.4/B.4/C.3; runtime coincidente ya demostrado."
+    },
+    {
+      "tema": "ARREGLOS05 legado",
+      "resolver": "Revalidar reproducciones del12-nov sobre la base posterior a TEMPORADA; los14 casos actuales ya estan revalidados en ff03ed61."
+    },
+    {
+      "tema": "Apify P05/P11",
+      "resolver": "Conciliar retirada aprobada en ARREGLOS03 D-B con roadmap viejo; no autoriza recargar ni reactivar."
+    },
+    {
+      "tema": "Modo de precios y pausa producto",
+      "resolver": "Usar consulta de estado aportada por lead con fecha; no trasladar live de octubre al presente. No inferir encendido de hashes."
+    },
+    {
+      "tema": "IVA de comisiones",
+      "resolver": "Verificar tratamiento real con evidencia externa de fuente y cotizacion; sospecha del12-nov, no defecto confirmado ni nuevo impuesto autorizado."
+    }
+  ]
+}

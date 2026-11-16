@@ -6,11 +6,38 @@ Pruebas de reproducción: `pruebas/<área>/`. Se corren desde la raíz del repo 
 
 La revisión reportó 54 fallas distintas: 45 con prueba que falla y 9 comprobadas con una lectura de producción. La falla 5 de `ciclo.md` es la misma que la 1 de `politica.md`. Al diseñar los arreglos, una resultó no ser falla (la 3 de `politica.md`; su fila dice por qué): quedan 53.
 
-Planes:
-- **ARREGLOS 02** (`plans/arreglos-02.md`): lo que mueve dinero hoy. Va antes de TEMPORADA 01.
-- **ARREGLOS 03** (`plans/arreglos-03.md`): datos y precios. En paralelo con TEMPORADA 01.
-- **ARREGLOS 04** (`plans/arreglos-04.md`): pantallas, fábrica y bloqueos. En paralelo con TEMPORADA 01.
-- **ARREGLOS 05** (por escribir): ciclo, escritura a Amazon, Ajustes, el tope de pujas y el borrado de modos que producción no usa. Se escribe cuando TEMPORADA 01 termine, porque ese plan reescribe `app/cycle.py`, `app/apply.py`, `app/apply_cola.py` y Ajustes. Sus hallazgos y pruebas ya están aquí.
+## Asignación vigente al 15-nov-2026
+
+La foto y las reproducciones anteriores se conservan como historia del `a4644aad`; no son el estado de todos los casos en `ff03ed61`. **ARREGLOS 01/02, ORBIT 07, CLARIDAD 01 y DISEÑOS 01 ya están integrados: no reejecutarlos.** Las [huellas del runtime](../arreglos-05/base/huella-prod.json) y su [referencia local](../arreglos-05/base/huella-local.json) coinciden en 202 archivos. Las actas de aplicación de migraciones y operaciones residuales se acreditan aparte.
+
+[Cola única](../../../plans/ORDEN-IMPLEMENTACION.md), en serie:
+
+- **ARREGLOS 02**: A/D/B/C ya integrados (`dabfac13`, `9f0181f6`, `5b73e2ed`, `8d5a84c9`); base, no siguiente implementación.
+- **ARREGLOS 03**: datos y precios; D-G conserva 05, nuevos D-M 06/14, D-N S1 y P-G 07.
+- **ARREGLOS 04**: después de 03; B-C cierra 02 completo, W-P nuevo 04, W-E 15 y W-D 16, además del alcance existente.
+- **TEMPORADA 01**: después de 04; entrega los contratos de temporada antes de la ejecución de 05.
+- **ARREGLOS 05**: **se diseña ahora y se ejecuta después de TEMPORADA**, que cambia ciclo, apply, cola y Ajustes. Bloques BASE, A ciclo, B reversas, C reposición, D frontera Ads, E shadow, F target, G sello, H150, I settings, J modos, K fees y Z global. El legado se revalida sobre esa base final, sin postergar la redacción del plan.
+
+La [matriz final `COBERTURA.md`](../arreglos-05/COBERTURA.md) manda sobre la asignación y aceptación de los 14 hallazgos revalidados. El [inventario](../arreglos-05/inventario/inventario.md) y su [JSON](../arreglos-05/inventario/inventario.json) conservan el censo; las propuestas iniciales del inventario quedan sustituidas por esta distribución final.
+
+| ID revalidado | Problema | Plan y bloque final |
+|---|---|---|
+| 02 | Lista incompleta o contenedor ausente permite repetir creación. | ARREGLOS 04 B-C completo |
+| 03 | Reversa archiva keyword ajena. | ARREGLOS 05 B |
+| 04 | Retiro/impulso envía selección anterior. | ARREGLOS 04 W-P |
+| 05 | Search terms publica subtotal corrupto. | ARREGLOS 03 D-G |
+| 06 | Scan MeLi incompleto da bajas. | ARREGLOS 03 D-M |
+| 07 | Cotización MeLi pierde fecha/desglose, fresca y persistida. | ARREGLOS 03 P-G |
+| 10 | Negative reconciliado queda sin reversa. | ARREGLOS 05 B |
+| 11 | Reposición repite POST tras lectura ambigua. | ARREGLOS 05 C |
+| 12 | Target no avanza con ledger vencido. | ARREGLOS 05 F |
+| 13 | Sello temporal aborta lote de harvest. | ARREGLOS 05 G |
+| 14 | Catálogo cuenta escrituras revertidas. | ARREGLOS 03 D-M |
+| 15 | Ruido publica ACoS con gasto desconocido. | ARREGLOS 04 W-E |
+| 16 | Resumen dice sin ventas pese a ventas conocidas. | ARREGLOS 04 W-D |
+| S1 | Error Jev puede persistir secreto devuelto por proveedor. | ARREGLOS 03 D-N |
+
+ARREGLOS 05 Z comprueba los 14 sobre el commit combinado sin duplicar implementación de 03/04; conserva controles 01/08/09/D2 ya resueltos. D1 es nota de contrato, no bloqueo. Los números por área que siguen pertenecen a la revisión del 12-nov y no son estos IDs.
 
 ## Política de pujas (`politica.md`)
 
@@ -25,27 +52,27 @@ Planes:
 
 | Falla | Qué pasa | Plan y bloque |
 |---|---|---|
-| 1 | Un error de Amazon en una sola puja frena las demás y la liberación de cortes. | ARREGLOS 05 |
-| 2 | Si la fase de escritura falla una vez, el ciclo no se reintenta ese día. | ARREGLOS 05 |
-| 3 | Si el proceso muere a mitad del ciclo, el siguiente horario también se pierde. | ARREGLOS 05 |
-| 4 | El ciclo decide antes de conciliar con Amazon. | ARREGLOS 05 |
+| 1 | Un error de Amazon en una sola puja frena las demás y la liberación de cortes. | ARREGLOS 05 A |
+| 2 | Si la fase de escritura falla una vez, el ciclo no se reintenta ese día. | ARREGLOS 05 A |
+| 3 | Si el proceso muere a mitad del ciclo, el siguiente horario también se pierde. | ARREGLOS 05 A |
+| 4 | El ciclo decide antes de conciliar con Amazon. | TEMPORADA 01 B.2 lo implementa; ARREGLOS 05 A/BASE verifica y reutiliza, sin reimplementarlo. |
 | 5 | La misma que la 1 de `politica.md`. | ARREGLOS 02, B |
 
 ## Escritura a Amazon y cortes (`apply.md`)
 
 | Falla | Qué pasa | Plan y bloque |
 |---|---|---|
-| 1 | Orbit pisa la puja que el dueño cambió a mano, y la reversa regresa a un valor que nunca existió. | TEMPORADA 01, E (lee la puja antes de escribirla). La reversa se revisa en ARREGLOS 05. |
-| 2 | Hay escrituras a Amazon que no pasan por el cliente protegido. | ARREGLOS 05 |
+| 1 | Orbit pisa la puja que el dueño cambió a mano, y la reversa regresa a un valor que nunca existió. | TEMPORADA 01 E (lectura de puja antes de escribir); reversa en ARREGLOS 05 B. |
+| 2 | Hay escrituras a Amazon que no pasan por el cliente protegido. | ARREGLOS 05 D |
 | 3 | Archivar anuncios por terminal no deja registro y reponer dos veces duplica. | ARREGLOS 04, B-A |
 | 4 | Un bloqueo sobre un negative pausado se da por aplicado. | ARREGLOS 04, B-B y B-D |
-| 5 | Una práctica de veto vencida congela la keyword para siempre. | ARREGLOS 05 |
-| 6 | No hay freno global: los topes están en 1,000,000. | ARREGLOS 05 (decisión del dueño: tope real de unas 150 pujas por ciclo, sin contar la entrada ni el regreso de temporada) |
-| 7 | Un negative confirmado por la conciliación no se puede revertir desde Orbit. | ARREGLOS 05 |
+| 5 | Una práctica de veto vencida congela la keyword para siempre. | ARREGLOS 05 E |
+| 6 | No hay freno global: los topes están en 1,000,000. | ARREGLOS 05 H (tope real de unas 150 pujas por ciclo, sin contar entrada ni regreso de temporada) |
+| 7 | Un negative confirmado por la conciliación no se puede revertir desde Orbit. | ARREGLOS 05 B; también ID revalidado 10 |
 | 8 | «Quitar» un bloqueo con un error de Amazon lo deja «vivo» para siempre. | ARREGLOS 04, B-B |
 | 9 | El bloqueo no lee el rechazo por ítem de Amazon. | ARREGLOS 04, B-B |
-| 10 | Una lectura incompleta de Amazon se toma como «no existe». | ARREGLOS 04, B-C |
-| 11 | `archiva_inertes --reponer` crea keywords sin intención guardada. | ARREGLOS 05 (la herramienta no se borra) |
+| 10 | Una lectura incompleta de Amazon se toma como «no existe». | ARREGLOS 04 B-C completo; también contenedor ausente, ID revalidado 02 |
+| 11 | `archiva_inertes --reponer` crea keywords sin intención guardada. | ARREGLOS 05 C (la herramienta no se borra); también ID revalidado 11 |
 | 12 | El valor decidido no es el que recibe Amazon; y la sonda sella «ok» un rechazo por ítem. | ARREGLOS 02, B (primera parte) y ARREGLOS 04, B-B (segunda) |
 
 ## Ingesta y dinero base (`ingesta.md`)
@@ -98,7 +125,7 @@ La sospecha S2 (en Mercado Libre una variante sin existencias fija el precio): e
 
 | Falla | Qué pasa | Plan y bloque |
 |---|---|---|
-| 1 | La meta de ACoS y el techo de puja se guardan sin rango. | Fábrica: ARREGLOS 01, X. Goals: ARREGLOS 04, W-I. Ajustes: ARREGLOS 05. |
+| 1 | La meta de ACoS y el techo de puja se guardan sin rango. | Fábrica y Ajustes (banda manual): resuelto por ARREGLOS 01 X integrado. Goals: ARREGLOS 04 W-I. ARREGLOS 05 I solo conserva el control de Ajustes; no es un arreglo nuevo. |
 | 2 | Un ciclo corrido a mano con fecha futura se salta el veto y la madurez. | ARREGLOS 04, W-H |
 | 3 | El Resumen dice «las ventas bajaron» con días que aún maduran. | ARREGLOS 04, W-D |
 | 4 | Campañas y Resumen dan gastos distintos para los mismos 30 días. | ARREGLOS 04, W-C |
@@ -106,16 +133,16 @@ La sospecha S2 (en Mercado Libre una variante sin existencias fija el precio): e
 | 6 | El tablero de ruido mete días inmaduros. | ARREGLOS 04, W-E |
 | 7 | Los avisos de cortes de práctica prometen aplicarse y llega uno por corte. | ARREGLOS 04, W-G |
 | 8 | Un error al guardar se ve como «Error: [object Object]». | ARREGLOS 04, W-F |
-| 9 | Un tope escrito como «1,000» se tira en silencio. | ARREGLOS 05 |
+| 9 | Un tope escrito como «1,000» se tira en silencio. | ARREGLOS 05 I |
 | 10 | La tarjeta dice «Sin ventas» cuando faltan datos. | ARREGLOS 04, W-D |
 
 ## Decisiones del dueño (2026-11-12 y 2026-11-13)
 
 1. Invertir una puja pide 20 clics o 14 días; se borra el párrafo viejo de 10 días. ARREGLOS 02, A.
-2. IVA dentro del margen: el dueño confirmó el 2026-11-13 que no paga más impuestos que los que las plataformas le retienen. El margen ya resta solo lo retenido y eso es correcto: no falta restar la otra mitad del IVA. Queda una consecuencia por revisar al diseñar ARREGLOS 05: si tampoco recupera el IVA de las comisiones, la estimación que usa el motor de precios cuenta la comisión sin ese IVA y su contribución saldría unos 2 puntos alta (sospecha 1 de `estimacion.md`). Precios está en práctica, así que no mueve dinero hoy.
-3. Tope real de unas 150 pujas por ciclo (ARREGLOS 05) y confirmación arriba de 50 cambios de precio en un día (ARREGLOS 03, P-D).
+2. IVA dentro del margen: el dueño confirmó el 2026-11-13 que no paga más impuestos que los que las plataformas le retienen. El margen ya resta solo lo retenido y eso es correcto: no falta restar la otra mitad del IVA. ARREGLOS 05 K debe resolver con evidencia de la fuente una consecuencia aún no confirmada: si tampoco recupera el IVA de las comisiones, la estimación que usa el motor de precios cuenta la comisión sin ese IVA y su contribución saldría unos 2 puntos alta (sospecha 1 de `estimacion.md`). En la foto de esa revisión, precios estaba en práctica; el modo vigente requiere evidencia propia.
+3. Tope real de unas 150 pujas por ciclo (ARREGLOS 05 H) y confirmación arriba de 50 cambios de precio en un día (ARREGLOS 03, P-D).
 4. Variantes sin existencias en Mercado Libre: el 2026-11-12 el dueño decidió que no fijaran el precio; el 2026-11-13, con lo medido (14 publicaciones bajarían de 8 a 28 %), decidió dejarlo como está hoy. No se hace.
-5. Se borra el código que producción no usa. Fuera del ciclo: ARREGLOS 03 (D-A a D-C y P-A) y ARREGLOS 04 (W-A, W-B y B-A). Quitar las dos corridas de estimación que no sirven no entró: obliga a tocar el crontab de root, donde vive el respaldo diario. Los modos del ciclo: ARREGLOS 05.
+5. Se borra el código que producción no usa. Fuera del ciclo: ARREGLOS 03 (D-A a D-C y P-A) y ARREGLOS 04 (W-A, W-B y B-A). Quitar las dos corridas de estimación que no sirven no entró: obliga a tocar el crontab de root, donde vive el respaldo diario. Los modos del ciclo: ARREGLOS 05 J, después de TEMPORADA, preservando replay, apagadores y reversas vigentes.
 6. Semillas de la fábrica (2026-11-13): se quedan como hoy, con aviso en la revisión del plan. ARREGLOS 04, W-K.
 
 ## Lo que la revisión propone y no es una falla

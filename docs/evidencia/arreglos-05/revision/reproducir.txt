@@ -1,0 +1,42 @@
+REPRODUCIR EL CIERRE SOBRE OTRO COMMIT
+
+Los archivos test_accept_*.py y sus helpers quedan fuera del producto.
+Verifican el resultado correcto: hoy deben fallar los casos abiertos; una
+salida 0 futura significa que esos casos pasaron. No usan xfail.
+
+Requisitos: Linux, Python 3.12, PostgreSQL 16 desechable, git, Chromium y Node.
+Dependencias Python: las de Quality (fastapi, psycopg[binary], pytest, httpx,
+pglast, jinja2, pyyaml). No se cargan credenciales reales ni se llama a APIs
+externas: transporte HTTP simulado y bases propias thermo_*_current.
+
+El runner run-acceptance.sh acepta la ruta de un checkout del COMMIT que se
+quiera validar. Usa ORBIT_TEST_DSN y configura las variables de los cinco
+grupos. Se ejecuta de manera serial: no correr dos copias a la vez.
+
+En el entorno Docker usado en esta revision:
+  ORBIT_TEST_DSN=postgresql://orbit:orbit@orbit-review-current-pg:5432/postgres
+  bash /evidence/run-acceptance.sh /repo
+
+Ese usuario/password son exclusivos de una base de prueba, no credenciales
+del negocio. Las guardas aceptan ese host o 127.0.0.1:55449 y rechazan otros.
+Al crear el entorno desde cero, el primer grupo (writes) instala la cadena
+de migraciones y sus roles de prueba; los demas usan bases separadas.
+
+Para reconstruir el runner, crear una red orbit-review-current-net, PG16 con
+nombre orbit-review-current-pg y un contenedor python:3.12 con nombre
+orbit-review-current-runner en esa red. Instalar dependencias y Chromium.
+Copiar un git bundle del commit elegido y clonarlo normalmente en /repo;
+no usar clone --no-checkout sin poblar el indice. Copiar estos .py/.js/.sh
+a /evidence. ORBIT_REVIEW_SHA es opcional: se obtiene de git cuando se omite.
+No establecer manualmente un SHA que no corresponda al codigo copiado.
+
+Si Docker/Colima no comparte /private/tmp, docker cp copia realmente los
+archivos; un bind mount vacio no sirve. No copiar secretos ni .env reales.
+
+Antes del pase: guardar salida y acceptance.xml, revisar fallos de fixture
+por separado, ejecutar CI del mismo commit y los flujos UI afectados. El
+criterio-cierre.txt define el alcance; las aserciones no certifican incidencia
+ni despliegue en produccion.
+
+Los contenedores usados para esta auditoria se eliminan al terminar. Los
+artefactos y el checkout aislado se conservan para consulta.
