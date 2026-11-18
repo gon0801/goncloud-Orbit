@@ -636,6 +636,20 @@ def test_review_event_reobserva_por_observed(tmp_path):
         assert actual is False
 
 
+def test_arreglos03_dl_pagina_repetida_aborta_lectura_de_preguntas():
+    pagina = {
+        "total": 51,
+        "questions": [{"id": i, "item_id": "MLM1", "status": "UNANSWERED"} for i in range(50)],
+    }
+    cliente = mock.Mock(spec=ClienteMeli)
+    cliente.get.side_effect = [({"id": 1}, FETCH), (pagina, FETCH), (pagina, FETCH)]
+
+    with pytest.raises(ReputacionError, match="lista incompleta de preguntas"):
+        fetch_questions(cliente)
+
+    assert [llamada.args[1]["offset"] for llamada in cliente.get.call_args_list[1:]] == [0, 50]
+
+
 def test_pagina_truncada_por_max_paginas(tmp_path):
     """XR-1.7: paginas agotadas con datos pendientes = truncado."""
 

@@ -559,7 +559,9 @@ def test_plan_terminos_clasifica_y_gates():
     la planificacion: toda fila planificada llega clasificada."""
     hoy = dt.date(2026, 8, 21)
     filas = [
-        # validas: mezcla de clasificacion
+        # validas: mezcla de clasificacion. Las que traen clics o gasto
+        # traen tambien sus pedidos (ARREGLOS 03 D-G: sin pedidos, la clave
+        # se invalida)
         {
             "date": "2026-08-20",
             "adGroupId": 9101,
@@ -575,6 +577,7 @@ def test_plan_terminos_clasifica_y_gates():
             "searchTerm": "b0aaaa1111",
             "clicks": 2,
             "cost": 0.5,
+            "purchases7d": 0,
         },
         {
             "date": "2026-08-20",
@@ -584,7 +587,13 @@ def test_plan_terminos_clasifica_y_gates():
             "sales7d": 200.0,
             "purchases7d": 3,
         },
-        {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "usb0cable", "clicks": 1},
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "usb0cable",
+            "clicks": 1,
+            "purchases7d": 0,
+        },
         # gates: cada fila salta por exactamente un motivo
         {"date": "2026-08-20", "searchTerm": "huerfano", "clicks": 1},  # sin adGroupId
         {"date": "2026-08-20", "adGroupId": 9101, "clicks": 1},  # searchTerm ausente
@@ -721,14 +730,18 @@ def test_plan_terminos_par_envenenado_no_llega_al_insert():
     al INSERT y TAPA datos completos anteriores en el colapso a-la-mas-reciente
     (mismo hallazgo alto que 1.3 cerro para metricas). El plan debe quedar SIN
     la clave; si una tercera fila de la misma clave trae metricas completas,
-    entra limpia (la clave descartada no contamina)."""
+    YA NO entra limpia: ARREGLOS 03 D-G (TN05) deja la clave invalidada para
+    todo el reporte (recrearla publicaria un subtotal como completo). Ademas,
+    las dos filas parciales traen clics o gasto sin pedidos: cada una invalida
+    la clave antes de fusionarse."""
     filas = [
         # fila parcial 1: solo clicks
         {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "arras de boda", "clicks": 5},
         # fila parcial 2 (misma clave): solo cost -> el par envenena TODAS
         # las metricas (clicks 5+None=None, cost None+0.5=None, resto None)
         {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "arras de boda", "cost": 0.5},
-        # tercera fila de la MISMA clave con metricas completas: entra limpia
+        # tercera fila de la MISMA clave con metricas completas: la clave ya
+        # esta invalidada para todo el reporte, no se recrea (D-G)
         {
             "date": "2026-08-20",
             "adGroupId": 9101,
@@ -748,22 +761,14 @@ def test_plan_terminos_par_envenenado_no_llega_al_insert():
         fecha_fin=dt.date(2026, 8, 20),
     )
 
-    # el par envenenado NO llega al plan: ninguna fila con todas las
-    # metricas en None (regla 9: sin el gate, el plan traia UNA fila vacia
-    # camino al INSERT)
-    assert len(plan) == 1
-    limpia = plan[0]
-    assert (limpia.clicks, limpia.cost, limpia.orders, limpia.ad_revenue) == (
-        3,
-        Decimal("0.9"),
-        1,
-        Decimal("20.0"),
-    )
-    # contabilidad: 3 filas -> 1 planificada + 1 absorbida + 1 vacia post-fusion
+    # el par envenenado NO llega al plan (regla 9: sin el gate, el plan traia
+    # UNA fila vacia camino al INSERT) y la tercera fila no lo recrea (D-G)
+    assert plan == []
+    # contabilidad: 3 filas -> 2 sin pedidos + 1 de clave invalidada
     assert skips == Counter(
         {
-            "fila agregada por clave duplicada en el reporte": 1,
-            "fila sin ninguna metrica": 1,
+            "fila con pedidos vacíos": 2,
+            "fila de clave envenenada (subtotal parcial)": 1,
         }
     )
 
@@ -808,16 +813,33 @@ def test_plan_terminos_metrica_negativa_aborta_fail_closed():
     assert "negativa" in str(excinfo.value)
     assert "fail-closed" in str(excinfo.value)
 
+    # ARREGLOS 03 D-G: el negativo sigue abortando aunque su clave ya este
+    # invalidada por una fila ilegible, o aunque la fila no traiga pedidos
+    # (invalidar la clave no lo traga en silencio).
+    ilegible = {**filas[1], "cost": "ilegible"}
+    sin_pedidos = {k: v for k, v in filas[0].items() if k != "purchases7d"}
+    for crudas in ([ilegible, filas[0]], [sin_pedidos]):
+        with pytest.raises(AdsReportsError, match="negativa"):
+            _planea_filas_terminos(
+                SEARCH_TERMS_CFG,
+                crudas,
+                ultimo_cerrado=dt.date(2026, 8, 21),
+                fecha_ini=dt.date(2026, 8, 20),
+                fecha_fin=dt.date(2026, 8, 20),
+            )
 
-def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
+
+def test_plan_terminos_primera_ocurrencia_invalida_envenena_la_clave():
     """[hallazgo reviewer] El orden gate-antes-de-fusion, pineado para la
     MISMA clave: una primera ocurrencia invalida (purchases7d fraccionario)
-    se salta con su motivo y NO entra al acumulador; la segunda valida de la
-    misma clave entra limpia. Fusionar antes de validar descartaria o
-    contaminaria la fila buena y este test voltearia. Afirma tambien una
-    clave con 3 filas (el sondeo solo vio x2; el camino es el mismo)."""
+    se salta con su motivo y NO entra al acumulador. ARREGLOS 03 D-G (TN05):
+    ademas INVALIDA la clave para todo el reporte -- sus pedidos son
+    desconocidos, asi que la segunda fila valida es solo un subtotal y no se
+    publica como completo. Afirma tambien una clave con 3 filas validas (el
+    sondeo solo vio x2; el camino es el mismo), que si se fusiona."""
     filas = [
-        # primera ocurrencia INVALIDA de la clave (via keyword A): skip
+        # primera ocurrencia INVALIDA de la clave (via keyword A): skip y
+        # la clave queda invalidada
         {
             "date": "2026-08-20",
             "adGroupId": 9101,
@@ -826,7 +848,7 @@ def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
             "cost": 0.6,
             "purchases7d": 2.5,
         },
-        # segunda ocurrencia VALIDA (via keyword B): entra sola al plan
+        # segunda ocurrencia VALIDA (via keyword B): subtotal, no entra
         {
             "date": "2026-08-20",
             "adGroupId": 9101,
@@ -842,6 +864,7 @@ def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
             "searchTerm": "arras de boda",
             "clicks": 1,
             "cost": 0.1,
+            "purchases7d": 0,
         },
         {
             "date": "2026-08-20",
@@ -849,6 +872,7 @@ def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
             "searchTerm": "arras de boda",
             "clicks": 2,
             "cost": 0.2,
+            "purchases7d": 1,
         },
         {
             "date": "2026-08-20",
@@ -856,6 +880,7 @@ def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
             "searchTerm": "arras de boda",
             "clicks": 3,
             "cost": 0.3,
+            "purchases7d": 0,
         },
     ]
 
@@ -867,21 +892,107 @@ def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
         fecha_fin=dt.date(2026, 8, 20),
     )
 
-    # la clave con primera-ocurrencia-invalida entra SOLO con la fila valida:
-    # el 2.5 fraccionario no contamina (regla 9: sin el orden gate->fusion,
-    # esta fila se perderia o contaminaria y este test voltea)
-    assert len(plan) == 2
-    boda = next(f for f in plan if f.search_term == "arras para boda catolica")
-    assert (boda.clicks, boda.cost, boda.orders) == (4, Decimal("0.8"), 1)
-    # clave de 3 filas: metricas de las tres sumadas
-    arras = next(f for f in plan if f.search_term == "arras de boda")
-    assert (arras.clicks, arras.cost) == (6, Decimal("0.6"))
+    # solo la clave de 3 filas: metricas de las tres sumadas
+    assert [f.search_term for f in plan] == ["arras de boda"]
+    assert (plan[0].clicks, plan[0].cost, plan[0].orders) == (6, Decimal("0.6"), 1)
     assert skips == Counter(
         {
             "fila de search_terms con metrica no numerica o fraccionaria": 1,
+            "fila de clave envenenada (subtotal parcial)": 1,
             "fila agregada por clave duplicada en el reporte": 2,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 D-G (TN05, dinero): un search term partido en filas no se guarda
+# con 0 pedidos. Un termino con clics y 0 pedidos es candidato a NEGATIVE: si
+# un constituyente de la clave viene ilegible, sin pedidos, o la suma se vacia,
+# la clave entera queda fuera del reporte (en cualquier orden de filas).
+# ---------------------------------------------------------------------------
+
+_DG_DIA = dt.date(2026, 11, 1)
+_DG_ULTIMO_CERRADO = dt.date(2026, 11, 11)
+
+
+def _dg_fila(**metricas):
+    return {"date": _DG_DIA.isoformat(), "adGroupId": 111, "searchTerm": "arras boda", **metricas}
+
+
+def _dg_plan(filas):
+    plan, skips = _planea_filas_terminos(
+        SEARCH_TERMS_CFG,
+        filas,
+        ultimo_cerrado=_DG_ULTIMO_CERRADO,
+        fecha_ini=_DG_DIA - dt.timedelta(days=30),
+        fecha_fin=_DG_ULTIMO_CERRADO,
+    )
+    # contabilidad: cada fila cruda queda planificada o con su motivo
+    assert len(plan) + sum(skips.values()) == len(filas), (plan, skips)
+    return [(p.search_term, p.clicks, p.orders) for p in plan], skips
+
+
+def test_arreglos03_dg_fila_ilegible_invalida_la_clave():
+    """Reproduccion `test_terminos_fila_invalida_no_envenena_la_clave`: un
+    aporte trae purchases7d ilegible (sus 2 pedidos son desconocidos) y el
+    otro 0 pedidos. Antes se publicaba orders=0 como dato completo -- el
+    insumo exacto de un NEGATIVE_EXACT erroneo. Otra clave del mismo reporte
+    no se toca."""
+    ilegible = _dg_fila(clicks=12, cost=9.5, purchases7d="2?", sales7d=40.0)
+    cero = _dg_fila(clicks=30, cost=21.0, purchases7d=0, sales7d=0.0)
+    otra = {
+        **_dg_fila(clicks=3, cost=1.0, purchases7d=1, sales7d=20.0),
+        "searchTerm": "arras plata",
+    }
+    for filas in ([ilegible, cero, otra], [cero, otra, ilegible]):
+        publicadas, skips = _dg_plan(filas)
+        assert publicadas == [("arras plata", 3, 1)], f"subtotal publicado: {publicadas}"
+        assert skips["fila de search_terms con metrica no numerica o fraccionaria"] == 1
+        assert skips["fila de clave envenenada (subtotal parcial)"] == 1
+    # Un constituyente sin NINGUNA metrica tambien es desconocido: invalida.
+    vacia = _dg_fila()
+    for filas in ([vacia, cero], [cero, vacia]):
+        publicadas, skips = _dg_plan(filas)
+        assert publicadas == [], f"subtotal publicado: {publicadas}"
+        assert skips["fila sin ninguna metrica"] == 1
+
+
+def test_arreglos03_dg_clave_vaciada_no_se_recrea():
+    """Reproduccion `test_terminos_par_envenenado_se_recrea_con_la_tercera_fila`:
+    un par complementario deja la clave 100% vacia; antes se borraba y una
+    TERCERA fila la recreaba con solo sus valores (orders=0, 30 clics) aunque
+    la segunda traia 2 pedidos. La variante (solo pedidos + solo ventas, sin
+    clics ni gasto) llega a la suma vaciada sin pasar por la regla de pedidos
+    vacios: la suma vaciada invalida la clave, en los dos ordenes."""
+    reproduccion = [
+        _dg_fila(clicks=5, cost=1.0, purchases7d=None, sales7d=None),
+        _dg_fila(clicks=None, cost=None, purchases7d=2, sales7d=40.0),
+        _dg_fila(clicks=30, cost=20.0, purchases7d=0, sales7d=0.0),
+    ]
+    publicadas, _ = _dg_plan(reproduccion)
+    assert publicadas == [], f"clave envenenada recreada con un subtotal: {publicadas}"
+
+    solo_pedidos = _dg_fila(purchases7d=2)
+    solo_ventas = _dg_fila(sales7d=40.0)
+    completa = _dg_fila(clicks=30, cost=20.0, purchases7d=0, sales7d=0.0)
+    for filas in ([solo_pedidos, solo_ventas, completa], [completa, solo_pedidos, solo_ventas]):
+        publicadas, skips = _dg_plan(filas)
+        assert publicadas == [], f"clave vaciada recreada con un subtotal: {publicadas}"
+        assert skips["fila con pedidos vacíos"] == 0
+
+
+def test_arreglos03_dg_clics_sin_pedidos_invalida_la_clave():
+    """Una fila con clics y gasto y purchases7d vacio (nulo o ausente) mas
+    otra de la misma clave con 0 pedidos: antes se guardaba la suma con
+    orders vacio, y la senal de JEV la cuenta como 0 pedidos con todos sus
+    clics. Ahora la clave no se guarda ese dia, en los dos ordenes."""
+    nulo = _dg_fila(clicks=12, cost=9.5, purchases7d=None, sales7d=40.0)
+    ausente = _dg_fila(clicks=12, cost=9.5, sales7d=40.0)
+    cero = _dg_fila(clicks=30, cost=21.0, purchases7d=0, sales7d=0.0)
+    for filas in ([nulo, cero], [cero, ausente]):
+        publicadas, skips = _dg_plan(filas)
+        assert publicadas == [], f"subtotal sin pedidos publicado: {publicadas}"
+        assert skips["fila con pedidos vacíos"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1723,6 +1834,7 @@ def test_pipeline_search_terms_en_vivo():
                 "searchTerm": "b0aaaa1111",
                 "clicks": 2,
                 "cost": 0.5,
+                "purchases7d": 0,
             },
             {
                 "date": str(ayer),
@@ -1739,6 +1851,7 @@ def test_pipeline_search_terms_en_vivo():
                 "searchTerm": "usb0cable",
                 "clicks": 1,
                 "cost": 0.2,
+                "purchases7d": 0,
             },
             # ad_group que NO esta en ad_entity: skip con motivo
             {
@@ -1747,6 +1860,7 @@ def test_pipeline_search_terms_en_vivo():
                 "searchTerm": "no existe",
                 "clicks": 1,
                 "cost": 0.1,
+                "purchases7d": 0,
             },
             # sin adGroupId: skip
             {"date": str(ayer), "searchTerm": "huerfano", "clicks": 1, "cost": 0.1},

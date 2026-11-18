@@ -273,7 +273,7 @@ def _pagina(
             return items, False
         nuevos = [p for p in pagina if isinstance(p, dict) and str(p.get("id")) not in vistos]
         if not nuevos:
-            return items, False  # la API ignoro el offset: no repetir para siempre
+            return items, True  # sin IDs nuevos no podemos confirmar la lectura completa
         for pregunta in nuevos:
             vistos.add(str(pregunta.get("id")))
         items.extend(nuevos)
