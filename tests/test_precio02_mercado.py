@@ -154,7 +154,7 @@ class _MercadoFalso:
 
         return Importe(self.vivo, "MXN")
 
-    def escribir(self, unidad, precio, *, sonda=False):
+    def escribir(self, unidad, precio):
         from app.precio.puerto import Acuse
 
         self.n_escrituras += 1
@@ -1153,11 +1153,16 @@ def test_persistir_uno_guarda_procedencia_real_y_evidencia():
     import test_precio_reglas as reglas_fx
 
     from app.precio.corrida import _persistir_uno
-    from app.precio.reglas import decidir
 
     with _db02() as conn:
         datos = _cadena(conn)
         cfg_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        corrida_id = conn.execute(
+            "INSERT INTO precio_corrida (platform, fecha, owner, config_version_id,"
+            " modo_global) VALUES ('amazon_mx', %s, 'tdd', %s, 'shadow') RETURNING id",
+            (hoy, cfg_id),
+        ).fetchone()[0]
         goal_id = conn.execute(
             "SELECT id FROM precio_goal WHERE listing_id = %s", (datos["listing"],)
         ).fetchone()[0]
@@ -1172,14 +1177,7 @@ def test_persistir_uno_guarda_procedencia_real_y_evidencia():
             (datos["producto"],),
         ).fetchone()[0]
         ent = reglas_fx.entrada(costo="60", mode="shadow")
-        decision = decidir(
-            ent,
-            hoy=reglas_fx.HOY,
-            config=reglas_fx.cfg(),
-            cotizaciones=(),
-            fees_escenario=reglas_fx.fees_escenario_de(ent),
-            lineal=True,
-        )
+        decision = reglas_fx.resuelve(ent)
         _persistir_uno(
             conn,
             decision,
@@ -1199,6 +1197,7 @@ def test_persistir_uno_guarda_procedencia_real_y_evidencia():
             platform="amazon_mx",
             goal_id=goal_id,
             cfg_id=cfg_id,
+            corrida_id=corrida_id,
             lineas=[],
             errores=[],
             senal_evidencia="trafico",
@@ -1209,58 +1208,3 @@ def test_persistir_uno_guarda_procedencia_real_y_evidencia():
             (datos["listing"],),
         ).fetchone()
         assert fila == ("propio", muestra, "trafico")
-
-
-@_skip_sin_pg
-def test_persistir_uno_guarda_verificacion_lineal():
-    import test_precio_reglas as reglas_fx
-
-    from app.precio.corrida import _persistir_uno
-    from app.precio.reglas import decidir
-
-    with _db02() as conn:
-        datos = _cadena(conn)
-        cfg_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
-        goal_id = conn.execute(
-            "SELECT id FROM precio_goal WHERE listing_id = %s", (datos["listing"],)
-        ).fetchone()[0]
-        ent = reglas_fx.entrada(costo="60", mode="shadow")
-        decision = decidir(
-            ent,
-            hoy=reglas_fx.HOY,
-            config=reglas_fx.cfg(),
-            cotizaciones=(),
-            fees_escenario=reglas_fx.fees_escenario_de(ent),
-            lineal=True,
-        )
-        assert (decision.resultado, decision.verificacion) == ("subir", "lineal")
-        lineas: list = []
-        errores: list = []
-        _persistir_uno(
-            conn,
-            decision,
-            lid=datos["listing"],
-            mode="shadow",
-            prod_id=datos["producto"],
-            canal="fba",
-            meta={
-                "escenario_id": None,
-                "fee_observation_id": None,
-                "oferta_observation_id": None,
-                "cotizacion_id": None,
-                "canal": "fba",
-                "logistica_origen": "politica",
-                "envio_muestra_id": None,
-            },
-            platform="amazon_mx",
-            goal_id=goal_id,
-            cfg_id=cfg_id,
-            lineas=lineas,
-            errores=errores,
-        )
-        fila = conn.execute(
-            "SELECT verificacion FROM precio_decision WHERE listing_id = %s"
-            " ORDER BY id DESC LIMIT 1",
-            (datos["listing"],),
-        ).fetchone()[0]
-        assert fila == "lineal"

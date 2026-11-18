@@ -51,12 +51,6 @@ from app.spapi.client import (
 from app.spapi.pricing import RUTA_COMPETITIVO, PrecioOmitido, parsear_precios
 from app.spapi.write_client import SpapiWriteClient
 
-FORMA_PARCHE = "listings_items_purchasable_offer_v1"
-
-
-class FormaParcheSinSellar(Exception):
-    """El cuerpo del PATCH aun no tiene forma sellada (A.4 la sella)."""
-
 
 def construir_escritor(
     lector: SpapiClient,
@@ -79,8 +73,6 @@ def construir_escritor(
 
 def construir_cuerpo_parche(*, platform: str, sku: str, precio: Decimal, moneda: str) -> dict:
     """Cuerpo `purchasable_offer` aceptado por la sonda real A.4."""
-    if FORMA_PARCHE != "listings_items_purchasable_offer_v1":
-        raise FormaParcheSinSellar(f"forma desconocida: {FORMA_PARCHE}")
     return {
         "productType": "PRODUCT",
         "patches": [
@@ -163,8 +155,6 @@ def leer_precio_vivo(
 
 
 __all__ = [
-    "FORMA_PARCHE",
-    "FormaParcheSinSellar",
     "PrecioVivoAusente",
     "CambioNoReversible",
     "DecisionSinAccion",
