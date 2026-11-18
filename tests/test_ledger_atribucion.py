@@ -266,3 +266,125 @@ def test_arreglos01_y_reatribuye_venta_con_rastro_y_sigue_bloqueando(tmp_path):
             " WHERE ledger_event_id = %s ORDER BY id",
             (eid,),
         ).fetchall() == [(pid_antes, pid_despues), (pid_despues, pid_antes)]
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 D-H.4: la migracion etiqueta las devoluciones de MeLi y su
+# reversa restaura solo esas.
+# ---------------------------------------------------------------------------
+
+_SONDA_DH = "SELECT to_regclass('public.arreglos03_devoluciones_meli_ids') IS NOT NULL"
+_IDA_DH = "0087_arreglos03_devoluciones_meli.sql"
+_REVERSA_DH = "0087_reversa_arreglos03_devoluciones_meli.sql"
+
+
+def _trigger_dh_activo(conn) -> bool:
+    """True si ledger_solo_reatribuye sigue encima de ledger_event y habilitado."""
+    fila = conn.execute(
+        "SELECT tgenabled FROM pg_trigger"
+        " WHERE tgrelid = 'ledger_event'::regclass AND tgname = 'ledger_solo_reatribuye'"
+    ).fetchone()
+    return fila is not None and fila[0] == "O"
+
+
+def _run_dh(conn) -> int:
+    return conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('accounting_ledger_events') RETURNING id"
+    ).fetchone()[0]
+
+
+def _devolucion_dh(conn, run_id: int, platform: str, fee_type: str | None, order: str) -> int:
+    """Siembra una devolucion directa en ledger_event y devuelve su id."""
+    return conn.execute(
+        "INSERT INTO ledger_event"
+        " (platform, kind, event_date, order_id, amount, amount_currency, fee_type,"
+        " ingest_run_id) VALUES (%s, 'refund', '2026-11-10', %s, -500.00, 'MXN', %s, %s)"
+        " RETURNING id",
+        (platform, order, fee_type, run_id),
+    ).fetchone()[0]
+
+
+def _fee_types_dh(conn, ids: list[int]) -> dict[int, str | None]:
+    return dict(
+        conn.execute(
+            "SELECT id, fee_type FROM ledger_event WHERE id = ANY(%s)", (ids,)
+        ).fetchall()
+    )
+
+
+@_skip_sin_pg
+def test_arreglos03_dh_migracion_devoluciones_y_su_reversa():
+    """D-H.4: la ida etiqueta como 'refund' exactamente las devoluciones de MeLi
+    sin categoria y guarda sus IDs en la misma transaccion; el trigger
+    ledger_solo_reatribuye queda activo. La reversa restaura NULL solo para los
+    IDs registrados. Con cero filas corregibles la sonda tambien distingue
+    antes, ida y reversa."""
+    ida = (RAIZ / "migrations" / _IDA_DH).read_text(encoding="utf-8")
+    reversa = (RAIZ / "migrations" / _REVERSA_DH).read_text(encoding="utf-8")
+
+    with _db_0085() as conn:
+        run_id = _run_dh(conn)
+        sin_etiqueta = _devolucion_dh(conn, run_id, "meli", None, "M-DH-1")
+        etiquetada = _devolucion_dh(conn, run_id, "meli", "refund", "M-DH-2")
+        amazon = _devolucion_dh(conn, run_id, "amazon_mx", None, "A-DH-1")
+
+        assert not conn.execute(_SONDA_DH).fetchone()[0]
+        conn.execute(ida)
+
+        assert conn.execute(_SONDA_DH).fetchone()[0]
+        assert [
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM arreglos03_devoluciones_meli_ids ORDER BY id"
+            ).fetchall()
+        ] == [sin_etiqueta]
+        assert _fee_types_dh(conn, [sin_etiqueta, etiquetada, amazon]) == {
+            sin_etiqueta: "refund",
+            etiquetada: "refund",
+            amazon: None,
+        }
+        assert _trigger_dh_activo(conn)
+        # El ALTER DEFAULT PRIVILEGES de 0001 daria SELECT a los servicios: la
+        # tabla de IDs es privada de la migracion.
+        assert not conn.execute(
+            "SELECT bool_or(has_table_privilege(r, 'public.arreglos03_devoluciones_meli_ids',"
+            " 'SELECT, INSERT, UPDATE, DELETE'))"
+            " FROM unnest(ARRAY['app_read', 'app_ingest', 'app_decide', 'app_admin']) AS r"
+        ).fetchone()[0]
+
+        # Otra devolucion MeLi ya etiquetada, insertada DESPUES de confirmar la
+        # ida: la reversa no debe tocarla.
+        posterior = _devolucion_dh(conn, run_id, "meli", "refund", "M-DH-3")
+
+        conn.execute(reversa)
+
+        assert _fee_types_dh(conn, [sin_etiqueta, etiquetada, amazon, posterior]) == {
+            sin_etiqueta: None,
+            etiquetada: "refund",
+            amazon: None,
+            posterior: "refund",
+        }
+        assert _trigger_dh_activo(conn)
+        assert not conn.execute(_SONDA_DH).fetchone()[0]
+
+    # El mismo recorrido sobre una base sin filas corregibles: hay devoluciones,
+    # pero ninguna de MeLi sin etiqueta.
+    with _db_0085() as conn:
+        run_id = _run_dh(conn)
+        etiquetada = _devolucion_dh(conn, run_id, "meli", "refund", "M-DH-4")
+        amazon = _devolucion_dh(conn, run_id, "amazon_us", None, "A-DH-2")
+        antes = {etiquetada: "refund", amazon: None}
+
+        assert not conn.execute(_SONDA_DH).fetchone()[0]
+        conn.execute(ida)
+        assert conn.execute(_SONDA_DH).fetchone()[0]
+        assert (
+            conn.execute("SELECT count(*) FROM arreglos03_devoluciones_meli_ids").fetchone()[0]
+            == 0
+        )
+        assert _fee_types_dh(conn, [etiquetada, amazon]) == antes
+        assert _trigger_dh_activo(conn)
+        conn.execute(reversa)
+        assert not conn.execute(_SONDA_DH).fetchone()[0]
+        assert _fee_types_dh(conn, [etiquetada, amazon]) == antes
+        assert _trigger_dh_activo(conn)
