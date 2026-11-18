@@ -2401,10 +2401,10 @@ moriría al 2º día: MeLi rota el refresh_token).
 **Crons** (crontab de `gon`, ADITIVOS; respaldo
 `archive/crontab-gon.<STAMP>`; accounting byte-igual verificado):
 
-| UTC | job_key | comando |
+| UTC | job_key | comando (como está instalado, bloque `# === Orbit reputacion (`) |
 |-----|---------|---------|
-| 30 9 * * * | `reputacion:meli` | `docker exec orbit-app-1 python -m app.cli reputacion snapshot --fuente meli` → `logs/reputacion-meli.log` |
-| 30 10 * * * | `reputacion:alertas` | `docker exec orbit-app-1 python -m app.cli reputacion alertas` → `logs/reputacion-alertas.log` |
+| 30 9 * * * | `reputacion:meli` | `/usr/local/bin/cron-avisa --nombre "Reputación de MercadoLibre" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli reputacion snapshot --fuente meli'` → `logs/reputacion-meli.log`. Si falla o no deja lectura sale 1 y `cron-avisa` avisa por Telegram; si se cae antes de empezar (sin llave) deja igual su corrida fallida en `ingest_run`. |
+| 30 10 * * * | `reputacion:alertas` | `/usr/local/bin/cron-avisa --nombre "Alertas de reputación" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli reputacion alertas'` → `logs/reputacion-alertas.log`. Evalúa las alertas y también manda por Telegram las nuevas, una sola vez cada una (`reputation_alert.avisada_at`); sale 1 (y `cron-avisa` avisa) si la lectura de reputación de hoy no corrió o si ese aviso no salió. Una lectura que corrió y falló no lo hace salir 1: ya avisó la línea de las 09:30. Las alertas ya no viajan en el resumen del ciclo de pujas (ARREGLOS 03 D-K). |
 
 **Reversa v1** (acta §8.4): deshabilitar los jobs reputación del
 crontab, conservar datos y pantalla (v1 solo-lectura: nada que

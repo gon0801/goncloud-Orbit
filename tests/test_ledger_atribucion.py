@@ -22,7 +22,7 @@ from pathlib import Path
 import psycopg
 import pytest
 from test_precio02_base import _db, _dsn_base, _dsn_de_db, _producto_listing
-from test_schema import _postgres_obligatorio_ausente
+from test_schema import SQL_LEDGER_ORIGINAL, _postgres_obligatorio_ausente
 
 from app.ledger import sync_ledger
 from app.ledger_atribucion import Atribucion
@@ -181,6 +181,7 @@ def _db_0085():
                 encoding="utf-8"
             )
         )
+        conn.execute(SQL_LEDGER_ORIGINAL)
         yield conn
     finally:
         if conn is not None:

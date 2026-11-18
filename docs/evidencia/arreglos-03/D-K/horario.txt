@@ -1,0 +1,2 @@
+30 9 * * * /usr/local/bin/cron-avisa --nombre "Reputación de MercadoLibre" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli reputacion snapshot --fuente meli' >> /mnt/data/appdata/orbit/logs/reputacion-meli.log 2>&1
+30 10 * * * /usr/local/bin/cron-avisa --nombre "Alertas de reputación" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli reputacion alertas' >> /mnt/data/appdata/orbit/logs/reputacion-alertas.log 2>&1

@@ -1,0 +1,109 @@
+ARREGLOS 03 D-K — Acepta (2026-11-18, PC Windows del worker; PG16 desechable 127.0.0.1:55433)
+
+SHA del código: aac2633 (rama ao/bloque-d-k/reputacion-avisada, sobre origin/master a6ffa32 = D-H integrado)
+Migración: 0089_arreglos03_reputacion_avisada.sql (+ 0089_reversa_...). 0087 lo tomó D-H (#634) y 0088 D-I (#638), que se integra antes.
+(Las corridas de abajo hasta «Ronda 1» se hicieron con el nombre 0088; las pruebas buscan la migración por tema, no por número.)
+
+### D-K.0
+$ grep -q arreglos03 tools/despliegue/comun.sh && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_despliegue_motor.py
+48 skipped in 0.37s   (Windows: sin psql/pg_dump/flock; la fila no lleva -rs)
+exit=0
+La misma prueba en WSL, sin ningún skip, va en la parte 2 de D-K.2 (56 passed).
+
+### D-K.1
+$ "C:\Program Files\Git\bin\bash.exe" -c "ssh goncloud 'crontab -u gon -l'"  (leído 2026-11-18 10:22 UTC, antes del código)
+-> horario.txt: las dos líneas (09:30 snapshot y 10:30 alertas) van envueltas en /usr/local/bin/cron-avisa. Sin diferencia.
+$ grep -q 'cron-avisa' docs/evidencia/arreglos-03/D-K/horario.txt && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion_alertas.py -k arreglos03_dk_
+2 passed, 32 deselected in 11.52s
+exit=0
+
+### D-K.2
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion_alertas.py -k arreglos03_dk_migracion
+1 passed, 33 deselected in 3.21s
+exit=0
+$ (WSL) wsl -e bash -l /mnt/c/Users/ehven/AppData/Local/Temp/orbit-arreglos03/wsl-pytest.sh "<worktree>" -q -rs tests/test_despliegue_motor.py tests/test_reputacion_migracion.py
+56 passed in 355.43s (0:05:55)   (CI=1, psql/pg_dump/flock reales, 0 skipped)
+exit=0
+
+### D-K.3
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion_alertas.py tests/test_reputacion.py tests/test_notifica.py tests/test_cli.py
+202 passed in 164.65s (0:02:44)
+exit=0
+
+### D-K.4
+$ ! rg -q -e carga_reputacion_digest -e VENTANA_DIGEST_HORAS app && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_notifica.py tests/test_reputacion_alertas.py tests/test_ui_reputacion.py
+131 passed, 1 warning in 167.04s (0:02:47)
+exit=0
+
+### D-K.5
+$ grep -q 'cron-avisa --nombre "Alertas de reputación"' docs/DEPLOY.md
+exit=0
+
+### D-K.6
+$ test -s docs/evidencia/arreglos-03/D-K/prueba.py
+exit=0
+prueba.py con el código nuevo (local, python - < prueba.py): "D-K desplegado", exit=0
+prueba.py con el SHA previo 73a033e (worktree temporal): exit=1
+  ImportError: cannot import name 'aviso_reputacion' from 'app.notifica'
+prueba.py en producción hoy (en_prod.sh, solo lectura, antes del despliegue): exit=1
+  ImportError: cannot import name 'aviso_reputacion' from 'app.notifica' (/app/app/notifica.py)
+
+== Pruebas nuevas en el SHA previo (73a033e, antes del cambio) ==
+1) Código previo + migración y pruebas nuevas:
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion_alertas.py -k arreglos03_dk_
+tests\test_reputacion_alertas.py:392: ImportError: cannot import name 'lectura_de_hoy' from 'app.reputacion_alertas'
+1 failed, 1 passed
+2) SHA previo completo (sin la migración) + las pruebas nuevas, worktree temporal:
+tests\test_reputacion.py:334 in _migracion: ValueError: not enough values to unpack (expected 1, got 0)
+(la migración arreglos03_reputacion_avisada no existe: 1 error during collection)
+
+== Poder discriminante (cambio quitado a mano, luego restaurado) ==
+- Sin la llamada a _sella_caida_temprana en ejecuta_snapshot:
+  test_arreglos03_dk_lectura_que_no_corrio_se_avisa -> "assert fallidas == 1" / "assert 0 == 1" (1 failed)
+- Sin el GRANT UPDATE (avisada_at) en la migración:
+  test_arreglos03_dk_migracion_avisada_y_su_reversa -> has_column_privilege "assert False" (1 failed)
+
+== Comprobación a mano del aviso "una sola vez" (script temporal, PG desechable) ==
+Lectura ok de hoy + una review de 1 estrella:
+1) envío falla       -> exit 1 | avisada_at: None   (stderr: "El aviso de alertas de reputación no salió.")
+2) envío sale        -> exit 0 | avisada: True
+   texto: [Orbit] Reputación de Mercado Libre / Urgente: 1 estrella nueva: review R1 en MLM7
+3) corrida siguiente -> exit 0 | envíos totales: 1
+4) --fecha (relleno) -> exit 0 | envíos totales: 1
+
+== Estilo ==
+ruff check / ruff format --check sobre los 6 archivos de Python tocados: limpio.
+
+== Ronda 1 de revisión (Kimi y Devin en 127c0f9): alertas omitidas marcadas como enviadas ==
+Hallazgo: con más de 20 pendientes, el aviso recortaba a 20 líneas («Y N más») pero el UPDATE sellaba todas.
+Arreglo 85b2ee1: avisa_pendientes manda lotes de 20 y sella cada lote solo si su envío salió; aviso_reputacion ya no recorta.
+Regresión ed50fb3: test_arreglos03_dk_mas_de_20_pendientes_ninguna_se_sella_sin_salir
+- En 127c0f9 (worktree temporal con la prueba nueva):
+  assert [m for m in selladas(True) if m not in llegaron[0]] == []
+  AssertionError: Left contains one more item: '1 estrella nueva: review R21 en MLM21'   (1 failed)
+- En ed50fb3: 1 passed
+Comprobación a mano (21 críticas pendientes, PG desechable):
+1) 2.o envío falla -> exit 1 | envíos: 2 | líneas del 1.o: 20 | pendientes: 1
+2) reintento       -> exit 0 | envíos: 1 | texto: [Orbit] Reputación de Mercado Libre / Urgente: 1 estrella nueva: review R21 en MLM21 | pendientes: 0
+3) siguiente       -> exit 0 | envíos: 0 | pendientes: 0
+
+Acepta afectados, SHA ed50fb3 (D-K.0 y la parte WSL de D-K.2 no cambian: no tocan app/reputacion_alertas.py ni app/notifica.py)
+D-K.1: 3 passed, 32 deselected -> exit=0
+D-K.2 (parte 1): 1 passed, 34 deselected -> exit=0
+D-K.3: 203 passed -> exit=0
+D-K.4: rg sin restos; 132 passed -> exit=0
+D-K.5: exit=0
+D-K.6: test -s + prueba.py local "D-K desplegado" -> exit=0
+ruff check / format --check: limpio.
+
+== Renombre a 0089 (D-I toma 0088) + comentario de la tabla (nota de Kimi), con master fa3c57d (P-A y D-C) integrado ==
+Acepta corridos en 582122b (rebase local); la rama subida es 75c43e6 = merge de master + el mismo commit, con árbol idéntico
+(git diff --stat 582122b 75c43e6: vacío). Se integró con merge porque el push forzado está bloqueado.
+D-K.0: grep arreglos03 en comun.sh + test_despliegue_motor.py (Windows, sin -rs): 48 skipped -> exit=0
+D-K.1: horario.txt con cron-avisa; 3 passed, 32 deselected -> exit=0
+D-K.2: parte 1: 1 passed, 34 deselected -> exit=0
+       parte 2 (WSL, CI=1): tests/test_despliegue_motor.py tests/test_reputacion_migracion.py: 56 passed, 0 skipped -> exit=0
+D-K.3: 203 passed -> exit=0
+D-K.4: rg sin restos; 132 passed -> exit=0
+D-K.5: exit=0
+D-K.6: test -s + prueba.py local "D-K desplegado" -> exit=0
