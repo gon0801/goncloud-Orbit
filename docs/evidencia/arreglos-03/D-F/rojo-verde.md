@@ -32,6 +32,46 @@ ponen en rojo (el archivo se restauró después de cada una):
   `AssertionError: assert 0 == 1` sobre `sin_cerrar`; el 12-nov queda como rechazo y
   abortaría el snapshot.
 
+## Revisión (ronda 1) — `test_arreglos03_df_releer_tras_la_medianoche_no_escribe_el_dia_en_curso`
+
+El hallazgo bloqueante de la revisión (comentario del PR #644 en `app/meli/ads_source.py:493`):
+el descarte del día en curso se medía contra el reloj de cada lectura, pero esa proyección
+alimentaba `_huella_snapshot` y `_versiones_snapshot`. El mismo archivo cambiaba de contenido
+al cruzar la medianoche de México: rompía el reintento exacto o escribía métricas parciales.
+
+La prueba (parametrizada, PG): el origen escribió el snapshot a las 21:00 del 12-nov en México
+(`as_of` 2026-11-13T03:00Z); se ingiere a las 03:17Z y el MISMO archivo otra vez a las 06:30Z
+(00:30 del 13-nov en México). Dos casos:
+
+- `con-un-dia-cerrado`: filas del 11 y del 12-nov. Solo el 11 se escribe y la relectura es un
+  reintento exacto (`rows_written == 0`), no «mismo as_of y contenido distinto».
+- `solo-el-dia-en-curso`: solo la fila del 12-nov. Ninguna lectura escribe (el 12-nov no había
+  cerrado cuando se copió el archivo).
+
+Arreglo (`1b52b06`): `leer_origen` mide el corte contra el reloj del SNAPSHOT
+(`corte = dia_local("meli", min(as_of, ahora))`): releer el mismo archivo da las mismas filas a
+cualquier hora, y la huella cubre el archivo completo (`_huella_snapshot(filas + origen.en_curso)`),
+no solo lo retenido.
+
+Rojo en la cabeza anterior `a992251` (cabeza revisada por Kimi), con solo el archivo de pruebas
+copiado (worktree temporal en `a992251` + `tests/test_meli_ads_ingest.py` de la rama):
+
+```
+.venv/Scripts/python.exe -m pytest -q tests/test_meli_ads_ingest.py -k arreglos03_df_releer
+  (ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:55433/postgres, PYTHONPATH=.)
+[con-un-dia-cerrado]     E app.meli.ads_source.MeliAdsError: snapshot con el mismo as_of
+                           y contenido distinto (snapshot atrasado): no se escribio nada
+                           app\meli\ads_ingest.py:537 MeliAdsError
+[solo-el-dia-en-curso]   E assert [datetime.date(2026, 11, 12)] == []
+                           Left contains one more item: datetime.date(2026, 11, 12)
+                           tests\test_meli_ads_ingest.py:771 AssertionError
+2 failed, 80 deselected
+```
+
+Los dos fallos son los dos brazos del hallazgo: el reintento exacto rechazado y la escritura de
+las métricas parciales. Verde en la cabeza de la ronda 2: `3 passed` con
+`-k arreglos03_df_` (detalle en `acepta.txt`).
+
 ## D-F.2 — la ingesta cuenta el día en curso como saltado
 
 `ads_ingest` no tiene prueba nueva (el plan nombra solo la de D-F.1). Se comprobó con una
