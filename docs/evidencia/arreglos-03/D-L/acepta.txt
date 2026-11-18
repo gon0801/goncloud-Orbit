@@ -125,3 +125,26 @@ D-L.2  23 passed                          exit=0
 D-L.3  grep ok + 35 passed                exit=0
 D-L.4  88 passed                          exit=0
 D-L.5  test -s ok; prueba.py «D-L desplegado» exit=0
+
+Ronda 3. Base del PR cf31cad9ce8caca0520576e11f9abd0130dabfa9.
+Código verificado 0dc8489675fd424043ef8cd8eae0038723f5b962 (merge con c9b77fe).
+Entorno: Python 3.12, PYTHONPATH=., PG desechable local en el puerto 55433.
+
+Regresión: MeLi anuncia 51 preguntas y repite los mismos 50 IDs al pedir offset 50.
+PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion.py -k arreglos03_dl_pagina_repetida
+  Rojo con app/reputacion.py de cf31cad: Failed: DID NOT RAISE ReputacionError
+  1 failed, 30 deselected; salida 1.
+  Verde con el arreglo: 1 passed, 30 deselected; salida 0.
+
+D-L.1  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_ui_reputacion.py -k arreglos03_dl_
+  2 passed, 21 deselected, 1 warning; salida 0.
+D-L.2  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_ui_reputacion.py
+  23 passed, 1 warning; salida 0.
+D-L.3  grep -q 'mejor_nivel_previo(seller, hoy)' app/reputacion_alertas.py && ! grep -q 'seller\[1\]\[1\]' app/reputacion_alertas.py && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion_alertas.py
+  Ambas condiciones se cumplen; 35 passed; salida 0.
+D-L.4  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion.py tests/test_reputacion_alertas.py tests/test_ui_reputacion.py
+  89 passed, 1 warning; salida 0.
+D-L.5  test -s docs/evidencia/arreglos-03/D-L/prueba.py
+  Salida 0. Ejecución local adicional con PYTHONPATH=. uv run --frozen --python 3.12 python docs/evidencia/arreglos-03/D-L/prueba.py
+  D-L desplegado; salida 0.
+Ninguna prueba omitida. El aviso de Starlette corresponde a su TestClient con httpx.
