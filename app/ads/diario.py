@@ -3,15 +3,18 @@
 `python -m app.cli ingest diario` (y `python -m app.ads.descarga`, que
 delega aqui) corre los tres grupos --metricas, productos y placements-- en
 UNA sola descarga (app.ads.descarga, tres ingest_run) sobre el rango por
-defecto D-31..D-1 y avisa por Telegram lo que falle o se salve: las metricas
-de campanas ya avisan por salud, asi que de aqui salen solo los mensajes de
-productos y ubicaciones. Los reintentos del dia son corridas del mismo
-comando programadas por el crontab (docs/DEPLOY.md): --solo-faltantes salta
-un grupo solo si hoy ya tiene una ingest_run ok=true que escribio D-1 para
-cada plataforma con perfil aceptado; un grupo saltado no abre ingest_run.
+defecto de 31 dias que termina en el ultimo dia cerrado de las dos
+plataformas (app.dia_cerrado: el "ayer" de US termina a las 00:00 de Los
+Angeles; ARREGLOS 03 D-E) y avisa por Telegram lo que falle o se salve: las
+metricas de campanas ya avisan por salud, asi que de aqui salen solo los
+mensajes de productos y ubicaciones. Los reintentos del dia son corridas del
+mismo comando programadas por el crontab (docs/DEPLOY.md): --solo-faltantes
+salta un grupo solo si hoy ya tiene una ingest_run ok=true que escribio el
+ultimo dia cerrado de cada plataforma con perfil aceptado; un grupo saltado
+no abre ingest_run.
 
 La tabla de horarios del crontab sale de HORARIOS_INGESTA: los textos de los
-avisos nombran el reintento siguiente (o el "mañana a las 07:10" cuando el
+avisos nombran el reintento siguiente (o el "mañana a las 08:10" cuando el
 intento es el ultimo del dia) y la prueba del crontab
 (tests/test_ingesta_cron.py) fija que las lineas instaladas coincidan con
 esta constante. Tope de pared de la corrida: TOPE_PARED_SEGUNDOS (2 h 45
@@ -33,6 +36,7 @@ import psycopg
 from app.ads.descarga import GrupoDescarga, ResultadoGrupo, _registrar, descarga
 from app.ads.salud import intentar_procesar_run
 from app.ads.structure import _SQL_ABRIR_RUN, _sellar_run
+from app.dia_cerrado import ultimo_dia_cerrado
 from app.metricas_listas import (
     SOURCE_METRICAS,
     SOURCE_PLACEMENTS,
@@ -53,7 +57,7 @@ logger = logging.getLogger(__name__)
 # Horarios UTC de la ingesta diaria (y sus dos reintentos). La prueba del
 # crontab (tests/test_ingesta_cron.py) fija que las lineas instaladas
 # coincidan con esta constante.
-HORARIOS_INGESTA = ("07:10", "10:40", "13:15")
+HORARIOS_INGESTA = ("08:10", "10:40", "13:15")
 
 # Tope de pared de la corrida: el sondeo acota 2 h 30 min y el resto de la
 # corrida (escrituras + avisos) tiene 15 min de holgura.
@@ -95,9 +99,13 @@ SELECT 1 FROM ingest_run
 
 # {tabla} se sustituye SOLO con las claves de _TABLA_POR_SOURCE (constantes).
 # Las observaciones de metricas/products ligan la run (ingest_run_id) y
-# traen metric_date: el rescate exige D-1 escrito por ESTA run.
+# traen metric_date: el rescate exige que ESTA run escribiera el ultimo dia
+# cerrado de cada plataforma (una fecha por plataforma, ARREGLOS 03 D-E).
+# platform es ENUM: se compara como texto contra los arreglos.
 _SQL_PAISES_RESCATADOS = """
-SELECT DISTINCT platform FROM {tabla} WHERE ingest_run_id = %s AND metric_date = %s
+SELECT DISTINCT platform FROM {tabla}
+ WHERE ingest_run_id = %s
+   AND (platform::text, metric_date) IN (SELECT * FROM unnest(%s::text[], %s::date[]))
 """
 
 # ads_placement_observation (0062) no liga run: el rescate de placements se
@@ -175,35 +183,40 @@ def _plataformas_del_source(conn: psycopg.Connection, source: str) -> list[str]:
     return [fila[0] for fila in conn.execute(_SQL_PLATAFORMAS_DEL_SOURCE, (source,)).fetchall()]
 
 
-def _grupo_al_dia(conn: psycopg.Connection, grupo: GrupoDescarga, *, hoy: dt.date) -> bool:
-    """True si hoy ya hay una run ok=true del source que escribio D-1 para
-    CADA plataforma del source. Un backfill viejo iniciado hoy no cuenta: el
-    filtro es metric_date = D-1. La forma de ligar run y observaciones la
-    fija app.metricas_listas (cada tabla trae lo que trae: ads_metric_observation
-    cruza ad_entity; placements no liga run y es doble existe)."""
+def _grupo_al_dia(conn: psycopg.Connection, grupo: GrupoDescarga, *, ahora: dt.datetime) -> bool:
+    """True si hoy (fecha UTC de `ahora`) ya hay una run ok=true del source
+    que escribio el ultimo dia cerrado de CADA plataforma del source. Un
+    backfill viejo iniciado hoy no cuenta: el filtro es metric_date =
+    ultimo_dia_cerrado(plataforma, ahora). La forma de ligar run y
+    observaciones la fija app.metricas_listas (cada tabla trae lo que trae:
+    ads_metric_observation cruza ad_entity; placements no liga run y es doble
+    existe)."""
     plataformas = _plataformas_del_source(conn, grupo.source)
     if not plataformas:
         return False
     al_dia = _AL_DIA_POR_SOURCE[grupo.source]
-    return all(al_dia(conn, plataforma, hoy=hoy) for plataforma in plataformas)
+    return all(al_dia(conn, plataforma, ahora=ahora) for plataforma in plataformas)
 
 
 def _fallo_anterior_hoy(conn: psycopg.Connection, source: str, *, hoy: dt.date) -> bool:
     return conn.execute(_SQL_FALLO_HOY, (source, hoy)).fetchone() is not None
 
 
-def _paises_rescatados(conn: psycopg.Connection, res: ResultadoGrupo, *, hoy: dt.date) -> list[str]:
-    """Plataformas que ESTA run (ok) rescribio en D-1: el salvamento es real
-    solo si los datos llegaron. placements no liga run en su tabla de
-    observaciones: se acredita con lo que la run dejo written en
-    ads_report_result."""
-    ayer = hoy - dt.timedelta(days=1)
+def _paises_rescatados(
+    conn: psycopg.Connection, res: ResultadoGrupo, *, ahora: dt.datetime
+) -> list[str]:
+    """Plataformas que ESTA run (ok) rescribio en su ultimo dia cerrado (una
+    fecha por plataforma): el salvamento es real solo si los datos llegaron.
+    placements no liga run en su tabla de observaciones: se acredita con lo
+    que la run dejo written en ads_report_result."""
     if res.source == SOURCE_PLACEMENTS:
         filas = conn.execute(_SQL_PAISES_RESCATADOS_PLACEMENTS, (res.run_id,)).fetchall()
     else:
+        plataformas = list(PAIS_POR_PLATAFORMA)
+        fechas = [ultimo_dia_cerrado(plataforma, ahora) for plataforma in plataformas]
         filas = conn.execute(
             _SQL_PAISES_RESCATADOS.format(tabla=_TABLA_POR_SOURCE[res.source]),
-            (res.run_id, ayer),
+            (res.run_id, plataformas, fechas),
         ).fetchall()
     return sorted({PAIS_POR_PLATAFORMA[fila[0]] for fila in filas})
 
@@ -235,7 +248,7 @@ def _envia_mensajes(
         que = QUE_POR_CLAVE[clave]
         if res.ok:
             if _fallo_anterior_hoy(conn, res.source, hoy=hoy):
-                for pais in _paises_rescatados(conn, res, hoy=hoy):
+                for pais in _paises_rescatados(conn, res, ahora=ahora):
                     enviar(_texto_salvado(que, pais, horario))
             continue
         for pais in _paises_de_fallo(res):
@@ -272,9 +285,12 @@ def main(
 ) -> int:
     """`python -m app.cli ingest diario` (y `python -m app.ads.descarga`):
     UNA descarga para los tres grupos (tres ingest_run), rango por defecto
-    D-31..D-1. --solo-faltantes salta un grupo solo si hoy ya tiene una run
-    ok=true que escribio D-1 para cada plataforma con perfil aceptado; un
-    grupo saltado no abre ingest_run. Al terminar avisa (si el canal de
+    de 31 dias que termina en min(ultimo_dia_cerrado(p, ahora)) de las dos
+    plataformas: no pide el dia que sigue en curso en US. `hoy` es el dia de
+    la corrida (fecha UTC de `ahora`). --solo-faltantes salta un grupo solo si
+    hoy ya tiene una run ok=true que escribio el ultimo dia cerrado de cada
+    plataforma con perfil aceptado; un grupo saltado no abre ingest_run. Al
+    terminar avisa (si el canal de
     notifica esta activo) por grupo de productos/ubicaciones y pais. Sale 1
     si algun grupo fallo, 0 si todo salio (o no habia nada que correr),
     2 sin DSN o con rango invalido."""
@@ -285,19 +301,28 @@ def main(
             "en una sola descarga (tres ingest_run)"
         ),
     )
-    parser.add_argument("--fecha", help="YYYY-MM-DD del dia inicial (default: D-31)")
     parser.add_argument(
-        "--fecha-fin", help="YYYY-MM-DD del dia final (default: D-1; requiere --fecha)"
+        "--fecha",
+        help="YYYY-MM-DD del dia inicial (default: 30 dias antes del dia final por defecto)",
+    )
+    parser.add_argument(
+        "--fecha-fin",
+        help=(
+            "YYYY-MM-DD del dia final (default: el ultimo dia que ya cerro en MX y en US;"
+            " requiere --fecha)"
+        ),
     )
     parser.add_argument(
         "--solo-faltantes",
         action="store_true",
-        help="salta los grupos que hoy ya escribieron D-1 para todas sus plataformas",
+        help=(
+            "salta los grupos que hoy ya escribieron el ultimo dia cerrado de todas sus plataformas"
+        ),
     )
     args = parser.parse_args(argv)
 
     ahora = ahora or dt.datetime.now(dt.UTC)
-    hoy = hoy or ahora.date()
+    hoy = hoy or ahora.astimezone(dt.UTC).date()
     if args.fecha_fin and not args.fecha:
         print("--fecha-fin requiere --fecha", file=sys.stderr)
         return 2
@@ -316,8 +341,11 @@ def main(
     if args.fecha and fecha_ini is None or args.fecha_fin and fecha_fin is None:
         return 2
     if fecha_ini is None:
-        fecha_ini = hoy - dt.timedelta(days=31)
-        fecha_fin = hoy - dt.timedelta(days=1)
+        # El dia que aun no cierra en alguna plataforma no se pide: el
+        # escritor lo tiraria (app.dia_cerrado, ARREGLOS 03 D-E). Mismo ancho
+        # de siempre: 31 dias.
+        fecha_fin = min(ultimo_dia_cerrado(p, ahora) for p in PAIS_POR_PLATAFORMA)
+        fecha_ini = fecha_fin - dt.timedelta(days=30)
     elif fecha_fin is None:
         fecha_fin = fecha_ini
     from app.ads.reports import _validar_rango
@@ -359,7 +387,7 @@ def main(
                 return 1
         if args.solo_faltantes:
             # el grupo saltado no abre ingest_run: se filtra ANTES de descargar
-            grupos = [grupo for grupo in grupos if not _grupo_al_dia(conn, grupo, hoy=hoy)]
+            grupos = [grupo for grupo in grupos if not _grupo_al_dia(conn, grupo, ahora=ahora)]
             # cerrar la transaccion implicita del SELECT: si no, los
             # `transaction()` de la descarga serian savepoints y el close()
             # final haria ROLLBACK de todo
