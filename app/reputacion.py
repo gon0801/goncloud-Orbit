@@ -250,19 +250,24 @@ ON CONFLICT ON CONSTRAINT meli_question_anti_duplicado DO NOTHING
 
 def _pagina(
     cliente: ClienteMeli, path: str, params: dict, clave: str, max_paginas: int = 20
-) -> tuple[list[dict], bool]:
+) -> tuple[list[dict] | None, bool]:
     """Paginado limit/offset con guardias. Devuelve (items, truncado).
 
     XR-1.6: el total vive en `paging.total` (claims) o raiz (questions).
     XR-1.7: si se agotan las paginas con datos pendientes, truncado=True
     para contarlo como skip (nunca corte silencioso).
+    ARREGLOS 03 D-L (F9): si la primera pagina no trae la lista `clave`
+    (falta la clave o no es lista), devuelve (None, False): sin dato, no
+    cero. Una lista vacia sigue siendo lista vacia.
     """
     items: list[dict] = []
     vistos: set[str] = set()
     offset = 0
-    for _ in range(max_paginas):
+    for numero in range(max_paginas):
         data, _ = cliente.get(path, {**params, "limit": 50, "offset": offset})
-        pagina = data.get(clave) or []
+        pagina = data.get(clave)
+        if numero == 0 and not isinstance(pagina, list):
+            return None, False
         if not isinstance(pagina, list) or not pagina:
             return items, False
         nuevos = [p for p in pagina if isinstance(p, dict) and str(p.get("id")) not in vistos]
@@ -297,6 +302,8 @@ def fetch_seller(cliente: ClienteMeli) -> tuple[PlanSeller, Counter]:
         {"player": seller_id, "stage": "dispute"},
         "data",
     )
+    if disputas is None:
+        skips["meli: claims sin lista (conteo vacío, no cero)"] += 1
     if truncadas:
         skips["meli: claims truncados por max_paginas (total parcial)"] += 1
     return plan_seller(rep, disputas, fetched), skips
@@ -310,6 +317,10 @@ def fetch_questions(cliente: ClienteMeli) -> tuple[list[PlanQuestion], Counter]:
     if not isinstance(seller_id, int):
         raise ReputacionError("MeLi /users/me sin id entero")
     crudas, truncadas = _pagina(cliente, "/questions/search", {"seller_id": seller_id}, "questions")
+    if crudas is None:
+        # Sin la lista no hay "ninguna pendiente": la lectura entera falla
+        # (una sola transaccion en _corre_meli) y avisa cron-avisa de las 09:30.
+        raise ReputacionError("MeLi /questions/search respondió sin la lista de preguntas")
     if truncadas:
         skips["meli: questions truncadas por max_paginas (total parcial)"] += 1
     fetched = dt.datetime.now(dt.UTC)
@@ -553,6 +564,6 @@ def _ensayo(
         "dry_run": True,
         "items_vistos": len(items),
         "level": rep.get("level_id"),
-        "preguntas_vistas": len(preguntas),
+        "preguntas_vistas": None if preguntas is None else len(preguntas),
         "paginado_truncado": truncadas or scan_truncado,
     }

@@ -12,7 +12,8 @@ Tipos y fuentes (acta §2; Amazon fuera de resena_1 y reclamos_suben):
 - reclamos_suben (aviso, cuenta): disputas nuevas 7d >= previas 7d + 2
   (D-A5-2: nuevas = total(hoy) - total(-7d); requiere 3 snapshots).
 - caida_rating (aviso): baja >= 0.3 (MeLi 7d / Amazon N vs N-1).
-- salud_cuenta (aviso; info si level no mapeado): level_id a peor.
+- salud_cuenta (aviso; info si level no mapeado): level_id peor que el
+  mejor de los 7 dias previos (mejor_nivel_previo, ARREGLOS 03 D-L).
 
 Los mensajes jamas incluyen texto externo (solo ids y numeros):
 seguros para Telegram sin parse_mode (el titulo/texto vive en DB
@@ -38,6 +39,7 @@ UMBRAL_RATING_BAJO = 4.2
 UMBRAL_CAIDA_RATING = 0.3
 DELTA_RECLAMOS = 2
 VENTANA_RECLAMOS_DIAS = 7
+VENTANA_NIVEL_DIAS = 7  # salud_cuenta compara contra el mejor nivel de la semana
 
 # peor -> mejor (mapa explicito del acta; lo no mapeado = info visible).
 MAPA_LEVEL = {
@@ -236,6 +238,24 @@ def _ventana_previa(snaps: list, hoy, dias: int):
     return None
 
 
+def mejor_nivel_previo(
+    seller: list[tuple[dt.date, str | None, int | None]], hoy: dt.date
+) -> str | None:
+    """El mejor level_id de los 7 dias anteriores a hoy (ARREGLOS 03 D-L, F6).
+
+    Entre las filas con hoy - 7 <= fecha < hoy y level_id en MAPA_LEVEL, el
+    de mayor MAPA_LEVEL; None si no hay ninguna. Como caida_rating de MeLi
+    (semana, no lectura de ayer): la caida sale aunque el job salte el dia
+    o la lectura corra dos veces, y la alerta sigue abierta mientras quede
+    un nivel mejor en la semana.
+    """
+    desde = hoy - dt.timedelta(days=VENTANA_NIVEL_DIAS)
+    niveles = [
+        nivel for fecha, nivel, _total in seller if desde <= fecha < hoy and nivel in MAPA_LEVEL
+    ]
+    return max(niveles, key=MAPA_LEVEL.__getitem__, default=None)
+
+
 def evalua_y_persiste(conn, hoy=None, dry_run: bool = False) -> dict:
     """Evalua los 5 tipos con lo ultimo en DB y aplica el flanco.
 
@@ -272,9 +292,10 @@ def evalua_y_persiste(conn, hoy=None, dry_run: bool = False) -> dict:
                     califican.append(alerta)
 
         seller = _lee_seller(conn)
-        if len(seller) >= 2 and seller[0][1] is not None and seller[1][1] is not None:
+        nivel_previo = mejor_nivel_previo(seller, hoy)
+        if seller and seller[0][1] is not None and nivel_previo is not None:
             evaluadas.add(("salud_cuenta", "meli", None))
-            alerta = evalua_salud_cuenta(seller[0][1], seller[1][1])
+            alerta = evalua_salud_cuenta(seller[0][1], nivel_previo)
             if alerta is not None:
                 califican.append(alerta)
         tot_hoy = seller[0][2] if seller and seller[0][0] <= hoy else None

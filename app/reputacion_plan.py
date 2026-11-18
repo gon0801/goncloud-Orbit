@@ -164,11 +164,19 @@ class PlanQuestion:
     fetched_at: dt.datetime | None = None
 
 
-def plan_seller(rep: dict, disputas: list[dict], fetched_at: dt.datetime) -> PlanSeller:
-    """Reputacion de cuenta MeLi (shape E/0.3). Puro."""
+def plan_seller(rep: dict, disputas: list[dict] | None, fetched_at: dt.datetime) -> PlanSeller:
+    """Reputacion de cuenta MeLi (shape E/0.3). Puro.
+
+    disputas None = MeLi respondio sin la lista de reclamos (ARREGLOS 03
+    D-L): disputas_total y disputas_abiertas quedan vacios, no 0 (regla 3).
+    """
     tx = rep.get("transactions") or {}
     ratings = tx.get("ratings") or {}
-    abiertas = sum(1 for d in disputas if isinstance(d, dict) and d.get("status") != "closed")
+    total: int | None = None
+    abiertas: int | None = None
+    if disputas is not None:
+        total = len(disputas)
+        abiertas = sum(1 for d in disputas if isinstance(d, dict) and d.get("status") != "closed")
     return PlanSeller(
         level_id=rep.get("level_id") if isinstance(rep.get("level_id"), str) else None,
         power_seller=rep.get("power_seller_status")
@@ -180,7 +188,7 @@ def plan_seller(rep: dict, disputas: list[dict], fetched_at: dt.datetime) -> Pla
         ratings_positive=_entero_no_negativo(ratings.get("positive")),
         ratings_neutral=_entero_no_negativo(ratings.get("neutral")),
         ratings_negative=_entero_no_negativo(ratings.get("negative")),
-        disputas_total=len(disputas),
+        disputas_total=total,
         disputas_abiertas=abiertas,
         fetched_at=fetched_at,
     )
