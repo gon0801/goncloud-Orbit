@@ -999,10 +999,12 @@ de sello.
 *Cómo se audita*: cambios abiertos por listing (uno); `no_confirmado` frena y
 avisa; la reversa la corre el dueño con la herramienta.
 
-**Cuota propia (0039)** — `apply_cap_de_config` gana `precio:amazon_mx`,
-`precio:amazon_us` y `precio:meli` (claves `precio_cap_amazon_mx`/`_us`/`_meli`,
-tope 5/día); los ocho mapeos de Ads intactos. Sin clave no nace fila del día
-(fail-closed del trigger de 0002).
+**Cuota propia (0039, retirada en 0091)** — la 0039 añadió `precio:amazon_mx`,
+`precio:amazon_us` y `precio:meli` a `apply_cap_de_config`; ARREGLOS 03 P-D
+(0091) devolvió la función a los ocho mapeos de Ads de la 0002 y quitó las
+claves de la config: ninguna escritura del motor de precios las consultaba.
+El freno de volumen vigente es del motor: fusible por universo y tope de
+cambios del día (más de 50 en vivo, `app/precio/compuerta.py`).
 
 Permisos: `app_decide` INSERT en decisión/cotización/muestra/cambio + sello
 por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +

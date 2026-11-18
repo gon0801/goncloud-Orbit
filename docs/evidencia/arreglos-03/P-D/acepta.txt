@@ -1,0 +1,101 @@
+# ARREGLOS 03 P-D — Acepta y rojos previos
+
+- Worktree: `C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-30` (rama `ao/arreglos03-pc/pd`, hermana del namespace de la sesion).
+- SHA base (previo al cambio, = origin/master al abrir): `14a688f` («ARREGLOS 03 P-C ... (#645)», P-C integrado).
+- Migracion: **0091** (`0091_arreglos03_sin_precio_cap.sql` y su reversa): el 0090 quedo tomado por P-C al integrarse; siguiente libre en master al abrir.
+- Entorno: Windows, `uv run --frozen --python 3.12`, PG16 desechable `ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:55433/postgres`; `PYTHONUTF8=1`. La bateria que exige psql/pg_dump/flock se corre en WSL con `wsl-pytest.sh`.
+
+## Rojo previo (SHA `14a688f`, tests nuevos sobre el codigo sin el arreglo)
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_compuerta.py -k arreglos03_pd_
+    -> 2 failed, 52 deselected in 0.48s
+       FAILED test_arreglos03_pd_practica_a_en_vivo_cuenta_como_nueva
+         (TypeError: Anterior.__init__() takes ... 4 positional args: `modo` no existe)
+       FAILED test_arreglos03_pd_mas_de_50_cambios_al_dia_se_retienen
+         (ImportError: cannot import name 'cambios_en_vivo' from 'app.precio.compuerta')
+
+Reproducciones historicas de la revision (`test_f3_` / `test_f4_`, a4644aad) no se
+recorren: usan la firma vieja y quedaron como registro; las de P-D.1 son sus pares
+con `modo`/`en_vivo`/`cambios_dia`.
+
+## Acepta (con el cambio, en la cabeza del PR)
+
+P-D.1:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_compuerta.py -k arreglos03_pd_
+    -> 2 passed, 52 deselected in 2.90s
+    (archivo completo: 54 passed; las 21 llamadas existentes a Intencion/Anterior/
+     es_nueva/evaluar pasan en_vivo=/modo=/cambios_dia= explicitos)
+
+P-D.2:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_compuerta.py tests/test_precio_corrida.py
+    -> 191 passed in 517.57s
+
+P-D.3:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_corrida.py tests/test_precio_compuerta.py \
+      tests/test_precio_pantalla.py tests/test_api_precios_write.py
+    -> corrida+compuerta 191 passed (arriba) + pantalla/api 99 passed (219.74s);
+       290 passed en total
+
+P-D.4 (parte 1, con -rs):
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs \
+      tests/test_precio_migracion.py -k arreglos03_pd_
+    -> 1 passed, 68 deselected (test_arreglos03_pd_migracion_sin_precio_cap_y_su_reversa:
+        config con las tres claves -> ida: sonda True, apply_cap_de_config('precio:meli')
+        NULL, config nueva sin las claves y label exacto; reversa: sonda False,
+        cap 1000000 de vuelta y las tres claves en la config nueva)
+
+P-D.4 (parte 2; en Windows test_despliegue_motor skipea por faltar psql/pg_dump/flock,
+esa bateria se corre entera en WSL):
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs \
+      tests/test_despliegue_motor.py tests/test_schema.py tests/test_precio_d0.py \
+      tests/test_precio02_base.py tests/test_precio_migracion.py
+    -> 4 failed, 191 passed, 49 skipped in 256.46s
+       (191 = schema + precio_d0 restantes + precio02_base + precio_migracion, sin
+        skips; los 49 skips son las guardas de Windows de test_despliegue_motor (48)
+        y test_precio_d0:565 (sin pg_dump))
+       Las 4 fallas son las PREEXISTENTES de test_precio_d0 (guardas de git/ssh de D.0
+       en esta PC): fallan IGUAL en `14a688f` con arbol limpio (comprobado con stash):
+       test_correr_en_produccion_con_head_fuera_de_origin_master_para_sin_ssh,
+       test_correr_en_produccion_con_cambios_sin_commitear_para_sin_ssh,
+       test_correr_en_produccion_con_arbol_en_origin_master_pasa_la_guarda,
+       test_correr_con_0039_a_medias_para_antes_de_migrar_o_sembrar.
+
+    wsl -e bash -l /mnt/c/Users/ehven/AppData/Local/Temp/orbit-arreglos03/wsl-pytest.sh \
+      "C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-30" -q -rs \
+      tests/test_despliegue_motor.py
+    -> 48 passed in 314.33s (cero skips: la 0091 y su reversa pasan la receta de
+       `migraciones_de` con sonda en cabecera, sin BEGIN/COMMIT y con su par)
+
+P-D.5:
+
+    test -s docs/evidencia/arreglos-03/P-D/prueba.py  -> OK
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python \
+      docs/evidencia/arreglos-03/P-D/prueba.py  -> "P-D desplegado"
+    (91 en vivo se retienen, 50 pasan, practica a en vivo es nueva; funciones puras)
+
+## Notas
+
+- La 0091 usa el texto EXACTO de apply_cap_de_config de la 0002 (ida, CREATE OR
+  REPLACE) y de la 0039 (reversa), con sus COMMENT: son las unicas dos migraciones
+  que la tocan (verificado), asi que la reversa no pisa nada posterior.
+- tests/test_schema.py::test_0039_cap_amplia_sin_romper_ads es estatico sobre los
+  ARCHIVOS de migracion: la 0091 no toca el archivo 0039 y sigue verde (corrida en la
+  parte 2).
+- docs: DEPLOY.md pierde el `-c apply_cap_de_config('precio:*')` del comando de
+  comprobacion de la 0039 (3 lineas); DATABASE.md cambia la viñeta «Cuota propia
+  (0039)» por su retiro en 0091. El runbook historico de la 0039 no se reescribe.
+- prueba-real (migracion_aplicada.sh arreglos03_sin_precio_cap y
+  en_prod.sh docs/evidencia/arreglos-03/P-D/prueba.py): la corre el lead tras el
+  despliegue. El 2026-11-13 el guion salia 1 con ImportError: cannot import name
+  'TOPE_CAMBIOS_DIA'.
+- Cero escrituras nuevas de negocio: precios global sigue en shadow; el tope actua
+  cuando haya cambios en vivo.

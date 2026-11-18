@@ -1,0 +1,43 @@
+# ARREGLOS 03 P-C — prueba-real en produccion (tras el despliegue del 14a688f)
+
+Corridas hoy (2026-11-18) por el lead contra el contenedor de produccion,
+con el codigo 14a688f desplegado. La parte de la migracion pasa; la de
+`desplegado.sh --no` sale 1 por un FALSO POSITIVO del literal, documentado
+abajo con la sonda exacta que lo sustituye.
+
+## 1) Migracion aplicada: PASA (exit 0)
+
+    bash docs/evidencia/arreglos-01/migracion_aplicada.sh arreglos03_error_cierra_por_observacion
+    -> exit 0 (la sonda de la cabecera de la 0090 da verdadero en produccion)
+
+## 2) desplegado.sh --no "def _readback" vivo_rb: exit 1, FALSO POSITIVO
+
+    bash docs/evidencia/arreglos-01/desplegado.sh --no "def _readback" vivo_rb
+    -> exit 1
+
+El literal `def _readback` existe en produccion desde ANTES de este bloque,
+en archivos ajenos a P-C: `app/bloqueo_dueno_efecto.py` y `app/apply.py`
+(3 apariciones; son relecturas del optimizador de Ads y del bloqueo del
+dueno, no del motor de precios). `desplegado.sh --no` busca la subcadena en
+todo el codigo desplegado y por eso falla sin que el arreglo este mal.
+
+## 3) Sonda exacta contra el contenedor (la que si prueba P-C)
+
+Corrida hoy tras el despliegue del 14a688f:
+
+- `app/precio/cambios.py` SIN `_readback` (borrado por P-C.3): 0 apariciones.
+- SIN `vivo_rb` en todo `app/`: 0 apariciones.
+- `now()` en `app/precio/cambios.py`: 8 (P-C.4 exige 6 o mas: las tres del
+  candado del lote mas los tres INSERT con now() de base).
+
+Contracheque local del worker en el mismo SHA (worktree limpio, mismo conteo):
+
+    grep -o "now()" app/precio/cambios.py | wc -l   -> 8
+    grep -c "now()" app/precio/cambios.py           -> 6 (lineas)
+    grep -rn "vivo_rb" app/                          -> 0
+    grep -n "_readback" app/precio/*.py              -> 0
+    grep -n "def _readback" app/bloqueo_dueno_efecto.py app/apply.py
+      -> 3 apariciones preexistentes, ajenas al bloque
+
+Conclusion: P-C verificado en vivo; la salida 1 del literal es colision de
+nombres con codigo de otros modulos que P-C no toca.

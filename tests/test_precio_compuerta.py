@@ -96,6 +96,7 @@ def _intenciones(nuevas: int, *, desde: int = 0) -> list[Intencion]:
             canal="fba",
             nueva=True,
             liberada=False,
+            en_vivo=True,
         )
         for i in range(nuevas)
     ]
@@ -104,28 +105,30 @@ def _intenciones(nuevas: int, *, desde: int = 0) -> list[Intencion]:
 def test_s3_fusible_80_de_158_retienen_79_pasan():
     """S.3: 80 nuevas sobre 158 medidas retienen (mayor ESTRICTO: 80 >
     0.50*158 = 79); 79 no (79 > 79 es falso)."""
-    reten = evaluar(_intenciones(80), medidas=158, derivas=(), config=_motor())
+    reten = evaluar(_intenciones(80), medidas=158, derivas=(), config=_motor(), cambios_dia=0)
     assert isinstance(reten, Retenida)
     assert reten.causa == "movimiento_masivo"
     assert (reten.medidas, reten.nuevas) == (158, 80)
     assert reten.insumo is None
     assert reten.detalle and "80" in reten.detalle and "158" in reten.detalle
-    pasa = evaluar(_intenciones(79), medidas=158, derivas=(), config=_motor())
+    pasa = evaluar(_intenciones(79), medidas=158, derivas=(), config=_motor(), cambios_dia=0)
     assert pasa == Abierta(medidas=158, nuevas=79)
 
 
 def test_s3_fusible_exige_minimo_de_movimientos():
     """S.3: 3 nuevas sobre 3 medidas superan la fraccion pero no el minimo
     de 10: pasan."""
-    assert evaluar(_intenciones(3), medidas=3, derivas=(), config=_motor()) == Abierta(
-        medidas=3, nuevas=3
-    )
+    assert evaluar(
+        _intenciones(3), medidas=3, derivas=(), config=_motor(), cambios_dia=0
+    ) == Abierta(medidas=3, nuevas=3)
 
 
 def test_s3_insumo_sistemico_gana_a_movimiento_masivo():
     """S.3: con los dos disparos, gana el que dice QUE insumo salto."""
     costo = Deriva(canal="fba", insumo="costo", comparables=158, con_salto=60)
-    veredicto = evaluar(_intenciones(80), medidas=158, derivas=(costo,), config=_motor())
+    veredicto = evaluar(
+        _intenciones(80), medidas=158, derivas=(costo,), config=_motor(), cambios_dia=0
+    )
     assert isinstance(veredicto, Retenida)
     assert veredicto.causa == "insumo_sistemico"
     assert veredicto.insumo == "costo"
@@ -138,25 +141,28 @@ def test_s3_insumo_sistemico_umbrales():
     config = _motor()
     dispara = Deriva(canal="fba", insumo="costo", comparables=158, con_salto=60)
     assert isinstance(
-        evaluar(_intenciones(10), medidas=158, derivas=(dispara,), config=config), Retenida
+        evaluar(_intenciones(10), medidas=158, derivas=(dispara,), config=config, cambios_dia=0),
+        Retenida,
     )
     # 47 > 0.30*158 = 47.4 es falso.
     no_dispara = Deriva(canal="fba", insumo="costo", comparables=158, con_salto=47)
-    assert evaluar(_intenciones(10), medidas=158, derivas=(no_dispara,), config=config) == (
-        Abierta(medidas=158, nuevas=10)
-    )
+    assert evaluar(
+        _intenciones(10), medidas=158, derivas=(no_dispara,), config=config, cambios_dia=0
+    ) == (Abierta(medidas=158, nuevas=10))
     pocas = Deriva(canal="fba", insumo="costo", comparables=10, con_salto=9)
-    assert evaluar(_intenciones(1), medidas=10, derivas=(pocas,), config=config) == Abierta(
-        medidas=10, nuevas=1
-    )
+    assert evaluar(
+        _intenciones(1), medidas=10, derivas=(pocas,), config=config, cambios_dia=0
+    ) == Abierta(medidas=10, nuevas=1)
 
 
 def test_s3_liberadas_no_cuentan_en_ninguno_de_los_dos():
     """S.3: una liberada no es intencion nueva (79 efectivas de 80 pasan) y
     tampoco entra en comparables ni con_salto de la deriva."""
     intenciones = _intenciones(80)
-    intenciones[0] = Intencion(decision_id=0, listing_id=0, canal="fba", nueva=True, liberada=True)
-    assert evaluar(intenciones, medidas=158, derivas=(), config=_motor()) == Abierta(
+    intenciones[0] = Intencion(
+        decision_id=0, listing_id=0, canal="fba", nueva=True, liberada=True, en_vivo=True
+    )
+    assert evaluar(intenciones, medidas=158, derivas=(), config=_motor(), cambios_dia=0) == Abierta(
         medidas=158, nuevas=79
     )
     pares = [(Decimal(100), Decimal(120), False)] * 50
@@ -170,21 +176,21 @@ def test_s3_liberadas_no_cuentan_en_ninguno_de_los_dos():
     "anterior, goal_hoy, esperada",
     [
         (None, 7, True),  # sin ayer, toda intencion es nueva
-        (Anterior("subir", None, 7), 7, False),  # segundo escalon al mismo goal
-        (Anterior("bajar", None, 7), 7, False),
-        (Anterior("mantener", "cooldown", 7), 7, False),  # ola de 7 dias
-        (Anterior("subir", None, 9), 7, True),  # otro goal: nueva
-        (Anterior("mantener", "en_tolerancia", 7), 7, True),  # la ola termino
-        (Anterior("no_evaluado", "precio_ausente", 7), 7, True),
-        (Anterior("frenado", "api_error", 7), 7, True),
-        (Anterior("subir", None, None), 7, True),  # goal previo desconocido
-        (Anterior("subir", None, 7), None, True),  # goal de hoy desconocido
+        (Anterior("subir", None, 7, "live"), 7, False),  # segundo escalon al mismo goal
+        (Anterior("bajar", None, 7, "live"), 7, False),
+        (Anterior("mantener", "cooldown", 7, "live"), 7, False),  # ola de 7 dias
+        (Anterior("subir", None, 9, "live"), 7, True),  # otro goal: nueva
+        (Anterior("mantener", "en_tolerancia", 7, "live"), 7, True),  # la ola termino
+        (Anterior("no_evaluado", "precio_ausente", 7, "live"), 7, True),
+        (Anterior("frenado", "api_error", 7, "live"), 7, True),
+        (Anterior("subir", None, None, "live"), 7, True),  # goal previo desconocido
+        (Anterior("subir", None, 7, "live"), None, True),  # goal de hoy desconocido
     ],
 )
 def test_s3_segunda_ola_al_mismo_goal_no_es_nueva(anterior, goal_hoy, esperada):
-    """S.3: solo subir/bajar o mantener(cooldown) hacia el MISMO goal hacen
-    que la intencion de hoy no sea nueva."""
-    assert es_nueva(anterior, goal_id=goal_hoy) is esperada
+    """S.3: solo subir/bajar o mantener(cooldown) hacia el MISMO goal (y el
+    mismo modo) hacen que la intencion de hoy no sea nueva."""
+    assert es_nueva(anterior, goal_id=goal_hoy, modo="live") is esperada
 
 
 @pytest.mark.parametrize(
@@ -267,3 +273,85 @@ def test_arreglos01_l_minoria_o_motivo_aislado_no_detiene():
     )
     assert insumo_atrasado([], ahora_utc=_ahora_utc(13, 10)) is None
     assert insumo_atrasado(["oferta_desactualizada"] * 51, ahora_utc=_ahora_utc(13, 10)) is not None
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 P-D: el tope de 50 cambios por dia y el paso de practica a en vivo
+# ---------------------------------------------------------------------------
+
+
+def test_arreglos03_pd_practica_a_en_vivo_cuenta_como_nueva():
+    """P-D.1 (reproduccion `test_f3_...` de la revision): 20 de 20
+    publicaciones de un universo pasan de sombra a live el mismo dia. En
+    sombra cada una ya 'subio' (cambio virtual, el precio real NO se movio);
+    el dia del encendido las 20 suben de verdad a la vez. Con el modo de la
+    decision previa en la cuenta, las 20 son nuevas y el fusible retiene."""
+    from app.precio.compuerta import Anterior, Intencion, Retenida, es_nueva, evaluar
+
+    goal_id = 7
+    intenciones = [
+        Intencion(
+            decision_id=i,
+            listing_id=i,
+            canal="fba",
+            # la decision previa (de ayer, en SOMBRA) fue subir con el mismo goal
+            nueva=es_nueva(
+                Anterior("subir", None, goal_id, "shadow"), goal_id=goal_id, modo="live"
+            ),
+            liberada=False,
+            en_vivo=True,
+        )
+        for i in range(20)
+    ]
+    veredicto = evaluar(intenciones, medidas=20, derivas=[], config=_motor(), cambios_dia=20)
+    assert isinstance(veredicto, Retenida), (
+        f"20 de 20 precios reales se mueven el primer dia en live y el motor dice {veredicto}"
+    )
+    assert veredicto.nuevas == 20
+    # El segundo escalon en vivo (misma meta, mismo modo) sigue sin ser nueva.
+    assert es_nueva(Anterior("subir", None, goal_id, "live"), goal_id=goal_id, modo="live") is False
+
+
+def test_arreglos03_pd_mas_de_50_cambios_al_dia_se_retienen():
+    """P-D.1 (reproduccion `test_f4_...` de la revision): con las medidas
+    reales de produccion (MX FBA 125 y MX FBM 59), 62 + 29 = 91 precios
+    nuevos se mueven el mismo dia: cada universo queda bajo el fusible (62 >
+    0.50*125 es falso), pero el tope de la plataforma (mas de 50 cambios en
+    vivo en el dia) retiene los dos; con 50 pasa."""
+    from app.precio.compuerta import (
+        Abierta,
+        Intencion,
+        Retenida,
+        cambios_en_vivo,
+        evaluar,
+    )
+
+    fba = [
+        Intencion(
+            decision_id=i, listing_id=i, canal="fba", nueva=True, liberada=False, en_vivo=True
+        )
+        for i in range(62)
+    ]
+    fbm = [
+        Intencion(
+            decision_id=1000 + i,
+            listing_id=1000 + i,
+            canal="fbm",
+            nueva=True,
+            liberada=False,
+            en_vivo=True,
+        )
+        for i in range(29)
+    ]
+    assert cambios_en_vivo({"fba": fba, "fbm": fbm}) == 91
+    for canal, intenciones, medidas in (("fba", fba, 125), ("fbm", fbm, 59)):
+        retenido = evaluar(
+            intenciones, medidas=medidas, derivas=[], config=_motor(), cambios_dia=91
+        )
+        assert isinstance(retenido, Retenida) and retenido.causa == "movimiento_masivo", (
+            f"91 precios de amazon_mx se mueven hoy y {canal} dice {retenido}"
+        )
+        assert retenido.nuevas == len(intenciones)
+        assert retenido.detalle and "91" in retenido.detalle and "50" in retenido.detalle
+    pasa = evaluar(fba, medidas=125, derivas=[], config=_motor(), cambios_dia=50)
+    assert pasa == Abierta(medidas=125, nuevas=62), f"con 50 cambios el tope no retiene: {pasa}"

@@ -11,7 +11,7 @@ viven en el motor; `config.py` es contrato sellado).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, time
 from decimal import Decimal
@@ -24,6 +24,7 @@ __all__ = [
     "modo_efectivo",
     "InsumoVigilado",
     "INSUMOS_VIGILADOS",
+    "TOPE_CAMBIOS_DIA",
     "Intencion",
     "Anterior",
     "Deriva",
@@ -31,6 +32,7 @@ __all__ = [
     "Retenida",
     "Veredicto",
     "es_nueva",
+    "cambios_en_vivo",
     "salto",
     "armar_deriva",
     "evaluar",
@@ -93,15 +95,23 @@ def insumo_atrasado(motivos: Sequence[str | None], *, ahora_utc: datetime) -> st
     return f"{atrasadas} de {len(motivos)} con el insumo del dia sin llegar"
 
 
+# ARREGLOS 03 P-D: mas de 50 cambios de precio REALES en un dia en una
+# plataforma se confirman a mano (docs/CONTEXTO.md, regla del dueño: «cambios
+# masivos de precio (>50 productos) ... requieren confirmacion»).
+TOPE_CAMBIOS_DIA = 50
+
+
 @dataclass(frozen=True)
 class Intencion:
     """Una decision `subir`/`bajar` del dia, vista por el fusible.
 
     `nueva`: la decision anterior de la unidad NO venia en camino (no era
-    subir/bajar ni `mantener(cooldown)` bajo el mismo goal). Un segundo escalon
-    hacia el mismo goal no es intencion nueva: por eso las olas de 7 dias no
-    vuelven a saltar (G8).
+    subir/bajar ni `mantener(cooldown)` bajo el mismo goal y el mismo modo).
+    Un segundo escalon hacia el mismo goal no es intencion nueva: por eso las
+    olas de 7 dias no vuelven a saltar (G8).
     `liberada`: su retencion pertenece a una corrida que el dueno ya solto.
+    `en_vivo`: su modo efectivo es `live` (mueve el precio real); las de
+    practica son virtuales y no cuentan para el tope del dia.
     """
 
     decision_id: int
@@ -109,15 +119,21 @@ class Intencion:
     canal: str
     nueva: bool
     liberada: bool
+    en_vivo: bool
 
 
 @dataclass(frozen=True)
 class Anterior:
-    """Lo unico que el fusible mira de la decision previa de la unidad."""
+    """Lo unico que el fusible mira de la decision previa de la unidad.
+
+    `modo`: el modo efectivo de aquella decision (`shadow`/`live`); de
+    practica a en vivo es intencion nueva (ARREGLOS 03 P-D, F3).
+    """
 
     resultado: str
     motivo: str | None
     goal_id: int | None
+    modo: str
 
 
 @dataclass(frozen=True)
@@ -150,21 +166,33 @@ class Retenida:
 Veredicto = Abierta | Retenida
 
 
-def es_nueva(anterior: Anterior | None, *, goal_id: int | None) -> bool:
+def es_nueva(anterior: Anterior | None, *, goal_id: int | None, modo: str) -> bool:
     """Si la intencion de hoy cuenta como nueva para el fusible.
 
     Sin decision previa, o con goal desconocido en cualquier lado, es
     nueva. Solo deja de serlo cuando la anterior venia en camino hacia el
-    MISMO goal (`goal_id` igual): `subir`/`bajar`, o `mantener` con motivo
-    `cooldown` (la ola de 7 dias entre escalones).
+    MISMO goal (`goal_id` igual) EN EL MISMO modo (`modo` igual, F3: lo
+    acumulado en practica sale junto el dia del encendido y cuenta como
+    nuevo): `subir`/`bajar`, o `mantener` con motivo `cooldown` (la ola de
+    7 dias entre escalones).
     """
     if anterior is None or goal_id is None or anterior.goal_id is None:
         return True
-    if anterior.goal_id != goal_id:
+    if anterior.goal_id != goal_id or anterior.modo != modo:
         return True
     if anterior.resultado in ("subir", "bajar"):
         return False
     return not (anterior.resultado == "mantener" and anterior.motivo == "cooldown")
+
+
+def cambios_en_vivo(por_canal: Mapping[str, Sequence[Intencion]]) -> int:
+    """Cambios reales del dia en la plataforma (P-D): la suma de los cambios
+    en vivo de sus universos, sin lo que el dueno ya solto. Las decisiones de
+    practica (virtuales) no cuentan; un cambio cuenta aunque ya se haya
+    aplicado en una corrida anterior del mismo dia."""
+    return sum(
+        1 for intenciones in por_canal.values() for i in intenciones if i.en_vivo and not i.liberada
+    )
 
 
 def salto(antes: Decimal | None, ahora: Decimal | None, *, pct: Decimal) -> bool | None:
@@ -218,8 +246,10 @@ def evaluar(
     medidas: int,
     derivas: Sequence[Deriva],
     config: ConfigMotor,
+    cambios_dia: int,
 ) -> Veredicto:
-    """El fusible de D1 y el chequeo de insumo sistemico, para UN universo.
+    """El fusible de D1, el chequeo de insumo sistemico y el tope de cambios
+    del dia (P-D), para UN universo.
 
     `medidas` = unidades del universo con decision de hoy que SI tiene cuenta
     (`m_actual`), shadow y live juntas (la sombra es fiel). Un `no_evaluado`
@@ -230,6 +260,12 @@ def evaluar(
     `insumo_sistemico` si alguna deriva dispara igual; gana al movimiento
     (dice QUE insumo) y entre insumos gana el de mas saltos. Las liberadas
     no cuentan en ninguno de los dos.
+    `cambios_dia` = cambios en vivo de TODA la plataforma (los suma
+    `cambios_en_vivo`): si pasan de `TOPE_CAMBIOS_DIA` y este universo tiene
+    cambios en vivo, tambien retiene con `movimiento_masivo`; `nuevas` lleva
+    los cambios en vivo del universo y el detalle dice que se confirman a
+    mano. Un universo sin cambios en vivo no se retiene ni avisa (en practica
+    no se mueve ningun precio real).
     """
     nuevas = sum(1 for i in intenciones if i.nueva and not i.liberada)
     candidatas = [
@@ -268,6 +304,18 @@ def evaluar(
                 f"{nuevas} intenciones nuevas sobre {medidas} medidas"
                 f" (fusible {config.fusible_frac}, minimo"
                 f" {config.fusible_min_movimientos})"
+            ),
+        )
+    en_vivo = sum(1 for i in intenciones if i.en_vivo and not i.liberada)
+    if cambios_dia > TOPE_CAMBIOS_DIA and en_vivo:
+        return Retenida(
+            causa="movimiento_masivo",
+            medidas=medidas,
+            nuevas=en_vivo,
+            insumo=None,
+            detalle=(
+                f"{cambios_dia} cambios de precio hoy en la plataforma;"
+                f" mas de {TOPE_CAMBIOS_DIA} en un dia se confirman a mano"
             ),
         )
     return Abierta(medidas=medidas, nuevas=nuevas)

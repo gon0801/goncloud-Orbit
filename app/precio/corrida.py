@@ -63,6 +63,7 @@ from app.precio.compuerta import (
     Intencion,
     Retenida,
     armar_deriva,
+    cambios_en_vivo,
     es_nueva,
     evaluar,
     insumo_atrasado,
@@ -987,7 +988,8 @@ def _decidir_pendientes(
 _SQL_MEDIR_HOY = (
     "SELECT d.id, d.listing_id, d.canal::text, d.resultado, d.motivo, d.goal_id,"
     " d.c_valor, d.c_currency::text, d.l_valor, d.l_currency::text,"
-    " d.r_valor, d.r_currency::text, d.escenario_id, d.i_valor, d.i_currency::text"
+    " d.r_valor, d.r_currency::text, d.escenario_id, d.i_valor, d.i_currency::text,"
+    " d.mode::text"
     " FROM precio_decision d"
     " WHERE d.platform = %s AND d.decision_date = %s AND d.m_actual IS NOT NULL"
     " AND d.canal IS NOT NULL"
@@ -997,7 +999,8 @@ _SQL_MEDIR_HOY = (
 _SQL_MEDIR_PREVIA = (
     "SELECT DISTINCT ON (d.listing_id) NULL, d.listing_id, NULL, d.resultado, d.motivo,"
     " d.goal_id, d.c_valor, d.c_currency::text, d.l_valor, d.l_currency::text,"
-    " d.r_valor, d.r_currency::text, d.escenario_id, d.i_valor, d.i_currency::text"
+    " d.r_valor, d.r_currency::text, d.escenario_id, d.i_valor, d.i_currency::text,"
+    " d.mode::text"
     " FROM precio_decision d"
     " WHERE d.platform = %s AND d.decision_date < %s AND d.listing_id = ANY(%s)"
     # Dia retenido y no soltado del mismo universo: no es linea base (G-H1).
@@ -1042,6 +1045,9 @@ _INSUMOS_MEDIR = ("costo", "envio", "retencion", "fx", "fee_fijo", "fee_variable
 
 # Ingreso de la misma decision, tras `escenario_id` en las dos consultas (G-H3).
 _INGRESO = (13, 14)
+# Modo de la decision al final de las dos consultas (ARREGLOS 03 P-D): en vivo
+# cuenta para el tope de cambios del dia; de practica a en vivo es nueva.
+_MODO = 15
 # Insumos que escalan con el precio: se comparan como tasa sobre I (G-H3).
 _INSUMOS_POR_INGRESO = frozenset({"retencion", "fee_variable"})
 
@@ -1137,7 +1143,10 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
     por_canal: dict[str, list] = {}
     for fila in filas:
         por_canal.setdefault(fila[2], []).append(fila)
-    veredictos = {}
+    # Primera vuelta (P-D): `Intencion` y pares de TODOS los canales; el tope
+    # cuenta los cambios en vivo de la plataforma entera, no de un universo.
+    intenciones_por_canal: dict[str, list[Intencion]] = {}
+    pares_por_canal: dict[str, dict[str, list]] = {}
     for canal, medidas_filas in por_canal.items():
         intenciones = []
         pares: dict[str, list] = {insumo: [] for insumo in _INSUMOS_MEDIR}
@@ -1146,7 +1155,12 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
             liberada = fila[0] in liberadas
             if fila[3] in ("subir", "bajar"):
                 anterior = (
-                    Anterior(resultado=previa[3], motivo=previa[4], goal_id=previa[5])
+                    Anterior(
+                        resultado=previa[3],
+                        motivo=previa[4],
+                        goal_id=previa[5],
+                        modo=previa[_MODO],
+                    )
                     if previa is not None
                     else None
                 )
@@ -1155,8 +1169,9 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                         decision_id=fila[0],
                         listing_id=fila[1],
                         canal=canal,
-                        nueva=es_nueva(anterior, goal_id=fila[5]),
+                        nueva=es_nueva(anterior, goal_id=fila[5], modo=fila[_MODO]),
                         liberada=liberada,
+                        en_vivo=fila[_MODO] == "live",
                     )
                 )
             for insumo, (valor, moneda) in _INSUMO_DECISION.items():
@@ -1187,11 +1202,26 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                     )
                     ahora = _sobre_ingreso(fila, ahora, esc_hoy[6] if esc_hoy is not None else None)
                 pares[insumo].append((antes, ahora, liberada))
+        intenciones_por_canal[canal] = intenciones
+        pares_por_canal[canal] = pares
+    cambios_dia = cambios_en_vivo(intenciones_por_canal)
+    # Segunda vuelta: evaluar cada universo con el conteo de la plataforma y
+    # escribir su fila de `precio_compuerta_medicion`.
+    veredictos = {}
+    for canal, medidas_filas in por_canal.items():
+        intenciones = intenciones_por_canal[canal]
+        pares = pares_por_canal[canal]
         derivas = [
             armar_deriva(canal, insumo, pares[insumo], pct=motor.insumo_salto_pct)
             for insumo in _INSUMOS_MEDIR
         ]
-        veredicto = evaluar(intenciones, medidas=len(medidas_filas), derivas=derivas, config=motor)
+        veredicto = evaluar(
+            intenciones,
+            medidas=len(medidas_filas),
+            derivas=derivas,
+            config=motor,
+            cambios_dia=cambios_dia,
+        )
         veredictos[canal] = veredicto
         if isinstance(veredicto, Retenida):
             causa, insumo, detalle = veredicto.causa, veredicto.insumo, veredicto.detalle

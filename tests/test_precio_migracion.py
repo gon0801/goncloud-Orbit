@@ -2231,3 +2231,81 @@ def test_arreglos03_pc_migracion_y_su_reversa():
         assert (_sonda_pc(conn), _check_pc_validado(conn)) == (True, True)
         assert _fila_pc(conn, cid) == cerrada
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 2
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 P-D: `<n>_arreglos03_sin_precio_cap.sql` y su reversa. La cuota
+# de precios de la 0039 (claves `precio_cap_*` en `apply_cap_de_config`) no la
+# leia nadie: se borra; el freno de volumen real es el tope del motor.
+# ---------------------------------------------------------------------------
+
+
+def _migracion_pd(*, reversa: bool = False) -> Path:
+    """La migracion de P-D por tema (el numero puede moverse al rebasar)."""
+    tema = "arreglos03_sin_precio_cap.sql"
+    if reversa:
+        return next((ROOT / "migrations").glob(f"*_reversa_{tema}"))
+    candidatas = sorted((ROOT / "migrations").glob(f"*_{tema}"))
+    return next(r for r in candidatas if "_reversa_" not in r.name)
+
+
+def _sonda_pd(conn) -> bool:
+    """Corre la sonda de la cabecera real de la migracion (la del despliegue)."""
+    cabecera = _migracion_pd().read_text(encoding="utf-8").splitlines()[:10]
+    select = next(
+        linea.split("-- sonda-aplicada:", 1)[1].strip()
+        for linea in cabecera
+        if linea.startswith("-- sonda-aplicada:")
+    )
+    return conn.execute(select).fetchone()[0]
+
+
+_CLAVES_PD = ("precio_cap_amazon_mx", "precio_cap_amazon_us", "precio_cap_meli")
+
+
+@_skip_db
+def test_arreglos03_pd_migracion_sin_precio_cap_y_su_reversa():
+    """P-D.4 (escribe configuracion): con una config vigente que trae las tres
+    claves (como produccion), la ida devuelve la funcion al texto de la 0002
+    (solo los ocho mapeos de Ads) y la config nueva pierde las claves:
+    `apply_cap_de_config('precio:meli')` pasa a NULL y la sonda da True. La
+    reversa restaura la funcion de la 0039 y las claves en 1000000: la sonda
+    da False y el cap vuelve."""
+    ida = _migracion_pd().read_text(encoding="utf-8")
+    reversa = _migracion_pd(reversa=True).read_text(encoding="utf-8")
+    with db_58("orbit_p_pd_cfg") as conn:
+        # Produccion hoy: la config vigente trae las tres claves en 1000000.
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            (
+                "test-pd-vigente",
+                '{"precio_cap_amazon_mx": 1000000, "precio_cap_amazon_us": 1000000,'
+                ' "precio_cap_meli": 1000000, "precio_modo_global": "shadow"}',
+            ),
+        )
+        assert _sonda_pd(conn) is False
+        assert conn.execute("SELECT apply_cap_de_config('precio:meli')").fetchone()[0] == 1000000
+
+        # Ida: los ocho mapeos de Ads, config nueva sin las claves, sonda True.
+        conn.execute(ida)
+        assert _sonda_pd(conn) is True
+        assert conn.execute("SELECT apply_cap_de_config('precio:meli')").fetchone()[0] is None
+        vigente = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert all(vigente.get(clave) is None for clave in _CLAVES_PD)
+        assert vigente["precio_modo_global"] == "shadow"
+        assert (
+            conn.execute("SELECT label FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[0]
+            == "ARREGLOS 03: sin precio_cap_*"
+        )
+
+        # Reversa: la funcion de la 0039 y las claves de vuelta en 1000000.
+        conn.execute(reversa)
+        assert _sonda_pd(conn) is False
+        assert conn.execute("SELECT apply_cap_de_config('precio:meli')").fetchone()[0] == 1000000
+        vigente = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert all(vigente[clave] == 1000000 for clave in _CLAVES_PD)
+        assert vigente["precio_modo_global"] == "shadow"

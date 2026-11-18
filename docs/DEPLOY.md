@@ -1884,9 +1884,6 @@ ssh goncloud "$PSQL_READ \
                          'public.precio_cambio_coherente()'::regprocedure, \
                          'public.precio_cotizacion_fecha_utc()'::regprocedure) \
           AND NOT tgisinternal AND tgenabled <> 'D' ORDER BY 1, 2;\" \
-  -c \"SELECT apply_cap_de_config('precio:amazon_mx') AS cap_mx, \
-             apply_cap_de_config('precio:amazon_us') AS cap_us, \
-             apply_cap_de_config('precio:meli') AS cap_meli;\" \
   -c \"SELECT tgrelid::regclass, tgname FROM pg_trigger \
         WHERE tgrelid IN ('public.precio_goal'::regclass, 'public.precio_decision'::regclass, \
                           'public.precio_cotizacion'::regclass, \
