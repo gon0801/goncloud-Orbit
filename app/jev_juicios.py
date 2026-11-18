@@ -284,7 +284,10 @@ def pedir_juicio(
         return FalloPar("respuesta_invalida", "cuerpo no JSON", duracion_ms())
     validado = _validar_respuesta(cuerpo, contrato)
     if isinstance(validado, str):
-        return FalloPar("respuesta_invalida", validado, duracion_ms())
+        # El motivo repite model/choice del proveedor (ARREGLOS 03 D-N): se
+        # redacta ANTES de FalloPar, porque su recorte a 300 podria partir
+        # un secreto y dejar un pedazo que scrub ya no reconoce.
+        return FalloPar("respuesta_invalida", scrub(validado), duracion_ms())
     relacion, probabilidades, confidence = validado
     juicio = Juicio(
         intento_id=uuid.uuid4(),

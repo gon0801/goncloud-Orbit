@@ -19,24 +19,30 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
 import pytest
+from test_jev_catalogo import _ficha as _ficha_en_base
+from test_jev_catalogo import _listing, _producto, _revision, _skip_db, db_jev
 
-from app.jev_ads import ClavePar, FichaVersion, HechoConFuente
+from app.jev_ads import ClavePar, FalloProveedor, FichaVersion, HechoConFuente
 from app.jev_juicios import (
     CONTRATO_VERSION,
     MODELO,
     PREGUNTA_ID,
     Contrato,
+    FalloPar,
+    _validar_respuesta,
     clave_de,
     contrato_por_defecto,
     leer_api_key,
     pedir_juicio,
     request_sha256,
 )
+from app.jev_libro import Libro
+from app.redaction import REDACTED, register_secret
 
 OBS = datetime(2026, 10, 4, tzinfo=UTC)
 
@@ -433,6 +439,72 @@ def test_los_estatos_de_fallo_no_contienen_secreto():
     resultado = _pedir(transporte, api_key=secreto)
     assert secreto not in resultado.detalle
     assert secreto not in resultado.codigo
+
+
+# ARREGLOS 03 D-N (TNS1): el proveedor ecoa una clave ya registrada dentro de
+# una respuesta invalida. Clave FICTICIA, la misma del caso portado
+# (revision/ingest.py casoS1): se demuestra el riesgo condicional, no una
+# filtracion real.
+CLAVE_FICTICIA = "CLAVE_FICTICIA_REVISION_12345"
+MOTIVO_POR_CAMPO = {
+    "model": "model distinto al contrato: ",
+    "choice": "choice fuera de las opciones: ",
+}
+
+
+def _cuerpo_que_ecoa(campo: str) -> dict:
+    if campo == "model":
+        return {**RESPUESTA_OK, "model": CLAVE_FICTICIA}
+    return _con_respuesta_muta(choice=CLAVE_FICTICIA)
+
+
+@pytest.mark.parametrize("campo", ["model", "choice"])
+def test_arreglos03_dn_validacion_model_y_choice_no_repite_la_clave(campo):
+    """El motivo de validacion repite model/choice del proveedor: sale
+    redactado y conserva clasificacion, motivo y duracion."""
+    resultado = _pedir(_Transporte(_cuerpo_que_ecoa(campo)), api_key=CLAVE_FICTICIA)
+    assert resultado.codigo == "respuesta_invalida"
+    assert CLAVE_FICTICIA not in resultado.detalle
+    assert resultado.detalle == MOTIVO_POR_CAMPO[campo] + repr(REDACTED)
+    assert resultado.duracion_ms is not None
+
+
+@_skip_db
+@pytest.mark.parametrize("campo", ["model", "choice"])
+def test_arreglos03_dn_libro_guarda_y_devuelve_el_fallo_redactado(campo):
+    """Limite durable con libro y Postgres reales: aunque el `pedir` le
+    entregue el motivo de validacion CRUDO, el libro guarda en
+    jev_par_evento.error y devuelve como diagnostico el texto redactado, con
+    su clasificacion y su duracion."""
+    contrato = contrato_por_defecto()
+    register_secret(CLAVE_FICTICIA)
+    crudo = _validar_respuesta(_cuerpo_que_ecoa(campo), contrato)
+    assert isinstance(crudo, str) and CLAVE_FICTICIA in crudo
+    ahora = datetime.now(UTC)
+    with db_jev("orbit_jevdn") as conn:
+        producto = _producto(conn)
+        listing = _listing(conn, producto)
+        ficha_id = _ficha_en_base(
+            conn, producto, (listing,), observado=ahora, vence=ahora + timedelta(days=30)
+        )
+        ficha = _ficha(id=ficha_id, producto_id=producto, listings=frozenset({listing}))
+        revision = _revision(conn)
+        libro = Libro(
+            conn,
+            pedir=lambda termino, f: FalloPar("respuesta_invalida", crudo, 42),
+            contrato=contrato,
+        )
+        diagnostico = libro.juicio("collar", ficha, lote=revision, tope_diario=10)
+        error, duracion = conn.execute(
+            "SELECT error, duracion_ms FROM jev_par_evento"
+            " WHERE revision_id = %s AND tipo = 'resultado'",
+            (revision,),
+        ).fetchone()
+    assert isinstance(diagnostico, FalloProveedor)
+    esperado = "respuesta_invalida: " + MOTIVO_POR_CAMPO[campo] + repr(REDACTED)
+    assert error == esperado
+    assert diagnostico.motivo == esperado
+    assert duracion == 42
 
 
 def test_respuesta_valida_sin_usage_deja_costo_desconocido():
