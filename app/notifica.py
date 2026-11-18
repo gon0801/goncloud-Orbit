@@ -513,26 +513,20 @@ def digest_ciclo(resumen: dict) -> str:
     return "\n".join(lineas)
 
 
-_TOPE_LINEAS_REPUTACION = 20
-
-
 def aviso_reputacion(alertas: list) -> str:
     """Aviso de las alertas de reputacion de Mercado Libre que aun no salieron
-    (ARREGLOS 03 D-K; lo manda la revision de las 10:30). Una linea por
-    alerta: "Urgente:" las criticas, "Aviso:" las demas, con la publicacion
-    si el mensaje no la nombra. Los mensajes guardados solo traen ids y
-    numeros (A.5): seguros sin parse_mode."""
+    (ARREGLOS 03 D-K; lo manda la revision de las 10:30, en lotes). Una linea
+    por alerta: "Urgente:" las criticas, "Aviso:" las demas, con la
+    publicacion si el mensaje no la nombra. Los mensajes guardados solo traen
+    ids y numeros (A.5): seguros sin parse_mode."""
     lineas = ["[Orbit] Reputación de Mercado Libre"]
-    for alerta in alertas[:_TOPE_LINEAS_REPUTACION]:
+    for alerta in alertas:
         prefijo = "Urgente" if alerta.get("severidad") == "critica" else "Aviso"
         mensaje = str(alerta.get("mensaje"))
         publicacion = alerta.get("external_id")
         if publicacion and publicacion not in mensaje:
             mensaje = f"{mensaje} ({publicacion})"
         lineas.append(f"{prefijo}: {mensaje}")
-    resto = len(alertas) - _TOPE_LINEAS_REPUTACION
-    if resto > 0:
-        lineas.append(f"Y {resto} más en la pantalla de reputación.")
     return "\n".join(lineas)
 
 

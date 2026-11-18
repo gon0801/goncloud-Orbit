@@ -407,21 +407,26 @@ def pendientes_de_aviso(conn) -> list[dict]:
     ]
 
 
+# Alertas por mensaje: un aviso de 20 lineas queda muy por debajo del tope
+# de 4096 caracteres de Telegram, que rechazaria el mensaje entero.
+_LOTE_AVISO = 20
+
+
 def avisa_pendientes(conn, *, envia: Callable[[str], bool]) -> bool:
-    """Manda las pendientes en un solo aviso y sella avisada_at SOLO si el
-    envio salio. False = el aviso no salio (quedan pendientes: la revision
-    de manana las reintenta)."""
+    """Manda las pendientes en lotes de _LOTE_AVISO y sella avisada_at de
+    cada lote SOLO si su envio salio. False = un aviso no salio: ese lote y
+    los siguientes quedan pendientes y la revision de manana los reintenta."""
     pendientes = pendientes_de_aviso(conn)
-    if not pendientes:
-        return True
-    if not envia(notifica.aviso_reputacion(pendientes)):
-        return False
-    with conn.transaction():
-        conn.execute(
-            "UPDATE reputation_alert SET avisada_at = now()"
-            " WHERE id = ANY(%s) AND avisada_at IS NULL",
-            ([a["id"] for a in pendientes],),
-        )
+    for inicio in range(0, len(pendientes), _LOTE_AVISO):
+        lote = pendientes[inicio : inicio + _LOTE_AVISO]
+        if not envia(notifica.aviso_reputacion(lote)):
+            return False
+        with conn.transaction():
+            conn.execute(
+                "UPDATE reputation_alert SET avisada_at = now()"
+                " WHERE id = ANY(%s) AND avisada_at IS NULL",
+                ([a["id"] for a in lote],),
+            )
     return True
 
 
