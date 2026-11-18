@@ -105,6 +105,32 @@ P-C.4:
        test_api_precios_write, test_precio_compuerta, test_precio_goals y
        test_precio02_atribucion: verdes.
 
+## Suite completa (WSL; en Windows CI=1 aborta en coleccion: sin psql y sin fcntl)
+
+    wsl -e bash -l /mnt/c/Users/ehven/AppData/Local/Temp/orbit-arreglos03/wsl-pytest.sh \
+      "C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-30" -q
+    -> 21 failed, 5933 passed in 3501.68s
+
+Las 21 fallas, una por una, fueron verificadas contra `c9b77fe` con arbol limpio
+(git checkout + rerun): TODAS fallan igual sin este bloque (preexistentes o de
+entorno de esta PC; ninguna de precios):
+
+- test_architecture.py::test_presupuesto_de_tamano_por_modulo — igual en `c9b77fe`.
+- test_impulso_io.py::test_r09r5_b1a_conexion_propia_lleva_credencial — igual en `c9b77fe`.
+- test_ingesta01_d1_checklist.py (4), test_ingesta01_d1_desplegar.py (7),
+  test_ingesta01_d1_rollback.py (5) y test_ui.py::test_uv_lock_commiteado_y_jinja2_pinneada:
+  en WSL revientan con "fatal: not a git repository: .../C:/dev/goncloud-Orbit/.git/worktrees/..."
+  (el .git del worktree de Windows apunta a un gitdir estilo Windows que git de Linux no
+  resuelve); en Windows fallan igual en `c9b77fe` (15 failed, 1 passed, mismo conjunto).
+- test_jev_catalogo.py::test_reversa_deja_la_base_como_0001 — contaminacion del PG
+  desechable compartido (9 bases orbit_*/precio_* residuentes de corridas muertas lo
+  impedian); con las residuales borradas pasa 32/32. Igual en `c9b77fe` antes de limpiar.
+- test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue — igual
+  en `c9b77fe` (falla sola, sin relacion con P-C).
+- test_schema_docs.py::test_launch_doctor_mismo_conteo_que_esquema (92 vs 93) — igual en
+  `c9b77fe`; ninguna migracion arreglos03 (0087-0090) crea tablas: el conteo de
+  verify/Launch.md (92) venia desfazado de antes.
+
 ## Notas
 
 - ORDEN54/ORDEN58/ORDEN_M3 no suman la migracion: ningun archivo de pruebas que usa esas
