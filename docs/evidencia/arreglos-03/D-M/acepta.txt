@@ -1,0 +1,83 @@
+# Acepta de ARREGLOS 03 D-M (desde la raiz del worktree)
+# Windows: Python 3.12 con uv. D-M.1/D-M.2/D-M.3(conjunto TN): arnes TN contra
+# 127.0.0.1:55449 bajo el candado locks/orbit-tn, PYTHONUTF8=1, serial.
+# D-M.3 (suite local): PG desechable 127.0.0.1:55433 (ORBIT_TEST_DSN).
+# Con -rs, un skipped cuenta como fallo: no hubo ninguno.
+# SHA entregado (codigo + tests): 003df8344efcb1b43088681a312a858f572c0f7d
+# Rojo previo documentado (SHA 1d197a950f1f8a8686782cdee60114026b49e5ca): docs/evidencia/arreglos-03/D-M/aceptacion.md
+
+=== D-M.1 (TN06)
+SHA: 003df8344efcb1b43088681a312a858f572c0f7d
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06"
+INICIO: 2026-11-18T20:17:41Z
+1 passed, 5 deselected in 3.80s
+SALIDA: 0
+(rojo previo en 1d197a9: AssertionError en test_accept_ingest.py:28, miembros [('MLM1001', True), ('MLM1002', False)] y variantes ([MLM1], False)/([MLM1, MLM1], False); corrida 2026-11-18T20:08:45Z, salida 1)
+
+=== D-M.2 (TN14)
+SHA: 003df8344efcb1b43088681a312a858f572c0f7d
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_14"
+INICIO: 2026-11-18T20:17:49Z
+1 passed, 5 deselected in 3.86s
+SALIDA: 0
+(rojo previo en 1d197a9: AssertionError en test_accept_ingest.py:34, observadas=1 contra observaciones_reales=0 y sello (True, 1, 1))
+
+=== D-M.3 (conjunto TN: ambos contratos en el mismo consumidor)
+SHA: 003df8344efcb1b43088681a312a858f572c0f7d
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06 or test_14"
+INICIO: 2026-11-18T20:18:04Z
+2 passed, 4 deselected in 7.42s
+SALIDA: 0
+
+=== D-M.3 (suite local + evidencia)
+SHA: 003df8344efcb1b43088681a312a858f572c0f7d
+COMANDO: CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_precio02_meli_catalogo.py tests/test_reputacion.py && test -s docs/evidencia/arreglos-03/D-M/aceptacion.md
+INICIO: 2026-11-18T20:19:33Z
+68 passed in 47.02s
+SALIDA: 0 (pytest y test -s de aceptacion.md)
+(rojo previo de las pruebas nuevas en 1d197a9: tests/test_reputacion.py 7 failed / 2 passed de controles; tests/test_precio02_meli_catalogo.py 2 failed / 2 passed de controles; detalle y linea de cada fallo en aceptacion.md)
+
+=== Ronda 1 de revision (cabeza nueva 6e954751bd102c035af1342add3778bb95e3164b)
+Correcciones: total heredado no certifica (certifica solo el total valido vigente
+en la pagina que cierra) y ids vacios solo sellan ok con catalogo vacio certificado.
+Rojo previo en ac00f9a documentado en aceptacion.md (seccion «Ronda 1 de revision»).
+
+=== D-M.1 (TN06, revalidada)
+SHA: 6e954751bd102c035af1342add3778bb95e3164b
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06"
+INICIO: 2026-11-18T20:35:53Z
+1 passed, 5 deselected in 4.84s
+SALIDA: 0
+
+=== D-M.2 (TN14, revalidada)
+SHA: 6e954751bd102c035af1342add3778bb95e3164b
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_14"
+INICIO: 2026-11-18T20:35:59Z
+1 passed, 5 deselected in 4.84s
+SALIDA: 0
+
+=== D-M.3 (conjunto TN, revalidado)
+SHA: 6e954751bd102c035af1342add3778bb95e3164b
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06 or test_14"
+INICIO: 2026-11-18T20:36:04Z
+2 passed, 4 deselected in 9.40s
+SALIDA: 0
+
+=== Rebase sobre master 14a688f (P-C integrado; cabeza 1bccab1a8638776fad9f934b66bcf9de42d40b0a)
+Conflicto solo en graphify-out/ (archivos generados): resuelto regenerando el
+grafo sobre el arbol final. Sin solape de codigo con P-C (app/precio/).
+
+=== D-M.1+D-M.2+D-M.3 (conjunto TN, revalidado tras el rebase)
+SHA: 1bccab1a8638776fad9f934b66bcf9de42d40b0a
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06 or test_14"
+INICIO: 2026-11-18T20:50:43Z
+2 passed, 4 deselected in 29.98s
+SALIDA: 0
+
+=== D-M.3 (suite local + evidencia, revalidada tras el rebase)
+SHA: 1bccab1a8638776fad9f934b66bcf9de42d40b0a
+COMANDO: CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_precio02_meli_catalogo.py tests/test_reputacion.py && test -s docs/evidencia/arreglos-03/D-M/aceptacion.md
+INICIO: 2026-11-18T20:52:30Z
+71 passed in 108.32s
+SALIDA: 0
+(Vecino tras el rebase: tests/test_precio_corrida.py + tests/test_precio_write.py de P-C -> 224 passed.)

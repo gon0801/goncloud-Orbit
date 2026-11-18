@@ -117,6 +117,27 @@ class ResultadoCatalogo:
     skips: Counter = field(default_factory=Counter)
 
 
+@dataclass
+class _DeltaPlan:
+    """Escrituras de UN item dentro de su savepoint (ARREGLOS 03 D-M, TN14).
+
+    El delta es local: se fusiona al resultado y a los mapas compartidos
+    solo tras salir del savepoint sin error, para que un rollback del item
+    no deje observadas, skips de exito ni existentes adelantados. La TX
+    exterior sella contador y filas juntos.
+    """
+
+    observadas: int = 0
+    listings_nuevos: int = 0
+    listings_actualizados: int = 0
+    miembros_escritos: int = 0
+    con_todos: int = 0
+    con_alguno: int = 0
+    sin_ninguno: int = 0
+    skips: Counter = field(default_factory=Counter)
+    existentes: dict = field(default_factory=dict)
+
+
 def _sku_de_atributos(atributos: object) -> str | None:
     if not isinstance(atributos, list):
         return None
@@ -266,13 +287,13 @@ def _observa(
     )
 
 
-def _cuenta_mapeo(resultado: ResultadoCatalogo, mapeados: int, total: int) -> None:
+def _cuenta_mapeo(delta: _DeltaPlan, mapeados: int, total: int) -> None:
     if mapeados == 0:
-        resultado.sin_ninguno += 1
+        delta.sin_ninguno += 1
     elif mapeados == total:
-        resultado.con_todos += 1
+        delta.con_todos += 1
     else:
-        resultado.con_alguno += 1
+        delta.con_alguno += 1
 
 
 def _aplica_plan(
@@ -281,22 +302,29 @@ def _aplica_plan(
     *,
     mapa: dict,
     existentes: dict,
-    resultado: ResultadoCatalogo,
     hoy: date,
     ahora: datetime,
     run_id: int,
-) -> None:
+) -> _DeltaPlan:
+    """Aplica un item y devuelve su delta local (sin mutar nada global).
+
+    ARREGLOS 03 D-M (TN14): quien llama abre el savepoint; el delta se
+    fusiona al resultado y a `existentes` solo si el savepoint sale sin
+    error. Un fallo SQL tras `_observa` revierte la fila del item y no
+    deja contadores ni mapas adelantados.
+    """
+    delta = _DeltaPlan()
     _observa(conn, plan, hoy=hoy, ahora=ahora, run_id=run_id)
-    resultado.observadas += 1
+    delta.observadas = 1
     if not plan.visitas_ok:
-        resultado.skips[SKIP_VISITAS] += 1
+        delta.skips[SKIP_VISITAS] += 1
     mapeados = [m for m in plan.miembros if m.sku in mapa]
-    _cuenta_mapeo(resultado, len(mapeados), len(plan.miembros) + plan.sin_sku)
+    _cuenta_mapeo(delta, len(mapeados), len(plan.miembros) + plan.sin_sku)
     previo = existentes.get(plan.item_id)
     if plan.estado != "active":
         if previo is not None:
             conn.execute(_SQL_BAJA_TODOS, (previo[0],))
-        return
+        return delta
     vistos = [m.variante_ext for m in plan.miembros]
     if not mapeados:
         if previo is not None:
@@ -308,17 +336,19 @@ def _aplica_plan(
                 conn.execute(_SQL_BAJA_MIEMBROS, (previo[0], vistos))
             else:
                 conn.execute(_SQL_BAJA_TODOS, (previo[0],))
-        return
+        return delta
     ancla_sku = min(m.sku for m in mapeados)
     nuevo = (mapa[ancla_sku], ancla_sku)
     if previo is None:
         params = (nuevo[0], plan.item_id, nuevo[1])
         listing_id = conn.execute(_SQL_INSERT_LISTING, params).fetchone()[0]
-        resultado.listings_nuevos += 1
+        delta.listings_nuevos += 1
+        delta.existentes[plan.item_id] = (listing_id, nuevo[0], nuevo[1])
     elif previo[1:] != nuevo:
         listing_id = previo[0]
         conn.execute(_SQL_CAMBIA_LISTING, (*nuevo, listing_id))
-        resultado.listings_actualizados += 1
+        delta.listings_actualizados += 1
+        delta.existentes[plan.item_id] = (listing_id, *nuevo)
     else:
         listing_id = previo[0]
     for miembro in plan.miembros:
@@ -327,7 +357,8 @@ def _aplica_plan(
             (listing_id, miembro.variante_ext, miembro.sku, mapa.get(miembro.sku), ahora),
         )
     conn.execute(_SQL_BAJA_MIEMBROS, (listing_id, vistos))
-    resultado.miembros_escritos += len(vistos)
+    delta.miembros_escritos += len(vistos)
+    return delta
 
 
 def _reconcilia_ausentes(
@@ -356,6 +387,15 @@ def sincronizar(
     Red primero (sin tocar la base), escritura despues en una transaccion
     corta con savepoint por publicacion: un item que falla a mitad no tira
     lo ya escrito. Falla honesto tras `max_fallos_seguidos` seguidos.
+
+    ARREGLOS 03 D-M: los contadores del resultado solo suman escrituras
+    confirmadas (el delta de cada item se fusiona al salir de su savepoint
+    sin error) y el sello de la corrida se escribe en la misma TX que las
+    filas: un rollback exterior no publica exito. Solo un scan con
+    cobertura certificada (`truncado` False, decidido por el cliente)
+    reconcilia ausentes; un scan parcial conserva los ausentes. Cero IDs
+    solo es exito con catalogo vacio certificado: un scan fallido no se
+    confunde con un catalogo vacio.
     """
     resultado = ResultadoCatalogo()
     datos_me, _ = cliente.get("/users/me")
@@ -397,21 +437,38 @@ def sincronizar(
         for plan in planes:
             try:
                 with conn.transaction():
-                    _aplica_plan(
+                    delta = _aplica_plan(
                         conn,
                         plan,
                         mapa=mapa,
                         existentes=existentes,
-                        resultado=resultado,
                         hoy=hoy,
                         ahora=ahora,
                         run_id=resultado.run_id,
                     )
             except psycopg.Error:
+                # El savepoint revirtio las escrituras del item (incluida su
+                # observacion): solo queda el skip de fallo, sin contadores
+                # ni mapas adelantados (ARREGLOS 03 D-M, TN14).
                 resultado.skips[SKIP_ITEM] += 1
+            else:
+                # Fusion solo tras salir del savepoint sin error: el item que
+                # sigue parte del mapa confirmado.
+                resultado.observadas += delta.observadas
+                resultado.listings_nuevos += delta.listings_nuevos
+                resultado.listings_actualizados += delta.listings_actualizados
+                resultado.miembros_escritos += delta.miembros_escritos
+                resultado.con_todos += delta.con_todos
+                resultado.con_alguno += delta.con_alguno
+                resultado.sin_ninguno += delta.sin_ninguno
+                resultado.skips.update(delta.skips)
+                existentes.update(delta.existentes)
         if not truncado:
             _reconcilia_ausentes(conn, set(ids), resultado=resultado)
-        resultado.ok = not ids or resultado.observadas > 0
+        # ARREGLOS 03 D-M (R2 de la revision): cero IDs solo es exito con el
+        # catalogo vacio CERTIFICADO (scan completo); un scan fallido o
+        # parcial sin observaciones confirmadas no se publica como ok.
+        resultado.ok = (not ids and not truncado) or resultado.observadas > 0
         _sella(
             conn,
             resultado.run_id,
@@ -462,7 +519,7 @@ def main(argv: list[str] | None = None, *, cliente: ClienteCatalogo | None = Non
                 f" run={resultado.run_id} skips={dict(resultado.skips)}"
             )
             if not resultado.ok:
-                print("catalogo meli: sin observaciones con items en el scan", file=sys.stderr)
+                print("catalogo meli: corrida sin observaciones confirmadas", file=sys.stderr)
                 return 1
             return 0
     except Exception as exc:

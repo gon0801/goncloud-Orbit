@@ -78,6 +78,25 @@ class MeliCredentials:
         return cls(access)
 
 
+def _id_item_valido(valor: object) -> str | None:
+    """Normaliza un ID de item; bool, estructura o vacio no son identidad."""
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, int):
+        return str(valor)
+    if isinstance(valor, str):
+        texto = valor.strip()
+        return texto or None
+    return None
+
+
+def _total_valido(valor: object) -> int | None:
+    """`paging.total` util para certificar: entero, no booleano, no negativo."""
+    if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
+        return None
+    return valor
+
+
 # ---------------------------------------------------------------------------
 # Cliente MeLi: solo GET, default-deny (A.4 lo reutiliza)
 #
@@ -143,24 +162,73 @@ class ClienteMeli:
         return data, dt.datetime.now(dt.UTC)
 
     def items_seller(self, seller_id: int, max_paginas: int = 50) -> tuple[list[str], bool]:
-        """IDs de items via scan paginado. Devuelve (ids, truncado).
+        """IDs unicos de items via scan paginado. Devuelve (ids, truncado).
 
-        XR-1.8: corte a 50 paginas sin agotar = truncado para skip.
-        Grok XR-1 MEDIA-4: corta tambien si paging.total ya se alcanzo
-        (la pagina extra con scroll vivo puede dar 400/scan-expirado
-        y tumbaria la corrida entera).
+        ARREGLOS 03 D-M (TN06): este metodo es el dueno de decidir si el
+        scan termino; catalogo y reputacion consumen su certificado.
+        `truncado=False` exige cobertura certificada: paginas validas
+        (contenedor `results` lista e IDs legibles) que alcanzan exactamente
+        un `paging.total` entero no booleano, no negativo y coherente entre
+        paginas, contando IDs unicos (los duplicados no acreditan
+        completitud). El total que certifica debe estar vigente en la pagina
+        que cierra: uno heredado de una respuesta anterior no verifica la
+        cobertura actual. Total 0 con contenedor valido vacio demuestra
+        catalogo vacio. Cualquier otra salida (scroll ausente o ilegible,
+        token repetido sin avance, fin prematuro, pagina malformada, total
+        cambiante o menor que lo observado unico, tope de paginas agotado,
+        o alcanzar el total sin corroboracion vigente) deja la
+        cobertura desconocida: devuelve (ids_observados, True).
+        Los errores de transporte conservan su tratamiento seguro (raise),
+        nunca se convierten en lista vacia completa.
+        XR-1.8: corte a max_paginas sin certificar = truncado para skip.
+        Grok XR-1 MEDIA-4: al alcanzar el total no se pide la pagina extra
+        con scroll vivo (daria 400/scan-expirado y tumbaria la corrida).
         """
-        items: list[str] = []
+        ids: list[str] = []
+        vistos: set[str] = set()
+        total_certificado: int | None = None
         params: dict = {"search_type": "scan", "limit": 100}
         for _ in range(max_paginas):
             data, _ = self.get(f"/users/{seller_id}/items/search", params)
-            resultados = data.get("results") or []
-            items.extend(str(i) for i in resultados)
-            total = (data.get("paging") or {}).get("total")
-            if isinstance(total, int) and len(items) >= total:
-                return items, False
+            resultados = data.get("results")
+            if not isinstance(resultados, list):
+                return ids, True  # pagina malformada: contenedor invalido
+            pagina: list[str] = []
+            for crudo in resultados:
+                item_id = _id_item_valido(crudo)
+                if item_id is None:
+                    return ids, True  # ID ilegible: la pagina no certifica nada
+                pagina.append(item_id)
+            paging = data.get("paging")
+            if paging is not None and not isinstance(paging, dict):
+                return ids, True  # pagina malformada: paging invalido
+            total = _total_valido(paging.get("total")) if paging is not None else None
+            nuevos: list[str] = []
+            for item_id in pagina:
+                if item_id not in vistos:
+                    vistos.add(item_id)
+                    nuevos.append(item_id)
+            ids.extend(nuevos)
+            if total is not None:
+                if total_certificado is not None and total != total_certificado:
+                    # Total cambiante entre paginas: parcial, con los IDs
+                    # validos ya observados de esta pagina.
+                    return ids, True
+                total_certificado = total
+            if total_certificado is not None:
+                if len(vistos) > total_certificado:
+                    return ids, True  # mas unicos que el total: incoherente
+                if total is not None and len(vistos) == total_certificado:
+                    # Certifica solo con el total valido de ESTA pagina: uno
+                    # heredado de una respuesta anterior no verifica la
+                    # cobertura actual (R1 de la revision: bajas indebidas).
+                    return ids, False  # cobertura certificada
+            if not pagina:
+                return ids, True  # fin prematuro: pagina vacia sin el total
             scroll = data.get("scroll_id")
-            if not scroll or not resultados:
-                return items, False
+            if not isinstance(scroll, str) or not scroll.strip():
+                return ids, True  # scroll ausente/ilegible con paginas por leer
+            if not nuevos:
+                return ids, True  # token vivo sin avance: no certifica
             params = {"search_type": "scan", "scroll_id": scroll}
-        return items, True
+        return ids, True  # tope de paginas agotado sin certificar
