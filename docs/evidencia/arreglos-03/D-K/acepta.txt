@@ -1,7 +1,8 @@
 ARREGLOS 03 D-K — Acepta (2026-11-18, PC Windows del worker; PG16 desechable 127.0.0.1:55433)
 
 SHA del código: aac2633 (rama ao/bloque-d-k/reputacion-avisada, sobre origin/master a6ffa32 = D-H integrado)
-Migración: 0088_arreglos03_reputacion_avisada.sql (+ 0088_reversa_...). 0087 lo tomó D-H (#634) antes de abrir este PR.
+Migración: 0089_arreglos03_reputacion_avisada.sql (+ 0089_reversa_...). 0087 lo tomó D-H (#634) y 0088 D-I (#638), que se integra antes.
+(Las corridas de abajo hasta «Ronda 1» se hicieron con el nombre 0088; las pruebas buscan la migración por tema, no por número.)
 
 ### D-K.0
 $ grep -q arreglos03 tools/despliegue/comun.sh && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_despliegue_motor.py
