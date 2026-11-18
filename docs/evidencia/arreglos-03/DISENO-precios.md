@@ -178,7 +178,7 @@ F5: `enviado_at` nace con `now()` de la base en los tres INSERT (`aplicar` `:419
 Migración `<n>_arreglos03_error_cierra_por_observacion.sql`:
 
 ```sql
--- sonda-aplicada: SELECT pg_get_constraintdef(oid) LIKE '%confirmado%' FROM pg_constraint WHERE conname = 'precio_cambio_error_code_solo_error'
+-- sonda-aplicada: SELECT pg_get_constraintdef(oid) LIKE '%confirmado%' FROM pg_constraint WHERE conrelid = 'public.precio_cambio'::regclass AND conname = 'precio_cambio_error_code_solo_error'
 ALTER TABLE precio_cambio DROP CONSTRAINT precio_cambio_error_code_solo_error;
 ALTER TABLE precio_cambio ADD CONSTRAINT precio_cambio_error_code_solo_error
     CHECK (error_code IS NULL OR estado IN ('error', 'confirmado'));
@@ -186,11 +186,28 @@ ALTER TABLE precio_cambio ADD CONSTRAINT precio_cambio_error_code_solo_error
 -- (función y COMMENT) con ('error', 'confirmado') en la lista de transiciones y en el mensaje.
 ```
 
-La reversa restaura el CHECK de `migrations/0039_precio.sql:547-548` y la función de `0054:681-796` tal cual. Su cabecera dice que falla, con el error del CHECK, si ya hay cambios `confirmado` con `error_code` (un error que se confirmó): esos no se deshacen solos. El permiso alcanza: `app_decide` ya puede actualizar `estado`, `ack` y `confirmado_por` (`migrations/0039_precio.sql:1132-1134`).
+**Reversa tras un cierre confirmado.** En una transacción, restaurar la función y su comentario de 0054 y ejecutar el SQL siguiente. El CHECK anterior vuelve a regir todo INSERT y UPDATE. PostgreSQL puede conservar una fila histórica que ya estaba confirmada con su código de error. La transición queda cerrada para futuros errores por el trigger original.
+
+```sql
+ALTER TABLE precio_cambio DROP CONSTRAINT precio_cambio_error_code_solo_error;
+ALTER TABLE precio_cambio ADD CONSTRAINT precio_cambio_error_code_solo_error
+    CHECK (error_code IS NULL OR estado = 'error') NOT VALID;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM precio_cambio WHERE error_code IS NOT NULL AND estado <> 'error'
+    ) THEN
+        ALTER TABLE precio_cambio VALIDATE CONSTRAINT precio_cambio_error_code_solo_error;
+    END IF;
+END;
+$$;
+```
+
+La sonda de la ida vuelve a dar falso en ambas ramas. Si quedaron excepciones históricas, `convalidated=false` documenta que la regla anterior solo se exige en escrituras posteriores. Para reimplantar P-C, la ida reemplaza el CHECK por el ampliado y valida también esas filas. `app_decide` ya puede sellar estado, ack y origen.
 
 Las pruebas de `tests/test_precio_corrida.py` arman su base con la lista fija `ORDEN59` (`:40-53`), que no lee la carpeta `migrations/`: la migración nueva se suma al final de esa lista (y de `ORDEN54`, `ORDEN58` u `ORDEN_M3` si otra prueba de precio necesita `error -> confirmado`). Sin eso, el cierre de un `error` revienta con `CheckViolation ... estado error -> confirmado fuera de la progresión sellada` y parece que el diseño está mal (lo comprobó el lector del plan con un prototipo sobre `ORDEN59`).
 
-Prueba de la migración (instala: cambia un CHECK y un trigger en producción): `test_arreglos03_pc_migracion_y_su_reversa` en `tests/test_precio_migracion.py`, con `db_58` (`ORDEN58`). Tras la migración, la sonda da `True` y, dentro de una transacción que se deshace, un `error` con `error_code` pasa a `confirmado` con `confirmado_por = 'observacion'` y su `ack`; tras la reversa, la sonda da `False` y la misma transición vuelve a ser rechazada. Ninguna otra prueba ejecuta la reversa ni comprueba la sonda: la plantilla de `tests/test_despliegue_motor.py:362` solo aplica la carpeta por glob.
+**Prueba de ida, reversa y reaplicación.** En `tests/test_precio_migracion.py`, usar `db_58` para `test_arreglos03_pc_migracion_y_su_reversa`. Confirmar la ida (sonda verdadera), cerrar un cambio real de error a confirmado con código, origen observación, ack y enviado_at, y hacer COMMIT. Guardar la fila entera. En otra transacción ejecutar la reversa: sonda falsa, misma fila, CHECK pendiente de validación, un segundo error no puede transitar a confirmado y un INSERT nuevo incompatible con el CHECK falla. Probar los rechazos en savepoints separados. Reaplicar la ida: sonda verdadera y la misma fila intacta. Comprobar también la reversa en una base sin cierres excepcionales: CHECK validado. Registrar el rojo contra la reversa previa que intentaba validar todo el historial.
 
 **Qué pasa los días sin observación (pregunta e).** El error queda abierto y cuenta para los 7 días: el lado seguro. Ese día la publicación tampoco se decide, porque la decisión exige el precio observado del día (es la misma tabla, `spapi_price_observation`, `app/spapi/precio_mercado.py:373-383`; en MeLi, `meli_publicacion_observation`, `app/meli/precio_mercado.py:317-325`). El freno de 7 días sí cuenta mientras tanto: `reglas.py:283-300` solo salta los `sin_efecto`, y un `error` con `confirmado_por` vacío no lo es. El cierre corre al arrancar cada repaso, antes de decidir, así que cuando llega la observación se cierra primero y se decide después: no se pierde un día por el orden. Un error que nunca ve su precio anterior ni el nuevo (alguien movió el precio a mano) queda en `error`; a los 7 días ya no frena nada y `freno_por_error` lo sigue contando como hoy.
 

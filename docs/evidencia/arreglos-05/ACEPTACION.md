@@ -2,7 +2,11 @@
 
 Estos comandos son para la **implementación futura**. Esta entrega documental
 reutiliza la revisión de `ff03ed61`, no afirma haber ejecutado arreglos inexistentes.
-Los artefactos en `revision/` conservan los originales, incluidos sus hashes.
+El manifest de `revision/` conserva los hashes originales. Al ejecutar ARREGLOS 03
+D-E.7, guardar el original de `ingest.py` en `revision/historico/ingest.py` y
+comprobarlo contra su entrada del manifest. Los comandos T y el pase global
+usan `revision/ingest.py` con la firma vigente y las mismas aserciones.
+Hasta D-E.7 la ruta operativa contiene el original.
 
 ## Entorno y seguridad de las reproducciones
 
