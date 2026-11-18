@@ -86,10 +86,14 @@ CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -r
 - `test_09…`: rojo por D-J (`exit 1`, cierre `sin_api_key`), ver arriba.
 - `test_05…`: rojo por el subtotal (abajo).
 
-### Después de D-E: `36473e95e0a58e0882f6077bf07b05bc06457256` (rebasado sobre `a6ffa32`)
+### Después de D-E
+
+Primero sobre `36473e95e0a58e0882f6077bf07b05bc06457256` (rebasado sobre `a6ffa32`) y de
+nuevo, con el mismo resultado, sobre `5c60c97f3c15f067d1f74e06bc0f11d45f9bd793` (código
+`0c2c9084d65082edb9db30a6abf59540ccd849ea`, rebasado sobre `fa3c57d`, con D-C y P-A).
 
 `Acepta` de D-E.7, `-k "test_control or test_09"` → **`2 passed, 4 deselected`, salida 0**
-(2026-11-18 11:19 UTC):
+(2026-11-18 11:19 y 11:36 UTC):
 - `test_control_productos_no_publica_subtotal_en_ningun_orden`: verde.
 - `test_09_jev_cron_cierra_corrida_sin_forzar_y_preserva_tx_ajena`: verde con el reloj
   fijado, la siembra por plataforma y la llave ficticia (guarda real `[True]`,

@@ -5,64 +5,66 @@
 # Con -rs, un skipped cuenta como fallo: no hubo ninguno.
 
 === D-E.1
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793
 COMANDO: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ingest_diario.py -k arreglos03_de_
-INICIO: 2026-11-18T11:13:47Z
-1 passed, 16 deselected in 0.61s
+INICIO: 2026-11-18T11:33:59Z
+1 passed, 16 deselected in 0.49s
 SALIDA: 0
 
 === D-E.2
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793
 COMANDO: PYTHONPATH=. uv run --frozen --python 3.12 python -c "import datetime as dt, pytest; from app.dia_cerrado import ultimo_dia_cerrado as u, fin_del_dia as f; i=dt.datetime(2026,11,12,7,10,tzinfo=dt.UTC); assert u('amazon_us',i)==dt.date(2026,11,10) and u('amazon_mx',i)==dt.date(2026,11,11) and u('meli',i)==dt.date(2026,11,11); assert f('amazon_us',dt.date(2026,11,11))==dt.datetime(2026,11,12,8,tzinfo=dt.UTC); pytest.raises(ValueError,u,'amazon_us',dt.datetime(2026,11,12,7,10)); pytest.raises(ValueError,u,'shopify',i)" && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ingest_diario.py
-INICIO: 2026-11-18T11:13:48Z
-17 passed in 38.51s
+INICIO: 2026-11-18T11:34:00Z
+17 passed in 19.75s
 SALIDA: 0
 
 === D-E.3
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793
 COMANDO: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_reports_pipeline.py tests/test_placements.py tests/test_ads_producto_ingesta.py tests/test_ads_descarga.py
-INICIO: 2026-11-18T11:14:28Z
-79 passed in 78.75s (0:01:18)
+INICIO: 2026-11-18T11:34:21Z
+79 passed in 38.15s
 SALIDA: 0
 
 === D-E.4
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793
 COMANDO: ! rg -q -e '::date - 1' -e 'HOY = dt\.datetime\.now' tests/test_jev_senales.py tests/test_metricas_listas.py && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_metricas_listas.py tests/test_ingest_diario.py tests/test_cli.py tests/test_cli_bids.py tests/test_jev_senales.py
-INICIO: 2026-11-18T11:15:47Z
-131 passed in 222.71s (0:03:42)
+INICIO: 2026-11-18T11:35:00Z
+131 passed in 175.75s (0:02:55)
 SALIDA: 0
 
 === D-E.5 (greps; la parte pytest corre en WSL, abajo)
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793
 COMANDO: ! grep -q '07:10' app/ads/diario.py && grep -q '^10 8 ' tools/despliegue/crontab-orbit.txt
-INICIO: 2026-11-18T11:19:31Z
+INICIO: 2026-11-18T11:37:56Z
 SALIDA: 0
 
 === D-E.6
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793
 COMANDO: test -s docs/evidencia/arreglos-03/D-E/prueba.py && PYTHONPATH=. uv run --frozen --python 3.12 python docs/evidencia/arreglos-03/D-E/prueba.py
-INICIO: 2026-11-18T11:19:31Z
+INICIO: 2026-11-18T11:37:56Z
 D-E desplegado
 SALIDA: 0
 
 === D-E.5 (pytest, en WSL con CI=1)
 COMANDO: wsl -e bash -l .../orbit-arreglos03/wsl-pytest.sh <worktree> -q -rs tests/test_ingesta_cron.py tests/test_avisos_campana_cron.py tests/test_impulso_vigia_cron.py tests/test_ingest_diario.py tests/test_metricas_listas.py tests/test_despliegue_motor.py
 (equivale a: CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs <los mismos archivos>)
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256
-INICIO: 2026-11-18T11:20:36Z
-100 passed in 469.46s (0:07:49)
+# Misma cabeza que las filas de Windows y D-E.7 (la primera corrida, sobre 36473e9, tambien dio 100 passed).
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793
+INICIO: 2026-11-18T11:35:06Z
+100 passed in 419.59s (0:06:59)
 SALIDA: 0
 
 === D-E.7
-candado tomado 2026-11-18T11:19:40Z
-SHA: 36473e95e0a58e0882f6077bf07b05bc06457256 (arbol: 1 cambios sin commit)
+candado tomado 2026-11-18T11:34:01Z
+SHA: 5c60c97f3c15f067d1f74e06bc0f11d45f9bd793 (arbol: 0 cambios sin commit)
 COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_control or test_09"
-2 passed, 4 deselected in 7.31s
+2 passed, 4 deselected in 5.40s
 exit=0
 COMANDO 2: test -s docs/evidencia/arreglos-03/D-E/aceptacion-tn.md
 SALIDA: 0
 
 # Notas
-# - "1 cambios sin commit" en D-E.7 era docs/evidencia/arreglos-03/D-E/aceptacion-tn.md, aun sin agregar (solo evidencia).
-# - Los commits posteriores a 36473e9 solo agregan graphify-out y esta evidencia; no cambian codigo ni pruebas.
+# - Cabeza de las corridas: 5c60c97 = codigo 0c2c908 (rebasado sobre fa3c57d) + graphify-out regenerado.
+# - El commit de esta evidencia no cambia codigo ni pruebas.
+# - Primera corrida completa, sobre 36473e9 (rebasado sobre a6ffa32): mismos resultados (D-E.1 1, D-E.2 17, D-E.3 79, D-E.4 131, D-E.5 WSL 100, D-E.7 2 passed).
 # - TN05 sigue rojo por el subtotal a proposito (lo cierra D-G): ver aceptacion-tn.md.
