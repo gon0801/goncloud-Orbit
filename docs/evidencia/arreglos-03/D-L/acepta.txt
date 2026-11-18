@@ -78,3 +78,50 @@ exit=1
 - tests/test_ui_reputacion.py test_api_resumen_cuenta_pendientes_alertas: sus dos preguntas ahora llevan el
   mismo observed_at (una lectura escribe todas sus preguntas con el mismo observed_at, _escribe_todo_meli).
   Antes cada INSERT tomaba su propio now() (conexión autocommit) y con la regla F8 parecían dos lecturas.
+
+## Ronda 1 de revisión (Kimi, bloqueante; Devin, aviso) — código 58c66d6, cabeza 389dcc2 (merge de D-N, f19942f)
+
+Hallazgos:
+- Kimi (app/api_reputacion.py:152): si MeLi responde `questions: []`, la lectura no escribe filas de meli_question,
+  max(observed_at) no avanza y las UNANSWERED de la lectura anterior siguen contando.
+- Devin (app/api_reputacion.py:153): una página posterior sin `questions` o el corte por max_paginas dejan una lectura
+  parcial que se guarda como completa; con F8 eso esconde preguntas que siguen pendientes.
+
+Medido en producción (solo lectura, lee_prod.sh, 2026-11-18):
+  ingest_run reputacion_meli started_at 2026-11-18 09:30:02.425289 | meli_question observed_at 09:30:02.425133 (39 filas,
+  1 UNANSWERED) | seller_reputation_snapshot observed_at 09:30:02.425133 (1 fila). Igual los 4 días anteriores; sin skips.
+  -> started_at de ingest_run es POSTERIOR al observed_at de las filas (observed_at se fija antes de abrir la corrida):
+     «max(observed_at) >= última corrida ok» dejaría fuera la lectura normal. La fila de cuenta sí lleva el mismo
+     observed_at, en la misma transacción, aunque no haya preguntas (llave (platform, metric_date, observed_at)).
+  -> Hoy son 39-41 preguntas: una sola página; el caso de Devin no ocurre todavía, pero F8 lo volvería silencioso.
+
+Cambios:
+- app/api_reputacion.py: se conserva « AND observed_at = (SELECT max(observed_at) FROM meli_question)» en una línea y se
+  añade « AND observed_at >= COALESCE((SELECT max(observed_at) FROM seller_reputation_snapshot), '-infinity')».
+- app/reputacion.py: _pagina devuelve truncado=True si una página posterior llega sin la lista; fetch_questions lanza
+  ReputacionError("MeLi /questions/search devolvió una lista incompleta de preguntas") con lectura parcial (antes: skip y
+  se guardaba). En claims el skip pasa a «meli: claims incompletos (total parcial)».
+- Prueba nueva: test_arreglos03_dl_lectura_sin_preguntas_deja_cero_pendientes (tests/test_ui_reputacion.py).
+- Fixtures: test_api_resumen_cuenta_pendientes_alertas y test_pagina_rediseno_kpis_alertas_primero_y_chips escriben
+  cuenta y preguntas en una transacción (mismo observed_at), como una lectura real.
+
+Rojo en b54da6a (cabeza anterior):
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_ui_reputacion.py -k arreglos03_dl_lectura_sin
+E   AssertionError: pendiente de una lectura vieja: ['Q_BORRADA']
+tests\test_ui_reputacion.py:143: AssertionError
+1 failed, 22 deselected
+exit=1
+
+Casos de Devin (guion temporal fuera del repo, cliente falso):
+  A _pagina con total=51 y 2a página sin `questions` -> (50, True)   [antes (50, False)]
+  B fetch_questions con esa respuesta -> ReputacionError: MeLi /questions/search devolvió una lista incompleta de preguntas
+  C fetch_questions con 21 páginas llenas (corte por max_paginas) -> la misma ReputacionError
+  D lectura normal de 39 preguntas -> 39 planes, sin skips (sin cambio)
+  E claims con 2a página sin `data` -> disputas_total 50 y skip «meli: claims incompletos (total parcial)»
+
+Acepta en 389dcc2 (todas 0, ningún skipped):
+D-L.1  2 passed, 21 deselected            exit=0
+D-L.2  23 passed                          exit=0
+D-L.3  grep ok + 35 passed                exit=0
+D-L.4  88 passed                          exit=0
+D-L.5  test -s ok; prueba.py «D-L desplegado» exit=0
