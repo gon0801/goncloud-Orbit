@@ -39,9 +39,11 @@ Contrato comprobado en vivo (docs/evidencia/resumen-ads-multicanal/01-ingesta):
 10. `campaign_id` o `revision` con `|` se rechazan para no romper la
     identidad de `source_report_id`.
 11. Dia en curso (ARREGLOS 03 D-F): el dia de MeLi es el de Ciudad de Mexico
-    (`app.dia_cerrado`). Una fila con la fecha local del reloj de ingesta aun
-    no cierra: se salta sin rechazo y se cuenta en `sin_cerrar`. Una fecha
-    posterior es futura y rechaza el snapshot.
+    (`app.dia_cerrado`). Una fila entra solo si su dia ya habia cerrado alla
+    cuando el origen escribio el snapshot (`as_of`; si va adelantado, manda el
+    reloj de ingesta): el mismo archivo da las mismas filas a cualquier hora.
+    Las demas se saltan sin rechazo (`en_curso`, `sin_cerrar`). Una fecha
+    posterior al dia del reloj de ingesta es futura y rechaza el snapshot.
 """
 
 from __future__ import annotations
@@ -93,8 +95,9 @@ class OrigenMeliAds:
     `as_of` es el maximo `updated_at` del origen (UTC). Es la unica marca de
     orden que publica la fuente: no hay revision y `updated_at` no sirve como
     version (cambia en cada sync), pero SI como "cuando escribio el origen".
-    `sin_cerrar` cuenta las filas validas del dia local en curso, que no
-    entran a `filas` ni son rechazo.
+    `en_curso` son las filas validas cuyo dia no habia cerrado en Mexico
+    cuando el origen escribio el snapshot: no se escriben ni son rechazo, pero
+    son parte del archivo (su huella las incluye). `sin_cerrar` las cuenta.
     """
 
     filas: tuple[FilaMeliAds, ...]
@@ -102,6 +105,7 @@ class OrigenMeliAds:
     as_of: dt.datetime | None
     total: int
     sin_cerrar: int = 0
+    en_curso: tuple[FilaMeliAds, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -436,9 +440,10 @@ def leer_origen(ruta: Path | str, *, ahora: dt.datetime | None = None) -> Origen
     `count(*)` de la tabla origen: un TEXT con UTF-8 invalido detiene el
     cursor y el total NO puede depender de hasta donde llego la lectura.
 
-    `ahora` es el reloj de ingesta (con zona; por omision, el reloj real).
-    La fila del dia local en curso de Mexico se valida y se salta: cuenta en
-    `sin_cerrar`, no en `filas` ni en `rechazos`.
+    `ahora` es el reloj de ingesta (con zona; por omision, el reloj real): una
+    fecha posterior a su dia en Mexico es futura. Una fila cuyo dia no habia
+    cerrado en Mexico cuando el origen escribio el snapshot (`as_of`) se valida
+    y va a `en_curso`, no a `filas` ni a `rechazos`.
     """
     if ahora is None:
         ahora = dt.datetime.now(dt.UTC)
@@ -446,7 +451,6 @@ def leer_origen(ruta: Path | str, *, ahora: dt.datetime | None = None) -> Origen
     rechazos: Counter = Counter()
     filas: list[FilaMeliAds] = []
     vistas: dict[tuple[str, str], FilaMeliAds] = {}
-    sin_cerrar = 0
     as_of: dt.datetime | None = None
     con, columnas = _abre_origen(ruta)
     try:
@@ -486,16 +490,21 @@ def leer_origen(ruta: Path | str, *, ahora: dt.datetime | None = None) -> Origen
                 rechazos["clave canonica duplicada (campaign_id, metric_date)"] += 1
                 continue
             vistas[clave] = fila
-            if fila.metric_date == hoy_local:
-                # El dia sigue en curso en Mexico: lo copiado son unas horas de
-                # gasto, no el dia. Se descarta sin abortar el snapshot.
-                sin_cerrar += 1
-                continue
             filas.append(fila)
     finally:
         con.close()
     if as_of is not None and as_of > ahora + _TOLERANCIA_RELOJ:
         rechazos["as_of futuro fuera de la tolerancia de reloj"] += 1
+    # El dia en curso se mide contra el reloj del SNAPSHOT, no el de la lectura:
+    # releer el mismo archivo despues de la medianoche da las mismas filas. Un
+    # as_of adelantado al reloj de ingesta no cierra un dia que aun corre.
+    corte = dia_local(PLATAFORMA, min(as_of, ahora)) if as_of is not None else hoy_local
+    en_curso = tuple(fila for fila in filas if fila.metric_date >= corte)
     return OrigenMeliAds(
-        filas=tuple(filas), rechazos=rechazos, as_of=as_of, total=total, sin_cerrar=sin_cerrar
+        filas=tuple(fila for fila in filas if fila.metric_date < corte),
+        rechazos=rechazos,
+        as_of=as_of,
+        total=total,
+        sin_cerrar=len(en_curso),
+        en_curso=en_curso,
     )

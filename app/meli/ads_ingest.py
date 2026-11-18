@@ -237,8 +237,9 @@ def _formato_skip_reason(skips: Counter) -> str | None:
     return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
 
-# ARREGLOS 03 D-F: las filas del dia de Mexico que aun corre (`OrigenMeliAds.sin_cerrar`)
-# no se escriben y suman a `rows_skipped` con este motivo; `+Counter` lo quita si es 0.
+# ARREGLOS 03 D-F: las filas cuyo dia no habia cerrado en Mexico al escribirse el snapshot
+# (`OrigenMeliAds.en_curso`) no se escriben y suman a `rows_skipped` con este motivo;
+# `+Counter` lo quita si es 0.
 _MOTIVO_SIN_CERRAR = "día local en curso descartado"
 
 
@@ -680,7 +681,8 @@ def ingest_meli_ads(
                 "entidades_nuevas": 0,
                 "entidades_actualizadas": 0,
             }
-        huella = _huella_snapshot(filas)
+        # Huella del ARCHIVO (con su dia en curso): el reintento se reconoce tras la medianoche.
+        huella = _huella_snapshot(filas + origen.en_curso)
         with conn.transaction():
             conn.execute(_SQL_LOCK_MELI, _LOCK_MELI)
             # DESPUES del candado: el reloj de ingesta no puede quedar antes
