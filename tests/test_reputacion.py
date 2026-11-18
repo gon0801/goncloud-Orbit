@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import socket
 import urllib.parse
 from collections import Counter
@@ -325,17 +326,31 @@ def test_cliente_meli_429_reintenta_y_aborta(tmp_path):
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _migracion(tema: str) -> str:
+    """Nombre de la migracion de un tema: su numero cambia si al rebasar ya
+    estaba tomado (plans/arreglos-03.md), el tema no."""
+    (nombre,) = [
+        p.name
+        for p in (ROOT / "migrations").glob(f"*_{tema}.sql")
+        if re.fullmatch(rf"\d+_{tema}\.sql", p.name)
+    ]
+    return nombre
+
+
 ORDEN = (
     "0001_initial.sql",
     "0024_reputacion.sql",
     "0025_reputacion_sin_fk.sql",
     "0026_reputacion_preguntas_reobservacion.sql",
     "0027_reputacion_reviews_reobservacion.sql",
+    _migracion("arreglos03_reputacion_avisada"),
 )
 
 
 @contextmanager
-def db_reputacion(prefijo: str = "orbit_repa2"):
+def db_reputacion(prefijo: str = "orbit_repa2", orden: tuple[str, ...] = ORDEN):
     dsn = _test_dsn()
     db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
     admin = psycopg.connect(dsn, autocommit=True)
@@ -344,7 +359,7 @@ def db_reputacion(prefijo: str = "orbit_repa2"):
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
-        for nombre in ORDEN:
+        for nombre in orden:
             conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
         yield conn, dsn.rsplit("/", 1)[0] + "/" + db
     finally:

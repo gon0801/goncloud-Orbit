@@ -25,10 +25,14 @@ import datetime as dt
 import json
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
+from app import notifica
 from app.db import connect
 from app.redaction import redact_dsn, scrub
+from app.reputacion import SOURCE_MELI
 
 UMBRAL_RATING_BAJO = 4.2
 UMBRAL_CAIDA_RATING = 0.3
@@ -345,53 +349,85 @@ def evalua_y_persiste(conn, hoy=None, dry_run: bool = False) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Digest: novedades (D-A5-1) + entrada CLI (ORBIT_DSN_DECIDE)
+# Aviso propio (ARREGLOS 03 D-K) + entrada CLI (ORBIT_DSN_DECIDE)
 # ---------------------------------------------------------------------------
 
-VENTANA_DIGEST_HORAS = 24
+# Orden de los avisos: criticas primero, luego por antiguedad.
+_ORDEN_SEVERIDAD = "CASE severidad WHEN 'critica' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END"
 
 
-def carga_reputacion_digest(conn=None) -> list | None:
-    """Alertas abiertas creadas en las ultimas 24h (novedades del dia).
+def lectura_de_hoy(conn, hoy: dt.date) -> Literal["ok", "fallida", "ausente"]:
+    """La ultima corrida de la lectura MeLi (SOURCE_MELI) iniciada hoy (UTC).
 
-    Criticas primero, luego por antiguedad. Sin ORBIT_DSN_READ o ante
-    cualquier fallo devuelve None (el digest sigue sin el bloque,
-    fail-silent patron contrib). Lista vacia = sin novedades = el
-    digest no imprime nada (regla 3).
+    ok=true -> "ok"; ninguna -> "ausente" (no corrio: nadie mas lo avisa).
+    Cualquier otra -> "fallida": empezo y fallo (o se corto sin sellar), y
+    esa salida ya la aviso cron-avisa a las 09:30.
     """
-    propia = conn is None
-    try:
-        if conn is None:
-            dsn = os.environ.get("ORBIT_DSN_READ")
-            if not dsn:
-                return None
-            conn = connect(dsn)
-        # A.7: tx propia (solo lectura; no dejar implicita abierta).
+    desde = dt.datetime.combine(hoy, dt.time(0), tzinfo=dt.UTC)
+    with conn.transaction():
+        fila = conn.execute(
+            "SELECT ok FROM ingest_run WHERE source = %s"
+            " AND started_at >= %s AND started_at < %s"
+            " ORDER BY started_at DESC, id DESC LIMIT 1",
+            (SOURCE_MELI, desde, desde + dt.timedelta(days=1)),
+        ).fetchone()
+    if fila is None:
+        return "ausente"
+    return "ok" if fila[0] is True else "fallida"
+
+
+def _ultima_lectura_ok(conn) -> dt.date | None:
+    with conn.transaction():
+        fila = conn.execute(
+            "SELECT max(started_at) FROM ingest_run WHERE source = %s AND ok",
+            (SOURCE_MELI,),
+        ).fetchone()
+    return fila[0].astimezone(dt.UTC).date() if fila[0] is not None else None
+
+
+def pendientes_de_aviso(conn) -> list[dict]:
+    """Alertas abiertas que aun no salieron por Telegram (avisada_at vacio),
+    criticas primero y por antiguedad."""
+    with conn.transaction():
+        filas = conn.execute(
+            "SELECT id, tipo, severidad, platform, external_id, mensaje"
+            " FROM reputation_alert WHERE NOT resolved AND avisada_at IS NULL"
+            f" ORDER BY {_ORDEN_SEVERIDAD}, created_at, id"
+        ).fetchall()
+    return [
+        {
+            "id": i,
+            "tipo": t,
+            "severidad": s,
+            "platform": p,
+            "external_id": e,
+            "mensaje": m,
+        }
+        for i, t, s, p, e, m in filas
+    ]
+
+
+# Alertas por mensaje: un aviso de 20 lineas queda muy por debajo del tope
+# de 4096 caracteres de Telegram, que rechazaria el mensaje entero.
+_LOTE_AVISO = 20
+
+
+def avisa_pendientes(conn, *, envia: Callable[[str], bool]) -> bool:
+    """Manda las pendientes en lotes de _LOTE_AVISO y sella avisada_at de
+    cada lote SOLO si su envio salio. False = un aviso no salio: ese lote y
+    los siguientes quedan pendientes y la revision de manana los reintenta."""
+    pendientes = pendientes_de_aviso(conn)
+    for inicio in range(0, len(pendientes), _LOTE_AVISO):
+        lote = pendientes[inicio : inicio + _LOTE_AVISO]
+        if not envia(notifica.aviso_reputacion(lote)):
+            return False
         with conn.transaction():
-            filas = conn.execute(
-                "SELECT tipo, severidad, platform, external_id, mensaje"
-                " FROM reputation_alert WHERE NOT resolved"
-                " AND created_at >= now() - make_interval(hours => %s)"
-                " ORDER BY CASE severidad"
-                "  WHEN 'critica' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END,"
-                " created_at",
-                (VENTANA_DIGEST_HORAS,),
-            ).fetchall()
-        return [
-            {
-                "tipo": t,
-                "severidad": s,
-                "platform": p,
-                "external_id": e,
-                "mensaje": m,
-            }
-            for t, s, p, e, m in filas
-        ]
-    except Exception:
-        return None
-    finally:
-        if propia and conn is not None:
-            conn.close()
+            conn.execute(
+                "UPDATE reputation_alert SET avisada_at = now()"
+                " WHERE id = ANY(%s) AND avisada_at IS NULL",
+                ([a["id"] for a in lote],),
+            )
+    return True
 
 
 def ejecuta_alertas(fecha: str | None = None, dry_run: bool = False) -> int:
@@ -400,6 +436,11 @@ def ejecuta_alertas(fecha: str | None = None, dry_run: bool = False) -> int:
     Corre con ORBIT_DSN_DECIDE (unico rol con INSERT/UPDATE en
     reputation_alert, 0024). Exit 0/1/2, patron ejecuta_snapshot; cero
     alertas NO es fallo (es lo normal).
+
+    ARREGLOS 03 D-K: en la corrida del cron (sin --fecha ni ensayo), despues
+    de evaluar, sale 1 si la lectura de hoy no corrio y manda por Telegram
+    las alertas que aun no salieron; si el envio falla, sale 1. cron-avisa
+    convierte ese 1 en aviso.
     """
     metric_date: dt.date | None = None
     if fecha is not None:
@@ -416,14 +457,33 @@ def ejecuta_alertas(fecha: str | None = None, dry_run: bool = False) -> int:
         )
         return 2
     redact_dsn(dsn)  # registra la password para scrub(), defensa en profundidad
+    salida = 0
     try:
         conn = connect(dsn)
         try:
             resumen = evalua_y_persiste(conn, metric_date, dry_run=dry_run)
+            print(json.dumps(resumen, ensure_ascii=False))
+            if fecha is not None or dry_run:
+                return 0  # relleno manual o ensayo: no avisa
+            if lectura_de_hoy(conn, dt.datetime.now(dt.UTC).date()) == "ausente":
+                ultima = _ultima_lectura_ok(conn)
+                desde = (
+                    f"con la lectura del {ultima.isoformat()}"
+                    if ultima is not None
+                    else "sin ninguna lectura buena guardada"
+                )
+                print(
+                    "La lectura de reputación de Mercado Libre de hoy no corrió."
+                    f" Las alertas y la pantalla de reputación siguen {desde}.",
+                    file=sys.stderr,
+                )
+                salida = 1
+            if not avisa_pendientes(conn, envia=notifica.envia_aviso):
+                print("El aviso de alertas de reputación no salió.", file=sys.stderr)
+                salida = 1
         finally:
             conn.close()
     except Exception as exc:
         print(f"reputacion alertas fallo: {scrub(str(exc))}", file=sys.stderr)
         return 1
-    print(json.dumps(resumen, ensure_ascii=False))
-    return 0
+    return salida

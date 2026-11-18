@@ -5,7 +5,8 @@
 (b) INTEGRACION: PG desechable; flanco contra alertas abiertas
     (no duplica; resuelve al bajar), DISTINCT ON en reviews (0027),
     CLI `reputacion alertas` ejecutado de verdad.
-(c) DIGEST: bloque aditivo; sin alertas = cero lineas (regla 3).
+(c) DIGEST: el resumen del ciclo ya no carga reputacion (ARREGLOS 03
+    D-K: las alertas salen solas en la revision de las 10:30).
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from test_reputacion import _skip_db, db_reputacion
 from app import cli as app_cli
 from app.notifica import digest_ciclo
 from app.reputacion_alertas import (
-    carga_reputacion_digest,
     ejecuta_alertas,
     evalua_caida_rating,
     evalua_rating_bajo,
@@ -322,7 +322,7 @@ def test_dry_run_cero_writes():
 
 
 # ---------------------------------------------------------------------------
-# Digest: bloque aditivo; sin alertas = cero lineas (regla 3)
+# Digest: el resumen del ciclo ya no lleva reputacion (ARREGLOS 03 D-K)
 # ---------------------------------------------------------------------------
 
 _RESUMEN_MINIMO = {
@@ -334,51 +334,9 @@ _RESUMEN_MINIMO = {
 }
 
 
-def _alerta_dict(tipo="rating_bajo", sev="aviso", ext="MLM1", msg="rating 4.1 < 4.2"):
-    return {
-        "tipo": tipo,
-        "severidad": sev,
-        "platform": "meli",
-        "external_id": ext,
-        "mensaje": msg,
-    }
-
-
-def test_digest_con_alertas_agrega_lineas():
-    texto = digest_ciclo({**_RESUMEN_MINIMO, "reputacion": [_alerta_dict()]})
-    assert "reputacion [aviso] rating_bajo MLM1: rating 4.1 < 4.2" in texto
-
-
 def test_digest_sin_bloque_formato_intacto():
     assert digest_ciclo(_RESUMEN_MINIMO) == digest_ciclo({**_RESUMEN_MINIMO, "reputacion": []})
     assert "reputacion" not in digest_ciclo(_RESUMEN_MINIMO)
-
-
-def test_digest_tope_10_mas_resto():
-    bloque = [_alerta_dict(msg=f"m{i}") for i in range(12)]
-    texto = digest_ciclo({**_RESUMEN_MINIMO, "reputacion": bloque})
-    assert texto.count("reputacion [") == 10
-    assert "y 2 mas" in texto
-
-
-@_skip_db
-def test_carga_digest_solo_novedades_abiertas():
-    with db_reputacion("orbit_repa5") as (conn, _dsn):
-        ahora = dt.datetime.now(dt.UTC)
-        conn.execute(
-            "INSERT INTO reputation_alert"
-            " (platform, external_id, tipo, severidad, mensaje, created_at)"
-            " VALUES ('meli', 'MLM1', 'rating_bajo', 'aviso', 'nueva', %s),"
-            " ('meli', 'MLM2', 'rating_bajo', 'aviso', 'vieja', %s),"
-            " ('meli', 'MLM3', 'rating_bajo', 'aviso', 'resuelta', %s)",
-            (ahora, ahora - dt.timedelta(hours=25), ahora),
-        )
-        conn.execute(
-            "UPDATE reputation_alert SET resolved = TRUE, resolved_at = now()"
-            " WHERE mensaje = 'resuelta'"
-        )
-        novedades = carga_reputacion_digest(conn=conn)
-        assert [a["mensaje"] for a in novedades] == ["nueva"]
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +376,143 @@ def test_cli_alertas_exit_2_sin_dsn_ni_fecha(monkeypatch, capsys):
     assert "ORBIT_DSN_DECIDE" in capsys.readouterr().err
     monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://u:p@h/db")
     assert app_cli.main(["reputacion", "alertas", "--fecha", "ayer"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 D-K: la revision de las 10:30 avisa si la lectura no corrio
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_arreglos03_dk_lectura_que_no_corrio_se_avisa(tmp_path, monkeypatch, capsys):
+    """Falla ya ocurrida: del 28-sep al 16-oct no hubo ninguna lectura de
+    reputacion (ni fallida) y nadie se entero."""
+    from app import notifica
+    from app.reputacion import SOURCE_MELI, ejecuta_snapshot
+    from app.reputacion_alertas import lectura_de_hoy
+
+    hoy = dt.datetime.now(dt.UTC).date()
+    with db_reputacion("orbit_repdk") as (conn, dsn_db):
+        conn.execute(
+            "INSERT INTO ingest_run (source, started_at, finished_at, rows_written, ok)"
+            " VALUES (%s, now() - interval '1 day', now() - interval '1 day', 3, TRUE)",
+            (SOURCE_MELI,),
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", dsn_db)
+        monkeypatch.setenv("ORBIT_DSN_INGEST", dsn_db)
+        enviados: list[str] = []
+        monkeypatch.setattr(notifica, "envia_aviso", lambda texto: enviados.append(texto) or True)
+
+        # Hoy no corrio la lectura: la revision lo dice y sale 1 (cron-avisa avisa).
+        assert lectura_de_hoy(conn, hoy) == "ausente"
+        assert ejecuta_alertas() == 1
+        assert "no corrió" in capsys.readouterr().err
+
+        # La lectura se cae antes de abrir su corrida (sin llaves): deja una
+        # corrida fallida de hoy, no se confunde con una que no corrio.
+        assert ejecuta_snapshot("meli", secrets_dir=tmp_path) == 1
+        fallidas = conn.execute(
+            "SELECT count(*) FROM ingest_run WHERE source = %s AND ok IS FALSE"
+            " AND started_at >= date_trunc('day', now())",
+            (SOURCE_MELI,),
+        ).fetchone()[0]
+        assert fallidas == 1
+        capsys.readouterr()
+
+        # Con la corrida fallida de hoy, ese punto no hace salir 1: la falla ya
+        # la aviso cron-avisa a las 09:30.
+        assert lectura_de_hoy(conn, hoy) == "fallida"
+        assert ejecuta_alertas() == 0
+        assert "no corrió" not in capsys.readouterr().err
+        assert enviados == []  # sin alertas pendientes no se manda nada
+
+
+@_skip_db
+def test_arreglos03_dk_mas_de_20_pendientes_ninguna_se_sella_sin_salir():
+    """Datos (revision de Kimi, PR #636): con mas de 20 pendientes, avisada_at
+    solo se sella en alertas cuyo texto salio en un aviso que si llego."""
+    from app.reputacion_alertas import avisa_pendientes
+
+    with db_reputacion("orbit_repdk") as (conn, _dsn):
+        for i in range(1, 22):
+            conn.execute(
+                "INSERT INTO reputation_alert"
+                " (platform, external_id, tipo, severidad, mensaje)"
+                " VALUES ('meli', %s, 'resena_1', 'critica', %s)",
+                (f"MLM{i}", f"1 estrella nueva: review R{i} en MLM{i}"),
+            )
+
+        def selladas(sello: bool) -> list[str]:
+            return [
+                m
+                for (m,) in conn.execute(
+                    "SELECT mensaje FROM reputation_alert"
+                    " WHERE (avisada_at IS NOT NULL) = %s ORDER BY id",
+                    (sello,),
+                )
+            ]
+
+        # Sale el primer aviso y los demas fallan: lo sellado salio en ese aviso.
+        llegaron: list[str] = []
+        intentos: list[str] = []
+
+        def solo_el_primero(texto: str) -> bool:
+            intentos.append(texto)
+            if len(intentos) == 1:
+                llegaron.append(texto)
+                return True
+            return False
+
+        avisa_pendientes(conn, envia=solo_el_primero)
+        assert [m for m in selladas(True) if m not in llegaron[0]] == []
+
+        # Los envios salen: ninguna alerta queda sin salir ni sin sello.
+        def salen(texto: str) -> bool:
+            llegaron.append(texto)
+            return True
+
+        assert avisa_pendientes(conn, envia=salen) is True
+        assert selladas(False) == []
+        texto = "\n".join(llegaron)
+        assert [m for m in selladas(True) if m not in texto] == []
+
+
+@_skip_db
+def test_arreglos03_dk_migracion_avisada_y_su_reversa():
+    """Datos de produccion: la migracion marca como avisadas las alertas que
+    ya existen (salieron en el resumen del ciclo) y la reversa la quita."""
+    from test_reputacion import ORDEN, ROOT, _migracion
+
+    avisada = _migracion("arreglos03_reputacion_avisada")
+    reversa = avisada.replace("_arreglos03_", "_reversa_arreglos03_", 1)
+    texto = (ROOT / "migrations" / avisada).read_text(encoding="utf-8")
+    (sonda,) = [
+        linea.removeprefix("-- sonda-aplicada:").strip()
+        for linea in texto.splitlines()[:10]
+        if linea.startswith("-- sonda-aplicada:")
+    ]
+    sin_avisada = tuple(nombre for nombre in ORDEN if nombre != avisada)
+    with db_reputacion("orbit_repdk", orden=sin_avisada) as (conn, _dsn):
+        conn.execute(
+            "INSERT INTO reputation_alert"
+            " (platform, external_id, tipo, severidad, mensaje, created_at)"
+            " VALUES ('meli', 'MLM1', 'resena_1', 'critica',"
+            " '1 estrella nueva: review 9 en MLM1', '2026-10-17 10:30+00')"
+        )
+        assert conn.execute(sonda).fetchone()[0] is False
+
+        conn.execute(texto)
+        assert conn.execute(sonda).fetchone()[0] is True
+        creada, avisada_at = conn.execute(
+            "SELECT created_at, avisada_at FROM reputation_alert"
+        ).fetchone()
+        assert avisada_at == creada
+        assert conn.execute(
+            "SELECT has_column_privilege('app_decide', 'reputation_alert', 'avisada_at', 'UPDATE')"
+        ).fetchone()[0]
+
+        conn.execute((ROOT / "migrations" / reversa).read_text(encoding="utf-8"))
+        assert conn.execute(sonda).fetchone()[0] is False
 
 
 if __name__ == "__main__":
