@@ -17,7 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 import pytest
-from test_schema import _postgres_obligatorio_ausente
+from test_schema import SQL_LEDGER_ORIGINAL, _postgres_obligatorio_ausente
 
 from app.ledger import sync_ledger
 from app.ledger_atribucion import AtribuidorAmazon
@@ -68,6 +68,7 @@ def _db():
         conn.execute("SET TIME ZONE 'UTC'")
         for nombre in ORDEN_F1:
             conn.execute((RAIZ / "migrations" / nombre).read_text(encoding="utf-8"))
+        conn.execute(SQL_LEDGER_ORIGINAL)
         yield conn
     finally:
         if conn is not None:
