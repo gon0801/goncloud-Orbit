@@ -10,6 +10,8 @@ Decisiones selladas (plans/orbit-06.md, "Decisiones de la 0.6"):
 1. Alcance Amazon y MeLi (M.2 abrio `meli`; antes excluida contada). `amazon`→`amazon_mx`.
 2. Kind via MAPA_KIND (tabla): sale_gross→sale; refund→refund;
    fee+tax/isr_withheld→withholding; resto fee→fee (ads conserva etiqueta).
+   La devolucion de MeLi sin categoria lleva fee_type 'refund' (ARREGLOS 03
+   D-H: MeLi no manda la categoria y sin etiqueta el margen salia vacio).
 3. Acceso `--sqlite` mode=ro.
 4. Signo TAL CUAL; filas que violan ledger_convencion_signos → NO escritas
    (jamas voltear un fee+).
@@ -58,6 +60,8 @@ SOURCE = "accounting_ledger_events"
 # sale/refund ignoran fee_category en el lookup (clave con None).
 # fee+withholding se clavea por categoria exacta; el resto de fee cae en
 # ("fee", None).
+# Fuera de la tabla (ARREGLOS 03 D-H): mapear_destino completa fee_type
+# 'refund' para una devolucion de MeLi sin categoria (MeLi no la manda).
 MAPA_KIND: dict[tuple[str, str | None], tuple[str, str | None]] = {
     ("sale_gross", None): ("sale", None),
     ("refund", None): ("refund", "category"),
@@ -355,6 +359,12 @@ def mapear_destino(
         return None
 
     plataforma = _PLATAFORMA_ORIGEN[fila.platform.strip()]
+    # ARREGLOS 03 D-H: MeLi no manda fee_category en sus devoluciones; una
+    # devolucion sin categoria es una devolucion (la publicidad de MeLi nunca
+    # llega como refund: entra como fee con categoria ads). Amazon conserva
+    # NULL: su contrato es la categoria o nada.
+    if plataforma == "meli" and kind == "refund" and fee_type is None:
+        fee_type = "refund"
     moneda = fila.currency.strip().upper()  # type: ignore[union-attr]
     payload = _parse_payload(fila.raw_payload)
     order_raw = fila.order_id
