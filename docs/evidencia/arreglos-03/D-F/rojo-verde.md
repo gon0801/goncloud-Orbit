@@ -66,6 +66,20 @@ porque el día de México nunca va adelante del UTC.
 `tests/test_conciliar_meli_ads.py` no usa `leer_origen` (corre el script de conciliación, que
 tiene su propio reloj): solo es regresión.
 
+## Pruebas vecinas de los módulos tocados
+
+`tests/test_architecture.py tests/test_cli.py tests/test_ui_metricas.py tests/test_ingest_diario.py
+tests/test_metricas_listas.py tests/test_placements.py tests/test_reports_pipeline.py
+tests/test_ads_producto_ingesta.py tests/test_jev_senales.py` (las que importan `dashboard_resumen`,
+`meli.ads_*` o `dia_cerrado`), con `-rs`, sobre `cfce88f`: `1 failed, 285 passed, 2 skipped`.
+
+- El fallo era `test_presupuesto_de_tamano_por_modulo`: `app/meli/ads_ingest.py` llegaba a 914
+  líneas (tope 900). Se recortó sin cambiar comportamiento (`_sella_reintento` recibe el origen,
+  `+Counter` en lugar de un helper): 897 líneas. La misma prueba sigue en rojo por
+  `app/ledger.py` (1000 líneas), que ya falla igual en `origin/master` desde D-I (#638) y no
+  está en la allowlist: ajeno a D-F.
+- Los 2 skipped son de `test_architecture.py` («el OS no soporta archivos ilegibles»): Windows.
+
 ## D-F.3 — el Resumen lee las zonas de `app/dia_cerrado.py`
 
 `Canal` pierde `zona`; `hoy_por_canal` usa `dia_local`; `_cerrado` usa
