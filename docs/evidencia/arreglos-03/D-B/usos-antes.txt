@@ -1,0 +1,48 @@
+# D-B.1 — usos antes de borrar (2026-11-18, base feab505)
+
+## crontab: bash docs/evidencia/arreglos-03/comprobar-cron.sh D-B (Git Bash, salida completa, exit 0)
+
+gon usos=0
+
+## produccion: echo 'select platform, count(*) from reputation_snapshot group by 1' | bash docs/evidencia/arreglos-01/lee_prod.sh (exit 0)
+
+meli|3524
+
+Lectura exitosa; unicamente filas de MeLi. La referencia del diseno (3140) es del
+2026-11-12; la corrida diaria de MeLi suma filas, sin ninguna fila de amazon.
+
+## rg -n -e sync_meli -e sync_seller -e sync_questions -e ClienteJunglee -e ApifyCredentials -e sync_amazon -e 'fuente amazon' app tools docs --glob '!docs/evidencia/**'
+
+app/meli/ads_ingest.py:5:tabla que escribe `sync_meli_ads.py`. El adaptador y la forma canonica viven en
+app/meli/ads_source.py:4:(PK `(date, campaign_id)`), la tabla que escribe `sync_meli_ads.py`. El plan
+app/reputacion.py:262:def sync_meli(
+app/reputacion.py:308:def sync_amazon(
+app/reputacion.py:310:    cliente: ClienteJunglee,
+app/reputacion.py:39:    ApifyCredentials as ApifyCredentials,
+app/reputacion.py:42:    ClienteJunglee as ClienteJunglee,
+app/reputacion.py:586:def sync_seller(
+app/reputacion.py:615:def sync_questions(
+app/reputacion.py:681:            cliente: ClienteMeli | ClienteJunglee = ClienteMeli(creds, transport=transport)
+app/reputacion.py:683:            creds = ApifyCredentials.from_secrets_dir(secrets_dir)
+app/reputacion.py:684:            cliente = ClienteJunglee(creds, transport=transport)
+app/reputacion.py:693:                assert isinstance(cliente, ClienteJunglee)
+app/reputacion.py:694:                resultado = sync_amazon(
+app/reputacion.py:777:    cliente: ClienteMeli | ClienteJunglee,
+app/reputacion.py:802:    assert isinstance(cliente, ClienteJunglee)
+app/reputacion_clientes.py:199:class ClienteJunglee:
+app/reputacion_clientes.py:204:        creds: ApifyCredentials,
+app/reputacion_clientes.py:87:class ApifyCredentials:
+app/reputacion_clientes.py:93:        return "ApifyCredentials(***)"
+app/reputacion_clientes.py:98:    def from_secrets_dir(cls, secrets_dir: str | Path | None = None) -> ApifyCredentials:
+docs/DEPLOY.md:2418:`reputacion snapshot --fuente amazon` en lunes + instalar cron
+docs/DEPLOY.md:546:`(date, campaign_id)`), la tabla que escribe `sync_meli_ads.py`. Destino:
+docs/DEPLOY.md:691:- `sync_meli_ads.py` no está en crontab: lo corre `goncloud-dashboard.service`
+docs/traspaso/TRASPASO-1-ACCESOS-E-INFRAESTRUCTURA.md:102:Lo consume el crontab de `gon` con `source` antes de `sync_meli_orders.py`,
+docs/traspaso/TRASPASO-1-ACCESOS-E-INFRAESTRUCTURA.md:103:`sync_amazon.py` y `heartbeat.py`.
+docs/traspaso/TRASPASO-2-AUTOPSIA-Y-CIMIENTOS.md:52:`sync_amazon.py` y `sync_amazon_finance_v2024.py` eran **dos escritores de la misma tabla
+
+Notas: `sync_meli_ads.py`, `sync_meli_orders.py` y `sync_amazon.py` (docs/traspaso,
+docs/DEPLOY.md:546/691 y los docstrings de app/meli) son scripts del sistema viejo,
+no las funciones que borra D-B; no se tocan. `--fuente amazon` en docs/DEPLOY.md:2418
+es el pendiente de Apify que quita D-B.3. Fuera de app/tools/docs, solo
+tests/test_reputacion.py usa las funciones borradas (se reescribe en D-B.2).

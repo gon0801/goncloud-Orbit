@@ -1,9 +1,11 @@
 """Tests de la ingesta A.2 (app/reputacion.py + CLI snapshot).
 
-(a) UNITARIOS: planes puros con los shapes E/0.2-E/0.3.
-(b) CLIENTES: MockTransport (jamas red real); guardia, refresh, topes.
+(a) UNITARIOS: planes puros con el shape E/0.3 (MeLi).
+(b) CLIENTES: MockTransport (jamas red real); guardia y refresh.
 (c) INTEGRACION: PG real desechable (0001+0024+0025); transaccion,
     idempotencia, conciliacion, redaction y CLI ejecutado de verdad.
+    La escritura entra por _corre_meli (el camino del cron) o por
+    fetch_seller/fetch_questions + _escribe_todo_meli.
 """
 
 from __future__ import annotations
@@ -27,23 +29,18 @@ from test_schema import _postgres_obligatorio_ausente, _test_dsn
 from app import cli as app_cli
 from app.redaction import REDACTED, register_secret, scrub
 from app.reputacion import (
-    ApifyCredentials,
-    ClienteJunglee,
     ClienteMeli,
     MeliCredentials,
     ReputacionError,
     _corre_meli,
+    _escribe_todo_meli,
     _pagina,
-    _plat_de_input,
     ejecuta_snapshot,
+    fetch_questions,
+    fetch_seller,
     plan_question,
     plan_seller,
-    plan_snapshot_junglee,
     plan_snapshot_meli,
-    sync_amazon,
-    sync_meli,
-    sync_questions,
-    sync_seller,
 )
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
@@ -54,7 +51,7 @@ OBS2 = dt.datetime(2026, 9, 8, 23, 0, 0, tzinfo=UTC)
 FETCH = dt.datetime(2026, 9, 8, 21, 30, 0, tzinfo=UTC)
 
 # ---------------------------------------------------------------------------
-# Fakes con los shapes E/0.3 (MeLi) y E/0.2 (junglee)
+# Fakes con el shape E/0.3 (MeLi)
 # ---------------------------------------------------------------------------
 
 _ME = {"id": 135734858, "nickname": "ELECTRONICSHOUSE"}
@@ -162,18 +159,6 @@ _QUESTIONS = {
         },
     ],
 }
-_JUNGLEE_ITEM = {
-    "input": "https://www.amazon.com.mx/dp/B0HIJO",
-    "originalAsin": "B0HIJO",
-    "asin": "B0PADRE",
-    "title": "Arras de Boda",
-    "stars": 4.2,
-    "reviewsCount": 59,
-    "hasReviews": True,
-    "loadedCountryCode": "MX",
-    "price": {"value": 1248, "currency": "$"},
-    "brand": "EHV",
-}
 
 
 def _creds_meli(tmp_path: Path) -> MeliCredentials:
@@ -184,11 +169,6 @@ def _creds_meli(tmp_path: Path) -> MeliCredentials:
         encoding="utf-8",
     )
     return MeliCredentials.from_secrets_dir(tmp_path)
-
-
-def _creds_apify(tmp_path: Path) -> ApifyCredentials:
-    (tmp_path / "apify_token.json").write_text(json.dumps({"token": "APIFY"}), encoding="utf-8")
-    return ApifyCredentials.from_secrets_dir(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -247,24 +227,6 @@ def test_plan_meli_status_no_published():
     )
     _, eventos, _ = plan_snapshot_meli("MLM1", _ITEM, una, FETCH)
     assert not eventos[0].publicada
-
-
-def test_plan_junglee_grano_padre():
-    snap, skips = plan_snapshot_junglee("B0HIJO", _JUNGLEE_ITEM, FETCH, "amazon_mx")
-    assert snap is not None
-    assert snap.external_id == "B0HIJO"  # lo pedido, no lo devuelto
-    assert snap.parent_asin == "B0PADRE"
-    assert snap.rating == 4.2
-    assert snap.review_count == 59
-    assert not skips
-
-
-def test_plan_junglee_stars_invalidas():
-    malo = dict(_JUNGLEE_ITEM, stars="buenas", reviewsCount=-3)
-    snap, skips = plan_snapshot_junglee("B0HIJO", malo, FETCH, "amazon_mx")
-    assert snap is not None and snap.rating is None and snap.review_count is None
-    assert "amazon: stars fuera de [1,5] o invalido (NULL)" in skips
-    assert "amazon: reviewsCount invalido (NULL)" in skips
 
 
 # ---------------------------------------------------------------------------
@@ -358,32 +320,6 @@ def test_cliente_meli_429_reintenta_y_aborta(tmp_path):
     cliente.close()
 
 
-def test_junglee_topes_abortan_antes_del_post(tmp_path):
-    posts: list = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        posts.append(1)
-        return httpx.Response(201, json=[])
-
-    cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-    with pytest.raises(ReputacionError, match="max_productos"):
-        cliente.scrape_productos(["u1", "u2"], max_productos=1)
-    with pytest.raises(ReputacionError, match="tope_usd"):
-        cliente.scrape_productos(["u1"], tope_usd=0.0001)
-    assert posts == []  # cero POSTs: nada gastado
-    cliente.close()
-
-
-def test_junglee_respuesta_no_lista(tmp_path):
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(201, json={"error": "raro"})
-
-    cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-    with pytest.raises(ReputacionError, match="no-lista"):
-        cliente.scrape_productos(["u1"])
-    cliente.close()
-
-
 # ---------------------------------------------------------------------------
 # (c) INTEGRACION: PG real (0001 + 0024 + 0025)
 # ---------------------------------------------------------------------------
@@ -463,16 +399,18 @@ def _mock_meli_completo():
 
 
 @_skip_db
-def test_sync_meli_completo_e_idempotente(tmp_path):
-    """2 items (1 con reviews, 1 sin): snapshots+eventos; x2 = 0 nuevas."""
+def test_corre_meli_completo_e_idempotente(tmp_path):
+    """2 items (1 con reviews, 1 sin): snapshots+eventos+seller+questions;
+    x2 = 0 nuevas."""
     with db_reputacion() as (conn, _dsn):
         cliente = ClienteMeli(
             _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
         )
-        r1 = sync_meli(conn, cliente, OBS, OBS.date())
-        # 2 snapshots + 3 reviews (MLM1 pagina 2 via offset, XR-1 ALTA-2).
-        assert r1.ok and r1.filas_insertadas == 5
-        assert r1.filas_idempotentes == 0
+        r1 = _corre_meli(conn, cliente, OBS, OBS.date())
+        # 2 snapshots + 3 reviews (MLM1 pagina 2 via offset, XR-1 ALTA-2)
+        # + 1 seller + 2 questions.
+        assert r1["filas_insertadas"] == 8
+        assert r1["filas_idempotentes"] == 0
         assert (
             conn.execute("SELECT count(*) FROM review_event WHERE external_id = 'MLM1'").fetchone()[
                 0
@@ -483,82 +421,57 @@ def test_sync_meli_completo_e_idempotente(tmp_path):
             "SELECT rating, review_count FROM reputation_snapshot WHERE external_id = 'MLM0'"
         ).fetchone()
         assert nulo == (None, 0)
-        r2 = sync_meli(conn, cliente, OBS, OBS.date())
-        assert r2.filas_insertadas == 0
-        assert r2.filas_idempotentes == 5
+        r2 = _corre_meli(conn, cliente, OBS, OBS.date())
+        assert r2["filas_insertadas"] == 0
+        assert r2["filas_idempotentes"] == 8
         assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 2
         assert conn.execute("SELECT count(*) FROM review_event").fetchone()[0] == 3
         cliente.close()
 
 
 @_skip_db
-def test_sync_amazon_concilia_padre_y_ausentes(tmp_path):
-    with db_reputacion() as (conn, _dsn):
-        _sembrar_listing(conn, odoo_sku="P-1", asin="B0HIJO")
-        _sembrar_listing(conn, odoo_sku="P-2", asin="B0AUSENTE")
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(201, json=[_JUNGLEE_ITEM, {"sin": "input"}])
-
-        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-        resultado = sync_amazon(conn, cliente, OBS, OBS.date())
-        assert resultado.filas_insertadas == 1
-        fila = conn.execute(
-            "SELECT external_id, parent_asin, rating, review_count FROM reputation_snapshot"
-        ).fetchone()
-        assert fila[0] == "B0HIJO" and fila[1] == "B0PADRE"
-        assert float(fila[2]) == 4.2 and fila[3] == 59
-        assert "amazon: ASIN sin item en respuesta (ausente, no cero)" in resultado.skips
-        assert "amazon: item sin ASIN conciliable (se descarta)" in resultado.skips
-        assert resultado.costo_usd == 2 * 0.0025
-        cliente.close()
-
-
-@_skip_db
-def test_sync_amazon_failed_sella_sin_autocommit(tmp_path):
-    """A.7 (run 119 huerfano): prod corre SIN autocommit; un SELECT
-    desnudo abria la tx implicita y el sello failed se perdia en el
-    close(). Con mock 402 (camino real del deploy): tras close, el
-    run debe estar sellado failed. Falla sin el fix."""
+def test_corre_meli_fallo_sella_sin_autocommit(tmp_path):
+    """A.7 (run 119 huerfano): prod corre SIN autocommit; el sello failed
+    debe sobrevivir al close(). Con mock 401 (pase vencido, camino real
+    del deploy): tras close, el run debe estar sellado failed. Falla sin
+    el fix."""
     with db_reputacion() as (conn, dsn_db):
-        _sembrar_listing(conn, odoo_sku="P-1", asin="B0X")
 
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(402, json={"error": "sin credito"})
+            return httpx.Response(401, json={"error": "expired"})
 
         prod = psycopg.connect(dsn_db)  # prod-like: sin autocommit
-        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-        with pytest.raises(ReputacionError):
-            sync_amazon(prod, cliente, OBS, OBS.date())
+        cliente = ClienteMeli(
+            _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
+        )
+        with pytest.raises(ReputacionError, match="pase del bridge vencido"):
+            _corre_meli(prod, cliente, OBS, OBS.date())
         prod.close()
         cliente.close()
         fila = conn.execute(
-            "SELECT ok, rows_written FROM ingest_run WHERE source = 'reputacion_amazon'"
+            "SELECT ok, rows_written FROM ingest_run WHERE source = 'reputacion_meli'"
         ).fetchone()
         assert fila[0] is False and fila[1] == 0
 
 
 @_skip_db
-def test_sync_amazon_exito_persiste_sin_autocommit(tmp_path):
+def test_corre_meli_exito_persiste_sin_autocommit(tmp_path):
     """A.7: el mismo bug revertia HECHOS en corrida exitosa (sello ok
     atrapado en la tx implicita). Tras close, hechos + sello visibles."""
     with db_reputacion() as (conn, dsn_db):
-        _sembrar_listing(conn, odoo_sku="P-1", asin="B0HIJO")
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(201, json=[_JUNGLEE_ITEM])
-
-        prod = psycopg.connect(dsn_db)
-        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-        resultado = sync_amazon(prod, cliente, OBS, OBS.date())
-        assert resultado.filas_insertadas == 1
+        prod = psycopg.connect(dsn_db)  # prod-like: sin autocommit
+        cliente = ClienteMeli(
+            _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
+        )
+        resultado = _corre_meli(prod, cliente, OBS, OBS.date())
+        assert resultado["filas_insertadas"] == 8
         prod.close()
         cliente.close()
-        assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 2
         fila = conn.execute(
-            "SELECT ok, rows_written FROM ingest_run WHERE source = 'reputacion_amazon'"
+            "SELECT ok, rows_written FROM ingest_run WHERE source = 'reputacion_meli'"
         ).fetchone()
-        assert fila[0] is True and fila[1] == 1
+        assert fila[0] is True and fila[1] == 8
 
 
 @_skip_db
@@ -582,7 +495,7 @@ def test_corte_a_mitad_deja_cero_filas_de_hechos(tmp_path):
             mock.patch.object(conn, "execute", side_effect=execute_cortado),
             pytest.raises(RuntimeError, match="corte simulado"),
         ):
-            sync_meli(conn, cliente, OBS, OBS.date())
+            _corre_meli(conn, cliente, OBS, OBS.date())
         assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM review_event").fetchone()[0] == 0
         run = conn.execute("SELECT ok, rows_written FROM ingest_run").fetchone()
@@ -639,16 +552,25 @@ def test_ejecuta_snapshot_meli_fin_a_fin(tmp_path, monkeypatch, capsys):
 
 
 @_skip_db
-def test_cli_snapshot_amazon_dry_run_real(tmp_path, monkeypatch, capsys):
-    """CLI ejecutado de verdad (amazon dry-run no toca red)."""
+def test_cli_snapshot_meli_dry_run_real(tmp_path, monkeypatch, capsys):
+    """CLI ejecutado de verdad (meli dry-run: red completa, cero writes)."""
+    import app.reputacion as reputacion_mod
+
+    class _ClienteMeliConMock(reputacion_mod.ClienteMeli):
+        def __init__(self, creds, transport=None, **kwargs):
+            super().__init__(creds, transport=_mock_meli_completo(), backoff_base=0, **kwargs)
+
     with db_reputacion() as (conn, dsn_db):
-        _sembrar_listing(conn, asin="B0A")
         monkeypatch.setenv("ORBIT_DSN_INGEST", dsn_db)
-        (tmp_path / "apify_token.json").write_text('{"token": "X"}', encoding="utf-8")
+        _creds_meli(tmp_path)
         monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path))
-        codigo = app_cli.main(["reputacion", "snapshot", "--fuente", "amazon", "--dry-run"])
+        monkeypatch.setattr(reputacion_mod, "ClienteMeli", _ClienteMeliConMock)
+        codigo = app_cli.main(["reputacion", "snapshot", "--fuente", "meli", "--dry-run"])
         assert codigo == 0
-        assert json.loads(capsys.readouterr().out)["asins_catalogo"] == 1
+        resumen = json.loads(capsys.readouterr().out)
+        assert resumen["dry_run"] is True
+        assert resumen["items_vistos"] == 2
+        assert resumen["preguntas_vistas"] == 2
         assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 0
 
 
@@ -763,133 +685,47 @@ def test_plan_question_descartes_y_answer_no_objeto():
 
 
 @_skip_db
-def test_sync_seller_una_fila_e_idempotente(tmp_path):
+def test_fetch_seller_una_fila_e_idempotente(tmp_path):
     with db_reputacion() as (conn, _dsn):
         cliente = ClienteMeli(
             _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
         )
-        r1 = sync_seller(conn, cliente, OBS, OBS.date())
-        assert r1.filas_insertadas == 1
+        plan, skips = fetch_seller(cliente)
+        assert not skips
+        i1, idem1 = _escribe_todo_meli(conn, [], [], plan, [], OBS.date(), OBS)
+        assert (i1, idem1) == (1, 0)
         fila = conn.execute(
             "SELECT level_id, tx_total, disputas_total, disputas_abiertas"
             " FROM seller_reputation_snapshot"
         ).fetchone()
         assert fila == ("5_green", 662, 2, 1)
-        r2 = sync_seller(conn, cliente, OBS, OBS.date())
-        assert (r2.filas_insertadas, r2.filas_idempotentes) == (0, 1)
+        i2, idem2 = _escribe_todo_meli(conn, [], [], plan, [], OBS.date(), OBS)
+        assert (i2, idem2) == (0, 1)
         cliente.close()
 
 
 @_skip_db
-def test_sync_questions_reobservacion_y_pendientes(tmp_path):
+def test_fetch_questions_reobservacion_y_pendientes(tmp_path):
     with db_reputacion() as (conn, _dsn):
         cliente = ClienteMeli(
             _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
         )
-        r1 = sync_questions(conn, cliente, OBS, OBS.date())
-        assert r1.filas_insertadas == 2
+        planes, skips = fetch_questions(cliente)
+        assert not skips
+        i1, _ = _escribe_todo_meli(conn, [], [], None, planes, OBS.date(), OBS)
+        assert i1 == 2
         # Misma corrida: idempotente; otra corrida: re-observa (0026).
-        r2 = sync_questions(conn, cliente, OBS, OBS.date())
-        assert (r2.filas_insertadas, r2.filas_idempotentes) == (0, 2)
+        i2, idem2 = _escribe_todo_meli(conn, [], [], None, planes, OBS.date(), OBS)
+        assert (i2, idem2) == (0, 2)
         obs2 = OBS + dt.timedelta(days=1)
-        r3 = sync_questions(conn, cliente, obs2, obs2.date())
-        assert r3.filas_insertadas == 2
+        i3, _ = _escribe_todo_meli(conn, [], [], None, planes, obs2.date(), obs2)
+        assert i3 == 2
         pendientes = conn.execute(
             "SELECT DISTINCT ON (question_external_id) question_external_id, estado"
             " FROM meli_question WHERE estado = 'UNANSWERED'"
             " ORDER BY question_external_id, observed_at DESC"
         ).fetchall()
         assert [qid for qid, _ in pendientes] == ["13550511917"]
-        cliente.close()
-
-
-@_skip_db
-def test_sync_amazon_concilia_url_normalizada_y_original(tmp_path):
-    """Grok XR-1 MEDIA-3: sin www, trailing slash, minusculas u
-    originalAsin concilian igual (no por string de URL)."""
-    with db_reputacion() as (conn, _dsn):
-        _sembrar_listing(conn, odoo_sku="P-1", asin="B0HIJO")
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                201,
-                json=[
-                    dict(
-                        _JUNGLEE_ITEM,
-                        input="https://amazon.com.mx/dp/b0hijo/",
-                        originalAsin="B0HIJO",
-                    ),
-                    dict(_JUNGLEE_ITEM, input=None, originalAsin="B0HIJO"),
-                ],
-            )
-
-        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-        resultado = sync_amazon(conn, cliente, OBS, OBS.date())
-        # Ambos items concilian al mismo ASIN: 1 insercion + 1 idempotente
-        assert resultado.filas_insertadas == 1
-        assert resultado.filas_idempotentes == 1
-        assert "conciliable" not in " ".join(resultado.skips)
-        cliente.close()
-
-
-def test_plat_de_input_por_dominio():
-    """Grok XR-1 R2-1: el dominio del input pedido decide la plataforma."""
-    assert _plat_de_input("https://www.amazon.com.mx/dp/B0X") == "amazon_mx"
-    assert _plat_de_input("https://amazon.com/dp/B0X/") == "amazon_us"
-    assert _plat_de_input("HTTPS://WWW.AMAZON.COM.MX/dp/B0X") == "amazon_mx"
-    assert _plat_de_input("https://www.amazon.com.br/dp/B0X") is None
-    assert _plat_de_input(None) is None
-    assert _plat_de_input("sin-esquema/dp/B0X") is None
-
-
-@_skip_db
-def test_sync_amazon_mismo_asin_mx_y_us_dos_snapshots(tmp_path):
-    """Grok XR-1 R2-1 (MEDIA): el mismo ASIN en MX+US produce 2 snapshots,
-    uno por plataforma. Sin el fix el dict colapsaba a 1+1 idempotente."""
-    with db_reputacion() as (conn, _dsn):
-        _sembrar_listing(conn, odoo_sku="P-1", asin="B0GEMELO")
-        _sembrar_listing(conn, odoo_sku="P-2", plataforma="amazon_us", asin="B0GEMELO")
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                201,
-                json=[
-                    dict(_JUNGLEE_ITEM, input="https://www.amazon.com.mx/dp/B0GEMELO"),
-                    dict(_JUNGLEE_ITEM, input="https://www.amazon.com/dp/B0GEMELO"),
-                ],
-            )
-
-        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-        resultado = sync_amazon(conn, cliente, OBS, OBS.date())
-        assert resultado.filas_insertadas == 2
-        assert resultado.filas_idempotentes == 0
-        plats = {
-            r[0]
-            for r in conn.execute(
-                "SELECT platform FROM reputation_snapshot WHERE external_id = 'B0GEMELO'"
-            ).fetchall()
-        }
-        assert plats == {"amazon_mx", "amazon_us"}
-        cliente.close()
-
-
-@_skip_db
-def test_sync_amazon_asin_ambiguo_sin_dominio_descarta_con_ruido(tmp_path):
-    """Mismo ASIN en MX+US pero item sin dominio (input None): no se
-    atribuye a ninguna plataforma; skip ruidoso en vez de pisar."""
-    with db_reputacion() as (conn, _dsn):
-        _sembrar_listing(conn, odoo_sku="P-1", asin="B0GEMELO")
-        _sembrar_listing(conn, odoo_sku="P-2", plataforma="amazon_us", asin="B0GEMELO")
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                201, json=[dict(_JUNGLEE_ITEM, input=None, originalAsin="B0GEMELO")]
-            )
-
-        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-        resultado = sync_amazon(conn, cliente, OBS, OBS.date())
-        assert resultado.filas_insertadas == 0
-        assert "amazon: ASIN en varias plataformas sin dominio (se descarta)" in resultado.skips
         cliente.close()
 
 
@@ -919,39 +755,14 @@ def test_corre_meli_fallo_conserva_skips_acumulados(tmp_path, monkeypatch):
         assert "scan truncado" in (fila[2] or "")
 
 
-def test_junglee_token_en_header_no_en_url(tmp_path):
-    """Grok XR-1 MEDIA-5: el token jamas viaja en query string."""
-    vistos: list = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        vistos.append(request)
-        assert request.headers.get("Authorization") == "Bearer APIFY"
-        return httpx.Response(201, json=[])
-
-    cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
-    cliente.scrape_productos(["https://www.amazon.com.mx/dp/B0X"])
-    assert len(vistos) == 1
-    assert "token" not in str(vistos[0].url).lower()
-    cliente.close()
-
-
-def test_clientes_post_solo_junglee():
-    """Un solo POST en clientes: run-sync de junglee (scraper pagado
-    aprobado en A.2). Con el pase del bridge Orbit NUNCA pega a
-    /oauth/token (no refresca; MeLi resto solo-GET; a Amazon, ninguno)."""
+def test_clientes_meli_sin_posts():
+    """Cero POSTs en clientes de reputacion: con el pase del bridge
+    Orbit NUNCA pega a /oauth/token (no refresca) y MeLi es resto
+    solo-GET."""
     fuente = Path(__file__).resolve().parents[1] / "app" / "reputacion_clientes.py"
     texto = fuente.read_text(encoding="utf-8")
-    assert texto.count(".post(") == 1
+    assert texto.count(".post(") == 0
     assert "/oauth/token" not in texto
-    assert "/acts/" in texto
-
-
-def test_plan_junglee_parent_none_si_igual():
-    """Grok XR-1 BAJA-7: pedido == devuelto -> parent_asin NULL."""
-    snap, _ = plan_snapshot_junglee(
-        "B0PADRE", dict(_JUNGLEE_ITEM, asin="B0PADRE"), FETCH, "amazon_mx"
-    )
-    assert snap is not None and snap.parent_asin is None
 
 
 @_skip_db
