@@ -65,18 +65,17 @@ re-lanzar (toda invocacion deja fila auditable en ingest_run):
                                 rechazados quedan como warning + evidencia)
     descarga(...)   (IO de API: app.ads.descarga pide y sondea todos los
                      reportes de una vez, con repetidos -r1/-r2 y plazo de
-                     2 h 30 min; sync_metrics solo arma su grupo)
+                     2 h 30 min; los grupos los arma ingest diario)
     escribir_grupo(conn, ...)   (IO de DB: una transaccion por grupo, un
                                  reporte a la vez)
-    sync_metrics(conn, client, ...)   (orquestador del grupo metricas/productos)
     solicitar_reporte / descargar_filas   (primitivas que consume descarga)
 
 Decisiones selladas de esta task:
 
 - NO hay reporte de ad groups: nada aguas abajo lo consume (regla 1); si un
   dia se necesitara, se agrega su cfg al REPORTES_CFG y nada mas cambia.
-- UNA ingest_run por llamada a sync_metrics (source amazon_ads_reports_v3
-  para principal o amazon_ads_products_v3 para productos),
+- UNA ingest_run por grupo de descarga (source amazon_ads_reports_v3 para
+  metricas o amazon_ads_products_v3 para productos),
   sellada en exito y en fallo igual que sync_structure: nace abierta en su
   propia transaccion, el trabajo va en otra, y en fallo hay rollback atomico
   + sello best-effort ok=false con rows_skipped=0 EXPLICITO (la columna es
@@ -201,50 +200,42 @@ Productos anunciados (ORBIT 19 B.1):
   (migracion 0020), grano (platform, advertisedAsin, advertisedSku,
   metric_date): las filas del mismo asin/sku en varias campanas se SUMAN;
   JAMAS se reparte un agregado de campana entre productos (politica 0.4 §2).
-  NO entra en REPORTES_CFG: corre como corrida propia (main --productos,
-  misma ventana D-31..D-1 que el cron de metricas para re-pedir las 30d).
+  NO entra en REPORTES_CFG: va en el grupo productos de la corrida diaria
+  (ingest diario), misma ventana D-31..D-1 para re-pedir las 30d.
   campaignId/adGroupId/adId viajan como JSONB de trazabilidad. "salesSameSku30d"
   NO se pide (400 vivo); attributedSalesSameSku30d/purchasesSameSku30d si.
   Moneda: la del perfil (mx->MXN, us->USD), sellada por el trigger compartido.
 
-`python -m app.ads.reports`: carga AdsCredentials.from_secrets_dir()
-(ORBIT_SECRETS_DIR) y la DSN de ORBIT_DSN_INGEST (via app.db.connect),
-sincroniza por defecto AYER UTC (--fecha / --fecha-fin, max 31 dias, el tope
-de la API) para los perfiles aceptados e imprime por stdout un resumen SIN
-secretos. Sin ORBIT_DSN_INGEST -> mensaje claro y exit 2 (fail-closed, patron
-structure.main). La retencion de 95 dias NO se gatea aqui: pedir mas viejo
-falla en la API y eso ya es fail-closed.
+Este modulo no tiene `__main__`: el orquestador vivo es `python -m app.cli
+ingest diario` (app/ads/diario.py), que arma los grupos de metricas,
+productos y placements sobre descarga + escribir_grupo, carga las
+credenciales y la DSN de ingesta y resume por stdout SIN secretos. La
+retencion de 95 dias NO se gatea ahi: pedir mas viejo falla en la API y eso
+ya es fail-closed.
 """
 
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 import gzip
 import json
 import logging
-import os
 import re
-import sys
-import time
 import zlib
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 import psycopg
 from psycopg.types.json import Jsonb
 
 from app.ads.client import AdsClient
-from app.ads.config import AdsCredentials
-from app.ads.salud import SOURCE, intentar_procesar_run
+from app.ads.salud import SOURCE  # noqa: F401 - reexport que usa app.ads.diario
 from app.ads.structure import (
-    _SQL_ABRIR_RUN,
     PerfilAds,
     _formato_skip_reason,
     _sellar_run,
 )
-from app.db import connect
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -364,7 +355,7 @@ TARGETS_CFG = {
 # nuestro sondeo, la verifico EN VIVO el sistema viejo goncloud-MCP-2
 # (_request_search_term_report: "spSearchTerm" SINGULAR, groupBy
 # ["searchTerm"], purchases7d/sales7d); re-sellado contra la API en la
-# corrida real de 1.5. "tabla" es la clave que usa sync_metrics para
+# corrida real de 1.5. "tabla" es la clave que usa escribir_grupo para
 # despachar esta cfg a ingest_search_terms.
 SEARCH_TERMS_CFG = {
     "nombre": "search_terms",
@@ -380,8 +371,8 @@ REPORTES_CFG = (CAMPANAS_CFG, KEYWORDS_CFG, TARGETS_CFG, SEARCH_TERMS_CFG)
 # (platform, advertisedAsin, advertisedSku) -> tabla PROPIA
 # ads_product_metric_observation (migracion 0020). NO entra en REPORTES_CFG:
 # su ingesta no resuelve ad_entity (el producto anunciado no es entidad) y va
-# en corrida propia (sync_metrics(reportes=(PRODUCTOS_CFG,)) / --productos),
-# mismo patron de fase API/DB y misma ventana del cron (D-31..D-1). Forma
+# en el grupo productos de la corrida diaria (ingest diario), mismo
+# patron de fase API/DB y misma ventana del cron (D-31..D-1). Forma
 # verificada en vivo 2026-09-06 (docs/evidencia/orbit-19/0.3/reporte.md):
 # reportTypeId spAdvertisedProduct, groupBy ["advertiser"], 767 filas MX,
 # cost/clicks conciliados. PROHIBIDO pedir "salesSameSku30d" (400 vivo);
@@ -551,8 +542,8 @@ class _FilaProducto:
 class ResultadoIngesta:
     """Outcome contable de UN reporte ingerido.
 
-    `skips` (motivo -> contador) se expone para que sync_metrics acumule sin
-    re-parsear el texto de skip_reason (una sola fuente del formato:
+    `skips` (motivo -> contador) se expone para que escribir_grupo acumule
+    sin re-parsear el texto de skip_reason (una sola fuente del formato:
     _formato_skip_reason de structure).
     """
 
@@ -579,21 +570,6 @@ class ResumenReporte:
     rows_written: int
     rows_skipped: int
     skip_reason: str | None
-
-
-@dataclass
-class ResultadoSync:
-    """Outcome contable de la corrida (espejo de la ingest_run sellada)."""
-
-    run_id: int
-    ok: bool
-    rows_written: int
-    rows_skipped: int
-    skip_reason: str | None
-    reportes: list[ResumenReporte]
-    # Evidencia de perfiles rechazados (hallazgo reviewer): una corrida con
-    # cero perfiles aceptados NO debe poder pasar en silencio.
-    perfiles_rechazados: list[PerfilAds] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -1404,8 +1380,8 @@ def ingest_metrics(
     entidades). La moneda es la del perfil (us->USD, mx->MXN) y la sella el
     trigger metric_moneda_de_plataforma en la base.
 
-    `run_id` es la ingest_run que abre sync_metrics (UNA por corrida, no una
-    por reporte). `hoy` es la fecha del reloj de la DB (UTC fijado) calculada
+    `run_id` es la ingest_run que abre la corrida de descarga (UNA por grupo,
+    no una por reporte). `hoy` es la fecha del reloj de la DB (UTC fijado) calculada
     en la misma transaccion que abre la run: el guard de fecha futura usa el
     MISMO reloj que escribe observed_at con now() (hallazgo grok).
     `fecha_ini`/`fecha_fin` delimitan el rango solicitado: una fila con
@@ -1670,7 +1646,7 @@ def ingest_productos(
 
 
 # ---------------------------------------------------------------------------
-# Orquestador + rango de fechas
+# Rango de fechas + escritor por grupo (el orquestador es app.ads.diario)
 # ---------------------------------------------------------------------------
 
 
@@ -1841,238 +1817,3 @@ def escribir_grupo(
         skip_reason=_formato_skip_reason(skips),
         reportes=resumenes,
     )
-
-
-def sync_metrics(
-    conn: psycopg.Connection,
-    client: AdsClient,
-    *,
-    fecha_ini: dt.date,
-    fecha_fin: dt.date,
-    sleep=time.sleep,
-    reloj=time.monotonic,
-    reportes: tuple[dict, ...] = REPORTES_CFG,
-) -> ResultadoSync:
-    """Orquestador: su fase de API vive entera en app.ads.descarga (un solo
-    evaluar_perfiles, todos los reportes pedidos y sondeados en una vuelta,
-    repetidos -r1/-r2 y plazo de 2 h 30 min); esta funcion solo arma su grupo
-    y la fase de DB (`escribir_grupo`, una transaccion por corrida).
-
-    `reportes` despacha la corrida: REPORTES_CFG (default, campanas/keywords/
-    targets/search terms) o (PRODUCTOS_CFG,) para la corrida de productos
-    anunciados de ORBIT 19 B.1 (main --productos): mismo grupo, misma run.
-    Cero perfiles aceptados NO es excepcion ni exito: la run se sella ok=false
-    con los motivos de rechazo y se RETORNA el fallo (hallazgo grok). Cualquier
-    otro fallo (perfiles, creacion, plazo de sondeo, DB) sube como excepcion
-    despues de dejar la run sellada ok=false (fail-closed auditado).
-    """
-    from app.ads.descarga import GrupoDescarga, descarga
-
-    _validar_rango(fecha_ini, fecha_fin)
-    source = SOURCE_PRODUCTOS if reportes == (PRODUCTOS_CFG,) else SOURCE
-    clave = "productos" if source == SOURCE_PRODUCTOS else "metricas"
-    grupo = GrupoDescarga(clave=clave, source=source, cfgs=tuple(reportes))
-    resultados = descarga(
-        conn,
-        client,
-        [grupo],
-        (fecha_ini, fecha_fin),
-        reloj=reloj,
-        sleep=sleep,
-        al_completar=escribir_grupo,
-    )
-    res = resultados[clave]
-    if res.ok:
-        escritura = res.escritura
-        return ResultadoSync(
-            run_id=res.run_id,
-            ok=True,
-            rows_written=escritura.rows_written,
-            rows_skipped=escritura.rows_skipped,
-            skip_reason=escritura.skip_reason,
-            reportes=escritura.reportes,
-            perfiles_rechazados=res.perfiles_rechazados,
-        )
-    if res.motivo == "cero_perfiles":
-        # Verde falso (hallazgo grok): con cero aceptados la corrida se sella
-        # ok=false CON los motivos y se RETORNA (no raise), igual que antes.
-        return ResultadoSync(
-            run_id=res.run_id,
-            ok=False,
-            rows_written=0,
-            rows_skipped=0,
-            skip_reason=res.skip_reason,
-            reportes=[],
-            perfiles_rechazados=res.perfiles_rechazados,
-        )
-    if res.exc is not None:
-        raise res.exc
-    raise AdsReportsError(res.skip_reason or "la corrida de metricas fallo")
-
-
-# ---------------------------------------------------------------------------
-# __main__: corrida real (resumen por stdout, sin secretos)
-# ---------------------------------------------------------------------------
-
-
-def _rango_desde_args(
-    fecha: str | None, fecha_fin: str | None, hoy: dt.date
-) -> tuple[dt.date, dt.date]:
-    """Args del CLI -> (fecha_ini, fecha_fin). Puro y testeable.
-
-    Default: ayer UTC (un solo dia). --fecha sola: ese dia. --fecha-fin:
-    rango cerrado (requiere --fecha). Cualquier problema es ValueError claro.
-    """
-    if fecha_fin is not None and fecha is None:
-        raise ValueError("--fecha-fin requiere --fecha")
-
-    def parsear(texto: str, etiqueta: str) -> dt.date:
-        try:
-            return dt.date.fromisoformat(texto)
-        except ValueError:
-            raise ValueError(f"{etiqueta} no es una fecha YYYY-MM-DD: {texto!r}") from None
-
-    fecha_ini = parsear(fecha, "--fecha") if fecha else hoy - dt.timedelta(days=1)
-    fecha_limite = parsear(fecha_fin, "--fecha-fin") if fecha_fin is not None else fecha_ini
-    _validar_rango(fecha_ini, fecha_limite)
-    return fecha_ini, fecha_limite
-
-
-def _imprimir_resumen(fecha_ini: dt.date, fecha_fin: dt.date, resultado: ResultadoSync) -> None:
-    print(f"== Sync de metricas Amazon Ads ({SOURCE}) ==")
-    print(f"rango {fecha_ini} .. {fecha_fin} (UTC)")
-    for perfil in resultado.perfiles_rechazados:
-        print(f"  perfil {perfil.profile_id} RECHAZADO (sin metricas): {perfil.motivo}")
-    for resumen in resultado.reportes:
-        print(
-            f"  perfil {resumen.profile_id} {resumen.platform} {resumen.nombre}: "
-            f"report_id={resumen.report_id} status={resumen.status} "
-            f"filas={resumen.filas} written={resumen.rows_written} "
-            f"skipped={resumen.rows_skipped}"
-        )
-        if resumen.skip_reason:
-            print(f"    skip_reason: {resumen.skip_reason}")
-    print(
-        f"ingest_run {resultado.run_id}: ok={resultado.ok} "
-        f"rows_written={resultado.rows_written} rows_skipped={resultado.rows_skipped}"
-    )
-    if resultado.skip_reason:
-        print(f"skip_reason: {resultado.skip_reason}")
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Sincroniza metricas y search terms de Amazon Ads (reporting v3) a "
-            "ads_metric_observation y search_term_observation"
-        )
-    )
-    parser.add_argument("--fecha", help="YYYY-MM-DD del dia inicial (default: ayer UTC)")
-    parser.add_argument(
-        "--fecha-fin", help="YYYY-MM-DD del dia final (rango max 31 dias; requiere --fecha)"
-    )
-    parser.add_argument(
-        "--productos",
-        action="store_true",
-        help=(
-            "solo el reporte spAdvertisedProduct (ORBIT 19 B.1) a "
-            "ads_product_metric_observation; sin el, los 4 reportes de siempre"
-        ),
-    )
-    parser.add_argument(
-        "--placements",
-        action="store_true",
-        help=(
-            "solo el reporte spCampaigns por placement (BIDS 02 V.2) a "
-            "ads_placement_observation; excluyente con --productos"
-        ),
-    )
-    args = parser.parse_args(argv)
-
-    if args.placements and args.productos:
-        print("--placements es excluyente con --productos", file=sys.stderr)
-        return 2
-
-    try:
-        fecha_ini, fecha_fin = _rango_desde_args(
-            args.fecha, args.fecha_fin, dt.datetime.now(dt.UTC).date()
-        )
-    except ValueError as exc:
-        print(f"rango invalido: {exc}", file=sys.stderr)
-        return 2
-
-    dsn = os.environ.get("ORBIT_DSN_INGEST")
-    if not dsn:
-        print(
-            "ORBIT_DSN_INGEST no esta definido: no se pueden escribir las metricas (fail-closed)",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        conn = connect(dsn)
-        try:
-            reportes = (PRODUCTOS_CFG,) if args.productos else REPORTES_CFG
-            if args.placements:
-                # La corrida propia sella su preflight con su source (no con
-                # el del pipeline principal). Ojo: Salud NO muestra ese
-                # source (igual que productos): lo fallido solo queda en
-                # ingest_run y en el log del cron.
-                from app.ads.placements import SOURCE_PLACEMENTS
-
-                source = SOURCE_PLACEMENTS
-            else:
-                source = SOURCE_PRODUCTOS if args.productos else SOURCE
-            try:
-                client = AdsClient(AdsCredentials.from_secrets_dir())
-            except Exception as exc:
-                # El preflight tambien pertenece al pipeline principal. Sin
-                # run, un fallo de credenciales quedaria invisible en Salud.
-                with conn.transaction():
-                    run_id = conn.execute(_SQL_ABRIR_RUN, (source,)).fetchone()[0]
-                    _registrar_resultado(
-                        conn,
-                        run_id,
-                        None,
-                        None,
-                        None,
-                        "global_failed",
-                        scrub(str(exc)) or type(exc).__name__,
-                    )
-                    _sellar_run(
-                        conn,
-                        run_id,
-                        ok=False,
-                        rows_skipped=0,
-                        skip_reason=scrub(str(exc)) or type(exc).__name__,
-                    )
-                intentar_procesar_run(conn, run_id)
-                raise
-            if args.placements:
-                from app.ads.placements import sync_placements
-
-                escritos = sync_placements(conn, client, desde=fecha_ini, hasta=fecha_fin)
-                print(f"placements {fecha_ini}..{fecha_fin}: rows_written={escritos}")
-                return 0
-            resultado = sync_metrics(
-                conn, client, fecha_ini=fecha_ini, fecha_fin=fecha_fin, reportes=reportes
-            )
-        finally:
-            conn.close()
-    except Exception as exc:
-        print(
-            "sync de metricas fallo (la ingest_run quedo sellada ok=false cuando "
-            f"fue posible): {scrub(str(exc))}",
-            file=sys.stderr,
-        )
-        return 1
-    _imprimir_resumen(fecha_ini, fecha_fin, resultado)
-    if not resultado.ok:
-        # Cero perfiles aceptados: la run quedo sellada ok=false en la base;
-        # el proceso tambien reporta fallo al cron (la excepcion pura sale por
-        # el except de arriba con el mismo exit 1).
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

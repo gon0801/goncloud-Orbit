@@ -22,16 +22,16 @@ import httpx
 import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
-import app.ads.reports
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.descarga import GrupoDescarga, descarga
 from app.ads.placements import (
     PLACEMENTS_CFG,
     SOURCE_PLACEMENTS,
     _planea_filas_placements,
-    sync_placements,
+    escribir_grupo,
 )
-from app.ads.reports import AdsReportsError, solicitar_reporte
+from app.ads.reports import solicitar_reporte
 from app.ads.structure import PerfilAds
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +76,23 @@ def _cliente(handler) -> AdsClient:
 
 def _token(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"access_token": "fake-access", "expires_in": 3600})
+
+
+def _corrida_placements(conn, client, *, desde, hasta, sleep=lambda s: None):
+    """El camino del diario para el grupo de placements: la descarga +
+    `escribir_grupo` (el de placements) con el mismo `GrupoDescarga` que
+    armaba `sync_placements`. Devuelve el `ResultadoGrupo`: el fallo del
+    grupo viaja en `.exc`/`.skip_reason` en lugar de lanzarse."""
+    grupo = GrupoDescarga(clave="placements", source=SOURCE_PLACEMENTS, cfgs=(PLACEMENTS_CFG,))
+    resultados = descarga(
+        conn,
+        client,
+        [grupo],
+        (desde, hasta),
+        sleep=sleep,
+        al_completar=escribir_grupo,
+    )
+    return resultados["placements"]
 
 
 def _fila(**cambios):
@@ -296,13 +313,14 @@ def test_mismo_reporte_dos_veces_no_agrega_filas():
     with _db_placements("orbit_pl_dedupe") as conn:
         _siembra_campana(conn, "amazon_mx", "9001")
         _siembra_campana(conn, "amazon_us", "8001")
-        escritos1 = sync_placements(
+        res1 = _corrida_placements(
             conn, _transporte_ok(filas), desde=ayer, hasta=ayer, sleep=lambda s: None
         )
-        escritos2 = sync_placements(
+        res2 = _corrida_placements(
             conn, _transporte_ok(filas), desde=ayer, hasta=ayer, sleep=lambda s: None
         )
-        assert (escritos1, escritos2) == (2, 0)
+        assert res1.ok is True and res2.ok is True
+        assert (res1.escritura.rows_written, res2.escritura.rows_written) == (2, 0)
         assert _observadas(conn) == 2
 
 
@@ -312,8 +330,10 @@ def test_dos_reportes_mismo_dia_dejan_dos_observaciones_y_distinct_on_una():
     filas = {"202": [_fila(cost=50.25)], "101": []}
     with _db_placements("orbit_pl_bitemp") as conn:
         camp = _siembra_campana(conn, "amazon_mx", "9001")
-        assert sync_placements(conn, _transporte_ok(filas, "R-UNO"), desde=ayer, hasta=ayer) == 1
-        assert sync_placements(conn, _transporte_ok(filas, "R-DOS"), desde=ayer, hasta=ayer) == 1
+        res_uno = _corrida_placements(conn, _transporte_ok(filas, "R-UNO"), desde=ayer, hasta=ayer)
+        res_dos = _corrida_placements(conn, _transporte_ok(filas, "R-DOS"), desde=ayer, hasta=ayer)
+        assert res_uno.ok is True and res_uno.escritura.rows_written == 1
+        assert res_dos.ok is True and res_dos.escritura.rows_written == 1
         assert _observadas(conn) == 2
         vigentes = conn.execute(
             "SELECT DISTINCT ON (ad_entity_id, placement, metric_date) cost, source_report_id"
@@ -334,8 +354,10 @@ def test_fallo_de_transporte_sella_run_propia_y_no_toca_principal():
         raise AssertionError("red caida")
 
     with _db_placements("orbit_pl_fallo") as conn:
+        # Un fallo global (la red cae al pedir el reporte) si se relanza: el
+        # caller no ve resultados; la run propia queda sellada ok=false.
         with pytest.raises(AssertionError):
-            sync_placements(
+            _corrida_placements(
                 conn, _cliente(handler), desde=dt.date(2026, 10, 5), hasta=dt.date(2026, 10, 5)
             )
         runs = conn.execute("SELECT source, ok FROM ingest_run").fetchall()
@@ -353,10 +375,13 @@ def test_cero_perfiles_sella_una_sola_vez_y_avisa_fallando(caplog):
         raise AssertionError("llamada inesperada")
 
     with _db_placements("orbit_pl_cero") as conn:
-        with pytest.raises(AdsReportsError, match="ningun perfil aceptado"):
-            sync_placements(
-                conn, _cliente(handler), desde=dt.date(2026, 10, 5), hasta=dt.date(2026, 10, 5)
-            )
+        # Cero perfiles: la run se sella ok=false con el motivo y el veredicto
+        # viaja en el ResultadoGrupo (nada se lanza).
+        res_cero = _corrida_placements(
+            conn, _cliente(handler), desde=dt.date(2026, 10, 5), hasta=dt.date(2026, 10, 5)
+        )
+        assert res_cero.ok is False
+        assert res_cero.skip_reason.startswith("ningun perfil aceptado")
         runs = conn.execute("SELECT source, ok FROM ingest_run").fetchall()
         assert runs == [(SOURCE_PLACEMENTS, False)]
         fallos = conn.execute(
@@ -375,117 +400,16 @@ def test_moneda_de_cada_fila_es_la_de_su_perfil():
     with _db_placements("orbit_pl_moneda") as conn:
         _siembra_campana(conn, "amazon_mx", "9001")
         _siembra_campana(conn, "amazon_us", "8001")
-        assert (
-            sync_placements(
-                conn, _transporte_ok(filas), desde=ayer, hasta=ayer, sleep=lambda s: None
-            )
-            == 2
+        res = _corrida_placements(
+            conn, _transporte_ok(filas), desde=ayer, hasta=ayer, sleep=lambda s: None
         )
+        assert res.ok is True and res.escritura.rows_written == 2
         monedas = dict(
             conn.execute(
                 "SELECT platform, metric_currency FROM ads_placement_observation"
             ).fetchall()
         )
         assert monedas == {"amazon_mx": "MXN", "amazon_us": "USD"}
-
-
-# ---------------------------------------------------------------------------
-# (d) MAIN
-# ---------------------------------------------------------------------------
-
-
-def test_main_placements_excluyente_con_productos(monkeypatch, capsys):
-    from app.ads.reports import main
-
-    monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
-    assert main(["--placements", "--productos"]) == 2
-    err = capsys.readouterr().err
-    assert "--placements" in err and "--productos" in err
-
-
-def test_main_placements_sin_dsn_sale_2(monkeypatch, capsys):
-    from app.ads.reports import main
-
-    monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
-    assert main(["--placements"]) == 2
-    assert "ORBIT_DSN_INGEST no esta definido" in capsys.readouterr().err
-
-
-@_skip_db
-def test_main_placements_fallo_devuelve_1_y_no_llama_sync_metrics(monkeypatch):
-    from app.ads.reports import main
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.amazon.com":
-            return _token(request)
-        if request.url.path == "/v2/profiles":
-            return httpx.Response(200, json=PERFILES_API)
-        raise AssertionError("red caida")
-
-    with _db_placements("orbit_pl_main") as conn:
-        from urllib.parse import urlsplit, urlunsplit
-
-        partes = urlsplit(_test_dsn())
-        dsn_tmp = urlunsplit((partes.scheme, partes.netloc, f"/{conn.info.dbname}", "", ""))
-        monkeypatch.setenv("ORBIT_DSN_INGEST", dsn_tmp)
-        monkeypatch.setattr("app.ads.reports.AdsClient", lambda creds: _cliente(handler))
-        monkeypatch.setattr(
-            app.ads.reports.AdsCredentials,
-            "from_secrets_dir",
-            classmethod(lambda cls: None),
-        )
-        llamadas = []
-        monkeypatch.setattr("app.ads.reports.sync_metrics", lambda *a, **k: llamadas.append(1))
-        assert main(["--placements", "--fecha", "2026-10-05", "--fecha-fin", "2026-10-05"]) == 1
-        assert llamadas == []
-
-
-@_skip_db
-def test_main_placements_preflight_roto_sella_run_propia(monkeypatch):
-    from urllib.parse import urlsplit, urlunsplit
-
-    from app.ads.reports import main
-
-    def _rotas(cls):
-        raise RuntimeError("credenciales rotas")
-
-    with _db_placements("orbit_pl_preflight") as conn:
-        partes = urlsplit(_test_dsn())
-        dsn_tmp = urlunsplit((partes.scheme, partes.netloc, f"/{conn.info.dbname}", "", ""))
-        monkeypatch.setenv("ORBIT_DSN_INGEST", dsn_tmp)
-        monkeypatch.setattr(app.ads.reports.AdsCredentials, "from_secrets_dir", classmethod(_rotas))
-        assert main(["--placements"]) == 1
-        runs = conn.execute("SELECT source, ok FROM ingest_run").fetchall()
-        assert runs == [(SOURCE_PLACEMENTS, False)]
-
-
-@_skip_db
-def test_main_placements_exito_devuelve_0(monkeypatch):
-    """v2-05: con --placements y todo bien, tampoco corren los 4 reportes."""
-    from urllib.parse import urlsplit, urlunsplit
-
-    from app.ads.reports import main
-
-    filas = {"202": [_fila()], "101": [_fila(campaignId=8001)]}
-    with _db_placements("orbit_pl_exito") as conn:
-        _siembra_campana(conn, "amazon_mx", "9001")
-        _siembra_campana(conn, "amazon_us", "8001")
-        partes = urlsplit(_test_dsn())
-        dsn_tmp = urlunsplit((partes.scheme, partes.netloc, f"/{conn.info.dbname}", "", ""))
-        monkeypatch.setenv("ORBIT_DSN_INGEST", dsn_tmp)
-        monkeypatch.setattr("app.ads.reports.AdsClient", lambda creds: _transporte_ok(filas))
-        monkeypatch.setattr(
-            app.ads.reports.AdsCredentials,
-            "from_secrets_dir",
-            classmethod(lambda cls: None),
-        )
-
-        def _espia(*a, **k):
-            raise AssertionError("sync_metrics no debe correr con --placements")
-
-        monkeypatch.setattr("app.ads.reports.sync_metrics", _espia)
-        assert main(["--placements", "--fecha", "2026-10-05", "--fecha-fin", "2026-10-05"]) == 0
-        assert _observadas(conn) == 2
 
 
 @_skip_db
@@ -495,7 +419,8 @@ def test_metrica_ausente_se_guarda_null_en_la_base():
     with _db_placements("orbit_pl_null") as conn:
         _siembra_campana(conn, "amazon_mx", "9001")
         filas = {"202": [_fila(clicks=None, cost=None, purchases30d=None, sales30d=None)]}
-        assert sync_placements(conn, _transporte_ok(filas), desde=ayer, hasta=ayer) == 1
+        res = _corrida_placements(conn, _transporte_ok(filas), desde=ayer, hasta=ayer)
+        assert res.ok is True and res.escritura.rows_written == 1
         assert conn.execute(
             "SELECT impressions, clicks, cost, orders, ad_revenue FROM ads_placement_observation"
         ).fetchall() == [(100, None, None, None, None)]
@@ -512,8 +437,11 @@ def test_fallo_en_fase_de_base_sella_ok_false(monkeypatch):
     with _db_placements("orbit_pl_dbfail") as conn:
         _siembra_campana(conn, "amazon_mx", "9001")
         monkeypatch.setattr("app.ads.placements.ingest_placements", _revienta)
-        with pytest.raises(RuntimeError, match="base caida"):
-            sync_placements(conn, _transporte_ok({"202": [_fila()]}), desde=ayer, hasta=ayer)
+        # Por descarga el fallo del escritor vuelve en ResultadoGrupo (.exc),
+        # sin lanzarse: el grupo queda sellado ok=false.
+        res = _corrida_placements(conn, _transporte_ok({"202": [_fila()]}), desde=ayer, hasta=ayer)
+        assert res.ok is False
+        assert isinstance(res.exc, RuntimeError) and "base caida" in str(res.exc)
         assert conn.execute("SELECT source, ok FROM ingest_run").fetchall() == [
             (SOURCE_PLACEMENTS, False)
         ]
@@ -557,7 +485,8 @@ def test_sync_salta_fechas_que_no_pidio():
     }
     with _db_placements("orbit_pl_rango") as conn:
         _siembra_campana(conn, "amazon_mx", "9001")
-        assert sync_placements(conn, _transporte_ok(filas), desde=ayer, hasta=ayer) == 1
+        res = _corrida_placements(conn, _transporte_ok(filas), desde=ayer, hasta=ayer)
+        assert res.ok is True and res.escritura.rows_written == 1
         fechas = conn.execute(
             "SELECT DISTINCT metric_date FROM ads_placement_observation"
         ).fetchall()

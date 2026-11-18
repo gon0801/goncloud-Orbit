@@ -249,7 +249,7 @@ def _envia_mensajes(
 
 def _sella_fallo_de_credenciales(conn: psycopg.Connection, grupos, exc: BaseException) -> None:
     """Sin cliente no hay corrida, pero la ausencia queda auditada: una run
-    global_failed por grupo (misma disciplina que reports.main)."""
+    global_failed por grupo (la misma que deja un fallo global de `descarga`)."""
     motivo = scrub(str(exc)) or type(exc).__name__
     for grupo in grupos:
         with conn.transaction():

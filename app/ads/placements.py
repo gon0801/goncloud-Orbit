@@ -1,10 +1,11 @@
 """Reporte por placement (BIDS 02, V.2). spCampaigns agrupado por
-campaignPlacement, DAILY, en corrida PROPIA (otro `source`, otro cron)
-para que un fallo aqui no tire los cuatro reportes principales.
+campaignPlacement, DAILY, en su PROPIO grupo de `ingest diario` (otro
+`source`, otra ingest_run) para que un fallo aqui no tire los cuatro
+reportes principales.
 
 Fase de API COMPLETA antes de la fase de DB; la run se abre antes de
-consultar perfiles y todo fallo se sella ok=false antes de re-lanzar
-(misma disciplina que `sync_metrics`). `observed_at` lo fija Python por
+consultar perfiles y todo fallo la deja sellada ok=false (misma disciplina
+que los demas grupos de `ingest diario`). `observed_at` lo fija Python por
 reporte (no `now()` de la transaccion): dos reportes distintos del mismo
 dia dejan dos observaciones y con un solo sello chocarian en la PK.
 """
@@ -13,7 +14,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import time
 from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
@@ -23,13 +23,11 @@ import psycopg
 
 from app.ads.reports import (
     _SQL_ENTIDADES,
-    AdsClient,
     AdsReportsError,
     ResultadoIngesta,
     _decimal_reporte,
     _entero_reporte,
     _registrar_resultado,
-    _validar_rango,
 )
 from app.ads.structure import (
     PerfilAds,
@@ -356,39 +354,3 @@ def escribir_grupo(
         rows_skipped=sum(skips.values()),
         skip_reason=_formato_skip_reason(skips),
     )
-
-
-def sync_placements(
-    conn: psycopg.Connection,
-    client: AdsClient,
-    *,
-    desde: dt.date,
-    hasta: dt.date,
-    sleep=time.sleep,
-    reloj=time.monotonic,
-) -> int:
-    """Orquestador: su fase de API vive en app.ads.descarga (misma vuelta de
-    sondeo que metricas cuando el caller los agrupa); aqui solo se arma el
-    grupo y la fase de DB (`escribir_grupo`). Devuelve filas escritas; todo
-    fallo se sella ok=false antes de subir (incluido cero perfiles aceptados,
-    que con contrato int solo puede avisar fallando). `source` propio: un
-    fallo aqui no tira a los demas grupos de la vuelta."""
-    from app.ads.descarga import GrupoDescarga, descarga
-
-    _validar_rango(desde, hasta)
-    grupo = GrupoDescarga(clave="placements", source=SOURCE_PLACEMENTS, cfgs=(PLACEMENTS_CFG,))
-    resultados = descarga(
-        conn,
-        client,
-        [grupo],
-        (desde, hasta),
-        reloj=reloj,
-        sleep=sleep,
-        al_completar=escribir_grupo,
-    )
-    res = resultados["placements"]
-    if not res.ok:
-        if res.exc is not None:
-            raise res.exc
-        raise AdsReportsError(res.skip_reason or "la corrida de placements fallo")
-    return res.escritura.rows_written

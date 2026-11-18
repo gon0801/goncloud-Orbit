@@ -7,10 +7,11 @@
     2026-08-22: groupBy array, columns strings, filters de keywordType, filas
     con ids NUMERO y sin moneda, descarga gzip (o sin gzip).
 (b) INTEGRACION: aplican la migracion entera en un Postgres temporal (patron
-    de tests/test_structure_sync.py) y prueban el orquestador `sync_metrics`
-    completo contra el mock: corrida 1, re-reporte con el MISMO
-    source_report_id (dedupe del indice parcial), moneda cruzada (trigger),
-    privilegio negativo de app_ingest y fallo a mitad (rollback atomico).
+    de tests/test_structure_sync.py) y prueban el escritor completo contra el
+    mock (`descarga` + `escribir_grupo`, el mismo camino que `ingest diario`):
+    corrida 1, re-reporte con el MISMO source_report_id (dedupe del indice
+    parcial), moneda cruzada (trigger), privilegio negativo de app_ingest y
+    fallo a mitad (rollback atomico).
     Skip automatico solo si ORBIT_TEST_DSN NO esta explicito (fail-closed).
 
 Regla 9: los tests de skip AFIRMAN el skip y su motivo (no solo que no
@@ -35,10 +36,12 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.ads.client import AdsApiError, AdsAuthError, AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.descarga import GrupoDescarga, descarga
 from app.ads.reports import (
     CAMPANAS_CFG,
     KEYWORDS_CFG,
     MAX_BYTES_REPORTE,
+    REPORTES_CFG,
     SEARCH_TERMS_CFG,
     SOURCE,
     AdsReportsError,
@@ -46,12 +49,10 @@ from app.ads.reports import (
     _FilaTermino,
     _planea_filas,
     _planea_filas_terminos,
-    _rango_desde_args,
     descargar_filas,
     es_asin_like,
-    main,
+    escribir_grupo,
     solicitar_reporte,
-    sync_metrics,
 )
 from app.ads.structure import PerfilAds
 
@@ -102,7 +103,7 @@ PERFILES_API = [
     },
     {
         # rechazado (vendor): SIN metricas esta corrida, pero CON evidencia
-        # en ResultadoSync.perfiles_rechazados (hallazgo reviewer)
+        # en ResultadoGrupo.perfiles_rechazados (hallazgo reviewer)
         "profileId": 303,
         "countryCode": "US",
         "currencyCode": "USD",
@@ -883,48 +884,27 @@ def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
 
 
 # ---------------------------------------------------------------------------
-# (a) UNITARIOS - CLI: fail-closed y rango de fechas
+# (a) UNITARIOS - CLI: fail-closed y rango de fechas. Las metricas se bajan
+# solo por `ingest diario` (app.ads.diario.main): ahi viven estas guardas.
 # ---------------------------------------------------------------------------
 
 
 def test_main_sin_orbit_dsn_ingest_falla_cerrado(monkeypatch, capsys):
+    from app.ads.diario import main
+
     monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
-    assert main([]) == 2
+    assert main([], enviar=lambda texto: True) == 2
     assert "ORBIT_DSN_INGEST" in capsys.readouterr().err
 
 
 def test_main_rechaza_rango_mayor_a_31_dias(monkeypatch, capsys):
+    from app.ads.diario import main
+
     monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
-    assert main(["--fecha", "2026-08-01", "--fecha-fin", "2026-09-01"]) == 2
+    assert main(["--fecha", "2026-08-01", "--fecha-fin", "2026-09-01"], enviar=lambda t: True) == 2
     error = capsys.readouterr().err
     assert "32 dias" in error
     assert "31" in error
-
-
-def test_rango_desde_args_casos():
-    hoy = dt.date(2026, 8, 22)
-    # default: ayer UTC, un solo dia
-    assert _rango_desde_args(None, None, hoy) == (dt.date(2026, 8, 21), dt.date(2026, 8, 21))
-    # --fecha sola: ese dia
-    assert _rango_desde_args("2026-08-01", None, hoy) == (dt.date(2026, 8, 1), dt.date(2026, 8, 1))
-    # 31 dias exactos: el tope de la API, permitido
-    assert _rango_desde_args("2026-08-01", "2026-08-31", hoy) == (
-        dt.date(2026, 8, 1),
-        dt.date(2026, 8, 31),
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        _rango_desde_args("2026-08-01", "2026-09-01", hoy)
-    assert "32 dias" in str(excinfo.value)
-    with pytest.raises(ValueError) as excinfo:
-        _rango_desde_args("2026-08-05", "2026-08-01", hoy)
-    assert "invertido" in str(excinfo.value)
-    with pytest.raises(ValueError) as excinfo:
-        _rango_desde_args("20-08-2026", None, hoy)
-    assert "YYYY-MM-DD" in str(excinfo.value)
-    with pytest.raises(ValueError) as excinfo:
-        _rango_desde_args(None, "2026-08-01", hoy)
-    assert "requiere --fecha" in str(excinfo.value)
 
 
 def test_sql_del_modulo_parsea_como_postgres():
@@ -955,6 +935,24 @@ def test_sql_del_modulo_parsea_como_postgres():
 # debe FALLAR el test, no skipearlo en silencio. El skip automatico queda solo
 # para corridas locales sin DSN configurado.
 _DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
+
+
+def _corrida_metricas(conn, client, *, fecha_ini, fecha_fin, sleep=lambda s: None):
+    """El camino del diario para el grupo de metricas: la descarga +
+    `escribir_grupo` con el mismo `GrupoDescarga` que armaba `sync_metrics`
+    (REPORTES_CFG, source amazon_ads_reports_v3). Devuelve el
+    `ResultadoGrupo`: el fallo del grupo viaja en `.exc`/`.skip_reason` en
+    lugar de lanzarse; solo los fallos globales (p. ej. credenciales) suben."""
+    grupo = GrupoDescarga(clave="metricas", source=SOURCE, cfgs=tuple(REPORTES_CFG))
+    resultados = descarga(
+        conn,
+        client,
+        [grupo],
+        (fecha_ini, fecha_fin),
+        sleep=sleep,
+        al_completar=escribir_grupo,
+    )
+    return resultados["metricas"]
 
 
 @pytest.mark.skipif(
@@ -1208,7 +1206,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # ------------------------------------------------------------------
         # CORRIDA 1
         # ------------------------------------------------------------------
-        res1 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res1 = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
 
         # 4 escritas (camp/kw/tg US + camp MX) y 3 saltadas (entidad ausente,
         # same_sku > ad_revenue, fecha futura); los reportes MX sin entidades
@@ -1232,8 +1230,8 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         ]
         # el perfil vendor (303) queda como evidencia, sin generar reportes
         assert [p.profile_id for p in res1.perfiles_rechazados] == [303]
-        assert all(resumen.profile_id != 303 for resumen in res1.reportes)
-        assert [resumen.report_id for resumen in res1.reportes] == [
+        assert all(resumen.profile_id != 303 for resumen in res1.escritura.reportes)
+        assert [resumen.report_id for resumen in res1.escritura.reportes] == [
             "R-CAMP-101",
             "R-KW-101",
             "R-TG-101",
@@ -1299,7 +1297,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # RE-REPORTE (DoD): misma source_report_id, filas nuevas + las mismas
         # ------------------------------------------------------------------
         corrida["n"] = 2
-        res2 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res2 = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
 
         # lote mixto: 1 nueva + 4 duplicadas (las 4 validas de la corrida 1)
         assert res2.ok is True
@@ -1332,7 +1330,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # (entidad, fecha) a secas perderia las correcciones por clawback.
         # ------------------------------------------------------------------
         corrida["n"] = 3
-        res3 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res3 = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
         assert res3.ok is True
         assert res3.rows_written == 4  # camp_us corregida + kw + tg + camp_mx
         assert res3.rows_skipped == 0  # ids NUEVOS: nada deduplicado
@@ -1382,14 +1380,11 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 "INSERT INTO tabla_inexistente_para_fallar VALUES"
                 " (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             )
-            with pytest.raises(psycopg.errors.UndefinedTable):
-                sync_metrics(
-                    conn,
-                    client,
-                    fecha_ini=ayer,
-                    fecha_fin=ayer,
-                    sleep=lambda s: None,
-                )
+            # Ese camino devuelve el error en ResultadoGrupo en lugar de
+            # lanzarlo: el grupo queda sellado ok=false y el fallo en .exc.
+            res_fallo = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
+            assert res_fallo.ok is False
+            assert isinstance(res_fallo.exc, psycopg.errors.UndefinedTable)
 
         # id de la ULTIMA run fallida consultado, no derivado (nitpick
         # CodeRabbit): acopla el test a la secuencia en vez de al hecho
@@ -1423,10 +1418,10 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # VACIA de la API.
         # ------------------------------------------------------------------
         perfiles_respuesta["lista"] = []
-        res_vacio = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res_vacio = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
         assert res_vacio.ok is False
         assert (res_vacio.rows_written, res_vacio.rows_skipped) == (0, 0)
-        assert res_vacio.reportes == []
+        assert res_vacio.escritura is None  # cero perfiles: nunca escribio
         assert res_vacio.skip_reason == "ningun perfil aceptado: /v2/profiles devolvio 0 perfiles"
         run_vacio = conn.execute(
             "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
@@ -1446,9 +1441,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # mismo veredicto con SOLO rechazados: los motivos de rechazo suben a
         # la run (el vendor 303 de la fixture)
         perfiles_respuesta["lista"] = [PERFILES_API[2]]
-        res_vendor = sync_metrics(
-            conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None
-        )
+        res_vendor = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
         assert res_vendor.ok is False
         assert [p.profile_id for p in res_vendor.perfiles_rechazados] == [303]
         assert res_vendor.skip_reason.startswith("ningun perfil aceptado: ")
@@ -1459,14 +1452,15 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
             (res_vendor.run_id,),
         ).fetchall() == [(303, None, None, "rejected")]
 
-        # Error al listar perfiles: no atribuirlo a US ni MX.
+        # Error al listar perfiles: no atribuirlo a US ni MX. Los fallos
+        # globales de la descarga SI se relanzan (igual que por sync_metrics):
+        # el caller no ve resultados.
         with pytest.raises(AdsAuthError):
-            sync_metrics(
+            _corrida_metricas(
                 conn,
                 _cliente(lambda request: httpx.Response(500, json={"error": "profiles"})),
                 fecha_ini=ayer,
                 fecha_fin=ayer,
-                sleep=lambda s: None,
             )
         run_global = conn.execute("SELECT id FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[
             0
@@ -1479,14 +1473,16 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
 
         # ------------------------------------------------------------------
         # FALLO DE FASE API CON RUN AUDITABLE (hallazgo codex, mandatorio):
-        # un 400 en create abre run + sello ok=false y RE-LANZA; antes de este
-        # fix, el fallo no dejaba ninguna fila en ingest_run.
+        # un 400 en create abre run + sello ok=false; antes de este fix, el
+        # fallo no dejaba ninguna fila en ingest_run. Por descarga el error
+        # vuelve en ResultadoGrupo (.exc), sin lanzarse.
         # ------------------------------------------------------------------
         perfiles_respuesta["lista"] = PERFILES_API  # restaurar los perfiles
         fallo_create["on"] = True
-        with pytest.raises(AdsApiError):
-            sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res_api = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
         fallo_create["on"] = False
+        assert res_api.ok is False
+        assert isinstance(res_api.exc, AdsApiError)
 
         # id de la run fallida consultado, no derivado de la secuencia
         # (nitpick CodeRabbit, mismo patron que arriba): nextval no se
@@ -1525,9 +1521,10 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # (ingesta-01: los reportes se piden todos a la vez y un 4xx de forma
         # mata solo a su grupo, sin vueltas de sondeo).
         fallo_create.update(on=True, scope="202")
-        with pytest.raises(AdsApiError):
-            sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res_mx = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
         fallo_create.update(on=False, scope=None)
+        assert res_mx.ok is False
+        assert isinstance(res_mx.exc, AdsApiError)
         run_mx = conn.execute("SELECT id FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[0]
         assert conn.execute(
             "SELECT profile_id, platform::text, report_name FROM ads_report_result"
@@ -1544,11 +1541,9 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # No convertir bool a 0/1 ni inventar un ID para el rechazado.
         for invalido in ("bad-id", False, [101], 2**70):
             perfiles_respuesta["lista"] = [{"profileId": invalido}, PERFILES_API[0]]
-            res_valido = sync_metrics(
-                conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None
-            )
+            res_valido = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
             assert res_valido.ok is True
-            assert [r.profile_id for r in res_valido.reportes] == [101] * 4
+            assert [r.profile_id for r in res_valido.escritura.reportes] == [101] * 4
             motivo = (
                 "perfil no seller (accountInfo.type=None)"
                 if invalido == 2**70
@@ -1569,8 +1564,9 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 "_SQL_FECHA_HOY",
                 "SELECT dia FROM tabla_reloj_inexistente_para_fallar",
             )
-            with pytest.raises(psycopg.errors.UndefinedTable):
-                sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+            res_reloj = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
+        assert res_reloj.ok is False
+        assert isinstance(res_reloj.exc, psycopg.errors.UndefinedTable)
         run_reloj = conn.execute(
             "SELECT id, ok, finished_at FROM ingest_run ORDER BY id DESC LIMIT 1"
         ).fetchone()
@@ -1807,14 +1803,14 @@ def test_pipeline_search_terms_en_vivo():
         # FUSIONADA) + 4 saltadas (los 3 gates y la fila absorbida por la
         # fusion)
         # ------------------------------------------------------------------
-        res1 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res1 = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
 
         assert res1.ok is True
         assert res1.rows_written == 4
         assert res1.rows_skipped == 4
         # orden de REPORTES_CFG: los 3 de metricas (0 filas en este test) y
         # el de terminos al final
-        assert [resumen.report_id for resumen in res1.reportes] == [
+        assert [resumen.report_id for resumen in res1.escritura.reportes] == [
             "R-CAMP-101",
             "R-KW-101",
             "R-TG-101",
@@ -1860,7 +1856,7 @@ def test_pipeline_search_terms_en_vivo():
         # validas quedan absorbidas por el dedupe de DB; los 3 gates saltan
         # otra vez y la fusion vuelve a correr (y a contar su skip)
         # ------------------------------------------------------------------
-        res2 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        res2 = _corrida_metricas(conn, client, fecha_ini=ayer, fecha_fin=ayer)
 
         assert res2.ok is True
         assert res2.rows_written == 0

@@ -8,7 +8,8 @@
     -> NULL (regla 3) y gates con vocabulario CERRADO (regla 9).
 (b) ESTATICO (pglast): la migracion 0020 parsea y sella apend-only + dedupe.
 (c) INTEGRACION: aplican 0001+0020 en un Postgres temporal y corren el
-    orquestador completo contra el mock: corrida 1, dedupe por
+    escritor completo contra el mock (`descarga` + `escribir_grupo`, el
+    camino del diario): corrida 1, dedupe por
     source_report_id, bitemporalidad (reporte NUEVO del mismo dia = fila
     nueva), moneda por perfil (trigger), US no verificado (400) sin filas
     inventadas y cero escritura a ads_metric_observation. Skip automatico sin
@@ -37,13 +38,15 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.descarga import GrupoDescarga, descarga
 from app.ads.reports import (
     PRODUCTOS_CFG,
+    SOURCE_PRODUCTOS,
     AdsReportsError,
     _FilaProducto,
     _planea_filas_productos,
+    escribir_grupo,
     solicitar_reporte,
-    sync_metrics,
 )
 from app.ads.structure import PerfilAds
 
@@ -106,6 +109,23 @@ def _perfil(profile_id: int, country: str) -> PerfilAds:
 
 def _token(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"access_token": "fake-access", "expires_in": 3600})
+
+
+def _corrida_productos(conn, client, *, fecha_ini, fecha_fin, sleep=lambda s: None):
+    """El camino del diario para el grupo de productos: la descarga +
+    `escribir_grupo` con el mismo `GrupoDescarga` que armaba `sync_metrics`
+    con reportes=(PRODUCTOS_CFG,). Devuelve el `ResultadoGrupo`: el fallo
+    del grupo viaja en `.exc`/`.skip_reason` en lugar de lanzarse."""
+    grupo = GrupoDescarga(clave="productos", source=SOURCE_PRODUCTOS, cfgs=(PRODUCTOS_CFG,))
+    resultados = descarga(
+        conn,
+        client,
+        [grupo],
+        (fecha_ini, fecha_fin),
+        sleep=sleep,
+        al_completar=escribir_grupo,
+    )
+    return resultados["productos"]
 
 
 # ---------------------------------------------------------------------------
@@ -845,14 +865,7 @@ def test_pipeline_productos_en_vivo():
         # CORRIDA 1: 3 claves escritas (A fusionada, B, C-US) + 1 fila
         # absorbida por la fusion de las dos campanas del asin A
         # ------------------------------------------------------------------
-        res1 = sync_metrics(
-            conn,
-            client,
-            fecha_ini=ayer,
-            fecha_fin=ayer,
-            sleep=lambda s: None,
-            reportes=(PRODUCTOS_CFG,),
-        )
+        res1 = _corrida_productos(conn, client, fecha_ini=ayer, fecha_fin=ayer)
 
         assert res1.ok is True
         assert res1.rows_written == 3
@@ -870,7 +883,7 @@ def test_pipeline_productos_en_vivo():
             (202, "amazon_mx", "productos", "written"),
         ]
         assert "1x fila agregada por clave duplicada en el reporte" in res1.skip_reason
-        assert [resumen.report_id for resumen in res1.reportes] == [
+        assert [resumen.report_id for resumen in res1.escritura.reportes] == [
             "R-PROD-101",
             "R-PROD-202",
         ]
@@ -924,14 +937,7 @@ def test_pipeline_productos_en_vivo():
         # ------------------------------------------------------------------
         time.sleep(0.01)  # observed_at distinto: la PK bitemporal no colisiona
         corrida["n"] = 2
-        res2 = sync_metrics(
-            conn,
-            client,
-            fecha_ini=ayer,
-            fecha_fin=ayer,
-            sleep=lambda s: None,
-            reportes=(PRODUCTOS_CFG,),
-        )
+        res2 = _corrida_productos(conn, client, fecha_ini=ayer, fecha_fin=ayer)
         assert res2.ok is True
         assert res2.rows_written == 0
         assert res2.rows_skipped == 4  # 3 duplicadas de DB + 1 fusionada del plan
@@ -947,14 +953,7 @@ def test_pipeline_productos_en_vivo():
         # ------------------------------------------------------------------
         time.sleep(0.01)
         corrida["n"] = 3
-        res3 = sync_metrics(
-            conn,
-            client,
-            fecha_ini=ayer,
-            fecha_fin=ayer,
-            sleep=lambda s: None,
-            reportes=(PRODUCTOS_CFG,),
-        )
+        res3 = _corrida_productos(conn, client, fecha_ini=ayer, fecha_fin=ayer)
         assert res3.ok is True
         assert res3.rows_written == 3
         assert (
@@ -1040,15 +1039,11 @@ def test_pipeline_productos_us_no_verificado_no_inventa_filas():
             return httpx.Response(200, content=gzip.compress(json.dumps([]).encode("utf-8")))
 
         client = _cliente(handler)
-        with pytest.raises(AdsApiError):
-            sync_metrics(
-                conn,
-                client,
-                fecha_ini=ayer,
-                fecha_fin=ayer,
-                sleep=lambda s: None,
-                reportes=(PRODUCTOS_CFG,),
-            )
+        # Por descarga el 400 del create vuelve en ResultadoGrupo (.exc),
+        # sin lanzarse: la corrida sigue siendo fail-closed.
+        res_us = _corrida_productos(conn, client, fecha_ini=ayer, fecha_fin=ayer)
+        assert res_us.ok is False
+        assert isinstance(res_us.exc, AdsApiError)
 
         # cero filas inventadas y run sellada ok=false con el rastro del 400
         assert (
