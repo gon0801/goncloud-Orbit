@@ -362,14 +362,14 @@ _SQL_VIGENTE = (
 )
 _SQL_ESCENARIO = (
     "SELECT id, contribucion_pct, componentes, fee_observation_id,"
-    " oferta_observation_id, moneda, canal FROM estimacion_escenario"
+    " oferta_observation_id, moneda, canal, fee_variable, fee_fijo"
+    " FROM estimacion_escenario"
     " WHERE listing_id = %s AND platform = %s AND estado = 'disponible'"
     " ORDER BY observed_at DESC LIMIT 1"
 )
 _SQL_OFERTA = "SELECT price_amount, price_currency FROM estimacion_oferta_observation WHERE id = %s"
 _SQL_FEE = (
-    "SELECT total_fees, fee_details, quoted_price_amount, estado"
-    " FROM estimacion_fee_observation WHERE id = %s"
+    "SELECT total_fees, quoted_price_amount, estado FROM estimacion_fee_observation WHERE id = %s"
 )
 
 
@@ -435,9 +435,10 @@ def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds, vitrina) -> tup
                 moneda=None if oferta is None else oferta[1],
                 componentes=esc[2],
                 fee_total=None if fee is None else fee[0],
-                fee_quoted=None if fee is None else fee[2],
-                fee_detalles=None if fee is None else fee[1],
-                fee_estado=None if fee is None else fee[3],
+                fee_quoted=None if fee is None else fee[1],
+                fee_variable=esc[7],
+                fee_fijo=esc[8],
+                fee_estado=None if fee is None else fee[2],
             )
         unidad = unidades.get(lid)
         if unidad is None:

@@ -1,7 +1,7 @@
 """Plan de goals puro: Pedidos -> Plan (REPRICING 02 G.1, bosquejo G).
 
-Las protecciones (`_referencia`, `_componente`, `_detalle_fee`,
-`_guardas_del_plan`, `UMBRAL_SALTO`) viven aqui, en un solo lugar y sin
+Las protecciones (`_referencia`, `_componente`, `_guardas_del_plan`,
+`UMBRAL_SALTO`) viven aqui, en un solo lugar y sin
 base: `planear` recibe candidatos ya leidos
 (`leer_candidatos` de `goals_write`) y devuelve el plan con su huella.
 Quien escribe es `goals_write.aplicar_plan`.
@@ -27,10 +27,8 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Literal
 
-from app.estimacion_venta import DetalleFee
 from app.precio.objetivo import (
     ErrorObjetivo,
-    derivar_ref_fijo,
     precio_estrella,
     techo_centavo,
 )
@@ -97,9 +95,11 @@ class GoalVigente:
 class LecturaHoy:
     """La cuenta de hoy de la unidad, ya leida (sin base).
 
-    Son las tres filas que `_referencia` del tool leia (escenario
-    disponible mas reciente + oferta + fee), sin calcular: `None` donde no
-    hay dato, JSON crudo donde lo hay. `planear` calcula encima.
+    Son las filas que `_referencia` del tool leia (escenario disponible mas
+    reciente + oferta + fee), sin calcular: `None` donde no hay dato, JSON
+    crudo donde lo hay. `planear` calcula encima. La comision llega YA
+    partida del escenario (`fee_variable`/`fee_fijo`, con la regla de su
+    plataforma; ARREGLOS 03 P-F): aqui no se vuelve a partir nada.
     """
 
     m_pct: Decimal | None
@@ -108,7 +108,8 @@ class LecturaHoy:
     componentes: list | None
     fee_total: Decimal | None
     fee_quoted: Decimal | None
-    fee_detalles: list | None
+    fee_variable: Decimal | None
+    fee_fijo: Decimal | None
     fee_estado: str | None
 
 
@@ -261,19 +262,6 @@ class PlanGoals:
     huella: str
 
 
-def _detalle_fee(nodo: dict) -> DetalleFee:
-    # JSON normalizado de `parsear_respuesta_fees` a arbol.
-    tasa = nodo.get("tax_amount")
-    return DetalleFee(
-        fee_type=nodo["fee_type"],
-        final_fee=Decimal(str(nodo["final_fee"])),
-        tax_amount=None if tasa is None else Decimal(str(tasa)),
-        included_fee_details=tuple(
-            _detalle_fee(hijo) for hijo in nodo.get("included_fee_details") or []
-        ),
-    )
-
-
 def _componente(componentes: list, nombre: str) -> Decimal:
     # Mismo mensaje, `ValueError` en vez de `PrecioGoalInvalido` (este
     # modulo no importa al escritor). La red de `_referencia` lo vuelve
@@ -308,8 +296,13 @@ def _referencia(
     if goal is None:
         return (None, p_actual, None)
     try:
-        detalles = tuple(_detalle_fee(nodo) for nodo in lectura.fee_detalles)
-        ref, fijo = derivar_ref_fijo(detalles, lectura.fee_total, lectura.fee_quoted)
+        # ARREGLOS 03 P-F: la comision llega partida del escenario, con la
+        # regla de su plataforma (Amazon ReferralFee, MeLi SaleFee); sin
+        # partida no hay P* y cae a `referencia_sin_derivar`, como hoy.
+        if lectura.fee_variable is None or lectura.fee_fijo is None or not lectura.fee_quoted:
+            raise ValueError("escenario sin comision partida")
+        ref = lectura.fee_variable / lectura.fee_quoted
+        fijo = lectura.fee_fijo
         costo = _componente(lectura.componentes, "costo_normalizado")
         ingreso = _componente(lectura.componentes, "ingreso_normalizado")
         envio = _componente(lectura.componentes, "logistica")
