@@ -276,8 +276,155 @@ def test_cliente_meli_scan_truncado_cuenta(tmp_path):
         _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
     )
     ids, truncado = cliente.items_seller(1, max_paginas=3)
-    assert truncado and len(ids) == 3
+    # ARREGLOS 03 D-M: la misma pagina repetida no avanza; con 9 pendientes
+    # la cobertura queda desconocida y los IDs se cuentan una sola vez.
+    assert truncado and ids == ["X"]
     cliente.close()
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 D-M (TN06): items_seller certifica completitud en origen.
+# truncado=False exige paginas validas que alcanzan exactamente un total
+# entero no booleano, no negativo y coherente, contando IDs unicos.
+# ---------------------------------------------------------------------------
+
+
+def _cliente_scan(tmp_path: Path, paginas: list[dict]) -> tuple[ClienteMeli, list[str]]:
+    """ClienteMeli real (sin red) con paginas encoladas del scan."""
+    turno = iter(paginas)
+    llamadas: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamadas.append(str(request.url))
+        assert request.url.path == "/users/7/items/search"
+        return httpx.Response(200, json=next(turno))
+
+    cliente = ClienteMeli(
+        _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
+    )
+    return cliente, llamadas
+
+
+def test_arreglos03_dm_scroll_ausente_no_certifica_completitud(tmp_path):
+    """TN06: total sin alcanzar y sin scroll_id: la cobertura es
+    desconocida; la ausencia de scroll nunca prueba que el scan termino."""
+    cliente, llamadas = _cliente_scan(tmp_path, [{"results": ["MLM1"], "paging": {"total": 2}}])
+    try:
+        assert cliente.items_seller(7) == (["MLM1"], True)
+        assert len(llamadas) == 1
+    finally:
+        cliente.close()
+
+
+def test_arreglos03_dm_fin_precozo_pagina_vacia_no_certifica(tmp_path):
+    """TN06: pagina vacia antes de alcanzar el total: fin prematuro,
+    no catalogo completo (solo un total 0 con contenedor vacio lo seria)."""
+    cliente, llamadas = _cliente_scan(
+        tmp_path,
+        [
+            {"results": ["MLM1"], "paging": {"total": 2}, "scroll_id": "x"},
+            {"results": [], "paging": {"total": 2}},
+        ],
+    )
+    try:
+        assert cliente.items_seller(7) == (["MLM1"], True)
+        assert len(llamadas) == 2
+    finally:
+        cliente.close()
+
+
+def test_arreglos03_dm_total_inconsistente_no_certifica(tmp_path):
+    # El total cambia entre paginas: lo leido no puede certificarse.
+    cliente, _ = _cliente_scan(
+        tmp_path,
+        [
+            {"results": ["MLM1"], "paging": {"total": 2}, "scroll_id": "x"},
+            {"results": ["MLM0"], "paging": {"total": 3}},
+        ],
+    )
+    try:
+        assert cliente.items_seller(7) == (["MLM1"], True)
+    finally:
+        cliente.close()
+    # Mas IDs unicos que el total anunciado: incoherente, no completo.
+    cliente, _ = _cliente_scan(tmp_path, [{"results": ["MLM1", "MLM0"], "paging": {"total": 1}}])
+    try:
+        ids, truncado = cliente.items_seller(7)
+        assert truncado and sorted(ids) == ["MLM0", "MLM1"]
+    finally:
+        cliente.close()
+    # Un total booleano no es un entero util para certificar.
+    cliente, _ = _cliente_scan(tmp_path, [{"results": ["MLM1"], "paging": {"total": True}}])
+    try:
+        assert cliente.items_seller(7) == (["MLM1"], True)
+    finally:
+        cliente.close()
+
+
+def test_arreglos03_dm_duplicados_no_acreditan_completitud(tmp_path):
+    """TN06: dos filas del mismo ID no suman cobertura: cuenta el conjunto
+    de IDs unicos, no la suma de longitudes."""
+    cliente, _ = _cliente_scan(tmp_path, [{"results": ["MLM1", "MLM1"], "paging": {"total": 2}}])
+    try:
+        assert cliente.items_seller(7) == (["MLM1"], True)
+    finally:
+        cliente.close()
+
+
+def test_arreglos03_dm_solapamiento_con_avance_alcanza_el_total_unico(tmp_path):
+    """Vecino: el solapamiento no invalida por si mismo; si tras el
+    duplicado el conteo unico alcanza el total con avance, completa."""
+    cliente, llamadas = _cliente_scan(
+        tmp_path,
+        [
+            {"results": ["MLM1", "MLM0"], "paging": {"total": 3}, "scroll_id": "x"},
+            {"results": ["MLM0", "MLM2"], "paging": {"total": 3}},
+        ],
+    )
+    try:
+        assert cliente.items_seller(7) == (["MLM1", "MLM0", "MLM2"], False)
+        assert len(llamadas) == 2
+    finally:
+        cliente.close()
+
+
+def test_arreglos03_dm_paginas_malformadas_son_parciales(tmp_path):
+    # El contenedor no es lista.
+    cliente, _ = _cliente_scan(tmp_path, [{"results": "MLM1", "paging": {"total": 1}}])
+    try:
+        assert cliente.items_seller(7) == ([], True)
+    finally:
+        cliente.close()
+    # Un ID ilegible (bool) no se convierte en identidad.
+    cliente, _ = _cliente_scan(tmp_path, [{"results": [True], "paging": {"total": 1}}])
+    try:
+        assert cliente.items_seller(7) == ([], True)
+    finally:
+        cliente.close()
+    # paging no es objeto: la pagina no certifica nada.
+    cliente, _ = _cliente_scan(tmp_path, [{"results": ["MLM1"], "paging": 5}])
+    try:
+        assert cliente.items_seller(7) == ([], True)
+    finally:
+        cliente.close()
+    # Sin total verificable el fin del scroll no prueba completitud.
+    cliente, _ = _cliente_scan(
+        tmp_path, [{"results": ["MLM1"], "scroll_id": "x"}, {"results": ["MLM0"]}]
+    )
+    try:
+        assert cliente.items_seller(7) == (["MLM1", "MLM0"], True)
+    finally:
+        cliente.close()
+
+
+def test_arreglos03_dm_catalogo_vacio_certificado(tmp_path):
+    """Vecino: total 0 con contenedor valido y vacio si demuestra
+    catalogo vacio (no es lo mismo que un scan fallido)."""
+    cliente, _ = _cliente_scan(tmp_path, [{"results": [], "paging": {"total": 0}}])
+    try:
+        assert cliente.items_seller(7) == ([], False)
+    finally:
+        cliente.close()
 
 
 def test_cliente_meli_401_pase_vencido_sin_refresh(tmp_path):
@@ -777,7 +924,7 @@ def test_corre_meli_fallo_conserva_skips_acumulados(tmp_path, monkeypatch):
     import app.reputacion as reputacion_mod
 
     with db_reputacion() as (conn, _dsn):
-        skips_previos = Counter({"meli: scan truncado a 50 paginas (items pendientes)": 1})
+        skips_previos = Counter({"meli: scan de items incompleto (cobertura desconocida)": 1})
         monkeypatch.setattr(
             reputacion_mod,
             "fetch_meli",
@@ -793,7 +940,7 @@ def test_corre_meli_fallo_conserva_skips_acumulados(tmp_path, monkeypatch):
         fila = conn.execute("SELECT ok, rows_skipped, skip_reason FROM ingest_run").fetchone()
         assert fila[0] is False
         assert fila[1] == 1
-        assert "scan truncado" in (fila[2] or "")
+        assert "scan de items incompleto" in (fila[2] or "")
 
 
 def test_clientes_meli_sin_posts():

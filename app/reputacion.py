@@ -208,7 +208,10 @@ def fetch_meli(
     fallos = 0
     ids_items, scan_truncado = cliente.items_seller(seller_id)
     if scan_truncado:
-        skips["meli: scan truncado a 50 paginas (items pendientes)"] += 1
+        # ARREGLOS 03 D-M: truncado significa cobertura desconocida (no solo
+        # el tope de paginas): scroll ausente, fin prematuro o total
+        # inconsistente tambien dejan el scan parcial.
+        skips["meli: scan de items incompleto (cobertura desconocida)"] += 1
     for item_id in ids_items:
         try:
             item, _ = cliente.get(f"/items/{item_id}")

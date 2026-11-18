@@ -18,12 +18,13 @@ from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 import psycopg
 import pytest
 from test_schema import _postgres_obligatorio_ausente
 
 from app.meli import catalogo
-from app.reputacion_clientes import ReputacionError
+from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -707,3 +708,157 @@ def test_vendedor_sin_id_entero_aborta():
         with pytest.raises(ReputacionError, match="sin id entero"):
             _corre(conn, _ClienteFalso({"MLM1": _item("MLM1")}, seller_id="x"))
         assert conn.execute("SELECT count(*) FROM meli_publicacion_observation").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 D-M (TN06/TN14): cobertura certificada del scan y contadores
+# solo por escrituras confirmadas.
+# ---------------------------------------------------------------------------
+
+
+def _cliente_meli_real(paginas: list[dict], items: dict[str, dict], *, visitas: int = 3):
+    """ClienteMeli real con HTTP simulado: paginas del scan y detalle."""
+    turno = iter(paginas)
+
+    def responder(req: httpx.Request) -> httpx.Response:
+        assert req.method == "GET" and req.url.host == "api.mercadolibre.com"
+        ruta = req.url.path
+        if ruta == "/users/me":
+            data = {"id": 7}
+        elif ruta == "/users/7/items/search":
+            data = next(turno)
+        elif ruta.endswith("/visits/time_window"):
+            data = {"total_visits": visitas}
+        elif ruta.startswith("/items/"):
+            data = items[ruta.removeprefix("/items/")]
+        else:
+            raise AssertionError(ruta)
+        return httpx.Response(200, json=data)
+
+    return ClienteMeli(
+        MeliCredentials("TOKEN_FICTICIO_TEST"), transport=httpx.MockTransport(responder)
+    )
+
+
+@_skip_sin_pg
+def test_arreglos03_dm_scan_parcial_no_da_bajas_ni_exito_ficticio():
+    """D-M.3: el mismo consumidor integra ambos contratos. Un scan cuya
+    cobertura es desconocida (total sin alcanzar y sin scroll) no da bajas
+    por ausencia, y el exito cuenta solo escrituras confirmadas."""
+    with _db() as conn:
+        lid_viejo = _siembra_listing(conn, "MLM-VIEJO", "SKU-M1-A")
+        _producto(conn, "SKU-M1-B")
+        cliente = _cliente_meli_real(
+            [{"results": ["MLM1"], "paging": {"total": 2}}],
+            {"MLM1": _item("MLM1", sku_raiz="SKU-M1-B", stock_raiz=1)},
+        )
+        try:
+            resultado = _corre(conn, cliente)
+        finally:
+            cliente.close()
+        assert resultado.skips["meli: scan truncado"] == 1
+        assert resultado.reconciliados == 0
+        assert (
+            conn.execute(
+                "SELECT activo FROM listing_miembro WHERE listing_id = %s", (lid_viejo,)
+            ).fetchone()[0]
+            is True
+        )
+        reales = conn.execute(
+            "SELECT count(*) FROM meli_publicacion_observation WHERE ingest_run_id = %s",
+            (resultado.run_id,),
+        ).fetchone()[0]
+        sello = conn.execute(
+            "SELECT ok, rows_written, rows_skipped FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert resultado.observadas == reales == sello[1] == 1
+        assert resultado.ok is True and sello[0] is True
+
+
+@_skip_sin_pg
+def test_arreglos03_dm_scan_completo_certificado_da_baja_real():
+    """D-M.1 vecino (control): con el total unico alcanzado en dos paginas
+    validas (solapamiento con avance) el scan esta certificado y la baja
+    por ausencia SI corre."""
+    with _db() as conn:
+        lid_viejo = _siembra_listing(conn, "MLM-VIEJO", "SKU-M1-A")
+        _producto(conn, "SKU-M1-B")
+        cliente = _cliente_meli_real(
+            [
+                {"results": ["MLM1"], "paging": {"total": 2}, "scroll_id": "x"},
+                {"results": ["MLM1", "MLM2"], "paging": {"total": 2}},
+            ],
+            {
+                "MLM1": _item("MLM1", sku_raiz="SKU-M1-B", stock_raiz=1),
+                "MLM2": _item("MLM2", sku_raiz="SKU-M1-B", stock_raiz=1),
+            },
+        )
+        try:
+            resultado = _corre(conn, cliente)
+        finally:
+            cliente.close()
+        assert "meli: scan truncado" not in resultado.skips
+        assert resultado.reconciliados == 1
+        assert (
+            conn.execute(
+                "SELECT activo FROM listing_miembro WHERE listing_id = %s", (lid_viejo,)
+            ).fetchone()[0]
+            is False
+        )
+        assert resultado.observadas == 2
+
+
+@_skip_sin_pg
+def test_arreglos03_dm_fallo_tras_observar_no_cuenta_la_escritura_revertida():
+    """D-M.2 (TN14): un fallo SQL DESPUES de observar revierte la fila del
+    item con su savepoint; el contador, las filas y el sello cuentan solo
+    el item valido que le sigue."""
+    with _db() as conn:
+        _producto(conn, "SKU-M1-A")
+        conn.execute(
+            "ALTER TABLE listing ADD CONSTRAINT dm_rechaza_mlm1 CHECK (external_id <> 'MLM1')"
+        )
+        items = {
+            "MLM1": _item("MLM1", sku_raiz="SKU-M1-A", stock_raiz=1),
+            "MLM2": _item("MLM2", sku_raiz="SKU-M1-A", stock_raiz=1),
+        }
+        resultado = _corre(conn, _ClienteFalso(items))
+        reales = conn.execute(
+            "SELECT count(*) FROM meli_publicacion_observation WHERE ingest_run_id = %s",
+            (resultado.run_id,),
+        ).fetchone()[0]
+        sello = conn.execute(
+            "SELECT ok, rows_written, rows_skipped FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert resultado.observadas == reales == sello[1] == 1
+        assert resultado.skips["meli: item fallo (se reintenta manana)"] == 1
+        assert sello[2] == 1
+        assert resultado.ok is True and sello[0] is True
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM meli_publicacion_observation WHERE item_id = 'MLM1'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert conn.execute("SELECT count(*) FROM listing").fetchone()[0] == 1
+
+
+@_skip_sin_pg
+def test_arreglos03_dm_rollback_exterior_no_publica_exito():
+    """D-M.2 (control): si la TX exterior revienta al sellar, filas y sello
+    se revierten juntos y la corrida no publica ningun exito."""
+    with _db() as conn:
+        _producto(conn, "SKU-M1-A")
+        conn.execute(
+            "ALTER TABLE ingest_run ADD CONSTRAINT dm_sello_bloqueado CHECK (finished_at IS NULL)"
+        )
+        with pytest.raises(psycopg.Error):
+            _corre(conn, _ClienteFalso({"MLM1": _item("MLM1", sku_raiz="SKU-M1-A", stock_raiz=1)}))
+        assert conn.execute("SELECT count(*) FROM meli_publicacion_observation").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM listing").fetchone()[0] == 0
+        sello = conn.execute(
+            "SELECT ok, finished_at, rows_written FROM ingest_run WHERE source = 'meli_catalogo'"
+        ).fetchone()
+        assert sello == (None, None, None)
