@@ -95,3 +95,15 @@ D-K.4: rg sin restos; 132 passed -> exit=0
 D-K.5: exit=0
 D-K.6: test -s + prueba.py local "D-K desplegado" -> exit=0
 ruff check / format --check: limpio.
+
+== Renombre a 0089 (D-I toma 0088) + comentario de la tabla (nota de Kimi), con master fa3c57d (P-A y D-C) integrado ==
+Acepta corridos en 582122b (rebase local); la rama subida es 75c43e6 = merge de master + el mismo commit, con árbol idéntico
+(git diff --stat 582122b 75c43e6: vacío). Se integró con merge porque el push forzado está bloqueado.
+D-K.0: grep arreglos03 en comun.sh + test_despliegue_motor.py (Windows, sin -rs): 48 skipped -> exit=0
+D-K.1: horario.txt con cron-avisa; 3 passed, 32 deselected -> exit=0
+D-K.2: parte 1: 1 passed, 34 deselected -> exit=0
+       parte 2 (WSL, CI=1): tests/test_despliegue_motor.py tests/test_reputacion_migracion.py: 56 passed, 0 skipped -> exit=0
+D-K.3: 203 passed -> exit=0
+D-K.4: rg sin restos; 132 passed -> exit=0
+D-K.5: exit=0
+D-K.6: test -s + prueba.py local "D-K desplegado" -> exit=0
