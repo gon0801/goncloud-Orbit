@@ -2,9 +2,11 @@
 que se queda solo con lo de Amazon).
 
 Orden inmutable de S5: `INSERT` de la fila `pendiente` + `COMMIT` ->
-escritura via `mercado.escribir` -> sello por ack -> readback informativo
--> cierre por observacion del dia siguiente. El motor generico no conoce
-Amazon: la unidad, el precio vivo y el PATCH salen del `Mercado`.
+escritura via `mercado.escribir` -> sello por ack -> cierre por
+observacion del dia siguiente (ARREGLOS 03 P-C: sin relectura inmediata,
+que veia el precio viejo porque la plataforma tarda en mostrar el nuevo).
+El motor generico no conoce Amazon: la unidad, el precio vivo y el PATCH
+salen del `Mercado`.
 
 Candados propios (tests/test_architecture.py): este archivo no importa
 `app.spapi`, `app.meli`, `httpx` ni lee tablas `spapi_*`. Escribe en
@@ -31,6 +33,7 @@ from app.precio.compuerta import modo_efectivo
 from app.precio.config import _modo as _modo_config
 from app.precio.config import _modo_universo as _modo_universo_config
 from app.precio.puerto import EscrituraNoDisponible, Importe, UnidadPrecio
+from app.precio.tipos import cambio_sin_efecto
 
 logger = logging.getLogger(__name__)
 
@@ -214,35 +217,9 @@ def _sellar(
             )
 
 
-def _readback(
-    conn: psycopg.Connection,
-    cambio_id: int,
-    vivo: Importe | None,
-    ahora: datetime,
-    *,
-    origen: str,
-) -> None:
-    with conn.transaction():
-        if vivo is None:
-            conn.execute(
-                "UPDATE precio_cambio SET readback_estado = 'fallido', readback_at = %s"
-                " WHERE id = %s",
-                (ahora, cambio_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE precio_cambio SET readback_precio = %s, readback_precio_currency = %s,"
-                " readback_estado = 'ok', readback_at = %s WHERE id = %s",
-                (vivo.valor, vivo.moneda, ahora, cambio_id),
-            )
-    estado_rb = "ok" if vivo is not None else "fallido"
-    logger.info("%s cambio=%s readback=%s", origen, cambio_id, estado_rb)
-
-
 def _leer_vivo_suave(mercado, unidad: UnidadPrecio) -> Importe | None:
-    # El readback nunca tumba una operacion ya sellada (r1-A6): cualquier
-    # fallo del mercado leyendo el vivo tambien es `fallido`. Hoy la tupla
-    # era (PrecioVivoAusente, SpapiError, httpx.HTTPError); sin plataforma
+    # Solo para `_revertir_una` (cerrar el original `enviado` cuyo vivo ya es
+    # el aplicado antes de revertirlo): nunca tumba el lote. Sin plataforma
     # concreta en este modulo, el catch es todo el mercado.
     try:
         return mercado.precio_vivo(unidad)
@@ -262,12 +239,11 @@ def _escribir_y_sellar(
     mercado,
     unidad: UnidadPrecio,
     destino: Importe,
-    momento: datetime,
     origen: str,
     exito,
     fallo,
 ) -> None:
-    """Escritura via el mercado -> sello por ack -> readback informativo.
+    """Escritura via el mercado -> sello por ack (sin relectura, P-C).
 
     `mercado.escribir` devuelve el acuse ya saneado; los fallos conocidos
     de plataforma llegan como `Acuse(aceptada=False, codigo=...)`. Una
@@ -286,19 +262,14 @@ def _escribir_y_sellar(
         codigo = f"PATCH {ruta} excepcion:{type(exc).__name__}"
         logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
         _sellar(conn, cambio_id, estado="error", error_code=codigo)
-        vivo_rb = _leer_vivo_suave(mercado, unidad)
-        _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         raise
-    vivo_rb = _leer_vivo_suave(mercado, unidad)
     if acuse.aceptada:
         _sellar(conn, cambio_id, estado="enviado", ack=dict(acuse.cuerpo))
         logger.info("%s cambio=%s estado=enviado", origen, cambio_id)
-        _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         return exito()
     codigo = acuse.codigo or "desconocido"
     logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
     _sellar(conn, cambio_id, estado="error", error_code=codigo)
-    _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
     return fallo(codigo)
 
 
@@ -420,7 +391,8 @@ def aplicar(
                 " precio_antes_currency, precio_observado_antes,"
                 " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
                 " aplicado, estado, enviado_at, corrida_id)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s, %s)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente',"
+                " now(), %s)"
                 " RETURNING id",
                 (
                     decision_id,
@@ -432,7 +404,6 @@ def aplicar(
                     obs_moneda,
                     p_aplicado,
                     p_moneda,
-                    momento,
                     corrida_id,
                 ),
             ).fetchone()[0]
@@ -447,7 +418,6 @@ def aplicar(
         mercado=mercado,
         unidad=unidad,
         destino=destino,
-        momento=momento,
         origen="aplicar",
         exito=lambda: ResultadoCambio(id_cambio=id_cambio, estado="enviado", motivo=None),
         fallo=lambda codigo: ResultadoCambio(id_cambio=id_cambio, estado="error", motivo=codigo),
@@ -543,7 +513,8 @@ def _revertir_fila(
                 " precio_antes_currency, precio_observado_antes,"
                 " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
                 " aplicado, estado, enviado_at, es_reversa, reversa_de, lote_reversa)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s, true, %s, %s)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente',"
+                " now(), true, %s, %s)"
                 " RETURNING id",
                 (
                     listing_id,
@@ -554,7 +525,6 @@ def _revertir_fila(
                     obs_moneda,
                     antes,
                     antes_moneda,
-                    momento,
                     cambio_id,
                     lote,
                 ),
@@ -570,7 +540,6 @@ def _revertir_fila(
         mercado=mercado,
         unidad=unidad,
         destino=Importe(Decimal(antes), antes_moneda),
-        momento=momento,
         origen="revertir",
         exito=lambda: ResultadoReversion(id_reversa=id_reversa, estado="enviado", motivo=None),
         fallo=lambda codigo: ResultadoReversion(
@@ -684,8 +653,7 @@ def _soltar_candado_lote(conn: psycopg.Connection, platform: str, owner: str) ->
 _SQL_FILA_PLAN = """
 SELECT c.id, c.listing_id, c.platform, c.precio_antes, c.precio_antes_currency,
  c.precio_despues, c.precio_despues_currency, c.aplicado, c.estado,
- c.enviado_at, c.es_reversa, l.seller_sku, c.error_code, c.readback_precio,
- c.readback_precio_currency,
+ c.enviado_at, c.es_reversa, l.seller_sku, c.confirmado_por,
  EXISTS (SELECT 1 FROM precio_cambio r
          WHERE r.reversa_de = c.id AND r.estado IN ('enviado', 'confirmado'))
  FROM precio_cambio c JOIN listing l
@@ -727,11 +695,9 @@ def _clasificar_plan(fila) -> str:
     es_reversa = fila[10]
     if es_reversa or not aplicado or enviado_at is None:
         return "no_es_real"
-    if fila[15]:
+    if fila[13]:
         return "ya_revertido"
-    if estado == "error" and (
-        fila[12] == "huerfana_sin_efecto" or (fila[13], fila[14]) == (fila[3], fila[4])
-    ):
+    if cambio_sin_efecto(estado, fila[12]):
         return "sin_efecto"
     return "revertible"
 
@@ -927,10 +893,12 @@ def revertir_lote(
 
 # La huerfana (d): COMMIT sin escritura detectada al arrancar, con el lock ya
 # tomado. S.4 la resuelve leyendo el precio vivo: quieto -> `error` con
-# `huerfana_sin_efecto` (no gasta cooldown); movido al destino -> `enviado`
-# (ack `huerfana_recuperada`) y luego `confirmado/lectura_viva`; otro o
-# ilegible -> `error/huerfana_sin_patch` como antes. Solo no-reversas (la
-# `pendiente` reversa es del dueno).
+# `huerfana_sin_efecto`; movido al destino -> `enviado` (ack
+# `huerfana_recuperada`) y luego `confirmado/lectura_viva`; otro o ilegible
+# -> `error/huerfana_sin_patch` como antes. Solo no-reversas (la `pendiente`
+# reversa es del dueno). ARREGLOS 03 P-C: el codigo ya no prueba «sin
+# efecto»; como todo `error`, cuenta como cambio hasta que la observacion
+# del dia siguiente lo cierre (`cerrar_por_observacion`).
 _SQL_HUERFANAS_ABIERTAS = """
 SELECT c.id, c.listing_id, c.precio_antes, c.precio_antes_currency,
  c.precio_despues, c.precio_despues_currency, l.seller_sku, l.external_id,
@@ -972,51 +940,74 @@ def cerrar_huerfanas(conn: psycopg.Connection, mercado) -> int:
     return len(huerfanas)
 
 
+# Abiertos al cierre del dia siguiente (ARREGLOS 03 P-C): el `enviado` y el
+# `error` que todavia no vio su observacion (`confirmado_por` vacio).
+_SQL_ABIERTOS_A_OBSERVAR = """
+SELECT c.id, c.listing_id, c.estado, c.precio_antes, c.precio_antes_currency,
+ c.precio_despues, c.precio_despues_currency,
+ (c.enviado_at AT TIME ZONE 'UTC')::date
+ FROM precio_cambio c JOIN listing l
+ ON l.id = c.listing_id AND l.platform = c.platform
+ WHERE c.platform = %s AND c.aplicado
+   AND (c.estado = 'enviado' OR (c.estado = 'error' AND c.confirmado_por IS NULL))
+   AND (c.enviado_at AT TIME ZONE 'UTC')::date < %s
+ ORDER BY c.id
+"""
+
+
 def cerrar_por_observacion(conn: psycopg.Connection, vitrina, hoy) -> dict:
     """Cierra por la observacion propia del dia posterior al envio.
 
-    Como hoy, pero SOLO los cambios de `vitrina.clave` y leyendo
-    `vitrina.observado` (la observacion mas reciente en `(dia_envio,
-    hoy]`): igual a `precio_despues` (importe Y moneda) -> `confirmado` /
-    `confirmado_por = 'observacion'`; distinta -> `no_confirmado`; sin
-    observacion -> no se toca (no se adivina). Vale igual para reversas.
+    SOLO los cambios de `vitrina.clave`, leyendo `vitrina.observado` (la
+    observacion mas reciente en `(dia_envio, hoy]`; importe Y moneda). Vale
+    igual para reversas. Sin observacion no se toca nada (no se adivina):
+
+    - `enviado` con el precio nuevo -> `confirmado` / `observacion`.
+    - `enviado` con otro precio -> `no_confirmado` / `observacion`.
+    - `error` con el precio nuevo (el cambio si entro) -> `confirmado` /
+      `observacion`, con `ack = COALESCE(ack, {"origen": "observacion"})`.
+    - `error` con el precio anterior -> sigue `error` con `confirmado_por =
+      'observacion'`: sin efecto probado (`tipos.cambio_sin_efecto`).
+    - `error` con otro precio -> no se toca: sigue contando como cambio.
     """
     if not conn.autocommit:
         raise ValueError(
             "cerrar_por_observacion exige conexión en autocommit:"
             " cada cierre confirma al salir del bloque"
         )
-    abiertos = conn.execute(
-        "SELECT c.id, c.listing_id, c.precio_despues, c.precio_despues_currency,"
-        " (c.enviado_at AT TIME ZONE 'UTC')::date, l.seller_sku, l.external_id,"
-        " l.product_id"
-        " FROM precio_cambio c JOIN listing l"
-        " ON l.id = c.listing_id AND l.platform = c.platform"
-        " WHERE c.platform = %s AND c.estado = 'enviado'"
-        " AND (c.enviado_at AT TIME ZONE 'UTC')::date < %s"
-        " ORDER BY c.id",
-        (vitrina.clave, hoy),
-    ).fetchall()
-    cuenta = {"confirmado": 0, "no_confirmado": 0, "intactos": 0}
-    for cid, lid, despues, despues_moneda, dia_envio, _sku, _asin, _product_id in abiertos:
+    abiertos = conn.execute(_SQL_ABIERTOS_A_OBSERVAR, (vitrina.clave, hoy)).fetchall()
+    cuenta = {"confirmado": 0, "no_confirmado": 0, "sin_efecto": 0, "intactos": 0}
+    for cid, lid, estado, antes, antes_moneda, despues, despues_moneda, dia_envio in abiertos:
         unidad = _unidad(vitrina, conn, lid)
         obs = vitrina.observado(conn, unidad, despues_de=dia_envio, hasta=hoy)
-        if obs is None:
+        visto = None if obs is None else (obs.precio.valor, obs.precio.moneda)
+        if visto is None:
+            cierre = None
+        elif visto == (despues, despues_moneda):
+            cierre = "confirmado"
+        elif estado == "enviado":
+            cierre = "no_confirmado"
+        elif visto == (antes, antes_moneda):
+            cierre = "sin_efecto"
+        else:
+            cierre = None
+        if cierre is None:
             cuenta["intactos"] += 1
             continue
-        estado = (
-            "confirmado"
-            if (obs.precio.valor, obs.precio.moneda) == (despues, despues_moneda)
-            else "no_confirmado"
-        )
         with conn.transaction():
-            conn.execute(
-                "UPDATE precio_cambio SET estado = %s, confirmado_por = 'observacion'"
-                " WHERE id = %s",
-                (estado, cid),
-            )
-        cuenta[estado] += 1
-        logger.info("cerrar cambio=%s estado=%s", cid, estado)
+            if cierre == "sin_efecto":
+                conn.execute(
+                    "UPDATE precio_cambio SET confirmado_por = 'observacion' WHERE id = %s",
+                    (cid,),
+                )
+            else:
+                conn.execute(
+                    "UPDATE precio_cambio SET estado = %s, confirmado_por = 'observacion',"
+                    " ack = COALESCE(ack, %s) WHERE id = %s",
+                    (cierre, Jsonb({"origen": "observacion"}), cid),
+                )
+        cuenta[cierre] += 1
+        logger.info("cerrar cambio=%s %s estado=%s", cid, estado, cierre)
     return cuenta
 
 
@@ -1026,7 +1017,6 @@ def insertar_virtual(
     listing_id: int,
     platform: str,
     decision,
-    ahora: datetime,
     *,
     corrida_id: int,
 ) -> int:
@@ -1034,14 +1024,14 @@ def insertar_virtual(
     con `precio_antes = p_actual` (sin GET de Pricing en sombra), consume
     cooldown y freno sin ocupar el indice de abierto. Cero escrituras.
     `corrida_id` obligatorio (P-A.2): solo la corrida inserta virtuales.
-    P-C.4 quitara `ahora` cuando `enviado_at` nazca con `now()`."""
+    `enviado_at` nace con el reloj de la base (P-C.4), como el real."""
     assert decision.p_actual is not None and decision.p_aplicado is not None
     return conn.execute(
         "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
         " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
         " estado, enviado_at, confirmado_por, corrida_id)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, false,"
-        " 'confirmado', %s, 'virtual', %s) RETURNING id",
+        " 'confirmado', now(), 'virtual', %s) RETURNING id",
         (
             decision_id,
             listing_id,
@@ -1050,7 +1040,6 @@ def insertar_virtual(
             decision.p_actual.moneda,
             decision.p_aplicado.valor,
             decision.p_aplicado.moneda,
-            ahora,
             corrida_id,
         ),
     ).fetchone()[0]

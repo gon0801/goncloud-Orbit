@@ -22,11 +22,13 @@ from __future__ import annotations
 import os
 import socket
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2081,3 +2083,151 @@ def test_0058_reversa_quita_los_dos_check():
             _ensure_goal(conn, lid, mode="live")
         assert _decision_58(conn, lid_a, resultado="mantener", motivo="en_tolerancia")
         assert _decision_58(conn, lid_b, resultado="subir", motivo="tdd", l_origen="politica")
+
+
+# ---------------------------------------------------------------------------
+# ARREGLOS 03 P-C: `<n>_arreglos03_error_cierra_por_observacion.sql` y su
+# reversa. Un `error` que la observacion del dia siguiente encontro en el
+# precio nuevo se cierra `confirmado` y conserva su codigo como historia.
+# ---------------------------------------------------------------------------
+
+
+def _migracion_pc(*, reversa: bool = False) -> Path:
+    """La migracion de P-C por tema (el numero puede moverse al rebasar)."""
+    tema = "arreglos03_error_cierra_por_observacion.sql"
+    if reversa:
+        return next((ROOT / "migrations").glob(f"*_reversa_{tema}"))
+    candidatas = sorted((ROOT / "migrations").glob(f"*_{tema}"))
+    return next(r for r in candidatas if "_reversa_" not in r.name)
+
+
+def _sonda_pc(conn) -> bool:
+    """Corre la sonda de la cabecera real de la migracion (la del despliegue)."""
+    cabecera = _migracion_pc().read_text(encoding="utf-8").splitlines()[:10]
+    select = next(
+        linea.split("-- sonda-aplicada:", 1)[1].strip()
+        for linea in cabecera
+        if linea.startswith("-- sonda-aplicada:")
+    )
+    return conn.execute(select).fetchone()[0]
+
+
+def _check_pc_validado(conn) -> bool:
+    return conn.execute(
+        "SELECT convalidated FROM pg_constraint"
+        " WHERE conrelid = 'public.precio_cambio'::regclass"
+        " AND conname = 'precio_cambio_error_code_solo_error'"
+    ).fetchone()[0]
+
+
+def _fila_pc(conn, cid: int):
+    return conn.execute("SELECT * FROM precio_cambio WHERE id = %s", (cid,)).fetchone()
+
+
+def _error_real_pc(conn, etiqueta: str) -> int:
+    """Cambio real `pendiente` (con enviado_at) llevado a `error` con su codigo."""
+    lid = _listing(
+        conn, _producto(conn, f"SKU-PRECIO-{etiqueta}"), ext=f"B{etiqueta}", sku=f"SKU-{etiqueta}"
+    )
+    _ensure_goal(conn, lid, mode="live")
+    did = _decision_58(
+        conn, lid, resultado="subir", motivo="tdd", l_origen="politica", verificacion="cotizada"
+    )
+    cid = _cambio(conn, did, lid, enviado_at=datetime.now(UTC) - timedelta(days=2))
+    conn.execute(
+        "UPDATE precio_cambio SET estado = 'error', error_code = 'PATCH /x red' WHERE id = %s",
+        (cid,),
+    )
+    return cid
+
+
+@_skip_db
+def test_arreglos03_pc_migracion_y_su_reversa():
+    """P-C.2 (instala): la ida deja cerrar `error -> confirmado` con codigo;
+    la reversa, desde otra transaccion, vuelve al contrato anterior para toda
+    escritura posterior sin tocar el cierre ya confirmado (CHECK `NOT VALID`,
+    `convalidated = false`); reaplicar la ida valida todo otra vez. Sin
+    cierres asi, la reversa deja el CHECK validado como antes."""
+    ida = _migracion_pc().read_text(encoding="utf-8")
+    reversa = _migracion_pc(reversa=True).read_text(encoding="utf-8")
+    with db_58("orbit_p_pc_rev") as conn:
+        # Reversa sin excepciones historicas: el CHECK de la 0039, validado.
+        assert _sonda_pc(conn) is False
+        conn.execute(ida)
+        assert (_sonda_pc(conn), _check_pc_validado(conn)) == (True, True)
+        conn.execute(reversa)
+        assert (_sonda_pc(conn), _check_pc_validado(conn)) == (False, True)
+
+        # Ida: el motor (`app_decide`) cierra un error real y hace COMMIT.
+        conn.execute(ida)
+        assert (_sonda_pc(conn), _check_pc_validado(conn)) == (True, True)
+        cid = _error_real_pc(conn, "PC1")
+        try:
+            conn.execute("SET ROLE app_decide")
+            with conn.transaction():
+                conn.execute(
+                    "UPDATE precio_cambio SET estado = 'confirmado',"
+                    " confirmado_por = 'observacion', ack = COALESCE(ack, %s) WHERE id = %s",
+                    (Jsonb({"origen": "observacion"}), cid),
+                )
+        finally:
+            conn.execute("RESET ROLE")
+        cerrada = _fila_pc(conn, cid)
+        sello = conn.execute(
+            "SELECT estado, error_code, ack, enviado_at IS NOT NULL, confirmado_por"
+            " FROM precio_cambio WHERE id = %s",
+            (cid,),
+        ).fetchone()
+        assert sello == (
+            "confirmado",
+            "PATCH /x red",
+            {"origen": "observacion"},
+            True,
+            "observacion",
+        )
+
+        # Reversa desde otra transaccion, con el cierre ya confirmado.
+        conn.execute(reversa)
+        assert (_sonda_pc(conn), _check_pc_validado(conn)) == (False, False)
+        assert _fila_pc(conn, cid) == cerrada
+        cid2 = _error_real_pc(conn, "PC2")
+        with (
+            pytest.raises(psycopg.errors.CheckViolation, match="fuera de la progresi"),
+            conn.transaction(),
+        ):
+            conn.execute(
+                "UPDATE precio_cambio SET estado = 'confirmado',"
+                " confirmado_por = 'observacion', ack = %s WHERE id = %s",
+                (Jsonb({"origen": "observacion"}), cid2),
+            )
+        with (
+            pytest.raises(
+                psycopg.errors.CheckViolation, match="precio_cambio_error_code_solo_error"
+            ),
+            conn.transaction(),
+        ):
+            # Sin el trigger de nacimiento (que rechazaria antes), el CHECK
+            # restaurado rechaza el INSERT incompatible.
+            conn.execute("ALTER TABLE precio_cambio DISABLE TRIGGER precio_cambio_nacimiento")
+            fila = conn.execute(
+                "SELECT decision_id, listing_id FROM precio_cambio WHERE id = %s", (cid2,)
+            ).fetchone()
+            _cambio(
+                conn,
+                fila[0],
+                fila[1],
+                estado="confirmado",
+                error_code="PATCH /x red",
+                confirmado_por="observacion",
+                ack=Jsonb({"origen": "observacion"}),
+                enviado_at=datetime.now(UTC),
+            )
+        assert conn.execute(
+            "SELECT estado, confirmado_por FROM precio_cambio WHERE id = %s", (cid2,)
+        ).fetchone() == ("error", None)
+
+        # Reaplicar la ida: sonda verdadera, historial intacto, CHECK validado.
+        conn.execute(ida)
+        assert (_sonda_pc(conn), _check_pc_validado(conn)) == (True, True)
+        assert _fila_pc(conn, cid) == cerrada
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 2

@@ -51,6 +51,7 @@ __all__ = [
     "Escenario",
     "ObservacionPricing",
     "CambioPrevio",
+    "cambio_sin_efecto",
     "HistorialMargen",
     "SenalVentas",
     "CotizacionVerificada",
@@ -450,6 +451,16 @@ class ObservacionPricing:
 
     precio: Importe
     observada_en: datetime
+
+
+def cambio_sin_efecto(estado: str, confirmado_por: str | None) -> bool:
+    """Un `error` que la observacion del dia siguiente encontro en el precio
+    anterior (ARREGLOS 03 P-C): solo eso prueba que el cambio no entro.
+
+    La relectura inmediata ya no cuenta (la plataforma tarda en mostrar el
+    precio nuevo); mientras no hay observacion, el `error` cuenta como cambio.
+    """
+    return estado == "error" and confirmado_por == "observacion"
 
 
 @dataclass(frozen=True)

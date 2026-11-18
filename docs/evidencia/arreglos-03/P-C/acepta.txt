@@ -1,0 +1,143 @@
+# ARREGLOS 03 P-C — Acepta y rojos previos
+
+- Worktree: `C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-30` (rama `ao/arreglos03-pc/root`).
+- SHA base (previo al cambio, = origin/master al abrir): `c9b77fe25907db863c75f3cd233848b602edc943` (`c9b77fe`, «ARREGLOS 03 D-G ... (#643)»).
+- Recuperacion: el bloque arranco del trabajo sin commitear del worktree `goncloud-orbit-25` (rama `ao/goncloud-orbit-25/arreglos03-pc`, base `06cbd79`): su `git diff` (app + tests) se aplico limpio con `git apply --3way` sobre `c9b77fe` y las dos migraciones 0090 se copiaron sin seguimiento. Numero 0090: libre en `origin/master` (ultimo: 0089) al abrir el PR; no hubo que moverlo.
+- Entorno: Windows, `uv run --frozen --python 3.12`, PG16 desechable `ORBIT_TEST_DSN=postgresql://orbit@127.0.0.1:55433/postgres`; `PYTHONUTF8=1`. Las pruebas que exigen psql/pg_dump/flock se corrieron en WSL con `wsl-pytest.sh`.
+
+## Rojo previo (SHA `c9b77fe`, sin el arreglo)
+
+1) P-C.1 — reproducciones de la revision (fallan en el SHA previo):
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      docs/evidencia/arreglos-2026-11-12/pruebas/precio/test_revision_precio.py -k "test_f1_ or test_f1b_"
+
+    2 failed, 3 deselected in 4.79s
+    FAILED ...::test_f1_patch_que_si_entro_no_frena_7_dias_y_se_vuelve_a_mover
+      (el motor decide ('subir', None) y manda otro PATCH; espera ('mantener','cooldown'), 0 PATCH)
+    FAILED ...::test_f1b_cambio_que_si_entro_queda_como_error_y_la_reversa_lo_salta
+      AssertionError: ... el registro dice error / plan sin_efecto
+      assert ('error', 'sin_efecto') == ('confirmado', 'revertible')
+
+2) P-C.2 — sin la migracion, cerrar un `error` real a `confirmado` revienta
+   (guion auxiliar sobre `db_58`/ORDEN58, corrido en el SHA previo con `git stash`):
+
+    ROJO P-C.2 CheckViolation: precio_cambio 2: estado error -> confirmado fuera de la
+    progresion sellada (pendiente -> enviado | error, enviado -> confirmado | no_confirmado;
+    el cierre es por observacion del dia siguiente, S6).
+
+3) P-C.2 — reversa «anterior» que validaba todo el historial (guion auxiliar:
+   ida aplicada + cierre `error -> confirmado` hecho, luego CHECK restaurado y
+   `VALIDATE CONSTRAINT` incondicional):
+
+    cierre hecho: estado = confirmado
+    ROJO reversa ingenua CheckViolation: check constraint "precio_cambio_error_code_solo_error"
+    of relation "precio_cambio" is violated by some row
+
+## Acepta (con el cambio, en la cabeza del PR)
+
+P-C.1:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_corrida.py -k arreglos03_pc_
+    -> 2 passed, 135 deselected in 5.52s
+       (test_arreglos03_pc_patch_que_si_entro_respeta_7_dias,
+        test_arreglos03_pc_error_que_si_entro_cierra_confirmado)
+
+P-C.2 (parte 1, con -rs; un skipped cuenta como fallo):
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs \
+      tests/test_precio_migracion.py -k arreglos03_pc_
+    -> 1 passed, 67 deselected in 2.67s
+       (test_arreglos03_pc_migracion_y_su_reversa: ida+sonda, cierre app_decide con
+        COMMIT, reversa desde otra transaccion con convalidated=false, rechazos de
+        transicion e INSERT en transacciones separadas, reaplicacion con fila intacta,
+        y reversa sin excepciones historicas con convalidated=true)
+
+P-C.2 (parte 2; en Windows `test_despliegue_motor.py` skipea por faltar psql/pg_dump/flock,
+asi que esa bateria se corre entera en WSL):
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs \
+      tests/test_despliegue_motor.py tests/test_schema.py tests/test_precio_migracion.py
+    -> 159 passed, 48 skipped in 97.24s (los 48 skips son la guarda de Windows de
+       test_despliegue_motor.py: "sin Postgres utilizable o sin bash/git/psql/pg_dump/flock
+       en el PATH"; tests/test_schema.py y tests/test_precio_migracion.py sin skips)
+
+    wsl -e bash -l /mnt/c/Users/ehven/AppData/Local/Temp/orbit-arreglos03/wsl-pytest.sh \
+      "C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-30" -q -rs \
+      tests/test_despliegue_motor.py
+    -> 48 passed in 254.92s (cero skips: la migracion y su reversa pasan la receta de
+       despliegue `migraciones_de` con sonda y su par)
+
+P-C.3:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_corrida.py tests/test_precio_write.py tests/test_precio_reglas.py
+    -> 1 failed, 404 passed in 382.17s
+       La unica falla es test_precio_reglas.py::test_r4_g8_barrido_float_entra_a_subpaquetes,
+       PREEXISTENTE e independiente del bloque: falla igual en `c9b77fe` con arbol limpio
+       (comprobado con git stash) porque en Windows rglob devuelve rutas con '\' y la prueba
+       busca 'sub/flotante.py'; en WSL pasa:
+         wsl ... -q tests/test_precio_reglas.py::test_r4_g8_barrido_float_entra_a_subpaquetes
+         -> 1 passed in 1.14s
+
+P-C.4:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -c \
+      "import inspect, app.precio.cambios as c; assert 'ahora' not in inspect.signature(c.insertar_virtual).parameters"
+    -> firma ok: insertar_virtual sin ahora
+    grep -c 'now()' app/precio/cambios.py  -> 6 (>= 6; las 3 del candado + los 3 INSERT)
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_corrida.py tests/test_precio_write.py
+    -> 224 passed in 337.66s
+
+## Vecindario (no Acepta del bloque; por si rompia yo algo)
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_pantalla.py tests/test_api_precios_write.py tests/test_precio_compuerta.py \
+      tests/test_precio_goals.py tests/test_precio_d0.py tests/test_precio02_atribucion.py
+    -> 4 failed, 269 passed, 1 skipped in 251.59s
+       Las 4 fallas y el skip son de tests/test_precio_d0.py y ocurren IGUAL en `c9b77fe`
+       con arbol limpio (guardas de git/ssh/pg_dump de esa bateria en esta PC; el skip es
+       "sin pg_dump en PATH"): preexistentes, ajenas al bloque.
+       test_precio_pantalla (ORDEN59 local sin la 0090: no ejerce error->confirmado),
+       test_api_precios_write, test_precio_compuerta, test_precio_goals y
+       test_precio02_atribucion: verdes.
+
+## Suite completa (WSL; en Windows CI=1 aborta en coleccion: sin psql y sin fcntl)
+
+    wsl -e bash -l /mnt/c/Users/ehven/AppData/Local/Temp/orbit-arreglos03/wsl-pytest.sh \
+      "C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-30" -q
+    -> 21 failed, 5933 passed in 3501.68s
+
+Las 21 fallas, una por una, fueron verificadas contra `c9b77fe` con arbol limpio
+(git checkout + rerun): TODAS fallan igual sin este bloque (preexistentes o de
+entorno de esta PC; ninguna de precios):
+
+- test_architecture.py::test_presupuesto_de_tamano_por_modulo — igual en `c9b77fe`.
+- test_impulso_io.py::test_r09r5_b1a_conexion_propia_lleva_credencial — igual en `c9b77fe`.
+- test_ingesta01_d1_checklist.py (4), test_ingesta01_d1_desplegar.py (7),
+  test_ingesta01_d1_rollback.py (5) y test_ui.py::test_uv_lock_commiteado_y_jinja2_pinneada:
+  en WSL revientan con "fatal: not a git repository: .../C:/dev/goncloud-Orbit/.git/worktrees/..."
+  (el .git del worktree de Windows apunta a un gitdir estilo Windows que git de Linux no
+  resuelve); en Windows fallan igual en `c9b77fe` (15 failed, 1 passed, mismo conjunto).
+- test_jev_catalogo.py::test_reversa_deja_la_base_como_0001 — contaminacion del PG
+  desechable compartido (9 bases orbit_*/precio_* residuentes de corridas muertas lo
+  impedian); con las residuales borradas pasa 32/32. Igual en `c9b77fe` antes de limpiar.
+- test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue — igual
+  en `c9b77fe` (falla sola, sin relacion con P-C).
+- test_schema_docs.py::test_launch_doctor_mismo_conteo_que_esquema (92 vs 93) — igual en
+  `c9b77fe`; ninguna migracion arreglos03 (0087-0090) crea tablas: el conteo de
+  verify/Launch.md (92) venia desfazado de antes.
+
+## Notas
+
+- ORDEN54/ORDEN58/ORDEN_M3 no suman la migracion: ningun archivo de pruebas que usa esas
+  listas ejerce la transicion `error -> confirmado` (verificado: solo test_precio_corrida
+  la necesita y la trae al final de ORDEN59, por tema para tolerar el cambio de numero).
+- La migracion lleva la cabecera `-- sonda-aplicada:` en la linea 1, sin BEGIN/COMMIT (la
+  funcion plpgsql usa BEGIN de lenguaje, que la guarda de `migraciones_de` no marca); la
+  reversa no lleva sonda, igual que 0087/0088/0089.
+- prueba-real (migracion_aplicada.sh arreglos03_error_cierra_por_observacion y
+  desplegado.sh --no "def _readback" vivo_rb): la corre el lead tras el despliegue.

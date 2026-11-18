@@ -27,7 +27,7 @@ from app.precio.compuerta import Retenida
 from app.precio.config import _entero as config_entero
 from app.precio.config import _modo_universo as config_modo_universo
 from app.precio.config import _numero as config_numero
-from app.precio.tipos import CambioPrevio, HistorialMargen
+from app.precio.tipos import CambioPrevio, HistorialMargen, cambio_sin_efecto
 
 __all__ = [
     "max_dias_desde_settings",
@@ -364,44 +364,24 @@ def cambios_previos(
 
     La direccion sale de comparar importes (la fila no la guarda). Un
     cambio con `antes == despues` no tiene direccion y se salta (no deberia
-    existir: el motor solo mueve precio). `sin_efecto` (REPRICING 02 S.4,
-    `datos.sql` 8) se deriva al leer: `error` con codigo
-    `huerfana_sin_efecto` o con readback igual a `precio_antes` (importe
-    Y moneda); sin readback no hay prueba y cuenta normal.
+    existir: el motor solo mueve precio). `sin_efecto` se deriva al leer
+    con `tipos.cambio_sin_efecto` (ARREGLOS 03 P-C): solo el `error` que la
+    observacion del dia siguiente encontro en el precio anterior. La
+    relectura inmediata ya no prueba nada; sin observacion cuenta normal.
     """
     filas = conn.execute(
-        "SELECT (enviado_at AT TIME ZONE 'UTC')::date, precio_antes, precio_antes_currency,"
-        " precio_despues, estado, es_reversa, aplicado, error_code,"
-        " readback_precio, readback_precio_currency"
+        "SELECT (enviado_at AT TIME ZONE 'UTC')::date, precio_antes,"
+        " precio_despues, estado, es_reversa, aplicado, confirmado_por"
         " FROM precio_cambio"
         " WHERE listing_id = %s AND platform = %s AND NOT es_reversa"
         " ORDER BY id",
         (listing_id, platform),
     ).fetchall()
     cambios: list[CambioPrevio] = []
-    for (
-        enviado_en,
-        antes,
-        antes_moneda,
-        despues,
-        estado,
-        _reversa,
-        aplicado,
-        error_code,
-        readback,
-        readback_moneda,
-    ) in filas:
+    for enviado_en, antes, despues, estado, _reversa, aplicado, confirmado_por in filas:
         direccion = _direccion(antes, despues)
         if direccion is None or enviado_en is None:
             continue
-        sin_efecto = estado == "error" and (
-            error_code == "huerfana_sin_efecto"
-            or (
-                readback is not None
-                and readback_moneda is not None
-                and (readback, readback_moneda) == (antes, antes_moneda)
-            )
-        )
         cambios.append(
             CambioPrevio(
                 enviado_en=enviado_en,
@@ -409,7 +389,7 @@ def cambios_previos(
                 estado=estado,
                 es_reversa=False,
                 aplicado=bool(aplicado),
-                sin_efecto=sin_efecto,
+                sin_efecto=cambio_sin_efecto(estado, confirmado_por),
             )
         )
     return tuple(cambios)
@@ -419,8 +399,9 @@ def ultima_subida(cambios: Sequence[CambioPrevio]) -> date | None:
     """Dia de la ultima subida propia que movio precio (None si no hay).
 
     Solo cuentan `subir` ejecutadas (`enviado`/`confirmado`); un `error`,
-    un `pendiente` o un `sin_efecto` (el readback probo que el precio no
-    se movio) no abren antes/despues para el trafico. El virtual de
+    un `pendiente` o un `sin_efecto` (la observacion del dia siguiente
+    probo que el precio no se movio, P-C) no abren antes/despues para el
+    trafico; un `error` que la observacion cerro `confirmado` si. El virtual de
     shadow (`confirmado` sin `aplicado`) tampoco: cero escrituras.
     """
     dias = [

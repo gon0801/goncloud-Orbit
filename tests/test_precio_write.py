@@ -347,10 +347,10 @@ def test_leer_precio_vivo_get_roto_es_ausente():
 # --------------------------------------------------------------- revertir
 
 
-def test_revertir_flujo_enviado_con_readback_ok():
+def test_revertir_flujo_enviado():
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(110.0)), (200, _ofertas_body(100.0))],
-        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())],
         patchs=[(202, {"submissionId": "rev-1", "status": "ACCEPTED"})],
     )
     with _db59() as conn:
@@ -362,8 +362,7 @@ def test_revertir_flujo_enviado_con_readback_ok():
         assert res.estado == "enviado" and res.motivo is None
         fila = conn.execute(
             "SELECT es_reversa, reversa_de, decision_id, estado, precio_antes,"
-            " precio_antes_currency, precio_despues, precio_despues_currency, ack,"
-            " readback_precio, readback_precio_currency, readback_estado"
+            " precio_antes_currency, precio_despues, precio_despues_currency, ack"
             " FROM precio_cambio WHERE id = %s",
             (res.id_reversa,),
         ).fetchone()
@@ -371,7 +370,6 @@ def test_revertir_flujo_enviado_con_readback_ok():
         assert (fila[4], fila[5]) == (Decimal("110.00"), "MXN")
         assert (fila[6], fila[7]) == (Decimal("100.00"), "MXN")
         assert fila[8]["cuerpo"] and "rev-1" in fila[8]["cuerpo"]
-        assert (fila[9], fila[10], fila[11]) == (Decimal("100.00"), "MXN", "ok")
 
 
 def test_r1_a4_revertir_original_enviado_salta():
@@ -531,8 +529,8 @@ def test_revertir_usa_cuerpo_sellado_aceptado_en_sonda():
 
 def test_revertir_patch_500_sella_error_con_codigo():
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(110.0)), (200, _ofertas_body(110.0))],
-        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())],
         patchs=[(500, {"status": "ERROR"})],
     )
     with _db59() as conn:
@@ -543,39 +541,12 @@ def test_revertir_patch_500_sella_error_con_codigo():
             res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
-            "SELECT estado, error_code, readback_precio FROM precio_cambio WHERE id = %s",
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
             (res.id_reversa,),
         ).fetchone()
         assert fila[0] == "error"
         assert fila[1].startswith("PATCH /listings/2021-08-01/items/") and fila[1].endswith(" 500")
         assert SKU not in fila[1]
-        # Aunque el readback posterior vea precio, el estado no se mueve.
-        assert fila[2] == Decimal("110.00")
-
-
-def test_revertir_readback_429_agotado_es_fallido_sin_patch_extra():
-    red = _RedFalsa(
-        gets_ofertas=[
-            (200, _ofertas_body(110.0)),
-            (429, {"status": "Error"}),
-            (429, {"status": "Error"}),
-        ],
-        gets_competitivos=[(200, _competitivo_body())] * 3,
-        patchs=[(202, {"submissionId": "rev-1", "status": "ACCEPTED"})],
-    )
-    with _db59() as conn:
-        _, cid = _semilla_reversion(conn)
-        lector, escritor = _clientes(red)
-        with rol(conn):
-            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
-            res = revertir(conn, cid, mercado=mercado, ahora=AHORA)
-        assert res.estado == "enviado"
-        fila = conn.execute(
-            "SELECT readback_precio, readback_estado FROM precio_cambio WHERE id = %s",
-            (res.id_reversa,),
-        ).fetchone()
-        assert fila == (None, "fallido")
-        assert red.n_patch == 1
 
 
 def test_revertir_patch_exige_fila_pendiente_primero():
@@ -647,10 +618,10 @@ def _semilla_cambio(conn, *, asin=ASIN, sku=SKU, desde="100.00", hasta="110.00",
     return lid, _decision(conn, lid, aplicado=Decimal(hasta), mode=mode)
 
 
-def test_cambiar_ack_aceptado_y_get_viejo_da_enviado():
+def test_cambiar_ack_aceptado_da_enviado():
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
-        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        gets_ofertas=[(200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body())],
         patchs=[(202, {"submissionId": "c-1", "status": "ACCEPTED"})],
     )
     with _db59() as conn:
@@ -661,21 +632,18 @@ def test_cambiar_ack_aceptado_y_get_viejo_da_enviado():
             res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado" and res.motivo is None
         fila = conn.execute(
-            "SELECT estado, precio_antes, precio_despues, ack,"
-            " readback_precio, readback_estado FROM precio_cambio WHERE id = %s",
+            "SELECT estado, precio_antes, precio_despues, ack FROM precio_cambio WHERE id = %s",
             (res.id_cambio,),
         ).fetchone()
         assert fila[0] == "enviado"
         assert (fila[1], fila[2]) == (Decimal("100.00"), Decimal("110.00"))
         assert "c-1" in fila[3]["cuerpo"]
-        # El GET viejo no mueve el estado: readback solo informa.
-        assert (fila[4], fila[5]) == (Decimal("100.00"), "ok")
 
 
-def test_cambiar_ack_error_y_get_nuevo_da_error():
+def test_cambiar_ack_error_da_error():
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(110.0))],
-        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        gets_ofertas=[(200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body())],
         patchs=[(500, {"status": "ERROR"})],
     )
     with _db59() as conn:
@@ -686,33 +654,10 @@ def test_cambiar_ack_error_y_get_nuevo_da_error():
             res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
-            "SELECT estado, error_code, readback_precio, readback_estado"
-            " FROM precio_cambio WHERE id = %s",
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
             (res.id_cambio,),
         ).fetchone()
         assert fila[0] == "error" and fila[1].endswith(" 500") and SKU not in fila[1]
-        # Aunque el GET nuevo muestre el precio, el estado no se mueve.
-        assert (fila[2], fila[3]) == (Decimal("110.00"), "ok")
-
-
-def test_cambiar_ack_ok_y_get_distinto_da_enviado_con_readback_ok():
-    red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(105.0))],
-        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
-        patchs=[(202, {"submissionId": "c-2", "status": "ACCEPTED"})],
-    )
-    with _db59() as conn:
-        _, dec = _semilla_cambio(conn)
-        lector, escritor = _clientes(red)
-        with rol(conn):
-            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
-            res = aplicar(conn, mercado, dec, ahora=AHORA)
-        assert res.estado == "enviado"
-        fila = conn.execute(
-            "SELECT readback_precio, readback_estado FROM precio_cambio WHERE id = %s",
-            (res.id_cambio,),
-        ).fetchone()
-        assert fila == (Decimal("105.00"), "ok")
 
 
 def test_r1_a2_401_y_lwa_400_sella_lwa_sin_huerfanas():
@@ -762,12 +707,11 @@ def test_r1_a2_error_de_red_sella_sin_relanzar():
             res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "error"
         fila = conn.execute(
-            "SELECT estado, error_code, readback_estado FROM precio_cambio WHERE id = %s",
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
             (res.id_cambio,),
         ).fetchone()
         assert fila[0] == "error"
         assert fila[1] == f"PATCH /listings/2021-08-01/items/{PROPIO} red"
-        assert fila[2] == "ok"
 
 
 def test_r1_a2_excepcion_rara_sella_y_relanza():
@@ -848,56 +792,6 @@ def test_cambiar_200_sin_accepted_es_error(ack):
             (res.id_cambio,),
         ).fetchone()
         assert fila[0] == "error" and fila[1].endswith(" 200")
-
-
-def test_r1_a6_readback_con_lwa_caido_es_fallido_sin_tumbar():
-    """r1-A6: LWA caído en el readback → fallido, el enviado no se mueve."""
-    red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(100.0)), (401, {})],
-        gets_competitivos=[(200, _competitivo_body())],
-        patchs=[(202, {"submissionId": "c-1", "status": "ACCEPTED"})],
-        lwa=[
-            (200, {"access_token": "tok-vivo", "expires_in": 3600}),
-            (400, {"error": "invalid_grant"}),
-        ],
-    )
-    with _db59() as conn:
-        _, dec = _semilla_cambio(conn)
-        lector, escritor = _clientes(red)
-        with rol(conn):
-            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
-            res = aplicar(conn, mercado, dec, ahora=AHORA)
-        assert res.estado == "enviado"
-        fila = conn.execute(
-            "SELECT estado, readback_estado FROM precio_cambio WHERE id = %s",
-            (res.id_cambio,),
-        ).fetchone()
-        assert fila == ("enviado", "fallido")
-
-
-def test_cambiar_429_agotado_readback_fallido_sin_escritura_extra():
-    red = _RedFalsa(
-        gets_ofertas=[
-            (200, _ofertas_body(100.0)),
-            (429, {"status": "Error"}),
-            (429, {"status": "Error"}),
-        ],
-        gets_competitivos=[(200, _competitivo_body())] * 3,
-        patchs=[(202, {"submissionId": "c-3", "status": "ACCEPTED"})],
-    )
-    with _db59() as conn:
-        _, dec = _semilla_cambio(conn)
-        lector, escritor = _clientes(red)
-        with rol(conn):
-            mercado = _mercado(red, construir_cuerpo=_cuerpo_falso)
-            res = aplicar(conn, mercado, dec, ahora=AHORA)
-        assert res.estado == "enviado"
-        fila = conn.execute(
-            "SELECT readback_precio, readback_estado FROM precio_cambio WHERE id = %s",
-            (res.id_cambio,),
-        ).fetchone()
-        assert fila == (None, "fallido")
-        assert red.n_patch == 1
 
 
 def test_r1_a3_cambiar_vivo_distinto_de_p_actual_salta():
@@ -1057,7 +951,7 @@ def test_cerrar_observacion_igual_confirma_distinta_no():
         _observacion(conn, asin="B0C3", fecha="2026-09-18", precio="110.00", moneda="USD")
         with rol(conn):
             cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
-        assert cuenta == {"confirmado": 1, "no_confirmado": 2, "intactos": 1}
+        assert cuenta == {"confirmado": 1, "no_confirmado": 2, "sin_efecto": 0, "intactos": 1}
         estados = dict(
             conn.execute(
                 "SELECT id, estado FROM precio_cambio WHERE id = ANY(%s)",
@@ -1105,7 +999,7 @@ def test_cerrar_reversa_se_cierra_por_observacion():
         _observacion(conn, asin="B0C6", fecha="2026-09-18", precio="100.00")
         with rol(conn):
             cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
-        assert cuenta == {"confirmado": 1, "no_confirmado": 0, "intactos": 0}
+        assert cuenta == {"confirmado": 1, "no_confirmado": 0, "sin_efecto": 0, "intactos": 0}
         assert (
             conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (rev,)).fetchone()[0]
             == "confirmado"
@@ -1402,7 +1296,7 @@ def test_r1_m_p17_observacion_mismo_dia_no_cierra():
         _observacion(conn, asin="B0TESTC17A", fecha="2026-09-17", precio="110.00")
         with rol(conn):
             cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
-        assert cuenta == {"confirmado": 0, "no_confirmado": 0, "intactos": 1}
+        assert cuenta == {"confirmado": 0, "no_confirmado": 0, "sin_efecto": 0, "intactos": 1}
         estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
             0
         ]
@@ -1419,7 +1313,7 @@ def test_r1_m_p19_manda_la_mas_reciente():
         _observacion(conn, asin="B0TESTC19A", fecha="2026-09-19", precio="110.00")
         with rol(conn):
             cuenta = cerrar_por_observacion(conn, VITRINA_MX, date(2026, 9, 19))
-        assert cuenta == {"confirmado": 1, "no_confirmado": 0, "intactos": 0}
+        assert cuenta == {"confirmado": 1, "no_confirmado": 0, "sin_efecto": 0, "intactos": 0}
         estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
             0
         ]
@@ -1584,7 +1478,7 @@ def test_r2_b2_p20_confirmado_por_exacta_en_ambos():
         _observacion(conn, asin="B0TESTD20B", fecha="2026-09-18", precio="111.00")
         with rol(conn):
             cuenta = cerrar_por_observacion(conn, VITRINA_MX, HOY_CIERRE)
-        assert cuenta == {"confirmado": 1, "no_confirmado": 1, "intactos": 0}
+        assert cuenta == {"confirmado": 1, "no_confirmado": 1, "sin_efecto": 0, "intactos": 0}
         filas = dict(
             conn.execute(
                 "SELECT id, confirmado_por FROM precio_cambio WHERE id = ANY(%s)",
@@ -1601,11 +1495,9 @@ def test_r2_b2_p22_cuerpo_real_no_se_loguea(caplog):
     red = _RedFalsa(
         gets_ofertas=[
             (200, _ofertas_body(100.0)),
-            (200, _ofertas_body(100.0)),
-            (200, _ofertas_body(110.0, asin=asin2)),
             (200, _ofertas_body(110.0, asin=asin2)),
         ],
-        gets_competitivos=[(200, _competitivo_body())] * 4,
+        gets_competitivos=[(200, _competitivo_body())] * 2,
         patchs=[(202, {"submissionId": "l1", "status": "ACCEPTED"})] * 2,
     )
     cuerpo = lambda **kw: {"marcador": "ZZ9X8", "precio": str(kw["precio"])}  # noqa: E731
@@ -2134,7 +2026,6 @@ def _cambio59(
     estado="pendiente",
     enviado=ANTES,
     error_code=None,
-    readback=None,
     corrida_id=None,
 ) -> int:
     cid = conn.execute(
@@ -2158,12 +2049,6 @@ def _cambio59(
                 "UPDATE precio_cambio SET estado = 'error', error_code = %s WHERE id = %s",
                 (error_code or "PATCH /x 500", cid),
             )
-            if readback is not None:
-                conn.execute(
-                    "UPDATE precio_cambio SET readback_precio = %s, readback_precio_currency = %s,"
-                    " readback_estado = 'ok', readback_at = %s WHERE id = %s",
-                    (readback[0], readback[1], enviado, cid),
-                )
             return cid
         if estado in ("confirmado", "no_confirmado"):
             conn.execute(
