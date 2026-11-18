@@ -303,15 +303,18 @@ def _escenario(
     observed = observed or (datetime.now(UTC) + timedelta(seconds=120))
     valoracion = valoracion or conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
     componentes = [c for c in _componentes() if c["nombre"] != sin_componente]
+    # ARREGLOS 03 P-F: el escenario guarda la comision partida (la misma
+    # cuenta de _FEE_DETALLES_G1: ReferralFee 12 variable, FbaFee 3 fijo).
     return conn.execute(
         "INSERT INTO estimacion_escenario (listing_id, platform, seller_sku, asin, canal,"
         " valoracion_date, observed_at, politica_version_id, formula_version,"
         " oferta_observation_id, fee_observation_id, sku_cost_id, costo_validation_run_id,"
         " costo_validated_at, moneda, contribucion, contribucion_pct, estado, motivos,"
-        " componentes, exclusiones, canonical_input, context_fingerprint, source_event_id)"
+        " componentes, exclusiones, canonical_input, context_fingerprint, source_event_id,"
+        " fee_variable, fee_fijo)"
         " VALUES (%s, %s, %s, %s, 'fba', %s, %s, %s, 'vtest', %s, %s, %s, %s,"
         " %s, 'MXN', %s, %s, 'disponible', %s, %s, %s, %s,"
-        " 'ctx-g1', %s) RETURNING id",
+        " 'ctx-g1', %s, 12, 3) RETURNING id",
         (
             listing,
             platform,
@@ -1970,6 +1973,8 @@ def _g1_componentes(costo="40", ingreso="100", envio="0", isr="2.50", bruto="116
 def _g1_lectura(**cambios):
     from app.precio.siembra import LecturaHoy
 
+    # ARREGLOS 03 P-F: la comision ya llega partida (variable/fijo), sacada
+    # de _FEE_DETALLES_G1: variable = ReferralFee, fijo = el resto.
     base = dict(
         m_pct=Decimal("24.00"),
         p_actual=Decimal("116"),
@@ -1977,7 +1982,12 @@ def _g1_lectura(**cambios):
         componentes=_g1_componentes(),
         fee_total=Decimal("15"),
         fee_quoted=Decimal("116"),
-        fee_detalles=list(_FEE_DETALLES_G1),
+        fee_variable=Decimal(
+            next(d["final_fee"] for d in _FEE_DETALLES_G1 if d["fee_type"] == "ReferralFee")
+        ),
+        fee_fijo=Decimal(
+            sum(Decimal(d["final_fee"]) for d in _FEE_DETALLES_G1 if d["fee_type"] != "ReferralFee")
+        ),
         fee_estado="success",
     )
     base.update(cambios)
@@ -2753,3 +2763,40 @@ def test_tool_live_valor_sin_referencia_confirma_y_escribe():
         )
         assert go.returncode == 0, go.stderr
         assert _cuenta_goals(conn) == 1
+
+
+# ------------------- ARREGLOS 03 P-F (el plan de metas calcula P* de MeLi)
+
+
+def test_arreglos03_pf_plan_de_metas_meli_calcula_precio_objetivo():
+    """P-F.1 (reproduccion `test_estimacion_meli_referencia` de la revision):
+    la cuenta real de MeLi (989.00 MXN, SaleFee 192.86, fijo 0) llega ya
+    partida del escenario (`fee_variable`/`fee_fijo`, no `fee_detalles`):
+    `_referencia` calcula P* con la regla de su plataforma y el freno de
+    «el precio salta mas de 25 %» puede actuar; antes toda fila MeLi salia
+    `referencia_sin_derivar` porque el reparto usaba la regla de Amazon."""
+    from decimal import Decimal as D
+
+    from app.precio.siembra import LecturaHoy, _referencia
+
+    lectura = LecturaHoy(
+        m_pct=D("30.0000"),
+        p_actual=D("989.0000"),
+        moneda="MXN",
+        componentes=[
+            {"nombre": "precio_bruto", "importe_normalizado": "989.0000"},
+            {"nombre": "ingreso_normalizado", "importe_normalizado": "852.5862"},
+            {"nombre": "costo_normalizado", "importe_normalizado": "200.0000"},
+            {"nombre": "logistica", "importe_normalizado": "120.0000"},
+            {"nombre": "isr", "importe_normalizado": "21.3147"},
+        ],
+        fee_total=D("192.8600"),
+        fee_quoted=D("989.0000"),
+        fee_variable=D("192.8600"),
+        fee_fijo=D("0.0000"),
+        fee_estado="success",
+    )
+    estrella, p_actual, motivo = _referencia(lectura, D("0.2000"))
+    assert p_actual is not None
+    assert motivo is None, f"MeLi completo sale sin P*: motivo={motivo!r}"
+    assert estrella is not None

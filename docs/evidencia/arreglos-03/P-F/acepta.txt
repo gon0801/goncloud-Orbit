@@ -1,0 +1,66 @@
+# ARREGLOS 03 P-F — Acepta y rojos previos
+
+- Worktree: `C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-30` (rama `ao/arreglos03-pc/pf`).
+- SHA base (previo al cambio, = origin/master): `48d97bf90c0a80678f4dc1fa37161a6e7f0fa6dd` («ARREGLOS 03 P-D ... (#647)»).
+- Sin migraciones en este bloque.
+- Entorno: Windows, `uv run --frozen --python 3.12`, `PYTHONUTF8=1`; pruebas de base contra el PG desechable (`ORBIT_TEST_DSN`).
+
+## Rojo previo (SHA `48d97bf`, prueba nueva sobre el codigo sin el arreglo)
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_goals.py -k arreglos03_pf_
+    -> 1 failed, 84 deselected
+       FAILED test_arreglos03_pf_plan_de_metas_meli_calcula_precio_objetivo
+       TypeError: LecturaHoy.__init__() got an unexpected keyword argument 'fee_variable'
+       (la reproduccion historica test_estimacion_meli_referencia ya documenta el fallo de
+        fondo: motivo='referencia_sin_derivar', sin P* para MeLi)
+
+## Acepta (con el cambio, en la cabeza del PR)
+
+P-F.1:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_goals.py -k arreglos03_pf_
+    -> 1 passed, 84 deselected (P* de MeLi con motivo None y estrella no nula)
+
+P-F.2:
+
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+      tests/test_precio_goals.py tests/test_goals_write.py tests/test_api_precios_write.py
+    -> 85 passed (goals, 166.77s) + 56 passed (goals_write + api_precios_write, 83.05s);
+       141 en total, cero skips. Amazon da identico (P*=89.88/163.55/66.07 siguen):
+       la siembra de _escenario pasa a escribir fee_variable=12/fee_fijo=3 (la misma
+       cuenta de _FEE_DETALLES_G1) y _g1_lectura los deriva de ahi.
+
+P-F.3:
+
+    test -s docs/evidencia/arreglos-03/P-F/prueba.py  -> OK
+    PYTHONUTF8=1 PYTHONPATH=. uv run --frozen --python 3.12 python \
+      docs/evidencia/arreglos-03/P-F/prueba.py  -> "P-F desplegado"
+    (guion puro: LecturaHoy con fee_variable/fee_fijo y _referencia(0.2000) da
+     motivo None y P*; contra produccion hoy saldria 1 con TypeError, como el
+     2026-11-13)
+
+## Qué cambió (mapa)
+
+- `app/precio/siembra.py`: `LecturaHoy` cambia `fee_detalles` por `fee_variable` y
+  `fee_fijo`; `_referencia` usa `ref = fee_variable / fee_quoted` y `fijo = fee_fijo`,
+  y sin partida cae a `referencia_sin_derivar` (ValueError dentro de la red que ya
+  existia); se borran `_detalle_fee`, su mencion en el docstring y las importaciones
+  de `DetalleFee` y `derivar_ref_fijo` (que sigue en el camino de Amazon,
+  `app/spapi/precio_mercado.py`).
+- `app/precio/goals_write.py`: `_SQL_ESCENARIO` agrega `fee_variable, fee_fijo`
+  (indices 7 y 8); `_SQL_FEE` deja de leer `fee_details` (total, quoted, estado);
+  el armado de `LecturaHoy` pasa los campos nuevos con los indices ajustados.
+- `tests/test_precio_goals.py`: `_g1_lectura` pasa `fee_variable`/`fee_fijo`
+  derivados de `_FEE_DETALLES_G1`; la siembra `_escenario` escribe las dos
+  columnas; prueba nueva `test_arreglos03_pf_plan_de_metas_meli_calcula_precio_objetivo`
+  (reproduccion de `test_estimacion_meli_referencia` con la lectura partida).
+
+## Notas
+
+- El freno de 25 % (`salto_mayor_25`) no se afloja: con el arreglo puede actuar en
+  MeLi (antes nunca lo hacia); el diseño midio las 45 metas vigentes de MeLi y
+  ninguna lo activa (de -1.6 % a 0.0 %).
+- prueba-real (en_prod.sh docs/evidencia/arreglos-03/P-F/prueba.py): la corre el
+  lead tras el despliegue.
