@@ -1,0 +1,38 @@
+# Acepta de ARREGLOS 03 D-G (desde la raiz del worktree)
+# Windows: Python 3.12 con uv, PG16 desechable 127.0.0.1:55433 (ORBIT_TEST_DSN) para D-G.1 y D-G.2.
+# D-G.4: arnes TN contra 127.0.0.1:55449 bajo el candado locks/orbit-tn, PYTHONUTF8=1.
+# Con -rs, un skipped cuenta como fallo: no hubo ninguno.
+
+=== D-G.1
+SHA: 9052b99182de174e55fc8154d80244d876a76bfb
+COMANDO: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_reports_pipeline.py -k arreglos03_dg_
+INICIO: 2026-11-18T12:33:44Z
+3 passed, 22 deselected in 0.53s
+SALIDA: 0
+
+=== D-G.2
+SHA: 9052b99182de174e55fc8154d80244d876a76bfb
+COMANDO: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_reports_pipeline.py tests/test_ads_producto_ingesta.py
+INICIO: 2026-11-18T12:33:45Z
+52 passed in 14.69s
+SALIDA: 0
+
+=== D-G.3
+SHA: 9052b99182de174e55fc8154d80244d876a76bfb
+COMANDO: test -s docs/evidencia/arreglos-03/D-G/prueba.py
+SALIDA: 0
+
+=== D-G.4
+SHA: 9052b99182de174e55fc8154d80244d876a76bfb
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_05 or test_control"
+INICIO: 2026-11-18T12:34:01Z
+2 passed, 4 deselected in 7.69s
+SALIDA: 0
+
+=== D-G.4 (control vecino test_09, no es Acepta)
+SHA: 9052b99182de174e55fc8154d80244d876a76bfb
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_09"
+INICIO: 2026-11-18T12:34:10Z
+1 passed, 5 deselected in 7.50s
+SALIDA: 0
+

@@ -918,12 +918,26 @@ def _planea_filas_terminos(
     run; el detalle de la clave va al log). El acumulador por dict preserva
     el orden de aparicion: el plan sale en el orden de PRIMERA aparicion de
     cada clave (determinista).
+
+    Constituyente invalido -> clave ENVENENADA para todo el reporte
+    (ARREGLOS 03 D-G, TN05; misma regla que productos via _envenenar_clave):
+    una metrica no numerica/fraccionaria, una fila sin NINGUNA metrica, una
+    fila con clics o gasto y pedidos vacios (motivo "fila con pedidos
+    vacíos") o una fusion que queda 100% vacia retiran el subtotal ya
+    acumulado de la clave y descartan sus filas posteriores ("fila de clave
+    envenenada (subtotal parcial)"): un termino que vendio jamas se publica
+    con un subtotal de 0 pedidos (candidato a NEGATIVE por error), en
+    cualquier orden de filas. Los negativos siguen abortando.
     """
     plan: list[_FilaTermino] = []
     skips: Counter[str] = Counter()
     etiqueta = reporte_cfg["nombre"]
     campo_id = reporte_cfg["id_field"]
     por_clave: dict[tuple[str, str, dt.date], _FilaTermino] = {}
+    # Veneno ADHESIVO (ARREGLOS 03 D-G, TN05; la misma regla que productos):
+    # una clave invalidada lo queda para todo el reporte, sin importar el
+    # orden de las filas en el gzip.
+    envenenadas: set[tuple[str, str, dt.date]] = set()
 
     for fila in filas:
         external = fila.get(campo_id)
@@ -966,6 +980,10 @@ def _planea_filas_terminos(
                 external_id,
             )
             continue
+        # La clave se resuelve ANTES de validar metricas: una fila invalida
+        # de la clave la ENVENENA para todo el reporte (ARREGLOS 03 D-G,
+        # TN05). Cada causa conserva su motivo de skip.
+        clave = (external_id, search_term, metric_date)
         try:
             cost = _decimal_reporte(fila.get("cost"), "cost")
             ad_revenue = _decimal_reporte(fila.get("sales7d"), "sales7d")
@@ -973,10 +991,16 @@ def _planea_filas_terminos(
             orders = _entero_reporte(fila.get("purchases7d"), "purchases7d")
         except ValueError:
             skips[f"fila de {etiqueta} con metrica no numerica o fraccionaria"] += 1
+            _envenenar_clave(
+                clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
+            )
             continue
         if cost is None and ad_revenue is None and clicks is None and orders is None:
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: %s %s %s", etiqueta, external_id, metric_date)
+            _envenenar_clave(
+                clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
+            )
             continue
         # Negativos = dato corrupto y la corrida ABORTA (fail-closed), igual
         # que el CHECK st_metric_no_negativos hace para metricas: alla la base
@@ -993,7 +1017,23 @@ def _planea_filas_terminos(
                 f"fila de {etiqueta} con metrica negativa (dato corrupto): "
                 "la corrida aborta fail-closed"
             )
-        previa = por_clave.get((external_id, search_term, metric_date))
+        # Clics o gasto sin el dato de pedidos (purchases7d ausente o nulo):
+        # guardarla dejaria orders vacio y la senal de JEV lo suma como 0
+        # pedidos con todos sus clics -- candidato a NEGATIVE por error. No se
+        # convierte el faltante en cero: la clave no se guarda ese dia. Va
+        # DESPUES del chequeo de negativos para que un negativo siga abortando.
+        if orders is None and (clicks is not None or cost is not None):
+            skips["fila con pedidos vacíos"] += 1
+            logger.debug("fila con pedidos vacios: %s %s %s", etiqueta, external_id, metric_date)
+            _envenenar_clave(
+                clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
+            )
+            continue
+        if clave in envenenadas:
+            skips["fila de clave envenenada (subtotal parcial)"] += 1
+            logger.debug("fila descartada por clave envenenada: %s %s", etiqueta, clave)
+            continue
+        previa = por_clave.get(clave)
         if previa is not None:
             # Grano multiple del reporte: los aportes por keyword al mismo
             # hecho (ad_group, termino, fecha) son disjuntos -> se SUMAN; el
@@ -1015,27 +1055,26 @@ def _planea_filas_terminos(
             # envenena TODAS las metricas de la clave. Una observacion 100%
             # vacia NO se escribe: taparia datos completos anteriores en el
             # colapso a-la-mas-reciente (mismo hallazgo alto que 1.3 cerro
-            # para metricas) Y su previa envenenada arruinaria filas buenas
-            # posteriores de la misma clave. La clave se DESCARTA del
-            # acumulador: si otra fila de la misma clave llega despues con
-            # metricas, entra como clave nueva limpia. Contablemente cuenta
-            # como "fila sin ninguna metrica" (ademas del "agregada" de la
-            # absorbida): written + skipped == filas sigue cuadrando.
+            # para metricas). La clave queda ENVENENADA para todo el reporte
+            # (ARREGLOS 03 D-G, TN05): una fila posterior de la misma clave ya
+            # no la recrea con solo sus valores (seria un subtotal publicado
+            # como completo). Contablemente la previa retirada cuenta como
+            # "fila de clave envenenada (subtotal parcial)" (ademas del
+            # "agregada" de la absorbida): written + skipped == filas cuadra.
             if (
                 previa.cost is None
                 and previa.ad_revenue is None
                 and previa.clicks is None
                 and previa.orders is None
             ):
-                del por_clave[(external_id, search_term, metric_date)]
-                plan.remove(previa)
-                skips["fila sin ninguna metrica"] += 1
                 logger.debug(
                     "fusion dejo la clave sin ninguna metrica (par envenenado), "
-                    "no se escribe: %s %s %s",
+                    "no se escribe: %s %s",
                     etiqueta,
-                    external_id,
-                    search_term,
+                    clave,
+                )
+                _envenenar_clave(
+                    clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
                 )
             continue
         fila = _FilaTermino(
@@ -1048,7 +1087,7 @@ def _planea_filas_terminos(
             clicks=clicks,
             orders=orders,
         )
-        por_clave[(external_id, search_term, metric_date)] = fila
+        por_clave[clave] = fila
         plan.append(fila)
 
     return plan, skips
@@ -1123,31 +1162,28 @@ def _fusionar_fila_producto(
         )
 
 
-def _envenenar_clave_producto(
-    asin: str,
-    sku: str,
-    metric_date: dt.date,
+def _envenenar_clave(
+    clave: tuple,
     *,
-    por_clave: dict[tuple[str, str, dt.date], _FilaProducto],
-    plan: list[_FilaProducto],
-    envenenadas: set[tuple[str, str, dt.date]],
+    por_clave: dict,
+    plan: list,
+    envenenadas: set,
     skips: Counter[str],
 ) -> None:
-    """Una fila INVALIDA (metrica no numerica o sin NINGUNA metrica) envenena
-    la clave (asin, sku, fecha): si otra campana del mismo producto trajo
-    datos validos, ese subtotal es PARCIAL y no se publica como completo
-    (hallazgo cross-review codex 2026-09-07; mismo veneno adhesivo que la
-    fusion 100% vacia de _fusionar_fila_producto)."""
-    clave = (asin, sku, metric_date)
+    """Un constituyente INVALIDO envenena su clave para TODO el reporte: si
+    otra fila de la misma clave ya trajo datos validos, ese subtotal es
+    PARCIAL y no se publica como completo; las filas posteriores de la clave
+    tampoco la recrean. La usan productos (asin, sku, fecha) y terminos
+    (ad group, termino, fecha) (hallazgo cross-review codex 2026-09-07;
+    ARREGLOS 03 D-G, TN05). Quien llama cuenta el motivo de su fila; aqui
+    solo se cuenta la fila planificada que se retira."""
     previa = por_clave.pop(clave, None)
     if previa is not None:
         plan.remove(previa)
         # Los aportes fusionados ya se contaron; falta solo la fila retirada.
         skips["fila de clave envenenada (subtotal parcial)"] += 1
     envenenadas.add(clave)
-    logger.debug(
-        "fila invalida envenena la clave (subtotal parcial): %s/%s %s", asin, sku, metric_date
-    )
+    logger.debug("fila invalida envenena la clave (subtotal parcial): %s", clave)
 
 
 def _planea_filas_productos(
@@ -1237,10 +1273,8 @@ def _planea_filas_productos(
             )
         except ValueError:
             skips["fila de productos con metrica no numerica o fraccionaria"] += 1
-            _envenenar_clave_producto(
-                asin,
-                sku,
-                metric_date,
+            _envenenar_clave(
+                (asin, sku, metric_date),
                 por_clave=por_clave,
                 plan=plan,
                 envenenadas=envenenadas,
@@ -1261,10 +1295,8 @@ def _planea_filas_productos(
         ):
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: producto %s/%s %s", asin, sku, metric_date)
-            _envenenar_clave_producto(
-                asin,
-                sku,
-                metric_date,
+            _envenenar_clave(
+                (asin, sku, metric_date),
                 por_clave=por_clave,
                 plan=plan,
                 envenenadas=envenenadas,
@@ -1291,10 +1323,8 @@ def _planea_filas_productos(
                 sales,
                 purchases,
             )
-            _envenenar_clave_producto(
-                asin,
-                sku,
-                metric_date,
+            _envenenar_clave(
+                (asin, sku, metric_date),
                 por_clave=por_clave,
                 plan=plan,
                 envenenadas=envenenadas,
