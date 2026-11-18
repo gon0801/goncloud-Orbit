@@ -1912,9 +1912,10 @@ def test_ui_gasto_sin_venta_xss_termino_escapado():
     assert "&lt;script&gt;" in html
 
 
-def test_ui_cortes_senal_antes_de_asesoria_y_sin_error():
-    """S.5 (guia Cambios 3): la fila Senal va ANTES que la de asesoria y la
-    palabra "error" no aparece en el HTML renderizado."""
+def test_ui_cortes_senal_visible_sin_asesoria_y_sin_error():
+    """S.5 (guia Cambios 3): la fila Senal se pinta, la asesoría por decisión
+    ya no existe en la pantalla (ARREGLOS 03 D-C) y la palabra "error" no
+    aparece en el HTML renderizado."""
     from test_api_dashboard import _ctx_cortes_local
 
     ctx = _ctx_cortes_local()
@@ -1926,7 +1927,8 @@ def test_ui_cortes_senal_antes_de_asesoria_y_sin_error():
     ctx["senal_disponible"] = True
     html = sin_registro(ui.templates.env.get_template("cortes.html").render(**ctx))
     assert 'class="senal-jev"' in html
-    assert html.index('class="senal-jev"') < html.index('class="asesoria-jev"')
+    assert 'class="asesoria-jev"' not in html
+    assert "Asesoria Jev" not in html
     assert "Es del catálogo y no convierte." in html
     assert "Jev: 1 de 3" in html
     assert "error" not in html.lower()

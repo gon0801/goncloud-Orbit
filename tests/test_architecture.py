@@ -2316,7 +2316,7 @@ def test_candado_tablas_corrida_caza_tabla_ads(tmp_path):
 
 _PERMITIDOS_JEV = frozenset(
     {
-        "app/api_dashboard.py",  # bloque jev de /salud (S.4) + asesoria en /cortes
+        "app/api_dashboard.py",  # bloque jev de /salud (S.4) + senal en /cortes
         "app/cli.py",  # despacho de jev-senales, con import tardio (S.4)
         "app/fabrica_web.py",  # asesoria visible del plan de fabrica
     }

@@ -1,6 +1,7 @@
-"""Vista PURA de la asesoria guardada (JEV ADS 01, 2.1 y 2.2): lo que leen
-/cortes y la fabrica, sin IO (la lectura de la base es de
-`AsesorAds.leer` en `app/jev_asesor.py`, R14)."""
+"""Vista PURA de la asesoria guardada (JEV ADS 01, 2.1 y 2.2): lo que lee la
+fabrica por huella de plan, sin IO (la lectura de la base es de
+`AsesorAds.leer` en `app/jev_asesor.py`, R14). La presentacion de senales
+que tambien vive aqui la leen /cortes y los avisos."""
 
 from __future__ import annotations
 
@@ -44,7 +45,6 @@ class VistaAsesoria:
     fichas: tuple[FichaVersion, ...]
     fuentes_semillas: Mapping[str, object] | None
     vigencia: Vigencia
-    destinos: tuple[tuple[str, RelevanciaConjunto], ...] = ()
 
     def como_dict(self) -> dict:
         nivel = {Vigente: "vigente", Obsoleta: "obsoleta", NoComprobable: "no_comprobable"}
@@ -62,10 +62,6 @@ class VistaAsesoria:
             "resultados": [
                 {"termino": termino, "resultado": _relevancia_a_dict(resultado)}
                 for termino, resultado in self.resultados
-            ],
-            "destinos": [
-                {"termino": termino, "resultado": _relevancia_a_dict(resultado)}
-                for termino, resultado in self.destinos
             ],
             "fichas": [
                 {

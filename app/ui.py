@@ -671,7 +671,6 @@ def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
             "items": datos["items"],
             # C.4 B2: propuestas de campana en la misma pantalla.
             "propuestas_campana": datos.get("propuestas_campana", []),
-            "asesoria_disponible": datos["asesoria_disponible"],
             # S.5 J5b: la senal viaja con .get (el contrato viejo no la trae).
             "senal_disponible": datos.get("senal_disponible", True),
             "bloqueos_jev": datos["bloqueos_jev"],
