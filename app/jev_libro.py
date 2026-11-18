@@ -24,6 +24,7 @@ from app.jev_ads import (
     _canonico,
     _juicio_de_respuesta,
 )
+from app.redaction import scrub
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,10 @@ class Libro:
                 confidence=juicio_proveedor.confidence,
                 observado_at=juicio_proveedor.observado_at,
             )
+        # Limite durable (ARREGLOS 03 D-N): el mismo texto redactado se guarda
+        # y se devuelve; ningun secreto registrado llega a la base ni al
+        # diagnostico, venga de donde venga el `pedir`.
+        error = scrub(f"{devuelto.codigo}: {devuelto.detalle}")
         self._conn.execute(
             "INSERT INTO jev_par_evento (id, revision_id, termino_sha256,"
             " ficha_version_id, contrato_sha256, ordinal, tipo, error,"
@@ -245,14 +250,11 @@ class Libro:
                 clave.ficha_version_id,
                 clave.contrato_sha256,
                 ordinal,
-                f"{devuelto.codigo}: {devuelto.detalle}",
+                error,
                 intencion_id,
                 devuelto.duracion_ms,
                 _canonico(devuelto.usage) if devuelto.usage else None,
             ),
         )
         self._conn.commit()
-        return FalloProveedor(
-            producto_id=ficha.producto_id,
-            motivo=f"{devuelto.codigo}: {devuelto.detalle}",
-        )
+        return FalloProveedor(producto_id=ficha.producto_id, motivo=error)
