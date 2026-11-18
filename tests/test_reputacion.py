@@ -650,6 +650,18 @@ def test_arreglos03_dl_pagina_repetida_aborta_lectura_de_preguntas():
     assert [llamada.args[1]["offset"] for llamada in cliente.get.call_args_list[1:]] == [0, 50]
 
 
+@pytest.mark.parametrize("cantidad_final", [0, 1], ids=["vacia", "corta"])
+def test_arreglos03_dl_pagina_final_con_preguntas_pendientes_aborta(cantidad_final):
+    total = 51 + cantidad_final
+    primera = {"total": total, "questions": [{"id": i} for i in range(50)]}
+    ultima = {"questions": [{"id": 50 + i} for i in range(cantidad_final)]}
+    cliente = mock.Mock(spec=ClienteMeli)
+    cliente.get.side_effect = [({"id": 1}, FETCH), (primera, FETCH), (ultima, FETCH)]
+
+    with pytest.raises(ReputacionError, match="lista incompleta de preguntas"):
+        fetch_questions(cliente)
+
+
 def test_pagina_truncada_por_max_paginas(tmp_path):
     """XR-1.7: paginas agotadas con datos pendientes = truncado."""
 

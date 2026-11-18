@@ -264,25 +264,26 @@ def _pagina(
     items: list[dict] = []
     vistos: set[str] = set()
     offset = 0
+    total_anunciado: int | None = None
     for numero in range(max_paginas):
         data, _ = cliente.get(path, {**params, "limit": 50, "offset": offset})
         pagina = data.get(clave)
         if not isinstance(pagina, list):
             return (None, False) if numero == 0 else (items, True)
+        total = (data.get("paging") or {}).get("total", data.get("total"))
+        if isinstance(total, int) and (total_anunciado is None or total > total_anunciado):
+            total_anunciado = total
         if not pagina:
-            return items, False
+            return items, total_anunciado is not None and len(vistos) < total_anunciado
         nuevos = [p for p in pagina if isinstance(p, dict) and str(p.get("id")) not in vistos]
         if not nuevos:
             return items, True  # sin IDs nuevos no podemos confirmar la lectura completa
         for pregunta in nuevos:
             vistos.add(str(pregunta.get("id")))
         items.extend(nuevos)
-        total = (data.get("paging") or {}).get("total", data.get("total"))
         offset += len(pagina)
-        if isinstance(total, int) and offset >= total:
-            return items, False
-        if len(pagina) < 50:
-            return items, False
+        if len(pagina) < 50 or (total_anunciado is not None and offset >= total_anunciado):
+            return items, total_anunciado is not None and len(vistos) < total_anunciado
     return items, True
 
 
