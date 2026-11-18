@@ -510,31 +510,30 @@ def digest_ciclo(resumen: dict) -> str:
                 f"residual tacos campaign: {signo}"
                 f"{_formatea_monto(abs(contrib.residual_tacos.monto))} MXN"
             )
-    # REPUTACION 01 A.5: bloque aditivo (ausente o vacio = cero lineas,
-    # regla 3; el formato existente no cambia).
-    bloque_rep = resumen.get("reputacion")
-    if isinstance(bloque_rep, list):
-        lineas.extend(_lineas_reputacion(bloque_rep))
     return "\n".join(lineas)
 
 
-_TOPE_LINEAS_REPUTACION = 10
+_TOPE_LINEAS_REPUTACION = 20
 
 
-def _lineas_reputacion(alertas: list) -> list[str]:
-    """Una linea por alerta + resto contado (D-A5-1: tope 10, no inunda
-    el digest). Los mensajes ya vienen sin texto externo (A.5)."""
-    lineas = []
+def aviso_reputacion(alertas: list) -> str:
+    """Aviso de las alertas de reputacion de Mercado Libre que aun no salieron
+    (ARREGLOS 03 D-K; lo manda la revision de las 10:30). Una linea por
+    alerta: "Urgente:" las criticas, "Aviso:" las demas, con la publicacion
+    si el mensaje no la nombra. Los mensajes guardados solo traen ids y
+    numeros (A.5): seguros sin parse_mode."""
+    lineas = ["[Orbit] Reputación de Mercado Libre"]
     for alerta in alertas[:_TOPE_LINEAS_REPUTACION]:
-        entidad = alerta.get("external_id") or "cuenta"
-        lineas.append(
-            f"reputacion [{alerta.get('severidad')}] {alerta.get('tipo')}"
-            f" {entidad}: {alerta.get('mensaje')}"
-        )
+        prefijo = "Urgente" if alerta.get("severidad") == "critica" else "Aviso"
+        mensaje = str(alerta.get("mensaje"))
+        publicacion = alerta.get("external_id")
+        if publicacion and publicacion not in mensaje:
+            mensaje = f"{mensaje} ({publicacion})"
+        lineas.append(f"{prefijo}: {mensaje}")
     resto = len(alertas) - _TOPE_LINEAS_REPUTACION
     if resto > 0:
-        lineas.append(f"reputacion: y {resto} mas")
-    return lineas
+        lineas.append(f"Y {resto} más en la pantalla de reputación.")
+    return "\n".join(lineas)
 
 
 def alerta_harvest_failed(alerta: AlertaHarvest) -> str:
@@ -679,14 +678,6 @@ def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = No
             contrib = carga_contribucion_digest(plataforma)
             if contrib is not None:
                 payload = {**resumen, "contribucion": contrib}
-        # REPUTACION 01 A.5: novedades del dia, fail-silent (sin DSN o
-        # fallo = bloque ausente = cero lineas, patron contrib).
-        if "reputacion" not in payload:
-            from app.reputacion_alertas import carga_reputacion_digest
-
-            novedades = carga_reputacion_digest()
-            if novedades:
-                payload = {**payload, "reputacion": novedades}
         return _envia_texto(digest_ciclo(payload), transport=transport)
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el digest: %s", scrub(str(exc)))
