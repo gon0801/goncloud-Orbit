@@ -2164,7 +2164,11 @@ def test_marca_es_el_maximo_entre_corridas_y_no_el_id(pg, tmp_path):
 def test_duplicados_id_cuenta_conflicto_real_del_indice(pg, tmp_path):
     """Un conflicto de source_report_id (sin colision de PK) no es una recopia:
     se cuenta aparte como `duplicados_id`."""
-    fijo = dt.datetime(2026, 10, 29, 13, 0, tzinfo=dt.UTC)
+    # El reloj fijo va al dia siguiente de D1: con el corte del dia en curso
+    # medido contra el as_of del snapshot (ronda 2 de D-F), un as_of anterior
+    # al propio dia de la fila la dejaria «en curso» y nunca llegaria al
+    # camino de duplicados.
+    fijo = dt.datetime.combine(D1 + dt.timedelta(days=1), dt.time(13, 0), tzinfo=dt.UTC)
     as_of_real = fijo - dt.timedelta(minutes=30)
     entidad_c2 = pg.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, name)"
