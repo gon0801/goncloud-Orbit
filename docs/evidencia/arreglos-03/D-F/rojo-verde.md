@@ -72,6 +72,12 @@ Los dos fallos son los dos brazos del hallazgo: el reintento exacto rechazado y 
 las métricas parciales. Verde en la cabeza de la ronda 2: `3 passed` con
 `-k arreglos03_df_` (detalle en `acepta.txt`).
 
+Ajuste de una prueba vecina: `test_duplicados_id_cuenta_conflicto_real_del_indice` fijaba su
+reloj en el 2026-10-29 mientras sus filas iban en `D1` (ayer-1 real): bajo el corte medido
+contra el `as_of`, esa fila es «día en curso» respecto de un snapshot de octubre y nunca llegaba
+al camino de duplicados (`duplicados_id` 0 ≠ 1, determinista). El reloj fijo pasa al día
+siguiente de `D1` (`6bc7818`); el mecanismo del conflicto de índice no cambia.
+
 ## D-F.2 — la ingesta cuenta el día en curso como saltado
 
 `ads_ingest` no tiene prueba nueva (el plan nombra solo la de D-F.1). Se comprobó con una

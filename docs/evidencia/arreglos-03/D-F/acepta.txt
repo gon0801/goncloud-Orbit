@@ -1,39 +1,50 @@
-# Acepta de ARREGLOS 03 D-F (desde la raiz del worktree)
+# Acepta de ARREGLOS 03 D-F, ronda 2 (desde la raiz del worktree)
 # Windows: Python 3.12 con uv, PG16 desechable 127.0.0.1:55433 (ORBIT_TEST_DSN).
 # Las pruebas de PG de tests/test_meli_ads_ingest.py corren contra ese PG: ninguna salio skipped.
 # D-F.5 queda a la espera del despliegue: el at se programa en goncloud cuando el lead lo indique y deja at-c.txt.
 # El «1 warning» de D-F.3 es la deprecacion de httpx en starlette.testclient, ajena al bloque.
+# Ronda 2 = cierre del hallazgo de revision (mismo as_of y contenido distinto al cruzar la
+# medianoche): el corte del dia en curso se mide contra el as_of del snapshot (1b52b06) y la
+# huella cubre el archivo completo. Rojo de las dos regresiones en a992251: rojo-verde.md.
 
 === D-F.1
-SHA: cfce88f71fe46643280ce3829086f6a5ce99c3f9
+SHA: 6bc78189cc5153322682168a83fc97cdf40e3893
 COMANDO: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_meli_ads_ingest.py -k arreglos03_df_
-INICIO: 2026-11-18T12:33:55Z
-1 passed, 79 deselected in 0.69s
+INICIO: 2026-11-18T15:24:27Z
+3 passed, 79 deselected in 4.04s
+(D-F.1 + los dos casos de test_arreglos03_df_releer_tras_la_medianoche_no_escribe_el_dia_en_curso)
 SALIDA: 0
 
 === D-F.2
-SHA: cfce88f71fe46643280ce3829086f6a5ce99c3f9
+SHA: 6bc78189cc5153322682168a83fc97cdf40e3893
 COMANDO: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_meli_ads_ingest.py tests/test_conciliar_meli_ads.py
-INICIO: 2026-11-18T12:33:56Z
-118 passed in 141.93s (0:02:21)
+INICIO: 2026-11-18T15:19:00Z
+120 passed in 52.54s (0:00:52)
+(118 de la ronda 1 + 2 casos nuevos de medianoche; el reloj fijo de
+ test_duplicados_id_cuenta_conflicto_real_del_indice pasa al dia siguiente de D1:
+ con el corte contra el as_of, un reloj de octubre dejaba D1 «en curso» y la fila
+ nunca llegaba al camino de duplicados)
 SALIDA: 0
 
 === D-F.3
-SHA: cfce88f71fe46643280ce3829086f6a5ce99c3f9
+SHA: 6bc78189cc5153322682168a83fc97cdf40e3893
 COMANDO: ! grep -q 'def _fin_del_dia' app/dashboard_resumen.py && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_dashboard_resumen.py tests/test_api_dashboard.py
-INICIO: 2026-11-18T12:36:19Z
-113 passed, 1 warning in 164.92s (0:02:44)
+INICIO: 2026-11-18T15:23:52Z
+grep negado: 0
+113 passed, 1 warning in 135.11s (0:02:15)
 SALIDA: 0
 
 === D-F.4
-SHA: cfce88f71fe46643280ce3829086f6a5ce99c3f9
+SHA: 6bc78189cc5153322682168a83fc97cdf40e3893
 COMANDO: test -s docs/evidencia/arreglos-03/D-F/prueba.py
-INICIO: 2026-11-18T12:39:04Z
+INICIO: 2026-11-18T15:24:36Z
 SALIDA: 0
 
 === D-F.5 (pendiente del despliegue: at-c.txt sale al programar el at)
-SHA: cfce88f71fe46643280ce3829086f6a5ce99c3f9
+SHA: 6bc78189cc5153322682168a83fc97cdf40e3893
 COMANDO: test -s docs/evidencia/arreglos-03/D-F/dia-en-curso.sql && grep -q dia-en-curso docs/evidencia/arreglos-03/D-F/at-c.txt
-INICIO: 2026-11-18T12:39:04Z
+INICIO: 2026-11-18T15:24:36Z
 grep: docs/evidencia/arreglos-03/D-F/at-c.txt: No such file or directory
 SALIDA: 2
+(dia-en-curso.sql existe; como prevé el plan, at-c.txt lo deja el at de goncloud
+ despues del despliegue, cuando el lead lo indique: no detiene el bloque)
