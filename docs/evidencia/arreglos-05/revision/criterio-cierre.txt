@@ -1,0 +1,25 @@
+CRITERIO DE CIERRE DE ESTA REVISION
+
+Base auditada: ff03ed61f7a847ab190b1695c2efe8d785baa364 (master).
+La auditoria previa de 5adf1be0 no representa el estado actual.
+
+1. Cada hallazgo confirmado debe tener una entrada en la matriz con impacto,
+   evidencia reproducible, resultado correcto esperado y cobertura del plan.
+2. Las pruebas test_accept_* verifican el comportamiento correcto: un fallo
+   de asercion reproduce el defecto; un error de entorno NO cuenta como hallazgo.
+3. Ejecutar los casos contra el commit final integrado. Los controles de fallos
+   ya corregidos deben seguir pasando; no basta con pasar cada rama por separado.
+4. CI del commit final: compilacion, secretos y suite completa con PostgreSQL.
+   Guardar SHA y enlace; una corrida de otro commit no certifica este resultado.
+5. Para UI: repetir los flujos afectados y el mapa de pantallas. El recorrido
+   basico no sustituye casos de errores de red, respuesta tardia y seleccion nueva.
+6. Revisar los caminos vecinos que compartan la causa de cada correccion:
+   creacion/reintento/reversa, lectura fresca/cache, agregacion/reconstruccion.
+7. Cualquier hallazgo nuevo exige un caso reproducible y un impacto concreto.
+   Las preferencias de estructura se documentan aparte de bloqueos de producto,
+   conforme a AGENTS.md; partir archivos por longitud no cierra estos defectos.
+
+Pasa esta revision cuando no quedan bloqueos confirmados abiertos y las
+comprobaciones aplicables anteriores pasan en el mismo estado integrado.
+Esto no certifica ausencia universal de bugs ni el despliegue en produccion.
+No se cambian los criterios retrospectivamente sin nueva evidencia explicada.

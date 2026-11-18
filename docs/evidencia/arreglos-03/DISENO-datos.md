@@ -314,25 +314,36 @@ En contabilidad, la publicidad nunca llega como `event_type='refund'`: entra por
 
 Forma elegida:
 
-1. Al ingerir: en `_lookup_kind`, rama `refund` (`:220-223`), `fee_type = fee_category or "refund"`. Una devolución que sí trae categoría la conserva (una devolución con categoría `ads` sigue siendo `ads` y queda fuera del margen, como hoy).
-2. Las 60 guardadas: migración `<n>_arreglos03_devoluciones_meli.sql` que, en una sola transacción, apaga el trigger de solo-agregar de `ledger_event`, pone `fee_type = 'refund'` en las filas de MeLi `kind = 'refund' AND fee_type IS NULL` y lo vuelve a encender. Solo MeLi, igual que la reversa: la migración corre el día del despliegue, no el de D-H.1, y una devolución de Amazon sin etiqueta que entre en medio debe quedar vacía (su margen sale vacío, el lado seguro) en lugar de sumarse al margen de Amazon sin que la reversa la regrese. La corre el usuario `orbit` de la receta (`tools/despliegue/comun.sh:53`), que es dueño de la tabla y superusuario (medido: `SELECT tableowner, rolsuper ...` da `orbit|True`). El trigger vigente se llama `ledger_solo_reatribuye` (medido en `pg_trigger`); si al abrir el PR se llama distinto, se usa el nombre vigente.
+1. En `mapear_destino`, una vez resuelta `plataforma = _PLATAFORMA_ORIGEN[fila.platform.strip()]`, asignar `fee_type = "refund"` si `plataforma == "meli"`, `kind == "refund"` y `fee_type is None`. La clasificación común conserva las categorías explícitas y el contrato de Amazon MX/US.
+2. En la migración, registrar exactamente las filas modificadas en una tabla privada de la migración. El propietario del ledger ejecuta cada sentido en una sola transacción (`psql -1`). La tabla de IDs y el cambio de etiquetas se confirman juntos. Su existencia permite comprobar el despliegue incluso si había cero filas pendientes.
+
+Ida:
 
 ```sql
--- sonda-aplicada: SELECT NOT EXISTS (SELECT 1 FROM ledger_event WHERE platform = 'meli' AND kind = 'refund' AND fee_type IS NULL)
--- ARREGLOS 03 D-H (F5 de la revisión del 2026-11-12): las devoluciones de MeLi
--- llegaban sin categoría y la guarda fees_sin_tipo anulaba el margen de MeLi.
--- Una devolución sin categoría es una devolución: la publicidad nunca llega como
--- refund desde contabilidad. Única mutación: fee_type de NULL a 'refund' en
--- kind = 'refund' de MeLi. Monto, fecha, orden y producto no cambian.
--- Sin BEGIN/COMMIT: la receta la aplica en una transacción (psql -1).
+-- sonda-aplicada: SELECT to_regclass('public.arreglos03_devoluciones_meli_ids') IS NOT NULL
+CREATE TABLE public.arreglos03_devoluciones_meli_ids (id bigint PRIMARY KEY);
+REVOKE ALL ON public.arreglos03_devoluciones_meli_ids FROM PUBLIC, app_read, app_ingest, app_decide, app_admin;
 ALTER TABLE ledger_event DISABLE TRIGGER ledger_solo_reatribuye;
-UPDATE ledger_event SET fee_type = 'refund' WHERE platform = 'meli' AND kind = 'refund' AND fee_type IS NULL;
+WITH corregidas AS (
+    UPDATE ledger_event SET fee_type = 'refund'
+    WHERE platform = 'meli' AND kind = 'refund' AND fee_type IS NULL
+    RETURNING id
+)
+INSERT INTO public.arreglos03_devoluciones_meli_ids (id) SELECT id FROM corregidas;
 ALTER TABLE ledger_event ENABLE TRIGGER ledger_solo_reatribuye;
 ```
 
-Reversa `<n>_reversa_arreglos03_devoluciones_meli.sql`: lo mismo con `UPDATE ledger_event SET fee_type = NULL WHERE platform = 'meli' AND kind = 'refund' AND fee_type = 'refund'`. Es exacta: antes de D-H ninguna devolución de MeLi traía etiqueta, y después de la reversa el código viejo vuelve a escribirlas vacías.
+Reversa:
 
-La lista de las 60 filas (id, orden, fecha, monto) se guarda antes de desplegar en `docs/evidencia/arreglos-03/D-H/antes.txt`: es el rastro de qué se cambió.
+```sql
+ALTER TABLE ledger_event DISABLE TRIGGER ledger_solo_reatribuye;
+UPDATE ledger_event AS l SET fee_type = NULL
+FROM public.arreglos03_devoluciones_meli_ids AS c WHERE l.id = c.id;
+ALTER TABLE ledger_event ENABLE TRIGGER ledger_solo_reatribuye;
+DROP TABLE public.arreglos03_devoluciones_meli_ids;
+```
+
+D-H.1 guarda la foto de diagnóstico con id, plataforma, orden, fecha y monto. La lista que gobierna la reversa nace durante la escritura. Se conservan los permisos de los servicios y se comprueba en el esquema vigente el nombre del trigger antes de preparar ambas migraciones.
 
 ### La otra forma que descarté
 
@@ -346,7 +357,9 @@ Nada.
 
 `test_arreglos03_dh_devolucion_sin_categoria_queda_como_refund` en `tests/test_ledger_sync.py`: `mapear_destino` de una fila MeLi `event_type='refund'`, `fee_category=None`, monto -889.0 da `fee_type == 'refund'`; con `fee_category='ads'` da `'ads'`. Hoy falla (da `None`).
 
-Prueba de la migración (escribe datos de producción): `test_arreglos03_dh_migracion_devoluciones_y_su_reversa` en `tests/test_ledger_atribucion.py`, con `_db_0085()` (0001 y el trigger de la 0085). Una devolución de MeLi y una de Amazon con `fee_type` vacío; tras la migración la sonda da `True`, la de MeLi queda `refund`, la de Amazon sigue vacía y un UPDATE de otra columna sigue rechazado; tras la reversa la de MeLi vuelve a vacía y la sonda da `False`.
+En el mismo caso de mapeo, una devolución sin categoría de Amazon MX (origen `amazon`) o US conserva NULL.
+
+En `test_arreglos03_dh_migracion_devoluciones_y_su_reversa`, sembrar tres filas: MeLi sin categoría, MeLi ya etiquetada y Amazon sin categoría. Aplicar la ida, confirmar y comprobar el conjunto exacto de IDs, el trigger activo y la sonda verdadera. Insertar y confirmar otra devolución MeLi con etiqueta explícita `refund` antes de ejecutar la reversa. Solo la primera recupera NULL; comparar las otras tres con su estado previo, verificar trigger y sonda falsa. Sobre una base sin filas pendientes, la sonda también debe distinguir antes, después y reversa.
 
 ### Medido y lo que cambia
 
@@ -803,7 +816,7 @@ Qué es: `ingest metrics` (`app/cli.py:192-193`, opción en `:557`) llama `repor
 
 Demostrado que producción no lo usa:
 
-- El crontab del repo no lo nombra (`tools/despliegue/crontab-orbit.txt`, solo `ingest diario`). El crontab del 21-oct lo traía (`crontab-antes.txt:34,40,41`) y ingesta-01 A.4 lo quitó. La fila D-A.1 vuelve a leer el crontab vivo antes de borrar y para si aparece.
+- El crontab del repo no lo nombra (`tools/despliegue/crontab-orbit.txt`, solo `ingest diario`). El crontab del 21-oct lo traía (`crontab-antes.txt:34,40,41`) y ingesta-01 A.4 lo quitó. D-A.1 ejecuta `comprobar-cron.sh D-A`: requiere dos lecturas completas (gon y root) y cero usos activos.
 - Runbooks: un solo uso, `docs/DEPLOY.md:348-350` (ejemplo de CLI). Se cambia por `ingest diario --fecha ... --fecha-fin ...`. Los demás son planes y specs viejos (`plans/bids-02*.md`, `plans/ingesta-01.md`, `docs/superpowers/specs/`), que son historia y no se tocan.
 - Código: nadie más importa `sync_metrics`, `sync_placements` ni `reports.main` (`rg` en `app`, `tools`, `scripts`).
 - Pruebas, por grupo (lista completa en la fila D-A.2):
@@ -825,7 +838,7 @@ Qué se borra:
 - Apify y Junglee: `sync_amazon` (`:308`), `SOURCE_AMAZON` (`:82`), las ramas de Amazon de `ejecuta_snapshot` (`:660-697`) y `_ensayo` (`:774`), `APIFY_BASE`, `APIFY_TOKEN_FILENAME`, `ApifyCredentials` (`app/reputacion_clientes.py:25,31,87`) y `ClienteJunglee` (`:199`), más lo que solo ellas usen en `app/reputacion_plan.py`. En `app/cli.py:712-716`: `--fuente` queda con `choices=("meli",)` (la línea del cron pasa `--fuente meli` y sigue valiendo) y se borran `--max-productos` y `--tope-usd`, que solo usaba Apify.
 - En `docs/DEPLOY.md`: la llave `apify_token.json` (`:2392-2393`), la fila de `reputacion:amazon` (`:2409`) y el pendiente de Apify (`:2416-2418`). El archivo `apify_token.json` del servidor no se borra: sin código que lo lea no hace daño, y borrar una llave no tiene reversa.
 
-Demostrado que no se usa: `reputation_snapshot` tiene 3140 filas y todas son de MeLi (`SELECT platform, count(*) FROM reputation_snapshot GROUP BY 1` da `meli|3140`). La línea de Amazon del crontab está comentada desde el 8-sep (`crontab-antes.txt:47-48`). D-B.1 vuelve a comprobar en el crontab vivo que ninguna línea activa pasa `--fuente amazon`.
+Demostrado que no se usa: `reputation_snapshot` tiene 3140 filas y todas son de MeLi (`SELECT platform, count(*) FROM reputation_snapshot GROUP BY 1` da `meli|3140`). La línea de Amazon del crontab está comentada desde el 8-sep (`crontab-antes.txt:47-48`). D-B.1 ejecuta `comprobar-cron.sh D-B` y exige leer el crontab de gon completo con cero usos activos de la fuente Amazon. Un fallo de lectura detiene el borrado.
 
 No se toca: las tablas (las filas de MeLi siguen; no hay filas de Amazon que perder) y la lectura de la pantalla. Mover `ClienteMeli` a `app/meli/cliente.py` y unir el cálculo del «previo» son cambios de estructura, no borrados: quedan fuera de este plan.
 

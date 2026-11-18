@@ -1,0 +1,396 @@
+ff03ed61f7a847ab190b1695c2efe8d785baa364
+Python 3.12.15
+{"sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364", "python": "3.12.15 (main, Oct 21 2026, 03:35:58) [GCC 14.2.0]", "root": "/repo", "apply_import": "/repo/app/apply.py", "harvest_import": "/repo/app/apply_harvest.py", "tools_import": "/repo/tools/archiva_inertes.py", "database": "thermo_writes_current"}
+{"mode": "shadow", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}}}
+.{"mode": "off", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}}}
+.{"mode": "live", "enabled": false, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}}}
+.{"mode": "live", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}}}
+.{"shape": "missing", "reposts": 1, "queue": "applied", "lectura_ambigua": null, "confirmada": true}
+F{"shape": "truncated", "reposts": 1, "queue": "applied", "lectura_ambigua": null, "confirmada": true}
+F{"fase": "done", "external_ids": {"hermanas": {"auto_discovery": {"creada": true, "negative_id": "n-3"}, "category_broad": {"creada": true, "negative_id": "n-4"}, "product_targeting": {"creada": true, "negative_id": "n-5"}}, "biblioteca": {"id": 4, "escrita": true}, "keyword_id": "ajena", "negative_id": "n-1", "keyword_creada": true, "hermanas_ciclos": 1, "negative_creada": true, "hermanas_objetivo": {"auto_discovery": {"ad_group_id": "6200", "campaign_id": "6100"}, "category_broad": {"ad_group_id": "6203", "campaign_id": "6103"}, "product_targeting": {"ad_group_id": "6202", "campaign_id": "6102"}}, "hermanas_pendientes": {}}, "ack_keyword": [[{"keywords": {"error": [], "success": [{"index": 0, "keywordId": "k-2"}]}}]], "deletes_keyword": [{"keywordIdFilter": {"include": ["ajena"]}}], "keywords_remote": [{"adGroupId": "6204", "campaignId": "6104", "keywordText": "termino hermana f2", "matchType": "EXACT", "state": "ARCHIVED", "bid": 1.0, "keywordId": "k-2"}, {"adGroupId": "6204", "campaignId": "6104", "keywordText": "termino hermana f2", "matchType": "EXACT", "state": "ARCHIVED", "bid": 1.0, "keywordId": "ajena"}]}
+F{"status": 422, "result": "no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)", "ledger": [["ok:reconciliado", null]], "summary": {"fuente": "list", "keywordId": "n-1"}, "deletes": []}
+F{"posts": 2, "ledger": ["applied", null, null], "outcomes": ["readback de la repuesta k-1 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene", "readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene"]}
+FMIGRACIONES COMPLETAS: 83 0086_arreglos02_cargos.sql
+jev-senales motivo=sin_api_key unidades=0 llamadas=0 fallos=0 senales=0 avisos=0
+.CLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 83 0086_arreglos02_cargos.sql
+FCLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 83 0086_arreglos02_cargos.sql
+catalogo meli: observadas=1 nuevos=0 actualizados=0 miembros=1 todos=1 alguno=0 ninguno=0 reconciliados=1 run=2 skips={}
+FCLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 83 0086_arreglos02_cargos.sql
+FCLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 83 0086_arreglos02_cargos.sql
+FCLEANUP: thermo_ingest_current eliminada
+.{'sha': 'ff03ed61f7a847ab190b1695c2efe8d785baa364', 'python': '3.12.15 (main, Oct 21 2026, 03:35:58) [GCC 14.2.0]', 'repo': '/repo', 'imports': ['/repo/app/cycle.py', '/repo/app/optimizer/replay.py', '/repo/tests/test_cycle.py']}
+{"database": "thermo_optimizer_current", "migrations": 83, "last": "0086_arreglos02_cargos.sql"}
+F{'sha': 'ff03ed61f7a847ab190b1695c2efe8d785baa364', 'python': '3.12.15 (main, Oct 21 2026, 03:35:58) [GCC 14.2.0]', 'repo': '/repo', 'imports': ['/repo/app/cycle.py', '/repo/app/optimizer/replay.py', '/repo/tests/test_cycle.py']}
+{"database": "thermo_optimizer_current", "migrations": 83, "last": "0086_arreglos02_cargos.sql"}
+{"database": "thermo_optimizer_current", "migrations": 83, "last": "0086_arreglos02_cargos.sql"}
+F{"database": "thermo_optimizer_current", "migrations": 83, "last": "0086_arreglos02_cargos.sql"}
+.PG: thermo_pricing_current; migraciones=83; ultima=0086_arreglos02_cargos.sql
+07 estado alcanzable: PideCotizacion(precio=Importe(valor=Decimal('1111.42'), moneda='MXN'), intento=1) listing= 11
+Limpieza: eliminada solo thermo_pricing_current
+FPG: thermo_pricing_current; migraciones=83; ultima=0086_arreglos02_cargos.sql
+07 estado alcanzable: PideCotizacion(precio=Importe(valor=Decimal('1111.42'), moneda='MXN'), intento=1) listing= 11
+Limpieza: eliminada solo thermo_pricing_current
+FPG: thermo_pricing_current; migraciones=11; ultima=0059_precio02_repara_retencion_coherente.sql
+Limpieza: eliminada solo thermo_pricing_current
+PG: thermo_pricing_current; migraciones=11; ultima=0059_precio02_repara_retencion_coherente.sql
+Limpieza: eliminada solo thermo_pricing_current
+PG: thermo_pricing_current; migraciones=11; ultima=0059_precio02_repara_retencion_coherente.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=12; ultima=0059_precio02_repara_retencion_coherente.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=83; ultima=0086_arreglos02_cargos.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=83; ultima=0086_arreglos02_cargos.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=83; ultima=0086_arreglos02_cargos.sql
+Limpieza: eliminada solo thermo_pricing_current
+.{'sha_reportado': 'ff03ed61f7a847ab190b1695c2efe8d785baa364', 'repo': '/repo', 'python': '3.12.15 (main, Oct 21 2026, 03:35:58) [GCC 14.2.0]', 'imports': {'app.main': '/repo/app/main.py', 'app.pantalla_ruido': '/repo/app/pantalla_ruido.py', 'app.ui_metricas': '/repo/app/ui_metricas.py'}}
+FFFF..
+=================================== FAILURES ===================================
+_____________ test_02_lista_incompleta_no_autoriza_repost[missing] _____________
+
+shape = 'missing'
+
+    @pytest.mark.parametrize("shape", ["missing", "truncated"])
+    def test_02_lista_incompleta_no_autoriza_repost(shape):
+        result = writes.scenario02(shape)
+        print(json.dumps(result))
+>       assert result["reposts"] == 0, result
+E       AssertionError: {'shape': 'missing', 'reposts': 1, 'queue': 'applied', 'lectura_ambigua': None, ...}
+E       assert 1 == 0
+
+/evidence/test_accept_writes.py:24: AssertionError
+____________ test_02_lista_incompleta_no_autoriza_repost[truncated] ____________
+
+shape = 'truncated'
+
+    @pytest.mark.parametrize("shape", ["missing", "truncated"])
+    def test_02_lista_incompleta_no_autoriza_repost(shape):
+        result = writes.scenario02(shape)
+        print(json.dumps(result))
+>       assert result["reposts"] == 0, result
+E       AssertionError: {'shape': 'truncated', 'reposts': 1, 'queue': 'applied', 'lectura_ambigua': None, ...}
+E       assert 1 == 0
+
+/evidence/test_accept_writes.py:24: AssertionError
+_____________ test_03_harvest_y_reversa_no_archivan_keyword_ajena ______________
+
+    def test_03_harvest_y_reversa_no_archivan_keyword_ajena():
+        result = writes.scenario03()
+        print(json.dumps(result, default=str))
+>       assert not any("ajena" in b["keywordIdFilter"]["include"] for b in result["deletes_keyword"]), result
+E       AssertionError: {'fase': 'done', 'external_ids': {'hermanas': {'auto_discovery': {'creada': True, 'negative_id': 'n-3'}, 'category_bro...eywords': {'error': [], 'success': [{...}]}},)], 'deletes_keyword': [{'keywordIdFilter': {'include': ['ajena']}}], ...}
+E       assert not True
+E        +  where True = any(<generator object test_03_harvest_y_reversa_no_archivan_keyword_ajena.<locals>.<genexpr> at 0xff0a88de3ac0>)
+
+/evidence/test_accept_writes.py:32: AssertionError
+________________ test_10_negative_reconciliado_conserva_reversa ________________
+
+    def test_10_negative_reconciliado_conserva_reversa():
+        result = writes.scenario10()
+        print(json.dumps(result, default=str))
+>       assert result["status"] == 200, result
+E       AssertionError: {'status': 422, 'result': 'no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)', 'ledger': [('ok:reconciliado', None)], 'summary': {'fuente': 'list', 'keywordId': 'n-1'}, ...}
+E       assert 422 == 200
+
+/evidence/test_accept_writes.py:39: AssertionError
+____________ test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo _____________
+
+    def test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo():
+        result = writes.scenario11()
+        print(json.dumps(result, default=str))
+>       assert result["posts"] == 1, result
+E       AssertionError: {'posts': 2, 'ledger': ('applied', None, None), 'outcomes': ['readback de la repuesta k-1 no cuadra con el ledger (tex...e', 'readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene']}
+E       assert 2 == 1
+
+/evidence/test_accept_writes.py:47: AssertionError
+_________ test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave __________
+
+db = (<psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xff0a88e0de80>, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave(db):
+        r = ingest.caso05(*db)
+>       assert not r["consumidor_windows"] and r["planes_por_orden"] == [0,0], r
+E       AssertionError: {'consumidor_windows': [('collar', '910.0000', 0, '0.0000')], 'entidad_completa': True, 'planes_por_orden': [1, 0], 'sello': (True, 10, 10)}
+E       assert (not [('collar', '910.0000', 0, '0.0000')])
+
+/evidence/test_accept_ingest.py:23: AssertionError
+________________ test_06_scan_incompleto_no_desactiva_ausentes _________________
+
+db = (<psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xff0a88c9f080>, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_06_scan_incompleto_no_desactiva_ausentes(db):
+        r = ingest.caso06(*db)
+>       assert all(activo for _,activo in r["miembros"]), r
+E       AssertionError: {'exit': 0, 'miembros': [('MLM1001', True), ('MLM1002', False)], 'variantes_scan': [(['MLM1001'], False), (['MLM1001', 'MLM1001'], False)]}
+E       assert False
+E        +  where False = all(<generator object test_06_scan_incompleto_no_desactiva_ausentes.<locals>.<genexpr> at 0xff0a88e239f0>)
+
+/evidence/test_accept_ingest.py:28: AssertionError
+_____________ test_14_contencion_no_declara_escrituras_revertidas ______________
+
+db = (<psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xff0a88c9eb70>, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_14_contencion_no_declara_escrituras_revertidas(db):
+        r = ingest.caso14(*db)
+>       assert r["observadas"] == r["observaciones_reales"] == r["sello"][1], r
+E       AssertionError: {'observaciones_reales': 0, 'observadas': 1, 'ok': True, 'sello': (True, 1, 1)}
+E       assert 1 == 0
+
+/evidence/test_accept_ingest.py:34: AssertionError
+___________ test_S1_error_de_proveedor_redactado_antes_de_persistir ____________
+
+db = (<psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ingest_current) at 0xff0a88c48680>, 'user=orbit password=orbit dbname=thermo_ingest_current host=orbit-review-current-pg port=5432')
+
+    def test_S1_error_de_proveedor_redactado_antes_de_persistir(db):
+        r = ingest.casoS1(*db)
+>       assert all(not fila["clave_ficticia_persistida"] for fila in r), r
+E       AssertionError: [{'campo': 'model', 'clave_ficticia_persistida': True}, {'campo': 'choice', 'clave_ficticia_persistida': True}]
+E       assert False
+E        +  where False = all(<generator object test_S1_error_de_proveedor_redactado_antes_de_persistir.<locals>.<genexpr> at 0xff0a88b71970>)
+
+/evidence/test_accept_ingest.py:40: AssertionError
+___________ test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio ____________
+
+    def test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio():
+        print(review.metadata())
+        with review.database() as conn:
+            result = review.convergence_scenario(conn)
+        assert result["initial_status"] == "done"
+        initial = Decimal(result["initial"]["target_aplicado"])
+        assert initial > Decimal("21.5"), result
+        steps = result["steps"]
+        assert all(s["status"] == "done" for s in steps), result
+        assert all(s["target"]["motivo_abstencion"] == "ledger_rancio" for s in steps), result
+        assert all(s["target"]["convergiendo_a_setting"] for s in steps), result
+        expected = [initial - Decimal("0.5") * n for n in (1, 2, 3)]
+        actual = [Decimal(s["target"]["target_aplicado"]) for s in steps]
+>       assert actual == expected, result
+E       AssertionError: {'initial_status': 'done', 'initial': {'procedencia': 'margen_plataforma', 'paso_politica': 'asimetrico_v1', 'motivo_a...rico_v1', 'motivo_abstencion': 'ledger_rancio', 'convergiendo_a_setting': True, ...}, 'leaves': [(Decimal('29.0'),)]}]}
+E       assert [Decimal('29....cimal('29.0')] == [Decimal('29....cimal('28.0')]
+E         
+E         At index 1 diff: Decimal('29.0') != Decimal('28.5')
+E         Use -v to get more diff
+
+/evidence/test_accept_optimizer.py:19: AssertionError
+___________ test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo ____________
+
+    def test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo():
+        print(review.metadata())
+        with review.database() as conn:
+            control = review.harvest_scenario(conn)
+            assert control["status"] == "done", control
+            assert set(control["kinds"]) == {"pause", "negative", "harvest"}, control
+            for row in control["rows"]:
+                assert review.replay.reproduce(row[9]) == (row[1], row[4], row[5])
+        with review.database() as conn:
+            result = review.harvest_scenario(conn, reobservado=True)
+>       assert result["status"] == "done", result
+E       AssertionError: {'status': 'failed', 'constraint': 'decision_dato_no_del_futuro', 'persisted': 0}
+E       assert 'failed' == 'done'
+E         
+E         - done
+E         + failed
+
+/evidence/test_accept_optimizer.py:33: AssertionError
+___________ test_07_corrida_meli_conserva_fecha_y_detalle[corriente] ___________
+
+guardada = False
+
+    @pytest.mark.parametrize('guardada', [False, True], ids=['corriente', 'persistida'])
+    def test_07_corrida_meli_conserva_fecha_y_detalle(guardada):
+        from app.precio import corrida
+        from app.precio.reglas import decidir
+        from app.precio.tipos import PideCotizacion
+        with base() as (conn, _):
+            mercado, lectura, config, ahora, calls = preparar_meli(conn)
+            try:
+                pedido = decidir(lectura.entrada, hoy=ahora.date(), config=config,
+                                 fees_escenario=lectura.fees_escenario)
+                assert isinstance(pedido, PideCotizacion), pedido
+                print('07 estado alcanzable:', pedido, 'listing=', lectura.entrada.listing_id)
+                lid = lectura.entrada.listing_id
+                oid = lectura.ids['oferta_observation_id']
+                evento = corrida._evento_cotizacion(lid, 'meli', ahora.date(), pedido.intento)
+                if guardada:
+                    # Estado persistido valido; fecha/arbol proceden del cotizador real.
+                    resultado = mercado._fees.cotizar(lectura.cotizable, pedido.precio.valor,
+                        ahora=lambda: conn.execute('SELECT clock_timestamp()').fetchone()[0])
+                    assert resultado.estado == 'success'
+                    conn.execute("INSERT INTO precio_cotizacion "
+                        "(listing_id, platform, intento, oferta_observation_id, quoted_price, "
+                        "quoted_price_currency, total_fees, total_fees_currency, fee_details, "
+                        "fees_estimated_at, estado, source_event_id) "
+                        "VALUES (%s,'meli',%s,%s,%s,'MXN',%s,'MXN',%s,%s,'success',%s)",
+                        (lid, pedido.intento, oid, pedido.precio.valor, resultado.total_fees,
+                         Json(resultado.fee_details), resultado.fees_estimated_at, evento))
+                    calls.clear()
+>               resumen = corrida.correr(conn, mercado, owner='accept-pricing')
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/evidence/test_accept_pricing.py:159: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/precio/corrida.py:1464: in correr
+    decisiones, lineas, errores, saltadas, espera_insumos = _decidir_pendientes(
+app/precio/corrida.py:925: in _decidir_pendientes
+    persistida, saltada = _decidir_lectura(
+app/precio/corrida.py:726: in _decidir_lectura
+    decision, cotiz_id = cotizar_y_decidir(
+app/precio/corrida.py:433: in cotizar_y_decidir
+    ultimo_id = _persistir_cotizacion(
+app/precio/corrida.py:360: in _persistir_cotizacion
+    return conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <psycopg.Connection [BAD] at 0xff0a88ba9b80>
+query = 'INSERT INTO precio_cotizacion (listing_id, platform, intento, oferta_observation_id, quoted_price, quoted_price_curre...ated_at, estado, error_code, source_event_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id'
+params = (11, 'meli', 1, 3, Decimal('1111.42'), 'MXN', ...), prepare = None
+binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.CheckViolation: new row for relation "precio_cotizacion" violates check constraint "precio_cotizacion_success_exige_estimada"
+E           DETAIL:  Failing row contains (2, 11, meli, 1, 2026-11-16, 3, 1111.4200, MXN, 216.7300, MXN, [], null, success, null, precio-cotiz-11-meli-2026-11-16-1, 2026-11-16 01:34:53.326425+00).
+
+/usr/local/lib/python3.12/site-packages/psycopg/connection.py:304: CheckViolation
+__________ test_07_corrida_meli_conserva_fecha_y_detalle[persistida] ___________
+
+guardada = True
+
+    @pytest.mark.parametrize('guardada', [False, True], ids=['corriente', 'persistida'])
+    def test_07_corrida_meli_conserva_fecha_y_detalle(guardada):
+        from app.precio import corrida
+        from app.precio.reglas import decidir
+        from app.precio.tipos import PideCotizacion
+        with base() as (conn, _):
+            mercado, lectura, config, ahora, calls = preparar_meli(conn)
+            try:
+                pedido = decidir(lectura.entrada, hoy=ahora.date(), config=config,
+                                 fees_escenario=lectura.fees_escenario)
+                assert isinstance(pedido, PideCotizacion), pedido
+                print('07 estado alcanzable:', pedido, 'listing=', lectura.entrada.listing_id)
+                lid = lectura.entrada.listing_id
+                oid = lectura.ids['oferta_observation_id']
+                evento = corrida._evento_cotizacion(lid, 'meli', ahora.date(), pedido.intento)
+                if guardada:
+                    # Estado persistido valido; fecha/arbol proceden del cotizador real.
+                    resultado = mercado._fees.cotizar(lectura.cotizable, pedido.precio.valor,
+                        ahora=lambda: conn.execute('SELECT clock_timestamp()').fetchone()[0])
+                    assert resultado.estado == 'success'
+                    conn.execute("INSERT INTO precio_cotizacion "
+                        "(listing_id, platform, intento, oferta_observation_id, quoted_price, "
+                        "quoted_price_currency, total_fees, total_fees_currency, fee_details, "
+                        "fees_estimated_at, estado, source_event_id) "
+                        "VALUES (%s,'meli',%s,%s,%s,'MXN',%s,'MXN',%s,%s,'success',%s)",
+                        (lid, pedido.intento, oid, pedido.precio.valor, resultado.total_fees,
+                         Json(resultado.fee_details), resultado.fees_estimated_at, evento))
+                    calls.clear()
+                resumen = corrida.correr(conn, mercado, owner='accept-pricing')
+                assert resumen.decisiones == 1 and not resumen.errores, resumen
+                fila = conn.execute('SELECT fees_estimated_at, fee_details FROM precio_cotizacion '
+                                    'WHERE source_event_id=%s', (evento,)).fetchone()
+                assert fila and fila[0] is not None and fila[1]
+                _, cot = mercado.cotizacion_guardada(conn, evento=evento, listing_id=lid,
+                            hoy=ahora.date(), oferta_id=oid, pedido=pedido)
+>               assert cot.estimada_en == fila[0], '07: el readback descarta la fecha valida'
+E               AssertionError: 07: el readback descarta la fecha valida
+E               assert None == datetime.datetime(2026, 11, 16, 1, 34, 54, 171477, tzinfo=datetime.timezone.utc)
+E                +  where None = Cotizacion(precio=Importe(valor=Decimal('1111.4200'), moneda='MXN'), fees=Fees(total=Importe(valor=Decimal('216.7300')...porte(valor=Decimal('0.0000'), moneda='MXN'), impuesto_pendiente=False, detalle=()), estimada_en=None, error_code=None).estimada_en
+
+/evidence/test_accept_pricing.py:166: AssertionError
+________ test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa _________
+
+escenario = {'conn': <psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xff0a8866...a7200>, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa(escenario):
+        observado = ui.browser(escenario, "retiro")
+>       assert not observado["escrituras_capturadas"], observado
+E       AssertionError: {'modo': 'retiro', 'dom': {'previaA': 'UI-1 · g-ui-1', 'errorB': 'Error: Fallo controlado de la nueva consulta.', 'eje...': [11], 'motivo': 'sin_pedidos', 'huella': '4fe823748546a407fb55901deb2be56ce4d3a14cc4b54adff61ec8ebceb38a42', ...}}]}
+E       assert not [{'url': '/api/fabrica/retiro/ejecutar', 'body': {'plataforma': 'amazon_mx', 'listing_ids': [11], 'motivo': 'sin_pedidos', 'huella': '4fe823748546a407fb55901deb2be56ce4d3a14cc4b54adff61ec8ebceb38a42', ...}}]
+
+/evidence/test_accept_ui.py:16: AssertionError
+____ test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa _____
+
+escenario = {'conn': <psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xff0a8866...a7200>, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa(escenario):
+        observado = ui.browser(escenario, "impulso")
+>       assert not observado["escrituras_capturadas"], observado
+E       AssertionError: {'modo': 'impulso', 'dom': {'previaA': 'UI-1 · uiTope 100.00 MXN · 5.00 al día · 0 keywords · 0 negativos', 'errorB': ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'confirmacion': 'LANZAR IMPULSO DE 1 PRODUCTOS', 'actor': 'review-local'}}]}
+E       assert not [{'url': '/api/fabrica/impulso/lanzar', 'body': {'solicitud': {'plataforma': 'amazon_mx', 'listing_ids': [11], 'subfam...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'confirmacion': 'LANZAR IMPULSO DE 1 PRODUCTOS', 'actor': 'review-local'}}]
+
+/evidence/test_accept_ui.py:21: AssertionError
+_____________ test_15_ruido_no_publica_acos_con_gasto_desconocido ______________
+
+escenario = {'conn': <psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xff0a8866...a7200>, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_15_ruido_no_publica_acos_con_gasto_desconocido(escenario):
+        observado = ui.metricas(escenario)
+>       assert observado["ruido"]["despues"]["acos_pct"] is None, observado
+E       AssertionError: {'ruido': {'encendido_el': '2026-10-02', 'moneda': 'MXN', 'dias_antes': 0, 'dias_despues': 1, ...}, 'resumen': {'cost'...ders': 2, ...}, 'frase': 'Sin ventas atribuidas frente a la meta de 30%.', 'html_con_afirmacion_sin_ventas': True, ...}
+E       assert '5.00' is None
+
+/evidence/test_accept_ui.py:26: AssertionError
+_________ test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta _________
+
+escenario = {'conn': <psycopg.Connection [IDLE] (host=orbit-review-current-pg user=orbit database=thermo_ui_current) at 0xff0a8866...a7200>, 'fecha': '2026-10-07', 'productos': [{'product_id': 4, 'listing_id': 11}, {'product_id': 5, 'listing_id': 12}]}
+
+    def test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta(escenario):
+        observado = ui.metricas(escenario)
+        assert observado["resumen"]["sin_ventas"] is False
+>       assert not observado["html_con_afirmacion_sin_ventas"], observado
+E       AssertionError: {'ruido': {'encendido_el': '2026-10-02', 'moneda': 'MXN', 'dias_antes': 0, 'dias_despues': 1, ...}, 'resumen': {'cost'...ders': 2, ...}, 'frase': 'Sin ventas atribuidas frente a la meta de 30%.', 'html_con_afirmacion_sin_ventas': True, ...}
+E       assert not True
+
+/evidence/test_accept_ui.py:32: AssertionError
+=============================== warnings summary ===============================
+test_accept_ui.py::test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa
+  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED ../evidence/test_accept_writes.py::test_02_lista_incompleta_no_autoriza_repost[missing]
+FAILED ../evidence/test_accept_writes.py::test_02_lista_incompleta_no_autoriza_repost[truncated]
+FAILED ../evidence/test_accept_writes.py::test_03_harvest_y_reversa_no_archivan_keyword_ajena
+FAILED ../evidence/test_accept_writes.py::test_10_negative_reconciliado_conserva_reversa
+FAILED ../evidence/test_accept_writes.py::test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo
+FAILED ../evidence/test_accept_ingest.py::test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave
+FAILED ../evidence/test_accept_ingest.py::test_06_scan_incompleto_no_desactiva_ausentes
+FAILED ../evidence/test_accept_ingest.py::test_14_contencion_no_declara_escrituras_revertidas
+FAILED ../evidence/test_accept_ingest.py::test_S1_error_de_proveedor_redactado_antes_de_persistir
+FAILED ../evidence/test_accept_optimizer.py::test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio
+FAILED ../evidence/test_accept_optimizer.py::test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo
+FAILED ../evidence/test_accept_pricing.py::test_07_corrida_meli_conserva_fecha_y_detalle[corriente]
+FAILED ../evidence/test_accept_pricing.py::test_07_corrida_meli_conserva_fecha_y_detalle[persistida]
+FAILED ../evidence/test_accept_ui.py::test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa
+FAILED ../evidence/test_accept_ui.py::test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa
+FAILED ../evidence/test_accept_ui.py::test_15_ruido_no_publica_acos_con_gasto_desconocido
+FAILED ../evidence/test_accept_ui.py::test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta
+17 failed, 14 passed, 1 warning in 37.86s

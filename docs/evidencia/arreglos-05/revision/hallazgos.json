@@ -1,0 +1,648 @@
+[
+  {
+    "id": "01",
+    "estado": "ya corregido",
+    "archivo_linea": [
+      "app/apply.py:750",
+      "app/cycle.py:3530"
+    ],
+    "impacto": "El antiguo reenvio de un bid pendiente despues de apagar el goal ya no ocurre: la reconciliacion sella la divergencia y no envia otro PUT. Retirar este bloqueo del informe anterior.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log:3",
+      "resultados": "Lineas 4-7: cuatro controles aprobados, goal shadow, off, live deshabilitado y live habilitado. Todos: puts_recovery=0 y un unico intento sellado fallo:divergencia_readback.",
+      "alcance": "Python 3.12.15 Linux, PostgreSQL 16 aislado con cadena completa de migraciones salvo 0011 y reversas. Aplicador real crea un intento ambiguo mediante timeout de transporte; cambio de goal de campana; cycle._fase_apply real ejecuta conciliacion y aplicacion. Guard de propiedad del lock real. Solo transporte, credenciales ficticias y reloj del heartbeat inyectados.",
+      "imports": [
+        "/repo/app/apply.py",
+        "/repo/app/apply_harvest.py",
+        "/repo/tools/archiva_inertes.py"
+      ],
+      "prueba": "test_accept_writes.py::test_01_reconciliacion_no_reenvia_bid_anterior"
+    },
+    "comando_cierre": "cd /repo && ORBIT_REVIEW_ROOT=/repo ORBIT_REVIEW_DSN='host=orbit-review-current-pg port=5432 dbname=postgres user=orbit password=orbit' python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_writes.py -k test_01",
+    "plan_bloque": {
+      "cobertura": "ARREGLOS 01 K.1-K.2 ejecutados en este codigo: K.2 elimina _reintento_divergente y exige confirmar o marcar sin reenviar. K.1 exige que una hoja con intento pendiente no reciba otro recorte; existe test_arreglos01_k_hoja_con_bid_sin_sello_no_recibe_otro_recorte en tests/test_cycle_apply.py.",
+      "cruce": "TEMPORADA 01 B.2 propone conciliar antes de decidir y E.1 incorpora lectura previa a todo bid. Esos cambios deben conservar el cero PUT del conciliador. ARREGLOS 02 y 03 no son la solucion de este hallazgo."
+    },
+    "requiere_decision_producto": false,
+    "bloquea": false,
+    "limite": "Los cuatro controles nuevos cubren la fase real de apply y el cambio de goal, no ejecutan un ciclo completo de ingesta/decision. La prueba existente K.1 se reutiliza como evidencia de cobertura, no se volvio a ejecutar por esta area. Sin produccion ni APIs reales. El fixture host posterior elimina el DROP inicial; ese ajuste de aislamiento aun no figura en la corrida inicial.",
+    "nuevos": [],
+    "area": "writes",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_01_reconciliacion_no_reenvia_bid_anterior[shadow-True]",
+        "pasa": true
+      },
+      {
+        "test": "test_01_reconciliacion_no_reenvia_bid_anterior[off-True]",
+        "pasa": true
+      },
+      {
+        "test": "test_01_reconciliacion_no_reenvia_bid_anterior[live-False]",
+        "pasa": true
+      },
+      {
+        "test": "test_01_reconciliacion_no_reenvia_bid_anterior[live-True]",
+        "pasa": true
+      }
+    ]
+  },
+  {
+    "id": "02",
+    "estado": "confirmado",
+    "archivo_linea": [
+      "app/apply_harvest.py:433",
+      "app/apply_harvest_reconciliacion.py:393"
+    ],
+    "impacto": "Una lectura que no prueba ausencia autoriza otro POST de negative no idempotente y termina la cola como applied. Ocurre con contenedor ausente y con paginacion truncada.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log:8",
+      "resultados": "Lineas 8-9, fallos 47-72: missing y truncated producen reposts=1 y queue=applied; la asercion correcta exige cero reposts.",
+      "alcance": "Estado alcanzado mediante encola_cortes y libera_vencidos reales: el transporte almacena el negative y pierde la respuesta. El ledger queda abierto y la cola applying en PostgreSQL. reconcilia_harvest real consume LIST 200 {} o paginas con nextToken repetido, luego emite un segundo POST. No se simula _lista_todos ni las guardas/SQL.",
+      "imports": [
+        "/repo/app/apply.py",
+        "/repo/app/apply_harvest.py"
+      ],
+      "prueba": "test_accept_writes.py::test_02_lista_incompleta_no_autoriza_repost[missing|truncated]"
+    },
+    "comando_cierre": "cd /repo && ORBIT_REVIEW_ROOT=/repo ORBIT_REVIEW_DSN='host=orbit-review-current-pg port=5432 dbname=postgres user=orbit password=orbit' python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_writes.py -k test_02",
+    "plan_bloque": {
+      "cobertura": "ARREGLOS 04 B-C.1 exige cero POST/delete con lectura incompleta; B-C.2 implementa ListaIncompleta para token ilegible/repetido o tope agotado; B-C.4 comprueba el tope. Esta implementacion todavia no esta en ff03ed61.",
+      "hueco": "B-C.2 dice literalmente 'la lectura de items no cambia'; DISENO-bloqueos F10 conserva data.get(contenedor) or []. Por tanto cerrar ese plan tal cual no cierra missing: hace falta incluir contenedor ausente/tipo incorrecto y exigir evidencia completa antes de ausencia.",
+      "cruce": "El mismo lector lo usan el negative inicial, la keyword destino, el readback y la reversa automatica. _lista_completa y el lector filtrado de hermanas ya tienen contratos mas estrictos. ARREGLOS 01-03 y TEMPORADA 01 no completan el hueco del contenedor ausente."
+    },
+    "requiere_decision_producto": false,
+    "bloquea": true,
+    "limite": "La corrida inicial prueba la rama negativa de recuperacion y ambos shapes; no prueba todos los siete consumidores ni la frecuencia real de respuestas defectuosas. El fixture posterior admite AdsApiError como salida segura, exige cero reposts, ausencia de confirmacion y ninguna transicion applied/failed causada por lectura desconocida. Esas aserciones adicionales esperan corrida central definitiva; el fallo inicial en reposts ya es concluyente.",
+    "nuevos": [],
+    "area": "writes",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_02_lista_incompleta_no_autoriza_repost[missing]",
+        "pasa": false
+      },
+      {
+        "test": "test_02_lista_incompleta_no_autoriza_repost[truncated]",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "03",
+    "estado": "confirmado",
+    "archivo_linea": [
+      "app/apply_harvest.py:1831",
+      "app/apply_harvest.py:1243"
+    ],
+    "impacto": "El readback cambia el ID durable de la keyword creada por otro ID de igual texto/grupo/match y conserva keyword_creada=true. La reversa real archiva la keyword ajena.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log:10",
+      "resultados": "ACK durable keywordId=k-2; job done con keyword_id=ajena y keyword_creada=true; CLI de reversa envia keywordIdFilter.include=['ajena']; el objeto ajeno termina ARCHIVED. Falla la asercion correcta en lineas 73-83.",
+      "alcance": "Grupo F2 y decision con destino congelado en PostgreSQL; encola_cortes -> libera_vencidos -> harvest completo -> hermanas -> done. Tras el POST, el transporte reproduce que un operador archiva k-2 y recrea la identidad como ajena antes del LIST de readback. _lista_todos, _paso_readback, ledger, construccion del plan y tools/reversa_harvest.main se ejecutan sin mocks de negocio, incluido su control de huella/numero de pasos y readback posterior al DELETE.",
+      "imports": [
+        "/repo/app/apply_harvest.py",
+        "/repo/tools/reversa_harvest.py"
+      ],
+      "prueba": "test_accept_writes.py::test_03_harvest_y_reversa_no_archivan_keyword_ajena"
+    },
+    "comando_cierre": "cd /repo && ORBIT_REVIEW_ROOT=/repo ORBIT_REVIEW_DSN='host=orbit-review-current-pg port=5432 dbname=postgres user=orbit password=orbit' python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_writes.py -k test_03",
+    "plan_bloque": {
+      "cobertura": "Sin tarea ejecutable exacta en ARREGLOS 01-04 ni TEMPORADA 01 para enlazar propiedad de keyword destino al ID del ACK.",
+      "hueco": "ARREGLOS 04 B-C solo acredita completitud; este caso usa LIST completo y valido. B-B trata estado/ACK de negatives de bloqueos, no propiedad de la keyword destino. TEMPORADA 01 F.2 trata reactivar pausas propias, no esta reversa de harvest.",
+      "cruce": "La fase hermanas ya cruza ID del ACK y distingue propia/adoptada; la keyword central no mantiene ese contrato. La reversa completa confia en el flag y el ID de external_ids, por lo que no corrige la atribucion falsa. La via legado/solo-origen aplica condiciones distintas y no protege este flujo F2."
+    },
+    "requiere_decision_producto": false,
+    "bloquea": true,
+    "limite": "Es un escenario sintetico de cambio externo concurrente permitido por el dominio, no evidencia de que haya ocurrido en la cuenta. Se demuestra el DELETE real del flujo contra transporte simulado, no solamente corrupcion de un helper. No se afirma cobertura de todas las carreras posibles. Ajuste posterior del fixture solo cambia aislamiento de la base.",
+    "nuevos": [],
+    "area": "writes",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_03_harvest_y_reversa_no_archivan_keyword_ajena",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "04",
+    "estado": "confirmado",
+    "severidad": "P1",
+    "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+    "archivo_linea": "app/static/js/productos.js:445",
+    "lineas_relacionadas": [
+      "app/static/js/productos.js:453",
+      "app/static/js/productos.js:498",
+      "app/static/js/productos.js:170",
+      "app/static/js/productos.js:218",
+      "app/api_fabrica.py:780"
+    ],
+    "impacto": "Tras previsualizar A, seleccionar B y fallar la nueva consulta, se borra el detalle de A pero sigue disponible su confirmacion. El boton envia A a retiro/ejecutar. La misma causa permite enviar la solicitud anterior a impulso/lanzar.",
+    "evidencia": {
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log",
+      "entorno": "Corrida central del lead: Linux Python 3.12.15, PG16 thermo_ui_current y Chromium real; imports comprobados bajo /repo; SHA registrado en log.",
+      "retiro": "test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa falla en la asercion de no enviar: captura POST /api/fabrica/retiro/ejecutar con listing_ids=[11], despues de pedir el plan de la otra publicacion. Previa A muestra UI-1; la nueva previa muestra el fallo controlado. GET de la pagina, consulta del plan, HTML, JS y eventos son reales; plan de retiro generado por la API contra PG.",
+      "vecino": "test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa tambien falla: captura POST /api/fabrica/impulso/lanzar con solicitud.listing_ids=[11]. Este caso usa el boton real Impulsar aparte, que llama al mismo verLanzamiento que Ver lanzamiento.",
+      "revision_adversarial": "Conservar una previa visible no se considera bug. El caso confirmado reemplaza su contenido por un error, conserva el estado ejecutable y permite escribir la confirmacion despues del error. La huella del servidor compara el plan de los IDs recibidos, no los seleccionados en el DOM. No se declara un bypass de autenticacion ni una mutacion remota consumada."
+    },
+    "comando_cierre": "docker exec -w /repo -e PYTHONDONTWRITEBYTECODE=1 -e ORBIT_UI_DSN=postgresql://orbit:orbit@orbit-review-current-pg:5432/postgres orbit-review-current-runner python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_ui.py -k 'test_04_'",
+    "criterio_cierre": "Ambas pruebas pasan: tras el fallo de la nueva consulta no se envia el plan cuyo detalle ya no se muestra. Invalidar estado y confirmacion al consultar/cambiar seleccion; impedir que una respuesta vieja rehabilite el plan. La carrera entre respuestas no esta cubierta por estas dos pruebas.",
+    "plan_bloque": {
+      "cobertura": "sin tarea exacta de cierre",
+      "ARREGLOS01": "Q/Z se refieren al cierre de impulsos pausados, no al estado de la previa seleccionada.",
+      "ARREGLOS02": "Sin tarea de invalidacion de previas UI.",
+      "ARREGLOS03": "Sin tarea de invalidacion de previas UI.",
+      "ARREGLOS04": "W-M.3 modifica verRetiro para mostrar elegibilidad de venta; no exige invalidar el plan en errores. W-N.5 incorpora avisos/confirmacion de presupuesto al impulso y requiere preservar la asociacion entre solicitud y previa; no cierra expresamente este escenario de fallo ni el retiro.",
+      "TEMPORADA01": "G.1 trata propuestas de presupuesto y serializacion por campana; no corrige productos.js.",
+      "ARREGLOS05": "No existe; no cuenta como arreglo ejecutable."
+    },
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "limite": "Las escrituras se capturan y responden 503 en el servidor de prueba; nunca se invoca el POST mutador de la app. No se prueba una pausa/creacion efectiva en Amazon. La previa de impulso es un payload sintetico en la frontera HTTP: confirma el fallo del frontend, no la elegibilidad economica ni aceptacion de su huella en backend. Ver lanzamiento comparte funcion, pero se ejercito en navegador Impulsar aparte. No se repitio el baseline de pantallas del lead.",
+    "simplificacion": "Un estado por flujo que contenga solicitud, previa y revision; derivar de el tanto el detalle visible como la posibilidad de confirmar. Evita la combinacion demostrada error visible + plan antiguo ejecutable, sin crear otra capa de negocio.",
+    "nuevos": [],
+    "area": "ui",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa",
+        "pasa": false
+      },
+      {
+        "test": "test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "05",
+    "estado": "confirmado",
+    "archivo_linea": "app/ads/reports.py:981; app/ads/reports.py:1037; app/ads/reports.py:1517",
+    "impacto": "P1 condicionado a fuente corrupta: descartar una fila con compras conserva el subtotal hermano como completo. La recreacion de una clave vaciada tambien depende del orden. Riesgo de negativos sobre terminos que vendieron; no se ha demostrado un apply real.",
+    "comando_cierre": "Desde /repo, con ORBIT_REVIEW_REPO=/repo y ORBIT_REVIEW_PG_DSN del PG desechable: python -B -m pytest -p no:cacheprovider -q -s /evidence/test_accept_ingest.py::test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave",
+    "plan_bloque": "ARREGLOS03 D-G.1 y D-G.2, plans/arreglos-03.md:113-114: clave ilegible/vaciada no se publica ni recrea; D-G.3 evidencia. Dependencia D-E por cambio hoy/ultimo_cerrado. ARREGLOS01/02/04 y TEMPORADA01 no sustituyen este cierre. No se considera ARREGLOS05 ejecutable.",
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "nuevos": [],
+    "evidencia_previa": "Inspeccion del codigo ff03ed61f7a847ab190b1695c2efe8d785baa364: ValueError hace continue sin invalidar la clave, y la fusion vacia borra la clave sin marca permanente. Reproductor actual entra por escribir_grupo, escribe PG y lee windows.terminos_cortes con siete fechas maduras. Su ejecucion central esta pendiente; no se reutiliza como prueba dinamica el resultado del SHA antiguo.",
+    "evidencia": "acceptance-ingest.log: esquema completo de 83 migraciones hasta0086, sin omitir DO ni privilegios. Linux Python3.12/PG16. Casos05,06,14,S1 fallan por el comportamiento esperado;09 y control de productos pasan.",
+    "limite_previo": "Confirmacion actual por codigo; prueba PG de aceptacion pendiente del lead. Fixture corregido para pasar un cliente GET a evaluar_perfiles. No ejecuta el ciclo ni apply. Los otros agregadores revisados: productos ya envenena la clave; metricas y placements planifican filas sin la misma fusion, sin afirmar un bug por similitud.",
+    "limite": "Datos sinteticos y HTTP simulado; SQL y funciones de negocio reales. No mide incidencia en produccion ni ejecuta mutaciones externas. La prueba llega al consumidor de ventanas, no ejecuta el motor ni apply. La corrida final amplia la semilla a diez fechas para dejar siete en la ventana madura.",
+    "area": "ingest",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364. Subtotal910, pedidos0, ventas0; entidad_completa=True. Ordenes[1,0].",
+    "casos_finales": [
+      {
+        "test": "test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "06",
+    "estado": "confirmado",
+    "archivo_linea": "app/reputacion_clientes.py:188; app/meli/catalogo.py:407",
+    "impacto": "P1: un scan que termina antes del total anunciado se acredita completo y autoriza desactivar miembros ausentes. IDs duplicados tambien pueden alcanzar el total sin cubrirlo.",
+    "comando_cierre": "Desde /repo, con ORBIT_REVIEW_REPO=/repo y ORBIT_REVIEW_PG_DSN del PG desechable: python -B -m pytest -p no:cacheprovider -q -s /evidence/test_accept_ingest.py::test_06_scan_incompleto_no_desactiva_ausentes",
+    "plan_bloque": "Sin tarea de cierre identificada en ARREGLOS01-04 ni TEMPORADA01. ARREGLOS03 D-B elimina caminos de reputacion, pero no corrige la certificacion de completitud compartida por catalogo/reputacion. Una referencia futura a ARREGLOS05 no constituye arreglo ejecutable.",
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "nuevos": [],
+    "evidencia_previa": "Codigo actual: items_seller devuelve truncado=False al faltar scroll o resultados; compara total contra longitud sin deduplicar. catalogo.sincronizar deduplica despues y reconcilia ausencias cuando truncado=False. Fixture actual entra por catalogo.main con ClienteMeli y transporte HTTP sintetico; comprueba miembros persistidos y variantes del scan.",
+    "evidencia": "acceptance-ingest.log: esquema completo de 83 migraciones hasta0086, sin omitir DO ni privilegios. Linux Python3.12/PG16. Casos05,06,14,S1 fallan por el comportamiento esperado;09 y control de productos pasan.",
+    "limite_previo": "Confirmacion actual por codigo; la ejecucion central PG esta pendiente. Respuestas HTTP sinteticas plausibles, sin medir frecuencia real ni invocar MeLi. Si el arreglo convierte el scan incompleto en error explicito, adaptar la aceptacion de las variantes para admitir error seguro y conservar la asercion de ninguna baja.",
+    "limite": "Datos sinteticos y HTTP simulado; SQL y funciones de negocio reales. No mide incidencia en produccion ni ejecuta mutaciones externas.",
+    "area": "ingest",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_06_scan_incompleto_no_desactiva_ausentes",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "07",
+    "estado": "confirmado",
+    "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+    "archivo_linea": "app/meli/precio_mercado.py:189; app/meli/precio_mercado.py:524; app/meli/precio_mercado.py:548; app/precio/corrida.py:341",
+    "impacto": "La corrida MeLi con una cotizacion exitosa aborta al persistir success sin fees_estimated_at. Si la cotizacion ya existe y es valida, el readback descarta su fecha. El adaptador tambien omite el detalle de fees; las aserciones posteriores sobre detalle aun no se alcanzaron porque primero fallan fecha/CHECK.",
+    "evidencia": [
+      "SHA revisado: ff03ed61f7a847ab190b1695c2efe8d785baa364. Runner central Linux Python3.12 y PostgreSQL16, sin APIs reales.",
+      "acceptance-recheck.log, test_07_corrida_meli_conserva_fecha_y_detalle[corriente]: con costo vigente e ingesta reciente completa, la corrida real alcanza _persistir_cotizacion y PostgreSQL rechaza con precio_cotizacion_success_exige_estimada.",
+      "acceptance-recheck.log, test_07_corrida_meli_conserva_fecha_y_detalle[persistida]: una cotizacion valida con fecha real se reutiliza; falla la asercion cot.estimada_en == fila[0] porque el readback devuelve None.",
+      "Camino probado: correr -> _decidir_pendientes -> _decidir_lectura -> cotizar_y_decidir -> MercadoMeli.cotizar/cotizacion_guardada. No se reemplazan estas funciones ni decidir; CotizadorMeli usa HTTP MockTransport y la persistencia usa PG real.",
+      "Inspeccion actual: _cotizacion_de_arbol_meli omite Fees.detalle y fija estimada_en=None; cotizar no transmite resultado.fees_estimated_at y cotizacion_guardada no selecciona esa columna. La perdida del detalle esta comprobada por lectura de codigo, no por una asercion posterior alcanzada en este rerun.",
+      "acceptance-initial.log se conserva como diagnostico del fixture antiguo: costo_desactualizado no era una reproduccion del hallazgo. acceptance-recheck.log sustituye esa limitacion tras corregir exclusivamente la semilla externa."
+    ],
+    "comando_cierre": "Dentro del runner, desde /repo, con ORBIT_TEST_DSN del PG16 desechable y ORBIT_REVIEW_SHA del checkout: python -B /evidence/pricing.py -k test_07_corrida_meli_conserva_fecha_y_detalle. Copiar primero la version corregida host de test_accept_pricing.py a /evidence/test_accept_pricing.py.",
+    "criterio_cierre": "Las variantes corriente y persistida completan correr con una decision y sin errores; la cotizacion exitosa conserva fecha y arbol al insertar y releer; el total concilia con el detalle; la variante persistida reutiliza sin GET nuevo. Una falla anterior de semilla no cuenta como reproduccion.",
+    "plan_bloque": "Sin tarea exacta encontrada en ARREGLOS01-04 ni TEMPORADA01 para conservar fecha/detalle MeLi. ARREGLOS03 P-A.3 retira la rama lineal; D-J.1/D-J.2 tratan cotizaciones todas fallidas en estimacion_ingest; P-F.1/P-F.2 calculan referencia de metas desde fees partidos. Ninguna cierra este contrato de persistencia/readback. ARREGLOS05 no existe: una referencia futura no es un arreglo ejecutable.",
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "limite": "Confirmacion en codigo actual y PG16 desechable mediante corrida shadow real, con fuentes sembradas y HTTP simulado. No demuestra una incidencia en produccion ni escritura live externa. La variante corriente falla en el CHECK de fecha antes de persistir; la persistida falla en fecha del readback. La conservacion del detalle sigue como criterio de cierre: esas aserciones posteriores no se alcanzaron en el rerun. No certificar cierre hasta que ambas variantes pasen completas. Resultados del rerun central comunicados por el lead; no se volvieron a ejecutar pruebas del area.",
+    "nuevos": [],
+    "controles_dinero_arreglos02": {
+      "resultado": "Tres controles existentes PASAN en acceptance-initial.log, ejecutados centralmente en Linux Python3.12/PG16 con migraciones actuales.",
+      "pruebas": [
+        "test_arreglos02_d_la_estimada_no_se_suma_a_la_comision_real",
+        "test_arreglos02_d_el_cargo_sin_source_event_id_no_se_descarta",
+        "test_arreglos02_d_la_reversa_regresa_las_vistas"
+      ],
+      "plan": "ARREGLOS02 D.1/D.2; TEMPORADA01 I.2 exige conservar v_ledger_cargo al recrear las vistas y su reversa. ARREGLOS04 W-C.1 cambia el reloj del consumidor, no sustituye el contrato de cargos.",
+      "alcance": "Cuatro vistas de margen: cargo -250 y muestra 57.5; cargo sin source_event_id se conserva (-260); reversa recupera -375 y 51.25. No certifica produccion, conciliacion externa ni la futura implementacion de TEMPORADA01. No revisa politica de bids (fuera del area)."
+    },
+    "area": "pricing",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_07_corrida_meli_conserva_fecha_y_detalle[corriente]",
+        "pasa": false
+      },
+      {
+        "test": "test_07_corrida_meli_conserva_fecha_y_detalle[persistida]",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "08",
+    "estado": "ya corregido",
+    "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+    "archivo_linea": "app/precio/cambios.py:173; tests/test_precio_write.py:2602; tests/test_precio_write.py:2663; tests/test_precio_write.py:2726",
+    "impacto": "El constructor singleton sin variantes de la revision antigua fue eliminado. Aplicar consulta mercado.unidades y transmite las variantes reales; una variante nueva sin producto frena aplicar y revertir.",
+    "evidencia": [
+      "acceptance-initial.log: test_08_aplicar_y_guardas_reversa_con_unidades_reales PASA.",
+      "Reutiliza sin modificar las aserciones de tres pruebas existentes: aplicar con variantes 111/222 llega al escritor y sella enviado; una variante nueva sin producto no se escribe; la reversa tambien se abstiene ante variante sin producto.",
+      "Solo se sustituye la fabrica de base de las pruebas para crear y eliminar exclusivamente thermo_pricing_current. No se sustituye aplicar, revertir, MercadoMeli.unidades ni el lector de miembros."
+    ],
+    "comando_cierre": "Desde /repo del runner con ORBIT_TEST_DSN local: python -B /evidence/pricing.py -k test_08_aplicar_y_guardas_reversa_con_unidades_reales",
+    "criterio_cierre": "Las tres comprobaciones existentes pasan: PUT simulado con variantes reales y ausencia de escritura ante una variante no mapeada al aplicar/revertir.",
+    "plan_bloque": "ARREGLOS01 R.1 prueba del escritor con 111/222; R.2 lector por lote Vitrina.unidades y eliminacion de _unidad_de_listing. R.3 pide medir precios distintos por variante en produccion: esa condicion operativa no se certifica aqui. ARREGLOS03 P-A.4 retira guardas de sonda, es independiente de la identidad de miembros.",
+    "depende_decision_producto": false,
+    "bloquea": false,
+    "limite": "Confirmacion de aplicar y guardas de reversa con PG y escritor simulado. No es una reversa exitosa completa contra MeLi ni una validacion de R.3 en produccion. No mantener este hallazgo antiguo como bloqueo vigente.",
+    "nuevos": [],
+    "area": "pricing",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_08_aplicar_y_guardas_reversa_con_unidades_reales",
+        "pasa": true
+      }
+    ]
+  },
+  {
+    "id": "09",
+    "estado": "ya corregido",
+    "archivo_linea": "app/metricas_listas.py:197; app/metricas_listas.py:207; app/jev_senales.py:811; app/jev_senales.py:260",
+    "impacto": "El fallo anterior esta corregido: la guarda deja IDLE la conexion que recibio IDLE y no revierte una transaccion ajena. El cron llega al snapshot real y cierra la corrida.",
+    "comando_cierre": "Desde /repo, con ORBIT_REVIEW_REPO=/repo y ORBIT_REVIEW_PG_DSN del PG desechable: python -B -m pytest -p no:cacheprovider -q -s /evidence/test_accept_ingest.py::test_09_jev_cron_cierra_corrida_sin_forzar_y_preserva_tx_ajena",
+    "plan_bloque": "Correccion integrada por de895d18 (continuacion ARREGLOS01); S.3 no formula este criterio literalmente. Control reforzado de guarda/snapshot/transaccion ajena pasa.",
+    "depende_decision_producto": false,
+    "bloquea": false,
+    "nuevos": [],
+    "evidencia_previa": "Se encontro sin_transaccion basado en TransactionStatus.IDLE y rollback en finally. Prueba externa actual llama cli.main(['jev-senales','--aplicar']), sin forzar ni reemplazar guarda/_leer_mundo. sys.setprofile observa el retorno True de guarda, la entrada real IDLE a _leer_mundo y su retorno completo de seis elementos. Tambien exige cierre de corrida y conservar una transaccion iniciada por el llamador. No basta exit=0.",
+    "evidencia": "acceptance-ingest.log: esquema completo de 83 migraciones hasta0086, sin omitir DO ni privilegios. Linux Python3.12/PG16. Casos05,06,14,S1 fallan por el comportamiento esperado;09 y control de productos pasan.",
+    "limite_previo": "Codigo corregido por inspeccion, pero no certificar ya corregido con prueba dinamica hasta que el lead ejecute la aceptacion reforzada. Solo se sustituyen lectura de clave y envio de avisos para impedir secretos/red; no se sustituye el comportamiento transaccional.",
+    "limite": "Datos sinteticos y HTTP simulado; SQL y funciones de negocio reales. No mide incidencia en produccion ni ejecuta mutaciones externas. Se deshabilita la consulta al proveedor mediante clave vacia; se comprueba entrada y retorno completos del snapshot y el cierre, no una evaluacion con IA.",
+    "area": "ingest",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364. Control reforzado de guarda True, entrada IDLE y snapshot completo pasa.",
+    "casos_finales": [
+      {
+        "test": "test_09_jev_cron_cierra_corrida_sin_forzar_y_preserva_tx_ajena",
+        "pasa": true
+      }
+    ]
+  },
+  {
+    "id": "10",
+    "estado": "confirmado",
+    "archivo_linea": [
+      "app/apply_harvest_reconciliacion.py:402",
+      "app/apply.py:1559",
+      "app/apply.py:1602"
+    ],
+    "impacto": "Un negative creado antes de perder la respuesta se confirma applied por LIST, pero la reversa exige un ACK de intento normal con resultado ok. No acepta ok:reconciliado ni recupera el ID del resumen; el termino queda bloqueado sin reversa desde ese endpoint.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log:11",
+      "resultados": "Ledger real [('ok:reconciliado', null)], resumen {'fuente':'list','keywordId':'n-1'}, respuesta 422 y deletes=[]. Falla correcta en lineas 84-93.",
+      "alcance": "Negative creado por encola_cortes/libera_vencidos y transporte que acepta el POST y pierde la respuesta. reconcilia_harvest confirma el objeto real del almacen HTTP. Se llama el handler api_write.reversa_negative, que recorre reversa_manual y _negative_id_del_ledger reales, con SQL sobre PostgreSQL. No se fabrica el estado final con mocks.",
+      "imports": [
+        "/repo/app/apply.py",
+        "/repo/app/api_write.py",
+        "/repo/app/apply_harvest_reconciliacion.py"
+      ],
+      "prueba": "test_accept_writes.py::test_10_negative_reconciliado_conserva_reversa"
+    },
+    "comando_cierre": "cd /repo && ORBIT_REVIEW_ROOT=/repo ORBIT_REVIEW_DSN='host=orbit-review-current-pg port=5432 dbname=postgres user=orbit password=orbit' python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_writes.py -k test_10",
+    "plan_bloque": {
+      "cobertura": "docs/evidencia/arreglos-2026-11-12/HALLAZGOS.md, apply falla 7, lo remite a ARREGLOS 05. No existe ese plan en este checkout: no hay tarea ni criterio ejecutable de cierre.",
+      "cruce": "ARREGLOS 04 B-B cambia otra via de bloqueos y B-C cambia la lectura, no la persistencia/resolucion del ID reconciliado. TEMPORADA 01 F trata pausas, no negativos. Ninguna fila de ARREGLOS 01-03 cubre esta perdida de evidencia."
+    },
+    "requiere_decision_producto": false,
+    "bloquea": true,
+    "limite": "Se prueba el handler autenticado directamente: autenticacion, ASGI y dependencia HTTP de conexion no forman parte de esta prueba. No se certifica que cualquier ID visto por LIST sea propio: la correccion debe conservar identidad y procedencia, no aceptar ciegamente todos los IDs del resumen. Ajuste posterior del fixture solo cambia aislamiento de la base.",
+    "nuevos": [],
+    "area": "writes",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_10_negative_reconciliado_conserva_reversa",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "11",
+    "estado": "confirmado",
+    "archivo_linea": [
+      "tools/archiva_inertes.py:850",
+      "tools/archiva_inertes.py:915"
+    ],
+    "impacto": "Si la reposicion recibe ACK de creacion pero no puede verificar el readback, la siguiente invocacion vuelve a emitir POST. El registro no conserva el nuevo ID ni una intencion de reposicion; puede duplicar o bloquearse por duplicidad externa.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log:12",
+      "resultados": "Dos invocaciones reales de main(--reponer) producen posts=2; ledger permanece ['applied', null, null]. Los errores nombran k-1 y k-2. Falla correcta en lineas 94-103.",
+      "alcance": "Semilla de keyword_archivo_manual por INSERT planeado y sello applied legal con ACK/readback de archivado. Se ejecutan parser, reconciliacion previa, perfil/token, POST y readback reales del tool contra MockTransport; el LIST de las nuevas keywords responde 503. Ninguna funcion de negocio se sustituye.",
+      "imports": [
+        "/repo/tools/archiva_inertes.py"
+      ],
+      "prueba": "test_accept_writes.py::test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo"
+    },
+    "comando_cierre": "cd /repo && ORBIT_REVIEW_ROOT=/repo ORBIT_REVIEW_DSN='host=orbit-review-current-pg port=5432 dbname=postgres user=orbit password=orbit' python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_writes.py -k test_11",
+    "plan_bloque": {
+      "cobertura": "ARREGLOS 04 introduccion y B-A.4 conservan expresamente tools/archiva_inertes.py. HALLAZGOS.md apply falla 11 lo remite a ARREGLOS 05, que no existe: referencia sin tarea ni aceptacion ejecutable.",
+      "cruce": "ARREGLOS 04 B-A elimina archivar/reponer product ads por CLI, una herramienta distinta. TEMPORADA 01 no modifica reposicion de keywords. La reconciliacion previa de archiva_inertes solo procesa archivos planeado/failed, no reposiciones pendientes."
+    },
+    "requiere_decision_producto": false,
+    "bloquea": true,
+    "limite": "Se demuestra repeticion serial despues de ACK y readback 503; no se ejercita concurrencia ni crash de proceso con SIGKILL. El estado inicial de archivo applied se siembra por SQL valido, no se ejecuta el archivado inicial completo. La garantia minima de cierre es un solo POST y recuperacion del intento anterior; el esquema concreto de recuperacion es decision de implementacion. Ajuste posterior del fixture solo cambia aislamiento de la base.",
+    "nuevos": [],
+    "area": "writes",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "12",
+    "estado": "confirmado",
+    "archivo_linea": "app/cycle.py:2928",
+    "impacto": "Durante ledger_rancio el ciclo omite como ancla los ciclos convergentes (procedencia null) y repite el primer paso en vez de avanzar hacia el setting. La meta permanece en 29.0 durante tres ciclos, en lugar de bajar a 29.0, 28.5 y 28.0 hacia el setting 20.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-recheck.log:11",
+      "resultado_inicial": "PASA, pero NO valida el escenario declarado. Mi fixture envejecia finished_at; la vista vigente usa MAX(started_at), migrations/0086_arreglos02_cargos.sql:143. El test tampoco exigia motivo ledger_rancio. Ese pase no demuestra un arreglo ni permite descartar el hallazgo.",
+      "ajuste_fixture": "optimizer.py envejece started_at y finished_at; test_accept_optimizer.py exige motivo ledger_rancio y convergiendo_a_setting antes de afirmar progresion. El lead ejecuto el ajuste centralmente; esas precondiciones pasan.",
+      "resultado_recheck": "CONFIRMADO: test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio falla en assert actual == expected. Tres ciclos done con ledger_rancio y convergiendo_a_setting=True repiten 29.0; se esperaban 29.0, 28.5, 28.0. Diferencia publicada en indice 1: 29.0 != 28.5. El log registra Linux Python 3.12.15, SHA ff03ed61f7a847ab190b1695c2efe8d785baa364 e imports de /repo.",
+      "alcance": "La prueba usa corre_ciclo publico, SQL real y las 83 migraciones hasta 0086. Envelope live y goals shadow; solo notificaciones sustituidas. Compara tres pasos y targets persistidos por hoja. Se simula el envejecimiento de la ingesta mediante estado sembrado; no se simula la resolucion del target."
+    },
+    "comando_cierre": "Desde /repo, con ORBIT_OPTIMIZER_TEST_DSN apuntando al PG16 desechable y ORBIT_TEST_DSN al mismo servidor: python -B -m pytest -q -s -p no:cacheprovider /evidence/test_accept_optimizer.py::test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio. Antes copiar optimizer.py y test_accept_optimizer.py actualizados del host al runner mediante docker cp.",
+    "prueba_cierre": "En ledger_rancio efectivo, tres ciclos live done deben producir inicial-0.5, inicial-1.0, inicial-1.5 tanto en notes como en target_acos_ciclo. El pase inicial solo cubre la progresion con margen fresco.",
+    "plan_bloque": "ARREGLOS01 V.1-V.4 trata producto->familia y ancla_familia; no equivale al scan de notes de plataforma. ARREGLOS02 D.2 cambia la vista de margen pero mantiene MAX(started_at). No se identifico una tarea de cierre exacta para este scan en ARREGLOS01-04 ni TEMPORADA01; ARREGLOS05 no es cobertura ejecutable.",
+    "limite": "Confirmado por la corrida central, sin ejecuciones adicionales del revisor. El envejecimiento de la ingesta se simula en la fixture; no se esperan diez dias reales. La asercion de progresion de notes falla antes de la asercion final sobre targets por hoja: no se presenta esta ultima como una comprobacion pasada. Sin HTTP ni medicion de frecuencia en produccion; no se atribuye la introduccion a un commit concreto.",
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "pendiente_validacion": false,
+    "simplificacion": "Separar el ultimo target aplicado de la procedencia de su medicion y compartir la seleccion del ancla; evita perder el estado de convergencia por reutilizar procedencia como indicador de elegibilidad.",
+    "nuevos": [],
+    "area": "optimizer",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "13",
+    "estado": "confirmado",
+    "archivo_linea": "app/cycle.py:1224",
+    "impacto": "Una reobservacion de un termino maduro con observed_at posterior al decided_at inicial llega al harvest sin sello temporal. PostgreSQL rechaza decision_dato_no_del_futuro y revierte todas las decisiones de TX3 de la plataforma, incluidas pause y negative validas. El envelope queda failed.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "python": "Linux Python 3.12.15",
+      "imports": [
+        "/repo/app/cycle.py",
+        "/repo/app/optimizer/replay.py",
+        "/repo/tests/test_cycle.py"
+      ],
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log:211",
+      "resultado": "test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo falla en la expectativa status done: status failed, constraint decision_dato_no_del_futuro, persisted 0.",
+      "alcance": "corre_ciclo real -> TX2 -> _procesa_grupo -> hygiene -> _pendiente_termino -> TX3, contra PG16 y 83 migraciones hasta 0086. INSERT append-only de nueva observacion de fecha madura; ningun motor ni consulta reemplazados. Notificaciones anuladas para evitar secretos y red.",
+      "controles": "Antes del caso adverso el mismo test verifica ciclo done con pause, negative y harvest y replay exacto de las tres. El test separado de keyword EXACT propia pasa y no emite harvest (ARREGLOS01 B)."
+    },
+    "comando_cierre": "Desde /repo, con ORBIT_OPTIMIZER_TEST_DSN y ORBIT_TEST_DSN del PG16 desechable: python -B -m pytest -q -s -p no:cacheprovider /evidence/test_accept_optimizer.py::test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo",
+    "prueba_cierre": "El ciclo termina done, conserva pause y negative, todo data_observed_at persistido es <= decided_at y replay reproduce las decisiones. El test permite resolver el contrato mediante sello temporal o exclusion de observaciones posteriores; no obliga a encubrir fechas con clamp.",
+    "plan_bloque": "ARREGLOS01 B.1-B.3 corrige terminos propios, control positivo aqui. ARREGLOS03 D-E.3 trata dias cerrados de ingesta, no el sello de harvest. ARREGLOS04 B-C trata listas incompletas de apply, no TX3. No se identifico tarea exacta que cierre este caso en ARREGLOS01-04 ni TEMPORADA01. ARREGLOS05 no existe como arreglo ejecutable.",
+    "limite": "Reproduccion en estado sembrado alcanzable con reobservacion posterior al reloj inicial y anterior al snapshot; no mide frecuencia ni fuerza la carrera con dos procesos concurrentes. No se ejecuta HTTP ni apply externo. Maduracion, moneda y replay quedan cubiertos por las filas de control; no es una certificacion integral de todos los motores.",
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "sugerencia": "Aplicar una regla temporal uniforme a todas las decisiones antes de TX3, preservando en inputs la fecha real de la evidencia. El sello no debe depender de que el kind necesite un umbral de clicks.",
+    "simplificacion": "Separar la construccion de inputs.corte del sello bitemporal comun: hoy la condicion corte != None deja fuera harvest y provoca el rollback demostrado.",
+    "nuevos": [],
+    "area": "optimizer",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "14",
+    "estado": "confirmado",
+    "archivo_linea": "app/meli/catalogo.py:289; app/meli/catalogo.py:394; app/meli/catalogo.py:405; app/meli/catalogo.py:409",
+    "impacto": "P2: un error SQL posterior a observar revierte el savepoint, pero deja observadas incrementado; se puede sellar ok=True y rows_written=1 sin observaciones persistidas.",
+    "comando_cierre": "Desde /repo, con ORBIT_REVIEW_REPO=/repo y ORBIT_REVIEW_PG_DSN del PG desechable: python -B -m pytest -p no:cacheprovider -q -s /evidence/test_accept_ingest.py::test_14_contencion_no_declara_escrituras_revertidas",
+    "plan_bloque": "Sin tarea exacta identificada en ARREGLOS01-04 ni TEMPORADA01 para confirmar contadores solo despues del savepoint. El exito parcial permitido no autoriza contar escrituras revertidas. ARREGLOS05 no existe como plan ejecutable.",
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "nuevos": [],
+    "evidencia_previa": "En codigo actual _aplica_plan muta ResultadoCatalogo antes de completar el savepoint. La excepcion psycopg.Error solo incrementa skips; ok depende de observadas. Fixture actual usa sincronizar real y contencion SQL real (otra conexion toma SHARE sobre listing, lock_timeout=150ms), no una constraint artificial ni un helper reemplazado.",
+    "evidencia": "acceptance-ingest.log: esquema completo de 83 migraciones hasta0086, sin omitir DO ni privilegios. Linux Python3.12/PG16. Casos05,06,14,S1 fallan por el comportamiento esperado;09 y control de productos pasan.",
+    "limite_previo": "Codigo confirmado; reproduccion actual PG pendiente. La contencion es un estado SQL alcanzable, no un incidente productivo observado; no se afirma que lock_timeout=150ms sea configuracion de produccion. Otros contadores mutados dentro del mismo savepoint comparten la causa.",
+    "limite": "Datos sinteticos y HTTP simulado; SQL y funciones de negocio reales. No mide incidencia en produccion ni ejecuta mutaciones externas. Contencion SQL con lock_timeout de150ms para inducir el error; no afirma que esa sea la configuracion de produccion.",
+    "area": "ingest",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_14_contencion_no_declara_escrituras_revertidas",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "15",
+    "estado": "confirmado",
+    "severidad": "P2",
+    "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+    "archivo_linea": "app/pantalla_ruido.py:274",
+    "lineas_relacionadas": [
+      "app/pantalla_ruido.py:256",
+      "app/pantalla_ruido.py:268",
+      "app/pantalla_ruido.py:293",
+      "app/api_dashboard.py:1960"
+    ],
+    "impacto": "Ruido publica ACoS 5.00% como ratio del periodo cuando falta el gasto de una de sus hojas. El numerador y el denominador no representan la misma cobertura; la eficiencia real es desconocida.",
+    "evidencia": {
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log",
+      "prueba": "test_15_ruido_no_publica_acos_con_gasto_desconocido falla: '5.00' is None.",
+      "alcance": "Parser real _planea_filas acepta observaciones (cost=10, revenue=100) y (cost=None, revenue=100); se insertan en PG16 con las migraciones actuales. Dos hojas del mismo dia, de campanas ENABLED. GET /api/dashboard/ruido recorre consultas y agregacion reales y devuelve despues.acos_pct='5.00'. No hay mock del calculo ni de SQL.",
+      "vecino_control": "Las observaciones equivalentes de campana recorren /api/dashboard/resumen y conservan cost=None, acos=None y ad_revenue=200.0000; su control pasa.",
+      "revision_adversarial": "La comparacion no causal y las duraciones distintas estan permitidas y no son el hallazgo. _suma ignora NULL deliberadamente; eso no demuestra autorizacion del dueno para presentar el cociente de coberturas distintas como ACoS. No se afirma que el ACoS correcto sea 10%."
+    },
+    "comando_cierre": "docker exec -w /repo -e PYTHONDONTWRITEBYTECODE=1 -e ORBIT_UI_DSN=postgresql://orbit:orbit@orbit-review-current-pg:5432/postgres orbit-review-current-runner python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_ui.py -k 'test_15_'",
+    "criterio_cierre": "La API no publica ACoS del periodo si falta gasto necesario. La prueba exige acos_pct=None para el conjunto incompleto. Si el dueno decide ofrecer un ratio de un subconjunto medido, necesita un contrato distinto con cobertura/grano explicitos; no se presume esa politica ni se presenta 5.00% como el total conocido.",
+    "plan_bloque": {
+      "cobertura": "sin tarea exacta de cierre",
+      "ARREGLOS01": "Sin tarea para cobertura de las sumas de Ruido.",
+      "ARREGLOS02": "B.3 incluye compatibilidad de casos/revision de politica y pruebas de Ruido; no corrige el ratio con dinero ausente.",
+      "ARREGLOS03": "D-G.2 trata claves parciales de search terms, no estas observaciones de keyword/campaign admitidas por _planea_filas. D-E/D-F tratan cierre de dia.",
+      "ARREGLOS04": "W-E.3 y W-E.4 excluyen dias inmaduros del despues; no comprueban dinero ausente. El caso reproducido tiene 40 dias, por lo que ese arreglo no basta.",
+      "TEMPORADA01": "Sin criterio de cierre de este contrato de Ruido.",
+      "ARREGLOS05": "No existe; no cuenta como arreglo ejecutable."
+    },
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "limite": "Datos sinteticos pero aceptados por parser y esquema actuales. No se ha comprobado que Amazon entregue esa combinacion en produccion ni su frecuencia. La asercion alcanza API+PG; no es un recorrido de la pantalla Ruido en Chromium. No existe ficha ruido.md en el feature map actual.",
+    "simplificacion": "Contrato comun de metrica con cobertura y causa de ratio ausente, conservando el grano: Ruido debe validar por hoja/dia antes de sumar; no pasar hojas al agregador diario de Resumen. Esto evita el ratio inventado y permite que la presentacion use la causa sin volver a inferirla.",
+    "nuevos": [],
+    "area": "ui",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_15_ruido_no_publica_acos_con_gasto_desconocido",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "16",
+    "estado": "confirmado",
+    "severidad": "P2",
+    "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+    "archivo_linea": "app/ui_metricas.py:259",
+    "lineas_relacionadas": [
+      "app/ui_metricas.py:249",
+      "app/ui_metricas.py:587",
+      "app/ui.py:412",
+      "app/api_dashboard.py:447"
+    ],
+    "impacto": "Con meta configurada, el HTML de Resumen afirma que no hay ventas atribuidas aunque su API entrega ventas=200.0000 y sin_ventas=False. El ACoS falta por gasto desconocido, no por ausencia de ventas.",
+    "evidencia": {
+      "log": "/private/tmp/orbit-review-current-evidence/acceptance-initial.log",
+      "prueba": "test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta falla en la asercion sobre el HTML: html_con_afirmacion_sin_ventas=True; antes pasa sin_ventas is False.",
+      "alcance": "PG real, config_version con resumen_acos_objetivo.amazon_mx=30 y observaciones validas de campana. GET /api/dashboard/resumen y GET / con rango personalizado de un dia recorren endpoint, agregador, vista y plantilla actuales sin reemplazar calculos. Frase observada: Sin ventas atribuidas frente a la meta de 30%.",
+      "controles": "test_control_contrato_resumen_conserva_desconocido_y_csp pasa (cost/acos desconocidos, ventas 200.0000, CSP self y no-store). test_control_auth_query_y_form_no_sustituyen_header pasa en retiro e impulso; solo el proveedor del secreto esperado se sustituye por uno ficticio, no la autenticacion.",
+      "revision_adversarial": "La semantica sin_ventas ya esta en el contrato y ARREGLOS04 pide explicitamente usarla; no depende de inventar una nueva politica. Es un fallo vigente, no un arreglo ya ejecutado por el mero hecho de estar en el plan."
+    },
+    "comando_cierre": "docker exec -w /repo -e PYTHONDONTWRITEBYTECODE=1 -e ORBIT_UI_DSN=postgresql://orbit:orbit@orbit-review-current-pg:5432/postgres orbit-review-current-runner python -B -m pytest -p no:cacheprovider -q /evidence/test_accept_ui.py -k 'test_16_ or test_control_'",
+    "criterio_cierre": "El HTML deja de afirmar ausencia de ventas cuando sin_ventas=False. Mantener los controles de contrato y autenticacion. Usar totals.sin_ventas y cobertura para distinguir ausencia de ventas de falta de datos.",
+    "plan_bloque": {
+      "cobertura": "exacta, pendiente de implementar",
+      "ARREGLOS01": "Sin cierre especifico de la frase.",
+      "ARREGLOS02": "Sin cierre especifico de la frase.",
+      "ARREGLOS03": "D-E/D-F corrigen cierre de dia; no la inferencia de cero ventas.",
+      "ARREGLOS04": "W-D.2 exige Sin ventas solo cuando totals.sin_ventas, y Faltan datos en otro caso; W-D.4(a) aporta la comprobacion. W-D.3 mantiene textos y ficha. W-A.2 elimina una rama muerta distinta y por si solo no cierra este hallazgo.",
+      "TEMPORADA01": "Sin cambio necesario de politica de producto para esta frase.",
+      "ARREGLOS05": "No existe y no hace falta para este cierre ya especificado."
+    },
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "limite": "Se verifica HTML real por ASGI, no percepcion visual en navegador. Los controles pasan en el SHA actual; no se afirma haber demostrado historicamente cuando se corrigieron. Son controles acotados, no certificacion exhaustiva de XSS/CSRF/auth ni de toda la app. La suite central y el baseline de diez pantallas son evidencia del lead y no se duplicaron.",
+    "simplificacion": "Consumir sin_ventas/cobertura desde el contrato existente; eliminar la segunda inferencia acos=None implica cero ventas. Comparte la recomendacion de contrato del ID15, sin mezclar sus granos de agregacion.",
+    "nuevos": [],
+    "area": "ui",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta",
+        "pasa": false
+      }
+    ]
+  },
+  {
+    "id": "D1",
+    "estado": "limitacion",
+    "archivo_linea": "app/optimizer/politica.py:483",
+    "impacto": "Nota de contrato: la previa puede elevar la probabilidad de subida al aumentar el ticket encogido. La frase 'solo frena subidas' no expresa necesariamente la formula vigente. No se acredita perdida ni una violacion inequívoca de politica autorizada.",
+    "evidencia": {
+      "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+      "codigo": "_p_bajo incorpora 1/cvr_previa a clicks y aov_previa al ticket. docs/evidencia/bids-02/diseno/bosquejo.py:366-369 describe esa misma formula y la llama freno; docs/CONTEXTO.md:133 dice solo frena.",
+      "resultado": "Sin reproduccion actual desde el ciclo real para este caso. La prueba helper de la revision vieja no se presenta como confirmacion actual ni como autorizacion del dueno."
+    },
+    "comando_cierre": "No hay test de cierre de bug autorizado: primero resolver si 'solo frena' exige monotonicidad frente a evidencia propia o describe la finalidad del prior. Si se exige monotonicidad, construir un caso desde lee_plataforma/corre_ciclo con filas alcanzables y comparar el candidato con/sin previa, congelando revision para replay.",
+    "prueba_cierre": "Criterio manual: contrastar CONTEXTO y formula R6 con la decision explicita del dueno. No cambiar umbrales ni agregar una regla propia para hacer pasar un test.",
+    "plan_bloque": "ARREGLOS01 P.1-P.2 frena subidas por episodio de proteccion, U.1-U.2 evalua episodios economicos: ninguno decide monotonicidad del prior R6. ARREGLOS02 B-C modifica centavos y direccion; TEMPORADA01 agrega reglas estacionales. No se identifico decision que autorice cambiar la formula R6 por esta nota.",
+    "limite": "No bloqueante. Contradiccion entre redaccion y formula sin resolucion de producto; no usar un test historico que preserve conducta como autorizacion del dueno. Revision detenida antes de validar D1 con datos del ciclo actual.",
+    "depende_decision_producto": true,
+    "bloquea": false,
+    "nuevos": [],
+    "area": "optimizer",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": []
+  },
+  {
+    "id": "D2",
+    "estado": "ya corregido",
+    "sha": "ff03ed61f7a847ab190b1695c2efe8d785baa364",
+    "archivo_linea": "app/precio/corrida.py:963; tests/test_precio_corrida.py:4468",
+    "impacto": "La consulta de previas excluye el dia completo del universo retenido sin liberar. El dia siguiente vuelve a retener; despues de liberar se permite continuar.",
+    "evidencia": [
+      "acceptance-initial.log: test_D2_retencion_ayer_sin_liberar_no_abre_hoy PASA.",
+      "Reutiliza test_arreglos01_e_dia_con_retencion_masiva_no_soltada_no_es_base: ejecuta _medir_compuerta y _aplicar_pendientes con PG; exige cuatro retenidas y cero cambios, luego liberar abre y registra cuatro cambios virtuales.",
+      "No se deriva autorizacion de una prueba que perpetue un bug: ARREGLOS01 E declara expresamente que el freno no debe soltarse solo. La clasificacion anterior como mera ambiguedad de diseno no describe este contrato actual."
+    ],
+    "comando_cierre": "Desde /repo del runner con ORBIT_TEST_DSN local: python -B /evidence/pricing.py -k test_D2_retencion_ayer_sin_liberar_no_abre_hoy",
+    "criterio_cierre": "La retencion de ayer sin liberar no se usa como base; hoy no produce cambios. La liberacion explicita permite proseguir con las decisiones de hoy.",
+    "plan_bloque": "ARREGLOS01 E.1/E.2 exactos. ARREGLOS03 P-D.1/P-D.2 agregan modo y tope de 50 cambios; son otros criterios y no deben confundirse con este cierre. TEMPORADA01 no define una politica distinta para el fusible de precios.",
+    "depende_decision_producto": false,
+    "bloquea": false,
+    "limite": "La prueba prepara historia de otro dia desactivando temporalmente triggers de la base desechable; despues ejecuta SQL y flujo real. Comprueba retencion/liberacion y cambios virtuales, no el paso de un dia real ni PUT externo. No nuevas politicas inferidas.",
+    "nuevos": [],
+    "area": "pricing",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_D2_retencion_ayer_sin_liberar_no_abre_hoy",
+        "pasa": true
+      }
+    ]
+  },
+  {
+    "id": "S1",
+    "estado": "confirmado",
+    "archivo_linea": "app/jev_juicios.py:287; app/jev_juicios.py:316; app/jev_juicios.py:325; app/jev_libro.py:248",
+    "impacto": "Riesgo condicional P2: si el proveedor devuelve una clave registrada dentro de model o choice invalidos, el detalle puede persistirse sin redactar. No se afirma una filtracion real.",
+    "comando_cierre": "Desde /repo, con ORBIT_REVIEW_REPO=/repo y ORBIT_REVIEW_PG_DSN del PG desechable: python -B -m pytest -p no:cacheprovider -q -s /evidence/test_accept_ingest.py::test_S1_error_de_proveedor_redactado_antes_de_persistir",
+    "plan_bloque": "Sin tarea exacta en ARREGLOS01-04 ni TEMPORADA01. ARREGLOS03 D-C borra asesoria/experimento, conserva senales y no elimina este transporte/libro. Contrato existente: AGENTS.md errores/logs redactados y docstring app/jev_juicios.py; no necesita una nueva politica del dueno.",
+    "depende_decision_producto": false,
+    "bloquea": true,
+    "nuevos": [],
+    "evidencia_previa": "pedir_juicio registra la clave, pero pasa el string de validacion a FalloPar sin scrub; Libro._resultado persiste codigo y detalle. Fixture actual usa Libro.juicio, validacion real y PG, con producto/listing/ficha existentes y una respuesta sintetica que contiene solo una clave ficticia.",
+    "evidencia": "acceptance-ingest.log: esquema completo de 83 migraciones hasta0086, sin omitir DO ni privilegios. Linux Python3.12/PG16. Casos05,06,14,S1 fallan por el comportamiento esperado;09 y control de productos pasan.",
+    "limite_previo": "Confirmacion condicional por codigo; persistencia actual pendiente de ejecucion central. No se emplean secretos reales ni se mide comportamiento del proveedor. El fixture ahora referencia un listing real en ficha tanto en PG como en FichaVersion.",
+    "limite": "Datos sinteticos y HTTP simulado; SQL y funciones de negocio reales. No mide incidencia en produccion ni ejecuta mutaciones externas. Exposicion condicional: el proveedor debe devolver el valor secreto registrado. Se persiste una clave ficticia tanto por model como por choice. No se observo ninguna filtracion real.",
+    "area": "ingest",
+    "evidencia_final": "acceptance.log y acceptance.xml, corrida conjunta de los artefactos finales; SHA ff03ed61f7a847ab190b1695c2efe8d785baa364.",
+    "casos_finales": [
+      {
+        "test": "test_S1_error_de_proveedor_redactado_antes_de_persistir",
+        "pasa": false
+      }
+    ]
+  }
+]

@@ -1,9 +1,10 @@
-# ARREGLOS 04 · Diseño del frente «pantallas y fábrica»
+# ARREGLOS 04 · Diseño de pantallas, fábrica y lectura de bloqueos
 
-Base: master `a4644aad` (lo que corre en producción). Hallazgos: `docs/evidencia/arreglos-2026-11-12/web.md` y `fabrica.md`.
-Bloques: `plans/arreglos-04.md` (W-A a W-J, W-L y W-M).
-Alcance vigente: el de `plans/arreglos-04.md`. W-K (semillas, falla 2 de `fabrica.md`) está en `DESCARTADO-semillas-estrictas.md` y
-no forma parte del plan; donde este diseño diga otra cosa, manda el plan.
+Base histórica: `a4644aad`; ampliación TN revalidada sobre `ff03ed61` el 2026-11-15. BASE rebasa sobre master actualizado antes de implementar y registra el SHA/contratos reales; ninguna foto histórica se declara producción actual.
+Alcance vigente: `plans/arreglos-04.md`, **21 bloques** (BASE, W-A a W-P y B-A a B-D). W-K conserva el aviso de semillas aprobado, no la regla estricta descartada; W-O permanece Salud; W-P es la previa nueva. Los otros bloques B usan `DISENO-bloqueos.md`, salvo F10, sustituido íntegramente por B-C/TN02 de este documento, incluido el pseudocódigo.
+Orden operativo: cola conservadora **03 -> 04 -> TEMPORADA01 -> 05**, según [ORDEN-IMPLEMENTACION.md](../../../plans/ORDEN-IMPLEMENTACION.md), no dependencia dura total. Mandan los `depende:` del bloque; serializar integración de fronteras compartidas. B-C precede a B-B/B-D; W-P sigue a W-M/W-N. No se amplían habilitaciones, modos o permisos.
+Aceptación: [ACEPTACION.md](../arreglos-05/ACEPTACION.md) y review portado bajo `docs/evidencia/arreglos-05/revision/`; BASE exige ambos y el orden versionados en master. Los comandos TN se ejecutan desde raíz con su entorno desechable Python3.12/PG16/Chromium, DSN de prueba y `PYTHONPATH=.:tests:docs/evidencia/arreglos-05/revision`. No usar rutas temporales como interfaz ni producción para probar. Evidencia por SHA, rojo anterior y verde entregado, cero skips/xfail/errores de fixture; elegir pruebas por riesgo/evidencia, sin vetos por categoría.
+Esta edición es documental: no ejecuta los comandos operativos históricos ni mueve modos. 05 solo verificará TN02/04/15/16, que tienen un owner cada uno aquí.
 
 Para quién: el dueño. Hoy dos pantallas le dan gastos distintos para los mismos 30 días, el Resumen le dice «las ventas
 bajaron» cuando no bajaron, una pantalla lo invita a negar búsquedas con datos de 3 días, un error al guardar se ve como
@@ -20,15 +21,26 @@ Todo lo medido en producción se leyó con `docs/evidencia/arreglos-01/lee_prod.
 | web F3, F4, F5, F6, F7, F8, F10 | Dentro (W-C, W-D, W-E, W-F, W-G) | No tocan el motor de pujas ni los archivos de Ajustes. |
 | web F2 (`cycle --decided-at` futuro) | Dentro (W-H) | Solo toca `app/cli.py:68-86`. TEMPORADA 01 no lista `app/cli.py` en su mapa de archivos (`docs/evidencia/temporada-01/DISENO.md:1464-1480`). |
 | web F1, mitad de goals (meta y techos de un goal) | Dentro (W-I) | Solo toca `app/goals_write.py`, que TEMPORADA 01 no toca. Reusa `exige_banda_meta_manual` y `exige_bajo_techo` del bloque X de ARREGLOS 01. Es el lado que pega primero: los goals de plataforma 4 y 5 tienen la meta vacía. |
-| web F1, mitad de Ajustes (meta manual de la plataforma) | Fuera, a un plan después de TEMPORADA 01 | Toca `config_write.proxima_config` y `CuerpoSettings` (`app/api_write.py:242-257`). TEMPORADA 01 bloque A rehace los dos (`DISENO.md:1341-1352` y fila A.2 de `plans/temporada-01.md:55`). |
+| web F1, mitad de Ajustes (meta manual de la plataforma) | Control ya corregido por 01X | `config_write.proxima_config` ya llama `_exige_banda_manual`; 05 conserva ese control y solo cierra cuota ilegible/compatibilidad TEMP. Goals permanece W-I. |
 | web F9 (tope «1,000» se tira) | Fuera, a un plan después de TEMPORADA 01 | El arreglo vive en `app/static/js/settings.js:99` o en `config_write._aplica_caps` (`app/config_write.py:490-491`). Los dos archivos los reescribe TEMPORADA 01 bloque A. El mensaje de error que verá David cuando se arregle ya lo deja listo W-F. |
 | fábrica F1, F3, F4 y F5 | Dentro (W-J, W-L, W-M) | Crean, pausan o retiran en Amazon: van con prueba de dinero. |
-| fábrica F2 (semillas de otro producto) | Fuera, en espera (`DESCARTADO-semillas-estrictas.md`) | Con la regla estricta casi ningún producto tendría semillas (pregunta c): lo decide el dueño. |
+| fábrica F2 (semillas de otro producto) | W-K: aviso aprobado | La decisión del 2026-11-13 mantiene semillas actuales; regla estricta descartada. No requiere otra decisión ni se implementa esa alternativa. |
 | Borrar `/series` y sus ayudantes | Dentro (W-A) | Nada los usa (ver W-A). Va antes de W-C y W-D, que tocan los mismos archivos. |
 | Borrar el plan v1 de la fábrica | Dentro (W-B) | Producción no lo usa (ver W-B). Va antes de W-J y W-L. |
 
 Parte de la prueba `test_madurez_de_cortes_con_reloj_futuro` de F2 (`windows.fin_ventana_cortes` con reloj futuro) es del
 motor y no entra: con W-H ya no se le puede pasar un reloj futuro desde la terminal.
+
+## Ownership TN de esta ampliación
+
+| Hallazgo | Owner único | Resultado observable |
+| --- | --- | --- |
+| TN02 | B-C | Missing/truncated no autorizan POST/delete ni cierre falso |
+| TN04 | W-P | Retiro/impulso no envían una selección cuyo plan dejó de mostrarse |
+| TN15 | W-E | Gasto o venta sin cobertura producen ACoS desconocido |
+| TN16 | W-D.2/.4/.6 | Ventas presentes con ACoS desconocido nunca se describen como sin ventas |
+
+Cuatro hallazgos y seis casos portados (02 y 04 tienen dos variantes). Revisión `docs/evidencia/arreglos-05/revision/{informe.txt,hallazgos.json,matriz.tsv}` y `test_accept_{writes,ui}.py`. No cerrar TN03/TN10 por cambiar el lector: identidad y autoría siguen siendo contratos distintos de 05.
 
 ## Respuestas a las preguntas del encargo
 
@@ -338,6 +350,11 @@ con la foto final de `test_resumen_7d_no_concluye_caida_por_dias_inmaduros`. Med
 `a4644aad`: `comparison.totals.ad_revenue` da 676.0000 (la foto final), no hay `observado_hasta` y la frase dice «Las
 ventas bajaron -21.30%». Con el arreglo da 532 (7 × 76) y la frase ya no dice «bajaron».
 
+### TN16 — La causa del ACoS vacío gobierna la frase
+
+Owner W-D.2/.4, aceptación integrada W-D.6. `totals.sin_ventas` expresa ventas conocidas iguales a cero; `acos is None` no lo sustituye. Con ventas presentes y gasto desconocido, el JSON mantiene `sin_ventas=False` y el HTML dice «Faltan datos», nunca «Sin ventas». Mantener comparación a la misma edad, CSP y semántica de desconocido. El cálculo de cobertura del tablero de ruido es W-E, no un segundo arreglo de esta frase.
+Comprobación: `CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ui.py -k "test_16 or test_control_contrato"`. El caso portado lee API/HTML reales; no basta buscar una cadena en el archivo ni un helper aislado. Guardar evidencia en W-D/aceptacion-tn.md.
+
 ## W-E — Búsquedas sin venta con 10 días de madurez, y ruido sin días inmaduros (F5 y F6)
 
 **Hoy.** F5: «Búsquedas que gastan sin vender» invita a negar a mano con datos que terminan en hoy menos 3
@@ -384,6 +401,13 @@ No hay ficha de verify-orbit para estas dos pantallas (`ls .cursor/skills/verify
 
 **La otra forma (F6).** Marcar los días inmaduros en lugar de cortarlos. Se descarta: el ACoS de «después» seguiría
 mezclando días a medio llegar; la marca solo avisa del error.
+
+### TN15 — Cobertura antes de dividir
+
+Owner W-E.5/.6, además de madurez F6. `app/pantalla_ruido.py::_bloque` calcula si gasto y venta son completos sobre la misma población, fechas y moneda. Un NULL en cualquiera impide formar el ratio de esa población. Con `(10,100)+(None,100)`, `acos_pct=None`: ni 5% por subtotal ni 10% descartando la fila incompleta. Un conjunto vacío también es desconocido; ventas conocidas en cero no se sustituyen por una división ficticia.
+Los subtotales pueden mostrarse solo etiquetados como parciales; devolver cobertura/causa junto al número y mostrar «Faltan datos para calcular el ACoS» en `app/templates/ruido.html`. El JSON conserva compatibilidad de sus campos existentes, con `acos_pct` nullable. No usar una nueva capa genérica ni modificar el significado de `ui_metricas.sin_ventas` (owner W-D).
+No publicar `gasto` como total completo si fue calculado ignorando NULL. Usar una sola comprobación local de cobertura por métrica en el dueño del agregado; revisar antes/después y controles con cobertura completa. La ventana madura F6 se conserva y se evalúa antes de agregar.
+Comprobación: `CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ui.py -k "test_15 or test_control_contrato"`; `tests/test_pantalla_ruido.py` cubre gasto ausente, venta ausente, conjunto completo y conjunto vacío. El caso HTTP portado y la plantilla demuestran el resultado visible; registrar evidencia W-E/aceptacion-tn.md. Actualizar la ficha si existe al ejecutar; de seguir fuera del mapa, registrar el recorrido local sin inventar un drive inexistente.
 
 ## W-F — Un error al guardar dice qué campo está mal (F8)
 
@@ -606,11 +630,11 @@ aquí: la causa es el filtro, y los 5 bucles tocan la pausa del impulso que ARRE
 **Prueba.** Dinero: la promovida de `test_fab_desarme.py::test_desarmar_pausa_campana_planeada_con_external`, en
 `tests/test_fabrica_campanas.py`. Producción: 1 lote, aplicado; ningún lote está a medias hoy.
 
-## W-K — Las semillas salen solo de ad groups del mismo producto (fábrica F2): fuera de ARREGLOS 04
+## W-K — Aviso de semillas aprobado; alternativa estricta descartada
 
 > Decisión del dueño (2026-11-13): la regla estricta de esta sección NO se hace. La siembra se queda como hoy y el bloque W-K del plan solo agrega un aviso en la revisión del plan, con este texto exacto: «Estas búsquedas vendieron en campañas donde esta publicación se anuncia junto con otros productos. Alguna puede ser de otro producto del mismo grupo, por ejemplo de otra medida. Revisa la lista antes de crear.» Lo que sigue queda como registro.
 
-Esta sección no forma parte del plan: espera decisión del dueño (`DESCARTADO-semillas-estrictas.md`). Se conserva como diseño listo.
+W-K implementa únicamente el aviso aprobado en `plans/arreglos-04.md`; las semillas se conservan como hoy. La decisión del 2026-11-13 ya descartó la regla estricta. El detalle técnico que sigue es registro histórico de esa alternativa (`DESCARTADO-semillas-estrictas.md`), no instrucciones ejecutables ni una decisión pendiente.
 
 **Hoy.** `_SQL_TERMINOS` (`tools/fabrica_campanas.py:127-165`) toma la campaña de cada product ad y de ahí todos sus
 ad groups. El NH- hereda las búsquedas que vendió el SET- del mismo ad group.
@@ -964,7 +988,91 @@ ciclo.MOTIVO_PAUSA_PRODUCTO_PENDIENTE: "La pausa de su producto está en camino:
 
 `app/etiquetas.py` ya importa `app.cycle` como `ciclo` (`:19`) y `politica` (`:24`); a esa línea se le agrega `proteccion`. El texto llega solo al navegador por `registro_navegador()` y `Orbit.etiqueta` (`app/static/js/formato.js`); no se toca JS.
 
-**Para que no vuelva a pasar.** `app/etiquetas.py` ya truena al importar cuando un vocabulario cerrado crece sin texto (el bucle de `:916-940`). Se agrega ahí el vocabulario de Salud con el dominio `motivo_salud`: las constantes `MOTIVO_*` de texto de `politica` que no están en `MOTIVO_DECISION`, las de `ciclo`, y `proteccion.MOTIVO_PROTEGIDA` y `proteccion.MOTIVO_INDETERMINADA`. Contra `976df4dc` ese vocabulario tiene exactamente cuatro motivos sin texto, los de la tabla. Las otras dos constantes de `proteccion` (`proteccion_consumida` y `sin_venta_reciente`) no se cuentan como motivo de Salud y quedan fuera. Es estructura y no una prueba nueva: el caso no está entre los cuatro de `AGENTS.md`, porque el defecto está desplegado pero todavía no salió en pantalla. Con un motivo nuevo sin texto, la aplicación no importa y ninguna prueba corre.
+**Para que no vuelva a pasar.** `app/etiquetas.py` ya truena al importar cuando un vocabulario cerrado crece sin texto (el bucle de `:916-940`). Se agrega ahí el vocabulario de Salud con el dominio `motivo_salud`: las constantes `MOTIVO_*` de texto de `politica` que no están en `MOTIVO_DECISION`, las de `ciclo`, y `proteccion.MOTIVO_PROTEGIDA` y `proteccion.MOTIVO_INDETERMINADA`. Contra `976df4dc` ese vocabulario tiene exactamente cuatro motivos sin texto, los de la tabla. Las otras dos constantes de `proteccion` (`proteccion_consumida` y `sin_venta_reciente`) no se cuentan como motivo de Salud y quedan fuera. La comprobación se elige por riesgo y evidencia faltante, no por categorías. Conservar los controles del vocabulario y comprobar el texto real de Salud; añadir o actualizar una prueba si cubre una falla relevante que esos controles no detectan. Con un motivo nuevo sin texto, el candado actual impide importar la aplicación: verificar ese comportamiento no sustituye comprobar la etiqueta visible.
+
+## W-P — La solicitud ejecutable es la de la previa visible (TN04)
+
+Depende de W-M y W-N; W-O sigue siendo Salud. Owner `app/static/js/productos.js`, con contrato backend de retiro/impulso intacto. El defecto reproducido es A visible -> seleccionar B -> falla previa B -> botón envía A aunque su detalle desapareció; ambos flujos deben cerrarse.
+
+### Estado y transiciones
+
+Un estado por flujo (retiro e impulso separados): `vacia`, `cargando(revision, solicitud)`, `lista(revision, solicitud, previa)`, `enviando(revision, solicitud, previa)` y `resultado`/`incierta`. Solicitud inmutable incluye plataforma, IDs y parámetros que afectan la previa. El plan, huella, aviso de presupuesto y confirmación pertenecen a esa revisión; no variables paralelas que sobrevivan al error visible.
+Cambiar selección o pedir nueva previa incrementa la revisión, invalida plan/huella/frase/casilla W-N y deshabilita envío. Capturar solicitud al iniciar fetch. Solo una respuesta cuya revisión y solicitud siguen vigentes puede pasar a lista; A tardía tras B se descarta, incluidos sus errores. AbortController puede ahorrar trabajo, pero la revisión es el contrato porque abortar no impide todas las respuestas tardías.
+El render y payload leen el mismo estado lista. Confirmar verifica revisión vigente y pasa sincrónicamente a enviando antes de esperar la red: congela selección y bloquea doble clic. Ver lanzamiento e Impulsar aparte convergen en el mismo flujo de impulso; no crear otra previa ejecutable para cada botón.
+Una respuesta exitosa termina únicamente el envío asociado. Rechazo inequívoco invalida confirmación y exige previa vigente antes de otra ejecución. Timeout/desconexión de una mutación pasa a incierta: consultar estado por el mecanismo existente del dueño cuando esté disponible; si no hay consulta inequívoca, mostrar resultado pendiente y mantener reenvío deshabilitado. No inventar endpoint ni reenviar automáticamente. Cambiar de pantalla no demuestra que el servidor no actuó.
+Conservar autenticación, huellas y confirmación W-N; la corrección UI no autoriza relajar esos contratos ni volver a aplicar el techo de presupuesto descartado. La API verifica el plan de los IDs recibidos, pero no conoce la selección actual del DOM: por eso no sustituye este estado local.
+
+### Comprobación y evidencia
+
+`CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ui.py -k "test_04"` exige cero solicitudes A después del error de B en retiro e impulso. La prueba de retiro usa previa real API/PG; impulso tiene previa sintética en la frontera. No afirmar escritura Amazon aceptada: POST interceptado.
+En `tests/test_ui_productos.py`, JS/eventos reales con transporte controlado para A/B fuera de orden, cambio durante carga, error tardío, doble clic y timeout durante envío. Aserciones sobre payload capturado, controles habilitados y detalle que ve el usuario; no pruebas del texto del JS. Revisar `tests/test_retiro_contrato.py` para conservar huella/confirmación.
+Actualizar `.cursor/skills/verify-orbit/features/productos.md`; helper launch -> doctor -> drive-productos -> cleanup en instancia propia. El baseline no prueba retiro: complementarlo con los casos Chromium y carreras descritos. Evidencia W-P/aceptacion.md con SHA y resultados. 05 solo verificará este owner.
+
+## B-C/TN02 — Un solo lector, contenedor estricto y paginación completa
+
+Este es el único contrato de F10: `DISENO-bloqueos.md` remite aquí y conserva la medición y los demás bloques, sin copia del pseudocódigo permisivo. No se descartan items inválidos silenciosamente ni se mantienen llamadores sin migrar. `plans/arreglos-04.md` B-C remite aquí.
+
+### Forma y uso
+
+Owner `app/apply_harvest.py`. Reutilizar `_valida_pagina_list` y `_valida_token_list`; consolidar los bucles actuales de `_lista_todos`, `_lista_completa` y `_lista_filtrada` en un solo `_lista_completa` con filtros opcionales y perfil sellado. No agregar cuarto lector. En lectura exitosa devuelve únicamente la lista completa; ante incertidumbre lanza `ListaIncompleta(AdsApiError)` con causa, nunca una lista parcial usable como ausencia.
+La validación existente exige objeto, contenedor presente y de tipo lista, y todos los items con identidad y enums válidos. Una sola fila ilegible invalida la lectura completa. JSON inválido/error HTTP siguen siendo lectura desconocida. Lista vacía solo significa ausencia si el contenedor es válido y la paginación terminó; vacía con nextToken vivo no termina.
+Filtros se conservan en cada página; un item fuera del adGroupIdFilter invalida la lectura. Consultar hermanas en un barrido batched, no uno por hermana. No usar `totalResults` filtrado como prueba de fin porque su semántica no está confirmada. Mantener el scope/profile de la instancia, no aceptar un perfil arbitrario desde cada caller.
+
+### Pseudocódigo que sustituye F10
+
+El cliente sellado y los validadores ya existen; el ejecutor adapta sus firmas reales en BASE. `ListaIncompleta` pertenece al mismo módulo; su mensaje/causa distingue truncado de ambiguo cuando un consumidor necesita mostrarlo. Es boceto documental del único bucle, no una implementación instalada.
+```python
+def _lista_completa(cliente, path: str, *, grupos: tuple[str, ...] | None = None) -> list[dict]:
+    contenedor = _CONTENEDORES_LIST[path]
+    if grupos is not None and not grupos:
+        return []  # Ningun grupo solicitado; no inferir ausencia fuera de ese alcance.
+    dentro = None if grupos is None else frozenset(grupos)
+    items: list[dict] = []
+    vistos: set[str] = set()
+    token = None
+    for _ in range(TOPE_PAGINAS_LIST):
+        body = {} if grupos is None else {"adGroupIdFilter": {"include": list(grupos)}}
+        if token is not None:
+            body["nextToken"] = token
+        try:
+            data = cliente.list_sellado(path, body).json()
+        except ValueError:
+            raise ListaIncompleta("ambiguo: JSON ilegible") from None
+        pagina, valida = _valida_pagina_list(data, contenedor)
+        if not valida:
+            raise ListaIncompleta("ambiguo: contenedor o item invalido")
+        if dentro is not None and any(str(x["adGroupId"]) not in dentro for x in pagina):
+            raise ListaIncompleta("ambiguo: respuesta fuera del filtro")
+        estado = _valida_token_list(data.get("nextToken"))
+        if estado == "ambiguo":
+            raise ListaIncompleta("ambiguo: token ilegible")
+        items.extend(pagina)
+        if estado == "fin":
+            return items
+        token = data["nextToken"]
+        if token in vistos:
+            raise ListaIncompleta("ambiguo: token repetido")
+        vistos.add(token)
+    raise ListaIncompleta("truncado: token vivo al agotar el tope")
+```
+Los filtros se normalizan/validan en la frontera antes de llamar; rutas solo de la allowlist de lectura y cuerpos con alcance explícito. No usar el retorno vacío de un conjunto de grupos vacío para autorizar mutaciones de grupos no consultados.
+
+### Callers, estados y compatibilidad
+
+Inventariar todos los callers al rebasar, no limitarse a los siete históricos: creación negative/keyword, readback, reconciliación, reversa automática/manual, hermanas, bloqueos (`_lista_o`) y herramientas que lean para actuar. Migrarlos en el mismo bloque al lector completo. Adaptadores pueden traducir resultado/error al vocabulario del dueño (`ambiguo`, `truncado`), pero no conservar otro bucle de paginación ni otra interpretación de contenedor ausente.
+Retirar `_lista_todos` permisivo y los bucles alternativos, actualizar imports y docstrings que dicen que no se tocan. El probe B-D usa el mismo lector a través de su adaptador sellado; B-B integra después de B-C. `_handler_harvest` puede paginar solo filtros para conservar el caso de hermanas, sin simular el helper de negocio.
+Ante lectura desconocida: cero POST de creación, cero DELETE/archivo, cero confirmación aplicada y cero failed derivado de ausencia supuesta; conservar job/cola/intento pendiente y causa observable. Un ciclo posterior puede repetir la lectura. El bloque no diseña retry de mutaciones ambiguas ni cambia aislamiento del ciclo (05/TEMP son dueños).
+Completitud solo permite razonar sobre presencia/ausencia en ese alcance. No acredita autoría ni transfiere el ID de un ACK: TN03/TN10 siguen en 05. Conservar todas las guardas existentes de identidad, modo y reversa; no ampliar permisos.
+
+### Medición, pruebas y cierre
+
+B-C.0 conserva la medición de páginas ya prevista con el cliente read-only y sin mutaciones, durante la ejecución futura autorizada del bloque; este documento no la ejecuta. Reutilizar una medición vigente suficiente y registrar su SHA/fecha. El tope es max(20, cuatro veces la lista más larga), redondeado a la decena. Sin fin comprobable registrar la diferencia; subir el tope no convierte una lectura malformada en completa.
+Aceptación principal: `CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_writes.py -k "test_02"` (missing y truncated), desde transporte a ledger/cola real. Añadir los vecinos faltantes en `tests/test_apply_harvest.py`: contenedor no-lista, item incompleto, token inválido/repetido, vacío con token vivo, filtro perdido y última página con token vivo al tope; incluir lista completa válida como control. Verificar creación/reconciliación/reversa y hermanas con los tests existentes. Fallo de import no demuestra el comportamiento requerido.
+Evidencia en B-C/aceptacion-tn.md: inventario y destino de cada caller, rojo/verde, efecto sobre cola/job y solicitudes capturadas. Tras cerrar, ningún consumidor puede tratar una lista parcial como ausencia ni seguir usando un bucle alternativo.
+
+## Definición de terminado de la ampliación
+
+Los seis casos TN de este plan pasan juntos sobre el mismo HEAD y los controles de desconocido/CSP siguen verdes. B-C deja un lector; W-P un estado por flujo; W-E cobertura explícita; W-D frase coherente. W-O sigue Salud. Actualizar fichas afectadas y comprobar flujos UI reales con errores, no solo baseline. Aplicar ACEPTACION para revisión global, pre-commit/gitleaks y Quality del SHA final antes de integrar. 05 consume los resultados, sin duplicar tareas ni cambiar modos.
 
 ## Lo medido en producción el 2026-11-12 con los ayudantes
 
