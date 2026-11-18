@@ -265,9 +265,9 @@
     "semantic_hash": ""
   },
   "app/cli.py": {
-    "mtime": 1794996213.3420272,
-    "seen": 1794996392.632064,
-    "ast_hash": "265f51c4ecd9f82fbac5024f2720edec",
+    "mtime": 1794997356.27725,
+    "seen": 1794997464.3220346,
+    "ast_hash": "a4d120dfc377f86fb8b9838b2ffc08f2",
     "semantic_hash": ""
   },
   "app/cli_bids.py": {
@@ -523,8 +523,8 @@
     "semantic_hash": ""
   },
   "app/ledger.py": {
-    "mtime": 1794996307.7802465,
-    "seen": 1794996392.632064,
+    "mtime": 1794997356.3944232,
+    "seen": 1794997464.3234036,
     "ast_hash": "62deb62ae00ada4146f52f80975444ba",
     "semantic_hash": ""
   },
@@ -811,10 +811,10 @@
     "semantic_hash": "47a003de3a51c0ab743f9317c5904d42"
   },
   "app/reputacion.py": {
-    "mtime": 1794996213.4370544,
-    "seen": 1794996392.632064,
-    "ast_hash": "3b9125d5b5a340e015bd50a247884599",
-    "semantic_hash": "3b9125d5b5a340e015bd50a247884599"
+    "mtime": 1794997356.278835,
+    "seen": 1794997464.338175,
+    "ast_hash": "57017fdfe34d77e48a428b94a9246da0",
+    "semantic_hash": ""
   },
   "app/reputacion_alertas.py": {
     "mtime": 1794996213.4370544,
@@ -823,16 +823,16 @@
     "semantic_hash": "10e5399870122897b0082409e84064f7"
   },
   "app/reputacion_clientes.py": {
-    "mtime": 1794996213.437575,
-    "seen": 1794996392.632064,
-    "ast_hash": "3e884707a6e12c67369bad47ae0367fa",
-    "semantic_hash": "3e884707a6e12c67369bad47ae0367fa"
+    "mtime": 1794997356.2798972,
+    "seen": 1794997464.338175,
+    "ast_hash": "995304f86b29d28993ae8e05b33ebab7",
+    "semantic_hash": ""
   },
   "app/reputacion_plan.py": {
-    "mtime": 1794996213.4380908,
-    "seen": 1794996392.632064,
-    "ast_hash": "e38473bdccb536dacb6245fb88f29c8e",
-    "semantic_hash": "e38473bdccb536dacb6245fb88f29c8e"
+    "mtime": 1794997356.2809045,
+    "seen": 1794997464.338175,
+    "ast_hash": "f47bc5e6ba33a7a835f739256589e5f1",
+    "semantic_hash": ""
   },
   "app/retiro_anuncios.py": {
     "mtime": 1794996213.4391088,
@@ -3164,14 +3164,14 @@
     "semantic_hash": ""
   },
   "tests/test_ledger_atribucion.py": {
-    "mtime": 1794996529.3272164,
-    "seen": 1794996778.975846,
+    "mtime": 1794997356.4195547,
+    "seen": 1794997464.475756,
     "ast_hash": "6dd4a159ecc31953f571bd9aede98da8",
     "semantic_hash": ""
   },
   "tests/test_ledger_sync.py": {
-    "mtime": 1794996307.7827587,
-    "seen": 1794996392.6330626,
+    "mtime": 1794997356.4226587,
+    "seen": 1794997464.475756,
     "ast_hash": "6f0e562b8e2ae7edf0e81c4094353aa1",
     "semantic_hash": ""
   },
@@ -3428,8 +3428,8 @@
     "semantic_hash": "458063134aab33442b747e2ec767b764"
   },
   "tests/test_precio02_meli_ledger.py": {
-    "mtime": 1794996537.7930954,
-    "seen": 1794996778.9844563,
+    "mtime": 1794997356.424139,
+    "seen": 1794997464.483424,
     "ast_hash": "d2a36418a131af68461402289f38a67a",
     "semantic_hash": ""
   },
@@ -3584,10 +3584,10 @@
     "semantic_hash": ""
   },
   "tests/test_reputacion.py": {
-    "mtime": 1794996216.3973246,
-    "seen": 1794996392.6330626,
-    "ast_hash": "368c21b9b24bad3d5086dfe7bf05c0c2",
-    "semantic_hash": "368c21b9b24bad3d5086dfe7bf05c0c2"
+    "mtime": 1794997356.3055942,
+    "seen": 1794997464.4884229,
+    "ast_hash": "16c047ba41b23510fb47df561a3835a3",
+    "semantic_hash": ""
   },
   "tests/test_reputacion_alertas.py": {
     "mtime": 1794996216.3978908,
@@ -6309,9 +6309,9 @@
     "semantic_hash": ""
   },
   "docs/DEPLOY.md": {
-    "mtime": 1794996213.524356,
-    "seen": 1794996392.6330626,
-    "ast_hash": "781a9ecf5bd70964e402974942ea5787",
+    "mtime": 1794997356.283564,
+    "seen": 1794997464.5100946,
+    "ast_hash": "e74a1afeea8f832634e5abdcd59b5a5e",
     "semantic_hash": ""
   },
   "docs/MARGEN-ENTIDAD.md": {
@@ -16167,9 +16167,9 @@
     "semantic_hash": ""
   },
   "docs/evidencia/arreglos-03/D-H/antes.txt": {
-    "mtime": 1794996598.8568213,
-    "seen": 1794996779.026235,
-    "ast_hash": "864cbaa030760010e1d02a3045f5751f",
+    "mtime": 1794997356.3956592,
+    "seen": 1794997464.5269358,
+    "ast_hash": "912b5b8dd8a371b2a0187891fd22e339",
     "semantic_hash": ""
   },
   "docs/evidencia/arreglos-03/D-J/acepta.txt": {
@@ -16950,6 +16950,30 @@
     "mtime": 1794996214.3490353,
     "seen": 1794996392.6360629,
     "ast_hash": "761b17d55f6e352b5493ea8cee142587",
+    "semantic_hash": ""
+  },
+  "docs/evidencia/arreglos-03/D-B/acepta.txt": {
+    "mtime": 1794997356.284647,
+    "seen": 1794997464.5269358,
+    "ast_hash": "86fab1ed5ffc94d808761bc61ccbe0cc",
+    "semantic_hash": ""
+  },
+  "docs/evidencia/arreglos-03/D-B/usos-antes.txt": {
+    "mtime": 1794997356.2856953,
+    "seen": 1794997464.5269358,
+    "ast_hash": "c30423ab1b148a1d098231414f124ebb",
+    "semantic_hash": ""
+  },
+  "docs/evidencia/arreglos-03/D-H/acepta.txt": {
+    "mtime": 1794997356.8227434,
+    "seen": 1794997464.5269358,
+    "ast_hash": "337e0a526ee87babd5b6fda116f70734",
+    "semantic_hash": ""
+  },
+  "docs/evidencia/arreglos-03/D-H/rojo.md": {
+    "mtime": 1794997356.823745,
+    "seen": 1794997464.5269358,
+    "ast_hash": "a6b12543105565fe06776b7a699f6bd8",
     "semantic_hash": ""
   }
 }
