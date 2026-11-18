@@ -168,36 +168,6 @@ def test_episodio_persiste_reintenta_y_recupera_solo_con_principal(monkeypatch):
         assert salud.bloque_salud(conn, "amazon_us")["incidentes"][0]["platform"] is None
         assert salud.bloque_salud(conn, "amazon_mx")["incidentes"][0]["platform"] is None
 
-        from app.ads import reports
-
-        def credenciales_rotas():
-            raise ValueError("credenciales ausentes")
-
-        monkeypatch.setenv(
-            "ORBIT_DSN_INGEST", psycopg.conninfo.make_conninfo(_test_dsn(), dbname=db)
-        )
-        monkeypatch.setattr(reports.AdsCredentials, "from_secrets_dir", credenciales_rotas)
-        anteriores = conn.execute(
-            "SELECT count(*) FROM ads_report_result WHERE status = 'global_failed'"
-        ).fetchone()[0]
-        assert reports.main([]) == 1
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM ads_report_result WHERE status = 'global_failed'"
-            ).fetchone()[0]
-            == anteriores + 1
-        )
-        incidentes_antes = conn.execute("SELECT count(*) FROM ads_ingest_incident").fetchone()[0]
-        assert reports.main(["--productos"]) == 1
-        assert (
-            conn.execute("SELECT source FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[0]
-            == "amazon_ads_products_v3"
-        )
-        assert (
-            conn.execute("SELECT count(*) FROM ads_ingest_incident").fetchone()[0]
-            == incidentes_antes
-        )
-
         run_mixta = conn.execute(
             "INSERT INTO ingest_run (source, finished_at, ok) "
             "VALUES (%s, now(), true) RETURNING id",

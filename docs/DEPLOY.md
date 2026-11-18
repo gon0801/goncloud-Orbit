@@ -345,7 +345,7 @@ incluido `ORBIT_PG_HOST` y los DSN):
 ```bash
 cd /mnt/data/appdata/orbit
 docker compose exec -T app python -m app.cli ingest structure
-docker compose exec -T app python -m app.cli ingest metrics \
+docker compose exec -T app python -m app.cli ingest diario \
   --fecha "$(date -u -d '31 days ago' +%F)" \
   --fecha-fin "$(date -u -d '1 day ago' +%F)"
 docker compose exec -T app python -m app.cli cycle --platform amazon_us

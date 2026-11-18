@@ -9,9 +9,9 @@
     solo su grupo.
 (b) INTEGRACION (Postgres real, patron de tests/test_reports_pipeline.py):
     los escenarios (1), (2), (3), (5), (6), (7) y (8) del brief entran por
-    `reports.sync_metrics`, que existe hoy: su rojo contra el codigo de hoy
-    es real. Cliente guion + reloj falso; las descargas son arrays vacios,
-    asi que no hace falta sembrar entidades.
+    `descarga` + `reports.escribir_grupo` con el grupo de metricas (el mismo
+    camino que `ingest diario`). Cliente guion + reloj falso; las descargas
+    son arrays vacios, asi que no hace falta sembrar entidades.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from app.ads.reports import (
     SEARCH_TERMS_CFG,
     SOURCE,
     TARGETS_CFG,
-    sync_metrics,
+    escribir_grupo,
 )
 from app.ads.salud import incidentes_de_run
 
@@ -530,7 +530,8 @@ def test_file_size_anormal_da_error_antes_de_descargar():
 
 
 # ---------------------------------------------------------------------------
-# (b) INTEGRACION - los escenarios del brief entran por reports.sync_metrics
+# (b) INTEGRACION - los escenarios del brief entran por descarga con el
+# grupo de metricas y reports.escribir_grupo (el camino del diario)
 # ---------------------------------------------------------------------------
 
 REPORTES_CFG = (CAMPANAS_CFG, KEYWORDS_CFG, TARGETS_CFG, SEARCH_TERMS_CFG)
@@ -568,15 +569,21 @@ def conn_pg():
 
 
 def _sync_con_teatro(conn, teatro, reloj, duerme):
+    """El camino del diario para el grupo de metricas: la descarga +
+    `escribir_grupo` con el mismo `GrupoDescarga` que armaba `sync_metrics`.
+    Devuelve el `ResultadoGrupo` del grupo."""
     fecha = teatro.fecha_ini
-    return sync_metrics(
+    grupo = GrupoDescarga(clave="metricas", source=SOURCE, cfgs=REPORTES_CFG)
+    resultados = descarga(
         conn,
         teatro._cliente(),
-        fecha_ini=fecha,
-        fecha_fin=fecha,
-        sleep=duerme,
+        [grupo],
+        (fecha, fecha),
         reloj=lambda: reloj["t"],
+        sleep=duerme,
+        al_completar=escribir_grupo,
     )
+    return resultados["metricas"]
 
 
 def _run_sellada(conn, run_id) -> tuple:
@@ -611,7 +618,9 @@ def test_un_reporte_de_55_min_se_repite_y_la_corrida_sale_ok(conn_pg):
     assert len(repetidos) == 1
     assert repetidos[0]["body"]["name"].endswith("-r1")
     assert "rep-campanas-101" in teatro.polls, "el original se sigue sondeando"
-    ganador = next(r for r in resultado.reportes if r.nombre == "campanas" and r.profile_id == 101)
+    ganador = next(
+        r for r in resultado.escritura.reportes if r.nombre == "campanas" and r.profile_id == 101
+    )
     assert ganador.report_id == "rep-campanas-101"
 
 
@@ -635,7 +644,9 @@ def test_failed_se_repite_y_sale_ok(conn_pg):
     assert ok is True and finished_at is not None
     repetidos = [c for c in teatro.creates if "-r1" in c["body"]["name"]]
     assert len(repetidos) == 1
-    ganador = next(r for r in resultado.reportes if r.nombre == "keywords" and r.profile_id == 202)
+    ganador = next(
+        r for r in resultado.escritura.reportes if r.nombre == "keywords" and r.profile_id == 202
+    )
     assert ganador.report_id == "rep-keywords-202-r1"
 
 
@@ -687,7 +698,9 @@ def test_cinco_429_seguidos_al_crear_se_repite_y_sale_ok(conn_pg):
     nombres = sorted({c["body"]["name"] for c in pedidos})
     assert len(nombres) == 3, "original + 2 repetidos (un POST de descarga por sufijo)"
     assert nombres[1].endswith("-r1") and nombres[2].endswith("-r2")
-    ganador = next(r for r in resultado.reportes if r.nombre == "campanas" and r.profile_id == 101)
+    ganador = next(
+        r for r in resultado.escritura.reportes if r.nombre == "campanas" and r.profile_id == 101
+    )
     assert ganador.report_id == "rep-campanas-101-r2"
 
 
@@ -704,7 +717,9 @@ def test_5xx_al_crear_se_repite_y_sale_ok(conn_pg):
     assert resultado.ok is True
     pedidos = [c for c in teatro.creates if "targets-202-" in c["body"]["name"]]
     assert len(pedidos) == 3
-    ganador = next(r for r in resultado.reportes if r.nombre == "targets" and r.profile_id == 202)
+    ganador = next(
+        r for r in resultado.escritura.reportes if r.nombre == "targets" and r.profile_id == 202
+    )
     assert ganador.report_id == "rep-targets-202-r2"
 
 
@@ -751,7 +766,9 @@ def test_caso_2026_10_19_us_keywords_a_27_min_con_5_de_8(conn_pg):
     repetidos = [c for c in teatro.creates if "-r1" in c["body"]["name"]]
     assert len(repetidos) == 1
     assert repetidos[0]["scope"] == "101"
-    ganador = next(r for r in resultado.reportes if r.nombre == "keywords" and r.profile_id == 101)
+    ganador = next(
+        r for r in resultado.escritura.reportes if r.nombre == "keywords" and r.profile_id == 101
+    )
     assert ganador.report_id == "rep-keywords-101-r1"
 
 
@@ -775,12 +792,14 @@ def test_425_con_cuerpo_sondea_el_id_de_la_respuesta(conn_pg):
     assert resultado.ok is True
     assert "rep-previo-9" in teatro.polls
     assert "rep-campanas-202" not in teatro.polls, "el 425 no creo un id nuevo"
-    ganador = next(r for r in resultado.reportes if r.nombre == "campanas" and r.profile_id == 202)
+    ganador = next(
+        r for r in resultado.escritura.reportes if r.nombre == "campanas" and r.profile_id == 202
+    )
     assert ganador.report_id == "rep-previo-9"
 
 
 @_skip_db
-def test_sync_metrics_sellado_ok_y_unidades(conn_pg):
+def test_corrida_metricas_sellada_ok_y_unidades(conn_pg):
     """La corrida feliz sella ok=true y deja pending+downloaded+written por
     reporte (sin rejected: los dos perfiles de la fixture son aceptados)."""
     reloj, duerme = _calendario_falso()
@@ -788,8 +807,8 @@ def test_sync_metrics_sellado_ok_y_unidades(conn_pg):
     resultado = _sync_con_teatro(conn_pg, teatro, reloj, duerme)
 
     assert resultado.ok is True
-    assert len(resultado.reportes) == 8
-    assert [r.report_id for r in resultado.reportes][:4] == [
+    assert len(resultado.escritura.reportes) == 8
+    assert [r.report_id for r in resultado.escritura.reportes][:4] == [
         "rep-campanas-101",
         "rep-keywords-101",
         "rep-targets-101",

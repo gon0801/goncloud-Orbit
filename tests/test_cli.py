@@ -275,22 +275,9 @@ def test_cli_ingest_structure_delega_al_pipeline(monkeypatch, capsys):
     assert llamadas == ["structure"]
 
 
-def test_cli_ingest_metrics_delega_al_pipeline_con_sus_args(monkeypatch, capsys):
-    llamadas: list = []
-
-    def _main_reportes(argv=None):
-        llamadas.append(argv)
-        return 7  # exit code del pipeline propagado tal cual
-
-    monkeypatch.setattr("app.ads.reports.main", _main_reportes)
-    codigo = cli.main(["ingest", "metrics", "--fecha", "2026-08-20"])
-    assert codigo == 7  # el envoltorio propaga el exit del pipeline
-    assert llamadas == [["--fecha", "2026-08-20"]]
-
-
 def test_cli_ingest_costs_delega_al_pipeline_con_sus_args(monkeypatch, capsys):
     """ORBIT 06 0.1: `ingest costs --sqlite RUTA` despacha a app.costs.main
-    con sus args tal cual (mismo patron que metrics: cero logica aqui)."""
+    con sus args tal cual (mismo patron que structure: cero logica aqui)."""
     llamadas: list = []
 
     def _main_costos(argv=None):
@@ -393,7 +380,7 @@ def test_cli_ingest_help_documenta_pipelines(capsys):
         cli.main(["ingest", "--help"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "structure" in out and "metrics" in out
+    assert "structure" in out and "diario" in out
     assert "meli-ads" in out
 
 
@@ -945,7 +932,7 @@ def test_cli_report_reporte_desconocido_rechazado(capsys):
 
 def test_cli_jev_senales_despacha_con_sus_args(monkeypatch):
     """JEV ADS 02 S.4: `jev-senales` despacha a `app.jev_senales.main` con
-    los args restantes y propaga su exit (patron metrics/cobertura)."""
+    los args restantes y propaga su exit (patron de ingest)."""
     from app import jev_senales
 
     visto: dict = {}

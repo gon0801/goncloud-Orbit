@@ -1,0 +1,25 @@
+# D-A.1 — usos del segundo camino de métricas ANTES de borrar
+# SHA leído: feab505127a6231ef34a01bbf67882d0964832a0 (origin/master, antes de los borrados de D-A.2)
+# Crontab de producción: bash docs/evidencia/arreglos-03/comprobar-cron.sh D-A (Git Bash, ssh goncloud), 2026-11-18T10:04:37Z, exit 0
+# Solo se guardan los conteos; el contenido de los crontab no entra a la evidencia.
+gon usos=0
+root usos=0
+
+# Usos en el repo: rg -n -e 'ingest metrics' -e sync_metrics -e sync_placements -e 'reports\.main' app tools scripts docs --glob '!docs/evidencia/**' --glob '!docs/superpowers/**'
+# Todos los usos son el propio camino que se borra (cli -> reports.main -> sync_metrics/sync_placements), sus comentarios y el ejemplo de DEPLOY.md; nada más en app, tools ni scripts lo llama.
+app/cli.py:193:        return reports.main(rest)
+docs/DEPLOY.md:348:docker compose exec -T app python -m app.cli ingest metrics \
+app/ads/placements.py:7:(misma disciplina que `sync_metrics`). `observed_at` lo fija Python por
+app/ads/placements.py:361:def sync_placements(
+app/ads/diario.py:252:    global_failed por grupo (misma disciplina que reports.main)."""
+app/ads/reports.py:68:                     2 h 30 min; sync_metrics solo arma su grupo)
+app/ads/reports.py:71:    sync_metrics(conn, client, ...)   (orquestador del grupo metricas/productos)
+app/ads/reports.py:78:- UNA ingest_run por llamada a sync_metrics (source amazon_ads_reports_v3
+app/ads/reports.py:367:# corrida real de 1.5. "tabla" es la clave que usa sync_metrics para
+app/ads/reports.py:383:# en corrida propia (sync_metrics(reportes=(PRODUCTOS_CFG,)) / --productos),
+app/ads/reports.py:554:    `skips` (motivo -> contador) se expone para que sync_metrics acumule sin
+app/ads/reports.py:1407:    `run_id` es la ingest_run que abre sync_metrics (UNA por corrida, no una
+app/ads/reports.py:1846:def sync_metrics(
+app/ads/reports.py:2051:                from app.ads.placements import sync_placements
+app/ads/reports.py:2053:                escritos = sync_placements(conn, client, desde=fecha_ini, hasta=fecha_fin)
+app/ads/reports.py:2056:            resultado = sync_metrics(

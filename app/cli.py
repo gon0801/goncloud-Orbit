@@ -4,7 +4,7 @@ Envoltorio DELGADO: cada subcomando invoca EXACTAMENTE el mismo camino que ya
 existe — `cycle` llama al orquestador de `app.cycle.py` (`corre_ciclo`, con su
 MISMO claim/job_key/envelope; el job_key del lock es COMPARTIDO entre cron y
 CLI via `app.cycle.job_key_de`, una sola fuente), `ingest` delega a los mains
-de los pipelines de `app/ads/` (structure/reports, con su ORBIT_DSN_INGEST y
+de los pipelines de `app/ads/` (structure/diario, con su ORBIT_DSN_INGEST y
 su contabilidad de ingest_run), de `app/costs.py` / `app/listings.py` /
 `app/fx.py` / `app/ledger.py` (ORBIT 06: costos, listings, FX y ledger
 desde snapshot SQLite), y
@@ -50,7 +50,7 @@ from app import (
     reputacion_alertas,
 )
 from app import cycle as ciclo
-from app.ads import archivar, reports, structure
+from app.ads import archivar, structure
 from app.ads import salud as ads_salud
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -180,15 +180,13 @@ def _ingest(args, rest: list[str]) -> int:
     """`ingest`: delega a los mains de los pipelines (el mismo camino, cero
     logica duplicada; cada pipeline exige su propio ORBIT_DSN_INGEST y sella
     su ingest_run). argparse ya valido `pipeline` contra las choices.
-    `metrics` acepta los args del pipeline (--fecha/--fecha-fin); `structure`
-    no define ninguna opcion: tokens extra ahi son un error del operador."""
+    `structure` no define ninguna opcion: tokens extra ahi son un error del
+    operador."""
     if args.pipeline == "structure":
         if rest:
             print(f"argumentos desconocidos para 'ingest structure': {rest}", file=sys.stderr)
             return 2
         return structure.main()
-    if args.pipeline == "metrics":
-        return reports.main(rest)
     if args.pipeline == "diario":
         # ingesta-01 A.2: metricas + productos + placements en UNA descarga
         # (tres ingest_run, reintentos del dia con --solo-faltantes).
@@ -552,7 +550,6 @@ def _construye_parser() -> argparse.ArgumentParser:
         "pipeline",
         choices=(
             "structure",
-            "metrics",
             "diario",
             "costs",
             "listings",
@@ -566,7 +563,7 @@ def _construye_parser() -> argparse.ArgumentParser:
             "spapi_inventario",
         ),
         help=(
-            "structure: sync de estructura; metrics: metricas + search terms;"
+            "structure: sync de estructura;"
             " diario: metricas + productos + placements en UNA descarga"
             " (reintentos del dia con --solo-faltantes);"
             " costs: productos+costos desde contabilidad (--sqlite);"
