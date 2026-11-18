@@ -1,0 +1,18 @@
+# Acepta D-B — SHA 6ab3db9 (base origin/master feab505), 2026-11-18T10:09:53Z
+# git merge-base --is-ancestor origin/master HEAD -> 0
+
+## D-B.1
+$ grep -Fxq 'gon usos=0' docs/evidencia/arreglos-03/D-B/usos-antes.txt && grep -Fq 'class ClienteJunglee' docs/evidencia/arreglos-03/D-B/usos-antes.txt
+exit=0
+
+## D-B.2
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion.py tests/test_reputacion_alertas.py tests/test_ui_reputacion.py tests/test_reputacion_migracion.py tests/test_cli.py -p no:warnings
+........................................................................ [ 91%]
+.............                                                            [100%]
+157 passed in 131.86s (0:02:11)
+exit=0
+(comando del plan + -rs: cero skipped; -p no:warnings solo acorta la salida. ORBIT_TEST_DSN = PG16 desechable 127.0.0.1:55433)
+
+## D-B.3
+$ test -z "$(git grep -n -i 'apify' -- docs/DEPLOY.md app)"
+exit=0
