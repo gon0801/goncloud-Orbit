@@ -97,3 +97,60 @@ Quién consume `items_seller` y cómo queda con el certificado nuevo:
   (`tests/test_arq_precio_m.py::test_cliente_meli_solo_expone_get` sigue en verde).
 - Suites vecinas corridas: `test_arq_precio_m.py`, `test_reputacion_alertas.py`,
   `test_ui_reputacion.py`, `test_reputacion_migracion.py`, `test_cli.py` → 137 passed.
+
+## Ronda 1 de revisión (PR #646): total heredado y scan fallido ≠ catálogo vacío
+
+Dos hallazgos de la revisión sobre la primera cabeza (`ac00f9a`), corregidos en
+`6e954751bd102c035af1342add3778bb95e3164b`:
+
+### R1 — Bajas indebidas al faltar el total (`app/reputacion_clientes.py`)
+
+Una página sin `paging` válido hacía que la completitud se certificara contra el
+`total_certificado` heredado de una respuesta anterior: con totales 2 → ausente → 3 el
+scan cortaba tras dos IDs declarándose completo y `sincronizar` daba de baja al tercero
+por ausencia (regresión introducida por la primera versión del bloque; el código previo
+al bloque consumía las tres páginas).
+
+Arreglo: la certificación exige el total válido **vigente en la página que cierra**
+(`total is not None` en la condición de `truncado=False`). Sin total vigente se avanza
+si el scroll vive; si el total cambia, queda parcial — decisión tomada por el diseño
+(`DISENO.md` §D-M: «total cambiante implica parcial»), que también es la salida que
+proponía la revisión («conservar la señal de cobertura desconocida o devolver los IDs
+observados con truncado=True»). Los IDs válidos de una página incoherente siguen
+contando como observados (sus observaciones se escriben; solo la cobertura queda
+desconocida), por eso `test_arreglos03_dm_total_inconsistente_no_certifica` promovió su
+expectativa a `(["MLM1", "MLM0"], True)`.
+
+Rojo en `ac00f9a` (cabeza previa del PR):
+
+- `tests/test_reputacion.py -k total_heredado` → `test_arreglos03_dm_total_heredado_de_pagina_anterior_no_certifica` FAIL: devolvía `(['MLM1','MLM2'], False)` (certificaba con el total heredado).
+- `tests/test_precio02_meli_catalogo.py -k "total_heredado or scan_fallido"` → `test_arreglos03_dm_total_heredado_no_autoriza_bajas` FAIL (reconciliaba al ausente `MLM3` con el total heredado) y `test_arreglos03_dm_scan_fallido_no_es_catalogo_vacio` FAIL (`main` devolvía 0).
+
+Verde en `6e95475`: ambas suites completas → 41 y 30 passed; `-k total_heredado` en verde.
+
+### R2 — Éxito falso ante una página malformada (`app/meli/catalogo.py`)
+
+Una primera página malformada (`{"results": "MLM1"}`) devolvía `([], True)` y
+`sincronizar` sellaba `ok=True` por `not ids`: el scan fallido se confundía con un
+catálogo vacío (el diseño distingue «catálogo vacío demostrado no es lo mismo que scan
+fallido»).
+
+Arreglo: `resultado.ok = (not ids and not truncado) or resultado.observadas > 0` — cero
+IDs solo es éxito con el vacío **certificado** (p. ej. `{"results": [], "total": 0}`),
+y se conserva el éxito parcial cuando hay observaciones confirmadas. El mensaje de
+salida del CLI pasa a «corrida sin observaciones confirmadas» y sale 1.
+
+Prueba `test_arreglos03_dm_scan_fallido_no_es_catalogo_vacio`: página malformada →
+`main` sale 1 y el sello queda `(False, 0, 1)`; vacío certificado → sale 0 con
+`(True, 0, 0)`. La mitad del vacío certificado ya pasaba antes (control); la
+malformada era roja en `ac00f9a`.
+
+### Re-validación tras la ronda (SHA `6e95475`)
+
+- Arnés TN: `test_06` → 1 passed (salida 0); `test_14` → 1 passed (salida 0);
+  `test_06 or test_14` → 2 passed (salida 0), sin skips.
+- Acepta D-M.3: `tests/test_precio02_meli_catalogo.py tests/test_reputacion.py` →
+  **71 passed**.
+- Vecinas: `test_arq_precio_m.py`, `test_reputacion_alertas.py`,
+  `test_ui_reputacion.py`, `test_reputacion_migracion.py`, `test_cli.py` → 137 passed.
+- ruff y pre-commit (gitleaks) limpios.

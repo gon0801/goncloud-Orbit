@@ -36,3 +36,36 @@ INICIO: 2026-11-18T20:19:33Z
 68 passed in 47.02s
 SALIDA: 0 (pytest y test -s de aceptacion.md)
 (rojo previo de las pruebas nuevas en 1d197a9: tests/test_reputacion.py 7 failed / 2 passed de controles; tests/test_precio02_meli_catalogo.py 2 failed / 2 passed de controles; detalle y linea de cada fallo en aceptacion.md)
+
+=== Ronda 1 de revision (cabeza nueva 6e954751bd102c035af1342add3778bb95e3164b)
+Correcciones: total heredado no certifica (certifica solo el total valido vigente
+en la pagina que cierra) y ids vacios solo sellan ok con catalogo vacio certificado.
+Rojo previo en ac00f9a documentado en aceptacion.md (seccion «Ronda 1 de revision»).
+
+=== D-M.1 (TN06, revalidada)
+SHA: 6e954751bd102c035af1342add3778bb95e3164b
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06"
+INICIO: 2026-11-18T20:35:53Z
+1 passed, 5 deselected in 4.84s
+SALIDA: 0
+
+=== D-M.2 (TN14, revalidada)
+SHA: 6e954751bd102c035af1342add3778bb95e3164b
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_14"
+INICIO: 2026-11-18T20:35:59Z
+1 passed, 5 deselected in 4.84s
+SALIDA: 0
+
+=== D-M.3 (conjunto TN, revalidado)
+SHA: 6e954751bd102c035af1342add3778bb95e3164b
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06 or test_14"
+INICIO: 2026-11-18T20:36:04Z
+2 passed, 4 deselected in 9.40s
+SALIDA: 0
+
+=== D-M.3 (suite local + evidencia, revalidada)
+SHA: 6e954751bd102c035af1342add3778bb95e3164b
+COMANDO: CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_precio02_meli_catalogo.py tests/test_reputacion.py && test -s docs/evidencia/arreglos-03/D-M/aceptacion.md
+INICIO: 2026-11-18T20:37:30Z
+71 passed in 76.60s
+SALIDA: 0
