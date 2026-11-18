@@ -1,0 +1,32 @@
+ARREGLOS 03 — Bloque D-N: los errores de JEV se redactan antes de persistirse
+==============================================================================
+
+Base: origin/master fa3c57dcb75c40ecb44e7fd9cdff769cd837479c (D-C y D-J integrados).
+Codigo y pruebas: dfef446 (hijo directo de la base; merge-base --is-ancestor origin/master HEAD -> 0).
+Entorno TN de ENCARGO-COMUN (127.0.0.1:55449, candado orbit-tn) + PYTHONUTF8=1 (Windows: el fixture lee
+migraciones con read_text() sin codificacion). Detalle, rojo, discriminacion y secretos: aceptacion.md.
+
+Rojo previo (fa3c57d)
+---------------------
+CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs \
+  docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_S1"
+-> exit 1, 1 failed: test_accept_ingest.py:40 AssertionError
+   [{'campo': 'model', 'clave_ficticia_persistida': True}, {'campo': 'choice', 'clave_ficticia_persistida': True}]
+
+Verde (arbol = dfef446)
+-----------------------
+D-N.1  CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs \
+         docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_S1"
+       -> exit 0, 1 passed, 5 deselected.
+
+D-N.2  CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs \
+         docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_S1 or test_09"
+       -> exit 1: test_S1 passed; test_09 failed, igual que en fa3c57d sin D-N:
+          test_accept_ingest.py:17 {'exit': 1, 'cierres': [('sin_api_key',)], 'avisos': 0, 'tx_ajena_conservada': 1, ...}
+          Causa ajena a D-N: D-J.4 (#631) hace salir 1 a jev-senales con sin_api_key y caso09 parchea
+          leer_api_key=''. En d57c76f (padre de D-J) el mismo comando da 1 passed. El fixture caso09 es de
+          D-E.7; avisado al orquestador. Pendiente de re-correr cuando entre ese ajuste.
+
+D-N.2 (frontera, tests/)  CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs \
+         tests/test_jev_juicios.py -k arreglos03_dn_
+       -> 4 passed, 0 skipped (en fa3c57d: 4 failed; solo juicios: 2 failed; solo libro: 2 failed).
