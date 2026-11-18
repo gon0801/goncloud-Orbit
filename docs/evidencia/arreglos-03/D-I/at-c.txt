@@ -1,0 +1,34 @@
+# ARREGLOS 03 D-I — recordatorio programado con `at` en goncloud
+# Job 11, jue 19-nov-2026 08:45 UTC: /mnt/data/appdata/orbit/recordatorios/ventas-usd.sh
+# (copia textual de `at -c 11`; el .sql de solo lectura y el .sh viven en esta
+# misma carpeta: ventas-usd.sql, ventas-usd.sh).
+#
+# NOTA del dia del despliegue: el chequeo del 2026-11-18 dio False, ESPERADO.
+# Las ventas de US del 16 y 17 de noviembre entraron con corridas del libro
+# anteriores al despliegue (sin el importe en dolares) y el plan no hace
+# backfill: la primera corrida con el codigo nuevo es la de manana 08:15 UTC,
+# y este recordatorio (08:45) la lee.
+#!/bin/sh
+# atrun uid=0 gid=0
+# mail root 0
+umask 22
+PWD=/root; export PWD
+LOGNAME=root; export LOGNAME
+XDG_SESSION_TYPE=tty; export XDG_SESSION_TYPE
+HOME=/root; export HOME
+LANG=en_US.UTF-8; export LANG
+SSH_CONNECTION=10.13.13.4\ 49224\ 10.13.13.1\ 22; export SSH_CONNECTION
+XDG_SESSION_CLASS=user; export XDG_SESSION_CLASS
+USER=root; export USER
+SHLVL=1; export SHLVL
+XDG_SESSION_ID=202905; export XDG_SESSION_ID
+XDG_RUNTIME_DIR=/run/user/0; export XDG_RUNTIME_DIR
+SSH_CLIENT=10.13.13.4\ 49224\ 22; export SSH_CLIENT
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin; export PATH
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus; export DBUS_SESSION_BUS_ADDRESS
+cd /root || {
+	 echo 'Execution directory inaccessible' >&2
+	 exit 1
+}
+/mnt/data/appdata/orbit/recordatorios/ventas-usd.sh
+
