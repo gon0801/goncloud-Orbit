@@ -165,7 +165,8 @@ una carpeta temporal.
 - `ingest_run` renombrada: «La lectura del día en curso de Mercado Libre Ads FALLÓ (psql salió
   con 3)» con el error de psql.
 
-El `at` no está programado: se programa en goncloud después del despliegue, cuando el lead lo
-indique, para las 08:45 UTC siguientes (la copia de MeLi Ads corre a las 08:15), copiando los dos archivos a
-`/mnt/data/appdata/orbit/recordatorios/`. El número de trabajo y la salida de `at -c <número>`
-van en `docs/evidencia/arreglos-03/D-F/at-c.txt`, que es lo que pide la `Acepta` de D-F.5.
+El `at` quedó programado el 18-nov (~21:07 UTC) tras confirmarse el despliegue de `14a688f`:
+trabajo 13, corre a las 08:45 UTC del 19-nov, con los dos archivos copiados a
+`/mnt/data/appdata/orbit/recordatorios/` (copia idéntica por md5). El número de trabajo y la
+salida de `at -c <número>` están en `docs/evidencia/arreglos-03/D-F/at-c.txt`, que es lo que pide
+la `Acepta` de D-F.5 (ya en 0). El Telegram de esa mañana cierra la fila.

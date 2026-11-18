@@ -2,6 +2,8 @@
 # Windows: Python 3.12 con uv, PG16 desechable 127.0.0.1:55433 (ORBIT_TEST_DSN).
 # Las pruebas de PG de tests/test_meli_ads_ingest.py corren contra ese PG: ninguna salio skipped.
 # D-F.5 queda a la espera del despliegue: el at se programa en goncloud cuando el lead lo indique y deja at-c.txt.
+# 2026-11-18 21:03Z: el lead confirmo el despliegue de 14a688f y el at ya esta programado (trabajo 13,
+# 08:45 UTC del 19-nov); la Accepta de D-F.5 ya sale 0. Detalle en at-c.txt.
 # El «1 warning» de D-F.3 es la deprecacion de httpx en starlette.testclient, ajena al bloque.
 # Ronda 2 = cierre del hallazgo de revision (mismo as_of y contenido distinto al cruzar la
 # medianoche): el corte del dia en curso se mide contra el as_of del snapshot (1b52b06) y la
@@ -40,11 +42,10 @@ COMANDO: test -s docs/evidencia/arreglos-03/D-F/prueba.py
 INICIO: 2026-11-18T15:24:36Z
 SALIDA: 0
 
-=== D-F.5 (pendiente del despliegue: at-c.txt sale al programar el at)
-SHA: 6bc78189cc5153322682168a83fc97cdf40e3893
+=== D-F.5 (despues del despliegue: at programado, trabajo 13)
+SHA: 5601a9e360ea737fbfcf2a6b5fcb69fb2f958693
 COMANDO: test -s docs/evidencia/arreglos-03/D-F/dia-en-curso.sql && grep -q dia-en-curso docs/evidencia/arreglos-03/D-F/at-c.txt
-INICIO: 2026-11-18T15:24:36Z
-grep: docs/evidencia/arreglos-03/D-F/at-c.txt: No such file or directory
-SALIDA: 2
-(dia-en-curso.sql existe; como prevé el plan, at-c.txt lo deja el at de goncloud
- despues del despliegue, cuando el lead lo indique: no detiene el bloque)
+INICIO: 2026-11-18T21:03:18Z
+SALIDA: 0
+(el lead confirmo el despliegue de 14a688f; el at quedo programado en goncloud para las
+ 08:45 UTC del 19-nov, trabajo 13, copia identica del .sh y salida de at -c en at-c.txt)
