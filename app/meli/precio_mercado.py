@@ -4,8 +4,7 @@ Espejo de `app.spapi.precio_mercado.MercadoAmazon` con fuentes MeLi:
 catalogo de `meli_publicacion_observation` (activa canonica G27), cuenta
 de `leer_cuenta` (la fila trae la del miembro que manda, M.3), historia
 con estados/stock/visitas de la publicacion, cotizacion por
-`CotizadorMeli`, vivo por GET y escritura por `MeliWriteClient` (forma
-sin sellar: solo `sonda=True`).
+`CotizadorMeli`, vivo por GET y escritura por `MeliWriteClient`.
 
 Todo lo que la plataforma aporta vive aqui: SQL MeLi, `partir_fees_meli`
 para los fees, `_disponibilidad_meli`, `_detalle_fee_meli` (los nodos
@@ -616,22 +615,14 @@ class MercadoMeli:
             vivas.add(str(vid))
         return vivas
 
-    def escribir(
-        self, unidad: puerto.UnidadPrecio, precio: Importe, *, sonda: bool = False
-    ) -> puerto.Acuse:
+    def escribir(self, unidad: puerto.UnidadPrecio, precio: Importe) -> puerto.Acuse:
         """PUT del precio via `MeliWriteClient`; devuelve el acuse saneado."""
         self._exigir_clientes()
         self.validar_destino(unidad)
-        # Al entrar: cualquier fallo posterior (sello, vivo u huerfanas) sella
+        # Al entrar: cualquier fallo posterior (vivo u huerfanas) sella
         # su fila con la ruta real del item, no con "escribir".
         self._ruta_error = f"/items/{unidad.externo}"
         assert self._escritor is not None
-        # Pre-chequeo (cero red sin sello: el DoD M.4 exige
-        # `EscrituraNoDisponible` sin tocar la red, y la verificacion
-        # live de abajo hace un GET). Por el writer inyectado, sin
-        # importar su modulo (candado `test_un_solo_importador_del_escritor`).
-        if not sonda:
-            self._escritor.exigir_sello()
         # CR-2 (CodeRabbit, fondo): el vivo manda. El PUT manda solo los
         # miembros y MeLi BORRA las omitidas; si el vivo trae extras
         # (edicion intradia tras el catalogo), cero PUT. El resolver ya
@@ -644,9 +635,7 @@ class MercadoMeli:
             raise ValueError(
                 f"variaciones vivas sin mapear ({unidad.externo}): {','.join(huerfanas)}; sin PUT"
             )
-        return self._escritor.poner_precio(
-            unidad.externo, variantes, precio.valor, precio.moneda, sonda=sonda
-        )
+        return self._escritor.poner_precio(unidad.externo, variantes, precio.valor, precio.moneda)
 
     def cerrar(self) -> None:
         """Cierra los clientes sin tumbar la corrida si uno falla."""

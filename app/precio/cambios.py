@@ -308,11 +308,14 @@ def aplicar(
     decision_id: int,
     *,
     ahora: datetime | None = None,
+    corrida_id: int | None = None,
 ) -> ResultadoCambio:
     """Lleva UNA decision `subir`/`bajar` de modo `live` a la plataforma.
 
-    Idempotente por compare-and-set contra el precio vivo: llamarla dos
-    veces escribe una (la segunda salta con `ya_aplicado`).     Cualquier otro
+    `corrida_id` por omision `None`: un cambio fuera de corrida es legitimo
+    (la corrida siempre estampa el suyo, P-A.2). Idempotente por
+    compare-and-set contra el precio vivo: llamarla dos veces escribe una
+    (la segunda salta con `ya_aplicado`).     Cualquier otro
     resultado o modo es `DecisionSinAccion` (la base tambien lo rechaza).
     Sin precio vivo no hay fila que insertar (`precio_antes` es NOT NULL).
     Orden S5: INSERT + COMMIT -> PATCH de escritura -> sello. Si el
@@ -416,8 +419,8 @@ def aplicar(
                 "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
                 " precio_antes_currency, precio_observado_antes,"
                 " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
-                " aplicado, estado, enviado_at)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s)"
+                " aplicado, estado, enviado_at, corrida_id)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s, %s)"
                 " RETURNING id",
                 (
                     decision_id,
@@ -430,6 +433,7 @@ def aplicar(
                     p_aplicado,
                     p_moneda,
                     momento,
+                    corrida_id,
                 ),
             ).fetchone()[0]
     except psycopg.errors.UniqueViolation:
@@ -698,6 +702,13 @@ _SQL_PLAN_POR_FECHA = (
     + " AND (c.enviado_at AT TIME ZONE 'UTC')::date = %s ORDER BY c.id"
 )
 
+# P-A.2: el lote de una corrida son SUS cambios (los que estampan su
+# `corrida_id`), no todo lo enviado ese dia en la plataforma. Las corridas
+# viejas (sin `corrida_id`) dan un plan vacio: para ellas esta `--fecha`.
+_SQL_PLAN_POR_CORRIDA = (
+    _SQL_FILA_PLAN + " WHERE c.corrida_id = %s AND NOT c.es_reversa AND c.aplicado ORDER BY c.id"
+)
+
 _SQL_CORRIDA_DE = "SELECT platform, fecha FROM precio_corrida WHERE id = %s"
 
 _SQL_UNIVERSOS_LOTE = """
@@ -762,9 +773,7 @@ def planear_reversa(conn: psycopg.Connection, vitrina, seleccion: Seleccion) -> 
         corrida = conn.execute(_SQL_CORRIDA_DE, (seleccion.corrida_id,)).fetchone()
         if corrida is None:
             raise ValueError(f"corrida {seleccion.corrida_id} inexistente")
-        # La corrida no estampa `corrida_id` en cambios ni decisiones: el
-        # lote de una corrida es lo enviado ese dia en su plataforma.
-        filas_db = conn.execute(_SQL_PLAN_POR_FECHA, (corrida[0], corrida[1])).fetchall()
+        filas_db = conn.execute(_SQL_PLAN_POR_CORRIDA, (seleccion.corrida_id,)).fetchall()
     else:
         raise ValueError(f"seleccion desconocida: {seleccion!r}")
     plats = sorted({f[2] for f in filas_db})
@@ -1018,17 +1027,21 @@ def insertar_virtual(
     platform: str,
     decision,
     ahora: datetime,
+    *,
+    corrida_id: int,
 ) -> int:
     """Sombra fiel (S4 #13): el cambio virtual nace `confirmado`/`virtual`
     con `precio_antes = p_actual` (sin GET de Pricing en sombra), consume
-    cooldown y freno sin ocupar el indice de abierto. Cero escrituras."""
+    cooldown y freno sin ocupar el indice de abierto. Cero escrituras.
+    `corrida_id` obligatorio (P-A.2): solo la corrida inserta virtuales.
+    P-C.4 quitara `ahora` cuando `enviado_at` nazca con `now()`."""
     assert decision.p_actual is not None and decision.p_aplicado is not None
     return conn.execute(
         "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
         " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
-        " estado, enviado_at, confirmado_por)"
+        " estado, enviado_at, confirmado_por, corrida_id)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, false,"
-        " 'confirmado', %s, 'virtual') RETURNING id",
+        " 'confirmado', %s, 'virtual', %s) RETURNING id",
         (
             decision_id,
             listing_id,
@@ -1038,5 +1051,6 @@ def insertar_virtual(
             decision.p_aplicado.valor,
             decision.p_aplicado.moneda,
             ahora,
+            corrida_id,
         ),
     ).fetchone()[0]

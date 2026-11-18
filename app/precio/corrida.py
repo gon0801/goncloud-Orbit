@@ -497,6 +497,7 @@ def persistir_decision(
     fee_observation_id: int | None,
     cotizacion_id: int | None,
     config_version_id: int | None,
+    corrida_id: int,
     goal_id: int | None = None,
     l_origen: str | None = None,
     envio_muestra_id: int | None = None,
@@ -506,7 +507,8 @@ def persistir_decision(
     """Una fila por (listing, platform, dia): la segunda del dia revienta
     por UNIQUE (la corrida salta esos goals antes). El trigger fija
     `decision_date` y `goal` desde la fila vigente del mismo mode (con
-    `goal_id`, valida ESE goal)."""
+    `goal_id`, valida ESE goal). `corrida_id` obligatorio: solo la corrida
+    escribe decisiones (P-A.2), un llamador olvidado falla."""
     comp = decision.componentes
     moneda = comp.p_actual.moneda if comp else moneda_contexto(conn, listing_id, platform)
     return conn.execute(
@@ -515,11 +517,11 @@ def persistir_decision(
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
         " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, escenario_id,"
         " fee_observation_id, cotizacion_id, u15, u60, n15, n60, racha_senal, perdiendo,"
-        " buy_box_is_own, mode, config_version_id, goal_id, l_origen, envio_muestra_id,"
-        " senal_evidencia, verificacion)"
+        " buy_box_is_own, mode, config_version_id, corrida_id, goal_id, l_origen,"
+        " envio_muestra_id, senal_evidencia, verificacion)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
         " %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        " %s, %s, %s)"
+        " %s, %s, %s, %s)"
         " RETURNING id",
         (
             listing_id,
@@ -558,6 +560,7 @@ def persistir_decision(
             decision.buy_box_is_own,
             decision.mode,
             config_version_id,
+            corrida_id,
             goal_id,
             l_origen,
             envio_muestra_id,
@@ -583,6 +586,7 @@ def _persistir_uno(
     platform: str,
     goal_id: int,
     cfg_id,
+    corrida_id: int,
     lineas: list,
     errores: list,
     senal_evidencia: str | None = None,
@@ -623,6 +627,7 @@ def _persistir_uno(
             fee_observation_id=meta["fee_observation_id"] if meta else None,
             cotizacion_id=meta["cotizacion_id"] if meta else None,
             config_version_id=cfg_id,
+            corrida_id=corrida_id,
             goal_id=goal_id,
             l_origen=meta["logistica_origen"] if meta else None,
             envio_muestra_id=meta["envio_muestra_id"] if meta else None,
@@ -664,6 +669,7 @@ def _decidir_lectura(
     mercado,
     goal_id: int,
     cfg_id,
+    corrida_id: int,
     lineas: list,
     errores: list,
     modo_global: str,
@@ -703,6 +709,7 @@ def _decidir_lectura(
         "platform": platform,
         "goal_id": goal_id,
         "cfg_id": cfg_id,
+        "corrida_id": corrida_id,
         "lineas": lineas,
         "errores": errores,
     }
@@ -775,6 +782,7 @@ def _decidir_pendientes(
     owner: str,
     freno_dias: int,
     cfg_id,
+    corrida_id: int,
     modo_global: str,
     modo_universo: dict,
 ) -> tuple[int, list[str], list[str], int, bool]:
@@ -838,6 +846,7 @@ def _decidir_pendientes(
                 platform=platform,
                 goal_id=gid,
                 cfg_id=cfg_id,
+                corrida_id=corrida_id,
                 lineas=lineas,
                 errores=errores,
             )
@@ -861,6 +870,7 @@ def _decidir_pendientes(
                 platform=platform,
                 goal_id=gid,
                 cfg_id=cfg_id,
+                corrida_id=corrida_id,
                 lineas=lineas,
                 errores=errores,
             )
@@ -884,6 +894,7 @@ def _decidir_pendientes(
                 platform=platform,
                 goal_id=gid,
                 cfg_id=cfg_id,
+                corrida_id=corrida_id,
                 lineas=lineas,
                 errores=errores,
             )
@@ -935,6 +946,7 @@ def _decidir_pendientes(
                 mercado=mercado,
                 goal_id=goal_de[unidad.listing_id],
                 cfg_id=cfg_id,
+                corrida_id=corrida_id,
                 lineas=lineas,
                 errores=errores,
                 modo_global=modo_global,
@@ -1327,6 +1339,7 @@ def _aplicar_pendientes(
                         p_aplicado=Importe(Decimal(p_aplicado), p_aplicado_mon),
                     ),
                     ahora,
+                    corrida_id=corrida_id,
                 )
             except psycopg.Error:
                 raise
@@ -1340,7 +1353,7 @@ def _aplicar_pendientes(
         if parche_sin_sellar:
             continue
         try:
-            res = cambios_mod.aplicar(conn, mercado, did, ahora=ahora)
+            res = cambios_mod.aplicar(conn, mercado, did, ahora=ahora, corrida_id=corrida_id)
         except psycopg.Error:
             raise
         except EscrituraNoDisponible as exc:
@@ -1470,6 +1483,7 @@ def correr(
                 owner=owner,
                 freno_dias=freno_dias,
                 cfg_id=cfg_id,
+                corrida_id=corrida_id,
                 modo_global=modo_global,
                 modo_universo=modo_universo,
             )

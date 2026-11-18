@@ -30,7 +30,6 @@ __all__ = [
     "Insumos",
     "SinInsumos",
     "Cotizacion",
-    "SinCotizador",
     "Acuse",
     "PrecioVivoAusente",
     "EscrituraNoDisponible",
@@ -177,17 +176,6 @@ class Cotizacion:
 
 
 @dataclass(frozen=True)
-class SinCotizador:
-    """Este universo no tiene cotizacion real de fees (lo dice su registro).
-
-    No es un error: la decision se cierra con la formula
-    (`verificacion = "lineal"`) y lo declara en la fila.
-    """
-
-    motivo: str
-
-
-@dataclass(frozen=True)
 class Acuse:
     """Respuesta de la plataforma a una escritura, ya saneada."""
 
@@ -256,22 +244,17 @@ class Mercado(Vitrina, Protocol):
 
     grupo_tasa: str
 
-    def cotizar(
-        self, conn: Conexion, insumos: Insumos, precio: Importe
-    ) -> Cotizacion | SinCotizador:
+    def cotizar(self, conn: Conexion, insumos: Insumos, precio: Importe) -> Cotizacion:
         """Fees reales a `precio`. Un error de la plataforma es un
-        `Cotizacion(error_code=...)`, no una excepcion. `SinCotizador` solo si
-        el universo de la unidad esta registrado sin cotizador."""
+        `Cotizacion(error_code=...)`, no una excepcion."""
         ...
 
     def precio_vivo(self, unidad: UnidadPrecio) -> Importe:
         """Precio propio leido ahora. Levanta `PrecioVivoAusente`."""
         ...
 
-    def escribir(self, unidad: UnidadPrecio, precio: Importe, *, sonda: bool = False) -> Acuse:
-        """Pide a la plataforma que el precio sea `precio`. No toca la base.
-        Levanta `EscrituraNoDisponible` si la forma de escritura no esta
-        sellada, salvo con `sonda=True` (solo `tools/precio_sonda.py`)."""
+    def escribir(self, unidad: UnidadPrecio, precio: Importe) -> Acuse:
+        """Pide a la plataforma que el precio sea `precio`. No toca la base."""
         ...
 
     def cerrar(self) -> None: ...

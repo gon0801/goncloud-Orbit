@@ -98,7 +98,7 @@ def test_put_401_es_acuse_pase_vencido_sin_refresh(tmp_path):
         creds=MeliCredentials.from_secrets_dir(_archivo_pase(tmp_path)),
         transport=httpx.MockTransport(handler),
     )
-    acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN", sonda=True)
+    acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN")
     assert acuse.aceptada is False
     assert "pase del bridge vencido" in (acuse.codigo or "")
     assert [r.method for r in llamadas] == ["PUT"]

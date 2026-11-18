@@ -13,9 +13,7 @@ bridge vencido`, sin refresh ni reintento.
 construir nada. Un solo metodo publico. La forma del cuerpo (con
 variaciones, el precio solo en cada una; sin ellas, en la raiz) quedo
 SELLADA por la sonda X.4 del 2026-10-17 (ida y vuelta aceptadas, vivo y
-control intactos). Si `FORMA_ESCRITURA_MELI` no es la sellada,
-`poner_precio` levanta `EscrituraNoDisponible` sin tocar la red, salvo
-`sonda=True` (solo `tools/precio_sonda.py`).
+control intactos).
 
 Reintentos (nunca un loop): 401 -> acuse no aceptada `pase del bridge
 vencido` (sin refresh ni reintento: Orbit nunca refresca); 429 -> un
@@ -35,11 +33,10 @@ from decimal import Decimal
 
 import httpx
 
-from app.precio.puerto import Acuse, EscrituraNoDisponible
+from app.precio.puerto import Acuse
 from app.reputacion_clientes import MELI_BASE, MeliCredentials, ReputacionError
 
 __all__ = [
-    "FORMA_ESCRITURA_MELI",
     "MutationNotAllowedError",
     "MeliWriteClient",
     "validar_put_item",
@@ -47,9 +44,6 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-FORMA_ESCRITURA_MELI = "items_price_put_v1"
-
-_FORMA_SELLADA = "items_price_put_v1"
 _MODO_LIVE = "live"
 _ITEM_ID = re.compile(r"^MLM\d+$")
 _MAX_PRECIO = Decimal(10) ** 10
@@ -138,20 +132,6 @@ class MeliWriteClient:
         self._sleep = sleep
         self._timeout = timeout
 
-    def exigir_sello(self) -> None:
-        """Levanta `EscrituraNoDisponible` si un PUT saldria sin sello.
-
-        Pre-chequeo para el adaptador (inyectado, sin importar este
-        modulo): cero red sin sello, antes de verificar el vivo. Sin
-        parametro `sonda` a proposito: quien llama ramifica, y el
-        candado `test_sonda_true_solo_en_precio_sonda` no ve reenvios.
-        """
-        if FORMA_ESCRITURA_MELI != _FORMA_SELLADA:
-            raise EscrituraNoDisponible(
-                f"forma de escritura MeLi sin sellar ({FORMA_ESCRITURA_MELI}): "
-                "solo sonda=True la prueba"
-            )
-
     def close(self) -> None:
         """Sin estado que cerrar (el HTTP se abre por llamada)."""
 
@@ -161,17 +141,12 @@ class MeliWriteClient:
         variantes: Sequence[str],
         precio: Decimal,
         moneda: str,
-        *,
-        sonda: bool = False,
     ) -> Acuse:
-        """PUT del precio (raiz + variaciones). Sin forma sellada levanta
-        `EscrituraNoDisponible` sin tocar la red, salvo `sonda=True`."""
+        """PUT del precio (raiz + variaciones)."""
         ruta = validar_put_item(f"/items/{item_id}", item_id)
         if moneda != "MXN":
             raise ValueError(f"moneda fuera del universo meli/meli: {moneda!r}")
         cuerpo = _cuerpo_put_precio(_texto_precio(precio), variantes)
-        if not sonda:
-            self.exigir_sello()
         reintentos = 0
         with httpx.Client(
             base_url=MELI_BASE, transport=self._transport, timeout=self._timeout

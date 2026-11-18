@@ -1,13 +1,10 @@
-"""REPRICING 02 M.4: MercadoMeli + MeliWriteClient (forma sin sellar).
+"""REPRICING 02 M.4: MercadoMeli + MeliWriteClient.
 
 DoD de la fila M.4: sin `modo_confirmado="live"` el cliente no se
-construye; con la forma sin sellar, `escribir` levanta
-`EscrituraNoDisponible` sin tocar la red; `ClienteMeli` solo GET (candado
-en `test_arq_precio_m.py`); candado del `.put(`. Mas la de la guia: con
-la forma sin sellar, solo `sonda=True` llega a la red (una llamada).
-El adaptador espeja `MercadoAmazon` con fuentes MeLi (catalogo G27,
-cuenta de `leer_cuenta`, historia con visitas, cotizacion por
-`CotizadorMeli`, vivo por GET).
+construye; `ClienteMeli` solo GET (candado en `test_arq_precio_m.py`);
+candado del `.put(`. El adaptador espeja `MercadoAmazon` con fuentes MeLi
+(catalogo G27, cuenta de `leer_cuenta`, historia con visitas, cotizacion
+por `CotizadorMeli`, vivo por GET).
 """
 
 from __future__ import annotations
@@ -27,7 +24,6 @@ import pytest
 from test_schema import _postgres_obligatorio_ausente
 
 from app.precio.puerto import (
-    EscrituraNoDisponible,
     Importe,
     Miembro,
     PrecioVivoAusente,
@@ -78,54 +74,6 @@ def test_escritor_exige_modo_live(tmp_path):
     cli.close()
 
 
-def test_forma_sellada_por_la_sonda_x4():
-    from app.meli.write_client import _FORMA_SELLADA, FORMA_ESCRITURA_MELI
-
-    assert FORMA_ESCRITURA_MELI == _FORMA_SELLADA == "items_price_put_v1"
-
-
-def test_poner_precio_sellado_escribe_sin_sonda(tmp_path):
-    from app.meli.write_client import MeliWriteClient
-
-    llamadas = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        llamadas.append(request)
-        return httpx.Response(200, json={"id": "MLM1"})
-
-    cli = MeliWriteClient(
-        modo_confirmado="live",
-        creds=_creds(),
-        transport=httpx.MockTransport(handler),
-    )
-    acuse = cli.poner_precio("MLM1", ["101"], Decimal("979.11"), "MXN")
-    assert acuse.aceptada is True
-    assert [r.method for r in llamadas] == ["PUT"]
-    cli.close()
-
-
-def test_poner_precio_sin_sellar_no_toca_red(tmp_path, monkeypatch):
-    import app.meli.write_client as wc
-    from app.meli.write_client import MeliWriteClient
-
-    monkeypatch.setattr(wc, "FORMA_ESCRITURA_MELI", "pendiente_sonda")
-    llamadas = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        llamadas.append(request)
-        return httpx.Response(200, json={})
-
-    cli = MeliWriteClient(
-        modo_confirmado="live",
-        creds=_creds(),
-        transport=httpx.MockTransport(handler),
-    )
-    with pytest.raises(EscrituraNoDisponible):
-        cli.poner_precio("MLM1", ["v-a"], Decimal("979.11"), "MXN")
-    assert llamadas == []
-    cli.close()
-
-
 def test_poner_precio_sonda_llega_a_red_una_vez(tmp_path):
     from app.meli.write_client import MeliWriteClient
 
@@ -140,7 +88,7 @@ def test_poner_precio_sonda_llega_a_red_una_vez(tmp_path):
         creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
-    acuse = cli.poner_precio("MLM1", ["v-a", "v-b"], Decimal("979.12"), "MXN", sonda=True)
+    acuse = cli.poner_precio("MLM1", ["v-a", "v-b"], Decimal("979.12"), "MXN")
     assert len(llamadas) == 1
     pet = llamadas[0]
     assert pet.method == "PUT"
@@ -175,7 +123,7 @@ def test_poner_precio_sin_variaciones_solo_raiz(tmp_path):
         creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
-    acuse = cli.poner_precio("MLM1", [], Decimal("100"), "MXN", sonda=True)
+    acuse = cli.poner_precio("MLM1", [], Decimal("100"), "MXN")
     assert acuse.aceptada is True
     cuerpo = httpx.Response(200, content=llamadas[0].content).json()
     assert cuerpo == {"price": 100}
@@ -207,19 +155,19 @@ def test_poner_precio_valida_sin_red(tmp_path):
         transport=httpx.MockTransport(handler),
     )
     with pytest.raises(ValueError, match="item_id"):
-        cli.poner_precio("", ["v-a"], Decimal("10"), "MXN", sonda=True)
+        cli.poner_precio("", ["v-a"], Decimal("10"), "MXN")
     with pytest.raises(ValueError, match="item_id"):
-        cli.poner_precio("MLM1/x", ["v-a"], Decimal("10"), "MXN", sonda=True)
+        cli.poner_precio("MLM1/x", ["v-a"], Decimal("10"), "MXN")
     with pytest.raises(ValueError, match="variante"):
-        cli.poner_precio("MLM1", [""], Decimal("10"), "MXN", sonda=True)
+        cli.poner_precio("MLM1", [""], Decimal("10"), "MXN")
     with pytest.raises(ValueError, match="variante"):
-        cli.poner_precio("MLM1", ["v-a", "v-a"], Decimal("10"), "MXN", sonda=True)
+        cli.poner_precio("MLM1", ["v-a", "v-a"], Decimal("10"), "MXN")
     with pytest.raises(ValueError, match="precio"):
-        cli.poner_precio("MLM1", [], Decimal("0"), "MXN", sonda=True)
+        cli.poner_precio("MLM1", [], Decimal("0"), "MXN")
     with pytest.raises(ValueError, match="precio"):
-        cli.poner_precio("MLM1", [], Decimal("10.001"), "MXN", sonda=True)
+        cli.poner_precio("MLM1", [], Decimal("10.001"), "MXN")
     with pytest.raises(ValueError, match="moneda"):
-        cli.poner_precio("MLM1", [], Decimal("10"), "USD", sonda=True)
+        cli.poner_precio("MLM1", [], Decimal("10"), "USD")
     assert llamadas == []
     cli.close()
 
@@ -240,7 +188,7 @@ def test_put_401_es_acuse_pase_vencido_sin_reintento():
         creds=_creds(),
         transport=httpx.MockTransport(handler),
     )
-    acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN", sonda=True)
+    acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN")
     assert acuse.aceptada is False
     assert "pase del bridge vencido" in (acuse.codigo or "")
     assert [r.method for r in llamadas] == ["PUT"]
@@ -265,7 +213,7 @@ def test_put_429_reintenta_una_vez_y_5xx_no(tmp_path):
         transport=httpx.MockTransport(handler),
         sleep=pausas.append,
     )
-    acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN", sonda=True)
+    acuse = cli.poner_precio("MLM1", [], Decimal("10"), "MXN")
     assert acuse.aceptada is True
     assert pausas == [2.0]
     assert len(llamadas) == 2
@@ -282,7 +230,7 @@ def test_put_429_reintenta_una_vez_y_5xx_no(tmp_path):
         creds=_creds(),
         transport=httpx.MockTransport(handler500),
     )
-    acuse500 = cli500.poner_precio("MLM1", [], Decimal("10"), "MXN", sonda=True)
+    acuse500 = cli500.poner_precio("MLM1", [], Decimal("10"), "MXN")
     assert acuse500.aceptada is False
     assert len(llamadas500) == 1
     cli500.close()
@@ -582,6 +530,12 @@ def test_decision_meli_guarda_el_miembro_que_manda():
         assert lectura.ids is not None and lectura.ids["product_id"] == pb
         gid = _goal(conn, lid, platform="meli")
         errores: list[str] = []
+        cfg_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        corrida_id = conn.execute(
+            "INSERT INTO precio_corrida (platform, fecha, owner, config_version_id,"
+            " modo_global) VALUES ('meli', %s, 'tdd', %s, 'shadow') RETURNING id",
+            (HOY, cfg_id),
+        ).fetchone()[0]
         persistida, saltada = corrida._persistir_uno(
             conn,
             corrida._no_evaluado(Decimal("0.30"), "shadow", "precio_sin_observar"),
@@ -593,6 +547,7 @@ def test_decision_meli_guarda_el_miembro_que_manda():
             platform="meli",
             goal_id=gid,
             cfg_id=None,
+            corrida_id=corrida_id,
             lineas=[],
             errores=errores,
         )
@@ -860,29 +815,6 @@ def test_precio_vivo_ok_y_ausente(tmp_path):
 
 
 @_skip_sin_pg
-def test_escribir_sin_sellar_levanta_sin_red(tmp_path, monkeypatch):
-    import app.meli.write_client as wc
-
-    monkeypatch.setattr(wc, "FORMA_ESCRITURA_MELI", "pendiente_sonda")
-    m3 = _m3()
-    llamadas = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        llamadas.append(request)
-        return httpx.Response(200, json={})
-
-    with _db() as conn:
-        pa = m3._producto(conn, "SKU-M4-A")
-        lid = m3._publicacion(conn, "MLM1", [("SKU-M4-A", pa)])
-        unidad = _unidad(lid, pa, [Miembro(pa, "SKU-M4-A", "v-SKU-M4-A")])
-        mercado = _mercado_con_red(handler, handler, tmp_path)
-        with pytest.raises(EscrituraNoDisponible):
-            mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"))
-        assert llamadas == []
-        mercado.cerrar()
-
-
-@_skip_sin_pg
 def test_escribir_bloquea_variaciones_vivas_sin_mapear(tmp_path):
     """CR-2 (fondo): el vivo manda; si trae extras, cero PUT.
 
@@ -907,7 +839,7 @@ def test_escribir_bloquea_variaciones_vivas_sin_mapear(tmp_path):
         unidad = _unidad(lid, pa, [Miembro(pa, "SKU-M4-A", "v-SKU-M4-A")])
         mercado = _mercado_con_red(handler, handler, tmp_path)
         with pytest.raises(ValueError, match="sin mapear"):
-            mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"), sonda=True)
+            mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"))
         assert [r.method for r in llamadas] == ["GET"]
         mercado.cerrar()
 
@@ -932,7 +864,7 @@ def test_escribir_acepta_vivo_igual_a_miembros(tmp_path):
         lid = m3._publicacion(conn, "MLM1", [("SKU-M4-A", pa)])
         unidad = _unidad(lid, pa, [Miembro(pa, "SKU-M4-A", "v-SKU-M4-A")])
         mercado = _mercado_con_red(handler, handler, tmp_path)
-        acuse = mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"), sonda=True)
+        acuse = mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"))
         assert acuse.aceptada is True
         assert [r.method for r in llamadas] == ["GET", "PUT"]
         mercado.cerrar()
@@ -955,7 +887,7 @@ def test_escribir_sonda_pasa_y_valida_destino(tmp_path):
         unidad = _unidad(lid, pa, [Miembro(pa, "SKU-M4-A", "v-SKU-M4-A")])
         mercado = _mercado_con_red(handler, handler, tmp_path)
         mercado.validar_destino(unidad)
-        acuse = mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"), sonda=True)
+        acuse = mercado.escribir(unidad, Importe(Decimal("979.12"), "MXN"))
         assert acuse.aceptada is True
         # CR-2: GET de verificacion + PUT (el vivo sin variaciones
         # pasa: nada que borrar).

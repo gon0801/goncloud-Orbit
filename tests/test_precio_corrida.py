@@ -5241,6 +5241,11 @@ def test_arreglos01_l_mayoria_sin_insumo_no_escribe_hasta_las_21():
             }
         )
         hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        corrida_id = conn.execute(
+            "INSERT INTO precio_corrida (platform, fecha, owner, config_version_id,"
+            " modo_global) VALUES ('amazon_mx', %s, 'tdd', %s, 'live') RETURNING id",
+            (hoy, cfg_id),
+        ).fetchone()[0]
 
         def corre(hora):
             return _decidir_pendientes(
@@ -5252,6 +5257,7 @@ def test_arreglos01_l_mayoria_sin_insumo_no_escribe_hasta_las_21():
                 owner="tdd",
                 freno_dias=3,
                 cfg_id=cfg_id,
+                corrida_id=corrida_id,
                 modo_global="live",
                 modo_universo={},
             )
@@ -5326,3 +5332,61 @@ def test_arreglos01_l_la_corrida_que_espera_no_manda_ni_sella_el_resumen(monkeyp
             "SELECT resumen_enviado_at FROM precio_corrida ORDER BY id"
         ).fetchall()
         assert [f[0] is None for f in filas2] == [True, False]
+
+
+# --------------------------------------------- ARREGLOS 03 P-A (corrida_id)
+
+
+@_skip_sin_pg
+def test_arreglos03_pa_reversa_por_corrida_solo_toma_su_corrida():
+    """P-A.1: la corrida estampa su `corrida_id` en decision y cambio, y
+    revertir por corrida no se lleva un cambio manual del mismo dia."""
+    from app.precio.cambios import (
+        SeleccionPorCorrida,
+        SeleccionPorFecha,
+        planear_reversa,
+    )
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        corrida_id = conn.execute("SELECT max(id) FROM precio_corrida").fetchone()[0]
+        assert corrida_id is not None
+        assert (
+            conn.execute(
+                "SELECT corrida_id FROM precio_decision WHERE listing_id = %s",
+                (datos["listing"],),
+            ).fetchone()[0]
+            == corrida_id
+        )
+        cambio_de_corrida = conn.execute(
+            "SELECT id, corrida_id FROM precio_cambio WHERE listing_id = %s",
+            (datos["listing"],),
+        ).fetchone()
+        assert cambio_de_corrida[1] == corrida_id
+
+        # Segundo cambio REAL del mismo dia y plataforma, escrito a mano
+        # fuera de corrida (`corrida_id` NULL): hoy existe (lo hace la
+        # herramienta con --fecha; con --corrida no debe salir).
+        otro = _cadena(conn, sku="SKU-PA-2", ext="B0A5000PA2", mode="live")
+        dec = _decision_subir(conn, otro["listing"])
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        manual = conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
+            " estado, enviado_at)"
+            " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN', true,"
+            " 'pendiente', %s) RETURNING id",
+            (dec, otro["listing"], datetime(hoy.year, hoy.month, hoy.day, 14, tzinfo=UTC)),
+        ).fetchone()[0]
+
+        vitrina = SimpleNamespace(clave="amazon_mx")
+        por_fecha = planear_reversa(conn, vitrina, SeleccionPorFecha("amazon_mx", hoy))
+        assert sorted(f.cambio_id for f in por_fecha.filas) == sorted(
+            [cambio_de_corrida[0], manual]
+        )
+        por_corrida = planear_reversa(conn, vitrina, SeleccionPorCorrida(corrida_id))
+        assert [f.cambio_id for f in por_corrida.filas] == [cambio_de_corrida[0]]
