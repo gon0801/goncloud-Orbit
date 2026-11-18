@@ -1032,6 +1032,7 @@ TIPOS_PRECIO = (
     "corte_errores",
     "reversa",
     "cohorte",
+    "corrida_fallida",
 )
 
 TIPOS_PRECIO_GRUPO = ("no_evaluado", "goal_inalcanzable", "frenado")
@@ -1062,6 +1063,7 @@ FRASEO_TIPO_PRECIO = {
     "corte_errores": "corte por errores",
     "reversa": "reversa",
     "cohorte": "cohorte",
+    "corrida_fallida": "corrida fallida",
 }
 
 
@@ -1362,6 +1364,32 @@ def aviso_precio_cohorte(aviso: CohortePrecio) -> str:
     )
 
 
+@dataclass(frozen=True)
+class CorridaFallidaPrecio:
+    """La corrida de una plataforma se cayo (ARREGLOS 03 P-B): no decidio ni
+    aplico precios. `motivo` es el NOMBRE de la clase del error; su texto
+    jamas viaja (no hay campo para el)."""
+
+    platform: str
+    dia: dt.date
+    motivo: str
+    tipo: str = "corrida_fallida"
+
+
+def aviso_precio_corrida_fallida(aviso: CorridaFallidaPrecio) -> str:
+    """Builder PURO del aviso de corrida caida."""
+    return "\n".join(
+        [
+            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
+            f"plataforma: {aviso.platform}",
+            f"dia: {aviso.dia.isoformat()}",
+            "la corrida se cayo y no decidio ni aplico precios;"
+            " el siguiente repaso lo vuelve a intentar",
+            f"motivo: {aviso.motivo}",
+        ]
+    )
+
+
 def validar_precio_aviso_dias(settings) -> int:
     """`precio_aviso_dias_sin_evaluar` entero 1-14; `ValueError` nombra la
     clave si falta o sale de cota (ninguna otra clave se lee aqui). El
@@ -1419,6 +1447,7 @@ _FAMILIA_POR_TIPO_PRECIO = {
     "corte_errores": (CorteErroresPrecio,),
     "reversa": (ReversaPrecio,),
     "cohorte": (CohortePrecio,),
+    "corrida_fallida": (CorridaFallidaPrecio,),
 }
 
 _BUILDER_POR_FAMILIA_PRECIO = {
@@ -1431,6 +1460,7 @@ _BUILDER_POR_FAMILIA_PRECIO = {
     CorteErroresPrecio: "aviso_precio_corte_errores",
     ReversaPrecio: "aviso_precio_reversa",
     CohortePrecio: "aviso_precio_cohorte",
+    CorridaFallidaPrecio: "aviso_precio_corrida_fallida",
 }
 
 
@@ -1438,8 +1468,9 @@ def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None
     """UNICO sender de avisos de precio (S7; S.6 suma los seis de U). `tipo`
     elige el builder y el `payload` debe ser de su familia (grupo / producto
     / huerfana / resumen / compuerta / cambio en error / corte / reversa /
-    cohorte; los tipos por producto tambien aceptan grupo para el resto
-    agrupado de B3); tipo o familia desconocidos -> warning + False. Canal
+    cohorte / corrida fallida; los tipos por producto tambien aceptan grupo
+    para el resto agrupado de B3); tipo o familia desconocidos -> warning +
+    False. Canal
     deshabilitado -> True (no es fallo); cualquier excepcion -> warning con
     scrub + False; jamas levanta.
     """
@@ -1917,6 +1948,25 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando los avisos de precio: %s", scrub(str(exc)))
         return 0
+
+
+def avisar_corrida_fallida(platform: str, exc: BaseException) -> bool:
+    """ARREGLOS 03 P-B: la corrida de precios de `platform` se cayo (o ni
+    siquiera pudo abrir la plataforma). Un aviso `corrida_fallida` con el
+    dia UTC de hoy y el NOMBRE de la clase del error como motivo (su texto
+    nunca viaja: puede traer datos de la conexion). Lo llama el CLI, el
+    unico que ve cualquier caida. Devuelve lo que devuelve `notifica_precio`;
+    jamas levanta (fallo -> warning con scrub + False)."""
+    try:
+        aviso = CorridaFallidaPrecio(
+            platform=str(platform),
+            dia=dt.datetime.now(dt.UTC).date(),
+            motivo=type(exc).__name__,
+        )
+        return notifica_precio(aviso.tipo, aviso)
+    except Exception as fallo:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo avisando corrida fallida de precio: %s", scrub(str(fallo)))
+        return False
 
 
 def avisar_campanas(conn, hoy=None, *, solo=None):

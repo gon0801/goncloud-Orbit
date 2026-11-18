@@ -39,17 +39,32 @@ def registra(sub) -> None:
     p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
 
 
+def _avisar_caida(plataformas, exc) -> None:
+    """ARREGLOS 03 P-B: la corrida de cada plataforma de `plataformas` no
+    corrio por `exc`: un aviso `corrida_fallida` por plataforma (con la
+    clase del error, nunca su texto). `avisar_corrida_fallida` jamas levanta.
+    `LockOcupado` no pasa por aqui: otra corrida esta trabajando."""
+    from app.notifica import avisar_corrida_fallida
+
+    for platform in plataformas:
+        avisar_corrida_fallida(platform, exc)
+
+
 def _abrir_plataforma(cli_mod, platform):
     """El mercado ABIERTO de `platform` (ya dentro del contextmanager).
 
     `None` = la plataforma no tiene mercado (meli hasta M): exit 2.
     `abrir` solo compone; el `ConfigInvalida` sale al entrar al `with`,
-    donde lo atrapa quien llama.
+    donde lo atrapa quien llama. Si no se pueden armar los clientes (p. ej.
+    falta la llave de la plataforma) avisa la caida de ESA plataforma (P-B:
+    aqui esta la clase del error) y devuelve 1, la rama `isinstance(int)`
+    de `main_precio`.
     """
     try:
         lector, escritor, fees, limitador = cli_mod._clientes_precio(platform)
     except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
         print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+        _avisar_caida((platform,), exc)
         return 1
     return mercados.abrir(
         platform,
@@ -143,14 +158,16 @@ def main_precio(args) -> int:
         return 2
     except Exception as exc:  # noqa: BLE001 - K6: como `_cycle`, scrubbado y != 0
         print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+        _avisar_caida(plataformas, exc)
         return 1
     rc = 0
     try:
-        for platform in plataformas:
+        for indice, platform in enumerate(plataformas):
             mercado_ctx = _abrir_plataforma(cli_mod, platform)
             if mercado_ctx is None:
                 return 2
             if isinstance(mercado_ctx, int):
+                # `_abrir_plataforma` ya aviso la caida de esta plataforma.
                 rc = mercado_ctx
                 continue
             try:
@@ -160,9 +177,13 @@ def main_precio(args) -> int:
                     resumen = _corre_plataforma(conn, mercado, avisar_precio)
             except (mercados.ConfigInvalida, corrida_precios.ConfigInvalida) as exc:
                 print(f"precio: {exc}", file=sys.stderr)
+                # Sale aqui: esta plataforma y las que faltaban se quedan sin
+                # corrida (las anteriores ya corrieron y no se avisan).
+                _avisar_caida(plataformas[indice:], exc)
                 return 2
             except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
                 print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+                _avisar_caida((platform,), exc)
                 rc = 1
                 continue
             if resumen is None:

@@ -96,6 +96,19 @@ __all__ = [
 
 _TTL_LOCK_SEGUNDOS = 3600
 
+# ARREGLOS 03 P-B: rechazos de la base por el DATO de una fila (CHECK,
+# llave, unico, numero fuera de rango): son de esa publicacion y la aislan
+# (la conexion va en autocommit: un INSERT rechazado no deja transaccion
+# rota). Cualquier otro `psycopg.Error` es de la infra y aborta la corrida.
+ERRORES_DE_FILA = (psycopg.IntegrityError, psycopg.DataError)
+
+
+def _rechazo_de_base(errores: list, lid, platform: str, exc: Exception) -> None:
+    """P-B: deja el error (con scrub) de la fila que la base rechazo."""
+    msg = scrub(f"listing={lid} {platform} rechazo_de_base: {exc.__class__.__name__}: {exc}")
+    logger.error("corrida %s", msg)
+    errores.append(msg)
+
 
 class LockOcupado(Exception):
     """El claim `precio:<platform>` lo tiene otro dueno: no se decide."""
@@ -596,9 +609,11 @@ def _persistir_uno(
     B.2: lo que no dejo fila no cuenta ni sale en lineas (la linea la agrega
     aqui mismo). `goal_reemplazado` (el dueno reedito el goal a media
     corrida): sin fila, error `goal_cambiado`, `saltada=True`. Cualquier otro
-    fallo que no es de base (p. ej. `moneda_contexto` sin moneda observable,
-    K8): sin fila, error. Un error de base (`psycopg.Error`) aborta: no es
-    una publicacion, es la infra.
+    rechazo de la base por el dato de la fila (`ERRORES_DE_FILA`, P-B): sin
+    fila, error `rechazo_de_base` y las demas siguen. Cualquier otro fallo
+    que no es de base (p. ej. `moneda_contexto` sin moneda observable, K8):
+    sin fila, error. Los demas errores de base (`psycopg.Error`) abortan: no
+    son una publicacion, son la infra.
     """
     verificacion = (
         (decision.verificacion or "cotizada") if decision.resultado in ("subir", "bajar") else None
@@ -634,16 +649,17 @@ def _persistir_uno(
             senal_evidencia=senal_evidencia,
             verificacion=verificacion,
         )
-    except psycopg.errors.CheckViolation as exc:
-        # El goal se reedito a media corrida (`goal_reemplazado` de la
-        # 0054): la publicacion no deja fila (sin motivo en vocabulario
-        # para reedicion) y el error scrubbado va al resumen (B2).
-        if "goal_reemplazado" not in str(exc):
-            raise
-        msg = scrub(f"listing={lid} {platform} goal_cambiado: {exc}")
-        logger.error("corrida %s", msg)
-        errores.append(msg)
-        return 0, 1
+    except ERRORES_DE_FILA as exc:
+        if isinstance(exc, psycopg.errors.CheckViolation) and "goal_reemplazado" in str(exc):
+            # El goal se reedito a media corrida (`goal_reemplazado` de la
+            # 0054): la publicacion no deja fila (sin motivo en vocabulario
+            # para reedicion) y el error scrubbado va al resumen (B2).
+            msg = scrub(f"listing={lid} {platform} goal_cambiado: {exc}")
+            logger.error("corrida %s", msg)
+            errores.append(msg)
+            return 0, 1
+        _rechazo_de_base(errores, lid, platform, exc)
+        return 0, 0
     except psycopg.Error:
         raise
     except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
@@ -680,10 +696,11 @@ def _decidir_lectura(
     S.2: la fila guarda el modo EFECTIVO (`min` de global, universo y goal);
     con efectivo `off` no hay fila (se vuelve antes de cotizar). Sin canal
     conocido el universo no restringe (neutro `live`). Devuelve `(persistida,
-    saltada)` (0/1). `psycopg.Error` sale (es infra); un `ValueError` del
-    mercado (cotizacion guardada que no coincide, oferta ausente) sale
-    `no_evaluado(escenario_incoherente)`; cualquier otra excepcion aisla la
-    publicacion (B1).
+    saltada)` (0/1). `psycopg.Error` sale (es infra), salvo el rechazo del
+    dato de esta fila (`ERRORES_DE_FILA`, P-B), que se aisla como cualquier
+    otra excepcion; un `ValueError` del mercado (cotizacion guardada que no
+    coincide, oferta ausente) sale `no_evaluado(escenario_incoherente)`;
+    cualquier otra excepcion aisla la publicacion (B1).
     """
     if lectura.entrada is None:
         modo_fila = modo_efectivo(modo_global, "live", mode)
@@ -729,6 +746,7 @@ def _decidir_lectura(
             decision = _no_evaluado(Decimal(goal_pct), modo_fila, motivo, diagnostico)
         return _persistir_uno(conn, decision, canal=None, meta=None, **comun)
     entrada = replace(lectura.entrada, mode=modo_fila)
+    aislado: Exception | None = None
     try:
         decision, cotiz_id = cotizar_y_decidir(
             conn,
@@ -748,10 +766,14 @@ def _decidir_lectura(
             meta=None,
             **comun,
         )
+    except ERRORES_DE_FILA as exc:  # P-B: rechazo del dato de esta fila, rama aislada
+        aislado = exc
     except psycopg.Error:
         raise
     except Exception as exc:  # noqa: BLE001 - decidir aislado por publicacion (B1)
-        msg = scrub(f"listing={lid} {platform} fase1: {exc.__class__.__name__}: {exc}")
+        aislado = exc
+    if aislado is not None:
+        msg = scrub(f"listing={lid} {platform} fase1: {aislado.__class__.__name__}: {aislado}")
         logger.error("corrida %s", msg)
         errores.append(msg)
         return _persistir_uno(
@@ -1256,7 +1278,9 @@ def _aplicar_pendientes(
     retiene (queda sin cambio); una publicacion no tumba a las demas
     (B.4); `EscrituraNoDisponible` deja de aplicar `live` el resto de
     la corrida (fallaria igual en cada una y lo pendiente se reintenta en
-    la siguiente); un error de base aborta.
+    la siguiente); el rechazo del dato de una fila (`ERRORES_DE_FILA`, P-B)
+    es de esa publicacion (en `live` cuenta para el corte); cualquier otro
+    error de base aborta.
     """
     platform = mercado.clave
     pendientes = conn.execute(
@@ -1280,9 +1304,7 @@ def _aplicar_pendientes(
         else set()
     )
     cortacircuito = Cortacircuito(seguidos=0, limite=corte)
-    escritas = 0
-    virtuales = 0
-    retenidas = 0
+    escritas = virtuales = retenidas = 0
     errores: list[str] = []
     parche_sin_sellar = False
     for (
@@ -1341,6 +1363,9 @@ def _aplicar_pendientes(
                     ahora,
                     corrida_id=corrida_id,
                 )
+            except ERRORES_DE_FILA as exc:  # P-B: la base rechazo el dato de esta fila
+                _rechazo_de_base(errores, lid, platform, exc)
+                continue
             except psycopg.Error:
                 raise
             except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
@@ -1354,6 +1379,10 @@ def _aplicar_pendientes(
             continue
         try:
             res = cambios_mod.aplicar(conn, mercado, did, ahora=ahora, corrida_id=corrida_id)
+        except ERRORES_DE_FILA as exc:  # P-B: la base rechazo el dato de esta fila
+            _rechazo_de_base(errores, lid, platform, exc)
+            cortacircuito = cortacircuito.tras("error")
+            continue
         except psycopg.Error:
             raise
         except EscrituraNoDisponible as exc:
