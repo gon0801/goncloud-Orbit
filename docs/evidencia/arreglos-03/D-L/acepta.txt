@@ -67,7 +67,8 @@ exit=1
 ## Comprobación aparte de D-L.4 (sin guardar como prueba; guion temporal fuera del repo)
 1) /questions/search sin la clave -> ReputacionError: MeLi /questions/search respondió sin la lista de preguntas
 2) primera página con lista vacía -> ([], False): una lista vacía sigue siendo lista vacía
-3) primera página con 50, segunda sin la clave -> conserva las 50 (solo la primera página decide «sin lista»)
+3) primera página con 50, segunda sin la clave: antes se aceptaban las 50. En 34c300e,
+   _pagina devuelve las 50 con truncado=True y fetch_questions aborta antes de escribir.
 4) primera página con "data": null -> (None, False)
 
 ## Notas
