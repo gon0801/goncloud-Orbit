@@ -1,0 +1,58 @@
+# Acepta del bloque BASE — ARREGLOS 03
+
+SHA base (origin/master): 0d6f92c. SHA del código: 4e221c6 (más este commit de evidencia).
+Fecha: 2026-11-17. PC de trabajo: Windows (Git Bash + uv).
+
+## BASE.0 — Precondicion y rebase
+
+Comando (script con el Acepta textual de la fila):
+
+```
+for archivo in plans/arreglos-03.md docs/evidencia/arreglos-03/comprobar-cron.sh \
+  docs/evidencia/arreglos-03/DISENO.md docs/evidencia/arreglos-03/DISENO-datos.md \
+  docs/evidencia/arreglos-03/DISENO-precios.md plans/ORDEN-IMPLEMENTACION.md \
+  docs/evidencia/arreglos-05/ACEPTACION.md \
+  docs/evidencia/arreglos-05/revision/test_accept_ingest.py \
+  docs/evidencia/arreglos-05/revision/test_accept_pricing.py; do
+  git cat-file -e "origin/master:$archivo" || exit 1
+done
+git merge-base --is-ancestor origin/master HEAD || exit 1
+test -s docs/evidencia/arreglos-03/BASE/rebase.md || exit 1
+```
+
+Salida: `ACEPTA-BASE.0: ok`, exit 0. Detalles en `rebase.md`.
+
+## BASE.1 — Las migraciones del plan entran al despliegue
+
+Comando:
+
+```
+CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs \
+  tests/test_despliegue_motor.py -k arreglos03_base_
+```
+
+Salida (SHA 4e221c6):
+
+```
+.
+1 passed, 47 deselected in 1.48s
+```
+
+Sin skips: la unica prueba seleccionada corrio. Rojo previo (SHA 0d6f92c, solo la prueba
+agregada) y demostracion de discriminacion (borrar la etiqueta ajena `arreglos01` del grep
+la pone en rojo): en `roja.md`, con salidas completas; la salida de la etiqueta ajena
+tambien en `ajena.txt`.
+
+Entorno de la corrida en esta PC (detalles en `rebase.md`, punto 3): ORBIT_TEST_DSN en
+127.0.0.1:55433; PATH con `Git\usr\bin` (md5sum real) y stubs que salen 0 para
+psql/pg_dump/flock, que la guarda del modulo exige con CI=1 y esta PC no trae; la prueba
+del bloque solo ejecuta bash y git reales.
+
+## Pruebas existentes del modulo tocado
+
+`tests/test_despliegue_motor.py` completo no corre en esta PC: sus pruebas de integracion
+usan psql/pg_dump/flock reales contra el PG desechable y aqui no existen en el PATH
+(causa ajena al bloque; con CI=1 la coleccion lanza RuntimeError por la misma guarda).
+El Acepta oficial del plan (con `-k arreglos03_base_`) si corrio en verde, y la prueba
+hermana `test_arreglos02_a_...` del mismo archivo corre en el CI de GitHub con cada push.
+Ruff (check y format) sobre `tests/test_despliegue_motor.py`: limpio.
