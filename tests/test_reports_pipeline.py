@@ -55,6 +55,7 @@ from app.ads.reports import (
     solicitar_reporte,
 )
 from app.ads.structure import PerfilAds
+from app.dia_cerrado import ultimo_dia_cerrado
 
 SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
 SQL77 = (
@@ -399,13 +400,13 @@ def test_plan_filas_fecha_futura_se_salta_con_motivo():
     plan, skips = _planea_filas(
         CAMPANAS_CFG,
         filas,
-        hoy=hoy,
+        ultimo_cerrado=hoy,
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
 
     assert [fila.metric_date for fila in plan] == [dt.date(2026, 8, 20)]
-    assert skips == Counter({"fila con metric_date futura": 1})
+    assert skips == Counter({"fila de un día que aún no cierra": 1})
 
 
 def test_plan_filas_fecha_fuera_del_rango_se_salta():
@@ -420,7 +421,7 @@ def test_plan_filas_fecha_fuera_del_rango_se_salta():
     plan, skips = _planea_filas(
         CAMPANAS_CFG,
         filas,
-        hoy=dt.date(2026, 8, 21),
+        ultimo_cerrado=dt.date(2026, 8, 21),
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -444,7 +445,7 @@ def test_plan_filas_same_sku_mayor_que_ad_revenue_se_salta():
     plan, skips = _planea_filas(
         KEYWORDS_CFG,
         filas,
-        hoy=dt.date(2026, 8, 21),
+        ultimo_cerrado=dt.date(2026, 8, 21),
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -465,7 +466,7 @@ def test_plan_filas_sin_ninguna_metrica_se_salta():
     plan, skips = _planea_filas(
         CAMPANAS_CFG,
         filas,
-        hoy=dt.date(2026, 8, 21),
+        ultimo_cerrado=dt.date(2026, 8, 21),
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -501,7 +502,7 @@ def test_plan_filas_metricas_ausentes_none_y_tipos_exactos():
     plan, skips = _planea_filas(
         CAMPANAS_CFG,
         filas,
-        hoy=hoy,
+        ultimo_cerrado=hoy,
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -602,7 +603,7 @@ def test_plan_terminos_clasifica_y_gates():
     plan, skips = _planea_filas_terminos(
         SEARCH_TERMS_CFG,
         filas,
-        hoy=hoy,
+        ultimo_cerrado=hoy,
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -627,7 +628,7 @@ def test_plan_terminos_clasifica_y_gates():
         {
             "fila de search_terms sin adGroupId": 1,
             "fila de search_terms sin searchTerm": 2,
-            "fila con metric_date futura": 1,
+            "fila de un día que aún no cierra": 1,
             "fila con metric_date fuera del rango solicitado": 1,
             "fila de search_terms con metrica no numerica o fraccionaria": 1,
             "fila sin ninguna metrica": 1,
@@ -690,7 +691,7 @@ def test_plan_terminos_fusiona_claves_duplicadas():
     plan, skips = _planea_filas_terminos(
         SEARCH_TERMS_CFG,
         filas,
-        hoy=dt.date(2026, 8, 21),
+        ultimo_cerrado=dt.date(2026, 8, 21),
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -742,7 +743,7 @@ def test_plan_terminos_par_envenenado_no_llega_al_insert():
     plan, skips = _planea_filas_terminos(
         SEARCH_TERMS_CFG,
         filas,
-        hoy=dt.date(2026, 8, 21),
+        ultimo_cerrado=dt.date(2026, 8, 21),
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -800,7 +801,7 @@ def test_plan_terminos_metrica_negativa_aborta_fail_closed():
         _planea_filas_terminos(
             SEARCH_TERMS_CFG,
             filas,
-            hoy=dt.date(2026, 8, 21),
+            ultimo_cerrado=dt.date(2026, 8, 21),
             fecha_ini=dt.date(2026, 8, 20),
             fecha_fin=dt.date(2026, 8, 20),
         )
@@ -861,7 +862,7 @@ def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
     plan, skips = _planea_filas_terminos(
         SEARCH_TERMS_CFG,
         filas,
-        hoy=dt.date(2026, 8, 21),
+        ultimo_cerrado=dt.date(2026, 8, 21),
         fecha_ini=dt.date(2026, 8, 20),
         fecha_fin=dt.date(2026, 8, 20),
     )
@@ -1016,7 +1017,10 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         camp_mx = entidad("amazon_mx", "campaign", "7001")
 
         ahora = dt.datetime.now(dt.UTC)
-        ayer = ahora.date() - dt.timedelta(days=1)
+        # El ultimo dia que ya cerro en MX y en US (ARREGLOS 03 D-E): con
+        # "hoy UTC - 1" la prueba fallaria de madrugada UTC, cuando el
+        # escritor aun no deja guardar ese dia.
+        ayer = min(ultimo_dia_cerrado(p, ahora) for p in ("amazon_mx", "amazon_us"))
         manana = ahora.date() + dt.timedelta(days=1)
         medianoche_ayer = dt.datetime(ayer.year, ayer.month, ayer.day, tzinfo=dt.UTC)
 
@@ -1254,7 +1258,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # de vocabulario CERRADO: el detalle por fila va al log, no al contador)
         assert "1x entidad ausente en ad_entity (campaign)" in run1[4]
         assert "1x fila con revenue_same_sku > ad_revenue" in run1[4]
-        assert "1x fila con metric_date futura" in run1[4]
+        assert "1x fila de un día que aún no cierra" in run1[4]
 
         # filas coherentes en ads_metric_observation
         _SQL_METRICAS = (
@@ -1696,7 +1700,10 @@ def test_pipeline_search_terms_en_vivo():
         ).fetchone()[0]
 
         ahora = dt.datetime.now(dt.UTC)
-        ayer = ahora.date() - dt.timedelta(days=1)
+        # El ultimo dia que ya cerro en MX y en US (ARREGLOS 03 D-E): con
+        # "hoy UTC - 1" la prueba fallaria de madrugada UTC, cuando el
+        # escritor aun no deja guardar ese dia.
+        ayer = min(ultimo_dia_cerrado(p, ahora) for p in ("amazon_mx", "amazon_us"))
         medianoche_ayer = dt.datetime(ayer.year, ayer.month, ayer.day, tzinfo=dt.UTC)
 
         # fixture MIXTA: ids NUMERO como en la API real

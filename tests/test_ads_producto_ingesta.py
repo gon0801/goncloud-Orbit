@@ -49,6 +49,7 @@ from app.ads.reports import (
     solicitar_reporte,
 )
 from app.ads.structure import PerfilAds
+from app.dia_cerrado import ultimo_dia_cerrado
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL20 = (ROOT / "migrations" / "0020_ads_producto_metrica.sql").read_text(encoding="utf-8")
@@ -231,7 +232,10 @@ def test_plan_productos_campana_multiproducto_no_reparte_agregados():
     ]
 
     plan, skips = _planea_filas_productos(
-        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+        filas,
+        ultimo_cerrado=dt.date(2026, 9, 4),
+        fecha_ini=dt.date(2026, 9, 3),
+        fecha_fin=dt.date(2026, 9, 3),
     )
 
     assert skips == Counter()
@@ -295,7 +299,10 @@ def test_plan_productos_clave_envenenada_no_resucita():
         },
     ]
     plan, skips = _planea_filas_productos(
-        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+        filas,
+        ultimo_cerrado=dt.date(2026, 9, 4),
+        fecha_ini=dt.date(2026, 9, 3),
+        fecha_fin=dt.date(2026, 9, 3),
     )
     assert plan == []
     assert skips["fila sin ninguna metrica"] == 1
@@ -308,7 +315,7 @@ def test_plan_productos_fila_invalida_envenena_la_clave():
     si otra campana del mismo producto trae datos validos, el subtotal
     parcial NO se publica como completo. Ambos ordenes del gzip dan igual."""
     hoy = dt.date(2026, 9, 4)
-    rango = dict(hoy=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
+    rango = dict(ultimo_cerrado=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
     valida = {
         "date": "2026-09-03",
         "advertisedAsin": "B0EEEEEEE1",
@@ -345,7 +352,7 @@ def test_plan_productos_same_sku_mayor_que_total_envenena_la_clave():
     del MISMO (asin, sku, fecha) publicaria su subtotal como completo y
     podria etiquetar 'Gasto sin ventas' con ventas reales desconocidas."""
     hoy = dt.date(2026, 9, 4)
-    rango = dict(hoy=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
+    rango = dict(ultimo_cerrado=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
     valida = {
         "date": "2026-09-03",
         "advertisedAsin": "B0EEEEEEE1",
@@ -401,7 +408,10 @@ def test_descartes_de_clave_invalida_cuentan_todas_las_filas(metricas_invalidas,
     independiente = {**valida, "advertisedSku": "SKU-INDEPENDIENTE"}
     filas = [*secuencias[orden], independiente]
     plan, skips = _planea_filas_productos(
-        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+        filas,
+        ultimo_cerrado=dt.date(2026, 9, 4),
+        fecha_ini=dt.date(2026, 9, 3),
+        fecha_fin=dt.date(2026, 9, 3),
     )
     assert [fila.sku for fila in plan] == ["SKU-INDEPENDIENTE"]
     assert len(plan) + sum(skips.values()) == len(filas)
@@ -443,7 +453,10 @@ def test_plan_productos_dos_campanas_del_mismo_asin_suman():
     ]
 
     plan, skips = _planea_filas_productos(
-        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+        filas,
+        ultimo_cerrado=dt.date(2026, 9, 4),
+        fecha_ini=dt.date(2026, 9, 3),
+        fecha_fin=dt.date(2026, 9, 3),
     )
 
     assert len(plan) == 1
@@ -480,7 +493,10 @@ def test_plan_productos_columna_faltante_es_none():
     ]
 
     plan, skips = _planea_filas_productos(
-        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+        filas,
+        ultimo_cerrado=dt.date(2026, 9, 4),
+        fecha_ini=dt.date(2026, 9, 3),
+        fecha_fin=dt.date(2026, 9, 3),
     )
 
     assert skips == Counter()
@@ -567,7 +583,10 @@ def test_plan_productos_gates_con_motivo():
     ]
 
     plan, skips = _planea_filas_productos(
-        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+        filas,
+        ultimo_cerrado=dt.date(2026, 9, 4),
+        fecha_ini=dt.date(2026, 9, 3),
+        fecha_fin=dt.date(2026, 9, 3),
     )
 
     # solo la fila valida de arriba llega al plan (SKU-Z envenenado se descarta)
@@ -577,7 +596,7 @@ def test_plan_productos_gates_con_motivo():
             "fila de productos sin advertisedAsin": 1,
             "fila de productos sin advertisedSku": 1,
             "fila con date invalida": 1,
-            "fila con metric_date futura": 1,
+            "fila de un día que aún no cierra": 1,
             "fila con metric_date fuera del rango solicitado": 1,
             "fila de productos con metrica no numerica o fraccionaria": 1,
             "fila sin ninguna metrica": 2,  # la cruda + la clave envenenada
@@ -613,7 +632,7 @@ def test_plan_productos_metrica_negativa_aborta_fail_closed():
     with pytest.raises(AdsReportsError) as excinfo:
         _planea_filas_productos(
             filas,
-            hoy=dt.date(2026, 9, 4),
+            ultimo_cerrado=dt.date(2026, 9, 4),
             fecha_ini=dt.date(2026, 9, 3),
             fecha_fin=dt.date(2026, 9, 3),
         )
@@ -768,7 +787,10 @@ def test_pipeline_productos_en_vivo():
         conn.execute(SQL77)
 
         ahora = dt.datetime.now(dt.UTC)
-        ayer = ahora.date() - dt.timedelta(days=1)
+        # El ultimo dia que ya cerro en MX y en US (ARREGLOS 03 D-E): con
+        # "hoy UTC - 1" la prueba fallaria de madrugada UTC, cuando el
+        # escritor aun no deja guardar ese dia.
+        ayer = min(ultimo_dia_cerrado(p, ahora) for p in ("amazon_mx", "amazon_us"))
         medianoche_ayer = dt.datetime(ayer.year, ayer.month, ayer.day, tzinfo=dt.UTC)
 
         corrida = {"n": 1}

@@ -395,8 +395,8 @@ pasos con `trap` de limpieza) y corre por el crontab de `gon`:
 ```
 
 Las **08:15 UTC** caen después de los dos syncs de accounting
-(`sync_ads_to_ledger.py` 06:30, `sync_fx_rates.py` 08:00) y 25 min antes de
-los ciclos (08:40/08:41): costos, FX y ledger llegan frescos —del MISMO
+(`sync_ads_to_ledger.py` 06:30, `sync_fx_rates.py` 08:00) y 1 h 25 min antes de
+los ciclos (09:40/09:41): costos, FX y ledger llegan frescos —del MISMO
 día— antes de que el motor decida. Hasta la review del PR #144 corría a las
 07:30, media hora ANTES del sync de FX: ver §Refresco diario contable.
 
@@ -861,10 +861,10 @@ El server está en UTC: estas horas SON UTC.
 | UTC   | job_key | comando |
 |-------|---------|---------|
 | 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
-| 07:10, 10:40, 13:15 | `ingest:diario` | `python -m app.cli ingest diario` (ingesta-01 A.2: métricas + productos + placements en UNA descarga, rango D-31..D-1; los tres horarios salen de `HORARIOS_INGESTA` en `app/ads/diario.py` y cada corrida reintenta lo que faltó: `--solo-faltantes` salta los grupos ya al día) |
-| 08:05, 10:05, 13:05, 16:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; reintenta si la ingesta llega tarde; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
-| 08:20, 10:20, 13:20, 16:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; reintenta si la ingesta llega tarde; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
-| 08:40/08:41, 10:40/10:41, 13:40/13:41, 16:40/16:41 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (US y MX arrancan con un minuto de diferencia y pueden solaparse si US sigue activo; cada plataforma tiene su candado; los reintentos corren si la ingesta llega tarde y no repiten un ciclo cerrado) |
+| 08:10, 10:40, 13:15 | `ingest:diario` | `python -m app.cli ingest diario` (ingesta-01 A.2: métricas + productos + placements en UNA descarga; rango de 31 días que termina en el último día ya cerrado en MX y en US: con ARREGLOS 03 D-E el «ayer» de US se guarda cuando termina en Los Ángeles, a las 08:00 UTC en invierno y 07:00 UTC en verano, por eso la primera corrida es a las 08:10; los tres horarios salen de `HORARIOS_INGESTA` en `app/ads/diario.py` y cada corrida reintenta lo que faltó: `--solo-faltantes` salta los grupos ya al día) |
+| 09:05, 10:05, 13:05, 16:05 | `avisos-campana` | `python -m app.cli avisos-campana` (BIDS 02 V.4; reintenta si la ingesta llega tarde; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
+| 09:20, 10:20, 13:20, 16:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; reintenta si la ingesta llega tarde; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
+| 09:40/09:41, 10:40/10:41, 13:40/13:41, 16:40/16:41 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (US y MX arrancan con un minuto de diferencia y pueden solaparse si US sigue activo; cada plataforma tiene su candado; los reintentos corren si la ingesta llega tarde y no repiten un ciclo cerrado) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
 | 11:00 | `jev-vigia` | `python -m app.cli jev-vigia` (CLARIDAD 01 B.5: si Jev está encendido y su último `inicio` tiene más de 13 h, avisa por Telegram; cubre la línea de jev-senales borrada o un candado colgado. Lee con `ORBIT_DSN_READ`, sin estado. Vive en el bloque canónico `tools/despliegue/crontab-orbit.txt`; `tools/despliegue/cron_jev_vigia.sh instala` la mueve ahí si el crontab la tenía fuera) |
 | 10:00–12:50, /10 min | `ads-salud` | `python -m app.cli ads-salud` (ads-proteccion-01 A.3: salud de la ingesta principal; el cron dispara cada 10 min y el job reporta el atraso desde las 10:30 UTC con reintentos hasta las 12:50; la linea no cambio en ingesta-01 A.4) |
@@ -969,7 +969,7 @@ hace `rollback.sh`: restaura el bloque anterior desde el respaldo que deja
 `cron_orbit.sh instala`; las tablas `jev_*` quedan intactas (el job apagado no
 escribe).
 
-Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 08:05, 10:05, 13:05 y
+Avisos diarios de campaña (BIDS 02 V.4): Telegram a las 09:05, 10:05, 13:05 y
 16:05 UTC; los reintentos cubren la ingesta del diario cuando llega tarde y
 corren antes del ciclo de esa hora. La línea efectiva está en
 `tools/despliegue/crontab-orbit.txt` (bloque canónico) con
@@ -1137,8 +1137,8 @@ final es != 0 si alguno falló. El script versionado vive en
 `tools/refresh_costos.sh` (la copia del server es la desplegada).
 **Orden de la cadena (corregido por el lead en la review):** 08:15 UTC cae
 después de los DOS syncs de accounting — `sync_ads_to_ledger.py` (:30 cada
-6 h → 06:30) y `sync_fx_rates.py` (08:00) — y 25 min antes de los ciclos
-08:40/08:41 (los cuatro pipelines tardan segundos). A las 07:30 el snapshot se
+6 h → 06:30) y `sync_fx_rates.py` (08:00) — y 1 h 25 min antes de los ciclos
+09:40/09:41 (los cuatro pipelines tardan segundos). A las 07:30 el snapshot se
 tomaba 30 min ANTES del sync de FX: el FX de Orbit quedaba estructuralmente
 un día atrasado. Respaldo del crontab previo:
 `archive/crontab-gon.20260904-021331.lead-fx-orden`.
@@ -1158,7 +1158,8 @@ solo "ayer" congelaría cada día con ~1 día de maduración (hallazgo
 codex 1.4, regla 6).
 
 **Sello: el cron diario pide D-31..D-1** (31 días, el tope de un
-request). Por qué no 95d: (1) un request no puede pedir más de 31 — partir
+request; desde ARREGLOS 03 D-E, D-1 es el último día ya cerrado en MX y en
+US según `app/dia_cerrado.py`, y lo que aún no cierra no se guarda). Por qué no 95d: (1) un request no puede pedir más de 31 — partir
 en 4 requests alarga la ventana de API **sin** ganar maduración extra en
 días que el backfill y las tiradas previas ya cubrieron; (2) 31 días cubre
 enteras las columnas 30d y de sobra el mínimo D-8..D-1 de terms; (3) el

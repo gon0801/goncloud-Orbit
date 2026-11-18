@@ -29,6 +29,7 @@ import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app import metricas_listas
+from app.dia_cerrado import ultimo_dia_cerrado
 
 SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
 SQL77 = (
@@ -38,11 +39,15 @@ SQL36 = Path(__file__).resolve().parents[1] / "migrations/0036_ingest_run_platfo
 SQL36 = SQL36.read_text()
 SQL62 = (Path(__file__).resolve().parents[1] / "migrations/0062_bids02_placement.sql").read_text()
 
-# La guarda sin `hoy=` usa el UTC de verdad y la semilla escribe started_at=now().
-# Clavar 2026-10-21 dejo Quality en rojo el 2026-10-22 (run 39698400104): la
-# corrida de "hoy" ya no caia en ese dia y la guarda decia "sin metricas de ayer".
-HOY = dt.datetime.now(dt.UTC).date()
-AYER = HOY - dt.timedelta(days=1)
+# Reloj fijo (ARREGLOS 03 D-E): un instante de invierno a las 07:30 UTC, cuando
+# US (Los Angeles, 23:30 del 11-nov) y MX (01:30 del 12-nov) tienen distinto
+# ultimo dia cerrado. La guarda lo recibe (`ahora=`) o lo lee de
+# `metricas_listas._ahora`, que la fixture autouse fija; la semilla escribe la
+# corrida con started_at=AHORA y, por plataforma, `ultimo_dia_cerrado`. Con el
+# reloj real la prueba pasaba o fallaba segun la hora a la que corria.
+AHORA = dt.datetime(2026, 11, 12, 7, 30, tzinfo=dt.UTC)
+HOY = AHORA.date()
+AYER = {p: ultimo_dia_cerrado(p, AHORA) for p in ("amazon_us", "amazon_mx")}
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -50,6 +55,12 @@ _skip_db = pytest.mark.skipif(
 )
 
 BLOQUE_CRON = Path(__file__).resolve().parents[1] / "tools/despliegue/crontab-orbit.txt"
+
+
+@pytest.fixture(autouse=True)
+def _reloj_fijo(monkeypatch):
+    """Los comandos llaman a la guarda sin reloj: lee `_ahora()`."""
+    monkeypatch.setattr(metricas_listas, "_ahora", lambda: AHORA)
 
 
 @pytest.fixture
@@ -125,7 +136,7 @@ def test_arreglos01_s_cada_consumidor_tiene_horario_tras_el_ultimo_plazo_de_inge
             for hora in campos[1].split(","):
                 horarios.append((int(hora), minuto))
         assert horarios, f"{nombre} no esta en {BLOQUE_CRON.name}"
-        assert {hora for hora, _ in horarios} >= {8, 10, 13, 16}, f"{nombre}: horas {horarios}"
+        assert {hora for hora, _ in horarios} >= {9, 10, 13, 16}, f"{nombre}: horas {horarios}"
         ultimo = max(hora * 60 + minuto for hora, minuto in horarios)
         assert ultimo >= limite, f"{nombre}: ultimo horario antes de {fin:%H:%M} UTC"
 
@@ -154,12 +165,12 @@ class _ConnGuarda:
     def execute(self, sql, params=None):
         params = params or ()
         if "FROM ads_metric_observation" in sql:
-            assert params[:3] == ("amazon_ads_reports_v3", HOY, AYER)
+            assert params[:3] == ("amazon_ads_reports_v3", HOY, AYER[params[3]])
             return _R((1,) if params[3] in self._metricas else None)
         if "FROM ads_placement_observation" in sql:
-            # doble existe (0062 no liga run): (ayer, platform, source, hoy)
+            # doble existe (0062 no liga run): (ultimo cerrado, platform, source, hoy)
             assert (params[0], params[2], params[3]) == (
-                AYER,
+                AYER[params[1]],
                 "amazon_ads_placements_v3",
                 HOY,
             )
@@ -169,13 +180,15 @@ class _ConnGuarda:
 
 def test_guarda_exige_cada_plataforma_y_placements_cuando_se_pide():
     conn = _ConnGuarda(metricas=("amazon_us",))
-    assert metricas_listas.guarda(conn, ("amazon_us",), hoy=HOY) is True
-    assert metricas_listas.guarda(conn, ("amazon_us", "amazon_mx"), hoy=HOY) is False
-    assert metricas_listas.guarda(conn, ("amazon_us",), exigir_placements=True, hoy=HOY) is False
+    assert metricas_listas.guarda(conn, ("amazon_us",), ahora=AHORA) is True
+    assert metricas_listas.guarda(conn, ("amazon_us", "amazon_mx"), ahora=AHORA) is False
+    assert (
+        metricas_listas.guarda(conn, ("amazon_us",), exigir_placements=True, ahora=AHORA) is False
+    )
     conn2 = _ConnGuarda(metricas=("amazon_us",), placements=("amazon_us",))
-    assert metricas_listas.guarda(conn2, ("amazon_us",), exigir_placements=True, hoy=HOY)
+    assert metricas_listas.guarda(conn2, ("amazon_us",), exigir_placements=True, ahora=AHORA)
     # --forzar salta la guarda con todo faltante
-    assert metricas_listas.guarda(_ConnGuarda(), ("amazon_us",), forzar=True, hoy=HOY)
+    assert metricas_listas.guarda(_ConnGuarda(), ("amazon_us",), forzar=True, ahora=AHORA)
 
 
 def test_motivo_de_salto_con_conn_falso(monkeypatch):
@@ -240,19 +253,21 @@ def conn_pg():
 
 
 def _run_ok(conn, source, *, ok=True):
+    """Corrida iniciada en AHORA: su fecha UTC es el dia de la corrida que
+    exige la guarda."""
     return conn.execute(
         "INSERT INTO ingest_run (source, ok, started_at, finished_at)"
-        " VALUES (%s, %s, now(), now()) RETURNING id",
-        (source, ok),
+        " VALUES (%s, %s, %s, %s) RETURNING id",
+        (source, ok, AHORA, AHORA),
     ).fetchone()[0]
 
 
 _contador_seed = iter(range(100000))
 
 
-def _siembra_metricas(conn, plataformas=("amazon_us", "amazon_mx"), *, metric_date=AYER, ok=True):
-    """Una corrida de metricas de HOY con filas de `metric_date` (default
-    D-1) para cada plataforma pedida."""
+def _siembra_metricas(conn, plataformas=("amazon_us", "amazon_mx"), *, metric_date=None, ok=True):
+    """Una corrida de metricas de HOY con filas de `metric_date` (default:
+    el ultimo dia cerrado de cada plataforma pedida en AHORA)."""
     run = _run_ok(conn, "amazon_ads_reports_v3", ok=ok)
     moneda = {"amazon_us": "USD", "amazon_mx": "MXN"}
     for plataforma in plataformas:
@@ -265,8 +280,15 @@ def _siembra_metricas(conn, plataformas=("amazon_us", "amazon_mx"), *, metric_da
             "INSERT INTO ads_metric_observation"
             " (ad_entity_id, metric_date, observed_at, metric_currency,"
             "  cost, source_report_id, ingest_run_id)"
-            " VALUES (%s, %s, now(), %s, 1.0, %s, %s)",
-            (entidad, metric_date, moneda[plataforma], f"R-{plataforma}", run),
+            " VALUES (%s, %s, %s, %s, 1.0, %s, %s)",
+            (
+                entidad,
+                AYER[plataforma] if metric_date is None else metric_date,
+                AHORA,
+                moneda[plataforma],
+                f"R-{plataforma}",
+                run,
+            ),
         )
     return run
 
@@ -284,8 +306,8 @@ def _siembra_placements(conn, plataformas=("amazon_us", "amazon_mx")):
             "INSERT INTO ads_placement_observation"
             " (platform, ad_entity_id, placement, metric_date, observed_at,"
             "  metric_currency, clicks, source_report_id)"
-            " VALUES (%s, %s, 'arriba_de_busqueda', %s, now(), %s, 1, %s)",
-            (plataforma, entidad, AYER, moneda[plataforma], f"RPL-{plataforma}"),
+            " VALUES (%s, %s, 'arriba_de_busqueda', %s, %s, %s, 1, %s)",
+            (plataforma, entidad, AYER[plataforma], AHORA, moneda[plataforma], f"RPL-{plataforma}"),
         )
     return run
 
@@ -298,17 +320,21 @@ def _siembra_placements(conn, plataformas=("amazon_us", "amazon_mx")):
 @_skip_db
 def test_metricas_de_ayer_listas_con_postgres_real(conn_pg):
     conn, _ = conn_pg
-    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_us", hoy=HOY) is False
+    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_us", ahora=AHORA) is False
+    # ARREGLOS 03 D-E: a las 07:30 UTC de invierno "hoy UTC - 1" sigue en curso
+    # en Los Angeles; una corrida de US con filas de ese dia no cuenta.
+    _siembra_metricas(conn, plataformas=("amazon_us",), metric_date=HOY - dt.timedelta(days=1))
+    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_us", ahora=AHORA) is False
     _siembra_metricas(conn, plataformas=("amazon_us",))
-    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_us", hoy=HOY) is True
+    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_us", ahora=AHORA) is True
     # MX nunca se sembro
-    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_mx", hoy=HOY) is False
+    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_mx", ahora=AHORA) is False
     # corrida ok de HOY cuyas filas NO son de D-1: no cuenta
     _siembra_metricas(conn, plataformas=("amazon_mx",), metric_date=HOY)
-    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_mx", hoy=HOY) is False
+    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_mx", ahora=AHORA) is False
     # y con D-1 de MX si
     _siembra_metricas(conn, plataformas=("amazon_mx",))
-    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_mx", hoy=HOY) is True
+    assert metricas_listas.metricas_de_ayer_listas(conn, "amazon_mx", ahora=AHORA) is True
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +570,9 @@ def _corre_jev(conn_pg, monkeypatch, capsys, argv=("jev-senales",)):
     conn, dsn = conn_pg
     monkeypatch.setenv("ORBIT_DSN_READ", dsn)
     llamados: list = []
-    monkeypatch.setattr(jev_senales, "correr", lambda *a, **k: (llamados.append((a, k)), None)[1])
+    # main lee cierre.motivo (ARREGLOS 03 D-J): el stub cierra "completa".
+    cierre = types.SimpleNamespace(motivo="completa")
+    monkeypatch.setattr(jev_senales, "correr", lambda *a, **k: (llamados.append((a, k)), cierre)[1])
     salida = cli.main(list(argv))
     return salida, llamados, capsys.readouterr().out
 
