@@ -1,13 +1,13 @@
 # P-B.2 — comprobación de los otros tres sitios (evidencia, no batería)
 script: docs/evidencia/arreglos-03/P-B/comprobar_sitios_pb2.py
 comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs -p no:cacheprovider docs/evidencia/arreglos-03/P-B/comprobar_sitios_pb2.py
-fecha: 2026-11-18T11:49:24Z  entorno: Windows, PG16 desechable 127.0.0.1:55433
+fecha: 2026-11-18T11:50:36Z  entorno: Windows, PG16 desechable 127.0.0.1:55433
 
-## Sin arreglo (app/precio/corrida.py de 48b0e44, el SHA previo): 3 rojos y el control de infra verde
+## Sin arreglo (app/ de f957e57, el SHA previo): los 3 sitios dejan escapar el error; el control de infra pasa
 E           psycopg.errors.NumericValueOutOfRange: numeric field overflow
 E           psycopg.errors.CheckViolation: precio_cambio: dato de UNA publicacion
 E           psycopg.errors.UniqueViolation: precio_cambio: llave de UNA publicacion
-3 failed, 1 passed in 15.68s
+3 failed, 1 passed in 23.23s
 
 ## Con el arreglo
 4 passed in 14.91s

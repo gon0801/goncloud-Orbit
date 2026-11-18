@@ -1,8 +1,7 @@
-# P-B.1 — rojo en el SHA previo (master antes del arreglo)
-sha: 48b0e44f016d5aa979ebfbd35502654de3b5a4ce (aec8efe0 = origin/master con P-A + solo el commit de las dos pruebas nuevas)
-fecha: 2026-11-18T11:32:51Z
+# P-B.1 — rojo en el SHA previo
+sha: f957e57 (origin/master fa3c57d + solo el commit de las dos pruebas nuevas; app/ sin el arreglo)
+fecha: 2026-11-18T11:50:35Z  entorno: Windows, PG16 desechable ORBIT_TEST_DSN=127.0.0.1:55433
 comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_precio_corrida.py -k arreglos03_pb_
-entorno: Windows, PG16 desechable ORBIT_TEST_DSN=127.0.0.1:55433
 
 ## test_arreglos03_pb_error_de_base_de_una_publicacion_no_tumba_la_corrida
 E           AssertionError: publicacion sana decidida=0 patch=0, corrida=abierta, avisos=0
@@ -13,4 +12,12 @@ tests\test_precio_corrida.py:5432: AssertionError
 E       AssertionError: assert [] == ['corrida_fallida']
 tests\test_precio_corrida.py:5466: AssertionError
 
-2 failed, 133 deselected in 5.52s
+2 failed, 133 deselected in 4.44s
+
+## Poder discriminante de test_arreglos03_pb_corrida_caida_avisa_por_telegram (mutantes temporales sobre el arreglo, ya revertidos)
+- sin el aviso en el except de _abrir_plataforma (clientes que no se arman):
+  E       AssertionError: assert [] == [('corrida_fallida', 'meli')]
+- LockOcupado avisa en _corre_plataforma:
+  E       AssertionError: assert [('corrida_fa...da_fallida'))] == []  (motivo='LockOcupado')
+- el motivo se compara exacto con "OperationalError": si viajara el texto del error, la prueba falla.
+La primera mitad (aislar) es la reproducción de la revisión tal cual; su rojo arriba es el de la falla del 22-25 oct.
