@@ -1,8 +1,9 @@
 # ARREGLOS 03 — D-N: los errores de JEV se redactan antes de persistirse (TNS1)
 
-Base: `origin/master` `fa3c57dcb75c40ecb44e7fd9cdff769cd837479c` (D-C #635 y D-J #631 ya integrados).
-Rama `ao/goncloud-orbit-21/dn-redaccion-jev`; código y pruebas en `dfef446`, hijo directo de esa base
-(`git merge-base --is-ancestor origin/master HEAD` → 0). Corridas del 2026-11-18, 11:31–11:38 UTC.
+Base vigente: `origin/master` `06cbd79` (P-B #641, D-E #639, D-I #638 y D-K #636, encima de D-C #635 y D-J #631).
+Rama `ao/goncloud-orbit-21/dn-redaccion-jev`. El código y las pruebas son los de `dfef446` (sobre `fa3c57d`), que aprobó
+Kimi. Master entró con el merge `7e4eb39` sin cambiar código de D-N (`git merge-base --is-ancestor origin/master HEAD` → 0).
+Rojo del 2026-11-18 11:31 UTC sobre `fa3c57d`; verde final 12:22 UTC sobre `7e4eb39`.
 
 El secreto de todas las corridas es **ficticio** (`CLAVE_FICTICIA_REVISION_12345`, el mismo de
 `revision/ingest.py` `casoS1`). Se demuestra el riesgo condicional (un proveedor que repite una clave ya
@@ -65,17 +66,22 @@ La prueba del libro entrega a `Libro` el motivo CRUDO que produce `_validar_resp
 el límite durable por sí mismo, aunque otro `pedir` no redacte. Revisa las dos salidas: la fila persistida
 (`error`, `duracion_ms`) y el diagnóstico devuelto.
 
-## Verde (árbol = `dfef446`)
+## Verde final (HEAD `7e4eb39` = `dfef446` + merge de `origin/master` `06cbd79`)
 
 | Fila | Comando | Resultado |
 | --- | --- | --- |
 | D-N.1 | `CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_S1"` | **1 passed**, 5 deselected, exit 0 |
-| D-N.2 | `… test_accept_ingest.py -k "test_S1 or test_09"` | 1 passed (`test_S1`), **1 failed (`test_09`)**, exit 1. Ver «TN09» |
+| D-N.2 | `… test_accept_ingest.py -k "test_S1 or test_09"` | **2 passed**, 4 deselected, exit 0 (sin skips) |
 | D-N.2 (frontera) | `CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_jev_juicios.py -k arreglos03_dn_` | 4 passed, 0 skipped |
 
-## TN09: rojo en master por D-J, ajeno a D-N
+Vecinos tras integrar master (7e4eb39): `test_jev_juicios`, `test_jev_senales`, `test_jev_senales_cron` y `test_redaction` → 77 passed.
 
-`test_09` falla igual antes y después de D-N, con la misma aserción:
+Primera corrida (árbol `dfef446` sobre `fa3c57d`, antes de D-E): D-N.1 1 passed (exit 0); D-N.2 1 passed (`test_S1`) y
+1 failed (`test_09`), exit 1, por lo que explica la sección siguiente.
+
+## TN09: estuvo en rojo en master por D-J; D-E lo devolvió a verde
+
+Antes de D-E, `test_09` fallaba igual antes y después de D-N, con la misma aserción:
 
 ```
 test_accept_ingest.py:17  assert r["exit"] == 0 and r["cierres"] and r["avisos"] == 0
@@ -91,9 +97,9 @@ de ahí): **1 passed**. En `fa3c57d`: 1 failed. El `acepta.txt` de D-J no corri�
 
 El fixture `caso09` de `revision/ingest.py` lo adapta D-E.7 (`DISENO.md`, D-G: «Tras D-E, `T ingest 'test_control or
 test_09'` debe dar dos verdes»), que también guarda la copia `historico/` contra el manifest. D-N no edita ese
-archivo para no chocar con D-E. Se avisó al orquestador, sugiriendo sin tocar aserciones parchear en `caso09`
-`leer_api_key` con una clave ficticia (con `unidades=0` no hay HTTP). Cuando entre ese ajuste, el Acepta D-N.2 se
-vuelve a correr sobre este bloque.
+archivo para no chocar con D-E; se avisó al orquestador. D-E (#639) ya está en master con su adaptación de
+`caso09`. Sobre `7e4eb39` (master `06cbd79`, con D-E) el Acepta D-N.2 da **2 passed** (`test_S1` y `test_09`), sin tocar la guarda, la transacción
+ni el cierre de TN09.
 
 ## Pruebas existentes de los módulos tocados
 
@@ -116,7 +122,6 @@ clúster) y el PG compartido de 55433 tiene bases de otras corridas en curso (`a
 ## prueba-real (la corre el lead tras integrar y desplegar)
 
 `CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs
-docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_S1 or test_09"`. Mientras no entre el ajuste de
-`caso09` de D-E, `test_09` dará el rojo de D-J descrito arriba; `test_S1` ya debe salir verde.
-Reversa: revertir el commit de código (`git revert dfef446`) y volver a desplegar; no hay migración ni datos que
-regresar. Las filas ya guardadas antes del despliegue no se reescriben (la tabla es append-only).
+docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_S1 or test_09"` → se espera 2 passed.
+Reversa: revertir el commit de código (`git revert dfef446`, o el commit del PR si se integra con squash) y volver a desplegar; no hay
+migración ni datos que regresar. Las filas ya guardadas antes del despliegue no se reescriben (la tabla es append-only).
