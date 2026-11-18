@@ -63,9 +63,21 @@ INICIO: 2026-11-18T20:36:04Z
 2 passed, 4 deselected in 9.40s
 SALIDA: 0
 
-=== D-M.3 (suite local + evidencia, revalidada)
-SHA: 6e954751bd102c035af1342add3778bb95e3164b
-COMANDO: CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_precio02_meli_catalogo.py tests/test_reputacion.py && test -s docs/evidencia/arreglos-03/D-M/aceptacion.md
-INICIO: 2026-11-18T20:37:30Z
-71 passed in 76.60s
+=== Rebase sobre master 14a688f (P-C integrado; cabeza 1bccab1a8638776fad9f934b66bcf9de42d40b0a)
+Conflicto solo en graphify-out/ (archivos generados): resuelto regenerando el
+grafo sobre el arbol final. Sin solape de codigo con P-C (app/precio/).
+
+=== D-M.1+D-M.2+D-M.3 (conjunto TN, revalidado tras el rebase)
+SHA: 1bccab1a8638776fad9f934b66bcf9de42d40b0a
+COMANDO: CI=1 uv run --frozen --python 3.12 python -B -m pytest -p no:cacheprovider -q -rs docs/evidencia/arreglos-05/revision/test_accept_ingest.py -k "test_06 or test_14"
+INICIO: 2026-11-18T20:50:43Z
+2 passed, 4 deselected in 29.98s
 SALIDA: 0
+
+=== D-M.3 (suite local + evidencia, revalidada tras el rebase)
+SHA: 1bccab1a8638776fad9f934b66bcf9de42d40b0a
+COMANDO: CI=1 PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_precio02_meli_catalogo.py tests/test_reputacion.py && test -s docs/evidencia/arreglos-03/D-M/aceptacion.md
+INICIO: 2026-11-18T20:52:30Z
+71 passed in 108.32s
+SALIDA: 0
+(Vecino tras el rebase: tests/test_precio_corrida.py + tests/test_precio_write.py de P-C -> 224 passed.)
