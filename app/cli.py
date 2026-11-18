@@ -173,8 +173,6 @@ def _reputacion_snapshot(args) -> int:
         fuente=args.fuente,
         fecha=args.fecha,
         dry_run=args.dry_run,
-        max_productos=args.max_productos,
-        tope_usd=args.tope_usd,
     )
 
 
@@ -709,11 +707,9 @@ def _construye_parser() -> argparse.ArgumentParser:
         help="ingesta snapshots rating/count (+reviews MeLi)",
         allow_abbrev=False,
     )
-    p_snap.add_argument("--fuente", required=True, choices=("meli", "amazon"))
+    p_snap.add_argument("--fuente", required=True, choices=("meli",))
     p_snap.add_argument("--fecha", default=None, help="metric_date YYYY-MM-DD")
     p_snap.add_argument("--dry-run", action="store_true", help="red+planes, cero writes")
-    p_snap.add_argument("--max-productos", type=int, default=600)
-    p_snap.add_argument("--tope-usd", type=float, default=2.0)
     p_alert = reput_sub.add_parser(
         "alertas",
         help="evalua alertas con lo ultimo en DB (requiere ORBIT_DSN_DECIDE)",

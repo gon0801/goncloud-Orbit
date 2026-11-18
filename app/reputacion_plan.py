@@ -136,36 +136,6 @@ def plan_snapshot_meli(
     return snapshot, eventos, skips
 
 
-def plan_snapshot_junglee(
-    pedido: str,
-    item: dict,
-    fetched_at: dt.datetime,
-    plataforma: str,
-) -> tuple[PlanSnapshot | None, Counter]:
-    """Snapshot Amazon desde un item junglee (E/0.2). Puro."""
-    skips: Counter = Counter()
-    rating = _rating_1_5(item.get("stars"))
-    if rating is None and item.get("stars") is not None:
-        skips["amazon: stars fuera de [1,5] o invalido (NULL)"] += 1
-    review_count = _entero_no_negativo(item.get("reviewsCount"))
-    if review_count is None and item.get("reviewsCount") is not None:
-        skips["amazon: reviewsCount invalido (NULL)"] += 1
-    padre = item.get("asin")
-    # Grok XR-1 BAJA-7: acta/0024 dicen parent NULL = sin padre distinto.
-    parent_asin = str(padre) if padre and str(padre) != pedido else None
-    return (
-        PlanSnapshot(
-            plataforma=plataforma,
-            external_id=pedido,
-            rating=rating,
-            review_count=review_count,
-            parent_asin=parent_asin,
-            fetched_at=fetched_at,
-        ),
-        skips,
-    )
-
-
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class PlanSeller:

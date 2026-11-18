@@ -3,14 +3,13 @@
 Fuentes verificadas en Fase 0 (contratos, no hipotesis):
   MeLi API oficial (E/0.3): scan, items+health, reviews, seller, questions,
   claims dispute. `total=0` trae `avg=0`: sin-dato (NULL + count 0).
-  Amazon junglee (E/0.2): stars + reviewsCount, GRANO PADRE, ~$0.0025/prod.
 
-Conciliacion (D-LEAD-A2-1, patron 0022, sin FK desde 0025): Amazon vs
-`listing`; MeLi vs items del seller. Sin match = skip contado.
+Conciliacion (D-LEAD-A2-1, patron 0022, sin FK desde 0025): MeLi vs
+items del seller. Sin match = skip contado.
 
 Estructura (D-LEAD-A4-4, guardrail 900 lineas): clientes en
 app/reputacion_clientes.py, planes puros en app/reputacion_plan.py;
-aqui syncs + CLI. Los nombres se re-exportan para compatibilidad.
+aqui fetch + escritura + CLI.
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ import logging
 import os
 import sys
 from collections import Counter
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -29,18 +27,6 @@ import psycopg
 
 from app.db import connect
 from app.redaction import install_scrub_filter, redact_dsn, scrub
-from app.reputacion_clientes import (
-    ACTOR_JUNGLEE_DEFAULT as ACTOR_JUNGLEE_DEFAULT,
-)
-from app.reputacion_clientes import (
-    TARIFA_JUNGLEE_DEFAULT as TARIFA_JUNGLEE_DEFAULT,
-)
-from app.reputacion_clientes import (
-    ApifyCredentials as ApifyCredentials,
-)
-from app.reputacion_clientes import (
-    ClienteJunglee as ClienteJunglee,
-)
 from app.reputacion_clientes import (
     ClienteMeli as ClienteMeli,
 )
@@ -69,9 +55,6 @@ from app.reputacion_plan import (
     plan_seller as plan_seller,
 )
 from app.reputacion_plan import (
-    plan_snapshot_junglee as plan_snapshot_junglee,
-)
-from app.reputacion_plan import (
     plan_snapshot_meli as plan_snapshot_meli,
 )
 
@@ -79,7 +62,6 @@ logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
 
 SOURCE_MELI = "reputacion_meli"
-SOURCE_AMAZON = "reputacion_amazon"
 
 # Escritura en Orbit (rol de ingesta), patron de app/disponibilidad.py
 # ---------------------------------------------------------------------------
@@ -111,17 +93,6 @@ INSERT INTO review_event
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT ON CONSTRAINT review_event_anti_duplicado DO NOTHING
 """
-
-
-@dataclass
-class ResultadoReputacion:
-    run_id: int | None
-    ok: bool
-    fuente: str
-    filas_insertadas: int = 0
-    filas_idempotentes: int = 0
-    skips: dict = field(default_factory=dict)
-    costo_usd: float | None = None
 
 
 def _formato_skips(skips: Counter) -> str | None:
@@ -258,153 +229,6 @@ def fetch_meli(
         reviews.extend(eventos)
     return snapshots, reviews, skips
 
-
-def sync_meli(
-    conn: psycopg.Connection,
-    cliente: ClienteMeli,
-    observed_at: dt.datetime | None = None,
-    metric_date: dt.date | None = None,
-    max_fallos_seguidos: int = 5,
-) -> ResultadoReputacion:
-    """Snapshots + reviews MeLi. Fase red completa, luego UNA transaccion."""
-    observed_at, metric_date = _reloj(observed_at, metric_date)
-    run_id = _abrir_run(conn, SOURCE_MELI)
-    skips: Counter = Counter()
-    try:
-        snapshots, reviews, skips = fetch_meli(cliente, max_fallos_seguidos)
-        insertadas, idempotentes = _escribe_hechos(
-            conn, snapshots, reviews, metric_date, observed_at
-        )
-        _sellar(conn, run_id, insertadas, skips, True)
-    except Exception:
-        _sellar(conn, run_id, 0, skips, False)
-        raise
-    return ResultadoReputacion(
-        run_id=run_id,
-        ok=True,
-        fuente="meli",
-        filas_insertadas=insertadas,
-        filas_idempotentes=idempotentes,
-        skips=dict(sorted(skips.items())),
-    )
-
-
-_AMAZON_DOMINIOS = {"amazon_mx": "amazon.com.mx", "amazon_us": "amazon.com"}
-_DOMINIO_A_PLAT = {dom: plat for plat, dom in _AMAZON_DOMINIOS.items()}
-
-
-def _plat_de_input(entrada) -> str | None:
-    """Plataforma por dominio del input pedido a junglee. Grok XR-1 R2-1:
-    el mismo ASIN vive en MX y US; conciliar solo por ASIN pisaba una
-    plataforma en silencio (el dict colapsaba MX+US a una entrada)."""
-    if not isinstance(entrada, str) or "://" not in entrada:
-        return None
-    host = entrada.lower().split("://", 1)[1].split("/", 1)[0]
-    if host.startswith("www."):
-        host = host[4:]
-    return _DOMINIO_A_PLAT.get(host)
-
-
-def sync_amazon(
-    conn: psycopg.Connection,
-    cliente: ClienteJunglee,
-    observed_at: dt.datetime | None = None,
-    metric_date: dt.date | None = None,
-    max_productos: int = 600,
-    tope_usd: float = 2.0,
-) -> ResultadoReputacion:
-    """Snapshots Amazon via junglee. Solo ASINs del catalogo (D2)."""
-    observed_at, metric_date = _reloj(observed_at, metric_date)
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE_AMAZON,)).fetchone()[0]
-    skips: Counter = Counter()
-    try:
-        # A.7: en tx PROPIA y corta. Un SELECT desnudo abria la tx
-        # implicita (prod corre sin autocommit) y el sello/hechos
-        # quedaban atrapados en ella: conn.close() los revertia
-        # (run 119 huerfano en el deploy). El scrape HTTP jamas va
-        # dentro de una tx (minutos con snapshot abierto).
-        with conn.transaction():
-            catalogo = conn.execute(
-                "SELECT platform, external_id FROM listing"
-                " WHERE platform IN ('amazon_mx', 'amazon_us')"
-                " ORDER BY platform, external_id"
-            ).fetchall()
-        urls = [f"https://www.{_AMAZON_DOMINIOS[plat]}/dp/{asin}" for plat, asin in catalogo]
-        # Grok XR-1 MEDIA-3: conciliar por ASIN (input u originalAsin),
-        # no por string de URL (junglee normaliza: sin www, trailing /).
-        # Grok XR-1 R2-1: la llave es (plataforma, ASIN): el mismo ASIN
-        # en MX+US son 2 snapshots, no uno.
-        por_asin: dict[str, list[str]] = {}
-        for plat, asin in catalogo:
-            por_asin.setdefault(asin.upper(), []).append(plat)
-        items, costo_est = cliente.scrape_productos(
-            urls, max_productos=max_productos, tope_usd=tope_usd
-        )
-        fetched = dt.datetime.now(dt.UTC)
-        snapshots: list[PlanSnapshot] = []
-        for item in items:
-            entrada = item.get("input")
-            pedido = _asin_de_input(entrada) or _asin_valido(item.get("originalAsin"))
-            candidatos = por_asin.get(pedido or "")
-            if pedido is None or not candidatos:
-                skips["amazon: item sin ASIN conciliable (se descarta)"] += 1
-                continue
-            plat_item = _plat_de_input(entrada)
-            if plat_item in candidatos:
-                plat = plat_item
-            elif len(candidatos) == 1:
-                plat = candidatos[0]
-            else:
-                skips["amazon: ASIN en varias plataformas sin dominio (se descarta)"] += 1
-                continue
-            snap, skips_item = plan_snapshot_junglee(pedido, item, fetched, plat)
-            skips.update(skips_item)
-            if snap is not None:
-                snapshots.append(snap)
-        vistos = {(s.plataforma, s.external_id.upper()) for s in snapshots}
-        for plat, asin in catalogo:
-            if (plat, asin.upper()) not in vistos:
-                skips["amazon: ASIN sin item en respuesta (ausente, no cero)"] += 1
-        insertadas, idempotentes = _escribe_hechos(conn, snapshots, [], metric_date, observed_at)
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN,
-                (insertadas, sum(skips.values()), _formato_skips(skips), True, run_id),
-            )
-    except Exception:
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN, (0, sum(skips.values()), "fallo la corrida", False, run_id)
-            )
-        raise
-    return ResultadoReputacion(
-        run_id=run_id,
-        ok=True,
-        fuente="amazon",
-        filas_insertadas=insertadas,
-        filas_idempotentes=idempotentes,
-        skips=dict(sorted(skips.items())),
-        costo_usd=costo_est,
-    )
-
-
-def _asin_de_input(entrada) -> str | None:
-    if not isinstance(entrada, str) or "/dp/" not in entrada:
-        return None
-    return _asin_valido(entrada.split("/dp/", 1)[1].split("/")[0].split("?")[0].strip())
-
-
-def _asin_valido(valor) -> str | None:
-    if not isinstance(valor, str):
-        return None
-    asin = valor.strip().upper()
-    return asin if asin and all(c.isalnum() for c in asin) else None
-
-
-# ---------------------------------------------------------------------------
-SOURCE_SELLER = "reputacion_meli_seller"
-SOURCE_QUESTIONS = "reputacion_meli_questions"
 
 _SQL_INSERT_SELLER = """
 INSERT INTO seller_reputation_snapshot
@@ -583,64 +407,6 @@ def _sellar(conn: psycopg.Connection, run_id: int, ins: int, skips: Counter, ok:
         conn.execute(_SQL_SELLAR_RUN, (ins, sum(skips.values()), motivo, ok, run_id))
 
 
-def sync_seller(
-    conn: psycopg.Connection,
-    cliente: ClienteMeli,
-    observed_at: dt.datetime | None = None,
-    metric_date: dt.date | None = None,
-) -> ResultadoReputacion:
-    """Una fila diaria de cuenta MeLi (level, tx, disputas)."""
-    observed_at, metric_date = _reloj(observed_at, metric_date)
-    run_id = _abrir_run(conn, SOURCE_SELLER)
-    skips: Counter = Counter()
-    try:
-        plan, skips = fetch_seller(cliente)
-        insertadas, idempotentes = _escribe_todo_meli(
-            conn, [], [], plan, [], metric_date, observed_at
-        )
-        _sellar(conn, run_id, insertadas, skips, True)
-    except Exception:
-        _sellar(conn, run_id, 0, skips, False)
-        raise
-    return ResultadoReputacion(
-        run_id=run_id,
-        ok=True,
-        fuente="meli_seller",
-        filas_insertadas=insertadas,
-        filas_idempotentes=idempotentes,
-        skips=dict(sorted(skips.items())),
-    )
-
-
-def sync_questions(
-    conn: psycopg.Connection,
-    cliente: ClienteMeli,
-    observed_at: dt.datetime | None = None,
-    metric_date: dt.date | None = None,
-) -> ResultadoReputacion:
-    """Todas las preguntas del seller, una fila por pregunta y corrida."""
-    observed_at, metric_date = _reloj(observed_at, metric_date)
-    run_id = _abrir_run(conn, SOURCE_QUESTIONS)
-    skips: Counter = Counter()
-    try:
-        planes, skips = fetch_questions(cliente)
-        insertadas, idempotentes = _escribe_todo_meli(
-            conn, [], [], None, planes, metric_date, observed_at
-        )
-        _sellar(conn, run_id, insertadas, skips, True)
-    except Exception:
-        _sellar(conn, run_id, 0, skips, False)
-        raise
-    return ResultadoReputacion(
-        run_id=run_id,
-        ok=True,
-        fuente="meli_questions",
-        filas_insertadas=insertadas,
-        filas_idempotentes=idempotentes,
-        skips=dict(sorted(skips.items())),
-    )
-
-
 # ---------------------------------------------------------------------------
 # Entrada CLI (envoltorio delgado en app/cli.py)
 # ---------------------------------------------------------------------------
@@ -650,15 +416,13 @@ def ejecuta_snapshot(
     fuente: str,
     fecha: str | None = None,
     dry_run: bool = False,
-    max_productos: int = 600,
-    tope_usd: float = 2.0,
     observed_at: dt.datetime | None = None,
     transport: httpx.BaseTransport | None = None,
     secrets_dir: str | Path | None = None,
 ) -> int:
     """Corre una ingesta A.2. `transport` solo existe para tests. Exit 0/1/2."""
-    if fuente not in ("meli", "amazon"):
-        print(f"fuente invalida: {fuente!r} (meli|amazon)", file=sys.stderr)
+    if fuente != "meli":
+        print(f"fuente invalida: {fuente!r} (meli)", file=sys.stderr)
         return 2
     metric_date: dt.date | None = None
     if fecha is not None:
@@ -676,25 +440,14 @@ def ejecuta_snapshot(
         return 2
     redact_dsn(dsn)  # registra la password para scrub(), defensa en profundidad
     try:
-        if fuente == "meli":
-            creds = MeliCredentials.from_secrets_dir(secrets_dir)
-            cliente: ClienteMeli | ClienteJunglee = ClienteMeli(creds, transport=transport)
-        else:
-            creds = ApifyCredentials.from_secrets_dir(secrets_dir)
-            cliente = ClienteJunglee(creds, transport=transport)
+        creds = MeliCredentials.from_secrets_dir(secrets_dir)
+        cliente = ClienteMeli(creds, transport=transport)
         conn = connect(dsn)
         try:
             if dry_run:
-                resumen = _ensayo(conn, fuente, cliente, observed_at, metric_date)
-            elif fuente == "meli":
-                assert isinstance(cliente, ClienteMeli)
-                resumen = _corre_meli(conn, cliente, observed_at, metric_date)
+                resumen = _ensayo(cliente, observed_at, metric_date)
             else:
-                assert isinstance(cliente, ClienteJunglee)
-                resultado = sync_amazon(
-                    conn, cliente, observed_at, metric_date, max_productos, tope_usd
-                )
-                resumen = _resumen("amazon", [("snapshots", resultado)])
+                resumen = _corre_meli(conn, cliente, observed_at, metric_date)
         finally:
             conn.close()
             cliente.close()
@@ -756,54 +509,26 @@ def _corre_meli(
     }
 
 
-def _resumen(fuente: str, partes: list[tuple[str, ResultadoReputacion]]) -> dict:
-    skips: Counter = Counter()
-    for _, resultado in partes:
-        skips.update(resultado.skips)
-    return {
-        "fuente": fuente,
-        "ok": all(r.ok for _, r in partes),
-        "run_ids": {nombre: r.run_id for nombre, r in partes},
-        "filas_insertadas": sum(r.filas_insertadas for _, r in partes),
-        "filas_idempotentes": sum(r.filas_idempotentes for _, r in partes),
-        "skips": dict(sorted(skips.items())),
-        "costo_usd": next((r.costo_usd for _, r in partes if r.costo_usd is not None), None),
-    }
-
-
 def _ensayo(
-    conn: psycopg.Connection,
-    fuente: str,
-    cliente: ClienteMeli | ClienteJunglee,
+    cliente: ClienteMeli,
     observed_at: dt.datetime | None,
     metric_date: dt.date | None,
 ) -> dict:
-    """Dry-run: CERO writes (ni ingest_run). Meli hace red completa;
-    amazon solo cuenta el catalogo (sin llamadas a junglee)."""
+    """Dry-run: CERO writes (ni ingest_run). Red completa sin escribir."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
-    if fuente == "meli":
-        assert isinstance(cliente, ClienteMeli)
-        yo, _ = cliente.get("/users/me")
-        items, scan_truncado = cliente.items_seller(yo["id"])
-        usuario, _ = cliente.get(f"/users/{yo['id']}")
-        rep = usuario.get("seller_reputation") or {}
-        preguntas, truncadas = _pagina(
-            cliente, "/questions/search", {"seller_id": yo["id"]}, "questions"
-        )
-        return {
-            "fuente": fuente,
-            "ok": True,
-            "dry_run": True,
-            "items_vistos": len(items),
-            "level": rep.get("level_id"),
-            "preguntas_vistas": len(preguntas),
-            "paginado_truncado": truncadas or scan_truncado,
-        }
-    assert isinstance(cliente, ClienteJunglee)
-    # A.7: tx propia (solo lectura, pero un SELECT desnudo deja la tx
-    # implicita abierta y atrapa writes posteriores: run 119).
-    with conn.transaction():
-        catalogo = conn.execute(
-            "SELECT count(*) FROM listing WHERE platform IN ('amazon_mx', 'amazon_us')"
-        ).fetchone()[0]
-    return {"fuente": fuente, "ok": True, "dry_run": True, "asins_catalogo": catalogo}
+    yo, _ = cliente.get("/users/me")
+    items, scan_truncado = cliente.items_seller(yo["id"])
+    usuario, _ = cliente.get(f"/users/{yo['id']}")
+    rep = usuario.get("seller_reputation") or {}
+    preguntas, truncadas = _pagina(
+        cliente, "/questions/search", {"seller_id": yo["id"]}, "questions"
+    )
+    return {
+        "fuente": "meli",
+        "ok": True,
+        "dry_run": True,
+        "items_vistos": len(items),
+        "level": rep.get("level_id"),
+        "preguntas_vistas": len(preguntas),
+        "paginado_truncado": truncadas or scan_truncado,
+    }

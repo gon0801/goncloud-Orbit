@@ -1,4 +1,4 @@
-"""Clientes de red de reputacion: MeLi solo-GET + junglee pagado (A.2/A.4).
+"""Clientes de red de reputacion: MeLi solo-GET (A.2/A.4).
 
 Partido de app/reputacion.py por el guardrail de 900 lineas (D-LEAD-A4-4):
 este modulo es IO puro, sin planes ni SQL.
@@ -22,13 +22,8 @@ logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
 
 MELI_BASE = "https://api.mercadolibre.com"
-APIFY_BASE = "https://api.apify.com/v2"
-ACTOR_JUNGLEE_DEFAULT = "junglee~Amazon-crawler"
-# Medido E/0.2 con 2 corridas chicas; la primera corrida real fija el numero.
-TARIFA_JUNGLEE_DEFAULT = 0.0025
 
 MELI_TOKENS_FILENAME = "meli_tokens.json"
-APIFY_TOKEN_FILENAME = "apify_token.json"
 
 
 class ReputacionError(Exception):
@@ -81,26 +76,6 @@ class MeliCredentials:
         access = _require(data, "access_token", MELI_TOKENS_FILENAME)
         register_secret(access)
         return cls(access)
-
-
-@dataclass(repr=False)
-class ApifyCredentials:
-    """Token Apify (solo lectura de datasets + corridas junglee pagadas)."""
-
-    token: str
-
-    def __repr__(self) -> str:
-        return "ApifyCredentials(***)"
-
-    __str__ = __repr__
-
-    @classmethod
-    def from_secrets_dir(cls, secrets_dir: str | Path | None = None) -> ApifyCredentials:
-        base = Path(secrets_dir) if secrets_dir else directorio_secretos()
-        data = _load_json(base / APIFY_TOKEN_FILENAME)
-        token = _require(data, "token", APIFY_TOKEN_FILENAME)
-        register_secret(token)
-        return cls(token)
 
 
 # ---------------------------------------------------------------------------
@@ -189,70 +164,3 @@ class ClienteMeli:
                 return items, False
             params = {"search_type": "scan", "scroll_id": scroll}
         return items, True
-
-
-# ---------------------------------------------------------------------------
-# Cliente junglee: run-sync pagado, topes duros (cada intento gasta)
-# ---------------------------------------------------------------------------
-
-
-class ClienteJunglee:
-    """Snapshots Amazon via junglee/Amazon-crawler (E/0.2 verificado)."""
-
-    def __init__(
-        self,
-        creds: ApifyCredentials,
-        actor: str = ACTOR_JUNGLEE_DEFAULT,
-        transport: httpx.BaseTransport | None = None,
-        timeout: float = 300.0,
-        tarifa_usd_por_producto: float = TARIFA_JUNGLEE_DEFAULT,
-    ) -> None:
-        self._creds = creds
-        self._actor = actor
-        self._tarifa = tarifa_usd_por_producto
-        self._client = httpx.Client(base_url=APIFY_BASE, transport=transport, timeout=timeout)
-
-    def close(self) -> None:
-        self._client.close()
-
-    def scrape_productos(
-        self,
-        urls: list[str],
-        max_items_por_url: int = 1,
-        max_productos: int = 600,
-        tope_usd: float = 2.0,
-    ) -> tuple[list[dict], float]:
-        """Corre junglee sobre URLs /dp/ASIN. Devuelve (items, costo_est).
-
-        Topes ANTES de gastar: n productos y costo estimado. Sin
-        reintentos automaticos: cada intento cobra. `productPageReviews`
-        se ignora (hallazgo no verificado E/0.2).
-        """
-        if len(urls) > max_productos:
-            raise ReputacionError(
-                f"junglee: {len(urls)} productos exceden max_productos={max_productos}"
-            )
-        costo_est = len(urls) * self._tarifa
-        if costo_est > tope_usd:
-            raise ReputacionError(
-                f"junglee: costo est ${costo_est:.2f} excede tope_usd=${tope_usd:.2f}"
-            )
-        # Grok XR-1 MEDIA-5: token en header, jamas en query string
-        # (httpx loguea URLs en sus errores con otro logger sin scrub).
-        resp = self._client.post(
-            f"/acts/{self._actor}/run-sync-get-dataset-items",
-            headers={"Authorization": "Bearer " + self._creds.token},
-            json={
-                "categoryOrProductUrls": [{"url": u} for u in urls],
-                "maxItemsPerStartUrl": max_items_por_url,
-            },
-        )
-        if resp.status_code not in (200, 201):
-            raise ReputacionError(f"junglee run-sync -> {resp.status_code}")
-        items = resp.json()
-        if not isinstance(items, list):
-            raise ReputacionError("junglee: respuesta no-lista")
-        return [i for i in items if isinstance(i, dict)], costo_est
-
-
-# ---------------------------------------------------------------------------
