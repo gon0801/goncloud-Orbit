@@ -1,0 +1,76 @@
+ARREGLOS 03 D-L — Acepta (2026-11-18, PC Windows del worker; PG16 desechable 127.0.0.1:55433)
+
+SHA del código: eeb6d6f (rama ao/goncloud-orbit-22/dl-reputacion, sobre origin/master 1f15c85 = D-E integrado)
+SHA previo (rojos): c838fa1 (origin/master al empezar; D-B y D-K ya integrados)
+Sin migración (el bloque no la pide). No cambia ninguna pantalla: la plantilla ya muestra «—» con disputas vacías.
+
+## Acepta en eeb6d6f (todas salen 0; ninguna prueba sale skipped)
+
+### D-L.1
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui_reputacion.py -k arreglos03_dl_
+1 passed, 21 deselected, 1 warning in 6.41s
+exit=0
+
+### D-L.2
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_ui_reputacion.py
+22 passed, 1 warning in 50.83s
+exit=0
+(app/api_reputacion.py:152: " AND observed_at = (SELECT max(observed_at) FROM meli_question)", una sola línea, el texto que busca desplegado.sh)
+
+### D-L.3
+$ grep -q 'mejor_nivel_previo(seller, hoy)' app/reputacion_alertas.py && ! grep -q 'seller\[1\]\[1\]' app/reputacion_alertas.py && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion_alertas.py
+35 passed in 25.44s
+exit=0
+
+### D-L.4
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_reputacion.py tests/test_reputacion_alertas.py tests/test_ui_reputacion.py
+87 passed, 1 warning in 42.05s
+exit=0
+
+### D-L.5
+$ test -s docs/evidencia/arreglos-03/D-L/prueba.py
+exit=0
+$ PYTHONPATH=. uv run --frozen --python 3.12 python - < docs/evidencia/arreglos-03/D-L/prueba.py   (igual que en_prod.sh: el guion por la entrada estándar)
+D-L desplegado
+exit=0
+
+## Rojos en el SHA previo c838fa1 (cada comprobación discrimina)
+
+### D-L.1 / D-L.2 (F8, falla ya ocurrida) — la prueba nueva con app/api_reputacion.py de c838fa1
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_ui_reputacion.py -k arreglos03_dl_
+E   AssertionError: pendientes fantasma en pantalla: ['Q_BORRADA', 'Q_SIGUE']
+tests\test_ui_reputacion.py:120: AssertionError
+1 failed, 21 deselected, 1 warning in 2.71s
+exit=1
+
+### D-L.3 (F6) — la Acepta con app/reputacion_alertas.py de c838fa1
+$ grep -q 'mejor_nivel_previo(seller, hoy)' app/reputacion_alertas.py && ! grep -q 'seller\[1\]\[1\]' app/reputacion_alertas.py
+exit=1
+275:        if len(seller) >= 2 and seller[0][1] is not None and seller[1][1] is not None:
+277:            alerta = evalua_salud_cuenta(seller[0][1], seller[1][1])
+
+### D-L.4 (F9) — el cliente falso del diseño (reclamos sin la lista data) con app/reputacion.py de c838fa1
+$ PYTHONPATH=. uv run --frozen --python 3.12 python rojo_f9.py   (fetch_seller + assert disputas_total is None; mismo cliente que prueba.py)
+fetch_seller sin lista -> disputas_total = 0 skips = {}
+AssertionError: reclamos sin lista dan 0
+exit=1
+
+### D-L.5 — prueba.py contra app/ de c838fa1 (git archive c838fa1 app, corrido desde esa carpeta)
+$ cd <app de c838fa1> && python - < docs/evidencia/arreglos-03/D-L/prueba.py
+ImportError: cannot import name 'mejor_nivel_previo' from 'app.reputacion_alertas'
+exit=1
+
+## Comprobación aparte de D-L.4 (sin guardar como prueba; guion temporal fuera del repo)
+1) /questions/search sin la clave -> ReputacionError: MeLi /questions/search respondió sin la lista de preguntas
+2) primera página con lista vacía -> ([], False): una lista vacía sigue siendo lista vacía
+3) primera página con 50, segunda sin la clave -> conserva las 50 (solo la primera página decide «sin lista»)
+4) primera página con "data": null -> (None, False)
+
+## Notas
+- _pagina trata como «sin la lista» la primera página cuya clave falta o no es lista (también null): las dos son
+  una respuesta sin la lista, y antes las dos daban 0. Una lista vacía sigue siendo 0.
+- _ensayo (reputacion snapshot --ensayo) usaba len() sobre el resultado de _pagina: con None reporta
+  preguntas_vistas vacío en lugar de reventar.
+- tests/test_ui_reputacion.py test_api_resumen_cuenta_pendientes_alertas: sus dos preguntas ahora llevan el
+  mismo observed_at (una lectura escribe todas sus preguntas con el mismo observed_at, _escribe_todo_meli).
+  Antes cada INSERT tomaba su propio now() (conexión autocommit) y con la regla F8 parecían dos lecturas.
