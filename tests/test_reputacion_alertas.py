@@ -428,6 +428,56 @@ def test_arreglos03_dk_lectura_que_no_corrio_se_avisa(tmp_path, monkeypatch, cap
 
 
 @_skip_db
+def test_arreglos03_dk_mas_de_20_pendientes_ninguna_se_sella_sin_salir():
+    """Datos (revision de Kimi, PR #636): con mas de 20 pendientes, avisada_at
+    solo se sella en alertas cuyo texto salio en un aviso que si llego."""
+    from app.reputacion_alertas import avisa_pendientes
+
+    with db_reputacion("orbit_repdk") as (conn, _dsn):
+        for i in range(1, 22):
+            conn.execute(
+                "INSERT INTO reputation_alert"
+                " (platform, external_id, tipo, severidad, mensaje)"
+                " VALUES ('meli', %s, 'resena_1', 'critica', %s)",
+                (f"MLM{i}", f"1 estrella nueva: review R{i} en MLM{i}"),
+            )
+
+        def selladas(sello: bool) -> list[str]:
+            return [
+                m
+                for (m,) in conn.execute(
+                    "SELECT mensaje FROM reputation_alert"
+                    " WHERE (avisada_at IS NOT NULL) = %s ORDER BY id",
+                    (sello,),
+                )
+            ]
+
+        # Sale el primer aviso y los demas fallan: lo sellado salio en ese aviso.
+        llegaron: list[str] = []
+        intentos: list[str] = []
+
+        def solo_el_primero(texto: str) -> bool:
+            intentos.append(texto)
+            if len(intentos) == 1:
+                llegaron.append(texto)
+                return True
+            return False
+
+        avisa_pendientes(conn, envia=solo_el_primero)
+        assert [m for m in selladas(True) if m not in llegaron[0]] == []
+
+        # Los envios salen: ninguna alerta queda sin salir ni sin sello.
+        def salen(texto: str) -> bool:
+            llegaron.append(texto)
+            return True
+
+        assert avisa_pendientes(conn, envia=salen) is True
+        assert selladas(False) == []
+        texto = "\n".join(llegaron)
+        assert [m for m in selladas(True) if m not in texto] == []
+
+
+@_skip_db
 def test_arreglos03_dk_migracion_avisada_y_su_reversa():
     """Datos de produccion: la migracion marca como avisadas las alertas que
     ya existen (salieron en el resumen del ciclo) y la reversa la quita."""
