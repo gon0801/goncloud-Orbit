@@ -148,3 +148,17 @@ D-L.5  test -s docs/evidencia/arreglos-03/D-L/prueba.py
   Salida 0. Ejecución local adicional con PYTHONPATH=. uv run --frozen --python 3.12 python docs/evidencia/arreglos-03/D-L/prueba.py
   D-L desplegado; salida 0.
 Ninguna prueba omitida. El aviso de Starlette corresponde a su TestClient con httpx.
+
+Seguimiento de la ronda 3. Código verificado: 18327ac4b8692b53d29b32ff05775e10917450b2.
+PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reputacion.py -k arreglos03_dl_pagina_final
+  Rojo en 909ce18: 2 failed, 31 deselected (vacia y corta: DID NOT RAISE ReputacionError), salida 1.
+  Verde en 18327ac: 2 passed, 31 deselected, salida 0.
+  MeLi anuncia 51 o 52 preguntas en la primera página; la segunda devuelve 0 o 1 y omite el total.
+  En ambos casos se rechaza el lote. Con total=51 en ambas páginas, la reproducción del hilo
+  devuelve 50 filas y truncado=True. Con las 51 filas distintas devuelve truncado=False.
+Acepta D-L.1 a D-L.5 (mismos comandos y PG desechable de la ronda 3, ningún skipped):
+  D-L.1: 2 passed, 21 deselected, 1 warning; salida 0.
+  D-L.2: 23 passed, 1 warning; salida 0.
+  D-L.3: ambos grep correctos, 35 passed; salida 0.
+  D-L.4: 91 passed, 1 warning; salida 0.
+  D-L.5: test -s correcto y ejecución local «D-L desplegado»; salida 0.
