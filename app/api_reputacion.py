@@ -147,9 +147,15 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
     # ultima lectura. Cada lectura escribe todas sus preguntas con el mismo
     # observed_at (una transaccion, _escribe_todo_meli): la que MeLi ya no
     # devuelve deja de contar. Misma condicion para la lista y el total.
+    # Una lectura con cero preguntas no escribe en meli_question, pero si su
+    # fila de cuenta (misma transaccion, mismo observed_at): si esa es mas
+    # nueva, la ultima lectura no trajo preguntas y no hay pendientes. No vale
+    # ingest_run.started_at: se abre despues de fijar observed_at.
     _PENDIENTE = (
         " WHERE estado = 'UNANSWERED'"
         " AND observed_at = (SELECT max(observed_at) FROM meli_question)"
+        " AND observed_at >= COALESCE("
+        "(SELECT max(observed_at) FROM seller_reputation_snapshot), '-infinity')"
     )
     pendientes = conn.execute(
         "SELECT external_id, question_external_id, texto, asked_at, observed_at"

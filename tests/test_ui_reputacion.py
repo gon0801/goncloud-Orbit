@@ -122,6 +122,29 @@ def test_arreglos03_dl_pregunta_que_ya_no_esta_en_meli_no_cuenta():
 
 
 @_skip_db
+def test_arreglos03_dl_lectura_sin_preguntas_deja_cero_pendientes():
+    """ARREGLOS 03 D-L (revision de Kimi, ronda 1): MeLi responde
+    `questions: []` porque se borro la ultima pregunta. Esa lectura no
+    escribe filas de meli_question, pero si la de la cuenta (misma
+    transaccion y mismo observed_at): la pregunta vieja ya no cuenta."""
+    with db_reputacion("orbit_repui") as (conn, _dsn):
+        dia1 = dt.datetime(2026, 10, 27, 9, 30, tzinfo=dt.UTC)
+        hoy = dt.datetime(2026, 11, 12, 9, 30, tzinfo=dt.UTC)
+        for observada in (dia1, hoy):
+            conn.execute(
+                "INSERT INTO seller_reputation_snapshot"
+                " (platform, metric_date, level_id, fetched_at, observed_at)"
+                " VALUES ('meli', %s, '5_green', %s, %s)",
+                (observada.date(), observada, observada),
+            )
+        _pregunta(conn, "MLM1", "Q_BORRADA", "UNANSWERED", dia1)
+        resumen = carga_resumen(conn, hoy.date())
+        ids = [p["question_external_id"] for p in resumen["preguntas_pendientes"]]
+        assert ids == [], f"pendiente de una lectura vieja: {ids}"
+        assert resumen["total_pendientes"] == 0, resumen["total_pendientes"]
+
+
+@_skip_db
 def test_reviews_recientes_solo_publicadas():
     """Kimi A.R H3: review moderada no sale como verificada."""
     with db_reputacion("orbit_repui") as (conn, _dsn):
@@ -138,10 +161,12 @@ def test_reviews_recientes_solo_publicadas():
 @_skip_db
 def test_api_resumen_cuenta_pendientes_alertas():
     with db_reputacion("orbit_repui") as (conn, _dsn):
-        _seller(conn, HOY, "5_green", 3)
-        # Una lectura escribe todas sus preguntas con el mismo observed_at.
-        _pregunta(conn, "MLM1", "Q1", "UNANSWERED", FETCH)
-        _pregunta(conn, "MLM1", "Q2", "ANSWERED", FETCH)
+        # Una lectura escribe cuenta y preguntas en una transaccion: mismo
+        # observed_at (now() de la transaccion).
+        with conn.transaction():
+            _seller(conn, HOY, "5_green", 3)
+            _pregunta(conn, "MLM1", "Q1", "UNANSWERED")
+            _pregunta(conn, "MLM1", "Q2", "ANSWERED")
         _alerta(conn, "rating_bajo", "aviso", "meli", "MLM1", "rating 4.1 < 4.2")
         _alerta(conn, "rating_bajo", "aviso", "meli", "MLM9", "vieja", resolved=True)
         app.dependency_overrides[_conexion_lectura] = lambda: conn
@@ -365,14 +390,15 @@ def test_api_contador_alertas_abiertas():
 def test_pagina_rediseno_kpis_alertas_primero_y_chips():
     with db_reputacion("orbit_repui2") as (conn, _dsn):
         _snap(conn, "meli", "MLM1", HOY, 4.5)
-        _pregunta(conn, "MLM1", "Q1", "UNANSWERED")
         _alerta(conn, "caida_rating", "critica", "meli", "MLM1", "bajo a 4.3")
-        conn.execute(
-            "INSERT INTO seller_reputation_snapshot"
-            " (platform, metric_date, level_id, disputas_total, disputas_abiertas, fetched_at)"
-            " VALUES ('meli', %s, '5_green', 41, 3, %s)",
-            (HOY, FETCH),
-        )
+        with conn.transaction():  # una lectura: cuenta y preguntas, mismo observed_at
+            _pregunta(conn, "MLM1", "Q1", "UNANSWERED")
+            conn.execute(
+                "INSERT INTO seller_reputation_snapshot"
+                " (platform, metric_date, level_id, disputas_total, disputas_abiertas, fetched_at)"
+                " VALUES ('meli', %s, '5_green', 41, 3, %s)",
+                (HOY, FETCH),
+            )
         html = _get_pagina(conn).text
         for kpi in (
             "Rating MeLi",
