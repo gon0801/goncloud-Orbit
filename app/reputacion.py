@@ -258,7 +258,8 @@ def _pagina(
     para contarlo como skip (nunca corte silencioso).
     ARREGLOS 03 D-L (F9): si la primera pagina no trae la lista `clave`
     (falta la clave o no es lista), devuelve (None, False): sin dato, no
-    cero. Una lista vacia sigue siendo lista vacia.
+    cero. Una lista vacia sigue siendo lista vacia. Si una pagina posterior
+    llega sin la lista, lo leido es parcial: truncado=True.
     """
     items: list[dict] = []
     vistos: set[str] = set()
@@ -266,9 +267,9 @@ def _pagina(
     for numero in range(max_paginas):
         data, _ = cliente.get(path, {**params, "limit": 50, "offset": offset})
         pagina = data.get(clave)
-        if numero == 0 and not isinstance(pagina, list):
-            return None, False
-        if not isinstance(pagina, list) or not pagina:
+        if not isinstance(pagina, list):
+            return (None, False) if numero == 0 else (items, True)
+        if not pagina:
             return items, False
         nuevos = [p for p in pagina if isinstance(p, dict) and str(p.get("id")) not in vistos]
         if not nuevos:
@@ -305,7 +306,7 @@ def fetch_seller(cliente: ClienteMeli) -> tuple[PlanSeller, Counter]:
     if disputas is None:
         skips["meli: claims sin lista (conteo vacío, no cero)"] += 1
     if truncadas:
-        skips["meli: claims truncados por max_paginas (total parcial)"] += 1
+        skips["meli: claims incompletos (total parcial)"] += 1
     return plan_seller(rep, disputas, fetched), skips
 
 
@@ -322,7 +323,9 @@ def fetch_questions(cliente: ClienteMeli) -> tuple[list[PlanQuestion], Counter]:
         # (una sola transaccion en _corre_meli) y avisa cron-avisa de las 09:30.
         raise ReputacionError("MeLi /questions/search respondió sin la lista de preguntas")
     if truncadas:
-        skips["meli: questions truncadas por max_paginas (total parcial)"] += 1
+        # La pantalla toma la ausencia en la ultima lectura como pregunta
+        # borrada: una lectura parcial no se guarda (falla entera, como arriba).
+        raise ReputacionError("MeLi /questions/search devolvió una lista incompleta de preguntas")
     fetched = dt.datetime.now(dt.UTC)
     planes: list[PlanQuestion] = []
     for pregunta in crudas:
