@@ -1,0 +1,62 @@
+ARREGLOS 03 — Bloque D-J: la estimacion y JEV avisan cuando no hicieron nada
+=============================================================================
+
+Base del rebase: origin/master d57c76f (BASE ya integrado) sobre 27b2ec0.
+HEAD entregado: 3b7afb0 (ao/arreglos03-dj/root; codigo en 5246613 + decae4b +
+3b7afb0), antecesor de origin/master verificado con `git merge-base --is-ancestor
+origin/master HEAD`.
+
+Rojo (pruebas nuevas sobre el codigo previo, antes de la implementacion)
+-----------------------------------------------------------------------
+Arbol: 27b2ec0 + solo las dos pruebas nuevas promocionadas (sin implementacion).
+Comando:
+  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q \
+    tests/test_estimacion_fees.py -k arreglos03_dj_ tests/test_jev_senales.py -k arreglos03_dj_
+Resultado: 2 failed, 72 deselected.
+
+- tests/test_estimacion_fees.py:1410
+  test_arreglos03_dj_cotizaciones_todas_fallidas_sellan_ok_falso
+  AssertionError: 100% de cotizaciones en error y la corrida se sella ok=true
+  (assert r.ok is False; hoy ok = True siempre en app/estimacion_ingest.py).
+
+- tests/test_jev_senales.py:1049
+  test_arreglos03_dj_sin_llave_jev_sale_1
+  AssertionError: corrida 'sin_api_key' sin juzgar nada y el job sale 0: cron-avisa no avisa
+  (assert salida == 1; hoy main ignora el cierre de correr() y siempre sale 0).
+
+Ambas discriminan: fallan por la asercion del arreglo, no por fixture.
+
+Acepta (en verde, desde la raiz del worktree, HEAD 3b7afb0)
+-----------------------------------------------------------
+D-J.1  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_estimacion_fees.py -k arreglos03_dj_
+       (corrido con -rs) -> 1 passed, 55 deselected.
+
+D-J.2  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_estimacion_fees.py tests/test_refresh_estimacion.py
+       Windows: tests/test_estimacion_fees.py 56 passed; tests/test_refresh_estimacion.py
+       3 failed (preexistente en master, ver nota).
+       WSL (venv Linux del encargo):
+         wsl -e bash -l /mnt/c/Users/ehven/AppData/Local/Temp/orbit-arreglos03/wsl-pytest.sh \
+           "<worktree>" -q -rs tests/test_estimacion_fees.py tests/test_refresh_estimacion.py
+       -> 59 passed (0 skipped).
+
+D-J.3  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_jev_senales.py -k arreglos03_dj_
+       (corrido con -rs) -> 1 passed, 17 deselected.
+
+D-J.4  PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_jev_senales.py tests/test_jev_senales_cron.py
+       (corrido con -rs) -> 19 passed.
+
+Nota: tests/test_refresh_estimacion.py en Windows falla igual en origin/master
+(27b2ec0, comprobado con git stash: 3 failed en 0.71 s) con y sin Git Bash en el
+PATH (con Git Bash el subprocess cuelga y termina en TimeoutExpired). Es un fallo
+de entorno (el test corre tools/refresh_estimacion.sh con binarios falsos via
+bash); bajo WSL pasa completo. No lo toca este bloque.
+
+Cron
+----
+La linea de jev-senales de tools/despliegue/crontab-orbit.txt ya viene envuelta en
+/usr/local/bin/cron-avisa (linea 19); no se toca (D-E edita ese archivo despues).
+app/jev_vigia.py no cambia.
+
+prueba-real (la corre el lead tras integrar)
+--------------------------------------------
+bash docs/evidencia/arreglos-01/desplegado.sh MOTIVOS_SIN_JUICIO plataformas_sin_cotizar

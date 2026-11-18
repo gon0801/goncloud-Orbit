@@ -1008,3 +1008,42 @@ def test_corrida_que_falla_manda_aviso(capsys, monkeypatch):
     assert REDACTED in avisos[0]
     assert "clave-jev-prueba" not in avisos[0]
     assert "clave-jev-prueba" not in capsys.readouterr().err
+
+
+# --- ARREGLOS 03 D-J.3: sin llave el job sale 1 (cron-avisa avisa) ------------
+
+
+def _mundo(conn):
+    from datetime import timedelta
+
+    from app.ads.structure_plan import huella_anuncios
+
+    _config(conn, ON)
+    run = _run(conn, finished_at=AHORA - timedelta(hours=1))
+    grupo, _, _, _ = _grupo_con_roster(conn, n=5)
+    vivos = sorted(externo for _, externo, _ in _ads_de(conn, grupo))
+    _acta(conn, run, "amazon_mx", 1, 5, ((grupo, 5, huella_anuncios(vivos), 0),))
+    _ventana(conn, run, "amazon_mx", grupo, "collar plata")
+
+
+@_skip_db
+def test_arreglos03_dj_sin_llave_jev_sale_1(monkeypatch, tmp_path):
+    """ARREGLOS 03 D-J.3 (falla ya ocurrida): 12 cierres `sin_api_key` del 7 al
+    12-oct-2026 sin ningun aviso. Sin llave del proveedor la corrida cierra
+    `sin_api_key` y el job debe salir 1 para que cron-avisa avise (promocion de
+    la revision del 2026-11-12 con la asercion de salida exigida)."""
+    from app import jev_senales, notifica
+
+    avisos: list[str] = []
+    monkeypatch.setattr(notifica, "envia_aviso", lambda texto: avisos.append(texto) or True)
+    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path))  # sin typesafe.json
+    with db_s4() as conn:
+        _mundo(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", _dsn_s4())
+        monkeypatch.setenv("ORBIT_DSN_JEV", _dsn_s4())
+        salida = jev_senales.main(["--aplicar", "--forzar"])
+        cierre = conn.execute("SELECT cierre FROM jev_corrida WHERE evento = 'fin'").fetchone()[0]
+    assert cierre == "sin_api_key"
+    assert salida == 1, (
+        f"corrida '{cierre}' sin juzgar nada y el job sale {salida}: cron-avisa no avisa"
+    )

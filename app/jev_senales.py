@@ -81,6 +81,16 @@ _HORAS_VIGENCIA = 36
 
 MotivoCierre = Literal["apagado", "ocupado", "completa", "tope", "proveedor_caido", "sin_api_key"]
 
+# ARREGLOS 03 D-J (seccion «OK»): cierres donde no se juzgo ninguna busqueda.
+# La salida 1 hace que cron-avisa mande el aviso ese mismo dia; el vigia no
+# cambia (sigue cuidando que la tarea arranque).
+MOTIVOS_SIN_JUICIO: frozenset[MotivoCierre] = frozenset({"sin_api_key", "proveedor_caido", "tope"})
+TEXTO_SIN_JUICIO: dict[MotivoCierre, str] = {
+    "sin_api_key": "falta la llave del proveedor de JEV",
+    "proveedor_caido": "el proveedor de JEV no respondió",
+    "tope": "se acabó el tope diario de consultas de JEV",
+}
+
 
 @dataclass(frozen=True)
 class CierreCorrida:
@@ -775,9 +785,11 @@ def correr(
 
 
 def main(argv: list[str]) -> int:
-    """`python -m app.cli jev-senales`: 0 corrio, apagado u ocupado; 1 fallo;
-    2 falta DSN. Sin metricas de ayer sale 75 mientras queda horario hoy y 1
-    desde el fin de intentos. El seco solo necesita ORBIT_DSN_READ."""
+    """`python -m app.cli jev-senales`: 0 corrio, apagado u ocupado; 1 fallo o
+    no juzgo ninguna busqueda (sin llave, proveedor caido o tope; ARREGLOS 03
+    D-J: cron-avisa avisa); 2 falta DSN. Sin metricas de ayer sale 75 mientras
+    queda horario hoy y 1 desde el fin de intentos. El seco solo necesita
+    ORBIT_DSN_READ."""
     parser = argparse.ArgumentParser(
         prog="python -m app.cli jev-senales",
         description="Sella la senal Jev por busqueda-en-grupo (seco salvo --aplicar).",
@@ -812,7 +824,7 @@ def main(argv: list[str]) -> int:
             return metricas_listas.salida_sin_metricas("jev-senales")
         if args.aplicar:
             escritor = connect(dsn_jev, autocommit=True)
-        correr(
+        cierre = correr(
             lector,
             escritor,
             ahora=datetime.now(UTC),
@@ -833,4 +845,13 @@ def main(argv: list[str]) -> int:
             escritor.close()
         if lector is not None:
             lector.close()
+    # ARREGLOS 03 D-J (seccion «OK»): una corrida que no juzgo ninguna
+    # busqueda no cierra como exito; cron-avisa manda este stderr a Telegram.
+    if cierre.motivo in MOTIVOS_SIN_JUICIO:
+        print(
+            f"jev-senales: no se juzgó ninguna búsqueda: {TEXTO_SIN_JUICIO[cierre.motivo]}."
+            " La pantalla Gasto sin venta sigue con las lecturas anteriores.",
+            file=sys.stderr,
+        )
+        return 1
     return 0

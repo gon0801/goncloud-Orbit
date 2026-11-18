@@ -1356,3 +1356,69 @@ def test_ejecutar_ingesta_http_sin_txn(tmp_path):
         with patch("app.estimacion_ingest.cotizar_oferta", side_effect=cotizar_trackeado):
             ejecutar_ingesta(conn, ruta_sqlite=snap, now_utc=NOW, client=client)
     assert estados == [psycopg.pq.TransactionStatus.IDLE]
+
+
+# --- ARREGLOS 03 D-J.1: cero cotizadas no es una corrida sana -----------------
+
+
+def _dos_listings(conn):
+    for i in (1, 2):
+        pid = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES (%s, %s) RETURNING id",
+            (f"P{i}", f"P{i}"),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', %s, %s)",
+            (pid, f"B0EST0{i}", f"SS-MX-{i}"),
+        )
+    conn.commit()
+
+
+@_skip_db
+def test_arreglos03_dj_cotizaciones_todas_fallidas_sellan_ok_falso(tmp_path):
+    """ARREGLOS 03 D-J.1 (dinero): si SP-API Product Fees rechaza todas las
+    cotizaciones, la corrida no puede sellarse ok. `main` saldria 0, cron-avisa
+    no avisaria y el motor de precios dejaria de evaluar esas publicaciones
+    hasta el aviso de los 3 dias (promocion de la revision del 2026-11-12)."""
+    snap = _snapshot_bridge(
+        tmp_path / "bridge.db",
+        [
+            (
+                "SS-MX-1",
+                "B0EST01",
+                "A1AM78C64UM0Y8",
+                "amazon_mx",
+                116.0,
+                "AMAZON_NA",
+                FETCH.isoformat(),
+            ),
+            (
+                "SS-MX-2",
+                "B0EST02",
+                "A1AM78C64UM0Y8",
+                "amazon_mx",
+                120.0,
+                "AMAZON_NA",
+                FETCH.isoformat(),
+            ),
+        ],
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(403, json={"errors": []})  # SP-API rechaza TODO
+
+    with db_fees() as conn:
+        _dos_listings(conn)
+        r = ejecutar_ingesta(conn, ruta_sqlite=snap, now_utc=NOW, client=make_client(handler))
+        conn.commit()
+        disponibles = conn.execute(
+            "SELECT count(*) FROM estimacion_escenario WHERE estado = 'disponible'"
+        ).fetchone()[0]
+
+    assert r.fees_error == 2 and r.fees_nuevos == 2  # las dos cotizaciones fallaron
+    assert disponibles == 0  # ninguna publicacion quedo evaluable
+    # Lo que deberia pasar: 0 de 2 cotizadas no es una corrida sana.
+    assert r.ok is False, "100% de cotizaciones en error y la corrida se sella ok=true"
