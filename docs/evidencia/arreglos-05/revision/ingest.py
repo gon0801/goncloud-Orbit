@@ -31,6 +31,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from app import cli, jev_senales, metricas_listas
 from app.ads import reports
 from app.ads.structure import evaluar_perfiles
+from app.dia_cerrado import ultimo_dia_cerrado
 from app.meli import catalogo
 from app.reputacion_clientes import ClienteMeli, MeliCredentials
 from app.optimizer import windows
@@ -114,11 +115,15 @@ def producto(c):
 
 
 def caso09(c, dsn):
-    ahora = dt.datetime.now(dt.UTC)
-    rid = c.execute("INSERT INTO ingest_run(source,ok) VALUES (%s,true) RETURNING id", (metricas_listas.SOURCE_METRICAS,)).fetchone()[0]
+    # ARREGLOS 03 D-E.7: reloj de la guarda y del fixture fijados al mismo
+    # instante (invierno, 07:30 UTC: US y MX tienen distinto ultimo dia
+    # cerrado); la corrida lleva la fecha UTC de ese instante y cada
+    # plataforma su ultimo dia cerrado. Original en historico/ingest.py.
+    ahora = dt.datetime(2026, 11, 12, 7, 30, tzinfo=dt.UTC)
+    rid = c.execute("INSERT INTO ingest_run(source,ok,started_at,finished_at) VALUES (%s,true,%s,%s) RETURNING id", (metricas_listas.SOURCE_METRICAS, ahora, ahora)).fetchone()[0]
     for plat, moneda in (("amazon_mx", "MXN"), ("amazon_us", "USD")):
         eid = c.execute("INSERT INTO ad_entity(platform,kind,external_id) VALUES (%s,'campaign','repro09') RETURNING id", (plat,)).fetchone()[0]
-        c.execute("INSERT INTO ads_metric_observation(ad_entity_id,metric_date,observed_at,metric_currency,ingest_run_id) VALUES (%s,%s,%s,%s,%s)", (eid, ahora.date()-dt.timedelta(days=1), ahora, moneda, rid))
+        c.execute("INSERT INTO ads_metric_observation(ad_entity_id,metric_date,observed_at,metric_currency,ingest_run_id) VALUES (%s,%s,%s,%s,%s)", (eid, ultimo_dia_cerrado(plat, ahora), ahora, moneda, rid))
     c.execute("INSERT INTO config_version(settings) VALUES (%s::jsonb)", (json.dumps({"jev.senales": True, "jev.tope_diario": 10, "jev.min_clics": 3}),))
     avisos = []
     entradas_mundo, retornos_mundo, retornos_guarda = [], [], []
@@ -136,8 +141,14 @@ def caso09(c, dsn):
     perfil_anterior = sys.getprofile()
     try:
         sys.setprofile(observar)
+        # Llave ficticia, no vacia: desde ARREGLOS 03 D-J una corrida sin llave
+        # cierra `sin_api_key` y sale 1 a proposito. El plan esta vacio (no hay
+        # search terms sembrados), asi que nadie llama al proveedor; si alguien
+        # lo llamara, el pedido falla aqui en vez de salir a la red.
         with patch.dict(os.environ, {"ORBIT_DSN_READ": dsn, "ORBIT_DSN_JEV": dsn}), \
-             patch.object(jev_senales, "leer_api_key", return_value=""), \
+             patch.object(jev_senales, "leer_api_key", return_value="LLAVE_FICTICIA_TN09"), \
+             patch.object(jev_senales, "pedir_juicio", side_effect=AssertionError("TN09 no sale a la red")), \
+             patch.object(metricas_listas, "_ahora", return_value=ahora), \
              patch("app.notifica.envia_aviso", side_effect=lambda *a, **kw: avisos.append(a)):
             salida = cli.main(["jev-senales", "--aplicar"])
     finally:
@@ -147,7 +158,7 @@ def caso09(c, dsn):
     with psycopg.connect(dsn) as lector:
         with lector.transaction():
             lector.execute("INSERT INTO product(odoo_sku,name) VALUES ('CONTROL-TX','Control')")
-            assert metricas_listas.guarda(lector, ("amazon_mx", "amazon_us"))
+            assert metricas_listas.guarda(lector, ("amazon_mx", "amazon_us"), ahora=ahora)
         conservado = lector.execute("SELECT count(*) FROM product WHERE odoo_sku='CONTROL-TX'").fetchone()[0]
     return {"exit": salida, "cierres": cierre, "avisos": len(avisos), "tx_ajena_conservada": conservado,
             "guarda_real": retornos_guarda, "entradas_leer_mundo": entradas_mundo,
@@ -182,7 +193,7 @@ def caso05(c, dsn):
     buena = {**base_fila, "cost": "130", "clicks": 100, "purchases7d": 0, "sales7d": "0"}
     orden = []
     for crudas in ([a,b,buena], [buena,a,b]):
-        p, _ = reports._planea_filas_terminos(reports.SEARCH_TERMS_CFG, crudas, hoy=hoy, fecha_ini=hoy-dt.timedelta(days=23), fecha_fin=hoy)
+        p, _ = reports._planea_filas_terminos(reports.SEARCH_TERMS_CFG, crudas, ultimo_cerrado=ultimo_dia_cerrado("amazon_mx", ahora), fecha_ini=hoy-dt.timedelta(days=23), fecha_fin=hoy)
         orden.append(len(p))
     return {"consumidor_windows": agregado, "entidad_completa": ventana.completa, "planes_por_orden": orden,
             "sello": c.execute("SELECT ok,rows_written,rows_skipped FROM ingest_run WHERE id=%s", (rid,)).fetchone()}
@@ -260,13 +271,14 @@ def casoS1(c, dsn):
 
 
 def control_productos():
-    hoy = dt.date.today()
+    instante = dt.datetime.now(dt.UTC)
+    hoy = instante.date()
     b = {"advertisedAsin":"B012345678","advertisedSku":"SKU", "date":(hoy-dt.timedelta(days=15)).isoformat()}
     buena = {**b,"cost":"130","clicks":100,"purchases30d":"0","sales30d":"0"}
     mala = {**b,"cost":"ilegible","purchases30d":"2","sales30d":"2000"}
     salidas=[]
     for filas in ([buena,mala],[mala,buena]):
-        p,_=reports._planea_filas_productos(filas,hoy=hoy,fecha_ini=hoy-dt.timedelta(days=30),fecha_fin=hoy)
+        p,_=reports._planea_filas_productos(filas,ultimo_cerrado=ultimo_dia_cerrado("amazon_mx", instante),fecha_ini=hoy-dt.timedelta(days=30),fecha_fin=hoy)
         salidas.append(len(p))
     return salidas
 

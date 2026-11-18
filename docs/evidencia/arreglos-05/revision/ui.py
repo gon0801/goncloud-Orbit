@@ -82,7 +82,7 @@ def scenario():
             for cfg, ent in ((KEYWORDS_CFG, h), (CAMPANAS_CFG, c)):
                 filas, skips = _planea_filas(cfg, [{cfg["id_field"]: str(ent),
                     "date": fecha.isoformat(), "cost": cost, "sales30d": "100",
-                    "clicks": 3, "purchases30d": 1}], hoy=dt.date.today(),
+                    "clicks": 3, "purchases30d": 1}], ultimo_cerrado=dt.date.today(),
                     fecha_ini=fecha, fecha_fin=fecha)
                 assert len(filas) == 1 and not skips, (filas, skips)
                 _metrica_pg(conn, ingest, ent, fecha, costo=filas[0].cost,
