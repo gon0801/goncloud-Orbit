@@ -862,3 +862,69 @@ def test_arreglos03_dm_rollback_exterior_no_publica_exito():
             "SELECT ok, finished_at, rows_written FROM ingest_run WHERE source = 'meli_catalogo'"
         ).fetchone()
         assert sello == (None, None, None)
+
+
+@_skip_sin_pg
+def test_arreglos03_dm_total_heredado_no_autoriza_bajas():
+    """R1 de la revision del PR, junto al consumidor de bajas: el scan que
+    alcanza un total heredado (pagina actual sin paging) no certifica ahi;
+    avanza y, con el total cambiante, queda parcial: las observaciones se
+    escriben pero la baja por ausencia NO corre."""
+    with _db() as conn:
+        lid_ausente = _siembra_listing(conn, "MLM3", "SKU-M1-A")
+        _producto(conn, "SKU-M1-B")
+        cliente = _cliente_meli_real(
+            [
+                {"results": ["MLM1"], "paging": {"total": 2}, "scroll_id": "a"},
+                {"results": ["MLM2"], "scroll_id": "b"},
+                {"results": ["MLM3"], "paging": {"total": 3}},
+            ],
+            {
+                "MLM1": _item("MLM1", sku_raiz="SKU-M1-B", stock_raiz=1),
+                "MLM2": _item("MLM2", sku_raiz="SKU-M1-B", stock_raiz=1),
+                "MLM3": _item("MLM3", sku_raiz="SKU-M1-B", stock_raiz=1),
+            },
+        )
+        try:
+            resultado = _corre(conn, cliente)
+        finally:
+            cliente.close()
+        assert resultado.skips["meli: scan truncado"] == 1
+        assert resultado.reconciliados == 0
+        assert (
+            conn.execute(
+                "SELECT activo FROM listing_miembro WHERE listing_id = %s", (lid_ausente,)
+            ).fetchone()[0]
+            is True
+        )
+        assert resultado.observadas == 3
+        assert resultado.ok is True
+
+
+@_skip_sin_pg
+def test_arreglos03_dm_scan_fallido_no_es_catalogo_vacio(monkeypatch):
+    """R2 de la revision del PR: una primera pagina malformada devuelve
+    cero IDs con cobertura desconocida: la corrida NO es un exito de
+    catalogo vacio; solo el vacio certificado (total 0) sella ok."""
+    with _db() as conn:
+        db = conn.execute("SELECT current_database()").fetchone()[0]
+        partes = urlsplit(_dsn_base())
+        monkeypatch.setenv(
+            "ORBIT_DSN_INGEST",
+            urlunsplit((partes.scheme, partes.netloc, "/" + db, "", "")),
+        )
+        malformado = _cliente_meli_real([{"results": "MLM1", "paging": {"total": 1}}], {})
+        assert catalogo.main([], cliente=malformado) == 1
+        malformado.close()
+        sello_malo = conn.execute(
+            "SELECT ok, rows_written, rows_skipped FROM ingest_run WHERE source = 'meli_catalogo'"
+        ).fetchone()
+        assert sello_malo == (False, 0, 1)
+        vacio = _cliente_meli_real([{"results": [], "paging": {"total": 0}}], {})
+        assert catalogo.main([], cliente=vacio) == 0
+        vacio.close()
+        sello_vacio = conn.execute(
+            "SELECT ok, rows_written, rows_skipped FROM ingest_run"
+            " WHERE source = 'meli_catalogo' ORDER BY id"
+        ).fetchall()[-1]
+        assert sello_vacio == (True, 0, 0)

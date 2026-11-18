@@ -170,11 +170,14 @@ class ClienteMeli:
         (contenedor `results` lista e IDs legibles) que alcanzan exactamente
         un `paging.total` entero no booleano, no negativo y coherente entre
         paginas, contando IDs unicos (los duplicados no acreditan
-        completitud). Total 0 con contenedor valido vacio demuestra
+        completitud). El total que certifica debe estar vigente en la pagina
+        que cierra: uno heredado de una respuesta anterior no verifica la
+        cobertura actual. Total 0 con contenedor valido vacio demuestra
         catalogo vacio. Cualquier otra salida (scroll ausente o ilegible,
         token repetido sin avance, fin prematuro, pagina malformada, total
-        cambiante o menor que lo observado unico, tope de paginas agotado)
-        deja la cobertura desconocida: devuelve (ids_observados, True).
+        cambiante o menor que lo observado unico, tope de paginas agotado,
+        o alcanzar el total sin corroboracion vigente) deja la
+        cobertura desconocida: devuelve (ids_observados, True).
         Los errores de transporte conservan su tratamiento seguro (raise),
         nunca se convierten en lista vacia completa.
         XR-1.8: corte a max_paginas sin certificar = truncado para skip.
@@ -200,20 +203,25 @@ class ClienteMeli:
             if paging is not None and not isinstance(paging, dict):
                 return ids, True  # pagina malformada: paging invalido
             total = _total_valido(paging.get("total")) if paging is not None else None
-            if total is not None:
-                if total_certificado is not None and total != total_certificado:
-                    return ids, True  # total cambiante entre paginas
-                total_certificado = total
             nuevos: list[str] = []
             for item_id in pagina:
                 if item_id not in vistos:
                     vistos.add(item_id)
                     nuevos.append(item_id)
             ids.extend(nuevos)
+            if total is not None:
+                if total_certificado is not None and total != total_certificado:
+                    # Total cambiante entre paginas: parcial, con los IDs
+                    # validos ya observados de esta pagina.
+                    return ids, True
+                total_certificado = total
             if total_certificado is not None:
                 if len(vistos) > total_certificado:
                     return ids, True  # mas unicos que el total: incoherente
-                if len(vistos) == total_certificado:
+                if total is not None and len(vistos) == total_certificado:
+                    # Certifica solo con el total valido de ESTA pagina: uno
+                    # heredado de una respuesta anterior no verifica la
+                    # cobertura actual (R1 de la revision: bajas indebidas).
                     return ids, False  # cobertura certificada
             if not pagina:
                 return ids, True  # fin prematuro: pagina vacia sin el total

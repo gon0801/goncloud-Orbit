@@ -334,7 +334,8 @@ def test_arreglos03_dm_fin_precozo_pagina_vacia_no_certifica(tmp_path):
 
 
 def test_arreglos03_dm_total_inconsistente_no_certifica(tmp_path):
-    # El total cambia entre paginas: lo leido no puede certificarse.
+    # El total cambia entre paginas: parcial, conservando los IDs validos
+    # ya observados de la pagina incoherente (no acreditan cobertura).
     cliente, _ = _cliente_scan(
         tmp_path,
         [
@@ -343,7 +344,7 @@ def test_arreglos03_dm_total_inconsistente_no_certifica(tmp_path):
         ],
     )
     try:
-        assert cliente.items_seller(7) == (["MLM1"], True)
+        assert cliente.items_seller(7) == (["MLM1", "MLM0"], True)
     finally:
         cliente.close()
     # Mas IDs unicos que el total anunciado: incoherente, no completo.
@@ -423,6 +424,38 @@ def test_arreglos03_dm_catalogo_vacio_certificado(tmp_path):
     cliente, _ = _cliente_scan(tmp_path, [{"results": [], "paging": {"total": 0}}])
     try:
         assert cliente.items_seller(7) == ([], False)
+    finally:
+        cliente.close()
+
+
+def test_arreglos03_dm_total_heredado_de_pagina_anterior_no_certifica(tmp_path):
+    """R1 de la revision del PR: alcanzar un total que la pagina actual no
+    corrobora (paging ausente en esa pagina) no certifica. Si el scroll
+    sigue, avanza; si el total cambia, queda parcial (DISENO D-M: total
+    cambiante implica parcial) conservando los IDs observados."""
+    cliente, llamadas = _cliente_scan(
+        tmp_path,
+        [
+            {"results": ["MLM1"], "paging": {"total": 2}, "scroll_id": "a"},
+            {"results": ["MLM2"], "scroll_id": "b"},
+            {"results": ["MLM3"], "paging": {"total": 3}},
+        ],
+    )
+    try:
+        assert cliente.items_seller(7) == (["MLM1", "MLM2", "MLM3"], True)
+        assert len(llamadas) == 3
+    finally:
+        cliente.close()
+    # Sin total vigente al terminarse el scroll: cobertura desconocida.
+    cliente, _ = _cliente_scan(
+        tmp_path,
+        [
+            {"results": ["MLM1"], "paging": {"total": 2}, "scroll_id": "a"},
+            {"results": ["MLM2"]},
+        ],
+    )
+    try:
+        assert cliente.items_seller(7) == (["MLM1", "MLM2"], True)
     finally:
         cliente.close()
 

@@ -393,7 +393,9 @@ def sincronizar(
     sin error) y el sello de la corrida se escribe en la misma TX que las
     filas: un rollback exterior no publica exito. Solo un scan con
     cobertura certificada (`truncado` False, decidido por el cliente)
-    reconcilia ausentes; un scan parcial conserva los ausentes.
+    reconcilia ausentes; un scan parcial conserva los ausentes. Cero IDs
+    solo es exito con catalogo vacio certificado: un scan fallido no se
+    confunde con un catalogo vacio.
     """
     resultado = ResultadoCatalogo()
     datos_me, _ = cliente.get("/users/me")
@@ -463,7 +465,10 @@ def sincronizar(
                 existentes.update(delta.existentes)
         if not truncado:
             _reconcilia_ausentes(conn, set(ids), resultado=resultado)
-        resultado.ok = not ids or resultado.observadas > 0
+        # ARREGLOS 03 D-M (R2 de la revision): cero IDs solo es exito con el
+        # catalogo vacio CERTIFICADO (scan completo); un scan fallido o
+        # parcial sin observaciones confirmadas no se publica como ok.
+        resultado.ok = (not ids and not truncado) or resultado.observadas > 0
         _sella(
             conn,
             resultado.run_id,
@@ -514,7 +519,7 @@ def main(argv: list[str] | None = None, *, cliente: ClienteCatalogo | None = Non
                 f" run={resultado.run_id} skips={dict(resultado.skips)}"
             )
             if not resultado.ok:
-                print("catalogo meli: sin observaciones con items en el scan", file=sys.stderr)
+                print("catalogo meli: corrida sin observaciones confirmadas", file=sys.stderr)
                 return 1
             return 0
     except Exception as exc:
