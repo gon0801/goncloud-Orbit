@@ -6,7 +6,9 @@ Reutiliza resolucion A.2 (`app.estimacion_insumos`) y cotizacion A.3
 (`app.estimacion_fees`). Las llamadas HTTP ocurren SIN transaccion abierta.
 
 Universo: listings Amazon con oferta fresca del registro. Cada item falla aislado;
-la corrida sella `ingest_run` con filas/errores contados.
+la corrida sella `ingest_run` con filas/errores contados. ARREGLOS 03 D-J: una
+plataforma con publicaciones que llegaron a cotizarse y ninguna cotizada sella
+`ok = false` y `main` sale 1 (cron-avisa avisa ese mismo dia).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import os
 import sys
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -110,6 +112,7 @@ class ResultadoIngestaEstimacion:
     escenarios_nuevos: int
     escenarios_reutilizados: int
     sin_oferta_fresca: tuple[tuple[str, datetime | None], ...] = ()
+    sin_cotizar: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass
@@ -124,6 +127,11 @@ class _Tally:
     escenarios_nuevos: int = 0
     escenarios_reutilizados: int = 0
     rows_written: int = 0
+    # ARREGLOS 03 D-J (seccion «OK»): por plataforma, publicaciones que
+    # llegaron a cotizarse (oferta resuelta y persistida) y cotizaciones
+    # persistidas con estado distinto de "error".
+    intentadas: Counter[str] = field(default_factory=Counter)
+    cotizadas: Counter[str] = field(default_factory=Counter)
 
     def oferta(self, reutilizada: bool) -> None:
         if reutilizada:
@@ -178,6 +186,16 @@ def plataformas_sin_oferta_fresca(
         for plataforma in sorted(plataformas)
         if plataforma not in mas_nueva or ahora - mas_nueva[plataforma] > FRESHNESS_LIMIT
     )
+
+
+def plataformas_sin_cotizar(
+    intentadas: Counter[str], cotizadas: Counter[str]
+) -> tuple[tuple[str, int], ...]:
+    """ARREGLOS 03 D-J (seccion «OK»): plataformas con publicaciones que
+    llegaron a cotizarse y ninguna cotizacion lograda, con cuantas se
+    intentaron. Cero cotizadas no es una corrida sana: el motor de precios
+    dejaria de evaluar toda la plataforma sin ningun aviso."""
+    return tuple(sorted((p, n) for p, n in intentadas.items() if n and not cotizadas[p]))
 
 
 def _log_excepcion_item(motivo: str, exc: BaseException) -> None:
@@ -406,6 +424,9 @@ def ejecutar_ingesta(
         n_sin_cliente = sum(1 for _, plataforma, _, _ in listings if plataforma == "meli")
         if n_sin_cliente:
             skips[SKIP_MELI_SIN_CLIENTE] += n_sin_cliente
+            # ARREGLOS 03 D-J: sin cliente MeLi ninguna publicacion de MeLi
+            # llega a cotizarse; cuentan como intentadas para el sello del run.
+            tally.intentadas["meli"] += n_sin_cliente
         listings = [fila for fila in listings if fila[1] != "meli"]
 
     with conn.transaction():
@@ -480,6 +501,10 @@ def ejecutar_ingesta(
         oferta_id, oferta_reutilizada = oferta_row
         tally.oferta(oferta_reutilizada)
 
+        # ARREGLOS 03 D-J: la publicacion ya resolvio y persistio su oferta;
+        # llega a cotizarse. Una excepcion de cotizacion ya conto como
+        # intentada (seccion «OK» del diseno).
+        tally.intentadas[platform] += 1
         try:
             cotizacion = _cotizar_item(
                 oferta,
@@ -510,6 +535,10 @@ def ejecutar_ingesta(
         if cotizacion.estado == "error":
             tally.fees_error += 1
             skips[cotizacion.error_code or "fee_error"] += 1
+        else:
+            # ARREGLOS 03 D-J: cotizacion persistida con estado distinto de
+            # "error": esta plataforma si quedo evaluable hoy.
+            tally.cotizadas[platform] += 1
 
         esc_row = _persistir_escenario_item(
             conn,
@@ -525,7 +554,8 @@ def ejecutar_ingesta(
         tally.escenario(esc_reutilizado)
 
     skip_reason = _formato_skip_reason(skips)
-    ok = True
+    sin_cotizar = plataformas_sin_cotizar(tally.intentadas, tally.cotizadas)
+    ok = not sin_cotizar
     with conn.transaction():
         _sellar_run(
             conn,
@@ -552,6 +582,7 @@ def ejecutar_ingesta(
         sin_oferta_fresca=plataformas_sin_oferta_fresca(
             filas_bridge, {plataforma for _, plataforma, _, _ in listings} - {"meli"}, ahora
         ),
+        sin_cotizar=sin_cotizar,
     )
 
 
@@ -565,6 +596,15 @@ def _sellar_run(
     skip_reason: str | None,
 ) -> None:
     conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
+
+
+# ARREGLOS 03 D-J (seccion «OK»): nombre en llano de cada plataforma para el
+# aviso que ve la persona por Telegram (cron-avisa manda el stderr).
+_NOMBRE_PLATAFORMA = {
+    "amazon_mx": "Amazon México",
+    "amazon_us": "Amazon Estados Unidos",
+    "meli": "Mercado Libre",
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -641,7 +681,15 @@ def main(argv: list[str] | None = None) -> int:
             " el motor de precios no evaluara sus publicaciones",
             file=sys.stderr,
         )
-    return 1 if resultado.sin_oferta_fresca else 0
+    # ARREGLOS 03 D-J: cero cotizadas en una plataforma no es una corrida
+    # sana; una linea por plataforma y salida 1 para que cron-avisa avise.
+    for plataforma, n in resultado.sin_cotizar:
+        print(
+            f"estimación: ninguna publicación de {_NOMBRE_PLATAFORMA.get(plataforma, plataforma)}"
+            f" quedó cotizada ({n} intentadas); el motor de precios no la evaluará hoy",
+            file=sys.stderr,
+        )
+    return 1 if (resultado.sin_oferta_fresca or not resultado.ok) else 0
 
 
 if __name__ == "__main__":
