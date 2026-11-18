@@ -143,7 +143,7 @@ def test_tipos_submotivos_de_unidad_reemplazan_los_de_fba():
         SenalVentas("sin_dato", nuevo, None, 0, 0, 0, 0, 0)
 
 
-def test_tipos_decision_verificacion_lineal_o_cotizada():
+def test_tipos_decision_verificacion_cotizada():
     from app.precio.tipos import Decision
 
     base = {
@@ -165,10 +165,11 @@ def test_tipos_decision_verificacion_lineal_o_cotizada():
         "mode": "shadow",
     }
     assert Decision(**base).verificacion is None
-    assert Decision(**base, verificacion="lineal").verificacion == "lineal"
     assert Decision(**base, verificacion="cotizada").verificacion == "cotizada"
     with pytest.raises(ValueError):
         Decision(**base, verificacion="inventada")
+    with pytest.raises(ValueError):
+        Decision(**base, verificacion="lineal")
 
 
 HOY = date(2026, 9, 17)
@@ -1895,18 +1896,6 @@ def decide(ent, hoy=HOY, cotizaciones=(), **kw):
         fees_escenario=fees_escenario_de(ent),
         **kw,
     )
-
-
-def test_lineal_cierra_con_formula_sin_pedir_cotizacion():
-    from app.precio.tipos import PideCotizacion
-
-    ent = entrada(costo="60")
-    pide = decide(ent)
-    assert isinstance(pide, PideCotizacion)
-    d = decide(ent, lineal=True)
-    assert not isinstance(d, PideCotizacion)
-    assert (d.resultado, d.verificacion) == ("subir", "lineal")
-    assert d.p_objetivo == pide.precio
 
 
 def cotiza_lineal(pedido, ref=Decimal("12") / Decimal("116"), fijo=Decimal("3")):

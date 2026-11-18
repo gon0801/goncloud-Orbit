@@ -8,8 +8,7 @@ M.4: el unico PUT de `app/` vive en `app/meli/write_client.py`
 (`tools/` trae puts legacy de ads fuera del carril; caza tambien
 `request("PUT")` y `getattr`); un solo importador del cliente
 (`app/cli.py`; caza el alias `from`); `ClienteMeli` con inventario
-cerrado de metodos (sin vacuo); `sonda` (cualquier valor no-`False`)
-solo en `tools/precio_sonda.py`; `app/meli/` no importa `app.spapi.*`.
+cerrado de metodos (sin vacuo); `app/meli/` no importa `app.spapi.*`.
 """
 
 from __future__ import annotations
@@ -154,77 +153,6 @@ def test_candado_cliente_meli_caza_metodo_sembrado(tmp_path):
     assert metodos - _METODOS_CLIENTE_MELI == {"put"}
     (tmp_path / "vacia.py").write_text("X = 1\n", encoding="utf-8")
     assert _metodos_cliente_meli(tmp_path / "vacia.py") == (False, set())
-
-
-def _pasa_sonda(nodo: ast.Call) -> bool:
-    """Llamada que ORIGINA `sonda` (caza `=True`, `=1`, variable y
-    `**{"sonda": ...}`). No cuenta el reenvio puro (`sonda=sonda`, solo
-    el adaptador) ni `sonda=False` explicito."""
-    for k in nodo.keywords:
-        if k.arg == "sonda":
-            if isinstance(k.value, ast.Constant) and k.value.value is False:
-                continue
-            if isinstance(k.value, ast.Name) and k.value.id == "sonda":
-                continue
-            return True
-        if k.arg is None and isinstance(k.value, ast.Dict):
-            for clave in k.value.keys:
-                if isinstance(clave, ast.Constant) and clave.value == "sonda":
-                    return True
-    return False
-
-
-def _sonda_por_archivo(raiz: Path) -> dict[str, list[int]]:
-    """Llamadas que originan `sonda` bajo `raiz` (los `def` no cuentan)."""
-    hallados: dict[str, list[int]] = {}
-    for ruta in sorted(raiz.rglob("*.py")):
-        lineas = [
-            nodo.lineno
-            for nodo in ast.walk(ast.parse(ruta.read_text(encoding="utf-8")))
-            if isinstance(nodo, ast.Call) and _pasa_sonda(nodo)
-        ]
-        if lineas:
-            hallados[ruta.relative_to(raiz).as_posix()] = lineas
-    return hallados
-
-
-def _reenvia_sonda(raiz: Path) -> dict[str, list[int]]:
-    """Llamadas con reenvio puro (`sonda=sonda`) bajo `raiz`."""
-    hallados: dict[str, list[int]] = {}
-    for ruta in sorted(raiz.rglob("*.py")):
-        lineas = [
-            nodo.lineno
-            for nodo in ast.walk(ast.parse(ruta.read_text(encoding="utf-8")))
-            if isinstance(nodo, ast.Call)
-            and any(
-                k.arg == "sonda" and isinstance(k.value, ast.Name) and k.value.id == "sonda"
-                for k in nodo.keywords
-            )
-        ]
-        if lineas:
-            hallados[ruta.relative_to(raiz).as_posix()] = lineas
-    return hallados
-
-
-def test_sonda_true_solo_en_precio_sonda():
-    """M.4: solo `tools/precio_sonda.py` ORIGINA `sonda` (la corrida
-    nunca); el unico reenvio puro es el adaptador MeLi."""
-    assert _sonda_por_archivo(APP) == {}
-    assert list(_sonda_por_archivo(TOOLS)) == ["precio_sonda.py"]
-    assert list(_reenvia_sonda(APP)) == ["meli/precio_mercado.py"]
-    assert _reenvia_sonda(TOOLS) == {}
-
-
-def test_candado_sonda_caza_fuga_sembrada(tmp_path):
-    """El candado si agarraria un `sonda` sembrado en la corrida."""
-    (tmp_path / "corrida.py").write_text("m.escribir(u, p, sonda=True)\n", encoding="utf-8")
-    (tmp_path / "corrida2.py").write_text("m.escribir(u, p, sonda=flag)\n", encoding="utf-8")
-    (tmp_path / "ok.py").write_text("m.escribir(u, p, sonda=False)\n", encoding="utf-8")
-    assert list(_sonda_por_archivo(tmp_path)) == ["corrida.py", "corrida2.py"]
-    (tmp_path / "corrida3.py").write_text(
-        "def f(sonda):\n    m.escribir(u, p, sonda=sonda)\n", encoding="utf-8"
-    )
-    assert list(_reenvia_sonda(tmp_path)) == ["corrida3.py"]
 
 
 def _imports_spapi_en(raiz: Path) -> dict[str, list[str]]:

@@ -61,7 +61,7 @@ class _MercadoSim:
             raise PrecioVivoAusente(f"listing {unidad.listing_id} sin precio sim")
         return Importe(Decimal(str(fila["valor"])), str(fila["moneda"]))
 
-    def escribir(self, unidad: UnidadPrecio, precio: Importe, *, sonda: bool = False) -> Acuse:
+    def escribir(self, unidad: UnidadPrecio, precio: Importe) -> Acuse:
         self.precios[str(unidad.listing_id)] = {
             "valor": f"{precio.valor:.2f}",
             "moneda": precio.moneda,
@@ -70,7 +70,7 @@ class _MercadoSim:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.precios, f, sort_keys=True)
         os.replace(tmp, self.ruta)
-        return Acuse(aceptada=True, codigo="sim", cuerpo={"sonda": sonda})
+        return Acuse(aceptada=True, codigo="sim", cuerpo={})
 
 
 def _dsn_decide() -> str:
@@ -136,7 +136,7 @@ def _corre(conn, mercado, unidad: UnidadPrecio, args) -> int:
     if not args.go:
         raise Abortar("falta --go: --acepto-mutacion-real sin --go no muta")
     try:
-        ida = mercado.escribir(unidad, sonda, sonda=True)
+        ida = mercado.escribir(unidad, sonda)
     except Exception as exc:
         raise Abortar(f"sonda de listing {unidad.listing_id} fallo: {exc}") from None
     if not ida.aceptada:
@@ -144,7 +144,7 @@ def _corre(conn, mercado, unidad: UnidadPrecio, args) -> int:
         return 1
     print(f"[sonda] listing={unidad.listing_id} aceptada a {sonda.valor:.2f} {sonda.moneda}")
     try:
-        vuelta = mercado.escribir(unidad, vivo, sonda=True)
+        vuelta = mercado.escribir(unidad, vivo)
     except Exception as exc:
         raise Abortar(
             f"REVERSA de listing {unidad.listing_id} fallo ({exc}):"

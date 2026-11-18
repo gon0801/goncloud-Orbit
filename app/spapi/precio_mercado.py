@@ -629,9 +629,7 @@ class MercadoAmazon:
         )
         return Importe(vivo.precio, vivo.moneda)
 
-    def escribir(
-        self, unidad: puerto.UnidadPrecio, precio: Importe, *, sonda: bool = False
-    ) -> puerto.Acuse:
+    def escribir(self, unidad: puerto.UnidadPrecio, precio: Importe) -> puerto.Acuse:
         """PATCH del precio via Listings Items; devuelve el acuse saneado."""
         self._exigir_clientes()
         sku = unidad.miembros[0].seller_sku if unidad.miembros else ""

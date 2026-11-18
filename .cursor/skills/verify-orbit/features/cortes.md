@@ -9,7 +9,9 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 - `cortes-etiqueta` la etiqueta de `pause` sale por la entidad: keyword `Apagar palabra`, product_target `Apagar segmentación de producto`, product_ad `Pausar anuncio del producto`. `negative` es `Bloquear busqueda` y `harvest` `Capturar termino que vende`.
 - `cortes-vacio` sin filas muestra `Sin propuestas pendientes: no hay nada esperando tu decisión.`
 - `cortes-form` el boton `data-vetar="<id>"` revela `form[data-veto="<id>"]` (efecto del rechazo, o en una fila `shadow` el aviso `Es de práctica: no se aplica aunque no la rechaces. El rechazo sí bloquea esta propuesta de verdad…`; la frase `Bloquea la propuesta durante los días que pongas abajo, contados desde hoy.`; `Días` (`name="dias"`), actor, token (placeholder «Token de escritura»), `Confirmar rechazo`). Tras el POST, `cortes.js` escribe `Rechazado hasta el <fecha larga> (hora del centro de México).` y un 422 sale como `Error: Días: <mensaje>.`.
-- `cortes-api` `GET /api/dashboard/cortes` es la misma cola; cada item trae `modo` (`live` o `shadow`).
+- `cortes-senal` bajo la fila de la propuesta puede ir `tr.senal-jev` con la señal Jev guardada (origen y, en harvest, destino). Sin señal guardada no se pinta nada; si la lectura falla sale el chip `Señal Jev no disponible por ahora…`. La semilla baseline no trae señal.
+- Ya no hay asesoría Jev por propuesta (se quitó en ARREGLOS 03 D-C): ni fila `tr.asesoria-jev`, ni chip `Asesoria Jev`, ni claves `asesoria` / `asesoria_disponible` en el JSON.
+- `cortes-api` `GET /api/dashboard/cortes` es la misma cola; cada item trae `modo` (`live` o `shadow`) y `senal`.
 - `cortes-contador` el numero del menu (`#propuestas-contador`, lo pinta `shell.js`) cuenta solo los items `live`; su `aria-label` es `N pendientes (M de práctica)`.
 
 ## How to get to it (user POV)
@@ -27,9 +29,9 @@ Preconditions:
 - Si falta 0002, `apply_queue` no existe y `/cortes` devuelve 500; ese run no es valido.
 
 - **Abrir Cortes.** Corre `curl -sS "$BASE/cortes"`. Status 200. El HTML contiene `data-pantalla="cortes"` y `h2` `Propuestas pendientes de decisión`.
-- **Leer la fila sembrada.** El HTML contiene bloques `Crecen` y `Recortan`, columnas `Tipo` / `Por que`, chip `Recorta`, `zapato blanco`, entidad `Campana A`, `se aplica solo el` (la semilla es `live`), `Esperando tu revisión` (el estado `pending_veto`, en español) y `propuesta el` en el detalle de Vence (no como chip), `button` con `data-vetar=`, y `form` con `data-veto=`, `durante los días que pongas abajo`, `Confirmar rechazo`, inputs `name="dias"` (value 30, label `Días`), `name="actor"`, `name="token"` (placeholder `Token de escritura`). Una fila sembrada con `modo='shadow'` muestra el chip `Práctica` y `No se aplica: es práctica`.
+- **Leer la fila sembrada.** El HTML contiene bloques `Crecen` y `Recortan`, columnas `Tipo` / `Por que`, chip `Recorta`, `zapato blanco`, entidad `Campana A`, `se aplica solo el` (la semilla es `live`), `Esperando tu revisión` (el estado `pending_veto`, en español) y `propuesta el` en el detalle de Vence (no como chip), `button` con `data-vetar=`, y `form` con `data-veto=`, `durante los días que pongas abajo`, `Confirmar rechazo`, inputs `name="dias"` (value 30, label `Días`), `name="actor"`, `name="token"` (placeholder `Token de escritura`). Una fila sembrada con `modo='shadow'` muestra el chip `Práctica` y `No se aplica: es práctica`. El HTML no contiene `asesoria-jev` ni `Asesoria Jev` (check `sin_asesoria_jev`).
 - **Estado vacio (solo si dropeas la cola).** El HTML entonces contiene el parrafo `Sin propuestas pendientes`. No lo afirmes contra la semilla baseline.
-- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/cortes"`. Status 200. Un item tiene `kind` `negative`, `search_term` `zapato blanco`, `estado` `pending_veto`, `modo` `live`.
+- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/cortes"`. Status 200. Un item tiene `kind` `negative`, `search_term` `zapato blanco`, `estado` `pending_veto`, `modo` `live`. Ni la respuesta trae `asesoria_disponible` ni ningún item trae `asesoria` (check `api_sin_asesoria`).
 - **Proof.** Guarda HTML y JSON bajo `evidence/<run_id>/cortes/`. No POSTees `/api/ads-optimizer/veto` salvo que el run tenga `ORBIT_SECRETS_DIR` y `ORBIT_DSN_ADMIN` desechables y lo declares.
 
 ## Gotchas

@@ -16,7 +16,6 @@ from uuid import UUID
 from app.jev_ads import (
     CensoCongelado,
     ClavePar,
-    DecisionARevisar,
     EstadoPar,
     FalloProveedor,
     FichaFaltante,
@@ -25,7 +24,6 @@ from app.jev_ads import (
     NoComprobable,
     Obsoleta,
     PlanSeco,
-    RelevanciaConjunto,
     Revision,
     Sujeto,
     Vigencia,
@@ -33,7 +31,6 @@ from app.jev_ads import (
     _canonico,
     _censo_a_json,
     _censo_de_json,
-    _identidad_del_censo,
     _juicio_de_respuesta,
     _mismo_origen,
     _solo_no_activo,
@@ -43,7 +40,6 @@ from app.jev_ads import (
 from app.jev_libro import Libro
 from app.jev_vista import (
     _COLUMNAS_REVISION,
-    ReferenciaPlan,
     VistaAsesoria,
     _evento_del_par,
     _fila_dict,
@@ -101,37 +97,27 @@ class AsesorAds:
         revision + eventos auditables (retomable por solicitud_id)."""
         from app.jev_juicios import clave_de
 
-        destino_crudo = sujeto.destino_censo if isinstance(sujeto, DecisionARevisar) else None
         guardada = self._conn.execute(
             "SELECT censos, captured_at FROM jev_revision WHERE solicitud = %s", (solicitud_id,)
         ).fetchone()
         if guardada is None:
             ahora = self._ahora()
             censo, fichas = self._enriquecer(sujeto.censo, sujeto.plataforma, ahora)
-            destino = None
-            if destino_crudo is not None:
-                destino, fichas_destino = self._enriquecer(destino_crudo, sujeto.plataforma, ahora)
-                fichas = {**fichas, **fichas_destino}
         else:
-            censo, destino, fichas, ahora = self._retomar(
-                guardada, sujeto.censo, destino_crudo, sujeto.plataforma
-            )
-        terminos = (sujeto.termino,) if isinstance(sujeto, DecisionARevisar) else sujeto.terminos
+            censo, fichas, ahora = self._retomar(guardada, sujeto.censo, sujeto.plataforma)
+        terminos = sujeto.terminos
         contexto = {
             "censo": _censo_a_json(censo),
             "plataforma": sujeto.plataforma,
             "terminos": list(terminos),
         }
-        if destino is not None:
-            contexto["destino"] = _censo_a_json(destino)
-        self._abrir_revision(sujeto, solicitud_id, contexto, censo, destino, ahora)
+        self._abrir_revision(sujeto, solicitud_id, contexto, censo, ahora)
         resultados = []
-        destinos: list[tuple[str, RelevanciaConjunto]] = []
         http_hechos = 0
         agotado = False
         # V1 no reintenta dentro del lote: una clave que ya fallo en ESTA
-        # corrida (p. ej. el origen de un harvest) no se paga otra vez en el
-        # destino; plan_seco cuenta por clave unica y asi coincide.
+        # corrida no se paga otra vez; plan_seco cuenta por clave unica y
+        # asi coincide.
         fallidos: dict[ClavePar, EstadoPar] = {}
 
         def pares_de(un_censo: CensoCongelado, termino: str) -> list[EstadoPar]:
@@ -169,17 +155,13 @@ class AsesorAds:
             if es_asin_like(termino):
                 sin_texto = (NoAplicaTexto(motivo="asin_like"),)
                 resultados.append((termino, componer(censo, sin_texto)))
-                if destino is not None:
-                    destinos.append((termino, componer(destino, sin_texto)))
                 continue
             resultados.append((termino, componer(censo, tuple(pares_de(censo, termino)))))
-            if destino is not None:
-                destinos.append((termino, componer(destino, tuple(pares_de(destino, termino)))))
-        return Revision(solicitud_id, tuple(resultados), agotado, tuple(destinos))
+        return Revision(solicitud_id, tuple(resultados), agotado)
 
     # internos (confirmaciones = los tres puntos del orden sellado)
 
-    def _retomar(self, guardada, censo_crudo, destino_crudo, plataforma):
+    def _retomar(self, guardada, censo_crudo, plataforma):
         """Reanudacion: el censo y el captured_at CONGELADOS por la revision
         (R9). Una ficha revocada, vencida o sustituida entre intentos no cambia
         el payload (la vigencia marcara Obsoleta), pero su par ya no se
@@ -190,17 +172,10 @@ class AsesorAds:
 
         contexto, capturado = guardada
         censo = _censo_de_json(contexto["censo"])
-        destino = _censo_de_json(contexto["destino"]) if "destino" in contexto else None
-        mismo_destino = (destino is None and destino_crudo is None) or (
-            destino is not None
-            and destino_crudo is not None
-            and _mismo_origen(destino, destino_crudo)
-        )
-        if not _mismo_origen(censo, censo_crudo) or not mismo_destino:
+        if not _mismo_origen(censo, censo_crudo):
             raise ValueError("misma solicitud con otro payload")
-        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
         fichas = fichas_por_id(
-            self._conn, (m.ficha_version_id for m in miembros if m.ficha_version_id)
+            self._conn, (m.ficha_version_id for m in censo.miembros if m.ficha_version_id)
         )
         hoy = self._ahora()
 
@@ -218,10 +193,12 @@ class AsesorAds:
             return True
 
         vencidas = {
-            m.ficha_version_id for m in miembros if m.ficha_version_id and not sigue_vigente(m)
+            m.ficha_version_id
+            for m in censo.miembros
+            if m.ficha_version_id and not sigue_vigente(m)
         }
         vigentes = {ficha_id: f for ficha_id, f in fichas.items() if ficha_id not in vencidas}
-        return censo, destino, vigentes, capturado
+        return censo, vigentes, capturado
 
     def plan_seco(self, sujeto: Sujeto, *, solicitud_id: UUID) -> PlanSeco:
         """Lo que `evaluar` haria con esta solicitud, SIN escribir ni llamar
@@ -232,42 +209,33 @@ class AsesorAds:
         se cortan con el presupuesto."""
         from app.jev_juicios import clave_de
 
-        destino_crudo = sujeto.destino_censo if isinstance(sujeto, DecisionARevisar) else None
         guardada = self._conn.execute(
             "SELECT censos, captured_at FROM jev_revision WHERE solicitud = %s", (solicitud_id,)
         ).fetchone()
         if guardada is None:
             ahora = self._ahora()
             censo, fichas = self._enriquecer(sujeto.censo, sujeto.plataforma, ahora)
-            destino = None
-            if destino_crudo is not None:
-                destino, fichas_destino = self._enriquecer(destino_crudo, sujeto.plataforma, ahora)
-                fichas = {**fichas, **fichas_destino}
         else:
-            censo, destino, fichas, _ = self._retomar(
-                guardada, sujeto.censo, destino_crudo, sujeto.plataforma
-            )
-        terminos = (sujeto.termino,) if isinstance(sujeto, DecisionARevisar) else sujeto.terminos
+            censo, fichas, _ = self._retomar(guardada, sujeto.censo, sujeto.plataforma)
+        terminos = sujeto.terminos
         nuevas: set = set()
         reutilizables: set = set()
         for termino in terminos:
             if es_asin_like(termino):
                 continue
-            for un_censo in (censo, *((destino,) if destino is not None else ())):
-                for miembro in un_censo.miembros:
-                    ficha = fichas.get(miembro.ficha_version_id)
-                    if ficha is None or _solo_no_activo(miembro.estados):
-                        continue
-                    clave = clave_de(termino, ficha, self._contrato)
-                    if clave in reutilizables or clave in nuevas:
-                        continue
-                    if guardada is not None and self._exito_previo(solicitud_id, clave):
-                        reutilizables.add(clave)
-                    else:
-                        nuevas.add(clave)
-        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
+            for miembro in censo.miembros:
+                ficha = fichas.get(miembro.ficha_version_id)
+                if ficha is None or _solo_no_activo(miembro.estados):
+                    continue
+                clave = clave_de(termino, ficha, self._contrato)
+                if clave in reutilizables or clave in nuevas:
+                    continue
+                if guardada is not None and self._exito_previo(solicitud_id, clave):
+                    reutilizables.add(clave)
+                else:
+                    nuevas.add(clave)
         return PlanSeco(
-            miembros=len(miembros),
+            miembros=len(censo.miembros),
             fichas=len(fichas),
             pares_nuevos=len(nuevas),
             pares_reutilizables=len(reutilizables),
@@ -282,7 +250,7 @@ class AsesorAds:
 
         return resolver_fichas(self._conn, censo, plataforma=plataforma, ahora=ahora)
 
-    def _abrir_revision(self, sujeto, solicitud_id, contexto, censo, destino, ahora):
+    def _abrir_revision(self, sujeto, solicitud_id, contexto, censo, ahora):
         """Revision ANTES del primer HTTP; otro payload con la misma solicitud -> ValueError."""
         contrato_json = {
             "modelo": self._contrato.modelo,
@@ -290,21 +258,15 @@ class AsesorAds:
             "sha256": self._contrato.sha256(),
             "version": self._contrato.version,
         }
-        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
-        fichas_ids = sorted({str(m.ficha_version_id) for m in miembros if m.ficha_version_id})
-        if isinstance(sujeto, DecisionARevisar):
-            columnas = ("decision_id", "decided_at")
-            valores: dict = {"decision_id": sujeto.decision_id, "decided_at": sujeto.decided_at}
-            esperado = ("decision", sujeto.decision_id, None)  # plan_sha256
-        else:
-            columnas = ("plan_canonico", "plan_sha256", "fuentes_semillas", "decided_at")
-            valores = {
-                "plan_canonico": _canonico(sujeto.plan_canonico),
-                "plan_sha256": sujeto.plan_sha256,
-                "fuentes_semillas": _canonico(sujeto.fuentes_semillas),
-                "decided_at": None,
-            }
-            esperado = ("semillas", None, sujeto.plan_sha256)
+        fichas_ids = sorted({str(m.ficha_version_id) for m in censo.miembros if m.ficha_version_id})
+        columnas = ("plan_canonico", "plan_sha256", "fuentes_semillas", "decided_at")
+        valores = {
+            "plan_canonico": _canonico(sujeto.plan_canonico),
+            "plan_sha256": sujeto.plan_sha256,
+            "fuentes_semillas": _canonico(sujeto.fuentes_semillas),
+            "decided_at": None,
+        }
+        esperado = ("semillas", None, sujeto.plan_sha256)
         nombres = ", ".join((*columnas, "censos", "ficha_version_ids", "contrato", "captured_at"))
         placeholders = ", ".join(
             ["%s::jsonb" if c in ("plan_canonico", "fuentes_semillas") else "%s" for c in columnas]
@@ -375,7 +337,6 @@ class AsesorAds:
     def _vigencia_de_miembros(
         self,
         censo: CensoCongelado,
-        destino: CensoCongelado | None,
         contexto: dict,
         ahora: datetime,
     ) -> Vigencia:
@@ -389,8 +350,7 @@ class AsesorAds:
         seleccionada: dict[int, UUID | None] = {}
         comprobadas = 0
         desplazada = False
-        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
-        for miembro in miembros:
+        for miembro in censo.miembros:
             if miembro.ficha_version_id is None or miembro.producto_id is None:
                 continue
             for listing in sorted(miembro.listing_ids):
@@ -423,25 +383,11 @@ class AsesorAds:
 
         return _Posicional()
 
-    def _destino_cambio(self, decision_id: int, congelado: CensoCongelado) -> bool:
-        """R3: el destino de hoy ya no es el que la revision congelo (otro
-        anuncio, listing o estado). `synced_at` no cuenta: una resincronizacion
-        no cambia el destino. Un destino que ya no se puede leer, tampoco es el
-        mismo."""
-        from app.jev_catalogo import decision_a_revisar
-
-        try:
-            actual = decision_a_revisar(self._posicional(), decision_id).destino_censo
-        except ValueError:
-            return True
-        return actual is None or _identidad_del_censo(actual) != _identidad_del_censo(congelado)
-
     def _vista_de_revision(self, fila: dict, ahora: datetime) -> VistaAsesoria:
         """Vista historica de UNA revision (vigencia por fichas congeladas)."""
         fila = _fila_dict(fila, _COLUMNAS_REVISION)
         contexto = fila["censos"]
         censo = _censo_de_json(contexto["censo"])
-        destino = _censo_de_json(contexto["destino"]) if "destino" in contexto else None
         terminos = list(contexto["terminos"])
         ids_fichas = [
             x if isinstance(x, UUID) else UUID(x) for x in fila["ficha_version_ids"] or []
@@ -482,14 +428,7 @@ class AsesorAds:
                 )
                 for d in filas
             ]
-            vigencia = self._vigencia_de_miembros(censo, destino, contexto, ahora)
-        decision_id = fila["decision_id"]
-        if (
-            destino is not None
-            and decision_id is not None
-            and self._destino_cambio(decision_id, destino)
-        ):
-            vigencia = Obsoleta()
+            vigencia = self._vigencia_de_miembros(censo, contexto, ahora)
 
         columnas_evento = (
             "id",
@@ -509,13 +448,12 @@ class AsesorAds:
             ).fetchall()
         ]
 
-        def composicion_de(un_censo: CensoCongelado, termino: str, hash_termino: str):
-            """Reconstruccion HISTORICA del ambito: mismos eventos, un
-            universo propio (origen o destino jamas mezclados)."""
+        def composicion_de(termino: str, hash_termino: str):
+            """Reconstruccion HISTORICA: mismos eventos, el universo congelado."""
             if es_asin_like(termino):
-                return componer(un_censo, (NoAplicaTexto(motivo="asin_like"),))
+                return componer(censo, (NoAplicaTexto(motivo="asin_like"),))
             pares: list[EstadoPar] = []
-            for miembro in un_censo.miembros:
+            for miembro in censo.miembros:
                 if _solo_no_activo(miembro.estados):
                     continue
                 if miembro.ficha_version_id is None:
@@ -538,15 +476,12 @@ class AsesorAds:
                             motivo=str(propio["error"] or "fallo del proveedor"),
                         )
                     )
-            return componer(un_censo, tuple(pares))
+            return componer(censo, tuple(pares))
 
         resultados = []
-        destinos = []
         for termino in terminos:
             hash_termino = hashlib.sha256(termino.encode("utf-8")).hexdigest()
-            resultados.append((termino, composicion_de(censo, termino, hash_termino)))
-            if destino is not None:
-                destinos.append((termino, composicion_de(destino, termino, hash_termino)))
+            resultados.append((termino, composicion_de(termino, hash_termino)))
 
         return VistaAsesoria(
             solicitud=fila["solicitud"],
@@ -558,25 +493,19 @@ class AsesorAds:
             fichas=tuple(fichas),
             fuentes_semillas=fila["fuentes_semillas"],
             vigencia=vigencia,
-            destinos=tuple(destinos),
         )
 
     def leer(self, referencias, *, ahora: datetime) -> dict:
-        """Vistas de revisiones guardadas para la UI (2.1/2.2): SOLO lectura,
-        eventos de SU revision; None sin revision ligada."""
+        """Vistas de revisiones guardadas para la UI (2.2): SOLO lectura por
+        huella de plan, eventos de SU revision; None sin revision ligada."""
         salidas: dict = {}
         for ref in referencias:
-            campo, valor = (
-                ("plan_sha256", ref.plan_sha256)
-                if isinstance(ref, ReferenciaPlan)
-                else ("decision_id", ref)
-            )
             fila = self._conn.execute(
                 "SELECT solicitud, sujeto_tipo, decision_id, plan_sha256, censos,"
                 " ficha_version_ids, captured_at, fuentes_semillas"
-                " FROM jev_revision WHERE sujeto_tipo = %s"
-                f" AND {campo} = %s ORDER BY created_at DESC, solicitud LIMIT 1",
-                ("semillas" if campo == "plan_sha256" else "decision", valor),
+                " FROM jev_revision WHERE sujeto_tipo = 'semillas'"
+                " AND plan_sha256 = %s ORDER BY created_at DESC, solicitud LIMIT 1",
+                (ref.plan_sha256,),
             ).fetchone()
             salidas[ref] = self._vista_de_revision(fila, ahora) if fila is not None else None
         return salidas

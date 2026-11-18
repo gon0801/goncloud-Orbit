@@ -35,7 +35,6 @@ from app.redaction import register_secret
 from app.spapi.client import MERCADOS, VENDEDORES_PROPIOS, SpapiClient
 from app.spapi.precio_mercado import MercadoAmazon
 from app.spapi.precio_write import (
-    FORMA_PARCHE,
     construir_cuerpo_parche,
     construir_escritor,
     leer_precio_vivo,
@@ -993,7 +992,6 @@ def test_cambiar_usa_forma_sellada_aceptada_en_sonda():
             mercado = _mercado(red, construir_cuerpo=None)
             res = aplicar(conn, mercado, dec, ahora=AHORA)
         assert res.estado == "enviado"
-        assert FORMA_PARCHE == "listings_items_purchasable_offer_v1"
         assert red.n_patch == 1
         assert json.loads(red.pedidos_patch[0].content) == {
             "productType": "PRODUCT",
@@ -2137,13 +2135,14 @@ def _cambio59(
     enviado=ANTES,
     error_code=None,
     readback=None,
+    corrida_id=None,
 ) -> int:
     cid = conn.execute(
         "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
         " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
-        " estado, enviado_at)"
-        " VALUES (%s, %s, %s, %s, 'MXN', %s, 'MXN', true, 'pendiente', %s) RETURNING id",
-        (dec, lid, platform, antes, despues, enviado),
+        " estado, enviado_at, corrida_id)"
+        " VALUES (%s, %s, %s, %s, 'MXN', %s, 'MXN', true, 'pendiente', %s, %s) RETURNING id",
+        (dec, lid, platform, antes, despues, enviado, corrida_id),
     ).fetchone()[0]
     if estado == "pendiente":
         return cid
@@ -2185,13 +2184,22 @@ def _semilla59(
     mode="live",
     estado="confirmado",
     enviado=ANTES,
+    corrida_id=None,
 ):
     """listing + goal + decision subir + cambio real; devuelve ids por nombre."""
     prod = _producto(conn, sku=f"PR-{sku}")
     lid = _listing(conn, prod, platform=platform, asin=asin, sku=sku)
     gid = _goal59(conn, lid, platform=platform, mode=mode)
     dec = _decision59(conn, lid, gid, platform=platform, mode=mode, canal=canal)
-    cid = _cambio59(conn, dec, lid, platform=platform, estado=estado, enviado=enviado)
+    cid = _cambio59(
+        conn,
+        dec,
+        lid,
+        platform=platform,
+        estado=estado,
+        enviado=enviado,
+        corrida_id=corrida_id,
+    )
     return {"listing": lid, "goal": gid, "decision": dec, "cambio": cid}
 
 
@@ -2226,7 +2234,7 @@ class _MercadoLote:
         valor, moneda = self.vivos[unidad.listing_id]
         return Importe(Decimal(valor), moneda)
 
-    def escribir(self, unidad, precio, *, sonda=False):
+    def escribir(self, unidad, precio):
         from app.precio.puerto import Acuse
 
         self.escrituras.append((unidad.listing_id, precio))
@@ -2404,7 +2412,7 @@ def test_s5_reversa_y_corrida_no_corren_a_la_vez():
             vistos = []
 
             class _ConCorrida(_MercadoLote):
-                def escribir(self, unidad, precio, *, sonda=False):
+                def escribir(self, unidad, precio):
                     try:
                         _tomar_lock(tercera, "amazon_mx", "tdd-corrida-2")
                     except LockOcupado as exc:
@@ -2412,7 +2420,7 @@ def test_s5_reversa_y_corrida_no_corren_a_la_vez():
                     else:
                         _soltar_lock(tercera, "amazon_mx", "tdd-corrida-2")
                         vistos.append("TOMO-INESPERADO")
-                    return super().escribir(unidad, precio, sonda=sonda)
+                    return super().escribir(unidad, precio)
 
             with rol(conn):
                 res = revertir_lote(
@@ -2492,7 +2500,8 @@ def test_s5_tool_fecha_revierte_enviados_del_dia(monkeypatch, capsys):
 
 
 def test_s5_tool_corrida_revierte_lote_de_corrida(monkeypatch, capsys):
-    """S.5 selector --corrida: resuelve (platform, fecha) de la corrida."""
+    """S.5 selector --corrida: el lote son los cambios que estampan esa
+    corrida (P-A.2: ya no el dia entero de la plataforma)."""
     import tools.precio_reversa as tool
 
     with _db59() as conn:
@@ -2509,6 +2518,7 @@ def test_s5_tool_corrida_revierte_lote_de_corrida(monkeypatch, capsys):
             sku="SKU-S5-R1",
             estado="confirmado",
             enviado=ahora,
+            corrida_id=corrida,
         )
         otro_dia = _semilla59(
             conn,
@@ -2545,10 +2555,10 @@ def test_s5_fallo_al_escribir_sella_error_y_lote_sigue():
         _config59(conn)
 
         class _ExplotaUna(_MercadoLote):
-            def escribir(self, unidad, precio, *, sonda=False):
+            def escribir(self, unidad, precio):
                 if unidad.listing_id == uno["listing"]:
                     raise RuntimeError("bug-simulado")
-                return super().escribir(unidad, precio, sonda=sonda)
+                return super().escribir(unidad, precio)
 
         mercado = _ExplotaUna(
             vivos={uno["listing"]: ("110.00", "MXN"), dos["listing"]: ("110.00", "MXN")}
@@ -2629,11 +2639,8 @@ def test_arreglos01_r_meli_con_variaciones_recibe_precio():
         def __init__(self):
             self.llamadas = []
 
-        def exigir_sello(self):
-            return None
-
-        def poner_precio(self, item, variantes, valor, moneda, *, sonda=False):
-            self.llamadas.append((item, list(variantes), valor, moneda, sonda))
+        def poner_precio(self, item, variantes, valor, moneda):
+            self.llamadas.append((item, list(variantes), valor, moneda))
             return Acuse(aceptada=True, codigo=None, cuerpo={"ok": True})
 
     with _db59() as conn:
@@ -2654,7 +2661,7 @@ def test_arreglos01_r_meli_con_variaciones_recibe_precio():
 
         res = aplicar(conn, mercado, dec)
         assert res.estado == "enviado"
-        assert escritor.llamadas == [("MLM123", ["111", "222"], Decimal("110.00"), "MXN", False)]
+        assert escritor.llamadas == [("MLM123", ["111", "222"], Decimal("110.00"), "MXN")]
         assert conn.execute(
             "SELECT estado, error_code FROM precio_cambio WHERE decision_id = %s", (dec,)
         ).fetchone() == ("enviado", None)
@@ -2688,11 +2695,8 @@ def test_arreglos01_r_variacion_nueva_sin_producto_no_recibe_precio():
         def __init__(self):
             self.llamadas = []
 
-        def exigir_sello(self):
-            return None
-
-        def poner_precio(self, item, variantes, valor, moneda, *, sonda=False):
-            self.llamadas.append((item, list(variantes), valor, moneda, sonda))
+        def poner_precio(self, item, variantes, valor, moneda):
+            self.llamadas.append((item, list(variantes), valor, moneda))
             return Acuse(aceptada=True, codigo=None, cuerpo={"ok": True})
 
     with _db59() as conn:
@@ -2751,11 +2755,8 @@ def test_arreglos01_r_reversa_salta_variacion_sin_producto():
         def __init__(self):
             self.llamadas = []
 
-        def exigir_sello(self):
-            return None
-
-        def poner_precio(self, item, variantes, valor, moneda, *, sonda=False):
-            self.llamadas.append((item, list(variantes), valor, moneda, sonda))
+        def poner_precio(self, item, variantes, valor, moneda):
+            self.llamadas.append((item, list(variantes), valor, moneda))
             return Acuse(aceptada=True, codigo=None, cuerpo={"ok": True})
 
     with _db59() as conn:

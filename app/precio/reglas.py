@@ -208,7 +208,6 @@ def decidir(
     config: ConfigPrecio,
     cotizaciones: tuple[puerto_mod.Cotizacion, ...] = (),
     fees_escenario: Fees | str,
-    lineal: bool = False,
 ) -> Decision | PideCotizacion:
     """Una evaluacion de S4: `Decision` final o `PideCotizacion`.
 
@@ -216,8 +215,6 @@ def decidir(
     motivo (`str`) cuando partirlos fallo. LAZY: con `str`, una decision
     dentro de tolerancia sigue saliendo `mantener(en_tolerancia)`; solo
     `_subir`/`_bajar` convierten el str en `no_evaluado(motivo)`.
-    `lineal=True` (universo sin cotizador): no pide cotizacion, cierra con
-    el P* de la formula y `verificacion = "lineal"`.
     """
     freno = _freno_entrada(entrada, config)
     if freno is not None:
@@ -308,7 +305,6 @@ def decidir(
             m_actual=m_actual,
             cotizaciones=cotizaciones,
             fees_escenario=fees_escenario,
-            lineal=lineal,
         )
     if m_actual > goal + tol:
         senal = entrada.senal
@@ -327,7 +323,6 @@ def decidir(
                 m_actual=m_actual,
                 cotizaciones=cotizaciones,
                 fees_escenario=fees_escenario,
-                lineal=lineal,
             )
         base = _base_senal(entrada)
         return replace(
@@ -352,7 +347,6 @@ def _subir(
     m_actual: Decimal,
     cotizaciones: tuple[puerto_mod.Cotizacion, ...],
     fees_escenario: Fees | str,
-    lineal: bool = False,
 ) -> Decision | PideCotizacion:
     comp = entrada.escenario.componentes
     moneda = comp.p_actual.moneda
@@ -380,27 +374,22 @@ def _subir(
         cotizaciones=cotizaciones,
     )
     if isinstance(salida, PideCotizacion):
-        if not lineal:
-            freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
-            return freno if freno is not None else salida
-        p_cierre = salida.precio
-        por_formula = True
-    else:
-        assert isinstance(salida, ResultadoObjetivo)
-        if salida.resultado == "no_evaluado":
-            assert salida.motivo is not None
-            return _no_evaluado(entrada, salida.motivo)
-        if salida.resultado == "goal_inalcanzable":
-            base = _base_senal(entrada)
-            return replace(
-                base,
-                resultado="goal_inalcanzable",
-                motivo=salida.motivo,
-                m_actual=m_actual,
-            )
-        assert salida.precio is not None
-        p_cierre = salida.precio
-        por_formula = False
+        freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
+        return freno if freno is not None else salida
+    assert isinstance(salida, ResultadoObjetivo)
+    if salida.resultado == "no_evaluado":
+        assert salida.motivo is not None
+        return _no_evaluado(entrada, salida.motivo)
+    if salida.resultado == "goal_inalcanzable":
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=salida.motivo,
+            m_actual=m_actual,
+        )
+    assert salida.precio is not None
+    p_cierre = salida.precio
     freno = _frena_regla11(entrada, m_actual, p_cierre.valor)
     if freno is not None:
         return freno
@@ -432,7 +421,7 @@ def _subir(
         p_objetivo=p_cierre,
         p_aplicado=Importe(p_aplicado, moneda),
         aplicado=entrada.mode == "live",
-        verificacion="lineal" if por_formula else None,
+        verificacion=None,
     )
 
 
@@ -443,7 +432,6 @@ def _bajar(
     m_actual: Decimal,
     cotizaciones: tuple[puerto_mod.Cotizacion, ...],
     fees_escenario: Fees | str,
-    lineal: bool = False,
 ) -> Decision | PideCotizacion:
     """r1-A3: la bajada usa la misma maquina (S4 #4 «nunca menor que el goal»
     verificado por cotizacion real, no supuesto por linealidad)."""
@@ -471,27 +459,22 @@ def _bajar(
         cotizaciones=cotizaciones,
     )
     if isinstance(salida, PideCotizacion):
-        if not lineal:
-            freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
-            return freno if freno is not None else salida
-        p_cierre = salida.precio
-        por_formula = True
-    else:
-        assert isinstance(salida, ResultadoObjetivo)
-        if salida.resultado == "no_evaluado":
-            assert salida.motivo is not None
-            return _no_evaluado(entrada, salida.motivo)
-        if salida.resultado == "goal_inalcanzable":
-            base = _base_senal(entrada)
-            return replace(
-                base,
-                resultado="goal_inalcanzable",
-                motivo=salida.motivo,
-                m_actual=m_actual,
-            )
-        assert salida.precio is not None
-        p_cierre = salida.precio
-        por_formula = False
+        freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
+        return freno if freno is not None else salida
+    assert isinstance(salida, ResultadoObjetivo)
+    if salida.resultado == "no_evaluado":
+        assert salida.motivo is not None
+        return _no_evaluado(entrada, salida.motivo)
+    if salida.resultado == "goal_inalcanzable":
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=salida.motivo,
+            m_actual=m_actual,
+        )
+    assert salida.precio is not None
+    p_cierre = salida.precio
     freno = _frena_regla11(entrada, m_actual, p_cierre.valor)
     if freno is not None:
         return freno
@@ -523,5 +506,5 @@ def _bajar(
         p_objetivo=Importe(p_goal, moneda),
         p_aplicado=Importe(p_aplicado, moneda),
         aplicado=entrada.mode == "live",
-        verificacion="lineal" if por_formula else None,
+        verificacion=None,
     )

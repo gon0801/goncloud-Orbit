@@ -128,7 +128,10 @@ CAUSAS_RETENCION = frozenset(
 
 EVIDENCIAS_SENAL = frozenset({"unidades", "trafico"})
 
-VERIFICACIONES = frozenset({"cotizada", "lineal"})
+# P-A.3: la rama lineal se borro; la corrida estampa "cotizada"
+# (app/precio/corrida.py `_persistir_uno`). El CHECK de la base que admite
+# 'lineal' se queda (no hay filas: quitarlo pide migracion sin efecto).
+VERIFICACIONES = frozenset({"cotizada"})
 
 MOTIVOS_GOAL_INALCANZABLE = frozenset(
     {

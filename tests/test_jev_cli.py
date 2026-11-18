@@ -41,7 +41,6 @@ from test_jev_catalogo import (
 
 from app.jev_ads import (
     CensoCongelado,
-    DecisionARevisar,
     HayCompatible,
     Indeterminado,
     MiembroCenso,
@@ -613,56 +612,6 @@ def test_sin_clave_jev_apagado_cero_llamadas_y_estados_visibles():
         assert eventos >= 1  # intenciones registradas; el fallo visible en resultados
 
 
-def _decision(conn, ad_entity_id: int) -> int:
-    """Decision real minima (negative) para atar la revision por FK."""
-    from psycopg.types.json import Json
-
-    cfg = conn.execute(
-        "INSERT INTO config_version (settings, label) VALUES (%s, 'prueba') RETURNING id",
-        (Json({}),),
-    ).fetchone()[0]
-    ciclo = conn.execute(
-        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
-        " VALUES ('shadow', 'amazon_mx', 'done', now(), now()) RETURNING id"
-    ).fetchone()[0]
-    hoy = datetime(2026, 9, 1).date()
-    return conn.execute(
-        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
-        " config_version_id, data_observed_at, window_start, window_end, inputs,"
-        " search_term)"
-        " VALUES (%s, %s, 'negative', now(), %s, now() - interval '1 hour', %s, %s,"
-        " %s, 'soporte mesa') RETURNING id",
-        (
-            ciclo,
-            ad_entity_id,
-            cfg,
-            hoy - timedelta(days=30),
-            hoy,
-            Json({"prueba": True}),
-        ),
-    ).fetchone()[0]
-
-
-def test_decision_misma_solicitud_otro_termino_rechazado():
-    """Regresion VEREDICTO-B3-r1 B1: para DecisionARevisar el rechazo de la
-    misma solicitud con otro payload compara el CONTEXTO congelado completo
-    (termino + censo + plataforma), no solo decision_id."""
-    with db_jev() as conn:
-        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
-        decision_id = _decision(conn, grupo)
-        asesor = AsesorAds(conn, pedir=_Pedido(), api_key="k", presupuesto=5, ahora=lambda: AHORA)
-        solicitud = uuid.uuid4()
-        asesor.evaluar(
-            DecisionARevisar(decision_id, "soporte mesa", censo, "amazon_mx", AHORA),
-            solicitud_id=solicitud,
-        )
-        with pytest.raises(ValueError):
-            asesor.evaluar(
-                DecisionARevisar(decision_id, "lampara de pie", censo, "amazon_mx", AHORA),
-                solicitud_id=solicitud,
-            )
-
-
 def test_semillas_mismo_plan_sha_otro_censo_rechazado():
     """Regresion VEREDICTO-B3-r1 B1 (rama semillas): con el MISMO plan_sha256
     pero OTRO censo congelado (otra ficha resuelta), la misma solicitud se
@@ -689,20 +638,6 @@ def test_semillas_mismo_plan_sha_otro_censo_rechazado():
         assert mismo_plan.plan_sha256 == _sujeto(censo).plan_sha256
         with pytest.raises(ValueError):
             asesor.evaluar(mismo_plan, solicitud_id=solicitud)
-
-
-def test_cli_decision_id_combinado_con_grupo_se_rechaza(capsys):
-    """R2: --decision-id trae su propio termino y grupo; combinarlo con
-    --grupo-id/--termino es configuracion invalida (exit 2) y no escribe."""
-    from tools.jev_ads import main as cli_jev
-
-    with db_jev() as conn:
-        _, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
-        argv = ["evaluar", "--decision-id", "12", "--grupo-id", str(grupo), "--termino", "t"]
-        argv += ["--solicitud", str(uuid.uuid4()), "--aplicar"]
-        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 2
-        assert "no se combina" in capsys.readouterr().err
-        assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == 0
 
 
 def test_termino_asin_like_queda_fuera_del_clasificador_sin_http():
@@ -755,28 +690,6 @@ def test_miembro_solo_archived_no_paga_http():
             "SELECT count(*) FROM jev_par_evento WHERE tipo = 'intencion'"
         ).fetchone()[0]
         assert intenciones == 1
-
-
-# ---------------------------------------------------------------------------
-# Sujeto decision: FK muerde con decision inexistente
-# ---------------------------------------------------------------------------
-
-
-def test_decision_inexistente_la_fk_muerde():
-    with db_jev() as conn:
-        censo, _, _, grupo = _grupo_con_fichas(conn)
-        sujeto = DecisionARevisar(
-            decision_id=999999,
-            termino="soporte mesa",
-            censo=censo,
-            plataforma="amazon_mx",
-            decided_at=AHORA,
-        )
-        with pytest.raises(psycopg.errors.ForeignKeyViolation):
-            asesor = AsesorAds(
-                conn, pedir=_Pedido(), api_key="k", presupuesto=5, ahora=lambda: AHORA
-            )
-            asesor.evaluar(sujeto, solicitud_id=uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -923,166 +836,26 @@ def test_cli_modulo_ejecutable_da_error_config_y_no_es_no_op():
     assert "falta ORBIT_DSN_ADMIN" in corrida.stderr
 
 
-# ---------------------------------------------------------------------------
-# R2: revision de una decision guardada (camino de produccion)
-# ---------------------------------------------------------------------------
-
-
-def _decision_guardada(conn, kind, grupo, termino, inputs=None):
-    ciclo = conn.execute(
-        "INSERT INTO optimizer_cycle (mode) VALUES ('shadow') RETURNING id"
-    ).fetchone()[0]
-    config = conn.execute(
-        "INSERT INTO config_version (settings) VALUES ('{}') RETURNING id"
-    ).fetchone()[0]
-    dinero = kind in ("harvest", "bid", "budget")
-    return conn.execute(
-        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
-        " data_observed_at, window_start, window_end, search_term, new_value,"
-        " value_currency, inputs)"
-        " VALUES (%s, %s, %s, %s, now() - interval '1 hour', current_date - 30,"
-        " current_date - 12, %s, %s, %s, %s::jsonb) RETURNING id",
-        (
-            ciclo,
-            grupo,
-            kind,
-            config,
-            termino,
-            Decimal("2.50") if dinero else None,
-            "MXN" if dinero else None,
-            json.dumps(inputs or {}),
-        ),
-    ).fetchone()[0]
-
-
-def test_decision_negative_se_lee_con_su_termino_y_su_grupo():
-    from app.jev_catalogo import decision_a_revisar
-
-    with db_jev() as conn:
-        censo, _, _, grupo = _grupo_con_fichas(conn)
-        decision = _decision_guardada(conn, "negative", grupo, "funda barata")
-        sujeto = decision_a_revisar(conn, decision)
-        assert isinstance(sujeto, DecisionARevisar)
-        assert (sujeto.decision_id, sujeto.termino, sujeto.plataforma) == (
-            decision,
-            "funda barata",
-            "amazon_mx",
-        )
-        assert sujeto.censo == censo
-        assert sujeto.destino_censo is None
-        assert sujeto.decided_at is not None
-
-
-def test_decision_harvest_trae_el_destino_congelado():
-    from app.jev_catalogo import censo_grupo, decision_a_revisar
-
-    with db_jev() as conn:
-        _, _, _, origen = _grupo_con_fichas(conn)
-        p3 = _producto(conn, "P3")
-        destino = _grupo(conn, "amazon_mx", (_listing(conn, p3, asin="B0DESTINO1"),))
-        externo = conn.execute(
-            "SELECT external_id FROM ad_entity WHERE id = %s", (destino,)
-        ).fetchone()[0]
-        goal = {"goal": {"harvest": {"ad_group_id": externo, "campaign_id": "c-1"}}}
-        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
-        sujeto = decision_a_revisar(conn, decision)
-        assert sujeto.destino_censo == censo_grupo(
-            conn, plataforma="amazon_mx", ad_group_id=destino
-        )
-        sin_destino = _decision_guardada(conn, "harvest", origen, "soporte mesa")
-        with pytest.raises(ValueError, match="destino"):
-            decision_a_revisar(conn, sin_destino)
-        perdido = {"goal": {"harvest": {"ad_group_id": "no-existe"}}}
-        with pytest.raises(ValueError, match="no-existe"):
-            decision_a_revisar(conn, _decision_guardada(conn, "harvest", origen, "x", perdido))
-
-
-def test_decision_de_otro_kind_o_inexistente_se_rechaza():
-    from app.jev_catalogo import decision_a_revisar
-
-    with db_jev() as conn:
-        _, _, _, grupo = _grupo_con_fichas(conn)
-        with pytest.raises(ValueError, match="bid"):
-            decision_a_revisar(conn, _decision_guardada(conn, "bid", grupo, None))
-        with pytest.raises(ValueError, match="no existe"):
-            decision_a_revisar(conn, 999_999)
-
-
-def _argv_decision(decision, solicitud, *extra):
-    return ["evaluar", "--decision-id", str(decision), "--solicitud", str(solicitud), *extra]
-
-
-def test_cli_decision_harvest_seco_coincide_con_aplicar_y_aparece_en_cortes():
-    """R2: el camino de produccion. El seco dice cuantos pares pagaria (un
-    par por clave: el destino reutiliza el exito del origen cuando es el
-    mismo producto); --aplicar paga exactamente eso y la asesoria queda
-    legible por decision, como la lee /cortes."""
-    from tools.jev_ads import main as cli_jev
-
-    with db_jev() as conn:
-        _, _, _, origen = _grupo_con_fichas(conn)
-        externo = conn.execute(
-            "SELECT external_id FROM ad_entity WHERE id = %s", (origen,)
-        ).fetchone()[0]
-        goal = {"goal": {"harvest": {"ad_group_id": externo}}}
-        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
-        solicitud = uuid.uuid4()
-        salida: list[str] = []
-        assert (
-            cli_jev(
-                _argv_decision(decision, solicitud),
-                pedir=_Pedido(),
-                dsn=_dsn_jev(),
-                imprimir=salida.append,
-            )
-            == 0
-        )
-        assert any("pares nuevos 2, reutilizables 0; pagaria 2" in linea for linea in salida), (
-            salida
-        )
-        assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == 0
-        pedido = _Pedido({"soporte mesa": "satisface"})
-        salida.clear()
-        codigo = cli_jev(
-            _argv_decision(decision, solicitud, "--aplicar"),
-            pedir=pedido,
-            dsn=_dsn_jev(),
-            imprimir=salida.append,
-        )
-        assert codigo == 0
-        assert len(pedido.llamados) == 2
-        assert any(
-            linea.startswith("resultado origen soporte mesa HayCompatible") for linea in salida
-        )
-        assert any(
-            linea.startswith("resultado destino soporte mesa HayCompatible") for linea in salida
-        )
-        vista = AsesorAds(conn).leer([decision], ahora=AHORA)[decision]
-        assert vista is not None and vista.decision_id == decision
-        salida.clear()
-        assert (
-            cli_jev(
-                _argv_decision(decision, solicitud),
-                pedir=_Pedido(),
-                dsn=_dsn_jev(),
-                imprimir=salida.append,
-            )
-            == 0
-        )
-        assert any("pares nuevos 0, reutilizables 2; pagaria 0" in linea for linea in salida), (
-            salida
-        )
-
-
 def test_cli_presupuesto_agotado_sale_3_y_el_seco_lo_anticipa():
     from tools.jev_ads import main as cli_jev
 
     with db_jev() as conn:
-        _, _, _, grupo = _grupo_con_fichas(conn)
-        decision = _decision_guardada(conn, "negative", grupo, "funda")
+        _, _, _, grupo = _grupo_con_fichas(conn)  # dos fichas: dos pares
         solicitud = uuid.uuid4()
         salida: list[str] = []
-        seco = _argv_decision(decision, solicitud, "--presupuesto", "1")
+        seco = [
+            "evaluar",
+            "--plataforma",
+            "amazon_mx",
+            "--grupo-id",
+            str(grupo),
+            "--termino",
+            "funda",
+            "--solicitud",
+            str(solicitud),
+            "--presupuesto",
+            "1",
+        ]
         assert cli_jev(seco, pedir=_Pedido(), dsn=_dsn_jev(), imprimir=salida.append) == 0
         assert any("pagaria 1 de presupuesto 1; se agotaria" in linea for linea in salida), salida
         assert (
@@ -1116,8 +889,12 @@ def test_cli_presupuesto_cero_se_rechaza():
         cli_jev(
             [
                 "evaluar",
-                "--decision-id",
+                "--plataforma",
+                "amazon_mx",
+                "--grupo-id",
                 "1",
+                "--termino",
+                "t",
                 "--solicitud",
                 str(uuid.uuid4()),
                 "--presupuesto",
@@ -1130,10 +907,23 @@ def test_cli_presupuesto_cero_se_rechaza():
 def test_cli_error_de_datos_sale_1_redactado(capsys):
     from tools.jev_ads import main as cli_jev
 
-    with db_jev():
-        argv = _argv_decision(999_999, uuid.uuid4())
-        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 1
-    assert "decision 999999 no existe" in capsys.readouterr().err
+    with db_jev() as conn:
+        _, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+        solicitud = uuid.uuid4()
+        base = [
+            "evaluar",
+            "--plataforma",
+            "amazon_mx",
+            "--grupo-id",
+            str(grupo),
+            "--solicitud",
+            str(solicitud),
+            "--aplicar",
+        ]
+        assert cli_jev([*base, "--termino", "funda"], pedir=_Pedido(), dsn=_dsn_jev()) == 0
+        # La misma solicitud con otro payload es un error de datos: exit 1.
+        assert cli_jev([*base, "--termino", "otra cosa"], pedir=_Pedido(), dsn=_dsn_jev()) == 1
+    assert "misma solicitud con otro payload" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("con_app_jev", [True, False], ids=["admin+app_jev", "solo-app_admin"])
@@ -1159,9 +949,19 @@ def test_cli_escribe_con_el_rol_real_de_prod(con_app_jev, capsys):
             if con_app_jev:
                 conn.execute(f"GRANT app_jev TO {rol}")
             _, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
-            decision = _decision_guardada(conn, "negative", grupo, "funda")
             dsn = make_conninfo(_dsn_jev(), user=rol, password="clave")
-            argv = _argv_decision(decision, uuid.uuid4(), "--aplicar")
+            argv = [
+                "evaluar",
+                "--plataforma",
+                "amazon_mx",
+                "--grupo-id",
+                str(grupo),
+                "--termino",
+                "funda",
+                "--solicitud",
+                str(uuid.uuid4()),
+                "--aplicar",
+            ]
             codigo = cli_jev(argv, pedir=_Pedido(), dsn=dsn, imprimir=lambda *a, **k: None)
             revisiones = conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0]
             if con_app_jev:
@@ -1172,82 +972,6 @@ def test_cli_escribe_con_el_rol_real_de_prod(con_app_jev, capsys):
         finally:
             conn.execute(f"DROP OWNED BY {rol}")
             conn.execute(f"DROP ROLE {rol}")
-
-
-def test_destino_modificado_marca_la_revision_obsoleta():
-    """R3 (spec: "Un destino modificado marca revision obsoleta"): un anuncio
-    nuevo en el grupo destino de un harvest ya revisado hace la revision
-    Obsoleta al leerla; una resincronizacion que solo mueve synced_at no."""
-    from psycopg.rows import dict_row, tuple_row
-
-    from app.jev_ads import Obsoleta, Vigente
-
-    with db_jev() as conn:
-        _, _, _, origen = _grupo_con_fichas(conn)
-        p3 = _producto(conn, "P3")
-        destino = _grupo(conn, "amazon_mx", (_listing(conn, p3, asin="B0DESTINO3"),))
-        externo = conn.execute(
-            "SELECT external_id FROM ad_entity WHERE id = %s", (destino,)
-        ).fetchone()[0]
-        goal = {"goal": {"harvest": {"ad_group_id": externo}}}
-        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
-        cli = ["--solicitud", str(uuid.uuid4()), "--aplicar"]
-        from tools.jev_ads import main as cli_jev
-
-        assert (
-            cli_jev(
-                ["evaluar", "--decision-id", str(decision), *cli],
-                pedir=_Pedido(),
-                dsn=_dsn_jev(),
-                imprimir=lambda *a, **k: None,
-            )
-            == 0
-        )
-
-        def vigencia():
-            conn.row_factory = dict_row  # como la conexion del dashboard
-            try:
-                return AsesorAds(conn).leer([decision], ahora=AHORA)[decision].vigencia
-            finally:
-                conn.row_factory = tuple_row
-
-        assert vigencia() == Vigente()
-        conn.execute("UPDATE ad_entity_state SET synced_at = now() + interval '1 minute'")
-        assert vigencia() == Vigente()
-        p4 = _producto(conn, "P4")
-        conn.execute(
-            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
-            " VALUES ('amazon_mx', 'product_ad', %s, %s, %s)",
-            (f"ad-{destino}-nuevo", destino, _listing(conn, p4, asin="B0DESTINO4")),
-        )
-        assert vigencia() == Obsoleta()
-
-
-def test_un_fallo_no_se_repaga_en_el_mismo_lote_y_el_seco_lo_dice():
-    """Bloqueante de codex en B10: con el mismo producto en origen y destino,
-    un fallo del proveedor en el origen se pagaba OTRA vez en el destino y el
-    seco no lo anticipaba. V1 no reintenta dentro del lote: la clave ya
-    intentada reutiliza su resultado y el seco coincide con lo pagado."""
-    from tools.jev_ads import main as cli_jev
-
-    with db_jev() as conn:
-        _, _, _, origen = _grupo_con_fichas(conn)
-        externo = conn.execute(
-            "SELECT external_id FROM ad_entity WHERE id = %s", (origen,)
-        ).fetchone()[0]
-        goal = {"goal": {"harvest": {"ad_group_id": externo}}}
-        decision = _decision_guardada(conn, "harvest", origen, "soporte mesa", goal)
-        argv = _argv_decision(decision, uuid.uuid4(), "--presupuesto", "2")
-        salida: list[str] = []
-        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev(), imprimir=salida.append) == 0
-        assert any(
-            "pagaria 2 de presupuesto 2" in linea and "agotaria" not in linea for linea in salida
-        ), salida
-        pedido = _Pedido({"soporte mesa": _fallo()})
-        assert (
-            cli_jev([*argv, "--aplicar"], pedir=pedido, dsn=_dsn_jev(), imprimir=salida.append) == 0
-        )
-        assert len(pedido.llamados) == 2
 
 
 def test_reanudacion_ignora_synced_at_y_llama_solo_al_pendiente():
