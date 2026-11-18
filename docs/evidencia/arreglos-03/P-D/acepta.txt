@@ -84,6 +84,19 @@ P-D.5:
 
 ## Notas
 
+- Revision del PR (Devin, hilo PRRT_kwDOUANqbs65NfOe): el conteo del dia se
+  calculaba sobre las decisiones YA filtradas por catalogo, asi que un cambio
+  aplicado cuya publicacion perdia BUYABLE dejaba de contar y el conteo del
+  dia podia encogerse (contra el invariante del plan: «el conteo del dia solo
+  crece»). Arreglo: `cambios_dia` se calcula sobre TODAS las decisiones de
+  subir/bajar de hoy con modo live, sin el filtro de catalogo (las liberadas
+  siguen sin contar); el filtro de catalogo queda para medir universos y
+  aplicar pendientes, como hoy (E.2). Regresion:
+  `test_arreglos03_pd_cambio_que_sale_del_catalogo_sigue_contando` (dos
+  corridas el mismo dia; entre ambas la publicacion del primer cambio pierde
+  BUYABLE; la segunda mide 101 pero el conteo sigue en 51 y retiene; rojo
+  contra la cabeza previa: `Abierta(medidas=101, nuevas=50)`).
+
 - La 0091 usa el texto EXACTO de apply_cap_de_config de la 0002 (ida, CREATE OR
   REPLACE) y de la 0039 (reversa), con sus COMMENT: son las unicas dos migraciones
   que la tocan (verificado), asi que la reversa no pisa nada posterior.
