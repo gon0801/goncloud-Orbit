@@ -34,6 +34,7 @@ from app.ads.structure import (
     _formato_skip_reason,
     _sellar_run,
 )
+from app.dia_cerrado import ultimo_dia_cerrado
 from app.redaction import scrub
 
 logger = logging.getLogger(__name__)
@@ -110,18 +111,20 @@ def _planea_filas_placements(
     filas: list[dict],
     *,
     entidades: dict[str, int],
+    ultimo_cerrado: dt.date,
     desde: dt.date | None = None,
     hasta: dt.date | None = None,
-    hoy: dt.date | None = None,
 ) -> tuple[list[_FilaPlacement], Counter[str]]:
     """Valida cada fila ANTES de tocar la base (vocabulario CERRADO de
     skips, como _planea_filas_productos). Desconocido, negativo o no
     numerico salta la fila y se cuenta; ausente queda NULL (regla 3).
     Fila con las CINCO metricas ausentes salta: se insertaria con NULLs
     y el DISTINCT ON por observed_at DESC taparia datos completos
-    anteriores de esa (campana, ubicacion, fecha). Con rango, fecha
-    futura o fuera de [desde, hasta] salta como en el pipeline
-    principal (reports.py: la fuente no manda lo pedido)."""
+    anteriores de esa (campana, ubicacion, fecha). La fila de un dia que
+    aun no cierra (posterior a `ultimo_cerrado`, el ultimo dia que ya
+    termino en la zona del marketplace; ARREGLOS 03 D-E) salta siempre;
+    con rango, la que cae fuera de [desde, hasta] salta como en el
+    pipeline principal (reports.py: la fuente no manda lo pedido)."""
     plan: list[_FilaPlacement] = []
     skips: Counter[str] = Counter()
     for fila in filas:
@@ -149,8 +152,8 @@ def _planea_filas_placements(
         except ValueError:
             skips["fila de placements con date invalida"] += 1
             continue
-        if hoy is not None and metric_date > hoy:
-            skips["fila de placements con metric_date futura"] += 1
+        if metric_date > ultimo_cerrado:
+            skips["fila de placements de un día que aún no cierra"] += 1
             continue
         if desde is not None and hasta is not None and (metric_date < desde or metric_date > hasta):
             skips["fila de placements con metric_date fuera del rango"] += 1
@@ -194,15 +197,16 @@ def ingest_placements(
     observed_at: dt.datetime,
     desde: dt.date | None = None,
     hasta: dt.date | None = None,
-    hoy: dt.date | None = None,
 ) -> ResultadoIngesta:
     """Inserta las filas de UN reporte de placements (append-only, 0062).
 
     Resuelve las campanas en un solo SELECT; la moneda es la del perfil.
     Re-ingestar el MISMO reporte no duplica (ON CONFLICT DO NOTHING
     contra el indice de dedupe) y las absorbidas cuentan como saltadas.
-    Con rango, lo futuro o fuera de [desde, hasta] salta (espejo del
-    pipeline); `hoy` omiso es la fecha de observed_at.
+    El dia que aun no cierra salta: el ultimo dia guardable es
+    ultimo_dia_cerrado(plataforma del perfil, observed_at) (ARREGLOS 03
+    D-E; observed_at debe traer zona). Con rango, lo que cae fuera de
+    [desde, hasta] salta (espejo del pipeline).
     """
     if not perfil.aceptado or perfil.platform is None or perfil.moneda is None:
         raise AdsReportsError(
@@ -228,9 +232,9 @@ def ingest_placements(
     plan, skips = _planea_filas_placements(
         filas,
         entidades=entidades,
+        ultimo_cerrado=ultimo_dia_cerrado(perfil.platform, observed_at),
         desde=desde,
         hasta=hasta,
-        hoy=hoy if hoy is not None else observed_at.date(),
     )
     written = 0
     for fila in plan:

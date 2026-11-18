@@ -27,8 +27,8 @@
 # cadena completa exige correr DESPUES de los DOS syncs de accounting —
 # `sync_ads_to_ledger.py` (:30 cada 6 h -> 06:30) Y `sync_fx_rates.py`
 # (08:00). A las 07:30 el snapshot se tomaba 30 min ANTES del sync de FX,
-# asi que el FX de Orbit quedaba siempre un dia atrasado. 08:15 deja 25 min
-# antes de los ciclos 08:40/08:41 y los pipelines tardan segundos.
+# asi que el FX de Orbit quedaba siempre un dia atrasado. 08:15 deja 1 h 25 min
+# antes de los ciclos 09:40/09:41 (ARREGLOS 03 D-E) y los pipelines tardan segundos.
 #
 # Un pipeline caido NO tumba a los otros: cada uno sella su propio
 # ingest_run ok/false y el script sigue con el siguiente; el exit final es

@@ -19,6 +19,7 @@ import json
 import os
 import socket
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from test_ads_descarga import _calendario_falso, _Teatro
@@ -74,18 +75,18 @@ def test_textos_de_falla_salvado_y_agotado_literalmente():
     )
     assert _texto_agotado("las métricas por ubicación", "US") == (
         "Hoy no llegaron las métricas por ubicación de US después de tres "
-        "intentos. Mañana a las 07:10 se intenta otra vez."
+        "intentos. Mañana a las 08:10 se intenta otra vez."
     )
 
 
 def test_horarios_y_su_siguiente():
-    assert HORARIOS_INGESTA == ("07:10", "10:40", "13:15")
-    assert _horario_actual(dt.time(7, 10)) == "07:10"
-    assert _horario_actual(dt.time(7, 9)) == "07:10", "antes del primero: el primero"
+    assert HORARIOS_INGESTA == ("08:10", "10:40", "13:15")
+    assert _horario_actual(dt.time(8, 10)) == "08:10"
+    assert _horario_actual(dt.time(8, 9)) == "08:10", "antes del primero: el primero"
     assert _horario_actual(dt.time(10, 41)) == "10:40"
     assert _horario_actual(dt.time(13, 16)) == "13:15"
     assert _horario_actual(dt.time(23, 59)) == "13:15"
-    assert _siguiente_horario("07:10") == "10:40"
+    assert _siguiente_horario("08:10") == "10:40"
     assert _siguiente_horario("10:40") == "13:15"
     assert _siguiente_horario("13:15") is None
 
@@ -99,6 +100,37 @@ def test_tope_de_pared_mayor_que_el_plazo_de_sondeo():
 
 def test_fecha_fin_requiere_fecha():
     assert main(["--fecha-fin", "2026-10-20"], enviar=[], ahora=None) == 2
+
+
+# ARREGLOS 03 D-E.1: reproduccion `test_diario_pide_el_dia_en_curso_de_us_en_invierno`
+# de docs/evidencia/arreglos-2026-11-12/pruebas/ingesta/test_rev_ingesta.py, sin
+# cambios. En invierno, a las 07:10 UTC el "D-1" UTC sigue en curso en Los Angeles.
+class _ConnMuda:
+    def commit(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_arreglos03_de_diario_no_pide_el_dia_en_curso_de_us_en_invierno(monkeypatch):
+    rangos = []
+
+    def _descarga_falsa(conn, client, grupos, rango, **kw):
+        rangos.append(rango)
+        return {}
+
+    monkeypatch.setattr(diario, "descarga", _descarga_falsa)
+    ahora = dt.datetime(2026, 11, 12, 7, 10, tzinfo=dt.UTC)  # primer horario del cron
+    salida = diario.main([], conn=_ConnMuda(), client=object(), enviar=lambda _t: True, ahora=ahora)
+    assert salida == 0
+    ((_, fecha_fin),) = rangos
+    local_us = ahora.astimezone(ZoneInfo("America/Los_Angeles"))
+    ultimo_dia_cerrado_us = local_us.date() - dt.timedelta(days=1)
+    assert fecha_fin <= ultimo_dia_cerrado_us, (
+        f"pide hasta {fecha_fin}, pero en US son las {local_us:%H:%M} del {local_us.date()}:"
+        f" ese dia sigue en curso (ultimo cerrado: {ultimo_dia_cerrado_us})"
+    )
 
 
 def test_sql_del_diario_parsea_como_postgres():
@@ -163,10 +195,10 @@ def test_mensajes_por_grupo_pais_y_momento():
     """La seleccion de mensajes con conexion falsa: falla de plazo avisa el
     reintento; el salvamento solo por las plataformas que escribieron D-1;
     las metricas de campanas jamas avisan por aqui (salud)."""
-    ahora_0710 = dt.datetime(2026, 10, 21, 7, 10, tzinfo=dt.UTC)
+    ahora_0810 = dt.datetime(2026, 10, 21, 8, 10, tzinfo=dt.UTC)
     ahora_1040 = dt.datetime(2026, 10, 21, 10, 40, tzinfo=dt.UTC)
 
-    # 07:10: productos fallo por plazo (MX y US) y placements por error ->
+    # 08:10: productos fallo por plazo (MX y US) y placements por error ->
     # reintento de las 10:40 en ambos grupos.
     enviados: list[str] = []
     conn = _ConnMensajes()
@@ -186,7 +218,7 @@ def test_mensajes_por_grupo_pais_y_momento():
             fallos=[("amazon_us", "placements", 101)],
         ),
     }
-    diario._envia_mensajes(conn, resultados, hoy=HOY, ahora=ahora_0710, enviar=enviados.append)
+    diario._envia_mensajes(conn, resultados, hoy=HOY, ahora=ahora_0810, enviar=enviados.append)
     assert enviados == [
         (
             "Amazon no entregó a tiempo las métricas por producto de MX "
@@ -235,7 +267,7 @@ def test_mensajes_por_grupo_pais_y_momento():
     assert enviados == [
         (
             "Hoy no llegaron las métricas por producto de MX después de tres "
-            "intentos. Mañana a las 07:10 se intenta otra vez."
+            "intentos. Mañana a las 08:10 se intenta otra vez."
         )
     ]
 
@@ -582,7 +614,7 @@ def test_error_al_pedir_mensaje_de_error_para_ambos_paises(conn_pg):
 
 @_skip_db
 def test_se_salva_avisa_en_el_intento_de_las_1040(conn_pg):
-    """Un grupo que fallo en el intento de las 07:10 y llega en el de las
+    """Un grupo que fallo en el intento de las 08:10 y llega en el de las
     10:40 manda el mensaje de recuperacion por las plataformas que ESCRIBIO
     D-1 (MX trajo datos; US no: no se nombra)."""
     _siembra_productos_fallido(conn_pg)
@@ -638,9 +670,9 @@ def test_agotado_en_el_ultimo_horario_mensaje_final(conn_pg):
     assert salida == 1
     assert (
         "Hoy no llegaron las métricas por producto de MX después de tres "
-        "intentos. Mañana a las 07:10 se intenta otra vez."
+        "intentos. Mañana a las 08:10 se intenta otra vez."
     ) in enviados
     assert (
         "Hoy no llegaron las métricas por producto de US después de tres "
-        "intentos. Mañana a las 07:10 se intenta otra vez."
+        "intentos. Mañana a las 08:10 se intenta otra vez."
     ) in enviados

@@ -948,12 +948,25 @@ def test_sin_jev_avisos_no_inserta_ni_llama():
             assert conn.execute("SELECT count(*) FROM jev_aviso_entrega").fetchone()[0] == 0
 
 
-def _metricas_de_ayer(conn) -> None:
-    """La corrida de metricas de hoy con filas de ayer en los dos mercados:
-    lo que pide `metricas_listas.guarda` para dejar correr a jev-senales."""
+# Reloj de la guarda (ARREGLOS 03 D-E): un instante de invierno a las 07:30 UTC,
+# cuando US (23:30 del dia anterior en Los Angeles) y MX tienen distinto ultimo
+# dia cerrado. Con el reloj real la prueba pasaba o fallaba segun la hora.
+_AHORA_GUARDA = datetime(2026, 11, 12, 7, 30, tzinfo=UTC)
+
+
+def _metricas_de_ayer(conn, monkeypatch) -> None:
+    """La corrida de metricas de hoy con filas del ultimo dia cerrado de cada
+    mercado: lo que pide `metricas_listas.guarda` para dejar correr a
+    jev-senales. `jev_senales.main` no recibe reloj: se fija el de la guarda
+    (`metricas_listas._ahora`) y la corrida se siembra en ese mismo instante."""
+    from app import metricas_listas
+    from app.dia_cerrado import ultimo_dia_cerrado
+
+    monkeypatch.setattr(metricas_listas, "_ahora", lambda: _AHORA_GUARDA)
     run = conn.execute(
-        "INSERT INTO ingest_run (source, ok, finished_at)"
-        " VALUES ('amazon_ads_reports_v3', true, now()) RETURNING id"
+        "INSERT INTO ingest_run (source, ok, started_at, finished_at)"
+        " VALUES ('amazon_ads_reports_v3', true, %s, %s) RETURNING id",
+        (_AHORA_GUARDA, _AHORA_GUARDA),
     ).fetchone()[0]
     for plataforma, moneda in (("amazon_us", "USD"), ("amazon_mx", "MXN")):
         entidad = conn.execute(
@@ -964,8 +977,14 @@ def _metricas_de_ayer(conn) -> None:
         conn.execute(
             "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
             " metric_currency, cost, source_report_id, ingest_run_id)"
-            " VALUES (%s, (now() AT TIME ZONE 'UTC')::date - 1, now(), %s, 1.0, 'r', %s)",
-            (entidad, moneda, run),
+            " VALUES (%s, %s, %s, %s, 1.0, 'r', %s)",
+            (
+                entidad,
+                ultimo_dia_cerrado(plataforma, _AHORA_GUARDA),
+                _AHORA_GUARDA,
+                moneda,
+                run,
+            ),
         )
 
 
@@ -978,7 +997,7 @@ def test_seco_sin_forzar_pasa_la_guarda_y_corre(capsys, monkeypatch):
 
     with db_s4() as conn:
         _config(conn, ON)
-        _metricas_de_ayer(conn)
+        _metricas_de_ayer(conn, monkeypatch)
         monkeypatch.setenv("ORBIT_DSN_READ", _dsn_s4())
         monkeypatch.delenv("ORBIT_DSN_JEV", raising=False)
         salida = jev_senales.main([])

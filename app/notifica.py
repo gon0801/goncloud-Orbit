@@ -510,31 +510,24 @@ def digest_ciclo(resumen: dict) -> str:
                 f"residual tacos campaign: {signo}"
                 f"{_formatea_monto(abs(contrib.residual_tacos.monto))} MXN"
             )
-    # REPUTACION 01 A.5: bloque aditivo (ausente o vacio = cero lineas,
-    # regla 3; el formato existente no cambia).
-    bloque_rep = resumen.get("reputacion")
-    if isinstance(bloque_rep, list):
-        lineas.extend(_lineas_reputacion(bloque_rep))
     return "\n".join(lineas)
 
 
-_TOPE_LINEAS_REPUTACION = 10
-
-
-def _lineas_reputacion(alertas: list) -> list[str]:
-    """Una linea por alerta + resto contado (D-A5-1: tope 10, no inunda
-    el digest). Los mensajes ya vienen sin texto externo (A.5)."""
-    lineas = []
-    for alerta in alertas[:_TOPE_LINEAS_REPUTACION]:
-        entidad = alerta.get("external_id") or "cuenta"
-        lineas.append(
-            f"reputacion [{alerta.get('severidad')}] {alerta.get('tipo')}"
-            f" {entidad}: {alerta.get('mensaje')}"
-        )
-    resto = len(alertas) - _TOPE_LINEAS_REPUTACION
-    if resto > 0:
-        lineas.append(f"reputacion: y {resto} mas")
-    return lineas
+def aviso_reputacion(alertas: list) -> str:
+    """Aviso de las alertas de reputacion de Mercado Libre que aun no salieron
+    (ARREGLOS 03 D-K; lo manda la revision de las 10:30, en lotes). Una linea
+    por alerta: "Urgente:" las criticas, "Aviso:" las demas, con la
+    publicacion si el mensaje no la nombra. Los mensajes guardados solo traen
+    ids y numeros (A.5): seguros sin parse_mode."""
+    lineas = ["[Orbit] Reputación de Mercado Libre"]
+    for alerta in alertas:
+        prefijo = "Urgente" if alerta.get("severidad") == "critica" else "Aviso"
+        mensaje = str(alerta.get("mensaje"))
+        publicacion = alerta.get("external_id")
+        if publicacion and publicacion not in mensaje:
+            mensaje = f"{mensaje} ({publicacion})"
+        lineas.append(f"{prefijo}: {mensaje}")
+    return "\n".join(lineas)
 
 
 def alerta_harvest_failed(alerta: AlertaHarvest) -> str:
@@ -679,14 +672,6 @@ def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = No
             contrib = carga_contribucion_digest(plataforma)
             if contrib is not None:
                 payload = {**resumen, "contribucion": contrib}
-        # REPUTACION 01 A.5: novedades del dia, fail-silent (sin DSN o
-        # fallo = bloque ausente = cero lineas, patron contrib).
-        if "reputacion" not in payload:
-            from app.reputacion_alertas import carga_reputacion_digest
-
-            novedades = carga_reputacion_digest()
-            if novedades:
-                payload = {**payload, "reputacion": novedades}
         return _envia_texto(digest_ciclo(payload), transport=transport)
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el digest: %s", scrub(str(exc)))
@@ -1047,6 +1032,7 @@ TIPOS_PRECIO = (
     "corte_errores",
     "reversa",
     "cohorte",
+    "corrida_fallida",
 )
 
 TIPOS_PRECIO_GRUPO = ("no_evaluado", "goal_inalcanzable", "frenado")
@@ -1077,6 +1063,7 @@ FRASEO_TIPO_PRECIO = {
     "corte_errores": "corte por errores",
     "reversa": "reversa",
     "cohorte": "cohorte",
+    "corrida_fallida": "corrida fallida",
 }
 
 
@@ -1377,6 +1364,32 @@ def aviso_precio_cohorte(aviso: CohortePrecio) -> str:
     )
 
 
+@dataclass(frozen=True)
+class CorridaFallidaPrecio:
+    """La corrida de una plataforma se cayo (ARREGLOS 03 P-B): no decidio ni
+    aplico precios. `motivo` es el NOMBRE de la clase del error; su texto
+    jamas viaja (no hay campo para el)."""
+
+    platform: str
+    dia: dt.date
+    motivo: str
+    tipo: str = "corrida_fallida"
+
+
+def aviso_precio_corrida_fallida(aviso: CorridaFallidaPrecio) -> str:
+    """Builder PURO del aviso de corrida caida."""
+    return "\n".join(
+        [
+            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
+            f"plataforma: {aviso.platform}",
+            f"dia: {aviso.dia.isoformat()}",
+            "la corrida se cayo y no decidio ni aplico precios;"
+            " el siguiente repaso lo vuelve a intentar",
+            f"motivo: {aviso.motivo}",
+        ]
+    )
+
+
 def validar_precio_aviso_dias(settings) -> int:
     """`precio_aviso_dias_sin_evaluar` entero 1-14; `ValueError` nombra la
     clave si falta o sale de cota (ninguna otra clave se lee aqui). El
@@ -1434,6 +1447,7 @@ _FAMILIA_POR_TIPO_PRECIO = {
     "corte_errores": (CorteErroresPrecio,),
     "reversa": (ReversaPrecio,),
     "cohorte": (CohortePrecio,),
+    "corrida_fallida": (CorridaFallidaPrecio,),
 }
 
 _BUILDER_POR_FAMILIA_PRECIO = {
@@ -1446,6 +1460,7 @@ _BUILDER_POR_FAMILIA_PRECIO = {
     CorteErroresPrecio: "aviso_precio_corte_errores",
     ReversaPrecio: "aviso_precio_reversa",
     CohortePrecio: "aviso_precio_cohorte",
+    CorridaFallidaPrecio: "aviso_precio_corrida_fallida",
 }
 
 
@@ -1453,8 +1468,9 @@ def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None
     """UNICO sender de avisos de precio (S7; S.6 suma los seis de U). `tipo`
     elige el builder y el `payload` debe ser de su familia (grupo / producto
     / huerfana / resumen / compuerta / cambio en error / corte / reversa /
-    cohorte; los tipos por producto tambien aceptan grupo para el resto
-    agrupado de B3); tipo o familia desconocidos -> warning + False. Canal
+    cohorte / corrida fallida; los tipos por producto tambien aceptan grupo
+    para el resto agrupado de B3); tipo o familia desconocidos -> warning +
+    False. Canal
     deshabilitado -> True (no es fallo); cualquier excepcion -> warning con
     scrub + False; jamas levanta.
     """
@@ -1932,6 +1948,25 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando los avisos de precio: %s", scrub(str(exc)))
         return 0
+
+
+def avisar_corrida_fallida(platform: str, exc: BaseException) -> bool:
+    """ARREGLOS 03 P-B: la corrida de precios de `platform` se cayo (o ni
+    siquiera pudo abrir la plataforma). Un aviso `corrida_fallida` con el
+    dia UTC de hoy y el NOMBRE de la clase del error como motivo (su texto
+    nunca viaja: puede traer datos de la conexion). Lo llama el CLI, el
+    unico que ve cualquier caida. Devuelve lo que devuelve `notifica_precio`;
+    jamas levanta (fallo -> warning con scrub + False)."""
+    try:
+        aviso = CorridaFallidaPrecio(
+            platform=str(platform),
+            dia=dt.datetime.now(dt.UTC).date(),
+            motivo=type(exc).__name__,
+        )
+        return notifica_precio(aviso.tipo, aviso)
+    except Exception as fallo:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo avisando corrida fallida de precio: %s", scrub(str(fallo)))
+        return False
 
 
 def avisar_campanas(conn, hoy=None, *, solo=None):

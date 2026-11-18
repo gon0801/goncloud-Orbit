@@ -33,6 +33,7 @@ from app.ads.placements import (
 )
 from app.ads.reports import solicitar_reporte
 from app.ads.structure import PerfilAds
+from app.dia_cerrado import ultimo_dia_cerrado
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL40 = (ROOT / "migrations" / "0040_ads_report_result.sql").read_text(encoding="utf-8")
@@ -110,6 +111,11 @@ def _fila(**cambios):
     return base
 
 
+# Ultimo dia cerrado de las pruebas puras del planificador: el dia de _fila ya
+# termino (ARREGLOS 03 D-E: el planificador exige `ultimo_cerrado`).
+_CERRADO = dt.date(2026, 10, 6)
+
+
 # ---------------------------------------------------------------------------
 # (a) UNITARIOS - cuerpo del reporte
 # ---------------------------------------------------------------------------
@@ -176,7 +182,7 @@ def test_clasificaciones_mapean_a_ubicacion():
         _fila(placementClassification="Detail Page on-Amazon"),
         _fila(placementClassification="Off Amazon"),
     ]
-    plan, skips = _planea_filas_placements(filas, entidades={"9001": 7})
+    plan, skips = _planea_filas_placements(filas, entidades={"9001": 7}, ultimo_cerrado=_CERRADO)
     assert [f.placement for f in plan] == [
         "arriba_de_busqueda",
         "resto_de_busqueda",
@@ -199,7 +205,7 @@ def test_filas_malas_saltan_con_motivo():
         _fila(date="no-es-fecha"),
         _fila(impressions="muchas"),
     ]
-    plan, skips = _planea_filas_placements(filas, entidades={"9001": 7})
+    plan, skips = _planea_filas_placements(filas, entidades={"9001": 7}, ultimo_cerrado=_CERRADO)
     assert plan == []
     assert skips == Counter(
         {
@@ -214,7 +220,7 @@ def test_filas_malas_saltan_con_motivo():
 
 def test_metrica_ausente_queda_null_y_campana_numerica_casa():
     plan, skips = _planea_filas_placements(
-        [_fila(clicks=None, campaignId=9001)], entidades={"9001": 7}
+        [_fila(clicks=None, campaignId=9001)], entidades={"9001": 7}, ultimo_cerrado=_CERRADO
     )
     assert skips == Counter()
     assert plan[0].clicks is None
@@ -223,12 +229,13 @@ def test_metrica_ausente_queda_null_y_campana_numerica_casa():
 
 def test_fila_sin_ninguna_metrica_salta_y_cero_si_pasa():
     vacia = _fila(impressions=None, clicks=None, cost=None, purchases30d=None, sales30d=None)
-    plan, skips = _planea_filas_placements([vacia], entidades={"9001": 7})
+    plan, skips = _planea_filas_placements([vacia], entidades={"9001": 7}, ultimo_cerrado=_CERRADO)
     assert plan == []
     assert skips == Counter({"fila de placements sin metricas": 1})
     plan, skips = _planea_filas_placements(
         [_fila(impressions=0, clicks=0, cost=0, purchases30d=0, sales30d=0)],
         entidades={"9001": 7},
+        ultimo_cerrado=_CERRADO,
     )
     assert skips == Counter()
     assert len(plan) == 1
@@ -449,7 +456,8 @@ def test_fallo_en_fase_de_base_sella_ok_false(monkeypatch):
 
 
 def test_fila_futura_y_fuera_de_rango_saltan():
-    """NB5: con rango, lo futuro y lo fuera de [desde, hasta] salta."""
+    """NB5: el dia que aun no cierra (ARREGLOS 03 D-E) y, con rango, lo
+    fuera de [desde, hasta] salta."""
     dia = dt.date(2026, 10, 5)
     plan, skips = _planea_filas_placements(
         [
@@ -458,14 +466,14 @@ def test_fila_futura_y_fuera_de_rango_saltan():
             _fila(date="2026-01-01"),
         ],
         entidades={"9001": 7},
+        ultimo_cerrado=dt.date(2026, 10, 6),
         desde=dia,
         hasta=dia,
-        hoy=dt.date(2026, 10, 6),
     )
     assert [f.metric_date for f in plan] == [dia]
     assert skips == Counter(
         {
-            "fila de placements con metric_date futura": 1,
+            "fila de placements de un día que aún no cierra": 1,
             "fila de placements con metric_date fuera del rango": 1,
         }
     )
@@ -474,8 +482,11 @@ def test_fila_futura_y_fuera_de_rango_saltan():
 @_skip_db
 def test_sync_salta_fechas_que_no_pidio():
     """NB5: el sync escribe solo lo del rango pedido."""
-    hoy = dt.datetime.now(dt.UTC).date()
-    ayer = hoy - dt.timedelta(days=1)
+    ahora = dt.datetime.now(dt.UTC)
+    hoy = ahora.date()
+    # El ultimo dia que ya cerro en MX (ARREGLOS 03 D-E): "hoy UTC - 1"
+    # aun no cierra de madrugada UTC y el escritor no lo guardaria.
+    ayer = ultimo_dia_cerrado("amazon_mx", ahora)
     filas = {
         "202": [
             _fila(date=ayer.isoformat()),
@@ -492,5 +503,5 @@ def test_sync_salta_fechas_que_no_pidio():
         ).fetchall()
         assert fechas == [(ayer,)]
         motivo = conn.execute("SELECT skip_reason FROM ingest_run").fetchone()[0]
-        assert "metric_date futura" in motivo
+        assert "de un día que aún no cierra" in motivo
         assert "fuera del rango" in motivo

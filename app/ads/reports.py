@@ -101,10 +101,12 @@ Decisiones selladas de esta task:
   observado >= metric_date NO vive en un CHECK de la base (un cast
   date::timestamptz en CHECK se evalua segun la TimeZone de cada sesion; ver
   el comentario de la tabla) -- es responsabilidad DECLARADA de este codigo:
-  el guard de fecha futura usa el MISMO reloj que escribe observed_at (la
-  fecha de now() calculada con UTC FIJADO en la expresion, en la misma
-  transaccion que abre la run; hallazgo grok). El skew Python-DB ya no puede
-  romper el invariante: solo queda el reloj de la DB.
+  el guard de dia cerrado usa el MISMO reloj que escribe observed_at (now()
+  de la DB, en la misma transaccion que abre la run; hallazgo grok) y solo
+  deja pasar hasta ultimo_dia_cerrado(plataforma, now()) de app.dia_cerrado
+  (ARREGLOS 03 D-E): el dia que aun no termina en la zona del marketplace no
+  se guarda. El skew Python-DB ya no puede romper el invariante: solo queda
+  el reloj de la DB.
 - metric_date fuera del rango solicitado -> skip: una descarga equivocada no
   puede contaminar fechas ajenas al reporte pedido (hallazgo codex).
 - Fila sin NINGUNA metrica -> skip: una observacion vacia posterior puede
@@ -236,6 +238,7 @@ from app.ads.structure import (
     _formato_skip_reason,
     _sellar_run,
 )
+from app.dia_cerrado import ultimo_dia_cerrado
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -408,11 +411,13 @@ _SQL_ENTIDADES = """
     WHERE platform = %s AND kind = %s AND external_id = ANY(%s)
 """
 
-# El "hoy" del guard de fecha futura sale del MISMO reloj que escribe
-# observed_at (now() de la DB, constante dentro de la transaccion) con UTC
-# FIJADO en la expresion: misma defensa que los triggers del esquema
-# (hallazgo grok). Se calcula en la misma transaccion que abre la run.
-_SQL_FECHA_HOY = "SELECT (now() AT TIME ZONE 'UTC')::date"
+# El instante del guard de dia cerrado sale del MISMO reloj que escribe
+# observed_at (now() de la DB, constante dentro de la transaccion; hallazgo
+# grok). Se lee como timestamptz (instante con zona, sin depender de la
+# TimeZone de la sesion) y cada reporte saca de el su ultimo_dia_cerrado en
+# la zona de su plataforma (app.dia_cerrado, ARREGLOS 03 D-E). Se calcula en
+# la misma transaccion que abre la run.
+_SQL_FECHA_HOY = "SELECT now()"
 
 # Append-only (regla 5): JAMAS UPDATE. El ON CONFLICT apunta al indice parcial
 # metric_dedupe_reporte (re-ingestar el MISMO reporte no duplica aunque cambie
@@ -704,16 +709,18 @@ def _planea_filas(
     reporte_cfg: dict,
     filas: list[dict],
     *,
-    hoy: dt.date,
+    ultimo_cerrado: dt.date,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ) -> tuple[list[_FilaPlano], Counter[str]]:
     """Valida cada fila ANTES de tocar la base.
 
     Gates (todos dejan la fila fuera con motivo, ninguno aborta la corrida):
-    id ausente, date invalida, fecha futura (la fecha del payload NO puede ser
-    futura: observed_at lo fija la ingesta en now(), el invariante observado
-    >= hecho es responsabilidad declarada de este modulo), metric_date fuera
+    id ausente, date invalida, dia que aun no cierra (metric_date posterior a
+    `ultimo_cerrado`, el ultimo dia que ya termino en la zona del marketplace,
+    ARREGLOS 03 D-E; tambien cubre la fecha futura: observed_at lo fija la
+    ingesta en now(), el invariante observado >= hecho es responsabilidad
+    declarada de este modulo), metric_date fuera
     del rango solicitado (una descarga equivocada no contamina fechas ajenas
     al reporte pedido; hallazgo codex), metricas no numericas/fraccionarias,
     fila sin NINGUNA metrica (una observacion vacia posterior llegaria a
@@ -741,9 +748,14 @@ def _planea_filas(
             skips["fila con date invalida"] += 1
             logger.debug("date invalida en fila de %s: %r", etiqueta, raw_date)
             continue
-        if metric_date > hoy:
-            skips["fila con metric_date futura"] += 1
-            logger.debug("metric_date futura en fila de %s: %s > %s", etiqueta, metric_date, hoy)
+        if metric_date > ultimo_cerrado:
+            skips["fila de un día que aún no cierra"] += 1
+            logger.debug(
+                "dia que aun no cierra en fila de %s: %s > %s",
+                etiqueta,
+                metric_date,
+                ultimo_cerrado,
+            )
             continue
         if metric_date < fecha_ini or metric_date > fecha_fin:
             skips["fila con metric_date fuera del rango solicitado"] += 1
@@ -870,7 +882,7 @@ def _planea_filas_terminos(
     reporte_cfg: dict,
     filas: list[dict],
     *,
-    hoy: dt.date,
+    ultimo_cerrado: dt.date,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ) -> tuple[list[_FilaTermino], Counter[str]]:
@@ -879,7 +891,7 @@ def _planea_filas_terminos(
     Espejo de _planea_filas con el vocabulario CERRADO de skips (mismas
     claves de fecha/metrica; solo cambian las de identidad de la fila):
     adGroupId ausente, searchTerm ausente/vacio (tras strip), date invalida,
-    metric_date futura, fuera del rango solicitado, metricas no
+    dia que aun no cierra, fuera del rango solicitado, metricas no
     numericas/fraccionarias y fila sin NINGUNA metrica. NO hay pre-check
     same_sku: la tabla no tiene esa columna. Toda fila planificada llega con
     is_asin_like calculado y search_term strippeado.
@@ -934,9 +946,14 @@ def _planea_filas_terminos(
             skips["fila con date invalida"] += 1
             logger.debug("date invalida en fila de %s: %r", etiqueta, raw_date)
             continue
-        if metric_date > hoy:
-            skips["fila con metric_date futura"] += 1
-            logger.debug("metric_date futura en fila de %s: %s > %s", etiqueta, metric_date, hoy)
+        if metric_date > ultimo_cerrado:
+            skips["fila de un día que aún no cierra"] += 1
+            logger.debug(
+                "dia que aun no cierra en fila de %s: %s > %s",
+                etiqueta,
+                metric_date,
+                ultimo_cerrado,
+            )
             continue
         if metric_date < fecha_ini or metric_date > fecha_fin:
             skips["fila con metric_date fuera del rango solicitado"] += 1
@@ -1136,7 +1153,7 @@ def _envenenar_clave_producto(
 def _planea_filas_productos(
     filas: list[dict],
     *,
-    hoy: dt.date,
+    ultimo_cerrado: dt.date,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ) -> tuple[list[_FilaProducto], Counter[str]]:
@@ -1152,7 +1169,7 @@ def _planea_filas_productos(
     planificador no ve agregados de campana, solo filas por producto.
 
     Espejo de _planea_filas_terminos (vocabulario CERRADO de skips): asin/sku
-    ausentes, date invalida, metric_date futura, fuera del rango solicitado,
+    ausentes, date invalida, dia que aun no cierra, fuera del rango solicitado,
     metricas no numericas/fraccionarias, fila sin NINGUNA metrica y la fila
     absorbida por la fusion. Las filas con metrica no numerica o sin NINGUNA
     metrica ENVENENAN la clave (asin, sku, fecha): el subtotal parcial de otra
@@ -1191,9 +1208,9 @@ def _planea_filas_productos(
             skips["fila con date invalida"] += 1
             logger.debug("date invalida en fila de productos: %r", raw_date)
             continue
-        if metric_date > hoy:
-            skips["fila con metric_date futura"] += 1
-            logger.debug("metric_date futura en productos: %s > %s", metric_date, hoy)
+        if metric_date > ultimo_cerrado:
+            skips["fila de un día que aún no cierra"] += 1
+            logger.debug("dia que aun no cierra en productos: %s > %s", metric_date, ultimo_cerrado)
             continue
         if metric_date < fecha_ini or metric_date > fecha_fin:
             skips["fila con metric_date fuera del rango solicitado"] += 1
@@ -1367,7 +1384,7 @@ def ingest_metrics(
     filas: list[dict],
     *,
     run_id: int,
-    hoy: dt.date,
+    ultimo_cerrado: dt.date,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ) -> ResultadoIngesta:
@@ -1381,9 +1398,11 @@ def ingest_metrics(
     trigger metric_moneda_de_plataforma en la base.
 
     `run_id` es la ingest_run que abre la corrida de descarga (UNA por grupo,
-    no una por reporte). `hoy` es la fecha del reloj de la DB (UTC fijado) calculada
-    en la misma transaccion que abre la run: el guard de fecha futura usa el
-    MISMO reloj que escribe observed_at con now() (hallazgo grok).
+    no una por reporte). `ultimo_cerrado` es ultimo_dia_cerrado(plataforma del
+    perfil, now() de la DB) calculado en la misma transaccion que abre la run:
+    el guard de dia cerrado usa el MISMO reloj que escribe observed_at con
+    now() (hallazgo grok) y descarta la fila de un dia que aun no termina en
+    la zona del marketplace (ARREGLOS 03 D-E).
     `fecha_ini`/`fecha_fin` delimitan el rango solicitado: una fila con
     metric_date fuera del rango (descarga equivocada) se salta con motivo.
     """
@@ -1392,7 +1411,7 @@ def ingest_metrics(
             f"ingest_metrics exige un perfil aceptado (profile_id={perfil.profile_id!r})"
         )
     plan, skips = _planea_filas(
-        reporte_cfg, filas, hoy=hoy, fecha_ini=fecha_ini, fecha_fin=fecha_fin
+        reporte_cfg, filas, ultimo_cerrado=ultimo_cerrado, fecha_ini=fecha_ini, fecha_fin=fecha_fin
     )
 
     # Resolucion de entidades en un solo SELECT por reporte: las filas
@@ -1460,7 +1479,7 @@ def ingest_search_terms(
     filas: list[dict],
     *,
     run_id: int,
-    hoy: dt.date,
+    ultimo_cerrado: dt.date,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ) -> ResultadoIngesta:
@@ -1482,16 +1501,16 @@ def ingest_search_terms(
     perdida silenciosa. El dedupe de source_report_id queda como defensa
     para la re-ingesta del mismo reporte.
 
-    `run_id`/`hoy`/`fecha_ini`/`fecha_fin`: misma semantica que ingest_metrics
-    (una ingest_run por corrida; el guard de fecha futura usa el MISMO reloj
-    que escribe observed_at).
+    `run_id`/`ultimo_cerrado`/`fecha_ini`/`fecha_fin`: misma semantica que
+    ingest_metrics (una ingest_run por corrida; el guard de dia cerrado usa
+    el MISMO reloj que escribe observed_at).
     """
     if not perfil.aceptado or perfil.platform is None or perfil.moneda is None:
         raise AdsReportsError(
             f"ingest_search_terms exige un perfil aceptado (profile_id={perfil.profile_id!r})"
         )
     plan, skips = _planea_filas_terminos(
-        reporte_cfg, filas, hoy=hoy, fecha_ini=fecha_ini, fecha_fin=fecha_fin
+        reporte_cfg, filas, ultimo_cerrado=ultimo_cerrado, fecha_ini=fecha_ini, fecha_fin=fecha_fin
     )
 
     # Resolucion de entidades en un solo SELECT por reporte (kind ad_group):
@@ -1552,7 +1571,8 @@ def ingest_search_terms(
 
 # AUTO-03 D.7 (S6): descartes que NO pueden esconder actividad de una fecha
 # del rango pedido. La fusion suma la fila en su clave; fuera de rango o
-# futura no es una fecha del rango; el duplicado ya esta escrito por otra
+# de un dia que aun no cierra (ARREGLOS 03 D-E) no es una fecha que se
+# pueda guardar; el duplicado ya esta escrito por otra
 # corrida. Cualquier otro descarte (vocabulario cerrado de
 # _planea_filas_productos) deja la cobertura en falso: fail-closed ante un
 # motivo nuevo.
@@ -1560,7 +1580,7 @@ _SKIPS_SIN_ACTIVIDAD_DEL_RANGO = frozenset(
     {
         "fila agregada por clave duplicada en el reporte",
         "fila con metric_date fuera del rango solicitado",
-        "fila con metric_date futura",
+        "fila de un día que aún no cierra",
     }
 )
 
@@ -1582,7 +1602,7 @@ def ingest_productos(
     filas: list[dict],
     *,
     run_id: int,
-    hoy: dt.date,
+    ultimo_cerrado: dt.date,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ) -> ResultadoIngesta:
@@ -1596,15 +1616,17 @@ def ingest_productos(
     campaign_ids/ad_ids viajan como JSONB de trazabilidad. La moneda es la
     del perfil y la sella el trigger compartido metric_moneda_de_plataforma.
 
-    `run_id`/`hoy`/`fecha_ini`/`fecha_fin`: misma semantica que ingest_metrics
-    (una ingest_run por corrida; el guard de fecha futura usa el MISMO reloj
-    que escribe observed_at).
+    `run_id`/`ultimo_cerrado`/`fecha_ini`/`fecha_fin`: misma semantica que
+    ingest_metrics (una ingest_run por corrida; el guard de dia cerrado usa
+    el MISMO reloj que escribe observed_at).
     """
     if not perfil.aceptado or perfil.platform is None or perfil.moneda is None:
         raise AdsReportsError(
             f"ingest_productos exige un perfil aceptado (profile_id={perfil.profile_id!r})"
         )
-    plan, skips = _planea_filas_productos(filas, hoy=hoy, fecha_ini=fecha_ini, fecha_fin=fecha_fin)
+    plan, skips = _planea_filas_productos(
+        filas, ultimo_cerrado=ultimo_cerrado, fecha_ini=fecha_ini, fecha_fin=fecha_fin
+    )
 
     written = 0
     for fila in plan:
@@ -1671,8 +1693,10 @@ def escribir_grupo(
     """Fase DB de UN grupo de metricas/productos: la escribe `al_completar` de
     app.ads.descarga en el momento en que el grupo cierra su fase de API.
 
-    Una sola transaccion: el "hoy" del guard sale del MISMO reloj y transaccion
-    que observed_at (now() de la DB, UTC fijado), el despacho por cfg["tabla"]
+    Una sola transaccion: el instante del guard de dia cerrado sale del MISMO
+    reloj y transaccion que observed_at (now() de la DB); cada reporte saca
+    de el su ultimo_dia_cerrado en la zona de su plataforma (ARREGLOS 03
+    D-E). El despacho por cfg["tabla"]
     va a ingest_metrics / ingest_search_terms / ingest_productos, cada reporte
     queda `written` y el sello ok=true cierra la misma transaccion. En fallo:
     rollback atomico del trabajo + sello best-effort ok=false (registrando la
@@ -1691,12 +1715,13 @@ def escribir_grupo(
     report_id_actual: str | None = None
     try:
         with conn.transaction():
-            hoy = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
+            ahora = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
             for item in items:
                 perfil, cfg = item.perfil, item.cfg
                 report_id = item.report_id
                 filas = item.filas
                 perfil_actual, cfg_actual, report_id_actual = perfil, cfg, report_id
+                ultimo_cerrado = ultimo_dia_cerrado(perfil.platform, ahora)
                 # Dispatch por tabla (clave "tabla" solo la llevan search
                 # terms y productos): mismo camino, un solo dueno por tabla.
                 # Un valor desconocido es fail-closed, jamas "caer" al camino
@@ -1710,7 +1735,7 @@ def escribir_grupo(
                         report_id,
                         filas,
                         run_id=run_id,
-                        hoy=hoy,
+                        ultimo_cerrado=ultimo_cerrado,
                         fecha_ini=fecha_ini,
                         fecha_fin=fecha_fin,
                     )
@@ -1722,7 +1747,7 @@ def escribir_grupo(
                         report_id,
                         filas,
                         run_id=run_id,
-                        hoy=hoy,
+                        ultimo_cerrado=ultimo_cerrado,
                         fecha_ini=fecha_ini,
                         fecha_fin=fecha_fin,
                     )
@@ -1734,7 +1759,7 @@ def escribir_grupo(
                         report_id,
                         filas,
                         run_id=run_id,
-                        hoy=hoy,
+                        ultimo_cerrado=ultimo_cerrado,
                         fecha_ini=fecha_ini,
                         fecha_fin=fecha_fin,
                     )

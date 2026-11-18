@@ -21,6 +21,14 @@ from pglast import ast, enums
 ROOT = Path(__file__).resolve().parents[1]
 SQL = (ROOT / "migrations" / "0001_initial.sql").read_text(encoding="utf-8")
 STMTS = tuple(pglast.parse_sql(SQL))
+# ARREGLOS 03 D-I: app/ledger.py inserta las columnas del importe original de
+# ledger_event; toda base de prueba que corre sync_ledger aplica esta migracion
+# tras su cadena. Se busca por tema: el numero puede moverse al rebasar.
+SQL_LEDGER_ORIGINAL = next(
+    ruta
+    for ruta in sorted((ROOT / "migrations").glob("*_arreglos03_ledger_original.sql"))
+    if "_reversa_" not in ruta.name
+).read_text(encoding="utf-8")
 
 # 0002 (ORBIT 04, task 1.2 — sellado 24 del header: test_schema parsea TAMBIEN
 # 0002 para que los invariantes cubran las tablas nuevas).

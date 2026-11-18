@@ -442,6 +442,12 @@ def ejecuta_snapshot(
     try:
         creds = MeliCredentials.from_secrets_dir(secrets_dir)
         cliente = ClienteMeli(creds, transport=transport)
+    except Exception as exc:
+        if not dry_run:
+            _sella_caida_temprana(dsn, exc)
+        print(f"reputacion {fuente} fallo: {scrub(str(exc))}", file=sys.stderr)
+        return 1
+    try:
         conn = connect(dsn)
         try:
             if dry_run:
@@ -463,6 +469,24 @@ def ejecuta_snapshot(
         return 1
     print(json.dumps(resumen, ensure_ascii=False))
     return 0
+
+
+def _sella_caida_temprana(dsn: str, exc: Exception) -> None:
+    """La lectura se cayo antes de que _corre_meli abriera su corrida (llave o
+    cliente): deja una corrida fallida de hoy con el nombre de la clase del
+    error, para que la revision de las 10:30 no la tome por una lectura que
+    no corrio (ARREGLOS 03 D-K). Si la base tampoco responde, no deja nada."""
+    try:
+        conn = connect(dsn)
+        try:
+            run_id = _abrir_run(conn, SOURCE_MELI)
+            motivo = f"fallo antes de empezar: {type(exc).__name__}"
+            with conn.transaction():
+                conn.execute(_SQL_SELLAR_RUN, (0, 0, motivo, False, run_id))
+        finally:
+            conn.close()
+    except Exception as error:  # noqa: BLE001 - sin base no hay donde dejarla
+        logger.warning("reputacion meli: no se dejo la corrida fallida: %s", scrub(str(error)))
 
 
 def _corre_meli(

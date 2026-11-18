@@ -5,7 +5,7 @@
     reviews recientes; vacio no rompe; URLs solo allowlist.
 (b) UI: /reputacion 200 server-rendered; texto externo escapado
     (autoescape Jinja, cero JS inline); sidebar con enlace y sin chip
-    Reviews; ausencia visible; digest texto plano fijado.
+    Reviews; ausencia visible; aviso texto plano fijado.
 """
 
 from __future__ import annotations
@@ -259,31 +259,26 @@ def test_pagina_sin_img_y_enlaces_allowlist():
             ), href
 
 
-def test_digest_texto_plano_fija_contrato():
+def test_aviso_reputacion_texto_plano_fija_contrato():
     """Telegram sin parse_mode: el marcado viaja literal, no interpreta.
 
     DoD A.6 "escape segun parse_mode": con parse_mode ausente el
     escape correcto es ninguno; este test fija el contrato display.
+    ARREGLOS 03 D-K: la alerta ya no viaja en el digest del ciclo sino en
+    su propio aviso.
     """
-    from app.notifica import digest_ciclo
+    from app.notifica import aviso_reputacion
 
-    texto = digest_ciclo(
-        {
-            "cycle_id": 1,
-            "plataforma": "meli",
-            "status": "ok",
-            "decisions_count": 0,
-            "apply": {},
-            "reputacion": [
-                {
-                    "tipo": "rating_bajo",
-                    "severidad": "aviso",
-                    "platform": "meli",
-                    "external_id": "MLM1",
-                    "mensaje": "<b>4.1</b>",
-                }
-            ],
-        }
+    texto = aviso_reputacion(
+        [
+            {
+                "tipo": "rating_bajo",
+                "severidad": "aviso",
+                "platform": "meli",
+                "external_id": "MLM1",
+                "mensaje": "<b>4.1</b>",
+            }
+        ]
     )
     assert "<b>4.1</b>" in texto
 
