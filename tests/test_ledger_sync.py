@@ -26,15 +26,17 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, SQL_LEDGER_ORIGINAL, _hay_postgres_local, _test_dsn
 
 from app.ledger import (
     _COLS,
+    _VALS,
     MAPA_KIND,
     SOURCE,
     EventoLedger,
     FilaOrigenLedger,
     _money_from_payload,
+    _params,
     leer_origen,
     main,
     mapear_destino,
@@ -241,6 +243,92 @@ def test_arreglos03_dh_devolucion_sin_categoria_queda_como_refund():
         )
     )
     assert us is not None and us.platform == "amazon_us" and us.fee_type is None
+
+
+def test_arreglos03_di_venta_de_us_guarda_su_importe_en_dolares():
+    """ARREGLOS 03 D-I (ingesta F4): contabilidad entrega la venta de US ya en
+    pesos y los bloques en dolares de SP-API se tiraban. La venta guarda
+    tambien su importe en dolares (los ocho bloques, descuentos restados) y el
+    dia de la tasa solo si contabilidad uso la del dia (fx_source exact). Un
+    cargo de US solo trae orig_currency: se marca la moneda y no se inventan
+    los dolares. Una venta MX no se convirtio: las tres vacias."""
+
+    def usd(monto: str) -> dict:
+        return {"CurrencyCode": "USD", "Amount": monto}
+
+    bloques = {
+        "ASIN": "B0TESTASIN1",
+        "ItemPrice": usd("120.00"),
+        "ItemTax": usd("9.60"),
+        "ShippingPrice": usd("5.00"),
+        "ShippingTax": usd("0.40"),
+        "PromotionDiscount": usd("10.00"),
+        "QuantityShipped": 1,
+    }
+    dia = date(2026, 11, 12)
+
+    def venta_us(fx_source: str, dedupe: str):
+        return mapear_destino(
+            _fila(
+                platform="amazon_us",
+                order_id="111-0178528-5045877",
+                amount=2332.5,
+                currency="MXN",
+                event_date="2026-11-12 18:04:00",
+                raw_payload=json.dumps({**bloques, "fx_source": fx_source}),
+                dedupe_key=dedupe,
+            )
+        )
+
+    exacta = venta_us("exact", "amazon_us|sale|1")
+    assert exacta is not None and exacta.kind == "sale"
+    assert (exacta.amount_original, exacta.amount_original_currency, exacta.fx_fecha) == (
+        Decimal("125.0000"),
+        "USD",
+        dia,
+    )
+    # El desglose fiscal sigue en la moneda del monto: no se mezclan dolares.
+    assert exacta.item_price is None and exacta.item_tax is None
+
+    otro_dia = venta_us("nearest_prior", "amazon_us|sale|2")
+    assert otro_dia is not None
+    assert (
+        otro_dia.amount_original,
+        otro_dia.amount_original_currency,
+        otro_dia.fx_fecha,
+    ) == (Decimal("125.0000"), "USD", None)
+
+    cargo = mapear_destino(
+        _fila(
+            platform="amazon_us",
+            event_type="fee",
+            fee_category="referral_fee",
+            amount=-349.88,
+            currency="MXN",
+            event_date="2026-11-12",
+            raw_payload=json.dumps({"orig_currency": "USD", "fx_source": "exact"}),
+            dedupe_key="amazon_us|fee|1",
+        )
+    )
+    assert cargo is not None and cargo.kind == "fee"
+    assert (cargo.amount_original, cargo.amount_original_currency, cargo.fx_fecha) == (
+        None,
+        "USD",
+        dia,
+    )
+
+    mx = mapear_destino(_fila(dedupe_key="amazon|sale|mx"))
+    assert mx is not None and mx.platform == "amazon_mx"
+    assert (mx.amount_original, mx.amount_original_currency, mx.fx_fecha) == (None, None, None)
+
+    # Lo que viaja al INSERT: cada valor cae en su columna.
+    columnas = [c.strip() for c in _COLS.split(",")]
+    assert _VALS.count("%s") == len(columnas)
+    insert = dict(zip(columnas, _params(exacta, 7), strict=True))
+    assert insert["amount"] == Decimal("2332.5000") and insert["amount_currency"] == "MXN"
+    assert insert["amount_original"] == Decimal("125.0000")
+    assert insert["amount_original_currency"] == "USD"
+    assert insert["fx_fecha"] == dia
 
 
 def test_refund_positivo_no_se_voltea_ni_se_inserta():
@@ -586,6 +674,7 @@ def test_sync_ledger_ciclo_completo_y_tres_dedupes(tmp_path):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
+        conn.execute(SQL_LEDGER_ORIGINAL)
 
         # producto + listing para resolver ASIN
         pid = conn.execute(
@@ -832,6 +921,7 @@ def test_sync_ledger_persiste_sin_autocommit(tmp_path):
         conn = psycopg.connect(dsn, dbname=db)  # sin autocommit
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
+        conn.execute(SQL_LEDGER_ORIGINAL)
         conn.commit()
 
         snap = _snapshot(

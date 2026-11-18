@@ -21,7 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 import psycopg
 import pytest
 from psycopg.types.json import Json
-from test_schema import _postgres_obligatorio_ausente
+from test_schema import SQL_LEDGER_ORIGINAL, _postgres_obligatorio_ausente
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -68,6 +68,8 @@ def _db(*, sin_0054: bool = False):
         conn.execute("SET TIME ZONE 'UTC'")
         for nombre in orden:
             conn.execute((RAIZ / "migrations" / nombre).read_text(encoding="utf-8"))
+        # Fuera de ORDEN02: sin_0054 y la prueba de la 0054 usan su ultimo elemento.
+        conn.execute(SQL_LEDGER_ORIGINAL)
         yield conn
     finally:
         if conn is not None:

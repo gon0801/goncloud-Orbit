@@ -21,7 +21,12 @@ Decisiones selladas (plans/orbit-06.md, "Decisiones de la 0.6"):
    ON CONFLICT DO NOTHING en los tres indices de dedupe.
 7. event_date timestamp→DATE; no fusionar dedupe_keys distintos.
 8. Desglose fiscal del raw_payload si CurrencyCode coincide; moneda = la
-   del amount (amazon_us puede ser MXN).
+   del amount (amazon_us puede ser MXN). El desglose fiscal de US sigue
+   vacio: sus bloques vienen en USD y esas columnas estan en la moneda del
+   monto (guardar dolares ahi mezclaria monedas). ARREGLOS 03 D-I: el
+   importe en dolares va aparte (amount_original, amount_original_currency,
+   fx_fecha, ver `_original_de`); un cargo de US solo trae la moneda y el
+   monto original queda NULL (no se inventa).
 
 `python -m app.cli ingest ledger --sqlite RUTA`.
 """
@@ -119,6 +124,10 @@ class EventoLedger:
 
     `payload` no se persiste: viaja para el atribuidor (M.2: `item_id`
     de MeLi). Se llama asi y no `raw` porque ya viene parseado.
+
+    `amount_original`, `amount_original_currency` y `fx_fecha` (ARREGLOS 03
+    D-I): el importe antes de que contabilidad lo convirtiera, su moneda y el
+    dia de la tasa (solo si fue la del dia). Ver `_original_de`.
     """
 
     platform: str
@@ -135,6 +144,9 @@ class EventoLedger:
     shipping_tax: Decimal | None
     fee_type: str | None
     source_event_id: str | None
+    amount_original: Decimal | None
+    amount_original_currency: str | None
+    fx_fecha: date | None
     payload: dict | None = None
 
 
@@ -298,6 +310,89 @@ def _desglose_negativo_en_payload(payload: dict[str, Any], moneda_amount: str) -
     return n
 
 
+# ARREGLOS 03 D-I: los ocho bloques del item de pedido de SP-API con los que
+# contabilidad arma el precio bruto de la venta antes de pasarlo a pesos
+# (goncloud-accounting scripts/sync_amazon.py, gross_price): +1 suma, -1 resta.
+_BLOQUES_VENTA: tuple[tuple[str, int], ...] = (
+    ("ItemPrice", 1),
+    ("ItemTax", 1),
+    ("ShippingPrice", 1),
+    ("ShippingTax", 1),
+    ("ShippingDiscount", -1),
+    ("ShippingDiscountTax", -1),
+    ("PromotionDiscount", -1),
+    ("PromotionDiscountTax", -1),
+)
+
+_SIN_ORIGINAL: tuple[None, None, None] = (None, None, None)
+
+
+def _importe_de_bloque(bloque: dict[str, Any]) -> Decimal | None:
+    """Amount de un bloque de SP-API; None si falta o no es un numero usable."""
+    raw = bloque.get("Amount")
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        valor = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
+    if not valor.is_finite() or abs(valor) >= _MAX_AMOUNT:
+        return None
+    return valor
+
+
+def _original_de(
+    payload: dict[str, Any], kind: str, moneda: str, dia: date
+) -> tuple[Decimal | None, str | None, date | None]:
+    """(amount_original, amount_original_currency, fx_fecha) del evento.
+
+    Ventas: suma de los ocho bloques de SP-API si todos los presentes traen
+    la misma CurrencyCode y es distinta de `moneda`; un bloque ausente vale 0
+    (igual que contabilidad); un bloque con otra moneda o ilegible -> las
+    tres NULL. Un total que no es > 0 deja el monto NULL con la moneda puesta.
+    Cargos, devoluciones y retenciones: contabilidad solo manda
+    `orig_currency`, asi que el monto queda NULL con la moneda puesta
+    (dividir pesos entre una tasa seria inventarlo).
+    `fx_fecha` = `dia` solo con fx_source 'exact' (la tasa del dia del
+    evento); con 'nearest_prior' u otro, NULL.
+    """
+    fx = dia if payload.get("fx_source") == "exact" else None
+    if kind != "sale":
+        origen = payload.get("orig_currency")
+        if not isinstance(origen, str):
+            return _SIN_ORIGINAL
+        origen = origen.strip().upper()
+        if origen not in MONEDAS or origen == moneda:
+            return _SIN_ORIGINAL
+        return None, origen, fx
+
+    codigo: str | None = None
+    total = Decimal(0)
+    for clave, signo in _BLOQUES_VENTA:
+        bloque = payload.get(clave)
+        if bloque is None:
+            continue
+        if not isinstance(bloque, dict):
+            return _SIN_ORIGINAL
+        code = bloque.get("CurrencyCode")
+        if not isinstance(code, str) or code.strip().upper() not in MONEDAS:
+            return _SIN_ORIGINAL
+        code = code.strip().upper()
+        if codigo is not None and code != codigo:
+            return _SIN_ORIGINAL
+        codigo = code
+        valor = _importe_de_bloque(bloque)
+        if valor is None:
+            return _SIN_ORIGINAL
+        total += signo * valor
+    if codigo is None or codigo == moneda:
+        return _SIN_ORIGINAL
+    total = total.quantize(_MAX_DECIMALES)
+    if total <= 0 or total >= _MAX_AMOUNT:
+        return None, codigo, fx
+    return total, codigo, fx
+
+
 def _amount_decimal(amount: float) -> Decimal | None:
     valor = Decimal(str(amount))
     if not valor.is_finite():
@@ -397,10 +492,14 @@ def mapear_destino(
     if kind == "sale" and product_id is not None and (quantity is None or quantity <= 0):
         product_id = None
 
+    dia = _dia(fila.event_date)
+    assert dia is not None  # _motivo_skip_basico ya rechazo la fecha ilegible
+    amount_original, moneda_original, fx_fecha = _original_de(payload, kind, moneda, dia)
+
     return EventoLedger(
         platform=plataforma,
         kind=kind,
-        event_date=_dia(fila.event_date),  # type: ignore[arg-type]
+        event_date=dia,
         order_id=order_id,
         product_id=product_id,
         quantity=quantity,
@@ -412,6 +511,9 @@ def mapear_destino(
         shipping_tax=_money_from_payload(payload, "ShippingTax", moneda),
         fee_type=fee_type,
         source_event_id=source_event_id,
+        amount_original=amount_original,
+        amount_original_currency=moneda_original,
+        fx_fecha=fx_fecha,
         payload=payload,
     )
 
@@ -507,9 +609,10 @@ UPDATE ingest_run
 _COLS = (
     "platform, kind, event_date, order_id, product_id, quantity,"
     " amount, amount_currency, item_price, item_tax, shipping_price,"
-    " shipping_tax, fee_type, source_event_id, ingest_run_id"
+    " shipping_tax, fee_type, source_event_id, amount_original,"
+    " amount_original_currency, fx_fecha, ingest_run_id"
 )
-_VALS = "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
+_VALS = ", ".join(["%s"] * len(_COLS.split(",")))
 
 # Tres indices parciales: el ON CONFLICT debe coincidir con el predicado.
 _SQL_INSERT_SOURCE = f"""
@@ -561,6 +664,9 @@ def _params(ev: EventoLedger, run_id: int) -> tuple:
         ev.shipping_tax,
         ev.fee_type,
         ev.source_event_id,
+        ev.amount_original,
+        ev.amount_original_currency,
+        ev.fx_fecha,
         run_id,
     )
 
