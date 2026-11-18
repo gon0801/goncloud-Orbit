@@ -1,0 +1,16 @@
+# P-B.1 — rojo en el SHA previo (master antes del arreglo)
+sha: 48b0e44f016d5aa979ebfbd35502654de3b5a4ce (aec8efe0 = origin/master con P-A + solo el commit de las dos pruebas nuevas)
+fecha: 2026-11-18T11:32:51Z
+comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_precio_corrida.py -k arreglos03_pb_
+entorno: Windows, PG16 desechable ORBIT_TEST_DSN=127.0.0.1:55433
+
+## test_arreglos03_pb_error_de_base_de_una_publicacion_no_tumba_la_corrida
+E           AssertionError: publicacion sana decidida=0 patch=0, corrida=abierta, avisos=0
+E           assert (0, 0, 'abierta', 0) == (1, 1, 'cerrada', 1)
+tests\test_precio_corrida.py:5432: AssertionError
+
+## test_arreglos03_pb_corrida_caida_avisa_por_telegram
+E       AssertionError: assert [] == ['corrida_fallida']
+tests\test_precio_corrida.py:5466: AssertionError
+
+2 failed, 133 deselected in 5.52s

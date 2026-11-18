@@ -5402,6 +5402,8 @@ def test_arreglos03_pb_error_de_base_de_una_publicacion_no_tumba_la_corrida(monk
     al 25-oct en MeLi) no tumba la corrida: la otra publicacion queda
     decidida y aplicada, la fila de corrida queda `cerrada` y el gancho de
     aviso (Telegram) se llama una vez."""
+    from contextlib import suppress
+
     import app.precio.corrida as corrida_mod
 
     avisos: list = []
@@ -5421,10 +5423,8 @@ def test_arreglos03_pb_error_de_base_de_una_publicacion_no_tumba_la_corrida(monk
 
         monkeypatch.setattr(corrida_mod, "persistir_decision", persistir)
         red = _RedFalsa(skus={sana["evento"]: sana["sku"], rota["evento"]: rota["sku"]})
-        try:
+        with suppress(psycopg.Error):
             _corre(conn, red, avisar=lambda *a: avisos.append(a))
-        except psycopg.Error:
-            pass
         decididas = conn.execute(
             "SELECT count(*) FROM precio_decision WHERE listing_id = %s", (sana["listing"],)
         ).fetchone()[0]
