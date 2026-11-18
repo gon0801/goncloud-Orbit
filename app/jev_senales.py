@@ -84,9 +84,7 @@ MotivoCierre = Literal["apagado", "ocupado", "completa", "tope", "proveedor_caid
 # ARREGLOS 03 D-J (seccion «OK»): cierres donde no se juzgo ninguna busqueda.
 # La salida 1 hace que cron-avisa mande el aviso ese mismo dia; el vigia no
 # cambia (sigue cuidando que la tarea arranque).
-MOTIVOS_SIN_JUICIO: frozenset[MotivoCierre] = frozenset(
-    {"sin_api_key", "proveedor_caido", "tope"}
-)
+MOTIVOS_SIN_JUICIO: frozenset[MotivoCierre] = frozenset({"sin_api_key", "proveedor_caido", "tope"})
 TEXTO_SIN_JUICIO: dict[MotivoCierre, str] = {
     "sin_api_key": "falta la llave del proveedor de JEV",
     "proveedor_caido": "el proveedor de JEV no respondió",

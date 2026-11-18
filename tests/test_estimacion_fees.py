@@ -1384,10 +1384,24 @@ def test_arreglos03_dj_cotizaciones_todas_fallidas_sellan_ok_falso(tmp_path):
     snap = _snapshot_bridge(
         tmp_path / "bridge.db",
         [
-            ("SS-MX-1", "B0EST01", "A1AM78C64UM0Y8", "amazon_mx", 116.0, "AMAZON_NA",
-             FETCH.isoformat()),
-            ("SS-MX-2", "B0EST02", "A1AM78C64UM0Y8", "amazon_mx", 120.0, "AMAZON_NA",
-             FETCH.isoformat()),
+            (
+                "SS-MX-1",
+                "B0EST01",
+                "A1AM78C64UM0Y8",
+                "amazon_mx",
+                116.0,
+                "AMAZON_NA",
+                FETCH.isoformat(),
+            ),
+            (
+                "SS-MX-2",
+                "B0EST02",
+                "A1AM78C64UM0Y8",
+                "amazon_mx",
+                120.0,
+                "AMAZON_NA",
+                FETCH.isoformat(),
+            ),
         ],
     )
 

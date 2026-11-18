@@ -1042,9 +1042,7 @@ def test_arreglos03_dj_sin_llave_jev_sale_1(monkeypatch, tmp_path):
         monkeypatch.setenv("ORBIT_DSN_READ", _dsn_s4())
         monkeypatch.setenv("ORBIT_DSN_JEV", _dsn_s4())
         salida = jev_senales.main(["--aplicar", "--forzar"])
-        cierre = conn.execute(
-            "SELECT cierre FROM jev_corrida WHERE evento = 'fin'"
-        ).fetchone()[0]
+        cierre = conn.execute("SELECT cierre FROM jev_corrida WHERE evento = 'fin'").fetchone()[0]
     assert cierre == "sin_api_key"
     assert salida == 1, (
         f"corrida '{cierre}' sin juzgar nada y el job sale {salida}: cron-avisa no avisa"

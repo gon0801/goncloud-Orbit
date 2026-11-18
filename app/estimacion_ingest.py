@@ -382,7 +382,12 @@ def _cotizar_item(oferta, *, es_meli, meli_cotizador, fees_client, reloj_fee):
     return cotizar_oferta(fees_client, oferta, now_utc=reloj_fee)
 
 
-def ejecutar_ingesta(
+# PLR0915 (85 > 80): el pipeline ya existia al limite y ARREGLOS 03 D-J suma
+# los contadores por plataforma en linea porque la seccion «OK» del diseno
+# exige contar justo antes de cotizar y al persistir; extraer el cuerpo del
+# bucle esconderia el orden oferta -> cotizacion -> escenario que nombra el
+# diseno.
+def ejecutar_ingesta(  # noqa: PLR0915 - ver razon arriba
     conn: psycopg.Connection,
     *,
     ruta_sqlite: Path | str,
