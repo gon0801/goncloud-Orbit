@@ -1,6 +1,10 @@
 ARREGLOS 03 D-L — Acepta (2026-11-18, PC Windows del worker; PG16 desechable 127.0.0.1:55433)
 
 SHA del código: eeb6d6f (rama ao/goncloud-orbit-22/dl-reputacion, sobre origin/master 1f15c85 = D-E integrado)
+Después entró P-B (06cbd79, no toca archivos de D-L) y se integró con merge (5b986f3). Las Acepta se volvieron a
+correr todas, con el mismo resultado, sobre el árbol 6264f4e (601de2e, D-L rebasado sobre 06cbd79): es el mismo
+árbol que 5b986f3 (git rev-parse 5b986f3^{tree} = 6264f4eab00c...). Tiempos de esa segunda corrida: D-L.1 2.03s,
+D-L.2 15.97s, D-L.3 14.21s, D-L.4 40.06s; D-L.5 «D-L desplegado».
 SHA previo (rojos): c838fa1 (origin/master al empezar; D-B y D-K ya integrados)
 Sin migración (el bloque no la pide). No cambia ninguna pantalla: la plantilla ya muestra «—» con disputas vacías.
 
