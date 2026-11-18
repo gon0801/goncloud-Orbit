@@ -5390,3 +5390,101 @@ def test_arreglos03_pa_reversa_por_corrida_solo_toma_su_corrida():
         )
         por_corrida = planear_reversa(conn, vitrina, SeleccionPorCorrida(corrida_id))
         assert [f.cambio_id for f in por_corrida.filas] == [cambio_de_corrida[0]]
+
+
+# ------------------------------- ARREGLOS 03 P-B (error de fila y aviso de caida)
+
+
+@_skip_sin_pg
+def test_arreglos03_pb_error_de_base_de_una_publicacion_no_tumba_la_corrida(monkeypatch):
+    """P-B.1 (reproduccion `test_f2_...` de la revision, tal cual): un error
+    de base de UNA publicacion (CheckViolation de un trigger, como el del 22
+    al 25-oct en MeLi) no tumba la corrida: la otra publicacion queda
+    decidida y aplicada, la fila de corrida queda `cerrada` y el gancho de
+    aviso (Telegram) se llama una vez."""
+    import app.precio.corrida as corrida_mod
+
+    avisos: list = []
+    original = corrida_mod.persistir_decision
+
+    with _db() as (conn, _dsn):
+        # La rota tiene el listing_id menor: se decide primero (orden de la corrida).
+        rota = _cadena(conn, sku="SKU-REV-ROTA", ext="B0A5REVROT", mode="live")
+        sana = _cadena(conn, sku="SKU-REV-SANA", ext="B0A5REVSAN", mode="live")
+        _price_obs(conn, asin="B0A5REVSAN")
+        _price_obs(conn, asin="B0A5REVROT")
+
+        def persistir(conn_, decision, *, listing_id, **kw):
+            if listing_id == rota["listing"]:
+                raise psycopg.errors.CheckViolation("precio_decision: dato de UNA publicacion")
+            return original(conn_, decision, listing_id=listing_id, **kw)
+
+        monkeypatch.setattr(corrida_mod, "persistir_decision", persistir)
+        red = _RedFalsa(skus={sana["evento"]: sana["sku"], rota["evento"]: rota["sku"]})
+        try:
+            _corre(conn, red, avisar=lambda *a: avisos.append(a))
+        except psycopg.Error:
+            pass
+        decididas = conn.execute(
+            "SELECT count(*) FROM precio_decision WHERE listing_id = %s", (sana["listing"],)
+        ).fetchone()[0]
+        estado = conn.execute("SELECT estado FROM precio_corrida").fetchone()[0]
+        assert (decididas, red.n_patch, estado, len(avisos)) == (1, 1, "cerrada", 1), (
+            f"publicacion sana decidida={decididas} patch={red.n_patch}, corrida={estado},"
+            f" avisos={len(avisos)}"
+        )
+
+
+def test_arreglos03_pb_corrida_caida_avisa_por_telegram(monkeypatch):
+    """P-B.1/P-B.3: la corrida que se cae avisa una vez por Telegram con la
+    CLASE del error (nunca su texto), tambien cuando ni siquiera se pudieron
+    armar los clientes de la plataforma. Otra corrida trabajando
+    (`LockOcupado`) no es caida: no avisa."""
+    from app import cli as cli_mod
+
+    avisos: list = []
+
+    def _guarda(tipo, payload):
+        avisos.append((tipo, payload))
+        return True
+
+    monkeypatch.setattr("app.notifica.notifica_precio", _guarda)
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
+    monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
+    monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+    monkeypatch.setattr(
+        "app.precio_mercados.abrir", lambda clave, **kw: _nullcontext("mercado-falso")
+    )
+
+    def _cae(conn, mercado, **kw):
+        raise psycopg.OperationalError("server closed the connection texto-del-error")
+
+    monkeypatch.setattr("app.precio.corrida.correr", _cae)
+    antes = datetime.now(UTC).date()
+    assert cli_mod.main(["precio", "--platform", "meli"]) == 1
+    despues = datetime.now(UTC).date()
+    assert [tipo for tipo, _ in avisos] == ["corrida_fallida"]
+    payload = avisos[0][1]
+    assert (payload.platform, payload.motivo) == ("meli", "OperationalError")
+    assert payload.dia in (antes, despues)
+
+    # Ni siquiera se pudieron armar los clientes (p. ej. falta la llave de MeLi).
+    avisos.clear()
+
+    def _sin_llave(platform):
+        raise RuntimeError("falta la llave de Mercado Libre")
+
+    monkeypatch.setattr(cli_mod, "_clientes_precio", _sin_llave)
+    assert cli_mod.main(["precio", "--platform", "meli"]) == 1
+    assert [(tipo, p.platform) for tipo, p in avisos] == [("corrida_fallida", "meli")]
+
+    # Otra corrida esta trabajando: no es una caida y no avisa.
+    avisos.clear()
+    monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+
+    def _ocupado(*a, **k):
+        raise LockOcupado("precio:meli en curso (owner otro)")
+
+    monkeypatch.setattr("app.precio.corrida.correr", _ocupado)
+    assert cli_mod.main(["precio", "--platform", "meli"]) == 0
+    assert avisos == []
