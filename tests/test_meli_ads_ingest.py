@@ -22,6 +22,7 @@ no contra un contador interno.
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import os
 import socket
 import sqlite3
@@ -33,6 +34,7 @@ from pathlib import Path
 import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
+from app.dia_cerrado import dia_local
 from app.meli.ads_ingest import (
     _SQL_LOCK_MELI,
     _SQL_MAX_OBSERVADO,
@@ -54,9 +56,12 @@ from app.meli.ads_source import (
     version_canonica,
 )
 
-HOY = dt.datetime.now(dt.UTC).date()
-D1 = HOY - dt.timedelta(days=1)
-D2 = HOY - dt.timedelta(days=2)
+# ARREGLOS 03 D-F: una fila entra solo si su dia ya habia cerrado en Mexico cuando el
+# origen escribio el snapshot. Los as_of de estas pruebas van hasta 4 h antes del reloj:
+# las fechas parten de AYER en Mexico para que D1 y D2 esten cerrados a cualquier hora.
+REF = dia_local("meli", dt.datetime.now(dt.UTC)) - dt.timedelta(days=1)
+D1 = REF - dt.timedelta(days=1)
+D2 = REF - dt.timedelta(days=2)
 # As-of del origen (`updated_at`) RELATIVO al reloj del test. Fechas fijas
 # hacian que el mismo fixture cambiara de rama (real/futuro) segun la hora.
 AHORA = dt.datetime.now(dt.UTC).replace(microsecond=0)
@@ -288,6 +293,25 @@ def test_leer_filas_rechaza_fecha_futura(tmp_path):
     )
     assert origen.filas == ()
     assert any("fecha futura" in motivo for motivo in origen.rechazos)
+
+
+def test_arreglos03_df_meli_descarta_el_dia_local_en_curso(tmp_path):
+    """ARREGLOS 03 D-F: a las 03:17Z del 13-nov en Mexico son las 21:17 del
+    12-nov, que sigue en curso. Su fila se salta sin rechazo y se cuenta en
+    `sin_cerrar`; el 11-nov ya cerro y entra. Con la fecha UTC (13-nov) el
+    12-nov entraba como dato con unas horas de gasto."""
+    snap = _snapshot(
+        tmp_path / "en-curso.db",
+        [
+            ("2026-11-11", "C1", "ALFA", 230, 9000, 834.0, 2100.0),
+            ("2026-11-12", "C1", "ALFA", 4, 150, 22.97, 0.0),
+        ],
+        as_of="2026-11-13T03:00:00",
+    )
+    origen = leer_origen(snap, ahora=dt.datetime(2026, 11, 13, 3, 17, tzinfo=dt.UTC))
+    assert [fila.metric_date for fila in origen.filas] == [dt.date(2026, 11, 11)]
+    assert origen.sin_cerrar == 1
+    assert not origen.rechazos
 
 
 def test_updated_at_invalido_rechaza_el_snapshot(tmp_path):
@@ -711,6 +735,43 @@ def test_reintento_del_mismo_snapshot_no_duplica(pg, tmp_path):
     assert "misma version canonica (recopia o reintento)" in run[3]
     # La clave de dedupe no es la corrida: hay dos ingest_run y una sola fila.
     assert segunda["run_id"] != primera["run_id"]
+
+
+@pytest.mark.parametrize(
+    "filas_origen",
+    [
+        pytest.param(
+            [
+                ("2026-11-11", "C1", "ALFA", 230, 9000, 834.0, 2100.0),
+                ("2026-11-12", "C1", "ALFA", 4, 150, 22.97, 0.0),
+            ],
+            id="con-un-dia-cerrado",
+        ),
+        pytest.param([("2026-11-12", "C1", "ALFA", 4, 150, 22.97, 0.0)], id="solo-el-dia-en-curso"),
+    ],
+)
+def test_arreglos03_df_releer_tras_la_medianoche_no_escribe_el_dia_en_curso(
+    pg, tmp_path, monkeypatch, filas_origen
+):
+    """ARREGLOS 03 D-F (revision): el origen escribio el snapshot a las 21:00 del
+    12-nov en Mexico (03:00Z del 13). Se ingiere a las 21:17 y el MISMO archivo
+    otra vez a las 00:30 del 13-nov alla. El 12-nov no habia cerrado cuando se
+    copio: no se escribe en ninguna lectura, y la relectura es un reintento
+    exacto, no «mismo as_of y contenido distinto»."""
+    snap = _snapshot(tmp_path / "s.db", filas_origen, as_of="2026-11-13T03:00:00")
+    for ahora in (
+        dt.datetime(2026, 11, 13, 3, 17, tzinfo=dt.UTC),
+        dt.datetime(2026, 11, 13, 6, 30, tzinfo=dt.UTC),
+    ):
+        monkeypatch.setattr(
+            "app.meli.ads_ingest.leer_origen", functools.partial(leer_origen, ahora=ahora)
+        )
+        ingest_meli_ads(pg, snap)
+    fechas = [r[0] for r in pg.execute("SELECT DISTINCT metric_date FROM ads_metric_observation")]
+    assert fechas == ([dt.date(2026, 11, 11)] if len(filas_origen) == 2 else [])
+    corridas = pg.execute("SELECT ok, rows_written FROM ingest_run ORDER BY id").fetchall()
+    assert [ok for ok, _ in corridas] == [True, True]
+    assert corridas[1][1] == 0
 
 
 def test_snapshot_atrasado_no_reemplaza_la_correccion_vigente(pg, tmp_path):
@@ -1648,7 +1709,7 @@ def test_utf8_invalido_en_la_primera_fila_cuenta_todo_el_snapshot(pg, tmp_path):
 def test_utf8_invalido_en_medio_cuenta_todo_el_snapshot(pg, tmp_path):
     """Igual que al inicio, con la fila ilegible en medio: la lectura se corta
     y el sello sigue reportando el total completo del origen."""
-    D3 = HOY - dt.timedelta(days=3)
+    D3 = REF - dt.timedelta(days=3)
     snap = _snapshot(
         tmp_path / "utf8-fila-media.db",
         [
@@ -2103,7 +2164,11 @@ def test_marca_es_el_maximo_entre_corridas_y_no_el_id(pg, tmp_path):
 def test_duplicados_id_cuenta_conflicto_real_del_indice(pg, tmp_path):
     """Un conflicto de source_report_id (sin colision de PK) no es una recopia:
     se cuenta aparte como `duplicados_id`."""
-    fijo = dt.datetime(2026, 10, 29, 13, 0, tzinfo=dt.UTC)
+    # El reloj fijo va al dia siguiente de D1: con el corte del dia en curso
+    # medido contra el as_of del snapshot (ronda 2 de D-F), un as_of anterior
+    # al propio dia de la fila la dejaria «en curso» y nunca llegaria al
+    # camino de duplicados.
+    fijo = dt.datetime.combine(D1 + dt.timedelta(days=1), dt.time(13, 0), tzinfo=dt.UTC)
     as_of_real = fijo - dt.timedelta(minutes=30)
     entidad_c2 = pg.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, name)"

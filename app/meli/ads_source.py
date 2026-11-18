@@ -38,6 +38,12 @@ Contrato comprobado en vivo (docs/evidencia/resumen-ads-multicanal/01-ingesta):
    valida despues de cuantizar; un positivo que cuantiza a cero se rechaza.
 10. `campaign_id` o `revision` con `|` se rechazan para no romper la
     identidad de `source_report_id`.
+11. Dia en curso (ARREGLOS 03 D-F): el dia de MeLi es el de Ciudad de Mexico
+    (`app.dia_cerrado`). Una fila entra solo si su dia ya habia cerrado alla
+    cuando el origen escribio el snapshot (`as_of`; si va adelantado, manda el
+    reloj de ingesta): el mismo archivo da las mismas filas a cualquier hora.
+    Las demas se saltan sin rechazo (`en_curso`, `sin_cerrar`). Una fecha
+    posterior al dia del reloj de ingesta es futura y rechaza el snapshot.
 """
 
 from __future__ import annotations
@@ -51,6 +57,8 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from app.dia_cerrado import dia_local
 
 TABLA_ORIGEN = "meli_ads_campaigns_daily"
 PLATAFORMA = "meli"
@@ -87,12 +95,17 @@ class OrigenMeliAds:
     `as_of` es el maximo `updated_at` del origen (UTC). Es la unica marca de
     orden que publica la fuente: no hay revision y `updated_at` no sirve como
     version (cambia en cada sync), pero SI como "cuando escribio el origen".
+    `en_curso` son las filas validas cuyo dia no habia cerrado en Mexico
+    cuando el origen escribio el snapshot: no se escriben ni son rechazo, pero
+    son parte del archivo (su huella las incluye). `sin_cerrar` las cuenta.
     """
 
     filas: tuple[FilaMeliAds, ...]
     rechazos: Counter
     as_of: dt.datetime | None
     total: int
+    sin_cerrar: int = 0
+    en_curso: tuple[FilaMeliAds, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -309,8 +322,11 @@ def _largo_ok(valor: str, campo: str, maximo: int = 2048) -> str:
     return valor
 
 
-def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
-    """Convierte una fila del origen a la forma canonica y valida el contrato."""
+def _fila(row: sqlite3.Row, columnas: set[str], hoy_local: dt.date) -> FilaMeliAds:
+    """Convierte una fila del origen a la forma canonica y valida el contrato.
+
+    `hoy_local` es el dia que corre en Mexico: una fecha posterior es futura.
+    """
     campaign_id = _largo_ok(
         _sin_nul(_texto_origen(row["campaign_id"], "campaign_id").strip(), "campaign_id"),
         "campaign_id",
@@ -325,7 +341,7 @@ def _fila(row: sqlite3.Row, columnas: set[str], hoy: dt.date) -> FilaMeliAds:
         metric_date = dt.date.fromisoformat(fecha_texto)
     except ValueError:
         raise MeliAdsError(f"fecha ilegible en {campaign_id}: {fecha_texto!r}") from None
-    if metric_date > hoy:
+    if metric_date > hoy_local:
         raise MeliAdsError(f"fecha futura en {campaign_id}: {metric_date.isoformat()}")
 
     moneda = MONEDA_PLATAFORMA
@@ -413,7 +429,7 @@ def _momento_utc(texto: object | bytes | bytearray | memoryview | None) -> dt.da
     return momento
 
 
-def leer_origen(ruta: Path | str) -> OrigenMeliAds:
+def leer_origen(ruta: Path | str, *, ahora: dt.datetime | None = None) -> OrigenMeliAds:
     """Lee y valida TODO el snapshot antes de que el dueno escriba nada.
 
     Una fila que no cumple el contrato se cuenta con su motivo y la corrida
@@ -423,9 +439,15 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
     claves `(campaign_id, metric_date)` deben ser unicas. El `total` es el
     `count(*)` de la tabla origen: un TEXT con UTF-8 invalido detiene el
     cursor y el total NO puede depender de hasta donde llego la lectura.
+
+    `ahora` es el reloj de ingesta (con zona; por omision, el reloj real): una
+    fecha posterior a su dia en Mexico es futura. Una fila cuyo dia no habia
+    cerrado en Mexico cuando el origen escribio el snapshot (`as_of`) se valida
+    y va a `en_curso`, no a `filas` ni a `rechazos`.
     """
-    hoy = dt.datetime.now(dt.UTC).date()
-    ahora = dt.datetime.now(dt.UTC)
+    if ahora is None:
+        ahora = dt.datetime.now(dt.UTC)
+    hoy_local = dia_local(PLATAFORMA, ahora)
     rechazos: Counter = Counter()
     filas: list[FilaMeliAds] = []
     vistas: dict[tuple[str, str], FilaMeliAds] = {}
@@ -459,7 +481,7 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
             elif as_of is None or momento > as_of:
                 as_of = momento
             try:
-                fila = _fila(row, columnas, hoy)
+                fila = _fila(row, columnas, hoy_local)
             except MeliAdsError as exc:
                 rechazos[str(exc)] += 1
                 continue
@@ -473,4 +495,16 @@ def leer_origen(ruta: Path | str) -> OrigenMeliAds:
         con.close()
     if as_of is not None and as_of > ahora + _TOLERANCIA_RELOJ:
         rechazos["as_of futuro fuera de la tolerancia de reloj"] += 1
-    return OrigenMeliAds(filas=tuple(filas), rechazos=rechazos, as_of=as_of, total=total)
+    # El dia en curso se mide contra el reloj del SNAPSHOT, no el de la lectura:
+    # releer el mismo archivo despues de la medianoche da las mismas filas. Un
+    # as_of adelantado al reloj de ingesta no cierra un dia que aun corre.
+    corte = dia_local(PLATAFORMA, min(as_of, ahora)) if as_of is not None else hoy_local
+    en_curso = tuple(fila for fila in filas if fila.metric_date >= corte)
+    return OrigenMeliAds(
+        filas=tuple(fila for fila in filas if fila.metric_date < corte),
+        rechazos=rechazos,
+        as_of=as_of,
+        total=total,
+        sin_cerrar=len(en_curso),
+        en_curso=en_curso,
+    )

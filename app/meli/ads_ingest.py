@@ -237,6 +237,12 @@ def _formato_skip_reason(skips: Counter) -> str | None:
     return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
 
+# ARREGLOS 03 D-F: las filas cuyo dia no habia cerrado en Mexico al escribirse el snapshot
+# (`OrigenMeliAds.en_curso`) no se escriben y suman a `rows_skipped` con este motivo;
+# `+Counter` lo quita si es 0.
+_MOTIVO_SIN_CERRAR = "día local en curso descartado"
+
+
 def _sellar_run(
     conn: psycopg.Connection,
     run_id: int,
@@ -584,22 +590,29 @@ def _skip_reason_reintento(huella: str, skips: Counter) -> str:
     return "; ".join(partes)
 
 
+def _skip_reason_vacio(sin_cerrar: int) -> str:
+    """Sella un snapshot sin filas que escribir: no-op, sin aceptacion temporal."""
+    motivo = _formato_skip_reason(+Counter({_MOTIVO_SIN_CERRAR: sin_cerrar}))
+    return "; ".join(filter(None, ["snapshot vacio (no-op)", motivo]))
+
+
 def _sella_reintento(
     conn: psycopg.Connection,
     run_id: int,
-    filas: tuple[FilaMeliAds, ...],
+    origen: OrigenMeliAds,
     huella: str,
 ) -> int:
     """Sella un reintento exacto: cero escrituras y cero aceptaciones nuevas."""
-    duplicados = len(filas)
+    duplicados = len(origen.filas)
     skips = Counter({"misma version canonica (recopia o reintento)": duplicados})
+    skips[_MOTIVO_SIN_CERRAR] = origen.sin_cerrar
     _sellar_run(
         conn,
         run_id,
         ok=True,
         rows_written=0,
-        rows_skipped=duplicados,
-        skip_reason=_skip_reason_reintento(huella, skips),
+        rows_skipped=duplicados + origen.sin_cerrar,
+        skip_reason=_skip_reason_reintento(huella, +skips),
     )
     return duplicados
 
@@ -653,14 +666,14 @@ def ingest_meli_ads(
                     run_id,
                     ok=True,
                     rows_written=0,
-                    rows_skipped=0,
-                    skip_reason="snapshot vacio (no-op)",
+                    rows_skipped=origen.sin_cerrar,
+                    skip_reason=_skip_reason_vacio(origen.sin_cerrar),
                 )
             return {
                 "run_id": run_id,
-                "filas_origen": 0,
+                "filas_origen": origen.total,
                 "rows_written": 0,
-                "rows_skipped": 0,
+                "rows_skipped": origen.sin_cerrar,
                 "duplicados": 0,
                 "duplicados_version": 0,
                 "duplicados_id": 0,
@@ -668,7 +681,8 @@ def ingest_meli_ads(
                 "entidades_nuevas": 0,
                 "entidades_actualizadas": 0,
             }
-        huella = _huella_snapshot(filas)
+        # Huella del ARCHIVO (con su dia en curso): el reintento se reconoce tras la medianoche.
+        huella = _huella_snapshot(filas + origen.en_curso)
         with conn.transaction():
             conn.execute(_SQL_LOCK_MELI, _LOCK_MELI)
             # DESPUES del candado: el reloj de ingesta no puede quedar antes
@@ -717,12 +731,12 @@ def ingest_meli_ads(
                 raise
 
             if duplicado_futuro:
-                duplicados_version = _sella_reintento(conn, run_id, filas, huella)
+                duplicados_version = _sella_reintento(conn, run_id, origen, huella)
             elif previa is not None:
                 # Reintento exacto: no se toca el catalogo ni la historia y no
                 # se agrega otra aceptacion. La clasificacion original sigue
                 # viva en la corrida que acepto el snapshot.
-                duplicados_version = _sella_reintento(conn, run_id, filas, huella)
+                duplicados_version = _sella_reintento(conn, run_id, origen, huella)
             else:
                 cache: dict[str, tuple[int, bool, bool]] = {}
                 nombres = _nombres_vigentes(list(filas))
@@ -764,7 +778,7 @@ def ingest_meli_ads(
                     else:
                         duplicados_id += 1
 
-                skips = Counter()
+                skips = +Counter({_MOTIVO_SIN_CERRAR: origen.sin_cerrar})
                 if duplicados_version:
                     skips["misma version canonica (recopia o reintento)"] = duplicados_version
                 if duplicados_id:
@@ -777,7 +791,7 @@ def ingest_meli_ads(
                     run_id,
                     ok=True,
                     rows_written=insertadas,
-                    rows_skipped=duplicados_version + duplicados_id,
+                    rows_skipped=duplicados_version + duplicados_id + origen.sin_cerrar,
                     skip_reason=_skip_reason(es_futuro, as_of_epoch, huella, piso, skips),
                 )
     except BaseException as exc:
@@ -810,7 +824,7 @@ def ingest_meli_ads(
         "run_id": run_id,
         "filas_origen": origen.total if origen is not None else 0,
         "rows_written": insertadas,
-        "rows_skipped": duplicados,
+        "rows_skipped": duplicados + (origen.sin_cerrar if origen is not None else 0),
         "duplicados": duplicados,
         "duplicados_version": duplicados_version,
         "duplicados_id": duplicados_id,
