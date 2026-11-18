@@ -4190,6 +4190,61 @@ def test_s3_80_intenciones_nuevas_retienen_y_no_escriben_nada():
 
 
 @_skip_sin_pg
+def test_arreglos03_pd_cambio_que_sale_del_catalogo_sigue_contando():
+    """P-D (revision del PR): el conteo del dia NO se encoge cuando una
+    publicacion que ya movio precio sale del catalogo. Dos corridas el mismo
+    dia: en la primera, 51 cambios en vivo sobre 102 medidas retienen por el
+    tope (el fusible no dispara: 51 > 0.50*102 es falso); entre corridas la
+    publicacion de uno de esos cambios pierde BUYABLE. La segunda corrida
+    mide 101 (la salida del catalogo no mide, E.2) pero el conteo del dia
+    sigue en 51 y el tope retiene igual; sin el arreglo el conteo caia a 50
+    y el cambio 51 pasaba sin confirmacion."""
+    from app.precio.compuerta import Retenida
+    from app.precio.corrida import _medir_compuerta
+
+    with _db() as (conn, _dsn):
+        cfg = _config(conn)
+        hoy = _hoy(conn)
+        for n in range(102):
+            lid, gid = _unidad_s3(conn, f"pd-cat-{n:03d}", mode="live")
+            if n < 51:
+                _decision_s3(conn, lid, goal_id=gid, mode="live")
+            else:
+                _decision_s3(
+                    conn,
+                    lid,
+                    resultado="mantener",
+                    motivo="en_tolerancia",
+                    goal_id=gid,
+                    mode="live",
+                )
+        motor = _motor_de(SETTINGS)
+        corrida_1 = _corrida_s3(conn, cfg)
+        veredicto_1 = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida_1)
+        assert isinstance(veredicto_1["fba"], Retenida) and veredicto_1["fba"].causa == (
+            "movimiento_masivo"
+        )
+        assert veredicto_1["fba"].detalle and "51" in veredicto_1["fba"].detalle
+        assert _medicion_de(conn, corrida_1) == [("fba", 102, 51, "movimiento_masivo", None)]
+
+        # La publicacion del primer cambio sale del catalogo: observacion de
+        # estado mas reciente y sin BUYABLE (pisa a la vieja, E.2).
+        conn.execute(
+            "INSERT INTO spapi_listing_estado_observation (seller_sku, platform, status,"
+            " api_version, observed_at) VALUES (%s, 'amazon_mx', 'UNAVAILABLE', 'v1', now())",
+            ("SKU-S3-pd-cat-000",),
+        )
+        corrida_2 = _corrida_s3(conn, cfg)
+        veredicto_2 = _medir_compuerta(conn, _MERCADO_MX, hoy, motor, corrida_2)
+        assert isinstance(veredicto_2["fba"], Retenida) and veredicto_2["fba"].causa == (
+            "movimiento_masivo"
+        ), f"la publicacion salio del catalogo pero su cambio de hoy sigue contando: {veredicto_2}"
+        assert veredicto_2["fba"].detalle and "51" in veredicto_2["fba"].detalle
+        assert (veredicto_2["fba"].medidas, veredicto_2["fba"].nuevas) == (101, 50)
+        assert _medicion_de(conn, corrida_2) == [("fba", 101, 50, "movimiento_masivo", None)]
+
+
+@_skip_sin_pg
 def test_s3_79_intenciones_pasan_y_aplican():
     """S.3: 79 nuevas sobre 158 medidas no retienen (mayor estricto): la
     corrida aplica las 79 en sombra."""

@@ -1112,8 +1112,37 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
     no mide (su decision de hoy tampoco se aplica).
     """
     plataforma = mercado.clave
-    filas = conn.execute(_SQL_MEDIR_HOY, (plataforma, hoy)).fetchall()
-    activas = _a_la_venta(conn, mercado, hoy) if filas else None
+    todas = conn.execute(_SQL_MEDIR_HOY, (plataforma, hoy)).fetchall()
+    if not todas:
+        return {}
+    # Conteo del dia (P-D, revision del PR): TODAS las decisiones que mueven
+    # precio de hoy, SIN el filtro de catalogo. El conteo del dia solo crece:
+    # un cambio real ya aplicado sigue contando aunque su publicacion salga
+    # de la venta (E.2 la aparta de universos y pendientes, no del tope).
+    liberadas = {
+        fila[0]
+        for fila in conn.execute(_SQL_MEDIR_LIBERADAS, ([fila[0] for fila in todas],)).fetchall()
+    }
+    intenciones_dia: dict[str, list[Intencion]] = {}
+    for fila in todas:
+        if fila[3] in ("subir", "bajar"):
+            # `nueva` no interviene en cambios_en_vivo: False evita leer la
+            # previa de todo el catalogo solo para contar.
+            intenciones_dia.setdefault(fila[2], []).append(
+                Intencion(
+                    decision_id=fila[0],
+                    listing_id=fila[1],
+                    canal=fila[2],
+                    nueva=False,
+                    liberada=fila[0] in liberadas,
+                    en_vivo=fila[_MODO] == "live",
+                )
+            )
+    cambios_dia = cambios_en_vivo(intenciones_dia)
+    # Del catalogo hacia abajo queda como hoy (E.2): el fusible mide
+    # universos y la corrida aplica pendientes solo de lo que esta a la venta.
+    filas = todas
+    activas = _a_la_venta(conn, mercado, hoy)
     if activas is not None:
         filas = [fila for fila in filas if fila[1] in activas]
     if not filas:
@@ -1136,15 +1165,12 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
         if ids_escenario
         else {}
     )
-    liberadas = {
-        fila[0]
-        for fila in conn.execute(_SQL_MEDIR_LIBERADAS, ([fila[0] for fila in filas],)).fetchall()
-    }
     por_canal: dict[str, list] = {}
     for fila in filas:
         por_canal.setdefault(fila[2], []).append(fila)
-    # Primera vuelta (P-D): `Intencion` y pares de TODOS los canales; el tope
-    # cuenta los cambios en vivo de la plataforma entera, no de un universo.
+    # Primera vuelta: `Intencion` y pares de cada canal activo (el fusible y
+    # las derivas son del universo); `cambios_dia` ya quedo calculado arriba
+    # sobre el dia completo, sin el filtro de catalogo.
     intenciones_por_canal: dict[str, list[Intencion]] = {}
     pares_por_canal: dict[str, dict[str, list]] = {}
     for canal, medidas_filas in por_canal.items():
@@ -1204,7 +1230,6 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                 pares[insumo].append((antes, ahora, liberada))
         intenciones_por_canal[canal] = intenciones
         pares_por_canal[canal] = pares
-    cambios_dia = cambios_en_vivo(intenciones_por_canal)
     # Segunda vuelta: evaluar cada universo con el conteo de la plataforma y
     # escribir su fila de `precio_compuerta_medicion`.
     veredictos = {}
