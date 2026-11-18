@@ -1,0 +1,45 @@
+ARREGLOS 03 P-A — Acepta de P-A.1 a P-A.4
+
+SHA probado: 665f2355f4c2164e7b438ea2c4ba47471bff5710 (código del bloque rebasado sobre origin/master a6ffa32).
+Este archivo entra en un commit posterior que solo agrega evidencia: el código probado es el de ese SHA.
+Base previa (rojo de P-A.1): feab505127a6231ef34a01bbf67882d0964832a0, ver rojo.md.
+
+Dónde corren: WSL (Linux) con el script del encargo
+  wsl -e bash -l /mnt/c/Users/ehven/AppData/Local/Temp/orbit-arreglos03/wsl-pytest.sh "<worktree>" <args>
+que hace `cd` al worktree, usa un venv de Linux, CI=1, PYTHONPATH=. y ORBIT_TEST_DSN al PG16
+desechable de 127.0.0.1:55433, y corre `uv run --frozen --python 3.12 python -m pytest <args>`.
+Por qué WSL y no Windows: en Windows dos casos de estos comandos no salen limpios por causas de la PC,
+no del bloque (las dos también pasan así en feab505, master sin este bloque):
+  - tests/test_precio_reglas.py::test_r4_g8_barrido_float_entra_a_subpaquetes falla en Windows porque
+    compara la ruta con "/" y Windows usa "\" (falla igual en feab505). En Linux pasa.
+  - tests/test_architecture.py:1726 y :1739 salen skipped en Windows ("el OS no soporta archivos
+    ilegibles"). En Linux corren y pasan.
+Con -rs, un skipped cuenta como fallo: por eso la aceptación es la corrida en Linux, con cero skipped.
+
+P-A.1
+  cmd: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_corrida.py -k arreglos03_pa_   (corrido con -rs)
+  resultado: 1 passed, 132 deselected in 7.32s — exit=0
+
+P-A.2
+  cmd: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_corrida.py tests/test_precio_write.py tests/test_precio02_mercado.py   (corrido con -rs)
+  resultado: 245 passed in 845.25s — exit=0
+
+P-A.3
+  cmd: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_reglas.py tests/test_precio02_mercado.py tests/test_precio02_contratos.py tests/test_precio_corrida.py   (corrido con -rs)
+  resultado: 364 passed in 598.57s — exit=0
+
+P-A.4
+  cmd: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_precio_write.py tests/test_precio02_mercado_meli.py tests/test_precio_sonda.py tests/test_pase_meli.py tests/test_arq_precio_m.py tests/test_architecture.py   (corrido con -rs)
+  resultado: 246 passed in 488.94s — exit=0 (cero skipped)
+
+Corridas previas, sobre 55fc7c0 (el mismo commit antes de rebasar sobre D-A, D-B y D-H):
+  - Windows: P-A.1 1 passed; P-A.2 245 passed (exit 0); P-A.3 1 failed (el de la ruta "/" de arriba),
+    363 passed; P-A.4 244 passed, 2 skipped (los de archivos ilegibles de arriba).
+  - WSL: P-A.1 1 passed; P-A.2 245 passed; P-A.3 364 passed. Todas exit 0.
+
+Otras comprobaciones
+  - ruff check y ruff format --check sobre los 18 .py tocados: limpios.
+  - La prueba nueva discrimina las dos mitades del arreglo (rojo.md): sin sello falla en :5352,
+    con sello pero plan por fecha falla en :5386.
+  - prueba-real del plan, buscada en app/ local: no hay "def exigir_sello" ni "lineal: bool = False";
+    "c.corrida_id = %s" está en app/precio/cambios.py.

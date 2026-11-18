@@ -4,11 +4,8 @@ Solicita o retoma una revision con presupuesto de llamadas y solicitud
 idempotente. Fuera del ciclo de Ads: NINGUNA operacion automatica
 (cycle/apply) llama a este comando ni al asesor.
 
-Tres sujetos posibles:
+Dos sujetos posibles:
 
-- `evaluar --decision-id N`: la decision guardada (negative o harvest). El
-  termino, el grupo de origen y, en harvest, el destino congelado salen de
-  la propia decision; la asesoria aparece en /cortes.
 - `evaluar --plataforma P --grupo-id G --termino T [--termino T2 ...]`: lote
   de semillas de un grupo (plan canonico = el lote, hash por contenido).
 - `evaluar-plan --plan solicitud.json`: la MISMA solicitud del preview de
@@ -37,8 +34,6 @@ Salidas: 0 completo o seco; 1 error (mensaje redactado); 2 configuracion;
 
 Ejemplos:
 
-  tools/jev_ads.py evaluar --decision-id 2367 --solicitud <uuid>
-  tools/jev_ads.py evaluar --decision-id 2367 --solicitud <uuid> --aplicar
   tools/jev_ads.py evaluar --plataforma amazon_mx --grupo-id 5 \\
       --termino 'soporte mesa' --solicitud <uuid> --presupuesto 8 --aplicar
   tools/jev_ads.py evaluar-plan --plan solicitud.json --solicitud <uuid> --aplicar
@@ -58,7 +53,7 @@ import psycopg
 from app.db import OrbitDbError, connect
 from app.jev_ads import SemillasARevisar
 from app.jev_asesor import AsesorAds
-from app.jev_catalogo import censo_de_plan, censo_grupo, decision_a_revisar
+from app.jev_catalogo import censo_de_plan, censo_grupo
 from app.jev_juicios import leer_api_key
 from app.redaction import scrub
 
@@ -81,8 +76,7 @@ def _presupuesto(valor: str) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="jev_ads", description=__doc__)
     sub = parser.add_subparsers(dest="comando", required=True)
-    evaluar = sub.add_parser("evaluar", help="decision guardada o lote de un grupo")
-    evaluar.add_argument("--decision-id", type=int, default=None)
+    evaluar = sub.add_parser("evaluar", help="lote de semillas de un grupo")
     evaluar.add_argument("--plataforma", choices=("amazon_mx", "amazon_us"))
     evaluar.add_argument("--grupo-id", type=int)
     evaluar.add_argument("--termino", action="append", help="termino literal; repetible")
@@ -148,14 +142,8 @@ def _sujeto(conn, args):
     imprime junto a su resultado)."""
     if args.comando == "evaluar-plan":
         return _sujeto_de_plan(conn, args.plan)
-    if args.decision_id is not None:
-        if args.plataforma or args.grupo_id is not None or args.termino:
-            raise _Configuracion(
-                "--decision-id no se combina con --plataforma/--grupo-id/--termino"
-            )
-        return decision_a_revisar(conn, args.decision_id), {}
     if not args.plataforma or args.grupo_id is None:
-        raise _Configuracion("sin --decision-id hacen falta --plataforma, --grupo-id y --termino")
+        raise _Configuracion("hacen falta --plataforma, --grupo-id y --termino")
     terminos = _terminos(args.termino)
     canon = _canonico(
         {"grupo_id": args.grupo_id, "plataforma": args.plataforma, "terminos": list(terminos)}
@@ -204,11 +192,8 @@ def _correr(conn, args, *, pedir, transporte, imprimir) -> int:
         imprimir("seco: nada escrito ni llamado; agrega --aplicar")
         return 0
     revision = asesor.evaluar(sujeto, solicitud_id=args.solicitud)
-    ambito = "origen" if revision.destinos else "grupo"
     for termino, resultado in revision.resultados:
-        _imprimir_resultado(imprimir, ambito, termino, ",".join(roles.get(termino, [])), resultado)
-    for termino, resultado in revision.destinos:
-        _imprimir_resultado(imprimir, "destino", termino, "", resultado)
+        _imprimir_resultado(imprimir, "grupo", termino, ",".join(roles.get(termino, [])), resultado)
     if revision.presupuesto_agotado:
         imprimir("presupuesto_agotado: retoma con la misma --solicitud")
         return SALIDA_PRESUPUESTO_AGOTADO

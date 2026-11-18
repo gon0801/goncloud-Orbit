@@ -82,10 +82,10 @@ class _MercadoSondaFalso:
     def precio_vivo(self, unidad):
         return self.vivo
 
-    def escribir(self, unidad, precio, *, sonda=False):
+    def escribir(self, unidad, precio):
         from app.precio.puerto import Acuse
 
-        self.escrituras.append((precio.valor, precio.moneda, sonda))
+        self.escrituras.append((precio.valor, precio.moneda))
         return Acuse(aceptada=True, codigo=None, cuerpo={"falso": True})
 
 
@@ -134,8 +134,8 @@ def test_sonda_con_go_mueve_un_centavo_y_revierte(monkeypatch, capsys):
         )
     assert codigo == 0
     assert mercado.escrituras == [
-        (Decimal("116.01"), "MXN", True),
-        (Decimal("116.00"), "MXN", True),
+        (Decimal("116.01"), "MXN"),
+        (Decimal("116.00"), "MXN"),
     ]
     assert "revierte" in capsys.readouterr().out
 

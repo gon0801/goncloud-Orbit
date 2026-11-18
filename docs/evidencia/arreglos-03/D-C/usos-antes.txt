@@ -1,0 +1,32 @@
+# D-C.1 — usos antes de borrar
+# Fecha: 2026-11-18T10:04:53Z  SHA base: feab505127a6231ef34a01bbf67882d0964832a0 (origin/master, antes de cualquier borrado)
+
+## Producción (solo lectura): jev_revision por sujeto_tipo
+$ echo "select sujeto_tipo, count(*), max(created_at)::date from jev_revision group by 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
+decision|3|2026-10-04
+lote|51|2026-11-18
+semillas|22|2026-10-13
+
+Resultado: la última revisión 'decision' es del 2026-10-04 (3 en total). No hay ninguna posterior: el bloque sigue.
+Las de 'lote' y 'semillas' siguen y no se tocan.
+
+## Usos en el código
+$ rg -ln -e jev_orden_opciones -e DecisionARevisar -e decision_a_revisar -e asesoria app tools tests .cursor
+app/api_dashboard.py
+app/api_fabrica.py
+app/fabrica_web.py
+app/jev_ads.py
+app/jev_asesor.py
+app/jev_catalogo.py
+app/jev_vista.py
+app/templates/cortes.html
+app/ui.py
+tests/test_api_dashboard.py
+tests/test_api_fabrica.py
+tests/test_architecture.py
+tests/test_jev_cli.py
+tests/test_jev_orden_opciones.py
+tests/test_ui.py
+tools/jev_ads.py
+tools/jev_orden_opciones.py
+total=17 archivos

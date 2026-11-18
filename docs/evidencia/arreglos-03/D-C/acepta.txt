@@ -1,0 +1,48 @@
+# D-C — Acepta de cada fila (desde la raíz del worktree)
+# SHA entregado: d041e55ec5f9fd771f30b901144374fb0c855f6b (rebasado sobre origin/master 73a033e918b383753026c1dd61dceecadf800aff)
+# Fecha: 2026-11-18. Python 3.12 (uv run --frozen), PG16 desechable 127.0.0.1:55433 (ORBIT_TEST_DSN). Nunca producción.
+
+## D-C.1
+$ grep -q 'app/jev_asesor.py' docs/evidencia/arreglos-03/D-C/usos-antes.txt
+exit=0
+(La lectura de producción se hizo antes de borrar, sobre feab505: decision|3|2026-10-04, lote|51|2026-11-18,
+semillas|22|2026-10-13. Ninguna revisión 'decision' posterior al 2026-10-04: no hubo diferencia.md.)
+
+## D-C.2
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_jev_ads.py tests/test_architecture.py
+Windows: 133 passed, 2 skipped -> exit=0
+  Los 2 skipped (con -rs): tests/test_architecture.py:1726 y :1739 "el OS no soporta archivos ilegibles" (Windows).
+WSL (wsl-pytest.sh, CI=1, mismo PG desechable, mismo SHA), con -rs: 135 passed (0 skipped) -> exit=0
+WSL con PG16 propio de la sesión (ver D-C.3), con -rs: 135 passed (0 skipped) -> exit=0
+
+## D-C.3
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_jev_ads.py tests/test_jev_catalogo.py tests/test_jev_cli.py tests/test_api_dashboard.py tests/test_ui.py tests/test_architecture.py tests/test_api_fabrica.py
+Corrida que vale (exit=0): WSL, mismo SHA d041e55, con -rs, contra un PG16 desechable propio de esta sesión
+(contenedor orbit-dc15-pg en 127.0.0.1:55471, etiqueta ao.session=goncloud-orbit-15) y con GIT_DIR/GIT_WORK_TREE
+apuntando al worktree:
+  492 passed, 0 skipped, 0 failed (7 min 49 s) -> exit=0
+Por qué no basta una sola de las corridas anteriores (las tres fallas son del entorno, no del bloque):
+- Windows nativo (sobre el código antes del rebase con D-A/D-B): 485 passed, 2 skipped, 5 failed. Las 5 son pruebas
+  de JS de tests/test_ui.py (danadas.js, dinero.js) que lanzan `node -e` con una línea de comando demasiado larga:
+  "FileNotFoundError: [WinError 206] The filename or extension is too long". Fallan igual con el código de
+  origin/master 73a033e (comprobado con git archive + la misma prueba: 5 failed, mismo error).
+- WSL con el PG compartido de 55433 (wsl-pytest.sh): 490 passed, 2 failed.
+  * tests/test_ui.py::test_uv_lock_commiteado_y_jinja2_pinneada: `git ls-files uv.lock` sale 128 porque el .git del
+    worktree apunta a una ruta de Windows (C:/dev/goncloud-Orbit/.git/worktrees/...) que git de Linux no abre.
+  * tests/test_jev_catalogo.py::test_reversa_deja_la_base_como_0001: "role app_jev cannot be dropped because some
+    objects depend on it". Los roles son de todo el clúster y en ese momento otro worker tenía bases de prueba
+    abiertas en 55433 (auto03_b5_gon_pc_*, 14 dependencias cada una de app_jev). En la corrida de Windows sí pasó.
+  Las dos pasan en el PG propio con GIT_DIR fijado (2 passed), y la corrida completa de arriba sale 0.
+
+## D-C.4
+$ test -s docs/evidencia/arreglos-03/D-C/verificacion.txt
+exit=0
+(orbit-verify launch/doctor/drive-cortes/cleanup en verde, 18/18 checks; detalle en verificacion.txt.)
+
+## Otras comprobaciones
+- prueba-real antes de desplegar (lectura): bash docs/evidencia/arreglos-01/desplegado.sh --no "class DecisionARevisar" "def decision_a_revisar"
+  -> "sigue en producción (1 archivos): class DecisionARevisar", exit=1 (lo esperado hoy; tras el despliegue debe salir 0).
+  En la rama: rg -F -e "class DecisionARevisar" -e "def decision_a_revisar" app -> sin coincidencias.
+- ruff check app tools tests/test_api_dashboard.py -> All checks passed; ruff format --check -> sin cambios.
+- tests/test_verify_orbit.py -k "cortes or corte" -> 2 passed (con origin/master 73a033e y el helper nuevo: 1 failed,
+  "drive-cortes FALLA: api_sin_asesoria").

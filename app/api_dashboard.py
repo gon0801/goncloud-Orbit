@@ -1476,26 +1476,9 @@ def cortes(conn: ConexionLectura) -> dict:
     necesita token (es la misma conexion de lectura del dashboard)."""
     conn.row_factory = dict_row
     filas = conn.execute(_SQL_CORTES_PENDIENTES).fetchall()
-    # JEV 2.1: asesoria guardada por decision (SOLO lectura: sin HTTP y sin
-    # escrituras; los resultados vienen de los eventos de SU revision).
-    asesoria_disponible = True
-    try:
-        from app.jev_asesor import AsesorAds
-
-        vistas = AsesorAds(conn).leer(
-            [fila["decision_id"] for fila in filas], ahora=dt.datetime.now(dt.UTC)
-        )
-        asesoria_por_decision = {
-            decision_id: (vista.como_dict() if vista is not None else None)
-            for decision_id, vista in vistas.items()
-        }
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
-        logger.warning("cortes: asesoria Jev ilegible: %s", scrub(str(exc)))
-        asesoria_por_decision = {}
-        asesoria_disponible = False
-    # S.5 J5b: senal guardada por decision (SOLO lectura, misma forma que
-    # la asesoria). `_propuestas` desempaqueta por posicion: pide tuplas y
-    # devuelve la fabrica a dict_row antes de seguir.
+    # S.5 J5b: senal guardada por decision (SOLO lectura). `_propuestas`
+    # desempaqueta por posicion: pide tuplas y devuelve la fabrica a dict_row
+    # antes de seguir.
     senal_disponible = True
     try:
         from app import jev_salud as pantallas_jev
@@ -1554,7 +1537,6 @@ def cortes(conn: ConexionLectura) -> dict:
                 "indicador": _indicador_harvest(fila["kind"], fila["decision_inputs"]),
                 "destino": destino,
                 "hermanas": hermanas,
-                "asesoria": asesoria_por_decision.get(fila["decision_id"]),
                 "senal": senal_por_decision.get(fila["decision_id"]),
             }
         )
@@ -1575,7 +1557,6 @@ def cortes(conn: ConexionLectura) -> dict:
     return {
         "items": items,
         "propuestas_campana": propuestas,
-        "asesoria_disponible": asesoria_disponible,
         "senal_disponible": senal_disponible,
         "bloqueos_jev": bloqueos_jev,
         "bloqueos_disponibles": bloqueos_disponibles,
