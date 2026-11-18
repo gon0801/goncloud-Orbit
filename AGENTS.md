@@ -46,19 +46,17 @@ plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y D
 
 ```bash
 uv sync                                   # deps (uv; venv en .venv/)
-uv run --frozen python -m pytest -q       # suite; CI ejecuta python -m pytest -q -x con PostgreSQL
+uv run --frozen python -m pytest -q       # suite local; ORBIT_TEST_DSN apunta a PostgreSQL de prueba
 ruff check --fix . && ruff format .       # lint/format (line-length 100)
-pre-commit run --all-files                # gitleaks y conflictos; gate de CI: .github/workflows/quality.yml
+pre-commit run --all-files                # gitleaks y conflictos
 ```
 Windows: el venv es `.venv/Scripts/python.exe`; sin Postgres local, lo PG-backed
-se skipea por diseno (corre en CI con `ORBIT_TEST_DSN`). Si un push se cuelga, es credencial:
+se skipea por diseno. Si un push se cuelga, es credencial:
 `gh auth setup-git`.
 
-El gate de `.github/workflows/quality.yml` corre en cada PR y push a `master`/`main`:
-gitleaks, `python -m compileall -q app tools verify` y la suite completa
-`PYTHONPATH=. python -m pytest -q -x`, con Python 3.12 y PostgreSQL 16.
+La revisión local de secretos usa Gitleaks mediante pre-commit.
 Durante el desarrollo usa comprobaciones proporcionales y reutiliza la evidencia
-válida; antes de integrar, el gate del commit final debe estar verde. Si falla un
+válida; antes de integrar, los controles requeridos de la rama deben estar verdes. Si falla un
 candado, corrige la causa o declara una excepción justificada donde el candado la
 admita; no lo borres ni lo saltes para conseguir un pase.
 
