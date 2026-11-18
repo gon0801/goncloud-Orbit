@@ -17,6 +17,11 @@ import datetime as dt
 from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
+# Amazon: el perfil v2 trae `timezone` (app/ads/structure.py:7), pero Orbit no
+# la guarda y la zona de un marketplace no cambia. MeLi (site MLM): el sync pide
+# fechas con el reloj UTC, pero el dia que publica la API es el dia local; el
+# 2026-08-21 visto a las 19:19 UTC traia 16% del gasto final (evidencia ADS-01).
+# El Resumen (app/dashboard_resumen.py) lee estas mismas zonas (ARREGLOS 03 D-F).
 ZONAS: Mapping[str, str] = {
     "amazon_mx": "America/Mexico_City",  # el perfil MX de Amazon cierra su dia aqui
     "amazon_us": "America/Los_Angeles",  # el perfil US cierra su dia aqui
