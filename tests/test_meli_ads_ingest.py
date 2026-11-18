@@ -33,6 +33,7 @@ from pathlib import Path
 import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
+from app.dia_cerrado import dia_local
 from app.meli.ads_ingest import (
     _SQL_LOCK_MELI,
     _SQL_MAX_OBSERVADO,
@@ -54,7 +55,9 @@ from app.meli.ads_source import (
     version_canonica,
 )
 
-HOY = dt.datetime.now(dt.UTC).date()
+# El dia de MeLi es el de Mexico (ARREGLOS 03 D-F): con la fecha UTC, entre las
+# 00:00 y las 06:00 UTC D1 seguiria en curso alla y leer_origen lo saltaria.
+HOY = dia_local("meli", dt.datetime.now(dt.UTC))
 D1 = HOY - dt.timedelta(days=1)
 D2 = HOY - dt.timedelta(days=2)
 # As-of del origen (`updated_at`) RELATIVO al reloj del test. Fechas fijas
@@ -288,6 +291,25 @@ def test_leer_filas_rechaza_fecha_futura(tmp_path):
     )
     assert origen.filas == ()
     assert any("fecha futura" in motivo for motivo in origen.rechazos)
+
+
+def test_arreglos03_df_meli_descarta_el_dia_local_en_curso(tmp_path):
+    """ARREGLOS 03 D-F: a las 03:17Z del 13-nov en Mexico son las 21:17 del
+    12-nov, que sigue en curso. Su fila se salta sin rechazo y se cuenta en
+    `sin_cerrar`; el 11-nov ya cerro y entra. Con la fecha UTC (13-nov) el
+    12-nov entraba como dato con unas horas de gasto."""
+    snap = _snapshot(
+        tmp_path / "en-curso.db",
+        [
+            ("2026-11-11", "C1", "ALFA", 230, 9000, 834.0, 2100.0),
+            ("2026-11-12", "C1", "ALFA", 4, 150, 22.97, 0.0),
+        ],
+        as_of="2026-11-13T03:00:00",
+    )
+    origen = leer_origen(snap, ahora=dt.datetime(2026, 11, 13, 3, 17, tzinfo=dt.UTC))
+    assert [fila.metric_date for fila in origen.filas] == [dt.date(2026, 11, 11)]
+    assert origen.sin_cerrar == 1
+    assert not origen.rechazos
 
 
 def test_updated_at_invalido_rechaza_el_snapshot(tmp_path):

@@ -12,11 +12,10 @@ RESUMEN-ADS-02):
    amplia `PLATAFORMAS_MONEDA` ni el vocabulario del optimizador. Las dos
    entradas de Amazon coinciden con la moneda sellada del motor (lo comprueba
    la prueba monetaria); MeLi trae su moneda del codigo de ADS-01
-   (`app/meli/ads_source.py`: site MLM, trigger `meli -> MXN`). Cada canal
-   declara tambien su ZONA de dia de reporte (`zona`): Amazon MX y MeLi
-   cierran el dia en `America/Mexico_City`, Amazon US en
-   `America/Los_Angeles` (el perfil v2 de Amazon trae `timezone`, ver
-   `app/ads/structure.py`).
+   (`app/meli/ads_source.py`: site MLM, trigger `meli -> MXN`). La ZONA del
+   dia de reporte de cada canal es la de `app.dia_cerrado.ZONAS`, la misma
+   tabla que usa la ingesta (ARREGLOS 03 D-F): Amazon MX y MeLi cierran el
+   dia en `America/Mexico_City`, Amazon US en `America/Los_Angeles`.
 2. VENTANA: periodos de 7, 30 y 90 dias o rango personalizado `desde`/`hasta`.
    La ventana visible termina en el D-1 del "hoy" del Resumen: la fecha local
    MINIMA entre las zonas de los canales pedidos, calculada desde un instante
@@ -79,9 +78,9 @@ import datetime as dt
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
-from zoneinfo import ZoneInfo
 
 from app.api_common import _dec_str
+from app.dia_cerrado import ZONAS, dia_local, fin_del_dia
 
 # Dias inmaduros de Amazon: [D-8, D-1]. Unico dueno del numero; la serie de
 # `api_dashboard` importa esta constante (misma ventana, cero copias).
@@ -106,35 +105,29 @@ _DOS_DEC = Decimal("0.01")
 
 @dataclass(frozen=True)
 class Canal:
-    """Un canal del Resumen: moneda NATIVA, zona de dia de reporte y madurez.
+    """Un canal del Resumen: moneda NATIVA y madurez.
 
-    `zona` es la zona IANA en la que la fuente cierra su dia de reporte. El
-    "hoy" del Resumen es la fecha local MINIMA entre los canales pedidos, para
-    que D-1 este cerrado en todos. `dias_inmaduros=None` significa "la fuente
-    no publica madurez": el contrato lo declara y jamas se rellena con la
-    ventana de Amazon.
+    La zona en la que la fuente cierra su dia de reporte es la de
+    `app.dia_cerrado.ZONAS[plataforma]`. El "hoy" del Resumen es la fecha
+    local MINIMA entre los canales pedidos, para que D-1 este cerrado en
+    todos. `dias_inmaduros=None` significa "la fuente no publica madurez": el
+    contrato lo declara y jamas se rellena con la ventana de Amazon.
     """
 
     plataforma: str
     moneda: str
-    zona: str
     dias_inmaduros: int | None
     motivo_sin_madurez: str | None
 
 
 # Catalogo PROPIO del Resumen (no amplia PLATAFORMAS_MONEDA del optimizador).
+# Las zonas de cada canal viven en `app.dia_cerrado.ZONAS`.
 CANALES: dict[str, Canal] = {
-    # Amazon: el perfil v2 trae `timezone` (app/ads/structure.py:7); el perfil
-    # MX cierra en America/Mexico_City y el US en America/Los_Angeles.
-    "amazon_mx": Canal("amazon_mx", "MXN", "America/Mexico_City", DIAS_INMADUROS, None),
-    "amazon_us": Canal("amazon_us", "USD", "America/Los_Angeles", DIAS_INMADUROS, None),
-    # MeLi: site MLM (app/meli/ads_source.py). El sync pide fechas con el
-    # reloj UTC, pero el dia que publica la API es el dia local: el 2026-08-21
-    # visto a las 19:19 UTC traia 16% del gasto final (evidencia ADS-01).
+    "amazon_mx": Canal("amazon_mx", "MXN", DIAS_INMADUROS, None),
+    "amazon_us": Canal("amazon_us", "USD", DIAS_INMADUROS, None),
     "meli": Canal(
         "meli",
         "MXN",
-        "America/Mexico_City",
         None,
         (
             "Mercado Libre no dice cuándo maduran sus ventas atribuidas: cierra sus "
@@ -207,14 +200,13 @@ class Ventana:
 def hoy_por_canal(canales: Iterable[str], instante: dt.datetime) -> dict[str, dt.date]:
     """Fecha local del dia de reporte de cada canal en `instante`.
 
-    La zona vive en el catalogo del Resumen. `instante` debe ser consciente
-    (tz-aware): un instante sin zona no define un dia local.
+    La zona es la de `app.dia_cerrado.ZONAS`, la misma regla que la ingesta.
+    `instante` debe ser consciente (tz-aware): un instante sin zona no define
+    un dia local.
     """
     if instante.tzinfo is None:
         raise ValueError("el instante del resumen debe incluir zona horaria")
-    return {
-        nombre: instante.astimezone(ZoneInfo(CANALES[nombre].zona)).date() for nombre in canales
-    }
+    return {nombre: dia_local(CANALES[nombre].plataforma, instante) for nombre in canales}
 
 
 def hoy_resumen(canales: Iterable[str], instante: dt.datetime) -> dt.date:
@@ -525,12 +517,6 @@ def _inmaduro(fecha: dt.date, hoy: dt.date, canal: Canal) -> bool | None:
     return hoy - dt.timedelta(days=canal.dias_inmaduros) <= fecha <= hoy - dt.timedelta(days=1)
 
 
-def _fin_del_dia(fecha: dt.date, zona: str) -> dt.datetime:
-    """Instante UTC en que cierra `fecha` en la zona del canal (00:00 local)."""
-    siguiente = fecha + dt.timedelta(days=1)
-    return dt.datetime.combine(siguiente, dt.time.min, tzinfo=ZoneInfo(zona)).astimezone(dt.UTC)
-
-
 def _cerrado(dia: Dia, canal: Canal) -> bool | None:
     """`True` si la ultima observacion del dia es posterior a su cierre.
 
@@ -543,7 +529,7 @@ def _cerrado(dia: Dia, canal: Canal) -> bool | None:
     observado = dia.observed_at
     if observado.tzinfo is None:
         observado = observado.replace(tzinfo=dt.UTC)
-    return observado >= _fin_del_dia(dia.fecha, canal.zona)
+    return observado >= fin_del_dia(canal.plataforma, dia.fecha)
 
 
 def fila_serie(dia: Dia, ma7: dict | None, canal: Canal, hoy: dt.date) -> dict:
@@ -952,7 +938,7 @@ def resumen(
     return {
         "hoy": hoy.isoformat(),
         "hoy_instante": instante.astimezone(dt.UTC).isoformat(),
-        "zonas": {nombre: CANALES[nombre].zona for nombre in canales},
+        "zonas": {nombre: ZONAS[CANALES[nombre].plataforma] for nombre in canales},
         "hoy_por_canal": {nombre: fecha.isoformat() for nombre, fecha in fechas.items()},
         "desde": ventana.desde.isoformat(),
         "hasta": ventana.hasta.isoformat(),
