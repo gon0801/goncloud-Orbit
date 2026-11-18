@@ -1,0 +1,17 @@
+# ARREGLOS 03 D-A — Acepta de cada fila
+SHA: 48d411b299ec25a7cd56cf4bf594787d59ad9696 (árbol limpio, base origin/master feab505)
+Fecha: 2026-11-18T10:14Z. Desde la raíz del worktree, Windows + Git Bash, Python vía uv 3.12, ORBIT_TEST_DSN = PG16 desechable 127.0.0.1:55433.
+
+## D-A.1
+$ grep -Fxq 'gon usos=0' docs/evidencia/arreglos-03/D-A/usos-antes.txt && grep -Fxq 'root usos=0' docs/evidencia/arreglos-03/D-A/usos-antes.txt && grep -Fq 'def sync_metrics' docs/evidencia/arreglos-03/D-A/usos-antes.txt
+exit 0
+(usos-antes.txt: comprobar-cron.sh D-A corrido 2026-11-18T10:04:37Z sobre feab505, antes de los borrados: gon usos=0, root usos=0, exit 0.)
+
+## D-A.2
+$ ! rg -q -e 'def sync_metrics' -e 'def sync_placements' -e 'def _rango_desde_args' app/ads && PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q -rs tests/test_reports_pipeline.py tests/test_placements.py tests/test_ads_descarga.py tests/test_ads_producto_ingesta.py tests/test_ads_salud.py tests/test_cli.py tests/test_ingest_diario.py
+169 passed in 116.13s (0:01:56)
+exit 0 (0 skipped)
+
+## D-A.3
+$ test -z "$(git grep -n 'ingest metrics' -- docs/DEPLOY.md app)"
+exit 0
