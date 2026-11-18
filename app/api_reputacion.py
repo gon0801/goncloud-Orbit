@@ -143,15 +143,31 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
         " FROM meli_question ORDER BY external_id, question_external_id,"
         " observed_at DESC"
     )
+    # ARREGLOS 03 D-L (F8): pendiente = ultima fila UNANSWERED y vista en la
+    # ultima lectura. Cada lectura escribe todas sus preguntas con el mismo
+    # observed_at (una transaccion, _escribe_todo_meli): la que MeLi ya no
+    # devuelve deja de contar. Misma condicion para la lista y el total.
+    # Una lectura con cero preguntas no escribe en meli_question, pero si su
+    # fila de cuenta (misma transaccion, mismo observed_at): si esa es mas
+    # nueva, la ultima lectura no trajo preguntas y no hay pendientes. No vale
+    # ingest_run.started_at: se abre despues de fijar observed_at.
+    _PENDIENTE = (
+        " WHERE estado = 'UNANSWERED'"
+        " AND observed_at = (SELECT max(observed_at) FROM meli_question)"
+        " AND observed_at >= COALESCE("
+        "(SELECT max(observed_at) FROM seller_reputation_snapshot), '-infinity')"
+    )
     pendientes = conn.execute(
         "SELECT external_id, question_external_id, texto, asked_at, observed_at"
-        " FROM (" + _ULTIMA_PREGUNTA + ") s"
-        " WHERE estado = 'UNANSWERED'"
-        " ORDER BY external_id, question_external_id LIMIT %s",
+        " FROM ("
+        + _ULTIMA_PREGUNTA
+        + ") s"
+        + _PENDIENTE
+        + " ORDER BY external_id, question_external_id LIMIT %s",
         (_TOPE_PENDIENTES,),
     ).fetchall()
     total_pend = conn.execute(
-        "SELECT count(*) FROM (" + _ULTIMA_PREGUNTA + ") s WHERE estado = 'UNANSWERED'"
+        "SELECT count(*) FROM (" + _ULTIMA_PREGUNTA + ") s" + _PENDIENTE
     ).fetchone()[0]
     alertas = conn.execute(
         "SELECT tipo, severidad, platform, external_id, mensaje, created_at"
