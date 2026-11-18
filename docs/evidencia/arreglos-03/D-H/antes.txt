@@ -1,0 +1,132 @@
+# D-H.1 — foto ANTES de la corrección (lectura de producción, solo lectura)
+
+- Primera lectura (worker de relevo): 2026-11-18, SHA base 27b2ec0b724ffd60c51264bcb93ea0206266bbfb.
+- Relectura de confirmación: 2026-11-18T10:09:28Z, SHA base feab505127a6231ef34a01bbf67882d0964832a0
+  (= origin/master). Las dos lecturas dieron exactamente las mismas filas y los mismos valores que abajo.
+- Comando: `echo "<select>" | bash docs/evidencia/arreglos-01/lee_prod.sh` (Git Bash; rol orbit_read, read only)
+
+## Lectura 1: devoluciones sin etiqueta
+
+```sql
+select id, platform, order_id, event_date, amount
+from ledger_event where kind = 'refund' and fee_type is null order by id
+```
+
+62 filas, todas `meli` (el plan decía 60 a la altura de `a4644aad`; desde entonces
+entraron 2 devoluciones MeLi nuevas — ids 1009720 y 1060758 —, también sin
+etiqueta, consistente con la falla). Ninguna fila sin etiqueta de otra plataforma:
+no hay bloqueo para D-H.
+
+```
+485351|meli|2000015313354966|2026-02-27|-849.0000
+485352|meli|2000014950669108|2026-02-01|-399.0000
+485353|meli|2000014950240468|2026-02-01|-299.0000
+485354|meli|2000014656807982|2026-01-10|-1248.0000
+485355|meli|2000014284323694|2025-12-13|-1089.0000
+485356|meli|2000014274259274|2025-12-12|-1248.0000
+485357|meli|2000014150098332|2025-12-05|-1248.0000
+485358|meli|2000014088964584|2025-12-01|-1248.0000
+485359|meli|2000013902971112|2025-11-19|-1248.0000
+485360|meli|2000013673683462|2025-11-04|-989.0000
+485361|meli|2000013508995506|2025-10-22|-745.0000
+485362|meli|2000013462341210|2025-10-18|-699.0000
+485363|meli|2000013364835560|2025-10-10|-989.0000
+485364|meli|2000013351756344|2025-10-09|-1248.0000
+485365|meli|2000013259448442|2025-10-03|-1889.0000
+485366|meli|2000013244174084|2025-10-01|-889.0000
+485367|meli|2000013138575816|2025-09-23|-1880.0000
+485368|meli|2000013120099224|2025-09-21|-349.0000
+485369|meli|2000012891716128|2025-09-02|-989.0000
+485370|meli|2000012789280614|2025-08-25|-548.0000
+485371|meli|2000012696792154|2025-08-17|-989.0000
+485372|meli|2000012358903944|2025-07-19|-889.0000
+485373|meli|2000012315760740|2025-07-16|-889.0000
+485374|meli|2000011871724086|2025-06-07|-1248.0000
+485375|meli|2000011728590378|2025-05-26|-1889.0000
+485376|meli|2000011566383654|2025-05-10|-745.0000
+485377|meli|2000011317035114|2025-04-14|-1248.0000
+485378|meli|2000011280516590|2025-04-10|-1248.0000
+485379|meli|2000011162158284|2025-03-29|-889.0000
+485380|meli|2000011132851046|2025-03-26|-1248.0000
+485381|meli|2000011129499988|2025-03-26|-889.0000
+485382|meli|2000011129074018|2025-03-25|-889.0000
+485383|meli|2000011042673500|2025-03-16|-889.0000
+485590|meli|2000015487835534|2026-03-10|-1021.9000
+486451|meli|2000015696626904|2026-03-25|-979.1100
+486625|meli|2000015725790380|2026-03-27|-919.7100
+487148|meli|2000015840257174|2026-04-05|-840.5100
+487635|meli|2000016074861194|2026-04-21|-965.7000
+487707|meli|2000015963068406|2026-04-13|-1880.0000
+488987|meli|2000016603200344|2026-05-25|-1013.9900
+491423|meli|2000016948214952|2026-06-15|-1189.0000
+491628|meli|2000016990092566|2026-06-17|-1189.0000
+492495|meli|2000017255888262|2026-07-05|-1488.5400
+493019|meli|2000017542299256|2026-07-22|-979.1100
+493209|meli|2000017618303440|2026-07-27|-1189.0000
+493246|meli|2000017625090394|2026-07-28|-979.1100
+493333|meli|2000017630637770|2026-07-28|-889.0000
+493475|meli|2000017644239270|2026-07-29|-1489.0000
+494871|meli|2000018353685524|2026-09-08|-1989.0000
+494896|meli|2000018359068414|2026-09-09|-1889.0000
+495082|meli|2000018357545704|2026-09-09|-989.0000
+495384|meli|2000018578822164|2026-09-21|-988.0000
+495653|meli|2000018670022254|2026-09-27|-979.1100
+495778|meli|2000018627628696|2026-09-24|-1189.0000
+496016|meli|2000018789145900|2026-10-04|-745.0000
+496365|meli|2000018899720216|2026-10-10|-1880.0000
+558066|meli|2000018999877682|2026-10-15|-1889.0000
+604566|meli|2000018786870036|2026-10-04|-1189.0000
+620224|meli|2000019102008734|2026-10-21|-989.0000
+892697|meli|2000019338092130|2026-11-04|-989.0000
+1009720|meli|2000019550955614|2026-11-14|-979.1100
+1060758|meli|2000019623275964|2026-11-17|-1889.0000
+```
+
+## Lectura 2: margen por plataforma
+
+```sql
+select platform, margen_neto_pct, fees_sin_tipo from v_target_margen_plataforma
+```
+
+```
+amazon_mx|45.8505923986987346348827244|0
+amazon_us|29.1214109713628988036094180|0
+meli|None|11
+```
+
+El margen de MeLi sigue vacío con `fees_sin_tipo=11`, como en el diseño (los
+números de Amazon difieren de los medidos ahí porque ARREGLOS 02 ya corrigió la
+comisión doble contada; `fees_sin_tipo` de Amazon ya está en 0).
+
+## Lectura complementaria: la ida no puede chocar con los índices de dedupe
+
+La ida cambia `fee_type` de NULL a `refund`. Los índices `ledger_dedupe_sin_orden` y
+`ledger_dedupe_con_orden` (0001) incluyen `fee_type`; `ledger_dedupe_source` no.
+
+```sql
+select coalesce(fee_type,'<NULL>'), count(*), count(*) filter (where source_event_id is null)
+from ledger_event where platform = 'meli' and kind = 'refund' group by 1 order by 1
+```
+
+```
+<NULL>|62|0
+```
+
+Las 62 traen `source_event_id`: su dedupe es `ledger_dedupe_source (platform, kind,
+source_event_id)`, que no mira `fee_type`. No hay ninguna devolución MeLi ya etiquetada
+`refund`. Una re-ingesta antes o después de la migración (o tras la reversa) cae en el
+mismo índice y no duplica.
+
+```sql
+-- pares (sin etiqueta, ya 'refund') con la misma clave natural sin source_event_id
+select count(*) from ledger_event n join ledger_event e on e.platform = n.platform
+  and e.kind = n.kind and e.fee_type = 'refund' and n.fee_type is null
+  and n.source_event_id is null and e.source_event_id is null
+  and e.order_id is not distinct from n.order_id and e.event_date = n.event_date
+  and e.amount = n.amount and e.amount_currency = n.amount_currency
+where n.platform = 'meli' and n.kind = 'refund'
+```
+
+```
+0
+```

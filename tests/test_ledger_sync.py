@@ -192,6 +192,57 @@ def test_mapa_kind_cubre_la_tabla_sellada():
     assert ads is not None and ads.kind == "fee" and ads.fee_type == "ads"
 
 
+def test_arreglos03_dh_devolucion_sin_categoria_queda_como_refund():
+    """ARREGLOS 03 D-H: MeLi no manda fee_category en sus devoluciones y la
+    etiqueta quedaba NULL (la guarda fees_sin_tipo vaciaba el margen de MeLi).
+    Una devolucion sin categoria es una devolucion: MeLi queda como 'refund'.
+    Amazon (origen amazon y amazon_us) conserva NULL y una categoria explicita
+    (ads) se conserva."""
+    meli = mapear_destino(
+        _fila(
+            platform="meli",
+            event_type="refund",
+            fee_category=None,
+            amount=-889.0,
+            order_id="2000013244174084",
+            dedupe_key="meli|refund|1",
+        )
+    )
+    assert meli is not None and meli.kind == "refund" and meli.fee_type == "refund"
+
+    explicita = mapear_destino(
+        _fila(
+            platform="meli",
+            event_type="refund",
+            fee_category="ads",
+            amount=-889.0,
+            dedupe_key="meli|refund|2",
+        )
+    )
+    assert explicita is not None and explicita.fee_type == "ads"
+
+    mx = mapear_destino(
+        _fila(
+            event_type="refund",
+            fee_category=None,
+            amount=-500.0,
+            dedupe_key="amazon|refund|1",
+        )
+    )
+    assert mx is not None and mx.platform == "amazon_mx" and mx.fee_type is None
+
+    us = mapear_destino(
+        _fila(
+            platform="amazon_us",
+            event_type="refund",
+            fee_category=None,
+            amount=-500.0,
+            dedupe_key="amazon_us|refund|1",
+        )
+    )
+    assert us is not None and us.platform == "amazon_us" and us.fee_type is None
+
+
 def test_refund_positivo_no_se_voltea_ni_se_inserta():
     """D4: refund+ viola CHECK; skip contado, jamas abs/negacion."""
     fila = _fila(

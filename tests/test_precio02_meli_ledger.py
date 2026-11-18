@@ -418,7 +418,10 @@ def test_reversa_positiva_se_salta_contada(tmp_path):
 
 
 @_skip_sin_pg
-def test_reembolso_meli_sin_categoria_guarda_fee_type_nulo(tmp_path):
+def test_reembolso_meli_sin_categoria_guarda_fee_type_refund(tmp_path):
+    """ARREGLOS 03 D-H: MeLi no manda la categoria de la devolucion y ahora se
+    guarda como 'refund' (antes NULL y la guarda fees_sin_tipo vaciaba el
+    margen de MeLi)."""
     with _db() as conn:
         snap = _snapshot(
             tmp_path / "led.db",
@@ -436,7 +439,7 @@ def test_reembolso_meli_sin_categoria_guarda_fee_type_nulo(tmp_path):
         _corre(conn, snap)
         assert conn.execute("SELECT kind, fee_type FROM ledger_event").fetchone() == (
             "refund",
-            None,
+            "refund",
         )
 
 
