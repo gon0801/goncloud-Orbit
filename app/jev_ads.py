@@ -338,21 +338,6 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
 
 
 @dataclass(frozen=True)
-class DecisionARevisar:
-    """Decision guardada + termino + censo congelados (leerla es de 2.1).
-    Para harvest, `destino_censo` congela el universo del DESTINO y se
-    compone por separado del origen (`censo`): la UI muestra ambos ambitos
-    sin mezclar universos ni heredar conclusiones entre ellos."""
-
-    decision_id: int
-    termino: str
-    censo: CensoCongelado
-    plataforma: PlataformaAmazon
-    decided_at: datetime | None = None
-    destino_censo: CensoCongelado | None = None
-
-
-@dataclass(frozen=True)
 class SemillasARevisar:
     """Plan de fabrica congelado: hash, canonico, fuentes y terminos a
     cotejar contra el censo del NUEVO plan (sin heredar conclusiones)."""
@@ -365,7 +350,8 @@ class SemillasARevisar:
     plataforma: PlataformaAmazon
 
 
-Sujeto = DecisionARevisar | SemillasARevisar
+# Unico sujeto del asesor: la revision por decision se borro (ARREGLOS 03 D-C).
+Sujeto = SemillasARevisar
 
 
 @dataclass(frozen=True)
@@ -383,13 +369,11 @@ class PlanSeco:
 @dataclass(frozen=True)
 class Revision:
     """Salida de evaluar; presupuesto_agotado = lote retomable (misma
-    solicitud). `destinos` trae la composicion del censo destino (harvest),
-    un resultado por termino; vacia cuando el sujeto no lleva destino."""
+    solicitud)."""
 
     solicitud: UUID
     resultados: tuple[tuple[str, RelevanciaConjunto], ...]
     presupuesto_agotado: bool
-    destinos: tuple[tuple[str, RelevanciaConjunto], ...] = ()
 
 
 def _censo_a_json(censo: CensoCongelado) -> dict:

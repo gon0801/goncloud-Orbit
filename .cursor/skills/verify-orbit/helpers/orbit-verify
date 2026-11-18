@@ -1881,6 +1881,8 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
         "dias_value_30": re.search(r"name=\"dias\"[^>]*value=\"30\"", texto) is not None,
         "actor_input": 'name="actor"' in texto,
         "token_input": 'name="token"' in texto,
+        # ARREGLOS 03 D-C: la asesoria Jev por propuesta ya no existe.
+        "sin_asesoria_jev": "asesoria-jev" not in texto and "Asesoria Jev" not in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/cortes")
@@ -1896,6 +1898,9 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
         and i.get("estado") == "pending_veto"
         and i.get("nombre") == "Campana A"
         for i in items
+    )
+    checks["api_sin_asesoria"] = "asesoria_disponible" not in data and not any(
+        "asesoria" in i for i in items
     )
 
     prueba = {

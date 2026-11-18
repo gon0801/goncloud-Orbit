@@ -1,0 +1,88 @@
+# D-C.4 — /cortes comprobada con orbit-verify (launch, doctor, drive-cortes, cleanup)
+# Fecha: 2026-11-18T10:25:06Z  SHA verificado: d041e55ec5f9fd771f30b901144374fb0c855f6b (rama del PR, ya rebasada sobre origin/master 73a033e)
+
+## Dónde corrió y por qué
+En Windows nativo el helper no puede correr tal cual: `launch` exige `<repo>/.venv/bin/python` (en Windows uv crea
+`.venv/Scripts/python.exe`; ver `python = REPO_ROOT / ".venv" / "bin" / "python"` en cmd_launch) y `doctor` lee
+`/proc/<pid>/cmdline`, `/proc/net/tcp` y `/proc/<pid>/fd`, que Windows no tiene. Por eso se corrió en WSL (Ubuntu),
+que no llama a goncloud, sobre una copia exacta del SHA (`git archive HEAD` extraído en ~/orbit-dc-verify/<sha>), con su
+propio venv de Linux (`uv sync --frozen --python 3.12`) y el PG16 desechable de 127.0.0.1:55433 (ORBIT_TEST_DSN).
+Script: $TEMP/dc-orbit-verify.sh (fuera del repo). La evidencia del run quedó en la copia de WSL; aquí va la salida.
+
+## Salida
+## entorno: Linux 6.18.58.1-microsoft-standard-WSL2 · Ubuntu 26.04.1 LTS · sha=d041e55ec5f9fd771f30b901144374fb0c855f6b · run_id=dc-20261118T102436Z
+## uv sync --frozen --python 3.12 (venv Linux en .venv de la copia)
+
+## $ .cursor/skills/verify-orbit/helpers/orbit-verify launch
+{"run_id": "dc-20261118T102436Z", "pid": 3570096, "port": 18010, "base_url": "http://127.0.0.1:18010", "db": "orbit_verify_dc_20261118t102436z", "evidence_dir": "/home/ehven/orbit-dc-verify/d041e55ec5f9fd771f30b901144374fb0c855f6b/.cursor/skills/verify-orbit/evidence/dc-20261118T102436Z"}
+## exit=0
+
+## $ .cursor/skills/verify-orbit/helpers/orbit-verify doctor
+{
+  "run_id": "dc-20261118T102436Z",
+  "ok": true,
+  "pid": 3570096,
+  "port": 18010,
+  "base_url": "http://127.0.0.1:18010",
+  "cmdline": "/home/ehven/orbit-dc-verify/d041e55ec5f9fd771f30b901144374fb0c855f6b/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 18010 ",
+  "health": "{\"status\":\"ok\"}",
+  "fallos": []
+}
+## exit=0
+
+## $ .cursor/skills/verify-orbit/helpers/orbit-verify drive-cortes
+{
+  "feature": "cortes",
+  "entry_point": "nav /cortes",
+  "base_url": "http://127.0.0.1:18010",
+  "action": "GET /cortes y GET /api/dashboard/cortes",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=cortes": true,
+    "h2_cortes": true,
+    "bloque_crecen": true,
+    "bloque_recortan": true,
+    "columna_por_que": true,
+    "confirmar_rechazo": true,
+    "zapato_blanco": true,
+    "entidad_campana_a": true,
+    "button_vetar": true,
+    "form_veto": true,
+    "dias_value_30": true,
+    "actor_input": true,
+    "token_input": true,
+    "sin_asesoria_jev": true,
+    "api_http_200": true,
+    "api_has_negative_pending_veto": true,
+    "api_sin_asesoria": true
+  },
+  "ok": true,
+  "evidence_dir": "/home/ehven/orbit-dc-verify/d041e55ec5f9fd771f30b901144374fb0c855f6b/.cursor/skills/verify-orbit/evidence/dc-20261118T102436Z/cortes"
+}
+## exit=0
+
+## $ .cursor/skills/verify-orbit/helpers/orbit-verify cleanup
+{"cleaned_run_id": "dc-20261118T102436Z", "killed_pid": 3570096, "dropped_db": "orbit_verify_dc_20261118t102436z", "evidence_still_at": "/home/ehven/orbit-dc-verify/d041e55ec5f9fd771f30b901144374fb0c855f6b/.cursor/skills/verify-orbit/evidence/dc-20261118T102436Z"}
+## exit=0
+
+## evidencia que queda tras cleanup:
+.cursor/skills/verify-orbit/evidence/dc-20261118T102436Z:
+cortes
+doctor.json
+launch-ready.txt
+
+.cursor/skills/verify-orbit/evidence/dc-20261118T102436Z/cortes:
+01-resumen.html
+02-cortes.html
+03-cortes.json
+PROOF.json
+## scratch borrado: si
+
+## El chequeo nuevo discrimina
+drive-cortes ganó dos chequeos: sin_asesoria_jev (HTML sin la fila ni el aviso de asesoría) y api_sin_asesoria
+(JSON sin asesoria_disponible ni asesoria por item). Misma prueba de regresión del helper, con el código de
+origin/master 73a033e918b383753026c1dd61dceecadf800aff (git archive) y el helper nuevo:
+$ PYTHONPATH=. python -m pytest -q tests/test_verify_orbit.py -k drive_cortes_conduce
+orbit-verify: drive-cortes FALLA: api_sin_asesoria
+1 failed, 16 deselected
+Con el código de la rama: tests/test_verify_orbit.py -k 'cortes or corte' -> 2 passed.

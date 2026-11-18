@@ -11,9 +11,6 @@
   práctica: el motor no vuelve a proponerla en ese plazo, y el rechazo
   <strong>no se puede deshacer.</strong>
 </p>
-{% if asesoria_disponible is defined and not asesoria_disponible %}
-<p class="chip">Asesoria Jev no disponible por ahora: las propuestas se muestran sin su asesoria.</p>
-{% endif %}
 {% if senal_disponible is defined and not senal_disponible %}
 <p class="chip">Señal Jev no disponible por ahora: las propuestas se muestran sin su señal.</p>
 {% endif %}
@@ -37,16 +34,8 @@
           <button type="button" data-vetar="{{ item.id }}">Rechazar</button>
         </td>
       </tr>
-      {# JEV 2.1/R12: cada veredicto declara su ambito. En harvest, origen y
-   destino; sin destino (negativos) el veredicto es del grupo. #}
-{% macro veredicto(ambito, r) -%}
-<span class="detalle-celda" data-dato-libre>{{ ambito }} · {{ r.termino }}:
-{% if r.resultado.tipo == "hay_compatible" %}compatible ({{ r.resultado.producto_ids|join(", ") }}) · cobertura {{ r.resultado.miembros_con_juicio }}/{{ r.resultado.miembros_totales }}
-{% elif r.resultado.tipo == "ninguno_compatible" %}sin compatibilidad en {{ r.resultado.miembros_totales }} producto(s)
-{% else %}indeterminado ({% for m in r.resultado.motivos %}{{ m | etiqueta("motivo_indeterminado") }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}</span>
-{%- endmacro %}
-{# S.5 J5b: la fila Senal va ANTES que la de asesoria. Sin sello del
-   job (item.senal en null) no se pinta nada: la pantalla no inventa. #}
+      {# S.5 J5b: fila Senal del job. Sin sello (item.senal en null) no se
+   pinta nada: la pantalla no inventa. #}
 {% if item.senal %}
       <tr class="senal-jev">
         <td colspan="6">
@@ -56,21 +45,6 @@
         </td>
       </tr>
 {% endif %}
-{% if item.asesoria %}
-      <tr class="asesoria-jev">
-        <td colspan="6">
-          <span class="chip">Asesoria Jev · {{ item.asesoria.vigencia }}</span>
-          {% for r in item.asesoria.resultados %}{{ veredicto("origen" if item.asesoria.destinos else "grupo", r) }}
-          {% endfor %}
-          {% for r in item.asesoria.destinos %}{{ veredicto("destino", r) }}
-          {% endfor %}
-          {% for f in item.asesoria.fichas %}
-            <span class="detalle-celda">ficha <span data-dato-libre>{{ f.sha256 }}</span> · {{ f.aprobador }} · {{ f.observado_at | fecha_hora }}</span>
-          {% endfor %}
-          <span class="detalle-celda">revisado con catalogo del {{ item.asesoria.captured_at | fecha_hora }}</span>
-        </td>
-      </tr>
-      {% endif %}
       <tr hidden id="form-{{ item.id }}">
         <td colspan="6">
           <form data-veto="{{ item.id }}">
