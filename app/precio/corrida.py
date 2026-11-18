@@ -1360,7 +1360,6 @@ def _aplicar_pendientes(
                         p_actual=Importe(Decimal(p_actual), p_actual_mon),
                         p_aplicado=Importe(Decimal(p_aplicado), p_aplicado_mon),
                     ),
-                    ahora,
                     corrida_id=corrida_id,
                 )
             except ERRORES_DE_FILA as exc:  # P-B: la base rechazo el dato de esta fila

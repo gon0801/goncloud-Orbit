@@ -279,7 +279,8 @@ def decidir(
 
     for cambio in entrada.cambios:
         # S.4: el error sin efecto (el precio no se movio) no congela; un
-        # mal dia de la plataforma ya no frena 7 dias.
+        # mal dia de la plataforma ya no frena 7 dias. ARREGLOS 03 P-C: solo
+        # la observacion del dia siguiente lo prueba; mientras, cuenta.
         if (
             cambio.es_reversa
             or cambio.sin_efecto
