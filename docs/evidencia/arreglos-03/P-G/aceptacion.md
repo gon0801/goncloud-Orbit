@@ -99,3 +99,33 @@ Pruebas nuevas (rojo en `7d40b4f` por la firma vieja del constructor):
 Con los 2×`test_07` de arriba (misma cabeza): **6 de 6 casos TN verdes en el HEAD del PR**
 (TN05 `test_05`, TN06 `test_06`, TN14 `test_14`, TNS1 `test_S1`, TN07 corriente y
 persistida), controles `test_08` y `test_D2` verdes, cero skips.
+
+## Addendum (2026-11-19): el pase integrado en `af6f645` trababa TN07 una hora al dia
+
+El DoD integrado sobre `af6f645` (master con P-G) reprodujo `test_07` fallando en sus
+dos variantes con `no_evaluado / precio_sin_observar` — a las **00:30 UTC**. Diagnostico
+(corrido y verificado en el worktree sobre `af6f645`, PG desechable 55449, candado
+`orbit-tn`):
+
+- **No es regresion de codigo ni base tibia**: el fixture `preparar_meli` sembraba la
+  observacion de la publicacion con `observado=ahora-1h` y `_observacion` fija
+  `metric_date = observado.date()`; `MercadoMeli.insumos` exige
+  `metric_date = hoy` (`SELECT ... WHERE metric_date = %s`) para el precio observado de
+  la entrada. **Entre las 00:00 y las 01:00 UTC** la observacion quedaba con fecha de
+  ayer → `entrada.pricing is None` → `reglas._freno_entrada` devolvia
+  `no_evaluado/precio_sin_observar`. Mi verde de P-G (23:30 UTC) estaba fuera de la
+  ventana; el verde era real y el codigo es el mismo.
+- Reproduccion en `af6f645` a las 00:33 UTC: `2 failed` identicos al reporte del lead
+  (`assert isinstance(pedido, PideCotizacion)` con `precio_sin_observar`).
+- **Arreglo del arnes** (justificado por ACEPTACION: casos correctos, no expectativas
+  que perpetuan fallos; un caso que solo pasa 23 de 24 horas es un defecto del fixture):
+  en `preparar_meli`, la observacion nace dentro del dia UTC de la corrida
+  (`observado = ahora-1h`, clavado a la medianoche UTC si cruza el dia) y `_siembra`
+  se invoca con `ahora = max(ahora, observado+30min)` para que su fee
+  (`ahora-30min`) no quede anterior a la oferta (el trigger
+  `estimacion_fuente_no_futura` de la 0028 exige `fetched_at <= observed_at`, solo
+  orden relativo). Fuera de la ventana 00:00-01:00 UTC el comportamiento es identico
+  al historico.
+- Verificacion (a las 00:34 UTC, DENTRO de la ventana que fallaba):
+  `-k test_07` → 2 passed (EXIT=0) y `-k "test_07 or test_08 or test_D2"` → 4 passed
+  (EXIT=0), candado tomado y liberado en cada corrida.

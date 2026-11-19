@@ -77,8 +77,17 @@ def preparar_meli(conn):
 
     ahora = conn.execute('SELECT clock_timestamp()').fetchone()[0]
     pid = semillas._producto(conn, 'SKU-ACCEPT-07')
+    # La observacion de la publicacion nace dentro del dia UTC de la corrida
+    # (el insumo exige metric_date = hoy) y sin cruzar el fee que sembrara
+    # _siembra 30 minutos antes de su `ahora`. Entre las 00:00 y las 01:00
+    # UTC un retroceso de una hora cruzaba la medianoche: su metric_date
+    # quedaba en ayer y la decision salia no_evaluado/precio_sin_observar.
+    medianoche = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    observado = ahora - timedelta(hours=1)
+    if observado < medianoche:
+        observado = medianoche
     lid = semillas._publicacion(conn, 'MLM1', [('SKU-ACCEPT-07', pid)],
-                               observado=ahora-timedelta(hours=1))
+                               observado=observado)
     # Costo vigente con ingesta reciente y completa. El helper historico M.3
     # fecha el run en septiembre y la corrida actual lo rechaza por frescura.
     run_costo = conn.execute(
@@ -94,7 +103,13 @@ def preparar_meli(conn):
     semillas._muestra(conn, pid)
     semillas._politica(conn)
     ahora = conn.execute('SELECT clock_timestamp()').fetchone()[0]
-    semillas._siembra(conn, lid, ahora=ahora, observed_at=ahora, valoracion=ahora.date())
+    # Fuera de la ventana 00:00-01:00 UTC esto es `ahora` (comportamiento
+    # historico). Dentro, se corre para que el fee de _siembra (que fecha a
+    # `ahora - 30 min`) no quede anterior a la observacion de la publicacion:
+    # el trigger `estimacion_fuente_no_futura` exige fetched <= observed (solo
+    # orden relativo, sin reloj).
+    siembra_desde = max(ahora, observado + timedelta(minutes=30))
+    semillas._siembra(conn, lid, ahora=siembra_desde, observed_at=ahora, valoracion=ahora.date())
     settings = {**SETTINGS, 'precio_modo_global': 'shadow',
                 'precio_modo_universo': {'meli/meli': 'shadow'}}
     _config(conn, settings)
