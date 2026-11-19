@@ -439,6 +439,7 @@ def _handler_harvest(
     ack_negative_con_error: bool = False,
     delete_keyword_rechazado: bool = False,
     page_size: int | None = None,
+    page_size_filtrado: int | None = None,
     fallo_post_negative_por_adgroup: dict[str, int] | None = None,
     fallo_post_keyword_por_adgroup: dict[str, int] | None = None,
 ):
@@ -472,17 +473,20 @@ def _handler_harvest(
     def _pagina(store: list[dict], contenedor: str, pedido: dict) -> httpx.Response:
         """Pagina del store ya filtrado: sin `page_size` va entero (sin
         nextToken, como antes); con `page_size`, trozos con nextToken =
-        offset (string) hasta agotar."""
-        if page_size is None:
+        offset (string) hasta agotar; `page_size_filtrado` pagina solo los
+        LIST con `adGroupIdFilter`."""
+        tiene_filtro = bool((pedido.get("adGroupIdFilter") or {}).get("include"))
+        tam = page_size_filtrado if (tiene_filtro and page_size_filtrado is not None) else page_size
+        if tam is None:
             return httpx.Response(200, json={contenedor: store, "totalResults": len(store)})
         try:
             offset = int(pedido.get("nextToken") or 0)
         except (TypeError, ValueError):
             offset = 0
-        trozo = store[offset : offset + page_size]
+        trozo = store[offset : offset + tam]
         respuesta: dict = {contenedor: trozo, "totalResults": len(store)}
-        if offset + page_size < len(store):
-            respuesta["nextToken"] = str(offset + page_size)
+        if offset + tam < len(store):
+            respuesta["nextToken"] = str(offset + tam)
         return httpx.Response(200, json=respuesta)
 
     def _filtrados(store: list[dict], pedido: dict) -> list[dict]:
@@ -2574,3 +2578,525 @@ def test_perdida_harvest_deja_cero_filas_y_la_cola_en_vetoed(monkeypatch):
         ), "perdida ya no se registra: el desenlace vive en la fila de la cola"
         estado = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
         assert estado == "vetoed", "el veto del dueno gano y su desenlace ya es visible en la cola"
+
+
+# ===========================================================================
+# ARREGLOS 04 B-C / TN02: un solo lector estricto y paginacion completa
+# ===========================================================================
+
+
+def _handler_lista_bc(modo: str, *, recurso: str = "negativeKeywords"):
+    vistos: list[httpx.Request] = []
+    llamadas = {"list": 0, "auth": 0}
+    propio = {
+        "adGroupId": ORIGEN_GRUPO if recurso == "negativeKeywords" else DESTINO_GRUPO,
+        "campaignId": ORIGEN_CAMPANA if recurso == "negativeKeywords" else DESTINO_CAMPANA,
+        "keywordId": "id-propio",
+        "keywordText": TERMINO,
+        "matchType": "NEGATIVE_EXACT" if recurso == "negativeKeywords" else "EXACT",
+        "state": "ENABLED",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            llamadas["auth"] += 1
+            if modo == "auth_en_lectura":
+                if llamadas["auth"] == 1:
+                    return httpx.Response(200, json={"access_token": "fake-bc", "expires_in": 30})
+                return httpx.Response(400, json={"error": "temporarily_unavailable"})
+            return httpx.Response(200, json={"access_token": "fake-bc", "expires_in": 3600})
+        vistos.append(request)
+        path = request.url.path
+        if path in ("/sp/negativeKeywords/list", "/sp/keywords/list"):
+            es_objetivo = (
+                recurso == "negativeKeywords" and path == "/sp/negativeKeywords/list"
+            ) or (recurso == "keywords" and path == "/sp/keywords/list")
+            if not es_objetivo:
+                clave_otra = "negativeKeywords" if path.startswith("/sp/neg") else "keywords"
+                return httpx.Response(200, json={clave_otra: [], "totalResults": 0})
+            llamadas["list"] += 1
+            n = llamadas["list"]
+            if modo == "missing":
+                return httpx.Response(200, json={})
+            if modo == "truncated":
+                return httpx.Response(200, json={recurso: [], "nextToken": "otra-pagina"})
+            if modo == "contenedor_no_lista":
+                return httpx.Response(200, json={recurso: "invalido"})
+            if modo == "item_invalido":
+                roto = dict(propio)
+                roto.pop("keywordId")
+                return httpx.Response(200, json={recurso: [roto]})
+            if modo == "token_ilegible":
+                return httpx.Response(200, json={recurso: [], "nextToken": 42})
+            if modo == "token_repetido":
+                elementos = [propio] if n > 2 else []
+                return httpx.Response(200, json={recurso: elementos, "nextToken": "rep"})
+            if modo == "vacio_con_next_token":
+                if n == 1:
+                    return httpx.Response(200, json={recurso: [], "nextToken": "p2"})
+                return httpx.Response(200, json={})
+            if modo == "tope_agotado":
+                item_relleno = {
+                    "adGroupId": f"5{n:03d}",
+                    "campaignId": "5000",
+                    "keywordId": f"r-{n}",
+                    "keywordText": f"relleno {n}",
+                    "matchType": propio["matchType"],
+                    "state": "ENABLED",
+                }
+                return httpx.Response(
+                    200,
+                    json={recurso: [item_relleno], "nextToken": f"tok-{n}"},
+                )
+            if modo == "control_dos_paginas":
+                if n == 1:
+                    return httpx.Response(200, json={recurso: [], "nextToken": "p2"})
+                return httpx.Response(200, json={recurso: [propio], "totalResults": 1})
+        if path == "/sp/negativeKeywords" and request.method == "POST":
+            return httpx.Response(
+                207,
+                json={
+                    "negativeKeywords": {
+                        "error": [],
+                        "success": [{"index": 0, "negativeKeywordId": "n-nuevo"}],
+                    }
+                },
+            )
+        if path == "/sp/keywords" and request.method == "POST":
+            return httpx.Response(
+                207,
+                json={"keywords": {"error": [], "success": [{"index": 0, "keywordId": "k-nuevo"}]}},
+            )
+        if path.endswith("/delete") and request.method == "POST":
+            clave = "negativeKeywords" if path.startswith("/sp/neg") else "keywords"
+            campo = "negativeKeywordId" if path.startswith("/sp/neg") else "keywordId"
+            filtro = "negativeKeywordIdFilter" if path.startswith("/sp/neg") else "keywordIdFilter"
+            id_pedido = json.loads(request.content)[filtro]["include"][0]
+            return httpx.Response(207, json={clave: {"error": [], "success": [{campo: id_pedido}]}})
+        if "bidRecommendations" in path:
+            return httpx.Response(403, json={"code": "403"})
+        raise AssertionError(f"HTTP inesperado: {request.method} {path}")
+
+    return handler, vistos
+
+
+@pytest.mark.parametrize(
+    "modo",
+    [
+        "missing",
+        "truncated",
+        "contenedor_no_lista",
+        "item_invalido",
+        "token_ilegible",
+        "token_repetido",
+        "vacio_con_next_token",
+        "tope_agotado",
+    ],
+)
+def test_arreglos04_bc_reconciliacion_no_repostea_ni_termina_con_lista_incompleta(
+    monkeypatch, modo
+):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from app import apply as apply_mod
+    from app import apply_cola, apply_harvest, apply_harvest_reconciliacion
+
+    conn = Mock()
+    conn.transaction.side_effect = nullcontext
+
+    def execute(sql, params=()):
+        if sql == apply_harvest_reconciliacion._SQL_NEGATIVAS_APLICANDO:
+            filas = [(77, 10, TERMINO, 99)]
+        elif sql == apply_harvest._SQL_EXTERNALES:
+            filas = [(ORIGEN_GRUPO, ORIGEN_CAMPANA)]
+        elif sql == apply_mod._SQL_COUNT_INTENTOS:
+            filas = [(1,)]
+        else:
+            filas = []
+        return SimpleNamespace(fetchall=lambda: filas, fetchone=lambda: filas[0] if filas else None)
+
+    conn.execute.side_effect = execute
+    terminaciones: list[tuple[int, str]] = []
+    confirmaciones: list[int] = []
+    monkeypatch.setattr(apply_mod, "gate_ancestros", lambda _c, _e: None)
+    monkeypatch.setattr(apply_cola, "_modo_efectivo_corte", lambda *_a, **_k: "live")
+    monkeypatch.setattr(apply_mod, "_ledger", lambda *_a, **_k: 2)
+    monkeypatch.setattr(apply_mod, "_sella_ledger", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        apply_mod, "_confirma_resumen", lambda _c, dec_id, *_a: confirmaciones.append(dec_id)
+    )
+    monkeypatch.setattr(apply_harvest, "_sella_pendientes", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        apply_harvest, "_termina_cola", lambda _c, qid, est: terminaciones.append((qid, est))
+    )
+    monkeypatch.setattr(
+        apply_harvest_reconciliacion, "_aprende_negative", lambda *_a, **_k: (None, None)
+    )
+    monkeypatch.setattr(
+        apply_harvest_reconciliacion.biblioteca, "avisa_si_fallo", lambda *_a, **_k: None
+    )
+
+    handler, vistos = _handler_lista_bc(modo, recurso="negativeKeywords")
+    ap = _aplicador(conn, handler, ciclo_ejec=7)
+    confirmadas, fallidas = apply_harvest_reconciliacion._reconcilia_negativas(
+        conn, ap, "amazon_us"
+    )
+    reposts = [r for r in _mutaciones(vistos) if r.url.path == "/sp/negativeKeywords"]
+    assert reposts == [], f"{modo}: no debe re-postear con lista incompleta"
+    assert (confirmadas, fallidas) == (0, 0)
+    assert confirmaciones == []
+    assert terminaciones == []
+
+
+def test_arreglos04_bc_reconciliacion_control_dos_paginas_confirma_sin_repost(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from app import apply as apply_mod
+    from app import apply_cola, apply_harvest, apply_harvest_reconciliacion
+
+    conn = Mock()
+    conn.transaction.side_effect = nullcontext
+
+    def execute(sql, params=()):
+        if sql == apply_harvest_reconciliacion._SQL_NEGATIVAS_APLICANDO:
+            filas = [(77, 10, TERMINO, 99)]
+        elif sql == apply_harvest._SQL_EXTERNALES:
+            filas = [(ORIGEN_GRUPO, ORIGEN_CAMPANA)]
+        else:
+            filas = []
+        return SimpleNamespace(fetchall=lambda: filas, fetchone=lambda: filas[0] if filas else None)
+
+    conn.execute.side_effect = execute
+    terminaciones: list[tuple[int, str]] = []
+    confirmaciones: list[int] = []
+    monkeypatch.setattr(apply_mod, "gate_ancestros", lambda _c, _e: None)
+    monkeypatch.setattr(apply_cola, "_modo_efectivo_corte", lambda *_a, **_k: "live")
+    monkeypatch.setattr(
+        apply_mod, "_confirma_resumen", lambda _c, dec_id, *_a: confirmaciones.append(dec_id)
+    )
+    monkeypatch.setattr(apply_harvest, "_sella_pendientes", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        apply_harvest, "_termina_cola", lambda _c, qid, est: terminaciones.append((qid, est))
+    )
+    monkeypatch.setattr(
+        apply_harvest_reconciliacion, "_aprende_negative", lambda *_a, **_k: (None, None)
+    )
+    monkeypatch.setattr(
+        apply_harvest_reconciliacion.biblioteca, "avisa_si_fallo", lambda *_a, **_k: None
+    )
+
+    handler, vistos = _handler_lista_bc("control_dos_paginas", recurso="negativeKeywords")
+    ap = _aplicador(conn, handler, ciclo_ejec=7)
+    confirmadas, fallidas = apply_harvest_reconciliacion._reconcilia_negativas(
+        conn, ap, "amazon_us"
+    )
+    assert [r for r in _mutaciones(vistos) if r.url.path == "/sp/negativeKeywords"] == []
+    assert (confirmadas, fallidas) == (1, 0)
+    assert confirmaciones == [99]
+    assert terminaciones == [(77, "applied")]
+
+
+@pytest.mark.parametrize("etapa", ["creacion_negative", "creacion_keyword", "readback"])
+@pytest.mark.parametrize("modo", ["missing", "tope_agotado"])
+def test_arreglos04_bc_creacion_readback_y_reversa_cero_mutacion_con_lista_incompleta(
+    monkeypatch, etapa, modo
+):
+    from contextlib import nullcontext, suppress
+    from unittest.mock import Mock
+
+    from app import apply as apply_mod
+    from app import apply_harvest
+    from app.ads.client import AdsApiError
+
+    conn = Mock()
+    conn.transaction.side_effect = nullcontext
+    conn.execute.return_value.fetchone.return_value = None
+    terminaciones: list[tuple[int | None, str]] = []
+    fallos_job: list[str] = []
+    monkeypatch.setattr(apply_mod, "_ledger", lambda *_a, **_k: 1)
+    monkeypatch.setattr(apply_mod, "_sella_ledger", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        apply_harvest, "_termina_cola", lambda _c, qid, est: terminaciones.append((qid, est))
+    )
+    monkeypatch.setattr(
+        apply_harvest,
+        "_falla_job",
+        lambda _c, _j, motivo, **_k: fallos_job.append(motivo) or ("failed", None),
+    )
+    ctx = apply_harvest._Contexto(
+        plataforma="amazon_us",
+        grupo_ext=ORIGEN_GRUPO,
+        campana_ext=ORIGEN_CAMPANA,
+        destino_grupo=DESTINO_GRUPO,
+        destino_campana=DESTINO_CAMPANA,
+        default_bid=Decimal("1.20"),
+        moneda="USD",
+        floor=Decimal("0.20"),
+        ceiling=Decimal("2.50"),
+        resuelto_por=None,
+        grupo_id=None,
+    )
+
+    if etapa == "creacion_negative":
+        handler, vistos = _handler_lista_bc(modo, recurso="negativeKeywords")
+        job = apply_harvest._Job(1, 50, TERMINO, 10, "pending", {}, "amazon_us")
+        with suppress(AdsApiError):
+            apply_harvest._paso_negative(conn, _aplicador(conn, handler, 7), job, ctx, queue_id=88)
+    elif etapa == "creacion_keyword":
+        handler, vistos = _handler_lista_bc(modo, recurso="keywords")
+        job = apply_harvest._Job(
+            2,
+            51,
+            TERMINO,
+            10,
+            "negative_created",
+            {"negative_id": "n-1", "negative_creada": True},
+            "amazon_us",
+        )
+        with suppress(AdsApiError):
+            apply_harvest._paso_keyword(conn, _aplicador(conn, handler, 7), job, ctx, queue_id=89)
+    else:
+        handler, vistos = _handler_lista_bc(modo, recurso="keywords")
+        job = apply_harvest._Job(
+            3,
+            52,
+            TERMINO,
+            10,
+            "exact_created",
+            {
+                "negative_id": "n-1",
+                "negative_creada": True,
+                "keyword_id": "k-1",
+                "keyword_creada": True,
+            },
+            "amazon_us",
+        )
+        with suppress(AdsApiError):
+            apply_harvest._paso_readback(conn, _aplicador(conn, handler, 7), job, ctx, queue_id=90)
+
+    assert _mutaciones(vistos) == [], f"{etapa} ({modo}): cero POST/delete"
+    assert fallos_job == [], f"{etapa} ({modo}): sin transicion a failed: {fallos_job}"
+    assert terminaciones == [], f"{etapa} ({modo}): cola intacta: {terminaciones}"
+
+
+@pytest.mark.parametrize("modo_fallo", ["tope_agotado", "auth_en_lectura"])
+def test_arreglos04_bc_reversa_automatica_lista_incompleta_cero_delete_y_job_pendiente(
+    monkeypatch, modo_fallo
+):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from app import apply as apply_mod
+    from app import apply_cola, apply_harvest, apply_harvest_reconciliacion, notifica
+
+    estado = {"job": "exact_created", "cola": "applying"}
+    inputs = {
+        "goal": {
+            "bid_floor": "0.20",
+            "bid_ceiling": "2.50",
+            "harvest": {
+                "resuelto_por": "terna",
+                "campaign_id": DESTINO_CAMPANA,
+                "ad_group_id": DESTINO_GRUPO,
+                "moneda": "USD",
+            },
+        }
+    }
+    ext_job = {"keyword_id": "k-7", "keyword_creada": True, "negative_creada": True}
+
+    def execute(sql, params=()):
+        filas = []
+        if sql == apply_harvest_reconciliacion._SQL_JOBS_EN_VUELO:
+            if estado["job"] in (
+                "pending",
+                "negative_created",
+                "exact_created",
+                "hermanas_negadas",
+            ):
+                filas = [(4, 53, TERMINO, 10, estado["job"], dict(ext_job), "amazon_us")]
+        elif sql == apply_harvest_reconciliacion._SQL_COLA_DE:
+            filas = [(90, estado["cola"])]
+        elif sql == apply_harvest._SQL_EXTERNALES:
+            filas = [(ORIGEN_GRUPO, ORIGEN_CAMPANA)]
+        elif sql == apply_harvest._SQL_PADRE:
+            filas = [(20,)]
+        elif sql == apply_harvest._SQL_DECISION:
+            filas = [(Decimal("1.20"), "USD", inputs)]
+        elif sql == apply_harvest._SQL_DESTINO_PERTENECE:
+            filas = [(1,)]
+        elif sql == apply_harvest._SQL_JOB_FAILED:
+            estado["job"] = "failed"
+        elif "UPDATE apply_queue SET estado = %s" in sql:
+            estado["cola"] = params[0]
+        elif sql == apply_harvest_reconciliacion._SQL_HARVEST_APLICANDO:
+            if estado["cola"] == "applying":
+                filas = [(90, 53)]
+        elif sql == apply_harvest_reconciliacion._SQL_JOB_EN_VUELO_DE:
+            filas = [
+                (
+                    estado["job"]
+                    in ("pending", "negative_created", "exact_created", "hermanas_negadas"),
+                )
+            ]
+        return SimpleNamespace(fetchall=lambda: filas, fetchone=lambda: filas[0] if filas else None)
+
+    conn = Mock()
+    conn.transaction.side_effect = nullcontext
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(apply_mod, "gate_ancestros", lambda _c, _e: None)
+    monkeypatch.setattr(apply_cola, "_modo_efectivo_corte", lambda *_a, **_k: "live")
+    monkeypatch.setattr(apply_mod, "_ledger", lambda *_a, **_k: 1)
+    monkeypatch.setattr(apply_mod, "_sella_ledger", lambda *_a, **_k: None)
+    monkeypatch.setattr(notifica, "notifica_harvest_failed", lambda _a: True)
+
+    handler_trunc, vistos_trunc = _handler_lista_bc(modo_fallo, recurso="negativeKeywords")
+    resumen_trunc = apply_harvest_reconciliacion.reconcilia_harvest(
+        conn, _aplicador(conn, handler_trunc, 7), "amazon_us"
+    )
+    deletes_trunc = [
+        r.url.path for r in _mutaciones(vistos_trunc) if r.url.path.endswith("/delete")
+    ]
+    assert deletes_trunc == [], f"cero DELETE ante {modo_fallo}: {deletes_trunc}"
+    assert (resumen_trunc.jobs_done, resumen_trunc.jobs_failed) == (0, 0)
+    assert resumen_trunc.harvest_huerfanas_cerradas == 0
+    assert estado == {"job": "exact_created", "cola": "applying"}
+
+    handler_ok, vistos_ok = _handler_lista_bc("control_dos_paginas", recurso="negativeKeywords")
+    resumen_ok = apply_harvest_reconciliacion.reconcilia_harvest(
+        conn, _aplicador(conn, handler_ok, 8), "amazon_us"
+    )
+    deletes_ok = [
+        (r.url.path, json.loads(r.content))
+        for r in _mutaciones(vistos_ok)
+        if r.url.path.endswith("/delete")
+    ]
+    assert deletes_ok == [
+        ("/sp/keywords/delete", {"keywordIdFilter": {"include": ["k-7"]}}),
+        ("/sp/negativeKeywords/delete", {"negativeKeywordIdFilter": {"include": ["id-propio"]}}),
+    ]
+    assert (resumen_ok.jobs_done, resumen_ok.jobs_failed) == (0, 1)
+    assert estado == {"job": "failed", "cola": "failed"}
+
+
+def test_arreglos04_bc_reversa_manual_filtro_perdido_y_missing_cero_delete(monkeypatch):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    from app import apply_harvest
+
+    conn = Mock()
+    conn.transaction.side_effect = nullcontext
+    monkeypatch.setattr(apply_harvest, "_reversa_confirmada", lambda *_a: False)
+    paso = apply_harvest.PasoReversa(
+        clase="negative",
+        rol="category_phrase",
+        ad_group_ext=ORIGEN_GRUPO,
+        objeto_id="n-prov",
+        provisional=True,
+    )
+
+    for respuesta in (
+        {},
+        {
+            "negativeKeywords": [
+                {
+                    "adGroupId": GRUPO_SENUELO,
+                    "keywordId": "n-prov",
+                    "keywordText": TERMINO,
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
+                }
+            ]
+        },
+    ):
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request, _resp=respuesta, _vistos=vistos) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "fake-bc-f", "expires_in": 3600})
+            _vistos.append(request)
+            if request.url.path == "/sp/negativeKeywords/list":
+                return httpx.Response(200, json=_resp)
+            raise AssertionError(f"HTTP inesperado: {request.method} {request.url.path}")
+
+        cliente = _aplicador(conn, handler, 7)._cliente()
+        ok, detalle = apply_harvest.ejecuta_reversa_harvest(conn, cliente, 99, TERMINO, [paso])
+        assert ok is False and "no concluyente" in detalle
+        assert _mutaciones(vistos) == []
+
+
+@_skip_db
+@pytest.mark.parametrize("modo", ["missing", "truncated", "tope_agotado"])
+def test_arreglos04_bc_pg_negative_huerfano_lista_incompleta_cero_repost(modo):
+    with _db_temporal(f"orbit_bc_neg_{modo[:4]}") as conn:
+        ids = _semilla(conn)
+        dec = _decision_negative(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], kind="negative", term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _fila_ledger_abierta(conn, dec)
+        handler, vistos = _handler_lista_bc(modo, recurso="negativeKeywords")
+
+        _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        posts = [r for r in _mutaciones(vistos) if r.url.path == "/sp/negativeKeywords"]
+        assert posts == []
+        estado = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+        assert estado == "applying"
+        confirmada = conn.execute(
+            "SELECT EXISTS ("
+            "SELECT 1 FROM decision_application WHERE decision_id = %s AND verify_ok"
+            ")",
+            (dec,),
+        ).fetchone()[0]
+        assert not confirmada
+
+
+@_skip_db
+def test_arreglos04_bc_pg_harvest_readback_incompleto_cero_borrado():
+    from contextlib import suppress
+
+    from app.ads.client import AdsApiError
+
+    with _db_temporal("orbit_bc_har_rb") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        relleno = [
+            {
+                "adGroupId": f"6{i:03d}",
+                "campaignId": "6000",
+                "keywordId": f"k-r{i}",
+                "keywordText": f"otra keyword {i}",
+                "matchType": "EXACT",
+                "state": "ENABLED",
+                "bid": 0.5,
+            }
+            for i in range(20)
+        ]
+        handler, vistos = _handler_harvest(keywords=relleno, page_size=1)
+        _libera_fila(conn, q)
+
+        with suppress(AdsApiError):
+            aplica_harvest(
+                conn,
+                _aplicador(conn, handler, ids["ciclo_ejec"]),
+                fila_cola(conn, q),
+                platform="amazon_us",
+            )
+
+        borrados = [r.url.path for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert borrados == []
+        estado_cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[
+            0
+        ]
+        assert estado_cola == "applying"
+        fase_job = conn.execute(
+            "SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert fase_job == "exact_created"

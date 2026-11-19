@@ -71,7 +71,7 @@ def test_apagar_goal_detiene_harvest_encolado_en_live():
             (apply, "consume_quota_y_sello", (True, False)),
             (apply, "_ledger", 1),
             (apply_harvest, "_contexto", contexto),
-            (apply_harvest, "_lista_todos", []),
+            (apply_harvest, "_lista_completa", []),
             (apply_harvest, "revalida_harvest", None),
             (
                 apply_harvest,
@@ -117,7 +117,9 @@ def test_apagar_goal_confirma_negative_aplicado_sin_reintentar_post(ya_aplicado)
     with (
         patch.object(apply, "gate_ancestros", return_value=None),
         patch.object(apply_cola, "_modo_efectivo_corte", return_value="shadow"),
-        patch.object(apply_harvest, "_lista_todos", return_value=[negativo] if ya_aplicado else []),
+        patch.object(
+            apply_harvest, "_lista_completa", return_value=[negativo] if ya_aplicado else []
+        ),
         patch.object(apply_harvest, "_sella_pendientes"),
         patch.object(apply_harvest, "_termina_cola"),
         patch.object(apply, "_confirma_resumen"),
@@ -172,7 +174,7 @@ def test_job_que_espera_quota_revalida_antes_de_aplicar():
             (apply, "consume_quota_y_sello", (True, False)),
             (apply, "_ledger", 1),
             (apply_harvest, "_contexto", contexto),
-            (apply_harvest, "_lista_todos", []),
+            (apply_harvest, "_lista_completa", []),
             (apply_harvest_reconciliacion, "_cola_de", (1, "released")),
             (apply_harvest_reconciliacion, "revalida_harvest", "ya_no_califica"),
             (apply_cola, "_modo_efectivo_corte", "live"),
@@ -291,7 +293,7 @@ def test_reversa_no_borra_objetos_adoptados_o_de_procedencia_incierta(intentos_p
     conn.execute.return_value.fetchone.return_value = (bool(intentos_previos),)
     cliente = MagicMock()
 
-    def lista(path, body, profile_id):
+    def lista(path, body):
         negativa = path == "/sp/negativeKeywords/list"
         item = {
             "keywordId": "negative-del-primero" if negativa else "keyword-del-primero",
@@ -302,7 +304,7 @@ def test_reversa_no_borra_objetos_adoptados_o_de_procedencia_incierta(intentos_p
         }
         return httpx.Response(200, json={"negativeKeywords" if negativa else "keywords": [item]})
 
-    cliente.list_objects.side_effect = lista
+    cliente.list_sellado.side_effect = lista
     aplicador = SimpleNamespace(_profile_id="profile", _cliente=lambda: cliente)
     assert apply_harvest._paso_negative(conn, aplicador, job, contexto, None)[0] == "avanza"
     assert apply_harvest._paso_keyword(conn, aplicador, job, contexto, None)[0] == "avanza"
@@ -367,12 +369,12 @@ def test_reversa_automatica_no_borra_keyword_sin_post_propio():
         "state": "ENABLED",
     }
 
-    def lista(_cliente, path, _profile):
+    def lista(_cliente, path, *, grupos=None):
         return [ajena] if path == "/sp/keywords/list" else []
 
     aplicador = SimpleNamespace(_cliente=lambda: cliente, _profile_id="perfil")
     with (
-        patch.object(apply_harvest, "_lista_todos", side_effect=lista),
+        patch.object(apply_harvest, "_lista_completa", side_effect=lista),
         patch.object(apply, "_ledger", return_value=1),
         patch.object(apply_harvest, "_reversa_delete", return_value=True) as borrado,
         patch.object(apply_harvest, "_falla_job", return_value=("failed", None)),
@@ -427,12 +429,12 @@ def test_reversa_no_borra_keyword_ajena_sin_confirmacion(ack_keyword):
     }
     lecturas_keyword = iter([[], [ajena]])
 
-    def lista(_cliente, path, _profile):
+    def lista(_cliente, path, *, grupos=None):
         return next(lecturas_keyword) if path == "/sp/keywords/list" else []
 
     aplicador = SimpleNamespace(_cliente=lambda: cliente, _profile_id="perfil")
     with (
-        patch.object(apply_harvest, "_lista_todos", side_effect=lista),
+        patch.object(apply_harvest, "_lista_completa", side_effect=lista),
         patch.object(apply_harvest, "bid_sugerido", return_value=None),
         patch.object(apply, "_ledger", return_value=1),
         patch.object(apply_harvest, "_reversa_delete", return_value=True) as borrado,
@@ -478,12 +480,12 @@ def test_reversa_no_borra_negative_ajeno_sin_confirmacion(ack_negative):
     }
     lecturas_negative = iter([[], [ajeno]])
 
-    def lista(_cliente, path, _profile):
+    def lista(_cliente, path, *, grupos=None):
         return next(lecturas_negative) if path == "/sp/negativeKeywords/list" else []
 
     aplicador = SimpleNamespace(_cliente=lambda: cliente, _profile_id="perfil")
     with (
-        patch.object(apply_harvest, "_lista_todos", side_effect=lista),
+        patch.object(apply_harvest, "_lista_completa", side_effect=lista),
         patch.object(apply, "_ledger", return_value=1),
         patch.object(apply_harvest, "_reversa_delete", return_value=True) as borrado,
         patch.object(apply_harvest, "_falla_job", return_value=("failed", None)),

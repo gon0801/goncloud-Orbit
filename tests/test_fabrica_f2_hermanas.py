@@ -364,7 +364,7 @@ def test_previo_truncado_cero_post_y_pendientes():
                     )
                 )
         corrido = _corre_harvest_grupo(
-            conn, setup, handler_kw={"negatives": sembrados, "page_size": 1}
+            conn, setup, handler_kw={"negatives": sembrados, "page_size_filtrado": 1}
         )
         job = _job_de(conn, corrido["dec"])
         assert job["fase"] == "hermanas_negadas", job
@@ -541,7 +541,7 @@ def test_dos_barridos_batched_con_filtro_en_cada_pagina():
 
 
 def _cliente_lista(handler):
-    """Write client falso solo-lectura para probar `_lista_filtrada`."""
+    """Write client falso solo-lectura para probar `_lista_completa`."""
     from app.ads.config import AdsCredentials
     from app.ads.write import AdsWriteClient
 
@@ -560,15 +560,14 @@ def _cliente_lista(handler):
 
 
 def test_lista_filtrada_filtro_en_cada_pagina_y_senales_de_ambiguedad():
-    """`_lista_filtrada` preserva el filtro en cada pagina; token repetido o
-    item fuera del filtro -> "ambiguo"; `nextToken` vivo al tope ->
-    "truncado". Regla 9: sin cada guarda, el barrido afirmaria completitud
-    que no tiene."""
+    """`_lista_completa` con `grupos` preserva el filtro en cada pagina; token
+    repetido o item fuera del filtro lanza `ListaIncompleta` con causa
+    `ambiguo`; `nextToken` vivo al tope lanza con causa `truncado`."""
     import json as _json
 
     import httpx as _httpx
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     cuerpos: list[dict] = []
 
@@ -610,8 +609,9 @@ def test_lista_filtrada_filtro_en_cada_pagina_y_senales_de_ambiguedad():
             },
         )
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201", "6202"])
-    assert estado == "ok"
+    items = _lista_completa(
+        _cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201", "6202")
+    )
     assert [x["keywordId"] for x in items] == ["n-1", "n-2"]
     assert len(cuerpos) == 2
     assert all(
@@ -625,8 +625,11 @@ def test_lista_filtrada_filtro_en_cada_pagina_y_senales_de_ambiguedad():
             200, json={"negativeKeywords": [], "totalResults": 9, "nextToken": "mismo"}
         )
 
-    _items, estado = _lista_filtrada(_cliente_lista(_handler_repite), ["6201"])
-    assert estado == "ambiguo", "token que no avanza"
+    with pytest.raises(ListaIncompleta) as exc_rep:
+        _lista_completa(
+            _cliente_lista(_handler_repite), "/sp/negativeKeywords/list", grupos=("6201",)
+        )
+    assert exc_rep.value.causa == "ambiguo", "token que no avanza"
 
     def _handler_filtro_ignorado(request):
         if request.url.host == "api.amazon.com":
@@ -647,8 +650,11 @@ def test_lista_filtrada_filtro_en_cada_pagina_y_senales_de_ambiguedad():
             },
         )
 
-    _items, estado = _lista_filtrada(_cliente_lista(_handler_filtro_ignorado), ["6201"])
-    assert estado == "ambiguo", "filtro ignorado por el servidor"
+    with pytest.raises(ListaIncompleta) as exc_fil:
+        _lista_completa(
+            _cliente_lista(_handler_filtro_ignorado), "/sp/negativeKeywords/list", grupos=("6201",)
+        )
+    assert exc_fil.value.causa == "ambiguo", "filtro ignorado por el servidor"
 
 
 @pytest.mark.parametrize(
@@ -656,21 +662,22 @@ def test_lista_filtrada_filtro_en_cada_pagina_y_senales_de_ambiguedad():
     [{}, {"negativeKeywords": None}, {"negativeKeywords": "nada"}, {"otra_clave": []}],
 )
 def test_lista_filtrada_200_malformado_es_unknown(cuerpo):
-    """Un 200 sin contenedor util ({}, null, no-lista, otra clave) es
-    unknown (`ambiguo`), jamas ([], "ok"): tratarlo como ausencia
-    habilitaria POST contra un LIST que no dijo nada. Regla 9: sin la
-    guarda, el barrido afirmaria completitud sobre un body vacio."""
+    """Un 200 sin contenedor util ({}, null, no-lista, otra clave) lanza
+    `ListaIncompleta` (`ambiguo`), jamas `[]`."""
     import httpx as _httpx3
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler_malo(request):
         if request.url.host == "api.amazon.com":
             return _httpx3.Response(200, json={"access_token": "fake-access-malo", "expires_in": 1})
         return _httpx3.Response(200, json=cuerpo)
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler_malo), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(
+            _cliente_lista(_handler_malo), "/sp/negativeKeywords/list", grupos=("6201",)
+        )
+    assert exc.value.causa == "ambiguo"
 
 
 def _body_con(
@@ -693,15 +700,11 @@ def _body_con(
     [[None], ["texto"], [42]],
 )
 def test_lista_filtrada_item_o_token_malformado_es_unknown(elementos):
-    """Elemento no-dict (null, string, numero) en el contenedor es unknown
-    (`ambiguo`), jamas presencia filtrada: un item ilegible no confirma ni
-    niega nada (AC-1 exige elementos dict). Los dicts incompletos tambien
-    invalidan la pagina (identidad y estado no se infieren). Regla 9
-    (r3, AC-1): sin la guarda, el barrido filtraba sobre contenido
-    parcialmente malformado y declaraba ausencia."""
+    """Elemento no-dict (null, string, numero) en el contenedor lanza
+    `ListaIncompleta` (`ambiguo`)."""
     import httpx as _httpx7
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler_items(request):
         if request.url.host == "api.amazon.com":
@@ -710,25 +713,31 @@ def test_lista_filtrada_item_o_token_malformado_es_unknown(elementos):
             )
         return _httpx7.Response(200, json=_body_con(elementos))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler_items), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(
+            _cliente_lista(_handler_items), "/sp/negativeKeywords/list", grupos=("6201",)
+        )
+    assert exc.value.causa == "ambiguo"
 
 
-@pytest.mark.parametrize("token_malo", [[], {}, 42, ""])
+@pytest.mark.parametrize("token_malo", [[], {}, 42, "", "   "])
 def test_lista_filtrada_token_malformado_es_unknown(token_malo):
-    """`nextToken` no-string-no-vacio (lista, dict, numero, vacio) es
-    unknown: no es pagina final ni token reenviable. Regla 9 (r3, AC-1)."""
+    """`nextToken` no-string-no-vacio (lista, dict, numero, vacio, espacios)
+    lanza `ListaIncompleta` (`ambiguo`)."""
     import httpx as _httpx8
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler_token(request):
         if request.url.host == "api.amazon.com":
             return _httpx8.Response(200, json={"access_token": "fake-access-tok", "expires_in": 1})
         return _httpx8.Response(200, json=_body_con([], token=token_malo))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler_token), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(
+            _cliente_lista(_handler_token), "/sp/negativeKeywords/list", grupos=("6201",)
+        )
+    assert exc.value.causa == "ambiguo"
 
 
 @pytest.mark.parametrize(
@@ -742,12 +751,10 @@ def test_lista_filtrada_token_malformado_es_unknown(token_malo):
     ],
 )
 def test_lista_completa_item_o_token_malformado_es_incompleta(cuerpo):
-    """El lector completo es igual de estricto: elemento no-dict o token
-    invalido -> (items, False). Regla 9 (r3, AC-1): la reversa jamas
-    concluye ausencia sobre lectura malformada."""
+    """Sin filtro, elemento no-dict o token invalido lanza `ListaIncompleta`."""
     import httpx as _httpx9
 
-    from app.apply_harvest import _lista_completa
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler_kw_malo(request):
         if request.url.host == "api.amazon.com":
@@ -756,8 +763,9 @@ def test_lista_completa_item_o_token_malformado_es_incompleta(cuerpo):
             )
         return _httpx9.Response(200, json=cuerpo)
 
-    items, completa = _lista_completa(_cliente_lista(_handler_kw_malo), "/sp/keywords/list")
-    assert completa is False
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler_kw_malo), "/sp/keywords/list")
+    assert exc.value.causa == "ambiguo"
 
 
 _FALTANTE = object()
@@ -765,7 +773,7 @@ _CAMPOS_LIST = ("keywordId", "adGroupId", "keywordText", "matchType", "state")
 
 
 def _elemento_list_ok(*, keyword=False) -> dict:
-    """Fila LIST completa (identidad + estado) para ambos lectores."""
+    """Fila LIST completa (identidad + estado) para ambos contenedores."""
     return {
         "adGroupId": "6201",
         "keywordId": "k-1" if keyword else "n-1",
@@ -787,13 +795,11 @@ def _elemento_list_roto(campo: str, valor, *, keyword=False) -> dict:
 @pytest.mark.parametrize("campo", _CAMPOS_LIST)
 @pytest.mark.parametrize("valor", [_FALTANTE, None, "", []])
 def test_lista_filtrada_elemento_incompleto_es_unknown(campo, valor):
-    """Faltante/null/vacio/lista en keywordId, adGroupId, keywordText,
-    matchType o state convierte TODA la pagina en unknown. Regla 9: el
-    barrido viejo aceptaba el dict y `_coincidencias` adoptaba
-    negative_id=None."""
+    """Faltante/null/vacio/lista en cualquier campo requerido lanza
+    `ListaIncompleta` (`ambiguo`)."""
     import httpx as _httpx_inc
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -802,19 +808,18 @@ def test_lista_filtrada_elemento_incompleto_es_unknown(campo, valor):
             )
         return _httpx_inc.Response(200, json=_body_con([_elemento_list_roto(campo, valor)]))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
+    assert exc.value.causa == "ambiguo"
 
 
 @pytest.mark.parametrize("campo", _CAMPOS_LIST)
 @pytest.mark.parametrize("valor", [_FALTANTE, None, "", []])
 def test_lista_completa_elemento_incompleto_es_incompleta(campo, valor):
-    """El lector completo es igual de estricto: un solo campo incompleto
-    -> (items, False). Regla 9: en reversa, la misma pagina confirmaba
-    que un ID desaparecio."""
+    """Sin filtro, un solo campo incompleto lanza `ListaIncompleta`."""
     import httpx as _httpx_inc2
 
-    from app.apply_harvest import _lista_completa
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -829,16 +834,17 @@ def test_lista_completa_elemento_incompleto_es_incompleta(campo, valor):
             ),
         )
 
-    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
-    assert (items, completa) == ([], False)
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert exc.value.causa == "ambiguo"
 
 
 @pytest.mark.parametrize("campo,valor", [("keywordId", True), ("adGroupId", False)])
 def test_lista_filtrada_id_booleano_es_unknown(campo, valor):
-    """IDs booleanos (bool es int en Python) no son identidad. Regla 9."""
+    """IDs booleanos (bool es int en Python) no son identidad."""
     import httpx as _httpx_bool
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -847,15 +853,16 @@ def test_lista_filtrada_id_booleano_es_unknown(campo, valor):
             )
         return _httpx_bool.Response(200, json=_body_con([_elemento_list_roto(campo, valor)]))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
+    assert exc.value.causa == "ambiguo"
 
 
 def test_lista_filtrada_ids_enteros_siguen_ok():
     """keywordId/adGroupId enteros no-bool siguen siendo identidad valida."""
     import httpx as _httpx_int
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import _lista_completa
 
     item = _elemento_list_ok()
     item["keywordId"] = 101
@@ -868,17 +875,15 @@ def test_lista_filtrada_ids_enteros_siguen_ok():
             )
         return _httpx_int.Response(200, json=_body_con([item]))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert estado == "ok"
+    items = _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
     assert items[0]["keywordId"] == 101
 
 
 def test_lista_filtrada_un_incompleto_tira_la_pagina_entera():
-    """Una fila valida + una sin keywordId -> unknown (no se adopta la
-    valida ni se declara ausencia)."""
+    """Una fila valida + una sin keywordId invalida toda la lectura."""
     import httpx as _httpx_mix
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -890,8 +895,9 @@ def test_lista_filtrada_un_incompleto_tira_la_pagina_entera():
             json=_body_con([_elemento_list_ok(), _elemento_list_roto("keywordId", _FALTANTE)]),
         )
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
+    assert exc.value.causa == "ambiguo"
 
 
 @pytest.mark.parametrize(
@@ -904,12 +910,10 @@ def test_lista_filtrada_un_incompleto_tira_la_pagina_entera():
     ],
 )
 def test_lista_filtrada_enum_desconocido_es_unknown(campo, valor):
-    """matchType/state fuera del vocabulario UPPER del wire convierte TODA
-    la pagina en unknown. Regla 9: un matchType=ROTO se aceptaba como
-    string no vacio y `_coincidencias` no hallaba exacta -> POST duplicado."""
+    """matchType/state fuera del vocabulario UPPER del wire invalida la lectura."""
     import httpx as _httpx_enum
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -918,8 +922,9 @@ def test_lista_filtrada_enum_desconocido_es_unknown(campo, valor):
             )
         return _httpx_enum.Response(200, json=_body_con([_elemento_list_roto(campo, valor)]))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
+    assert exc.value.causa == "ambiguo"
 
 
 @pytest.mark.parametrize(
@@ -932,11 +937,10 @@ def test_lista_filtrada_enum_desconocido_es_unknown(campo, valor):
     ],
 )
 def test_lista_completa_enum_desconocido_es_incompleta(campo, valor):
-    """El lector completo es igual de estricto: enum desconocido ->
-    (items, False)."""
+    """Sin filtro, enum desconocido lanza `ListaIncompleta`."""
     import httpx as _httpx_enum2
 
-    from app.apply_harvest import _lista_completa
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -951,15 +955,16 @@ def test_lista_completa_enum_desconocido_es_incompleta(campo, valor):
             ),
         )
 
-    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
-    assert (items, completa) == ([], False)
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert exc.value.causa == "ambiguo"
 
 
 def test_lista_filtrada_exact_en_negative_es_unknown():
     """EXACT en negativeKeywords no es enum de ese contenedor."""
     import httpx as _httpx_xneg
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -970,15 +975,16 @@ def test_lista_filtrada_exact_en_negative_es_unknown():
             200, json=_body_con([_elemento_list_roto("matchType", "EXACT")])
         )
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
+    assert exc.value.causa == "ambiguo"
 
 
 def test_lista_completa_negative_exact_en_keywords_es_incompleta():
     """NEGATIVE_EXACT en keywords no es enum de ese contenedor."""
     import httpx as _httpx_nkw
 
-    from app.apply_harvest import _lista_completa
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -993,16 +999,16 @@ def test_lista_completa_negative_exact_en_keywords_es_incompleta():
             ),
         )
 
-    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
-    assert (items, completa) == ([], False)
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert exc.value.causa == "ambiguo"
 
 
 def test_lista_filtrada_negative_phrase_paused_sigue_ok():
-    """NEGATIVE_PHRASE + PAUSED son enums validos del contenedor
-    negativeKeywords (la identidad de adopcion sigue exigiendo EXACT)."""
+    """NEGATIVE_PHRASE + PAUSED son enums validos del contenedor negativeKeywords."""
     import httpx as _httpx_okneg
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import _lista_completa
 
     item = _elemento_list_ok()
     item["matchType"] = "NEGATIVE_PHRASE"
@@ -1015,8 +1021,7 @@ def test_lista_filtrada_negative_phrase_paused_sigue_ok():
             )
         return _httpx_okneg.Response(200, json=_body_con([item]))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert estado == "ok"
+    items = _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
     assert items[0]["matchType"] == "NEGATIVE_PHRASE"
     assert items[0]["state"] == "PAUSED"
 
@@ -1039,8 +1044,7 @@ def test_lista_completa_phrase_o_broad_archived_sigue_ok(match):
             )
         return _httpx_okkw.Response(200, json=_body_con([item], contenedor="keywords"))
 
-    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
-    assert completa is True
+    items = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
     assert items[0]["matchType"] == match
     assert items[0]["state"] == "ARCHIVED"
 
@@ -1050,15 +1054,16 @@ def test_lista_filtrada_enum_solo_espacios_es_unknown(campo):
     """Whitespace-only en matchType/state no es enum (ni string no vacio)."""
     import httpx as _httpx_ws
 
-    from app.apply_harvest import _lista_filtrada
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
             return _httpx_ws.Response(200, json={"access_token": "fake-access-ws", "expires_in": 1})
         return _httpx_ws.Response(200, json=_body_con([_elemento_list_roto(campo, "   ")]))
 
-    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
-    assert (items, estado) == ([], "ambiguo")
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/negativeKeywords/list", grupos=("6201",))
+    assert exc.value.causa == "ambiguo"
 
 
 @pytest.mark.parametrize("campo", ["matchType", "state"])
@@ -1066,7 +1071,7 @@ def test_lista_completa_enum_solo_espacios_es_incompleta(campo):
     """El lector completo trata whitespace-only como incompleto."""
     import httpx as _httpx_ws2
 
-    from app.apply_harvest import _lista_completa
+    from app.apply_harvest import ListaIncompleta, _lista_completa
 
     def _handler(request):
         if request.url.host == "api.amazon.com":
@@ -1081,26 +1086,27 @@ def test_lista_completa_enum_solo_espacios_es_incompleta(campo):
             ),
         )
 
-    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
-    assert (items, completa) == ([], False)
+    with pytest.raises(ListaIncompleta) as exc:
+        _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert exc.value.causa == "ambiguo"
 
 
 def test_lectores_nuevos_usen_list_sellado_sin_profile_del_caller():
-    """AC-3: `_lista_filtrada` y `_lista_completa` leen por la puerta
-    sellada (scope de la instancia) y ninguna firma acepta `profile_id`
-    del caller. Regla 9: llamar `list_objects` directo con profile a mano
-    reabre el hueco del readback con scope ajeno (hallazgo r1 del brief
-    S13)."""
+    """B-C/TN02: `_lista_completa` es el unico lector de listas, lee por la
+    puerta sellada `list_sellado` (scope de la instancia) y no acepta
+    `profile_id` del caller; `_lista_todos` y `_lista_filtrada` fueron
+    retirados."""
     import inspect as _inspect
 
     import app.apply_harvest as _ah
 
-    for nombre in ("_lista_filtrada", "_lista_completa"):
-        fn = getattr(_ah, nombre)
-        assert "profile_id" not in _inspect.signature(fn).parameters, nombre
-        fuente = _inspect.getsource(fn)
-        assert "list_sellado" in fuente, nombre
-        assert "list_objects" not in fuente, nombre
+    assert not hasattr(_ah, "_lista_todos")
+    assert not hasattr(_ah, "_lista_filtrada")
+    fn = _ah._lista_completa
+    assert "profile_id" not in _inspect.signature(fn).parameters
+    fuente = _inspect.getsource(fn)
+    assert "list_sellado" in fuente
+    assert "list_objects" not in fuente
 
 
 # ---------------------------------------------------------------------------
