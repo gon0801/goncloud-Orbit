@@ -15,7 +15,7 @@ curso. Cada canal conserva su moneda. None se ve como raya. El cero se ve como
 - `resumen-tendencia` (sección `3. Tendencia · ventas vs gasto`) presenta una tarjeta de gráfica con pestañas por canal (`button[data-tab-canal]`) y `canvas#tendencia-<canal>` dentro de `.lienzo`. Lee `script#datos-resumen`. El día va fino y `ma7` es la línea gruesa. `null` es hueco.
 - `resumen-monedas` (sección `4. Totales por moneda`) muestra tarjetas oscuras `.curr-card` para `MXN` y `USD` sin mezclar divisas.
 - `resumen-detalle` (sección `5. Tablas detalladas y series diarias`) pliega con `<details class="detail-box">` la `Tabla por canal`, `Periodo anterior por canal` y las tablas `#serie-<canal>` (`Datos diarios · <canal>`).
-- `resumen-api` el JSON `GET /api/dashboard/series/plataforma?platform=amazon_us` sigue describiendo la serie antigua. El Resumen nuevo consume `dash.resumen_ads` (`/api/dashboard/resumen`).
+- `resumen-api` el Resumen consume `dash.resumen_ads` (`GET /api/dashboard/resumen?canal=amazon_us`), donde `canales.amazon_us.moneda` es `USD` y `canales.amazon_us.series` entrega la serie diaria con huecos en `null`.
 
 ## How to get to it (user POV)
 
@@ -34,7 +34,7 @@ Preconditions:
 - **Cambiar canal y periodo.** Corre `curl -sS "$BASE/?canal=meli&periodo=7"`. Status 200. El HTML contiene `value="meli" selected` y `value="7" selected`. El tramo de `<h2>Mercado Libre` no contiene `Cifras inmaduras`.
 - **Periodo 90.** Corre `curl -sS "$BASE/?periodo=90"`. Status 200 y `value="90" selected`.
 - **Rango.** Corre `curl -sS "$BASE/?desde=2026-10-01&hasta=2026-10-07"`. Status 200, las dos fechas en los inputs y el texto `rango personalizado`.
-- **Confirmar lado JSON antiguo.** Corre `curl -sS "$BASE/api/dashboard/series/plataforma?platform=amazon_us"`. Status 200. `plataforma` es `amazon_us`, `moneda` es `USD`, y el día sembrado tiene `cost` `12.3400` y `ad_revenue` `45.6700`. Un hueco sigue en `null`.
+- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/resumen?canal=amazon_us"`. Status 200. En `canales.amazon_us`, `plataforma` es `amazon_us`, `moneda` es `USD`, y en `canales.amazon_us.series` el día sembrado tiene `cost` `12.3400` y `ad_revenue` `45.6700`. Un hueco sigue en `null`.
 - **Proof.** Guarda el HTML de `/`, los filtros, el JSON de la serie y las capturas (1280, 7, 90, rango, Mercado Libre, 390 px y tema noche) bajo `evidence/<run_id>/resumen/`. A 390 px el body no se desplaza y `.tabla-scroll` sí. El foco de teclado en esa tabla deja el outline visible.
 
 ## Gotchas

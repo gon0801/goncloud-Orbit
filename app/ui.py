@@ -55,7 +55,7 @@ from app.redaction import scrub
 from app.ui_campanas import VISTAS_RAPIDAS, presenta_campanas
 from app.ui_contribucion import vista_contribucion
 from app.ui_decisiones import TIPOS_TAB, vista_decisiones
-from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie, vista_resumen
+from app.ui_metricas import kpis_inertes, vista_resumen
 from app.ui_salud import vista_salud
 
 logger = logging.getLogger(__name__)
@@ -112,8 +112,6 @@ templates.env.globals["leyenda_zona"] = formato.LEYENDA_ZONA
 templates.env.globals["registro_etiquetas"] = htmlsafe_json_dumps(registro_navegador())
 templates.env.filters["dinero_miles_ui"] = dinero_miles_ui
 templates.env.filters["porcentaje_ui"] = porcentaje_ui
-templates.env.filters["kpis_serie"] = kpis_serie
-templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes
 templates.env.filters["vista_resumen"] = vista_resumen
 templates.env.filters["vista_decisiones"] = vista_decisiones

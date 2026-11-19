@@ -1,7 +1,6 @@
 "use strict";
 // JS del dashboard. Vive en /static por la CSP default-src 'self'.
-// Los canvas declaran data-serie/data-claves/data-etiquetas; los datos
-// viajan en <script type="application/json"> (no ejecutables).
+// Los datos viajan en <script type="application/json"> (no ejecutables).
 
 var graficas = [];
 
@@ -69,69 +68,6 @@ function vestir(chart, tinta) {
     escala.grid.color = tinta.borde;
   });
   chart.update("none");
-}
-
-function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
-  var canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-  var datos = datosDe(datosId);
-  if (!datos) return;
-  var spark = canvas.dataset.spark === "true";
-  var fechas = [];
-  var inmaduros = [];
-  var columnas = {};
-  seriesClaves.forEach(function (clave) { columnas[clave] = []; });
-  (datos.series || []).forEach(function (fila) {
-    fechas.push(fila.inmaduro ? fila.fecha + " *" : fila.fecha);
-    inmaduros.push(Boolean(fila.inmaduro));
-    seriesClaves.forEach(function (clave) {
-      columnas[clave].push(numero(fila[clave]));
-    });
-  });
-  var tinta = pintura();
-  var chart = new Chart(canvas, {
-    type: "line",
-    data: { labels: fechas, datasets: etiquetas.map(function (etiqueta, i) {
-      return {
-        label: etiqueta,
-        data: columnas[seriesClaves[i]],
-        borderWidth: 2,
-        pointRadius: spark ? 0 : 1.5,
-        colorToken: spark ? ({cost: "--o-ac", ad_revenue: "--o-ok", acos: "--o-oro", clicks: "--o-azul"})[seriesClaves[i]] : null,
-        spanGaps: false,
-        fill: false,
-        segment: {
-          borderDash: function (ctx) {
-            return inmaduros[ctx.p1DataIndex] ? [4, 3] : undefined;
-          }
-        }
-      };
-    }) },
-    plugins: spark ? [] : [{
-      id: "franjaInmadura",
-      beforeDraw: function (grafica) {
-        var inicio = inmaduros.indexOf(true);
-        if (inicio < 0 || !grafica.chartArea) return;
-        var x = grafica.scales.x.getPixelForValue(inicio);
-        var area = grafica.chartArea, ctx = grafica.ctx;
-        ctx.save(); ctx.fillStyle = colorCss("--o-ac", "#6c5ce7"); ctx.globalAlpha = 0.05;
-        ctx.fillRect(x, area.top, area.right - x, area.bottom - area.top); ctx.restore();
-      }
-    }],
-    options: {
-      locale: "es-MX",
-      animation: false,
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: !spark, position: "top", align: "end", labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 } }, tooltip: { enabled: !spark, callbacks: tooltipCon(seriesClaves.map(formatoDeClave)) } },
-      scales: {
-        x: { display: !spark, ticks: { color: tinta.mutado, maxTicksLimit: 4 }, grid: { color: tinta.borde } },
-        y: { display: !spark, ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
-      }
-    }
-  });
-  vestir(chart, tinta);
-  graficas.push(chart);
 }
 
 // Un motivo largo en dos renglones de hasta 36 letras; el tooltip lo trae
@@ -322,14 +258,6 @@ function activarPestanasResumen() {
 document.addEventListener("DOMContentLoaded", function () {
   graficarResumen();
   activarPestanasResumen();
-  document.querySelectorAll("canvas[data-serie]").forEach(function (canvas) {
-    graficarSeries(
-      canvas.id,
-      canvas.dataset.serie,
-      canvas.dataset.claves.split(","),
-      canvas.dataset.etiquetas.split(",")
-    );
-  });
   document.querySelectorAll('script[type="application/json"][id^="datos-skips-"]').forEach(
     function (el) {
       var plataforma = el.id.slice("datos-skips-".length);

@@ -41,26 +41,6 @@ def _total(filas: list[dict], campo: str) -> Decimal | None:
     return sum(valores, Decimal(0)) if valores else None
 
 
-def kpis_serie(datos: dict) -> dict:
-    """Suma solo dias observados de UNA plataforma; los huecos se declaran."""
-    filas = datos["series"]
-    agregado = agrega_filas(filas)
-    acos = acos_texto(agregado.cost, agregado.ad_revenue) if agregado.dinero_alineado else None
-    return {
-        "cost": f"{agregado.cost:.2f}" if agregado.cost is not None else None,
-        "ad_revenue": (f"{agregado.ad_revenue:.2f}" if agregado.ad_revenue is not None else None),
-        "clicks": agregado.clicks,
-        "acos": acos,
-        "cobertura": {
-            "cost": agregado.dias_cost,
-            "ad_revenue": agregado.dias_ad_revenue,
-            "clicks": agregado.dias_clicks,
-            "acos": agregado.dias_pares,
-        },
-        "dias": len(filas),
-    }
-
-
 def kpis_inertes(items: list[dict]) -> dict:
     """Gasto observado separado por moneda; antiguedad desconocida explicita."""
     monedas = sorted({i["moneda"] for i in items if i.get("moneda")})
@@ -74,14 +54,6 @@ def kpis_inertes(items: list[dict]) -> dict:
         "sin_antiguedad": sum(i.get("en_espera") is None for i in items),
         "gasto": gasto,
     }
-
-
-def clase_cambio(nuevo: str | None, anterior: str | None) -> str:
-    """Color de una comparacion monetaria exacta, sin convertir a float."""
-    if nuevo is None or anterior is None:
-        return "mutado"
-    diferencia = Decimal(nuevo) - Decimal(anterior)
-    return "ok" if diferencia > 0 else "alerta" if diferencia < 0 else "mutado"
 
 
 def _spark_paths(series: list[dict]) -> tuple[str, str]:
@@ -240,8 +212,6 @@ def _frase_tarjeta(
     series: list[dict],
 ) -> str:
     moneda = bloque.get("moneda", "")
-    comp = bloque.get("comparison") or {}
-    var = comp.get("variacion") or {}
     cov = bloque.get("coverage") or {}
     if cost is None and rev is None:
         return "Sin observaciones de gasto ni ventas atribuidas en la ventana seleccionada."
@@ -280,15 +250,6 @@ def _frase_tarjeta(
         return (
             f"Las ventas subieron +{rev_pct}%, pero el ACoS subio "
             f"+{acos_pp} pp respecto al periodo anterior."
-        )
-    picos = _picos_ma7(series)
-    if picos is not None and var.get("motivo") == "cobertura_incompleta":
-        dias_ant = (comp.get("coverage") or {}).get("dias_con_dato", 0)
-        return (
-            f"El gasto diario medio bajo {picos['caida_pct']}% desde el pico del "
-            f"{picos['fecha_pico_cost']} ({_fmt_dinero(picos['pico_cost'])} -> "
-            f"{_fmt_dinero(picos['ult_cost'])} {moneda}/dia). "
-            f"*El periodo anterior solo tiene {dias_ant}/{comp.get('dias', 0)} dias con dato."
         )
     return (
         f"Cobertura del periodo: {cov.get('dias_con_dato', 0)}/{bloque.get('dias', 0)} "

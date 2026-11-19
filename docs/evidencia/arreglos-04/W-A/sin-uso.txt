@@ -1,0 +1,12 @@
+$ rg -n "series/(plataforma|campana)" app tools scripts verify .github docs/runbooks
+app/api_dashboard.py:341:@router.get("/series/plataforma")
+app/api_dashboard.py:365:@router.get("/series/campana")
+app/api_dashboard.py:437:    La ruta `/series/plataforma` conserva su contrato intacto.
+
+$ rg -n "data-serie" app/templates
+(sin coincidencias, salida 1)
+
+$ rg -n "kpis_serie|clase_cambio" app/templates
+(sin coincidencias, salida 1)
+
+Nota de riesgo: los monitores de Uptime Kuma no se pudieron revisar desde el repo; si alguno consultara `/api/dashboard/series/*`, tras el despliegue responderia 404 y avisaria por Server Alerts.

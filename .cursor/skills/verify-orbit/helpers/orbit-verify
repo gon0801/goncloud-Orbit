@@ -1444,19 +1444,19 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
 
     seed_metric_date = state["seed"]["metric_date"]
 
-    # JSON series por plataforma
     st_us, _, raw_us = _http(
-        f"{base}/api/dashboard/series/plataforma?platform=amazon_us",
+        f"{base}/api/dashboard/resumen?canal=amazon_us",
     )
     (evidence / "02-series-amazon_us.json").write_bytes(raw_us)
     data_us = {}
     if st_us == 200:
         data_us = json.loads(raw_us.decode("utf-8"))
+    canal_us = (data_us.get("canales") or {}).get("amazon_us") or {}
     checks["series_us_http_200"] = st_us == 200
-    checks["series_us_plataforma"] = data_us.get("plataforma") == "amazon_us"
-    checks["series_us_moneda"] = data_us.get("moneda") == "USD"
+    checks["series_us_plataforma"] = canal_us.get("plataforma") == "amazon_us"
+    checks["series_us_moneda"] = canal_us.get("moneda") == "USD"
 
-    series_us = data_us.get("series") or []
+    series_us = canal_us.get("series") or []
     fila_seed_us = next((r for r in series_us if r.get("fecha") == seed_metric_date), None)
     checks["seed_fila_us_presente"] = fila_seed_us is not None
     checks["seed_cost_us"] = (fila_seed_us or {}).get("cost") == "12.3400"
@@ -1467,17 +1467,18 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     )
 
     st_mx, _, raw_mx = _http(
-        f"{base}/api/dashboard/series/plataforma?platform=amazon_mx",
+        f"{base}/api/dashboard/resumen?canal=amazon_mx",
     )
     (evidence / "03-series-amazon_mx.json").write_bytes(raw_mx)
     data_mx = {}
     if st_mx == 200:
         data_mx = json.loads(raw_mx.decode("utf-8"))
+    canal_mx = (data_mx.get("canales") or {}).get("amazon_mx") or {}
     checks["series_mx_http_200"] = st_mx == 200
-    checks["series_mx_plataforma"] = data_mx.get("plataforma") == "amazon_mx"
-    checks["series_mx_moneda"] = data_mx.get("moneda") == "MXN"
-    series_mx = data_mx.get("series") or []
-    checks["mx_all_cost_none"] = all(
+    checks["series_mx_plataforma"] = canal_mx.get("plataforma") == "amazon_mx"
+    checks["series_mx_moneda"] = canal_mx.get("moneda") == "MXN"
+    series_mx = canal_mx.get("series") or []
+    checks["mx_all_cost_none"] = bool(series_mx) and all(
         r.get("cost") is None and r.get("ad_revenue") is None for r in series_mx
     )
 
@@ -1572,8 +1573,8 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "base_url": base,
         "action": (
             "GET /, filtros ?canal=meli&periodo=7, ?periodo=90 y "
-            "?desde=2026-10-01&hasta=2026-10-07; GET /api/dashboard/series/plataforma "
-            "(amazon_us, amazon_mx); CSS /static/css/dashboard.css y capturas y foco "
+            "?desde=2026-10-01&hasta=2026-10-07; GET /api/dashboard/resumen "
+            "(?canal=amazon_us, ?canal=amazon_mx); CSS /static/css/dashboard.css y capturas y foco "
             "en navegador headless"
         ),
         "checks": checks,

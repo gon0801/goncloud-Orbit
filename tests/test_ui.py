@@ -117,7 +117,6 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
     loader = jinja2.FileSystemLoader(str(ui._TEMPLATES_DIR))
     sin_escape = jinja2.Environment(loader=loader, autoescape=False)
     sin_escape.filters.update(ui.templates.env.filters)
-    sin_escape.filters["clase_cambio"] = ui.clase_cambio
     html = sin_escape.get_template("decisiones.html").render(**_ctx_decisiones())
     assert PAYLOAD_XSS in html, "con autoescape off el payload DEBE aparecer crudo"
 
