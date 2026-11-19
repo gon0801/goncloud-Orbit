@@ -225,12 +225,6 @@ _SQL_EXTERNALS_CAMPANA_DEL_LOTE = """
 SELECT DISTINCT external_id FROM fabrica_lote_paso
  WHERE lote = %s AND recurso = 'campaign' AND external_id IS NOT NULL
 """
-_SQL_CAMPANAS_CON_EXTERNAL = """
-SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id
-  FROM fabrica_lote_paso p
- WHERE p.lote = %s AND p.recurso = 'campaign' AND p.external_id IS NOT NULL
- ORDER BY p.rol, p.orden DESC
-"""
 _SQL_INSERTA_PASO = """
 INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload, estado)
 VALUES (%s, %s, %s::campana_rol, %s, %s::jsonb, 'planeado')
@@ -309,21 +303,10 @@ SELECT t.rol, t.external_id, t.goal_id
       LEFT JOIN campana_grupo cg ON cg.lote = p.lote
       LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
       LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
-     WHERE p.lote = %s AND p.recurso = 'campaign'
-       AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
+     WHERE p.lote = %s AND p.recurso = 'campaign' AND p.external_id IS NOT NULL
      ORDER BY p.rol, p.orden DESC
   ) t
  ORDER BY t.orden
-"""
-_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA = """
-SELECT DISTINCT ON (p.rol) p.rol::text, p.external_id, g.id
-  FROM fabrica_lote_paso p
-  LEFT JOIN campana_grupo cg ON cg.lote = p.lote
-  LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
-  LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
- WHERE p.lote = %s AND p.recurso = 'campaign'
-   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
- ORDER BY p.rol, p.orden DESC
 """
 _SQL_PENDIENTES = """
 SELECT p.id, p.lote, p.rol::text, l.platform::text, p.recurso, CASE p.recurso
@@ -1600,7 +1583,7 @@ def _cambia_estado_lote(ctx: _Ctx, lote: str, estado: str, actor: str) -> None:
         raise Abortar(f"lote {lote} en {actual}: solo se pausa desde applied")
     if estado == "applied" and actual != "pausado":
         raise Abortar(f"lote {lote} en {actual}: solo se reanuda desde pausado")
-    filas = ctx.conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE_PARA_PAUSA, (lote,)).fetchall()
+    filas = ctx.conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (lote,)).fetchall()
     ctx.conn_admin.commit()
     if not filas:
         raise Abortar(f"lote {lote} sin campanas en fabrica_lote_paso: nada que {estado}")
@@ -1672,7 +1655,7 @@ def reactiva_lote(ctx: _Ctx, lote: str, actor: str) -> None:
     ctx.orden = ctx.conn_admin.execute(
         "SELECT coalesce(max(orden), 0) FROM fabrica_lote_paso WHERE lote = %s", (lote,)
     ).fetchone()[0]
-    for rol, external in ctx.conn_admin.execute(_SQL_CAMPANAS_CON_EXTERNAL, (lote,)).fetchall():
+    for rol, external, _goal in ctx.conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (lote,)).fetchall():
         leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
         visto = leido.get("state") if isinstance(leido, dict) else None
         if visto == fp.ESTADO_NUEVO:
@@ -1711,8 +1694,8 @@ def _desarmar(args) -> int:
         conn_admin.commit()
         if not filas:
             raise Abortar(
-                f"lote {args.desarmar} sin campanas que pausar en fabrica_lote_paso"
-                " (applied, o failed con external): nada que desarmar"
+                f"lote {args.desarmar} sin campanas que pausar en fabrica_lote_paso:"
+                " nada que desarmar"
             )
         for rol, external, goal_id in filas:
             print(f"{rol} | {external} | goal={goal_id} -> PAUSED + enabled=false", flush=True)
