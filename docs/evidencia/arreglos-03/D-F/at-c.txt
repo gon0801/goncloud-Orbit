@@ -1,0 +1,93 @@
+# D-F.5 — el `at` de la primera copia de Mercado Libre Ads tras el despliegue
+
+Programado en goncloud el 2026-11-18 (~21:07 UTC) cuando el lead confirmo el despliegue de
+`14a688f` (que integra D-F, `d0515fc`). Trabajo **13**, corre el jue 19-nov 08:45 UTC (el
+servidor esta en UTC), una vez: lee la ultima corrida ok de MeLi Ads que escribio filas y manda
+por Telegram si ya no guardo el dia de Mexico en curso (`t`) o si todavia lo guardo (`f`).
+
+Archivos en goncloud, copia identica (md5) a la del repo en `/mnt/data/appdata/orbit/recordatorios/`:
+`dia-en-curso.sh` = `ffa7ac9d811cbc9f30be5b110241ef1d`,
+`dia-en-curso.sql` = `6790454aa55aa9f8f752d20c853339f0`.
+
+Lectura de saneamiento antes de programar (solo lectura, sin Telegram; la copia de las 08:15 UTC
+del 18-nov, corrida 1712, corrio con el codigo anterior y esa manana el archivo no traia la fila
+del dia en curso, por eso ya daba `t`; el trabajo de manana confirma la primera copia con el
+codigo nuevo):
+
+    $ ssh goncloud docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -A -t < dia-en-curso.sql
+    BEGIN
+    t
+    ROLLBACK
+
+## Copia del .sh (dia-en-curso.sh)
+
+#!/bin/sh
+# ARREGLOS 03 D-F.5: dice por Telegram si la primera copia de Mercado Libre Ads despues del
+# despliegue ya no guardo el dia de Mexico que iba en curso. SOLO LECTURA (dia-en-curso.sql abre
+# BEGIN READ ONLY y cierra con ROLLBACK).
+# Va con dia-en-curso.sql en /mnt/data/appdata/orbit/recordatorios/ y se programa con `at` en
+# goncloud para las 08:45 UTC siguientes al despliegue (la copia de MeLi Ads corre a las 08:15).
+D=/mnt/data/appdata/orbit/recordatorios
+if docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -A -t < $D/dia-en-curso.sql > $D/dia-en-curso.out 2>&1; then
+  if grep -qx t $D/dia-en-curso.out; then
+    T="<b>[Orbit] Mercado Libre Ads ya no guarda el día en curso</b>"
+    M="La copia de Mercado Libre Ads de las 08:15 UTC guardó solo días que ya terminaron en México. El día que va en curso se descarta y entra completo en la copia del día siguiente."
+  elif grep -qx f $D/dia-en-curso.out; then
+    T="<b>[Orbit] Mercado Libre Ads todavía guardó el día en curso</b>"
+    M="La última copia de Mercado Libre Ads que escribió datos guardó un día de México que aún no terminaba, con unas horas de gasto. Revisa que el cambio ya esté desplegado y que la copia de las 08:15 UTC haya corrido después."
+  else
+    T="<b>[Orbit] La lectura del día en curso de Mercado Libre Ads dio algo inesperado</b>"
+    M="Revisa la salida de abajo."
+  fi
+else
+  T="<b>[Orbit] La lectura del día en curso de Mercado Libre Ads FALLÓ (psql salió con $?)</b>"
+  M="Revisa la salida de abajo."
+fi
+{
+  echo "$T"
+  echo "$M"
+  echo "<pre>"
+  sed -e "s/&/\&amp;/g" -e "s/</\&lt;/g" -e "s/>/\&gt;/g" $D/dia-en-curso.out
+  echo "</pre>"
+} > $D/dia-en-curso.txt
+python3 $D/envia_recordatorio.py $D/dia-en-curso.txt >> $D/envios.log 2>&1
+
+## Numero de trabajo
+
+    $ echo /mnt/data/appdata/orbit/recordatorios/dia-en-curso.sh | ssh goncloud at 08:45 UTC Nov 19
+    warning: commands will be executed using /bin/sh
+    job 13 at Thu Nov 19 08:45:00 2026
+
+    $ ssh goncloud atq
+    13	Thu Nov 19 08:45:00 2026 a root
+    11	Thu Nov 19 08:45:00 2026 a root
+
+(el trabajo 11 a la misma hora es el de D-I.5, `ventas-usd.sh`; no se toco. Un intento previo
+habia quedado con la linea `...dia-en-curso.shn` por el escape del salto de linea en el paso
+PowerShell→bash; se borro con `atrm 12` antes de que corriera nada.)
+
+## Salida de `at -c 13`
+
+    #!/bin/sh
+    # atrun uid=0 gid=0
+    # mail root 0
+    umask 22
+    PWD=/root; export PWD
+    LOGNAME=root; export LOGNAME
+    XDG_SESSION_TYPE=tty; export XDG_SESSION_TYPE
+    HOME=/root; export HOME
+    LANG=en_US.UTF-8; export LANG
+    SSH_CONNECTION=10.13.13.4\ 62845\ 10.13.13.1\ 22; export SSH_CONNECTION
+    XDG_SESSION_CLASS=user; export XDG_SESSION_CLASS
+    USER=root; export USER
+    SHLVL=0; export SHLVL
+    XDG_SESSION_ID=202935; export XDG_SESSION_ID
+    XDG_RUNTIME_DIR=/run/user/0; export XDG_RUNTIME_DIR
+    SSH_CLIENT=10.13.13.4\ 62845\ 22; export SSH_CLIENT
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin; export PATH
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus; export DBUS_SESSION_BUS_ADDRESS
+    cd /root || {
+    	 echo 'Execution directory inaccessible' >&2
+    	 exit 1
+    }
+    /mnt/data/appdata/orbit/recordatorios/dia-en-curso.sh
