@@ -16,6 +16,9 @@ dependencias del laboratorio (`fastapi`, `psycopg[binary]`, `pytest`, `httpx`, `
 El servicio PG tiene que permitir crear bases/roles de prueba. Nunca usar DSN,
 credenciales, `.env` ni `ORBIT_SECRETS_DIR` de producción.
 
+En Git Bash de la PC de Hermes, para las pruebas de navegador, definir
+`export ORBIT_CHROMIUM='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'`.
+
 Las guardas requieren `orbit-review-current-pg:5432/postgres` en la red de
 contenedores propia, o `127.0.0.1:55449/postgres` para el PG desechable publicado
 solo localmente. Crear red/contenedores con esos nombres únicamente si no existen;
