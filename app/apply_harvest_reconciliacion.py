@@ -390,9 +390,7 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
             continue
         grupo_ext, campana_ext = externos
         try:
-            items = _ejecucion._lista_todos(
-                cliente, "/sp/negativeKeywords/list", aplicador._profile_id
-            )
+            items = _ejecucion._lista_completa(cliente, "/sp/negativeKeywords/list")
         except AdsApiError:
             continue  # lectura ambigua: proximo ciclo
         propio = _ejecucion._identidad(items, grupo_ext, term)

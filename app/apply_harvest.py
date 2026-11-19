@@ -45,10 +45,10 @@ Elecciones DECLARADAS de esta task:
   reintentos son mutaciones que ese ciclo corre).
 - La continuacion cuelga TODO del decision_id del JOB (la clave de efecto
   de la cola garantiza que es el mismo corte).
-- Los request payloads de los /list van VACIOS (payload exacto = unknown #4 del
-  brief; la respuesta si esta verificada, log
-  out/regla8-negkeywords.log); identidad filtrada cliente-side con tope
-  de paginacion.
+- Los /list leen por un unico `_lista_completa` sobre `list_sellado` (sin filtro
+  para el barrido general o con `adGroupIdFilter` para grupos explicitos); una
+  lista truncada o malformada lanza `ListaIncompleta(AdsApiError)` y nunca
+  autoriza mutaciones ni cierres por ausencia supuesta.
 
 SELLADO por el probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
 apply_attempt ids 1-20, log out/smoke-apply-20260826.log): acks 207 con
@@ -415,26 +415,12 @@ def bid_efectivo(
 # ---------------------------------------------------------------------------
 
 
-def _lista_todos(cliente, path: str, profile_id: str | int) -> list[dict]:
-    """Todas las paginas de un list v3 (POST de LECTURA con el profile
-    SELLADO del aplicador). El request payload va vacio (unknown #4 del
-    brief: el shape del filtro no esta capturado) y la identidad se filtra
-    cliente-side; paginacion por nextToken con tope."""
-    contenedor = _CONTENEDORES_LIST[path]
-    items: list[dict] = []
-    token = None
-    for _ in range(TOPE_PAGINAS_LIST):
-        body = {"nextToken": token} if token else {}
-        resp = cliente.list_objects(path, body, profile_id=profile_id)
-        try:
-            data = resp.json()
-        except ValueError:
-            raise AdsApiError(f"respuesta de lista ilegible: {_CONTENEDORES_LIST[path]}") from None
-        items.extend(x for x in data.get(contenedor) or [] if isinstance(x, dict))
-        token = data.get("nextToken")
-        if not token:
-            break
-    return items
+class ListaIncompleta(AdsApiError):
+    """Lectura LIST de Amazon Ads sin completitud probada (truncada o ambigua)."""
+
+    def __init__(self, message: str) -> None:
+        self.causa = "truncado" if message.startswith("truncado:") else "ambiguo"
+        super().__init__(message)
 
 
 def _valida_token_list(token) -> str:
@@ -444,7 +430,7 @@ def _valida_token_list(token) -> str:
     final ni se reenvia un token ilegible."""
     if token is None:
         return "fin"
-    if isinstance(token, str) and token:
+    if isinstance(token, str) and token.strip():
         return "mas"
     return "ambiguo"
 
@@ -514,88 +500,59 @@ def _valida_pagina_list(data, contenedor: str) -> tuple[list[dict], bool]:
     return (list(crudo), True)
 
 
-def _lista_completa(cliente, path: str) -> tuple[list[dict], bool]:
-    """Barrido paginado con senal de completitud (F2, A.3 r1/r3) por la
-    puerta sellada `list_sellado` (scope de la instancia, sin profile del
-    caller): (items, True) solo si cada pagina fue valida y `nextToken` se
-    agoto dentro del tope; pagina malformada (elemento incompleto o
-    matchType/state fuera del enum del contenedor inclusive), token
-    invalido/repetido o `nextToken` vivo al tope ->
-    (items, False). `_lista_todos` historico no
-    da la senal y no se toca: sus callers la asumen completa. La reversa
-    manual la exige (concluir ausencia sobre lectura trunca es borrar a
-    ciegas)."""
+def _lista_completa(
+    cliente,
+    path: str,
+    *,
+    grupos: tuple[str, ...] | None = None,
+) -> list[dict]:
+    """Unico lector paginado de listas SP sobre `list_sellado` (B-C/TN02).
+
+    Exige contenedor presente y de tipo lista, elementos validos, filtro
+    preservado en cada pagina y fin de paginacion comprobado dentro de
+    `TOPE_PAGINAS_LIST`. Lanza `ListaIncompleta` ante cualquier lectura
+    truncada o ambigua; nunca devuelve subtotales como completos.
+    """
     contenedor = _CONTENEDORES_LIST[path]
+    if grupos is not None:
+        if not all(_id_list_valido(g) for g in grupos):
+            raise ValueError("adGroupIdFilter requiere IDs validos")
+        grupos_norm = tuple(str(g).strip() for g in grupos)
+        if not grupos_norm:
+            return []
+        dentro: frozenset[str] | None = frozenset(grupos_norm)
+    else:
+        grupos_norm = None
+        dentro = None
     items: list[dict] = []
     vistos: set[str] = set()
     token = None
     for _ in range(TOPE_PAGINAS_LIST):
-        body = {"nextToken": token} if token else {}
-        try:
-            data = cliente.list_sellado(path, body).json()
-        except ValueError:
-            raise AdsApiError(f"respuesta de lista ilegible: {contenedor}") from None
-        pagina, valida = _valida_pagina_list(data, contenedor)
-        if not valida:
-            return (items, False)
-        items.extend(pagina)
-        estado_token = _valida_token_list(data.get("nextToken"))
-        if estado_token == "fin":
-            return (items, True)
-        if estado_token == "ambiguo":
-            return (items, False)
-        token = data.get("nextToken")
-        if token in vistos:
-            return (items, False)  # el token se repite: no avanza
-        vistos.add(token)
-    return (items, False)
-
-
-def _lista_filtrada(cliente, ad_group_ids: list[str]) -> tuple[list[dict], str]:
-    """UN barrido logico batched de negativeKeywords (F2, A.3): un solo LIST
-    paginado con `adGroupIdFilter` en TODAS las paginas (prohibido un LIST
-    por hermana), por la puerta sellada `list_sellado` (scope de la
-    instancia, jamas profile a mano). Devuelve (items, estado) con estado
-    en {"ok", "truncado", "ambiguo"}: `nextToken` vivo al tope ->
-    "truncado" (fail-closed: cero POST); token invalido/repetido, item
-    fuera del filtro (el filtro parece ignorado) o pagina malformada
-    (body no-dict, contenedor no-lista, elemento incompleto o
-    matchType/state fuera del enum del contenedor: r3/r4, AC-1) ->
-    "ambiguo" (unknown: cero POST — un LIST que no dijo nada
-    jamas habilita una mutacion). (`totalResults` NO se usa: su semantica con filtro no
-    esta verificada en vivo.) No toca el contrato de `_lista_todos` (sus
-    callers historicos siguen intactos)."""
-    path = "/sp/negativeKeywords/list"
-    contenedor = _CONTENEDORES_LIST[path]
-    dentro = {str(x) for x in ad_group_ids}
-    items: list[dict] = []
-    vistos: set[str] = set()
-    token = None
-    for _ in range(TOPE_PAGINAS_LIST):
-        body: dict = {"adGroupIdFilter": {"include": [str(x) for x in ad_group_ids]}}
-        if token:
+        body: dict = (
+            {} if grupos_norm is None else {"adGroupIdFilter": {"include": list(grupos_norm)}}
+        )
+        if token is not None:
             body["nextToken"] = token
         try:
             data = cliente.list_sellado(path, body).json()
         except ValueError:
-            raise AdsApiError(f"respuesta de lista ilegible: {contenedor}") from None
+            raise ListaIncompleta("ambiguo: JSON ilegible") from None
         pagina, valida = _valida_pagina_list(data, contenedor)
         if not valida:
-            return (items, "ambiguo")  # 200 malformado: unknown, cero POST
-        for x in pagina:
-            if str(x.get("adGroupId", "")) not in dentro:
-                return (items, "ambiguo")  # el filtro parece ignorado
-            items.append(x)
-        estado_token = _valida_token_list(data.get("nextToken"))
-        if estado_token == "fin":
-            return (items, "ok")
-        if estado_token == "ambiguo":
-            return (items, "ambiguo")
-        token = data.get("nextToken")
+            raise ListaIncompleta("ambiguo: contenedor o item invalido")
+        if dentro is not None and any(str(x["adGroupId"]) not in dentro for x in pagina):
+            raise ListaIncompleta("ambiguo: respuesta fuera del filtro")
+        estado = _valida_token_list(data.get("nextToken"))
+        if estado == "ambiguo":
+            raise ListaIncompleta("ambiguo: token ilegible")
+        items.extend(pagina)
+        if estado == "fin":
+            return items
+        token = data["nextToken"]
         if token in vistos:
-            return (items, "ambiguo")  # el token se repite: no avanza
+            raise ListaIncompleta("ambiguo: token repetido")
         vistos.add(token)
-    return (items, "truncado")  # nextToken vivo al tope: fail-closed
+    raise ListaIncompleta("truncado: token vivo al agotar el tope")
 
 
 def _identidad(items: list[dict], ad_group_id: str, keyword_text: str) -> dict | None:
@@ -1394,14 +1351,15 @@ def _preexiste_provisional(cliente, term: str, paso: PasoReversa) -> str:
     vive con otra identidad (otro termino o match: detener TODA la reversa
     — el objeto cambio bajo los pies y seguir hasta el origen seria borrar
     a ciegas). La coincidencia es por ID exacta, no por identidad suelta."""
-    if paso.clase == "keyword":
-        items, completa = _lista_completa(cliente, "/sp/keywords/list")
-        if not completa:
-            return "stop-unknown"
-    else:
-        items, estado = _lista_filtrada(cliente, [paso.ad_group_ext])
-        if estado != "ok":
-            return "stop-unknown"
+    try:
+        if paso.clase == "keyword":
+            items = _lista_completa(cliente, "/sp/keywords/list")
+        else:
+            items = _lista_completa(
+                cliente, "/sp/negativeKeywords/list", grupos=(str(paso.ad_group_ext),)
+            )
+    except ListaIncompleta:
+        return "stop-unknown"
     vivas = {
         str(x.get("keywordId"))
         for x in items
@@ -1455,14 +1413,15 @@ def ejecuta_reversa_harvest(
         )
         if id_attempt is None or ack is None:
             return (False, f"reversa: stop en {quien} {paso.objeto_id}")
-        if paso.clase == "keyword":
-            items, completa = _lista_completa(cliente, "/sp/keywords/list")
-            if not completa:
-                return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
-        else:
-            items, estado = _lista_filtrada(cliente, [paso.ad_group_ext])
-            if estado != "ok":
-                return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
+        try:
+            if paso.clase == "keyword":
+                items = _lista_completa(cliente, "/sp/keywords/list")
+            else:
+                items = _lista_completa(
+                    cliente, "/sp/negativeKeywords/list", grupos=(str(paso.ad_group_ext),)
+                )
+        except ListaIncompleta:
+            return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
         # La confirmacion es POR ID (r3/r4): la borrada ya no esta viva
         # ENTRE TODOS los objetos no ARCHIVED, SIN filtrar por identidad.
         # Si la id sigue viva con otro termino/match, el objeto muto bajo
@@ -1507,7 +1466,7 @@ def _reversa_automatica(
         keyword_propia = ext.get("keyword_creada") is True
         negative_propia = ext.get("negative_creada") is True
         if kw_id is None and keyword_propia:
-            kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
+            kws = _lista_completa(cliente, "/sp/keywords/list")
             propio = _identidad(kws, ctx.destino_grupo, job.search_term)
             if propio is not None:
                 kw_id = propio.get("keywordId")
@@ -1518,7 +1477,7 @@ def _reversa_automatica(
         ):
             return f"reversa: fallo borrando keyword {kw_id}"
         if neg_id is None and negative_propia:
-            items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
+            items = _lista_completa(cliente, "/sp/negativeKeywords/list")
             propio = _identidad(items, ctx.grupo_ext, job.search_term)
             if propio is not None:
                 neg_id = propio.get("keywordId")
@@ -1567,7 +1526,7 @@ def _paso_negative(
     NO avanza (el termino no se cosecha sin cortarse en origen): ledger
     'fallo:ack_sin_id', reversa best-effort, failed + alerta."""
     cliente = aplicador._cliente()
-    items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
+    items = _lista_completa(cliente, "/sp/negativeKeywords/list")
     propio = _identidad(items, ctx.grupo_ext, job.search_term)
     if propio is not None:
         procedencia = (
@@ -1647,7 +1606,7 @@ def _paso_keyword(
     cliente = aplicador._cliente()
     if not job.external_ids.get("negative_id"):
         # id del negativo para la reversa: evidencia viva si el ack no lo dio
-        items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
+        items = _lista_completa(cliente, "/sp/negativeKeywords/list")
         propio = _identidad(items, ctx.grupo_ext, job.search_term)
         if propio is not None:
             procedencia = (
@@ -1670,7 +1629,7 @@ def _paso_keyword(
             queue_id=queue_id,
             detalle="negative_id ausente: no se cosecha sin corte en origen (fail-closed)",
         )
-    kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
+    kws = _lista_completa(cliente, "/sp/keywords/list")
     encontrado = _identidad(kws, ctx.destino_grupo, job.search_term)
     if encontrado is not None:
         procedencia = (
@@ -1799,7 +1758,7 @@ def _paso_readback(
     avanza a la higiene; el señuelo en otro ad group NO cuenta → failed +
     reversa (§7) + alerta."""
     cliente = aplicador._cliente()
-    kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
+    kws = _lista_completa(cliente, "/sp/keywords/list")
     encontrado = _identidad(kws, ctx.destino_grupo, job.search_term)
     if encontrado is None:
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + " | keyword ausente en destino"
@@ -2074,14 +2033,14 @@ def _paso_hermanas(
             _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
         return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
     cliente = aplicador._cliente()
-    previo, estado_previo = _lista_filtrada(
-        cliente, [objetivo[r]["ad_group_id"] for r in pendientes]
-    )
-    if estado_previo != "ok":
-        # Fail-closed: barrido incompleto o ambiguo -> cero POST; las
-        # pendientes quedan con el motivo del barrido y el job sigue. El
-        # precheck truncado tambien nutre ciclos (el sello es el rastro).
-        motivo = "list_truncado" if estado_previo == "truncado" else "list_ambiguo"
+    try:
+        previo = _lista_completa(
+            cliente,
+            "/sp/negativeKeywords/list",
+            grupos=tuple(str(objetivo[r]["ad_group_id"]) for r in pendientes),
+        )
+    except ListaIncompleta as exc:
+        motivo = "list_truncado" if exc.causa == "truncado" else "list_ambiguo"
         for rol in pendientes:
             hermanas[rol] = {"motivo": motivo}
         with conn.transaction():
@@ -2134,15 +2093,18 @@ def _paso_hermanas(
         assert id_attempt is not None and neg_id is not None  # contrato de _post_hermana
         posteadas.append((rol, id_attempt, neg_id, ag_ext, ack_post))
     if posteadas:
-        posterior, estado_posterior = _lista_filtrada(cliente, [ag for _, _, _, ag, _ in posteadas])
-        if estado_posterior != "ok":
-            motivo = "list_truncado" if estado_posterior == "truncado" else "list_ambiguo"
+        try:
+            posterior = _lista_completa(
+                cliente,
+                "/sp/negativeKeywords/list",
+                grupos=tuple(str(ag) for _, _, _, ag, _ in posteadas),
+            )
+        except ListaIncompleta as exc:
+            motivo = "list_truncado" if exc.causa == "truncado" else "list_ambiguo"
             for rol, _id_attempt, _neg_id, _ag_ext, _ack_post in posteadas:
                 hermanas[rol] = {"motivo": motivo}  # filas abiertas: el proximo previo las cruza
             with conn.transaction():
                 _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
-            # Por el cierre por tope (r1): tambien el posterior del ciclo 3
-            # cierra; no existe cuarto ciclo.
             return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
         for rol, id_attempt, neg_id, ag_ext, _ack_post in posteadas:
             # Procedencia por ID (r2/r3): se registra propia SOLO la id del

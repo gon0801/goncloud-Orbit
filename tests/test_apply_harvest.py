@@ -439,6 +439,7 @@ def _handler_harvest(
     ack_negative_con_error: bool = False,
     delete_keyword_rechazado: bool = False,
     page_size: int | None = None,
+    page_size_filtrado: int | None = None,
     fallo_post_negative_por_adgroup: dict[str, int] | None = None,
     fallo_post_keyword_por_adgroup: dict[str, int] | None = None,
 ):
@@ -472,17 +473,20 @@ def _handler_harvest(
     def _pagina(store: list[dict], contenedor: str, pedido: dict) -> httpx.Response:
         """Pagina del store ya filtrado: sin `page_size` va entero (sin
         nextToken, como antes); con `page_size`, trozos con nextToken =
-        offset (string) hasta agotar."""
-        if page_size is None:
+        offset (string) hasta agotar; `page_size_filtrado` pagina solo los
+        LIST con `adGroupIdFilter`."""
+        tiene_filtro = bool((pedido.get("adGroupIdFilter") or {}).get("include"))
+        tam = page_size_filtrado if (tiene_filtro and page_size_filtrado is not None) else page_size
+        if tam is None:
             return httpx.Response(200, json={contenedor: store, "totalResults": len(store)})
         try:
             offset = int(pedido.get("nextToken") or 0)
         except (TypeError, ValueError):
             offset = 0
-        trozo = store[offset : offset + page_size]
+        trozo = store[offset : offset + tam]
         respuesta: dict = {contenedor: trozo, "totalResults": len(store)}
-        if offset + page_size < len(store):
-            respuesta["nextToken"] = str(offset + page_size)
+        if offset + tam < len(store):
+            respuesta["nextToken"] = str(offset + tam)
         return httpx.Response(200, json=respuesta)
 
     def _filtrados(store: list[dict], pedido: dict) -> list[dict]:
