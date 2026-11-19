@@ -142,6 +142,28 @@ def test_cli_cycle_decided_at_naive_rechazado(monkeypatch, capsys):
     assert "tz-aware" in capsys.readouterr().err
 
 
+def test_arreglos04_w_h_cycle_rechaza_decided_at_futuro(monkeypatch, capsys):
+    """Un `--decided-at` futuro liberaria cortes en veto, daria por vencidos
+    vetos de 30 dias y cortaria sin madurez: el CLI sale 2 sin llamar al ciclo."""
+    capturado = _captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://x:y@127.0.0.1:5432/orbit")
+    futuro = (dt.datetime.now(dt.UTC) + dt.timedelta(days=40)).isoformat()
+
+    codigo = cli.main(["cycle", "--platform", "amazon_mx", "--decided-at", futuro])
+
+    assert "decided_at" not in capturado
+    assert codigo == 2
+    assert "futuro" in capsys.readouterr().err
+
+    hace_un_minuto = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
+    codigo_ok = cli.main(
+        ["cycle", "--platform", "amazon_mx", "--decided-at", hace_un_minuto.isoformat()]
+    )
+
+    assert codigo_ok == 0
+    assert capturado["decided_at"] == hace_un_minuto
+
+
 # ---------------------------------------------------------------------------
 # 2. Fail-closed: DSN ausente, fallo scrubbado, CicloOcupado -> 0
 # ---------------------------------------------------------------------------

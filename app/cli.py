@@ -65,25 +65,39 @@ from app.spapi import vigilante as spapi_vigilante
 MODO_ARCHIVADO_LIVE = "live"
 
 
-def _parse_decided_at(texto: str | None) -> dt.datetime:
-    """Reloj de las decisiones: `--decided-at` ISO 8601 tz-aware, o ahora UTC.
+TOLERANCIA_RELOJ = dt.timedelta(minutes=5)
+
+
+def _parse_decided_at(texto: str | None, *, ahora: dt.datetime | None = None) -> dt.datetime:
+    """Reloj de las decisiones: `--decided-at` ISO 8601 tz-aware no futuro, o ahora UTC.
 
     El contrato de `corre_ciclo` exige tz-aware (un naive evaluaria segun la
     TZ local; windows.goals lo rechazan ruidosamente): el CLI lo valida ANTES
-    con mensaje claro, y normaliza a UTC (mismo criterio que
-    `windows._fecha_utc`: determinismo, un solo reloj).
+    con mensaje claro, normaliza a UTC y rechaza fechas mas alla de
+    `ahora + TOLERANCIA_RELOJ`.
     """
+    ahora = dt.datetime.now(dt.UTC) if ahora is None else ahora
+    if ahora.tzinfo is None or ahora.utcoffset() is None:
+        raise ValueError("ahora debe ser tz-aware (UTC)")
+    ahora = ahora.astimezone(dt.UTC)
     if texto is None:
-        return dt.datetime.now(dt.UTC)
+        return ahora
     try:
         momento = dt.datetime.fromisoformat(texto)
     except ValueError:
         raise ValueError(f"--decided-at no es una fecha ISO 8601 valida: {texto!r}") from None
-    if momento.tzinfo is None:
+    if momento.tzinfo is None or momento.utcoffset() is None:
         raise ValueError(
             "--decided-at debe ser tz-aware (UTC): un naive evaluaria segun la TZ local"
         )
-    return momento.astimezone(dt.UTC)
+    momento = momento.astimezone(dt.UTC)
+    if momento > ahora + TOLERANCIA_RELOJ:
+        raise ValueError(
+            f"--decided-at no puede ir en el futuro: llegó {momento.isoformat()} y ahora es "
+            f"{ahora.isoformat()} (UTC). Un reloj adelantado liberaría cortes en veto y "
+            "cortaría sin madurez."
+        )
+    return momento
 
 
 def _cycle(args) -> int:
