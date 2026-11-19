@@ -208,6 +208,17 @@ def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_so
     EFECTIVA bid-solo en campana en grupo (espejo del estado 3 del
     trigger 0038; sueltos y platform jamas abren)."""
 
+    for nombre, valor in cambios.items():
+        if valor is None:
+            continue
+        try:
+            if nombre == "target_acos_pct":
+                g.exige_banda_meta_manual(valor)
+            elif nombre in ("bid_floor", "bid_ceiling", "harvest_default_bid"):
+                g.exige_bajo_techo("bid", valor, fila["bid_currency"])
+        except ValueError as exc:
+            raise GoalInvalido(str(exc)) from None
+
     def efectivo(col: str):
         return cambios.get(col, fila[col])
 
@@ -225,16 +236,6 @@ def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_so
         raise GoalInvalido(
             f"bid_floor {floor} > bid_ceiling {ceiling}: el piso no puede superar el techo"
         )
-
-    for valor in (
-        cambios.get("bid_ceiling"),
-        cambios.get("harvest_default_bid"),
-    ):
-        if valor is not None:
-            try:
-                g.exige_bajo_techo("bid", valor, fila["bid_currency"])
-            except ValueError as exc:
-                raise GoalInvalido(str(exc)) from None
 
     bid_harvest = efectivo("harvest_default_bid")
     if bid_harvest is not None and bid_harvest <= 0:
