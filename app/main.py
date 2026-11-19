@@ -13,10 +13,13 @@ de deploy en 4.1, jamas 0.0.0.0.
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import router as ads_optimizer_router
+from app.api_common import mensaje_validacion
 from app.api_dashboard import router as dashboard_router
 from app.api_fabrica import router as fabrica_router
 from app.api_precios import router as precios_router
@@ -62,6 +65,11 @@ app.include_router(precios_write_router)
 app.include_router(fabrica_router)
 app.include_router(reputacion_router)
 app.include_router(dashboard_ui_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validacion_en_espanol(_request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": mensaje_validacion(exc.errors())})
 
 
 @app.get("/health")

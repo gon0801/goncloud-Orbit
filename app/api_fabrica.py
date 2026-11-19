@@ -25,6 +25,7 @@ from app import familias
 from app import impulso_io as io
 from app import retiro_anuncios as ra
 from app.api import ConexionLectura
+from app.api_common import mensaje_validacion
 from app.api_write import exige_token
 from app.optimizer import goals as g
 from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
@@ -46,37 +47,6 @@ def _as_of_consulta(valor: str | None) -> datetime | None:
     return corte.astimezone(UTC)
 
 
-_NOMBRE_CAMPO = {
-    "subfamilia_por_listing": "Subfamilia",
-    "listing_ids": "productos marcados",
-    "retiro_ids": "anuncios",
-    "tope_monto": "Tope",
-    "confirmacion": "Confirmación",
-    "actor": "Actor",
-    "huella": "vista previa (pídela de nuevo)",
-    "tipo_producto": "Tipo de producto",
-    "nombre_base": "Nombre base",
-    "budget": "Presupuesto",
-    "bid": "Puja",
-    "acos_pct": "ACoS objetivo",
-}
-
-
-def _campo_fallido(error: dict) -> str:
-    """Nombre en pantalla del campo de un error de Pydantic. Las llaves de
-    un dict (listing ids) y los indices de lista se saltan; un campo que
-    el contrato no conoce no repite su nombre (lo eligio quien envio)."""
-    if error.get("type") == "extra_forbidden":
-        return "un campo que no se esperaba"
-    for parte in reversed(error.get("loc", ())):
-        if isinstance(parte, str) and parte in _NOMBRE_CAMPO:
-            return _NOMBRE_CAMPO[parte]
-    for parte in reversed(error.get("loc", ())):
-        if isinstance(parte, str) and parte.isidentifier() and parte != "body":
-            return parte.replace("_", " ")
-    return "la solicitud"
-
-
 class _RutaFabrica(APIRoute):
     def get_route_handler(self):
         manejar = super().get_route_handler()
@@ -95,11 +65,10 @@ class _RutaFabrica(APIRoute):
                         raise fw.error(422, mensaje) from None
                     # El tope humano arma un mensaje controlado con la cifra
                     # tecleada y el maximo; no es input crudo, y la pantalla
-                    # necesita el motivo (no el generico "datos no validos").
+                    # necesita el motivo (no el generico de validacion).
                     if "supera el maximo" in mensaje:
                         raise fw.error(422, mensaje.removeprefix("Value error, ")) from None
-                campos = ", ".join(dict.fromkeys(_campo_fallido(e) for e in errores))
-                raise fw.error(422, f"Los datos no son válidos en: {campos}.") from None
+                raise fw.error(422, mensaje_validacion(errores)) from None
 
         return sin_input_privado
 

@@ -1053,7 +1053,7 @@ def test_crear_error_ajeno_sigue_generico_sin_input(escenario):
         json={"solicitud": v2, "huella": "0" * 64, "confirmacion": "CREAR 5 CAMPAÑAS"},
     )
     assert respuesta.status_code == 422
-    assert "Los datos no son válidos" in respuesta.text
+    assert "Revisa" in respuesta.text
     assert "margen_medido" not in respuesta.text
 
 

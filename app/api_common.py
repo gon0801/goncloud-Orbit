@@ -17,6 +17,7 @@ importandolo de app.api (una sola implementacion, cero copias).
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 
@@ -160,3 +161,103 @@ def _ratio_ads_venta(ad_revenue, venta_total):
         return numerador / denominador
     except (InvalidOperation, ValueError, ArithmeticError):
         return None
+
+
+CAMPOS_DE_PAGINA: frozenset[str] = frozenset(
+    {"base_config_version_id", "hoja_id", "queue_id", "decision_id", "campana_id"}
+)
+
+NOMBRE_CAMPO: dict[str, str] = {
+    "subfamilia_por_listing": "Subfamilia",
+    "listing_ids": "productos marcados",
+    "retiro_ids": "anuncios",
+    "tope_monto": "Tope",
+    "confirmacion": "Confirmación",
+    "actor": "Tu nombre",
+    "huella": "vista previa (pídela de nuevo)",
+    "tipo_producto": "Tipo de producto",
+    "nombre_base": "Nombre base",
+    "budget": "Presupuesto",
+    "bid": "Puja",
+    "acos_pct": "ACoS objetivo",
+    "target_manual_pct": "Meta manual de ACoS",
+    "target_acos_pct": "Meta de ACoS",
+    "caps.bid": "Tope diario de cambios de puja",
+    "caps.pause": "Tope diario de pausas",
+    "caps.negative": "Tope diario de negatives",
+    "caps.harvest": "Tope diario de búsquedas que pasan a exacta",
+    "confianza_recorte": "Confianza para bajar pujas",
+    "confianza_subida": "Confianza para subir pujas",
+    "fraccion": "Fracción del margen",
+    "bid_floor": "Puja mínima",
+    "bid_ceiling": "Puja máxima",
+    "harvest_default_bid": "Puja inicial de las búsquedas que pasan a exacta",
+    "resumen_acos_objetivo": "Meta de ACoS del Resumen",
+    "nombre": "Nombre",
+    "presupuesto": "Presupuesto diario",
+}
+
+_RAZON_POR_TIPO: dict[str, str] = {
+    "decimal_parsing": "escribe solo el número, sin % ni comas",
+    "float_parsing": "escribe solo el número, sin % ni comas",
+    "int_parsing": "escribe solo el número, sin % ni comas",
+    "int_from_float": "escribe solo el número, sin % ni comas",
+    "decimal_type": "escribe solo el número, sin % ni comas",
+    "float_type": "escribe solo el número, sin % ni comas",
+    "int_type": "escribe solo el número, sin % ni comas",
+    "finite_number": "escribe solo el número, sin % ni comas",
+    "greater_than": "está fuera del rango permitido",
+    "greater_than_equal": "está fuera del rango permitido",
+    "less_than": "está fuera del rango permitido",
+    "less_than_equal": "está fuera del rango permitido",
+    "decimal_max_digits": "está fuera del rango permitido",
+    "decimal_max_places": "está fuera del rango permitido",
+    "missing": "falta",
+    "string_too_short": "no puede quedar vacío",
+    "string_too_long": "es demasiado largo",
+    "bool_parsing": "debe ser sí o no",
+    "bool_type": "debe ser sí o no",
+}
+
+
+def _partes_loc(error: Mapping[str, object]) -> Sequence[object]:
+    loc = error.get("loc", ())
+    if isinstance(loc, Sequence) and not isinstance(loc, (str, bytes)):
+        return loc
+    return ()
+
+
+def _ultima_parte(error: Mapping[str, object]) -> str | None:
+    for parte in reversed(_partes_loc(error)):
+        if isinstance(parte, str):
+            return parte
+    return None
+
+
+def _campo(error: Mapping[str, object]) -> str:
+    loc = _partes_loc(error)
+    if len(loc) >= 2 and isinstance(loc[-2], str) and isinstance(loc[-1], str):
+        compuesta = f"{loc[-2]}.{loc[-1]}"
+        if compuesta in NOMBRE_CAMPO:
+            return NOMBRE_CAMPO[compuesta]
+    for parte in reversed(loc):
+        if isinstance(parte, str) and parte in NOMBRE_CAMPO:
+            return NOMBRE_CAMPO[parte]
+    return "un dato del formulario"
+
+
+def _razon(error: Mapping[str, object]) -> str:
+    tipo = error.get("type")
+    if isinstance(tipo, str):
+        return _RAZON_POR_TIPO.get(tipo, "no es válido")
+    return "no es válido"
+
+
+def mensaje_validacion(errores: Sequence[Mapping[str, object]]) -> str:
+    """Un 422 en espanol con el campo y la razon, sin repetir lo que se tecleo."""
+    if any(_ultima_parte(e) in CAMPOS_DE_PAGINA for e in errores):
+        return "La página quedó vieja: recárgala y vuelve a intentar."
+    if any(e.get("type") == "extra_forbidden" for e in errores):
+        return "La pantalla mandó un dato que no se esperaba: recárgala y vuelve a intentar."
+    partes = dict.fromkeys(f"«{_campo(e)}» ({_razon(e)})" for e in errores)
+    return "Revisa " + ", ".join(partes) + "."

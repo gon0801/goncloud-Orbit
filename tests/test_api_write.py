@@ -1683,8 +1683,8 @@ def test_aplicar_put_rechazado_da_502(tmp_path, monkeypatch):
 
 @_skip_db
 def test_aplicar_actor_largo_da_422(tmp_path, monkeypatch):
-    """Panel: actor de mas de 200 (la columna) se veta en el borde: el
-    422 sale de pydantic (detail lista), no de apply."""
+    """Un actor de mas de 200 caracteres se veta en el borde con 422 en texto,
+    sin llegar a apply."""
     with _db_ajustes("orbit_wa_largo") as (conn, dsn_admin, _dsn_l):
         camp = _siembra_ajuste(conn)
         _secrets_token(tmp_path, monkeypatch)
@@ -1702,7 +1702,7 @@ def test_aplicar_actor_largo_da_422(tmp_path, monkeypatch):
             headers={"x-orbit-token": TOKEN},
         )
         assert resp.status_code == 422, resp.text
-        assert isinstance(resp.json()["detail"], list)
+        assert isinstance(resp.json()["detail"], str)
 
 
 @_skip_db
