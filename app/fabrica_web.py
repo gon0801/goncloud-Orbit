@@ -65,7 +65,6 @@ UNION SELECT tipo_producto FROM negative_biblioteca WHERE platform = %s::platfor
 UNION SELECT tipo_producto FROM campana_grupo WHERE platform = %s::platform
 ORDER BY tipo_producto
 """
-_SQL_CONFIG_VIGENTE = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
 
 def tipos_producto(conn, plataforma: str) -> list[str]:
@@ -83,9 +82,7 @@ def error(codigo: int, mensaje: str, lote: str | None = None) -> HTTPException:
 
 def argumentos(solicitud: dict) -> SimpleNamespace:
     datos = {k: v for k, v in solicitud.items() if k != "parametros"}
-    productos = solicitud.get("productos")
     listings = solicitud.get("listing_ids")
-    datos["productos"] = ",".join(str(pid) for pid in sorted(productos)) if productos else None
     datos["listing_ids"] = ",".join(str(lid) for lid in sorted(listings)) if listings else None
     objetivo = solicitud.get("objetivo")
     datos["target_acos"] = objetivo.get("acos_pct") if objetivo else None
@@ -98,7 +95,7 @@ def argumentos(solicitud: dict) -> SimpleNamespace:
     return SimpleNamespace(**datos)
 
 
-def planificar(conn, solicitud: dict) -> fp.PlanGrupo | fp.PlanGrupoV2:
+def planificar(conn, solicitud: dict) -> fp.PlanGrupoV2:
     conn.row_factory = tuple_row
     try:
         return fc._arma_plan(argumentos(solicitud), conn)
@@ -110,18 +107,6 @@ def planificar(conn, solicitud: dict) -> fp.PlanGrupo | fp.PlanGrupoV2:
         raise error(503, "La configuración del plan no es válida.") from None
     except psycopg.Error:
         raise error(503, "No se pudo consultar la información del plan.") from None
-
-
-def _huella_plan(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> str:
-    if isinstance(plan, fp.PlanGrupoV2):
-        return fp.huella_plan_v2(plan)
-    return fp.huella_plan(plan)
-
-
-def _plan_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict:
-    if isinstance(plan, fp.PlanGrupoV2):
-        return fp.plan_v2_como_json(plan)
-    return fp.plan_como_json(plan)
 
 
 # A7: decimales con punto dentro de la procedencia ("0.5 x 38.21 = 19.105").
@@ -137,21 +122,16 @@ def _procedencia_dos_dec(texto: str) -> str:
 
 
 def _plan_con_procedencia_2dec(plan_json: dict) -> dict:
-    """Formatea la procedencia del MISMO dict serializado (v1:
-    target_procedencia; v2: objetivo.procedencia). Se llama sobre la copia
-    que previsualizar serializa DESPUES de la huella: huella-neutral por
-    construccion (la huella sale del objeto plan, no de este JSON)."""
-    if isinstance(plan_json.get("target_procedencia"), str):
-        plan_json["target_procedencia"] = _procedencia_dos_dec(plan_json["target_procedencia"])
+    """Formatea objetivo.procedencia sobre la copia que previsualizar serializa
+    DESPUES de la huella: huella-neutral por construccion."""
     objetivo = plan_json.get("objetivo")
     if isinstance(objetivo, dict) and isinstance(objetivo.get("procedencia"), str):
         objetivo["procedencia"] = _procedencia_dos_dec(objetivo["procedencia"])
     return plan_json
 
 
-def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]]:
+def _bids_como_json(plan: fp.PlanGrupoV2) -> dict[str, list[dict]]:
     """Detalle auditable de cada objetivo Amazon y del bid que se enviaria."""
-    roles = plan.roles if isinstance(plan, fp.PlanGrupoV2) else fp.ROLES_ORDEN_CREACION
     return {
         rol: [
             {
@@ -169,20 +149,20 @@ def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]
             }
             for recomendacion in plan.parametros[rol].recomendaciones
         ]
-        for rol in roles
+        for rol in plan.roles
     }
 
 
 def previsualizar(conn, solicitud: dict) -> dict:
     plan = planificar(conn, solicitud)
-    huella = _huella_plan(plan)
+    huella = fp.huella_plan_v2(plan)
     return {
         "huella": huella,
         "lote": f"web-{huella}",
         # A2: familia unica (slug) y aviso de mezcla para el preview.
         "familia": plan.familia,
         "advertencia_mezcla": plan.advertencia_mezcla,
-        "plan": _plan_con_procedencia_2dec(_plan_como_json(plan)),
+        "plan": _plan_con_procedencia_2dec(fp.plan_v2_como_json(plan)),
         "bids": _bids_como_json(plan),
         "campanas": [
             {
@@ -289,12 +269,6 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
             for rol, resultado in resultados.items()
         },
     }
-
-
-def _creacion_v2_habilitada(conn) -> bool:
-    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
-    settings = fila[0] if fila is not None else {}
-    return fp.version_creacion_desde_settings(settings or {}) == "v2"
 
 
 def catalogo(conn, plataforma: str, as_of: dt.datetime | None = None) -> dict:
@@ -602,11 +576,7 @@ def detalle_lote(conn, lote: str) -> dict | None:
         try:
             if not isinstance(datos["plan"], dict):
                 raise TypeError("plan persistido no es objeto")
-            plan = (
-                fp.plan_v2_desde_json(datos["plan"])
-                if datos["plan"].get("schema_version") == 2
-                else fp.plan_desde_json(datos["plan"])
-            )
+            plan = fp.plan_v2_desde_json(datos["plan"])
             datos["bids"] = _bids_como_json(plan)
         except (AttributeError, KeyError, TypeError, ValueError, ArithmeticError):
             # Un plan historico ilegible no puede ocultar estado ni pasos.
@@ -688,14 +658,8 @@ def crear(solicitud: dict, huella: str, confirmacion: str) -> dict:
         if existente is not None:
             return existente
         with _conexion("ORBIT_DSN_READ", lote) as lectura:
-            if solicitud.get("listing_ids") is not None and not _creacion_v2_habilitada(lectura):
-                raise error(
-                    409,
-                    "Altas por publicacion deshabilitadas; conserva el lote para recuperacion.",
-                    lote,
-                )
             plan = planificar(lectura, solicitud)
-        if _huella_plan(plan) != huella:
+        if fp.huella_plan_v2(plan) != huella:
             raise error(409, "El plan cambió. Vuelve a previsualizar antes de crear.", lote)
         args = argumentos(solicitud)
         args.acepto_mutacion_real = True
@@ -761,14 +725,10 @@ def exportar_semillas(conn, solicitud: dict) -> dict:
     cotejar son los HEREDADOS (biblioteca): se juzgan contra los productos
     del NUEVO plan."""
     plan = planificar(conn, solicitud)
-    huella = _huella_plan(plan)
+    huella = fp.huella_plan_v2(plan)
     kws, negs = fc._biblioteca(conn, plan.tipo_producto, plan.platform)
-    if hasattr(plan, "publicaciones"):
-        listing_ids = sorted({p.listing_id for p in plan.publicaciones})
-        productos = sorted({p.product_id for p in plan.publicaciones})
-    else:
-        listing_ids = sorted({p.listing_id for p in plan.productos})
-        productos = sorted({p.product_id for p in plan.productos})
+    listing_ids = sorted({p.listing_id for p in plan.publicaciones})
+    productos = sorted({p.product_id for p in plan.publicaciones})
     terminos = fc._terminos_producto(conn, plan.platform, listing_ids)
     terminos_exact = fc._terminos_producto(
         conn,
@@ -782,7 +742,7 @@ def exportar_semillas(conn, solicitud: dict) -> dict:
     return {
         "huella": huella,
         "plan_sha256": huella,
-        "plan_canonico": _plan_con_procedencia_2dec(_plan_como_json(plan)),
+        "plan_canonico": _plan_con_procedencia_2dec(fp.plan_v2_como_json(plan)),
         "plataforma": plan.platform,
         "productos": productos,
         "fuentes_semillas": {

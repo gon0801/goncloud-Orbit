@@ -1733,19 +1733,7 @@ ssh goncloud 'cd /mnt/data/appdata/orbit && docker compose up -d --no-deps --bui
 ssh goncloud 'curl -fsS http://127.0.0.1:8010/health'
 ```
 
-La configuracion vigente sin `fabrica.creacion` vale `v1`; se deja asi en este
-corte. No insertar una configuracion `v2` ni llamar `/crear`: el smoke usa
-solo `GET /api/fabrica/catalogo` y `POST /api/fabrica/plan`. El lector,
-registro, reconciliacion y pausa de un lote v2 permanecen disponibles con
-ese interruptor, por lo que la reversa operativa es conservar este binario y
-mantener `fabrica.creacion=v1`, nunca volver a un binario que no lea v2.
-
-El ensayo de lote v2 parcial
-`test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion`
-corre contra PostgreSQL temporal con las migraciones de dependencia de fabrica
-hasta 0019 y `httpx.MockTransport`: parte de pasos `applied + failed`,
-reconcilia, registra y pausa despues de `fabrica.creacion=v1`, sin POST de
-creacion. No se usa una campana real como sonda de produccion.
+Desde ARREGLOS 04 la fábrica solo crea planes v2; la clave `fabrica.creacion` ya no se lee.
 
 ### Migracion 0038: fase `hermanas_negadas` + trigger bid-solo (FABRICA 02 A.2)
 

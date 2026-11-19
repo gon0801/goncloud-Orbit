@@ -278,7 +278,7 @@ document.addEventListener("DOMContentLoaded", function () {
       ["Fracción del margen", esV2 ? objetivo.fraccion : plan.fraccion],
       ["Procedencia del target", textoProcedencia(esV2 ? objetivo.procedencia : plan.target_procedencia)],
     ]);
-    const publicaciones = esV2 ? plan.publicaciones : plan.productos;
+    const publicaciones = plan.publicaciones;
     contenedor.append(nodo("h4", esV2 ? "Publicaciones y márgenes netos" : "Productos y márgenes netos"));
     tabla(
       contenedor,

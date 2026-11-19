@@ -56,7 +56,6 @@ _NOMBRE_CAMPO = {
     "huella": "vista previa (pídela de nuevo)",
     "tipo_producto": "Tipo de producto",
     "nombre_base": "Nombre base",
-    "productos": "productos",
     "budget": "Presupuesto",
     "bid": "Puja",
     "acos_pct": "ACoS objetivo",
@@ -197,9 +196,8 @@ class SolicitudPlan(_Cuerpo):
         default=None, min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$"
     )
     nombre_base: str = Field(min_length=1, max_length=100)
-    productos: list[Identificador] | None = Field(default=None, min_length=1, max_length=100)
-    listing_ids: list[Identificador] | None = Field(default=None, min_length=1, max_length=100)
-    objetivo: ObjetivoPlan | None = None
+    listing_ids: list[Identificador] = Field(min_length=1, max_length=100)
+    objetivo: ObjetivoPlan
     modo: Literal["shadow", "live"]
     parametros: dict[str, ParametrosRol]
 
@@ -210,23 +208,15 @@ class SolicitudPlan(_Cuerpo):
             raise ValueError("nombre vacio o con caracteres de control")
         return valor.strip()
 
-    @field_validator("productos", "listing_ids")
+    @field_validator("listing_ids")
     @classmethod
-    def productos_unicos(cls, valor):
-        if valor is None:
-            return valor
+    def listings_unicos(cls, valor):
         if len(valor) != len(set(valor)):
-            raise ValueError("productos repetidos")
+            raise ValueError("publicaciones repetidas")
         return valor
 
     @model_validator(mode="after")
     def parametros_validos(self):
-        es_v1 = self.productos is not None and self.listing_ids is None and self.objetivo is None
-        es_v2 = (
-            self.productos is None and self.listing_ids is not None and self.objetivo is not None
-        )
-        if not (es_v1 or es_v2):
-            raise ValueError("usa solo productos v1 o listing_ids y objetivo v2")
         if set(self.parametros) != set(fp.ROLES_ORDEN_CREACION):
             raise ValueError("se requieren exactamente los cinco roles")
         moneda = fp.MONEDA_POR_PLATAFORMA[self.plataforma]

@@ -497,7 +497,7 @@ def test_subfamilia_con_padre_sin_medida_conserva_motivo():
 # ---------------------------------------------------------------------------
 
 
-def _args_fabrica(productos=None, listings=None, tipo="collar_perro"):
+def _args_fabrica(listings, tipo="collar_perro"):
     import tools.fabrica_campanas as fc
 
     return fc._parser().parse_args(
@@ -509,7 +509,8 @@ def _args_fabrica(productos=None, listings=None, tipo="collar_perro"):
             "Prueba",
             "--modo",
             "shadow",
-            *(["--productos", productos] if productos else ["--listing-ids", listings]),
+            "--listing-ids",
+            listings,
             "--budget-auto",
             "150",
             "--budget-phrase",
@@ -553,11 +554,11 @@ def test_fabrica_toma_slug_de_familia_unica():
 
     with db_fabrica("orbit_familias_fab") as conn:
         _base_fabrica(conn)
-        pid, _ = _producto(conn, sku="SKU-FAM", asin="B0FAMILIAF", seller_sku="SAF")
+        pid, lid = _producto(conn, sku="SKU-FAM", asin="B0FAMILIAF", seller_sku="SAF")
         _ledger_producto(conn, pid, hoy=HOY)
         fam = familias.crea(conn, "amazon_mx", "Arras")
         familias.asigna(conn, [pid], fam["id"])
-        plan = fc._arma_plan(_args_fabrica(productos=str(pid), tipo="otro_tipo"), conn)
+        plan = fc._arma_plan(_args_fabrica(listings=str(lid), tipo="otro_tipo"), conn)
         assert plan.tipo_producto == "arras"
         assert plan.familia == "arras"
         assert plan.advertencia_mezcla is None
@@ -571,20 +572,20 @@ def test_fabrica_avisa_mezcla_y_exige_tipo():
 
     with db_fabrica("orbit_familias_mez") as conn:
         _base_fabrica(conn)
-        p1, _ = _producto(conn, sku="SKU-M1", asin="B0FAMILIAM1", seller_sku="SM1")
-        p2, _ = _producto(conn, sku="SKU-M2", asin="B0FAMILIAM2", seller_sku="SM2")
+        p1, l1 = _producto(conn, sku="SKU-M1", asin="B0FAMILIAM1", seller_sku="SM1")
+        p2, l2 = _producto(conn, sku="SKU-M2", asin="B0FAMILIAM2", seller_sku="SM2")
         _ledger_producto(conn, p1, hoy=HOY)
         _ledger_producto(conn, p2, hoy=HOY, fee_desfase=7)
         familias.asigna(conn, [p1], familias.crea(conn, "amazon_mx", "Arras")["id"])
         familias.asigna(conn, [p2], familias.crea(conn, "amazon_mx", "Collares")["id"])
-        plan = fc._arma_plan(_args_fabrica(productos=f"{p1},{p2}"), conn)
+        plan = fc._arma_plan(_args_fabrica(listings=f"{l1},{l2}"), conn)
         assert plan.tipo_producto == "collar_perro"
         assert plan.familia is None
         assert plan.advertencia_mezcla is not None
         assert "Arras" in plan.advertencia_mezcla
         assert "Collares" in plan.advertencia_mezcla
         with pytest.raises(fc.Abortar, match="--tipo-producto es obligatorio"):
-            fc._arma_plan(_args_fabrica(productos=f"{p1},{p2}", tipo=None), conn)
+            fc._arma_plan(_args_fabrica(listings=f"{l1},{l2}", tipo=None), conn)
 
 
 @_skip_db
@@ -595,12 +596,12 @@ def test_fabrica_parcial_no_toma_slug():
 
     with db_fabrica("orbit_familias_par") as conn:
         _base_fabrica(conn)
-        p1, _ = _producto(conn, sku="SKU-P1", asin="B0FAMILIAP1", seller_sku="SP1")
-        p2, _ = _producto(conn, sku="SKU-P2", asin="B0FAMILIAP2", seller_sku="SP2")
+        p1, l1 = _producto(conn, sku="SKU-P1", asin="B0FAMILIAP1", seller_sku="SP1")
+        p2, l2 = _producto(conn, sku="SKU-P2", asin="B0FAMILIAP2", seller_sku="SP2")
         _ledger_producto(conn, p1, hoy=HOY)
         _ledger_producto(conn, p2, hoy=HOY, fee_desfase=7)
         familias.asigna(conn, [p1], familias.crea(conn, "amazon_mx", "Arras")["id"])
-        plan = fc._arma_plan(_args_fabrica(productos=f"{p1},{p2}"), conn)
+        plan = fc._arma_plan(_args_fabrica(listings=f"{l1},{l2}"), conn)
         assert plan.tipo_producto == "collar_perro"
         assert plan.familia is None
         assert plan.advertencia_mezcla is not None
@@ -643,14 +644,14 @@ def test_fabrica_sin_etiqueta_camino_viejo():
 
     with db_fabrica("orbit_familias_vie") as conn:
         _base_fabrica(conn)
-        pid, _ = _producto(conn, sku="SKU-VIE", asin="B0FAMILIAV1", seller_sku="SAV")
+        pid, lid = _producto(conn, sku="SKU-VIE", asin="B0FAMILIAV1", seller_sku="SAV")
         _ledger_producto(conn, pid, hoy=HOY)
-        plan = fc._arma_plan(_args_fabrica(productos=str(pid)), conn)
+        plan = fc._arma_plan(_args_fabrica(listings=str(lid)), conn)
         assert plan.tipo_producto == "collar_perro"
         assert plan.familia is None
         assert plan.advertencia_mezcla is None
         with pytest.raises(fc.Abortar, match="--tipo-producto es obligatorio"):
-            fc._arma_plan(_args_fabrica(productos=str(pid), tipo=None), conn)
+            fc._arma_plan(_args_fabrica(listings=str(lid), tipo=None), conn)
 
 
 # ---------------------------------------------------------------------------

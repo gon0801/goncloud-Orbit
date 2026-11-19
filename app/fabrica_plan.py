@@ -126,16 +126,6 @@ class PlanInvalido(ValueError):
 
 
 @dataclass(frozen=True)
-class ProductoGrupo:
-    product_id: int
-    odoo_sku: str
-    listing_id: int
-    asin: str
-    seller_sku: str
-    margen_neto_pct: Decimal
-
-
-@dataclass(frozen=True)
 class ParametrosRol:
     rol: str
     budget: Decimal
@@ -171,27 +161,6 @@ class ResultadoTarget:
 
 
 @dataclass(frozen=True)
-class PlanGrupo:
-    platform: str
-    tipo_producto: str
-    nombre_base: str
-    fecha: Any  # datetime.date
-    moneda: str
-    modo: str
-    productos: tuple[ProductoGrupo, ...]
-    parametros: dict[str, ParametrosRol]
-    target: ResultadoTarget
-    semillas: Semillas
-    existentes: tuple[dict, ...] = field(default_factory=tuple)
-    # A2: slug de la familia unica de los productos (None = sin etiqueta).
-    # Solo presentacion (dry-run) y tipo_producto; no entra al JSON ni a la
-    # huella (el slug ya viaja en tipo_producto).
-    familia: str | None = None
-    # A2: aviso cuando el grupo mezcla familias (None = sin mezcla).
-    advertencia_mezcla: str | None = None
-
-
-@dataclass(frozen=True)
 class PublicacionGrupoV2:
     """Snapshot de una publicacion elegida en un plan v2.
 
@@ -220,7 +189,7 @@ class ObjetivoPlanV2:
 
 @dataclass(frozen=True)
 class PlanGrupoV2:
-    """Plan v2 por publicacion; no altera el formato ni la huella v1."""
+    """Plan v2 por publicacion."""
 
     platform: str
     tipo_producto: str
@@ -241,19 +210,17 @@ class PlanGrupoV2:
     roles: tuple[str, ...] = ROLES_ORDEN_CREACION
 
 
-PlanCanonico = PlanGrupo | PlanGrupoV2
-
 # A1: sin objetivo manual, los 5 goals nacen con target NULL y resuelven por
 # margen_plataforma cada ciclo. El dry-run lo declara con esta linea literal
 # (el snapshot derivado del grupo se conserva solo como auditoria).
 TEXTO_TARGET_MARGEN_PLATAFORMA = "target: margen de la plataforma (se ajusta cada ciclo)"
 
 
-def target_para_goals(plan: PlanCanonico) -> Decimal | None:
+def target_para_goals(plan: PlanGrupoV2) -> Decimal | None:
     """Target con el que nacen los 5 goals: el manual cuando el dueno lo
-    confirmo en un v2, NULL en cualquier otro caso (el goal resuelve por
+    confirmo, NULL en cualquier otro caso (el goal resuelve por
     margen_plataforma cada ciclo; A1 retira el congelado de fabrica)."""
-    if isinstance(plan, PlanGrupoV2) and plan.objetivo.origen == "manual_lanzamiento":
+    if plan.objetivo.origen == "manual_lanzamiento":
         return plan.objetivo.acos_pct
     return None
 
@@ -529,44 +496,6 @@ def _parametro_desde_json(rol: str, datos: dict) -> ParametrosRol:
     )
 
 
-def plan_como_json(plan: PlanGrupo) -> dict:
-    valida_parametros(plan.parametros, plan.moneda, plan.semillas)
-    return {
-        "platform": plan.platform,
-        "tipo_producto": plan.tipo_producto,
-        "nombre_base": plan.nombre_base,
-        "fecha": plan.fecha.isoformat(),
-        "moneda": plan.moneda,
-        "modo": plan.modo,
-        "productos": [
-            {
-                "product_id": p.product_id,
-                "odoo_sku": p.odoo_sku,
-                "listing_id": p.listing_id,
-                "asin": p.asin,
-                "seller_sku": p.seller_sku,
-                "margen_neto_pct": str(p.margen_neto_pct),
-            }
-            for p in plan.productos
-        ],
-        "parametros": {rol: _parametro_como_json(p) for rol, p in sorted(plan.parametros.items())},
-        "target_acos_pct": str(plan.target.aplicado),
-        "target_derivado_pct": str(plan.target.derivado),
-        "fraccion": str(plan.target.fraccion),
-        "target_procedencia": plan.target.procedencia,
-        # F5 AI-review PR #381: registra si los goals fijan el numero
-        # (manual) o nacen NULL (margen). Ausente en lotes viejos = numero
-        # (congelado entonces); el JS decide con `!== false`.
-        "goals_fijan_target": target_para_goals(plan) is not None,
-        "semillas": {
-            "keywords": list(plan.semillas.keywords),
-            "asins": list(plan.semillas.asins),
-            "negativos": list(plan.semillas.negativos),
-            "exact": list(plan.semillas.exact),
-        },
-    }
-
-
 def _canonico_sin_derivados(datos: dict) -> str:
     """JSON canonico para la huella, SIN llaves derivadas: `goals_fijan_target`
     se recalcula desde el objetivo cubierto, asi que excluirla no debilita la
@@ -576,29 +505,6 @@ def _canonico_sin_derivados(datos: dict) -> str:
     datos = dict(datos)
     datos.pop("goals_fijan_target", None)
     return json.dumps(datos, sort_keys=True, separators=(",", ":"))
-
-
-def huella_plan(plan: PlanGrupo) -> str:
-    """sha256 del JSON canonico del plan: cambia si cambia CUALQUIER cosa que
-    se va a crear (productos, bids, budgets, semillas, target, modo)."""
-    canonico = _canonico_sin_derivados(plan_como_json(plan))
-    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
-
-
-CLAVE_CREACION = "fabrica.creacion"
-VERSIONES_CREACION = ("v1", "v2")
-
-
-def version_creacion_desde_settings(settings: object) -> str:
-    """Version de altas nuevas; ausencia o corrupcion se quedan en v1.
-
-    Es un interruptor fail-closed: no afecta lectura, registro,
-    reconciliacion ni pausa de lotes existentes v2.
-    """
-    if not isinstance(settings, dict):
-        return "v1"
-    version = settings.get(CLAVE_CREACION, "v1")
-    return version if version in VERSIONES_CREACION else "v1"
 
 
 def _valida_roles(roles: tuple[str, ...]) -> None:
@@ -675,7 +581,7 @@ def _publicacion_v2_como_json(publicacion: PublicacionGrupoV2) -> dict:
 
 
 def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
-    """Serializa v2 sin reusar el shape v1 ni convertir ausencias en cero."""
+    """Serializa el plan v2 sin convertir ausencias en cero."""
     _valida_plan_v2(plan)
     datos = {
         "schema_version": 2,
@@ -723,7 +629,7 @@ def huella_plan_v2(plan: PlanGrupoV2) -> str:
 
 
 def plan_v2_desde_json(datos: dict) -> PlanGrupoV2:
-    """Lector de lotes v2 para registro, reconciliacion y pausa despues del rollback."""
+    """Lector de lotes v2 para registro, reconciliacion y pausa."""
     if datos.get("schema_version") != 2:
         raise PlanInvalido("schema_version v2 requerida")
     publicaciones = tuple(
@@ -768,52 +674,12 @@ def plan_v2_desde_json(datos: dict) -> PlanGrupoV2:
     return plan
 
 
-def plan_desde_json(d: dict) -> PlanGrupo:
-    """Inverso de plan_como_json (fabrica_lote.plan -> PlanGrupo) para el
-    reintento del registro (--registrar): dinero vuelve a Decimal, fecha a
-    date. `existentes` no se congela (solo informa)."""
-    productos = tuple(
-        ProductoGrupo(
-            p["product_id"],
-            p["odoo_sku"],
-            p["listing_id"],
-            p["asin"],
-            p["seller_sku"],
-            Decimal(p["margen_neto_pct"]),
-        )
-        for p in d["productos"]
-    )
-    parametros = {rol: _parametro_desde_json(rol, v) for rol, v in d["parametros"].items()}
-    target = ResultadoTarget(
-        Decimal(d["target_acos_pct"]),
-        Decimal(d["target_derivado_pct"]),
-        min(p.margen_neto_pct for p in productos),
-        Decimal(d["fraccion"]),
-        d["target_procedencia"],
-    )
-    s = d["semillas"]
-    plan = PlanGrupo(
-        d["platform"],
-        d["tipo_producto"],
-        d["nombre_base"],
-        dt.date.fromisoformat(d["fecha"]),
-        d["moneda"],
-        d["modo"],
-        productos,
-        parametros,
-        target,
-        Semillas(tuple(s["keywords"]), tuple(s["asins"]), tuple(s["negativos"]), tuple(s["exact"])),
-    )
-    valida_parametros(plan.parametros, plan.moneda, plan.semillas)
-    return plan
-
-
 # ---------------------------------------------------------------------------
 # Pasos por rol (payloads SIN ids del padre)
 # ---------------------------------------------------------------------------
 
 
-def _payload_campana(plan: PlanCanonico, rol: str) -> dict:
+def _payload_campana(plan: PlanGrupoV2, rol: str) -> dict:
     p = plan.parametros[rol]
     return {  # Sellado por la sonda 2026-09-09: startDate ISO, budget anidado, dynamicBidding
         "name": nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
@@ -825,7 +691,7 @@ def _payload_campana(plan: PlanCanonico, rol: str) -> dict:
     }
 
 
-def _payload_ad_group(plan: PlanCanonico, rol: str) -> dict:
+def _payload_ad_group(plan: PlanGrupoV2, rol: str) -> dict:
     return {  # Sellado por la sonda 2026-09-09 (lote web-923cb2): defaultBid numero
         "name": nombre_ad_group(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
         "state": ESTADO_NUEVO,
@@ -833,7 +699,7 @@ def _payload_ad_group(plan: PlanCanonico, rol: str) -> dict:
     }
 
 
-def _bid_objetivo(plan: PlanCanonico, rol: str, valor: str) -> float:
+def _bid_objetivo(plan: PlanGrupoV2, rol: str, valor: str) -> float:
     parametro = plan.parametros[rol]
     if parametro.fuente_bid == "manual":
         return monto_wire(parametro.bid)
@@ -844,7 +710,7 @@ def _bid_objetivo(plan: PlanCanonico, rol: str, valor: str) -> float:
     return monto_wire(bid_objetivo(recomendacion, plan.moneda))
 
 
-def _pasos_keywords(plan: PlanCanonico, rol: str) -> list[Paso]:
+def _pasos_keywords(plan: PlanGrupoV2, rol: str) -> list[Paso]:
     textos = plan.semillas.exact if rol == "category_exact" else plan.semillas.keywords
     return [
         Paso(
@@ -863,7 +729,7 @@ def _pasos_keywords(plan: PlanCanonico, rol: str) -> list[Paso]:
     ]
 
 
-def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
+def _semillas_del_rol(plan: PlanGrupoV2, rol: str) -> list[Paso]:
     if rol in MATCH_POR_ROL:
         return _pasos_keywords(plan, rol)
     if rol == "product_targeting":
@@ -894,16 +760,11 @@ def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
     ]
 
 
-def pasos_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
+def pasos_del_rol(plan: PlanGrupoV2, rol: str) -> list[Paso]:
     """Campana, ad group y un product ad por identidad elegida del plan."""
-    if isinstance(plan, PlanGrupoV2):
-        _valida_plan_v2(plan)
-    else:
-        valida_parametros(plan.parametros, plan.moneda, plan.semillas)
-    publicaciones = (
-        tuple(sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id))
-        if isinstance(plan, PlanGrupoV2)
-        else plan.productos
+    _valida_plan_v2(plan)
+    publicaciones = tuple(
+        sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id)
     )
     pasos = [
         Paso(
@@ -969,43 +830,3 @@ def id_creado(ack: dict, clave: str) -> str | None:
                 if isinstance(sub, dict) and sub.get(clave) is not None:
                     return str(sub[clave])
     return None
-
-
-# ---------------------------------------------------------------------------
-# Dry-run
-# ---------------------------------------------------------------------------
-
-
-def lineas_dry_run(plan: PlanGrupo) -> list[str]:
-    s = plan.semillas
-    conteo = {
-        "category_exact": len(s.exact),
-        "category_phrase": len(s.keywords),
-        "category_broad": len(s.keywords),
-        "product_targeting": len(s.asins),
-        "auto_discovery": len(s.negativos),
-    }
-    lineas = [
-        f"grupo {plan.platform} | tipo={plan.tipo_producto} | base={plan.nombre_base!r} | "
-        f"target={plan.target.aplicado} ({plan.target.procedencia}) | modo_goal={plan.modo} | "
-        f"moneda={plan.moneda}",
-    ]
-    lineas.extend(
-        f"producto {p.product_id} {p.odoo_sku} | asin={p.asin} | sku={p.seller_sku} | "
-        f"margen={p.margen_neto_pct}"
-        for p in plan.productos
-    )
-    for rol in ROLES_ORDEN_CREACION:
-        p = plan.parametros[rol]
-        lineas.append(
-            f"{rol} | {nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha)} | "
-            f"targeting={TARGETING_POR_ROL[rol]} | budget={p.budget} | bid={p.bid} | "
-            f"fuente_bid={p.fuente_bid} | "
-            f"product_ads={len(plan.productos)} | semillas={conteo[rol]}"
-        )
-    for e in plan.existentes:
-        lineas.append(
-            f"existente (solo se informa, decision 9): {e.get('external_id')} | "
-            f"{e.get('name')} | status={e.get('status')}"
-        )
-    return lineas
