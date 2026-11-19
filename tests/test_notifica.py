@@ -176,6 +176,38 @@ def test_aviso_corte_pause_sin_termino_no_inventa():
     assert "kind: pause (familia entity_cut)" in texto
 
 
+def test_arreglos04_w_g_cortes_de_practica_un_solo_mensaje(canal_ok):
+    """Ciclo 174: 31 cortes de practica de amazon_us salen en un solo mensaje,
+    sin prometer ventana de 48h y avisando que no se aplicaran."""
+    cortes = tuple(
+        notifica.CorteEncolado(
+            platform="amazon_us",
+            kind="negative" if i % 2 == 0 else "pause",
+            search_term=f"funda iphone {i}" if i % 2 == 0 else None,
+            vence_el=VENCE + dt.timedelta(minutes=i),
+            modo="shadow",
+        )
+        for i in range(31)
+    )
+    textos = notifica.avisos_cortes_del_ciclo(cortes)
+    assert len(textos) == 1
+    (texto,) = textos
+    assert texto == (
+        "[Orbit] Amazon US: 31 cortes nuevos en este ciclo\n"
+        "En práctica: 31. Son de prueba: no se aplicarán.\n"
+        "- Negar la búsqueda «funda iphone 0»\n"
+        "- Pausar una keyword o un producto\n"
+        "- Negar la búsqueda «funda iphone 2»\n"
+        "- Pausar una keyword o un producto\n"
+        "- Negar la búsqueda «funda iphone 4»\n"
+        "y 26 más"
+    )
+    assert "48h" not in texto
+    assert notifica.notifica_cortes_encolados(cortes) is True
+    assert len(canal_ok) == 1
+    assert canal_ok[0]["text"] == texto
+
+
 def test_digest_ciclo_contenido():
     resumen = {
         "cycle_id": 42,
