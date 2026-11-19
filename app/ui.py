@@ -22,7 +22,7 @@ Sellos (plan 1.6 + brief §6):
 - Un camino (regla 2): esta capa CONSUME los endpoints de app/api_dashboard
   (la misma conexion de lectura ConexionLectura), jamas reimplementa queries.
 
-DETERMINISMO: las paginas delegan en los endpoints (que ya usan `_hoy_utc`).
+DETERMINISMO: las paginas delegan en los endpoints, que leen el reloj del Resumen (hoy_resumen).
 """
 
 from __future__ import annotations

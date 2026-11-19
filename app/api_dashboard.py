@@ -32,6 +32,7 @@ import datetime as dt
 import logging
 import re
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Literal
@@ -93,7 +94,7 @@ install_scrub_filter(logger)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-# Ventana FIJA del resumen de campanas (brief §3.3): [D-30, D-1] UTC.
+# Ventana FIJA del resumen de campanas (brief §3.3): [D-30, D-1] con el hoy del Resumen.
 DIAS_VENTANA_CAMPANAS = 30
 
 # Paginacion del feed por CURSOR: tope duro de 200 filas por pagina (patron
@@ -160,14 +161,22 @@ def motivo_es(motivo: str | None) -> str | None:
     return etiqueta(motivo, "motivo_salud")
 
 
-def _hoy_utc() -> dt.date:
-    """Fecha UTC de hoy (unico reloj del modulo; los tests la inyectan)."""
-    return dt.datetime.now(dt.UTC).date()
-
-
 def _ahora_utc() -> dt.datetime:
-    """Instante UTC (reloj del Resumen multicanal; los tests lo inyectan)."""
+    """Instante actual del reloj de las pantallas (las pruebas lo inyectan)."""
     return dt.datetime.now(dt.UTC)
+
+
+def _hoy_pantalla(*plataformas: str) -> dt.date:
+    """Hoy de las pantallas: el del Resumen (hoy_resumen), fecha local minima
+    de esos canales."""
+    return hoy_resumen(plataformas, _ahora_utc())
+
+
+def _ventana_campanas(plataformas: Sequence[str], instante: dt.datetime) -> tuple[dt.date, dt.date]:
+    """[D-30, D-1] con el hoy del Resumen: la misma ventana que «Resumen · 30 dias»
+    de esos canales."""
+    hoy = hoy_resumen(plataformas, instante)
+    return hoy - dt.timedelta(days=DIAS_VENTANA_CAMPANAS), hoy - dt.timedelta(days=1)
 
 
 def _acoso(cost: Decimal | None, ad_revenue: Decimal | None) -> tuple[str | None, bool]:
@@ -477,12 +486,10 @@ def campanas(
     el sort por target degrada en rangos (no parsean a Decimal) y el filtro
     por "mixto" da 422 (vocabulario cerrado preexistente); ambos declarados.
     """
-    hoy = _hoy_utc()
-    desde = hoy - dt.timedelta(days=DIAS_VENTANA_CAMPANAS)
-    hasta = hoy - dt.timedelta(days=1)
+    plataformas = (platform,) if platform is not None else tuple(PLATAFORMAS_MONEDA)
+    desde, hasta = _ventana_campanas(plataformas, _ahora_utc())
     goals_campana, goals_plataforma = _carga_goals(conn)
     items: list[dict] = []
-    plataformas = (platform,) if platform is not None else tuple(PLATAFORMAS_MONEDA)
     for plataforma in plataformas:
         congelados = _congelados_por_campana(conn, plataforma)
         for fila in conn.execute(_SQL_CAMPANAS_30D, (plataforma, desde, hasta)).fetchall():
@@ -957,7 +964,7 @@ def _avisos_campana_de(conn: ConexionLectura, plataforma: str) -> list[str] | No
         from app import avisos_campana as ac
         from app import pantalla_dinero as pd
 
-        hasta = _hoy_utc() - dt.timedelta(days=1)
+        hasta = _hoy_pantalla(plataforma) - dt.timedelta(days=1)
         desde = hasta - dt.timedelta(days=pd.DIAS_UBICACION - 1)
         por_ubi = pd.lee_ubicaciones(conn, plataforma=plataforma, desde=desde, hasta=hasta)
         por_camp = pd.lee_campanas(conn, plataforma=plataforma, desde=desde, hasta=hasta)
@@ -1728,7 +1735,9 @@ def donde_poner_el_dinero(conn: ConexionLectura, plataforma: str | None = None) 
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
-    return pantalla_dinero.lee_dinero(conn, plataforma=mercado).como_dict()
+    return pantalla_dinero.lee_dinero(
+        conn, plataforma=mercado, hasta=_hoy_pantalla(mercado) - dt.timedelta(days=1)
+    ).como_dict()
 
 
 @router.get("/productos-sin-clics")
@@ -1740,15 +1749,13 @@ def productos_sin_clics(conn: ConexionLectura, plataforma: str | None = None) ->
     `pantalla_decisiones_producto`) y las subfamilias conocidas que el
     campo Subfamilia sugiere (CLARIDAD 01 D.1). Sin mercado se mira
     amazon_mx; mercado ajeno es 422."""
-    import datetime as dt
-
     from app import fabrica_web, pantalla_decisiones_producto, pantalla_productos
 
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
     base = pantalla_productos.lee_productos(
-        conn, plataforma=mercado, hoy=dt.datetime.now(dt.UTC).date()
+        conn, plataforma=mercado, hoy=_hoy_pantalla(mercado)
     ).como_dict()
     for impulso in base["impulsos"]:
         impulso["frase_fuera_de_amazon"] = pantalla_productos.frase_fuera_de_amazon(
@@ -1785,7 +1792,7 @@ def productos_simula_pausa(
         raise HTTPException(status_code=422, detail="plataforma sin decisiones por producto")
     try:
         simulacion = pantalla_decisiones_producto.simula_pausa(
-            conn, platform, ahora=dt.datetime.now(dt.UTC), clics=clics, gasto=gasto
+            conn, platform, ahora=_ahora_utc(), clics=clics, gasto=gasto
         )
     except SettingsInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1819,15 +1826,13 @@ def busquedas_sin_venta(conn: ConexionLectura, plataforma: str | None = None) ->
     """Busquedas que gastan sin vender (BIDS 02, P.6). Funcion
     delgada: delega en `pantalla_busquedas.lee_busquedas` (SOLO
     SELECT). Sin mercado se mira amazon_mx; mercado ajeno es 422."""
-    import datetime as dt
-
     from app import pantalla_busquedas
 
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
     datos = pantalla_busquedas.lee_busquedas(
-        conn, plataforma=mercado, hoy=dt.datetime.now(dt.UTC).date()
+        conn, plataforma=mercado, hoy=_hoy_pantalla(mercado)
     ).como_dict()
     # R13-K: la plantilla de la pagina imprime el gasto tal cual; sale
     # de aqui con dos decimales, como el de gasto_sin_venta.

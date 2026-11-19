@@ -750,7 +750,10 @@ def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
     `or "—"` pintaba clicks=0 y applied_count=0 como dato faltante. CERO es
     dato (y en shadow applied_count es SIEMPRE 0: se veia "—" en todos los
     ciclos)."""
-    monkeypatch.setattr("app.api_dashboard._hoy_utc", lambda: dt.date(2026, 8, 21))
+    monkeypatch.setattr(
+        "app.api_dashboard._ahora_utc",
+        lambda: dt.datetime.combine(dt.date(2026, 8, 21), dt.time(12), tzinfo=dt.UTC),
+    )
     with _db_temporal("orbit_ui_ceros") as (conn, dsn):
         run = _run(conn)
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")
@@ -790,7 +793,10 @@ def test_ui_campanas_target_null_pinta_hueco_visible(monkeypatch):
     trae target_efectivo null; el template debe pintar "sin target" en
     valor y chip, nunca un "%" suelto ni un chip vacio (DASHBOARD.md
     decision 4)."""
-    monkeypatch.setattr("app.api_dashboard._hoy_utc", lambda: dt.date(2026, 8, 21))
+    monkeypatch.setattr(
+        "app.api_dashboard._ahora_utc",
+        lambda: dt.datetime.combine(dt.date(2026, 8, 21), dt.time(12), tzinfo=dt.UTC),
+    )
     with _db_temporal("orbit_ui_null") as (conn, dsn):
         run = _run(conn)
         camp = _campana(conn, "amazon_us", "9001", name="Campana B")

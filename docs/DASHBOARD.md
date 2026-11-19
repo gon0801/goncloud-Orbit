@@ -119,7 +119,7 @@ Respuesta 200:
 }
 ```
 - `metricas_30d`: misma semántica de grano/ventana/NULL/dinero-string que §3.1/§3.2
-  (ventana fija [D-30, D-1]; `inmaduro` = el agregado incluye días D-8..D-1).
+  (`inmaduro` = el agregado incluye días D-8..D-1). La ventana es [D-30, D-1] con el hoy del Resumen: la fecha local mínima de los canales pedidos (`hoy_resumen`).
 - `target_efectivo` = lo que congeló el ÚLTIMO ciclo live+done de la plataforma (`target_acos_ciclo`, A7): `{valor, minimo, maximo, peldano, ciclo{id_min, id_max, decided_min, decided_max}}` o `null` si la campaña no tiene hojas en ese ciclo (regla 3: en pantalla es "—"). `valor` es único a 2 decimales o rango `"min–max"` si difieren en ese ciclo; `peldano` ∈ `{goal_campana, goal_plataforma, margen_familia, margen_plataforma, setting_plataforma}` o `"mixto"` si las hojas traen procedencias distintas. La clave es `peldano` (convención del repo: sin acentos en el código).
 - `goal` es el estado VIVO del goal RESUELTO (`resuelve_goal`: campaña > plataforma; decisión 17): `enabled`, `floor`, `ceiling`, `mode`, `scope`; `null` si no hay goal (regla 3). `target_acos_pct` del goal NO se expone como target efectivo (eso es la cascada), solo via `target_efectivo`.
 - Cada fila lleva su `moneda`; **NO existe total al pie que sume filas de monedas distintas** (regla 4 — test anti-mezcla).
