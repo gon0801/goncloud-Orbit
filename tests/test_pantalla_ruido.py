@@ -120,11 +120,11 @@ def _inputs(motivo, nivel, hoja_id=11, plataforma="amazon_mx"):
     }
 
 
-def _lee(respuestas, plataforma="amazon_mx", dias=30):
+def _lee(respuestas, plataforma="amazon_mx", dias=30, hoy=dt.date(2026, 10, 10)):
     from app.pantalla_ruido import lee_ruido
 
     conn = _ConnPorSql(respuestas)
-    return lee_ruido(conn, plataforma=plataforma, dias=dias), conn
+    return lee_ruido(conn, plataforma=plataforma, hoy=hoy, dias=dias), conn
 
 
 def _respuestas_vacias(*, encendido=None):
@@ -324,13 +324,29 @@ def test_antes_y_despues_suma_ventanas_y_acos():
     respuestas = _respuestas_vacias(encendido=encendido)
     respuestas["v_metric_latest"] = mercado
     pantalla, _conn = _lee(respuestas)
+    cobertura_ok = {"gasto": True, "pedidos": True, "venta": True, "completo": True}
     assert pantalla.antes_y_despues == {
         "encendido_el": "2026-09-15",
         "moneda": "MXN",
         "dias_antes": 2,
         "dias_despues": 2,
-        "antes": {"gasto": "200.00", "pedidos": 3, "venta": "2000.00", "acos_pct": "10.00"},
-        "despues": {"gasto": "100.00", "pedidos": 1, "venta": "2000.00", "acos_pct": "5.00"},
+        "despues_hasta": "2026-10-01",
+        "antes": {
+            "gasto": "200.00",
+            "pedidos": 3,
+            "venta": "2000.00",
+            "acos_pct": "10.00",
+            "cobertura": cobertura_ok,
+            "causa_acos": None,
+        },
+        "despues": {
+            "gasto": "100.00",
+            "pedidos": 1,
+            "venta": "2000.00",
+            "acos_pct": "5.00",
+            "cobertura": cobertura_ok,
+            "causa_acos": None,
+        },
     }
 
 
@@ -444,7 +460,8 @@ def test_endpoint_ruido_delgado_vocabulario_y_passthrough(monkeypatch):
 
     pedidas = []
 
-    def _falsa(conn, *, plataforma):
+    def _falsa(conn, *, plataforma, hoy):
+        assert isinstance(hoy, dt.date)
         pedidas.append(plataforma)
         return _pantalla_falsa()
 
@@ -520,13 +537,17 @@ def test_pagina_ruido_pinta_dias_y_shadow():
             "moneda": "MXN",
             "dias_antes": 2,
             "dias_despues": 1,
+            "despues_hasta": "2026-10-01",
             "antes": {"gasto": "200.00", "pedidos": 3, "venta": "2000.00", "acos_pct": "10.00"},
             "despues": {"gasto": "100.00", "pedidos": 1, "venta": "2000.00", "acos_pct": "5.00"},
         },
     )
     plano = _plano(html)
     assert "Antes del encendido (2 días)" in plano
-    assert "Después del encendido (1 día)" in plano
+    assert (
+        "Después del encendido (1 día, hasta el 1 oct;"
+        " los últimos 8 días se dejan fuera porque sus ventas todavía llegan)" in plano
+    )
     assert "De práctica, no aplicadas: 2." in plano
 
 
@@ -744,7 +765,7 @@ def test_arreglos04_w_e_ruido_api_y_html_coexisten_madurez_y_cobertura(monkeypat
     assert ayd["despues"] == {
         "gasto": None,
         "pedidos": 2,
-        "venta": "200.0000",
+        "venta": "200",
         "acos_pct": None,
         "cobertura": {"gasto": False, "pedidos": True, "venta": True, "completo": False},
         "causa_acos": "cobertura_incompleta",
@@ -950,7 +971,7 @@ def test_r03b7_ciclo_sin_movimientos_sale_con_sus_abstenciones():
             notes=json.dumps({"skips": {"entidad": {"azar_lo_explica": 300}}}),
         )
         conn.execute("UPDATE optimizer_cycle SET motor = 'ads_optimizer' WHERE id = %s", (quieto,))
-        datos = lee_ruido(conn, plataforma="amazon_mx").como_dict()
+        datos = lee_ruido(conn, plataforma="amazon_mx", hoy=dt.date(2026, 10, 10)).como_dict()
         assert [c["cycle_id"] for c in datos["ciclos"]] == [quieto]
         assert datos["ciclos"][0]["decisiones"] == []
         assert datos["ciclos"][0]["abstenciones"] == {"azar_lo_explica": 300}
@@ -1078,7 +1099,7 @@ def test_lee_ruido_punta_a_punta_mx_no_trae_us():
             moneda="USD",
         )
 
-        mx = lee_ruido(conn, plataforma="amazon_mx").como_dict()
+        mx = lee_ruido(conn, plataforma="amazon_mx", hoy=hoy).como_dict()
 
     # I.3: del ciclo mas nuevo al mas viejo.
     assert [c["cycle_id"] for c in mx["ciclos"]] == [ciclo_mx2, ciclo_mx, vivo]
@@ -1104,13 +1125,29 @@ def test_lee_ruido_punta_a_punta_mx_no_trae_us():
             "moneda": "MXN",
         }
     ]
+    cobertura_ok = {"gasto": True, "pedidos": True, "venta": True, "completo": True}
     assert mx["antes_y_despues"] == {
         "encendido_el": "2026-09-15",
         "moneda": "MXN",
         "dias_antes": 2,
         "dias_despues": 2,
-        "antes": {"gasto": "200.0000", "pedidos": 3, "venta": "2000.0000", "acos_pct": "10.00"},
-        "despues": {"gasto": "100.0000", "pedidos": 1, "venta": "2000.0000", "acos_pct": "5.00"},
+        "despues_hasta": (hoy - dt.timedelta(days=9)).isoformat(),
+        "antes": {
+            "gasto": "200.0000",
+            "pedidos": 3,
+            "venta": "2000.0000",
+            "acos_pct": "10.00",
+            "cobertura": cobertura_ok,
+            "causa_acos": None,
+        },
+        "despues": {
+            "gasto": "100.0000",
+            "pedidos": 1,
+            "venta": "2000.0000",
+            "acos_pct": "5.00",
+            "cobertura": cobertura_ok,
+            "causa_acos": None,
+        },
     }
 
     with _db_ruido() as conn:
@@ -1129,7 +1166,7 @@ def test_lee_ruido_punta_a_punta_mx_no_trae_us():
             venta=Decimal("100"),
             moneda="USD",
         )
-        us = lee_ruido(conn, plataforma="amazon_us").como_dict()
+        us = lee_ruido(conn, plataforma="amazon_us", hoy=hoy).como_dict()
 
     assert [c["cycle_id"] for c in us["ciclos"]] == [ciclo]
     assert us["antes_y_despues"] is None
@@ -1169,7 +1206,9 @@ def test_encogimiento_ignora_ajuste_de_campana_antiguo():
             " 'dueno', 'APLICAR AJUSTE', %s)",
             (camp, obs, dt.datetime(2026, 7, 15, 12, 0, tzinfo=UTC)),
         )
-        pantalla = lee_ruido(conn, plataforma="amazon_mx", dias=90).como_dict()
+        pantalla = lee_ruido(
+            conn, plataforma="amazon_mx", hoy=dt.date(2026, 10, 10), dias=90
+        ).como_dict()
 
     assert pantalla["encogimiento"] == [
         {

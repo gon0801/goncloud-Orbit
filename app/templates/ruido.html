@@ -53,14 +53,14 @@
 <h4>Antes del encendido ({{ antes_y_despues.dias_antes }} día{% if antes_y_despues.dias_antes != 1 %}s{% endif %})</h4>
 {% set bloque = antes_y_despues.antes %}
 {% if bloque %}
-<p>Gasto {{ bloque.gasto | dinero }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos | numero }} pedidos, venta {{ bloque.venta | dinero }}, ACoS {{ bloque.acos_pct | pct }}.</p>
+<p>Gasto {{ bloque.gasto | dinero }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos | numero }} pedidos, venta {{ bloque.venta | dinero }}{% if bloque.causa_acos == "cobertura_incompleta" or bloque.gasto is none or bloque.venta is none %}. Faltan datos para calcular el ACoS.{% else %}, ACoS {{ bloque.acos_pct | pct }}.{% endif %}</p>
 {% else %}
 <p>Sin datos.</p>
 {% endif %}
-<h4>Después del encendido ({{ antes_y_despues.dias_despues }} día{% if antes_y_despues.dias_despues != 1 %}s{% endif %})</h4>
+<h4>Después del encendido ({{ antes_y_despues.dias_despues }} día{% if antes_y_despues.dias_despues != 1 %}s{% endif %}, hasta el {{ antes_y_despues.despues_hasta | fecha_corta }}; los últimos 8 días se dejan fuera porque sus ventas todavía llegan)</h4>
 {% set bloque = antes_y_despues.despues %}
 {% if bloque %}
-<p>Gasto {{ bloque.gasto | dinero }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos | numero }} pedidos, venta {{ bloque.venta | dinero }}, ACoS {{ bloque.acos_pct | pct }}.</p>
+<p>Gasto {{ bloque.gasto | dinero }} {{ antes_y_despues.moneda }}, {{ bloque.pedidos | numero }} pedidos, venta {{ bloque.venta | dinero }}{% if bloque.causa_acos == "cobertura_incompleta" or bloque.gasto is none or bloque.venta is none %}. Faltan datos para calcular el ACoS.{% else %}, ACoS {{ bloque.acos_pct | pct }}.{% endif %}</p>
 {% else %}
 <p>Sin datos.</p>
 {% endif %}
