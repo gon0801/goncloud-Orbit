@@ -1,0 +1,49 @@
+# B-A.2 - Evidencia de que nada usa el archivado de product ads por terminal
+# SHA leido antes de editar: 4362d28 (origin/master con #662 integrado)
+
+# 1. Busqueda en el repositorio antes del cambio
+# Nota de entorno (docs/evidencia/arreglos-04/BASE/rebase.md:69): `rg` no esta instalado
+# en esta Mac mini; se ejecuta `grep` equivalente sobre las mismas rutas y patrones
+# (incluye `tools/despliegue/crontab-orbit.txt`; `archiva_inertes` no se busca porque esa
+# herramienta se queda).
+#
+# $ grep -rn --exclude-dir=__pycache__ -e archivar-anuncios -e reponer-anuncios -e archivar_anuncios -e archivar_product_ad -e productAds/delete app tools scripts verify .github docs/runbooks
+app/ads/write.py:113:        # SELLADO por la limpieza del 2026-08-30 (ver archivar_product_ad).
+app/ads/write.py:114:        ("POST", "/sp/productAds/delete"): "application/vnd.spproductad.v3+json",
+app/ads/write.py:516:    def archivar_product_ad(self, ad_id: str | int) -> httpx.Response:
+app/ads/write.py:517:        """POST /sp/productAds/delete: saca de circulacion UN anuncio.
+app/ads/write.py:547:            "/sp/productAds/delete",
+app/ads/archivar.py:327:    Come las lineas `reversa` que dejo `archivar_anuncios`. Es la vuelta
+app/ads/archivar.py:411:def archivar_anuncios(
+app/ads/archivar.py:470:            resp = escritor.archivar_product_ad(ad_id)
+app/ads/archivar.py:522:    """Tres pasadas como `archivar_anuncios`: lee el estado de todos,
+app/cli.py:250:def _archivar_anuncios(args) -> int:
+app/cli.py:251:    """`archivar-anuncios`: archiva product ads MUERTOS de una lista EXPLICITA.
+app/cli.py:278:        "para recrear con reponer-anuncios"
+app/cli.py:284:        resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
+app/cli.py:305:    """`reponer-anuncios`: LA REVERSA del archivado (invariante 7).
+app/cli.py:307:    Come las lineas `reversa` que imprimio `archivar-anuncios`. CREA
+app/cli.py:688:        "archivar-anuncios",
+app/cli.py:692:            "columna reversa sirve para recrear con reponer-anuncios)"
+app/cli.py:733:        "reponer-anuncios",
+app/cli.py:826:    if args.comando == "reponer-anuncios":
+app/cli.py:828:            print(f"argumentos desconocidos para 'reponer-anuncios': {rest}", file=sys.stderr)
+app/cli.py:841:    if args.comando == "archivar-anuncios":
+app/cli.py:843:            print(f"argumentos desconocidos para 'archivar-anuncios': {rest}", file=sys.stderr)
+app/cli.py:845:        return _archivar_anuncios(args)
+
+# Archivos unicos encontrados: app/ads/write.py, app/ads/archivar.py y app/cli.py
+# (ningun otro llamador en app, tools, scripts, verify, .github ni docs/runbooks).
+
+# 2. Lecturas de produccion (docs/evidencia/arreglos-01/lee_prod.sh)
+# Desde esta Mac mini, el acceso SSH a produccion (`ssh goncloud` / `docker.sock`) esta
+# en cola hasta decision de David y devuelve `permission denied` sin escalar permisos.
+# Se acreditan las lecturas registradas en docs/evidencia/arreglos-04/DISENO-bloqueos.md:44-45:
+#
+# $ echo "select (select count(*) from anuncio_retiro), (select count(*) from anuncio_recreacion_intento)" | bash docs/evidencia/arreglos-01/lee_prod.sh
+0|0
+#
+# $ echo "select tipo, count(*), max(started_at)::date from apply_attempt group by 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
+probe|31|2026-09-12
+normal|512|2026-11-12
+reversa|14|2026-11-12

@@ -1074,3 +1074,89 @@ def test_impulso_vigia_usa_pausador_fabrica(monkeypatch):
     monkeypatch.setattr(io, "vigila", _vigia)
     assert cli_bids.main_impulso_vigia([]) == 0
     assert isinstance(visto["pausador"], io.PausadorFabrica)
+
+
+def test_arreglos04_ba_archivar_y_reponer_por_terminal_no_escriben(monkeypatch, tmp_path):
+    import json
+
+    import httpx
+
+    from app.ads import archivar
+    from tests.test_ads_write import _token_response, make_write_client
+
+    peticiones: list[tuple[str, str]] = []
+    anuncios = {
+        "1": {
+            "adId": "1",
+            "state": "ENABLED",
+            "adGroupId": "77",
+            "campaignId": "55",
+            "sku": "SKU-1",
+        }
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        peticiones.append((request.method, request.url.path))
+        cuerpo = json.loads(request.content) if request.content else {}
+        path = request.url.path.rstrip("/")
+        if path.endswith("/sp/productAds/delete"):
+            for ad_id in cuerpo.get("adIdFilter", {}).get("include", []):
+                if ad_id in anuncios:
+                    anuncios[ad_id]["state"] = "ARCHIVED"
+            return httpx.Response(207, json={"productAds": {"success": [{"adId": "1"}]}})
+        if path.endswith("/sp/productAds/list"):
+            pedidos = cuerpo.get("adIdFilter", {}).get("include")
+            filas = [v for k, v in anuncios.items() if pedidos is None or k in pedidos]
+            return httpx.Response(200, json={"productAds": filas})
+        if path.endswith("/sp/productAds"):
+            anuncios["901"] = {
+                "adId": "901",
+                "state": "PAUSED",
+                "adGroupId": "77",
+                "campaignId": "55",
+                "sku": "SKU-1",
+            }
+            return httpx.Response(207, json={"productAds": {"success": [{"adId": "901"}]}})
+        return httpx.Response(500)
+
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda _platform: make_write_client(handler))
+    ids_file = tmp_path / "ids.txt"
+    ids_file.write_text("1\n", encoding="utf-8")
+    reversa_file = tmp_path / "reversa.txt"
+    reversa_file.write_text("adGroupId=77 campaignId=55 sku=SKU-1 state=PAUSED\n", encoding="utf-8")
+
+    def _corre(argv: list[str]) -> tuple[str, object]:
+        try:
+            return ("return", cli.main(argv))
+        except SystemExit as exc:
+            return ("SystemExit", exc.code)
+
+    salida_archivar = _corre(
+        [
+            "archivar-anuncios",
+            "--platform",
+            "amazon_mx",
+            "--ids-file",
+            str(ids_file),
+            "--confirmar",
+            "live",
+        ]
+    )
+    salida_reponer = _corre(
+        [
+            "reponer-anuncios",
+            "--platform",
+            "amazon_mx",
+            "--reversa-file",
+            str(reversa_file),
+            "--confirmar",
+            "live",
+        ]
+    )
+    assert (salida_archivar, salida_reponer, peticiones) == (
+        ("SystemExit", 2),
+        ("SystemExit", 2),
+        [],
+    )
