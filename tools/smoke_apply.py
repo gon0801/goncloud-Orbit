@@ -138,6 +138,7 @@ from app.ads.write import (  # noqa: E402
     AdsWriteClient,
     _bid_payload,
 )
+from app.apply_harvest import _errores_de_ack  # noqa: E402
 from app.db import connect  # noqa: E402
 from app.redaction import scrub  # noqa: E402
 
@@ -496,6 +497,12 @@ def _paso_mutacion(ctx: ContextoSmoke, nombre: str, payload: dict, funcion) -> d
         paso.update(ok=False, error=scrub(str(exc)), ledger={**paso["ledger"], "sin_sello": True})
         return paso
     ack = _json_seguro(resp)
+    errores = _errores_de_ack(ack)
+    if errores:
+        sella_probe(ctx.conn, id_attempt, ack, f"fallo:rechazo_por_item: {str(errores)[:300]}")
+        ctx.conn.commit()
+        paso.update(ok=False, error="rechazo por item", http=_evidencia_respuesta(resp))
+        return paso
     sella_probe(ctx.conn, id_attempt, ack, "ok")
     ctx.conn.commit()
     paso.update(ok=True, http=_evidencia_respuesta(resp))

@@ -63,6 +63,14 @@ ALLOWLIST_TAMANO = {
         "ejecuta_retiro separaria las dos mitades de la misma exclusion — "
         "jamas partir por partir"
     ),
+    "app/bloqueo_dueno_efecto.py": (
+        "JEV ADS 03 B.3 y ARREGLOS 04 B-B. Unico propietario del ledger, las "
+        "mutaciones a Amazon y la reconciliacion del bloqueo del dueno "
+        "(aprobar, rechazar, quitar, reanudar, reconciliar y las "
+        "precondiciones de reparacion bajo el mismo candado de sesion "
+        "bloqueo). Partir quitar o reparar de aprobar separaria las dos "
+        "mitades de la misma exclusion."
+    ),
     "app/optimizer/caso.py": (
         "BIDS 02 M.1 y ORBIT 07 M1/M5/M6: el contrato congelado del caso, su "
         "freeze (`como_json`) y su inversa exacta (`desde_json`, que levanta "

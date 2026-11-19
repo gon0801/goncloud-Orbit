@@ -397,11 +397,46 @@ MOTIVO_PROPUESTA_CAMPANA: dict[str, str] = {
 PASO_BLOQUEO: dict[str, str] = {
     "intencion": "Por aplicar",
     "aplicado": "Aplicado",
+    "fallido": "No se aplicó",
+    "anulado": "No se aplicó",
     "reversa_intencion": "Quitándose",
+    "revertido": "Quitado",
     "reversa_fallida": "No se pudo quitar",
+    "rechazado": "Rechazado",
+    "reanudacion": "Reanudado",
 }
 
-MOTIVO_BLOQUEO: dict[str, str] = {"por_confirmar": "por confirmar en Amazon"}
+MOTIVO_BLOQUEO: dict[str, str] = {
+    "por_confirmar": "por confirmar en Amazon",
+    "rechazo_amazon": "Amazon lo rechazó",
+    "sin_resultado": "Amazon no lo confirmó",
+    "sigue_presente": "Amazon todavía lo muestra",
+    "senal_cambio": "la señal cambió",
+    "ya_bloqueada": "ya estaba bloqueado",
+    "motor": "el motor ya lo está cortando",
+    "sin_respuesta": "Amazon no respondió",
+    "lista_ambiguo": "no se pudo leer la lista de Amazon",
+    "lista_truncado": "Amazon no entregó la lista completa",
+    "sin_externos": "Orbit no tiene los datos del grupo de anuncios en Amazon",
+    "http_400": "Amazon respondió con error",
+    "http_401": "Amazon respondió con error",
+    "http_403": "Amazon respondió con error",
+    "http_404": "Amazon respondió con error",
+    "http_409": "Amazon respondió con error",
+    "http_422": "Amazon respondió con error",
+    "http_429": "Amazon respondió con error",
+    "http_500": "Amazon respondió con error",
+    "http_502": "Amazon respondió con error",
+    "http_503": "Amazon respondió con error",
+    "http_504": "Amazon respondió con error",
+    "candado": "otro cambio de este término está en curso; vuelve a intentar en un minuto",
+    "reconciliacion_pendiente": (
+        "Orbit todavía está confirmando en Amazon un cambio anterior de este término;"
+        " vuelve a intentar en una hora"
+    ),
+    "senal_ausente": "esa propuesta ya no existe; recarga la página",
+    "no_vive": "ese bloqueo ya no está activo; recarga la página",
+}
 
 ESTADO_REPORTE: dict[str, str] = {
     "written": "Escrito",

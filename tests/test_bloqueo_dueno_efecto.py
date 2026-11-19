@@ -1325,6 +1325,23 @@ class _MemBloqueo:
                     if ult and ult["paso"] in vivos:
                         return _MemRes([(1,)])
             return _MemRes([])
+        if "SELECT v.id, v.senal_id, ult.paso, ult.negative_keyword_id" in q:
+            plat, grp, sha, origen_id, pasos = params
+            filas = []
+            for v in self.veredictos:
+                if (
+                    v["tipo"] == "aprobado"
+                    and v["plataforma"] == plat
+                    and v["ad_group_id"] == grp
+                    and v["termino_sha256"] == sha
+                    and v["id"] != origen_id
+                ):
+                    ult = self._ultimo_efecto(v["id"])
+                    if ult and ult["paso"] in pasos:
+                        filas.append(
+                            (v["id"], v["senal_id"], ult["paso"], ult["negative_keyword_id"])
+                        )
+            return _MemRes(filas)
         if "SELECT v.id, ult.paso, ult.negative_keyword_id, v.plataforma::text, v.termino" in q:
             grp, sha, pasos = params
             filas = []
@@ -1525,3 +1542,217 @@ def test_arreglos04_bb_reconciliacion_cierra_un_quitar_dudoso(monkeypatch):
 
         efecto.reconcilia_todas(conn, transport=transport)
         assert _pasos(conn, hecho.veredicto_id)[-1] == ("revertido", None, "kid-1")
+
+
+def test_arreglos04_bb_quitar_rechazo_207_relee_archivado_vivo_y_lista_caida(monkeypatch):
+    _parche(monkeypatch)
+    with _db_o_mem() as conn:
+        senal1, _g1, ge1, _c1, t1, _r1 = _prepara(conn, termino="uno", sha="1" * 64)
+        tp1, _v1, st1 = _transporte(ge1, t1)
+        h1 = efecto.aprobar(conn, senal1, transport=tp1)
+        st1[0]["state"] = "ARCHIVED"
+
+        def h_del_err(store, *, list_status=200):
+            def handler(request: httpx.Request) -> httpx.Response:
+                if request.url.host == "api.amazon.com":
+                    return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+                if request.url.path == "/v2/profiles":
+                    return httpx.Response(200, json=_perfiles())
+                if request.url.path == "/sp/negativeKeywords/list":
+                    if list_status != 200:
+                        return httpx.Response(list_status, json={"message": "down"})
+                    return httpx.Response(200, json={"negativeKeywords": list(store)})
+                if request.url.path == "/sp/negativeKeywords/delete":
+                    return httpx.Response(
+                        207,
+                        json={
+                            "negativeKeywords": {
+                                "success": [],
+                                "error": [{"index": 0, "code": "NOT_FOUND"}],
+                            }
+                        },
+                    )
+                return httpx.Response(400, json={"message": request.url.path})
+
+            return httpx.MockTransport(handler)
+
+        q1 = efecto.quitar(conn, h1.veredicto_id, transport=h_del_err(st1))
+        assert q1.paso == "revertido"
+        assert _pasos(conn, h1.veredicto_id)[-1] == ("revertido", None, "kid-1")
+
+        senal2, _g2, ge2, _c2, t2, _r2 = _prepara(conn, termino="dos", sha="2" * 64)
+        tp2, _v2, st2 = _transporte(ge2, t2)
+        h2 = efecto.aprobar(conn, senal2, transport=tp2)
+        q2 = efecto.quitar(conn, h2.veredicto_id, transport=h_del_err(st2))
+        assert (q2.paso, q2.motivo) == ("reversa_fallida", "rechazo_amazon")
+        assert _pasos(conn, h2.veredicto_id)[-1] == ("reversa_fallida", "rechazo_amazon", None)
+
+        senal3, _g3, ge3, _c3, t3, _r3 = _prepara(conn, termino="tres", sha="3" * 64)
+        tp3, _v3, st3 = _transporte(ge3, t3)
+        h3 = efecto.aprobar(conn, senal3, transport=tp3)
+        q3 = efecto.quitar(conn, h3.veredicto_id, transport=h_del_err(st3, list_status=503))
+        assert (q3.paso, q3.motivo) == ("reversa_intencion", "por_confirmar")
+        assert _pasos(conn, h3.veredicto_id)[-1][0] == "reversa_intencion"
+
+
+def test_arreglos04_bb_reparacion_precondiciones_quitar_y_aprobar(monkeypatch):
+    _parche(monkeypatch)
+    with _db_o_mem() as conn:
+        senal_vieja, grupo, grupo_ext, _campana, termino, roster = _prepara(conn)
+        tp, vistos, store = _transporte(grupo_ext, termino)
+        origen = efecto.aprobar(conn, senal_vieja, transport=tp)
+        assert origen.paso == "aplicado"
+        kid_origen = _pasos(conn, origen.veredicto_id)[-1][2]
+
+        senal_vigente = _senal_ajena(
+            conn,
+            grupo,
+            termino,
+            SHA,
+            roster,
+            plataforma="amazon_mx",
+            gasto=Decimal("9.5000"),
+            lote=_lote(conn),
+            miembros=1,
+        )
+
+        store[0]["state"] = "ENABLED"
+        vistos.clear()
+        pre_paused = efecto.PrecondicionQuitar(
+            plataforma="amazon_mx",
+            ad_group_id=grupo,
+            termino=termino,
+            negative_keyword_id=kid_origen,
+            estado_observado="PAUSED",
+            senal_id=senal_vigente,
+        )
+        cambio = efecto.quitar(conn, origen.veredicto_id, transport=tp, precondicion=pre_paused)
+        assert cambio == efecto.Efecto(409, motivo="estado_cambio"), "ENABLED actual frena quitar"
+        assert [r for r in vistos if r.url.path == "/sp/negativeKeywords/delete"] == []
+        assert _pasos(conn, origen.veredicto_id)[-1] == ("aplicado", None, kid_origen)
+
+        store[0]["state"] = "PAUSED"
+        store.append(
+            {
+                "keywordId": "kid-ajeno",
+                "adGroupId": grupo_ext,
+                "keywordText": termino,
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",
+            }
+        )
+        vistos.clear()
+        con_otro = efecto.quitar(conn, origen.veredicto_id, transport=tp, precondicion=pre_paused)
+        assert con_otro == efecto.Efecto(409, motivo="otro_enabled"), "otro ENABLED frena quitar"
+        assert [r for r in vistos if r.url.path == "/sp/negativeKeywords/delete"] == []
+        store.pop()
+
+        pre_ap = efecto.PrecondicionAprobar(
+            origen_id=origen.veredicto_id,
+            plataforma="amazon_mx",
+            ad_group_id=grupo,
+            termino=termino,
+        )
+        vistos.clear()
+        antes = efecto.aprobar(conn, senal_vigente, transport=tp, precondicion=pre_ap)
+        assert antes == efecto.Efecto(409, motivo="origen_no_revertido")
+        assert _posts(vistos) == []
+
+        vistos.clear()
+        quitado = efecto.quitar(conn, origen.veredicto_id, transport=tp, precondicion=pre_paused)
+        assert quitado == efecto.Efecto(200, veredicto_id=origen.veredicto_id, paso="revertido")
+        assert len([r for r in vistos if r.url.path == "/sp/negativeKeywords/delete"]) == 1
+        assert efecto.lee_pausas(conn)["amazon_mx"].aprobados == 1, (
+            "reparar no cuenta como rechazo del dueno en pausa_de"
+        )
+        vistos.clear()
+        repetido = efecto.quitar(conn, origen.veredicto_id, transport=tp, precondicion=pre_paused)
+        assert repetido == efecto.Efecto(
+            200, veredicto_id=origen.veredicto_id, paso="revertido", motivo="ya_revertido"
+        )
+        assert [r for r in vistos if r.url.path == "/sp/negativeKeywords/delete"] == []
+
+        store.append(
+            {
+                "keywordId": "kid-ajeno",
+                "adGroupId": grupo_ext,
+                "keywordText": termino,
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",
+            }
+        )
+        vistos.clear()
+        no_adopta = efecto.aprobar(conn, senal_vigente, transport=tp, precondicion=pre_ap)
+        assert no_adopta == efecto.Efecto(409, motivo="otro_enabled")
+        assert _posts(vistos) == []
+        store.pop()
+
+        fase = {"list_post": "503"}
+
+        def h_reemplazo(request: httpx.Request) -> httpx.Response:
+            vistos.append(request)
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            if request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=_perfiles())
+            if request.url.path == "/sp/negativeKeywords/list":
+                if fase["list_post"] == "caido":
+                    return httpx.Response(503, json={"message": "list down"})
+                return httpx.Response(200, json={"negativeKeywords": list(store)})
+            if request.url.path == "/sp/negativeKeywords" and request.method == "POST":
+                store.append(
+                    {
+                        "keywordId": "kid-reemplazo",
+                        "adGroupId": grupo_ext,
+                        "keywordText": termino,
+                        "matchType": "NEGATIVE_EXACT",
+                        "state": "ENABLED",
+                    }
+                )
+                fase["list_post"] = "caido"
+                return httpx.Response(503, json={"message": "post 503"})
+            return httpx.Response(400, json={"message": request.url.path})
+
+        tp_incierto = httpx.MockTransport(h_reemplazo)
+        vistos.clear()
+        dudoso = efecto.aprobar(conn, senal_vigente, transport=tp_incierto, precondicion=pre_ap)
+        assert (dudoso.status, dudoso.paso, dudoso.motivo) == (200, "intencion", "por_confirmar")
+        assert len(_posts(vistos)) == 1
+
+        vistos.clear()
+        pendiente = efecto.aprobar(conn, senal_vigente, transport=tp_incierto, precondicion=pre_ap)
+        assert pendiente == efecto.Efecto(409, motivo="reconciliacion_pendiente")
+        assert _posts(vistos) == []
+
+        fase["list_post"] = "ok"
+        vistos.clear()
+        cerrado = efecto.aprobar(conn, senal_vigente, transport=tp_incierto, precondicion=pre_ap)
+        assert cerrado == efecto.Efecto(
+            200, veredicto_id=dudoso.veredicto_id, paso="aplicado", motivo="ya_aplicado"
+        )
+        assert _posts(vistos) == []
+        assert _pasos(conn, dudoso.veredicto_id)[-1] == ("aplicado", None, "kid-reemplazo")
+
+        s_aus, g_aus, ge_aus, _c_aus, t_aus, _r_aus = _prepara(
+            conn, termino="ausente", sha="4" * 64
+        )
+        tp_aus, vistos_aus, st_aus = _transporte(ge_aus, t_aus)
+        orig_aus = efecto.aprobar(conn, s_aus, transport=tp_aus)
+        kid_aus = _pasos(conn, orig_aus.veredicto_id)[-1][2]
+        st_aus.clear()
+        vistos_aus.clear()
+        q_aus = efecto.quitar(
+            conn,
+            orig_aus.veredicto_id,
+            transport=tp_aus,
+            precondicion=efecto.PrecondicionQuitar(
+                plataforma="amazon_mx",
+                ad_group_id=g_aus,
+                termino=t_aus,
+                negative_keyword_id=kid_aus,
+                estado_observado="AUSENTE",
+                senal_id=s_aus,
+            ),
+        )
+        assert q_aus == efecto.Efecto(200, veredicto_id=orig_aus.veredicto_id, paso="revertido")
+        assert [r for r in vistos_aus if r.url.path == "/sp/negativeKeywords/delete"] == []
