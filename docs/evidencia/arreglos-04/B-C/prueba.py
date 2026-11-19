@@ -112,6 +112,53 @@ def _handler_caso(caso: str):
     return handler, vistos
 
 
+def _comprueba_reversa_automatica(conn, ctx, caso: str) -> None:
+    vistos: list[httpx.Request] = []
+    pag = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "tok-bc", "expires_in": 3600})
+        vistos.append(request)
+        if request.url.path == "/sp/keywords/list":
+            return httpx.Response(200, json={"keywords": [], "totalResults": 0})
+        if request.url.path == "/sp/negativeKeywords/list":
+            pag["n"] += 1
+            if caso == "missing":
+                return httpx.Response(200, json={})
+            if caso == "malformado":
+                return httpx.Response(200, json={"negativeKeywords": "no-lista"})
+            if caso == "token_repetido":
+                return httpx.Response(200, json={"negativeKeywords": [], "nextToken": "m"})
+            return httpx.Response(200, json={"negativeKeywords": [], "nextToken": f"p-{pag['n']}"})
+        if request.url.path.endswith("/delete") and request.method == "POST":
+            return httpx.Response(
+                207, json={"keywords": {"error": [], "success": [{"keywordId": "k-7"}]}}
+            )
+        raise AssertionError(f"HTTP inesperado: {request.method} {request.url.path}")
+
+    fallos: list[str] = []
+    apply_harvest._falla_job = lambda _c, _j, m, **_k: fallos.append(m) or ("failed", None)
+    try:
+        job = apply_harvest._Job(
+            3,
+            12,
+            "termino",
+            5,
+            "exact_created",
+            {"keyword_id": "k-7", "keyword_creada": True, "negative_creada": True},
+            "amazon_us",
+        )
+        with suppress(AdsApiError):
+            apply_harvest._paso_readback(conn, _aplicador_falso(conn, handler), job, ctx, 91)
+        deletes = [r.url.path for r in vistos if r.url.path.endswith("/delete")]
+        assert deletes == [], f"reversa borro con {caso}: {deletes}"
+        assert fallos == [], f"reversa cerro job con {caso}: {fallos}"
+        assert job.fase == "exact_created", f"job cambio de fase con {caso}: {job.fase}"
+    finally:
+        apply_harvest._falla_job = lambda *_a, **_k: ("failed", None)
+
+
 def main() -> None:
     conn = Mock()
     conn.transaction.side_effect = nullcontext
@@ -163,6 +210,7 @@ def main() -> None:
                 apply_harvest._paso_readback(conn, _aplicador_falso(conn, h_rb), job_e, ctx, None)
             deletes = [r for r in v_rb if r.url.path.endswith("/delete")]
             assert deletes == [], f"readback borro con {caso}: {[r.url.path for r in deletes]}"
+            _comprueba_reversa_automatica(conn, ctx, caso)
     finally:
         apply_mod._ledger = orig_ledger
         apply_mod._sella_ledger = orig_sella

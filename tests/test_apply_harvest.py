@@ -2665,7 +2665,9 @@ def _handler_lista_bc(modo: str, *, recurso: str = "negativeKeywords"):
         if path.endswith("/delete") and request.method == "POST":
             clave = "negativeKeywords" if path.startswith("/sp/neg") else "keywords"
             campo = "negativeKeywordId" if path.startswith("/sp/neg") else "keywordId"
-            return httpx.Response(207, json={clave: {"error": [], "success": [{campo: "x"}]}})
+            filtro = "negativeKeywordIdFilter" if path.startswith("/sp/neg") else "keywordIdFilter"
+            id_pedido = json.loads(request.content)[filtro]["include"][0]
+            return httpx.Response(207, json={clave: {"error": [], "success": [{campo: id_pedido}]}})
         if "bidRecommendations" in path:
             return httpx.Response(403, json={"code": "403"})
         raise AssertionError(f"HTTP inesperado: {request.method} {path}")
@@ -2876,34 +2878,103 @@ def test_arreglos04_bc_creacion_readback_y_reversa_cero_mutacion_con_lista_incom
     assert terminaciones == [], f"{etapa} ({modo}): cola intacta: {terminaciones}"
 
 
-def test_arreglos04_bc_reversa_automatica_reporta_fallo_con_lista_incompleta():
+def test_arreglos04_bc_reversa_automatica_lista_incompleta_cero_delete_y_job_pendiente(
+    monkeypatch,
+):
     from contextlib import nullcontext
+    from types import SimpleNamespace
     from unittest.mock import Mock
 
-    from app import apply_harvest
+    from app import apply as apply_mod
+    from app import apply_cola, apply_harvest, apply_harvest_reconciliacion, notifica
+
+    estado = {"job": "exact_created", "cola": "applying"}
+    inputs = {
+        "goal": {
+            "bid_floor": "0.20",
+            "bid_ceiling": "2.50",
+            "harvest": {
+                "resuelto_por": "terna",
+                "campaign_id": DESTINO_CAMPANA,
+                "ad_group_id": DESTINO_GRUPO,
+                "moneda": "USD",
+            },
+        }
+    }
+    ext_job = {"keyword_id": "k-7", "keyword_creada": True, "negative_creada": True}
+
+    def execute(sql, params=()):
+        filas = []
+        if sql == apply_harvest_reconciliacion._SQL_JOBS_EN_VUELO:
+            if estado["job"] in (
+                "pending",
+                "negative_created",
+                "exact_created",
+                "hermanas_negadas",
+            ):
+                filas = [(4, 53, TERMINO, 10, estado["job"], dict(ext_job), "amazon_us")]
+        elif sql == apply_harvest_reconciliacion._SQL_COLA_DE:
+            filas = [(90, estado["cola"])]
+        elif sql == apply_harvest._SQL_EXTERNALES:
+            filas = [(ORIGEN_GRUPO, ORIGEN_CAMPANA)]
+        elif sql == apply_harvest._SQL_PADRE:
+            filas = [(20,)]
+        elif sql == apply_harvest._SQL_DECISION:
+            filas = [(Decimal("1.20"), "USD", inputs)]
+        elif sql == apply_harvest._SQL_DESTINO_PERTENECE:
+            filas = [(1,)]
+        elif sql == apply_harvest._SQL_JOB_FAILED:
+            estado["job"] = "failed"
+        elif "UPDATE apply_queue SET estado = %s" in sql:
+            estado["cola"] = params[0]
+        elif sql == apply_harvest_reconciliacion._SQL_HARVEST_APLICANDO:
+            if estado["cola"] == "applying":
+                filas = [(90, 53)]
+        elif sql == apply_harvest_reconciliacion._SQL_JOB_EN_VUELO_DE:
+            filas = [
+                (
+                    estado["job"]
+                    in ("pending", "negative_created", "exact_created", "hermanas_negadas"),
+                )
+            ]
+        return SimpleNamespace(fetchall=lambda: filas, fetchone=lambda: filas[0] if filas else None)
 
     conn = Mock()
     conn.transaction.side_effect = nullcontext
-    ctx = apply_harvest._Contexto(
-        plataforma="amazon_us",
-        grupo_ext=ORIGEN_GRUPO,
-        campana_ext=ORIGEN_CAMPANA,
-        destino_grupo=DESTINO_GRUPO,
-        destino_campana=DESTINO_CAMPANA,
-        default_bid=Decimal("1.20"),
-        moneda="USD",
-        floor=Decimal("0.20"),
-        ceiling=Decimal("2.50"),
-        resuelto_por=None,
-        grupo_id=None,
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(apply_mod, "gate_ancestros", lambda _c, _e: None)
+    monkeypatch.setattr(apply_cola, "_modo_efectivo_corte", lambda *_a, **_k: "live")
+    monkeypatch.setattr(apply_mod, "_ledger", lambda *_a, **_k: 1)
+    monkeypatch.setattr(apply_mod, "_sella_ledger", lambda *_a, **_k: None)
+    monkeypatch.setattr(notifica, "notifica_harvest_failed", lambda _a: True)
+
+    handler_trunc, vistos_trunc = _handler_lista_bc("tope_agotado", recurso="negativeKeywords")
+    resumen_trunc = apply_harvest_reconciliacion.reconcilia_harvest(
+        conn, _aplicador(conn, handler_trunc, 7), "amazon_us"
     )
-    handler, vistos = _handler_lista_bc("tope_agotado", recurso="keywords")
-    job_sin_id = apply_harvest._Job(
-        4, 53, TERMINO, 10, "exact_created", {"keyword_creada": True}, "amazon_us"
+    deletes_trunc = [
+        r.url.path for r in _mutaciones(vistos_trunc) if r.url.path.endswith("/delete")
+    ]
+    assert deletes_trunc == [], f"cero DELETE ante lista truncada: {deletes_trunc}"
+    assert (resumen_trunc.jobs_done, resumen_trunc.jobs_failed) == (0, 0)
+    assert resumen_trunc.harvest_huerfanas_cerradas == 0
+    assert estado == {"job": "exact_created", "cola": "applying"}
+
+    handler_ok, vistos_ok = _handler_lista_bc("control_dos_paginas", recurso="negativeKeywords")
+    resumen_ok = apply_harvest_reconciliacion.reconcilia_harvest(
+        conn, _aplicador(conn, handler_ok, 8), "amazon_us"
     )
-    detalle = apply_harvest._reversa_automatica(conn, _aplicador(conn, handler, 7), job_sin_id, ctx)
-    assert _mutaciones(vistos) == []
-    assert detalle.startswith("reversa: fallo (")
+    deletes_ok = [
+        (r.url.path, json.loads(r.content))
+        for r in _mutaciones(vistos_ok)
+        if r.url.path.endswith("/delete")
+    ]
+    assert deletes_ok == [
+        ("/sp/keywords/delete", {"keywordIdFilter": {"include": ["k-7"]}}),
+        ("/sp/negativeKeywords/delete", {"negativeKeywordIdFilter": {"include": ["id-propio"]}}),
+    ]
+    assert (resumen_ok.jobs_done, resumen_ok.jobs_failed) == (0, 1)
+    assert estado == {"job": "failed", "cola": "failed"}
 
 
 def test_arreglos04_bc_reversa_manual_filtro_perdido_y_missing_cero_delete(monkeypatch):
