@@ -34,7 +34,6 @@ import os
 import socket
 import sys
 from decimal import Decimal
-from pathlib import Path
 
 from app import (
     cli_bids,
@@ -50,8 +49,8 @@ from app import (
     reputacion_alertas,
 )
 from app import cycle as ciclo
-from app.ads import archivar, structure
 from app.ads import salud as ads_salud
+from app.ads import structure
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import scrub
@@ -60,10 +59,6 @@ from app.spapi import listings as spapi_listings
 from app.spapi import orders as spapi_orders
 from app.spapi import pricing as spapi_pricing
 from app.spapi import vigilante as spapi_vigilante
-
-# El unico valor de --confirmar que ARCHIVA. Cualquier otra cosa es ensayo.
-MODO_ARCHIVADO_LIVE = "live"
-
 
 TOLERANCIA_RELOJ = dt.timedelta(minutes=5)
 
@@ -245,113 +240,6 @@ def _ingest(args, rest: list[str]) -> int:
         # SP-API 01 A.4: recorrido de Inventario FBA v1 (--platform).
         return spapi_inventario.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
-
-
-def _archivar_anuncios(args) -> int:
-    """`archivar-anuncios`: archiva product ads MUERTOS de una lista EXPLICITA.
-
-    Envoltorio delgado sobre `app.ads.archivar`: aqui no vive ninguna regla
-    de cuales estan muertos — esa evidencia la trae el operador en el
-    archivo de ids. ENSAYO por defecto: sin `--confirmar live` no sale ni
-    una mutacion, y el ensayo imprime exactamente lo que haria.
-    """
-    try:
-        contenido = Path(args.ids_file).read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"no se pudo leer --ids-file: {scrub(str(exc))}", file=sys.stderr)
-        return 2
-    ad_ids = [linea.strip() for linea in contenido.splitlines() if linea.strip()]
-    if not ad_ids:
-        print(f"--ids-file sin ningun adId: {args.ids_file}", file=sys.stderr)
-        return 2
-
-    ejecutar = args.confirmar == MODO_ARCHIVADO_LIVE
-    try:
-        escritor = archivar.preparar_escritor(args.platform)
-    except ValueError as exc:
-        print(scrub(str(exc)), file=sys.stderr)
-        return 2
-
-    print(f"plataforma: {args.platform}  adIds en la lista: {len(ad_ids)}")
-    print(
-        "MODO: LIVE — Amazon no des-archiva; la columna reversa sirve "
-        "para recrear con reponer-anuncios"
-        if ejecutar
-        else "MODO: ENSAYO — no sale ninguna mutacion"
-    )
-
-    try:
-        resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
-    except archivar.ListaInvalida as exc:
-        # SOLO la lista invalida: el modulo aborta ANTES de mutar, asi que
-        # esto es un error de uso (exit 2) y no merece traceback. Un
-        # ValueError generico NO se atrapa aca a proposito — despues de
-        # mutar significaria "no paso nada" cuando los anuncios ya se
-        # archivaron (hallazgo CodeRabbit 2026-08-30).
-        print(scrub(str(exc)), file=sys.stderr)
-        return 2
-
-    for r in resultados:
-        print(f"  {r.ad_id}\t{r.estado_previo or '-'}\t{r.resultado}\t{r.detalle}\t{r.reversa}")
-    cuenta = archivar.resumen(resultados)
-    print(f"RESUMEN: {cuenta}")
-
-    if not ejecutar:
-        return 0
-    return 1 if (cuenta["fallo"] or cuenta["sin_confirmar"]) else 0
-
-
-def _reponer_anuncios(args) -> int:
-    """`reponer-anuncios`: LA REVERSA del archivado (invariante 7).
-
-    Come las lineas `reversa` que imprimio `archivar-anuncios`. CREA
-    anuncios, o sea habilita gasto: mismo candado que el archivado, ensayo
-    por default y `--confirmar live` exacto para mutar.
-    """
-    lineas = _lineas_de(args.reversa_file)
-    if lineas is None:
-        return 2
-    ejecutar = args.confirmar == MODO_ARCHIVADO_LIVE
-    try:
-        escritor = archivar.preparar_escritor(args.platform)
-    except ValueError as exc:
-        print(scrub(str(exc)), file=sys.stderr)
-        return 2
-
-    print(f"plataforma: {args.platform}  lineas de reversa: {len(lineas)}")
-    print(
-        "MODO: LIVE — esto CREA anuncios en la cuenta (habilita gasto)"
-        if ejecutar
-        else "MODO: ENSAYO — no sale ninguna mutacion"
-    )
-    try:
-        resultados = archivar.reponer_anuncios(escritor, lineas, ejecutar=ejecutar)
-    except archivar.ListaInvalida as exc:
-        # Mismo trato: las lineas se parsean TODAS antes de crear nada.
-        print(scrub(str(exc)), file=sys.stderr)
-        return 2
-
-    for r in resultados:
-        print(f"  {r.ad_id}\t{r.resultado}\t{r.detalle}\t{r.reversa}")
-    cuenta = archivar.resumen(resultados)
-    print(f"RESUMEN: {cuenta}")
-    if not ejecutar:
-        return 0
-    return 1 if (cuenta["fallo"] or cuenta["sin_confirmar"]) else 0
-
-
-def _lineas_de(ruta: str) -> list[str] | None:
-    """Lineas no vacias de un archivo del operador; None = ya se aviso."""
-    try:
-        contenido = Path(ruta).read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"no se pudo leer {ruta}: {scrub(str(exc))}", file=sys.stderr)
-        return None
-    lineas = [x.strip() for x in contenido.splitlines() if x.strip()]
-    if not lineas:
-        print(f"archivo vacio: {ruta}", file=sys.stderr)
-        return None
-    return lineas
 
 
 def _decimal_arg(flag: str):
@@ -684,29 +572,6 @@ def _construye_parser() -> argparse.ArgumentParser:
         help="cobertura: fraccion del gasto maduro costeable de punta a punta",
     )
 
-    p_arch = sub.add_parser(
-        "archivar-anuncios",
-        help=(
-            "archiva product ads MUERTOS de una lista explicita de adIds "
-            "(ENSAYO salvo --confirmar live; Amazon no des-archiva — la "
-            "columna reversa sirve para recrear con reponer-anuncios)"
-        ),
-        # Mismo candado que goals/cycle: esto MUTA la cuenta del dueno, un
-        # --confirma mal tipeado no puede colarse como abreviatura.
-        allow_abbrev=False,
-    )
-    p_arch.add_argument(
-        "--platform", required=True, choices=sorted(PLATAFORMAS_MONEDA), help="plataforma"
-    )
-    p_arch.add_argument(
-        "--ids-file", required=True, help="archivo con UN adId por linea (evidencia del operador)"
-    )
-    p_arch.add_argument(
-        "--confirmar",
-        default=None,
-        help=f"'{MODO_ARCHIVADO_LIVE}' para ARCHIVAR de verdad; sin esto es ensayo",
-    )
-
     p_reput = sub.add_parser(
         "reputacion",
         help="reputacion v1 (REPUTACION 01 A.2; requiere ORBIT_DSN_INGEST)",
@@ -728,28 +593,6 @@ def _construye_parser() -> argparse.ArgumentParser:
     )
     p_alert.add_argument("--fecha", default=None, help="hoy YYYY-MM-DD (default: hoy UTC)")
     p_alert.add_argument("--dry-run", action="store_true", help="evalua, cero writes")
-
-    p_rep = sub.add_parser(
-        "reponer-anuncios",
-        help=(
-            "LA REVERSA del archivado: vuelve a crear anuncios desde sus lineas "
-            "de reversa (ENSAYO salvo --confirmar live; CREAR habilita gasto)"
-        ),
-        allow_abbrev=False,
-    )
-    p_rep.add_argument(
-        "--platform", required=True, choices=sorted(PLATAFORMAS_MONEDA), help="plataforma"
-    )
-    p_rep.add_argument(
-        "--reversa-file",
-        required=True,
-        help="archivo con UNA linea de reversa por anuncio (la columna que imprime archivar)",
-    )
-    p_rep.add_argument(
-        "--confirmar",
-        default=None,
-        help=f"'{MODO_ARCHIVADO_LIVE}' para CREAR de verdad; sin esto es ensayo",
-    )
 
     # spapi_vigilante es TOP-LEVEL a proposito (no bajo `ingest`): la linea
     # de su crontab no debe contener `app.cli ingest` o el instalador de
@@ -823,11 +666,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.reporte == "cobertura":
             return cobertura.main(rest)
         raise AssertionError(f"reporte inalcanzable: {args.reporte!r}")
-    if args.comando == "reponer-anuncios":
-        if rest:
-            print(f"argumentos desconocidos para 'reponer-anuncios': {rest}", file=sys.stderr)
-            return 2
-        return _reponer_anuncios(args)
     if args.comando == "reputacion":
         # Escribe DB: tokens extra SIEMPRE error del operador (patron cycle).
         if rest:
@@ -838,11 +676,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.subcomando == "alertas":
             return _reputacion_alertas(args)
         raise AssertionError(f"subcomando inalcanzable: {args.subcomando!r}")
-    if args.comando == "archivar-anuncios":
-        if rest:
-            print(f"argumentos desconocidos para 'archivar-anuncios': {rest}", file=sys.stderr)
-            return 2
-        return _archivar_anuncios(args)
     if args.comando == "spapi_vigilante":
         # Los args (--desde/--hasta/--dry-run) los valida el main del
         # modulo (patron report): ventana invalida -> exit 2 ahi.

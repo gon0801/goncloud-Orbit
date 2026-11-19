@@ -147,7 +147,6 @@ METODOS_PUBLICOS = {
     "borrar_negative",
     "crear_keyword_exacta",
     "borrar_keyword",
-    "archivar_product_ad",
     "crear_product_ad",
     "ajustar_campana",
     "cambiar_estado_product_ad",
@@ -157,7 +156,7 @@ METODOS_PUBLICOS = {
 
 
 def test_superficie_publica_exacta():
-    """Las 14 mutaciones selladas + list_sellado (readback de entidad, probe
+    """Las 13 mutaciones selladas + list_sellado (readback de entidad, probe
     2.5) + get_sellado (solo bidrec PENDIENTE-DE-REGLA-8), NADA mas; ningun
     metodo generico request/post y ninguna ampliacion silenciosa (vars() de
     la clase: lo heredado del read client no se re-sella aqui)."""
@@ -290,15 +289,6 @@ CASOS_MUTACION = [
         "application/vnd.spkeyword.v3+json",
         {"keywordIdFilter": {"include": [101]}},
         id="borrar-keyword",
-    ),
-    pytest.param(
-        "archivar_product_ad",
-        (7001,),
-        "POST",
-        "/sp/productAds/delete",
-        "application/vnd.spproductad.v3+json",
-        {"adIdFilter": {"include": [7001]}},
-        id="archivar-product-ad",
     ),
     pytest.param(
         "crear_product_ad",
@@ -452,7 +442,6 @@ def test_allowlist_sellada_contenido_y_congelamiento():
         ("POST", "/sp/negativeKeywords/delete"),
         ("POST", "/sp/keywords"),
         ("POST", "/sp/keywords/delete"),
-        ("POST", "/sp/productAds/delete"),
         ("POST", "/sp/productAds"),
         ("PUT", "/sp/campaigns"),
         ("PUT", "/sp/productAds"),
@@ -460,9 +449,6 @@ def test_allowlist_sellada_contenido_y_congelamiento():
     assert MUTATION_REQUEST_TYPES[("PUT", "/sp/keywords")] == ("application/vnd.spkeyword.v3+json")
     assert MUTATION_REQUEST_TYPES[("POST", "/sp/negativeKeywords/delete")] == (
         "application/vnd.spnegativekeyword.v3+json"
-    )
-    assert MUTATION_REQUEST_TYPES[("POST", "/sp/productAds/delete")] == (
-        "application/vnd.spproductad.v3+json"
     )
     with pytest.raises(TypeError):
         MUTATION_REQUEST_TYPES[("POST", "/sp/campaigns")] = "application/vnd.sp.v3+json"
@@ -669,40 +655,6 @@ def test_crear_product_ad_rechaza_estado_fuera_del_enum_antes_de_http():
         with pytest.raises(ValueError, match="UPPER wire"):
             cliente.crear_product_ad(31, 21, "SKU-X", malo)
     assert vistos == []
-
-
-def test_el_filtro_del_archivado_de_product_ads_se_llama_exactamente_adIdFilter():
-    """El nombre del filtro NO es cosmetico: es la diferencia entre archivar
-    UN anuncio y archivar la cuenta entera.
-
-    Sonda de lectura del 2026-08-30 (POST /sp/productAds/list en vivo, perfil
-    amazon_mx): con `adIdFilter` la API devolvio EXACTAMENTE el anuncio
-    pedido; con una clave inventada devolvio 1000 (la pagina completa). O
-    sea: Amazon IGNORA EN SILENCIO los filtros que no reconoce, no los
-    rechaza. Un delete con la clave equivocada viaja SIN FILTRO.
-
-    Y la clave equivocada es facil de agarrar: otra API de Amazon (Retail Ad
-    Service, DELETE /productAds) borra product ads con `productAdIdFilter`.
-    Para /sp/productAds/delete el openapi oficial exige `adIdFilter`.
-
-    Este test falla si alguien renombra el filtro, y falla si el filtro
-    llegara vacio."""
-    enviados: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.amazon.com":
-            return _token_response()
-        enviados.append(request)
-        return httpx.Response(207, json={"productAds": {"success": []}})
-
-    make_write_client(handler).archivar_product_ad(7001)
-
-    cuerpo = json.loads(enviados[-1].content)
-    assert set(cuerpo) == {"adIdFilter"}, (
-        f"el body debe llevar SOLO adIdFilter (llego {sorted(cuerpo)}): una clave "
-        "que Amazon no reconoce se ignora y el borrado queda SIN filtro"
-    )
-    assert cuerpo["adIdFilter"]["include"], "un include vacio es un borrado sin filtro"
 
 
 # ---------------------------------------------------------------------------
