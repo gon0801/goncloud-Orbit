@@ -900,3 +900,70 @@ def test_r09r3_payload_campana_sin_off_amazon():
     pasos = fp.pasos_del_rol(_plan(), "category_exact")
     campana = next(p for p in pasos if p.recurso == "campaign")
     assert "offAmazonSettings" not in campana.payload
+
+
+def test_arreglos04_w_l_exact_nace_negada_en_las_hermanas():
+    huella_esperada = "c391fb86bf8e2d99b6ab88b8b1d62c636117dac9c85ac7b32395439bcb970007"
+    neg_arras = {"keywordText": "arras", "matchType": "NEGATIVE_EXACT", "state": "ENABLED"}
+    neg_plata = {"keywordText": "plata", "matchType": "NEGATIVE_EXACT", "state": "ENABLED"}
+
+    plan = _plan(
+        semillas=fp.Semillas(
+            keywords=("arras", "cofre"),
+            asins=("B0BBBBBBBB",),
+            negativos=("arras", "plata"),
+            exact=("arras",),
+        )
+    )
+    assert fp.huella_plan_v2(plan) == huella_esperada
+
+    for rol, match_esperado in (("category_phrase", "PHRASE"), ("category_broad", "BROAD")):
+        pasos = fp.pasos_del_rol(plan, rol)
+        kws = [
+            (p.payload["keywordText"], p.payload["matchType"])
+            for p in pasos
+            if p.recurso == "keyword"
+        ]
+        negs = [(p.path, p.payload) for p in pasos if p.recurso == "negative_keyword"]
+        assert kws == [("arras", match_esperado), ("cofre", match_esperado)]
+        assert negs == [("/sp/negativeKeywords", neg_arras)]
+
+    pasos_auto = fp.pasos_del_rol(plan, "auto_discovery")
+    assert [p.payload for p in pasos_auto if p.recurso == "negative_keyword"] == [
+        neg_arras,
+        neg_plata,
+    ]
+
+    plan_sin_bib = replace(
+        plan,
+        semillas=fp.Semillas(
+            keywords=("arras",),
+            asins=("B0BBBBBBBB",),
+            negativos=(),
+            exact=("arras",),
+        ),
+    )
+    assert [
+        p.payload
+        for p in fp.pasos_del_rol(plan_sin_bib, "auto_discovery")
+        if p.recurso == "negative_keyword"
+    ] == [neg_arras]
+
+    pasos_pt = fp.pasos_del_rol(plan, "product_targeting")
+    assert [p.recurso for p in pasos_pt if p.recurso == "target"] == ["target"]
+    assert [p for p in pasos_pt if p.recurso == "negative_keyword"] == []
+    assert [
+        p for p in fp.pasos_del_rol(plan, "category_exact") if p.recurso == "negative_keyword"
+    ] == []
+
+    plan_impulso = replace(
+        plan,
+        roles=fp.ROLES_IMPULSO,
+        parametros=_parametros_dos(),
+        semillas=fp.Semillas((), (), ("plata",), ("arras",)),
+    )
+    assert [
+        p.payload
+        for p in fp.pasos_del_rol(plan_impulso, "auto_discovery")
+        if p.recurso == "negative_keyword"
+    ] == [neg_plata]
