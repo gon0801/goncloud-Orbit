@@ -286,10 +286,9 @@ La reversa de efectos y la reversa de despliegue son operaciones diferentes.
 ## Cierre y límites
 
 Todos los IDs tienen un owner en [COBERTURA.md](COBERTURA.md). Los comandos y el
-tratamiento de fixtures están en [ACEPTACION.md](ACEPTACION.md). Z vuelve a aplicar
-`pstack:thermo-nuclear-code-quality-review` a **toda la app integrada**, incluyendo
+tratamiento de fixtures están en [ACEPTACION.md](ACEPTACION.md). En Z, Astra revisa **toda la app integrada**, incluyendo
 los nuevos caminos de temporada y vecinos de cada causa; no solo a los diffs.
-No se declara pase con errores de entorno, casos omitidos ni CI de otro commit.
+Los resultados de aceptación corresponden al SHA integrado. Registrar y resolver los errores de entorno o los casos omitidos.
 
 Las preferencias de estructura se separan de bloqueos con reproducción e impacto,
 según AGENTS. D1 no cambia política por este plan. Los seguimientos externos del
