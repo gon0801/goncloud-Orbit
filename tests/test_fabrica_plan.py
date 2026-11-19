@@ -19,13 +19,13 @@ from app.optimizer import hygiene
 FECHA = dt.date(2026, 9, 5)
 
 
-def _producto(pid=1, margen="38.20", sku="SS-1", asin="B0AAAAAAAA"):
-    return fp.ProductoGrupo(
-        product_id=pid,
-        odoo_sku=f"ODOO-{pid}",
+def _publicacion(pid=1, margen="38.20", sku="SS-1", asin="B0AAAAAAAA"):
+    return fp.PublicacionGrupoV2(
         listing_id=10 + pid,
+        product_id=pid,
         asin=asin,
         seller_sku=sku,
+        platform="amazon_mx",
         margen_neto_pct=Decimal(margen),
     )
 
@@ -38,6 +38,7 @@ def _parametros(bid="5.00", budget="120"):
 
 
 def _plan(**cambios):
+    r = fp.target_del_grupo([Decimal("38.20")], Decimal("0.5"))
     base = dict(
         platform="amazon_mx",
         tipo_producto="collar_perro",
@@ -45,15 +46,17 @@ def _plan(**cambios):
         fecha=FECHA,
         moneda="MXN",
         modo="shadow",
-        productos=(_producto(),),
+        publicaciones=(_publicacion(),),
         parametros=_parametros(),
-        target=fp.target_del_grupo([Decimal("38.20")], Decimal("0.5")),
+        objetivo=fp.ObjetivoPlanV2(
+            "margen_medido", r.aplicado, r.procedencia, r.fraccion, r.derivado
+        ),
         semillas=fp.Semillas(
             keywords=("collar perro",), asins=("B0BBBBBBBB",), negativos=("gato",), exact=()
         ),
     )
     base.update(cambios)
-    return fp.PlanGrupo(**base)
+    return fp.PlanGrupoV2(**base)
 
 
 # --- target ----------------------------------------------------------------
@@ -245,18 +248,6 @@ def test_ventana_cortes_es_la_del_motor():
 # --- huella y json --------------------------------------------------------
 
 
-def test_huella_cambia_con_bids_productos_o_semillas():
-    base = _plan()
-    assert fp.huella_plan(base) == fp.huella_plan(_plan())
-    assert fp.huella_plan(base) != fp.huella_plan(_plan(parametros=_parametros(bid="5.50")))
-    assert fp.huella_plan(base) != fp.huella_plan(_plan(productos=(_producto(), _producto(2))))
-    assert fp.huella_plan(base) != fp.huella_plan(_plan(modo="live"))
-    sin_derivados = fp.plan_como_json(base)
-    del sin_derivados["goals_fijan_target"]
-    canonico = json.dumps(sin_derivados, sort_keys=True, separators=(",", ":"))
-    assert fp.huella_plan(base) == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
-
-
 def test_bids_amazon_van_por_objetivo_y_quedan_en_plan_firmado():
     recomendaciones = (
         Recomendacion(
@@ -282,7 +273,7 @@ def test_bids_amazon_van_por_objetivo_y_quedan_en_plan_firmado():
     pasos = fp.pasos_del_rol(plan, "category_exact")
     keyword = next(paso for paso in pasos if paso.recurso == "keyword")
     assert keyword.payload["bid"] == 5.0
-    serializado = fp.plan_como_json(plan)
+    serializado = fp.plan_v2_como_json(plan)
     assert serializado["parametros"]["category_exact"]["fuente_bid"] == "amazon_v4"
     assert serializado["parametros"]["category_exact"]["recomendaciones"] == [
         {
@@ -294,7 +285,7 @@ def test_bids_amazon_van_por_objetivo_y_quedan_en_plan_firmado():
             "fuente": "amazon_v4",
         }
     ]
-    assert fp.plan_desde_json(serializado).parametros["category_exact"].recomendaciones == (
+    assert fp.plan_v2_desde_json(serializado).parametros["category_exact"].recomendaciones == (
         recomendaciones[0],
     )
 
@@ -369,11 +360,11 @@ def test_plan_amazon_acepta_parcial_con_promedio_explicito_y_firma_fuentes():
     assert por_keyword == {"a": 9.8, "b": 4.13, "c": 13.45, "d": 9.13, "e": 9.13}
     ad_group = next(paso for paso in pasos if paso.recurso == "ad_group")
     assert ad_group.payload["defaultBid"] == 9.8, "mediana de las reales"
-    serializado = fp.plan_como_json(plan)
+    serializado = fp.plan_v2_como_json(plan)
     fuentes = [r["fuente"] for r in serializado["parametros"]["category_phrase"]["recomendaciones"]]
     assert fuentes == ["amazon_v4"] * 3 + ["promedio_rol"] * 2
     assert sum(1 for f in fuentes if f == "promedio_rol") == 2
-    assert fp.plan_desde_json(serializado).parametros["category_phrase"].recomendaciones == (
+    assert fp.plan_v2_desde_json(serializado).parametros["category_phrase"].recomendaciones == (
         _recomendaciones_parciales_phrase()
     )
 
@@ -469,31 +460,6 @@ def test_plan_amazon_rechaza_fuente_de_recomendacion_invalida():
         fp.pasos_del_rol(plan, "category_phrase")
 
 
-def test_plan_v1_rechaza_recomendaciones_de_semillas_anteriores_antes_de_pasos():
-    parametros = _parametros()
-    parametros["product_targeting"] = fp.ParametrosRol(
-        "product_targeting",
-        Decimal("120"),
-        Decimal("5.00"),
-        fuente_bid="amazon_v4",
-        recomendaciones=(
-            Recomendacion(
-                Expresion("PAT_ASIN", "B0BBBBBBBB"),
-                Decimal("4.00"),
-                Decimal("5.00"),
-                Decimal("6.00"),
-            ),
-        ),
-    )
-    plan = _plan(
-        parametros=parametros,
-        semillas=fp.Semillas((), ("B0BBBBBBBB", "B0CCCCCCCC"), (), ()),
-    )
-
-    with pytest.raises(fp.PlanInvalido, match="semillas vigentes"):
-        fp.pasos_del_rol(plan, "category_exact")
-
-
 def test_expresiones_bid_cubren_keywords_productos_y_cuatro_temas_auto():
     semillas = fp.Semillas(("kw",), ("B0BBBBBBBB",), (), ("exacta",))
     assert fp.expresiones_bid(semillas, "category_exact") == (
@@ -557,13 +523,6 @@ def test_budget_amazon_cubre_cada_bid_de_objetivo():
     )
     with pytest.raises(fp.PlanInvalido, match="objetivo"):
         fp.valida_parametros(parametros, "MXN")
-
-
-def test_plan_como_json_lleva_dinero_como_string():
-    j = fp.plan_como_json(_plan())
-    assert j["target_acos_pct"] == "19.10"
-    assert j["parametros"]["category_exact"]["bid"] == "5.00"
-    assert j["productos"][0]["margen_neto_pct"] == "38.20"
 
 
 def _plan_v2(*, objetivo="25.00", orden=(22, 11)):
@@ -638,24 +597,6 @@ def test_pasos_v2_crean_un_product_ad_por_publicacion():
     pasos = fp.pasos_del_rol(_plan_v2(), "category_exact")
     anuncios = [paso for paso in pasos if paso.recurso == "product_ad"]
     assert [paso.payload["sku"] for paso in anuncios] == ["SKU-A", "SKU-B"]
-
-
-def test_configuracion_de_creacion_v2_es_fail_closed_y_v1_por_ausencia():
-    assert fp.version_creacion_desde_settings({}) == "v1"
-    assert fp.version_creacion_desde_settings({"fabrica.creacion": "v2"}) == "v2"
-    assert fp.version_creacion_desde_settings({"fabrica.creacion": "invalida"}) == "v1"
-
-
-@pytest.mark.parametrize("settings", [None, [], "v2", 1])
-def test_configuracion_de_creacion_no_objeto_es_fail_closed_a_v1(settings):
-    assert fp.version_creacion_desde_settings(settings) == "v1"
-
-
-def test_plan_json_ida_y_vuelta():
-    """fabrica_lote.plan -> PlanGrupo -> misma huella (lo que --registrar
-    reconstruye es EXACTAMENTE lo autorizado)."""
-    plan = _plan()
-    assert fp.huella_plan(fp.plan_desde_json(fp.plan_como_json(plan))) == fp.huella_plan(plan)
 
 
 # --- pasos y payloads -----------------------------------------------------
@@ -738,12 +679,6 @@ def test_ack_ok_exige_2xx_sin_errores_207():
     assert fp.errores_207({"status": 207, "cuerpo": "no json"}) == [{"no_json": None}]
 
 
-def test_lineas_dry_run_declaran_semillas_cero():
-    lineas = fp.lineas_dry_run(_plan(semillas=fp.Semillas((), (), (), ())))
-    assert any("category_phrase" in linea and "semillas=0" in linea for linea in lineas)
-    assert any("target=19.10" in linea for linea in lineas)
-
-
 # --- acoplamiento con la migracion 0018 (regla 2: un numero, una fuente) --
 
 
@@ -794,9 +729,8 @@ def _plan_v2_medido():
 
 
 def test_target_para_goals_sin_manual_es_null():
-    """Sin objetivo manual (v1 o v2 medido) los goals nacen NULL: resuelven
-    por margen_plataforma cada ciclo en vez de cargar el congelado."""
-    assert fp.target_para_goals(_plan()) is None
+    """Sin objetivo manual los goals nacen NULL: resuelven por
+    margen_plataforma cada ciclo en vez de cargar el congelado."""
     medido = _plan_v2_medido()
     fp.plan_v2_como_json(medido)  # el plan medido sigue valido
     assert fp.target_para_goals(medido) is None
@@ -809,11 +743,10 @@ def test_target_para_goals_manual_sobrevive():
 
 def test_plan_json_registra_si_goals_fijan_target():
     """F5 AI-review PR #381: el JSON registra goals_fijan_target (manual
-    True, medido/v1 False); el preview decide con `!== false` y los lotes
+    True, medido False); el preview decide con `!== false` y los lotes
     viejos (sin la llave) conservan el numero congelado."""
     assert fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))["goals_fijan_target"] is True
     assert fp.plan_v2_como_json(_plan_v2_medido())["goals_fijan_target"] is False
-    assert fp.plan_como_json(_plan())["goals_fijan_target"] is False
     historico = fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))
     del historico["goals_fijan_target"]
     assert fp.plan_v2_desde_json(historico).objetivo.acos_pct == Decimal("25.00")
@@ -840,11 +773,6 @@ def test_huella_ignora_marcador_derivado():
     del sin_marcador["goals_fijan_target"]
     canonico = json.dumps(sin_marcador, sort_keys=True, separators=(",", ":"))
     assert fp.huella_plan_v2(plan) == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
-    datos_v1 = fp.plan_como_json(_plan())
-    assert datos_v1["goals_fijan_target"] is False
-    del datos_v1["goals_fijan_target"]
-    canonico_v1 = json.dumps(datos_v1, sort_keys=True, separators=(",", ":"))
-    assert fp.huella_plan(_plan()) == hashlib.sha256(canonico_v1.encode("utf-8")).hexdigest()
 
 
 @pytest.mark.parametrize("valor", ["0", "0.00", "9.99", "45.01", "70"])

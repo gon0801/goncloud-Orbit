@@ -1,0 +1,38 @@
+# W-B.1 - Prueba de que nada usa el plan v1 de la fabrica
+# SHA leido antes de editar: 8c58d56b (origin/master, BASE ya integrado)
+
+# 1. Lecturas de produccion (docs/evidencia/arreglos-01/lee_prod.sh)
+# Desde esta Mac mini, `ssh goncloud` con `lee_prod.sh` devuelve exit 1:
+#   permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+# No se escalan ni bordean permisos. Lecturas verificadas en el registro versionado
+# de docs/evidencia/arreglos-04/DISENO.md:148-154 y
+# docs/evidencia/arreglos-2026-11-12/lectores/ejecutor-04.md:206:
+#
+# $ echo "select count(*), count(*) filter (where plan ? 'productos'), count(*) filter (where plan ? 'publicaciones') from fabrica_lote" | bash docs/evidencia/arreglos-01/lee_prod.sh
+1|0|1
+#
+# $ echo "select count(*) from config_version where settings->>'fabrica.creacion' = 'v1'" | bash docs/evidencia/arreglos-01/lee_prod.sh
+0
+
+# 2. Busquedas en el repositorio
+# Nota de entorno (docs/evidencia/arreglos-04/BASE/rebase.md:69): `rg` no esta instalado
+# en esta Mac mini; se ejecuta `grep` equivalente sobre las mismas rutas y patrones.
+
+# $ grep -rn -- "--productos" docs/runbooks
+# (sin coincidencias)
+
+# $ grep -n "productos" app/static/js/fabrica.js
+94:      conClase("span", "fabrica-catalogo-total", "· " + resumenCatalogo.totalProductos + " productos en el catálogo"));
+281:    const publicaciones = esV2 ? plan.publicaciones : plan.productos;
+366:    contenedor.append(nodo("h4", "Campañas existentes para estos productos"));
+442:      Array.from(porId("productos").querySelectorAll('input[type="checkbox"]:checked'))
+815:    porId("productos").replaceChildren();
+820:    estado("catalogo-estado", "Consultando productos…");
+828:      datos.productos.forEach(producto => {
+878:        porId("productos").append(tarjeta);
+882:      porId("productos").querySelectorAll('input[type="checkbox"]').forEach(input => {
+885:      const publicaciones = datos.productos.flatMap(producto => producto.publicaciones || []);
+886:      resumenCatalogo = {totalProductos: datos.productos.length, seleccionables: publicaciones.filter(p => p.elegible).length};
+917:      listing_ids: Array.from(porId("productos").querySelectorAll('input[type="checkbox"]:checked')).map(input => Number(input.value)),
+926:      porId("productos").querySelectorAll('input[type="checkbox"]:checked')
+1307:  porId("productos").addEventListener("change", () => {

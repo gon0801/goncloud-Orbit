@@ -11,7 +11,6 @@ import copy
 from pathlib import Path
 
 import pytest
-from psycopg.types.json import Json
 from test_api_fabrica import (
     HEADERS,
     _crear,
@@ -99,11 +98,7 @@ def _sin_incidental(obj):
 
 def _payloads_amazon(vista: dict) -> list[tuple]:
     plan_json = vista["plan"]
-    plan = (
-        fp.plan_v2_desde_json(plan_json)
-        if plan_json.get("schema_version") == 2
-        else fp.plan_desde_json(plan_json)
-    )
+    plan = fp.plan_v2_desde_json(plan_json)
     return [
         (paso.rol, paso.recurso, paso.path, paso.payload)
         for rol in fp.ROLES_ORDEN_CREACION
@@ -192,7 +187,7 @@ def test_mismo_plan_huella_y_payload_con_estimacion_distinta(escenario, monkeypa
     cuerpo_b = _sin_incidental(plan_b)
     assert cuerpo_a == cuerpo_b
     assert plan_a["huella"] == plan_b["huella"]
-    assert plan_a["plan"]["target_acos_pct"] == plan_b["plan"]["target_acos_pct"]
+    assert plan_a["plan"]["objetivo"] == plan_b["plan"]["objetivo"]
     assert plan_a["plan"]["parametros"] == plan_b["plan"]["parametros"]
     assert not _tiene_clave(plan_a, "estimacion")
     assert not _tiene_clave(plan_b, "estimacion")
@@ -222,7 +217,7 @@ def test_plan_v2_idempotente_ante_cambio_solo_de_estimacion(escenario, monkeypat
 
 
 @_skip_db
-def test_recuperacion_v1_no_cambia_si_cambia_estimacion(escenario, monkeypatch):
+def test_recuperacion_margen_medido_no_cambia_si_cambia_estimacion(escenario, monkeypatch):
     cliente, conn, solicitud, fw, _ = escenario
     _fijar_sobre(monkeypatch, _sobre_disponible())
     vista = _preview(cliente, solicitud)
@@ -250,10 +245,6 @@ def test_recuperacion_v1_no_cambia_si_cambia_estimacion(escenario, monkeypatch):
 def test_recuperacion_v2_y_acciones_ignoran_estimacion(escenario, monkeypatch):
     cliente, conn, solicitud, fw, ids = escenario
     listing = _listing_mx(conn, ids[0])
-    conn.execute(
-        "INSERT INTO config_version(label, settings) VALUES ('v2', %s)",
-        (Json({"ads_target_fraccion_margen_amazon_mx": "0.5", "fabrica.creacion": "v2"}),),
-    )
     v2 = _solicitud_v2(solicitud, [listing])
     _fijar_sobre(monkeypatch, _sobre_disponible())
     vista = _preview(cliente, v2)

@@ -56,7 +56,7 @@ def escenario(monkeypatch):
         import os
 
         Path(os.environ["ORBIT_SECRETS_DIR"], "api_write_token").write_text(TOKEN)
-        pid, _ = _producto(conn, sku="A", asin="B0AAAAAAAA", seller_sku="SA")
+        pid, lid = _producto(conn, sku="A", asin="B0AAAAAAAA", seller_sku="SA")
         _ledger_producto(conn, pid, hoy=dt.datetime.now(dt.UTC).date())
         sin, _ = _producto(conn, sku="B", asin="B0BBBBBBBB", seller_sku="SB")
         multiple, _ = _producto(conn, sku="C", asin="B0CCCCCCCC", seller_sku="SC")
@@ -77,7 +77,8 @@ def escenario(monkeypatch):
             "plataforma": "amazon_mx",
             "tipo_producto": "collar_perro",
             "nombre_base": "Collar",
-            "productos": [pid],
+            "listing_ids": [lid],
+            "objetivo": {"origen": "margen_medido"},
             "modo": "shadow",
             "parametros": {
                 rol: {"budget": "120.00", "bid": "4.00"} for rol in fp.ROLES_ORDEN_CREACION
@@ -109,7 +110,7 @@ def _crear(cliente, solicitud, huella):
 
 
 def _solicitud_v2(solicitud, listing_ids, *, objetivo=None):
-    datos = {clave: valor for clave, valor in solicitud.items() if clave != "productos"}
+    datos = dict(solicitud)
     datos["listing_ids"] = listing_ids
     datos["objetivo"] = objetivo or {"origen": "manual_lanzamiento", "acos_pct": "25.00"}
     return datos
@@ -196,7 +197,7 @@ def test_preview_solo_lectura_sin_amazon_y_con_dinero_string(escenario):
     assert vista["lote"] == "web-" + vista["huella"]
     assert len(vista["campanas"]) == 5
     assert vista["presupuesto_diario_total"] == "600.00"
-    assert vista["plan"]["target_acos_pct"] == "20.00"
+    assert vista["plan"]["objetivo"]["acos_pct"] == "20.00"
     assert vista["plan"]["semillas"]["keywords"] == ["collar"]
     assert all(p["budget"] == "120.00" and p["bid"] == "4.00" for p in vista["campanas"])
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
@@ -228,14 +229,8 @@ def test_preview_v2_acepta_sin_margen_y_varios_listings_sin_escribir(escenario):
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
 
 
-def test_preview_v2_rechaza_mezcla_y_sku_duplicado_sin_escribir(escenario):
+def test_preview_v2_rechaza_sku_duplicado_sin_escribir(escenario):
     cliente, conn, solicitud, _, ids = escenario
-    listing = conn.execute(
-        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
-    ).fetchone()[0]
-    mezclada = _solicitud_v2(solicitud, [listing])
-    mezclada["productos"] = [ids[0]]
-    assert cliente.post("/api/fabrica/plan", json=mezclada).status_code == 422
     conn.execute(
         "UPDATE listing SET seller_sku = 'DUPLICADO' "
         "WHERE product_id = %s AND platform = 'amazon_mx'",
@@ -253,18 +248,11 @@ def test_preview_v2_rechaza_mezcla_y_sku_duplicado_sin_escribir(escenario):
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
 
 
-def test_crear_v2_exige_interruptor_y_target_valido_sin_mutar(escenario, monkeypatch):
-    cliente, conn, solicitud, fw, ids = escenario
+def test_preview_v2_rechaza_manual_fuera_de_forma_sin_mutar(escenario):
+    cliente, conn, solicitud, _, ids = escenario
     listing = conn.execute(
         "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
     ).fetchone()[0]
-    v2 = _solicitud_v2(solicitud, [listing])
-    vista = _preview(cliente, v2)
-    llamadas = []
-    monkeypatch.setattr(fw.fc, "_mutar", lambda *args, **kwargs: llamadas.append(args))
-    bloqueada = _crear(cliente, v2, vista["huella"])
-    assert bloqueada.status_code == 409
-    assert llamadas == []
     invalida = _solicitud_v2(
         solicitud,
         [listing],
@@ -344,10 +332,6 @@ def test_reenvio_v2_reordena_listings_y_no_duplica_mutacion(escenario, monkeypat
             (ids[2],),
         ).fetchall()
     ]
-    conn.execute(
-        "INSERT INTO config_version(label, settings) VALUES ('v2', %s)",
-        (Json({"ads_target_fraccion_margen_amazon_mx": "0.5", "fabrica.creacion": "v2"}),),
-    )
     v2 = _solicitud_v2(solicitud, list(reversed(listing_ids)))
     vista = _preview(cliente, v2)
     llamadas = _motor_simulado(monkeypatch, fw, conn)
@@ -382,11 +366,12 @@ def test_arreglos01_x_preview_rechaza_presupuesto_sobre_el_techo(escenario):
 @pytest.mark.parametrize(
     "cambio",
     [
-        {"productos": [1, 1]},
-        {"productos": [True]},
-        {"productos": [0]},
-        {"productos": ["1"]},
-        {"productos": []},
+        {"listing_ids": [1, 1]},
+        {"listing_ids": [True]},
+        {"listing_ids": [0]},
+        {"listing_ids": ["1"]},
+        {"listing_ids": []},
+        {"productos": [1]},
         {"modo": "off"},
         {"nombre_base": " "},
         {"tipo_producto": "BAD"},
@@ -626,7 +611,7 @@ def test_preview_firma_procedencia_y_terna_amazon(escenario):
     ]
 
 
-def test_preview_v1_rechaza_cobertura_obsoleta_como_422(escenario):
+def test_preview_rechaza_cobertura_obsoleta_como_422(escenario):
     cliente, _, solicitud, _, _ = escenario
     solicitud["parametros"]["category_phrase"].update(
         {
@@ -1101,27 +1086,21 @@ def test_procedencia_dos_dec_fija_los_3_formatos():
 
 
 def test_preview_formatea_procedencia_y_huella_sigue_valida(escenario, monkeypatch):
-    """A7 B5: el preview publica la procedencia a 2 decimales (v1 y v2
-    medida) y la huella sigue valida para crear (formato post-huella
-    sobre la copia serializada: huella-neutral por construccion)."""
+    """A7 B5: el preview publica la procedencia a 2 decimales y la huella
+    sigue valida para crear (formato post-huella sobre la copia serializada:
+    huella-neutral por construccion)."""
     import re
 
     cliente, conn, solicitud, fw, ids = escenario
     listing = conn.execute(
         "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
     ).fetchone()[0]
-    conn.execute(
-        "INSERT INTO config_version(label, settings) VALUES ('v2', %s)",
-        (Json({"ads_target_fraccion_margen_amazon_mx": "0.5", "fabrica.creacion": "v2"}),),
-    )
     v2 = _solicitud_v2(solicitud, [listing], objetivo={"origen": "margen_medido"})
     vista = _preview(cliente, v2)
     proc = vista["plan"]["objetivo"]["procedencia"]
     assert proc == "margen_minimo_grupo: 0.50 x 40.00 = 20.00"
     for token in re.findall(r"\d+\.\d+", proc):
         assert re.fullmatch(r"\d+\.\d{2}", token), token
-    v1 = _preview(cliente, solicitud)
-    assert v1["plan"]["target_procedencia"] == "margen_minimo_grupo: 0.50 x 40.00 = 20.00"
     llamadas = _motor_simulado(monkeypatch, fw, conn)
     respuesta = _crear(cliente, v2, vista["huella"])
     assert respuesta.status_code == 200, respuesta.text
@@ -1442,8 +1421,8 @@ def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(
     revisiones = conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0]
     assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
     assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones
-    # Bien formada pero el plan no se arma (producto que no existe): 2 tambien.
-    ruta.write_text(json.dumps({**solicitud, "productos": [999_999]}), encoding="utf-8")
+    # Bien formada pero el plan no se arma (listing que no existe): 2 tambien.
+    ruta.write_text(json.dumps({**solicitud, "listing_ids": [999_999]}), encoding="utf-8")
     assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
     assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones
 

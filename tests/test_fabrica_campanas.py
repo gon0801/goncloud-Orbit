@@ -106,46 +106,6 @@ def test_fraccion_lee_el_setting_vigente_y_aborta_sin_el():
 
 
 @_skip_db
-def test_productos_exige_margen_y_seller_sku():
-    with db_fabrica("orbit_fab_prod") as conn:
-        con_margen, lid = _producto(conn, sku="A", asin="B0AAAAAAAA", seller_sku="SA")
-        _ledger_producto(conn, con_margen, hoy=HOY)
-        sin_margen, _ = _producto(conn, sku="B", asin="B0BBBBBBBB", seller_sku="SB")
-        sin_sku, _ = _producto(conn, sku="C", asin="B0CCCCCCCC", seller_sku=None)
-        _ledger_producto(
-            conn, sin_sku, hoy=HOY, fee_desfase=10
-        )  # no chocar los cargos prorrateados
-        filas = fc._productos(conn, "amazon_mx", [con_margen])
-        assert len(filas) == 1 and filas[0].seller_sku == "SA" and filas[0].listing_id == lid
-        assert filas[0].margen_neto_pct == Decimal("40")
-        with pytest.raises(fc.Abortar, match="sin margen"):
-            fc._productos(conn, "amazon_mx", [con_margen, sin_margen])
-        with pytest.raises(fc.Abortar, match="seller_sku"):
-            fc._productos(conn, "amazon_mx", [sin_sku])
-        with pytest.raises(fc.Abortar, match="no existe"):
-            fc._productos(conn, "amazon_mx", [999999])
-
-
-@_skip_db
-def test_productos_multi_listing_aborta_nombrando_el_producto():
-    """Fail-loud (regla 3): un producto con 2 listings en la plataforma haria
-    N product ads por campana y reventaria la PK de campana_grupo_producto
-    DESPUES de los POST. El plan ABORTA nombrando el producto: la fabrica no
-    elige listing (multi-listing queda fuera de F1, residual --listing)."""
-    with db_fabrica("orbit_fab_multi") as conn:
-        pid, _ = _producto(conn, sku="A", asin="B0AAAAAAAA", seller_sku="SA")
-        conn.execute(
-            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
-            " VALUES (%s, 'amazon_mx', 'B0AAAAAAB2', 'SA-2')",
-            (pid,),
-        )
-        _ledger_producto(conn, pid, hoy=HOY)
-        with pytest.raises(fc.Abortar, match="listings") as exc:
-            fc._productos(conn, "amazon_mx", [pid])
-        assert str(pid) in str(exc.value) and "(A)" in str(exc.value)  # nombra al producto
-
-
-@_skip_db
 def test_terminos_del_producto_colapsan_bitemporal_y_suman_en_ventana():
     """Solo terminos de los AD GROUPS de campanas con product_ad del listing
     (grano unico sellado por la tarea 1 (f)); ultima observacion por
@@ -324,7 +284,6 @@ class _ConnFalsa:
         self,
         *,
         settings=None,
-        productos=(),
         publicaciones=(),
         terminos=(),
         terminos_exact=None,
@@ -341,7 +300,6 @@ class _ConnFalsa:
         productos_de_listings=(),
     ):
         self.settings = settings
-        self.productos = list(productos)
         self.publicaciones = list(publicaciones)
         self.terminos = list(terminos)
         # candidatos a exact (ventana de cortes): por default los mismos terminos
@@ -386,8 +344,6 @@ class _ConnFalsa:
             return _Cursor(self.productos_de_listings)
         if "from producto_familia" in bajo:
             return _Cursor(self.familias_productos)
-        if "v_margen_producto" in bajo:
-            return _Cursor(self.productos)
         if "ventana_cortes" in bajo:  # _SQL_TERMINOS_EXACT (ventana de cortes)
             return _Cursor(self.terminos_exact)
         if "search_term_observation" in bajo:
@@ -460,8 +416,8 @@ class _Cursor:
         return list(self._filas)
 
 
-# Fila de _SQL_PRODUCTOS: (product_id, odoo_sku, listing_id, asin, seller_sku, margen)
-FILA_PRODUCTO = (1, "ODOO-1", 11, "B0AAAAAAAA", "SS-1", Decimal("38.20"))
+# Fila de _SQL_PUBLICACIONES: (listing_id, product_id, asin, seller_sku, margen)
+FILA_PUBLICACION = (11, 1, "B0AAAAAAAA", "SS-1", Decimal("38.20"))
 ARGS_BASE = [
     "--plataforma",
     "amazon_mx",
@@ -469,8 +425,8 @@ ARGS_BASE = [
     "collar_perro",
     "--nombre-base",
     "Collar reflectante",
-    "--productos",
-    "1",
+    "--listing-ids",
+    "11",
     "--modo",
     "shadow",
     "--budget-auto",
@@ -538,7 +494,7 @@ def _sin_red(monkeypatch):
 def test_dry_run_imprime_plan_huella_y_no_abre_http(monkeypatch, capsys):
     conn = _ConnFalsa(
         settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
-        productos=[FILA_PRODUCTO],
+        publicaciones=[FILA_PUBLICACION],
         terminos=[("collar perro", False, 3, Decimal("10"), Decimal("100"))],
         biblioteca=(["collar led"], ["gato"]),
         existentes=[("c-old", "vieja", "PAUSED")],
@@ -550,15 +506,14 @@ def test_dry_run_imprime_plan_huella_y_no_abre_http(monkeypatch, capsys):
     salida = capsys.readouterr().out
     assert "target=19.10" in salida and "semillas=" in salida
     assert "huella del conjunto:" in salida
-    assert "existente (solo se informa" in salida and "c-old" in salida
     eventos = [json.loads(linea) for linea in salida.splitlines() if linea.startswith("{")]
-    assert any(e["evento"] == "dry_run" for e in eventos)
+    assert any(e["evento"] == "dry_run" and e["existentes"] == 1 for e in eventos)
     assert conn.escrituras == [] and conn.commits >= 1 and conn.closes >= 1  # solo lectura y cierra
 
 
 def test_dry_run_dice_semillas_cero_explicito(monkeypatch, capsys):
     conn = _ConnFalsa(
-        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"}, productos=[FILA_PRODUCTO]
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"}, publicaciones=[FILA_PUBLICACION]
     )
     _frontera_lectura(monkeypatch, conn)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *ARGS_BASE])
@@ -567,36 +522,17 @@ def test_dry_run_dice_semillas_cero_explicito(monkeypatch, capsys):
     assert "category_phrase" in salida and "semillas=0" in salida
 
 
-def test_dry_run_v1_declara_linea_de_margen(monkeypatch, capsys):
-    """A1: el dry-run v1 (sin manual posible) declara que los goals usan el
-    margen de la plataforma; el snapshot derivado sigue visible."""
-    conn = _ConnFalsa(
-        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"}, productos=[FILA_PRODUCTO]
-    )
-    _frontera_lectura(monkeypatch, conn)
-    _sin_red(monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *ARGS_BASE])
-    assert fc.main() == 0
-    salida = capsys.readouterr().out
-    assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in salida
-    assert "target=19.10" in salida
-    assert conn.escrituras == []
-
-
 def test_cli_v2_sin_target_acos_deriva_margen_y_declara_linea(monkeypatch, capsys):
     """A1: --target-acos es opcional; sin el, el CLI deriva margen_medido y
     el dry-run declara la linea de margen de plataforma (goals NULL)."""
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
     conn = _ConnFalsa(
         settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
-        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", Decimal("38.20"))],
+        publicaciones=[FILA_PUBLICACION],
         biblioteca=([], []),
     )
     _frontera_lectura(monkeypatch, conn)
     _sin_red(monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *ARGS_BASE])
     assert fc.main() == 0
     salida = capsys.readouterr().out
     assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in salida
@@ -606,10 +542,7 @@ def test_cli_v2_sin_target_acos_deriva_margen_y_declara_linea(monkeypatch, capsy
 
 def test_cli_v2_con_target_acos_muestra_fijo_sin_linea_de_margen(monkeypatch, capsys):
     """Con manual confirmado, el dry-run muestra el numero fijo, no la linea."""
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
-    args.extend(["--target-acos", "25.00"])
+    args = [*ARGS_BASE, "--target-acos", "25.00"]
     conn = _ConnFalsa(
         publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
         biblioteca=([], []),
@@ -627,10 +560,7 @@ def test_cli_v2_con_target_acos_muestra_fijo_sin_linea_de_margen(monkeypatch, ca
 def test_cli_v2_rechaza_manual_fuera_de_forma(monkeypatch):
     """F2 AI-review PR #381: 25.123 (en banda, 3 decimales) se rechaza con
     el mensaje de forma, igual que /plan, sin escribir nada."""
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
-    args.extend(["--target-acos", "25.123"])
+    args = [*ARGS_BASE, "--target-acos", "25.123"]
     conn = _ConnFalsa(
         publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
         biblioteca=([], []),
@@ -646,10 +576,7 @@ def test_cli_v2_rechaza_manual_fuera_de_forma(monkeypatch):
 @pytest.mark.parametrize("valor", ["0", "70"])
 def test_cli_v2_rechaza_manual_fuera_de_banda(monkeypatch, valor):
     """0 y 70 se rechazan con el mensaje de la banda, sin escribir nada."""
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
-    args.extend(["--target-acos", valor])
+    args = [*ARGS_BASE, "--target-acos", valor]
     conn = _ConnFalsa(
         publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
         biblioteca=([], []),
@@ -664,8 +591,7 @@ def test_cli_v2_rechaza_manual_fuera_de_banda(monkeypatch, valor):
 
 def test_cli_v2_manual_normaliza_listing_sin_margen_sin_http(monkeypatch, capsys):
     args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11,12"]
+    args[args.index("--listing-ids") + 1] = "11,12"
     args.extend(["--target-acos", "25.00"])
     conn = _ConnFalsa(
         publicaciones=[
@@ -686,10 +612,7 @@ def test_cli_v2_manual_normaliza_listing_sin_margen_sin_http(monkeypatch, capsys
 
 
 def test_cli_v2_rechaza_asin_ausente_antes_de_http(monkeypatch):
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
-    args.extend(["--target-acos", "25.00"])
+    args = [*ARGS_BASE, "--target-acos", "25.00"]
     conn = _ConnFalsa(publicaciones=[(11, 1, "", "SS-1", None)], biblioteca=([], []))
     _frontera_lectura(monkeypatch, conn)
     _sin_red(monkeypatch)
@@ -700,10 +623,7 @@ def test_cli_v2_rechaza_asin_ausente_antes_de_http(monkeypatch):
 
 
 def test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales(monkeypatch, capsys):
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
-    args.extend(["--target-acos", "25.00"])
+    args = [*ARGS_BASE, "--target-acos", "25.00"]
     conn = _ConnFalsa(
         publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
         biblioteca=(["semilla real"], ["bloquear"]),
@@ -724,10 +644,7 @@ def test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales(monkeypatch, capsy
 
 @pytest.mark.parametrize("margen", [None, Decimal("0"), Decimal("-5"), Decimal("5")])
 def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, margen):
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
-    parsed = fc._parser().parse_args(args)
+    parsed = fc._parser().parse_args(ARGS_BASE)
     parsed.origen_objetivo = "margen_medido"
     conn = _ConnFalsa(
         settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
@@ -738,46 +655,6 @@ def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, 
     with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
         fc._arma_plan(parsed, conn)
     assert conn.escrituras == []
-
-
-def test_cli_v2_con_mutacion_exige_interruptor_antes_de_http(monkeypatch):
-    args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11"]
-    args.extend(
-        [
-            "--target-acos",
-            "25.00",
-            "--acepto-mutacion-real",
-            "--esperado",
-            "5",
-            "--huella",
-            "a" * 64,
-            "--go",
-            "prueba",
-        ]
-    )
-    conn = _ConnFalsa(publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)], settings={})
-    _frontera_lectura(monkeypatch, conn)
-    _sin_red(monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
-    with pytest.raises(fc.Abortar, match="altas v2 deshabilitadas"):
-        fc.main()
-    assert conn.escrituras == []
-
-
-def test_cli_rechaza_objetivo_manual_con_productos_antes_de_abrir_conexion(monkeypatch):
-    args = [*ARGS_BASE, "--target-acos", "25.00"]
-    _sin_red(monkeypatch)
-    monkeypatch.setenv("ORBIT_DSN_READ", "dsn-read")
-
-    def conexion_prohibida(dsn):
-        raise AssertionError(f"se abrio conexion antes de validar: {dsn}")
-
-    monkeypatch.setattr(fc, "connect", conexion_prohibida)
-    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
-    with pytest.raises(fc.Abortar, match="target-acos"):
-        fc.main()
 
 
 def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
@@ -799,8 +676,7 @@ def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
             return super().execute(sql, params)
 
     args = ARGS_BASE.copy()
-    indice = args.index("--productos")
-    args[indice : indice + 2] = ["--listing-ids", "11,12"]
+    args[args.index("--listing-ids") + 1] = "11,12"
     args.extend(["--target-acos", "25.00"])
     publicaciones = [
         (11, 1, "B0AAAAAAAA", "SS-1", None),
@@ -808,7 +684,7 @@ def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
     ]
     plan = fc._arma_plan(
         fc._parser().parse_args(args),
-        _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+        _ConnFalsa(publicaciones=publicaciones),
     )
     huella = fp.huella_plan_v2(plan)
     secuencia = []
@@ -816,7 +692,7 @@ def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
     amazon = _Amazon(secuencia=secuencia)
     _frontera_mutacion(
         monkeypatch,
-        _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+        _ConnFalsa(publicaciones=publicaciones),
         conn_admin,
         amazon,
     )
@@ -849,7 +725,7 @@ def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
 
 
 def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
-    conn = _ConnFalsa(settings={}, productos=[FILA_PRODUCTO])
+    conn = _ConnFalsa(settings={}, publicaciones=[FILA_PUBLICACION])
     _frontera_lectura(monkeypatch, conn)
     _sin_red(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *ARGS_BASE])
@@ -857,7 +733,7 @@ def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
         fc.main()
     assert conn.closes >= 1
     conn = _ConnFalsa(
-        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"}, productos=[FILA_PRODUCTO]
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"}, publicaciones=[FILA_PUBLICACION]
     )
     _frontera_lectura(monkeypatch, conn)
     args = [a if a != "6.00" else "45.01" for a in ARGS_BASE]  # bid-exact sobre el techo MXN
@@ -940,7 +816,7 @@ def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid,
         _campana_con_producto(conn, lid, external="c-vieja", status="PAUSED", platform=plataforma)
         dsn_db = _test_dsn().rsplit("/", 1)[0] + "/" + conn.info.dbname
         args = ARGS_BASE.copy()
-        args[args.index("--productos") + 1] = str(pid)
+        args[args.index("--listing-ids") + 1] = str(lid)
         args[args.index("--plataforma") + 1] = plataforma
         for rol in ("auto", "phrase", "product", "broad", "exact"):
             args[args.index(f"--bid-{rol}") + 1] = bid
@@ -955,17 +831,20 @@ def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid,
             corrida = subprocess.run(argv, input=fuente, env=env, capture_output=True, text=True)
             assert corrida.returncode == 0, corrida.stderr
             assert "huella del conjunto:" in corrida.stdout
-            assert f"moneda={moneda}" in corrida.stdout
+            assert f"publicacion={lid}" in corrida.stdout
             assert f"bid={bid}" in corrida.stdout
             assert "target=20.00" in corrida.stdout
             eventos = [
                 json.loads(linea) for linea in corrida.stdout.splitlines() if linea.startswith("{")
             ]
             assert any(
-                e["evento"] == "dry_run" and e["platform"] == plataforma and e["target"] == "20.00"
+                e["evento"] == "dry_run"
+                and e["platform"] == plataforma
+                and e["target"] == "20.00"
+                and e["publicaciones"] == [lid]
+                and e["existentes"] == 1
                 for e in eventos
             )
-            assert "existente (solo se informa" in corrida.stdout
 
 
 @_skip_db
@@ -981,7 +860,7 @@ def test_arreglos01_x_el_cli_end_to_end_rechaza_presupuesto_sobre_el_techo():
         _campana_con_producto(conn, lid, external="c-vieja", status="PAUSED", platform="amazon_mx")
         dsn_db = _test_dsn().rsplit("/", 1)[0] + "/" + conn.info.dbname
         args = ARGS_BASE.copy()
-        args[args.index("--productos") + 1] = str(pid)
+        args[args.index("--listing-ids") + 1] = str(lid)
         for rol in ("auto", "phrase", "product", "broad", "exact"):
             args[args.index(f"--budget-{rol}") + 1] = "20000"
         env = {k: v for k, v in os.environ.items() if not k.startswith("ORBIT_")}
@@ -1167,7 +1046,7 @@ def _frontera_mutacion(
 def _conn_plan(**extra):
     base = dict(
         settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
-        productos=[FILA_PRODUCTO],
+        publicaciones=[FILA_PUBLICACION],
         terminos=[("collar noche", False, 2, Decimal("10"), Decimal("100"))],
         biblioteca=(["collar led", "B0DDDDDDDD"], ["gato"]),
     )
@@ -1309,7 +1188,7 @@ def test_mutacion_persiste_lote_web_antes_de_crear_campanas(monkeypatch):
 
     with db_fabrica("orbit_fab_web") as conn:
         plan = _plan_min()
-        huella = fp.huella_plan(plan)
+        huella = fp.huella_plan_v2(plan)
         lote_web = "web-" + huella
         args = SimpleNamespace(esperado=5, huella=huella, go="crear desde web")
 
@@ -1517,19 +1396,24 @@ _CREADAS = [
 
 
 def _plan_min():
-    return fp.PlanGrupo(
+    r = fp.target_del_grupo([Decimal("38.20")], Decimal("0.5"))
+    return fp.PlanGrupoV2(
         platform="amazon_mx",
         tipo_producto="collar_perro",
         nombre_base="Collar",
         fecha=HOY,
         moneda="MXN",
         modo="shadow",
-        productos=(fp.ProductoGrupo(1, "ODOO-1", 11, "B0AAAAAAAA", "SS-1", Decimal("38.20")),),
+        publicaciones=(
+            fp.PublicacionGrupoV2(11, 1, "B0AAAAAAAA", "SS-1", "amazon_mx", Decimal("38.20")),
+        ),
         parametros={
             rol: fp.ParametrosRol(rol, Decimal("120"), Decimal("6.00"))
             for rol in fp.ROLES_ORDEN_CREACION
         },
-        target=fp.target_del_grupo([Decimal("38.20")], Decimal("0.5")),
+        objetivo=fp.ObjetivoPlanV2(
+            "margen_medido", r.aplicado, r.procedencia, r.fraccion, r.derivado
+        ),
         semillas=fp.Semillas((), (), (), ()),
     )
 
@@ -1644,8 +1528,10 @@ def test_registrar_escribe_grupo_roles_productos_y_goals(monkeypatch):
         monkeypatch.setattr(fc, "_sync", lambda cliente: None)
         plan = dataclasses.replace(
             _plan_min(),
-            productos=(
-                fp.ProductoGrupo(pid, "ODOO-1", lid, "B0AAAAAAAA", "SS-1", Decimal("38.20")),
+            publicaciones=(
+                fp.PublicacionGrupoV2(
+                    lid, pid, "B0AAAAAAAA", "SS-1", "amazon_mx", Decimal("38.20")
+                ),
             ),
         )
         ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")
@@ -1756,31 +1642,6 @@ def test_registrar_v2_conserva_dos_listings_y_objetivo_manual(monkeypatch):
     assert all(kw["target_acos_pct"] == Decimal("25.00") for kw in goals)
 
 
-def test_registrar_cmd_lee_lote_v2_con_interruptor_v1_y_no_repite_post(monkeypatch):
-    plan = _plan_v2_min()
-    ledger = _filas_ledger(plan)
-    conn_admin = _ConnFalsa(
-        settings={"fabrica.creacion": "v1"},
-        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
-        pendientes=_camp_ag_de_ledger(ledger),
-        pasos_ledger=ledger,
-    )
-    amazon = _Amazon()
-    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
-    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
-    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
-    monkeypatch.setattr(fc.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
-    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
-    assert fc.main() == 0
-    assert amazon.pedidos == []
-    productos = [
-        params
-        for sql, params in conn_admin.escrituras
-        if "insert into campana_grupo_producto" in sql.lower()
-    ]
-    assert len(productos) == 2
-
-
 def test_sync_usa_dsn_ingest_y_el_escritor_unico(monkeypatch):
     llamadas = {}
     monkeypatch.setenv("ORBIT_DSN_INGEST", "dsn-ingest")
@@ -1797,7 +1658,7 @@ def test_sync_usa_dsn_ingest_y_el_escritor_unico(monkeypatch):
 
 def test_registrar_cmd_reintenta_solo_el_registro(monkeypatch):
     plan = _plan_min()
-    plan_json = fp.plan_como_json(plan)
+    plan_json = fp.plan_v2_como_json(plan)
     ledger = _filas_ledger(plan)
     conn_admin = _ConnFalsa(
         lote_fila=(plan_json, "failed"),
@@ -1833,15 +1694,17 @@ def test_registrar_cmd_doble_corrida_es_idempotente(monkeypatch):
             _entidad(conn, "amazon_mx", "ad_group", c["ad_group"], parent=camp)
         plan = dataclasses.replace(
             _plan_min(),
-            productos=(
-                fp.ProductoGrupo(pid, "ODOO-1", lid, "B0AAAAAAAA", "SS-1", Decimal("38.20")),
+            publicaciones=(
+                fp.PublicacionGrupoV2(
+                    lid, pid, "B0AAAAAAAA", "SS-1", "amazon_mx", Decimal("38.20")
+                ),
             ),
         )
         conn.execute(
             "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
             " huella, plan, modo_goal, estado) VALUES ('L1', 'amazon_mx', 'collar_perro',"
             " 'Collar', 'go', 'h', %s, 'shadow', 'failed')",
-            (Json(fp.plan_como_json(plan)),),
+            (Json(fp.plan_v2_como_json(plan)),),
         )
         _siembra_ledger_pg(conn, "L1", _filas_ledger(plan))
         monkeypatch.setattr(fc, "connect", lambda dsn: conn)
@@ -1889,7 +1752,7 @@ def test_registrar_rechaza_lote_desarmado(monkeypatch):
 
 def test_registrar_aborta_si_goal_existente_apagado(monkeypatch):
     plan = _plan_min()
-    plan_json = fp.plan_como_json(plan)
+    plan_json = fp.plan_v2_como_json(plan)
     ledger = _filas_ledger(plan)
     goals = [(50, False, "shadow", "c-category_exact", "ag-category_exact", Decimal("6.00"))]
     conn_admin = _ConnFalsa(
@@ -1917,7 +1780,7 @@ def test_f1_registrar_aborta_si_ultimo_product_ad_failed(monkeypatch):
     ultimo = fp.ROLES_ORDEN_CREACION[-1]
     ledger = _filas_ledger(plan, forzar_estado={(ultimo, "product_ad"): "failed"})
     conn_admin = _ConnFalsa(
-        lote_fila=(fp.plan_como_json(plan), "failed"),
+        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
         pendientes=_camp_ag_de_ledger(ledger),
         pasos_ledger=ledger,
     )
@@ -1942,7 +1805,7 @@ def test_f1_registrar_aborta_si_semilla_final_planeada(monkeypatch):
     plan = _plan_con_semillas()
     ledger = _filas_ledger(plan, forzar_estado={("auto_discovery", "negative_keyword"): "planeado"})
     conn_admin = _ConnFalsa(
-        lote_fila=(fp.plan_como_json(plan), "failed"),
+        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
         pendientes=_camp_ag_de_ledger(ledger),
         pasos_ledger=ledger,
     )
@@ -1963,7 +1826,7 @@ def test_f1_registrar_aborta_si_paso_nunca_insertado(monkeypatch):
     ultimo = fp.ROLES_ORDEN_CREACION[-1]
     ledger = _filas_ledger(plan, omitir={(ultimo, "product_ad")})
     conn_admin = _ConnFalsa(
-        lote_fila=(fp.plan_como_json(plan), "failed"),
+        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
         pendientes=_camp_ag_de_ledger(ledger),
         pasos_ledger=ledger,
     )
@@ -1987,7 +1850,7 @@ def test_f1_exige_ledger_completo_contra_postgres(monkeypatch):
             "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
             " huella, plan, modo_goal, estado) VALUES ('L1', 'amazon_mx', 'collar_perro',"
             " 'Collar', 'go', 'h', %s, 'shadow', 'failed')",
-            (Json(fp.plan_como_json(plan)),),
+            (Json(fp.plan_v2_como_json(plan)),),
         )
         omitir_pa = {(r, "product_ad") for r in fp.ROLES_ORDEN_CREACION}
         _siembra_ledger_pg(conn, "L1", _filas_ledger(plan, omitir=omitir_pa))
@@ -2341,7 +2204,7 @@ def test_desarmar_lote_failed_a_medias_pausa_lo_applied_y_lo_failed_con_external
     assert _eventos(capsys)[-1]["evento"] == "reconciliacion_final"
 
 
-def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(monkeypatch):
+def test_lote_v2_parcial_se_recupera_sin_post_de_creacion(monkeypatch):
     class _ConnParcialV2(_ConnFalsa):
         def execute(self, sql, params=None):
             plano = " ".join(str(sql).split())
@@ -2382,7 +2245,6 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
     orden, rol, recurso, _estado, external, payload, _ack, _readback = pendiente
     assert external is not None
     conn_admin = _ConnParcialV2(
-        settings={"fabrica.creacion": "v1"},
         lote_fila=(fp.plan_v2_como_json(plan), "failed"),
         pendientes=[
             (
@@ -2405,7 +2267,6 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
     monkeypatch.setattr(fc, "_sync", lambda cliente: None)
     monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
     monkeypatch.setattr(fc.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
-    assert fp.version_creacion_desde_settings(conn_admin.settings) == "v1"
 
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L2"])
     assert fc.main() == 0
@@ -2422,15 +2283,16 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
     assert not [
         pedido
         for pedido in amazon.pedidos
-        if pedido.method == "POST" and pedido.url.path in fp.VENDOR_POR_PATH
+        for path in fp.VENDOR_POR_PATH
+        if pedido.method == "POST" and pedido.url.path == path
     ]
     assert any("estado = 'applied'" in sql.lower() for sql, _ in conn_admin.escrituras)
     assert any("insert into campana_grupo " in sql.lower() for sql, _ in conn_admin.escrituras)
 
 
 @_skip_db
-def test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion(monkeypatch):
-    """Ensayo aislado: recupera un lote v2 aunque la creacion nueva siga en v1."""
+def test_ensayo_staging_lote_v2_parcial_se_recupera_sin_post_de_creacion(monkeypatch):
+    """Ensayo aislado: recupera un lote v2 parcial sin repetir POST de creacion."""
     import psycopg
 
     with db_fabrica("orbit_fab_rollback_v2") as conn:
@@ -2466,10 +2328,6 @@ def test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion(
         ledger[-1] = (orden, rol, recurso, "failed", external, payload, {"status": 207}, None)
         assert external is not None
         conn.execute(
-            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
-            ("rollback-v1", Json({"fabrica.creacion": "v1"})),
-        )
-        conn.execute(
             "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
             " huella, plan, modo_goal, estado) VALUES"
             " (%s, 'amazon_mx', 'collar_perro', 'Collar', 'go', 'h-v2', %s, 'shadow', 'failed')",
@@ -2489,12 +2347,6 @@ def test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion(
             )
             campaign_id = _entidad(conn, "amazon_mx", "campaign", campaign)
             _entidad(conn, "amazon_mx", "ad_group", ad_group, parent=campaign_id)
-
-        settings = conn.execute(
-            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-        ).fetchone()[0]
-        assert fp.version_creacion_desde_settings(settings) == "v1"
-        assert fc._creacion_v2_habilitada(conn) is False
 
         amazon = _AmazonRecuperacion()
         amazon.objetos[external] = payload
