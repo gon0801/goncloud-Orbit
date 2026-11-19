@@ -3172,3 +3172,52 @@ def test_ui_cortes_consulta_caida_no_pinta_sin_bloqueos():
     html = sin_registro(ui.templates.env.get_template("cortes.html").render(**ctx))
     assert "no se pudo leer tus bloqueos" in html
     assert "sin bloqueos" not in html
+
+
+def test_arreglos04_w_o_salud_explica_motivos_en_espera(monkeypatch):
+    from app import cycle as ciclo
+    from app.optimizer import politica, proteccion
+
+    esperados = {
+        politica.MOTIVO_SUBIDA_EN_ESPERA: (
+            "Su pausa está en espera por una venta reciente: Orbit no sube la puja mientras tanto"
+        ),
+        proteccion.MOTIVO_PROTEGIDA: (
+            "Iba a pausarse, pero tiene un pedido reciente: la pausa espera"
+        ),
+        proteccion.MOTIVO_INDETERMINADA: (
+            "Iba a pausarse, pero falta el dato de sus pedidos recientes: la pausa espera"
+        ),
+        ciclo.MOTIVO_PAUSA_PRODUCTO_PENDIENTE: (
+            "La pausa de su producto está en camino: Orbit no sube la puja de lo que va a pausar"
+        ),
+    }
+    conteos = {
+        politica.MOTIVO_SUBIDA_EN_ESPERA: 4,
+        proteccion.MOTIVO_PROTEGIDA: 3,
+        proteccion.MOTIVO_INDETERMINADA: 2,
+        ciclo.MOTIVO_PAUSA_PRODUCTO_PENDIENTE: 1,
+    }
+    ultimo_ciclo = {
+        "id": 180,
+        "status": "done",
+        "mode": "shadow",
+        "started_at": "2026-11-12T06:00:00+00:00",
+        "notes": {"skips": {"entidad": conteos}},
+    }
+    skips = ui.dash._skips_de(ultimo_ciclo)
+    assert {fila["motivo"]: fila["motivo_es"] for fila in skips["entidad"]} == esperados
+
+    plataforma = _plataforma_quota()
+    plataforma["ultimo_ciclo"] = ultimo_ciclo
+    plataforma["skips"] = skips
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": plataforma})
+    for frase in esperados.values():
+        assert f"<span>{frase}</span>" in html
+    for humanizado in (
+        "Subida en espera de venta",
+        "Venta reciente protegida",
+        "Venta reciente indeterminada",
+        "Pausa producto pendiente",
+    ):
+        assert humanizado not in html
