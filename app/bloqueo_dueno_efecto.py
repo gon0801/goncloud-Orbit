@@ -221,6 +221,16 @@ def _negative_que_bloquea(items: list[dict], grupo_ext: str, termino: str) -> di
     return None
 
 
+def _negative_por_id(items: list[dict], grupo_ext: str, termino: str, kid: str) -> dict | None:
+    """El ENABLED con ese id exacto. Un ENABLED ajeno del mismo termino no sirve."""
+    for item in _coincidencias(items, grupo_ext, termino):
+        if str(item.get("state", "")).upper() == apply.ESTADO_WIRE_ENABLED and str(
+            item.get("keywordId")
+        ) == str(kid):
+            return item
+    return None
+
+
 def _rechazo(resp) -> str | None:
     """El rechazo por item del 207, saneado y corto. Devuelve None si Amazon no rechazo nada."""
     errores = _errores_de_ack(apply._json_seguro(resp))
@@ -308,6 +318,14 @@ def _postea_y_relee(
             )
             return Efecto(200, veredicto_id=vid, paso="fallido", motivo="rechazo_amazon")
         id_creado = _id_de_ack(apply._json_seguro(resp), "negativeKeywordId")
+    if exigir_id:
+        _sella(
+            conn,
+            vid,
+            "intencion",
+            motivo="reparacion",
+            negative_keyword_id=id_creado,
+        )
     return _readback(
         conn,
         cliente,
@@ -335,15 +353,7 @@ def _readback(
     if exigir_id:
         if id_esperado is None:
             return Efecto(200, veredicto_id=vid, paso="intencion", motivo="por_confirmar")
-        item = next(
-            (
-                x
-                for x in _coincidencias(items, grupo_ext, senal.termino)
-                if str(x.get("state", "")).upper() == apply.ESTADO_WIRE_ENABLED
-                and str(x.get("keywordId")) == id_esperado
-            ),
-            None,
-        )
+        item = _negative_por_id(items, grupo_ext, senal.termino, id_esperado)
     else:
         item = _negative_que_bloquea(items, grupo_ext, senal.termino)
     if item is not None:
@@ -604,14 +614,19 @@ def _reconcilia_sin_candado(conn, ad_group_id: int, termino_sha256: str, transpo
     if estado != "ok":
         return Efecto(200, motivo="pendiente")
     ultimo = Efecto(200, motivo="nada")
-    for vid, paso, kid, _plataforma, termino in huerfanos:
-        ultimo = _cierra_huerfano(conn, vid, paso, kid, termino, items, externos[0])
+    for vid, paso, kid, _plataforma, termino, motivo in huerfanos:
+        ultimo = _cierra_huerfano(conn, vid, paso, kid, termino, items, externos[0], motivo=motivo)
     return ultimo
 
 
-def _cierra_huerfano(conn, vid, paso, kid, termino, items, grupo_ext) -> Efecto:
+def _cierra_huerfano(conn, vid, paso, kid, termino, items, grupo_ext, *, motivo=None) -> Efecto:
     if paso == "intencion":
-        item = _negative_que_bloquea(items, grupo_ext, termino)
+        if motivo == "reparacion":
+            item = _negative_por_id(items, grupo_ext, termino, kid) if kid else None
+            if item is None:
+                return Efecto(200, veredicto_id=vid, paso="intencion", motivo="por_confirmar")
+        else:
+            item = _negative_que_bloquea(items, grupo_ext, termino)
         if item is not None:
             _sella(conn, vid, "aplicado", negative_keyword_id=str(item["keywordId"]))
             return Efecto(200, veredicto_id=vid, paso="aplicado")
@@ -828,10 +843,11 @@ def _externos(conn, ad_group_id: int) -> tuple[str, str] | None:
 def _huerfanos(conn, ad_group_id: int, termino_sha256: str) -> list[tuple]:
     return conn.execute(
         """
-        SELECT v.id, ult.paso, ult.negative_keyword_id, v.plataforma::text, v.termino
+        SELECT v.id, ult.paso, ult.negative_keyword_id, v.plataforma::text, v.termino,
+               ult.motivo
           FROM bloqueo_veredicto v
           JOIN LATERAL (
-                SELECT e.paso, e.negative_keyword_id
+                SELECT e.paso, e.negative_keyword_id, e.motivo
                   FROM bloqueo_efecto e
                  WHERE e.veredicto_id = v.id
                  ORDER BY e.created_at DESC, e.id DESC

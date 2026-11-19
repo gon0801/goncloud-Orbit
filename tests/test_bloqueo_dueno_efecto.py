@@ -1710,7 +1710,15 @@ def test_arreglos04_bb_reparacion_precondiciones_quitar_y_aprobar(monkeypatch):
                     }
                 )
                 fase["list_post"] = "caido"
-                return httpx.Response(503, json={"message": "post 503"})
+                return httpx.Response(
+                    207,
+                    json={
+                        "negativeKeywords": {
+                            "success": [{"negativeKeywordId": "kid-reemplazo"}],
+                            "error": [],
+                        }
+                    },
+                )
             return httpx.Response(400, json={"message": request.url.path})
 
         tp_incierto = httpx.MockTransport(h_reemplazo)
@@ -1756,3 +1764,170 @@ def test_arreglos04_bb_reparacion_precondiciones_quitar_y_aprobar(monkeypatch):
         )
         assert q_aus == efecto.Efecto(200, veredicto_id=orig_aus.veredicto_id, paso="revertido")
         assert [r for r in vistos_aus if r.url.path == "/sp/negativeKeywords/delete"] == []
+
+
+def test_arreglos04_bb_reconciliacion_no_adopta_un_enabled_ajeno(monkeypatch):
+    """El ack confirma A y la lista solo trae B: la conciliacion no adopta B."""
+    _parche(monkeypatch)
+    with _db_o_mem() as conn:
+        senal_vieja, grupo, grupo_ext, _campana, termino, roster = _prepara(conn)
+        tp, _vistos, _store = _transporte(grupo_ext, termino)
+        origen = efecto.aprobar(conn, senal_vieja, transport=tp)
+        assert origen.paso == "aplicado"
+        assert efecto.quitar(conn, origen.veredicto_id, transport=tp).paso == "revertido"
+
+        senal_vigente = _senal_ajena(
+            conn,
+            grupo,
+            termino,
+            SHA,
+            roster,
+            plataforma="amazon_mx",
+            gasto=Decimal("9.5000"),
+            lote=_lote(conn),
+            miembros=1,
+        )
+        pre_ap = efecto.PrecondicionAprobar(
+            origen_id=origen.veredicto_id,
+            plataforma="amazon_mx",
+            ad_group_id=grupo,
+            termino=termino,
+        )
+        fase = {"listas": 0, "listar_a": False}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            if request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=_perfiles())
+            if request.url.path == "/sp/negativeKeywords/list":
+                fase["listas"] += 1
+                if fase["listas"] == 1:
+                    return httpx.Response(200, json={"negativeKeywords": []})
+                items = [
+                    {
+                        "keywordId": "kid-ajeno",
+                        "adGroupId": grupo_ext,
+                        "keywordText": termino,
+                        "matchType": "NEGATIVE_EXACT",
+                        "state": "ENABLED",
+                    }
+                ]
+                if fase["listar_a"]:
+                    items.insert(
+                        0,
+                        {
+                            "keywordId": "kid-reemplazo",
+                            "adGroupId": grupo_ext,
+                            "keywordText": termino,
+                            "matchType": "NEGATIVE_EXACT",
+                            "state": "ENABLED",
+                        },
+                    )
+                return httpx.Response(200, json={"negativeKeywords": items})
+            if request.url.path == "/sp/negativeKeywords" and request.method == "POST":
+                return httpx.Response(
+                    207,
+                    json={
+                        "negativeKeywords": {
+                            "success": [{"negativeKeywordId": "kid-reemplazo"}],
+                            "error": [],
+                        }
+                    },
+                )
+            return httpx.Response(400, json={"message": request.url.path})
+
+        tp_ab = httpx.MockTransport(handler)
+        dudoso = efecto.aprobar(conn, senal_vigente, transport=tp_ab, precondicion=pre_ap)
+        assert (dudoso.status, dudoso.paso, dudoso.motivo) == (200, "intencion", "por_confirmar")
+        assert _pasos(conn, dudoso.veredicto_id)[-1] == (
+            "intencion",
+            "reparacion",
+            "kid-reemplazo",
+        )
+
+        efecto.reconcilia_todas(conn, transport=tp_ab)
+        pasos = _pasos(conn, dudoso.veredicto_id)
+        assert pasos[-1][0] == "intencion", (
+            f"la conciliacion adopto el ENABLED ajeno kid-ajeno: {pasos}"
+        )
+        assert not any(p[2] == "kid-ajeno" for p in pasos)
+
+        fase["listar_a"] = True
+        efecto.reconcilia_todas(conn, transport=tp_ab)
+        assert _pasos(conn, dudoso.veredicto_id)[-1] == (
+            "aplicado",
+            None,
+            "kid-reemplazo",
+        )
+
+
+def test_arreglos04_bb_reconciliacion_no_atribuye_sin_ack(monkeypatch):
+    """Sin ID en el acuse, un ENABLED posterior no se adopta como reemplazo."""
+    _parche(monkeypatch)
+    with _db_o_mem() as conn:
+        senal_vieja, grupo, grupo_ext, _campana, termino, roster = _prepara(
+            conn, termino="sin-ack", sha="5" * 64
+        )
+        tp, _vistos, _store = _transporte(grupo_ext, termino)
+        origen = efecto.aprobar(conn, senal_vieja, transport=tp)
+        assert origen.paso == "aplicado"
+        assert efecto.quitar(conn, origen.veredicto_id, transport=tp).paso == "revertido"
+
+        senal_vigente = _senal_ajena(
+            conn,
+            grupo,
+            termino,
+            "5" * 64,
+            roster,
+            plataforma="amazon_mx",
+            gasto=Decimal("9.5000"),
+            lote=_lote(conn),
+            miembros=1,
+        )
+        pre_ap = efecto.PrecondicionAprobar(
+            origen_id=origen.veredicto_id,
+            plataforma="amazon_mx",
+            ad_group_id=grupo,
+            termino=termino,
+        )
+        fase = {"listas": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            if request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=_perfiles())
+            if request.url.path == "/sp/negativeKeywords/list":
+                fase["listas"] += 1
+                if fase["listas"] == 1:
+                    return httpx.Response(200, json={"negativeKeywords": []})
+                return httpx.Response(
+                    200,
+                    json={
+                        "negativeKeywords": [
+                            {
+                                "keywordId": "kid-ajeno",
+                                "adGroupId": grupo_ext,
+                                "keywordText": termino,
+                                "matchType": "NEGATIVE_EXACT",
+                                "state": "ENABLED",
+                            }
+                        ]
+                    },
+                )
+            if request.url.path == "/sp/negativeKeywords" and request.method == "POST":
+                return httpx.Response(503, json={"message": "post 503"})
+            return httpx.Response(400, json={"message": request.url.path})
+
+        tp_sin = httpx.MockTransport(handler)
+        dudoso = efecto.aprobar(conn, senal_vigente, transport=tp_sin, precondicion=pre_ap)
+        assert (dudoso.status, dudoso.paso, dudoso.motivo) == (200, "intencion", "por_confirmar")
+        assert _pasos(conn, dudoso.veredicto_id)[-1] == ("intencion", "reparacion", None)
+
+        efecto.reconcilia_todas(conn, transport=tp_sin)
+        pasos = _pasos(conn, dudoso.veredicto_id)
+        assert pasos[-1][0] == "intencion", (
+            f"sin ID de acuse la conciliacion adopto kid-ajeno: {pasos}"
+        )
+        assert not any(p[0] == "aplicado" for p in pasos)
