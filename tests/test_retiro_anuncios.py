@@ -2341,11 +2341,12 @@ def test_arreglos04_w_m_retiro_sin_pedidos_excluye_lo_que_vendio(monkeypatch):
 @_skip_db
 def test_arreglos04_w_m_retiro_no_saca_nada_si_las_ventas_no_estan_al_dia():
     """W-M.1 (dinero): si la ultima corrida ok de accounting_ledger_events
-    tiene mas de 2 dias, planea_retiro no saca ningun anuncio y declara
-    ventas_al_dia=False con ventas_al_dia_hasta."""
+    tiene mas de 2 dias en la zona de la plataforma (incluido el cruce de
+    medianoche donde UTC ya avanzo al dia siguiente), planea_retiro no saca
+    ningun anuncio y declara ventas_al_dia=False con ventas_al_dia_hasta."""
     import datetime as dt
 
-    hoy = dt.date(2026, 10, 9)
+    hoy = dt.date(2026, 11, 19)
     ultima = dt.datetime.combine(hoy - dt.timedelta(days=3), dt.time(8, 15), tzinfo=dt.UTC)
     with _db_i4("orbit_w_m_retiro_viejo", libro_al_dia=False) as conn:
         conn.execute(
@@ -2374,3 +2375,39 @@ def test_arreglos04_w_m_retiro_no_saca_nada_si_las_ventas_no_estan_al_dia():
         assert plan.ventas_al_dia_hasta == ultima
         assert plan.como_dict()["ventas_al_dia"] is False
         assert plan.como_dict()["ventas_al_dia_hasta"] == ultima.isoformat()
+
+        cruce_utc = dt.datetime(2026, 11, 17, 4, 0, tzinfo=dt.UTC)
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', %s, true)",
+            (cruce_utc,),
+        )
+        plan_cruce = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid,),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert plan_cruce.anuncios == ()
+        assert plan_cruce.ventas_al_dia is False
+        assert plan_cruce.ventas_al_dia_hasta == cruce_utc
+
+        en_borde_local = dt.datetime(2026, 11, 17, 6, 0, tzinfo=dt.UTC)
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', %s, true)",
+            (en_borde_local,),
+        )
+        plan_al_dia = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid,),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert [a.ad_id_externo for a in plan_al_dia.anuncios] == ["ad-sin"]
+        assert plan_al_dia.ventas_al_dia is True
+        assert plan_al_dia.ventas_al_dia_hasta is None

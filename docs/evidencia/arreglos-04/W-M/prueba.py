@@ -105,4 +105,32 @@ assert plan_viejo.ventas_al_dia_hasta == libro_viejo
 assert plan_viejo.como_dict()["ventas_al_dia"] is False
 assert plan_viejo.como_dict()["ventas_al_dia_hasta"] == libro_viejo.isoformat()
 
+hoy_cruce = dt.date(2026, 11, 19)
+libro_cruce_mx = dt.datetime(2026, 11, 17, 4, 0, tzinfo=dt.UTC)
+plan_cruce = retiro_anuncios.planea_retiro(
+    _ConnFalsa(libro=libro_cruce_mx, vendio={40: False}),
+    "amazon_mx",
+    listing_ids=(40,),
+    motivo="sin_pedidos",
+    conservar_grupo_id=None,
+    hoy=hoy_cruce,
+)
+assert plan_cruce.anuncios == (), (
+    f"saco anuncios con carga del 16-nov 22:00 CDMX: {plan_cruce.anuncios}"
+)
+assert plan_cruce.ventas_al_dia is False
+assert plan_cruce.ventas_al_dia_hasta == libro_cruce_mx
+
+libro_borde_mx = dt.datetime(2026, 11, 17, 6, 0, tzinfo=dt.UTC)
+plan_borde = retiro_anuncios.planea_retiro(
+    _ConnFalsa(libro=libro_borde_mx, vendio={40: False}),
+    "amazon_mx",
+    listing_ids=(40,),
+    motivo="sin_pedidos",
+    conservar_grupo_id=None,
+    hoy=hoy_cruce,
+)
+assert [a.ad_id_externo for a in plan_borde.anuncios] == ["ad-cero"]
+assert plan_borde.ventas_al_dia is True
+
 print("W-M OK")
