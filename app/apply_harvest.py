@@ -1459,29 +1459,25 @@ def _reversa_automatica(
     detalle lo declara. Un ACK sin id no prueba procedencia: LIST por
     identidad no autoriza borrar un objeto que puede ser ajeno. Todas las
     lecturas necesarias se resuelven antes del primer DELETE y cualquier
-    lectura inconclusa (`AdsApiError` / `ListaIncompleta`) se propaga para
-    conservar el trabajo pendiente sin borrado parcial."""
-    try:
-        cliente = aplicador._cliente()
-        ext = dict(job.external_ids)
-        neg_id = ext.get("negative_id")
-        kw_id = ext.get("keyword_id")
-        keyword_propia = ext.get("keyword_creada") is True
-        negative_propia = ext.get("negative_creada") is True
-        if kw_id is None and keyword_propia:
-            kws = _lista_completa(cliente, "/sp/keywords/list")
-            propio = _identidad(kws, ctx.destino_grupo, job.search_term)
-            if propio is not None:
-                kw_id = propio.get("keywordId")
-        if neg_id is None and negative_propia:
-            items = _lista_completa(cliente, "/sp/negativeKeywords/list")
-            propio = _identidad(items, ctx.grupo_ext, job.search_term)
-            if propio is not None:
-                neg_id = propio.get("keywordId")
-    except AdsApiError:
-        raise
-    except AdsClientError as exc:
-        return f"reversa: fallo ({exc})"
+    lectura inconclusa o fallo de autenticacion durante ellas (`AdsApiError`,
+    `ListaIncompleta` o `AdsAuthError`) se propaga para conservar el trabajo
+    pendiente sin borrado parcial."""
+    cliente = aplicador._cliente()
+    ext = dict(job.external_ids)
+    neg_id = ext.get("negative_id")
+    kw_id = ext.get("keyword_id")
+    keyword_propia = ext.get("keyword_creada") is True
+    negative_propia = ext.get("negative_creada") is True
+    if kw_id is None and keyword_propia:
+        kws = _lista_completa(cliente, "/sp/keywords/list")
+        propio = _identidad(kws, ctx.destino_grupo, job.search_term)
+        if propio is not None:
+            kw_id = propio.get("keywordId")
+    if neg_id is None and negative_propia:
+        items = _lista_completa(cliente, "/sp/negativeKeywords/list")
+        propio = _identidad(items, ctx.grupo_ext, job.search_term)
+        if propio is not None:
+            neg_id = propio.get("keywordId")
     try:
         if (
             kw_id is not None

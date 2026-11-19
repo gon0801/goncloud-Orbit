@@ -35,7 +35,7 @@ import psycopg
 
 from app import apply, biblioteca
 from app import apply_harvest as _ejecucion
-from app.ads.client import AdsApiError
+from app.ads.client import AdsApiError, AdsAuthError
 from app.optimizer import cortes, harvest_destino, hygiene, windows
 
 if TYPE_CHECKING:
@@ -287,7 +287,7 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             # 2+ y leer solo la primera la daba por ausente (estado ilegible,
             # fila applying eterna).
             estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
-        except AdsApiError:
+        except (AdsApiError, AdsAuthError):
             continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
         if estado == apply.ESTADO_WIRE_PAUSED:
             ack = {"fuente": "list", "state": estado}
@@ -391,7 +391,7 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
         grupo_ext, campana_ext = externos
         try:
             items = _ejecucion._lista_completa(cliente, "/sp/negativeKeywords/list")
-        except AdsApiError:
+        except (AdsApiError, AdsAuthError):
             continue  # lectura ambigua: proximo ciclo
         propio = _ejecucion._identidad(items, grupo_ext, term)
         if propio is not None:
@@ -466,7 +466,7 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
             _ejecucion._termina_cola(conn, q_id, "failed")
             fallidas += 1
             continue
-        except AdsApiError:
+        except (AdsApiError, AdsAuthError):
             continue  # ambiguo: la fila sin sello ES el rastro
         ack = apply._json_seguro(resp)
         errores = _ejecucion._errores_de_ack(ack)
@@ -620,7 +620,7 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
                 continue
             try:
                 motivo = revalida_harvest(conn, platform, fila, dt.datetime.now(dt.UTC))
-            except AdsApiError:
+            except (AdsApiError, AdsAuthError):
                 continue
             if motivo is not None:
                 with conn.transaction():
@@ -644,7 +644,7 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
                 continue  # un veto gano la carrera del claim: la cola manda
         try:
             estado, alerta = _ejecucion._continua_job(conn, aplicador, job, queue_id=queue_id)
-        except AdsApiError:
+        except (AdsApiError, AdsAuthError):
             continue
         if estado == "done":
             jobs_done += 1
