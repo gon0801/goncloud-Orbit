@@ -1133,7 +1133,7 @@ def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
     assert [n.split(" | ")[2] for n in campanas] == list(fp.ROLES_ORDEN_CREACION)
     assert len(amazon.posts("/sp/adGroups")) == 5 and len(amazon.posts("/sp/productAds")) == 5
     assert len(amazon.posts("/sp/keywords")) == 1 + 2 + 2
-    assert len(amazon.posts("/sp/targets")) == 1 and len(amazon.posts("/sp/negativeKeywords")) == 1
+    assert len(amazon.posts("/sp/targets")) == 1 and len(amazon.posts("/sp/negativeKeywords")) == 4
     kw_exact = json.loads(amazon.posts("/sp/keywords")[0].content)["keywords"][0]
     assert (
         kw_exact["matchType"] == "EXACT"
@@ -1147,7 +1147,7 @@ def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
         "sku": "SS-1",
         "state": "ENABLED",
     }
-    total_posts = 5 + 5 + 5 + 5 + 1 + 1
+    total_posts = 5 + 5 + 5 + 5 + 1 + 4
     assert (
         len(_pasos(conn_admin)) == total_posts
         and len(_sellos(conn_admin, "applied")) == total_posts
