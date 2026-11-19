@@ -394,6 +394,57 @@ def test_edita_goal_moneda_sin_defaults_revierte_antes_de_persistir():
     assert conn_falso.sql == "", "con moneda sin defaults no se ejecuta ningun UPDATE"
 
 
+def test_arreglos04_w_i_goal_fuera_de_rango_se_rechaza():
+    """La meta editada de un goal vive en [10, 45] % y las pujas editadas bajo
+    el tope humano de la moneda; un goal viejo fuera de rango sigue editable."""
+    for meta_invalida in (Decimal("0.2"), Decimal("2000")):
+        conn = _ConnFila(_fila_mxn(bid_floor=Decimal("1"), bid_ceiling=Decimal("45")))
+        with pytest.raises(goals_write.GoalInvalido, match=r"\[10, 45\]"):
+            goals_write.edita_goal(conn, 7, target_acos_pct=meta_invalida, updated_at=T_EDITADO)
+        assert conn.sql == ""
+
+    conn_techo = _ConnFila(_fila_mxn(bid_floor=Decimal("1"), bid_ceiling=Decimal("45")))
+    with pytest.raises(goals_write.GoalInvalido, match="180 MXN"):
+        goals_write.edita_goal(conn_techo, 7, bid_ceiling=Decimal("4500"), updated_at=T_EDITADO)
+    assert conn_techo.sql == ""
+
+    conn_piso = _ConnFila(_fila_mxn(bid_floor=Decimal("1"), bid_ceiling=Decimal("500")))
+    with pytest.raises(goals_write.GoalInvalido, match="180 MXN"):
+        goals_write.edita_goal(conn_piso, 7, bid_floor=Decimal("180.01"), updated_at=T_EDITADO)
+    assert conn_piso.sql == ""
+
+    conn_harvest = _ConnFila(
+        _fila_mxn(
+            bid_floor=Decimal("1"),
+            bid_ceiling=Decimal("45"),
+            harvest_campaign_id="c-1",
+            harvest_ad_group_id="ag-1",
+            harvest_default_bid=Decimal("5"),
+        )
+    )
+    with pytest.raises(goals_write.GoalInvalido, match="180 MXN"):
+        goals_write.edita_goal(
+            conn_harvest, 7, harvest_default_bid=Decimal("180.01"), updated_at=T_EDITADO
+        )
+    assert conn_harvest.sql == ""
+
+    conn_ok = _ConnFila(_fila_mxn(bid_floor=Decimal("1"), bid_ceiling=Decimal("40")))
+    goals_write.edita_goal(
+        conn_ok, 7, target_acos_pct=Decimal("20"), bid_ceiling=Decimal("45"), updated_at=T_EDITADO
+    )
+    assert conn_ok.params == (Decimal("20"), Decimal("45"), T_EDITADO, 7)
+
+    conn_viejo = _ConnFila(
+        _fila_mxn(
+            target_acos_pct=Decimal("60"),
+            bid_floor=Decimal("1"),
+            bid_ceiling=Decimal("500"),
+        )
+    )
+    goals_write.edita_goal(conn_viejo, 7, enabled=False, updated_at=T_EDITADO)
+    assert conn_viejo.params == (False, T_EDITADO, 7)
+
+
 # ---------------------------------------------------------------------------
 # PG16 REAL: UPDATE honesto, pre-validacion combinada y visibilidad al ciclo
 # ---------------------------------------------------------------------------
