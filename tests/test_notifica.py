@@ -144,36 +144,74 @@ def _alerta():
 
 
 def test_aviso_corte_encolado_contenido_y_vencimiento():
-    """El aviso lleva plataforma, familia de efecto, kind, termino, modo y el
-    VENCIMIENTO ISO (la ventana 48h es el dato que importa al dueno)."""
-    texto = notifica.aviso_corte_encolado(
-        notifica.CorteEncolado(
-            platform="amazon_mx",
-            kind="harvest",
-            search_term="nogal cream",
-            vence_el=VENCE,
-            modo="live",
-        )
+    """En vivo: plataforma legible, conteo singular/plural, accion en espanol y
+    el vencimiento mas temprano en hora del centro de Mexico."""
+    assert notifica.avisos_cortes_del_ciclo(()) == []
+    tarde = VENCE + dt.timedelta(hours=2)
+    (texto_unico,) = notifica.avisos_cortes_del_ciclo(
+        [
+            notifica.CorteEncolado(
+                platform="amazon_mx",
+                kind="harvest",
+                search_term="nogal cream",
+                vence_el=VENCE,
+                modo="live",
+            )
+        ]
     )
-    assert texto.startswith("[Orbit] corte encolado")
-    assert "amazon_mx" in texto
-    assert "kind: harvest (familia term_cut)" in texto
-    assert "search_term: nogal cream" in texto
-    assert "modo: live" in texto
-    assert VENCE.isoformat() in texto, "el vencimiento de la ventana de veto viaja en el aviso"
+    assert texto_unico == (
+        "[Orbit] Amazon MX: 1 corte nuevo en este ciclo\n"
+        "En vivo: 1. Se aplican solos el 24 ago, 06:00 (hora del centro de México)"
+        " si no los rechazas en Propuestas.\n"
+        "- Pasar a exacta la búsqueda «nogal cream»"
+    )
+    (texto_mixto,) = notifica.avisos_cortes_del_ciclo(
+        [
+            notifica.CorteEncolado(
+                platform="amazon_mx",
+                kind="negative",
+                search_term="funda iphone",
+                vence_el=tarde,
+                modo="live",
+            ),
+            notifica.CorteEncolado(
+                platform="amazon_mx",
+                kind="harvest",
+                search_term="nogal cream",
+                vence_el=VENCE,
+                modo="live",
+            ),
+            notifica.CorteEncolado(
+                platform="amazon_mx",
+                kind="pause",
+                search_term=None,
+                vence_el=tarde,
+                modo="shadow",
+            ),
+        ]
+    )
+    assert "En vivo: 2. Se aplican solos el 24 ago, 06:00" in texto_mixto
+    assert "En práctica: 1. Son de prueba: no se aplicarán." in texto_mixto
+    assert texto_mixto.index("En vivo: 2") < texto_mixto.index("En práctica: 1")
 
 
 def test_aviso_corte_pause_sin_termino_no_inventa():
-    """Regla 3: un pause no tiene search_term — la linea NO aparece (jamas un
-    'None' serializado como si fuera dato)."""
-    texto = notifica.aviso_corte_encolado(
-        notifica.CorteEncolado(
-            platform="amazon_us", kind="pause", search_term=None, vence_el=VENCE, modo="shadow"
-        )
+    """Regla 3: un pause no tiene search_term — la linea dice que se pausa sin
+    serializar 'None' como si fuera dato."""
+    (texto,) = notifica.avisos_cortes_del_ciclo(
+        [
+            notifica.CorteEncolado(
+                platform="amazon_us",
+                kind="pause",
+                search_term=None,
+                vence_el=VENCE,
+                modo="shadow",
+            )
+        ]
     )
     assert "search_term" not in texto
     assert "None" not in texto
-    assert "kind: pause (familia entity_cut)" in texto
+    assert "- Pausar una keyword o un producto" in texto
 
 
 def test_arreglos04_w_g_cortes_de_practica_un_solo_mensaje(canal_ok):
@@ -916,11 +954,18 @@ def test_canal_deshabilitado_sin_archivo_no_es_fallo(tmp_path, monkeypatch, capl
     notifica._reset()
     assert notifica.canal_activo() is False
     assert notifica.notifica_digest({"cycle_id": 1, "plataforma": "x", "status": "done"}) is True
+    assert notifica.notifica_cortes_encolados(()) is True
     assert (
-        notifica.notifica_encola(
-            notifica.CorteEncolado(
-                platform="amazon_us", kind="negative", search_term="t", vence_el=VENCE, modo="live"
-            )
+        notifica.notifica_cortes_encolados(
+            [
+                notifica.CorteEncolado(
+                    platform="amazon_us",
+                    kind="negative",
+                    search_term="t",
+                    vence_el=VENCE,
+                    modo="live",
+                )
+            ]
         )
         is True
     )
@@ -1009,7 +1054,7 @@ def test_ciclo_canal_falla_termina_done_con_nota_telegram(canal_fail):
         assert _parse_notes(persistido)["telegram"] == notas["telegram"]
 
 
-def test_fase_notifica_lattea_entre_envios(canal_ok):
+def test_fase_notifica_lattea_entre_envios(canal_ok, tmp_path, monkeypatch):
     """Greptile P2 (PR #32): los envios son SINCRONOS y corren dentro del lock
     del ciclo — N avisos con el canal lento alargan el lease y abren la
     ventana del zombie (decision 11). _fase_notifica recibe el tick de
@@ -1039,32 +1084,45 @@ def test_fase_notifica_lattea_entre_envios(canal_ok):
         tick=lambda: latidos.append(1),
     )
     assert notas == {}
-    assert len(canal_ok) == 4, "3 avisos + 1 digest"
+    assert len(canal_ok) == 2, "1 aviso de cortes + 1 digest"
     assert len(latidos) == len(canal_ok), "un latido por mensaje enviado"
+
+    with _canal(tmp_path, monkeypatch, status=500):
+        notas_fallo = ciclo._fase_notifica(
+            avisos,
+            (),
+            cycle_id=2,
+            platform="amazon_us",
+            modo="shadow",
+            status="done",
+            decisions_count=0,
+            notas_apply={},
+        )
+    assert notas_fallo["aviso_encola"] == (
+        "fallo: aviso de corte encolado no enviado por Telegram "
+        "(revisar la cola de veto: la ventana 48h corre igual)"
+    )
 
 
 @_skip_db
 def test_ciclo_canal_ok_avisos_por_corte_y_digest_unico_sin_nota(canal_ok):
-    """Canal OK: UN aviso POR corte nuevo (con el vencimiento 48h y la familia
-    de efecto) + UN digest al final; el ciclo 'done' SIN nota telegram."""
+    """Canal OK: UN aviso por ciclo con sus cortes + UN digest al final; el
+    ciclo 'done' SIN nota telegram."""
     with _db_temporal("orbit_notif_ok") as (conn, _extra):
         _siembra_maestra(conn)
         res = _corre(conn)
         assert res.status == "done"
         assert "telegram" not in json.loads(res.notes)
         textos = [m["text"] for m in canal_ok]
-        avisos = [t for t in textos if t.startswith("[Orbit] corte encolado")]
+        avisos = [t for t in textos if t.startswith("[Orbit] Amazon US:")]
         digests = [t for t in textos if t.startswith("[Orbit] digest")]
-        assert len(avisos) == 3, "pause + negative + harvest encolados"
+        assert len(avisos) == 1, "pause + negative + harvest en un solo aviso"
         assert len(digests) == 1, "UN digest por ciclo ejecutor"
-        assert {t.split("kind: ")[1].split(" ")[0] for t in avisos} == {
-            "pause",
-            "negative",
-            "harvest",
-        }
-        assert all(VENCE.isoformat() in t for t in avisos), "vencimiento en cada aviso"
-        assert any("entity_cut" in t for t in avisos), "familia del pause"
-        assert any("term_cut" in t for t in avisos), "familia de negative/harvest"
+        assert "En práctica: 3. Son de prueba: no se aplicarán." in avisos[0]
+        assert "48h" not in avisos[0]
+        assert "- Pausar una keyword o un producto" in avisos[0]
+        assert "- Negar la búsqueda «" in avisos[0]
+        assert "- Pasar a exacta la búsqueda «" in avisos[0]
         assert f"#{res.cycle_id}" in digests[0]
         assert "done" in digests[0]
         # El digest declara el modo del ciclo (la siembra maestra corre shadow):

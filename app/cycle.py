@@ -3623,8 +3623,8 @@ def _fase_notifica(
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
     tick: Callable[[], None] | None = None,
 ) -> dict:
-    """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por corte
-    nuevo encolado + UN aviso por campana de grupo sin destino (FABRICA 02,
+    """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por ciclo con sus cortes
+    + UN aviso por campana de grupo sin destino (FABRICA 02,
     A.6: el flanco ya filtro la racha) + UN aviso por cap de quota saturado
     (preflight 1.4: la transicion used == cap ya filtro los duplicados — el
     rechazo por tope no es evento) + UN digest final. Devuelve la seccion
@@ -3645,12 +3645,12 @@ def _fase_notifica(
             tick()
 
     try:
-        for aviso in avisos:
-            if not notifica.notifica_encola(aviso):
-                notas["aviso_encola"] = (
-                    "fallo: aviso de corte encolado no enviado por Telegram "
-                    "(revisar la cola de veto: la ventana 48h corre igual)"
-                )
+        if not notifica.notifica_cortes_encolados(avisos):
+            notas["aviso_encola"] = (
+                "fallo: aviso de corte encolado no enviado por Telegram "
+                "(revisar la cola de veto: la ventana 48h corre igual)"
+            )
+        if avisos:
             _latido()
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["aviso_encola"] = "fallo: el aviso de corte encolado no salio (ver log)"
