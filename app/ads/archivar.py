@@ -1,25 +1,9 @@
-"""Archivado operado de product ads MUERTOS (ORBIT 06, limpieza 2026-08-30).
+"""Operaciones acotadas sobre product ads de Amazon Ads (lectura, pausa,
+reactivacion y recreacion con scope sellado).
 
-Un "product ad muerto" es un anuncio cuya PUBLICACION ya no existe en la
-cuenta: el anuncio sigue vivo en una campana vivo, pero apunta a la nada. No
-gasta (sin publicacion no hay impresion), pero ensucia: cada medicion de
-cobertura arrastra un hueco que no corresponde a un producto real.
-
-Este modulo NO decide cuales estan muertos — esa evidencia es del operador y
-viaja como una lista EXPLICITA de adIds. La razon es que Orbit por si solo no
-puede distinguir un anuncio muerto de un producto real todavia sin mapear:
-los dos se ven igual (`listing_id IS NULL`). Meterle una heuristica seria
-darle permiso de borrar por corazonada.
-
-TRAMPA SELLADA (sonda de lectura del 2026-08-30, perfil amazon_mx en vivo):
-la API IGNORA EN SILENCIO los filtros cuyo nombre no reconoce — `adIdFilter`
-devolvio 1 anuncio y una clave inventada devolvio 1000, la pagina entera. Un
-delete con la clave equivocada NO falla: viaja SIN FILTRO. Por eso el nombre
-del filtro esta clavado con test propio en tests/test_ads_write.py.
-
-"Borrar" en Amazon ARCHIVA: el anuncio queda operativamente muerto y su fila
-sigue saliendo en el list con state=ARCHIVED. Amazon NO des-archiva; la
-reversa es recrear via `reponer_anuncios` / `crear_product_ad` (invariante 7).
+Construye el escritor con el perfil unico aceptado del mercado y expone
+lecturas por id o por grupo, cambio de estado (PAUSED/ENABLED) y recreacion
+desde lineas de reversa para el retiro y el impulso.
 """
 
 from __future__ import annotations
@@ -324,9 +308,9 @@ def reponer_anuncios(
 ) -> list[ResultadoAnuncio]:
     """LA REVERSA: vuelve a crear anuncios archivados desde sus lineas.
 
-    Come las lineas `reversa` que dejo `archivar_anuncios`. Es la vuelta
-    atras que exige el invariante 7 — y como CREA anuncios, o sea habilita
-    gasto, tiene el mismo candado que el archivado: ensayo por default.
+    Come las lineas de reversa (adGroupId, campaignId, sku, state). Es la
+    vuelta atras que exige el invariante 7 y, como CREA anuncios (habilita
+    gasto), usa ensayo por default.
 
     Las lineas se parsean TODAS antes de mandar nada: una linea rota a mitad
     de camino dejaria media reposicion hecha.
@@ -408,106 +392,6 @@ def reponer_anuncios(
     return resultados
 
 
-def archivar_anuncios(
-    escritor: AdsWriteClient,
-    ad_ids: Sequence[str],
-    *,
-    ejecutar: bool,
-    avisar: Callable[[str], None] = print,
-    dormir: Callable[[float], None] = time.sleep,
-    pausa: float = 0.2,
-) -> list[ResultadoAnuncio]:
-    """Archiva los anuncios de `ad_ids`; con `ejecutar=False` no manda nada.
-
-    Tres pasadas: leer el estado de todos, mutar UNO POR UNO (el sello del
-    cliente de escritura) y releer todos para confirmar. La confirmacion es
-    una relectura al final y no una por anuncio porque el list es
-    eventualmente consistente: preguntarle enseguida da falsos negativos.
-    """
-    ids = [str(x) for x in ad_ids]
-    if len(set(ids)) != len(ids):
-        raise ListaInvalida("hay adIds repetidos en la lista: se aborta antes de mutar")
-
-    filas = leer_anuncios(escritor, ids)
-    previos = {k: str(v["state"]) for k, v in filas.items()}
-    avisar(f"lectura previa: {len(previos)} de {len(ids)} adIds existen en la cuenta")
-
-    resultados: list[ResultadoAnuncio] = []
-    a_mutar: list[str] = []
-    for ad_id in ids:
-        estado = previos.get(ad_id)
-        if estado is None:
-            resultados.append(ResultadoAnuncio(ad_id, None, "no_existe"))
-        elif estado == ESTADO_ARCHIVADO:
-            resultados.append(
-                ResultadoAnuncio(ad_id, estado, "ya_estaba", reversa=reversa_de_fila(filas[ad_id]))
-            )
-        else:
-            a_mutar.append(ad_id)
-
-    avisar(
-        f"a archivar: {len(a_mutar)}  (ya archivados: "
-        f"{sum(1 for r in resultados if r.resultado == 'ya_estaba')}, "
-        f"inexistentes: {sum(1 for r in resultados if r.resultado == 'no_existe')})"
-    )
-
-    if not ejecutar:
-        for ad_id in a_mutar:
-            resultados.append(
-                ResultadoAnuncio(
-                    ad_id, previos[ad_id], "sin_confirmar", "ENSAYO", reversa_de_fila(filas[ad_id])
-                )
-            )
-        return resultados
-
-    # Un 2xx NO es exito automatico: Amazon contesta 207 y mete el rechazo
-    # por-item adentro (CX3 del aplicador). Se guardan las DOS formas de
-    # rechazo -- el >=400 que revienta y el error[] del 207 -- pero ninguna
-    # decide sola: manda el readback (ver abajo).
-    rechazos: dict[str, str] = {}
-    for i, ad_id in enumerate(a_mutar, 1):
-        try:
-            resp = escritor.archivar_product_ad(ad_id)
-        except AdsApiError as exc:
-            rechazos[ad_id] = str(getattr(exc, "cuerpo", "") or exc)[:300]
-        else:
-            try:
-                errores = _errores_del_ack(resp.json())
-            except ValueError:
-                errores = []
-            if errores:
-                rechazos[ad_id] = f"207 con rechazo por-item: {errores}"[:300]
-        if i % 25 == 0:
-            avisar(f"  ... {i}/{len(a_mutar)}")
-        dormir(pausa)
-
-    posteriores = estados_actuales(escritor, a_mutar)
-    for ad_id in a_mutar:
-        reversa = reversa_de_fila(filas[ad_id])
-        rechazo = rechazos.get(ad_id)
-        if posteriores.get(ad_id) == ESTADO_ARCHIVADO:
-            # El estado en Amazon MANDA sobre lo que dijo el envio: un corte
-            # de red despues de aplicar reportaba "fallo" sobre algo que si
-            # quedo archivado (hallazgo cross-review codex 2026-08-30).
-            detalle = f"quedo archivado pese al rechazo del envio: {rechazo}" if rechazo else ""
-            resultados.append(
-                ResultadoAnuncio(ad_id, previos[ad_id], "archivado", detalle, reversa)
-            )
-        elif rechazo:
-            resultados.append(ResultadoAnuncio(ad_id, previos[ad_id], "fallo", rechazo, reversa))
-        else:
-            resultados.append(
-                ResultadoAnuncio(
-                    ad_id,
-                    previos[ad_id],
-                    "sin_confirmar",
-                    f"readback dijo {posteriores.get(ad_id)!r}",
-                    reversa,
-                )
-            )
-    return resultados
-
-
 def _cambiar_estado_anuncios(
     escritor: AdsWriteClient,
     ad_ids: Sequence[str],
@@ -519,10 +403,9 @@ def _cambiar_estado_anuncios(
     dormir: Callable[[float], None],
     pausa: float,
 ) -> list[ResultadoAnuncio]:
-    """Tres pasadas como `archivar_anuncios`: lee el estado de todos,
-    muta UNO POR UNO con PUT y relee todos para confirmar. Un anuncio
-    ARCHIVED no se toca: el PUT no lo mueve (sale `fallo`, nunca
-    silencio)."""
+    """Tres pasadas: lee el estado de todos, muta UNO POR UNO con PUT y
+    relee todos para confirmar. Un anuncio ARCHIVED no se toca: el PUT no
+    lo mueve (sale `fallo`, nunca silencio)."""
     ids = [str(x) for x in ad_ids]
     if len(set(ids)) != len(ids):
         raise ListaInvalida("hay adIds repetidos en la lista: se aborta antes de mutar")
@@ -684,12 +567,3 @@ def reactivar_anuncios(
         dormir=dormir,
         pausa=pausa,
     )
-
-
-def resumen(resultados: Iterable[ResultadoAnuncio]) -> dict[str, int]:
-    """Cuenta por resultado. Las claves con cero NO se omiten: un resultado
-    ausente y un resultado en cero no son lo mismo al leer un log."""
-    cuenta = dict.fromkeys(sorted(RESULTADOS), 0)
-    for r in resultados:
-        cuenta[r.resultado] += 1
-    return cuenta

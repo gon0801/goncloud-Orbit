@@ -33,9 +33,7 @@ Diseno SELLADO (plans/orbit-04.md decision 9; docs/APPLY.md §8):
   verifica contra `PLATAFORMA_MONEDA[platform]` (el caller pasa
   `goal.bid_currency`) ANTES del HTTP — si no coincide, algo esta podrido
   y NO se escribe.
-- Quien puede importar este modulo: candado en tests/test_architecture.py
-  — `app/apply.py`, `tools/smoke_apply.py` y `app/ads/archivar.py` (r2
-  codex 5; archivar = limpieza operada, decision 2026-08-30).
+- Quien puede importar este modulo: candado en tests/test_architecture.py.
 - Errores >=400 (ORBIT 04 2.1, hallazgo r1 del brief §13): AdsApiError perdia
   el body de Amazon; el `resultado` del ledger lo heredaria. `_mutate` lanza
   `AdsApiErrorMutacion` con `cuerpo` = snippet del body JSON SANEADO
@@ -110,8 +108,6 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         ("POST", "/sp/negativeKeywords/delete"): "application/vnd.spnegativekeyword.v3+json",
         ("POST", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
         ("POST", "/sp/keywords/delete"): "application/vnd.spkeyword.v3+json",
-        # SELLADO por la limpieza del 2026-08-30 (ver archivar_product_ad).
-        ("POST", "/sp/productAds/delete"): "application/vnd.spproductad.v3+json",
         # La REVERSA del archivado (decision del dueno 2026-08-30, invariante
         # 7). SELLADO por la sonda del 2026-08-31: ver crear_product_ad.
         ("POST", "/sp/productAds"): "application/vnd.spproductad.v3+json",
@@ -511,42 +507,6 @@ class AdsWriteClient(AdsClient):
                 "sku": _un_objeto(sku, "sku"),
                 "state": estado_wire,
             },
-        )
-
-    def archivar_product_ad(self, ad_id: str | int) -> httpx.Response:
-        """POST /sp/productAds/delete: saca de circulacion UN anuncio.
-
-        SELLADO EN VIVO por la limpieza del 2026-08-30 (perfil amazon_mx,
-        corrida autorizada por el dueno con el ensayo a la vista): 203
-        anuncios archivados, los 203 confirmados ARCHIVED por readback, cero
-        fallos. El vendor Content-Type de arriba fue aceptado (ningun 415) y
-        el filtro `adIdFilter` se HONRO — no es solo el nombre del openapi.
-
-        CERO COLATERAL, y esto es lo que lo prueba (la pregunta de la
-        cross-review: el readback solo relee los ids pedidos, asi que no
-        veria un archivado de mas). El sync de estructura siguiente recorre
-        la cuenta ENTERA y movio TRES contadores independientes por
-        exactamente 203 -- escritas 18.426 -> 18.223, archivados saltados
-        25.454 -> 25.657, "sin listing" 3.901 -> 3.698 -- mientras "con
-        listing" quedo clavado en 8.626. Si el filtro se hubiera ignorado
-        habrian caido miles; y ni un solo anuncio CON producto mapeado fue
-        tocado.
-
-        El id del filtro es `adId` — asi lo devuelve el list de product ads.
-        OJO: otra API de Amazon (Retail Ad Service, DELETE /productAds) borra
-        product ads con `productAdIdFilter`, y esta API IGNORA EN SILENCIO
-        los filtros que no reconoce: la clave equivocada viaja SIN FILTRO.
-        Clavado en tests/test_ads_write.py.
-
-        "Borrar" en Amazon ARCHIVA (state=ARCHIVED): el anuncio queda
-        operativamente muerto y su fila sigue saliendo en el list con ese
-        estado. NO HAY REVERSA — no existe des-archivar.
-        """
-        return self._mutate(
-            "POST",
-            "/sp/productAds/delete",
-            {"adIdFilter": {"include": [_un_objeto(ad_id, "ad_id")]}},
-            envolver=False,
         )
 
     def cambiar_estado_product_ad(self, ad_id: str | int, estado: str) -> httpx.Response:

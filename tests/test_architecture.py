@@ -341,10 +341,11 @@ def test_structure_plan_sin_io_en_runtime():
 
 
 # ORBIT 04 decision 9 (r2 codex 5): quien puede importar el cliente de
-# ESCRITURA de Amazon Ads. Tres importadores reales: apply (aplicador),
-# smoke_apply (probe 2.5) y archivar (limpieza operada). Crecer la
-# allowlist exige editar este archivo = decision visible en diff y review,
-# jamas derivacion silenciosa (mismo trato que ALLOWLIST_TAMANO).
+# ESCRITURA de Amazon Ads. Importadores reales: apply (aplicador),
+# smoke_apply (probe 2.5), archivar (escritor del retiro y del impulso) y
+# bloqueo_dueno_efecto. Crecer la allowlist exige editar este archivo =
+# decision visible en diff y review, jamas derivacion silenciosa (mismo trato
+# que ALLOWLIST_TAMANO).
 PERMITIDOS_IMPORTAR_ADS_WRITE = {
     "app/apply.py": (
         "aplicador del modulo APPLY (fase 2.x): el dueno legitimo del "
@@ -356,12 +357,9 @@ PERMITIDOS_IMPORTAR_ADS_WRITE = {
         "ORBIT_DSN_DECIDE y sus filas de ledger nacen tipo probe"
     ),
     "app/ads/archivar.py": (
-        "limpieza OPERADA de product ads muertos (ORBIT 06, decision del "
-        "dueno 2026-08-30): no es un segundo dueno de la DECISION — no lee "
-        "decision ni apply_queue y solo corre cuando un humano tipea "
-        "--confirmar live con una lista explicita de adIds. El CLI queda "
-        "fuera de esta allowlist a proposito: delega aqui para que el "
-        "importador de app.ads.write siga siendo UNO por camino"
+        "construye el escritor del retiro y del impulso: no lee decision ni "
+        "apply_queue y concentra las operaciones de product ads para que el "
+        "importador de app.ads.write siga siendo uno por camino"
     ),
     "app/bloqueo_dueno_efecto.py": (
         "accion del dueno, no decision del motor (JEV ADS 03): resuelve el "

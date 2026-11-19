@@ -1554,8 +1554,9 @@ importe histórico, soltar el `WHERE` del `DELETE`).
 
 **La reversa existe y se prueba** (`migrations/0011_reversa_costo_historico_peseta.sql`):
 la regla del repo es que ninguna acción irreversible se ejecuta sin su vuelta
-atrás YA implementada — la misma que obligó a `reponer-anuncios` antes de
-`archivar-anuncios` (hallazgo de CodeRabbit, PR #116). La reversa borra por
+atrás YA implementada — la misma que obligó a tener la reversa del archivado de
+anuncios de ORBIT 06, ya retirado, antes de archivar (hallazgo de CodeRabbit,
+PR #116). La reversa borra por
 **procedencia** (el `ingest_run` de 0011, no por importe), repone la vigencia
 de plata que 0011 borró, y deja el estado exacto previo: probado en vivo con un
 test de ida y vuelta que compara columna por columna, y con otro que confirma
@@ -2299,58 +2300,7 @@ Dos notas de operación (cross-review, residuales declarados):
 
 ## Limpieza de product ads muertos (ORBIT 06)
 
-Un product ad "muerto" apunta a una publicación que ya no existe: no gasta
-(sin publicación no hay impresión) pero ensucia toda medición de cobertura.
-`archivar-anuncios` los archiva; **archivar NO tiene reversa**.
-
-El comando NO decide cuáles están muertos: recibe una lista EXPLÍCITA de
-adIds. Es a propósito — Orbit todavía no distingue un anuncio muerto de un
-producto real sin mapear (los dos se ven `listing_id IS NULL`), así que la
-evidencia la pone el operador.
-
-```sh
-# 1) ENSAYO (default): no sale ninguna mutación, imprime lo que haría.
-docker exec -i orbit-app-1 python -m app.cli archivar-anuncios \
-  --platform amazon_mx --ids-file /tmp/muertos.txt
-
-# 2) De verdad. La igualdad es EXACTA: 'liv', 'si' o 'LIVE' siguen siendo ensayo.
-docker exec -i orbit-app-1 python -m app.cli archivar-anuncios \
-  --platform amazon_mx --ids-file /tmp/muertos.txt --confirmar live
-```
-
-Salida por anuncio: `archivado` / `ya_estaba` / `no_existe` / `sin_confirmar`
-/ `fallo`. `sin_confirmar` NO es un fallo: el list de Amazon es eventualmente
-consistente y a veces tarda en reflejar el archivado — se re-corre el ensayo
-un rato después y los que ya estén `ya_estaba` quedaron bien.
-
-Después de archivar conviene `ingest structure` para que la base refleje el
-estado nuevo.
-
-### La reversa: `reponer-anuncios`
-
-Archivar no se deshace en Amazon, así que la vuelta atrás es **volver a crear
-el anuncio** en su mismo ad group (invariante 7; decisión del dueño
-2026-08-30, a sabiendas de que crear un anuncio habilita gasto).
-
-`archivar-anuncios` imprime, por anuncio, una columna de **reversa** con todo
-lo que hace falta (`adGroupId`, `campaignId`, `sku`, `state`). Se copian esas
-líneas a un archivo y:
-
-```sh
-# ENSAYO (default): no crea nada.
-docker exec -i orbit-app-1 python -m app.cli reponer-anuncios \
-  --platform amazon_mx --reversa-file /tmp/reversa.txt
-
-# De verdad. CREA anuncios: habilita gasto.
-docker exec -i orbit-app-1 python -m app.cli reponer-anuncios \
-  --platform amazon_mx --reversa-file /tmp/reversa.txt --confirmar live
-```
-
-Sin `state` en la línea, repone en **PAUSED**: un anuncio repuesto en ENABLED
-empieza a gastar solo, y eso lo enciende un humano.
-
-Se crea por **SKU**, no por ASIN: la guía de Sponsored Products pide ASIN para
-vendors/KDP y SKU para *sellers*, y el gate de perfiles solo acepta seller.
+Esta herramienta de terminal se retiró en ARREGLOS 04 porque archivaba en Amazon sin dejar registro previo. Un anuncio con publicación sale de circulación con el retiro de Fábrica (`/api/fabrica/retiro/ejecutar`, regreso con `retiro/reponer` y `retiro/recrear`). Archivar un anuncio sin publicación se hace a mano en la consola de Amazon.
 
 ## Reputación v1 (REPUTACION 01 / A.7, lead 2026-09-08)
 
