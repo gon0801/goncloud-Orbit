@@ -260,7 +260,7 @@ document.addEventListener("DOMContentLoaded", function () {
     return Orbit.etiqueta(origen, "origen_objetivo") + (calculo ? ":" + calculo : "");
   }
 
-  function mostrarPlan(contenedor, plan) {
+  function mostrarPlan(contenedor, plan, enRevision = false) {
     const esV2 = plan.schema_version === 2;
     const objetivo = esV2 ? plan.objetivo : null;
     const target = esV2 ? objetivo.acos_pct : plan.target_acos_pct;
@@ -292,6 +292,9 @@ document.addEventListener("DOMContentLoaded", function () {
       ]),
     );
     contenedor.append(nodo("h4", "Semillas del grupo"));
+    if (enRevision) {
+      contenedor.append(nodo("p", "Estas búsquedas vendieron en campañas donde esta publicación se anuncia junto con otros productos. Alguna puede ser de otro producto del mismo grupo, por ejemplo de otra medida. Revisa la lista antes de crear."));
+    }
     const nombres = {exact: "Palabras exactas", keywords: "Palabras para frase y amplia", asins: "ASIN objetivo", negativos: "Negativos"};
     Object.keys(nombres).forEach(clave => {
       contenedor.append(nodo("h5", nombres[clave]));
@@ -327,7 +330,7 @@ document.addEventListener("DOMContentLoaded", function () {
       aviso.setAttribute("role", "alert");
       contenedor.append(aviso);
     }
-    mostrarPlan(contenedor, datos.plan);
+    mostrarPlan(contenedor, datos.plan, true);
     contenedor.append(nodo("h4", "Las cinco campañas"));
     tabla(contenedor, ["Rol", "Nombre", "Presupuesto diario", "Puja predeterminada del grupo", "Fuente"], datos.campanas.map(campana => [
       nombreRol(campana.rol), campana.nombre,
