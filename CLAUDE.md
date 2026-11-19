@@ -8,7 +8,7 @@ código viejo; solo se migran credenciales y datos verificados.
 del dominio, qué se migra y qué no, fases. Las fuentes verbatim están en
 `docs/traspaso/` (diseño v2 = fuente de verdad de reglas y umbrales).
 
-Los planes de Orbit se entregan al motor como encargo (`motor director encargar`).
+El plan activo de Orbit está en `plans/manifest.json` y especifica quién lo implementa y lo revisa.
 
 ## Reglas de trabajo
 

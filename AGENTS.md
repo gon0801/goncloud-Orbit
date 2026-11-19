@@ -18,7 +18,7 @@ valer para todos va aquí también.
 - **Responde siempre en español**; directo al grano, sin relleno.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
-- Verifica el comportamiento pedido con pruebas y `pre-commit` (gitleaks); exige CI verde antes de integrar; jamás `--no-verify`.
+- Para pruebas, revisión y secretos, sigue las Reglas de trabajo de este archivo.
 
 ## Stack
 
@@ -55,10 +55,6 @@ se skipea por diseno. Si un push se cuelga, es credencial:
 `gh auth setup-git`.
 
 La revisión local de secretos usa Gitleaks mediante pre-commit.
-Durante el desarrollo usa comprobaciones proporcionales y reutiliza la evidencia
-válida; antes de integrar, los controles requeridos de la rama deben estar verdes. Si falla un
-candado, corrige la causa o declara una excepción justificada donde el candado la
-admita; no lo borres ni lo saltes para conseguir un pase.
 
 ## Reglas de diseño innegociables
 
@@ -84,7 +80,7 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
   `/sp/targets/bid/recommendations` de lectura); API exacta: `get`, `list_objects`,
   `recommend_bids`, `create_report`, `get_report`, `download`.
 - Base: roles LOGIN por servicio (`orbit_ingest`/`_decide`/`_read`/`_admin`); invariante nuevo del esquema = con su test; ADRs en `COMMENT ON` y docstrings.
-- Trabajo en planes `ORBIT NN` (PR a `master` con verificación proporcional durante el desarrollo y CI verde por fase antes de integrar).
+- Trabajo en planes `ORBIT NN` (PR a `master` según las Reglas de trabajo).
 
 ## Reglas de trabajo
 
