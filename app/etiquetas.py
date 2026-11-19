@@ -21,7 +21,7 @@ from app import disponibilidad as disp
 from app import evaluacion_catalogo as evaluacion
 from app.bloqueo_dueno import PASOS_VIVOS
 from app.estimacion_venta import EXCLUSIONES_FIJAS, MOTIVOS_ESTIMACION
-from app.optimizer import bid, eras, hygiene, politica, productos
+from app.optimizer import bid, eras, hygiene, politica, productos, proteccion
 from app.optimizer import evidencia as ev
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -143,6 +143,16 @@ MOTIVO_SALUD: dict[str, str] = {
     politica.MOTIVO_AZAR_LO_EXPLICA: "La diferencia puede ser suerte: sin cambio de puja",
     politica.MOTIVO_VENTA_RECIENTE: (
         "Vendió hace poco y esos días todavía pueden cambiar: sin cambio de puja"
+    ),
+    politica.MOTIVO_SUBIDA_EN_ESPERA: (
+        "Su pausa está en espera por una venta reciente: Orbit no sube la puja mientras tanto"
+    ),
+    proteccion.MOTIVO_PROTEGIDA: "Iba a pausarse, pero tiene un pedido reciente: la pausa espera",
+    proteccion.MOTIVO_INDETERMINADA: (
+        "Iba a pausarse, pero falta el dato de sus pedidos recientes: la pausa espera"
+    ),
+    ciclo.MOTIVO_PAUSA_PRODUCTO_PENDIENTE: (
+        "La pausa de su producto está en camino: Orbit no sube la puja de lo que va a pausar"
     ),
     politica.MOTIVO_SIN_GASTO: "Sin gasto: sin cambio de puja",
     politica.MOTIVO_HOJA_DELGADA: "Gasta tan poco que no vale la pena mover la puja",
@@ -933,6 +943,19 @@ for _dominio, _vocabulario in (
     (
         "objetivo_puja",
         (*fabrica_plan.EXPRESION_BID_POR_ROL.values(), *fabrica_plan.EXPRESIONES_AUTO),
+    ),
+    (
+        "motivo_salud",
+        (
+            *(
+                v
+                for k, v in vars(politica).items()
+                if k.startswith("MOTIVO_") and isinstance(v, str) and v not in MOTIVO_DECISION
+            ),
+            *(v for k, v in vars(ciclo).items() if k.startswith("MOTIVO_") and isinstance(v, str)),
+            proteccion.MOTIVO_PROTEGIDA,
+            proteccion.MOTIVO_INDETERMINADA,
+        ),
     ),
 ):
     _faltan = set(_vocabulario) - set(ETIQUETAS[_dominio])

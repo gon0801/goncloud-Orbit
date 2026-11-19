@@ -1,0 +1,15 @@
+# W-O.2 Comprobacion del vocabulario cerrado motivo_salud en app/etiquetas.py
+Base: origin/master effd46c (identico a 976df4dc en app/etiquetas.py)
+
+## Antes (candado motivo_salud activo, sin las cuatro entradas de W-O.1)
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -c "import app.etiquetas"
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "app/etiquetas.py", line 953, in <module>
+    raise KeyError(f"etiquetas.{_dominio} sin texto para {sorted(_faltan)}")
+KeyError: "etiquetas.motivo_salud sin texto para ['pausa_producto_pendiente', 'subida_en_espera_de_venta', 'venta_reciente_indeterminada', 'venta_reciente_protegida']"
+exit 1
+
+## Despues (con las cuatro entradas de W-O.1 en MOTIVO_SALUD)
+$ PYTHONPATH=. uv run --frozen --python 3.12 python -c "import app.etiquetas"
+exit 0
