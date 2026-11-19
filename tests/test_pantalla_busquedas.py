@@ -227,23 +227,23 @@ def _run(conn):
 
 
 @_skip_db
-def test_lee_ventana_90_dias_termina_hoy_menos_3():
-    """P.6: desde=hasta-90 con hasta=hoy-3; los dos bordes entran."""
+def test_lee_ventana_90_dias_termina_hoy_menos_10():
+    """P.6 + W-E.2: desde=hasta-89 con hasta=hoy-10; los dos bordes entran."""
     with _db_p6() as conn:
         run = _run(conn)
         ag = _ad_group(conn, _campana(conn, "c-1", "Campana Uno"), "ag-1")
         for fecha, gasto in (
-            (dt.date(2026, 7, 5), 900),
-            (dt.date(2026, 7, 6), 200),
-            (dt.date(2026, 10, 4), 200),
-            (dt.date(2026, 10, 5), 900),
+            (dt.date(2026, 6, 29), 900),
+            (dt.date(2026, 6, 30), 200),
+            (dt.date(2026, 9, 27), 200),
+            (dt.date(2026, 9, 28), 900),
         ):
             _obs(
                 conn,
                 ag,
                 "B0BORDE001",
                 fecha,
-                visto=dt.datetime(2026, 10, 6, tzinfo=dt.UTC),
+                visto=dt.datetime(2026, 9, 29, tzinfo=dt.UTC),
                 cost=gasto,
                 clics=5,
                 pedidos=0,
@@ -251,7 +251,7 @@ def test_lee_ventana_90_dias_termina_hoy_menos_3():
                 run=run,
             )
         pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=HOY)
-        assert (pantalla.desde, pantalla.hasta) == (dt.date(2026, 7, 6), dt.date(2026, 10, 4))
+        assert (pantalla.desde, pantalla.hasta) == (dt.date(2026, 6, 30), dt.date(2026, 9, 27))
         assert pantalla.asins == (
             pb.FilaAsinAjeno("B0BORDE001", 10, Decimal("400"), ("Campana Uno",), False),
         )

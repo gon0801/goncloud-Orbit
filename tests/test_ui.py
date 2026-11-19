@@ -3031,6 +3031,11 @@ def test_ui_busquedas_sin_venta_200_frase_tablas_y_menu(monkeypatch):
     assert resp.status_code == 200, resp.text
     assert 'data-pantalla="busquedas-sin-venta"' in resp.text
     assert (
+        "Solo campañas encendidas, 90 días que terminan el 4 oct."
+        " Los últimos 10 días se dejan fuera porque sus ventas todavía llegan,"
+        " igual que hace Orbit antes de cortar." in " ".join(resp.text.split())
+    )
+    assert (
         "60.00 % de tu gasto cayó en búsquedas que no vendieron."
         " Con la conversión de tu cuenta, el azar daría 25.00 %." in resp.text
     )
