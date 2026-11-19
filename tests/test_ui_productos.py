@@ -907,6 +907,8 @@ class Element {
 const root = new Element();
 const casilla = new Element({dataset: {marcarSinPedido: "", producto: "9", listings: "21,22"}});
 casilla.checked = true;
+const casilla2 = new Element({dataset: {marcarSinPedido: "", producto: "10", listings: "23"}});
+casilla2.checked = true;
 const zonaR = new Element();
 const bloqueR = new Element({hidden: true});
 const esperadaR = new Element();
@@ -918,7 +920,7 @@ formR.elements = {
   token: new Element({value: "tok"}),
 };
 formR.children = [estadoR];
-root.children = [casilla, zonaR, bloqueR, esperadaR, formR];
+root.children = [casilla, casilla2, zonaR, bloqueR, esperadaR, formR];
 const ids = {
   "productos-retiro": bloqueR,
   "productos-retiro-vista": zonaR,
@@ -1004,7 +1006,8 @@ const api = vm.runInThisContext("this.__api");
   assert.deepEqual(
     zonaR.children.map(p => p.textContent),
     [
-      "1 de los productos marcados vendió en los últimos 11 meses: se queda con sus anuncios.",
+      "1 de los productos marcados vendió en los últimos 11 meses: " +
+      "se conservan los anuncios de 1 publicación.",
       "Nada que sacar: sin anuncios en bolsas viejas.",
     ]
   );
@@ -1024,12 +1027,33 @@ const api = vm.runInThisContext("this.__api");
   assert.deepEqual(
     zonaR.children.map(p => p.textContent),
     [
-      "2 de los productos marcados vendieron en los últimos 11 meses: se quedan con sus anuncios.",
+      "1 de los productos marcados vendió en los últimos 11 meses: " +
+      "se conservan los anuncios de 2 publicaciones.",
       "SV · Viejos",
     ]
   );
   assert.equal(formR.hidden, false);
   assert.equal(esperadaR.textContent, "SACAR 1 ANUNCIOS");
+
+  respuestaPlan = {
+    huella: "d".repeat(64),
+    anuncios: [
+      {sku: "SV", ad_group_nombre: "Viejos", ad_group_externo: "ag-v", ad_id_externo: "32"},
+    ],
+    vendieron: [21, 23],
+    ventas_al_dia: true,
+    ventas_al_dia_hasta: null,
+  };
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(
+    zonaR.children.map(p => p.textContent),
+    [
+      "2 de los productos marcados vendieron en los últimos 11 meses: " +
+      "se conservan los anuncios de 2 publicaciones.",
+      "SV · Viejos",
+    ]
+  );
 })().catch(err => { console.error(err); process.exit(1); });
 """
     proc = subprocess.run(
