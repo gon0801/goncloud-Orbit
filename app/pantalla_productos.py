@@ -212,6 +212,7 @@ WITH activos AS (
       JOIN ad_entity_state sc ON sc.ad_entity_id = c.id AND sc.status = 'ENABLED'
       JOIN listing li ON li.id = pa.listing_id
      WHERE pa.platform = %s AND pa.kind = 'product_ad'
+       AND li.seller_sku IS NOT NULL AND btrim(li.seller_sku) <> ''
 ), {_CTE_VENTAS}, clics AS (
     SELECT li.product_id, sum(u.clicks)::bigint AS clics
       FROM (SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)

@@ -695,13 +695,23 @@ def test_r09r5_p08_dia_lanzamiento_cuenta():
 def test_arreglos04_w_m_candidatos_solo_clics_del_mismo_sku():
     """W-M.1 (dinero): en candidatos a impulso solo cuentan las filas de
     ads_product_metric_observation cuyo advertised_sku coincide con el
-    seller_sku del listing, nunca las de otro SKU del mismo ASIN."""
+    seller_sku del listing, nunca las de otro SKU del mismo ASIN. Una
+    publicacion sin seller_sku utilizable no entra como candidata con cero
+    clics: no hay forma de atribuirle los suyos."""
     with _db_p4("orbit_w_m_cand_sku") as conn:
         pid, lid = _producto(conn, sku="NH-X", asin="B0REVS5001", seller_sku="NH-X")
         _activa(conn, lid, "ad-s5")
         _ventas(conn, pid, 3)
         _clics_ads(conn, "B0REVS5001", "NH-X", 5)
         _clics_ads(conn, "B0REVS5001", "SET-X", 30)
+        pid_nulo, lid_nulo = _producto(conn, sku="NH-NULO", asin="B0REVS5002", seller_sku=None)
+        _activa(conn, lid_nulo, "ad-s5-nulo")
+        _ventas(conn, pid_nulo, 3)
+        _clics_ads(conn, "B0REVS5002", "NH-NULO", 30)
+        pid_vacio, lid_vacio = _producto(conn, sku="NH-VACIO", asin="B0REVS5003", seller_sku="")
+        _activa(conn, lid_vacio, "ad-s5-vacio")
+        _ventas(conn, pid_vacio, 3)
+        _clics_ads(conn, "B0REVS5003", "NH-VACIO", 30)
         pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
         assert [c.product_id for c in pantalla.candidatos] == [pid]
         assert pantalla.candidatos[0].clics_ads_60d == 5
