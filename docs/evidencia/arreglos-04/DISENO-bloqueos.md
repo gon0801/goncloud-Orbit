@@ -360,6 +360,9 @@ from app.apply_harvest import (
 
 TOPE_MEDICION = 500
 cliente = AdsClient(AdsCredentials.from_secrets_dir())
+esperados = {(pais, path) for pais in ("amazon_mx", "amazon_us")
+             for path in ("/sp/keywords/list", "/sp/negativeKeywords/list")}
+completos = set()
 for perfil in perfiles_aceptados(cliente):
     for path, contenedor in _CONTENEDORES_LIST.items():
         paginas, items, primera, token, fin = 0, 0, None, None, False
@@ -378,15 +381,21 @@ for perfil in perfiles_aceptados(cliente):
             if estado == "fin":
                 fin = True
                 break
-            if estado == "ambiguo":
+            if not pagina or estado == "ambiguo":
                 break
             token = datos["nextToken"]
             if token in vistos:
                 break
             vistos.add(token)
         print(f"{perfil.platform}|{path}|{paginas}|{items}|{primera}|{'fin' if fin else 'sin_fin'}")
+        par = (perfil.platform, path)
+        if not fin or par not in esperados or par in completos:
+            raise SystemExit(f"medicion incompleta o repetida: {par}")
+        completos.add(par)
         if paginas > TOPE_PAGINAS_LIST:
             print(f"corte_callado|{perfil.platform}|{path}|{paginas} páginas contra el tope de {TOPE_PAGINAS_LIST}")
+if completos != esperados:
+    raise SystemExit(f"faltan listas: {esperados - completos}")
 ```
 
 Con la salida en `docs/evidencia/arreglos-04/B-C/paginas.txt`, `TOPE_PAGINAS_LIST` queda en
@@ -470,9 +479,16 @@ def _lee(pid, grupo_ext):
     return items, estado
 
 
+esperados = {"amazon_mx", "amazon_us"}
+if set(perfiles) != esperados:
+    raise SystemExit("LECTURA_perfil: inventario incompleto")
+conteos = dict.fromkeys(esperados, 0)
+fallidas = 0
 with psycopg.connect(os.environ["ORBIT_DSN_READ"]) as conn:
     conn.read_only = True
+    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
     for vid, plat, grupo, termino, sha, kid in conn.execute(_ULTIMO, ("aplicado",)).fetchall():
+        conteos[plat] += 1
         senal = conn.execute(_SENAL, (grupo, sha)).fetchone()
         senal = str(senal[0]) if senal else "-"
         externos = bde._externos(conn, grupo)
@@ -490,6 +506,8 @@ with psycopg.connect(os.environ["ORBIT_DSN_READ"]) as conn:
         print(f"{plat}|{vid}|{grupo}|{kid}|{estado_id}|{senal}|{otro}")
     for (vid, *_resto) in conn.execute(_ULTIMO, ("reversa_fallida",)).fetchall():
         print(f"reversa_fallida|{vid}")
+        fallidas += 1
+print(f"FIN|{conteos['amazon_mx']}|{conteos['amazon_us']}|{fallidas}")
 ```
 
 Cada línea de bloqueo es `plataforma|veredicto|grupo|id|estado|senal_vigente|otro_enabled`. Se usa el
@@ -499,73 +517,16 @@ negative ENABLED del mismo término en el mismo ad group (con B-B, `_negative_qu
 el término ya está bloqueado. Las líneas `reversa_fallida|veredicto` son bloqueos que David pidió
 quitar y Amazon no dejó (falla 8): siguen bloqueando, así que solo se anotan para él.
 
-**Reparación (fila B-D.2).** El bucle, tal cual, con los valores tomados de cada línea y sin escribir
-nada a mano:
+**Inventario válido.** La última línea `FIN|n_mx|n_us|n_reversas_fallidas` acredita que se recorrió toda la consulta. El operador compara cada conteo con las filas únicas de su clase y verifica la salida exitosa del lector. Cero en ambos países es válido. Un perfil ausente, un fallo de proceso, un ID duplicado o un archivo truncado deja pendiente el inventario y no habilita ninguna escritura. Si falla solo la lectura de un grupo, su fila `LECTURA_*` queda excluida.
 
-```bash
-A=docs/evidencia/arreglos-04/B-D
-grep -E '^amazon_(mx|us)[|]' $A/antes.txt | while IFS='|' read -r plat vid grupo kid estado senal otro; do
-  case "$estado" in
-    ENABLED) continue ;;
-    PAUSED|ARCHIVED|AUSENTE) ;;
-    *) echo "$vid|$plat|$estado|sin lectura de Amazon: no se tocó; se vuelve a leer en B-D.3" >> $A/reparacion.txt
-       continue ;;
-  esac
-  if [ "$otro" != "-" ]; then
-    echo "$vid|$plat|$estado|bloqueado por otro negative $otro: no se tocó" >> $A/reparacion.txt
-    echo "$plat|$vid|el término está bloqueado por otro negative ($otro), no por el de Orbit" >> $A/revisar.txt
-    continue
-  fi
-  if [ "$senal" = "-" ]; then
-    echo "$vid|$plat|$estado|sin señal vigente: no se tocó" >> $A/reparacion.txt
-    echo "$plat|$vid|en Amazon el negative está $estado y no hay señal reciente para volver a bloquearlo" >> $A/revisar.txt
-    continue
-  fi
-  r=$(bash docs/evidencia/arreglos-01/escribe_api.sh /api/jev-bloqueo/quitar "{\"veredicto_id\": \"$vid\"}") || true
-  echo "$vid|$plat|$estado|quitar: $r" >> $A/reparacion.txt
-  if ! echo "$r" | grep -q '"paso": *"revertido"'; then
-    echo "$vid|parar: el quitar no quedó revertido" >> $A/reparacion.txt
-    echo "select paso, motivo, created_at from bloqueo_efecto where veredicto_id = '$vid' order by created_at desc, id desc limit 1" \
-      | bash docs/evidencia/arreglos-01/lee_prod.sh >> $A/reparacion.txt
-    break
-  fi
-  r=$(bash docs/evidencia/arreglos-01/escribe_api.sh /api/jev-bloqueo/aprobar "{\"senal_id\": \"$senal\"}") || true
-  echo "$vid|$plat|$estado|aprobar $senal: $r" >> $A/reparacion.txt
-done
-grep '^reversa_fallida|' $A/antes.txt | sed 's/$/|Amazon no dejó quitar este bloqueo; sigue bloqueando/' >> $A/revisar.txt || true
-[ -s $A/reparacion.txt ] || echo "nada que reparar: $(grep -cE '^amazon_(mx|us)[|]' $A/antes.txt) bloqueos, todos ENABLED" > $A/reparacion.txt
-```
+**Reparación (fila B-D.2).** Trabajar en serie por plataforma, grupo, término y veredicto de origen. El inventario inicial identifica los candidatos. Solo entran los que tenían estado PAUSED, ARCHIVED o AUSENTE, señal vigente y ningún otro negative ENABLED. B-D usa `quitar` y `aprobar` de Orbit con las precondiciones de reparación que entrega B-B.
 
-`escribe_api.sh` lee su JSON de un heredoc, así que no consume la entrada del `while`. Con B-B
-desplegado, el `aprobar` no adopta nada que no sea ENABLED y postea uno nuevo.
+1. Antes de quitar, el servicio toma el candado existente del término y concilia el registro. Comprueba la identidad del veredicto y su negative en el ledger, la misma señal vigente, el interruptor y la pausa de esa plataforma. Relee la lista completa en el perfil y grupo correctos, inmediatamente antes de actuar. Si cambió el estado observado, la señal o la identidad, aparece otro ENABLED o falta información, omite la escritura y guarda el motivo en `revisar.txt`. Para ARCHIVED o AUSENTE confirmados, registra la reversa por observación sin mandar otro borrado. Para PAUSED, usa el camino normal de archivado y su relectura.
+2. Solo después de confirmar `revertido` del origen, aprobar la señal vigente por el servicio normal. Bajo su candado, volver a comprobar señal, pausa, interruptor, grupo y lista completa. Si ya aparece un ENABLED de otro origen, omitir la creación y dejar constancia para revisión. La reparación no adopta ese ID. Registrar en `reparacion.txt` origen, señal, veredicto nuevo, ID de Amazon y resultado. El ID de Amazon se obtiene del ledger del veredicto nuevo. Confirmar `aplicado` y releer ese mismo ID ENABLED en el mismo grupo y término.
+3. Ante un error HTTP, un resultado incierto, una respuesta sin el paso esperado o un corte entre las dos operaciones, dejar la clave pendiente. Al reanudar, reconstruir la operación por origen, señal y efectos durables. Si existe una intención, conciliarla antes de considerar otro envío. Si el origen ya figura revertido, no volver a quitarlo. Si el reemplazo ya está aplicado, solo comprobarlo. Si no se puede atribuir un nuevo veredicto con certeza, anotar la clave pendiente y no enviar otra mutación.
+4. La reversa de un reemplazo confirmado es `quitar` de su **nuevo veredicto propio**. Conservar el registro del anterior. Las claves sin señal, con otro ENABLED, las lecturas ambiguas y las reversas fallidas van a `revisar.txt` con el motivo. Si el inventario completo no ofrece candidatos, guardar sus conteos en `reparacion.txt` y crear `revisar.txt` aunque esté vacío.
 
-Qué registro deja cada reparación y cómo se deshace (regla 7):
-
-| Paso | Registro | Cómo se deshace |
-| --- | --- | --- |
-| `quitar` del veredicto viejo | `bloqueo_veredicto` tipo `quitado`; `bloqueo_efecto` `reversa_intencion` y `revertido`; su línea en `reparacion.txt` | No se deshace en Amazon (archivar no tiene vuelta atrás) y no hace falta: el negative estaba PAUSED (no negaba nada), ARCHIVED o ya no existía, así que no cambia qué se gasta |
-| `aprobar` de la señal vigente | `bloqueo_veredicto` tipo `aprobado`; `bloqueo_efecto` `intencion` y `aplicado` con el id nuevo; su línea en `reparacion.txt` | `quitar` de su veredicto, el botón «Quitar» de Propuestas |
-
-**Lista para David.** `docs/evidencia/arreglos-04/B-D/revisar.txt` junta lo que no se reparó solo: las
-claves sin señal vigente (en Amazon no bloquean y Orbit no puede volver a proponerlas hasta que
-reaparezca su señal), las bloqueadas por otro negative, las `reversa_fallida` y las que en B-D.3
-cambiaron de `LECTURA_*` a PAUSED, ARCHIVED o AUSENTE. El reporte del bloque la copia en lenguaje llano.
-
-**Lectura final (fila B-D.3).** `comprueba.sh` vuelve a leer y falla si queda un bloqueo vivo que no
-está ENABLED y que nadie anotó:
-
-```bash
-#!/usr/bin/env bash
-# docs/evidencia/arreglos-04/B-D/comprueba.sh: solo lee. Sale 1 si un bloqueo vivo no ENABLED no está anotado.
-set -euo pipefail
-A=docs/evidencia/arreglos-04/B-D
-salida=$(bash docs/evidencia/arreglos-01/en_prod.sh $A/lee_amazon.py)
-printf '%s\n' "$salida"
-printf '%s\n' "$salida" | grep -E '^amazon_(mx|us)[|]' | awk -F'|' '$5 != "ENABLED" {print $2}' \
-  | while read -r v; do grep -q "^$v[|]" $A/reparacion.txt || { echo "sin anotar: $v" >&2; exit 1; }; done
-```
-
-Es también la `prueba-real` de B-D.
+**Lectura final (fila B-D.3).** Implementar `docs/evidencia/arreglos-04/B-D/comprueba.sh` como comprobación de solo lectura. Ejecutar el lector, validar su recibo y cruzar por plataforma y veredicto los inventarios inicial y final, las reparaciones y el ledger. Por cada origen retirado, exigir `revertido`, un veredicto nuevo vinculado a la señal con efecto `aplicado` y su ID ENABLED en Amazon. Un intento incompleto, un reemplazo desaparecido o un origen desaparecido sin explicación hacen salir distinto de cero, aunque el conjunto final de vivos esté vacío. Por cada omitido comprobar la clave exacta y su razón en `revisar.txt`. Una clave inicialmente ilegible que solo ahora aparece PAUSED, ARCHIVED o AUSENTE se anota allí y se deja intacta. Emitir el inventario final y sus conteos a stdout. Es la `prueba-real` de B-D.
 
 ## Lo que no se resolvió
 
