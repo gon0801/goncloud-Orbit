@@ -34,6 +34,7 @@ from app.ads import archivar
 from app.ads.client import AdsApiError
 from app.ads.config import AdsConfigError
 from app.dashboard_resumen import hoy_resumen
+from app.dia_cerrado import dia_local
 
 DIAS_LIBRO_AL_DIA = 2
 
@@ -273,7 +274,9 @@ def planea_retiro(
     if motivo == "sin_pedidos":
         hoy = hoy or hoy_resumen((plataforma,), dt.datetime.now(dt.UTC))
         libro = pp.ultimo_libro(conn)
-        if libro is None or libro.date() < hoy - dt.timedelta(days=DIAS_LIBRO_AL_DIA):
+        if libro is None or dia_local(plataforma, libro) < hoy - dt.timedelta(
+            days=DIAS_LIBRO_AL_DIA
+        ):
             return PlanRetiro(
                 plataforma,
                 motivo,
