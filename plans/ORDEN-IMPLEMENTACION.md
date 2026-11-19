@@ -1,8 +1,8 @@
 # Orden de implementación de Orbit
 
-Actualizado el **15-nov-2026** sobre `ff03ed61`. Esta es la **única cola vigente de implementación**: **ARREGLOS 03 → ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**, en serie. Prevalece sobre las menciones anteriores de trabajo en paralelo. El [ROADMAP](ROADMAP.md) conserva historia, seguimientos y futuros; cada plan conserva sus tareas y criterios de cierre.
+Actualizado el **18-nov-2026** tras el despliegue de ARREGLOS 03 en `819fe1ff`. La cola pendiente es **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**, en serie. El [ROADMAP](ROADMAP.md) conserva la historia y los seguimientos.
 
-`manifest.active = arreglos-03` significa **siguiente plan de esta cola**, no una orden de lanzar el motor, desplegar ni cambiar modos. Esta actualización solo documenta el diseño elegido.
+`manifest.active = arreglos-04` indica a Agent Orchestrator el plan que comienza por BASE.
 
 Fuentes: [inventario completo](../docs/evidencia/arreglos-05/inventario/inventario.md), [inventario JSON](../docs/evidencia/arreglos-05/inventario/inventario.json) y [matriz final de cobertura](../docs/evidencia/arreglos-05/COBERTURA.md). El inventario conserva la foto de origen; las asignaciones finales de esta cola y de COBERTURA prevalecen sobre sus propuestas anteriores. Esos artefactos y el plan ARREGLOS 05 se incorporan en la misma entrega documental; sus enlaces no acreditan implementación.
 
@@ -14,6 +14,7 @@ El lead comprobó en solo lectura que los **202 archivos de runtime** de `app/` 
 |---|---|---|
 | ARREGLOS 01 | A-Z integrados, desde `3524b41b` hasta X `976df4dc`; Y `ac539365`, Z `f53ad3f8`, S `de895d18`. | Consolidar actas y sondas pendientes; A, C y U ya tienen evidencia operativa propia. No repetir reversas o encendidos documentados. |
 | ARREGLOS 02 | A `dabfac13`, D `9f0181f6`, B `5b73e2ed`, C `8d5a84c9`. | 0086 existe en Git; acreditar su aplicación con esquema/sonda y resultado D.4. Replay B/C documenta `distintas 0`. El script de D.4 no acredita ejecución y sus referencias vencen tras tres días. |
+| [ARREGLOS 03](arreglos-03.md) | 20 bloques integrados. Despliegue verificado en `819fe1ff`, con 220 archivos cotejados y cinco migraciones aplicadas. | Las dos observaciones programadas para el 19-nov a las 08:45 UTC siguen por separado. 04 puede arrancar. |
 | ORBIT 07 | `7cf7c9ab`: M1/M2/M4/M5/M6 integrados; M3 omitido con justificación. | Actas/configuración separadas; checks antiguos no reabren el desarrollo. La activación posterior de v2 está documentada en ARREGLOS 01 U. |
 | CLARIDAD 01 | Entregas `c44bd995`, `4be5081c`, `0e5abaf0`, manual y evidencia. | Consolidar recibos residuales sin volver a lanzar la implementación. |
 | DISEÑOS 01 | A `19c2c7b3`, B `f15ffc77`, C `c6cb744f`. | Runtime comprobado; comparaciones locales/copia RO no sustituyen actas productivas A.4/B.4/C.3. |
@@ -25,10 +26,9 @@ La igualdad del runtime **no prueba** por sí sola todas las migraciones aplicad
 
 | Orden | Plan | Alcance pendiente y dependencias |
 |---|---|---|
-| 1 | [ARREGLOS 03](arreglos-03.md) | Datos y precios: día cerrado/horarios, search terms, ledger, avisos, reputación y precios; conservar los bloques existentes. D-G cierra **05**; nuevos **D-M** cierran **06/14**, **D-N** cierra **S1**, **P-G** cierra **07**. Parte de ARREGLOS 01/02 ya integrados. |
-| 2 | [ARREGLOS 04](arreglos-04.md) | Pantallas, fábrica y bloqueos, después de 03. **B-C** cubre **02 completo**, incluida respuesta sin contenedor; nuevo **W-P** cubre **04** en retiro e impulso; **W-E** cubre **15** además de madurez; **W-D** cubre **16**. Conserva los demás bloques, incluido presupuesto alto con confirmación. |
-| 3 | [TEMPORADA 01](temporada-01.md) | Después de 04, orden interno I → A → B → C → D → P → E → F → G → H. Consume margen corregido por ARREGLOS 02, su redondeo/revisión y los contratos que dejan 03/04; G usa aviso y confirmación de presupuesto de 04 W-N. No reimplementar la base. |
-| 4 | [ARREGLOS 05](arreglos-05.md) | Se diseña **ahora** y se ejecuta **después de TEMPORADA**. BASE; A ciclo; B reversas **03/10**; C reposición **11**; D frontera Ads; E shadow; F target **12**; G sello **13**; H tope 150; I settings; J modos; K fees; Z aceptación global. Revalidar el legado contra la base final de TEMPORADA. |
+| 1 | [ARREGLOS 04](arreglos-04.md) | Pantallas, fábrica y bloqueos, después de 03. **B-C** cubre **02 completo**, incluida respuesta sin contenedor; nuevo **W-P** cubre **04** en retiro e impulso; **W-E** cubre **15** además de madurez; **W-D** cubre **16**. Conserva los demás bloques, incluido presupuesto alto con confirmación. |
+| 2 | [TEMPORADA 01](temporada-01.md) | Después de 04, orden interno I → A → B → C → D → P → E → F → G → H. Consume margen corregido por ARREGLOS 02, su redondeo/revisión y los contratos que dejan 03/04; G usa aviso y confirmación de presupuesto de 04 W-N. No reimplementar la base. |
+| 3 | [ARREGLOS 05](arreglos-05.md) | Se diseña **ahora** y se ejecuta **después de TEMPORADA**. BASE; A ciclo; B reversas **03/10**; C reposición **11**; D frontera Ads; E shadow; F target **12**; G sello **13**; H tope 150; I settings; J modos; K fees; Z aceptación global. Revalidar el legado contra la base final de TEMPORADA. |
 
 No quedan otros planes de implementación autorizada fuera de esta lista en el inventario. Los briefs y guías acompañan sus planes padres; no suman entregas independientes. Los conteos y dependencias internas se mantienen en cada plan, sin duplicarlos aquí.
 

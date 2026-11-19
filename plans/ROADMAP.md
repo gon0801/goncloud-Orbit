@@ -1,6 +1,6 @@
 # ROADMAP maestro — Orbit
 
-Actualización vigente: **15-nov-2026**. La [cola única de implementación](ORDEN-IMPLEMENTACION.md) fija **ARREGLOS 03 → ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**, en serie, y separa implementación, seguimiento operativo y futuros no autorizados. `manifest.active=arreglos-03` señala solo el siguiente plan; no lanza el motor.
+Actualización vigente del **18-nov-2026**. ARREGLOS 03 quedó integrado y desplegado en `819fe1ff`. La [cola de implementación](ORDEN-IMPLEMENTACION.md) continúa con **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**. El manifiesto selecciona ARREGLOS 04.
 
 Foto histórica conservada: **2026-11-05 09:00 UTC** (cierre de P01; base del 2026-11-04, America/Vancouver, con consultas de producción del
 2026-11-05 UTC), contra `master` **6bce3589** y los cierres de cada plan. Actualización incremental: la fila RESUMEN ADS 04 se comprobó contra `master` **9fb5a63f** (5-nov 03:22 UTC). Cierre de P01 registrado el **2026-11-05 09:00 UTC** con el resultado del job 10.
