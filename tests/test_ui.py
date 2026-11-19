@@ -3226,3 +3226,109 @@ def test_arreglos04_w_o_salud_explica_motivos_en_espera(monkeypatch):
         "Pausa producto pendiente",
     ):
         assert humanizado not in html
+
+
+def test_arreglos04_bb_cortes_js_traduce_pasos_y_motivos_de_bloqueo():
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "cortes.js"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar cortes.js")
+        pytest.skip("Node no disponible")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+function crearForm(bloqueo, extra) {
+  const estado = { textContent: "" };
+  const boton = { disabled: false };
+  return {
+    dataset: Object.assign({ bloqueo }, extra),
+    elements: { token: { value: "tok" } },
+    events: {},
+    estado,
+    boton,
+    addEventListener(ev, fn) { this.events[ev] = fn; },
+    querySelector(sel) {
+      if (sel === "[data-estado]") return estado;
+      if (sel === "button[type=submit]") return boton;
+      return null;
+    },
+  };
+}
+const fAprobar = crearForm("aprobar", { senal: "s-1" });
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) {
+    if (sel === "form[data-bloqueo]") return [fAprobar];
+    return [];
+  },
+  getElementById() { return null; },
+  addEventListener(ev, fn) { docEvents[ev] = fn; },
+};
+let respuestaActual = { ok: true, status: 200, body: {} };
+global.fetch = async () => ({
+  ok: respuestaActual.ok,
+  status: respuestaActual.status,
+  json: async () => respuestaActual.body,
+});
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  const enviar = async (resp) => {
+    respuestaActual = resp;
+    fAprobar.events.submit({ preventDefault() {} });
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+    return fAprobar.estado.textContent;
+  };
+  assert.equal(
+    await enviar({ ok: true, status: 200, body: { paso: "fallido", motivo: "rechazo_amazon" } }),
+    "No se aplicó (Amazon lo rechazó)."
+  );
+  assert.equal(
+    await enviar({ ok: true, status: 200, body: { paso: "fallido", motivo: "http_400" } }),
+    "No se aplicó (Amazon respondió con error)."
+  );
+  assert.equal(
+    await enviar({ ok: true, status: 200, body: { paso: "fallido", motivo: "http_599" } }),
+    "No se aplicó (Amazon respondió con error)."
+  );
+  assert.equal(
+    await enviar({
+      ok: true, status: 200, body: { paso: "reversa_intencion", motivo: "por_confirmar" }
+    }),
+    "Quitándose (por confirmar en Amazon)."
+  );
+  assert.equal(
+    await enviar({ ok: true, status: 200, body: { paso: "revertido", motivo: null } }),
+    "Quitado."
+  );
+  assert.equal(
+    await enviar({ ok: false, status: 409, body: { detail: "candado" } }),
+    "Error: otro cambio de este término está en curso; vuelve a intentar en un minuto."
+  );
+  assert.equal(
+    await enviar({ ok: false, status: 409, body: { detail: "reconciliacion_pendiente" } }),
+    "Error: Orbit todavía está confirmando en Amazon un cambio anterior de este término;"
+      + " vuelve a intentar en una hora."
+  );
+  assert.equal(
+    await enviar({ ok: false, status: 401, body: { detail: "Token inválido" } }),
+    "Error: Token inválido."
+  );
+})().catch(err => { console.error(err); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", con_formato(guion), str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr

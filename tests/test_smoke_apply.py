@@ -961,3 +961,36 @@ def test_readback_bid_del_smoke_pagina_hasta_hallar_la_entidad():
     bid, paso = sa._paso_readback_bid(_Ctx(), es_keyword=True, ext="321")
     assert bid == Decimal("1.23"), "la entidad de la pagina 2 NO es ausente"
     assert paso["id_cruzado"] is True
+
+
+class _ConnGrabaStub(_ConnStub):
+    def __init__(self):
+        super().__init__()
+        self.params = []
+
+    def execute(self, sql, params=None):
+        self.params.append((" ".join(str(sql).split())[:40], params))
+        return super().execute(sql, params)
+
+
+def test_arreglos04_bb_smoke_207_con_rechazo_por_item_no_sella_ok():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        return httpx.Response(
+            207,
+            json={"keywords": {"success": [], "error": [{"index": 0, "errors": ["BID_TOO_LOW"]}]}},
+        )
+
+    ctx = _ctx_sin_db(handler)
+    ctx.conn = _ConnGrabaStub()
+    paso = sa._paso_mutacion(
+        ctx,
+        "bid",
+        {"keywordId": "1"},
+        lambda: ctx.cliente.actualizar_bid_keyword("1", Decimal("0.50"), "USD"),
+    )
+    sellos = [p for s, p in ctx.conn.params if s.upper().startswith("UPDATE")]
+    assert paso["ok"] is False, f"Amazon rechazo por item y el paso dice ok; sello={sellos}"
+    assert len(sellos) == 1
+    assert str(sellos[0][1]).startswith("fallo:rechazo_por_item:")
