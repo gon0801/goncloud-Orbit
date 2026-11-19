@@ -11,7 +11,7 @@ Hasta D-E.7 la ruta operativa contiene el original.
 ## Entorno y seguridad de las reproducciones
 
 Usar Linux, Python3.12, PostgreSQL16 desechable, git, Node y Chromium. Instalar
-dependencias de Quality (`fastapi`, `psycopg[binary]`, `pytest`, `httpx`, `pglast`,
+dependencias del laboratorio (`fastapi`, `psycopg[binary]`, `pytest`, `httpx`, `pglast`,
 `jinja2`, `pyyaml`) y las herramientas de pruebas operativas cuando correspondan.
 El servicio PG tiene que permitir crear bases/roles de prueba. Nunca usar DSN,
 credenciales, `.env` ni `ORBIT_SECRETS_DIR` de producción.
@@ -110,7 +110,9 @@ conciliación antes de decidir pertenece a TEMP B.2 y banda manual a01X; si ya p
 guardar el control y no volver a implementar. Una prueba de texto no reemplaza
 el comportamiento de HTTP/SQL/UI.
 
-## Corrida global y UI
+## Corrida global y UI de ARREGLOS 05 Z
+
+ARREGLOS 04 usa únicamente los casos TN, controles y recorridos de pantalla que enumera su plan. El procedimiento global de esta sección corresponde al cierre de 05.
 
 Guardar salida fuera de los originales; el runner por defecto sobrescribiría
 `revision/acceptance.xml`, por eso se fija el destino explícitamente:
@@ -134,31 +136,14 @@ no inventar `drive-ruido`. Productos, Settings y Resumen requieren además los
 casos adversos: el recorrido básico por sí solo no envía retiro ni reproduce una
 respuesta tardía. Actualizar fichas si cambian selectores o flujos.
 
-Si una regresión Chromium se promueve a la suite de CI, su bloque incorpora la
-dependencia del navegador al entorno de CI y verifica allí la ejecución; no
-permitir skip por navegador ausente. Otra opción es conservar el caso de navegador
-en el arnés externo y adjuntar su corrida como aceptación obligatoria, manteniendo
-en pytest los contratos API/SQL. Elegir una forma y dejarla registrada en el bloque.
-
-Finalmente, en entorno de pruebas apropiado:
-
-```bash
-pre-commit run --all-files
-python -m compileall -q app tools verify
-CI=1 PYTHONPATH=. python -m pytest -q -x
-```
-
-Guardar Quality verde del SHA integrado, resultados completos PG y secretos; no
-reusar la CI de `ff03ed61` para certificar código futuro. La CI de un PR solo de
-docs omite por diseño la batería; eso sirve para esta entrega documental, no
-para acreditar la implementación de 03/04/TEMP/05 ni su despliegue.
+Registrar los resultados de la aceptación de 05 Z sobre el SHA integrado. Aplicar las Reglas de trabajo de AGENTS.md para revisión, pruebas y secretos.
 
 ## Veredicto Z
 
 Volver a ejecutar el skill thermo sobre **toda Orbit**, con inventario de alcance,
 fronteras y caminos; incluir código nuevo y vecinos. No basta volver verdes estas
 reproducciones. Registrar por hallazgo impacto, comando, evidencia, dueño y cierre.
-PASA solo sin bloqueos confirmados abiertos, con CI/secretos/aceptación/UI del mismo
+PASA solo sin bloqueos confirmados abiertos, con secretos, aceptación y UI del mismo
 estado integrado. Las notas estructurales siguen el criterio de AGENTS; no se
 debilitan candados para lograr pase. Si K carece de fuente, se declara pendiente y
 no se afirma cerrado todo el legado. Los seguimientos operativos se acreditan aparte.

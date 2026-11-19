@@ -49,7 +49,7 @@ Salvo actualización expresa, cifras, modos y conteos de esta tabla conservan la
 
 ## Implementación pendiente
 
-La lista completa y su orden están en [ORDEN-IMPLEMENTACION](ORDEN-IMPLEMENTACION.md): **ARREGLOS 03 → ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**. Los nuevos bloques de 03/04 y la propiedad final de los 14 hallazgos se mantienen allí y en [COBERTURA](../docs/evidencia/arreglos-05/COBERTURA.md). ARREGLOS 05 se diseña ahora y se ejecuta después de TEMPORADA; no espera a su final para redactarse.
+La lista completa y su orden están en [ORDEN-IMPLEMENTACION](ORDEN-IMPLEMENTACION.md): **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**. Los nuevos bloques de 03/04 y la propiedad final de los 14 hallazgos se mantienen allí y en [COBERTURA](../docs/evidencia/arreglos-05/COBERTURA.md). ARREGLOS 05 se diseña ahora y se ejecuta después de TEMPORADA; no espera a su final para redactarse.
 
 ## Futuros sin implementación autorizada
 
@@ -70,7 +70,7 @@ Esta tabla no es una cola de ejecución ni autorización. BIDS 02 ya entregó he
 
 **AUTO-03 entregado:** [DECISIONES PRODUCTO 01](decisiones-producto-01.md), A-I, `f86ed7dc`; [ORBIT 07](orbit-07-motor-decisiones.md), `7cf7c9ab`. La pausa por producto queda lista para vivo y en práctica por decisión documentada; el encendido del dueño no es implementación pendiente. [Spec](../docs/superpowers/specs/2026-10-24-decisiones-producto-design.md), [síntesis](../docs/evidencia/auto-03/plan/sintesis.md). No se autoriza por arrastre pausa económica de productos con ventas en grupos compartidos.
 
-**Base de noviembre integrada:** ARREGLOS 01 A-Z, ARREGLOS 02 A/D/B/C, CLARIDAD 01 y DISEÑOS 01 A/B/C, además de ORBIT 07. Runtime coincidente según huellas; los recibos específicos de migraciones/operación se consolidan sin reimplementar. SHA y límites en [la base integrada](ORDEN-IMPLEMENTACION.md#base-integrada-no-reejecutar).
+**Base de noviembre integrada:** ARREGLOS 01 A-Z, ARREGLOS 02 A/D/B/C, ARREGLOS 03, CLARIDAD 01 y DISEÑOS 01 A/B/C, además de ORBIT 07. Runtime coincidente según huellas; los recibos específicos de migraciones/operación se consolidan sin reimplementar. SHA y límites en [la base integrada](ORDEN-IMPLEMENTACION.md#base-integrada-no-reejecutar).
 
 **Otros seguimientos documentales:** SP-API 02 conserva acta de nocturna previa al despliegue y requiere recuperar evidencia posterior; RESUMEN ADS 04 conserva revisión visual productiva pendiente. No reabrir su código. P10/P12 son opcionales sin plan; P11 deja de proponer lotes por la retirada de Apify. Briefs, guías, validaciones y `jev-ads-03.md-E` no son nuevas implementaciones.
 
