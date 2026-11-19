@@ -452,9 +452,38 @@ function verRetiro() {
         zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
         return;
       }
-      retiroGuardado = { pedido: pedido, plan: r.data };
       zona.replaceChildren();
+      if (r.data.ventas_al_dia === false) {
+        retiroGuardado = null;
+        var motivo = r.data.ventas_al_dia_hasta
+          ? "no se actualizan desde el " + Orbit.fechaHora(r.data.ventas_al_dia_hasta)
+          : "todavía no se han cargado";
+        var alerta = parrafo(
+          "No se sacó ningún anuncio: las ventas de la contabilidad " +
+            motivo +
+            ", así que Orbit no puede comprobar que estos productos no vendieron. " +
+            "Vuelve a intentarlo cuando se actualicen."
+        );
+        alerta.className = "aviso";
+        zona.appendChild(alerta);
+        form.hidden = true;
+        bloque.hidden = false;
+        return;
+      }
+      retiroGuardado = { pedido: pedido, plan: r.data };
+      var vendieron = r.data.vendieron ? r.data.vendieron.length : 0;
+      if (vendieron) {
+        var excluidos = parrafo(
+          vendieron === 1
+            ? "1 de los productos marcados vendió en los últimos 11 meses: se queda con sus anuncios."
+            : vendieron +
+                " de los productos marcados vendieron en los últimos 11 meses: se quedan con sus anuncios."
+        );
+        excluidos.className = "aviso";
+        zona.appendChild(excluidos);
+      }
       if (!r.data.anuncios.length) {
+        retiroGuardado = null;
         zona.appendChild(parrafo("Nada que sacar: sin anuncios en bolsas viejas."));
         form.hidden = true;
         bloque.hidden = false;

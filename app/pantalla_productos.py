@@ -9,11 +9,13 @@ dataclasses + `como_dict()` + lecturas SOLO SELECT.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
 DIAS_PEDIDOS_CANDIDATO = 90
 DIAS_CLICS_CANDIDATO = 60
+DIAS_PEDIDOS_ADS = 60
 PEDIDOS_MINIMOS_CANDIDATO = 2
 CLICS_MAXIMOS_CANDIDATO = 20
 DIAS_SIN_PEDIDO = 330
@@ -197,7 +199,11 @@ def frase_fuera_de_amazon(clics_fuera: int | None, clics: int | None) -> str | N
     return f"{_num(clics_fuera)} de sus {_num(clics)} clics vinieron de fuera de Amazon."
 
 
-_SQL_CANDIDATOS = """
+_CTE_VENTAS = """ventas AS (
+    SELECT product_id, sum(quantity)::bigint AS unidades FROM ledger_event
+     WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - %s GROUP BY 1)"""
+
+_SQL_CANDIDATOS = f"""
 WITH activos AS (
     SELECT DISTINCT li.product_id FROM ad_entity pa
       JOIN ad_entity ag ON ag.id = pa.parent_id JOIN ad_entity c ON c.id = ag.parent_id
@@ -206,17 +212,16 @@ WITH activos AS (
       JOIN ad_entity_state sc ON sc.ad_entity_id = c.id AND sc.status = 'ENABLED'
       JOIN listing li ON li.id = pa.listing_id
      WHERE pa.platform = %s AND pa.kind = 'product_ad'
-), ventas AS (
-    SELECT product_id, sum(quantity)::bigint AS unidades FROM ledger_event
-     WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - %s GROUP BY 1
-), clics AS (
+), {_CTE_VENTAS}, clics AS (
     SELECT li.product_id, sum(u.clicks)::bigint AS clics
       FROM (SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
-                   advertised_asin, clicks
+                   advertised_asin, advertised_sku, clicks
               FROM ads_product_metric_observation
              WHERE platform = %s AND metric_date >= %s::date - %s
              ORDER BY advertised_asin, advertised_sku, metric_date, observed_at DESC) u
-      JOIN listing li ON li.platform = %s AND li.external_id = u.advertised_asin GROUP BY 1)
+      JOIN listing li ON li.platform = %s AND li.external_id = u.advertised_asin
+                     AND li.seller_sku = u.advertised_sku
+     GROUP BY 1)
 SELECT a.product_id, p.odoo_sku, p.name, v.unidades, c.clics,
        (SELECT array_agg(li.id ORDER BY li.id) FROM listing li
          WHERE li.product_id = a.product_id AND li.platform = %s)
@@ -226,7 +231,7 @@ SELECT a.product_id, p.odoo_sku, p.name, v.unidades, c.clics,
  WHERE v.unidades >= %s AND coalesce(c.clics, 0) < %s ORDER BY 1
 """
 
-_SQL_SIN_PEDIDO = """
+_SQL_SIN_PEDIDO = f"""
 WITH activos AS (
     SELECT DISTINCT li.product_id FROM ad_entity pa
       JOIN ad_entity ag ON ag.id = pa.parent_id JOIN ad_entity c ON c.id = ag.parent_id
@@ -235,10 +240,7 @@ WITH activos AS (
       JOIN ad_entity_state sc ON sc.ad_entity_id = c.id AND sc.status = 'ENABLED'
       JOIN listing li ON li.id = pa.listing_id
      WHERE pa.platform = %s AND pa.kind = 'product_ad'
-), ventas AS (
-    SELECT product_id, sum(quantity)::bigint AS unidades FROM ledger_event
-     WHERE platform = %s AND kind = 'sale' AND event_date >= %s::date - %s GROUP BY 1
-)
+), {_CTE_VENTAS}
 SELECT a.product_id, p.odoo_sku, p.name,
        (SELECT array_agg(li.id ORDER BY li.id) FROM listing li
          WHERE li.product_id = a.product_id AND li.platform = %s)
@@ -247,6 +249,60 @@ SELECT a.product_id, p.odoo_sku, p.name,
   JOIN product p ON p.id = a.product_id
  WHERE coalesce(v.unidades, 0) = 0 ORDER BY 1
 """
+
+_SQL_VENDIO_POR_LISTING = f"""
+WITH {_CTE_VENTAS},
+ads AS (
+    SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
+           advertised_asin, advertised_sku, purchases_same_sku30d
+      FROM ads_product_metric_observation
+     WHERE platform = %s AND metric_date >= %s::date - %s
+     ORDER BY advertised_asin, advertised_sku, metric_date, observed_at DESC)
+SELECT li.id,
+       coalesce(v.unidades, 0) > 0
+       OR EXISTS (SELECT 1 FROM ads a WHERE a.advertised_asin = li.external_id
+                     AND a.advertised_sku = li.seller_sku AND a.purchases_same_sku30d > 0)
+  FROM listing li LEFT JOIN ventas v USING (product_id)
+ WHERE li.platform = %s AND li.id = ANY(%s) AND li.product_id IS NOT NULL
+"""
+
+_SQL_ULTIMO_LIBRO = (
+    "SELECT max(finished_at) FROM ingest_run WHERE source = 'accounting_ledger_events' AND ok"
+)
+
+
+def vendio_por_listing(
+    conn, plataforma: str, listing_ids: Sequence[int], hoy: dt.date
+) -> dict[int, bool]:
+    """Solo publicaciones con producto conocido. True si su producto vendio en
+    DIAS_SIN_PEDIDO dias (la misma regla de la lista) o su SKU tuvo pedidos
+    atribuidos por Ads en DIAS_PEDIDOS_ADS dias."""
+    if not listing_ids:
+        return {}
+    filas = conn.execute(
+        _SQL_VENDIO_POR_LISTING,
+        (
+            plataforma,
+            hoy,
+            DIAS_SIN_PEDIDO,
+            plataforma,
+            hoy,
+            DIAS_PEDIDOS_ADS,
+            plataforma,
+            list(listing_ids),
+        ),
+    ).fetchall()
+    return {int(f[0]): bool(f[1]) for f in filas}
+
+
+def ultimo_libro(conn) -> dt.datetime | None:
+    """Cuando termino la ultima carga buena de ventas de la contabilidad."""
+    fila = conn.execute(_SQL_ULTIMO_LIBRO).fetchone()
+    valor = None if fila is None else fila[0]
+    if valor is not None and valor.tzinfo is not None:
+        valor = valor.astimezone(dt.UTC)
+    return valor
+
 
 _SQL_SIN_PRODUCTO = """
 SELECT count(*) FROM ad_entity pa

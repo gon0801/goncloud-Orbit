@@ -18,6 +18,7 @@ verificada contra la cola antes del primer PUT. `ejecuta_retiro`,
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import hashlib
 import json
 import sys
@@ -28,9 +29,13 @@ from typing import Literal, get_args
 from psycopg import pq
 
 from app import impulso as im
+from app import pantalla_productos as pp
 from app.ads import archivar
 from app.ads.client import AdsApiError
 from app.ads.config import AdsConfigError
+from app.dashboard_resumen import hoy_resumen
+
+DIAS_LIBRO_AL_DIA = 2
 
 MotivoRetiro = Literal["impulso", "sin_pedidos", "subfamilia", "producto_sin_ventas"]
 
@@ -164,6 +169,9 @@ class PlanRetiro:
     motivo: str
     anuncios: tuple[im.AnuncioARetirar, ...]
     huella: str
+    vendieron: tuple[int, ...] = ()
+    ventas_al_dia: bool = True
+    ventas_al_dia_hasta: dt.datetime | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -181,6 +189,11 @@ class PlanRetiro:
                 }
                 for a in self.anuncios
             ],
+            "vendieron": list(self.vendieron),
+            "ventas_al_dia": self.ventas_al_dia,
+            "ventas_al_dia_hasta": (
+                None if self.ventas_al_dia_hasta is None else self.ventas_al_dia_hasta.isoformat()
+            ),
         }
 
 
@@ -249,12 +262,30 @@ def planea_retiro(
     listing_ids: tuple[int, ...],
     motivo: MotivoRetiro,
     conservar_grupo_id: int | None,
+    hoy: dt.date | None = None,
 ) -> PlanRetiro:
     """Los product ads ENABLED de esos listings en ad groups que NO son
     del grupo a conservar. Solo SELECT. Los anuncios sin listing quedan
     fuera (no se buscan por ASIN en este paso)."""
     if motivo not in get_args(MotivoRetiro):
         raise ValueError(f"motivo de retiro fuera de vocabulario: {motivo!r}")
+    vendieron: tuple[int, ...] = ()
+    if motivo == "sin_pedidos":
+        hoy = hoy or hoy_resumen((plataforma,), dt.datetime.now(dt.UTC))
+        libro = pp.ultimo_libro(conn)
+        if libro is None or libro.date() < hoy - dt.timedelta(days=DIAS_LIBRO_AL_DIA):
+            return PlanRetiro(
+                plataforma,
+                motivo,
+                (),
+                _huella_plan(()),
+                (),
+                ventas_al_dia=False,
+                ventas_al_dia_hasta=libro,
+            )
+        vendio = pp.vendio_por_listing(conn, plataforma, listing_ids, hoy)
+        vendieron = tuple(sorted(lid for lid, si in vendio.items() if si))
+        listing_ids = tuple(sorted(lid for lid, si in vendio.items() if not si))
     filas = conn.execute(
         _SQL_ANUNCIOS, (plataforma, list(listing_ids), conservar_grupo_id, conservar_grupo_id)
     ).fetchall()
@@ -269,7 +300,7 @@ def planea_retiro(
         )
         for f in filas
     )
-    return PlanRetiro(plataforma, motivo, anuncios, _huella_plan(anuncios))
+    return PlanRetiro(plataforma, motivo, anuncios, _huella_plan(anuncios), vendieron)
 
 
 _SQL_ANUNCIO_DE_DECISION = """
