@@ -571,9 +571,9 @@
     "semantic_hash": "da1a60bc88c8dc4f6dc98da8e4ff6deb"
   },
   "app/meli/precio_mercado.py": {
-    "mtime": 1795014472.6190414,
-    "seen": 1795016496.7962582,
-    "ast_hash": "12006c0b1a3748820e14424c8a6be8ac",
+    "mtime": 1795041011.9284093,
+    "seen": 1795041722.3725116,
+    "ast_hash": "5fa2f35e8accf6025a1f1828c6c98deb",
     "semantic_hash": ""
   },
   "app/meli/write_client.py": {
@@ -721,9 +721,9 @@
     "semantic_hash": "eca5b87c35d5d4c1cee181ad21974ac5"
   },
   "app/precio/corrida.py": {
-    "mtime": 1795038890.9774494,
-    "seen": 1795039761.748461,
-    "ast_hash": "92c8e672cad69d211acee03eede2779a",
+    "mtime": 1795039855.0815601,
+    "seen": 1795041722.378532,
+    "ast_hash": "8da3ad2dffef285d96bbfb54e075aa0a",
     "semantic_hash": ""
   },
   "app/precio/envio.py": {
@@ -739,8 +739,8 @@
     "semantic_hash": ""
   },
   "app/precio/goals_write.py": {
-    "mtime": 1795039367.3271554,
-    "seen": 1795039761.7494674,
+    "mtime": 1795039855.1647215,
+    "seen": 1795041722.378532,
     "ast_hash": "a9a8f9b8f3c89118d42f38165fb4191f",
     "semantic_hash": ""
   },
@@ -769,8 +769,8 @@
     "semantic_hash": ""
   },
   "app/precio/siembra.py": {
-    "mtime": 1795039051.6484988,
-    "seen": 1795039761.7494674,
+    "mtime": 1795039855.1662266,
+    "seen": 1795041722.3795326,
     "ast_hash": "585e21e7e407e008c43c03a9e0a4d6dd",
     "semantic_hash": ""
   },
@@ -3416,10 +3416,10 @@
     "semantic_hash": ""
   },
   "tests/test_precio02_meli_cotizador.py": {
-    "mtime": 1795014474.450675,
-    "seen": 1795016496.7982633,
-    "ast_hash": "458063134aab33442b747e2ec767b764",
-    "semantic_hash": "458063134aab33442b747e2ec767b764"
+    "mtime": 1795041011.9294088,
+    "seen": 1795041722.5237868,
+    "ast_hash": "b6116553eac88ef5891f58938b8c6f7f",
+    "semantic_hash": ""
   },
   "tests/test_precio02_meli_ledger.py": {
     "mtime": 1795014474.451675,
@@ -3464,9 +3464,9 @@
     "semantic_hash": ""
   },
   "tests/test_precio_corrida.py": {
-    "mtime": 1795038890.980447,
-    "seen": 1795039761.8969536,
-    "ast_hash": "0c906206c06bb3c3a12fc772b5e629f3",
+    "mtime": 1795039855.0973706,
+    "seen": 1795041722.5252924,
+    "ast_hash": "e425b4ad6820df498b954daf762762f7",
     "semantic_hash": ""
   },
   "tests/test_precio_d0.py": {
@@ -3482,8 +3482,8 @@
     "semantic_hash": "84721256a47c5a9d4b07436eb88dfcb5"
   },
   "tests/test_precio_goals.py": {
-    "mtime": 1795039367.33019,
-    "seen": 1795039761.8979537,
+    "mtime": 1795039855.1692336,
+    "seen": 1795041722.5252924,
     "ast_hash": "edaa310b136eae87f49e156613d39256",
     "semantic_hash": ""
   },
@@ -17205,9 +17205,9 @@
     "semantic_hash": ""
   },
   "docs/evidencia/arreglos-03/P-D/acepta.txt": {
-    "mtime": 1795038890.9794457,
-    "seen": 1795039761.9481516,
-    "ast_hash": "8c9a35102da5210a6d550f76c8488ed0",
+    "mtime": 1795039855.0840786,
+    "seen": 1795041722.5763927,
+    "ast_hash": "b6cbc469a2f86fa275fb339e607ee9fd",
     "semantic_hash": ""
   },
   "docs/evidencia/arreglos-03/D-M/acepta.txt": {
@@ -17223,8 +17223,8 @@
     "semantic_hash": ""
   },
   "docs/evidencia/arreglos-03/P-F/prueba.py": {
-    "mtime": 1795039271.7218142,
-    "seen": 1795039761.7631829,
+    "mtime": 1795039855.1682353,
+    "seen": 1795041722.393078,
     "ast_hash": "05c8343944da981fff12582b48b5a151",
     "semantic_hash": ""
   },
@@ -17241,9 +17241,15 @@
     "semantic_hash": ""
   },
   "docs/evidencia/arreglos-03/P-F/acepta.txt": {
-    "mtime": 1795039385.5214288,
-    "seen": 1795039761.9481516,
+    "mtime": 1795039855.167235,
+    "seen": 1795041722.5763927,
     "ast_hash": "7b04eea939c7b27cc745d061f6565d39",
+    "semantic_hash": ""
+  },
+  "docs/evidencia/arreglos-03/P-G/aceptacion.md": {
+    "mtime": 1795041630.3353186,
+    "seen": 1795041722.5763927,
+    "ast_hash": "dbf173c7b83c1fa76b6edb7c162abcd8",
     "semantic_hash": ""
   }
 }

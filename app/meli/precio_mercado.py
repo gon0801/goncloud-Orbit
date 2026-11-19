@@ -186,9 +186,23 @@ def historia_meli_unidad(
 
 
 def _cotizacion_de_arbol_meli(
-    precio: Importe, total: Decimal, detalles: tuple[DetalleFee, ...]
+    precio: Importe, total: Decimal, detalles: tuple[DetalleFee, ...], estimada_en
 ) -> puerto.Cotizacion:
-    """`Cotizacion` desde un arbol MeLi ya validado (suma + partido)."""
+    """`Cotizacion` desde un arbol MeLi ya validado (suma + partido).
+
+    La evidencia viaja completa (ARREGLOS 03 P-G): la fecha de la fuente
+    (`estimada_en`, la original de la fila o del cotizador; `now()` jamas
+    reemplaza una fecha vieja para aparentar frescura) y el arbol entero en
+    `Fees.detalle`. Sin fecha o sin desglose no hay exito: error explicito y
+    `_persistir_cotizacion` escribe `error`, nunca un `success` sin evidencia.
+    """
+    if estimada_en is None or not detalles:
+        return puerto.Cotizacion(
+            precio=precio,
+            fees=None,
+            estimada_en=None,
+            error_code="fee_error:fee_sin_evidencia",
+        )
     suma = sum((d.final_fee for d in detalles), Decimal(0))
     if suma != total:
         return puerto.Cotizacion(
@@ -208,8 +222,9 @@ def _cotizacion_de_arbol_meli(
             variable=Importe(variable, precio.moneda),
             fijo=Importe(fijo, precio.moneda),
             impuesto_pendiente=False,
+            detalle=detalles,
         ),
-        estimada_en=None,
+        estimada_en=estimada_en,
         error_code=None,
     )
 
@@ -541,8 +556,22 @@ class MercadoMeli:
                 estimada_en=None,
                 error_code=resultado.error_code or "desconocido",
             )
-        detalles = tuple(_detalle_fee_meli(nodo) for nodo in (resultado.fee_details or []))
-        return _cotizacion_de_arbol_meli(precio, resultado.total_fees, detalles)
+        try:
+            detalles = tuple(_detalle_fee_meli(nodo) for nodo in (resultado.fee_details or []))
+        except ValueError:
+            # Arbol ilegible: error explicito del puerto, nunca una
+            # cotizacion a medias ni una excepcion que tumbe la corrida.
+            return puerto.Cotizacion(
+                precio=precio,
+                fees=None,
+                estimada_en=None,
+                error_code="fee_error:fee_detalle_ilegible",
+            )
+        # La fecha es la de la fuente (la que estampo el cotizador), no otra
+        # llamada al reloj.
+        return _cotizacion_de_arbol_meli(
+            precio, resultado.total_fees, detalles, resultado.fees_estimated_at
+        )
 
     def cotizacion_guardada(
         self, conn, *, evento: str, listing_id: int, hoy: date, oferta_id: int, pedido
@@ -554,13 +583,14 @@ class MercadoMeli:
         """
         fila = conn.execute(
             "SELECT id, quoted_price, quoted_price_currency, total_fees, fee_details,"
-            " estado, error_code, oferta_observation_id FROM precio_cotizacion"
+            " estado, error_code, oferta_observation_id, fees_estimated_at"
+            " FROM precio_cotizacion"
             " WHERE source_event_id = %s",
             (evento,),
         ).fetchone()
         if fila is None:
             return None
-        (cid, precio_q, moneda_q, total, detalles, estado, codigo, oferta_guardada) = fila
+        (cid, precio_q, moneda_q, total, detalles, estado, codigo, oferta_guardada, estimada) = fila
         if (
             oferta_guardada != oferta_id
             or precio_q != pedido.precio.valor
@@ -577,7 +607,8 @@ class MercadoMeli:
                 precio=precio, fees=None, estimada_en=None, error_code=codigo or "desconocido"
             )
         detalles_q = tuple(_detalle_fee_meli(nodo) for nodo in (detalles or []))
-        return cid, _cotizacion_de_arbol_meli(precio, Decimal(total), detalles_q)
+        # La fecha viaja ORIGINAL (la de la fila), sin rejuvenecerla con now().
+        return cid, _cotizacion_de_arbol_meli(precio, Decimal(total), detalles_q, estimada)
 
     def precio_vivo(self, unidad: puerto.UnidadPrecio) -> Importe:
         """Precio propio leido ahora (GET del item)."""

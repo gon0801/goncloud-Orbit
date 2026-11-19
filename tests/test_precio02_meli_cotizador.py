@@ -256,3 +256,64 @@ def test_canonica_fee_meli_sin_marketplace_y_estable():
     )
     otro = construir_fee_canonical_input_meli(_oferta(price_amount=Decimal("100.00")))
     assert construir_fee_source_event_id_meli(otro) != construir_fee_source_event_id_meli(canon)
+
+
+# ------------------- ARREGLOS 03 P-G (la cotizacion conserva su evidencia)
+
+
+def _arbol_meli_190_93():
+    from app.estimacion_venta import DetalleFee
+
+    return (
+        DetalleFee(fee_type="SaleFee", final_fee=Decimal("190.9300"), tax_amount=None),
+        DetalleFee(fee_type="SaleFeeFixed", final_fee=Decimal("0.0000"), tax_amount=None),
+        DetalleFee(fee_type="ListingFee", final_fee=Decimal("0.0000"), tax_amount=None),
+    )
+
+
+def test_arreglos03_pg_fecha_original_y_desglose_viajan_completos():
+    """P-G: fresca y cache usan el mismo constructor y conservan la
+    evidencia. La fecha viaja ORIGINAL: una cotizacion guardada hace tres
+    dias se lee con ESA fecha (nada de now() para rejuvenecerla), y el arbol
+    llega entero en `Fees.detalle` con su suma igual al total."""
+    from app.meli.precio_mercado import _cotizacion_de_arbol_meli
+    from app.precio.tipos import Importe
+
+    precio = Importe(Decimal("979.11"), "MXN")
+    total = Decimal("190.93")
+    detalles = _arbol_meli_190_93()
+    vieja = datetime(2026, 9, 5, 3, 0, 0, tzinfo=UTC)  # tres dias antes que AHORA
+
+    fresca = _cotizacion_de_arbol_meli(precio, total, detalles, AHORA)
+    cache = _cotizacion_de_arbol_meli(precio, total, detalles, vieja)
+    for cot, fecha in ((fresca, AHORA), (cache, vieja)):
+        assert cot.error_code is None and cot.fees is not None
+        assert cot.estimada_en == fecha, "la fecha de la fuente se conserva tal cual"
+        assert cot.fees.detalle == detalles, "el arbol viaja completo en Fees.detalle"
+        assert sum((d.final_fee for d in cot.fees.detalle), Decimal(0)) == cot.fees.total.valor
+    # Fresca y cache con la MISMA fecha son equivalentes (mismo constructor).
+    misma = _cotizacion_de_arbol_meli(precio, total, detalles, AHORA)
+    assert fresca == misma
+
+
+def test_arreglos03_pg_sin_fecha_o_suma_incoherente_no_hay_exito():
+    """P-G: exito exige evidencia completa. Sin fecha de fuente o sin
+    desglose, error explicito del puerto (y `_persistir_cotizacion` escribira
+    `error`, jamas un success sin evidencia); con la suma distinta al total,
+    `fee_no_concilia` como hoy."""
+    from app.meli.precio_mercado import _cotizacion_de_arbol_meli
+    from app.precio.tipos import Importe
+
+    precio = Importe(Decimal("979.11"), "MXN")
+    total = Decimal("190.93")
+    detalles = _arbol_meli_190_93()
+    sin_fecha = _cotizacion_de_arbol_meli(precio, total, detalles, None)
+    assert (sin_fecha.error_code, sin_fecha.fees, sin_fecha.estimada_en) == (
+        "fee_error:fee_sin_evidencia",
+        None,
+        None,
+    )
+    sin_arbol = _cotizacion_de_arbol_meli(precio, total, (), AHORA)
+    assert (sin_arbol.error_code, sin_arbol.fees) == ("fee_error:fee_sin_evidencia", None)
+    incoherente = _cotizacion_de_arbol_meli(precio, Decimal("999.99"), detalles, AHORA)
+    assert (incoherente.error_code, incoherente.fees) == ("fee_error:fee_no_concilia", None)
