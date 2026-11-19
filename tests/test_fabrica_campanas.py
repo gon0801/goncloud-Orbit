@@ -2167,8 +2167,9 @@ def test_desarmar_lote_sin_pasos_applied_aborta(monkeypatch):
         "argv",
         ["fabrica_campanas.py", "--desarmar", "L9", "--acepto-mutacion-real", "--go", "x"],
     )
-    with pytest.raises(fc.Abortar, match="L9"):
+    with pytest.raises(fc.Abortar, match="L9") as exc_info:
         fc.main()
+    assert "applied, o failed" not in str(exc_info.value)
 
 
 def test_desarmar_lote_failed_a_medias_pausa_lo_applied_y_lo_failed_con_external(
@@ -3041,6 +3042,34 @@ def test_r14r4_desarmar_un_lote_ya_desarmado_aborta_sin_puts(monkeypatch):
 
 
 @_skip_db
+def test_arreglos04_w_j_desarmar_pausa_campana_planeada_con_id(monkeypatch):
+    with db_fabrica("orbit_w_j_desarme") as conn:
+        _lote_applied_orden_real(conn, lote="LX1")
+        conn.execute("UPDATE fabrica_lote SET estado = 'planeado' WHERE lote = 'LX1'")
+        conn.execute("DELETE FROM fabrica_lote_paso WHERE lote = 'LX1' AND orden = 2")
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " estado, external_id, ack) VALUES ('LX1', 2, 'category_phrase', 'campaign',"
+            " '{}', 'planeado', 'c-phrase', '{}')"
+        )
+        conn.commit()
+        dsn, dbname = _dsn_propia(conn), conn.info.dbname
+        amazon = _AmazonDesarme()
+        _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
+        assert _corre_desarmar(monkeypatch, amazon, lote="LX1") == 0
+        pausadas = sorted(json.loads(p.content)["campaigns"][0]["campaignId"] for p in amazon.puts)
+        conn2 = psycopg.connect(dsn, dbname=dbname)
+        try:
+            estado = conn2.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LX1'").fetchone()
+        finally:
+            conn2.close()
+        assert estado == ("desarmado",)
+        assert pausadas == ["c-1", "c-phrase"], (
+            f"solo se pauso {pausadas}; c-phrase (id conocido) sigue ENABLED gastando"
+        )
+
+
+@_skip_db
 def test_pausar_lote_rechaza_transiciones_ilegales():
     """I.3: desarmado nunca revive, pausar exige applied, reanudar exige
     pausado, lote ausente aborta."""
@@ -3493,7 +3522,7 @@ def test_reactiva_lote_pausado_activa_todo_y_sella_applied():
         puts = []
         ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_estados(estados, puts)), "LP2")
         fc.reactiva_lote(ctx, "LP2", "dueno")
-        assert puts == [("c-1", "ENABLED"), ("c-0", "ENABLED")]  # orden: rol
+        assert puts == [("c-0", "ENABLED"), ("c-1", "ENABLED")]
         assert estados == {"c-0": "ENABLED", "c-1": "ENABLED"}
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
             "applied",
