@@ -578,6 +578,216 @@ def test_ruta_ruido_200_con_marcador_menu_y_headers(monkeypatch):
         app.dependency_overrides.pop(_conexion_lectura, None)
 
 
+def test_arreglos04_w_e_bloque_exige_cobertura_antes_de_dividir():
+    from app.pantalla_ruido import _bloque
+
+    dia = dt.date(2026, 10, 10)
+    assert _bloque([]) is None
+
+    falta_gasto = _bloque(
+        [
+            (dia, Decimal("10"), 1, Decimal("100")),
+            (dia, None, 1, Decimal("100")),
+        ]
+    )
+    assert falta_gasto == {
+        "gasto": None,
+        "pedidos": 2,
+        "venta": "200",
+        "acos_pct": None,
+        "cobertura": {"gasto": False, "pedidos": True, "venta": True, "completo": False},
+        "causa_acos": "cobertura_incompleta",
+    }
+
+    falta_venta = _bloque(
+        [
+            (dia, Decimal("10"), 1, Decimal("100")),
+            (dia, Decimal("10"), 1, None),
+        ]
+    )
+    assert falta_venta == {
+        "gasto": "20",
+        "pedidos": 2,
+        "venta": None,
+        "acos_pct": None,
+        "cobertura": {"gasto": True, "pedidos": True, "venta": False, "completo": False},
+        "causa_acos": "cobertura_incompleta",
+    }
+
+    completo = _bloque(
+        [
+            (dia, Decimal("10"), 1, Decimal("100")),
+            (dia, Decimal("20"), 2, Decimal("100")),
+        ]
+    )
+    assert completo == {
+        "gasto": "30",
+        "pedidos": 3,
+        "venta": "200",
+        "acos_pct": "15.00",
+        "cobertura": {"gasto": True, "pedidos": True, "venta": True, "completo": True},
+        "causa_acos": None,
+    }
+
+    sin_venta = _bloque([(dia, Decimal("10"), 0, Decimal("0"))])
+    assert sin_venta == {
+        "gasto": "10",
+        "pedidos": 0,
+        "venta": "0",
+        "acos_pct": None,
+        "cobertura": {"gasto": True, "pedidos": True, "venta": True, "completo": True},
+        "causa_acos": "sin_ventas",
+    }
+
+
+def test_arreglos04_w_e_comparacion_excluye_dias_inmaduros_y_expone_hasta():
+    from app.pantalla_ruido import _comparacion
+
+    hoy = dt.date(2026, 11, 12)
+    encendido = hoy - dt.timedelta(days=20)
+    filas = []
+    fecha = encendido - dt.timedelta(days=30)
+    while fecha <= hoy - dt.timedelta(days=1):
+        inmaduro = fecha >= hoy - dt.timedelta(days=8)
+        venta = Decimal("76") if inmaduro else Decimal("100")
+        filas.append((fecha, Decimal("20"), 1, venta))
+        fecha += dt.timedelta(days=1)
+    conn = _ConnPorSql(
+        {
+            "config_version": [(dt.datetime.combine(encendido, dt.time(9), tzinfo=UTC),)],
+            "v_metric_latest": filas,
+        }
+    )
+    res = _comparacion(conn, "amazon_mx", 30, hoy=hoy)
+    assert res["despues_hasta"] == "2026-11-03"
+    assert res["dias_despues"] == 12
+    assert res["despues"]["gasto"] == "240"
+    assert res["despues"]["venta"] == "1200"
+    assert res["despues"]["acos_pct"] == "20.00"
+    sql_mercado, params_mercado = conn.consultas[1]
+    assert "m.metric_date <= %s" in sql_mercado
+    assert params_mercado == ("amazon_mx", dt.date(2026, 9, 23), dt.date(2026, 11, 3))
+
+    reciente = dt.date(2026, 11, 8)
+    conn_reciente = _ConnPorSql(
+        {
+            "config_version": [(dt.datetime.combine(reciente, dt.time(9), tzinfo=UTC),)],
+            "v_metric_latest": filas,
+        }
+    )
+    res_reciente = _comparacion(conn_reciente, "amazon_mx", 30, hoy=hoy)
+    assert res_reciente["despues"] is None
+    assert res_reciente["dias_despues"] == 0
+    assert res_reciente["antes"]["acos_pct"] == "20.00"
+
+
+def test_arreglos04_w_e_ruido_api_y_html_coexisten_madurez_y_cobertura(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import api_dashboard as dash
+    from app.ads.reports import KEYWORDS_CFG, _planea_filas
+    from app.api import _conexion_lectura
+    from app.main import app
+
+    instante = dt.datetime(2026, 11, 13, 3, 0, tzinfo=UTC)
+    monkeypatch.setattr(dash, "_ahora_utc", lambda: instante)
+
+    fecha_antes = dt.date(2026, 9, 20)
+    fecha_despues = dt.date(2026, 10, 15)
+    fecha_inmadura = dt.date(2026, 11, 10)
+    filas_kw = []
+    for idx, cost in enumerate(("10", None), 1):
+        planeadas, skips = _planea_filas(
+            KEYWORDS_CFG,
+            [
+                {
+                    "keywordId": str(idx),
+                    "date": fecha_despues.isoformat(),
+                    "cost": cost,
+                    "sales30d": "100",
+                    "clicks": 3,
+                    "purchases30d": 1,
+                }
+            ],
+            ultimo_cerrado=dt.date(2026, 11, 11),
+            fecha_ini=fecha_despues,
+            fecha_fin=fecha_despues,
+        )
+        assert len(planeadas) == 1 and not skips
+        filas_kw.append(
+            (fecha_despues, planeadas[0].cost, planeadas[0].orders, planeadas[0].ad_revenue)
+        )
+
+    respuestas = _respuestas_vacias(encendido=dt.datetime(2026, 10, 1, 9, 0, tzinfo=UTC))
+    respuestas["v_metric_latest"] = [
+        (fecha_antes, Decimal("50.0000"), 1, Decimal("500.0000")),
+        (fecha_antes, Decimal("50.0000"), 1, Decimal("500.0000")),
+        *filas_kw,
+        (fecha_inmadura, Decimal("999.0000"), 9, Decimal("999.0000")),
+    ]
+    conn = _ConnPorSql(respuestas)
+    app.dependency_overrides[_conexion_lectura] = lambda: conn
+    try:
+        cliente = TestClient(app)
+        api_resp = cliente.get("/api/dashboard/ruido", params={"plataforma": "amazon_mx"})
+        html_resp = cliente.get("/ruido", params={"plataforma": "amazon_mx"})
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+    assert api_resp.status_code == 200, api_resp.text
+    assert html_resp.status_code == 200, html_resp.text
+    ayd = api_resp.json()["antes_y_despues"]
+    assert ayd["despues"]["acos_pct"] is None, ayd["despues"]
+    assert ayd["despues_hasta"] == "2026-11-03"
+    assert ayd["dias_despues"] == 1
+    assert ayd["antes"]["acos_pct"] == "10.00"
+    assert ayd["despues"] == {
+        "gasto": None,
+        "pedidos": 2,
+        "venta": "200.0000",
+        "acos_pct": None,
+        "cobertura": {"gasto": False, "pedidos": True, "venta": True, "completo": False},
+        "causa_acos": "cobertura_incompleta",
+    }
+
+    plano = _plano(html_resp.text)
+    assert (
+        "Después del encendido (1 día, hasta el 3 nov;"
+        " los últimos 8 días se dejan fuera porque sus ventas todavía llegan)" in plano
+    )
+    assert "Gasto — MXN, 2 pedidos, venta 200.00. Faltan datos para calcular el ACoS." in plano
+    assert "Gasto 100.00 MXN, 2 pedidos, venta 1,000.00, ACoS 10.00 %." in plano
+
+    html_sin_ventas = _html_ruido(
+        antes_y_despues={
+            "encendido_el": "2026-10-01",
+            "moneda": "MXN",
+            "dias_antes": 1,
+            "dias_despues": 1,
+            "despues_hasta": "2026-11-03",
+            "antes": {
+                "gasto": "20.00",
+                "pedidos": 2,
+                "venta": None,
+                "acos_pct": None,
+                "cobertura": {"gasto": True, "pedidos": True, "venta": False, "completo": False},
+                "causa_acos": "cobertura_incompleta",
+            },
+            "despues": {
+                "gasto": "15.00",
+                "pedidos": 0,
+                "venta": "0.00",
+                "acos_pct": None,
+                "cobertura": {"gasto": True, "pedidos": True, "venta": True, "completo": True},
+                "causa_acos": "sin_ventas",
+            },
+        }
+    )
+    plano_sv = _plano(html_sin_ventas)
+    assert "Gasto 20.00 MXN, 2 pedidos, venta —. Faltan datos para calcular el ACoS." in plano_sv
+    assert "Gasto 15.00 MXN, 0 pedidos, venta 0.00, ACoS —." in plano_sv
+
+
 # --- Postgres -------------------------------------------------------------------
 # DB temporal con todas las migraciones en orden, sin la 0011 y sin las
 # reversas (igual que `tests/test_pantalla_danadas.py`).
