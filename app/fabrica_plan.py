@@ -12,6 +12,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
@@ -41,6 +42,8 @@ ROLES_ORDEN_CREACION = (
 # porque tools/fabrica_campanas.py solo puede importar lo declarado en su
 # allowlist de arquitectura (app.fabrica_plan si, app.impulso no).
 ROLES_IMPULSO = ("category_exact", "auto_discovery")
+# Sin product_targeting porque falta confirmar que Amazon acepte negativeKeyword ahi.
+ROLES_CON_NEGATIVO_CRUZADO = ("category_phrase", "category_broad", "auto_discovery")
 MATCH_POR_ROL = {"category_exact": "EXACT", "category_phrase": "PHRASE", "category_broad": "BROAD"}
 EXPRESION_BID_POR_ROL = {
     "category_exact": "KEYWORD_EXACT_MATCH",
@@ -729,9 +732,33 @@ def _pasos_keywords(plan: PlanGrupoV2, rol: str) -> list[Paso]:
     ]
 
 
+def negativos_cruzados(semillas: Semillas, roles: tuple[str, ...]) -> tuple[str, ...]:
+    """Cada exact del grupo de cinco nace NEGATIVE_EXACT en ROLES_CON_NEGATIVO_CRUZADO
+    (decision 10). El grupo de impulso no los lleva, igual que su harvest."""
+    return semillas.exact if tuple(roles) == ROLES_ORDEN_CREACION else ()
+
+
+def _pasos_negativos(rol: str, textos: Iterable[str]) -> list[Paso]:
+    return [
+        Paso(
+            rol,
+            "negative_keyword",
+            PATH_CREATE["negative_keyword"],
+            {"keywordText": neg, "matchType": "NEGATIVE_EXACT", "state": ESTADO_NUEVO},
+            f"negative EXACT {neg!r}",
+        )
+        for neg in textos
+    ]
+
+
 def _semillas_del_rol(plan: PlanGrupoV2, rol: str) -> list[Paso]:
-    if rol in MATCH_POR_ROL:
+    cruzados = (
+        negativos_cruzados(plan.semillas, plan.roles) if rol in ROLES_CON_NEGATIVO_CRUZADO else ()
+    )
+    if rol == "category_exact":
         return _pasos_keywords(plan, rol)
+    if rol in ("category_phrase", "category_broad"):
+        return _pasos_keywords(plan, rol) + _pasos_negativos(rol, cruzados)
     if rol == "product_targeting":
         return [
             Paso(
@@ -748,16 +775,7 @@ def _semillas_del_rol(plan: PlanGrupoV2, rol: str) -> list[Paso]:
             )
             for asin in plan.semillas.asins
         ]
-    return [  # auto_discovery: negativos (shape sellado por el probe 2.5)
-        Paso(
-            rol,
-            "negative_keyword",
-            PATH_CREATE["negative_keyword"],
-            {"keywordText": neg, "matchType": "NEGATIVE_EXACT", "state": ESTADO_NUEVO},
-            f"negative EXACT {neg!r}",
-        )
-        for neg in plan.semillas.negativos
-    ]
+    return _pasos_negativos(rol, sorted(set(plan.semillas.negativos) | set(cruzados)))
 
 
 def pasos_del_rol(plan: PlanGrupoV2, rol: str) -> list[Paso]:

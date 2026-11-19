@@ -622,15 +622,27 @@ def test_pasos_de_la_exact_son_campana_ad_group_product_ads_y_semillas_exact():
 def test_pasos_por_rol_semillas_correctas():
     plan = _plan(semillas=fp.Semillas(("kw",), ("B0X",), ("neg",), ("hv",)))
     phrase = fp.pasos_del_rol(plan, "category_phrase")
-    assert phrase[-1].payload["matchType"] == "PHRASE" and phrase[-1].payload["keywordText"] == "kw"
+    assert phrase[3].payload["matchType"] == "PHRASE" and phrase[3].payload["keywordText"] == "kw"
+    assert (
+        phrase[-1].payload["matchType"] == "NEGATIVE_EXACT"
+        and phrase[-1].payload["keywordText"] == "hv"
+    )
     broad = fp.pasos_del_rol(plan, "category_broad")
-    assert broad[-1].payload["matchType"] == "BROAD"
+    assert broad[3].payload["matchType"] == "BROAD"
+    assert (
+        broad[-1].payload["matchType"] == "NEGATIVE_EXACT"
+        and broad[-1].payload["keywordText"] == "hv"
+    )
     prod = fp.pasos_del_rol(plan, "product_targeting")
     assert prod[-1].path == "/sp/targets"
     assert prod[-1].payload["expression"] == [{"type": "ASIN_SAME_AS", "value": "B0X"}]
     assert prod[-1].payload["expressionType"] == "MANUAL"
     auto = fp.pasos_del_rol(plan, "auto_discovery")
     assert auto[0].payload["targetingType"] == "AUTO"
+    assert [p.payload["keywordText"] for p in auto if p.recurso == "negative_keyword"] == [
+        "hv",
+        "neg",
+    ]
     assert auto[-1].path == "/sp/negativeKeywords"
     assert auto[-1].payload["matchType"] == "NEGATIVE_EXACT"
     assert "bid" not in auto[-1].payload
