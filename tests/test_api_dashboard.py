@@ -172,8 +172,10 @@ def _cliente(dsn_lectura: str, monkeypatch) -> TestClient:
 
 
 def _hoy(monkeypatch, fecha: dt.date) -> None:
-    """Reloj fijo UTC del dashboard (determinismo; sin now() escondido)."""
-    monkeypatch.setattr(dash, "_hoy_utc", lambda: fecha)
+    """Reloj fijo del dashboard al mediodia UTC (ambas zonas en esa fecha)."""
+    monkeypatch.setattr(
+        dash, "_ahora_utc", lambda: dt.datetime.combine(fecha, dt.time(12), tzinfo=dt.UTC)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3363,7 +3365,7 @@ def test_donde_poner_el_dinero_api_delgada_vocabulario_y_passthrough(monkeypatch
     )
     pedidas = []
 
-    def _falsa(conn, *, plataforma):
+    def _falsa(conn, *, plataforma, hasta=None):
         pedidas.append(plataforma)
         return pantalla
 
@@ -3452,7 +3454,7 @@ def test_donde_poner_el_dinero_api_trae_ubicaciones_y_campanas_de_su_mercado(mon
     )
     pedidas = []
 
-    def _falsa(conn, *, plataforma):
+    def _falsa(conn, *, plataforma, hasta=None):
         pedidas.append(plataforma)
         return pantalla
 
