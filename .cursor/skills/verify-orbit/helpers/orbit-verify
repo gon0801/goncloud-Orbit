@@ -1431,6 +1431,7 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "totales_por_moneda": "Totales por moneda" in texto,
         "detalle_plegado": 'class="detail-box"' in texto,
         "comparacion": "Periodo anterior" in texto,
+        "tarjeta_misma_edad": "en las ventas que todavía llegan" in texto,
         "tendencia_us": 'id="tendencia-amazon_us"' in texto,
         "serie_textual_us": 'id="serie-amazon_us"' in texto,
         "media_7": "media de 7 dias" in texto,

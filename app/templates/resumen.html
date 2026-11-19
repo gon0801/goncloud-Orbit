@@ -158,6 +158,9 @@
       </div>
 
       <p class="ch-takeaway">{{ t.frase }}</p>
+      {% if bloque.comparison and bloque.comparison.observado_hasta %}
+      <p class="ch-comparacion mutado">La comparación usa el periodo anterior tal como se veía hace {{ bloque.dias }} días, para que los dos lleven el mismo retraso en las ventas que todavía llegan.</p>
+      {% endif %}
       {% if bloque.maduracion.aplica %}
       <p class="ch-madurez mutado">Cifras inmaduras del {{ bloque.maduracion.ventana_inmaduros.desde }} al {{ bloque.maduracion.ventana_inmaduros.hasta }} ({{ bloque.coverage.dias_con_dato }}/{{ bloque.dias }} dias con dato · {{ cifra(bloque.totals.clicks, 'entero') }} clics{% if muestra_ordenes %} · {{ cifra(bloque.totals.orders, 'entero') }} ordenes{% endif %}).</p>
       {% elif bloque.maduracion.motivo %}
@@ -358,7 +361,7 @@
         <h3>Periodo anterior</h3>
         <div class="tabla-scroll" tabindex="0" role="region" aria-label="Periodo anterior por canal">
           <table>
-            <caption>Comparacion contra el periodo anterior de igual longitud por canal.</caption>
+            <caption>Comparación contra el periodo anterior de igual longitud. En Amazon, el periodo anterior se mide tal como se veía hace los mismos días, para que los dos lleven el mismo retraso.</caption>
             <thead>
               <tr>
                 <th>Canal</th>

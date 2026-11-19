@@ -506,6 +506,7 @@ silencioso: el recorte se declara.
              "dias_con_dato": 28, "dias_cost": 28, "dias_ad_revenue": 28,
              "dias_clicks": 28, "dinero_alineado": true},
   "comparison": {"desde": "2026-09-01", "hasta": "2026-09-30", "dias": 30,
+                 "observado_hasta": "2026-10-11T18:00:00+00:00",
                  "totals": {}, "variacion": {"cost_pct": "3.21",
                  "ad_revenue_pct": null, "clicks_pct": "-1.10",
                  "acos_pp": null, "roas_delta": null,
@@ -551,6 +552,12 @@ keyword/product_target: duplicarían el dinero.
 - Si gasto y venta no cubren exactamente los mismos días,
   `totals.dinero_alineado` es `false` y ACoS/ROAS son `null`: sumar días
   distintos inventaría un ratio.
+- `comparison.totals` es el periodo anterior tal como se veía en
+  `comparison.observado_hasta` (`instante - dias`, ISO UTC) cuando el canal
+  publica madurez (Amazon): cada día anterior lleva la misma edad que su par
+  del periodo actual, así la comparación no concluye caída por días que
+  todavía están llegando. Mercado Libre, sin madurez publicada, compara la
+  última lectura y publica `observado_hasta: null`.
 - La **variación** contra el periodo anterior exige, por métrica, que SU
   cobertura (`dias_cost`, `dias_ad_revenue`, `dias_clicks` en cada `totals`)
   sea igual en ambos periodos y completa respecto de los días con dato. No
