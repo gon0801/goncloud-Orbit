@@ -75,9 +75,9 @@ assert getattr(retiro_anuncios, "DIAS_LIBRO_AL_DIA", None) == 2, (
 assert "li.seller_sku = u.advertised_sku" in pantalla_productos._SQL_CANDIDATOS, (
     "_SQL_CANDIDATOS aun une clics solo por ASIN sin filtrar seller_sku"
 )
-assert "btrim(li.seller_sku) <> ''" in pantalla_productos._SQL_CANDIDATOS, (
-    "_SQL_CANDIDATOS no excluye publicaciones sin seller_sku atribuible"
-)
+assert "bool_and(li.seller_sku IS NOT NULL AND btrim(li.seller_sku) <> '')" in (
+    pantalla_productos._SQL_CANDIDATOS
+), "_SQL_CANDIDATOS no excluye productos con publicaciones sin seller_sku atribuible"
 
 campos_plan = {f.name for f in dataclasses.fields(retiro_anuncios.PlanRetiro)}
 for campo in ("vendieron", "ventas_al_dia", "ventas_al_dia_hasta"):

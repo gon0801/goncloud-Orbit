@@ -205,14 +205,16 @@ _CTE_VENTAS = """ventas AS (
 
 _SQL_CANDIDATOS = f"""
 WITH activos AS (
-    SELECT DISTINCT li.product_id FROM ad_entity pa
+    SELECT li.product_id,
+           bool_and(li.seller_sku IS NOT NULL AND btrim(li.seller_sku) <> '') AS con_sku
+      FROM ad_entity pa
       JOIN ad_entity ag ON ag.id = pa.parent_id JOIN ad_entity c ON c.id = ag.parent_id
       JOIN ad_entity_state sp ON sp.ad_entity_id = pa.id AND sp.status = 'ENABLED'
       JOIN ad_entity_state sg ON sg.ad_entity_id = ag.id AND sg.status = 'ENABLED'
       JOIN ad_entity_state sc ON sc.ad_entity_id = c.id AND sc.status = 'ENABLED'
       JOIN listing li ON li.id = pa.listing_id
      WHERE pa.platform = %s AND pa.kind = 'product_ad'
-       AND li.seller_sku IS NOT NULL AND btrim(li.seller_sku) <> ''
+     GROUP BY li.product_id
 ), {_CTE_VENTAS}, clics AS (
     SELECT li.product_id, sum(u.clicks)::bigint AS clics
       FROM (SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
@@ -229,7 +231,7 @@ SELECT a.product_id, p.odoo_sku, p.name, v.unidades, c.clics,
   FROM activos a JOIN ventas v USING (product_id)
   LEFT JOIN clics c USING (product_id)
   JOIN product p ON p.id = a.product_id
- WHERE v.unidades >= %s AND coalesce(c.clics, 0) < %s ORDER BY 1
+ WHERE v.unidades >= %s AND coalesce(c.clics, 0) < %s AND a.con_sku ORDER BY 1
 """
 
 _SQL_SIN_PEDIDO = f"""

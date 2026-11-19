@@ -22,6 +22,8 @@ descarta los vacíos (`app/spapi/listings.py`). El JOIN por SKU de `_SQL_CANDIDA
 no cruza esas publicaciones y el JOIN anterior por ASIN sí les contaba clics, así
 que entraban a candidatos con cero clics por falta de dato.
 
-`activos` exige ahora una publicación activa con `seller_sku` no vacío: un producto
-sin SKU atribuible sale de candidatos en vez de entrar con cero. La cobertura del
-dato faltante queda en la prueba de dinero de W-M.1.
+`activos` marca cada producto con `bool_and`: si alguna publicación activa de esa
+plataforma no tiene `seller_sku`, el producto entero sale de candidatos. Así no se
+confirma «menos de 20 clics» con clics que no se pueden atribuir, ni siquiera cuando
+otra publicación del mismo producto sí tiene SKU. La cobertura del caso puro y del
+mixto queda en la prueba de dinero de W-M.1.
