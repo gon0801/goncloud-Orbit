@@ -1,0 +1,4 @@
+amazon_mx|/sp/keywords/list|3|2719|1000|fin
+amazon_mx|/sp/negativeKeywords/list|3|2643|1000|fin
+amazon_us|/sp/keywords/list|2|1340|1000|fin
+amazon_us|/sp/negativeKeywords/list|2|1563|1000|fin

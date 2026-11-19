@@ -1457,7 +1457,10 @@ def _reversa_automatica(
     nacio se revierte. Si el negative_id NO se puede resolver (ack sin id y
     ausente de la lista de origen), la keyword nacida SE BORRA IGUAL y el
     detalle lo declara. Un ACK sin id no prueba procedencia: LIST por
-    identidad no autoriza borrar un objeto que puede ser ajeno."""
+    identidad no autoriza borrar un objeto que puede ser ajeno. Todas las
+    lecturas necesarias se resuelven antes del primer DELETE y cualquier
+    lectura inconclusa (`AdsApiError` / `ListaIncompleta`) se propaga para
+    conservar el trabajo pendiente sin borrado parcial."""
     try:
         cliente = aplicador._cliente()
         ext = dict(job.external_ids)
@@ -1470,17 +1473,22 @@ def _reversa_automatica(
             propio = _identidad(kws, ctx.destino_grupo, job.search_term)
             if propio is not None:
                 kw_id = propio.get("keywordId")
+        if neg_id is None and negative_propia:
+            items = _lista_completa(cliente, "/sp/negativeKeywords/list")
+            propio = _identidad(items, ctx.grupo_ext, job.search_term)
+            if propio is not None:
+                neg_id = propio.get("keywordId")
+    except AdsApiError:
+        raise
+    except AdsClientError as exc:
+        return f"reversa: fallo ({exc})"
+    try:
         if (
             kw_id is not None
             and keyword_propia
             and not _reversa_delete(conn, cliente, job.decision_id, "keyword", kw_id)
         ):
             return f"reversa: fallo borrando keyword {kw_id}"
-        if neg_id is None and negative_propia:
-            items = _lista_completa(cliente, "/sp/negativeKeywords/list")
-            propio = _identidad(items, ctx.grupo_ext, job.search_term)
-            if propio is not None:
-                neg_id = propio.get("keywordId")
         if neg_id is None or not negative_propia:
             if kw_id is None:
                 return "reversa: nada que borrar (sin keyword ni negativo)"
