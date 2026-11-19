@@ -2587,7 +2587,7 @@ def test_perdida_harvest_deja_cero_filas_y_la_cola_en_vetoed(monkeypatch):
 
 def _handler_lista_bc(modo: str, *, recurso: str = "negativeKeywords"):
     vistos: list[httpx.Request] = []
-    llamadas = {"list": 0}
+    llamadas = {"list": 0, "auth": 0}
     propio = {
         "adGroupId": ORIGEN_GRUPO if recurso == "negativeKeywords" else DESTINO_GRUPO,
         "campaignId": ORIGEN_CAMPANA if recurso == "negativeKeywords" else DESTINO_CAMPANA,
@@ -2599,6 +2599,11 @@ def _handler_lista_bc(modo: str, *, recurso: str = "negativeKeywords"):
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
+            llamadas["auth"] += 1
+            if modo == "auth_en_lectura":
+                if llamadas["auth"] == 1:
+                    return httpx.Response(200, json={"access_token": "fake-bc", "expires_in": 30})
+                return httpx.Response(400, json={"error": "temporarily_unavailable"})
             return httpx.Response(200, json={"access_token": "fake-bc", "expires_in": 3600})
         vistos.append(request)
         path = request.url.path
@@ -2878,8 +2883,9 @@ def test_arreglos04_bc_creacion_readback_y_reversa_cero_mutacion_con_lista_incom
     assert terminaciones == [], f"{etapa} ({modo}): cola intacta: {terminaciones}"
 
 
+@pytest.mark.parametrize("modo_fallo", ["tope_agotado", "auth_en_lectura"])
 def test_arreglos04_bc_reversa_automatica_lista_incompleta_cero_delete_y_job_pendiente(
-    monkeypatch,
+    monkeypatch, modo_fallo
 ):
     from contextlib import nullcontext
     from types import SimpleNamespace
@@ -2948,14 +2954,14 @@ def test_arreglos04_bc_reversa_automatica_lista_incompleta_cero_delete_y_job_pen
     monkeypatch.setattr(apply_mod, "_sella_ledger", lambda *_a, **_k: None)
     monkeypatch.setattr(notifica, "notifica_harvest_failed", lambda _a: True)
 
-    handler_trunc, vistos_trunc = _handler_lista_bc("tope_agotado", recurso="negativeKeywords")
+    handler_trunc, vistos_trunc = _handler_lista_bc(modo_fallo, recurso="negativeKeywords")
     resumen_trunc = apply_harvest_reconciliacion.reconcilia_harvest(
         conn, _aplicador(conn, handler_trunc, 7), "amazon_us"
     )
     deletes_trunc = [
         r.url.path for r in _mutaciones(vistos_trunc) if r.url.path.endswith("/delete")
     ]
-    assert deletes_trunc == [], f"cero DELETE ante lista truncada: {deletes_trunc}"
+    assert deletes_trunc == [], f"cero DELETE ante {modo_fallo}: {deletes_trunc}"
     assert (resumen_trunc.jobs_done, resumen_trunc.jobs_failed) == (0, 0)
     assert resumen_trunc.harvest_huerfanas_cerradas == 0
     assert estado == {"job": "exact_created", "cola": "applying"}

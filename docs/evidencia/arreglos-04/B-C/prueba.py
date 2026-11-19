@@ -16,7 +16,7 @@ import httpx
 
 from app import apply as apply_mod
 from app import apply_cola, apply_harvest, apply_harvest_reconciliacion, bloqueo_dueno_efecto
-from app.ads.client import AdsApiError
+from app.ads.client import AdsApiError, AdsAuthError
 from app.ads.config import AdsCredentials
 from app.ads.write import AdsWriteClient
 
@@ -114,10 +114,15 @@ def _handler_caso(caso: str):
 
 def _comprueba_reversa_automatica(conn, ctx, caso: str) -> None:
     vistos: list[httpx.Request] = []
-    pag = {"n": 0}
+    pag = {"n": 0, "auth": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
+            pag["auth"] += 1
+            if caso == "auth_en_lectura":
+                if pag["auth"] == 1:
+                    return httpx.Response(200, json={"access_token": "tok-bc", "expires_in": 30})
+                return httpx.Response(400, json={"error": "temporarily_unavailable"})
             return httpx.Response(200, json={"access_token": "tok-bc", "expires_in": 3600})
         vistos.append(request)
         if request.url.path == "/sp/keywords/list":
@@ -149,7 +154,7 @@ def _comprueba_reversa_automatica(conn, ctx, caso: str) -> None:
             {"keyword_id": "k-7", "keyword_creada": True, "negative_creada": True},
             "amazon_us",
         )
-        with suppress(AdsApiError):
+        with suppress(AdsApiError, AdsAuthError):
             apply_harvest._paso_readback(conn, _aplicador_falso(conn, handler), job, ctx, 91)
         deletes = [r.url.path for r in vistos if r.url.path.endswith("/delete")]
         assert deletes == [], f"reversa borro con {caso}: {deletes}"
@@ -211,6 +216,7 @@ def main() -> None:
             deletes = [r for r in v_rb if r.url.path.endswith("/delete")]
             assert deletes == [], f"readback borro con {caso}: {[r.url.path for r in deletes]}"
             _comprueba_reversa_automatica(conn, ctx, caso)
+        _comprueba_reversa_automatica(conn, ctx, "auth_en_lectura")
     finally:
         apply_mod._ledger = orig_ledger
         apply_mod._sella_ledger = orig_sella
