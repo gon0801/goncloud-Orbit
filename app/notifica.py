@@ -30,12 +30,14 @@ import datetime as dt
 import json
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import httpx
 
+from app import formato
 from app.ads.config import directorio_secretos
 from app.db import connect, preparar_lectura_contribucion
 from app.precio.config import _entero as _entero_config
@@ -248,20 +250,76 @@ def envia_aviso(texto: str, *, transport: httpx.BaseTransport | None = None) -> 
 # ---------------------------------------------------------------------------
 
 
-def aviso_corte_encolado(fila: CorteEncolado) -> str:
-    """Aviso de UN corte nuevo en la cola de veto (sellado 2: al ENCOLAR, con
-    vencimiento — el reloj de la ventana 48h NO se detiene)."""
-    familia = FAMILIA_DE_KIND.get(fila.kind, "desconocida")
-    lineas = [
-        "[Orbit] corte encolado — ventana de veto 48h",
-        f"plataforma: {fila.platform}",
-        f"kind: {fila.kind} (familia {familia})",
-    ]
-    if fila.search_term is not None:  # regla 3: entity_cut no tiene termino
-        lineas.append(f"search_term: {fila.search_term}")
-    lineas.append(f"modo: {fila.modo}")
-    lineas.append(f"vence_el: {fila.vence_el.isoformat()}")
-    return "\n".join(lineas)
+TOPE_CORTES_POR_AVISO = 5
+
+
+def _texto_corte(fila: CorteEncolado, etiqueta_fn) -> str:
+    if fila.kind == "negative" and fila.search_term:
+        return f"Negar la búsqueda «{fila.search_term}»"
+    if fila.kind == "harvest" and fila.search_term:
+        return f"Pasar a exacta la búsqueda «{fila.search_term}»"
+    if fila.kind == "pause":
+        return "Pausar una keyword o un producto"
+    return etiqueta_fn(fila.kind, "kind")
+
+
+def _seccion_cortes(encabezado: str, filas: Sequence[CorteEncolado], etiqueta_fn) -> list[str]:
+    lineas = [encabezado]
+    visibles = filas[:TOPE_CORTES_POR_AVISO]
+    for fila in visibles:
+        lineas.append(f"- {_texto_corte(fila, etiqueta_fn)}")
+    resto = len(filas) - len(visibles)
+    if resto > 0:
+        lineas.append(f"y {resto} más")
+    return lineas
+
+
+def avisos_cortes_del_ciclo(avisos: Sequence[CorteEncolado]) -> list[str]:
+    """Un mensaje por plataforma con todos los cortes nuevos del ciclo. Lista vacia sin cortes."""
+    if not avisos:
+        return []
+    from app.etiquetas import etiqueta
+
+    por_plataforma: dict[str, list[CorteEncolado]] = {}
+    for fila in avisos:
+        por_plataforma.setdefault(fila.platform, []).append(fila)
+
+    mensajes: list[str] = []
+    for platform, filas in por_plataforma.items():
+        total = len(filas)
+        conteo = (
+            "1 corte nuevo en este ciclo" if total == 1 else f"{total} cortes nuevos en este ciclo"
+        )
+        lineas = [f"[Orbit] {etiqueta(platform, 'plataforma')}: {conteo}"]
+        en_vivo = [f for f in filas if f.modo == "live"]
+        en_practica = [f for f in filas if f.modo != "live"]
+        if en_vivo:
+            vence = min(
+                en_vivo,
+                key=lambda f: (
+                    f.vence_el
+                    if f.vence_el.tzinfo is not None
+                    else f.vence_el.replace(tzinfo=dt.UTC)
+                ),
+            ).vence_el
+            lineas.extend(
+                _seccion_cortes(
+                    f"En vivo: {len(en_vivo)}. Se aplican solos el {formato.fecha_hora(vence)}"
+                    " (hora del centro de México) si no los rechazas en Propuestas.",
+                    en_vivo,
+                    etiqueta,
+                )
+            )
+        if en_practica:
+            lineas.extend(
+                _seccion_cortes(
+                    f"En práctica: {len(en_practica)}. Son de prueba: no se aplicarán.",
+                    en_practica,
+                    etiqueta,
+                )
+            )
+        mensajes.append("\n".join(lineas))
+    return mensajes
 
 
 def _formatea_monto(valor: Decimal) -> str:
@@ -649,13 +707,19 @@ def notifica_propuesta_campana(
         return False
 
 
-def notifica_encola(fila: CorteEncolado, *, transport: httpx.BaseTransport | None = None) -> bool:
-    """Aviso de UN corte nuevo encolado. False = fallo del canal (el caller
-    deja la NOTA); canal deshabilitado -> True."""
+def notifica_cortes_encolados(
+    avisos: Sequence[CorteEncolado], *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Canal apagado o sin cortes -> True. False si algun mensaje no salio.
+    Fail-silent como el resto."""
     try:
-        if not canal_activo():
+        if not avisos or not canal_activo():
             return True
-        return _envia_texto(aviso_corte_encolado(fila), transport=transport)
+        ok = True
+        for texto in avisos_cortes_del_ciclo(avisos):
+            if not _envia_texto(texto, transport=transport):
+                ok = False
+        return ok
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de encola: %s", scrub(str(exc)))
         return False
