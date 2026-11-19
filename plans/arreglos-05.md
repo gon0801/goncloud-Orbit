@@ -4,7 +4,9 @@ Estado: **diseñado, por implementar**. Fecha: 15-nov-2026. Base del diagnóstic
 `ff03ed61f7a847ab190b1695c2efe8d785baa364`. Este documento no acredita arreglos hechos.
 Orden de integración: [ORDEN-IMPLEMENTACION.md](ORDEN-IMPLEMENTACION.md).
 Dependencias externas: ARREGLOS 03/04 ampliados y TEMPORADA 01 terminados; 01/02 ya
-están integrados. Diseñar ahora no obliga a esperar TEMPORADA; implementar 05 sí.
+están integrados. Al cerrar H de TEMPORADA, abrir BASE desde el master integrado. En el PR de BASE, actualizar `plans/manifest.json` a `active: arreglos-05`.
+
+Hermes coordina este plan en el proyecto `goncloud-orbit` de Agent Orchestrator. Gemini 4 Carbon High de Antigravity (`gemini-4-carbon-high`) implementa cada bloque con `poteto-mode` completo. En la PC, el skill está en `C:/dev/goncloud-hermes/shared/sistema-agentes/poteto/skills/poteto-mode/SKILL.md`. GPT-6.2-Astra de Codex (`gpt-6.2-astra`) es el único revisor normal. Cada bloque entra por PR a `master` según las Reglas de trabajo de AGENTS.md. Carbon y Astra pueden continuar todas las rondas que requiera una corrección concreta.
 
 Contrato: [DISENO.md](../docs/evidencia/arreglos-05/DISENO.md).
 Cobertura: [COBERTURA.md](../docs/evidencia/arreglos-05/COBERTURA.md).
@@ -28,7 +30,7 @@ consume su evidencia, no hace otro arreglo de lo mismo.
 Reglas de ejecución futura:
 
 - Rama aislada desde el master vigente; plan/diseño/evidencia disponibles en master
-  antes de encargarlo al motor. Esta entrega no lanza motor ni despliega.
+  al abrir BASE.
 - En cada bloque, red/green contra el padre real para las regresiones que se
   incorporen. Errores de fixture, skips o cero casos recogidos no prueban el fallo.
   Elegir vecinos por riesgo; no pruebas de texto ni mutantes.
@@ -42,7 +44,7 @@ Reglas de ejecución futura:
   permisos mínimos y consulta productiva previa al invariante. No cambiar 0001/0002.
 - Guardar comando, SHA, resultado, impacto y reversa en
   `docs/evidencia/arreglos-05/<bloque>/`; sanear secretos. Antes de integrar cada
-  cambio: pre-commit y Quality del commit final verdes, sin `--no-verify`.
+  cambio, aplicar las Reglas de trabajo y la revisión de secretos de AGENTS.md.
 - Una evidencia que sigue siendo válida se reutiliza; un cambio de contrato exige
   revalidar sus consumidores. No repetir suite completa sin una razón nueva.
 - Las `prueba-real` de este plan son comprobaciones en laboratorio con SQL/HTTP/UI reales o simulados solo en su frontera externa; no acreditan un despliegue. La verificación productiva posterior conserva lectura RO de schema, huella del código y resultado del bloque, con recibo separado.
@@ -59,8 +61,8 @@ aviso: Se fijó el código que recibirá los arreglos y quedó identificada cada
 
 | Fila | Contenido | Acepta |
 |---|---|---|
-| BASE.0 | Verificar que plan, diseño, cobertura y aceptación están en master; registrar SHA exacto y evidencia de cierre 03/04/TEMP. Comparar las firmas B/E/F/G de TEMP con DISENO; no usar líneas antiguas. | `git ls-files --error-unmatch plans/arreglos-05.md docs/evidencia/arreglos-05/DISENO.md docs/evidencia/arreglos-05/COBERTURA.md docs/evidencia/arreglos-05/ACEPTACION.md` más `BASE/contratos.md` con firmas reales y SHA. |
-| BASE.1 | Preparar Linux/Python3.12/PG16/Chromium sin credenciales reales. Portar fixtures que cambiaron conservando la aserción del usuario; 31 casos base y casos vecinos identificados. Las cerradas por 03/04 deben estar verdes, no esperar 17 rojos otra vez. | Runner de ACEPTACION; `BASE/resultados.xml` distingue cada fallo de producto del de entorno; cero errores de fixture/omisiones. |
+| BASE.0 | Verificar que plan, diseño, cobertura y aceptación están en master; registrar SHA exacto y evidencia de cierre 03/04/TEMP. Comparar las firmas B/E/F/G de TEMP con DISENO; no usar líneas antiguas. | `git merge-base --is-ancestor origin/master HEAD && (for f in plans/arreglos-05.md docs/evidencia/arreglos-05/{DISENO.md,COBERTURA.md,ACEPTACION.md,comprobar.sh}; do git cat-file -e "origin/master:$f" \|\| exit 1; done)` más `BASE/contratos.md` con firmas reales y SHA. |
+| BASE.1 | Preparar el laboratorio Python 3.12/PG16/Chromium descrito en ACEPTACION, sin credenciales reales. Portar fixtures que cambiaron conservando la aserción del usuario; 31 casos base y casos vecinos identificados. Las cerradas por 03/04 deben estar verdes, no esperar 17 rojos otra vez. | Runner de ACEPTACION; `BASE/resultados.xml` distingue cada fallo de producto del de entorno; cero errores de fixture/omisiones. |
 | BASE.2 | Leer esquema y datos de producción con SELECT RO: envelopes históricos con/sin decisiones, intentos abiertos, claves shadow/live y colisiones, reposición, versión de inputs/temporada y modos usados. Comparar con `base/` sin sustituir observación por suposición. | `BASE/previa.sql`, resultado saneado y lista de invariantes demostrados; número de migración disponible confirmado. |
 | BASE.3 | Confirmar controles 01/08/09/D2, banda manual 01X y TEMP B.2/E/F. Recuperar actas residuales de 01/02/DISEÑOS sin rehacer entregas. | `T writes test_01`; `T pricing 'test_08 or test_D2'`; `T ingest test_09`; `CI=1 PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q tests/test_config_write.py -k arreglos01_x` y controles TEMP existentes. |
 
@@ -77,7 +79,7 @@ prueba-real: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/compr
 | A.1 | Regresiones de ciclo F1/F2/F3; promover la reproducción antigua contra la base posterior a TEMP. Primer bid 5xx, segundo elegible y cola; ciclo degraded recuperable; lock expirado con running reciente; caída antes/después de TX3; dos workers y pérdida de owner, con respuesta HTTP retenida. | `N a`: otros objetos/fases progresan ante fallo individual; ningún envío nuevo autorizado ni sello del owner vencido. Un HTTP ya enviado puede terminar y se concilia sin repetirlo. Cero decisiones/HTTP duplicados. |
 | A.2 | `cycle.py`, `cli.py`: operación completa `atender_plataforma`; claim único, conciliación pre-TX2 de TEMP, progreso durable y ejecutor `resume_of` ligado al origen. Migración aditiva `decision_committed_at`/`resume_of`, sello único y grants por columna. Retirar heurística de 3 h y atajo degraded que impide apply. | `N a`; suite existente de ciclo/cron/locks; lectura desde segunda conexión ve TX3 comprometida, incluso lote válido vacío. |
 | A.3 | `apply.py` y fase de cola: aislamiento por entidad/fase; fallos globales abortan. Revalidar goal/mode/ancestros/vigencia en recuperación. Al día siguiente conciliar ambiguos y descartar elegibilidad ordinaria vencida, sin borrar historia. Ajustar resúmenes de ciclos para no duplicar decisiones. | `N a`; control `T writes test_01`; cero PUT de una puja incierta, sin un segundo cupo por recuperación. |
-| A.4 | Migración/reversa e instalador, docs/APPLY y DATABASE reflejan origen/ejecutor y cambio de aislamiento. Rollback conserva intentos y no vuelve a binario incompatible. | `N a` con roles reales y migración ida/reversa; Quality y pre-commit del bloque. |
+| A.4 | Migración/reversa e instalador, docs/APPLY y DATABASE reflejan origen/ejecutor y cambio de aislamiento. Rollback conserva intentos y no vuelve a binario incompatible. | `N a` con roles reales y migración ida/reversa; revisión de secretos del bloque. |
 
 ## Bloque B — Reversas sobre identidad y valor comprobados
 lane: release
@@ -212,7 +214,7 @@ aviso: La estimación explica los componentes que pudo conciliar y conserva desc
 ## Bloque Z — Orbit completo pasa o queda explícitamente pendiente
 lane: fast
 depende: K
-pruebas: aceptación integrada, CI, secretos y revisión completa
+pruebas: aceptación integrada, secretos y revisión completa
 aviso: Se publicó el resultado de la revisión completa del código integrado, con evidencia de cada cierre y cualquier pendiente real.
 
 `depende: K` exige K evaluado y documentado. Si su fuente sigue insuficiente, Z
@@ -224,10 +226,10 @@ por esa espera ni marcar K terminado para habilitar artificialmente Z.
 |---|---|---|
 | Z.1 | Completar matriz de 14 IDs, controles cerrados y legado de53 fallas/decisiones. Cada fila tiene owner, commit y comprobación; K no se oculta si sigue sin evidencia. Confirmar 03/04/TEMP completos por su DoD. | `Z/cobertura.tsv`: sin bloqueo conocido huérfano ni cierre basado solo en tener archivo/checkbox. |
 | Z.2 | Ejecutar aceptación en el SHA conjunto y vecinos relevantes: crash/retry/reversa, fuente/cache, agregados/reconstrucción, temporada/replay y UI adversa. Promover regresiones útiles a `tests/`; conservar el significado de las31 originales. | ACEPTACION: 31 casos base verdes (o reemplazo trazado de fixture, nunca assertion debilitada), vecinos verdes, cero errores/skips. |
-| Z.3 | Aplicar `pstack:thermo-nuclear-code-quality-review` nuevamente a TODA la app del SHA integrado. Cubrir módulos nuevos de TEMP, rutas ejecutables, fronteras y acumulación de condiciones. Bloqueo nuevo exige reproducción e impacto; nota estructural conserva clasificación propia. | `Z/review.md`: alcance/archivos/caminos revisados, hallazgos y veredicto explicado; cero bloqueos confirmados abiertos para declarar PASA. |
-| Z.4 | Diez recorridos del mapa UI, flujos adversos afectados, compilación, suite completa PG16, secretos y Quality del mismo SHA. No aceptar checks de rama anterior. | `Z/resultado.md`: SHA, enlace CI verde, XML, logs, pruebas UI y límites; pre-commit verde. Despliegue se acredita aparte. |
+| Z.3 | Astra realiza la revisión global de toda la app del SHA integrado. Cubrir módulos nuevos de TEMP, rutas ejecutables, fronteras y acumulación de condiciones. Bloqueo nuevo exige reproducción e impacto; nota estructural conserva clasificación propia. | `Z/review.md`: alcance/archivos/caminos revisados, hallazgos y veredicto explicado; cero bloqueos confirmados abiertos para declarar PASA. |
+| Z.4 | Reunir los recorridos del mapa UI, los flujos adversos afectados, la aceptación en PG16 de Z.2 y la revisión de secretos sobre el mismo SHA. Reutilizar los resultados de ese commit. | `Z/resultado.md`: SHA, XML de aceptación, resultados de UI, secretos y pendientes. Despliegue se acredita aparte. |
 
 **Resultado esperado:** al terminar las correcciones y pasar Z, Orbit puede declararse
-aprobado en esta revisión. Completar los planes no reemplaza Z. Un defecto nuevo
-reproducible se asigna a su dueño y se cierra antes del pase; una fuente externa
+aprobado en esta revisión. Completar los planes no reemplaza Z. Un defecto que cumple los criterios de bloqueo de AGENTS.md
+se asigna a su dueño y se corrige antes del pase; una fuente externa
 pendiente se informa como tal, sin afirmar que toda operación está certificada.

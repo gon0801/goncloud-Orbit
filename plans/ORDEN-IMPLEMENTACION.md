@@ -28,7 +28,7 @@ La igualdad del runtime **no prueba** por sí sola todas las migraciones aplicad
 |---|---|---|
 | 1 | [ARREGLOS 04](arreglos-04.md) | Pantallas, fábrica y bloqueos, después de 03. **B-C** cubre **02 completo**, incluida respuesta sin contenedor; nuevo **W-P** cubre **04** en retiro e impulso; **W-E** cubre **15** además de madurez; **W-D** cubre **16**. Conserva los demás bloques, incluido presupuesto alto con confirmación. |
 | 2 | [TEMPORADA 01](temporada-01.md) | Después de 04, orden interno I → A → B → C → D → P → E → F → G → H. Consume margen corregido por ARREGLOS 02, su redondeo/revisión y los contratos que dejan 03/04; G usa aviso y confirmación de presupuesto de 04 W-N. No reimplementar la base. |
-| 3 | [ARREGLOS 05](arreglos-05.md) | Se diseña **ahora** y se ejecuta **después de TEMPORADA**. BASE; A ciclo; B reversas **03/10**; C reposición **11**; D frontera Ads; E shadow; F target **12**; G sello **13**; H tope 150; I settings; J modos; K fees; Z aceptación global. Revalidar el legado contra la base final de TEMPORADA. |
+| 3 | [ARREGLOS 05](arreglos-05.md) | Preparado para Hermes. Empieza por **BASE después del cierre de TEMPORADA 01 H**. BASE; A ciclo; B reversas **03/10**; C reposición **11**; D frontera Ads; E shadow; F target **12**; G sello **13**; H tope 150; I settings; J modos; K fees; Z aceptación global. Revalidar el legado contra la base final de TEMPORADA. |
 
 No quedan otros planes de implementación autorizada fuera de esta lista en el inventario. Los briefs y guías acompañan sus planes padres; no suman entregas independientes. Los conteos y dependencias internas se mantienen en cada plan, sin duplicarlos aquí.
 

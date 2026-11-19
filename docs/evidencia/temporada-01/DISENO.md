@@ -1935,11 +1935,11 @@ una sola vez en ese bloque.
 
 ## Plan por bloques (después de ARREGLOS 01)
 
-Plan TEMPORADA 01, entregado con `motor director encargar`. Los bloques van en cadena (comparten
+Hermes coordina TEMPORADA 01 en Agent Orchestrator según `plans/temporada-01.md`. Los bloques van en cadena (comparten
 `cycle.py`, `politica.py`, `lecturas_caso.py`, `apply.py`). Cada prueba se llama
 `test_temporada01_<bloque>_<qué>` y debe fallar en el SHA previo al bloque. Una prueba por unidad nueva
 que mueve dinero o escribe en producción o en Amazon; lo demás se comprueba corriendo lo real. Antes de
-empezar: integrar sobre el SHA final de ARREGLOS 01 y releer las firmas de P, T, U, V, W y X en el código.
+empezar: partir de master tras el cierre de ARREGLOS 04 y releer las firmas de P, T, U, V, W y X de ARREGLOS 01 en ese código.
 
 | Bloque | Contenido | Prueba (caso del repo) | Efecto en vivo |
 | --- | --- | --- | --- |

@@ -10,11 +10,14 @@ Hasta D-E.7 la ruta operativa contiene el original.
 
 ## Entorno y seguridad de las reproducciones
 
-Usar Linux, Python3.12, PostgreSQL16 desechable, git, Node y Chromium. Instalar
+Usar Python 3.12, PostgreSQL 16 desechable, Git, Node y Chromium. En la PC de Orchestrator se puede usar Git Bash y el navegador Chromium instalado (Edge). Instalar
 dependencias del laboratorio (`fastapi`, `psycopg[binary]`, `pytest`, `httpx`, `pglast`,
 `jinja2`, `pyyaml`) y las herramientas de pruebas operativas cuando correspondan.
 El servicio PG tiene que permitir crear bases/roles de prueba. Nunca usar DSN,
 credenciales, `.env` ni `ORBIT_SECRETS_DIR` de producción.
+
+En Git Bash de la PC de Hermes, para las pruebas de navegador, definir
+`export ORBIT_CHROMIUM='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'`.
 
 Las guardas requieren `orbit-review-current-pg:5432/postgres` en la red de
 contenedores propia, o `127.0.0.1:55449/postgres` para el PG desechable publicado
@@ -35,19 +38,8 @@ Desde la raíz del checkout de prueba, con el DSN de ese laboratorio ya definido
 
 ```bash
 export ORBIT_TEST_DSN="${ORBIT_TEST_DSN:?Falta DSN del PG16 desechable}"
-export ORBIT_REVIEW_REPO="$PWD" ORBIT_REVIEW_ROOT="$PWD"
-export ORBIT_REVIEW_DSN="$ORBIT_TEST_DSN" ORBIT_REVIEW_PG_DSN="$ORBIT_TEST_DSN"
-export ORBIT_OPTIMIZER_TEST_DSN="$ORBIT_TEST_DSN" ORBIT_UI_DSN="$ORBIT_TEST_DSN"
-export ORBIT_ACCEPT_EVIDENCE="$PWD/docs/evidencia/arreglos-05/revision"
-export PYTHONPATH="$PWD:$PWD/tests:$ORBIT_ACCEPT_EVIDENCE"
-export PYTHONDONTWRITEBYTECODE=1
-T() {
-  CI=1 python -B -m pytest -q -p no:cacheprovider \
-    "$ORBIT_ACCEPT_EVIDENCE/test_accept_$1.py" -k "$2"
-}
-N() {
-  CI=1 python -B -m pytest -q -p no:cacheprovider tests -k "arreglos05_$1_"
-}
+T() { bash docs/evidencia/arreglos-05/comprobar.sh T "$@"; }
+N() { bash docs/evidencia/arreglos-05/comprobar.sh N "$@"; }
 ```
 
 Las letras de `N` son minúsculas: `N a`, `N b`, etc. Son regresiones por incorporar
@@ -120,7 +112,7 @@ Guardar salida fuera de los originales; el runner por defecto sobrescribiría
 ```bash
 mkdir -p docs/evidencia/arreglos-05/Z
 export ORBIT_ACCEPTANCE_XML="$PWD/docs/evidencia/arreglos-05/Z/acceptance.xml"
-bash "$ORBIT_ACCEPT_EVIDENCE/run-acceptance.sh" "$PWD" \
+bash docs/evidencia/arreglos-05/comprobar.sh ALL \
   > docs/evidencia/arreglos-05/Z/acceptance.log 2>&1
 ```
 
@@ -140,7 +132,7 @@ Registrar los resultados de la aceptación de 05 Z sobre el SHA integrado. Aplic
 
 ## Veredicto Z
 
-Volver a ejecutar el skill thermo sobre **toda Orbit**, con inventario de alcance,
+Astra revisa **toda Orbit** en el cierre Z, con inventario de alcance,
 fronteras y caminos; incluir código nuevo y vecinos. No basta volver verdes estas
 reproducciones. Registrar por hallazgo impacto, comando, evidencia, dueño y cierre.
 PASA solo sin bloqueos confirmados abiertos, con secretos, aceptación y UI del mismo
