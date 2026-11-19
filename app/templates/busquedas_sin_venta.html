@@ -2,8 +2,7 @@
 {% block contenido %}
 <h2>Búsquedas que gastan sin vender</h2>
 <p class="mutado">
-  Solo campañas encendidas, últimos 90 días. Esta pantalla no niega nada en
-  Amazon: los negatives los agregas a mano.
+  Solo campañas encendidas, 90 días que terminan el {{ hasta | fecha_corta }}. Los últimos 10 días se dejan fuera porque sus ventas todavía llegan, igual que hace Orbit antes de cortar. Esta pantalla no niega nada en Amazon: los negatives los agregas a mano.
 </p>
 <p>
   <a href="/busquedas-sin-venta?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>

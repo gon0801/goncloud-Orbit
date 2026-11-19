@@ -31,6 +31,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from typing import Literal
 
 from app.api_common import _parse_notes
+from app.dashboard_resumen import DIAS_INMADUROS
 from app.etiqueta_entidad import SQL_NOMBRES, EtiquetaEntidad, etiqueta_entidad
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.caso import POLITICA_BID, CasoHoja
@@ -88,6 +89,7 @@ SELECT m.metric_date, m.cost, m.orders, m.ad_revenue
    AND h.kind IN ('keyword', 'product_target')
    AND s.status = 'ENABLED'
    AND m.metric_date >= %s
+   AND m.metric_date <= %s
 """
 
 
@@ -253,23 +255,31 @@ def _con_nombres(conn, encogimiento: tuple[dict, ...]) -> tuple[dict, ...]:
     return tuple(con_nombre)
 
 
-def _suma(valores) -> Decimal | int | None:
-    medidos = [v for v in valores if v is not None]
-    if not medidos:
-        return None
-    return sum(medidos, Decimal(0) if isinstance(medidos[0], Decimal) else 0)
+def _suma_cobertura(valores, cero: Decimal | int) -> tuple[Decimal | int | None, bool]:
+    lista = list(valores)
+    if not lista or any(valor is None for valor in lista):
+        return None, False
+    return sum(lista, cero), True
 
 
 def _bloque(filas) -> dict | None:
-    """Suma de la ventana: gasto, pedidos, venta y ACoS. Sin filas = None;
-    NULLs no suman (regla 3). ACoS a 2 decimales, None sin venta."""
-    if not filas:
+    """Suma de la ventana: gasto, pedidos, venta, ACoS, cobertura y causa.
+    Sin filas = None; un NULL en una metrica deja su total en None y su
+    cobertura en False (regla 3). ACoS a 2 decimales exige gasto y venta
+    completos sobre la misma poblacion y venta > 0."""
+    lista = tuple(filas)
+    if not lista:
         return None
-    gasto = _suma(_celda(f, 1, "cost") for f in filas)
-    pedidos = _suma(_celda(f, 2, "orders") for f in filas)
-    venta = _suma(_celda(f, 3, "ad_revenue") for f in filas)
+    gasto, gasto_ok = _suma_cobertura((_celda(f, 1, "cost") for f in lista), Decimal(0))
+    pedidos, pedidos_ok = _suma_cobertura((_celda(f, 2, "orders") for f in lista), 0)
+    venta, venta_ok = _suma_cobertura((_celda(f, 3, "ad_revenue") for f in lista), Decimal(0))
     acos = None
-    if gasto is not None and venta is not None and venta > 0:
+    if not (gasto_ok and venta_ok):
+        causa_acos = "cobertura_incompleta"
+    elif venta <= 0:
+        causa_acos = "sin_ventas"
+    else:
+        causa_acos = None
         with localcontext(prec=28):
             acos = (gasto / venta * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
     return {
@@ -277,33 +287,48 @@ def _bloque(filas) -> dict | None:
         "pedidos": pedidos,
         "venta": None if venta is None else str(venta),
         "acos_pct": None if acos is None else str(acos),
+        "cobertura": {
+            "gasto": gasto_ok,
+            "pedidos": pedidos_ok,
+            "venta": venta_ok,
+            "completo": gasto_ok and pedidos_ok and venta_ok,
+        },
+        "causa_acos": causa_acos,
     }
 
 
-def _comparacion(conn, plataforma: Plataforma, dias: int) -> dict | None:
-    """`dias` previos al encendido contra los dias transcurridos desde
-    entonces, en `v_metric_latest`, solo campanas ENABLED. Sin fila de
-    encendido = None (comparacion simple, no causal). Cada lado dice
-    cuantos dias suma (fechas distintas con filas, no filas)."""
+def _comparacion(conn, plataforma: Plataforma, dias: int, *, hoy: dt.date) -> dict | None:
+    """`dias` previos al encendido contra los dias maduros transcurridos
+    desde entonces (hasta D-9), en `v_metric_latest`, solo campanas ENABLED.
+    Sin fila de encendido = None (comparacion simple, no causal). Cada lado
+    dice cuantos dias suma (fechas distintas con filas, no filas)."""
     primera = conn.execute(_SQL_ENCENDIDO, (plataforma, POLITICA_BID)).fetchone()
     encendido = _celda(primera, 0, "min") if primera is not None else None
     if encendido is None:
         return None
     dia = _en_utc(encendido).astimezone(dt.UTC).date()
-    filas = conn.execute(_SQL_MERCADO, (plataforma, dia - dt.timedelta(days=dias))).fetchall()
-    antes = [f for f in filas if _celda(f, 0, "metric_date") < dia]
-    despues = [f for f in filas if _celda(f, 0, "metric_date") >= dia]
+    ultimo_maduro = hoy - dt.timedelta(days=DIAS_INMADUROS + 1)
+    filas = conn.execute(
+        _SQL_MERCADO, (plataforma, dia - dt.timedelta(days=dias), ultimo_maduro)
+    ).fetchall()
+    antes = [
+        f
+        for f in filas
+        if _celda(f, 0, "metric_date") < dia and _celda(f, 0, "metric_date") <= ultimo_maduro
+    ]
+    despues = [f for f in filas if dia <= _celda(f, 0, "metric_date") <= ultimo_maduro]
     return {
         "encendido_el": dia.isoformat(),
         "moneda": PLATAFORMAS_MONEDA[plataforma],
         "dias_antes": len({_celda(f, 0, "metric_date") for f in antes}),
         "dias_despues": len({_celda(f, 0, "metric_date") for f in despues}),
+        "despues_hasta": ultimo_maduro.isoformat(),
         "antes": _bloque(antes),
         "despues": _bloque(despues),
     }
 
 
-def lee_ruido(conn, *, plataforma: Plataforma, dias: int = 30) -> PantallaRuido:
+def lee_ruido(conn, *, plataforma: Plataforma, hoy: dt.date, dias: int = 30) -> PantallaRuido:
     """Tablero de ruido del mercado. SOLO SELECT. Salen todos los ciclos
     del motor (B7: tambien los que no movieron nada, con sus
     abstenciones); las decisiones cuentan solo si su caso parsea."""
@@ -322,4 +347,6 @@ def lee_ruido(conn, *, plataforma: Plataforma, dias: int = 30) -> PantallaRuido:
     )
     filas_cambios = conn.execute(_SQL_CAMBIOS, (plataforma, DIAS_ENCOGIMIENTO)).fetchall()
     encogimiento = _con_nombres(conn, _encogimiento(filas_cambios, PLATAFORMAS_MONEDA[plataforma]))
-    return PantallaRuido(plataforma, ciclos, encogimiento, _comparacion(conn, plataforma, dias))
+    return PantallaRuido(
+        plataforma, ciclos, encogimiento, _comparacion(conn, plataforma, dias, hoy=hoy)
+    )

@@ -1722,7 +1722,9 @@ def ruido(conn: ConexionLectura, plataforma: str | None = None) -> dict:
     mercado = plataforma or "amazon_mx"
     if mercado not in PLATAFORMAS_MONEDA:
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
-    return pantalla_ruido.lee_ruido(conn, plataforma=mercado).como_dict()
+    return pantalla_ruido.lee_ruido(
+        conn, plataforma=mercado, hoy=_hoy_pantalla(mercado)
+    ).como_dict()
 
 
 @router.get("/donde-poner-el-dinero")

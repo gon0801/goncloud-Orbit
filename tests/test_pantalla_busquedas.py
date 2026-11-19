@@ -21,6 +21,7 @@ from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import pantalla_busquedas as pb
+from app.optimizer.windows import DIAS_MADUREZ_CORTES
 
 RAIZ = Path(__file__).resolve().parents[1]
 SQL0001 = (RAIZ / "migrations" / "0001_initial.sql").read_text(encoding="utf-8")
@@ -226,23 +227,23 @@ def _run(conn):
 
 
 @_skip_db
-def test_lee_ventana_90_dias_termina_hoy_menos_3():
-    """P.6: desde=hasta-90 con hasta=hoy-3; los dos bordes entran."""
+def test_lee_ventana_90_dias_termina_hoy_menos_10():
+    """P.6 + W-E.2: desde=hasta-89 con hasta=hoy-10; los dos bordes entran."""
     with _db_p6() as conn:
         run = _run(conn)
         ag = _ad_group(conn, _campana(conn, "c-1", "Campana Uno"), "ag-1")
         for fecha, gasto in (
-            (dt.date(2026, 7, 5), 900),
-            (dt.date(2026, 7, 6), 200),
-            (dt.date(2026, 10, 4), 200),
-            (dt.date(2026, 10, 5), 900),
+            (dt.date(2026, 6, 29), 900),
+            (dt.date(2026, 6, 30), 200),
+            (dt.date(2026, 9, 27), 200),
+            (dt.date(2026, 9, 28), 900),
         ):
             _obs(
                 conn,
                 ag,
                 "B0BORDE001",
                 fecha,
-                visto=dt.datetime(2026, 10, 6, tzinfo=dt.UTC),
+                visto=dt.datetime(2026, 9, 29, tzinfo=dt.UTC),
                 cost=gasto,
                 clics=5,
                 pedidos=0,
@@ -250,7 +251,7 @@ def test_lee_ventana_90_dias_termina_hoy_menos_3():
                 run=run,
             )
         pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=HOY)
-        assert (pantalla.desde, pantalla.hasta) == (dt.date(2026, 7, 6), dt.date(2026, 10, 4))
+        assert (pantalla.desde, pantalla.hasta) == (dt.date(2026, 6, 30), dt.date(2026, 9, 27))
         assert pantalla.asins == (
             pb.FilaAsinAjeno("B0BORDE001", 10, Decimal("400"), ("Campana Uno",), False),
         )
@@ -752,6 +753,16 @@ def test_lee_solo_tres_consultas_select():
     assert len(conn.consultas) == 3
     for sql, _params in conn.consultas:
         assert sql.lstrip().upper().startswith(("SELECT", "WITH"))
+
+
+def test_arreglos04_w_e_busquedas_respeta_madurez_de_cortes():
+    hoy = dt.date(2026, 11, 12)
+    conn = _ConnFalsa([[({},)], [], []])
+    pantalla = pb.lee_busquedas(conn, plataforma="amazon_mx", hoy=hoy)
+    assert pantalla.hasta <= hoy - dt.timedelta(days=DIAS_MADUREZ_CORTES)
+    assert pantalla.hasta == dt.date(2026, 11, 2)
+    assert (pantalla.hasta - pantalla.desde).days + 1 == 90
+    assert conn.consultas[1][1] == ("amazon_mx", dt.date(2026, 8, 5), dt.date(2026, 11, 2))
 
 
 def test_r13f_palabra_en_el_minimo_exacto_entra():

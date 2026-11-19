@@ -17,6 +17,9 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import gasto_para_concluir_desde_settings
+from app.optimizer.windows import DIAS_MADUREZ_CORTES
+
+DIAS_BUSQUEDAS = 90
 
 PALABRAS_VACIAS = frozenset(
     [
@@ -281,11 +284,11 @@ SELECT upper(external_id) FROM listing WHERE platform IN ('amazon_mx', 'amazon_u
 
 def lee_busquedas(conn, *, plataforma: str, hoy: dt.date) -> PantallaBusquedas:
     """Solo SELECT: ultima observacion por ad group, busqueda y fecha
-    en los 90 dias que terminan en hoy - 3; solo campanas encendidas."""
+    en los 90 dias que terminan en hoy - 10; solo campanas encendidas."""
     fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
     settings = fila_settings[0] if fila_settings is not None else {}
-    hasta = hoy - dt.timedelta(days=3)
-    desde = hasta - dt.timedelta(days=90)
+    hasta = hoy - dt.timedelta(days=DIAS_MADUREZ_CORTES)
+    desde = hasta - dt.timedelta(days=DIAS_BUSQUEDAS - 1)
     filas = tuple(
         FilaBusqueda(
             ad_group_id=f[0],
