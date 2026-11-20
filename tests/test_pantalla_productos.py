@@ -689,3 +689,42 @@ def test_r09r5_p08_dia_lanzamiento_cuenta():
         pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
         por_id = {i.impulso_id: i for i in pantalla.impulsos}
         assert por_id[ids["impulso"]].clics_fuera_de_amazon == 6
+
+
+@_skip_db
+def test_arreglos04_w_m_candidatos_solo_clics_del_mismo_sku():
+    """W-M.1 (dinero): en candidatos a impulso solo cuentan las filas de
+    ads_product_metric_observation cuyo advertised_sku coincide con el
+    seller_sku del listing, nunca las de otro SKU del mismo ASIN. Un producto
+    con cualquier publicacion activa sin seller_sku utilizable queda fuera de
+    candidatos: no hay forma de confirmar que sus clics no pasen del tope."""
+    with _db_p4("orbit_w_m_cand_sku") as conn:
+        pid, lid = _producto(conn, sku="NH-X", asin="B0REVS5001", seller_sku="NH-X")
+        _activa(conn, lid, "ad-s5")
+        _ventas(conn, pid, 3)
+        _clics_ads(conn, "B0REVS5001", "NH-X", 5)
+        _clics_ads(conn, "B0REVS5001", "SET-X", 30)
+        pid_nulo, lid_nulo = _producto(conn, sku="NH-NULO", asin="B0REVS5002", seller_sku=None)
+        _activa(conn, lid_nulo, "ad-s5-nulo")
+        _ventas(conn, pid_nulo, 3)
+        _clics_ads(conn, "B0REVS5002", "NH-NULO", 30)
+        pid_vacio, lid_vacio = _producto(conn, sku="NH-VACIO", asin="B0REVS5003", seller_sku="")
+        _activa(conn, lid_vacio, "ad-s5-vacio")
+        _ventas(conn, pid_vacio, 3)
+        _clics_ads(conn, "B0REVS5003", "NH-VACIO", 30)
+        pid_mixto, lid_con_sku = _producto(
+            conn, sku="NH-MIXTO", asin="B0REVS5004", seller_sku="NH-MIXTO"
+        )
+        lid_sin_sku = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0REVS5005', NULL) RETURNING id",
+            (pid_mixto,),
+        ).fetchone()[0]
+        _activa(conn, lid_con_sku, "ad-mix-con-sku")
+        _activa(conn, lid_sin_sku, "ad-mix-sin-sku")
+        _ventas(conn, pid_mixto, 3)
+        _clics_ads(conn, "B0REVS5004", "NH-MIXTO", 5)
+        _clics_ads(conn, "B0REVS5005", "OTRO-SKU", 30)
+        pantalla = pp.lee_productos(conn, "amazon_mx", HOY)
+        assert [c.product_id for c in pantalla.candidatos] == [pid]
+        assert pantalla.candidatos[0].clics_ads_60d == 5

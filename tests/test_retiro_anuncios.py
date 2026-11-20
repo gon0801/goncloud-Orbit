@@ -24,6 +24,12 @@ from test_schema import _postgres_obligatorio_ausente
 from app import retiro_anuncios as ra
 from tests.test_ads_write import _token_response, make_write_client
 
+SQL20 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0020_ads_producto_metrica.sql"
+).read_text(encoding="utf-8")
+SQL62 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0062_bids02_placement.sql"
+).read_text(encoding="utf-8")
 SQL78 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0078_auto03_retiro_decision.sql"
 ).read_text(encoding="utf-8")
@@ -37,11 +43,13 @@ _skip_db = pytest.mark.skipif(
 )
 
 
-def _db_i4(prefijo):
+def _db_i4(prefijo, *, libro_al_dia=True):
     class _Db:
         def __enter__(self):
             self._ctx = db_fabrica(prefijo)
             conn = self._ctx.__enter__()
+            conn.execute(SQL20)
+            conn.execute(SQL62)
             conn.execute(SQL64)
             conn.execute(SQL65)
             conn.execute(SQL66)
@@ -49,6 +57,11 @@ def _db_i4(prefijo):
             conn.execute(SQL69)
             conn.execute(SQL78)
             conn.execute(SQL79)
+            if libro_al_dia:
+                conn.execute(
+                    "INSERT INTO ingest_run (source, finished_at, ok)"
+                    " VALUES ('accounting_ledger_events', now(), true)"
+                )
             return conn
 
         def __exit__(self, *exc):
@@ -2215,3 +2228,186 @@ def test_r09r6_r15b_reconcilia_no_existe_cierra(monkeypatch):
         res = ra.reconcilia_intenciones(conn, escritor=escritor)
         assert res == [(iid, "cerrado")]
         assert _cuenta(conn) == (0, 0, 1)
+
+
+@_skip_db
+def test_arreglos04_w_m_retiro_sin_pedidos_excluye_lo_que_vendio(monkeypatch):
+    """W-M.1 (dinero): sin_pedidos comprueba ventas del libro en 330 dias y
+    pedidos atribuidos del mismo SKU en Ads en 60 dias; lo que vendio queda
+    en vendieron y una publicacion sin producto no sale ni en el plan ni en
+    vendieron."""
+    import datetime as dt
+
+    from app import pantalla_productos as pp
+
+    hoy = dt.date(2026, 10, 9)
+    with _db_i4("orbit_w_m_retiro_vendio", libro_al_dia=False) as conn:
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', %s, true)",
+            (dt.datetime.combine(hoy, dt.time(8, 15), tzinfo=dt.UTC),),
+        )
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        pid, lid = _producto(conn, sku="S-VENDE", asin="B0REVRT001", seller_sku="SV-1")
+        camp_v, ag_v, _pa_v = _bolsa(conn, lid, "ad-vende", camp="c-v", ag="ag-v")
+        for ent in (camp_v, ag_v):
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                " VALUES (%s, 'ENABLED', now())",
+                (ent,),
+            )
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, product_id, quantity,"
+            " amount, amount_currency, ingest_run_id)"
+            " VALUES ('amazon_mx', 'sale', %s, %s, 4, 400, 'MXN', %s)",
+            (hoy - dt.timedelta(days=10), pid, run),
+        )
+        pantalla = pp.lee_productos(conn, "amazon_mx", hoy)
+        assert pid not in [s.product_id for s in pantalla.sin_pedido]
+        plan = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid,),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert plan.anuncios == ()
+        assert plan.vendieron == (lid,)
+        assert plan.ventas_al_dia is True
+        assert plan.ventas_al_dia_hasta is None
+
+        _pid_ads, lid_ads = _producto(conn, sku="S-ADS", asin="B0REVRT002", seller_sku="SV-2")
+        _bolsa(conn, lid_ads, "ad-ads", camp="c-ads", ag="ag-ads")
+        conn.execute(
+            "INSERT INTO ads_product_metric_observation (platform, advertised_asin,"
+            " advertised_sku, metric_date, observed_at, metric_currency, purchases30d,"
+            " purchases_same_sku30d, ingest_run_id)"
+            " VALUES ('amazon_mx', 'B0REVRT002', 'SV-2', %s, now(), 'MXN', 1, 1, %s)",
+            (hoy - dt.timedelta(days=20), run),
+        )
+        _pid_cero, lid_cero = _producto(conn, sku="S-CERO", asin="B0REVRT003", seller_sku="SV-3")
+        _bolsa(conn, lid_cero, "ad-cero", camp="c-cero", ag="ag-cero")
+        conn.execute(
+            "INSERT INTO ads_product_metric_observation (platform, advertised_asin,"
+            " advertised_sku, metric_date, observed_at, metric_currency, purchases30d,"
+            " purchases_same_sku30d, ingest_run_id)"
+            " VALUES ('amazon_mx', 'B0REVRT003', 'OTRO-SKU', %s, now(), 'MXN', 2, 2, %s)",
+            (hoy - dt.timedelta(days=20), run),
+        )
+        camp_h = _entidad(conn, "amazon_mx", "campaign", "c-huerf")
+        ag_h = _entidad(conn, "amazon_mx", "ad_group", "ag-huerf", parent=camp_h)
+        pa_h = _entidad(conn, "amazon_mx", "product_ad", "ad-huerf", parent=ag_h, listing_id=None)
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', now())",
+            (pa_h,),
+        )
+        lid_sin_producto = 999_999
+        mixto = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid, lid_ads, lid_sin_producto, lid_cero),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert [a.ad_id_externo for a in mixto.anuncios] == ["ad-cero"]
+        assert mixto.vendieron == (lid, lid_ads)
+        assert lid_sin_producto not in mixto.vendieron
+
+        real = pp.vendio_por_listing
+        monkeypatch.setattr(
+            pp,
+            "vendio_por_listing",
+            lambda c, plat, lids, h: {
+                k: v for k, v in real(c, plat, lids, h).items() if k != lid_cero
+            },
+        )
+        sin_prod = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid, lid_cero),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert sin_prod.anuncios == ()
+        assert sin_prod.vendieron == (lid,)
+
+
+@_skip_db
+def test_arreglos04_w_m_retiro_no_saca_nada_si_las_ventas_no_estan_al_dia():
+    """W-M.1 (dinero): si la ultima corrida ok de accounting_ledger_events
+    tiene mas de 2 dias en la zona de la plataforma (incluido el cruce de
+    medianoche donde UTC ya avanzo al dia siguiente), planea_retiro no saca
+    ningun anuncio y declara ventas_al_dia=False con ventas_al_dia_hasta."""
+    import datetime as dt
+
+    hoy = dt.date(2026, 11, 19)
+    ultima = dt.datetime.combine(hoy - dt.timedelta(days=3), dt.time(8, 15), tzinfo=dt.UTC)
+    with _db_i4("orbit_w_m_retiro_viejo", libro_al_dia=False) as conn:
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', %s, true)",
+            (ultima,),
+        )
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', %s, false)",
+            (dt.datetime.combine(hoy, dt.time(9, 0), tzinfo=dt.UTC),),
+        )
+        _pid, lid = _producto(conn, sku="S-SIN", asin="B0REVRT010", seller_sku="SS-10")
+        _bolsa(conn, lid, "ad-sin", camp="c-sin", ag="ag-sin")
+        plan = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid,),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert plan.anuncios == ()
+        assert plan.vendieron == ()
+        assert plan.ventas_al_dia is False
+        assert plan.ventas_al_dia_hasta == ultima
+        assert plan.como_dict()["ventas_al_dia"] is False
+        assert plan.como_dict()["ventas_al_dia_hasta"] == ultima.isoformat()
+
+        cruce_utc = dt.datetime(2026, 11, 17, 4, 0, tzinfo=dt.UTC)
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', %s, true)",
+            (cruce_utc,),
+        )
+        plan_cruce = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid,),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert plan_cruce.anuncios == ()
+        assert plan_cruce.ventas_al_dia is False
+        assert plan_cruce.ventas_al_dia_hasta == cruce_utc
+
+        en_borde_local = dt.datetime(2026, 11, 17, 6, 0, tzinfo=dt.UTC)
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', %s, true)",
+            (en_borde_local,),
+        )
+        plan_al_dia = ra.planea_retiro(
+            conn,
+            "amazon_mx",
+            listing_ids=(lid,),
+            motivo="sin_pedidos",
+            conservar_grupo_id=None,
+            hoy=hoy,
+        )
+        assert [a.ad_id_externo for a in plan_al_dia.anuncios] == ["ad-sin"]
+        assert plan_al_dia.ventas_al_dia is True
+        assert plan_al_dia.ventas_al_dia_hasta is None

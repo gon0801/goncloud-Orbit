@@ -1702,7 +1702,8 @@ def test_i5_literales_y_campo_extra_422(escenario, monkeypatch):
     _sugeridor_fijo_i5(monkeypatch)
     _ejecutor_siembra_i5(monkeypatch, conn)
     lid = _lid_de(conn, ids[0])
-    _bolsa(conn, lid, "ad-i5")
+    lid_sin = _lid_de(conn, ids[1])
+    _bolsa(conn, lid_sin, "ad-i5")
     sol = {
         "plataforma": "amazon_mx",
         "listing_ids": [lid],
@@ -1718,11 +1719,11 @@ def test_i5_literales_y_campo_extra_422(escenario, monkeypatch):
     assert r.status_code == 422
     plan = cliente.post(
         "/api/fabrica/retiro/plan",
-        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+        json={"plataforma": "amazon_mx", "listing_ids": [lid_sin], "motivo": "sin_pedidos"},
     ).json()
     rej = {
         "plataforma": "amazon_mx",
-        "listing_ids": [lid],
+        "listing_ids": [lid_sin],
         "motivo": "sin_pedidos",
         "huella": plan["huella"],
         "actor": "dueno",
@@ -1832,7 +1833,7 @@ def test_r09r4_ap06_reponer_parcial_dice_cada_anuncio(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-ok6")
     _bolsa(conn, lid, "ad-bad6", ag="ag-b6", camp="c-b6")
     plan = cliente.post(
@@ -1882,7 +1883,7 @@ def test_r09r4_ap08_ids_solo_abiertos(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-ok8")
     _bolsa(conn, lid, "ad-8b", ag="ag-8b", camp="c-8b")
     plan = cliente.post(
@@ -1956,7 +1957,7 @@ def test_i5_ejecutar_parcial_dice_cada_anuncio(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-ok")
     _bolsa(conn, lid, "ad-bad", ag="ag-bad", camp="c-bad")
     plan = cliente.post(
@@ -2062,7 +2063,7 @@ def test_i5_ejecutar_sin_sku_422_sin_put(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-h")
     conn.execute("UPDATE listing SET seller_sku = NULL WHERE id = %s", (lid,))
     conn.commit()
@@ -2132,9 +2133,9 @@ def test_i5_retiro_sin_pedidos_conserva_impulso_vivo(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-bolsa")
-    imp = _impulso_vivo(conn, pid=ids[0], lid=lid, lote="impulso-b7b")
+    imp = _impulso_vivo(conn, pid=ids[1], lid=lid, lote="impulso-b7b")
     ag = conn.execute(
         "SELECT ad_group_ad_entity_id FROM campana_grupo_rol WHERE grupo_id = %s LIMIT 1",
         (imp["grupo"],),
@@ -2235,7 +2236,7 @@ def test_i5_ejecutar_devuelve_retiro_ids(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-a")
     plan = cliente.post(
         "/api/fabrica/retiro/plan",
@@ -2266,7 +2267,7 @@ def test_i5_ejecutar_huella_vieja_409(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-a")
     plan = cliente.post(
         "/api/fabrica/retiro/plan",
@@ -2472,7 +2473,7 @@ def test_i5_ejecutar_amazon_no_disponible_502(escenario, monkeypatch):
 
     cliente, conn, _, _, ids = escenario
     _db_i5(conn)
-    lid = _lid_de(conn, ids[0])
+    lid = _lid_de(conn, ids[1])
     _bolsa(conn, lid, "ad-a")
     plan = cliente.post(
         "/api/fabrica/retiro/plan",

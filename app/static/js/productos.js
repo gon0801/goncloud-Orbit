@@ -403,30 +403,47 @@ function reponer(form) {
 }
 
 
-function listingsMarcados(selector) {
-  var listings = [];
+function listingsPorCasilla(selector) {
+  var porCasilla = [];
   document.querySelectorAll(selector).forEach(function (casilla) {
     if (!casilla.checked) return;
-    casilla.dataset.listings
-      .split(",")
-      .map(function (x) {
-        return Number(x);
-      })
-      .filter(function (x) {
-        return x > 0;
-      })
-      .forEach(function (lid) {
-        listings.push(lid);
-      });
+    porCasilla.push(
+      casilla.dataset.listings
+        .split(",")
+        .map(function (x) {
+          return Number(x);
+        })
+        .filter(function (x) {
+          return x > 0;
+        })
+    );
   });
-  return listings;
+  return porCasilla;
+}
+
+function avisoVendieron(porCasilla, vendieron) {
+  var excluidas = new Set(vendieron);
+  var productos = porCasilla.filter(function (listings) {
+    return listings.some(function (lid) {
+      return excluidas.has(lid);
+    });
+  }).length;
+  var publicaciones = excluidas.size;
+  return (
+    (productos === 1
+      ? "1 de los productos marcados vendió"
+      : productos + " de los productos marcados vendieron") +
+    " en los últimos 11 meses: se conservan los anuncios de " +
+    (publicaciones === 1 ? "1 publicación." : publicaciones + " publicaciones.")
+  );
 }
 
 function verRetiro() {
   var zona = document.getElementById("productos-retiro-vista");
   var bloque = document.getElementById("productos-retiro");
   var form = document.getElementById("productos-retiro-ejecutar");
-  var listings = listingsMarcados("[data-marcar-sin-pedido]");
+  var porCasilla = listingsPorCasilla("[data-marcar-sin-pedido]");
+  var listings = [].concat.apply([], porCasilla);
   if (!listings.length) {
     zona.replaceChildren(parrafo("Marca al menos un producto."));
     return;
@@ -452,9 +469,32 @@ function verRetiro() {
         zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
         return;
       }
-      retiroGuardado = { pedido: pedido, plan: r.data };
       zona.replaceChildren();
+      if (r.data.ventas_al_dia === false) {
+        retiroGuardado = null;
+        var motivo = r.data.ventas_al_dia_hasta
+          ? "no se actualizan desde el " + Orbit.fechaHora(r.data.ventas_al_dia_hasta)
+          : "todavía no se han cargado";
+        var alerta = parrafo(
+          "No se sacó ningún anuncio: las ventas de la contabilidad " +
+            motivo +
+            ", así que Orbit no puede comprobar que estos productos no vendieron. " +
+            "Vuelve a intentarlo cuando se actualicen."
+        );
+        alerta.className = "aviso";
+        zona.appendChild(alerta);
+        form.hidden = true;
+        bloque.hidden = false;
+        return;
+      }
+      retiroGuardado = { pedido: pedido, plan: r.data };
+      if (r.data.vendieron && r.data.vendieron.length) {
+        var excluidos = parrafo(avisoVendieron(porCasilla, r.data.vendieron));
+        excluidos.className = "aviso";
+        zona.appendChild(excluidos);
+      }
       if (!r.data.anuncios.length) {
+        retiroGuardado = null;
         zona.appendChild(parrafo("Nada que sacar: sin anuncios en bolsas viejas."));
         form.hidden = true;
         bloque.hidden = false;

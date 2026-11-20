@@ -866,3 +866,197 @@ async function escena({modo = "shadow", disabled = false, respuestaPost = {ok: t
         [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+def test_arreglos04_w_m_ver_retiro_avisa_vendidos_y_libro_viejo():
+    """W-M.3: verRetiro explica cuando las ventas del libro no estan al dia
+    (con fecha o sin primera carga) y cuando alguno de los productos marcados
+    vendio en los ultimos 11 meses, antes de pintar los anuncios."""
+    archivo = RAIZ / "app" / "static" / "js" / "productos.js"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.checked = !!attrs.checked; this.hidden = !!attrs.hidden;
+    this.textContent = ""; this.dataset = attrs.dataset || {};
+    this.elements = attrs.elements || {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  querySelectorAll(sel) {
+    const all = this.children.flatMap(c => [c, ...c.querySelectorAll("*")]);
+    if (sel === "*") return all;
+    if (sel === "[data-estado]") return all.filter(c => c.estado === true);
+    if (sel === "[data-marcar-sin-pedido]")
+      return all.filter(c => c.dataset.marcarSinPedido !== undefined);
+    return [];
+  }
+}
+const root = new Element();
+const casilla = new Element({dataset: {marcarSinPedido: "", producto: "9", listings: "21,22"}});
+casilla.checked = true;
+const casilla2 = new Element({dataset: {marcarSinPedido: "", producto: "10", listings: "23"}});
+casilla2.checked = true;
+const zonaR = new Element();
+const bloqueR = new Element({hidden: true});
+const esperadaR = new Element();
+const estadoR = new Element({estado: true});
+const formR = new Element({dataset: {plataforma: "amazon_mx"}, hidden: true});
+formR.elements = {
+  confirmacion: new Element(),
+  actor: new Element({value: "dueno"}),
+  token: new Element({value: "tok"}),
+};
+formR.children = [estadoR];
+root.children = [casilla, casilla2, zonaR, bloqueR, esperadaR, formR];
+const ids = {
+  "productos-retiro": bloqueR,
+  "productos-retiro-vista": zonaR,
+  "productos-retiro-esperada": esperadaR,
+  "productos-retiro-ejecutar": formR,
+};
+global.document = {
+  getElementById: id => ids[id] || null,
+  createElement: () => new Element(),
+  querySelector: sel => root.querySelector(sel),
+  querySelectorAll: sel => root.querySelectorAll(sel),
+  addEventListener: () => {},
+};
+let respuestaPlan = null;
+const ejecuciones = [];
+global.fetch = (url, opts) => {
+  if (url.endsWith("/retiro/plan"))
+    return Promise.resolve({ok: true, json: () => Promise.resolve(respuestaPlan)});
+  if (url.endsWith("/retiro/ejecutar")) {
+    ejecuciones.push(JSON.parse(opts.body));
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({retirados: 0, total: 0, anuncios: []}),
+    });
+  }
+  throw new Error("url inesperada " + url);
+};
+const codigo = fs.readFileSync(process.argv[1], "utf8");
+vm.runInThisContext(codigo + "\nthis.__api = {verRetiro, ejecutarRetiro};");
+const api = vm.runInThisContext("this.__api");
+(async () => {
+  respuestaPlan = {
+    huella: "0".repeat(64),
+    anuncios: [],
+    vendieron: [],
+    ventas_al_dia: false,
+    ventas_al_dia_hasta: "2026-11-08T17:58:03+00:00",
+  };
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(
+    zonaR.children.map(p => p.textContent),
+    [
+      "No se sacó ningún anuncio: las ventas de la contabilidad no se actualizan desde el " +
+      "8 nov, 11:58, así que Orbit no puede comprobar que estos productos no vendieron. " +
+      "Vuelve a intentarlo cuando se actualicen.",
+    ]
+  );
+  assert.equal(formR.hidden, true);
+  assert.equal(bloqueR.hidden, false);
+  formR.elements.confirmacion.value = "SACAR 0 ANUNCIOS";
+  api.ejecutarRetiro(formR);
+  assert.equal(ejecuciones.length, 0);
+
+  respuestaPlan = {
+    huella: "0".repeat(64),
+    anuncios: [],
+    vendieron: [],
+    ventas_al_dia: false,
+    ventas_al_dia_hasta: null,
+  };
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(
+    zonaR.children.map(p => p.textContent),
+    [
+      "No se sacó ningún anuncio: las ventas de la contabilidad todavía no se han cargado, " +
+      "así que Orbit no puede comprobar que estos productos no vendieron. " +
+      "Vuelve a intentarlo cuando se actualicen.",
+    ]
+  );
+  assert.equal(formR.hidden, true);
+
+  respuestaPlan = {
+    huella: "0".repeat(64),
+    anuncios: [],
+    vendieron: [21],
+    ventas_al_dia: true,
+    ventas_al_dia_hasta: null,
+  };
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(
+    zonaR.children.map(p => p.textContent),
+    [
+      "1 de los productos marcados vendió en los últimos 11 meses: " +
+      "se conservan los anuncios de 1 publicación.",
+      "Nada que sacar: sin anuncios en bolsas viejas.",
+    ]
+  );
+  assert.equal(formR.hidden, true);
+
+  respuestaPlan = {
+    huella: "c".repeat(64),
+    anuncios: [
+      {sku: "SV", ad_group_nombre: "Viejos", ad_group_externo: "ag-v", ad_id_externo: "31"},
+    ],
+    vendieron: [21, 22],
+    ventas_al_dia: true,
+    ventas_al_dia_hasta: null,
+  };
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(
+    zonaR.children.map(p => p.textContent),
+    [
+      "1 de los productos marcados vendió en los últimos 11 meses: " +
+      "se conservan los anuncios de 2 publicaciones.",
+      "SV · Viejos",
+    ]
+  );
+  assert.equal(formR.hidden, false);
+  assert.equal(esperadaR.textContent, "SACAR 1 ANUNCIOS");
+
+  respuestaPlan = {
+    huella: "d".repeat(64),
+    anuncios: [
+      {sku: "SV", ad_group_nombre: "Viejos", ad_group_externo: "ag-v", ad_id_externo: "32"},
+    ],
+    vendieron: [21, 23],
+    ventas_al_dia: true,
+    ventas_al_dia_hasta: null,
+  };
+  api.verRetiro();
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(
+    zonaR.children.map(p => p.textContent),
+    [
+      "2 de los productos marcados vendieron en los últimos 11 meses: " +
+      "se conservan los anuncios de 2 publicaciones.",
+      "SV · Viejos",
+    ]
+  );
+})().catch(err => { console.error(err); process.exit(1); });
+"""
+    proc = subprocess.run(
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
