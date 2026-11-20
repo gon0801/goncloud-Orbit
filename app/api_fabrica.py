@@ -27,6 +27,7 @@ from app import retiro_anuncios as ra
 from app.api import ConexionLectura
 from app.api_common import mensaje_validacion
 from app.api_write import exige_token
+from app.optimizer.goals import MONTO_MAXIMO
 from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
 
 
@@ -88,7 +89,7 @@ class ParametrosRol(_Cuerpo):
     @classmethod
     def monto_valido(cls, valor):
         monto = Decimal(valor)
-        if not monto.is_finite() or not Decimal("0") < monto <= Decimal("9999999999.99"):
+        if not monto.is_finite() or not Decimal("0") < monto <= MONTO_MAXIMO:
             raise ValueError("monto fuera del rango permitido")
         return valor
 

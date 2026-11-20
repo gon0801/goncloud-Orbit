@@ -168,6 +168,12 @@ def exige_bajo_techo(
 # la maquina (TEMPORADA 01), no para lo que teclea una persona.
 VECES_PRESUPUESTO_ALTO = 2
 
+# Techo tecnico de un monto, no de negocio: money_amount es NUMERIC(14,4) y
+# el wire va a 2 decimales, asi que el maximo representable al cuantizar es
+# 9,999,999,999.99. Un cero de mas (10,000,000,000.00) ya no cabe y el
+# readback fallaria al guardar el ajuste; se valida al construir el plan.
+MONTO_MAXIMO = Decimal("9999999999.99")
+
 TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO = (
     "Falta confirmar el presupuesto alto: recarga la página, vuelve a ver el plan"
     " y marca «Sí, quiero ese presupuesto»"

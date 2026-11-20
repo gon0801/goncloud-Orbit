@@ -3647,3 +3647,18 @@ def test_r09r5_f05_put_timeout_declara_incierto():
     )
     with pytest.raises(fc.Abortar, match="INCERTO"):
         fc._put_estado_campana(ctx, "c-1", "PAUSED")
+
+
+def test_arreglos04_w_n_la_terminal_rechaza_un_presupuesto_que_no_cabe(monkeypatch):
+    """W-N: la terminal conserva el rango tecnico de ParametrosRol (la web):
+    un monto como 1e26 no llega a la previa ni a monto_wire."""
+    conn = _ConnFalsa(
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+        publicaciones=[FILA_PUBLICACION],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *_con_presupuesto(ARGS_BASE, "1e26")])
+    with pytest.raises(fc.Abortar, match="fuera del rango permitido"):
+        fc.main()
+    assert conn.escrituras == [] and conn.closes >= 1

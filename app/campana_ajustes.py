@@ -186,6 +186,11 @@ def planea_ajuste(
             ) from None
         if monto <= 0:
             raise ValueError(f"presupuesto debe ser > 0, llego {ajuste.presupuesto_diario}")
+        if monto > g.MONTO_MAXIMO:
+            # Antes del PUT: 10000000000.00 no cabe en NUMERIC(14,4) y el
+            # readback fallaria al guardar la observation, dejando el ajuste
+            # sin confirmar en Orbit.
+            raise ValueError(f"presupuesto fuera de rango, llego {ajuste.presupuesto_diario}")
         if vigente.presupuesto_diario == monto:
             raise AjusteSinCambio("el ajuste no cambia nada")
         moneda = vigente.moneda or PLATAFORMAS_MONEDA[plataforma]

@@ -228,3 +228,10 @@ def test_arreglos04_w_n_el_plan_avisa_contra_el_presupuesto_de_hoy():
         vigente=_vigente(presupuesto_diario=Decimal("300")),
     )
     assert justo_el_doble.aviso_presupuesto is None
+
+
+def test_arreglos04_w_n_el_plan_rechaza_un_presupuesto_que_no_cabe():
+    """Rango tecnico del schema: 10,000,000,000.00 no cabe en NUMERIC(14,4)
+    y el readback fallaria; se rechaza al planear, antes de la confirmacion."""
+    with pytest.raises(ValueError, match="fuera de rango"):
+        _planea(CambiarPresupuesto(presupuesto_diario=Decimal("10000000000")))
