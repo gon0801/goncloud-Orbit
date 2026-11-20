@@ -226,7 +226,9 @@ def _frase_tarjeta(
                 f"ACoS en {acos}% supera la meta configurada ({meta}%) "
                 f"por +{(acos - meta).quantize(Decimal('0.01'))} pp."
             )
-        return f"Sin ventas atribuidas frente a la meta de {meta}%."
+        if (bloque.get("totals") or {}).get("sin_ventas"):
+            return f"Sin ventas atribuidas frente a la meta de {meta}%."
+        return f"Faltan datos de algunos días: no se puede comparar el ACoS con la meta de {meta}%."
     if rev_pct is not None and acos_pp is not None:
         if rev_pct > 0 and acos_pp < 0:
             return (

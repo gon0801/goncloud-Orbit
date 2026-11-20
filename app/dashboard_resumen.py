@@ -155,6 +155,28 @@ SELECT v.metric_date,
  ORDER BY v.metric_date
 """
 
+# Mismas columnas y mismo colapso que _SQL_DIAS (v_metric_latest es DISTINCT ON
+# por entidad y dia), con la ultima lectura hasta un corte: el periodo anterior
+# se lee tal como se veia hace los mismos dias, a la misma edad que el actual.
+_SQL_DIAS_A_LA_EDAD = """
+SELECT v.metric_date,
+       CASE WHEN bool_and(v.cost IS NOT NULL) THEN sum(v.cost) END,
+       CASE WHEN bool_and(v.ad_revenue IS NOT NULL) THEN sum(v.ad_revenue) END,
+       CASE WHEN bool_and(v.clicks IS NOT NULL) THEN sum(v.clicks)::bigint END,
+       CASE WHEN bool_and(v.orders IS NOT NULL) THEN sum(v.orders)::bigint END,
+       max(v.observed_at)
+  FROM (SELECT DISTINCT ON (o.ad_entity_id, o.metric_date)
+               o.metric_date, o.cost, o.ad_revenue, o.clicks, o.orders, o.observed_at
+          FROM ads_metric_observation o
+          JOIN ad_entity e ON e.id = o.ad_entity_id
+         WHERE e.kind = 'campaign' AND e.platform = %s::platform
+           AND o.metric_date BETWEEN %s AND %s
+           AND o.observed_at <= %s
+         ORDER BY o.ad_entity_id, o.metric_date, o.observed_at DESC) v
+ GROUP BY v.metric_date
+ ORDER BY v.metric_date
+"""
+
 # Frescura factica: la fecha MAS NUEVA observada para campanas del canal. Se
 # lee la tabla cruda (no v_metric_latest) porque aqui no se agrega ninguna
 # metrica: la ultima fecha observada es identica en ambas fuentes y el indice
@@ -769,18 +791,35 @@ def last_ingest_at(conn, plataforma: str, desde: dt.date, hasta: dt.date) -> dt.
     return None if valor is None else valor.astimezone(dt.UTC)
 
 
-def bloque_canal(conn, canal: Canal, ventana: Ventana, hoy: dt.date) -> dict:
+def bloque_canal(
+    conn, canal: Canal, ventana: Ventana, hoy: dt.date, *, instante: dt.datetime
+) -> dict:
     """Bloque de un canal: totales, comparacion, serie, cobertura y frescura.
 
-    Una sola consulta de dias cubre la ventana visible, su calentamiento y el
-    periodo anterior (continuo hacia atras); el resto son dos agregados chicos
-    (ultima fecha y ultima ingesta).
+    La consulta de dias cubre la ventana visible y su calentamiento. El periodo
+    anterior de un canal con madurez publicada (Amazon) se lee tal como estaba
+    en `instante - ventana.dias`, para que cada dia anterior tenga la misma
+    edad que su par actual; sin madurez publicada (Mercado Libre) se compara
+    la ultima lectura y `observado_hasta` es `None`.
     """
-    inicio = min(ventana.anterior_desde, ventana.calentamiento_desde)
-    filas = conn.execute(_SQL_DIAS, (canal.plataforma, inicio, ventana.hasta)).fetchall()
+    filas = conn.execute(
+        _SQL_DIAS, (canal.plataforma, ventana.calentamiento_desde, ventana.hasta)
+    ).fetchall()
     por_fecha = {fila[0]: (fila[1], fila[2], fila[3], fila[4], fila[5]) for fila in filas}
     dias_actuales = arma_dias(por_fecha, ventana.desde, ventana.hasta)
-    dias_anteriores = arma_dias(por_fecha, ventana.anterior_desde, ventana.anterior_hasta)
+    if canal.dias_inmaduros is None:
+        corte = None
+        filas_ant = conn.execute(
+            _SQL_DIAS, (canal.plataforma, ventana.anterior_desde, ventana.anterior_hasta)
+        ).fetchall()
+    else:
+        corte = instante - dt.timedelta(days=ventana.dias)
+        filas_ant = conn.execute(
+            _SQL_DIAS_A_LA_EDAD,
+            (canal.plataforma, ventana.anterior_desde, ventana.anterior_hasta, corte),
+        ).fetchall()
+    por_fecha_ant = {fila[0]: (fila[1], fila[2], fila[3], fila[4], fila[5]) for fila in filas_ant}
+    dias_anteriores = arma_dias(por_fecha_ant, ventana.anterior_desde, ventana.anterior_hasta)
     totals = totales_dias(dias_actuales, ventana.dias)
     anterior = totales_dias(dias_anteriores, ventana.dias)
     max_fecha = max_metric_date(conn, canal.plataforma)
@@ -803,6 +842,7 @@ def bloque_canal(conn, canal: Canal, ventana: Ventana, hoy: dt.date) -> dict:
             "hasta": ventana.anterior_hasta.isoformat(),
             "dias": ventana.dias,
             "totals": anterior,
+            "observado_hasta": None if corte is None else corte.astimezone(dt.UTC).isoformat(),
             "variacion": variacion(totals, anterior),
         },
         "series": serie_publica(por_fecha, ventana.desde, ventana.hasta, canal, hoy),
@@ -934,7 +974,10 @@ def resumen(
     declara el instante UTC y la zona de cada canal con los que se calculo.
     """
     fechas = hoy_por_canal(canales, instante)
-    bloques = {nombre: bloque_canal(conn, CANALES[nombre], ventana, hoy) for nombre in canales}
+    bloques = {
+        nombre: bloque_canal(conn, CANALES[nombre], ventana, hoy, instante=instante)
+        for nombre in canales
+    }
     return {
         "hoy": hoy.isoformat(),
         "hoy_instante": instante.astimezone(dt.UTC).isoformat(),
