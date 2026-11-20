@@ -1,0 +1,3 @@
+FALLA|reemplazo sin aplicado: nuevoA (aprobado/intencion)
+FALLA|reemplazo no releido en Amazon: nuevoA
+COMPRUEBA|falla|mx=1|us=0|reversas=0

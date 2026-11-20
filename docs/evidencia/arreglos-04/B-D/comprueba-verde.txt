@@ -1,0 +1,1 @@
+COMPRUEBA|ok|mx=2|us=0|reversas=0
