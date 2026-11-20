@@ -177,7 +177,12 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[1].token, "tok");
   assert.match(estado.textContent, /cambió/);
   assert.equal(form.elements.token.value, "tok");
-  // Segundo intento con la vista nueva: exito.
+  // W-P: la confirmacion escrita era de la revision anterior y ya no vale.
+  assert.equal(form.elements.confirmacion.value, "");
+  api.lanzar(form);
+  assert.equal(calls.length, 2);
+  // Con el literal escrito sobre la vista nueva: exito.
+  form.elements.confirmacion.value = "LANZAR IMPULSO DE 2 PRODUCTOS";
   api.lanzar(form);
   await new Promise(r => setTimeout(r, 10));
   assert.equal(calls[2].body.huella, "b".repeat(64));
@@ -265,13 +270,14 @@ def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
     [object Object]; un detail de texto se pinta tal cual."""
     archivo = RAIZ / "app" / "static" / "js" / "productos.js"
     assert archivo.exists(), "Falta el cliente de productos"
-    # Los trece sitios de error usan mensajeError (seis de impulso y retiro,
-    # cuatro de los limites de la pausa: el rechazo de simular y su estado,
-    # 409 y 422 al guardar; tres del encendido: la simulacion que falla, 409
-    # y 422 al confirmar):
+    # Los doce sitios de error usan mensajeError (cinco de impulso y retiro:
+    # pedir la previa vale para los dos flujos, mas lanzar, ejecutar el retiro
+    # y regresar/recrear; cuatro de los limites de la pausa: el rechazo de
+    # simular y su estado, 409 y 422 al guardar; tres del encendido: la
+    # simulacion que falla, 409 y 422 al confirmar):
     # ninguno conserva el patron que pintaba [object Object].
     assert "(r.data.detail || r.data)" not in archivo.read_text(encoding="utf-8")
-    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 13
+    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 12
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:
@@ -1060,3 +1066,462 @@ const api = vm.runInThisContext("this.__api");
         [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+
+# ARREGLOS 04 W-P (TN04): la previa visible es la unica solicitud ejecutable.
+# Preludio compartido por los tres guiones: DOM minimo, transporte que se
+# resuelve a mano y el estado por flujo que expone productos.js.
+_PRELUDE_W_P = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.checked = !!attrs.checked; this.hidden = !!attrs.hidden;
+    this.textContent = ""; this.dataset = attrs.dataset || {};
+    this.elements = attrs.elements || {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  querySelectorAll(sel) {
+    const all = this.children.flatMap(c => [c, ...c.querySelectorAll("*")]);
+    if (sel === "*") return all;
+    if (sel === "[data-estado]") return all.filter(c => c.estado === true);
+    if (sel === "[data-marcar-sin-pedido]")
+      return all.filter(c => c.dataset.marcarSinPedido !== undefined);
+    if (sel === "[data-marcar-candidato]")
+      return all.filter(c => c.dataset.marcarCandidato !== undefined);
+    if (sel === "[data-subfamilia]")
+      return all.filter(c => c.dataset.subfamilia !== undefined);
+    const m = sel.match(/^\[data-([a-z-]+)(="([^"]+)")?\]$/);
+    if (m) return all.filter(c => m[3] === undefined
+      ? (c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())] !== undefined)
+      : String(c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())]) === m[3]);
+    return [];
+  }
+}
+const root = new Element();
+const casillaA = new Element({dataset: {ATRIBUTO: "", producto: "1", listings: "LISTINGS_A"}});
+const casillaB = new Element({dataset: {ATRIBUTO: "", producto: "2", listings: "LISTINGS_B"}});
+const subA = new Element({value: "aros"});
+subA.dataset = {subfamilia: "1"};
+const subB = new Element({value: "collares"});
+subB.dataset = {subfamilia: "2"};
+const zona = new Element();
+zona.id = "ZONA";
+const bloque = new Element({hidden: true});
+bloque.id = "BLOQUE";
+const esperada = new Element();
+esperada.id = "ESPERADA";
+const estado = new Element({estado: true});
+const form = new Element({dataset: {plataforma: "amazon_mx"}, hidden: true});
+form.id = "FORM";
+form.elements = {
+  confirmacion: new Element(),
+  actor: new Element({value: "dueno"}),
+  token: new Element({value: "tok"}),
+};
+const boton = new Element();
+boton.disabled = false;  // en la pagina el boton nace habilitado
+const buscaPropia = form.querySelector.bind(form);
+form.children = [estado];
+form.querySelector = sel => (sel === '[type="submit"]' ? boton : buscaPropia(sel));
+root.children = [casillaA, casillaB, subA, subB, zona, bloque, esperada, form];
+const ids = {"ZONA": zona, "BLOQUE": bloque, "ESPERADA": esperada, "FORM": form,
+  "CASILLA_PRESUPUESTO": new Element({hidden: true}),
+  "ACEPTO_PRESUPUESTO": new Element()};
+const docEvents = {};
+global.document = {
+  getElementById: id => ids[id] || null,
+  createElement: () => new Element(),
+  querySelector: sel => root.querySelector(sel),
+  querySelectorAll: sel => root.querySelectorAll(sel),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+const llamadas = [];
+const pendientes = [];
+global.fetch = (url, opts) => {
+  llamadas.push({url, body: opts && opts.body ? JSON.parse(opts.body) : null});
+  return new Promise((resolve, reject) => { pendientes.push({url, resolve, reject}); });
+};
+const tick = () => new Promise(r => setTimeout(r, 10));
+function entrega(i, cuerpo, status = 200) {
+  pendientes[i].resolve({ok: status < 400, status, json: () => Promise.resolve(cuerpo)});
+}
+const codigo = fs.readFileSync(process.argv[1], "utf8");
+vm.runInThisContext(codigo + "\nthis.__api = API;");
+const api = vm.runInThisContext("this.__api");
+const marca = (casilla, valor) => {
+  casilla.checked = valor;
+  if (docEvents.change) docEvents.change({target: casilla});
+};
+const ejecuta = frase => { form.elements.confirmacion.value = frase; EJECUTAR_LLAMADA(form); };
+const envio = clave => {
+  const cuerpo = llamadas[llamadas.length - 1].body;
+  const elegido = cuerpo[clave];
+  return clave === "solicitud" ? elegido.listing_ids : elegido;
+};
+(async () => {
+"""
+
+# A la vista -> B falla, respuestas invertidas, cambio durante la carga, doble
+# clic, previa nueva con envio pendiente y envio incierto.
+_GUION_W_P = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  assert.equal(llamadas.length, 1, "una sola consulta de previa");
+  entrega(0, PREVIA_A());
+  await tick();
+  assert.equal(form.hidden, false, "la previa A deja el formulario a la vista");
+  assert.equal(esperada.textContent, ESPERADA_A, "la frase es la de A");
+  assert.equal(boton.disabled, false, "con previa lista el boton esta vivo");
+
+  // A a la vista, la persona cambia la seleccion y la previa de B falla.
+  marca(casillaA, false);
+  assert.equal(form.hidden, true, "cambiar la seleccion esconde el formulario de A");
+  assert.equal(boton.disabled, true, "y apaga su boton");
+  marca(casillaB, true);
+  PEDIR();
+  await tick();
+  assert.equal(llamadas.length, 2);
+  entrega(1, {detail: "Fallo controlado de la nueva consulta"}, 502);
+  await tick();
+  assert.match(zona.children[0].textContent, /Fallo controlado/, "el error de B se ve");
+  assert.equal(form.hidden, true, "el fallo de B no reabre nada");
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, 2, "cero POST de escritura tras el fallo de B");
+
+  // Respuestas invertidas: B contesta primero y la de A llega tarde.
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  marca(casillaA, false);
+  marca(casillaB, true);
+  PEDIR();
+  await tick();
+  const indiceA = llamadas.length - 2;
+  const indiceB = llamadas.length - 1;
+  entrega(indiceB, PREVIA_B());
+  await tick();
+  assert.equal(esperada.textContent, ESPERADA_B, "manda la previa de B");
+  assert.equal(form.hidden, false);
+  entrega(indiceA, PREVIA_A());
+  await tick();
+  assert.equal(esperada.textContent, ESPERADA_B, "la respuesta tardia de A no repinta");
+  assert.equal(form.hidden, false, "ni rehabilita lo que se ve");
+  ejecuta(ESPERADA_B);
+  assert.ok(pendientes[pendientes.length - 1].url.endsWith(EJECUTAR),
+    "se manda a la ruta del flujo");
+  assert.equal(envio("huella"), HUELLA_B, "con la huella de B");
+  assert.deepEqual(envio(IDS_CLAVE), IDS_B, "y los ids de B");
+  entrega(pendientes.length - 1, RESULTADO());
+  await tick();
+  assert.match(estado.textContent, /(Lanzados|Retirados) /);
+
+  // Cambio durante la carga: la respuesta que ya viajaba se tira aunque falle.
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  const enVuelo = llamadas.length - 1;
+  marca(casillaA, false);
+  assert.equal(form.hidden, true);
+  entrega(enVuelo, {detail: "Fallo controlado de la nueva consulta"}, 502);
+  await tick();
+  assert.doesNotMatch(zona.children[0].textContent, /Fallo controlado/,
+    "la respuesta de la revision vieja no se pinta");
+  assert.equal(form.hidden, true, "ni deja ejecutable la previa cancelada");
+
+  // Doble clic: la fase enviando congela la solicitud.
+  marca(casillaB, true);
+  PEDIR();
+  await tick();
+  entrega(llamadas.length - 1, PREVIA_B());
+  await tick();
+  ejecuta(ESPERADA_B);
+  const conUnEnvio = llamadas.length;
+  assert.equal(boton.disabled, true, "el boton queda apagado mientras envia");
+  ejecuta(ESPERADA_B);
+  assert.equal(llamadas.length, conUnEnvio, "el segundo clic no manda otro POST");
+
+  // Con el envio pendiente, ninguna entrada rearma Confirmar.
+  PEDIR();
+  assert.equal(llamadas.length, conUnEnvio, "no se pide previa mientras envia");
+  assert.equal(boton.disabled, true, "Confirmar sigue apagado");
+  entrega(pendientes.length - 1, RESULTADO());
+  await tick();
+
+  // Con el envio resuelto, pedir previa vuelve a funcionar.
+  PEDIR();
+  await tick();
+  assert.equal(llamadas.length, conUnEnvio + 1, "despues del envio la previa corre");
+  entrega(pendientes.length - 1, PREVIA_B());
+  await tick();
+  assert.equal(form.hidden, false);
+
+  // Envio incierto: no se reenvia solo ni lo destraba otra entrada.
+  ejecuta(ESPERADA_B);
+  pendientes[pendientes.length - 1].reject(new Error("timeout"));
+  await tick();
+  assert.match(estado.textContent, /No se sabe si/);
+  assert.equal(boton.disabled, true, "el reenvio queda deshabilitado");
+  const antesDelReintento = llamadas.length;
+  ejecuta(ESPERADA_B);
+  assert.equal(llamadas.length, antesDelReintento, "no se reenvia solo");
+  PEDIR();
+  assert.equal(llamadas.length, antesDelReintento, "ni lo rearma una previa nueva");
+  marca(casillaA, true);
+  marca(casillaA, false);
+  ejecuta(ESPERADA_B);
+  assert.equal(llamadas.length, antesDelReintento, "ni cambiando la seleccion");
+"""
+
+# 409 con vista nueva: se limpia el literal viejo y la seleccion debe seguir
+# vigente para volver a habilitar el plan que manda el servidor.
+_GUION_W_P_409 = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  entrega(llamadas.length - 1, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.match(estado.textContent, /cambió/);
+  assert.equal(form.elements.confirmacion.value, "", "el literal viejo no sirve");
+  assert.equal(form.hidden, false, "la vista nueva si se ve");
+  assert.match(zona.children[0].children[0].textContent, /SB/, "y es la del servidor");
+  const conVista = llamadas.length;
+  ejecuta("");
+  assert.equal(llamadas.length, conVista, "un clic sin escribir no basta");
+  ejecuta(ESPERADA_A);
+  assert.equal(envio("huella"), HUELLA_A2, "manda la huella del servidor");
+  entrega(pendientes.length - 1, RESULTADO());
+  await tick();
+
+"""
+
+# "Impulsar aparte" toma sus IDs de la tabla de sin pedido: marcar ahi deja
+# vieja la previa del impulso, tambien mientras carga.
+_GUION_W_P_APARTE = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  assert.equal(form.hidden, false, "la previa de Impulsar aparte se ve");
+  marca(casillaB, true);
+  assert.equal(form.hidden, true, "marcar en la tabla sin pedido esconde el impulso");
+  assert.equal(esperada.textContent, "");
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, 1, "cero POST con la seleccion cambiada");
+
+  // Tambien mientras la previa viaja.
+  marca(casillaA, true);
+  marca(casillaB, false);
+  PEDIR();
+  await tick();
+  const enVuelo = llamadas.length - 1;
+  marca(casillaB, true);
+  entrega(enVuelo, PREVIA_A());
+  await tick();
+  assert.equal(form.hidden, true, "la respuesta en vuelo no reabre con otra seleccion");
+  assert.doesNotMatch(zona.children[0].textContent, /Tope/, "ni pinta la previa vieja");
+"""
+
+# El 409 con vista nueva tampoco rearma una seleccion que ya no es la del plan.
+_GUION_W_P_409_SELECCION = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  const enVuelo = llamadas.length - 1;
+  marca(casillaB, true);
+  marca(casillaA, false);
+  assert.equal(form.hidden, false, "el envio congela la seleccion");
+  entrega(enVuelo, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.equal(form.hidden, true, "con otra seleccion el 409 no rearma el plan");
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, enVuelo + 1, "ni manda con la vista vieja");
+
+  // La subfamilia tambien es parte de la seleccion.
+  marca(casillaA, true);
+  marca(casillaB, false);
+  PEDIR();
+  await tick();
+  entrega(llamadas.length - 1, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  const conSubfamilia = llamadas.length - 1;
+  subA.value = "collares";
+  docEvents.change({target: subA});
+  assert.equal(form.hidden, false, "el envio congela la subfamilia");
+  entrega(conSubfamilia, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.equal(form.hidden, true, "con otra subfamilia el 409 no rearma el plan");
+
+  // Un marcado que se queda sin subfamilia tampoco es la seleccion pedida.
+  subA.value = "aros";
+  PEDIR();
+  await tick();
+  entrega(llamadas.length - 1, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  const conVacia = llamadas.length - 1;
+  subA.value = "";
+  docEvents.change({target: subA});
+  entrega(conVacia, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.equal(form.hidden, true, "sin subfamilia el 409 tampoco rearma");
+"""
+
+
+def _sustituye_w_p(modo: str, atributo: str, pedir: str) -> dict:
+    if modo == "retiro":
+        return {
+            "API": "{verRetiro, ejecutarRetiro}",
+            "EJECUTAR_LLAMADA": "api.ejecutarRetiro",
+            "PEDIR()": pedir,
+            "PREVIA_A()": (
+                '{huella: "a".repeat(64), ventas_al_dia: true, ventas_al_dia_hasta: null,'
+                ' vendieron: [], anuncios: [{sku: "SA", ad_group_nombre: "GA",'
+                ' ad_group_externo: "ga"}]}'
+            ),
+            "PREVIA_B()": (
+                '{huella: "b".repeat(64), ventas_al_dia: true, ventas_al_dia_hasta: null,'
+                ' vendieron: [], anuncios: [{sku: "SB", ad_group_nombre: "GB",'
+                ' ad_group_externo: "gb"}, {sku: "SB2", ad_group_nombre: "GB",'
+                ' ad_group_externo: "gb"}]}'
+            ),
+            "ESPERADA_A": '"SACAR 1 ANUNCIOS"',
+            "ESPERADA_B": '"SACAR 2 ANUNCIOS"',
+            "EJECUTAR": '"/retiro/ejecutar"',
+            "HUELLA_B": '"b".repeat(64)',
+            "IDS_CLAVE": '"listing_ids"',
+            "IDS_B": "[22, 23]",
+            "RESULTADO()": "{retirados: 2, total: 2, anuncios: []}",
+            "LISTINGS_A": "21",
+            "LISTINGS_B": "22,23",
+            "ZONA": "productos-retiro-vista",
+            "BLOQUE": "productos-retiro",
+            "ESPERADA": "productos-retiro-esperada",
+            "FORM": "productos-retiro-ejecutar",
+            "ATRIBUTO": atributo,
+        }
+    return {
+        "API": "{verLanzamiento, lanzar}",
+        "EJECUTAR_LLAMADA": "api.lanzar",
+        "PEDIR()": pedir,
+        "PREVIA_A()": (
+            '{huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
+            ' no_lanzables: [], planes: [{seller_sku: "SA", subfamilia: "aros",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+        ),
+        "PREVIA_A2()": (
+            '{huella: "e".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
+            ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "aros",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+        ),
+        "PREVIA_B()": (
+            '{huella: "b".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 2 PRODUCTOS",'
+            ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "collares",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []},'
+            ' {seller_sku: "SB2", subfamilia: "collares",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+        ),
+        "ESPERADA_A": '"LANZAR IMPULSO DE 1 PRODUCTOS"',
+        "ESPERADA_B": '"LANZAR IMPULSO DE 2 PRODUCTOS"',
+        "EJECUTAR": '"/impulso/lanzar"',
+        "HUELLA_B": '"b".repeat(64)',
+        "HUELLA_A2": '"e".repeat(64)',
+        "IDS_CLAVE": '"solicitud"',
+        "IDS_B": "[12, 13]",
+        "RESULTADO()": "{lanzados: [{impulso_id: 1}]}",
+        "LISTINGS_A": "11",
+        "LISTINGS_B": "12,13",
+        "ZONA": "productos-vista",
+        "BLOQUE": "productos-lanzamiento",
+        "ESPERADA": "productos-esperada",
+        "FORM": "productos-lanzar",
+        "ATRIBUTO": atributo,
+    }
+
+
+def _corre_guion_w_p(
+    modo: str,
+    cuerpo: str = _GUION_W_P,
+    *,
+    atributo: str | None = None,
+    pedir: str | None = None,
+    archivo: Path = RAIZ / "app" / "static" / "js" / "productos.js",
+):
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    if modo == "retiro":
+        atributo = atributo or "marcarSinPedido"
+        pedir = pedir or "api.verRetiro()"
+    else:
+        atributo = atributo or "marcarCandidato"
+        pedir = pedir or 'api.verLanzamiento("[data-marcar-candidato]")'
+    sustituciones = _sustituye_w_p(modo, atributo, pedir)
+    guion = _PRELUDE_W_P + cuerpo + "})().catch(err => { console.error(err); process.exit(1); });\n"
+    for clave, valor in sustituciones.items():
+        guion = guion.replace(clave, valor)
+    proc = subprocess.run(
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+def test_arreglos04_w_p_retiro_no_ejecuta_una_seleccion_cuya_previa_fallo():
+    """W-P/TN04: con A a la vista, cambiar la seleccion y fallar la previa de B
+    deja la solicitud de A sin boton; las respuestas tardias no rehabilitan otra
+    revision, un doble clic manda una sola vez, ninguna entrada rearma Confirmar
+    con un envio pendiente o incierto, y el envio incierto no se repite."""
+    _corre_guion_w_p("retiro")
+
+
+def test_arreglos04_w_p_impulso_no_ejecuta_una_seleccion_cuya_previa_fallo():
+    """W-P/TN04, vecino de impulso: Ver lanzamiento e Impulsar aparte comparten
+    el mismo estado y la misma compuerta."""
+    _corre_guion_w_p("impulso")
+
+
+def test_arreglos04_w_p_impulso_409_no_rearma_una_vista_que_ya_no_se_ve():
+    """W-P: el 409 trae la vista vigente. El literal escrito era de la revision
+    anterior y se limpia; si la seleccion cambio durante el envio, el plan
+    devuelto no queda ejecutable."""
+    _corre_guion_w_p("impulso", _GUION_W_P_409)
+
+
+def test_arreglos04_w_p_409_no_rearma_una_seleccion_que_cambio_en_el_envio():
+    """W-P: el cambio de seleccion durante el envio se congela; si llega un 409
+    con vista nueva, esa vista no se rearma para la seleccion que ya no esta."""
+    _corre_guion_w_p("impulso", _GUION_W_P_409_SELECCION)
+
+
+def test_arreglos04_w_p_impulsar_aparte_invalida_su_previa_en_la_tabla_sin_pedido():
+    """W-P: "Impulsar aparte" toma sus IDs de [data-marcar-sin-pedido]; marcar
+    ahi, tambien mientras carga, retira la previa del impulso."""
+    _corre_guion_w_p(
+        "impulso",
+        _GUION_W_P_APARTE,
+        atributo="marcarSinPedido",
+        pedir='api.verLanzamiento("[data-marcar-sin-pedido]")',
+    )

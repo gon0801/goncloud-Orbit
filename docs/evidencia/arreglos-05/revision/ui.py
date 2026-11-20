@@ -94,6 +94,12 @@ def scenario():
             conn.execute("INSERT INTO ad_entity_state(ad_entity_id,status,synced_at) "
                          "VALUES (%s,'ENABLED',now())", (pa,))
             productos.append({"product_id": pid, "listing_id": lid})
+        # ARREGLOS 04 W-M: sin una corrida ok del libro de ventas, el plan de
+        # retiro no trae anuncios y el caso TN04 de retiro no tendria previa.
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok)"
+            " VALUES ('accounting_ledger_events', now(), true)"
+        )
         app.dependency_overrides[_conexion_lectura] = lambda: conn
         with TestClient(app) as client:
             yield {"conn": conn, "client": client, "fecha": fecha.isoformat(), "productos": productos}
