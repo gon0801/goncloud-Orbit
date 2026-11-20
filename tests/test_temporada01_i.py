@@ -355,6 +355,55 @@ def test_temporada01_i_equilibrio_con_costo_vigente():
         assert fila["cogs_vigente"] == Decimal("35000")
         assert fila["margen_vigente_pct"] == Decimal("20")
 
+    # --- Sin costo historico y costo de hoy publicado despues de la ventana
+    # (90 dias de venta, venta_total 90000): ninguna venta tuvo costo en su
+    # fecha (venta_cubierta historica y margen historico NULL) y TODAS quedan
+    # cubiertas por el costo de hoy: el margen que gobierna es el vigente 40 %
+    # y la meta derivada 20, sin que la guarda la descarte por la venta
+    # cubierta historica (I.2: cubre la venta con costo de hoy aunque el dia
+    # de la venta no lo tuviera).
+    with _db("orbit_t01_i_sin_hist") as conn:
+        _libro_fresco(conn)
+        run = _run(conn)
+        hoy = _hoy(conn)
+        pid = _producto(conn, "SKU-I", costo="500", desde=hoy - _DIA * 200, hasta=hoy - _DIA * 110)
+        conn.execute(
+            "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+            " valid_from) VALUES (%s, %s, 'MXN', true, %s)",
+            (pid, Decimal("300"), hoy - _DIA * 14),
+        )
+        for i in range(90):
+            fecha = hoy - _DIA * (105 - i)
+            orden = f"o-{i}"
+            _venta(conn, run, pid, fecha, "1000", orden)
+            _cargo(conn, run, fecha, "-300", orden)
+        fid = _familia(conn, pid)
+        conn.commit()
+        fila = _fila(conn, "v_target_margen_plataforma")
+        assert fila["venta_total"] == Decimal("90000")
+        assert fila["venta_cubierta"] is None
+        assert fila["margen_neto_pct"] is None
+        assert fila["cobertura_vigente"] == Decimal("1")
+        assert fila["margen_vigente_pct"] == Decimal("40")
+        medicion = g.medicion_desde_fila(fila)
+        assert medicion.venta_cubierta == Decimal("90000")
+        assert medicion.margen_neto_pct == Decimal("40")
+        assert medicion.margen_historico_pct is None
+        res = g.resuelve_target_margen(
+            medicion, Decimal("0.5"), g.hoy_de_ventana(fila["ventana_hasta"]), None
+        )
+        assert res.motivo is None
+        assert res.derivado == Decimal("20")
+        assert res.aplicado == Decimal("20")
+        prod = _fila(conn, "v_margen_producto", "product_id", pid)
+        assert prod["venta_cubierta"] is None
+        assert prod["margen_neto_pct"] is None
+        assert prod["margen_vigente_pct"] == Decimal("40")
+        fam = _fila(conn, "v_margen_familia", "familia_id", fid)
+        assert fam["venta_cubierta"] is None
+        assert fam["margen_neto_pct"] is None
+        assert fam["margen_vigente_pct"] == Decimal("40")
+
 
 def _huella_vistas(conn) -> dict:
     """Columnas + permisos + comentarios + definicion de las cuatro vistas."""

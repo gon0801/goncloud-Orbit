@@ -540,7 +540,7 @@ SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
 _SQL_MARGENES_FAMILIA = """
 SELECT familia_id, padre_id, ventana_desde, ventana_hasta, venta_cubierta,
        cobertura, dias_con_venta, margen_neto_pct, ledger_fresco_at, moneda,
-       cogs_vigente, cobertura_vigente, margen_vigente_pct
+       cogs_vigente, cobertura_vigente, margen_vigente_pct, venta_total
   FROM v_margen_familia
  WHERE platform = %s::platform
 """
@@ -3058,7 +3058,10 @@ def _lee_familias_ciclo(
             margen_neto_pct=fila[12],
             cobertura=fila[11],
             dias_con_venta=fila[6],
-            venta_cubierta=fila[4],
+            # TEMPORADA 01 I: la venta cubierta de la guarda es la proyeccion
+            # vigente de la misma fila (las ventas cubiertas son las que
+            # tienen costo de hoy), no la historica que trae la vista.
+            venta_cubierta=g.importe_cubierto_vigente(fila[13], fila[11]),
             ledger_fresco_at=fila[8],
             moneda=str(fila[9]) if fila[9] is not None else None,
             ventana_desde=fila[2],

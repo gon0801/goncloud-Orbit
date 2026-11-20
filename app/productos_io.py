@@ -93,7 +93,7 @@ SELECT product_id, external_id, seller_sku
 _SQL_MARGEN = """
 SELECT product_id, margen_neto_pct, cobertura, dias_con_venta, venta_cubierta,
        ledger_fresco_at, moneda, ventana_desde, ventana_hasta,
-       cogs_vigente, cobertura_vigente, margen_vigente_pct
+       cogs_vigente, cobertura_vigente, margen_vigente_pct, venta_total
   FROM v_margen_producto
  WHERE platform = %s::platform AND product_id = ANY(%s)
 """
@@ -257,7 +257,10 @@ def lee_entradas_productos(
             margen_neto_pct=fila[11],
             cobertura=fila[10],
             dias_con_venta=fila[3],
-            venta_cubierta=fila[4],
+            # TEMPORADA 01 I: la venta cubierta de la guarda es la proyeccion
+            # vigente de la misma fila (las ventas cubiertas son las que
+            # tienen costo de hoy), no la historica que trae la vista.
+            venta_cubierta=g.importe_cubierto_vigente(fila[12], fila[10]),
             ledger_fresco_at=fila[5],
             moneda=str(fila[6]) if fila[6] is not None else None,
             ventana_desde=fila[7],
