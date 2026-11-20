@@ -87,9 +87,18 @@ function parrafo(texto) {
 
 function pintaVista(zona, vista) {
   zona.replaceChildren();
+  var conAviso = false;
   vista.planes.forEach(function (plan) {
     var div = document.createElement("div");
     div.appendChild(parrafo(plan.seller_sku + " · " + plan.subfamilia));
+    if (plan.presupuesto_alto) {
+      // W-N: aviso, no rechazo; cada previa nueva deja la casilla sin marcar.
+      conAviso = true;
+      var avisoP = parrafo(plan.presupuesto_alto);
+      avisoP.className = "aviso";
+      avisoP.setAttribute("data-aviso-presupuesto", "");
+      div.appendChild(avisoP);
+    }
     if (plan.subfamilia_nueva) {
       var aviso = parrafo(
         "Subfamilia nueva: arranca sin negativos; Orbit los aprende con este impulso."
@@ -147,6 +156,10 @@ function pintaVista(zona, vista) {
   (vista.no_lanzables || []).forEach(function (n) {
     zona.appendChild(parrafo("No lanzable " + n.listing_id + ": " + n.motivo));
   });
+  var casilla = document.getElementById("productos-acepto-presupuesto-alto");
+  if (casilla) casilla.checked = false;
+  var caja = document.getElementById("productos-casilla-presupuesto");
+  if (caja) caja.hidden = !conAviso;
 }
 
 function verLanzamiento(selectorCasillas) {
@@ -207,6 +220,21 @@ function lanzar(form) {
     estado.textContent = "Escribe " + esperada + " para confirmar.";
     return;
   }
+  var casilla = document.getElementById("productos-acepto-presupuesto-alto");
+  var hayAviso = (vistaGuardada.vista.planes || []).some(function (p) {
+    return !!p.presupuesto_alto;
+  });
+  if (hayAviso && !(casilla && casilla.checked)) {
+    estado.textContent = "Marca «Sí, quiero ese presupuesto» para continuar";
+    return;
+  }
+  var cuerpo = {
+    solicitud: vistaGuardada.solicitud,
+    huella: vistaGuardada.vista.huella,
+    confirmacion: confirmacion,
+    actor: form.elements.actor.value,
+  };
+  if (casilla && casilla.checked) cuerpo.acepto_presupuesto_alto = true;
   estado.textContent = "Enviando…";
   fetch("/api/fabrica/impulso/lanzar", {
     method: "POST",
@@ -214,12 +242,7 @@ function lanzar(form) {
       "Content-Type": "application/json",
       "x-orbit-token": form.elements.token.value,
     },
-    body: JSON.stringify({
-      solicitud: vistaGuardada.solicitud,
-      huella: vistaGuardada.vista.huella,
-      confirmacion: confirmacion,
-      actor: form.elements.actor.value,
-    }),
+    body: JSON.stringify(cuerpo),
   })
     .then(function (resp) {
       return resp.json().then(function (data) {

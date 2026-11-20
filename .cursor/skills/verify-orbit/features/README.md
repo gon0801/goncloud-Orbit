@@ -39,6 +39,7 @@ Todas las pantallas cargan `app/static/js/formato.js` antes que sus scripts: `ba
 - [Propuestas](./cortes.md) — cola de decisiones pendientes (lectura). El POST Rechazar queda fuera del baseline.
 - [Inertes](./inertes.md) — keywords y productos sin visitas 14d (lectura). La semilla baseline llega vacia.
 - [Crear campanas](./fabrica.md) — formulario de un grupo de cinco campanas (`/campanas/nuevas`). POST crear/plan/acciones queda fuera del baseline.
+- [Dónde poner el dinero](./dinero.md) — gasto por tipo y por campana, y el ajuste de presupuesto con su aviso y casilla (`/donde-poner-el-dinero`). Los POST de aplicar/regresar quedan fuera del baseline.
 - [Settings](./settings.md) — cascada de targets, caps y goals (lectura). POST de escritura queda fuera del baseline.
 - [Productos sin clics](./productos.md) — candidatos, impulsos, retiros y la meta por producto del ultimo ciclo (lectura). Los POST de impulso, retiro y reposicion quedan fuera del baseline.
 - [Precios](./precios.md) — compuerta, goals, Cobertura y no evaluados del motor de precios de Amazon (lectura). Sembrar goals y Soltar quedan fuera del baseline.

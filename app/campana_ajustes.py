@@ -59,6 +59,28 @@ class CambiarPresupuesto:
 AjusteCampana = LimitarFueraDeAmazon | CambiarAjusteUbicacion | CambiarPresupuesto
 
 
+def _ajuste_de(
+    clase: str,
+    presupuesto: Decimal | None,
+    ubicacion: str | None,
+    porcentaje: int | None,
+) -> AjusteCampana:
+    """Construye el AjusteCampana desde query/body. Faltantes o clase
+    desconocida -> ValueError (la ruta lo vuelve 422). Vive aqui para que la
+    construccion del ajuste quede junto a su logica (W-N)."""
+    if clase == "presupuesto":
+        if presupuesto is None:
+            raise ValueError("clase presupuesto exige presupuesto")
+        return CambiarPresupuesto(presupuesto_diario=presupuesto)
+    if clase == "ajuste_ubicacion":
+        if ubicacion is None or porcentaje is None:
+            raise ValueError("clase ajuste_ubicacion exige ubicacion y porcentaje")
+        return CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=porcentaje)
+    if clase == "fuera_de_amazon":
+        return LimitarFueraDeAmazon()
+    raise ValueError(f"clase desconocida: {clase}")
+
+
 class AjusteSinCambio(ValueError):
     """El ajuste pedido no cambia nada contra el vigente. Subclase de
     ValueError (los callers que mapean ValueError a 422 no cambian); la
@@ -101,6 +123,23 @@ class PlanAjuste:
         )
         return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
+    @property
+    def aviso_presupuesto(self) -> str | None:
+        """W-N: aviso (no rechazo) cuando el presupuesto nuevo pasa del doble
+        del que la campana tiene hoy. Es propiedad y no campo porque
+        `app/apply.py` construye PlanAjuste a mano y ese archivo no se toca;
+        asi la previa y el plan_nuevo del 409 lo traen sin cambiar las rutas.
+        No entra en `huella()`: la huella ya liga la cifra."""
+        if self.clase != "presupuesto" or self.despues.presupuesto_diario is None:
+            return None
+        aviso = g.presupuesto_alto(
+            self.despues.presupuesto_diario,
+            self.despues.moneda or PLATAFORMAS_MONEDA[self.plataforma],
+            self.antes.presupuesto_diario,
+            "esta_campana",
+        )
+        return None if aviso is None else aviso.texto()
+
     def como_dict(self) -> dict:
         return {
             "campana_id": self.campana_id,
@@ -110,6 +149,7 @@ class PlanAjuste:
             "despues": self.despues.como_json(),
             "huella": self.huella(),
             "frase": self.frase,
+            "aviso_presupuesto": self.aviso_presupuesto,
         }
 
 
@@ -149,7 +189,6 @@ def planea_ajuste(
         if vigente.presupuesto_diario == monto:
             raise AjusteSinCambio("el ajuste no cambia nada")
         moneda = vigente.moneda or PLATAFORMAS_MONEDA[plataforma]
-        g.exige_bajo_techo("presupuesto_diario", monto, moneda)
         despues = replace(
             vigente,
             presupuesto_diario=monto,

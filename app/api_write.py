@@ -58,7 +58,9 @@ from pydantic import BaseModel, Field
 
 from app import apply, bloqueo_dueno_efecto, config_write, familias, goals_write, propuestas_campana
 from app.api import ConexionLectura
+from app.campana_ajustes import _ajuste_de
 from app.db import OrbitDbError, connect
+from app.optimizer import goals as g
 from app.optimizer import productos
 from app.redaction import install_scrub_filter, register_secret
 
@@ -678,37 +680,11 @@ class CuerpoAplicaAjuste(BaseModel):
     huella: str
     confirmacion: Literal["APLICAR AJUSTE"]
     actor: str = Field(min_length=1, max_length=200)
+    acepto_presupuesto_alto: bool = False
 
 
 class CuerpoRegresaAjuste(BaseModel):
     actor: str = Field(min_length=1, max_length=200)
-
-
-def _ajuste_de(
-    clase: str,
-    presupuesto: Decimal | None,
-    ubicacion: str | None,
-    porcentaje: int | None,
-):
-    """Construye el AjusteCampana desde query/body. Faltantes o clase
-    desconocida -> ValueError (la ruta lo vuelve 422)."""
-    from app.campana_ajustes import (
-        CambiarAjusteUbicacion,
-        CambiarPresupuesto,
-        LimitarFueraDeAmazon,
-    )
-
-    if clase == "presupuesto":
-        if presupuesto is None:
-            raise ValueError("clase presupuesto exige presupuesto")
-        return CambiarPresupuesto(presupuesto_diario=presupuesto)
-    if clase == "ajuste_ubicacion":
-        if ubicacion is None or porcentaje is None:
-            raise ValueError("clase ajuste_ubicacion exige ubicacion y porcentaje")
-        return CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=porcentaje)
-    if clase == "fuera_de_amazon":
-        return LimitarFueraDeAmazon()
-    raise ValueError(f"clase desconocida: {clase}")
 
 
 def _plan_de(conn, campana_id: int, clase: str, ajuste):
@@ -793,6 +769,13 @@ def aplicar_ajuste(
                 actor=cuerpo.actor,
             )
             return hecho.como_dict()
+        if plan.aviso_presupuesto is not None and not cuerpo.acepto_presupuesto_alto:
+            # W-N: defensa del segundo paso (pestana vieja o carrera). Aqui
+            # va antes que el 409, que nace dentro de aplica_ajuste_campana.
+            raise HTTPException(
+                status_code=422,
+                detail=g.TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO,
+            )
         hecho = apply.aplica_ajuste_campana(
             conn,
             plan,

@@ -118,9 +118,13 @@
           {% endif %}
           <button type="button" data-ver-plan>Ver plan</button>
           <p data-frase></p>
+          <p data-aviso-presupuesto role="alert" hidden></p>
           <label>Actor <input name="actor"></label>
           <label>Token <input name="token" type="password"></label>
           <label>Escribe APLICAR AJUSTE <input name="confirmacion"></label>
+          <label data-casilla-presupuesto hidden>Sí, quiero ese presupuesto
+            <input type="checkbox" data-acepto-presupuesto-alto name="acepto_presupuesto_alto">
+          </label>
           <button type="submit" disabled>Aplicar</button>
           <p data-estado></p>
         </form>

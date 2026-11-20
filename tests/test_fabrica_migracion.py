@@ -54,6 +54,8 @@ ORDEN = (
     # A2: _arma_plan resuelve la familia de los productos (tablas vacias
     # = camino viejo, sin etiqueta).
     "0047_familias.sql",
+    # ARREGLOS 04 W-N: la previa lee el P90 de v_campana_config_vigente.
+    "0061_bids02_campana_config.sql",
 )
 SQL18 = (MIGRACIONES / "0018_fabrica_campanas.sql").read_text(encoding="utf-8")
 SQL19 = (MIGRACIONES / "0019_fabrica_grupo_publicacion_v2.sql").read_text(encoding="utf-8")

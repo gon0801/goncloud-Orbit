@@ -20,9 +20,13 @@ from app import fabrica_bids as br
 from app import fabrica_plan as fp
 from app import goals_write, retiro_anuncios
 from app import impulso as im
+from app.ads.campana_config import presupuesto_p90
 from app.fabrica_plan import MONEDA_POR_PLATAFORMA
-from app.optimizer import goals as g
-from app.optimizer.goals import gasto_para_concluir_desde_settings
+from app.optimizer.goals import (
+    TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO,
+    gasto_para_concluir_desde_settings,
+    presupuesto_alto,
+)
 
 
 class ErrorImpulso(Exception):
@@ -67,6 +71,10 @@ class VistaPreviaImpulso:
     presupuesto_diario_total: Decimal
     tope_total: Decimal
     moneda: str
+    # W-N: P90 del presupuesto diario de las activas en `moneda`; None sin
+    # ninguna. Se lee UNA vez por previa y no entra en la huella (que solo
+    # firma los planes).
+    p90: Decimal | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -305,14 +313,6 @@ SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
 
-def _exige_diario_por_campana(tope: im.TopeAprendizaje) -> None:
-    """El tope humano es de UNA campana; `grupo_v2_de_plan` reparte el diario
-    del impulso entre sus dos campanas. Validar el total rechazaria un
-    impulso valido (800 USD -> 28.57 por campana, dentro de 53)."""
-    mitad = (tope.presupuesto_diario / 2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    g.exige_bajo_techo("presupuesto_diario", mitad, tope.moneda)
-
-
 def _plan_producto(
     conn,
     plataforma: str,
@@ -351,10 +351,6 @@ def _plan_producto(
     else:
         monto = gasto_para_concluir_desde_settings(settings, plataforma)
     tope = im.TopeAprendizaje(monto, moneda, im.presupuesto_diario(monto, moneda))
-    try:
-        _exige_diario_por_campana(tope)
-    except ValueError as exc:
-        raise fp.PlanInvalido(f"por campana: {exc}") from None
     expresiones = {rol: fp.expresiones_bid(semillas, rol) for rol in im.ROLES_IMPULSO}
     bids = sugeridor((pub.asin,), expresiones)
     bid_por_rol = {rol: bids.get(rol) for rol in im.ROLES_IMPULSO}
@@ -387,6 +383,24 @@ def _plan_producto(
     return plan
 
 
+def aviso_presupuesto_alto(plan: im.PlanImpulso, p90: Decimal | None) -> str | None:
+    """W-N: aviso del diario que el impulso pone a CADA campana (mitad del
+    tope, cuantizada, la misma cuenta de `grupo_v2_de_plan`) contra el P90 de
+    las activas en su moneda. Puro; lo usan `_vista_impulso` y `lanza`."""
+    mitad = (plan.tope.presupuesto_diario / 2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    aviso = presupuesto_alto(mitad, plan.tope.moneda, p90, "tus_campanas")
+    return None if aviso is None else f"Cada campaña de este producto: {aviso.texto()}"
+
+
+def _exige_acepto_presupuesto(vista: VistaPreviaImpulso, acepto: bool) -> None:
+    """W-N: el segundo paso recalcula el aviso; con aviso y sin confirmacion
+    responde 422 antes de crear nada. Va en funcion aparte porque `lanza` ya
+    esta en el limite de complejidad de ruff (C901)."""
+    avisos = [aviso for plan in vista.planes if (aviso := aviso_presupuesto_alto(plan, vista.p90))]
+    if avisos and not acepto:
+        raise ErrorImpulso(422, TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO)
+
+
 def previsualiza(
     conn, solicitud: SolicitudImpulso, *, sugeridor=None, hoy: dt.date | None = None
 ) -> VistaPreviaImpulso:
@@ -399,6 +413,8 @@ def previsualiza(
     if sugeridor is None:
         raise ErrorImpulso(503, "sin sugeridor de bids")
     dia = hoy or dt.datetime.now(dt.UTC).date()
+    moneda = MONEDA_POR_PLATAFORMA[solicitud.plataforma]
+    p90 = presupuesto_p90(conn, moneda)
     fila = conn.execute(_SQL_SETTINGS).fetchone()
     settings = dict(fila[0]) if fila and fila[0] else {}
     planes = []
@@ -446,7 +462,6 @@ def previsualiza(
         productos_en_vista.add(plan.product_id)
         planes.append(plan)
     planes_t = tuple(planes)
-    moneda = MONEDA_POR_PLATAFORMA[solicitud.plataforma]
     n = len(planes_t)
     return VistaPreviaImpulso(
         planes=planes_t,
@@ -456,6 +471,7 @@ def previsualiza(
         presupuesto_diario_total=sum((p.tope.presupuesto_diario for p in planes_t), Decimal("0")),
         tope_total=sum((p.tope.monto for p in planes_t), Decimal("0")),
         moneda=moneda,
+        p90=p90,
     )
 
 
@@ -743,6 +759,7 @@ def lanza(
     ejecutor: EjecutorFabrica,
     sugeridor=None,
     hoy: dt.date | None = None,
+    acepto_presupuesto_alto: bool = False,
 ) -> list[ImpulsoLanzado]:
     """Re-planifica, compara la huella (409 si cambio) y crea un lote por
     producto con el ejecutor de la fabrica (modo shadow). Candado por
@@ -766,6 +783,7 @@ def lanza(
         raise ErrorImpulso(
             422, f"confirmacion distinta: se esperaba {vista.confirmacion_esperada!r}"
         )
+    _exige_acepto_presupuesto(vista, acepto_presupuesto_alto)
     lanzados: list[ImpulsoLanzado] = []
     for plan in vista.planes:
         lote = lote_de_plan(plan)

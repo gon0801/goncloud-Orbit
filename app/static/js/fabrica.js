@@ -132,6 +132,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const error = new Error(mensajeError(datos, respuesta.status));
       error.status = respuesta.status;
       error.lote = datos && datos.detail && datos.detail.lote;
+      error.faltaConfirmar = !!(datos && datos.detail && datos.detail.falta_confirmar);
       throw error;
     }
     return datos;
@@ -186,6 +187,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     porId("preview").hidden = true;
     porId("confirmacion").value = "";
+    porId("casilla-presupuesto").hidden = true;
+    porId("acepto-presupuesto-alto").checked = false;
     actualizarBotones();
   }
 
@@ -329,6 +332,19 @@ document.addEventListener("DOMContentLoaded", function () {
       const aviso = nodo("p", "Advertencia: " + datos.advertencia_mezcla);
       aviso.setAttribute("role", "alert");
       contenedor.append(aviso);
+    }
+    // W-N: presupuesto alto = aviso y casilla, nunca rechazo. Cada previa
+    // nueva deja la casilla sin marcar; sin aviso la casilla no se ve.
+    const avisosPresupuesto = datos.avisos_presupuesto || [];
+    const casillaPresupuesto = porId("acepto-presupuesto-alto");
+    if (casillaPresupuesto) casillaPresupuesto.checked = false;
+    porId("casilla-presupuesto").hidden = !avisosPresupuesto.length;
+    if (avisosPresupuesto.length) {
+      const alerta = nodo("div");
+      alerta.setAttribute("role", "alert");
+      alerta.setAttribute("data-aviso-presupuesto", "");
+      avisosPresupuesto.forEach(linea => alerta.append(nodo("p", linea)));
+      contenedor.append(alerta);
     }
     mostrarPlan(contenedor, datos.plan, true);
     contenedor.append(nodo("h4", "Las cinco campañas"));
@@ -1140,6 +1156,9 @@ document.addEventListener("DOMContentLoaded", function () {
     if (porId("confirmacion").value !== "CREAR 5 CAMPAÑAS") {
       estado("estado", "Escribe exactamente CREAR 5 CAMPAÑAS para confirmar.", true); return;
     }
+    if ((preview.avisos_presupuesto || []).length && !porId("acepto-presupuesto-alto").checked) {
+      estado("estado", "Marca «Sí, quiero ese presupuesto» para continuar", true); return;
+    }
     let token;
     try { token = tomarToken(); } catch (error) { estado("estado", error.message, true); return; }
     const datos = preview;
@@ -1153,10 +1172,13 @@ document.addEventListener("DOMContentLoaded", function () {
     estado("estado", "Creando el grupo. Conserva esta página para consultar el lote.");
     estado("lote-estado", "Creación en curso…");
     let tokenRechazado = false;
+    let rechazoConfirmacion = false;
+    const cuerpo = {
+      solicitud: datos.solicitud, huella: datos.huella, confirmacion: "CREAR 5 CAMPAÑAS",
+    };
+    if (porId("acepto-presupuesto-alto").checked) cuerpo.acepto_presupuesto_alto = true;
     try {
-      const resultado = await solicitar("/crear", {
-        solicitud: datos.solicitud, huella: datos.huella, confirmacion: "CREAR 5 CAMPAÑAS",
-      }, token);
+      const resultado = await solicitar("/crear", cuerpo, token);
       versionDetalle += 1;
       mostrarLote(resultado);
       mostrarResultadoCrear("Grupo creado: " + Orbit.etiqueta(resultado.estado, "estado_lote"), resultado.lote);
@@ -1172,6 +1194,14 @@ document.addEventListener("DOMContentLoaded", function () {
         estado("lote-estado", "La solicitud fue rechazada antes de crear el lote.", true);
         return;
       }
+      if (error.status === 422 && error.faltaConfirmar) {
+        intentados.delete(datos.huella);
+        rechazoConfirmacion = true;
+        mostrarResultadoCrear(error.message, null);
+        estado("estado", error.message, true);
+        estado("lote-estado", "La solicitud fue rechazada antes de crear el lote.", true);
+        return;
+      }
       if (error.lote && error.lote !== loteActual) seleccionarLote(error.lote);
       mostrarResultadoCrear("Creación interrumpida. Consulta el detalle del lote; no se reintentará la creación.",
         error.lote || loteActual);
@@ -1181,7 +1211,7 @@ document.addEventListener("DOMContentLoaded", function () {
       token = null; mutando = false;
       porId("crear-boton").textContent = "Crear las cinco campañas";
       porId("crear-progreso").hidden = true;
-      if (tokenRechazado) actualizarBotones();
+      if (tokenRechazado || rechazoConfirmacion) actualizarBotones();
       else invalidar();
       cargarHistorial();
     }

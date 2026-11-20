@@ -203,3 +203,28 @@ def test_presupuesto_fuera_de_rango_levanta():
     """No-bloq 3: 1e30 no cuantiza (InvalidOperation): 422, no 500."""
     with pytest.raises(ValueError, match="fuera de rango"):
         _planea(CambiarPresupuesto(presupuesto_diario=Decimal("1e30")))
+
+
+def test_arreglos04_w_n_el_plan_avisa_contra_el_presupuesto_de_hoy():
+    """W-N: un presupuesto de mas del doble del que la campana tiene hoy
+    trae aviso (no se rechaza); justo el doble no avisa. El aviso no entra
+    en la huella: el valor es el de 976df4dc para ese antes y ese despues."""
+    vigente_usd = _vigente(
+        campana_externa="93529333080113",
+        presupuesto_diario=Decimal("26.22"),
+        moneda="USD",
+    )
+    plan = _planea(
+        CambiarPresupuesto(presupuesto_diario=Decimal("125")),
+        vigente=vigente_usd,
+        plataforma="amazon_us",
+    )
+    assert "esta campaña tiene hoy" in plan.aviso_presupuesto
+    assert plan.como_dict()["aviso_presupuesto"] == plan.aviso_presupuesto
+    assert plan.huella() == ("1f251b32f9b5c7fcc45256fe796bf0efc13d86405b22c8cc56b0fcd293b1f701")
+
+    justo_el_doble = _planea(
+        CambiarPresupuesto(presupuesto_diario=Decimal("600")),
+        vigente=_vigente(presupuesto_diario=Decimal("300")),
+    )
+    assert justo_el_doble.aviso_presupuesto is None

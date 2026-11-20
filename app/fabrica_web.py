@@ -19,12 +19,14 @@ from app import economia_observada
 from app import evaluacion_catalogo as ec
 from app import fabrica_bids as br
 from app import fabrica_plan as fp
+from app.ads.campana_config import presupuesto_p90
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsConfigError, AdsCredentials
 from app.api_common import _dos_dec
 from app.db import OrbitDbError, connect
 from app.disponibilidad import estado_disponibilidad
 from app.estimacion_proyeccion import adjuntar_estimaciones
+from app.optimizer.goals import TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO
 from app.redaction import scrub
 from tools import fabrica_campanas as fc
 
@@ -76,8 +78,19 @@ def tipos_producto(conn, plataforma: str) -> list[str]:
     ]
 
 
-def error(codigo: int, mensaje: str, lote: str | None = None) -> HTTPException:
-    return HTTPException(codigo, detail={"mensaje": mensaje, "lote": lote})
+def error(
+    codigo: int, mensaje: str, lote: str | None = None, *, falta_confirmar: bool = False
+) -> HTTPException:
+    detalle = {"mensaje": mensaje, "lote": lote}
+    if falta_confirmar:
+        detalle["falta_confirmar"] = True
+    return HTTPException(codigo, detail=detalle)
+
+
+def _avisos_de_presupuesto(conn, plan: fp.PlanGrupoV2) -> list[str]:
+    """W-N: lineas del aviso (una por campana alta), con el P90 de las
+    activas en su moneda leido una vez por previa."""
+    return fc.avisos_presupuesto_alto(plan, presupuesto_p90(conn, plan.moneda))
 
 
 def argumentos(solicitud: dict) -> SimpleNamespace:
@@ -178,6 +191,7 @@ def previsualizar(conn, solicitud: dict) -> dict:
             sum((p.budget for p in plan.parametros.values()), Decimal("0"))
         ),
         "existentes": list(plan.existentes),
+        "avisos_presupuesto": _avisos_de_presupuesto(conn, plan),
     }
 
 
@@ -651,7 +665,9 @@ def _fallo_operacion(exc: Exception, lote: str) -> HTTPException:
     )
 
 
-def crear(solicitud: dict, huella: str, confirmacion: str) -> dict:
+def crear(
+    solicitud: dict, huella: str, confirmacion: str, *, acepto_presupuesto_alto: bool = False
+) -> dict:
     lote = f"web-{huella}"
     with _lote_bloqueado(lote) as conn:
         existente = detalle_lote(conn, lote)
@@ -659,8 +675,18 @@ def crear(solicitud: dict, huella: str, confirmacion: str) -> dict:
             return existente
         with _conexion("ORBIT_DSN_READ", lote) as lectura:
             plan = planificar(lectura, solicitud)
-        if fp.huella_plan_v2(plan) != huella:
-            raise error(409, "El plan cambió. Vuelve a previsualizar antes de crear.", lote)
+            if fp.huella_plan_v2(plan) != huella:
+                raise error(409, "El plan cambió. Vuelve a previsualizar antes de crear.", lote)
+            # W-N: el segundo paso recalcula el aviso; con aviso y sin
+            # confirmacion no se escribe nada (ni lote ni Amazon).
+            avisos = _avisos_de_presupuesto(lectura, plan)
+        if avisos and not acepto_presupuesto_alto:
+            raise error(
+                422,
+                TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO,
+                lote,
+                falta_confirmar=True,
+            )
         args = argumentos(solicitud)
         args.acepto_mutacion_real = True
         args.esperado = 5

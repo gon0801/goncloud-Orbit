@@ -91,6 +91,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 
+from app.formato import dinero
 from app.optimizer.caso import VERSIONES_ECONOMIA_CAMBIO
 
 if TYPE_CHECKING:
@@ -159,6 +160,72 @@ def exige_bajo_techo(
         raise ValueError(f"{nombre} debe ser un numero finito")
     if monto > maximo:
         raise ValueError(f"{nombre} de {monto} {moneda} supera el maximo de {maximo} {moneda}")
+
+
+# ARREGLOS 04 W-N (decision del dueno 2026-11-13): un presupuesto diario alto
+# ya no se rechaza, se avisa y se aplica solo con confirmacion expresa. Es
+# AVISO, no techo: el tope de `exige_bajo_techo` sigue para lo que propone
+# la maquina (TEMPORADA 01), no para lo que teclea una persona.
+VECES_PRESUPUESTO_ALTO = 2
+
+TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO = (
+    "Falta confirmar el presupuesto alto: recarga la página, vuelve a ver el plan"
+    " y marca «Sí, quiero ese presupuesto»"
+)
+
+
+@dataclass(frozen=True)
+class PresupuestoAlto:
+    """Aviso de un presupuesto diario mas del doble de su referencia.
+
+    `contra` nombra la referencia que se uso: esta campaña (su presupuesto
+    de hoy) o tus campañas (P90 de las activas en la moneda). `referencia`
+    None = no habia con que comparar y se uso el numero fijo.
+    """
+
+    monto: Decimal  # por campaña y por dia
+    moneda: str
+    referencia: Decimal | None
+    contra: Literal["esta_campana", "tus_campanas"]
+
+    def texto(self) -> str:
+        """La frase que ve la persona (cifras con miles y dos decimales)."""
+        monto = f"{dinero(self.monto)} {self.moneda}"
+        if self.contra == "esta_campana":
+            if self.referencia is None:
+                return (
+                    f"Vas a poner {monto} diarios."
+                    " Esta campaña no tiene un presupuesto anterior para comparar."
+                )
+            return (
+                f"Vas a poner {monto} diarios. Es más del doble de lo que esta campaña"
+                f" tiene hoy ({dinero(self.referencia)} {self.moneda})."
+            )
+        if self.referencia is None:
+            return (
+                f"Vas a poner {monto} diarios."
+                f" Hoy no tienes campañas activas en {self.moneda} para comparar."
+            )
+        return (
+            f"Vas a poner {monto} diarios. 9 de cada 10 de tus campañas activas"
+            f" tienen {dinero(self.referencia)} {self.moneda} o menos."
+        )
+
+
+def presupuesto_alto(
+    monto: Decimal,
+    moneda: str,
+    referencia: Decimal | None,
+    contra: Literal["esta_campana", "tus_campanas"],
+) -> PresupuestoAlto | None:
+    """Aviso si `monto` pasa del doble de `referencia` (o del numero fijo sin
+    referencia). Moneda fuera de la tabla = ValueError, como
+    `exige_bajo_techo`: no se inventan topes."""
+    techo = TECHOS_HUMANOS_POR_MONEDA.get(moneda)
+    if techo is None:
+        raise ValueError(f"moneda {moneda!r} sin tope humano: TECHOS_HUMANOS_POR_MONEDA")
+    umbral = techo.presupuesto_diario if referencia is None else VECES_PRESUPUESTO_ALTO * referencia
+    return PresupuestoAlto(monto, moneda, referencia, contra) if monto > umbral else None
 
 
 # Clave NUEVA de config_version.settings (sellada en esta task; la siembra

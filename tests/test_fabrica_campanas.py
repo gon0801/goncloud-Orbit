@@ -335,6 +335,9 @@ class _ConnFalsa:
             if "insert into campana_grupo " in bajo:
                 return _Cursor([(1,)])
             return _Cursor([])
+        if "percentile_cont(0.9)" in bajo:
+            # W-N: presupuesto_p90 sin campanas ENABLED en la moneda.
+            return _Cursor([(None,)])
         if "from config_version" in bajo:
             return _Cursor([(1, self.settings)] if self.settings is not None else [])
         if "from listing l" in bajo and "join product p" in bajo:
@@ -784,15 +787,28 @@ def test_despacho_prioriza_reconciliar_registrar_y_desarmar(monkeypatch):
     assert fc.main() == 0 and llamados == ["desarmar"]
 
 
-def test_arreglos01_x_el_cli_rechaza_un_presupuesto_sobre_el_techo():
-    """El tope del CLI (tools/fabrica_campanas.py) rechaza 20000 MXN y acepta
-    150 MXN en los cinco roles. Puro: sin base ni red."""
-    roles = fp.ROLES_ORDEN_CREACION
-    caro = {rol: fp.ParametrosRol(rol, Decimal("20000"), Decimal("5.00")) for rol in roles}
-    with pytest.raises(fc.Abortar, match="supera el maximo"):
-        fc._exige_techos_humanos(caro, "MXN")
-    barato = {rol: fp.ParametrosRol(rol, Decimal("150"), Decimal("5.00")) for rol in roles}
-    fc._exige_techos_humanos(barato, "MXN")
+def _con_presupuesto(args, monto):
+    salida = list(args)
+    for rol in ("auto", "phrase", "product", "broad", "exact"):
+        salida[salida.index(f"--budget-{rol}") + 1] = monto
+    return salida
+
+
+def test_arreglos04_w_n_el_cli_avisa_por_el_numero_fijo_sin_campanas_activas(monkeypatch):
+    """W-N: sin campanas activas en la base, 20000 MXN avisa contra el numero
+    fijo (10708 MXN) y ya no rechaza. Solo la conexion falsa de lectura."""
+    conn = _ConnFalsa(
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+        publicaciones=[FILA_PUBLICACION],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    args = fc._parser().parse_args(_con_presupuesto(ARGS_BASE, "20000"))
+    plan = fc._arma_plan(args, conn)
+    avisos = fc.avisos_presupuesto_alto(plan, fc.presupuesto_p90(conn, plan.moneda))
+    assert avisos
+    assert all("20,000.00 MXN" in aviso for aviso in avisos)
+    assert all("no tienes campañas activas en MXN" in aviso for aviso in avisos)
 
 
 # ---------------------------------------------------------------------------
@@ -848,9 +864,9 @@ def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid,
 
 
 @_skip_db
-def test_arreglos01_x_el_cli_end_to_end_rechaza_presupuesto_sobre_el_techo():
-    """El dry-run del CLI rechaza 20000 MXN con el motivo del tope y sin
-    huella; antes del arreglo el plan salia con huella (rc=0)."""
+def test_arreglos04_w_n_el_cli_end_to_end_avisa_y_sale_cero():
+    """W-N: con 20000 MXN y sin campanas activas, el dry-run del CLI sale 0,
+    imprime el aviso contra el numero fijo y conserva la huella del conjunto."""
     with db_fabrica("orbit_fab_cli_techo") as conn:
         pid, lid = _producto(
             conn, sku="CLI", asin="B0CLICLI01", seller_sku="SS-CLI", platform="amazon_mx"
@@ -869,9 +885,43 @@ def test_arreglos01_x_el_cli_end_to_end_rechaza_presupuesto_sobre_el_techo():
         corrida = subprocess.run(
             [sys.executable, "-", *args], input=fuente, env=env, capture_output=True, text=True
         )
-        assert corrida.returncode == 2, corrida.stderr
-        assert "supera el maximo" in corrida.stdout
-        assert "huella del conjunto:" not in corrida.stdout
+        assert corrida.returncode == 0, corrida.stderr
+        assert "20,000.00 MXN" in corrida.stdout
+        assert "no tienes campañas activas en MXN" in corrida.stdout
+        assert "huella del conjunto:" in corrida.stdout
+
+
+def test_arreglos04_w_n_la_terminal_pide_la_bandera(monkeypatch, capsys):
+    """W-N: la corrida de practica imprime el aviso y sale 0; la que crea,
+    sin --acepto-presupuesto-alto, aborta (salida 2) antes de _mutar."""
+    conn = _ConnFalsa(
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+        publicaciones=[FILA_PUBLICACION],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    args = _con_presupuesto(ARGS_BASE, "20000")
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert "20,000.00 MXN" in salida and "huella del conjunto:" in salida
+
+    llamadas = []
+    monkeypatch.setattr(fc, "_mutar", lambda *a, **k: llamadas.append(a) or 0)
+    argv = [
+        *args,
+        "--acepto-mutacion-real",
+        "--esperado",
+        "5",
+        "--huella",
+        "0" * 64,
+        "--go",
+        "go simulado",
+    ]
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *argv])
+    with pytest.raises(fc.Abortar, match="--acepto-presupuesto-alto"):
+        fc.main()
+    assert llamadas == []
 
 
 # ---------------------------------------------------------------------------

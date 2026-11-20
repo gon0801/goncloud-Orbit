@@ -468,3 +468,25 @@ def config_vigente(conn, ad_entity_id: int) -> ConfigCampana | None:
     if fila is None:
         return None
     return _config_desde_fila(fila)
+
+
+_SQL_PRESUPUESTO_P90 = """
+SELECT (percentile_cont(0.9) WITHIN GROUP (ORDER BY c.presupuesto_diario))::numeric(14,2)
+  FROM v_campana_config_vigente c
+  JOIN ad_entity e ON e.id = c.ad_entity_id
+  JOIN ad_entity_state s ON s.ad_entity_id = c.ad_entity_id
+ WHERE e.kind = 'campaign' AND s.status = 'ENABLED'
+   AND c.presupuesto_diario IS NOT NULL AND c.presupuesto_moneda::text = %s
+"""
+
+
+def presupuesto_p90(conn, moneda: str) -> Decimal | None:
+    """P90 del presupuesto diario de las campanas ENABLED en esa moneda;
+    None si no hay ninguna. Es la referencia de una campana NUEVA (la cifra
+    que 9 de cada 10 no pasan): una campana muy alta no la mueve y muchas
+    chicas tampoco la hunden, como si hunden la mediana. Se lee una vez por
+    previa, jamas por campana."""
+    fila = conn.execute(_SQL_PRESUPUESTO_P90, (moneda,)).fetchone()
+    if fila is None or fila[0] is None:
+        return None
+    return fila[0]

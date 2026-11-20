@@ -495,3 +495,41 @@ def test_cuerpo_put_omite_lo_ausente():
         "campaignId": "93529333080113",
         "budget": {"budget": 120.0, "budgetType": "DAILY"},
     }
+
+
+@_skip_db
+def test_arreglos04_w_n_el_p90_solo_cuenta_campanas_activas_de_la_moneda():
+    """W-N: la referencia de una campana nueva es el P90 del presupuesto
+    diario de las ENABLED en su moneda. Una PAUSED alta y otra moneda no
+    cuentan; sin ENABLED de la moneda no hay referencia (None)."""
+    import datetime as dt
+
+    from app.ads.campana_config import presupuesto_p90
+
+    ahora = dt.datetime(2026, 10, 10, 8, 0, tzinfo=dt.UTC)
+
+    def siembra(conn, platform, externa, monto, status, moneda):
+        entidad = _campana(conn, platform=platform, external=externa)
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at) VALUES (%s, %s, now())",
+            (entidad, status),
+        )
+        guarda_config(
+            conn,
+            platform,
+            [_config(externa=externa, presupuesto_diario=Decimal(monto), moneda=moneda)],
+            ahora,
+        )
+
+    with _db_config("orbit_cfg_p90") as conn:
+        siembra(conn, "amazon_us", "us-10", "10", "ENABLED", "USD")
+        siembra(conn, "amazon_us", "us-15", "15", "ENABLED", "USD")
+        siembra(conn, "amazon_us", "us-2622", "26.22", "ENABLED", "USD")
+        siembra(conn, "amazon_us", "us-pausada", "900", "PAUSED", "USD")
+        siembra(conn, "amazon_mx", "mx-5000", "5000", "ENABLED", "MXN")
+        assert presupuesto_p90(conn, "USD") == Decimal("23.98")
+        assert presupuesto_p90(conn, "MXN") == Decimal("5000.00")
+
+    with _db_config("orbit_cfg_p90_sin") as conn:
+        siembra(conn, "amazon_mx", "mx-5000", "5000", "ENABLED", "MXN")
+        assert presupuesto_p90(conn, "USD") is None
