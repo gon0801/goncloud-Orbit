@@ -522,7 +522,7 @@ dias_prod AS (
 ),
 -- Ramas directas y padre: joins con TABLAS (stats reales) sobre agregados
 -- chicos; UNION ALL + GROUP BY final (una familia sale 2x si es etiqueta
--- de unos y padre de otros: se reagrupa, no se duplica).
+-- de unos y padre de otros: se reagrega, no se duplica).
 ramas AS (
     SELECT pf.familia_id, p.*
       FROM prod p
