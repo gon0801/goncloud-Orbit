@@ -318,7 +318,7 @@ def test_temporada01_i_equilibrio_con_costo_vigente():
         _libro_fresco(conn)
         run = _run(conn)
         hoy = _hoy(conn)
-        _producto(
+        pid = _producto(
             conn, "SKU-I", costo="500", desde=hoy - _DIA * 200, hasta=hoy, costo_moneda="MXN"
         )
         for i in range(70):
@@ -334,11 +334,14 @@ def test_temporada01_i_equilibrio_con_costo_vigente():
 
     # --- Un costo publicado HOY nace abierto con inicio manana: no cuenta
     # todavia; el vigente sigue siendo el costo de 500 (20 %), no el de 300.
+    # La publicacion cierra la vigencia vieja en manana (0001 prohibe solape
+    # de vigencias por producto, exclusion gist): el costo de HOY es el de
+    # 500 porque hoy < hoy+1; el de 300 toma el relevo manana.
     with _db("orbit_t01_i_manana") as conn:
         _libro_fresco(conn)
         run = _run(conn)
         hoy = _hoy(conn)
-        pid = _producto(conn, "SKU-I", costo="500", desde=hoy - _DIA * 200, hasta=None)
+        pid = _producto(conn, "SKU-I", costo="500", desde=hoy - _DIA * 200, hasta=hoy + _DIA)
         conn.execute(
             "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
             " valid_from) VALUES (%s, %s, 'MXN', true, %s)",
