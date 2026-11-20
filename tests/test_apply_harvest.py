@@ -1171,8 +1171,8 @@ def test_matriz_negative_created_con_negative_ya_en_amazon_avanza_sin_duplicar()
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1213,8 +1213,8 @@ def test_matriz_negative_created_keyword_ya_en_destino_done_sin_mutaciones():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ],
             keywords=[
@@ -1224,7 +1224,7 @@ def test_matriz_negative_created_keyword_ya_en_destino_done_sin_mutaciones():
                     "keywordId": "k-7",
                     "keywordText": TERMINO,
                     "matchType": "EXACT",
-                    "state": "enabled",
+                    "state": "ENABLED",
                     "bid": "1.00",
                 }
             ],
@@ -1273,8 +1273,8 @@ def test_matriz_keyword_archivada_en_vuelo_cero_post_y_cierre_declarado():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ],
             keywords=[
@@ -1329,8 +1329,8 @@ def test_matriz_keyword_archivada_planeado_tambien_bloquea_el_post():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ],
             keywords=[
@@ -1383,8 +1383,8 @@ def test_matriz_archivo_repuesto_no_bloquea_harvest():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1423,8 +1423,8 @@ def test_matriz_exact_created_keyword_ya_en_destino_done():
                     "campaignId": DESTINO_CAMPANA,
                     "keywordId": "k-7",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1468,8 +1468,8 @@ def test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada():
                     "campaignId": "9000",
                     "keywordId": "k-otro",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1508,8 +1508,8 @@ def test_matriz_applying_huerfano_negative_confirmado_por_identidad():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-3",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1549,8 +1549,8 @@ def test_matriz_applying_huerfano_negative_senuelo_failed():
                     "campaignId": "9000",
                     "keywordId": "n-otro",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
