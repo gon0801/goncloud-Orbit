@@ -1863,3 +1863,59 @@ def test_reintento_tras_sync_sella_y_permite_regreso(tmp_path, monkeypatch):
             headers={"x-orbit-token": TOKEN},
         )
         assert r3.status_code == 200, r3.text
+
+
+@_skip_db
+def test_arreglos04_w_n_ajuste_alto_no_se_aplica_sin_confirmar(tmp_path, monkeypatch):
+    """W-N: el segundo paso recalcula el aviso. Sin `acepto_presupuesto_alto`
+    responde 422 con la frase y no llama al aplicador; con true si lo llama."""
+    with _db_ajustes("orbit_wa_w_n") as (conn, dsn_admin, dsn_l):
+        camp = _siembra_ajuste(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_l)
+        plan = (
+            TestClient(app)
+            .get(
+                "/api/ads-optimizer/campana-ajuste/plan",
+                params={"campana_id": camp, "clase": "presupuesto", "presupuesto": 300},
+            )
+            .json()
+        )
+        assert "esta campaña tiene hoy" in plan["aviso_presupuesto"]
+
+        llamadas = []
+
+        class _Hecho:
+            def como_dict(self):
+                return {"confirmada": True}
+
+        def _espia(*args, **kwargs):
+            llamadas.append((args, kwargs))
+            return _Hecho()
+
+        monkeypatch.setattr(apply, "aplica_ajuste_campana", _espia)
+        cuerpo = {
+            "campana_id": camp,
+            "clase": "presupuesto",
+            "presupuesto": 300,
+            "huella": plan["huella"],
+            "confirmacion": "APLICAR AJUSTE",
+            "actor": "dueno",
+        }
+        sin = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json=cuerpo,
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert sin.status_code == 422, sin.text
+        assert "Falta confirmar" in sin.json()["detail"]
+        assert llamadas == []
+
+        con = TestClient(app).post(
+            "/api/ads-optimizer/campana-ajuste/aplicar",
+            json={**cuerpo, "acepto_presupuesto_alto": True},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert con.status_code == 200, con.text
+        assert len(llamadas) == 1

@@ -93,19 +93,47 @@ def _sugeridor_fijo(**por_rol):
     return sugiere
 
 
-def test_arreglos01_x_el_tope_del_diario_derivado_del_impulso():
-    """El tope humano del diario derivado del impulso se mide por campana:
-    800 USD de tope dan 28.57 por campana (pasa); 1600 dan 57.14 (rechaza).
-    Sin base: ejercita la misma derivacion que `_plan_producto`."""
-    io._exige_diario_por_campana(
-        im.TopeAprendizaje(Decimal("800"), "USD", im.presupuesto_diario(Decimal("800"), "USD"))
-    )
-    with pytest.raises(ValueError, match="supera el maximo"):
-        io._exige_diario_por_campana(
-            im.TopeAprendizaje(
-                Decimal("1600"), "USD", im.presupuesto_diario(Decimal("1600"), "USD")
-            )
+def _sugeridor_todos(valor):
+    """Da puja a TODOS los roles: sin esto el producto nunca llega a `planes`
+    (un rol sin sugerencia toma el diario de su campana como puja)."""
+
+    def sugiere(asins, expresiones_por_rol):
+        return {rol: valor for rol in expresiones_por_rol}
+
+    return sugiere
+
+
+@_skip_db
+def test_arreglos04_w_n_el_tope_alto_del_impulso_avisa_y_no_deja_fuera_el_producto():
+    """W-N: 300000 MXN ya no hace no lanzable el producto: queda en `planes`
+    y su aviso compara el diario por campana con las activas (aqui no hay
+    ninguna, asi que vale el numero fijo). 800 USD no avisa."""
+    with _db_i3("orbit_i3_w_n") as conn:
+        _, lid = _con_margen(conn)
+        alta = io.SolicitudImpulso(
+            plataforma="amazon_mx",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("300000"),
         )
+        vista = io.previsualiza(conn, alta, sugeridor=_sugeridor_todos(Decimal("1.00")))
+        assert [plan.listing_id for plan in vista.planes] == [lid]
+        assert vista.no_lanzables == ()
+        aviso = io.aviso_presupuesto_alto(vista.planes[0], vista.p90)
+        assert "Cada campaña de este producto" in aviso
+        assert "no tienes campañas activas en MXN" in aviso
+
+    with _db_i3("orbit_i3_w_n_us") as conn:
+        _, lid = _con_margen_us(conn)
+        baja = io.SolicitudImpulso(
+            plataforma="amazon_us",
+            listing_ids=(lid,),
+            subfamilia_por_listing={lid: "aros"},
+            tope_monto=Decimal("800"),
+        )
+        vista = io.previsualiza(conn, baja, sugeridor=_sugeridor_todos(Decimal("0.10")))
+        assert [plan.listing_id for plan in vista.planes] == [lid]
+        assert io.aviso_presupuesto_alto(vista.planes[0], vista.p90) is None
 
 
 @_skip_db
@@ -191,11 +219,9 @@ def test_r09b_previa_tope_bajo_el_piso_no_lanzable_y_lanza_sin_502():
 
 
 @_skip_db
-def test_arreglos01_x_el_impulso_mide_el_diario_por_campana():
-    """El tope humano es de UNA campana: el diario del impulso se reparte
-    entre sus dos campanas. 300000 MXN de tope dan 21428.57 al dia y
-    10714.29 por campana (sobre 10708): no lanzable, con el motivo del tope
-    por campana (no por el total)."""
+def test_arreglos04_w_n_el_impulso_no_lanza_sin_confirmar_el_presupuesto():
+    """W-N: `lanza` recalcula el aviso y responde 422 sin
+    acepto_presupuesto_alto, antes de crear nada."""
     with _db_i3("orbit_i3_techo") as conn:
         _, lid = _con_margen(conn)
         alto = io.SolicitudImpulso(
@@ -204,11 +230,21 @@ def test_arreglos01_x_el_impulso_mide_el_diario_por_campana():
             subfamilia_por_listing={lid: "aros"},
             tope_monto=Decimal("300000"),
         )
-        vista = io.previsualiza(conn, alto, sugeridor=_sugeridor_fijo())
-        assert vista.planes == ()
-        assert [n.listing_id for n in vista.no_lanzables] == [lid]
-        assert "por campana" in vista.no_lanzables[0].motivo
-        assert "supera el maximo" in vista.no_lanzables[0].motivo
+        vista = io.previsualiza(conn, alto, sugeridor=_sugeridor_todos(Decimal("1.00")))
+        with pytest.raises(io.ErrorImpulso) as exc:
+            io.lanza(
+                conn,
+                alto,
+                huella=vista.huella,
+                confirmacion=vista.confirmacion_esperada,
+                actor="dueno",
+                ejecutor=_ejecutor_falso(conn),
+                sugeridor=_sugeridor_todos(Decimal("1.00")),
+            )
+        assert exc.value.status == 422
+        assert "Falta confirmar" in str(exc.value)
+        assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM impulso").fetchone() == (0,)
 
 
 @_skip_db
@@ -1395,7 +1431,6 @@ def test_lanza_reintento_dia_siguiente_mismo_plan_reutiliza_y_reactiva(monkeypat
     import datetime as _dt
     from decimal import Decimal
 
-    from app import impulso as im
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r4h2c") as conn:
@@ -1676,7 +1711,6 @@ def test_r09r4_i09_dos_huerfanos_reutiliza_el_mas_nuevo(monkeypatch):
     import datetime as _dt
     from decimal import Decimal
 
-    from app import impulso as im
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r4i09") as conn:
@@ -2122,7 +2156,6 @@ def test_arreglos01_q_impulso_desarmado_cierra_limpio():
     metricas estancadas (19 dias, 5000 impresiones, 40 clics, 0 pedidos) el
     vigia guarda UNA lectura final 'desarmado' y verifica Amazon con
     pausa_huerfanas, sin llamar a pausa()."""
-    from app import impulso as im
     from app.pantalla_productos import frase_final
 
     with _db_i3("orbit_q_impulso_desarmado") as conn:
@@ -2177,7 +2210,6 @@ def test_arreglos01_z_impulso_pausado_por_dueno_cierra_limpio():
     impresiones, 40 clics, 300 de 1000 MXN) el vigia guarda UNA lectura
     final 'desarmado' y verifica Amazon con pausa_huerfanas; la segunda
     corrida ya no ve el impulso vivo."""
-    from app import impulso as im
     from app.pantalla_productos import frase_final
 
     with _db_i3("orbit_z_impulso_pausado") as conn:
@@ -2869,7 +2901,6 @@ def test_r09r4_h2_huerfano_otro_plan_se_pausa_y_no_se_reusa(monkeypatch):
     desarma y se crea el par nuevo con el presupuesto confirmado."""
     from decimal import Decimal
 
-    from app import impulso as im
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r4h2") as conn:
@@ -3015,7 +3046,6 @@ def test_r09r5_h10_misma_huella_pausada_reactiva_antes_de_sellar(monkeypatch):
     readback); jamas sella un impulso con campanas apagadas."""
     from decimal import Decimal
 
-    from app import impulso as im
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r5h10") as conn:
@@ -3071,7 +3101,6 @@ def test_r09r5_h17_pausa_huerfano_falla_se_dice_en_502(monkeypatch):
     lanzado parcial y fallo que nombra el huerfano ENABLED."""
     from decimal import Decimal
 
-    from app import impulso as im
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r5h17") as conn:
@@ -3265,7 +3294,6 @@ def test_r09r5_h11_diario_impar_coincide_con_huerfano():
     from psycopg.types.json import Json
 
     from app import fabrica_plan as fp
-    from app import impulso as im
 
     with _db_i3("orbit_i3_r5h11") as conn:
         _, lid = _con_margen(conn)
@@ -3709,7 +3737,6 @@ def test_r09r5_mut_coincide_mira_los_dos_roles():
     from psycopg.types.json import Json
 
     from app import fabrica_plan as fp
-    from app import impulso as im
 
     with _db_i3("orbit_i3_r5i52") as conn:
         _, lid = _con_margen(conn)
@@ -3739,7 +3766,6 @@ def test_r09r5_mut_coincide_otro_budget_no_coincide():
     from psycopg.types.json import Json
 
     from app import fabrica_plan as fp
-    from app import impulso as im
 
     with _db_i3("orbit_i3_r5i49") as conn:
         _, lid = _con_margen(conn)
@@ -3768,7 +3794,6 @@ def test_r09r5_mut_coincide_otro_bid_no_coincide():
     from psycopg.types.json import Json
 
     from app import fabrica_plan as fp
-    from app import impulso as im
 
     with _db_i3("orbit_i3_r5i50") as conn:
         _, lid = _con_margen(conn)
@@ -3932,7 +3957,6 @@ def test_r09r5_mut_reactiva_falla_no_sella(monkeypatch):
     rechaza ENABLED): 502 con fallos, SIN sellar el impulso."""
     import datetime as _dt
 
-    from app import impulso as im
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r5i67") as conn:

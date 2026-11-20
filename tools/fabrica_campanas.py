@@ -65,11 +65,12 @@ from psycopg.rows import tuple_row
 
 from app import fabrica_plan as fp
 from app import familias, goals_write
+from app.ads.campana_config import presupuesto_p90
 from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles, fetch_structure, sync_structure
 from app.db import connect
-from app.optimizer.goals import exige_bajo_techo, fraccion_desde_settings
+from app.optimizer.goals import fraccion_desde_settings, presupuesto_alto
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 install_scrub_filter(logging.getLogger())
@@ -497,12 +498,17 @@ def _tipo_desde_familia(
     return tipo_dado, None, " · ".join(avisos) or None
 
 
-def _exige_techos_humanos(parametros: dict[str, fp.ParametrosRol], moneda: str) -> None:
-    try:
-        for p in parametros.values():
-            exige_bajo_techo("presupuesto_diario", p.budget, moneda)
-    except ValueError as exc:
-        raise Abortar(str(exc)) from None
+def avisos_presupuesto_alto(plan: fp.PlanGrupoV2, p90: Decimal | None) -> list[str]:
+    """W-N: una linea por campana nueva cuyo budget pasa del doble del P90
+    de las activas en su moneda (o del numero fijo si no hay activas). Puro:
+    recibe el plan y el P90; lo usan la terminal y la web."""
+    avisos = []
+    for rol in _roles_del_plan(plan):
+        aviso = presupuesto_alto(plan.parametros[rol].budget, plan.moneda, p90, "tus_campanas")
+        if aviso is not None:
+            nombre = fp.nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha)
+            avisos.append(f"{nombre}: {aviso.texto()}")
+    return avisos
 
 
 def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupoV2:
@@ -515,7 +521,6 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupoV2:
         )
         moneda = fp.MONEDA_POR_PLATAFORMA[args.plataforma]
         parametros = _parametros(args)
-        _exige_techos_humanos(parametros, moneda)
         fp.valida_parametros(parametros, moneda)
         if not args.nombre_base or not args.nombre_base.strip():
             raise Abortar("--nombre-base no puede ser vacio")
@@ -654,6 +659,9 @@ def _crear(args) -> int:
     try:  # D-GLM-6-3: la conexion de lectura se cierra en exito y en error
         plan = _arma_plan(args, conn_read)
         huella = fp.huella_plan_v2(plan)
+        avisos = avisos_presupuesto_alto(plan, presupuesto_p90(conn_read, plan.moneda))
+        for aviso in avisos:
+            print(aviso, flush=True)
         _imprime_dry_run(plan, huella)
     finally:
         conn_read.close()
@@ -669,6 +677,10 @@ def _crear(args) -> int:
             nota="sin --acepto-mutacion-real no se toca Amazon",
         )
         return 0
+    if avisos and not args.acepto_presupuesto_alto:
+        raise Abortar(
+            "\n".join([*avisos, "Repite con --acepto-presupuesto-alto para crearlas así"])
+        )
     return _mutar(args, plan, huella)  # tarea 7
 
 
@@ -697,6 +709,11 @@ def _parser() -> argparse.ArgumentParser:
         ap.add_argument(f"--budget-{s}", default=None)
         ap.add_argument(f"--bid-{s}", default=None)
     ap.add_argument("--acepto-mutacion-real", action="store_true")
+    ap.add_argument(
+        "--acepto-presupuesto-alto",
+        action="store_true",
+        help="confirma un budget de mas del doble de la referencia (W-N)",
+    )
     ap.add_argument("--esperado", type=int, default=None, help="campanas autorizadas (5)")
     ap.add_argument("--huella", default=None, help="huella del dry-run")
     ap.add_argument("--go", default=None, help="literal del dueno (va al ledger)")

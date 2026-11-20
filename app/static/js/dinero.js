@@ -20,6 +20,20 @@ function paramsAjuste(form) {
   return params;
 }
 
+function pintaAvisoPresupuesto(form, data) {
+  // W-N: cada previa nueva deja la casilla sin marcar, y sin aviso no se ve.
+  var aviso = form.querySelector("[data-aviso-presupuesto]");
+  var casilla = form.querySelector("[data-acepto-presupuesto-alto]");
+  var caja = form.querySelector("[data-casilla-presupuesto]");
+  var texto = data && data.aviso_presupuesto;
+  if (casilla) casilla.checked = false;
+  if (aviso) {
+    aviso.textContent = texto || "";
+    aviso.hidden = !texto;
+  }
+  if (caja) caja.hidden = !texto;
+}
+
 function verPlan(form) {
   var frase = form.querySelector("[data-frase]");
   var estado = form.querySelector("[data-estado]");
@@ -38,6 +52,7 @@ function verPlan(form) {
       }
       frase.textContent = r.data.frase;
       form.dataset.huella = r.data.huella;
+      pintaAvisoPresupuesto(form, r.data);
       if (!form.dataset.enviando) {
         aplicar.disabled = false;
       }
@@ -56,6 +71,12 @@ function aplicar(form) {
   }
   if (form.elements.confirmacion.value !== "APLICAR AJUSTE") {
     estado.textContent = "Escribe APLICAR AJUSTE para confirmar.";
+    return;
+  }
+  var aviso = form.querySelector("[data-aviso-presupuesto]");
+  var casilla = form.querySelector("[data-acepto-presupuesto-alto]");
+  if (aviso && !aviso.hidden && !(casilla && casilla.checked)) {
+    estado.textContent = "Marca «Sí, quiero ese presupuesto» para continuar";
     return;
   }
   if (form.dataset.enviando) {
@@ -78,6 +99,9 @@ function aplicar(form) {
   if (form.dataset.clase === "ajuste_ubicacion") {
     cuerpo.ubicacion = form.elements.ubicacion.value;
     cuerpo.porcentaje = Number(form.elements.porcentaje.value);
+  }
+  if (casilla && casilla.checked) {
+    cuerpo.acepto_presupuesto_alto = true;
   }
   fetch("/api/ads-optimizer/campana-ajuste/aplicar", {
     method: "POST",

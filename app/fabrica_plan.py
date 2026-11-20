@@ -343,6 +343,10 @@ def valida_parametros(
         for nombre, valor in (("bid", p.bid), ("budget", p.budget)):
             if not isinstance(valor, Decimal) or not valor.is_finite() or valor <= 0:
                 raise PlanInvalido(f"{nombre} de {rol} debe ser Decimal finito > 0: {valor!r}")
+            # Rango tecnico del wire y de money_amount NUMERIC(14,4): mas
+            # alla, monto_wire no cuantiza y el guardado posterior fallaria.
+            if valor > g.MONTO_MAXIMO:
+                raise PlanInvalido(f"{nombre} de {rol} fuera del rango permitido: {valor!r}")
         if not piso <= p.bid <= techo:
             raise PlanInvalido(f"bid de {rol} = {p.bid} fuera de [{piso}, {techo}] {moneda}")
         if p.budget < p.bid:

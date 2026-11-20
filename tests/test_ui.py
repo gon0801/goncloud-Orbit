@@ -2305,6 +2305,9 @@ function mockForm(dataset, elements) {
   const form = {
     dataset: {...dataset}, elements, events: {}, hidden: true,
     nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": {textContent: ""},
+            "[data-aviso-presupuesto]": {textContent: "", hidden: true},
+            "[data-acepto-presupuesto-alto]": {checked: false},
+            "[data-casilla-presupuesto]": {hidden: true},
             "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
             'button[type="submit"]': {disabled: true}},
     addEventListener(e, f) { this.events[e] = f; },
@@ -2649,6 +2652,9 @@ function mockForm(dataset, elements) {
   return {
     dataset: {...dataset}, elements, events: {}, hidden: false,
     nodos: {"[data-frase]": {textContent: ""}, "[data-estado]": {textContent: ""},
+            "[data-aviso-presupuesto]": {textContent: "", hidden: true},
+            "[data-acepto-presupuesto-alto]": {checked: false},
+            "[data-casilla-presupuesto]": {hidden: true},
             "[data-ver-plan]": {events: {}, addEventListener(e, f) { this.events[e] = f; }},
             'button[type="submit"]': {disabled: true}},
     addEventListener(e, f) { this.events[e] = f; },
@@ -3332,3 +3338,76 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
         timeout=15,
     )
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_arreglos04_w_n_dinero_js_aviso_y_casilla():
+    """W-N (dinero.js): con aviso, el submit sin casilla no manda nada y
+    pide marcarla; con la casilla manda acepto_presupuesto_alto; una previa
+    nueva sin aviso esconde la casilla y la deja sin marcar."""
+    import os
+    import shutil
+    from pathlib import Path
+
+    archivo = Path(ui.__file__).resolve().parent / "static" / "js" / "dinero.js"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    guion = r"""
+const form = mockForm({campanaId: "7", clase: "presupuesto"},
+  {presupuesto: campo("300"), actor: campo("dueno"), token: campo("t"),
+   confirmacion: campo("APLICAR AJUSTE")});
+const docEvents = {};
+global.document = {
+  querySelectorAll(sel) { return sel === "form[data-ajuste-form]" ? [form] : []; },
+  getElementById() { return form; },
+  addEventListener: (e, f) => { docEvents[e] = f; },
+};
+const calls = [];
+let respuesta = {frase: "Vas a poner 300", huella: "h1",
+  aviso_presupuesto: "Vas a poner 300.00 MXN diarios. Es más del doble de lo que esta campaña" +
+    " tiene hoy (100.00 MXN)."};
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if ((options.method || "GET") === "GET") {
+    return {ok: true, status: 200, json: async () => respuesta};
+  }
+  return {ok: true, status: 200, json: async () => ({confirmada: true})};
+};
+vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
+(async () => {
+  assert.ok(docEvents.DOMContentLoaded, "dinero.js cablea en DOMContentLoaded");
+  await docEvents.DOMContentLoaded();
+  const tick = async () => {
+    await new Promise(r => setImmediate(r));
+    await new Promise(r => setImmediate(r));
+  };
+  form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  const aviso = form.nodos["[data-aviso-presupuesto]"];
+  assert.equal(aviso.hidden, false, "el aviso se pinta");
+  assert.ok(aviso.textContent.includes("Es más del doble"));
+  assert.equal(form.nodos["[data-acepto-presupuesto-alto]"].checked, false);
+  assert.equal(form.nodos["[data-casilla-presupuesto]"].hidden, false);
+  const posts = () => calls.filter(c => (c.options.method || "GET") === "POST");
+  form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 0, "sin marcar la casilla no se manda");
+  assert.equal(form.nodos["[data-estado]"].textContent,
+    "Marca «Sí, quiero ese presupuesto» para continuar");
+  form.nodos["[data-acepto-presupuesto-alto]"].checked = true;
+  form.events.submit({preventDefault() {}});
+  await tick();
+  assert.equal(posts().length, 1);
+  assert.equal(JSON.parse(posts()[0].options.body).acepto_presupuesto_alto, true);
+  respuesta = {frase: "Vas a poner 120", huella: "h2", aviso_presupuesto: null};
+  form.nodos["[data-ver-plan]"].events.click();
+  await tick();
+  assert.equal(aviso.hidden, true, "sin aviso no se ve");
+  assert.equal(form.nodos["[data-casilla-presupuesto]"].hidden, true);
+  assert.equal(form.nodos["[data-acepto-presupuesto-alto]"].checked, false);
+  console.log("W-N dinero ok");
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+    _corre_guion_dinero(node, archivo, guion)

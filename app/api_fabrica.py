@@ -27,7 +27,7 @@ from app import retiro_anuncios as ra
 from app.api import ConexionLectura
 from app.api_common import mensaje_validacion
 from app.api_write import exige_token
-from app.optimizer import goals as g
+from app.optimizer.goals import MONTO_MAXIMO
 from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
 
 
@@ -63,11 +63,6 @@ class _RutaFabrica(APIRoute):
                     mensaje = str(error.get("msg", ""))
                     if "no es finito" in mensaje:
                         raise fw.error(422, mensaje) from None
-                    # El tope humano arma un mensaje controlado con la cifra
-                    # tecleada y el maximo; no es input crudo, y la pantalla
-                    # necesita el motivo (no el generico de validacion).
-                    if "supera el maximo" in mensaje:
-                        raise fw.error(422, mensaje.removeprefix("Value error, ")) from None
                 raise fw.error(422, mensaje_validacion(errores)) from None
 
         return sin_input_privado
@@ -94,7 +89,7 @@ class ParametrosRol(_Cuerpo):
     @classmethod
     def monto_valido(cls, valor):
         monto = Decimal(valor)
-        if not monto.is_finite() or not Decimal("0") < monto <= Decimal("9999999999.99"):
+        if not monto.is_finite() or not Decimal("0") < monto <= MONTO_MAXIMO:
             raise ValueError("monto fuera del rango permitido")
         return valor
 
@@ -196,8 +191,8 @@ class SolicitudPlan(_Cuerpo):
             },
             moneda,
         )
-        for p in self.parametros.values():
-            g.exige_bajo_techo("presupuesto_diario", Decimal(p.budget), moneda)
+        # W-N: un presupuesto diario alto ya no se rechaza aqui; la previa
+        # avisa contra el P90 y el crear exige acepto_presupuesto_alto.
         return self
 
 
@@ -205,6 +200,7 @@ class SolicitudCrear(_Cuerpo):
     solicitud: SolicitudPlan
     huella: str = Field(pattern=r"^[a-f0-9]{64}$")
     confirmacion: Literal["CREAR 5 CAMPAÑAS"]
+    acepto_presupuesto_alto: bool = False
 
 
 class SolicitudBids(_Cuerpo):
@@ -338,7 +334,12 @@ def bids_sugeridos(cuerpo: SolicitudBids, conn: ConexionLectura):
 
 @router.post("/crear")
 def crear(_token: Annotated[str, Depends(exige_token)], cuerpo: SolicitudCrear):
-    return fw.crear(cuerpo.solicitud.model_dump(), cuerpo.huella, cuerpo.confirmacion)
+    return fw.crear(
+        cuerpo.solicitud.model_dump(),
+        cuerpo.huella,
+        cuerpo.confirmacion,
+        acepto_presupuesto_alto=cuerpo.acepto_presupuesto_alto,
+    )
 
 
 @router.get("/lotes")
@@ -450,6 +451,7 @@ class CuerpoLanzarImpulso(_Cuerpo):
     huella: Huella
     confirmacion: str = Field(min_length=1, max_length=60)
     actor: Actor
+    acepto_presupuesto_alto: bool = False
 
     @field_validator("actor")
     @classmethod
@@ -623,9 +625,12 @@ def _vista_impulso(conn, vista: io.VistaPreviaImpulso, plataforma: str) -> dict:
     subfamilia conocida que solo tiene keywords o grupo."""
     conocidas = set(fw.tipos_producto(conn, plataforma))
     datos = vista.como_dict()
-    for plan in datos["planes"]:
+    for plan, fuente in zip(datos["planes"], vista.planes, strict=True):
         plan["subfamilia_nueva"] = plan["subfamilia"] not in conocidas
         plan["sin_negativos"] = not plan["negatives"]
+        # W-N: aviso (no rechazo) del diario que el impulso pone a cada
+        # campana contra el P90 de las activas en la moneda.
+        plan["presupuesto_alto"] = io.aviso_presupuesto_alto(fuente, vista.p90)
     return datos
 
 
@@ -663,6 +668,7 @@ def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoL
                 actor=cuerpo.actor,
                 ejecutor=_ejecutor_lanzar(conn, cuerpo.confirmacion),
                 sugeridor=sugeridor,
+                acepto_presupuesto_alto=cuerpo.acepto_presupuesto_alto,
             )
         except io.ErrorImpulso as exc:
             vista = None

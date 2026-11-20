@@ -1405,7 +1405,9 @@ def test_arreglos01_x_una_meta_manual_fuera_de_banda_se_rechaza():
             g.exige_banda_meta_manual(fuera)
 
 
-def test_arreglos01_x_planea_ajuste_rechaza_presupuesto_sobre_el_techo():
+def test_arreglos04_w_n_planea_ajuste_avisa_en_vez_de_rechazar():
+    """W-N: 20000 MXN sobre una campana de 100 ya no lanza: el plan sale y
+    trae el aviso contra el presupuesto de hoy. Justo el doble no avisa."""
     vigente = ConfigCampana(
         campana_externa="93529333080113",
         presupuesto_diario=Decimal("100"),
@@ -1416,17 +1418,56 @@ def test_arreglos01_x_planea_ajuste_rechaza_presupuesto_sobre_el_techo():
         ajuste_producto_pct=40,
         fuera_de_amazon=None,
     )
-    with pytest.raises(ValueError, match="supera el maximo"):
-        ca.planea_ajuste(
-            vigente,
-            ca.CambiarPresupuesto(presupuesto_diario=Decimal("20000")),
-            campana_id=7,
-            plataforma="amazon_mx",
-        )
     plan = ca.planea_ajuste(
         vigente,
-        ca.CambiarPresupuesto(presupuesto_diario=Decimal("5353.78")),
+        ca.CambiarPresupuesto(presupuesto_diario=Decimal("20000")),
         campana_id=7,
         plataforma="amazon_mx",
     )
-    assert plan.despues.presupuesto_diario == Decimal("5353.78")
+    assert plan.despues.presupuesto_diario == Decimal("20000.00")
+    assert "esta campaña tiene hoy" in plan.aviso_presupuesto
+    plan = ca.planea_ajuste(
+        vigente,
+        ca.CambiarPresupuesto(presupuesto_diario=Decimal("200")),
+        campana_id=7,
+        plataforma="amazon_mx",
+    )
+    assert plan.despues.presupuesto_diario == Decimal("200.00")
+    assert plan.aviso_presupuesto is None
+
+
+def test_arreglos04_w_n_presupuesto_alto_compara_con_su_referencia():
+    """W-N: un presupuesto es alto cuando pasa del doble de su referencia
+    (el de esa campana o el P90 de las activas); sin referencia vale el
+    numero fijo de la tabla. Aviso, jamas rechazo; moneda desconocida truena."""
+    esta = "esta_campana"
+    tus = "tus_campanas"
+
+    aviso = g.presupuesto_alto(Decimal("125"), "USD", Decimal("26.22"), esta)
+    assert aviso is not None
+    assert "125.00 USD" in aviso.texto()
+    assert "26.22 USD" in aviso.texto()
+    assert "esta campaña tiene hoy" in aviso.texto()
+
+    assert g.presupuesto_alto(Decimal("600"), "MXN", Decimal("300"), esta) is None
+    assert g.presupuesto_alto(Decimal("600.01"), "MXN", Decimal("300"), esta) is not None
+
+    aviso = g.presupuesto_alto(Decimal("25000"), "MXN", Decimal("5353.7800"), esta)
+    assert aviso is not None and "5,353.78 MXN" in aviso.texto()
+
+    aviso = g.presupuesto_alto(Decimal("1500"), "MXN", Decimal("312.08"), tus)
+    assert aviso is not None
+    assert "9 de cada 10" in aviso.texto()
+    assert "312.08 MXN" in aviso.texto()
+    assert g.presupuesto_alto(Decimal("624.16"), "MXN", Decimal("312.08"), tus) is None
+    assert g.presupuesto_alto(Decimal("70"), "USD", Decimal("24.57"), tus) is not None
+
+    assert g.presupuesto_alto(Decimal("50"), "USD", None, tus) is None
+    aviso = g.presupuesto_alto(Decimal("60"), "USD", None, tus)
+    assert aviso is not None and "no tienes campañas activas en USD" in aviso.texto()
+    aviso = g.presupuesto_alto(Decimal("60"), "USD", None, esta)
+    assert aviso is not None and "no tiene un presupuesto anterior" in aviso.texto()
+
+    for referencia in (Decimal("10"), None):
+        with pytest.raises(ValueError, match="sin tope humano"):
+            g.presupuesto_alto(Decimal("125"), "EUR", referencia, esta)
