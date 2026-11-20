@@ -130,15 +130,23 @@ controlado, un guion por flujo:
 
 - `test_arreglos04_w_p_retiro_no_ejecuta_una_seleccion_cuya_previa_fallo`
 - `test_arreglos04_w_p_impulso_no_ejecuta_una_seleccion_cuya_previa_fallo`
+- `test_arreglos04_w_p_impulso_409_no_rearma_una_vista_que_ya_no_se_ve`
+- `test_arreglos04_w_p_409_no_rearma_una_seleccion_que_cambio_en_el_envio`
+- `test_arreglos04_w_p_impulsar_aparte_invalida_su_previa_en_la_tabla_sin_pedido`
 
 Cubren, en los dos flujos, A a la vista con B fallando, respuestas invertidas
-(la de B primero y la de A tarde), cambio durante la carga, doble clic y envío
-incierto, con aserciones sobre el payload capturado, el detalle que ve la
-persona y el botón.
+(la de B primero y la de A tarde), cambio durante la carga, doble clic, previa
+nueva con envío pendiente, envío incierto, el 409 con vista nueva y la tabla
+compartida de «Impulsar aparte», con aserciones sobre el payload capturado, el
+detalle que ve la persona y el botón.
 
-Contra el `productos.js` de `1fb9ff6d` las dos fallan en el primer corte real
-(`cambiar la seleccion esconde el formulario de A`), no por un detalle del
-arnés. En `bd6e91f` pasan.
+`tests/test_ui_productos.py` y `tests/test_retiro_contrato.py` con `CI=1` dan
+38 pruebas en verde.
+
+Contra el `productos.js` de `1fb9ff6d` las dos del caso central fallan en el
+primer corte real (`cambiar la seleccion esconde el formulario de A`), no por un
+detalle del arnés; contra el de `bd6e91f`, las tres de la ronda de revisión
+fallan en su propio corte. En el entregado pasan.
 
 La prueba de forma
 `test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object` baja de
@@ -159,6 +167,38 @@ base desechable eliminada al final. La ficha
 El baseline de `drive-productos` no envía retiro ni impulso: ese recorrido lo
 cubre TN04 con el POST interceptado, sin declarar ninguna mutación de Amazon
 probada.
+
+## Ronda de revisión de Astra sobre efec598
+
+Cuatro bloqueos, los cuatro reales, corregidos en el mismo PR. Cada uno quedó
+demostrado con el transporte interceptado: la prueba falla contra
+`bd6e91f` y pasa con la corrección.
+
+1. **La tabla de sin pedido alimenta dos rutas.** «Impulsar aparte» toma sus
+   IDs de `[data-marcar-sin-pedido]`, pero el manejador de `change` solo
+   invalidaba el retiro: la previa del impulso seguía ejecutable con productos
+   ya desmarcados. Ahora ese cambio invalida las dos previas, también mientras
+   carga. Rojo en `bd6e91f`: `marcar en la tabla sin pedido esconde el impulso`.
+2. **Ninguna entrada rearma `Confirmar` con un envío pendiente o incierto.**
+   Antes, pedir una previa nueva durante el POST cambiaba la revisión y volvía
+   a habilitar el botón, y tras una desconexión también destrababa el reenvío;
+   además, la selección vacía pasaba por el mismo camino. Ahora
+   `envioPendiente()` corta `verLanzamiento`, `verRetiro` y `cambioDeSeleccion`
+   mientras la fase es `enviando` o `incierta`, y deja el motivo en
+   `[data-estado]`. Rojo en `bd6e91f`: `no se pide previa mientras envia`.
+3. **El 409 solo rearma si la selección sigue siendo la que pidió el plan.**
+   Durante el envío el cambio de selección se ignora a propósito; si el 409
+   devolvía la vista, quedaba ejecutable una selección que ya no estaba
+   marcada. Ahora el flujo guarda el selector que usó y `mismaSeleccion()`
+   decide; si no coincide, esconde el formulario y pide una previa nueva.
+   Rojo en `bd6e91f`: `con otra seleccion el 409 no rearma el plan`.
+4. **El 409 borra el literal escrito.** Era de la revisión anterior y con un
+   solo clic lanzaba el plan nuevo. Ahora se limpia y hay que escribirlo otra
+   vez. Rojo en `bd6e91f`: `el literal viejo no sirve`.
+
+El caso vecino `test_flujo_js_plan_lanza_y_repone_con_literales` se ajusta al
+contrato nuevo: después del 409 comprueba que un clic sin escribir no manda
+nada y escribe el literal para el segundo intento.
 
 ## Lo que ya fallaba en master
 

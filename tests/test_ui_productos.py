@@ -177,7 +177,12 @@ const api = vm.runInThisContext("this.__api");
   assert.equal(calls[1].token, "tok");
   assert.match(estado.textContent, /cambió/);
   assert.equal(form.elements.token.value, "tok");
-  // Segundo intento con la vista nueva: exito.
+  // W-P: la confirmacion escrita era de la revision anterior y ya no vale.
+  assert.equal(form.elements.confirmacion.value, "");
+  api.lanzar(form);
+  assert.equal(calls.length, 2);
+  // Con el literal escrito sobre la vista nueva: exito.
+  form.elements.confirmacion.value = "LANZAR IMPULSO DE 2 PRODUCTOS";
   api.lanzar(form);
   await new Promise(r => setTimeout(r, 10));
   assert.equal(calls[2].body.huella, "b".repeat(64));
@@ -1063,10 +1068,11 @@ const api = vm.runInThisContext("this.__api");
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
 
+
 # ARREGLOS 04 W-P (TN04): la previa visible es la unica solicitud ejecutable.
-# Un guion por flujo y el mismo transporte controlado: las respuestas se
-# resuelven a mano para reproducir el orden que rompia la pantalla.
-_GUION_W_P = r"""
+# Preludio compartido por los tres guiones: DOM minimo, transporte que se
+# resuelve a mano y el estado por flujo que expone productos.js.
+_PRELUDE_W_P = r"""
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
@@ -1091,6 +1097,8 @@ class Element {
       return all.filter(c => c.dataset.marcarSinPedido !== undefined);
     if (sel === "[data-marcar-candidato]")
       return all.filter(c => c.dataset.marcarCandidato !== undefined);
+    if (sel === "[data-subfamilia]")
+      return all.filter(c => c.dataset.subfamilia !== undefined);
     const m = sel.match(/^\[data-([a-z-]+)(="([^"]+)")?\]$/);
     if (m) return all.filter(c => m[3] === undefined
       ? (c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())] !== undefined)
@@ -1153,7 +1161,18 @@ const marca = (casilla, valor) => {
   casilla.checked = valor;
   if (docEvents.change) docEvents.change({target: casilla});
 };
+const ejecuta = frase => { form.elements.confirmacion.value = frase; EJECUTAR_LLAMADA(form); };
+const envio = clave => {
+  const cuerpo = llamadas[llamadas.length - 1].body;
+  const elegido = cuerpo[clave];
+  return clave === "solicitud" ? elegido.listing_ids : elegido;
+};
 (async () => {
+"""
+
+# A la vista -> B falla, respuestas invertidas, cambio durante la carga, doble
+# clic, previa nueva con envio pendiente y envio incierto.
+_GUION_W_P = r"""
   marca(casillaA, true);
   PEDIR();
   await tick();
@@ -1231,7 +1250,23 @@ const marca = (casilla, valor) => {
   ejecuta(ESPERADA_B);
   assert.equal(llamadas.length, conUnEnvio, "el segundo clic no manda otro POST");
 
-  // Envio incierto: ni se reenvia solo ni se da por hecho.
+  // Con el envio pendiente, ninguna entrada rearma Confirmar.
+  PEDIR();
+  assert.equal(llamadas.length, conUnEnvio, "no se pide previa mientras envia");
+  assert.equal(boton.disabled, true, "Confirmar sigue apagado");
+  entrega(pendientes.length - 1, RESULTADO());
+  await tick();
+
+  // Con el envio resuelto, pedir previa vuelve a funcionar.
+  PEDIR();
+  await tick();
+  assert.equal(llamadas.length, conUnEnvio + 1, "despues del envio la previa corre");
+  entrega(pendientes.length - 1, PREVIA_B());
+  await tick();
+  assert.equal(form.hidden, false);
+
+  // Envio incierto: no se reenvia solo ni lo destraba otra entrada.
+  ejecuta(ESPERADA_B);
   pendientes[pendientes.length - 1].reject(new Error("timeout"));
   await tick();
   assert.match(estado.textContent, /No se sabe si/);
@@ -1239,21 +1274,93 @@ const marca = (casilla, valor) => {
   const antesDelReintento = llamadas.length;
   ejecuta(ESPERADA_B);
   assert.equal(llamadas.length, antesDelReintento, "no se reenvia solo");
-})().catch(err => { console.error(err); process.exit(1); });
+  PEDIR();
+  assert.equal(llamadas.length, antesDelReintento, "ni lo rearma una previa nueva");
+  marca(casillaA, true);
+  marca(casillaA, false);
+  ejecuta(ESPERADA_B);
+  assert.equal(llamadas.length, antesDelReintento, "ni cambiando la seleccion");
+"""
+
+# 409 con vista nueva: se limpia el literal viejo y la seleccion debe seguir
+# vigente para volver a habilitar el plan que manda el servidor.
+_GUION_W_P_409 = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  entrega(llamadas.length - 1, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.match(estado.textContent, /cambió/);
+  assert.equal(form.elements.confirmacion.value, "", "el literal viejo no sirve");
+  assert.equal(form.hidden, false, "la vista nueva si se ve");
+  assert.match(zona.children[0].children[0].textContent, /SB/, "y es la del servidor");
+  const conVista = llamadas.length;
+  ejecuta("");
+  assert.equal(llamadas.length, conVista, "un clic sin escribir no basta");
+  ejecuta(ESPERADA_A);
+  assert.equal(envio("huella"), HUELLA_A2, "manda la huella del servidor");
+  entrega(pendientes.length - 1, RESULTADO());
+  await tick();
+
+"""
+
+# "Impulsar aparte" toma sus IDs de la tabla de sin pedido: marcar ahi deja
+# vieja la previa del impulso, tambien mientras carga.
+_GUION_W_P_APARTE = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  assert.equal(form.hidden, false, "la previa de Impulsar aparte se ve");
+  marca(casillaB, true);
+  assert.equal(form.hidden, true, "marcar en la tabla sin pedido esconde el impulso");
+  assert.equal(esperada.textContent, "");
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, 1, "cero POST con la seleccion cambiada");
+
+  // Tambien mientras la previa viaja.
+  marca(casillaA, true);
+  marca(casillaB, false);
+  PEDIR();
+  await tick();
+  const enVuelo = llamadas.length - 1;
+  marca(casillaB, true);
+  entrega(enVuelo, PREVIA_A());
+  await tick();
+  assert.equal(form.hidden, true, "la respuesta en vuelo no reabre con otra seleccion");
+  assert.doesNotMatch(zona.children[0].textContent, /Tope/, "ni pinta la previa vieja");
+"""
+
+# El 409 con vista nueva tampoco rearma una seleccion que ya no es la del plan.
+_GUION_W_P_409_SELECCION = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  const enVuelo = llamadas.length - 1;
+  marca(casillaB, true);
+  marca(casillaA, false);
+  assert.equal(form.hidden, false, "el envio congela la seleccion");
+  entrega(enVuelo, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.equal(form.hidden, true, "con otra seleccion el 409 no rearma el plan");
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, enVuelo + 1, "ni manda con la vista vieja");
 """
 
 
-def _corre_guion_w_p(modo: str, archivo: Path = RAIZ / "app" / "static" / "js" / "productos.js"):
-    node = shutil.which("node")
-    if not node:
-        if "CI" in os.environ:
-            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
-        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+def _sustituye_w_p(modo: str, atributo: str, pedir: str) -> dict:
     if modo == "retiro":
-        sustituciones = {
+        return {
             "API": "{verRetiro, ejecutarRetiro}",
             "EJECUTAR_LLAMADA": "api.ejecutarRetiro",
-            "PEDIR()": "api.verRetiro()",
+            "PEDIR()": pedir,
             "PREVIA_A()": (
                 '{huella: "a".repeat(64), ventas_al_dia: true, ventas_al_dia_hasta: null,'
                 ' vendieron: [], anuncios: [{sku: "SA", ad_group_nombre: "GA",'
@@ -1278,54 +1385,74 @@ def _corre_guion_w_p(modo: str, archivo: Path = RAIZ / "app" / "static" / "js" /
             "BLOQUE": "productos-retiro",
             "ESPERADA": "productos-retiro-esperada",
             "FORM": "productos-retiro-ejecutar",
-            "ATRIBUTO": "marcarSinPedido",
+            "ATRIBUTO": atributo,
         }
+    return {
+        "API": "{verLanzamiento, lanzar}",
+        "EJECUTAR_LLAMADA": "api.lanzar",
+        "PEDIR()": pedir,
+        "PREVIA_A()": (
+            '{huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
+            ' no_lanzables: [], planes: [{seller_sku: "SA", subfamilia: "aros",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+        ),
+        "PREVIA_A2()": (
+            '{huella: "e".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
+            ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "aros",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+        ),
+        "PREVIA_B()": (
+            '{huella: "b".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 2 PRODUCTOS",'
+            ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "collares",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []},'
+            ' {seller_sku: "SB2", subfamilia: "collares",'
+            ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+        ),
+        "ESPERADA_A": '"LANZAR IMPULSO DE 1 PRODUCTOS"',
+        "ESPERADA_B": '"LANZAR IMPULSO DE 2 PRODUCTOS"',
+        "EJECUTAR": '"/impulso/lanzar"',
+        "HUELLA_B": '"b".repeat(64)',
+        "HUELLA_A2": '"e".repeat(64)',
+        "IDS_CLAVE": '"solicitud"',
+        "IDS_B": "[12, 13]",
+        "RESULTADO()": "{lanzados: [{impulso_id: 1}]}",
+        "LISTINGS_A": "11",
+        "LISTINGS_B": "12,13",
+        "ZONA": "productos-vista",
+        "BLOQUE": "productos-lanzamiento",
+        "ESPERADA": "productos-esperada",
+        "FORM": "productos-lanzar",
+        "ATRIBUTO": atributo,
+    }
+
+
+def _corre_guion_w_p(
+    modo: str,
+    cuerpo: str = _GUION_W_P,
+    *,
+    atributo: str | None = None,
+    pedir: str | None = None,
+    archivo: Path = RAIZ / "app" / "static" / "js" / "productos.js",
+):
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    if modo == "retiro":
+        atributo = atributo or "marcarSinPedido"
+        pedir = pedir or "api.verRetiro()"
     else:
-        sustituciones = {
-            "API": "{verLanzamiento, lanzar}",
-            "EJECUTAR_LLAMADA": "api.lanzar",
-            "PEDIR()": 'api.verLanzamiento("[data-marcar-candidato]")',
-            "PREVIA_A()": (
-                '{huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
-                ' no_lanzables: [], planes: [{seller_sku: "SA", subfamilia: "aros",'
-                ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
-                ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
-            ),
-            "PREVIA_B()": (
-                '{huella: "b".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 2 PRODUCTOS",'
-                ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "collares",'
-                ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
-                ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []},'
-                ' {seller_sku: "SB2", subfamilia: "collares",'
-                ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
-                ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
-            ),
-            "ESPERADA_A": '"LANZAR IMPULSO DE 1 PRODUCTOS"',
-            "ESPERADA_B": '"LANZAR IMPULSO DE 2 PRODUCTOS"',
-            "EJECUTAR": '"/impulso/lanzar"',
-            "HUELLA_B": '"b".repeat(64)',
-            "IDS_CLAVE": '"solicitud"',
-            "IDS_B": "[12, 13]",
-            "RESULTADO()": "{lanzados: [{impulso_id: 1}]}",
-            "LISTINGS_A": "11",
-            "LISTINGS_B": "12,13",
-            "ZONA": "productos-vista",
-            "BLOQUE": "productos-lanzamiento",
-            "ESPERADA": "productos-esperada",
-            "FORM": "productos-lanzar",
-            "ATRIBUTO": "marcarCandidato",
-        }
-    guion = _GUION_W_P
+        atributo = atributo or "marcarCandidato"
+        pedir = pedir or 'api.verLanzamiento("[data-marcar-candidato]")'
+    sustituciones = _sustituye_w_p(modo, atributo, pedir)
+    guion = _PRELUDE_W_P + cuerpo + "})().catch(err => { console.error(err); process.exit(1); });\n"
     for clave, valor in sustituciones.items():
         guion = guion.replace(clave, valor)
-    guion = (
-        "const ejecuta = frase => { form.elements.confirmacion.value = frase; "
-        + sustituciones["EJECUTAR_LLAMADA"]
-        + "(form); };\n"
-        "const envio = clave => { const cuerpo = llamadas[llamadas.length - 1].body;"
-        ' const elegido = cuerpo[clave];'
-        ' return clave === "solicitud" ? elegido.listing_ids : elegido; };\n' + guion
-    )
     proc = subprocess.run(
         [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
@@ -1335,7 +1462,8 @@ def _corre_guion_w_p(modo: str, archivo: Path = RAIZ / "app" / "static" / "js" /
 def test_arreglos04_w_p_retiro_no_ejecuta_una_seleccion_cuya_previa_fallo():
     """W-P/TN04: con A a la vista, cambiar la seleccion y fallar la previa de B
     deja la solicitud de A sin boton; las respuestas tardias no rehabilitan otra
-    revision, un doble clic manda una sola vez y el envio incierto no se repite."""
+    revision, un doble clic manda una sola vez, ninguna entrada rearma Confirmar
+    con un envio pendiente o incierto, y el envio incierto no se repite."""
     _corre_guion_w_p("retiro")
 
 
@@ -1343,3 +1471,27 @@ def test_arreglos04_w_p_impulso_no_ejecuta_una_seleccion_cuya_previa_fallo():
     """W-P/TN04, vecino de impulso: Ver lanzamiento e Impulsar aparte comparten
     el mismo estado y la misma compuerta."""
     _corre_guion_w_p("impulso")
+
+
+def test_arreglos04_w_p_impulso_409_no_rearma_una_vista_que_ya_no_se_ve():
+    """W-P: el 409 trae la vista vigente. El literal escrito era de la revision
+    anterior y se limpia; si la seleccion cambio durante el envio, el plan
+    devuelto no queda ejecutable."""
+    _corre_guion_w_p("impulso", _GUION_W_P_409)
+
+
+def test_arreglos04_w_p_409_no_rearma_una_seleccion_que_cambio_en_el_envio():
+    """W-P: el cambio de seleccion durante el envio se congela; si llega un 409
+    con vista nueva, esa vista no se rearma para la seleccion que ya no esta."""
+    _corre_guion_w_p("impulso", _GUION_W_P_409_SELECCION)
+
+
+def test_arreglos04_w_p_impulsar_aparte_invalida_su_previa_en_la_tabla_sin_pedido():
+    """W-P: "Impulsar aparte" toma sus IDs de [data-marcar-sin-pedido]; marcar
+    ahi, tambien mientras carga, retira la previa del impulso."""
+    _corre_guion_w_p(
+        "impulso",
+        _GUION_W_P_APARTE,
+        atributo="marcarSinPedido",
+        pedir='api.verLanzamiento("[data-marcar-sin-pedido]")',
+    )

@@ -35,7 +35,14 @@
 // en la pantalla: esta revision es la que cierra la carrera.
 
 function flujoNuevo() {
-  return { revision: 0, fase: "vacia", solicitud: null, grupos: null, previa: null };
+  return {
+    revision: 0,
+    fase: "vacia",
+    solicitud: null,
+    grupos: null,
+    selector: null,
+    previa: null,
+  };
 }
 
 var flujoImpulso = flujoNuevo();
@@ -86,6 +93,7 @@ function invalidaPrevia(flujo, ctx) {
   flujo.fase = "vacia";
   flujo.solicitud = null;
   flujo.grupos = null;
+  flujo.selector = null;
   flujo.previa = null;
   if (!ctx.form) return;
   ctx.form.hidden = true;
@@ -114,14 +122,46 @@ function vigente(flujo, revision, solicitud) {
   return flujo.revision === revision && flujo.solicitud === solicitud;
 }
 
+// La seleccion que el flujo pidio sigue siendo la que hay marcada.
+function mismaSeleccion(flujo) {
+  if (!flujo.solicitud) return false;
+  var actual = flujo.selector
+    ? marcados(flujo.selector).listings
+    : [].concat.apply([], listingsPorCasilla("[data-marcar-sin-pedido]"));
+  var pedida = flujo.solicitud.listing_ids;
+  if (actual.length !== pedida.length) return false;
+  for (var i = 0; i < pedida.length; i += 1) {
+    if (actual[i] !== pedida[i]) return false;
+  }
+  return true;
+}
+
+// Con una ejecucion en curso, o con su resultado sin conocer, ninguna entrada
+// puede rearmar Confirmar: seria un segundo POST sin saber el primero.
+function envioPendiente(flujo, ctx) {
+  if (flujo.fase !== "enviando" && flujo.fase !== "incierta") return false;
+  if (ctx.form) {
+    var estado = ctx.form.querySelector("[data-estado]");
+    if (estado) {
+      estado.textContent =
+        flujo.fase === "enviando"
+          ? "Enviando: espera la respuesta antes de pedir otra vista previa."
+          : "No se sabe si la ejecución se aplicó: recarga la página y revisa el resultado antes de reintentar.";
+    }
+  }
+  return true;
+}
+
 // Solo una respuesta de la revision vigente pasa a lista; la tardia se tira
 // con su error. Abortar ayuda, pero no impide toda respuesta fuera de orden.
-function pidePrevia(flujo, ctx, url, solicitud, grupos, pintaLista) {
+function pidePrevia(flujo, ctx, url, solicitud, grupos, selector, pintaLista) {
+  if (envioPendiente(flujo, ctx)) return;
   invalidaPrevia(flujo, ctx);
   var revision = flujo.revision;
   flujo.fase = "cargando";
   flujo.solicitud = solicitud;
   flujo.grupos = grupos;
+  flujo.selector = selector;
   if (ctx.bloque) ctx.bloque.hidden = false;
   ctx.zona.replaceChildren(parrafo(ctx.pidiendo));
   fetch(url, {
@@ -151,9 +191,10 @@ function pidePrevia(flujo, ctx, url, solicitud, grupos, pintaLista) {
 }
 
 // Cambiar la seleccion mientras algo viaja o se ve deja vieja la previa.
-// Durante el envio no se toca: la solicitud ya salio congelada.
+// Con un envio en curso o incierto no se toca el estado: la solicitud ya
+// salio y el resultado manda hasta que se recargue la pagina.
 function cambioDeSeleccion(flujo, ctx) {
-  if (flujo.fase === "enviando") return;
+  if (flujo.fase === "enviando" || flujo.fase === "incierta") return;
   if (flujo.fase === "vacia" && !flujo.previa) return;
   invalidaPrevia(flujo, ctx);
   if (ctx.bloque) ctx.bloque.hidden = false;
@@ -307,6 +348,7 @@ function pintaListaImpulso(flujo, ctx) {
 
 function verLanzamiento(selectorCasillas) {
   var ctx = contextoImpulso();
+  if (envioPendiente(flujoImpulso, ctx)) return;
   var marca = marcados(selectorCasillas);
   if (!marca.listings.length) {
     fallaPrevia(flujoImpulso, ctx, "Marca al menos un producto.");
@@ -326,6 +368,7 @@ function verLanzamiento(selectorCasillas) {
       subfamilia_por_listing: marca.subfamilias,
     },
     null,
+    selectorCasillas,
     pintaListaImpulso
   );
 }
@@ -392,12 +435,21 @@ function lanzar(form) {
       if (!r.ok) {
         var detalle = r.data && r.data.detail ? r.data.detail : {};
         if (r.status === 409 && detalle.vista_previa) {
-          // La unica previa ejecutable es la que acaba de mandar el servidor.
+          // La unica previa ejecutable es la que acaba de mandar el servidor,
+          // y solo si la seleccion marcada sigue siendo la que la pidio.
+          if (!mismaSeleccion(flujo)) {
+            texto = "El plan cambió y la selección ya no es la de esa vista: pide la nueva antes de confirmar.";
+            fallaPrevia(flujo, ctx, texto);
+            estado.textContent = texto;
+            return;
+          }
           flujo.revision += 1;
           flujo.solicitud = envio.solicitud;
           flujo.previa = detalle.vista_previa;
           flujo.fase = "lista";
           pintaListaImpulso(flujo, ctx);
+          // El literal escrito era de la revision anterior: se pide otra vez.
+          form.elements.confirmacion.value = "";
           estado.textContent = "El plan cambió: revisa la vista nueva y confirma de nuevo.";
           return;
         }
@@ -656,6 +708,7 @@ function pintaListaRetiro(flujo, ctx) {
 
 function verRetiro() {
   var ctx = contextoRetiro();
+  if (envioPendiente(flujoRetiro, ctx)) return;
   var porCasilla = listingsPorCasilla("[data-marcar-sin-pedido]");
   var listings = [].concat.apply([], porCasilla);
   if (!listings.length) {
@@ -672,6 +725,7 @@ function verRetiro() {
       motivo: "sin_pedidos",
     },
     porCasilla,
+    null,
     pintaListaRetiro
   );
 }
@@ -1217,7 +1271,9 @@ document.addEventListener("change", function (evento) {
   if (destino.dataset.marcarCandidato !== undefined) {
     cambioDeSeleccion(flujoImpulso, contextoImpulso());
   } else if (destino.dataset.marcarSinPedido !== undefined) {
+    // Esa tabla alimenta las dos rutas: "Sacar" e "Impulsar aparte".
     cambioDeSeleccion(flujoRetiro, contextoRetiro());
+    cambioDeSeleccion(flujoImpulso, contextoImpulso());
   } else if (destino.dataset.subfamilia !== undefined) {
     cambioDeSeleccion(flujoImpulso, contextoImpulso());
   }
