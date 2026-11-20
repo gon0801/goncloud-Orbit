@@ -83,7 +83,8 @@ rechaza cualquier otro destino antes de conectarse) y Chromium real.
 
 ```bash
 cd <checkout>
-export ORBIT_TEST_DSN='postgresql://orbit:orbit@127.0.0.1:55449/postgres'
+# ORBIT_TEST_DSN ya viene configurado en el entorno con el PG16 desechable del
+# laboratorio (127.0.0.1, puerto 55449, base postgres). El valor no va al repo.
 export ORBIT_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 export ORBIT_ACCEPT_PYTHON="$PWD/.venv/bin/python"
 
@@ -107,9 +108,10 @@ usa rutas, plantillas y `productos.js` reales. El navegador es Chrome headless
 por `--dump-dom`; el POST de escritura no se reenvía a la app: el servidor falso
 de la prueba lo captura y responde 503. El laboratorio se comparte bajo el
 candado `~/.ao/data/locks/orbit-tn` y las corridas van en serie, sin `pytest -n`.
-El DSN con contraseña (`orbit:orbit`) es el que espera
-`tests/test_impulso_io.py::test_r09r5_b1a_conexion_propia_lleva_credencial`;
-con el DSN sin contraseña esa prueba falla aunque el resto pase.
+El DSN del laboratorio tiene que traer contraseña porque
+`tests/test_impulso_io.py::test_r09r5_b1a_conexion_propia_lleva_credencial` la
+exige; con un DSN sin contraseña esa prueba falla aunque el resto pase. El valor
+no vive en el repo: lo pone el entorno de la corrida.
 
 ## Cambio en el arnés y su razón
 
