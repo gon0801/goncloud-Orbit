@@ -465,7 +465,11 @@ def _filas_bloqueo(conn) -> list[dict]:
                 "grupo": grupo or "—",
                 "campana": campana or "—",
                 "paso": paso,
-                "motivo": "por_confirmar" if paso == "intencion" and not motivo else motivo,
+                "motivo": (
+                    "por_confirmar"
+                    if paso == "intencion" and motivo in (None, "reparacion")
+                    else motivo
+                ),
                 "quitar": paso in _PASOS_QUITAR,
             }
         )

@@ -108,6 +108,14 @@ function descartar(form) {
     });
 }
 
+function motivoBloqueo(codigo) {
+  var texto = Orbit.etiqueta(codigo, "motivo_bloqueo");
+  if (String(codigo).indexOf("http_") === 0 && texto.indexOf("Http ") === 0) {
+    return "Amazon respondió con error";
+  }
+  return texto;
+}
+
 function postBloqueo(form) {
   var estado = form.querySelector("[data-estado]");
   var boton = form.querySelector("button[type=submit]");
@@ -136,10 +144,16 @@ function postBloqueo(form) {
     })
     .then(function (r) {
       if (r.ok) {
-        var motivo = r.data.motivo ? " (" + r.data.motivo + ")" : "";
-        estado.textContent = (r.data.paso || "ok") + motivo + ".";
+        var paso = r.data.paso ? Orbit.etiqueta(r.data.paso, "paso_bloqueo") : "ok";
+        var motivo = r.data.motivo ? " (" + motivoBloqueo(r.data.motivo) + ")" : "";
+        estado.textContent = paso + motivo + ".";
       } else {
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        var detalle = r.data && r.data.detail;
+        var error =
+          typeof detalle === "string" && /^[a-z_]+$/.test(detalle)
+            ? motivoBloqueo(detalle)
+            : mensajeError(r.data);
+        estado.textContent = "Error: " + error + ".";
         if (boton) boton.disabled = false;
       }
     })
