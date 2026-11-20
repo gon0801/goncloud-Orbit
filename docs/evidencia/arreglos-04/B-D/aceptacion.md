@@ -50,7 +50,7 @@ bloqueo, y queda listada para que David la revise.
 
 Preparacion y verificacion en laboratorio antes de ejecutar:
 `PYTHONPATH=.:tests uv run --frozen --python 3.12 python docs/evidencia/arreglos-04/B-D/laboratorio.py`
-sale `0` con seis casos (`laboratorio.txt`). Usa el ledger en memoria y el transporte
+sale `0` con ocho casos (`laboratorio.txt`). Usa el ledger en memoria y el transporte
 simulado del arnes de B-B con el codigo real de `quitar`/`aprobar` y sus precondiciones
 de reparacion:
 
@@ -61,12 +61,24 @@ de reparacion:
 - D: borrado sin relectura concluyente -> `pendiente`, un solo envio y cero POST.
 - E: tabla de clasificacion del inventario (ENABLED, sin senal, otro ENABLED,
   `LECTURA_*`, estado desconocido, ARCHIVED, AUSENTE).
+- F: el inventario se rechaza antes de abrir la conexion de escritura ante un id
+  duplicado, una linea de diagnostico (`DUPLICADO`, `PLATAFORMA_FUERA`,
+  `LECTURA_perfil`), un `FIN` ausente o no terminal, o conteos que no cuadran con las
+  filas unicas por pais y las reversas fallidas.
+- G: cada `reversa_fallida|veredicto` del inventario se conserva y se anota en
+  `revisar.txt` con su plataforma, grupo y motivo, sin tocar nada.
 
 Ejecucion en produccion:
 
 ```
 bash docs/evidencia/arreglos-04/B-D/repara.sh
 ```
+
+Antes de abrir la conexion de escritura, `repara.py` valida el inventario completo:
+ids unicos, sin lineas de diagnostico del lector, `FIN` presente y terminal, y los tres
+conteos (MX, US y reversas fallidas) contra las filas unicas. Si algo no cuadra, sale
+`2` sin conectar. Cada `reversa_fallida` del inventario se anota en `revisar.txt` como
+`reversa_fallida_sin_tocar`, con su plataforma y su grupo.
 
 `reparacion.txt`:
 
@@ -119,16 +131,29 @@ Comprueba, y falla si no se cumple:
 - cada origen reparado tiene `revertido`, un veredicto nuevo enlazado a la senal con
   efecto `aplicado` y su id `ENABLED` releido en Amazon (aunque ya no aparezca entre
   los vivos);
+- cada veredicto inicial ausente del inventario final esta reparado con su reemplazo
+  confirmado, o tiene una explicacion durable en el ledger (`revertido` mas un
+  veredicto `quitado` que lo cita); desaparecer sin eso es falla;
+- cada `reversa_fallida` del inventario inicial aparece en `revisar.txt` con su id y
+  su motivo, y no hay reversas nuevas sin registro;
 - una clave ilegible al inicio que ahora aparezca `PAUSED`, `ARCHIVED` o `AUSENTE`
   tiene su linea de relectura y se deja intacta;
-- no hay vivos nuevos sin reparacion registrada, ni `reversa_fallida` nueva sin
-  registro, ni intentos pendientes.
+- no hay vivos nuevos sin reparacion registrada ni intentos pendientes.
 
 **El comprobador falla cuando debe.** Fixtures sinteticos, sin base ni red:
-`comprueba-rojo.txt` retira un origen con el reemplazo solo en `intencion` y sale `1`
-con `reemplazo sin aplicado` y `reemplazo no releido en Amazon`; `comprueba-verde.txt`
-con el mismo escenario y el reemplazo `aplicado`/`ENABLED` sale `0`. Un retiro sin
-reemplazo confirmado impide cerrar.
+
+- `comprueba-rojo.txt`: un origen retirado cuyo reemplazo solo esta en `intencion`
+  sale `1` con `reemplazo sin aplicado` y `reemplazo no releido en Amazon`.
+- `comprueba-rojo-origen.txt`: el inventario final vacio `FIN|0|0|0` con los 48
+  omitidos del inventario real sale `1` con 48 lineas `origen desaparecido sin
+  revertido`; un final vacio ya no pasa.
+- `comprueba-rojo-reversa.txt`: una `reversa_fallida` inicial sin linea en
+  `revisar.txt` sale `1`.
+- `comprueba-verde.txt`: el mismo escenario del primer rojo con el reemplazo
+  `aplicado`/`ENABLED` sale `0`.
+
+Un retiro sin reemplazo confirmado, o un origen que desaparece sin explicacion,
+impide cerrar.
 
 ## Pruebas y verificacion
 

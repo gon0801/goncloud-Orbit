@@ -192,18 +192,37 @@ def _revisa_reparado(reg: dict, ledger: dict, final: dict, errores: list[str]) -
         errores.append(f"origen retirado sigue entre los vivos: {reg['origen']}")
 
 
-def _revisa_retiros(final: dict, reparados: dict, ledger: dict, errores: list[str]) -> None:
+def _revisa_retiros(
+    inicial: dict, final: dict, reparados: dict, ledger: dict, errores: list[str]
+) -> None:
     for reg in reparados.values():
         _revisa_reparado(reg, ledger, final, errores)
+    retirados = {fila["origen"] for fila in ledger.values() if fila["tipo"] == "quitado"}
+    for vid in inicial:
+        if vid in final or vid in reparados:
+            continue
+        dueno = ledger.get(vid)
+        if dueno is None:
+            errores.append(f"origen desaparecido sin registro durable: {vid}")
+        elif dueno["paso"] != "revertido":
+            errores.append(f"origen desaparecido sin revertido: {vid} ({dueno['paso']})")
+        elif vid not in retirados:
+            errores.append(f"origen desaparecido sin retiro registrado: {vid}")
 
 
-def _revisa_omitidos(inicial: dict, revisar: dict, errores: list[str]) -> None:
+def _revisa_omitidos(inicial: dict, revisar: dict, ledger: dict, errores: list[str]) -> None:
     for vid, reg in revisar.items():
         fila = inicial.get(vid)
         if fila is None:
-            errores.append(f"omitido que no existe en el inventario inicial: {vid}")
-            continue
-        if reg["plataforma"] != fila["plataforma"] or reg["grupo"] != fila["grupo"]:
+            dueno = ledger.get(vid)
+            if dueno is None or dueno["paso"] != "reversa_fallida":
+                errores.append(
+                    f"omitido que no es un veredicto del inventario ni una reversa: {vid}"
+                )
+                continue
+            if dueno["plataforma"] != reg["plataforma"] or dueno["grupo"] != reg["grupo"]:
+                errores.append(f"reversa anotada con clave distinta al ledger: {vid}")
+        elif reg["plataforma"] != fila["plataforma"] or reg["grupo"] != fila["grupo"]:
             errores.append(f"omitido con clave distinta a la inicial: {vid}")
         if reg["clase"] == "pendiente":
             errores.append(f"intento pendiente sin cerrar: {vid} ({reg['motivo']})")
@@ -238,6 +257,9 @@ def _revisa_nuevos(inicial: dict, final: dict, reparados: dict, errores: list[st
 def _revisa_reversas(
     reversas_ini: list[str], reversas_fin: list[str], revisar: dict, errores: list[str]
 ) -> None:
+    for vid in reversas_ini:
+        if vid not in revisar:
+            errores.append(f"reversa_fallida inicial sin registro en revisar.txt: {vid}")
     for vid in reversas_fin:
         if vid not in reversas_ini and vid not in revisar:
             errores.append(f"reversa_fallida nueva sin registro: {vid}")
@@ -268,8 +290,8 @@ def comprueba(base: Path, final_path: Path, ledger_path: Path) -> list[str]:
     if errores:
         return errores
     _revisa_cabecera(cabecera, inicial, reparados, errores)
-    _revisa_retiros(final, reparados, ledger, errores)
-    _revisa_omitidos(inicial, revisar, errores)
+    _revisa_retiros(inicial, final, reparados, ledger, errores)
+    _revisa_omitidos(inicial, revisar, ledger, errores)
     _revisa_sin_registro(inicial, reparados, revisar, errores)
     _revisa_ilegibles(inicial, final, relecturas, errores)
     _revisa_nuevos(inicial, final, reparados, errores)

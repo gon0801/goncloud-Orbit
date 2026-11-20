@@ -43,31 +43,86 @@ class Fila:
     otro: str
 
 
-def parsea(texto: str) -> tuple[list[Fila], tuple[int, int, int] | None]:
+@dataclass(frozen=True)
+class Inventario:
+    filas: list[Fila]
+    reversas: list[str]
+    fin: tuple[int, int, int] | None
+    errores: list[str]
+
+
+def _fila_de(partes: list[str]) -> Fila:
+    return Fila(
+        plataforma=partes[0],
+        vid=partes[1],
+        grupo=int(partes[2]),
+        kid=partes[3],
+        estado=partes[4].upper(),
+        senal=partes[5],
+        otro=partes[6],
+    )
+
+
+def parsea(texto: str) -> Inventario:
+    """Valida el inventario completo antes de que exista conexion de escritura.
+
+    Rechaza ids duplicados, lineas de diagnostico, filas malformadas, un FIN
+    ausente o no terminal y conteos que no cuadren con las filas unicas por
+    plataforma y con las reversas fallidas.
+    """
     filas: list[Fila] = []
+    reversas: list[str] = []
+    errores: list[str] = []
     fin = None
-    for linea in texto.splitlines():
-        linea = linea.strip()
-        if not linea:
-            continue
+    vistos: set[str] = set()
+    lineas = [linea.strip() for linea in texto.splitlines() if linea.strip()]
+    for indice, linea in enumerate(lineas):
         partes = linea.split("|")
-        if partes[0] == "FIN" and len(partes) == 4:
-            fin = (int(partes[1]), int(partes[2]), int(partes[3]))
+        if partes[0] == "FIN":
+            if len(partes) != 4:
+                errores.append(f"FIN malformado: {linea}")
+            elif indice != len(lineas) - 1:
+                errores.append(f"FIN no terminal: {linea}")
+            else:
+                try:
+                    fin = tuple(int(x) for x in partes[1:])
+                except ValueError:
+                    errores.append(f"FIN ilegible: {linea}")
+            continue
+        if partes[0] == "reversa_fallida":
+            if len(partes) == 2 and partes[1]:
+                reversas.append(partes[1])
+            else:
+                errores.append(f"reversa_fallida malformada: {linea}")
+            continue
+        if partes[0] in ("DUPLICADO", "PLATAFORMA_FUERA") or partes[0].startswith("LECTURA_perfil"):
+            errores.append(f"diagnostico del lector: {linea}")
             continue
         if len(partes) != 7 or partes[0] not in ("amazon_mx", "amazon_us"):
+            errores.append(f"fila malformada: {linea}")
             continue
-        filas.append(
-            Fila(
-                plataforma=partes[0],
-                vid=partes[1],
-                grupo=int(partes[2]),
-                kid=partes[3],
-                estado=partes[4].upper(),
-                senal=partes[5],
-                otro=partes[6],
-            )
+        vid = partes[1]
+        if vid in vistos:
+            errores.append(f"veredicto duplicado: {vid}")
+            continue
+        try:
+            fila = _fila_de(partes)
+        except ValueError:
+            errores.append(f"ad group ilegible: {linea}")
+            continue
+        vistos.add(vid)
+        filas.append(fila)
+    if fin is None:
+        errores.append("falta el recibo FIN")
+    else:
+        conteos = (
+            sum(1 for f in filas if f.plataforma == "amazon_mx"),
+            sum(1 for f in filas if f.plataforma == "amazon_us"),
+            len(reversas),
         )
-    return filas, fin
+        if conteos != fin:
+            errores.append(f"FIN {fin} no cuadra con filas unicas y reversas {conteos}")
+    return Inventario(filas, reversas, fin, errores)
 
 
 def clasifica(fila: Fila) -> tuple[str, str]:
@@ -288,18 +343,35 @@ def _relee_desconocidas(conn, filas: list[Fila]) -> list[str]:
     return lineas
 
 
+def _lineas_reversas(conn, reversas: list[str]) -> list[str]:
+    """Cada reversa fallida del inventario queda anotada, sin tocar."""
+    lineas: list[str] = []
+    for vid in reversas:
+        try:
+            origen = bde._aprobado(conn, UUID(vid))
+        except ValueError:
+            origen = None
+        if origen is None:
+            lineas.append(f"-|{vid}|-|omitido|reversa_fallida_sin_tocar")
+            continue
+        lineas.append(
+            f"{origen.plataforma}|{vid}|{origen.ad_group_id or '-'}|omitido|"
+            "reversa_fallida_sin_tocar"
+        )
+    return lineas
+
+
 def main() -> int:
     texto = base64.b64decode(os.environ["B_D_ANTES_B64"]).decode("utf-8")
-    filas, fin = parsea(texto)
-    if fin is None:
-        print("E|inventario sin recibo FIN", file=sys.stderr)
+    inventario = parsea(texto)
+    if inventario.errores:
+        for error in inventario.errores:
+            print(f"E|inventario invalido: {error}", file=sys.stderr)
         return 2
+    filas = inventario.filas
     conteos = {"amazon_mx": 0, "amazon_us": 0}
     for fila in filas:
-        conteos[fila.plataforma] = conteos.get(fila.plataforma, 0) + 1
-    if (conteos["amazon_mx"], conteos["amazon_us"]) != fin[:2]:
-        print(f"E|inventario no cuadra con FIN {fin} vs {conteos}", file=sys.stderr)
-        return 2
+        conteos[fila.plataforma] += 1
 
     reparados = pendientes = omitidos = 0
     clasificadas = [(f, *clasifica(f)) for f in filas]
@@ -310,7 +382,9 @@ def main() -> int:
     orden = {f.vid: motivo for f, paso, motivo in clasificadas if paso == "omitido"}
 
     with connect(os.environ["ORBIT_DSN_ADMIN"]) as conn:
-        print(f"R|INVENTARIO|{conteos['amazon_mx']}|{conteos['amazon_us']}|{fin[2]}")
+        print(
+            f"R|INVENTARIO|{conteos['amazon_mx']}|{conteos['amazon_us']}|{len(inventario.reversas)}"
+        )
         print(f"R|CANDIDATOS|{len(candidatos)}")
         for fila in candidatos:
             paso, motivo, datos = _repara(conn, fila)
@@ -332,6 +406,9 @@ def main() -> int:
             if motivo is not None:
                 omitidos += 1
                 print(f"V|{fila.plataforma}|{fila.vid}|{fila.grupo}|omitido|{motivo}")
+        for linea in _lineas_reversas(conn, inventario.reversas):
+            omitidos += 1
+            print(f"V|{linea}")
         for linea in _relee_desconocidas(conn, filas):
             print(f"V|relectura|{linea}")
         print(f"R|FIN_REPARACION|{reparados}|{omitidos}|{pendientes}")

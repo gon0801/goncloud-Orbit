@@ -214,15 +214,53 @@ def caso_e():
     print("LAB|E|clasificacion_inventario|ok")
 
 
+def caso_f():
+    valido = repara.parsea("amazon_mx|v1|1|k1|ENABLED|s|-\nreversa_fallida|r1\nFIN|1|0|1")
+    assert not valido.errores, valido.errores
+    assert valido.reversas == ["r1"] and valido.fin == (1, 0, 1)
+    casos = {
+        "duplicado": (
+            "amazon_mx|v1|1|k|ENABLED|s|-\namazon_mx|v1|1|k|ENABLED|s|-\nFIN|2|0|0",
+            "duplicado",
+        ),
+        "diagnostico": ("DUPLICADO|amazon_mx|v1\nFIN|0|0|0", "diagnostico"),
+        "fin_terminal": ("FIN|0|0|0\namazon_mx|v1|1|k|ENABLED|s|-", "no terminal"),
+        "sin_fin": ("amazon_mx|v1|1|k|ENABLED|s|-", "falta el recibo"),
+        "conteos": ("amazon_mx|v1|1|k|ENABLED|s|-\nFIN|2|0|0", "no cuadra"),
+    }
+    for nombre, (texto, aguja) in casos.items():
+        inv = repara.parsea(texto)
+        assert any(aguja in error for error in inv.errores), (nombre, inv.errores)
+    print("LAB|F|inventario_rechaza_duplicados_diagnosticos_y_fin_invalido|ok")
+
+
+def caso_g():
+    class _Origen:
+        plataforma = "amazon_mx"
+        ad_group_id = 297
+
+    original = bde._aprobado
+    bde._aprobado = lambda _conn, _vid: _Origen()
+    vid = str(uuid.uuid4())
+    try:
+        lineas = repara._lineas_reversas(None, [vid])
+    finally:
+        bde._aprobado = original
+    assert lineas == [f"amazon_mx|{vid}|297|omitido|reversa_fallida_sin_tocar"], lineas
+    print("LAB|G|reversa_fallida_anotada_sin_tocar|ok")
+
+
 def main() -> int:
     _credenciales()
     caso_e()
+    caso_f()
+    caso_g()
     caso_b()
     caso_c()
     caso_d()
     estado = caso_a()
     caso_a2(estado)
-    print("LAB|FIN|6|0")
+    print("LAB|FIN|8|0")
     return 0
 
 
