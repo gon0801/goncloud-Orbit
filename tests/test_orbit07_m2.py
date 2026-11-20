@@ -223,7 +223,11 @@ def test_cola_conserva_la_meta_individual_si_la_economia_no_cambia(monkeypatch):
 
 def test_cola_resuelve_el_respaldo_cuando_el_producto_pierde_elegibilidad(monkeypatch):
     """Durante el veto el producto deja de tener margen: la cola NO aplica el
-    4 % congelado; resuelve el respaldo completo y descarta la pausa."""
+    4 % congelado; resuelve el respaldo completo y descarta la pausa.
+    TEMPORADA 01 I: la economia que gobierna es el margen VIGENTE (costo de
+    hoy), asi que la elegibilidad se pierde sin costo de hoy — cerrar la
+    vigencia (transicion unica NULL -> fecha, la que permite el candado de
+    sku_cost) deja a la vez el historico y el vigente en NULL."""
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     with _db("orbit_m2_cola_respaldo") as conn:
         ids = _mundo(conn)
@@ -235,6 +239,14 @@ def test_cola_resuelve_el_respaldo_cuando_el_producto_pierde_elegibilidad(monkey
         assert pausa is not None and pausa["target_procedencia"] == "margen_producto"
 
         _ventas_sin_costo(conn, _producto(conn))
+        # TEMPORADA 01 I: las ventas sin costo de su fecha ya no bastan — el
+        # costo abierto sigue cubriendo para HOY y el margen vigente seguiria
+        # midiendo. Se cierra la vigencia: sin costo de hoy, las ventas dejan
+        # de estar cubiertas en la vigencia que gobierna.
+        conn.execute(
+            "UPDATE sku_cost SET valid_to = CURRENT_DATE WHERE product_id = %s",
+            (_producto(conn),),
+        )
         r2 = _corre(conn)
         assert r2.status == "done", r2.notes
         margen = conn.execute(

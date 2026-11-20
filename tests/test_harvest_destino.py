@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from contextlib import contextmanager
 from decimal import Decimal
 
 import httpx
@@ -20,6 +21,8 @@ from test_apply_harvest import _handler_harvest
 from test_cycle import (
     DECIDED_AT,
     OWNER,
+    SQL86,
+    SQL92,
     _config_version,
     _estado,
     _metrica,
@@ -48,6 +51,19 @@ _skip_db = pytest.mark.skipif(
 )
 
 PLATFORM = "amazon_us"
+
+
+@contextmanager
+def db_f2_0092(prefijo: str):
+    """db_f2 + 0086 + 0092, EN ORDEN como en produccion: el ciclo lee los
+    cargos de v_ledger_cargo (ARREGLOS 02 D) y el margen vigente
+    `margen_vigente_pct` (TEMPORADA 01 I) en TX2 — sin estas migraciones TODO
+    ciclo revienta con UndefinedColumn cogs_vigente. El fixture base vive en
+    test_fabrica_f2 (fuera de este cambio); aqui se completa su cadena."""
+    with db_f2(prefijo) as conn:
+        conn.execute(SQL86)
+        conn.execute(SQL92)
+        yield conn
 
 
 def _campana(conn, external: str = "7001") -> int:
@@ -85,7 +101,7 @@ def _goal_campana_con_terna(conn, camp: int, *, camp_ext="8001", ag_ext="8101") 
 
 @_skip_db
 def test_a1_sin_grupo_con_excepcion_resuelve_excepcion():
-    with db_f2("orbit_a1_exc") as conn:
+    with db_f2_0092("orbit_a1_exc") as conn:
         camp = _campana(conn)
         conn.execute(
             "INSERT INTO harvest_excepcion (ad_entity_id, destino_campaign_external,"
@@ -113,7 +129,7 @@ def test_a1_sin_grupo_con_excepcion_resuelve_excepcion():
 
 @_skip_db
 def test_a1_sin_grupo_con_terna_propia_resuelve_terna():
-    with db_f2("orbit_a1_ternap") as conn:
+    with db_f2_0092("orbit_a1_ternap") as conn:
         camp = _campana(conn)
         _goal_campana_con_terna(conn, camp)
         destino = resolver_destino(conn, PLATFORM, camp)
@@ -134,7 +150,7 @@ def test_a1_sin_grupo_con_terna_propia_resuelve_terna():
 
 @_skip_db
 def test_a1_sin_goal_propio_resuelve_terna_de_plataforma():
-    with db_f2("orbit_a1_ternaplat") as conn:
+    with db_f2_0092("orbit_a1_ternaplat") as conn:
         camp = _campana(conn)
         _goal_plataforma_con_terna(conn)
         destino = resolver_destino(conn, PLATFORM, camp)
@@ -155,7 +171,7 @@ def test_a1_sin_goal_propio_resuelve_terna_de_plataforma():
 
 @_skip_db
 def test_a1_sin_nada_es_sin_destino_de_harvest():
-    with db_f2("orbit_a1_nada") as conn:
+    with db_f2_0092("orbit_a1_nada") as conn:
         camp = _campana(conn)
         salto = resolver_destino(conn, PLATFORM, camp)
         assert salto == SaltoHarvest(motivo="sin_destino_de_harvest")
@@ -274,7 +290,7 @@ def _posts_a(vistos: list, path: str) -> list:
 
 @_skip_db
 def test_a1_grupo_con_terna_null_postea_en_exacta_del_grupo():
-    with db_f2("orbit_a1_grupo") as conn:
+    with db_f2_0092("orbit_a1_grupo") as conn:
         gpo, run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         _senuelo_exact(conn)
@@ -320,7 +336,7 @@ def test_a1_grupo_con_terna_null_postea_en_exacta_del_grupo():
 
 @_skip_db
 def test_a1_exact_como_origen_es_skip_declarado():
-    with db_f2("orbit_a1_origen") as conn:
+    with db_f2_0092("orbit_a1_origen") as conn:
         gpo, run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         exacta = gpo["roles"]["category_exact"]
@@ -344,7 +360,7 @@ def test_a1_exact_como_origen_es_skip_declarado():
 
 @_skip_db
 def test_a1_terna_campaign_distinta_es_inconsistente_y_cero_http():
-    with db_f2("orbit_a1_incon") as conn:
+    with db_f2_0092("orbit_a1_incon") as conn:
         gpo, run = _base_ciclo(conn, con_terna=True)
         phrase = gpo["roles"]["category_phrase"]
         conn.execute(
@@ -384,7 +400,7 @@ def test_a1_terna_campaign_distinta_es_inconsistente_y_cero_http():
 
 @_skip_db
 def test_a1_grupo_mutado_antes_de_liberar_no_postea():
-    with db_f2("orbit_a1_mutado") as conn:
+    with db_f2_0092("orbit_a1_mutado") as conn:
         gpo, run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         phrase = gpo["roles"]["category_phrase"]
@@ -421,7 +437,7 @@ def test_a1_grupo_mutado_antes_de_liberar_no_postea():
 
 @_skip_db
 def test_a1_terna_limpiada_tras_decidir_apply_y_replay_usan_congelado():
-    with db_f2("orbit_a1_limpia") as conn:
+    with db_f2_0092("orbit_a1_limpia") as conn:
         gpo, run = _base_ciclo(conn, con_terna=True)
         exacta = gpo["roles"]["category_exact"]
         phrase = gpo["roles"]["category_phrase"]
@@ -475,7 +491,7 @@ def test_a1_terna_limpiada_tras_decidir_apply_y_replay_usan_congelado():
 
 @_skip_db
 def test_a1_termino_en_exacta_del_grupo_es_duplicado():
-    with db_f2("orbit_a1_dupli") as conn:
+    with db_f2_0092("orbit_a1_dupli") as conn:
         gpo, run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         exacta = gpo["roles"]["category_exact"]
@@ -507,7 +523,7 @@ def test_a1_termino_en_exacta_del_grupo_es_duplicado():
 
 @_skip_db
 def test_a1_bid_congelado_viaja_al_post_tras_limpiar_terna():
-    with db_f2("orbit_a1_bidmx") as conn:
+    with db_f2_0092("orbit_a1_bidmx") as conn:
         gpo, run = _base_ciclo(conn, platform="amazon_mx", con_terna=True)
         exacta = gpo["roles"]["category_exact"]
         phrase = gpo["roles"]["category_phrase"]
@@ -616,7 +632,7 @@ def _siembra_terminos_mx(conn, run_id, ag) -> None:
 def test_a1_limpia_destino_exige_campana_en_grupo():
     from app.goals_write import GoalInvalido, edita_goal
 
-    with db_f2("orbit_a1_limpval") as conn:
+    with db_f2_0092("orbit_a1_limpval") as conn:
         camp = _campana(conn)
         goal_id = _goal_campana_con_terna(conn, camp)
         with pytest.raises(GoalInvalido):
@@ -629,7 +645,7 @@ def test_a1_limpia_destino_exige_campana_en_grupo():
 def test_a1_limpia_destino_no_se_combina_con_campos_harvest():
     from app.goals_write import GoalInvalido, edita_goal
 
-    with db_f2("orbit_a1_limpcomb") as conn:
+    with db_f2_0092("orbit_a1_limpcomb") as conn:
         gpo, _run = _base_ciclo(conn, con_terna=True)
         par = gpo["roles"]["category_phrase"]
         goal_id = conn.execute(
@@ -683,7 +699,7 @@ def test_a1_grupo_sin_bid_negative_reproduce_sin_excepcion():
     (config None): harvest ausente."""
     from test_cycle import _obs, _termino
 
-    with db_f2("orbit_a1_sinbid") as conn:
+    with db_f2_0092("orbit_a1_sinbid") as conn:
         gpo, run = _base_ciclo(conn, con_terna=False)
         phrase = gpo["roles"]["category_phrase"]
         _siembra_terminos(conn, run, phrase["ag"])
@@ -725,7 +741,7 @@ def test_a1_limpia_y_limpia_destino_no_se_combinan():
     intacta."""
     from app.goals_write import GoalInvalido, edita_goal
 
-    with db_f2("orbit_a1_limpdoble") as conn:
+    with db_f2_0092("orbit_a1_limpdoble") as conn:
         gpo, _run = _base_ciclo(conn, con_terna=True)
         par = gpo["roles"]["category_phrase"]
         goal_id = conn.execute(
@@ -754,7 +770,7 @@ def test_a1_ciclo_tras_limpiar_terna_congela_destino():
     terna del goal. Tras D.2 (terna limpiada, bid intacto) el ciclo sigue
     congelando el destino del grupo: derivarlo de
     `goal.harvest_campaign_id` congelaria null y el replay fallaria."""
-    with db_f2("orbit_a1_postd2") as conn:
+    with db_f2_0092("orbit_a1_postd2") as conn:
         gpo, run = _base_ciclo(conn, con_terna=True)
         from app.goals_write import edita_goal
 
@@ -785,7 +801,7 @@ def test_a1_excepcion_ajena_no_pertenece_es_desincronizado():
     del camino excepcion (sin re-resolucion). Par congelado ajeno a la
     campana en `ad_entity` -> `destino_desincronizado` con cero HTTP.
     Anular la guarda reviviría el POST al destino ajeno."""
-    with db_f2("orbit_a1_excajan") as conn:
+    with db_f2_0092("orbit_a1_excajan") as conn:
         _gpo, run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         camp, ag = _campana_suelta(conn)
@@ -816,7 +832,7 @@ def test_a1_terna_ajena_no_pertenece_es_desincronizado():
     """Mutante 2b (ronda PR #258): lo mismo para el camino terna (tampoco
     tiene re-resolucion): terna a un par que no es hermana en `ad_entity`
     -> `destino_desincronizado` con cero HTTP."""
-    with db_f2("orbit_a1_ternajan") as conn:
+    with db_f2_0092("orbit_a1_ternajan") as conn:
         _gpo, run = _base_ciclo(conn, con_goals=False)
         camp, ag = _campana_suelta(conn)
         _goal_campana_con_terna(conn, camp, camp_ext="8901", ag_ext="8902")
@@ -844,7 +860,7 @@ def test_a1_limpia_destino_exige_scope_campaign():
     platform): un goal de plataforma se rechaza."""
     from app.goals_write import GoalInvalido, edita_goal
 
-    with db_f2("orbit_a1_limpscope") as conn:
+    with db_f2_0092("orbit_a1_limpscope") as conn:
         goal_id = _goal_plataforma_con_terna(conn)
         with pytest.raises(GoalInvalido, match="scope campaign"):
             edita_goal(
@@ -857,7 +873,7 @@ def test_a1_grupo_gana_a_excepcion():
     """Mutante 4 (ronda PR #258): orden grupo > excepcion. Con los dos
     presentes el destino es el del grupo; mover la excepcion antes
     resolveria el ajeno."""
-    with db_f2("orbit_a1_orden") as conn:
+    with db_f2_0092("orbit_a1_orden") as conn:
         gpo, _run = _base_ciclo(conn, con_terna=True)
         _goal_plataforma_con_terna(conn)
         phrase = gpo["roles"]["category_phrase"]
@@ -911,7 +927,7 @@ def test_a5_simula_excepcion_igual_a_resolver_con_excepcion_real():
     real)."""
     from app.optimizer.harvest_destino import simula_excepcion
 
-    with db_f2("orbit_a5_simigual") as conn:
+    with db_f2_0092("orbit_a5_simigual") as conn:
         camp = _campana(conn)
         _goal_plataforma_con_terna(conn)
         conn.execute(
@@ -931,7 +947,7 @@ def test_a5_simula_excepcion_sobre_campana_sin_nada():
     escribir fila."""
     from app.optimizer.harvest_destino import simula_excepcion
 
-    with db_f2("orbit_a5_simnada") as conn:
+    with db_f2_0092("orbit_a5_simnada") as conn:
         camp = _campana(conn)
         _goal_plataforma_con_terna(conn)
         hoy = resolver_destino(conn, PLATFORM, camp)
@@ -957,7 +973,7 @@ def test_r1_revalida_duplicado_en_exacta_resuelta_descarta():
     duplicado contra el destino resuelto y descarta `ya_no_califica`
     (cero POST, cero job). Regla 9 (R.1 M14): deduplicar por la terna
     fresca del goal (8001, sin el termino) aplicaria y POSTearia."""
-    with db_f2("orbit_r1_revdup") as conn:
+    with db_f2_0092("orbit_r1_revdup") as conn:
         gpo, run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         exacta = gpo["roles"]["category_exact"]
@@ -1005,7 +1021,7 @@ def test_r1_revalida_duplicado_en_exacta_resuelta_descarta():
 def test_d4_terna_origen_es_destino_salta():
     """Terna de plataforma (forma del job 2) con origen = destino -> salto
     con el motivo existente (no uno nuevo). Rojo: DestinoHarvest."""
-    with db_f2("orbit_d4_terna") as conn:
+    with db_f2_0092("orbit_d4_terna") as conn:
         camp = _campana(conn)
         _goal_plataforma_con_terna(conn)
         salto = resolver_destino(conn, PLATFORM, camp, origen_ad_group_external="8101")
@@ -1015,7 +1031,7 @@ def test_d4_terna_origen_es_destino_salta():
 @_skip_db
 def test_d4_excepcion_origen_es_destino_salta():
     """Excepcion con origen = destino -> mismo salto. Rojo: DestinoHarvest."""
-    with db_f2("orbit_d4_exc") as conn:
+    with db_f2_0092("orbit_d4_exc") as conn:
         camp = _campana(conn)
         conn.execute(
             "INSERT INTO harvest_excepcion (ad_entity_id, destino_campaign_external,"
@@ -1032,7 +1048,7 @@ def test_d4_origen_distinto_sigue_cosechando():
     campana, origen en otra campana, y origen desconocido (None, el default
     de los callers por campana como tools/harvest_excepcion.py) -> resuelven
     como antes. El camino de grupo no cambia (lo cubren (a)(b)(e))."""
-    with db_f2("orbit_d4_ctrl") as conn:
+    with db_f2_0092("orbit_d4_ctrl") as conn:
         camp = _campana(conn)
         _goal_plataforma_con_terna(conn)
         for origen in ("8201", "otro-ag-de-otra-campana", None):
@@ -1055,7 +1071,7 @@ def test_d4_ciclo_terna_origen_es_destino_es_skip():
     """Punta a punta del caso job 2: campana suelta cuyo ad group ES el
     destino de la terna -> el termino que se cosecharia salta con
     origen_es_destino (y no harvest_duplicado). Rojo: harvest decidido."""
-    with db_f2("orbit_d4_ciclo") as conn:
+    with db_f2_0092("orbit_d4_ciclo") as conn:
         _gpo, run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="8101")
@@ -1118,7 +1134,7 @@ def test_d4_apply_congelado_terna_origen_es_destino_cero_http():
     Rojo: POSTs emitidos."""
     from test_apply_harvest import _encola_fila, _termino_calificado
 
-    with db_f2("orbit_d4_apply") as conn:
+    with db_f2_0092("orbit_d4_apply") as conn:
         _gpo, _run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
@@ -1154,7 +1170,7 @@ def test_d4_apply_congelado_excepcion_origen_es_destino_cero_http():
     guard deja la suite verde."""
     from test_apply_harvest import _encola_fila, _termino_calificado
 
-    with db_f2("orbit_d4_applyexc") as conn:
+    with db_f2_0092("orbit_d4_applyexc") as conn:
         _gpo, _run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn)
         _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
@@ -1199,7 +1215,7 @@ def test_d4_revalida_destino_vivo_es_origen_descarta_sin_cobro():
     ya_no_califica y el mutante pasa."""
     from test_apply_harvest import _encola_fila, _libera_fila
 
-    with db_f2("orbit_d4_reval") as conn:
+    with db_f2_0092("orbit_d4_reval") as conn:
         _gpo, _run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn, camp_ext="7009", ag_ext="7109")
         _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
@@ -1241,7 +1257,7 @@ def test_d4_contexto_fresco_origen_es_destino_aborta():
     job en vuelo con la cola applying (la revalida solo corre en released)."""
     from app import apply_harvest as _ejecucion
 
-    with db_f2("orbit_d4_fresco") as conn:
+    with db_f2_0092("orbit_d4_fresco") as conn:
         _gpo, _run = _base_ciclo(conn, con_goals=False)
         _goal_plataforma_con_terna(conn, camp_ext="7009", ag_ext="7109")
         _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
