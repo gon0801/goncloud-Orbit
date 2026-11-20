@@ -13,6 +13,9 @@
 // incluye_adoptados, o RECREAR <K> ANUNCIOS a /api/fabrica/retiro/recrear.
 // El token viaja en el header x-orbit-token (la query string JAMAS
 // autentica).
+// "Sacar", "Ver lanzamiento" e "Impulsar aparte" (ARREGLOS 04 W-P): cada flujo
+// lleva su revision; cambiar la seleccion o fallar la previa nueva esconde el
+// formulario, y solo se manda la solicitud de la previa que se esta viendo.
 // "Meta por producto" (AUTO-03 E.1) solo filtra filas ya pintadas por el
 // servidor: con meta, sin meta o por motivo.
 // "Limites de la pausa" (AUTO-03 H.9): al cambiar un limite pide GET
@@ -23,8 +26,139 @@
 // como settings.js.
 // "Encender la pausa" y "Volver a practica" (AUTO-03 I.8): ver cableaPausa.
 
-var vistaGuardada = null;
-var retiroGuardado = null;
+// --- Previa visible = solicitud ejecutable (ARREGLOS 04 W-P, TN04) ---------
+// Un estado por flujo: revision, solicitud, previa y fase. La revision sube
+// con cada previa pedida y con cada cambio de seleccion, y una solicitud con
+// su previa solo vale para su revision. Lo que se pinta y lo que se manda
+// salen de aqui, asi que una previa que dejo de verse no se puede ejecutar.
+// La API valida la huella de los IDs que recibe, pero no sabe que hay marcado
+// en la pantalla: esta revision es la que cierra la carrera.
+
+function flujoNuevo() {
+  return { revision: 0, fase: "vacia", solicitud: null, grupos: null, previa: null };
+}
+
+var flujoImpulso = flujoNuevo();
+var flujoRetiro = flujoNuevo();
+
+function contextoImpulso() {
+  return {
+    zona: document.getElementById("productos-vista"),
+    bloque: document.getElementById("productos-lanzamiento"),
+    form: document.getElementById("productos-lanzar"),
+    esperada: document.getElementById("productos-esperada"),
+    pidiendo: "Pidiendo la vista previa…",
+    errorRed: "Error de red al pedir la vista previa.",
+    pidePrimero: "Pide primero la vista previa.",
+    cambio: "La selección cambió: pide la vista previa otra vez.",
+    conPresupuesto: true,
+  };
+}
+
+function contextoRetiro() {
+  return {
+    zona: document.getElementById("productos-retiro-vista"),
+    bloque: document.getElementById("productos-retiro"),
+    form: document.getElementById("productos-retiro-ejecutar"),
+    esperada: document.getElementById("productos-retiro-esperada"),
+    pidiendo: "Pidiendo el plan de retiro…",
+    errorRed: "Error de red al pedir el plan de retiro.",
+    pidePrimero: "Pide primero el plan de retiro.",
+    cambio: "La selección cambió: pide el plan de retiro otra vez.",
+    conPresupuesto: false,
+  };
+}
+
+function botonEnvio(form) {
+  return form ? form.querySelector('[type="submit"]') : null;
+}
+
+// Apagar el boton es la segunda barrera del doble clic; la primera es la fase.
+function habilitaEnvio(ctx, habilitado) {
+  var boton = botonEnvio(ctx.form);
+  if (boton) boton.disabled = !habilitado;
+}
+
+// Deja el flujo sin previa ejecutable: plan, huella, frase de confirmacion y
+// casilla de presupuesto dejan de valer.
+function invalidaPrevia(flujo, ctx) {
+  flujo.revision += 1;
+  flujo.fase = "vacia";
+  flujo.solicitud = null;
+  flujo.grupos = null;
+  flujo.previa = null;
+  if (!ctx.form) return;
+  ctx.form.hidden = true;
+  habilitaEnvio(ctx, false);
+  if (ctx.esperada) ctx.esperada.textContent = "";
+  if (ctx.form.elements.confirmacion) {
+    ctx.form.elements.confirmacion.value = "";
+    ctx.form.elements.confirmacion.placeholder = "";
+  }
+  if (ctx.conPresupuesto) {
+    var casilla = document.getElementById("productos-acepto-presupuesto-alto");
+    if (casilla) casilla.checked = false;
+    var caja = document.getElementById("productos-casilla-presupuesto");
+    if (caja) caja.hidden = true;
+  }
+}
+
+// La previa no se pudo ver: se explica y no queda nada que ejecutar.
+function fallaPrevia(flujo, ctx, texto) {
+  invalidaPrevia(flujo, ctx);
+  if (ctx.bloque) ctx.bloque.hidden = false;
+  ctx.zona.replaceChildren(parrafo(texto));
+}
+
+function vigente(flujo, revision, solicitud) {
+  return flujo.revision === revision && flujo.solicitud === solicitud;
+}
+
+// Solo una respuesta de la revision vigente pasa a lista; la tardia se tira
+// con su error. Abortar ayuda, pero no impide toda respuesta fuera de orden.
+function pidePrevia(flujo, ctx, url, solicitud, grupos, pintaLista) {
+  invalidaPrevia(flujo, ctx);
+  var revision = flujo.revision;
+  flujo.fase = "cargando";
+  flujo.solicitud = solicitud;
+  flujo.grupos = grupos;
+  if (ctx.bloque) ctx.bloque.hidden = false;
+  ctx.zona.replaceChildren(parrafo(ctx.pidiendo));
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(solicitud),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (!vigente(flujo, revision, solicitud)) return;
+      if (!r.ok) {
+        fallaPrevia(flujo, ctx, "Error: " + mensajeError(r.data) + ".");
+        return;
+      }
+      flujo.previa = r.data;
+      flujo.fase = "lista";
+      pintaLista(flujo, ctx);
+    })
+    .catch(function () {
+      if (!vigente(flujo, revision, solicitud)) return;
+      fallaPrevia(flujo, ctx, ctx.errorRed);
+    });
+}
+
+// Cambiar la seleccion mientras algo viaja o se ve deja vieja la previa.
+// Durante el envio no se toca: la solicitud ya salio congelada.
+function cambioDeSeleccion(flujo, ctx) {
+  if (flujo.fase === "enviando") return;
+  if (flujo.fase === "vacia" && !flujo.previa) return;
+  invalidaPrevia(flujo, ctx);
+  if (ctx.bloque) ctx.bloque.hidden = false;
+  ctx.zona.replaceChildren(parrafo(ctx.cambio));
+}
 
 function marcados(selector) {
   var listings = [];
@@ -162,79 +296,82 @@ function pintaVista(zona, vista) {
   if (caja) caja.hidden = !conAviso;
 }
 
+function pintaListaImpulso(flujo, ctx) {
+  pintaVista(ctx.zona, flujo.previa);
+  ctx.esperada.textContent = flujo.previa.confirmacion_esperada;
+  ctx.form.elements.confirmacion.placeholder = flujo.previa.confirmacion_esperada;
+  ctx.form.hidden = false;
+  ctx.bloque.hidden = false;
+  habilitaEnvio(ctx, true);
+}
+
 function verLanzamiento(selectorCasillas) {
-  var zona = document.getElementById("productos-vista");
-  var bloque = document.getElementById("productos-lanzamiento");
-  var form = document.getElementById("productos-lanzar");
+  var ctx = contextoImpulso();
   var marca = marcados(selectorCasillas);
   if (!marca.listings.length) {
-    zona.replaceChildren(parrafo("Marca al menos un producto."));
+    fallaPrevia(flujoImpulso, ctx, "Marca al menos un producto.");
     return;
   }
   if (marca.faltan.length) {
-    zona.replaceChildren(parrafo("Falta la subfamilia de " + marca.faltan.length + " marcados."));
+    fallaPrevia(flujoImpulso, ctx, "Falta la subfamilia de " + marca.faltan.length + " marcados.");
     return;
   }
-  var solicitud = {
-    plataforma: form.dataset.plataforma,
-    listing_ids: marca.listings,
-    subfamilia_por_listing: marca.subfamilias,
-  };
-  zona.replaceChildren(parrafo("Pidiendo la vista previa…"));
-  fetch("/api/fabrica/impulso/plan", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(solicitud),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
-    .then(function (r) {
-      if (!r.ok) {
-        zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
-        return;
-      }
-      vistaGuardada = { solicitud: solicitud, vista: r.data };
-      pintaVista(zona, r.data);
-      document.getElementById("productos-esperada").textContent = r.data.confirmacion_esperada;
-      form.elements.confirmacion.placeholder = r.data.confirmacion_esperada;
-      form.hidden = false;
-      bloque.hidden = false;
-    })
-    .catch(function () {
-      zona.replaceChildren(parrafo("Error de red al pedir la vista previa."));
-    });
+  pidePrevia(
+    flujoImpulso,
+    ctx,
+    "/api/fabrica/impulso/plan",
+    {
+      plataforma: ctx.form.dataset.plataforma,
+      listing_ids: marca.listings,
+      subfamilia_por_listing: marca.subfamilias,
+    },
+    null,
+    pintaListaImpulso
+  );
 }
 
 function lanzar(form) {
+  var ctx = contextoImpulso();
+  var flujo = flujoImpulso;
   var estado = form.querySelector("[data-estado]");
-  if (!vistaGuardada) {
-    estado.textContent = "Pide primero la vista previa.";
+  if (flujo.fase === "enviando") {
+    estado.textContent = "Enviando: espera la respuesta antes de reintentar.";
     return;
   }
-  var esperada = vistaGuardada.vista.confirmacion_esperada;
+  if (flujo.fase === "incierta") {
+    estado.textContent =
+      "No se sabe si el impulso se aplicó: recarga la página y revisa Impulsos antes de reintentar.";
+    return;
+  }
+  if (flujo.fase !== "lista" || !flujo.previa || !flujo.solicitud) {
+    estado.textContent = ctx.pidePrimero;
+    return;
+  }
+  var esperada = flujo.previa.confirmacion_esperada;
   var confirmacion = form.elements.confirmacion.value;
   if (confirmacion !== esperada) {
     estado.textContent = "Escribe " + esperada + " para confirmar.";
     return;
   }
   var casilla = document.getElementById("productos-acepto-presupuesto-alto");
-  var hayAviso = (vistaGuardada.vista.planes || []).some(function (p) {
+  var hayAviso = (flujo.previa.planes || []).some(function (p) {
     return !!p.presupuesto_alto;
   });
   if (hayAviso && !(casilla && casilla.checked)) {
     estado.textContent = "Marca «Sí, quiero ese presupuesto» para continuar";
     return;
   }
+  // Se congela lo que se manda: la revision, la solicitud y su previa.
+  var envio = { revision: flujo.revision, solicitud: flujo.solicitud, previa: flujo.previa };
   var cuerpo = {
-    solicitud: vistaGuardada.solicitud,
-    huella: vistaGuardada.vista.huella,
+    solicitud: envio.solicitud,
+    huella: envio.previa.huella,
     confirmacion: confirmacion,
     actor: form.elements.actor.value,
   };
   if (casilla && casilla.checked) cuerpo.acepto_presupuesto_alto = true;
+  flujo.fase = "enviando";
+  habilitaEnvio(ctx, false);
   estado.textContent = "Enviando…";
   fetch("/api/fabrica/impulso/lanzar", {
     method: "POST",
@@ -250,25 +387,40 @@ function lanzar(form) {
       });
     })
     .then(function (r) {
+      if (flujo.revision !== envio.revision) return;
+      var texto;
       if (!r.ok) {
         var detalle = r.data && r.data.detail ? r.data.detail : {};
         if (r.status === 409 && detalle.vista_previa) {
-          vistaGuardada = { solicitud: vistaGuardada.solicitud, vista: detalle.vista_previa };
-          pintaVista(document.getElementById("productos-vista"), detalle.vista_previa);
-          document.getElementById("productos-esperada").textContent =
-            detalle.vista_previa.confirmacion_esperada;
+          // La unica previa ejecutable es la que acaba de mandar el servidor.
+          flujo.revision += 1;
+          flujo.solicitud = envio.solicitud;
+          flujo.previa = detalle.vista_previa;
+          flujo.fase = "lista";
+          pintaListaImpulso(flujo, ctx);
           estado.textContent = "El plan cambió: revisa la vista nueva y confirma de nuevo.";
           return;
         }
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        texto = "Error: " + mensajeError(r.data) + ".";
+        fallaPrevia(flujo, ctx, texto);
+        estado.textContent = texto;
         return;
       }
-      vistaGuardada = null;
+      flujo.revision += 1;
+      flujo.fase = "resultado";
+      flujo.solicitud = null;
+      flujo.previa = null;
       form.elements.token.value = "";
+      habilitaEnvio(ctx, false);
       estado.textContent = "Lanzados " + (r.data.lanzados || []).length + ".";
     })
     .catch(function () {
-      estado.textContent = "Error de red al lanzar.";
+      if (flujo.revision !== envio.revision) return;
+      // Timeout o desconexion: el servidor pudo haber actuado.
+      flujo.fase = "incierta";
+      habilitaEnvio(ctx, false);
+      estado.textContent =
+        "No se sabe si el impulso se aplicó: recarga la página y revisa Impulsos antes de reintentar.";
     });
 }
 
@@ -461,94 +613,95 @@ function avisoVendieron(porCasilla, vendieron) {
   );
 }
 
+function pintaListaRetiro(flujo, ctx) {
+  var plan = flujo.previa;
+  ctx.zona.replaceChildren();
+  if (plan.ventas_al_dia === false) {
+    invalidaPrevia(flujo, ctx);
+    var motivo = plan.ventas_al_dia_hasta
+      ? "no se actualizan desde el " + Orbit.fechaHora(plan.ventas_al_dia_hasta)
+      : "todavía no se han cargado";
+    var alerta = parrafo(
+      "No se sacó ningún anuncio: las ventas de la contabilidad " +
+        motivo +
+        ", así que Orbit no puede comprobar que estos productos no vendieron. " +
+        "Vuelve a intentarlo cuando se actualicen."
+    );
+    alerta.className = "aviso";
+    ctx.zona.appendChild(alerta);
+    ctx.bloque.hidden = false;
+    return;
+  }
+  if (plan.vendieron && plan.vendieron.length) {
+    var excluidos = parrafo(avisoVendieron(flujo.grupos, plan.vendieron));
+    excluidos.className = "aviso";
+    ctx.zona.appendChild(excluidos);
+  }
+  if (!plan.anuncios.length) {
+    invalidaPrevia(flujo, ctx);
+    ctx.zona.appendChild(parrafo("Nada que sacar: sin anuncios en bolsas viejas."));
+    ctx.bloque.hidden = false;
+    return;
+  }
+  plan.anuncios.forEach(function (a) {
+    ctx.zona.appendChild(parrafo(a.sku + " · " + (a.ad_group_nombre || a.ad_group_externo)));
+  });
+  var esperada = "SACAR " + plan.anuncios.length + " ANUNCIOS";
+  ctx.esperada.textContent = esperada;
+  ctx.form.elements.confirmacion.placeholder = esperada;
+  ctx.form.hidden = false;
+  ctx.bloque.hidden = false;
+  habilitaEnvio(ctx, true);
+}
+
 function verRetiro() {
-  var zona = document.getElementById("productos-retiro-vista");
-  var bloque = document.getElementById("productos-retiro");
-  var form = document.getElementById("productos-retiro-ejecutar");
+  var ctx = contextoRetiro();
   var porCasilla = listingsPorCasilla("[data-marcar-sin-pedido]");
   var listings = [].concat.apply([], porCasilla);
   if (!listings.length) {
-    zona.replaceChildren(parrafo("Marca al menos un producto."));
+    fallaPrevia(flujoRetiro, ctx, "Marca al menos un producto.");
     return;
   }
-  var pedido = {
-    plataforma: form.dataset.plataforma,
-    listing_ids: listings,
-    motivo: "sin_pedidos",
-  };
-  zona.replaceChildren(parrafo("Pidiendo el plan de retiro…"));
-  fetch("/api/fabrica/retiro/plan", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(pedido),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
-    .then(function (r) {
-      if (!r.ok) {
-        zona.replaceChildren(parrafo("Error: " + mensajeError(r.data) + "."));
-        return;
-      }
-      zona.replaceChildren();
-      if (r.data.ventas_al_dia === false) {
-        retiroGuardado = null;
-        var motivo = r.data.ventas_al_dia_hasta
-          ? "no se actualizan desde el " + Orbit.fechaHora(r.data.ventas_al_dia_hasta)
-          : "todavía no se han cargado";
-        var alerta = parrafo(
-          "No se sacó ningún anuncio: las ventas de la contabilidad " +
-            motivo +
-            ", así que Orbit no puede comprobar que estos productos no vendieron. " +
-            "Vuelve a intentarlo cuando se actualicen."
-        );
-        alerta.className = "aviso";
-        zona.appendChild(alerta);
-        form.hidden = true;
-        bloque.hidden = false;
-        return;
-      }
-      retiroGuardado = { pedido: pedido, plan: r.data };
-      if (r.data.vendieron && r.data.vendieron.length) {
-        var excluidos = parrafo(avisoVendieron(porCasilla, r.data.vendieron));
-        excluidos.className = "aviso";
-        zona.appendChild(excluidos);
-      }
-      if (!r.data.anuncios.length) {
-        retiroGuardado = null;
-        zona.appendChild(parrafo("Nada que sacar: sin anuncios en bolsas viejas."));
-        form.hidden = true;
-        bloque.hidden = false;
-        return;
-      }
-      r.data.anuncios.forEach(function (a) {
-        zona.appendChild(parrafo(a.sku + " · " + (a.ad_group_nombre || a.ad_group_externo)));
-      });
-      var esperada = "SACAR " + r.data.anuncios.length + " ANUNCIOS";
-      document.getElementById("productos-retiro-esperada").textContent = esperada;
-      form.elements.confirmacion.placeholder = esperada;
-      form.hidden = false;
-      bloque.hidden = false;
-    })
-    .catch(function () {
-      zona.replaceChildren(parrafo("Error de red al pedir el plan de retiro."));
-    });
+  pidePrevia(
+    flujoRetiro,
+    ctx,
+    "/api/fabrica/retiro/plan",
+    {
+      plataforma: ctx.form.dataset.plataforma,
+      listing_ids: listings,
+      motivo: "sin_pedidos",
+    },
+    porCasilla,
+    pintaListaRetiro
+  );
 }
 
 function ejecutarRetiro(form) {
+  var ctx = contextoRetiro();
+  var flujo = flujoRetiro;
   var estado = form.querySelector("[data-estado]");
-  if (!retiroGuardado) {
-    estado.textContent = "Pide primero el plan de retiro.";
+  if (flujo.fase === "enviando") {
+    estado.textContent = "Enviando: espera la respuesta antes de reintentar.";
     return;
   }
-  var esperada = "SACAR " + retiroGuardado.plan.anuncios.length + " ANUNCIOS";
+  if (flujo.fase === "incierta") {
+    estado.textContent =
+      "No se sabe si el retiro se aplicó: recarga la página y revisa los retiros antes de reintentar.";
+    return;
+  }
+  if (flujo.fase !== "lista" || !flujo.previa || !flujo.solicitud) {
+    estado.textContent = ctx.pidePrimero;
+    return;
+  }
+  var esperada = "SACAR " + flujo.previa.anuncios.length + " ANUNCIOS";
   var confirmacion = form.elements.confirmacion.value;
   if (confirmacion !== esperada) {
     estado.textContent = "Escribe " + esperada + " para confirmar.";
     return;
   }
+  var envio = { revision: flujo.revision, solicitud: flujo.solicitud, previa: flujo.previa };
+  flujo.fase = "enviando";
+  habilitaEnvio(ctx, false);
   estado.textContent = "Enviando…";
   fetch("/api/fabrica/retiro/ejecutar", {
     method: "POST",
@@ -557,10 +710,10 @@ function ejecutarRetiro(form) {
       "x-orbit-token": form.elements.token.value,
     },
     body: JSON.stringify({
-      plataforma: retiroGuardado.pedido.plataforma,
-      listing_ids: retiroGuardado.pedido.listing_ids,
+      plataforma: envio.solicitud.plataforma,
+      listing_ids: envio.solicitud.listing_ids,
       motivo: "sin_pedidos",
-      huella: retiroGuardado.plan.huella,
+      huella: envio.previa.huella,
       confirmacion: confirmacion,
       actor: form.elements.actor.value,
     }),
@@ -571,17 +724,28 @@ function ejecutarRetiro(form) {
       });
     })
     .then(function (r) {
+      if (flujo.revision !== envio.revision) return;
       if (!r.ok) {
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        var texto = "Error: " + mensajeError(r.data) + ".";
+        fallaPrevia(flujo, ctx, texto);
+        estado.textContent = texto;
         return;
       }
-      retiroGuardado = null;
+      flujo.revision += 1;
+      flujo.fase = "resultado";
+      flujo.solicitud = null;
+      flujo.previa = null;
       form.elements.token.value = "";
+      habilitaEnvio(ctx, false);
       estado.textContent = "Retirados " + r.data.retirados + " de " + r.data.total + ".";
       pintaAnuncios(zonaResultado(form), r.data.anuncios || [], "resultado_retiro", ["retirado"]);
     })
     .catch(function () {
-      estado.textContent = "Error de red al ejecutar el retiro.";
+      if (flujo.revision !== envio.revision) return;
+      flujo.fase = "incierta";
+      habilitaEnvio(ctx, false);
+      estado.textContent =
+        "No se sabe si el retiro se aplicó: recarga la página y revisa los retiros antes de reintentar.";
     });
 }
 
@@ -1045,6 +1209,19 @@ function cableaPausa() {
     confirmaPasoPausa();
   });
 }
+
+// Un cambio de selección o de subfamilia deja vieja la previa que se ve.
+document.addEventListener("change", function (evento) {
+  var destino = evento.target;
+  if (!destino || !destino.dataset) return;
+  if (destino.dataset.marcarCandidato !== undefined) {
+    cambioDeSeleccion(flujoImpulso, contextoImpulso());
+  } else if (destino.dataset.marcarSinPedido !== undefined) {
+    cambioDeSeleccion(flujoRetiro, contextoRetiro());
+  } else if (destino.dataset.subfamilia !== undefined) {
+    cambioDeSeleccion(flujoImpulso, contextoImpulso());
+  }
+});
 
 document.addEventListener("DOMContentLoaded", function () {
   cableaPausa();

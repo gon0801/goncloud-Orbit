@@ -265,13 +265,14 @@ def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
     [object Object]; un detail de texto se pinta tal cual."""
     archivo = RAIZ / "app" / "static" / "js" / "productos.js"
     assert archivo.exists(), "Falta el cliente de productos"
-    # Los trece sitios de error usan mensajeError (seis de impulso y retiro,
-    # cuatro de los limites de la pausa: el rechazo de simular y su estado,
-    # 409 y 422 al guardar; tres del encendido: la simulacion que falla, 409
-    # y 422 al confirmar):
+    # Los doce sitios de error usan mensajeError (cinco de impulso y retiro:
+    # pedir la previa vale para los dos flujos, mas lanzar, ejecutar el retiro
+    # y regresar/recrear; cuatro de los limites de la pausa: el rechazo de
+    # simular y su estado, 409 y 422 al guardar; tres del encendido: la
+    # simulacion que falla, 409 y 422 al confirmar):
     # ninguno conserva el patron que pintaba [object Object].
     assert "(r.data.detail || r.data)" not in archivo.read_text(encoding="utf-8")
-    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 13
+    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 12
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:
@@ -1060,3 +1061,285 @@ const api = vm.runInThisContext("this.__api");
         [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+# ARREGLOS 04 W-P (TN04): la previa visible es la unica solicitud ejecutable.
+# Un guion por flujo y el mismo transporte controlado: las respuestas se
+# resuelven a mano para reproducir el orden que rompia la pantalla.
+_GUION_W_P = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.checked = !!attrs.checked; this.hidden = !!attrs.hidden;
+    this.textContent = ""; this.dataset = attrs.dataset || {};
+    this.elements = attrs.elements || {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  querySelectorAll(sel) {
+    const all = this.children.flatMap(c => [c, ...c.querySelectorAll("*")]);
+    if (sel === "*") return all;
+    if (sel === "[data-estado]") return all.filter(c => c.estado === true);
+    if (sel === "[data-marcar-sin-pedido]")
+      return all.filter(c => c.dataset.marcarSinPedido !== undefined);
+    if (sel === "[data-marcar-candidato]")
+      return all.filter(c => c.dataset.marcarCandidato !== undefined);
+    const m = sel.match(/^\[data-([a-z-]+)(="([^"]+)")?\]$/);
+    if (m) return all.filter(c => m[3] === undefined
+      ? (c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())] !== undefined)
+      : String(c.dataset[m[1].replace(/-([a-z])/g, (_, x) => x.toUpperCase())]) === m[3]);
+    return [];
+  }
+}
+const root = new Element();
+const casillaA = new Element({dataset: {ATRIBUTO: "", producto: "1", listings: "LISTINGS_A"}});
+const casillaB = new Element({dataset: {ATRIBUTO: "", producto: "2", listings: "LISTINGS_B"}});
+const subA = new Element({value: "aros"});
+subA.dataset = {subfamilia: "1"};
+const subB = new Element({value: "collares"});
+subB.dataset = {subfamilia: "2"};
+const zona = new Element();
+zona.id = "ZONA";
+const bloque = new Element({hidden: true});
+bloque.id = "BLOQUE";
+const esperada = new Element();
+esperada.id = "ESPERADA";
+const estado = new Element({estado: true});
+const form = new Element({dataset: {plataforma: "amazon_mx"}, hidden: true});
+form.id = "FORM";
+form.elements = {
+  confirmacion: new Element(),
+  actor: new Element({value: "dueno"}),
+  token: new Element({value: "tok"}),
+};
+const boton = new Element();
+boton.disabled = false;  // en la pagina el boton nace habilitado
+const buscaPropia = form.querySelector.bind(form);
+form.children = [estado];
+form.querySelector = sel => (sel === '[type="submit"]' ? boton : buscaPropia(sel));
+root.children = [casillaA, casillaB, subA, subB, zona, bloque, esperada, form];
+const ids = {"ZONA": zona, "BLOQUE": bloque, "ESPERADA": esperada, "FORM": form,
+  "CASILLA_PRESUPUESTO": new Element({hidden: true}),
+  "ACEPTO_PRESUPUESTO": new Element()};
+const docEvents = {};
+global.document = {
+  getElementById: id => ids[id] || null,
+  createElement: () => new Element(),
+  querySelector: sel => root.querySelector(sel),
+  querySelectorAll: sel => root.querySelectorAll(sel),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+const llamadas = [];
+const pendientes = [];
+global.fetch = (url, opts) => {
+  llamadas.push({url, body: opts && opts.body ? JSON.parse(opts.body) : null});
+  return new Promise((resolve, reject) => { pendientes.push({url, resolve, reject}); });
+};
+const tick = () => new Promise(r => setTimeout(r, 10));
+function entrega(i, cuerpo, status = 200) {
+  pendientes[i].resolve({ok: status < 400, status, json: () => Promise.resolve(cuerpo)});
+}
+const codigo = fs.readFileSync(process.argv[1], "utf8");
+vm.runInThisContext(codigo + "\nthis.__api = API;");
+const api = vm.runInThisContext("this.__api");
+const marca = (casilla, valor) => {
+  casilla.checked = valor;
+  if (docEvents.change) docEvents.change({target: casilla});
+};
+(async () => {
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  assert.equal(llamadas.length, 1, "una sola consulta de previa");
+  entrega(0, PREVIA_A());
+  await tick();
+  assert.equal(form.hidden, false, "la previa A deja el formulario a la vista");
+  assert.equal(esperada.textContent, ESPERADA_A, "la frase es la de A");
+  assert.equal(boton.disabled, false, "con previa lista el boton esta vivo");
+
+  // A a la vista, la persona cambia la seleccion y la previa de B falla.
+  marca(casillaA, false);
+  assert.equal(form.hidden, true, "cambiar la seleccion esconde el formulario de A");
+  assert.equal(boton.disabled, true, "y apaga su boton");
+  marca(casillaB, true);
+  PEDIR();
+  await tick();
+  assert.equal(llamadas.length, 2);
+  entrega(1, {detail: "Fallo controlado de la nueva consulta"}, 502);
+  await tick();
+  assert.match(zona.children[0].textContent, /Fallo controlado/, "el error de B se ve");
+  assert.equal(form.hidden, true, "el fallo de B no reabre nada");
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, 2, "cero POST de escritura tras el fallo de B");
+
+  // Respuestas invertidas: B contesta primero y la de A llega tarde.
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  marca(casillaA, false);
+  marca(casillaB, true);
+  PEDIR();
+  await tick();
+  const indiceA = llamadas.length - 2;
+  const indiceB = llamadas.length - 1;
+  entrega(indiceB, PREVIA_B());
+  await tick();
+  assert.equal(esperada.textContent, ESPERADA_B, "manda la previa de B");
+  assert.equal(form.hidden, false);
+  entrega(indiceA, PREVIA_A());
+  await tick();
+  assert.equal(esperada.textContent, ESPERADA_B, "la respuesta tardia de A no repinta");
+  assert.equal(form.hidden, false, "ni rehabilita lo que se ve");
+  ejecuta(ESPERADA_B);
+  assert.ok(pendientes[pendientes.length - 1].url.endsWith(EJECUTAR),
+    "se manda a la ruta del flujo");
+  assert.equal(envio("huella"), HUELLA_B, "con la huella de B");
+  assert.deepEqual(envio(IDS_CLAVE), IDS_B, "y los ids de B");
+  entrega(pendientes.length - 1, RESULTADO());
+  await tick();
+  assert.match(estado.textContent, /(Lanzados|Retirados) /);
+
+  // Cambio durante la carga: la respuesta que ya viajaba se tira aunque falle.
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  const enVuelo = llamadas.length - 1;
+  marca(casillaA, false);
+  assert.equal(form.hidden, true);
+  entrega(enVuelo, {detail: "Fallo controlado de la nueva consulta"}, 502);
+  await tick();
+  assert.doesNotMatch(zona.children[0].textContent, /Fallo controlado/,
+    "la respuesta de la revision vieja no se pinta");
+  assert.equal(form.hidden, true, "ni deja ejecutable la previa cancelada");
+
+  // Doble clic: la fase enviando congela la solicitud.
+  marca(casillaB, true);
+  PEDIR();
+  await tick();
+  entrega(llamadas.length - 1, PREVIA_B());
+  await tick();
+  ejecuta(ESPERADA_B);
+  const conUnEnvio = llamadas.length;
+  assert.equal(boton.disabled, true, "el boton queda apagado mientras envia");
+  ejecuta(ESPERADA_B);
+  assert.equal(llamadas.length, conUnEnvio, "el segundo clic no manda otro POST");
+
+  // Envio incierto: ni se reenvia solo ni se da por hecho.
+  pendientes[pendientes.length - 1].reject(new Error("timeout"));
+  await tick();
+  assert.match(estado.textContent, /No se sabe si/);
+  assert.equal(boton.disabled, true, "el reenvio queda deshabilitado");
+  const antesDelReintento = llamadas.length;
+  ejecuta(ESPERADA_B);
+  assert.equal(llamadas.length, antesDelReintento, "no se reenvia solo");
+})().catch(err => { console.error(err); process.exit(1); });
+"""
+
+
+def _corre_guion_w_p(modo: str, archivo: Path = RAIZ / "app" / "static" / "js" / "productos.js"):
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    if modo == "retiro":
+        sustituciones = {
+            "API": "{verRetiro, ejecutarRetiro}",
+            "EJECUTAR_LLAMADA": "api.ejecutarRetiro",
+            "PEDIR()": "api.verRetiro()",
+            "PREVIA_A()": (
+                '{huella: "a".repeat(64), ventas_al_dia: true, ventas_al_dia_hasta: null,'
+                ' vendieron: [], anuncios: [{sku: "SA", ad_group_nombre: "GA",'
+                ' ad_group_externo: "ga"}]}'
+            ),
+            "PREVIA_B()": (
+                '{huella: "b".repeat(64), ventas_al_dia: true, ventas_al_dia_hasta: null,'
+                ' vendieron: [], anuncios: [{sku: "SB", ad_group_nombre: "GB",'
+                ' ad_group_externo: "gb"}, {sku: "SB2", ad_group_nombre: "GB",'
+                ' ad_group_externo: "gb"}]}'
+            ),
+            "ESPERADA_A": '"SACAR 1 ANUNCIOS"',
+            "ESPERADA_B": '"SACAR 2 ANUNCIOS"',
+            "EJECUTAR": '"/retiro/ejecutar"',
+            "HUELLA_B": '"b".repeat(64)',
+            "IDS_CLAVE": '"listing_ids"',
+            "IDS_B": "[22, 23]",
+            "RESULTADO()": "{retirados: 2, total: 2, anuncios: []}",
+            "LISTINGS_A": "21",
+            "LISTINGS_B": "22,23",
+            "ZONA": "productos-retiro-vista",
+            "BLOQUE": "productos-retiro",
+            "ESPERADA": "productos-retiro-esperada",
+            "FORM": "productos-retiro-ejecutar",
+            "ATRIBUTO": "marcarSinPedido",
+        }
+    else:
+        sustituciones = {
+            "API": "{verLanzamiento, lanzar}",
+            "EJECUTAR_LLAMADA": "api.lanzar",
+            "PEDIR()": 'api.verLanzamiento("[data-marcar-candidato]")',
+            "PREVIA_A()": (
+                '{huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
+                ' no_lanzables: [], planes: [{seller_sku: "SA", subfamilia: "aros",'
+                ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+                ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+            ),
+            "PREVIA_B()": (
+                '{huella: "b".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 2 PRODUCTOS",'
+                ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "collares",'
+                ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+                ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []},'
+                ' {seller_sku: "SB2", subfamilia: "collares",'
+                ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
+                ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+            ),
+            "ESPERADA_A": '"LANZAR IMPULSO DE 1 PRODUCTOS"',
+            "ESPERADA_B": '"LANZAR IMPULSO DE 2 PRODUCTOS"',
+            "EJECUTAR": '"/impulso/lanzar"',
+            "HUELLA_B": '"b".repeat(64)',
+            "IDS_CLAVE": '"solicitud"',
+            "IDS_B": "[12, 13]",
+            "RESULTADO()": "{lanzados: [{impulso_id: 1}]}",
+            "LISTINGS_A": "11",
+            "LISTINGS_B": "12,13",
+            "ZONA": "productos-vista",
+            "BLOQUE": "productos-lanzamiento",
+            "ESPERADA": "productos-esperada",
+            "FORM": "productos-lanzar",
+            "ATRIBUTO": "marcarCandidato",
+        }
+    guion = _GUION_W_P
+    for clave, valor in sustituciones.items():
+        guion = guion.replace(clave, valor)
+    guion = (
+        "const ejecuta = frase => { form.elements.confirmacion.value = frase; "
+        + sustituciones["EJECUTAR_LLAMADA"]
+        + "(form); };\n"
+        "const envio = clave => { const cuerpo = llamadas[llamadas.length - 1].body;"
+        ' const elegido = cuerpo[clave];'
+        ' return clave === "solicitud" ? elegido.listing_ids : elegido; };\n' + guion
+    )
+    proc = subprocess.run(
+        [node, "-e", con_formato(guion), str(archivo)], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+
+
+def test_arreglos04_w_p_retiro_no_ejecuta_una_seleccion_cuya_previa_fallo():
+    """W-P/TN04: con A a la vista, cambiar la seleccion y fallar la previa de B
+    deja la solicitud de A sin boton; las respuestas tardias no rehabilitan otra
+    revision, un doble clic manda una sola vez y el envio incierto no se repite."""
+    _corre_guion_w_p("retiro")
+
+
+def test_arreglos04_w_p_impulso_no_ejecuta_una_seleccion_cuya_previa_fallo():
+    """W-P/TN04, vecino de impulso: Ver lanzamiento e Impulsar aparte comparten
+    el mismo estado y la misma compuerta."""
+    _corre_guion_w_p("impulso")
