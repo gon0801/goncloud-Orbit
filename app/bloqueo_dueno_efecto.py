@@ -548,7 +548,7 @@ def _aprobar_reparacion_con_candado(
     cliente, grupo_ext, campana_ext, items = lectura
     if _negative_que_bloquea(items, grupo_ext, senal.termino) is not None:
         return Efecto(409, motivo="otro_enabled")
-    vid = _abre_intencion(conn, senal, huella)
+    vid = _abre_intencion(conn, senal, huella, motivo="reparacion")
     try:
         return _postea_y_relee(conn, cliente, senal, vid, grupo_ext, campana_ext, exigir_id=True)
     except Exception as exc:
@@ -651,11 +651,11 @@ def _anula(conn, senal: _Senal, motivo: str) -> Efecto:
     return Efecto(200, veredicto_id=vid, paso="anulado", motivo=motivo)
 
 
-def _abre_intencion(conn, senal: _Senal, huella: str) -> UUID:
+def _abre_intencion(conn, senal: _Senal, huella: str, *, motivo: str | None = None) -> UUID:
     vid = uuid4()
     with _durable(conn):
         _insert_veredicto(conn, vid, "aprobado", senal, huella)
-        _insert_efecto(conn, vid, "intencion")
+        _insert_efecto(conn, vid, "intencion", motivo=motivo)
     return vid
 
 

@@ -1931,3 +1931,90 @@ def test_arreglos04_bb_reconciliacion_no_atribuye_sin_ack(monkeypatch):
             f"sin ID de acuse la conciliacion adopto kid-ajeno: {pasos}"
         )
         assert not any(p[0] == "aplicado" for p in pasos)
+
+
+def test_arreglos04_bb_reparacion_nace_marcada_antes_del_acuse(monkeypatch):
+    """Si el proceso muere antes del acuse, la primera intencion ya es de reparacion."""
+    _parche(monkeypatch)
+    with _db_o_mem() as conn:
+        senal_vieja, grupo, grupo_ext, _campana, termino, roster = _prepara(
+            conn, termino="nace-marcada", sha="6" * 64
+        )
+        tp, _vistos, _store = _transporte(grupo_ext, termino)
+        origen = efecto.aprobar(conn, senal_vieja, transport=tp)
+        assert origen.paso == "aplicado"
+        assert efecto.quitar(conn, origen.veredicto_id, transport=tp).paso == "revertido"
+
+        senal_vigente = _senal_ajena(
+            conn,
+            grupo,
+            termino,
+            "6" * 64,
+            roster,
+            plataforma="amazon_mx",
+            gasto=Decimal("9.5000"),
+            lote=_lote(conn),
+            miembros=1,
+        )
+        pre_ap = efecto.PrecondicionAprobar(
+            origen_id=origen.veredicto_id,
+            plataforma="amazon_mx",
+            ad_group_id=grupo,
+            termino=termino,
+        )
+        fase = {"listas": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            if request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=_perfiles())
+            if request.url.path == "/sp/negativeKeywords/list":
+                fase["listas"] += 1
+                if fase["listas"] == 1:
+                    return httpx.Response(200, json={"negativeKeywords": []})
+                return httpx.Response(
+                    200,
+                    json={
+                        "negativeKeywords": [
+                            {
+                                "keywordId": "kid-ajeno",
+                                "adGroupId": grupo_ext,
+                                "keywordText": termino,
+                                "matchType": "NEGATIVE_EXACT",
+                                "state": "ENABLED",
+                            }
+                        ]
+                    },
+                )
+            return httpx.Response(400, json={"message": request.url.path})
+
+        tp_caida = httpx.MockTransport(handler)
+
+        def muere(*_args, **_kwargs):
+            raise KeyboardInterrupt
+
+        original = efecto._postea_y_relee
+        monkeypatch.setattr(efecto, "_postea_y_relee", muere)
+        try:
+            efecto.aprobar(conn, senal_vigente, transport=tp_caida, precondicion=pre_ap)
+        except KeyboardInterrupt:
+            pass
+        else:
+            raise AssertionError("la caida simulada no interrumpio la reparacion")
+        monkeypatch.setattr(efecto, "_postea_y_relee", original)
+
+        vid = conn.execute(
+            "SELECT id FROM bloqueo_veredicto WHERE tipo = 'aprobado' AND id <> %s",
+            (origen.veredicto_id,),
+        ).fetchone()[0]
+        assert _pasos(conn, vid) == [("intencion", "reparacion", None)], (
+            "la intencion debe nacer marcada como reparacion"
+        )
+
+        efecto.reconcilia_todas(conn, transport=tp_caida)
+        pasos = _pasos(conn, vid)
+        assert pasos[-1][0] == "intencion", (
+            f"la recuperacion adopto el ENABLED ajeno kid-ajeno: {pasos}"
+        )
+        assert not any(p[0] == "aplicado" for p in pasos)
