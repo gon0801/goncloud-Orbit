@@ -18,7 +18,9 @@ valer para todos va aquí también.
 - **Responde siempre en español**; directo al grano, sin relleno.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
-- Para pruebas, revisión y secretos, sigue las Reglas de trabajo de este archivo.
+- Ejecuta las comprobaciones que pide el plan aprobado en cada bloque (columna `Acepta` cuando exista). Amplíalas si el cambio afecta un comportamiento que falta comprobar. La suite completa solo es obligatoria cuando David o el plan aprobado la piden.
+- Ante un fallo observado, reproduce el caso afectado en el candidato y en su base con el mismo entorno. Corrige las regresiones del cambio y documenta los fallos previos en el PR.
+- Si dejas una comprobación en segundo plano, conserva un medio de recibir su resultado y retomar el trabajo.
 
 ## Stack
 
@@ -80,7 +82,7 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
   `/sp/targets/bid/recommendations` de lectura); API exacta: `get`, `list_objects`,
   `recommend_bids`, `create_report`, `get_report`, `download`.
 - Base: roles LOGIN por servicio (`orbit_ingest`/`_decide`/`_read`/`_admin`); invariante nuevo del esquema = con su test; ADRs en `COMMENT ON` y docstrings.
-- Trabajo en planes `ORBIT NN` (PR a `master` según las Reglas de trabajo).
+- Los cambios de los planes entran por PR a `master`.
 
 ## Cómo trabajar con David
 
