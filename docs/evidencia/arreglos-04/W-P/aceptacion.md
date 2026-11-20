@@ -191,7 +191,12 @@ demostrado con el transporte interceptado: la prueba falla contra
    devolvía la vista, quedaba ejecutable una selección que ya no estaba
    marcada. Ahora el flujo guarda el selector que usó y `mismaSeleccion()`
    decide; si no coincide, esconde el formulario y pide una previa nueva.
-   Rojo en `bd6e91f`: `con otra seleccion el 409 no rearma el plan`.
+   La comprobación cubre los IDs, el mapa de subfamilia por publicación y los
+   marcados que se quedaron sin subfamilia, porque cambiar «aros» por
+   «collares» o vaciarlo deja la vista vieja sin mover un ID. Rojo en
+   `bd6e91f`: `con otra seleccion el 409 no rearma el plan`. Rojo en `873746e`,
+   que solo comparaba IDs: `con otra subfamilia el 409 no rearma el plan` y
+   `sin subfamilia el 409 tampoco rearma`.
 4. **El 409 borra el literal escrito.** Era de la revisión anterior y con un
    solo clic lanzaba el plan nuevo. Ahora se limpia y hay que escribirlo otra
    vez. Rojo en `bd6e91f`: `el literal viejo no sirve`.

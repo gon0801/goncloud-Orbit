@@ -122,18 +122,36 @@ function vigente(flujo, revision, solicitud) {
   return flujo.revision === revision && flujo.solicitud === solicitud;
 }
 
-// La seleccion que el flujo pidio sigue siendo la que hay marcada.
-function mismaSeleccion(flujo) {
-  if (!flujo.solicitud) return false;
-  var actual = flujo.selector
-    ? marcados(flujo.selector).listings
-    : [].concat.apply([], listingsPorCasilla("[data-marcar-sin-pedido]"));
-  var pedida = flujo.solicitud.listing_ids;
-  if (actual.length !== pedida.length) return false;
-  for (var i = 0; i < pedida.length; i += 1) {
-    if (actual[i] !== pedida[i]) return false;
+// La seleccion que el flujo pidio sigue siendo la que hay marcada. Cuenta la
+// subfamilia, no solo los IDs: cambiar una tambien deja vieja la previa.
+function mismoMapa(pedido, actual) {
+  var claves = Object.keys(pedido);
+  if (claves.length !== Object.keys(actual).length) return false;
+  return claves.every(function (clave) {
+    return pedido[clave] === actual[clave];
+  });
+}
+
+function mismaLista(pedido, actual) {
+  if (pedido.length !== actual.length) return false;
+  for (var i = 0; i < pedido.length; i += 1) {
+    if (pedido[i] !== actual[i]) return false;
   }
   return true;
+}
+
+function mismaSeleccion(flujo) {
+  var pedida = flujo.solicitud;
+  if (!pedida) return false;
+  if (flujo.selector) {
+    var marca = marcados(flujo.selector);
+    // Un marcado que se quedo sin subfamilia ya no es lo que se pidio.
+    if (marca.faltan.length) return false;
+    if (!mismoMapa(marca.subfamilias, pedida.subfamilia_por_listing || {})) return false;
+    return mismaLista(marca.listings, pedida.listing_ids);
+  }
+  var actuales = [].concat.apply([], listingsPorCasilla("[data-marcar-sin-pedido]"));
+  return mismaLista(actuales, pedida.listing_ids);
 }
 
 // Con una ejecucion en curso, o con su resultado sin conocer, ninguna entrada

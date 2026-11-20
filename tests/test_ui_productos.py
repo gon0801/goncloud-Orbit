@@ -1352,6 +1352,36 @@ _GUION_W_P_409_SELECCION = r"""
   assert.equal(form.hidden, true, "con otra seleccion el 409 no rearma el plan");
   ejecuta(ESPERADA_A);
   assert.equal(llamadas.length, enVuelo + 1, "ni manda con la vista vieja");
+
+  // La subfamilia tambien es parte de la seleccion.
+  marca(casillaA, true);
+  marca(casillaB, false);
+  PEDIR();
+  await tick();
+  entrega(llamadas.length - 1, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  const conSubfamilia = llamadas.length - 1;
+  subA.value = "collares";
+  docEvents.change({target: subA});
+  assert.equal(form.hidden, false, "el envio congela la subfamilia");
+  entrega(conSubfamilia, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.equal(form.hidden, true, "con otra subfamilia el 409 no rearma el plan");
+
+  // Un marcado que se queda sin subfamilia tampoco es la seleccion pedida.
+  subA.value = "aros";
+  PEDIR();
+  await tick();
+  entrega(llamadas.length - 1, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  const conVacia = llamadas.length - 1;
+  subA.value = "";
+  docEvents.change({target: subA});
+  entrega(conVacia, {detail: {mensaje: "x", vista_previa: PREVIA_A2()}}, 409);
+  await tick();
+  assert.equal(form.hidden, true, "sin subfamilia el 409 tampoco rearma");
 """
 
 
