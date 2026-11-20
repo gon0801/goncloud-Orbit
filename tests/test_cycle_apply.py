@@ -58,12 +58,15 @@ from test_cycle import (
     JOB_KEY,
     SQL13,
     SQL15,
+    SQL16,
     SQL40,
     SQL42,
     SQL51,
     SQL60,
     SQL77,
     SQL81,
+    SQL86,
+    SQL92,
     _config_version,
     _entidad,
     _estado,
@@ -188,6 +191,10 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL13)  # 0013 (BIDS 01): la guarda entidad_inerte lee la vista en TX2
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
+        # Cross-review de la implementacion (kimi + grok): 0016 REEMPLAZA la
+        # vista de 0015 (frescura desde la corrida de ingesta; guard de cargo
+        # sin tipo en los tres kinds). Se aplican EN ORDEN, como en produccion.
+        conn.execute(SQL16)
         conn.execute(SQL14)  # 0014 (BIDS 01 2.2): _paso_keyword lee el ledger anti-duplicado
         # ADS PROTECCION C.5: resuelve_profile_id lee ads_report_result.
         conn.execute(SQL40)
@@ -200,6 +207,11 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL47)  # 0047 (A4): familia en TX2
         conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
         conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
+        # ARREGLOS 02 D + TEMPORADA 01 I: el margen lee v_ledger_cargo y
+        # publica el margen vigente (costo de hoy), que el ciclo gobierna —
+        # sin estas TODO ciclo revienta con UndefinedColumn cogs_vigente.
+        conn.execute(SQL86)
+        conn.execute(SQL92)
         conn.execute(SQL60)  # 0060 (M.3): v_hoja_activa/v_cambio_bid/v_metric_latest
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma

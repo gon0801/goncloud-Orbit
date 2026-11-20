@@ -86,9 +86,14 @@ SELECT product_id, external_id, seller_sku
  WHERE platform = %s::platform AND product_id = ANY(%s)
 """
 
+# TEMPORADA 01 I: el margen que gobierna es el vigente (costo de hoy de cada
+# producto, columnas al final de la vista por 0092); el lector mapea
+# margen_vigente_pct -> MedicionMargen.margen_neto_pct y conserva el
+# historico de la ventana en MedicionMargen.margen_historico_pct.
 _SQL_MARGEN = """
 SELECT product_id, margen_neto_pct, cobertura, dias_con_venta, venta_cubierta,
-       ledger_fresco_at, moneda, ventana_desde, ventana_hasta
+       ledger_fresco_at, moneda, ventana_desde, ventana_hasta,
+       cogs_vigente, cobertura_vigente, margen_vigente_pct, venta_total
   FROM v_margen_producto
  WHERE platform = %s::platform AND product_id = ANY(%s)
 """
@@ -249,14 +254,18 @@ def lee_entradas_productos(
     claves = claves_por_producto(conn, plataforma, productos_ids)
     margenes = {
         fila[0]: g.MedicionMargen(
-            margen_neto_pct=fila[1],
-            cobertura=fila[2],
+            margen_neto_pct=fila[11],
+            cobertura=fila[10],
             dias_con_venta=fila[3],
-            venta_cubierta=fila[4],
+            # TEMPORADA 01 I: la venta cubierta de la guarda es la proyeccion
+            # vigente de la misma fila (las ventas cubiertas son las que
+            # tienen costo de hoy), no la historica que trae la vista.
+            venta_cubierta=g.importe_cubierto_vigente(fila[12], fila[10]),
             ledger_fresco_at=fila[5],
             moneda=str(fila[6]) if fila[6] is not None else None,
             ventana_desde=fila[7],
             ventana_hasta=fila[8],
+            margen_historico_pct=fila[1],
         )
         for fila in conn.execute(_SQL_MARGEN, (plataforma, productos_ids))
     }

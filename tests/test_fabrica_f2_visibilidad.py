@@ -1,10 +1,11 @@
 """Visibilidad y aviso del destino de harvest (FABRICA 02, A.6).
 
-Sobre `db_f2` + `_semilla_grupo` (el banco de `test_api_dashboard` no carga
-0018/0038): `notes.harvest_destino` del ciclo, `harvest_job` en el feed de
-decisiones, `destino` + `hermanas` en /cortes y el aviso en flanco por
-campana de grupo. El DSN de lectura de los endpoints se deriva de
-`_test_dsn()` + `conn.info.dbname` (hallazgo PR #267: nunca un DSN fijo).
+Sobre `db_f2_0092` (db_f2 + 0086/0092, la cadena del ciclo) + `_semilla_grupo`
+(el banco de `test_api_dashboard` no carga 0018/0038): `notes.harvest_destino`
+del ciclo, `harvest_job` en el feed de decisiones, `destino` + `hermanas` en
+/cortes y el aviso en flanco por campana de grupo. El DSN de lectura de los
+endpoints se deriva de `_test_dsn()` + `conn.info.dbname` (hallazgo PR #267:
+nunca un DSN fijo).
 """
 
 from __future__ import annotations
@@ -30,8 +31,8 @@ from test_api_dashboard import (
 )
 from test_apply_harvest import TERMINO, _job_en
 from test_cycle import _config_version, _siembra_terminos
-from test_fabrica_f2 import _semilla_grupo, db_f2
-from test_harvest_destino import _base_ciclo, _campana_suelta, _corre
+from test_fabrica_f2 import _semilla_grupo
+from test_harvest_destino import _base_ciclo, _campana_suelta, _corre, db_f2_0092
 from test_notifica import _canal
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
@@ -69,7 +70,7 @@ def test_a6_notes_trae_resueltos_por_grupo_y_sin_saltos():
     """Tras el ciclo, notes.harvest_destino cuenta por ad group evaluado:
     los 4 discovery resuelven por grupo (la exacta-origen salta con
     origen_es_destino y no cuenta) y no hay saltos de grupo."""
-    with db_f2("orbit_a6_notas") as conn:
+    with db_f2_0092("orbit_a6_notas") as conn:
         _base_ciclo(conn, con_terna=True)
         res = _corre(conn)
         assert res.status in ("done", "degraded")
@@ -83,7 +84,7 @@ def test_a6_terna_distinta_deja_salto_de_grupo_en_notes():
     """El escenario de test_a1_terna_campaign_distinta: la phrase con terna
     de goal propio a otro destino deja saltos_grupo[camp] =
     destino_inconsistente y no cuenta como resuelto."""
-    with db_f2("orbit_a6_salto") as conn:
+    with db_f2_0092("orbit_a6_salto") as conn:
         gpo, run = _base_ciclo(conn, con_terna=True)
         phrase = gpo["roles"]["category_phrase"]
         conn.execute(
@@ -110,7 +111,7 @@ def test_a6_campana_suelta_salta_en_skips_pero_no_en_saltos_grupo(tmp_path, monk
     vacios; ahora siembra y aserta el skip real + cero avisos (el gemelo
     aserta skips/saltos sin canal; el flanco-suelta aserta avisos sin
     skips: este pin es la conjuncion)."""
-    with db_f2("orbit_a6_suelta") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+    with db_f2_0092("orbit_a6_suelta") as conn, _canal(tmp_path, monkeypatch) as mensajes:
         _gpo, run = _base_ciclo(conn, con_terna=True)
         camp, ag = _campana_suelta(conn)
         _goal_campana_sin_terna(conn, camp)
@@ -129,7 +130,7 @@ def test_a6_campana_suelta_con_termino_salta_sin_aviso_de_grupo():
     """Con un termino harvestable, la suelta sin nada salta con
     sin_destino_de_harvest en skips.termino — y sigue sin entrar a
     saltos_grupo (el aviso en flanco es solo para campanas de grupo)."""
-    with db_f2("orbit_a6_sueltat") as conn:
+    with db_f2_0092("orbit_a6_sueltat") as conn:
         _gpo, run = _base_ciclo(conn, con_terna=True)
         camp, ag = _campana_suelta(conn)
         _goal_campana_sin_terna(conn, camp)
@@ -148,7 +149,7 @@ def test_a6_ciclo_skipped_no_persiste_harvest_destino():
     el recorrido y sus notes NO llevan harvest_destino (mismo criterio
     que target: solo cuando el recorrido corrio; el flanco del aviso ya
     cuenta con la ausencia de la clave)."""
-    with db_f2("orbit_a6_skipped") as conn:
+    with db_f2_0092("orbit_a6_skipped") as conn:
         _config_version(conn, {"ads_optimizer_mode": "off"})
         res = _corre(conn)
         assert res.status == "skipped"
@@ -213,7 +214,7 @@ def test_a6_feed_muestra_fase_del_job_con_hermanas_pendientes(monkeypatch):
     """El item harvest del feed trae harvest_job con fase_es exacto para
     hermanas_negadas y las pendientes del external_ids; la decision bid
     (sin job) trae None."""
-    with db_f2("orbit_a6_feed") as conn:
+    with db_f2_0092("orbit_a6_feed") as conn:
         s = _siembra_feed(conn)
         jid = _job_en(
             conn,
@@ -239,7 +240,7 @@ def test_a6_feed_muestra_fase_del_job_con_hermanas_pendientes(monkeypatch):
 def test_a6_feed_job_done_sin_pendientes_trae_dict_vacio(monkeypatch):
     """Job done con hermanas_pendientes {}: fase Aplicado y dict vacio
     (no None: el job si existe y se leyo)."""
-    with db_f2("orbit_a6_feeddone") as conn:
+    with db_f2_0092("orbit_a6_feeddone") as conn:
         s = _siembra_feed(conn)
         jid = _job_en(
             conn,
@@ -277,7 +278,7 @@ def test_a6_fases_harvest_vocabulario_completo_y_traducido():
 def test_a6_total_decisiones_no_cambia_con_job():
     """_SQL_DECISIONES_TOTAL cuenta decisiones, no jobs: dos decisiones y
     un job sembrado cuentan 2 (el LATERAL vive solo en el SELECT)."""
-    with db_f2("orbit_a6_total") as conn:
+    with db_f2_0092("orbit_a6_total") as conn:
         s = _siembra_feed(conn)
         antes = conn.execute(_SQL_DECISIONES_TOTAL).fetchone()[0]
         _job_en(conn, s["dec_harv"], s["phrase_ag"], "hermanas_negadas")
@@ -289,7 +290,7 @@ def test_a6_total_decisiones_no_cambia_con_job():
 def test_a6_pagina_decisiones_muestra_etiqueta_del_job(monkeypatch):
     """La pagina /decisiones (HTML) muestra la etiqueta de la fase y el id
     del job en la celda Kind."""
-    with db_f2("orbit_a6_pagdec") as conn:
+    with db_f2_0092("orbit_a6_pagdec") as conn:
         s = _siembra_feed(conn)
         jid = _job_en(
             conn,
@@ -369,7 +370,7 @@ def test_a6_cortes_harvest_grupo_trae_destino_y_tres_hermanas(monkeypatch):
     """Harvest resuelto por grupo: destino con resuelto_por grupo y hermanas
     = las 3 discovery sin la exacta ni la phrase de origen, en orden
     canonico; nombre = external (la semilla no pone name) salvo UPDATE."""
-    with db_f2("orbit_a6_cortes") as conn:
+    with db_f2_0092("orbit_a6_cortes") as conn:
         s = _siembra_corte_harvest(conn)
         conn.execute(
             "UPDATE ad_entity SET name = 'Auto Discovery MX' WHERE id = %s",
@@ -398,7 +399,7 @@ def test_a6_cortes_hermanas_orden_canonico_no_alfabetico(monkeypatch):
     oraculo. Mata 'ordenar por rol alfabetico' y 'copiar el orden'."""
     from app.apply_harvest import ROLES_DISCOVERY
 
-    with db_f2("orbit_a6_corteso") as conn:
+    with db_f2_0092("orbit_a6_corteso") as conn:
         _siembra_corte_harvest(conn, rol_origen="auto_discovery")
         items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
         assert len(items) == 1
@@ -413,7 +414,7 @@ def test_a6_cortes_hermanas_orden_canonico_no_alfabetico(monkeypatch):
 def test_a6_cortes_harvest_terna_sin_hermanas_y_motivo_traducido(monkeypatch):
     """Harvest resuelto por terna: hermanas None y motivo_es traducido
     exacto (migracion_pendiente)."""
-    with db_f2("orbit_a6_cortest") as conn:
+    with db_f2_0092("orbit_a6_cortest") as conn:
         _siembra_corte_harvest(conn, resuelto_por="terna", motivo="migracion_pendiente")
         items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
         assert len(items) == 1
@@ -427,7 +428,7 @@ def test_a6_cortes_harvest_terna_sin_hermanas_y_motivo_traducido(monkeypatch):
 def test_a6_cortes_harvest_sin_goal_sin_destino_ni_hermanas(monkeypatch):
     """Harvest sin goal en inputs (decisiones pre-F2): destino y hermanas
     None (los test_cortes_ui01_* sobre _db_temporal siguen verdes)."""
-    with db_f2("orbit_a6_cortessg") as conn:
+    with db_f2_0092("orbit_a6_cortessg") as conn:
         _siembra_corte_harvest(conn, con_goal=False)
         items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
         assert len(items) == 1
@@ -441,7 +442,7 @@ def test_a6_cortes_hermanas_query_rota_no_tumba_la_pantalla(monkeypatch, caplog)
     al mutante que devuelve [] (la pantalla diria 'no hay hermanas')."""
     import logging
 
-    with db_f2("orbit_a6_cortesrot") as conn:
+    with db_f2_0092("orbit_a6_cortesrot") as conn:
         _siembra_corte_harvest(conn)
         monkeypatch.setattr(dash, "_SQL_HERMANAS_GRUPO", "SELECT no_existe FROM tampoco_existe")
         with caplog.at_level(logging.WARNING, logger="app.api_dashboard"):
@@ -455,7 +456,7 @@ def test_a6_cortes_hermanas_query_rota_no_tumba_la_pantalla(monkeypatch, caplog)
 def test_a6_pagina_cortes_nombra_hermanas_y_escapa_nombre(monkeypatch):
     """La pagina /cortes nombra las hermanas en la fila y en la
     confirmacion del rechazo; un name con <script> sale escapado."""
-    with db_f2("orbit_a6_pagcort") as conn:
+    with db_f2_0092("orbit_a6_pagcort") as conn:
         s = _siembra_corte_harvest(conn)
         conn.execute(
             "UPDATE ad_entity SET name = %s WHERE id = %s",
@@ -495,7 +496,7 @@ def _terna_de(conn, camp: int, camp_ext: str, ag_ext: str) -> None:
 def test_a6_flanco_avisa_una_vez_por_racha(tmp_path, monkeypatch):
     """Flanco por campana: 1er ciclo con el salto -> 1 aviso; 2do sin
     cambios -> 0; corregido -> 0 y saltos vacios; roto de nuevo -> 1."""
-    with db_f2("orbit_a6_flanco") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+    with db_f2_0092("orbit_a6_flanco") as conn, _canal(tmp_path, monkeypatch) as mensajes:
         gpo, run = _base_ciclo(conn, con_terna=True)
         phrase = gpo["roles"]["category_phrase"]
         exacta = gpo["roles"]["category_exact"]
@@ -538,7 +539,7 @@ def test_a6_flanco_avisa_una_vez_por_racha(tmp_path, monkeypatch):
 def test_a6_flanco_suelta_nunca_avisa(tmp_path, monkeypatch):
     """La campana suelta con sin_destino_de_harvest: 0 avisos en todas
     las corridas (el flanco es solo para campanas de grupo)."""
-    with db_f2("orbit_a6_flancos") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+    with db_f2_0092("orbit_a6_flancos") as conn, _canal(tmp_path, monkeypatch) as mensajes:
         _gpo, run = _base_ciclo(conn, con_terna=True)
         camp, ag = _campana_suelta(conn)
         _goal_campana_sin_terna(conn, camp)
@@ -553,7 +554,7 @@ def test_a6_flanco_grupo_sin_exacta_cuatro_avisos_una_vez(tmp_path, monkeypatch)
     """Grupo sin fila category_exact (el trigger no bloquea el DELETE con
     goals en estado 1): las 4 discovery saltan con sin_destino_de_harvest
     -> 4 avisos la primera vez, 0 la segunda."""
-    with db_f2("orbit_a6_flancoe") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+    with db_f2_0092("orbit_a6_flancoe") as conn, _canal(tmp_path, monkeypatch) as mensajes:
         gpo, _run = _base_ciclo(conn, con_terna=False)
         conn.execute(
             "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_exact'",

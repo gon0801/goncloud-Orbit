@@ -9,7 +9,8 @@ falso corre el comando remoto en local; `docker` falso registra sus argumentos y
 
 Los escenarios (a)-(n) son los de docs/evidencia/auto-03/plan/modelo-despliegue/modelo.py con
 el mismo repo E -> Gm -> Fm -> F2 (Fm enciende la meta y trae las migraciones de la receta
-(*_auto03_* de AUTO-03, *_orbit07_* de ORBIT 07 y *_claridad01_* de CLARIDAD 01): la de
+(*_auto03_* de AUTO-03, *_orbit07_* de ORBIT 07, *_claridad01_* de CLARIDAD 01 y
+*_temporada01_* de TEMPORADA 01): la de
 prueba y las reales del repo, asi cada bloque nuevo queda cubierto). (o)-(v) son de esta
 prueba.
 """
@@ -276,7 +277,12 @@ def _crea_repo(repo: Path) -> None:
     _commit(repo, "Gm", {})
     reales = {
         f"migrations/{p.name}": p.read_text(encoding="utf-8")
-        for patron in ("*_auto03_*.sql", "*_orbit07_*.sql", "*_claridad01_*.sql")
+        for patron in (
+            "*_auto03_*.sql",
+            "*_orbit07_*.sql",
+            "*_claridad01_*.sql",
+            "*_temporada01_*.sql",
+        )
         for p in (ROOT / "migrations").glob(patron)
     }
     _commit(
@@ -362,7 +368,14 @@ def banco():
             for ruta in sorted((ROOT / "migrations").glob("*.sql")):
                 if any(
                     x in ruta.name
-                    for x in ("0011_", "_reversa_", "_auto03_", "_orbit07_", "_claridad01_")
+                    for x in (
+                        "0011_",
+                        "_reversa_",
+                        "_auto03_",
+                        "_orbit07_",
+                        "_claridad01_",
+                        "_temporada01_",
+                    )
                 ):
                     continue
                 conn.execute(ruta.read_text(encoding="utf-8"))
@@ -1223,6 +1236,45 @@ def test_arreglos03_base_las_migraciones_del_plan_entran_en_el_despliegue(tmp_pa
     assert "0087_arreglos01_prueba.sql\tSELECT to_regclass" in r.stdout
     assert "0088_arreglos02_prueba.sql\tSELECT to_regclass" in r.stdout
     assert "0089_arreglos03_prueba.sql\tSELECT to_regclass" in r.stdout
+
+
+def test_temporada01_i_migracion_en_migraciones_de(tmp_path):
+    """TEMPORADA 01 I.1: migraciones_de incluye las migraciones *_temporada01_*
+    con cabecera y reversa, sin perder las etiquetas que ya estaban (arreglos02,
+    arreglos03): sin esto el despliegue no aplica la migracion del bloque I."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master")
+    _git(repo, "config", "core.autocrlf", "false")
+    (repo / "tools/despliegue").mkdir(parents=True)
+    shutil.copy(ROOT / "tools/despliegue/comun.sh", repo / "tools/despliegue/comun.sh")
+    migrations = repo / "migrations"
+    migrations.mkdir()
+    for numero, etiqueta in ((88, "arreglos02"), (89, "arreglos03"), (92, "temporada01")):
+        (migrations / f"00{numero}_{etiqueta}_prueba.sql").write_text(
+            f"-- sonda-aplicada: SELECT to_regclass('public.{etiqueta}_prueba') IS NOT NULL\n"
+            "SELECT 1;\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        (migrations / f"00{numero}_reversa_{etiqueta}_prueba.sql").write_text(
+            "SELECT 1;\n", encoding="utf-8", newline="\n"
+        )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "temporada01 i")
+
+    r = subprocess.run(
+        ["bash", "-c", ". tools/despliegue/comun.sh && migraciones_de HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "ORBIT_SIMULACION": "0"},
+    )
+
+    assert r.returncode == 0, r.stderr
+    assert "0088_arreglos02_prueba.sql\tSELECT to_regclass" in r.stdout
+    assert "0089_arreglos03_prueba.sql\tSELECT to_regclass" in r.stdout
+    assert "0092_temporada01_prueba.sql\tSELECT to_regclass" in r.stdout
 
 
 def _compose_log(s: Servidor) -> list[str]:

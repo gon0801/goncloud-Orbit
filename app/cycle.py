@@ -521,19 +521,26 @@ SELECT DISTINCT pa.parent_id
 
 # ORBIT 06 2.3: medicion del margen, UNA fila por plataforma (la vista SOLO
 # MIDE; la resolucion es goals.resuelve_target_margen en Python).
+# TEMPORADA 01 I: el margen que gobierna es el vigente (costo de hoy de cada
+# producto); goals.medicion_desde_fila mapea margen_vigente_pct ->
+# MedicionMargen.margen_neto_pct y conserva el historico.
 _SQL_TARGET_MARGEN = """
 SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
        cargos_con_orden, cargos_sin_orden, cogs, cobertura, dias_con_venta,
-       fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda
+       fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda,
+       cogs_vigente, cobertura_vigente, margen_vigente_pct
   FROM v_target_margen_plataforma
  WHERE platform = %s::platform
 """
 
 # A5: medicion del margen POR FAMILIA (la vista SOLO MIDE; la resolucion es
-# goals.resuelve_target_margen_familia en Python, por hoja).
+# goals.resuelve_target_margen_familia en Python, por hoja). TEMPORADA 01 I:
+# las tres columnas vigente van AL FINAL de la vista (0092); gobierna la
+# vigente, el historico de la ventana queda en la columna de siempre.
 _SQL_MARGENES_FAMILIA = """
 SELECT familia_id, padre_id, ventana_desde, ventana_hasta, venta_cubierta,
-       cobertura, dias_con_venta, margen_neto_pct, ledger_fresco_at, moneda
+       cobertura, dias_con_venta, margen_neto_pct, ledger_fresco_at, moneda,
+       cogs_vigente, cobertura_vigente, margen_vigente_pct, venta_total
   FROM v_margen_familia
  WHERE platform = %s::platform
 """
@@ -2972,6 +2979,11 @@ def _resuelve_target_ciclo(
         # de margen (procedencia None).
         "convergiendo_a_setting": res.convergiendo,
         "margen_neto_pct": _dec_str(medicion.margen_neto_pct),
+        # TEMPORADA 01 I: notes.target guarda los dos margenes. margen_neto_pct
+        # es el VIGENTE (el que gobierna, costo de hoy) y margen_historico_pct
+        # el medido con el costo de la fecha de cada venta (pineado, la traza
+        # de BIDS 02 M.3 no cambia de llave).
+        "margen_historico_pct": _dec_str(medicion.margen_historico_pct),
         "fraccion": _dec_str(fraccion),
         "cobertura": _dec_str(medicion.cobertura),
         "ventana_desde": _fecha_iso(medicion.ventana_desde),
@@ -3043,14 +3055,18 @@ def _lee_familias_ciclo(
         fid = fila[0]
         padres[fid] = fila[1]
         mediciones[fid] = g.MedicionMargen(
-            margen_neto_pct=fila[7],
-            cobertura=fila[5],
+            margen_neto_pct=fila[12],
+            cobertura=fila[11],
             dias_con_venta=fila[6],
-            venta_cubierta=fila[4],
+            # TEMPORADA 01 I: la venta cubierta de la guarda es la proyeccion
+            # vigente de la misma fila (las ventas cubiertas son las que
+            # tienen costo de hoy), no la historica que trae la vista.
+            venta_cubierta=g.importe_cubierto_vigente(fila[13], fila[11]),
             ledger_fresco_at=fila[8],
             moneda=str(fila[9]) if fila[9] is not None else None,
             ventana_desde=fila[2],
             ventana_hasta=fila[3],
+            margen_historico_pct=fila[7],
         )
     pares: list[tuple[int, int | None]] = []
     for fila in conn.execute(_SQL_PAREJAS_CAMPANA_FAMILIA, (platform,)).fetchall():
@@ -3070,6 +3086,9 @@ def _lee_familias_ciclo(
         res = g.resuelve_target_margen(med, fraccion, hoy, None, destino, g.MARGEN_DIAS_MIN_FAMILIA)
         notas[fid] = {
             "margen_neto_pct": _dec_str(med.margen_neto_pct),
+            # TEMPORADA 01 I: el par de notes.target tambien por familia:
+            # margen_neto_pct es el vigente (costo de hoy) y este el historico.
+            "margen_historico_pct": _dec_str(med.margen_historico_pct),
             "cobertura": _dec_str(med.cobertura),
             "dias_con_venta": med.dias_con_venta,
             "motivo": res.motivo,

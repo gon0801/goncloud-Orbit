@@ -54,6 +54,7 @@ import httpx
 import psycopg
 import pytest
 from psycopg.types.json import Json
+from test_cycle import SQL15, SQL16, SQL18, SQL46, SQL47, SQL48, SQL86, SQL92
 from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
 from app.ads.config import AdsCredentials
@@ -75,6 +76,48 @@ from app.apply_harvest import (
 
 SQL14 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
+).read_text(encoding="utf-8")
+
+# A5: kind 'product_ad' — la cadena de vistas de margen (0048/0086/0092) cruza
+# ad_entity por kind y la consulta necesita el valor del ENUM.
+SQL4 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0004_ad_entity_kind_product_ad.sql"
+).read_text(encoding="utf-8")
+
+# Cadena del reconciliador de harvest (logica de FABRICA 02 conservada): la
+# biblioteca de hermanas (0038) con la fase hermanas_negadas y el tipo
+# 'hermana' del ledger, la publicacion v2 (0019) y el first_seen_at (0017) que
+# 0038 completa; el roster de hermanas lee campana_grupo.tipo (0064, regla 9:
+# sin tolerar columna ausente). La matriz §6 y la revalidacion consultan
+# ademas la guarda de entidad inerte (0013), el acta de listado (0051),
+# ads_report_result (0040), la evaluacion de producto (0077) y las propuestas
+# (0042) — la misma cadena que db_f2 usa para estos mismos helpers.
+SQL13 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0013_entidad_inerte.sql"
+).read_text(encoding="utf-8")
+SQL17 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0017_first_seen_at.sql"
+).read_text(encoding="utf-8")
+SQL19 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0019_fabrica_grupo_publicacion_v2.sql"
+).read_text(encoding="utf-8")
+SQL38 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0038_fabrica_hermanas_biblioteca.sql"
+).read_text(encoding="utf-8")
+SQL51 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0051_ads_acta_listado.sql"
+).read_text(encoding="utf-8")
+SQL40 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0040_ads_report_result.sql"
+).read_text(encoding="utf-8")
+SQL77 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0077_auto03_evaluacion_producto.sql"
+).read_text(encoding="utf-8")
+SQL42 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0042_ads_campaign_proposal.sql"
+).read_text(encoding="utf-8")
+SQL64 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0064_bids02_grupo_tipo.sql"
 ).read_text(encoding="utf-8")
 
 # ADS D.1: la cadena de harvest incluye 0044 (decision_sin_aplicar).
@@ -113,7 +156,9 @@ _skip_db = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# Patron _db_temporal de test_apply_cola (COPIADO; aplica 0001 + 0002)
+# Patron _db_temporal de test_apply_cola (COPIADO) con la cadena de las vistas
+# de margen hasta 0092 (TEMPORADA 01 I): la cola lee el margen vigente al
+# revalidar, igual que el ciclo.
 # ---------------------------------------------------------------------------
 
 
@@ -132,10 +177,34 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' para las vistas de margen
+        conn.execute(SQL13)  # 0013 (BIDS 01): guarda de entidad inerte
         conn.execute(SQL14)  # 0014: ledger keyword_archivo_manual (BIDS 01 2.2)
+        # Cadena de las vistas de margen, EN ORDEN como en produccion: 0015 crea
+        # la vista de plataforma, 0016 la corrige, 0018/0047/0048 traen la de
+        # producto y familia, 0086 manda los cargos por v_ledger_cargo
+        # (ARREGLOS 02 D) y 0092 agrega el margen vigente (TEMPORADA 01 I) que
+        # la cola lee al revalidar — sin ellas la revalidacion revienta con
+        # UndefinedColumn cogs_vigente.
+        conn.execute(SQL15)  # 0015 (ORBIT 06): peldano margen_plataforma
+        conn.execute(SQL16)  # 0016: reemplaza la vista de 0015
+        conn.execute(SQL17)  # 0017: first_seen_at de metricas
+        conn.execute(SQL18)  # 0018 (A4): campana_grupo_rol + v_margen_producto
+        conn.execute(SQL19)  # 0019 (A.2): publicacion de grupos v2
+        conn.execute(SQL38)  # 0038 (A.2): biblioteca de hermanas + fase F2
+        conn.execute(SQL51)  # 0051 (ARREGLOS 01 J): acta de listado
+        conn.execute(SQL40)  # 0040 (C.5): ads_report_result (perfil por readback)
+        conn.execute(SQL77)  # 0077 (AUTO-03): evaluacion_producto_ciclo
+        conn.execute(SQL42)  # 0042 (C.1): ads_campaign_proposal
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        conn.execute(SQL46)  # 0046 (C.2a): target_acos_ciclo (0048 altera su CHECK)
+        conn.execute(SQL47)  # 0047 (A4): familias
+        conn.execute(SQL48)  # 0048 (A5): v_margen_familia
+        conn.execute(SQL64)  # 0064 (BIDS 02 I.1): campana_grupo.tipo para el roster
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
+        conn.execute(SQL86)  # 0086 (ARREGLOS 02 D): cargos por v_ledger_cargo
+        conn.execute(SQL92)  # 0092 (TEMPORADA 01 I): margen vigente
         yield conn
     finally:
         if conn is not None:
@@ -1102,8 +1171,8 @@ def test_matriz_negative_created_con_negative_ya_en_amazon_avanza_sin_duplicar()
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1144,8 +1213,8 @@ def test_matriz_negative_created_keyword_ya_en_destino_done_sin_mutaciones():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ],
             keywords=[
@@ -1155,7 +1224,7 @@ def test_matriz_negative_created_keyword_ya_en_destino_done_sin_mutaciones():
                     "keywordId": "k-7",
                     "keywordText": TERMINO,
                     "matchType": "EXACT",
-                    "state": "enabled",
+                    "state": "ENABLED",
                     "bid": "1.00",
                 }
             ],
@@ -1204,8 +1273,8 @@ def test_matriz_keyword_archivada_en_vuelo_cero_post_y_cierre_declarado():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ],
             keywords=[
@@ -1260,8 +1329,8 @@ def test_matriz_keyword_archivada_planeado_tambien_bloquea_el_post():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ],
             keywords=[
@@ -1314,8 +1383,8 @@ def test_matriz_archivo_repuesto_no_bloquea_harvest():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "EXACT",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1354,8 +1423,8 @@ def test_matriz_exact_created_keyword_ya_en_destino_done():
                     "campaignId": DESTINO_CAMPANA,
                     "keywordId": "k-7",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1399,8 +1468,8 @@ def test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada():
                     "campaignId": "9000",
                     "keywordId": "k-otro",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1439,8 +1508,8 @@ def test_matriz_applying_huerfano_negative_confirmado_por_identidad():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-3",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )
@@ -1480,8 +1549,8 @@ def test_matriz_applying_huerfano_negative_senuelo_failed():
                     "campaignId": "9000",
                     "keywordId": "n-otro",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ]
         )

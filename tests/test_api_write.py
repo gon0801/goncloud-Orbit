@@ -66,6 +66,20 @@ SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_iner
 SQL15 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0015_target_margen_plataforma.sql"
 ).read_text(encoding="utf-8")
+# Cross-review de la implementacion (kimi + grok): 0016 REEMPLAZA la vista de
+# 0015. Se aplican EN ORDEN, como en produccion.
+SQL16 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0016_target_margen_correcciones.sql"
+).read_text(encoding="utf-8")
+# ARREGLOS 02 D + TEMPORADA 01 I: la cadena del ciclo publica el margen desde
+# v_ledger_cargo con el margen vigente (costo de hoy); sin la 0092 el ciclo
+# revienta con UndefinedColumn cogs_vigente.
+SQL86 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0086_arreglos02_cargos.sql"
+).read_text(encoding="utf-8")
+SQL92 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0092_temporada01_margen_vigente.sql"
+).read_text(encoding="utf-8")
 SQL42 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0042_ads_campaign_proposal.sql"
 ).read_text(encoding="utf-8")
@@ -464,6 +478,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL13)  # 0013 (BIDS 01): los ciclos reales leen la vista en TX2
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
+        conn.execute(SQL16)  # 0016: correcciones del margen de plataforma (en orden)
         conn.execute(SQL42)
         conn.execute(SQL46)  # 0046 (C.2a): la TX3 del ciclo escribe el freeze
         conn.execute(SQL40)
@@ -472,6 +487,10 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL47)  # 0047 (A4): familia en TX2
         conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
         conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
+        # ARREGLOS 02 D + TEMPORADA 01 I: el margen lee v_ledger_cargo y
+        # publica el margen vigente (costo de hoy), que el ciclo gobierna.
+        conn.execute(SQL86)
+        conn.execute(SQL92)
         conn.execute(SQL60)  # 0060 (M.3): base de lectura de niveles_v3 en TX2
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado

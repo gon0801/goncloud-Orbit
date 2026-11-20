@@ -43,7 +43,8 @@ SELECT pf.familia_id, f.padre_id
 
 _SQL_MARGEN_FAMILIA = """
 SELECT familia_id, padre_id, margen_neto_pct, cobertura, dias_con_venta,
-       venta_cubierta, ledger_fresco_at, moneda, ventana_desde, ventana_hasta
+       venta_cubierta, ledger_fresco_at, moneda, ventana_desde, ventana_hasta,
+       cogs_vigente, cobertura_vigente, margen_vigente_pct, venta_total
   FROM v_margen_familia
  WHERE platform = %s::platform AND familia_id = ANY(%s)
 """
@@ -87,15 +88,20 @@ def lee_evaluacion_ciclo(
 
 
 def _medicion(fila) -> g.MedicionMargen:
+    # TEMPORADA 01 I: gobierna el margen vigente (costo de hoy); el historico
+    # de la ventana viaja en margen_historico_pct. La venta cubierta de la
+    # guarda es la proyeccion vigente de la misma fila (las ventas cubiertas
+    # son las que tienen costo de hoy), no la historica que trae la vista.
     return g.MedicionMargen(
-        margen_neto_pct=fila[2],
-        cobertura=fila[3],
+        margen_neto_pct=fila[12],
+        cobertura=fila[11],
         dias_con_venta=fila[4],
-        venta_cubierta=fila[5],
+        venta_cubierta=g.importe_cubierto_vigente(fila[13], fila[11]),
         ledger_fresco_at=fila[6],
         moneda=str(fila[7]) if fila[7] is not None else None,
         ventana_desde=fila[8],
         ventana_hasta=fila[9],
+        margen_historico_pct=fila[2],
     )
 
 

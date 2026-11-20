@@ -195,6 +195,17 @@ def test_arreglos02_d_la_reversa_regresa_las_vistas():
         con_migracion = _cargos_con_orden(conn, pid, fid)
         assert con_migracion["v_margen_producto"] == Decimal("-250"), con_migracion
 
+        # La vuelta atras va en ORDEN INVERSO de aplicacion (rollback.sh):
+        # primero la reversa de la 0092 (TEMPORADA 01 I), que deja las cuatro
+        # vistas con el texto exacto que les dio 0086, y despues la reversa de
+        # 0086. Sin el paso previo la 0086 no aplica: su CREATE OR REPLACE no
+        # puede quitar las tres columnas que 0092 agrego al final
+        # ("cannot drop columns from view").
+        conn.execute(
+            (ROOT / "migrations" / "0092_reversa_temporada01_margen_vigente.sql").read_text(
+                encoding="utf-8"
+            )
+        )
         reversa = ROOT / "migrations" / "0086_reversa_arreglos02_cargos.sql"
         conn.execute(reversa.read_text(encoding="utf-8"))
 

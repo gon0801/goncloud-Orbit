@@ -1,0 +1,2 @@
+﻿Detect hardcoded secrets.................................................Passed
+check for merge conflicts................................................Passed

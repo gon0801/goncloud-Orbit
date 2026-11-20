@@ -775,7 +775,13 @@ MOTIVOS_ABSTENCION = (
 class MedicionMargen:
     """Espejo puro de UNA fila de v_target_margen_plataforma (D-2.3.4).
     Dinero en Decimal, fechas en date/datetime; faltante = None (regla 3).
-    cobertura es POR MONTO (venta_cubierta/venta_total, A3)."""
+    cobertura es POR MONTO (venta_cubierta/venta_total, A3).
+
+    TEMPORADA 01 I: el margen que GOBIERNA es el vigente (costo de hoy de
+    cada producto): `margen_neto_pct` trae `margen_vigente_pct` de la vista,
+    `cobertura` trae `cobertura_vigente` (las ventas cubiertas son las que
+    tienen costo de hoy), y `margen_historico_pct` conserva el medido con el
+    costo de la fecha de cada venta (auditoria en notes.target)."""
 
     margen_neto_pct: Decimal | None
     cobertura: Decimal | None
@@ -785,6 +791,7 @@ class MedicionMargen:
     moneda: str | None
     ventana_desde: dt.date | None
     ventana_hasta: dt.date | None
+    margen_historico_pct: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -808,18 +815,37 @@ def hoy_de_ventana(ventana_hasta: dt.date) -> dt.date:
     return ventana_hasta + dt.timedelta(days=15)
 
 
+def importe_cubierto_vigente(
+    venta_total: Decimal | None, cobertura_vigente: Decimal | None
+) -> Decimal | None:
+    """TEMPORADA 01 I: el importe cubierto que llega a la guarda es el
+    VIGENTE, proyectado con las magnitudes que ya publica la vista
+    (venta_total x cobertura_vigente): las ventas cubiertas del margen que
+    gobierna son las que tienen costo de hoy, aunque el dia de la venta no lo
+    tuvieran. La guarda solo usa su signo; dato faltante sigue siendo None
+    (regla 3) y jamas se rellena."""
+    if venta_total is None or cobertura_vigente is None:
+        return None
+    return venta_total * cobertura_vigente
+
+
 def medicion_desde_fila(fila: Mapping) -> MedicionMargen:
     """Fila dict de v_target_margen_plataforma -> MedicionMargen (columnas
-    DATE literales del spec §3, numericos tal cual, None como None)."""
+    DATE literales del spec §3, numericos tal cual, None como None).
+    TEMPORADA 01 I: gobierna el margen VIGENTE (margen_vigente_pct de la
+    vista); el historico de la ventana viaja en margen_historico_pct y la
+    venta cubierta que llega es la proyeccion vigente de la MISMA fila
+    (importe_cubierto_vigente; regla 2: el numero que decide)."""
     return MedicionMargen(
-        margen_neto_pct=fila["margen_neto_pct"],
-        cobertura=fila["cobertura"],
+        margen_neto_pct=fila["margen_vigente_pct"],
+        cobertura=fila["cobertura_vigente"],
         dias_con_venta=fila["dias_con_venta"],
-        venta_cubierta=fila["venta_cubierta"],
+        venta_cubierta=importe_cubierto_vigente(fila["venta_total"], fila["cobertura_vigente"]),
         ledger_fresco_at=fila["ledger_fresco_at"],
         moneda=fila["moneda"],
         ventana_desde=fila["ventana_desde"],
         ventana_hasta=fila["ventana_hasta"],
+        margen_historico_pct=fila["margen_neto_pct"],
     )
 
 
@@ -1161,6 +1187,7 @@ MEDICION_NULA = MedicionMargen(
     moneda=None,
     ventana_desde=None,
     ventana_hasta=None,
+    margen_historico_pct=None,
 )
 
 
