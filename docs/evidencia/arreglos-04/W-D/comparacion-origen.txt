@@ -1,0 +1,78 @@
+W-D.5 — comparación después del desplegar
+=========================================
+
+Medición repetida por el cierre de ARREGLOS 04 sobre el SHA desplegado
+`f5dc86d5b6cbb8f6ecaafb5c016a99f2d8c13683` (que contiene W-D), con los comandos
+del anexo A de `docs/evidencia/arreglos-04/DISENO.md`, sección «Comparación
+después del desplegar (fila W-D.5)».
+
+Cuándo y contra qué
+-------------------
+
+- Fecha de la corrida: 2026-11-19, 20:10 America/Vancouver.
+- Origen de la lectura de la API: `http://10.13.13.1:8010/api/dashboard/resumen?periodo=7&canal=amazon_mx`,
+  HTTP 200.
+- Origen de la lectura de la base: `docs/evidencia/arreglos-01/lee_prod.sh`,
+  rol `orbit_read`, transacción de solo lectura, solo `SELECT`.
+- Ninguna escritura: la receta es de lectura por los dos lados.
+
+Ventana y corte que declara la respuesta
+----------------------------------------
+
+Del bloque `comparison` de `canales.amazon_mx`, sin recortar:
+
+- `desde`: `2026-11-05`
+- `hasta`: `2026-11-11`
+- `dias`: 7
+- `observado_hasta`: `2026-11-13T03:00:48.064623+00:00`
+- `totals.ad_revenue`: `41337.5200`
+- `totals.dias_ad_revenue`: 7
+
+La consulta usa exactamente esos tres valores: `metric_date BETWEEN date
+'2026-11-05' AND date '2026-11-11'` y `observed_at <= timestamptz
+'2026-11-13T03:00:48.064623+00:00'`, solo `platform = 'amazon_mx'` y
+`kind = 'campaign'`.
+
+```sql
+SELECT sum(ad_revenue) FROM (
+  SELECT DISTINCT ON (o.ad_entity_id, o.metric_date) o.ad_revenue
+    FROM ads_metric_observation o JOIN ad_entity e ON e.id = o.ad_entity_id
+   WHERE e.kind = 'campaign' AND e.platform = 'amazon_mx'
+     AND o.metric_date BETWEEN date '2026-11-05' AND date '2026-11-11'
+     AND o.observed_at <= timestamptz '2026-11-13T03:00:48.064623+00:00'
+   ORDER BY o.ad_entity_id, o.metric_date, o.observed_at DESC) t
+```
+
+Resultado de la base: `41337.5200`.
+
+Las dos lecturas
+----------------
+
+| Lectura | Valor |
+| --- | --- |
+| `comparison.totals.ad_revenue` de la API | `41337.5200` |
+| suma de la consulta con el mismo corte | `41337.5200` |
+
+Cuadran. `comparacion.txt` guarda solo las dos líneas que su `Acepta` compara
+como `Decimal`, y ese comando sale 0 con este archivo.
+
+La medición original de W-D
+---------------------------
+
+La sesión de W-D dejó en su worktree estas mismas dos líneas. Se conservan sin
+tocar en `comparacion-sesion61.txt`: el archivo se escribió el 2026-11-19 a las
+17:10 America/Vancouver, después del merge del bloque (`21ccca2`, 17:06), y no
+declara el SHA desplegado, la ventana ni el corte. No se usa para acreditar la
+fila y no se le atribuye esta lectura; queda como registro. La lectura que
+acredita W-D.5 es la de arriba, medida sobre
+`f5dc86d5b6cbb8f6ecaafb5c016a99f2d8c13683`, con su ventana y su corte copiados
+de la respuesta.
+
+Por qué no basta la cifra compartida con el anexo A
+--------------------------------------------------
+
+`DISENO.md` cita `41337.52` como el total del periodo actual de una consulta
+histórica (5 a 11 de noviembre, medida con `now() - interval '7 days'` en su
+momento). Que la cifra coincida no acredita nada por sí sola: lo que acredita
+esta fila es que la consulta usó la ventana y el `observado_hasta` que la
+respuesta declara, y eso queda arriba, junto con los dos resultados.
