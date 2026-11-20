@@ -75,9 +75,7 @@ filas_a_la_edad = []
 fecha = ventana.anterior_desde
 while fecha <= ventana.anterior_hasta:
     observado = dt.datetime.combine(fecha + dt.timedelta(days=2), dt.time(8), tzinfo=dt.UTC)
-    filas_a_la_edad.append(
-        (fecha, Decimal("20.6000"), Decimal("76.0000"), 10, 2, observado)
-    )
+    filas_a_la_edad.append((fecha, Decimal("20.6000"), Decimal("76.0000"), 10, 2, observado))
     fecha += dt.timedelta(days=1)
 
 conn = _ConnFalsa(
@@ -101,9 +99,9 @@ assert Decimal(comparison["totals"]["ad_revenue"]) != Decimal("676"), (
     "periodo anterior lee la foto final"
 )
 assert comparison["observado_hasta"] is not None, "falta observado_hasta"
-assert comparison["observado_hasta"] == (instante - dt.timedelta(days=7)).isoformat(), (
-    comparison["observado_hasta"]
-)
+assert comparison["observado_hasta"] == (instante - dt.timedelta(days=7)).isoformat(), comparison[
+    "observado_hasta"
+]
 frase = vista_resumen(contrato)["tarjetas"]["amazon_mx"]["frase"]
 assert "bajaron" not in frase, frase
 
