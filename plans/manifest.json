@@ -243,7 +243,7 @@
     {
       "name": "temporada-01",
       "path": "plans/temporada-01.md",
-      "description": "TEMPORADA 01 — pendiente de implementar, despues de ARREGLOS 04 y antes de ARREGLOS 05, en serie. Base ARREGLOS 01/02 ya integrada; consume contratos de 03/04. Calendario, margen vigente, episodios, practica, readback, regreso y propuestas de presupuesto."
+      "description": "TEMPORADA 01 — bloque I (I.0-I.3) implementado: equilibrio con el costo de hoy (0092 y su reversa), migraciones_de suma temporada01, meta derivada y equilibrio_acos_pct desde margen_vigente_pct, notes.target con los dos margenes. Siguen A, B, C, D, P, E, F, G y H, en serie."
     },
     {
       "name": "arreglos-05",
@@ -251,5 +251,5 @@
       "description": "ARREGLOS 05 — plan disenado ahora para ejecutar despues de TEMPORADA 01. BASE; A ciclo; B reversas 03/10; C reposicion 11; D frontera Ads; E shadow; F target 12; G sello 13; H150; I settings; J modos; K fees; Z aceptacion global de los 14 hallazgos con correcciones de 03/04. No implementado."
     }
   ],
-  "active": "arreglos-04"
+  "active": "temporada-01"
 }
