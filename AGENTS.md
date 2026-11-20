@@ -19,8 +19,7 @@ valer para todos va aquí también.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
 - Ejecuta las comprobaciones que pide el plan aprobado en cada bloque (columna `Acepta` cuando exista). Amplíalas si el cambio afecta un comportamiento que falta comprobar. La suite completa solo es obligatoria cuando David o el plan aprobado la piden.
-- Ante un fallo observado, reproduce el caso afectado en el candidato y en su base con el mismo entorno. Corrige las regresiones del cambio y documenta los fallos previos en el PR.
-- Si dejas una comprobación en segundo plano, conserva un medio de recibir su resultado y retomar el trabajo.
+- Corrige las regresiones del cambio. Si hay dudas sobre el origen de un fallo relevante, puedes comparar ese caso con la base en el mismo entorno. Un fallo previo se anota en el PR.
 
 ## Stack
 
