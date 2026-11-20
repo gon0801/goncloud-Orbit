@@ -404,6 +404,75 @@ def test_temporada01_i_equilibrio_con_costo_vigente():
         assert fam["margen_neto_pct"] is None
         assert fam["margen_vigente_pct"] == Decimal("40")
 
+    # --- Review Devin: los cargos de ordenes SOLO-VIGENTES pasan por las
+    # guardas de SU conjunto. Ventas sin costo historico (la guarda historica
+    # no ve ningun cargo) con costo de hoy vivo: (a) cargos con orden en OTRA
+    # moneda: el margen vigente es NULL, jamas mezcla USD con la venta MXN
+    # (regla 4); (b) cargos con orden SIN clasificar: NULL por fees_sin_tipo
+    # vigente. Antes del espejo de guardas el vigente publicaba 40 % con esos
+    # cargos. Las tres vistas repiten el caso.
+    with _db("orbit_t01_i_cargos_usd") as conn:
+        _libro_fresco(conn)
+        run = _run(conn)
+        hoy = _hoy(conn)
+        pid = _producto(conn, "SKU-I", costo="500", desde=hoy - _DIA * 200, hasta=hoy - _DIA * 110)
+        conn.execute(
+            "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+            " valid_from) VALUES (%s, %s, 'MXN', true, %s)",
+            (pid, Decimal("300"), hoy - _DIA * 14),
+        )
+        for i in range(90):
+            fecha = hoy - _DIA * (105 - i)
+            orden = f"o-{i}"
+            _venta(conn, run, pid, fecha, "1000", orden)
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, amount,"
+                " amount_currency, fee_type, order_id, ingest_run_id)"
+                " VALUES ('amazon_mx', 'fee', %s, %s, 'USD', 'closing', %s, %s)",
+                (fecha, Decimal("-300"), orden, run),
+            )
+        fid = _familia(conn, pid)
+        conn.commit()
+        fila = _fila(conn, "v_target_margen_plataforma")
+        assert fila["cobertura_vigente"] == Decimal("1")
+        assert fila["margen_neto_pct"] is None
+        assert fila["margen_vigente_pct"] is None
+        prod = _fila(conn, "v_margen_producto", "product_id", pid)
+        assert prod["margen_vigente_pct"] is None
+        fam = _fila(conn, "v_margen_familia", "familia_id", fid)
+        assert fam["margen_vigente_pct"] is None
+
+    with _db("orbit_t01_i_cargos_sin_tipo") as conn:
+        _libro_fresco(conn)
+        run = _run(conn)
+        hoy = _hoy(conn)
+        pid = _producto(conn, "SKU-I", costo="500", desde=hoy - _DIA * 200, hasta=hoy - _DIA * 110)
+        conn.execute(
+            "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+            " valid_from) VALUES (%s, %s, 'MXN', true, %s)",
+            (pid, Decimal("300"), hoy - _DIA * 14),
+        )
+        for i in range(90):
+            fecha = hoy - _DIA * (105 - i)
+            orden = f"o-{i}"
+            _venta(conn, run, pid, fecha, "1000", orden)
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, amount,"
+                " amount_currency, fee_type, order_id, ingest_run_id)"
+                " VALUES ('amazon_mx', 'fee', %s, %s, 'MXN', NULL, %s, %s)",
+                (fecha, Decimal("-300"), orden, run),
+            )
+        fid = _familia(conn, pid)
+        conn.commit()
+        fila = _fila(conn, "v_target_margen_plataforma")
+        assert fila["cobertura_vigente"] == Decimal("1")
+        assert fila["margen_neto_pct"] is None
+        assert fila["margen_vigente_pct"] is None
+        prod = _fila(conn, "v_margen_producto", "product_id", pid)
+        assert prod["margen_vigente_pct"] is None
+        fam = _fila(conn, "v_margen_familia", "familia_id", fid)
+        assert fam["margen_vigente_pct"] is None
+
 
 def _huella_vistas(conn) -> dict:
     """Columnas + permisos + comentarios + definicion de las cuatro vistas."""

@@ -49,7 +49,42 @@ Demostracion (regla de diseno 9), mismo arnes:
 | candidato `1885400` sin corregir | 9 fallan |
 | candidato + `b2959fd` (corregido) | 9 pasan |
 
-## 2. Hallazgo del dueño: la guarda descartaba el margen vigente (commit `a8218b4`)
+## 2bis. Hallazgo de review (Devin): guardas del margen vigente sobre su propio conjunto
+
+Comentario en `migrations/0092_temporada01_margen_vigente.sql` (thread
+`PRRT_kwDOUANqbs66MYH_`, kind bug): los cargos que entran al numerador del
+`margen_vigente_pct` provienen de `ordenes_vigentes` (`cargos_vigentes`),
+pero las guardas de moneda y clasificacion (`cargos_ag`) se calculaban solo
+sobre el conjunto historico (`cargos`/`ordenes_cubiertas`). Con ventas sin
+costo historico y costo de hoy vivo, un cargo de una orden solo-vigente en
+OTRA moneda o con `fee_type NULL` entraba al numerador sin activar ninguna
+guarda: el vigente publicaba 40 % mezclando USD con la venta MXN (regla 4).
+El mismo desfase existia en producto (`cargos_producto_vigente` sin
+indicadores; guardas desde `cp`) y familia (`prod` media integridad desde
+`co`/`o`, no desde `cov`/`ov`).
+
+Correccion (espejo mecanico de guardas): `cargos_vigentes` pasa a ser el
+conjunto completo (con orden de `ordenes_vigentes` UNION ALL sin orden
+compartido) y `cargos_ag_vigentes` trae monto + `n_monedas_cargos` +
+`moneda_cargos` + `fees_sin_tipo`; el CASE del vigente usa esos indicadores.
+En producto, `orden_cubierta_vigente` trae `n_monedas`, `cargos_orden_vigente`
+espeja `cargos_orden` (monto, n_monedas, moneda, fees_sin_tipo) y
+`cargos_producto_vigente` trae los mismos indicadores que `cargos_producto`;
+el CASE vigente usa `cpv.*`. En familia, `prod` agrega `fees_sin_tipo_vigente`,
+`n_monedas_orden_vigente` y `moneda_vigente` (el CASE de moneda espejado sobre
+`cov`/`ov`); `ag` los agrega y el CASE vigente los usa. Los indicadores
+historicos quedan separados para el margen historico.
+
+Pruebas (casos del ejemplo del review, las tres vistas): con el arnes del
+caso sin costo historico, (a) cargos con orden en USD: `margen_vigente_pct`
+NULL en plataforma, producto y familia; (b) cargos con orden con `fee_type
+NULL`: NULL por fees_sin_tipo vigente.
+
+Demostracion (regla 9): contra la migracion de `ddf1919` el caso (a) falla
+con `assert Decimal('40.000...') is None` (el vigente publicado sin las
+guardas propias); con la correccion pasan los 3 tests del archivo.
+
+## 2ter. Hallazgo del dueño: la guarda descartaba el margen vigente (commit `a8218b4`)
 
 Hallazgo reproducible en `0191c68`: con 90 dias de ventas sin costo historico y costo de hoy
 vivo, la vista devuelve `margen_vigente_pct` 40 y `cobertura_vigente` 1, pero

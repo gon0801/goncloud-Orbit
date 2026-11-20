@@ -97,14 +97,33 @@ cargos AS (
 ),
 cargos_vigentes AS (
     -- Mismos cargos y mismas guardas, con las ordenes cubiertas por el costo
-    -- de HOY. El sin_orden se comparte: se prorratea por cobertura_vigente.
-    SELECT l.platform, SUM(l.amount) AS monto_con_orden
+    -- de HOY; el sin_orden se comparte. Los indicadores de moneda y
+    -- clasificacion del margen vigente se calculan SOBRE ESTE conjunto
+    -- (review Devin): un cargo de una orden solo-vigente no puede entrar al
+    -- numerador sin pasar por las guardas de su propio conjunto.
+    SELECT l.platform, l.amount, l.amount_currency, l.kind, l.fee_type, true AS con_orden
       FROM v_ledger_cargo l
       JOIN ordenes_vigentes o
         ON o.platform = l.platform AND o.order_id = l.order_id
      WHERE l.kind IN ('fee', 'refund', 'withholding')
        AND COALESCE(l.fee_type, '') <> 'ads'
-     GROUP BY l.platform
+    UNION ALL
+    SELECT l.platform, l.amount, l.amount_currency, l.kind, l.fee_type, false
+      FROM v_ledger_cargo l
+      CROSS JOIN ventana v
+     WHERE l.kind IN ('fee', 'refund', 'withholding')
+       AND COALESCE(l.fee_type, '') <> 'ads'
+       AND l.order_id IS NULL
+       AND l.event_date >= v.desde AND l.event_date < v.hasta
+),
+cargos_ag_vigentes AS (
+    SELECT platform,
+           SUM(amount) FILTER (WHERE con_orden) AS monto_con_orden,
+           COUNT(DISTINCT amount_currency) AS n_monedas_cargos,
+           MAX(amount_currency::text) AS moneda_cargos,
+           COUNT(*) FILTER (WHERE fee_type IS NULL) AS fees_sin_tipo
+      FROM cargos_vigentes
+     GROUP BY platform
 ),
 cargos_ag AS (
     SELECT platform,
@@ -190,10 +209,10 @@ SELECT a.platform,
        END AS cobertura_vigente,
        CASE
            WHEN a.n_monedas <> 1 THEN NULL
-           WHEN COALESCE(cg.n_monedas_cargos, 0) > 1 THEN NULL
-           WHEN cg.moneda_cargos IS NOT NULL
-                AND cg.moneda_cargos <> a.moneda_unica::text THEN NULL
-           WHEN COALESCE(cg.fees_sin_tipo, 0) > 0 THEN NULL
+           WHEN COALESCE(cgv.n_monedas_cargos, 0) > 1 THEN NULL
+           WHEN cgv.moneda_cargos IS NOT NULL
+                AND cgv.moneda_cargos <> a.moneda_unica::text THEN NULL
+           WHEN COALESCE(cgv.fees_sin_tipo, 0) > 0 THEN NULL
            WHEN a.venta_cubierta_vigente IS NULL
                 OR a.venta_cubierta_vigente <= 0 THEN NULL
            WHEN a.venta_cubierta_vigente / NULLIF(a.venta_total, 0) < 0.95
@@ -208,7 +227,7 @@ SELECT a.platform,
   FROM ag a
   JOIN fresco fr USING (platform)
   LEFT JOIN cargos_ag cg USING (platform)
-  LEFT JOIN cargos_vigentes cgv USING (platform);
+  LEFT JOIN cargos_ag_vigentes cgv USING (platform);
 
 
 CREATE OR REPLACE VIEW v_margen_producto AS
@@ -253,7 +272,8 @@ orden_cubierta AS (
 ),
 orden_cubierta_vigente AS (
     -- Misma base del prorrateo, con las ordenes cubiertas por el costo de HOY.
-    SELECT platform, order_id, SUM(amount) AS venta_orden
+    SELECT platform, order_id, SUM(amount) AS venta_orden,
+           COUNT(DISTINCT amount_currency) AS n_monedas
       FROM ventas
      WHERE order_id IS NOT NULL AND cogs_vigente_linea IS NOT NULL
      GROUP BY platform, order_id
@@ -271,7 +291,14 @@ cargos_orden AS (
      GROUP BY l.platform, l.order_id
 ),
 cargos_orden_vigente AS (
-    SELECT l.platform, l.order_id, SUM(l.amount) AS monto
+    -- Espejo completo de cargos_orden sobre las ordenes cubiertas HOY
+    -- (review Devin): los indicadores de moneda y clasificacion del margen
+    -- vigente salen de su propio conjunto, no del historico.
+    SELECT l.platform, l.order_id,
+           SUM(l.amount) AS monto,
+           COUNT(DISTINCT l.amount_currency) AS n_monedas,
+           MAX(l.amount_currency::text) AS moneda,
+           COUNT(*) FILTER (WHERE l.fee_type IS NULL) AS fees_sin_tipo
       FROM v_ledger_cargo l
       JOIN orden_cubierta_vigente o
         ON o.platform = l.platform AND o.order_id = l.order_id
@@ -299,9 +326,14 @@ cargos_producto AS (
 ),
 cargos_producto_vigente AS (
     -- Prorrateo identico al historico, con las ordenes cubiertas por el costo
-    -- de HOY (TEMPORADA 01 I).
+    -- de HOY, y los MISMOS indicadores de moneda y clasificacion sobre este
+    -- conjunto (review Devin), espejo de cargos_producto.
     SELECT v.platform, v.product_id,
-           SUM(cov.monto * v.amount / ov.venta_orden) AS cargos_con_orden
+           SUM(cov.monto * v.amount / ov.venta_orden) AS cargos_con_orden,
+           SUM(cov.fees_sin_tipo) AS fees_sin_tipo,
+           GREATEST(MAX(cov.n_monedas), COUNT(DISTINCT cov.moneda)) AS n_monedas_cargos,
+           MAX(ov.n_monedas) AS n_monedas_orden,
+           MAX(cov.moneda) AS moneda_cargos
       FROM ventas v
       JOIN orden_cubierta_vigente ov
         ON ov.platform = v.platform AND ov.order_id = v.order_id
@@ -389,16 +421,16 @@ SELECT a.platform,
            AS cobertura_vigente,
        CASE
            WHEN a.n_monedas <> 1 THEN NULL
-           WHEN COALESCE(cp.n_monedas_cargos, 0) > 1 OR COALESCE(p.n_monedas, 0) > 1 THEN NULL
-           WHEN cp.moneda_cargos IS NOT NULL AND cp.moneda_cargos <> a.moneda_unica::text THEN NULL
+           WHEN COALESCE(cpv.n_monedas_cargos, 0) > 1 OR COALESCE(p.n_monedas, 0) > 1 THEN NULL
+           WHEN cpv.moneda_cargos IS NOT NULL AND cpv.moneda_cargos <> a.moneda_unica::text THEN NULL
            WHEN p.moneda IS NOT NULL AND p.moneda <> a.moneda_unica::text THEN NULL
-           WHEN COALESCE(cp.fees_sin_tipo, 0) + COALESCE(p.fees_sin_tipo, 0) > 0 THEN NULL
+           WHEN COALESCE(cpv.fees_sin_tipo, 0) + COALESCE(p.fees_sin_tipo, 0) > 0 THEN NULL
            WHEN a.venta_cubierta_vigente IS NULL
                 OR a.venta_cubierta_vigente <= 0 THEN NULL
            WHEN a.venta_cubierta_vigente / NULLIF(a.venta_total, 0) < 0.95
            THEN NULL
            WHEN a.dias_con_venta < 30 THEN NULL
-           WHEN COALESCE(cp.n_monedas_orden, 0) > 1 THEN NULL
+           WHEN COALESCE(cpv.n_monedas_orden, 0) > 1 THEN NULL
            WHEN vp.n_monedas > 1 THEN NULL
            ELSE 100.0 * (a.venta_cubierta_vigente
                 + COALESCE(cpv.cargos_con_orden, 0)
@@ -447,7 +479,9 @@ orden_cubierta AS (
      GROUP BY platform, order_id
 ),
 orden_cubierta_vigente AS (
-    SELECT platform, order_id, SUM(amount) AS venta_orden
+    -- Misma base del prorrateo, con las ordenes cubiertas por el costo de HOY.
+    SELECT platform, order_id, SUM(amount) AS venta_orden,
+           COUNT(DISTINCT amount_currency) AS n_monedas
       FROM ventas
      WHERE order_id IS NOT NULL AND cogs_vigente_linea IS NOT NULL
      GROUP BY platform, order_id
@@ -465,7 +499,14 @@ cargos_orden AS (
      GROUP BY l.platform, l.order_id
 ),
 cargos_orden_vigente AS (
-    SELECT l.platform, l.order_id, SUM(l.amount) AS monto
+    -- Espejo completo de cargos_orden sobre las ordenes cubiertas HOY
+    -- (review Devin): los indicadores de moneda y clasificacion del margen
+    -- vigente salen de su propio conjunto, no del historico.
+    SELECT l.platform, l.order_id,
+           SUM(l.amount) AS monto,
+           COUNT(DISTINCT l.amount_currency) AS n_monedas,
+           MAX(l.amount_currency::text) AS moneda,
+           COUNT(*) FILTER (WHERE l.fee_type IS NULL) AS fees_sin_tipo
       FROM v_ledger_cargo l
       JOIN orden_cubierta_vigente o
         ON o.platform = l.platform AND o.order_id = l.order_id
@@ -488,6 +529,10 @@ prod AS (
            COALESCE(SUM(cov.monto * v.amount / ov.venta_orden)
                FILTER (WHERE v.cogs_vigente_linea IS NOT NULL), 0)
                AS cargos_con_orden_vigente,
+           COALESCE(SUM(cov.fees_sin_tipo)
+               FILTER (WHERE v.cogs_vigente_linea IS NOT NULL), 0)
+               AS fees_sin_tipo_vigente,
+           MAX(ov.n_monedas) AS n_monedas_orden_vigente,
            COALESCE(SUM(co.fees_sin_tipo), 0) AS fees_sin_tipo,
            COUNT(DISTINCT v.amount_currency) AS n_monedas_ventas,
            MAX(v.amount_currency) AS moneda_ventas,
@@ -503,7 +548,16 @@ prod AS (
                WHEN MAX(co.moneda) IS NOT NULL
                     AND MAX(co.moneda) <> MAX(v.amount_currency)::text THEN NULL
                ELSE MAX(v.amount_currency)
-           END AS moneda
+           END AS moneda,
+           -- Mismo guard de moneda sobre el conjunto VIGENTE (review Devin):
+           -- los cargos de ordenes solo-vigentes juzgan su propia moneda.
+           CASE
+               WHEN COUNT(DISTINCT v.amount_currency) <> 1 THEN NULL
+               WHEN GREATEST(MAX(cov.n_monedas), COUNT(DISTINCT cov.moneda)) > 1 THEN NULL
+               WHEN MAX(cov.moneda) IS NOT NULL
+                    AND MAX(cov.moneda) <> MAX(v.amount_currency)::text THEN NULL
+               ELSE MAX(v.amount_currency)
+           END AS moneda_vigente
       FROM ventas v
       LEFT JOIN orden_cubierta o
         ON o.platform = v.platform AND o.order_id = v.order_id
@@ -547,10 +601,14 @@ ag AS (
            SUM(r.cargos_con_orden) AS cargos_con_orden,
            SUM(r.cargos_con_orden_vigente) AS cargos_con_orden_vigente,
            SUM(r.fees_sin_tipo) AS fees_sin_tipo,
+           SUM(r.fees_sin_tipo_vigente) AS fees_sin_tipo_vigente,
            COUNT(DISTINCT r.moneda) AS n_monedas,
            COUNT(*) FILTER (WHERE r.moneda IS NULL) AS sin_moneda,
+           COUNT(DISTINCT r.moneda_vigente) AS n_monedas_vigente,
+           COUNT(*) FILTER (WHERE r.moneda_vigente IS NULL) AS sin_moneda_vigente,
            MAX(r.moneda) AS moneda_max,
-           MAX(r.n_monedas_orden) AS n_monedas_orden
+           MAX(r.n_monedas_orden) AS n_monedas_orden,
+           MAX(r.n_monedas_orden_vigente) AS n_monedas_orden_vigente
       FROM ramas r
      GROUP BY r.familia_id
 ),
@@ -629,14 +687,14 @@ SELECT a.platform,
             THEN COALESCE(a.venta_cubierta_vigente, 0) / a.venta_total END
            AS cobertura_vigente,
        CASE
-           WHEN a.n_monedas <> 1 OR a.sin_moneda > 0 THEN NULL
-           WHEN a.fees_sin_tipo + COALESCE(p.fees_sin_tipo, 0) > 0 THEN NULL
+           WHEN a.n_monedas_vigente <> 1 OR a.sin_moneda_vigente > 0 THEN NULL
+           WHEN a.fees_sin_tipo_vigente + COALESCE(p.fees_sin_tipo, 0) > 0 THEN NULL
            WHEN a.venta_cubierta_vigente IS NULL
                 OR a.venta_cubierta_vigente <= 0 THEN NULL
            WHEN a.venta_cubierta_vigente / NULLIF(a.venta_total, 0) < 0.95
            THEN NULL
            WHEN d.dias_con_venta < 30 THEN NULL
-           WHEN a.n_monedas_orden > 1 THEN NULL
+           WHEN a.n_monedas_orden_vigente > 1 THEN NULL
            WHEN COALESCE(p.n_monedas, 0) > 1 THEN NULL
            WHEN p.moneda IS NOT NULL AND p.moneda <> a.moneda_max::text THEN NULL
            WHEN vp.n_monedas > 1 THEN NULL
