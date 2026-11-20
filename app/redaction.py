@@ -126,7 +126,7 @@ class SecretScrubFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:  # noqa: BLE001 - nunca debe tumbar el logging
+        except Exception:
             # Fail-closed (hallazgo adversary 2026-09-10): con args mal
             # formados getMessage() levanta y devolver True dejaba el record
             # crudo; logging imprimia el secreto en el "--- Logging error

@@ -503,7 +503,7 @@ def _sella_caida_temprana(dsn: str, exc: Exception) -> None:
                 conn.execute(_SQL_SELLAR_RUN, (0, 0, motivo, False, run_id))
         finally:
             conn.close()
-    except Exception as error:  # noqa: BLE001 - sin base no hay donde dejarla
+    except Exception as error:
         logger.warning("reputacion meli: no se dejo la corrida fallida: %s", scrub(str(error)))
 
 

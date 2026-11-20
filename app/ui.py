@@ -593,7 +593,7 @@ def pagina_precios(request: Request, conn: ConexionLectura) -> HTMLResponse:
     for plataforma, bloque in datos["plataformas"].items():
         try:
             puente = fuentes_precio.contar_listing_identidad(conn, platform=plataforma)
-        except Exception as exc:  # noqa: BLE001 - contraste opcional, no tumba la pantalla
+        except Exception as exc:
             logger.warning("precios: puente %s ilegible: %s", plataforma, scrub(str(exc)))
             puente = None
         recuadro = bloque["recuadro"]

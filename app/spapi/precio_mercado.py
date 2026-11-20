@@ -422,7 +422,7 @@ class MercadoAmazon:
                 )
             except psycopg.Error:
                 raise
-            except Exception as exc:  # noqa: BLE001 - B1: una publicacion no tumba al lote
+            except Exception as exc:
                 lecturas[unidad.listing_id] = Lectura(
                     entrada=None,
                     motivo="escenario_incoherente",
@@ -665,7 +665,7 @@ class MercadoAmazon:
                 continue
             try:
                 cerrar()
-            except Exception:  # noqa: BLE001 - best-effort al salir
+            except Exception:
                 logger.warning("cerrar cliente de %s fallo", self.clave, exc_info=True)
 
 

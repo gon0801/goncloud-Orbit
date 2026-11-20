@@ -104,7 +104,7 @@ def avisa_ciego(motivo: str, *, transport=None) -> bool:
         if not canal_activo():
             return True
         return _envia_texto(aviso_spapi_vigilante_ciego(motivo), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (contrato SP-API)
+    except Exception as exc:
         logger.warning("vigilante: fallo el aviso ciego: %s", scrub(str(exc)))
         return False
 

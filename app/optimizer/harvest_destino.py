@@ -142,9 +142,15 @@ def _lee(conn: psycopg.Connection, platform: str, campaign_id: int) -> _Lectura:
             goal_campana = goal
         else:
             goal_plataforma = goal
+    grupo: tuple[int, str, str, str] | None = None
+    if fila_grupo is not None:
+        grupo = (int(fila_grupo[0]), str(fila_grupo[1]), str(fila_grupo[2]), str(fila_grupo[3]))
+    excepcion: tuple[str, str] | None = None
+    if fila_exc is not None:
+        excepcion = (str(fila_exc[0]), str(fila_exc[1]))
     return _Lectura(
-        grupo=tuple(fila_grupo) if fila_grupo is not None else None,  # type: ignore[arg-type]
-        excepcion=tuple(fila_exc) if fila_exc is not None else None,  # type: ignore[arg-type]
+        grupo=grupo,
+        excepcion=excepcion,
         goal_campana=goal_campana,
         goal_plataforma=goal_plataforma,
     )

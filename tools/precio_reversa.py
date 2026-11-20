@@ -180,7 +180,7 @@ def main(argv=None, *, mercado=None) -> int:
 
             try:
                 lector, escritor, fees, limitador = _clientes_precio(platform)
-            except Exception as exc:  # noqa: BLE001 - sin clientes no hay go real
+            except Exception as exc:
                 raise Abortar(f"sin clientes para {platform}: {exc}") from None
             # MeLi exige el cotizador (`fees`) ademas de lector y escritor.
             with mercados.abrir(

@@ -106,16 +106,16 @@ from typing import TYPE_CHECKING
 # y app/ no esta en sys.path desde tools/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.ads.client import AdsClient  # noqa: E402
-from app.ads.config import AdsCredentials  # noqa: E402
-from app.ads.structure import (  # noqa: E402
+from app.ads.client import AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure import (
     PATH_KEYWORDS,
     PATH_NEGATIVE_KEYWORDS,
     PATH_TARGETS,
     listar_todo,
     perfiles_aceptados,
 )
-from app.redaction import scrub  # noqa: E402
+from app.redaction import scrub
 
 if TYPE_CHECKING:
     from app.ads.structure import PerfilAds

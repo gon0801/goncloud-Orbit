@@ -1620,7 +1620,7 @@ def _sello_fallido(
                 " sucesor) — no se pisa",
                 cycle_id,
             )
-    except Exception:  # noqa: BLE001 - el sello es best-effort, la original sube
+    except Exception:
         logger.warning(
             "sello del ciclo fallido tambien fallo (ciclo %s): %s",
             cycle_id,
@@ -2375,7 +2375,7 @@ def _evalua_productos(
             grupo.grupo_id: ev for ev in evaluaciones for grupo in ev.entrada.grupos_aptos_para_meta
         }
         resumen = productos_io.resumen_cobertura(platform, evaluaciones, goals)
-    except Exception as exc:  # noqa: BLE001 - el camino de productos jamas tumba el ciclo
+    except Exception as exc:
         logger.warning("productos: lectura fallida en %s: %s", platform, scrub(str(exc)))
         resultado.errores.append(f"lectura: {scrub(str(exc)) or type(exc).__name__}")
         return resultado
@@ -2562,7 +2562,7 @@ def _anota_sombra(
             else None
         )
         con_meta = decide_con(target_meta, equilibrio) if target_meta is not None else None
-    except Exception as exc:  # noqa: BLE001 - la sombra jamas cambia la hoja
+    except Exception as exc:
         productos_ciclo.errores.append(
             f"sombra hoja {entidad_id}: {scrub(str(exc)) or type(exc).__name__}"
         )
@@ -3498,7 +3498,7 @@ def _fase_apply(
                 job_key=job_key,
                 tick=guard,
             )
-        except Exception as exc:  # noqa: BLE001 - fail-closed-auditado (docstring)
+        except Exception as exc:
             notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
             fallo = True
     if aplicador is None:
@@ -3586,7 +3586,7 @@ def _fase_apply(
         notas["apply_abortado_owner"] = True
         fallo = True
         logger.warning("fase de apply abortada (lease perdido): %s", scrub(str(exc)))
-    except Exception as exc:  # noqa: BLE001 - fail-closed-auditado (docstring)
+    except Exception as exc:
         conn.rollback()  # ADV-01: lo pre-HTTP ya es durable (commits del ledger)
         notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
         fallo = True
@@ -3652,7 +3652,7 @@ def _fase_notifica(
             )
         if avisos:
             _latido()
-    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+    except Exception as exc:
         notas["aviso_encola"] = "fallo: el aviso de corte encolado no salio (ver log)"
         logger.warning("notifica: fallo en avisos de encola: %s", scrub(str(exc)))
     try:
@@ -3670,7 +3670,7 @@ def _fase_notifica(
                     else detalle
                 )
             _latido()
-    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+    except Exception as exc:
         detalle = "fallo: el aviso de campana de grupo sin destino no salio (ver log)"
         notas["harvest_destino"] = (
             f"{notas['harvest_destino']} | {detalle}" if "harvest_destino" in notas else detalle
@@ -3693,7 +3693,7 @@ def _fase_notifica(
                     f"{notas['cap_agotado']} | {detalle}" if "cap_agotado" in notas else detalle
                 )
             _latido()
-    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+    except Exception as exc:
         # ADV-3 (adversary): el except TAMBIEN acumula, jamas pisa la NOTA
         # ya armada con los detalles de los avisos que fallaron antes.
         detalle = "fallo: el aviso de cap agotado no salio (ver log)"
@@ -3736,7 +3736,7 @@ def _fase_notifica(
             # del target quedaria mudo justo cuando nadie lo esta viendo.
             target["ultimo_avisado"] = nuevo_ancla
         _latido()
-    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+    except Exception as exc:
         notas["digest"] = "fallo: el digest del ciclo no salio (ver log)"
         logger.warning("notifica: fallo en el digest: %s", scrub(str(exc)))
     try:
@@ -3754,7 +3754,7 @@ def _fase_notifica(
                         "fallo: alerta de harvest failed no enviada por Telegram "
                         "(revisar harvest_job)"
                     )
-    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+    except Exception as exc:
         notas["harvest_failed"] = "fallo: la alerta de harvest failed no salio (ver log)"
         logger.warning("notifica: fallo en alertas de harvest: %s", scrub(str(exc)))
     return notas
@@ -3873,7 +3873,7 @@ def _corre_fases(
     if g.propuestas_campana_desde_settings(settings):
         try:
             resultado_avisos = propuestas_campana.envia_avisos_pendientes(conn)
-        except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo
+        except Exception as exc:
             logger.warning("notifica: fallo enviando avisos de propuesta: %s", scrub(str(exc)))
             nota_propuesta = "fallo: avisos de propuesta no enviados (ver log)"
         else:
@@ -3997,7 +3997,7 @@ def corre_ciclo(
             heartbeat_cada=heartbeat_cada,
             aplicador_factory=aplicador_factory,
         )
-    except BaseException as exc:  # noqa: BLE001 - sello + re-lanzamiento sellado
+    except BaseException as exc:
         if cycle_id is not None:  # CicloOcupado no tiene envelope que sellar
             _sello_fallido(conn, cycle_id, exc, contadores, muertos)
         raise

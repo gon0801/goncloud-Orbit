@@ -728,7 +728,7 @@ def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
             scrub(str(exc)),
         )
         return None
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning(
             "salud: precios %s ilegible: %s",
             plataforma,
@@ -759,7 +759,7 @@ def precios(conn: ConexionLectura) -> dict:
                 scrub(str(exc)),
             )
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 - error claro, nunca 500
+        except Exception as exc:
             logger.warning(
                 "precios: %s ilegible: %s",
                 plataforma,

@@ -273,7 +273,7 @@ def registra_keyword(
             if choque is not None:
                 rastro["conflicto_negative"] = True
             return rastro
-    except Exception as exc:  # noqa: BLE001 - el sello jamas aborta por la contabilidad derivada
+    except Exception as exc:
         return _rastro_fallo(
             aplicado="harvest",
             grupo_id=grupo_id,
@@ -311,7 +311,7 @@ def registra_negative(
             conn.execute(SQL_BIBLIOTECA_NEGATIVE, (tipo_producto, platform, norm, origen))
             fila = conn.execute(_SQL_NEGATIVE_ID, (tipo_producto, platform, norm)).fetchone()
             return {"escrita": True, "id": int(fila[0]) if fila else None}
-    except Exception as exc:  # noqa: BLE001 - el sello jamas aborta por la contabilidad derivada
+    except Exception as exc:
         return _rastro_fallo(
             aplicado="negative",
             grupo_id=grupo_id,

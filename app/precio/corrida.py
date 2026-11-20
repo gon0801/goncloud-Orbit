@@ -663,7 +663,7 @@ def _persistir_uno(
         return 0, 0
     except psycopg.Error:
         raise
-    except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
+    except Exception as exc:
         msg = scrub(f"listing={lid} {platform} {exc.__class__.__name__}: {exc}")
         logger.error("corrida %s", msg)
         errores.append(msg)
@@ -771,7 +771,7 @@ def _decidir_lectura(
         aislado = exc
     except psycopg.Error:
         raise
-    except Exception as exc:  # noqa: BLE001 - decidir aislado por publicacion (B1)
+    except Exception as exc:
         aislado = exc
     if aislado is not None:
         msg = scrub(f"listing={lid} {platform} fase1: {aislado.__class__.__name__}: {aislado}")
@@ -1287,7 +1287,7 @@ def _modo_releido(conn, platform: str, canal, mode: str) -> str:
         )
     except psycopg.Error:
         raise
-    except Exception:  # noqa: BLE001 - config ilegible a media corrida: fail closed
+    except Exception:
         return "off"
 
 
@@ -1422,7 +1422,7 @@ def _aplicar_pendientes(
                 continue
             except psycopg.Error:
                 raise
-            except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
+            except Exception as exc:
                 msg = scrub(f"listing={lid} {platform} {exc.__class__.__name__}: {exc}")
                 logger.error("corrida %s", msg)
                 errores.append(msg)
@@ -1445,7 +1445,7 @@ def _aplicar_pendientes(
             errores.append(msg)
             parche_sin_sellar = True
             continue
-        except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
+        except Exception as exc:
             msg = scrub(f"listing={lid} {platform} {exc.__class__.__name__}: {exc}")
             logger.error("corrida %s", msg)
             errores.append(msg)
@@ -1605,7 +1605,7 @@ def correr(
         if avisar is not None:
             try:
                 avisar(conn, platform, hoy, resumen)
-            except Exception as exc:  # noqa: BLE001 - un fallo del sender no tumba `correr`
+            except Exception as exc:
                 msg = scrub(f"avisar: {exc.__class__.__name__}: {exc}")
                 logger.error("corrida %s", msg)
                 resumen = replace(resumen, errores=resumen.errores + (msg,))
@@ -1613,7 +1613,7 @@ def correr(
     finally:
         try:
             _soltar_lock(conn, platform, owner)
-        except Exception as exc:  # noqa: BLE001 - K4: registra, no enmascara la original
+        except Exception as exc:
             logger.error(
                 "corrida %s", scrub(f"soltar lock {platform}: {exc.__class__.__name__}: {exc}")
             )

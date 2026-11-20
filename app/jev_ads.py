@@ -21,12 +21,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, TypeGuard
 from uuid import UUID
 
 Relacion = Literal["satisface", "no_satisface", "informacion_insuficiente"]
 PlataformaAmazon = Literal["amazon_mx", "amazon_us"]
 Finalidad = Literal["exclusion", "ruteo", "keyword"]
+
+
+def es_plataforma_amazon(valor: object) -> TypeGuard[PlataformaAmazon]:
+    """True si `valor` pertenece al vocabulario Amazon de Jev."""
+    return valor in ("amazon_mx", "amazon_us")
+
 
 MotivoIndeterminado = Literal[
     "ficha_ausente",

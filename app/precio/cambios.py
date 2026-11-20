@@ -223,7 +223,7 @@ def _leer_vivo_suave(mercado, unidad: UnidadPrecio) -> Importe | None:
     # concreta en este modulo, el catch es todo el mercado.
     try:
         return mercado.precio_vivo(unidad)
-    except Exception:  # noqa: BLE001 - lectura informativa, jamas tumba
+    except Exception:
         return None
 
 
@@ -257,7 +257,7 @@ def _escribir_y_sellar(
         logger.info("%s cambio=%s error=parche_sin_sellar", origen, cambio_id)
         _sellar(conn, cambio_id, estado="error", error_code="parche_sin_sellar")
         raise
-    except Exception as exc:  # noqa: BLE001 - se sella y sube (r1-A6 solo cubre red)
+    except Exception as exc:
         ruta = getattr(mercado, "_ruta_error", None) or "escribir"
         codigo = f"PATCH {ruta} excepcion:{type(exc).__name__}"
         logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
@@ -351,7 +351,7 @@ def aplicar(
     destino = Importe(Decimal(p_aplicado), p_moneda)
     try:
         vivo = mercado.precio_vivo(unidad)
-    except Exception as exc:  # noqa: BLE001 - fallo del mercado leyendo el vivo
+    except Exception as exc:
         logger.info(
             "aplicar decision=%s error=sin_precio_vivo (%s)",
             decision_id,
@@ -487,7 +487,7 @@ def _revertir_fila(
         )
     try:
         vivo = mercado.precio_vivo(unidad)
-    except Exception as exc:  # noqa: BLE001 - fallo del mercado leyendo el vivo
+    except Exception as exc:
         logger.info(
             "revertir cambio=%s saltado=sin_precio_vivo (%s)",
             cambio_id,
@@ -830,7 +830,7 @@ def _revertir_una(
         return ResultadoReversion(id_reversa=None, estado="saltado", motivo="sin_sku")
     except (psycopg.Error, EscrituraNoDisponible):
         raise
-    except Exception as exc:  # noqa: BLE001 - reporta error y el lote sigue; la
+    except Exception as exc:
         # pendiente huerfana, si quedo, la resuelve cerrar_huerfanas al arrancar
         motivo = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
         logger.info("revertir_lote cambio=%s error=%s", cid, motivo)
@@ -917,7 +917,7 @@ def cerrar_huerfanas(conn: psycopg.Connection, mercado) -> int:
         unidad = _unidad(mercado, conn, lid)
         try:
             vivo = mercado.precio_vivo(unidad)
-        except Exception as exc:  # noqa: BLE001 - ilegible se sella sin_patch
+        except Exception as exc:
             logger.info("huerfana cambio=%s vivo_ilegible (%s)", cid, type(exc).__name__)
             vivo = None
         if vivo is not None and (vivo.valor, vivo.moneda) == (antes, antes_moneda):

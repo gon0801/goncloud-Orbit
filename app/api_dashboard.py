@@ -943,7 +943,7 @@ def _jev_de(conn: ConexionLectura) -> dict | None:
         from app import jev_salud
 
         return jev_salud.salud(conn, ahora=dt.datetime.now(dt.UTC)).como_dict()
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning("salud: jev ilegible: %s", scrub(str(exc)))
         return None
 
@@ -951,7 +951,7 @@ def _jev_de(conn: ConexionLectura) -> dict | None:
 def _ads_ingest_de(conn: ConexionLectura, plataforma: str) -> dict | None:
     try:
         return bloque_ads_ingest(conn, plataforma)
-    except Exception as exc:  # noqa: BLE001 - version de schema visible en log
+    except Exception as exc:
         logger.warning("salud: ads_ingest %s ilegible: %s", plataforma, scrub(str(exc)))
         return None
 
@@ -975,7 +975,7 @@ def _avisos_campana_de(conn: ConexionLectura, plataforma: str) -> list[str] | No
                 por_ubi, por_camp, plataforma=plataforma, gasto_para_concluir=umbral
             )
         ]
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning("salud: avisos_campana %s ilegible: %s", plataforma, scrub(str(exc)))
         return None
 
@@ -996,7 +996,7 @@ def _avisos_propuesta_de(
     pantalla omite la seccion (patron _spapi_de)."""
     try:
         pendientes = conn.execute(_SQL_AVISOS_PROPUESTA_PENDIENTES, (plataforma,)).fetchone()[0]
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning(
             "salud: avisos de propuesta %s ilegibles: %s",
             plataforma,
@@ -1018,7 +1018,7 @@ def _spapi_de(conn: ConexionLectura, plataforma: str) -> dict | None:
     visible. Espejo del try/except por pieza de _quota_de."""
     try:
         return bloque_salud(conn, plataforma)
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning(
             "salud: spapi %s ilegible: %s",
             plataforma,
@@ -1180,7 +1180,7 @@ def _hermanas_de(conn, grupo_id: int, campana_id: int) -> list[dict] | None:
         # desempaqueta por posicion (con dicts iteraria las claves).
         with conn.cursor(row_factory=tuple_row) as cur:
             filas = cur.execute(_SQL_HERMANAS_GRUPO, (grupo_id, campana_id)).fetchall()
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning(
             "cortes: hermanas del grupo %s ilegibles: %s",
             grupo_id,
@@ -1275,7 +1275,7 @@ def cortes(conn: ConexionLectura) -> dict:
         senal_por_decision = {
             decision_id: _senal_presentada(vista) for decision_id, vista in senales.items()
         }
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning("cortes: senal Jev ilegible: %s", scrub(str(exc)))
         senal_por_decision = {}
         senal_disponible = False
@@ -1329,12 +1329,12 @@ def cortes(conn: ConexionLectura) -> dict:
     # la seccion queda vacia y la pantalla NO muere (patron _spapi_de).
     try:
         propuestas = propuestas_campana_visibles(conn)
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning("cortes: propuestas de campana ilegibles: %s", scrub(str(exc)))
         propuestas = []
     try:
         bloqueos_jev, bloqueos_disponibles = _bloqueos_jev(conn)
-    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+    except Exception as exc:
         logger.warning("cortes: bloqueos Jev ilegibles: %s", scrub(str(exc)))
         bloqueos_jev = {"interruptor": False, "plataformas": [], "bloqueos": []}
         bloqueos_disponibles = False
@@ -1399,12 +1399,13 @@ def gasto_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dic
     calculo viejo (> 36 h). Sin mercado se mira amazon_mx; mercado ajeno
     es 422."""
     from app import jev_salud as pantallas_jev
+    from app.jev_ads import es_plataforma_amazon
     from app.jev_vista import titulo_de_banda, titulo_de_lectura
 
     mercado = plataforma or "amazon_mx"
-    if mercado not in PLATAFORMAS_MONEDA:
+    if not es_plataforma_amazon(mercado):
         raise HTTPException(status_code=422, detail="plataforma fuera de vocabulario")
-    pantalla = pantallas_jev.gasto_sin_venta(conn, plataforma=mercado)  # type: ignore[arg-type]
+    pantalla = pantallas_jev.gasto_sin_venta(conn, plataforma=mercado)
     base = pantalla.como_dict()
     filas = []
     for cruda in base["filas"]:
