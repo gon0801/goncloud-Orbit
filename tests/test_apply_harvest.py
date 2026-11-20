@@ -95,9 +95,9 @@ SQL4 = (
 SQL13 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0013_entidad_inerte.sql"
 ).read_text(encoding="utf-8")
-SQL17 = (Path(__file__).resolve().parent.parent / "migrations" / "0017_first_seen_at.sql").read_text(
-    encoding="utf-8"
-)
+SQL17 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0017_first_seen_at.sql"
+).read_text(encoding="utf-8")
 SQL19 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0019_fabrica_grupo_publicacion_v2.sql"
 ).read_text(encoding="utf-8")

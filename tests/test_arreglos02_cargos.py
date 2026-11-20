@@ -202,8 +202,9 @@ def test_arreglos02_d_la_reversa_regresa_las_vistas():
         # puede quitar las tres columnas que 0092 agrego al final
         # ("cannot drop columns from view").
         conn.execute(
-            (ROOT / "migrations" / "0092_reversa_temporada01_margen_vigente.sql")
-            .read_text(encoding="utf-8")
+            (ROOT / "migrations" / "0092_reversa_temporada01_margen_vigente.sql").read_text(
+                encoding="utf-8"
+            )
         )
         reversa = ROOT / "migrations" / "0086_reversa_arreglos02_cargos.sql"
         conn.execute(reversa.read_text(encoding="utf-8"))

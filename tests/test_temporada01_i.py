@@ -79,10 +79,7 @@ def _db(prefijo: str, *, con_margen_vigente: bool = True):
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
-    db = (
-        f"{prefijo}_{socket.gethostname().lower().replace('-', '_')}"
-        f"_{os.getpid()}_{next(_NUMERO)}"
-    )
+    db = f"{prefijo}_{socket.gethostname().lower().replace('-', '_')}_{os.getpid()}_{next(_NUMERO)}"
     admin = psycopg.connect(dsn, autocommit=True)
     conn = None
     try:
@@ -91,7 +88,7 @@ def _db(prefijo: str, *, con_margen_vigente: bool = True):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
-        for migracion in (_CADENA if con_margen_vigente else _CADENA[:-1]):
+        for migracion in _CADENA if con_margen_vigente else _CADENA[:-1]:
             conn.execute(migracion)
         yield conn
     finally:
