@@ -64,20 +64,23 @@ def _inventario(ruta: Path, errores: list[str]):
             "senal": partes[5],
             "otro": partes[6],
         }
-    _revisa_fin(ruta, filas, fin, errores)
+    _revisa_fin(ruta, filas, reversas, fin, errores)
     return filas, reversas, fin
 
 
-def _revisa_fin(ruta: Path, filas: dict[str, dict], fin, errores: list[str]) -> None:
+def _revisa_fin(
+    ruta: Path, filas: dict[str, dict], reversas: list[str], fin, errores: list[str]
+) -> None:
     if fin is None:
         errores.append(f"{ruta.name}: falta el recibo FIN")
         return
     conteos = (
         sum(1 for f in filas.values() if f["plataforma"] == "amazon_mx"),
         sum(1 for f in filas.values() if f["plataforma"] == "amazon_us"),
+        len(reversas),
     )
-    if conteos != fin[:2]:
-        errores.append(f"{ruta.name}: FIN {fin[:2]} no cuadra con filas {conteos}")
+    if conteos != fin:
+        errores.append(f"{ruta.name}: FIN {fin} no cuadra con filas unicas y reversas {conteos}")
 
 
 def _registros(base: Path, errores: list[str]):

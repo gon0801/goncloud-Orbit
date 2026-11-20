@@ -227,6 +227,12 @@ def caso_f():
         "fin_terminal": ("FIN|0|0|0\namazon_mx|v1|1|k|ENABLED|s|-", "no terminal"),
         "sin_fin": ("amazon_mx|v1|1|k|ENABLED|s|-", "falta el recibo"),
         "conteos": ("amazon_mx|v1|1|k|ENABLED|s|-\nFIN|2|0|0", "no cuadra"),
+        "reversa_duplicada": ("reversa_fallida|r1\nreversa_fallida|r1\nFIN|0|0|2", "duplicado"),
+        "cruce_clases": (
+            "amazon_mx|v1|1|k|ENABLED|s|-\nreversa_fallida|v1\nFIN|1|0|1",
+            "duplicado",
+        ),
+        "recibo_reversas": ("reversa_fallida|r1\nFIN|0|0|0", "no cuadra"),
     }
     for nombre, (texto, aguja) in casos.items():
         inv = repara.parsea(texto)
@@ -250,17 +256,51 @@ def caso_g():
     print("LAB|G|reversa_fallida_anotada_sin_tocar|ok")
 
 
+def caso_h():
+    """Inventario invalido con candidato MX: aborta antes de conectar."""
+    import base64
+    import io
+    import os
+    from contextlib import redirect_stderr
+
+    texto = (
+        "amazon_mx|cand1|297|kid1|PAUSED|senal1|-\n"
+        "reversa_fallida|cand1\n"
+        "reversa_fallida|r1\n"
+        "reversa_fallida|r1\n"
+        "FIN|1|0|3"
+    )
+    llamadas: list[tuple] = []
+    original = repara.connect
+
+    def no_conecta(*args, **_kwargs):
+        llamadas.append(args)
+        raise AssertionError("abrio conexion de escritura con inventario invalido")
+
+    repara.connect = no_conecta
+    os.environ["B_D_ANTES_B64"] = base64.b64encode(texto.encode()).decode()
+    try:
+        with redirect_stderr(io.StringIO()):
+            codigo = repara.main()
+    finally:
+        repara.connect = original
+        os.environ.pop("B_D_ANTES_B64", None)
+    assert codigo == 2 and llamadas == [], (codigo, llamadas)
+    print("LAB|H|inventario_invalido_aborta_antes_de_conectar|ok")
+
+
 def main() -> int:
     _credenciales()
     caso_e()
     caso_f()
     caso_g()
+    caso_h()
     caso_b()
     caso_c()
     caso_d()
     estado = caso_a()
     caso_a2(estado)
-    print("LAB|FIN|8|0")
+    print("LAB|FIN|9|0")
     return 0
 
 

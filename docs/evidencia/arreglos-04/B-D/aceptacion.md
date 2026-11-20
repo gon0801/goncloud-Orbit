@@ -50,7 +50,7 @@ bloqueo, y queda listada para que David la revise.
 
 Preparacion y verificacion en laboratorio antes de ejecutar:
 `PYTHONPATH=.:tests uv run --frozen --python 3.12 python docs/evidencia/arreglos-04/B-D/laboratorio.py`
-sale `0` con ocho casos (`laboratorio.txt`). Usa el ledger en memoria y el transporte
+sale `0` con nueve casos (`laboratorio.txt`). Usa el ledger en memoria y el transporte
 simulado del arnes de B-B con el codigo real de `quitar`/`aprobar` y sus precondiciones
 de reparacion:
 
@@ -62,11 +62,13 @@ de reparacion:
 - E: tabla de clasificacion del inventario (ENABLED, sin senal, otro ENABLED,
   `LECTURA_*`, estado desconocido, ARCHIVED, AUSENTE).
 - F: el inventario se rechaza antes de abrir la conexion de escritura ante un id
-  duplicado, una linea de diagnostico (`DUPLICADO`, `PLATAFORMA_FUERA`,
-  `LECTURA_perfil`), un `FIN` ausente o no terminal, o conteos que no cuadran con las
-  filas unicas por pais y las reversas fallidas.
+  duplicado (tambien entre una fila de mercado y una `reversa_fallida`), una linea de
+  diagnostico (`DUPLICADO`, `PLATAFORMA_FUERA`, `LECTURA_perfil`), un `FIN` ausente o
+  no terminal, o conteos que no cuadren con las filas unicas por pais y las reversas.
 - G: cada `reversa_fallida|veredicto` del inventario se conserva y se anota en
   `revisar.txt` con su plataforma, grupo y motivo, sin tocar nada.
+- H: un inventario invalido con un candidato MX (`reversa_fallida` repetida y el mismo
+  id en una fila de mercado) hace que `main` salga `2` sin llamar a `connect`.
 
 Ejecucion en produccion:
 
@@ -126,7 +128,8 @@ Cierra `COMPRUEBA|ok|mx=25|us=23|reversas=0`.
 
 Comprueba, y falla si no se cumple:
 
-- los recibos `FIN` de ambos inventarios cuadran con sus filas;
+- los recibos `FIN` de ambos inventarios cuadran con las filas unicas por mercado **y**
+  con las reversas fallidas (los tres conteos, no solo dos);
 - cada veredicto inicial esta reparado o documentado con su clave exacta y su razon;
 - cada origen reparado tiene `revertido`, un veredicto nuevo enlazado a la senal con
   efecto `aplicado` y su id `ENABLED` releido en Amazon (aunque ya no aparezca entre
@@ -149,6 +152,8 @@ Comprueba, y falla si no se cumple:
   revertido`; un final vacio ya no pasa.
 - `comprueba-rojo-reversa.txt`: una `reversa_fallida` inicial sin linea en
   `revisar.txt` sale `1`.
+- `comprueba-rojo-recibo-reversa.txt`: un `FIN` que declara cero reversas con una
+  `reversa_fallida` presente sale `1` por los tres conteos del recibo.
 - `comprueba-verde.txt`: el mismo escenario del primer rojo con el reemplazo
   `aplicado`/`ENABLED` sale `0`.
 

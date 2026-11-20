@@ -66,7 +66,8 @@ def _fila_de(partes: list[str]) -> Fila:
 def parsea(texto: str) -> Inventario:
     """Valida el inventario completo antes de que exista conexion de escritura.
 
-    Rechaza ids duplicados, lineas de diagnostico, filas malformadas, un FIN
+    Rechaza ids duplicados (tambien entre una fila de mercado y una
+    `reversa_fallida`), lineas de diagnostico, filas malformadas, un FIN
     ausente o no terminal y conteos que no cuadren con las filas unicas por
     plataforma y con las reversas fallidas.
     """
@@ -90,10 +91,14 @@ def parsea(texto: str) -> Inventario:
                     errores.append(f"FIN ilegible: {linea}")
             continue
         if partes[0] == "reversa_fallida":
-            if len(partes) == 2 and partes[1]:
-                reversas.append(partes[1])
-            else:
+            if len(partes) != 2 or not partes[1]:
                 errores.append(f"reversa_fallida malformada: {linea}")
+                continue
+            if partes[1] in vistos:
+                errores.append(f"veredicto duplicado: {partes[1]}")
+                continue
+            vistos.add(partes[1])
+            reversas.append(partes[1])
             continue
         if partes[0] in ("DUPLICADO", "PLATAFORMA_FUERA") or partes[0].startswith("LECTURA_perfil"):
             errores.append(f"diagnostico del lector: {linea}")
