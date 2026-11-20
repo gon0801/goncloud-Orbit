@@ -116,6 +116,17 @@ SQL47 = (Path(__file__).resolve().parents[1] / "migrations" / "0047_familias.sql
 SQL48 = (Path(__file__).resolve().parents[1] / "migrations" / "0048_margen_familia.sql").read_text(
     encoding="utf-8"
 )
+# ARREGLOS 02 D: los cargos del margen salen de v_ledger_cargo (la comision
+# estimada no se cuenta dos veces); recrea las cuatro vistas de margen.
+SQL86 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0086_arreglos02_cargos.sql"
+).read_text(encoding="utf-8")
+# TEMPORADA 01 I: las vistas de margen agregan cogs_vigente/cobertura_vigente/
+# margen_vigente_pct; el ciclo lee margen_vigente_pct en TX2 — sin esta TODO
+# ciclo revienta con UndefinedColumn.
+SQL92 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0092_temporada01_margen_vigente.sql"
+).read_text(encoding="utf-8")
 # BIDS 02 M.3: con niveles_v3 el ciclo arma EconomiaPlataforma y lee
 # v_hoja_activa + v_cambio_bid en TX2 — sin esta TODO ciclo con la clave
 # revienta con UndefinedTable.
@@ -225,6 +236,10 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL47)
         # A5: el peldano familiar lee v_margen_familia en TX2.
         conn.execute(SQL48)
+        # ARREGLOS 02 D + TEMPORADA 01 I: el margen lee v_ledger_cargo y
+        # publica el margen vigente (costo de hoy), que el ciclo gobierna.
+        conn.execute(SQL86)
+        conn.execute(SQL92)
         # BIDS 02 M.3: v_hoja_activa + v_cambio_bid para niveles_v3.
         conn.execute(SQL60)
         # ORBIT 07 M1: proteccion de venta reciente (tabla + CHECK).
