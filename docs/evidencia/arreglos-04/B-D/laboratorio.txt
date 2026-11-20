@@ -1,0 +1,10 @@
+LAB|E|clasificacion_inventario|ok
+LAB|F|inventario_rechaza_duplicados_diagnosticos_y_fin_invalido|ok
+LAB|G|reversa_fallida_anotada_sin_tocar|ok
+LAB|H|inventario_invalido_aborta_antes_de_conectar|ok
+LAB|B|enabled_entre_inventario_y_accion_cero_borrados|ok
+LAB|C|otro_enabled_cero_borrados|ok
+LAB|D|borrado_dudoso_pendiente_sin_post|ok
+LAB|A|reparado_revertido_y_reemplazo_enabled|ok
+LAB|A2|reanudar_es_idempotente|ok
+LAB|FIN|9|0

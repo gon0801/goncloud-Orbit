@@ -1,0 +1,3 @@
+FALLA|antes.txt: FIN (1, 0, 0) no cuadra con filas unicas y reversas (1, 0, 1)
+FALLA|final.txt: FIN (1, 0, 0) no cuadra con filas unicas y reversas (1, 0, 1)
+COMPRUEBA|falla|mx=1|us=0|reversas=0
