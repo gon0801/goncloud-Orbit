@@ -1,0 +1,27 @@
+﻿== ENSAYO (solo lectura) de 39aa0a9f5d784da72d3ad0573859d835122568cf
+SHA_PREVIO=f5dc86d5b6cbb8f6ecaafb5c016a99f2d8c13683
+guardas (alias|ciclos running|harvest en cola|harvest jobs|app.cli): true|0|0|0|0
+guardas: libres
+monotonia: hay que desplegar
+migracion aplicada: 0076_auto03_peldano_producto.sql
+migracion aplicada: 0077_auto03_evaluacion_producto.sql
+migracion aplicada: 0078_auto03_retiro_decision.sql
+migracion aplicada: 0079_auto03_vista_impulso.sql
+migracion aplicada: 0080_auto03_retiro_desde_ciclo.sql
+migracion aplicada: 0081_orbit07_proteccion_venta.sql
+migracion aplicada: 0082_claridad01_entidad_inerte.sql
+migracion aplicada: 0083_arreglos01_costos_sin_compuerta.sql
+migracion aplicada: 0084_arreglos01_impulso_desarmado.sql
+migracion aplicada: 0085_arreglos01_ledger_reatribucion.sql
+migracion aplicada: 0086_arreglos02_cargos.sql
+migracion aplicada: 0087_arreglos03_devoluciones_meli.sql
+migracion aplicada: 0088_arreglos03_ledger_original.sql
+migracion aplicada: 0089_arreglos03_reputacion_avisada.sql
+migracion aplicada: 0090_arreglos03_error_cierra_por_observacion.sql
+migracion aplicada: 0091_arreglos03_sin_precio_cap.sql
+migracion pendiente: 0092_temporada01_margen_vigente.sql
+claves: ninguna cambia
+linea jev-vigia en el bloque Orbit
+bloque Orbit igual al canonico
+/mnt/data/appdata/orbit/refresh_estimacion.sh ya es el de 39aa0a9f5d784da72d3ad0573859d835122568cf
+== ENSAYO OK
