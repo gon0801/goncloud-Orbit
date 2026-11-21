@@ -1665,18 +1665,27 @@ def _goal_plataforma_de(conn: ConexionLectura, plataforma: str) -> tuple[int | N
 # keyword distinta. Sin episodios todavia (bloque B), el bloque de baja
 # vigente se acota por su fecha de inicio en el calendario guardado.
 _SQL_ESTADO_BAJA_DECISIONES = """
-SELECT d.ad_entity_id,
-       bool_or(EXISTS (SELECT 1 FROM decision_application da
-                        WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)) AS confirmada
-  FROM decision d
-  JOIN ad_entity e ON e.id = d.ad_entity_id
-  JOIN optimizer_cycle c ON c.id = d.cycle_id
- WHERE e.platform = %s::platform
-   AND c.mode = 'live'
-   AND d.kind = 'bid'
-   AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
-   AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
- GROUP BY d.ad_entity_id
+SELECT ultima.ad_entity_id,
+       EXISTS (SELECT 1 FROM decision_application da
+                WHERE da.decision_id = ultima.decision_id
+                  AND da.verify_ok IS TRUE) AS confirmada
+  FROM (
+    -- La ULTIMA decision de temporada de cada keyword manda: una entrada
+    -- confirmada con un ajuste todavia pendiente cuenta como pendiente
+    -- (hallazgo de la revision: bool_or miraba cualquier confirmacion
+    -- historica y escondia el ajuste).
+    SELECT DISTINCT ON (d.ad_entity_id)
+           d.ad_entity_id, d.id AS decision_id
+      FROM decision d
+      JOIN ad_entity e ON e.id = d.ad_entity_id
+      JOIN optimizer_cycle c ON c.id = d.cycle_id
+     WHERE e.platform = %s::platform
+       AND c.mode = 'live'
+       AND d.kind = 'bid'
+       AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+       AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
+     ORDER BY d.ad_entity_id, d.decided_at DESC, d.id DESC
+  ) ultima
 """
 
 # Bid propio vs heredado: ad_entity_state.current_bid (NULL = la keyword usa

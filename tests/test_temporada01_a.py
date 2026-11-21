@@ -488,6 +488,11 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
         # cuenta como pendiente de Amazon (hallazgo de la revision).
         _decision(ciclo_sombra, "bid", kw_grupo, "entra_temporada_baja")
         _decision(ciclo, "pause", kw_pausada, "pausa", fase_baja=True, confirmada=True)
+        # Lo mas reciente manda: la keyword con entrada confirmada pero un
+        # ajuste todavia pendiente aparece en PENDIENTES (hallazgo de la
+        # revision: bool_or miraba cualquier confirmacion historica).
+        ciclo_3 = _ciclo("live")
+        _decision(ciclo_3, "bid", kw_bid, "ajusta_temporada_baja")
 
         monkeypatch.setenv("ORBIT_DSN_READ", dsn_lectura)
         _secrets_token(tmp_path, monkeypatch)
@@ -503,8 +508,10 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
         assert estados["amazon_us"] is None
         estado = estados["amazon_mx"]
         assert estado["fase"] == "baja"
-        assert estado["confirmados"] == 1
-        assert estado["pendientes"] == 1
+        # kw_bid entra confirmada y ajusta pendiente: su ULTIMA decision es
+        # la pendiente, asi que cuenta en pendientes (no en confirmados).
+        assert estado["confirmados"] == 0
+        assert estado["pendientes"] == 2
         assert estado["sin_tocar"] == 0
         assert "1 usan el bid de su grupo" in estado["frase_sin_tocar"]
         assert [p["ad_entity_id"] for p in estado["pausadas"]] == [kw_pausada]
