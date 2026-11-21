@@ -137,6 +137,14 @@ def test_temporada01_a_fechas_del_calendario():
     assert resumen.aviso_cambio is not None
     assert "temporada baja" in resumen.aviso_cambio
 
+    # Calendario todo-alta (valida lo acepta): es continuo y no anuncia
+    # transiciones (hallazgo de la revision: sale_alta mentiria porque no
+    # existe un mes normal al que volver).
+    config_alta = temporada.valida(_crudo(meses=["alta"] * 12))
+    assert temporada.resuelve(config_alta, dt.date(2027, 6, 15)).fase == "alta"
+    assert temporada.resuelve(config_alta, dt.date(2027, 12, 20)).fase == "alta"
+    assert temporada.eventos(config_alta, dt.date(2027, 1, 1), dt.date(2027, 12, 31)) == ()
+
     # Una baja comida por la preparacion se rechaza: con febrero en baja,
     # marzo en alta y 42 dias de preparacion, la preparacion empieza el 18 de
     # enero y se come TODO febrero (hallazgo de revision).

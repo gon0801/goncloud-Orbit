@@ -640,7 +640,11 @@ FRASE_SALE_ALTA = "La meta de ACoS regresa a la normal."
 def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Evento, ...]:
     """Los cambios del calendario en [desde, hasta), en orden. restaura
     lleva la frase de preparacion cuando detras sigue un bloque alto;
-    prepara_alta es la previa que no viene de una baja (solo aviso)."""
+    prepara_alta es la previa que no viene de una baja (solo aviso).
+    Un calendario TODO-ALTA es continuo (hallazgo de la revision): no hay
+    mes normal al que volver, asi que no se anuncian entra/sale ni previa."""
+    if all(m == "alta" for m in config.meses):
+        return ()
     anios = range(desde.year - 1, hasta.year + 2)
     bloques = [b for anio in anios for b in _instancias(config, anio)]
     preps = {
