@@ -142,13 +142,14 @@ def test_temporada01_a_fechas_del_calendario():
 def test_temporada01_a_post_rechaza_booleanos(tmp_path, monkeypatch):
     """true/false en campo de numero dan 422 con el mensaje exacto y la
     config no cambia; "25" y 25 se aceptan (fila nueva)."""
-    with _db_con_rol_admin("orbit_t01a_post") as (conn, dsn_admin, _dsn_l):
+    with _db_con_rol_admin("orbit_t01a_post") as (conn, dsn_admin, dsn_lectura):
         id_viejo = conn.execute(
             "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
             ("previa", Json({"ads_optimizer_mode": "shadow"})),
         ).fetchone()[0]
         _secrets_token(tmp_path, monkeypatch)
         monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_lectura)
         cliente = TestClient(app)
 
         def post_temporada(temporada_crudo, campana_topada=None, base=id_viejo):
@@ -200,6 +201,22 @@ def test_temporada01_a_post_rechaza_booleanos(tmp_path, monkeypatch):
         assert fila["ads_campana_topada"] == {"pct": "90", "dias": 5}
         # La respuesta trae el resumen de la temporada (vista de «Así queda tu año»).
         assert resp.json()["resumen_temporada"]["fase_hoy"] in ("baja", "normal", "alta")
+
+        # La vista previa sigue viva con la config guardada SIN fin anticipado
+        # (hallazgo de revision: un None no se formatea, jamas 500).
+        meses = ",".join(MESES_DEFECTO)
+        resp = cliente.get(
+            "/api/ads-optimizer/temporada/vista-previa",
+            params={
+                "meses": meses,
+                "reduccion_baja_pct": "30",
+                "dias_preparacion": "21",
+                "mult_cortes_baja": "2",
+                "aumento_presupuesto_alta_pct": "25",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["resumen"]["fase_hoy"] in ("baja", "normal", "alta")
 
 
 @_skip_db

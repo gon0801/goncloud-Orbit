@@ -640,7 +640,11 @@ def vista_previa_temporada(
         "fin_anticipado": (
             fin_anticipado
             if fin_anticipado is not None
-            else (guardada.fin_anticipado.isoformat() if guardada is not None else None)
+            else (
+                guardada.fin_anticipado.isoformat()
+                if guardada is not None and guardada.fin_anticipado is not None
+                else None
+            )
         ),
         "mantener_pausadas": (sorted(guardada.mantener_pausadas) if guardada is not None else []),
     }

@@ -11,3 +11,7 @@ Nota de esta PC (Windows): --ignore=tests/test_corrige_descripciones_pez.py porq
 
 Re-ejecucion final en el SHA de entrega (tras lint):
 3 passed, 5979 deselected, 1 warning in 5.23s
+
+Revision (hilo de PR #687): la vista previa con config guardada SIN fin anticipado daba 500 (AttributeError en .isoformat de None). Prueba nueva dentro de test_temporada01_a_post_rechaza_booleanos: vista-previa despues de guardar sin fin -> rojo con AttributeError (demostrado), verde con la guarda.
+Re-ejecucion tras la correccion:
+3 passed, 5979 deselected, 1 warning in 5.29s
