@@ -1688,34 +1688,52 @@ SELECT ultima.ad_entity_id,
   ) ultima
 """
 
-# Bid propio vs heredado: ad_entity_state.current_bid (NULL = la keyword usa
-# el bid de su ad group; misma fuente que el sync escribe).
+# Bid propio vs heredado y sin tocar: sobre el MISMO universo de keywords
+# habilitadas (sin_tocar = keywords elegibles SIN decision de temporada de
+# ciclos live en el bloque; hallazgo de la revision: restar decisiones a un
+# total de keywords mezclaba unidades y conjuntos).
 _SQL_ESTADO_BAJA_KEYWORDS = """
-SELECT count(*) AS total, count(*) FILTER (WHERE s.current_bid IS NULL) AS grupo
+SELECT count(*) AS total,
+       count(*) FILTER (WHERE s.current_bid IS NULL) AS grupo,
+       count(*) FILTER (WHERE NOT EXISTS (
+           SELECT 1 FROM decision d
+             JOIN optimizer_cycle c ON c.id = d.cycle_id
+            WHERE d.ad_entity_id = e.id AND c.mode = 'live' AND d.kind = 'bid'
+              AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+              AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s)) AS sin_tocar
   FROM ad_entity e
   JOIN ad_entity_state s ON s.ad_entity_id = e.id AND s.status = 'ENABLED'
  WHERE e.platform = %s::platform AND e.kind = 'keyword'
 """
 
-# Pausas de Orbit de ciclos live, CONFIRMADAS por Amazon (verify_ok), que
-# siguen PAUSED (una reactivacion — de Orbit o del dueno — las deja ENABLED
-# y las saca de la lista) y no estan en «Mantener pausada». Una fila por
-# keyword aunque acumule pausas.
+# Pausas de Orbit CONFIRMADAS por Amazon y aun vigentes, ancladas a la fila
+# live/applied mas reciente de apply_queue (la misma propiedad vigente que
+# _SQL_PAUSAS_DE_BAJA del diseno): si el dueno la reactivo (reversa ok o
+# reactivacion_manual posterior a la aplicacion) y la volvio a pausar a
+# mano en Amazon, esa pausa ya es del dueno y NO se atribuye a Orbit.
+# Una fila por keyword aunque acumule pausas.
 _SQL_PAUSADAS_DE_BAJA = """
-SELECT DISTINCT ON (d.ad_entity_id) d.ad_entity_id,
+SELECT DISTINCT ON (q.ad_entity_id) q.ad_entity_id,
        COALESCE(e.keyword_text, e.name) AS texto
-  FROM decision d
-  JOIN ad_entity e ON e.id = d.ad_entity_id
+  FROM apply_queue q
+  JOIN decision d ON d.id = q.decision_id
   JOIN optimizer_cycle c ON c.id = d.cycle_id
   JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
-  JOIN ad_entity_state s ON s.ad_entity_id = d.ad_entity_id AND s.status = 'PAUSED'
- WHERE e.platform = %s::platform
+  JOIN ad_entity e ON e.id = q.ad_entity_id
+  JOIN ad_entity_state s ON s.ad_entity_id = q.ad_entity_id AND s.status = 'PAUSED'
+ WHERE q.platform = %s::platform
+   AND q.kind = 'pause' AND q.modo = 'live' AND q.estado = 'applied'
    AND c.mode = 'live'
-   AND d.kind = 'pause'
    AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'
    AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
-   AND NOT (d.ad_entity_id = ANY(%s::bigint[]))
- ORDER BY d.ad_entity_id, d.decided_at DESC
+   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
+                    WHERE a.decision_id = d.id AND a.tipo = 'reversa'
+                      AND a.resultado = 'ok')
+   AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r
+                    WHERE r.ad_entity_id = q.ad_entity_id
+                      AND r.detectada_en > q.applied_at)
+   AND NOT (q.ad_entity_id = ANY(%s::bigint[]))
+ ORDER BY q.ad_entity_id, q.applied_at DESC
 """
 
 
@@ -1748,8 +1766,9 @@ def estado_de_baja(
             confirmados += 1
         else:
             pendientes += 1
-    total, grupo = conn.execute(_SQL_ESTADO_BAJA_KEYWORDS, (plataforma,)).fetchone()
-    sin_tocar = max(0, total - confirmados - pendientes)
+    total, grupo, sin_tocar = conn.execute(
+        _SQL_ESTADO_BAJA_KEYWORDS, (inicio, plataforma)
+    ).fetchone()
     frase_sin_tocar = f"Sin tocar: {sin_tocar}."
     if grupo:
         # La razon «porque cambiaste tú el bid» llega con las exclusiones

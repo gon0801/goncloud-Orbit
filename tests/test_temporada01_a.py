@@ -431,11 +431,30 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             match="EXACT",
             texto="pausada en la baja",
         )
+        kw_sin = _siembra_entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "k-estado-4",
+            parent=grupo,
+            match="EXACT",
+            texto="sin decision",
+        )
+        kw_david = _siembra_entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "k-estado-5",
+            parent=grupo,
+            match="EXACT",
+            texto="repausada por David",
+        )
         conn.execute(
             "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
             " synced_at) VALUES (%s, 'ENABLED', 5.00, 'MXN', now()),"
-            " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now())",
-            (kw_bid, kw_grupo, kw_pausada),
+            " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now()),"
+            " (%s, 'ENABLED', 4.00, 'MXN', now()), (%s, 'PAUSED', NULL, NULL, now())",
+            (kw_bid, kw_grupo, kw_pausada, kw_sin, kw_david),
         )
 
         def _decision(ciclo_d, kind, entidad, motivo, *, fase_baja=False, confirmada=False):
@@ -487,12 +506,65 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
         # Una decision de practica (ciclo shadow) jamas se confirma y no
         # cuenta como pendiente de Amazon (hallazgo de la revision).
         _decision(ciclo_sombra, "bid", kw_grupo, "entra_temporada_baja")
-        _decision(ciclo, "pause", kw_pausada, "pausa", fase_baja=True, confirmada=True)
+        d_pausa = _decision(ciclo, "pause", kw_pausada, "pausa", fase_baja=True, confirmada=True)
+        # La pausa llega a Amazon via cola live y se aplica (nace
+        # pending_veto por trigger; el UPDATE simula la aplicacion): ese es
+        # el ancla de vigencia de la lista (hallazgo de la revision).
+        fila_cola = conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id,"
+            " modo, estado, vence_el, request_payload) VALUES ('amazon_mx'::platform,"
+            " %s, 'pause', %s, 'live', 'pending_veto', %s, %s) RETURNING id",
+            (kw_pausada, d_pausa, hoy, Json({})),
+        ).fetchone()[0]
+        # Maquina de estados: pending_veto -> released -> applying -> applied.
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'released', released_at = %s WHERE id = %s",
+            (hoy, fila_cola),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applying', applying_at = %s WHERE id = %s",
+            (hoy, fila_cola),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applied', applied_at = %s WHERE id = %s",
+            (hoy, fila_cola),
+        )
+        # Contraejemplo de vigencia (hallazgo de la revision): Orbit pauso y
+        # confirmo, David la reactivo (detectada como manual despues de la
+        # aplicacion) y la volvio a pausar a mano en Amazon. La pausa vieja
+        # ya es del dueno: NO vuelve a atribuirse a Orbit.
+        d_david = _decision(ciclo, "pause", kw_david, "pausa", fase_baja=True, confirmada=True)
+        fila_david = conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id,"
+            " modo, estado, vence_el, request_payload) VALUES ('amazon_mx'::platform,"
+            " %s, 'pause', %s, 'live', 'pending_veto', %s, %s) RETURNING id",
+            (kw_david, d_david, hoy, Json({})),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'released', released_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=2), fila_david),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applying', applying_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=2), fila_david),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applied', applied_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=1), fila_david),
+        )
+        conn.execute(
+            "INSERT INTO reactivacion_manual (ad_entity_id, detectada_en) VALUES (%s, %s)",
+            (kw_david, hoy),
+        )
         # Lo mas reciente manda: la keyword con entrada confirmada pero un
         # ajuste todavia pendiente aparece en PENDIENTES (hallazgo de la
         # revision: bool_or miraba cualquier confirmacion historica).
         ciclo_3 = _ciclo("live")
         _decision(ciclo_3, "bid", kw_bid, "ajusta_temporada_baja")
+        # La keyword pausada tambien recibio su entrada confirmada (hallazgo
+        # de la revision: cuenta en confirmados aunque hoy este PAUSED, sin
+        # restarse a otra keyword en sin_tocar).
+        _decision(ciclo_2, "bid", kw_pausada, "entra_temporada_baja", confirmada=True)
 
         monkeypatch.setenv("ORBIT_DSN_READ", dsn_lectura)
         _secrets_token(tmp_path, monkeypatch)
@@ -510,9 +582,13 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
         assert estado["fase"] == "baja"
         # kw_bid entra confirmada y ajusta pendiente: su ULTIMA decision es
         # la pendiente, asi que cuenta en pendientes (no en confirmados).
-        assert estado["confirmados"] == 0
+        # kw_pausada recibio su entrada confirmada y hoy esta PAUSED: cuenta
+        # en confirmados sin restarse a otra keyword en sin_tocar.
+        assert estado["confirmados"] == 1
         assert estado["pendientes"] == 2
-        assert estado["sin_tocar"] == 0
+        # sin_tocar se cuenta DIRECTO sobre las keywords habilitadas sin
+        # decision de temporada: solo kw_sin (resta de conjuntos homogeneos).
+        assert estado["sin_tocar"] == 1
         assert "1 usan el bid de su grupo" in estado["frase_sin_tocar"]
         assert [p["ad_entity_id"] for p in estado["pausadas"]] == [kw_pausada]
         # El texto visible de la lista es el TEXTO de la keyword.
