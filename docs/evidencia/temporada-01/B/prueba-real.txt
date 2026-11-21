@@ -1,0 +1,27 @@
+# Prueba-real de la fila B (solo lectura) — SHA desplegado c670287ce3570be7410ba1e9488c933a9839900d
+Arnés: `env -i HOME=... PATH=/usr/bin:/mingw64/bin` (git-bash de hermes), igual que el despliegue y el checklist.
+
+Comando 1: bash docs/evidencia/arreglos-01/migracion_aplicada.sh temporada01_episodio
+Corre la sonda `-- sonda-aplicada:` de 0093 contra producción con lee_prod.sh
+(rol orbit_read, transacción read_only): temporada_episodio y
+temporada_fin_reduccion existen y app_decide puede INSERTAR, v_cambio_bid trae
+las columnas de temporada y el CHECK de decision_sin_aplicar ya incluye
+bid_cambiado_fuera.
+
+```
+EXIT_MIG=0
+```
+
+Comando 2: bash docs/evidencia/arreglos-01/desplegado.sh abre_efectos
+Sale 0 si el texto del bloque B (temporada_io.abre_efectos) está en el paquete
+app que corre en el contenedor orbit-app-1 de producción.
+
+```
+EXIT_COD=0
+```
+
+Control negativo (--no texto inexistente): la sonda debe salir 0 confirmando
+que el texto NO está:
+```
+EXIT_CONTROL=0
+```
