@@ -27,3 +27,24 @@
 Verificacion: test_pause_economica (34), temporada01_d (8), cycle,
 apply_cola, lecturas, apply_harvest/harvest_excepcion, optimizer_politica —
 297 passed.
+
+## Ronda de revision 2 (Devin sobre db6028f: techo heredado en la liberacion)
+
+`_revalida_pause` inventaba piso 0.01 / techo 999999 para campanas SIN goal
+propio: `nivel_de_regreso` acota al techo, asi que con 999999 la cola veia un
+regreso pendiente hacia 12.00 (y conservaba los umbrales x2) para una puja que
+YA HABIA ALCANZADO el techo real de 8.00 heredado de la plataforma.
+
+Fix: el piso y el techo salen del GOAL EFECTIVO de la hoja con la precedencia
+del ciclo — `g.resuelve_goal` (campana > plataforma) + `g.resuelve_floor_
+ceiling` con los defaults de la moneda.
+
+Demostracion empirica contra aace2673c97f600b3dd1a2b711fcf0a79597b3c0 (misma
+siembra, dos lecturas): con el techo inventado 999999 la frontera daba
+`baja | mult 2 | cerca 2027-01-05` (re-tenia los umbrales x2 para una puja ya
+en el techo); con el techo real 8.00 daba `normal | fin ya_arriba`.
+
+Prueba `test_temporada01_d_liberacion_techo_heredado` (dinero): campana sin
+goal propio, entrada 12 -> 8 por el techo heredado, episodio cerrado: la
+frontera de liberacion da `fin ya_arriba` (sin regreso pendiente) y la
+aritmetica muestra 8.00 con el techo real contra 12.00 con el inventado.

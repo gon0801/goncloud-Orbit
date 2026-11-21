@@ -1162,17 +1162,35 @@ def _revalida_pause(
     # fila es una keyword; el goal de plataforma no la describe).
     grupo_rv = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
     campana_rv = conn.execute(_SQL_CAMPANA_DE_GRUPO, (grupo_rv,)).fetchone()[0]
-    floor_rv, ceiling_rv = Decimal("0.01"), Decimal("999999")
+    # TEMPORADA 01 D (revision Devin dAIN/dJ_e): el piso y el techo salen del
+    # GOAL EFECTIVO de la hoja con la precedencia del ciclo (campana >
+    # plataforma via resuelve_goal) y los defaults de su moneda
+    # (resuelve_floor_ceiling) — 999999 inventaba un techo que hacia parecer
+    # un regreso pendiente donde la puja ya alcanzo el techo real.
+    goal_campana = goal_plataforma = None
     for fila_g in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, campana_rv)).fetchall():
-        if (
-            fila_g[0] == "campaign"
-            and fila_g[10] is True
-            and fila_g[11] == "live"
-            and fila_g[4] is not None
-            and fila_g[5] is not None
-        ):
-            floor_rv, ceiling_rv = Decimal(fila_g[4]), Decimal(fila_g[5])
-            break
+        goal_rv = g.Goal(
+            scope=fila_g[0],
+            ad_entity_id=fila_g[1],
+            platform=fila_g[2],
+            target_acos_pct=fila_g[3],
+            bid_floor=fila_g[4],
+            bid_ceiling=fila_g[5],
+            bid_currency=fila_g[6],
+            harvest_campaign_id=fila_g[7],
+            harvest_ad_group_id=fila_g[8],
+            harvest_default_bid=fila_g[9],
+            enabled=fila_g[10],
+            mode=fila_g[11],
+        )
+        if fila_g[0] == "campaign":
+            goal_campana = goal_rv
+        else:
+            goal_plataforma = goal_rv
+    moneda_hoja = motor_bid.PLATAFORMAS_MONEDA[platform]
+    floor_rv, ceiling_rv = g.resuelve_floor_ceiling(
+        g.resuelve_goal(goal_campana, goal_plataforma), moneda_hoja
+    )
     frontera_h = temporada_io.frontera_hoja(
         conn, fila.ad_entity_id, ahora.date(), piso=floor_rv, techo=ceiling_rv
     )

@@ -811,3 +811,100 @@ def test_temporada01_d_fase3_lecturas_temporada_io_conectadas(db_template):
     assert frontera_h is not None
     assert frontera_h.fase_hoja == "baja"
     assert frontera_h.mult_cortes == Decimal("2")
+
+
+def test_temporada01_d_liberacion_techo_heredado(db_template):
+    """Revision Devin dJ_e: una campana SIN goal propio hereda el techo de la
+    plataforma (8.00) — la entrada redujo 12.00 -> 8.00 POR ESE TECHO, asi que
+    al liberar tras cerrar la baja NO queda un regreso pendiente (ya_arriba
+    contra el techo real) y la cola NO conserva los umbrales x2. Con el techo
+    inventado 999999 la cola calculaba un regreso hacia 12.00 y re-tenia."""
+    conn, _dsn = db_template
+    _run(conn)
+    settings_d = _settings()
+    settings_d["ads_optimizer_goal_amazon_mx"] = {
+        "scope": "platform",
+        "target_acos_pct": "20",
+        "bid_floor": "1.00",
+        "bid_ceiling": "8.00",
+        "bid_currency": "MXN",
+        "harvest_campaign_id": "9002",
+        "harvest_ad_group_id": "9102",
+        "harvest_default_bid": "1.00",
+        "mode": "live",
+    }
+    config_id = _config_version(conn, settings_d)
+    goal_plat = conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, enabled, mode)"
+        " VALUES ('platform', 'amazon_mx', 20, 1.00, 8.00, 'MXN', true, 'live')"
+        " RETURNING id"
+    ).fetchone()[0]
+    camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-techo")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-techo", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    kw1 = _kw(conn, ag, "d-kw-techo", "kw techo", "8.00")
+    dia_entrada = dt.date(2027, 1, 4)
+    ciclo_apertura = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (_medianoche(dia_entrada), _medianoche(dia_entrada)),
+    ).fetchone()[0]
+    episodio_id = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(dia_entrada), ciclo_apertura, config_id),
+    ).fetchone()[0]
+    _cambio_confirmado(
+        conn,
+        kw1,
+        config_id,
+        dia=dia_entrada,
+        antes="12.00",
+        despues="8.00",
+        motivo="entra_temporada_baja",
+        episodio_id=episodio_id,
+    )
+    ciclo_cierre = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (
+            _medianoche(dt.date(2027, 2, 1)),
+            _medianoche(dt.date(2027, 2, 1)),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE temporada_episodio SET cerrado_el = %s, cerrado_en_ciclo = %s WHERE id = %s",
+        (_medianoche(dt.date(2027, 2, 1)), ciclo_cierre, episodio_id),
+    )
+    conn.commit()
+    hoy_normal = dt.date(2027, 2, 2)
+    frontera = temporada_io.frontera_hoja(
+        conn, kw1, hoy_normal, piso=Decimal("1.00"), techo=Decimal("8.00")
+    )
+    assert frontera is not None
+    assert frontera.fin is not None and frontera.fin.motivo == "ya_arriba", (
+        "la puja ya alcanzo el techo real (8.00): el regreso ya no pende"
+    )
+    # la aritmetica que decide si pende un regreso: base 12 x (8/8) acotada
+    # al techo REAL (8.00) -> 8.00: ya_arriba; con el techo inventado
+    # 999999 la cola veia pendiente un regreso hacia 12.00 (x2)
+    from app.optimizer.recuperacion import ReduccionVigente
+
+    red_techo = ReduccionVigente(
+        episodio_id=1,
+        base=Decimal("12.00"),
+        primer_el=dt.datetime(2027, 1, 4, 12, 0, tzinfo=dt.UTC),
+        ultimo_bid=Decimal("8.00"),
+        ultimo_el=dt.datetime(2027, 1, 4, 12, 0, tzinfo=dt.UTC),
+        solo_temporada_despues=True,
+    )
+    assert temporada.nivel_de_regreso(
+        red_techo, Decimal("8.00"), Decimal("1.00"), Decimal("8.00")
+    ) == Decimal("8.00"), "el techo real acota el nivel: 8 >= 8 -> ya_arriba"
+    assert (
+        temporada.nivel_de_regreso(red_techo, Decimal("8.00"), Decimal("1.00"), Decimal("999999"))
+        == Decimal("12.00")
+        > Decimal("8.00")
+    ), "con el techo inventado la cola creia pendiente un regreso a 12.00"
