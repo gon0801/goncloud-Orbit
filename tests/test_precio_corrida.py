@@ -3102,9 +3102,9 @@ def test_latido_aplicar_late_un_goal(monkeypatch):
 def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
     """R4-latido-fail-closed: un latido que levanta `psycopg.Error` no tumba.
 
-    `_SQL_LATIDO` saboteado apunta a una tabla inexistente cuyo nombre trae
-    el secreto: el `UndefinedTable` se traga (fail-open, el TTL es el
-    backstop), la corrida decide y aplica normal, y el warning sale
+    `app.lock.SQL_HEARTBEAT` saboteado apunta a una tabla inexistente cuyo
+    nombre trae el secreto: el `UndefinedTable` se traga (fail-open, el TTL es
+    el backstop), la corrida decide y aplica normal, y el warning sale
     scrubbeado.
     """
     import logging
@@ -3112,7 +3112,7 @@ def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
     import app.lock as lock_mod
     from app.redaction import register_secret
 
-    register_secret("s3cr3t-lat5")
+    register_secret("s3cr3t_lat5")
     with _db() as (conn, _dsn):
         ua = _cadena(conn, sku="SKU-LT-E", ext="B0A50000LE", mode="live")
         ub = _cadena(conn, sku="SKU-LT-F", ext="B0A50000LF", mode="live")
@@ -3131,7 +3131,8 @@ def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
         assert _cuenta_decisiones(conn) == 2
         texto = "\n".join(r.getMessage() for r in caplog.records)
         assert "latido fallo" in texto
-        assert "s3cr3t-lat5" not in texto
+        assert "s3cr3t_lat5" not in texto
+        assert "***REDACTED***" in texto
 
 
 # ---------------------------------------------------------------------------
