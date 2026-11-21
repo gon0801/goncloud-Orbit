@@ -17,7 +17,7 @@ import psycopg
 import pytest
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
-from app import apply
+from app import apply, apply_ajustes
 from app.ads.campana_config import ConfigCampana
 from app.ads.config import AdsCredentials
 from app.campana_ajustes import (
@@ -271,7 +271,7 @@ def test_aplica_presupuesto_confirma_y_guarda_vigente(monkeypatch):
             camp,
             CambiarPresupuesto(presupuesto_diario=Decimal("120")),
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -309,8 +309,8 @@ def test_segunda_vez_misma_huella_no_repite_put(monkeypatch):
             actor="dueno",
             transport=httpx.MockTransport(handler),
         )
-        primero = apply.aplica_ajuste_campana(conn, plan, **kwargs)
-        segundo = apply.aplica_ajuste_campana(conn, plan, **kwargs)
+        primero = apply_ajustes.aplica_ajuste_campana(conn, plan, **kwargs)
+        segundo = apply_ajustes.aplica_ajuste_campana(conn, plan, **kwargs)
         assert segundo.ajuste_id == primero.ajuste_id
         assert segundo.confirmada is True
         assert len(_puts(vistos)) == 1, "idempotente: un solo PUT por huella"
@@ -341,8 +341,8 @@ def test_huella_vieja_devuelve_plan_nuevo_sin_http(monkeypatch):
             [replace(_vigente_config(), presupuesto_diario=Decimal("110"))],
             dt.datetime.now(dt.UTC),
         )
-        with pytest.raises(apply.HuellaDesactualizada) as exc:
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.HuellaDesactualizada) as exc:
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -367,8 +367,8 @@ def test_literal_distinto_no_toca_nada(monkeypatch):
         def _nada(request: httpx.Request) -> httpx.Response:
             raise AssertionError("jamas debe salir a la red")
 
-        with pytest.raises(apply.ConfirmacionInvalida):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.ConfirmacionInvalida):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -407,7 +407,7 @@ def test_put_rechazado_deja_fila_pendiente_y_manda_una_campana(monkeypatch):
             CambiarPresupuesto(presupuesto_diario=Decimal("120")),
         )
         with pytest.raises(apply.AdsApiErrorMutacion, match="nope"):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -437,8 +437,8 @@ def test_readback_divergente_deja_sin_confirmar(monkeypatch):
             camp,
             CambiarPresupuesto(presupuesto_diario=Decimal("120")),
         )
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -465,7 +465,7 @@ def test_regresa_aplica_antes_y_segundo_regreso_rechazado(monkeypatch):
             camp,
             CambiarPresupuesto(presupuesto_diario=Decimal("120")),
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -473,7 +473,7 @@ def test_regresa_aplica_antes_y_segundo_regreso_rechazado(monkeypatch):
             actor="dueno",
             transport=httpx.MockTransport(handler),
         )
-        regreso = apply.regresa_ajuste_campana(
+        regreso = apply_ajustes.regresa_ajuste_campana(
             conn,
             ajuste_id=hecho.ajuste_id,
             actor="dueno",
@@ -490,8 +490,8 @@ def test_regresa_aplica_antes_y_segundo_regreso_rechazado(monkeypatch):
         from app.ads.campana_config import config_vigente
 
         assert config_vigente(conn, camp).presupuesto_diario == Decimal("100")
-        with pytest.raises(apply.AjusteYaRegresado):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteYaRegresado):
+            apply_ajustes.regresa_ajuste_campana(
                 conn,
                 ajuste_id=hecho.ajuste_id,
                 actor="dueno",
@@ -510,7 +510,7 @@ def test_reaplica_tras_regreso_hace_put_nuevo(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         transporte = httpx.MockTransport(handler)
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -518,12 +518,12 @@ def test_reaplica_tras_regreso_hace_put_nuevo(monkeypatch):
             actor="dueno",
             transport=transporte,
         )
-        apply.regresa_ajuste_campana(
+        apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
         )
         plan2 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         assert plan2.huella() == plan.huella()
-        hecho2 = apply.aplica_ajuste_campana(
+        hecho2 = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan2,
             huella=plan2.huella(),
@@ -554,7 +554,7 @@ def test_r07m_huella_existente_de_otra_clase_no_pasa(monkeypatch):
         )
         conn.commit()
         with pytest.raises(ValueError, match="otra campana o clase"):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -576,7 +576,7 @@ def test_r07_09c_reintento_reusa_la_pendiente_hn(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         transporte_ok = httpx.MockTransport(handler_ok)
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -584,12 +584,12 @@ def test_r07_09c_reintento_reusa_la_pendiente_hn(monkeypatch):
             actor="dueno",
             transport=transporte_ok,
         )
-        apply.regresa_ajuste_campana(
+        apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
         )
         handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -606,7 +606,7 @@ def test_r07_09c_reintento_reusa_la_pendiente_hn(monkeypatch):
         pendientes = [f for f in filas if f[1].endswith("#2") and not f[2]]
         assert len(pendientes) == 1
         id_h2 = pendientes[0][0]
-        hecho2 = apply.aplica_ajuste_campana(
+        hecho2 = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=base,
@@ -638,7 +638,7 @@ def test_r07_09c_reconcilia_sella_la_pendiente_hn(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         transporte_ok = httpx.MockTransport(handler_ok)
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -646,12 +646,12 @@ def test_r07_09c_reconcilia_sella_la_pendiente_hn(monkeypatch):
             actor="dueno",
             transport=transporte_ok,
         )
-        apply.regresa_ajuste_campana(
+        apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
         )
         handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -672,7 +672,7 @@ def test_r07_09c_reconcilia_sella_la_pendiente_hn(monkeypatch):
 
         guarda_config(conn, "amazon_mx", [plan.despues], dt.datetime.now(dt.UTC))
         conn.commit()
-        hecho2 = apply.reconcilia_ajuste_campana(
+        hecho2 = apply_ajustes.reconcilia_ajuste_campana(
             conn,
             camp,
             "presupuesto",
@@ -703,7 +703,7 @@ def test_r07_09c_reconcilia_sella_todas_las_pendientes(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         transporte_ok = httpx.MockTransport(handler_ok)
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -711,12 +711,12 @@ def test_r07_09c_reconcilia_sella_todas_las_pendientes(monkeypatch):
             actor="dueno",
             transport=transporte_ok,
         )
-        apply.regresa_ajuste_campana(
+        apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
         )
         handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -736,7 +736,7 @@ def test_r07_09c_reconcilia_sella_todas_las_pendientes(monkeypatch):
 
         guarda_config(conn, "amazon_mx", [plan.despues], dt.datetime.now(dt.UTC))
         conn.commit()
-        hecho2 = apply.reconcilia_ajuste_campana(
+        hecho2 = apply_ajustes.reconcilia_ajuste_campana(
             conn,
             camp,
             "presupuesto",
@@ -765,7 +765,7 @@ def test_r07_09c_reintento_no_reusa_la_pendiente_de_otro_plan(monkeypatch):
         _creds_fake(monkeypatch)
         transporte_ok = httpx.MockTransport(handler_ok)
         plan_120 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan_120,
             huella=plan_120.huella(),
@@ -773,14 +773,14 @@ def test_r07_09c_reintento_no_reusa_la_pendiente_de_otro_plan(monkeypatch):
             actor="dueno",
             transport=transporte_ok,
         )
-        apply.regresa_ajuste_campana(
+        apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
         )
         handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
         transporte_div = httpx.MockTransport(handler_div)
         plan_150 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("150")))
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan_150,
                 huella=plan_150.huella(),
@@ -788,8 +788,8 @@ def test_r07_09c_reintento_no_reusa_la_pendiente_de_otro_plan(monkeypatch):
                 actor="dueno",
                 transport=transporte_div,
             )
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan_120,
                 huella=plan_120.huella(),
@@ -800,7 +800,7 @@ def test_r07_09c_reintento_no_reusa_la_pendiente_de_otro_plan(monkeypatch):
         filas = conn.execute("SELECT id, huella FROM campana_ajuste ORDER BY id").fetchall()
         (id_h2,) = [f[0] for f in filas if f[1] == plan_120.huella() + "#2"]
         (id_otra,) = [f[0] for f in filas if f[1] == plan_150.huella()]
-        hecho2 = apply.aplica_ajuste_campana(
+        hecho2 = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan_120,
             huella=plan_120.huella(),
@@ -830,7 +830,7 @@ def test_r07_09c_reconcilia_con_huella_de_otro_plan_no_sella(monkeypatch):
         _creds_fake(monkeypatch)
         transporte_ok = httpx.MockTransport(handler_ok)
         plan_150 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("150")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan_150,
             huella=plan_150.huella(),
@@ -838,12 +838,12 @@ def test_r07_09c_reconcilia_con_huella_de_otro_plan_no_sella(monkeypatch):
             actor="dueno",
             transport=transporte_ok,
         )
-        apply.regresa_ajuste_campana(
+        apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte_ok
         )
         handler_div, _v2 = _handler_campanas(remoto, divergente=_vigente_config())
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan_150,
                 huella=plan_150.huella(),
@@ -854,8 +854,8 @@ def test_r07_09c_reconcilia_con_huella_de_otro_plan_no_sella(monkeypatch):
         plan_120 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         guarda_config(conn, "amazon_mx", [plan_120.despues], dt.datetime.now(dt.UTC))
         conn.commit()
-        with pytest.raises(apply.HuellaDesactualizada):
-            apply.reconcilia_ajuste_campana(
+        with pytest.raises(apply_ajustes.HuellaDesactualizada):
+            apply_ajustes.reconcilia_ajuste_campana(
                 conn,
                 camp,
                 "presupuesto",
@@ -879,7 +879,7 @@ def test_regreso_fallido_se_puede_reintentar(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         handler_ok, _vistos = _handler_campanas(remoto)
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -891,23 +891,23 @@ def test_regreso_fallido_se_puede_reintentar(monkeypatch):
 
         divergente = replace(_vigente_config(), presupuesto_diario=Decimal("999"))
         handler_mal, _vistos_mal = _handler_campanas(remoto, divergente=divergente)
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.regresa_ajuste_campana(
                 conn,
                 ajuste_id=hecho.ajuste_id,
                 actor="dueno",
                 transport=httpx.MockTransport(handler_mal),
             )
         handler_ok2, _vistos2 = _handler_campanas(remoto)
-        regreso = apply.regresa_ajuste_campana(
+        regreso = apply_ajustes.regresa_ajuste_campana(
             conn,
             ajuste_id=hecho.ajuste_id,
             actor="dueno",
             transport=httpx.MockTransport(handler_ok2),
         )
         assert regreso.confirmada is True
-        with pytest.raises(apply.AjusteYaRegresado):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteYaRegresado):
+            apply_ajustes.regresa_ajuste_campana(
                 conn,
                 ajuste_id=hecho.ajuste_id,
                 actor="dueno",
@@ -923,8 +923,8 @@ def test_regresa_inexistente_da_404(monkeypatch):
         def _nada(request: httpx.Request) -> httpx.Response:
             raise AssertionError("jamas debe salir a la red")
 
-        with pytest.raises(apply.AjusteInexistente):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteInexistente):
+            apply_ajustes.regresa_ajuste_campana(
                 conn, ajuste_id=999, actor="dueno", transport=httpx.MockTransport(_nada)
             )
 
@@ -932,7 +932,7 @@ def test_regresa_inexistente_da_404(monkeypatch):
 def test_config_leida_elige_por_id_entre_varias():
     """Panel, unitario: el list trae otra campana primero; el readback
     elige la pedida por id (nunca items[0])."""
-    from app.apply import _config_leida
+    from app.apply_ajustes import _config_leida
 
     class _ListFake:
         def list_sellado(self, _path, _body):
@@ -985,8 +985,8 @@ def test_readback_cruza_por_id_y_no_por_items_0(monkeypatch):
                 )
             raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1006,8 +1006,8 @@ def test_pendiente_con_destino_observado_se_reconcilia_sin_put(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         handler_mal, _v = _handler_campanas(remoto, divergente=_vigente_config())
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1041,7 +1041,7 @@ def test_pendiente_con_destino_observado_se_reconcilia_sin_put(monkeypatch):
             assert request.method != "PUT", "la reconciliacion no hace PUT"
             return handler_ok(request)
 
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1077,7 +1077,7 @@ def test_huella_ajena_no_confirma_otra_campana(monkeypatch):
         plan_b = _plan(conn, camp_b, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
         handler, _vistos = _handler_campanas(remoto)
-        apply.aplica_ajuste_campana(
+        apply_ajustes.aplica_ajuste_campana(
             conn,
             plan_a,
             huella=plan_a.huella(),
@@ -1090,7 +1090,7 @@ def test_huella_ajena_no_confirma_otra_campana(monkeypatch):
             raise AssertionError("jamas debe salir a la red")
 
         with pytest.raises(ValueError, match="otra campana"):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan_b,
                 huella=plan_a.huella(),
@@ -1122,7 +1122,7 @@ def test_doble_aplica_simultaneo_no_explota_ni_duplica_acto(monkeypatch):
 
             hilo_conn = psycopg.connect(dsn_db)
             try:
-                import app.apply as ap
+                import app.apply_ajustes as ap
 
                 for _intento in range(10):
                     try:
@@ -1190,7 +1190,7 @@ def test_carrera_insert_mismo_instante_pierde_con_409(monkeypatch):
 
             hilo_conn = psycopg.connect(dsn_db)
             try:
-                import app.apply as ap
+                import app.apply_ajustes as ap
 
                 hecho = ap.aplica_ajuste_campana(
                     hilo_conn,
@@ -1232,7 +1232,7 @@ def test_regresa_fuera_de_amazon_rechazado_sin_http(monkeypatch):
         handler, _vistos = _handler_campanas(remoto)
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, LimitarFueraDeAmazon())
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1245,8 +1245,8 @@ def test_regresa_fuera_de_amazon_rechazado_sin_http(monkeypatch):
         def _nada(request: httpx.Request) -> httpx.Response:
             raise AssertionError("jamas debe salir a la red")
 
-        with pytest.raises(apply.AjusteSinRegreso, match="no tiene regreso sellado"):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteSinRegreso, match="no tiene regreso sellado"):
+            apply_ajustes.regresa_ajuste_campana(
                 conn,
                 ajuste_id=hecho.ajuste_id,
                 actor="dueno",
@@ -1266,7 +1266,7 @@ def test_aplica_ajuste_ubicacion_por_put_y_readback(monkeypatch):
             camp,
             CambiarAjusteUbicacion(ubicacion="paginas_de_producto", porcentaje=0),
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1299,7 +1299,7 @@ def test_aplica_fuera_de_amazon_por_put_y_readback(monkeypatch):
             camp,
             LimitarFueraDeAmazon(),
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1323,8 +1323,8 @@ def test_reconcilia_aplica_sin_autocommit_y_cierra_sin_commit(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         handler_mal, _v = _handler_campanas(remoto, divergente=_vigente_config())
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1341,7 +1341,7 @@ def test_reconcilia_aplica_sin_autocommit_y_cierra_sin_commit(monkeypatch):
 
         c2 = psycopg.connect(dsn_db)
         try:
-            hecho = apply.aplica_ajuste_campana(
+            hecho = apply_ajustes.aplica_ajuste_campana(
                 c2,
                 plan,
                 huella=plan.huella(),
@@ -1371,7 +1371,7 @@ def test_reconcilia_regreso_sin_autocommit_y_cierra_sin_commit(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         handler, _vistos = _handler_campanas(remoto)
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1380,8 +1380,8 @@ def test_reconcilia_regreso_sin_autocommit_y_cierra_sin_commit(monkeypatch):
             transport=httpx.MockTransport(handler),
         )
         handler_mal, _v = _handler_campanas(remoto, divergente=plan.despues)
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.regresa_ajuste_campana(
                 conn,
                 ajuste_id=hecho.ajuste_id,
                 actor="dueno",
@@ -1396,7 +1396,7 @@ def test_reconcilia_regreso_sin_autocommit_y_cierra_sin_commit(monkeypatch):
 
         c2 = psycopg.connect(dsn_db)
         try:
-            reintento = apply.regresa_ajuste_campana(
+            reintento = apply_ajustes.regresa_ajuste_campana(
                 c2,
                 ajuste_id=hecho.ajuste_id,
                 actor="dueno",
@@ -1427,7 +1427,7 @@ def test_reaplicar_y_regresar_otra_vez_no_choca_huella(monkeypatch):
 
         def _aplica(monto: str):
             plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal(monto)))
-            return apply.aplica_ajuste_campana(
+            return apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1437,13 +1437,13 @@ def test_reaplicar_y_regresar_otra_vez_no_choca_huella(monkeypatch):
             )
 
         a1 = _aplica("120")
-        r1 = apply.regresa_ajuste_campana(
+        r1 = apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=a1.ajuste_id, actor="dueno", transport=transporte
         )
         assert r1.confirmada is True
         a2 = _aplica("120")
         assert a2.ajuste_id != a1.ajuste_id
-        r2 = apply.regresa_ajuste_campana(
+        r2 = apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=a2.ajuste_id, actor="dueno", transport=transporte
         )
         assert r2.confirmada is True
@@ -1461,7 +1461,7 @@ def test_regresar_un_regreso_encadena_sin_500(monkeypatch):
         _creds_fake(monkeypatch)
         transporte = httpx.MockTransport(handler)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1473,7 +1473,7 @@ def test_regresar_un_regreso_encadena_sin_500(monkeypatch):
         actual = hecho.ajuste_id
         for esperado in previos:
             assert remoto[EXTERNA]["budget"]["budget"] == esperado
-            paso = apply.regresa_ajuste_campana(
+            paso = apply_ajustes.regresa_ajuste_campana(
                 conn, ajuste_id=actual, actor="dueno", transport=transporte
             )
             assert paso.confirmada is True
@@ -1511,7 +1511,7 @@ def test_put_lleva_solo_la_llave_de_la_clase(monkeypatch):
 
         def _aplica(ajuste):
             plan = _plan(conn, camp, ajuste)
-            return apply.aplica_ajuste_campana(
+            return apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1541,7 +1541,7 @@ def test_ajuste_ubicacion_no_revierte_presupuesto_de_consola(monkeypatch):
         plan = _plan(
             conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1565,7 +1565,7 @@ def test_ajuste_presupuesto_no_revierte_ubicacion_de_consola(monkeypatch):
         handler, vistos = _handler_mezcla(remoto)
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1621,7 +1621,7 @@ def test_dos_clases_a_la_vez_dejan_los_dos_cambios(monkeypatch):
 
             c = psycopg.connect(dsn_db)
             try:
-                hecho = apply.aplica_ajuste_campana(
+                hecho = apply_ajustes.aplica_ajuste_campana(
                     c,
                     pb,
                     huella=pb.huella(),
@@ -1636,7 +1636,7 @@ def test_dos_clases_a_la_vez_dejan_los_dos_cambios(monkeypatch):
         hb = threading.Thread(target=_tiro_b)
         hb.start()
         assert b_en_put.wait(timeout=30)
-        hecho_a = apply.aplica_ajuste_campana(
+        hecho_a = apply_ajustes.aplica_ajuste_campana(
             conn,
             pa,
             huella=pa.huella(),
@@ -1669,7 +1669,7 @@ def test_regresos_cruzados_solo_mueven_su_clase(monkeypatch):
 
         def _aplica(ajuste):
             plan = _plan(conn, camp, ajuste)
-            return apply.aplica_ajuste_campana(
+            return apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1680,7 +1680,7 @@ def test_regresos_cruzados_solo_mueven_su_clase(monkeypatch):
 
         a1 = _aplica(CambiarPresupuesto(presupuesto_diario=Decimal("200")))
         a2 = _aplica(CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=50))
-        r1 = apply.regresa_ajuste_campana(
+        r1 = apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=a1.ajuste_id, actor="dueno", transport=transporte
         )
         assert r1.confirmada is True
@@ -1691,7 +1691,7 @@ def test_regresos_cruzados_solo_mueven_su_clase(monkeypatch):
             for p in remoto[EXTERNA]["dynamicBidding"]["placementBidding"]
         }
         assert tops["PLACEMENT_TOP"] == 50
-        r2 = apply.regresa_ajuste_campana(
+        r2 = apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=a2.ajuste_id, actor="dueno", transport=transporte
         )
         assert r2.confirmada is True
@@ -1712,7 +1712,7 @@ def test_readback_sin_dynamic_bidding_conserva_vigente_previo(monkeypatch):
         handler, _vistos = _handler_campanas(remoto)
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1738,7 +1738,7 @@ def test_regreso_con_vigente_ya_en_antes_no_manda_put(monkeypatch):
         _creds_fake(monkeypatch)
         transporte = httpx.MockTransport(handler)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -1747,8 +1747,8 @@ def test_regreso_con_vigente_ya_en_antes_no_manda_put(monkeypatch):
             transport=transporte,
         )
         _observa(conn, camp, plan.antes)
-        with pytest.raises(apply.AjusteYaRegresado):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteYaRegresado):
+            apply_ajustes.regresa_ajuste_campana(
                 conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
             )
         assert len(_puts(vistos)) == 1
@@ -1771,7 +1771,7 @@ def test_aplica_campana_de_otra_plataforma_rechazado(monkeypatch):
             plataforma="amazon_us",
         )
         with pytest.raises(ValueError, match="no es de amazon_us"):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1791,8 +1791,8 @@ def test_regresa_ajuste_sin_confirmar_rechazado(monkeypatch):
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
         handler_mal, _v = _handler_campanas(remoto, divergente=_vigente_config())
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.aplica_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1802,8 +1802,8 @@ def test_regresa_ajuste_sin_confirmar_rechazado(monkeypatch):
             )
         (ajuste_id,) = conn.execute("SELECT id FROM campana_ajuste").fetchone()
         handler_ok, vistos = _handler_campanas(remoto)
-        with pytest.raises(apply.AjusteNoConfirmado):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.regresa_ajuste_campana(
                 conn,
                 ajuste_id=ajuste_id,
                 actor="dueno",
@@ -1834,7 +1834,7 @@ def test_aplica_entidad_que_no_es_campana_rechazado(monkeypatch):
             plataforma="amazon_mx",
         )
         with pytest.raises(ValueError, match="no es de amazon_mx"):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1864,7 +1864,7 @@ def test_put_207_con_error_de_tope_aborta(monkeypatch):
             return base(request)
 
         with pytest.raises(AdsApiErrorMutacion):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1895,7 +1895,7 @@ def test_put_207_con_error_anidado_aborta(monkeypatch):
             return base(request)
 
         with pytest.raises(AdsApiErrorMutacion):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1927,7 +1927,7 @@ def test_fila_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch):
 
         c2 = psycopg.connect(dsn_db)
         try:
-            hecho = apply.aplica_ajuste_campana(
+            hecho = apply_ajustes.aplica_ajuste_campana(
                 c2,
                 plan,
                 huella=plan.huella(),
@@ -1957,7 +1957,7 @@ def test_put_500_sale_como_error_de_amazon(monkeypatch):
             return base(request)
 
         with pytest.raises(apply.AdsApiError):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -1987,7 +1987,7 @@ def test_readback_500_sale_como_error_de_amazon(monkeypatch):
             return base(request)
 
         with pytest.raises(apply.AdsApiError):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -2012,7 +2012,7 @@ def test_fila_regreso_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch
         base, _vistos = _handler_campanas(remoto)
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -2033,7 +2033,7 @@ def test_fila_regreso_visible_desde_otra_conexion_cuando_sale_el_put(monkeypatch
 
         c2 = psycopg.connect(dsn_db)
         try:
-            hijo = apply.regresa_ajuste_campana(
+            hijo = apply_ajustes.regresa_ajuste_campana(
                 c2,
                 ajuste_id=hecho.ajuste_id,
                 actor="dueno",
@@ -2079,7 +2079,7 @@ def test_ubicacion_no_toca_otro_placement_de_consola(monkeypatch):
         plan = _plan(
             conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -2107,7 +2107,7 @@ def test_ubicacion_no_toca_strategy_de_consola(monkeypatch):
         plan = _plan(
             conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -2134,7 +2134,7 @@ def test_regresar_ubicacion_solo_restaura_su_placement(monkeypatch):
 
         def _aplica(ubicacion, pct):
             plan = _plan(conn, camp, CambiarAjusteUbicacion(ubicacion=ubicacion, porcentaje=pct))
-            return apply.aplica_ajuste_campana(
+            return apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -2145,7 +2145,7 @@ def test_regresar_ubicacion_solo_restaura_su_placement(monkeypatch):
 
         a1 = _aplica("arriba_de_busqueda", 20)
         a2 = _aplica("resto_de_busqueda", 30)
-        r1 = apply.regresa_ajuste_campana(
+        r1 = apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=a1.ajuste_id, actor="dueno", transport=transporte
         )
         assert r1.confirmada is True
@@ -2153,7 +2153,7 @@ def test_regresar_ubicacion_solo_restaura_su_placement(monkeypatch):
             {"placement": "PLACEMENT_TOP", "percentage": 0}
         ]
         assert _tops_b11(remoto)["PLACEMENT_REST_OF_SEARCH"] == 30
-        r2 = apply.regresa_ajuste_campana(
+        r2 = apply_ajustes.regresa_ajuste_campana(
             conn, ajuste_id=a2.ajuste_id, actor="dueno", transport=transporte
         )
         assert r2.confirmada is True
@@ -2188,7 +2188,7 @@ def test_reconcilia_sella_aunque_otro_campo_haya_cambiado(monkeypatch):
             return base(request)
 
         with pytest.raises(apply.AdsApiError):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -2205,7 +2205,7 @@ def test_reconcilia_sella_aunque_otro_campo_haya_cambiado(monkeypatch):
             [replace(_vigente_config(), ajuste_top_pct=20, presupuesto_diario=Decimal("150"))],
             dt.datetime.now(dt.UTC),
         )
-        hecho = apply.reconcilia_ajuste_campana(
+        hecho = apply_ajustes.reconcilia_ajuste_campana(
             conn, camp, "ajuste_ubicacion", ajuste, huella=plan.huella(), actor="dueno"
         )
         assert hecho.confirmada is True
@@ -2241,7 +2241,7 @@ def test_reconcilia_con_campo_distinto_no_sella(monkeypatch):
             return base(request)
 
         with pytest.raises(apply.AdsApiError):
-            apply.aplica_ajuste_campana(
+            apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan,
                 huella=plan.huella(),
@@ -2257,8 +2257,8 @@ def test_reconcilia_con_campo_distinto_no_sella(monkeypatch):
             [replace(_vigente_config(), ajuste_top_pct=30)],
             dt.datetime.now(dt.UTC),
         )
-        with pytest.raises(apply.HuellaDesactualizada):
-            apply.reconcilia_ajuste_campana(
+        with pytest.raises(apply_ajustes.HuellaDesactualizada):
+            apply_ajustes.reconcilia_ajuste_campana(
                 conn, camp, "ajuste_ubicacion", ajuste, huella=plan.huella(), actor="dueno"
             )
         fila = conn.execute(
@@ -2282,8 +2282,8 @@ def test_candado_perdido_responde_en_curso_sin_put(monkeypatch):
         c2 = psycopg.connect(dsn_db)
         try:
             c1.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"aplica:{plan.huella()}",))
-            with pytest.raises(apply.AjusteEnCurso):
-                apply.aplica_ajuste_campana(
+            with pytest.raises(apply_ajustes.AjusteEnCurso):
+                apply_ajustes.aplica_ajuste_campana(
                     c2,
                     plan,
                     huella=plan.huella(),
@@ -2311,7 +2311,7 @@ def test_acto_ya_confirmado_no_repite_put(monkeypatch):
         handler, _vistos = _handler_campanas(remoto)
         _creds_fake(monkeypatch)
         plan = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("120")))
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -2336,7 +2336,7 @@ def test_acto_ya_confirmado_no_repite_put(monkeypatch):
                 return _R()
 
         stub = _Stub()
-        apply._aplica_y_confirma(
+        apply_ajustes._aplica_y_confirma(
             conn,
             stub,
             plan.plataforma,
@@ -2369,7 +2369,7 @@ def test_regreso_con_clase_ya_en_antes_no_manda_put(monkeypatch):
         plan = _plan(
             conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=50)
         )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=plan.huella(),
@@ -2384,8 +2384,8 @@ def test_regreso_con_clase_ya_en_antes_no_manda_put(monkeypatch):
             [replace(_vigente_config(), presupuesto_diario=Decimal("150"))],
             dt.datetime.now(dt.UTC),
         )
-        with pytest.raises(apply.AjusteYaRegresado):
-            apply.regresa_ajuste_campana(
+        with pytest.raises(apply_ajustes.AjusteYaRegresado):
+            apply_ajustes.regresa_ajuste_campana(
                 conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
             )
         assert len(_puts(vistos)) == 1

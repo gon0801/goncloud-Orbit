@@ -59,7 +59,7 @@ from app.api_precios import (  # noqa: F401 - reexport que usan /salud y pruebas
     precios,
     validar_precio_aviso_dias,
 )
-from app.apply import KINDS_QUOTA, estado_quota
+from app.apply_cuota import KINDS_QUOTA, estado_quota
 from app.apply_harvest import ROLES_DISCOVERY
 from app.config_write import ADVERTENCIA_RESPALDO, clave_cap, metas_resumen_desde_settings
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas

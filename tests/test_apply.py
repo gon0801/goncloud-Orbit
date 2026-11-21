@@ -68,12 +68,7 @@ from app.apply import (
     MOTIVO_TOPE_INTENTOS,
     MOTIVO_YA_APLICADA,
     Aplicador,
-    ConfirmacionDesactualizada,
     DecisionBid,
-    RegresoHecho,
-    RegresoNoConfirmado,
-    SinRachaDeRecortes,
-    VigentePorEncima,
     bids_del_ciclo,
     consume_quota,
     intentos_sin_sello,
@@ -81,9 +76,16 @@ from app.apply import (
     orden_bajo_cupo,
     prioridad_bajo_cupo,
     registra_sin_aplicar,
+    reversa_bid,
+)
+from app.apply_regreso_dueno import (
+    ConfirmacionDesactualizada,
+    RegresoHecho,
+    RegresoNoConfirmado,
+    SinRachaDeRecortes,
+    VigentePorEncima,
     regreso_del_dueno,
     regreso_del_dueno_todas,
-    reversa_bid,
 )
 
 FAKE_CLIENT_ID = "fake-client-id-123"
@@ -944,7 +946,7 @@ def test_prioridad_bajo_cupo_motivos_existen_en_politica():
     motivos_politica = {v for k, v in vars(politica).items() if k.startswith("MOTIVO_")}
     assert motivos_politica, "politica.py sin constantes MOTIVO_*"
     arbol = ast.parse(
-        (Path(__file__).resolve().parents[1] / "app" / "apply.py").read_text(encoding="utf-8")
+        (Path(__file__).resolve().parents[1] / "app" / "apply_cuota.py").read_text(encoding="utf-8")
     )
     defs = [n for n in ast.walk(arbol) if isinstance(n, ast.FunctionDef)]
     (nodo,) = [n for n in defs if n.name == "prioridad_bajo_cupo"]
@@ -2641,7 +2643,7 @@ def test_clave_orden_cambio_empate_con_null_no_revienta():
     ordena (NULL ultimo, como el SQL) en vez de TypeError."""
     import datetime as dt
 
-    from app.apply import _clave_orden_cambio
+    from app.apply_regreso_dueno import _clave_orden_cambio
 
     ancla = dt.datetime(2026, 10, 4, 12, 0)
     motor = (ancla, 1, 2, "MXN", 7)

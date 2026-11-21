@@ -52,7 +52,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
-from app import apply
+from app import apply, apply_ajustes, apply_regreso_dueno
 from app.ads.config import AdsCredentials
 from app.main import app
 
@@ -1164,14 +1164,14 @@ def _regreso_monkeypatcheado(monkeypatch, tmp_path, *, resultado=None, error=Non
             raise error
         return resultado
 
-    monkeypatch.setattr(apply, "regreso_del_dueno", _uno)
-    monkeypatch.setattr(apply, "regreso_del_dueno_todas", _todas)
+    monkeypatch.setattr(apply_regreso_dueno, "regreso_del_dueno", _uno)
+    monkeypatch.setattr(apply_regreso_dueno, "regreso_del_dueno_todas", _todas)
 
 
 def _hecho_m5(hoja_id=11, sello=None):
     from decimal import Decimal
 
-    return apply.RegresoHecho(
+    return apply_regreso_dueno.RegresoHecho(
         hoja_id=hoja_id,
         bid_antes=Decimal("3.73"),
         bid_ahora=Decimal("9.74"),
@@ -1219,7 +1219,7 @@ def test_regresar_endpoints_mapean_errores(tmp_path, monkeypatch):
         (
             "/api/ads-optimizer/bid/regresar",
             {"hoja_id": 11, "actor": "dueno"},
-            apply.SinRachaDeRecortes("sin racha"),
+            apply_regreso_dueno.SinRachaDeRecortes("sin racha"),
             409,
         ),
         (
@@ -1231,19 +1231,19 @@ def test_regresar_endpoints_mapean_errores(tmp_path, monkeypatch):
         (
             "/api/ads-optimizer/bid/regresar",
             {"hoja_id": 11, "actor": "dueno"},
-            apply.VigentePorEncima("vigente 12 por encima del destino 10"),
+            apply_regreso_dueno.VigentePorEncima("vigente 12 por encima del destino 10"),
             409,
         ),
         (
             "/api/ads-optimizer/bid/regresar-todas",
             {"plataforma": "amazon_mx", "confirmacion": "REGRESAR 5 KEYWORDS", "actor": "dueno"},
-            apply.ConfirmacionDesactualizada("esperaba 'REGRESAR 6 KEYWORDS'"),
+            apply_regreso_dueno.ConfirmacionDesactualizada("esperaba 'REGRESAR 6 KEYWORDS'"),
             409,
         ),
         (
             "/api/ads-optimizer/bid/regresar",
             {"hoja_id": 11, "actor": "dueno"},
-            apply.RegresoNoConfirmado("sin confirmar: fallo http 500"),
+            apply_regreso_dueno.RegresoNoConfirmado("sin confirmar: fallo http 500"),
             502,
         ),
         (
@@ -1747,12 +1747,12 @@ def test_mapeo_errores_ajuste_trae_sus_codigos():
     from app.api_write import _ERRORES_AJUSTE
 
     assert {
-        apply.ConfirmacionInvalida: 422,
-        apply.AjusteSinRegreso: 422,
-        apply.AjusteInexistente: 404,
-        apply.AjusteYaRegresado: 409,
-        apply.AjusteEnCurso: 409,
-        apply.AjusteNoConfirmado: 502,
+        apply_ajustes.ConfirmacionInvalida: 422,
+        apply_ajustes.AjusteSinRegreso: 422,
+        apply_ajustes.AjusteInexistente: 404,
+        apply_ajustes.AjusteYaRegresado: 409,
+        apply_ajustes.AjusteEnCurso: 409,
+        apply_ajustes.AjusteNoConfirmado: 502,
         apply.AdsApiErrorMutacion: 502,
         apply.AdsApiError: 502,
         apply.SinPerfilAjuste: 503,
@@ -1913,7 +1913,7 @@ def test_arreglos04_w_n_ajuste_alto_no_se_aplica_sin_confirmar(tmp_path, monkeyp
             llamadas.append((args, kwargs))
             return _Hecho()
 
-        monkeypatch.setattr(apply, "aplica_ajuste_campana", _espia)
+        monkeypatch.setattr(apply_ajustes, "aplica_ajuste_campana", _espia)
         cuerpo = {
             "campana_id": camp,
             "clase": "presupuesto",

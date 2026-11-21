@@ -1,42 +1,15 @@
 """Router de ESCRITURA del optimizador (ORBIT 04, task 3.1).
 
-La superficie de escritura bajo el MISMO prefijo `/api/ads-optimizer` que la
-lectura (app/api.py): veto de cortes, reversas manuales (regla 7) y edicion
-de goals (3.2, sellado 26 — despacha a app/goals_write.edita_goal, un solo
-camino con el CLI). `/run` = Reject formal PERMANENTE: el disparo del ciclo
-es el CLI por ssh, jamas un endpoint HTTP del ciclo.
+Superficie bajo `/api/ads-optimizer` (mismo prefijo que `app/api.py`): veto de
+cortes, reversas manuales (regla 7), regreso del dueno, ajustes de campana y
+edicion de goals (`app/goals_write.edita_goal`). `/run` = Reject permanente.
 
-AUTH (sellado 18, docs/APPLY.md §10.1): token estatico en el archivo
-`api_write_token` dentro de `ORBIT_SECRETS_DIR` (0600 en el server), leido con
-`register_secret` y comparado con `hmac.compare_digest`. SOLO header
-`x-orbit-token`: la query string JAMAS autentica (con test). Sin secrets dir, sin
-archivo, archivo ilegible o vacio -> 503 FAIL-CLOSED con detalle GENERICO
-(ADV-4: la razon especifica va solo al logger; un caller sin autenticar no
-recibe un oraculo del estado interno; jamas fail-open).
-
-CONEXION: `ConexionEscritura` abre `ORBIT_DSN_ADMIN` (usuario LOGIN
-`orbit_admin` -> rol `app_admin`; docs/DEPLOY.md) SIN autocommit — las
-reversas gestionan sus transacciones con conn.commit()/conn.transaction().
-Sin DSN -> 503 fail-closed con mensaje claro (jamas el DSN crudo: ya redactado
-por app.db.connect). En cada endpoint la dependencia de token va PRIMERO que
-la de conexion: el guard de auth corre antes de abrir el DSN (sin token Y sin
-DSN -> 401).
-
-VETO (sellados 3/4): UPDATE atomico `pending_veto|released -> vetoed` con
-actor, rastro y vence_el editable (default 30d). Corre como admin porque el
-trigger de 0002 exige pg_has_role(current_user, 'app_admin'): el rol del motor
-JAMAS veta. applying es punto de no retorno (409 "en vuelo"); terminales 409;
-inexistente 404.
-
-REVERSAS: despachan a `apply.reversa_manual` (el UNICO punto fuera del ciclo
-que construye el write client, candado de test_architecture intacto). Mapeo
-de errores: ReversaNoAplicada -> 409 (precondicion), ReversaYaHecha -> 409
-"ya revertida" (ADV-3: una reversa es UNA por decision, regla 7), ReversaInexistente ->
-404, NegativeIdNoResoluble -> 422, SinPerfilReversa -> 503 fail-closed. El
-negative_id del DELETE sale SIEMPRE del ack del ledger de ESA fila (ADV-2: el
-body JAMAS lo acepta, regla 1 — borrar el negativo de OTRO con un id a mano
-es imposible). La respuesta lleva `confirmada: bool` (false = la reversa quedo
-sellada como fallo en el ledger; el detalle vive ahi, regla 10).
+AUTH: header `x-orbit-token` contra `<ORBIT_SECRETS_DIR>/api_write_token` con
+`hmac.compare_digest` (query string jamas autentica; config incompleta -> 503
+generico fail-closed). CONEXION: `ORBIT_DSN_ADMIN` sin autocommit; el guard de
+token corre antes de abrir DSN. VETO: `pending_veto|released -> vetoed` como
+`app_admin`. REVERSAS: despachan a `apply.reversa_manual` (unico punto fuera
+del ciclo que construye el write client).
 """
 
 from __future__ import annotations
@@ -56,7 +29,16 @@ from fastapi import Path as RutaPath
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from app import apply, bloqueo_dueno_efecto, config_write, familias, goals_write, propuestas_campana
+from app import (
+    apply,
+    apply_ajustes,
+    apply_regreso_dueno,
+    bloqueo_dueno_efecto,
+    config_write,
+    familias,
+    goals_write,
+    propuestas_campana,
+)
 from app.api import ConexionLectura
 from app.campana_ajustes import _ajuste_de
 from app.db import OrbitDbError, connect
@@ -439,10 +421,10 @@ def reversa_negative(
 # una vez) y RegresoNoConfirmado -> 502.
 _ERRORES_REGRESO: dict[type[Exception], int] = {
     **_ERRORES_REVERSA,
-    apply.VigentePorEncima: 409,
-    apply.SinRachaDeRecortes: 409,
-    apply.ConfirmacionDesactualizada: 409,
-    apply.RegresoNoConfirmado: 502,
+    apply_regreso_dueno.VigentePorEncima: 409,
+    apply_regreso_dueno.SinRachaDeRecortes: 409,
+    apply_regreso_dueno.ConfirmacionDesactualizada: 409,
+    apply_regreso_dueno.RegresoNoConfirmado: 502,
 }
 
 
@@ -456,7 +438,9 @@ def regresar_bid(
     (PUT con ese bid, exento de cupo). Sin racha -> 409; racha ya regresada
     -> 409; actor vacio -> 422."""
     try:
-        return apply.regreso_del_dueno(conn, hoja_id=cuerpo.hoja_id, actor=cuerpo.actor).como_dict()
+        return apply_regreso_dueno.regreso_del_dueno(
+            conn, hoja_id=cuerpo.hoja_id, actor=cuerpo.actor
+        ).como_dict()
     except tuple(_ERRORES_REGRESO) as exc:
         raise HTTPException(status_code=_ERRORES_REGRESO[type(exc)], detail=str(exc)) from None
     except ValueError as exc:
@@ -474,7 +458,7 @@ def regresar_todas(
     `REGRESAR <N> KEYWORDS` con el N vigente (si no, 409 y cero escrituras).
     Una falla no detiene a las demas: cada resultado trae ok o motivo."""
     try:
-        resultados = apply.regreso_del_dueno_todas(
+        resultados = apply_regreso_dueno.regreso_del_dueno_todas(
             conn,
             plataforma=cuerpo.plataforma,
             confirmacion=cuerpo.confirmacion,
@@ -488,7 +472,7 @@ def regresar_todas(
         "plataforma": cuerpo.plataforma,
         "resultados": [
             {"ok": True, **r.como_dict()}
-            if isinstance(r, apply.RegresoHecho)
+            if isinstance(r, apply_regreso_dueno.RegresoHecho)
             else {"ok": False, "motivo": r}
             for r in resultados
         ],
@@ -738,12 +722,12 @@ def plan_ajuste(
 
 
 _ERRORES_AJUSTE: dict[type[Exception], int] = {
-    apply.ConfirmacionInvalida: 422,
-    apply.AjusteSinRegreso: 422,
-    apply.AjusteInexistente: 404,
-    apply.AjusteYaRegresado: 409,
-    apply.AjusteEnCurso: 409,
-    apply.AjusteNoConfirmado: 502,
+    apply_ajustes.ConfirmacionInvalida: 422,
+    apply_ajustes.AjusteSinRegreso: 422,
+    apply_ajustes.AjusteInexistente: 404,
+    apply_ajustes.AjusteYaRegresado: 409,
+    apply_ajustes.AjusteEnCurso: 409,
+    apply_ajustes.AjusteNoConfirmado: 502,
     apply.AdsApiErrorMutacion: 502,
     apply.AdsApiError: 502,
     apply.SinPerfilAjuste: 503,
@@ -770,7 +754,7 @@ def aplicar_ajuste(
                 _ajuste_de(cuerpo.clase, cuerpo.presupuesto, cuerpo.ubicacion, cuerpo.porcentaje),
             )
         except AjusteSinCambio:
-            hecho = apply.reconcilia_ajuste_campana(
+            hecho = apply_ajustes.reconcilia_ajuste_campana(
                 conn,
                 cuerpo.campana_id,
                 cuerpo.clase,
@@ -786,14 +770,14 @@ def aplicar_ajuste(
                 status_code=422,
                 detail=g.TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO,
             )
-        hecho = apply.aplica_ajuste_campana(
+        hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
             plan,
             huella=cuerpo.huella,
             confirmacion=cuerpo.confirmacion,
             actor=cuerpo.actor,
         )
-    except apply.HuellaDesactualizada as exc:
+    except apply_ajustes.HuellaDesactualizada as exc:
         raise HTTPException(
             status_code=409,
             detail={
@@ -884,7 +868,7 @@ def regresar_ajuste(
     antes (B2). Un solo regreso por ajuste; fuera_de_amazon no tiene
     regreso (422)."""
     try:
-        hecho = apply.regresa_ajuste_campana(conn, ajuste_id=ajuste_id, actor=cuerpo.actor)
+        hecho = apply_ajustes.regresa_ajuste_campana(conn, ajuste_id=ajuste_id, actor=cuerpo.actor)
     except tuple(_ERRORES_AJUSTE) as exc:
         raise HTTPException(status_code=_ERRORES_AJUSTE[type(exc)], detail=str(exc)) from None
     except ValueError as exc:

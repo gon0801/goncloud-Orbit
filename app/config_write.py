@@ -45,7 +45,7 @@ from typing import Literal
 import psycopg
 from psycopg.types.json import Json
 
-from app.apply import KINDS_QUOTA, cap_desde_settings
+from app.apply_cuota import KINDS_QUOTA, cap_desde_settings
 from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_META
 from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
