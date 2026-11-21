@@ -625,7 +625,7 @@ def _evidencia_caso_d(conn, kw: int, desde: dt.date, corte: dt.date, hasta: dt.d
         maduro = dia <= corte
         reciente = maduro and i >= (corte - desde).days + 1 - 41
         clicks = 2 if reciente else (0 if maduro and i % 10 == 0 else 1)
-        pedido = reciente and i < (corte - desde).days + 1 - 41 + 12
+        pedido = reciente and i >= (corte - desde).days + 1 - 12
         _metrica(
             conn,
             run_id,

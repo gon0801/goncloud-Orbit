@@ -206,8 +206,10 @@ def revalida_harvest(
         )
         keywords = hygiene.keywords_campana_destino(conn, platform, destino.campaign_external)
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    umbral = cortes.umbral_corte(evidencia, "negative").umbral
-    piso = cortes.piso_corte(evidencia, platform).piso_cost
+    # TEMPORADA 01 D: mult_baja None — el x2 del dueno cubre pausas y
+    # negatives de corte; la cosecha conserva sus umbrales de hoy.
+    umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=None).umbral
+    piso = cortes.piso_corte(evidencia, platform, mult_baja=None).piso_cost
     terminos = windows.terminos_cortes(conn, grupo, ahora)
     term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
     if term is None:

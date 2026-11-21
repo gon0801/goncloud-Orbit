@@ -99,6 +99,7 @@ from app import (
     notifica,
     productos_io,
     proteccion_venta,
+    temporada_io,
 )
 from app.ads.client import AdsApiError
 from app.apply import (
@@ -1154,8 +1155,18 @@ def _revalida_pause(
         return MOTIVO_ESPERA_TARGET if espera else MOTIVO_YA_NO_CALIFICA
     grupo = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    umbral = cortes.umbral_corte(evidencia, "pause").umbral
-    fresco = windows.ventana_cortes(conn, fila.ad_entity_id, ahora)
+    # TEMPORADA 01 D (al liberar): la frontera de la hoja trae el multiplicador
+    # del dueno y la cerca — la pausa de la baja se revalida con 2x clics,
+    # 2x piso y 2x exceso, y su ventana no mira dias de la baja.
+    frontera_h = temporada_io.frontera_hoja(conn, fila.ad_entity_id, ahora.date())
+    mult_baja = (
+        frontera_h.mult_cortes
+        if frontera_h is not None and frontera_h.fase_hoja == "baja"
+        else None
+    )
+    cerca = frontera_h.cerca_hoja if frontera_h is not None else None
+    umbral = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_baja).umbral
+    fresco = windows.ventana_cortes(conn, fila.ad_entity_id, ahora, cerca=cerca)
     # C.3 B1 + obs3r2: la politica EFECTIVA (una sola lectura del flag;
     # la evidencia registra esta, no la version nominal).
     version_efectiva = (
@@ -1182,6 +1193,12 @@ def _revalida_pause(
         # flag apagado, camino pre-economico aunque la fila sea vieja).
         policy_version=version_efectiva,
         proteccion=proteccion,
+        # TEMPORADA 01 D (al liberar): el exceso economico de la baja va x mult.
+        exceso_minimo=(
+            cortes.exceso_minimo(motor_bid.PLATAFORMAS_MONEDA[platform], mult_baja=mult_baja)
+            if mult_baja is not None
+            else None
+        ),
     )
     # Obs1: una fila economica aplica si la hoja califica PAUSE por
     # CUALQUIER regla (si ademas califica la umbral, pausar sigue siendo
@@ -1275,8 +1292,11 @@ def _revalida_negative(
     una entidad — su re-validacion ES la regla con evidencia fresca."""
     grupo = fila.ad_entity_id
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    umbral = cortes.umbral_corte(evidencia, "negative").umbral
-    piso = cortes.piso_corte(evidencia, platform).piso_cost
+    # TEMPORADA 01 D (al liberar): el multiplicador del dueno para los
+    # negatives cuando la plataforma decide la baja en live.
+    mult_baja = temporada_io.mult_negativa(conn, platform, ahora.date())
+    umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=mult_baja).umbral
+    piso = cortes.piso_corte(evidencia, platform, mult_baja=mult_baja).piso_cost
     terminos = windows.terminos_cortes(conn, grupo, ahora)
     term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
     if term is None:

@@ -478,6 +478,11 @@ class InsumosPausa:
     # ORBIT 07 M1: ausente en las filas historicas y en las pausas con bids
     # apagados anteriores; su ausencia conserva la semantica antigua.
     proteccion: InsumosProteccion | None = None
+    # TEMPORADA 01 D: el exceso minimo de la pausa economica ya multiplicado
+    # por el mult del dueno (EXCESO_MINIMO x mult en baja). None = EXCESO_
+    # MINIMO[moneda] (semantica de hoy, replay intacto); el freeze lo lleva
+    # para que el replay de una pausa de la baja rejuegue con su multiplicador.
+    exceso_minimo: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -705,7 +710,7 @@ def _cortes_json(cortes: AgregadoMetricas | None) -> dict | None:
 
 
 def _pausa_json(pausa: InsumosPausa) -> dict:
-    return {
+    salida = {
         "cortes": _cortes_json(pausa.cortes),
         "umbral_clics": pausa.umbral_clics,
         "gasto_minimo": str(pausa.gasto_minimo),
@@ -713,6 +718,11 @@ def _pausa_json(pausa: InsumosPausa) -> dict:
         "politica_economica": pausa.politica_economica,
         "proteccion": _proteccion_json(pausa.proteccion),
     }
+    # TEMPORADA 01 D: solo los casos de pausas de la baja lo traen; los viejos
+    # rejuegan con None (EXCESO_MINIMO[moneda], semantica de hoy).
+    if pausa.exceso_minimo is not None:
+        salida["exceso_minimo"] = str(pausa.exceso_minimo)
+    return salida
 
 
 def _lectura_reciente_json(lectura: LecturaReciente) -> dict:
@@ -1095,10 +1105,10 @@ def _cortes_desde(datos: Any) -> AgregadoMetricas | None:
 
 
 def _pausa_desde(datos: Any) -> InsumosPausa:
-    d = _objeto_versionado(
+    d = _objeto_con_opcionales(
         datos,
         _CLAVES_PAUSA,
-        _CLAVES_PAUSA | {"proteccion"},
+        {"proteccion", "exceso_minimo"},
         "pausa",
     )
     return InsumosPausa(
@@ -1108,6 +1118,7 @@ def _pausa_desde(datos: Any) -> InsumosPausa:
         expected_clicks=_opcional(d["expected_clicks"], "expected_clicks", _decimal),
         politica_economica=_opcional(d["politica_economica"], "politica_economica", _texto),
         proteccion=_proteccion_desde(d.get("proteccion")),
+        exceso_minimo=_opcional(d.get("exceso_minimo"), "pausa.exceso_minimo", _decimal),
     )
 
 

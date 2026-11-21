@@ -466,21 +466,35 @@ def _agrega_metricas(
 
 
 def ventana_cortes(
-    conn: psycopg.Connection, ad_entity_id: int, decided_at: dt.datetime
+    conn: psycopg.Connection,
+    ad_entity_id: int,
+    decided_at: dt.datetime,
+    *,
+    cerca: dt.date | None = None,
 ) -> AgregadoMetricas | None:
     """Ventana de CORTES de una entidad: agregado SEPARADO cuya ventana termina
     en min(max - 3d, decided_at(UTC) - 10d). Se calcula desde cero sobre SU
     ventana: reutilizar el agregado de bids y "bajar" window_end esta prohibido
-    y aqui es imposible por construccion."""
+    y aqui es imposible por construccion. TEMPORADA 01 D: `cerca` (el dia UTC
+    siguiente al ultimo movimiento de temporada confirmado de la hoja) levanta
+    el INICIO de la ventana — la evidencia de falla no mira dias de la baja
+    (decision 8 del plan); None = lo de hoy."""
     max_fecha = _max_fecha(conn, ad_entity_id)
     if max_fecha is None:
         return None
     window_end = fin_ventana_cortes(max_fecha, decided_at)
-    return _agrega_metricas(conn, ad_entity_id, inicio_ventana(window_end), window_end)
+    window_start = inicio_ventana(window_end)
+    if cerca is not None and cerca > window_start:
+        window_start = cerca
+    return _agrega_metricas(conn, ad_entity_id, window_start, window_end)
 
 
 def terminos_cortes(
-    conn: psycopg.Connection, ad_entity_id: int, decided_at: dt.datetime
+    conn: psycopg.Connection,
+    ad_entity_id: int,
+    decided_at: dt.datetime,
+    *,
+    cerca: dt.date | None = None,
 ) -> TerminosCortes:
     """Terminos (entity, termino) agregados sobre la ventana de CORTES de la
     entidad, colapsados a la ultima observacion por (entidad, termino, fecha).
@@ -491,7 +505,11 @@ def terminos_cortes(
     ad groups (REPORTES_CFG en app.ads.reports) -- y anclar en metricas
     devolveria () siempre (hallazgo codex+grok). La ventana la deriva esta
     funcion desde decided_at: el llamador no puede pasarle por error la de
-    bids. window_start/window_end son None solo sin NINGUNA observacion."""
+    bids. window_start/window_end son None solo sin NINGUNA observacion.
+    TEMPORADA 01 D: `cerca` (la cerca de la plataforma, dia UTC siguiente a la
+    primera confirmacion de la ultima transicion) levanta el INICIO de la
+    ventana — grupo y terminos no miran dias de la baja (decision 8); None =
+    lo de hoy."""
     max_fecha = conn.execute(_SQL_MAX_FECHA_TERMINOS, (ad_entity_id,)).fetchone()[0]
     if max_fecha is None:
         return TerminosCortes(
@@ -503,6 +521,8 @@ def terminos_cortes(
         )
     window_end = fin_ventana_cortes(max_fecha, decided_at)
     window_start = inicio_ventana(window_end)
+    if cerca is not None and cerca > window_start:
+        window_start = cerca
     fila_fechas = conn.execute(
         _SQL_FECHAS_ENTIDAD_TERMINOS, (ad_entity_id, window_start, window_end)
     ).fetchone()

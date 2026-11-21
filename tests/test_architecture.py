@@ -47,6 +47,12 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/optimizer/politica.py": (
+        "BIDS 02/TEMPORADA 01 D: la politica de bid es UN solo camino sellado "
+        "(el orden de las reglas R0-R17 + RTs/RTe/HOLD/BUD de temporada es la "
+        "decision): partirlo por reglas romperia el orden visible y duplicaria "
+        "los helpers del juicio. La mejora es crecer con cuidado, no partir."
+    ),
     "app/etiquetas.py": (
         "CLARIDAD 01 H/I: registro unico de etiquetas de pantalla. Es dato "
         "(un dict por vocabulario, con las constantes del modulo dueno como "
@@ -193,6 +199,7 @@ ALLOWLIST_TAMANO = {
 # Un monolito historico puede adelgazar (y al bajar <= 900 sale de la allowlist),
 # pero NUNCA crecer silenciosamente sin justificar el techo en review.
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
+    "app/optimizer/politica.py": 911,
     "app/ads/reports.py": 1076,
     "app/api_dashboard.py": 2245,
     # TEMPORADA 01 B (0093): cierres de efecto en _confirma_resumen, la
@@ -210,7 +217,7 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
-    "app/etiquetas.py": 1068,
+    "app/etiquetas.py": 1079,
     "app/impulso_io.py": 1232,
     # TEMPORADA 01 B: los cuatro marcadores opcionales de temporada y su
     # freeze/desfreeze exacto (temporada, historia, recuperacion,
@@ -221,8 +228,8 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/retiro_anuncios.py": 1388,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
-    "app/lecturas_caso.py": 1276,
-    "app/optimizer/temporada.py": 1218,
+    "app/lecturas_caso.py": 1484,
+    "app/optimizer/temporada.py": 1265,
 }
 
 

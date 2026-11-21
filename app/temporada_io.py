@@ -22,6 +22,7 @@ seudocodigo no la traia).
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any, Literal
@@ -474,6 +475,25 @@ SELECT s.current_bid
 """
 
 
+def mult_negativa(conn: psycopg.Connection, platform: str, hoy: dt.date) -> Decimal | None:
+    """El multiplicador del dueno para los NEGATIVES cuando la plataforma
+    decide la baja en live (TEMPORADA 01 D, al liberar): la estacion del
+    config vigente. None sin temporada, en shadow o fuera de baja."""
+    settings = conn.execute(
+        "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    crudo = settings[0] if settings else None
+    if not isinstance(crudo, Mapping):
+        return None
+    if temporada.modo_desde_settings(crudo, platform) != "live":
+        return None
+    config = temporada.desde_settings(crudo)
+    if config is None:
+        return None
+    estacion = temporada.resuelve(config, hoy)
+    return estacion.mult_cortes_baja if estacion.fase == "baja" else None
+
+
 def frontera_hoja(
     conn: psycopg.Connection,
     ad_entity_id: int,
@@ -482,6 +502,7 @@ def frontera_hoja(
     piso: Decimal,
     techo: Decimal,
 ) -> FronteraHoja | None:
+
     """La misma temporada.frontera para UNA hoja, para la revalidacion de la
     cola al liberar (la conecta el bloque D). None sin config o temporada apagada."""
     from app.db import settings_vigentes

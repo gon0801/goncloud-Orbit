@@ -1431,11 +1431,11 @@ def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
         capturado: dict[str, str] = {}
         original = w.ventana_cortes
 
-        def _espia(conn_entrante, ad_entity_id, decided_at):
+        def _espia(conn_entrante, ad_entity_id, decided_at, *, cerca=None):
             capturado["isolation"] = conn_entrante.execute("SHOW transaction_isolation").fetchone()[
                 0
             ]
-            return original(conn_entrante, ad_entity_id, decided_at)
+            return original(conn_entrante, ad_entity_id, decided_at, cerca=cerca)
 
         monkeypatch.setattr(w, "ventana_cortes", _espia)
         res = _corre(conn)
@@ -2191,9 +2191,9 @@ def test_camino_unico_negative_y_pause_por_la_misma_umbral_corte(monkeypatch):
         llamadas: list[tuple[str, int | None]] = []
         real = cortes.umbral_corte
 
-        def espia(evidencia, regla):
+        def espia(evidencia, regla, *, mult_baja=None):
             llamadas.append((regla, evidencia.ad_group_id if evidencia is not None else None))
-            return real(evidencia, regla)
+            return real(evidencia, regla, mult_baja=mult_baja)
 
         monkeypatch.setattr(cortes, "umbral_corte", espia)
         res = _corre(conn)
@@ -2207,13 +2207,14 @@ def test_camino_unico_negative_y_pause_por_la_misma_umbral_corte(monkeypatch):
             por_regla.setdefault(regla, set()).add(gid)
         assert ids["ag"] in por_regla["negative"]
         assert ids["ag"] in por_regla["pause"]
-        # CARDINALIDAD sellada (spec: "Por ad group, una vez por ciclo" --
-        # hallazgo codex+kimi, cross-review 1.3): el fixture tiene DOS
-        # entidades decisoras del MISMO grupo (kw_bid y kw_pause) y la regla
-        # pause debe resolverse UNA sola vez para el grupo. Sin el cacheo,
-        # son dos llamadas y este assert revienta.
+        # CARDINALIDAD (ajuste TEMPORADA 01 D): el umbral de pause se resuelve
+        # POR HOJA con su multiplicador de temporada (el x2 es por fase_hoja,
+        # no por grupo), asi que el fixture con DOS hojas del mismo grupo da
+        # DOS llamadas — una por hoja. Lo sellado es el CAMINO UNICO (la misma
+        # cortes.umbral_corte con la misma evidencia del grupo), que el set de
+        # reglas de arriba fija.
         llamadas_pause_ag = [1 for regla, gid in llamadas if regla == "pause" and gid == ids["ag"]]
-        assert sum(llamadas_pause_ag) == 1
+        assert sum(llamadas_pause_ag) == 2
 
 
 @pytest.mark.skipif(
@@ -3115,7 +3116,7 @@ def _corre_decisora_niveles(monkeypatch, caso: CasoHoja, tick=lambda: None):
 
     from app.optimizer import goals as g
 
-    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_: None)
+    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_, **__: None)
     monkeypatch.setattr(ciclo.g, "en_cooldown", lambda *_a, **_k: False)
     goal = g.Goal(
         scope="platform",
@@ -3221,7 +3222,7 @@ def _corre_apagada_con_pause(monkeypatch, *, cooldown: bool, tick):
 
     from app.optimizer import goals as g
 
-    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_: None)
+    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_, **__: None)
     monkeypatch.setattr(ciclo.bid, "decide_pause", lambda **_: SimpleNamespace(kind="pause"))
     monkeypatch.setattr(ciclo.g, "en_cooldown", lambda *_a, **_k: cooldown)
     goal = g.Goal(

@@ -1004,6 +1004,44 @@ def techo_de_baja(caso: CasoHoja) -> Decimal | None:
     return (techo_eco * (Decimal(1) - r_efectiva)).quantize(CENTAVO, rounding=ROUND_FLOOR)
 
 
+def meta_del_juicio(caso: CasoHoja) -> Decimal:
+    """La meta con la que se juzgan R3-R13 (decision 9 del plan). R0 y R1
+    siguen con la base. En ALTA la meta es libre: max(base, meta_alta_pct)
+    puede pasar el equilibrio (el dueno acepto perder hasta ahi y Ajustes lo
+    dice en rojo). Fuera de alta, sin marcador o con meta manual (goal_campana
+    / goal_plataforma: la decision mas especifica de David), la base.
+    # base = caso.economia.target_acos_pct
+    # t = caso.temporada
+    # if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual: return base
+    # return max(base, t.meta_alta_pct)
+    # Ejemplo US: max(19.05, 25) = 25; con equilibrio 23.81, R3 usa 25."""
+    base = caso.economia.target_acos_pct
+    t = caso.temporada
+    if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual:
+        return base
+    return max(base, t.meta_alta_pct)
+
+
+def equilibrio_del_juicio(caso: CasoHoja) -> Decimal | None:
+    """El limite de R3 en el juicio (decision 4 del plan): en alta, si la meta
+    de temporada queda por encima del equilibrio, el dueno acepto perder hasta
+    esa meta y R3 recorta solo arriba de ella. Fuera de alta, sin marcador o
+    con meta manual, el equilibrio de hoy.
+    # eq = caso.economia.plataforma.equilibrio_acos_pct
+    # if eq is None or eq <= 0: return eq
+    # t = caso.temporada
+    # if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual: return eq
+    # return max(eq, meta_del_juicio(caso))
+    # Ejemplo en alta US: max(23.81, 25) = 25; MX max(45.5, 25) = 45.5."""
+    eq = caso.economia.plataforma.equilibrio_acos_pct
+    if eq is None or eq <= 0:
+        return eq
+    t = caso.temporada
+    if t is None or t.frontera.fase_hoja != "alta" or t.meta_manual:
+        return eq
+    return max(eq, meta_del_juicio(caso))
+
+
 def reduccion_vigente(
     cadena: CadenaBid,
     *,
@@ -1136,6 +1174,22 @@ def pendiente(caso: CasoHoja) -> Pendiente:
     )
 
 
+def cerca_hoja_de(cadena: CadenaBid | None, dia: dt.date) -> dt.date | None:
+    """El dia UTC siguiente al ultimo movimiento de temporada CONFIRMADO de la
+    hoja, si cae en los ultimos DIAS_CERCA dias (la cerca caduca). None sin
+    movimientos de temporada o con la cerca vencida. UNA fuente: la usa
+    `frontera` y el lector de tramos con cerca (TEMPORADA 01 D)."""
+    if cadena is None:
+        return None
+    temporadas = [c for c in cadena.cambios if c.origen == "temporada"]
+    if not temporadas:
+        return None
+    cerca = temporadas[-1].confirmado_el.astimezone(dt.UTC).date() + dt.timedelta(days=1)
+    if cerca < dia - dt.timedelta(days=DIAS_CERCA):
+        return None
+    return cerca
+
+
 def frontera(
     estacion: Estacion,
     cadena: CadenaBid | None,
@@ -1186,19 +1240,12 @@ def frontera(
     else:
         fase_hoja = estacion.fase
     mult = estacion.mult_cortes_baja if fase_hoja == "baja" else Decimal(1)
-    cerca_hoja = None
-    if cadena is not None:
-        temporadas = [c for c in cadena.cambios if c.origen == "temporada"]
-        if temporadas:
-            ultimo = temporadas[-1]
-            cerca = ultimo.confirmado_el.astimezone(dt.UTC).date() + dt.timedelta(days=1)
-            if cerca >= estacion.dia - dt.timedelta(days=DIAS_CERCA):
-                cerca_hoja = cerca
     episodio_id = None
     if red is not None:
         episodio_id = red.episodio_id
     elif episodio is not None:
         episodio_id = episodio.id
+    cerca_hoja = cerca_hoja_de(cadena, estacion.dia)
     exclusion_hoy = None
     if (
         en_baja

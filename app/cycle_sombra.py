@@ -152,10 +152,15 @@ def _insumos_pausa(
     corte_pause: cortes.UmbralResuelto,
     pause_economica: bool,
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    mult_baja: Decimal | None = None,
+    cerca: dt.date | None = None,
 ) -> tuple[Decimal, windows.AgregadoMetricas | None, InsumosPausa]:
-    """Piso de costo, ventana de cortes e insumos de la PAUSE de una hoja."""
-    costo_piso = bid.PAUSE_COST_MIN[platform]
-    cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at)
+    """Piso de costo, ventana de cortes e insumos de la PAUSE de una hoja.
+    TEMPORADA 01 D: `mult_baja` (el multiplicador del dueno en baja) multiplica
+    el piso de pausa y el exceso economico; `cerca` levanta el inicio de la
+    ventana de cortes."""
+    costo_piso = cortes.piso_pausa(platform, mult_baja=mult_baja)
+    cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at, cerca=cerca)
     proteccion: InsumosProteccion | None = None
     if proteccion_cache is not None:
         proteccion = proteccion_cache.insumos(
@@ -170,6 +175,11 @@ def _insumos_pausa(
         expected_clicks=corte_pause.expected_clicks,
         politica_economica=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
         proteccion=proteccion,
+        exceso_minimo=(
+            cortes.exceso_minimo(PLATAFORMAS_MONEDA[platform], mult_baja=mult_baja)
+            if mult_baja is not None
+            else None
+        ),
     )
     return costo_piso, cortes_hoja, pausa
 
