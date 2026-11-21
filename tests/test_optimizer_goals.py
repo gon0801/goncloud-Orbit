@@ -1355,14 +1355,17 @@ def test_arreglos01_v_el_ledger_rancio_no_enciende_r3():
         por_grupo={6: evaluacion},
         resumen={},
     )
+    from app.cycle_sombra import _MetaHoja
+    from app.cycle_target import _PrevioHoja
+
     meta = cycle._meta_viva(
         ciclo,
         goal=_goal(platform="amazon_mx", target_acos_pct=None, mode="live"),
         ad_group_id=6,
-        previo=cycle._PrevioHoja(Decimal("4"), "margen_producto", 1, 2),
+        previo=_PrevioHoja(Decimal("4"), "margen_producto", 1, 2),
         destino=Decimal("25.5"),
     )
-    assert isinstance(meta, cycle._MetaHoja), meta
+    assert isinstance(meta, _MetaHoja), meta
     assert meta.resolucion == g.ResolucionMargen(Decimal("4.5"), None, "ledger_rancio", True)
     equilibrio = meta.equilibrio_pct
     propia = nivel(tramo(clics=400, pedidos=20, venta="2000", gasto="200", impresiones=20000))

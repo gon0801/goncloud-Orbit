@@ -135,14 +135,6 @@ ALLOWLIST_TAMANO = {
         "y no tiene frontera coherente para partirse mas (partir por partir "
         "esta prohibido por la regla anti-Goodhart)"
     ),
-    "app/optimizer/goals.py": (
-        "A3: lectores de settings por plataforma (target/fraccion/confianzas) "
-        "+ cascadas del peldano; cruzo el umbral con confianza_* (914). Los "
-        "lectores son cohesivos con fraccion_desde_settings (misma validacion "
-        "fail-closed) y config_write los importa como bloque. Candidato "
-        "DECLARADO a extraer lectores a app/optimizer/settings_lectura.py la "
-        "proxima vez que se toque en grande"
-    ),
     "app/apply.py": (
         "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
         "de mutaciones, reversas). La review adversaria de phase 2 le SUMO "
@@ -178,6 +170,27 @@ ALLOWLIST_TAMANO = {
         "las piezas con frontera propia ya viven fuera (reglas, fuentes, "
         "precio_write). No se parte por partir."
     ),
+}
+
+# Fase 3.5 (ratchet solo-a-la-baja): techo de lineas por modulo allowlisted.
+# Un monolito historico puede adelgazar (y al bajar <= 900 sale de la allowlist),
+# pero NUNCA crecer silenciosamente sin justificar el techo en review.
+ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
+    "app/ads/reports.py": 1076,
+    "app/api_dashboard.py": 2245,
+    "app/apply.py": 1253,
+    "app/apply_cola.py": 1816,
+    "app/apply_harvest.py": 2163,
+    "app/bloqueo_dueno_efecto.py": 1004,
+    "app/cycle.py": 2321,
+    "app/dashboard_resumen.py": 995,
+    "app/estimacion_repository.py": 1428,
+    "app/etiquetas.py": 1054,
+    "app/impulso_io.py": 1232,
+    "app/optimizer/caso.py": 1074,
+    "app/precio/cambios.py": 1045,
+    "app/precio/corrida.py": 1685,
+    "app/retiro_anuncios.py": 1388,
 }
 
 
@@ -406,6 +419,22 @@ def test_allowlist_de_tamano_auto_limpiante():
             f"{rel} tiene {lineas} lineas (<= {MAX_LINEAS_MODULO}): ya no "
             f"necesita allowlist — sacar la entrada"
         )
+
+
+def test_allowlist_de_tamano_no_crece():
+    """Ratchet solo-a-la-baja (Fase 3.5): cada modulo en ALLOWLIST_TAMANO
+    tiene su techo exacto en ALLOWLIST_TAMANO_TECHO y no puede superarlo."""
+    assert set(ALLOWLIST_TAMANO_TECHO) == set(ALLOWLIST_TAMANO), (
+        "ALLOWLIST_TAMANO_TECHO debe tener exactamente las mismas claves que ALLOWLIST_TAMANO"
+    )
+    excedidos = {}
+    for rel, techo in ALLOWLIST_TAMANO_TECHO.items():
+        lineas = len((RAIZ / rel).read_text(encoding="utf-8").splitlines())
+        if lineas > techo:
+            excedidos[rel] = (lineas, techo)
+    assert not excedidos, (
+        f"modulos allowlisted crecieron sobre su techo del ratchet (actual, techo): {excedidos}"
+    )
 
 
 # ORBIT 04 decision 26 (sellada): la escritura de goals tiene UN SOLO dueno —

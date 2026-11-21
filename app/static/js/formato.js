@@ -108,5 +108,28 @@ var Orbit = (function () {
     return Number(p.day) + " " + MESES[Number(p.month) - 1] + ", " + p.hour + ":" + p.minute;
   }
 
-  return { etiqueta: etiqueta, dinero: dinero, pct: pct, numero: numero, fechaHora: fechaHora };
+  // POST JSON autenticado SOLO por header x-orbit-token (nunca query string).
+  function postJson(url, cuerpo, token) {
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-orbit-token": token,
+      },
+      body: JSON.stringify(cuerpo),
+    }).then(function (resp) {
+      return resp.json().catch(function () { return {}; }).then(function (data) {
+        return { ok: resp.ok, status: resp.status, data: data };
+      });
+    });
+  }
+
+  return {
+    etiqueta: etiqueta,
+    dinero: dinero,
+    pct: pct,
+    numero: numero,
+    fechaHora: fechaHora,
+    postJson: postJson,
+  };
 })();
