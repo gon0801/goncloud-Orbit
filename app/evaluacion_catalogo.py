@@ -175,7 +175,7 @@ def evaluar_ads(
     clicks_m = suma_con_veneno(
         Decimal(f.clicks) if f.clicks is not None else None for f in en_ventana
     )
-    clicks = clicks_m
+    clicks = int(clicks_m) if clicks_m is not None else None
     sales = suma_con_veneno(f.sales30d for f in en_ventana)
     purchases = suma_con_veneno(f.purchases30d for f in en_ventana)
     promoted = suma_con_veneno(f.attributed_sales_same_sku30d for f in en_ventana)

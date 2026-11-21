@@ -93,9 +93,8 @@ def evalua(insumos: InsumosProteccion) -> ResultadoProteccion:
         return _aplica(MOTIVO_INDETERMINADA, None, None)
     if lectura.pedidos == 0:
         return _aplica(MOTIVO_SIN_VENTA, None, None)
-    if lectura.ancla is None:
-        return _indeterminada(None, None)
-    return _espera(lectura.ancla, _vence(lectura.ancla), MOTIVO_PROTEGIDA, abre=True)
+    # lectura.ancla is None (ya salio arriba si era not None), pero pedidos > 0 sin ancla.
+    return _indeterminada(None, None)
 
 
 def _abre_otro(insumos: InsumosProteccion, episodio) -> bool:

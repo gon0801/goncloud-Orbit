@@ -298,7 +298,7 @@ def miembro_que_manda(
     mejor: tuple[Miembro, Cuenta] | None = None
     mejor_p = None
     for miembro, cuenta in sorted(cuentas, key=lambda par: par[0].seller_sku):
-        ref = cuenta.fees.variable.valor / cuenta.ingreso.valor
+        ref = cuenta.fees.variable.valor / cuenta.precio.valor
         iva_divisor = cuenta.precio.valor / cuenta.ingreso.valor
         estrella = precio_estrella(
             cuenta.costo.valor,

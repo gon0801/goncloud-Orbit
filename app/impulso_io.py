@@ -578,18 +578,19 @@ def _archiva_lote_vacio(conn, lote: str) -> None:
                 is None
             ):
                 break
-        propia.execute(
-            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
-            " huella, plan, modo_goal, estado, detalle, created_at, finished_at, pausado_por)"
-            " SELECT %s, platform, tipo_producto, nombre_base, go_literal, huella, plan,"
-            " modo_goal, 'desarmado',"
-            " 'H6: fallo sin nada creado; el reintento reusa el nombre',"
-            " created_at, finished_at, pausado_por FROM fabrica_lote WHERE lote = %s",
-            (nuevo, lote),
-        )
-        propia.execute("UPDATE fabrica_lote_paso SET lote = %s WHERE lote = %s", (nuevo, lote))
-        propia.execute("UPDATE campana_grupo SET lote = %s WHERE lote = %s", (nuevo, lote))
-        propia.execute("DELETE FROM fabrica_lote WHERE lote = %s", (lote,))
+        with propia.transaction():
+            propia.execute(
+                "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+                " huella, plan, modo_goal, estado, detalle, created_at, finished_at, pausado_por)"
+                " SELECT %s, platform, tipo_producto, nombre_base, go_literal, huella, plan,"
+                " modo_goal, 'desarmado',"
+                " 'H6: fallo sin nada creado; el reintento reusa el nombre',"
+                " created_at, finished_at, pausado_por FROM fabrica_lote WHERE lote = %s",
+                (nuevo, lote),
+            )
+            propia.execute("UPDATE fabrica_lote_paso SET lote = %s WHERE lote = %s", (nuevo, lote))
+            propia.execute("UPDATE campana_grupo SET lote = %s WHERE lote = %s", (nuevo, lote))
+            propia.execute("DELETE FROM fabrica_lote WHERE lote = %s", (lote,))
     finally:
         propia.close()
 

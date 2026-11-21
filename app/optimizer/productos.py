@@ -413,7 +413,12 @@ def venta_reciente_producto(entrada: EntradaProducto) -> VentaRecienteProducto |
     ancla: dt.date | None = None
     compras = Decimal(0)
     ventas = Decimal(0)
-    for dia in sorted(entrada.dias_recientes or entrada.dias_halo, key=lambda x: x.fecha):
+    dias_fuente = (
+        entrada.dias_recientes
+        if entrada.ventana_venta_reciente is not None
+        else (entrada.dias_recientes or entrada.dias_halo)
+    )
+    for dia in sorted(dias_fuente, key=lambda x: x.fecha):
         if not ventana.contiene(dia.fecha):
             continue
         if dia.ventas.moneda != moneda or dia.ventas_mismo_sku.moneda != moneda:

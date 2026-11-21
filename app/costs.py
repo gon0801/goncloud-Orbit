@@ -265,10 +265,10 @@ def _motivo_rechazo(fila: FilaCosto) -> str | None:
     if fila.fin is not None and _dia(fila.fin) is None:
         return "fecha de cierre ilegible (valid_to)"
     valor = Decimal(str(fila.costo))
-    if abs(valor - valor.quantize(_MAX_DECIMALES)) >= _RUIDO_FLOAT:
-        return "costo con mas de 4 decimales"
     if valor >= _MAX_COSTO:
         return "costo fuera de rango NUMERIC(14,4)"
+    if abs(valor - valor.quantize(_MAX_DECIMALES)) >= _RUIDO_FLOAT:
+        return "costo con mas de 4 decimales"
     if _costo_decimal(fila.costo) <= 0:
         # Un valor < 5e-5 cuantiza a 0.0000 y violaria el CHECK sku_cost_positivo.
         return "costo cero o nulo (dato faltante)"
