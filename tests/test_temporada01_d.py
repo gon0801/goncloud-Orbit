@@ -666,7 +666,7 @@ def test_temporada01_d_fase3_lecturas_temporada_io_conectadas(db_template):
         (_medianoche(D_E1), config_id, _medianoche(D_E1)),
     )
     conn.commit()
-    frontera_h = temporada_io.frontera_hoja(conn, ag, D_E1)
+    frontera_h = temporada_io.frontera_hoja(conn, ag, D_E1, piso=PISO_MX, techo=TECHO_MX)
     assert frontera_h is not None
     assert frontera_h.fase_hoja == "baja"
     assert frontera_h.mult_cortes == Decimal("2")

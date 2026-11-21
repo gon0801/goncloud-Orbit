@@ -104,6 +104,9 @@ def test_revalida_pause_economica_con_venta_tardia(monkeypatch, cost, revenue, t
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if "SELECT inputs" in sql:
                         return (
@@ -196,6 +199,9 @@ def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monk
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_umbral"},)
@@ -239,6 +245,9 @@ def test_revalida_pause_sin_target_espera_solo_con_goal(monkeypatch, hay_goal, e
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if "SELECT inputs" in sql:
                         return ({"motivo": "pause_economica"},)
@@ -409,6 +418,9 @@ def test_flag_apagado_revalidacion_legada_no_adopta_regla_economica(monkeypatch)
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_umbral"},)
@@ -452,6 +464,9 @@ def test_fila_economica_que_solo_califica_umbral_sigue_aplicando(monkeypatch):
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_economica"},)
@@ -498,6 +513,9 @@ def test_evidencia_registra_version_efectiva_no_nominal(monkeypatch):
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_economica"},)
@@ -555,6 +573,9 @@ def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypat
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return (
