@@ -28,7 +28,7 @@ from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente
 
 from app import api_dashboard as dash
-from app import notifica
+from app import notifica, precio_avisos
 from app.main import app
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -230,20 +230,23 @@ def test_precio_aviso_apagado_devuelve_true(tmp_path, monkeypatch):
         for tipo, payload in [
             (
                 "no_evaluado",
-                notifica.GrupoPrecio(
+                precio_avisos.GrupoPrecio(
                     "amazon_mx", "no_evaluado", "precio_sin_observar", 1, ("SKU-1",)
                 ),
             ),
             (
                 "goal_inalcanzable",
-                notifica.GrupoPrecio(
+                precio_avisos.GrupoPrecio(
                     "amazon_mx", "goal_inalcanzable", "fee_no_lineal", 1, ("SKU-1",)
                 ),
             ),
-            ("frenado", notifica.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-1",))),
+            (
+                "frenado",
+                precio_avisos.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-1",)),
+            ),
             (
                 "no_confirmado",
-                notifica.ProductoPrecio(
+                precio_avisos.ProductoPrecio(
                     "amazon_mx",
                     "no_confirmado",
                     "SKU-1",
@@ -257,7 +260,7 @@ def test_precio_aviso_apagado_devuelve_true(tmp_path, monkeypatch):
             ),
             (
                 "buy_box_perdida",
-                notifica.ProductoPrecio(
+                precio_avisos.ProductoPrecio(
                     "amazon_mx",
                     "buy_box_perdida",
                     "SKU-1",
@@ -269,9 +272,9 @@ def test_precio_aviso_apagado_devuelve_true(tmp_path, monkeypatch):
                     "buy_box_perdida",
                 ),
             ),
-            ("huerfana_sin_patch", notifica.HuerfanaPrecio("amazon_mx", 2)),
+            ("huerfana_sin_patch", precio_avisos.HuerfanaPrecio("amazon_mx", 2)),
         ]:
-            assert notifica.notifica_precio(tipo, payload) is True
+            assert precio_avisos.notifica_precio(tipo, payload) is True
     finally:
         notifica._reset()
 
@@ -282,12 +285,12 @@ def test_precio_aviso_apagado_devuelve_true(tmp_path, monkeypatch):
 
 
 def test_precio_aviso_excepcion_warning_scrub_y_false(tmp_path, monkeypatch, caplog):
-    grupo = notifica.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-1",))
+    grupo = precio_avisos.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-1",))
     with (
         _canal_falso(tmp_path, monkeypatch, tumbar=True),
         caplog.at_level(logging.WARNING, logger="app.notifica"),
     ):
-        assert notifica.notifica_precio("frenado", grupo) is False
+        assert precio_avisos.notifica_precio("frenado", grupo) is False
     avisos = [
         r for r in caplog.records if r.name == "app.notifica" and r.levelno >= logging.WARNING
     ]
@@ -301,16 +304,16 @@ def test_precio_aviso_excepcion_warning_scrub_y_false(tmp_path, monkeypatch, cap
     def _romper(_grupo):
         raise RuntimeError(f"boom armando {FAKE_BOT_TOKEN}")
 
-    monkeypatch.setattr(notifica, "aviso_precio_grupo", _romper)
+    monkeypatch.setattr(precio_avisos, "aviso_precio_grupo", _romper)
     with (
         _canal_falso(tmp_path, monkeypatch),
-        caplog.at_level(logging.WARNING, logger="app.notifica"),
+        caplog.at_level(logging.WARNING, logger="app.precio_avisos"),
     ):
-        assert notifica.notifica_precio("frenado", grupo) is False
+        assert precio_avisos.notifica_precio("frenado", grupo) is False
     armados = [
         r
         for r in caplog.records
-        if r.name == "app.notifica"
+        if r.name == "app.precio_avisos"
         and r.levelno >= logging.WARNING
         and "fallo armando el aviso de precio" in r.getMessage()
     ]
@@ -325,21 +328,21 @@ def test_precio_aviso_excepcion_warning_scrub_y_false(tmp_path, monkeypatch, cap
 
 def test_precio_aviso_builders_sin_prohibidos():
     textos = [
-        notifica.aviso_precio_grupo(
-            notifica.GrupoPrecio(
+        precio_avisos.aviso_precio_grupo(
+            precio_avisos.GrupoPrecio(
                 "amazon_mx", "no_evaluado", "precio_no_cubre_costo", 2, ("SKU-1", "SKU-2")
             )
         ),
-        notifica.aviso_precio_grupo(
-            notifica.GrupoPrecio(
+        precio_avisos.aviso_precio_grupo(
+            precio_avisos.GrupoPrecio(
                 "amazon_mx", "goal_inalcanzable", "sobre_goal_sin_perdida", 1, ("SKU-3",)
             )
         ),
-        notifica.aviso_precio_grupo(
-            notifica.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-4",))
+        precio_avisos.aviso_precio_grupo(
+            precio_avisos.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-4",))
         ),
-        notifica.aviso_precio_producto(
-            notifica.ProductoPrecio(
+        precio_avisos.aviso_precio_producto(
+            precio_avisos.ProductoPrecio(
                 "amazon_mx",
                 "no_confirmado",
                 "SKU-5",
@@ -351,8 +354,8 @@ def test_precio_aviso_builders_sin_prohibidos():
                 "no_confirmado",
             )
         ),
-        notifica.aviso_precio_producto(
-            notifica.ProductoPrecio(
+        precio_avisos.aviso_precio_producto(
+            precio_avisos.ProductoPrecio(
                 "amazon_mx",
                 "buy_box_perdida",
                 "SKU-6",
@@ -364,10 +367,10 @@ def test_precio_aviso_builders_sin_prohibidos():
                 "buy_box_perdida",
             )
         ),
-        notifica.aviso_precio_huerfana(notifica.HuerfanaPrecio("amazon_mx", 2)),
+        precio_avisos.aviso_precio_huerfana(precio_avisos.HuerfanaPrecio("amazon_mx", 2)),
         # B5: el estado tambien recorre prohibidos (jamas `goal_*` crudo).
-        notifica.aviso_precio_producto(
-            notifica.ProductoPrecio(
+        precio_avisos.aviso_precio_producto(
+            precio_avisos.ProductoPrecio(
                 "amazon_mx",
                 "no_confirmado",
                 "SKU-7",
@@ -398,8 +401,8 @@ def test_precio_aviso_builders_sin_prohibidos():
 
 def test_precio_aviso_tope_5_skus():
     skus = tuple(f"SKU-{i:03d}" for i in range(1, 8))
-    texto = notifica.aviso_precio_grupo(
-        notifica.GrupoPrecio("amazon_mx", "frenado", "api_error", 7, skus)
+    texto = precio_avisos.aviso_precio_grupo(
+        precio_avisos.GrupoPrecio("amazon_mx", "frenado", "api_error", 7, skus)
     )
     for i in range(1, 6):
         assert f"SKU-{i:03d}" in texto
@@ -414,9 +417,9 @@ def test_precio_aviso_tope_5_skus():
 
 def test_precio_aviso_200_mismo_motivo_un_aviso(tmp_path, monkeypatch):
     skus = tuple(f"SKU-{i:03d}" for i in range(1, 201))
-    grupo = notifica.GrupoPrecio("amazon_mx", "frenado", "api_error", 200, skus)
+    grupo = precio_avisos.GrupoPrecio("amazon_mx", "frenado", "api_error", 200, skus)
     with _canal_falso(tmp_path, monkeypatch) as mensajes:
-        assert notifica.notifica_precio("frenado", grupo) is True
+        assert precio_avisos.notifica_precio("frenado", grupo) is True
     assert len(mensajes) == 1
     assert "200" in mensajes[0]["text"]
     assert "SKU-006" not in mensajes[0]["text"]
@@ -430,8 +433,8 @@ def test_precio_aviso_200_mismo_motivo_un_aviso(tmp_path, monkeypatch):
 def test_precio_aviso_flanco_sigue_no_reavisa():
     hoy = date(2026, 9, 18)
     presentes = {hoy - timedelta(days=n) for n in range(4)}
-    assert notifica.flanco_umbral(presentes, hoy, 3) is False
-    assert notifica.flanco_nuevos(["a", "b"], ["a", "b"]) == []
+    assert precio_avisos.flanco_umbral(presentes, hoy, 3) is False
+    assert precio_avisos.flanco_nuevos(["a", "b"], ["a", "b"]) == []
 
 
 # ---------------------------------------------------------------------------
@@ -441,15 +444,15 @@ def test_precio_aviso_flanco_sigue_no_reavisa():
 
 def test_precio_aviso_flanco_corta_y_vuelve():
     hoy = date(2026, 9, 18)
-    assert notifica.flanco_umbral(set(), hoy, 3) is False
+    assert precio_avisos.flanco_umbral(set(), hoy, 3) is False
     presentes = {hoy - timedelta(days=n) for n in range(3)}
-    assert notifica.flanco_umbral(presentes, hoy, 3) is True
+    assert precio_avisos.flanco_umbral(presentes, hoy, 3) is True
     # T2: la racha cuenta dias SEGUIDOS hasta hoy, no el total de presentes.
     con_cola = {hoy, hoy - timedelta(days=1), hoy - timedelta(days=2), hoy - timedelta(days=4)}
-    assert notifica.flanco_umbral(con_cola, hoy, 3) is True
+    assert precio_avisos.flanco_umbral(con_cola, hoy, 3) is True
     con_hueco = {hoy, hoy - timedelta(days=2), hoy - timedelta(days=3)}
-    assert notifica.flanco_umbral(con_hueco, hoy, 3) is False
-    assert notifica.flanco_nuevos(["a", "b"], ["a"]) == ["b"]
+    assert precio_avisos.flanco_umbral(con_hueco, hoy, 3) is False
+    assert precio_avisos.flanco_nuevos(["a", "b"], ["a"]) == ["b"]
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +461,7 @@ def test_precio_aviso_flanco_corta_y_vuelve():
 
 
 def test_precio_aviso_umbral_dias():
-    assert notifica.validar_precio_aviso_dias({"precio_aviso_dias_sin_evaluar": 3}) == 3
+    assert precio_avisos.validar_precio_aviso_dias({"precio_aviso_dias_sin_evaluar": 3}) == 3
     for mala in (
         {},
         {"precio_aviso_dias_sin_evaluar": 0},
@@ -467,7 +470,7 @@ def test_precio_aviso_umbral_dias():
         {"precio_aviso_dias_sin_evaluar": True},
     ):
         with pytest.raises(ValueError, match="precio_aviso_dias_sin_evaluar"):
-            notifica.validar_precio_aviso_dias(mala)
+            precio_avisos.validar_precio_aviso_dias(mala)
 
 
 @_skip_sin_pg
@@ -481,7 +484,7 @@ def test_precio_aviso_umbral_flanco_en_base(tmp_path, monkeypatch):
         hoy = _dias_atras(conn, 0)
         _decision(conn, lid, dia=_dias_atras(conn, 1), motivo="precio_sin_observar")
         _decision(conn, lid, dia=hoy, motivo="precio_sin_observar")
-        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 0
         assert mensajes == []
         lid2 = _listing(conn, prod, sku="SKU-PP-2", ext="B0PP000002")
@@ -489,7 +492,7 @@ def test_precio_aviso_umbral_flanco_en_base(tmp_path, monkeypatch):
         _decision(conn, lid2, dia=_dias_atras(conn, 2), motivo="precio_sin_observar")
         _decision(conn, lid2, dia=_dias_atras(conn, 1), motivo="precio_sin_observar")
         _decision(conn, lid2, dia=hoy, motivo="precio_sin_observar")
-        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 1
         assert len(mensajes) == 1
 
@@ -506,7 +509,7 @@ def _resumen(huerfanas=0, decisiones=1):
 
 
 def test_precio_aviso_huerfana_texto():
-    texto = notifica.aviso_precio_huerfana(notifica.HuerfanaPrecio("amazon_mx", 2))
+    texto = precio_avisos.aviso_precio_huerfana(precio_avisos.HuerfanaPrecio("amazon_mx", 2))
     bajo = texto.lower()
     assert "costo" not in bajo and "margen" not in bajo and "goal" not in bajo
     assert ERROR_BODY not in texto
@@ -518,7 +521,7 @@ def test_precio_aviso_huerfana_flanco_en_base(tmp_path, monkeypatch):
     with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
         _config(conn)
         hoy = _dias_atras(conn, 0)
-        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(huerfanas=2)) == 1
+        assert precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen(huerfanas=2)) == 1
         assert len(mensajes) == 1
         assert "amazon_mx" in mensajes[0]["text"]
 
@@ -529,14 +532,17 @@ def test_precio_aviso_huerfana_flanco_en_base(tmp_path, monkeypatch):
 
 
 def test_precio_aviso_sender_jamas_levanta(tmp_path, monkeypatch, caplog):
-    grupo = notifica.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-1",))
+    grupo = precio_avisos.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-1",))
     with (
         _canal_falso(tmp_path, monkeypatch),
-        caplog.at_level(logging.WARNING, logger="app.notifica"),
+        caplog.at_level(logging.WARNING, logger="app.precio_avisos"),
     ):
-        assert notifica.notifica_precio("inexistente", grupo) is False
-        assert notifica.notifica_precio("frenado", "no-es-un-grupo") is False
-    assert notifica.avisar_precio(_conn_cerrada(), "amazon_mx", date(2026, 9, 18), _resumen()) == 0
+        assert precio_avisos.notifica_precio("inexistente", grupo) is False
+        assert precio_avisos.notifica_precio("frenado", "no-es-un-grupo") is False
+    assert (
+        precio_avisos.avisar_precio(_conn_cerrada(), "amazon_mx", date(2026, 9, 18), _resumen())
+        == 0
+    )
 
 
 def _conn_cerrada():
@@ -1148,7 +1154,7 @@ def test_precio_cierre_cli_pasa_avisar_a_correr(monkeypatch, capsys):
     )
     assert cli_mod.main(["precio", "--platform", "amazon_mx"]) == 0
     assert llamadas["mercado"] == "mercado-falso"
-    assert llamadas["kw"].get("avisar") is notifica.avisar_precio
+    assert llamadas["kw"].get("avisar") is precio_avisos.avisar_precio
 
 
 def test_precio_cierre_import_tardio_en_precio():
@@ -1158,9 +1164,11 @@ def test_precio_cierre_import_tardio_en_precio():
     from app import cli_precio
 
     fuente = inspect.getsource(cli_precio.main_precio)
-    assert "from app.notifica import avisar_precio" in fuente
+    assert "from app.precio_avisos import avisar_precio" in fuente
     # C (r1): dentro de la rama que llama a `correr`, no antes de `--reporte`.
-    assert fuente.index("from app.notifica import avisar_precio") > fuente.index("args.reporte")
+    assert fuente.index("from app.precio_avisos import avisar_precio") > fuente.index(
+        "args.reporte"
+    )
 
 
 @_skip_sin_pg
@@ -1207,13 +1215,15 @@ def test_precio_cierre_corrida_real_telegram_caido(tmp_path, monkeypatch):
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
         with _canal_falso(tmp_path, monkeypatch, tumbar=True) as mensajes:
             assert (
-                notifica.notifica_precio(
+                precio_avisos.notifica_precio(
                     "frenado",
-                    notifica.GrupoPrecio("amazon_mx", "frenado", "api_error", 1, ("SKU-CIERRE-2",)),
+                    precio_avisos.GrupoPrecio(
+                        "amazon_mx", "frenado", "api_error", 1, ("SKU-CIERRE-2",)
+                    ),
                 )
                 is False
             )
-            res = _corre(conn, red, avisar=notifica.avisar_precio)
+            res = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         # Telegram caido: hubo intento de envio y `res.errores` no trae `avisar`.
         assert len(mensajes) >= 1, "con Telegram caido hay intento de envio"
         assert all("avisar" not in e for e in res.errores)
@@ -1337,7 +1347,7 @@ def test_r1_a1_no_confirmado_avisa_en_corrida_real(tmp_path, monkeypatch):
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
         _r1_umbral(conn)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
-        res = _corre(conn, red, avisar=notifica.avisar_precio)
+        res = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         assert res.decisiones == 1
         fila = conn.execute(
             "SELECT resultado, motivo FROM precio_decision"
@@ -1398,7 +1408,7 @@ def test_r1_a2_huerfana_es_evento_en_corrida_real(tmp_path, monkeypatch):
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
         _r1_umbral(conn)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
-        res = _corre(conn, red, avisar=notifica.avisar_precio)
+        res = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         assert res.decisiones >= 1
         assert res.huerfanas == 1
         avisos_h = [m for m in mensajes if "huerfanas sin parche" in m["text"]]
@@ -1408,7 +1418,7 @@ def test_r1_a2_huerfana_es_evento_en_corrida_real(tmp_path, monkeypatch):
             assert ERROR_BODY not in m["text"]
         # Segunda corrida el mismo dia -> cero avisos nuevos.
         antes = len(mensajes)
-        res2 = _corre(conn, red, avisar=notifica.avisar_precio)
+        res2 = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         assert res2.decisiones == 0
         assert len(mensajes) == antes
 
@@ -1437,11 +1447,11 @@ def test_r1_b2_reejecucion_mismo_dia_no_reenvia(tmp_path, monkeypatch):
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
         _r1_umbral(conn)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
-        res1 = _corre(conn, red, avisar=notifica.avisar_precio)
+        res1 = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         assert res1.decisiones == 1
         assert len(mensajes) >= 1
         antes = len(mensajes)
-        res2 = _corre(conn, red, avisar=notifica.avisar_precio)
+        res2 = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         assert res2.decisiones == 0
         assert len(mensajes) == antes
         for m in mensajes:
@@ -1469,8 +1479,8 @@ def test_r1_b4_umbral_invalido_solo_apaga_no_evaluado(tmp_path, monkeypatch, cap
         _decision(conn, lid1, resultado="frenado", motivo="api_error", dia=hoy)
         for n in range(3):
             _decision(conn, lid2, dia=_dias_atras(conn, n), motivo="precio_sin_observar")
-        with caplog.at_level(_logging.WARNING, logger="app.notifica"):
-            enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        with caplog.at_level(_logging.WARNING, logger="app.precio_avisos"):
+            enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 1
         assert len(mensajes) == 1
         assert "[Orbit] precio: frenados" in mensajes[0]["text"]
@@ -1488,9 +1498,9 @@ def test_r1_b6_un_tipo_roto_no_calla_los_otros(tmp_path, monkeypatch, caplog):
         def _grupos_rotos(_conn, _platform, _dia):
             raise RuntimeError("boom grupos")
 
-        monkeypatch.setattr(notifica, "_grupos_precio_dia", _grupos_rotos)
-        with caplog.at_level(_logging.WARNING, logger="app.notifica"):
-            enviados = notifica.avisar_precio(
+        monkeypatch.setattr(precio_avisos, "_grupos_precio_dia", _grupos_rotos)
+        with caplog.at_level(_logging.WARNING, logger="app.precio_avisos"):
+            enviados = precio_avisos.avisar_precio(
                 conn, "amazon_mx", _dias_atras(conn, 0), _resumen(huerfanas=2)
             )
         assert enviados == 1
@@ -1511,7 +1521,7 @@ def test_r1_t2_hueco_en_base_no_avisa(tmp_path, monkeypatch):
         for n in (0, 2, 3):
             _decision(conn, lid, dia=_dias_atras(conn, n), motivo="precio_sin_observar")
         hoy = _dias_atras(conn, 0)
-        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 0
+        assert precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 0
         assert mensajes == []
 
 
@@ -1520,10 +1530,12 @@ def test_r1_c_payload_con_otro_tipo_no_envia(tmp_path, monkeypatch, caplog):
     canal apagado sale)."""
     import logging as _logging
 
-    grupo = notifica.GrupoPrecio("amazon_mx", "no_evaluado", "precio_sin_observar", 1, ("S",))
-    with caplog.at_level(_logging.WARNING, logger="app.notifica"):
-        assert notifica.notifica_precio("frenado", grupo) is False
-    assert any(r.name == "app.notifica" and r.levelno >= _logging.WARNING for r in caplog.records)
+    grupo = precio_avisos.GrupoPrecio("amazon_mx", "no_evaluado", "precio_sin_observar", 1, ("S",))
+    with caplog.at_level(_logging.WARNING, logger="app.precio_avisos"):
+        assert precio_avisos.notifica_precio("frenado", grupo) is False
+    assert any(
+        r.name == "app.precio_avisos" and r.levelno >= _logging.WARNING for r in caplog.records
+    )
 
 
 # --- fin bloque R1 (otros carriles anexan debajo) ---
@@ -2097,7 +2109,7 @@ def test_r1_b3_buybox_7_avisos_5_mas_agrupado(tmp_path, monkeypatch):
                 dia=hoy,
                 buy_box=False,
             )
-        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 6
         assert len(mensajes) == 6
         agrupados = [m for m in mensajes if "\nskus:" in m["text"]]
@@ -2112,8 +2124,8 @@ def test_r1_b3_buybox_7_avisos_5_mas_agrupado(tmp_path, monkeypatch):
 def test_r1_b5_estado_en_palabras_y_asin_solo_amazon():
     """B5: el `estado` va en palabras (jamas `goal_inalcanzable` crudo: el
     texto no dice «goal»); la etiqueta `asin` solo sale en Amazon."""
-    crudo = notifica.aviso_precio_producto(
-        notifica.ProductoPrecio(
+    crudo = precio_avisos.aviso_precio_producto(
+        precio_avisos.ProductoPrecio(
             "amazon_mx",
             "buy_box_perdida",
             "SKU-5",
@@ -2129,8 +2141,8 @@ def test_r1_b5_estado_en_palabras_y_asin_solo_amazon():
     assert "goal" not in crudo.lower()
     assert "objetivo inalcanzable" in crudo
     assert "asin: B05" in crudo
-    meli = notifica.aviso_precio_producto(
-        notifica.ProductoPrecio(
+    meli = precio_avisos.aviso_precio_producto(
+        precio_avisos.ProductoPrecio(
             "meli",
             "buy_box_perdida",
             "SKU-6",
@@ -2239,7 +2251,7 @@ def test_r2_l1_frenado_api_error_no_da_aviso_no_confirmado(tmp_path, monkeypatch
         )
         _r2_decision_live(conn, lid, "frenado", "api_error", hoy)
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
-        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 1
         assert len(mensajes) == 1
         assert "[Orbit] precio: frenados" in mensajes[0]["text"]
@@ -2269,7 +2281,7 @@ def test_r2_l2_frenado_noconf_ayer_y_hoy_cero_avisos(tmp_path, monkeypatch):
         _r2_decision_live(conn, lid, "frenado", "no_confirmado", ayer)
         _r2_decision_live(conn, lid, "frenado", "no_confirmado", hoy)
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
-        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 0
         assert mensajes == []
 
@@ -2293,7 +2305,7 @@ def test_r2_l14_grupo_presente_ayer_y_hoy_no_reavisa(tmp_path, monkeypatch):
         _decision(conn, lid2, resultado="frenado", motivo="api_error", dia=ayer)
         _decision(conn, lid2, resultado="frenado", motivo="api_error", dia=hoy)
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
-        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 0
         assert mensajes == []
 
@@ -2334,7 +2346,7 @@ def test_r2_l15_aviso_lleva_precios_del_no_confirmado_nuevo(tmp_path, monkeypatc
         assert cam_nuevo > cam_viejo
         _r2_decision_live(conn, lid, "frenado", "no_confirmado", hoy)
         conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
-        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         avisos = [m for m in mensajes if "[Orbit] precio: no confirmado" in m["text"]]
         assert len(avisos) == 1, [m["text"] for m in mensajes]
         assert enviados >= 1
@@ -2347,7 +2359,7 @@ def test_r2_r2_api_usa_validador_compartido_de_notifica():
     `app/notifica.py` (la copia local `_dias_aviso_desde_settings` no
     existe)."""
     assert not hasattr(dash, "_dias_aviso_desde_settings")
-    assert dash.validar_precio_aviso_dias is notifica.validar_precio_aviso_dias
+    assert dash.validar_precio_aviso_dias is precio_avisos.validar_precio_aviso_dias
 
 
 @_skip_sin_pg
@@ -2390,7 +2402,7 @@ def test_r2_r3_buybox_una_pieza_rota_no_calla_las_otras(tmp_path, monkeypatch, c
         hoy = _dias_atras(conn, 0)
         _decision(conn, lid1, resultado="mantener", motivo="en_tolerancia", dia=hoy, buy_box=False)
         _decision(conn, lid2, resultado="mantener", motivo="en_tolerancia", dia=hoy, buy_box=False)
-        real = notifica.ProductoPrecio
+        real = precio_avisos.ProductoPrecio
 
         class _PiezaRota(real):
             def __init__(self, *args, **kwargs):
@@ -2399,9 +2411,9 @@ def test_r2_r3_buybox_una_pieza_rota_no_calla_las_otras(tmp_path, monkeypatch, c
                     raise RuntimeError("boom pieza r3")
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr(notifica, "ProductoPrecio", _PiezaRota)
-        with caplog.at_level(_logging.WARNING, logger="app.notifica"):
-            enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        monkeypatch.setattr(precio_avisos, "ProductoPrecio", _PiezaRota)
+        with caplog.at_level(_logging.WARNING, logger="app.precio_avisos"):
+            enviados = precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert enviados == 1
         assert len(mensajes) == 1
         assert "SKU-R2R3-02" in mensajes[0]["text"]
@@ -2411,7 +2423,7 @@ def test_r2_r3_buybox_una_pieza_rota_no_calla_las_otras(tmp_path, monkeypatch, c
 def test_r2_r4_avisar_precio_docstring_declara_residuo_segunda_corrida():
     """R4: el docstring de `avisar_precio` declara el residuo de la segunda
     corrida del mismo dia que persiste decisiones nuevas (reenvia todo)."""
-    doc = notifica.avisar_precio.__doc__ or ""
+    doc = precio_avisos.avisar_precio.__doc__ or ""
     assert "segunda corrida" in doc
     assert "reenv" in doc
 
@@ -2685,7 +2697,7 @@ def test_r1b2_m1_racha_que_sigue_no_reavisa(tmp_path, monkeypatch):
         finally:
             conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
         hoy = _dias_atras(conn, 0)
-        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 0
+        assert precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 0
         assert mensajes == []
 
 
@@ -2874,7 +2886,7 @@ def test_s6_resumen_diario_uno_por_plataforma_y_dia_aunque_nada_se_mueva(tmp_pat
         _decision(conn, lid2, resultado="mantener", motivo="en_tolerancia")
         hoy = _dias_atras(conn, 0)
         c1 = _s6_corrida_cerrada(conn, cfg)
-        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
+        assert precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
         assert len(mensajes) == 1
         assert "[Orbit] precio: resumen diario" in mensajes[0]["text"]
         assert "hoy no se movio ningun precio" in mensajes[0]["text"]
@@ -2883,7 +2895,7 @@ def test_s6_resumen_diario_uno_por_plataforma_y_dia_aunque_nada_se_mueva(tmp_pat
         ).fetchone()[0]
         assert sello is not None
         c_us = _s6_corrida_cerrada(conn, cfg, platform="amazon_us")
-        assert notifica.avisar_precio(conn, "amazon_us", hoy, _resumen()) == 1
+        assert precio_avisos.avisar_precio(conn, "amazon_us", hoy, _resumen()) == 1
         assert len(mensajes) == 2
         assert "[Orbit] precio: resumen diario" in mensajes[1]["text"]
         assert "amazon_us" in mensajes[1]["text"]
@@ -2901,10 +2913,10 @@ def test_s6_dos_corridas_mismo_dia_mandan_un_resumen(tmp_path, monkeypatch):
         cfg = _config(conn)
         hoy = _dias_atras(conn, 0)
         c1 = _s6_corrida_cerrada(conn, cfg)
-        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
+        assert precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 1
         assert len(mensajes) == 1
         c2 = _s6_corrida_cerrada(conn, cfg)
-        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0)) == 0
+        assert precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0)) == 0
         assert len(mensajes) == 1
         sellos = {
             fila[0]: fila[1]
@@ -2925,11 +2937,11 @@ def test_s6_compuerta_una_vez_por_universo_causa_y_dia_con_repasos(tmp_path, mon
         hoy = _dias_atras(conn, 0)
         c1 = _s6_corrida_cerrada(conn, cfg)
         _s6_medicion(conn, c1, "fba", "movimiento_masivo", detalle="6 nuevas sobre 10")
-        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
         assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
         c2 = _s6_corrida_cerrada(conn, cfg)
         _s6_medicion(conn, c2, "fba", "movimiento_masivo", detalle="6 nuevas sobre 10")
-        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
         assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
         c3 = _s6_corrida_cerrada(conn, cfg)
         _s6_medicion(
@@ -2941,7 +2953,7 @@ def test_s6_compuerta_una_vez_por_universo_causa_y_dia_con_repasos(tmp_path, mon
             detalle="fx salto en 6 de 8 comparables",
         )
         _s6_medicion(conn, c3, "fbm", "movimiento_masivo", detalle="5 nuevas sobre 9")
-        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
+        precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen(decisiones=0))
         assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 3
         sellos = {
             (fila[0], fila[1]): fila[2]
@@ -2979,7 +2991,7 @@ def test_s6_textos_enviados_sin_costo_margen_ni_goal(tmp_path, monkeypatch):
             insumo="costo",
             detalle="costo salto en 6 de 8 comparables (salto 0.10, frac 0.50)",
         )
-        notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        precio_avisos.avisar_precio(conn, "amazon_mx", hoy, _resumen())
         assert len(_s6_textos(mensajes, "[Orbit] precio: resumen diario")) == 1
         assert len(_s6_textos(mensajes, "[Orbit] precio: compuerta")) == 1
         for texto in (m["text"] for m in mensajes):
@@ -3004,7 +3016,7 @@ def test_s6_fallo_de_envio_no_tumba_la_corrida_y_el_repaso_reintenta(tmp_path, m
         _price_obs(conn)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
         with _canal_falso(tmp_path, monkeypatch, tumbar=True):
-            res = _corre(conn, red, avisar=notifica.avisar_precio)
+            res = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         assert res.decisiones == 1
         assert all("avisar" not in e for e in res.errores)
         assert (
@@ -3014,7 +3026,7 @@ def test_s6_fallo_de_envio_no_tumba_la_corrida_y_el_repaso_reintenta(tmp_path, m
             == 0
         )
         with _canal_falso(tmp_path, monkeypatch) as mensajes:
-            res2 = _corre(conn, red, avisar=notifica.avisar_precio)
+            res2 = _corre(conn, red, avisar=precio_avisos.avisar_precio)
         assert res2.decisiones == 0
         assert len(mensajes) == 1
         assert "[Orbit] precio: resumen diario" in mensajes[0]["text"]
@@ -3031,8 +3043,8 @@ def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
     margen ni goal, ni con motivos/estados/insumos adversos."""
     dia = date(2026, 10, 15)
     textos = [
-        notifica.aviso_precio_resumen(
-            notifica.ResumenDiarioPrecio(
+        precio_avisos.aviso_precio_resumen(
+            precio_avisos.ResumenDiarioPrecio(
                 platform="amazon_mx",
                 dia=dia,
                 subieron=2,
@@ -3045,8 +3057,8 @@ def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
                 muestra=(("SKU-1", "100.00", "110.00"), ("SKU-2", "50.00", "48.00")),
             )
         ),
-        notifica.aviso_precio_resumen(
-            notifica.ResumenDiarioPrecio(
+        precio_avisos.aviso_precio_resumen(
+            precio_avisos.ResumenDiarioPrecio(
                 platform="amazon_us",
                 dia=dia,
                 subieron=0,
@@ -3059,8 +3071,8 @@ def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
                 muestra=(),
             )
         ),
-        notifica.aviso_precio_compuerta(
-            notifica.CompuertaPrecio(
+        precio_avisos.aviso_precio_compuerta(
+            precio_avisos.CompuertaPrecio(
                 platform="amazon_mx",
                 dia=dia,
                 canal="fbm",
@@ -3071,8 +3083,8 @@ def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
                 detalle="costo salto en 6 de 8 comparables",
             )
         ),
-        notifica.aviso_precio_compuerta(
-            notifica.CompuertaPrecio(
+        precio_avisos.aviso_precio_compuerta(
+            precio_avisos.CompuertaPrecio(
                 platform="amazon_mx",
                 dia=dia,
                 canal="fba",
@@ -3083,8 +3095,8 @@ def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
                 detalle="6 nuevas sobre 10",
             )
         ),
-        notifica.aviso_precio_cambio_error(
-            notifica.CambioErrorPrecio(
+        precio_avisos.aviso_precio_cambio_error(
+            precio_avisos.CambioErrorPrecio(
                 platform="amazon_mx",
                 dia=dia,
                 sku="SKU-1",
@@ -3092,16 +3104,16 @@ def test_s6_builders_nuevos_sin_costo_margen_ni_goal():
                 motivo="precio_no_cubre_costo",
             )
         ),
-        notifica.aviso_precio_corte_errores(
-            notifica.CorteErroresPrecio(
+        precio_avisos.aviso_precio_corte_errores(
+            precio_avisos.CorteErroresPrecio(
                 platform="amazon_mx", dia=dia, seguidos=3, limite=3, retenidas=5
             )
         ),
-        notifica.aviso_precio_reversa(
-            notifica.ReversaPrecio(platform="amazon_mx", dia=dia, revertidas=4, saltadas=1)
+        precio_avisos.aviso_precio_reversa(
+            precio_avisos.ReversaPrecio(platform="amazon_mx", dia=dia, revertidas=4, saltadas=1)
         ),
-        notifica.aviso_precio_cohorte(
-            notifica.CohortePrecio(
+        precio_avisos.aviso_precio_cohorte(
+            precio_avisos.CohortePrecio(
                 platform="amazon_mx", dia=dia, canal="fbm", diferencia="la tratada -12 frente a 40"
             )
         ),

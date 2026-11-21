@@ -50,6 +50,7 @@ from app.estimacion_repository import (
     sembrar_escenario_negativo_transicion,
 )
 from app.estimacion_universo import plataformas_con_cotizador
+from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 from app.meli.estimacion import (
     CotizadorMeli,
     construir_fee_canonical_input_meli,
@@ -59,7 +60,6 @@ from app.meli.estimacion import (
     resolver_oferta_meli,
 )
 from app.redaction import install_scrub_filter, scrub
-from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)

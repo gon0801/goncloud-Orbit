@@ -1,7 +1,7 @@
 """Comandos BIDS (BIDS 02, V.4). Registry para no engordar `app/cli.py`.
 
 `avisos-campana` corre los avisos diarios de campana: lee con
-ORBIT_DSN_READ, envia por Telegram (via `notifica.avisar_campanas`) y
+ORBIT_DSN_READ, envia por Telegram (via `notifica_campanas.avisar_campanas`) y
 marca lo enviado con ORBIT_DSN_INGEST. Sale 0 aunque Telegram falle
 (lo fallido sale en la siguiente corrida); 2 sin DSN o con args extra.
 """
@@ -45,7 +45,7 @@ def _parsea_forzar(argv: list[str], comando: str) -> tuple[bool, int | None]:
 
 
 def main_avisos_campana(argv: list[str]) -> int:
-    from app import notifica
+    from app import notifica_campanas
     from app.avisos_campana import CLASES
     from app.db import connect
     from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -81,7 +81,7 @@ def main_avisos_campana(argv: list[str]) -> int:
         }
         if not pendientes:
             return 0
-        salieron = notifica.avisar_campanas(conn_read, hoy, solo=pendientes)
+        salieron = notifica_campanas.avisar_campanas(conn_read, hoy, solo=pendientes)
     finally:
         conn_read.close()
     conn_mark = connect(dsn_ingest)

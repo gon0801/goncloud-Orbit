@@ -512,13 +512,15 @@ def test_vigia_forzar_corre_sin_metricas(conn_pg, monkeypatch, capsys):
 
 
 def _corre_avisos(conn_pg, monkeypatch, capsys, argv=("avisos-campana",)):
-    from app import cli, notifica
+    from app import cli, notifica_campanas
 
     conn, dsn = conn_pg
     monkeypatch.setenv("ORBIT_DSN_READ", dsn)
     monkeypatch.setenv("ORBIT_DSN_INGEST", dsn)
     enviados: list = []
-    monkeypatch.setattr(notifica, "avisar_campanas", lambda *a, **k: enviados.append((a, k)) or {})
+    monkeypatch.setattr(
+        notifica_campanas, "avisar_campanas", lambda *a, **k: enviados.append((a, k)) or {}
+    )
     salida = cli.main(list(argv))
     return salida, enviados, capsys.readouterr().out
 

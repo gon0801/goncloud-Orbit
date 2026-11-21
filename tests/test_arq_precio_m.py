@@ -19,7 +19,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 APP = RAIZ / "app"
 TOOLS = RAIZ / "tools"
-REPUTACION = APP / "reputacion_clientes.py"
+REPUTACION = APP / "meli" / "client.py"
 
 
 def test_archivo_del_carril():

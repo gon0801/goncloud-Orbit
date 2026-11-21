@@ -22,8 +22,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.notifica import notifica_spapi_fallo, notifica_spapi_recuperada
 from app.redaction import install_scrub_filter, scrub
+from app.spapi.avisos import notifica_spapi_fallo, notifica_spapi_recuperada
 from app.spapi.client import MOTIVO_HTTP_429, MOTIVO_LWA_FALLIDO
 
 logger = logging.getLogger(__name__)

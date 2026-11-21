@@ -29,7 +29,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -37,10 +36,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from app import formato
+from app import formato, notifica_contribucion
 from app.ads.config import directorio_secretos
-from app.db import connect, preparar_lectura_contribucion
-from app.precio.config import _entero as _entero_config
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 if TYPE_CHECKING:
@@ -63,73 +60,6 @@ _transporte_test: httpx.BaseTransport | None = None
 # Familia de efecto por kind — ESPEJO de la columna GENERATED de apply_queue
 # (0002: pause -> entity_cut; negative y harvest -> term_cut; regla 2).
 FAMILIA_DE_KIND = {"pause": "entity_cut", "negative": "term_cut", "harvest": "term_cut"}
-
-ETIQUETA_CONTRIBUCION = "contribucion pre-cargos · no decisoria"
-
-SQL_CONTRIB_RANGO = """
-SELECT metric_currency::text,
-       count(*)::int,
-       sum(contrib_sin_halo),
-       sum(contrib_con_halo),
-       bool_or(rango_invertido) AS rango_invertido,
-       bool_or(precio_min_multilisting) AS precio_min_multilisting
-  FROM v_contribucion_entidad
- WHERE platform = %s::platform
- GROUP BY metric_currency
-"""
-
-_CONTRIB_CONNECT_TIMEOUT = 5
-_CONTRIB_STATEMENT_TIMEOUT_MS = 10_000
-
-SQL_CONTRIB_AUSENTES = """
-SELECT motivo, count(*)::int AS n
-  FROM v_contribucion_cobertura
- WHERE platform = %s::platform
- GROUP BY motivo
- ORDER BY n DESC, motivo
-"""
-
-SQL_RESIDUAL_TACOS = """
-SELECT gasto_campaign_sin_contraparte
-  FROM v_tacos
- WHERE platform = %s::platform
-   AND mes = date_trunc(
-           'month',
-           ((now() AT TIME ZONE 'UTC')::date - 15)
-       )::date
-"""
-
-
-@dataclass(frozen=True)
-class RangoContribucion:
-    moneda: str
-    entidades: int
-    sin_halo: Decimal
-    con_halo: Decimal
-    invertido: bool = False
-    entidades_maduras: int | None = None
-    # 0008: alguna entidad publicada uso el precio MENOR de un producto US
-    # multilisting (enmienda D1.bis) — la linea del digest lo declara.
-    precio_min_multilisting: bool = False
-
-
-@dataclass(frozen=True)
-class SinDatoContribucion:
-    total_ausentes: int
-    por_motivo: tuple[tuple[str, int], ...]
-
-
-@dataclass(frozen=True)
-class ResidualTacos:
-    monto: Decimal
-
-
-@dataclass(frozen=True)
-class ContribucionDigest:
-    rango: RangoContribucion | None
-    sin_dato: SinDatoContribucion | None
-    residual_tacos: ResidualTacos | None
-    lectura_fallida: bool = False
 
 
 @dataclass(frozen=True)
@@ -255,6 +185,24 @@ def envia_aviso(texto: str, *, transport: httpx.BaseTransport | None = None) -> 
     return _envia_texto(texto, transport)
 
 
+def _enviar_construido(
+    motivo_log: str,
+    builder,
+    *args,
+    transport: httpx.BaseTransport | None = None,
+    **kwargs,
+) -> bool:
+    """Patron fail-silent comun a los senders: canal apagado -> True;
+    excepcion armando/enviando -> warning con scrub + False; jamas levanta."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(builder(*args, **kwargs), transport=transport)
+    except Exception as exc:
+        logger.warning("telegram: fallo armando %s: %s", motivo_log, scrub(str(exc)))
+        return False
+
+
 TOPE_CORTES_POR_AVISO = 5
 
 
@@ -325,40 +273,6 @@ def avisos_cortes_del_ciclo(avisos: Sequence[CorteEncolado]) -> list[str]:
             )
         mensajes.append("\n".join(lineas))
     return mensajes
-
-
-def _formatea_monto(valor: Decimal) -> str:
-    return format(valor.quantize(Decimal("0.01")), "f")
-
-
-def _linea_contribucion(datos: ContribucionDigest) -> str | None:
-    if datos.lectura_fallida:
-        return f"{ETIQUETA_CONTRIBUCION}: lectura no disponible"
-    if datos.rango is not None:
-        r = datos.rango
-        sufijo = ""
-        if r.entidades_maduras is not None and r.entidades_maduras > r.entidades:
-            sufijo = f" de {r.entidades_maduras} entidades maduras"
-        if r.precio_min_multilisting:
-            sufijo += " · precio min multilisting"
-        if r.invertido:
-            cuerpo = (
-                f"totales sin_halo={_formatea_monto(r.sin_halo)},"
-                f" con_halo={_formatea_monto(r.con_halo)} {r.moneda}"
-                f" ({r.entidades} entidades{sufijo}; rango_invertido en alguna)"
-            )
-        else:
-            cuerpo = (
-                f"{_formatea_monto(r.sin_halo)} .. {_formatea_monto(r.con_halo)}"
-                f" {r.moneda} ({r.entidades} entidades{sufijo})"
-            )
-    elif datos.sin_dato is not None:
-        s = datos.sin_dato
-        motivos = ", ".join(f"{m} {n}" for m, n in s.por_motivo)
-        cuerpo = f"sin dato ({s.total_ausentes} entidades ausentes: {motivos})"
-    else:
-        return None
-    return f"{ETIQUETA_CONTRIBUCION}: {cuerpo}"
 
 
 def decide_aviso_target(aplicado, ancla) -> tuple[bool, str | None]:
@@ -438,74 +352,6 @@ def _linea_target_margen(plataforma, target, ancla) -> str | None:
     return f"target margen {plat}: {ancla} -> {nuevo}"
 
 
-def _arma_contribucion_digest(
-    filas_rango: list[tuple],
-    filas_ausentes: list[tuple],
-    residual: Decimal | None,
-) -> ContribucionDigest | None:
-    rango: RangoContribucion | None = None
-    sin_dato: SinDatoContribucion | None = None
-    por_motivo = tuple((m, n) for m, n in filas_ausentes)
-    total_ausentes = sum(n for _, n in por_motivo)
-    if len(filas_rango) == 1:
-        moneda, entidades, sin_h, con_h, invertido, multilisting = filas_rango[0]
-        if entidades and sin_h is not None and con_h is not None:
-            maduras = entidades + total_ausentes if total_ausentes else None
-            rango = RangoContribucion(
-                moneda,
-                entidades,
-                sin_h,
-                con_h,
-                bool(invertido),
-                maduras,
-                bool(multilisting),
-            )
-    elif len(filas_rango) > 1 and total_ausentes > 0:
-        sin_dato = SinDatoContribucion(total_ausentes, por_motivo)
-    if rango is None and sin_dato is None and total_ausentes > 0:
-        sin_dato = SinDatoContribucion(total_ausentes, por_motivo)
-    if rango is None and sin_dato is None:
-        return None
-    res_tacos = ResidualTacos(residual) if residual is not None and residual != 0 else None
-    return ContribucionDigest(rango=rango, sin_dato=sin_dato, residual_tacos=res_tacos)
-
-
-def _contrib_conn(dsn: str):
-    conn = connect(dsn, connect_timeout=_CONTRIB_CONNECT_TIMEOUT)
-    conn.execute(f"SET statement_timeout = {_CONTRIB_STATEMENT_TIMEOUT_MS}")
-    return conn
-
-
-def carga_contribucion_digest(plataforma: str, *, conn=None) -> ContribucionDigest | None:
-    """Lee v_contribucion_entidad / cobertura / v_tacos (ORBIT_DSN_READ).
-
-    Fail-silent hacia arriba: el caller omite la seccion si devuelve None.
-    Lectura fallida devuelve ContribucionDigest(lectura_fallida=True) para
-    distinguirla de 'sin dato'. Solo lectura; sin ORBIT_DSN_READ -> None."""
-    propia = conn is None
-    try:
-        if conn is None:
-            dsn = os.environ.get("ORBIT_DSN_READ")
-            if not dsn:
-                return None
-            conn = _contrib_conn(dsn)
-        with conn.transaction():
-            preparar_lectura_contribucion(conn)
-            filas_rango = conn.execute(SQL_CONTRIB_RANGO, (plataforma,)).fetchall()
-            filas_ausentes = conn.execute(SQL_CONTRIB_AUSENTES, (plataforma,)).fetchall()
-        residual_row = conn.execute(SQL_RESIDUAL_TACOS, (plataforma,)).fetchone()
-        residual = residual_row[0] if residual_row else None
-        return _arma_contribucion_digest(filas_rango, filas_ausentes, residual)
-    except Exception as exc:
-        logger.warning("telegram: fallo leyendo contribucion para digest: %s", scrub(str(exc)))
-        return ContribucionDigest(
-            rango=None, sin_dato=None, residual_tacos=None, lectura_fallida=True
-        )
-    finally:
-        if propia and conn is not None:
-            conn.close()
-
-
 def digest_ciclo(resumen: dict) -> str:
     """Digest MINIMO del ciclo ejecutor: cycle_id, plataforma, modo del ciclo
     (live/shadow — en shadow el dueno practica el veto y el digest tambien
@@ -563,8 +409,8 @@ def digest_ciclo(resumen: dict) -> str:
         if linea_banda:
             lineas.append(linea_banda)
     contrib = resumen.get("contribucion")
-    if isinstance(contrib, ContribucionDigest):
-        linea = _linea_contribucion(contrib)
+    if isinstance(contrib, notifica_contribucion.ContribucionDigest):
+        linea = notifica_contribucion.linea_contribucion(contrib)
         if linea:
             lineas.append(linea)
         if contrib.residual_tacos is not None:
@@ -575,7 +421,8 @@ def digest_ciclo(resumen: dict) -> str:
                 moneda_res = "USD" if resumen.get("plataforma") == "amazon_us" else "MXN"
             lineas.append(
                 f"residual tacos campaign: {signo}"
-                f"{_formatea_monto(abs(contrib.residual_tacos.monto))} {moneda_res}"
+                f"{notifica_contribucion.formatea_monto(abs(contrib.residual_tacos.monto))} "
+                f"{moneda_res}"
             )
     return "\n".join(lineas)
 
@@ -681,16 +528,17 @@ def aviso_propuesta_campana_nueva(aviso: PropuestaCampanaNueva) -> str:
     ]
     if aviso.nombre:  # regla 3: nombre ausente no se menciona
         lineas.append(f"nombre: {aviso.nombre}")
+    fmt = notifica_contribucion.formatea_monto
     lineas.extend(
         [
-            f"costo: {_formatea_monto(aviso.cost)} {aviso.currency}",
-            f"ingreso: {_formatea_monto(aviso.revenue)} {aviso.currency}",
-            f"target: {_formatea_monto(aviso.target_pct)}% ({aviso.target_source})",
-            f"exceso: {_formatea_monto(aviso.excess)} {aviso.currency}",
+            f"costo: {fmt(aviso.cost)} {aviso.currency}",
+            f"ingreso: {fmt(aviso.revenue)} {aviso.currency}",
+            f"target: {fmt(aviso.target_pct)}% ({aviso.target_source})",
+            f"exceso: {fmt(aviso.excess)} {aviso.currency}",
         ]
     )
     if aviso.acos_pct is not None:  # regla 3: revenue 0 no tiene ACoS
-        lineas.append(f"acos: {_formatea_monto(aviso.acos_pct)}%")
+        lineas.append(f"acos: {fmt(aviso.acos_pct)}%")
     lineas.append(f"ventana: {aviso.window_start.isoformat()}..{aviso.window_end.isoformat()}")
     lineas.append(f"propuesta: {aviso.proposal_id}")
     return "\n".join(lineas)
@@ -699,23 +547,16 @@ def aviso_propuesta_campana_nueva(aviso: PropuestaCampanaNueva) -> str:
 def notifica_propuesta_campana(
     aviso: PropuestaCampanaNueva, *, transport: httpx.BaseTransport | None = None
 ) -> bool:
-    """Aviso de UNA propuesta de campana nueva (C.4 B1). False = fallo del
-    canal (la fila queda pending y reintenta); canal deshabilitado -> True
-    (no hay a quien avisar: marcar sent es correcto)."""
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_propuesta_campana_nueva(aviso), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso de propuesta: %s", scrub(str(exc)))
-        return False
+    """Aviso de UNA propuesta de campana nueva (C.4 B1)."""
+    return _enviar_construido(
+        "el aviso de propuesta", aviso_propuesta_campana_nueva, aviso, transport=transport
+    )
 
 
 def notifica_cortes_encolados(
     avisos: Sequence[CorteEncolado], *, transport: httpx.BaseTransport | None = None
 ) -> bool:
-    """Canal apagado o sin cortes -> True. False si algun mensaje no salio.
-    Fail-silent como el resto."""
+    """Canal apagado o sin cortes -> True. False si algun mensaje no salio."""
     try:
         if not avisos or not canal_activo():
             return True
@@ -737,7 +578,7 @@ def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = No
         plataforma = resumen.get("plataforma")
         payload = resumen
         if isinstance(plataforma, str):
-            contrib = carga_contribucion_digest(plataforma)
+            contrib = notifica_contribucion.carga_contribucion_digest(plataforma)
             if contrib is not None:
                 payload = {**resumen, "contribucion": contrib}
         return _envia_texto(digest_ciclo(payload), transport=transport)
@@ -749,171 +590,34 @@ def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = No
 def notifica_harvest_failed(
     alerta: AlertaHarvest, *, transport: httpx.BaseTransport | None = None
 ) -> bool:
-    """Alerta de harvest failed (sellado 13): sale en el punto de fallo
-    definitivo, junto a la reversa automatica. False = fallo del canal (la
-    bandera envio_fallido viaja con la alerta hasta el ciclo)."""
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(alerta_harvest_failed(alerta), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando la alerta de harvest: %s", scrub(str(exc)))
-        return False
+    """Alerta de harvest failed (sellado 13)."""
+    return _enviar_construido(
+        "la alerta de harvest", alerta_harvest_failed, alerta, transport=transport
+    )
 
 
 def notifica_harvest_hermanas(
     alerta: AlertaHarvest, *, transport: httpx.BaseTransport | None = None
 ) -> bool:
-    """Aviso de harvest aplicado con hermanas pendientes (F2, A.3): sale al
-    cerrar `done` con pendientes declaradas. Mismo contrato fail-silent de
-    los otros senders: canal deshabilitado -> True (no es fallo); cualquier
-    excepcion -> warning con scrub + False; JAMAS levanta."""
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(alerta_harvest_hermanas(alerta), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso de hermanas: %s", scrub(str(exc)))
-        return False
-
-
-def aviso_spapi_fallo(fuente: str, platform: str, motivo: str) -> str:
-    """Builder PURO del aviso de fallo SP-API (A.5): fuente, plataforma y
-    motivo ya redactado en el sello (doble scrub por si acaso). Sin fecha
-    (patron aviso_cap_agotado: la fecha es la del run, visible en /salud).
-    Con motivo LWA, matiz explicito de que el ciclo de Ads sigue."""
-    lineas = [
-        "[Orbit] ALERTA fallo SP-API",
-        f"fuente: {fuente}",
-        f"plataforma: {platform}",
-        f"motivo: {scrub(motivo)}",
-    ]
-    if motivo.startswith("lwa_fallido"):
-        lineas.append("El ciclo de Ads no se afecta (procesos y credenciales distintos).")
-    return "\n".join(lineas)
-
-
-def notifica_spapi_fallo(
-    fuente: str, platform: str, motivo: str, *, transport: httpx.BaseTransport | None = None
-) -> bool:
-    """Aviso de fallo SP-API en flanco (A.5): sale UNA vez por racha, en el
-    primer 429/LWA o al abrirse la segunda fallida seguida. Mismo contrato
-    fail-silent de los otros senders: canal deshabilitado -> True (no es
-    fallo); cualquier excepcion -> warning con scrub + False; JAMAS levanta.
-    """
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_spapi_fallo(fuente, platform, motivo), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
-        return False
-
-
-def aviso_spapi_recuperada(fuente: str, platform: str) -> str:
-    """Builder PURO del aviso de recuperacion SP-API: una linea llana."""
-    return f"[Orbit] SP-API recuperada: {fuente} / {platform} ya corrio bien otra vez."
-
-
-def notifica_spapi_recuperada(
-    fuente: str, platform: str, *, transport: httpx.BaseTransport | None = None
-) -> bool:
-    """Aviso de recuperacion SP-API (flanco ok tras fallida). Mismo contrato
-    fail-silent de notifica_spapi_fallo: canal deshabilitado -> True;
-    cualquier excepcion -> warning con scrub + False; JAMAS levanta."""
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_spapi_recuperada(fuente, platform), transport=transport)
-    except Exception as exc:
-        logger.warning(
-            "telegram: fallo armando el aviso de recuperacion SP-API: %s", scrub(str(exc))
-        )
-        return False
-
-
-# Total de pares (fuente, plataforma) del cron SP-API: 4 fuentes x 2
-# plataformas del wrapper spapi-diario.sh (app/spapi/vigilante.py). Vive
-# aqui como literal porque notifica.py no puede importar de spapi (salud
-# ya importa notifica: seria un ciclo); el test de igualdad exacta lo
-# pinza y vigilante.py garantiza los 8 pares.
-_TOTAL_PARES_SPAPI = 8
-
-# Texto unico del aviso del vigilante: el par no dejo una corrida ok en
-# `ingest_run`, porque fallo (salud solo avisa en la segunda falla
-# seguida) o porque el cron no corrio. Vive aqui porque el builder es el
-# dueno del texto; app/spapi/vigilante.py ya importa de notifica.
-MOTIVO_FALLO_O_FALTA = (
-    "El cron de las 05:00 UTC no dejó estas corridas ok en ingest_run: "
-    "falló o no corrió. Revisar crontab de gon, flock, spapi-diario.log "
-    "y el aviso de salud de cada fuente."
-)
-
-
-def aviso_spapi_silencio(faltantes, desde, hasta) -> str:
-    """Builder PURO del aviso de silencio o falla SP-API (vigilante): una
-    linea por par faltante en el orden del caller (el vigilante pasa el
-    orden fuente→plataforma del catalogo: FUENTES_SPAPI x
-    PLATAFORMAS_SPAPI). `desde`/`hasta` aware (el vigilante los trae de
-    `_fecha_utc`); se normalizan a UTC para que la etiqueta no mienta con
-    otro offset. Sin secretos."""
-    desde_utc = desde.astimezone(dt.UTC)
-    hasta_utc = hasta.astimezone(dt.UTC)
-    ventana = f"{desde_utc:%Y-%m-%d %H:%M} UTC → {hasta_utc:%Y-%m-%d %H:%M} UTC"
-    lineas = [
-        "[Orbit] ALERTA SP-API sin corrida ok",
-        f"ventana: {ventana}",
-        f"faltan {len(faltantes)} de {_TOTAL_PARES_SPAPI}:",
-    ]
-    lineas.extend(f"- {fuente} / {plataforma}" for fuente, plataforma in faltantes)
-    lineas.append(MOTIVO_FALLO_O_FALTA)
-    return "\n".join(lineas)
-
-
-def aviso_spapi_vigilante_ciego(motivo: str) -> str:
-    """Builder PURO del aviso ciego: el vigilante no pudo leer
-    `ingest_run` (DB caida, DSN roto) y no sabe si el cron corrio. El
-    motivo viaja con scrub (el DSN roto puede traer password)."""
-    return "\n".join(
-        [
-            "[Orbit] ALERTA vigilante SP-API sin lectura",
-            f"no pude leer ingest_run: {scrub(motivo)}",
-            "No sé si el cron corrió. Revisar Postgres y el DSN de lectura.",
-        ]
+    """Aviso de harvest aplicado con hermanas pendientes (F2, A.3)."""
+    return _enviar_construido(
+        "el aviso de hermanas", alerta_harvest_hermanas, alerta, transport=transport
     )
-
-
-def notifica_spapi_silencio(
-    faltantes, desde, hasta, *, transport: httpx.BaseTransport | None = None
-) -> bool:
-    """Aviso de silencio SP-API (vigilante): sale cuando faltan corridas
-    en la ventana. Mismo contrato fail-silent de notifica_spapi_fallo:
-    canal deshabilitado -> True (no es fallo); cualquier excepcion ->
-    warning con scrub + False; JAMAS levanta.
-    """
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_spapi_silencio(faltantes, desde, hasta), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
-        return False
 
 
 def notifica_cap_agotado(
     plataforma: str, kind: str, used: int, cap: int, *, transport: httpx.BaseTransport | None = None
 ) -> bool:
-    """Aviso de cap agotado (preflight 1.4): lo manda el ciclo por CADA evento
-    de transicion (UNA vez por (motor, dia), D3a). Mismo contrato fail-silent
-    de los otros senders: canal deshabilitado -> True (no es fallo);
-    cualquier excepcion -> warning con scrub + False; JAMAS levanta."""
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_cap_agotado(plataforma, kind, used, cap), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso de cap agotado: %s", scrub(str(exc)))
-        return False
+    """Aviso de cap agotado (preflight 1.4)."""
+    return _enviar_construido(
+        "el aviso de cap agotado",
+        aviso_cap_agotado,
+        plataforma,
+        kind,
+        used,
+        cap,
+        transport=transport,
+    )
 
 
 def alerta_biblioteca_no_escrita(
@@ -965,31 +669,20 @@ def notifica_biblioteca_no_escrita(
     detalle: str,
     transport: httpx.BaseTransport | None = None,
 ) -> bool:
-    """Aviso de biblioteca no escrita (F2, A.4): sale en el punto del fallo,
-    con el sello ya aplicado. Mismo contrato fail-silent que
-    `notifica_harvest_hermanas`: canal apagado -> True; excepcion ->
-    warning con scrub + False; jamas levanta. La visibilidad de respaldo
-    si el canal falla es el rastro durable (`external_ids["biblioteca"]`
-    en el harvest; log con scrub en el negative)."""
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(
-            alerta_biblioteca_no_escrita(
-                aplicado=aplicado,
-                plataforma=plataforma,
-                grupo_id=grupo_id,
-                decision_id=decision_id,
-                job_id=job_id,
-                texto=texto,
-                motivo=motivo,
-                detalle=detalle,
-            ),
-            transport=transport,
-        )
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso de biblioteca: %s", scrub(str(exc)))
-        return False
+    """Aviso de biblioteca no escrita (F2, A.4)."""
+    return _enviar_construido(
+        "el aviso de biblioteca",
+        alerta_biblioteca_no_escrita,
+        aplicado=aplicado,
+        plataforma=plataforma,
+        grupo_id=grupo_id,
+        decision_id=decision_id,
+        job_id=job_id,
+        texto=texto,
+        motivo=motivo,
+        detalle=detalle,
+        transport=transport,
+    )
 
 
 @dataclass(frozen=True)
@@ -1045,1022 +738,10 @@ def notifica_destino_grupo(
     """Aviso de harvest de grupo sin destino (F2, A.6): lo manda el ciclo
     una vez por racha por campana. Mismo contrato fail-silent que
     `notifica_biblioteca_no_escrita`: canal apagado -> True; cualquier
-    excepcion -> warning con scrub + False; jamas levanta. El aviso NO
-    reintenta en el ciclo siguiente si el envio fallo: la NOTA en
-    notes.telegram y la lista saltos_grupo en /salud son la visibilidad
-    de respaldo (mismo criterio que cap_agotado)."""
-    try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_destino_grupo(salto), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso de destino: %s", scrub(str(exc)))
-        return False
-
-
-# Avisos del motor de precios: nunca exponen costo, margen, goal ni cuerpos de
-# error (por eso los motivos se traducen via app.etiquetas).
-
-TIPOS_PRECIO = (
-    "no_evaluado",
-    "goal_inalcanzable",
-    "frenado",
-    "no_confirmado",
-    "buy_box_perdida",
-    "huerfana_sin_patch",
-    "resumen_diario",
-    "compuerta",
-    "cambio_error",
-    "corte_errores",
-    "reversa",
-    "cohorte",
-    "corrida_fallida",
-)
-
-TIPOS_PRECIO_GRUPO = ("no_evaluado", "goal_inalcanzable", "frenado")
-TIPOS_PRECIO_PRODUCTO = ("no_confirmado", "buy_box_perdida")
-# S.6: tipos con sello en base (resumen por plataforma y dia; compuerta por
-# universo, causa y dia). El resto solo tiene builder + sender: su disparo
-# no es de S.6.
-TIPOS_PRECIO_SELLADOS = ("resumen_diario", "compuerta")
-
-# Tope de SKUs por aviso de grupo (S7: conteo + hasta 5 SKUs).
-TOPE_SKUS_PRECIO = 5
-
-# Umbral de dias seguidos para avisar `no_evaluado` (spec l.69, AC15):
-# entero 1-14, ValueError que nombra la clave (replica de
-# `app/precio/corrida.py::_numero_entero`, que no se puede importar).
-CLAVE_PRECIO_AVISO_DIAS = "precio_aviso_dias_sin_evaluar"
-
-FRASEO_TIPO_PRECIO = {
-    "no_evaluado": "no evaluados",
-    "goal_inalcanzable": "objetivo inalcanzable",
-    "frenado": "frenados",
-    "no_confirmado": "no confirmado",
-    "buy_box_perdida": "buy box perdida",
-    "huerfana_sin_patch": "huerfanas sin parche",
-    "resumen_diario": "resumen diario",
-    "compuerta": "compuerta",
-    "cambio_error": "cambio en error",
-    "corte_errores": "corte por errores",
-    "reversa": "reversa",
-    "cohorte": "cohorte",
-    "corrida_fallida": "corrida fallida",
-}
-
-
-@dataclass(frozen=True)
-class GrupoPrecio:
-    """Un (plataforma, motivo) de hoy para los tipos de grupo —y para el
-    resto agrupado de los tipos por producto (B3)—: conteo total y SKUs
-    (el builder corta a `TOPE_SKUS_PRECIO`)."""
-
-    platform: str
-    tipo: str
-    motivo: str
-    total: int
-    skus: tuple
-
-
-@dataclass(frozen=True)
-class ProductoPrecio:
-    """Un producto para los tipos por producto: SKU/ASIN, precios
-    preformateados, estado y motivo. Sin costo, margen, goal ni errores."""
-
-    platform: str
-    tipo: str
-    sku: str | None
-    asin: str | None
-    precio_antes: str | None
-    precio_despues: str | None
-    moneda: str | None
-    estado: str | None
-    motivo: str | None
-
-
-@dataclass(frozen=True)
-class HuerfanaPrecio:
-    """Pendientes cerradas sin parche en la corrida de hoy, por plataforma."""
-
-    platform: str
-    total: int
-    tipo: str = "huerfana_sin_patch"
-
-
-def aviso_precio_grupo(grupo: GrupoPrecio) -> str:
-    """Builder PURO del aviso por (plataforma, motivo): conteo + hasta 5
-    SKUs + resto contado (200 con el mismo motivo -> UN aviso)."""
-    lineas = [
-        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[grupo.tipo]}",
-        f"plataforma: {grupo.platform}",
-        f"motivo: {_etiqueta(grupo.motivo, 'motivo_precio')}",
-        f"total: {grupo.total}",
-    ]
-    skus = tuple(grupo.skus)[:TOPE_SKUS_PRECIO]
-    if skus:
-        lineas.append(f"skus: {', '.join(skus)}")
-    resto = grupo.total - len(skus)
-    if resto > 0:
-        lineas.append(f"y {resto} mas")
-    return "\n".join(lineas)
-
-
-def _es_plataforma_amazon(platform: str | None) -> bool:
-    """El `external_id` solo es un ASIN en plataformas Amazon (B5)."""
-    return (platform or "").lower().startswith("amazon")
-
-
-def aviso_precio_producto(item: ProductoPrecio) -> str:
-    """Builder PURO del aviso por producto: SKU, precios, estado y motivo
-    en palabras (regla 3: ausente no se menciona). El ASIN solo sale en
-    plataformas Amazon; fuera de Amazon el id externo viaja como tal."""
-    lineas = [
-        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[item.tipo]}",
-        f"plataforma: {item.platform}",
-    ]
-    if item.sku:
-        lineas.append(f"sku: {item.sku}")
-    if item.asin:
-        if _es_plataforma_amazon(item.platform):
-            lineas.append(f"asin: {item.asin}")
-        else:
-            lineas.append(f"id externo: {item.asin}")
-    if item.precio_antes is not None and item.precio_despues is not None:
-        precio = f"{item.precio_antes} -> {item.precio_despues}"
-    else:
-        precio = item.precio_despues if item.precio_despues is not None else item.precio_antes
-    if precio is not None:
-        lineas.append(f"precio: {precio}" + (f" {item.moneda}" if item.moneda else ""))
-    if item.estado:
-        lineas.append(f"estado: {_etiqueta(item.estado, 'estado_precio')}")
-    if item.motivo:
-        lineas.append(f"motivo: {_etiqueta(item.motivo, 'motivo_precio')}")
-    return "\n".join(lineas)
-
-
-def aviso_precio_huerfana(huerfana: HuerfanaPrecio) -> str:
-    """Builder PURO del aviso por plataforma: cuantas pendientes cerro la
-    corrida sin parche (el codigo de error no viaja: es uno solo y fijo)."""
-    return "\n".join(
-        [
-            "[Orbit] precio: huerfanas sin parche",
-            f"plataforma: {huerfana.platform}",
-            f"total: {huerfana.total}",
-            "la corrida cerro pendientes sin parche: revisar el log"
-            " y revertir si el precio se movio",
-        ]
+    excepcion -> warning con scrub + False; jamas levanta."""
+    return _enviar_construido(
+        "el aviso de destino",
+        aviso_destino_grupo,
+        salto,
+        transport=transport,
     )
-
-
-@dataclass(frozen=True)
-class ResumenDiarioPrecio:
-    """El dia de UNA plataforma (bosquejo U): conteos + hasta 5 movidos con
-    precio antes -> despues (preformateados). Sin costo, margen, goal ni
-    errores: la ausencia es estructural."""
-
-    platform: str
-    dia: dt.date
-    subieron: int
-    bajaron: int
-    en_sombra: int
-    retenidos: int
-    errores: int
-    sin_evaluar: int
-    con_envio_imputado: int
-    muestra: tuple[tuple[str, str, str], ...]
-    tipo: str = "resumen_diario"
-
-
-def aviso_precio_resumen(resumen: ResumenDiarioPrecio) -> str:
-    """Builder PURO del resumen diario. Un dia sin movimiento tambien avisa."""
-    lineas = [
-        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[resumen.tipo]}",
-        f"plataforma: {resumen.platform}",
-        f"dia: {resumen.dia.isoformat()}",
-    ]
-    if resumen.subieron == 0 and resumen.bajaron == 0:
-        lineas.append("hoy no se movio ningun precio")
-    lineas.extend(
-        [
-            f"subieron: {resumen.subieron} bajaron: {resumen.bajaron}",
-            f"en sombra: {resumen.en_sombra}",
-            f"retenidos: {resumen.retenidos}",
-            f"errores: {resumen.errores}",
-            f"sin evaluar: {resumen.sin_evaluar}",
-            f"con envio imputado: {resumen.con_envio_imputado}",
-        ]
-    )
-    for sku, antes, despues in tuple(resumen.muestra)[:TOPE_SKUS_PRECIO]:
-        lineas.append(f"{sku}: {antes} -> {despues}")
-    return "\n".join(lineas)
-
-
-@dataclass(frozen=True)
-class CompuertaPrecio:
-    """Un universo retenido hoy (bosquejo U): causa, conteos y el detalle de
-    la medicion. Sin costo, margen ni goal."""
-
-    platform: str
-    dia: dt.date
-    canal: str
-    causa: str
-    medidas: int
-    nuevas: int
-    insumo: str | None
-    detalle: str
-    tipo: str = "compuerta"
-
-
-def aviso_precio_compuerta(aviso: CompuertaPrecio) -> str:
-    """Builder PURO del aviso de compuerta: N de M quieren moverse hoy, no
-    se aplico nada, y donde soltarlo. Con `insumo_sistemico` nombra el
-    insumo (traducido); el detalle viaja con el mismo reemplazo."""
-    lineas = [
-        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
-        f"plataforma: {aviso.platform}",
-        f"dia: {aviso.dia.isoformat()}",
-        f"universo: {aviso.platform}/{aviso.canal}",
-        f"causa: {_etiqueta(aviso.causa, 'causa_compuerta')}",
-    ]
-    if aviso.insumo:
-        lineas.append(f"insumo: {_etiqueta(aviso.insumo, 'insumo_compuerta')}")
-    lineas.append(
-        f"{aviso.nuevas} de {aviso.medidas} quieren moverse hoy;"
-        " no se aplico nada. Entra a /precios para soltarlo."
-    )
-    if aviso.detalle:
-        detalle = aviso.detalle
-        if aviso.insumo:
-            detalle = detalle.replace(aviso.insumo, _etiqueta(aviso.insumo, "insumo_compuerta"), 1)
-        lineas.append(f"detalle: {detalle}")
-    return "\n".join(lineas)
-
-
-@dataclass(frozen=True)
-class CambioErrorPrecio:
-    """Un cambio que quedo en `error`: SKU y motivo en palabras. El cuerpo
-    del error jamas viaja (no hay campo para el)."""
-
-    platform: str
-    dia: dt.date
-    sku: str | None
-    asin: str | None
-    motivo: str | None
-    tipo: str = "cambio_error"
-
-
-def aviso_precio_cambio_error(aviso: CambioErrorPrecio) -> str:
-    """Builder PURO del aviso por cambio en error."""
-    lineas = [
-        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
-        f"plataforma: {aviso.platform}",
-        f"dia: {aviso.dia.isoformat()}",
-    ]
-    if aviso.sku:
-        lineas.append(f"sku: {aviso.sku}")
-    if aviso.asin:
-        if _es_plataforma_amazon(aviso.platform):
-            lineas.append(f"asin: {aviso.asin}")
-        else:
-            lineas.append(f"id externo: {aviso.asin}")
-    if aviso.motivo:
-        lineas.append(f"motivo: {_etiqueta(aviso.motivo, 'motivo_precio')}")
-    lineas.append("el cambio quedo en error: revisar y reintentar en el repaso")
-    return "\n".join(lineas)
-
-
-@dataclass(frozen=True)
-class CorteErroresPrecio:
-    """El corte por errores seguidos se abrio en una corrida: cuantos y
-    cuantos retuvo. Sin costo, margen ni goal."""
-
-    platform: str
-    dia: dt.date
-    seguidos: int
-    limite: int
-    retenidas: int
-    tipo: str = "corte_errores"
-
-
-def aviso_precio_corte_errores(aviso: CorteErroresPrecio) -> str:
-    """Builder PURO del aviso por corte de errores."""
-    return "\n".join(
-        [
-            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
-            f"plataforma: {aviso.platform}",
-            f"dia: {aviso.dia.isoformat()}",
-            f"errores seguidos: {aviso.seguidos} (limite {aviso.limite})",
-            f"retenidas por el corte: {aviso.retenidas}",
-            "no se aplico nada mas en esta corrida",
-        ]
-    )
-
-
-@dataclass(frozen=True)
-class ReversaPrecio:
-    """Una reversa en lote termino: conteo de vueltas y saltadas. Solo
-    conteos (bosquejo I)."""
-
-    platform: str
-    dia: dt.date
-    revertidas: int
-    saltadas: int
-    tipo: str = "reversa"
-
-
-def aviso_precio_reversa(aviso: ReversaPrecio) -> str:
-    """Builder PURO del aviso por reversa en lote."""
-    return "\n".join(
-        [
-            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
-            f"plataforma: {aviso.platform}",
-            f"dia: {aviso.dia.isoformat()}",
-            f"revertidas: {aviso.revertidas} saltadas: {aviso.saltadas}",
-        ]
-    )
-
-
-@dataclass(frozen=True)
-class CohortePrecio:
-    """Lectura de cohorte de un universo (S.7 la produce): solo avisa. La
-    diferencia viaja preformateada en palabras y numeros."""
-
-    platform: str
-    dia: dt.date
-    canal: str
-    diferencia: str
-    tipo: str = "cohorte"
-
-
-def aviso_precio_cohorte(aviso: CohortePrecio) -> str:
-    """Builder PURO del aviso por lectura de cohorte."""
-    return "\n".join(
-        [
-            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
-            f"plataforma: {aviso.platform}",
-            f"dia: {aviso.dia.isoformat()}",
-            f"universo: {aviso.platform}/{aviso.canal}",
-            f"tratada frente al control: {aviso.diferencia}",
-            "lectura de cohorte: solo avisa, no frena ni baja",
-        ]
-    )
-
-
-@dataclass(frozen=True)
-class CorridaFallidaPrecio:
-    """La corrida de una plataforma se cayo (ARREGLOS 03 P-B): no decidio ni
-    aplico precios. `motivo` es el NOMBRE de la clase del error; su texto
-    jamas viaja (no hay campo para el)."""
-
-    platform: str
-    dia: dt.date
-    motivo: str
-    tipo: str = "corrida_fallida"
-
-
-def aviso_precio_corrida_fallida(aviso: CorridaFallidaPrecio) -> str:
-    """Builder PURO del aviso de corrida caida."""
-    return "\n".join(
-        [
-            f"[Orbit] precio: {FRASEO_TIPO_PRECIO[aviso.tipo]}",
-            f"plataforma: {aviso.platform}",
-            f"dia: {aviso.dia.isoformat()}",
-            "la corrida se cayo y no decidio ni aplico precios;"
-            " el siguiente repaso lo vuelve a intentar",
-            f"motivo: {aviso.motivo}",
-        ]
-    )
-
-
-def validar_precio_aviso_dias(settings) -> int:
-    """`precio_aviso_dias_sin_evaluar` entero 1-14; `ValueError` nombra la
-    clave si falta o sale de cota (ninguna otra clave se lee aqui). El
-    ayudante es el unico de `app/precio/config.py` (REPRICING 02 0.a)."""
-    return _entero_config(settings, CLAVE_PRECIO_AVISO_DIAS, minimo=1, maximo=14)
-
-
-def flanco_nuevos(hoy, ayer) -> list:
-    """Claves presentes hoy que ayer no estaban, en el orden de hoy (el
-    flanco: la racha que sigue no vuelve a avisar; la que se corta y vuelve,
-    si). Pura."""
-    previos = set(ayer)
-    vistos = set()
-    nuevos = []
-    for clave in hoy:
-        if clave not in previos and clave not in vistos:
-            vistos.add(clave)
-            nuevos.append(clave)
-    return nuevos
-
-
-def flanco_umbral(presentes, hoy, umbral) -> bool:
-    """True solo el dia en que la racha de dias presentes ALCANZA el umbral
-    (racha == umbral): con mas dias (sigue) o sin hoy (corta) es False; al
-    reconstruirse (vuelve) es True de nuevo. Pura."""
-    try:
-        umbral = int(umbral)
-    except (TypeError, ValueError):
-        return False
-    if hoy not in presentes:
-        return False
-    racha = 0
-    dia = hoy
-    while dia in presentes:
-        racha += 1
-        dia -= dt.timedelta(days=1)
-    return racha == umbral
-
-
-# S.6: el despacho por tabla para que el sexto
-# tipo no rompa el tope de complejidad: tipo -> familias aceptadas y
-# familia -> NOMBRE del builder (se resuelve tarde con `globals()` para no
-# romper la costura de `monkeypatch.setattr(notifica, "aviso_...")`). Los
-# tipos por producto aceptan grupo (resto de B3).
-_FAMILIA_POR_TIPO_PRECIO = {
-    "no_evaluado": (GrupoPrecio,),
-    "goal_inalcanzable": (GrupoPrecio,),
-    "frenado": (GrupoPrecio,),
-    "no_confirmado": (ProductoPrecio, GrupoPrecio),
-    "buy_box_perdida": (ProductoPrecio, GrupoPrecio),
-    "huerfana_sin_patch": (HuerfanaPrecio,),
-    "resumen_diario": (ResumenDiarioPrecio,),
-    "compuerta": (CompuertaPrecio,),
-    "cambio_error": (CambioErrorPrecio,),
-    "corte_errores": (CorteErroresPrecio,),
-    "reversa": (ReversaPrecio,),
-    "cohorte": (CohortePrecio,),
-    "corrida_fallida": (CorridaFallidaPrecio,),
-}
-
-_BUILDER_POR_FAMILIA_PRECIO = {
-    GrupoPrecio: "aviso_precio_grupo",
-    ProductoPrecio: "aviso_precio_producto",
-    HuerfanaPrecio: "aviso_precio_huerfana",
-    ResumenDiarioPrecio: "aviso_precio_resumen",
-    CompuertaPrecio: "aviso_precio_compuerta",
-    CambioErrorPrecio: "aviso_precio_cambio_error",
-    CorteErroresPrecio: "aviso_precio_corte_errores",
-    ReversaPrecio: "aviso_precio_reversa",
-    CohortePrecio: "aviso_precio_cohorte",
-    CorridaFallidaPrecio: "aviso_precio_corrida_fallida",
-}
-
-
-def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None = None) -> bool:
-    """UNICO sender de avisos de precio (S7; S.6 suma los seis de U). `tipo`
-    elige el builder y el `payload` debe ser de su familia (grupo / producto
-    / huerfana / resumen / compuerta / cambio en error / corte / reversa /
-    cohorte / corrida fallida; los tipos por producto tambien aceptan grupo
-    para el resto agrupado de B3); tipo o familia desconocidos -> warning +
-    False. Canal
-    deshabilitado -> True (no es fallo); cualquier excepcion -> warning con
-    scrub + False; jamas levanta.
-    """
-    try:
-        esperados = _FAMILIA_POR_TIPO_PRECIO.get(tipo)
-        if esperados is None:
-            logger.warning("telegram: tipo de aviso de precio desconocido: %s", scrub(str(tipo)))
-            return False
-        if not isinstance(payload, esperados):
-            logger.warning(
-                "telegram: payload de aviso de precio no es %s para %s",
-                "/".join(e.__name__ for e in esperados),
-                scrub(str(tipo)),
-            )
-            return False
-        if payload.tipo != tipo:
-            logger.warning(
-                "telegram: payload de aviso de precio tipo %s no coincide con %s",
-                scrub(str(payload.tipo)),
-                scrub(str(tipo)),
-            )
-            return False
-        nombre_builder = None
-        for familia, candidato in _BUILDER_POR_FAMILIA_PRECIO.items():
-            if isinstance(payload, familia):
-                nombre_builder = candidato
-                break
-        if nombre_builder is None:  # inalcanzable: `esperados` ya filtro la familia
-            raise AssertionError(f"familia de aviso sin builder: {type(payload).__name__}")
-        if not canal_activo():
-            return True
-        return _envia_texto(globals()[nombre_builder](payload), transport=transport)
-    except Exception as exc:
-        logger.warning("telegram: fallo armando el aviso de precio: %s", scrub(str(exc)))
-        return False
-
-
-_SQL_PRECIO_GRUPOS_DIA = """
-SELECT d.resultado, d.motivo, COALESCE(l.seller_sku, l.external_id)
-  FROM precio_decision d JOIN listing l
-    ON l.id = d.listing_id AND l.platform = d.platform
- WHERE d.platform = %s AND d.decision_date = %s
-   AND d.resultado IN ('no_evaluado', 'goal_inalcanzable', 'frenado')
- ORDER BY COALESCE(l.seller_sku, l.external_id)
-"""
-
-_SQL_PRECIO_DIAS_MOTIVO = """
-SELECT DISTINCT decision_date FROM precio_decision
- WHERE platform = %s AND resultado = 'no_evaluado' AND motivo = %s
-   AND decision_date BETWEEN %s AND %s
-"""
-
-_SQL_PRECIO_BUYBOX_DIA = """
-SELECT COALESCE(l.seller_sku, l.external_id), l.seller_sku, l.external_id,
-       d.resultado, d.p_actual, d.p_actual_currency
-  FROM precio_decision d JOIN listing l
-    ON l.id = d.listing_id AND l.platform = d.platform
- WHERE d.platform = %s AND d.decision_date = %s AND d.buy_box_is_own = false
-"""
-
-_SQL_PRECIO_FRENADO_NOCONF_DIA = """
-SELECT d.listing_id, l.seller_sku, l.external_id
-  FROM precio_decision d JOIN listing l
-    ON l.id = d.listing_id AND l.platform = d.platform
- WHERE d.platform = %s AND d.decision_date = %s
-   AND d.resultado = 'frenado' AND d.motivo = 'no_confirmado'
- ORDER BY d.listing_id
-"""
-
-_SQL_PRECIO_ULTIMO_NOCONF = """
-SELECT c.precio_antes, c.precio_antes_currency,
-       c.precio_despues, c.precio_despues_currency
-  FROM precio_cambio c
- WHERE c.listing_id = %s AND c.platform = %s
-   AND c.estado = 'no_confirmado' AND c.aplicado AND NOT c.es_reversa
- ORDER BY c.id DESC LIMIT 1
-"""
-
-_SQL_PRECIO_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-
-
-def _grupos_precio_dia(conn, platform: str, dia) -> dict:
-    grupos: dict = {}
-    filas = conn.execute(_SQL_PRECIO_GRUPOS_DIA, (platform, dia)).fetchall()
-    for resultado, motivo, sku in filas:
-        grupos.setdefault((resultado, motivo or "desconocido"), []).append(sku)
-    return grupos
-
-
-def _avisar_grupos_precio(conn, platform: str, hoy, ayer, umbral) -> int:
-    """Un aviso por (resultado, motivo) nuevo (B6: `try` propio). `no_evaluado`
-    exige su racha de `umbral` dias (B4: sin umbral valido no sale);
-    `goal_inalcanzable`/`frenado` salen si ayer no estaban. Jamas levanta."""
-    try:
-        grupos_hoy = _grupos_precio_dia(conn, platform, hoy)
-        grupos_ayer = _grupos_precio_dia(conn, platform, ayer)
-    except Exception as exc:
-        logger.warning("telegram: fallo avisando grupos de precio: %s", scrub(str(exc)))
-        return 0
-    nuevos = flanco_nuevos(sorted(grupos_hoy), sorted(grupos_ayer))
-    enviados = 0
-    for (resultado, motivo), skus in sorted(grupos_hoy.items()):
-        try:
-            if resultado == "no_evaluado":
-                if umbral is None:
-                    continue
-                dias = {
-                    r[0]
-                    for r in conn.execute(
-                        _SQL_PRECIO_DIAS_MOTIVO,
-                        (platform, motivo, hoy - dt.timedelta(days=umbral), hoy),
-                    ).fetchall()
-                }
-                if not flanco_umbral(dias, hoy, umbral):
-                    continue
-            elif (resultado, motivo) not in nuevos:
-                continue
-            grupo = GrupoPrecio(platform, resultado, motivo, len(skus), tuple(skus))
-            if notifica_precio(resultado, grupo):
-                enviados += 1
-        except Exception as exc:
-            logger.warning(
-                "telegram: fallo avisando el grupo de precio %s: %s",
-                scrub(f"{resultado}/{motivo}"),
-                scrub(str(exc)),
-            )
-    return enviados
-
-
-# Tope de avisos por producto, por tipo y corrida (B3: 200 buy box
-# perdidas no son 200 mensajes): los primeros salen individuales y el resto
-# va en UN aviso agrupado de ese tipo con conteo y hasta 5 SKUs.
-TOPE_PRODUCTO_PRECIO = 5
-
-
-def _enviar_productos_precio_con_tope(tipo: str, motivo: str, piezas: list) -> int:
-    """B3: hasta `TOPE_PRODUCTO_PRECIO` avisos por producto; el resto en UN
-    aviso agrupado de ese tipo con conteo y hasta `TOPE_SKUS_PRECIO` SKUs
-    (`notifica_precio` acepta el grupo para tipos por producto). Un `try`
-    por pieza y otro por el agrupado (B6). Jamas levanta."""
-    enviados = 0
-    for item in piezas[:TOPE_PRODUCTO_PRECIO]:
-        try:
-            if notifica_precio(tipo, item):
-                enviados += 1
-        except Exception as exc:
-            logger.warning(
-                "telegram: fallo avisando producto de precio %s: %s",
-                scrub(str(tipo)),
-                scrub(str(exc)),
-            )
-    resto = piezas[TOPE_PRODUCTO_PRECIO:]
-    if resto:
-        try:
-            skus = tuple(s for s in ((p.sku or p.asin) for p in resto[:TOPE_SKUS_PRECIO]) if s)
-            grupo = GrupoPrecio(resto[0].platform, tipo, motivo, len(resto), skus)
-            if notifica_precio(tipo, grupo):
-                enviados += 1
-        except Exception as exc:
-            logger.warning(
-                "telegram: fallo avisando resto agrupado de precio %s: %s",
-                scrub(str(tipo)),
-                scrub(str(exc)),
-            )
-    return enviados
-
-
-def _avisar_buybox_precio(conn, platform: str, hoy, ayer) -> int:
-    """Un aviso por producto que pierde la buy box hoy y ayer la tenia
-    (B6: `try` propio y un `try` por pieza; B3: con tope + resto agrupado).
-    Jamas levanta."""
-    try:
-        bb_hoy = {r[0]: r for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, hoy)).fetchall()}
-        bb_ayer = {r[0] for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, ayer)).fetchall()}
-    except Exception as exc:
-        logger.warning("telegram: fallo avisando buy box de precio: %s", scrub(str(exc)))
-        return 0
-    piezas = []
-    for clave in flanco_nuevos(sorted(bb_hoy), sorted(bb_ayer)):
-        try:
-            _id, sku, asin, estado, p_actual, moneda = bb_hoy[clave]
-            piezas.append(
-                ProductoPrecio(
-                    platform,
-                    "buy_box_perdida",
-                    sku,
-                    asin,
-                    None,
-                    str(p_actual) if p_actual is not None else None,
-                    str(moneda) if moneda is not None else None,
-                    estado,
-                    "buy_box_perdida",
-                )
-            )
-        except Exception as exc:
-            logger.warning(
-                "telegram: fallo avisando buy box de precio %s: %s",
-                scrub(str(clave)),
-                scrub(str(exc)),
-            )
-    return _enviar_productos_precio_con_tope("buy_box_perdida", "buy_box_perdida", piezas)
-
-
-def _avisar_noconf_precio(conn, platform: str, hoy, ayer) -> int:
-    """Un aviso por producto con `frenado(no_confirmado)` hoy que ayer no lo
-    estaba (A1); los precios salen del ultimo cambio real no-reversa
-    `no_confirmado` (B6: `try` propio; B3: con tope + resto agrupado).
-    Jamas levanta."""
-    try:
-        nc_hoy = {
-            r[0]: r
-            for r in conn.execute(_SQL_PRECIO_FRENADO_NOCONF_DIA, (platform, hoy)).fetchall()
-        }
-        nc_ayer = {
-            r[0] for r in conn.execute(_SQL_PRECIO_FRENADO_NOCONF_DIA, (platform, ayer)).fetchall()
-        }
-    except Exception as exc:
-        logger.warning("telegram: fallo avisando no confirmados de precio: %s", scrub(str(exc)))
-        return 0
-    piezas = []
-    for lid in flanco_nuevos(sorted(nc_hoy), sorted(nc_ayer)):
-        try:
-            _lid, sku, asin = nc_hoy[lid]
-            ult = conn.execute(_SQL_PRECIO_ULTIMO_NOCONF, (lid, platform)).fetchone()
-            if ult is None:
-                continue
-            antes, mon_antes, despues, mon_despues = ult
-            moneda = mon_despues or mon_antes
-            piezas.append(
-                ProductoPrecio(
-                    platform,
-                    "no_confirmado",
-                    sku,
-                    asin,
-                    str(antes) if antes is not None else None,
-                    str(despues) if despues is not None else None,
-                    str(moneda) if moneda else None,
-                    "no_confirmado",
-                    "no_confirmado",
-                )
-            )
-        except Exception as exc:
-            logger.warning(
-                "telegram: fallo avisando no confirmado de precio %s: %s",
-                scrub(str(lid)),
-                scrub(str(exc)),
-            )
-    return _enviar_productos_precio_con_tope("no_confirmado", "no_confirmado", piezas)
-
-
-def _avisar_huerfana_precio(platform: str, resumen) -> int:
-    """La huerfana es un evento de la corrida (A2): si cerro >= 1 avisa una
-    vez, sin mirar la historia (B6: `try` propio). Jamas levanta."""
-    try:
-        huerfanas = resumen.huerfanas or 0
-        if huerfanas > 0:
-            huerfana = HuerfanaPrecio(platform, int(huerfanas))
-            if notifica_precio("huerfana_sin_patch", huerfana):
-                return 1
-        return 0
-    except Exception as exc:
-        logger.warning("telegram: fallo avisando huerfanas de precio: %s", scrub(str(exc)))
-        return 0
-
-
-_SQL_CORRIDA_CERRADA_HOY = """
-SELECT id FROM precio_corrida
- WHERE platform = %s AND fecha = %s AND estado = 'cerrada'
- ORDER BY id DESC LIMIT 1
-"""
-
-_SQL_RESUMEN_YA_ENVIADO = """
-SELECT 1 FROM precio_corrida
- WHERE platform = %s AND fecha = %s AND resumen_enviado_at IS NOT NULL
- LIMIT 1
-"""
-
-_SQL_SELLAR_RESUMEN = "UPDATE precio_corrida SET resumen_enviado_at = now() WHERE id = %s"
-
-_SQL_RESUMEN_MOVIMIENTOS = """
-SELECT resultado, count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND mode = 'live'
-   AND resultado IN ('subir', 'bajar')
- GROUP BY resultado
-"""
-
-_SQL_RESUMEN_SOMBRA = """
-SELECT count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND mode = 'shadow'
-   AND resultado IN ('subir', 'bajar')
-"""
-
-_SQL_RESUMEN_RETENIDOS = """
-SELECT count(DISTINCT r.decision_id)
-  FROM precio_retencion r JOIN precio_corrida c ON c.id = r.corrida_id
- WHERE c.platform = %s AND c.fecha = %s
-"""
-
-_SQL_RESUMEN_ERRORES = """
-SELECT count(*)
-  FROM precio_cambio c JOIN precio_decision d ON d.id = c.decision_id
- WHERE c.platform = %s AND d.decision_date = %s AND c.estado = 'error'
-   AND c.aplicado AND NOT c.es_reversa
-"""
-
-_SQL_RESUMEN_SIN_EVALUAR = """
-SELECT count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND resultado = 'no_evaluado'
-"""
-
-_SQL_RESUMEN_IMPUTADO = """
-SELECT count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND l_origen IN ('familia', 'marketplace')
-"""
-
-_SQL_RESUMEN_MUESTRA = """
-SELECT COALESCE(l.seller_sku, l.external_id), c.precio_antes, c.precio_despues
-  FROM precio_cambio c
-  JOIN precio_decision d ON d.id = c.decision_id
-  JOIN listing l ON l.id = c.listing_id AND l.platform = c.platform
- WHERE c.platform = %s AND d.decision_date = %s
-   AND c.aplicado AND NOT c.es_reversa
- ORDER BY 1 LIMIT 5
-"""
-
-_SQL_MEDICIONES_CON_CAUSA = """
-SELECT canal, causa, medidas, nuevas, insumo, detalle
-  FROM precio_compuerta_medicion
- WHERE corrida_id = %s AND causa IS NOT NULL
- ORDER BY canal
-"""
-
-_SQL_COMPUERTA_YA_AVISADA = """
-SELECT 1 FROM precio_compuerta_medicion
- WHERE platform = %s AND fecha = %s AND canal = %s AND causa = %s
-   AND avisada_at IS NOT NULL
- LIMIT 1
-"""
-
-_SQL_SELLAR_AVISADA = (
-    "UPDATE precio_compuerta_medicion SET avisada_at = now() WHERE corrida_id = %s AND canal = %s"
-)
-
-
-def _corrida_cerrada_hoy(conn, platform: str, hoy):
-    """La corrida cerrada de hoy de la plataforma (la propia: `avisar` corre
-    con el lock tomado, recien cerrada). None si hoy no cerro ninguna."""
-    fila = conn.execute(_SQL_CORRIDA_CERRADA_HOY, (platform, hoy)).fetchone()
-    return fila[0] if fila is not None else None
-
-
-def _leer_resumen_diario(conn, platform: str, hoy) -> ResumenDiarioPrecio:
-    """El dia completo de la plataforma, no solo esta corrida (como
-    `_medir_compuerta`: el repaso ve lo mismo). La muestra trae reales
-    aplicados, no virtuales."""
-    movs = dict(conn.execute(_SQL_RESUMEN_MOVIMIENTOS, (platform, hoy)).fetchall())
-    muestra = tuple(
-        (sku, str(antes), str(despues))
-        for sku, antes, despues in conn.execute(_SQL_RESUMEN_MUESTRA, (platform, hoy)).fetchall()
-    )
-    return ResumenDiarioPrecio(
-        platform=platform,
-        dia=hoy,
-        subieron=int(movs.get("subir", 0)),
-        bajaron=int(movs.get("bajar", 0)),
-        en_sombra=conn.execute(_SQL_RESUMEN_SOMBRA, (platform, hoy)).fetchone()[0],
-        retenidos=conn.execute(_SQL_RESUMEN_RETENIDOS, (platform, hoy)).fetchone()[0],
-        errores=conn.execute(_SQL_RESUMEN_ERRORES, (platform, hoy)).fetchone()[0],
-        sin_evaluar=conn.execute(_SQL_RESUMEN_SIN_EVALUAR, (platform, hoy)).fetchone()[0],
-        con_envio_imputado=conn.execute(_SQL_RESUMEN_IMPUTADO, (platform, hoy)).fetchone()[0],
-        muestra=muestra,
-    )
-
-
-def _avisar_resumen_precio(conn, platform: str, hoy) -> int:
-    """S.6: el resumen diario sale una vez por plataforma y dia (sello
-    `resumen_enviado_at` en la corrida que lo mando), TAMBIEN si nada se
-    movio y aunque esta corrida no decidio nada — sin esa puerta el repaso
-    no-op no reintentaria un envio fallido. Sin la corrida cerrada de hoy no
-    hay que sellar: 0. Si el envio falla no se sella y el repaso lo
-    reintenta. Jamas levanta (B6: `try` propio)."""
-    try:
-        if conn.execute(_SQL_RESUMEN_YA_ENVIADO, (platform, hoy)).fetchone() is not None:
-            return 0
-        corrida = _corrida_cerrada_hoy(conn, platform, hoy)
-        if corrida is None:
-            return 0
-        if not canal_activo():
-            return 0
-        if notifica_precio("resumen_diario", _leer_resumen_diario(conn, platform, hoy)):
-            conn.execute(_SQL_SELLAR_RESUMEN, (corrida,))
-            return 1
-        return 0
-    except Exception as exc:
-        logger.warning("telegram: fallo avisando el resumen diario de precio: %s", scrub(str(exc)))
-        return 0
-
-
-def _avisar_compuerta_precio(conn, platform: str, hoy) -> int:
-    """S.6: un aviso por medicion con causa de ESTA corrida, una vez por
-    universo, causa y dia (sello `avisada_at`); lo ya avisado por otra
-    corrida no se reenvia y el fallo no sella (el repaso reintenta). Un `try`
-    por fila (B6). Jamas levanta."""
-    try:
-        corrida = _corrida_cerrada_hoy(conn, platform, hoy)
-        if corrida is None:
-            return 0
-        filas = conn.execute(_SQL_MEDICIONES_CON_CAUSA, (corrida,)).fetchall()
-    except Exception as exc:
-        logger.warning("telegram: fallo avisando compuerta de precio: %s", scrub(str(exc)))
-        return 0
-    enviados = 0
-    for canal, causa, medidas, nuevas, insumo, detalle in filas:
-        try:
-            ya = conn.execute(_SQL_COMPUERTA_YA_AVISADA, (platform, hoy, canal, causa)).fetchone()
-            if ya is not None:
-                continue
-            aviso = CompuertaPrecio(
-                platform, hoy, canal, causa, medidas, nuevas, insumo, detalle or ""
-            )
-            if not canal_activo():
-                continue
-            if notifica_precio("compuerta", aviso):
-                conn.execute(_SQL_SELLAR_AVISADA, (corrida, canal))
-                enviados += 1
-        except Exception as exc:
-            logger.warning(
-                "telegram: fallo avisando compuerta de precio %s: %s",
-                scrub(f"{canal}/{causa}"),
-                scrub(str(exc)),
-            )
-    return enviados
-
-
-def avisar_precio(conn, platform: str, hoy, resumen) -> int:
-    """Gancho `avisar` de la corrida A.5 (`correr(..., avisar=...)` lo llama
-    con `(conn, platform, hoy, resumen)` una vez al final, fail-silent).
-    Lee hoy y dias previos y manda en flanco por racha: devuelve cuantos
-    avisos salieron; jamas levanta (fallo -> warning con scrub + 0).
-
-    B2: los avisos por grupo y por producto solo salen si la corrida
-    persistio >= 1 decision (`resumen.decisiones > 0`): una reejecucion el
-    mismo dia no reenvia. Residuo declarado: si una corrida cae despues de
-    persistir todo y antes de avisar, ese dia no avisa (queda el log).
-    Residuo declarado (r2): una segunda corrida del mismo dia que persiste
-    >= 1 decision nueva (un goal agregado despues de la corrida de la
-    manana) reenvia todos los avisos del dia; no se corrige en A.6.
-
-    B4: un umbral `precio_aviso_dias_sin_evaluar` invalido o ausente solo
-    apaga el aviso `no_evaluado` (warning); los demas tipos salen igual.
-
-    S.6: el resumen diario y la compuerta van FUERA de la guarda B2 (sin
-    decisiones tambien salen: el repaso no-op reintenta lo fallido); el que
-    no repite es el sello (`resumen_enviado_at` / `avisada_at`).
-
-    J-H3: una corrida que espera el insumo del dia (`resumen.espera_insumos`)
-    no manda ni sella el resumen diario: lo manda la corrida que si decide,
-    para que el dia se resuma con sus decisiones y cambios reales.
-    """
-    try:
-        fila = conn.execute(_SQL_PRECIO_CONFIG).fetchone()
-        if fila is None:
-            return 0
-        try:
-            umbral = validar_precio_aviso_dias(fila[0])
-        except ValueError as exc:
-            logger.warning("telegram: umbral de aviso de precio invalido: %s", scrub(str(exc)))
-            umbral = None
-        ayer = hoy - dt.timedelta(days=1)
-        enviados = 0
-        if resumen.decisiones > 0:
-            enviados += _avisar_grupos_precio(conn, platform, hoy, ayer, umbral)
-            enviados += _avisar_buybox_precio(conn, platform, hoy, ayer)
-            enviados += _avisar_noconf_precio(conn, platform, hoy, ayer)
-        enviados += _avisar_huerfana_precio(platform, resumen)
-        if not getattr(resumen, "espera_insumos", False):
-            enviados += _avisar_resumen_precio(conn, platform, hoy)
-        enviados += _avisar_compuerta_precio(conn, platform, hoy)
-        return enviados
-    except Exception as exc:
-        logger.warning("telegram: fallo armando los avisos de precio: %s", scrub(str(exc)))
-        return 0
-
-
-def avisar_corrida_fallida(platform: str, exc: BaseException) -> bool:
-    """ARREGLOS 03 P-B: la corrida de precios de `platform` se cayo (o ni
-    siquiera pudo abrir la plataforma). Un aviso `corrida_fallida` con el
-    dia UTC de hoy y el NOMBRE de la clase del error como motivo (su texto
-    nunca viaja: puede traer datos de la conexion). Lo llama el CLI, el
-    unico que ve cualquier caida. Devuelve lo que devuelve `notifica_precio`;
-    jamas levanta (fallo -> warning con scrub + False)."""
-    try:
-        aviso = CorridaFallidaPrecio(
-            platform=str(platform),
-            dia=dt.datetime.now(dt.UTC).date(),
-            motivo=type(exc).__name__,
-        )
-        return notifica_precio(aviso.tipo, aviso)
-    except Exception as fallo:
-        logger.warning("telegram: fallo avisando corrida fallida de precio: %s", scrub(str(fallo)))
-        return False
-
-
-def avisar_campanas(conn, hoy=None, *, solo=None):
-    """Avisos diarios de campana (BIDS 02, V.4): lee los lectores de P.2a
-    por mercado (ventana de 30 dias hasta ayer), arma con `avisos_del_dia`
-    y envia un mensaje por plataforma y clase con `_envia_texto`. `solo`
-    restringe a {(plataforma, clase)} (el comando salta lo ya enviado).
-    Una clase fallida no tumba las demas; una plataforma con lectura
-    fallida no tumba la otra; sin casos no envia nada.
-    Devuelve {(plataforma, clase): salio} de lo intentado."""
-    from app.avisos_campana import CLASES, avisos_del_dia, mensaje_clase
-    from app.optimizer.bid import PLATAFORMAS_MONEDA
-    from app.pantalla_dinero import (
-        DIAS_UBICACION,
-        lee_campanas,
-        lee_ubicaciones,
-        umbral_concluir,
-    )
-
-    dia = hoy if hoy is not None else dt.datetime.now(dt.UTC).date()
-    hasta = dia - dt.timedelta(days=1)
-    desde = hasta - dt.timedelta(days=DIAS_UBICACION - 1)
-    if solo is None:
-        pedidos = [(p, c) for p in PLATAFORMAS_MONEDA for c in CLASES]
-    else:
-        pedidos = [(p, c) for p in PLATAFORMAS_MONEDA for c in CLASES if (p, c) in solo]
-    salieron = {}
-    for plataforma in PLATAFORMAS_MONEDA:
-        clases = [c for p, c in pedidos if p == plataforma]
-        if not clases:
-            continue
-        try:
-            avisos = avisos_del_dia(
-                lee_ubicaciones(conn, plataforma=plataforma, desde=desde, hasta=hasta),
-                lee_campanas(conn, plataforma=plataforma, desde=desde, hasta=hasta),
-                plataforma=plataforma,
-                gasto_para_concluir=umbral_concluir(conn, plataforma),
-            )
-        except Exception as exc:
-            logger.warning("campanas: lectura de %s fallida: %s", plataforma, scrub(str(exc)))
-            # Sin rollback, un error de SQL deja la transaccion abortada y la
-            # siguiente plataforma falla con "current transaction is aborted".
-            conn.rollback()
-            continue
-        for clase in clases:
-            texto = mensaje_clase(plataforma, clase, avisos)
-            if not texto:
-                continue
-            salieron[(plataforma, clase)] = _envia_texto(texto)
-    return salieron

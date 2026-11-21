@@ -33,9 +33,9 @@ from decimal import Decimal
 
 import httpx
 
+from app.meli.client import MELI_BASE, MeliCredentials, ReputacionError
 from app.precio.puerto import Acuse
 from app.redaction import install_scrub_filter
-from app.reputacion_clientes import MELI_BASE, MeliCredentials, ReputacionError
 
 __all__ = [
     "MutationNotAllowedError",

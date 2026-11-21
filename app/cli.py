@@ -401,9 +401,9 @@ def _clientes_precio(platform: str):
     import time as _time
 
     if platform == "meli":
+        from app.meli.client import ClienteMeli, MeliCredentials
         from app.meli.estimacion import CotizadorMeli
         from app.meli.write_client import MeliWriteClient
-        from app.reputacion_clientes import ClienteMeli, MeliCredentials
 
         creds = MeliCredentials.from_secrets_dir()
         lector_meli = ClienteMeli(creds)

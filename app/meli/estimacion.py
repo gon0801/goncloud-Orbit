@@ -39,8 +39,8 @@ from app.estimacion_insumos import (
     evaluar_frescura,
 )
 from app.estimacion_venta import DetalleFee
+from app.meli.client import ClienteMeli, ReputacionError
 from app.redaction import install_scrub_filter
-from app.reputacion_clientes import ClienteMeli, ReputacionError
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)

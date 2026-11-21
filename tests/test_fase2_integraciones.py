@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from app import api_dashboard, notifica, ui
+from app import api_dashboard, notifica, precio_avisos, ui
 from app.ads import descarga, reports
 from app.ads import write as ads_write
 from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
@@ -36,15 +36,17 @@ def test_notifica_no_cachea_error_transitorio_de_telegram_json(tmp_path, monkeyp
 
 def test_notifica_residual_tacos_usa_moneda_de_plataforma():
     """C5/Regla 4: amazon_us imprime USD en residual_tacos, no MXN."""
-    contrib = notifica.ContribucionDigest(
-        rango=notifica.RangoContribucion(
+    from app import notifica_contribucion
+
+    contrib = notifica_contribucion.ContribucionDigest(
+        rango=notifica_contribucion.RangoContribucion(
             moneda="USD",
             entidades=5,
             sin_halo=Decimal("100"),
             con_halo=Decimal("200"),
         ),
         sin_dato=None,
-        residual_tacos=notifica.ResidualTacos(monto=Decimal("12.50")),
+        residual_tacos=notifica_contribucion.ResidualTacos(monto=Decimal("12.50")),
     )
     texto = notifica.digest_ciclo(
         {
@@ -223,7 +225,7 @@ def test_chrome_y_resumen_precio_no_sella_con_canal_apagado():
         conn.commit()
 
         # Canal apagado (autouse fixture de conftest): no debe sellar resumen_enviado_at
-        assert notifica._avisar_resumen_precio(conn, "amazon_mx", hoy) == 0
+        assert precio_avisos._avisar_resumen_precio(conn, "amazon_mx", hoy) == 0
         sello = conn.execute(
             "SELECT resumen_enviado_at FROM precio_corrida WHERE id = %s", (corrida_id,)
         ).fetchone()[0]
