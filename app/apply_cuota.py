@@ -15,6 +15,8 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
+from app import temporada_io
+
 # CAMPANA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
 # bloquean reintentos y liberaciones. Definidos AQUI; apply/apply_cola/cycle
 # los re-exportan como alias: cero cambio de vocabulario.
@@ -53,6 +55,11 @@ MOTIVO_CHOQUE_CLAVE = "choque_clave"
 # venta reciente. La fila queda released: no cobra cuota, no entra a applying y
 # no reinicia el veto de 48 horas.
 MOTIVO_ESPERA_PROTECCION = "espera_proteccion"
+# TEMPORADA 01 E (vocabulario y CHECK entran con el bloque B, migracion 0093):
+# la lectura fresca antes del PUT encontro en Amazon un bid distinto del que
+# Orbit vio al decidir. Cero PUT del destino viejo; la hoja queda excluida del
+# episodio (temporada_exclusion) y el desenlace del efecto es mano_del_dueno.
+MOTIVO_BID_CAMBIADO_FUERA = "bid_cambiado_fuera"
 
 # ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
 # CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
@@ -75,6 +82,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_PERDIDA,
     MOTIVO_CHOQUE_CLAVE,
     MOTIVO_ESPERA_PROTECCION,
+    MOTIVO_BID_CAMBIADO_FUERA,
 )
 
 _SQL_SIN_APLICAR = """
@@ -97,13 +105,18 @@ def registra_sin_aplicar(
     Idempotente por PK (ON CONFLICT DO NOTHING): un re-run del mismo ciclo
     no duplica; otro ciclo ejecutor agrega su propia fila. El motivo se
     valida contra MOTIVOS_SIN_APLICAR ANTES de tocar la base (la tabla lo
-    refuerza con el CHECK espejo)."""
+    refuerza con el CHECK espejo).
+
+    TEMPORADA 01 B: en la misma transaccion cierra el efecto de temporada con
+    desenlace 'sin_aplicar' (o 'mano_del_dueno' cuando el motivo es
+    bid_cambiado_fuera: Amazon ya tenia otra mano)."""
     if motivo not in MOTIVOS_SIN_APLICAR:
         raise ValueError(f"motivo fuera del vocabulario cerrado: {motivo}")
     conn.execute(
         _SQL_SIN_APLICAR,
         (decision_id, cycle_id, motivo, Json(detalle) if detalle is not None else None),
     )
+    temporada_io.cierra_efecto_sin_aplicar(conn, decision_id=decision_id, motivo=motivo)
 
 
 # Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger

@@ -826,6 +826,21 @@ SQL45 = (
 SQL81 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
 ).read_text(encoding="utf-8")
+# TEMPORADA 01 B (0093): la cadena de la DB de prueba ES la de produccion. El
+# CHECK de decision_sin_aplicar admite bid_cambiado_fuera, y 0093 recrea
+# v_cambio_bid desde 0067: por eso 0060/0061/0067 entran antes.
+SQL60 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
+).read_text(encoding="utf-8")
+SQL61 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
+SQL67 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0067_bids02_campana_ajuste.sql"
+).read_text(encoding="utf-8")
+SQL93 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
+).read_text(encoding="utf-8")
 
 
 def _sql46() -> str:
@@ -878,6 +893,10 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
+        conn.execute(SQL60)  # 0060 (BIDS 02): v_hoja_activa + v_cambio_bid
+        conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
+        conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
+        conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         yield conn
     finally:
         if conn is not None:
@@ -952,12 +971,20 @@ def _ciclo(conn, *, mode: str = "live", hace_dias: int | None = None) -> int:
 def test_motivos_sin_aplicar_espejo_estatico_del_check():
     """La constante de la app ESPEJA el CHECK VIGENTE (mismo patron que
     KINDS_QUOTA <-> trigger): se lee el IN (...) de la ULTIMA migracion que
-    define el CHECK (0045 re-creo con nombre el anonimo de 0044), no una
-    tupla redeclarada — un motivo nuevo sin CHECK (o al reves) deja esto
-    rojo."""
+    re-crea el CHECK nombrado (0045 nombro el de 0044; 0081 agrego
+    espera_proteccion; 0093 agrego bid_cambiado_fuera), no una tupla
+    redeclarada — un motivo nuevo sin CHECK (o al reves) deja esto rojo.
+    El marcador es el NOMBRE del constraint: las tablas nuevas de 0093
+    tambien tienen un `motivo IN (` y el primer IN del archivo ya no es el
+    del vocabulario."""
     from app.apply import MOTIVOS_SIN_APLICAR
 
-    bloque = _ultima_migracion_con("motivo IN (").split("motivo IN (", 1)[1].split("))", 1)[0]
+    texto = _ultima_migracion_con("decision_sin_aplicar_motivo_check")
+    bloque = (
+        texto.split("ADD CONSTRAINT decision_sin_aplicar_motivo_check", 1)[1]
+        .split("motivo IN (", 1)[1]
+        .split("))", 1)[0]
+    )
     lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
     assert lista, "el CHECK del motivo no se encontro: revisar el parseo"
     assert lista == MOTIVOS_SIN_APLICAR, (
@@ -1545,7 +1572,7 @@ def test_sonda_0081_da_t_completa_y_f_sin_tabla_o_incompleta():
 
 @_skip_db
 def test_reversa_0081_quita_la_tabla_y_restaura_el_check_sin_espera_proteccion():
-    from app.apply import MOTIVOS_SIN_APLICAR
+    from app.apply import MOTIVO_ESPERA_PROTECCION, MOTIVOS_SIN_APLICAR
 
     with _db_temporal_d1("orbit_pv_rev") as conn:
         conn.execute(SQL81_REV)
@@ -1556,4 +1583,9 @@ def test_reversa_0081_quita_la_tabla_y_restaura_el_check_sin_espera_proteccion()
             " AND conname = 'decision_sin_aplicar_motivo_check'"
         ).fetchone()
         assert "espera_proteccion" not in defin
-        assert tuple(re.findall(r"'([a-z_]+)'", defin)) == MOTIVOS_SIN_APLICAR[:-1]
+        # La reversa de 0081 restaura el CHECK ANTES de espera_proteccion: con
+        # 0093 el ultimo motivo ya no es ella (0093 agrego bid_cambiado_fuera),
+        # asi que se compara con la lista previa a espera_proteccion, no con
+        # [:-1].
+        anteriores = MOTIVOS_SIN_APLICAR[: MOTIVOS_SIN_APLICAR.index(MOTIVO_ESPERA_PROTECCION)]
+        assert tuple(re.findall(r"'([a-z_]+)'", defin)) == anteriores

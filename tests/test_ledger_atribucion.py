@@ -307,9 +307,7 @@ def _devolucion_dh(conn, run_id: int, platform: str, fee_type: str | None, order
 
 def _fee_types_dh(conn, ids: list[int]) -> dict[int, str | None]:
     return dict(
-        conn.execute(
-            "SELECT id, fee_type FROM ledger_event WHERE id = ANY(%s)", (ids,)
-        ).fetchall()
+        conn.execute("SELECT id, fee_type FROM ledger_event WHERE id = ANY(%s)", (ids,)).fetchall()
     )
 
 
@@ -380,8 +378,7 @@ def test_arreglos03_dh_migracion_devoluciones_y_su_reversa():
         conn.execute(ida)
         assert conn.execute(_SONDA_DH).fetchone()[0]
         assert (
-            conn.execute("SELECT count(*) FROM arreglos03_devoluciones_meli_ids").fetchone()[0]
-            == 0
+            conn.execute("SELECT count(*) FROM arreglos03_devoluciones_meli_ids").fetchone()[0] == 0
         )
         assert _fee_types_dh(conn, [etiquetada, amazon]) == antes
         assert _trigger_dh_activo(conn)

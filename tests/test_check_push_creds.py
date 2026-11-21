@@ -1,5 +1,6 @@
 """Pruebas de tools/check_push_creds.py (frena un push sin credencial en vez de colgarse)."""
 
+
 def test_check_push_creds_sin_git_falla_rapido(monkeypatch):
     """Sin binario de git no hay credential helper: 1 sin colgarse."""
     import subprocess as sp

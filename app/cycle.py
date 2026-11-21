@@ -200,6 +200,7 @@ from app import (
     notifica,
     propuestas_campana,
     proteccion_venta,
+    temporada_io,
 )
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador
@@ -243,7 +244,7 @@ from app.cycle_target import (
 )
 from app.db import tx_durable
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
-from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, windows
+from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, temporada, windows
 from app.optimizer import goals as g
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -617,6 +618,11 @@ class _Contadores:
     # ORBIT 07 M1: episodios de venta reciente abiertos en TX2, escritos en
     # TX3 (append-only, idempotente por ancla).
     protecciones: list[proteccion_venta.TransicionProteccion] = field(default_factory=list)
+    # TEMPORADA 01 B: el estado de temporada congelado en TX2 (TX3 abre/cierra
+    # el episodio con el) y los fines/exclusiones de las hojas leidas.
+    temporada_plat: temporada_io.TemporadaPlataforma | None = None
+    fines: dict[int, temporada.FinReduccion] = field(default_factory=dict)
+    exclusiones: dict[int, Decimal] = field(default_factory=dict)
 
 
 def _abre_heartbeat(conn: psycopg.Connection) -> psycopg.Connection | None:
@@ -752,9 +758,12 @@ def _inserta_decisiones(
     decided_at: dt.datetime,
     pendientes: list[_Pendiente],
     ids_evaluacion: dict[int, int] | None = None,
-) -> None:
+) -> list[int]:
+    """Inserta las decisiones y devuelve sus ids EN EL MISMO ORDEN de
+    `pendientes` (TEMPORADA 01 B: `abre_efectos` alinea la fila
+    temporada_efecto con la decision por esa posicion)."""
     if not pendientes:
-        return
+        return []
     ids_evaluacion = ids_evaluacion or {}
     filas = [
         (
@@ -776,6 +785,12 @@ def _inserta_decisiones(
         for p in pendientes
     ]
     conn.cursor().executemany(_SQL_INSERT_DECISION, filas)
+    return [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM decision WHERE cycle_id = %s ORDER BY id", (cycle_id,)
+        ).fetchall()
+    ]
 
 
 def _inserta_targets(
@@ -1121,7 +1136,55 @@ def _gates_entidad(
     return (goal, motivo)
 
 
-def _procesa_decisora(
+def _estampa_temporada(
+    pendiente: _Pendiente, frontera_h: temporada.FronteraHoja | None
+) -> _Pendiente:
+    """TEMPORADA 01 B: la decision de temporada lleva el episodio en sus inputs
+    (lo lee v_cambio_bid para episodio_id). TX2 estampa el de su frontera; TX3
+    lo pisa con el abierto si abrio uno nuevo este ciclo."""
+    if (
+        frontera_h is None
+        or (pendiente.inputs or {}).get("motivo") not in temporada_io.MOTIVOS_TEMPORADA
+        or frontera_h.episodio_id is None
+    ):
+        return pendiente
+    return replace(
+        pendiente,
+        inputs={**pendiente.inputs, "temporada_episodio_id": frontera_h.episodio_id},
+    )
+
+
+def _frontera_temporada(
+    lecturas: LecturasPlataforma | None,
+    contadores: _Contadores,
+    entidad_id: int,
+    current_bid: Decimal | None,
+    *,
+    floor: Decimal,
+    ceiling: Decimal,
+) -> tuple[temporada.FronteraHoja | None, bool]:
+    """TEMPORADA 01 B: la frontera de temporada de UNA hoja, calculada TEMPRANO
+    (el diseno la pide antes de los cortes: de ella salen el fin de la
+    reduccion y la exclusion de la mano vista hoy, que TX3 guarda tambien para
+    inertes y hojas sin decision). Devuelve (frontera, efecto_en_vuelo): una
+    hoja con un efecto EN VUELO (ledger sin sello) no recibe decision de
+    temporada ni deja fin ni exclusion en TX3: su cadena puede cambiar cuando
+    la reconciliacion resuelva el intento, y el ciclo siguiente la deriva de
+    nuevo con el cache ya sellado."""
+    if lecturas is None:
+        return None, False
+    plat_t = contadores.temporada_plat
+    en_vuelo = plat_t is not None and plat_t.estado.efectos_abiertos.get(entidad_id) == "en_vuelo"
+    frontera_h = lecturas.frontera(entidad_id, current_bid, piso=floor, techo=ceiling)
+    if frontera_h is not None and not en_vuelo:
+        if frontera_h.fin is not None:
+            contadores.fines[entidad_id] = frontera_h.fin
+        if frontera_h.exclusion_hoy is not None:
+            contadores.exclusiones[entidad_id] = frontera_h.exclusion_hoy
+    return frontera_h, en_vuelo
+
+
+def _procesa_decisora(  # noqa: PLR0915 - el recorrido de UNA hoja es un solo camino
     conn: psycopg.Connection,
     *,
     fila,
@@ -1182,6 +1245,14 @@ def _procesa_decisora(
         tick()
         return
     assert goal is not None  # _porta_goal_campana: motivo None implica goal
+    floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
+    # TEMPORADA 01 B: la frontera de la hoja se calcula TEMPRANO (el diseno la
+    # pide antes de los cortes: de ella salen el fin de la reduccion y la
+    # exclusion de la mano vista hoy, que TX3 guarda tambien para inertes y
+    # hojas sin decision).
+    frontera_h, efecto_en_vuelo = _frontera_temporada(
+        lecturas, contadores, entidad_id, current_bid, floor=floor, ceiling=ceiling
+    )
     clave_pausa = (entidad_id, "entity_cut", None)
     bloqueada = clave_pausa in bloqueadas
     espera_released = clave_pausa in claves_released
@@ -1319,7 +1390,6 @@ def _procesa_decisora(
     # con un peldano invalido y meterla en hojas que hoy salen limpias
     # (veto/inerte) inventaria fallas nuevas.
     contadores.targets[entidad_id] = (target, procedencia)
-    floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso, cortes_hoja, pausa = _insumos_pausa(
         conn,
         platform=platform,
@@ -1426,6 +1496,8 @@ def _procesa_decisora(
             and procedencia == "margen_producto"
             else None
         ),
+        procedencia=procedencia,
+        con_temporada=not efecto_en_vuelo,
     )
     veredicto = decide(caso)
     _anota_sombra(
@@ -1508,17 +1580,20 @@ def _procesa_decisora(
     ):
         contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
         return
-    pendiente = pendiente_bid(
-        caso,
-        veredicto,
-        modo=modo,
-        goal=goal,
-        decidido_el=decided_at,
-        procedencia=procedencia,
-        snapshot=snapshot,
-        corte=corte_pause,
-        evidencia=evidencia,
-        cost_min=costo_piso,
+    pendiente = _estampa_temporada(
+        pendiente_bid(
+            caso,
+            veredicto,
+            modo=modo,
+            goal=goal,
+            decidido_el=decided_at,
+            procedencia=procedencia,
+            snapshot=snapshot,
+            corte=corte_pause,
+            evidencia=evidencia,
+            cost_min=costo_piso,
+        ),
+        frontera_h,
     )
     pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
     contadores.decisiones["pause" if isinstance(veredicto, Pausar) else "bid"] += 1
@@ -1794,6 +1869,36 @@ def _recorre_plataforma(
     # replay de las filas historicas conserva su semantica por la ausencia del
     # marcador); v1 y v2 estampan el episodio nuevo.
     version_economia = g.version_economia_cambio_desde_settings(settings, platform)
+    # TEMPORADA 01 B (uso, seccion 3a): la estacion de hoy y el estado de la
+    # plataforma se resuelven UNA vez por ciclo en TX2. Sin interruptor, ni
+    # lectura ni estado (y lecturas va byte a byte lo de hoy).
+    plat_t = None
+    if politica is not None:
+        modo_t = temporada.modo_desde_settings(settings, platform)
+        if modo_t is not None:
+            config_t = temporada.desde_settings(settings)
+            estacion = temporada.resuelve(config_t, decided_at.astimezone(dt.UTC).date())
+            estado_t = temporada_io.lee_estado(conn, platform, estacion.dia)
+            if (
+                estacion.fase == "baja"
+                and estado_t.episodio is not None
+                and estado_t.episodio.abierto_el.astimezone(dt.UTC).date() < estacion.inicio_bloque
+            ):
+                # TEMPORADA 01 B: el episodio abierto es de OTRA baja (la
+                # temporada estuvo apagada o en practica entre las dos): TX3 lo
+                # cierra y abre uno nuevo ESTE ciclo (registra_ciclo). TX2
+                # todavia no ve el nuevo: el dia de apertura es hoy y las manos
+                # de esta manana ya cuentan como de la baja nueva (diseno,
+                # inicio_episodio: «TX2 todavia no lo ve y usa dia»).
+                estado_t = replace(estado_t, episodio=None)
+            plat_t = temporada_io.TemporadaPlataforma(
+                estacion=estacion,
+                modo=modo_t,
+                config=config_t,
+                meta_alta_pct=temporada.meta_alta_desde_settings(settings, platform),
+                estado=estado_t,
+            )
+            contadores.temporada_plat = plat_t
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
         # Economia resuelta UNA vez por plataforma (las confianzas A3
@@ -1812,6 +1917,7 @@ def _recorre_plataforma(
             decided_at,
             economia=economia,
             version_economia=version_economia,
+            temporada_plat=plat_t,
         )
     comunes = dict(
         platform=platform,
@@ -2135,6 +2241,30 @@ def _corre_fases(
     )
     status = "degraded" if guarda is not None else "done"
     with conn.transaction():  # TX3: decisiones + cierre del envelope, atomicos
+        # TEMPORADA 01 B (TX3 del diseno): solo en ciclo live y temporada live.
+        # En practica NO se escribe ningun fin, exclusion ni episodio.
+        plat_t = contadores.temporada_plat
+        ep_abierto = None
+        if plat_t is not None and plat_t.modo == "live" and modo.modo == "live":
+            ep = temporada_io.registra_ciclo(
+                conn,
+                platform,
+                cycle_id=cycle_id,
+                decidido_el=decided_at,
+                plataforma=plat_t,
+                config_version_id=config_id,
+            )
+            ep_abierto = ep.id if ep is not None else None
+            temporada_io.registra_fines(
+                conn,
+                platform,
+                cycle_id=cycle_id,
+                episodio_abierto=ep_abierto,
+                fines=contadores.fines,
+                exclusiones=contadores.exclusiones,
+                moneda=PLATAFORMAS_MONEDA[platform],
+            )
+            pendientes = [temporada_io.estampa(p, ep_abierto) for p in pendientes]
         # AUTO-03 D.4: las evaluaciones van antes que las decisiones (F las
         # referencia por FK) y en su propio SAVEPOINT.
         ids_evaluacion: dict[int, int] = {}
@@ -2143,7 +2273,11 @@ def _corre_fases(
                 conn, cycle_id, config_id, contadores.productos
             )
             _descarta_sin_evidencia(contadores, pendientes, ids_evaluacion, cuerpo)
-        _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion)
+        ids_decisiones = _inserta_decisiones(
+            conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion
+        )
+        if ep_abierto is not None:
+            temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
         _inserta_targets(conn, cycle_id, decided_at, contadores)
         # ORBIT 07 M1: los episodios de venta reciente abiertos en TX2 se
         # escriben aqui, en la misma transaccion que las decisiones.

@@ -63,10 +63,13 @@ from test_cycle import (
     SQL42,
     SQL51,
     SQL60,
+    SQL61,
+    SQL67,
     SQL77,
     SQL81,
     SQL86,
     SQL92,
+    SQL93,
     _config_version,
     _entidad,
     _estado,
@@ -214,6 +217,11 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL92)
         conn.execute(SQL60)  # 0060 (M.3): v_hoja_activa/v_cambio_bid/v_metric_latest
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
+        # TEMPORADA 01 B (0093): 0093 recrea v_cambio_bid desde 0067 y el
+        # aplicador cierra temporada_efecto.
+        conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
+        conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
+        conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         yield conn, conectar_extra
     finally:

@@ -104,6 +104,7 @@ import httpx
 import psycopg
 from psycopg.types.json import Json
 
+from app import temporada_io
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PerfilAds, evaluar_perfiles
@@ -127,6 +128,7 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     _SQL_INTENTOS_BID_SIN_SELLO,
     CAP_MAXIMO,
     KINDS_QUOTA,
+    MOTIVO_BID_CAMBIADO_FUERA,
     MOTIVO_BID_EN_VUELO,
     MOTIVO_BID_INCOMPLETO,
     MOTIVO_CAMPANA_NO_ENABLED,
@@ -358,7 +360,9 @@ def reconcilia_bids(
             ack = {"fuente": "readback", "bid": str(bid_leido)}
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=ack, resultado="ok:reconciliado")
-                _confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
+                _confirma_resumen(
+                    conn, decision_id, ack, True, aplicador.cycle_id_ejecutor, leido=bid_leido
+                )
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
             confirmadas += 1
             continue
@@ -370,7 +374,9 @@ def reconcilia_bids(
             _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
             if bid_leido is not None:
                 _actualiza_cache(conn, ad_entity_id, bid_leido)  # sellado 16: lo LEIDO
-            _confirma_resumen(conn, decision_id, ack or {}, False, aplicador.cycle_id_ejecutor)
+            _confirma_resumen(
+                conn, decision_id, ack or {}, False, aplicador.cycle_id_ejecutor, leido=bid_leido
+            )
         fallidas += 1
     return (confirmadas, fallidas)
 
@@ -641,15 +647,26 @@ def _confirma_resumen(
     ack: dict,
     verify_ok: bool,
     cycle_id_ejecutor: int,
+    *,
+    leido: Decimal | None = None,
 ) -> None:
     """UPSERT del resumen: la terna confirmed_at+platform_ack+verify_ok JUNTA
     (CHECKs de 0001); reintentos = UPDATE del resumen + fila nueva del ledger
     (sellado 10). applied_cycle_id y applied_count SOLO con verify_ok: un
-    crash o una divergencia NO cuentan como applied (sellado 21)."""
+    crash o una divergencia NO cuentan como applied (sellado 21).
+
+    TEMPORADA 01 B: en la MISMA transaccion cierra el efecto de temporada con
+    'confirmado' o 'divergencia' (y excluye la hoja solo si el bid leido
+    difiere tambien del old_value: si Amazon tiene el bid de antes, el cambio
+    no llego y manana la hoja se deriva otra vez). `leido` es el bid del
+    readback; None conserva la semantica de los llamadores viejos."""
     conn.execute(_SQL_CONFIRMAR_RESUMEN, (decision_id, Json(ack), verify_ok))
     if verify_ok:
         conn.execute(_SQL_SELLA_CICLO_EJECUTOR, (cycle_id_ejecutor, decision_id))
         conn.execute(_SQL_APPLIED_COUNT, (cycle_id_ejecutor,))
+    temporada_io.cierra_efecto_resumen(
+        conn, decision_id=decision_id, verify_ok=verify_ok, leido=leido
+    )
 
 
 def _actualiza_cache(conn: psycopg.Connection, ad_entity_id: int, bid_leido: Decimal) -> None:
@@ -973,7 +990,9 @@ class Aplicador:
         )
         with tx_durable(self._conn):
             _sella_ledger(self._conn, id_attempt, ack=ack, resultado=resultado)
-            _confirma_resumen(self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor)
+            _confirma_resumen(
+                self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor, leido=bid_leido
+            )
             if bid_leido is not None:
                 _actualiza_cache(self._conn, decision.ad_entity_id, bid_leido)
         return verify_ok

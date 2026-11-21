@@ -115,6 +115,18 @@ SQL60 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
 ).read_text(encoding="utf-8")
 
+# TEMPORADA 01 B (0093): 0093 recrea v_cambio_bid desde 0067 y el aplicador
+# cierra temporada_efecto (por eso 0061/0067/0093 entran a la cadena).
+SQL61 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
+SQL67 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0067_bids02_campana_ajuste.sql"
+).read_text(encoding="utf-8")
+SQL93 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
+).read_text(encoding="utf-8")
+
 
 def _fake_credentials() -> AdsCredentials:
     return AdsCredentials(
@@ -150,6 +162,10 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        conn.execute(SQL60)  # 0060 (BIDS 02): v_hoja_activa + v_cambio_bid
+        conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
+        conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
+        conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         yield conn
     finally:
         if conn is not None:
@@ -2260,9 +2276,9 @@ _R2_M5 = dt.datetime(2026, 9, 25, 12, 0, tzinfo=dt.UTC)
 
 @contextmanager
 def _db_m5(prefijo: str):
-    """DB temporal del patron de arriba mas la 0060 (v_cambio_bid)."""
+    """DB temporal del patron de arriba; la cadena base ya aplica 0060
+    (v_cambio_bid vive en ella desde TEMPORADA 01 B)."""
     with _db_temporal(prefijo) as conn:
-        conn.execute(SQL60)
         yield conn
 
 

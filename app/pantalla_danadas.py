@@ -40,6 +40,11 @@ Plataforma = Literal["amazon_mx", "amazon_us"]
 Moneda = Literal["MXN", "USD"]
 
 ORIGEN_REGRESO_DUENO = "regreso_del_dueno"
+# TEMPORADA 01 (0093): la entrada, el ajuste y el regreso de temporada son
+# invisibles para la racha (decision 3 del diseno): no la cortan y no la
+# integran — un movimiento planeado no es dano ni evidencia de que el motor
+# revirtio.
+ORIGEN_TEMPORADA = "temporada"
 
 _SQL_CAMBIOS = """
 SELECT h.hoja_id, h.current_bid, c.confirmado_el, c.bid_antes, c.bid_despues,
@@ -129,16 +134,22 @@ def _en_utc(instante: dt.datetime) -> dt.datetime:
 
 
 def _racha_vigente(cambios: list[tuple]) -> tuple[list[tuple], dt.datetime | None]:
-    """Recortes posteriores a la ultima subida (los regresos del dueno no
-    cuentan ni cortan). Devuelve la racha y el fin (ultimo recorte)."""
+    """Recortes posteriores a la ultima subida (los regresos del dueno y los
+    movimientos de temporada no cuentan ni cortan). Devuelve la racha y el fin
+    (ultimo recorte)."""
     subidas = [
-        _en_utc(c[0]) for c in cambios if c[1] is not None and c[2] is not None and c[2] > c[1]
+        _en_utc(c[0])
+        for c in cambios
+        if c[3] not in (ORIGEN_REGRESO_DUENO, ORIGEN_TEMPORADA)
+        and c[1] is not None
+        and c[2] is not None
+        and c[2] > c[1]
     ]
     ultima_subida = max(subidas) if subidas else None
     racha = [
         c
         for c in cambios
-        if c[3] != ORIGEN_REGRESO_DUENO
+        if c[3] not in (ORIGEN_REGRESO_DUENO, ORIGEN_TEMPORADA)
         and c[1] is not None
         and c[2] is not None
         and c[2] < c[1]
