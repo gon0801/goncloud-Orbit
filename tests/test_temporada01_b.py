@@ -42,6 +42,7 @@ from psycopg.types.json import Json
 from test_cycle import _config_version, _entidad, _estado, _metrica, _run
 
 from app import cycle as ciclo
+from app import temporada_io
 from app.apply import MOTIVOS_SIN_APLICAR
 from app.optimizer import recuperacion, temporada
 from app.optimizer.caso import (
@@ -1085,6 +1086,49 @@ def test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar(db_template):
     assert res.status == "done", res.notes
     assert _temporada_del_ciclo(conn, res.cycle_id) == []
     assert _bid_cache(conn, kw1) == Decimal("5.60")
+
+
+def test_temporada01_b_cerca_plataforma_no_se_reinicia_con_ajuste(db_template):
+    """Revision: la cerca de la plataforma nace de la PRIMERA confirmacion de
+    la ultima TRANSICION (entrada o salida). Un ajuste de la reduccion a media
+    baja no es transicion: `cerca_plataforma` conserva el dia siguiente a la
+    entrada, aunque el ajuste se confirme dos dias despues."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    handler = _handler_mx({"b-kw1": "5.60"})
+
+    # Ciclo de E1: la entrada se confirma (esta es la transicion).
+    res = _corre(conn, D_E1, handler)
+    assert res.status == "done"
+    e1 = _episodio_abierto(conn)
+    entrada_el = conn.execute(
+        "SELECT da.confirmed_at FROM decision d"
+        " JOIN decision_application da ON da.decision_id = d.id"
+        " WHERE d.ad_entity_id = %s AND d.inputs->>'motivo' = 'entra_temporada_baja'",
+        (kw1,),
+    ).fetchone()[0]
+    cerca_esperada = (entrada_el.astimezone(dt.UTC) + dt.timedelta(days=1)).date()
+
+    # Un ajuste de la reduccion confirmado DOS dias despues (misma baja, el
+    # dueño edito la reduccion).
+    _cambio_confirmado(
+        conn,
+        kw1,
+        ids["config_id"],
+        instante=entrada_el + dt.timedelta(hours=48),
+        antes="5.60",
+        despues="4.50",
+        motivo="ajusta_temporada_baja",
+        episodio_id=e1,
+    )
+
+    estado = temporada_io.lee_estado(conn, "amazon_mx", D_E1 + dt.timedelta(days=5))
+    assert estado.cerca_plataforma == cerca_esperada, (
+        f"cerca_plataforma {estado.cerca_plataforma} != la de la entrada {cerca_esperada}: "
+        "el ajuste no reinicia la cerca"
+    )
 
 
 # ---------------------------------------------------------------------------

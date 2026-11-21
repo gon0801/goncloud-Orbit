@@ -120,7 +120,8 @@ SELECT x.ad_entity_id, x.episodio_id
 """
 
 # La cerca de la plataforma: el dia UTC siguiente a la PRIMERA confirmacion de
-# la ULTIMA transicion (entrada o salida) de la plataforma.
+# la ULTIMA TRANSICION (entrada o salida) de la plataforma. Un ajuste de la
+# reduccion a media baja NO es transicion: no reinicia la cerca.
 _SQL_CERCA_PLATAFORMA = """
 SELECT max(primera)
   FROM (
@@ -128,6 +129,7 @@ SELECT max(primera)
       FROM v_cambio_bid c
       JOIN temporada_episodio e ON e.id = c.episodio_id AND e.platform = %s::platform
      WHERE c.origen = 'temporada'
+       AND c.motivo_temporada IN ('entra', 'sale')
      GROUP BY e.id, c.motivo_temporada
   ) t
 """
