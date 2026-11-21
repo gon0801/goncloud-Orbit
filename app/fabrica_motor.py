@@ -52,11 +52,18 @@ INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal
                           plan, modo_goal, estado)
 VALUES (%s, %s::platform, %s, %s, %s, %s, %s::jsonb, %s, 'planeado')
 """
-_SQL_BLOQUEA_LOTE = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
+_SQL_BLOQUEA_LOTE = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
+_SQL_DESBLOQUEA_LOTE = "SELECT pg_advisory_unlock(hashtextextended(%s, 0))"
 _SQL_ESTADO_LOTE = "SELECT estado FROM fabrica_lote WHERE lote = %s"
 _SQL_SELLA_LOTE = """
 UPDATE fabrica_lote SET estado = %s, detalle = %s, finished_at = now() WHERE lote = %s
 """
+_SQL_SELLA_LOTE_CON_PAUSA = """
+UPDATE fabrica_lote
+   SET estado = %s, detalle = %s, pausado_por = %s, finished_at = now()
+ WHERE lote = %s
+"""
+_SIN_CAMBIO_PAUSA = object()
 _SQL_EXTERNALS_CAMPANA_DEL_LOTE = """
 SELECT DISTINCT external_id FROM fabrica_lote_paso
  WHERE lote = %s AND recurso = 'campaign' AND external_id IS NOT NULL
@@ -249,12 +256,33 @@ def _estado_lote(conn, lote: str) -> str | None:
 
 
 def _bloquea_lote(conn, lote: str) -> None:
-    """Serializa una huella hasta que su ledger quede durable."""
-    conn.execute(_SQL_BLOQUEA_LOTE, (lote,))
+    """Lock de SESION compartido con fabrica_web sobre hashtextextended(lote, 0)."""
+    fila = conn.execute(_SQL_BLOQUEA_LOTE, (lote,)).fetchone()
+    conn.commit()
+    if fila is not None and not fila[0]:
+        raise Abortar(f"lote {lote} ocupado por otra operacion en curso: reintenta")
 
 
-def _sella_lote(conn, lote: str, estado: str, detalle: str | None) -> None:
-    conn.execute(_SQL_SELLA_LOTE, (estado, detalle, lote))
+def _desbloquea_lote(conn, lote: str) -> None:
+    try:
+        conn.execute(_SQL_DESBLOQUEA_LOTE, (lote,))
+        conn.commit()
+    except Exception:
+        pass
+
+
+def _sella_lote(
+    conn,
+    lote: str,
+    estado: str,
+    detalle: str | None,
+    *,
+    pausado_por: Any = _SIN_CAMBIO_PAUSA,
+) -> None:
+    if pausado_por is _SIN_CAMBIO_PAUSA:
+        conn.execute(_SQL_SELLA_LOTE, (estado, detalle, lote))
+    else:
+        conn.execute(_SQL_SELLA_LOTE_CON_PAUSA, (estado, detalle, pausado_por, lote))
     conn.commit()
 
 
@@ -411,6 +439,7 @@ def mutar(
     lote: str | None = None,
     revierte_al_fallar: bool = False,
     crear_pausado: bool = False,
+    lock_ya_tomado: bool = False,
 ) -> int:
     huella_dada = huella if huella_autorizada is None else huella_autorizada
     _valida_go_valores(esperado, huella_dada, go, huella, len(_roles_del_plan(plan)))
@@ -420,10 +449,14 @@ def mutar(
         lote = _lote_nuevo(huella)
     conn_admin = None
     http = None
+    lock_propio = False
     try:
         conn_admin = connect(_dsn_admin())
-        _bloquea_lote(conn_admin, lote)
+        if not lock_ya_tomado:
+            _bloquea_lote(conn_admin, lote)
+            lock_propio = True
         estado = _estado_lote(conn_admin, lote)
+        conn_admin.commit()
         if estado is not None:
             raise Abortar(
                 f"lote {lote} ya existe ({estado}): usa --reconciliar, --registrar o --desarmar"
@@ -522,6 +555,8 @@ def mutar(
         _log("reconciliacion_final", lote=lote, campanas=[c["campaign"] for c in creadas], ok=True)
         return 0
     finally:
+        if lock_propio and conn_admin is not None:
+            _desbloquea_lote(conn_admin, lote)
         _cierra(http, conn_admin)
 
 

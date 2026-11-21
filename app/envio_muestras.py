@@ -29,7 +29,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import psycopg
 
-from app.db import connect
+from app.db import connect, tx_durable
 from app.estimacion_universo import universo_de
 from app.precio.config import leer_config_motor
 from app.precio.envio import (
@@ -168,7 +168,7 @@ def refrescar_muestras(
     """Todo o nada por corrida; devuelve lo que no entro, contado."""
     desde = hoy - timedelta(days=ventana_dias)
     hasta = hoy - timedelta(days=1)
-    with conn.transaction():
+    with tx_durable(conn):
         medidas, excl = _medidas(conn, plataforma, desde, hasta)
         por_producto: dict[int, list[OrdenMedida]] = {}
         for medida in medidas.values():
@@ -262,7 +262,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         conn = connect(dsn)
         try:
-            fila = conn.execute(_SQL_CONFIG).fetchone()
+            with conn.transaction():
+                fila = conn.execute(_SQL_CONFIG).fetchone()
             if fila is None:
                 print("sin config_version: no se puede muestrear", file=sys.stderr)
                 return 1
@@ -276,7 +277,6 @@ def main(argv: list[str] | None = None) -> int:
             excl = refrescar_muestras(
                 conn, args.platform, args.canal, hoy=hoy, ventana_dias=ventana
             )
-            conn.commit()
         finally:
             conn.close()
     except Exception as exc:

@@ -508,6 +508,7 @@ def crea_goal(
     harvest_default_bid: Decimal,
     created_at: dt.datetime,
     enabled: bool = True,
+    commit: bool = True,
 ) -> dict:
     """Crea el goal de scope campana de una campana NUEVA (FABRICA 01, spec
     §4, decisiones 12 y 13): terna harvest COMPLETA obligatoria, `mode`
@@ -587,5 +588,6 @@ def crea_goal(
     finally:
         if anterior is not None:
             conn.row_factory = anterior
-    conn.commit()
+    if commit:
+        conn.commit()
     return _fila_respuesta(fila)

@@ -153,13 +153,14 @@ def _cambia_estado_lote(ctx: fm._Ctx, lote: str, estado: str, actor: str) -> Non
         fm._aplica_estado_campana_con_ledger(
             ctx, rol, external, nuevo, descripcion=f"{estado} {rol}", evento_log="cambio_estado"
         )
-    fm._sella_lote(ctx.conn_admin, lote, estado, f"go: {actor}")
-    # G1: quien pauso queda registrado; al reanudar se limpia.
-    ctx.conn_admin.execute(
-        "UPDATE fabrica_lote SET pausado_por = %s WHERE lote = %s",
-        (actor if estado == "pausado" else None, lote),
+    # G1: estado y pausado_por en un solo UPDATE atomico.
+    fm._sella_lote(
+        ctx.conn_admin,
+        lote,
+        estado,
+        f"go: {actor}",
+        pausado_por=actor if estado == "pausado" else None,
     )
-    ctx.conn_admin.commit()
 
 
 def pausar_lote(ctx: fm._Ctx, lote: str, actor: str) -> None:
@@ -198,11 +199,7 @@ def reactiva_lote(ctx: fm._Ctx, lote: str, actor: str) -> None:
             evento_log="reactivar",
         )
     if actual == "pausado":
-        fm._sella_lote(ctx.conn_admin, lote, "applied", f"go: {actor}")
-        ctx.conn_admin.execute(
-            "UPDATE fabrica_lote SET pausado_por = NULL WHERE lote = %s", (lote,)
-        )
-        ctx.conn_admin.commit()
+        fm._sella_lote(ctx.conn_admin, lote, "applied", f"go: {actor}", pausado_por=None)
 
 
 def desarmar_lote(lote: str, *, acepto_mutacion_real: bool, go: str | None) -> int:

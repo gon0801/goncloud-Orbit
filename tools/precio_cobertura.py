@@ -58,7 +58,8 @@ def _dinero(fila) -> str:
 
 _SQL_CORRIDA_MELI_HOY = (
     "SELECT id, ok FROM ingest_run WHERE source = 'meli_catalogo'"
-    " AND finished_at IS NOT NULL AND started_at::date = CURRENT_DATE"
+    " AND finished_at IS NOT NULL"
+    " AND (started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date"
     " ORDER BY id DESC LIMIT 1"
 )
 _SQL_ACTIVAS_CORRIDA = (
@@ -77,7 +78,7 @@ def _cobertura_meli(conn) -> int:
 
     0 cuadran, 1 difieren, 2 sin corrida terminada de hoy (no medido).
     """
-    hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+    hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
     corrida = conn.execute(_SQL_CORRIDA_MELI_HOY).fetchone()
     if corrida is None:
         print("cobertura meli: sin corrida meli_catalogo terminada de hoy (no medido)")

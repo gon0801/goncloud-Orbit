@@ -688,10 +688,10 @@ def _como_instante(valor: object) -> datetime | None:
 def _como_dinero(valor: object) -> Decimal | None:
     if valor is None or isinstance(valor, Decimal):
         return valor
-    if isinstance(valor, (int, str)):
-        return Decimal(str(valor))
-    if isinstance(valor, float):
-        return Decimal(repr(valor))
+    if isinstance(valor, int) and not isinstance(valor, bool):
+        return Decimal(valor)
+    if isinstance(valor, str):
+        return Decimal(valor)
     raise ValueError(f"importe de fila ilegible: {valor!r}")
 
 
@@ -742,7 +742,7 @@ def _como_motivo_no_evaluada(valor: str) -> MotivoNoEvaluada:
     for opcion in cast(tuple[MotivoNoEvaluada, ...], get_args(MotivoNoEvaluada)):
         if valor == opcion:
             return opcion
-    return "sin_cupo"
+    raise ValueError(f"motivo no_evaluada fuera de vocabulario: {valor!r}")
 
 
 def _como_productos_ok(valor: object) -> tuple[int, ...]:

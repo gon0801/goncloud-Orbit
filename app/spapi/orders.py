@@ -396,9 +396,7 @@ def _fila_insert(
 
 
 def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
+    return formato_skip_reason(skips)
 
 
 def ejecutar_ingesta(

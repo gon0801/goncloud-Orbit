@@ -474,9 +474,16 @@ SELECT s.current_bid
 """
 
 
-def frontera_hoja(conn: psycopg.Connection, ad_entity_id: int, hoy: dt.date) -> FronteraHoja | None:
+def frontera_hoja(
+    conn: psycopg.Connection,
+    ad_entity_id: int,
+    hoy: dt.date,
+    *,
+    piso: Decimal,
+    techo: Decimal,
+) -> FronteraHoja | None:
     """La misma temporada.frontera para UNA hoja, para la revalidacion de la
-    cola al liberar (la conecta el bloque D). None sin config de temporada."""
+    cola al liberar (la conecta el bloque D). None sin config o temporada apagada."""
     settings = conn.execute(
         "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
     ).fetchone()
@@ -485,17 +492,20 @@ def frontera_hoja(conn: psycopg.Connection, ad_entity_id: int, hoy: dt.date) -> 
     config = temporada.desde_settings(settings[0])
     if config is None:
         return None
-    estacion = temporada.resuelve(config, hoy)
     plataforma = conn.execute(
         "SELECT platform::text FROM ad_entity WHERE id = %s", (ad_entity_id,)
     ).fetchone()
     if plataforma is None:
         return None
     platform = plataforma[0]
+    if temporada.modo_desde_settings(settings[0], platform) is None:
+        return None
+    estacion = temporada.resuelve(config, hoy)
     estado = lee_estado(conn, platform, hoy)
     desde = hoy - dt.timedelta(days=365)
     viejo = conn.execute(
-        "SELECT min(abierto_el) FROM temporada_episodio WHERE platform = %s::platform",
+        "SELECT min(abierto_el) FROM temporada_episodio"
+        " WHERE platform = %s::platform AND cerrado_el IS NULL",
         (platform,),
     ).fetchone()
     if viejo[0] is not None:
@@ -519,10 +529,10 @@ def frontera_hoja(conn: psycopg.Connection, ad_entity_id: int, hoy: dt.date) -> 
             )
         )
     fines = frozenset(int(f[0]) for f in conn.execute(_SQL_FINES_HOJA, (ad_entity_id,)).fetchall())
+    bid_cache = conn.execute(_SQL_BID_HOJA, (ad_entity_id,)).fetchone()
+    bid = bid_cache[0] if bid_cache is not None else None
     cadena = None
     if cambios or manos:
-        bid_cache = conn.execute(_SQL_BID_HOJA, (ad_entity_id,)).fetchone()
-        bid = bid_cache[0] if bid_cache is not None else None
         cadena = _cadena_desde(
             HistoriaBid(
                 desde=desde, cambios=tuple(cambios), fines=fines, manos_externas=tuple(manos)
@@ -535,7 +545,7 @@ def frontera_hoja(conn: psycopg.Connection, ad_entity_id: int, hoy: dt.date) -> 
         episodio=estado.episodio,
         excluida_en=estado.excluidas.get(ad_entity_id, frozenset()),
         cerca_plataforma=estado.cerca_plataforma,
-        bid=None,
-        piso=Decimal(0),
-        techo=Decimal(0),
+        bid=bid,
+        piso=piso,
+        techo=techo,
     )

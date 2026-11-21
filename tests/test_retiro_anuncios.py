@@ -1525,31 +1525,23 @@ def test_r09r5_3b_put_500_que_aplica_deja_intencion_pendiente():
 
 
 @_skip_db
-def test_r09r5_nq_reintento_cierra_intencion_con_retiro_ya_sellado(monkeypatch):
-    """R09-r5 B3 (10 n/q, 11 E): muerte entre el sello y el cierre:
-    retiro sellado + intencion pendiente. El reintento NO manda PUT
-    ni duplica la fila: cierra la intencion apuntando al retiro."""
+def test_r09r5_nq_reintento_cierra_intencion_con_retiro_ya_sellado():
+    """R09-r5 B3 (10 n/q, 11 E): estado historico retiro sellado + intencion
+    pendiente: el reintento NO manda PUT ni duplica la fila: cierra la
+    intencion apuntando al retiro."""
     with _db_i4("orbit_i4_r5nq") as conn:
         _pid, lid = _producto(conn)
         _bolsa(conn, lid, "ad-1")
         plan = ra.planea_retiro(
             conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
         )
-        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
-
-        class Muerte(BaseException):
-            pass
-
-        def _muere(*args, **kwargs):
-            raise Muerte("kill -9 entre sello y cierre")
-
-        monkeypatch.setattr(ra, "_cierra_intencion", _muere)
-        with pytest.raises(Muerte):
-            _retira(conn, plan, go="go dueno", escritor=escritor)
-        monkeypatch.undo()
-        assert puts == [("ad-1", "PAUSED")]
+        anuncio = plan.anuncios[0]
+        ent = conn.execute(ra._SQL_ENTIDAD_DE_ANUNCIO, ("amazon_mx", "ad-1")).fetchone()[0]
+        ra._abre_intencion(conn, plan, "lote-hist", None, ent, anuncio, "reversa", "dueno", None)
+        rid = ra._sella_retiro(
+            conn, plan, "lote-hist", None, ent, anuncio, "reversa", "dueno", "confirmada"
+        )
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
-        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
         assert conn.execute(
             "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
         ).fetchone() == (1,)
@@ -2038,24 +2030,18 @@ def test_r09r5_10o_base_falla_en_sello_reintento_sella(monkeypatch):
 
 
 @_skip_db
-def test_r09r5_10q_base_falla_en_cierre_reintento_cierra(monkeypatch):
-    """R09-r5 B3 (10 q): la base rechaza el cierre (excepcion, no
-    muerte): retiro sellado + pendiente; el reintento cierra sin PUT
-    ni fila nueva."""
+def test_r09r5_10q_base_falla_en_cierre_reintento_cierra():
+    """R09-r5 B3 (10 q) + Ola A1: un estado historico de retiro sellado +
+    intencion abierta se repara en el reintento sin PUT ni fila nueva."""
     with _db_i4("orbit_i4_r510q") as conn:
         lid, plan = _retiro_listo(conn)
-        escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
-
-        def _falla(*args, **kwargs):
-            raise RuntimeError("la base rechazo el cierre de la intencion (simulado)")
-
-        monkeypatch.setattr(ra, "_cierra_intencion", _falla)
-        with pytest.raises(RuntimeError, match="cierre de la intencion"):
-            _retira(conn, plan, go="go dueno", escritor=escritor)
-        monkeypatch.undo()
-        assert puts == [("ad-1", "PAUSED")]
+        anuncio = plan.anuncios[0]
+        ent = conn.execute(ra._SQL_ENTIDAD_DE_ANUNCIO, ("amazon_mx", "ad-1")).fetchone()[0]
+        ra._abre_intencion(conn, plan, "lote-10q", None, ent, anuncio, "reversa", "dueno", None)
+        rid = ra._sella_retiro(
+            conn, plan, "lote-10q", None, ent, anuncio, "reversa", "dueno", "confirmada"
+        )
         assert _cuenta(conn) == (1, 1, 0)
-        (rid,) = conn.execute("SELECT id FROM anuncio_retiro").fetchone()
         escritor2, puts2 = _escritor(_fila("ad-1", "PAUSED"))
         assert _retira(conn, _plan2(conn, lid), go="go dueno", escritor=escritor2) == 0
         assert puts2 == []
@@ -2065,9 +2051,8 @@ def test_r09r5_10q_base_falla_en_cierre_reintento_cierra(monkeypatch):
 
 @_skip_db
 def test_r09r5_r05_sello_confirma_antes_de_cerrar(monkeypatch):
-    """R09-r5 B6 (R05): muerte entre el sello y el cierre, conexion
-    SIN autocommit (como el cron): el retiro persiste (su commit es
-    propio) y la intencion queda pendiente."""
+    """R09-r5 B6 (R05) + Ola A1: en conexion SIN autocommit, sello y cierre
+    van en la MISMA transaccion durable (sin segunda llamada a _cierra_intencion)."""
     with _db_i4("orbit_i4_r5r05") as conn:
         conn.autocommit = False
         _pid, lid = _producto(conn)
@@ -2077,29 +2062,27 @@ def test_r09r5_r05_sello_confirma_antes_de_cerrar(monkeypatch):
         )
         conn.commit()
         escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
-
-        def _muere(*args, **kwargs):
-            raise _Muerte10("kill -9 entre sello y cierre")
-
-        monkeypatch.setattr(ra, "_cierra_intencion", _muere)
-        with pytest.raises(_Muerte10):
-            _retira(conn, plan, go="go dueno", escritor=escritor)
-        monkeypatch.undo()
-        # La muerte suelta lo no confirmado: solo persiste lo que
-        # trajo su propio commit.
+        monkeypatch.setattr(
+            ra,
+            "_cierra_intencion",
+            lambda *_a, **_kw: (_ for _ in ()).throw(
+                AssertionError("_cierra_intencion separado prohibido")
+            ),
+        )
+        assert _retira(conn, plan, go="go dueno", escritor=escritor) == 1
+        # Un rollback posterior NO pierde ni el retiro ni el cierre: tx_durable hizo COMMIT.
         conn.rollback()
         assert puts == [("ad-1", "PAUSED")]
         assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (1,)
         assert conn.execute(
             "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
-        ).fetchone() == (1,)
+        ).fetchone() == (0,)
 
 
 @_skip_db
-def test_r09r5_r06_cierre_confirma(monkeypatch):
-    """R09-r5 B6 (R06): muerte tras el cierre (antes del commit del
-    llamador), conexion SIN autocommit: el cierre persiste (su
-    commit es propio)."""
+def test_r09r5_r06_cierre_confirma():
+    """R09-r5 B6 (R06) + Ola A1: si falla el cierre de intencion dentro de
+    _sella_retiro, el INSERT en anuncio_retiro tambien hace rollback (atomico)."""
     with _db_i4("orbit_i4_r5r06") as conn:
         conn.autocommit = False
         _pid, lid = _producto(conn)
@@ -2108,22 +2091,49 @@ def test_r09r5_r06_cierre_confirma(monkeypatch):
             conn, "amazon_mx", listing_ids=(lid,), motivo="sin_pedidos", conservar_grupo_id=None
         )
         conn.commit()
-        escritor, _puts = _escritor(_fila("ad-1", "ENABLED"))
-        real_cierra = ra._cierra_intencion
+        anuncio = plan.anuncios[0]
+        ent = conn.execute(ra._SQL_ENTIDAD_DE_ANUNCIO, ("amazon_mx", "ad-1")).fetchone()[0]
+        iid = ra._abre_intencion(
+            conn, plan, "lote-r06", None, ent, anuncio, "reversa", "dueno", None
+        )
 
-        def _muere(*args, **kwargs):
-            real_cierra(*args, **kwargs)
-            raise _Muerte10("kill -9 tras el cierre")
+        class _ConnFallaCierre:
+            def __init__(self, real):
+                self._real = real
 
-        monkeypatch.setattr(ra, "_cierra_intencion", _muere)
+            @property
+            def autocommit(self):
+                return self._real.autocommit
+
+            def transaction(self):
+                return self._real.transaction()
+
+            def commit(self):
+                return self._real.commit()
+
+            def execute(self, sql, params=None):
+                if "UPDATE anuncio_retiro_intencion" in sql:
+                    raise _Muerte10("fallo en cierre atomico")
+                return self._real.execute(sql, params)
+
         with pytest.raises(_Muerte10):
-            _retira(conn, plan, go="go dueno", escritor=escritor)
-        monkeypatch.undo()
-        # La muerte suelta lo no confirmado: solo persiste lo que
-        # trajo su propio commit.
+            ra._sella_retiro(
+                _ConnFallaCierre(conn),
+                plan,
+                "lote-r06",
+                None,
+                ent,
+                anuncio,
+                "reversa",
+                "dueno",
+                "confirmada",
+                cerrar_intencion=(iid, "sello"),
+            )
         conn.rollback()
+        # Atomicidad: ni retiro huerfano ni intencion cerrada a medias.
+        assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone() == (0,)
         assert conn.execute(
-            "SELECT cerrada_el IS NOT NULL FROM anuncio_retiro_intencion"
+            "SELECT cerrada_el IS NULL FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
         ).fetchone() == (True,)
 
 

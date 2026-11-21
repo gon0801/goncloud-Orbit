@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import socket
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from test_schema import SQL, SQL4, _hay_postgres_local, _test_dsn
@@ -65,9 +66,10 @@ def test_resumen_pondera_por_gasto_no_por_conteo():
     fila = resumen[("amazon_mx", "MXN")]
     assert fila["gasto_total"] == Decimal("1009")
     assert fila["gasto_cubierto"] == Decimal("1000")
-    assert round(fila["pct"], 1) == 99.1
+    assert round(fila["pct"], 1) == Decimal("99.1")
     # multi-ASIN NO cuenta en la estricta: los dos numeros divergen a la vista
-    assert fila["pct_estricta"] == 0.0
+    assert fila["pct_estricta"] == Decimal("0")
+    assert isinstance(fila["pct"], Decimal) and isinstance(fila["pct_estricta"], Decimal)
 
 
 def test_resumen_no_mezcla_monedas():
@@ -99,7 +101,12 @@ def test_gasto_sin_fx_no_cuenta_como_cubierto():
     assert fila["gasto_cubierto"] == Decimal("30"), "solo los 50-20 con tasa"
     assert fila["gasto_cubierto_unico"] == Decimal("30")
     assert fila["gasto_sin_fx"] == Decimal("120")
-    assert fila["pct"] == 20.0
+    assert fila["pct"] == Decimal("20")
+
+    cero = resumen_por_plataforma(
+        [("amazon_mx", "MXN", "cubierto_unico", 1, Decimal("0"), Decimal("0"))]
+    )[("amazon_mx", "MXN")]
+    assert cero["pct"] is None and cero["pct_estricta"] is None
 
 
 def test_ventana_invalida_es_error_de_uso_sin_conectar(monkeypatch, capsys):
@@ -307,8 +314,8 @@ def test_cobertura_clasifica_y_pondera_en_vivo():
         fila = resumen[("amazon_mx", "MXN")]
         assert fila["gasto_total"] == 525
         assert fila["gasto_cubierto"] == 400
-        assert round(fila["pct"], 1) == 76.2
-        assert round(fila["pct_estricta"], 1) == 19.0  # solo el grupo A (100)
+        assert round(fila["pct"], 1) == Decimal("76.2")
+        assert round(fila["pct_estricta"], 1) == Decimal("19.0")  # solo el grupo A (100)
     finally:
         if conn is not None:
             conn.close()

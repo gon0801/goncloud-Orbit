@@ -876,7 +876,7 @@ def _falla_job(
     Telegram AQUI, el punto unico de fallo definitivo (la reversa automatica
     ya corrio en el caller); si el envio fallo, la bandera envio_fallido
     viaja con la alerta hasta el ciclo para la NOTA notes['telegram']."""
-    with conn.transaction():
+    with tx_durable(conn):
         conn.execute(_SQL_JOB_FAILED, (job.id,))
         if queue_id is not None:
             _termina_cola(conn, queue_id, "failed")
@@ -924,12 +924,12 @@ def _reversa_delete(
     ack = apply._json_seguro(resp)
     clave = "keywordId" if clase == "keyword" else "negativeKeywordId"
     if _reversa_rechazada(ack, clave, objeto_id):
-        with conn.transaction():
+        with tx_durable(conn):
             apply._sella_ledger(
                 conn, id_attempt, ack=ack, resultado=_resultado_reversa_rechazada(ack)
             )
         return False
-    with conn.transaction():
+    with tx_durable(conn):
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
     return True
 
@@ -969,7 +969,7 @@ def _delete_reversa_pendiente(
     ack = apply._json_seguro(resp)
     clave = "keywordId" if clase == "keyword" else "negativeKeywordId"
     if _reversa_rechazada(ack, clave, objeto_id):
-        with conn.transaction():
+        with tx_durable(conn):
             apply._sella_ledger(
                 conn, id_attempt, ack=ack, resultado=_resultado_reversa_rechazada(ack)
             )
@@ -1378,10 +1378,10 @@ def ejecuta_reversa_harvest(
             if str(x.get("state", "")).upper() != apply.ESTADO_WIRE_ARCHIVED
         }
         if paso.objeto_id in vivas:
-            with conn.transaction():
+            with tx_durable(conn):
                 apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:sigue_vivo")
             return (False, f"reversa: {quien} {paso.objeto_id} sigue vivo")
-        with conn.transaction():
+        with tx_durable(conn):
             apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
     if omitidas:
         return (True, f"reversa: ok (provisionales ausentes omitidas: {', '.join(omitidas)})")
@@ -1512,7 +1512,7 @@ def _paso_negative(
     errores = _errores_de_ack(ack)
     neg_id = _id_de_ack(ack, "negativeKeywordId")
     if errores or neg_id is None:
-        with conn.transaction():
+        with tx_durable(conn):
             resultado = (
                 f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
             )
@@ -1524,7 +1524,7 @@ def _paso_negative(
             else " | ack sin negative_id; procedencia no comprobada"
         )
         return _falla_job(conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=detalle)
-    with conn.transaction():
+    with tx_durable(conn):
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
         _avanza(conn, job, "negative_created", {"negative_id": neg_id, "negative_creada": True})
     return "avanza", None
@@ -1636,7 +1636,7 @@ def _paso_keyword(
     if errores or kw_id is None:
         # Sin id en el ack, LIST no prueba propiedad: solo se revierte lo propio
         # probado y se alerta para inspeccion.
-        with conn.transaction():
+        with tx_durable(conn):
             resultado = (
                 f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
             )
@@ -1648,7 +1648,7 @@ def _paso_keyword(
             else " | ack sin keyword_id; procedencia no comprobada"
         )
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
-    with conn.transaction():
+    with tx_durable(conn):
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
         _avanza(conn, job, "exact_created", {"keyword_id": kw_id, "keyword_creada": True})
     return "avanza", None
@@ -1707,7 +1707,7 @@ def _paso_readback(
         return _falla_job(conn, job, MOTIVO_KEYWORD_AUSENTE, queue_id=queue_id, detalle=detalle)
     ack = {"fuente": "list", "keywordId": encontrado.get("keywordId")}
     if ctx.resuelto_por != harvest_destino.RESUELTO_GRUPO:
-        with conn.transaction():
+        with tx_durable(conn):
             _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
             _avanza(conn, job, "done")
             apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
@@ -1722,7 +1722,7 @@ def _paso_readback(
     if isinstance(roster, str):
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | roster imposible ({roster})"
         return _falla_job(conn, job, roster, queue_id=queue_id, detalle=detalle)
-    with conn.transaction():
+    with tx_durable(conn):
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
         _avanza(
             conn,
@@ -1828,7 +1828,7 @@ def _cierra_o_sigue(
         r for r in ROLES_DISCOVERY if r in objetivo and "negative_id" not in hermanas.get(r, {})
     ]
     if not restantes:
-        with conn.transaction():
+        with tx_durable(conn):
             _avanza(conn, job, "done", {"hermanas_pendientes": {}})
             _termina_cola_si_applying(conn, queue_id)
         return "done", None
@@ -1852,7 +1852,7 @@ def _cierra_o_sigue(
         )
         if not notifica.notifica_harvest_hermanas(alerta):
             alerta = replace(alerta, envio_fallido=True)
-        with conn.transaction():
+        with tx_durable(conn):
             _avanza(conn, job, "done", {"hermanas_pendientes": pendientes})
             _termina_cola_si_applying(conn, queue_id)
         return "done", alerta
@@ -1916,9 +1916,8 @@ def _post_hermana(
         # por-item (motivo de rechazo); sin id ni errores es ack ilegible
         # (fail-closed, sin evidencia del corte).
         motivo = _motivo_rechazo_hermana(rol, None) if errores else "ack_sin_id"
-        with conn.transaction():
+        with tx_durable(conn):
             apply._sella_ledger(conn, id_attempt, ack=ack, resultado=f"fallo:{motivo}")
-        conn.commit()
         return (motivo, None, None, None)
     # ACK aceptado: queda durable ANTES del readback posterior (r3, AC-4),
     # con la fila abierta. El posterior solo sella el resultado.
@@ -1952,7 +1951,7 @@ def _paso_hermanas(
         r for r in ROLES_DISCOVERY if r in objetivo and "negative_id" not in hermanas.get(r, {})
     ]
     if not pendientes:
-        with conn.transaction():
+        with tx_durable(conn):
             _avanza(
                 conn,
                 job,
@@ -1971,7 +1970,7 @@ def _paso_hermanas(
     if apply.gate_ancestros(conn, job.ad_entity_id) is not None:
         for rol in pendientes:
             hermanas[rol] = {"motivo": "ancestro_no_enabled"}
-        with conn.transaction():
+        with tx_durable(conn):
             _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
         return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
     cliente = aplicador._cliente()
@@ -1985,7 +1984,7 @@ def _paso_hermanas(
         motivo = "list_truncado" if exc.causa == "truncado" else "list_ambiguo"
         for rol in pendientes:
             hermanas[rol] = {"motivo": motivo}
-        with conn.transaction():
+        with tx_durable(conn):
             _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
         return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
     posteadas: list[tuple[str, int, str, str, dict]] = []
@@ -2004,7 +2003,7 @@ def _paso_hermanas(
             # genuinamente desconocido; sellarlas mentiria).
             propia = probadas[0]
             prob_ids = {str(x.get("keywordId")) for x in probadas}
-            with conn.transaction():
+            with tx_durable(conn):
                 for _i, _ack, _abierta in intentos:
                     if not _abierta or not isinstance(_ack, dict):
                         continue
@@ -2045,7 +2044,7 @@ def _paso_hermanas(
             motivo = "list_truncado" if exc.causa == "truncado" else "list_ambiguo"
             for rol, _id_attempt, _neg_id, _ag_ext, _ack_post in posteadas:
                 hermanas[rol] = {"motivo": motivo}  # filas abiertas: el proximo previo las cruza
-            with conn.transaction():
+            with tx_durable(conn):
                 _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
             return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
         for rol, id_attempt, neg_id, ag_ext, _ack_post in posteadas:
@@ -2058,11 +2057,11 @@ def _paso_hermanas(
             # tardia).
             halladas = _coincidencias(posterior, ag_ext, job.search_term)
             if neg_id in {str(x.get("keywordId")) for x in halladas}:
-                with conn.transaction():
+                with tx_durable(conn):
                     apply._sella_resultado(conn, id_attempt, "ok")
                 hermanas[rol] = {"negative_id": neg_id, "creada": True}
             else:
-                with conn.transaction():
+                with tx_durable(conn):
                     apply._sella_resultado(conn, id_attempt, "fallo:ack_sin_prueba")
                 if halladas:
                     hermanas[rol] = {
@@ -2071,7 +2070,7 @@ def _paso_hermanas(
                     }
                 else:
                     hermanas[rol] = {"motivo": "red_ambigua"}
-    with conn.transaction():
+    with tx_durable(conn):
         _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
     return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
 

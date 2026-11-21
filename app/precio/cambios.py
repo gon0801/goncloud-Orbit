@@ -610,10 +610,7 @@ def revertir(
     return _revertir_fila(conn, mercado, fila, momento, lote=None)
 
 
-# Claim `precio:<platform>` COMPARTIDO con la corrida (patron copiado de
-# `app/precio/corrida.py`, sin importar: `corrida` importa este modulo).
-# Mismo `job_key` y mismo advisory: la segunda en llegar sale con
-# "hay una corrida en curso".
+# Claim `precio:<platform>` compartido con `corrida.py` (mismo job_key y advisory).
 _SQL_CLAIM_LOTE = """
 INSERT INTO ads_optimizer_lock (job_key, owner, claimed_at, heartbeat_at, ttl_seconds)
 VALUES (%s, %s, now(), now(), %s)
@@ -624,12 +621,9 @@ ON CONFLICT (job_key) DO UPDATE
        + make_interval(secs => ads_optimizer_lock.ttl_seconds) <= now()
 RETURNING claimed_at
 """
-
 _SQL_LIBERAR_LOTE = "DELETE FROM ads_optimizer_lock WHERE job_key = %s AND owner = %s"
-
 _SQL_ADVISORY_LOTE_TOMAR = "SELECT pg_try_advisory_lock(hashtext('precio:' || %s))"
 _SQL_ADVISORY_LOTE_SOLTAR = "SELECT pg_advisory_unlock(hashtext('precio:' || %s))"
-
 _TTL_LOTE_SEGUNDOS = 3600
 
 
@@ -638,7 +632,12 @@ def _tomar_candado_lote(conn: psycopg.Connection, platform: str, owner: str) -> 
     fila = conn.execute(_SQL_CLAIM_LOTE, (job, owner, _TTL_LOTE_SEGUNDOS)).fetchone()
     if fila is None:
         raise CorridaEnCurso(f"hay una corrida en curso ({job} en curso): reintenta")
-    if not conn.execute(_SQL_ADVISORY_LOTE_TOMAR, (platform,)).fetchone()[0]:
+    try:
+        tomado = bool(conn.execute(_SQL_ADVISORY_LOTE_TOMAR, (platform,)).fetchone()[0])
+    except Exception:
+        conn.execute(_SQL_LIBERAR_LOTE, (job, owner))
+        raise
+    if not tomado:
         conn.execute(_SQL_LIBERAR_LOTE, (job, owner))
         raise CorridaEnCurso(f"hay una corrida en curso ({job} en curso): reintenta")
 

@@ -134,16 +134,26 @@ class PausadorDeCampanas(Protocol):
 
 
 class PausadorFabrica:
-    """PausadorDeCampanas sobre `pausar_lote`/`reanudar_lote` del tool:
-    fila en el ledger antes de cada PUT, readback y sello. Las
-    credenciales y el HTTP se arman al primer uso, para que el vigia
-    lea sin red cuando no hay nada que pausar."""
+    """PausadorDeCampanas con ledger pre-PUT, readback y armado lazy de HTTP."""
 
     def __init__(self, conn, *, actor: str = "impulso-vigia") -> None:
-        self._conn = conn
-        self._actor = actor
-        self._ctxs: dict[str, object] = {}
-        self._armado = None
+        self._conn, self._actor, self._ctxs = conn, actor, {}
+        self._armado, self._propia = None, None
+
+    def close(self) -> None:
+        armado, propia = self._armado, self._propia
+        self._armado, self._propia = None, None
+        self._ctxs.clear()
+        if armado is not None and hasattr(armado[2], "close"):
+            armado[2].close()
+        if propia is not None:
+            propia.close()
+
+    def __enter__(self) -> PausadorFabrica:
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
 
     def _ctx_para(self, lote: str):
         from app import fabrica_motor as fm
@@ -151,9 +161,6 @@ class PausadorFabrica:
 
         if self._armado is None:
             cred = AdsCredentials.from_secrets_dir()
-            # fm.AdsClient (no app.ads.client directo): la misma fuente
-            # que el resto de la fabrica, para que la frontera de
-            # pruebas aplique parejo al PUT y al readback.
             cliente = fm.AdsClient(cred)
             http = fm.httpx.Client(
                 timeout=fm.httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
@@ -633,10 +640,7 @@ def _archiva_vacios(conn, listing_id: int) -> None:
 
 
 def _conecta_propia(conn, *, autocommit: bool):
-    """Conexion propia a la misma base (patron cycle._abre_heartbeat):
-    conn.info.dsn NO trae la password (psycopg la excluye); se
-    reinyecta desde conn.info.password. Sin esto, en produccion
-    (scram-sha-256) la conexion propia falla (R09-r5 B1a)."""
+    """Conexion propia a la misma base reinyectando `conn.info.password`."""
     import psycopg
     from psycopg.conninfo import make_conninfo
 
@@ -647,14 +651,9 @@ def _conecta_propia(conn, *, autocommit: bool):
 
 
 def _reactiva_para_sellar(conn, lote: str) -> None:
-    """Reactiva un huerfano que coincide (misma huella u otro plan)
-    antes de sellar, en conexion propia (no rompe la tx de lanza).
-    Levanta si alguna campana no queda ENABLED."""
-    pausador = _pausador_propio(conn)
-    try:
+    """Reactiva un huerfano en conexion propia antes de sellar."""
+    with _pausador_propio(conn) as pausador:
         pausador.reactiva(lote)
-    finally:
-        pausador._propia.close()
 
 
 def _pausador_propio(conn) -> PausadorFabrica:
@@ -861,16 +860,14 @@ def lanza(
                 if _plan_coincide_con_lote(conn, plan, viejo):
                     # L1/L4/L8c: mismo plan; si quedo pausado se activa
                     # antes de sellar (un impulso vivo gasta).
-                    pausador = _pausador_propio(conn)
-                    try:
-                        pausador.reactiva(viejo)
-                    except Exception as exc:
-                        fallos[plan.listing_id] = (
-                            f"huerfano {viejo} coincide pero no activa ({exc})"
-                        )
-                        continue
-                    finally:
-                        pausador._propia.close()
+                    with _pausador_propio(conn) as pausador:
+                        try:
+                            pausador.reactiva(viejo)
+                        except Exception as exc:
+                            fallos[plan.listing_id] = (
+                                f"huerfano {viejo} coincide pero no activa ({exc})"
+                            )
+                            continue
                     imp = _sella_impulso(conn, plan, grupo_viejo, viejo, actor, confirmacion)
                     lanzados.append(ImpulsoLanzado(imp, viejo, "applied"))
                     continue

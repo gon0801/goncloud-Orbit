@@ -710,7 +710,8 @@ def impulso_pausar(
         if fila is None:
             raise fw.error(404, "El impulso no existe.")
         try:
-            io.PausadorFabrica(conn, actor="dueno").pausa(fila[0])
+            with io.PausadorFabrica(conn, actor="dueno") as pausador:
+                pausador.pausa(fila[0])
         except io.ErrorImpulso as exc:
             raise _error_impulso(exc) from None
         except fd.Abortar as exc:

@@ -249,10 +249,15 @@ def _dsn_admin() -> str:
 
 
 def _perfiles(cliente_lectura: AdsClient) -> dict[str, int]:
-    """platform -> profile_id ACEPTADO (una fuente: evaluar_perfiles)."""
+    """platform -> profile_id ACEPTADO (fail-closed ante perfiles duplicados)."""
     out: dict[str, int] = {}
     for p in evaluar_perfiles(cliente_lectura):
         if p.aceptado and p.platform and p.profile_id is not None:
+            if p.platform in out and out[p.platform] != p.profile_id:
+                raise Abortar(
+                    f"multiples perfiles aceptados para {p.platform}: "
+                    f"{out[p.platform]} y {p.profile_id} (fail-closed)"
+                )
             out[p.platform] = p.profile_id
     return out
 

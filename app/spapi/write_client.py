@@ -24,6 +24,7 @@ from decimal import Decimal
 
 import httpx
 
+from app.http_base import parse_retry_after_finito
 from app.spapi.client import (
     ESPERA_429_DEFAULT,
     ESPERA_429_MAX,
@@ -84,11 +85,10 @@ def _exigir_cuerpo_serializable(cuerpo, ruta: str = "$") -> None:
 
 
 def _espera_retry_after(resp: httpx.Response) -> float:
-    try:
-        segundos = float(resp.headers.get("Retry-After", str(ESPERA_429_DEFAULT)))
-    except ValueError:
-        segundos = ESPERA_429_DEFAULT
-    return min(max(0.0, segundos), ESPERA_429_MAX)
+    segundos = parse_retry_after_finito(
+        resp.headers.get("Retry-After"), techo=ESPERA_429_MAX, ahora_ts=time.time()
+    )
+    return ESPERA_429_DEFAULT if segundos is None else segundos
 
 
 class SpapiWriteClient:

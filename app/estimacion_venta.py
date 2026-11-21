@@ -661,29 +661,7 @@ def calcular_contribucion(
             )
         )
 
-    bloqueantes = {
-        "precio_ausente",
-        "precio_invalido",
-        "costo_ausente",
-        "costo_invalido",
-        "costo_impuesto_incompatible",
-        "costo_base_fiscal_ausente",
-        "fee_ausente",
-        "fee_invalido",
-        "fx_ausente",
-        "fx_desactualizado",
-        "envio_sin_historia",
-        "fx_direccion_invalida",
-        "fx_tasa_invalida",
-        "impuesto_fee_pendiente",
-        "universo_no_soportado",
-        "politica_no_vigente",
-        "politica_invalida",
-        "fee_incompatible",
-        "politica_ausente",
-        "politica_ambigua",
-    }
-    if any(m in bloqueantes for m in motivos):
+    if motivos:
         return ResultadoCalculo(
             estado="incompleta",
             motivos=tuple(dict.fromkeys(motivos)),

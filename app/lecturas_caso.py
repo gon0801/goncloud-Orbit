@@ -164,12 +164,12 @@ SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen,
 """
 
 _SQL_MANOS_EXTERNAS = """
-SELECT x.ad_entity_id, x.detectada_el, x.bid_visto
+SELECT x.ad_entity_id, x.detectada_el, x.bid_visto, 'exclusion'::text
   FROM temporada_exclusion x
   JOIN temporada_episodio e ON e.id = x.episodio_id
  WHERE e.platform = %s::platform AND x.bid_visto IS NOT NULL AND x.detectada_el >= %s
  UNION ALL
-SELECT r.ad_entity_id, r.detectada_en, NULL::numeric
+SELECT r.ad_entity_id, r.detectada_en, NULL::numeric, 'reactivacion_manual'::text
   FROM reactivacion_manual r
   JOIN ad_entity k ON k.id = r.ad_entity_id
  WHERE k.platform = %s::platform AND r.detectada_en >= %s
@@ -1042,13 +1042,11 @@ def _historia_temporada(
         desde_historia.year, desde_historia.month, desde_historia.day, tzinfo=dt.UTC
     )
     manos: dict[int, list[ManoExterna]] = {}
-    for hoja, instante, bid_visto in conn.execute(
+    for hoja, instante, bid_visto, origen in conn.execute(
         _SQL_MANOS_EXTERNAS, (plataforma, desde_h, plataforma, desde_h)
     ).fetchall():
         manos.setdefault(hoja, []).append(
-            ManoExterna(
-                instante=instante.astimezone(dt.UTC), bid_visto=bid_visto, origen="exclusion"
-            )
+            ManoExterna(instante=instante.astimezone(dt.UTC), bid_visto=bid_visto, origen=origen)
         )
     fines: dict[int, set[int]] = {}
     for hoja, episodio_id in conn.execute(_SQL_FINES, (plataforma,)).fetchall():
