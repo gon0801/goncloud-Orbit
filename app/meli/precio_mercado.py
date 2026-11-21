@@ -45,9 +45,11 @@ from app.precio.tipos import (
     ObservacionPricing,
 )
 from app.precio.ventas import evaluar_senal
+from app.redaction import install_scrub_filter
 from app.reputacion_clientes import ReputacionError
 
 logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 __all__ = ["MercadoMeli", "Mercado", "historia_meli_unidad"]
 

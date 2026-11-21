@@ -244,11 +244,23 @@ def _errores_put(respuesta: httpx.Response, contenedor: str = "campaigns") -> li
     if codigo_tope[:1] in ("4", "5"):
         errores.append(cuerpo.get("description") or f"code {codigo_tope}")
     items = cuerpo.get(contenedor)
-    if isinstance(items, dict):
+    es_multi = respuesta.status_code == 207
+    if items is None:
+        if es_multi and not errores:
+            errores.append(f"respuesta sin contenedor {contenedor}")
+    elif isinstance(items, dict):
         fallos = items.get("error")
         if isinstance(fallos, list) and fallos:
             errores.extend(str(e) for e in fallos)
+        elif (
+            es_multi
+            and not errores
+            and not (isinstance(items.get("success"), list) and items["success"])
+        ):
+            errores.append(f"contenedor {contenedor} sin success ni error")
     elif isinstance(items, list):
+        if es_multi and not items and not errores:
+            errores.append(f"contenedor {contenedor} vacio")
         for item in items:
             if not isinstance(item, dict):
                 errores.append(f"item de {contenedor} ilegible")
@@ -259,6 +271,8 @@ def _errores_put(respuesta: httpx.Response, contenedor: str = "campaigns") -> li
             codigo = str(item.get("code", ""))
             if codigo[:1] in ("4", "5"):
                 errores.append(item.get("description") or f"code {codigo}")
+    else:
+        errores.append(f"contenedor {contenedor} invalido")
     return errores
 
 

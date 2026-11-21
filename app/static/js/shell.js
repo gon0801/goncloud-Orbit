@@ -23,40 +23,18 @@ document.addEventListener("DOMContentLoaded", function () {
     return respuesta.json();
   }
 
-  // CLARIDAD 01 C.5: las de practica (modo shadow) nunca se aplican; el
-  // numero cuenta solo las reales y la etiqueta nombra las de practica.
-  leer("cortes").then(datos => {
-    const n = datos.items.filter(item => item.modo === "live").length;
-    const practica = datos.items.filter(item => item.modo === "shadow").length;
+  // Endpoint liviano (/chrome): evita disparar /cortes + /salud completos en cada pagina.
+  leer("chrome").then(datos => {
+    const prop = datos.propuestas || {};
+    const n = Number(prop.live) || 0;
+    const practica = Number(prop.shadow) || 0;
     const etiqueta = n + " pendientes (" + practica + " de práctica)";
     pintarBadge(contador, n, etiqueta);
     badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, n, etiqueta); });
-  }).catch(() => {
-    const etiqueta = "Propuestas: no se pudo consultar";
-    pintarBadge(contador, "—", etiqueta);
-    badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, "—", etiqueta); });
-  });
 
-  // Contador de alertas de reputacion: el badge es aviso de accion, solo
-  // se muestra cuando hay abiertas; en cero o error queda oculto.
-  if (repContador) {
-    fetch("/api/reputacion/contador", {cache: "no-store"}).then(respuesta => {
-      if (!respuesta.ok) throw new Error("Lectura no disponible");
-      return respuesta.json();
-    }).then(datos => {
-      const total = Number(datos.total_alertas) || 0;
-      const etiqueta = total + " alertas abiertas";
-      if (total > 0) {
-        pintarBadge(repContador, total, etiqueta);
-        badges("reputacion").forEach(function (nodo) { pintarBadge(nodo, total, etiqueta); });
-      }
-    }).catch(() => {});
-  }
-
-  leer("salud").then(datos => {
     ciclo.replaceChildren();
     const marcas = [];
-    Object.entries(datos.plataformas).forEach(([plataforma, salud]) => {
+    Object.entries(datos.plataformas || {}).forEach(([plataforma, salud]) => {
       const nombre = plataforma === "amazon_mx" ? "MX" : "US";
       marcas.push(nombre + ": " + (salud.watermark || "sin datos"));
       const linea = document.createElement("div");
@@ -76,7 +54,26 @@ document.addEventListener("DOMContentLoaded", function () {
     });
     watermark.textContent = "Cifras hasta · " + marcas.join(" · ");
   }).catch(() => {
+    const etiqueta = "Propuestas: no se pudo consultar";
+    pintarBadge(contador, "—", etiqueta);
+    badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, "—", etiqueta); });
     ciclo.textContent = "No se pudo consultar";
     watermark.textContent = "Cifras hasta: no disponible";
   });
+
+  // Contador de alertas de reputacion: el badge es aviso de accion, solo
+  // se muestra cuando hay abiertas; en cero o error queda oculto.
+  if (repContador) {
+    fetch("/api/reputacion/contador", {cache: "no-store"}).then(respuesta => {
+      if (!respuesta.ok) throw new Error("Lectura no disponible");
+      return respuesta.json();
+    }).then(datos => {
+      const total = Number(datos.total_alertas) || 0;
+      const etiqueta = total + " alertas abiertas";
+      if (total > 0) {
+        pintarBadge(repContador, total, etiqueta);
+        badges("reputacion").forEach(function (nodo) { pintarBadge(nodo, total, etiqueta); });
+      }
+    }).catch(() => {});
+  }
 });

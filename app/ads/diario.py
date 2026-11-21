@@ -45,9 +45,10 @@ from app.metricas_listas import (
     placements_de_ayer_listos,
     productos_de_ayer_listos,
 )
-from app.redaction import scrub
+from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 # Telegram lo que falle o se salve. La tabla de horarios de docs/DEPLOY.md
 # sale de HORARIOS_INGESTA: los reintentos del dia son corridas del mismo

@@ -415,13 +415,22 @@ def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, asi
 
 
 def _vigilar_umbral(
-    asin: str, fallos: int, racha: int, vistos: int, ultimo_status: int | None
+    asin: str,
+    fallos: int,
+    racha: int,
+    vistos: int,
+    ultimo_status: int | None,
+    *,
+    total: int | None = None,
 ) -> None:
     # Ronda review A.5: el mensaje lleva el ULTIMO status HTTP visto para
     # que prefijo_motivo lo clasifique (http_5xx en vez de "contrato" ante
     # una caida de Amazon). Sin status (muerte solo por red/contrato),
     # "desconocido" y cae en contrato como antes.
-    if fallos > UMBRAL_FALLOS_PORC * vistos or racha >= UMBRAL_FALLOS_RACHA:
+    # Con universo grande (>=5), espera muestra minima de 5 para que el 1er
+    # ASIN raro no mate toda la corrida (1 > 0.20 * 1..4).
+    piso = 5 if total is not None and total >= 5 else 1
+    if (vistos >= piso and fallos > UMBRAL_FALLOS_PORC * vistos) or racha >= UMBRAL_FALLOS_RACHA:
         status = ultimo_status if ultimo_status is not None else "desconocido"
         raise IngestaPricingError(
             f"pricing {asin}: umbral de fallos superado ({fallos}/{vistos},"
@@ -440,6 +449,7 @@ class _Avance:
     llamadas: int = 0
     skips: Counter = field(default_factory=Counter)
     ultimo_status: int | None = None
+    total: int | None = None
 
 
 def _procesar_asin(
@@ -510,7 +520,7 @@ def _procesar_asin(
         av.racha += 1
         av.skips[f"http_{exc.status}"] += 1
         av.ultimo_status = exc.status
-        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status)
+        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
         return
     except IngestaPricingError:
         # Contrato o respuesta no JSON: cuenta contra el umbral (un cambio
@@ -519,7 +529,7 @@ def _procesar_asin(
         av.fallos += 1
         av.racha += 1
         av.skips["contrato"] += 1
-        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status)
+        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
         return
     except httpx.HTTPError:
         # Red (timeout, conexion): el cliente no reintenta 5xx/red por
@@ -528,7 +538,7 @@ def _procesar_asin(
         av.fallos += 1
         av.racha += 1
         av.skips["red"] += 1
-        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status)
+        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
         return
     with conn.transaction():
         cur = conn.execute(
@@ -618,6 +628,7 @@ def ejecutar_ingesta(
             if max_asins < 1:
                 raise IngestaPricingError("--max-asins debe ser >= 1")
             universo = universo[:max_asins]
+        av.total = len(universo)
         # Reloj y espera salen del cliente (inyectables en tests).
         cubo = CuboTasa(
             sleep=client._sleep,

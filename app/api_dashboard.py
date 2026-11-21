@@ -1771,6 +1771,64 @@ def productos_pausa(conn: ConexionLectura, platform: str) -> dict:
     return estado
 
 
+_SQL_CHROME_COLA = """
+SELECT modo::text, count(*)
+  FROM apply_queue
+ WHERE estado IN ('pending_veto', 'released')
+ GROUP BY modo
+"""
+
+_SQL_CHROME_WATERMARK = """
+SELECT e.platform::text, MAX(m.metric_date)
+  FROM ads_metric_observation m
+  JOIN ad_entity e ON e.id = m.ad_entity_id
+ GROUP BY e.platform
+"""
+
+_SQL_CHROME_ULTIMO_CICLO = """
+SELECT DISTINCT ON (platform)
+       platform::text, mode::text, status::text, started_at, decisions_count
+  FROM optimizer_cycle
+ ORDER BY platform, started_at DESC, id DESC
+"""
+
+
+@router.get("/chrome")
+def chrome(conn: ConexionLectura) -> dict:
+    """Resumen liviano para la barra lateral/superior (`shell.js`): solo 3
+    queries puntuales en vez de ejecutar `/cortes` y `/salud` completos en
+    cada navegacion."""
+    modos = dict(conn.execute(_SQL_CHROME_COLA).fetchall())
+    watermarks = {
+        plat: (dia.isoformat() if dia is not None else None)
+        for plat, dia in conn.execute(_SQL_CHROME_WATERMARK).fetchall()
+    }
+    ciclos = {
+        plat: {
+            "mode": mode,
+            "status": status,
+            "started_at": started_at.isoformat() if started_at is not None else None,
+            "decisions_count": int(decisions_count or 0),
+        }
+        for plat, mode, status, started_at, decisions_count in conn.execute(
+            _SQL_CHROME_ULTIMO_CICLO
+        ).fetchall()
+    }
+    return {
+        "propuestas": {
+            "live": int(modos.get("live", 0)),
+            "shadow": int(modos.get("shadow", 0)),
+        },
+        "plataformas": {
+            plat: {
+                "watermark": watermarks.get(plat),
+                "ultimo_ciclo": ciclos.get(plat),
+            }
+            for plat in PLATAFORMAS_MONEDA
+        },
+    }
+
+
 @router.get("/busquedas-sin-venta")
 def busquedas_sin_venta(conn: ConexionLectura, plataforma: str | None = None) -> dict:
     """Busquedas que gastan sin vender (BIDS 02, P.6). Funcion

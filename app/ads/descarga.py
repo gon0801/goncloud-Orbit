@@ -56,9 +56,10 @@ from app.ads.structure import (
     _sellar_run,
     evaluar_perfiles,
 )
-from app.redaction import scrub
+from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 # Calendario de sondeo (ingesta-01 A.1): 5 s los primeros 2 min, 30 s despues,
 # plazo total de sondeo 2 h 30 min. Un reporte se repite tras 40 min sin
@@ -607,7 +608,7 @@ class _Corrida:
                     fecha_ini=self.fecha_ini,
                     fecha_fin=self.fecha_fin,
                 )
-            except BaseException as exc:  # el escritor ya sello ok=false
+            except Exception as exc:  # el escritor ya sello ok=false
                 self._sellar_fallo(
                     grupo,
                     "error",
@@ -692,7 +693,12 @@ class _Corrida:
                 vivos = [
                     logico
                     for logico in self.logicos
-                    if logico.ganador is None and logico.grupo.clave not in self.sellado
+                    if logico.ganador is None
+                    and logico.grupo.clave not in self.sellado
+                    and (
+                        any(not i.terminal for i in logico.intentos)
+                        or logico.pedidos < 1 + MAX_REPETIDOS
+                    )
                 ]
                 if not vivos or reloj() >= self.plazo:
                     break
