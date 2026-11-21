@@ -16,6 +16,7 @@ from pathlib import Path
 import httpx
 
 from app.ads.config import directorio_secretos
+from app.http_base import validar_ruta_relativa
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 logger = logging.getLogger(__name__)
@@ -123,16 +124,7 @@ class ClienteMeli:
     def _request(self, metodo: str, path: str, params: dict | None = None) -> dict:
         if metodo != "GET":
             raise ReputacionError(f"cliente MeLi solo-GET: metodo {metodo} bloqueado")
-        if (
-            not isinstance(path, str)
-            or not path.startswith("/")
-            or path.startswith("//")
-            or "://" in path
-            or ".." in path
-            or "\\" in path
-            or any(ord(c) < 32 for c in path)
-        ):
-            raise ReputacionError(f"cliente MeLi: path relativo invalido bloqueado: {path!r}")
+        validar_ruta_relativa(path, error_cls=ReputacionError, etiqueta="cliente MeLi path")
         headers = {"Authorization": "Bearer " + self._creds.access_token}
         for intento in range(self._max_intentos):
             try:

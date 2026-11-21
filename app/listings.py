@@ -56,6 +56,7 @@ from pathlib import Path
 import psycopg
 
 from app.db import connect
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import install_scrub_filter, scrub
 
@@ -294,18 +295,6 @@ def plan_listings(
     return planes, skips, stats
 
 
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
-
 # Upsert del catalogo (D4): nueva => INSERT; existente => UPDATE solo cuando
 # algo difiere (el WHERE hace el no-op REAL barato); el re-mapeo del bridge
 # (product_id) es una correccion legitima del mapa.
@@ -337,10 +326,7 @@ def _fila_upsert(product_id: int, plan: PlanListing) -> tuple:
     )
 
 
-def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
+_formato_skip_reason = formato_skip_reason
 
 
 def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
@@ -356,7 +342,7 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
     origen = leer_origen(ruta_sqlite)
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE)
 
     insertadas = 0
     actualizadas = 0
@@ -428,7 +414,7 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
                     cur.executemany(_SQL_UPSERT_LISTING, mutaciones)
 
             skip_reason = _formato_skip_reason(skips)
-            _sellar_run(
+            sellar_run(
                 conn,
                 run_id,
                 ok=True,
@@ -437,26 +423,7 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
                 skip_reason=skip_reason,
             )
     except BaseException as exc:
-        # Patron de structure.sync: rollback del trabajo (el with de arriba) y
-        # sello best-effort ok=false; BaseException para que un Ctrl-C tambien
-        # deje la run sellada, no abierta.
-        try:
-            with conn.transaction():
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=False,
-                    rows_written=0,
-                    rows_skipped=0,
-                    skip_reason=scrub(str(exc)) or type(exc).__name__,
-                )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo; "
-                "el error original de la corrida era: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        sellar_fallo_seguro(conn, run_id, exc)
         raise
 
     return ResultadoSync(
@@ -474,18 +441,6 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
         conteo_por_plataforma=dict(por_plataforma),
         colapsados_por_asin=stats["colapsados_por_asin"],
     )
-
-
-def _sellar_run(
-    conn: psycopg.Connection,
-    run_id: int,
-    *,
-    ok: bool,
-    rows_written: int,
-    rows_skipped: int,
-    skip_reason: str | None,
-) -> None:
-    conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
 
 
 def main(argv: list[str] | None = None) -> int:

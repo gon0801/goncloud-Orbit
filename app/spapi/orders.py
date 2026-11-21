@@ -38,7 +38,9 @@ from typing import Any
 
 import psycopg
 
+from app.ingest_run import formato_skip_reason, sellar_fallo_seguro, sellar_run
 from app.redaction import install_scrub_filter, scrub
+from app.spapi._ingesta import abrir_run_spapi
 from app.spapi.client import (
     MERCADOS,
     CuboTasa,
@@ -69,17 +71,6 @@ _MAX_DECIMALES = Decimal("0.0001")
 ORDERS_TASA_SEG = 0.0056
 ORDERS_BURST = 20
 
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source, platform) VALUES (%s, %s) RETURNING id"
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
 _SQL_MAX_OBSERVADO = """
 SELECT max(last_updated_time) FROM spapi_order_observation WHERE platform = %s
 """
@@ -433,8 +424,7 @@ def ejecutar_ingesta(
         momento = momento.replace(tzinfo=datetime.UTC)
     marketplace_id = MERCADOS[platform]
 
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE, platform)).fetchone()[0]
+    run_id = abrir_run_spapi(conn, SOURCE, platform)
 
     escritas = 0
     skips: Counter = Counter()
@@ -498,30 +488,20 @@ def ejecutar_ingesta(
         # (fail-silent: jamas rompe la ingesta).
         evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
-        try:
-            with conn.transaction():
-                _sellar(
-                    conn,
-                    run_id,
-                    ok=False,
-                    escritas=0,
-                    skips=Counter(),
-                    motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
-                )
-            evaluar_alertas(conn, SOURCE, platform, run_id)
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello; error: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        sellar_fallo_seguro(
+            conn,
+            run_id,
+            exc,
+            motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
+            tras_sellar=lambda: evaluar_alertas(conn, SOURCE, platform, run_id),
+        )
         raise
     return ResultadoIngesta(
         run_id=run_id,
         ok=aviso is None,
         escritas=escritas,
         omitidas=sum(v for v in skips.values() if v > 0),
-        skip_reason=_formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0})),
+        skip_reason=formato_skip_reason(skips),
         paginas=paginas,
         ordenes_vistas=vistas,
         aviso_paginacion=aviso,
@@ -537,9 +517,13 @@ def _sellar(
     skips: Counter,
     motivo: str | None,
 ) -> None:
-    conn.execute(
-        _SQL_SELLAR_RUN,
-        (escritas, sum(skips.values()), motivo, ok, run_id),
+    sellar_run(
+        conn,
+        run_id,
+        ok=ok,
+        rows_written=escritas,
+        rows_skipped=sum(v for v in skips.values() if v > 0),
+        skip_reason=motivo,
     )
 
 

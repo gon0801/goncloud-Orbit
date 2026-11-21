@@ -47,6 +47,19 @@ import httpx
 import psycopg
 
 from app.redaction import install_scrub_filter, scrub
+from app.spapi._ingesta import (
+    HTTP_FATAL as _HTTP_FATAL,
+)
+from app.spapi._ingesta import (
+    HTTP_OMITIDO as _HTTP_OMITIDO,
+)
+from app.spapi._ingesta import (
+    abrir_run_spapi,
+    formato_skip_reason,
+    sellar_fallo_spapi,
+    sellar_spapi,
+    vigilar_umbral,
+)
 from app.spapi.client import (
     MERCADOS,
     VENDEDORES_PROPIOS,
@@ -54,7 +67,6 @@ from app.spapi.client import (
     SpapiClient,
     SpapiNoPermitida,
     construir_ruta_ofertas,
-    prefijo_motivo,
     sanear,
 )
 from app.spapi.salud import evaluar_alertas
@@ -76,27 +88,6 @@ MONEDAS = frozenset({"MXN", "USD"})
 _MAX_DINERO = Decimal(10) ** 10
 _MAX_DECIMALES = Decimal("0.0001")
 
-# F2: un ASIN malo no mata el pase, pero un muro si. 401 persistente y 429
-# agotado (el cliente ya reintento una vez) son fatales de inmediato; 5xx,
-# red y contrato cuentan y abortan al superar el 20 % de los ASIN vistos
-# (falla rapido contra un muro total) o 25 seguidos (muro tardio diluido
-# entre exitos). 403/404 son ausencia esperada: omiten sin contar.
-UMBRAL_FALLOS_PORC = 0.20
-UMBRAL_FALLOS_RACHA = 25
-_HTTP_OMITIDO = frozenset({403, 404})
-_HTTP_FATAL = frozenset({401, 429})
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source, platform) VALUES (%s, %s) RETURNING id"
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s,
-       llamadas = %s
- WHERE id = %s
-"""
 _SQL_UNIVERSO = "SELECT DISTINCT external_id FROM listing WHERE platform = %s ORDER BY 1"
 _SQL_INSERTAR = """
 INSERT INTO spapi_price_observation
@@ -423,19 +414,16 @@ def _vigilar_umbral(
     *,
     total: int | None = None,
 ) -> None:
-    # Ronda review A.5: el mensaje lleva el ULTIMO status HTTP visto para
-    # que prefijo_motivo lo clasifique (http_5xx en vez de "contrato" ante
-    # una caida de Amazon). Sin status (muerte solo por red/contrato),
-    # "desconocido" y cae en contrato como antes.
-    # Con universo grande (>=5), espera muestra minima de 5 para que el 1er
-    # ASIN raro no mate toda la corrida (1 > 0.20 * 1..4).
-    piso = 5 if total is not None and total >= 5 else 1
-    if (vistos >= piso and fallos > UMBRAL_FALLOS_PORC * vistos) or racha >= UMBRAL_FALLOS_RACHA:
-        status = ultimo_status if ultimo_status is not None else "desconocido"
-        raise IngestaPricingError(
-            f"pricing {asin}: umbral de fallos superado ({fallos}/{vistos},"
-            f" racha {racha}, ultimo status={status})"
-        )
+    vigilar_umbral(
+        asin,
+        fallos,
+        racha,
+        vistos,
+        ultimo_status,
+        fuente="pricing",
+        error_cls=IngestaPricingError,
+        total=total,
+    )
 
 
 @dataclass
@@ -585,10 +573,8 @@ def _fila_insert(
     )
 
 
-def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
+_formato_skip_reason = formato_skip_reason
+_sellar = sellar_spapi
 
 
 def ejecutar_ingesta(
@@ -617,8 +603,7 @@ def ejecutar_ingesta(
     propio = vendedor_propio or VENDEDORES_PROPIOS.get(marketplace_id)
     inicio = time.monotonic()
 
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE, platform)).fetchone()[0]
+    run_id = abrir_run_spapi(conn, SOURCE, platform)
 
     av = _Avance()
     try:
@@ -664,24 +649,16 @@ def ejecutar_ingesta(
         # (fail-silent: jamas rompe la ingesta).
         evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
-        try:
-            with conn.transaction():
-                _sellar(
-                    conn,
-                    run_id,
-                    ok=False,
-                    escritas=av.escritas,
-                    skips=av.skips,
-                    motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
-                    llamadas=av.llamadas,
-                )
-            evaluar_alertas(conn, SOURCE, platform, run_id)
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello; error: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        sellar_fallo_spapi(
+            conn,
+            run_id,
+            exc,
+            source=SOURCE,
+            platform=platform,
+            escritas=av.escritas,
+            skips=av.skips,
+            llamadas=av.llamadas,
+        )
         raise
     segundos = time.monotonic() - inicio
     return ResultadoIngesta(
@@ -689,26 +666,10 @@ def ejecutar_ingesta(
         ok=True,
         escritas=av.escritas,
         omitidas=sum(v for v in av.skips.values() if v > 0),
-        skip_reason=_formato_skip_reason(Counter({k: v for k, v in av.skips.items() if v > 0})),
+        skip_reason=_formato_skip_reason(av.skips),
         asins_vistos=av.vistas,
         llamadas=av.llamadas,
         segundos=segundos,
-    )
-
-
-def _sellar(
-    conn: psycopg.Connection,
-    run_id: int,
-    *,
-    ok: bool,
-    escritas: int,
-    skips: Counter,
-    motivo: str | None,
-    llamadas: int,
-) -> None:
-    conn.execute(
-        _SQL_SELLAR_RUN,
-        (escritas, sum(skips.values()), motivo, ok, llamadas, run_id),
     )
 
 
