@@ -38,9 +38,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.db import connect  # noqa: E402
-from app.optimizer.replay import replay_bid_con_target  # noqa: E402
-from app.redaction import scrub  # noqa: E402
+from app.db import connect
+from app.optimizer.replay import replay_bid_con_target
+from app.redaction import scrub
 
 _SQL_CICLO = """
 SELECT id, platform, notes FROM optimizer_cycle WHERE id = %s
@@ -162,7 +162,7 @@ def renglones(
                 raise ValueError("inputs ausentes o no-dict")
             res_m = replay_bid_con_target(inputs, manual)
             res_d = replay_bid_con_target(inputs, derivado)
-        except Exception as exc:  # noqa: BLE001 - ruidoso en la fila (docstring)
+        except Exception as exc:
             fila.update(
                 {
                     "kind_manual": None,
@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         conn = connect(dsn)
-    except Exception as exc:  # noqa: BLE001 - connect ya redacta el DSN
+    except Exception as exc:
         print(f"no se pudo conectar: {scrub(str(exc))}", file=sys.stderr)
         return 1
     try:
@@ -298,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             except ValueError as exc:
                 print(str(exc), file=sys.stderr)
                 return 2
-    except Exception as exc:  # noqa: BLE001 - lectura fallida, ruidosa
+    except Exception as exc:
         print(f"lectura fallida: {scrub(str(exc))}", file=sys.stderr)
         return 1
     finally:

@@ -782,7 +782,7 @@ def guarda_evaluaciones(
                     ).fetchone()[0]
                     if cerrado is not None:
                         cerrados.append(excluido.retiro_id)
-    except Exception as exc:  # noqa: BLE001 - el camino de productos jamas tumba el ciclo
+    except Exception as exc:
         return ResultadoGuardado({}, scrub(str(exc)) or type(exc).__name__)
     return ResultadoGuardado(ids, None, tuple(cerrados))
 

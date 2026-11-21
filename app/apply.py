@@ -111,11 +111,8 @@ from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PerfilAds, evaluar_perfiles
 
-# Re-export QW2 (cross-review del dueno): el state del REQUEST del PUT de
-# pause/resume vive SOLO en write.py (ESTADO_PUT_*); apply — el unico modulo
-# que puede importar write — lo re-exporta para que apply_cola/apply_harvest
-# usen LA constante. Cuando la corrida real del pause fije el enum, se toca
-# UN lugar (write.py) y el payload del ledger lo sigue.
+# Re-export para apply_cola/apply_harvest: solo app/apply.py importa app.ads.write,
+# asi el enum del PUT de pause/resume mantiene una sola fuente en write.py.
 from app.ads.write import (
     ESTADO_PUT_ENABLED as ESTADO_PUT_ENABLED,
 )
@@ -188,16 +185,9 @@ def perfil_aceptado_de(
     return None
 
 
-# Tope de paginaciones del LIST de readback (CX1/QW1 + CX6 de la
-# cross-review del dueno): una cuenta real trae >1000 keywords y el body {}
-# solo trae la PRIMERA pagina, asi que el readback recorre TODAS por
-# nextToken (patron sellado de structure.py MAX_PAGINAS / smoke TOPE_PAGINAS
-# / apply_harvest TOPE_PAGINAS_LIST) con tope: una lista que nunca termina no
-# cuelga el ciclo. RESIDUAL DECLARADO (reviewer): el page size real del list
-# v3 es 1000 (log del probe: 1334 keywords = 2 paginas), asi que 20 paginas
-# cubren ~20k filas (~15x la cuenta actual); si la cuenta algun dia supera
-# el tope, una entidad mas alla se manifiesta como "ausente" (misma falsa
-# divergencia que este fix elimina) — subir el tope ese dia.
+# Tope de paginas para readback por /list (page size v3 ~1000, cubre ~20k
+# filas): evita colgar el ciclo ante un nextToken infinito. Si la cuenta supera
+# este tope, una entidad mas alla aparece como ausente.
 TOPE_PAGINAS_READBACK = 20
 
 # Estados del WIRE en el readback por LIST. SELLADO por el probe 2.5
@@ -302,11 +292,6 @@ def registra_sin_aplicar(
         _SQL_SIN_APLICAR,
         (decision_id, cycle_id, motivo, Json(detalle) if detalle is not None else None),
     )
-
-
-# ---------------------------------------------------------------------------
-# Quota: motor, cap desde config, consumo atomico
-# ---------------------------------------------------------------------------
 
 
 # Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger
@@ -490,11 +475,6 @@ def evento_cap_saturado(conn: psycopg.Connection, platform: str, kind: str) -> C
     return CapSaturado(platform=platform, kind=kind, used=estado["used"], cap=estado["cap"])
 
 
-# ---------------------------------------------------------------------------
-# Decision bid: fila de la base, carga del ciclo, orden sellado bajo cap
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class DecisionBid:
     """Una decision kind='bid' lista para aplicar (espejo de la fila de
@@ -612,18 +592,12 @@ def orden_bajo_cupo(decisiones: list[DecisionBid]) -> list[DecisionBid]:
     return sorted(decisiones, key=_clave_cupo)
 
 
-# ---------------------------------------------------------------------------
-# SQL del ledger, el resumen y el cache
-# ---------------------------------------------------------------------------
-
 _SQL_IDENTIDAD = """
 SELECT kind, external_id FROM ad_entity WHERE id = %s
 """
 
-# CX1/GK1 (cross-review): el tope cuenta SOLO intentos 'normal' — las REVERSAS
-# son el mecanismo de seguridad (regla 7) y jamas consumen presupuesto de
-# intentos: un harvest completo (2 normal) + su reversa completa (2 reversa)
-# deja el reintento normal vivo.
+# El tope cuenta solo intentos 'normal': las reversas nunca consumen
+# presupuesto de reintentos.
 _SQL_COUNT_INTENTOS = """
 SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'
 """
@@ -719,14 +693,9 @@ def gate_ancestros(conn: psycopg.Connection, ad_entity_id: int) -> str | None:
     return None
 
 
-# ADV-04 (review adversaria, matriz §6.1 "Ledger sin sello - bid"): los BIDS
-# no viven en apply_queue, asi que su rastro de crash SOLO existe aqui. Solo
-# intentos 'normal' de decisions kind bid — reversa/probe quedan RESIDUALES
-# declarados (APPLY.md §13). Filtro de plataforma via el ciclo de la decision
-# (bug PR27-1: los locks del ciclo son POR plataforma — job_key_de —, asi que
-# el ciclo de una plataforma JAMAS reconcilia filas de la otra, como todos los
-# demas reconciliadores: _SQL_PAUSES_APLICANDO, _SQL_NEGATIVAS_APLICANDO,
-# _SQL_HARVEST_APLICANDO, _SQL_JOBS_EN_VUELO).
+# Los bids no viven en apply_queue: su unico rastro de crash es apply_attempt
+# sin finished_at. Se filtra por plataforma porque los locks de ciclo son por
+# plataforma (reversa y probe quedan fuera de reconciliacion).
 _SQL_INTENTOS_BID_SIN_SELLO = """
 SELECT a.id, a.decision_id, a.request_payload, d.ad_entity_id, d.new_value,
        d.value_currency
@@ -774,9 +743,8 @@ def reconcilia_bids(
     filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)).fetchall()
     if not filas:
         return (0, 0)
-    # Revision PR #136 (CodeRabbit): el cliente nace LAZY, despues del gate y
-    # solo para la primera fila elegible — sin credenciales/profile, _cliente()
-    # lanza y dejaria sin sellar intentos que el gate ya habia cerrado.
+    # Cliente lazy tras gate_ancestros: si faltan credenciales, las filas
+    # cerradas por el gate igualmente quedan selladas antes de construirlo.
     cliente = None
     confirmadas = fallidas = 0
     for id_attempt, decision_id, _payload, ad_entity_id, new_value, _moneda in filas:
@@ -798,9 +766,7 @@ def reconcilia_bids(
         kind, external_id = identidad
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
         try:
-            # Readback por LIST PAGINADO con el MISMO scope sellado (probe
-            # 2.5: el GET directo retirado; CX1/QW1: el body {} solo trae la
-            # primera pagina y la entidad puede vivir en la 2+).
+            # Amazon Ads v3 retiro el GET directo de entidad; readback via /list paginado.
             bid_leido = _bid_de_readback(cliente, path, contenedor, param, external_id)
         except AdsApiError:
             with conn.transaction():
@@ -1117,10 +1083,6 @@ def _tick(tick: Callable[[], None] | None) -> None:
         tick()
 
 
-# ---------------------------------------------------------------------------
-# Aplicador
-# ---------------------------------------------------------------------------
-
 _SQL_ENTIDAD_VIVA = """
 SELECT ag.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
   FROM ad_entity k
@@ -1281,9 +1243,8 @@ class Aplicador:
                 # request (mutacion, readback, listas y token LWA incluidos).
                 base = self._transport if self._transport is not None else httpx.HTTPTransport()
                 transport = _TransportGuardado(base, self._guard_http)
-            # ADV-07 (review adversaria): SIN el lambda no-op — el sleep solo
-            # viaja cuando el test lo inyecta; en produccion el write client
-            # conserva SU time.sleep real (backoff de 429 y refresh LWA).
+            # Solo inyectar sleep cuando lo provee el caller (tests) para
+            # conservar el backoff real de AdsWriteClient en produccion.
             extra: dict = {"sleep": self._sleep} if self._sleep is not None else {}
             self._write_client = AdsWriteClient(
                 self._credentials,
@@ -1317,8 +1278,8 @@ class Aplicador:
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
                 skips.append(MOTIVO_MODO_NO_LIVE)
-                # Review IA #345 (M1): una decision ya aplicada no se registra
-                # como no-apply aunque el re-run la vea fuera de live.
+                # Una decision ya aplicada no se registra como no-apply si un re-run
+                # la ve fuera de live.
                 if not _ya_aplicada(self._conn, decision.id):
                     registra_sin_aplicar(
                         self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
@@ -1342,9 +1303,8 @@ class Aplicador:
                     self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_ENTIDAD_NO_DECISORA
                 )
                 continue
-            # GK5/QW2: el tope se chequea ANTES del cobro — la unidad NO se
-            # quema en una decision ya a tope (el _ledger re-chequea igual
-            # como red de seguridad ante carreras).
+            # Verificar tope antes de cobrar quota para no quemar unidades en
+            # decisiones agotadas (_ledger vuelve a verificar ante carreras).
             if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (
                 TOPE_INTENTOS
             ):
@@ -1384,8 +1344,6 @@ class Aplicador:
             elif resultado_bid:
                 aplicadas += 1
             else:
-                # GK10/QW4: la mutacion SALIO y Amazon quedo con OTRO bid —
-                # observable en el campo propio del resultado.
                 divergencias += 1
         return ResultadoAplicador(
             orden=[d.id for d in ordenadas],
@@ -1425,8 +1383,6 @@ class Aplicador:
         _tick(self._tick_fn)
         bid_leido = self._readback(cliente, identidad)
         verify_ok = bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.new_value))
-        # QW1: la divergencia sella SIEMPRE la misma etiqueta que la
-        # reconciliacion (antes 'ok' con verify_ok False).
         resultado = (
             "ok"
             if verify_ok
@@ -1461,11 +1417,6 @@ class Aplicador:
         kind, external_id = identidad
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
         return _bid_de_readback(cliente, path, contenedor, param, external_id)
-
-
-# ---------------------------------------------------------------------------
-# Reversa de bid (regla 7)
-# ---------------------------------------------------------------------------
 
 
 def reversa_bid(
@@ -1511,10 +1462,7 @@ def reversa_bid(
     ack = _json_seguro(resp_http)
     _tick(tick)
     _, path, contenedor, param = _KINDS_DECISORAS[identidad[0]]
-    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1),
-    # scope sellado.
     bid_leido = _bid_de_readback(cliente, path, contenedor, param, identidad[1])
-    # QW1: misma etiqueta de divergencia que el apply y la reconciliacion.
     resultado = (
         "ok"
         if bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.old_value))
@@ -1526,10 +1474,6 @@ def reversa_bid(
             _actualiza_cache(conn, decision.ad_entity_id, bid_leido)
     return bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.old_value))
 
-
-# ---------------------------------------------------------------------------
-# Reversa MANUAL (ORBIT 04, task 3.1): el unico AdsWriteClient fuera del ciclo
-# ---------------------------------------------------------------------------
 
 # La decision de bid POR ID (columnas de DecisionBid + ciclo para plataforma:
 # UNA fuente — la plataforma es la del ciclo que decidio, jamas un parametro
@@ -1552,17 +1496,15 @@ _SQL_PLATAFORMA_FILA = """
 SELECT platform::text FROM apply_queue WHERE id = %s
 """
 
-# El ack del ULTIMO intento normal ok de la decision: de ahi sale SIEMPRE el
-# negative_id del DELETE (ADV-2: una sola fuente — el body no lo acepta).
+# Ultimo ack normal ok de la decision: unica fuente del negative_id para DELETE.
 _SQL_ACK_OK = """
 SELECT ack FROM apply_attempt
  WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok'
  ORDER BY seq DESC LIMIT 1
 """
 
-# ADV-3: una reversa confirmada por decision — sin esto, el endpoint
-# despachaba HTTP real ilimitado en loop (las reversas estan exentas de quota
-# y del tope-3, y la fila de la cola no cambia de estado al revertir).
+# Exige maximo una reversa confirmada por decision: las reversas no consumen
+# quota ni tope de intentos ni cambian el estado en apply_queue.
 _SQL_REVERSA_OK = """
 SELECT EXISTS (
     SELECT 1 FROM apply_attempt
@@ -1707,10 +1649,6 @@ def reversa_manual(
 
     raise ValueError(f"tipo de reversa desconocido: {tipo!r} (bid|pause|negative)")
 
-
-# ---------------------------------------------------------------------------
-# Regreso del dueno (BIDS 02, M.5): la hoja vuelve al bid anterior a su racha
-# ---------------------------------------------------------------------------
 
 ORIGEN_REGRESO_DUENO = "regreso_del_dueno"
 
@@ -1921,10 +1859,6 @@ def regreso_del_dueno_todas(
             salidas.append(f"hoja {hoja.hoja_id}: {exc}")
     return tuple(salidas)
 
-
-# ---------------------------------------------------------------------------
-# Ajustes de campana del dueno (BIDS 02, V.3): aplica y regresa
-# ---------------------------------------------------------------------------
 
 GO_AJUSTE = "APLICAR AJUSTE"
 GO_REGRESO_AJUSTE = "REGRESAR AJUSTE"

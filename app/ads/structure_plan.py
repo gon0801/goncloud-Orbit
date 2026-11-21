@@ -49,11 +49,6 @@ class _ItemEntidad:
     asin: str | None = None  # solo product_ad; llave de join a listing.external_id
 
 
-# ---------------------------------------------------------------------------
-# Planificacion pura (sin DB): items validos + skips con motivo
-# ---------------------------------------------------------------------------
-
-
 def _bid_decimal(valor: object, campo: str) -> Decimal | None:
     """Convierte un bid del payload a Decimal (via str, sin meter float a NUMERIC).
 
@@ -273,9 +268,8 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
         platform = est.perfil.platform or ""
         moneda = est.perfil.moneda
         conocidos: set[tuple[str, str, str]] = set()
-        # adGroupId -> campaignId con el que se planifico el ad group (para
-        # validar la coherencia del campaignId que keyword/target traen DE
-        # MAS en su payload; hallazgo cross-review codex, ronda 3).
+        # adGroupId -> campaignId del ad group planificado, para validar el
+        # campaignId redundante que traen keywords, targets y product ads.
         campana_del_ad_group: dict[str, str] = {}
 
         for payload in est.campanas:

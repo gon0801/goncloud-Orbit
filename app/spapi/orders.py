@@ -162,9 +162,8 @@ def _parsear_dinero(obj: Any) -> tuple[Decimal | None, str | None]:
     # la identidad es orden + tiempo, no el total (regla 3).
     if not isinstance(obj, dict):
         return None, None
-    # Respaldo por None, no por falsy (revision PR #240): una clave v0
-    # presente con null no tapa la clave 2026, y un Amount de 0 no cae al
-    # respaldo (0 es un monto legitimo).
+    # Respaldo solo por None (no falsy): un Amount de 0 es valido y un null
+    # en la clave v0 no debe tapar la clave 2026.
     moneda = obj.get("CurrencyCode")
     if moneda is None:
         moneda = obj.get("currencyCode")
@@ -478,15 +477,9 @@ def ejecutar_ingesta(
                 else:
                     skips["duplicada"] += 1
             motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
-            # Revision PR #240: paginacion incompleta (token repetido,
-            # pagina vacia con token, tope de paginas) NO es exito. La
-            # ventana NO se contiene: se calcula con max(last_updated_time)
-            # de la tabla y las filas parciales ya quedaron escritas, asi
-            # que la siguiente corrida SI avanza sobre el hueco. Lo que el
-            # sello ok=false garantiza es VISIBILIDAD: el hueco queda
-            # marcado en ingest_run (ok + skip_reason) para que el operador
-            # lo repare con --desde (CodeRabbit PR #240). El sello conserva
-            # el detalle de skips ya calculado, no lo descarta.
+            # Paginacion incompleta no es exito: las filas parciales ya se
+            # escriben y el siguiente watermark avanza sobre el hueco, asi que
+            # ok=False deja rastro en ingest_run para reparar con --desde.
             if aviso is not None:
                 motivo_aviso = f"paginacion_incompleta:{aviso}"
                 if motivo:

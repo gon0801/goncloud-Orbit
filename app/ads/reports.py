@@ -299,10 +299,8 @@ def _registrar_resultado(
 # Tope de rango de la API (verificado: spCampaigns max 31 dias).
 MAX_RANGO_DIAS = 31
 
-# Tope de descarga (hallazgo codex): un backfill legitimo de 31 dias son unos
-# pocos MB; 512 MB solo lo alcanza un gzip anormal (bug de la API o payload
-# corrupto). Dos guardas fail-closed: el fileSize del poll ANTES de descargar
-# y el tamano real tras descargar.
+# Tope fail-closed de descarga (se valida en fileSize del poll y tras bajar):
+# un backfill de 31 dias pesa pocos MB; 512 MB indica payload anormal.
 MAX_BYTES_REPORTE = 512 * 1024 * 1024
 
 # Metricas comunes a los tres reportes de metricas (verificado en vivo): el
@@ -411,12 +409,9 @@ _SQL_ENTIDADES = """
     WHERE platform = %s AND kind = %s AND external_id = ANY(%s)
 """
 
-# El instante del guard de dia cerrado sale del MISMO reloj que escribe
-# observed_at (now() de la DB, constante dentro de la transaccion; hallazgo
-# grok). Se lee como timestamptz (instante con zona, sin depender de la
-# TimeZone de la sesion) y cada reporte saca de el su ultimo_dia_cerrado en
-# la zona de su plataforma (app.dia_cerrado, ARREGLOS 03 D-E). Se calcula en
-# la misma transaccion que abre la run.
+# Mismo reloj transaccional que observed_at (now() de la DB, timestamptz
+# independiente de la TimeZone de sesion) para calcular el ultimo dia cerrado
+# en la zona de cada plataforma.
 _SQL_FECHA_HOY = "SELECT now()"
 
 # Append-only (regla 5): JAMAS UPDATE. El ON CONFLICT apunta al indice parcial
@@ -577,11 +572,6 @@ class ResumenReporte:
     skip_reason: str | None
 
 
-# ---------------------------------------------------------------------------
-# IO de API: solicitar / esperar / descargar
-# ---------------------------------------------------------------------------
-
-
 def _json_de(resp, metodo: str, path: str):
     try:
         return resp.json()
@@ -667,11 +657,6 @@ def descargar_filas(client: AdsClient, url: str) -> list[dict]:
     if not isinstance(filas, list) or any(not isinstance(fila, dict) for fila in filas):
         raise AdsReportsError("descarga del reporte no es un array JSON de filas")
     return filas
-
-
-# ---------------------------------------------------------------------------
-# Planificacion pura (sin DB): filas validas + skips con motivo
-# ---------------------------------------------------------------------------
 
 
 def _decimal_reporte(valor: object, campo: str) -> Decimal | None:
@@ -796,10 +781,8 @@ def _planea_filas(
             and ad_revenue is not None
             and revenue_same_sku > ad_revenue
         ):
-            # Vocabulario CERRADO de motivos (hallazgo reviewer): el detalle
-            # por fila va al log; la clave del contador tiene que tener
-            # cardinalidad acotada o un backfill de 31 dias llena skip_reason
-            # de miles de claves 1x.
+            # Clave de cardinalidad acotada (el detalle por fila va al log)
+            # para evitar miles de claves en skip_reason durante un backfill.
             skips["fila con revenue_same_sku > ad_revenue"] += 1
             logger.debug(
                 "same_sku > ad_revenue en %s %s (%s > %s)",
@@ -825,11 +808,8 @@ def _planea_filas(
     return plan, skips
 
 
-# Clasificador ASIN-like: EXACTAMENTE 10 caracteres alfanumericos ASCII que
-# empiezan con "B0", case-insensitive, full-match. re.ASCII + IGNORECASE: sin
-# el flag ASCII, [0-9a-z] deja pasar signos Unicode que case-foldean a ASCII
-# (U+212A Kelvin -> "k"; hallazgo verifier) y el criterio documentado es
-# ASCII-strict.
+# re.ASCII evita que IGNORECASE acepte signos Unicode con case-folding a ASCII
+# (como U+212A Kelvin -> "k").
 _RE_ASIN = re.compile(r"^b0[0-9a-z]{8}$", re.IGNORECASE | re.ASCII)
 
 
@@ -1002,11 +982,8 @@ def _planea_filas_terminos(
                 clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
             )
             continue
-        # Negativos = dato corrupto y la corrida ABORTA (fail-closed), igual
-        # que el CHECK st_metric_no_negativos hace para metricas: alla la base
-        # ve cada fila cruda, pero la FUSION podria compensar un negativo con
-        # un positivo hermano y colarlo (hallazgos codex+grok, cross-review
-        # 1.5) -- este nivel de corrupcion se quiere VER, no tragar.
+        # Validar negativos antes de fusionar: un positivo hermano podria
+        # compensarlos y ocultarlos al CHECK st_metric_no_negativos.
         if (
             (cost is not None and cost < 0)
             or (ad_revenue is not None and ad_revenue < 0)
@@ -1050,17 +1027,9 @@ def _planea_filas_terminos(
                 search_term,
                 metric_date,
             )
-            # [review PR #11, minor obligatorio] Gate POST-fusion: un par
-            # complementario (cada fila trae metricas que la otra no)
-            # envenena TODAS las metricas de la clave. Una observacion 100%
-            # vacia NO se escribe: taparia datos completos anteriores en el
-            # colapso a-la-mas-reciente (mismo hallazgo alto que 1.3 cerro
-            # para metricas). La clave queda ENVENENADA para todo el reporte
-            # (ARREGLOS 03 D-G, TN05): una fila posterior de la misma clave ya
-            # no la recrea con solo sus valores (seria un subtotal publicado
-            # como completo). Contablemente la previa retirada cuenta como
-            # "fila de clave envenenada (subtotal parcial)" (ademas del
-            # "agregada" de la absorbida): written + skipped == filas cuadra.
+            # Si la fusion dejo todas las metricas en None, se retira y
+            # envenena la clave para no escribir una fila vacia que tape
+            # observaciones previas ni publicar luego un subtotal parcial.
             if (
                 previa.cost is None
                 and previa.ad_revenue is None
@@ -1218,10 +1187,8 @@ def _planea_filas_productos(
     plan: list[_FilaProducto] = []
     skips: Counter[str] = Counter()
     por_clave: dict[tuple[str, str, dt.date], _FilaProducto] = {}
-    # Veneno ADHESIVO (hallazgo cross-review codex 2026-09-07): una clave cuya
-    # fusion quedo 100% vacia se descarta, pero una fila posterior del mismo
-    # (asin, sku, fecha) NO puede recrearla con solo sus valores: publicaria
-    # un subtotal parcial como completo dependiendo del orden del gzip.
+    # Claves invalidadas para todo el reporte: impide que una fila posterior
+    # recree la clave y publique un subtotal parcial segun el orden del gzip.
     envenenadas: set[tuple[str, str, dt.date]] = set()
 
     for fila in filas:
@@ -1308,11 +1275,8 @@ def _planea_filas_productos(
             and purchases is not None
             and purchases_same_sku > purchases
         ):
-            # Pre-check por fila cruda (vocabulario CERRADO): sin el, el CHECK
-            # apm_same_sku_cabe abortaria el LOTE entero en la base. La fila se
-            # descarta y ENVENENA la clave: sus ventas son ininterpretables, y
-            # el subtotal de otra campana no puede publicarse como completo
-            # (hallazgo cross-review 2026-09-07, 2a ronda).
+            # Pre-check para evitar que apm_same_sku_cabe aborte el lote entero;
+            # envenena la clave para no publicar un subtotal parcial de otra campana.
             skips["fila con metrica same_sku mayor que el total"] += 1
             logger.debug(
                 "same_sku > total en producto %s/%s (%s/%s vs %s/%s)",
@@ -1401,11 +1365,6 @@ def _planea_filas_productos(
     return plan, skips
 
 
-# ---------------------------------------------------------------------------
-# IO de DB: ingest_metrics
-# ---------------------------------------------------------------------------
-
-
 def ingest_metrics(
     conn: psycopg.Connection,
     perfil: PerfilAds,
@@ -1461,8 +1420,7 @@ def ingest_metrics(
     for fila in plan:
         entidad_id = ids.get(fila.external_id)
         if entidad_id is None:
-            # Clave generica por kind (cardinalidad acotada); el id exacto va
-            # al log (hallazgo reviewer).
+            # Clave por kind (cardinalidad acotada); el id exacto va al log.
             skips[f"entidad ausente en ad_entity ({kind})"] += 1
             logger.debug(
                 "entidad ausente en ad_entity: %s %s (correr sync de estructura)",
@@ -1697,11 +1655,6 @@ def ingest_productos(
     )
 
 
-# ---------------------------------------------------------------------------
-# Rango de fechas + escritor por grupo (el orquestador es app.ads.diario)
-# ---------------------------------------------------------------------------
-
-
 def _validar_rango(fecha_ini: dt.date, fecha_fin: dt.date) -> None:
     """El rango de los reportes: [fecha_ini, fecha_fin], max MAX_RANGO_DIAS."""
     dias = (fecha_fin - fecha_ini).days + 1
@@ -1752,10 +1705,8 @@ def escribir_grupo(
                 filas = item.filas
                 perfil_actual, cfg_actual, report_id_actual = perfil, cfg, report_id
                 ultimo_cerrado = ultimo_dia_cerrado(perfil.platform, ahora)
-                # Dispatch por tabla (clave "tabla" solo la llevan search
-                # terms y productos): mismo camino, un solo dueno por tabla.
-                # Un valor desconocido es fail-closed, jamas "caer" al camino
-                # de metricas (hallazgo reviewer).
+                # Despacho fail-closed por tabla: un valor desconocido falla en
+                # lugar de caer en ingest_metrics.
                 tabla = cfg.get("tabla")
                 if tabla is None:
                     resultado = ingest_metrics(

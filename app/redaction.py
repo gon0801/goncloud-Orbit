@@ -18,14 +18,8 @@ from urllib.parse import urlsplit, urlunsplit
 _lock = threading.Lock()
 _secrets: list[str] = []
 
-#  El grupo password es codicioso (`.*`) y el suffix exige el ULTIMO `@`
-#  (`@[^@]*$`, sin `@` internos, anclado a fin de cadena): el backtracking
-#  codicioso empuja el corte al ultimo `@` de la cadena, asi que una
-#  password con `@` literal (ej. `fake@pw@123`) se captura COMPLETA en vez
-#  de cortarse en el primer `@` (bug real: dejaba el resto sin redactar).
-#  El `\s*` inicial tolera espacios accidentales (un `.env` con espacio de
-#  mas es un clasico): sin el, un DSN con espacio inicial no matcheaba y la
-#  password quedaba SIN redactar (bug real, cross-review Codex ronda 1).
+# `.*` codicioso hasta el ultimo `@` captura passwords que contienen `@` literal;
+# `\s*` inicial evita dejar sin redactar DSNs con espacio accidental al inicio.
 _DSN_URL_PASSWORD_RE = re.compile(
     r"^(?P<prefix>\s*\w[\w+]*://[^:/@]*:)(?P<password>.*)(?P<suffix>@[^@]*)$"
 )
@@ -126,12 +120,10 @@ class SecretScrubFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:  # noqa: BLE001 - nunca debe tumbar el logging
-            # Fail-closed (hallazgo adversary 2026-09-10): con args mal
-            # formados getMessage() levanta y devolver True dejaba el record
-            # crudo; logging imprimia el secreto en el "--- Logging error
-            # ---". Literal fijo y args limpios: se pierde el mensaje,
-            # nunca el secreto.
+        except Exception:
+            # Fail-closed: si getMessage() falla por args mal formados, dejar
+            # el record crudo haria que logging imprima el secreto al emitir
+            # el error de formato.
             record.msg = "<log-no-formateable>"
             record.args = ()
             return True

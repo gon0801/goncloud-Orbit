@@ -46,9 +46,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.db import connect  # noqa: E402
-from app.disponibilidad import DisponibilidadError, sync_disponibilidad  # noqa: E402
-from app.redaction import install_scrub_filter, scrub  # noqa: E402
+from app.db import connect
+from app.disponibilidad import DisponibilidadError, sync_disponibilidad
+from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     except DisponibilidadError as exc:
         print(scrub(f"fallo la ingesta de disponibilidad: {exc}"), file=sys.stderr)
         return 1
-    except Exception as exc:  # noqa: BLE001 (tool: cualquier fallo -> exit != 0)
+    except Exception as exc:
         print(scrub(f"fallo la ingesta de disponibilidad: {exc}"), file=sys.stderr)
         return 1
     finally:

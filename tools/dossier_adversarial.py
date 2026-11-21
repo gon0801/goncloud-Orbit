@@ -24,9 +24,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.db import connect  # noqa: E402
-from app.optimizer.replay import reproduce  # noqa: E402
-from app.redaction import scrub  # noqa: E402
+from app.db import connect
+from app.optimizer.replay import reproduce
+from app.redaction import scrub
 
 # Preconfirmacion plan orbit-05 2.1: JAMAS tokens/headers/profile ids/ids de cuenta;
 # SI viajan datos comerciales (keyword, gasto, ventas, bids, ids keyword/target Amazon).

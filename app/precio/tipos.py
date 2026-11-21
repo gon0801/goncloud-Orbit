@@ -275,9 +275,6 @@ def convertir(importe: Importe, tasa: TasaFx) -> Convertido:
     return Convertido(original=importe, en=en, tasa=tasa)
 
 
-# --- Envio (L) con origen: un imputado no se puede confundir con un medido ---
-
-
 @dataclass(frozen=True)
 class MuestraEnvio:
     """Fila de `precio_envio_muestra` ya leida (evidencia de `L`)."""

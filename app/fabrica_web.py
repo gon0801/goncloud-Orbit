@@ -343,15 +343,8 @@ def catalogo(conn, plataforma: str, as_of: dt.datetime | None = None) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Evaluacion del catalogo (ORBIT 19 B.4): adaptador DB -> modulo puro
-# app/evaluacion_catalogo.py. Aqui SOLO consultas; la logica de etiquetas y
-# ratios vive en el modulo puro (sin IO).
-# ---------------------------------------------------------------------------
-
 # Colapso a la observacion mas reciente por (asin, sku, metric_date): la tabla
-# es append-only y el cron D-31..D-1 re-observa cada fecha ~31 veces; sin este
-# colapso, sumar doblaria gasto/ventas (hallazgo bloqueante B.R).
+# es append-only y el cron re-observa cada fecha ~31 veces; sin esto sumar duplicaria cifras.
 _SQL_ADS_VENTANA = """
 SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
        advertised_asin, advertised_sku, metric_date, observed_at, clicks, cost,
@@ -517,11 +510,9 @@ def evaluacion(
                 objetivos_grupos=(objetivo,)
                 if objetivo is not None
                 else objetivos.get(listing_id, ()),
-                # Moneda de Ads = la del PERFIL (amazon_us -> USD), no la de la
-                # economia: para US el ledger puede venir en MXN y las cifras
-                # Ads son USD (hallazgo cross-review codex 2026-09-07). El mapa
-                # de esta capa es fp.MONEDA_POR_PLATAFORMA (alias sellado del
-                # del motor); app.ads.write esta fuera por el guard de imports.
+                # Moneda de Ads = la del perfil (amazon_us -> USD), no la del
+                # ledger (que puede venir en MXN). Usa fp.MONEDA_POR_PLATAFORMA
+                # porque app.ads.write queda fuera por el guard de imports.
                 moneda_ads=fp.MONEDA_POR_PLATAFORMA[plataforma],
             )
         )
@@ -736,13 +727,6 @@ def operar(lote: str, accion: str, confirmacion: str) -> dict:
         except Exception as exc:
             raise _fallo_operacion(exc, lote) from None
         return detalle_lote(conn, lote)
-
-
-# ---------------------------------------------------------------------------
-# JEV 2.2: export del preview (plan + huella + filas fuente de semillas) y
-# asesoria visible por huella. SOLO lectura de fuentes y de jev_*: exportar
-# no escribe en la base ni llama a TypeSafe, y jamas toca la biblioteca.
-# ---------------------------------------------------------------------------
 
 
 def exportar_semillas(conn, solicitud: dict) -> dict:

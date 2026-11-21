@@ -323,10 +323,6 @@ class AdsWriteClient(AdsClient):
         # Scope SELLADO a la instancia: TODA mutacion sale con este profile.
         self._profile_id = str(profile_id)
 
-    # ------------------------------------------------------------------
-    # Superficie publica EXACTA: bids, estados, negatives, keywords
-    # ------------------------------------------------------------------
-
     def actualizar_bid_keyword(
         self, keyword_id: str | int, bid: Decimal, moneda: str
     ) -> httpx.Response:
@@ -595,10 +591,6 @@ class AdsWriteClient(AdsClient):
         `body` es el filtro de paginacion ({} primera pagina). Misma regla
         que get_sellado: el profile JAMAS viaja a mano — vive en la instancia."""
         return self.list_objects(path, body, profile_id=self._profile_id)
-
-    # ------------------------------------------------------------------
-    # Despacho central: guard allowlist + scope sellado + no-idempotente
-    # ------------------------------------------------------------------
 
     def _verificar_moneda(self, moneda: str) -> None:
         """Regla 4: la moneda del payload se verifica contra la moneda de la

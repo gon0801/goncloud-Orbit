@@ -125,9 +125,6 @@ from app.optimizer.windows import TerminosCortes
 if TYPE_CHECKING:
     import psycopg
 
-# ---------------------------------------------------------------------------
-# Constantes selladas (fuente: plans/orbit-03.md task 2.3 + diseno v2)
-# ---------------------------------------------------------------------------
 
 # CORTES 01 (1.2/1.4): NI el umbral de clicks NI el piso de cost del camino
 # negative viven aqui. Ambos llegan RESUELTOS por parametro
@@ -194,11 +191,6 @@ def normaliza_texto(texto: str) -> str:
     return _normaliza_texto(texto)
 
 
-# ---------------------------------------------------------------------------
-# Estructuras (config que llega resuelta + resultado auditable)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ConfigHarvest:
     """Config de harvest del goal, ya resuelta por el orquestador (2.4/3.1):
@@ -230,11 +222,6 @@ class ResultadoTermino:
     window_start: dt.date | None
     window_end: dt.date | None
     data_observed_at: dt.datetime | None
-
-
-# ---------------------------------------------------------------------------
-# Motor (PURO: cero IO en las decisiones)
-# ---------------------------------------------------------------------------
 
 
 def _config_completa(config: ConfigHarvest | None) -> bool:
@@ -330,9 +317,8 @@ def decide_hygiene(
             if t.clicks is None or t.cost is None:
                 motivo = MOTIVO_DATO_FALTANTE
             elif t.metric_currency != moneda:
-                # Misma defensa que bid/harvest: el umbral de cost esta en la
-                # moneda de la plataforma y la capa pura no puede confiar
-                # solo en el trigger de DB (hallazgo grok, ronda 1).
+                # El umbral de cost esta en la moneda de la plataforma; la capa
+                # pura valida moneda sin asumir el trigger de DB.
                 motivo = MOTIVO_MONEDA_INCOHERENTE
             elif t.clicks >= umbral_negative and t.cost >= umbral_cost:
                 resultados.append(
@@ -351,9 +337,7 @@ def decide_hygiene(
             else:
                 motivo = MOTIVO_SIN_UMBRAL_NEGATIVE
         elif t.orders < HARVEST_ORDERS_MIN:
-            # (5) ni negative (hay venta) ni harvest (no alcanza el minimo):
-            # con el sellado actual orders==1, pero la regla vive en la
-            # constante, no en la caida del else (hallazgo grok, ronda 1)
+            # (5) hay venta pero no alcanza el minimo de harvest
             motivo = MOTIVO_SIN_BANDA
         else:
             # (6) camino HARVEST (orders >= 2)
@@ -369,12 +353,8 @@ def decide_hygiene(
                 _normaliza_texto(t.search_term) in keywords_norm
                 or _normaliza_texto(t.search_term) in _harvest_norm
             ):
-                # Duplicado contra la estructura PREEXISTENTE o contra lo que
-                # ESTA MISMA LLAMADA ya decidio harvestear: dos terminos de la
-                # entidad que difieren solo en casing/espacios ("Yoga Mat" vs
-                # "yoga mat") crearian la MISMA keyword EXACT dos veces en PR2
-                # (hallazgo qwen, ronda 3 -- el dedupe entre entidades de un
-                # mismo ciclo queda en 3.1, declarado).
+                # Evita duplicar keywords EXACT contra la estructura existente
+                # o contra otro termino normalizado en esta misma llamada.
                 motivo = MOTIVO_HARVEST_DUPLICADO
             elif t.metric_currency != moneda:
                 motivo = MOTIVO_MONEDA_INCOHERENTE
@@ -397,18 +377,9 @@ def decide_hygiene(
     return tuple(resultados)
 
 
-# ---------------------------------------------------------------------------
-# Parte con IO (SOLO lecturas; el conn llega por parametro)
-# ---------------------------------------------------------------------------
-
-# Keywords EXACT de la campana destino, via ad_entity (el comentario de la
-# tabla declara que keyword_text/match_type existen PARA este duplicate-check,
-# sin parsear payloads). match_type='EXACT' sellado: el harvest crea keyword
-# EXACT y una PHRASE con el mismo texto NO es duplicado. La campana se
-# direcciona por external_id (harvest_campaign_id del goal) recorriendo
-# keyword -> ad_group -> campaign por parent_id. La igualdad de plataforma en
-# TODA la cadena es defensa ante datos degenerados (una FK de parent cruzando
-# plataforma no la impide ningun CHECK del esquema; hallazgo qwen, ronda 3).
+# Keywords EXACT de la campana destino (PHRASE con el mismo texto no es
+# duplicado). La igualdad de plataforma en toda la cadena protege contra
+# parent_id cruzando plataformas, que el esquema no impide por CHECK.
 _SQL_KEYWORDS_CAMPANA = """
 SELECT k.keyword_text
   FROM ad_entity k

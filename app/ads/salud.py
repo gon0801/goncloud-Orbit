@@ -319,7 +319,7 @@ def intentar_procesar_run(conn: Any, run_id: int) -> None:
     """El canal de salud jamas cambia el resultado contable de ingesta."""
     try:
         procesar_run(conn, run_id)
-    except Exception as exc:  # noqa: BLE001 - aviso auxiliar
+    except Exception as exc:
         logger.warning("ads salud: no pude procesar run %s: %s", run_id, scrub(str(exc)))
 
 

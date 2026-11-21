@@ -171,7 +171,7 @@ def evaluar_alertas(conn: Any, fuente: str, platform: str, run_id: int) -> None:
                 notifica_spapi_fallo(fuente, platform, motivo)
         elif _racha_fallida(ultimas):
             notifica_spapi_fallo(fuente, platform, motivo)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (contrato A.5)
+    except Exception as exc:
         logger.warning(
             "spapi salud: evaluar_alertas(%s/%s) no pudo correr: %s",
             fuente,

@@ -834,11 +834,6 @@ def ingest_meli_ads(
     }
 
 
-# ---------------------------------------------------------------------------
-# main del pipeline (el CLI despacha aqui; cero logica de argparse en el CLI)
-# ---------------------------------------------------------------------------
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.cli ingest meli-ads",

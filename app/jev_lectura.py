@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, cast, get_args
 from uuid import UUID
 
 from app.jev_ads import (
@@ -31,6 +31,7 @@ from app.jev_ads import (
     _con_estado_ausente,
     _solo_no_activo,
     es_asin_like,
+    es_plataforma_amazon,
 )
 
 Lectura = Literal[
@@ -41,6 +42,9 @@ Lectura = Literal[
     "sin_lectura",
 ]
 LecturaDestino = Literal["destino_corresponde", "destino_ajeno", "sin_lectura"]
+RelevanciaTexto = Literal["corresponde", "ajena", "sin_veredicto", "no_evaluada"]
+Moneda = Literal["MXN", "USD"]
+MotivoNoEvaluada = Literal["sin_cupo", "tope_cero", "sin_api_key", "proveedor_caido"]
 
 MotivoSinLectura = Literal[
     "dato_de_venta_faltante",
@@ -261,7 +265,7 @@ class NoEvaluada:
     """No se le pregunto a Jev por ningun par: sin cupo, tope 0 o sin api
     key. Distinto de Indeterminado y jamas evidencia."""
 
-    motivo: Literal["sin_cupo", "tope_cero", "sin_api_key", "proveedor_caido"]
+    motivo: MotivoNoEvaluada
 
 
 @dataclass(frozen=True)
@@ -667,7 +671,7 @@ def _json_lista(valor: object) -> list:
 
 def _como_fecha(valor: object) -> date | None:
     if valor is None or isinstance(valor, date):
-        return valor  # type: ignore[return-value]
+        return valor
     if isinstance(valor, str):
         return date.fromisoformat(valor)
     raise ValueError(f"fecha de fila ilegible: {valor!r}")
@@ -675,7 +679,7 @@ def _como_fecha(valor: object) -> date | None:
 
 def _como_instante(valor: object) -> datetime | None:
     if valor is None or isinstance(valor, datetime):
-        return valor  # type: ignore[return-value]
+        return valor
     if isinstance(valor, str):
         return datetime.fromisoformat(valor)
     raise ValueError(f"instante de fila ilegible: {valor!r}")
@@ -683,12 +687,87 @@ def _como_instante(valor: object) -> datetime | None:
 
 def _como_dinero(valor: object) -> Decimal | None:
     if valor is None or isinstance(valor, Decimal):
-        return valor  # type: ignore[return-value]
+        return valor
     if isinstance(valor, (int, str)):
         return Decimal(str(valor))
     if isinstance(valor, float):
         return Decimal(repr(valor))
     raise ValueError(f"importe de fila ilegible: {valor!r}")
+
+
+def _req[T](valor: T | None, campo: str) -> T:
+    if valor is None:
+        raise ValueError(f"{campo} faltante en fila")
+    return valor
+
+
+def _req_int(valor: object, campo: str) -> int:
+    if isinstance(valor, int) and not isinstance(valor, bool):
+        return valor
+    raise ValueError(f"{campo} de fila ilegible: {valor!r}")
+
+
+def _opt_int(valor: object, campo: str) -> int | None:
+    return None if valor is None else _req_int(valor, campo)
+
+
+def _req_str(valor: object, campo: str) -> str:
+    if isinstance(valor, str):
+        return valor
+    raise ValueError(f"{campo} de fila ilegible: {valor!r}")
+
+
+def _req_uuid(valor: object) -> UUID:
+    if isinstance(valor, UUID):
+        return valor
+    if isinstance(valor, str):
+        return UUID(valor)
+    raise ValueError(f"senal_id de fila ilegible: {valor!r}")
+
+
+def _como_vocab[T: str](valor: object, validos: tuple[T, ...], campo: str) -> T:
+    for opcion in validos:
+        if valor == opcion:
+            return opcion
+    raise ValueError(f"{campo} de fila fuera de vocabulario: {valor!r}")
+
+
+def _como_plataforma(valor: object) -> PlataformaAmazon:
+    if es_plataforma_amazon(valor):
+        return valor
+    raise ValueError(f"plataforma de fila fuera de vocabulario: {valor!r}")
+
+
+def _como_motivo_no_evaluada(valor: str) -> MotivoNoEvaluada:
+    for opcion in cast(tuple[MotivoNoEvaluada, ...], get_args(MotivoNoEvaluada)):
+        if valor == opcion:
+            return opcion
+    return "sin_cupo"
+
+
+def _como_productos_ok(valor: object) -> tuple[int, ...]:
+    if valor is None:
+        return ()
+    if isinstance(valor, (list, tuple)):
+        return tuple(_req_int(item, "productos_ok") for item in valor)
+    raise ValueError(f"productos_ok de fila ilegible: {valor!r}")
+
+
+def _como_str_set(valor: object, campo: str) -> frozenset[str]:
+    if valor is None:
+        return frozenset()
+    if isinstance(valor, (list, tuple, set, frozenset)):
+        return frozenset(_req_str(item, campo) for item in valor)
+    raise ValueError(f"{campo} de fila ilegible: {valor!r}")
+
+
+def _como_motivos_roster(valor: object) -> frozenset[MotivoSinProbar]:
+    if valor is None:
+        return frozenset()
+    if isinstance(valor, (list, tuple, set, frozenset)):
+        validos = cast(tuple[MotivoSinProbar, ...], get_args(MotivoSinProbar))
+        return frozenset(_como_vocab(item, validos, "motivos_roster") for item in valor)
+    raise ValueError(f"motivos_roster de fila ilegible: {valor!r}")
 
 
 def relevancia_de_texto(
@@ -713,8 +792,8 @@ def relevancia_de_texto(
     elif texto == "sin_veredicto":
         conjunto = Indeterminado(frozenset(motivos_jev))
     elif texto == "no_evaluada":
-        motivo = motivos_jev[0] if motivos_jev else "sin_cupo"
-        conjunto = NoEvaluada(motivo)  # type: ignore[arg-type]
+        motivo = _como_motivo_no_evaluada(motivos_jev[0]) if motivos_jev else "sin_cupo"
+        conjunto = NoEvaluada(motivo)
     else:
         raise ValueError(f"relevancia guardada ilegible: {texto!r}")
     return Relevancia(conjunto, len(productos_ok), evaluados, miembros, tuple(productos_ok), ())
@@ -732,21 +811,21 @@ def vista_de_dict(fila: Mapping[str, object]) -> SenalVista:
     aqui = None
     if fila.get("ventana_inicio") is not None:
         aqui = Gasto(
-            desde=_como_fecha(fila["ventana_inicio"]),  # type: ignore[arg-type]
-            hasta=_como_fecha(fila["ventana_fin"]),  # type: ignore[arg-type]
-            clics=fila.get("clics"),  # type: ignore[arg-type]
+            desde=_req(_como_fecha(fila["ventana_inicio"]), "ventana_inicio"),
+            hasta=_req(_como_fecha(fila["ventana_fin"]), "ventana_fin"),
+            clics=_opt_int(fila.get("clics"), "clics"),
             gasto=_como_dinero(fila.get("gasto")),
-            ordenes=fila.get("ordenes"),  # type: ignore[arg-type]
+            ordenes=_opt_int(fila.get("ordenes"), "ordenes"),
         )
-    otros = tuple(
+    otros: tuple[VentaEnOtroGrupo, ...] = tuple(
         VentaEnOtroGrupo(
-            ad_group_id=extra["ad_group_id"],
+            ad_group_id=_req_int(extra["ad_group_id"], "ad_group_id"),
             en_ventana=Gasto(
-                desde=_como_fecha(extra["desde"]),  # type: ignore[arg-type]
-                hasta=_como_fecha(extra["hasta"]),  # type: ignore[arg-type]
-                clics=extra.get("clics"),
+                desde=_req(_como_fecha(extra["desde"]), "desde"),
+                hasta=_req(_como_fecha(extra["hasta"]), "hasta"),
+                clics=_opt_int(extra.get("clics"), "clics"),
                 gasto=_como_dinero(extra.get("gasto")),
-                ordenes=extra.get("ordenes"),
+                ordenes=_opt_int(extra.get("ordenes"), "ordenes"),
             ),
         )
         for extra in _json_lista(fila.get("otros_que_venden"))
@@ -756,46 +835,49 @@ def vista_de_dict(fila: Mapping[str, object]) -> SenalVista:
     if crudo_historial is not None:
         decodificado = _json_dict(crudo_historial)
         historial = Historial(
-            desde=_como_fecha(decodificado["desde"]),  # type: ignore[arg-type]
-            hasta=_como_fecha(decodificado["hasta"]),  # type: ignore[arg-type]
-            clics=decodificado.get("clics"),
-            ordenes_conocidas=decodificado["ordenes_conocidas"],
-            dias_sin_dato=decodificado["dias_sin_dato"],
+            desde=_req(_como_fecha(decodificado["desde"]), "desde"),
+            hasta=_req(_como_fecha(decodificado["hasta"]), "hasta"),
+            clics=_opt_int(decodificado.get("clics"), "clics"),
+            ordenes_conocidas=_req_int(decodificado["ordenes_conocidas"], "ordenes_conocidas"),
+            dias_sin_dato=_req_int(decodificado["dias_sin_dato"], "dias_sin_dato"),
         )
     prueba = _json_dict(fila.get("roster_prueba"))
     if prueba.get("probado"):
-        motivos_roster: frozenset = frozenset()
+        motivos_roster: frozenset[MotivoSinProbar] = frozenset()
     else:
-        motivos_roster = frozenset(prueba.get("motivos", []))
-    productos_ok = tuple(fila.get("productos_ok") or ())
+        motivos_roster = _como_motivos_roster(prueba.get("motivos", []))
+    productos_ok = _como_productos_ok(fila.get("productos_ok"))
+    lecturas = cast(tuple[Lectura, ...], get_args(Lectura))
+    monedas = cast(tuple[Moneda, ...], get_args(Moneda))
+    relevancias = cast(tuple[RelevanciaTexto, ...], get_args(RelevanciaTexto))
     return SenalVista(
-        senal_id=fila["senal_id"],  # type: ignore[arg-type]
+        senal_id=_req_uuid(fila["senal_id"]),
         clave=ClaveBusqueda(
-            plataforma=fila["plataforma"],  # type: ignore[arg-type]
-            ad_group_id=fila["ad_group_id"],  # type: ignore[arg-type]
-            termino=fila["termino"],  # type: ignore[arg-type]
+            plataforma=_como_plataforma(fila["plataforma"]),
+            ad_group_id=_req_int(fila["ad_group_id"], "ad_group_id"),
+            termino=_req_str(fila["termino"], "termino"),
         ),
-        lectura=fila["lectura"],  # type: ignore[arg-type]
-        motivos=frozenset(fila.get("motivos_lectura") or ()),
+        lectura=_como_vocab(fila["lectura"], lecturas, "lectura"),
+        motivos=_como_str_set(fila.get("motivos_lectura"), "motivos_lectura"),
         economia=Economia(
-            moneda=fila["moneda"],  # type: ignore[arg-type]
+            moneda=_como_vocab(fila["moneda"], monedas, "moneda"),
             aqui=aqui,
-            otros_que_venden=otros,  # type: ignore[arg-type]
+            otros_que_venden=otros,
             otros_sin_venta=0,
-            otros_sin_dato=fila.get("otros_sin_dato", 0),  # type: ignore[arg-type]
+            otros_sin_dato=_req_int(fila.get("otros_sin_dato", 0), "otros_sin_dato"),
             historial=historial,
             datos_hasta=_como_instante(fila.get("datos_hasta")),
         ),
-        relevancia_texto=fila["relevancia"],  # type: ignore[arg-type]
+        relevancia_texto=_como_vocab(fila["relevancia"], relevancias, "relevancia"),
         satisfacen=len(productos_ok),
-        evaluados=fila.get("evaluados", 0),  # type: ignore[arg-type]
-        miembros=fila.get("miembros", 0),  # type: ignore[arg-type]
-        productos_ok=productos_ok,  # type: ignore[arg-type]
-        regla_version=fila.get("regla_version", REGLA_VERSION),  # type: ignore[arg-type]
+        evaluados=_req_int(fila.get("evaluados", 0), "evaluados"),
+        miembros=_req_int(fila.get("miembros", 0), "miembros"),
+        productos_ok=productos_ok,
+        regla_version=_req_int(fila.get("regla_version", REGLA_VERSION), "regla_version"),
         roster_probado=bool(fila.get("roster_probado")),
-        motivos_roster=motivos_roster,  # type: ignore[arg-type]
-        calculada_el=_como_instante(fila["created_at"]),  # type: ignore[arg-type]
-        valida_hasta=_como_instante(fila["valida_hasta"]),  # type: ignore[arg-type]
+        motivos_roster=motivos_roster,
+        calculada_el=_req(_como_instante(fila["created_at"]), "created_at"),
+        valida_hasta=_req(_como_instante(fila["valida_hasta"]), "valida_hasta"),
         vigente=bool(fila.get("vigente")),
         listado_de=_como_instante(prueba.get("listado_de")),
     )

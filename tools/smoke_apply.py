@@ -124,23 +124,23 @@ from pathlib import Path
 # y app/ no esta en sys.path desde tools/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import httpx  # noqa: E402
-import psycopg  # noqa: E402
-from psycopg.types.json import Json  # noqa: E402
+import httpx
+import psycopg
+from psycopg.types.json import Json
 
-from app.ads.client import AdsApiError, AdsClient  # noqa: E402
-from app.ads.config import AdsCredentials  # noqa: E402
-from app.ads.structure import evaluar_perfiles  # noqa: E402
-from app.ads.write import (  # noqa: E402
+from app.ads.client import AdsApiError, AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure import evaluar_perfiles
+from app.ads.write import (
     MODO_CONFIRMADO_LIVE,
     PLATAFORMA_MONEDA,
     AdsApiErrorMutacion,
     AdsWriteClient,
     _bid_payload,
 )
-from app.apply_harvest import _errores_de_ack  # noqa: E402
-from app.db import connect  # noqa: E402
-from app.redaction import scrub  # noqa: E402
+from app.apply_harvest import _errores_de_ack
+from app.db import connect
+from app.redaction import scrub
 
 # Autorizacion EFIMERA: el dueno setea ORBIT_SMOKE_AUTH solo para la corrida
 # y lo borra despues. Capa 1 de dos (la capa 2 es --acepto-mutacion-real).
@@ -244,11 +244,6 @@ class SmokeError(Exception):
         super().__init__(scrub(message))
 
 
-# ---------------------------------------------------------------------------
-# Puertas: autorizacion efimera + campana allowlisted (fail-closed)
-# ---------------------------------------------------------------------------
-
-
 def autorizacion_ok(valor_env: str | None, flag_acepto: bool) -> tuple[bool, str]:
     """Capa 1 (presencia) + capa 2 (flag): ANTES de abrir cualquier
     conexion/credencial. La capa 1 COMPLETA (CX5 de la cross-review) compara
@@ -321,11 +316,6 @@ def campana_allowlisted(conn: psycopg.Connection, platform: str) -> str | None:
     return valor.strip()
 
 
-# ---------------------------------------------------------------------------
-# Ledger probe: nace PRE-HTTP, se sella UNA vez (trigger de 0002)
-# ---------------------------------------------------------------------------
-
-
 def nace_probe(conn: psycopg.Connection, payload: dict, seq: int) -> int:
     """Fila del ledger tipo 'probe' (decision_id NULL permitido SOLO para
     probes por el CHECK de 0002), quota_cobrada=false: el probe JAMAS
@@ -339,11 +329,6 @@ def sella_probe(
     """Sella el ack/resultado/finished_at UNA vez (mismo UPDATE acotado que
     apply.py; el trigger de 0002 lo exige)."""
     conn.execute(_SQL_SELLA_PROBE, (Json(ack) if ack is not None else None, resultado, id_attempt))
-
-
-# ---------------------------------------------------------------------------
-# Listas read-only con el MISMO profile sellado del cliente
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -435,11 +420,6 @@ def termino_basura(ahora: dt.datetime | None = None) -> str:
     return f"zzsmokeprobe{ts}"
 
 
-# ---------------------------------------------------------------------------
-# Evidencia: respuesta HTTP con headers whitelist y body saneado
-# ---------------------------------------------------------------------------
-
-
 def _json_seguro(resp: httpx.Response) -> dict:
     """El JSON del ack SANEADO (GK9: scrub SIEMPRE — un 2xx tambien puede
     ecoar secretos); si el body no parsea, evidencia minima (el ack crudo
@@ -459,11 +439,6 @@ def _evidencia_respuesta(resp: httpx.Response) -> dict:
         "headers": {k: resp.headers[k] for k in HEADERS_ACK if k in resp.headers},
         "cuerpo": _json_seguro(resp),
     }
-
-
-# ---------------------------------------------------------------------------
-# Un paso de mutacion: ledger PRE-HTTP -> HTTP -> ack -> sello
-# ---------------------------------------------------------------------------
 
 
 def _paso_mutacion(ctx: ContextoSmoke, nombre: str, payload: dict, funcion) -> dict:
@@ -525,10 +500,7 @@ def _paso_readback_bid(
     param = "keywordId" if es_keyword else "targetId"
     try:
         filas = listar_paginado(ctx, path)
-        # Cruce de id (reviewer P2, post cross-review): una respuesta con el
-        # id de OTRA entidad JAMAS confirma ni revierte — el motor ya cruza
-        # (_bid_leido/_estado_leido) y el probe no debe sellar shapes con
-        # una disciplina mas debil que la del codigo que decide dinero.
+        # Cruce explicito de id: una fila de otra entidad nunca debe confirmar ni revertir.
         fila = next((f for f in filas if str(f.get(param)) == str(ext)), None)
         crudo = fila.get("bid") if fila else None
         bid = _bid_valido(crudo)
@@ -541,11 +513,6 @@ def _paso_readback_bid(
         }
     except (AdsApiError, SmokeError, ValueError, TypeError, IndexError, AttributeError) as exc:
         return None, {"paso": "readback", "error": scrub(str(exc)), "bid_leido": None}
-
-
-# ---------------------------------------------------------------------------
-# Formas bid_keyword / bid_target: +0.01 con reversa al ORIGINAL LEIDO
-# ---------------------------------------------------------------------------
 
 
 def _forma_bid(ctx: ContextoSmoke, forma: str) -> dict:
@@ -622,11 +589,6 @@ def _forma_bid(ctx: ContextoSmoke, forma: str) -> dict:
         neto_cero = None
     ok = bool(mutacion["ok"] and leido is not None and leido == Decimal(esperado) and neto_cero)
     return {"ok": ok, "neto_cero": neto_cero, "pasos": pasos}
-
-
-# ---------------------------------------------------------------------------
-# Formas negative / keyword: create + delete NETO CERO sobre termino basura
-# ---------------------------------------------------------------------------
 
 
 def _buscar_por_identidad(
@@ -794,11 +756,6 @@ def _forma_create_delete(ctx: ContextoSmoke, forma: str) -> dict:
     return {"ok": ok, "neto_cero": neto_cero, "pasos": pasos}
 
 
-# ---------------------------------------------------------------------------
-# Orquestacion de formas y evidencia
-# ---------------------------------------------------------------------------
-
-
 def corre_forma(ctx: ContextoSmoke, forma: str) -> dict:
     """Corre UNA forma y devuelve su evidencia. NUNCA lanza: un fallo vive en
     ok=False (con reversa best-effort ya corrida por la forma)."""
@@ -842,11 +799,6 @@ def corre_formas(ctx: ContextoSmoke, formas: list[str]) -> int:
     }
     print(scrub(json.dumps(resumen, default=str, ensure_ascii=False)))
     return rc
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -902,9 +854,8 @@ def main(argv: list[str] | None = None) -> int:
     conn: psycopg.Connection | None = None
     try:
         conn = connect(dsn)
-        # CX5 (cross-review): la capa 1 se completa contra la config VIGENTE —
-        # el env debe COINCIDIR con ads_smoke_auth (compare_digest) ANTES de
-        # tocar credenciales. Cualquier string no-vacio ya NO basta.
+        # El token del entorno debe coincidir con ads_smoke_auth en la config
+        # vigente antes de tocar credenciales.
         esperado = auth_esperada(conn)
         if not auth_coincide(os.environ.get(AUTORIZACION_ENV), esperado):
             print(

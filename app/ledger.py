@@ -174,11 +174,6 @@ class ResultadoSync:
     rango_max: date | None = None
 
 
-# ---------------------------------------------------------------------------
-# Lectura del snapshot (read-only por construccion: mode=ro + solo SELECT)
-# ---------------------------------------------------------------------------
-
-
 def leer_origen(ruta: Path | str) -> tuple[FilaOrigenLedger, ...]:
     """Lee ledger_events del snapshot. Abre con mode=ro."""
     ruta = Path(ruta)
@@ -211,11 +206,6 @@ def leer_origen(ruta: Path | str) -> tuple[FilaOrigenLedger, ...]:
         )
     finally:
         con.close()
-
-
-# ---------------------------------------------------------------------------
-# Mapeo puro (D1-D8): frontera parsea; dominio confia en EventoLedger
-# ---------------------------------------------------------------------------
 
 
 def _dia(texto: str | None) -> date | None:
@@ -442,10 +432,12 @@ def mapear_destino(
     """Fila cruda → EventoLedger. None = skip (motivo via plan_eventos)."""
     if _motivo_skip_basico(fila) is not None:
         return None
+    assert isinstance(fila.amount, (int, float)) and not isinstance(fila.amount, bool)
+    assert isinstance(fila.currency, str)
     kind_fee = _lookup_kind(fila.event_type, fila.fee_category)
     assert kind_fee is not None
     kind, fee_type = kind_fee
-    amount = _amount_decimal(fila.amount)  # type: ignore[arg-type]
+    amount = _amount_decimal(fila.amount)
     assert amount is not None
     # D4: signo TAL CUAL; lo que viola el CHECK no se escribe ni se voltea.
     if kind == "sale" and amount <= 0:
@@ -460,7 +452,7 @@ def mapear_destino(
     # NULL: su contrato es la categoria o nada.
     if plataforma == "meli" and kind == "refund" and fee_type is None:
         fee_type = "refund"
-    moneda = fila.currency.strip().upper()  # type: ignore[union-attr]
+    moneda = fila.currency.strip().upper()
     payload = _parse_payload(fila.raw_payload)
     order_raw = fila.order_id
     order_id = None if order_raw is None or str(order_raw).strip() == "" else str(order_raw).strip()
@@ -537,10 +529,11 @@ def plan_eventos(
         if motivo is not None:
             skips[motivo] += 1
             continue
+        assert isinstance(fila.amount, (int, float)) and not isinstance(fila.amount, bool)
         kind_fee = _lookup_kind(fila.event_type, fila.fee_category)
         assert kind_fee is not None
         kind, _ = kind_fee
-        amount = _amount_decimal(fila.amount)  # type: ignore[arg-type]
+        amount = _amount_decimal(fila.amount)
         assert amount is not None
         if kind == "sale" and amount <= 0:
             skips["viola ledger_convencion_signos"] += 1
@@ -589,10 +582,6 @@ def _formato_skip_reason(skips: Counter) -> str | None:
         return None
     return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
-
-# ---------------------------------------------------------------------------
-# Escritura en Orbit (ledger_event, rol de ingesta)
-# ---------------------------------------------------------------------------
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -746,7 +735,7 @@ def _atribuir_ventas(
             continue
         try:
             atribucion = atribuidor.atribuir(ev)
-        except Exception as exc:  # noqa: BLE001 - una venta no tumba la ingesta
+        except Exception as exc:
             logger.warning("atribucion de platform=%s reviento: %s", ev.platform, scrub(str(exc)))
             sin_atribuir["venta_sin_atribuir"] += 1
             continue
@@ -921,11 +910,6 @@ def _sellar_run(
     skip_reason: str | None,
 ) -> None:
     conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
-
-
-# ---------------------------------------------------------------------------
-# main del pipeline
-# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:

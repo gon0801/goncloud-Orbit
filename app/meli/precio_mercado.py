@@ -654,11 +654,8 @@ class MercadoMeli:
         # su fila con la ruta real del item, no con "escribir".
         self._ruta_error = f"/items/{unidad.externo}"
         assert self._escritor is not None
-        # CR-2 (CodeRabbit, fondo): el vivo manda. El PUT manda solo los
-        # miembros y MeLi BORRA las omitidas; si el vivo trae extras
-        # (edicion intradia tras el catalogo), cero PUT. El resolver ya
-        # freno lo visible en DB (`variantes_sin_mapear`); esto frena lo
-        # invisible. La corrida lo cuenta como error de la unidad (B1).
+        # MeLi borra cualquier variacion omitida en el PUT: se verifica contra
+        # el estado vivo para frenar variaciones agregadas tras la ultima ingesta.
         vivas = self._variaciones_vivas(unidad.externo)
         variantes = [m.variante for m in unidad.miembros if m.variante]
         huerfanas = sorted(vivas - set(variantes))

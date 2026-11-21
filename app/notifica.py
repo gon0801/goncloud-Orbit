@@ -188,7 +188,7 @@ def _config_canal() -> _ConfigCanal | None:
             if isinstance(token, str) and token and isinstance(chat, str) and chat:
                 register_secret(token)
                 cfg = _ConfigCanal(bot_token=token, chat_id=chat)
-    except Exception as exc:  # noqa: BLE001 - jamas hacia arriba
+    except Exception as exc:
         logger.warning("telegram: fallo resolviendo la config del canal: %s", scrub(str(exc)))
         cfg = None
     if cfg is None:
@@ -231,7 +231,7 @@ def _envia_texto(texto: str, transport: httpx.BaseTransport | None = None) -> bo
             logger.warning("telegram: respuesta sin ok=true — el aviso no salio")
             return False
         return True
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo el envio: %s", scrub(str(exc)) or type(exc).__name__)
         return False
 
@@ -243,11 +243,6 @@ def envia_aviso(texto: str, *, transport: httpx.BaseTransport | None = None) -> 
     if _config_canal() is None:
         return False
     return _envia_texto(texto, transport)
-
-
-# ---------------------------------------------------------------------------
-# Builders puros (sin red): texto plano, sin secretos
-# ---------------------------------------------------------------------------
 
 
 TOPE_CORTES_POR_AVISO = 5
@@ -370,7 +365,7 @@ def decide_aviso_target(aplicado, ancla) -> tuple[bool, str | None]:
         return (True, str(aplicado))
     try:
         delta = abs(Decimal(str(aplicado)) - Decimal(str(ancla)))
-    except Exception:  # noqa: BLE001 - ilegible: sin linea, ancla intacta
+    except Exception:
         return (False, ancla)
     if delta < 1:
         return (False, ancla)
@@ -389,7 +384,7 @@ def _linea_banda_margen(plataforma, target: dict) -> str | None:
         return None
     try:
         numero = Decimal(str(crudo))
-    except Exception:  # noqa: BLE001 - ilegible: sin linea
+    except Exception:
         return None
     if g.MARGEN_BANDA_MIN <= numero <= g.MARGEN_BANDA_MAX:
         return None
@@ -491,7 +486,7 @@ def carga_contribucion_digest(plataforma: str, *, conn=None) -> ContribucionDige
         residual_row = conn.execute(SQL_RESIDUAL_TACOS, (plataforma,)).fetchone()
         residual = residual_row[0] if residual_row else None
         return _arma_contribucion_digest(filas_rango, filas_ausentes, residual)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (digest sigue sin contrib)
+    except Exception as exc:
         logger.warning("telegram: fallo leyendo contribucion para digest: %s", scrub(str(exc)))
         return ContribucionDigest(
             rango=None, sin_dato=None, residual_tacos=None, lectura_fallida=True
@@ -640,11 +635,6 @@ def aviso_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Senders de alto nivel: devuelven bool, JAMAS levantan excepciones
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PropuestaCampanaNueva:
     """Lo que el aviso de propuesta nueva necesita (C.4 B1): la fila open
@@ -702,7 +692,7 @@ def notifica_propuesta_campana(
         if not canal_activo():
             return True
         return _envia_texto(aviso_propuesta_campana_nueva(aviso), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de propuesta: %s", scrub(str(exc)))
         return False
 
@@ -720,7 +710,7 @@ def notifica_cortes_encolados(
             if not _envia_texto(texto, transport=transport):
                 ok = False
         return ok
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de encola: %s", scrub(str(exc)))
         return False
 
@@ -737,7 +727,7 @@ def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = No
             if contrib is not None:
                 payload = {**resumen, "contribucion": contrib}
         return _envia_texto(digest_ciclo(payload), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el digest: %s", scrub(str(exc)))
         return False
 
@@ -752,7 +742,7 @@ def notifica_harvest_failed(
         if not canal_activo():
             return True
         return _envia_texto(alerta_harvest_failed(alerta), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando la alerta de harvest: %s", scrub(str(exc)))
         return False
 
@@ -768,7 +758,7 @@ def notifica_harvest_hermanas(
         if not canal_activo():
             return True
         return _envia_texto(alerta_harvest_hermanas(alerta), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de hermanas: %s", scrub(str(exc)))
         return False
 
@@ -801,7 +791,7 @@ def notifica_spapi_fallo(
         if not canal_activo():
             return True
         return _envia_texto(aviso_spapi_fallo(fuente, platform, motivo), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
         return False
 
@@ -821,7 +811,7 @@ def notifica_spapi_recuperada(
         if not canal_activo():
             return True
         return _envia_texto(aviso_spapi_recuperada(fuente, platform), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning(
             "telegram: fallo armando el aviso de recuperacion SP-API: %s", scrub(str(exc))
         )
@@ -891,7 +881,7 @@ def notifica_spapi_silencio(
         if not canal_activo():
             return True
         return _envia_texto(aviso_spapi_silencio(faltantes, desde, hasta), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
         return False
 
@@ -907,7 +897,7 @@ def notifica_cap_agotado(
         if not canal_activo():
             return True
         return _envia_texto(aviso_cap_agotado(plataforma, kind, used, cap), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de cap agotado: %s", scrub(str(exc)))
         return False
 
@@ -983,14 +973,9 @@ def notifica_biblioteca_no_escrita(
             ),
             transport=transport,
         )
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de biblioteca: %s", scrub(str(exc)))
         return False
-
-
-# ---------------------------------------------------------------------------
-# FABRICA 02 (A.6): aviso de harvest de grupo sin destino (en flanco)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -1054,34 +1039,13 @@ def notifica_destino_grupo(
         if not canal_activo():
             return True
         return _envia_texto(aviso_destino_grupo(salto), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de destino: %s", scrub(str(exc)))
         return False
 
 
-# ---------------------------------------------------------------------------
-# REPRICING 01 (A.6): avisos del motor de precios, un sender en flanco
-# ---------------------------------------------------------------------------
-#
-# Un solo sender `notifica_precio(tipo, payload)` en flanco por racha (S7):
-# por (plataforma, motivo) con conteo y hasta 5 SKUs para `no_evaluado`
-# (solo cuando el grupo lleva `precio_aviso_dias_sin_evaluar` dias seguidos),
-# `goal_inalcanzable` y `frenado`; por producto para `no_confirmado` y
-# `buy_box_perdida`; por plataforma para `huerfana_sin_patch`. Mismo contrato
-# fail-silent de los otros senders: canal apagado -> True; cualquier
-# excepcion -> warning con scrub + False; jamas levanta.
-#
-# El texto lleva solo SKU, plataforma, precios, estado y motivo en
-# palabras: nunca costo, margen, goal ni cuerpos de error. Por eso el motivo
-# viaja traducido por el registro `app.etiquetas` (motivo_precio y estado_precio)
-# (los ids crudos `precio_no_cubre_costo`, `sobre_goal_sin_perdida` y
-# `goal_inalcanzable` contienen esas palabras); el ASIN solo sale en
-# plataformas Amazon (fuera de Amazon el id externo no es un ASIN);
-# un motivo desconocido sale en palabras y deja un aviso en el log.
-# Los builders son puros (sin red, sin secretos) y no reciben ningun campo
-# de costo/margen/goal/error: la ausencia es estructural, no un filtro.
-# El flanco lo decide `avisar_precio` (gancho `avisar` de la corrida A.5)
-# leyendo hoy y dias previos de `precio_decision`/`precio_cambio`.
+# Avisos del motor de precios: nunca exponen costo, margen, goal ni cuerpos de
+# error (por eso los motivos se traducen via app.etiquetas).
 
 TIPOS_PRECIO = (
     "no_evaluado",
@@ -1567,7 +1531,7 @@ def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None
         if not canal_activo():
             return True
         return _envia_texto(globals()[nombre_builder](payload), transport=transport)
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de precio: %s", scrub(str(exc)))
         return False
 
@@ -1631,7 +1595,7 @@ def _avisar_grupos_precio(conn, platform: str, hoy, ayer, umbral) -> int:
     try:
         grupos_hoy = _grupos_precio_dia(conn, platform, hoy)
         grupos_ayer = _grupos_precio_dia(conn, platform, ayer)
-    except Exception as exc:  # noqa: BLE001 - B6: los grupos no callan
+    except Exception as exc:
         logger.warning("telegram: fallo avisando grupos de precio: %s", scrub(str(exc)))
         return 0
     nuevos = flanco_nuevos(sorted(grupos_hoy), sorted(grupos_ayer))
@@ -1655,7 +1619,7 @@ def _avisar_grupos_precio(conn, platform: str, hoy, ayer, umbral) -> int:
             grupo = GrupoPrecio(platform, resultado, motivo, len(skus), tuple(skus))
             if notifica_precio(resultado, grupo):
                 enviados += 1
-        except Exception as exc:  # noqa: BLE001 - B6: un grupo no calla
+        except Exception as exc:
             logger.warning(
                 "telegram: fallo avisando el grupo de precio %s: %s",
                 scrub(f"{resultado}/{motivo}"),
@@ -1680,7 +1644,7 @@ def _enviar_productos_precio_con_tope(tipo: str, motivo: str, piezas: list) -> i
         try:
             if notifica_precio(tipo, item):
                 enviados += 1
-        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla
+        except Exception as exc:
             logger.warning(
                 "telegram: fallo avisando producto de precio %s: %s",
                 scrub(str(tipo)),
@@ -1693,7 +1657,7 @@ def _enviar_productos_precio_con_tope(tipo: str, motivo: str, piezas: list) -> i
             grupo = GrupoPrecio(resto[0].platform, tipo, motivo, len(resto), skus)
             if notifica_precio(tipo, grupo):
                 enviados += 1
-        except Exception as exc:  # noqa: BLE001 - B6: el agrupado no calla
+        except Exception as exc:
             logger.warning(
                 "telegram: fallo avisando resto agrupado de precio %s: %s",
                 scrub(str(tipo)),
@@ -1709,7 +1673,7 @@ def _avisar_buybox_precio(conn, platform: str, hoy, ayer) -> int:
     try:
         bb_hoy = {r[0]: r for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, hoy)).fetchall()}
         bb_ayer = {r[0] for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, ayer)).fetchall()}
-    except Exception as exc:  # noqa: BLE001 - B6: buy box no calla
+    except Exception as exc:
         logger.warning("telegram: fallo avisando buy box de precio: %s", scrub(str(exc)))
         return 0
     piezas = []
@@ -1729,7 +1693,7 @@ def _avisar_buybox_precio(conn, platform: str, hoy, ayer) -> int:
                     "buy_box_perdida",
                 )
             )
-        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla
+        except Exception as exc:
             logger.warning(
                 "telegram: fallo avisando buy box de precio %s: %s",
                 scrub(str(clave)),
@@ -1751,7 +1715,7 @@ def _avisar_noconf_precio(conn, platform: str, hoy, ayer) -> int:
         nc_ayer = {
             r[0] for r in conn.execute(_SQL_PRECIO_FRENADO_NOCONF_DIA, (platform, ayer)).fetchall()
         }
-    except Exception as exc:  # noqa: BLE001 - B6: no confirmado no calla
+    except Exception as exc:
         logger.warning("telegram: fallo avisando no confirmados de precio: %s", scrub(str(exc)))
         return 0
     piezas = []
@@ -1776,7 +1740,7 @@ def _avisar_noconf_precio(conn, platform: str, hoy, ayer) -> int:
                     "no_confirmado",
                 )
             )
-        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla
+        except Exception as exc:
             logger.warning(
                 "telegram: fallo avisando no confirmado de precio %s: %s",
                 scrub(str(lid)),
@@ -1795,7 +1759,7 @@ def _avisar_huerfana_precio(platform: str, resumen) -> int:
             if notifica_precio("huerfana_sin_patch", huerfana):
                 return 1
         return 0
-    except Exception as exc:  # noqa: BLE001 - B6: la huerfana no calla
+    except Exception as exc:
         logger.warning("telegram: fallo avisando huerfanas de precio: %s", scrub(str(exc)))
         return 0
 
@@ -1925,7 +1889,7 @@ def _avisar_resumen_precio(conn, platform: str, hoy) -> int:
             conn.execute(_SQL_SELLAR_RESUMEN, (corrida,))
             return 1
         return 0
-    except Exception as exc:  # noqa: BLE001 - B6: el resumen no calla
+    except Exception as exc:
         logger.warning("telegram: fallo avisando el resumen diario de precio: %s", scrub(str(exc)))
         return 0
 
@@ -1940,7 +1904,7 @@ def _avisar_compuerta_precio(conn, platform: str, hoy) -> int:
         if corrida is None:
             return 0
         filas = conn.execute(_SQL_MEDICIONES_CON_CAUSA, (corrida,)).fetchall()
-    except Exception as exc:  # noqa: BLE001 - B6: la compuerta no calla
+    except Exception as exc:
         logger.warning("telegram: fallo avisando compuerta de precio: %s", scrub(str(exc)))
         return 0
     enviados = 0
@@ -1955,7 +1919,7 @@ def _avisar_compuerta_precio(conn, platform: str, hoy) -> int:
             if notifica_precio("compuerta", aviso):
                 conn.execute(_SQL_SELLAR_AVISADA, (corrida, canal))
                 enviados += 1
-        except Exception as exc:  # noqa: BLE001 - B6: una fila no calla
+        except Exception as exc:
             logger.warning(
                 "telegram: fallo avisando compuerta de precio %s: %s",
                 scrub(f"{canal}/{causa}"),
@@ -2009,7 +1973,7 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
             enviados += _avisar_resumen_precio(conn, platform, hoy)
         enviados += _avisar_compuerta_precio(conn, platform, hoy)
         return enviados
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as exc:
         logger.warning("telegram: fallo armando los avisos de precio: %s", scrub(str(exc)))
         return 0
 
@@ -2028,7 +1992,7 @@ def avisar_corrida_fallida(platform: str, exc: BaseException) -> bool:
             motivo=type(exc).__name__,
         )
         return notifica_precio(aviso.tipo, aviso)
-    except Exception as fallo:  # noqa: BLE001 - fail-silent (docstring del modulo)
+    except Exception as fallo:
         logger.warning("telegram: fallo avisando corrida fallida de precio: %s", scrub(str(fallo)))
         return False
 
@@ -2069,7 +2033,7 @@ def avisar_campanas(conn, hoy=None, *, solo=None):
                 plataforma=plataforma,
                 gasto_para_concluir=umbral_concluir(conn, plataforma),
             )
-        except Exception as exc:  # noqa: BLE001 - fail-continues (docstring)
+        except Exception as exc:
             logger.warning("campanas: lectura de %s fallida: %s", plataforma, scrub(str(exc)))
             # Sin rollback, un error de SQL deja la transaccion abortada y la
             # siguiente plataforma falla con "current transaction is aborted".

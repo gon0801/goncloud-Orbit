@@ -137,11 +137,6 @@ class ResultadoSync:
     colapsados_por_asin: int
 
 
-# ---------------------------------------------------------------------------
-# Lectura del snapshot (read-only por construccion: mode=ro + solo SELECT)
-# ---------------------------------------------------------------------------
-
-
 def leer_origen(ruta: Path | str) -> OrigenListings:
     """Lee amazon_listing_prices + amazon_sku_mapping del snapshot bridge."""
     ruta = Path(ruta)
@@ -161,11 +156,8 @@ def leer_origen(ruta: Path | str) -> OrigenListings:
                 " FROM amazon_listing_prices ORDER BY marketplace_name, seller_sku"
             )
         )
-        # Hallazgo 2 del adversario: la llave y el codigo se NORMALIZAN igual
-        # que el lado del listing (strip simetrico). Una colision de claves
-        # tras el strip con codigos DISTINTOS ('XM-1' y ' XM-1' apuntando a
-        # dos productos) es ambigua: no se elige arbitrario — la clave queda
-        # senalada y plan_listings cuenta el skip por fila.
+        # Normaliza clave y codigo con strip simetrico al listing; si dos filas
+        # colisionan tras strip con distinto codigo, se marca ambigua para skip.
         mapeo: dict[str, str] = {}
         ambiguo: set[str] = set()
         for seller_sku, odoo_code in con.execute(
@@ -190,11 +182,6 @@ def leer_origen(ruta: Path | str) -> OrigenListings:
     return OrigenListings(listings=listings, mapeo=mapeo, mapeo_ambiguo=frozenset(ambiguo))
 
 
-# ---------------------------------------------------------------------------
-# Planificacion (pura): filas crudas -> listings por (plataforma, asin)
-# ---------------------------------------------------------------------------
-
-
 def _precio_decimal(precio: float | None) -> tuple[Decimal | None, str | None]:
     """Precio del REAL de origen -> (Decimal cuantizado, motivo | None).
 
@@ -207,16 +194,13 @@ def _precio_decimal(precio: float | None) -> tuple[Decimal | None, str | None]:
     if not math.isfinite(precio) or precio <= 0:
         return None, "precio no positivo (dato faltante)"
     valor = Decimal(str(precio))
-    # Guarda de rango ANTES de cuantizar (codex#2/grok#3 de la cross-review):
-    # un REAL finito enorme (~1e25+) lanza InvalidOperation en quantize con la
-    # precision por defecto y ABORTABA la corrida entera — justo lo que esta
-    # guarda pretendia evitar. La comparacion Decimal no necesita precision.
+    # Guarda de rango antes de quantize: un float muy grande (~1e25+) lanza
+    # InvalidOperation en quantize con la precision por defecto.
     if abs(valor) >= _MAX_PRECIO:
         return None, "precio fuera de rango NUMERIC(14,4)"
     if abs(valor - valor.quantize(_MAX_DECIMALES)) >= _RUIDO_FLOAT:
         return None, "precio con mas de 4 decimales (dato faltante)"
-    # El sub-centavo cuantiza a 0.0000 y violaria listing_precio_positivo
-    # ABORTANDO la corrida entera (hallazgo 1 del adversario): dato faltante.
+    # Un sub-centavo cuantiza a 0.0000 y violaria el CHECK listing_precio_positivo.
     cuantizado = valor.quantize(_MAX_DECIMALES)
     if cuantizado <= 0:
         return None, "precio no positivo (dato faltante)"
@@ -291,11 +275,8 @@ def plan_listings(
                 skips["ASIN con precios divergentes en el origen (precio descartado)"] += 1
                 planes[clave] = replace(previo, precio=None, moneda=None)
             elif previo.seller_sku != seller_sku:
-                # Mismo ASIN publicado bajo dos seller_sku (legal en el
-                # bridge: su unique es (seller_sku, marketplace)). El ASIN y
-                # el producto NO ambiguan, asi que el mapa se conserva con el
-                # primero por orden determinista — pero la divergencia deja
-                # de ser silenciosa (grok#1 de la cross-review).
+                # Mismo ASIN bajo dos seller_sku distintos (legal en el bridge):
+                # conserva el primero por orden determinista y registra la divergencia.
                 skips["ASIN con seller_sku divergentes (se conserva el primero)"] += 1
             else:
                 stats["colapsados_por_asin"] += 1
@@ -312,10 +293,6 @@ def plan_listings(
     stats["listings"] = len(planes)
     return planes, skips, stats
 
-
-# ---------------------------------------------------------------------------
-# Escritura en Orbit (listing, rol de ingesta)
-# ---------------------------------------------------------------------------
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -424,22 +401,16 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
                 ):
                     continue  # no-op REAL: nada que escribir
                 actualizadas += 1
-                # Sin elif (hallazgo 4 del adversario): un re-mapeo que ademas
-                # cambia el precio cuenta en AMBOS contadores.
+                # Sin elif: un re-mapeo que tambien cambia precio cuenta en ambos.
                 if previo_producto != product_id:
                     remapeos += 1
                 if (previo_precio, previo_moneda) != (plan.precio, plan.moneda):
                     precios_actualizados += 1
                 mutaciones.append(_fila_upsert(product_id, plan))
 
-            # Listings de Orbit que el ARCHIVO de origen ya no trae: se
-            # CONSERVAN (nada se borra) y quedan contados — la ausencia puede
-            # ser un hueco del snapshot, no una baja real. OJO (hallazgo 4 del
-            # adversario): solo cuentan los ausentes del ARCHIVO; una fila que
-            # SIGUE en el origen pero perdio el mapeo ya cuenta arriba como
-            # "sin mapeo" y no es "ausente". Y solo de plataformas PROPIAS de
-            # este pipeline (codex#1/grok#2): un listing meli no es ausente
-            # del snapshot Amazon — no es su jurisdiccion.
+            # Listings existentes de este pipeline que ya no vienen en el
+            # archivo: se conservan y se cuentan aparte (no cuenta filas que si
+            # estan en el origen pero perdieron mapeo, ni otras plataformas).
             claves_origen = {
                 ((fila.plataforma or "").strip(), (fila.asin or "").strip())
                 for fila in origen.listings
@@ -515,11 +486,6 @@ def _sellar_run(
     skip_reason: str | None,
 ) -> None:
     conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
-
-
-# ---------------------------------------------------------------------------
-# main del pipeline (el CLI despacha aqui; cero logica de argparse en el CLI)
-# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:

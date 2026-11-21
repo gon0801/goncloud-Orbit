@@ -267,11 +267,6 @@ class Paso:
     descripcion: str
 
 
-# ---------------------------------------------------------------------------
-# Validaciones puras
-# ---------------------------------------------------------------------------
-
-
 def valida_tipo_producto(tipo: str) -> str:
     if not isinstance(tipo, str) or not PATRON_TIPO_PRODUCTO.match(tipo):
         raise PlanInvalido(
@@ -376,22 +371,12 @@ def monto_wire(monto: Decimal) -> float:
     return float(monto.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN))
 
 
-# ---------------------------------------------------------------------------
-# Nombres (la API los exige; el vinculo es campana_grupo_rol, no el nombre)
-# ---------------------------------------------------------------------------
-
-
 def nombre_campana(tipo: str, base: str, rol: str, fecha) -> str:
     return f"{tipo} | {base} | {rol} | {fecha.isoformat()}"
 
 
 def nombre_ad_group(tipo: str, base: str, rol: str, fecha) -> str:
     return f"{nombre_campana(tipo, base, rol, fecha)} | ag"
-
-
-# ---------------------------------------------------------------------------
-# Semillas (spec §6)
-# ---------------------------------------------------------------------------
 
 
 def _cumple_harvest(t: TerminoProducto, target: Decimal) -> bool:
@@ -480,11 +465,6 @@ def expresiones_bid(semillas: Semillas, rol: str) -> tuple[Expresion, ...]:
     return tuple(Expresion(EXPRESION_BID_POR_ROL[rol], valor) for valor in valores)
 
 
-# ---------------------------------------------------------------------------
-# Huella y JSON del plan (dinero como STRING, regla 4)
-# ---------------------------------------------------------------------------
-
-
 def _parametro_como_json(parametro: ParametrosRol) -> dict:
     salida = {"budget": str(parametro.budget), "bid": str(parametro.bid)}
     if parametro.fuente_bid != "manual" or parametro.recomendaciones:
@@ -553,10 +533,8 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
         raise PlanInvalido("origen de objetivo v2 invalido")
     if not plan.objetivo.acos_pct.is_finite():
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito")
-    # Sin chequeo de banda aqui a proposito (F1 AI-review PR #381): este
-    # validador tambien corre al releer lotes persistidos, y la banda es
-    # regla de creacion, no candado retroactivo. La banda se valida solo
-    # al construir, en `valida_banda_manual` via `_datos_plan_v2`.
+    # Sin chequeo de banda aqui a proposito: este validador tambien corre al
+    # releer lotes persistidos; la banda solo se exige al crear en `_datos_plan_v2`.
     if plan.objetivo.acos_pct <= 0:
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito > 0")
     valida_forma_objetivo(plan.objetivo.acos_pct)
@@ -598,9 +576,8 @@ def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
         "fecha": plan.fecha.isoformat(),
         "moneda": plan.moneda,
         "modo": plan.modo,
-        # F5 AI-review PR #381: registra si los goals fijan el numero
-        # (manual) o nacen NULL (margen). Ausente en lotes viejos = numero
-        # (congelado entonces); el JS decide con `!== false`.
+        # Registra si los goals fijan el numero (manual) o nacen NULL (margen);
+        # ausente en lotes viejos implica numero fijado (el JS evalua `!== false`).
         "goals_fijan_target": target_para_goals(plan) is not None,
         "publicaciones": [
             _publicacion_v2_como_json(p)
@@ -679,11 +656,6 @@ def plan_v2_desde_json(datos: dict) -> PlanGrupoV2:
     )
     _valida_plan_v2(plan)
     return plan
-
-
-# ---------------------------------------------------------------------------
-# Pasos por rol (payloads SIN ids del padre)
-# ---------------------------------------------------------------------------
 
 
 def _payload_campana(plan: PlanGrupoV2, rol: str) -> dict:
@@ -812,11 +784,6 @@ def pasos_del_rol(plan: PlanGrupoV2, rol: str) -> list[Paso]:
     )
     pasos.extend(_semillas_del_rol(plan, rol))
     return pasos
-
-
-# ---------------------------------------------------------------------------
-# Acks 207 (mismo criterio que el aplicador y archiva_inertes)
-# ---------------------------------------------------------------------------
 
 
 def errores_207(ack: dict) -> list:

@@ -30,10 +30,7 @@ class ReputacionError(Exception):
     """Error de la ingesta de reputacion. El mensaje NUNCA lleva secretos."""
 
 
-# ---------------------------------------------------------------------------
-
 # Credenciales (patron app/ads/config.py)
-# ---------------------------------------------------------------------------
 
 
 def _load_json(path: Path) -> dict:
@@ -97,13 +94,11 @@ def _total_valido(valor: object) -> int | None:
     return valor
 
 
-# ---------------------------------------------------------------------------
 # Cliente MeLi: solo GET, default-deny (A.4 lo reutiliza)
 #
 # Pase del bridge (opcion 1): el access_token lo renueva el cron del
 # bridge; Orbit jamas renueva tokens. Un 401 es "pase del bridge
 # vencido" y aborta claro, sin refresh ni reintento.
-# ---------------------------------------------------------------------------
 
 
 class ClienteMeli:

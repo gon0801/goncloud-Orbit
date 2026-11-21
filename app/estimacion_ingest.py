@@ -421,10 +421,8 @@ def ejecutar_ingesta(  # noqa: PLR0915 - ver razon arriba
             (list(plataformas_con_cotizador()),),
         ).fetchall()
 
-    # CR-1 (CodeRabbit): sin cliente MeLi los listings meli van a skip
-    # visible y Amazon sigue (un token roto no tumba la estimacion
-    # Amazon; el aviso "solo Amazon" de main() lo promete). El run se
-    # abre igual: con su skip_reason se explica solo, no es huerfano.
+    # Sin cliente MeLi, esas publicaciones se omiten con skip visible para
+    # que un token roto no detenga la estimacion de Amazon.
     if meli_client is None:
         n_sin_cliente = sum(1 for _, plataforma, _, _ in listings if plataforma == "meli")
         if n_sin_cliente:

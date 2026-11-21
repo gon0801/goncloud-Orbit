@@ -62,7 +62,7 @@ def _abrir_plataforma(cli_mod, platform):
     """
     try:
         lector, escritor, fees, limitador = cli_mod._clientes_precio(platform)
-    except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
+    except Exception as exc:
         print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
         _avisar_caida((platform,), exc)
         return 1
@@ -128,7 +128,7 @@ def main_precio(args) -> int:
             return 2
         try:
             conn = connect(dsn, autocommit=True)
-        except Exception as exc:  # noqa: BLE001 - como `_cycle`: scrubbado y != 0
+        except Exception as exc:
             print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
             return 1
         plats = args.platform or []
@@ -138,7 +138,7 @@ def main_precio(args) -> int:
         try:
             for linea in corrida_precios.reporte(conn, desde=desde, hasta=hasta, platform=plats[0]):
                 print(linea)
-        except Exception as exc:  # noqa: BLE001 - D7: como la corrida, scrubbado y != 0
+        except Exception as exc:
             print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
             return 1
         finally:
@@ -156,7 +156,7 @@ def main_precio(args) -> int:
     except cli_mod._FaltaDsn as exc:
         print(f"precio exige {exc}", file=sys.stderr)
         return 2
-    except Exception as exc:  # noqa: BLE001 - K6: como `_cycle`, scrubbado y != 0
+    except Exception as exc:
         print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
         _avisar_caida(plataformas, exc)
         return 1
@@ -181,7 +181,7 @@ def main_precio(args) -> int:
                 # corrida (las anteriores ya corrieron y no se avisan).
                 _avisar_caida(plataformas[indice:], exc)
                 return 2
-            except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
+            except Exception as exc:
                 print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
                 _avisar_caida((platform,), exc)
                 rc = 1

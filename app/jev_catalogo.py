@@ -38,9 +38,8 @@ from app.jev_ads import (
     FichaVersion,
     HechoConFuente,
     MiembroCenso,
+    es_plataforma_amazon,
 )
-
-_PLATAFORMAS = ("amazon_mx", "amazon_us")
 
 _FICHA_SELECT = (
     "SELECT f.id, f.producto_id, f.plataforma, f.listings, f.hechos, f.desconocidos,"
@@ -108,10 +107,12 @@ def _ficha_de_fila(
         revisar_antes_de,
         sha,
     ) = fila
+    if not es_plataforma_amazon(plataforma):
+        raise ValueError(f"plataforma fuera del alcance Jev: {plataforma}")
     return FichaVersion(
         id=ficha_id,
         producto_id=producto_id,
-        plataforma=plataforma,  # type: ignore[arg-type]
+        plataforma=plataforma,
         listings=frozenset(listings),
         hechos=_hechos_de_json(hechos),
         desconocidos=frozenset(desconocidos),
@@ -149,7 +150,7 @@ def registrar_ficha(
     hash devuelve la fila existente (ya_existia=True); cualquier correccion
     de contenido inserta version nueva.
     """
-    if plataforma not in _PLATAFORMAS:
+    if not es_plataforma_amazon(plataforma):
         raise ValueError(f"plataforma fuera del alcance Jev: {plataforma}")
     # Materializar UNA vez: hash, INSERT y FichaVersion deben ver el MISMO
     # contenido aunque el llamador pase iterables de un solo uso (B2-r4 F2).
@@ -194,7 +195,7 @@ def registrar_ficha(
         ficha=FichaVersion(
             id=ficha_id,
             producto_id=producto_id,
-            plataforma=plataforma,  # type: ignore[arg-type]
+            plataforma=plataforma,
             listings=frozenset(listings),
             hechos=tuple(HechoConFuente(texto=texto, fuente=fuente) for texto, fuente in hechos),
             desconocidos=frozenset(desconocidos),

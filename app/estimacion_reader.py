@@ -168,12 +168,6 @@ def leer_escenarios(
     return resultado
 
 
-# ---------------------------------------------------------------------------
-# La cuenta del escenario, ya tipada (el unico lugar que conoce la forma
-# del JSON `componentes` del escenario)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class CuentaLeida:
     """El escenario vigente de un listing desarmado y validado.

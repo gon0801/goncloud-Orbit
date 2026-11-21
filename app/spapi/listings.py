@@ -149,12 +149,8 @@ def _texto(valor: Any) -> str | None:
 
 
 def _estado_texto(valor: Any) -> str | None:
-    # Hallazgo 1 grok (alta): el modelo oficial define status como LISTA
-    # ([BUYABLE, DISCOVERABLE]) mientras el brief habla de escalar
-    # (OPEN/CLOSED) y el acta 0.3 no pino el tipo. Se aceptan ambas formas:
-    # escalar tal cual, lista como join ordenado por coma (determinista
-    # ante cualquier orden de Amazon). Pendiente: pinar la forma real en
-    # sonda, como belongsToRequester en A.3.
+    # SP-API define status como lista ([BUYABLE, DISCOVERABLE]), pero tambien
+    # se tolera escalar; el join ordenado garantiza determinismo.
     if isinstance(valor, str):
         return _texto(valor)
     if isinstance(valor, list):
@@ -318,9 +314,7 @@ def _procesar_sku(
         _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status)
         return
     except httpx.HTTPError:
-        # Hallazgo 2 grok: como pricing F2, la red cuenta al umbral con
-        # skip "red" en vez de abortar el universo (el cliente no reintenta
-        # red por politica A.1).
+        # El cliente no reintenta errores de red; cuentan al umbral sin abortar el lote.
         av.fallos += 1
         av.racha += 1
         av.skips["red"] += 1

@@ -145,11 +145,9 @@ class ObjetivoPlan(_Cuerpo):
                     raise ValueError("acos_pct manual no es decimal") from exc
                 if not valor.is_finite():
                     raise ValueError("acos_pct manual no es finito")
-            # A1: el API valida FORMA (decimal finito); el RANGO vive en una
-            # sola fuente, fabrica_plan.valida_banda_manual, que corre al
-            # construir en _datos_plan_v2 (CLI, preview, crear y
-            # bids-sugeridos rechazan con el MISMO mensaje de banda; jamas
-            # al releer lotes viejos, F1 AI-review PR #381).
+            # El API solo valida forma (decimal finito); el rango vive en
+            # fabrica_plan.valida_banda_manual al construir el plan y nunca al
+            # releer lotes historicos.
         return self
 
 
@@ -366,10 +364,6 @@ def operar(
         raise fw.error(422, "La confirmación no coincide con la operación.", lote)
     return fw.operar(lote, accion, cuerpo.confirmacion)
 
-
-# ---------------------------------------------------------------------------
-# Impulso y retiro (BIDS 02 I.5)
-# ---------------------------------------------------------------------------
 
 MotivoRetiro = Literal["impulso", "sin_pedidos", "subfamilia"]
 # La persona escribe la subfamilia como la nombra ("Arras para boda"); el

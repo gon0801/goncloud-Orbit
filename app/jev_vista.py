@@ -146,8 +146,6 @@ def banda_de_proporcion(satisfacen: int, evaluados: int) -> Banda:
     return "una_parte"
 
 
-# --- Presentacion de la senal en pantallas (S.5 J5b) -----------------------------
-
 TITULO_POR_LECTURA = {
     "vendio_aqui": "Vendió aquí",
     "vende_en_otro": "Vende en otro ad group",

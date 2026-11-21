@@ -78,10 +78,8 @@ ARCHIVO_TOKEN = "api_write_token"
 VENCIMIENTO_VETO_DEFAULT_DIAS = 30
 
 
-# ADV-4: TODOS los 503 de configuracion del token comparten UN detalle
-# generico — la razon especifica va SOLO al logger.warning (scrubbed): un
-# caller sin autenticar no recibe un oraculo del estado interno del server.
-# El 503 de ORBIT_DSN_ADMIN ausente NO se toca (mensaje estandar del repo).
+# Detalle generico para todos los 503 de configuracion del token: evita
+# exponer el estado interno a callers sin autenticar (el detalle va al log).
 DETAIL_TOKEN_503 = "escrituras no disponibles: configuracion de token incompleta"
 
 
@@ -366,9 +364,6 @@ def descartar_propuesta(
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
-# Mapeo sellado de errores de reversa_manual -> HTTP (el endpoint no inventa
-# semantica: cada excepcion de apply tiene su codigo). ADV-3: ReversaYaHecha
-# -> 409 "ya revertida" (una reversa es UNA por decision, regla 7).
 _ERRORES_REVERSA: dict[type[Exception], int] = {
     apply.ReversaNoAplicada: 409,
     apply.ReversaYaHecha: 409,
@@ -663,10 +658,6 @@ def asignar_familia(
     conn.commit()
     return salida
 
-
-# ---------------------------------------------------------------------------
-# Ajustes de campana del dueno (BIDS 02, V.3)
-# ---------------------------------------------------------------------------
 
 ClaseAjuste = Literal["fuera_de_amazon", "ajuste_ubicacion", "presupuesto"]
 

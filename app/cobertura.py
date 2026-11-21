@@ -209,7 +209,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if args.ventana_dias <= 0:
-        # Error de OPERADOR: exit 2 y sin abrir conexion (hallazgo qwen r2).
         print(f"--ventana-dias invalida: {args.ventana_dias}", file=sys.stderr)
         return 2
 

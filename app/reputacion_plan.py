@@ -11,7 +11,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 # Planes puros (sin DB ni red)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -136,7 +135,6 @@ def plan_snapshot_meli(
     return snapshot, eventos, skips
 
 
-# ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class PlanSeller:
     level_id: str | None = None
