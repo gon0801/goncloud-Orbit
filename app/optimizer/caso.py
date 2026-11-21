@@ -920,11 +920,7 @@ def _cambio_desde(datos: Any) -> CambioBid:
         fecha=_fecha(d["fecha"], "cambio.fecha"),
         bid_antes=_decimal(d["bid_antes"], "cambio.bid_antes"),
         bid_despues=_decimal(d["bid_despues"], "cambio.bid_despues"),
-        origen=_literal(
-            d["origen"],
-            ("motor", "regreso_por_desplome", "regreso_del_dueno", "ajuste_de_campana"),
-            "cambio.origen",
-        ),
+        origen=_literal(d["origen"], _ORIGENES_CAMBIO, "cambio.origen"),
     )
 
 

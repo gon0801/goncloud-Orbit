@@ -73,3 +73,33 @@ $ pytest -q tests/test_temporada01_b.py::test_temporada01_b_efecto_con_intento_s
 E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "temporada_efecto_uno_pendiente"
 1 failed in 7.60s
 ```
+
+## Ronda de revision 2 (cinco hallazgos de devin)
+
+Pruebas nuevas (todas demostradas fallando contra el SHA entregado
+8579569120ae78b4731bdefa4ed5f1766d966547 con el worktree):
+
+1. `test_temporada01_b_pendiente` (ampliada): piso fraccionario 5.6049 ->
+   `destino_entrada` devolvia 5.6049 (fuera de centavos); techo fraccionario
+   13.999 -> 13.999; nivel de regreso clampeado sin redondear.
+2. `test_temporada01_b_trayectoria_con_temporada_rejuega`: round-trip del
+   caso con un cambio de temporada dentro de `Trayectoria` -> `_cambio_desde`
+   levantaba ValueError (el origen `temporada` no estaba en su tupla) y el
+   rejugado/ruido descartaban la decision.
+3. `test_temporada01_b_episodio_reparado_tras_caida` (ampliada): el regreso
+   con el episodio YA CERRADO no abria fila en temporada_efecto (TX3 solo
+   abria efectos con episodio abierto) -> sin desenlace ni exclusion
+   divergente del regreso.
+4. `test_apply.py::test_regreso_del_dueno_ignora_los_movimientos_de_temporada`:
+   la racha de la ACCION contaba la entrada de temporada (8 -> 5.60) y el
+   destino del regreso era 8.00 en vez de 5.60.
+5. `test_lecturas_caso.py::test_trayectoria_en_practica_mira_sus_90_dias`:
+   con la historia extendida, `_cambios_por_hoja` recibia 365 dias y el
+   backfill del regreso tomaba el recorte de hace 95/100 dias (piso 5.00 en
+   practica vs 7.00 con la temporada apagada).
+
+Salida de la corrida roja (extracto): `assert Decimal('5.6049') ==
+Decimal('5.61')`, `assert Decimal('8.0') == Decimal('5.60')`, `AssertionError:
+la trayectoria de la practica es la de 90 dias`, y las tres pruebas DB
+fallidas (UniqueViolation ya no: en esta ronda el fallo DB del regreso fue
+ausencia de fila divergencia).

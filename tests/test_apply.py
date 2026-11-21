@@ -2441,6 +2441,62 @@ def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch)
 
 
 @_skip_db
+def test_regreso_del_dueno_ignora_los_movimientos_de_temporada(monkeypatch):
+    """TEMPORADA 01 (revision): la racha de la ACCION no cuenta ni corta con
+    los movimientos de temporada. Racha efectiva 5.60 -> 4.20 (el recorte del
+    motor DESPUES de la entrada de temporada): Amazon recibe 5.60 (el bid
+    anterior al recorte del motor), jamas 8.00, y se revierte el recorte del
+    motor."""
+    with _db_m5("orbit_apply_m5_temp") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        ciclo_c = _ciclo_live(conn)
+        d_temp = _decision_bid(
+            conn,
+            ciclo_a,
+            ids["config"],
+            ids["kw"],
+            motivo="entra_temporada_baja",
+            old="8.00",
+            new="5.60",
+        )
+        d_recorte = _decision_bid(
+            conn,
+            ciclo_b,
+            ids["config"],
+            ids["kw"],
+            motivo="pierde_dinero",
+            old="5.60",
+            new="4.20",
+        )
+        _aplicada(conn, d_temp, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d_recorte, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 4.20 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        hecho = regreso_del_dueno(
+            conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+        )
+
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("5.60")
+        fila = conn.execute(
+            "SELECT bid_despues, decision_id FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchall()
+        assert fila == [(Decimal("5.60"), d_recorte)]
+        assert hecho.decision_revertida_id == d_recorte
+
+
+@_skip_db
 def test_regreso_del_dueno_con_vigente_por_encima_no_baja(monkeypatch):
     """R03-B1: racha 10 -> 8 -> 6 con el vigente en 12 (cambio fuera de
     Orbit): el regreso NO escribe (bajaria a 10) y levanta

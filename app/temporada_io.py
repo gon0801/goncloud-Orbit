@@ -349,19 +349,30 @@ def estampa(pendiente: Any, episodio_id: int | None) -> Any:
 
 def abre_efectos(conn: psycopg.Connection, episodio_id: int | None, pendientes, ids) -> None:
     """TX3, despues del INSERT de decisiones: una fila temporada_efecto por
-    decision entra/ajusta/sale. SIN ON CONFLICT: el choque del indice unico
-    'temporada_efecto_uno_pendiente' es un bug (TX2 ya excluyo hojas en vuelo)
-    y el ciclo falla cerrado."""
-    if episodio_id is None:
+    decision entra/ajusta/sale. El episodio del efecto es el ESTAMPADO en la
+    decision (el regreso lleva el episodio que origino su reduccion aunque
+    TX3 lo acabe de cerrar); el abierto en este TX3 cubre las decisiones que
+    aun no traen identificador. SIN ON CONFLICT: el choque del indice unico
+    'temporada_efecto_uno_pendiente' es un bug (TX2 ya excluyo hojas en
+    vuelo) y el ciclo falla cerrado."""
+    if episodio_id is None and not any(
+        (p.inputs or {}).get("temporada_episodio_id") for p in pendientes
+    ):
         return
     for pendiente, decision_id in zip(pendientes, ids, strict=False):
         tipo = _TIPO_POR_MOTIVO.get((pendiente.inputs or {}).get("motivo"))
         if tipo is None:
             continue
+        ep = (pendiente.inputs or {}).get("temporada_episodio_id") or episodio_id
+        if ep is None:
+            raise ValueError(
+                "decision de temporada sin episodio estampado ni abierto en TX3: "
+                "la fila temporada_efecto exige su episodio (bug de estampado)"
+            )
         conn.execute(
             "INSERT INTO temporada_efecto (episodio_id, ad_entity_id, decision_id, tipo)"
             " VALUES (%s, %s, %s, %s)",
-            (episodio_id, pendiente.ad_entity_id, decision_id, tipo),
+            (ep, pendiente.ad_entity_id, decision_id, tipo),
         )
 
 

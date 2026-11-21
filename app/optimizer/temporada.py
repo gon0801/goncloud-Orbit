@@ -23,7 +23,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from decimal import ROUND_FLOOR, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 
 from app.optimizer import recuperacion
@@ -914,15 +914,32 @@ class SinPendiente:
 Pendiente = EntradaPendiente | AjustePendiente | RestauracionPendiente | SinPendiente
 
 
+def _centavos_del_rango(piso: Decimal, techo: Decimal) -> tuple[Decimal, Decimal] | None:
+    """El intervalo de CENTAVOS validos dentro de [piso, techo]: el minimo
+    redondeado hacia arriba y el maximo hacia abajo (un goal puede llevar
+    limites fraccionarios; Amazon recibe centavos y un clamp sin redondeo
+    enviaria una puja fuera del rango). None sin ningun centavo factible."""
+    piso_c = piso.quantize(CENTAVO, rounding=ROUND_CEILING)
+    techo_c = techo.quantize(CENTAVO, rounding=ROUND_FLOOR)
+    if piso_c > techo_c:
+        return None
+    return piso_c, techo_c
+
+
 def destino_entrada(
     bid: Decimal, reduccion: Decimal, piso: Decimal, techo: Decimal
 ) -> Decimal | None:
-    """El centavo mas bajo que no baja mas que `reduccion`, dentro de [piso, techo].
-    None sin centavo factible (el bid ya vive en el piso).
+    """El centavo mas bajo que no baja mas que `reduccion`, dentro del
+    intervalo de centavos de [piso, techo]. None sin centavo factible (el bid
+    ya vive en el piso).
     # 0.15 USD, 30 % -> 0.11 (26.7 %); 1.55 MXN -> 1.09 (29.7 %); 8.00 -> 5.60;
-    # 0.10 USD con piso 0.10 -> None."""
+    # 0.10 USD con piso 0.10 -> None; piso fraccionario 5.6049 -> 5.61."""
+    rango = _centavos_del_rango(piso, techo)
+    if rango is None:
+        return None
+    piso_c, techo_c = rango
     d = centavo_hacia(bid * (Decimal(1) - reduccion), desde=bid)
-    d = min(max(d, piso), techo)
+    d = min(max(d, piso_c), techo_c)
     if bid - d < CENTAVO:
         return None
     return d
@@ -940,14 +957,23 @@ def inicio_episodio(episodio: EpisodioVigente | None, dia: dt.date) -> dt.dateti
 def nivel_de_regreso(red: ReduccionVigente, bid: Decimal, piso: Decimal, techo: Decimal) -> Decimal:
     """A donde regresa una hoja reducida. Sin recortes despues de la entrada es la
     base. Si Orbit recorto despues de la entrada, el regreso conserva esos recortes
-    en proporcion; nunca baja.
+    en proporcion; nunca baja y siempre queda en centavos del intervalo de
+    [piso, techo] (un goal con limites fraccionarios jamas recibe una puja
+    fuera de centavos).
     # 8 -> 5.60 (entrada) -> 3.15 (recortes con la temporada apagada): 8 x
-    # 3.15 / 5.60 = 4.50, no 8.00."""
+    # 3.15 / 5.60 = 4.50, no 8.00. Techo fraccionario 15.999 -> 15.99."""
+    rango = _centavos_del_rango(piso, techo)
+    if rango is None:
+        raise ValueError(
+            f"nivel_de_regreso sin centavo factible en el rango del goal: [{piso}, {techo}]"
+        )
+    piso_c, techo_c = rango
     if red.solo_temporada_despues or bid >= red.ultimo_bid:
         factor = Decimal(1)
     else:
         factor = bid / red.ultimo_bid
-    return min(max((red.base * factor).quantize(CENTAVO, rounding=ROUND_FLOOR), piso), techo)
+    nivel = (red.base * factor).quantize(CENTAVO, rounding=ROUND_FLOOR)
+    return min(max(nivel, piso_c), techo_c)
 
 
 def reduccion_vigente(

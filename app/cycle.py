@@ -2276,8 +2276,11 @@ def _corre_fases(
         ids_decisiones = _inserta_decisiones(
             conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion
         )
-        if ep_abierto is not None:
-            temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
+        # TEMPORADA 01 B (revision): los efectos se abren aun cuando TX3 cerro
+        # el episodio: el regreso de temporada lleva ESTAMPADO el episodio que
+        # origino su reduccion y su desenlace (confirmado/divergencia con
+        # exclusion) se rastrea en esa fila.
+        temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
         _inserta_targets(conn, cycle_id, decided_at, contadores)
         # ORBIT 07 M1: los episodios de venta reciente abiertos en TX2 se
         # escriben aqui, en la misma transaccion que las decisiones.

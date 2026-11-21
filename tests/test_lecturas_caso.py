@@ -27,6 +27,8 @@ from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app.lecturas_caso import lee_plataforma
+from app.optimizer.temporada import Estacion as EstacionTemporada
+from app.temporada_io import EstadoTemporada, TemporadaPlataforma
 from app.optimizer.caso import (
     BidVigente,
     CasoHoja,
@@ -1034,3 +1036,78 @@ def test_ajuste_solo_toca_hojas_de_su_campana():
         assert _cuenta(ha) == 1
         assert _cuenta(hb) == 0
         assert _cuenta(hc) == 0
+
+
+@FALTA_PG
+def test_trayectoria_en_practica_mira_sus_90_dias():
+    """TEMPORADA 01 B (revision): con la historia extendida de temporada, la
+    TRAYECTORIA (90 dias) se arma solo con las filas de su ventana: el
+    backfill del regreso del dueno jamas usa un recorte de fuera de los 90
+    dias y el piso aprendido en practica es el mismo que con la temporada
+    apagada."""
+    with _db_lecturas() as conn:
+        config = _config(conn)
+        _, g, h = _triple(conn, tag="t90", bid=Decimal("8"))
+        ejecutor = _ciclo(conn, "live", platform="amazon_mx")
+        d1 = _recorte(
+            conn,
+            hoja=h,
+            config=config,
+            ejecutor=ejecutor,
+            old=Decimal("8"),
+            new=Decimal("7"),
+            confirmado=_DECIDIDO - dt.timedelta(days=100),
+        )
+        _recorte(
+            conn,
+            hoja=h,
+            config=config,
+            ejecutor=ejecutor,
+            old=Decimal("7"),
+            new=Decimal("5"),
+            confirmado=_DECIDIDO - dt.timedelta(days=95),
+        )
+        _reversa(conn, d1, sellada=_DECIDIDO - dt.timedelta(days=10))
+
+        # Camino de hoy (temporada apagada): la consulta trae 90 dias.
+        base = _arma(lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia()), conn, h, g)
+        assert [(x.bid_antes, x.bid_despues, x.origen) for x in base.trayectoria.cambios] == [
+            (Decimal("7"), Decimal("8"), "regreso_del_dueno")
+        ], "el backfill del regreso sale de la decision revertida (7)"
+        assert base.trayectoria.piso_aprendido == Decimal("7")
+
+        # En practica (temporada encendida): la historia extendida va al
+        # congelado y la trayectoria NO cambia.
+        estacion = EstacionTemporada(
+            version="temporada_v1",
+            dia=_DECIDIDO,
+            fase="normal",
+            previa_alta=False,
+            reduccion_baja=Decimal("0.30"),
+            mult_cortes_baja=Decimal("2"),
+            inicio_bloque=_DECIDIDO - dt.timedelta(days=30),
+        )
+        plat = TemporadaPlataforma(
+            estacion=estacion,
+            modo="shadow",
+            config=None,
+            meta_alta_pct=Decimal("25"),
+            estado=EstadoTemporada(
+                episodio=None,
+                efectos_abiertos={},
+                excluidas={},
+                cerca_plataforma=None,
+            ),
+        )
+        practica = _arma(
+            lee_plataforma(
+                conn, "amazon_mx", _DECIDIDO, economia=_economia(), temporada_plat=plat
+            ),
+            conn,
+            h,
+            g,
+        )
+        assert [(x.bid_antes, x.bid_despues, x.origen) for x in practica.trayectoria.cambios] == [
+            (x.bid_antes, x.bid_despues, x.origen) for x in base.trayectoria.cambios
+        ], "la trayectoria de la practica es la de 90 dias"
+        assert practica.trayectoria.piso_aprendido == base.trayectoria.piso_aprendido == Decimal("7")

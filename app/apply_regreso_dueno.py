@@ -19,6 +19,9 @@ from app.pantalla_danadas import lee_danadas
 from app.redaction import scrub
 
 ORIGEN_REGRESO_DUENO = "regreso_del_dueno"
+# TEMPORADA 01 (0093): los movimientos de temporada son invisibles para la
+# racha de la ACCION (no cuentan ni cortan), igual que en la pantalla.
+ORIGEN_TEMPORADA = "temporada"
 
 # La racha sale de v_cambio_bid, no de otro camino (fuente unica de la
 # historia de bids). Sin filtro por motivo: la racha se deriva de los bids.
@@ -109,17 +112,26 @@ def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
     Difiere de la racha de la PANTALLA (pantalla_danadas._racha_vigente,
     guia P.3a cambio 2, donde el regreso no corta). Sin regreso previo,
     igual que la pantalla: el regreso no cuenta (su bid_antes es NULL) y
-    una subida del motor si corta, incluido un regreso_por_desplome. Cada
-    cambio es (confirmado_el, bid_antes, bid_despues, origen, decision_id,
-    moneda)."""
-    subidas = [c[0] for c in cambios if c[1] is not None and c[2] is not None and c[2] > c[1]]
+    una subida del motor si corta, incluido un regreso_por_desplome. Los
+    movimientos de temporada (TEMPORADA 01, origen 'temporada') tampoco
+    cuentan ni cortan: un movimiento planeado no es dano ni el fin del
+    dano del motor. Cada cambio es (confirmado_el, bid_antes, bid_despues,
+    origen, decision_id, moneda)."""
+    subidas = [
+        c[0]
+        for c in cambios
+        if c[3] != ORIGEN_TEMPORADA
+        and c[1] is not None
+        and c[2] is not None
+        and c[2] > c[1]
+    ]
     ultima = max(subidas) if subidas else None
     regresos = [(c[0], c[4]) for c in cambios if c[3] == ORIGEN_REGRESO_DUENO]
     ultimo_regreso = max(regresos) if regresos else None
     return [
         c
         for c in cambios
-        if c[3] != ORIGEN_REGRESO_DUENO
+        if c[3] not in (ORIGEN_REGRESO_DUENO, ORIGEN_TEMPORADA)
         and c[1] is not None
         and c[2] is not None
         and c[2] < c[1]

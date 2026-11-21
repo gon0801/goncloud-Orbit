@@ -31,6 +31,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -42,11 +43,13 @@ from test_cycle import _config_version, _entidad, _estado, _metrica, _run
 
 from app import cycle as ciclo
 from app.apply import MOTIVOS_SIN_APLICAR
-from app.optimizer import temporada
+from app.optimizer import recuperacion, temporada
 from app.optimizer.caso import (
     BidVigente,
+    CambioBid,
     CambioFechado,
     CasoHoja,
+    EfectoCambio,
     Economia,
     EconomiaPlataforma,
     HistoriaBid,
@@ -601,6 +604,79 @@ def test_temporada01_b_pendiente():
         is None
     )
 
+    # Con limites FRACCIONARIOS del goal el destino vive en centavos del
+    # intervalo valido (revision: Amazon recibe centavos y un clamp sin
+    # redondeo enviaria una puja fuera del rango).
+    assert temporada.destino_entrada(
+        Decimal("8.00"), Decimal("0.30"), Decimal("5.6049"), Decimal("45.00")
+    ) == Decimal("5.61"), "el primer centavo que cumple el piso fraccionario"
+    assert temporada.destino_entrada(
+        Decimal("20.00"), Decimal("0.30"), Decimal("1.00"), Decimal("13.999")
+    ) == Decimal("13.99"), "el ultimo centavo que cumple el techo fraccionario"
+    assert (
+        temporada.destino_entrada(
+            Decimal("5.60"), Decimal("0.30"), Decimal("5.6049"), Decimal("45.00")
+        )
+        is None
+    ), "sin centavo factible: el piso fraccionario deja fuera a 5.60"
+
+    # El regreso tambien queda en centavos del intervalo valido.
+    red = recuperacion.ReduccionVigente(
+        episodio_id=1,
+        base=Decimal("20.00"),
+        primer_el=_medianoche(D_E1),
+        ultimo_bid=Decimal("14.00"),
+        ultimo_el=_medianoche(D_E1 + dt.timedelta(days=5)),
+        solo_temporada_despues=True,
+    )
+    assert temporada.nivel_de_regreso(
+        red, Decimal("14.00"), Decimal("1.00"), Decimal("15.999")
+    ) == Decimal("15.99"), "el regreso clampeado al techo fraccionario baja al centavo"
+    assert temporada.nivel_de_regreso(
+        red, Decimal("14.00"), Decimal("1.00"), Decimal("45.00")
+    ) == Decimal("20.00")
+
+
+def test_temporada01_b_trayectoria_con_temporada_rejuega():
+    """Revision: un cambio de temporada dentro de `Trayectoria` (la de 90
+    dias) sobrevive el freeze/desfreeze del caso — `_cambio_desde` acepta el
+    origen `temporada` y el rejugado y el panel de ruido no descartan la
+    decision."""
+    entrada = CambioBid(
+        fecha=D_E1, bid_antes=Decimal("8.00"), bid_despues=Decimal("5.60"),
+        origen="temporada",
+    )
+    motor = CambioBid(
+        fecha=D_E1 + dt.timedelta(days=3), bid_antes=Decimal("5.60"),
+        bid_despues=Decimal("5.10"), origen="motor",
+    )
+    trayectoria = Trayectoria(
+        cambios=(entrada, motor),
+        efecto=EfectoCambio(
+            dias_post=2,
+            impresiones_pre7=None,
+            clics_pre7=None,
+            impresiones_post=None,
+            dias_post_trafico=0,
+            clics_post=None,
+            gasto_post=None,
+            clics_pre=None,
+            gasto_pre=None,
+            vendia=None,
+        ),
+    )
+    estacion = Estacion(
+        version=temporada.VERSION_TEMPORADA, dia=D_E1, fase="baja", previa_alta=False,
+        reduccion_baja=Decimal("0.30"), mult_cortes_baja=Decimal("2"), inicio_bloque=D_E1,
+    )
+    caso = _caso(HistoriaBid(desde=D_E1, cambios=()), "5.60", estacion, 1)
+    caso_con_trayectoria = replace(caso, trayectoria=trayectoria)
+    datos = caso_con_trayectoria.como_json()
+    rejuego = CasoHoja.desde_json(datos)
+    assert rejuego.trayectoria.cambios[0].origen == "temporada"
+    assert rejuego.trayectoria == trayectoria
+    assert rejuego.trayectoria.piso_aprendido is None, "la entrada de temporada no ensena piso"
+
 
 # ---------------------------------------------------------------------------
 # 2. test_temporada01_b_episodio_reparado_tras_caida (escribe en produccion).
@@ -687,6 +763,76 @@ def test_temporada01_b_episodio_reparado_tras_caida(db_template):
         (kw1,),
     ).fetchone() == ("temporada", "entra", e1)
     assert _bid_cache(conn, kw1) == Decimal("5.60")
+
+    # Revision: al salir la baja, TX3 cierra el episodio y emite el regreso; el
+    # efecto del regreso se abre con el episodio ESTAMPADO (E1, ya cerrado) y
+    # su desenlace divergente deja la exclusion con el bid leido. Amazon
+    # "tiene" 7.00 y NO aplica el PUT del regreso (el dueno gano la carrera).
+    def handler_div(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+        if request.method == "GET" and request.url.path == "/v2/profiles":
+            return httpx.Response(
+                200,
+                json={
+                    "profiles": [
+                        {
+                            "profileId": 414141,
+                            "countryCode": "MX",
+                            "currencyCode": "MXN",
+                            "accountInfo": {"type": "seller", "name": "MX"},
+                        }
+                    ]
+                },
+            )
+        if request.method == "PUT":
+            body = json.loads(request.content)
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            return httpx.Response(207, json={"ack": obj})
+        if request.method == "POST" and request.url.path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if request.url.path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            return httpx.Response(
+                200,
+                json={contenedor: [{campo: "b-kw1", "bid": "7.00"}]},
+            )
+        raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+    res = _corre(conn, D_SALE_E1, handler_div)
+    assert res.status == "done"
+    regreso = [
+        row for row in _temporada_del_ciclo(conn, res.cycle_id) if row[0] == kw1
+    ]
+    assert regreso and regreso[0][1] == Decimal("8.00") and regreso[0][2] == "sale_temporada_baja", (
+        regreso
+    )
+    filas = conn.execute(
+        "SELECT te.episodio_id, te.cerrado_el IS NOT NULL, te.desenlace,"
+        "       te.episodio_id = (d.inputs->>'temporada_episodio_id')::bigint"
+        "  FROM temporada_efecto te"
+        "  JOIN decision d ON d.id = te.decision_id"
+        " ORDER BY te.id",
+    ).fetchall()
+    assert len(filas) == 2
+    assert filas[0][:1] == (e1,) and filas[0][2:4] == ("confirmado", True), filas
+    assert filas[1] == (e1, True, "divergencia", True), filas
+    exclusion = conn.execute(
+        "SELECT motivo, bid_visto, decision_id FROM temporada_exclusion"
+        " WHERE ad_entity_id = %s",
+        (kw1,),
+    ).fetchone()
+    dec_regreso = conn.execute(
+        "SELECT id FROM decision WHERE inputs->>'motivo' = 'sale_temporada_baja'"
+        "   AND ad_entity_id = %s ORDER BY id DESC LIMIT 1",
+        (kw1,),
+    ).fetchone()[0]
+    assert exclusion == ("divergencia", Decimal("7.00"), dec_regreso), exclusion
+    assert conn.execute(
+        "SELECT cerrado_el FROM temporada_episodio WHERE id = %s", (e1,)
+    ).fetchone()[0] is not None
 
 
 def test_temporada01_b_efecto_con_intento_sellado_se_cierra(db_template):

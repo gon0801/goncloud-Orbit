@@ -972,6 +972,13 @@ def _historia_temporada(
     filas_cambios = conn.execute(_SQL_CAMBIOS.format(tope=tope), p_cambios).fetchall()
     if not activa:
         return desde_historia, {}, {}, _cambios_por_hoja(filas_cambios), None
+    # La trayectoria de 90 dias se arma SOLO con las filas de su ventana, el
+    # MISMO corte que la consulta de hoy aplica: el backfill del regreso del
+    # dueno jamas usa un cambio de fuera de los 90 dias (cambiaria el piso
+    # aprendido en practica). Las filas extendidas quedan para la historia
+    # congelada.
+    desde_90 = dt.datetime(desde.year, desde.month, desde.day, tzinfo=dt.UTC)
+    filas_90 = [f for f in filas_cambios if f[1] >= desde_90]
     desde_h = dt.datetime(
         desde_historia.year, desde_historia.month, desde_historia.day, tzinfo=dt.UTC
     )
@@ -990,7 +997,7 @@ def _historia_temporada(
     limite = desde
     cambios_90 = {
         hoja: tuple(c for c in cs if c.fecha >= limite)
-        for hoja, cs in _cambios_por_hoja(filas_cambios).items()
+        for hoja, cs in _cambios_por_hoja(filas_90).items()
     }
     historia = _historia_por_hoja(filas_cambios, manos, fines, desde_historia)
     return desde_historia, manos, fines, {h: cs for h, cs in cambios_90.items() if cs}, historia
