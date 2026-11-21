@@ -28,6 +28,10 @@ if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
   if R=$(cron_vigia revisa 2>&1); then ok "$R"; else falla "cron del vigia de Jev: $R"; fi
 fi
 
+if git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null && git cat-file -e "$SHA:$CRON_BLOQUE" 2>/dev/null; then
+  if R=$(cron_orbit revisa 2>&1); then ok "$R"; else falla "cron de Orbit: $R"; fi
+fi
+
 if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then
   if srv "cmp -s $SRV/tools/$REFRESCO $SRV/$REFRESCO"; then ok "$SRV/$REFRESCO es el de tools/"; else falla "$SRV/$REFRESCO distinto de tools/$REFRESCO o ausente"; fi
 fi

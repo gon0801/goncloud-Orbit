@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // JS de /settings (DASHBOARD 01 3.1). Vive en /static por la CSP
 // default-src 'self'. Token SOLO en header x-orbit-token (sellado 18).
@@ -323,7 +324,7 @@ function pintaVistaPrevia(data) {
   aviso.textContent = (data.resumen && data.resumen.aviso_cambio) || "";
   aviso.hidden = !aviso.textContent;
   var lista = tarjetaTemporada.querySelector("[data-proximos]");
-  lista.innerHTML = "";
+  lista.replaceChildren();
   (data.resumen ? data.resumen.proximos : []).forEach(function (evento) {
     var li = document.createElement("li");
     li.textContent = fechaCorta(evento.fecha) + " — " + evento.frase;
@@ -470,3 +471,4 @@ function mantenerPausada(adEntityId, boton) {
       if (estado) estado.textContent = "Error de red al guardar.";
     });
 }
+})();

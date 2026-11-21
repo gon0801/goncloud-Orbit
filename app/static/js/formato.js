@@ -81,6 +81,53 @@ var Orbit = (function () {
   // Valor que ya viene en porcentaje: «19.3661» -> «19.37 %».
   function pct(valor) { return cifra(valor, 2, " %"); }
 
+  // Desplaza el punto decimal de un texto numerico sin pasar por float.
+  function desplazaDecimal(texto, lugares) {
+    var m = /^([-+]?)(\d*)(?:\.(\d*))?(?:[eE]([-+]?\d+))?$/.exec(texto);
+    if (!m || (!m[2] && !m[3])) return null;
+    var signo = m[1] === "-" ? "-" : "";
+    var enteros = m[2] || "";
+    var frac = m[3] || "";
+    var exp = (m[4] ? parseInt(m[4], 10) : 0) + lugares;
+    var bruto = enteros + frac;
+    var digitos = bruto.replace(/^0+/, "");
+    if (!digitos) return "0";
+    var pos = enteros.length - (bruto.length - digitos.length) + exp;
+    if (pos <= 0) return signo + "0." + "0".repeat(-pos) + digitos;
+    if (pos >= digitos.length) return signo + digitos + "0".repeat(pos - digitos.length);
+    return signo + digitos.slice(0, pos) + "." + digitos.slice(pos);
+  }
+
+  // Fraccion (0.30 = 30 %) a porcentaje exacto sin float.
+  function fraccionPct(valor) {
+    if (valor === null || valor === undefined) return RAYA;
+    var texto = typeof valor === "boolean" ? "" : String(valor).trim();
+    if (!NUMERO.test(texto)) return String(valor);
+    var escalado = desplazaDecimal(texto, 2);
+    return escalado === null ? String(valor) : pct(escalado);
+  }
+
+  // Constructor seguro de nodos DOM: los textos viajan en TextNode, jamas innerHTML.
+  function el(tag, attrs) {
+    var nodo = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        var v = attrs[k];
+        if (v === null || v === undefined || v === false) return;
+        if (k === "class" || k === "className") nodo.className = String(v);
+        else if (v === true) nodo.setAttribute(k, "");
+        else nodo.setAttribute(k, String(v));
+      });
+    }
+    function anade(hijo) {
+      if (hijo === null || hijo === undefined || hijo === false) return;
+      if (Array.isArray(hijo)) hijo.forEach(anade);
+      else nodo.appendChild(typeof hijo === "object" ? hijo : document.createTextNode(String(hijo)));
+    }
+    for (var i = 2; i < arguments.length; i++) anade(arguments[i]);
+    return nodo;
+  }
+
   // «424436» -> «424,436»; con decimales, «1234.5» -> «1,234.50».
   function numero(valor, decimales) { return cifra(valor, decimales || 0, ""); }
 
@@ -128,8 +175,10 @@ var Orbit = (function () {
     etiqueta: etiqueta,
     dinero: dinero,
     pct: pct,
+    fraccionPct: fraccionPct,
     numero: numero,
     fechaHora: fechaHora,
     postJson: postJson,
+    el: el,
   };
 })();

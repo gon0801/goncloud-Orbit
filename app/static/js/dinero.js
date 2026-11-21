@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // JS de donde-poner-el-dinero (BIDS 02, P.2b). Vive en /static por la CSP
 // `default-src 'self'`: los <script> inline y los handlers on*= quedan
@@ -94,7 +95,7 @@ function aplicar(form) {
     actor: form.elements.actor.value,
   };
   if (form.dataset.clase === "presupuesto") {
-    cuerpo.presupuesto = Number(form.elements.presupuesto.value);
+    cuerpo.presupuesto = form.elements.presupuesto.value.trim();
   }
   if (form.dataset.clase === "ajuste_ubicacion") {
     cuerpo.ubicacion = form.elements.ubicacion.value;
@@ -209,3 +210,4 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 });
+})();

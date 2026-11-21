@@ -1556,6 +1556,13 @@ def test_arreglos01_n_el_despliegue_instala_el_bloque_orbit(s):
         ORBIT_CRON_AVISA=str(avisa),
     )
     assert _corre_cron_orbit(entorno, "revisa").returncode == 0
+    # P0-11: checklist.sh exige cron_orbit revisa en verde y falla ROJO si hay deriva.
+    assert s.checklist("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa)).returncode == 0
+    crontab.write_text(CRONTAB_GON, encoding="utf-8", newline="\n")
+    r_chk = s.checklist("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa))
+    assert r_chk.returncode == 1
+    assert "FALLA cron de Orbit" in r_chk.stdout
+    crontab.write_text(texto, encoding="utf-8", newline="\n")
 
     diario = s.ultimo()
     assert "CRON=orbit" in diario

@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // JS de /precios (REPRICING 02 G.3). Vive en /static por la CSP
 // default-src 'self'. Token SOLO en header x-orbit-token, tecleado en
@@ -15,33 +16,11 @@ function tokenPrecios(form) {
 }
 
 function postPrecios(form, url, cuerpo) {
-  return fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": tokenPrecios(form),
-    },
-    body: JSON.stringify(cuerpo),
-  }).then(function (resp) {
-    return resp.json().catch(function () { return {}; }).then(function (data) {
-      return { ok: resp.ok, status: resp.status, data: data };
-    });
-  });
+  return Orbit.postJson(url, cuerpo, tokenPrecios(form));
 }
 
-function escapar(texto) {
-  return String(texto === null || texto === undefined ? "" : texto)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-// Las fracciones del plan (0.30 = 30 %) pasan a porcentaje para Orbit.pct.
 function pct(fraccion) {
-  if (fraccion === null || fraccion === undefined) return "—";
-  var n = Number(fraccion);
-  return isNaN(n) ? String(fraccion) : Orbit.pct(n * 100);
+  return Orbit.fraccionPct(fraccion);
 }
 
 function importeCorto(importe) {
@@ -93,38 +72,62 @@ function seleccionDe(form, estado) {
 function pintarVista(form, plan) {
   var vista = vistaDe(form);
   var bloqueadas = 0;
-  var celdas = plan.filas.map(function (f) {
+  var filas = plan.filas.map(function (f) {
     if (f.bloqueo) bloqueadas += 1;
     var meta = pct(f.goal_actual) + " → " + pct(f.goal_propuesto);
     var bloq = f.bloqueo ? Orbit.etiqueta(f.bloqueo, "bloqueo_siembra") : "—";
     if (f.motivo) bloq += " (" + Orbit.etiqueta(f.motivo, "motivo_siembra") + ")";
-    var confirma = "";
+    var confirma = null;
     if (f.bloqueo && f.confirmable) {
-      confirma = '<input type="checkbox" data-confirmar="' + escapar(f.listing_id) +
-        '" aria-label="Confirmar ' + escapar(f.seller_sku || f.listing_id) + '">';
+      confirma = Orbit.el("input", {
+        type: "checkbox",
+        "data-confirmar": f.listing_id,
+        "aria-label": "Confirmar " + (f.seller_sku || f.listing_id),
+      });
     }
-    return "<tr><td class=\"mono\">" + escapar(f.seller_sku || f.listing_id) +
-      "</td><td>" + escapar(Orbit.etiqueta(f.accion, "accion_siembra")) +
-      "</td><td class=\"num\">" + escapar(pct(f.m_hoy)) +
-      "</td><td class=\"num\">" + escapar(meta) +
-      "</td><td class=\"num\">" + escapar(importeCorto(f.p_estrella)) +
-      "</td><td" + (f.bloqueo ? " class=\"alerta\"" : "") + ">" + escapar(bloq) +
-      "</td><td>" + confirma + "</td></tr>";
+    return Orbit.el(
+      "tr",
+      null,
+      Orbit.el("td", { class: "mono" }, f.seller_sku || f.listing_id),
+      Orbit.el("td", null, Orbit.etiqueta(f.accion, "accion_siembra")),
+      Orbit.el("td", { class: "num" }, pct(f.m_hoy)),
+      Orbit.el("td", { class: "num" }, meta),
+      Orbit.el("td", { class: "num" }, importeCorto(f.p_estrella)),
+      Orbit.el("td", f.bloqueo ? { class: "alerta" } : null, bloq),
+      Orbit.el("td", null, confirma)
+    );
   });
-  vista.innerHTML =
-    "<p class=\"mutado\">Huella " + escapar(plan.huella) + " · " +
-    Orbit.numero(plan.filas.length) + " filas · " + Orbit.numero(bloqueadas) + " bloqueadas</p>" +
-    "<div class=\"tabla-scroll\" role=\"region\" aria-label=\"Vista previa del plan\" tabindex=\"0\">" +
-    "<table><thead><tr><th>SKU</th><th>Acción</th><th class=\"num\">Margen hoy</th>" +
-    "<th class=\"num\">Meta</th><th class=\"num\">Precio objetivo</th><th>Bloqueo</th><th>Confirmar</th></tr></thead>" +
-    "<tbody>" + celdas.join("") + "</tbody></table></div>";
+  var cabecera = Orbit.el(
+    "tr",
+    null,
+    Orbit.el("th", null, "SKU"),
+    Orbit.el("th", null, "Acción"),
+    Orbit.el("th", { class: "num" }, "Margen hoy"),
+    Orbit.el("th", { class: "num" }, "Meta"),
+    Orbit.el("th", { class: "num" }, "Precio objetivo"),
+    Orbit.el("th", null, "Bloqueo"),
+    Orbit.el("th", null, "Confirmar")
+  );
+  var resumen = Orbit.el(
+    "p",
+    { class: "mutado" },
+    "Huella " + plan.huella + " · " +
+      Orbit.numero(plan.filas.length) + " filas · " +
+      Orbit.numero(bloqueadas) + " bloqueadas"
+  );
+  var cajaTabla = Orbit.el(
+    "div",
+    { class: "tabla-scroll", role: "region", "aria-label": "Vista previa del plan", tabindex: "0" },
+    Orbit.el("table", null, Orbit.el("thead", null, cabecera), Orbit.el("tbody", null, filas))
+  );
+  vista.replaceChildren(resumen, cajaTabla);
 }
 
 function planear(form) {
   var estado = estadoDe(form);
   var plataforma = form.getAttribute("data-platform");
-  var aplicar = botonAplicarDe(form);
-  aplicar.disabled = true;
+  var aplicarBtn = botonAplicarDe(form);
+  aplicarBtn.disabled = true;
   delete planesVistos[plataforma];
   var pedido = armarPedido(form, estado);
   if (!pedido) return;
@@ -142,7 +145,7 @@ function planear(form) {
       if (r.ok) {
         planesVistos[plataforma] = { huella: r.data.huella, spec: spec };
         pintarVista(form, r.data);
-        aplicar.disabled = false;
+        aplicarBtn.disabled = false;
         estado.textContent = "Plan listo: revisa bloqueos y aplica.";
       } else {
         var detalle = r.data && r.data.detail;
@@ -195,20 +198,37 @@ function aplicar(form) {
       if (r.ok) {
         delete planesVistos[plataforma];
         botonAplicarDe(form).disabled = true;
-        var lineas = r.data.hechos.map(function (h) {
-          return "<li>" + escapar(Orbit.etiqueta(h.platform, "plataforma")) + " #" + escapar(h.listing_id) + ": " +
-            escapar(Orbit.etiqueta(h.accion, "accion_siembra")) + "</li>";
-        });
-        vista.innerHTML =
-          "<p>Aplicado: " + Orbit.numero(r.data.sembrados) + " metas puestas, " +
-          Orbit.numero(r.data.cerrados) + " quitadas (lote " + escapar(r.data.lote) + "). " +
-          "Las bloqueadas quedaron fuera; recarga para ver la tabla al dia.</p>" +
-          (lineas.length ? "<ul>" + lineas.join("") + "</ul>" : "") +
-          "<p><button type=\"button\" data-recargar>Recargar</button></p>" +
-          vista.innerHTML;
-        var recargar = vista.querySelector("[data-recargar]");
-        if (recargar) {
-          recargar.addEventListener("click", function () { window.location.reload(); });
+        var nodos = [
+          Orbit.el(
+            "p",
+            null,
+            "Aplicado: " + Orbit.numero(r.data.sembrados) + " metas puestas, " +
+              Orbit.numero(r.data.cerrados) + " quitadas (lote " + r.data.lote + "). " +
+              "Las bloqueadas quedaron fuera; recarga para ver la tabla al dia."
+          ),
+        ];
+        var hechos = r.data.hechos || [];
+        if (hechos.length) {
+          nodos.push(
+            Orbit.el(
+              "ul",
+              null,
+              hechos.map(function (h) {
+                return Orbit.el(
+                  "li",
+                  null,
+                  Orbit.etiqueta(h.platform, "plataforma") + " #" + h.listing_id + ": " +
+                    Orbit.etiqueta(h.accion, "accion_siembra")
+                );
+              })
+            )
+          );
+        }
+        var btnRecargar = Orbit.el("button", { type: "button", "data-recargar": true }, "Recargar");
+        btnRecargar.addEventListener("click", function () { window.location.reload(); });
+        nodos.push(Orbit.el("p", null, btnRecargar));
+        for (var i = nodos.length - 1; i >= 0; i--) {
+          vista.insertBefore(nodos[i], vista.firstChild);
         }
         estado.textContent = "Aplicado.";
       } else if (r.status === 409 && r.data.detail && r.data.detail.plan_nuevo) {
@@ -231,49 +251,55 @@ function cablearSoltar(boton) {
   boton.addEventListener("click", function () {
     if (boton.parentNode.querySelector("[data-liberar-form]")) return;
     var corrida = boton.getAttribute("data-liberar-corrida");
-    var caja = document.createElement("span");
-    caja.setAttribute("data-liberar-form", "true");
-    caja.innerHTML =
-      " <label>Actor <input type=\"text\" name=\"actor\" autocomplete=\"off\"></label>" +
-      " <label>Nota <input type=\"text\" name=\"nota\" autocomplete=\"off\"></label>" +
-      " <label>Token <input type=\"password\" name=\"token\" autocomplete=\"off\"></label>" +
-      " <button type=\"button\" data-liberar-ok>Confirmar soltar</button>" +
-      " <button type=\"button\" data-liberar-no>Cancelar</button>" +
-      " <span data-liberar-estado class=\"mutado\"></span>";
+    var inActor = Orbit.el("input", { type: "text", name: "actor", autocomplete: "off" });
+    var inNota = Orbit.el("input", { type: "text", name: "nota", autocomplete: "off" });
+    var inToken = Orbit.el("input", { type: "password", name: "token", autocomplete: "off" });
+    var btnOk = Orbit.el("button", { type: "submit", "data-liberar-ok": true }, "Confirmar soltar");
+    var btnNo = Orbit.el("button", { type: "button", "data-liberar-no": true }, "Cancelar");
+    var estado = Orbit.el("span", { "data-liberar-estado": true, class: "mutado" });
+    var caja = Orbit.el(
+      "form",
+      { "data-liberar-form": "true" },
+      " ",
+      Orbit.el("label", null, "Actor ", inActor),
+      " ",
+      Orbit.el("label", null, "Nota ", inNota),
+      " ",
+      Orbit.el("label", null, "Token ", inToken),
+      " ",
+      btnOk,
+      " ",
+      btnNo,
+      " ",
+      estado
+    );
     boton.parentNode.insertBefore(caja, boton.nextSibling);
-    caja.querySelector("[data-liberar-no]").addEventListener("click", function () {
+    btnNo.addEventListener("click", function () {
       caja.remove();
     });
-    caja.querySelector("[data-liberar-ok]").addEventListener("click", function () {
-      var estado = caja.querySelector("[data-liberar-estado]");
-      var actor = caja.querySelector("input[name=actor]").value.trim();
-      var nota = caja.querySelector("input[name=nota]").value.trim();
-      var token = caja.querySelector("input[name=token]").value;
+    caja.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      var actor = inActor.value.trim();
+      var nota = inNota.value.trim();
+      var token = inToken.value;
       if (!actor || !nota) {
         estado.textContent = "Soltar firma: actor y nota.";
         return;
       }
       estado.textContent = "Soltando…";
-      fetch("/api/precios/compuerta/" + corrida + "/liberar", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-orbit-token": token,
-        },
-        body: JSON.stringify({ actor: actor, nota: nota }),
-      }).then(function (resp) {
-        return resp.json().catch(function () { return {}; }).then(function (data) {
-          if (resp.ok) {
+      Orbit.postJson("/api/precios/compuerta/" + corrida + "/liberar", { actor: actor, nota: nota }, token)
+        .then(function (r) {
+          if (r.ok) {
             estado.textContent = "Soltada.";
             window.location.reload();
           } else {
-            var detalle = data && data.detail;
-            estado.textContent = "Error: " + (detalle && detalle.message ? detalle.message : detalle || resp.status);
+            var detalle = r.data && r.data.detail;
+            estado.textContent = "Error: " + (detalle && detalle.message ? detalle.message : detalle || r.status);
           }
+        })
+        .catch(function () {
+          estado.textContent = "Error de red al soltar.";
         });
-      }).catch(function () {
-        estado.textContent = "Error de red al soltar.";
-      });
     });
   });
 }
@@ -293,3 +319,4 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   document.querySelectorAll("[data-liberar-corrida]").forEach(cablearSoltar);
 });
+})();

@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // JS de productos sin clics (BIDS 02, P.4). Vive en /static por la CSP
 // `default-src 'self'`: los <script> inline y los handlers on*= quedan
@@ -1361,3 +1362,15 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 });
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    verLanzamiento: verLanzamiento,
+    lanzar: lanzar,
+    reponer: reponer,
+    marcados: marcados,
+    verRetiro: verRetiro,
+    ejecutarRetiro: ejecutarRetiro,
+  };
+}
+})();

@@ -139,9 +139,9 @@ global.fetch = (url, opts) => {
   throw new Error("url inesperada " + url);
 };
 const codigo = fs.readFileSync(process.argv[1], "utf8");
-vm.runInThisContext(codigo + "\n" + "this.__api = {verLanzamiento, lanzar, reponer,"
-  + " marcados, verRetiro, ejecutarRetiro};");
-const api = vm.runInThisContext("this.__api");
+global.module = {exports: {}};
+vm.runInThisContext(codigo);
+const api = global.module.exports;
 (async () => {
   // Sin subfamilia en un marcado: no pide nada.
   api.verLanzamiento("[data-marcar-candidato]");
@@ -368,8 +368,9 @@ global.fetch = (url, opts) => {
   throw new Error("url inesperada " + url);
 };
 const codigo = fs.readFileSync(process.argv[1], "utf8");
-vm.runInThisContext(codigo + "\n" + "this.__api = {verLanzamiento, lanzar, verRetiro};");
-const api = vm.runInThisContext("this.__api");
+global.module = {exports: {}};
+vm.runInThisContext(codigo);
+const api = global.module.exports;
 (async () => {
   api.verLanzamiento("[data-marcar-candidato]");
   await new Promise(r => setTimeout(r, 10));
@@ -491,8 +492,9 @@ global.fetch = (url, opts) => {
      planes: [], no_lanzables: []})});
 };
 const codigo = fs.readFileSync(process.argv[1], "utf8");
-vm.runInThisContext(codigo + "\n" + "this.__api = {verLanzamiento};");
-const api = vm.runInThisContext("this.__api");
+global.module = {exports: {}};
+vm.runInThisContext(codigo);
+const api = global.module.exports;
 (async () => {
   api.verLanzamiento("[data-marcar-candidato]");
   await new Promise(r => setTimeout(r, 10));
@@ -955,8 +957,9 @@ global.fetch = (url, opts) => {
   throw new Error("url inesperada " + url);
 };
 const codigo = fs.readFileSync(process.argv[1], "utf8");
-vm.runInThisContext(codigo + "\nthis.__api = {verRetiro, ejecutarRetiro};");
-const api = vm.runInThisContext("this.__api");
+global.module = {exports: {}};
+vm.runInThisContext(codigo);
+const api = global.module.exports;
 (async () => {
   respuestaPlan = {
     huella: "0".repeat(64),
@@ -1154,8 +1157,9 @@ function entrega(i, cuerpo, status = 200) {
   pendientes[i].resolve({ok: status < 400, status, json: () => Promise.resolve(cuerpo)});
 }
 const codigo = fs.readFileSync(process.argv[1], "utf8");
-vm.runInThisContext(codigo + "\nthis.__api = API;");
-const api = vm.runInThisContext("this.__api");
+global.module = {exports: {}};
+vm.runInThisContext(codigo);
+const api = global.module.exports;
 const marca = (casilla, valor) => {
   casilla.checked = valor;
   if (docEvents.change) docEvents.change({target: casilla});
