@@ -1,0 +1,30 @@
+# Prueba-real de la fila C (solo lectura) — SHA desplegado ed4f37497f04093dd90326e3eea401b16cc5db46
+Arnés: `env -i HOME=... PATH=/usr/bin:/mingw64/bin` (git-bash de hermes), igual que el despliegue y el checklist.
+
+Comando (fila C de plans/temporada-01.md): bash docs/evidencia/arreglos-01/desplegado.sh destino_recuperacion
+Sale 0 si `destino_recuperacion` (el destino del salto R6r) está en el paquete
+app que corre en el contenedor orbit-app-1 de producción.
+
+```
+EXIT_PRUEBA=0
+```
+
+Extras de la fila C.1 (también en producción):
+```
+desplegado.sh multiplicador_sostenible presupuesto_topado
+EXIT_EXTRAS=0
+```
+
+Control negativo (--no texto inexistente): la sonda debe salir 0 confirmando
+que el texto NO está:
+```
+EXIT_CONTROL=0
+```
+
+C.2: `docs/evidencia/temporada-01/C/prueba.sh` queda versionado y pasa
+`bash -n`. NO se corre en este bloque: lo corre el bloque P cuando encienda
+shadow (sale 0 solo si `ads_bid_recuperacion_amazon_mx` y
+`ads_bid_recuperacion_amazon_us` valen shadow o live).
+```
+BASH-N-OK
+```
