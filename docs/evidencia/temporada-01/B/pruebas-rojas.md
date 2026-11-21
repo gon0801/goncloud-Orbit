@@ -192,3 +192,27 @@ Todos demostrados fallando contra el SHA entregado
    el siguiente ciclo con la fila legible confirma la entrada original
    (jamás 5.60 -> 3.92). Roja: efecto cerrado sin valor y sin
    confirmacion posterior.
+
+## Ronda de revision 6 (el flujo que COMIENZA sin sello con campana pausada)
+
+Review del dueno (PRRT_kwDOUANqbs66ZGTU): el tratamiento conservador solo
+cubria intentos YA sellados ambiguos; si el crash deja el intento SIN sello
+y la campana aparece PAUSED en la primera reconciliacion, el gate grababa
+'entidad_no_decisora' terminal y cerraba el efecto SIN leer Amazon: la
+entrada aplicada pierde su base de regreso y se repite como otro recorte al
+reactivar.
+
+Fix en reconcilia_bids (loop de abiertos): si el intento pendiente tiene
+efecto de temporada ABIERTO, el gate de ancestros NO escribe desenlace ni
+consulta Amazon (queda pendiente, sin sello); al reactivar los ancestros el
+mismo reconciliador lo resuelve con GET fresco. El camino historico (sin
+efecto de temporada) se mantiene intacto.
+
+Prueba nueva:
+`test_temporada01_b_sin_sello_campana_pausa_reconcilia_al_reactivar`
+(decision sin resumen + intento SIN sello + efecto abierto + campana
+PAUSED + cache sincronizado a 5.60; ciclo 1 sin HTTP y sin descarte; ciclo
+2 con la campana reactivada confirma con GET fresco; ciclo 3 jamas otro
+recorte 5.60->3.92). Demostrada fallando contra
+7bd7d1127d880d9ad51246d91801b02f81c7b414: el intento quedaba sellado
+('entidad_no_decisora') en vez de pendiente.

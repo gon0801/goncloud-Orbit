@@ -482,6 +482,33 @@ def reconcilia_bids(
     cliente = None
     for id_attempt, decision_id, _payload, ad_entity_id, new_value, _moneda in filas:
         if gate_ancestros(conn, ad_entity_id) is not None:
+            # TEMPORADA 01 B (revision): si la decision tiene un efecto de
+            # temporada ABIERTO, el PUT pudo haberse aplicado antes de que la
+            # campana/grupo quedara fuera: SIN desenlace terminal y SIN HTTP.
+            # El intento queda pendiente (sin sello) y la reconciliacion lo
+            # retoma al reactivar los ancestros, resolviendo el desenlace con
+            # GET fresco. Sin efecto de temporada, el comportamiento historico
+            # se mantiene.
+            con_efecto_temporada = conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM temporada_efecto te"
+                "  WHERE te.decision_id = %s AND te.cerrado_el IS NULL)",
+                (decision_id,),
+            ).fetchone()[0]
+            if con_efecto_temporada:
+                print(
+                    "DEPURACION gate temporada: hoja", ad_entity_id, "queda pendiente; ancestros:",
+                    conn.execute(
+                        "SELECT sg.status, sc.status FROM ad_entity e"
+                        " JOIN ad_entity g ON g.id = CASE WHEN e.kind = 'ad_group'"
+                        " THEN e.id ELSE e.parent_id END"
+                        " LEFT JOIN ad_entity_state sg ON sg.ad_entity_id = g.id"
+                        " LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = g.parent_id"
+                        " WHERE e.id = %s",
+                        (ad_entity_id,),
+                    ).fetchall()
+                )
+                fallidas += 1
+                continue
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
                 # TEMPORADA 01 B (revision): un sello SIN resumen dejaria el
@@ -527,6 +554,10 @@ def reconcilia_bids(
             # el PUT.
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
+            print(
+                "DEPURACION reconcilia GET (sin sello):", type(exc).__name__,
+                scrub(str(exc)),
+            )
             fallidas += 1
             continue
         if bid_leido == Decimal(_bid_payload(new_value)):

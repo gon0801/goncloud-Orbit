@@ -1327,6 +1327,118 @@ def test_temporada01_b_ambigua_sin_puja_legible_reintenta(db_template):
     assert doble == [], "jamás otro recorte 5.60 -> 3.92"
 
 
+def test_temporada01_b_sin_sello_campana_pausa_reconcilia_al_reactivar(db_template):
+    """Revision (el flujo COMIENZA sin sello): la caida deja el intento SIN
+    sello y la campana aparece PAUSED en la primera reconciliacion: sin
+    desenlace terminal (Amazon puede haber aplicado la reduccion) y sin
+    consulta a Amazon; al reactivar la campana, el ciclo confirma la entrada
+    con GET fresco (jamás otro recorte sobre el bid ya reducido)."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    handler = _handler_mx({"b-kw1": "5.60"})
+    config_id = ids["config_id"]
+    camp = ids["camp"]
+
+    # El estado de la caida, sembrado a mano: la decision de entrada SIN
+    # resumen, su intento SIN sello (el crash fue entre el PUT y el sello), el
+    # episodio y el efecto ABIERTOS, el cache YA sincronizado a 5.60 y la
+    # campana PAUSED.
+    ciclo_id = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (_medianoche(D_E1), _medianoche(D_E1)),
+    ).fetchone()[0]
+    e1 = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(D_E1), ciclo_id, config_id),
+    ).fetchone()[0]
+    dec = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs, old_value, new_value,"
+        " value_currency)"
+        " VALUES (%s,%s,'bid',%s,%s,%s,%s,%s,%s,8.00,5.60,'MXN') RETURNING id",
+        (
+            ciclo_id,
+            kw1,
+            _medianoche(D_E1),
+            config_id,
+            _medianoche(D_E1),
+            D_E1 - dt.timedelta(days=90),
+            D_E1 - dt.timedelta(days=10),
+            Json({"motor": "bid", "motivo": "entra_temporada_baja", "temporada_episodio_id": e1}),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+        " started_at) VALUES (%s, 1, 'normal', '{}', true, %s)",
+        (dec, _medianoche(D_E1)),
+    )
+    conn.execute(
+        "INSERT INTO temporada_efecto (episodio_id, ad_entity_id, decision_id, tipo,"
+        " abierto_el) VALUES (%s, %s, %s, 'entra', %s)",
+        (e1, kw1, dec, _medianoche(D_E1)),
+    )
+    conn.execute("UPDATE ad_entity_state SET current_bid = 5.60 WHERE ad_entity_id = %s", (kw1,))
+    conn.execute("UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s", (camp,))
+    conn.commit()
+
+    def handler_prohibido(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("ninguna consulta a Amazon con la campana pausada")
+
+    # Ciclo 1 (campana pausada): SIN consulta a Amazon, SIN sello del intento
+    # y SIN desenlace terminal (el efecto queda abierto: la reduccion no se
+    # descarta).
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler_prohibido)
+    assert res.status == "done", res.notes
+    assert (
+        conn.execute(
+            "SELECT finished_at FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        is None
+    ), "el intento queda sin sello (pendiente)"
+    assert (
+        conn.execute(
+            "SELECT cerrado_el FROM temporada_efecto WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        is None
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        == 0
+    ), "sin descarte de la reduccion aplicada"
+
+    # Campana reactivada: la reconciliacion confirma la entrada con GET fresco
+    # (5.60 == destino) sin reenviar el PUT.
+    conn.execute("UPDATE ad_entity_state SET status = 'ENABLED' WHERE ad_entity_id = %s", (camp,))
+    conn.commit()
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision_application da WHERE da.decision_id = %s",
+        (dec,),
+    ).fetchone()
+    assert resumen == (True,), resumen
+    assert conn.execute(
+        "SELECT desenlace FROM temporada_efecto WHERE decision_id = %s", (dec,)
+    ).fetchone() == ("confirmado",), "la reduccion queda confirmada"
+
+    # El ciclo posterior rejuega la cadena confirmada: jamás otro recorte.
+    res = _corre(conn, D_E1 + dt.timedelta(days=3), handler)
+    assert res.status == "done", res.notes
+    doble = [
+        row
+        for row in _temporada_del_ciclo(conn, res.cycle_id)
+        if row[0] == kw1 and row[1] == Decimal("3.92")
+    ]
+    assert doble == [], "jamás otro recorte 5.60 -> 3.92"
+    assert _bid_cache(conn, kw1) == Decimal("5.60")
+
+
 def test_temporada01_b_cerca_plataforma_no_se_reinicia_con_ajuste(db_template):
     """Revision: la cerca de la plataforma nace de la PRIMERA confirmacion de
     la ultima TRANSICION (entrada o salida). Un ajuste de la reduccion a media
