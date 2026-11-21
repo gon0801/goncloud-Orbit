@@ -51,3 +51,22 @@ con la prueba nueva correspondiente:
 3. Puerta del presupuesto: la lectura solo corre cuando temporada o
    recuperacion estan en modo `live` (con shadow la plataforma sigue byte a
    byte lo de hoy; sin flags, identico).
+
+## Revision del dueno (PRRT_kwDOUANqbs66bJPw: el freno BUD ignoraba el corte bitemporal)
+
+`_presupuesto_campanas` leia el gasto de campana de `v_metric_latest` y el
+presupuesto de `v_campana_config_vigente` SIN `visto_el`: una correccion
+append-only del costo o un cambio de presupuesto alteraban `dias_topados` y
+cambiaban BUD y el veredicto al rejugar un ciclo con `metrics_as_of`.
+
+Fix: `visto_el` propaga a `_presupuesto_campanas` — el gasto sale de
+`metrics_as_of(%s)` (el mismo fragmento `_fuente` de tramos y precio) y el
+presupuesto de la ultima observacion de `ads_campana_config_observation` con
+`observed_at <= visto_el`.
+
+Prueba `test_temporada01_c_presupuesto_rejuega_con_visto_el` (dinero): con
+corte en D_E1, una correccion del costo del dia a 2000 y un cambio de
+presupuesto a 100 DESPUES del corte dejan el insumo IDENTICO al rejugar
+(1000.00, 7 dias, 0 topados); sin corte el freno si cambia (100.00, 1
+topado). Roja contra e891f5b0d427dc71e40624770d4a0241a22b58cc: la firma ni
+siquiera aceptaba `visto_el`.

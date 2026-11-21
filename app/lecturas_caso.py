@@ -189,16 +189,26 @@ SELECT min(abierto_el) FROM temporada_episodio WHERE platform = %s::platform AND
 # TEMPORADA 01 C: presupuesto vigente y gasto diario de campana (la MISMA
 # fuente que pantalla_dinero y los avisos de Telegram: v_campana_config_vigente
 # y v_metric_latest con kind='campaign'; Amazon reporta el costo de campana).
+# Con `visto_el` el gasto sale de metrics_as_of y el presupuesto de la ultima
+# observacion CONOCIDA entonces: una correccion append-only posterior o un
+# cambio de presupuesto no altera el rejuego (revision del dueno, PR #701).
+_PRESUPUESTO_VIGENTE = (
+    "(SELECT v.presupuesto_diario FROM v_campana_config_vigente v WHERE v.ad_entity_id = c.id)"
+)
+_PRESUPUESTO_AS_OF = (
+    "(SELECT o.presupuesto_diario FROM ads_campana_config_observation o"
+    " WHERE o.ad_entity_id = c.id AND o.observed_at <= %s"
+    " ORDER BY o.observed_at DESC LIMIT 1)"
+)
 _SQL_PRESUPUESTO_CAMPANA = """
-SELECT c.id, v.presupuesto_diario
+SELECT c.id, {presupuesto}
   FROM ad_entity c
-  LEFT JOIN v_campana_config_vigente v ON v.ad_entity_id = c.id
  WHERE c.platform = %s AND c.kind = 'campaign'
 """
 
 _SQL_GASTO_CAMPANA = """
 SELECT v.ad_entity_id, v.metric_date, v.cost
-  FROM v_metric_latest v
+  FROM {fuente}
   JOIN ad_entity c ON c.id = v.ad_entity_id
  WHERE c.platform = %s AND c.kind = 'campaign' AND v.metric_date >= %s AND v.metric_date <= %s
 """
@@ -1057,22 +1067,29 @@ def _presupuesto_campanas(
     plataforma: Plataforma,
     dias: frozenset[dt.date],
     topada: temporada.CampanaTopada,
+    visto_el: dt.datetime | None = None,
 ) -> dict[int, PresupuestoCampana]:
     """PresupuestoCampana por campana (TEMPORADA 01 C): el presupuesto vigente
-    (v_campana_config_vigente) y cuantos de los ULTIMOS 7 dias con ingesta de la
-    plataforma el gasto de la campana alcanzo `topada.pct` de el. Dia sin fila
-    de la campana cuenta gasto cero. Sin observacion de presupuesto, dias_topados
-    es None (no se inventa el monto). Los dias salen de la ventana madura que
-    este caso ya midio: el mismo reloj del motor."""
-    presupuestos = {
-        campana: monto
-        for campana, monto in conn.execute(_SQL_PRESUPUESTO_CAMPANA, (plataforma,)).fetchall()
-    }
+    (o el conocido a `visto_el`, para el rejuego bitemporal) y cuantos de los
+    ULTIMOS 7 dias con ingesta de la plataforma el gasto de la campana alcanzo
+    `topada.pct` de el (del mismo corte temporal: metrics_as_of). Dia sin fila
+    de la campana cuenta gasto cero. Sin observacion de presupuesto,
+    dias_topados es None (no se inventa el monto). Los dias salen de la ventana
+    madura que este caso ya midio: el mismo reloj del motor."""
+    fuente, pv = _fuente(visto_el)
+    if visto_el is None:
+        sql = _SQL_PRESUPUESTO_CAMPANA.format(presupuesto=_PRESUPUESTO_VIGENTE)
+        params: tuple = (plataforma,)
+    else:
+        sql = _SQL_PRESUPUESTO_CAMPANA.format(presupuesto=_PRESUPUESTO_AS_OF)
+        params = (visto_el, plataforma)
+    presupuestos = {campana: monto for campana, monto in conn.execute(sql, params).fetchall()}
     ultimos_7 = sorted(dias)[-7:]
     gasto: dict[int, dict[dt.date, Decimal]] = {}
     if ultimos_7:
         for campana, metric_date, cost in conn.execute(
-            _SQL_GASTO_CAMPANA, (plataforma, ultimos_7[0], ultimos_7[-1])
+            _SQL_GASTO_CAMPANA.format(fuente=fuente),
+            (*pv, plataforma, ultimos_7[0], ultimos_7[-1]),
         ).fetchall():
             gasto.setdefault(campana, {})[metric_date] = cost
     resultado: dict[int, PresupuestoCampana] = {}
@@ -1184,9 +1201,10 @@ def lee_plataforma(
             for entidad, sello in conn.execute(consulta, (plataforma, bajo, corte)).fetchall():
                 eventos_grupo.setdefault(entidad, []).append(sello.astimezone(dt.UTC).date())
     dias = frozenset(f for fila in filas_tramos for f in (fila[14] or ()))
-    # TEMPORADA 01 C: presupuesto por campana (BUD), solo con el freno pedido.
+    # TEMPORADA 01 C: presupuesto por campana (BUD), solo con el freno pedido,
+    # en el mismo corte temporal que el resto de la lectura.
     presupuesto = (
-        _presupuesto_campanas(conn, plataforma, dias, campana_topada)
+        _presupuesto_campanas(conn, plataforma, dias, campana_topada, visto_el)
         if campana_topada is not None
         else None
     )

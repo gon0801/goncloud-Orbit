@@ -859,6 +859,64 @@ def test_temporada01_c_costo_null_no_tumba_el_ciclo(db_template):
     assert presupuesto[camp].dias_topados is None, "el dia sin costo se desconoce"
 
 
+def test_temporada01_c_presupuesto_rejuega_con_visto_el(db_template):
+    """El freno BUD respeta el corte bitemporal: una correccion append-only del
+    costo de campana o un cambio de presupuesto DESPUES del corte no alteran
+    `dias_topados` ni el presupuesto al rejugar con `visto_el` (el caso
+    congelado rejuega identico); sin corte, lo nuevo si cambia el freno."""
+    conn, _dsn = db_template
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-camp-asof")
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-c-asof') RETURNING id"
+    ).fetchone()[0]
+    dias = [D_E1 - dt.timedelta(days=i) for i in range(1, 8)]
+    for dia in dias:
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost="10.00",
+            impressions=100,
+        )
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 1000.00, 'MXN')",
+        (camp, _medianoche(dias[-1])),
+    )
+    conn.commit()
+    corte = _medianoche(D_E1)
+    topada = temporada.CampanaTopada(pct=Decimal("0.90"), dias=5)
+    antes = _presupuesto_campanas(conn, "amazon_mx", frozenset(dias), topada, visto_el=corte)
+    assert antes[camp] == PresupuestoCampana(
+        presupuesto_diario=Decimal("1000.00"), dias_medidos=7, dias_topados=0, topada=topada
+    ), antes[camp]
+    # DESPUES del corte: correccion append-only del costo del dia (2000 >= 90 %)
+    # y un cambio de presupuesto (1000 -> 100).
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, impressions, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'MXN', 2000.00, 100, %s)",
+        (camp, dias[0], corte + dt.timedelta(hours=1), run_id),
+    )
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 100.00, 'MXN')",
+        (camp, corte + dt.timedelta(hours=2)),
+    )
+    conn.commit()
+    despues_corte = _presupuesto_campanas(
+        conn, "amazon_mx", frozenset(dias), topada, visto_el=corte
+    )
+    assert despues_corte == antes, "el rejuego con visto_el no ve lo posterior al corte"
+    # sin corte, lo nuevo SI cambia el freno (la sonda discrimina)
+    ahora = _presupuesto_campanas(conn, "amazon_mx", frozenset(dias), topada)
+    assert ahora[camp].presupuesto_diario == Decimal("100.00")
+    assert ahora[camp].dias_topados == 1, "el dia corregido queda topado con el presupuesto nuevo"
+
+
 def test_temporada01_c_techo_de_baja_comparte_el_caso_d(db_template):
     """El ejemplo del diseno con su evidencia: la keyword 20 -> 10 (motor) -> 7
     (entrada de temporada) con la evidencia del caso D sostiene

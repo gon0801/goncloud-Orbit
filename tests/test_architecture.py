@@ -221,7 +221,7 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/retiro_anuncios.py": 1388,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
-    "app/lecturas_caso.py": 1258,
+    "app/lecturas_caso.py": 1276,
     "app/optimizer/temporada.py": 1218,
 }
 
