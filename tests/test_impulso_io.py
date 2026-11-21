@@ -2492,8 +2492,8 @@ def test_r09r3_v17_pausador_real_pausa_en_amazon():
         io.PausadorFabrica(conn)  # sin nada que pausar no toca la red
         _pausador_real(conn, amazon).pausa(lote)
         assert amazon.puts == [
-            {"campaignId": "c-2", "state": "PAUSED"},
             {"campaignId": "c-1", "state": "PAUSED"},
+            {"campaignId": "c-2", "state": "PAUSED"},
         ]
         assert conn.execute(
             "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)
