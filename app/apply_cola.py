@@ -1158,7 +1158,28 @@ def _revalida_pause(
     # TEMPORADA 01 D (al liberar): la frontera de la hoja trae el multiplicador
     # del dueno y la cerca — la pausa de la baja se revalida con 2x clics,
     # 2x piso y 2x exceso, y su ventana no mira dias de la baja.
-    frontera_h = temporada_io.frontera_hoja(conn, fila.ad_entity_id, ahora.date())
+    goal_hoja = conn.execute(
+        apply._SQL_GOALS_ENTIDAD,
+        (platform, fila.campaign_id if hasattr(fila, "campaign_id") else fila.ad_entity_id),
+    ).fetchall()
+    floor_rv, ceiling_rv = Decimal("0.01"), Decimal("999999")
+    for _fila_g in goal_hoja:
+        if _fila_g[0] == "platform" and _fila_g[9] and _fila_g[10]:
+            floor_rv, ceiling_rv = Decimal(_fila_g[9]), Decimal(_fila_g[10])
+            break
+    fila_goal_plat = next(
+        (
+            g
+            for g in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, -1)).fetchall()
+            if g[0] == "platform" and g[10] is True and g[11] == "live"
+        ),
+        None,
+    )
+    if fila_goal_plat is not None:
+        floor_rv, ceiling_rv = Decimal(fila_goal_plat[4]), Decimal(fila_goal_plat[5])
+    frontera_h = temporada_io.frontera_hoja(
+        conn, fila.ad_entity_id, ahora.date(), piso=floor_rv, techo=ceiling_rv
+    )
     mult_baja = (
         frontera_h.mult_cortes
         if frontera_h is not None and frontera_h.fase_hoja == "baja"
