@@ -1733,12 +1733,20 @@ SELECT DISTINCT ON (q.ad_entity_id) q.ad_entity_id,
    AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
    AND NOT EXISTS (SELECT 1 FROM apply_attempt a
                     WHERE a.decision_id = d.id AND a.tipo = 'reversa'
-                      AND a.resultado = 'ok')
+                    GROUP BY a.decision_id
+                    HAVING bool_or(a.resultado = 'ok') OR count(*) >= 3)
    AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r
                     WHERE r.ad_entity_id = q.ad_entity_id
                       AND r.detectada_en > q.applied_at)
    AND NOT (q.ad_entity_id = ANY(%s::bigint[]))
- ORDER BY q.ad_entity_id, q.applied_at DESC
+   -- El ancla es la ULTIMA pausa aplicada de la keyword, no la ultima que
+   -- pasa los filtros de temporada (hallazgo de la revision: una pausa
+   -- aplicada despues sin marca de temporada deja sin efecto a la antigua).
+   AND q.id = (SELECT q2.id FROM apply_queue q2
+                WHERE q2.ad_entity_id = q.ad_entity_id
+                  AND q2.kind = 'pause' AND q2.estado = 'applied'
+                ORDER BY q2.applied_at DESC LIMIT 1)
+ ORDER BY q.ad_entity_id
 """
 
 

@@ -556,6 +556,128 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             "INSERT INTO reactivacion_manual (ad_entity_id, detectada_en) VALUES (%s, %s)",
             (kw_david, hoy),
         )
+        # Contraejemplo del ancla (hallazgo de la revision): DESPUES de la
+        # pausa de temporada, la keyword tiene otra pausa aplicada SIN marca
+        # de temporada; la ultima aplicada de la keyword manda, igual que
+        # _SQL_PAUSAS_DE_BAJA del diseno.
+        kw_tardia = _siembra_entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "k-estado-6",
+            parent=grupo,
+            match="EXACT",
+            texto="pausa posterior sin marca",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'PAUSED', now())",
+            (kw_tardia,),
+        )
+        d_tardia = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end,"
+            " value_currency, inputs)"
+            " VALUES (%s, %s, 'pause', %s, %s, %s, %s, %s, NULL, %s)"
+            " RETURNING id",
+            (
+                ciclo_2,
+                kw_tardia,
+                hoy,
+                config_id,
+                hoy - dt.timedelta(days=2),
+                hoy - dt.timedelta(days=30),
+                hoy - dt.timedelta(days=11),
+                Json({"motor": "ads_optimizer", "motivo": "pausa"}),
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok,"
+            " platform_ack) VALUES (%s, %s, TRUE, %s)",
+            (d_tardia, hoy, ack),
+        )
+        fila_tardia = conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id,"
+            " modo, estado, vence_el, request_payload) VALUES ('amazon_mx'::platform,"
+            " %s, 'pause', %s, 'live', 'pending_veto', %s, %s) RETURNING id",
+            (kw_tardia, d_tardia, hoy, Json({})),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'released', released_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(minutes=50), fila_tardia),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applying', applying_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(minutes=50), fila_tardia),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applied', applied_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(minutes=50), fila_tardia),
+        )
+        # Y ANTES de esa sin marca, la pausa de temporada con su cola aplicada
+        # (es la que la consulta vieja sacaba de la lista).
+        d_t1 = _decision(ciclo, "pause", kw_tardia, "pausa", fase_baja=True, confirmada=True)
+        fila_t1 = conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id,"
+            " modo, estado, vence_el, request_payload) VALUES ('amazon_mx'::platform,"
+            " %s, 'pause', %s, 'live', 'pending_veto', %s, %s) RETURNING id",
+            (kw_tardia, d_t1, hoy, Json({})),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'released', released_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=3), fila_t1),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applying', applying_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=3), fila_t1),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applied', applied_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=3), fila_t1),
+        )
+        # Contraejemplo de agotamiento (hallazgo de la revision): tres
+        # reversas fallidas descartan el camino de reactivacion, igual que
+        # en el diseno (bool_or ok OR count >= 3).
+        kw_agotada = _siembra_entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "k-estado-7",
+            parent=grupo,
+            match="EXACT",
+            texto="reversas agotadas",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'PAUSED', now())",
+            (kw_agotada,),
+        )
+        d_agotada = _decision(ciclo, "pause", kw_agotada, "pausa", fase_baja=True, confirmada=True)
+        fila_agotada = conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id,"
+            " modo, estado, vence_el, request_payload) VALUES ('amazon_mx'::platform,"
+            " %s, 'pause', %s, 'live', 'pending_veto', %s, %s) RETURNING id",
+            (kw_agotada, d_agotada, hoy, Json({})),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'released', released_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=2), fila_agotada),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applying', applying_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=2), fila_agotada),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applied', applied_at = %s WHERE id = %s",
+            (hoy - dt.timedelta(hours=2), fila_agotada),
+        )
+        for _i in range(1, 4):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada, resultado, finished_at)"
+                " VALUES (%s, %s, 'reversa', '{}'::jsonb, false, 'fallo', now())",
+                (d_agotada, _i),
+            )
         # Lo mas reciente manda: la keyword con entrada confirmada pero un
         # ajuste todavia pendiente aparece en PENDIENTES (hallazgo de la
         # revision: bool_or miraba cualquier confirmacion historica).
@@ -597,6 +719,11 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             " (Orbit no los toca hasta que tengan bid propio)."
         )
         assert [p["ad_entity_id"] for p in estado["pausadas"]] == [kw_pausada]
+        # Las dos contraejemplos NO aparecen: la pausa tardia sin marca de
+        # temporada es la ultima aplicada de su keyword (el ancla de
+        # aplicacion manda) y las reversas agotadas descartan la suya.
+        assert kw_tardia not in [p["ad_entity_id"] for p in estado["pausadas"]]
+        assert kw_agotada not in [p["ad_entity_id"] for p in estado["pausadas"]]
         # El texto visible de la lista es el TEXTO de la keyword.
         assert estado["pausadas"][0]["nombre"] == "pausada en la baja"
 
