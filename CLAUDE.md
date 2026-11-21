@@ -1,14 +1,10 @@
 # Orbit
 
-Sistema **nuevo desde cero** (base de datos nueva) que reemplaza al stack de
-motores de Amazon Ads (`goncloud-MCP-2`, cancelado 2026-08-21). No se reutiliza
-código viejo; solo se migran credenciales y datos verificados.
+Orbit es un sistema construido desde cero con base de datos nueva. Reemplaza al stack anterior de Amazon Ads (`goncloud-MCP-2`, cancelado el 2026-08-21). No reutiliza código viejo y solo migra credenciales y datos verificados.
 
-**Leer primero:** `docs/CONTEXTO.md` — reglas de diseño innegociables, trampas
-del dominio, qué se migra y qué no, fases. Las fuentes verbatim están en
-`docs/traspaso/` (diseño v2 = fuente de verdad de reglas y umbrales).
+Lee primero `docs/CONTEXTO.md` para revisar las reglas de diseño, las trampas del dominio, el alcance de migración y las fases. Las fuentes verbatim viven en `docs/traspaso/`, donde `ADS_OPTIMIZER_V2_DESIGN.md` fija las reglas y umbrales base.
 
-El plan activo de Orbit está en `plans/manifest.json` y especifica quién lo implementa y lo revisa.
+El plan activo está en `plans/manifest.json` e indica quién lo implementa y quién lo revisa.
 
 ## Cómo trabajar con David
 
@@ -20,18 +16,19 @@ Si algo falla, averigua por qué, corrígelo y continúa. Si un intento repite e
 
 Si falta algo que solo yo pueda aportar, o hace falta una decisión fuera del encargo, avanza con el resto y dime qué ocurrió, qué intentaste y qué decisión concreta necesitas. Al cerrar, dime qué quedó hecho, cómo lo comprobaste y qué sigue pendiente.
 
-## graphify
+## Grafo de código (graphify)
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+El proyecto mantiene un grafo de dependencias y relaciones entre archivos en `graphify-out/`.
 
-Rules:
-- When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
-- A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.
+Reglas de uso:
 
-## Feature Map (`.cursor/skills/verify-orbit/`)
+- Cuando exista `graphify-out/graph.json`, corre `graphify query "<pregunta>"` antes del primer grep, búsqueda o lectura de archivo para dudas del código. Incluye esta misma regla en el prompt de cualquier subagente que explore código. Lee archivos directos solo en las líneas que el grafo o una lectura previa ya ubicaron. Usa `graphify path "<A>" "<B>"` para relaciones y `graphify explain "<concepto>"` para conceptos puntuales.
+- Si existe `graphify-out/wiki/index.md`, úsalo para navegación general en lugar de recorrer fuentes a mano.
+- Lee `graphify-out/GRAPH_REPORT.md` solo para revisiones generales de arquitectura o cuando `query`, `path` y `explain` no alcancen.
+- Después de modificar código, corre `graphify update .` para actualizar el grafo. Solo analiza AST y no tiene costo de API.
+- Un `graphify-out/graph.json` commiteado se reescribe completo en cada reconstrucción, por lo que un diff grande en un PR es normal. No lo marques como ruido ni sugieras saltar la reconstrucción.
 
-- Antes de tocar o verificar pantallas del dashboard, lee `.cursor/skills/verify-orbit/SKILL.md` y la ficha de la pantalla en `.cursor/skills/verify-orbit/features/<pantalla>.md`.
-- Si cambias selectores, filtros o flujos visibles, actualiza su ficha en `features/` y comprueba la pantalla con `.cursor/skills/verify-orbit/helpers/orbit-verify` (`launch`, `doctor`, `drive-*`, `cleanup`).
+## Mapa de pantallas (verify-orbit)
+
+- Antes de modificar o verificar pantallas del dashboard, lee `.cursor/skills/verify-orbit/SKILL.md` y la ficha correspondiente en `.cursor/skills/verify-orbit/features/<pantalla>.md`.
+- Si cambias selectores, filtros o flujos visibles, actualiza la ficha en `features/` y comprueba la pantalla con `.cursor/skills/verify-orbit/helpers/orbit-verify` usando `launch`, `doctor`, `drive-*` y `cleanup`.
