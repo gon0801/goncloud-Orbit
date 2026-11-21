@@ -430,52 +430,69 @@ def sincronizar(
                 raise ReputacionError(f"meli: alias en conflicto con producto canonico: {sku}")
             mapa[sku] = pid
         resultado.run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
-    with conn.transaction():
-        existentes = {
-            ext: (lid, pid, sku) for ext, lid, pid, sku in conn.execute(_SQL_EXISTENTES).fetchall()
-        }
-        for plan in planes:
-            try:
-                with conn.transaction():
-                    delta = _aplica_plan(
-                        conn,
-                        plan,
-                        mapa=mapa,
-                        existentes=existentes,
-                        hoy=hoy,
-                        ahora=ahora,
-                        run_id=resultado.run_id,
-                    )
-            except psycopg.Error:
-                # El savepoint revirtio las escrituras del item (incluida su
-                # observacion): solo queda el skip de fallo, sin contadores
-                # ni mapas adelantados (ARREGLOS 03 D-M, TN14).
-                resultado.skips[SKIP_ITEM] += 1
-            else:
-                # Fusion solo tras salir del savepoint sin error: el item que
-                # sigue parte del mapa confirmado.
-                resultado.observadas += delta.observadas
-                resultado.listings_nuevos += delta.listings_nuevos
-                resultado.listings_actualizados += delta.listings_actualizados
-                resultado.miembros_escritos += delta.miembros_escritos
-                resultado.con_todos += delta.con_todos
-                resultado.con_alguno += delta.con_alguno
-                resultado.sin_ninguno += delta.sin_ninguno
-                resultado.skips.update(delta.skips)
-                existentes.update(delta.existentes)
-        if not truncado:
-            _reconcilia_ausentes(conn, set(ids), resultado=resultado)
-        # ARREGLOS 03 D-M (R2 de la revision): cero IDs solo es exito con el
-        # catalogo vacio CERTIFICADO (scan completo); un scan fallido o
-        # parcial sin observaciones confirmadas no se publica como ok.
-        resultado.ok = (not ids and not truncado) or resultado.observadas > 0
-        _sella(
-            conn,
-            resultado.run_id,
-            ok=resultado.ok,
-            observadas=resultado.observadas,
-            skips=resultado.skips,
-        )
+    try:
+        with conn.transaction():
+            existentes = {
+                ext: (lid, pid, sku)
+                for ext, lid, pid, sku in conn.execute(_SQL_EXISTENTES).fetchall()
+            }
+            for plan in planes:
+                try:
+                    with conn.transaction():
+                        delta = _aplica_plan(
+                            conn,
+                            plan,
+                            mapa=mapa,
+                            existentes=existentes,
+                            hoy=hoy,
+                            ahora=ahora,
+                            run_id=resultado.run_id,
+                        )
+                except psycopg.Error:
+                    # El savepoint revirtio las escrituras del item (incluida su
+                    # observacion): solo queda el skip de fallo, sin contadores
+                    # ni mapas adelantados (ARREGLOS 03 D-M, TN14).
+                    resultado.skips[SKIP_ITEM] += 1
+                else:
+                    # Fusion solo tras salir del savepoint sin error: el item que
+                    # sigue parte del mapa confirmado.
+                    resultado.observadas += delta.observadas
+                    resultado.listings_nuevos += delta.listings_nuevos
+                    resultado.listings_actualizados += delta.listings_actualizados
+                    resultado.miembros_escritos += delta.miembros_escritos
+                    resultado.con_todos += delta.con_todos
+                    resultado.con_alguno += delta.con_alguno
+                    resultado.sin_ninguno += delta.sin_ninguno
+                    resultado.skips.update(delta.skips)
+                    existentes.update(delta.existentes)
+            if not truncado:
+                _reconcilia_ausentes(conn, set(ids), resultado=resultado)
+            # ARREGLOS 03 D-M (R2 de la revision): cero IDs solo es exito con el
+            # catalogo vacio CERTIFICADO (scan completo); un scan fallido o
+            # parcial sin observaciones confirmadas no se publica como ok.
+            resultado.ok = (not ids and not truncado) or resultado.observadas > 0
+            _sella(
+                conn,
+                resultado.run_id,
+                ok=resultado.ok,
+                observadas=resultado.observadas,
+                skips=resultado.skips,
+            )
+    except BaseException as exc:
+        try:
+            if not conn.autocommit:
+                conn.rollback()
+            with conn.transaction():
+                _sella(
+                    conn,
+                    resultado.run_id,
+                    ok=False,
+                    observadas=0,
+                    skips=Counter({f"error: {type(exc).__name__}": 1}),
+                )
+        except Exception:
+            pass
+        raise
     return resultado
 
 

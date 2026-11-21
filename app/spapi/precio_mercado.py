@@ -40,6 +40,7 @@ from app.precio.tipos import (
     ObservacionPricing,
 )
 from app.precio.ventas import evaluar_senal
+from app.redaction import install_scrub_filter
 from app.spapi import precio_write as _precio_write
 from app.spapi.client import SpapiAuthError, construir_ruta_listings
 from app.spapi.precio_write import (
@@ -52,6 +53,7 @@ from app.spapi.precio_write import (
 from app.spapi.write_client import validar_patch_listings
 
 logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 __all__ = ["MercadoAmazon", "Mercado"]
 

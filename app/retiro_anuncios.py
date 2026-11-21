@@ -35,6 +35,7 @@ from app.ads.client import AdsApiError
 from app.ads.config import AdsConfigError
 from app.dashboard_resumen import hoy_resumen
 from app.dia_cerrado import dia_local
+from app.redaction import scrub
 
 DIAS_LIBRO_AL_DIA = 2
 
@@ -477,20 +478,24 @@ SELECT pa.id FROM ad_entity pa
 @contextmanager
 def _bloqueados(conn, llaves):
     """Advisory locks de SESION, ordenados (sobreviven los commits y
-    cubren el HTTP entre lecturas y escrituras). Se sueltan al salir;
-    si la conexion muere, PostgreSQL los libera. Una transaccion
-    abortada por un error se revierte antes de soltar: si no, el unlock
-    falla y la llave queda tomada mientras viva la conexion."""
-    for llave in sorted(set(llaves)):
-        conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (llave,))
+    cubren el HTTP entre lecturas y escrituras). Se adquieren dentro del
+    `try` para liberar lo ya tomado ante fallo parcial; una transaccion
+    abortada se revierte antes de soltar y al final se deja la conexion IDLE."""
+    tomadas: list[str] = []
     try:
+        for llave in sorted(set(llaves)):
+            conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (llave,))
+            tomadas.append(llave)
         yield
     finally:
         if conn.info.transaction_status == pq.TransactionStatus.INERROR:
             conn.rollback()
-        for llave in sorted(set(llaves)):
+        for llave in reversed(tomadas):
             with contextlib.suppress(Exception):
                 conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (llave,))
+        if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
+            with contextlib.suppress(Exception):
+                conn.commit()
 
 
 _SQL_AUTORIZA_DECISION = """
@@ -722,12 +727,20 @@ def _ejecuta_pendientes(
             (reversa,) = conn.execute(
                 "SELECT reversa FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
             ).fetchone()
+        from app.cycle import ApplyAbortado
+
         try:
             res = archivar.pausar_anuncios(escritor, [ad_id], ejecutar=True)[0]
+        except ApplyAbortado:
+            raise
         except Exception as exc:
             resultados.append(
                 ResultadoAnuncio(
-                    ad_id, "pendiente", f"PUT incierto, intencion {iid} pendiente: {exc}", None, iid
+                    ad_id,
+                    "pendiente",
+                    f"PUT incierto, intencion {iid} pendiente: {scrub(str(exc))}",
+                    None,
+                    iid,
                 )
             )
             continue

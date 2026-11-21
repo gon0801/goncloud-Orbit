@@ -140,6 +140,7 @@ class _Avance:
     llamadas: int = 0
     skips: Counter = field(default_factory=Counter)
     ultimo_status: int | None = None
+    total: int | None = None
 
 
 def _texto(valor: Any) -> str | None:
@@ -222,11 +223,18 @@ def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, sku
 
 
 def _vigilar_umbral(
-    sku: str, fallos: int, racha: int, vistos: int, ultimo_status: int | None
+    sku: str,
+    fallos: int,
+    racha: int,
+    vistos: int,
+    ultimo_status: int | None,
+    *,
+    total: int | None = None,
 ) -> None:
     # Ronda review A.5: ver pricing._vigilar_umbral (ultimo status para la
     # taxonomia; "desconocido" cae en contrato como antes).
-    if fallos > UMBRAL_FALLOS_PORC * vistos or racha >= UMBRAL_FALLOS_RACHA:
+    piso = 5 if total is not None and total >= 5 else 1
+    if (vistos >= piso and fallos > UMBRAL_FALLOS_PORC * vistos) or racha >= UMBRAL_FALLOS_RACHA:
         status = ultimo_status if ultimo_status is not None else "desconocido"
         raise IngestaListingsError(
             f"listings {sku}: umbral de fallos superado ({fallos}/{vistos},"
@@ -305,20 +313,20 @@ def _procesar_sku(
         av.racha += 1
         av.skips[f"http_{exc.status}"] += 1
         av.ultimo_status = exc.status
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status)
+        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
         return
     except IngestaListingsError:
         av.fallos += 1
         av.racha += 1
         av.skips["contrato"] += 1
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status)
+        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
         return
     except httpx.HTTPError:
         # El cliente no reintenta errores de red; cuentan al umbral sin abortar el lote.
         av.fallos += 1
         av.racha += 1
         av.skips["red"] += 1
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status)
+        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
         return
     with conn.transaction():
         cur = conn.execute(
@@ -385,6 +393,7 @@ def ejecutar_ingesta(
             if max_skus < 1:
                 raise IngestaListingsError("--max-skus debe ser >= 1")
             universo = universo[:max_skus]
+        av.total = len(universo)
         # Reloj y espera salen del cliente (inyectables en tests).
         cubo = CuboTasa(
             sleep=client._sleep,

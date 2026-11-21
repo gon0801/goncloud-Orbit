@@ -35,9 +35,10 @@ from app.ads.structure import (
     _sellar_run,
 )
 from app.dia_cerrado import ultimo_dia_cerrado
-from app.redaction import scrub
+from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 Ubicacion = Literal[
     "arriba_de_busqueda", "resto_de_busqueda", "paginas_de_producto", "fuera_de_amazon"

@@ -16,7 +16,7 @@ from pathlib import Path
 import httpx
 
 from app.ads.config import directorio_secretos
-from app.redaction import install_scrub_filter, register_secret
+from app.redaction import install_scrub_filter, register_secret, scrub
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
@@ -28,6 +28,9 @@ MELI_TOKENS_FILENAME = "meli_tokens.json"
 
 class ReputacionError(Exception):
     """Error de la ingesta de reputacion. El mensaje NUNCA lleva secretos."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(scrub(message))
 
 
 # Credenciales (patron app/ads/config.py)
@@ -116,6 +119,9 @@ class ClienteMeli:
         backoff_base: float = 0.5,
         timeout: float = 30.0,
     ) -> None:
+        register_secret(creds.access_token)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
         self._creds = creds
         self._max_intentos = max_intentos
         self._backoff_base = backoff_base
@@ -127,9 +133,28 @@ class ClienteMeli:
     def _request(self, metodo: str, path: str, params: dict | None = None) -> dict:
         if metodo != "GET":
             raise ReputacionError(f"cliente MeLi solo-GET: metodo {metodo} bloqueado")
+        if (
+            not isinstance(path, str)
+            or not path.startswith("/")
+            or path.startswith("//")
+            or "://" in path
+            or ".." in path
+            or "\\" in path
+            or any(ord(c) < 32 for c in path)
+        ):
+            raise ReputacionError(f"cliente MeLi: path relativo invalido bloqueado: {path!r}")
         headers = {"Authorization": "Bearer " + self._creds.access_token}
         for intento in range(self._max_intentos):
-            resp = self._client.request(metodo, path, params=params, headers=headers)
+            try:
+                resp = self._client.request(metodo, path, params=params, headers=headers)
+            except httpx.HTTPError as exc:
+                if intento + 1 < self._max_intentos:
+                    time.sleep(self._backoff_base * (2**intento))
+                    continue
+                raise ReputacionError(
+                    f"MeLi GET {path}: error de red tras {self._max_intentos} intentos"
+                    f" ({type(exc).__name__}: {scrub(str(exc))})"
+                ) from None
             if resp.status_code == 401:
                 raise ReputacionError(
                     f"MeLi GET {path}: 401 (pase del bridge vencido;"
@@ -145,7 +170,10 @@ class ClienteMeli:
                 )
             if resp.status_code != 200:
                 raise ReputacionError(f"MeLi GET {path} -> {resp.status_code}")
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError:
+                raise ReputacionError(f"MeLi GET {path}: respuesta no JSON") from None
             if not isinstance(data, dict):
                 raise ReputacionError(f"MeLi GET {path}: respuesta no-objeto")
             return data

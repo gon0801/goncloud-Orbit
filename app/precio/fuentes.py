@@ -412,10 +412,14 @@ def ultima_subida(cambios: Sequence[CambioPrevio]) -> date | None:
 def historial_margenes(
     conn: psycopg.Connection, listing_id: int, platform: str
 ) -> tuple[HistorialMargen, ...]:
-    """Distancias `|m - goal|` al decidir cada cambio (#10)."""
+    """Distancias `|m - goal|` al decidir cada cambio (#10).
+
+    Excluye cambios `sin_efecto` (errores que la observacion del dia siguiente
+    probo sin movimiento de precio) para no disparar falsos `no_converge`.
+    """
     filas = conn.execute(
         "SELECT d.m_actual, d.goal, d.decision_date, c.precio_antes, c.precio_despues,"
-        " c.aplicado"
+        " c.aplicado, c.estado, c.confirmado_por"
         " FROM precio_cambio c JOIN precio_decision d ON d.id = c.decision_id"
         " WHERE c.listing_id = %s AND c.platform = %s AND NOT c.es_reversa"
         " AND d.m_actual IS NOT NULL AND d.goal IS NOT NULL"
@@ -423,7 +427,9 @@ def historial_margenes(
         (listing_id, platform),
     ).fetchall()
     puntos: list[HistorialMargen] = []
-    for m_actual, goal, fecha, antes, despues, aplicado in filas:
+    for m_actual, goal, fecha, antes, despues, aplicado, estado, confirmado_por in filas:
+        if cambio_sin_efecto(estado, confirmado_por):
+            continue
         direccion = _direccion(antes, despues)
         if direccion is None or fecha is None:
             continue

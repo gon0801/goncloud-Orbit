@@ -259,7 +259,8 @@ def _valor_orden(item: dict, columna: str):
     if columna == "acos":
         return _decimal_o_none(metricas.get("acos"))
     if columna == "target":
-        return _decimal_o_none((item.get("target_efectivo") or {}).get("valor"))
+        te = item.get("target_efectivo") or {}
+        return _decimal_o_none(te.get("valor")) or _decimal_o_none(te.get("minimo"))
     if columna == "procedencia":
         return (item.get("target_efectivo") or {}).get("peldano")
     return None
@@ -455,7 +456,7 @@ def pagina_campanas(
     estado = _vocab_o_422(estado, frozenset(ESTADOS_CAMPANA), "estado")
     ordenar = _vocab_o_422(ordenar, frozenset(COLUMNAS_ORDEN), "ordenar")
     direccion = _vocab_o_422(direccion, frozenset({"asc", "desc"}), "dir")
-    procedencia = _vocab_o_422(procedencia, frozenset(PELDANOS_CASCADA), "procedencia")
+    procedencia = _vocab_o_422(procedencia, frozenset(PELDANOS_CASCADA) | {"mixto"}, "procedencia")
     vista_id = _vocab_o_422(vista, VISTAS_RAPIDAS, "vista") or "todas"
     filtros = {
         "plataforma": plataforma,

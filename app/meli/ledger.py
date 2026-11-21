@@ -8,10 +8,12 @@ from typing import Any
 
 from app.db import connect
 from app.ledger_atribucion import Atribucion
+from app.redaction import install_scrub_filter
 
 __all__ = ["AtribuidorMeli", "atribuidor_meli"]
 
 logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 _SQL_POR_ITEM = "SELECT id FROM listing WHERE platform = 'meli' AND external_id = %s"
 _SQL_POR_PRODUCTO = (

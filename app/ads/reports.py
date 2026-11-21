@@ -220,6 +220,7 @@ from __future__ import annotations
 
 import datetime as dt
 import gzip
+import io
 import json
 import logging
 import re
@@ -642,7 +643,16 @@ def descargar_filas(client: AdsClient, url: str) -> list[dict]:
         )
     if contenido[:2] == b"\x1f\x8b":
         try:
-            texto = gzip.decompress(contenido).decode("utf-8")
+            with gzip.GzipFile(fileobj=io.BytesIO(contenido)) as gz:
+                descomprimido = gz.read(MAX_BYTES_REPORTE + 1)
+            if len(descomprimido) > MAX_BYTES_REPORTE:
+                raise AdsReportsError(
+                    f"reporte descomprimido excede el tope de {MAX_BYTES_REPORTE} bytes: "
+                    "la corrida aborta fail-closed"
+                )
+            texto = descomprimido.decode("utf-8")
+        except AdsReportsError:
+            raise
         except (OSError, EOFError, zlib.error, UnicodeDecodeError):
             raise AdsReportsError("gzip del reporte corrupto o no utf-8") from None
     else:
@@ -1270,6 +1280,25 @@ def _planea_filas_productos(
                 skips=skips,
             )
             continue
+        # Negativos = dato corrupto y la corrida ABORTA (fail-closed): debe
+        # correr ANTES de same_sku > total para que un total negativo (ej.
+        # same_sku=0, sales=-5) no se descarte silenciosamente como skip.
+        if any(
+            valor is not None and valor < 0
+            for valor in (
+                impressions,
+                clicks,
+                cost,
+                purchases,
+                sales,
+                purchases_same_sku,
+                sales_same_sku,
+            )
+        ):
+            raise AdsReportsError(
+                "fila de productos con metrica negativa (dato corrupto): "
+                "la corrida aborta fail-closed"
+            )
         if (sales_same_sku is not None and sales is not None and sales_same_sku > sales) or (
             purchases_same_sku is not None
             and purchases is not None
@@ -1295,25 +1324,6 @@ def _planea_filas_productos(
                 skips=skips,
             )
             continue
-        # Negativos = dato corrupto y la corrida ABORTA (fail-closed): la
-        # FUSION podria compensar un negativo con un positivo hermano y
-        # colarlo bajo el CHECK apm_no_negativos (mismo sellado que terminos).
-        if any(
-            valor is not None and valor < 0
-            for valor in (
-                impressions,
-                clicks,
-                cost,
-                purchases,
-                sales,
-                purchases_same_sku,
-                sales_same_sku,
-            )
-        ):
-            raise AdsReportsError(
-                "fila de productos con metrica negativa (dato corrupto): "
-                "la corrida aborta fail-closed"
-            )
         # Trazabilidad: ids de la API como strings, sin repeticion (regla 1:
         # no se usan para repartir, solo para auditar de donde salio la suma).
         campaign_id = str(fila["campaignId"]) if fila.get("campaignId") is not None else None

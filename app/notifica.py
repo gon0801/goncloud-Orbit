@@ -169,18 +169,26 @@ def _reset() -> None:
 
 def _config_canal() -> _ConfigCanal | None:
     """Config del canal; None = DESHABILITADO. Cero excepciones hacia arriba
-    (docstring del modulo): cualquier problema de lectura/parseo deja el
-    canal deshabilitado, que no es fallo."""
+    (docstring del modulo): si el archivo no existe, queda cacheado como
+    deshabilitado; si existe pero falla leerlo/parsearlo (p. ej. rotacion
+    transitoria), registra warning y NO cachea None para reintentar luego."""
     if "config" in _estado:
         return _estado["config"]
     cfg: _ConfigCanal | None = None
+    error_transitorio = False
     try:
         path = directorio_secretos() / TELEGRAM_FILENAME
         data = None
         if path.is_file():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                error_transitorio = True
+                logger.info(
+                    "telegram: error leyendo %s (%s); se reintentara en el proximo aviso",
+                    TELEGRAM_FILENAME,
+                    scrub(str(exc)) or type(exc).__name__,
+                )
                 data = None
         if isinstance(data, dict):
             token = data.get("bot_token")
@@ -189,15 +197,17 @@ def _config_canal() -> _ConfigCanal | None:
                 register_secret(token)
                 cfg = _ConfigCanal(bot_token=token, chat_id=chat)
     except Exception as exc:
+        error_transitorio = True
         logger.warning("telegram: fallo resolviendo la config del canal: %s", scrub(str(exc)))
         cfg = None
-    if cfg is None:
+    if cfg is None and not error_transitorio:
         logger.info(
             "canal Telegram deshabilitado (sin %s valido en el secrets dir): "
             "los avisos no salen y eso NO es fallo ni genera nota",
             TELEGRAM_FILENAME,
         )
-    _estado["config"] = cfg
+    if not error_transitorio:
+        _estado["config"] = cfg
     return cfg
 
 
@@ -559,9 +569,13 @@ def digest_ciclo(resumen: dict) -> str:
             lineas.append(linea)
         if contrib.residual_tacos is not None:
             signo = "-" if contrib.residual_tacos.monto < 0 else ""
+            if contrib.rango is not None:
+                moneda_res = contrib.rango.moneda
+            else:
+                moneda_res = "USD" if resumen.get("plataforma") == "amazon_us" else "MXN"
             lineas.append(
                 f"residual tacos campaign: {signo}"
-                f"{_formatea_monto(abs(contrib.residual_tacos.monto))} MXN"
+                f"{_formatea_monto(abs(contrib.residual_tacos.monto))} {moneda_res}"
             )
     return "\n".join(lineas)
 
@@ -1780,7 +1794,8 @@ _SQL_SELLAR_RESUMEN = "UPDATE precio_corrida SET resumen_enviado_at = now() WHER
 
 _SQL_RESUMEN_MOVIMIENTOS = """
 SELECT resultado, count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND resultado IN ('subir', 'bajar')
+ WHERE platform = %s AND decision_date = %s AND mode = 'live'
+   AND resultado IN ('subir', 'bajar')
  GROUP BY resultado
 """
 
@@ -1885,6 +1900,8 @@ def _avisar_resumen_precio(conn, platform: str, hoy) -> int:
         corrida = _corrida_cerrada_hoy(conn, platform, hoy)
         if corrida is None:
             return 0
+        if not canal_activo():
+            return 0
         if notifica_precio("resumen_diario", _leer_resumen_diario(conn, platform, hoy)):
             conn.execute(_SQL_SELLAR_RESUMEN, (corrida,))
             return 1
@@ -1916,6 +1933,8 @@ def _avisar_compuerta_precio(conn, platform: str, hoy) -> int:
             aviso = CompuertaPrecio(
                 platform, hoy, canal, causa, medidas, nuevas, insumo, detalle or ""
             )
+            if not canal_activo():
+                continue
             if notifica_precio("compuerta", aviso):
                 conn.execute(_SQL_SELLAR_AVISADA, (corrida, canal))
                 enviados += 1

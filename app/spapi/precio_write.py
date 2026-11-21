@@ -169,22 +169,10 @@ __all__ = [
     "construir_escritor",
     "construir_cuerpo_parche",
     "leer_precio_vivo",
-    "_validar_escritor",
     "_estado_aceptado",
     "_ruta_sin_sku",
     "_ack_saneado",
 ]
-
-
-def _validar_escritor(escritor: SpapiWriteClient, platform: str) -> None:
-    """El escritor va al mercado de la fila (r5-L1): con cuenta unificada
-    NA un escritor cruzado aplicaria de verdad el PATCH en la otra plaza.
-    Mal uso -> `ValueError`, ANTES de cualquier INSERT o red."""
-    if escritor.platform != platform:
-        raise ValueError(
-            f"plataforma_distinta: escritor={escritor.platform} fila={platform}"
-            " (el escritor se construye con la platform de la fila)"
-        )
 
 
 def _estado_aceptado(resp: httpx.Response) -> tuple[bool, Any]:

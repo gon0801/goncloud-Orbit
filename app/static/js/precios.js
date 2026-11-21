@@ -100,13 +100,13 @@ function pintarVista(form, plan) {
     if (f.motivo) bloq += " (" + Orbit.etiqueta(f.motivo, "motivo_siembra") + ")";
     var confirma = "";
     if (f.bloqueo && f.confirmable) {
-      confirma = '<input type="checkbox" data-confirmar="' + f.listing_id +
+      confirma = '<input type="checkbox" data-confirmar="' + escapar(f.listing_id) +
         '" aria-label="Confirmar ' + escapar(f.seller_sku || f.listing_id) + '">';
     }
     return "<tr><td class=\"mono\">" + escapar(f.seller_sku || f.listing_id) +
       "</td><td>" + escapar(Orbit.etiqueta(f.accion, "accion_siembra")) +
-      "</td><td class=\"num\">" + pct(f.m_hoy) +
-      "</td><td class=\"num\">" + meta +
+      "</td><td class=\"num\">" + escapar(pct(f.m_hoy)) +
+      "</td><td class=\"num\">" + escapar(meta) +
       "</td><td class=\"num\">" + escapar(importeCorto(f.p_estrella)) +
       "</td><td" + (f.bloqueo ? " class=\"alerta\"" : "") + ">" + escapar(bloq) +
       "</td><td>" + confirma + "</td></tr>";
@@ -196,7 +196,7 @@ function aplicar(form) {
         delete planesVistos[plataforma];
         botonAplicarDe(form).disabled = true;
         var lineas = r.data.hechos.map(function (h) {
-          return "<li>" + escapar(Orbit.etiqueta(h.platform, "plataforma")) + " #" + h.listing_id + ": " +
+          return "<li>" + escapar(Orbit.etiqueta(h.platform, "plataforma")) + " #" + escapar(h.listing_id) + ": " +
             escapar(Orbit.etiqueta(h.accion, "accion_siembra")) + "</li>";
         });
         vista.innerHTML =

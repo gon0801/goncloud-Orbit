@@ -449,6 +449,29 @@ def _resolver_costo_fx_escenario(
     return CostoFxEscenario(**valores)
 
 
+def _resolver_tasa_fx(
+    conn: psycopg.Connection,
+    *,
+    fecha: date,
+    base: str,
+    quote: str,
+    max_dias: int | None,
+) -> TasaFx | None:
+    fx_res = resolver_fx(conn, fecha=fecha, base=base, quote=quote, max_dias=max_dias)
+    if fx_res.motivo or fx_res.fx is None or fx_res.fx.rate is None:
+        return None
+    try:
+        return TasaFx(
+            base=fx_res.fx.base,
+            quote=fx_res.fx.quote,
+            tasa=fx_res.fx.rate,
+            fecha=fx_res.fx.rate_date,
+            fuente=fx_res.fx.source,
+        )
+    except ValueError:
+        return None
+
+
 def _tasa_fx_de_costo(costo_fx: CostoFxEscenario) -> TasaFx | None:
     """Tasa usable para logistica, o None (el llamador ya valido)."""
     fx = costo_fx
@@ -588,6 +611,9 @@ def _sembrar_meli(
                     product_id=pid,
                     politica_settings=politica.settings,
                     fx=_tasa_fx_de_costo(costo_fx),
+                    resolver_fx_envio=lambda b, q, _u=uni: _resolver_tasa_fx(
+                        conn, fecha=valoracion_date, base=b, quote=q, max_dias=_u.fx_max_dias
+                    ),
                 )
                 if isinstance(res_envio, str):
                     mot_in.append(res_envio)
@@ -1071,6 +1097,9 @@ def sembrar_escenario_desde_refs(
             product_id=product_id,
             politica_settings=politica.settings,
             fx=tasa,
+            resolver_fx_envio=lambda b, q, _u=uni: _resolver_tasa_fx(
+                conn, fecha=valoracion_date, base=b, quote=q, max_dias=_u.fx_max_dias
+            ),
         )
         if isinstance(res_envio, str):
             motivos.append(res_envio)

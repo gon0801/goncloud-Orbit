@@ -190,6 +190,7 @@ from typing import NamedTuple
 
 import httpx
 import psycopg
+from psycopg import pq
 from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
@@ -205,6 +206,7 @@ from app import (
 )
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
+from app.db import tx_durable
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
 from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, windows
 from app.optimizer import goals as g
@@ -817,15 +819,6 @@ class _Pendiente:
     evaluacion_producto: int | None = None
 
 
-@dataclass(frozen=True)
-class _Lecturas:
-    """Salida de TX2: decisiones pendientes + contadores + guarda disparada
-    (None = el ciclo corrio completo)."""
-
-    pendientes: list[_Pendiente]
-    guarda: windows.MotivoSkip | None
-
-
 def _dec_str(valor: Decimal | None) -> str | None:
     """Decimal -> string TAL CUAL llega de la DB: la escala del string
     (ej '1.0000', '25.00') es artefacto deterministico del NUMERIC de origen
@@ -1353,17 +1346,32 @@ def _tick_heartbeat(hb, job_key: str, owner: str, cada: int):
 
 
 def _guard_apply(
-    conn: psycopg.Connection, job_key: str, owner: str, tick_heartbeat: Callable[[], None]
+    conn: psycopg.Connection,
+    job_key: str,
+    owner: str,
+    tick_heartbeat: Callable[[], None],
+    *,
+    hb: psycopg.Connection | None = None,
 ) -> Callable[[], None]:
     """El `tick` del Aplicador en la fase de apply (decision 11): (a) heartbeat
     — mutaciones lentas no dejan morir el lease; (b) ownership-check fresco
-    contra ads_optimizer_lock. Lease perdido -> ApplyAbortado: aborto
-    fail-closed de la fase (el guard tambien vive en el transport del write
-    client, ver app/apply 2.4), SIN tumbar el ciclo."""
+    contra ads_optimizer_lock. Usa la conexion `hb` (autocommit) cuando existe
+    y, si consulta sobre `conn`, devuelve `conn` a IDLE para no convertir los
+    `with conn.transaction():` siguientes en SAVEPOINTs sin COMMIT."""
 
     def guard() -> None:
         tick_heartbeat()
-        fila = conn.execute(_SQL_OWNER_LOCK, (job_key,)).fetchone()
+        if hb is not None:
+            fila = hb.execute(_SQL_OWNER_LOCK, (job_key,)).fetchone()
+        else:
+            estaba_idle = (
+                not conn.autocommit and conn.info.transaction_status == pq.TransactionStatus.IDLE
+            )
+            try:
+                fila = conn.execute(_SQL_OWNER_LOCK, (job_key,)).fetchone()
+            finally:
+                if estaba_idle:
+                    conn.rollback()
         if fila is None or fila[0] != owner:
             dueno = fila[0] if fila is not None else "sin lock"
             raise ApplyAbortado(f"lock {job_key} ya no es nuestro (owner: {dueno})")
@@ -1568,7 +1576,9 @@ def _sello_fallido(
     cuerpo = _notas_cuerpo(contadores, ciclos_muertos, None, None, None)
     cuerpo["error"] = scrub(str(exc)) or type(exc).__name__
     try:
-        with conn.transaction():
+        if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
+            conn.rollback()
+        with tx_durable(conn):
             filas = conn.execute(
                 _SQL_SELLAR_FALLIDO, (json.dumps(cuerpo, ensure_ascii=False, default=str), cycle_id)
             ).rowcount
@@ -3796,7 +3806,7 @@ def _corre_fases(
         decided_at=decided_at,
         job_key=job_key,
         owner=owner,
-        guard=_guard_apply(conn, job_key, owner, tick),
+        guard=_guard_apply(conn, job_key, owner, tick, hb=hb),
         aplicador_factory=aplicador_factory,
         proteccion_activa=subproteccion.activa_desde_settings(settings),
         avisos_destino=avisos_destino,
@@ -3866,7 +3876,7 @@ def _corre_fases(
         # Obs3r2: lo anexado durante la fase sobrevive al reemplazo del sello.
         _mezcla_evidencias_persistidas(conn, cycle_id, cuerpo)
         notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
-        with conn.transaction():
+        with tx_durable(conn):
             _sella_apply(conn, cycle_id, notas, degradar=fase.fallo)
     return ResultadoCiclo(cycle_id, status, len(pendientes), notas)
 

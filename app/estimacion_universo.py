@@ -160,13 +160,16 @@ def logistica_del_universo(
     product_id: int,
     politica_settings: dict,
     fx: TasaFx | None,
+    resolver_fx_envio=None,
 ) -> Envio | str:
     """`L` ya resuelta para el producto, o el motivo que la frena.
 
     `politica`: la constante sellada, en moneda de venta. `muestra`: la
     ultima fila del job; sin fila, `envio_sin_historia`. Muestra en otra
-    moneda: convierte con `fx` (el llamador ya valido edad y tasa); sin
-    tasa usable, `fx_ausente`. La ultima muestra no caduca en F.3.
+    moneda: convierte con `fx` si coincide el par de monedas, o con
+    `resolver_fx_envio(moneda_venta, moneda_muestra)` si se proveyo (evita
+    `fx_ausente` cuando el costo ya estaba en la moneda de venta y no pidio
+    FX); sin tasa usable, `fx_ausente`. La ultima muestra no caduca en F.3.
     """
     if universo.envio == "politica":
         raw = politica_settings.get("logistica")
@@ -196,6 +199,10 @@ def logistica_del_universo(
         if origen == "propio":
             return EnvioPropio(muestra.valor, muestra, None)
         return EnvioImputado(muestra.valor, muestra, None)
+    if (fx is None or set((fx.base, fx.quote)) != {universo.moneda_venta, moneda}) and (
+        resolver_fx_envio is not None
+    ):
+        fx = resolver_fx_envio(universo.moneda_venta, moneda)
     if fx is None or set((fx.base, fx.quote)) != {universo.moneda_venta, moneda}:
         return "fx_ausente"
     if fx.tasa == 0:

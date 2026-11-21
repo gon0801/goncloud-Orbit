@@ -285,11 +285,6 @@ def _config_vigente_con_id(conn) -> tuple[int | None, dict]:
     return (fila[0], fila[1]) if fila is not None else (None, {})
 
 
-def _config_vigente(conn) -> dict:
-    """settings de la config_version VIGENTE (ver _config_vigente_con_id)."""
-    return _config_vigente_con_id(conn)[1]
-
-
 def _goal_estado(goal: g.Goal | None) -> dict | None:
     """Estado VIVO del goal resuelto (decision 17: el goal es config mutable,
     no historia): enabled + floor/ceiling EFECTIVOS (defaults de goals.py POR
@@ -1774,6 +1769,64 @@ def productos_pausa(conn: ConexionLectura, platform: str) -> dict:
     estado = pantalla_decisiones_producto.estado_pausa(conn, platform)
     conn.commit()
     return estado
+
+
+_SQL_CHROME_COLA = """
+SELECT modo::text, count(*)
+  FROM apply_queue
+ WHERE estado IN ('pending_veto', 'released')
+ GROUP BY modo
+"""
+
+_SQL_CHROME_WATERMARK = """
+SELECT e.platform::text, MAX(m.metric_date)
+  FROM ads_metric_observation m
+  JOIN ad_entity e ON e.id = m.ad_entity_id
+ GROUP BY e.platform
+"""
+
+_SQL_CHROME_ULTIMO_CICLO = """
+SELECT DISTINCT ON (platform)
+       platform::text, mode::text, status::text, started_at, decisions_count
+  FROM optimizer_cycle
+ ORDER BY platform, started_at DESC, id DESC
+"""
+
+
+@router.get("/chrome")
+def chrome(conn: ConexionLectura) -> dict:
+    """Resumen liviano para la barra lateral/superior (`shell.js`): solo 3
+    queries puntuales en vez de ejecutar `/cortes` y `/salud` completos en
+    cada navegacion."""
+    modos = dict(conn.execute(_SQL_CHROME_COLA).fetchall())
+    watermarks = {
+        plat: (dia.isoformat() if dia is not None else None)
+        for plat, dia in conn.execute(_SQL_CHROME_WATERMARK).fetchall()
+    }
+    ciclos = {
+        plat: {
+            "mode": mode,
+            "status": status,
+            "started_at": started_at.isoformat() if started_at is not None else None,
+            "decisions_count": int(decisions_count or 0),
+        }
+        for plat, mode, status, started_at, decisions_count in conn.execute(
+            _SQL_CHROME_ULTIMO_CICLO
+        ).fetchall()
+    }
+    return {
+        "propuestas": {
+            "live": int(modos.get("live", 0)),
+            "shadow": int(modos.get("shadow", 0)),
+        },
+        "plataformas": {
+            plat: {
+                "watermark": watermarks.get(plat),
+                "ultimo_ciclo": ciclos.get(plat),
+            }
+            for plat in PLATAFORMAS_MONEDA
+        },
+    }
 
 
 @router.get("/busquedas-sin-venta")

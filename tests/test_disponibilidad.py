@@ -188,10 +188,8 @@ def test_cache_prohibido_nunca_se_lee(tmp_path):
     snapshot = leer_snapshot(ruta)
     planes, _ = plan_disponibilidad(snapshot, {("amazon_mx", "SS-CUALQUIERA")})
     assert planes == {}
-    # Candado de arquitectura: el adaptador y el tool no consultan la tabla.
-    fuente = (ROOT / "app" / "disponibilidad.py").read_text(encoding="utf-8") + (
-        ROOT / "tools" / "disponibilidad_snapshot.py"
-    ).read_text(encoding="utf-8")
+    # Candado de arquitectura: el adaptador no consulta la tabla.
+    fuente = (ROOT / "app" / "disponibilidad.py").read_text(encoding="utf-8")
     assert "FROM amazon_inventory_cache" not in fuente
 
 

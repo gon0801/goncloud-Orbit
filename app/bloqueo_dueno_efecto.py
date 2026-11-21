@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
+from psycopg import pq
+
 from app import apply
 from app.ads.client import AdsAuthError
 from app.ads.write import AdsApiError
@@ -989,6 +991,8 @@ def _toma(conn, ad_group_id: int, termino_sha256: str) -> bool:
 
 def _suelta(conn, ad_group_id: int, termino_sha256: str) -> None:
     try:
+        if not conn.autocommit and conn.info.transaction_status == pq.TransactionStatus.INERROR:
+            conn.rollback()
         conn.execute(
             "SELECT pg_advisory_unlock(hashtext(%s))",
             (_llave(ad_group_id, termino_sha256),),

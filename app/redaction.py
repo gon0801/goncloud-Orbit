@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import traceback
 from urllib.parse import urlsplit, urlunsplit
 
 _lock = threading.Lock()
@@ -115,7 +116,7 @@ def redact_url(url: str | None) -> str | None:
 
 
 class SecretScrubFilter(logging.Filter):
-    """Filtro de logging que aplica `scrub()` al mensaje ya formateado."""
+    """Filtro de logging que aplica `scrub()` al mensaje y a tracebacks."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
@@ -126,9 +127,24 @@ class SecretScrubFilter(logging.Filter):
             # el error de formato.
             record.msg = "<log-no-formateable>"
             record.args = ()
-            return True
-        record.msg = scrub(message)
-        record.args = ()
+        else:
+            record.msg = scrub(message)
+            record.args = ()
+
+        if record.exc_text:
+            record.exc_text = scrub(record.exc_text)
+        elif record.exc_info:
+            try:
+                if isinstance(record.exc_info, tuple):
+                    texto_exc = "".join(traceback.format_exception(*record.exc_info)).rstrip("\n")
+                else:
+                    texto_exc = traceback.format_exc().rstrip("\n")
+                record.exc_text = scrub(texto_exc)
+            except Exception:
+                record.exc_text = "<traceback-no-formateable>"
+            record.exc_info = None
+        if record.stack_info:
+            record.stack_info = scrub(str(record.stack_info))
         return True
 
 

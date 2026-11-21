@@ -178,7 +178,12 @@ def _tomar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:
     fila = conn.execute(_SQL_CLAIM, (motor_lock(platform), owner, _TTL_LOCK_SEGUNDOS)).fetchone()
     if fila is None:
         raise LockOcupado(f"{motor_lock(platform)} en curso (owner distinto de {owner})")
-    if not conn.execute(_SQL_ADVISORY_TOMAR, (platform,)).fetchone()[0]:
+    try:
+        obtenido = conn.execute(_SQL_ADVISORY_TOMAR, (platform,)).fetchone()[0]
+    except BaseException:
+        conn.execute(_SQL_LIBERAR, (motor_lock(platform), owner))
+        raise
+    if not obtenido:
         conn.execute(_SQL_LIBERAR, (motor_lock(platform), owner))
         raise LockOcupado(f"{motor_lock(platform)} en curso (advisory en otra sesion)")
 
@@ -1547,10 +1552,8 @@ def correr(
     ahora = ahora_raw.replace(tzinfo=UTC)
     hoy = ahora.date()
 
+    _tomar_lock(conn, platform, owner)
     try:
-        # D2 (r3): el lock se toma DENTRO del `try` (si el advisory falla,
-        # el `finally` suelta: el claim no queda tomado una hora).
-        _tomar_lock(conn, platform, owner)
         corrida_id = _abrir_corrida(conn, platform, owner, cfg_id, modo_global, hoy)
         huerfanas = cambios_mod.cerrar_huerfanas(conn, mercado)
         cerrados = cambios_mod.cerrar_por_observacion(conn, mercado, hoy)

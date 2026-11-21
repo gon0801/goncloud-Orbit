@@ -108,6 +108,7 @@ from app.apply import (
     consume_quota_y_sello,
     evento_cap_saturado,
 )
+from app.db import tx_durable
 from app.optimizer import bid as motor_bid
 from app.optimizer import cortes, hygiene, productos, windows
 from app.optimizer import goals as g
@@ -1404,11 +1405,11 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
         else:
             resp_http = cliente.pausar_target(identidad[1])
     except apply.AdsApiErrorMutacion as exc:
-        apply._sella_ledger(
-            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-        )
-        conn.commit()
-        _termina(conn, fila, "failed")
+        with tx_durable(conn):
+            apply._sella_ledger(
+                conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
+            )
+            _termina(conn, fila, "failed")
         return "failed"
     # 5xx/fallo ambiguo (AdsApiError): SUBE — ledger sin sello y fila applying
     # huerfana: ES el rastro, la reconciliacion (2.3, matriz §6.1) decide.
@@ -1421,7 +1422,7 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
         if verify
         else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
     )
-    with conn.transaction():
+    with tx_durable(conn):
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
         if estado is not None:
@@ -1444,11 +1445,11 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
             payload["adGroupId"], payload["campaignId"], payload["keywordText"]
         )
     except apply.AdsApiErrorMutacion as exc:
-        apply._sella_ledger(
-            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-        )
-        conn.commit()
-        _termina(conn, fila, "failed")
+        with tx_durable(conn):
+            apply._sella_ledger(
+                conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
+            )
+            _termina(conn, fila, "failed")
         return "failed"
     ack = apply._json_seguro(resp_http)
     # Exige negativeKeywordId en el ack (207 con success anidado): _json_seguro
@@ -1457,7 +1458,7 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
     resultado = "ok" if verify else "fallo:ack_sin_id"
     rastro_biblio: dict | None = None
     grupo_biblio: int | None = None
-    with conn.transaction():
+    with tx_durable(conn):
         if verify:
             # F2 A.4: un negative APLICADO de verdad (verify) en campana de
             # grupo ensena el termino a negative_biblioteca, en SAVEPOINT

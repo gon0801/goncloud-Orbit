@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import psycopg
 
@@ -16,6 +19,8 @@ from app.redaction import install_scrub_filter, redact_dsn, scrub
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
+
+_HOST_KV_RE = re.compile(r"(?i)(\bhost\s*=\s*)(?:127\.0\.0\.1|localhost)(?=\s|$)")
 
 
 class OrbitDbError(Exception):
@@ -28,37 +33,47 @@ class OrbitDbError(Exception):
 def aplicar_host_override(dsn: str, host: str | None = None) -> str:
     """Reescribe el host de loopback del DSN cuando corre DENTRO del compose.
 
-    Los DSN del `.env` del server apuntan a `127.0.0.1` (bind del host). Dentro
-    del contenedor `app` ese address es el propio contenedor, no Postgres: el
-    servicio compose se llama `db`. `ORBIT_PG_HOST=db` (compose, 4.1) activa
-    el rewrite. En el host y en CI la var no existe y el DSN no se toca.
-
-    Solo sustituye `@127.0.0.1:` y `@localhost:` (separador userinfo/host del
-    URI). No inventa un host si el DSN ya apunta a otro.
+    Soporta formato URI (`@127.0.0.1:` / `@localhost/`) y formato conninfo
+    (`host=127.0.0.1` / `host=localhost`). No inventa un host si el DSN ya
+    apunta a otro.
     """
     if not host:
         return dsn
     for loopback in ("127.0.0.1", "localhost"):
         dsn = dsn.replace(f"@{loopback}:", f"@{host}:")
         dsn = dsn.replace(f"@{loopback}/", f"@{host}/")
-    return dsn
+    return _HOST_KV_RE.sub(rf"\g<1>{host}", dsn)
 
 
 def connect(dsn: str, **kw) -> psycopg.Connection:
     """Conecta a Postgres; ante fallo, re-lanza `OrbitDbError` con el DSN redactado.
 
-    El `except` no se re-lanza dentro de si mismo: se guarda el error y se
-    lanza DESPUES de que el bloque `try/except` termina, para que la
-    excepcion original (que puede traer el DSN crudo en su propio mensaje)
-    no quede enganchada como `__context__` de `OrbitDbError`.
+    Registra siempre la password del DSN en `redaction` antes de conectar
+    (defensa en profundidad incluso cuando la conexion tiene exito).
     """
     dsn = aplicar_host_override(dsn, os.environ.get("ORBIT_PG_HOST"))
+    dsn_seguro = redact_dsn(dsn)
     error: OrbitDbError | None = None
     try:
         return psycopg.connect(dsn, **kw)
     except psycopg.Error:
-        error = OrbitDbError(f"no se pudo conectar a la base de datos: {redact_dsn(dsn)}")
+        error = OrbitDbError(f"no se pudo conectar a la base de datos: {dsn_seguro}")
     raise error from None
+
+
+@contextmanager
+def tx_durable(conn: psycopg.Connection) -> Iterator[None]:
+    """Transaccion que garantiza COMMIT real al salir sin error.
+
+    Evita el bug de SAVEPOINT fantasma en psycopg3 cuando una lectura previa
+    dejo `conn` en `INTRANS` (`autocommit=False`): al salir limpiamente del
+    bloque hace `conn.commit()` para que los sellos durables queden realmente
+    persistidos antes del siguiente paso HTTP o de un rollback posterior.
+    """
+    with conn.transaction():
+        yield
+    if not conn.autocommit:
+        conn.commit()
 
 
 def preparar_lectura_contribucion(conn: psycopg.Connection) -> None:

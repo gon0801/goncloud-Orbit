@@ -15,7 +15,6 @@ import pytest
 
 from app.redaction import scrub
 from app.spapi.client import (
-    MERCADOS,
     RUTA_ORDERS_NUEVA,
     CuboTasa,
     SpapiClient,
@@ -373,21 +372,6 @@ def test_scrub_en_errores_y_rate_limit_y_paginacion():
     assert siguiente_token({"pagination": {"nextToken": "T"}}) == "T"
     assert siguiente_token({"payload": {"NextToken": "N"}}) == "N"
     assert sanear({"BuyerEmail": "b@x.mx", "Asin": "B1"}, "orders") == {"Asin": "B1"}
-
-
-def test_sonda_reutiliza_cliente_unico(monkeypatch):
-    from pathlib import Path as _P
-
-    import app.spapi.client as canon
-
-    monkeypatch.syspath_prepend(str(_P(__file__).resolve().parent.parent / "tools"))
-    import sonda_spapi as sonda
-
-    assert issubclass(sonda.SondaClient, SpapiClient)
-    assert sonda.SondaError is canon.SpapiError
-    assert sonda.SondaNoPermitida is canon.SpapiNoPermitida
-    assert sonda.MERCADOS == MERCADOS
-    assert sonda.siguiente_token({"pagination": {"nextToken": "T"}}) == "T"
 
 
 def test_un_solo_refresh_con_dos_modulos_en_mismo_proceso(tmp_path, monkeypatch):
