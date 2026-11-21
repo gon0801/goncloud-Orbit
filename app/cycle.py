@@ -1393,9 +1393,18 @@ def _procesa_decisora(  # noqa: PLR0915 - el recorrido de UNA hoja es un solo ca
     # TEMPORADA 01 D: el umbral se resuelve POR HOJA con su multiplicador de
     # temporada (en baja ceil(umbral x mult) — x2 pide 200 clics); la
     # evidencia del grupo se cachea y la resolucion es pura (sin consultas).
+    # TEMPORADA 01 D (revision Devin dAE5): el mult REAL solo con temporada
+    # en live — en practica los cortes reales van byte a byte lo de hoy (la
+    # sombra arma los suyos con mult aparte).
+    plat_t_hoja = contadores.temporada_plat
     mult_baja_hoja = (
         frontera_h.mult_cortes
-        if frontera_h is not None and frontera_h.fase_hoja == "baja"
+        if (
+            frontera_h is not None
+            and frontera_h.fase_hoja == "baja"
+            and plat_t_hoja is not None
+            and plat_t_hoja.modo == "live"
+        )
         else None
     )
     corte_pause = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_baja_hoja)
@@ -1504,14 +1513,10 @@ def _procesa_decisora(  # noqa: PLR0915 - el recorrido de UNA hoja es un solo ca
     # de notas.temporada arma los suyos aparte, con su propio mult).
     plat_t = contadores.temporada_plat
     mult_live = cerca_live = None
-    if (
-        plat_t is not None
-        and plat_t.modo == "live"
-        and frontera_h is not None
-        and frontera_h.fase_hoja == "baja"
-    ):
-        mult_live = frontera_h.mult_cortes
+    if plat_t is not None and plat_t.modo == "live" and frontera_h is not None:
         cerca_live = frontera_h.cerca_hoja
+        if frontera_h.fase_hoja == "baja":
+            mult_live = frontera_h.mult_cortes
     costo_piso, cortes_hoja, pausa = _insumos_pausa(
         conn,
         platform=platform,
@@ -1788,7 +1793,7 @@ def _procesa_grupo(
     cerca_plat = plat_t.estado.cerca_plataforma if plat_t is not None else None
     mult_neg = (
         plat_t.estacion.mult_cortes_baja
-        if plat_t is not None and plat_t.estacion.fase == "baja"
+        if (plat_t is not None and plat_t.modo == "live" and plat_t.estacion.fase == "baja")
         else None
     )
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at, cerca=cerca_plat)

@@ -586,6 +586,12 @@ def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypat
                         )
                     if sql == apply_cola._SQL_CONFIG_TARGET:
                         return ({"ads_producto_economia_amazon_us": "producto_directo_v1"},)
+                    if "SELECT parent_id FROM ad_entity WHERE id = %s" in sql:
+                        return (1,)
+                    if "kind = 'ad_group'" in sql:
+                        return (2,)
+                    if "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1" in sql:
+                        return (None,)
                     if sql == apply_cola._SQL_PADRE:
                         return (1,)
                     if "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1" in sql:

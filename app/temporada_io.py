@@ -494,6 +494,26 @@ def mult_negativa(conn: psycopg.Connection, platform: str, hoy: dt.date) -> Deci
     return estacion.mult_cortes_baja if estacion.fase == "baja" else None
 
 
+def cerca_plataforma(conn: psycopg.Connection, platform: str, hoy: dt.date) -> dt.date | None:
+    """La cerca de la PLATAFORMA (decision 8 del plan): el dia UTC siguiente a
+    la primera confirmacion de la ultima transicion (entrada o salida) — lo
+    que grupo y cuenta usan para sus ventanas de falla. None sin temporada
+    encendida o sin transicion en 90 dias."""
+    settings = conn.execute(
+        "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    crudo = settings[0] if settings else None
+    if not isinstance(crudo, Mapping):
+        return None
+    if temporada.modo_desde_settings(crudo, platform) is None:
+        return None
+    config = temporada.desde_settings(crudo)
+    if config is None:
+        return None
+    estado = lee_estado(conn, platform, hoy)
+    return estado.cerca_plataforma
+
+
 def frontera_hoja(
     conn: psycopg.Connection,
     ad_entity_id: int,
@@ -502,7 +522,6 @@ def frontera_hoja(
     piso: Decimal,
     techo: Decimal,
 ) -> FronteraHoja | None:
-
     """La misma temporada.frontera para UNA hoja, para la revalidacion de la
     cola al liberar (la conecta el bloque D). None sin config o temporada apagada."""
     from app.db import settings_vigentes

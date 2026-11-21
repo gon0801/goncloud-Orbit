@@ -1157,26 +1157,22 @@ def _revalida_pause(
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
     # TEMPORADA 01 D (al liberar): la frontera de la hoja trae el multiplicador
     # del dueno y la cerca — la pausa de la baja se revalida con 2x clics,
-    # 2x piso y 2x exceso, y su ventana no mira dias de la baja.
-    goal_hoja = conn.execute(
-        apply._SQL_GOALS_ENTIDAD,
-        (platform, fila.campaign_id if hasattr(fila, "campaign_id") else fila.ad_entity_id),
-    ).fetchall()
+    # 2x piso y 2x exceso, y su ventana no mira dias de la baja. El piso y el
+    # techo vienen del goal de la CAMPAÑA de la hoja (revision Devin dAIN: la
+    # fila es una keyword; el goal de plataforma no la describe).
+    grupo_rv = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
+    campana_rv = conn.execute(_SQL_CAMPANA_DE_GRUPO, (grupo_rv,)).fetchone()[0]
     floor_rv, ceiling_rv = Decimal("0.01"), Decimal("999999")
-    for _fila_g in goal_hoja:
-        if _fila_g[0] == "platform" and _fila_g[9] and _fila_g[10]:
-            floor_rv, ceiling_rv = Decimal(_fila_g[9]), Decimal(_fila_g[10])
+    for fila_g in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, campana_rv)).fetchall():
+        if (
+            fila_g[0] == "campaign"
+            and fila_g[10] is True
+            and fila_g[11] == "live"
+            and fila_g[4] is not None
+            and fila_g[5] is not None
+        ):
+            floor_rv, ceiling_rv = Decimal(fila_g[4]), Decimal(fila_g[5])
             break
-    fila_goal_plat = next(
-        (
-            g
-            for g in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, -1)).fetchall()
-            if g[0] == "platform" and g[10] is True and g[11] == "live"
-        ),
-        None,
-    )
-    if fila_goal_plat is not None:
-        floor_rv, ceiling_rv = Decimal(fila_goal_plat[4]), Decimal(fila_goal_plat[5])
     frontera_h = temporada_io.frontera_hoja(
         conn, fila.ad_entity_id, ahora.date(), piso=floor_rv, techo=ceiling_rv
     )
@@ -1210,6 +1206,12 @@ def _revalida_pause(
         cortes=fresco,
         target_acos_pct=target if target is not None else _TARGET_REVALIDA,
         umbral_pause=umbral,
+        # TEMPORADA 01 D (al liberar, revision Devin dAF4): el piso de gasto
+        # tambien va x mult (1000 MXN en baja) — sin el, pausas que ya no
+        # califican seguirian aplicando.
+        cost_min=(
+            cortes.piso_pausa(platform, mult_baja=mult_baja) if mult_baja is not None else None
+        ),
         # C.3 B1: la revalidacion economica rige solo con el flag (con
         # flag apagado, camino pre-economico aunque la fila sea vieja).
         policy_version=version_efectiva,
@@ -1316,9 +1318,10 @@ def _revalida_negative(
     # TEMPORADA 01 D (al liberar): el multiplicador del dueno para los
     # negatives cuando la plataforma decide la baja en live.
     mult_baja = temporada_io.mult_negativa(conn, platform, ahora.date())
+    cerca_plat = temporada_io.cerca_plataforma(conn, platform, ahora.date())
     umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=mult_baja).umbral
     piso = cortes.piso_corte(evidencia, platform, mult_baja=mult_baja).piso_cost
-    terminos = windows.terminos_cortes(conn, grupo, ahora)
+    terminos = windows.terminos_cortes(conn, grupo, ahora, cerca=cerca_plat)
     term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
     if term is None:
         # Sin observaciones frescas del termino en la ventana: no alcanza el

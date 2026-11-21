@@ -1416,11 +1416,13 @@ def lee_plataforma(
     por_hoja = evid_sin_cerca
     niveles_rolls = evid_sin_cerca
     if filas_tramos_cerca:
-        # TEMPORADA 01 D: la hoja con movimiento propio usa SU corrida (cada
-        # rango empieza en su cerca); los rolls de grupo y cuenta usan la
-        # corrida corrida a la cerca de la plataforma.
+        # TEMPORADA 01 D (revision Devin dAHP): la hoja con cerca usa SOLO su
+        # corrida — si su ventana individual esta vacia (todo inmaduro), queda
+        # SIN evidencia (cero medido), jamas con la de antes de la cerca. Los
+        # rolls de grupo y cuenta usan la corrida corrida a la cerca de la
+        # plataforma.
         evid_cerca = _niveles_de(filas_tramos_cerca, rec_desde, desde)
-        por_hoja = dict(evid_sin_cerca)
+        por_hoja = {h: ev for h, ev in evid_sin_cerca.items() if h not in cercas}
         por_hoja.update(evid_cerca)
         niveles_rolls = evid_sin_cerca
     activas: dict[int, int] = {}
