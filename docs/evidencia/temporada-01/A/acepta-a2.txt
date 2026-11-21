@@ -28,3 +28,23 @@ Comprobaciones pedidas por Kimi:
 1 passed, 12 deselected, 1 warning in 1.21s
 1 failed
 4 passed, 73 deselected in 0.61s
+
+Rebase final sobre dc53679 (tras fase2/3.1), SHA 914d8467. Comprobaciones pedidas:
+- Acepta A.2:
+4 passed, 5875 deselected, 1 warning in 6.96s
+- Acepta A.3:
+112 passed, 1 warning in 49.57s
+- tests/test_notifica.py (dobles alineados, sobre el modulo partido de #690):
+4 passed, 73 deselected in 0.62s
+- tests/test_api.py -k superficie:
+1 passed, 12 deselected, 1 warning in 1.18s
+- tests/test_architecture.py -k presupuesto:
+assert not {'app/ledger.py': 984, 'app/productos_io.py': 901}
+- tests/test_avisos_campana.py:
+15 passed in 0.43s
+- tests/test_config_write.py:
+26 passed, 1 warning in 22.12s
+- tests/test_settings_escritura.py:
+25 passed, 1 warning in 15.68s
+- bloque completo temporada01 (A.2+A.3+estado):
+4 passed, 5875 deselected, 1 warning in 6.85s
