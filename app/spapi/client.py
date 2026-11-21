@@ -118,10 +118,6 @@ class SpapiNoPermitida(SpapiError):
     """El guard default-deny bloqueo metodo/host/path antes de red."""
 
 
-class SpapiApiError(SpapiError):
-    """SP-API fallo tras agotar la politica acotada (mensaje minimo)."""
-
-
 class SpapiAuthError(SpapiError):
     """Fallo autenticando/refrescando el token LWA."""
 
@@ -137,11 +133,6 @@ class SpapiRechazoLWA(SpapiAuthError):
         self.status = status
         super().__init__(f"refresh LWA rechazado: status={status}")
 
-
-# Alias de compatibilidad: la sonda nacio con estos nombres y sus tests los
-# usan; el canonico es Spapi*. Una sola copia vive aqui.
-SondaError = SpapiError
-SondaNoPermitida = SpapiNoPermitida
 
 _PII_GLOBAL = frozenset({"shippingaddress", "shipaddress", "recipient"})
 _PII_ORDERS = frozenset(

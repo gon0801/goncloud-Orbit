@@ -340,19 +340,14 @@ def test_structure_plan_sin_io_en_runtime():
 
 # ORBIT 04 decision 9 (r2 codex 5): quien puede importar el cliente de
 # ESCRITURA de Amazon Ads. Importadores reales: apply (aplicador),
-# smoke_apply (probe 2.5), archivar (escritor del retiro y del impulso) y
-# bloqueo_dueno_efecto. Crecer la allowlist exige editar este archivo =
-# decision visible en diff y review, jamas derivacion silenciosa (mismo trato
-# que ALLOWLIST_TAMANO).
+# archivar (escritor del retiro y del impulso) y bloqueo_dueno_efecto.
+# Crecer la allowlist exige editar este archivo = decision visible en diff
+# y review, jamas derivacion silenciosa (mismo trato que ALLOWLIST_TAMANO).
 PERMITIDOS_IMPORTAR_ADS_WRITE = {
     "app/apply.py": (
         "aplicador del modulo APPLY (fase 2.x): el dueno legitimo del "
         "cliente de escritura, que re-resuelve la escalera POR DECISION "
         "antes de construirlo"
-    ),
-    "tools/smoke_apply.py": (
-        "smoke E2E autorizado del probe 2.5 (sellado 23): corre con "
-        "ORBIT_DSN_DECIDE y sus filas de ledger nacen tipo probe"
     ),
     "app/ads/archivar.py": (
         "construye el escritor del retiro y del impulso: no lee decision ni "

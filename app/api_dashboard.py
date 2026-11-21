@@ -285,11 +285,6 @@ def _config_vigente_con_id(conn) -> tuple[int | None, dict]:
     return (fila[0], fila[1]) if fila is not None else (None, {})
 
 
-def _config_vigente(conn) -> dict:
-    """settings de la config_version VIGENTE (ver _config_vigente_con_id)."""
-    return _config_vigente_con_id(conn)[1]
-
-
 def _goal_estado(goal: g.Goal | None) -> dict | None:
     """Estado VIVO del goal resuelto (decision 17: el goal es config mutable,
     no historia): enabled + floor/ceiling EFECTIVOS (defaults de goals.py POR

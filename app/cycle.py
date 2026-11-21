@@ -817,15 +817,6 @@ class _Pendiente:
     evaluacion_producto: int | None = None
 
 
-@dataclass(frozen=True)
-class _Lecturas:
-    """Salida de TX2: decisiones pendientes + contadores + guarda disparada
-    (None = el ciclo corrio completo)."""
-
-    pendientes: list[_Pendiente]
-    guarda: windows.MotivoSkip | None
-
-
 def _dec_str(valor: Decimal | None) -> str | None:
     """Decimal -> string TAL CUAL llega de la DB: la escala del string
     (ej '1.0000', '25.00') es artefacto deterministico del NUMERIC de origen
