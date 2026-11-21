@@ -1,456 +1,154 @@
-# Orbit — contexto del proyecto
+# Contexto del proyecto Orbit
 
-> Estado de entregas y pendientes: [ROADMAP actualizado](../plans/ROADMAP.md).
-> Este documento conserva reglas y decisiones; las secciones de migración describen su época.
+El estado de entregas y pendientes vive en [ROADMAP actualizado](../plans/ROADMAP.md). Este documento reúne las reglas vigentes y las decisiones de arquitectura. Las secciones de migración documentan la transición inicial desde el sistema viejo.
 
-> **Stack (decidido 2026-08-22):** Python + FastAPI + PostgreSQL (en Docker, en
-> el servidor propio junto a `bridge` y `accounting`). Sin Redis/colas hasta
-> que la carga real lo justifique. La sugerencia de Supabase quedó descartada:
-> dependencia externa, latencia para los crons y costo, sin necesidad de sus
-> extras (auth, realtime) para un sistema interno de motores.
+Stack decidido el 2026-08-22: Python, FastAPI y PostgreSQL en Docker dentro del servidor propio junto a `bridge` y `accounting`, sin Redis ni colas mientras la carga real no lo justifique. Se descartó Supabase por dependencia externa, latencia en crons y costo, dado que un sistema interno de motores no necesita su capa de auth ni realtime.
 
-> Sistema **nuevo, construido desde cero** sobre una **base de datos nueva**.
-> Reemplaza al stack de motores de Amazon Ads (`goncloud-MCP-2`, **cancelado el
-> 2026-08-21**). **No se reutiliza código del sistema viejo.** Lo único que se
-> migra son credenciales, datos verificados como limpios, y las lecciones.
->
-> Documentos fuente (copia verbatim, leer antes de diseñar):
-> - `docs/traspaso/TRASPASO-1-ACCESOS-E-INFRAESTRUCTURA.md` — qué credenciales
->   existen, dónde viven, qué rotar, qué datos son migrables.
-> - `docs/traspaso/TRASPASO-2-AUTOPSIA-Y-CIMIENTOS.md` — por qué murió el
->   sistema viejo, trampas del dominio, reglas de diseño. **La parte 3
->   (trampas del dominio) es obligatoria**: un sistema nuevo perfecto se
->   estrella contra todas ellas igual.
-> - `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md` — especificación de reglas y
->   umbrales del optimizador (escrita contra el repo viejo: ver "Cómo leer el
->   diseño v2" abajo).
-> - `docs/traspaso/MODULOS-AVANZADOS.md` — spec de los 5 módulos avanzados
->   (Repricing, Campañas, Reputación, Promociones, Envíos). También se
->   construyen en Orbit — ver "Módulos avanzados" abajo.
+Orbit es un sistema nuevo construido desde cero sobre una base de datos nueva. Reemplaza al stack de motores de Amazon Ads (`goncloud-MCP-2`, cancelado el 2026-08-21) sin reutilizar código viejo. Solo migra credenciales, datos verificados como limpios y las lecciones del incidente anterior.
+
+Documentos fuente en copia verbatim, obligatorios antes de diseñar cambios de fondo:
+
+- `docs/traspaso/TRASPASO-1-ACCESOS-E-INFRAESTRUCTURA.md` lista qué credenciales existen, dónde viven, qué rotar y qué datos son migrables.
+- `docs/traspaso/TRASPASO-2-AUTOPSIA-Y-CIMIENTOS.md` documenta por qué falló el sistema viejo, las trampas del dominio y las reglas de diseño. La parte 3 sobre trampas del dominio es lectura obligatoria porque afecta a cualquier implementación nueva por igual.
+- `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md` especifica las reglas y umbrales del optimizador.
+- `docs/traspaso/MODULOS-AVANZADOS.md` especifica los cinco módulos avanzados: Repricing, Campañas, Reputación, Promociones y Envíos.
 
 ## Qué es Orbit
 
-Optimizador de Amazon Ads (Sponsored Products) con decisiones explícitas y
-auditables: **cuánto pujar, qué pausar, qué harvestear**. Una decisión por
-entidad por ciclo, todo registrado en tabla de auditoría, live automático con
-topes. Nada de gates evidenciales apilados ni cooldowns implícitos: fue lo que
-mató al stack viejo (94% de las decisiones con menos evidencia de la que el
-propio motor exigía; un gate `live` que nunca disparó en 220,494 decisiones).
+Orbit optimiza Amazon Ads (Sponsored Products) con decisiones explícitas y auditables sobre cuánto pujar, qué pausar y qué cosechar. Emite a lo sumo una decisión por entidad y ciclo, registra cada entrada en la tabla de auditoría y opera en modo live automático con topes diarios. Evita gates evidenciales apilados y cooldowns implícitos, que fueron la causa de fallo del stack viejo, donde el 94% de las decisiones corría con menos evidencia de la exigida y un gate `live` nunca disparó en 220,494 decisiones.
 
-## Qué se migra del sistema viejo (y qué NO)
+## Qué se migra del sistema viejo y qué no
 
-**SÍ se migra / reusa:**
+Se migra y conserva:
 
-- **Credenciales e integraciones** (Traspaso 1 §1, §5): tokens de Amazon Ads
-  (misma app LWA → no hay que rehacer OAuth), MeLi, Odoo, SP-API, Keepa, Apify,
-  Anthropic, Telegram. Cadena de fallback vieja: env → archivo JSON → fila en
-  DB — al migrar hay que mirar **los tres lugares**. Ningún secreto se escribe
-  en este repo.
-- **Datos verificados limpios** (Traspaso 2 §4): las 4 tablas de métricas de
-  ads (0 duplicados, cero huecos de días), `currency_rates` (diaria desde
-  2025-10-31), `ledger_events` (moneda 100% verificada), precios de
-  `product_economics_expected`, `own_items.current_qty` de Amazon.
-- **`bridge` y `accounting`** son sistemas independientes, vivos y sanos: no se
-  tocan, se integran.
-- **El mapa de cadencias reales** de cada API externa.
+- Credenciales e integraciones (Traspaso 1 §1 y §5) de Amazon Ads con la misma app LWA para no rehacer OAuth, además de MeLi, Odoo, SP-API, Keepa, Apify, Anthropic y Telegram. El sistema anterior leía credenciales en tres lugares por orden: variables de entorno, archivo JSON y fila en base de datos. Ningún secreto entra a este repositorio.
+- Datos verificados como limpios (Traspaso 2 §4): las cuatro tablas de métricas de ads sin duplicados ni huecos, `currency_rates` diaria desde 2025-10-31, `ledger_events` con moneda verificada al 100%, precios de `product_economics_expected` y `own_items.current_qty` de Amazon.
+- Los servicios `bridge` y `accounting`, que siguen independientes, activos y sin cambios.
+- El mapa de cadencias reales de cada API externa.
 
-**NO se migra:**
+No se migra:
 
-- Código de los motores viejos (62 módulos, 206 flags, 147 jobs para tomar 3
-  decisiones). Las "primitivas de escritura" que el diseño v2 marca como
-  reutilizables se **reescriben** en Orbit con las mismas precauciones (retries
-  429/5xx, POSTs de creación no-idempotentes fail-closed).
-- `sales_history.cogs` de MeLi (49% sin costo, y el cero se disfraza de dato),
-  `snapshots`, tablas de backup, `decision_audit` (historia muerta desde
-  2026-05-19), `own_items.current_qty` de MeLi.
+- El código de los motores viejos, que sumaba 62 módulos, 206 flags y 147 jobs para tomar tres decisiones. Las primitivas de escritura que el diseño v2 marcaba como reutilizables se reescriben en Orbit con las mismas defensas: reintentos en 429/5xx y POSTs de creación no idempotentes en modo fail-closed.
+- `sales_history.cogs` de MeLi porque el 49% carece de costo y guarda cero como si fuera dato real, además de `snapshots`, tablas de backup, `decision_audit` detenido desde 2026-05-19 y `own_items.current_qty` de MeLi.
 
 ## Cómo leer el diseño v2 (ADS_OPTIMIZER_V2_DESIGN.md)
 
-Ese documento es la **fuente de verdad de reglas y umbrales** (bids, hygiene,
-harvest, guardas de ciclo, cascada de target ACoS, escalera off→shadow→live).
-Se adopta completo **como especificación**, con dos traducciones:
+Este documento fija las reglas y umbrales base para bids, hygiene, harvest, guardas de ciclo, cascada de target ACoS y escalera de modos `off`, `shadow` y `live`. Se adopta como especificación con dos adaptaciones:
 
-- La tabla "Qué reutiliza (no reescribe)" apunta al repo viejo: en Orbit eso
-  se implementa nuevo (ingesta date-grained con upsert replace-por-fecha, HTTP
-  con retries, envelope de ciclo, etc.).
-- Los nombres de módulos (`engines/ads_optimizer_*.py`) son guía de
-  arquitectura, no obligación de layout.
+- La tabla de componentes reutilizables del documento apuntaba al repositorio viejo. En Orbit esas piezas se implementan desde cero con ingesta por fecha, reintentos HTTP y envelope de ciclo.
+- Los nombres de módulos como `engines/ads_optimizer_*.py` sirven como referencia de arquitectura y no obligan a ese layout de archivos.
 
-**ADS PROTECCION 01 (politica elegida 2026-09-24):** el
-[`spec de proteccion`](superpowers/specs/2026-09-24-ads-proteccion-design.md)
-prevalece sobre el diseno v2 para la precedencia de PAUSE frente al cooldown
-de bids, el limite economico de hojas y las propuestas de campana. El cooldown
-originado por un bid no frena PAUSE; el enfriamiento tras PAUSE/reversa sigue
-vigente. El corte economico de hojas usa datos maduros y requiere
-`cost > 3 * target * revenue` y exceso
-`cost - target * revenue >= 80 USD / 1000 MXN` (target en fraccion). La
-misma regla cubre `revenue=0` medido aun antes del umbral adaptativo de
-clics; `None` abstiene. Hoja: PAUSE automatica con veto, revalidacion y
-reversa; campana: propuesta que el dueno ejecuta manualmente en Amazon y
-Orbit verifica. La salud de la ingesta principal avisa por Telegram al
-fallar, a las 10:30 UTC si sigue sin exito del dia y al recuperarse.
-La regla economica entra en live solo tras replay y gates del plan.
+Política ADS PROTECCION 01, aprobada el 2026-09-24 en [`spec de protección`](superpowers/specs/2026-09-24-ads-proteccion-design.md). Prevalece sobre el diseño v2 en tres puntos: precedencia de PAUSE frente al cooldown de bids, límite económico de hojas y propuestas de campaña. El cooldown de un bid no bloquea PAUSE, mientras que el enfriamiento tras PAUSE o reversa sigue vigente. El corte económico de hojas usa datos maduros y exige `cost > 3 * target * revenue` y un exceso `cost - target * revenue >= 80 USD` o `1000 MXN` con `target` en fracción. La misma regla cubre `revenue = 0` medido incluso antes del umbral adaptativo de clics, y se abstiene ante `None`. Para hojas aplica PAUSE automática con veto, revalidación y reversa; para campañas genera una propuesta que el dueño ejecuta en Amazon y Orbit verifica después. La vigilancia de la ingesta principal avisa por Telegram al fallar, a las 10:30 UTC si sigue sin éxito del día y al recuperarse.
 
-Spec delta ORBIT 03 (sellado; tres traducciones nuevas que el diseño v2 no
-conocía):
+Deltas sellados en ORBIT 03 respecto al diseño v2:
 
-1. **Doble ventana.** Bids: ventana 30d que termina en `max(metric_date) − 3d`.
-   Cortes (pause/negative/harvest): agregado SEPARADO cuya ventana termina en
-   `min(max(metric_date) − 3d, decided_at − 10d)` — madurez ≥10d, es decir
-   `window_end <= decided_at − 10d` (regla 6; el trigger
-   `decision_madurez_corte` lo hace imposible de violar). Prohibido calcular
-   con la ventana de bids y solo "bajar" la columna `window_end`.
-2. **Opt-out por campaña.** `campaign_optimization_state` del viejo no existe
-   en Orbit: se traduce a goal de scope campaña con `enabled=false`, que PISA
-   a un goal de plataforma habilitado. La gracia de 7d por reactivación manual
-   sigue diferida a PR2 (residual #3 del diseño).
-3. **Criterio de shadow para el cutover.** "Revisado contra lo que hizo
-   adaptive" ya no aplica: el sistema viejo está APAGADO (ORBIT 02). El shadow
-   se valida contra datos reales + recálculo manual, y se acepta el costo
-   declarado de que nadie optimiza las campañas durante el freeze.
+1. Doble ventana. Los bids usan una ventana de 30 días terminada en `max(metric_date) - 3d`. Los cortes de pausa, negativo y cosecha usan un agregado separado terminado en `min(max(metric_date) - 3d, decided_at - 10d)`, con madurez mínima de 10 días (`window_end <= decided_at - 10d`, garantizado por el trigger `decision_madurez_corte`). No se permite reutilizar el agregado de bids bajando solo `window_end`.
+2. Opt-out por campaña. En lugar de `campaign_optimization_state`, un goal de campaña con `enabled = false` anula a un goal de plataforma habilitado.
+3. Validación en shadow. Como el sistema viejo se apagó en ORBIT 02, el modo shadow se valida contra datos reales y recálculo manual, asumiendo que ninguna campaña se optimiza durante un freeze.
 
-Reglas numéricas selladas (resumen; el documento manda):
+### Reglas numéricas vigentes
 
-- **PAUSE**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 40 USD, mx: 500 MXN}
-  (CORTES 03, dueno 2026-08-28; antes 12 USD / 200 MXN). Umbral de clicks
-  **adaptativo por producto** (CORTES 01 1.3): LA MISMA resolución que
-  NEGATIVE_EXACT (`umbral_corte(evidencia, 'pause')` con la elegibilidad
-  3/60/14) con fallback 100 y **piso max(100, bruto)** (CORTES 03; antes
-  fallback 50 / piso 25). El motor de bids congela `inputs.corte` en TODA
-  decisión — incluidas las de kind final `bid` (PAUSE se evalúa antes de las
-  bandas: sin el freeze, el replay de un bid histórico rejugaría como pause);
-  el replay lee lo congelado — `umbral_clicks_usado` y, desde CORTES 03,
-  `cost_min_usado` (el motor de bids congela el piso que consumió); fila
-  histórica sin la clave rejuega con los HISTÓRICOS de su era
-  (solo-replay: clics 25, piso 12/200), jamás el vigente — replay fiel por
-  construcción (decisión del lead 2026-08-28: 34/34 pauses medidas
-  fieles).
-- **La politica de bid vigente es `niveles_v3`** (`app/optimizer/politica.py`,
-  funcion pura `decide(caso)`; el replay es la misma funcion). Reemplaza a
-  las bandas con previa jerarquica, sin regreso a ellas. Una regla por linea:
-  - La hoja se juzga con sus datos; si no concluyen, hereda el veredicto de
-    su ad group (grupo con 3 pedidos o mas); "no opino" nunca recorta.
-  - La previa jerarquica solo frena subidas; ya no devuelve la decision a
-    la regla vieja.
-  - Pasos y bandas sin cambio (**−25%**, **−12%**, **+15%** sobre las bandas
-    1.35×, 1.15× y 0.85× del target), juzgados por la posterior gamma con
-    la confianza de la plataforma, no por el ACoS crudo. Clamp por decisión
-    ∈ [−30%, +20%], resultado ∈ [floor, ceiling] (defaults de goal POR
-    MONEDA, regla 4).
-  - Cero ventas con gasto alto no deriva a PAUSE: baja por gasto para
-    concluir (motivos `gasto_sin_venta`); PAUSE al 1.5× sin cambio se
-    evalua antes, con su reloj de una sola vez intacto.
-  - Trayectoria: repetir la misma direccion pide 20 clics al bid nuevo;
-    invertirla pide 20 clics o 14 dias. Si el trafico se desploma, el bid
-    regresa al anterior de una vez y ese piso aprendido no se vuelve a
-    cruzar hacia abajo.
-  - Tras un cambio, el motor no vuelve a subir ni a bajar esa hoja antes de 7 dias (`DIAS_EFECTO` en `app/optimizer/politica.py`): deja que el cambio haga efecto antes de opinar otra vez. El regreso por desplome y la pausa no esperan ese plazo.
-  - Interruptor por plataforma `ads_bid_politica_<plataforma>`: ausente =
-    el motor no mueve bids (PAUSE, negativos y cosecha siguen); con valor
-    `niveles_v3` = encendido.
-- **NEGATIVE_EXACT**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 8, mx: 130};
-  términos ASIN-like siempre skip. Umbral de clicks **adaptativo por
-  producto** (CORTES 01): la evidencia del ad group (suma de sus hojas
-  keyword+product_target en la ventana literal D-90..D-10) con elegibilidad
-  orders≥3 ∧ clicks≥60 ∧ ≥14 fechas resuelve `ceil(expected_clicks×1.5)`
-  (ceil del producto); sin elegibilidad → 40; **siempre piso
-  max(20, bruto)** — el adaptativo solo SUBE umbrales. El piso de cost
-  **también es adaptativo** (CORTES 01 1.4): con la MISMA elegibilidad y
-  `ad_revenue` sano, AOV = `ad_revenue_total/orders_total` (Decimal) y piso
-  `max(legacy, AOV×1.0)`; sin elegibilidad o revenue envenenado →
-  `max(legacy, {us: 45 USD, mx: 600 MXN})`. `inputs.corte` congela
-  `piso_cost_usado`+`aov`; el replay lee el congelado (fila sin la clave →
-  8/130). Solo negative congela el piso ADAPTATIVO (el piso sellado de
-  pause vive en `bid.py`, 40/500 desde CORTES 03, y TAMBIÉN viaja
-  congelado: `cost_min_usado`, ver PAUSE). La ventana del
-  término NO cambia (sigue siendo la de cortes). El replay lee
-  `inputs.corte.umbral_clicks_usado` (fila histórica sin la clave → 20).
-- **HARVEST**: orders≥2 ∧ ACoS ≤ min(35%, target); requiere config de campaña
-  manual en el goal, sin placeholders.
-- Guardas: solo campañas con goal habilitado; frescura (ventana termina en
-  `max(metric_date) − 3d`); completitud ≥7 fechas por entidad; claim con TTL;
-  cooldown 7d solo cuenta applies verificados.
+- PAUSE. Exige `orders = 0`, `clicks >= umbral_corte` y `cost >= 40 USD` en US o `500 MXN` en MX (CORTES 03, decidido el 2026-08-28; antes 12 USD y 200 MXN). El umbral de clics es adaptativo por producto (`umbral_corte(evidencia, 'pause')`, elegibilidad 3 pedidos, 60 clics y 14 fechas) con respaldo en 100 y piso `max(100, bruto)` desde CORTES 03 (antes 50 y 25). El motor de bids congela `inputs.corte` en toda decisión, incluidas las de tipo `bid`, porque PAUSE se evalúa antes que las bandas. El replay lee `umbral_clicks_usado` y `cost_min_usado` del freeze, y en filas históricas sin esas claves aplica los valores históricos de su era (25 clics y 12 USD o 200 MXN), nunca los vigentes.
+- Política de bid `niveles_v3` en `app/optimizer/politica.py`, con `decide(caso)` como función pura compartida con el replay. Reemplaza a las bandas con previa jerárquica:
+  - Cada hoja se juzga con sus propios datos. Si no concluyen, hereda el veredicto de su ad group siempre que el grupo tenga 3 pedidos o más. Un resultado sin opinión nunca recorta.
+  - La previa jerárquica solo frena subidas y ya no devuelve la decisión a la regla anterior.
+  - Los pasos son -25%, -12% y +15% sobre las bandas 1.35x, 1.15x y 0.85x del target, evaluados con la posterior gamma según la confianza de la plataforma y no con el ACoS crudo. El clamp por decisión es [-30%, +20%] y el resultado queda dentro de `[floor, ceiling]` con defaults por moneda.
+  - Un gasto alto sin ventas no deriva a PAUSE; reduce puja por gasto para concluir (`gasto_sin_venta`). PAUSE al 1.5x se evalúa antes con su propio reloj.
+  - Repetir la misma dirección pide 20 clics al bid nuevo; invertirla pide 20 clics o 14 días. Ante desplome de tráfico, el bid vuelve al anterior de inmediato y ese piso aprendido no vuelve a cruzarse hacia abajo.
+  - Tras un cambio de bid, el motor espera 7 días (`DIAS_EFECTO` en `app/optimizer/politica.py`) antes de subir o bajar esa hoja otra vez. El regreso por desplome y la pausa no esperan ese plazo.
+  - El interruptor `ads_bid_politica_<plataforma>` apaga los movimientos de bid cuando está ausente y los activa con `niveles_v3`, sin afectar PAUSE, negativos ni cosecha.
+- NEGATIVE_EXACT. Exige `orders = 0`, `clicks >= umbral_corte` y `cost >= 8 USD` en US o `130 MXN` en MX. Los términos con formato ASIN siempre se saltan. El umbral de clics es adaptativo usando la evidencia del ad group en la ventana `D-90..D-10` con elegibilidad de 3 pedidos, 60 clics y 14 fechas: calcula `ceil(expected_clicks * 1.5)`, cae a 40 sin elegibilidad y aplica piso `max(20, bruto)`, de modo que solo sube umbrales. El piso de costo también es adaptativo (CORTES 01 1.4): con la misma elegibilidad y `ad_revenue` sano usa `max(legacy, AOV * 1.0)` con `AOV = ad_revenue_total / orders_total`; sin elegibilidad o con ingreso incompleto usa `max(legacy, 45 USD)` en US o `600 MXN` en MX. El freeze `inputs.corte` guarda `umbral_clicks_usado`, `piso_cost_usado` y `aov`; en filas históricas sin esas claves el replay usa 20 clics y 8 USD o 130 MXN.
+- HARVEST. Exige `orders >= 2` y `ACoS <= min(35%, target)`, con destino de campaña manual configurado sin placeholders.
+- Guardas generales: solo entran campañas con goal habilitado, frescura en `max(metric_date) - 3d`, completitud mínima de 7 fechas por entidad, claim con TTL y cooldown de 7 días que solo cuenta applies verificados.
 
 ## Reglas de diseño innegociables (Traspaso 2 §5)
 
-Cada una tiene atrás dinero perdido. Aplican a todo el código de Orbit:
+Cada regla responde a un fallo previo con impacto económico y aplica a todo el código de Orbit:
 
-1. **Una decisión, un camino, un dueño.** Lo que no está en el camino de una
-   decisión que importa, no se construye.
-2. **Un número, una fuente.** (El motor viejo usó 10 márgenes distintos en un
-   día desde 3 fuentes.)
-3. **Dato faltante = `None` y la fila no se escribe.** Nunca una constante
-   inventada (el FX de fallback a 20.5 infló revenue +28,549 MXN).
-4. **Todo dinero lleva `(valor, moneda, fecha_fx)` por schema**, y se guarda
-   siempre el importe original además del convertido (la conversión es
-   irreversible). Un `SUM()` mezclando monedas debe ser imposible por schema.
-   Los defaults de piso/techo de goals van POR MONEDA (USD 0.10/2.50, MXN
-   1.00/45.00; sellado 2 del preflight de ORBIT 05) — sin moneda no hay
-   default.
-5. **Toda métrica es append-only con clave `(entidad, metric_date,
-   observed_at)`.** El UPSERT in-place del sistema viejo hacía que el backtest
-   viera números que el motor jamás pudo ver (lookahead sin síntomas — la
-   trampa más grave para un sistema nuevo).
-6. **La edad mínima del dato depende del tipo de decisión**: cortar/pausar
-   exige ≥10 días de maduración (a día 0 el corte tiene 8.7% de falsos
-   positivos; a día 10, 0.0%). El día en curso se descarta (tiene ~20% del
-   costo y ~12% del revenue finales).
-7. **Ninguna acción irreversible sin su reversa implementada antes** de
-   encenderse.
-8. **Antes de escribir el test de un invariante, correr el `SELECT` que
-   confirma la forma real del dato en producción** (la suite vieja probaba
-   `NULL` donde producción escribe cadena vacía).
-9. **Toda prueba de regresión debe demostrarse fallando contra el código
-   anterior** — si pasa antes y después, no prueba nada.
-10. **Conciliar contra la fuente externa** (reportes de liquidación de Amazon),
-    no contra la propia consistencia interna.
+1. Una decisión tiene un solo camino y un solo dueño. Lo que no pertenece a una decisión útil no se construye.
+2. Un número tiene una sola fuente. El motor viejo calculaba 10 márgenes distintos en un día desde tres fuentes.
+3. Un dato faltante se representa como `None` y la fila no se escribe. Nunca se usa una constante inventada; un tipo de cambio fijo de 20.5 infló el ingreso en 28,549 MXN en el sistema viejo.
+4. Todo monto lleva `(valor, moneda, fecha_fx)` por esquema y conserva el importe original además del convertido. Un `SUM()` que mezcle monedas es inválido por esquema. Los defaults de piso y techo de goals van por moneda: 0.10 y 2.50 en USD, 1.00 y 45.00 en MXN. Sin moneda no hay default.
+5. Toda métrica es append-only por `(entidad, metric_date, observed_at)`. El upsert in-place del sistema viejo introducía lookahead en los backtests.
+6. La edad mínima del dato depende de la decisión. Cortar o pausar exige al menos 10 días de maduración, porque a día 0 el corte produce 8.7% de falsos positivos frente a 0.0% a día 10. El día en curso se descarta porque trae alrededor de 20% del costo y 12% del ingreso final.
+7. Ninguna acción irreversible se enciende sin tener su reversa implementada antes.
+8. Antes de escribir la prueba de un invariante, corre el `SELECT` que confirma la forma real del dato en producción.
+9. Toda prueba de regresión debe fallar contra el código anterior antes de aplicarse el arreglo.
+10. Se concilia contra la fuente externa (reportes de liquidación de Amazon), no contra la consistencia interna.
 
-## Trampas del dominio que Orbit hereda intactas
+## Trampas del dominio que Orbit hereda
 
-No dependen del código. Resumen mínimo (detalle y números en Traspaso 2 §3):
+Estas restricciones vienen de las plataformas externas y no dependen del código (detalle completo en Traspaso 2 §3):
 
-- **Tres relojes desalineados**: venta atribuida madura a 5–8 días, costo al
-  día 15 (madura *hacia abajo* por clawback), fees del P&L a 15–30 días. Un
-  ACoS de día 1 en MX sale ~1.5× peor que el real.
-- **Halo**: 56–58.5% del ingreso atribuido es de otros SKUs (Amazon; MeLi
-  reporta 0). Es atribución de Amazon, **no causalidad**. Numerador de
-  ROAS/POAS = `ad_revenue` completo; `sales_same_sku` solo para atribuir.
-- **Tablas point-in-time**: jamás consultar sin filtro de vintage explícito
-  (inflan 13–17× e invierten el signo de tendencias).
-- **Monedas**: `sales_history` reportaba MXN hasta para amazon_us → error de
-  18.66× siempre a favor de "todo es rentabilísimo".
-- **El dueño no paga más impuestos que los que las plataformas retienen** (confirmado
-  2026-11-13). La venta del libro incluye IVA y el margen resta solo el IVA y el ISR
-  retenidos: es correcto, no «falta» restar la otra mitad del IVA.
-- **ISR de Amazon nunca trae `order_id`** y llega en bultos quincenales: los
-  costos sin order_id se prorratean explícitamente o se excluyen por escrito.
-- **MeLi es estructuralmente incomparable con Amazon** (cero halo, lag de 1
-  día, ISR con order_id, escritura de ads bloqueada a nivel cuenta → MeLi Ads
-  es proposal-only).
-- **La pregunta sin respuesta**: la cuenta US da entre +1,671 y −2,238 USD en
-  91 días según se cuente o no el halo — **ni el signo se conoce**. Decisión
-  de diseño pendiente ANTES de la lógica de decisión: acotar con ambos
-  supuestos, holdout, o **decidir por TACoS** (la más barata; no necesita
-  suposición de atribución).
+- Relojes desalineados. La venta atribuida madura en 5 a 8 días, el costo madura hacia abajo por clawback hasta el día 15 y los fees del P&L tardan de 15 a 30 días. Un ACoS medido al día 1 en MX resulta cerca de 1.5x peor que el real.
+- Efecto halo. Entre 56% y 58.5% del ingreso atribuido en Amazon proviene de otros SKUs, mientras MeLi reporta cero. Es atribución de plataforma, no causalidad. El numerador de ROAS y POAS usa `ad_revenue` completo y `sales_same_sku` solo sirve para atribuir.
+- Tablas point-in-time. Nunca se consultan sin filtro explícito de vintage porque inflan cifras de 13x a 17x e invierten el signo de las tendencias.
+- Monedas. En el sistema viejo `sales_history` reportaba MXN incluso para `amazon_us`, generando un error de 18.66x.
+- Impuestos retenidos. El dueño no paga impuestos adicionales a los que retienen las plataformas (confirmado el 2026-11-13). La venta del libro incluye IVA y el margen descuenta solo el IVA y el ISR retenidos; no falta restar otra mitad del IVA.
+- ISR de Amazon sin `order_id`. Llega en bultos quincenales sin referencia a pedido. Los costos sin `order_id` se prorratean de forma explícita o se excluyen por escrito.
+- Mercado Libre no es comparable con Amazon. Tiene cero halo, lag de un día, ISR con `order_id` y escritura de ads bloqueada a nivel cuenta, por lo que MeLi Ads opera solo con propuestas.
+- Signo económico de US bajo halo. En 91 días la cuenta de US oscila entre +1,671 USD y -2,238 USD según se incluya o no el halo. Antes de automatizar decisiones sensibles a atribución conviene acotar con ambos supuestos, correr un holdout o decidir por TACoS.
 
-## Integraciones externas (cadencias y trampas pagadas)
+## Integraciones externas
 
-- **Amazon Ads API**: reporting v3 asíncrono (pipeline de métricas); escritura
-  vía campaign management v3 (lo más frágil); los endpoints v4 unificados
-  **rechazan Bearer LWA**.
-- **Amazon Marketing Stream + SQS**: única fuente intra-día; sirve para
-  alertas de gasto, no para decisiones (la atribución tiene lag de días).
-- **SP-API**: Orders v0 deprecado (migración a `2026-01-01`, dos bugs de
-  paginación documentados); Finances `2024-06-19` es la fuente de fees (la
-  migración vieja perdía el ISR).
-- **MeLi**: un solo refrescador de token (el viejo tenía dos compitiendo);
-  rutas de ads llevan `site` (`/advertising/MLM/...`).
-- **Odoo 17**: siempre mandar `tax_ids` o IVA doble.
-- Shopify, Google Ads y Meta **no existen** (esqueleto sin cuenta en el viejo):
-  no buscar esas credenciales.
+- Amazon Ads API. Usa reporting v3 asíncrono para métricas y campaign management v3 para escrituras. Los endpoints v4 unificados rechazan Bearer LWA.
+- Amazon Marketing Stream y SQS. Son la única fuente intra-día y sirven para alertas de gasto, no para decisiones porque la atribución tarda días.
+- SP-API. Orders v0 está deprecado y se migra a la versión `2026-01-01`. Finances `2024-06-19` es la fuente de fees e ISR.
+- Mercado Libre. Usa un único refrescador de token y rutas de ads con `site`, como `/advertising/MLM/...`.
+- Odoo 17. Cada creación debe enviar `tax_ids` para evitar IVA duplicado.
+- Shopify, Google Ads y Meta no tienen cuenta activa en este negocio; no existen credenciales que buscar.
 
-## Estado del servidor viejo al planificar la migración (histórico)
+## Estado histórico del servidor viejo (referencia de migración)
 
-El apagado y la migración se completaron en ORBIT 02. La lista siguiente es
-la foto anterior al apagado del 22-ago-2026, no el estado actual. Solo la
-rotación de cloudflared (3.4) sigue diferida: [ROADMAP P06](../plans/ROADMAP.md#pendientes-de-operación-y-cierre).
+El apagado y la migración cerraron en ORBIT 02. El registro siguiente corresponde a la foto previa al 2026-08-22. Solo la rotación del token de `cloudflared` (tarea 3.4) sigue pendiente en [ROADMAP P06](../plans/ROADMAP.md#pendientes-de-operación-y-cierre).
 
-- Hay motores en **live** escribiendo a Amazon Ads; el scheduling real son 147
-  jobs de APScheduler dentro del contenedor, **no el cron**. Apagado seguro:
-  flags a `off` → `systemctl disable --now competitive-intel.service` →
-  `docker compose stop` → recién entonces limpiar cron (Traspaso 1 §0).
-- Antes de apagar: copiar `competitive.db` fuera de la rotación de respaldos
-  (solo guarda 3), usando la API `.backup()` de SQLite (el `cp` deja fuera el
-  WAL).
-- Pendiente de rotación al cerrar el viejo: `API_AUTH_SECRET` (filtrado),
-  deploy key `mcp2_deploy` (tiene escritura), token de cloudflared (inline en
-  systemd), 4 backups de `accounting.env` con secretos.
+- El scheduling del sistema viejo corría en 147 jobs de APScheduler dentro del contenedor, no en cron. El apagado siguió el orden: flags a `off`, `systemctl disable --now competitive-intel.service`, `docker compose stop` y limpieza de cron (Traspaso 1 §0).
+- El respaldo final de `competitive.db` se tomó con la API `.backup()` de SQLite para incluir el WAL.
+- Elementos marcados para rotación al cerrar el stack viejo: `API_AUTH_SECRET`, deploy key `mcp2_deploy`, token de `cloudflared` en systemd y cuatro respaldos de `accounting.env`.
 
-## Módulos avanzados (spec: `docs/traspaso/MODULOS-AVANZADOS.md`)
+## Módulos avanzados (docs/traspaso/MODULOS-AVANZADOS.md)
 
-Además del optimizador de ads, Orbit construye 5 módulos: **Repricing**,
-**Creación de Campañas por API**, **Reputación**, **Promociones** y
-**Envíos** (roadmap del documento: Fase 0 modelos+auth → Repricing → Campañas
-→ Promociones → Reputación → Envíos → integraciones). La spec manda en
-alcance y modelos; donde roza con las lecciones de la autopsia, manda la
-autopsia. Reconciliaciones explícitas:
+Orbit incluye cinco módulos adicionales al optimizador: Repricing, Creación de Campañas por API, Reputación, Promociones y Envíos. La especificación fija el alcance y los modelos; en cualquier conflicto con las reglas de la autopsia, manda la autopsia.
 
-- **Stack decidido:** Python + FastAPI + PostgreSQL (ver arriba). La spec
-  sugiere Redis + BullMQ "a título orientativo": queda fuera hasta que la
-  carga real lo justifique — la autopsia mata infraestructura por defecto (el
-  sistema viejo tenía 62 módulos y 147 jobs para 3 decisiones).
-- **Repricing y Promociones viven del margen** → aplican las reglas 2, 3 y 4:
-  una sola fuente de margen, dato faltante = fila no escrita, todo dinero con
-  `(valor, moneda, fecha_fx)`. Ojo: los fees maduran a 15–30 días, así que el
-  "margen proyectado" del simulador es una estimación con edad declarada, no
-  un número exacto.
-- **"Confirmación humana para acciones de alto impacto"** (spec §10.4)
-  convive con el "live automático con topes" del optimizador: el optimizador
-  actúa solo dentro de sus caps; cambios masivos de precio (>50 productos),
-  borrado de campañas y promociones bajo el margen mínimo requieren
-  confirmación.
-- **Campañas en MeLi**: la escritura de MeLi Ads está bloqueada a nivel cuenta
-  (proposal-only, Traspaso 1 §4). El Módulo 2 en MeLi genera propuestas, no
-  crea vía API, hasta que la cuenta lo permita.
-- **Reputación → pausar campañas** es una acción de corte: aplica la regla 7
-  (reversa implementada antes de encender) y la edad mínima del dato según el
-  tipo de decisión.
-- **Trazabilidad completa** (spec) se implementa con las tablas de auditoría
-  append-only de la regla 5: `(entidad, fecha, observed_at)`, nunca UPSERT
-  in-place.
+- Se mantiene el stack Python, FastAPI y PostgreSQL sin Redis ni BullMQ hasta que la carga real lo justifique.
+- Repricing y Promociones dependen del margen y cumplen las reglas 2, 3 y 4. Como los fees maduran en 15 a 30 días, cualquier margen proyectado declara su edad de datos.
+- El optimizador actúa solo dentro de sus topes diarios. Los cambios masivos de precio (más de 50 productos), el borrado de campañas y las promociones bajo el margen mínimo exigen confirmación humana (spec §10.4).
+- En Mercado Libre el módulo de Campañas genera propuestas en lugar de crear por API mientras la cuenta mantenga bloqueada la escritura de MeLi Ads.
+- Pausar campañas desde Reputación es una acción de corte y cumple la regla 7 y la madurez mínima de datos.
+- La trazabilidad completa usa tablas append-only por `(entidad, fecha, observed_at)` conforme a la regla 5.
 
-## Módulo dashboard (ORBIT 16 — DASHBOARD 01)
+## Módulo dashboard (ORBIT 16 y DASHBOARD 01)
 
-Dashboard de LECTURA del optimizador (series spend/revenue/ACoS, campañas con
-target efectivo y procedencia, feed de decisiones, salud) para el dueño, por
-túnel SSH ahora y por su VPN WireGuard en Phase 2. El contrato fino (pantallas,
-endpoints, JSON, límites, lib de gráficas) vive en **`docs/DASHBOARD.md`** y
-manda para la implementación; este párrafo es el spec delta sellado:
+El dashboard muestra series de gasto, ingreso y ACoS, campañas con target efectivo y procedencia, feed de decisiones y salud del optimizador. El dueño entra por túnel SSH o por VPN WireGuard. El contrato detallado de pantallas, endpoints, JSON y gráficas vive en `docs/DASHBOARD.md`.
 
-- **Lectura pura en Phase 1**: solo GET, rol `orbit_read`; CERO escrituras
-  (settings y goals vivos se escriben por el camino humano de 4.3 / Phase 3 con
-  auth de ORBIT 04).
-- **Reglas 1-10 aplican igual**: series con grano `kind='campaign'` explícito
-  (anti-doble-conteo, regla 1-2), colapso bitemporal vía `v_metric_latest`
-  (regla 5), NULL = hueco jamás 0 (regla 3), dinero como STRING y moneda por
-  plataforma sin mezclar (regla 4), día en curso excluido y D-8..D-1 marcados
-  inmaduros (regla 6), SELECT real antes de los tests (regla 8), regresión
-  demostrada fallando (regla 9).
-- **Procedencia del target**: la cascada de `app/optimizer/goals.py` tiene
-  CINCO peldaños de procedencia (`goal_campana`, `goal_plataforma`,
-  `margen_familia`, `margen_plataforma`, `setting_plataforma`), compatible
-  con el camino del motor — la capa web jamás la reimplementa. BIDS 02 T.1
-  retiro los peldaños `cache_estado` y `default` (migracion 0063): ya no
-  existe target por defecto. Sin target resuelto en ningun peldaño, la hoja
-  y su ad group se saltan con motivo `sin_target` y las pantallas dicen
-  «sin target».
-- **Target derivado del margen (ORBIT 06 Fase 2, sello del dueño 2026-09-03)**:
-  orden de la cascada — goal resuelto (la campaña pisa a la plataforma) →
-  `margen_familia` (A5: fraccion × margen de la familia) →
-  `margen_plataforma` → `setting_plataforma`. El
-  peldaño `margen_plataforma` = `fraccion × margen neto antes de publicidad`
-  de la plataforma (ledger, 90 días maduros `[D-105, D-15)`, cargos sin
-  `fee_type = ads`, COGS a la fecha, misma moneda, cobertura ≥ 95 %), con
-  `fraccion` en `ads_target_fraccion_margen_<platform>` (dueño: **«La mitad
-  (utilidad)»** = 0.5 en MX; **0.8 en US** por decision D1 de BIDS 02;
-  ausente = interruptor, presente e inválida = ValueError). Señal ausente,
-  rancia (> 3 días), corta (< 60 días con venta), con cobertura por monto
-  baja, moneda mezclada o cargo sin clasificar → el peldaño **se abstiene**
-  y la cascada sigue al setting; jamás cero (regla 3). El derivado fuera de
-  la banda [10, 45] NO abstiene: **clampea** al extremo. El target derivado
-  sube de una vez hasta su valor y baja como maximo 0.5 puntos por ciclo. Margen sobre venta CUBIERTA con cargos de plataforma prorrateados
-  (cross-review §10.bis del spec, 2026-09-04). Requisito literal del dueño:
-  «se va a ir ajustando automaticamente» → ledger y FX en cron diario.
-  `v_contribucion_entidad` (por palabra) sigue NO decisoria.
-  Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`.
-- **Meta por producto (AUTO-03 C-F; ORBIT 07 M2)**: en un grupo exclusivo
-  y elegible, el peldaño `margen_producto` = `min(fracción × margen del
-  producto, 45)` sin piso de 10. ORBIT 07 M2 aplica esa meta directa desde
-  el primer ciclo elegible y en cada cambio posterior del margen (excepción
-  a la rampa de 0.5 puntos de la meta; los pasos de cambio de puja no
-  cambian). Al perder elegibilidad, la hoja resuelve la cascada completa de
-  respaldo en ese ciclo y el target individual no se interpola. La
-  revalidación de una pausa usa la evaluación fresca del ciclo ejecutor
-  (goal, identidad, atribución, moneda y respaldo); apagar
-  `ads_producto_economia_<plat>` elige la version (ausente/`auto03`
-  conserva la rampa y la cola congelada; `producto_directo_v1` activa
-  M2) y `ads_producto_meta_<plat>` sigue apagando la meta individual; el
-  cambio de version no borra evaluaciones ni decisiones.
-- **Pausa por producto y venta reciente (ORBIT 07 M4)**: ademas de la ventana
-  madura `[D-60, D-30)` en cero, la politica v3 espera si hay una compra o
-  venta total en `[D-30, D-1]`: la fuente de productos reobserva 30 dias, asi
-  que una venta con menos de 30 dias aun puede cambiar. La espera lee el
-  reporte de productos hasta D-1 (no el watermark de hojas). El ancla es la
-  fecha mas antigua de esa venta, vence a los 30 dias y libera al dia 31,
-  cuando la venta entra a la ventana madura; una reobservacion o una venta
-  posterior no mueven el ancla mientras la anterior siga inmadura. Se aplica al
-  decidir y al revalidar; la fila en cola se descarta con
-  `venta_reciente_producto` sin PUT ni cuota. v2 conserva el replay historico
-  sin la espera. Desde A-H3 la espera tambien cubre una fecha reciente sin
-  medir: si el lector descarto una fecha de `[D-30, D-1]` por una metrica
-  ausente y pudo haber venta (compra o venta desconocida, o conocida mayor que
-  cero), la pausa espera con `venta_reciente_sin_medir`. Un dia con compra y
-  venta conocidas en cero no cuenta y el motivo no bloquea la meta del
-  producto.
-- **Episodio economico del ultimo cambio (ORBIT 07 M5/M6)**: con
-  `ads_bid_economia_<plat> = economia_cambio_v1` o `economia_cambio_v2` el
-  ciclo congela en el caso
-  las ventanas `[x-7, x-1]` y `[x+1, x+7]` del ultimo cambio de bid y separa
-  madurez (D+17), comparabilidad y aplicabilidad. Al repetir la misma
-  direccion, un recorte con ventas conservadas y ACoS mejor salta el freno
-  de trafico de R16; si no conserva ventas o no mejora, devuelve sin
-  evidencia y R16 decide como antes (M6 no frena recortes). Una subida cuyo
-  trafico adicional no compensa el gasto se frena con
-  `subida_sin_economia`. En v2 la ventana posterior exige ademas el minimo de
-  clics (`CLICS_NUEVOS`) y una subida con `post.venta <= pre.venta` se frena
-  aunque la previa no tuviera gasto ni ventas. Sin evidencia madura,
-  comparable y aplicable, R14-R17 decide como antes. Ausente/`off` no lee ni
-  congela episodios; apagarla no reescribe decisiones historicas.
-- **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
-  `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
+- Las rutas de lectura son solo GET bajo el rol `orbit_read`. La edición de settings y goals pasa por los endpoints de escritura autenticados de ORBIT 04.
+- Las reglas 1 a 10 aplican igual: series filtradas a `kind = 'campaign'`, colapso bitemporal mediante `v_metric_latest`, `NULL` mostrado como dato ausente y nunca como cero, montos serializados como texto sin mezclar monedas y exclusión del día en curso con marca de inmadurez en `D-8..D-1`.
+- Cascada de target ACoS en `app/optimizer/goals.py`: tiene cinco peldaños (`goal_campana`, `goal_plataforma`, `margen_familia`, `margen_plataforma` y `setting_plataforma`) compartidos con el motor. BIDS 02 T.1 eliminó `cache_estado` y el valor por defecto 55 en la migración 0063; sin peldaño resuelto, la entidad se salta con `sin_target` y las pantallas muestran "sin target".
+- Target derivado del margen (ORBIT 06 Fase 2, 2026-09-03). El orden de precedencia es goal resuelto, `margen_familia`, `margen_plataforma` y `setting_plataforma`. `margen_plataforma` multiplica `fraccion` por el margen neto antes de publicidad sobre 90 días maduros `[D-105, D-15)`, excluyendo `fee_type = ads`, con COGS a la fecha, misma moneda y cobertura por monto de al menos 95%. La fracción sale de `ads_target_fraccion_margen_<platform>` (0.5 en MX y 0.8 en US por decisión D1 de BIDS 02); ausente apaga el peldaño y presente con valor inválido lanza `ValueError`. Si la señal falta, supera 3 días de antigüedad, tiene menos de 60 días con venta, cobertura baja, moneda mezclada o cargos sin clasificar, el peldaño se abstiene y pasa al setting. Un derivado fuera de `[10, 45]` se recorta al extremo. Las subidas aplican de una vez y las bajadas avanzan como máximo 0.5 puntos por ciclo. `v_contribucion_entidad` sigue siendo solo informativa. Ver `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`.
+- Meta por producto (AUTO-03 C-F y ORBIT 07 M2). En un grupo exclusivo y elegible, `margen_producto` calcula `min(fracción * margen_del_producto, 45)` sin piso de 10. Con `ads_producto_economia_<plat> = producto_directo_v1` (M2), la meta aplica de una vez sin rampa de 0.5 puntos y al perder elegibilidad cae directo a la cascada de respaldo; ausente o `auto03` conserva el comportamiento previo. `ads_producto_meta_<plat>` sigue controlando el apagado de la meta individual y cambiar versión no borra historial.
+- Pausa por producto y venta reciente (ORBIT 07 M4). Además de la ventana madura `[D-60, D-30)` en cero, la política v3 espera si detecta compra o venta en `[D-30, D-1]` leyendo el reporte de productos hasta `D-1`. El ancla es la fecha más antigua de esa venta, vence a los 30 días y libera al día 31. Al revalidar en cola descarta con `venta_reciente_producto` sin PUT ni cuota. Desde A-H3 también espera con `venta_reciente_sin_medir` si una fecha de `[D-30, D-1]` fue descartada por falta de métrica y pudo tener venta; un día con compra y venta conocidas en cero no bloquea.
+- Episodio económico del último cambio (ORBIT 07 M5 y M6). Con `ads_bid_economia_<plat>` en `economia_cambio_v1` o `economia_cambio_v2`, el ciclo congela las ventanas `[x-7, x-1]` y `[x+1, x+7]` del último cambio de bid y exige madurez en `D+17`. Un recorte que conserva ventas y mejora ACoS salta el freno de tráfico de R16; una subida cuyo tráfico adicional no compensa el gasto se frena con `subida_sin_economia`. En v2 la ventana posterior pide además el mínimo de clics `CLICS_NUEVOS` y frena subidas con `post.venta <= pre.venta` aunque antes no hubiera ventas. Si el ajuste está ausente o en `off`, el ciclo no lee ni congela episodios.
+- Las rutas de dashboard viven en `app/api_dashboard.py` y los helpers compartidos con `app/api.py` viven en `app/api_common.py`.
 
-## Módulo apply (ORBIT 04 — PR2)
+## Módulo apply (ORBIT 04)
 
-El motor escribe a Amazon por primera vez, con topes y veto. El contrato
-fino (máquina de estados de `apply_queue`, ledger `apply_attempt`, matriz de
-reconciliación, tabla de reversas, mapeo config↔quota, checklist de cutover)
-vive en **`docs/APPLY.md`** y manda para la implementación; este párrafo es
-el spec delta sellado:
+El módulo apply ejecuta mutaciones en Amazon Ads con topes diarios y ventana de veto. El contrato detallado de `apply_queue`, `apply_attempt`, reconciliación, reversas y cuotas vive en `docs/APPLY.md`.
 
-- **Híbrido con ventana de veto** (dueño 2026-08-24): los bids aplican
-  automático en su ciclo; los cortes (pause/negative/harvest) van a la cola
-  `apply_queue` con ventana de 48h — default al vencer = APLICAR. Solo
-  cortes en la cola; nada nuevo se cuelga de ella. Veto durable 30d por
-  CLAVE DE EFECTO `(platform, ad_entity_id, familia, search_term)`.
-  Perímetro ampliado por AUTO-03 (S9, David 2026-11-05): `pause` sobre la
-  entidad `product_ad` entra en la cola (mismo kind `pause`, familia
-  `entity_cut` y cuota de pausas), ejecutada por el ciclo como `app_decide`;
-  detalle en `docs/APPLY.md` §1.1 y en la spec AUTO-03.
-- **Shadow con práctica de veto**: en shadow los cortes se encolan marcados
-  `modo='shadow'` (el dueño practica el veto con candidatos reales) pero
-  jamás se liberan; en el cutover (ORBIT 05) toda fila shadow pendiente se
-  descarta en bloque.
-- **Orden sellado del apply de un corte**: re-validación PRE-claim contra
-  ventana FRESCA (re-resuelve `umbral_corte` de CORTES 01 al reloj de
-  liberación — contrato cross-plan) → claim atómico → quota → fila del
-  ledger → HTTP. Descarte siempre pre-claim, jamás post-cobro.
-- **Quota fail-closed**: la fila del día solo nace desde config vigente
-  (`ads_apply_cap_<platform>_<kind>` mapeada a
-  `ads_optimizer:<platform>:<kind>`); sin clave no hay fila ni applies, y
-  el estado es visible en Salud. Unidad = operación lógica; 429 reintenta
-  sin recobrar; reversas exentas.
-- **Ledger pre-HTTP para TODA mutación** (`apply_attempt`, append-only con
-  sello acotado); `decision_application` queda como resumen, con
-  `applied_cycle_id` sellado al confirmar (cooldown por ciclo EJECUTOR).
-- **Cliente de escritura default-deny** (`app/ads/write.py`: keyword y
-  product_target, negatives exact, keywords; scope del profile de LA
-  plataforma; bid quantizado y moneda contra `goal.bid_currency`); el read
-  client sigue rechazando PUT/PATCH/DELETE.
-- **Regla 7 antes de encender**: toda mutación tiene su reversa testeada
-  en el mismo PR (harvest completo: keyword primero, negativo después); una
-  reversa NO limpia el cooldown.
-- **Reconciliación al inicio del ciclo contra Amazon VIVO** con identidad
-  completa (plataforma/profile + adGroupId + keyword_text + match_type);
-  cubre harvest pendiente, negatives y applying huérfanos del ledger.
-- ORBIT 05 es el cutover (flip + rampa + discard masivo; checklist en
-  `docs/APPLY.md`).
+- Esquema híbrido con ventana de veto (2026-08-24). Los bids aplican en su propio ciclo. Los cortes de pausa, negativo y cosecha entran a `apply_queue` con 48 horas de veto y se aplican al vencer si nadie los veta. Un veto dura 30 días por clave de efecto `(platform, ad_entity_id, familia, search_term)`. Desde AUTO-03 (S9, 2026-11-05), las pausas sobre `product_ad` entran en la misma cola con familia `entity_cut` y cuota de pausas.
+- Práctica de veto en shadow. En modo shadow los cortes se encolan con `modo = 'shadow'` para practicar el veto con candidatos reales y nunca se liberan.
+- Orden sellado al liberar un corte: revalidación previa al claim con ventana fresca (recalculando `umbral_corte` al reloj de liberación), cobro de cuota, claim atómico, escritura de ledger pre-HTTP y envío HTTP. Ningún descarte ocurre después de cobrar cuota.
+- Cuota fail-closed. La fila diaria solo nace si existe `ads_apply_cap_<platform>_<kind>` en la configuración vigente (mapeada a `ads_optimizer:<platform>:<kind>`). Sin clave no se aplica nada. Cada operación lógica cobra una unidad; los reintentos por 429 no recobran y las reversas están exentas.
+- Ledger pre-HTTP (`apply_attempt`, append-only) obligatorio en toda mutación. `decision_application` resume el resultado final y sella `applied_cycle_id` al confirmar, de modo que el cooldown se mide sobre el ciclo ejecutor.
+- Cliente de escritura default-deny en `app/ads/write.py`, limitado a `app/apply.py`, `app/ads/archivar.py` y `app/bloqueo_dueno_efecto.py` por `tests/test_architecture.py`. El cliente de lectura sigue bloqueando PUT, PATCH y DELETE.
+- Toda mutación tiene reversa probada antes de encenderse conforme a la regla 7. En harvest la reversa borra primero la keyword y después el negativo. Una reversa no limpia el cooldown.
+- Al inicio de cada ciclo se reconcilian contra Amazon en vivo los harvests pendientes, negativos, bids sin sello y filas `applying` huérfanas.
 
-## Fases (adoptadas del diseño v2)
+## Fases de evolución (diseño v2)
 
-1. **PR 1 — shadow completo**: decisiones + auditoría + envelope + router +
-   cron + flag. Cero escrituras a Amazon.
-2. **PR 2 — apply**: caps diarios + reserva PAUSE, audit INSERT+COMMIT → HTTP
-   → readback → UPDATE, harvest con fases y reconciliación, checklist de
-   cutover (≥2 semanas de shadow revisadas, goals piloto, caps bajos día 1,
-   off→shadow→live, monitoreo 48h).
-3. **Fase 3 — consolidación**: digest diario por Telegram, vista de lectura,
-   margin-aware targets.
-4. **Fase 4 — señales, no gates**: cada señal nueva debe demostrar en shadow
-   que AUMENTA la tasa de acción útil; máximo comportamiento: abstenerse.
-5. **Fase 5 — palancas nuevas, una a la vez**, cada una apagable sin romper el
-   resto.
+1. PR 1 en shadow completo: decisiones, auditoría, envelope, router, cron y flag, sin escrituras a Amazon.
+2. PR 2 de apply: topes diarios, reserva de PAUSE, secuencia ledger pre-HTTP, HTTP, readback y sello, harvest con fases, reconciliación y checklist de cutover.
+3. Fase 3 de consolidación: digest diario por Telegram, vistas de lectura y targets derivados del margen.
+4. Fase 4 de señales sin gates: cada señal nueva debe demostrar en shadow que aumenta la tasa de acción útil, y su efecto máximo es abstenerse.
+5. Fase 5 de palancas nuevas: una a la vez, cada una apagable sin romper el resto.
 
-El roadmap de los 5 módulos avanzados corre **después** del PR 2 del
-optimizador (necesita la base de márgenes sana y la auth unificada
-Amazon+MeLi). Su Fase 0 (modelos + auth) se puede solapar con el shadow del
-PR 1.
+Los cinco módulos avanzados dependen de la base de márgenes y la autenticación unificada de Amazon y Mercado Libre construidas en las primeras fases.

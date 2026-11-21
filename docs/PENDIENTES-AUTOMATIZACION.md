@@ -1,9 +1,5 @@
-# Movido: el backlog oficial vive en `plans/ROADMAP.md`
+# Backlog movido a `plans/ROADMAP.md`
 
-Los pendientes AUTO-01..AUTO-10 se consolidaron en el ROADMAP
-maestro el 2026-09-08 (fuente única; este archivo queda solo como
-redirect para no romper links viejos). Evidencia histórica del
-registro original: `docs/evidencia/AUTO-registro-20260906.md`.
+Los pendientes AUTO-01 a AUTO-10 se consolidaron en `plans/ROADMAP.md` el 2026-09-08 como única fuente. Este archivo permanece solo para no romper enlaces anteriores.
 
-Reconciliación vigente: 4-nov-2026, con pendientes operativos, planes por construir
-y cierres contrastados con GitHub y producción. Consultar el ROADMAP para el estado.
+El registro histórico original está en `docs/evidencia/AUTO-registro-20260906.md`. La reconciliación vigente del 2026-11-04 con pendientes operativos, planes y cierres contrastados contra GitHub y producción vive en el ROADMAP.
