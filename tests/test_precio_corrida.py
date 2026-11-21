@@ -5376,6 +5376,7 @@ def test_arreglos01_l_la_corrida_que_espera_no_manda_ni_sella_el_resumen(monkeyp
     diario; lo manda el repaso que si decide, con el dia completo."""
     import app.notifica as notifica
     import app.precio.corrida as corrida_mod
+    import app.precio_avisos as precio_avisos
 
     capturados = []
 
@@ -5383,7 +5384,8 @@ def test_arreglos01_l_la_corrida_que_espera_no_manda_ni_sella_el_resumen(monkeyp
         capturados.append((tipo, payload))
         return True
 
-    monkeypatch.setattr(notifica, "notifica_precio", _captura)
+    monkeypatch.setattr(notifica, "canal_activo", lambda: True)
+    monkeypatch.setattr(precio_avisos, "notifica_precio", _captura)
     with _db() as (conn, _dsn):
         _config(conn)
         lids = []
@@ -5402,7 +5404,7 @@ def test_arreglos01_l_la_corrida_que_espera_no_manda_ni_sella_el_resumen(monkeyp
 
         monkeypatch.setattr(corrida_mod, "insumo_atrasado", _espera_una_vez)
 
-        res1 = correr(conn, mercado, owner="tdd", avisar=notifica.avisar_precio)
+        res1 = correr(conn, mercado, owner="tdd", avisar=precio_avisos.avisar_precio)
         assert [t for t, _ in capturados if t == "resumen_diario"] == []
         assert res1.espera_insumos is True
         filas1 = conn.execute(
@@ -5410,7 +5412,7 @@ def test_arreglos01_l_la_corrida_que_espera_no_manda_ni_sella_el_resumen(monkeyp
         ).fetchall()
         assert [f[0] for f in filas1] == [None]
 
-        res2 = correr(conn, mercado, owner="tdd", avisar=notifica.avisar_precio)
+        res2 = correr(conn, mercado, owner="tdd", avisar=precio_avisos.avisar_precio)
         assert res2.espera_insumos is False
         resumenes = [p for t, p in capturados if t == "resumen_diario"]
         assert len(resumenes) == 1
@@ -5535,7 +5537,7 @@ def test_arreglos03_pb_corrida_caida_avisa_por_telegram(monkeypatch):
         avisos.append((tipo, payload))
         return True
 
-    monkeypatch.setattr("app.notifica.notifica_precio", _guarda)
+    monkeypatch.setattr("app.precio_avisos.notifica_precio", _guarda)
     monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
     monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
     monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))

@@ -48,11 +48,12 @@ from test_cycle import DECIDED_AT, _siembra_maestra
 from test_cycle_apply import _db_temporal
 from test_schema import _postgres_obligatorio_ausente
 
-from app import notifica
+from app import notifica, notifica_contribucion
 from app.api_common import _parse_notes
 from app.apply_cola import fila_cola, libera_vencidos
 from app.apply_harvest import MOTIVO_FALLO_KEYWORD, aplica_harvest
 from app.cycle import corre_ciclo
+from app.spapi import avisos as spapi_avisos
 
 FAKE_BOT_TOKEN = "7700000001:AAF-fake-token-XYZ"
 FAKE_CHAT_ID = "555001"
@@ -402,8 +403,8 @@ def test_digest_contribucion_rango_invertido_no_usa_notacion_acotada():
         "plataforma": "amazon_mx",
         "status": "done",
         "decisions_count": 1,
-        "contribucion": notifica.ContribucionDigest(
-            rango=notifica.RangoContribucion(
+        "contribucion": notifica_contribucion.ContribucionDigest(
+            rango=notifica_contribucion.RangoContribucion(
                 moneda="MXN",
                 entidades=12,
                 sin_halo=Decimal("-500"),
@@ -425,8 +426,8 @@ def test_digest_contribucion_rango_con_denominador():
         "plataforma": "amazon_mx",
         "status": "done",
         "decisions_count": 1,
-        "contribucion": notifica.ContribucionDigest(
-            rango=notifica.RangoContribucion(
+        "contribucion": notifica_contribucion.ContribucionDigest(
+            rango=notifica_contribucion.RangoContribucion(
                 moneda="MXN",
                 entidades=108,
                 sin_halo=Decimal("1200.50"),
@@ -450,8 +451,8 @@ def test_digest_contribucion_multilisting_marcado():
         "plataforma": "amazon_us",
         "status": "done",
         "decisions_count": 1,
-        "contribucion": notifica.ContribucionDigest(
-            rango=notifica.RangoContribucion(
+        "contribucion": notifica_contribucion.ContribucionDigest(
+            rango=notifica_contribucion.RangoContribucion(
                 moneda="USD",
                 entidades=42,
                 sin_halo=Decimal("100"),
@@ -472,8 +473,8 @@ def test_digest_contribucion_sin_multilisting_no_lo_menciona():
         "plataforma": "amazon_mx",
         "status": "done",
         "decisions_count": 1,
-        "contribucion": notifica.ContribucionDigest(
-            rango=notifica.RangoContribucion(
+        "contribucion": notifica_contribucion.ContribucionDigest(
+            rango=notifica_contribucion.RangoContribucion(
                 moneda="MXN",
                 entidades=12,
                 sin_halo=Decimal("100"),
@@ -489,7 +490,7 @@ def test_digest_contribucion_sin_multilisting_no_lo_menciona():
 
 def test_arma_contribucion_digest_propaga_marca_multilisting():
     """La marca viaja desde SQL_CONTRIB_RANGO (6a columna: bool_or del flag)."""
-    out = notifica._arma_contribucion_digest(
+    out = notifica_contribucion._arma_contribucion_digest(
         [("USD", 42, Decimal("100"), Decimal("200"), False, True)],
         [],
         None,
@@ -504,7 +505,7 @@ def test_digest_contribucion_lectura_fallida():
         "plataforma": "amazon_mx",
         "status": "done",
         "decisions_count": 0,
-        "contribucion": notifica.ContribucionDigest(
+        "contribucion": notifica_contribucion.ContribucionDigest(
             rango=None,
             sin_dato=None,
             residual_tacos=None,
@@ -524,8 +525,8 @@ def test_digest_contribucion_rango_nunca_numero_unico():
         "modo": "shadow",
         "status": "done",
         "decisions_count": 3,
-        "contribucion": notifica.ContribucionDigest(
-            rango=notifica.RangoContribucion(
+        "contribucion": notifica_contribucion.ContribucionDigest(
+            rango=notifica_contribucion.RangoContribucion(
                 moneda="MXN",
                 entidades=108,
                 sin_halo=Decimal("1200.50"),
@@ -550,9 +551,9 @@ def test_digest_contribucion_sin_dato_con_motivos():
         "modo": "live",
         "status": "done",
         "decisions_count": 0,
-        "contribucion": notifica.ContribucionDigest(
+        "contribucion": notifica_contribucion.ContribucionDigest(
             rango=None,
-            sin_dato=notifica.SinDatoContribucion(
+            sin_dato=notifica_contribucion.SinDatoContribucion(
                 total_ausentes=4998,
                 por_motivo=(("catalogo_parcial", 4800), ("sin_fx", 198)),
             ),
@@ -570,15 +571,15 @@ def test_digest_contribucion_residual_tacos_negativo():
         "plataforma": "amazon_mx",
         "status": "done",
         "decisions_count": 1,
-        "contribucion": notifica.ContribucionDigest(
-            rango=notifica.RangoContribucion(
+        "contribucion": notifica_contribucion.ContribucionDigest(
+            rango=notifica_contribucion.RangoContribucion(
                 moneda="MXN",
                 entidades=5,
                 sin_halo=Decimal("10"),
                 con_halo=Decimal("20"),
             ),
             sin_dato=None,
-            residual_tacos=notifica.ResidualTacos(monto=Decimal("-4.75")),
+            residual_tacos=notifica_contribucion.ResidualTacos(monto=Decimal("-4.75")),
         ),
     }
     texto = notifica.digest_ciclo(resumen)
@@ -592,15 +593,15 @@ def test_digest_contribucion_residual_tacos():
         "plataforma": "amazon_mx",
         "status": "done",
         "decisions_count": 1,
-        "contribucion": notifica.ContribucionDigest(
-            rango=notifica.RangoContribucion(
+        "contribucion": notifica_contribucion.ContribucionDigest(
+            rango=notifica_contribucion.RangoContribucion(
                 moneda="MXN",
                 entidades=5,
                 sin_halo=Decimal("10"),
                 con_halo=Decimal("20"),
             ),
             sin_dato=None,
-            residual_tacos=notifica.ResidualTacos(monto=Decimal("4.75")),
+            residual_tacos=notifica_contribucion.ResidualTacos(monto=Decimal("4.75")),
         ),
     }
     texto = notifica.digest_ciclo(resumen)
@@ -641,7 +642,7 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
         def transaction(self):
             return nullcontext()
 
-    mx = notifica.carga_contribucion_digest(
+    mx = notifica_contribucion.carga_contribucion_digest(
         "amazon_mx",
         conn=_Conn(
             [
@@ -652,11 +653,13 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
         ),
     )
     assert mx is not None
-    assert mx.rango == notifica.RangoContribucion("MXN", 108, Decimal("100"), Decimal("200"))
+    assert mx.rango == notifica_contribucion.RangoContribucion(
+        "MXN", 108, Decimal("100"), Decimal("200")
+    )
     assert mx.sin_dato is None
-    assert mx.residual_tacos == notifica.ResidualTacos(Decimal("4.75"))
+    assert mx.residual_tacos == notifica_contribucion.ResidualTacos(Decimal("4.75"))
 
-    us = notifica.carga_contribucion_digest(
+    us = notifica_contribucion.carga_contribucion_digest(
         "amazon_us",
         conn=_Conn(
             [
@@ -668,7 +671,7 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
     )
     assert us is not None
     assert us.rango is None
-    assert us.sin_dato == notifica.SinDatoContribucion(
+    assert us.sin_dato == notifica_contribucion.SinDatoContribucion(
         4998, (("catalogo_parcial", 4800), ("sin_fx", 198))
     )
 
@@ -690,8 +693,8 @@ def test_carga_contribucion_digest_execute_falla(caplog):
         def transaction(self):
             return nullcontext()
 
-    caplog.set_level(logging.WARNING, logger="app.notifica")
-    out = notifica.carga_contribucion_digest("amazon_mx", conn=_Conn())
+    caplog.set_level(logging.WARNING, logger="app.notifica_contribucion")
+    out = notifica_contribucion.carga_contribucion_digest("amazon_mx", conn=_Conn())
     assert out is not None
     assert out.lectura_fallida is True
     assert any("fallo leyendo contribucion" in r.message for r in caplog.records)
@@ -745,7 +748,7 @@ def _db_contribucion_mx(prefijo: str):
         admin.close()
 
 
-RANGO_MX_SEMILLA = notifica.RangoContribucion("MXN", 1, Decimal("26"), Decimal("50"))
+RANGO_MX_SEMILLA = notifica_contribucion.RangoContribucion("MXN", 1, Decimal("26"), Decimal("50"))
 
 
 @_skip_db
@@ -760,7 +763,7 @@ def test_carga_contribucion_digest_lee_sin_nestloop_y_no_lo_deja_pegado():
     with _db_contribucion_mx("orbit_digest_nl") as (_dsn, conn):
         conn.execute("SET enable_nestloop = on")
         observada = _ConnNestloopObservado(conn)
-        out = notifica.carga_contribucion_digest("amazon_mx", conn=observada)
+        out = notifica_contribucion.carga_contribucion_digest("amazon_mx", conn=observada)
         despues = conn.execute("SHOW enable_nestloop").fetchone()[0]
 
     assert out is not None and out.lectura_fallida is False
@@ -785,8 +788,8 @@ def test_carga_contribucion_digest_conexion_propia_lee_sin_nestloop(monkeypatch)
 
     with _db_contribucion_mx("orbit_digest_nl_propia") as (dsn, _conn):
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
-        monkeypatch.setattr(notifica, "connect", connect_observado)
-        out = notifica.carga_contribucion_digest("amazon_mx")
+        monkeypatch.setattr(notifica_contribucion, "connect", connect_observado)
+        out = notifica_contribucion.carga_contribucion_digest("amazon_mx")
 
     assert out is not None and out.lectura_fallida is False
     assert out.rango == RANGO_MX_SEMILLA
@@ -806,13 +809,13 @@ def test_notifica_digest_falla_lectura_muestra_lectura_no_disponible(monkeypatch
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
 
     def _fallida(_plataforma, *, conn=None):
-        return notifica.ContribucionDigest(
+        return notifica_contribucion.ContribucionDigest(
             rango=None, sin_dato=None, residual_tacos=None, lectura_fallida=True
         )
 
     handler, mensajes = _handler_telegram()
     monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
-    monkeypatch.setattr(notifica, "carga_contribucion_digest", _fallida)
+    monkeypatch.setattr(notifica_contribucion, "carga_contribucion_digest", _fallida)
     notifica._reset()
     ok = notifica.notifica_digest(
         {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
@@ -831,7 +834,7 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
         def execute(self, _sql, _params=None):
             raise RuntimeError("lectura rota")
 
-    real_carga = notifica.carga_contribucion_digest
+    real_carga = notifica_contribucion.carga_contribucion_digest
 
     def _carga_fallida(plataforma, *, conn=None):
         return real_carga(plataforma, conn=_Conn())
@@ -844,7 +847,7 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
     handler, mensajes = _handler_telegram()
     monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
-    monkeypatch.setattr(notifica, "carga_contribucion_digest", _carga_fallida)
+    monkeypatch.setattr(notifica_contribucion, "carga_contribucion_digest", _carga_fallida)
     notifica._reset()
     ok = notifica.notifica_digest(
         {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
@@ -856,7 +859,7 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
 
 
 def test_carga_contribucion_digest_cobertura_parcial_con_rango():
-    out = notifica._arma_contribucion_digest(
+    out = notifica_contribucion._arma_contribucion_digest(
         [("MXN", 108, Decimal("100"), Decimal("200"), False, False)],
         [("catalogo_parcial", 4890)],
         None,
@@ -1013,8 +1016,8 @@ def test_canal_deshabilitado_claves_vacias_o_faltantes(tmp_path, monkeypatch):
 def test_ciclo_canal_falla_digest_contrib_deja_nota(canal_fail, monkeypatch):
     """Canal caido con seccion contrib: el ciclo sigue 'done' y la NOTA del
     digest persiste (camino nuevo ORBIT 06 1.3)."""
-    contrib = notifica.ContribucionDigest(
-        rango=notifica.RangoContribucion(
+    contrib = notifica_contribucion.ContribucionDigest(
+        rango=notifica_contribucion.RangoContribucion(
             moneda="MXN", entidades=1, sin_halo=Decimal("1"), con_halo=Decimal("2")
         ),
         sin_dato=None,
@@ -1024,7 +1027,7 @@ def test_ciclo_canal_falla_digest_contrib_deja_nota(canal_fail, monkeypatch):
     def _fija(_plataforma, *, conn=None):
         return contrib
 
-    monkeypatch.setattr(notifica, "carga_contribucion_digest", _fija)
+    monkeypatch.setattr(notifica_contribucion, "carga_contribucion_digest", _fija)
     with _db_temporal("orbit_notif_contrib_fail") as (conn, _extra):
         _siembra_maestra(conn)
         res = _corre(conn)
@@ -1304,14 +1307,14 @@ def test_fase_notifica_mapea_alerta_hermanas_a_nota_veraz():
 def test_aviso_spapi_fallo_contenido_y_matiz_ads():
     """Builder puro: fuente, plataforma y motivo; el matiz de Ads SOLO con
     motivo LWA."""
-    texto = notifica.aviso_spapi_fallo(
+    texto = spapi_avisos.aviso_spapi_fallo(
         "spapi_orders", "amazon_mx", "lwa_fallido: LWA rechazo (401)"
     )
     assert "fuente: spapi_orders" in texto
     assert "plataforma: amazon_mx" in texto
     assert "lwa_fallido" in texto
     assert "El ciclo de Ads no se afecta" in texto
-    sin_matiz = notifica.aviso_spapi_fallo(
+    sin_matiz = spapi_avisos.aviso_spapi_fallo(
         "spapi_pricing", "amazon_mx", "http_429: pricing status=429"
     )
     assert "El ciclo de Ads no se afecta" not in sin_matiz
@@ -1320,7 +1323,7 @@ def test_aviso_spapi_fallo_contenido_y_matiz_ads():
 def test_notifica_spapi_fallo_sin_canal_no_es_fallo():
     """Canal deshabilitado (default del conftest): True y cero HTTP. Mata la
     mutacion 'sin rama canal_activo'."""
-    assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
+    assert spapi_avisos.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
 
 
 def test_notifica_spapi_fallo_builder_roto_no_levanta(tmp_path, monkeypatch):
@@ -1332,20 +1335,28 @@ def test_notifica_spapi_fallo_builder_roto_no_levanta(tmp_path, monkeypatch):
         raise RuntimeError("builder roto")
 
     with _canal(tmp_path, monkeypatch):
-        monkeypatch.setattr(notifica, "aviso_spapi_fallo", builder_roto)
-        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
+        monkeypatch.setattr(spapi_avisos, "aviso_spapi_fallo", builder_roto)
+        assert (
+            spapi_avisos.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x")
+            is False
+        )
 
 
 def test_notifica_spapi_fallo_envia_y_tumba(tmp_path, monkeypatch):
     """Sender: con canal OK envia (True); con red rota devuelve False SIN
     levantar. Mata la mutacion 'sin try/except en notifica_spapi_fallo'."""
     with _canal(tmp_path, monkeypatch) as mensajes:
-        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
+        assert (
+            spapi_avisos.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
+        )
     (mensaje,) = mensajes
     assert mensaje["chat_id"] == FAKE_CHAT_ID
     assert "fuente: spapi_orders" in mensaje["text"]
     with _canal(tmp_path, monkeypatch, tumbar=True):
-        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
+        assert (
+            spapi_avisos.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x")
+            is False
+        )
 
 
 def test_alerta_harvest_hermanas_contenido_veraz():
@@ -1631,7 +1642,7 @@ def test_aviso_spapi_silencio_texto_exacto():
     """Builder puro: IGUALDAD EXACTA con el texto del runbook (una linea
     por par, orden fuente/plataforma, `faltan N de 8`)."""
     desde, hasta = _ventana_vigilante()
-    texto = notifica.aviso_spapi_silencio(
+    texto = spapi_avisos.aviso_spapi_silencio(
         [
             ("spapi_pricing", "amazon_mx"),
             ("spapi_pricing", "amazon_us"),
@@ -1654,7 +1665,7 @@ def test_aviso_spapi_silencio_texto_exacto():
     # Un --desde con offset distinto se imprime en UTC: sin normalizar,
     # la etiqueta UTC mentiria (23:30-05:00 no es 23:30 UTC).
     cdmx = dt.timezone(dt.timedelta(hours=-5))
-    texto_offset = notifica.aviso_spapi_silencio(
+    texto_offset = spapi_avisos.aviso_spapi_silencio(
         [
             ("spapi_pricing", "amazon_mx"),
             ("spapi_pricing", "amazon_us"),
@@ -1673,7 +1684,7 @@ def test_aviso_spapi_silencio_respeta_orden_fuente_plataforma():
     pinza `faltantes` + el test exacto; un shuffle en el builder cae en
     el exacto."""
     desde, hasta = _ventana_vigilante()
-    texto = notifica.aviso_spapi_silencio(
+    texto = spapi_avisos.aviso_spapi_silencio(
         [("spapi_pricing", "amazon_mx"), ("spapi_inventario", "amazon_us")],
         desde,
         hasta,
@@ -1690,7 +1701,9 @@ def test_aviso_spapi_vigilante_ciego_texto_exacto_y_scrub():
 
     secreto = "tok-secreto-simulado-vig-xyz"
     register_secret(secreto)
-    texto = notifica.aviso_spapi_vigilante_ciego(f"connection failed: password={secreto} en el DSN")
+    texto = spapi_avisos.aviso_spapi_vigilante_ciego(
+        f"connection failed: password={secreto} en el DSN"
+    )
     assert texto == (
         "[Orbit] ALERTA vigilante SP-API sin lectura\n"
         f"no pude leer ingest_run: connection failed: password={REDACTED} en el DSN\n"
@@ -1702,7 +1715,9 @@ def test_notifica_spapi_silencio_sin_canal_no_es_fallo():
     """Canal deshabilitado (default del conftest): True y cero HTTP. Mata
     la mutacion 'sin rama canal_activo'."""
     desde, hasta = _ventana_vigilante()
-    assert notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+    assert (
+        spapi_avisos.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+    )
 
 
 def test_notifica_spapi_silencio_envia_y_tumba(tmp_path, monkeypatch):
@@ -1711,14 +1726,16 @@ def test_notifica_spapi_silencio_envia_y_tumba(tmp_path, monkeypatch):
     desde, hasta = _ventana_vigilante()
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert (
-            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+            spapi_avisos.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta)
+            is True
         )
     (mensaje,) = mensajes
     assert mensaje["chat_id"] == FAKE_CHAT_ID
     assert "ALERTA SP-API sin corrida" in mensaje["text"]
     with _canal(tmp_path, monkeypatch, tumbar=True):
         assert (
-            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
+            spapi_avisos.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta)
+            is False
         )
 
 
@@ -1732,7 +1749,7 @@ def test_notifica_spapi_silencio_ok_false_es_fallo(tmp_path, monkeypatch):
         transport = httpx.MockTransport(_sin_ok)
         desde, hasta = _ventana_vigilante()
         assert (
-            notifica.notifica_spapi_silencio(
+            spapi_avisos.notifica_spapi_silencio(
                 [("spapi_orders", "amazon_mx")], desde, hasta, transport=transport
             )
             is False
@@ -1747,10 +1764,11 @@ def test_notifica_spapi_silencio_builder_roto_no_levanta(tmp_path, monkeypatch):
         raise RuntimeError("builder roto")
 
     with _canal(tmp_path, monkeypatch):
-        monkeypatch.setattr(notifica, "aviso_spapi_silencio", builder_roto)
+        monkeypatch.setattr(spapi_avisos, "aviso_spapi_silencio", builder_roto)
         desde, hasta = _ventana_vigilante()
         assert (
-            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
+            spapi_avisos.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta)
+            is False
         )
 
 
@@ -1807,11 +1825,13 @@ def _conn_campanas(
 
 
 def test_avisar_campanas_envia_una_clase_y_devuelve_salio(canal_ok):
+    from app import notifica_campanas
+
     conn = _conn_campanas(
         ubicaciones=[("fuera_de_amazon", Decimal("1735"), 1127, 0, Decimal("0"))],
         settings=[({},)],
     )
-    salieron = notifica.avisar_campanas(
+    salieron = notifica_campanas.avisar_campanas(
         conn, dt.date(2026, 10, 10), solo={("amazon_mx", "ubicacion_gasta_sin_vender")}
     )
     assert salieron == {("amazon_mx", "ubicacion_gasta_sin_vender"): True}
@@ -1821,6 +1841,8 @@ def test_avisar_campanas_envia_una_clase_y_devuelve_salio(canal_ok):
 
 
 def test_avisar_campanas_fallo_sigue_con_otras_clases(monkeypatch):
+    from app import notifica_campanas
+
     hoy = dt.date(2026, 10, 10)
     conn = _conn_campanas(
         ubicaciones=[("fuera_de_amazon", Decimal("1735"), 1127, 0, Decimal("0"))],
@@ -1837,7 +1859,7 @@ def test_avisar_campanas_fallo_sigue_con_otras_clases(monkeypatch):
         return next(resultados)
 
     monkeypatch.setattr(notifica, "_envia_texto", _falso)
-    salieron = notifica.avisar_campanas(
+    salieron = notifica_campanas.avisar_campanas(
         conn,
         hoy,
         solo={
@@ -1854,6 +1876,7 @@ def test_avisar_campanas_fallo_sigue_con_otras_clases(monkeypatch):
 
 def test_avisar_campanas_lectura_us_fallida_no_tumba_mx(monkeypatch, canal_ok, caplog):
     import app.pantalla_dinero as pd
+    from app import notifica_campanas
     from app.pantalla_dinero import FilaUbicacion
 
     mx = FilaUbicacion(
@@ -1878,7 +1901,7 @@ def test_avisar_campanas_lectura_us_fallida_no_tumba_mx(monkeypatch, canal_ok, c
     monkeypatch.setattr(pd, "lee_campanas", lambda conn, **kwargs: ())
     conn = _Conn9([[({},)]])
     with caplog.at_level(logging.WARNING):
-        salieron = notifica.avisar_campanas(
+        salieron = notifica_campanas.avisar_campanas(
             conn,
             dt.date(2026, 10, 10),
             solo={
@@ -1895,9 +1918,11 @@ def test_avisar_campanas_lectura_us_fallida_no_tumba_mx(monkeypatch, canal_ok, c
 
 
 def test_avisar_campanas_sin_casos_no_envia(monkeypatch):
+    from app import notifica_campanas
+
     uno = _conn_campanas(settings=[({},)])._respuestas
     conn = _Conn9(uno + [list(r) for r in uno])
     llamadas = []
     monkeypatch.setattr(notifica, "_envia_texto", lambda texto: llamadas.append(texto))
-    assert notifica.avisar_campanas(conn, dt.date(2026, 10, 10)) == {}
+    assert notifica_campanas.avisar_campanas(conn, dt.date(2026, 10, 10)) == {}
     assert llamadas == []

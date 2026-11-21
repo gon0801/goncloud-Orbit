@@ -261,3 +261,31 @@ def mensaje_validacion(errores: Sequence[Mapping[str, object]]) -> str:
         return "La pantalla mandó un dato que no se esperaba: recárgala y vuelve a intentar."
     partes = dict.fromkeys(f"«{_campo(e)}» ({_razon(e)})" for e in errores)
     return "Revisa " + ", ".join(partes) + "."
+
+
+_SQL_TARGET_MARGEN_ULTIMO = """
+SELECT notes
+  FROM optimizer_cycle
+ WHERE platform = %s::platform AND motor = 'ads_optimizer' AND status = 'done'
+ ORDER BY id DESC
+ LIMIT 1
+"""
+
+
+def target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
+    """Aplicado del peldano `margen_plataforma` segun el ULTIMO ciclo done de
+    la plataforma. Fuente unica: `notes.target` del ciclo (Regla 2)."""
+    fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
+    notes = _parse_notes(fila[0]) if fila else None
+    if notes is None:
+        return None
+    bloque = notes.get("target")
+    if not isinstance(bloque, dict) or bloque.get("procedencia") != "margen_plataforma":
+        return None
+    valor = bloque.get("target_aplicado")
+    if valor is None:
+        return None
+    try:
+        return Decimal(str(valor))
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return None

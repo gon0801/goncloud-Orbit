@@ -504,9 +504,9 @@ def lee_dinero(
     """Tabla por tipo de campana del mercado. SOLO SELECT. `hasta` omiso =
     ayer UTC; la ventana de tipos va de `hasta - dias` a `hasta` (BETWEEN
     inclusivo) y las de ubicacion/campana cubren los ultimos 30 dias hasta
-    `hasta`. El target es el del ultimo ciclo done (`_target_margen_del_ciclo`,
-    import diferido: este modulo puro no carga el dashboard al importar)."""
-    from app.api_dashboard import _target_margen_del_ciclo
+    `hasta`. El target es el del ultimo ciclo done (`target_margen_del_ciclo`
+    en `app.api_common`, sin acoplar al router HTTP)."""
+    from app.api_common import target_margen_del_ciclo
 
     fin = hasta if hasta is not None else dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
     inicio = fin - dt.timedelta(days=dias)
@@ -568,7 +568,7 @@ def lee_dinero(
         filas=filas,
         total=total,
         hojas_sin_clasificar=sum(vals[3] for _, vals in resto),
-        target_acos_pct=_target_margen_del_ciclo(conn, plataforma),
+        target_acos_pct=target_margen_del_ciclo(conn, plataforma),
         por_ubicacion=por_ubicacion,
         por_campana=por_campana,
     )

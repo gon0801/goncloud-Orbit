@@ -34,7 +34,7 @@ import re
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -50,6 +50,7 @@ from app.api_common import (
     _parse_notes,
     bloque_target_margen,
 )
+from app.api_common import target_margen_del_ciclo as _target_margen_del_ciclo
 from app.api_precios import (  # noqa: F401 - reexport que usan /salud y pruebas
     _TOPE_RACHA_DIVERGENTE,
     _acciones_precio,
@@ -300,43 +301,6 @@ def _goal_estado(goal: g.Goal | None) -> dict | None:
         "mode": goal.mode,
         "scope": goal.scope,
     }
-
-
-_SQL_TARGET_MARGEN_ULTIMO = """
-SELECT notes
-  FROM optimizer_cycle
- WHERE platform = %s::platform AND motor = 'ads_optimizer' AND status = 'done'
- ORDER BY id DESC
- LIMIT 1
-"""
-
-
-def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
-    """Aplicado del peldano `margen_plataforma` segun el ULTIMO ciclo done de
-    la plataforma (cross-review grok H3). Fuente UNICA: notes.target, lo que el
-    ciclo resolvio — la web NO re-resuelve la vista ni el paso maximo. Sin
-    ciclo, sin notes, sin bloque o con el peldano abstenido -> None y la
-    cascada sigue como hoy (regla 3).
-
-    `notes` es TEXT de formato mixto (JSON del envelope o texto plano del
-    rastro): se parsea con `_parse_notes`, la MISMA rutina de /status y
-    /salud (decision 6, jamas dos copias). Comparar el valor crudo con dict
-    descartaba TODOS los ciclos y la pantalla mentia setting_plataforma
-    mientras el motor ya gobernaba con margen."""
-    fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
-    notes = _parse_notes(fila[0]) if fila else None
-    if notes is None:
-        return None
-    bloque = notes.get("target")
-    if not isinstance(bloque, dict) or bloque.get("procedencia") != "margen_plataforma":
-        return None
-    valor = bloque.get("target_aplicado")
-    if valor is None:
-        return None
-    try:
-        return Decimal(str(valor))
-    except (InvalidOperation, ValueError, ArithmeticError):
-        return None
 
 
 @dataclass(frozen=True)

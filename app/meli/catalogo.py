@@ -15,8 +15,8 @@ import psycopg
 from psycopg.types.json import Json
 
 from app.db import connect
+from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 from app.redaction import scrub
-from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
 
 SOURCE = "meli_catalogo"
 MONEDAS = ("MXN", "USD")

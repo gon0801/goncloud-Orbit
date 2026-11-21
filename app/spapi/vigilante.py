@@ -29,13 +29,9 @@ import sys
 from datetime import UTC, datetime
 
 from app.db import connect
-from app.notifica import (
-    _envia_texto,
-    aviso_spapi_vigilante_ciego,
-    canal_activo,
-    notifica_spapi_silencio,
-)
+from app.notifica import _envia_texto, canal_activo
 from app.redaction import install_scrub_filter, scrub
+from app.spapi.avisos import aviso_spapi_vigilante_ciego, notifica_spapi_silencio
 from app.spapi.salud import FUENTES_SPAPI
 
 logger = logging.getLogger(__name__)

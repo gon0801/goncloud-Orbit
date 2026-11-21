@@ -17,10 +17,10 @@ from app.api import ConexionLectura
 from app.api_common import _dec_str
 from app.etiquetas import etiqueta
 from app.formato import dinero
-from app.notifica import validar_precio_aviso_dias
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
+from app.precio_avisos_texto import validar_precio_aviso_dias
 from app.redaction import scrub
 
 logger = logging.getLogger(__name__)

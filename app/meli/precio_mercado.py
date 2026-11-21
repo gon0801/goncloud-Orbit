@@ -26,6 +26,7 @@ import psycopg
 from app.estimacion_insumos import oferta_para_cotizar
 from app.estimacion_reader import leer_cuenta
 from app.estimacion_venta import DetalleFee
+from app.meli.client import ReputacionError
 from app.meli.estimacion import partir_fees_meli
 from app.precio import puerto
 from app.precio.cambios import PublicacionSinSku
@@ -46,7 +47,6 @@ from app.precio.tipos import (
 )
 from app.precio.ventas import evaluar_senal
 from app.redaction import install_scrub_filter
-from app.reputacion_clientes import ReputacionError
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)

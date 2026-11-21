@@ -44,7 +44,7 @@ def _avisar_caida(plataformas, exc) -> None:
     corrio por `exc`: un aviso `corrida_fallida` por plataforma (con la
     clase del error, nunca su texto). `avisar_corrida_fallida` jamas levanta.
     `LockOcupado` no pasa por aqui: otra corrida esta trabajando."""
-    from app.notifica import avisar_corrida_fallida
+    from app.precio_avisos import avisar_corrida_fallida
 
     for platform in plataformas:
         avisar_corrida_fallida(platform, exc)
@@ -171,7 +171,7 @@ def main_precio(args) -> int:
                 rc = mercado_ctx
                 continue
             try:
-                from app.notifica import avisar_precio
+                from app.precio_avisos import avisar_precio
 
                 with mercado_ctx as mercado:
                     resumen = _corre_plataforma(conn, mercado, avisar_precio)
