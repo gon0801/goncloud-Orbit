@@ -49,6 +49,7 @@ from test_temporada01_b import (
 
 from app import cycle as ciclo
 from app import temporada_io
+from app.lecturas_caso import lee_plataforma
 from app.optimizer import cortes, politica, temporada, windows
 from app.optimizer.caso import (
     BidVigente,
@@ -56,6 +57,7 @@ from app.optimizer.caso import (
     Economia,
     EconomiaPlataforma,
     HistoriaBid,
+    InsumosPausa,
     PresupuestoCampana,
     TemporadaCaso,
 )
@@ -908,3 +910,192 @@ def test_temporada01_d_liberacion_techo_heredado(db_template):
         == Decimal("12.00")
         > Decimal("8.00")
     ), "con el techo inventado la cola creia pendiente un regreso a 12.00"
+
+
+def test_temporada01_d_practica_lecturas_sin_cerca(db_template):
+    """Revision Devin 66dkEF: con ads_temporada en SHADOW la lectura que
+    decide conserva las ventanas SIN cerca (byte a byte lo de hoy) — los
+    veredictos reales son IDENTICOS a los del flag ausente, aunque la hoja
+    tenga movimiento de temporada (cerca). La evidencia de la baja (el dia
+    con 900 MXN) sigue contando y R9 recorta igual."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(
+        conn, {**_settings(modo_temporada=None), "ads_temporada_amazon_mx": "shadow"}
+    )
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-sh")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-sh", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    kw1 = _kw(conn, ag, "d-kw-sh", "kw sh", "5.60")
+    _cambio_confirmado(
+        conn,
+        kw1,
+        config_id,
+        dia=D_E1,
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=None,
+    )
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-d-sh') RETURNING id"
+    ).fetchone()[0]
+    # evidencia ANTES de la cerca (el dia de la entrada): 900 MXN sin ventas
+    # -> con la cerca se excluiria y el veredicto cambiaria; en shadow debe
+    # seguir contando (byte a byte lo de hoy).
+    dia_entrada = dt.date(2027, 1, 4)
+    _metrica(
+        conn,
+        run_id,
+        kw1,
+        dia_entrada,
+        _medianoche(dia_entrada),
+        moneda="MXN",
+        cost="900.00",
+        ad_revenue="0.00",
+        clicks=300,
+        orders=0,
+        impressions=3000,
+    )
+    dia = dt.date(2026, 10, 6)
+    while dia <= dt.date(2027, 3, 31):
+        _metrica(
+            conn,
+            run_id,
+            kw1,
+            dia,
+            dt.datetime(dia.year, dia.month, dia.day, 1, tzinfo=dt.UTC),
+            moneda="MXN",
+            cost="0.01",
+            ad_revenue="0.01",
+            clicks=1,
+            orders=0,
+            impressions=10,
+        )
+        dia += dt.timedelta(days=1)
+    conn.commit()
+
+    def _lecturas_de(modo: str | None):
+        settings = _settings(modo_temporada=modo)
+        if modo is None:
+            settings.pop("ads_temporada_amazon_mx", None)
+        else:
+            settings["ads_temporada_amazon_mx"] = modo
+        conn.execute("DELETE FROM config_version WHERE label = 'd-sh'")
+        config_sh = _config_version(conn, settings)
+        conn.commit()
+        lecturas = lee_plataforma(
+            conn,
+            "amazon_mx",
+            _medianoche(D_E1) + dt.timedelta(days=10),
+            economia=EconomiaPlataforma(
+                moneda="MXN",
+                equilibrio_acos_pct=Decimal("45.5"),
+                gasto_para_concluir=Decimal("350"),
+                confianza_recorte=Decimal("0.80"),
+                confianza_subida=Decimal("0.70"),
+            ),
+            temporada_plat=(
+                temporada_io.TemporadaPlataforma(
+                    estacion=temporada.Estacion(
+                        version=temporada.VERSION_TEMPORADA,
+                        dia=dt.date(2027, 1, 15),
+                        fase="baja",
+                        previa_alta=False,
+                        reduccion_baja=Decimal("0.30"),
+                        mult_cortes_baja=Decimal("2"),
+                        inicio_bloque=dt.date(2027, 1, 1),
+                    ),
+                    modo=modo,
+                    config=temporada.desde_settings(settings),
+                    meta_alta_pct=Decimal("25"),
+                    estado=temporada_io.EstadoTemporada(
+                        episodio=temporada.EpisodioVigente(id=1, abierto_el=_medianoche(D_E1)),
+                        efectos_abiertos={},
+                        excluidas={},
+                        cerca_plataforma=dt.date(2027, 1, 5),
+                    ),
+                )
+                if modo is not None
+                else None
+            ),
+        )
+        return lecturas
+
+    lecturas_shadow = _lecturas_de("shadow")
+    lecturas_ausente = _lecturas_de(None)
+    assert lecturas_shadow._por_hoja == lecturas_ausente._por_hoja, (
+        "en practica la evidencia de la hoja es byte a byte la de hoy"
+    )
+    assert lecturas_shadow._por_grupo == lecturas_ausente._por_grupo
+    assert lecturas_shadow._cuenta == lecturas_ausente._cuenta
+    # el dia con 900 MXN sigue contando: el tramo reciente lo incluye
+    propia_sh = lecturas_shadow._por_hoja[kw1]
+    assert propia_sh.gasto_pesado() and propia_sh.gasto_pesado() >= Decimal("700"), (
+        "el dia de la entrada (900 MXN) sigue en la evidencia"
+    )
+
+
+def test_temporada01_d_revalidacion_igual_en_shadow(db_template):
+    """Revision Devin 66dkEH: frontera_hoja y cerca_plataforma SOLO deciden
+    con temporada en LIVE — con el flag ausente y en SHADOW la revalidacion
+    de una fila released es la de hoy (sin mult, sin cerca)."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(conn, {**_settings(), "ads_temporada_amazon_mx": "shadow"})
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-rv")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-rv", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    kw1 = _kw(conn, ag, "d-kw-rv", "kw rv", "5.60")
+    _cambio_confirmado(
+        conn,
+        kw1,
+        config_id,
+        dia=D_E1,
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=None,
+    )
+    ciclo_rv = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (_medianoche(D_E1 + dt.timedelta(days=1)), _medianoche(D_E1 + dt.timedelta(days=1))),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s)",
+        (_medianoche(D_E1), ciclo_rv, config_id),
+    )
+    conn.commit()
+    hoy = D_E1 + dt.timedelta(days=2)
+    frontera_shadow = temporada_io.frontera_hoja(conn, kw1, hoy, piso=PISO_MX, techo=TECHO_MX)
+    cerca_shadow = temporada_io.cerca_plataforma(conn, "amazon_mx", hoy)
+    assert frontera_shadow is None, "en practica la revalidacion no multiplica"
+    assert cerca_shadow is None, "en practica la revalidacion no recorta ventanas"
+    # y con el flag AUSENTE, exactamente lo mismo (los dos None de hoy)
+    import json as _json
+
+    conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('d-sin-flag', %s)",
+        (_json.dumps(_settings(modo_temporada=None)),),
+    )
+    conn.commit()
+    assert temporada_io.frontera_hoja(conn, kw1, hoy, piso=PISO_MX, techo=TECHO_MX) is None, (
+        "sin flag: igual que en practica"
+    )
+    assert temporada_io.cerca_plataforma(conn, "amazon_mx", hoy) is None
+    # y con el flag AUSENTE, exactamente lo mismo (los dos None de hoy)
+    conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('d-sin-flag', %s)",
+        (_json.dumps(_settings(modo_temporada=None)),),
+    )
+    conn.commit()
+    assert temporada_io.frontera_hoja(conn, kw1, hoy, piso=PISO_MX, techo=TECHO_MX) is None, (
+        "sin flag: igual que en practica"
+    )
+    assert temporada_io.cerca_plataforma(conn, "amazon_mx", hoy) is None

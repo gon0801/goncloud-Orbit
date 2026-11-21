@@ -505,7 +505,7 @@ def cerca_plataforma(conn: psycopg.Connection, platform: str, hoy: dt.date) -> d
     crudo = settings[0] if settings else None
     if not isinstance(crudo, Mapping):
         return None
-    if temporada.modo_desde_settings(crudo, platform) is None:
+    if temporada.modo_desde_settings(crudo, platform) != "live":
         return None
     config = temporada.desde_settings(crudo)
     if config is None:
@@ -538,7 +538,7 @@ def frontera_hoja(
     if plataforma is None:
         return None
     platform = plataforma[0]
-    if temporada.modo_desde_settings(settings, platform) is None:
+    if temporada.modo_desde_settings(settings, platform) != "live":
         return None
     estacion = temporada.resuelve(config, hoy)
     estado = lee_estado(conn, platform, hoy)

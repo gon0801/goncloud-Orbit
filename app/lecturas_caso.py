@@ -1298,9 +1298,17 @@ def _lee_tramos(
         activa=temporada_plat is not None or recuperacion is not None,
         memoria_dias=recuperacion.memoria_dias if recuperacion is not None else 365,
     )
-    cerca_plat = temporada_plat.estado.cerca_plataforma if temporada_plat is not None else None
+    # TEMPORADA 01 D (revision Devin 66dkEF): la doble corrida SOLO con
+    # temporada en LIVE — en practica la lectura que decide conserva las
+    # ventanas SIN cerca (byte a byte lo de hoy) y la sombra compara con la
+    # evidencia disponible.
+    cerca_plat = (
+        temporada_plat.estado.cerca_plataforma
+        if temporada_plat is not None and temporada_plat.modo == "live"
+        else None
+    )
     cercas: dict[int, dt.date] = {}
-    if temporada_plat is not None and historia:
+    if temporada_plat is not None and temporada_plat.modo == "live" and historia:
         for hoja_h, hist_h in historia.items():
             cerca_h = temporada.cerca_hoja_de(_cadena_desde(hist_h, None), d)
             if cerca_h is not None:
