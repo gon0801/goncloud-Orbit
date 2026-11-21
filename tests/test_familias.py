@@ -550,7 +550,7 @@ def _base_fabrica(conn):
 def test_fabrica_toma_slug_de_familia_unica():
     """Plan A2 lane 8 (unit): con familia unica el tipo_producto es el slug,
     aunque se de otro tipo (la familia manda)."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with db_fabrica("orbit_familias_fab") as conn:
         _base_fabrica(conn)
@@ -558,7 +558,7 @@ def test_fabrica_toma_slug_de_familia_unica():
         _ledger_producto(conn, pid, hoy=HOY)
         fam = familias.crea(conn, "amazon_mx", "Arras")
         familias.asigna(conn, [pid], fam["id"])
-        plan = fc._arma_plan(_args_fabrica(listings=str(lid), tipo="otro_tipo"), conn)
+        plan = fd._arma_plan(_args_fabrica(listings=str(lid), tipo="otro_tipo"), conn)
         assert plan.tipo_producto == "arras"
         assert plan.familia == "arras"
         assert plan.advertencia_mezcla is None
@@ -568,7 +568,7 @@ def test_fabrica_toma_slug_de_familia_unica():
 def test_fabrica_avisa_mezcla_y_exige_tipo():
     """Plan A2 (unit): dos familias = aviso antes del plan y tipo dado
     obligatorio (no hay slug unico que tomar)."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with db_fabrica("orbit_familias_mez") as conn:
         _base_fabrica(conn)
@@ -578,21 +578,21 @@ def test_fabrica_avisa_mezcla_y_exige_tipo():
         _ledger_producto(conn, p2, hoy=HOY, fee_desfase=7)
         familias.asigna(conn, [p1], familias.crea(conn, "amazon_mx", "Arras")["id"])
         familias.asigna(conn, [p2], familias.crea(conn, "amazon_mx", "Collares")["id"])
-        plan = fc._arma_plan(_args_fabrica(listings=f"{l1},{l2}"), conn)
+        plan = fd._arma_plan(_args_fabrica(listings=f"{l1},{l2}"), conn)
         assert plan.tipo_producto == "collar_perro"
         assert plan.familia is None
         assert plan.advertencia_mezcla is not None
         assert "Arras" in plan.advertencia_mezcla
         assert "Collares" in plan.advertencia_mezcla
-        with pytest.raises(fc.Abortar, match="--tipo-producto es obligatorio"):
-            fc._arma_plan(_args_fabrica(listings=f"{l1},{l2}", tipo=None), conn)
+        with pytest.raises(fd.Abortar, match="--tipo-producto es obligatorio"):
+            fd._arma_plan(_args_fabrica(listings=f"{l1},{l2}", tipo=None), conn)
 
 
 @_skip_db
 def test_fabrica_parcial_no_toma_slug():
     """CodeRabbit PR #382 (Major): un grupo con un producto etiquetado y
     otro sin etiqueta NO toma el slug: usa el tipo dado y avisa."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with db_fabrica("orbit_familias_par") as conn:
         _base_fabrica(conn)
@@ -601,7 +601,7 @@ def test_fabrica_parcial_no_toma_slug():
         _ledger_producto(conn, p1, hoy=HOY)
         _ledger_producto(conn, p2, hoy=HOY, fee_desfase=7)
         familias.asigna(conn, [p1], familias.crea(conn, "amazon_mx", "Arras")["id"])
-        plan = fc._arma_plan(_args_fabrica(listings=f"{l1},{l2}"), conn)
+        plan = fd._arma_plan(_args_fabrica(listings=f"{l1},{l2}"), conn)
         assert plan.tipo_producto == "collar_perro"
         assert plan.familia is None
         assert plan.advertencia_mezcla is not None
@@ -640,18 +640,18 @@ def test_preview_web_sin_tipo_con_familia_unica():
 @_skip_db
 def test_fabrica_sin_etiqueta_camino_viejo():
     """Sin etiqueta no hay familia ni aviso y el tipo dado se usa igual."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with db_fabrica("orbit_familias_vie") as conn:
         _base_fabrica(conn)
         pid, lid = _producto(conn, sku="SKU-VIE", asin="B0FAMILIAV1", seller_sku="SAV")
         _ledger_producto(conn, pid, hoy=HOY)
-        plan = fc._arma_plan(_args_fabrica(listings=str(lid)), conn)
+        plan = fd._arma_plan(_args_fabrica(listings=str(lid)), conn)
         assert plan.tipo_producto == "collar_perro"
         assert plan.familia is None
         assert plan.advertencia_mezcla is None
-        with pytest.raises(fc.Abortar, match="--tipo-producto es obligatorio"):
-            fc._arma_plan(_args_fabrica(listings=str(lid), tipo=None), conn)
+        with pytest.raises(fd.Abortar, match="--tipo-producto es obligatorio"):
+            fd._arma_plan(_args_fabrica(listings=str(lid), tipo=None), conn)
 
 
 # ---------------------------------------------------------------------------

@@ -657,54 +657,40 @@ ALLOWLIST_IMPORTS_FABRICA_CAMPANAS = frozenset(
         "__future__",
         "__future__.annotations",
         "argparse",
-        "contextlib",
-        "dataclasses",
-        "dataclasses.dataclass",
-        "dataclasses.field",
-        "datetime",
-        "decimal",
-        "decimal.Decimal",
-        "decimal.InvalidOperation",
-        "decimal.ROUND_HALF_EVEN",
-        "json",
         "logging",
-        "os",
         "sys",
-        "time",
-        "typing",
-        "typing.Any",
-        "httpx",
-        "httpx.HTTPError",
-        "httpx.TimeoutException",
-        "psycopg",
-        "psycopg.rows",
-        "psycopg.rows.tuple_row",
         "app",
-        "app.fabrica_plan",
-        "app.familias",
-        "app.goals_write",
         "app.ads.campana_config",
         "app.ads.campana_config.presupuesto_p90",
-        "app.ads.client",
-        "app.ads.client.DEFAULT_BASE_URL",
-        "app.ads.client.AdsClient",
-        "app.ads.config",
-        "app.ads.config.AdsCredentials",
-        "app.ads.structure",
-        "app.ads.structure.evaluar_perfiles",
-        "app.ads.structure.fetch_structure",
-        "app.ads.structure.sync_structure",
         "app.db",
         "app.db.connect",
-        "app.optimizer.goals",
-        "app.optimizer.goals.fraccion_desde_settings",
-        "app.optimizer.goals.presupuesto_alto",
+        "app.fabrica_datos",
+        "app.fabrica_datos.Abortar",
+        "app.fabrica_lotes",
+        "app.fabrica_motor",
+        "app.fabrica_plan",
+        "app.fabrica_registro",
+        "app.fabrica_registro._dsn_read",
+        "app.fabrica_registro._log",
         "app.redaction",
         "app.redaction.install_scrub_filter",
-        "app.redaction.register_secret",
-        "app.redaction.scrub",
     }
 )
+
+
+def test_app_nunca_importa_tools():
+    """Fase 3.2 (C3): ningun modulo de produccion en `app/` puede importar
+    de `tools` en runtime. Los scripts de `tools/` envuelven a `app/`,
+    nunca al reves."""
+    infracciones: dict[str, list[str]] = {}
+    for p in sorted(APP.rglob("*.py")):
+        imps = _imports_runtime(p)
+        malos = sorted(i for i in imps if i == "tools" or i.startswith("tools."))
+        if malos:
+            infracciones[p.relative_to(RAIZ).as_posix()] = malos
+    assert not infracciones, (
+        f"modulos en app/ importan desde tools/ (inversion de dependencias): {infracciones}"
+    )
 
 
 def test_fabrica_campanas_solo_importa_lo_declarado():

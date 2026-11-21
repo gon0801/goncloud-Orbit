@@ -546,21 +546,25 @@ def _sugeridor_plataforma(plataforma: str, moneda: str):
 
 
 def _ejecutor_lanzar(conn, confirmacion: str):
-    """EjecutorFabrica real: crea el lote con fc._mutar (shadow,
+    """EjecutorFabrica real: crea el lote con fm.mutar (shadow,
     esperado 2) y lee el grupo creado."""
-    from types import SimpleNamespace
-
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
+    from app import fabrica_motor as fm
 
     def ejecuta(plan_grupo, huella: str, lote: str) -> io.EjecucionFabrica:
-        args = SimpleNamespace(
-            acepto_mutacion_real=True, esperado=2, huella=huella, go=confirmacion
+        fm.mutar(
+            plan_grupo,
+            huella,
+            esperado=2,
+            go=confirmacion,
+            lote=lote,
+            revierte_al_fallar=True,
+            crear_pausado=True,
         )
-        fc._mutar(args, plan_grupo, huella, lote=lote, revierte_al_fallar=True, crear_pausado=True)
         grupo = conn.execute(io._SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
         estado = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)).fetchone()
         if grupo is None or estado is None:
-            raise fc.Abortar(f"lote {lote} sin grupo o estado tras _mutar")
+            raise fd.Abortar(f"lote {lote} sin grupo o estado tras mutar")
         return io.EjecucionFabrica(lote=lote, grupo_id=grupo[0], estado_lote=estado[0])
 
     return ejecuta
@@ -630,7 +634,7 @@ def _vista_impulso(conn, vista: io.VistaPreviaImpulso, plataforma: str) -> dict:
 
 @router.post("/impulso/plan")
 def impulso_plan(cuerpo: SolicitudImpulsoPlan, conn: ConexionLectura):
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     moneda = fp.MONEDA_POR_PLATAFORMA[cuerpo.plataforma]
     try:
@@ -641,14 +645,14 @@ def impulso_plan(cuerpo: SolicitudImpulsoPlan, conn: ConexionLectura):
         )
     except io.ErrorImpulso as exc:
         raise _error_impulso(exc) from None
-    except fc.Abortar as exc:
+    except fd.Abortar as exc:
         raise fw.error(422, str(exc)) from None
     return _vista_impulso(conn, vista, cuerpo.plataforma)
 
 
 @router.post("/impulso/lanzar")
 def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoLanzarImpulso):
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with fw._conexion("ORBIT_DSN_ADMIN", "impulso") as conn:
         moneda = fp.MONEDA_POR_PLATAFORMA[cuerpo.solicitud.plataforma]
@@ -675,10 +679,10 @@ def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoL
                         ),
                         cuerpo.solicitud.plataforma,
                     )
-                except fc.Abortar:
+                except fd.Abortar:
                     vista = None
             raise _error_impulso(exc, vista=vista) from None
-        except fc.Abortar as exc:
+        except fd.Abortar as exc:
             raise fw.error(422, str(exc)) from None
         return {
             "lanzados": [
@@ -699,7 +703,7 @@ def impulso_pausar(
     impulso_id: Annotated[int, Path(ge=1, le=9223372036854775807)],
     cuerpo: CuerpoPausarImpulso,
 ):
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with fw._conexion("ORBIT_DSN_ADMIN", "impulso") as conn:
         fila = conn.execute(_SQL_LOTE_DE_IMPULSO, (impulso_id,)).fetchone()
@@ -709,7 +713,7 @@ def impulso_pausar(
             io.PausadorFabrica(conn, actor="dueno").pausa(fila[0])
         except io.ErrorImpulso as exc:
             raise _error_impulso(exc) from None
-        except fc.Abortar as exc:
+        except fd.Abortar as exc:
             # G9: Amazon rechazo a media pausa (el actor ya quedo
             # grabado antes del primer PUT): 502 con el detalle,
             # no 500 pelado.

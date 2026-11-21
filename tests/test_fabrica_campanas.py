@@ -35,7 +35,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
 import fabrica_campanas as fc  # noqa: E402
 
+from app import fabrica_datos as fd  # noqa: E402
+from app import fabrica_lotes as fl  # noqa: E402
+from app import fabrica_motor as fm  # noqa: E402
 from app import fabrica_plan as fp  # noqa: E402
+from app import fabrica_registro as fr  # noqa: E402
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 # HOY en UTC (D-GLM-6-5): las siembras usan dias bien dentro/fuera de ventana
@@ -96,13 +100,13 @@ def _termino(conn, run, origen, texto, fecha, orders, cost, revenue, asin_like=F
 @_skip_db
 def test_fraccion_lee_el_setting_vigente_y_aborta_sin_el():
     with db_fabrica("orbit_fab_frac") as conn:
-        with pytest.raises(fc.Abortar, match="fraccion"):
-            fc._fraccion(conn, "amazon_mx")
+        with pytest.raises(fd.Abortar, match="fraccion"):
+            fd._fraccion(conn, "amazon_mx")
         _config(conn, "0.25")
-        assert fc._fraccion(conn, "amazon_mx") == Decimal("0.25")
+        assert fd._fraccion(conn, "amazon_mx") == Decimal("0.25")
         _config(conn, "abc")  # config CORRUPTA presente: ValueError ruidoso, no abstencion
         with pytest.raises(ValueError):
-            fc._fraccion(conn, "amazon_mx")
+            fd._fraccion(conn, "amazon_mx")
 
 
 @_skip_db
@@ -126,7 +130,7 @@ def test_terminos_del_producto_colapsan_bitemporal_y_suman_en_ventana():
         _termino(conn, run, ag, "viejo", HOY - dt.timedelta(days=120), 5, 1, 10)
         _termino(conn, run, ag, "inmaduro", HOY - dt.timedelta(days=5), 5, 1, 10)
         _termino(conn, run, camp, "grano campana", d, 5, 1, 10)  # grano que produccion NO tiene
-        terminos = {t.texto: t for t in fc._terminos_producto(conn, "amazon_mx", [lid])}
+        terminos = {t.texto: t for t in fd._terminos_producto(conn, "amazon_mx", [lid])}
         assert set(terminos) == {"collar perro", "b0zzzzzzzz"}
         assert terminos["collar perro"].orders == 3
         assert terminos["collar perro"].cost == Decimal("17")
@@ -146,14 +150,14 @@ def test_terminos_exact_usan_la_ventana_de_cortes():
         run = _run(conn)
         _termino(conn, run, ag, "doce dias", HOY - dt.timedelta(days=12), 2, 10, 100)
         _termino(conn, run, ag, "cinco dias", HOY - dt.timedelta(days=5), 2, 10, 100)
-        margen = {t.texto for t in fc._terminos_producto(conn, "amazon_mx", [lid])}
+        margen = {t.texto for t in fd._terminos_producto(conn, "amazon_mx", [lid])}
         exact = {
             t.texto
-            for t in fc._terminos_producto(
+            for t in fd._terminos_producto(
                 conn,
                 "amazon_mx",
                 [lid],
-                sql=fc._SQL_TERMINOS_EXACT,
+                sql=fd._SQL_TERMINOS_EXACT,
                 ventana=fp.VENTANA_CORTES_DIAS,
             )
         }
@@ -182,11 +186,11 @@ def test_terminos_incompletos_conservan_none_y_no_siembran_exact(metrica, cortes
         _termino(conn, run, ag, "corregido", fecha, **parcial)
         _termino(conn, run, ag, "corregido", fecha, 2, 10, 100, obs=2)
 
-        terminos = fc._terminos_producto(
+        terminos = fd._terminos_producto(
             conn,
             "amazon_mx",
             [lid],
-            sql=fc._SQL_TERMINOS_EXACT if cortes else fc._SQL_TERMINOS,
+            sql=fd._SQL_TERMINOS_EXACT if cortes else fd._SQL_TERMINOS,
             ventana=fp.VENTANA_CORTES_DIAS if cortes else fp.VENTANA_DIAS,
         )
         por_texto = {t.texto: t for t in terminos}
@@ -242,7 +246,7 @@ def test_las_ventanas_no_dependen_del_timezone_de_la_sesion():
         run = _run(conn)
         _termino(conn, run, ag, "dentro", HOY - dt.timedelta(days=16), 1, 1, 10)
         _termino(conn, run, ag, "borde", HOY - dt.timedelta(days=15), 1, 1, 10)
-        terminos = {t.texto for t in fc._terminos_producto(conn, "amazon_mx", [lid])}
+        terminos = {t.texto for t in fd._terminos_producto(conn, "amazon_mx", [lid])}
         assert terminos == {"dentro"}  # 'borde' queda fuera: metric_date < D-15
 
 
@@ -260,10 +264,10 @@ def test_biblioteca_y_existentes():
             "INSERT INTO negative_biblioteca (tipo_producto, platform, texto, origen)"
             " VALUES ('collar_perro', 'amazon_mx', 'gato', 'x')"
         )
-        kws, negs = fc._biblioteca(conn, "collar_perro", "amazon_mx")
+        kws, negs = fd._biblioteca(conn, "collar_perro", "amazon_mx")
         assert kws == ["con ventas"] and negs == ["gato"]
         _campana_con_producto(conn, lid, external="c-old", status="PAUSED")
-        existentes = fc._existentes(conn, "amazon_mx", [lid])
+        existentes = fd._existentes(conn, "amazon_mx", [lid])
         assert [(e["external_id"], e["status"]) for e in existentes] == [("c-old", "PAUSED")]
 
 
@@ -468,7 +472,7 @@ def test_parametros_conservan_fuente_y_ternas_amazon_en_plan():
         }
     ]
 
-    parametro = fc._parametros(args)["category_exact"]
+    parametro = fd._parametros(args)["category_exact"]
     assert parametro.fuente_bid == "amazon_v4"
     assert parametro.recomendaciones == (
         fp.Recomendacion(
@@ -571,7 +575,7 @@ def test_cli_v2_rechaza_manual_fuera_de_forma(monkeypatch):
     _frontera_lectura(monkeypatch, conn)
     _sin_red(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
-    with pytest.raises(fc.Abortar, match="NUMERIC"):
+    with pytest.raises(fd.Abortar, match="NUMERIC"):
         fc.main()
     assert conn.escrituras == []
 
@@ -587,7 +591,7 @@ def test_cli_v2_rechaza_manual_fuera_de_banda(monkeypatch, valor):
     _frontera_lectura(monkeypatch, conn)
     _sin_red(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
-    with pytest.raises(fc.Abortar, match="banda"):
+    with pytest.raises(fd.Abortar, match="banda"):
         fc.main()
     assert conn.escrituras == []
 
@@ -620,7 +624,7 @@ def test_cli_v2_rechaza_asin_ausente_antes_de_http(monkeypatch):
     _frontera_lectura(monkeypatch, conn)
     _sin_red(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
-    with pytest.raises(fc.Abortar, match="ASIN"):
+    with pytest.raises(fd.Abortar, match="ASIN"):
         fc.main()
     assert conn.escrituras == []
 
@@ -655,8 +659,8 @@ def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, 
         biblioteca=([], []),
     )
     _sin_red(monkeypatch)
-    with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
-        fc._arma_plan(parsed, conn)
+    with pytest.raises(fd.Abortar, match="manual_lanzamiento"):
+        fd._arma_plan(parsed, conn)
     assert conn.escrituras == []
 
 
@@ -685,7 +689,7 @@ def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
         (11, 1, "B0AAAAAAAA", "SS-1", None),
         (12, 1, "B0AAAAAAAB", "SS-2", Decimal("-5")),
     ]
-    plan = fc._arma_plan(
+    plan = fd._arma_plan(
         fc._parser().parse_args(args),
         _ConnFalsa(publicaciones=publicaciones),
     )
@@ -720,7 +724,7 @@ def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
     lwa = next(indice for indice, evento in enumerate(secuencia) if evento == ("http", "lwa"))
     assert bloqueo < lwa
     pedidos = list(amazon.pedidos)
-    with pytest.raises(fc.Abortar, match="ya existe"):
+    with pytest.raises(fd.Abortar, match="ya existe"):
         fc.main()
     assert amazon.pedidos == pedidos
     assert len(amazon.posts("/sp/campaigns")) == 5
@@ -732,7 +736,7 @@ def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
     _frontera_lectura(monkeypatch, conn)
     _sin_red(monkeypatch)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *ARGS_BASE])
-    with pytest.raises(fc.Abortar, match="fraccion"):
+    with pytest.raises(fd.Abortar, match="fraccion"):
         fc.main()
     assert conn.closes >= 1
     conn = _ConnFalsa(
@@ -741,7 +745,7 @@ def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
     _frontera_lectura(monkeypatch, conn)
     args = [a if a != "6.00" else "45.01" for a in ARGS_BASE]  # bid-exact sobre el techo MXN
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
-    with pytest.raises(fc.Abortar, match="bid"):
+    with pytest.raises(fd.Abortar, match="bid"):
         fc.main()
     assert conn.closes >= 1
 
@@ -767,9 +771,9 @@ def test_despacho_prioriza_reconciliar_registrar_y_desarmar(monkeypatch):
     def _marca(nombre):
         return lambda _args: llamados.append(nombre) or 0
 
-    monkeypatch.setattr(fc, "_reconciliar_cmd", _marca("reconciliar"))
-    monkeypatch.setattr(fc, "_registrar_cmd", _marca("registrar"))
-    monkeypatch.setattr(fc, "_desarmar", _marca("desarmar"))
+    monkeypatch.setattr(fl, "_reconciliar_cmd", _marca("reconciliar"))
+    monkeypatch.setattr(fl, "_registrar_cmd", _marca("registrar"))
+    monkeypatch.setattr(fl, "_desarmar", _marca("desarmar"))
     monkeypatch.setattr(fc, "_crear", _marca("crear"))
     monkeypatch.setattr(
         sys,
@@ -804,8 +808,8 @@ def test_arreglos04_w_n_el_cli_avisa_por_el_numero_fijo_sin_campanas_activas(mon
     )
     _frontera_lectura(monkeypatch, conn)
     args = fc._parser().parse_args(_con_presupuesto(ARGS_BASE, "20000"))
-    plan = fc._arma_plan(args, conn)
-    avisos = fc.avisos_presupuesto_alto(plan, fc.presupuesto_p90(conn, plan.moneda))
+    plan = fd._arma_plan(args, conn)
+    avisos = fd.avisos_presupuesto_alto(plan, fc.presupuesto_p90(conn, plan.moneda))
     assert avisos
     assert all("20,000.00 MXN" in aviso for aviso in avisos)
     assert all("no tienes campañas activas en MXN" in aviso for aviso in avisos)
@@ -907,7 +911,7 @@ def test_arreglos04_w_n_la_terminal_pide_la_bandera(monkeypatch, capsys):
     assert "20,000.00 MXN" in salida and "huella del conjunto:" in salida
 
     llamadas = []
-    monkeypatch.setattr(fc, "_mutar", lambda *a, **k: llamadas.append(a) or 0)
+    monkeypatch.setattr(fm, "_mutar", lambda *a, **k: llamadas.append(a) or 0)
     argv = [
         *args,
         "--acepto-mutacion-real",
@@ -919,7 +923,7 @@ def test_arreglos04_w_n_la_terminal_pide_la_bandera(monkeypatch, capsys):
         "go simulado",
     ]
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *argv])
-    with pytest.raises(fc.Abortar, match="--acepto-presupuesto-alto"):
+    with pytest.raises(fd.Abortar, match="--acepto-presupuesto-alto"):
         fc.main()
     assert llamadas == []
 
@@ -976,7 +980,7 @@ class _Amazon:
         if "auth/o2/token" in url:
             self.secuencia.append(("http", "lwa"))
             return httpx.Response(200, json={"access_token": "tok"})
-        path = url.replace(fc.API, "")
+        path = url.replace(fm.API, "")
         self.secuencia.append(("http", path))
         if path.endswith("/list"):
             return self._list(path, json.loads(request.content))
@@ -1023,7 +1027,7 @@ class _ClienteLectura:
         self._c = httpx.Client(transport=transporte)
 
     def list_objects(self, path, body, *, profile_id):
-        return self._c.post(f"{fc.API}{path}", json=body)
+        return self._c.post(f"{fm.API}{path}", json=body)
 
 
 def test_readback_contra_ads_client_real():
@@ -1041,12 +1045,12 @@ def test_readback_contra_ads_client_real():
         )
 
     cliente = AdsClient(_CREDS, transport=httpx.MockTransport(handler), sleep=lambda s: None)
-    assert fc._readback(cliente, 101, "/sp/campaigns", "camp-77") == {
+    assert fm._readback(cliente, 101, "/sp/campaigns", "camp-77") == {
         "campaignId": "camp-77",
         "state": "ENABLED",
         "name": "n",
     }
-    assert fc._readback(cliente, 101, "/sp/campaigns", "no-esta") is None
+    assert fm._readback(cliente, 101, "/sp/campaigns", "no-esta") is None
     (lista, segunda) = [p for p in pedidos if str(p.url).endswith("/sp/campaigns/list")]
     assert json.loads(segunda.content) == {"campaignIdFilter": {"include": ["no-esta"]}}
     assert json.loads(lista.content) == {"campaignIdFilter": {"include": ["camp-77"]}}
@@ -1063,34 +1067,36 @@ def _frontera_mutacion(
     monkeypatch.setenv("ORBIT_DSN_ADMIN", "dsn-admin")
     # D-CURSOR-177-F3: mutacion autorizada exige INGEST antes de POST.
     monkeypatch.setenv("ORBIT_DSN_INGEST", "dsn-ingest")
-    monkeypatch.setattr(
-        fc,
-        "connect",
-        lambda dsn: {
+
+    def _conecta(dsn):
+        return {
             "dsn-read": conn_read,
             "dsn-admin": conn_admin,
             "dsn-ingest": conn_admin,
-        }[dsn],
-    )
+        }[dsn]
+
+    monkeypatch.setattr(fc, "connect", _conecta)
+    monkeypatch.setattr(fm, "connect", _conecta)
+    monkeypatch.setattr(fr, "connect", _conecta)
     monkeypatch.setattr(
         AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
     )
     transporte = httpx.MockTransport(amazon)
     amazon.perfil_esperado = (perfiles if perfiles is not None else [_perfil()])[0].profile_id
-    monkeypatch.setattr(fc, "AdsClient", lambda cred: _ClienteLectura(transporte))
+    monkeypatch.setattr(fm, "AdsClient", lambda cred: _ClienteLectura(transporte))
     monkeypatch.setattr(
-        fc, "evaluar_perfiles", lambda c: perfiles if perfiles is not None else [_perfil()]
+        fm, "evaluar_perfiles", lambda c: perfiles if perfiles is not None else [_perfil()]
     )
     monkeypatch.setattr(
-        fc,
+        fm,
         "httpx",
         SimpleNamespace(
             Client=lambda **kw: httpx.Client(transport=transporte), Timeout=lambda **kw: None
         ),
     )
-    monkeypatch.setattr(fc.time, "sleep", lambda s: None)
+    monkeypatch.setattr(fm.time, "sleep", lambda s: None)
     if stub_registrar:
-        monkeypatch.setattr(fc, "_registrar", lambda ctx, plan, externos: None)
+        monkeypatch.setattr(fr, "_registrar", lambda ctx, plan, externos: None)
 
 
 def _conn_plan(**extra):
@@ -1160,7 +1166,7 @@ def test_go_exige_esperado_huella_y_literal(monkeypatch, capsys):
         conn_admin = _ConnFalsa()
         _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, _Amazon())
         monkeypatch.setattr(sys, "argv", argv)
-        with pytest.raises(fc.Abortar, match=patron):
+        with pytest.raises(fd.Abortar, match=patron):
             fc.main()
         assert conn_admin.escrituras == [], "ningun guard debe escribir el ledger"
 
@@ -1253,7 +1259,7 @@ def test_mutacion_persiste_lote_web_antes_de_crear_campanas(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonConLedger()
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            assert fc._mutar(args, plan, huella, lote=lote_web) == 0
+            assert fm._mutar(args, plan, huella, lote=lote_web) == 0
 
         assert conn.execute("SELECT lote, estado FROM fabrica_lote").fetchall() == [
             (lote_web, "applied")
@@ -1273,7 +1279,7 @@ def test_rechazo_sella_failed_y_detiene_declarando_lo_creado(monkeypatch, capsys
     amazon = _Amazon(fallar_en=("/sp/campaigns", 3))
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="category_broad"):
+    with pytest.raises(fd.Abortar, match="category_broad"):
         fc.main()
     assert len(amazon.posts("/sp/campaigns")) == 3 and len(amazon.posts("/sp/adGroups")) == 2
     assert len(_sellos(conn_admin, "failed")) == 1
@@ -1298,7 +1304,7 @@ def test_readback_que_no_cuadra_detiene(monkeypatch, capsys):
     amazon = _Amazon(readback_malo="campaigns-1")
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="external_id=campaigns-1"):
+    with pytest.raises(fd.Abortar, match="external_id=campaigns-1"):
         fc.main()
     assert len(amazon.posts("/sp/campaigns")) == 1 and amazon.posts("/sp/adGroups") == []
     assert len(_sellos(conn_admin, "failed")) == 1
@@ -1326,7 +1332,7 @@ def test_sin_perfil_aceptado_no_muta(monkeypatch, capsys):
         monkeypatch, _conn_plan(), conn_admin, amazon, perfiles=[_perfil("amazon_us", 102)]
     )
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="perfil"):
+    with pytest.raises(fd.Abortar, match="perfil"):
         fc.main()
     assert amazon.posts("/sp/campaigns") == [] and conn_admin.escrituras == []
 
@@ -1340,34 +1346,34 @@ def test_readback_cuadra_exige_expresion_y_bid():
     }
     exp = [{"type": "ASIN_SAME_AS", "value": "B0X"}]
     base = {"state": "ENABLED", "expression": exp, "bid": 5.0}
-    assert fc._readback_cuadra(base, payload_t)
-    assert not fc._readback_cuadra(
+    assert fm._readback_cuadra(base, payload_t)
+    assert not fm._readback_cuadra(
         {**base, "expression": [{"type": "ASIN_SAME_AS", "value": "B0OTRO"}]}, payload_t
     )
-    assert not fc._readback_cuadra({**base, "expression": []}, payload_t)
-    assert not fc._readback_cuadra({**base, "bid": 4.0}, payload_t)
-    assert not fc._readback_cuadra({k: v for k, v in base.items() if k != "bid"}, payload_t)
-    assert fc._readback_cuadra({**base, "bid": "5.00"}, payload_t)
+    assert not fm._readback_cuadra({**base, "expression": []}, payload_t)
+    assert not fm._readback_cuadra({**base, "bid": 4.0}, payload_t)
+    assert not fm._readback_cuadra({k: v for k, v in base.items() if k != "bid"}, payload_t)
+    assert fm._readback_cuadra({**base, "bid": "5.00"}, payload_t)
     payload_kw = {"keywordText": "k", "matchType": "PHRASE", "state": "ENABLED", "bid": 6.0}
     leido_kw = {"keywordText": "k", "matchType": "PHRASE", "state": "ENABLED", "bid": 6.0}
-    assert fc._readback_cuadra(leido_kw, payload_kw)
-    assert not fc._readback_cuadra({**leido_kw, "matchType": "EXACT"}, payload_kw)
+    assert fm._readback_cuadra(leido_kw, payload_kw)
+    assert not fm._readback_cuadra({**leido_kw, "matchType": "EXACT"}, payload_kw)
     payload_ag = {"name": "g", "state": "ENABLED", "defaultBid": 4.5}
     leido_ag = {"name": "g", "state": "ENABLED", "defaultBid": 4.5}
-    assert fc._readback_cuadra(leido_ag, payload_ag)
-    assert not fc._readback_cuadra({**leido_ag, "defaultBid": 4.0}, payload_ag)
-    assert not fc._readback_cuadra({"name": "g", "state": "ENABLED"}, payload_ag)
+    assert fm._readback_cuadra(leido_ag, payload_ag)
+    assert not fm._readback_cuadra({**leido_ag, "defaultBid": 4.0}, payload_ag)
+    assert not fm._readback_cuadra({"name": "g", "state": "ENABLED"}, payload_ag)
     payload_c = {
         "name": "c",
         "state": "ENABLED",
         "budget": {"budgetType": "DAILY", "budget": 150.0},
     }
     leido_c = {"name": "c", "state": "ENABLED", "budget": {"budgetType": "DAILY", "budget": 150.0}}
-    assert fc._readback_cuadra(leido_c, payload_c)
-    assert not fc._readback_cuadra(
+    assert fm._readback_cuadra(leido_c, payload_c)
+    assert not fm._readback_cuadra(
         {**leido_c, "budget": {"budgetType": "DAILY", "budget": 100.0}}, payload_c
     )
-    assert not fc._readback_cuadra(
+    assert not fm._readback_cuadra(
         {**leido_c, "budget": {"budgetType": "LIFETIME", "budget": 150.0}}, payload_c
     )
     payload_hijo = {
@@ -1384,9 +1390,9 @@ def test_readback_cuadra_exige_expresion_y_bid():
         "campaignId": "camp-A",
         "adGroupId": "ag-A",
     }
-    assert fc._readback_cuadra(leido_hijo, payload_hijo)
-    assert not fc._readback_cuadra({**leido_hijo, "campaignId": "camp-OTRA"}, payload_hijo)
-    assert not fc._readback_cuadra({**leido_hijo, "adGroupId": "ag-OTRA"}, payload_hijo)
+    assert fm._readback_cuadra(leido_hijo, payload_hijo)
+    assert not fm._readback_cuadra({**leido_hijo, "campaignId": "camp-OTRA"}, payload_hijo)
+    assert not fm._readback_cuadra({**leido_hijo, "adGroupId": "ag-OTRA"}, payload_hijo)
 
 
 def test_post_incierto_declara_incierto_no_rechazado(monkeypatch, capsys):
@@ -1402,9 +1408,9 @@ def test_post_incierto_declara_incierto_no_rechazado(monkeypatch, capsys):
     def _boom(*_a, **_k):
         raise TimeoutError("simulado")
 
-    monkeypatch.setattr(fc, "_post", _boom)
+    monkeypatch.setattr(fm, "_post", _boom)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="INCERTO"):
+    with pytest.raises(fd.Abortar, match="INCERTO"):
         fc.main()
     detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"][0]
     assert "INCERTO" in detenido["motivo"]
@@ -1422,9 +1428,9 @@ def test_fallo_de_registro_sella_failed_con_rollback_previo(monkeypatch, capsys)
     def _boom(ctx, plan, creadas):
         raise RuntimeError("sync caido")
 
-    monkeypatch.setattr(fc, "_registrar", _boom)
+    monkeypatch.setattr(fr, "_registrar", _boom)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="registro interno incompleto"):
+    with pytest.raises(fd.Abortar, match="registro interno incompleto"):
         fc.main()
     sellos = [
         p
@@ -1575,7 +1581,7 @@ def test_registrar_escribe_grupo_roles_productos_y_goals(monkeypatch):
             " ('L1', 'amazon_mx', 'collar_perro', 'Collar', 'go', 'h',"
             " '{}', 'shadow', 'planeado')"
         )
-        monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+        monkeypatch.setattr(fr, "_sync", lambda cliente: None)
         plan = dataclasses.replace(
             _plan_min(),
             publicaciones=(
@@ -1584,8 +1590,8 @@ def test_registrar_escribe_grupo_roles_productos_y_goals(monkeypatch):
                 ),
             ),
         )
-        ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")
-        grupo = fc._registrar(ctx, plan, _CREADAS)
+        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
+        grupo = fr._registrar(ctx, plan, _CREADAS)
         conn.row_factory = tuple_row
         fila = conn.execute(
             "SELECT target_acos_pct, target_derivado_pct, fraccion, lote"
@@ -1641,23 +1647,23 @@ def test_registrar_aborta_si_el_sync_no_trajo_la_campana(monkeypatch):
             " ('L1', 'amazon_mx', 'collar_perro', 'Collar', 'go', 'h',"
             " '{}', 'shadow', 'planeado')"
         )
-        monkeypatch.setattr(fc, "_sync", lambda cliente: None)
-        ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")
-        with pytest.raises(fc.Abortar, match="ad_entity"):
-            fc._registrar(ctx, _plan_min(), _CREADAS)
+        monkeypatch.setattr(fr, "_sync", lambda cliente: None)
+        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
+        with pytest.raises(fd.Abortar, match="ad_entity"):
+            fr._registrar(ctx, _plan_min(), _CREADAS)
         assert conn.execute("SELECT count(*) FROM campana_grupo").fetchone()[0] == 0
 
 
 def test_registrar_sincroniza_antes_de_escribir(monkeypatch):
     llamadas = []
     conn = _ConnFalsa()
-    monkeypatch.setattr(fc, "_sync", lambda cliente: llamadas.append("sync"))
-    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: llamadas.append(f"id:{k}:{e}") or 7)
+    monkeypatch.setattr(fr, "_sync", lambda cliente: llamadas.append("sync"))
+    monkeypatch.setattr(fr, "_id_entidad", lambda c, p, k, e: llamadas.append(f"id:{k}:{e}") or 7)
     monkeypatch.setattr(
-        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+        fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
     )
-    ctx = fc._Ctx(None, "tok", None, "cliente", 101, conn, "L1")
-    fc._registrar(ctx, _plan_min(), _CREADAS)
+    ctx = fm._Ctx(None, "tok", None, "cliente", 101, conn, "L1")
+    fr._registrar(ctx, _plan_min(), _CREADAS)
     assert llamadas[0] == "sync" and llamadas.count("goal") == 5
     assert any(s.lower().startswith("insert into campana_grupo ") for s, _ in conn.escrituras)
 
@@ -1665,13 +1671,13 @@ def test_registrar_sincroniza_antes_de_escribir(monkeypatch):
 def test_registrar_v2_conserva_dos_listings_y_objetivo_manual(monkeypatch):
     llamadas = []
     conn = _ConnFalsa()
-    monkeypatch.setattr(fc, "_sync", lambda cliente: llamadas.append("sync"))
-    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(fr, "_sync", lambda cliente: llamadas.append("sync"))
+    monkeypatch.setattr(fr, "_id_entidad", lambda c, p, k, e: 7)
     monkeypatch.setattr(
-        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append(kw) or {"id": 1}
+        fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append(kw) or {"id": 1}
     )
-    ctx = fc._Ctx(None, "tok", None, "cliente", 101, conn, "L2")
-    fc._registrar(ctx, _plan_v2_min(), _CREADAS)
+    ctx = fm._Ctx(None, "tok", None, "cliente", 101, conn, "L2")
+    fr._registrar(ctx, _plan_v2_min(), _CREADAS)
     grupo = next(
         params for sql, params in conn.escrituras if "insert into campana_grupo " in sql.lower()
     )
@@ -1696,13 +1702,13 @@ def test_sync_usa_dsn_ingest_y_el_escritor_unico(monkeypatch):
     llamadas = {}
     monkeypatch.setenv("ORBIT_DSN_INGEST", "dsn-ingest")
     monkeypatch.setattr(
-        fc, "connect", lambda dsn: llamadas.setdefault("dsn", dsn) and "conn-ingest"
+        fr, "connect", lambda dsn: llamadas.setdefault("dsn", dsn) and "conn-ingest"
     )
-    monkeypatch.setattr(fc, "fetch_structure", lambda cliente: "estructura")
+    monkeypatch.setattr(fr, "fetch_structure", lambda cliente: "estructura")
     monkeypatch.setattr(
-        fc, "sync_structure", lambda conn, est: llamadas.setdefault("sync", (conn, est))
+        fr, "sync_structure", lambda conn, est: llamadas.setdefault("sync", (conn, est))
     )
-    fc._sync("cliente")
+    fr._sync("cliente")
     assert llamadas == {"dsn": "dsn-ingest", "sync": ("conn-ingest", "estructura")}
 
 
@@ -1718,10 +1724,10 @@ def test_registrar_cmd_reintenta_solo_el_registro(monkeypatch):
     amazon = _Amazon()
     llamadas = []
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
-    monkeypatch.setattr(fc, "_sync", lambda cliente: llamadas.append("sync"))
-    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: llamadas.append(f"id:{k}:{e}") or 7)
+    monkeypatch.setattr(fr, "_sync", lambda cliente: llamadas.append("sync"))
+    monkeypatch.setattr(fr, "_id_entidad", lambda c, p, k, e: llamadas.append(f"id:{k}:{e}") or 7)
     monkeypatch.setattr(
-        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+        fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
     )
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
     assert fc.main() == 0
@@ -1757,15 +1763,15 @@ def test_registrar_cmd_doble_corrida_es_idempotente(monkeypatch):
             (Json(fp.plan_v2_como_json(plan)),),
         )
         _siembra_ledger_pg(conn, "L1", _filas_ledger(plan))
-        monkeypatch.setattr(fc, "connect", lambda dsn: conn)
+        monkeypatch.setattr(fm, "connect", lambda dsn: conn)
         conn.close = lambda: None  # el cmd cierra; la fixture reusa esta conn
         monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://fake")
         monkeypatch.setattr(
             AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
         )
-        monkeypatch.setattr(fc, "AdsClient", lambda cred: None)
-        monkeypatch.setattr(fc, "evaluar_perfiles", lambda c: [_perfil()])
-        monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+        monkeypatch.setattr(fm, "AdsClient", lambda cred: None)
+        monkeypatch.setattr(fm, "evaluar_perfiles", lambda c: [_perfil()])
+        monkeypatch.setattr(fr, "_sync", lambda cliente: None)
         monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
         assert fc.main() == 0
         conn.execute("UPDATE fabrica_lote SET estado = 'failed' WHERE lote = 'L1'")
@@ -1796,7 +1802,7 @@ def test_registrar_rechaza_lote_desarmado(monkeypatch):
     conn_admin = _ConnFalsa(lote_fila=({"x": 1}, "desarmado"))
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon())
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L9"])
-    with pytest.raises(fc.Abortar, match="desarmado"):
+    with pytest.raises(fd.Abortar, match="desarmado"):
         fc.main()
 
 
@@ -1812,10 +1818,10 @@ def test_registrar_aborta_si_goal_existente_apagado(monkeypatch):
         goals=goals,
     )
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
-    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
-    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(fr, "_sync", lambda cliente: None)
+    monkeypatch.setattr(fr, "_id_entidad", lambda c, p, k, e: 7)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
-    with pytest.raises(fc.Abortar, match="no esta listo"):
+    with pytest.raises(fd.Abortar, match="no esta listo"):
         fc.main()
     sellos = [
         p
@@ -1836,12 +1842,12 @@ def test_f1_registrar_aborta_si_ultimo_product_ad_failed(monkeypatch):
     )
     llamadas = []
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
-    monkeypatch.setattr(fc, "_sync", lambda c: llamadas.append("sync"))
+    monkeypatch.setattr(fr, "_sync", lambda c: llamadas.append("sync"))
     monkeypatch.setattr(
-        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+        fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
     )
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
-    with pytest.raises(fc.Abortar, match="incompleto"):
+    with pytest.raises(fd.Abortar, match="incompleto"):
         fc.main()
     assert llamadas == []
     assert not any(
@@ -1861,12 +1867,12 @@ def test_f1_registrar_aborta_si_semilla_final_planeada(monkeypatch):
     )
     llamadas = []
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
-    monkeypatch.setattr(fc, "_sync", lambda c: llamadas.append("sync"))
+    monkeypatch.setattr(fr, "_sync", lambda c: llamadas.append("sync"))
     monkeypatch.setattr(
-        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+        fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
     )
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
-    with pytest.raises(fc.Abortar, match="incompleto"):
+    with pytest.raises(fd.Abortar, match="incompleto"):
         fc.main()
     assert llamadas == []
 
@@ -1882,12 +1888,12 @@ def test_f1_registrar_aborta_si_paso_nunca_insertado(monkeypatch):
     )
     llamadas = []
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
-    monkeypatch.setattr(fc, "_sync", lambda c: llamadas.append("sync"))
+    monkeypatch.setattr(fr, "_sync", lambda c: llamadas.append("sync"))
     monkeypatch.setattr(
-        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+        fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
     )
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
-    with pytest.raises(fc.Abortar, match="ausente"):
+    with pytest.raises(fd.Abortar, match="ausente"):
         fc.main()
     assert llamadas == []
 
@@ -1904,13 +1910,13 @@ def test_f1_exige_ledger_completo_contra_postgres(monkeypatch):
         )
         omitir_pa = {(r, "product_ad") for r in fp.ROLES_ORDEN_CREACION}
         _siembra_ledger_pg(conn, "L1", _filas_ledger(plan, omitir=omitir_pa))
-        with pytest.raises(fc.Abortar, match="incompleto|ausente"):
-            fc._exige_ledger_completo(conn, plan, "L1")
+        with pytest.raises(fd.Abortar, match="incompleto|ausente"):
+            fr._exige_ledger_completo(conn, plan, "L1")
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote='L1'").fetchone()[0] == (
             "failed"
         )
         _siembra_ledger_pg(conn, "L1", [f for f in _filas_ledger(plan) if f[2] == "product_ad"])
-        fc._exige_ledger_completo(conn, plan, "L1")  # completo: no aborta
+        fr._exige_ledger_completo(conn, plan, "L1")  # completo: no aborta
 
 
 # ---------------------------------------------------------------------------
@@ -1952,7 +1958,7 @@ def test_f2_json_malformado_sella_failed_con_id_sin_siguiente_post(monkeypatch, 
     amazon._list = _list_con_orden
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="external_id="):
+    with pytest.raises(fd.Abortar, match="external_id="):
         fc.main()
     assert visto_en_list, "LIST debio invocarse"
     commits_antes, acks_antes = visto_en_list[0]
@@ -1975,7 +1981,7 @@ def test_f2_shape_malformado_no_escapa(monkeypatch, capsys, modo):
     amazon = _AmazonReadbackMalformado(modo)
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="external_id=|no cuadra"):
+    with pytest.raises(fd.Abortar, match="external_id=|no cuadra"):
         fc.main()
     assert _sellos(conn_admin, "failed")
     assert len(amazon.posts("/sp/campaigns")) == 1
@@ -1987,7 +1993,7 @@ def test_f2_ack_visible_en_otra_conexion_antes_de_list(monkeypatch):
 
     with db_fabrica("orbit_fab_f2") as conn:
         plan = _plan_min()
-        fc._inserta_lote(conn, "L2", plan, "h", "go")
+        fm._inserta_lote(conn, "L2", plan, "h", "go")
         visto = {}
 
         class _Cliente:
@@ -2012,11 +2018,11 @@ def test_f2_ack_visible_en_otra_conexion_antes_de_list(monkeypatch):
                     },
                 )
 
-        ctx = fc._Ctx(_Http(), "tok", _CREDS, _Cliente(), 101, conn, "L2")
-        monkeypatch.setattr(fc.time, "sleep", lambda s: None)
+        ctx = fm._Ctx(_Http(), "tok", _CREDS, _Cliente(), 101, conn, "L2")
+        monkeypatch.setattr(fm.time, "sleep", lambda s: None)
         paso = fp.pasos_del_rol(plan, "category_exact")[0]
-        with pytest.raises(fc.Abortar, match="external_id=camp-f2"):
-            fc._ejecuta_paso(ctx, paso, {})
+        with pytest.raises(fd.Abortar, match="external_id=camp-f2"):
+            fm._ejecuta_paso(ctx, paso, {})
         assert visto["fila"] == ("camp-f2", True, "planeado")
         final = conn.execute(
             "SELECT external_id, estado FROM fabrica_lote_paso WHERE lote='L2'"
@@ -2038,7 +2044,7 @@ def test_f3_dsn_ingest_antes_de_mutar(monkeypatch, capsys, ausente):
     else:
         monkeypatch.setenv("ORBIT_DSN_INGEST", "")
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="ORBIT_DSN_INGEST"):
+    with pytest.raises(fd.Abortar, match="ORBIT_DSN_INGEST"):
         fc.main()
     assert amazon.pedidos == []
     assert conn_admin.escrituras == []
@@ -2067,7 +2073,7 @@ def test_f4_http_5xx_es_incierto(monkeypatch, capsys, status):
     amazon = _Amazon5xx()
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="INCERTO"):
+    with pytest.raises(fd.Abortar, match="INCERTO"):
         fc.main()
     detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"][0]
     assert "INCERTO" in detenido["motivo"]
@@ -2087,7 +2093,7 @@ def test_f4_http_400_sigue_rechazado(monkeypatch, capsys):
     amazon = _Amazon(fallar_en=("/sp/campaigns", 1))
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="rechazado"):
+    with pytest.raises(fd.Abortar, match="rechazado"):
         fc.main()
     detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"][0]
     assert "INCERTO" not in detenido["motivo"]
@@ -2165,7 +2171,7 @@ def test_desarmar_pausa_las_5_y_apaga_sus_goals(monkeypatch, capsys):
     apagados = []
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon)
     monkeypatch.setattr(
-        fc.goals_write,
+        fl.goals_write,
         "edita_goal",
         lambda c, gid, **kw: apagados.append((gid, kw["enabled"])) or {},
     )
@@ -2195,7 +2201,7 @@ def test_desarmar_sin_go_es_dry_run_y_readback_malo_detiene(monkeypatch, capsys)
     monkeypatch.setattr(
         sys, "argv", ["fabrica_campanas.py", "--desarmar", "L1", "--acepto-mutacion-real"]
     )
-    with pytest.raises(fc.Abortar, match="go"):
+    with pytest.raises(fd.Abortar, match="go"):
         fc.main()
     amazon = _AmazonDesarme(estado_readback="ENABLED")
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon)
@@ -2204,7 +2210,7 @@ def test_desarmar_sin_go_es_dry_run_y_readback_malo_detiene(monkeypatch, capsys)
         "argv",
         ["fabrica_campanas.py", "--desarmar", "L1", "--acepto-mutacion-real", "--go", "pausa"],
     )
-    with pytest.raises(fc.Abortar, match="readback"):
+    with pytest.raises(fd.Abortar, match="readback"):
         fc.main()
     assert len(amazon.puts) == 1
 
@@ -2217,7 +2223,7 @@ def test_desarmar_lote_sin_pasos_applied_aborta(monkeypatch):
         "argv",
         ["fabrica_campanas.py", "--desarmar", "L9", "--acepto-mutacion-real", "--go", "x"],
     )
-    with pytest.raises(fc.Abortar, match="L9") as exc_info:
+    with pytest.raises(fd.Abortar, match="L9") as exc_info:
         fc.main()
     assert "applied, o failed" not in str(exc_info.value)
 
@@ -2237,7 +2243,7 @@ def test_desarmar_lote_failed_a_medias_pausa_lo_applied_y_lo_failed_con_external
         apagados.append((gid, kw))
         return {}
 
-    monkeypatch.setattr(fc.goals_write, "edita_goal", _edita)
+    monkeypatch.setattr(fl.goals_write, "edita_goal", _edita)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -2315,9 +2321,9 @@ def test_lote_v2_parcial_se_recupera_sin_post_de_creacion(monkeypatch):
     amazon = _AmazonRecuperacion()
     amazon.objetos[external] = payload
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
-    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
-    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
-    monkeypatch.setattr(fc.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
+    monkeypatch.setattr(fr, "_sync", lambda cliente: None)
+    monkeypatch.setattr(fr, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(fr.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
 
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L2"])
     assert fc.main() == 0
@@ -2402,13 +2408,13 @@ def test_ensayo_staging_lote_v2_parcial_se_recupera_sin_post_de_creacion(monkeyp
         amazon = _AmazonRecuperacion()
         amazon.objetos[external] = payload
         _frontera_mutacion(monkeypatch, _ConnFalsa(), _ConnFalsa(), amazon, stub_registrar=False)
-        monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+        monkeypatch.setattr(fr, "_sync", lambda cliente: None)
 
         def conecta_admin(dsn):
             assert dsn == "dsn-admin"
             return psycopg.connect(_test_dsn(), dbname=conn.info.dbname)
 
-        monkeypatch.setattr(fc, "connect", conecta_admin)
+        monkeypatch.setattr(fm, "connect", conecta_admin)
         monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L2"])
         assert fc.main() == 0
         monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
@@ -2484,7 +2490,7 @@ def test_reconciliar_promueve_solo_lo_verificado_y_aborta_si_queda_sin_verificar
     }
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L1"])
-    with pytest.raises(fc.Abortar, match="sin verificar"):
+    with pytest.raises(fd.Abortar, match="sin verificar"):
         fc.main()
     promovidos = [p for s, p in conn_admin.escrituras if "estado = 'applied'" in s.lower()]
     assert [p[-1] for p in promovidos] == [1, 3]
@@ -2501,7 +2507,7 @@ def test_reconciliar_aborta_si_vive_pero_no_cuadra(monkeypatch, capsys):
     }
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L1"])
-    with pytest.raises(fc.Abortar, match="no cuadran"):
+    with pytest.raises(fd.Abortar, match="no cuadran"):
         fc.main()
     promovidos = [p for s, p in conn_admin.escrituras if "estado = 'applied'" in s.lower()]
     assert [p[-1] for p in promovidos] == [1]
@@ -2533,7 +2539,7 @@ def test_reconciliar_con_plataforma_excluye_la_otra_y_no_la_cuenta(monkeypatch, 
     monkeypatch.setattr(
         sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--plataforma", "amazon_mx"]
     )
-    with pytest.raises(fc.Abortar, match="sin verificar"):
+    with pytest.raises(fd.Abortar, match="sin verificar"):
         fc.main()
     assert amazon.posts("/sp/campaigns") == []
     lists = [p for p in amazon.pedidos if str(p.url).endswith("/list")]
@@ -2553,33 +2559,33 @@ def test_reconciliar_lote_y_plataforma_cruzados_aborta(monkeypatch):
         "argv",
         ["fabrica_campanas.py", "--reconciliar", "--lote", "L1", "--plataforma", "amazon_us"],
     )
-    with pytest.raises(fc.Abortar, match="contradictorios"):
+    with pytest.raises(fd.Abortar, match="contradictorios"):
         fc.main()
 
 
 @_skip_db
 def test_sql_del_ledger_contra_postgres_real():
     with db_fabrica("orbit_fab_sql") as conn:
-        fc._inserta_lote(conn, "L1", _plan_min(), "h", "go")
-        ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")
+        fm._inserta_lote(conn, "L1", _plan_min(), "h", "go")
+        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
         paso_c = fp.Paso("category_exact", "campaign", "/sp/campaigns", {"name": "x"}, "c")
         paso_a = fp.Paso("category_phrase", "ad_group", "/sp/adGroups", {"name": "y"}, "a")
-        pid1 = fc._inserta_paso(ctx, paso_c, {"name": "x"})
-        fc._sella_paso(ctx, pid1, True, "c-1", {"ok": 1}, "ENABLED")
-        pid2 = fc._inserta_paso(ctx, paso_a, {"name": "y"})
-        fc._sella_paso(ctx, pid2, False, "ag-2", {"status": 207}, "PAUSED")
+        pid1 = fm._inserta_paso(ctx, paso_c, {"name": "x"})
+        fm._sella_paso(ctx, pid1, True, "c-1", {"ok": 1}, "ENABLED")
+        pid2 = fm._inserta_paso(ctx, paso_a, {"name": "y"})
+        fm._sella_paso(ctx, pid2, False, "ag-2", {"status": 207}, "PAUSED")
         paso_c2 = fp.Paso("category_broad", "campaign", "/sp/campaigns", {"name": "z"}, "c")
-        pid3 = fc._inserta_paso(ctx, paso_c2, {"name": "z"})
-        fc._sella_paso(ctx, pid3, False, "c-3", {"status": 207}, "PAUSED")
+        pid3 = fm._inserta_paso(ctx, paso_c2, {"name": "z"})
+        fm._sella_paso(ctx, pid3, False, "c-3", {"status": 207}, "PAUSED")
         paso_c3 = fp.Paso("auto_discovery", "campaign", "/sp/campaigns", {"name": "w"}, "c")
-        pid4 = fc._inserta_paso(ctx, paso_c3, {"name": "w"})
-        fc._sella_paso(ctx, pid4, False, None, {"status": 400}, None)
-        filas = conn.execute(fc._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
+        pid4 = fm._inserta_paso(ctx, paso_c3, {"name": "w"})
+        fm._sella_paso(ctx, pid4, False, None, {"status": 400}, None)
+        filas = conn.execute(fl._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
         assert [(f[0], f[1], f[2]) for f in filas] == [
             ("category_exact", "c-1", None),
             ("category_broad", "c-3", None),
         ]
-        pend = conn.execute(fc._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
+        pend = conn.execute(fl._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
         esperado = [
             (pid2, "ad_group", "/sp/adGroups", "ag-2"),
             (pid3, "campaign", "/sp/campaigns", "c-3"),
@@ -2587,12 +2593,12 @@ def test_sql_del_ledger_contra_postgres_real():
         ]
         assert [(p[0], p[4], p[5], p[6]) for p in pend] == esperado
         assert {p[3] for p in pend} == {"amazon_mx"}
-        conn.execute(fc._SQL_PROMUEVE_APPLIED, (json.dumps({"fuente": "t"}), "ENABLED", pid2))
-        conn.execute(fc._SQL_PROMUEVE_APPLIED, (json.dumps({"fuente": "t"}), "ENABLED", pid3))
+        conn.execute(fl._SQL_PROMUEVE_APPLIED, (json.dumps({"fuente": "t"}), "ENABLED", pid2))
+        conn.execute(fl._SQL_PROMUEVE_APPLIED, (json.dumps({"fuente": "t"}), "ENABLED", pid3))
         conn.commit()
-        pend_final = conn.execute(fc._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
+        pend_final = conn.execute(fl._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
         assert [(p[0], p[6]) for p in pend_final] == [(pid4, None)]
-        fc._sella_lote(conn, "L1", "failed", "detalle")
+        fm._sella_lote(conn, "L1", "failed", "detalle")
         fila = conn.execute("SELECT estado, detalle FROM fabrica_lote WHERE lote = 'L1'").fetchone()
         assert fila == ("failed", "detalle")
 
@@ -2641,8 +2647,8 @@ def test_mutar_plan_dos_roles_crea_dos_y_registra_impulso(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _Amazon()
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon, stub_registrar=False)
-            monkeypatch.setattr(fc, "_sync", lambda cliente: None)
-            assert fc._mutar(args, plan, huella, lote="i1-dos") == 0
+            monkeypatch.setattr(fr, "_sync", lambda cliente: None)
+            assert fm._mutar(args, plan, huella, lote="i1-dos") == 0
         assert len(amazon.posts("/sp/campaigns")) == 2
         assert len(amazon.posts("/sp/adGroups")) == 2
         assert conn.execute("SELECT count(*) FROM campana_grupo_rol").fetchone() == (2,)
@@ -2677,9 +2683,9 @@ def test_registrar_tipifica_por_roles_de_impulso_no_literal(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _Amazon()
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon, stub_registrar=False)
-            monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+            monkeypatch.setattr(fr, "_sync", lambda cliente: None)
             monkeypatch.setattr(fp, "ROLES_IMPULSO", ("solo_un_rol",))
-            assert fc._mutar(args, plan, huella, lote="i1-tupla") == 0
+            assert fm._mutar(args, plan, huella, lote="i1-tupla") == 0
         assert conn.execute("SELECT tipo FROM campana_grupo").fetchone() == ("fabrica5",)
 
 
@@ -2690,8 +2696,8 @@ def test_mutar_plan_dos_roles_con_esperado_cinco_aborta_sin_post(monkeypatch):
     args = SimpleNamespace(esperado=5, huella=huella, go="impulso test")
     amazon = _Amazon()
     _frontera_mutacion(monkeypatch, _conn_plan(), _ConnFalsa(), amazon)
-    with pytest.raises(fc.Abortar, match="esperado 5"):
-        fc._mutar(args, plan, huella, lote="i1-aborta")
+    with pytest.raises(fd.Abortar, match="esperado 5"):
+        fm._mutar(args, plan, huella, lote="i1-aborta")
     assert amazon.pedidos == []
 
 
@@ -2700,7 +2706,7 @@ def test_mutar_plan_dos_roles_con_esperado_cinco_aborta_sin_post(monkeypatch):
 
 def _ctx_pausa(conn, transporte, lote):
     cliente_http = httpx.Client(transport=transporte)
-    return fc._Ctx(cliente_http, "tok", _CREDS, _ClienteLectura(transporte), 101, conn, lote)
+    return fm._Ctx(cliente_http, "tok", _CREDS, _ClienteLectura(transporte), 101, conn, lote)
 
 
 def _lote_applied_dos(conn):
@@ -2758,7 +2764,7 @@ def test_pausar_lote_fila_pre_put_y_no_toca_goals():
             (gid,),
         )
         ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("PAUSED")), "LP2")
-        fc.pausar_lote(ctx, "LP2", "dueno")
+        fl.pausar_lote(ctx, "LP2", "dueno")
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
             "pausado",
         )
@@ -2779,7 +2785,7 @@ def test_reanudar_lote_revive():
         _lote_applied_dos(conn)
         conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = 'LP2'")
         ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("ENABLED")), "LP2")
-        fc.reanudar_lote(ctx, "LP2", "dueno")
+        fl.reanudar_lote(ctx, "LP2", "dueno")
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
             "applied",
         )
@@ -2836,7 +2842,7 @@ def test_pausar_lote_continua_el_ledger_y_no_repite_puts():
         _lote_applied_orden_real(conn)
         puts: list = []
         ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa_cuenta(puts)), "LP1")
-        fc.pausar_lote(ctx, "LP1", "dueno")
+        fl.pausar_lote(ctx, "LP1", "dueno")
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP1'").fetchone() == (
             "pausado",
         )
@@ -2846,7 +2852,7 @@ def test_pausar_lote_continua_el_ledger_y_no_repite_puts():
         ).fetchall() == [(1,), (2,), (3,), (4,)]
         puts.clear()
         ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa_cuenta(puts)), "LP1")
-        fc.reanudar_lote(ctx2, "LP1", "dueno")
+        fl.reanudar_lote(ctx2, "LP1", "dueno")
         assert [p for _, p in puts] == ["ENABLED", "ENABLED"]
 
 
@@ -2931,7 +2937,7 @@ def test_r14r2_desarmar_con_put_rechazado_sella_el_paso_failed(monkeypatch):
         dbname = conn.info.dbname
         amazon = _AmazonDesarmeRechaza()
         _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
-        with pytest.raises(fc.Abortar, match="rechazado"):
+        with pytest.raises(fd.Abortar, match="rechazado"):
             _corre_desarmar(monkeypatch, amazon)
         conn2 = psycopg.connect(dsn, dbname=dbname)
         try:
@@ -2998,7 +3004,7 @@ def test_r14r3_desarmar_con_put_timeout_sella_el_paso_failed(monkeypatch):
         dbname = conn.info.dbname
         amazon = _AmazonDesarmeTimeout()
         _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
-        with pytest.raises(fc.Abortar, match="INCERTO"):
+        with pytest.raises(fd.Abortar, match="INCERTO"):
             _corre_desarmar(monkeypatch, amazon)
         conn2 = psycopg.connect(dsn, dbname=dbname)
         try:
@@ -3021,7 +3027,7 @@ def test_r14r3_desarmar_con_readback_distinto_sella_el_paso_failed(monkeypatch):
         dbname = conn.info.dbname
         amazon = _AmazonDesarme(estado_readback="ENABLED")
         _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
-        with pytest.raises(fc.Abortar, match="readback"):
+        with pytest.raises(fd.Abortar, match="readback"):
             _corre_desarmar(monkeypatch, amazon)
         conn2 = psycopg.connect(dsn, dbname=dbname)
         try:
@@ -3048,8 +3054,8 @@ def test_r14r3_desarmar_con_readback_que_levanta_sella_el_paso_failed(monkeypatc
         def _truena(*args, **kwargs):
             raise RuntimeError("lectura caida")
 
-        monkeypatch.setattr(fc, "_readback", _truena)
-        with pytest.raises(fc.Abortar, match="readback"):
+        monkeypatch.setattr(fm, "_readback", _truena)
+        with pytest.raises(fd.Abortar, match="readback"):
             _corre_desarmar(monkeypatch, amazon)
         conn2 = psycopg.connect(dsn, dbname=dbname)
         try:
@@ -3066,13 +3072,13 @@ def test_r14r3_desarmar_con_readback_que_levanta_sella_el_paso_failed(monkeypatc
 def test_r14r3_sql_campanas_del_lote_respeta_el_orden_del_ledger():
     """R14-r3: el orden no es el alfabetico de rol."""
     with db_fabrica("orbit_fc_r14r3_orden") as conn:
-        fc._inserta_lote(conn, "L1", _plan_min(), "h", "go")
-        ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")
+        fm._inserta_lote(conn, "L1", _plan_min(), "h", "go")
+        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
         for rol, ext in (("auto_discovery", "c-auto"), ("category_exact", "c-exact")):
             paso = fp.Paso(rol, "campaign", "/sp/campaigns", {"name": "x"}, "c")
-            pid = fc._inserta_paso(ctx, paso, {"name": "x"})
-            fc._sella_paso(ctx, pid, True, ext, {"ok": 1}, "ENABLED")
-        filas = conn.execute(fc._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
+            pid = fm._inserta_paso(ctx, paso, {"name": "x"})
+            fm._sella_paso(ctx, pid, True, ext, {"ok": 1}, "ENABLED")
+        filas = conn.execute(fl._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
         assert [f[0] for f in filas] == ["auto_discovery", "category_exact"]
 
 
@@ -3086,7 +3092,7 @@ def test_r14r4_desarmar_un_lote_ya_desarmado_aborta_sin_puts(monkeypatch):
         conn.commit()
         amazon = _AmazonDesarme()
         _frontera_mutacion(monkeypatch, conn, conn, amazon, stub_registrar=False)
-        with pytest.raises(fc.Abortar, match="desarmado"):
+        with pytest.raises(fd.Abortar, match="desarmado"):
             _corre_desarmar(monkeypatch, amazon)
         assert amazon.puts == []
 
@@ -3131,13 +3137,13 @@ def test_pausar_lote_rechaza_transiciones_ilegales():
             " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'desarmado')"
         )
         ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("PAUSED")), "LD")
-        with pytest.raises(fc.Abortar, match="nunca revive"):
-            fc.pausar_lote(ctx, "LD", "dueno")
-        with pytest.raises(fc.Abortar, match="no existe"):
-            fc.pausar_lote(ctx, "LX", "dueno")
+        with pytest.raises(fd.Abortar, match="nunca revive"):
+            fl.pausar_lote(ctx, "LD", "dueno")
+        with pytest.raises(fd.Abortar, match="no existe"):
+            fl.pausar_lote(ctx, "LX", "dueno")
         ctx2 = _ctx_pausa(conn, httpx.MockTransport(_handler_pausa("ENABLED")), "LP2")
-        with pytest.raises(fc.Abortar, match="desde pausado"):
-            fc.reanudar_lote(ctx2, "LP2", "dueno")
+        with pytest.raises(fd.Abortar, match="desde pausado"):
+            fl.reanudar_lote(ctx2, "LP2", "dueno")
 
 
 class _AmazonConPausa(_Amazon):
@@ -3157,7 +3163,7 @@ class _AmazonConPausa(_Amazon):
             self.objetos.setdefault(cuerpo["campaignId"], {})["state"] = cuerpo["state"]
             return httpx.Response(207, json={"campaigns": {"success": [{"index": 0}], "error": []}})
         if request.method == "POST":
-            path = str(request.url).replace(fc.API, "")
+            path = str(request.url).replace(fm.API, "")
             n = self.creados.get(path, 0) + 1
             if (path, n) in self.post_500_creando:
                 cuerpo = json.loads(request.content)
@@ -3194,8 +3200,8 @@ def test_mutar_revierte_pausa_creadas_al_fallar_segunda(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonConPausa(fallar_en=("/sp/campaigns", 2))
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar):
-                fc._mutar(args, plan, huella, lote="r3-revierte", revierte_al_fallar=True)
+            with pytest.raises(fd.Abortar):
+                fm._mutar(args, plan, huella, lote="r3-revierte", revierte_al_fallar=True)
         assert amazon.pausadas == ["campaigns-1"]
         assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
         fila = conn.execute(
@@ -3223,8 +3229,8 @@ def test_r09r4_n10_activar_lote_sin_campanas_aborta():
             " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'planeado')"
         )
         ctx = SimpleNamespace(conn_admin=conn, lote="r4-n10")
-        with pytest.raises(fc.Abortar, match="nada que activar"):
-            fc._activa_campanas(ctx, "r4-n10")
+        with pytest.raises(fd.Abortar, match="nada que activar"):
+            fm._activa_campanas(ctx, "r4-n10")
 
 
 @_skip_db
@@ -3245,8 +3251,8 @@ def test_r09r4_n19_reactiva_no_revive_desarmado():
             " 'aros', 'Base', 'go', 'h', '{}', 'shadow', 'desarmado')"
         )
         ctx = SimpleNamespace(conn_admin=conn, lote="r4-n19")
-        with pytest.raises(fc.Abortar, match="nunca revive"):
-            fc.reactiva_lote(ctx, "r4-n19", "impulso-vigia")
+        with pytest.raises(fd.Abortar, match="nunca revive"):
+            fl.reactiva_lote(ctx, "r4-n19", "impulso-vigia")
 
 
 class _AmazonPausaFalla(_AmazonConPausa):
@@ -3299,8 +3305,8 @@ def test_r09r4_l3_red_en_activacion_revierte_y_falla_cerrado(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonPausaFalla(put_falla={2: "red"})
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar):
-                fc._mutar(
+            with pytest.raises(fd.Abortar):
+                fm._mutar(
                     args, plan, huella, lote="r4-l3", revierte_al_fallar=True, crear_pausado=True
                 )
         assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
@@ -3327,8 +3333,8 @@ def test_r09r4_l3b_timeout_tras_aplicar_revierte_ambas(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonPausaFalla(put_falla={2: "expira"})
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar):
-                fc._mutar(
+            with pytest.raises(fd.Abortar):
+                fm._mutar(
                     args, plan, huella, lote="r4-l3b", revierte_al_fallar=True, crear_pausado=True
                 )
         assert amazon.objetos["campaigns-1"]["state"] == "PAUSED"
@@ -3353,8 +3359,8 @@ def test_r09r4_n06_rollback_con_readback_malo_lo_registra(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonPausaFalla(put_falla={2: "400", 3: "sordo", 4: "sordo"})
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar) as exc:
-                fc._mutar(
+            with pytest.raises(fd.Abortar) as exc:
+                fm._mutar(
                     args, plan, huella, lote="r4-n06", revierte_al_fallar=True, crear_pausado=True
                 )
         assert "rollback incompleto" in str(exc.value)
@@ -3382,8 +3388,8 @@ def test_r09r4_l2_rollback_fallido_lo_dice(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonPausaFalla(put_falla={2: "400", 3: "400", 4: "400"})
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar) as exc:
-                fc._mutar(
+            with pytest.raises(fd.Abortar) as exc:
+                fm._mutar(
                     args, plan, huella, lote="r4-l2m", revierte_al_fallar=True, crear_pausado=True
                 )
         assert "rollback incompleto" in str(exc.value)
@@ -3407,8 +3413,8 @@ def test_r09r4_n08_activa_no_ignora_ack(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonPausaFalla(put_falla={2: "miente"})
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar) as exc:
-                fc._mutar(
+            with pytest.raises(fd.Abortar) as exc:
+                fm._mutar(
                     args, plan, huella, lote="r4-n08", revierte_al_fallar=True, crear_pausado=True
                 )
         assert "PUT ENABLED de campaigns-2 rechazado (status 400)" in str(exc.value)
@@ -3432,8 +3438,8 @@ def test_r09r4_n09_activa_verifica_readback(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonPausaFalla(put_falla={1: "sordo", 2: "sordo"})
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar) as exc:
-                fc._mutar(
+            with pytest.raises(fd.Abortar) as exc:
+                fm._mutar(
                     args, plan, huella, lote="r4-n09", revierte_al_fallar=True, crear_pausado=True
                 )
         assert "tras activar != ENABLED (PAUSED)" in str(exc.value)
@@ -3457,8 +3463,8 @@ def test_mutar_sin_revierte_deja_enabled(monkeypatch):
         with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
             amazon = _AmazonConPausa(fallar_en=("/sp/campaigns", 2))
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar):
-                fc._mutar(args, plan, huella, lote="r3-sinrev")
+            with pytest.raises(fd.Abortar):
+                fm._mutar(args, plan, huella, lote="r3-sinrev")
         assert amazon.pausadas == []
         fila = conn.execute(
             "SELECT estado, detalle FROM fabrica_lote WHERE lote = 'r3-sinrev'"
@@ -3483,7 +3489,7 @@ def test_mutar_crear_pausado_nace_pausado_y_activa_al_final(monkeypatch):
             amazon = _AmazonConPausa()
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
             assert (
-                fc._mutar(
+                fm._mutar(
                     args,
                     plan,
                     huella,
@@ -3519,8 +3525,8 @@ def test_mutar_crear_pausado_fantasma_500_no_gasta(monkeypatch):
             amazon = _AmazonConPausa()
             amazon.post_500_creando.add(("/sp/campaigns", 2))
             _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
-            with pytest.raises(fc.Abortar, match="INCERTO"):
-                fc._mutar(
+            with pytest.raises(fd.Abortar, match="INCERTO"):
+                fm._mutar(
                     args,
                     plan,
                     huella,
@@ -3571,7 +3577,7 @@ def test_reactiva_lote_pausado_activa_todo_y_sella_applied():
         estados = {"c-0": "PAUSED", "c-1": "PAUSED"}
         puts = []
         ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_estados(estados, puts)), "LP2")
-        fc.reactiva_lote(ctx, "LP2", "dueno")
+        fl.reactiva_lote(ctx, "LP2", "dueno")
         assert puts == [("c-0", "ENABLED"), ("c-1", "ENABLED")]
         assert estados == {"c-0": "ENABLED", "c-1": "ENABLED"}
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
@@ -3593,7 +3599,7 @@ def test_reactiva_lote_applied_solo_suelta():
         estados = {"c-0": "ENABLED", "c-1": "PAUSED"}
         puts = []
         ctx = _ctx_pausa(conn, httpx.MockTransport(_handler_estados(estados, puts)), "LP2")
-        fc.reactiva_lote(ctx, "LP2", "dueno")
+        fl.reactiva_lote(ctx, "LP2", "dueno")
         assert puts == [("c-1", "ENABLED")]
         assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'LP2'").fetchone() == (
             "applied",
@@ -3624,8 +3630,8 @@ def test_r09r5_g9_pausa_a_medias_deja_actor():
             )
 
         ctx = _ctx_pausa(conn, httpx.MockTransport(handler), "LP2")
-        with pytest.raises(fc.Abortar):
-            fc.pausar_lote(ctx, "LP2", "dueno")
+        with pytest.raises(fd.Abortar):
+            fl.pausar_lote(ctx, "LP2", "dueno")
         assert conn.execute(
             "SELECT pausado_por FROM fabrica_lote WHERE lote = 'LP2'"
         ).fetchone() == ("dueno",)
@@ -3645,8 +3651,8 @@ def test_r09r5_f05_put_timeout_declara_incierto():
         cred=SimpleNamespace(client_id="c"),
         profile="p",
     )
-    with pytest.raises(fc.Abortar, match="INCERTO"):
-        fc._put_estado_campana(ctx, "c-1", "PAUSED")
+    with pytest.raises(fd.Abortar, match="INCERTO"):
+        fm._put_estado_campana(ctx, "c-1", "PAUSED")
 
 
 def test_arreglos04_w_n_la_terminal_rechaza_un_presupuesto_que_no_cabe(monkeypatch):
@@ -3659,6 +3665,6 @@ def test_arreglos04_w_n_la_terminal_rechaza_un_presupuesto_que_no_cabe(monkeypat
     )
     _frontera_lectura(monkeypatch, conn)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *_con_presupuesto(ARGS_BASE, "1e26")])
-    with pytest.raises(fc.Abortar, match="fuera del rango permitido"):
+    with pytest.raises(fd.Abortar, match="fuera del rango permitido"):
         fc.main()
     assert conn.escrituras == [] and conn.closes >= 1
