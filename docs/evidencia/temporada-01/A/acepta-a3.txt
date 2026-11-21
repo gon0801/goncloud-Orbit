@@ -1,0 +1,13 @@
+# Acepta A.3 (fila A.3 del plan) — SHA del head
+Comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_config_write.py tests/test_settings_escritura.py tests/test_avisos_campana.py tests/test_pantalla_dinero.py
+Nota de esta PC (Windows): --basetemp propio por permisos de pytest (el cleanup de symlinks falla en este usuario).
+
+```
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+112 passed, 1 warning in 50.50s
+```
+
+Re-ejecucion tras la segunda ronda de revision (incluye test_api_dashboard que siembra las vistas de margen):
+191 passed, 1 warning in 105.82s (0:01:45)

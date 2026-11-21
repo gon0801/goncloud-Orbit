@@ -1809,16 +1809,22 @@ def _conn_campanas(
     regresables=(),
     ultimo_precio=(),
 ):
+    # TEMPORADA 01 A: la secuencia real por plataforma es
+    # ubicaciones, umbral(settings), campanas, topada(settings), gasto,
+    # fuera, configs, regresables, ultimo precio y, al armar los avisos,
+    # umbral(settings) + topada(settings).
     return _Conn9(
         [
             list(ubicaciones),
             list(settings),
             list(campanas),
+            list(settings),
             list(gasto_diario),
             [],
             list(configs_hist),
             list(regresables),
             list(ultimo_precio),
+            list(settings),
             list(settings),
         ]
     )
@@ -1899,7 +1905,7 @@ def test_avisar_campanas_lectura_us_fallida_no_tumba_mx(monkeypatch, canal_ok, c
 
     monkeypatch.setattr(pd, "lee_ubicaciones", _ubi)
     monkeypatch.setattr(pd, "lee_campanas", lambda conn, **kwargs: ())
-    conn = _Conn9([[({},)]])
+    conn = _Conn9([[({},)], [({})], [({})]])
     with caplog.at_level(logging.WARNING):
         salieron = notifica_campanas.avisar_campanas(
             conn,

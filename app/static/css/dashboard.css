@@ -1151,3 +1151,9 @@ details.detail-box[open] > summary {
 .salud-datos.num,
 .salud-hecho p.num,
 .salud-jev p.num { text-align: left; }
+
+/* TEMPORADA 01 A: tarjeta «Temporadas de venta» */
+.temporada-meses { display: flex; flex-wrap: wrap; gap: 6px; }
+.temporada-meses label { display: inline-flex; flex-direction: column; gap: 2px; font-size: 0.85em; }
+.temporada-meses select { width: 76px; }
+[data-temporada] fieldset { margin-top: 8px; }

@@ -47,7 +47,7 @@ import logging
 import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -268,6 +268,19 @@ class CuerpoSettings(BaseModel):
     resumen_acos_objetivo: dict[str, Decimal | str | None] | None = None
     # AUTO-03 C.7: limites de la pausa por producto (None = no tocar).
     limites_pausa: CuerpoLimitesPausa | None = None
+    # TEMPORADA 01 A: tarjeta «Temporadas de venta» (global; se guarda igual
+    # desde cualquier plataforma, como precio_modo_global). Los objetos van
+    # a proposito con tipo Any: Pydantic NO convierte y temporada.valida
+    # revisa el tipo crudo antes que nada, asi un booleano en un campo de
+    # numero se rechaza con el mensaje de la tabla y nunca llega como 0 o 1.
+    temporada: Any = None
+    campana_topada: Any = None
+    temporada_modo: Any = None
+    meta_alta: Any = None
+    # Subida rapida de bids, bajo «Motor de bids» de la tarjeta de la
+    # plataforma (el motor que la lee llega con el bloque C).
+    recuperacion_modo: Literal["off", "shadow", "live"] | None = None
+    recuperacion_memoria_dias: Any = None
 
 
 # Transicion atomica del veto: el WHERE de estados ES la carrera contra el
@@ -565,6 +578,12 @@ def editar_settings(
             else productos.LimitesPausa(
                 limites.clics, productos.Dinero(limites.gasto.valor, limites.gasto.moneda)
             ),
+            temporada=cuerpo.temporada,
+            campana_topada=cuerpo.campana_topada,
+            temporada_modo=cuerpo.temporada_modo,
+            meta_alta=cuerpo.meta_alta,
+            recuperacion_modo=cuerpo.recuperacion_modo,
+            recuperacion_memoria_dias=cuerpo.recuperacion_memoria_dias,
         )
     except tuple(_ERRORES_SETTINGS) as exc:
         raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None

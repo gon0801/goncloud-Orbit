@@ -1,0 +1,74 @@
+{
+  "resumen": {
+    "hoy": "2026-11-21",
+    "fase_hoy": "alta",
+    "frase_hoy": "Hoy: temporada alta. Meta de ACoS 25 % en MX y 45 % en US.",
+    "proximos": [
+      {
+        "fecha": "2026-12-01",
+        "tipo": "sale_alta",
+        "frase": "La meta de ACoS regresa a la normal."
+      },
+      {
+        "fecha": "2027-01-01",
+        "tipo": "entra_baja",
+        "frase": "Empieza la temporada baja: Orbit baja todos los bids 30 %."
+      },
+      {
+        "fecha": "2027-02-08",
+        "tipo": "restaura",
+        "frase": "Empieza la preparación: los bids regresan a como estaban antes de la baja y Orbit reactiva las keywords que pausó durante la baja."
+      },
+      {
+        "fecha": "2027-03-01",
+        "tipo": "entra_alta",
+        "frase": "Empieza la temporada alta. Meta de ACoS 25 % en MX y 45 % en US."
+      },
+      {
+        "fecha": "2027-05-01",
+        "tipo": "entra_baja",
+        "frase": "Empieza la temporada baja: Orbit baja todos los bids 30 %."
+      },
+      {
+        "fecha": "2027-05-01",
+        "tipo": "sale_alta",
+        "frase": "La meta de ACoS regresa a la normal."
+      },
+      {
+        "fecha": "2027-07-01",
+        "tipo": "restaura",
+        "frase": "Termina la baja: los bids regresan. Sigue un mes normal."
+      },
+      {
+        "fecha": "2027-09-10",
+        "tipo": "prepara_alta",
+        "frase": "Empieza la previa de la temporada alta; todavía no cambia nada."
+      },
+      {
+        "fecha": "2027-10-01",
+        "tipo": "entra_alta",
+        "frase": "Empieza la temporada alta. Meta de ACoS 25 % en MX y 45 % en US."
+      }
+    ],
+    "aviso_cambio": null
+  },
+  "mensaje": "Guardado. Próximo cambio: el 1 de diciembre la meta de ACoS regresa a la normal. La próxima preparación empieza el 8 de febrero.",
+  "plataformas": {
+    "amazon_mx": {
+      "equilibrio": "10.0",
+      "linea": "Punto de equilibrio con el costo de hoy: 10.0 %. Arriba de ese ACoS pierdes dinero en cada venta.",
+      "razon": null,
+      "aviso": "Con una meta de 25 % en temporada alta, Orbit acepta ventas que pierden dinero en Amazon MX: las que salen con un ACoS entre tu punto de equilibrio, 10.0 %, y 25 %. Con tu meta de hoy de 25 %, Orbit ya acepta ventas que pierden dinero en Amazon MX: las que salen con un ACoS entre tu punto de equilibrio, 10.0 %, y 25 %.",
+      "frase_meta_hoy": "Hoy tu meta es 25 %.",
+      "meta_alta_frase": "En temporada alta: 25 %."
+    },
+    "amazon_us": {
+      "equilibrio": null,
+      "linea": null,
+      "razon": "sin margen medido en la ventana",
+      "aviso": null,
+      "frase_meta_hoy": null,
+      "meta_alta_frase": "En temporada alta: 45 %."
+    }
+  }
+}

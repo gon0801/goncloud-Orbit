@@ -32,7 +32,7 @@ import datetime as dt
 import logging
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -84,7 +84,7 @@ from app.dashboard_resumen import resumen as resumen_multicanal
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
 from app.etiquetas import ETIQUETAS, TIPO_TARGET, etiqueta, motivo_decision_es
 from app.optimizer import goals as g
-from app.optimizer import hygiene
+from app.optimizer import hygiene, temporada
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
 from app.redaction import install_scrub_filter, scrub
@@ -903,7 +903,11 @@ def _avisos_campana_de(conn: ConexionLectura, plataforma: str) -> list[str] | No
         return [
             aviso.frase
             for aviso in ac.avisos_del_dia(
-                por_ubi, por_camp, plataforma=plataforma, gasto_para_concluir=umbral
+                por_ubi,
+                por_camp,
+                plataforma=plataforma,
+                gasto_para_concluir=umbral,
+                topada=pd.campana_topada_vigente(conn),
             )
         ]
     except Exception as exc:
@@ -1480,6 +1484,373 @@ def inertes(conn: ConexionLectura) -> dict:
     return {"totales": totales, "items": items, "lotes": lotes}
 
 
+# TEMPORADA 01 A: tarjeta «Temporadas de venta». La lectura del equilibrio es
+# la MISMA vista que lee el ciclo (un numero, una fuente) y el motivo de
+# abstencion sale del MISMO resolver (goals.motivo_dato_invalido). La columna
+# fees_sin_tipo de la vista distingue «cargos de Amazon sin clasificar» del
+# resto de sin_margen (diseno, «Punto de equilibrio», «En Ajustes»).
+_SQL_EQUILIBRIO_TEMPORADA = """
+SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
+       cargos_con_orden, cargos_sin_orden, cogs, cobertura, dias_con_venta,
+       fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda,
+       cogs_vigente, cobertura_vigente, margen_vigente_pct
+  FROM v_target_margen_plataforma
+ WHERE platform = %s::platform
+"""
+
+# Columnas de _SQL_EQUILIBRIO_TEMPORADA, para leer la fila por nombre
+# (sin el prefijo _SQL_: el test de parseo recorre las constantes _SQL_*).
+COLUMNAS_EQUILIBRIO_TEMPORADA = (
+    "platform",
+    "ventana_desde",
+    "ventana_hasta",
+    "venta_total",
+    "venta_cubierta",
+    "cargos_con_orden",
+    "cargos_sin_orden",
+    "cogs",
+    "cobertura",
+    "dias_con_venta",
+    "fees_sin_tipo",
+    "margen_neto_pct",
+    "ledger_fresco_at",
+    "moneda",
+    "cogs_vigente",
+    "cobertura_vigente",
+    "margen_vigente_pct",
+)
+
+# Las razones en llano de «sin equilibrio» (diseno, «En Ajustes»); la de
+# sin_margen se especializa abajo con fees_sin_tipo.
+RAZON_SIN_EQUILIBRIO = {
+    "cobertura_baja": "faltan costos de algunos productos",
+    "ledger_rancio": "los datos de ventas tienen más de 3 días",
+    "ventana_corta": "hay pocas ventas en los últimos 90 días",
+    "sin_margen": "sin margen medido en la ventana",
+}
+
+
+def _pct_un_decimal(valor: Decimal) -> str:
+    """El equilibrio siempre con un decimal (45.5, 29.0), como el diseno."""
+    return f"{valor.quantize(Decimal('0.1')):.1f}"
+
+
+def _numero_corto(valor: Decimal) -> str:
+    """Meta en puntos sin ceros colgando: 25 -> «25», 22.75 -> «22.75»."""
+    return format(valor.normalize(), "f")
+
+
+def _equilibrio_de_fila(fila: Mapping, hoy: dt.date) -> dict:
+    """Fila de v_target_margen_plataforma -> equilibrio y razon en llano.
+    Sin equilibrio la razon dice por que (regla 3: None se explica, jamas se
+    rellena); fees_sin_tipo > 0 nombra los cargos sin clasificar."""
+    medicion = g.medicion_desde_fila(fila)
+    motivo = g.motivo_dato_invalido(medicion, hoy)
+    if motivo is None:
+        return {"equilibrio": medicion.margen_neto_pct, "razon": None}
+    if motivo == "sin_margen" and (fila.get("fees_sin_tipo") or 0) > 0:
+        razon = "hay cargos de Amazon sin clasificar"
+    else:
+        razon = RAZON_SIN_EQUILIBRIO.get(motivo, RAZON_SIN_EQUILIBRIO["sin_margen"])
+    return {"equilibrio": None, "razon": razon}
+
+
+def equilibrio_temporada(
+    conn: ConexionLectura,
+    plataforma: str,
+    *,
+    meta_hoy: Decimal | None,
+    peldano: str | None,
+    meta_alta: Decimal | None,
+    hoy: dt.date,
+) -> dict:
+    """Lo que la tarjeta de temporada muestra de UNA plataforma: la frase de
+    la meta de hoy, la linea del punto de equilibrio con el costo vigente
+    (bloque I), el aviso ROJO cuando la meta vigente o la de alta iguala o
+    pasa el equilibrio, y la razon en llano cuando no se puede calcular."""
+    sale_de_margen = (
+        " (sale de tu margen)"
+        if peldano in ("margen_plataforma", "margen_familia", "margen_producto")
+        else ""
+    )
+    frase_meta_hoy = (
+        None if meta_hoy is None else f"Hoy tu meta es {_numero_corto(meta_hoy)} %{sale_de_margen}."
+    )
+    fila = conn.execute(_SQL_EQUILIBRIO_TEMPORADA, (plataforma,)).fetchone()
+    resuelto = (
+        _equilibrio_de_fila(dict(zip(COLUMNAS_EQUILIBRIO_TEMPORADA, fila, strict=True)), hoy)
+        if fila is not None
+        else {"equilibrio": None, "razon": RAZON_SIN_EQUILIBRIO["sin_margen"]}
+    )
+    equilibrio = resuelto["equilibrio"]
+    razon = resuelto["razon"]
+    linea = (
+        None
+        if equilibrio is None
+        else (
+            "Punto de equilibrio con el costo de hoy:"
+            f" {_pct_un_decimal(equilibrio)} %. Arriba de ese ACoS pierdes dinero en cada venta."
+        )
+    )
+    nombre = etiqueta(plataforma, "plataforma")
+    avisos: list[str] = []
+    if equilibrio is not None:
+        eq = _pct_un_decimal(equilibrio)
+        if meta_alta is not None and meta_alta >= equilibrio:
+            meta_txt = _numero_corto(meta_alta)
+            avisos.append(
+                f"Con una meta de {meta_txt} % en temporada alta, Orbit acepta ventas que"
+                f" pierden dinero en {nombre}: las que salen con un ACoS entre tu punto de"
+                f" equilibrio, {eq} %, y {meta_txt} %."
+            )
+        if meta_hoy is not None and meta_hoy >= equilibrio:
+            meta_txt = _numero_corto(meta_hoy)
+            avisos.append(
+                f"Con tu meta de hoy de {meta_txt} %, Orbit ya acepta ventas que pierden"
+                f" dinero en {nombre}: las que salen con un ACoS entre tu punto de"
+                f" equilibrio, {eq} %, y {meta_txt} %."
+            )
+    return {
+        "equilibrio": None if equilibrio is None else _pct_un_decimal(equilibrio),
+        "linea": linea,
+        "razon": razon,
+        "aviso": " ".join(avisos) or None,
+        "frase_meta_hoy": frase_meta_hoy,
+        "meta_alta_frase": (
+            None if meta_alta is None else f"En temporada alta: {_numero_corto(meta_alta)} %."
+        ),
+    }
+
+
+def metas_vigentes_temporada(
+    conn: ConexionLectura,
+) -> tuple[dict[str, Decimal], dict[str, str | None]]:
+    """Meta que gobierna hoy cada plataforma (la MISMA cascada que pinta la
+    tarjeta de plataforma) y su peldano. Sin peldano -> la plataforma no
+    entra en las metas (regla 3); el peldano si viaja para la frase."""
+    metas: dict[str, Decimal] = {}
+    peldanos: dict[str, str | None] = {}
+    settings = _config_vigente_con_id(conn)[1]
+    for plataforma in PLATAFORMAS_MONEDA:
+        goal_id, goal = _goal_plataforma_de(conn, plataforma)
+        valor, peldano = g.cascada_target_acos_con_procedencia(
+            None,
+            goal,
+            settings,
+            None,
+            plataforma,
+            _target_margen_del_ciclo(conn, plataforma),
+        )
+        del goal_id
+        peldanos[plataforma] = peldano
+        if valor is not None:
+            metas[plataforma] = valor
+    return metas, peldanos
+
+
+def _goal_plataforma_de(conn: ConexionLectura, plataforma: str) -> tuple[int | None, g.Goal | None]:
+    """El goal de plataforma y su id, para la cascada (misma consulta de
+    _SQL_GOALS_SETTINGS)."""
+    for fila in conn.execute(_SQL_GOALS_SETTINGS).fetchall():
+        if fila[1] == "platform":
+            goal = _goal_desde_fila(fila[1:13])
+            if goal.platform == plataforma:
+                return fila[0], goal
+    return None, None
+
+
+# TEMPORADA 01 A, bloque de estado de la baja (diseno, «Uso» 1): los conteos
+# salen de decisiones REALES de ciclos LIVE (las de practica jamas se envian
+# a Amazon y no pueden confirmarse; hallazgo de la revision), contadas por
+# keyword distinta. Sin episodios todavia (bloque B), el bloque de baja
+# vigente se acota por su fecha de inicio en el calendario guardado.
+_SQL_ESTADO_BAJA_DECISIONES = """
+SELECT ultima.ad_entity_id,
+       EXISTS (SELECT 1 FROM decision_application da
+                WHERE da.decision_id = ultima.decision_id
+                  AND da.verify_ok IS TRUE) AS confirmada
+  FROM (
+    -- La ULTIMA decision de temporada de cada keyword manda: una entrada
+    -- confirmada con un ajuste todavia pendiente cuenta como pendiente
+    -- (hallazgo de la revision: bool_or miraba cualquier confirmacion
+    -- historica y escondia el ajuste).
+    SELECT DISTINCT ON (d.ad_entity_id)
+           d.ad_entity_id, d.id AS decision_id
+      FROM decision d
+      JOIN ad_entity e ON e.id = d.ad_entity_id
+      JOIN optimizer_cycle c ON c.id = d.cycle_id
+     WHERE e.platform = %s::platform
+       AND c.mode = 'live'
+       AND d.kind = 'bid'
+       AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+       AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
+     ORDER BY d.ad_entity_id, d.decided_at DESC, d.id DESC
+  ) ultima
+"""
+
+# Bid propio vs heredado y sin tocar: sobre el MISMO universo de keywords
+# habilitadas (sin_tocar = keywords elegibles SIN decision de temporada de
+# ciclos live en el bloque; hallazgo de la revision: restar decisiones a un
+# total de keywords mezclaba unidades y conjuntos).
+_SQL_ESTADO_BAJA_KEYWORDS = """
+SELECT count(*) AS total,
+       count(*) FILTER (WHERE s.current_bid IS NULL AND NOT EXISTS (
+           SELECT 1 FROM decision d
+             JOIN optimizer_cycle c ON c.id = d.cycle_id
+            WHERE d.ad_entity_id = e.id AND c.mode = 'live' AND d.kind = 'bid'
+              AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+              AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s)) AS grupo,
+       count(*) FILTER (WHERE NOT EXISTS (
+           SELECT 1 FROM decision d
+             JOIN optimizer_cycle c ON c.id = d.cycle_id
+            WHERE d.ad_entity_id = e.id AND c.mode = 'live' AND d.kind = 'bid'
+              AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+              AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s)) AS sin_tocar
+  FROM ad_entity e
+  JOIN ad_entity_state s ON s.ad_entity_id = e.id AND s.status = 'ENABLED'
+ WHERE e.platform = %s::platform AND e.kind = 'keyword'
+"""
+
+# Pausas de Orbit CONFIRMADAS por Amazon y aun vigentes, ancladas a la fila
+# live/applied mas reciente de apply_queue (la misma propiedad vigente que
+# _SQL_PAUSAS_DE_BAJA del diseno): si el dueno la reactivo (reversa ok o
+# reactivacion_manual posterior a la aplicacion) y la volvio a pausar a
+# mano en Amazon, esa pausa ya es del dueno y NO se atribuye a Orbit.
+# Una fila por keyword aunque acumule pausas.
+_SQL_PAUSADAS_DE_BAJA = """
+SELECT DISTINCT ON (q.ad_entity_id) q.ad_entity_id,
+       COALESCE(e.keyword_text, e.name) AS texto
+  FROM apply_queue q
+  JOIN decision d ON d.id = q.decision_id
+  JOIN optimizer_cycle c ON c.id = d.cycle_id
+  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+  JOIN ad_entity e ON e.id = q.ad_entity_id
+  JOIN ad_entity_state s ON s.ad_entity_id = q.ad_entity_id AND s.status = 'PAUSED'
+ WHERE q.platform = %s::platform
+   AND q.kind = 'pause' AND q.modo = 'live' AND q.estado = 'applied'
+   AND c.mode = 'live'
+   AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'
+   AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
+   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
+                    WHERE a.decision_id = d.id AND a.tipo = 'reversa'
+                    GROUP BY a.decision_id
+                    HAVING bool_or(a.resultado = 'ok') OR count(*) >= 3)
+   AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r
+                    WHERE r.ad_entity_id = q.ad_entity_id
+                      AND r.detectada_en > q.applied_at)
+   AND NOT (q.ad_entity_id = ANY(%s::bigint[]))
+   -- El ancla es la ULTIMA pausa aplicada de la keyword, no la ultima que
+   -- pasa los filtros de temporada (hallazgo de la revision: una pausa
+   -- aplicada despues sin marca de temporada deja sin efecto a la antigua).
+   AND q.id = (SELECT q2.id FROM apply_queue q2
+                WHERE q2.ad_entity_id = q.ad_entity_id
+                  AND q2.kind = 'pause' AND q2.estado = 'applied'
+                ORDER BY q2.applied_at DESC LIMIT 1)
+ ORDER BY q.ad_entity_id
+"""
+
+
+def pausadas_de_baja(
+    conn: ConexionLectura, plataforma: str, inicio: dt.date, mantener: frozenset[int] | set[int]
+) -> list[dict]:
+    """Las keywords que Orbit pauso en esta baja y va a reactivar al
+    terminar, con su texto para la lista de la tarjeta (el texto visible de
+    una keyword es keyword_text). La usa el bloque de estado y el endpoint
+    «Mantener pausada» para validar su boton."""
+    filas = conn.execute(_SQL_PAUSADAS_DE_BAJA, (plataforma, inicio, sorted(mantener))).fetchall()
+    return [{"ad_entity_id": fila[0], "nombre": fila[1] or f"keyword #{fila[0]}"} for fila in filas]
+
+
+def estado_de_baja(
+    conn: ConexionLectura, plataforma: str, config: temporada.ConfigTemporada, hoy: dt.date
+) -> dict:
+    """Lo que la tarjeta muestra durante una baja ENCENDIDA (el llamador
+    comprueba el modo de la plataforma): confirmaciones de Amazon, pendientes
+    y sin tocar con su razon en llano, mas la lista de keywords pausadas a
+    reactivar. Todo SELECT; sin episodios todavia (bloque B), el bloque de
+    baja se acota por la fecha de inicio del calendario."""
+    estacion = temporada.resuelve(config, hoy)
+    if estacion.fase != "baja":
+        return {}
+    inicio = estacion.inicio_bloque
+    confirmados = pendientes = 0
+    for fila in conn.execute(_SQL_ESTADO_BAJA_DECISIONES, (plataforma, inicio)).fetchall():
+        if fila[1]:
+            confirmados += 1
+        else:
+            pendientes += 1
+    total, grupo, sin_tocar = conn.execute(
+        _SQL_ESTADO_BAJA_KEYWORDS, (inicio, inicio, plataforma)
+    ).fetchone()
+    frase_sin_tocar = f"Sin tocar: {sin_tocar}."
+    if grupo:
+        # La razon «porque cambiaste tú el bid» llega con las exclusiones
+        # del bloque B (temporada_exclusion); la unica fuente real hoy es el
+        # bid heredado, y SOLO entre las keywords sin decision: atribuirle
+        # el caso sin tocar a una keyword que ya tiene decision es mentir
+        # (hallazgo de la revision: grupo lleva el mismo predicado).
+        frase_sin_tocar += (
+            f" {grupo} usan el bid de su grupo (Orbit no los toca hasta que tengan bid propio)."
+        )
+    return {
+        "fase": "baja",
+        "desde": inicio.isoformat(),
+        "confirmados": confirmados,
+        "pendientes": pendientes,
+        "sin_tocar": sin_tocar,
+        "frase_sin_tocar": frase_sin_tocar,
+        "pausadas": pausadas_de_baja(conn, plataforma, inicio, config.mantener_pausadas),
+    }
+
+
+def resumen_temporada_para_guardado(
+    conn: ConexionLectura, settings_antes: Mapping, settings_nuevo: Mapping, hoy: dt.date
+) -> temporada.ResumenTemporada | None:
+    """«Así queda tu año» para la respuesta del guardado (el mismo resumen
+    que la vista previa). None si la config nueva ya no trae temporada."""
+    config_antes = temporada.desde_settings(settings_antes)
+    config_nueva = temporada.desde_settings(settings_nuevo)
+    if config_nueva is None:
+        return None
+    meta_alta = {
+        p: temporada.meta_alta_desde_settings(settings_nuevo, p)
+        for p in temporada.PLATAFORMAS_TEMPORADA
+    }
+    return temporada.resumen(
+        config_nueva,
+        hoy,
+        antes=config_antes,
+        metas_hoy=metas_vigentes_temporada(conn)[0],
+        meta_alta=meta_alta,
+    )
+
+
+def temporada_formulario(settings: Mapping) -> dict:
+    """Lo que la tarjeta prellena: la config GUARDADA, o los valores por
+    defecto del formulario (que nunca deciden solos)."""
+    guardada = temporada.desde_settings(settings)
+    salida = {
+        "guardada": guardada is not None,
+        "meses": list(temporada.MESES_POR_DEFECTO),
+        "fin_anticipado": None,
+        "mantener_pausadas": [],
+        **temporada.FORMULARIO_POR_DEFECTO,
+    }
+    if guardada is not None:
+        blob = temporada.como_guardada(guardada)
+        salida["meses"] = list(blob["meses"])
+        salida["fin_anticipado"] = blob["fin_anticipado"]
+        salida["mantener_pausadas"] = list(blob["mantener_pausadas"])
+        for clave in (
+            "reduccion_baja_pct",
+            "dias_preparacion",
+            "mult_cortes_baja",
+            "aumento_presupuesto_alta_pct",
+        ):
+            salida[clave] = blob[clave]
+    return salida
+
+
 # Goals CON id (la UI los edita via POST /api/ads-optimizer/goals/{id}) y la
 # plataforma/nombre de la campana para los de scope campaign (su fila trae
 # platform NULL por el CHECK del schema).
@@ -1534,6 +1905,12 @@ def settings(conn: ConexionLectura) -> dict:
     }
     plataformas: list[dict] = []
     peldanos: dict[str, str | None] = {}
+    hoy_temporada = dt.datetime.now(dt.UTC).date()
+    config_temporada = temporada.desde_settings(settings)
+    meta_alta_form = {
+        plataforma: temporada.meta_alta_desde_settings(settings, plataforma)
+        for plataforma in temporada.PLATAFORMAS_TEMPORADA
+    }
     for plataforma in PLATAFORMAS_MONEDA:
         goal_id, goal = goal_plataforma.get(plataforma, (None, None))
         valor, peldano = g.cascada_target_acos_con_procedencia(
@@ -1570,12 +1947,66 @@ def settings(conn: ConexionLectura) -> dict:
                 ),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
+                # TEMPORADA 01 A: meta de alta, modos y equilibrio de la
+                # tarjeta «Temporadas de venta» + subida rapida (Motor de bids).
+                "meta_alta": _numero_corto(meta_alta_form[plataforma])
+                if plataforma in meta_alta_form
+                else None,
+                "modo_temporada": settings.get(f"ads_temporada_{plataforma}"),
+                "recuperacion_modo": settings.get(f"ads_bid_recuperacion_{plataforma}"),
+                "recuperacion_memoria_dias": temporada.memoria_recuperacion_desde_settings(
+                    settings, plataforma
+                ),
+                "campanas_con_meta_propia": sum(
+                    1
+                    for _gid, goal_c, plataforma_c, _nombre in goals
+                    if goal_c.scope == "campaign" and plataforma_c == plataforma
+                ),
+                "temporada": equilibrio_temporada(
+                    conn,
+                    plataforma,
+                    meta_hoy=valor,
+                    peldano=peldano,
+                    meta_alta=meta_alta_form.get(plataforma),
+                    hoy=hoy_temporada,
+                ),
+                # TEMPORADA 01 A, bloque de estado de la baja (vacio fuera de
+                # baja y CON LA TEMPORADA APAGADA: sin modo no hay estado
+                # operativo ni acciones, hallazgo de la revision): conteos de
+                # decisiones de temporada y keywords pausadas a reactivar.
+                "temporada_estado": (
+                    estado_de_baja(conn, plataforma, config_temporada, hoy_temporada)
+                    if config_temporada is not None
+                    and settings.get(f"ads_temporada_{plataforma}") in temporada.MODOS_MOTOR
+                    else None
+                ),
             }
         )
+    estado_temporada = None
+    if config_temporada is not None and any(
+        settings.get(f"ads_temporada_{p}") in temporada.MODOS_MOTOR
+        for p in temporada.PLATAFORMAS_TEMPORADA
+    ):
+        estacion_hoy = temporada.resuelve(config_temporada, hoy_temporada)
+        estado_temporada = {
+            "fase": estacion_hoy.fase,
+            "desde": (
+                estacion_hoy.inicio_bloque.isoformat() if estacion_hoy.fase == "baja" else None
+            ),
+        }
+    topada_vigente = temporada.campana_topada_desde_settings(settings)
     return {
         "config_version_id": config_id,
         "modo_global": settings.get(g.CLAVE_SETTING_MODO),
         "advertencia_respaldo": ADVERTENCIA_RESPALDO,
+        # TEMPORADA 01 A: tarjeta «Temporadas de venta» (prefill de la
+        # tarjeta + criterio de campana topada resuelto + estado de la baja).
+        "temporada_form": temporada_formulario(settings),
+        "campana_topada": {
+            "pct": _numero_corto(topada_vigente.pct * 100),
+            "dias": topada_vigente.dias,
+        },
+        "temporada_estado": estado_temporada,
         # S.2: apagador de precios (tolerante: config vieja sin claves =
         # null/{} y la pagina se muestra; la corrida es la estricta).
         "precio_modo_global": settings.get("precio_modo_global"),

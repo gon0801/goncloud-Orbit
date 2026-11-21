@@ -243,7 +243,7 @@
     {
       "name": "temporada-01",
       "path": "plans/temporada-01.md",
-      "description": "TEMPORADA 01 — bloque I (I.0-I.3) implementado: equilibrio con el costo de hoy (0092 y su reversa), migraciones_de suma temporada01, meta derivada y equilibrio_acos_pct desde margen_vigente_pct, notes.target con los dos margenes. Siguen A, B, C, D, P, E, F, G y H, en serie."
+      "description": "TEMPORADA 01 — bloque A implementado sobre I: app/optimizer/temporada.py puro (config, valida con mensajes exactos, lectores, resuelve sobre fechas reales, eventos y resumen), tarjeta «Temporadas de venta» en Ajustes con vista previa GET /temporada/vista-previa, terminar-baja, ads_campana_topada leida por avisos y dinero. Siguen B, C, D, P, E, F, G y H, en serie."
     },
     {
       "name": "arreglos-05",

@@ -1,0 +1,50 @@
+# Acepta A.2 (fila A.2 del plan) — SHA del head
+Comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests -k temporada01_a_
+Nota de esta PC (Windows): --ignore=tests/test_corrige_descripciones_pez.py porque ese modulo usa fcntl (solo Unix); fallo preexistente ajeno al bloque. --basetemp propio por permisos de pytest en Windows.
+
+```
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 5979 deselected, 1 warning in 5.57s
+```
+
+Re-ejecucion final en el SHA de entrega (tras lint):
+3 passed, 5979 deselected, 1 warning in 5.23s
+
+Revision (hilo de PR #687): la vista previa con config guardada SIN fin anticipado daba 500 (AttributeError en .isoformat de None). Prueba nueva dentro de test_temporada01_a_post_rechaza_booleanos: vista-previa despues de guardar sin fin -> rojo con AttributeError (demostrado), verde con la guarda.
+Re-ejecucion tras la correccion:
+3 passed, 5979 deselected, 1 warning in 5.29s
+
+Segunda ronda de revision (6 hilos): baja comida por la preparacion se rechaza (la deja en 0), fin anticipado en enero del bloque dic-feb valido, fin viejo fuera del calendario se descarta, primer guardado sin ediciones permitido (data-guardada), _con_avisos usa ads_campana_topada y los nodos de equilibrio/aviso siempre existen en el HTML. Verificacion en vivo: primer guardado sin tocar nada guarda (config 1 -> 2) y el segundo clic dice «Nada que cambiar.»
+Re-ejecucion tras las correcciones:
+3 passed, 5979 deselected, 1 warning in 5.22s
+
+Tercera ronda (7 bloqueos de Kimi sobre bbc35e6), SHA 3772c13. Acepta A.2:
+4 passed, 5979 deselected, 1 warning in 11.81s
+Acepta A.3 y vecinos:
+112 passed, 1 warning in 50.01s
+Comprobaciones pedidas por Kimi:
+1 passed, 12 deselected, 1 warning in 1.21s
+1 failed
+4 passed, 73 deselected in 0.61s
+
+Rebase final sobre dc53679 (tras fase2/3.1), SHA 914d8467. Comprobaciones pedidas:
+- Acepta A.2:
+4 passed, 5875 deselected, 1 warning in 6.96s
+- Acepta A.3:
+112 passed, 1 warning in 49.57s
+- tests/test_notifica.py (dobles alineados, sobre el modulo partido de #690):
+4 passed, 73 deselected in 0.62s
+- tests/test_api.py -k superficie:
+1 passed, 12 deselected, 1 warning in 1.18s
+- tests/test_architecture.py -k presupuesto:
+assert not {'app/ledger.py': 984, 'app/productos_io.py': 901}
+- tests/test_avisos_campana.py:
+15 passed in 0.43s
+- tests/test_config_write.py:
+26 passed, 1 warning in 22.12s
+- tests/test_settings_escritura.py:
+25 passed, 1 warning in 15.68s
+- bloque completo temporada01 (A.2+A.3+estado):
+4 passed, 5875 deselected, 1 warning in 6.85s

@@ -14,6 +14,7 @@ from typing import Literal
 
 from app.etiquetas import etiqueta
 from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.optimizer.temporada import CampanaTopada, campana_topada_desde_settings
 from app.pantalla_dinero import FilaCampana, FilaUbicacion, Plataforma
 
 ClaseAviso = Literal[
@@ -55,9 +56,15 @@ def avisos_del_dia(
     *,
     plataforma: Plataforma,
     gasto_para_concluir: Decimal,
+    topada: CampanaTopada | None = None,
 ) -> tuple[Aviso, ...]:
     """Avisos del mercado de hoy. La marca de ubicacion recalcula con el
-    umbral recibido (no confia en `gasta_sin_vender` de la fila)."""
+    umbral recibido (no confia en `gasta_sin_vender` de la fila). El
+    criterio de campana topada es el mismo que lee «Donde poner el
+    dinero» (`ads_campana_topada`, 90 % en 5 de 7 por defecto)."""
+    if topada is None:
+        topada = campana_topada_desde_settings({})
+    pct_topada = format((topada.pct * 100).normalize(), "f")
     moneda = PLATAFORMAS_MONEDA[plataforma]
     avisos: list[Aviso] = []
     for fila in por_ubicacion:
@@ -76,14 +83,14 @@ def avisos_del_dia(
             )
     for fila in por_campana:
         nombre = fila.nombre or f"Campaña {fila.campana_id}"
-        if fila.dias_al_tope_7d is not None and fila.dias_al_tope_7d >= 5:
+        if fila.dias_al_tope_7d is not None and fila.dias_al_tope_7d >= topada.dias:
             avisos.append(
                 Aviso(
                     plataforma=plataforma,
                     clase="campana_sin_presupuesto",
                     campana_id=fila.campana_id,
                     frase=(
-                        f"{nombre}: se queda sin presupuesto. Usó 90 % o más en"
+                        f"{nombre}: se queda sin presupuesto. Usó {pct_topada} % o más en"
                         f" {fila.dias_al_tope_7d} de los últimos 7 días."
                     ),
                 )
