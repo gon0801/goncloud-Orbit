@@ -1144,7 +1144,7 @@ def test_temporada01_b_pendiente_ambigua_bloquea_nuevas_pujas(db_template):
     kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
     _siembra_metricas(conn, [kw1])
     handler = _handler_mx({"b-kw1": "5.60"})
-    amb = _siembra_ambigua(conn, ids, kw1)
+    _siembra_ambigua(conn, ids, kw1)
     _evidencia_recorte(conn, kw1)
 
     # Ciclo con la conciliacion pendiente: las reglas normales deciden un
