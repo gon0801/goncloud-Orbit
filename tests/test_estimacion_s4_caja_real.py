@@ -757,11 +757,25 @@ def test_reancle_goals_s4_en_pg16():
         plan_segundo, _ = construir_plan_reancle(conn, plataformas=("amazon_mx",))
         assert plan_segundo == []
 
+        # Persistir un escenario S4 real (como ocurre en produccion antes de una reversa).
+        ahora_s4 = conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0].replace(tzinfo=UTC)
+        esc_s4 = sembrar_escenario_desde_refs(
+            conn,
+            listing_id=lid,
+            oferta_observation_id=oid,
+            fee_observation_id=fid,
+            valoracion_date=hoy,
+            observed_at=ahora_s4,
+        )
+        assert esc_s4.formula_version == "S4"
+        persistir_escenario(conn, esc_s4)
+
         # Reversa del lote (Devin #3): restaura el goal exacto 53.36% via goals_write.
         plan_rev, huella_rev = construir_plan_reversa_reancle(conn, plataformas=("amazon_mx",))
         assert len(plan_rev) == 1
         assert len(huella_rev) == 16
         assert plan_rev[0].goal_s3_restaurar == Decimal("0.5336")
+        conn.execute(SQL_0093_REV)
         restaurados = aplicar_reversa_reancle(conn, plan=plan_rev, go_literal="GO-REV-S3")
         assert restaurados == 1
         restaurado = conn.execute(
@@ -770,6 +784,38 @@ def test_reancle_goals_s4_en_pg16():
             (lid,),
         ).fetchone()
         assert restaurado == (Decimal("0.5336"), "live", "reancle_s4_reversa", Decimal("0.5336"))
+
+        # Redespliegue tras reversa con escenario S4 historico: el goal S3 vuelve al plan.
+        conn.execute(SQL_0093)
+        plan_redep, _ = construir_plan_reancle(conn, plataformas=("amazon_mx",))
+        assert len(plan_redep) == 1
+        assert plan_redep[0].goal_s3 == Decimal("0.5336")
+        assert plan_redep[0].goal_s4 == Decimal("0.5083")
+        assert aplicar_reancle(conn, plan=plan_redep, go_literal="GO-REDEP-S4") == 1
+
+        # Guarda contra edicion concurrente: plan de reversa desactualizado aborta y hace rollback.
+        from app.precio.goals_write import PrecioGoalInvalido, cerrar_goal
+
+        plan_rev_obsoleto, _ = construir_plan_reversa_reancle(conn, plataformas=("amazon_mx",))
+        cerrar_goal(conn, listing_id=lid, platform="amazon_mx")
+        gid_editado = sembrar_goal(
+            conn,
+            listing_id=lid,
+            platform="amazon_mx",
+            goal_pct="48.00",
+            mode="live",
+            go_literal="GO-MANUAL-48",
+            creado_por="tablero",
+            origen="cambio_de_modo",
+        )
+        with pytest.raises(PrecioGoalInvalido, match="cambio desde el plan de reversa"):
+            aplicar_reversa_reancle(conn, plan=plan_rev_obsoleto, go_literal="GO-REV-OBSOLETO")
+        vigente = conn.execute(
+            "SELECT id, margen_goal_pct, creado_por FROM precio_goal"
+            " WHERE listing_id = %s AND valid_to IS NULL",
+            (lid,),
+        ).fetchone()
+        assert vigente == (gid_editado, Decimal("0.4800"), "tablero")
 
 
 @_skip_db
@@ -997,3 +1043,21 @@ def test_compuerta_no_traba_en_transicion_s3_a_s4():
         assert not hasattr(veredictos["fba"], "causa"), (
             f"transicion S3->S4 no debe trabar compuerta: {veredictos['fba']}"
         )
+
+        # Pero un salto real de fee_fijo (64 -> 70, +9.4%) durante S3->S4 SI debe retener.
+        conn.execute("ALTER TABLE estimacion_escenario DISABLE TRIGGER USER")
+        try:
+            conn.execute(
+                "UPDATE estimacion_escenario SET fee_fijo = 70.00 WHERE formula_version = 'S4'"
+            )
+        finally:
+            conn.execute("ALTER TABLE estimacion_escenario ENABLE TRIGGER USER")
+        corrida_fijo = conn.execute(
+            "INSERT INTO precio_corrida"
+            " (platform, fecha, owner, estado, iniciada_at, config_version_id, modo_global)"
+            " VALUES ('amazon_mx', %s, 'test', 'abierta', %s, %s, 'live') RETURNING id",
+            (hoy, ahora, cfg_id),
+        ).fetchone()[0]
+        veredictos_fijo = _medir_compuerta(conn, _MercadoStub(), hoy, motor, corrida_fijo)
+        assert getattr(veredictos_fijo["fba"], "causa", None) == "insumo_sistemico"
+        assert getattr(veredictos_fijo["fba"], "insumo", None) == "fee_fijo"

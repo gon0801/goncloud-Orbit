@@ -239,18 +239,21 @@ def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[
          WHERE g.valid_to IS NULL
            AND g.platform = ANY(%s)
            AND g.creado_por <> %s
-           AND NOT EXISTS (
-               SELECT 1
-                 FROM estimacion_escenario e4
-                WHERE e4.listing_id = g.listing_id
-                  AND e4.platform = g.platform
-                  AND e4.formula_version = 'S4'
-                  AND e4.estado = 'disponible'
-                  AND e4.observed_at <= g.created_at
+           AND (
+               g.creado_por = %s
+               OR NOT EXISTS (
+                   SELECT 1
+                     FROM estimacion_escenario e4
+                    WHERE e4.listing_id = g.listing_id
+                      AND e4.platform = g.platform
+                      AND e4.formula_version = 'S4'
+                      AND e4.estado = 'disponible'
+                      AND e4.observed_at <= g.created_at
+               )
            )
          ORDER BY g.platform, g.listing_id
         """,
-        (list(plataformas), list(plataformas), _CREADO_POR_REANCLE),
+        (list(plataformas), list(plataformas), _CREADO_POR_REANCLE, _CREADO_POR_REVERSA),
     ).fetchall()
 
     plan: list[FilaReancle] = []
@@ -381,7 +384,12 @@ def aplicar_reancle(
     escritos = 0
     with conn.transaction():
         for fila in plan:
-            cerrar_goal(conn, listing_id=fila.listing_id, platform=fila.platform)
+            cerrado_id = cerrar_goal(conn, listing_id=fila.listing_id, platform=fila.platform)
+            if cerrado_id != fila.goal_id:
+                raise PrecioGoalInvalido(
+                    f"listing {fila.listing_id}: la meta vigente cambio desde el plan"
+                    f" (esperaba {fila.goal_id}, cerro {cerrado_id})"
+                )
             sembrar_goal(
                 conn,
                 listing_id=fila.listing_id,
@@ -410,7 +418,12 @@ def aplicar_reversa_reancle(
     lote_rev = f"{lote}_reversa"
     with conn.transaction():
         for fila in plan:
-            cerrar_goal(conn, listing_id=fila.listing_id, platform=fila.platform)
+            cerrado_id = cerrar_goal(conn, listing_id=fila.listing_id, platform=fila.platform)
+            if cerrado_id != fila.goal_s4_id:
+                raise PrecioGoalInvalido(
+                    f"listing {fila.listing_id}: la meta vigente cambio desde el plan de reversa"
+                    f" (esperaba {fila.goal_s4_id}, cerro {cerrado_id})"
+                )
             sembrar_goal(
                 conn,
                 listing_id=fila.listing_id,

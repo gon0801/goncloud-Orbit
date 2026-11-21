@@ -1040,7 +1040,7 @@ _SQL_MEDIR_INSERT = (
 _INSUMO_DECISION = {"costo": (6, 7), "envio": (8, 9), "retencion": (10, 11)}
 _INSUMO_ESCENARIO = {"fx": (1, (2, 3)), "fee_fijo": (5, (6,)), "fee_variable": (4, (6,))}
 _INSUMOS_MEDIR = ("costo", "envio", "retencion", "fx", "fee_fijo", "fee_variable")
-_INSUMOS_FORMULA = frozenset({"retencion", "fee_variable", "fee_fijo"})
+_INSUMOS_FORMULA = frozenset({"retencion", "fee_variable"})
 
 # Modo y tasas sobre ingreso de la decision (G-H3 / ARREGLOS 03 P-D).
 _INGRESO = (13, 14)
