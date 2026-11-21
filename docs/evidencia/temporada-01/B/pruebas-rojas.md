@@ -216,3 +216,23 @@ PAUSED + cache sincronizado a 5.60; ciclo 1 sin HTTP y sin descarte; ciclo
 recorte 5.60->3.92). Demostrada fallando contra
 7bd7d1127d880d9ad51246d91801b02f81c7b414: el intento quedaba sellado
 ('entidad_no_decisora') en vez de pendiente.
+
+## Ronda de revision nativa 2 (tres hallazgos sobre 7bd7d11)
+
+1. `test_temporada01_b_sin_sello_sin_bid_reintenta` (apply.py:550): la
+   primera lectura SIN fila o sin bid NO es concluyente para un intento
+   SIN sello con efecto de temporada abierto: queda pendiente sin sello ni
+   resumen (antes se sellaba fallo:readback_sin_bid con resumen FALSE y
+   efecto divergencia). El ciclo siguiente, con la fila legible, confirma
+   la entrada original con GET fresco. Roja contra dcddd0d: el efecto
+   quedaba cerrado ('divergencia') y el intento sellado.
+2. `test_temporada01_b_bid_ordinario_ambiguo_bloqueado` (apply_cuota.py:444
+   + apply.py:491): la guarda del ciclo incluye TODOS los intentos sellados
+   ambiguos sin desenlace (temporada Y ordinarios; antes solo temporada).
+   Roja contra dcddd0d: la hoja ordinaria NO estaba bloqueada y TX2 creaba
+   la decision obsoleta (otro recorte sobre el bid ya reducido).
+3. El hallazgo apply.py:491 de la nativa coincide con el hilo del dueno
+   PRRT_kwDOUANqbs66ZGTU resuelto en dcddd0d (el gate ya no escribe
+   desenlace cuando hay efecto de temporada abierto); esta ronda ademas
+   cubre el caso bid None del loop de abiertos (punto 1) y la guarda
+   general (punto 2).

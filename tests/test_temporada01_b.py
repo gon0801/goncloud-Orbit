@@ -991,7 +991,9 @@ def test_temporada01_b_efecto_con_intento_sellado_se_cierra(db_template):
     assert _bid_cache(conn, kw1) == Decimal("5.60")
 
 
-def _siembra_ambigua(conn, ids: dict, kw: int, *, cache: str = "5.60") -> dict:
+def _siembra_ambigua(
+    conn, ids: dict, kw: int, *, cache: str = "5.60", sellado: bool = True
+) -> dict:
     """El estado de la caida ambigua (revision): la decision de entrada
     8 -> 5.60 SIN resumen, su intento SELLADO con lectura AMBIGUA, el episodio
     y el efecto ABIERTOS. `cache` es el bid que la sincronizacion trajo de
@@ -1023,12 +1025,20 @@ def _siembra_ambigua(conn, ids: dict, kw: int, *, cache: str = "5.60") -> dict:
             Json({"motor": "bid", "motivo": "entra_temporada_baja", "temporada_episodio_id": e1}),
         ),
     ).fetchone()[0]
-    conn.execute(
-        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
-        " started_at, ack, resultado, finished_at)"
-        " VALUES (%s, 1, 'normal', '{}', true, %s, NULL, 'fallo:readback_ambiguo', now())",
-        (dec, _medianoche(D_E1)),
-    )
+    if sellado:
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, started_at, ack, resultado, finished_at)"
+            " VALUES (%s, 1, 'normal', '{}', true, %s, NULL, 'fallo:readback_ambiguo', now())",
+            (dec, _medianoche(D_E1)),
+        )
+    else:
+        # El crash fue entre el PUT y el sello: el intento queda SIN sello.
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, started_at) VALUES (%s, 1, 'normal', '{}', true, %s)",
+            (dec, _medianoche(D_E1)),
+        )
     conn.execute(
         "INSERT INTO temporada_efecto (episodio_id, ad_entity_id, decision_id, tipo,"
         " abierto_el) VALUES (%s, %s, %s, 'entra', %s)",
@@ -1995,3 +2005,138 @@ def test_temporada01_b_migracion_reversa(db_template):
         "   AND conname = 'decision_sin_aplicar_motivo_check'"
     ).fetchone()
     assert "bid_cambiado_fuera" not in defin
+
+
+def test_temporada01_b_sin_sello_sin_bid_reintenta(db_template):
+    """Revision nativa (el flujo COMIENZA sin sello): la caida deja el intento
+    SIN sello y la primera lectura de reconciliacion no trae la fila de la
+    hoja (sin puja legible): NO concluyente. El efecto queda ABIERTO, sin
+    sello y sin resumen (la hoja no genera otra entrada sobre el bid ya
+    reducido); el ciclo siguiente, con la fila legible, confirma la entrada
+    original con GET fresco."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    remoto: dict[str, str] = {}
+    handler = _handler_mx(remoto)
+    amb = _siembra_ambigua(conn, ids, kw1, cache="5.60", sellado=False)
+    # El intento COMIENZA SIN sello (el crash fue entre el PUT y el sello) y
+    # el cache ya quedo sincronizado al destino.
+
+    # Ciclo 1: la primera lectura NO trae la fila: el intento queda SIN sello
+    # y el efecto ABIERTO, sin resumen y sin decision_sin_aplicar (la hoja no
+    # genera otra entrada sobre el bid ya reducido).
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler)
+    assert res.status == "done", res.notes
+    assert (
+        conn.execute(
+            "SELECT finished_at FROM apply_attempt WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        is None
+    ), "el intento queda sin sello (pendiente)"
+    assert (
+        conn.execute(
+            "SELECT cerrado_el FROM temporada_efecto WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        is None
+    ), "sin lectura concluyente: el efecto queda abierto"
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision_application WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        == 0
+    )
+    assert _temporada_del_ciclo(conn, res.cycle_id) == []
+
+    # Ciclo 2: la fila aparece con el DESTINO: la lectura confirma la entrada
+    # original con GET fresco (jamás otro recorte 5.60 -> 3.92).
+    remoto["b-kw1"] = "5.60"
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision_application da WHERE da.decision_id = %s",
+        (amb["dec"],),
+    ).fetchone()
+    assert resumen == (True,), resumen
+    assert conn.execute(
+        "SELECT desenlace FROM temporada_efecto WHERE decision_id = %s", (amb["dec"],)
+    ).fetchone() == ("confirmado",), "la reduccion queda confirmada"
+    assert _bid_cache(conn, kw1) == Decimal("5.60")
+    doble = [
+        row
+        for row in _temporada_del_ciclo(conn, res.cycle_id)
+        if row[0] == kw1 and row[1] == Decimal("3.92")
+    ]
+    assert doble == [], "jamás otro recorte 5.60 -> 3.92"
+
+
+def test_temporada01_b_bid_ordinario_ambiguo_bloqueado(db_template):
+    """Revision nativa: la guarda del ciclo incluye TAMBIEN los bids
+    ORDINARIOS con sellado ambiguo sin desenlace (no solo temporada): con el
+    cache ya sincronizado al destino, TX2 SALTA la hoja (bid_en_vuelo) en vez
+    de crear una decision obsoleta que pisaria el valor externo, y la fase de
+    apply confirma la decision original con GET fresco."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    _evidencia_recorte(conn, kw1)
+    remoto = {"b-kw1": "5.60"}
+    handler = _handler_mx(remoto)
+    config_id = ids["config_id"]
+
+    # Decision ORDINARIA (sin temporada) 8 -> 5.60 SIN resumen, su intento
+    # SELLADO con lectura ambigua, y el cache ya sincronizado a 5.60.
+    ciclo_id = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (_medianoche(D_E1), _medianoche(D_E1)),
+    ).fetchone()[0]
+    dec = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs, old_value, new_value,"
+        " value_currency)"
+        " VALUES (%s,%s,'bid',%s,%s,%s,%s,%s,%s,8.00,5.60,'MXN') RETURNING id",
+        (
+            ciclo_id,
+            kw1,
+            _medianoche(D_E1),
+            config_id,
+            _medianoche(D_E1),
+            D_E1 - dt.timedelta(days=90),
+            D_E1 - dt.timedelta(days=10),
+            Json({"motor": "bid", "motivo": "pierde_dinero"}),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+        " started_at, ack, resultado, finished_at)"
+        " VALUES (%s, 1, 'normal', '{}', true, %s, NULL, 'fallo:readback_ambiguo', now())",
+        (dec, _medianoche(D_E1)),
+    )
+
+    # Ciclo con la conciliacion pendiente: la guardsa ampliada cubre la hoja
+    # ORDINARIA (sin efecto de temporada): TX2 la salta con bid_en_vuelo y la
+    # fase de apply confirma la decision original (5.60 == destino).
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler)
+    assert res.status == "done", res.notes
+    skips = json.loads(res.notes).get("skips", {}).get("entidad", {})
+    assert skips.get("bid_en_vuelo") == 1, skips
+    nueva = conn.execute(
+        "SELECT new_value FROM decision WHERE ad_entity_id = %s AND cycle_id = %s AND kind = 'bid'",
+        (kw1, res.cycle_id),
+    ).fetchall()
+    assert nueva == [], nueva
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision_application da WHERE da.decision_id = %s",
+        (dec,),
+    ).fetchone()
+    assert resumen == (True,), resumen
+    assert _bid_cache(conn, kw1) == Decimal("5.60")

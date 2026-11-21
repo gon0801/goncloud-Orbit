@@ -558,6 +558,21 @@ def reconcilia_bids(
             "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
         )
         ack = {"fuente": "readback", "bid": str(bid_leido)} if bid_leido is not None else None
+        if bid_leido is None:
+            # TEMPORADA 01 B (revision nativa): sin puja legible el resultado NO
+            # es concluyente (no demuestra ningun valor). Si la decision tiene
+            # un efecto de temporada ABIERTO, queda pendiente SIN sello ni
+            # resumen: el siguiente ciclo reintenta la lectura (jamas otra
+            # entrada sobre el bid ya reducido) y el gate bid_en_vuelo sigue
+            # bloqueando nuevas pujas para la hoja.
+            con_efecto_temporada = conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM temporada_efecto te"
+                "  WHERE te.decision_id = %s AND te.cerrado_el IS NULL)",
+                (decision_id,),
+            ).fetchone()[0]
+            if con_efecto_temporada:
+                fallidas += 1
+                continue
         with tx_durable(conn):
             _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
             if bid_leido is not None:

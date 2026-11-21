@@ -430,9 +430,11 @@ SELECT a.id, a.decision_id, a.request_payload, d.ad_entity_id, d.new_value,
 """
 
 # Criterio COMPARTIDO de intentos pendientes (guarda del ciclo y
-# reconciliacion): intentos sin sello MAS efectos de temporada abiertos con
-# lectura ambigua sin desenlace (el resultado del PUT es desconocido; la hoja
-# no genera otra puja hasta que la reconciliacion la resuelva con GET fresco).
+# reconciliacion): intentos sin sello MAS TODOS los intentos SELLADOS con
+# lectura ambigua sin desenlace — de temporada y ordinarios (el resultado del
+# PUT es desconocido; la hoja no genera otra puja hasta que la
+# reconciliacion la resuelva con GET fresco: confirmar si la puja == destino,
+# 'perdida' si == anterior, divergencia definitiva con un tercer valor).
 _SQL_HOJAS_BID_PENDIENTE = """
 SELECT d.ad_entity_id
   FROM apply_attempt a
@@ -441,16 +443,15 @@ SELECT d.ad_entity_id
  WHERE a.finished_at IS NULL AND a.tipo = 'normal' AND d.kind = 'bid'
    AND k.platform = %s::platform
 UNION
-SELECT e.ad_entity_id
-  FROM temporada_efecto e
-  JOIN decision d ON d.id = e.decision_id
+SELECT d.ad_entity_id
+  FROM apply_attempt a
+  JOIN decision d ON d.id = a.decision_id
   JOIN ad_entity k ON k.id = d.ad_entity_id
- WHERE e.cerrado_el IS NULL
+ WHERE a.tipo = 'normal' AND a.finished_at IS NOT NULL
+   AND a.resultado = 'fallo:readback_ambiguo'
    AND k.platform = %s::platform
    AND NOT EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = d.id)
    AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa WHERE sa.decision_id = d.id)
-   AND EXISTS (SELECT 1 FROM apply_attempt a
-                WHERE a.decision_id = d.id AND a.resultado = 'fallo:readback_ambiguo')
 """
 
 
