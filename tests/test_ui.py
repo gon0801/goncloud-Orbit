@@ -2015,6 +2015,16 @@ def test_ui_gasto_sin_venta_200_con_secciones_y_escape(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def _datos_temporada_minimos() -> dict:
+    from app.api_dashboard import temporada_formulario
+
+    return {
+        "temporada_form": temporada_formulario({}),
+        "campana_topada": {"pct": "90", "dias": 4},
+        "temporada_estado": None,
+    }
+
+
 def test_ui_settings_sin_target_dice_sin_target():
     """Sin target vigente, /settings dice "sin target" (no pinta None ni
     una procedencia)."""
@@ -2024,6 +2034,7 @@ def test_ui_settings_sin_target_dice_sin_target():
             "config_version_id": 1,
             "modo_global": "live",
             "advertencia_respaldo": "respaldo",
+            **_datos_temporada_minimos(),
             "plataformas": [
                 {
                     "plataforma": "amazon_us",
@@ -2038,6 +2049,10 @@ def test_ui_settings_sin_target_dice_sin_target():
                     "motor_bid_vive": False,
                     "caps": {},
                     "goal": None,
+                    "meta_alta": "",
+                    "modo_temporada": None,
+                    "temporada": {},
+                    "temporada_estado": None,
                 }
             ],
             "goals": [],
@@ -2055,6 +2070,7 @@ def _html_settings_global(modo_global):
             "config_version_id": 1,
             "modo_global": "live",
             "advertencia_respaldo": "respaldo",
+            **_datos_temporada_minimos(),
             "plataformas": [
                 {
                     "plataforma": "amazon_mx",
@@ -2069,6 +2085,10 @@ def _html_settings_global(modo_global):
                     "motor_bid_vive": False,
                     "caps": {},
                     "goal": None,
+                    "meta_alta": "",
+                    "modo_temporada": None,
+                    "temporada": {},
+                    "temporada_estado": None,
                 }
             ],
             "goals": [],

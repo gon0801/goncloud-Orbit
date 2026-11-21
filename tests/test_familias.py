@@ -572,8 +572,8 @@ def test_fabrica_avisa_mezcla_y_exige_tipo():
 
     with db_fabrica("orbit_familias_mez") as conn:
         _base_fabrica(conn)
-        p1, l1 = _producto(conn, sku="SKU-M1", asin="B0FAMILIAM1", seller_sku="SM1")
-        p2, l2 = _producto(conn, sku="SKU-M2", asin="B0FAMILIAM2", seller_sku="SM2")
+        p1, l1 = _producto(conn, sku="SKU-M1", asin="B0FAMMEZ01", seller_sku="SM1")
+        p2, l2 = _producto(conn, sku="SKU-M2", asin="B0FAMMEZ02", seller_sku="SM2")
         _ledger_producto(conn, p1, hoy=HOY)
         _ledger_producto(conn, p2, hoy=HOY, fee_desfase=7)
         familias.asigna(conn, [p1], familias.crea(conn, "amazon_mx", "Arras")["id"])
@@ -596,8 +596,8 @@ def test_fabrica_parcial_no_toma_slug():
 
     with db_fabrica("orbit_familias_par") as conn:
         _base_fabrica(conn)
-        p1, l1 = _producto(conn, sku="SKU-P1", asin="B0FAMILIAP1", seller_sku="SP1")
-        p2, l2 = _producto(conn, sku="SKU-P2", asin="B0FAMILIAP2", seller_sku="SP2")
+        p1, l1 = _producto(conn, sku="SKU-P1", asin="B0FAMPAR01", seller_sku="SP1")
+        p2, l2 = _producto(conn, sku="SKU-P2", asin="B0FAMPAR02", seller_sku="SP2")
         _ledger_producto(conn, p1, hoy=HOY)
         _ledger_producto(conn, p2, hoy=HOY, fee_desfase=7)
         familias.asigna(conn, [p1], familias.crea(conn, "amazon_mx", "Arras")["id"])
@@ -644,7 +644,7 @@ def test_fabrica_sin_etiqueta_camino_viejo():
 
     with db_fabrica("orbit_familias_vie") as conn:
         _base_fabrica(conn)
-        pid, lid = _producto(conn, sku="SKU-VIE", asin="B0FAMILIAV1", seller_sku="SAV")
+        pid, lid = _producto(conn, sku="SKU-VIE", asin="B0FAMVIE01", seller_sku="SAV")
         _ledger_producto(conn, pid, hoy=HOY)
         plan = fd._arma_plan(_args_fabrica(listings=str(lid)), conn)
         assert plan.tipo_producto == "collar_perro"
@@ -674,7 +674,7 @@ def test_api_crea_asigna_y_errores(tmp_path, monkeypatch):
     _secrets_token(tmp_path, monkeypatch)
     with db_familias() as conn:
         _dsn_temp(monkeypatch, conn)
-        pid, _ = _producto(conn, sku="SKU-API", asin="B0FAMILIAP1", seller_sku="SAP")
+        pid, _ = _producto(conn, sku="SKU-API", asin="B0FAMAPI01", seller_sku="SAP")
         cliente = TestClient(app)
         headers = {HEADER_TOKEN: TOKEN}
         raiz = cliente.post(

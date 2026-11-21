@@ -3214,7 +3214,7 @@ def test_gasto_sin_venta_nunca_ninguno_sin_roster_probado(monkeypatch):
             productos_ok=[],
             evaluados=3,
             roster_probado=False,
-            roster_prueba='{"probado": false, "motivos": ["sin_acta"]}',
+            roster_prueba='{"probado": false, "motivos": ["sin_corrida_reciente"]}',
         )
         cuerpo = (
             _cliente(dsn, monkeypatch)
