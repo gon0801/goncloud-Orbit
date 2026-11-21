@@ -47,6 +47,7 @@ class ProcedenciaRefs:
     politica_valid_from: date | None = None
     politica_valid_to: date | None = None
     politica_label: str | None = None
+    politica_settings: dict[str, Any] | None = None
 
 
 # Fuentes S5 verificables (tablas/refs persistidas, no inventadas).
@@ -98,7 +99,7 @@ def leer_escenarios(
         " o.fetched_at, o.observed_at,"
         " f.fees_estimated_at, f.observed_at,"
         " c.valid_from, c.valid_to,"
-        " p.valid_from, p.valid_to, p.label"
+        " p.valid_from, p.valid_to, p.label, p.settings"
         " FROM estimacion_escenario e"
         " LEFT JOIN estimacion_oferta_observation o ON o.id = e.oferta_observation_id"
         " LEFT JOIN estimacion_fee_observation f ON f.id = e.fee_observation_id"
@@ -143,6 +144,7 @@ def leer_escenarios(
             politica_valid_from=f[22],
             politica_valid_to=f[23],
             politica_label=f[24],
+            politica_settings=dict(f[25]) if f[25] is not None else None,
         )
         resultado.append(
             EscenarioLeido(
@@ -195,6 +197,7 @@ class CuentaLeida:
     fee_variable: Decimal | None = None
     fee_fijo: Decimal | None = None
     fee_cotizable: bool | None = None
+    referral_fee_iva_multiplicador: Decimal = Decimal("1")
 
 
 def _detalle_fee(nodo: dict) -> DetalleFee:
@@ -307,12 +310,14 @@ def leer_cuenta(
     fee_total, fee_moneda, fee_detalles_raw = fee
 
     partes = _componentes_por_nombre(esc.componentes)
+    es_s4 = esc.formula_version == "S4"
     try:
         bruto = partes["precio_bruto"]
         ingreso_c = partes["ingreso_normalizado"]
         costo_c = partes["costo_normalizado"]
         envio_c = partes["logistica"]
         isr_c = partes["isr"]
+        fee_c = partes.get("fee_total")
         monedas = {
             p_moneda,
             ingreso_c.get("moneda_normalizada"),
@@ -321,6 +326,33 @@ def leer_cuenta(
             envio_c.get("moneda_normalizada"),
             isr_c.get("moneda_normalizada"),
         }
+        if fee_c is not None and fee_c.get("moneda_normalizada") is not None:
+            monedas.add(fee_c.get("moneda_normalizada"))
+        if es_s4:
+            ret_iva_c = partes["retencion_iva"]
+            monedas.add(ret_iva_c.get("moneda_normalizada"))
+            if esc.procedencia is None or esc.procedencia.politica_settings is None:
+                raise ValueError(f"escenario S4 {esc.id} sin settings de politica")
+            mult_raw = esc.procedencia.politica_settings.get("referral_fee_iva_multiplicador")
+            if mult_raw is None:
+                raise ValueError(f"escenario S4 {esc.id} sin referral_fee_iva_multiplicador")
+            mult_ref = Decimal(str(mult_raw))
+            if not mult_ref.is_finite() or mult_ref < Decimal("1"):
+                raise ValueError(
+                    f"escenario S4 {esc.id} con referral_fee_iva_multiplicador invalido: {mult_ref}"
+                )
+            fee_efectivo = (
+                fee_c.get("importe_normalizado")
+                if fee_c is not None and fee_c.get("importe_normalizado") is not None
+                else fee_total
+            )
+            retenciones_total = Decimal(str(isr_c.get("importe_normalizado"))) + Decimal(
+                str(ret_iva_c.get("importe_normalizado"))
+            )
+        else:
+            mult_ref = Decimal("1")
+            fee_efectivo = fee_total
+            retenciones_total = isr_c.get("importe_normalizado")
         if len(monedas) != 1:
             raise ValueError(
                 f"escenario {esc.id} con monedas divergentes: {sorted(map(str, monedas))}"
@@ -329,9 +361,9 @@ def leer_cuenta(
             p_actual=_importe(p_valor, p_moneda, campo="p_actual"),
             ingreso=_importe(ingreso_c.get("importe_normalizado"), p_moneda, campo="ingreso"),
             costo=_importe(costo_c.get("importe_normalizado"), p_moneda, campo="costo"),
-            fees=_importe(fee_total, p_moneda, campo="fees"),
+            fees=_importe(fee_efectivo, p_moneda, campo="fees"),
             envio=_importe(envio_c.get("importe_normalizado"), p_moneda, campo="envio"),
-            isr=_importe(isr_c.get("importe_normalizado"), p_moneda, campo="isr"),
+            isr=_importe(retenciones_total, p_moneda, campo="isr"),
         )
         if comp.ingreso.valor <= 0:
             raise ValueError(f"escenario {esc.id} con ingreso no positivo")
@@ -372,6 +404,7 @@ def leer_cuenta(
         fee_variable=fee_var,
         fee_fijo=fee_fijo,
         fee_cotizable=fee_cot,
+        referral_fee_iva_multiplicador=mult_ref,
     )
 
 

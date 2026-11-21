@@ -188,9 +188,13 @@ def paso(
     moneda: str,
     tolerancia: Decimal,
     cotizaciones: tuple[Cotizacion, ...],
+    fee_variable_multiplicador: Decimal = Decimal("1"),
 ) -> PideCotizacion | ResultadoObjetivo:
     """Un paso de la maquina de cotizaciones (cero, una o dos ya hechas)."""
     exigir_decimal(tolerancia, campo="tolerancia")
+    exigir_decimal(fee_variable_multiplicador, campo="fee_variable_multiplicador")
+    if fee_variable_multiplicador < Decimal("1"):
+        raise ValueError("fee_variable_multiplicador menor que 1")
     if len(cotizaciones) > 2:
         raise ValueError("la maquina nunca recibe mas de dos cotizaciones")
     for cot in cotizaciones:
@@ -207,7 +211,7 @@ def paso(
         return PideCotizacion(Importe(techo_centavo(estrella), moneda), 1)
     primera = cotizaciones[0]
     assert primera.fees is not None
-    ref1 = primera.fees.variable.valor / primera.precio.valor
+    ref1 = (primera.fees.variable.valor * fee_variable_multiplicador) / primera.precio.valor
     fijo1 = primera.fees.fijo.valor
     m1 = margen_a_precio(
         primera.precio.valor, costo, ref1, fijo1, envio, isr_tasa, iva_divisor, incluye_iva
@@ -224,7 +228,7 @@ def paso(
         return PideCotizacion(Importe(techo_centavo(estrella), moneda), 2)
     segunda = cotizaciones[1]
     assert segunda.fees is not None
-    ref2 = segunda.fees.variable.valor / segunda.precio.valor
+    ref2 = (segunda.fees.variable.valor * fee_variable_multiplicador) / segunda.precio.valor
     fijo2 = segunda.fees.fijo.valor
     m2 = margen_a_precio(
         segunda.precio.valor, costo, ref2, fijo2, envio, isr_tasa, iva_divisor, incluye_iva

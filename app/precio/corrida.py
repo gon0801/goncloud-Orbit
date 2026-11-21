@@ -1022,7 +1022,7 @@ _SQL_MEDIR_PREVIA = (
 
 _SQL_MEDIR_ESCENARIOS = (
     "SELECT e.id, e.fx_rate, e.fx_base::text, e.fx_quote::text,"
-    " e.fee_variable, e.fee_fijo, e.moneda::text"
+    " e.fee_variable, e.fee_fijo, e.moneda::text, e.formula_version"
     " FROM estimacion_escenario e WHERE e.id = ANY(%s)"
 )
 
@@ -1035,25 +1035,16 @@ _SQL_MEDIR_INSERT = (
     " insumo, detalle) VALUES (%s, %s, %s, %s, %s, %s, %s)"
 )
 
-# Insumo vigilado -> posiciones de columna (OJO 2, S.3): `_SQL_MEDIR_HOY`
-# para la decision, `_SQL_MEDIR_ESCENARIOS` para fx y fees.
-# costo/envio/retencion son columnas de la decision (`c_valor`, `l_valor`,
-# `r_valor`); fx y el partido de fees viven en el escenario (`fx_rate`,
-# `fee_variable`, `fee_fijo`) y se alcanzan por `escenario_id`, sin releer
-# fuentes. Cada entrada: `(valor, moneda)` o `(valor, par)`, donde `par`
-# son las posiciones que deben coincidir (moneda, o base/quote de fx) para
-# comparar. Sin columna propia en la decision no se inventa: sin dato no
-# compara.
+# Insumo vigilado -> posiciones de columna (OJO 2, S.3): `_SQL_MEDIR_HOY` para
+# la decision, `_SQL_MEDIR_ESCENARIOS` para fx/fees. Sin columna propia no compara.
 _INSUMO_DECISION = {"costo": (6, 7), "envio": (8, 9), "retencion": (10, 11)}
 _INSUMO_ESCENARIO = {"fx": (1, (2, 3)), "fee_fijo": (5, (6,)), "fee_variable": (4, (6,))}
 _INSUMOS_MEDIR = ("costo", "envio", "retencion", "fx", "fee_fijo", "fee_variable")
+_INSUMOS_FORMULA = frozenset({"retencion", "fee_variable"})
 
-# Ingreso de la misma decision, tras `escenario_id` en las dos consultas (G-H3).
+# Modo y tasas sobre ingreso de la decision (G-H3 / ARREGLOS 03 P-D).
 _INGRESO = (13, 14)
-# Modo de la decision al final de las dos consultas (ARREGLOS 03 P-D): en vivo
-# cuenta para el tope de cambios del dia; de practica a en vivo es nueva.
 _MODO = 15
-# Insumos que escalan con el precio: se comparan como tasa sobre I (G-H3).
 _INSUMOS_POR_INGRESO = frozenset({"retencion", "fee_variable"})
 
 
@@ -1205,7 +1196,19 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                         en_vivo=fila[_MODO] == "live",
                     )
                 )
+            esc_hoy = escenarios.get(fila[12]) if fila[12] is not None else None
+            esc_prev = (
+                escenarios.get(previa[12])
+                if previa is not None and previa[12] is not None
+                else None
+            )
+            cambio_formula = (
+                esc_hoy is not None and esc_prev is not None and esc_hoy[7] != esc_prev[7]
+            )
             for insumo, (valor, moneda) in _INSUMO_DECISION.items():
+                if cambio_formula and insumo in _INSUMOS_FORMULA:
+                    pares[insumo].append((None, None, liberada))
+                    continue
                 antes, ahora = _par_decision(fila, previa, valor, moneda)
                 if insumo in _INSUMOS_POR_INGRESO:
                     antes = _sobre_ingreso(
@@ -1214,6 +1217,9 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                     ahora = _sobre_ingreso(fila, ahora, fila[moneda])
                 pares[insumo].append((antes, ahora, liberada))
             for insumo, (valor, par) in _INSUMO_ESCENARIO.items():
+                if cambio_formula and insumo in _INSUMOS_FORMULA:
+                    pares[insumo].append((None, None, liberada))
+                    continue
                 antes, ahora = _par_escenario(
                     escenarios,
                     fila[12],
@@ -1222,16 +1228,8 @@ def _medir_compuerta(conn: psycopg.Connection, mercado, hoy: date, motor, corrid
                     par,
                 )
                 if insumo in _INSUMOS_POR_INGRESO:
-                    esc_hoy = escenarios.get(fila[12]) if fila[12] is not None else None
-                    esc_previa = (
-                        escenarios.get(previa[12])
-                        if previa is not None and previa[12] is not None
-                        else None
-                    )
-                    antes = _sobre_ingreso(
-                        previa, antes, esc_previa[6] if esc_previa is not None else None
-                    )
-                    ahora = _sobre_ingreso(fila, ahora, esc_hoy[6] if esc_hoy is not None else None)
+                    antes = _sobre_ingreso(previa, antes, esc_prev[6] if esc_prev else None)
+                    ahora = _sobre_ingreso(fila, ahora, esc_hoy[6] if esc_hoy else None)
                 pares[insumo].append((antes, ahora, liberada))
         intenciones_por_canal[canal] = intenciones
         pares_por_canal[canal] = pares

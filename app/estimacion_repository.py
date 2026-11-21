@@ -41,12 +41,12 @@ from app.estimacion_venta import (
     PoliticaCalculo,
     ResultadoCalculo,
     calcular_contribucion,
+    fee_variable_efectivo,
     validar_dinero,
 )
 from app.meli.estimacion import partir_fees_meli
 from app.precio.tipos import TasaFx
 
-# Callers historicos importan EscenarioLeido / leer_escenarios desde aqui.
 _ = (EscenarioLeido, ProcedenciaRefs, leer_escenarios)
 
 
@@ -888,7 +888,7 @@ def _fila_meli_disponible(
         envio_muestra_id=resuelta.muestra_id,
         logistica_origen=resuelta.origen,
         miembro_product_id=manda["product_id"],
-        fee_variable=fee_variable,
+        fee_variable=fee_variable_efectivo(fee_variable, politica),
         fee_fijo=fee_fijo,
         fee_cotizable=con_cotizador,
     )
@@ -1254,7 +1254,7 @@ def sembrar_escenario_desde_refs(
         envio_muestra_id=envio_muestra_id,
         logistica_origen=logistica_origen,
         miembro_product_id=product_id,
-        fee_variable=fee_variable,
+        fee_variable=fee_variable_efectivo(fee_variable, politica),
         fee_fijo=fee_fijo,
         fee_cotizable=(uni.cotizador is not None) if uni is not None else None,
     )

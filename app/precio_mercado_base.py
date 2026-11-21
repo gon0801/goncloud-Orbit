@@ -157,6 +157,9 @@ def construir_lectura_unidad(
         isr_tasa=cuenta.isr_tasa,
         precio_incluye_iva=cuenta.precio_incluye_iva,
         oferta_observada_en=cuenta.oferta_observada_en,
+        referral_fee_iva_multiplicador=getattr(
+            cuenta, "referral_fee_iva_multiplicador", Decimal("1")
+        ),
     )
     cotizable = oferta_para_cotizar(conn, cuenta.refs.oferta_observation_id)
     entrada = EntradaDecision(

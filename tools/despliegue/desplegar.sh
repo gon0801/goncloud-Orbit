@@ -48,7 +48,7 @@ ensayo() {
     s=$(sonda "$s") || exit 1
     [ "$s" = t ] && echo "migracion aplicada: $m" || echo "migracion pendiente: $m"
   done 3<<< "$MIGS"
-  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_* y *_temporada01_*): ninguna en $SHA"
+  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_*, *_temporada01_* y *_estimacion_s4_*): ninguna en $SHA"
   VIEJO=$(interruptores_de "$previo") || exit 1
   CAMBIADAS=$(claves_a_converger "$previo" "$VIEJO" "$NUEVO")
   for k in $CAMBIADAS; do
@@ -181,7 +181,7 @@ else
 fi
 corte 3
 
-echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_* y *_temporada01_*)"
+echo "== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_*, *_temporada01_* y *_estimacion_s4_*)"
 sigue_candado
 while IFS=$'\t' read -r m s <&3; do
   [ -n "$m" ] || continue

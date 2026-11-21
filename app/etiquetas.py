@@ -820,7 +820,6 @@ MOTIVO_ESTIMACION: dict[str, str] = {
     "variantes_sin_mapear": "Hay variantes del producto sin asignar",
 }
 
-# Lo que la estimacion deja fuera a proposito (estimacion_venta.EXCLUSIONES_FIJAS).
 EXCLUSION_ESTIMACION: dict[str, str] = {
     "ads": "publicidad",
     "reembolsos": "reembolsos",
@@ -829,8 +828,6 @@ EXCLUSION_ESTIMACION: dict[str, str] = {
     "costos_periodicos": "costos periódicos",
     "gastos_generales": "gastos generales",
 }
-
-# Renglones del desglose y base del porcentaje (estimacion_venta.calcula).
 COMPONENTE_ESTIMACION: dict[str, str] = {
     "costo_original": "Costo original",
     "costo_normalizado": "Costo en la moneda de venta",
@@ -838,8 +835,10 @@ COMPONENTE_ESTIMACION: dict[str, str] = {
     "precio_bruto": "Precio con impuestos",
     "ingreso_normalizado": "Ingreso sin impuestos",
     "fee_total": "Comisiones de Amazon",
+    "fee_iva_referral": "IVA de comisión (16%)",
     "logistica": "Logística",
     "isr": "Retención de ISR",
+    "retencion_iva": "Retención de IVA",
     "retencion_iva_conciliacion": "Retención de IVA",
 }
 

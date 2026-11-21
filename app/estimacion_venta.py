@@ -148,6 +148,7 @@ class ResultadoCalculo:
     ingreso_normalizado: Decimal | None = None
     logistica: Decimal | None = None
     isr: Decimal | None = None
+    retencion_iva: Decimal | None = None
 
 
 def validar_dinero(
@@ -249,6 +250,31 @@ def _validar_fee_detalles(
     return None
 
 
+def multiplicador_referral_fee(politica: PoliticaCalculo | None) -> Decimal:
+    """Multiplicador fiscal de ReferralFee en la politica (`1` en S3 o sin ajuste)."""
+    if politica is None or politica.formula_version != "S4":
+        return Decimal("1")
+    return _decimal_setting(politica.settings, "referral_fee_iva_multiplicador")
+
+
+def fee_variable_efectivo(
+    fee_variable: Decimal | None,
+    politica: PoliticaCalculo | None,
+) -> Decimal | None:
+    """Escala la parte variable de la comision segun la politica vigente (fail-closed)."""
+    if fee_variable is None or politica is None or politica.formula_version != "S4":
+        return fee_variable
+    try:
+        mult = _decimal_setting(politica.settings, "referral_fee_iva_multiplicador")
+    except (ValueError, InvalidOperation):
+        return None
+    if not mult.is_finite() or mult < Decimal("1") or mult >= _MAX_DINERO:
+        return None
+    if mult == Decimal("1"):
+        return fee_variable
+    return _cuantizar_frontera(fee_variable * mult)
+
+
 def _validar_politica(
     politica: PoliticaCalculo,
     fecha: date,
@@ -261,7 +287,7 @@ def _validar_politica(
         return "politica_no_vigente"
     if universo_esperado is not None and politica.universo != universo_esperado:
         return "politica_invalida"
-    if politica.formula_version != "S3":
+    if politica.formula_version not in ("S3", "S4"):
         return "politica_invalida"
     settings = politica.settings
     if settings.get("precio_incluye_iva") not in (True, False):
@@ -278,15 +304,31 @@ def _validar_politica(
         logistica = _validar_tasa_no_negativa(
             _decimal_setting(settings, "logistica"), campo="logistica"
         )
-        ret_iva = _validar_tasa_no_negativa(
-            _decimal_setting(settings, "retencion_iva_reconciliacion"),
-            campo="retencion_iva_reconciliacion",
-        )
         validar_dinero(isr_tasa, campo="isr_tasa", positivo=False, permitir_cero=True)
         validar_dinero(logistica, campo="logistica", positivo=False, permitir_cero=True)
-        validar_dinero(
-            ret_iva, campo="retencion_iva_reconciliacion", positivo=False, permitir_cero=True
-        )
+        if politica.formula_version == "S3":
+            ret_iva = _validar_tasa_no_negativa(
+                _decimal_setting(settings, "retencion_iva_reconciliacion"),
+                campo="retencion_iva_reconciliacion",
+            )
+            validar_dinero(
+                ret_iva, campo="retencion_iva_reconciliacion", positivo=False, permitir_cero=True
+            )
+        else:
+            ret_iva = _validar_tasa_no_negativa(
+                _decimal_setting(settings, "retencion_iva_tasa"),
+                campo="retencion_iva_tasa",
+            )
+            validar_dinero(ret_iva, campo="retencion_iva_tasa", positivo=False, permitir_cero=True)
+            mult_ref = _decimal_setting(settings, "referral_fee_iva_multiplicador")
+            if not mult_ref.is_finite() or mult_ref < Decimal("1") or mult_ref >= _MAX_DINERO:
+                return "politica_invalida"
+            validar_dinero(
+                mult_ref,
+                campo="referral_fee_iva_multiplicador",
+                positivo=True,
+                permitir_cero=False,
+            )
         if logistica == Decimal("0"):
             sem = settings.get("logistica_semantica")
             if not isinstance(sem, str) or not sem.strip():
@@ -383,6 +425,135 @@ def _normalizar_costo(
     return costo_norm_exacto
 
 
+def _normalizar_ingreso(
+    entrada: EntradaCalculo,
+    politica: PoliticaCalculo,
+    es_s4: bool,
+    moneda_venta: str | None,
+    motivos: list[str],
+    componentes: list[ComponenteEconomico],
+) -> tuple[Decimal | None, Decimal | None, Decimal | None, str | None]:
+    if entrada.precio_bruto is None or entrada.precio_moneda is None:
+        motivos.append("precio_ausente")
+        return None, None, None, moneda_venta
+    try:
+        precio = validar_dinero(entrada.precio_bruto, campo="precio", positivo=True)
+    except ValueError:
+        motivos.append("precio_invalido")
+        return None, None, None, moneda_venta
+    componentes.append(
+        ComponenteEconomico(
+            nombre="precio_bruto",
+            importe_original=precio,
+            moneda_original=entrada.precio_moneda,
+            importe_normalizado=precio,
+            moneda_normalizada=entrada.precio_moneda,
+        )
+    )
+    divisor = _decimal_setting(politica.settings, "iva_divisor")
+    if politica.settings.get("precio_incluye_iva"):
+        base_fiscal_exacta = precio / divisor
+        ingreso_exacto = precio if es_s4 else base_fiscal_exacta
+    else:
+        base_fiscal_exacta = precio
+        ingreso_exacto = precio
+    ingreso = _cuantizar_frontera(ingreso_exacto)
+    moneda_out = moneda_venta or entrada.precio_moneda
+    componentes.append(
+        ComponenteEconomico(
+            nombre="ingreso_normalizado",
+            importe_normalizado=ingreso,
+            moneda_normalizada=moneda_out,
+        )
+    )
+    return ingreso_exacto, ingreso, base_fiscal_exacta, moneda_out
+
+
+def _normalizar_fee(
+    entrada: EntradaCalculo,
+    mult_ref: Decimal,
+    moneda_venta: str | None,
+    motivos: list[str],
+    componentes: list[ComponenteEconomico],
+) -> Decimal | None:
+    if entrada.fee_total is None or entrada.fee_estado != "success":
+        motivos.append("fee_ausente")
+        return None
+    for det in entrada.fee_detalles:
+        if _tiene_tax_amount(det):
+            motivos.append("impuesto_fee_pendiente")
+            break
+    motivo_fee_det = _validar_fee_detalles(
+        entrada.fee_total, entrada.fee_detalles, fee_estado=entrada.fee_estado
+    )
+    if motivo_fee_det:
+        motivos.append(motivo_fee_det)
+    try:
+        fee_raw = validar_dinero(
+            entrada.fee_total, campo="fee_total", positivo=False, permitir_cero=True
+        )
+    except ValueError:
+        motivos.append("fee_invalido")
+        return None
+
+    fee_iva_extra: Decimal | None = None
+    if mult_ref > Decimal("1"):
+        referrals = [
+            det
+            for det in entrada.fee_detalles
+            if det.fee_type == "ReferralFee" and det.final_fee > 0
+        ]
+        if len(referrals) != 1:
+            motivos.append("fee_incompatible")
+            return None
+        fee_iva_extra_exacto = referrals[0].final_fee * (mult_ref - Decimal("1"))
+        fee_exacto = fee_raw + fee_iva_extra_exacto
+        fee = _cuantizar_frontera(fee_exacto)
+        fee_iva_extra = _cuantizar_frontera(fee_iva_extra_exacto)
+    else:
+        fee_exacto = fee_raw
+        fee = fee_raw
+
+    if fee_iva_extra is not None:
+        componentes.append(
+            ComponenteEconomico(
+                nombre="fee_total",
+                importe_original=fee_raw,
+                moneda_original=moneda_venta,
+                importe_normalizado=fee,
+                moneda_normalizada=moneda_venta,
+                tasa=mult_ref,
+            )
+        )
+        componentes.append(
+            ComponenteEconomico(
+                nombre="fee_iva_referral",
+                importe_normalizado=fee_iva_extra,
+                moneda_normalizada=moneda_venta,
+                tasa=mult_ref - Decimal("1"),
+                pertenece_a_total=False,
+            )
+        )
+    else:
+        componentes.append(
+            ComponenteEconomico(
+                nombre="fee_total",
+                importe_normalizado=fee,
+                moneda_normalizada=moneda_venta,
+            )
+        )
+    for det in entrada.fee_detalles:
+        componentes.append(
+            ComponenteEconomico(
+                nombre=f"fee_detalle:{det.fee_type}",
+                importe_normalizado=det.final_fee,
+                moneda_normalizada=moneda_venta,
+                pertenece_a_total=False,
+            )
+        )
+    return fee_exacto
+
+
 def calcular_contribucion(
     entrada: EntradaCalculo,
     politica: PoliticaCalculo,
@@ -390,7 +561,7 @@ def calcular_contribucion(
     valoracion_date: date,
     universo_esperado: str | None = None,
 ) -> ResultadoCalculo:
-    """Formula S3: I - C - F - L - R; retencion IVA solo conciliacion."""
+    """Formula S3 (neto de IVA) o S4 (caja real: P - C - F_eff - L - ISR - RetIVA)."""
     motivos: list[str] = list(entrada.motivos_entrada)
     componentes: list[ComponenteEconomico] = []
     exclusiones = EXCLUSIONES_FIJAS
@@ -432,104 +603,35 @@ def calcular_contribucion(
             exclusiones=exclusiones,
         )
 
+    es_s4 = politica.formula_version == "S4"
     moneda_venta = entrada.moneda_base or entrada.precio_moneda
-
-    ingreso_exacto: Decimal | None = None
-    ingreso: Decimal | None = None
-    if entrada.precio_bruto is None or entrada.precio_moneda is None:
-        motivos.append("precio_ausente")
-    else:
-        try:
-            precio = validar_dinero(entrada.precio_bruto, campo="precio", positivo=True)
-        except ValueError:
-            motivos.append("precio_invalido")
-            precio = None
-        if precio is not None:
-            componentes.append(
-                ComponenteEconomico(
-                    nombre="precio_bruto",
-                    importe_original=precio,
-                    moneda_original=entrada.precio_moneda,
-                    importe_normalizado=precio,
-                    moneda_normalizada=entrada.precio_moneda,
-                )
-            )
-            if politica.settings.get("precio_incluye_iva"):
-                divisor = _decimal_setting(politica.settings, "iva_divisor")
-                ingreso_exacto = precio / divisor
-            else:
-                ingreso_exacto = precio
-            ingreso = _cuantizar_frontera(ingreso_exacto)
-            if moneda_venta is None:
-                moneda_venta = entrada.precio_moneda
-            componentes.append(
-                ComponenteEconomico(
-                    nombre="ingreso_normalizado",
-                    importe_normalizado=ingreso,
-                    moneda_normalizada=moneda_venta,
-                )
-            )
-
-    fee_exacto: Decimal | None = None
-    fee: Decimal | None = None
-    if entrada.fee_total is None or entrada.fee_estado != "success":
-        motivos.append("fee_ausente")
-    else:
-        for det in entrada.fee_detalles:
-            if _tiene_tax_amount(det):
-                motivos.append("impuesto_fee_pendiente")
-                break
-        motivo_fee_det = _validar_fee_detalles(
-            entrada.fee_total,
-            entrada.fee_detalles,
-            fee_estado=entrada.fee_estado,
-        )
-        if motivo_fee_det:
-            motivos.append(motivo_fee_det)
-        try:
-            fee_exacto = validar_dinero(
-                entrada.fee_total,
-                campo="fee_total",
-                positivo=False,
-                permitir_cero=True,
-            )
-            fee = fee_exacto
-        except ValueError:
-            motivos.append("fee_invalido")
-            fee_exacto = None
-            fee = None
-        if fee is not None:
-            componentes.append(
-                ComponenteEconomico(
-                    nombre="fee_total",
-                    importe_normalizado=fee,
-                    moneda_normalizada=moneda_venta,
-                )
-            )
-            for det in entrada.fee_detalles:
-                componentes.append(
-                    ComponenteEconomico(
-                        nombre=f"fee_detalle:{det.fee_type}",
-                        importe_normalizado=det.final_fee,
-                        moneda_normalizada=moneda_venta,
-                        pertenece_a_total=False,
-                    )
-                )
-
+    ingreso_exacto, ingreso, base_fiscal_exacta, moneda_venta = _normalizar_ingreso(
+        entrada, politica, es_s4, moneda_venta, motivos, componentes
+    )
+    mult_ref = (
+        _decimal_setting(politica.settings, "referral_fee_iva_multiplicador")
+        if es_s4
+        else Decimal("1")
+    )
+    fee_exacto = _normalizar_fee(entrada, mult_ref, moneda_venta, motivos, componentes)
     costo_exacto = _normalizar_costo(entrada, moneda_venta or "", motivos, componentes)
 
     # L resuelta por el universo; None con motivo bloquea abajo.
     logistica = entrada.logistica
     isr_tasa = _decimal_setting(politica.settings, "isr_tasa")
-    ret_iva_tasa = _decimal_setting(politica.settings, "retencion_iva_reconciliacion")
+    ret_iva_tasa = _decimal_setting(
+        politica.settings, "retencion_iva_tasa" if es_s4 else "retencion_iva_reconciliacion"
+    )
 
     isr_exacto: Decimal | None = None
     isr: Decimal | None = None
+    ret_iva_exacto: Decimal | None = None
     ret_iva: Decimal | None = None
-    if ingreso_exacto is not None:
-        isr_exacto = ingreso_exacto * isr_tasa
+    if base_fiscal_exacta is not None:
+        isr_exacto = base_fiscal_exacta * isr_tasa
         isr = _cuantizar_frontera(isr_exacto)
-        ret_iva = _cuantizar_frontera(ingreso_exacto * ret_iva_tasa)
+        ret_iva_exacto = base_fiscal_exacta * ret_iva_tasa
+        ret_iva = _cuantizar_frontera(ret_iva_exacto)
         if logistica is not None:
             componentes.append(
                 ComponenteEconomico(
@@ -552,10 +654,10 @@ def calcular_contribucion(
         )
         componentes.append(
             ComponenteEconomico(
-                nombre="retencion_iva_conciliacion",
+                nombre="retencion_iva" if es_s4 else "retencion_iva_conciliacion",
                 importe_normalizado=ret_iva,
                 moneda_normalizada=moneda_venta,
-                pertenece_a_total=False,
+                pertenece_a_total=es_s4,
             )
         )
 
@@ -593,6 +695,7 @@ def calcular_contribucion(
             ingreso_normalizado=ingreso,
             logistica=logistica,
             isr=isr,
+            retencion_iva=ret_iva if es_s4 else None,
         )
 
     if logistica is None:
@@ -605,8 +708,14 @@ def calcular_contribucion(
         and moneda_venta
     )
 
+    ret_iva_resta = (ret_iva_exacto or Decimal("0")) if es_s4 else Decimal("0")
     contrib_exacto = (
-        ingreso_exacto - costo_exacto - fee_exacto - logistica - (isr_exacto or Decimal("0"))
+        ingreso_exacto
+        - costo_exacto
+        - fee_exacto
+        - logistica
+        - (isr_exacto or Decimal("0"))
+        - ret_iva_resta
     )
     contrib = _cuantizar_frontera(contrib_exacto)
     pct = _cuantizar_frontera(contrib_exacto * Decimal("100") / ingreso_exacto)
@@ -622,4 +731,5 @@ def calcular_contribucion(
         ingreso_normalizado=ingreso,
         logistica=logistica,
         isr=isr,
+        retencion_iva=ret_iva if es_s4 else None,
     )

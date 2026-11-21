@@ -1277,6 +1277,20 @@ def test_temporada01_i_migracion_en_migraciones_de(tmp_path):
     assert "0092_temporada01_prueba.sql\tSELECT to_regclass" in r.stdout
 
 
+def test_estimacion_s4_migracion_en_migraciones_de():
+    """C2 / S4: migraciones_de lista 0093_estimacion_s4_caja_real_mx.sql y resuelve su reversa."""
+    r = subprocess.run(
+        ["bash", "-c", ". tools/despliegue/comun.sh && migraciones_de HEAD"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "ORBIT_SIMULACION": "0"},
+    )
+    assert r.returncode == 0, r.stderr
+    assert "0093_estimacion_s4_caja_real_mx.sql\tSELECT " in r.stdout
+    assert (ROOT / "migrations" / "0093_reversa_estimacion_s4_caja_real_mx.sql").exists()
+
+
 def _compose_log(s: Servidor) -> list[str]:
     return [ln for ln in (s.ctl / "docker.log").read_text().splitlines() if " compose " in ln]
 
