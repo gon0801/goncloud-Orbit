@@ -199,7 +199,7 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # lectura fresca del aplicador pendiente del bloque E, el vocabulario
     # bid_cambiado_fuera y la reconciliacion de intentos sellados ambiguos
     # (GET fresco sin reenviar el PUT); el techo sube lo justo del bloque.
-    "app/apply.py": 1443,
+    "app/apply.py": 1445,
     "app/apply_cola.py": 1816,
     "app/apply_harvest.py": 2163,
     "app/bloqueo_dueno_efecto.py": 1004,

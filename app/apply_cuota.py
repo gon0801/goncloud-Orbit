@@ -429,6 +429,30 @@ SELECT a.id, a.decision_id, a.request_payload, d.ad_entity_id, d.new_value,
  ORDER BY a.started_at, a.id
 """
 
+# Criterio COMPARTIDO de intentos pendientes (guarda del ciclo y
+# reconciliacion): intentos sin sello MAS efectos de temporada abiertos con
+# lectura ambigua sin desenlace (el resultado del PUT es desconocido; la hoja
+# no genera otra puja hasta que la reconciliacion la resuelva con GET fresco).
+_SQL_HOJAS_BID_PENDIENTE = """
+SELECT d.ad_entity_id
+  FROM apply_attempt a
+  JOIN decision d ON d.id = a.decision_id
+  JOIN ad_entity k ON k.id = d.ad_entity_id
+ WHERE a.finished_at IS NULL AND a.tipo = 'normal' AND d.kind = 'bid'
+   AND k.platform = %s::platform
+UNION
+SELECT e.ad_entity_id
+  FROM temporada_efecto e
+  JOIN decision d ON d.id = e.decision_id
+  JOIN ad_entity k ON k.id = d.ad_entity_id
+ WHERE e.cerrado_el IS NULL
+   AND k.platform = %s::platform
+   AND NOT EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = d.id)
+   AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa WHERE sa.decision_id = d.id)
+   AND EXISTS (SELECT 1 FROM apply_attempt a
+                WHERE a.decision_id = d.id AND a.resultado = 'fallo:readback_ambiguo')
+"""
+
 
 def intentos_sin_sello(conn: psycopg.Connection) -> list[tuple]:
     """Filas del ledger nacidas PRE-HTTP que nunca se sellaron (crash entre
@@ -454,7 +478,13 @@ def gate_ancestros(conn: psycopg.Connection, ad_entity_id: int) -> str | None:
 
 def hojas_con_bid_sin_sello(conn: psycopg.Connection, platform: str) -> frozenset[int]:
     """ARREGLOS 01 K (E-H3): ad_entity_id con un intento tipo 'normal' de
-    decision kind bid SIN sello en la plataforma. Solo lectura; usa el MISMO
-    SQL que reconcilia_bids, asi la guarda del ciclo bloquea exactamente las
-    filas que el reconciliador sella en la fase de apply del mismo ciclo."""
-    return frozenset(f[3] for f in conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)))
+    decision kind bid SIN sello en la plataforma. TEMPORADA 01 B (revision):
+    incluye TAMBIEN las hojas con un efecto de temporada abierto cuyo intento
+    quedo SELLADO con lectura ambigua sin desenlace (Amazon puede haber
+    aplicado el cambio: la hoja no genera otra puja hasta que la
+    reconciliacion la resuelva con GET fresco). Solo lectura; comparte el
+    criterio de intentos pendientes con reconcilia_bids, asi la guarda del
+    ciclo bloquea exactamente las hojas cuyo resultado es dudoso. La
+    excepcion de Pausar del ciclo se mantiene intacta."""
+    filas = conn.execute(_SQL_HOJAS_BID_PENDIENTE, (platform, platform))
+    return frozenset(f[0] for f in filas)

@@ -344,26 +344,18 @@ def _reconcilia_ambiguos_sellados(
     confirmadas = fallidas = 0
     for _id_attempt, decision_id, ad_entity_id, old_value, new_value in filas:
         if gate_ancestros(conn, ad_entity_id) is not None:
-            registra_sin_aplicar(
-                conn,
-                decision_id,
-                aplicador.cycle_id_ejecutor,
-                MOTIVO_ENTIDAD_NO_DECISORA,
-                detalle={"sello": RESULTADO_ANCESTRO_NO_ENABLED},
-            )
+            # TEMPORADA 01 B (revision 4): resultado DESCONOCIDO (Amazon puede
+            # haber aplicado el PUT): SIN desenlace terminal. Sin HTTP mientras
+            # los ancestros esten fuera; la reconciliacion se retoma al
+            # reactivarlos y resuelve el desenlace con GET fresco.
             fallidas += 1
             continue
         if cliente_holder[0] is None:
             cliente_holder[0] = aplicador._cliente()
         identidad = _identidad(conn, ad_entity_id)
         if identidad is None or identidad[0] not in _KINDS_DECISORAS or new_value is None:
-            registra_sin_aplicar(
-                conn,
-                decision_id,
-                aplicador.cycle_id_ejecutor,
-                MOTIVO_ENTIDAD_NO_DECISORA,
-                detalle={"sello": "fallo:reconciliado_sin_identidad"},
-            )
+            # Mismo criterio conservador: el PUT ya viajo y el resultado es
+            # desconocido; sin desenlace terminal.
             fallidas += 1
             continue
         kind, external_id = identidad
@@ -377,7 +369,14 @@ def _reconcilia_ambiguos_sellados(
             fallidas += 1
             continue
         ack = {"fuente": "readback", "bid": str(bid_leido)} if bid_leido is not None else None
-        if bid_leido is not None and bid_leido == Decimal(_bid_payload(new_value)):
+        if bid_leido is None:
+            # TEMPORADA 01 B (revision 4): sin puja legible el resultado NO es
+            # concluyente (no demuestra ningun valor): el efecto queda ABIERTO
+            # y el siguiente ciclo reintenta la lectura. Cerrarlo aqui podria
+            # calcular otra entrada sobre el bid ya reducido.
+            fallidas += 1
+            continue
+        if bid_leido == Decimal(_bid_payload(new_value)):
             # Amazon YA aplico el destino: confirmar sin reenviar el PUT.
             with tx_durable(conn):
                 id_probe = _ledger(
@@ -390,7 +389,7 @@ def _reconcilia_ambiguos_sellados(
                 )
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
             confirmadas += 1
-        elif bid_leido is not None and old_value is not None and bid_leido == old_value:
+        elif old_value is not None and bid_leido == old_value:
             # No aplico: Amazon conserva el bid ANTERIOR; la hoja queda libre
             # ('perdida' + efecto 'sin_aplicar') y el siguiente ciclo decide
             # de nuevo sobre el bid real.
@@ -410,23 +409,26 @@ def _reconcilia_ambiguos_sellados(
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
             fallidas += 1
         else:
-            # Tercer valor: divergencia (el efecto cierra con exclusion si el
-            # bid leido difiere del old_value).
+            # Tercer valor: DIVERGENCIA DEFINITIVA — resumen verify_ok FALSE en
+            # la misma transaccion que el probe y el cache: la decision deja
+            # de calificar para futuras conciliaciones (una puja posterior al
+            # destino jamas confirma esta decision) y el efecto cierra con
+            # exclusion si el valor difiere del old_value.
             with tx_durable(conn):
                 id_probe = _ledger(
-                    conn,
-                    decision_id,
-                    "probe",
-                    {"leido": None if bid_leido is None else str(bid_leido)},
-                    quota_cobrada=False,
+                    conn, decision_id, "probe", {"leido": str(bid_leido)}, quota_cobrada=False
                 )
                 if id_probe is not None:
                     _sella_ledger(conn, id_probe, ack=ack, resultado="fallo:divergencia_readback")
-                if bid_leido is not None:
-                    _actualiza_cache(conn, ad_entity_id, bid_leido)
-                temporada_io.cierra_efecto_resumen(
-                    conn, decision_id=decision_id, verify_ok=False, leido=bid_leido
+                _confirma_resumen(
+                    conn,
+                    decision_id,
+                    ack or {},
+                    False,
+                    aplicador.cycle_id_ejecutor,
+                    leido=bid_leido,
                 )
+                _actualiza_cache(conn, ad_entity_id, bid_leido)
             fallidas += 1
     return confirmadas, fallidas
 

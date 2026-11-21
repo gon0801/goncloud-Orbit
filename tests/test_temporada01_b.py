@@ -991,24 +991,12 @@ def test_temporada01_b_efecto_con_intento_sellado_se_cierra(db_template):
     assert _bid_cache(conn, kw1) == Decimal("5.60")
 
 
-def test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar(db_template):
-    """Revision (doble recorte): la entrada SIN confirmar cuyo intento quedo
-    SELLADO con lectura AMBIGUA (Amazon YA la aplico: el sync trajo el destino
-    al cache). El ciclo siguiente la BLOCKEA (en_vuelo: no recorta otra vez) y
-    la fase de apply la reconcilia con GET fresco SIN reenviar el PUT: puja ==
-    destino -> CONFIRMA la entrada original (sin decision_sin_aplicar falso).
-    El ciclo posterior rejuega la cadena confirmada: jamas otra entrada."""
-    conn, _dsn = db_template
-    ids = _escenario(conn)
-    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
-    _siembra_metricas(conn, [kw1])
-    handler = _handler_mx({"b-kw1": "5.60"})
+def _siembra_ambigua(conn, ids: dict, kw: int, *, cache: str = "5.60") -> dict:
+    """El estado de la caida ambigua (revision): la decision de entrada
+    8 -> 5.60 SIN resumen, su intento SELLADO con lectura AMBIGUA, el episodio
+    y el efecto ABIERTOS. `cache` es el bid que la sincronizacion trajo de
+    Amazon (por defecto, el destino ya aplicado)."""
     config_id = ids["config_id"]
-
-    # El estado de la caida ambigua, sembrado a mano: la decision de entrada
-    # 8 -> 5.60 SIN resumen, su intento SELLADO con lectura AMBIGUA, el
-    # episodio y el efecto ABIERTOS, y el cache YA SINCRONIZADO a 5.60 (Amazon
-    # aplico el PUT antes de caer).
     ciclo_id = conn.execute(
         "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
         " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
@@ -1026,7 +1014,7 @@ def test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar(db_template):
         " VALUES (%s,%s,'bid',%s,%s,%s,%s,%s,%s,8.00,5.60,'MXN') RETURNING id",
         (
             ciclo_id,
-            kw1,
+            kw,
             _medianoche(D_E1),
             config_id,
             _medianoche(D_E1),
@@ -1044,9 +1032,29 @@ def test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar(db_template):
     conn.execute(
         "INSERT INTO temporada_efecto (episodio_id, ad_entity_id, decision_id, tipo,"
         " abierto_el) VALUES (%s, %s, %s, 'entra', %s)",
-        (e1, kw1, dec, _medianoche(D_E1)),
+        (e1, kw, dec, _medianoche(D_E1)),
     )
-    conn.execute("UPDATE ad_entity_state SET current_bid = 5.60 WHERE ad_entity_id = %s", (kw1,))
+    conn.execute(
+        "UPDATE ad_entity_state SET current_bid = %s WHERE ad_entity_id = %s", (Decimal(cache), kw)
+    )
+    return {"ciclo": ciclo_id, "e1": e1, "dec": dec}
+
+
+def test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar(db_template):
+    """Revision (doble recorte): la entrada SIN confirmar cuyo intento quedo
+    SELLADO con lectura AMBIGUA (Amazon YA la aplico: el sync trajo el destino
+    al cache). El ciclo siguiente la BLOCKEA (en_vuelo: no recorta otra vez) y
+    la fase de apply la reconcilia con GET fresco SIN reenviar el PUT: puja ==
+    destino -> CONFIRMA la entrada original (sin decision_sin_aplicar falso).
+    El ciclo posterior rejuega la cadena confirmada: jamas otra entrada."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    handler = _handler_mx({"b-kw1": "5.60"})
+
+    amb = _siembra_ambigua(conn, ids, kw1)
+    e1 = amb["e1"]
 
     # El ciclo siguiente: TX2 BLOCKEA la hoja (en_vuelo: no doble recorte) y
     # la fase de apply confirma la entrada con GET fresco (5.60 == destino).
@@ -1086,6 +1094,237 @@ def test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar(db_template):
     assert res.status == "done", res.notes
     assert _temporada_del_ciclo(conn, res.cycle_id) == []
     assert _bid_cache(conn, kw1) == Decimal("5.60")
+
+
+def _evidencia_recorte(conn, kw: int) -> None:
+    """Metricas de la ventana madura con gasto alto sin ventas y pocos clicks
+    (hora 2: pisa la observacion de hora 1 en v_metric_latest, misma key
+    dia+hoja): R9 produce un recorte -25 % (movimiento) sin disparar la
+    pausa economica."""
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-b-gasto') RETURNING id"
+    ).fetchone()[0]
+    desde, hasta = RANGO_METRICAS
+    dia = desde
+    while dia <= hasta:
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            dia,
+            dt.datetime(dia.year, dia.month, dia.day, 2, tzinfo=dt.UTC),
+            moneda="MXN",
+            cost="10.00",
+            ad_revenue="0.01",
+            clicks=1,
+            orders=0,
+            impressions=200,
+        )
+        dia += dt.timedelta(days=1)
+
+
+def test_temporada01_b_pendiente_ambigua_bloquea_nuevas_pujas(db_template):
+    """Revision: mientras la lectura ambigua esta pendiente de conciliar (sin
+    desenlace), la hoja NO genera otra puja: las reglas normales producen su
+    movimiento (R9) y el ciclo lo SALTA con bid_en_vuelo; la fase de apply
+    confirma la entrada original con GET fresco (puja == destino) y jamas
+    envia el movimiento dudoso."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    handler = _handler_mx({"b-kw1": "5.60"})
+    amb = _siembra_ambigua(conn, ids, kw1)
+    _evidencia_recorte(conn, kw1)
+
+    # Ciclo con la conciliacion pendiente: las reglas normales deciden un
+    # movimiento (R9 sobre 5.60 -> 4.20) y el gate bid_en_vuelo lo SALTA.
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler)
+    assert res.status == "done", res.notes
+    skips = json.loads(res.notes).get("skips", {}).get("entidad", {})
+    assert skips.get("bid_en_vuelo") == 1, skips
+    assert _temporada_del_ciclo(conn, res.cycle_id) == [], "sin doble recorte"
+    nueva = conn.execute(
+        "SELECT new_value FROM decision WHERE ad_entity_id = %s AND cycle_id = %s AND kind = 'bid'",
+        (kw1, res.cycle_id),
+    ).fetchall()
+    assert nueva == [], nueva
+    # La fase de apply confirma la entrada original (puja == destino).
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision d"
+        " JOIN decision_application da ON da.decision_id = d.id"
+        " WHERE d.ad_entity_id = %s AND d.inputs->>'motivo' = 'entra_temporada_baja'",
+        (kw1,),
+    ).fetchone()
+    assert resumen == (True,), resumen
+    assert _bid_cache(conn, kw1) == Decimal("5.60")
+
+    # El ciclo posterior rejuega la cadena confirmada: sin pendiente, las
+    # reglas normales deciden normal (sin recorte doble de temporada).
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
+    assert _temporada_del_ciclo(conn, res.cycle_id) == []
+
+
+def test_temporada01_b_tercer_valor_divergencia_definitiva(db_template):
+    """Revision: una TERCERA puja legible es divergencia DEFINITIVA: el
+    resumen verify_ok FALSE deja de calificar la decision para futuras
+    conciliaciones (aunque Amazon muestre despues el destino original, la
+    lectura jamas confirma la decision equivocada) y el efecto cierra con
+    exclusion del bid divergente."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    remoto = {"b-kw1": "7.00"}
+    handler = _handler_mx(remoto)
+    amb = _siembra_ambigua(conn, ids, kw1)
+
+    # Primera conciliacion valida: 7.00 (tercer valor) -> divergencia
+    # definitiva con resumen FALSE y exclusion del bid divergente.
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler)
+    assert res.status == "done", res.notes
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision_application da WHERE da.decision_id = %s",
+        (amb["dec"],),
+    ).fetchone()
+    assert resumen == (False,), resumen
+    exclusion = conn.execute(
+        "SELECT motivo, bid_visto FROM temporada_exclusion WHERE ad_entity_id = %s",
+        (kw1,),
+    ).fetchone()
+    assert exclusion == ("divergencia", Decimal("7.00")), exclusion
+
+    # Amazon muestra DESPUES el destino original: la decision YA tiene
+    # desenlace y NO se vuelve a conciliar (jamas confirma la decision
+    # equivocada).
+    remoto["b-kw1"] = "5.60"
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
+    assert conn.execute(
+        "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (amb["dec"],)
+    ).fetchone() == (False,), "la divergencia es definitiva"
+    probes = conn.execute(
+        "SELECT count(*) FROM apply_attempt WHERE tipo = 'probe' AND decision_id = %s",
+        (amb["dec"],),
+    ).fetchone()[0]
+    assert probes == 1, probes
+
+
+def test_temporada01_b_ambigua_campana_pausa_no_descarta(db_template):
+    """Revision: con la campana PAUSA, la conciliacion del sellado-ambiguo NO
+    consulta Amazon y NO escribe un desenlace terminal (Amazon puede haber
+    aplicado la reduccion: descartarla perderia la base de regreso). Al
+    reactivar la campana, el ciclo confirma la reduccion aplicada SIN
+    reenviar el PUT."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    handler = _handler_mx({"b-kw1": "5.60"})
+    amb = _siembra_ambigua(conn, ids, kw1)
+    camp = ids["camp"]
+
+    # Campana pausada: la conciliacion NO consulta Amazon y deja el intento
+    # pendiente (sin desenlace terminal).
+    conn.execute("UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s", (camp,))
+
+    def handler_prohibido(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("ninguna consulta a Amazon con la campana pausada")
+
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler_prohibido)
+    assert res.status == "done", res.notes
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision_application WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT cerrado_el FROM temporada_efecto WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        is None
+    ), "el efecto queda abierto: la reduccion no se descarta"
+
+    # Campana reactivada: el ciclo confirma la reduccion aplicada sin
+    # reenviar el PUT.
+    conn.execute("UPDATE ad_entity_state SET status = 'ENABLED' WHERE ad_entity_id = %s", (camp,))
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision_application da WHERE da.decision_id = %s",
+        (amb["dec"],),
+    ).fetchone()
+    assert resumen == (True,), resumen
+    reenvios = conn.execute(
+        "SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND tipo = 'probe'"
+        " AND resultado = 'ok:no_aplicado'",
+        (amb["dec"],),
+    ).fetchone()[0]
+    assert reenvios == 0, "jamás se reenvía el PUT"
+
+
+def test_temporada01_b_ambigua_sin_puja_legible_reintenta(db_template):
+    """Revision: un listado SIN la fila buscada no es concluyente: el efecto
+    queda ABIERTO (sin divergencia) y el ciclo siguiente, con la fila
+    legible, confirma la entrada original (jamás otro recorte sobre el bid
+    ya reducido)."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    remoto: dict[str, str] = {}
+    handler = _handler_mx(remoto)
+    amb = _siembra_ambigua(conn, ids, kw1)
+
+    # Ciclo 1: el listado NO trae la fila de la hoja (sin puja legible): el
+    # efecto queda ABIERTO, sin desenlace ni resumen.
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler)
+    assert res.status == "done", res.notes
+    assert (
+        conn.execute(
+            "SELECT cerrado_el FROM temporada_efecto WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        is None
+    ), "sin lectura concluyente: el efecto queda abierto"
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision_application WHERE decision_id = %s", (amb["dec"],)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND tipo = 'probe'",
+            (amb["dec"],),
+        ).fetchone()[0]
+        == 0
+    ), "sin rastro de divergencia sin valor legible"
+
+    # Ciclo 2: la fila aparece con el DESTINO: la lectura confirma la entrada
+    # original (jamás otro recorte sobre el bid ya reducido).
+    remoto["b-kw1"] = "5.60"
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision_application da WHERE da.decision_id = %s",
+        (amb["dec"],),
+    ).fetchone()
+    assert resumen == (True,), resumen
+    assert _bid_cache(conn, kw1) == Decimal("5.60")
+    doble = [
+        row
+        for row in _temporada_del_ciclo(conn, res.cycle_id)
+        if row[0] == kw1 and row[1] == Decimal("3.92")
+    ]
+    assert doble == [], "jamás otro recorte 5.60 -> 3.92"
 
 
 def test_temporada01_b_cerca_plataforma_no_se_reinicia_con_ajuste(db_template):
