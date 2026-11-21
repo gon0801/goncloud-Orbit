@@ -6,6 +6,8 @@
   crea una versión nueva y la anterior queda en el historial; guardar una meta de
   campaña la cambia en su lugar. Para guardar hace falta el token de escritura
   (campo Token abajo). El modo global y la captura de búsquedas solo se consultan aquí.
+  La tarjeta «Temporadas de venta» guarda el calendario y sus parámetros para las
+  dos plataformas a la vez, con el mismo token.
 </p>
 
 <section class="tarjeta settings-sesion">
@@ -18,6 +20,108 @@
   <input type="password" id="settings-token" name="token" placeholder="Token de escritura" required>
 </label>
 
+</section>
+
+<section class="tarjeta" data-temporada
+  data-config-id="{{ datos.config_version_id }}"
+  data-fin-anticipado="{{ datos.temporada_form.fin_anticipado or '' }}"
+  data-mantener-pausadas="{{ datos.temporada_form.mantener_pausadas | tojson }}">
+  <h3>Temporadas de venta</h3>
+  <p class="mutado">
+    Tus productos venden más en unos meses que en otros. Marca cada mes y Orbit ajusta la
+    inversión: gasta menos en los meses bajos, deja todo listo antes de los altos y compite más
+    fuerte en los altos. Vale para todos tus productos.
+  </p>
+
+  {% if datos.temporada_estado and datos.temporada_estado.fase == "baja" %}
+  <div class="aviso" data-temporada-baja>
+    <p><strong>Temporada baja desde el <span data-temporada-desde>{{ datos.temporada_estado.desde }}</span>.</strong></p>
+    <button type="button" data-terminar-baja>Terminar la baja hoy</button>
+    <span class="mutado">Orbit regresa los bids en el siguiente ciclo. Tu calendario no cambia para el año que viene.</span>
+    <span data-estado-baja class="mutado"></span>
+  </div>
+  {% endif %}
+
+  <fieldset>
+    <legend>Meses</legend>
+    <div class="temporada-meses">
+      {% set nombres_cortos = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'] %}
+      {% for nombre in nombres_cortos %}
+      <label>{{ nombre }}
+        <select data-mes="{{ loop.index }}">
+          <option value="baja" {% if datos.temporada_form.meses[loop.index0] == 'baja' %}selected{% endif %}>Baja</option>
+          <option value="normal" {% if datos.temporada_form.meses[loop.index0] == 'normal' %}selected{% endif %}>Normal</option>
+          <option value="alta" {% if datos.temporada_form.meses[loop.index0] == 'alta' %}selected{% endif %}>Alta</option>
+        </select>
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <label>Al empezar la temporada baja, bajar todos los bids
+    <input type="number" data-temporada-campo="reduccion_baja_pct" min="5" max="30" step="1"
+      value="{{ datos.temporada_form.reduccion_baja_pct }}"> % (de 5 a 30)
+  </label>
+  <label>Empezar a preparar la temporada alta
+    <input type="number" data-temporada-campo="dias_preparacion" min="7" max="42" step="1"
+      value="{{ datos.temporada_form.dias_preparacion }}"> días antes (de 7 a 42)
+  </label>
+  <label>En temporada baja, pedir
+    <input type="number" data-temporada-campo="mult_cortes_baja" min="1" max="3" step="1"
+      value="{{ datos.temporada_form.mult_cortes_baja }}"> veces más clics y gasto
+    antes de pausar una keyword o bloquear una búsqueda (de 1 a 3)
+  </label>
+  <label>En temporada alta, sugerir subir el presupuesto
+    <input type="number" data-temporada-campo="aumento_presupuesto_alta_pct" min="0" max="100" step="1"
+      value="{{ datos.temporada_form.aumento_presupuesto_alta_pct }}"> %
+    a las campañas que se quedan sin presupuesto (de 0 a 100; 0 = no sugerir)
+  </label>
+  <label>Una campaña se queda sin presupuesto si gasta al menos
+    <input type="number" data-topada-campo="pct" min="50" max="100" step="1"
+      value="{{ datos.campana_topada.pct }}"> % de su presupuesto
+    en <input type="number" data-topada-campo="dias" min="1" max="7" step="1"
+      value="{{ datos.campana_topada.dias }}"> de los últimos 7 días
+    (lo usan también el aviso de Telegram y «Dónde poner el dinero»)
+  </label>
+
+  {% for p in datos.plataformas %}
+  <div data-temporada-plataforma="{{ p.plataforma }}">
+    <h4>{{ p.plataforma | etiqueta("plataforma") }}</h4>
+    <label>Meta de ACoS en temporada alta (%)
+      <input type="number" data-meta-alta="{{ p.plataforma }}" min="10" max="45" step="1"
+        value="{{ p.meta_alta }}"> (de 10 a 45)
+    </label>
+    <fieldset>
+      <legend>Modo</legend>
+      {% set modo_inicial = p.modo_temporada or 'off' %}
+      <label><input type="radio" name="modo_{{ p.plataforma }}" data-modo-inicial="{{ modo_inicial }}"
+        value="off" {% if modo_inicial == 'off' %}checked{% endif %}> Apagado</label>
+      <label><input type="radio" name="modo_{{ p.plataforma }}"
+        value="shadow" {% if modo_inicial == 'shadow' %}checked{% endif %}> Práctica</label>
+      <label><input type="radio" name="modo_{{ p.plataforma }}"
+        value="live" {% if modo_inicial == 'live' %}checked{% endif %}> En vivo</label>
+    </fieldset>
+    <p data-frase-meta="{{ p.plataforma }}">
+      {% if p.temporada.frase_meta_hoy %}{{ p.temporada.frase_meta_hoy }} {% endif %}
+      {% if p.temporada.meta_alta_frase %}{{ p.temporada.meta_alta_frase }}{% endif %}
+    </p>
+    {% if p.temporada.linea %}<p data-linea-equilibrio="{{ p.plataforma }}">{{ p.temporada.linea }}</p>{% endif %}
+    {% if p.temporada.razon %}<p class="mutado" data-razon-equilibrio="{{ p.plataforma }}">{{ p.temporada.razon }}</p>{% endif %}
+    {% if p.temporada.aviso %}<p class="alerta" data-aviso-rojo="{{ p.plataforma }}">{{ p.temporada.aviso }}</p>{% endif %}
+    <p class="mutado">{{ p.campanas_con_meta_propia }} campañas con meta propia no cambian.</p>
+  </div>
+  {% endfor %}
+  <p class="mutado">Práctica: Orbit calcula lo que haría y te lo enseña cada día, sin tocar Amazon.</p>
+
+  <div data-vista-previa>
+    <h4>Así queda tu año (hora UTC, la del motor)</h4>
+    <p class="aviso" data-aviso-cambio hidden></p>
+    <ul data-proximos></ul>
+    <p class="mutado" data-error-previa hidden></p>
+  </div>
+
+  <button type="button" data-guardar-temporada>Guardar temporadas</button>
+  <span data-estado-temporada class="mutado"></span>
 </section>
 
 {% for p in datos.plataformas %}
@@ -81,6 +185,22 @@
       <p class="mutado">Vive: {% if p.motor_bid_vive %}niveles v3{% else %}apagado{% endif %}.</p>
     </fieldset>
 
+    <fieldset data-recuperacion data-recuperacion-inicial="{{ p.recuperacion_modo or 'off' }}">
+      <legend>Subida rápida de bids recortados</legend>
+      {% set recuperacion_inicial = p.recuperacion_modo or 'off' %}
+      <label><input type="radio" name="recuperacion_{{ p.plataforma }}"
+        value="off" {% if recuperacion_inicial == 'off' %}checked{% endif %}> Apagada</label>
+      <label><input type="radio" name="recuperacion_{{ p.plataforma }}"
+        value="shadow" {% if recuperacion_inicial == 'shadow' %}checked{% endif %}> Práctica</label>
+      <label><input type="radio" name="recuperacion_{{ p.plataforma }}"
+        value="live" {% if recuperacion_inicial == 'live' %}checked{% endif %}> En vivo</label>
+      <label>Recordar el bid más alto de los últimos
+        <input type="number" name="recuperacion_memoria_dias" min="90" max="730" step="1"
+          value="{{ p.recuperacion_memoria_dias }}"> días (de 90 a 730)
+      </label>
+      <p class="mutado">La subida rápida usa la misma «confianza para subir» de arriba.</p>
+    </fieldset>
+
     <fieldset>
       <legend>Motor de precios (global)</legend>
       <label>Modo global
@@ -137,6 +257,7 @@
     <label>Target ACoS
       <input type="text" name="target_acos_pct" value="{{ p.goal.target or '' }}">
     </label>
+    <p class="mutado">Esta meta no cambia en temporada alta.</p>
     <label>
       <input type="checkbox" name="enabled" value="true" {% if p.goal.enabled %}checked{% endif %}>
       Enabled
@@ -172,6 +293,7 @@
     <label>Target ACoS
       <input type="text" name="target_acos_pct" value="{{ goal.target or '' }}">
     </label>
+    <p class="mutado">Esta meta no cambia en temporada alta.</p>
     <label>
       <input type="checkbox" name="enabled" value="true" {% if goal.enabled %}checked{% endif %}>
       Enabled

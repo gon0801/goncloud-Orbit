@@ -100,6 +100,18 @@ function guardarConfig(form) {
   });
   if (Object.keys(caps).length) cuerpo.caps = caps;
 
+  // TEMPORADA 01 A: subida rapida de bids (bloque «Subida rápida», bajo el
+  // motor de bids). El modo compara contra el que el servidor pinto.
+  var recuperacion = form.querySelector("input[name^='recuperacion_']:checked");
+  var inicialRecuperacion = null;
+  var bloqueRecuperacion = form.querySelector("[data-recuperacion]");
+  if (bloqueRecuperacion) inicialRecuperacion = bloqueRecuperacion.getAttribute("data-recuperacion-inicial");
+  if (recuperacion && recuperacion.value !== (inicialRecuperacion || "off")) {
+    cuerpo.recuperacion_modo = recuperacion.value;
+  }
+  var memoria = form.elements.recuperacion_memoria_dias;
+  if (cambio(memoria)) cuerpo.recuperacion_memoria_dias = Number(memoria.value);
+
   if (
     !cuerpo.target_manual_pct &&
     !cuerpo.margen &&
@@ -109,7 +121,9 @@ function guardarConfig(form) {
     !("motor_bid" in cuerpo) &&
     !("precio_modo_global" in cuerpo) &&
     !("precio_modo_universo" in cuerpo) &&
-    !("resumen_acos_objetivo" in cuerpo)
+    !("resumen_acos_objetivo" in cuerpo) &&
+    !("recuperacion_modo" in cuerpo) &&
+    !("recuperacion_memoria_dias" in cuerpo)
   ) {
     estado.textContent = "Nada que cambiar.";
     return;
@@ -172,4 +186,253 @@ document.addEventListener("DOMContentLoaded", function () {
       guardarGoal(form);
     });
   });
+  prepararTemporada();
 });
+
+// ---------------------------------------------------------------------------
+// TEMPORADA 01 A: tarjeta «Temporadas de venta» (global: se guarda igual
+// desde cualquier plataforma; el POST va por amazon_mx solo para el label).
+// El JS no repite ninguna regla: los rangos y los mensajes viven en el
+// servidor (temporada.valida) y la vista previa en temporada.resumen.
+// ---------------------------------------------------------------------------
+
+var MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+var tarjetaTemporada = null;
+var temporadaInicial = null;
+var finGuardado = null;
+var pausadasGuardadas = [];
+
+function fechaCorta(iso) {
+  if (!iso) return "";
+  var partes = iso.split("-");
+  return Number(partes[2]) + " " + (MESES_CORTOS[Number(partes[1]) - 1] || "");
+}
+
+function valorCampo(nombre) {
+  var el = tarjetaTemporada.querySelector("[data-temporada-campo='" + nombre + "']");
+  return el ? el.value.trim() : "";
+}
+
+function temporadaDesdeFormulario() {
+  var meses = [];
+  tarjetaTemporada.querySelectorAll("select[data-mes]").forEach(function (sel) {
+    meses.push(sel.value);
+  });
+  var modos = {};
+  tarjetaTemporada.querySelectorAll("[data-temporada-plataforma]").forEach(function (bloque) {
+    var plataforma = bloque.getAttribute("data-temporada-plataforma");
+    var marcado = bloque.querySelector("input[name='modo_" + plataforma + "']:checked");
+    modos[plataforma] = marcado ? marcado.value : "off";
+  });
+  var metas = {};
+  tarjetaTemporada.querySelectorAll("input[data-meta-alta]").forEach(function (inp) {
+    var valor = inp.value.trim();
+    if (valor !== "") metas[inp.getAttribute("data-meta-alta")] = valor;
+  });
+  var pctTopada = tarjetaTemporada.querySelector("[data-topada-campo='pct']");
+  var diasTopada = tarjetaTemporada.querySelector("[data-topada-campo='dias']");
+  return {
+    base_config_version_id: Number(tarjetaTemporada.getAttribute("data-config-id")),
+    temporada: {
+      version: "temporada_v1",
+      meses: meses,
+      reduccion_baja_pct: valorCampo("reduccion_baja_pct"),
+      dias_preparacion: valorCampo("dias_preparacion"),
+      mult_cortes_baja: valorCampo("mult_cortes_baja"),
+      aumento_presupuesto_alta_pct: valorCampo("aumento_presupuesto_alta_pct"),
+      fin_anticipado: finGuardado,
+      mantener_pausadas: pausadasGuardadas,
+    },
+    campana_topada: {
+      pct: pctTopada ? pctTopada.value.trim() : "",
+      dias: diasTopada ? Number(diasTopada.value) : 0,
+    },
+    temporada_modo: modos,
+    meta_alta: metas,
+  };
+}
+
+function temporadaCuerpoComparable() {
+  var meses = [];
+  tarjetaTemporada.querySelectorAll("select[data-mes]").forEach(function (sel) {
+    meses.push(sel.value);
+  });
+  var campos = {};
+  ["reduccion_baja_pct", "dias_preparacion", "mult_cortes_baja", "aumento_presupuesto_alta_pct"].forEach(
+    function (nombre) {
+      campos[nombre] = valorCampo(nombre);
+    }
+  );
+  var topada = {
+    pct: (tarjetaTemporada.querySelector("[data-topada-campo='pct']") || {}).value || "",
+    dias: (tarjetaTemporada.querySelector("[data-topada-campo='dias']") || {}).value || "",
+  };
+  var modos = {};
+  tarjetaTemporada.querySelectorAll("[data-temporada-plataforma]").forEach(function (bloque) {
+    var plataforma = bloque.getAttribute("data-temporada-plataforma");
+    var marcado = bloque.querySelector("input[name='modo_" + plataforma + "']:checked");
+    modos[plataforma] = marcado ? marcado.value : "off";
+  });
+  var metas = {};
+  tarjetaTemporada.querySelectorAll("input[data-meta-alta]").forEach(function (inp) {
+    var valor = inp.value.trim();
+    if (valor !== "") metas[inp.getAttribute("data-meta-alta")] = valor;
+  });
+  return JSON.stringify({
+    meses: meses,
+    campos: campos,
+    topada: topada,
+    modos: modos,
+    metas: metas,
+  });
+}
+
+function pintaPlataformas(plataformas) {
+  Object.keys(plataformas || {}).forEach(function (plataforma) {
+    var dato = plataformas[plataforma];
+    var frase = tarjetaTemporada.querySelector("[data-frase-meta='" + plataforma + "']");
+    if (frase) {
+      var partes = [];
+      if (dato.frase_meta_hoy) partes.push(dato.frase_meta_hoy);
+      if (dato.meta_alta_frase) partes.push(dato.meta_alta_frase);
+      frase.textContent = partes.join(" ");
+    }
+    var linea = tarjetaTemporada.querySelector("[data-linea-equilibrio='" + plataforma + "']");
+    if (linea) {
+      linea.textContent = dato.linea || "";
+      linea.hidden = !dato.linea;
+    }
+    var razon = tarjetaTemporada.querySelector("[data-razon-equilibrio='" + plataforma + "']");
+    if (razon) {
+      razon.textContent = dato.razon || "";
+      razon.hidden = !dato.razon;
+    }
+    var aviso = tarjetaTemporada.querySelector("[data-aviso-rojo='" + plataforma + "']");
+    if (aviso) {
+      aviso.textContent = dato.aviso || "";
+      aviso.hidden = !dato.aviso;
+    }
+  });
+}
+
+function pintaVistaPrevia(data) {
+  var aviso = tarjetaTemporada.querySelector("[data-aviso-cambio]");
+  aviso.textContent = (data.resumen && data.resumen.aviso_cambio) || "";
+  aviso.hidden = !aviso.textContent;
+  var lista = tarjetaTemporada.querySelector("[data-proximos]");
+  lista.innerHTML = "";
+  (data.resumen ? data.resumen.proximos : []).forEach(function (evento) {
+    var li = document.createElement("li");
+    li.textContent = fechaCorta(evento.fecha) + " — " + evento.frase;
+    lista.appendChild(li);
+  });
+  pintaPlataformas(data.plataformas);
+}
+
+function consultaVistaPrevia() {
+  var params = new URLSearchParams();
+  var meses = [];
+  tarjetaTemporada.querySelectorAll("select[data-mes]").forEach(function (sel) {
+    meses.push(sel.value);
+  });
+  params.set("meses", meses.join(","));
+  ["reduccion_baja_pct", "dias_preparacion", "mult_cortes_baja", "aumento_presupuesto_alta_pct"].forEach(
+    function (nombre) {
+      params.set(nombre, valorCampo(nombre));
+    }
+  );
+  tarjetaTemporada.querySelectorAll("input[data-meta-alta]").forEach(function (inp) {
+    var valor = inp.value.trim();
+    if (valor !== "") params.set("meta_alta_" + inp.getAttribute("data-meta-alta"), valor);
+  });
+  fetch("/api/ads-optimizer/temporada/vista-previa?" + params.toString())
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, status: resp.status, data: data };
+      });
+    })
+    .then(function (r) {
+      var error = tarjetaTemporada.querySelector("[data-error-previa]");
+      if (r.ok) {
+        error.hidden = true;
+        pintaVistaPrevia(r.data);
+      } else {
+        error.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+        error.hidden = false;
+      }
+    })
+    .catch(function () {
+      var error = tarjetaTemporada.querySelector("[data-error-previa]");
+      error.textContent = "Error de red con la vista previa.";
+      error.hidden = false;
+    });
+}
+
+function guardarTemporada() {
+  var estado = tarjetaTemporada.querySelector("[data-estado-temporada]");
+  if (temporadaCuerpoComparable() === temporadaInicial) {
+    estado.textContent = "Nada que cambiar.";
+    return;
+  }
+  estado.textContent = "Enviando…";
+  postJson("/api/ads-optimizer/settings/amazon_mx", temporadaDesdeFormulario())
+    .then(function (r) {
+      if (r.ok) {
+        estado.textContent = r.data.mensaje || "Guardado: " + (r.data.label || r.data.config_version_id);
+        window.location.reload();
+      } else {
+        estado.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+      }
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al guardar temporadas.";
+    });
+}
+
+function terminarBaja() {
+  var estado = tarjetaTemporada.querySelector("[data-estado-baja]");
+  estado.textContent = "Enviando…";
+  postJson("/api/ads-optimizer/temporada/terminar-baja", {
+    base_config_version_id: Number(tarjetaTemporada.getAttribute("data-config-id")),
+  })
+    .then(function (r) {
+      if (r.ok) {
+        estado.textContent = "La baja termina hoy: los bids regresan en el siguiente ciclo.";
+        window.location.reload();
+      } else {
+        estado.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+      }
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al terminar la baja.";
+    });
+}
+
+function prepararTemporada() {
+  tarjetaTemporada = document.querySelector("[data-temporada]");
+  if (!tarjetaTemporada) return;
+  finGuardado = tarjetaTemporada.getAttribute("data-fin-anticipado") || null;
+  try {
+    pausadasGuardadas = JSON.parse(tarjetaTemporada.getAttribute("data-mantener-pausadas")) || [];
+  } catch (e) {
+    pausadasGuardadas = [];
+  }
+  temporadaInicial = temporadaCuerpoComparable();
+  tarjetaTemporada
+    .querySelectorAll("select[data-mes], input[data-temporada-campo], input[data-meta-alta], input[data-topada-campo]")
+    .forEach(function (el) {
+      el.addEventListener("change", consultaVistaPrevia);
+    });
+  tarjetaTemporada.querySelectorAll("input[name^='modo_']").forEach(function (radio) {
+    radio.addEventListener("change", consultaVistaPrevia);
+  });
+  var botonGuardar = tarjetaTemporada.querySelector("[data-guardar-temporada]");
+  if (botonGuardar) botonGuardar.addEventListener("click", guardarTemporada);
+  var botonBaja = tarjetaTemporada.querySelector("[data-terminar-baja]");
+  if (botonBaja) botonBaja.addEventListener("click", terminarBaja);
+  var desde = tarjetaTemporada.querySelector("[data-temporada-desde]");
+  if (desde && desde.textContent.trim()) {
+    desde.textContent = fechaCorta(desde.textContent.trim());
+  }
+  consultaVistaPrevia();
+}
