@@ -13,12 +13,13 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from typing import Literal
 
-from app.optimizer import economia_cambio, temporada
+from app.optimizer import economia_cambio, recuperacion, temporada
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
 from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel, InsumosProteccion
 from app.optimizer.centavos import centavo_en_rango
 from app.optimizer.evidencia import gamma_p, gamma_q
+from app.optimizer.recuperacion import MOTIVO_RECUPERA_NIVEL, presupuesto_topado
 
 # Bandas y pasos: los de hoy (docs/CONTEXTO.md), sin tocar.
 MULT_BAJA_FUERTE = Decimal("1.35")
@@ -84,6 +85,8 @@ MOTIVO_ENTRA_BAJA = "entra_temporada_baja"
 MOTIVO_AJUSTA_BAJA = "ajusta_temporada_baja"
 MOTIVO_SALE_BAJA = "sale_temporada_baja"
 MOTIVOS_TEMPORADA = (MOTIVO_ENTRA_BAJA, MOTIVO_AJUSTA_BAJA, MOTIVO_SALE_BAJA)
+# TEMPORADA 01 C: la subida rapida (R6r) y su freno de presupuesto.
+MOTIVO_PRESUPUESTO_TOPADO = "presupuesto_topado"
 
 NivelQueJuzga = Literal["hoja", "ad_group"]
 EstadoGrupo = Literal["sangra", "cumple", "sin_veredicto"]
@@ -125,6 +128,16 @@ class Regresar:
 @dataclass(frozen=True)
 class Pausar:
     motivo: str
+
+
+@dataclass(frozen=True)
+class _Recupera:
+    """Candidato interno de R6r (TEMPORADA 01 C): sube directo al nivel que la
+    evidencia sostiene (ya en centavos, topado por techo_conocido, techo del
+    goal y techo_de_baja). No sale de decide: se convierte en Regresar despues
+    de P, BUD y sus frenos de salto."""
+
+    destino: Decimal
 
 
 Veredicto = Mantener | Mover | Regresar | Pausar
@@ -304,22 +317,15 @@ def decide(caso: CasoHoja) -> Veredicto:
 
     with localcontext(prec=PRECISION):
         estado = estado_grupo(caso.grupo, caso.economia)
-        propia = caso.propia
-        crudos = propia.pedidos_crudos() if propia is not None else 0
-        if crudos is None:
-            return Mantener(MOTIVO_DATO_FALTANTE)
-        if crudos >= 1:
-            assert propia is not None
-            fallo = _juzga_vendedora(caso, propia, estado)
-            if isinstance(fallo, Mantener):
-                return fallo
-        else:
-            fallo = _juzga_sin_pedidos(caso, estado)
-            if isinstance(fallo, Mantener):
-                return fallo
+        fallo = _juzga_hoja(caso, estado)
+        if isinstance(fallo, Mantener):
+            return fallo
+        if isinstance(fallo, _Recupera):
+            return _resuelve_recupera(caso, fallo, ultimo, _motivo_bloqueado)
         factor, motivo, nivel = fallo
-        if factor > 0 and _subida_en_espera(caso.pausa.proteccion, _motivo_bloqueado):
-            return Mantener(MOTIVO_SUBIDA_EN_ESPERA)
+        freno_subida = _frena_subida_normal(caso, factor, _motivo_bloqueado)
+        if freno_subida is not None:
+            return freno_subida
         if ultimo is not None:
             efecto = caso.trayectoria.efecto
             assert efecto is not None
@@ -381,9 +387,25 @@ def _evalua_r1(ultimo, efecto) -> bool | None:
     return True
 
 
+def _juzga_hoja(
+    caso: CasoHoja, estado: EstadoGrupo
+) -> Mantener | _Recupera | tuple[Decimal, str, NivelQueJuzga]:
+    """El juicio R3-R13 de UNA hoja con pedidos en la ventana madura (su
+    vendedora) o sin ellos (gasto/cortes). Solo despachan: el orden de las
+    reglas vive en cada juez."""
+    propia = caso.propia
+    crudos = propia.pedidos_crudos() if propia is not None else 0
+    if crudos is None:
+        return Mantener(MOTIVO_DATO_FALTANTE)
+    if crudos >= 1:
+        assert propia is not None
+        return _juzga_vendedora(caso, propia, estado)
+    return _juzga_sin_pedidos(caso, estado)
+
+
 def _juzga_vendedora(
     caso: CasoHoja, propia: EvidenciaNivel, estado: EstadoGrupo
-) -> Mantener | tuple[Decimal, str, NivelQueJuzga]:
+) -> Mantener | _Recupera | tuple[Decimal, str, NivelQueJuzga]:
     if _precio_desconocido(caso):
         return Mantener(MOTIVO_DATO_FALTANTE)
     cpc, _fuente = _precio_de_hoy(caso)
@@ -407,7 +429,17 @@ def _juzga_vendedora(
     previa = _previa(caso.cuenta, caso.grupo, propia)
     if previa is None:
         return Mantener(MOTIVO_DATO_FALTANTE)
-    if _p_bajo(fondo, cpc, target, previa) >= economia.plataforma.confianza_subida:
+    clics_sub, ticket_sub = _proyeccion_subida(fondo, previa)
+    arg_subida = clics_sub * cpc / ((MULT_SUBIDA * target / _CIEN) * ticket_sub)
+    # R6r (TEMPORADA 01 C): con el mismo argumento de R6, si la evidencia
+    # sostiene mas que un paso (+15 %) decide el salto completo; None = el
+    # R6 de hoy (la recuperacion solo acelera, nunca frena).
+    destino = recuperacion.destino_recuperacion(
+        caso, a_subida=fondo.a_subida, arg_subida=arg_subida
+    )
+    if destino is not None:
+        return _Recupera(destino)
+    if gamma_q(fondo.a_subida, arg_subida) >= economia.plataforma.confianza_subida:
         return (PASO_SUBIDA, MOTIVO_BAJO_TARGET, "hoja")
     return Mantener(MOTIVO_AZAR_LO_EXPLICA)
 
@@ -479,6 +511,58 @@ def _freno_trayectoria(caso, ultimo, efecto, factor: Decimal) -> Mantener | None
     return None
 
 
+def _freno_recupera(caso, ultimo, efecto) -> Mantener | None:
+    """Frenos del salto R6r (TEMPORADA 01 C). Primer salto tras un recorte: solo
+    R14 — R15, R16 y el juicio economico piden repetir pasos chicos para medir,
+    y aqui el destino ya sale de la evidencia. Segundo salto seguido (el ultimo
+    cambio fue una subida, incluido otro recupera_nivel): pasa por los mismos
+    frenos que una subida de R6 (20 clics nuevos al precio nuevo y un juicio
+    economico comparable). El CPC del primer salto tiene que estar medido antes
+    de otro. Un ajuste de campana no trae trayectoria de bid que frenar."""
+    if ultimo.direccion != -1:
+        return _freno_trayectoria(caso, ultimo, efecto, PASO_SUBIDA)
+    if efecto.clics_post is None:
+        return Mantener(MOTIVO_DATO_FALTANTE)
+    if efecto.clics_post < CLICS_NUEVOS and efecto.dias_post < DIAS_SALIDA:
+        return Mantener(MOTIVO_ESPERANDO_PRECIO_MEDIDO)
+    return None
+
+
+def _frena_subida_normal(
+    caso: CasoHoja, factor: Decimal, motivo_bloqueado: str | None
+) -> Mantener | None:
+    """P y BUD de la subida normal de R6 (TEMPORADA 01 C), en el orden sellado:
+    la espera por venta reciente (contrato de ARREGLOS 01) y luego la campana
+    topada o sin dato de presupuesto (BUD; solo con la lectura presente, los
+    flags de temporada o recuperacion encendidos: sin ella, lo de hoy)."""
+    if factor <= 0:
+        return None
+    if _subida_en_espera(caso.pausa.proteccion, motivo_bloqueado):
+        return Mantener(MOTIVO_SUBIDA_EN_ESPERA)
+    if caso.presupuesto is not None and presupuesto_topado(caso) in (True, None):
+        return Mantener(MOTIVO_PRESUPUESTO_TOPADO)
+    return None
+
+
+def _resuelve_recupera(
+    caso: CasoHoja, fallo: _Recupera, ultimo, motivo_bloqueado: str | None
+) -> Veredicto:
+    """R6r (TEMPORADA 01 C): P, BUD y frenos de salto; el destino ya viene en
+    centavos y topado, y decide Regresar (el movimiento que regresa al nivel
+    que la evidencia sostiene)."""
+    if _subida_en_espera(caso.pausa.proteccion, motivo_bloqueado):
+        return Mantener(MOTIVO_SUBIDA_EN_ESPERA)
+    if caso.presupuesto is not None and presupuesto_topado(caso) in (True, None):
+        return Mantener(MOTIVO_PRESUPUESTO_TOPADO)
+    if ultimo is not None:
+        efecto = caso.trayectoria.efecto
+        assert efecto is not None
+        freno = _freno_recupera(caso, ultimo, efecto)
+        if freno is not None:
+            return freno
+    return Regresar(fallo.destino, MOTIVO_RECUPERA_NIVEL)
+
+
 def _fondo_juicio(propia: EvidenciaNivel, cpc: Decimal) -> _Fondo | None:
     pedidos = propia.pedidos_pesados()
     clics = propia.clics_pesados()
@@ -502,19 +586,29 @@ def _p_sobre(fondo: _Fondo, limite_pct: Decimal) -> Decimal:
     return gamma_p(fondo.a_recorte, fondo.base_mu / (limite_pct / _CIEN))
 
 
+def _proyeccion_subida(
+    fondo: _Fondo,
+    previa: tuple[Decimal | None, Decimal | None],
+) -> tuple[Decimal, Decimal]:
+    """Los numeros de la subida que comparten R6 y R6r (TEMPORADA 01 C):
+    clics_sub y ticket_sub. La previa pliega cuenta -> resto del ad group
+    (None, None = previa plana: solo los propios)."""
+    cvr_previa, aov_previa = previa
+    if cvr_previa is None or aov_previa is None:
+        return fondo.clics_pesados, fondo.ticket
+    return (
+        fondo.clics_pesados + _UNO / cvr_previa,
+        (fondo.venta_pesada + aov_previa) / (fondo.pedidos_pesados + _UNO),
+    )
+
+
 def _p_bajo(
     fondo: _Fondo,
     cpc: Decimal,
     target: Decimal,
     previa: tuple[Decimal | None, Decimal | None],
 ) -> Decimal:
-    cvr_previa, aov_previa = previa
-    if cvr_previa is None or aov_previa is None:
-        clics_sub = fondo.clics_pesados
-        ticket_sub = fondo.ticket
-    else:
-        clics_sub = fondo.clics_pesados + _UNO / cvr_previa
-        ticket_sub = (fondo.venta_pesada + aov_previa) / (fondo.pedidos_pesados + _UNO)
+    clics_sub, ticket_sub = _proyeccion_subida(fondo, previa)
     return gamma_q(fondo.a_subida, clics_sub * cpc / ((MULT_SUBIDA * target / _CIEN) * ticket_sub))
 
 

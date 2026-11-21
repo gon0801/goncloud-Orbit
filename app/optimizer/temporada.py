@@ -977,6 +977,33 @@ def nivel_de_regreso(
     return min(max(nivel, piso_c), techo_c)
 
 
+def techo_de_baja(caso: CasoHoja) -> Decimal | None:
+    """Techo comun de R6 y R6r mientras la hoja esta en baja (fase_hoja == "baja"):
+    el ahorro planeado de la reduccion es intocable para las subidas. None sin
+    caso.temporada, fuera de baja, sin reduccion vigente o con la reduccion
+    terminando este ciclo (mano de David o ya arriba: sin entrada no hay ahorro
+    planeado que proteger; p. ej. excluida por David).
+    # red = cadena.reduccion
+    # r_efectiva = 1 - red.ultimo_bid / red.base        (la reduccion real, con su centavo)
+    # techo_eco = max(recuperacion.techo_conocido(caso, hasta=red.primer_el) or red.base, red.base)
+    # -> (techo_eco * (1 - r_efectiva)).quantize(CENTAVO, ROUND_FLOOR)
+    # 20 -> 10 (motor) -> 7 (entrada): techo_eco 20, r 0.30 -> 14.00
+    # 8 -> 5.60 (entrada, sin recortes previos): techo_eco 8 -> 5.60 (en baja no hay que recuperar)
+    El R6 de hoy lo aplica `_paso` con techo_extra (bloque D); R6r lo aplica
+    `recuperacion.destino_recuperacion` desde el bloque C."""
+    t = caso.temporada
+    if t is None or t.frontera.fase_hoja != "baja" or t.frontera.fin is not None:
+        return None
+    cad = recuperacion.cadena_bid(caso)
+    red = cad.reduccion if cad is not None else None
+    if red is None:
+        return None
+    r_efectiva = Decimal(1) - red.ultimo_bid / red.base
+    techo_eco = recuperacion.techo_conocido(caso, hasta=red.primer_el) or red.base
+    techo_eco = max(techo_eco, red.base)
+    return (techo_eco * (Decimal(1) - r_efectiva)).quantize(CENTAVO, rounding=ROUND_FLOOR)
+
+
 def reduccion_vigente(
     cadena: CadenaBid,
     *,

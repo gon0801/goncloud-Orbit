@@ -166,7 +166,13 @@ class CambioBid:
 @dataclass(frozen=True)
 class CambioFechado:
     """Un cambio de v_cambio_bid con su instante y su id: el orden de intervenciones
-    del mismo dia (TEMPORADA 01 B)."""
+    del mismo dia (TEMPORADA 01 B). `motivo` (TEMPORADA 01 C) es el motivo general
+    de la decision del motor (`inputs->>'motivo'`): None en las ramas sin decision
+    (regreso del dueno y ajuste de campana) y en los casos congelados antes de C.
+
+    Freeze: los casos congelados antes de C no traen la clave `motivo` en sus
+    cambios y la leen como None, de modo que el replay historico rejuega byte a
+    byte (ultimo_salto_recuperacion derivaba False para ellos)."""
 
     confirmado_el: dt.datetime
     decision_id: int | None
@@ -175,6 +181,7 @@ class CambioFechado:
     origen: OrigenCambio
     motivo_temporada: MotivoTemporada | None
     episodio_id: int | None
+    motivo: str | None = None  # el motivo general del motor (bloque C)
 
 
 @dataclass(frozen=True)
@@ -1351,6 +1358,7 @@ def _historia_json(h: HistoriaBid) -> dict:
                 "origen": c.origen,
                 "motivo_temporada": c.motivo_temporada,
                 "episodio_id": c.episodio_id,
+                "motivo": c.motivo,
             }
             for c in h.cambios
         ],
@@ -1374,7 +1382,10 @@ def _historia_desde(datos: Any) -> HistoriaBid:
         raise ValueError("historia.fines: lista esperada")
     cambios = []
     for c in d["cambios"]:
-        x = _objeto(
+        # TEMPORADA 01 C: `motivo` es opcional en el freeze; los casos
+        # congelados antes de C no la traen y la leen como None (replay
+        # historico byte a byte). Clave ajena = error, como siempre.
+        x = _objeto_con_opcionales(
             c,
             frozenset(
                 {
@@ -1387,6 +1398,7 @@ def _historia_desde(datos: Any) -> HistoriaBid:
                     "episodio_id",
                 }
             ),
+            frozenset({"motivo"}),
             "historia.cambios[]",
         )
         cambios.append(
@@ -1402,6 +1414,7 @@ def _historia_desde(datos: Any) -> HistoriaBid:
                     lambda v, n: _literal(v, _MOTIVOS_TEMPORADA, n),
                 ),
                 episodio_id=_opcional(x["episodio_id"], "historia.cambios[].episodio_id", _entero),
+                motivo=_opcional(x.get("motivo"), "historia.cambios[].motivo", _texto),
             )
         )
     manos = []
