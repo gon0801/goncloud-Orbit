@@ -160,3 +160,35 @@ E       assert [(3, Decimal('3.92'), 'entra_temporada_baja', '1')] == []
 E         Left contains one more item: (3, Decimal('3.92'), 'entra_temporada_baja', '1')
 1 failed in 7.60s
 ```
+
+## Ronda de revision 5 (segunda pasada de Devin: 4 hallazgos sobre la
+## reconciliacion de sellados-ambiguos)
+
+Todos demostrados fallando contra el SHA entregado
+17f53fbc4cd24aa07d24d570641d56d6db57b1d2:
+
+1. `test_temporada01_b_pendiente_ambigua_bloquea_nuevas_pujas` (apply.py:527):
+   tras sellar el intento ambiguo, `hojas_con_bid_sin_sello` dejaba de cubrir
+   la hoja y el ciclo podia generar y enviar otra puja. Fix: el criterio de
+   intentos pendientes se comparte entre la conciliacion y la guarda del
+   ciclo (efecto abierto + rastro ambiguo sin desenlace); la excepcion de
+   Pausar se mantiene. Roja: decision R9 aplicada de nuevo (sin skip
+   bid_en_vuelo).
+2. `test_temporada01_b_tercer_valor_divergencia_definitiva` (apply.py:429):
+   el tercer valor cerraba el efecto sin resumen y la decision seguia
+   calificando: una puja posterior al destino la confirmaba atribuyendo al
+   optimizador un cambio del operador. Fix: resumen verify_ok FALSE en la
+   misma transaccion que el probe y el cache. Roja: segunda conciliacion
+   volvia a leer la decision.
+3. `test_temporada01_b_ambigua_campana_pausa_no_descarta` (apply.py:355):
+   con la campana pausada, el gate escribia un desenlace terminal sin
+   verificar Amazon (perdida de la base de regreso). Fix: sin desenlace
+   terminal para un intento ambiguo; sin HTTP mientras tanto; al reactivar,
+   confirma la reduccion sin reenviar el PUT. Roja: el ciclo consultaba
+   Amazon y descartaba.
+4. `test_temporada01_b_ambigua_sin_puja_legible_reintenta` (apply.py:424):
+   un listado sin la fila ceraba el efecto como divergencia sin constatar
+   valor. Fix: sin puja legible es NO concluyente: el efecto queda abierto y
+   el siguiente ciclo con la fila legible confirma la entrada original
+   (jamás 5.60 -> 3.92). Roja: efecto cerrado sin valor y sin
+   confirmacion posterior.
