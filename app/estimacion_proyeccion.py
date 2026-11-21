@@ -105,7 +105,7 @@ def _es_costo(nombre: str) -> bool:
 
 
 def _es_politica_comp(nombre: str) -> bool:
-    return nombre in ("isr", "logistica", "retencion_iva_conciliacion")
+    return nombre in ("isr", "logistica", "retencion_iva", "retencion_iva_conciliacion")
 
 
 def _fuente_desde_refs(nombre: str, refs: ProcedenciaRefs | None) -> str | None:
@@ -212,7 +212,9 @@ def proyeccion_s5(escenario: EscenarioLeido | None) -> dict:
         "moneda": escenario.moneda,
         "contribucion": _str_o_none(escenario.contribucion) if disponible else None,
         "contribucion_pct": (_str_o_none(escenario.contribucion_pct) if disponible else None),
-        "base_porcentaje": "ingreso_normalizado",
+        "base_porcentaje": (
+            "precio_bruto" if escenario.formula_version == "S4" else "ingreso_normalizado"
+        ),
         "componentes": [_componente_s5(c, escenario) for c in escenario.componentes],
         "exclusiones": list(escenario.exclusiones),
         "detalle": _detalle_opcional(escenario),

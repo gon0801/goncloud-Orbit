@@ -432,14 +432,21 @@ class Escenario:
     isr_tasa: Decimal
     precio_incluye_iva: bool
     oferta_observada_en: datetime
+    referral_fee_iva_multiplicador: Decimal = Decimal("1")
 
     def __post_init__(self) -> None:
         exigir_decimal(self.iva_divisor, campo="escenario.iva_divisor")
         exigir_decimal(self.isr_tasa, campo="escenario.isr_tasa")
+        exigir_decimal(
+            self.referral_fee_iva_multiplicador,
+            campo="escenario.referral_fee_iva_multiplicador",
+        )
         if self.iva_divisor <= 0:
             raise ValueError("escenario.iva_divisor no positivo")
         if self.isr_tasa < 0:
             raise ValueError("escenario.isr_tasa negativa")
+        if self.referral_fee_iva_multiplicador < Decimal("1"):
+            raise ValueError("escenario.referral_fee_iva_multiplicador menor que 1")
 
 
 @dataclass(frozen=True)

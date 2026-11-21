@@ -391,9 +391,10 @@ class MercadoAmazon:
             return lectura_error(cuenta, f"escenario no disponible: {cuenta}")
         fees_escenario: Fees | str
         try:
+            total_crudo = _suma_top(cuenta.fee_detalles)
             _ref, fijo = derivar_ref_fijo(
                 cuenta.fee_detalles,
-                cuenta.componentes.fees.valor,
+                total_crudo,
                 cuenta.precio_cotizado.valor,
             )
             fees_escenario = Fees(

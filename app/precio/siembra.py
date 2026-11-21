@@ -307,10 +307,15 @@ def _referencia(
         ingreso = _componente(lectura.componentes, "ingreso_normalizado")
         envio = _componente(lectura.componentes, "logistica")
         isr_importe = _componente(lectura.componentes, "isr")
+        ret_iva_importe = Decimal("0")
+        for item in lectura.componentes:
+            if item.get("nombre") == "retencion_iva" and item.get("pertenece_a_total") is True:
+                ret_iva_importe = Decimal(str(item["importe_normalizado"]))
+                break
         precio_bruto = _componente(lectura.componentes, "precio_bruto")
         if ingreso <= 0:
             raise ValueError("escenario con ingreso no positivo")
-        tasa_isr = isr_importe / ingreso
+        tasa_isr = (isr_importe + ret_iva_importe) / ingreso
         divisor_iva = precio_bruto / ingreso
         estrella = precio_estrella(
             costo, fijo, envio, tasa_isr, goal, divisor_iva, divisor_iva != 1, ref

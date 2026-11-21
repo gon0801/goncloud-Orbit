@@ -115,8 +115,21 @@ def _coherencia_escenario(entrada: EntradaDecision) -> str | None:
             f"p_actual {comp.p_actual.valor} {comp.p_actual.moneda}"
         )
     suma_fees = sum((det.final_fee for det in escenario.fee_detalles), Decimal(0))
-    if suma_fees != comp.fees.valor:
-        return f"Σ final_fee {suma_fees} != F {comp.fees.valor}"
+    mult_ref = escenario.referral_fee_iva_multiplicador
+    if mult_ref == Decimal("1"):
+        if suma_fees != comp.fees.valor:
+            return f"Σ final_fee {suma_fees} != F {comp.fees.valor}"
+    else:
+        referrals = [
+            det
+            for det in escenario.fee_detalles
+            if det.fee_type == "ReferralFee" and det.final_fee > 0
+        ]
+        if len(referrals) != 1:
+            return f"referral unico ausente para multiplicador {mult_ref}"
+        esperado = suma_fees + referrals[0].final_fee * (mult_ref - Decimal("1"))
+        if abs(esperado - comp.fees.valor) > Decimal("0.01"):
+            return f"Σ final_fee ajustado {esperado} != F {comp.fees.valor}"
     divisor = escenario.iva_divisor if escenario.precio_incluye_iva else Decimal(1)
     if abs(comp.ingreso.valor - comp.p_actual.valor / divisor) > Decimal("0.01"):
         return f"I {comp.ingreso.valor} != P/divisor {comp.p_actual.valor / divisor}"
@@ -373,6 +386,7 @@ def _subir(
         moneda=moneda,
         tolerancia=config.tolerancia,
         cotizaciones=cotizaciones,
+        fee_variable_multiplicador=escenario.referral_fee_iva_multiplicador,
     )
     if isinstance(salida, PideCotizacion):
         freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
@@ -458,6 +472,7 @@ def _bajar(
         moneda=moneda,
         tolerancia=config.tolerancia,
         cotizaciones=cotizaciones,
+        fee_variable_multiplicador=escenario.referral_fee_iva_multiplicador,
     )
     if isinstance(salida, PideCotizacion):
         freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
