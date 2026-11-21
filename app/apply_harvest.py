@@ -97,6 +97,9 @@ from app.ads.sp_wire import (
     errores_de_ack as _errores_de_ack,
 )
 from app.ads.sp_wire import (
+    estado_id_de_ack as _estado_id_de_ack,
+)
+from app.ads.sp_wire import (
     id_de_ack as _id_de_ack,
 )
 from app.db import tx_durable
@@ -593,13 +596,16 @@ def _solo_en_otro_ad_group(items: list[dict], ad_group_id: str, keyword_text: st
 def _reversa_rechazada(ack: dict, clave_id: str, objeto_id) -> bool:
     """CX3: el veredicto del ack de UN delete — True = la reversa NO se
     confirma. Rechazado si error[] trae la fila (el 207 con rechazo
-    por-item) o si el id legible de success[] NO es el del objeto borrado
-    (fail-closed: borrar OTRA cosa tampoco confirma). Un ack SIN estructura
-    legible y sin error[] sigue en pie (el 2xx del delete es la evidencia)."""
+    por-item) o si el ack trae clave de id con valor invalido o distinto al
+    del objeto borrado (fail-closed: borrar OTRA cosa o recibir id corrupto
+    tampoco confirma). Un ack SIN clave de id y sin error[] sigue en pie
+    (el 2xx del delete es la evidencia)."""
     if _errores_de_ack(ack):
         return True
-    id_ack = _id_de_ack(ack, clave_id)
-    return id_ack is not None and id_ack != str(objeto_id)
+    presente, id_ack = _estado_id_de_ack(ack, clave_id)
+    if presente:
+        return id_ack != str(objeto_id)
+    return False
 
 
 def _resultado_reversa_rechazada(ack: dict) -> str:

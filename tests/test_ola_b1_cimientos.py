@@ -50,6 +50,46 @@ def test_sp_wire_errores_put_e_ids():
         sp_wire.id_product_ad_de_ack({"productAds": {"success": [{"productAdId": "77"}]}}) == "77"
     )
     assert sp_wire.id_product_ad_de_ack({"productAds": {"success": [{"adId": True}]}}) is None
+    # Regresion Devin #706: un id presente pero invalido (blanco/booleano)
+    # debe distinguirse de un id ausente y rechazar el delete en reversa.
+    assert sp_wire.estado_id_de_ack({"keywords": {"success": [{}]}}, "keywordId") == (False, None)
+    assert sp_wire.estado_id_de_ack(
+        {"keywords": {"success": [{"keywordIdList": [" "]}]}}, "keywordId"
+    ) == (True, None)
+    assert sp_wire.estado_id_de_ack(
+        {"keywords": {"success": [{"keywordIdList": [True]}]}}, "keywordId"
+    ) == (True, None)
+    assert sp_wire.estado_id_de_ack(
+        {"keywords": {"success": [{"keywordIdList": ["123"]}]}}, "keywordId"
+    ) == (True, "123")
+
+
+def test_reversa_rechazada_falla_cerrado_con_id_invalido():
+    from app.apply_harvest import _reversa_rechazada
+
+    assert _reversa_rechazada({"keywords": {"success": [{}]}}, "keywordId", "123") is False
+    assert (
+        _reversa_rechazada(
+            {"keywords": {"success": [{"keywordIdList": ["123"]}]}}, "keywordId", "123"
+        )
+        is False
+    )
+    assert (
+        _reversa_rechazada(
+            {"keywords": {"success": [{"keywordIdList": [" "]}]}}, "keywordId", "123"
+        )
+        is True
+    )
+    assert (
+        _reversa_rechazada(
+            {"keywords": {"success": [{"keywordIdList": [True]}]}}, "keywordId", "123"
+        )
+        is True
+    )
+    assert (
+        _reversa_rechazada({"keywords": {"success": [{"keywordId": ""}]}}, "keywordId", "123")
+        is True
+    )
 
 
 def test_ceremonia_dry_run_y_validaciones():

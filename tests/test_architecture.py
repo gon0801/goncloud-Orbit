@@ -201,7 +201,7 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # (GET fresco sin reenviar el PUT); el techo sube lo justo del bloque.
     "app/apply.py": 1475,
     "app/apply_cola.py": 1816,
-    "app/apply_harvest.py": 2107,
+    "app/apply_harvest.py": 2113,
     "app/bloqueo_dueno_efecto.py": 999,
     # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
     # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
@@ -822,6 +822,7 @@ ALLOWLIST_IMPORTS_HARVEST_EXCEPCION = frozenset(
         "app.db.connect",
         "app.ceremonia",
         "app.ceremonia.ErrorCeremonia",
+        "app.ceremonia.agrega_flags_ceremonia",
         "app.ceremonia.valida_ceremonia",
         "app.goals_write",
         "app.goals_write.GoalInexistente",
@@ -890,6 +891,7 @@ ALLOWLIST_IMPORTS_GOALS_MODO_GRUPO = frozenset(
         "app.db.connect",
         "app.ceremonia",
         "app.ceremonia.ErrorCeremonia",
+        "app.ceremonia.agrega_flags_ceremonia",
         "app.ceremonia.valida_ceremonia",
         "app.goals_write",
         "app.goals_write.GoalInexistente",
@@ -1708,6 +1710,7 @@ ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
         "__future__.annotations",
         "app.ceremonia",
         "app.ceremonia.ErrorCeremonia",
+        "app.ceremonia.agrega_flags_ceremonia",
         "app.ceremonia.valida_ceremonia",
         "app.cli",
         "app.cli._clientes_precio",

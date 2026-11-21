@@ -3109,7 +3109,7 @@ def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
     """
     import logging
 
-    import app.precio.corrida as corrida_mod
+    import app.lock as lock_mod
     from app.redaction import register_secret
 
     register_secret("s3cr3t-lat5")
@@ -3119,13 +3119,13 @@ def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
         _price_obs(conn, asin="B0A50000LE")
         _price_obs(conn, asin="B0A50000LF")
         monkeypatch.setattr(
-            corrida_mod,
-            "_SQL_LATIDO",
+            lock_mod,
+            "SQL_HEARTBEAT",
             "UPDATE ads_optimizer_lock_s3cr3t_lat5 SET heartbeat_at = now()"
             " WHERE job_key = %s AND owner = %s",
         )
         red = _RedFalsa(skus={ua["evento"]: ua["sku"], ub["evento"]: ub["sku"]})
-        with caplog.at_level(logging.WARNING, logger="app.precio.corrida"):
+        with caplog.at_level(logging.WARNING, logger="app.lock"):
             res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (2, 2)
         assert _cuenta_decisiones(conn) == 2

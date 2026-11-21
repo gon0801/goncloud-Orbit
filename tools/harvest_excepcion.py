@@ -27,7 +27,7 @@ import hashlib
 import os
 import sys
 
-from app.ceremonia import ErrorCeremonia, valida_ceremonia
+from app.ceremonia import ErrorCeremonia, agrega_flags_ceremonia, valida_ceremonia
 from app.db import OrbitDbError, connect
 from app.goals_write import GoalInexistente, GoalInvalido, edita_goal
 from app.optimizer.harvest_destino import (
@@ -167,24 +167,22 @@ def _cmd_migrar(conn, args) -> int:
             " el motor saltara con harvest_sin_config hasta que exista bid"
         )
     print(f"huella: {huella}")
-    if not args.acepto_mutacion_real:
-        return 0
-    # Ceremonia sellada (orden de reversa_harvest: esperado -> go ->
-    # huella; `--go` solo-espacios cuenta como ausente, mas estricto que
-    # reversa). `--esperado` es 1: UNA campana por corrida y por go.
-    if args.esperado is None:
-        raise Abortar("mutacion real exige --esperado N (anti-typo del plan)")
-    if not args.go or not args.go.strip():
-        raise Abortar("mutacion real exige --go con el literal del dueno (no vacio)")
-    if args.esperado != 1:
-        raise Abortar(
-            f"--esperado {args.esperado} != 1 candidata:"
-            " --migrar mueve UNA campana por go, se re-autoriza con el dueno"
+    try:
+        mutar = valida_ceremonia(
+            acepto=args.acepto_mutacion_real,
+            go=args.go,
+            huella=args.huella,
+            huella_plan=huella,
+            esperado=args.esperado,
+            real=1,
+            exige_esperado=True,
+            rechaza_sin_acepto=False,
+            etiqueta_real="candidata",
         )
-    if not args.huella:
-        raise Abortar("mutacion real exige --huella del dry-run (autorizacion por conjunto)")
-    if args.huella != huella:
-        raise Abortar(f"--huella {args.huella} != huella {huella}: el conjunto cambio")
+    except ErrorCeremonia as exc:
+        raise Abortar(str(exc)) from None
+    if not mutar:
+        return 0
     conn.execute(_SQL_INSERTA_EXCEPCION, (origen_id, camp_dest_ext, ag_dest_ext, args.go))
     conn.commit()
     leida = conn.execute(_SQL_EXCEPCION, (origen_id,)).fetchone()
@@ -349,14 +347,11 @@ def main(argv=None) -> int:
     ap.add_argument("--destino-campana", default=None, help="external_id de la campana destino")
     ap.add_argument("--destino-ad-group", default=None, help="external_id del ad group destino")
     ap.add_argument("--grupo", type=int, default=None, help="id de campana_grupo")
-    ap.add_argument(
-        "--acepto-mutacion-real",
-        action="store_true",
-        help="obligatorio para escribir; sin el = dry-run",
+    agrega_flags_ceremonia(
+        ap,
+        con_esperado=True,
+        ayuda_acepto="obligatorio para escribir; sin el = dry-run",
     )
-    ap.add_argument("--esperado", type=int, default=None, help="candidatas autorizadas")
-    ap.add_argument("--huella", default=None, help="huella del dry-run")
-    ap.add_argument("--go", default=None, help="literal del dueno (no vacio)")
     args = ap.parse_args(argv)
 
     try:

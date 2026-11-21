@@ -1,9 +1,9 @@
 """Parser unico de respuestas HTTP 207 / acks de Amazon Ads SP v3.
 
 Consolida las variantes que antes vivian duplicadas en `app/ads/write.py`,
-`app/ads/archivar.py`, `app/apply_harvest.py` y `tools/archiva_inertes.py`.
-Fail-closed en `errores_put` (un 207 sin contenedor/success o cuerpo ilegible
-se reporta como error, nunca exito).
+`app/ads/archivar.py` y `app/apply_harvest.py`. Fail-closed en `errores_put`
+(un 207 sin contenedor/success o cuerpo ilegible se reporta como error, nunca
+exito).
 """
 
 from __future__ import annotations
@@ -76,36 +76,53 @@ def errores_de_ack(ack: object) -> list:
     return []
 
 
-def _id_plano_de(dic: dict, claves: tuple[str, ...]) -> str | None:
-    """Primer id escalar o primer elemento de lista bajo `claves`."""
+def _estado_id_plano_de(dic: dict, claves: tuple[str, ...]) -> tuple[bool, str | None]:
+    """Devuelve `(presente, id_valido)` para las claves de id de un diccionario.
+
+    Distingue ausencia real `(False, None)` de un id presente pero invalido
+    (booleano, cadena vacia/blanca, tipo no escalar -> `(True, None)`), para
+    que los deletes puedan rechazar acuses corruptos sin romper acuses que
+    omiten el id por completo.
+    """
+    hubo_invalido = False
     for clave in claves:
-        valor = dic.get(clave)
+        if clave not in dic:
+            continue
+        valor = dic[clave]
+        if valor is None:
+            continue
+        if isinstance(valor, list):
+            if not valor:
+                continue
+            primero = valor[0]
+            if (
+                isinstance(primero, str | int)
+                and not isinstance(primero, bool)
+                and str(primero).strip()
+            ):
+                return True, str(primero)
+            hubo_invalido = True
+            continue
         if isinstance(valor, str | int) and not isinstance(valor, bool) and str(valor).strip():
-            return str(valor)
-        if (
-            isinstance(valor, list)
-            and valor
-            and isinstance(valor[0], str | int)
-            and not isinstance(valor[0], bool)
-            and str(valor[0]).strip()
-        ):
-            return str(valor[0])
-    return None
+            return True, str(valor)
+        hubo_invalido = True
+    return hubo_invalido, None
 
 
-def id_de_ack(
+def estado_id_de_ack(
     ack: object,
     clave_principal: str,
     *,
     claves_extra: tuple[str, ...] = ("keywordId", "keywordIdList"),
-) -> str | None:
-    """Id del objeto creado/borrado segun el ack 207 (anidado o plano). `None` si ilegible."""
+) -> tuple[bool, str | None]:
+    """Devuelve `(presente, id_valido)` recorriendo el ack 207 (plano y anidado)."""
     if not isinstance(ack, dict):
-        return None
+        return False, None
     claves = (clave_principal, f"{clave_principal}List", *claves_extra)
-    id_ = _id_plano_de(ack, claves)
+    presente, id_ = _estado_id_plano_de(ack, claves)
     if id_ is not None:
-        return id_
+        return True, id_
+    hubo_invalido = presente
     for valor in ack.values():
         if not isinstance(valor, dict):
             continue
@@ -115,15 +132,28 @@ def id_de_ack(
         for item in success:
             if not isinstance(item, dict):
                 continue
-            id_ = _id_plano_de(item, claves)
+            p_item, id_ = _estado_id_plano_de(item, claves)
             if id_ is not None:
-                return id_
+                return True, id_
+            hubo_invalido = hubo_invalido or p_item
             for sub in item.values():
                 if isinstance(sub, dict):
-                    id_ = _id_plano_de(sub, claves)
+                    p_sub, id_ = _estado_id_plano_de(sub, claves)
                     if id_ is not None:
-                        return id_
-    return None
+                        return True, id_
+                    hubo_invalido = hubo_invalido or p_sub
+    return hubo_invalido, None
+
+
+def id_de_ack(
+    ack: object,
+    clave_principal: str,
+    *,
+    claves_extra: tuple[str, ...] = ("keywordId", "keywordIdList"),
+) -> str | None:
+    """Id del objeto creado/borrado segun el ack 207 (anidado o plano). `None` si ilegible."""
+    _, id_ = estado_id_de_ack(ack, clave_principal, claves_extra=claves_extra)
+    return id_
 
 
 def id_product_ad_de_ack(ack: object) -> str | None:
