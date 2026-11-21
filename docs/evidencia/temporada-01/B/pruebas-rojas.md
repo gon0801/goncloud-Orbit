@@ -127,3 +127,36 @@ Demostrada fallando contra ceb175a con el ValueError del review:
 E           ValueError: nivel_de_regreso sin centavo factible en el rango del goal: [5.6050, 5.6090]
 1 failed in 8.07s
 ```
+
+## Ronda de revision 4 (doble recorte tras lectura ambigua)
+
+Review de PR #697 (devin, hilo BUG_pr-review-job-993312df_0001): si Amazon
+APLICA la entrada pero la lectura posterior al PUT falla y la de
+reconciliacion tambien, el intento queda sellado 'fallo:readback_ambiguo'
+sin resumen; el cinturon TX3 de la ronda 2 lo cerraba como 'sin_aplicar' y
+liberaba la hoja a ciegas: el sync trae 5.60 al cache y `pendiente` calcula
+OTRA entrada 5.60 -> 3.92 (doble recorte).
+
+Fix (la recomendacion del review): la reconciliacion retoma los intentos
+sellados ambiguos sin desenlace con GET fresco JAMAS reenviando el PUT:
+puja == destino -> CONFIRMAR la decision (resumen + probe
+'ok:reconciliado' + cache); puja == old_value -> no aplico ('perdida' +
+efecto 'sin_aplicar', hoja libre); tercer valor -> divergencia (efecto +
+exclusion); GET ambiguo de nuevo -> queda abierto y el siguiente ciclo lo
+reintenta. `lee_estado` clasifica esos efectos 'en_vuelo' (la hoja no
+re-decide) y el cinturon TX3 los excluye del cierre a ciegas.
+
+Prueba nueva:
+`test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar` (entrada
+8->5.60, intento sellado ambiguo, cache SINCRONIZADO a 5.60; el ciclo
+siguiente confirma la entrada original con GET fresco y NO decide otro
+recorte; el ciclo posterior rejuega la cadena confirmada). Demostrada
+fallando contra 236cefbb854de81c839a3630a1480f6f44121d15 con el doble
+recorte exacto del review:
+
+```
+E       AssertionError: no doble recorte
+E       assert [(3, Decimal('3.92'), 'entra_temporada_baja', '1')] == []
+E         Left contains one more item: (3, Decimal('3.92'), 'entra_temporada_baja', '1')
+1 failed in 7.60s
+```

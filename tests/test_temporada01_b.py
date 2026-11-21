@@ -909,8 +909,10 @@ def test_temporada01_b_efecto_con_intento_sellado_se_cierra(db_template):
     """Revision (bloqueo persistente): una entrada SIN confirmar cuyo intento
     quedo SELLADO sin desenlace (fallo:readback_ambiguo) deja el efecto
     abierto; sin el cierre de TX3 el indice unico revienta el ciclo entero en
-    cada corrida. El ciclo siguiente cierra el efecto viejo ('sin_aplicar'),
-    decide la entrada otra vez (Amazon sigue en 8.00) y la confirma."""
+    cada corrida. El ciclo siguiente reconcilia el sellado-ambiguo con GET
+    fresco: Amazon sigue en 8.00 -> NO aplico ('perdida', efecto
+    'sin_aplicar', hoja libre); el ciclo posterior decide la entrada de nuevo
+    y la confirma."""
     conn, _dsn = db_template
     ids = _escenario(conn)
     kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
@@ -959,17 +961,129 @@ def test_temporada01_b_efecto_con_intento_sellado_se_cierra(db_template):
         (e1, kw1, dec, _medianoche(D_E1)),
     )
 
-    # El ciclo siguiente cierra el efecto viejo ('sin_aplicar': no se confirmo
-    # nada), decide la entrada otra vez y la confirma; TX3 NO revienta.
+    # El ciclo siguiente reconcilia el sellado-ambiguo con GET fresco (jamás
+    # reenvía el PUT): Amazon sigue en 8.00 == old_value -> NO aplico
+    # ('perdida', efecto 'sin_aplicar', la hoja queda libre con el cache en el
+    # bid real); SIN decisiones de temporada en este ciclo.
     res = _corre(conn, D_E1 + dt.timedelta(days=1), handler)
     assert res.status == "done", res.notes
+    assert _temporada_del_ciclo(conn, res.cycle_id) == []
     desenlaces = conn.execute(
         "SELECT cerrado_el IS NOT NULL, desenlace FROM temporada_efecto ORDER BY id"
     ).fetchall()
-    assert len(desenlaces) == 2 and desenlaces[0] == (True, "sin_aplicar"), desenlaces
-    assert desenlaces[1] == (True, "confirmado"), desenlaces
+    assert desenlaces == [(True, "sin_aplicar")], desenlaces
+    assert conn.execute(
+        "SELECT motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+    ).fetchone() == ("perdida",), "no aplico: Amazon conserva el bid anterior"
+    probe = conn.execute(
+        "SELECT resultado FROM apply_attempt WHERE tipo = 'probe' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert probe == ("ok:no_aplicado",), probe
+    assert _bid_cache(conn, kw1) == Decimal("8.00"), "el cache queda con el bid real"
+
+    # El ciclo siguiente decide la entrada de nuevo (sobre el bid real) y la
+    # confirma.
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
     nueva = [row for row in _temporada_del_ciclo(conn, res.cycle_id) if row[0] == kw1]
     assert nueva == [(kw1, Decimal("5.60"), "entra_temporada_baja", str(e1))], nueva
+    assert _bid_cache(conn, kw1) == Decimal("5.60")
+
+
+def test_temporada01_b_entrada_ambigua_se_confirma_al_reconciliar(db_template):
+    """Revision (doble recorte): la entrada SIN confirmar cuyo intento quedo
+    SELLADO con lectura AMBIGUA (Amazon YA la aplico: el sync trajo el destino
+    al cache). El ciclo siguiente la BLOCKEA (en_vuelo: no recorta otra vez) y
+    la fase de apply la reconcilia con GET fresco SIN reenviar el PUT: puja ==
+    destino -> CONFIRMA la entrada original (sin decision_sin_aplicar falso).
+    El ciclo posterior rejuega la cadena confirmada: jamas otra entrada."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
+    _siembra_metricas(conn, [kw1])
+    handler = _handler_mx({"b-kw1": "5.60"})
+    config_id = ids["config_id"]
+
+    # El estado de la caida ambigua, sembrado a mano: la decision de entrada
+    # 8 -> 5.60 SIN resumen, su intento SELLADO con lectura AMBIGUA, el
+    # episodio y el efecto ABIERTOS, y el cache YA SINCRONIZADO a 5.60 (Amazon
+    # aplico el PUT antes de caer).
+    ciclo_id = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (_medianoche(D_E1), _medianoche(D_E1)),
+    ).fetchone()[0]
+    e1 = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(D_E1), ciclo_id, config_id),
+    ).fetchone()[0]
+    dec = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs, old_value, new_value,"
+        " value_currency)"
+        " VALUES (%s,%s,'bid',%s,%s,%s,%s,%s,%s,8.00,5.60,'MXN') RETURNING id",
+        (
+            ciclo_id,
+            kw1,
+            _medianoche(D_E1),
+            config_id,
+            _medianoche(D_E1),
+            D_E1 - dt.timedelta(days=90),
+            D_E1 - dt.timedelta(days=10),
+            Json({"motor": "bid", "motivo": "entra_temporada_baja", "temporada_episodio_id": e1}),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+        " started_at, ack, resultado, finished_at)"
+        " VALUES (%s, 1, 'normal', '{}', true, %s, NULL, 'fallo:readback_ambiguo', now())",
+        (dec, _medianoche(D_E1)),
+    )
+    conn.execute(
+        "INSERT INTO temporada_efecto (episodio_id, ad_entity_id, decision_id, tipo,"
+        " abierto_el) VALUES (%s, %s, %s, 'entra', %s)",
+        (e1, kw1, dec, _medianoche(D_E1)),
+    )
+    conn.execute("UPDATE ad_entity_state SET current_bid = 5.60 WHERE ad_entity_id = %s", (kw1,))
+
+    # El ciclo siguiente: TX2 BLOCKEA la hoja (en_vuelo: no doble recorte) y
+    # la fase de apply confirma la entrada con GET fresco (5.60 == destino).
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), handler)
+    assert res.status == "done", res.notes
+    assert _temporada_del_ciclo(conn, res.cycle_id) == [], "no doble recorte"
+    resumen = conn.execute(
+        "SELECT da.verify_ok FROM decision d"
+        " JOIN decision_application da ON da.decision_id = d.id"
+        " WHERE d.ad_entity_id = %s AND d.inputs->>'motivo' = 'entra_temporada_baja'",
+        (kw1,),
+    ).fetchone()
+    assert resumen == (True,), resumen
+    filas = conn.execute(
+        "SELECT te.episodio_id, te.cerrado_el IS NOT NULL, te.desenlace"
+        "  FROM temporada_efecto te ORDER BY te.id"
+    ).fetchall()
+    assert filas == [(e1, True, "confirmado")], filas
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id IN"
+            " (SELECT id FROM decision WHERE inputs->>'motivo' = 'entra_temporada_baja')"
+        ).fetchone()[0]
+        == 0
+    ), "sin 'sin_aplicar' falso: la entrada quedo confirmada"
+    probe = conn.execute(
+        "SELECT resultado FROM apply_attempt WHERE tipo = 'probe' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert probe == ("ok:reconciliado",), probe
+    assert conn.execute(
+        "SELECT origen, motivo_temporada, episodio_id FROM v_cambio_bid WHERE hoja_id = %s",
+        (kw1,),
+    ).fetchone() == ("temporada", "entra", e1)
+
+    # El ciclo posterior rejuega la cadena confirmada: jamas otra entrada.
+    res = _corre(conn, D_E1 + dt.timedelta(days=2), handler)
+    assert res.status == "done", res.notes
+    assert _temporada_del_ciclo(conn, res.cycle_id) == []
     assert _bid_cache(conn, kw1) == Decimal("5.60")
 
 

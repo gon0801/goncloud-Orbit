@@ -95,6 +95,9 @@ SELECT d.ad_entity_id,
        CASE WHEN da.decision_id IS NOT NULL OR sa.decision_id IS NOT NULL THEN 'obsoleto'
             WHEN EXISTS (SELECT 1 FROM apply_attempt a
                           WHERE a.decision_id = e.decision_id
+                            AND a.resultado = 'fallo:readback_ambiguo') THEN 'en_vuelo'
+            WHEN EXISTS (SELECT 1 FROM apply_attempt a
+                          WHERE a.decision_id = e.decision_id
                             AND a.finished_at IS NULL) THEN 'en_vuelo'
             WHEN EXISTS (SELECT 1 FROM apply_attempt a
                           WHERE a.decision_id = e.decision_id) THEN 'obsoleto'
@@ -190,7 +193,10 @@ UPDATE temporada_efecto e SET cerrado_el = now(), desenlace = 'abandonado'
 # efecto abierto y TX3 reventaria contra el indice unico al decidir otra vez.
 # El cierre es terminal ('sin_aplicar': no se confirmo nada) y SOLO si TODOS
 # los intentos de la decision estan sellados: un intento sin sello sigue en
-# vuelo y el efecto queda abierto (la hoja espera).
+# vuelo y el efecto queda abierto (la hoja espera). Los intentos con lectura
+# AMBIGUA quedan FUERA: su resultado es desconocido (Amazon puede haber
+# aplicado el cambio) y los retoma reconcilia_bids con GET fresco sin
+# reenviar el PUT.
 _SQL_RECONCILIA_SELLADO_SIN_DESENLACE = """
 UPDATE temporada_efecto e SET cerrado_el = now(), desenlace = 'sin_aplicar'
   FROM decision d
@@ -202,6 +208,8 @@ UPDATE temporada_efecto e SET cerrado_el = now(), desenlace = 'sin_aplicar'
                 WHERE a.decision_id = d.id AND a.finished_at IS NOT NULL)
    AND NOT EXISTS (SELECT 1 FROM apply_attempt a
                     WHERE a.decision_id = d.id AND a.finished_at IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
+                    WHERE a.decision_id = d.id AND a.resultado = 'fallo:readback_ambiguo')
 """
 
 _SQL_INSERT_EPISODIO = """
