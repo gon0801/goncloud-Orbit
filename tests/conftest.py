@@ -53,6 +53,23 @@ def _registro_de_secretos_aislado():
         redaction._secrets[:] = antes
 
 
+@pytest.fixture
+def db_template():
+    """Base Postgres aislada clonada del template canonico de la sesion."""
+    from tests.helpers.pg import db_desde_template, pg_disponible
+
+    if not pg_disponible():
+        pytest.skip("sin Postgres local")
+    with db_desde_template("orbit_fx") as (conn, dsn):
+        yield conn, dsn
+
+
+def pytest_sessionfinish(session, exitstatus):
+    from tests.helpers.pg import limpiar_templates
+
+    limpiar_templates()
+
+
 def parte_de(nodeid: str, total: int) -> int:
     """Parte 1..total de una prueba. Cada prueba cae en una sola parte."""
     import zlib
