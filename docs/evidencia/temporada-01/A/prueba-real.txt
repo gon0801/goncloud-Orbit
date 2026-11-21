@@ -1,0 +1,11 @@
+# Prueba-real de la fila A (solo lectura) — SHA desplegado 565af582db763d069871d3fcf6ee19c0fd3714bb
+Comando: bash docs/evidencia/arreglos-01/desplegado.sh reduccion_baja_pct ads_campana_topada
+Sale 0 si ambos textos del bloque A estan en el paquete app que corre en el contenedor orbit-app-1 de produccion.
+
+```
+EXIT=0
+```
+Control negativo (--no texto inexistente): la sonda debe salir 0 confirmando que el texto NO esta:
+```
+EXIT_CONTROL=0
+```
