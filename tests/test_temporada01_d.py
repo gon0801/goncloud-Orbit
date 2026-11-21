@@ -1036,6 +1036,33 @@ def test_temporada01_d_practica_lecturas_sin_cerca(db_template):
     assert propia_sh.gasto_pesado() and propia_sh.gasto_pesado() >= Decimal("700"), (
         "el dia de la entrada (900 MXN) sigue en la evidencia"
     )
+    # y los VEREDICTOS reales tambien son identicos (revision nativa: la
+    # decision de la hoja en practica es byte a byte la de hoy)
+    from app.optimizer.politica import decide as _decide_con
+
+    veredicto_shadow = _decide_con(
+        lecturas_shadow.caso(
+            conn,
+            hoja_id=kw1,
+            ad_group_id=ag,
+            bid=BidVigente(Decimal("5.60"), "MXN", PISO_MX, TECHO_MX),
+            target_acos_pct=Decimal("20"),
+            pausa=InsumosPausa(None, 100, Decimal("500"), None, None),
+        )
+    )
+    veredicto_ausente = _decide_con(
+        lecturas_ausente.caso(
+            conn,
+            hoja_id=kw1,
+            ad_group_id=ag,
+            bid=BidVigente(Decimal("5.60"), "MXN", PISO_MX, TECHO_MX),
+            target_acos_pct=Decimal("20"),
+            pausa=InsumosPausa(None, 100, Decimal("500"), None, None),
+        )
+    )
+    assert veredicto_shadow == veredicto_ausente, (
+        f"practica cambia el veredicto real: {veredicto_shadow} vs {veredicto_ausente}"
+    )
 
 
 def test_temporada01_d_revalidacion_igual_en_shadow(db_template):
