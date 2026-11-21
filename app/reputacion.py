@@ -543,7 +543,12 @@ def _corre_meli(
         )
         _sellar(conn, run_id, insertadas, skips, True)
     except BaseException as exc:
-        _sellar(conn, run_id, 0, skips, False, causa=str(exc) or exc.__class__.__name__)
+        try:
+            _sellar(conn, run_id, 0, skips, False, causa=str(exc) or exc.__class__.__name__)
+        except Exception as err_sello:
+            logger.warning(
+                "reputacion meli: fallo al sellar corrida fallida: %s", scrub(str(err_sello))
+            )
         raise
     return {
         "fuente": "meli",

@@ -479,8 +479,8 @@ def frontera_hoja(
     ad_entity_id: int,
     hoy: dt.date,
     *,
-    piso: Decimal = Decimal(0),
-    techo: Decimal = Decimal(0),
+    piso: Decimal,
+    techo: Decimal,
 ) -> FronteraHoja | None:
     """La misma temporada.frontera para UNA hoja, para la revalidacion de la
     cola al liberar (la conecta el bloque D). None sin config o temporada apagada."""

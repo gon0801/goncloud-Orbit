@@ -2050,9 +2050,9 @@ def test_r09r5_10q_base_falla_en_cierre_reintento_cierra():
 
 
 @_skip_db
-def test_r09r5_r05_sello_confirma_antes_de_cerrar():
+def test_r09r5_r05_sello_confirma_antes_de_cerrar(monkeypatch):
     """R09-r5 B6 (R05) + Ola A1: en conexion SIN autocommit, sello y cierre
-    van en la MISMA transaccion durable (sin ventana de muerte intermedia)."""
+    van en la MISMA transaccion durable (sin segunda llamada a _cierra_intencion)."""
     with _db_i4("orbit_i4_r5r05") as conn:
         conn.autocommit = False
         _pid, lid = _producto(conn)
@@ -2062,6 +2062,13 @@ def test_r09r5_r05_sello_confirma_antes_de_cerrar():
         )
         conn.commit()
         escritor, puts = _escritor(_fila("ad-1", "ENABLED"))
+        monkeypatch.setattr(
+            ra,
+            "_cierra_intencion",
+            lambda *_a, **_kw: (_ for _ in ()).throw(
+                AssertionError("_cierra_intencion separado prohibido")
+            ),
+        )
         assert _retira(conn, plan, go="go dueno", escritor=escritor) == 1
         # Un rollback posterior NO pierde ni el retiro ni el cierre: tx_durable hizo COMMIT.
         conn.rollback()

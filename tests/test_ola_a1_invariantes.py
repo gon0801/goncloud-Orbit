@@ -24,11 +24,20 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from helpers.pg import db_desde_template
 from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
-from app import cli_precio, impulso_io, jev_lectura, lecturas_caso, temporada_io
+from app import (
+    cli_precio,
+    fabrica_web,
+    impulso_io,
+    jev_lectura,
+    lecturas_caso,
+    reputacion,
+    temporada_io,
+)
 from app.api_dashboard import _SQL_CHROME_ULTIMO_CICLO
 from app.estimacion_venta import (
     DetalleFee,
@@ -151,24 +160,48 @@ def test_spapi_orders_formato_skip_reason_sanitiza_nul():
     assert res is not None and "\x00" not in res
 
 
+def test_reputacion_corre_meli_no_enmascara_causa_si_falla_sellar(monkeypatch):
+    """F5: si falla el sello de corrida fallida, se propaga la excepcion original."""
+    monkeypatch.setattr(reputacion, "_abrir_run", lambda _c, _s: 42)
+    monkeypatch.setattr(
+        reputacion,
+        "fetch_meli",
+        lambda _cli: (_ for _ in ()).throw(RuntimeError("caida original de meli")),
+    )
+    monkeypatch.setattr(
+        reputacion,
+        "_sellar",
+        lambda *_a, **_kw: (_ for _ in ()).throw(OSError("db rota al sellar")),
+    )
+    with pytest.raises(RuntimeError, match="caida original de meli"):
+        reputacion._corre_meli(object(), object(), None, None)
+
+
 @_skip_db
-def test_ola_a1_invariantes_en_pg16():
+def test_ola_a1_invariantes_en_pg16(monkeypatch):
     """P0-2, P0-4, P0-5, P0-10 y P0-12 verificados en PostgreSQL 16 real."""
     with db_desde_template(prefijo="orbit_ola_a1", base=_test_dsn(), autocommit=False) as (
         conn,
         dsn,
     ):
-        import psycopg
-
-        # P0-2: lock compartido fabrica_web <-> fabrica_motor en 2 conexiones distintas.
+        # P0-2: lock compartido bidireccional fabrica_web <-> fabrica_motor.
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
         lote = "web-prueba-lock-a1"
-        _bloquea_lote(conn, lote)
         with (
-            psycopg.connect(dsn, autocommit=False) as conn2,
+            fabrica_web._lote_bloqueado(lote),
             pytest.raises(FabricaAbortar, match="ocupado"),
         ):
-            _bloquea_lote(conn2, lote)
-        _desbloquea_lote(conn, lote)
+            _bloquea_lote(conn, lote)
+        _bloquea_lote(conn, lote)
+        try:
+            with (
+                pytest.raises(HTTPException) as exc_info,
+                fabrica_web._lote_bloqueado(lote),
+            ):
+                pass
+            assert exc_info.value.status_code == 409
+        finally:
+            _desbloquea_lote(conn, lote)
 
         # P0-4: _SQL_MANOS_EXTERNAS distingue reactivacion_manual vs exclusion.
         camp = conn.execute(
@@ -232,7 +265,14 @@ def test_ola_a1_invariantes_en_pg16():
             ),
         )
         conn.commit()
-        assert temporada_io.frontera_hoja(conn, kw, date(2026, 11, 21)) is None
+        with pytest.raises(TypeError):
+            temporada_io.frontera_hoja(conn, kw, date(2026, 11, 21))
+        assert (
+            temporada_io.frontera_hoja(
+                conn, kw, date(2026, 11, 21), piso=Decimal("0.10"), techo=Decimal("5.00")
+            )
+            is None
+        )
 
         # P0-10: _SQL_CHROME_ULTIMO_CICLO ignora ciclos de otro motor.
         conn.execute(

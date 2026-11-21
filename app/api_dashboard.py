@@ -2175,7 +2175,7 @@ SELECT modo::text, count(*)
 
 _SQL_CHROME_WATERMARK = """
 SELECT e.platform::text, MAX(m.metric_date)
-  FROM v_metric_latest m
+  FROM ads_metric_observation m
   JOIN ad_entity e ON e.id = m.ad_entity_id
  GROUP BY e.platform
 """
