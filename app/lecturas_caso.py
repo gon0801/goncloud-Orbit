@@ -20,8 +20,12 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, replace
 from decimal import Decimal, localcontext
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
+if TYPE_CHECKING:
+    from app.temporada_io import TemporadaPlataforma
+
+from app.optimizer import temporada
 from app.optimizer.caso import (
     DIAS_ECONOMIA_CAMBIO,
     DIAS_LOOKBACK,
@@ -38,20 +42,25 @@ from app.optimizer.caso import (
     REVISION_POLITICA,
     BidVigente,
     CambioBid,
+    CambioFechado,
     CasoHoja,
     Economia,
     EconomiaPlataforma,
     EfectoCambio,
     EpisodioEconomico,
     EvidenciaNivel,
+    HistoriaBid,
     InsumosPausa,
+    ManoExterna,
     Plataforma,
     PrecioVentana,
+    TemporadaCaso,
     Tramo,
     Trayectoria,
     VentanaEconomica,
 )
 from app.optimizer.goals import COOLDOWN
+from app.optimizer.recuperacion import _cadena_desde
 from app.optimizer.windows import DIAS_FRESCURA_BIDS, AgregadoMetricas
 
 DIAS_EFECTO = COOLDOWN.days  # pre7/post7 de EfectoCambio
@@ -137,14 +146,41 @@ _SQL_HOJAS = """
 SELECT hoja_id, ad_group_id, campana_id FROM v_hoja_activa WHERE platform = %s
 """
 
+# TEMPORADA 01 B: con temporada encendida la ventana crece a D-365 (o al inicio
+# del episodio abierto mas viejo: un episodio abierto no caduca) y el SELECT
+# trae decision_id, motivo_temporada y episodio_id de la vista de 0093.
 _SQL_CAMBIOS = """
-SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen, d.new_value
+SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen,
+       c.decision_id, c.motivo_temporada, c.episodio_id, d.new_value
   FROM v_cambio_bid c
   JOIN ad_entity k ON k.id = c.hoja_id
   LEFT JOIN decision d ON d.id = c.decision_id AND c.origen = 'regreso_del_dueno'
  WHERE k.platform = %s::platform
    AND c.confirmado_el >= %s{tope}
  ORDER BY c.hoja_id, c.confirmado_el, c.decision_id
+"""
+
+_SQL_MANOS_EXTERNAS = """
+SELECT x.ad_entity_id, x.detectada_el, x.bid_visto
+  FROM temporada_exclusion x
+  JOIN temporada_episodio e ON e.id = x.episodio_id
+ WHERE e.platform = %s::platform AND x.bid_visto IS NOT NULL AND x.detectada_el >= %s
+ UNION ALL
+SELECT r.ad_entity_id, r.detectada_en, NULL::numeric
+  FROM reactivacion_manual r
+  JOIN ad_entity k ON k.id = r.ad_entity_id
+ WHERE k.platform = %s::platform AND r.detectada_en >= %s
+"""
+
+_SQL_FINES = """
+SELECT f.ad_entity_id, f.episodio_id
+  FROM temporada_fin_reduccion f
+  JOIN temporada_episodio e ON e.id = f.episodio_id
+ WHERE e.platform = %s::platform
+"""
+
+_SQL_EPISODIO_ABIERTO_VIEJO = """
+SELECT min(abierto_el) FROM temporada_episodio WHERE platform = %s::platform AND cerrado_el IS NULL
 """
 
 _SQL_EFECTO = """
@@ -375,7 +411,17 @@ def _cambios_por_hoja(filas: list) -> dict[int, tuple[CambioBid, ...]]:
     corte; con racha larga sobreestima el piso, lado fail-closed). Solo
     se omite si tampoco hay decision revertida con `new_value`."""
     por_hoja: dict[int, list[CambioBid]] = {}
-    for hoja_id, confirmado_el, bid_antes, bid_despues, origen, revierte_new in filas:
+    for (
+        hoja_id,
+        confirmado_el,
+        bid_antes,
+        bid_despues,
+        origen,
+        _did,
+        _mt,
+        _ep,
+        revierte_new,
+    ) in filas:
         previos = por_hoja.setdefault(hoja_id, [])
         if bid_antes is None:
             anterior = next((p for p in reversed(previos) if p.origen != "ajuste_de_campana"), None)
@@ -395,6 +441,51 @@ def _cambios_por_hoja(filas: list) -> dict[int, tuple[CambioBid, ...]]:
             )
         )
     return {hoja_id: tuple(cambios) for hoja_id, cambios in por_hoja.items()}
+
+
+def _historia_por_hoja(
+    filas: list,
+    manos: dict[int, list[ManoExterna]],
+    fines: dict[int, set[int]],
+    desde: dt.date,
+) -> dict[int, HistoriaBid]:
+    """HistoriaBid congelada por hoja (TEMPORADA 01 B): cambios con instante,
+    decision_id, motivo_temporada y episodio_id; manos externas fechadas
+    (exclusiones con bid_visto) y episodios con fin guardado. La trayectoria
+    de 90 dias se deriva aparte, sin tocar este congelado."""
+    por_hoja: dict[int, list[CambioFechado]] = {}
+    for (
+        hoja_id,
+        confirmado_el,
+        bid_antes,
+        bid_despues,
+        origen,
+        did,
+        motivo_t,
+        episodio_id,
+        _rev,
+    ) in filas:
+        por_hoja.setdefault(hoja_id, []).append(
+            CambioFechado(
+                confirmado_el=confirmado_el.astimezone(dt.UTC),
+                decision_id=did,
+                bid_antes=bid_antes,
+                bid_despues=bid_despues,
+                origen=origen,
+                motivo_temporada=motivo_t,
+                episodio_id=episodio_id,
+            )
+        )
+    hojas = set(por_hoja) | set(manos) | set(fines)
+    return {
+        hoja: HistoriaBid(
+            desde=desde,
+            cambios=tuple(por_hoja.get(hoja, ())),
+            fines=frozenset(fines.get(hoja, ())),
+            manos_externas=tuple(manos.get(hoja, ())),
+        )
+        for hoja in hojas
+    }
 
 
 def _mide(
@@ -438,6 +529,58 @@ class LecturasPlataforma:
     _d: dt.date
     _visto_el: dt.datetime | None
     _observado_al: dt.datetime | None
+    # TEMPORADA 01 B: con temporada encendida, la HistoriaBid congelada por hoja
+    # y el estado de plataforma; None conserva el camino de hoy byte a byte.
+    _temporada: TemporadaPlataforma | None = None
+    _historia: dict[int, HistoriaBid] | None = None
+    _historia_desde: dt.date | None = None
+
+    def frontera(
+        self,
+        hoja_id: int,
+        bid_vigente: Decimal | None,
+        *,
+        piso: Decimal,
+        techo: Decimal,
+    ) -> temporada.FronteraHoja | None:
+        """temporada.frontera sobre lo leido, sin consulta. None sin temporada.
+        Diferencia registrada contra el diseno: `piso` y `techo` llegan del
+        goal que el ciclo ya resolvio para la hoja (la firma del diseno no los
+        traia y `destino_entrada` los necesita)."""
+        t = self._temporada
+        if t is None:
+            return None
+        cadena = _cadena_desde(self._historia.get(hoja_id), bid_vigente)
+        return temporada.frontera(
+            t.estacion,
+            cadena,
+            episodio=t.estado.episodio,
+            excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
+            cerca_plataforma=t.estado.cerca_plataforma,
+            bid=bid_vigente,
+            piso=piso,
+            techo=techo,
+        )
+
+    def tiene_pendiente(
+        self, hoja_id: int, bid_vigente: Decimal | None, *, piso: Decimal, techo: Decimal
+    ) -> bool:
+        """¿Entrada, ajuste o regreso pendiente? Lo usa el ciclo para no saltar
+        una inerte en vivo (bloque D)."""
+        t = self._temporada
+        if t is None:
+            return False
+        cadena = _cadena_desde(self._historia.get(hoja_id), bid_vigente)
+        p = temporada._pendiente_desde(
+            t.estacion,
+            cadena,
+            episodio=t.estado.episodio,
+            excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
+            bid=bid_vigente,
+            piso=piso,
+            techo=techo,
+        )
+        return not isinstance(p, temporada.SinPendiente)
 
     def caso(
         self,
@@ -449,6 +592,8 @@ class LecturasPlataforma:
         target_acos_pct: Decimal,
         pausa: InsumosPausa,
         equilibrio_acos_pct: Decimal | None = None,
+        procedencia: str | None = None,
+        con_temporada: bool = True,
     ) -> CasoHoja:
         """Arma el caso de una hoja. Cero consultas si la hoja no cambio de
         bid en 90 dias; UNA consulta (`_SQL_EFECTO`) si cambio. La ventana
@@ -490,6 +635,26 @@ class LecturasPlataforma:
             trayectoria = Trayectoria(cambios=cambios, efecto=leido.efecto, episodio=episodio)
         else:
             trayectoria = Trayectoria(cambios=(), efecto=None)
+        # TEMPORADA 01 B: con temporada live el caso congelado trae los
+        # marcadores; en shadow (y sin temporada) va byte a byte lo de hoy.
+        temporada_caso = None
+        historia_caso = None
+        t = self._temporada
+        if t is not None and t.modo == "live" and con_temporada:
+            historia_caso = self._historia.get(hoja_id) or HistoriaBid(
+                desde=self._historia_desde or self._d,
+                cambios=(),
+                fines=frozenset(),
+                manos_externas=(),
+            )
+            temporada_caso = TemporadaCaso(
+                estacion=t.estacion,
+                episodio=t.estado.episodio,
+                excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
+                meta_alta_pct=t.meta_alta_pct,
+                meta_manual=procedencia in ("goal_campana", "goal_plataforma"),
+                frontera=self.frontera(hoja_id, bid.valor, piso=bid.piso, techo=bid.techo),
+            )
         return CasoHoja(
             plataforma=self.plataforma,
             hoja_id=hoja_id,
@@ -507,6 +672,8 @@ class LecturasPlataforma:
             ventana_hasta=self._d - dt.timedelta(days=DIAS_MADUREZ),
             observado_al=self._observado_al,
             revision=REVISION_POLITICA,
+            temporada=temporada_caso,
+            historia=historia_caso,
         )
 
     def efecto(
@@ -769,6 +936,73 @@ def _contribucion(ventana: VentanaEconomica, margen_pct: Decimal | None) -> Deci
         return ventana.venta * margen_pct / Decimal(100) - ventana.gasto
 
 
+def _historia_temporada(
+    conn: Conexion,
+    plataforma: Plataforma,
+    d: dt.date,
+    desde: dt.date,
+    visto_el: dt.datetime | None,
+    activa: bool,
+) -> tuple[
+    dt.date,
+    dict[int, list[ManoExterna]],
+    dict[int, set[int]],
+    dict[int, tuple[CambioBid, ...]],
+    dict[int, HistoriaBid] | None,
+]:
+    """Los cambios de bid de la plataforma, la ventana extendida de la historia
+    (D-365 o el inicio del episodio abierto mas viejo: un episodio abierto no
+    caduca), las manos externas fechadas, los episodios con fin guardado y la
+    trayectoria de 90 dias derivada como hoy (TEMPORADA 01 B). `activa` False
+    conserva el camino de hoy byte a byte. La consulta de cambios vive aqui:
+    la consumen la trayectoria (90 dias) y la historia congelada (entera)."""
+    desde_historia = desde
+    if activa:
+        desde_historia = d - dt.timedelta(days=365)
+        viejo = conn.execute(_SQL_EPISODIO_ABIERTO_VIEJO, (plataforma,)).fetchone()[0]
+        if viejo is not None:
+            desde_historia = min(desde_historia, viejo.astimezone(dt.UTC).date())
+    tope = "" if visto_el is None else " AND c.confirmado_el <= %s"
+    p_cambios: tuple = (
+        plataforma,
+        dt.datetime(desde_historia.year, desde_historia.month, desde_historia.day, tzinfo=dt.UTC),
+    )
+    if visto_el is not None:
+        p_cambios = (*p_cambios, visto_el)
+    filas_cambios = conn.execute(_SQL_CAMBIOS.format(tope=tope), p_cambios).fetchall()
+    if not activa:
+        return desde_historia, {}, {}, _cambios_por_hoja(filas_cambios), None
+    # La trayectoria de 90 dias se arma SOLO con las filas de su ventana, el
+    # MISMO corte que la consulta de hoy aplica: el backfill del regreso del
+    # dueno jamas usa un cambio de fuera de los 90 dias (cambiaria el piso
+    # aprendido en practica). Las filas extendidas quedan para la historia
+    # congelada.
+    desde_90 = dt.datetime(desde.year, desde.month, desde.day, tzinfo=dt.UTC)
+    filas_90 = [f for f in filas_cambios if f[1] >= desde_90]
+    desde_h = dt.datetime(
+        desde_historia.year, desde_historia.month, desde_historia.day, tzinfo=dt.UTC
+    )
+    manos: dict[int, list[ManoExterna]] = {}
+    for hoja, instante, bid_visto in conn.execute(
+        _SQL_MANOS_EXTERNAS, (plataforma, desde_h, plataforma, desde_h)
+    ).fetchall():
+        manos.setdefault(hoja, []).append(
+            ManoExterna(
+                instante=instante.astimezone(dt.UTC), bid_visto=bid_visto, origen="exclusion"
+            )
+        )
+    fines: dict[int, set[int]] = {}
+    for hoja, episodio_id in conn.execute(_SQL_FINES, (plataforma,)).fetchall():
+        fines.setdefault(hoja, set()).add(episodio_id)
+    limite = desde
+    cambios_90 = {
+        hoja: tuple(c for c in cs if c.fecha >= limite)
+        for hoja, cs in _cambios_por_hoja(filas_90).items()
+    }
+    historia = _historia_por_hoja(filas_cambios, manos, fines, desde_historia)
+    return desde_historia, manos, fines, {h: cs for h, cs in cambios_90.items() if cs}, historia
+
+
 def lee_plataforma(
     conn: Conexion,
     plataforma: Plataforma,
@@ -777,6 +1011,7 @@ def lee_plataforma(
     economia: EconomiaPlataforma,
     visto_el: dt.datetime | None = None,
     version_economia: str | None = None,
+    temporada_plat: TemporadaPlataforma | None = None,
 ) -> LecturasPlataforma:
     """Cuatro consultas por plataforma. `visto_el` None = ultima observacion
     (v_metric_latest, el ciclo). `visto_el` con fecha = lectura bitemporal
@@ -811,11 +1046,12 @@ def lee_plataforma(
         (*p_rec, *p_ant, *pv, plataforma, moneda, cal_desde, ayer),
     ).fetchall()
     filas_hojas = conn.execute(_SQL_HOJAS, (plataforma,)).fetchall()
-    tope = "" if visto_el is None else " AND c.confirmado_el <= %s"
-    p_cambios: tuple = (plataforma, dt.datetime(desde.year, desde.month, desde.day, tzinfo=dt.UTC))
-    if visto_el is not None:
-        p_cambios = (*p_cambios, visto_el)
-    filas_cambios = conn.execute(_SQL_CAMBIOS.format(tope=tope), p_cambios).fetchall()
+    # TEMPORADA 01 B: con temporada encendida la historia crece a D-365 (o al
+    # inicio del episodio abierto mas viejo) y trae las manos externas, los
+    # fines y la trayectoria de 90 dias derivada como hoy.
+    desde_historia, manos_por_hoja, fines_por_hoja, cambios_90, historia = _historia_temporada(
+        conn, plataforma, d, desde, visto_el, temporada_plat is not None
+    )
     p_pre = [pre_desde, fresco] * 5
     p_inm = [inm_desde, ayer] * 3
     filas_precio = conn.execute(
@@ -878,6 +1114,7 @@ def lee_plataforma(
             inmaduros[hoja] = pedidos
     sellos = [fila[13] for fila in filas_tramos] + [fila[6] for fila in filas_precio]
     observado = max((s for s in sellos if s is not None), default=None)
+
     return LecturasPlataforma(
         plataforma=plataforma,
         decidido_el=decidido_el,
@@ -885,7 +1122,7 @@ def lee_plataforma(
         _por_hoja=por_hoja,
         _por_grupo=por_grupo,
         _cuenta=cuenta,
-        _cambios=_cambios_por_hoja(filas_cambios),
+        _cambios=cambios_90,
         _precio=precio,
         _inmaduros=inmaduros,
         _campanas=campanas,
@@ -896,4 +1133,7 @@ def lee_plataforma(
         _d=d,
         _visto_el=visto_el,
         _observado_al=observado,
+        _temporada=temporada_plat,
+        _historia=historia,
+        _historia_desde=desde_historia,
     )

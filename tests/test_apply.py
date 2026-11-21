@@ -115,6 +115,18 @@ SQL60 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
 ).read_text(encoding="utf-8")
 
+# TEMPORADA 01 B (0093): 0093 recrea v_cambio_bid desde 0067 y el aplicador
+# cierra temporada_efecto (por eso 0061/0067/0093 entran a la cadena).
+SQL61 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
+SQL67 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0067_bids02_campana_ajuste.sql"
+).read_text(encoding="utf-8")
+SQL93 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
+).read_text(encoding="utf-8")
+
 
 def _fake_credentials() -> AdsCredentials:
     return AdsCredentials(
@@ -150,6 +162,10 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        conn.execute(SQL60)  # 0060 (BIDS 02): v_hoja_activa + v_cambio_bid
+        conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
+        conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
+        conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         yield conn
     finally:
         if conn is not None:
@@ -2260,9 +2276,9 @@ _R2_M5 = dt.datetime(2026, 9, 25, 12, 0, tzinfo=dt.UTC)
 
 @contextmanager
 def _db_m5(prefijo: str):
-    """DB temporal del patron de arriba mas la 0060 (v_cambio_bid)."""
+    """DB temporal del patron de arriba; la cadena base ya aplica 0060
+    (v_cambio_bid vive en ella desde TEMPORADA 01 B)."""
     with _db_temporal(prefijo) as conn:
-        conn.execute(SQL60)
         yield conn
 
 
@@ -2422,6 +2438,61 @@ def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch)
         assert dict_hecho["bid_ahora"] == "9.74"
         assert dict_hecho["decision_revertida_id"] == d1
         json.dumps(dict_hecho)
+
+
+@_skip_db
+def test_regreso_del_dueno_ignora_los_movimientos_de_temporada(monkeypatch):
+    """TEMPORADA 01 (revision): la racha de la ACCION no cuenta ni corta con
+    los movimientos de temporada. Racha efectiva 5.60 -> 4.20 (el recorte del
+    motor DESPUES de la entrada de temporada): Amazon recibe 5.60 (el bid
+    anterior al recorte del motor), jamas 8.00, y se revierte el recorte del
+    motor."""
+    with _db_m5("orbit_apply_m5_temp") as conn:
+        ids = _semilla(conn)
+        ciclo_a = _ciclo_live(conn)
+        ciclo_b = _ciclo_live(conn)
+        d_temp = _decision_bid(
+            conn,
+            ciclo_a,
+            ids["config"],
+            ids["kw"],
+            motivo="entra_temporada_baja",
+            old="8.00",
+            new="5.60",
+        )
+        d_recorte = _decision_bid(
+            conn,
+            ciclo_b,
+            ids["config"],
+            ids["kw"],
+            motivo="pierde_dinero",
+            old="5.60",
+            new="4.20",
+        )
+        _aplicada(conn, d_temp, ids["ciclo_ejec"], _R1_M5)
+        _aplicada(conn, d_recorte, ids["ciclo_ejec"], _R2_M5)
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 4.20 WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        )
+        handler, vistos = _handler_regreso()
+        _creds_m5(monkeypatch)
+
+        hecho = regreso_del_dueno(
+            conn, hoja_id=ids["kw"], actor="dueno", transport=httpx.MockTransport(handler)
+        )
+
+        puts = _puts(vistos)
+        assert len(puts) == 1
+        body = json.loads(puts[0].content)
+        assert Decimal(str(body["keywords"][0]["bid"])) == Decimal("5.60")
+        fila = conn.execute(
+            "SELECT bid_despues, decision_id FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchall()
+        assert fila == [(Decimal("5.60"), d_recorte)]
+        assert hecho.decision_revertida_id == d_recorte
 
 
 @_skip_db

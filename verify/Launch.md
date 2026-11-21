@@ -39,7 +39,7 @@ que Cleanup.md borre sin riesgo (ver alla).
    # cuenta lineas de la salida, no tablas.
    TABS="$(psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -tAc \
      "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")"
-   test "$TABS" = 92 || { echo "ESQUEMA INCOMPLETO: $TABS/92 tablas BASE" >&2; exit 1; }
+   test "$TABS" = 96 || { echo "ESQUEMA INCOMPLETO: $TABS/96 tablas BASE" >&2; exit 1; }
    ```
 
 3. Variables del Drive:

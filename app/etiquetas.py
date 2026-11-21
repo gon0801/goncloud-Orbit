@@ -116,6 +116,13 @@ MOTIVO_SALUD: dict[str, str] = {
     ciclo.MOTIVO_GRUPO_NO_ENABLED: (
         "Grupo de anuncios no habilitado (pausado, archivado o sin estado)"
     ),
+    # TEMPORADA 01: los movimientos planeados de temporada (origen 'temporada'
+    # en v_cambio_bid) con su texto para Salud.
+    politica.MOTIVO_ENTRA_BAJA: "Orbit bajó la puja al empezar la temporada baja",
+    politica.MOTIVO_AJUSTA_BAJA: (
+        "Orbit ajustó la puja al cambiar la reducción de la temporada baja"
+    ),
+    politica.MOTIVO_SALE_BAJA: "Orbit regresó la puja al terminar la temporada baja",
     ciclo.MOTIVO_ENTIDAD_INERTE: "Sin impresiones en 14 días: Orbit no mueve su puja",
     # Lo cuentan la espera tras cualquier cambio aplicado (puja o pausa) y la de
     # una pausa aplicada aunque el dueno la haya revertido (goals.en_cooldown).

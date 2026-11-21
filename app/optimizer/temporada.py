@@ -23,8 +23,15 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from decimal import Decimal, InvalidOperation
-from typing import Literal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Literal
+
+from app.optimizer import recuperacion
+from app.optimizer.centavos import CENTAVO, centavo_hacia
+
+if TYPE_CHECKING:
+    from app.optimizer.caso import CasoHoja
+    from app.optimizer.recuperacion import CadenaBid, ReduccionVigente
 
 VERSION_TEMPORADA = "temporada_v1"
 CLAVE_TEMPORADA = "ads_temporada"  # global, como precio_modo_global
@@ -820,3 +827,365 @@ def como_guardada(config: ConfigTemporada) -> dict:
 def campana_topada_guardada(topada: CampanaTopada) -> dict:
     """El objeto ads_campana_topada que se guarda (pct como string)."""
     return {"pct": _texto(topada.pct * 100), "dias": topada.dias}
+
+
+# ---------------------------------------------------------------------------
+# TEMPORADA 01 B: lo que decide una keyword. PURO. `destino_entrada`,
+# `reduccion_vigente` (la UNICA resolucion de «¿esta hoja sigue reducida?»),
+# `nivel_de_regreso`, `inicio_episodio`, `frontera` y `pendiente`. La usan el
+# ciclo (decidir), la cola (revalidar al liberar) y TX3 (estampa y fines).
+# ---------------------------------------------------------------------------
+
+DIAS_CERCA = 90  # la cerca caduca a los 90 dias (caso.DIAS_LOOKBACK)
+
+
+@dataclass(frozen=True)
+class EpisodioVigente:
+    """El episodio abierto de la plataforma (lo lee temporada_io.lee_estado)."""
+
+    id: int
+    abierto_el: dt.datetime
+
+
+@dataclass(frozen=True)
+class FinReduccion:
+    """La reduccion vieja de una hoja termina en este ciclo, sin enviar nada.
+    TX3 lo guarda en temporada_fin_reduccion; si la mano se vio con esta baja
+    abierta, `excluye_abierto` la excluye del episodio con `bid_visto`."""
+
+    episodio_id: int
+    motivo: Literal["ya_arriba", "mano_del_dueno"]
+    excluye_abierto: bool
+    bid_visto: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class FronteraHoja:
+    """Lo que la temporada dice de UNA keyword para cortes y juicio. Sale de
+    `frontera`."""
+
+    fase_hoja: Fase  # "baja" si el calendario dice baja o la hoja sigue reducida
+    mult_cortes: Decimal  # 1 salvo fase_hoja == "baja"
+    cerca_hoja: dt.date | None  # dia UTC siguiente a su ultimo movimiento confirmado
+    cerca_plataforma: dt.date | None  # para grupo, cuenta y terminos
+    episodio_id: int | None  # el de su reduccion vigente, o el abierto
+    fin: FinReduccion | None = None  # TX3 lo guarda con temporada_io.registra_fines
+    exclusion_hoy: Decimal | None = None  # mano sin fecha vista hoy en baja
+
+
+@dataclass(frozen=True)
+class EntradaPendiente:
+    """La bajada planeada de la entrada a la baja (destino ya en centavos)."""
+
+    destino: Decimal
+
+
+@dataclass(frozen=True)
+class AjustePendiente:
+    """David edito la reduccion a media baja: destino = base x (1 - r nueva)."""
+
+    destino: Decimal
+
+
+@dataclass(frozen=True)
+class RestauracionPendiente:
+    """El regreso al salir de la baja (o al terminar la baja hoy)."""
+
+    nivel: Decimal  # base del episodio, acotada por piso y techo
+    episodio_id: int
+
+
+SinPendienteMotivo = Literal[
+    "fuera_de_temporada",
+    "ya_entro",
+    "ya_arriba",
+    "dueno_decidio",
+    "bid_heredado",
+    "sin_centavo_factible",
+    "dato_faltante",
+]
+
+
+@dataclass(frozen=True)
+class SinPendiente:
+    motivo: SinPendienteMotivo
+
+
+Pendiente = EntradaPendiente | AjustePendiente | RestauracionPendiente | SinPendiente
+
+
+def _centavos_del_rango(piso: Decimal, techo: Decimal) -> tuple[Decimal, Decimal] | None:
+    """El intervalo de CENTAVOS validos dentro de [piso, techo]: el minimo
+    redondeado hacia arriba y el maximo hacia abajo (un goal puede llevar
+    limites fraccionarios; Amazon recibe centavos y un clamp sin redondeo
+    enviaria una puja fuera del rango). None sin ningun centavo factible."""
+    piso_c = piso.quantize(CENTAVO, rounding=ROUND_CEILING)
+    techo_c = techo.quantize(CENTAVO, rounding=ROUND_FLOOR)
+    if piso_c > techo_c:
+        return None
+    return piso_c, techo_c
+
+
+def destino_entrada(
+    bid: Decimal, reduccion: Decimal, piso: Decimal, techo: Decimal
+) -> Decimal | None:
+    """El centavo mas bajo que no baja mas que `reduccion`, dentro del
+    intervalo de centavos de [piso, techo]. None sin centavo factible (el bid
+    ya vive en el piso).
+    # 0.15 USD, 30 % -> 0.11 (26.7 %); 1.55 MXN -> 1.09 (29.7 %); 8.00 -> 5.60;
+    # 0.10 USD con piso 0.10 -> None; piso fraccionario 5.6049 -> 5.61."""
+    rango = _centavos_del_rango(piso, techo)
+    if rango is None:
+        return None
+    piso_c, techo_c = rango
+    d = centavo_hacia(bid * (Decimal(1) - reduccion), desde=bid)
+    d = min(max(d, piso_c), techo_c)
+    if bid - d < CENTAVO:
+        return None
+    return d
+
+
+def inicio_episodio(episodio: EpisodioVigente | None, dia: dt.date) -> dt.datetime:
+    """Desde cuando una mano del dueno cuenta como de esta baja: el inicio del dia
+    UTC en que se abrio el episodio. El dia en que TX3 lo abre, TX2 todavia no lo
+    ve y usa `dia`. Una mano de esa manana protege la keyword ese dia y los
+    siguientes, aunque `abierto_el` sea posterior."""
+    base = episodio.abierto_el.astimezone(dt.UTC).date() if episodio is not None else dia
+    return dt.datetime.combine(base, dt.time(0), tzinfo=dt.UTC)
+
+
+def nivel_de_regreso(
+    red: ReduccionVigente, bid: Decimal, piso: Decimal, techo: Decimal
+) -> Decimal | None:
+    """A donde regresa una hoja reducida. Sin recortes despues de la entrada es la
+    base. Si Orbit recorto despues de la entrada, el regreso conserva esos recortes
+    en proporcion; nunca baja y siempre queda en centavos del intervalo de
+    [piso, techo]. None si el rango del goal no tiene ningun centavo factible
+    (piso arriba del techo al redondear): la hoja que lo necesite deja SU
+    regreso pendiente, jamas tumba el ciclo.
+    # 8 -> 5.60 (entrada) -> 3.15 (recortes con la temporada apagada): 8 x
+    # 3.15 / 5.60 = 4.50, no 8.00. Techo fraccionario 15.999 -> 15.99."""
+    rango = _centavos_del_rango(piso, techo)
+    if rango is None:
+        return None
+    piso_c, techo_c = rango
+    if red.solo_temporada_despues or bid is None or bid >= red.ultimo_bid:
+        factor = Decimal(1)
+    else:
+        factor = bid / red.ultimo_bid
+    nivel = (red.base * factor).quantize(CENTAVO, rounding=ROUND_FLOOR)
+    return min(max(nivel, piso_c), techo_c)
+
+
+def reduccion_vigente(
+    cadena: CadenaBid,
+    *,
+    en_baja: bool,
+    dia: dt.date,
+    episodio: EpisodioVigente | None,
+    bid: Decimal,
+    piso: Decimal,
+    techo: Decimal,
+) -> tuple[ReduccionVigente | None, FinReduccion | None]:
+    """La unica resolucion de «¿esta hoja sigue reducida?». La usan pendiente,
+    frontera (y por ella estampa y la revalidacion de la cola) y TX3.
+    cadena.reduccion ya omite las reducciones con fila en temporada_fin_reduccion
+    (HistoriaBid.fines), asi que un fin guardado no revive."""
+    red = cadena.reduccion
+    if red is None or (episodio is not None and red.episodio_id == episodio.id):
+        return red, None
+    manos = [m for m in cadena.manos_del_dueno if m > red.ultimo_el]
+    if manos or cadena.dueno_al_final:
+        ahora = cadena.dueno_al_final or (
+            en_baja and bool(manos) and max(manos) >= inicio_episodio(episodio, dia)
+        )
+        return None, FinReduccion(
+            red.episodio_id,
+            "mano_del_dueno",
+            excluye_abierto=bool(en_baja and ahora),
+            bid_visto=bid,
+        )
+    nivel = nivel_de_regreso(red, bid, piso, techo)
+    if bid is not None and nivel is not None and bid >= nivel:
+        return None, FinReduccion(red.episodio_id, "ya_arriba", excluye_abierto=False)
+    return red, None  # su regreso sigue pendiente (retenido o sin centavo factible en el rango)
+
+
+def _pendiente_desde(
+    estacion: Estacion,
+    cadena: CadenaBid | None,
+    *,
+    episodio: EpisodioVigente | None,
+    excluida_en: frozenset[int],
+    bid: Decimal | None,
+    piso: Decimal,
+    techo: Decimal,
+) -> Pendiente:
+    """Lo pendiente de UNA keyword. Decisiones 4 y 5 del diseno. `cadena` None =
+    sin cambios conocidos (la entrada baja el bid que tenga; riesgo 2 del
+    diseno: dueno_al_final no es determinable)."""
+    if bid is None:
+        return SinPendiente("bid_heredado")
+    manos = cadena.manos_del_dueno if cadena is not None else ()
+    dueno_al_final = cadena.dueno_al_final if cadena is not None else False
+    en_baja = estacion.fase == "baja"
+    if cadena is None:
+        red: ReduccionVigente | None = None
+        fin: FinReduccion | None = None
+    else:
+        red, fin = reduccion_vigente(
+            cadena,
+            en_baja=en_baja,
+            dia=estacion.dia,
+            episodio=episodio,
+            bid=bid,
+            piso=piso,
+            techo=techo,
+        )
+    if fin is not None and fin.excluye_abierto:
+        return SinPendiente("dueno_decidio")
+    if red is not None:
+        if red.episodio_id in excluida_en:
+            return SinPendiente("dueno_decidio")
+        if any(m > red.ultimo_el for m in manos) or dueno_al_final:
+            return SinPendiente("dueno_decidio")
+        if en_baja:
+            if (
+                episodio is not None
+                and red.episodio_id == episodio.id
+                and red.solo_temporada_despues
+            ):
+                d = destino_entrada(red.base, estacion.reduccion_baja, piso, techo)
+                if d is not None and abs(d - bid) >= CENTAVO:
+                    return AjustePendiente(d)
+            return SinPendiente("ya_entro")  # nunca otra entrada
+        nivel = nivel_de_regreso(red, bid, piso, techo)
+        if nivel is None:
+            # El rango del goal no tiene ningun centavo factible para su
+            # regreso: la reduccion queda pendiente (sin fin) y la hoja no
+            # recibe veredicto de temporada hasta que el dueno arregle el
+            # rango. Jamas tumba el ciclo.
+            return SinPendiente("dato_faltante")
+        if bid >= nivel:
+            return SinPendiente("ya_arriba")
+        return RestauracionPendiente(nivel, red.episodio_id)
+    if estacion.fase != "baja":
+        return SinPendiente("fuera_de_temporada")
+    if episodio is not None and episodio.id in excluida_en:
+        return SinPendiente("dueno_decidio")
+    if any(m >= inicio_episodio(episodio, estacion.dia) for m in manos):
+        return SinPendiente("dueno_decidio")
+    if dueno_al_final:
+        # Cambio sin registro: Amazon no da su fecha, cuenta como mano de esta
+        # baja; frontera la deja en exclusion_hoy y TX3 la guarda fechada con
+        # bid_visto, asi en la siguiente baja ya es vieja.
+        return SinPendiente("dueno_decidio")
+    d = destino_entrada(bid, estacion.reduccion_baja, piso, techo)
+    if d is None:
+        return SinPendiente("sin_centavo_factible")
+    return EntradaPendiente(d)
+
+
+def pendiente(caso: CasoHoja) -> Pendiente:
+    """Decisiones 4 y 5. Requiere caso.temporada; la cadena sale de
+    recuperacion.cadena_bid (None = dato faltante)."""
+    t = caso.temporada
+    if t is None:
+        raise ValueError("pendiente exige caso.temporada (decide solo la llama con el marcador)")
+    bid = caso.bid.valor
+    if bid is None:
+        return SinPendiente("bid_heredado")
+    cad = recuperacion.cadena_bid(caso)
+    if cad is None:
+        return SinPendiente("dato_faltante")
+    return _pendiente_desde(
+        t.estacion,
+        cad,
+        episodio=t.episodio,
+        excluida_en=t.excluida_en,
+        bid=bid,
+        piso=caso.bid.piso,
+        techo=caso.bid.techo,
+    )
+
+
+def frontera(
+    estacion: Estacion,
+    cadena: CadenaBid | None,
+    *,
+    episodio: EpisodioVigente | None,
+    excluida_en: frozenset[int],
+    cerca_plataforma: dt.date | None,
+    bid: Decimal | None,
+    piso: Decimal,
+    techo: Decimal,
+) -> FronteraHoja:
+    """Una sola funcion para el ciclo (decidir) y la cola (liberar)."""
+    p = _pendiente_desde(
+        estacion,
+        cadena,
+        episodio=episodio,
+        excluida_en=excluida_en,
+        bid=bid,
+        piso=piso,
+        techo=techo,
+    )
+    dueno_al_final = cadena.dueno_al_final if cadena is not None else False
+    en_baja = estacion.fase == "baja"
+    if cadena is None:
+        red: ReduccionVigente | None = None
+        fin: FinReduccion | None = None
+    else:
+        red, fin = reduccion_vigente(
+            cadena,
+            en_baja=en_baja,
+            dia=estacion.dia,
+            episodio=episodio,
+            bid=bid,
+            piso=piso,
+            techo=techo,
+        )
+    terreno_de_david = en_baja and (
+        (episodio is not None and episodio.id in excluida_en) or dueno_al_final
+    )
+    # Hoja con reduccion viva y regreso IMPOSIBLE (rango del goal sin centavo
+    # factible): sigue en baja (conservadora, como un regreso retenido) y el
+    # ciclo corre: jamas una excepcion de plataforma.
+    sin_nivel = red is not None and _centavos_del_rango(piso, techo) is None
+    if terreno_de_david:
+        fase_hoja: Fase = "normal"  # decision 7 del plan: sin reglas de la baja
+    elif en_baja or isinstance(p, RestauracionPendiente) or sin_nivel:
+        fase_hoja = "baja"
+    else:
+        fase_hoja = estacion.fase
+    mult = estacion.mult_cortes_baja if fase_hoja == "baja" else Decimal(1)
+    cerca_hoja = None
+    if cadena is not None:
+        temporadas = [c for c in cadena.cambios if c.origen == "temporada"]
+        if temporadas:
+            ultimo = temporadas[-1]
+            cerca = ultimo.confirmado_el.astimezone(dt.UTC).date() + dt.timedelta(days=1)
+            if cerca >= estacion.dia - dt.timedelta(days=DIAS_CERCA):
+                cerca_hoja = cerca
+    episodio_id = None
+    if red is not None:
+        episodio_id = red.episodio_id
+    elif episodio is not None:
+        episodio_id = episodio.id
+    exclusion_hoy = None
+    if (
+        en_baja
+        and dueno_al_final
+        and bid is not None
+        and (episodio is None or episodio.id not in excluida_en)
+    ):
+        exclusion_hoy = bid
+    return FronteraHoja(
+        fase_hoja=fase_hoja,
+        mult_cortes=mult,
+        cerca_hoja=cerca_hoja,
+        cerca_plataforma=cerca_plataforma,
+        episodio_id=episodio_id,
+        fin=fin,
+        exclusion_hoy=exclusion_hoy,
+    )

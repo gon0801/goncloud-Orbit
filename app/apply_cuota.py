@@ -15,6 +15,8 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
+from app import temporada_io
+
 # CAMPANA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
 # bloquean reintentos y liberaciones. Definidos AQUI; apply/apply_cola/cycle
 # los re-exportan como alias: cero cambio de vocabulario.
@@ -53,6 +55,11 @@ MOTIVO_CHOQUE_CLAVE = "choque_clave"
 # venta reciente. La fila queda released: no cobra cuota, no entra a applying y
 # no reinicia el veto de 48 horas.
 MOTIVO_ESPERA_PROTECCION = "espera_proteccion"
+# TEMPORADA 01 E (vocabulario y CHECK entran con el bloque B, migracion 0093):
+# la lectura fresca antes del PUT encontro en Amazon un bid distinto del que
+# Orbit vio al decidir. Cero PUT del destino viejo; la hoja queda excluida del
+# episodio (temporada_exclusion) y el desenlace del efecto es mano_del_dueno.
+MOTIVO_BID_CAMBIADO_FUERA = "bid_cambiado_fuera"
 
 # ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
 # CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
@@ -75,6 +82,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_PERDIDA,
     MOTIVO_CHOQUE_CLAVE,
     MOTIVO_ESPERA_PROTECCION,
+    MOTIVO_BID_CAMBIADO_FUERA,
 )
 
 _SQL_SIN_APLICAR = """
@@ -97,13 +105,18 @@ def registra_sin_aplicar(
     Idempotente por PK (ON CONFLICT DO NOTHING): un re-run del mismo ciclo
     no duplica; otro ciclo ejecutor agrega su propia fila. El motivo se
     valida contra MOTIVOS_SIN_APLICAR ANTES de tocar la base (la tabla lo
-    refuerza con el CHECK espejo)."""
+    refuerza con el CHECK espejo).
+
+    TEMPORADA 01 B: en la misma transaccion cierra el efecto de temporada con
+    desenlace 'sin_aplicar' (o 'mano_del_dueno' cuando el motivo es
+    bid_cambiado_fuera: Amazon ya tenia otra mano)."""
     if motivo not in MOTIVOS_SIN_APLICAR:
         raise ValueError(f"motivo fuera del vocabulario cerrado: {motivo}")
     conn.execute(
         _SQL_SIN_APLICAR,
         (decision_id, cycle_id, motivo, Json(detalle) if detalle is not None else None),
     )
+    temporada_io.cierra_efecto_sin_aplicar(conn, decision_id=decision_id, motivo=motivo)
 
 
 # Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger
@@ -416,6 +429,31 @@ SELECT a.id, a.decision_id, a.request_payload, d.ad_entity_id, d.new_value,
  ORDER BY a.started_at, a.id
 """
 
+# Criterio COMPARTIDO de intentos pendientes (guarda del ciclo y
+# reconciliacion): intentos sin sello MAS TODOS los intentos SELLADOS con
+# lectura ambigua sin desenlace — de temporada y ordinarios (el resultado del
+# PUT es desconocido; la hoja no genera otra puja hasta que la
+# reconciliacion la resuelva con GET fresco: confirmar si la puja == destino,
+# 'perdida' si == anterior, divergencia definitiva con un tercer valor).
+_SQL_HOJAS_BID_PENDIENTE = """
+SELECT d.ad_entity_id
+  FROM apply_attempt a
+  JOIN decision d ON d.id = a.decision_id
+  JOIN ad_entity k ON k.id = d.ad_entity_id
+ WHERE a.finished_at IS NULL AND a.tipo = 'normal' AND d.kind = 'bid'
+   AND k.platform = %s::platform
+UNION
+SELECT d.ad_entity_id
+  FROM apply_attempt a
+  JOIN decision d ON d.id = a.decision_id
+  JOIN ad_entity k ON k.id = d.ad_entity_id
+ WHERE a.tipo = 'normal' AND a.finished_at IS NOT NULL
+   AND a.resultado = 'fallo:readback_ambiguo'
+   AND k.platform = %s::platform
+   AND NOT EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = d.id)
+   AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa WHERE sa.decision_id = d.id)
+"""
+
 
 def intentos_sin_sello(conn: psycopg.Connection) -> list[tuple]:
     """Filas del ledger nacidas PRE-HTTP que nunca se sellaron (crash entre
@@ -441,7 +479,13 @@ def gate_ancestros(conn: psycopg.Connection, ad_entity_id: int) -> str | None:
 
 def hojas_con_bid_sin_sello(conn: psycopg.Connection, platform: str) -> frozenset[int]:
     """ARREGLOS 01 K (E-H3): ad_entity_id con un intento tipo 'normal' de
-    decision kind bid SIN sello en la plataforma. Solo lectura; usa el MISMO
-    SQL que reconcilia_bids, asi la guarda del ciclo bloquea exactamente las
-    filas que el reconciliador sella en la fase de apply del mismo ciclo."""
-    return frozenset(f[3] for f in conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)))
+    decision kind bid SIN sello en la plataforma. TEMPORADA 01 B (revision):
+    incluye TAMBIEN las hojas con un efecto de temporada abierto cuyo intento
+    quedo SELLADO con lectura ambigua sin desenlace (Amazon puede haber
+    aplicado el cambio: la hoja no genera otra puja hasta que la
+    reconciliacion la resuelva con GET fresco). Solo lectura; comparte el
+    criterio de intentos pendientes con reconcilia_bids, asi la guarda del
+    ciclo bloquea exactamente las hojas cuyo resultado es dudoso. La
+    excepcion de Pausar del ciclo se mantiene intacta."""
+    filas = conn.execute(_SQL_HOJAS_BID_PENDIENTE, (platform, platform))
+    return frozenset(f[0] for f in filas)

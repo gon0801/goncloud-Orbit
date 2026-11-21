@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from typing import Literal
 
-from app.optimizer import economia_cambio
+from app.optimizer import economia_cambio, temporada
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
 from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel, InsumosProteccion
@@ -75,6 +75,15 @@ MOTIVO_SIN_PRECIO = "sin_precio"
 MOTIVO_RANGO_BLOQUEA_AJUSTE = "rango_bloquea_ajuste"  # espejo de bid.py
 MOTIVO_DELTA_BAJO_UMBRAL = "delta_bajo_umbral"  # espejo de bid.py
 MOTIVO_VIGENTE_ENCIMA = "vigente_por_encima"
+
+# TEMPORADA 01: los motivos de temporada (la vista v_cambio_bid de 0093 los
+# clasifica con origen 'temporada'; R1 no los ve, piso_aprendido no los cuenta
+# y los frenos de trayectoria no los juzgan). El resto del vocabulario de
+# temporada llega con los bloques C y D.
+MOTIVO_ENTRA_BAJA = "entra_temporada_baja"
+MOTIVO_AJUSTA_BAJA = "ajusta_temporada_baja"
+MOTIVO_SALE_BAJA = "sale_temporada_baja"
+MOTIVOS_TEMPORADA = (MOTIVO_ENTRA_BAJA, MOTIVO_AJUSTA_BAJA, MOTIVO_SALE_BAJA)
 
 NivelQueJuzga = Literal["hoja", "ad_group"]
 EstadoGrupo = Literal["sangra", "cumple", "sin_veredicto"]
@@ -207,6 +216,20 @@ def decide(caso: CasoHoja) -> Veredicto:
     if not target.is_finite() or target <= 0:
         raise ValueError(f"target_acos_pct invalido: {target!r} (debe ser > 0)")
 
+    # TEMPORADA 01 B: lo pendiente de temporada se resuelve UNA vez. Solo llega
+    # con el marcador congelado (caso.temporada); sin el, `p` es None y todo el
+    # camino de abajo rejuega byte a byte lo de hoy (regla de replay).
+    t = caso.temporada
+    p = temporada.pendiente(caso) if t is not None else None
+
+    # RTs (TEMPORADA 01): el regreso pendiente va ANTES que la pausa (decision
+    # 6 del plan): una keyword que sale de la baja restaura su bid aunque R0 la
+    # pausaria; la espera por venta reciente no retiene un regreso planeado y
+    # el freno por campana topada llega con el bloque C. Los cortes se vuelven
+    # a juzgar solo con evidencia posterior al regreso (cerca, bloque D).
+    if isinstance(p, temporada.RestauracionPendiente):
+        return Regresar(p.nivel, MOTIVO_SALE_BAJA)
+
     # R0: PAUSE decide primero; solo un pause real interrumpe (un bloqueo se descarta y sigue).
     # ORBIT 07 M1: la pausa por cero pedidos consulta la subpolitica de venta
     # reciente con la MISMA funcion pura que usa la revalidacion de la cola.
@@ -226,6 +249,15 @@ def decide(caso: CasoHoja) -> Veredicto:
         assert pausa.kind == "pause"
         assert pausa.motivo is not None
         return Pausar(pausa.motivo)
+
+    # RTe (TEMPORADA 01): la entrada de la baja no espera R2, la espera por
+    # venta reciente ni presupuesto: es una bajada planeada. El ajuste de una
+    # reduccion editada a media baja baja por el paso en centavos o sube por
+    # Regresar (la espera por campana topada llega con el bloque C).
+    rte = _rte_pendiente(caso, p)
+    if rte is not None:
+        return rte
+
     # ORBIT 07 M1: la proteccion por venta reciente solo SUPRIME la pausa por
     # cero pedidos; el juicio de pujas sigue su camino normal (R1-R17) y el
     # ciclo registra el episodio con la misma subpolitica pura. No se devuelve
@@ -636,6 +668,43 @@ def _precio_de_hoy(caso: CasoHoja) -> tuple[Decimal | None, FuentePrecio | None]
         if clics is not None and clics > 0 and gasto is not None and gasto > 0:
             return (gasto / Decimal(clics), "ventana_madura")
     return (None, None)
+
+
+def _paso_a_centavo(
+    bid,
+    destino: Decimal,
+    motivo: str,
+    nivel: NivelQueJuzga,
+) -> Mover | Mantener:
+    """Mover a un destino YA en centavos (TEMPORADA 01): la entrada de la baja y
+    el ajuste de una reduccion editada. Misma cola que `_paso`: valor > 0,
+    destino en [piso, techo], |delta| >= MIN_DELTA_ABSOLUTO y magnitud dentro de
+    los clamps por decision. factor = destino / valor - 1 (informativo). Solo
+    `_paso` y `_paso_a_centavo` crean un Mover."""
+    valor = bid.valor
+    if valor is None or valor <= 0:
+        return Mantener(MOTIVO_DATO_FALTANTE)
+    nuevo = min(max(destino, bid.piso), bid.techo)
+    if abs(nuevo - valor) < MIN_DELTA_ABSOLUTO:
+        return Mantener(MOTIVO_DELTA_BAJO_UMBRAL)
+    delta = nuevo - valor
+    magnitud_ok = delta <= CLAMP_FACTOR_MAX * valor and (-delta <= -CLAMP_FACTOR_MIN * valor)
+    if not magnitud_ok:
+        return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
+    return Mover(nuevo / valor - 1, nuevo, motivo, nivel)
+
+
+def _rte_pendiente(caso: CasoHoja, p: object) -> Veredicto | None:
+    """RTe de temporada (TEMPORADA 01 B): la entrada de la baja o el ajuste de
+    una reduccion editada. None si no es su turno (el camino de hoy sigue)."""
+    if isinstance(p, temporada.EntradaPendiente):
+        return _paso_a_centavo(caso.bid, p.destino, MOTIVO_ENTRA_BAJA, "hoja")
+    if isinstance(p, temporada.AjustePendiente):
+        valor = caso.bid.valor
+        if valor is not None and p.destino < valor:
+            return _paso_a_centavo(caso.bid, p.destino, MOTIVO_AJUSTA_BAJA, "hoja")
+        return Regresar(p.destino, MOTIVO_AJUSTA_BAJA)
+    return None
 
 
 def _paso(

@@ -104,6 +104,7 @@ import httpx
 import psycopg
 from psycopg.types.json import Json
 
+from app import temporada_io
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PerfilAds, evaluar_perfiles
@@ -127,6 +128,7 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     _SQL_INTENTOS_BID_SIN_SELLO,
     CAP_MAXIMO,
     KINDS_QUOTA,
+    MOTIVO_BID_CAMBIADO_FUERA,
     MOTIVO_BID_EN_VUELO,
     MOTIVO_BID_INCOMPLETO,
     MOTIVO_CAMPANA_NO_ENABLED,
@@ -297,6 +299,140 @@ UPDATE ad_entity_state SET current_bid = %s, synced_at = now() WHERE ad_entity_i
 """
 
 
+# TEMPORADA 01 B (revision): intentos SELLADOS con lectura ambigua y sin
+# desenlace. Amazon puede haber APLICADO el cambio (el sync ya trajo el
+# destino al cache): liberar la hoja a ciegas produce doble recorte. Se
+# reconcilian con GET fresco JAMAS reenviando el PUT:
+#   puja == destino      -> confirmar la decision (resumen + efecto
+#                           'confirmado' + cache), con un probe como rastro;
+#   puja == old_value    -> no aplico: 'perdida' en decision_sin_aplicar y
+#                           efecto 'sin_aplicar' (la hoja queda libre; el
+#                           siguiente ciclo decide de nuevo sobre el bid real);
+#   un tercer valor      -> divergencia (efecto 'divergencia' + exclusion
+#                           si difiere del old_value);
+#   GET ambiguo de nuevo -> queda TODO abierto y el siguiente ciclo lo
+#                           reintenta.
+_SQL_INTENTOS_BID_AMBIGUOS_SIN_DESENLACE = """
+SELECT a.id, a.decision_id, d.ad_entity_id, d.old_value, d.new_value
+  FROM apply_attempt a
+  JOIN decision d         ON d.id = a.decision_id AND d.kind = 'bid'
+  JOIN ad_entity k        ON k.id = d.ad_entity_id
+ WHERE a.tipo = 'normal' AND a.finished_at IS NOT NULL
+   AND a.resultado = 'fallo:readback_ambiguo'
+   AND k.platform = %s::platform
+   AND NOT EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = d.id)
+   AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa WHERE sa.decision_id = d.id)
+ ORDER BY a.started_at, a.id
+"""
+
+
+def _reconcilia_ambiguos_sellados(
+    conn: psycopg.Connection,
+    aplicador: Aplicador,
+    platform: str,
+    cliente_holder: list,
+) -> tuple[int, int]:
+    """Los intentos SELLADOS con lectura ambigua sin desenlace (TEMPORADA 01
+    B, revision): GET fresco JAMAS reenvia el PUT. Puja == destino ->
+    confirmar (resumen + probe 'ok:reconciliado' + cache); puja == old_value
+    -> no aplico ('perdida' + efecto 'sin_aplicar', la hoja queda libre); un
+    tercer valor -> divergencia (efecto + exclusion si difiere del
+    old_value); GET ambiguo de nuevo -> queda abierto y el siguiente ciclo lo
+    reintenta. El cliente compartido vive en `cliente_holder` (lazy tras el
+    gate de ancestros)."""
+    filas = conn.execute(_SQL_INTENTOS_BID_AMBIGUOS_SIN_DESENLACE, (platform,)).fetchall()
+    confirmadas = fallidas = 0
+    for _id_attempt, decision_id, ad_entity_id, old_value, new_value in filas:
+        if gate_ancestros(conn, ad_entity_id) is not None:
+            # TEMPORADA 01 B (revision 4): resultado DESCONOCIDO (Amazon puede
+            # haber aplicado el PUT): SIN desenlace terminal. Sin HTTP mientras
+            # los ancestros esten fuera; la reconciliacion se retoma al
+            # reactivarlos y resuelve el desenlace con GET fresco.
+            fallidas += 1
+            continue
+        if cliente_holder[0] is None:
+            cliente_holder[0] = aplicador._cliente()
+        identidad = _identidad(conn, ad_entity_id)
+        if identidad is None or identidad[0] not in _KINDS_DECISORAS or new_value is None:
+            # Mismo criterio conservador: el PUT ya viajo y el resultado es
+            # desconocido; sin desenlace terminal.
+            fallidas += 1
+            continue
+        kind, external_id = identidad
+        _, path, contenedor, param = _KINDS_DECISORAS[kind]
+        try:
+            # Amazon Ads v3 retiro el GET directo de entidad; readback via /list paginado.
+            bid_leido = _bid_de_readback(cliente_holder[0], path, contenedor, param, external_id)
+        except AdsApiError:
+            # desconocido de nuevo: el efecto queda abierto y el siguiente
+            # ciclo reintenta (jamás se reenvía el PUT).
+            fallidas += 1
+            continue
+        ack = {"fuente": "readback", "bid": str(bid_leido)} if bid_leido is not None else None
+        if bid_leido is None:
+            # TEMPORADA 01 B (revision 4): sin puja legible el resultado NO es
+            # concluyente (no demuestra ningun valor): el efecto queda ABIERTO
+            # y el siguiente ciclo reintenta la lectura. Cerrarlo aqui podria
+            # calcular otra entrada sobre el bid ya reducido.
+            fallidas += 1
+            continue
+        if bid_leido == Decimal(_bid_payload(new_value)):
+            # Amazon YA aplico el destino: confirmar sin reenviar el PUT.
+            with tx_durable(conn):
+                id_probe = _ledger(
+                    conn, decision_id, "probe", {"leido": str(bid_leido)}, quota_cobrada=False
+                )
+                if id_probe is not None:
+                    _sella_ledger(conn, id_probe, ack=ack, resultado="ok:reconciliado")
+                _confirma_resumen(
+                    conn, decision_id, ack, True, aplicador.cycle_id_ejecutor, leido=bid_leido
+                )
+                _actualiza_cache(conn, ad_entity_id, bid_leido)
+            confirmadas += 1
+        elif old_value is not None and bid_leido == old_value:
+            # No aplico: Amazon conserva el bid ANTERIOR; la hoja queda libre
+            # ('perdida' + efecto 'sin_aplicar') y el siguiente ciclo decide
+            # de nuevo sobre el bid real.
+            with tx_durable(conn):
+                id_probe = _ledger(
+                    conn, decision_id, "probe", {"leido": str(bid_leido)}, quota_cobrada=False
+                )
+                if id_probe is not None:
+                    _sella_ledger(conn, id_probe, ack=ack, resultado="ok:no_aplicado")
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    aplicador.cycle_id_ejecutor,
+                    MOTIVO_PERDIDA,
+                    detalle={"sello": "fallo:readback_ambiguo", "leido": str(bid_leido)},
+                )
+                _actualiza_cache(conn, ad_entity_id, bid_leido)
+            fallidas += 1
+        else:
+            # Tercer valor: DIVERGENCIA DEFINITIVA — resumen verify_ok FALSE en
+            # la misma transaccion que el probe y el cache: la decision deja
+            # de calificar para futuras conciliaciones (una puja posterior al
+            # destino jamas confirma esta decision) y el efecto cierra con
+            # exclusion si el valor difiere del old_value.
+            with tx_durable(conn):
+                id_probe = _ledger(
+                    conn, decision_id, "probe", {"leido": str(bid_leido)}, quota_cobrada=False
+                )
+                if id_probe is not None:
+                    _sella_ledger(conn, id_probe, ack=ack, resultado="fallo:divergencia_readback")
+                _confirma_resumen(
+                    conn,
+                    decision_id,
+                    ack or {},
+                    False,
+                    aplicador.cycle_id_ejecutor,
+                    leido=bid_leido,
+                )
+                _actualiza_cache(conn, ad_entity_id, bid_leido)
+            fallidas += 1
+    return confirmadas, fallidas
+
+
 def reconcilia_bids(
     conn: psycopg.Connection, aplicador: Aplicador, platform: str
 ) -> tuple[int, int]:
@@ -318,20 +454,62 @@ def reconcilia_bids(
 
     Devuelve (confirmadas, fallidas).
 
+    TEMPORADA 01 B (revision): PRIMERO reconcilia los intentos SELLADOS con
+    lectura ambigua sin desenlace (Amazon puede haber aplicado el cambio):
+    GET fresco JAMAS reenvia el PUT. Puja == destino -> confirmar (resumen +
+    probe 'ok:reconciliado' + efecto 'confirmado'); puja == old_value -> no
+    aplico ('perdida' + efecto 'sin_aplicar', la hoja queda libre); un tercer
+    valor -> divergencia (efecto + exclusion si difiere del old_value); GET
+    ambiguo de nuevo -> queda abierto y el siguiente ciclo lo reintenta.
+
     CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO, antes de cualquier
     HTTP (readback incluido) — campaña/ad group no ENABLED en el cache sella
     'fallo:ancestro_no_enabled'."""
+    confirmadas = fallidas = 0
+    # TEMPORADA 01 B (revision): PRIMERO los sellados-ambiguos sin desenlace
+    # (eran anteriores a esta fase: su GET fresco los resuelve); despues los
+    # sin sello, que pueden volverse ambiguos ESTE ciclo y quedan para el
+    # siguiente.
+    cliente_holder: list = [None]
+    c_a, f_a = _reconcilia_ambiguos_sellados(conn, aplicador, platform, cliente_holder)
+    confirmadas += c_a
+    fallidas += f_a
     filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)).fetchall()
     if not filas:
-        return (0, 0)
+        return (confirmadas, fallidas)
     # Cliente lazy tras gate_ancestros: si faltan credenciales, las filas
     # cerradas por el gate igualmente quedan selladas antes de construirlo.
     cliente = None
-    confirmadas = fallidas = 0
     for id_attempt, decision_id, _payload, ad_entity_id, new_value, _moneda in filas:
         if gate_ancestros(conn, ad_entity_id) is not None:
+            # TEMPORADA 01 B (revision): si la decision tiene un efecto de
+            # temporada ABIERTO, el PUT pudo haberse aplicado antes de que la
+            # campana/grupo quedara fuera: SIN desenlace terminal y SIN HTTP.
+            # El intento queda pendiente (sin sello) y la reconciliacion lo
+            # retoma al reactivar los ancestros, resolviendo el desenlace con
+            # GET fresco. Sin efecto de temporada, el comportamiento historico
+            # se mantiene.
+            con_efecto_temporada = conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM temporada_efecto te"
+                "  WHERE te.decision_id = %s AND te.cerrado_el IS NULL)",
+                (decision_id,),
+            ).fetchone()[0]
+            if con_efecto_temporada:
+                fallidas += 1
+                continue
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
+                # TEMPORADA 01 B (revision): un sello SIN resumen dejaria el
+                # efecto de temporada abierto y TX3 reventaria para siempre
+                # contra el indice unico (una fila abierta por hoja). El
+                # desenlace terminal viaja con el sello.
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    aplicador.cycle_id_ejecutor,
+                    MOTIVO_ENTIDAD_NO_DECISORA,
+                    detalle={"sello": RESULTADO_ANCESTRO_NO_ENABLED},
+                )
             fallidas += 1
             continue
         if cliente is None:
@@ -342,6 +520,13 @@ def reconcilia_bids(
                 _sella_ledger(
                     conn, id_attempt, ack=None, resultado="fallo:reconciliado_sin_identidad"
                 )
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    aplicador.cycle_id_ejecutor,
+                    MOTIVO_ENTIDAD_NO_DECISORA,
+                    detalle={"sello": "fallo:reconciliado_sin_identidad"},
+                )
             fallidas += 1
             continue
         kind, external_id = identidad
@@ -350,6 +535,11 @@ def reconcilia_bids(
             # Amazon Ads v3 retiro el GET directo de entidad; readback via /list paginado.
             bid_leido = _bid_de_readback(cliente, path, contenedor, param, external_id)
         except AdsApiError:
+            # Resultado DESCONOCIDO (Amazon puede haber aplicado el cambio):
+            # el sello queda SIN desenlace y el efecto de temporada ABIERTO
+            # (la hoja no re-decide); la reconciliacion de sellados-ambiguos
+            # lo retoma el siguiente ciclo con GET fresco, jamas reenviando
+            # el PUT.
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
             fallidas += 1
@@ -358,7 +548,9 @@ def reconcilia_bids(
             ack = {"fuente": "readback", "bid": str(bid_leido)}
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=ack, resultado="ok:reconciliado")
-                _confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
+                _confirma_resumen(
+                    conn, decision_id, ack, True, aplicador.cycle_id_ejecutor, leido=bid_leido
+                )
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
             confirmadas += 1
             continue
@@ -366,11 +558,28 @@ def reconcilia_bids(
             "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
         )
         ack = {"fuente": "readback", "bid": str(bid_leido)} if bid_leido is not None else None
+        if bid_leido is None:
+            # TEMPORADA 01 B (revision nativa): sin puja legible el resultado NO
+            # es concluyente (no demuestra ningun valor). Si la decision tiene
+            # un efecto de temporada ABIERTO, queda pendiente SIN sello ni
+            # resumen: el siguiente ciclo reintenta la lectura (jamas otra
+            # entrada sobre el bid ya reducido) y el gate bid_en_vuelo sigue
+            # bloqueando nuevas pujas para la hoja.
+            con_efecto_temporada = conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM temporada_efecto te"
+                "  WHERE te.decision_id = %s AND te.cerrado_el IS NULL)",
+                (decision_id,),
+            ).fetchone()[0]
+            if con_efecto_temporada:
+                fallidas += 1
+                continue
         with tx_durable(conn):
             _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
             if bid_leido is not None:
                 _actualiza_cache(conn, ad_entity_id, bid_leido)  # sellado 16: lo LEIDO
-            _confirma_resumen(conn, decision_id, ack or {}, False, aplicador.cycle_id_ejecutor)
+            _confirma_resumen(
+                conn, decision_id, ack or {}, False, aplicador.cycle_id_ejecutor, leido=bid_leido
+            )
         fallidas += 1
     return (confirmadas, fallidas)
 
@@ -641,15 +850,26 @@ def _confirma_resumen(
     ack: dict,
     verify_ok: bool,
     cycle_id_ejecutor: int,
+    *,
+    leido: Decimal | None = None,
 ) -> None:
     """UPSERT del resumen: la terna confirmed_at+platform_ack+verify_ok JUNTA
     (CHECKs de 0001); reintentos = UPDATE del resumen + fila nueva del ledger
     (sellado 10). applied_cycle_id y applied_count SOLO con verify_ok: un
-    crash o una divergencia NO cuentan como applied (sellado 21)."""
+    crash o una divergencia NO cuentan como applied (sellado 21).
+
+    TEMPORADA 01 B: en la MISMA transaccion cierra el efecto de temporada con
+    'confirmado' o 'divergencia' (y excluye la hoja solo si el bid leido
+    difiere tambien del old_value: si Amazon tiene el bid de antes, el cambio
+    no llego y manana la hoja se deriva otra vez). `leido` es el bid del
+    readback; None conserva la semantica de los llamadores viejos."""
     conn.execute(_SQL_CONFIRMAR_RESUMEN, (decision_id, Json(ack), verify_ok))
     if verify_ok:
         conn.execute(_SQL_SELLA_CICLO_EJECUTOR, (cycle_id_ejecutor, decision_id))
         conn.execute(_SQL_APPLIED_COUNT, (cycle_id_ejecutor,))
+    temporada_io.cierra_efecto_resumen(
+        conn, decision_id=decision_id, verify_ok=verify_ok, leido=leido
+    )
 
 
 def _actualiza_cache(conn: psycopg.Connection, ad_entity_id: int, bid_leido: Decimal) -> None:
@@ -973,7 +1193,9 @@ class Aplicador:
         )
         with tx_durable(self._conn):
             _sella_ledger(self._conn, id_attempt, ack=ack, resultado=resultado)
-            _confirma_resumen(self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor)
+            _confirma_resumen(
+                self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor, leido=bid_leido
+            )
             if bid_leido is not None:
                 _actualiza_cache(self._conn, decision.ad_entity_id, bid_leido)
         return verify_ok

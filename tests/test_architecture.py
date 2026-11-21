@@ -79,6 +79,23 @@ ALLOWLIST_TAMANO = {
         "partirlo separaria el caso de su inversa exacta y del replay que lo "
         "despacha — jamas partir por partir"
     ),
+    "app/lecturas_caso.py": (
+        "BIDS 02 M.2 y TEMPORADA 01 B: lo que se lee UNA vez por plataforma y "
+        "ciclo (tramos, roll-ups, cambios de bid con instante, historia "
+        "congelada de temporada, presupuesto) y el armado del CasoHoja con "
+        "cero consultas por hoja. La frontera de lectura y la frontera de "
+        "temporada comparten el mismo snapshot REPEATABLE READ; partir la "
+        "lectura separaria la evidencia del caso que la congela — jamas "
+        "partir por partir"
+    ),
+    "app/optimizer/temporada.py": (
+        "TEMPORADA 01 A/B: el calendario de David, la unica resolucion de «que "
+        "dia es que fase» y la unica resolucion de «¿esta hoja sigue "
+        "reducida?» (reduccion_vigente) con su frontera y su pendiente viven "
+        "en UN modulo PURO: el ciclo, la cola, TX3 y el replay usan la misma "
+        "funcion. Partir resuelve/frontera/pendiente duplicaria la resolucion "
+        "que la regla de diseno manda unica — jamas partir por partir"
+    ),
     "app/dashboard_resumen.py": (
         "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
         "Ventanas, cobertura por metrica, comparacion y MA7 usan "
@@ -178,19 +195,34 @@ ALLOWLIST_TAMANO = {
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/ads/reports.py": 1076,
     "app/api_dashboard.py": 2245,
-    "app/apply.py": 1253,
+    # TEMPORADA 01 B (0093): cierres de efecto en _confirma_resumen, la
+    # lectura fresca del aplicador pendiente del bloque E, el vocabulario
+    # bid_cambiado_fuera y la reconciliacion de intentos sellados ambiguos
+    # (GET fresco sin reenviar el PUT); el techo sube lo justo del bloque.
+    "app/apply.py": 1475,
     "app/apply_cola.py": 1816,
     "app/apply_harvest.py": 2163,
     "app/bloqueo_dueno_efecto.py": 1004,
-    "app/cycle.py": 2321,
+    # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
+    # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
+    # frontera por hoja.
+    "app/cycle.py": 2458,
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
-    "app/etiquetas.py": 1054,
+    # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
+    "app/etiquetas.py": 1061,
     "app/impulso_io.py": 1232,
-    "app/optimizer/caso.py": 1074,
+    # TEMPORADA 01 B: los cuatro marcadores opcionales de temporada y su
+    # freeze/desfreeze exacto (temporada, historia, recuperacion,
+    # presupuesto).
+    "app/optimizer/caso.py": 1467,
     "app/precio/cambios.py": 1045,
     "app/precio/corrida.py": 1685,
     "app/retiro_anuncios.py": 1388,
+    # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
+    # frontera por hoja y el caso con marcadores.
+    "app/lecturas_caso.py": 1139,
+    "app/optimizer/temporada.py": 1191,
 }
 
 

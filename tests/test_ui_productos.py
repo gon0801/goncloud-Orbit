@@ -1068,7 +1068,6 @@ const api = vm.runInThisContext("this.__api");
     assert proc.returncode == 0, proc.stderr or proc.stdout
 
 
-
 # ARREGLOS 04 W-P (TN04): la previa visible es la unica solicitud ejecutable.
 # Preludio compartido por los tres guiones: DOM minimo, transporte que se
 # resuelve a mano y el estado por flujo que expone productos.js.
@@ -1425,22 +1424,22 @@ def _sustituye_w_p(modo: str, atributo: str, pedir: str) -> dict:
             '{huella: "a".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
             ' no_lanzables: [], planes: [{seller_sku: "SA", subfamilia: "aros",'
             ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
-            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+            " keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}"
         ),
         "PREVIA_A2()": (
             '{huella: "e".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 1 PRODUCTOS",'
             ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "aros",'
             ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
-            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+            " keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}"
         ),
         "PREVIA_B()": (
             '{huella: "b".repeat(64), confirmacion_esperada: "LANZAR IMPULSO DE 2 PRODUCTOS",'
             ' no_lanzables: [], planes: [{seller_sku: "SB", subfamilia: "collares",'
             ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
-            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []},'
+            " keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []},"
             ' {seller_sku: "SB2", subfamilia: "collares",'
             ' tope: {monto: "100", moneda: "MXN", presupuesto_diario: "5"},'
-            ' keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}'
+            " keywords_exact: [], negatives: [], bid_por_rol: {}, retiros: []}]}"
         ),
         "ESPERADA_A": '"LANZAR IMPULSO DE 1 PRODUCTOS"',
         "ESPERADA_B": '"LANZAR IMPULSO DE 2 PRODUCTOS"',

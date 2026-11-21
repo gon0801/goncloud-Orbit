@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from decimal import Decimal, localcontext
 from typing import Any, Literal
 
+from app.optimizer import temporada
 from app.optimizer.windows import AgregadoMetricas
 
 Plataforma = Literal["amazon_mx", "amazon_us"]
@@ -129,7 +130,16 @@ class EvidenciaNivel:
         return self.reciente.venta + self.antiguo.venta
 
 
-OrigenCambio = Literal["motor", "regreso_por_desplome", "regreso_del_dueno", "ajuste_de_campana"]
+OrigenCambio = Literal[
+    "motor",
+    "regreso_por_desplome",
+    "regreso_del_dueno",
+    "ajuste_de_campana",
+    "temporada",
+]
+
+# TEMPORADA 01 B: el motivo de temporada de un cambio de v_cambio_bid.
+MotivoTemporada = Literal["entra", "ajusta", "sale"]
 
 
 @dataclass(frozen=True)
@@ -151,6 +161,44 @@ class CambioBid:
         if self.bid_despues == self.bid_antes:
             return 0
         return 1 if self.bid_despues > self.bid_antes else -1
+
+
+@dataclass(frozen=True)
+class CambioFechado:
+    """Un cambio de v_cambio_bid con su instante y su id: el orden de intervenciones
+    del mismo dia (TEMPORADA 01 B)."""
+
+    confirmado_el: dt.datetime
+    decision_id: int | None
+    bid_antes: Decimal | None  # None en el regreso del dueno (rama 2 de la vista)
+    bid_despues: Decimal
+    origen: OrigenCambio
+    motivo_temporada: MotivoTemporada | None
+    episodio_id: int | None
+
+
+@dataclass(frozen=True)
+class ManoExterna:
+    """Una mano de David que no pasa por v_cambio_bid, con fecha: una fila de
+    temporada_exclusion con bid_visto (del aplicador o de TX3) o una reactivacion
+    manual (la segunda llega con el bloque F)."""
+
+    instante: dt.datetime
+    bid_visto: Decimal | None  # None en la reactivacion manual
+    origen: Literal["exclusion", "reactivacion_manual"]
+
+
+@dataclass(frozen=True)
+class HistoriaBid:
+    """Todos los cambios confirmados de la hoja desde `desde`, con instante.
+    `desde` es D-365, o antes si la hoja sigue reducida por un episodio mas viejo
+    (un episodio abierto no caduca). La leen solo recuperacion.cadena_bid y la
+    temporada; Trayectoria (90 dias) no cambia."""
+
+    desde: dt.date
+    cambios: tuple[CambioFechado, ...]  # ascendentes por (confirmado_el, decision_id)
+    fines: frozenset[int] = frozenset()  # episodios con fila en temporada_fin_reduccion
+    manos_externas: tuple[ManoExterna, ...] = ()  # exclusiones con bid_visto desde `desde`
 
 
 @dataclass(frozen=True)
@@ -379,6 +427,39 @@ class ResultadoProteccion:
 
 
 @dataclass(frozen=True)
+class InsumosRecuperacion:
+    """Insumos de la subida rapida R6r (TEMPORADA 01, bloque C). Congelados."""
+
+    version: Literal["recuperacion_v1"]
+    memoria_dias: int
+
+
+@dataclass(frozen=True)
+class PresupuestoCampana:
+    """Presupuesto diario vigente de la campana de la hoja y cuantos de los ultimos 7 dias
+    con ingesta gasto al menos `topada.pct` de el. None por campo = desconocido (no se
+    inventa). Congelado (TEMPORADA 01, bloques C/D)."""
+
+    presupuesto_diario: Decimal | None
+    dias_medidos: int
+    dias_topados: int | None
+    topada: temporada.CampanaTopada  # la definicion vigente, congelada
+
+
+@dataclass(frozen=True)
+class TemporadaCaso:
+    """Presente sii ads_temporada_<plat> decide este caso (live) o en el caso de
+    sombra (TEMPORADA 01 B/D)."""
+
+    estacion: temporada.Estacion
+    episodio: temporada.EpisodioVigente | None  # None: no hay episodio abierto
+    excluida_en: frozenset[int]  # episodios donde el aplicador o TX3 vieron la mano
+    meta_alta_pct: Decimal
+    meta_manual: bool  # procedencia goal_campana o goal_plataforma
+    frontera: temporada.FronteraHoja
+
+
+@dataclass(frozen=True)
 class InsumosPausa:
     """Lo que PAUSE consume (bid._decide_pause): ventana de cortes y umbrales resueltos."""
 
@@ -416,6 +497,14 @@ class CasoHoja:
     # Marcador de replay (ARREGLOS 02 B): 0 = semantica de su era. No llega a
     # las decisiones viejas; `como_json` solo lo escribe si es > 0.
     revision: int = 0
+    # TEMPORADA 01 (marcadores congelados, opcionales): ausentes = semantica de
+    # hoy. `temporada` presente sii ads_temporada_<plat> decide (o en el caso de
+    # sombra del bloque D); `historia` presente si temporada o recuperacion
+    # deciden; `recuperacion` (bloque C) y `presupuesto` (bloques C/D) igual.
+    temporada: TemporadaCaso | None = None
+    historia: HistoriaBid | None = None
+    recuperacion: InsumosRecuperacion | None = None
+    presupuesto: PresupuestoCampana | None = None
 
     def como_json(self) -> dict:
         """Freeze. Decimal como string, fechas ISO, None explicito. Unica serializacion del caso."""
@@ -438,12 +527,21 @@ class CasoHoja:
         }
         if self.revision > 0:
             caso["revision"] = self.revision
+        if self.temporada is not None:
+            caso["temporada"] = _temporada_json(self.temporada)
+        if self.historia is not None:
+            caso["historia"] = _historia_json(self.historia)
+        if self.recuperacion is not None:
+            caso["recuperacion"] = _recuperacion_json(self.recuperacion)
+        if self.presupuesto is not None:
+            caso["presupuesto"] = _presupuesto_json(self.presupuesto)
         return caso
 
     @classmethod
     def desde_json(cls, datos: dict) -> CasoHoja:
         """Inversa exacta de `como_json`; clave ausente o tipo ajeno levanta ValueError
-        (frontera). `revision` es opcional: ausente = 0 = semantica de su era."""
+        (frontera). `revision` es opcional: ausente = 0 = semantica de su era. Las claves
+        de TEMPORADA 01 son opcionales igual: ausentes = semantica de hoy."""
         d = _objeto_con_opcionales(datos, _CLAVES_CASO, _OPCIONALES_CASO, "caso")
         return cls(
             plataforma=_literal(d["plataforma"], ("amazon_mx", "amazon_us"), "plataforma"),
@@ -462,6 +560,10 @@ class CasoHoja:
             ventana_hasta=_fecha(d["ventana_hasta"], "ventana_hasta"),
             observado_al=_opcional(d["observado_al"], "observado_al", _momento),
             revision=_entero(d["revision"], "revision") if "revision" in d else 0,
+            temporada=_temporada_desde(d["temporada"]) if "temporada" in d else None,
+            historia=_historia_desde(d["historia"]) if "historia" in d else None,
+            recuperacion=_recuperacion_desde(d["recuperacion"]) if "recuperacion" in d else None,
+            presupuesto=_presupuesto_desde(d["presupuesto"]) if "presupuesto" in d else None,
         )
 
 
@@ -659,9 +761,10 @@ _CLAVES_CASO = frozenset(
     }
 )
 
-# Claves que solo algunas eras congelan (ARREGLOS 02 B: revision). TEMPORADA 01
-# sumara las suyas aqui.
-_OPCIONALES_CASO = frozenset({"revision"})
+# Claves que solo algunas eras congelan (ARREGLOS 02 B: revision; TEMPORADA 01:
+# temporada, historia, recuperacion y presupuesto). TEMPORADA 01 sumara las
+# suyas aqui.
+_OPCIONALES_CASO = frozenset({"revision", "temporada", "historia", "recuperacion", "presupuesto"})
 
 _CLAVES_PROTECCION = frozenset(
     {
@@ -817,11 +920,7 @@ def _cambio_desde(datos: Any) -> CambioBid:
         fecha=_fecha(d["fecha"], "cambio.fecha"),
         bid_antes=_decimal(d["bid_antes"], "cambio.bid_antes"),
         bid_despues=_decimal(d["bid_despues"], "cambio.bid_despues"),
-        origen=_literal(
-            d["origen"],
-            ("motor", "regreso_por_desplome", "regreso_del_dueno", "ajuste_de_campana"),
-            "cambio.origen",
-        ),
+        origen=_literal(d["origen"], _ORIGENES_CAMBIO, "cambio.origen"),
     )
 
 
@@ -1071,4 +1170,294 @@ def _proteccion_desde(datos: Any) -> InsumosProteccion | None:
         frena_subidas=_booleano(d["frena_subidas"], "proteccion.frena_subidas")
         if "frena_subidas" in d
         else False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# TEMPORADA 01 B: freeze de los cuatro marcadores opcionales. La inversa es
+# exacta (claves cerradas; Decimal como string; fechas ISO; None explicito).
+# ---------------------------------------------------------------------------
+
+_FASES = ("baja", "normal", "alta")
+_MOTIVOS_TEMPORADA = ("entra", "ajusta", "sale")
+_ORIGENES_CAMBIO = (
+    "motor",
+    "regreso_por_desplome",
+    "regreso_del_dueno",
+    "ajuste_de_campana",
+    "temporada",
+)
+_ORIGENES_MANO = ("exclusion", "reactivacion_manual")
+_MOTIVOS_FIN = ("ya_arriba", "mano_del_dueno")
+
+
+def _estacion_json(estacion: temporada.Estacion) -> dict:
+    return {
+        "version": estacion.version,
+        "dia": estacion.dia.isoformat(),
+        "fase": estacion.fase,
+        "previa_alta": estacion.previa_alta,
+        "reduccion_baja": str(estacion.reduccion_baja),
+        "mult_cortes_baja": str(estacion.mult_cortes_baja),
+        "inicio_bloque": estacion.inicio_bloque.isoformat(),
+    }
+
+
+def _estacion_desde(datos: Any, nombre: str) -> temporada.Estacion:
+    d = _objeto(
+        datos,
+        frozenset(
+            {
+                "version",
+                "dia",
+                "fase",
+                "previa_alta",
+                "reduccion_baja",
+                "mult_cortes_baja",
+                "inicio_bloque",
+            }
+        ),
+        nombre,
+    )
+    return temporada.Estacion(
+        version=_texto(d["version"], f"{nombre}.version"),
+        dia=_fecha(d["dia"], f"{nombre}.dia"),
+        fase=_literal(d["fase"], _FASES, f"{nombre}.fase"),
+        previa_alta=_booleano(d["previa_alta"], f"{nombre}.previa_alta"),
+        reduccion_baja=_decimal(d["reduccion_baja"], f"{nombre}.reduccion_baja"),
+        mult_cortes_baja=_decimal(d["mult_cortes_baja"], f"{nombre}.mult_cortes_baja"),
+        inicio_bloque=_fecha(d["inicio_bloque"], f"{nombre}.inicio_bloque"),
+    )
+
+
+def _fin_json(fin: temporada.FinReduccion) -> dict:
+    return {
+        "episodio_id": fin.episodio_id,
+        "motivo": fin.motivo,
+        "excluye_abierto": fin.excluye_abierto,
+        "bid_visto": _dinero(fin.bid_visto),
+    }
+
+
+def _fin_desde(datos: Any, nombre: str) -> temporada.FinReduccion:
+    d = _objeto(datos, frozenset({"episodio_id", "motivo", "excluye_abierto", "bid_visto"}), nombre)
+    return temporada.FinReduccion(
+        episodio_id=_entero(d["episodio_id"], f"{nombre}.episodio_id"),
+        motivo=_literal(d["motivo"], _MOTIVOS_FIN, f"{nombre}.motivo"),
+        excluye_abierto=_booleano(d["excluye_abierto"], f"{nombre}.excluye_abierto"),
+        bid_visto=_opcional(d["bid_visto"], f"{nombre}.bid_visto", _decimal),
+    )
+
+
+def _frontera_json(frontera: temporada.FronteraHoja) -> dict:
+    return {
+        "fase_hoja": frontera.fase_hoja,
+        "mult_cortes": str(frontera.mult_cortes),
+        "cerca_hoja": frontera.cerca_hoja.isoformat() if frontera.cerca_hoja is not None else None,
+        "cerca_plataforma": (
+            frontera.cerca_plataforma.isoformat() if frontera.cerca_plataforma is not None else None
+        ),
+        "episodio_id": frontera.episodio_id,
+        "fin": _fin_json(frontera.fin) if frontera.fin is not None else None,
+        "exclusion_hoy": _dinero(frontera.exclusion_hoy),
+    }
+
+
+def _frontera_desde(datos: Any, nombre: str) -> temporada.FronteraHoja:
+    d = _objeto(
+        datos,
+        frozenset(
+            {
+                "fase_hoja",
+                "mult_cortes",
+                "cerca_hoja",
+                "cerca_plataforma",
+                "episodio_id",
+                "fin",
+                "exclusion_hoy",
+            }
+        ),
+        nombre,
+    )
+    return temporada.FronteraHoja(
+        fase_hoja=_literal(d["fase_hoja"], _FASES, f"{nombre}.fase_hoja"),
+        mult_cortes=_decimal(d["mult_cortes"], f"{nombre}.mult_cortes"),
+        cerca_hoja=_opcional(d["cerca_hoja"], f"{nombre}.cerca_hoja", _fecha),
+        cerca_plataforma=_opcional(d["cerca_plataforma"], f"{nombre}.cerca_plataforma", _fecha),
+        episodio_id=_opcional(d["episodio_id"], f"{nombre}.episodio_id", _entero),
+        fin=_fin_desde(d["fin"], f"{nombre}.fin") if d["fin"] is not None else None,
+        exclusion_hoy=_opcional(d["exclusion_hoy"], f"{nombre}.exclusion_hoy", _decimal),
+    )
+
+
+def _temporada_json(t: TemporadaCaso) -> dict:
+    return {
+        "estacion": _estacion_json(t.estacion),
+        "episodio": (
+            None
+            if t.episodio is None
+            else {"id": t.episodio.id, "abierto_el": t.episodio.abierto_el.isoformat()}
+        ),
+        "excluida_en": sorted(t.excluida_en),
+        "meta_alta_pct": str(t.meta_alta_pct),
+        "meta_manual": t.meta_manual,
+        "frontera": _frontera_json(t.frontera),
+    }
+
+
+def _temporada_desde(datos: Any) -> TemporadaCaso:
+    d = _objeto(
+        datos,
+        frozenset(
+            {
+                "estacion",
+                "episodio",
+                "excluida_en",
+                "meta_alta_pct",
+                "meta_manual",
+                "frontera",
+            }
+        ),
+        "temporada",
+    )
+    episodio = None
+    if d["episodio"] is not None:
+        e = _objeto(d["episodio"], frozenset({"id", "abierto_el"}), "temporada.episodio")
+        episodio = temporada.EpisodioVigente(
+            id=_entero(e["id"], "temporada.episodio.id"),
+            abierto_el=_momento(e["abierto_el"], "temporada.episodio.abierto_el"),
+        )
+    if not isinstance(d["excluida_en"], list):
+        raise ValueError("temporada.excluida_en: lista esperada")
+    return TemporadaCaso(
+        estacion=_estacion_desde(d["estacion"], "temporada.estacion"),
+        episodio=episodio,
+        excluida_en=frozenset(_entero(x, "temporada.excluida_en[]") for x in d["excluida_en"]),
+        meta_alta_pct=_decimal(d["meta_alta_pct"], "temporada.meta_alta_pct"),
+        meta_manual=_booleano(d["meta_manual"], "temporada.meta_manual"),
+        frontera=_frontera_desde(d["frontera"], "temporada.frontera"),
+    )
+
+
+def _historia_json(h: HistoriaBid) -> dict:
+    return {
+        "desde": h.desde.isoformat(),
+        "cambios": [
+            {
+                "confirmado_el": c.confirmado_el.isoformat(),
+                "decision_id": c.decision_id,
+                "bid_antes": _dinero(c.bid_antes),
+                "bid_despues": str(c.bid_despues),
+                "origen": c.origen,
+                "motivo_temporada": c.motivo_temporada,
+                "episodio_id": c.episodio_id,
+            }
+            for c in h.cambios
+        ],
+        "fines": sorted(h.fines),
+        "manos_externas": [
+            {
+                "instante": m.instante.isoformat(),
+                "bid_visto": _dinero(m.bid_visto),
+                "origen": m.origen,
+            }
+            for m in h.manos_externas
+        ],
+    }
+
+
+def _historia_desde(datos: Any) -> HistoriaBid:
+    d = _objeto(datos, frozenset({"desde", "cambios", "fines", "manos_externas"}), "historia")
+    if not isinstance(d["cambios"], list) or not isinstance(d["manos_externas"], list):
+        raise ValueError("historia.cambios/manos_externas: lista esperada")
+    if not isinstance(d["fines"], list):
+        raise ValueError("historia.fines: lista esperada")
+    cambios = []
+    for c in d["cambios"]:
+        x = _objeto(
+            c,
+            frozenset(
+                {
+                    "confirmado_el",
+                    "decision_id",
+                    "bid_antes",
+                    "bid_despues",
+                    "origen",
+                    "motivo_temporada",
+                    "episodio_id",
+                }
+            ),
+            "historia.cambios[]",
+        )
+        cambios.append(
+            CambioFechado(
+                confirmado_el=_momento(x["confirmado_el"], "historia.cambios[].confirmado_el"),
+                decision_id=_opcional(x["decision_id"], "historia.cambios[].decision_id", _entero),
+                bid_antes=_opcional(x["bid_antes"], "historia.cambios[].bid_antes", _decimal),
+                bid_despues=_decimal(x["bid_despues"], "historia.cambios[].bid_despues"),
+                origen=_literal(x["origen"], _ORIGENES_CAMBIO, "historia.cambios[].origen"),
+                motivo_temporada=_opcional(
+                    x["motivo_temporada"],
+                    "historia.cambios[].motivo_temporada",
+                    lambda v, n: _literal(v, _MOTIVOS_TEMPORADA, n),
+                ),
+                episodio_id=_opcional(x["episodio_id"], "historia.cambios[].episodio_id", _entero),
+            )
+        )
+    manos = []
+    for m in d["manos_externas"]:
+        x = _objeto(m, frozenset({"instante", "bid_visto", "origen"}), "historia.manos_externas[]")
+        manos.append(
+            ManoExterna(
+                instante=_momento(x["instante"], "historia.manos_externas[].instante"),
+                bid_visto=_opcional(
+                    x["bid_visto"], "historia.manos_externas[].bid_visto", _decimal
+                ),
+                origen=_literal(x["origen"], _ORIGENES_MANO, "historia.manos_externas[].origen"),
+            )
+        )
+    return HistoriaBid(
+        desde=_fecha(d["desde"], "historia.desde"),
+        cambios=tuple(cambios),
+        fines=frozenset(_entero(f, "historia.fines[]") for f in d["fines"]),
+        manos_externas=tuple(manos),
+    )
+
+
+def _recuperacion_json(i: InsumosRecuperacion) -> dict:
+    return {"version": i.version, "memoria_dias": i.memoria_dias}
+
+
+def _recuperacion_desde(datos: Any) -> InsumosRecuperacion:
+    d = _objeto(datos, frozenset({"version", "memoria_dias"}), "recuperacion")
+    return InsumosRecuperacion(
+        version=_literal(d["version"], ("recuperacion_v1",), "recuperacion.version"),
+        memoria_dias=_entero(d["memoria_dias"], "recuperacion.memoria_dias"),
+    )
+
+
+def _presupuesto_json(p: PresupuestoCampana) -> dict:
+    return {
+        "presupuesto_diario": _dinero(p.presupuesto_diario),
+        "dias_medidos": p.dias_medidos,
+        "dias_topados": p.dias_topados,
+        "topada": {"pct": str(p.topada.pct), "dias": p.topada.dias},
+    }
+
+
+def _presupuesto_desde(datos: Any) -> PresupuestoCampana:
+    d = _objeto(
+        datos,
+        frozenset({"presupuesto_diario", "dias_medidos", "dias_topados", "topada"}),
+        "presupuesto",
+    )
+    t = _objeto(d["topada"], frozenset({"pct", "dias"}), "presupuesto.topada")
+    return PresupuestoCampana(
+        presupuesto_diario=_opcional(d["presupuesto_diario"], "presupuesto.diario", _decimal),
+        dias_medidos=_entero(d["dias_medidos"], "presupuesto.dias_medidos"),
+        dias_topados=_opcional(d["dias_topados"], "presupuesto.dias_topados", _entero),
+        topada=temporada.CampanaTopada(
+            pct=_decimal(t["pct"], "presupuesto.topada.pct"),
+            dias=_entero(t["dias"], "presupuesto.topada.dias"),
+        ),
     )

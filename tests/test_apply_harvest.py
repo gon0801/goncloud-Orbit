@@ -135,6 +135,21 @@ SQL81 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0081_orbit07_proteccion_venta.sql"
 ).read_text(encoding="utf-8")
 
+# TEMPORADA 01 B (0093): el aplicador cierra temporada_efecto y la vista
+# v_cambio_bid se recrea desde 0067 (la cadena entra 0060/0061/0067 antes).
+SQL60 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0060_bids02_base_lectura.sql"
+).read_text(encoding="utf-8")
+SQL61 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
+SQL67 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0067_bids02_campana_ajuste.sql"
+).read_text(encoding="utf-8")
+SQL93 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0093_temporada01_episodio.sql"
+).read_text(encoding="utf-8")
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -205,6 +220,10 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
         conn.execute(SQL86)  # 0086 (ARREGLOS 02 D): cargos por v_ledger_cargo
         conn.execute(SQL92)  # 0092 (TEMPORADA 01 I): margen vigente
+        conn.execute(SQL60)  # 0060 (BIDS 02): v_hoja_activa + v_cambio_bid
+        conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
+        conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
+        conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         yield conn
     finally:
         if conn is not None:

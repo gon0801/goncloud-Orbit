@@ -140,6 +140,9 @@ SQL61 = (
 SQL67 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0067_bids02_campana_ajuste.sql"
 ).read_text(encoding="utf-8")
+SQL93 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
+).read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -495,6 +498,11 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
+        # TEMPORADA 01 B (0093): episodia + bid_cambiado_fuera; la vista nueva
+        # viene de 0067 (campana_ajuste), que exige 0061.
+        conn.execute(SQL61)
+        conn.execute(SQL67)
+        conn.execute(SQL93)
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
@@ -1315,13 +1323,12 @@ def test_regresar_todas_responde_ok_y_motivo_por_hoja(tmp_path, monkeypatch):
 
 
 def _db_ajustes(prefijo: str):
-    """_db_con_rol_admin + 0061 + 0067."""
+    """_db_con_rol_admin: la cadena base ya trae 0061 y 0067 (TEMPORADA 01 B
+    las agrego a la cadena para la vista de 0093)."""
 
     @contextmanager
     def _ctx():
         with _db_con_rol_admin(prefijo) as (conn, dsn_admin, dsn_l):
-            conn.execute(SQL61)
-            conn.execute(SQL67)
             yield conn, dsn_admin, dsn_l
 
     return _ctx()

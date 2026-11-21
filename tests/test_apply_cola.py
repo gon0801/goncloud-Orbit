@@ -107,6 +107,22 @@ SQL81 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0081_orbit07_proteccion_venta.sql"
 ).read_text(encoding="utf-8")
 
+# TEMPORADA 01 B (0093): la cadena de la cola ES la de produccion. El aplicador
+# cierra temporada_efecto en registra_sin_aplicar y 0093 recrea v_cambio_bid
+# desde 0067 (por eso 0060/0061/0067 entran antes).
+SQL60 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0060_bids02_base_lectura.sql"
+).read_text(encoding="utf-8")
+SQL61 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
+).read_text(encoding="utf-8")
+SQL67 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0067_bids02_campana_ajuste.sql"
+).read_text(encoding="utf-8")
+SQL93 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
+).read_text(encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
 # Patron _db_temporal de test_apply (COPIADO; aplica 0001 + 0002)
@@ -131,6 +147,10 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
         conn.execute(SQL81)  # 0081 (M1): proteccion de venta reciente
+        conn.execute(SQL60)  # 0060 (BIDS 02): v_hoja_activa + v_cambio_bid
+        conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
+        conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
+        conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         yield conn
     finally:
         if conn is not None:
