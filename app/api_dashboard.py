@@ -1694,7 +1694,12 @@ SELECT ultima.ad_entity_id,
 # total de keywords mezclaba unidades y conjuntos).
 _SQL_ESTADO_BAJA_KEYWORDS = """
 SELECT count(*) AS total,
-       count(*) FILTER (WHERE s.current_bid IS NULL) AS grupo,
+       count(*) FILTER (WHERE s.current_bid IS NULL AND NOT EXISTS (
+           SELECT 1 FROM decision d
+             JOIN optimizer_cycle c ON c.id = d.cycle_id
+            WHERE d.ad_entity_id = e.id AND c.mode = 'live' AND d.kind = 'bid'
+              AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+              AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s)) AS grupo,
        count(*) FILTER (WHERE NOT EXISTS (
            SELECT 1 FROM decision d
              JOIN optimizer_cycle c ON c.id = d.cycle_id
@@ -1767,13 +1772,15 @@ def estado_de_baja(
         else:
             pendientes += 1
     total, grupo, sin_tocar = conn.execute(
-        _SQL_ESTADO_BAJA_KEYWORDS, (inicio, plataforma)
+        _SQL_ESTADO_BAJA_KEYWORDS, (inicio, inicio, plataforma)
     ).fetchone()
     frase_sin_tocar = f"Sin tocar: {sin_tocar}."
     if grupo:
         # La razon «porque cambiaste tú el bid» llega con las exclusiones
-        # del bloque B (temporada_exclusion); hoy la unica fuente real es
-        # el bid heredado del ad group.
+        # del bloque B (temporada_exclusion); la unica fuente real hoy es el
+        # bid heredado, y SOLO entre las keywords sin decision: atribuirle
+        # el caso sin tocar a una keyword que ya tiene decision es mentir
+        # (hallazgo de la revision: grupo lleva el mismo predicado).
         frase_sin_tocar += (
             f" {grupo} usan el bid de su grupo (Orbit no los toca hasta que tengan bid propio)."
         )

@@ -453,7 +453,7 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
             " synced_at) VALUES (%s, 'ENABLED', 5.00, 'MXN', now()),"
             " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now()),"
-            " (%s, 'ENABLED', 4.00, 'MXN', now()), (%s, 'PAUSED', NULL, NULL, now())",
+            " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now())",
             (kw_bid, kw_grupo, kw_pausada, kw_sin, kw_david),
         )
 
@@ -587,9 +587,15 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
         assert estado["confirmados"] == 1
         assert estado["pendientes"] == 2
         # sin_tocar se cuenta DIRECTO sobre las keywords habilitadas sin
-        # decision de temporada: solo kw_sin (resta de conjuntos homogeneos).
+        # decision de temporada: solo kw_sin (resta de conjuntos homogeneos),
+        # y la razon de grupo tambien: kw_sin es la unica sin tocar y usa el
+        # bid de su grupo (kw_grupo ya tiene decision y no entra en la
+        # explicacion).
         assert estado["sin_tocar"] == 1
-        assert "1 usan el bid de su grupo" in estado["frase_sin_tocar"]
+        assert estado["frase_sin_tocar"] == (
+            "Sin tocar: 1. 1 usan el bid de su grupo"
+            " (Orbit no los toca hasta que tengan bid propio)."
+        )
         assert [p["ad_entity_id"] for p in estado["pausadas"]] == [kw_pausada]
         # El texto visible de la lista es el TEXTO de la keyword.
         assert estado["pausadas"][0]["nombre"] == "pausada en la baja"
