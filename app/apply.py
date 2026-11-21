@@ -334,6 +334,17 @@ def reconcilia_bids(
         if gate_ancestros(conn, ad_entity_id) is not None:
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
+                # TEMPORADA 01 B (revision): un sello SIN resumen dejaria el
+                # efecto de temporada abierto y TX3 reventaria para siempre
+                # contra el indice unico (una fila abierta por hoja). El
+                # desenlace terminal viaja con el sello.
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    aplicador.cycle_id_ejecutor,
+                    MOTIVO_ENTIDAD_NO_DECISORA,
+                    detalle={"sello": RESULTADO_ANCESTRO_NO_ENABLED},
+                )
             fallidas += 1
             continue
         if cliente is None:
@@ -343,6 +354,13 @@ def reconcilia_bids(
             with tx_durable(conn):
                 _sella_ledger(
                     conn, id_attempt, ack=None, resultado="fallo:reconciliado_sin_identidad"
+                )
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    aplicador.cycle_id_ejecutor,
+                    MOTIVO_ENTIDAD_NO_DECISORA,
+                    detalle={"sello": "fallo:reconciliado_sin_identidad"},
                 )
             fallidas += 1
             continue
@@ -354,6 +372,13 @@ def reconcilia_bids(
         except AdsApiError:
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    aplicador.cycle_id_ejecutor,
+                    MOTIVO_SIN_RESPUESTA,
+                    detalle={"sello": "fallo:readback_ambiguo"},
+                )
             fallidas += 1
             continue
         if bid_leido == Decimal(_bid_payload(new_value)):

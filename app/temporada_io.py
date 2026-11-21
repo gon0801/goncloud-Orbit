@@ -185,6 +185,25 @@ UPDATE temporada_efecto e SET cerrado_el = now(), desenlace = 'abandonado'
    AND oc.status IS DISTINCT FROM 'running'
 """
 
+# Cinturon de la revision (TEMPORADA 01 B): un intento SELLADO sin desenlace
+# (p. ej. fallo:readback_ambiguo de una era sin registro terminal) deja el
+# efecto abierto y TX3 reventaria contra el indice unico al decidir otra vez.
+# El cierre es terminal ('sin_aplicar': no se confirmo nada) y SOLO si TODOS
+# los intentos de la decision estan sellados: un intento sin sello sigue en
+# vuelo y el efecto queda abierto (la hoja espera).
+_SQL_RECONCILIA_SELLADO_SIN_DESENLACE = """
+UPDATE temporada_efecto e SET cerrado_el = now(), desenlace = 'sin_aplicar'
+  FROM decision d
+  JOIN ad_entity k ON k.id = d.ad_entity_id AND k.platform = %s::platform
+ WHERE e.decision_id = d.id AND e.cerrado_el IS NULL
+   AND NOT EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = d.id)
+   AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa WHERE sa.decision_id = d.id)
+   AND EXISTS (SELECT 1 FROM apply_attempt a
+                WHERE a.decision_id = d.id AND a.finished_at IS NOT NULL)
+   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
+                    WHERE a.decision_id = d.id AND a.finished_at IS NULL)
+"""
+
 _SQL_INSERT_EPISODIO = """
 INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo, config_version_id)
 VALUES (%s::platform, %s, %s, %s) RETURNING id
@@ -212,10 +231,13 @@ ON CONFLICT (episodio_id, ad_entity_id) DO NOTHING
 def _reconcilia_efectos(conn: psycopg.Connection, platform: str) -> None:
     """Paso 1 de registra_ciclo: cerrar los efectos abiertos que ya tienen
     desenlace (cinturon: el camino normal los cierra en la misma transaccion
-    del desenlace) y los que quedaron sin intento en un ciclo terminado
-    (crash antes del ledger): 'abandonado'."""
+    del desenlace), los que quedaron sin NINGUN intento en un ciclo terminado
+    (crash antes del ledger): 'abandonado', y los con TODOS los intentos
+    sellados sin desenlace (sello terminal sin registro): 'sin_aplicar' —
+    sin este cierre, el indice unico revienta TX3 en cada ciclo."""
     conn.execute(_SQL_RECONCILIA_DESENLACE, (platform,))
     conn.execute(_SQL_RECONCILIA_ABANDONADO, (platform,))
+    conn.execute(_SQL_RECONCILIA_SELLADO_SIN_DESENLACE, (platform,))
 
 
 def registra_ciclo(

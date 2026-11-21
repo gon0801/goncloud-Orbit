@@ -48,3 +48,28 @@ existe en el SHA previo (FileNotFoundError al leer el archivo).
   en _confirma_resumen.
 - _db_ajustes de test_api_write ya no aplica 0061/0067 a mano: la cadena base
   las trae.
+
+## Ronda de revision (fix del bloqueo persistente)
+
+Review de PR #697: si `reconcilia_bids` sella un intento sin resumen
+(fallo:readback_ambiguo, fallo:reconciliado_sin_identidad,
+fallo:ancestro_no_enabled), el efecto de temporada quedaba abierto y TX3
+reventaba contra `temporada_efecto_uno_pendiente` en cada corrida.
+
+Fix en dos partes: (1) los tres sellos sin resumen de `reconcilia_bids`
+registran ahora el desenlace terminal (`registra_sin_aplicar` con
+entidad_no_decisora o sin_respuesta y el sello en el detalle); (2) TX3
+cierra como cinturon los efectos con TODOS los intentos sellados sin
+desenlace ('sin_aplicar'), conservando abiertos los de intento sin sello.
+
+Prueba nueva: `test_temporada01_b_efecto_con_intento_sellado_se_cierra`
+(entrada 8->5.60 sin confirmar, intento sellado ambiguo, Amazon sigue en
+8.00; el ciclo siguiente cierra el efecto viejo, decide la entrada otra vez
+y la confirma). Demostrada fallando contra el SHA entregado del PR:
+
+```
+$ git worktree add ... e307da170df66badf30ce97f4d6d3fa88a81997b
+$ pytest -q tests/test_temporada01_b.py::test_temporada01_b_efecto_con_intento_sellado_se_cierra
+E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "temporada_efecto_uno_pendiente"
+1 failed in 7.60s
+```
