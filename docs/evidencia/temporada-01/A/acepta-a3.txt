@@ -8,3 +8,6 @@ Nota de esta PC (Windows): --basetemp propio por permisos de pytest (el cleanup 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 112 passed, 1 warning in 50.50s
 ```
+
+Re-ejecucion tras la segunda ronda de revision (incluye test_api_dashboard que siembra las vistas de margen):
+191 passed, 1 warning in 105.82s (0:01:45)

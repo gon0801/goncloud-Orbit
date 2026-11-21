@@ -281,8 +281,12 @@ def valida(crudo: Mapping) -> ConfigTemporada:
     # 2. meses: 12 en {baja, normal, alta}; no todos baja.
     # 3. rangos de la tabla.
     # 4. por cada bloque de baja: dias(inicio, R) >= BAJA_EFECTIVA_MIN_DIAS,
-    #    con febrero de 28 (el peor ano; la validacion no cambia entre anos),
-    #    y fin_anticipado dentro de su bloque de baja (fechas reales)."""
+    #    con febrero de 28 (el peor ano; la validacion no cambia entre anos).
+    #    Un fin_anticipado que quedo fuera del calendario editado se DESCARTA
+    #    (hallazgo de revision: ya no gobierna nada y no debe bloquear el
+    #    guardado; el mensaje «Solo puedes terminar la baja...» vive en el
+    #    endpoint del boton, que escribe la fecha de hoy tras comprobar la
+    #    fase)."""
     if not isinstance(crudo, Mapping):
         raise ValueError(MSG_MESES)
     meses = _meses(crudo.get("meses"))
@@ -303,7 +307,7 @@ def valida(crudo: Mapping) -> ConfigTemporada:
 
     _chequea_bloques_de_baja(meses, dias_preparacion)
     if fin is not None and not _fin_dentro_de_baja(meses, dias_preparacion, fin):
-        raise ValueError(MSG_FIN_BAJA)
+        fin = None
 
     return ConfigTemporada(
         version=VERSION_TEMPORADA,
@@ -386,15 +390,23 @@ def _instancias(config_like, anio: int) -> list[dict]:
         bloques.append(
             {"tipo": tipo, "b": _fecha_mes(anio, m0 + 1), "f": _fecha_mes(anio, m0 + 1 + largo)}
         )
-    preps_vecinos = [
-        _fecha_mes(vecino, m0 + 1) - dt.timedelta(days=prep)
+    # El limite de cada baja lo pone la preparacion del SIGUIENTE bloque alto
+    # elegido por su fecha de inicio, aunque esa preparacion EMPIECE antes que
+    # la baja (feb baja + mar alta con 42 dias: la preparacion arranca el 18 de
+    # enero y se come febrero entero; hallazgo de revision). Los vecinos
+    # anio-1..anio+1 cubren los bloques que cruzan de un ano al otro.
+    altas_vecinas = [
+        _fecha_mes(vecino, m0 + 1)
         for vecino in (anio - 1, anio, anio + 1)
         for tipo, m0, _largo in _rachas(meses)
         if tipo == "alta"
     ]
     for b in bloques:
         if b["tipo"] == "baja":
-            r = min([b["f"]] + [p for p in preps_vecinos if p >= b["b"]])
+            r = b["f"]
+            siguientes = [a for a in altas_vecinas if a > b["b"]]
+            if siguientes:
+                r = min(r, min(siguientes) - dt.timedelta(days=prep))
             if fin is not None and b["b"] <= fin < r:
                 r = fin
             b["r"] = r
@@ -410,13 +422,15 @@ def _nombre_bloque(m0: int, largo: int) -> str:
 
 def _chequea_bloques_de_baja(meses: tuple[TipoMes, ...], prep: int) -> None:
     """Regla 4 de valida: cada bloque de baja deja >= 7 dias efectivos,
-    con febrero de 28 (ano de referencia fijo)."""
+    con febrero de 28 (ano de referencia fijo). Una preparacion que empieza
+    antes del bloque la deja en 0 y tambien se rechaza (hallazgo de
+    revision: la baja que no llega a existir no se anuncia)."""
     bloques = _instancias((meses, prep), ANIO_REFERENCIA)
     for tipo, m0, largo in _rachas(meses):
         if tipo != "baja":
             continue
         propio = next(b for b in bloques if b["b"] == _fecha_mes(ANIO_REFERENCIA, m0 + 1))
-        dias = (propio["r"] - propio["b"]).days
+        dias = max(0, (propio["r"] - propio["b"]).days)
         if dias < BAJA_EFECTIVA_MIN_DIAS:
             duracion = (propio["f"] - propio["b"]).days
             raise ValueError(
@@ -429,10 +443,13 @@ def _chequea_bloques_de_baja(meses: tuple[TipoMes, ...], prep: int) -> None:
 
 def _fin_dentro_de_baja(meses: tuple[TipoMes, ...], prep: int, fin: dt.date) -> bool:
     """«Terminar la baja hoy» solo vale mientras el dia cae dentro de un
-    bloque de baja, sobre fechas reales del ano del dia."""
-    for bloque in _instancias((meses, prep), fin.year):
-        if bloque["tipo"] == "baja" and bloque["b"] <= fin < bloque.get("r", bloque["f"]):
-            return True
+    bloque de baja, sobre fechas reales; los bloques que abrieron el año
+    anterior (dic-feb) viven en la instancia del año previo (hallazgo de
+    revision). Los limites son naturales, sin fin_anticipado aplicado."""
+    for anio in (fin.year - 1, fin.year):
+        for bloque in _instancias((meses, prep), anio):
+            if bloque["tipo"] == "baja" and bloque["b"] <= fin < bloque["r"]:
+                return True
     return False
 
 

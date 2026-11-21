@@ -588,7 +588,9 @@ def lee_dinero(
 def _con_avisos(conn, plataforma: Plataforma, por_ubicacion, por_campana):
     """Reparte las frases de campana de `avisos_del_dia` en cada
     `FilaCampana.avisos` (V.4; import diferido, este modulo no carga el
-    de avisos al importar)."""
+    de avisos al importar). El criterio de campana topada es el mismo
+    lector que conto los dias al tope (TEMPORADA 01 A, hallazgo de
+    revision: sin el argumento, la pantalla avisaba con 90 % en 5)."""
     from app.avisos_campana import avisos_del_dia
 
     avisos = avisos_del_dia(
@@ -596,6 +598,7 @@ def _con_avisos(conn, plataforma: Plataforma, por_ubicacion, por_campana):
         por_campana,
         plataforma=plataforma,
         gasto_para_concluir=umbral_concluir(conn, plataforma),
+        topada=campana_topada_vigente(conn),
     )
     return tuple(
         replace(

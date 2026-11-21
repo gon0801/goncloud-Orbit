@@ -1499,8 +1499,9 @@ SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
  WHERE platform = %s::platform
 """
 
-# Columnas de _SQL_EQUILIBRIO_TEMPORADA, para leer la fila por nombre.
-_SQL_EQUILIBRIO_TEMPORADA_COLUMNAS = (
+# Columnas de _SQL_EQUILIBRIO_TEMPORADA, para leer la fila por nombre
+# (sin el prefijo _SQL_: el test de parseo recorre las constantes _SQL_*).
+COLUMNAS_EQUILIBRIO_TEMPORADA = (
     "platform",
     "ventana_desde",
     "ventana_hasta",
@@ -1578,7 +1579,7 @@ def equilibrio_temporada(
     )
     fila = conn.execute(_SQL_EQUILIBRIO_TEMPORADA, (plataforma,)).fetchone()
     resuelto = (
-        _equilibrio_de_fila(dict(zip(_SQL_EQUILIBRIO_TEMPORADA_COLUMNAS, fila, strict=True)), hoy)
+        _equilibrio_de_fila(dict(zip(COLUMNAS_EQUILIBRIO_TEMPORADA, fila, strict=True)), hoy)
         if fila is not None
         else {"equilibrio": None, "razon": RAZON_SIN_EQUILIBRIO["sin_margen"]}
     )

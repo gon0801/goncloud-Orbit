@@ -137,6 +137,30 @@ def test_temporada01_a_fechas_del_calendario():
     assert resumen.aviso_cambio is not None
     assert "temporada baja" in resumen.aviso_cambio
 
+    # Una baja comida por la preparacion se rechaza: con febrero en baja,
+    # marzo en alta y 42 dias de preparacion, la preparacion empieza el 18 de
+    # enero y se come TODO febrero (hallazgo de revision).
+    meses_comida = ["normal", "baja", "alta"] + ["normal"] * 9
+    with pytest.raises(ValueError) as error:
+        temporada.valida(_crudo(meses=meses_comida, prep=42))
+    assert "la deja en 0" in str(error.value)
+
+    # El fin anticipado de enero vive en el bloque que abrio en diciembre
+    # (hallazgo de revision: el bloque cruza de un ano al otro).
+    config_cruce = temporada.valida(_crudo(meses=meses_dic, fin="2027-01-10"))
+    assert config_cruce.fin_anticipado == dt.date(2027, 1, 10)
+    assert temporada.resuelve(config_cruce, dt.date(2027, 1, 9)).fase == "baja"
+    # El dia del fin ya es normal: la baja termina esa fecha.
+    assert temporada.resuelve(config_cruce, dt.date(2027, 1, 10)).fase == "normal"
+
+    # Un fin que queda fuera del calendario editado se descarta al validar
+    # (hallazgo de revision: no gobierna nada y no debe bloquear el guardado;
+    # el boton «Terminar la baja hoy» lo vuelve a escribir cuando haga falta).
+    meses_sin_enero = list(MESES_DEFECTO)
+    meses_sin_enero[0] = "normal"
+    config_viejo = temporada.valida(_crudo(meses=meses_sin_enero, fin="2027-01-15"))
+    assert config_viejo.fin_anticipado is None
+
 
 @_skip_db
 def test_temporada01_a_post_rechaza_booleanos(tmp_path, monkeypatch):
@@ -250,6 +274,15 @@ def test_temporada01_a_campana_topada_una_definicion():
             conn, plataforma="amazon_mx", desde=HASTA_2A - dt.timedelta(days=29), hasta=HASTA_2A
         )
         assert filas[0].dias_al_tope_7d == 3
+
+        # La pantalla de dinero completa avisa con el criterio guardado
+        # (hallazgo de revision: _con_avisos usaba 90 % en 5 por detras).
+        from app.pantalla_dinero import lee_dinero
+
+        pantalla = lee_dinero(conn, plataforma="amazon_mx", dias=30, hasta=HASTA_2A)
+        assert pantalla.por_campana[0].avisos == (
+            "Topada 80: se queda sin presupuesto. Usó 80 % o más en 3 de los últimos 7 días.",
+        )
 
         fila = FilaCampana(
             campana_id=c1,

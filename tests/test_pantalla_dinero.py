@@ -103,6 +103,9 @@ def _lee(
             list(configs_hist),
             list(regresables),
             list(ultimo_precio),
+            # _con_avisos repite el criterio (umbral + topada) y despues va
+            # el target del ultimo ciclo.
+            list(settings_fila),
             list(settings_fila),
             notas,
         ]
@@ -1237,7 +1240,7 @@ def test_con_avisos_us_pide_el_umbral_de_us(monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr("app.avisos_campana.avisos_del_dia", _espia)
-    _con_avisos(_ConnFalsa([[]]), "amazon_us", (), (fila,))
+    _con_avisos(_ConnFalsa([[], []]), "amazon_us", (), (fila,))
     assert pedidas["gasto_para_concluir"] == Decimal("36")
 
 
@@ -1256,7 +1259,7 @@ def test_con_avisos_us_frase_en_usd():
         gasto_fuera_de_amazon=None,
         dias_al_tope_7d=None,
     )
-    (con_aviso,) = _con_avisos(_ConnFalsa([[]]), "amazon_us", (), (fila,))
+    (con_aviso,) = _con_avisos(_ConnFalsa([[], []]), "amazon_us", (), (fila,))
     (frase,) = con_aviso.avisos
     assert "USD" in frase
     assert "MXN" not in frase

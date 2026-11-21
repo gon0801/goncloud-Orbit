@@ -3607,9 +3607,19 @@ def _db_p4_dash(conn):
 
     migraciones = Path(__file__).resolve().parent.parent / "migrations"
     aplicadas = {"0001_initial.sql", "0004_ad_entity_kind_product_ad.sql", "0047_familias.sql"}
+    # TEMPORADA 01 A: _db_temporal ya aplico la cadena de margen del bloque I
+    # y ORDEN trae creates planos de esas vistas: se sueltan, corre ORDEN
+    # completo y se reaplica 0086+0092 para que queden con las columnas
+    # vigentes (productos_io lee margen_vigente_pct).
+    conn.execute(
+        "DROP VIEW IF EXISTS v_target_margen_plataforma, v_margen_producto,"
+        " v_margen_familia, v_ledger_cargo CASCADE"
+    )
     for nombre in ORDEN:
         if nombre not in aplicadas:
             conn.execute((migraciones / nombre).read_text(encoding="utf-8"))
+    conn.execute((migraciones / "0086_arreglos02_cargos.sql").read_text(encoding="utf-8"))
+    conn.execute(SQL92)
     conn.execute(tp.SQL20)
     conn.execute(tp.SQL62)
     conn.execute(SQL64)

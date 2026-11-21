@@ -24,6 +24,7 @@
 
 <section class="tarjeta" data-temporada
   data-config-id="{{ datos.config_version_id }}"
+  data-guardada="{{ 'true' if datos.temporada_form.guardada else 'false' }}"
   data-fin-anticipado="{{ datos.temporada_form.fin_anticipado or '' }}"
   data-mantener-pausadas="{{ datos.temporada_form.mantener_pausadas | tojson }}">
   <h3>Temporadas de venta</h3>
@@ -105,9 +106,9 @@
       {% if p.temporada.frase_meta_hoy %}{{ p.temporada.frase_meta_hoy }} {% endif %}
       {% if p.temporada.meta_alta_frase %}{{ p.temporada.meta_alta_frase }}{% endif %}
     </p>
-    {% if p.temporada.linea %}<p data-linea-equilibrio="{{ p.plataforma }}">{{ p.temporada.linea }}</p>{% endif %}
-    {% if p.temporada.razon %}<p class="mutado" data-razon-equilibrio="{{ p.plataforma }}">{{ p.temporada.razon }}</p>{% endif %}
-    {% if p.temporada.aviso %}<p class="alerta" data-aviso-rojo="{{ p.plataforma }}">{{ p.temporada.aviso }}</p>{% endif %}
+    <p data-linea-equilibrio="{{ p.plataforma }}"{% if not p.temporada.linea %} hidden{% endif %}>{{ p.temporada.linea or '' }}</p>
+    <p class="mutado" data-razon-equilibrio="{{ p.plataforma }}"{% if not p.temporada.razon %} hidden{% endif %}>{{ p.temporada.razon or '' }}</p>
+    <p class="alerta" data-aviso-rojo="{{ p.plataforma }}"{% if not p.temporada.aviso %} hidden{% endif %}>{{ p.temporada.aviso or '' }}</p>
     <p class="mutado">{{ p.campanas_con_meta_propia }} campañas con meta propia no cambian.</p>
   </div>
   {% endfor %}

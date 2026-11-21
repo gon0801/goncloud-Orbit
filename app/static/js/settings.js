@@ -370,7 +370,10 @@ function consultaVistaPrevia() {
 
 function guardarTemporada() {
   var estado = tarjetaTemporada.querySelector("[data-estado-temporada]");
-  if (temporadaCuerpoComparable() === temporadaInicial) {
+  // Sin calendario guardado, guardar los valores sugeridos ES el cambio
+  // (hallazgo de revision: la comparacion solo aplica con config guardada).
+  var guardada = tarjetaTemporada.getAttribute("data-guardada") === "true";
+  if (guardada && temporadaCuerpoComparable() === temporadaInicial) {
     estado.textContent = "Nada que cambiar.";
     return;
   }
