@@ -18,28 +18,30 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 import httpx
 import psycopg
 
 from app.estimacion_fees import ProductFeesClient, cotizar_a_precio
-from app.estimacion_insumos import oferta_para_cotizar
 from app.estimacion_reader import leer_cuenta
 from app.estimacion_venta import DetalleFee
 from app.precio import puerto
 from app.precio.config import ConfigPrecio
-from app.precio.fuentes import cambios_previos, historial_margenes, ultima_subida, ventas_unidad
+from app.precio.fuentes import ventas_unidad
 from app.precio.objetivo import ErrorObjetivo, derivar_ref_fijo
 from app.precio.puerto import Lectura, MetaGoal
-from app.precio.tipos import (
-    EntradaDecision,
-    Escenario,
-    Fees,
-    Importe,
-    ObservacionPricing,
+from app.precio.tipos import Fees, Importe, ObservacionPricing
+from app.precio_mercado_base import (
+    construir_lectura_unidad,
+    detalle_fee_desde_dict,
+    dia_utc,
+    disponibilidad_estricta,
+    lectura_error,
+    leer_trafico_min_y_rachas,
+    suma_top,
+    tiene_tax,
 )
-from app.precio.ventas import evaluar_senal
 from app.redaction import install_scrub_filter
 from app.spapi import precio_write as _precio_write
 from app.spapi.client import SpapiAuthError, construir_ruta_listings
@@ -77,56 +79,18 @@ _SQL_CANO = (
 
 def _detalle_fee(nodo: dict) -> DetalleFee:
     """`fee_details` normalizado (forma de `parsear_respuesta_fees`) a arbol."""
-    if not isinstance(nodo, dict):
-        raise ValueError(f"detalle de fee no es objeto: {nodo!r}")
-    try:
-        tasa_raw = nodo.get("tax_amount")
-        hijos_raw = nodo.get("included_fee_details") or ()
-        return DetalleFee(
-            fee_type=nodo["fee_type"],
-            final_fee=Decimal(str(nodo["final_fee"])),
-            tax_amount=None if tasa_raw is None else Decimal(str(tasa_raw)),
-            included_fee_details=tuple(_detalle_fee(hijo) for hijo in hijos_raw),
-        )
-    except (KeyError, InvalidOperation, ValueError, TypeError) as exc:
-        raise ValueError(f"detalle de fee invalido: {nodo!r}") from exc
+    return detalle_fee_desde_dict(nodo, con_hijos=True)
 
 
-def _tiene_tax(detalles: tuple[DetalleFee, ...]) -> bool:
-    return any(
-        (det.tax_amount is not None and det.tax_amount != Decimal(0))
-        or _tiene_tax(det.included_fee_details)
-        for det in detalles
-    )
-
-
-def _suma_top(detalles: tuple[DetalleFee, ...]) -> Decimal:
-    return sum((det.final_fee for det in detalles), Decimal(0))
-
-
-def _dia_utc(valor):
-    """`observed_at` a dia UTC (la fila ya puede traer `date`)."""
-    return valor.astimezone(UTC).date() if isinstance(valor, datetime) else valor
+_tiene_tax = tiene_tax
+_suma_top = suma_top
+_dia_utc = dia_utc
 
 
 def _disponibilidad(*, canal: str | None, estados: list, stocks: list) -> puerto.Disponibilidad:
-    """Disponibilidad del dia segun el canal (F.4, criterio conservador r3-K5).
-
-    FBM sale solo del estado del listing (BUYABLE); el inventario no
-    cuenta. FBA (y canal sin dato, en estricto) exige probar las dos:
-    todo BUYABLE y todo stock > 0. `no_disponible` pide prueba en contra;
-    sin prueba ni a favor ni en contra es `sin_observacion`.
-    """
+    """Disponibilidad del dia segun el canal (F.4, criterio conservador r3-K5)."""
     buyables = ["BUYABLE" in (estado or "") for estado in estados]
-    if canal == "fbm":
-        if not buyables:
-            return "sin_observacion"
-        return "disponible" if all(buyables) else "no_disponible"
-    if any(s is not None and s <= 0 for s in stocks) or any(not b for b in buyables):
-        return "no_disponible"
-    if buyables and all(buyables) and stocks and all(s is not None and s > 0 for s in stocks):
-        return "disponible"
-    return "sin_observacion"
+    return disponibilidad_estricta(buyables, stocks, solo_estado=(canal == "fbm"))
 
 
 def historia_unidad(
@@ -365,13 +329,8 @@ class MercadoAmazon:
         e `InsumoIncoherente`. La clave de trafico se lee una vez, fuera
         del lote: sin ella no hay senal para nadie y se falla fuerte.
         """
-        from app.precio.config import _entero as _config_entero
-        from app.precio.fuentes import config_vigente_settings
-
-        trafico_min = _config_entero(
-            config_vigente_settings(conn), "precio_senal_trafico_min", minimo=20, maximo=5000
-        )
         por_listing = list(dict.fromkeys(u.listing_id for u in unidades))
+        trafico_min, racha_por_lid = leer_trafico_min_y_rachas(conn, self.clave, por_listing, hoy)
         pricing_por_asin = {
             fila[0]: fila
             for fila in conn.execute(
@@ -384,30 +343,13 @@ class MercadoAmazon:
                 ([u.externo for u in unidades], self.clave, hoy),
             ).fetchall()
         }
-        racha_por_lid = {
-            fila[0]: fila[1]
-            for fila in conn.execute(
-                "SELECT DISTINCT ON (listing_id) listing_id, racha_senal"
-                " FROM precio_decision"
-                " WHERE listing_id = ANY(%s) AND platform = %s AND decision_date < %s"
-                " ORDER BY listing_id, decision_date DESC",
-                (por_listing, self.clave, hoy),
-            ).fetchall()
-        }
         lecturas: dict[int, Lectura] = {}
         for unidad in unidades:
             meta = metas[unidad.listing_id]
             try:
                 cuenta = leer_cuenta(conn, unidad.listing_id, as_of=ahora)
             except ValueError as exc:
-                lecturas[unidad.listing_id] = Lectura(
-                    entrada=None,
-                    motivo="escenario_incoherente",
-                    diagnostico=str(exc),
-                    ids=None,
-                    cotizable=None,
-                    fees_escenario="escenario_incoherente",
-                )
+                lecturas[unidad.listing_id] = lectura_error("escenario_incoherente", str(exc))
                 continue
             try:
                 lecturas[unidad.listing_id] = self._lectura_unidad(
@@ -425,14 +367,7 @@ class MercadoAmazon:
             except psycopg.Error:
                 raise
             except Exception as exc:
-                lecturas[unidad.listing_id] = Lectura(
-                    entrada=None,
-                    motivo="escenario_incoherente",
-                    diagnostico=str(exc),
-                    ids=None,
-                    cotizable=None,
-                    fees_escenario="escenario_incoherente",
-                )
+                lecturas[unidad.listing_id] = lectura_error("escenario_incoherente", str(exc))
         return lecturas
 
     def _lectura_unidad(
@@ -451,23 +386,9 @@ class MercadoAmazon:
     ) -> Lectura:
         """La Lectura de una unidad con cuenta disponible (levanta ValueError)."""
         if cuenta is None:
-            return Lectura(
-                entrada=None,
-                motivo="precio_ausente",
-                diagnostico="sin escenario disponible",
-                ids=None,
-                cotizable=None,
-                fees_escenario="precio_ausente",
-            )
+            return lectura_error("precio_ausente", "sin escenario disponible")
         if isinstance(cuenta, str):
-            return Lectura(
-                entrada=None,
-                motivo=cuenta,
-                diagnostico=f"escenario no disponible: {cuenta}",
-                ids=None,
-                cotizable=None,
-                fees_escenario=cuenta,
-            )
+            return lectura_error(cuenta, f"escenario no disponible: {cuenta}")
         fees_escenario: Fees | str
         try:
             _ref, fijo = derivar_ref_fijo(
@@ -495,45 +416,20 @@ class MercadoAmazon:
             )
             buy_box = fila_pricing[4]
         historia = historia_unidad(conn, unidad=unidad, canal=cuenta.canal, hoy=hoy)
-        cambios = cambios_previos(conn, unidad.listing_id, self.clave)
-        senal = evaluar_senal(
-            historia,
+        return construir_lectura_unidad(
+            conn,
+            platform=self.clave,
+            unidad=unidad,
+            meta=meta,
+            cuenta=cuenta,
+            fees_escenario=fees_escenario,
+            observacion=observacion,
+            buy_box=buy_box,
+            historia=historia,
             hoy=hoy,
             config=config,
-            racha_previa=int(racha_por_lid.get(unidad.listing_id) or 0),
-            ultima_subida=ultima_subida(cambios),
+            racha_por_lid=racha_por_lid,
             trafico_min=trafico_min,
-        )
-        escenario = Escenario(
-            componentes=cuenta.componentes,
-            fee_detalles=cuenta.fee_detalles,
-            precio_cotizado=cuenta.precio_cotizado,
-            iva_divisor=cuenta.iva_divisor,
-            isr_tasa=cuenta.isr_tasa,
-            precio_incluye_iva=cuenta.precio_incluye_iva,
-            oferta_observada_en=cuenta.oferta_observada_en,
-        )
-        cotizable = oferta_para_cotizar(conn, cuenta.refs.oferta_observation_id)
-        entrada = EntradaDecision(
-            listing_id=unidad.listing_id,
-            platform=self.clave,
-            product_id=unidad.producto_ancla,
-            canal=cuenta.canal,
-            mode=meta.mode,
-            goal=meta.goal,
-            escenario=escenario,
-            pricing=observacion,
-            senal=senal,
-            cambios=cambios,
-            historial=historial_margenes(conn, unidad.listing_id, self.clave),
-            goal_vigente_desde=meta.goal_vigente_desde,
-            motivo_estimacion=None,
-            buy_box_is_own=buy_box,
-        )
-        return Lectura(
-            entrada=entrada,
-            motivo=None,
-            diagnostico="",
             ids={
                 "escenario_id": cuenta.refs.escenario_id,
                 "fee_observation_id": cuenta.refs.fee_observation_id,
@@ -545,9 +441,6 @@ class MercadoAmazon:
                 else "politica",
                 "envio_muestra_id": cuenta.refs.envio_muestra_id,
             },
-            cotizable=cotizable,
-            fees_escenario=fees_escenario,
-            historia=historia,
         )
 
     def observado(

@@ -33,12 +33,19 @@ from typing import Any
 import psycopg
 
 from app.redaction import install_scrub_filter, scrub
+from app.spapi._ingesta import (
+    abrir_run_spapi,
+    dia_utc,
+    formato_skip_reason,
+    sellar_fallo_spapi,
+    sellar_spapi,
+    texto_limpio,
+)
 from app.spapi.client import (
     MERCADOS,
     RUTA_INVENTARIO,
     CuboTasa,
     SpapiClient,
-    prefijo_motivo,
     sanear,
     siguiente_token,
 )
@@ -55,17 +62,6 @@ MAX_PAGINAS_DEFAULT = 100
 INVENTARIO_TASA_SEG = 2.0
 INVENTARIO_BURST = 2
 
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source, platform) VALUES (%s, %s) RETURNING id"
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s,
-       llamadas = %s
- WHERE id = %s
-"""
 _SQL_INSERTAR = """
 INSERT INTO spapi_inventario_observation
     (seller_sku, asin, fn_sku, platform, metric_date, observed_at,
@@ -110,17 +106,8 @@ class ResultadoIngesta:
     segundos: float
 
 
-def _texto(valor: Any) -> str | None:
-    if isinstance(valor, str) and valor.strip():
-        return valor.strip()
-    return None
-
-
-def _dia_utc(momento: datetime.datetime) -> datetime.date:
-    # El trigger de DB exige que metric_date sea el dia UTC de observed_at.
-    if momento.tzinfo is None:
-        momento = momento.replace(tzinfo=datetime.UTC)
-    return momento.astimezone(datetime.UTC).date()
+_texto = texto_limpio
+_dia_utc = dia_utc
 
 
 def _cantidad(valor: Any) -> int | None:
@@ -270,20 +257,8 @@ def _formato_skip_reason(skips: Counter) -> str | None:
     return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
 
-def _sellar(
-    conn: psycopg.Connection,
-    run_id: int,
-    *,
-    ok: bool,
-    escritas: int,
-    skips: Counter,
-    motivo: str | None,
-    llamadas: int,
-) -> None:
-    conn.execute(
-        _SQL_SELLAR_RUN,
-        (escritas, sum(skips.values()), motivo, ok, llamadas, run_id),
-    )
+_sellar = sellar_spapi
+_formato_skip_reason = formato_skip_reason
 
 
 def ejecutar_ingesta(
@@ -307,8 +282,7 @@ def ejecutar_ingesta(
     marketplace_id = MERCADOS[platform]
     inicio = time.monotonic()
 
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE, platform)).fetchone()[0]
+    run_id = abrir_run_spapi(conn, SOURCE, platform)
 
     escritas = 0
     skips: Counter = Counter()
@@ -373,26 +347,15 @@ def ejecutar_ingesta(
         # (fail-silent: jamas rompe la ingesta).
         evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
-        # INSERTs y sello van en una sola transaccion: tras el rollback no
-        # quedaron filas escritas (escritas=0), pero las llamadas HTTP si ocurrieron.
-        try:
-            with conn.transaction():
-                _sellar(
-                    conn,
-                    run_id,
-                    ok=False,
-                    escritas=0,
-                    skips=Counter(),
-                    motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
-                    llamadas=medidor["llamadas"],
-                )
-            evaluar_alertas(conn, SOURCE, platform, run_id)
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello; error: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        sellar_fallo_spapi(
+            conn,
+            run_id,
+            exc,
+            source=SOURCE,
+            platform=platform,
+            escritas=0,
+            llamadas=medidor["llamadas"],
+        )
         raise
     segundos = time.monotonic() - inicio
     return ResultadoIngesta(

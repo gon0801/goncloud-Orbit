@@ -31,10 +31,18 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from app.db import connect
+from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
-__all__ = ["Atribucion", "Atribuidor", "AtribuidorAmazon", "atribuidor_amazon"]
+__all__ = [
+    "Atribucion",
+    "Atribuidor",
+    "AtribuidorAmazon",
+    "AtribuidorBase",
+    "atribuidor_amazon",
+]
 
 
 @dataclass(frozen=True)
@@ -78,39 +86,28 @@ _SQL_TIENE_INVENTARIO = (
 )
 
 
-class AtribuidorAmazon:
-    """Ventas de Amazon a su listing, por SKU unico o canal de orden.
+class AtribuidorBase:
+    """Base compartida de atribuidores (Amazon y MeLi) con ciclo de vida seguro.
 
-    Con `conn` usa esa conexion (pruebas y llamadores futuros); sin ella la
-    abre de solo lectura desde `ORBIT_DSN_INGEST` al primer evento que pida
-    base. Guarda mapas chicos por instancia: listings por producto, canal por
-    orden y presencia de inventario por SKU.
+    Con `conn` usa esa conexion sin cerrarla; sin ella abre una conexion de
+    solo lectura desde `ORBIT_DSN_INGEST` al primer uso. Soporta `with ...:`
+    y no cachea fallos transitorios de conexion de forma permanente (A10).
     """
+
+    _nombre_log: str = "base"
 
     def __init__(self, conn: Any | None = None) -> None:
         self._conn = conn
         self._propia = False
-        self._sin_base = False
-        self._listings: dict[tuple[str, int], tuple[tuple[int, str | None], ...]] = {}
-        self._canal_orden: dict[tuple[str, str], str | None] = {}
-        self._tiene_inventario: dict[tuple[str, str], bool] = {}
-
-    @staticmethod
-    def canal_de_orden(fulfillment: str | None) -> str | None:
-        """Canal fba/fbm desde `fulfilledBy` (AMAZON/MERCHANT) o `FulfillmentChannel` (AFN/MFN)."""
-        if not isinstance(fulfillment, str):
-            return None
-        return _CANAL_POR_FULFILLMENT.get(fulfillment.strip().upper())
 
     def _db(self) -> Any | None:
         if self._conn is not None:
             return self._conn
-        if self._sin_base:
-            return None
         dsn = os.environ.get("ORBIT_DSN_INGEST")
         if not dsn:
-            logger.warning("atribuidor amazon sin ORBIT_DSN_INGEST: todo queda sin atribuir")
-            self._sin_base = True
+            logger.warning(
+                "atribuidor %s sin ORBIT_DSN_INGEST: todo queda sin atribuir", self._nombre_log
+            )
             return None
         try:
             conn = connect(dsn, autocommit=True)
@@ -118,8 +115,7 @@ class AtribuidorAmazon:
             # BEGIN); la sesion entera se declara de lectura.
             conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
         except Exception as exc:
-            logger.error("atribuidor amazon sin base: %s", exc)
-            self._sin_base = True
+            logger.error("atribuidor %s sin base: %s", self._nombre_log, scrub(str(exc)))
             return None
         self._conn = conn
         self._propia = True
@@ -131,6 +127,37 @@ class AtribuidorAmazon:
             self._conn.close()
             self._conn = None
             self._propia = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+
+class AtribuidorAmazon(AtribuidorBase):
+    """Ventas de Amazon a su listing, por SKU unico o canal de orden.
+
+    Con `conn` usa esa conexion (pruebas y llamadores futuros); sin ella la
+    abre de solo lectura desde `ORBIT_DSN_INGEST` al primer evento que pida
+    base. Guarda mapas chicos por instancia: listings por producto, canal por
+    orden y presencia de inventario por SKU.
+    """
+
+    _nombre_log = "amazon"
+
+    def __init__(self, conn: Any | None = None) -> None:
+        super().__init__(conn)
+        self._listings: dict[tuple[str, int], tuple[tuple[int, str | None], ...]] = {}
+        self._canal_orden: dict[tuple[str, str], str | None] = {}
+        self._tiene_inventario: dict[tuple[str, str], bool] = {}
+
+    @staticmethod
+    def canal_de_orden(fulfillment: str | None) -> str | None:
+        """Canal fba/fbm desde `fulfilledBy` (AMAZON/MERCHANT) o `FulfillmentChannel` (AFN/MFN)."""
+        if not isinstance(fulfillment, str):
+            return None
+        return _CANAL_POR_FULFILLMENT.get(fulfillment.strip().upper())
 
     def _candidatos(self, db: Any, plataforma: str, product_id: int) -> tuple:
         clave = (plataforma, product_id)

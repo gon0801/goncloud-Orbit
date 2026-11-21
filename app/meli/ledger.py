@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import logging
-import os
 from typing import Any
 
-from app.db import connect
-from app.ledger_atribucion import Atribucion
-from app.redaction import install_scrub_filter
+from app.ledger_atribucion import Atribucion, AtribuidorBase
 
 __all__ = ["AtribuidorMeli", "atribuidor_meli"]
-
-logger = logging.getLogger(__name__)
-install_scrub_filter(logger)
 
 _SQL_POR_ITEM = "SELECT id FROM listing WHERE platform = 'meli' AND external_id = %s"
 _SQL_POR_PRODUCTO = (
@@ -22,46 +15,14 @@ _SQL_POR_PRODUCTO = (
 )
 
 
-class AtribuidorMeli:
+class AtribuidorMeli(AtribuidorBase):
     """Ventas de MeLi a su publicacion, por item o producto unico.
 
-    Con `conn` usa esa conexion (pruebas); sin ella la abre de solo
-    lectura desde `ORBIT_DSN_INGEST` al primer evento que pida base.
+    Con `conn` usa esa conexion (pruebas y sync_ledger); sin ella hereda
+    la apertura lazy read-only de `AtribuidorBase`.
     """
 
-    def __init__(self, conn: Any | None = None) -> None:
-        self._conn = conn
-        self._propia = False
-        self._sin_base = False
-
-    def _db(self) -> Any | None:
-        if self._conn is not None:
-            return self._conn
-        if self._sin_base:
-            return None
-        dsn = os.environ.get("ORBIT_DSN_INGEST")
-        if not dsn:
-            logger.warning("atribuidor meli sin ORBIT_DSN_INGEST: todo queda sin atribuir")
-            self._sin_base = True
-            return None
-        try:
-            conn = connect(dsn, autocommit=True)
-            conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
-        except Exception as exc:
-            logger.error("atribuidor meli sin base: %s", exc)
-            self._sin_base = True
-            return None
-        self._conn = conn
-        self._propia = True
-        return conn
-
-    def close(self) -> None:
-        """Cierra la conexion propia, si la abrio. La inyectada no se toca."""
-
-        if self._propia and self._conn is not None:
-            self._conn.close()
-            self._conn = None
-            self._propia = False
+    _nombre_log = "meli"
 
     def atribuir(self, fila: Any) -> Atribucion | None:
         if getattr(fila, "kind", None) != "sale":

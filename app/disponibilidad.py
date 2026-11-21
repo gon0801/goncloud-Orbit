@@ -41,6 +41,7 @@ from pathlib import Path
 
 import psycopg
 
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
 from app.redaction import install_scrub_filter
 
 logger = logging.getLogger(__name__)
@@ -262,18 +263,6 @@ def plan_disponibilidad(
     return planes, skips
 
 
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
-
 # Append-only + idempotente por (platform, seller_sku, metric_date, fuente,
 # observed_at): la re-corrida con el MISMO observed_at no duplica filas.
 _SQL_INSERT = """
@@ -283,11 +272,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT ON CONSTRAINT disponibilidad_observation_anti_duplicado DO NOTHING
 """
 
-
-def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
+_formato_skip_reason = formato_skip_reason
 
 
 def sync_disponibilidad(
@@ -311,10 +296,11 @@ def sync_disponibilidad(
         metric_date = observed_at.date()
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE)
 
     insertadas = 0
     idempotentes = 0
+    skips: Counter = Counter()
     try:
         with conn.transaction():
             # Conciliacion contra el catalogo de Orbit (mapa 6): solo se
@@ -343,16 +329,23 @@ def sync_disponibilidad(
                 else:
                     insertadas += 1
         with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN,
-                (insertadas, sum(skips.values()), _formato_skip_reason(skips), True, run_id),
+            sellar_run(
+                conn,
+                run_id,
+                ok=True,
+                rows_written=insertadas,
+                rows_skipped=sum(skips.values()),
+                skip_reason=_formato_skip_reason(skips),
             )
-    except Exception:
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN,
-                (insertadas, sum(skips.values()), "fallo la corrida", False, run_id),
-            )
+    except BaseException as exc:
+        sellar_fallo_seguro(
+            conn,
+            run_id,
+            exc,
+            rows_written=insertadas,
+            rows_skipped=sum(skips.values()),
+            motivo="fallo la corrida",
+        )
         raise
     return ResultadoDisponibilidad(
         run_id=run_id,

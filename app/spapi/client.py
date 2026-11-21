@@ -377,23 +377,19 @@ def tasa_anunciada(headers: Any) -> float | None:
 
 def _retry_after(resp: httpx.Response) -> float | None:
     """`Retry-After` en segundos, o None si falta o es ilegible."""
-    crudo = resp.headers.get("Retry-After")
-    if crudo is None:
-        return None
-    try:
-        segundos = float(crudo)
-    except ValueError:
-        return None
-    return segundos if math.isfinite(segundos) and segundos >= 0 else None
+    from app.http_base import parse_retry_after_finito
+
+    return parse_retry_after_finito(resp.headers.get("Retry-After"), techo=None)
 
 
 def _espera_retry(resp: httpx.Response) -> float:
     # Espera simple de un solo reintento; la usan write_client y la sonda.
-    try:
-        segundos = float(resp.headers.get("Retry-After", str(ESPERA_429_DEFAULT)))
-    except ValueError:
-        segundos = ESPERA_429_DEFAULT
-    return min(max(0.0, segundos), ESPERA_429_MAX)
+    from app.http_base import parse_retry_after_finito
+
+    segundos = parse_retry_after_finito(resp.headers.get("Retry-After"), techo=ESPERA_429_MAX)
+    if segundos is None:
+        return min(ESPERA_429_DEFAULT, ESPERA_429_MAX)
+    return segundos
 
 
 def _espera_429(

@@ -19,11 +19,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 import psycopg
 
-from app.estimacion_insumos import oferta_para_cotizar
 from app.estimacion_reader import leer_cuenta
 from app.estimacion_venta import DetalleFee
 from app.meli.client import ReputacionError
@@ -31,21 +30,16 @@ from app.meli.estimacion import partir_fees_meli
 from app.precio import puerto
 from app.precio.cambios import PublicacionSinSku
 from app.precio.config import ConfigPrecio
-from app.precio.fuentes import (
-    cambios_previos,
-    historial_margenes,
-    ultima_subida,
-    ventas_unidad,
-)
+from app.precio.fuentes import ventas_unidad
 from app.precio.puerto import Lectura, MetaGoal
-from app.precio.tipos import (
-    EntradaDecision,
-    Escenario,
-    Fees,
-    Importe,
-    ObservacionPricing,
+from app.precio.tipos import Fees, Importe, ObservacionPricing
+from app.precio_mercado_base import (
+    construir_lectura_unidad,
+    detalle_fee_desde_dict,
+    disponibilidad_estricta,
+    lectura_error,
+    leer_trafico_min_y_rachas,
 )
-from app.precio.ventas import evaluar_senal
 from app.redaction import install_scrub_filter
 
 logger = logging.getLogger(__name__)
@@ -102,36 +96,13 @@ def _unidades(conn, filas_listing) -> dict[int, puerto.UnidadPrecio]:
 
 
 def _detalle_fee_meli(nodo: dict) -> DetalleFee:
-    """Nodo MeLi (`fee_type`/`final_fee`, sin tax) a `DetalleFee`.
-
-    Espejo de Amazon: lo corrupto sale como `ValueError`, nunca crudo.
-    """
-    if not isinstance(nodo, dict):
-        raise ValueError(f"detalle de fee no es objeto: {nodo!r}")
-    try:
-        return DetalleFee(
-            fee_type=nodo["fee_type"],
-            final_fee=Decimal(str(nodo["final_fee"])),
-            tax_amount=None,
-            included_fee_details=(),
-        )
-    except (KeyError, InvalidOperation, ValueError, TypeError) as exc:
-        raise ValueError(f"detalle de fee invalido: {nodo!r}") from exc
+    """Nodo MeLi (`fee_type`/`final_fee`, sin tax) a `DetalleFee`."""
+    return detalle_fee_desde_dict(nodo, con_hijos=False)
 
 
 def _disponibilidad_meli(estados: list[str], stocks: list) -> str:
-    """Disponibilidad del dia desde estados y stocks observados.
-
-    Espejo estricto de Amazon FBA: cualquier no-`active` o stock <= 0 es
-    `no_disponible`; `disponible` exige todo activo y todo stock > 0; sin
-    prueba, `sin_observacion`.
-    """
-    activos = [e == "active" for e in estados]
-    if any(s is not None and s <= 0 for s in stocks) or any(not b for b in activos):
-        return "no_disponible"
-    if activos and all(activos) and stocks and all(s is not None and s > 0 for s in stocks):
-        return "disponible"
-    return "sin_observacion"
+    """Disponibilidad del dia desde estados y stocks observados."""
+    return disponibilidad_estricta([e == "active" for e in estados], stocks, solo_estado=False)
 
 
 def historia_meli_unidad(
@@ -323,13 +294,8 @@ class MercadoMeli:
         (`variante_sin_mapear` con el SKU) o unidad sin miembros
         (`costo_ausente`, como la siembra).
         """
-        from app.precio.config import _entero as _config_entero
-        from app.precio.fuentes import config_vigente_settings
-
-        trafico_min = _config_entero(
-            config_vigente_settings(conn), "precio_senal_trafico_min", minimo=20, maximo=5000
-        )
         por_listing = list(dict.fromkeys(u.listing_id for u in unidades))
+        trafico_min, racha_por_lid = leer_trafico_min_y_rachas(conn, self.clave, por_listing, hoy)
         obs_por_item = {
             fila[0]: fila
             for fila in conn.execute(
@@ -340,51 +306,25 @@ class MercadoMeli:
                 ([u.externo for u in unidades], hoy),
             ).fetchall()
         }
-        racha_por_lid = {
-            fila[0]: fila[1]
-            for fila in conn.execute(
-                "SELECT DISTINCT ON (listing_id) listing_id, racha_senal"
-                " FROM precio_decision"
-                " WHERE listing_id = ANY(%s) AND platform = %s AND decision_date < %s"
-                " ORDER BY listing_id, decision_date DESC",
-                (por_listing, self.clave, hoy),
-            ).fetchall()
-        }
         lecturas: dict[int, Lectura] = {}
         for unidad in unidades:
             meta = metas[unidad.listing_id]
             sin_mapear = [m.seller_sku for m in unidad.miembros if m.product_id is None]
             if sin_mapear:
-                lecturas[unidad.listing_id] = Lectura(
-                    entrada=None,
-                    motivo="variante_sin_mapear",
-                    diagnostico=f"variantes sin mapear: {', '.join(sorted(sin_mapear))}",
-                    ids=None,
-                    cotizable=None,
-                    fees_escenario="variante_sin_mapear",
+                lecturas[unidad.listing_id] = lectura_error(
+                    "variante_sin_mapear",
+                    f"variantes sin mapear: {', '.join(sorted(sin_mapear))}",
                 )
                 continue
             if not unidad.miembros:
-                lecturas[unidad.listing_id] = Lectura(
-                    entrada=None,
-                    motivo="costo_ausente",
-                    diagnostico="listing sin miembros activos",
-                    ids=None,
-                    cotizable=None,
-                    fees_escenario="costo_ausente",
+                lecturas[unidad.listing_id] = lectura_error(
+                    "costo_ausente", "listing sin miembros activos"
                 )
                 continue
             try:
                 cuenta = leer_cuenta(conn, unidad.listing_id, as_of=ahora)
             except ValueError as exc:
-                lecturas[unidad.listing_id] = Lectura(
-                    entrada=None,
-                    motivo="escenario_incoherente",
-                    diagnostico=str(exc),
-                    ids=None,
-                    cotizable=None,
-                    fees_escenario="escenario_incoherente",
-                )
+                lecturas[unidad.listing_id] = lectura_error("escenario_incoherente", str(exc))
                 continue
             try:
                 lecturas[unidad.listing_id] = self._lectura_unidad(
@@ -402,14 +342,7 @@ class MercadoMeli:
             except psycopg.Error:
                 raise
             except Exception as exc:  # B1: una publicacion no tumba al lote
-                lecturas[unidad.listing_id] = Lectura(
-                    entrada=None,
-                    motivo="escenario_incoherente",
-                    diagnostico=str(exc),
-                    ids=None,
-                    cotizable=None,
-                    fees_escenario="escenario_incoherente",
-                )
+                lecturas[unidad.listing_id] = lectura_error("escenario_incoherente", str(exc))
         return lecturas
 
     def _lectura_unidad(
@@ -428,23 +361,9 @@ class MercadoMeli:
     ) -> Lectura:
         """La Lectura de una unidad con cuenta disponible (levanta ValueError)."""
         if cuenta is None:
-            return Lectura(
-                entrada=None,
-                motivo="precio_ausente",
-                diagnostico="sin escenario disponible",
-                ids=None,
-                cotizable=None,
-                fees_escenario="precio_ausente",
-            )
+            return lectura_error("precio_ausente", "sin escenario disponible")
         if isinstance(cuenta, str):
-            return Lectura(
-                entrada=None,
-                motivo=cuenta,
-                diagnostico=f"escenario no disponible: {cuenta}",
-                ids=None,
-                cotizable=None,
-                fees_escenario=cuenta,
-            )
+            return lectura_error(cuenta, f"escenario no disponible: {cuenta}")
         fees_escenario: Fees | str
         partido = partir_fees_meli(cuenta.fee_detalles, cuenta.componentes.fees.valor)
         if isinstance(partido, str):
@@ -465,45 +384,20 @@ class MercadoMeli:
                 observada_en=fila_obs[3],
             )
         historia = historia_meli_unidad(conn, unidad=unidad, hoy=hoy)
-        cambios = cambios_previos(conn, unidad.listing_id, self.clave)
-        senal = evaluar_senal(
-            historia,
+        return construir_lectura_unidad(
+            conn,
+            platform=self.clave,
+            unidad=unidad,
+            meta=meta,
+            cuenta=cuenta,
+            fees_escenario=fees_escenario,
+            observacion=observacion,
+            buy_box=None,
+            historia=historia,
             hoy=hoy,
             config=config,
-            racha_previa=int(racha_por_lid.get(unidad.listing_id) or 0),
-            ultima_subida=ultima_subida(cambios),
+            racha_por_lid=racha_por_lid,
             trafico_min=trafico_min,
-        )
-        escenario = Escenario(
-            componentes=cuenta.componentes,
-            fee_detalles=cuenta.fee_detalles,
-            precio_cotizado=cuenta.precio_cotizado,
-            iva_divisor=cuenta.iva_divisor,
-            isr_tasa=cuenta.isr_tasa,
-            precio_incluye_iva=cuenta.precio_incluye_iva,
-            oferta_observada_en=cuenta.oferta_observada_en,
-        )
-        cotizable = oferta_para_cotizar(conn, cuenta.refs.oferta_observation_id)
-        entrada = EntradaDecision(
-            listing_id=unidad.listing_id,
-            platform=self.clave,
-            product_id=unidad.producto_ancla,
-            canal=cuenta.canal,
-            mode=meta.mode,
-            goal=meta.goal,
-            escenario=escenario,
-            pricing=observacion,
-            senal=senal,
-            cambios=cambios,
-            historial=historial_margenes(conn, unidad.listing_id, self.clave),
-            goal_vigente_desde=meta.goal_vigente_desde,
-            motivo_estimacion=None,
-            buy_box_is_own=None,
-        )
-        return Lectura(
-            entrada=entrada,
-            motivo=None,
-            diagnostico="",
             ids={
                 "escenario_id": cuenta.refs.escenario_id,
                 "fee_observation_id": cuenta.refs.fee_observation_id,
@@ -512,9 +406,6 @@ class MercadoMeli:
                 "envio_muestra_id": cuenta.refs.envio_muestra_id,
                 "product_id": cuenta.refs.product_id,
             },
-            cotizable=cotizable,
-            fees_escenario=fees_escenario,
-            historia=historia,
         )
 
     def observado(

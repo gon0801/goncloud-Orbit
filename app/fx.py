@@ -38,6 +38,7 @@ from pathlib import Path
 import psycopg
 
 from app.db import connect
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -197,23 +198,7 @@ def plan_tasas(
     return tasas, skips
 
 
-def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
-
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
+_formato_skip_reason = formato_skip_reason
 
 # PK (rate_date, base, quote): conflicto = no-op REAL. Nunca UPDATE.
 _SQL_INSERTAR = """
@@ -234,7 +219,7 @@ def sync_fx(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
     huecos = detectar_huecos(tasas)
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE)
 
     insertadas = 0
     conflictos = 0
@@ -254,7 +239,7 @@ def sync_fx(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
                     skips["ya publicada (conflicto PK)"] += 1
 
             skip_reason = _formato_skip_reason(skips)
-            _sellar_run(
+            sellar_run(
                 conn,
                 run_id,
                 ok=True,
@@ -263,23 +248,7 @@ def sync_fx(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
                 skip_reason=skip_reason,
             )
     except BaseException as exc:
-        try:
-            with conn.transaction():
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=False,
-                    rows_written=0,
-                    rows_skipped=0,
-                    skip_reason=scrub(str(exc)) or type(exc).__name__,
-                )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo; "
-                "el error original de la corrida era: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        sellar_fallo_seguro(conn, run_id, exc)
         raise
 
     return ResultadoSync(
@@ -294,18 +263,6 @@ def sync_fx(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
         rango_max=max((t.rate_date for t in tasas), default=None),
         huecos_gt_3d=huecos,
     )
-
-
-def _sellar_run(
-    conn: psycopg.Connection,
-    run_id: int,
-    *,
-    ok: bool,
-    rows_written: int,
-    rows_skipped: int,
-    skip_reason: str | None,
-) -> None:
-    conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
 
 
 def main(argv: list[str] | None = None) -> int:

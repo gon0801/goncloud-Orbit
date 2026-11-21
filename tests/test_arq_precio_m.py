@@ -61,9 +61,10 @@ def _puts_por_archivo(raiz: Path) -> dict[str, list[int]]:
 
 
 def test_put_solo_en_write_client():
-    """M.4: `MeliWriteClient` es el unico PUT de app/ (tools/ trae
-    los puts legacy de ads: fabrica/reactiva, fuera del carril)."""
-    assert list(_puts_por_archivo(APP)) == ["meli/write_client.py"]
+    """M.4 + Fase 3.2: `MeliWriteClient` es el unico PUT de MeLi en app/
+    (`fabrica_motor.py` concentra el PUT de campanas Amazon SP v3 que
+    antes vivia en `tools/fabrica_campanas.py`, fuera del carril MeLi)."""
+    assert list(_puts_por_archivo(APP)) == ["fabrica_motor.py", "meli/write_client.py"]
 
 
 def test_candado_put_caza_fuga_sembrada(tmp_path):

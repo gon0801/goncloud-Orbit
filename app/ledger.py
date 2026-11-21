@@ -51,8 +51,9 @@ from typing import Any
 import psycopg
 
 from app.db import connect
-from app.ledger_atribucion import Atribuidor, atribuidor_amazon
-from app.meli.ledger import atribuidor_meli
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
+from app.ledger_atribucion import Atribuidor, AtribuidorAmazon, atribuidor_amazon
+from app.meli.ledger import AtribuidorMeli, atribuidor_meli
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -577,23 +578,7 @@ def _rows_skipped(skips: Counter) -> int:
     return sum(n for motivo, n in skips.items() if motivo != "venta_sin_atribuir")
 
 
-def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
-
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
+_formato_skip_reason = formato_skip_reason
 
 _COLS = (
     "platform, kind, event_date, order_id, product_id, quantity,"
@@ -806,14 +791,22 @@ def sync_ledger(
     origen = leer_origen(ruta_sqlite)
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE)
 
     insertadas = 0
     por_kind: Counter = Counter()
     eventos: list[EventoLedger] = []
     skips: Counter = Counter()
     huecos: Counter = Counter()
-    despacho = _ATRIBUIDORES if atribuidores is None else atribuidores
+    if atribuidores is None:
+        atr_amz = AtribuidorAmazon(conn)
+        despacho: Mapping[str, Atribuidor] = {
+            "amazon_mx": atr_amz,
+            "amazon_us": atr_amz,
+            "meli": AtribuidorMeli(conn),
+        }
+    else:
+        despacho = atribuidores
     try:
         with conn.transaction():
             listings = {
@@ -838,18 +831,23 @@ def sync_ledger(
                 else:
                     skips["conflicto dedupe"] += 1
             ventas = [ev for ev in eventos if ev.kind == "sale"]
-            skips.update(
-                _atribuir_ventas(
-                    conn,
-                    ventas,
-                    run_id=run_id,
-                    atribuidores=despacho,
-                )
+            tiene_tabla_atrib = atribuidores is not None or (
+                conn.execute("SELECT to_regclass('public.ledger_event_atribucion')").fetchone()[0]
+                is not None
             )
+            if tiene_tabla_atrib:
+                skips.update(
+                    _atribuir_ventas(
+                        conn,
+                        ventas,
+                        run_id=run_id,
+                        atribuidores=despacho,
+                    )
+                )
             reatribuidas = _reatribuir_ventas(conn, ventas, run_id=run_id)
 
             skip_reason = _formato_skip_reason(skips)
-            _sellar_run(
+            sellar_run(
                 conn,
                 run_id,
                 ok=True,
@@ -858,23 +856,7 @@ def sync_ledger(
                 skip_reason=skip_reason,
             )
     except BaseException as exc:
-        try:
-            with conn.transaction():
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=False,
-                    rows_written=0,
-                    rows_skipped=0,
-                    skip_reason=scrub(str(exc)) or type(exc).__name__,
-                )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo; "
-                "el error original de la corrida era: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        sellar_fallo_seguro(conn, run_id, exc)
         raise
 
     fechas = [ev.event_date for ev in eventos]
@@ -898,18 +880,6 @@ def sync_ledger(
         rango_min=min(fechas) if fechas else None,
         rango_max=max(fechas) if fechas else None,
     )
-
-
-def _sellar_run(
-    conn: psycopg.Connection,
-    run_id: int,
-    *,
-    ok: bool,
-    rows_written: int,
-    rows_skipped: int,
-    skip_reason: str | None,
-) -> None:
-    conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
 
 
 def main(argv: list[str] | None = None) -> int:
