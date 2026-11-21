@@ -40,6 +40,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
+from typing import Literal
 
 import psycopg
 from psycopg.types.json import Json
@@ -50,6 +51,7 @@ from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
 from app.optimizer import productos
 from app.optimizer import proteccion as subproteccion
+from app.optimizer import temporada as temporada_mod
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.cortes import LEGACY_NEGATIVE, NEGATIVE_COST_MIN
 from app.precio.config import MODOS as MODOS_PRECIO
@@ -394,6 +396,138 @@ def _exige_banda_manual(acos_pct: Decimal) -> None:
         raise SettingsInvalido(str(exc)) from None
 
 
+def _aplica_temporada(
+    nuevo: dict, cambios: list[str], edicion_temporada: Mapping | Literal["off"] | None
+) -> None:
+    """Rama TEMPORADA 01 A de proxima_config: el objeto `ads_temporada`
+    (global, como precio_modo_global). "off" quita la clave. La revision de
+    tipos crudos vive en temporada.valida: sus mensajes son los que ve el
+    operador (422), incluido el rechazo de true/false en campos de numero."""
+    if edicion_temporada is None:
+        return
+    if edicion_temporada == "off":
+        if temporada_mod.CLAVE_TEMPORADA in nuevo:
+            cambios.append(
+                f"temporadas de venta {nuevo.pop(temporada_mod.CLAVE_TEMPORADA)} -> ausente"
+            )
+        return
+    try:
+        config_t = temporada_mod.valida(edicion_temporada)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+    blob = temporada_mod.como_guardada(config_t)
+    if nuevo.get(temporada_mod.CLAVE_TEMPORADA) != blob:
+        cambios.append("temporadas de venta (calendario y parametros)")
+        nuevo[temporada_mod.CLAVE_TEMPORADA] = blob
+
+
+def _aplica_campana_topada(nuevo: dict, cambios: list[str], crudo: Mapping | None) -> None:
+    """Rama TEMPORADA 01 A: el criterio de campana topada (global; lo leen
+    el aviso de Telegram y «Donde poner el dinero» con el mismo lector)."""
+    if crudo is None:
+        return
+    try:
+        topada = temporada_mod.valida_campana_topada(crudo)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+    blob = temporada_mod.campana_topada_guardada(topada)
+    if nuevo.get(temporada_mod.CLAVE_CAMPANA_TOPADA) != blob:
+        cambios.append(
+            f"criterio de campana topada {_antes(nuevo.get(temporada_mod.CLAVE_CAMPANA_TOPADA))}"
+            f" -> {blob['pct']} % en {blob['dias']} de 7"
+        )
+        nuevo[temporada_mod.CLAVE_CAMPANA_TOPADA] = blob
+
+
+def _aplica_temporada_modo(
+    nuevo: dict, cambios: list[str], modos: Mapping[str, str] | None
+) -> None:
+    """Interruptor de temporada POR PLATAFORMA (None = no tocar): `off`
+    quita la clave, shadow y live la escriben. Encender sin meses guardados
+    lo rechaza la validacion final de la resultante (modo_desde_settings)."""
+    if modos is None:
+        return
+    for plataforma, modo in modos.items():
+        if plataforma not in temporada_mod.PLATAFORMAS_TEMPORADA:
+            raise SettingsInvalido(f"plataforma de temporada desconocida: {plataforma!r}")
+        clave = f"ads_temporada_{plataforma}"
+        if modo == "off":
+            if clave in nuevo:
+                cambios.append(f"temporada {plataforma} {nuevo.pop(clave)} -> ausente")
+        elif modo in temporada_mod.MODOS_MOTOR:
+            if nuevo.get(clave) != modo:
+                cambios.append(f"temporada {plataforma} {_antes(nuevo.get(clave))} -> {modo}")
+                nuevo[clave] = modo
+        else:
+            raise SettingsInvalido(
+                f"modo de temporada de {plataforma} debe ser off, shadow o live, llego {modo!r}"
+            )
+
+
+def _aplica_meta_alta(
+    nuevo: dict, cambios: list[str], metas: Mapping[str, str | int | Decimal] | None
+) -> None:
+    """Meta de ACoS de temporada alta por plataforma (global la pareja)."""
+    if metas is None:
+        return
+    for plataforma, crudo in metas.items():
+        if plataforma not in temporada_mod.PLATAFORMAS_TEMPORADA:
+            raise SettingsInvalido(f"plataforma de temporada desconocida: {plataforma!r}")
+        try:
+            valor = temporada_mod.valida_meta_alta(crudo)
+        except ValueError as exc:
+            raise SettingsInvalido(str(exc)) from None
+        clave = f"ads_temporada_meta_alta_{plataforma}"
+        texto = _texto(valor)
+        if nuevo.get(clave) != texto:
+            cambios.append(f"meta de alta {plataforma} {_antes(nuevo.get(clave))} -> {texto}")
+            nuevo[clave] = texto
+
+
+def _aplica_recuperacion(
+    nuevo: dict, cambios: list[str], platform: str, modo: str | None, memoria: int | None
+) -> None:
+    """Campos de subida rapida bajo «Motor de bids» (bloque A los guarda;
+    el motor que los lee llega con el bloque C, detras de
+    ads_bid_recuperacion_<plat>): `off` quita la clave, shadow y live la
+    escriben; la memoria del bid mas alto va de 90 a 730 dias."""
+    if modo is not None:
+        clave = f"ads_bid_recuperacion_{platform}"
+        if modo == "off":
+            if clave in nuevo:
+                cambios.append(f"subida rapida {nuevo.pop(clave)} -> ausente")
+        elif modo in temporada_mod.MODOS_MOTOR:
+            if nuevo.get(clave) != modo:
+                cambios.append(f"subida rapida {_antes(nuevo.get(clave))} -> {modo}")
+                nuevo[clave] = modo
+        else:
+            raise SettingsInvalido(f"la subida rapida debe ser off, shadow o live, llego {modo!r}")
+    if memoria is None:
+        return
+    clave = f"ads_bid_recuperacion_memoria_dias_{platform}"
+    try:
+        temporada_mod.memoria_recuperacion_desde_settings({clave: memoria}, platform)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+    if nuevo.get(clave) != memoria:
+        cambios.append(f"memoria del bid mas alto {_antes(nuevo.get(clave))} -> {memoria}")
+        nuevo[clave] = memoria
+
+
+def _valida_resultante_temporada(nuevo: Mapping) -> None:
+    """TEMPORADA 01 A: la resultante se relee con los lectores del motor
+    (temporada, criterio de campana y modos de LAS DOS plataformas, porque la
+    tarjeta es global). Aqui sale «Para encender la temporada primero guarda
+    los meses.» cuando el interruptor llega sin calendario guardado."""
+    temporada_mod.desde_settings(nuevo)
+    temporada_mod.campana_topada_desde_settings(nuevo)
+    for plataforma in temporada_mod.PLATAFORMAS_TEMPORADA:
+        temporada_mod.modo_desde_settings(nuevo, plataforma)
+        temporada_mod.meta_alta_desde_settings(nuevo, plataforma)
+        temporada_mod.modo_recuperacion_desde_settings(nuevo, plataforma)
+        temporada_mod.memoria_recuperacion_desde_settings(nuevo, plataforma)
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -415,6 +549,12 @@ def proxima_config(
     economia_producto: str | None = None,
     economia_cambio: str | None = None,
     enciende_pausa: bool = False,
+    temporada: Mapping | Literal["off"] | None = None,
+    campana_topada: Mapping | None = None,
+    temporada_modo: Mapping[str, str] | None = None,
+    meta_alta: Mapping[str, str | int | Decimal] | None = None,
+    recuperacion_modo: str | None = None,
+    recuperacion_memoria_dias: int | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -428,7 +568,13 @@ def proxima_config(
     universo se FUSIONA por llave (un POST parcial no borra los demas).
     Las selecciones ORBIT 07 (`proteccion_venta`, `economia_producto`,
     `economia_cambio`) usan `off` para quitar la clave; una edicion que no
-    cambia nada es invalida (una fila identica seria un rastro que miente)."""
+    cambia nada es invalida (una fila identica seria un rastro que miente).
+    TEMPORADA 01 A: la tarjeta «Temporadas de venta» es global (se guarda
+    igual desde cualquier plataforma) y trae `temporada`, `campana_topada`,
+    `temporada_modo` (par MX/US) y `meta_alta` (par MX/US); la subida rapida
+    (`recuperacion_modo`, `recuperacion_memoria_dias`) es por plataforma.
+    Los objetos llegan crudos (Any en CuerpoSettings) y los revisa
+    temporada.valida antes que nada: un booleano nunca llega como 0 o 1."""
     nuevo = dict(actual)
     cambios: list[str] = []
 
@@ -491,6 +637,11 @@ def proxima_config(
         economia_producto=economia_producto,
         economia_cambio=economia_cambio,
     )
+    _aplica_temporada(nuevo, cambios, temporada)
+    _aplica_campana_topada(nuevo, cambios, campana_topada)
+    _aplica_temporada_modo(nuevo, cambios, temporada_modo)
+    _aplica_meta_alta(nuevo, cambios, meta_alta)
+    _aplica_recuperacion(nuevo, cambios, platform, recuperacion_modo, recuperacion_memoria_dias)
 
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
@@ -518,6 +669,11 @@ def proxima_config(
         exige_limites_guardados(nuevo, platform)
         for kind in KINDS_QUOTA:
             cap_desde_settings(nuevo, platform, kind)
+        # TEMPORADA 01 A: la resultante se relee con los lectores del motor
+        # para LAS DOS plataformas (la tarjeta es global); aqui sale el
+        # «Para encender la temporada primero guarda los meses.» cuando el
+        # interruptor llega sin calendario guardado.
+        _valida_resultante_temporada(nuevo)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     # S.2: la resultante se valida con el vocabulario del motor de precios
@@ -575,4 +731,17 @@ def guarda_config(
     nuevo_id = conn.execute(_SQL_INSERTA, (label, Json(nuevo))).fetchone()[0]
     if confirma:
         conn.commit()
-    return {"config_version_id": nuevo_id, "created": True, "label": label}
+    salida = {"config_version_id": nuevo_id, "created": True, "label": label}
+    # TEMPORADA 01 A: cuando la edicion toca la temporada, la respuesta trae
+    # «Así queda tu año» (la misma resumen que la vista previa) y el mensaje
+    # verde que pega settings.js. SELECT de la cascada para la meta de hoy.
+    if any(
+        clave in edicion for clave in ("temporada", "campana_topada", "temporada_modo", "meta_alta")
+    ):
+        from app.api_dashboard import resumen_temporada_para_guardado
+
+        resumen_guardado = resumen_temporada_para_guardado(conn, fila[1], nuevo, ahora.date())
+        if resumen_guardado is not None:
+            salida["resumen_temporada"] = resumen_guardado.como_dict()
+            salida["mensaje"] = temporada_mod.mensaje_guardado(resumen_guardado)
+    return salida

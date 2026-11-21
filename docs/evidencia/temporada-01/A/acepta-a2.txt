@@ -1,0 +1,13 @@
+# Acepta A.2 (fila A.2 del plan) — SHA del head
+Comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests -k temporada01_a_
+Nota de esta PC (Windows): --ignore=tests/test_corrige_descripciones_pez.py porque ese modulo usa fcntl (solo Unix); fallo preexistente ajeno al bloque. --basetemp propio por permisos de pytest en Windows.
+
+```
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 5979 deselected, 1 warning in 5.57s
+```
+
+Re-ejecucion final en el SHA de entrega (tras lint):
+3 passed, 5979 deselected, 1 warning in 5.23s

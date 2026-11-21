@@ -354,6 +354,16 @@ def umbral_concluir(conn, plataforma: Plataforma) -> Decimal:
     return gasto_para_concluir_desde_settings(fila_settings[0] if fila_settings else {}, plataforma)
 
 
+def campana_topada_vigente(conn):
+    """Criterio de campana topada vigente (TEMPORADA 01 A, una sola
+    definicion: temporada.campana_topada_desde_settings). La usan el conteo
+    de dias al tope de esta pantalla y el reparto de avisos."""
+    from app.optimizer import temporada
+
+    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
+    return temporada.campana_topada_desde_settings(fila_settings[0] if fila_settings else {})
+
+
 def lee_ubicaciones(
     conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date
 ) -> tuple[FilaUbicacion, ...]:
@@ -394,11 +404,12 @@ def lee_campanas(
     """Campanas ENABLED del mercado con config vigente y gasto. El gasto
     medio es sobre dias con dato desde el primer dia con dato (dias sin
     dato no cuentan; sin ninguna metrica, None). Un dia cuenta al tope
-    si su gasto conocido es
-    90 % o mas del presupuesto vigente ese dia; dia sin gasto o sin
+    si su gasto conocido es el pct de ads_campana_topada (90 % por
+    defecto) o mas del presupuesto vigente ese dia; dia sin gasto o sin
     presupuesto no cuenta (la regla de "anterior a la primera
     observacion" se cumple por construccion: sin gasto no hay tope)."""
     campanas = conn.execute(_SQL_CAMPANAS, (plataforma,)).fetchall()
+    topada = campana_topada_vigente(conn)
     gasto = {
         (fila[0], fila[1]): fila[2]
         for fila in conn.execute(_SQL_GASTO_DIARIO, (plataforma, desde, hasta)).fetchall()
@@ -470,7 +481,7 @@ def lee_campanas(
                 if (
                     gasto_dia is not None
                     and presup_dia is not None
-                    and gasto_dia >= presup_dia * Decimal("0.9")
+                    and gasto_dia >= presup_dia * topada.pct
                 ):
                     al_tope += 1
         ajustes = tuple(

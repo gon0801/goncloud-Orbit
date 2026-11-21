@@ -45,6 +45,9 @@ def avisar_campanas(conn, hoy=None, *, solo=None):
                 pd.lee_campanas(conn, plataforma=plataforma, desde=desde, hasta=hasta),
                 plataforma=plataforma,
                 gasto_para_concluir=pd.umbral_concluir(conn, plataforma),
+                # TEMPORADA 01 A: el mismo criterio que conto los dias al
+                # tope (una sola definicion de ads_campana_topada).
+                topada=pd.campana_topada_vigente(conn),
             )
         except Exception as exc:
             logger.warning("campanas: lectura de %s fallida: %s", plataforma, scrub(str(exc)))

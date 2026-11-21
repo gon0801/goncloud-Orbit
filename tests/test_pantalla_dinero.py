@@ -95,6 +95,9 @@ def _lee(
             list(ubicaciones),
             list(settings_fila),
             list(campanas),
+            # TEMPORADA 01 A: lee_campanas lee ads_campana_topada (una sola
+            # definicion) justo despues del SELECT de campanas.
+            list(settings_fila),
             list(gasto_diario),
             list(fuera),
             list(configs_hist),

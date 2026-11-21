@@ -107,6 +107,20 @@ SQL47 = (Path(__file__).resolve().parent.parent / "migrations" / "0047_familias.
 SQL48 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0048_margen_familia.sql"
 ).read_text(encoding="utf-8")
+# TEMPORADA 01 A: /settings lee el equilibrio de la MISMA vista del ciclo
+# (0015+0016) con el margen vigente del bloque I (0086+0092).
+SQL15 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0015_target_margen_plataforma.sql"
+).read_text(encoding="utf-8")
+SQL16 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0016_target_margen_correcciones.sql"
+).read_text(encoding="utf-8")
+SQL86 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0086_arreglos02_cargos.sql"
+).read_text(encoding="utf-8")
+SQL92 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0092_temporada01_margen_vigente.sql"
+).read_text(encoding="utf-8")
 
 # ARREGLOS 01 J: la guarda de frescura de estructura lee el acta de listado
 # por plataforma (0051), no ad_entity_state.synced_at.
@@ -153,6 +167,13 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL46)  # 0046 (A5): snapshot target_acos_ciclo
         conn.execute(SQL47)  # 0047 (A5): membresia producto_familia
         conn.execute(SQL48)  # 0048 (A5): vista v_margen_familia
+        # TEMPORADA 01 A: /settings lee el equilibrio con el costo de hoy de
+        # la MISMA vista del ciclo; 0086 (v_ledger_cargo) y 0092 (margen
+        # vigente) van DESPUES de 0047 porque recrean vistas que la usan.
+        conn.execute(SQL15)  # 0015 (ORBIT 06): v_target_margen_plataforma
+        conn.execute(SQL16)  # 0016: correcciones del margen de plataforma
+        conn.execute(SQL86)  # ARREGLOS 02 D: v_ledger_cargo y vistas de margen
+        conn.execute(SQL92)  # TEMPORADA 01 I: margen vigente (costo de hoy)
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         dsn_lectura = make_conninfo(dsn, dbname=db)
         yield conn, dsn_lectura
