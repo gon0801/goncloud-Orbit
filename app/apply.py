@@ -495,18 +495,6 @@ def reconcilia_bids(
                 (decision_id,),
             ).fetchone()[0]
             if con_efecto_temporada:
-                print(
-                    "DEPURACION gate temporada: hoja", ad_entity_id, "queda pendiente; ancestros:",
-                    conn.execute(
-                        "SELECT sg.status, sc.status FROM ad_entity e"
-                        " JOIN ad_entity g ON g.id = CASE WHEN e.kind = 'ad_group'"
-                        " THEN e.id ELSE e.parent_id END"
-                        " LEFT JOIN ad_entity_state sg ON sg.ad_entity_id = g.id"
-                        " LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = g.parent_id"
-                        " WHERE e.id = %s",
-                        (ad_entity_id,),
-                    ).fetchall()
-                )
                 fallidas += 1
                 continue
             with tx_durable(conn):
@@ -554,10 +542,6 @@ def reconcilia_bids(
             # el PUT.
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
-            print(
-                "DEPURACION reconcilia GET (sin sello):", type(exc).__name__,
-                scrub(str(exc)),
-            )
             fallidas += 1
             continue
         if bid_leido == Decimal(_bid_payload(new_value)):
