@@ -307,14 +307,9 @@ MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
 # pausar.
 MOTIVO_PAUSA_PRODUCTO_PENDIENTE = "pausa_producto_pendiente"
 
-# Modo tope del goal para el envelope del ciclo: la escalera global es el
-# techo, y el modo por goal solo puede BAJARLO (goal 'off' deja entidades
-# fuera, no sube el ciclo). Para toda entidad que decide, el modo efectivo
-# coincide con el del envelope. El RESIDUAL PR2 (hallazgo reviewer 3.1) ya
-# esta RESUELTO desde 2.4: con la escalera 'live' y un goal 'shadow' el
-# envelope dice 'live' y las decisiones llevan inputs.modo 'live' — y el
-# aplicador JAMAS filtra por inputs.modo/cycle.mode: re-resuelve goal.mode
-# POR DECISION (Aplicador.modo_efectivo, sellado 2.1).
+# Modo tope para el envelope del ciclo: la escalera global es el techo y el
+# modo por goal solo puede bajarlo. El aplicador no filtra por el modo del
+# envelope ni por inputs.modo: re-resuelve goal.mode por decision.
 _MODO_TOPE_ENVELOPE = "live"
 
 # JSON con Decimals como STRING (regla 4), fechas ISO y ASCII libre.
@@ -356,10 +351,6 @@ class ResultadoCiclo:
     decisions_count: int
     notes: str
 
-
-# ---------------------------------------------------------------------------
-# SQL del modulo (parsea el test de sintaxis con pglast)
-# ---------------------------------------------------------------------------
 
 # Claim ATOMICO en UNA sentencia (el COMMENT de ads_optimizer_lock sella el
 # patron; la expiracion vive en el WHERE, jamas SELECT-luego-INSERT). Sin fila
@@ -431,10 +422,8 @@ _SQL_APPLIED_COUNT_CICLO = """
 UPDATE optimizer_cycle SET applied_count = %s WHERE id = %s
 """
 
-# Guard status='running' (ADV-09, review adversaria): mismo candado que el
-# cierre y el sello de apply — el rastro del sucesor puede haber cerrado YA el
-# envelope del zombie en 'failed' con su nota; el sello del zombie NO pisa esa
-# evidencia (la nota del rastro es el unico indicio de que hubo dos procesos).
+# Solo sella si sigue en 'running': el rastro de un sucesor puede haber cerrado
+# ya el envelope del zombie en 'failed' y esa nota no debe pisarse.
 _SQL_SELLAR_FALLIDO = """
 UPDATE optimizer_cycle
    SET status = 'failed', finished_at = now(), notes = %s
@@ -474,13 +463,8 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
  WHERE platform = %s::platform OR ad_entity_id = ANY(%s::bigint[])
 """
 
-# Entidades decisoras (keyword/product_target) con SU campaña (por el ad
-# group) y SU state: bid actual+moneda, status y cache de target.
-# CORTES 01 (1.2): k.parent_id AS ad_group_id -- LITERAL con el alias k.
-# calificado: en esta query ag.parent_id YA existe como campaign_id, y un
-# parent_id desnudo seria ambiguo o, peor, mapearia la CAMPAÑA como grupo
-# del termino y toda la evidencia caeria a fallback en silencio (ronda 2
-# qwen). El freeze del motor de bids (1.3) consume esta columna.
+# Entidades decisoras con su ad group, campana y state. k.parent_id va
+# calificado para no confundirse con ag.parent_id (campaign_id).
 _SQL_DECISORAS = """
 SELECT k.id, k.parent_id AS ad_group_id, ag.parent_id AS campaign_id,
        s.current_bid, s.bid_currency, s.status, s.acos_target,
@@ -577,19 +561,11 @@ SELECT DISTINCT ON (t.ad_entity_id) t.ad_entity_id, t.target_acos_pct, t.procede
  ORDER BY t.ad_entity_id, c.id DESC
 """
 
-# Ad revenue de la ventana del margen (A7, D-2.3.15): SUM sobre
-# v_metric_latest al grano keyword+product_target (el mismo grano
-# anti-duplicado de v_tacos: las filas campaign repiten el dinero) con los
-# bounds DE LA FILA de la vista, nunca recalculados. Sin filas -> NULL
-# (regla 3: el ratio no se inventa).
-# Revision del PR #147 (CodeRabbit Major): el ratio ad_revenue/venta_total
-# es un MEDIDOR del supuesto A7 y sus dos puntas venian de fuentes con
-# MONEDA DISTINTA -- las metricas de amazon_us estan en USD y su ledger en
-# MXN (medido 2026-09-04: 29,236 USD contra 394,406 MXN), asi que el ratio
-# salia ~18x mal. Se devuelve tambien la moneda de las metricas: el lector
-# solo publica el ratio cuando coincide con la del ledger (regla 4: dinero
-# con su moneda, jamas mezclado; convertir aqui exigiria FX y este numero
-# es de vigilancia, no de decision).
+# Ad revenue de la ventana del margen al grano keyword+product_target (las filas
+# campaign repiten el dinero), usando los bounds de la vista. Devuelve tambien
+# la moneda porque las metricas y el ledger pueden estar en distinta divisa
+# (ej. amazon_us en USD vs ledger en MXN): el lector solo publica el ratio si
+# ambas monedas coinciden.
 _SQL_AD_REVENUE_VENTANA = """
 SELECT SUM(m.ad_revenue), COUNT(DISTINCT m.metric_currency), MAX(m.metric_currency::text)
   FROM v_metric_latest m
@@ -672,11 +648,6 @@ INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,
 VALUES (%s, %s, %s, %s, %s)
 ON CONFLICT (cycle_id, ad_entity_id) DO NOTHING
 """
-
-
-# ---------------------------------------------------------------------------
-# Estructuras internas
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -846,11 +817,6 @@ class _Lecturas:
 
     pendientes: list[_Pendiente]
     guarda: windows.MotivoSkip | None
-
-
-# ---------------------------------------------------------------------------
-# Serializacion congelada (regla 4: Decimal como STRING; fechas ISO)
-# ---------------------------------------------------------------------------
 
 
 def _dec_str(valor: Decimal | None) -> str | None:
@@ -1345,11 +1311,6 @@ def _notas_json(
     )
 
 
-# ---------------------------------------------------------------------------
-# Heartbeat (conexion corta aparte; stance fail-open DECLARADA)
-# ---------------------------------------------------------------------------
-
-
 def _abre_heartbeat(conn: psycopg.Connection) -> psycopg.Connection | None:
     """Conexion corta para latidos durante TX2 (la principal sostiene un
     snapshot REPEATABLE READ: escribir el lock ahi romperia la lectura pura).
@@ -1439,11 +1400,6 @@ def _aplicador_real(
     )
 
 
-# ---------------------------------------------------------------------------
-# Fases de TX1
-# ---------------------------------------------------------------------------
-
-
 def _config_reciente(conn: psycopg.Connection) -> tuple[int | None, dict]:
     fila = conn.execute(_SQL_CONFIG_RECIENTE).fetchone()
     if fila is None:
@@ -1464,11 +1420,6 @@ def _cierra_rastro(
 ) -> list[int]:
     filas = conn.execute(_SQL_RASTRO, (owner, platform, ciclo_nuevo)).fetchall()
     return [fila[0] for fila in filas]
-
-
-# ---------------------------------------------------------------------------
-# Fase de escrituras (TX3)
-# ---------------------------------------------------------------------------
 
 
 def _inserta_decisiones(
@@ -1640,11 +1591,6 @@ def _libera_lock(hb, conn: psycopg.Connection, job_key: str, owner: str) -> None
                 conn.execute(_SQL_LIBERAR_LOCK, (job_key, owner))
     except psycopg.Error as exc:
         logger.warning("liberacion del lock fallo (TTL es el backstop): %s", scrub(str(exc)))
-
-
-# ---------------------------------------------------------------------------
-# Fase de lecturas (TX2, REPEATABLE READ, CERO escrituras)
-# ---------------------------------------------------------------------------
 
 
 def lee_goals(
@@ -2965,11 +2911,9 @@ def _resuelve_target_ciclo(
         "procedencia": procedencia,
         "paso_politica": g.PASO_POLITICA,
         "motivo_abstencion": res.motivo,
-        # Cross-review kimi H1 / grok H2: con datos invalidos y ancla previa
-        # el peldano CONVERGE al setting a <=0.5/ciclo en vez de saltar. El
-        # valor sigue gobernando (aplicado no es None) pero ya no lo manda el
-        # margen: se declara aqui y el scan de `ultimo` NO lo toma como ancla
-        # de margen (procedencia None).
+        # Con datos invalidos y ancla previa el target converge al setting
+        # gradualmente; sigue gobernando pero con procedencia None para que el
+        # scan de ultimo no lo tome como ancla de margen.
         "convergiendo_a_setting": res.convergiendo,
         "margen_neto_pct": _dec_str(medicion.margen_neto_pct),
         "fraccion": _dec_str(fraccion),
@@ -3290,12 +3234,8 @@ def _recorre_plataforma(
     # CORTES 01 (1.2/1.3): evidencia por ad group, UNA consulta por
     # plataforma DENTRO de TX2 junto a las demas lecturas (mismo snapshot
     # REPEATABLE READ; spec: una ventana, una elegibilidad, un multiplicador).
-    # Cache lazy de la resolucion pause POR GRUPO (hallazgo codex+kimi,
-    # cross-review 1.3): el spec sella "por ad group, una vez por ciclo" --
-    # la primera entidad decisora del grupo resuelve, las demas reusan el
-    # MISMO UmbralResuelto (la funcion es pura, pero la letra del contrato
-    # y la simetria con negative -- una vez por grupo en _procesa_grupo --
-    # exigen no recalcular por entidad).
+    # Cache por ad group para resolver el umbral de pause una sola vez por grupo
+    # en el ciclo, en simetria con negative.
     corte_pause_por_grupo: dict[
         int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]
     ] = {}
@@ -3341,10 +3281,8 @@ def _recorre_plataforma(
         evidencia_ad_groups=evidencia_ad_groups,
         bloqueadas=bloqueadas,
         margen_plataforma=target_ciclo.margen,
-        # Ronda 2 CR-2312: las notas de TODAS las familias viven en
-        # notes.target (ahi las lee la web); copiarlas al inputs de cada
-        # decision con procedencia margen_plataforma multiplica el JSON por
-        # familias x decisiones. Se filtran aqui, no en notes.
+        # Las notas de familias viven solo en notes.target para no multiplicar
+        # su JSON en el inputs de cada decision.
         snapshot_margen={k: v for k, v in target_ciclo.snapshot.items() if k != "familias"},
         familias_ciclo=familias_ciclo,
     )
@@ -3419,11 +3357,6 @@ def _fase_lecturas(
             cycle_id=cycle_id,
         )
         return (None, target_ciclo, _saltos_previos(conn, platform, cycle_id))
-
-
-# ---------------------------------------------------------------------------
-# Fase de apply (2.4): TX4 + apply propio, DENTRO del lock
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -3513,7 +3446,7 @@ def _fase_apply(
             tick=guard,
         )
     try:
-        with conn.transaction():  # TX4 REAL (ADV-01): entra desde IDLE, commitea
+        with conn.transaction():  # TX4 real: entra desde IDLE y commitea
             resumen = apply_cola.encola_cortes(
                 conn, aplicador, cycle_id, modo_envelope=modo.modo, ahora=decided_at
             )
@@ -3544,8 +3477,6 @@ def _fase_apply(
             caps_saturados += res_cola.caps_saturados
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)
-            # GK10/QW4 (cross-review): la divergencia de readback es observable
-            # en notes['apply'] (la mutacion salio y Amazon quedo con OTRO bid).
             notas["bids_divergentes"] = res_bids.divergencias
             notas["bids_reconciliados"] = {
                 "confirmados": rec_bids[0],
@@ -3580,14 +3511,14 @@ def _fase_apply(
             )
             with conn.transaction():
                 conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))
-        conn.commit()  # ADV-01: la fase deja la conexion IDLE (sello real)
+        conn.commit()  # deja la conexion IDLE para que el sello siguiente commitee
     except ApplyAbortado as exc:
-        conn.rollback()  # ADV-01: IDLE para que el sello de apply commitee
+        conn.rollback()  # deja la conexion IDLE para que el sello commitee
         notas["apply_abortado_owner"] = True
         fallo = True
         logger.warning("fase de apply abortada (lease perdido): %s", scrub(str(exc)))
     except Exception as exc:
-        conn.rollback()  # ADV-01: lo pre-HTTP ya es durable (commits del ledger)
+        conn.rollback()  # lo pre-HTTP ya quedo commitado en el ledger
         notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
         fallo = True
         logger.warning("fase de apply abortada por error: %s", scrub(str(exc)))
@@ -3599,11 +3530,6 @@ def _fase_apply(
         caps_saturados=tuple(caps_saturados),
         avisos_destino=avisos_destino,
     )
-
-
-# ---------------------------------------------------------------------------
-# Orquestacion de fases tras TX1
-# ---------------------------------------------------------------------------
 
 
 def _fase_notifica(
@@ -3694,8 +3620,7 @@ def _fase_notifica(
                 )
             _latido()
     except Exception as exc:
-        # ADV-3 (adversary): el except TAMBIEN acumula, jamas pisa la NOTA
-        # ya armada con los detalles de los avisos que fallaron antes.
+        # Acumula en lugar de pisar los avisos fallidos previos.
         detalle = "fallo: el aviso de cap agotado no salio (ver log)"
         notas["cap_agotado"] = (
             f"{notas['cap_agotado']} | {detalle}" if "cap_agotado" in notas else detalle
@@ -3729,11 +3654,8 @@ def _fase_notifica(
         if not notifica.notifica_digest(resumen):
             notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
         elif emitir and target is not None:
-            # Revision del PR #147 (CodeRabbit Major): el ancla del acumulado
-            # avanza SOLO si el digest se envio de verdad. Avanzarla antes
-            # perdia el aviso: con el digest caido (fail-silent, sellado 3.3)
-            # el ciclo siguiente ya no veria el punto acumulado y el drift
-            # del target quedaria mudo justo cuando nadie lo esta viendo.
+            # El ancla avanza solo tras envio exitoso para no perder el aviso
+            # acumulado si el digest falla.
             target["ultimo_avisado"] = nuevo_ancla
         _latido()
     except Exception as exc:
@@ -3930,11 +3852,6 @@ def _corre_fases(
     return ResultadoCiclo(cycle_id, status, len(pendientes), notas)
 
 
-# ---------------------------------------------------------------------------
-# API publica
-# ---------------------------------------------------------------------------
-
-
 def corre_ciclo(
     conn: psycopg.Connection,
     *,
@@ -3969,7 +3886,7 @@ def corre_ciclo(
     conn.commit()  # no-op en IDLE: el modulo empieza desde estado limpio
     hb = _abre_heartbeat(conn)
     cycle_id: int | None = None
-    gano = False  # quien NUNCA gano el claim no libera NADA (hallazgo CodeRabbit)
+    gano = False
     contadores = _Contadores()
     muertos: list[int] = []
     try:
@@ -4002,11 +3919,8 @@ def corre_ciclo(
             _sello_fallido(conn, cycle_id, exc, contadores, muertos)
         raise
     finally:
-        # Solo libera quien GANO el claim: con owners iguales entre procesos
-        # (owner fijo de config, o hostname:pid repetido entre contenedores),
-        # el perdedor de CicloOcupado borraria el lock del ganador y dejaria
-        # dos ciclos escribiendo en paralelo (hallazgo CodeRabbit major). El
-        # WHERE owner ya cubria al sucesor; esto cubre al "nunca lo tuve".
+        # Solo libera quien gano el claim: si dos procesos comparten owner,
+        # el perdedor de CicloOcupado borraria el lock del ganador.
         if gano:
             _libera_lock(hb, conn, job_key, owner)
         if hb is not None:

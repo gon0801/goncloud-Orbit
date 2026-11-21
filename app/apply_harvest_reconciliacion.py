@@ -42,10 +42,6 @@ if TYPE_CHECKING:
     from app.apply import Aplicador, CapSaturado
     from app.apply_cola import FilaCola
 
-# ---------------------------------------------------------------------------
-# SQL exclusivo de revalidacion y reconciliacion (movido de apply_harvest
-# en A.3a sin reescribir: los comentarios que lo documentan viajan con el)
-# ---------------------------------------------------------------------------
 
 _SQL_JOBS_EN_VUELO = """
 SELECT id, decision_id, search_term, ad_entity_id, fase, external_ids, platform::text
@@ -74,10 +70,8 @@ SELECT id, ad_entity_id, search_term, decision_id
  ORDER BY id
 """
 
-# GK4 (cross-review del dueno): red de seguridad — filas apply_queue applying
-# de kind harvest SIN job en vuelo que las conduzca (p.ej. un cierre de job
-# que dejo la cola viva). Sin este barrido la clave term_cut quedaria
-# bloqueada para siempre (applying eterno, no terminal).
+# Red de seguridad: filas applying de harvest sin job en vuelo que las conduzca
+# (sin este barrido, la clave term_cut quedaria bloqueada indefinidamente).
 _SQL_HARVEST_APLICANDO = """
 SELECT id, decision_id
   FROM apply_queue
@@ -93,10 +87,8 @@ SELECT EXISTS (
 )
 """
 
-# ADV-03 (review adversaria, matriz §6.1 fila faltante): pausas applying
-# huerfanas (fallo ambiguo 5xx/red en el PUT). Espejos de apply_cola (el
-# ciclo de imports apply_cola -> apply_harvest obliga a NO importarlo):
-# seleccion, lectura del estado del readback, gracia y cache.
+# Pausas applying huerfanas tras fallo ambiguo en PUT; SQL duplicado de
+# apply_cola para evitar import circular apply_cola -> apply_harvest.
 _SQL_PAUSES_APLICANDO = """
 SELECT id, ad_entity_id, decision_id
   FROM apply_queue
@@ -121,8 +113,8 @@ _SQL_CACHE_ESTADO = """
 UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
 """
 
-# ADV-05: piso y techo solo completan la firma de la re-decision. El target
-# del harvest sale de la decision original, nunca de una constante.
+# Piso y techo solo completan la firma de re-decision; el target sale siempre
+# de la decision original.
 _FLOOR_REVALIDA = Decimal("0.01")
 _CEILING_REVALIDA = Decimal("10000")
 
@@ -283,9 +275,6 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             cliente = aplicador._cliente()
         _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
         try:
-            # CX1/QW1: el LIST PAGINA — la entidad puede vivir en la pagina
-            # 2+ y leer solo la primera la daba por ausente (estado ilegible,
-            # fila applying eterna).
             estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
         except (AdsApiError, AdsAuthError):
             continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
@@ -309,11 +298,6 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             fallidas += 1
         # Otro estado (ARCHIVED/ilegible): ambiguo, proximo ciclo.
     return (confirmadas, fallidas)
-
-
-# ---------------------------------------------------------------------------
-# Reconciliacion al inicio del ciclo (sellado 13; matriz §6.1)
-# ---------------------------------------------------------------------------
 
 
 def _cola_de(conn: psycopg.Connection, decision_id: int) -> tuple[int | None, str | None]:
@@ -350,11 +334,8 @@ def _aprende_negative(
     return rastro, grupo[0]
 
 
-# PLR0915 (81 > 80): la matriz es coherente y cada rama que confirma
-# `applied` necesita su hook de biblioteca (identidad + reintento, A.4r1
-# por hallazgo de CodeRabbit). `noqa` con razon, como pide la regla
-# anti-Goodhart de `pyproject.toml`, en vez de partir la funcion o
-# contorsionar vecinos solo por el numero.
+# PLR0915: la matriz de reconciliacion de negativas es coherente en un solo
+# flujo (identidad, senuelo, reintento y registro en biblioteca al confirmar).
 def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
     conn: psycopg.Connection,
     aplicador,
@@ -432,10 +413,7 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
             _ejecucion._termina_cola(conn, q_id, "failed")
             fallidas += 1
             continue
-        # El tope cuenta SOLO intentos 'normal' (CX1/GK1, apply._SQL_COUNT_INTENTOS):
-        # las reversas son el mecanismo de seguridad y jamas consumen
-        # presupuesto de intentos (bug PR27-2: el count(*) crudo cerraba en
-        # tope_intentos con 2 normales + 1 reversa).
+        # Solo cuentan intentos 'normal': las reversas no consumen reintentos.
         total = conn.execute(apply._SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
         if total >= apply.TOPE_INTENTOS:
             _ejecucion._sella_pendientes(conn, decision_id, "fallo:tope_intentos")
@@ -472,9 +450,8 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
         errores = _ejecucion._errores_de_ack(ack)
         neg_id = _ejecucion._id_de_ack(ack, "negativeKeywordId")
         if errores or neg_id is None:
-            # CX2 de la cross-review: el 207 NO es exito automatico — la fila
-            # rechazada viaja en error[] (fallo CON el cuerpo) y un ack sin id
-            # no es evidencia del corte (GK2: fail-closed).
+            # Un 207 puede traer rechazos en error[], y un ack sin id no prueba
+            # la creacion del negativo (fail-closed).
             resultado = (
                 f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
             )
@@ -488,10 +465,6 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
             _ejecucion._sella_pendientes(conn, decision_id, "ok:reconciliado")
             apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
             _ejecucion._termina_cola(conn, q_id, "applied")
-            # A.4r1 (CodeRabbit): el reintento CONFIRMADO tambien aprende
-            # (spec, decision 5: todo negative aplicado en campana de
-            # grupo); solo las ramas que no confirman (senuelo, tope,
-            # ack_sin_id, ack_con_error, ancestro) no escriben.
             rastro_bib, grupo_bib = _aprende_negative(conn, entidad, term, decision_id, platform)
         biblioteca.avisa_si_fallo(
             "negative",

@@ -64,7 +64,6 @@ install_scrub_filter(logger)
 SOURCE_MELI = "reputacion_meli"
 
 # Escritura en Orbit (rol de ingesta), patron de app/disponibilidad.py
-# ---------------------------------------------------------------------------
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -416,18 +415,11 @@ def _abrir_run(conn: psycopg.Connection, source: str) -> int:
 
 
 def _sellar(conn: psycopg.Connection, run_id: int, ins: int, skips: Counter, ok: bool) -> None:
-    # Grok XR-1 R2-5: el sello failed conserva los skips acumulados
-    # (antes Counter() vacio: la corrida fallida perdia su detalle).
     motivo = _formato_skips(skips) if ok else "fallo la corrida"
     if not ok and skips:
         motivo += ": " + _formato_skips(skips)
     with conn.transaction():
         conn.execute(_SQL_SELLAR_RUN, (ins, sum(skips.values()), motivo, ok, run_id))
-
-
-# ---------------------------------------------------------------------------
-# Entrada CLI (envoltorio delgado en app/cli.py)
-# ---------------------------------------------------------------------------
 
 
 def ejecuta_snapshot(

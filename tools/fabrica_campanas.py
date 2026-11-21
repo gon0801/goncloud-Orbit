@@ -75,7 +75,6 @@ from app.redaction import install_scrub_filter, register_secret, scrub
 
 install_scrub_filter(logging.getLogger())
 
-# --- SQL de plan (ORBIT_DSN_READ) ------------------------------------------
 # Primer parametro CASTEADO (%s::platform): sin el cast Postgres no infiere el
 # tipo (IndeterminateDatatype, leccion de archiva_inertes).
 _SQL_SETTINGS = "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
@@ -327,7 +326,7 @@ UPDATE fabrica_lote_paso
    SET estado = 'applied', ack = %s::jsonb, readback_estado = %s
  WHERE id = %s AND estado IN ('planeado', 'failed')
 """
-# D-CODEX-177-F4: Amazon pudo crear ante cualquier respuesta de la clase 5xx.
+# Ante cualquier 5xx, Amazon Ads pudo haber creado el recurso antes de responder.
 _HTTP_INCERTO = range(500, 600)
 
 
@@ -339,9 +338,6 @@ def _cierra(*recursos: Any) -> None:
             continue
         with contextlib.suppress(Exception):
             closer()
-
-
-# --- lecturas ----------------------------------------------------------------
 
 
 def _fraccion(conn: psycopg.Connection, platform: str) -> Decimal:
@@ -548,11 +544,8 @@ def _datos_plan_v2(args, conn_read, tipo: str):
             target = _decimal(args.target_acos, "--target-acos")
         except (InvalidOperation, TypeError):
             raise Abortar("--target-acos invalido") from None
-        # F2 AI-review PR #381: banda y forma se validan AQUI (unico
-        # sitio de alta manual: CLI, preview, crear y bids-sugeridos), no
-        # solo en _valida_plan_v2 (que sugerir_bids nunca pisa).
-        # PlanInvalido ya lo traducen _arma_plan (Abortar) y sugerir_bids
-        # (422).
+        # Banda y forma se validan aqui porque es el unico punto de alta manual
+        # compartido por CLI, preview, crear y sugerir_bids.
         fp.valida_banda_manual(target)
         fp.valida_forma_objetivo(target)
         objetivo = fp.ObjetivoPlanV2(origen, target, "manual_lanzamiento confirmado")

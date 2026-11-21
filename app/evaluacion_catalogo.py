@@ -167,9 +167,8 @@ def evaluar_ads(
 
     en_ventana = list(colapsa_por_fecha(en_ventana).values())
 
-    # Madurez POR FECHA con la observacion colapsada de cada fecha (§2): la
-    # fecha observada solo en D+1 no madura porque otra fecha se observara
-    # >= D+30 (hallazgo cross-review: el maximo global mentia).
+    # Madurez por fecha sobre la observacion colapsada: una fecha observada en
+    # D+1 no madura porque otra fecha de la ventana tenga observed_at >= D+30.
     maduro = all(fecha_madura(f.metric_date, f.observed_at) for f in en_ventana)
 
     cost = suma_con_veneno(f.cost for f in en_ventana)

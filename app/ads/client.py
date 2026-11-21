@@ -179,10 +179,6 @@ class AdsClient:
         self._access_token: str | None = None
         self._token_expires_at: float | None = None  # timestamp en la escala de `clock`
 
-    # ------------------------------------------------------------------
-    # Superficie publica exacta: cada POST tiene un proposito acotado.
-    # ------------------------------------------------------------------
-
     def get(
         self,
         path: str,
@@ -256,10 +252,6 @@ class AdsClient:
     def _require_https(url: str) -> None:
         if not url.lower().startswith("https://"):
             raise AdsApiError(f"descarga no-https rechazada: GET {redact_url(url)}")
-
-    # ------------------------------------------------------------------
-    # Guard read-only central + despacho autenticado
-    # ------------------------------------------------------------------
 
     def _request(
         self,
@@ -355,10 +347,6 @@ class AdsClient:
                 headers["Accept"] = vendor
         return headers
 
-    # ------------------------------------------------------------------
-    # Retries: 429/5xx/errores de red, backoff exponencial + jitter
-    # ------------------------------------------------------------------
-
     def _send_with_retries(
         self,
         method: str,
@@ -449,10 +437,6 @@ class AdsClient:
                 return parsed
         return self._backoff_delay(attempt)
 
-    # ------------------------------------------------------------------
-    # LWA: refresh por proceso, cacheado con margen de 60s
-    # ------------------------------------------------------------------
-
     def _ensure_token(self, *, force: bool = False) -> str:
         now = self._clock()
         if (
@@ -474,13 +458,9 @@ class AdsClient:
             "client_id": self._credentials.client_id,
             "client_secret": self._credentials.client_secret,
         }
-        # El refresh LWA ES idempotente (el refresh_token no rota), asi que
-        # merece la misma politica de retries que el resto: un 429/5xx o un
-        # fallo de red transitorio del token endpoint no debe abortar la
-        # ingesta entera (hallazgo cross-review). `AdsApiError` (retries
-        # agotados) se convierte a `AdsAuthError` SIN encadenar: el error
-        # original ya esta redactado, pero el contrato del modulo es que los
-        # fallos de auth salen como AdsAuthError con mensaje minimo.
+        # El refresh LWA es idempotente (el refresh_token no rota) y usa los
+        # mismos reintentos que el resto; AdsApiError se convierte a
+        # AdsAuthError sin encadenar para exponer solo un mensaje minimo.
         error: AdsAuthError | None = None
         resp: httpx.Response | None = None
         try:

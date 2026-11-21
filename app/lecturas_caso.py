@@ -55,8 +55,8 @@ from app.optimizer.goals import COOLDOWN
 from app.optimizer.windows import DIAS_FRESCURA_BIDS, AgregadoMetricas
 
 DIAS_EFECTO = COOLDOWN.days  # pre7/post7 de EfectoCambio
-DIAS_PRECIO_DESDE = 33  # PrecioVentana cubre D-33..D-3 (docstring de caso, exporta M.1)
-DIAS_INMADUROS_DESDE = 9  # pedidos inmaduros cubren D-9..D-1 (docstring, exporta M.1)
+DIAS_PRECIO_DESDE = 33  # PrecioVentana cubre D-33..D-3
+DIAS_INMADUROS_DESDE = 9  # pedidos inmaduros cubren D-9..D-1
 DIAS_INMADUROS_HASTA = 1
 DIAS_PRECIO_PREVIO = 30  # tramo de precio anterior al cambio
 
@@ -65,12 +65,6 @@ class Conexion(Protocol):
     def execute(self, sql: str, params: tuple = ()) -> Any: ...
 
 
-# Tramos por hoja en UNA consulta con FILTER por tramo (sustituye a
-# _SQL_CONVERSION_GRANO): sumas con veneno por metrica (NULL o negativo
-# anula solo ESA metrica), conteo de filas por tramo, sello maximo y las
-# fechas con fila (de ahi sale el calendario de ingesta). La ventana de
-# fechas leida (D-180..D-1) cubre tramos, precio, inmaduros y todos los
-# rangos del efecto (el mas hondo es el precio previo: x-30 con x >= D-90).
 _SQL_TRAMOS = """
 SELECT v.ad_entity_id,
        count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
@@ -116,7 +110,6 @@ SELECT v.ad_entity_id,
  GROUP BY v.ad_entity_id
 """
 
-# Precio (D-33..D-3) y pedidos inmaduros (D-9..D-1) por hoja, misma forma.
 _SQL_PRECIO = """
 SELECT v.ad_entity_id,
        count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
@@ -140,14 +133,10 @@ SELECT v.ad_entity_id,
  GROUP BY v.ad_entity_id
 """
 
-# Hojas activas de la plataforma (el roll-up suma solo estas). La campana se
-# usa para relacionar los eventos de configuracion con su hoja (M5).
 _SQL_HOJAS = """
 SELECT hoja_id, ad_group_id, campana_id FROM v_hoja_activa WHERE platform = %s
 """
 
-# Cambios de bid de 90 dias de toda la plataforma, ascendentes por hoja
-# (el orden lo fija el SQL: la derivacion del regreso lo exige).
 _SQL_CAMBIOS = """
 SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen, d.new_value
   FROM v_cambio_bid c
@@ -158,10 +147,6 @@ SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen, d.new_v
  ORDER BY c.hoja_id, c.confirmado_el, c.decision_id
 """
 
-# Efecto del ULTIMO cambio de UNA hoja (camino historico, regla apagada): una
-# fila con conteo y sumas por lado del cambio (pre7, trafico post, precio
-# post, precio previo, pedidos de cortes). Se conserva byte a byte el camino
-# de la base para que apagar M5/M6 no pague columnas que no usa.
 _SQL_EFECTO = """
 SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
        CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
@@ -198,10 +183,6 @@ SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
    AND v.metric_date BETWEEN %s AND %s
 """
 
-# ORBIT 07 M5 (regla encendida): el mismo efecto mas las dos ventanas
-# economicas de siete fechas SIN el dia del cambio: [x-7, x-1] y [x+1, x+7].
-# Las ventanas de trafico y precio conservan sus rangos historicos; las
-# economicas son campos aparte para no cambiar R1/R15/R16 ni _precio_de_hoy.
 _SQL_EFECTO_ECONOMIA = """
 SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
        CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
@@ -270,13 +251,6 @@ SELECT count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
    AND v.metric_date BETWEEN %s AND %s
 """
 
-# ORBIT 07 M5: eventos que invalidan la comparacion de una ventana. Solo se
-# leen cuando la regla economica esta encendida, en lote por plataforma y con
-# el corte bitemporal (visto_el) de la lectura. ads_campana_config_observation
-# solo inserta filas cuando la config cambio (guarda_config); campana_ajuste
-# solo trae ajustes confirmados; precio_cambio se ata al ad group por sus
-# product ads (listing); un product_ad con first_seen_at nuevo cambia el
-# alcance del grupo.
 _SQL_EVENTOS_CAMPANA = """
 SELECT o.ad_entity_id, o.observed_at
   FROM ads_campana_config_observation o
@@ -314,15 +288,7 @@ SELECT a.parent_id, a.first_seen_at
    AND a.first_seen_at >= %s AND a.first_seen_at <= %s
 """
 
-# ARREGLOS 01 T (unidad AD-U6a, C-H1): quinta fuente de invalidacion. Un
-# negative o un harvest aplicado en el MISMO ad group cambia el alcance del
-# grupo y contamina [x-7, x+7]; el harvest crea ademas un negative EXACT en el
-# origen. Se lee en el mismo lote de eventos por ad group. 'ok' y
-# 'ok:reconciliado' son los dos sellos de un intento aplicado (la misma regla
-# que tools/dossier_adversarial.py:125): el reconciliador confirma un PUT
-# ambiguo y el corte si ocurrio. La fecha del corte es `started_at`, el intento
-# real que nace antes del HTTP; `finished_at` sella la reconciliacion y puede
-# caer en otro ciclo, asi que no sirve para ubicar el corte en la ventana.
+# Usa started_at (intento) y no finished_at, que en reconciliacion puede caer en otro ciclo.
 _SQL_CORTES_GRUPO = """
 SELECT d.ad_entity_id, a.started_at
   FROM apply_attempt a
@@ -414,8 +380,7 @@ def _cambios_por_hoja(filas: list) -> dict[int, tuple[CambioBid, ...]]:
         if bid_antes is None:
             anterior = next((p for p in reversed(previos) if p.origen != "ajuste_de_campana"), None)
             if anterior is not None:
-                # B6: la fila del ajuste trae el bid de HOY, no un
-                # historico; derivar de ella falsea el piso aprendido.
+                # ajuste_de_campana trae el bid actual, no un historico.
                 bid_antes = anterior.bid_despues
             elif revierte_new is not None:
                 bid_antes = revierte_new
@@ -839,8 +804,7 @@ def lee_plataforma(
     inm_desde = d - dt.timedelta(days=DIAS_INMADUROS_DESDE)
     moneda = economia.moneda
     fuente, pv = _fuente(visto_el)
-    # 11 por tramo = 1 conteo + 5 metricas x 2 filtros (veneno y suma).
-    p_rec = [rec_desde, hasta] * 11
+    p_rec = [rec_desde, hasta] * 11  # 1 conteo + 5 metricas x 2 filtros
     p_ant = [desde, ant_hasta] * 11
     filas_tramos = conn.execute(
         _SQL_TRAMOS.format(fuente=fuente),

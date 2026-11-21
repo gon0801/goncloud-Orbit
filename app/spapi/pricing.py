@@ -265,12 +265,8 @@ def _minimo_resumen(resumen: dict) -> tuple[Decimal | None, str | None]:
 
 
 def _competitivas_de(carga: Any) -> list[dict]:
-    # Forma real (modelo oficial productPricingV0.json): payload es LISTA
-    # de Price [{status, ASIN, Product}] y la ruta es
-    # Product.CompetitivePricing.CompetitivePrices. La forma vieja
-    # (payload objeto con Product.CompetitivePrices) nunca existio: era
-    # invento de los fixtures y en produccion tumbaba el pase al primer
-    # ASIN (revision del lead PR #241).
+    # En productPricingV0, payload es una lista de Price [{status, ASIN, Product}]
+    # con ruta Product.CompetitivePricing.CompetitivePrices (nunca un dict).
     cont = carga.get("payload", carga) if isinstance(carga, dict) else None
     if isinstance(cont, dict):
         raise IngestaPricingError("contrato inesperado: payload competitivo no es lista")
@@ -471,10 +467,8 @@ def _procesar_asin(
         return
     av.vistas += 1
     try:
-        # Llamadas LOGICAS de la corrida (una por endpoint por ASIN, aunque
-        # fallen): los reintentos internos del cliente (401/429) consumen
-        # tasa del cubo pero no se cuentan aqui — contarlos exigiria un
-        # contador en el cliente sellado A.1 (declarado, CodeRabbit #241).
+        # Llamadas logicas (una por endpoint/ASIN): los reintentos internos
+        # 401/429 del cliente consumen cuota pero no se cuentan aqui.
         av.llamadas += 1
         cuerpo_ofertas = _llamar(
             client,

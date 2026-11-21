@@ -118,11 +118,6 @@ class ListadoConPrueba:
     total_declarado: int | None
 
 
-# ---------------------------------------------------------------------------
-# IO de API: fetch_structure
-# ---------------------------------------------------------------------------
-
-
 def _json_de(resp, metodo: str, path: str):
     try:
         return resp.json()
@@ -191,9 +186,8 @@ def listar_con_prueba(client: AdsClient, path: str, *, profile_id: int) -> Lista
         if not isinstance(data, dict) or "nextToken" not in data or data["nextToken"] is None:
             next_token = None
         else:
-            # Fin de paginacion SOLO por clave ausente o None (hallazgo
-            # CodeRabbit): un nextToken malformado (false, "", numero) tratado
-            # como fin dejaba estructura parcial sellada ok -- fail-closed.
+            # Fail-closed: solo clave ausente o None terminan la paginacion;
+            # un nextToken malformado no puede sellar una estructura parcial.
             candidato = data["nextToken"]
             if not isinstance(candidato, str) or not candidato:
                 raise AdsStructureError(f"nextToken malformado en POST {path}: {candidato!r}")

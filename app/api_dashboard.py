@@ -135,9 +135,6 @@ _SQL_CONFIG_VIGENTE = """
 SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
-# ---------------------------------------------------------------------------
-# 1.5 - /salud: historico 14d y motivos de skip del ORQUESTADOR
-# ---------------------------------------------------------------------------
 
 # Ultimos 14 ciclos de la plataforma (acotado; el candado del test fija el
 # LIMIT). El snapshot usa la MISMA fuente del /status de 3.2
@@ -192,11 +189,6 @@ def _acoso(cost: Decimal | None, ad_revenue: Decimal | None) -> tuple[str | None
     return acos_texto(cost, ad_revenue), sin_ventas
 
 
-# ---------------------------------------------------------------------------
-# RESUMEN-ADS-02 - /resumen: contrato multicanal (Amazon MX/US + MeLi)
-# ---------------------------------------------------------------------------
-
-
 @router.get("/resumen")
 def resumen_ads(
     conn: ConexionLectura,
@@ -232,11 +224,6 @@ def resumen_ads(
     salida = resumen_multicanal(conn, ventana=ventana, canales=canales, hoy=hoy, instante=instante)
     salida["metas_acos"] = metas_resumen_desde_settings(_config_vigente_con_id(conn)[1])
     return salida
-
-
-# ---------------------------------------------------------------------------
-# 1.4 - /campanas: resumen 30d con target efectivo y procedencia
-# ---------------------------------------------------------------------------
 
 
 def _goal_desde_fila(fila) -> g.Goal:
@@ -503,11 +490,6 @@ def campanas(
                 )
             )
     return {"items": items}
-
-
-# ---------------------------------------------------------------------------
-# 1.4 - /decisiones: feed por cursor con motivo en espanol
-# ---------------------------------------------------------------------------
 
 
 # FABRICA 02 (A.6): fase del harvest_job -> etiqueta. Espejo del CHECK de
@@ -792,11 +774,6 @@ def decisiones(
     }
 
 
-# ---------------------------------------------------------------------------
-# 1.5 - /salud: snapshot + historico 14d + watermarks + skips
-# ---------------------------------------------------------------------------
-
-
 def _motivo_ciclo(status: str, notes) -> str | None:
     """Motivo visible de un ciclo degraded/failed/skipped (grok r2: skipped
     trae motivo_skip=escalera_off y quedaba fuera del filtro): de
@@ -814,15 +791,10 @@ def _motivo_ciclo(status: str, notes) -> str | None:
         if degradacion:
             # Texto libre del ciclo: la frase conocida se traduce, otra pasa tal cual.
             return ETIQUETAS["degradacion_ciclo"].get(degradacion, degradacion)
-        # ciclos failed reales: _sello_fallido persiste el error scrubbeado
-        # bajo notes.error (grok r2: no se leia y el historico lo mostraba
-        # sin motivo)
         error = notes.get("error")
         if error:
             return error
-        # _parse_notes envuelve el texto plano como {"texto": ...}: la rama
-        # vivia FUERA de este if y era inalcanzable (motivo perdido en ciclos
-        # failed con notes de texto — lo atrapa test_salud_notes_mixto_* en CI)
+        # _parse_notes envuelve notas de texto plano bajo la clave "texto".
         return notes.get("texto")
     return None
 
@@ -1055,14 +1027,8 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
     return _contribucion_campanas(conn)
 
 
-# ---------------------------------------------------------------------------
-# ORBIT 04 3.1 - /cortes: pendientes de veto (UI minima de veto, sellado 20)
-# ---------------------------------------------------------------------------
-
-# SOLO los estados vetables (sellado 4): pending_veto (en ventana) y released
-# (espera quota FIFO y SIGUE vetable, r2 grok); applying es punto de no retorno
-# y los terminales no se vetan. ORDER BY vence_el: lo que vence primero se ve
-# primero.
+# Solo estados vetables: pending_veto y released (espera quota FIFO y sigue
+# vetable); applying es punto de no retorno y los terminales no se vetan.
 #
 # CLARIDAD 01 C.1: modo separa las de practica. Una fila shadow nunca vence
 # ni se aplica (trigger de migrations/0002_apply.sql:203), pero su veto si
@@ -1194,10 +1160,6 @@ def _hermanas_de(conn, grupo_id: int, campana_id: int) -> list[dict] | None:
         if rol in por_rol
     ]
 
-
-# ---------------------------------------------------------------------------
-# BIDS 01 1.3 - /inertes: diagnostico de hojas sin trafico (solo lectura)
-# ---------------------------------------------------------------------------
 
 # Lee v_entidad_inerte (migracion 0013, UNICA fuente D2): nada se diagnostica
 # aqui. NULLS LAST (gasto NULL = mezcla de monedas, fail-loud) e id de
@@ -1559,10 +1521,6 @@ def inertes(conn: ConexionLectura) -> dict:
     return {"totales": totales, "items": items, "lotes": lotes}
 
 
-# ---------------------------------------------------------------------------
-# 3.1 - /settings: la verdad de la cascada por plataforma + goals editables
-# ---------------------------------------------------------------------------
-
 # Goals CON id (la UI los edita via POST /api/ads-optimizer/goals/{id}) y la
 # plataforma/nombre de la campana para los de scope campaign (su fila trae
 # platform NULL por el CHECK del schema).
@@ -1692,12 +1650,6 @@ def settings(conn: ConexionLectura) -> dict:
             for goal_id, goal, plataforma_campana, nombre in goals
         ],
     }
-
-
-# ---------------------------------------------------------------------------
-# REPRICING 02 0.a: el bloque de precios vive en `app/api_precios.py`; este
-# modulo reexporta lo que usan /salud y las pruebas (un camino, regla 2).
-# ---------------------------------------------------------------------------
 
 
 @router.get("/keywords-danadas")

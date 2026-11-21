@@ -52,7 +52,6 @@ logger = logging.getLogger(__name__)
 # Telegram lo que falle o se salve. La tabla de horarios de docs/DEPLOY.md
 # sale de HORARIOS_INGESTA: los reintentos del dia son corridas del mismo
 # comando (--solo-faltantes salta lo ya al dia).
-# ---------------------------------------------------------------------------
 
 # Horarios UTC de la ingesta diaria (y sus dos reintentos). La prueba del
 # crontab (tests/test_ingesta_cron.py) fija que las lineas instaladas

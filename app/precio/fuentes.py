@@ -285,12 +285,6 @@ def leer_seguridad(conn: psycopg.Connection, plataforma: str, *, hoy: date) -> E
     )
 
 
-# ---------------------------------------------------------------------------
-# Lectores de historia de unidad (M.4: mudados de `app/spapi/precio_mercado`;
-# son por plataforma-parametro, los dos adaptadores los usan).
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class VentasUnidad:
     """Ventas atribuidas de la unidad + cobertura, para armar `HistoriaUnidad`."""

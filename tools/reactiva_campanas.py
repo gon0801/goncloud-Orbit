@@ -147,19 +147,11 @@ PAUSAS_DEDUP: list[tuple[int, str, str]] = [
     (3920, "silver arras for wedding", "PHRASE"),
 ]
 
-# Dedup de ORBIT 05 preflight 1.6a (GO del dueno 2026-08-29, "go con la 1"):
-# 9 pausas de keywords EXACT ANTES del resume de la 3919, para que jamas
-# quede el mismo texto+match ENABLED en dos campanas. Fuente: brief parte 2
-# del lead + evidencia out/orbit-05-preflight-1-6a-20260829.md seccion 2.0
-# (criterio "gana quien convierte"; datos 90d). La fila 'silver arras for
-# wedding' estuvo en disputa (la tabla del lead venia de sumar SIN colapsar
-# la bitemporalidad; la re-derivacion colapsada la volteria hacia la 3909)
-# y el lead la resolvio el 2026-08-29 con la respuesta literal "A": la
-# lista se ejecuta TAL CUAL (esa fila pausa la copia de la 3919).
-# Campana cuyo resume autoriza ese GO: las 9 pausas lo PROTEGEN (el dedup
-# existe para reactivarla sin competencia propia). --dedup-1-6a solo acepta
-# --solo-campana con ESTA campana (cross-review codex: con otra campana se
-# pausarian las 9 fijas y se reactivaria una no autorizada).
+# Dedup preflight 1.6a (GO 2026-08-29): 9 pausas EXACT antes de reactivar 3919
+# para no dejar el mismo texto+match ENABLED en dos campanas (incluye pausar
+# 'silver arras for wedding' en 3919 por decision explicita).
+# --dedup-1-6a solo acepta --solo-campana con esta campana para no pausar las
+# 9 fijas al reactivar otra campana.
 CAMPANA_DEDUP_1_6A = 3919
 
 PAUSAS_DEDUP_1_6A: list[tuple[int, str, str]] = [
@@ -655,14 +647,10 @@ def main() -> int:
 
     token = _token_lwa(cred, http)
 
-    # ---- Fase 1: pausas de dedup (enum del PUT SELLADO: ENUM_PAUSE) ----
     for kw in keywords:
         profile = perfiles[kw["platform"]]
-        # PRE-LECTURA del estado VIVO justo antes del PUT (misma clase que el
-        # hallazgo Greptile del PR #54, ahora del lado de la pausa): entre el
-        # SELECT del cache y esta mutacion alguien —persona o automatismo—
-        # pudo pausarla o archivarla. Pausar igual seria pisar una decision
-        # ajena, y sobre una ARCHIVED el PUT ni siquiera significa lo mismo.
+        # Re-lectura en vivo justo antes del PUT: evita pisar una pausa ajena
+        # o mutar una keyword ARCHIVED tras la ultima lectura del cache.
         vivo = _readback_estado(
             cliente_lectura,
             profile,
@@ -717,16 +705,11 @@ def main() -> int:
         if estado != "PAUSED":
             raise Abortar(f"readback del pause de {kw['external_id']} != PAUSED: {estado}")
 
-    # ---- Fase 2: resumes (PRIMERO A1U Exact 3909 sola: shape nuevo) ----
     for cid in _orden_resumes(campanas):
         c = campanas[cid]
         profile = perfiles[c["platform"]]
-        # RE-LECTURA justo antes del PUT (hallazgo Greptile PR #54): entre el
-        # guard de arriba y este resume corren las pausas de dedup (9 PUT +
-        # readback), y en esa ventana alguien —persona o automatismo— pudo
-        # pausar la campana a proposito. Reactivarla igual seria pisar una
-        # decision ajena. El chequeo SOLO aplica a --solo-campana (el camino
-        # original de CAMPANAS 01 reactiva un lote ya acordado).
+        # Re-lectura en vivo justo antes del PUT (solo con --solo-campana):
+        # durante las pausas de dedup alguien pudo cambiar el estado de la campana.
         if args.solo_campana is not None:
             vivo_ahora = _readback_estado(
                 cliente_lectura,

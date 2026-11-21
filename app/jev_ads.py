@@ -338,11 +338,6 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
     return Indeterminado(frozenset(motivos))
 
 
-# ===========================================================================
-# 1.4: sujetos de revision y el asesor (une catalogo, juicios y revision)
-# ===========================================================================
-
-
 @dataclass(frozen=True)
 class SemillasARevisar:
     """Plan de fabrica congelado: hash, canonico, fuentes y terminos a

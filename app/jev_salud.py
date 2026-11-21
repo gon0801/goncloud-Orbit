@@ -160,8 +160,6 @@ def salud(conn, *, ahora: datetime) -> SaludJev:
     )
 
 
-# --- S.5: lecturas de pantalla (fila Senal en cortes + gasto sin venta) --------
-
 _COLUMNAS_SENAL = (
     "senal_id",
     "plataforma",

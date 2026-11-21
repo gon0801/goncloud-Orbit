@@ -136,11 +136,6 @@ _RECURSOS: tuple[tuple[str, str], ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Partes puras (sin red, sin base): agrupado, conteos, comparacion
-# ---------------------------------------------------------------------------
-
-
 def agrupa_por_campana(items: list[dict]) -> dict[str, list[dict]]:
     """Agrupa items VERBATIM por str(campaignId), conservando el orden.
 
@@ -223,11 +218,6 @@ def snapshot(perfiles: list[PerfilAds], client: AdsClient) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# CLI (patron smoke_apply.py: cero side effects al import)
-# ---------------------------------------------------------------------------
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python tools/snapshot_listas.py",
@@ -237,8 +227,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "el backup pre-cutover (ORBIT 05 preflight 1.3). Cero mutaciones."
         ),
     )
-    # Excluyentes (hallazgo grok r1): ambos a la vez produce un "exito" sin
-    # archivo que el operador del backup podria tomar por backup completo.
+    # Excluyentes: combinarlos produciria un exito sin escribir el backup.
     grupo_destino = parser.add_mutually_exclusive_group()
     grupo_destino.add_argument(
         "--out",
@@ -270,21 +259,14 @@ def _imprimir_resumen(snap: dict) -> None:
 
 
 def _escribir_snapshot(snap: dict, out_dir: Path) -> int:
-    # umask 077 SOLO durante la creacion y RESTAURADA al salir (hallazgo qwen
-    # r2): 700/600 sin importar la umask del caller (el backup pre-cutover
-    # exige 600; DEPLOY.md), sin contagiar la umask del proceso (tests
-    # in-process).
+    # umask 077 solo durante la creacion (fuerza 700/600 sin importar la del
+    # caller) y restaurada al salir para no afectar al proceso.
     vieja = os.umask(0o077)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
-        # Un out_dir PREEXISTENTE conserva sus permisos: `exist_ok=True` no
-        # aplica la umask (hallazgo CodeRabbit PR #48). El tool promete 700,
-        # asi que lo IMPONE — y si el dir es de otro dueno, fail-closed en vez
-        # de escribir el backup en un directorio ajeno.
-        # Un out_dir que es SYMLINK se rechaza antes de mirar modos: `stat` y
-        # `chmod` seguirian el enlace y le cambiarian los permisos al
-        # directorio APUNTADO (hallazgo Greptile PR #48 sobre este mismo
-        # endurecimiento). El backup no toca directorios ajenos: fail-closed.
+        # Rechazar symlink antes de stat/chmod evita alterar permisos del destino
+        # apuntado; en un directorio preexistente `exist_ok=True` no aplica umask,
+        # asi que se verifica dueno y se impone modo 700.
         if out_dir.is_symlink():
             raise PermissionError(f"{out_dir} es un symlink: el snapshot exige un directorio real")
         info = out_dir.stat()
@@ -293,14 +275,9 @@ def _escribir_snapshot(snap: dict, out_dir: Path) -> int:
         if stat.S_IMODE(info.st_mode) != 0o700:
             out_dir.chmod(0o700)
         destino = out_dir / ARCHIVO
-        # Escritura ATOMICA (qwen r2) con temporal EXCLUSIVO y no predecible
-        # (hallazgos Greptile + CodeRabbit PR #48): `mkstemp` crea con
-        # O_CREAT|O_EXCL y modo 600, asi que no sigue un symlink plantado ni
-        # trunca un archivo ajeno, y dos corridas concurrentes no comparten
-        # temporal. `os.replace` publica en un solo paso: una re-corrida
-        # jamas deja un JSON a medias en el destino del backup. La
-        # re-escritura PISA el snapshot previo (la ultima corrida gana;
-        # declarado: la receta apunta cada flip a un $D fresco).
+        # Escritura atomica con temporal exclusivo (O_CREAT|O_EXCL, modo 600)
+        # para evitar symlinks plantados, colisiones y JSON truncados; os.replace
+        # pisa el snapshot previo en un solo paso.
         fd, temporal = tempfile.mkstemp(dir=out_dir, prefix=".listas-", suffix=".json.tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -359,8 +336,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _escribir_snapshot(snap, args.out)
     except OSError as exc:
-        # Mismo trato que el resto del tool (hallazgo reviewer 1.3): mensaje
-        # a stderr con scrub y exit controlado, jamas un traceback crudo.
         print(f"no se pudo escribir el snapshot: {scrub(str(exc))}", file=sys.stderr)
         return 1
 

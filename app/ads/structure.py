@@ -178,12 +178,9 @@ SOURCE = "amazon_ads_structure_v2"
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
-# xmax = 0 distingue INSERT (0) del UPDATE que dejo el mismo row (xid de la
-# transaccion en curso). DO UPDATE solo toca `name`: parent_id, match_type y
-# keyword_text vuelven con el valor EXISTENTE, que es justo lo que hay que
-# comparar contra el payload (divergencia de inmutables = skip, jamas UPDATE;
-# hallazgo cross-review codex, ronda 3). first_seen_at (BIDS 01 2.1) va SOLO
-# en el INSERT: el UPDATE ni la nombra, asi que el sync jamas la pisa.
+# xmax = 0 distingue INSERT de UPDATE en PostgreSQL. DO UPDATE solo toca name
+# para devolver los valores existentes de columnas inmutables (parent_id,
+# match_type, keyword_text) sin pisar first_seen_at.
 _SQL_UPSERT_ENTIDAD = """
     INSERT INTO ad_entity
         (platform, kind, external_id, parent_id, name, match_type, keyword_text,
@@ -275,11 +272,6 @@ class ResultadoSync:
     skip_reason: str | None
     counts: dict[tuple[str, str], int]  # (platform, kind) -> items escritos
     entidades_nuevas: int
-
-
-# ---------------------------------------------------------------------------
-# IO de DB: sync_structure
-# ---------------------------------------------------------------------------
 
 
 def _sellar_run(
@@ -446,10 +438,7 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                 )
                 if cur.rowcount:
                     clasificacion["product ad marcado archivado"] += cur.rowcount
-                    # SUMA a rows_written: son filas de ad_entity_state
-                    # REALMENTE escritas. Contarlas solo en skip_reason dejaba
-                    # el ledger de la corrida diciendo menos escrituras de las
-                    # que hubo (hallazgo cross-review codex 2026-08-30).
+                    # Suma a rows_written porque actualiza filas en ad_entity_state.
                     written += cur.rowcount
 
             _insertar_acta(conn, run_id, estructura, refs)
@@ -465,17 +454,9 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                 skip_reason=skip_reason,
             )
     except BaseException as exc:
-        # El with de arriba ya hizo rollback del trabajo; la run abierta se
-        # sella como fallo si la conexion sigue viva (best-effort). Si el
-        # sello TAMBIEN falla, se deja rastro en el log: una run eternamente
-        # abierta solo se descubre consultando ingest_run. BaseException (no
-        # solo Exception): un KeyboardInterrupt en una corrida larga tambien
-        # deja la run sellada, no abierta (hallazgo cross-review).
-        # rows_skipped=0 EXPLICITO: la columna es NOT NULL DEFAULT 0 y el
-        # DEFAULT no aplica en UPDATE -- pasar None violaba la constraint y
-        # el suppress se lo tragaba, dejando la run abierta para siempre (bug
-        # cazado por el test del sello en fallo). 0 es la verdad contable de
-        # una corrida que no llego a terminar su trabajo.
+        # BaseException (no solo Exception) para sellar la run tambien ante
+        # KeyboardInterrupt. rows_skipped=0 explicito: el DEFAULT de la columna
+        # NOT NULL no aplica en UPDATE.
         try:
             with conn.transaction():
                 _sellar_run(
@@ -505,11 +486,6 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
         counts=dict(counts),
         entidades_nuevas=nuevas,
     )
-
-
-# ---------------------------------------------------------------------------
-# __main__: corrida real contra goncloud (resumen por stdout, sin secretos)
-# ---------------------------------------------------------------------------
 
 
 def _imprimir_resumen(estructura: EstructuraAds, resultado: ResultadoSync) -> None:

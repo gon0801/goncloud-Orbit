@@ -594,10 +594,8 @@ def _construye_parser() -> argparse.ArgumentParser:
     p_alert.add_argument("--fecha", default=None, help="hoy YYYY-MM-DD (default: hoy UTC)")
     p_alert.add_argument("--dry-run", action="store_true", help="evalua, cero writes")
 
-    # spapi_vigilante es TOP-LEVEL a proposito (no bajo `ingest`): la linea
-    # de su crontab no debe contener `app.cli ingest` o el instalador de
-    # ORBIT 03 la borra (hallazgo H1 de sp-api-01 A.R). Los flags van al
-    # main del modulo (patron report/cobertura).
+    # Top-level a proposito (no bajo `ingest`): su linea de crontab no debe
+    # contener `app.cli ingest` porque el instalador la borraria.
     sub.add_parser(
         "spapi_vigilante",
         help=(
@@ -646,9 +644,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _construye_parser()
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
-        # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
-        # silencio correria con el reloj equivocado (hallazgo reviewer 3.2,
-        # baja). Los tokens extra de `cycle` son SIEMPRE un error del operador.
+        # El ciclo escribe decisiones: rechazar tokens extra evita correr
+        # con un flag mal tipeado y el reloj equivocado.
         if rest:
             print(f"argumentos desconocidos para 'cycle': {rest}", file=sys.stderr)
             return 2

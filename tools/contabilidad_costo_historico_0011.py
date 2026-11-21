@@ -64,17 +64,13 @@ ap.add_argument(
 ap.add_argument("--dry-run", action="store_true", help="valida y muestra el plan; no escribe nada")
 args = ap.parse_args()
 
-# mode=rw (no rwc): si la ruta no existe, REVIENTA en vez de crear una
-# accounting.db vacia y "validar" contra ella (hallazgo CodeRabbit, PR #118).
-# timeout: contabilidad escribe desde su propio contenedor; sin esto un lock
-# concurrente aborta al instante en vez de esperar su turno.
+# mode=rw (no rwc) falla si la DB no existe en vez de crear una vacia.
+# timeout espera locks concurrentes del contenedor de contabilidad.
 con = sqlite3.connect(f"file:{DB}?mode=rw", uri=True, timeout=30, isolation_level=None)
 con.row_factory = sqlite3.Row
 
-# BEGIN IMMEDIATE ANTES de leer: toma el lock de escritura, asi que el estado
-# que validan las guardas es el MISMO que se muta. Sin esto hay una ventana
-# entre validar y escribir en la que otro escritor puede mover las filas y el
-# plan aplicaria sobre un estado ya no validado (hallazgo CodeRabbit, PR #118).
+# BEGIN IMMEDIATE toma el lock de escritura antes de leer para que el estado
+# validado por las guardas no cambie antes de aplicar la mutacion.
 con.execute("BEGIN IMMEDIATE")
 
 try:
@@ -89,7 +85,6 @@ try:
     antes = con.execute("SELECT count(*) FROM sku_costs").fetchone()[0]
 
     if not args.revertir:
-        # --- guardas de IDA: igualdad EXACTA contra el estado medido --------
         for sku, esperado in ((PLA, COSTO_PLA), (DOR, COSTO_DOR_VIGENTE)):
             exigir(len(filas[sku]) == 1, f"{sku}: {len(filas[sku])} filas, se esperaba 1")
             r = filas[sku][0]

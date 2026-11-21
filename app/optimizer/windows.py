@@ -127,9 +127,6 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     import psycopg
 
-# ---------------------------------------------------------------------------
-# Constantes selladas (fuente: plans/orbit-03.md task 2.1 + diseno v2)
-# ---------------------------------------------------------------------------
 
 DIAS_VENTANA = 30  # dias calendario INCLUSIVE
 DIAS_FRESCURA_BIDS = 3  # window_end_bids = max(metric_date) - 3d
@@ -143,10 +140,6 @@ MAX_EDAD_SYNC = dt.timedelta(hours=48)  # estricto: exacto NO salta
 # DIAS_MADUREZ_CORTES); el 90 no comparte fuente con nada (no es la ventana
 # 30d de bids/cortes y se prohibe derivarlo con inicio_ventana).
 LOOKBACK_EVIDENCIA = 90  # dias de lookback desde D en la ventana de evidencia
-
-# ---------------------------------------------------------------------------
-# Estructuras de salida (documentadas para 2.2/2.3/3.1)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -259,10 +252,6 @@ class EvidenciaAdGroup:
     orders: int | None
     observed_at_max: dt.datetime | None
 
-
-# ---------------------------------------------------------------------------
-# SQL de LECTURA (parametros %s; %s::platform evita ambiguedad de tipos enum)
-# ---------------------------------------------------------------------------
 
 _SQL_MAX_FECHA_ENTIDAD = """
 SELECT max(metric_date) FROM v_metric_latest WHERE ad_entity_id = %s
@@ -409,11 +398,6 @@ SELECT e.parent_id AS ad_group_id,
 """
 
 
-# ---------------------------------------------------------------------------
-# Parte pura: aritmetica de ventanas y comparadores de guarda
-# ---------------------------------------------------------------------------
-
-
 def inicio_ventana(window_end: dt.date) -> dt.date:
     """Inicio de la ventana 30d inclusive: fin - 29d."""
     return window_end - dt.timedelta(days=DIAS_VENTANA - 1)
@@ -455,11 +439,6 @@ def _fecha_utc(momento: dt.datetime) -> dt.date:
             "decided_at/ahora debe ser tz-aware (UTC): un naive evaluaria segun la TZ local"
         )
     return momento.astimezone(dt.UTC).date()
-
-
-# ---------------------------------------------------------------------------
-# Parte con IO (SOLO lecturas; el conn llega por parametro)
-# ---------------------------------------------------------------------------
 
 
 def _max_fecha(conn: psycopg.Connection, ad_entity_id: int) -> dt.date | None:

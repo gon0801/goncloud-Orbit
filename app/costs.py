@@ -186,11 +186,6 @@ class ResultadoSync:
     detalle: tuple[str, ...] = ()
 
 
-# ---------------------------------------------------------------------------
-# Lectura del snapshot (read-only por construccion: mode=ro + solo SELECT)
-# ---------------------------------------------------------------------------
-
-
 def leer_origen(ruta: Path | str) -> OrigenCostos:
     """Lee sku_costs + bom_headers del snapshot. Abre con `mode=ro`: aunque el
     archivo se montara escribible por accidente, esta conexion no puede mutar
@@ -220,20 +215,14 @@ def leer_origen(ruta: Path | str) -> OrigenCostos:
             for fila in con.execute(
                 "SELECT product_sku, product_name FROM bom_headers"
                 " WHERE product_name IS NOT NULL AND TRIM(product_name) != ''"
-                # Un SKU con varios BOMs dejaria el nombre al orden arbitrario
-                # de SQLite: ORDER BY fija el ultimo por id y hace la corrida
-                # determinista (hallazgo de revision, baja).
+                # ORDER BY fija el ultimo nombre por id para hacerlo determinista
+                # cuando un SKU tiene varios BOMs.
                 " ORDER BY product_sku, id"
             )
         }
     finally:
         con.close()
     return OrigenCostos(filas=filas, nombres=nombres)
-
-
-# ---------------------------------------------------------------------------
-# Colapso (pura): filas crudas -> vigencias por dia
-# ---------------------------------------------------------------------------
 
 
 def _dia(texto: str | None) -> dt.date | None:
@@ -281,9 +270,7 @@ def _motivo_rechazo(fila: FilaCosto) -> str | None:
     if valor >= _MAX_COSTO:
         return "costo fuera de rango NUMERIC(14,4)"
     if _costo_decimal(fila.costo) <= 0:
-        # Sub-centavo (0 < costo < 5e-5) cuantiza a 0.0000: sin este rechazo
-        # el INSERT reventaria sku_cost_positivo y abortaria la corrida ENTERA
-        # (hallazgo 1 del adversario) en vez del skip contado del sellado 1.
+        # Un valor < 5e-5 cuantiza a 0.0000 y violaria el CHECK sku_cost_positivo.
         return "costo cero o nulo (dato faltante)"
     return None
 
@@ -318,9 +305,8 @@ def colapsar(
         solape = False
         for fila in sorted(filas_sku, key=lambda f: f.inicio or f.creado or ""):
             if solape:
-                # Hallazgo 2 del adversario: tras un solape, el resto de la
-                # cadena del origen ya no es reconstruible: se cuenta todo y
-                # el SKU completo queda sin escribir.
+                # Tras un solape el resto de la cadena se cuenta como skip y el
+                # SKU completo queda sin escribir.
                 skips["vigencia solapada en el origen (sku completo sin escribir)"] += 1
                 continue
             motivo = _motivo_rechazo(fila)
@@ -384,9 +370,8 @@ def colapsar(
         if serie:
             vigencias[sku] = serie
             stats["vigencias"] += len(serie)
-        # Clasificacion diferida de los intradia (hallazgo 3 del adversario):
-        # cubierto por la serie = ruido del sync; dia sin cobertura = borde,
-        # el dia se pierde como dato faltante y queda contado APARTE.
+        # Clasificacion diferida de tramos intradia: si la serie cubre el dia
+        # fue ruido del sync; si no, queda en borde como dato faltante.
         for dia in intradia:
             cubierto = any(t.desde <= dia and (t.hasta is None or t.hasta > dia) for t in serie)
             if cubierto:
@@ -396,10 +381,6 @@ def colapsar(
 
     return vigencias, skips, stats
 
-
-# ---------------------------------------------------------------------------
-# Escritura en Orbit (product + sku_cost, rol de ingesta)
-# ---------------------------------------------------------------------------
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -413,15 +394,10 @@ UPDATE ingest_run
  WHERE id = %s
 """
 
-# El UPDATE del nombre solo cuando cambia: el re-run de una base ya cargada no
-# genera escrituras (no-op REAL). Sin fila devuelta = el WHERE corto la
-# actualizacion y hay que leer el id existente.
-# El UPDATE del nombre solo cuando MEJORA (hallazgo 2 de codex, cross-review):
-# si bom_headers pierde temporalmente el nombre de un SKU cuyo nombre real ya
-# esta publicado (sync de Odoo incompleto), el derivado NO lo pisa — la
-# degradacion real->derivado quedaria grabada en el catalogo. Se actualiza
-# solo si el existente es derivado (upgrade) o el entrante es real (cambio
-# real->real). Los dos %s extra son el prefijo de la marca, dos veces.
+# Actualiza el nombre solo si cambia y no degrada un nombre real a uno derivado
+# (por ejemplo, ante un sync incompleto de Odoo). Los dos %s finales reciben el
+# prefijo de nombre derivado. Sin fila devuelta el WHERE corto el UPDATE y el
+# llamador lee el id existente.
 _SQL_UPSERT_PRODUCTO = """
 INSERT INTO product (odoo_sku, name) VALUES (%s, %s)
 ON CONFLICT (odoo_sku) DO UPDATE SET name = EXCLUDED.name
@@ -777,11 +753,6 @@ def _sellar_run(
     conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
 
 
-# ---------------------------------------------------------------------------
-# main del pipeline (el CLI despacha aqui; cero logica de argparse en el CLI)
-# ---------------------------------------------------------------------------
-
-
 # Telegram corta cerca de 4096 caracteres: un cambio masivo no puede perder el
 # aviso entero. Se listan los primeros y se resume el resto.
 _MAX_DETALLES_AVISO = 20
@@ -882,9 +853,6 @@ def main(argv: list[str] | None = None) -> int:
     convergencias = f" ({'; '.join(resultado.detalle)})" if resultado.detalle else ""
     print(f"convergencias={resultado.convergencias}{convergencias}")
     print(f"sin_costo_en_origen={resultado.sin_costo_en_origen}")
-    # Evidencia del colapso (hallazgo 3 del adversario + revision): los dias
-    # intradia en el borde PIERDEN su costo y tienen que ser visibles, igual
-    # que el ruido colapsado y las fusiones — un contador que no se ve no cuenta.
     print(
         f"colapso: intradia_con_sucesor={resultado.segmentos_intradia_colapsados}"
         f" intradia_en_borde={resultado.segmentos_intradia_en_borde}"

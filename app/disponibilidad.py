@@ -120,11 +120,6 @@ class ResultadoDisponibilidad:
     filas_idempotentes: int  # conflictos anti-duplicado (re-corrida)
 
 
-# ---------------------------------------------------------------------------
-# Lectura del snapshot (read-only por construccion: mode=ro + solo SELECT)
-# ---------------------------------------------------------------------------
-
-
 def _parsear_fetched_at(valor: str | None) -> dt.datetime | None:
     """fetched_at del bridge (texto, UTC) -> datetime consciente UTC.
 
@@ -181,11 +176,6 @@ def leer_snapshot(ruta: Path | str) -> SnapshotDisponibilidad:
     finally:
         con.close()
     return SnapshotDisponibilidad(fba=fba, fbm=fbm)
-
-
-# ---------------------------------------------------------------------------
-# Planificacion (pura): filas crudas -> observaciones por (sku, fuente)
-# ---------------------------------------------------------------------------
 
 
 def _fila_a_observacion(
@@ -271,10 +261,6 @@ def plan_disponibilidad(
         planes[clave] = obs
     return planes, skips
 
-
-# ---------------------------------------------------------------------------
-# Escritura en Orbit (rol de ingesta), patron de app/listings.py
-# ---------------------------------------------------------------------------
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -378,10 +364,6 @@ def sync_disponibilidad(
         filas_idempotentes=idempotentes,
     )
 
-
-# ---------------------------------------------------------------------------
-# Etiqueta: tres estados + Sin verificar (Featured Offer)
-# ---------------------------------------------------------------------------
 
 # Featured Offer: fuente no verificada, ampliacion abierta ORBIT19 B.3.
 # Constante declarada, NO integracion: sin columna en el bridge (0.3, (d)).

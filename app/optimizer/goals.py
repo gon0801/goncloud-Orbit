@@ -97,18 +97,9 @@ from app.optimizer.caso import VERSIONES_ECONOMIA_CAMBIO
 if TYPE_CHECKING:
     import psycopg
 
-# ---------------------------------------------------------------------------
-# Constantes selladas (fuente: plans/orbit-03.md task 2.4 + diseno v2)
-# ---------------------------------------------------------------------------
 
-# Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2, sellado 2 del
-# plan plans/orbit-05-preflight.md; spot-check 4.4: con el default unico
-# 0.10/2.50 pensado en USD, el goal 4 MXN aplastaba 144/233 keywords y
-# 44/51 targets MX con bid > 2.50 MXN; decision del dueno 2026-08-28).
-# UNICA fuente de defaults: OTRA moneda = ValueError explicito, no se
-# inventan numeros (regla 3). La DB ya NO tiene DEFAULT (0003): todo INSERT
-# de goal lleva piso/techo explicitos y esta tabla resuelve solo los None
-# de la capa pura.
+# Unica fuente de defaults de piso/techo por moneda (la DB no tiene DEFAULT).
+# Otra moneda levanta ValueError explicito.
 DEFAULTS_POR_MONEDA: dict[str, tuple[Decimal, Decimal]] = {
     "USD": (Decimal("0.10"), Decimal("2.50")),  # max real observado 2.00
     "MXN": (Decimal("1.00"), Decimal("45.00")),
@@ -257,10 +248,6 @@ _ORDEN_MODO: dict[str, int] = {modo: indice for indice, modo in enumerate(MODOS)
 # Nota del vocabulario estable para la degradacion live->shadow de PR1.
 NOTA_LIVE_DEGRADADO = "live degradado a shadow: sin modulo apply en PR1"
 
-# ---------------------------------------------------------------------------
-# Estructuras
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class Goal:
@@ -293,11 +280,6 @@ class ModoEfectivo:
 
     modo: str  # 'off' | 'shadow' | 'live'
     nota: str | None
-
-
-# ---------------------------------------------------------------------------
-# Parte pura: precedencia, cascada, defaults de bid, escalera de modos
-# ---------------------------------------------------------------------------
 
 
 def resuelve_goal(goal_campana: Goal | None, goal_plataforma: Goal | None) -> Goal | None:
@@ -391,13 +373,6 @@ def cascada_target_acos(
         target_margen_producto=margen_prod,
     )[0]
 
-
-# ---------------------------------------------------------------------------
-# Variante con PROCEDENCIA (ORBIT 16, task 1.2): el dashboard expone QUE
-# peldano gano. Compatible con el camino del motor (cero cambio de
-# comportamiento: misma aritmetica, testeada por equivalencia); la capa web
-# jamas la reimplementa.
-# ---------------------------------------------------------------------------
 
 # Vocabulario sellado de los SEIS peldanos, en orden de precedencia (BIDS 02
 # T.1 retiro los dos ultimos; AUTO-03: margen_producto tercero, entre
@@ -566,12 +541,7 @@ def resuelve_floor_ceiling(goal: Goal | None, moneda: str) -> tuple[Decimal, Dec
     2.2 seria un bid sin suelo). Sin quantize: la presentacion la decide el
     apply."""
     if goal is not None and goal.bid_currency != moneda:
-        # FAIL-LOUD DELIBERADO (grok, cross-review 1.2 r2): un goal desalineado
-        # es config CORRUPTA -- sus numeros estan en otra moneda y aplicarselos
-        # seria inventar (regla 3); mata el ciclo con ValueError, mismo
-        # criterio que target_desde_settings. Deuda declarada en el spec: el
-        # esquema NO sella platform <-> bid_currency (4/4 goals de produccion
-        # coherentes, SELECT 2026-08-28).
+        # El esquema no impone platform <-> bid_currency: se valida aqui.
         raise ValueError(
             f"moneda {moneda!r} != goal.bid_currency {goal.bid_currency!r}: "
             "el bid_currency del goal es LA moneda (desalineacion del llamador)"
@@ -663,27 +633,10 @@ def resuelve_modo(escalera_global: str, modo_goal: str) -> ModoEfectivo:
     return ModoEfectivo(modo=modo, nota=None)
 
 
-# ---------------------------------------------------------------------------
-# Parte con IO (SOLO lectura; el conn llega por parametro)
-# ---------------------------------------------------------------------------
-
-# Cooldown de 7d por ENTIDAD sobre applies VERIFICADOS de ciclos LIVE.
-# verify_ok IS TRUE directo (nunca parsear platform_ack: el ack es evidencia,
-# no senal de control -- COMMENT de la columna), umbral confirmed_at > ahora
-# - 7d ESTRICTO: confirmado exactamente hace 7d ya NO enfria (consistente
-# con los comparadores estrictos de windows). FALSE (divergencia) y NULL (en
-# vuelo) no enfrian: solo un apply verificado dentro de la ventana cuenta.
-# El JOIN a optimizer_cycle con mode='live' es del diseno v2 ("solo cuenta
-# mode='live' AND applied=1 AND verify_ok<>0") y hace al query inmune a que
-# un dry-run de PR2 escriba decision_application en shadow (hallazgo
-# codex+grok, cross-review ronda 1): una decision shadow con apply
-# verificado JAMAS enfria.
-# Desde la review adversaria de ORBIT 04 phase 2 (ADV-06, sellado 21) el JOIN
-# mira da.applied_cycle_id — el ciclo que EJECUTO el apply (se sella SOLO con
-# verify_ok, 0002) — y NO d.cycle_id (el que decidio): la decision nacida en
-# ciclo shadow y aplicada por un ciclo live SI enfria desde el apply; mirar
-# al decisor dejaba el anti-loop roto justo en ese caso (la entidad se
-# re-decidia y re-aplicaba al dia siguiente).
+# Cooldown de 7d por entidad sobre applies verificados (verify_ok IS TRUE) en
+# ciclos live, con limite inferior estricto (> ahora - 7d). El JOIN usa
+# da.applied_cycle_id (ciclo ejecutor) y no d.cycle_id (ciclo decisor) para
+# que una decision nacida en shadow y aplicada en live tambien enfrie.
 _SQL_EN_COOLDOWN = """
 SELECT EXISTS (
     SELECT 1
@@ -721,10 +674,6 @@ def en_cooldown(
         _SQL_EN_COOLDOWN, (ad_entity_id, ahora - COOLDOWN, ahora, kind, kind)
     ).fetchone()[0]
 
-
-# ---------------------------------------------------------------------------
-# ORBIT 06 2.3 - peldano margen_plataforma: medicion + resolucion pura
-# ---------------------------------------------------------------------------
 
 MARGEN_BANDA_MIN = Decimal("10")  # banda dura del spec §5 (inclusiva)
 MARGEN_BANDA_MAX = Decimal("45")
@@ -858,10 +807,6 @@ def _valida_fraccion(fraccion: Decimal | None) -> Decimal | None:
     return fraccion
 
 
-# ---------------------------------------------------------------------------
-# Confianzas del motor (A3): lo conservador que es el dueno por plataforma.
-# ---------------------------------------------------------------------------
-
 CONFIANZA_RECORTE_DEFAULT = Decimal("0.80")
 CONFIANZA_SUBIDA_DEFAULT = Decimal("0.70")
 CONFIANZA_MIN = Decimal("0.50")
@@ -918,10 +863,6 @@ def confianza_subida_desde_settings(settings: Mapping, platform: str) -> Decimal
     )
 
 
-# ---------------------------------------------------------------------------
-# Gasto para concluir (BIDS 02 0.b): tope de gasto por plataforma.
-# ---------------------------------------------------------------------------
-
 # Defaults POR PLATAFORMA (dueno, 2026-10-09): con la clave ausente el motor
 # concluye con 350 MXN / 36 USD. UNICA fuente del numero: lo consumen la regla
 # R9 del motor y el tope por defecto del impulso.
@@ -965,11 +906,6 @@ def gasto_para_concluir_desde_settings(settings: Mapping, platform: str) -> Deci
             f"setting {clave}: gasto para concluir debe ser > 0 y finito, llego {gasto}"
         )
     return gasto
-
-
-# ---------------------------------------------------------------------------
-# Interruptor de la politica de bids por plataforma (BIDS 02 M.3).
-# ---------------------------------------------------------------------------
 
 
 def clave_bid_politica(platform: str) -> str:
@@ -1062,10 +998,8 @@ def converge_al_destino(
     El llamador de plataforma pasa setting, el familiar pasa destino.
     `piso` es el limite inferior de la banda del ancla: la meta por producto
     (AUTO-03, productos.meta_de_hoja) pasa 0 porque no tiene piso de 10."""
-    # kimi H4: el ancla se clampa a la banda ANTES de usarla (si viene del
-    # setting manual y alguien dejo ahi un 50, el paso anclado a 50 anularia
-    # el clamp de banda). Con setting 50 la caminata satura en 45.5, paridad
-    # plataforma/familia (no cota: cerrar 45.5 seria rediseno de plataforma).
+    # El ancla se clampa a la banda antes del paso para que un setting manual
+    # fuera de rango no anule los limites de la banda.
     if ultimo is not None:
         ultimo = min(max(ultimo, piso), MARGEN_BANDA_MAX)
     if ultimo is None or destino is None or ultimo == destino:
@@ -1098,25 +1032,14 @@ def resuelve_target_margen(
     # convergencia (es una decision humana deliberada y debe surtir efecto ya).
     if fraccion is None:
         return ResolucionMargen(None, None, "sin_fraccion", False)
-    # `ultimo` es el ancla del paso. Se clampea a la banda ANTES de usarlo
-    # (cross-review kimi H4): si viene del setting manual y alguien dejo ahi
-    # un 50, el paso anclado a 50 produciria un aplicado de 49.5 y el clamp de
-    # banda quedaria anulado por el paso. El helper re-clampa (idempotente).
+    # Clampa el ancla a la banda antes del paso para que un setting fuera de
+    # rango no produzca un aplicado fuera de limites.
     if ultimo is not None:
         ultimo = min(max(ultimo, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
     motivo = motivo_dato_invalido(medicion, hoy, dias_min)
     if motivo is not None:
-        # CROSS-REVIEW kimi H1 / grok H2 (ALTA): abstenerse por datos malos
-        # NO puede tirar el target al setting de un salto. Es el mismo
-        # precipicio que la adjudicacion A1 elimino para la banda, dejado
-        # intacto aqui: con el aplicado en 28 y el setting en 20, un cron de
-        # ledger caido bajaba el target 8 puntos en UN ciclo (umbral -12%
-        # de 32.2 a 23) -> recorte en masa de pujas reales; al recuperarse,
-        # latiguazo de vuelta. Ahora el peldano CONVERGE al setting a
-        # <=0.5/ciclo: sin salto de salida ni de re-entrada, y en pocos dias
-        # queda en el setting si el dato no vuelve. `retorno` marca que el
-        # valor ya no lo manda el margen (el snapshot lo declara).
-        # A5-r2: cuerpo extraido a converge_al_destino (dedup con sin_familia).
+        # Ante datos invalidos converge gradualmente al setting (<= 0.5/ciclo)
+        # en vez de saltar de golpe y provocar recortes masivos de pujas.
         return converge_al_destino(ultimo, setting, motivo)
     derivado = fraccion * medicion.margen_neto_pct
     # derivado se DEVUELVE crudo (snapshot + linea fuera-de-banda); el
@@ -1147,10 +1070,6 @@ def motivo_dato_invalido(
         return "ledger_rancio"
     return None
 
-
-# ---------------------------------------------------------------------------
-# A5 - peldano margen_familia: medicion por familia + fallback sub -> padre.
-# ---------------------------------------------------------------------------
 
 MEDICION_NULA = MedicionMargen(
     margen_neto_pct=None,
@@ -1216,10 +1135,8 @@ def resuelve_target_margen_familia(
     if fraccion is None:
         return (ResolucionMargen(None, None, "sin_fraccion", False), None)
     if etiqueta is None:
-        # B1b: sin familia efectiva pero CON trayectoria familiar, la hoja
-        # converge al destino a <=0.5/ciclo como cualquier dato invalido
-        # (mismo precipicio kimi-H1: caer de golpe seria el salto 29->30).
-        # Motivo sin_familia (no sin_margen: no hubo medicion que invalidar).
+        # Con trayectoria familiar previa, converge al destino a <= 0.5/ciclo
+        # en vez de caer de golpe; usa motivo sin_familia porque no hubo medicion.
         if not tiene_previo:
             return (ResolucionMargen(None, None, "sin_familia", False), None)
         return (converge_al_destino(ultimo, destino, "sin_familia"), None)

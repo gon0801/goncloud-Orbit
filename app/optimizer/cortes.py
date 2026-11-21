@@ -55,10 +55,6 @@ from typing import Literal
 
 from app.optimizer.windows import EvidenciaAdGroup
 
-# ---------------------------------------------------------------------------
-# Numeros sellados (spec v3; el spec manda, esto es su unica fuente en codigo)
-# ---------------------------------------------------------------------------
-
 O_MIN = 3  # ordenes del grupo para calificar (>=)
 C_MIN = 60  # clicks del grupo para calificar (>=)
 Z_MIN = 14  # fechas distintas de la UNION de hojas para calificar (>=)

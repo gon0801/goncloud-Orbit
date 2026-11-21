@@ -148,9 +148,6 @@ ROLES_DISCOVERY = (
 TOPE_CICLOS_HERMANAS = 3
 TOPE_INTENTOS_HERMANA = 3
 
-# ---------------------------------------------------------------------------
-# SQL del modulo (misma maquina de estados que apply_cola; ver docstring)
-# ---------------------------------------------------------------------------
 
 _SQL_INSERT_JOB = """
 INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id, fase)
@@ -169,23 +166,10 @@ _SQL_AVANZA_FASE = """
 UPDATE harvest_job SET fase = %s, external_ids = %s, updated_at = now() WHERE id = %s
 """
 
-# BIDS 01 2.2 (b), H2 acotado: la keyword YA fue archivada a mano entre la
-# decision y el apply. _identidad la ve AUSENTE (sellado probe 2.5 para
-# reconciliacion: NO se toca); este chequeo del LEDGER es lo que impide el
-# POST duplicado. Identidad = la de _identidad (mismo ad group + mismo texto
-# + EXACT) + plataforma; texto comparado con lower+btrim, coherente con la
-# normalizacion del dedupe de decision.
-#
-# CUALQUIER estado no repuesto bloquea (revision del PR #155, CodeRabbit
-# Major): con `estado = 'applied'` quedaba una carrera real — el archivador
-# commitea `planeado` ANTES del DELETE y solo sella `applied` tras el
-# readback, asi que en esa ventana (el ida y vuelta HTTP) el harvest no veia
-# nada y creaba el duplicado. Ampliarlo es SEGURO porque este chequeo solo se
-# alcanza cuando `_identidad` YA fallo, es decir cuando la keyword no esta
-# viva en el destino: si el archivo se quedo en `planeado` o `failed` pero la
-# keyword sigue viva, `_identidad` la encuentra y reconcilia sin llegar aqui.
-# Y cubre el residual H3 de grok (archivada en Amazon con el sello sin
-# promover). repuesto_at con valor = la reversa ya repuso: NO bloquea.
+# Impide recrear una keyword archivada a mano entre la decision y el apply.
+# Bloquea cualquier estado con repuesto_at IS NULL (incluido planeado/failed):
+# cierra la carrera durante el DELETE HTTP y es seguro porque esta consulta
+# solo corre despues de que _identidad confirmo que la keyword no esta viva.
 _SQL_ARCHIVO_APLICADO = """
 SELECT id, estado FROM keyword_archivo_manual
  WHERE platform = %s::platform
@@ -260,10 +244,6 @@ _SQL_SELLA_PENDIENTES = """
 UPDATE apply_attempt SET resultado = %s, finished_at = now()
  WHERE decision_id = %s AND finished_at IS NULL AND resultado IS NULL
 """
-
-# ---------------------------------------------------------------------------
-# Estructuras de salida
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -351,11 +331,6 @@ class _Contexto:
     grupo_id: int | None = None
 
 
-# ---------------------------------------------------------------------------
-# Bid sugerido (regla 8) y clampeo sellado
-# ---------------------------------------------------------------------------
-
-
 def bid_sugerido(cliente, keyword_id: str | int | None = None) -> Decimal | None:
     """La sugerencia de bid de Amazon para una keyword, o None.
 
@@ -408,11 +383,6 @@ def bid_efectivo(
     if base is None:
         raise ValueError("sin sugerencia ni default de bid: no se inventa (regla 3)")
     return min(max(base, floor), ceiling)
-
-
-# ---------------------------------------------------------------------------
-# Identidad completa contra Amazon VIVO (listas)
-# ---------------------------------------------------------------------------
 
 
 class ListaIncompleta(AdsApiError):
@@ -693,11 +663,6 @@ def _resultado_reversa_rechazada(ack: dict) -> str:
     return f"fallo:reversa_rechazada: {str(ack)[:300]}"
 
 
-# ---------------------------------------------------------------------------
-# Carga del job y su contexto fresco
-# ---------------------------------------------------------------------------
-
-
 def _job_de_fila(fila) -> _Job:
     return _Job(
         id=fila[0],
@@ -866,11 +831,6 @@ def _contexto_congelado(
     )
 
 
-# ---------------------------------------------------------------------------
-# Avances de fase y cierre
-# ---------------------------------------------------------------------------
-
-
 def _avanza(conn: psycopg.Connection, job: _Job, fase: str | None, ids: dict | None = None) -> None:
     """Acumula ids externos y opcionalmente avanza la fase (trigger sella
     la progresion; UPDATE sin cambio de fase es legitimo segun 0002)."""
@@ -897,12 +857,6 @@ def _sella_pendientes(conn: psycopg.Connection, decision_id: int, resultado: str
     """Sella las filas sin sello (crash/5xx) cuando la evidencia viva ya
     resolvio el veredicto (UNA vez; solo resultado IS NULL)."""
     conn.execute(_SQL_SELLA_PENDIENTES, (resultado, decision_id))
-
-
-# El lector de estado vive en app.apply (una sola fuente, shape del probe
-# 2.5): el ciclo de imports apply_cola -> apply_harvest obligaba el espejo
-# local; ahora ambos reusan el de apply (escaneo por cruce de id + wire
-# UPPER) en su version PAGINADA (CX1/QW1: _estado_de_readback).
 
 
 def _falla_job(
@@ -937,11 +891,6 @@ def _falla_job(
     if not notifica.notifica_harvest_failed(alerta):
         alerta = replace(alerta, envio_fallido=True)
     return "failed", alerta
-
-
-# ---------------------------------------------------------------------------
-# Reversas de harvest (regla 7 / sellado 12)
-# ---------------------------------------------------------------------------
 
 
 def _reversa_delete(
@@ -1048,11 +997,6 @@ def reversa_harvest_completo(
     if not _reversa_delete(conn, cliente, decision_id, "keyword", keyword_id):
         return False
     return _reversa_delete(conn, cliente, decision_id, "negative", negative_id)
-
-
-# ---------------------------------------------------------------------------
-# Reversa manual del harvest con hermanas (F2, A.3; la ejecuta el tool)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -1496,11 +1440,6 @@ def _reversa_automatica(
         return f"reversa: fallo ({exc})"
 
 
-# ---------------------------------------------------------------------------
-# La cadena de fases (matriz §6.1): cada paso cae al siguiente
-# ---------------------------------------------------------------------------
-
-
 def _payload_keyword(ctx: _Contexto, term: str, bid: Decimal) -> dict:
     """Payload EXACTO del POST de la keyword (MISMO shape que el write client:
     enums del wire REAL — probe 2.5, apply_attempt 16: matchType EXACT + state
@@ -1572,8 +1511,6 @@ def _paso_negative(
     errores = _errores_de_ack(ack)
     neg_id = _id_de_ack(ack, "negativeKeywordId")
     if errores or neg_id is None:
-        # GK2(a): fail-closed — sin id del ack no hay evidencia del corte en
-        # origen; se sella el fallo y se revierte lo que pudo nacer.
         with conn.transaction():
             resultado = (
                 f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
@@ -1625,7 +1562,6 @@ def _paso_keyword(
                 {"negative_id": propio.get("keywordId"), "negative_creada": procedencia},
             )
     if not job.external_ids.get("negative_id"):
-        # GK2(b): sin negativo cortado en origen NO se cosecha el termino.
         return _falla_job(
             conn,
             job,
@@ -1696,8 +1632,8 @@ def _paso_keyword(
     errores = _errores_de_ack(ack)
     kw_id = _id_de_ack(ack, "keywordId")
     if errores or kw_id is None:
-        # GK2(b/c): fail-closed — sin id del ACK, LIST no prueba propiedad;
-        # solo se revierte lo propio probado y se alerta para inspeccion.
+        # Sin id en el ack, LIST no prueba propiedad: solo se revierte lo propio
+        # probado y se alerta para inspeccion.
         with conn.transaction():
             resultado = (
                 f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
@@ -2169,11 +2105,6 @@ def _continua_job(
     return _paso_hermanas(conn, aplicador, job, queue_id)
 
 
-# ---------------------------------------------------------------------------
-# El hook de la cola: harvest_job nace AL LIBERAR (sellado 13)
-# ---------------------------------------------------------------------------
-
-
 def aplica_harvest(
     conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, *, platform: str
 ) -> ResultadoHarvest:
@@ -2204,13 +2135,6 @@ def aplica_harvest(
         alerta=alerta,
         caps_saturados=caps,
     )
-
-
-# ---------------------------------------------------------------------------
-# Compatibilidad A.3a: revalidacion y reconciliacion delegadas (la logica
-# vive en app.apply_harvest_reconciliacion; aqui solo la superficie que
-# consumen apply_cola, cycle y los tests, sin ciclo de imports en top-level)
-# ---------------------------------------------------------------------------
 
 
 def revalida_harvest(

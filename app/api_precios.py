@@ -27,33 +27,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-# ---------------------------------------------------------------------------
-# REPRICING 01 A.6 - /precios + plataformas.<p>.precios en /salud: pantalla
-# del motor de precios
-# ---------------------------------------------------------------------------
-#
-# - GET /api/dashboard/precios: por plataforma, el recuadro S10 EN VIVO
-#   (armado con app.precio.fuentes + app.precio.cobertura, las MISMAS
-#   consultas del motor — este modulo no duplica ni una) + las decisiones
-#   del dia por resultado (precio_decision) + las huerfanas pendientes
-#   (precio_cambio pendiente no-reversa) + las listas S7 (`con_goal`,
-#   `acciones`, `no_evaluados_filas`, `divergentes`). `no_evaluados_filas`
-#   sale de las filas del recuadro (cuadra con la Cobertura); las decisiones
-#   `no_a_la_venta` de hoy cuyo SKU no esta en el catalogo en vivo van
-#   contadas aparte.
-# - /salud suma plataformas.<p>.precios ({hoy, cobertura, evaluados,
-#   movidos, sombra, no_evaluados, frenados, goal_inalcanzable, huerfanas,
-#   decisiones, corrida_ausente}). `cobertura` es la MISMA serializacion
-#   que el `recuadro` de /precios (misma funcion).
-# - El reloj es el de la base (fuentes.hoy_base: el dia UTC que fija el
-#   trigger de precio_decision, no el local).
-# - Sin esquema de precios (la 0039 no esta aplicada): /salud deja el
-#   bloque en None + warning (patron _spapi_de) y /precios responde 503
-#   con el motivo claro — nunca 500 en ninguno de los dos.
-# - Dinero como STRING via _dec_str (regla 4); ausente = null (regla 3).
-#   Las frases de `acciones` llevan el dinero a 2 decimales (texto de
-#   pantalla, no ledger).
-
 _SQL_DECISIONES_PRECIO_HOY = """
 SELECT resultado, count(*)
   FROM precio_decision

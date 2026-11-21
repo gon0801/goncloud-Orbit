@@ -92,10 +92,6 @@ from app.optimizer import proteccion as subproteccion
 from app.optimizer.caso import InsumosProteccion, ResultadoProteccion
 from app.optimizer.windows import AgregadoMetricas
 
-# ---------------------------------------------------------------------------
-# Constantes selladas (fuente: diseno v2, reglas 1-5; el diseno manda)
-# ---------------------------------------------------------------------------
-
 PLATAFORMAS_MONEDA: dict[str, str] = {"amazon_us": "USD", "amazon_mx": "MXN"}
 
 # CORTES 01 (1.3): el umbral de clicks del PAUSE llega RESUELTO por
@@ -154,11 +150,6 @@ _CIEN = Decimal("100")
 _UNO = Decimal("1")
 
 
-# ---------------------------------------------------------------------------
-# Resultado auditable
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ResultadoBid:
     """Resultado de decidir UNA entidad. `kind` None = no-op/skip con
@@ -183,11 +174,6 @@ class ResultadoBid:
     # ORBIT 07 M1: resultado de la subpolitica de venta reciente cuando la
     # pausa por umbral quedo protegida o el dato reciente es desconocido.
     proteccion: ResultadoProteccion | None = None
-
-
-# ---------------------------------------------------------------------------
-# Motor
-# ---------------------------------------------------------------------------
 
 
 def exceso_economico(

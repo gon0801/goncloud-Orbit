@@ -174,11 +174,6 @@ class ResultadoSync:
     rango_max: date | None = None
 
 
-# ---------------------------------------------------------------------------
-# Lectura del snapshot (read-only por construccion: mode=ro + solo SELECT)
-# ---------------------------------------------------------------------------
-
-
 def leer_origen(ruta: Path | str) -> tuple[FilaOrigenLedger, ...]:
     """Lee ledger_events del snapshot. Abre con mode=ro."""
     ruta = Path(ruta)
@@ -211,11 +206,6 @@ def leer_origen(ruta: Path | str) -> tuple[FilaOrigenLedger, ...]:
         )
     finally:
         con.close()
-
-
-# ---------------------------------------------------------------------------
-# Mapeo puro (D1-D8): frontera parsea; dominio confia en EventoLedger
-# ---------------------------------------------------------------------------
 
 
 def _dia(texto: str | None) -> date | None:
@@ -593,10 +583,6 @@ def _formato_skip_reason(skips: Counter) -> str | None:
     return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
 
-# ---------------------------------------------------------------------------
-# Escritura en Orbit (ledger_event, rol de ingesta)
-# ---------------------------------------------------------------------------
-
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
 _SQL_SELLAR_RUN = """
@@ -924,11 +910,6 @@ def _sellar_run(
     skip_reason: str | None,
 ) -> None:
     conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
-
-
-# ---------------------------------------------------------------------------
-# main del pipeline
-# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:

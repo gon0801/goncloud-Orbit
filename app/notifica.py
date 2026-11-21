@@ -245,11 +245,6 @@ def envia_aviso(texto: str, *, transport: httpx.BaseTransport | None = None) -> 
     return _envia_texto(texto, transport)
 
 
-# ---------------------------------------------------------------------------
-# Builders puros (sin red): texto plano, sin secretos
-# ---------------------------------------------------------------------------
-
-
 TOPE_CORTES_POR_AVISO = 5
 
 
@@ -640,11 +635,6 @@ def aviso_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Senders de alto nivel: devuelven bool, JAMAS levantan excepciones
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PropuestaCampanaNueva:
     """Lo que el aviso de propuesta nueva necesita (C.4 B1): la fila open
@@ -988,11 +978,6 @@ def notifica_biblioteca_no_escrita(
         return False
 
 
-# ---------------------------------------------------------------------------
-# FABRICA 02 (A.6): aviso de harvest de grupo sin destino (en flanco)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class SaltoDestinoGrupo:
     """Salto del resolutor en una campana DE GRUPO (cycle.py lo construye
@@ -1059,29 +1044,8 @@ def notifica_destino_grupo(
         return False
 
 
-# ---------------------------------------------------------------------------
-# REPRICING 01 (A.6): avisos del motor de precios, un sender en flanco
-# ---------------------------------------------------------------------------
-#
-# Un solo sender `notifica_precio(tipo, payload)` en flanco por racha (S7):
-# por (plataforma, motivo) con conteo y hasta 5 SKUs para `no_evaluado`
-# (solo cuando el grupo lleva `precio_aviso_dias_sin_evaluar` dias seguidos),
-# `goal_inalcanzable` y `frenado`; por producto para `no_confirmado` y
-# `buy_box_perdida`; por plataforma para `huerfana_sin_patch`. Mismo contrato
-# fail-silent de los otros senders: canal apagado -> True; cualquier
-# excepcion -> warning con scrub + False; jamas levanta.
-#
-# El texto lleva solo SKU, plataforma, precios, estado y motivo en
-# palabras: nunca costo, margen, goal ni cuerpos de error. Por eso el motivo
-# viaja traducido por el registro `app.etiquetas` (motivo_precio y estado_precio)
-# (los ids crudos `precio_no_cubre_costo`, `sobre_goal_sin_perdida` y
-# `goal_inalcanzable` contienen esas palabras); el ASIN solo sale en
-# plataformas Amazon (fuera de Amazon el id externo no es un ASIN);
-# un motivo desconocido sale en palabras y deja un aviso en el log.
-# Los builders son puros (sin red, sin secretos) y no reciben ningun campo
-# de costo/margen/goal/error: la ausencia es estructural, no un filtro.
-# El flanco lo decide `avisar_precio` (gancho `avisar` de la corrida A.5)
-# leyendo hoy y dias previos de `precio_decision`/`precio_cambio`.
+# Avisos del motor de precios: nunca exponen costo, margen, goal ni cuerpos de
+# error (por eso los motivos se traducen via app.etiquetas).
 
 TIPOS_PRECIO = (
     "no_evaluado",

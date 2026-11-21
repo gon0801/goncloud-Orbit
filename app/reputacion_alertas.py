@@ -156,10 +156,6 @@ def evalua_salud_cuenta(level_actual: str | None, level_previo: str | None) -> A
     )
 
 
-# ---------------------------------------------------------------------------
-# Capa DB: lectura, flanco y persistencia (UNA transaccion)
-# ---------------------------------------------------------------------------
-
 # Tipos que se auto-resuelven al dejar de calificar. resena_1 no: una
 # review 1 estrella no deja de existir (D-A5-7; la atiende el operador).
 _AUTO_RESUELVEN = frozenset({"rating_bajo", "caida_rating", "reclamos_suben", "salud_cuenta"})
@@ -368,10 +364,6 @@ def evalua_y_persiste(conn, hoy=None, dry_run: bool = False) -> dict:
         "dry_run": dry_run,
     }
 
-
-# ---------------------------------------------------------------------------
-# Aviso propio (ARREGLOS 03 D-K) + entrada CLI (ORBIT_DSN_DECIDE)
-# ---------------------------------------------------------------------------
 
 # Orden de los avisos: criticas primero, luego por antiguedad.
 _ORDEN_SEVERIDAD = "CASE severidad WHEN 'critica' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END"

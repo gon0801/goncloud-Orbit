@@ -117,9 +117,7 @@ def _texto(valor: Any) -> str | None:
 
 
 def _dia_utc(momento: datetime.datetime) -> datetime.date:
-    # Hallazgo 3 grok (baja): metric_date es el dia UTC de observed_at
-    # (lo que exige el trigger), no el dia de pared del tzinfo que traiga
-    # `ahora`. En produccion `ahora` es UTC y calza; esto blinda el resto.
+    # El trigger de DB exige que metric_date sea el dia UTC de observed_at.
     if momento.tzinfo is None:
         momento = momento.replace(tzinfo=datetime.UTC)
     return momento.astimezone(datetime.UTC).date()
@@ -349,8 +347,6 @@ def ejecutar_ingesta(
                     skips["duplicada"] += 1
             motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
             if aviso is not None:
-                # Hallazgo 1 grok: como orders, el aviso no descarta el
-                # detalle de skips ya calculado.
                 motivo_aviso = f"paginacion_incompleta:{aviso}"
                 if motivo:
                     motivo_aviso = f"{motivo_aviso}; {motivo}"
@@ -377,10 +373,8 @@ def ejecutar_ingesta(
         # (fail-silent: jamas rompe la ingesta).
         evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
-        # Hallazgo 2 grok: INSERTs y sello van en UNA transaccion; si
-        # revienta, Postgres deshace las filas y el contador Python
-        # mentiria — se sella 0 (como orders). Las llamadas si ocurrieron:
-        # las declara el medidor, no un 0 fijo.
+        # INSERTs y sello van en una sola transaccion: tras el rollback no
+        # quedaron filas escritas (escritas=0), pero las llamadas HTTP si ocurrieron.
         try:
             with conn.transaction():
                 _sellar(

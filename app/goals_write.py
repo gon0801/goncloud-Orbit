@@ -445,18 +445,9 @@ def edita_goal(
         if cambios.get("mode") == "live":
             _valida_live_destino_post_lectura(conn, goal_id, fila, cambios)
 
-        # Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2; la DB ya no
-        # tiene DEFAULT desde 0003): si el estado efectivo de la fila editable
-        # quedara con floor/ceiling ausentes, se resuelven con LA MONEDA DEL
-        # PROPIO goal antes de persistir -- JAMAS caen a 0.10/2.50 implicitos
-        # (spot-check 4.4: ese techo en USD aplastaba bids vivos de MX). Moneda
-        # fuera de DEFAULTS_POR_MONEDA -> ValueError y el UPDATE no se ejecuta.
-        # La pre-validacion de abajo corre SOBRE el estado ya resuelto: el
-        # operador ve el mensaje claro, no un CheckViolation crudo.
-        # DEFENSA EN PROFUNDIDAD (grok, cross-review 1.2 r2): contra filas reales
-        # es inalcanzable hoy (bid_floor/bid_ceiling son NOT NULL desde 0001;
-        # None en la API significa "no cambiar") -- se queda porque el sello del
-        # plan exige que un MXN jamas se persista con defaults USD implicitos.
+        # Defensa en profundidad: hoy bid_floor/bid_ceiling son NOT NULL en DB,
+        # pero si el estado efectivo quedara con alguno en None se resuelve con
+        # los defaults de la moneda del goal antes de pre-validar y persistir.
         if (
             cambios.get("bid_floor", fila["bid_floor"]) is None
             or cambios.get("bid_ceiling", fila["bid_ceiling"]) is None
@@ -467,14 +458,8 @@ def edita_goal(
             if cambios.get("bid_ceiling", fila["bid_ceiling"]) is None:
                 cambios["bid_ceiling"] = techo_default
 
-        # Bid-solo ESTABLE post-D.2 (ronda PR #283, hallazgo kimi ALTO):
-        # `permite_bid_solo` tambien abre cuando la terna EFECTIVA ya es
-        # bid-solo y la campana esta en grupo (espejo del estado 3 del
-        # trigger 0038) — sin esto, CUALQUIER edicion sobre un goal
-        # post-D.2 (incluidos mode=live y el kill switch) moria con
-        # "config de harvest incompleta". La query corre SOLO si la terna
-        # efectiva es bid-solo (el resto de ediciones no paga I/O extra);
-        # sueltos y scope=platform jamas abren.
+        # Permite editar goals bid-solo de campanas en grupo (espejo del trigger
+        # 0038); la query solo corre si la terna efectiva es bid-solo.
         permite_bid_solo = harvest_limpia_destino
         if not permite_bid_solo and _bid_solo_efectivo(fila, cambios):
             permite_bid_solo = (

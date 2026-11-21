@@ -122,8 +122,8 @@ GRACIA_REACTIVACION = dt.timedelta(days=7)
 # cerrado con el que el ciclo NO re-decide una clave bloqueada.
 MOTIVO_VETO_PENDIENTE = "veto_pendiente"
 
-# Descartes del motor por re-validacion fallida (sellado 6; filas LIVE: el
-# discard de filas shadow exige admin por trigger, hallazgo post-merge PR #25).
+# Descartes por re-validacion fallida (solo filas live; descartar shadow exige
+# rol admin por trigger).
 MOTIVO_VENDIO_EN_VENTANA = "vendio_en_ventana"
 MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
@@ -153,9 +153,6 @@ MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 # El PAUSE antiguo no consume target; el economico resuelve el vigente.
 _TARGET_REVALIDA = Decimal("100")
 
-# ---------------------------------------------------------------------------
-# SQL del modulo (parsea el test de sintaxis con pglast)
-# ---------------------------------------------------------------------------
 
 _SQL_CLAVES_BLOQUEADAS = """
 SELECT ad_entity_id, familia, search_term
@@ -193,12 +190,8 @@ VALUES (%s::platform, %s, %s, %s, %s, %s, 'pending_veto', %s, %s)
 RETURNING id
 """
 
-# Barrido FIFO (ADV-02 de la review adversaria): vencidas pending_veto Y
-# TAMBIEN las released no terminales que esperaron quota (pausas/negatives
-# que no alcanzaron cap el ciclo anterior y JAMAS se reintentaban — su clave
-# de efecto quedaba bloqueada para siempre). Una fila released NO se
-# re-libera: vuelve a entrar por la MISMA secuencia (re-validacion + quota +
-# claim) y leerla ya liberada JAMAS cuenta como carrera.
+# Barrido FIFO: incluye pending_veto vencidas y filas released que esperaban
+# quota (sin reintentarlas, su clave quedaria bloqueada indefinidamente).
 _SQL_VENCIDAS = """
 SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
   FROM apply_queue
@@ -348,11 +341,6 @@ SELECT e.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
 """
 
 
-# ---------------------------------------------------------------------------
-# Estructuras de salida
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ResumenEncolado:
     """Resultado del encolado de UN ciclo. `choques` declara las decisiones
@@ -427,11 +415,6 @@ def fila_cola(conn: psycopg.Connection, queue_id: int) -> FilaCola | None:
     return FilaCola(*fila) if fila is not None else None
 
 
-# ---------------------------------------------------------------------------
-# Skip por clave de efecto (sellado 5)
-# ---------------------------------------------------------------------------
-
-
 def claves_bloqueadas(
     conn: psycopg.Connection, platform: str, ahora: dt.datetime
 ) -> set[tuple[int, str, str | None]]:
@@ -468,11 +451,6 @@ def skip_por_clave(
     (2.4) las salta con motivo MOTIVO_VETO_PENDIENTE ANTES de decidir. Devuelve
     el subconjunto bloqueado de los candidatos."""
     return set(claves) & claves_bloqueadas(conn, platform, ahora)
-
-
-# ---------------------------------------------------------------------------
-# Encolado por la APP (sellado 4: invariante corte<->cola)
-# ---------------------------------------------------------------------------
 
 
 def _meet_goals(conn: psycopg.Connection, platform: str, campaign_id, escalera_global: str) -> str:
@@ -701,16 +679,6 @@ def encola_cortes(
     return ResumenEncolado(
         encoladas_live=live, encoladas_shadow=shadow, choques=choques, avisos=tuple(avisos)
     )
-
-
-# ---------------------------------------------------------------------------
-# Re-validacion PRE-claim (sellado 6; contrato cross-plan de CORTES 01)
-# ---------------------------------------------------------------------------
-
-
-# El lector de estado vive en app.apply (una sola fuente, shape del probe
-# 2.5): _estado_de_readback escanea el LIST PAGINADO (CX1/QW1) por cruce de
-# id y trae el vocabulario UPPER del wire (ESTADO_WIRE_*).
 
 
 def _gracia_activa(conn: psycopg.Connection, ad_entity_id: int, ahora: dt.datetime) -> bool:
@@ -1128,9 +1096,6 @@ def _revalida_pause(
         return MOTIVO_ENTIDAD_NO_VIVA
     kind, external_id = identidad
     _, path, contenedor, param = apply._KINDS_DECISORAS[kind]
-    # CX1/QW1: el LIST PAGINA (la entidad puede vivir en la pagina 2+ de una
-    # cuenta con miles de keywords — leer solo la primera la daba por
-    # ausente y el corte moria 'entidad_no_viva').
     estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, external_id)
     if estado != apply.ESTADO_WIRE_ENABLED:
         # Ya no existe / ARCHIVED / ya PAUSED: el corte es moot (ARCHIVED es
@@ -1405,11 +1370,6 @@ def _rama(conn: psycopg.Connection, fila: FilaCola) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Ejecucion sellada de un corte reclamado
-# ---------------------------------------------------------------------------
-
-
 def _termina(conn: psycopg.Connection, fila: FilaCola, estado: str) -> None:
     sello = "applied_at" if estado == "applied" else "failed_at"
     conn.execute(
@@ -1454,13 +1414,8 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
     # huerfana: ES el rastro, la reconciliacion (2.3, matriz §6.1) decide.
     ack = apply._json_seguro(resp_http)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1)
-    # + wire UPPER.
     estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
     verify = estado == apply.ESTADO_WIRE_PAUSED
-    # El ledger sella 'ok' SOLO con verificacion (bug PR27-3): un estado
-    # legible distinto al pedido es divergencia (misma etiqueta QW1 de los
-    # bids), jamas exito con verify_ok False.
     resultado = (
         "ok"
         if verify
@@ -1496,12 +1451,8 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
         _termina(conn, fila, "failed")
         return "failed"
     ack = apply._json_seguro(resp_http)
-    # CX4/GK6: un 2xx con body ilegible/vacio o SIN id resuelto NO es applied
-    # — el negative aplica SOLO con evidencia del ack (el fallback de
-    # _json_seguro es dict, asi que isinstance(ack, dict) era SIEMPRE True).
-    # La verificacion por lista con identidad completa es de la
-    # RECONCILIACION (2.3, §6.1); el shape del ack quedo sellado por el probe
-    # 2.5 (207 con success anidado, apply_attempt 13).
+    # Exige negativeKeywordId en el ack (207 con success anidado): _json_seguro
+    # siempre devuelve dict y un 2xx sin id no prueba creacion.
     verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
     resultado = "ok" if verify else "fallo:ack_sin_id"
     rastro_biblio: dict | None = None
@@ -1554,11 +1505,6 @@ def _ejecuta_rama(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola
     if rama == "pause_producto":
         return apply_producto.ejecuta_pause_producto(conn, aplicador, fila)
     return _ejecuta_negative(conn, aplicador, fila)
-
-
-# ---------------------------------------------------------------------------
-# Liberacion FIFO de vencidas
-# ---------------------------------------------------------------------------
 
 
 def descarta_esperas_proteccion(conn: psycopg.Connection, platform: str) -> int:
@@ -1690,11 +1636,8 @@ def libera_vencidos(
                 conn, aplicador, platform, fila, ahora, revalidaciones_economicas, proteccion_cache
             )
         except AdsApiError:
-            # GK3: si el LIST fresco de re-validacion de ESTA fila murio (entidad
-            # muerta/path caido): la fila queda released (vetable, reintenta
-            # al ciclo siguiente) con la nota en el resumen — el barrido SIGUE
-            # con las demas; una entidad muerta NO degrada el ciclo. Los 5xx
-            # de las MUTACIONES siguen SUBIENDO (sellado 8).
+            # Fallo de lectura en re-validacion deja esta fila en released y
+            # continua el barrido; los 5xx de mutacion siguen propagando.
             sin_respuesta += 1
             _registra(fila, apply.MOTIVO_SIN_RESPUESTA)
             continue
@@ -1776,11 +1719,6 @@ def libera_vencidos(
     )
 
 
-# ---------------------------------------------------------------------------
-# Reversas de cortes (regla 7, sellado 12)
-# ---------------------------------------------------------------------------
-
-
 def reversa_pause(
     conn: psycopg.Connection,
     cliente,
@@ -1796,9 +1734,6 @@ def reversa_pause(
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return False
     campo = "keywordId" if identidad[0] == "keyword" else "targetId"
-    # El state del REQUEST del resume vive de la constante re-exportada (QW2:
-    # write.py ESTADO_PUT_ENABLED — sello 2026-08-27 del PUT). El READBACK
-    # compara contra el wire VERIFICADO del list (ESTADO_WIRE_ENABLED).
     payload = {campo: identidad[1], "state": apply.ESTADO_PUT_ENABLED}
     id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
     if id_attempt is None:
@@ -1819,12 +1754,7 @@ def reversa_pause(
     if tick is not None:
         tick()
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1)
-    # + wire UPPER.
     estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
-    # QW6 (mismo bug que PR27-3 en _ejecuta_pause): el ledger sella 'ok' SOLO
-    # si el estado leido ES el pedido (ENABLED) — un resume que no surtio
-    # efecto es divergencia, jamas exito con retorno False.
     verify = estado == apply.ESTADO_WIRE_ENABLED
     resultado = (
         "ok"

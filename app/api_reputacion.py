@@ -134,9 +134,8 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
             "disputas_abiertas": seller[4],
         }
     )
-    # Kimi A.R H2: ultima observacion primero, filtro despues — una
-    # pregunta ya respondida no reaparece por su fila vieja UNANSWERED,
-    # y el total se deriva del mismo conjunto (no monotonically crece).
+    # Ultima observacion primero y filtro despues para que una pregunta ya
+    # respondida no reaparezca por su fila previa UNANSWERED.
     _ULTIMA_PREGUNTA = (
         "SELECT DISTINCT ON (external_id, question_external_id)"
         " external_id, question_external_id, texto, estado, asked_at, observed_at"
@@ -179,7 +178,7 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
     total_alertas = conn.execute(
         "SELECT count(*) FROM reputation_alert WHERE NOT resolved"
     ).fetchone()[0]
-    # Kimi A.R H3: solo publicadas bajo el encabezado "verificadas".
+    # Solo resenas publicadas se muestran bajo el encabezado de verificadas.
     reviews = conn.execute(
         "SELECT external_id, review_external_id, rating, titulo, texto, published_at"
         " FROM (SELECT DISTINCT ON (platform, review_external_id)"

@@ -107,11 +107,6 @@ def detectar_huecos(
     return tuple(huecos)
 
 
-# ---------------------------------------------------------------------------
-# Lectura del snapshot (read-only por construccion: mode=ro + solo SELECT)
-# ---------------------------------------------------------------------------
-
-
 def leer_origen(ruta: Path | str) -> tuple[FilaOrigenFx, ...]:
     """Lee currency_rates del snapshot. Abre con mode=ro."""
     ruta = Path(ruta)
@@ -134,11 +129,6 @@ def leer_origen(ruta: Path | str) -> tuple[FilaOrigenFx, ...]:
         )
     finally:
         con.close()
-
-
-# ---------------------------------------------------------------------------
-# Mapeo puro: etiquetas invertidas, numero se conserva (D1)
-# ---------------------------------------------------------------------------
 
 
 def _dia(texto: str) -> date | None:
@@ -212,10 +202,6 @@ def _formato_skip_reason(skips: Counter) -> str | None:
         return None
     return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
-
-# ---------------------------------------------------------------------------
-# Escritura en Orbit (fx_rate, rol de ingesta)
-# ---------------------------------------------------------------------------
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -320,11 +306,6 @@ def _sellar_run(
     skip_reason: str | None,
 ) -> None:
     conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
-
-
-# ---------------------------------------------------------------------------
-# main del pipeline
-# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
