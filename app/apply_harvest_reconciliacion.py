@@ -36,6 +36,7 @@ import psycopg
 from app import apply, biblioteca
 from app import apply_harvest as _ejecucion
 from app.ads.client import AdsApiError, AdsAuthError
+from app.db import tx_durable
 from app.optimizer import cortes, harvest_destino, hygiene, windows
 
 if TYPE_CHECKING:
@@ -280,7 +281,7 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
         if estado == apply.ESTADO_WIRE_PAUSED:
             ack = {"fuente": "list", "state": estado}
-            with conn.transaction():
+            with tx_durable(conn):
                 _ejecucion._sella_pendientes(conn, decision_id, "ok:reconciliado")
                 apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
                 conn.execute(_SQL_CACHE_ESTADO, (estado, entidad))
@@ -288,7 +289,7 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             confirmadas += 1
             continue
         if estado == apply.ESTADO_WIRE_ENABLED:
-            with conn.transaction():
+            with tx_durable(conn):
                 _ejecucion._sella_pendientes(conn, decision_id, "fallo:reconciliado_enabled")
                 if conn.execute(_SQL_PAUSE_PROPIO, (entidad,)).fetchone()[0]:
                     # Pause propio verificado + ENABLED vivo: el dueno
@@ -296,7 +297,15 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
                     conn.execute(_SQL_INSERT_REACTIVACION, (entidad,))
                 _ejecucion._termina_cola(conn, q_id, "failed")
             fallidas += 1
-        # Otro estado (ARCHIVED/ilegible): ambiguo, proximo ciclo.
+            continue
+        if estado == "ARCHIVED":
+            with tx_durable(conn):
+                _ejecucion._sella_pendientes(conn, decision_id, "fallo:reconciliado_archived")
+                conn.execute(_SQL_CACHE_ESTADO, (estado, entidad))
+                _ejecucion._termina_cola(conn, q_id, "failed")
+            fallidas += 1
+            continue
+        # Otro estado ilegible: ambiguo, proximo ciclo.
     return (confirmadas, fallidas)
 
 
@@ -437,11 +446,11 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
         try:
             resp = cliente.crear_negative_exacto(grupo_ext, campana_ext, term)
         except apply.AdsApiErrorMutacion as exc:
-            apply._sella_ledger(
-                conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-            )
-            conn.commit()
-            _ejecucion._termina_cola(conn, q_id, "failed")
+            with tx_durable(conn):
+                apply._sella_ledger(
+                    conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
+                )
+                _ejecucion._termina_cola(conn, q_id, "failed")
             fallidas += 1
             continue
         except (AdsApiError, AdsAuthError):

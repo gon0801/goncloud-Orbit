@@ -93,6 +93,7 @@ from psycopg.types.json import Json
 
 from app import apply, biblioteca, notifica
 from app.ads.client import AdsApiError, AdsClientError
+from app.db import tx_durable
 from app.optimizer import goals as g
 from app.optimizer import harvest_destino, hygiene
 
@@ -1608,8 +1609,9 @@ def _paso_keyword(
     try:
         bid = bid_efectivo(sugerido, ctx.default_bid, ctx.floor, ctx.ceiling)
     except ValueError:
+        detalle = _reversa_automatica(conn, aplicador, job, ctx) + " | sin bid efectivo"
         return _falla_job(
-            conn, job, MOTIVO_BID_DEFAULT_FALTANTE, queue_id=queue_id, detalle="sin bid efectivo"
+            conn, job, MOTIVO_BID_DEFAULT_FALTANTE, queue_id=queue_id, detalle=detalle
         )
     payload = _payload_keyword(ctx, job.search_term, bid)
     id_attempt = apply._ledger(conn, job.decision_id, "normal", payload, quota_cobrada=False)
@@ -1920,7 +1922,7 @@ def _post_hermana(
         return (motivo, None, None, None)
     # ACK aceptado: queda durable ANTES del readback posterior (r3, AC-4),
     # con la fila abierta. El posterior solo sella el resultado.
-    with conn.transaction():
+    with tx_durable(conn):
         apply._guarda_ack(conn, id_attempt, ack)
     return (None, id_attempt, neg_id, ack)
 

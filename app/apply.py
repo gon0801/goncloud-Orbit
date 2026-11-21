@@ -105,6 +105,7 @@ from decimal import Decimal
 
 import httpx
 import psycopg
+from psycopg import pq
 from psycopg.types.json import Json
 
 from app.ads.client import AdsApiError, AdsClient
@@ -126,6 +127,7 @@ from app.ads.write import (
     AdsWriteClient,
     _bid_payload,
 )
+from app.db import tx_durable
 from app.optimizer import goals as g
 from app.pantalla_danadas import lee_danadas
 from app.redaction import scrub
@@ -749,7 +751,7 @@ def reconcilia_bids(
     confirmadas = fallidas = 0
     for id_attempt, decision_id, _payload, ad_entity_id, new_value, _moneda in filas:
         if gate_ancestros(conn, ad_entity_id) is not None:
-            with conn.transaction():
+            with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
             fallidas += 1
             continue
@@ -757,7 +759,7 @@ def reconcilia_bids(
             cliente = aplicador._cliente()
         identidad = _identidad(conn, ad_entity_id)
         if identidad is None or identidad[0] not in _KINDS_DECISORAS or new_value is None:
-            with conn.transaction():
+            with tx_durable(conn):
                 _sella_ledger(
                     conn, id_attempt, ack=None, resultado="fallo:reconciliado_sin_identidad"
                 )
@@ -769,13 +771,13 @@ def reconcilia_bids(
             # Amazon Ads v3 retiro el GET directo de entidad; readback via /list paginado.
             bid_leido = _bid_de_readback(cliente, path, contenedor, param, external_id)
         except AdsApiError:
-            with conn.transaction():
+            with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
             fallidas += 1
             continue
         if bid_leido == Decimal(_bid_payload(new_value)):
             ack = {"fuente": "readback", "bid": str(bid_leido)}
-            with conn.transaction():
+            with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=ack, resultado="ok:reconciliado")
                 _confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
@@ -785,7 +787,7 @@ def reconcilia_bids(
             "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
         )
         ack = {"fuente": "readback", "bid": str(bid_leido)} if bid_leido is not None else None
-        with conn.transaction():
+        with tx_durable(conn):
             _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
             if bid_leido is not None:
                 _actualiza_cache(conn, ad_entity_id, bid_leido)  # sellado 16: lo LEIDO
@@ -1390,7 +1392,7 @@ class Aplicador:
                 "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
             )
         )
-        with self._conn.transaction():
+        with tx_durable(self._conn):
             _sella_ledger(self._conn, id_attempt, ack=ack, resultado=resultado)
             _confirma_resumen(self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor)
             if bid_leido is not None:
@@ -1856,7 +1858,9 @@ def regreso_del_dueno_todas(
                 regreso_del_dueno(conn, hoja_id=hoja.hoja_id, actor=actor, transport=transport)
             )
         except Exception as exc:
-            salidas.append(f"hoja {hoja.hoja_id}: {exc}")
+            if not conn.autocommit and conn.info.transaction_status == pq.TransactionStatus.INERROR:
+                conn.rollback()
+            salidas.append(f"hoja {hoja.hoja_id}: {scrub(str(exc))}")
     return tuple(salidas)
 
 
@@ -2304,7 +2308,11 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     antes = config_por_id(conn, antes_id)
     vigente_id, vigente = config_vigente_con_id(conn, campana_id)
     hijo = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
-    if vigente is None or vigente == antes:
+    if vigente is None:
+        raise AjusteNoConfirmado(
+            f"ajuste {ajuste_id}: sin configuracion vigente de la campana en DB"
+        )
+    if vigente == antes:
         if hijo is not None and not hijo[1]:
             _sella_pendiente(conn, hijo[0])
             return AjusteHecho(hijo[0], campana_id, clase, True)
