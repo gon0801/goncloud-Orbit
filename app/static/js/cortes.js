@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // JS de la pantalla de propuestas (ORBIT 04 3.1; CORTES UI 01: el boton dice
 // Rechazar). Vive en /static por la CSP `default-src 'self'`: los <script>
@@ -208,3 +209,4 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 });
+})();

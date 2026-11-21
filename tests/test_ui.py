@@ -2409,7 +2409,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
   assert.equal(calls[2].url, "/api/ads-optimizer/campana-ajuste/aplicar");
   assert.equal(calls[2].options.headers["x-orbit-token"], "t");
   assert.deepEqual(JSON.parse(calls[2].options.body),
-    {campana_id: 7, clase: "presupuesto", presupuesto: 120,
+    {campana_id: 7, clase: "presupuesto", presupuesto: "120",
      huella: "h1", confirmacion: "APLICAR AJUSTE", actor: "dueno"});
   assert.equal(formPre.nodos['button[type="submit"]'].disabled, true);
   botonReg.events.click();

@@ -468,3 +468,7 @@
 
 <script type="application/json" id="datos-resumen">{{ contrato | tojson }}</script>
 {% endblock %}
+{% block scripts %}
+<script src="/static/vendor/chart.umd.min.js?v={{ asset_version }}"></script>
+<script src="/static/js/dashboard.js?v={{ asset_version }}"></script>
+{% endblock %}

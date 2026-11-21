@@ -23,7 +23,9 @@ def con_formato(guion: str) -> str:
     ruta = json.dumps(str(FORMATO_JS))
     preludio = (
         f'global.Orbit = new Function("document", require("node:fs").readFileSync({ruta}, "utf8")'
-        f' + "\\nreturn Orbit;")({{getElementById: () => ({{textContent: {registro}}})}});\n'
+        f' + "\\nreturn Orbit;")({{getElementById: () => ({{textContent: {registro}}}),'
+        " createElement: (...a) => global.document.createElement(...a),"
+        " createTextNode: (...a) => global.document.createTextNode(...a)});\n"
     )
     return preludio + guion
 

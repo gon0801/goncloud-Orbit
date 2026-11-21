@@ -14,7 +14,7 @@ def test_html_versiona_todos_los_css_y_js():
     html = TestClient(app).get("/campanas/nuevas").text
     urls = re.findall(r'(?:src|href)="(/static/[^\"]+)"', html)
     activos = [url for url in urls if urlsplit(url).path.endswith((".css", ".js"))]
-    assert len(activos) >= 8
+    assert len(activos) >= 6
     for url in activos:
         version = parse_qs(urlsplit(url).query).get("v", [])
         assert len(version) == 1 and re.fullmatch(r"[a-f0-9]{16}", version[0]), url

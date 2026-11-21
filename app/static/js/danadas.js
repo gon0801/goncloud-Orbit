@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // JS de la pantalla de keywords danadas (BIDS 02, P.3b). Vive en /static
 // por la CSP `default-src 'self'`: los <script> inline y los handlers on*=
@@ -91,3 +92,4 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 });
+})();

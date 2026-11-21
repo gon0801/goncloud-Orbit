@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // Vive en /static: la CSP bloquea script inline. En HEAD aplica data-tema
 // antes del primer paint (sin esperar DOMContentLoaded).
@@ -61,3 +62,4 @@ document.addEventListener("DOMContentLoaded", function () {
     syncBoton(siguiente);
   });
 });
+})();

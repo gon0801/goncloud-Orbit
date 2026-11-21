@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // JS de /familias (A2). Vive en /static por la CSP default-src 'self'.
 // Token SOLO en header x-orbit-token (mismo patron que settings.js).
@@ -83,3 +84,4 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 });
+})();

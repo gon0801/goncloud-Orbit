@@ -98,8 +98,8 @@ document.addEventListener("DOMContentLoaded", function () {
   function valor(dato) { return ausente(dato) ? "Sin dato" : String(dato); }
   function porcentaje(dato) { return ausente(dato) ? "Sin dato" : Orbit.pct(dato); }
   function fechaHora(dato) { return ausente(dato) ? "Sin dato" : Orbit.fechaHora(dato); }
-  // Fraccion (1 = todo) como porcentaje.
-  function fraccion(dato) { return ausente(dato) ? "Sin dato" : Orbit.pct(Number(dato) * 100); }
+  // Fraccion (1 = todo) como porcentaje exacto (sin float).
+  function fraccion(dato) { return ausente(dato) ? "Sin dato" : Orbit.fraccionPct(dato); }
 
   function estado(nombre, mensaje, error = false) {
     const elemento = porId(nombre);
