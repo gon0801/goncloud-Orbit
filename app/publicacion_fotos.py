@@ -65,10 +65,22 @@ class FotosPublicacion:
 
     def __init__(self, transport=None, spapi_client: SpapiClient | None = None):
         self._transport = transport
-        self._lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+        self._fetch_lock = threading.Lock()
         self._cache = OrderedDict()
         self._proxima_consulta = 0.0
         self._spapi: SpapiClient | None = spapi_client
+        self._http: httpx.Client | None = None
+
+    def close(self) -> None:
+        if self._http is not None:
+            self._http.close()
+            self._http = None
+
+    def _cliente_http(self) -> httpx.Client:
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.Client(timeout=8, follow_redirects=False, transport=self._transport)
+        return self._http
 
     def _spapi_cliente(self) -> SpapiClient:
         # Creacion perezosa: los tests fijan ORBIT_SECRETS_DIR antes de usar.
@@ -93,7 +105,7 @@ class FotosPublicacion:
         # se traducen a ValueError (obtener los mapea a no disponible); un
         # bug inesperado propaga para no enmascarar el diagnostico.
         try:
-            return self._spapi_cliente()._acceso()
+            return self._spapi_cliente().token_acceso()
         except ValueError:
             raise
         except (SpapiError, httpx.HTTPError, OSError) as exc:
@@ -113,36 +125,48 @@ class FotosPublicacion:
             return bytes(datos), mime
 
     def _consultar(self, plataforma: str, asin: str) -> tuple[bytes, str] | None:
-        with httpx.Client(timeout=8, follow_redirects=False, transport=self._transport) as client:
-            token = self._acceso(client)
-            time.sleep(max(0, self._proxima_consulta - time.monotonic()))
-            self._proxima_consulta = time.monotonic() + 0.6
-            response = client.get(
-                f"https://sellingpartnerapi-na.amazon.com/catalog/2022-04-01/items/{asin}",
-                params={"marketplaceIds": MERCADOS[plataforma], "includedData": "images"},
-                headers={"x-amz-access-token": token},
-            )
-            if response.status_code == 404:
-                return None
-            if response.status_code in (401, 403):
-                self._spapi_cliente().invalidar_token()
-            response.raise_for_status()
-            url = _url_main(response.json(), asin, MERCADOS[plataforma])
-            return self._descargar(client, url) if url else None
+        client = self._cliente_http()
+        token = self._acceso(client)
+        time.sleep(max(0, self._proxima_consulta - time.monotonic()))
+        self._proxima_consulta = time.monotonic() + 0.6
+        response = client.get(
+            f"https://sellingpartnerapi-na.amazon.com/catalog/2022-04-01/items/{asin}",
+            params={"marketplaceIds": MERCADOS[plataforma], "includedData": "images"},
+            headers={"x-amz-access-token": token},
+        )
+        if response.status_code == 404:
+            return None
+        if response.status_code in (401, 403):
+            self._spapi_cliente().invalidar_token()
+        response.raise_for_status()
+        url = _url_main(response.json(), asin, MERCADOS[plataforma])
+        return self._descargar(client, url) if url else None
+
+    def _leer_cache(self, clave: tuple[str, str]):
+        with self._cache_lock:
+            guardado = self._cache.get(clave)
+            if guardado and guardado[0] > time.monotonic():
+                self._cache.move_to_end(clave)
+                return True, guardado[1], guardado[2]
+        return False, None, False
 
     def obtener(self, plataforma: str, asin: str) -> tuple[bytes, str] | None:
         if plataforma not in MERCADOS or not re.fullmatch(r"[A-Z0-9]{10}", asin or ""):
             return None
-        if not self._lock.acquire(timeout=10):
-            raise FotoNoDisponible("Foto temporalmente no disponible.")
         clave = (plataforma, asin)
+        hit, foto_cache, fallo_cache = self._leer_cache(clave)
+        if hit:
+            if fallo_cache:
+                raise FotoNoDisponible("Foto temporalmente no disponible.")
+            return foto_cache
+        if not self._fetch_lock.acquire(timeout=10):
+            raise FotoNoDisponible("Foto temporalmente no disponible.")
         try:
-            guardado = self._cache.get(clave)
-            if guardado and guardado[0] > time.monotonic():
-                self._cache.move_to_end(clave)
-                if guardado[2]:
+            hit, foto_cache, fallo_cache = self._leer_cache(clave)
+            if hit:
+                if fallo_cache:
                     raise FotoNoDisponible("Foto temporalmente no disponible.")
-                return guardado[1]
+                return foto_cache
             try:
                 foto = self._consultar(plataforma, asin)
             except (httpx.HTTPError, OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -151,13 +175,14 @@ class FotosPublicacion:
             self._guardar(clave, foto, 86400 if foto else 900)
             return foto
         finally:
-            self._lock.release()
+            self._fetch_lock.release()
 
     def _guardar(self, clave, foto, ttl, fallo=False):
-        self._cache[clave] = (time.monotonic() + ttl, foto, fallo)
-        self._cache.move_to_end(clave)
-        while len(self._cache) > 128:
-            self._cache.popitem(last=False)
+        with self._cache_lock:
+            self._cache[clave] = (time.monotonic() + ttl, foto, fallo)
+            self._cache.move_to_end(clave)
+            while len(self._cache) > 128:
+                self._cache.popitem(last=False)
 
 
 fotos_publicacion = FotosPublicacion()

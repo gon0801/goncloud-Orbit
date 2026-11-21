@@ -38,7 +38,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from psycopg.rows import dict_row, tuple_row
+from psycopg.rows import tuple_row
 
 from app.ads.salud import bloque_salud as bloque_ads_ingest
 from app.api import KINDS_DECISION, ConexionLectura, propuestas_campana_visibles
@@ -81,6 +81,7 @@ from app.dashboard_resumen import (
     ventana_resumen,
 )
 from app.dashboard_resumen import resumen as resumen_multicanal
+from app.db import cursor_dict
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
 from app.etiquetas import ETIQUETAS, TIPO_TARGET, etiqueta, motivo_decision_es
 from app.optimizer import goals as g
@@ -1183,20 +1184,14 @@ def cortes(conn: ConexionLectura) -> dict:
     este endpoint, no reimplementa queries). El POST del veto vive en
     app/api_write.py (auth de escritura, sellado 18); esta lectura no
     necesita token (es la misma conexion de lectura del dashboard)."""
-    conn.row_factory = dict_row
-    filas = conn.execute(_SQL_CORTES_PENDIENTES).fetchall()
-    # S.5 J5b: senal guardada por decision (SOLO lectura). `_propuestas`
-    # desempaqueta por posicion: pide tuplas y devuelve la fabrica a dict_row
-    # antes de seguir.
+    with cursor_dict(conn) as cur:
+        filas = cur.execute(_SQL_CORTES_PENDIENTES).fetchall()
+    # S.5 J5b: senal guardada por decision (SOLO lectura).
     senal_disponible = True
     try:
         from app import jev_salud as pantallas_jev
 
-        conn.row_factory = tuple_row
-        try:
-            senales = pantallas_jev.de_propuestas(conn, [fila["decision_id"] for fila in filas])
-        finally:
-            conn.row_factory = dict_row
+        senales = pantallas_jev.de_propuestas(conn, [fila["decision_id"] for fila in filas])
         senal_por_decision = {
             decision_id: _senal_presentada(vista) for decision_id, vista in senales.items()
         }
@@ -1434,7 +1429,9 @@ def inertes(conn: ConexionLectura) -> dict:
     BIDS 01 2.6: ademas first_seen_at / en_espera / archivable_desde por item
     (puerta de antiguedad del archivado, espejo del default del tool) y
     `lotes`: resumen de keyword_archivo_manual (tabla vacia -> [])."""
-    conn.row_factory = dict_row
+    with cursor_dict(conn) as cur:
+        filas_inertes = cur.execute(_SQL_INERTES).fetchall()
+        filas_lotes = cur.execute(_SQL_LOTES_INERTES).fetchall()
     items = [
         {
             "plataforma": fila["platform"],
@@ -1464,7 +1461,7 @@ def inertes(conn: ConexionLectura) -> dict:
                 fila["archivable_desde"].isoformat() if fila["archivable_desde"] else None
             ),
         }
-        for fila in conn.execute(_SQL_INERTES).fetchall()
+        for fila in filas_inertes
     ]
     totales: dict[str, dict[str, int]] = {}
     for item in items:
@@ -1479,7 +1476,7 @@ def inertes(conn: ConexionLectura) -> dict:
             "failed": fila["failed"],
             "repuesto": fila["repuesto"],
         }
-        for fila in conn.execute(_SQL_LOTES_INERTES).fetchall()
+        for fila in filas_lotes
     ]
     return {"totales": totales, "items": items, "lotes": lotes}
 

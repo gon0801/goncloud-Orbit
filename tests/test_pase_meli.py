@@ -18,7 +18,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
+from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 
 
 def _archivo_pase(tmp_path: Path, **extra) -> Path:

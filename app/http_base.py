@@ -16,6 +16,8 @@ def validar_ruta_relativa(
     *,
     error_cls: type[Exception] = ValueError,
     etiqueta: str = "ruta HTTP",
+    prohibir_query: bool = False,
+    prohibir_percent_barra: bool = False,
 ) -> str:
     """Rechaza URLs absolutas, esquemas, backslashes, control chars y `..`."""
     if not isinstance(path, str) or not path.startswith("/"):
@@ -24,12 +26,18 @@ def validar_ruta_relativa(
         raise error_cls(f"{etiqueta} invalido: doble slash inicial prohibido")
     if "\\" in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
         raise error_cls(f"{etiqueta} invalido: caracteres de control o backslash prohibidos")
+    if "://" in path:
+        raise error_cls(f"{etiqueta} invalido: no se permiten URLs absolutas")
+    if prohibir_query and ("?" in path or "#" in path):
+        raise error_cls(f"{etiqueta} invalido: query o fragment no permitidos")
+    if prohibir_percent_barra and "%2f" in path.lower():
+        raise error_cls(f"{etiqueta} invalido: encoding de barra no permitido")
     partes = urlsplit(path)
     if partes.scheme or partes.netloc:
         raise error_cls(f"{etiqueta} invalido: no se permiten URLs absolutas")
     segmentos = partes.path.split("/")
     if ".." in segmentos:
-        raise error_cls(f"{etiqueta} invalido: traversal '..' prohibido")
+        raise error_cls(f"{etiqueta} invalido: traversal ('..') prohibido")
     return path
 
 

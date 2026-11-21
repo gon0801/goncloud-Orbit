@@ -1,9 +1,10 @@
 """Registro unico de etiquetas de pantalla (CLARIDAD 01, H.1).
 
 Cada dominio traduce los codigos internos de un vocabulario a palabras de la
-persona que usa Orbit. Las claves son las constantes del modulo dueno del
-vocabulario cuando existen: si el vocabulario cambia, el import truena aqui y
-no en la pantalla. Lo usan las plantillas (filtro `etiqueta`), las APIs del
+persona que usa Orbit. Es una hoja de datos PURA sin imports de dominio: la
+exhaustividad contra los vocabularios duenos se verifica en
+`tests/test_etiquetas.py` (y `tests/test_architecture.py` impide volver a
+acoplarlo a `app.*`). Lo usan las plantillas (filtro `etiqueta`), las APIs del
 dashboard y los avisos de Telegram (`notifica`).
 
 `etiqueta` nunca devuelve snake_case: un codigo desconocido sale sin guiones
@@ -13,22 +14,7 @@ bajos y con mayuscula inicial, y deja un aviso en el log para agregarlo aqui.
 from __future__ import annotations
 
 import logging
-from typing import Literal, get_args
-
-from app import apply_cola, fabrica_plan
-from app import cycle as ciclo
-from app import disponibilidad as disp
-from app import evaluacion_catalogo as evaluacion
-from app.bloqueo_dueno import PASOS_VIVOS
-from app.estimacion_venta import EXCLUSIONES_FIJAS, MOTIVOS_ESTIMACION
-from app.optimizer import bid, eras, hygiene, politica, productos, proteccion
-from app.optimizer import evidencia as ev
-from app.optimizer import goals as g
-from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.pantalla_dinero import TIPOS, UBICACIONES, EstrategiaPuja
-from app.precio.siembra import Bloqueo as BloqueoSiembra
-from app.propuestas_campana import TIPO_RIESGO
-from app.retiro_anuncios import MotivoRetiro, ResultadoRegreso, ResultadoRetiro
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -108,150 +94,122 @@ _SIN_PRECIO_CLIC = (
 )
 
 MOTIVO_SALUD: dict[str, str] = {
-    ciclo.MOTIVO_SIN_GOAL: "La campaña no tiene meta configurada: Orbit no mueve su puja",
-    ciclo.MOTIVO_GOAL_DISABLED: "La meta de la campaña está apagada: Orbit no mueve su puja",
-    ciclo.MOTIVO_GOAL_MODE_OFF: "La meta está apagada: Orbit no mueve su puja",
-    ciclo.MOTIVO_ESTADO_NO_ENABLED: "La keyword o el producto no está habilitado o no tiene estado",
-    ciclo.MOTIVO_CAMPANA_NO_ENABLED: "Campaña no habilitada (pausada, archivada o sin estado)",
-    ciclo.MOTIVO_GRUPO_NO_ENABLED: (
-        "Grupo de anuncios no habilitado (pausado, archivado o sin estado)"
-    ),
+    "sin_goal": "La campaña no tiene meta configurada: Orbit no mueve su puja",
+    "goal_disabled": "La meta de la campaña está apagada: Orbit no mueve su puja",
+    "goal_mode_off": "La meta está apagada: Orbit no mueve su puja",
+    "estado_no_enabled": "La keyword o el producto no está habilitado o no tiene estado",
+    "campana_no_enabled": "Campaña no habilitada (pausada, archivada o sin estado)",
+    "grupo_no_enabled": "Grupo de anuncios no habilitado (pausado, archivado o sin estado)",
     # TEMPORADA 01: los movimientos planeados de temporada (origen 'temporada'
     # en v_cambio_bid) con su texto para Salud.
-    politica.MOTIVO_ENTRA_BAJA: "Orbit bajó la puja al empezar la temporada baja",
-    politica.MOTIVO_AJUSTA_BAJA: (
-        "Orbit ajustó la puja al cambiar la reducción de la temporada baja"
-    ),
-    politica.MOTIVO_SALE_BAJA: "Orbit regresó la puja al terminar la temporada baja",
+    "entra_temporada_baja": "Orbit bajó la puja al empezar la temporada baja",
+    "ajusta_temporada_baja": ("Orbit ajustó la puja al cambiar la reducción de la temporada baja"),
+    "sale_temporada_baja": "Orbit regresó la puja al terminar la temporada baja",
     # TEMPORADA 01 D: los retenidos de la baja, el techo de subidas y el
     # regreso que espera por campana topada.
-    politica.MOTIVO_TEMPORADA_BAJA: (
-        "Estamos en temporada baja: Orbit solo recorta si pierde dinero"
-    ),
-    politica.MOTIVO_TECHO_DE_BAJA: (
-        "La puja no sube más: tocaría el techo que protege el ahorro de la baja"
-    ),
-    politica.MOTIVO_REGRESO_ESPERA_PRESUPUESTO: (
-        "Su regreso espera: la campaña anda sin presupuesto"
-    ),
+    "temporada_baja": "Estamos en temporada baja: Orbit solo recorta si pierde dinero",
+    "techo_de_baja": ("La puja no sube más: tocaría el techo que protege el ahorro de la baja"),
+    "regreso_espera_presupuesto": "Su regreso espera: la campaña anda sin presupuesto",
     # TEMPORADA 01 C: la subida rapida y su freno de presupuesto.
-    politica.MOTIVO_RECUPERA_NIVEL: (
-        "Orbit recuperó la puja recortada: la evidencia sostiene ese nivel"
-    ),
-    politica.MOTIVO_PRESUPUESTO_TOPADO: (
-        "La campaña anda sin presupuesto (o no se sabe): Orbit no sube la puja"
-    ),
-    ciclo.MOTIVO_ENTIDAD_INERTE: "Sin impresiones en 14 días: Orbit no mueve su puja",
+    "recupera_nivel": "Orbit recuperó la puja recortada: la evidencia sostiene ese nivel",
+    "presupuesto_topado": ("La campaña anda sin presupuesto (o no se sabe): Orbit no sube la puja"),
+    "entidad_inerte": "Sin impresiones en 14 días: Orbit no mueve su puja",
     # Lo cuentan la espera tras cualquier cambio aplicado (puja o pausa) y la de
     # una pausa aplicada aunque el dueno la haya revertido (goals.en_cooldown).
-    ciclo.MOTIVO_COOLDOWN_7D: (
+    "cooldown_7d": (
         "Orbit ya le aplicó un cambio en Amazon hace menos de 7 días (una puja o una pausa,"
         " aunque después se haya revertido): espera antes de volver a actuar"
     ),
-    apply_cola.MOTIVO_VETO_PENDIENTE: (
-        "Tiene una propuesta esperando tu revisión: Orbit no la vuelve a decidir"
-    ),
-    ciclo.MOTIVO_ESCALERA_OFF: "El motor de pujas está apagado en todas las plataformas",
-    ciclo.MOTIVO_POLITICA_APAGADA: "El motor de pujas está apagado en esta plataforma",
-    ciclo.MOTIVO_SIN_TARGET: "No se pudo calcular una meta de ACoS: sin cambio de puja",
-    ciclo.MOTIVO_PRODUCTO_SIN_EVIDENCIA: (
+    "veto_pendiente": ("Tiene una propuesta esperando tu revisión: Orbit no la vuelve a decidir"),
+    "escalera_off": "El motor de pujas está apagado en todas las plataformas",
+    "politica_apagada": "El motor de pujas está apagado en esta plataforma",
+    "sin_target": "No se pudo calcular una meta de ACoS: sin cambio de puja",
+    "producto_sin_evidencia": (
         "La meta por producto no se evaluó en este ciclo: sin cambio de puja"
     ),
-    ciclo.MOTIVO_BID_EN_VUELO: (
+    "bid_en_vuelo": (
         "El último cambio de puja aún no se confirma en Amazon: se decide cuando lo confirme"
     ),
-    politica.MOTIVO_ESPERANDO_EFECTO: "Puja cambiada hace poco: espera 7 días para ver su efecto",
-    politica.MOTIVO_VIGENTE_ENCIMA: (
+    "esperando_efecto": "Puja cambiada hace poco: espera 7 días para ver su efecto",
+    "vigente_por_encima": (
         "La puja actual ya está arriba de la puja a la que regresaría: sin cambio"
     ),
-    politica.MOTIVO_VENDE_DENTRO_DEL_MARGEN: "Vende dentro del margen: sin cambio de puja",
-    politica.MOTIVO_AZAR_LO_EXPLICA: "La diferencia puede ser suerte: sin cambio de puja",
-    politica.MOTIVO_VENTA_RECIENTE: (
-        "Vendió hace poco y esos días todavía pueden cambiar: sin cambio de puja"
-    ),
-    politica.MOTIVO_SUBIDA_EN_ESPERA: (
+    "vende_dentro_del_margen": "Vende dentro del margen: sin cambio de puja",
+    "azar_lo_explica": "La diferencia puede ser suerte: sin cambio de puja",
+    "venta_reciente": ("Vendió hace poco y esos días todavía pueden cambiar: sin cambio de puja"),
+    "subida_en_espera_de_venta": (
         "Su pausa está en espera por una venta reciente: Orbit no sube la puja mientras tanto"
     ),
-    proteccion.MOTIVO_PROTEGIDA: "Iba a pausarse, pero tiene un pedido reciente: la pausa espera",
-    proteccion.MOTIVO_INDETERMINADA: (
+    "venta_reciente_protegida": "Iba a pausarse, pero tiene un pedido reciente: la pausa espera",
+    "venta_reciente_indeterminada": (
         "Iba a pausarse, pero falta el dato de sus pedidos recientes: la pausa espera"
     ),
-    ciclo.MOTIVO_PAUSA_PRODUCTO_PENDIENTE: (
+    "pausa_producto_pendiente": (
         "La pausa de su producto está en camino: Orbit no sube la puja de lo que va a pausar"
     ),
-    politica.MOTIVO_SIN_GASTO: "Sin gasto: sin cambio de puja",
-    politica.MOTIVO_HOJA_DELGADA: "Gasta tan poco que no vale la pena mover la puja",
-    politica.MOTIVO_GRUPO_CUMPLE: "Su grupo de anuncios cumple la meta: sin cambio de puja",
-    politica.MOTIVO_SIN_EVIDENCIA: "Sin datos suficientes en la keyword ni en su grupo: sin cambio",
-    politica.MOTIVO_ESPERANDO_PRECIO_MEDIDO: (
-        "Puja cambiada hace poco: espera a medir cuánto cuesta cada clic"
-    ),
-    politica.MOTIVO_SIN_CLICS_NUEVOS: "Sin clics nuevos desde el último cambio de puja",
-    politica.MOTIVO_RECORTE_COSTO_TRAFICO: "Bajada de puja frenada: perdería demasiadas visitas",
-    politica.MOTIVO_SUBIDA_SIN_TRAFICO: "Subida de puja frenada: no hay visitas para medirla",
-    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: _SUBIDA_SIN_ECONOMIA,
-    politica.MOTIVO_PISO_APRENDIDO: (
-        "La bajada llegaría a una puja que ya le hizo daño: sin cambio de puja"
-    ),
-    politica.MOTIVO_DATO_FALTANTE: "Falta un dato: sin cambio de puja",
-    politica.MOTIVO_SIN_PRECIO: "No se sabe cuánto cuesta cada clic: sin cambio de puja",
+    "sin_gasto": "Sin gasto: sin cambio de puja",
+    "hoja_delgada_sin_dinero_que_mover": "Gasta tan poco que no vale la pena mover la puja",
+    "grupo_cumple": "Su grupo de anuncios cumple la meta: sin cambio de puja",
+    "sin_evidencia": "Sin datos suficientes en la keyword ni en su grupo: sin cambio",
+    "esperando_precio_medido": ("Puja cambiada hace poco: espera a medir cuánto cuesta cada clic"),
+    "sin_clics_nuevos": "Sin clics nuevos desde el último cambio de puja",
+    "recorte_costo_trafico": "Bajada de puja frenada: perdería demasiadas visitas",
+    "subida_sin_trafico": "Subida de puja frenada: no hay visitas para medirla",
+    "subida_sin_economia": _SUBIDA_SIN_ECONOMIA,
+    "piso_aprendido": ("La bajada llegaría a una puja que ya le hizo daño: sin cambio de puja"),
+    "sin_precio": "No se sabe cuánto cuesta cada clic: sin cambio de puja",
     # guardas de plataforma (windows.py; el envelope las persiste como
     # motivo_skip = guarda_<guarda>)
     "guarda_watermark": "Los datos de la plataforma tienen más de 7 días de atraso",
     "guarda_synced_at": "Las campañas no se sincronizan con Amazon desde hace más de 48 horas",
     "guarda_sin_datos": "La plataforma no tiene métricas ni una lectura correcta de sus campañas",
-    bid.MOTIVO_PAUSE: _PAUSA,
-    bid.MOTIVO_PAUSE_CORTES_INCOMPLETO: "Pausa detenida: faltan días en la ventana de la pausa",
-    bid.MOTIVO_PAUSE_MONEDA_INVALIDA: (
+    "pause_umbral": _PAUSA,
+    "pause_economica_dato_faltante": ("Pausa por costo detenida: falta un dato para calcularla"),
+    "pause_cortes_incompleto": "Pausa detenida: faltan días en la ventana de la pausa",
+    "pause_moneda_agregado_invalida": (
         "Pausa detenida: la moneda de las métricas no es la de la plataforma"
     ),
-    bid.MOTIVO_PAUSE_ORDERS_DESCONOCIDO: "Pausa detenida: no se sabe cuántos pedidos tuvo",
-    bid.MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS: "Pausa detenida: no se saben sus clics o su gasto",
-    bid.MOTIVO_BIDS_SIN_OBSERVACIONES: "Sin datos de su puja en la ventana",
-    bid.MOTIVO_BIDS_INCOMPLETO: (
-        "Cambio de puja detenido: la ventana tiene menos de 7 días con datos"
-    ),
-    bid.MOTIVO_BIDS_MONEDA_INVALIDA: (
+    "pause_orders_desconocido": "Pausa detenida: no se sabe cuántos pedidos tuvo",
+    "pause_clicks_o_cost_desconocidos": "Pausa detenida: no se saben sus clics o su gasto",
+    "bids_sin_observaciones": "Sin datos de su puja en la ventana",
+    "bids_incompleto": ("Cambio de puja detenido: la ventana tiene menos de 7 días con datos"),
+    "bids_moneda_agregado_invalida": (
         "Cambio de puja detenido: la moneda de las métricas no es la de la plataforma"
     ),
-    bid.MOTIVO_ACOS_DESCONOCIDO: "No se sabe el ACoS: falta el gasto o las ventas",
-    bid.MOTIVO_RANGO_BLOQUEA_AJUSTE: "La puja mínima o máxima configurada impide el cambio",
-    bid.MOTIVO_BID_ACTUAL_INVALIDO: "La puja actual no es válida",
-    bid.MOTIVO_BID_ACTUAL_AUSENTE: "No se sabe la puja actual",
-    bid.MOTIVO_BID_MONEDA_INVALIDA: "La puja tiene una moneda que no es la de la plataforma",
-    bid.MOTIVO_SIN_BANDA: "El ACoS está dentro del rango de la meta: sin cambio de puja",
-    bid.MOTIVO_DELTA_BAJO_UMBRAL: "El cambio sería menor a 0.01: no se hace",
-    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: _SIN_EVIDENCIA,
-    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: _SIN_PRECIO_CLIC,
-    hygiene.MOTIVO_ENTIDAD_INCOMPLETA: "Faltan días de datos para decidir",
-    hygiene.MOTIVO_ASIN_LIKE: "La búsqueda es un código de producto: no se bloquea ni se captura",
-    hygiene.MOTIVO_ORDERS_DESCONOCIDO: "No se sabe cuántos pedidos tuvo la búsqueda",
-    hygiene.MOTIVO_DATO_FALTANTE: "Falta un dato de la búsqueda",
-    hygiene.MOTIVO_SIN_UMBRAL_NEGATIVE: (
-        "La búsqueda no llega a los clics o al gasto para bloquearla"
-    ),
-    hygiene.MOTIVO_ACOS_SOBRE_TOPE: "El ACoS de la búsqueda pasa el tope para capturarla",
-    hygiene.MOTIVO_HARVEST_SIN_CONFIG: "No hay campaña manual configurada para capturar búsquedas",
-    hygiene.MOTIVO_HARVEST_DUPLICADO: "La búsqueda ya existe como keyword: no se captura otra vez",
-    hygiene.MOTIVO_KEYWORD_PROPIA: (
+    "acos_desconocido": "No se sabe el ACoS: falta el gasto o las ventas",
+    "rango_bloquea_ajuste": "La puja mínima o máxima configurada impide el cambio",
+    "bid_actual_invalido": "La puja actual no es válida",
+    "bid_actual_ausente": "No se sabe la puja actual",
+    "bid_moneda_invalida": "La puja tiene una moneda que no es la de la plataforma",
+    "sin_banda": "El ACoS está dentro del rango de la meta: sin cambio de puja",
+    "delta_bajo_umbral": "El cambio sería menor a 0.01: no se hace",
+    "evidencia_insuficiente": _SIN_EVIDENCIA,
+    "cpc_post_cambio_insuficiente": _SIN_PRECIO_CLIC,
+    "entidad_incompleta": "Faltan días de datos para decidir",
+    "asin_like": "La búsqueda es un código de producto: no se bloquea ni se captura",
+    "orders_desconocido": "No se sabe cuántos pedidos tuvo la búsqueda",
+    "dato_faltante": "Falta un dato de la búsqueda",
+    "sin_umbral_negative": ("La búsqueda no llega a los clics o al gasto para bloquearla"),
+    "acos_sobre_tope": "El ACoS de la búsqueda pasa el tope para capturarla",
+    "harvest_sin_config": "No hay campaña manual configurada para capturar búsquedas",
+    "harvest_duplicado": "La búsqueda ya existe como keyword: no se captura otra vez",
+    "termino_es_keyword_propia": (
         "La búsqueda es una keyword propia de su grupo de anuncios: no se bloquea ni se captura"
     ),
-    hygiene.MOTIVO_HARVEST_MONEDA_INCOHERENTE: "Captura detenida: la moneda no cuadra",
-    hygiene.MOTIVO_MONEDA_INCOHERENTE: "La moneda no cuadra",
-    hygiene.MOTIVO_ORIGEN_ES_DESTINO: (
+    "harvest_moneda_incoherente": "Captura detenida: la moneda no cuadra",
+    "moneda_incoherente": "La moneda no cuadra",
+    "origen_es_destino": (
         "Captura saltada: el grupo de anuncios de origen ya es el destino de la campaña"
     ),
-    hygiene.MOTIVO_SIN_DESTINO_HARVEST: (
+    "sin_destino_de_harvest": (
         "Captura sin destino: falta el grupo exacto, la excepción o el destino en la meta de la"
         " campaña"
     ),
-    hygiene.MOTIVO_DESTINO_INCONSISTENTE: (
+    "destino_inconsistente": (
         "Captura detenida: el destino de la meta de la campaña no coincide con su grupo exacto"
     ),
-    hygiene.MOTIVO_DESTINO_DESINCRONIZADO: (
-        "Captura descartada: el grupo exacto cambió después de decidir"
-    ),
-    hygiene.MOTIVO_MIGRACION_PENDIENTE: (
+    "destino_desincronizado": ("Captura descartada: el grupo exacto cambió después de decidir"),
+    "migracion_pendiente": (
         "Destino tomado de la meta de la campaña (falta pasarlo a un grupo o a una excepción)"
     ),
 }
@@ -259,42 +217,36 @@ MOTIVO_SALUD: dict[str, str] = {
 # `{que}` lo llena `motivo_decision_es` con el sujeto de la fila («La keyword»,
 # «El producto objetivo»): la persona tiene que saber que vende o pierde dinero.
 MOTIVO_DECISION: dict[str, str] = {
-    bid.MOTIVO_PAUSE: _PAUSA,
-    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS 35 % arriba de la meta: baja la puja 25 %",
-    eras._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS 15 % arriba de la meta: baja la puja 12 %",
-    eras.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
+    "pause_umbral": _PAUSA,
+    "banda_menos_25": "ACoS 35 % arriba de la meta: baja la puja 25 %",
+    "banda_menos_12": "ACoS 15 % arriba de la meta: baja la puja 12 %",
+    "banda_menos_25_cero_ventas": (
         "Cero ventas con los clics de una venta y gasto sobre el mínimo: baja la puja 25 %"
     ),
-    eras._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS 15 % abajo de la meta: sube la puja 15 %",
-    hygiene.MOTIVO_NEGATIVE: "Negativo: la búsqueda tuvo clics y gasto sobre el umbral sin vender",
-    hygiene.MOTIVO_HARVEST: (
+    "banda_mas_15": "ACoS 15 % abajo de la meta: sube la puja 15 %",
+    "negative_umbral": "Negativo: la búsqueda tuvo clics y gasto sobre el umbral sin vender",
+    "harvest_umbral": (
         "Captura: la búsqueda vende con ACoS bajo el tope y pasa a la campaña manual"
     ),
-    ev.MOTIVO_EVIDENCIA_INSUFICIENTE: _SIN_EVIDENCIA,
-    ev.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: _SIN_PRECIO_CLIC,
-    bid.MOTIVO_PAUSE_ECONOMICA: "Pausa por costo: cada venta cuesta más de 3 veces la meta",
-    politica.MOTIVO_REGRESO_DESPLOME: (
-        "{que} regresó a su puja anterior: la nueva hizo caer sus visitas"
-    ),
-    politica.MOTIVO_PIERDE_DINERO: "{que} pierde dinero: baja su puja 12 %",
-    politica.MOTIVO_PIERDE_DINERO_FUERTE: "{que} pierde mucho dinero: baja su puja 25 %",
-    politica.MOTIVO_GRUPO_PIERDE_VENDEDORA: (
+    "evidencia_insuficiente": _SIN_EVIDENCIA,
+    "cpc_post_cambio_insuficiente": _SIN_PRECIO_CLIC,
+    "pause_economica": "Pausa por costo: cada venta cuesta más de 3 veces la meta",
+    "regreso_por_desplome": ("{que} regresó a su puja anterior: la nueva hizo caer sus visitas"),
+    "pierde_dinero": "{que} pierde dinero: baja su puja 12 %",
+    "pierde_dinero_fuerte": "{que} pierde mucho dinero: baja su puja 25 %",
+    "grupo_sangra_vendedora": (
         "{que} vende, pero su grupo de anuncios pierde dinero: baja su puja 12 %"
     ),
-    politica.MOTIVO_BAJO_TARGET: "{que} tiene el ACoS por debajo de la meta: sube su puja 15 %",
-    politica.MOTIVO_GASTO_SIN_VENTA: (
-        "{que} ya gastó lo necesario para decidir y no vendió: baja su puja 12 %"
-    ),
-    politica.MOTIVO_GASTO_SIN_VENTA_DOBLE: (
+    "bajo_target": "{que} tiene el ACoS por debajo de la meta: sube su puja 15 %",
+    "gasto_sin_venta": ("{que} ya gastó lo necesario para decidir y no vendió: baja su puja 12 %"),
+    "gasto_sin_venta_doble": (
         "{que} gastó el doble de lo necesario para decidir y no vendió: baja su puja 25 %"
     ),
-    politica.MOTIVO_GRUPO_PIERDE: (
-        "{que} no vende y su grupo de anuncios pierde dinero: baja su puja 12 %"
-    ),
-    politica.MOTIVO_SUBIDA_SIN_ECONOMIA: (
+    "grupo_sangra": ("{que} no vende y su grupo de anuncios pierde dinero: baja su puja 12 %"),
+    "subida_sin_economia": (
         "{que}: subida de puja frenada, las visitas de más no pagaron el gasto extra"
     ),
-    productos.MOTIVO_PAUSA: "Pausa del anuncio: el producto no vendió en la ventana de la pausa",
+    "producto_sin_ventas": "Pausa del anuncio: el producto no vendió en la ventana de la pausa",
 }
 
 PLATAFORMA: dict[str, str] = {
@@ -330,15 +282,11 @@ KIND: dict[str, str] = {
     "harvest": "Captura",
 }
 
-# Donde se midio la evidencia de una decision de puja (politica.decide), en
-# el orden de politica.NivelQueJuzga.
-NIVEL: dict[str, str] = dict(
-    zip(
-        get_args(politica.NivelQueJuzga),
-        ("la keyword o el producto", "el grupo de anuncios"),
-        strict=True,
-    )
-)
+# Donde se midio la evidencia de una decision de puja (politica.decide).
+NIVEL: dict[str, str] = {
+    "hoja": "la keyword o el producto",
+    "ad_group": "el grupo de anuncios",
+}
 
 # Propuestas (CORTES UI 01): la pausa se nombra por `kind:entidad_kind`;
 # negative y harvest no dependen de la entidad.
@@ -405,7 +353,7 @@ ESTADO_PROPUESTA: dict[str, str] = {
 ESTADO_AVISO: dict[str, str] = {"pending": "Por enviar", "sent": "Enviado"}
 
 MOTIVO_PROPUESTA_CAMPANA: dict[str, str] = {
-    TIPO_RIESGO: "Gasta mucho más de lo que permite su meta",
+    "exceso_economico": "Gasta mucho más de lo que permite su meta",
     "bajo_limite": "Dentro de su límite",
     "estado_vencido": "Estado de la campaña sin actualizar",
     "campana_no_enabled": "La campaña no está activa",
@@ -673,7 +621,9 @@ MOTIVO_CIERRE_JEV: dict[str, str] = {
 # Frase fija con la que el ciclo marca que el modo en vivo corrio en
 # practica (notes.degradacion_live; goals.resuelve_modo).
 DEGRADACION_CICLO: dict[str, str] = {
-    g.NOTA_LIVE_DEGRADADO: "Se pidió el modo en vivo, pero el ciclo corrió en práctica",
+    "live degradado a shadow: sin modulo apply en PR1": (
+        "Se pidió el modo en vivo, pero el ciclo corrió en práctica"
+    ),
 }
 
 # Por que una variacion del Resumen no se calcula (dashboard_resumen).
@@ -781,17 +731,17 @@ OBJETIVO_PUJA: dict[str, str] = {
 ESTADO_PASO: dict[str, str] = {"planeado": "Pendiente", "applied": "Verificado", "failed": "Falló"}
 
 ETIQUETA_ADS: dict[str, str] = {
-    evaluacion.ETIQUETA_SIN_DATOS: "Sin datos",
-    evaluacion.ETIQUETA_GASTO_SIN_VENTAS: "Gasto sin ventas",
-    evaluacion.ETIQUETA_DENTRO_DEL_OBJETIVO: "Dentro del objetivo",
-    evaluacion.ETIQUETA_POR_ENCIMA_DEL_OBJETIVO: "Por encima del objetivo",
+    "sin_datos": "Sin datos",
+    "gasto_sin_ventas": "Gasto sin ventas",
+    "dentro_del_objetivo": "Dentro del objetivo",
+    "por_encima_del_objetivo": "Por encima del objetivo",
 }
 
 ESTADO_DISPONIBILIDAD: dict[str, str] = {
-    disp.ESTADO_POSITIVO: "Con stock",
-    disp.ESTADO_CERO: "Stock en 0",
-    disp.ESTADO_DESCONOCIDO: "Desconocido",
-    disp.ESTADO_SIN_VERIFICAR: "Sin verificar",
+    "positivo": "Con stock",
+    "cero": "Stock en 0",
+    "desconocido": "Desconocido",
+    "sin_verificar": "Sin verificar",
 }
 
 # Estado de la contribucion estimada (estimacion_venta.calcula).
@@ -914,6 +864,37 @@ MOTIVO_SIEMBRA: dict[str, str] = {
     "fee_no_utilizable": "la comisión no se puede usar",
 }
 
+MOTIVO_PRODUCTO: dict[str, str] = {
+    "sin_fraccion": "sin la fracción del margen configurada para la plataforma",
+    "sin_margen": "sin margen medido en la ventana",
+    "cobertura_baja": "cobertura de costos bajo el minimo",
+    "ventana_corta": "pocos dias con venta en la ventana",
+    "ledger_rancio": "las ventas del libro llevan más de 3 días sin actualizarse",
+    "margen_no_positivo": "margen medido cero o negativo: no es una meta de cero",
+    "halo_sin_margen": "ventas atribuidas de otro SKU: su margen no es el del producto",
+    "sku_distinto_en_asin": "otro SKU con gasto en el ASIN del producto",
+    "halo_sin_madurar": "el tramo del halo de menos de 30 dias todavia puede cambiar",
+    "sin_grupo_apto": "ningun grupo exclusivo y apto: la meta no llega a ninguna puja",
+    "grupo_no_apto": "el grupo no es exclusivo del producto o no esta comprobado",
+    "ads_con_metrica_ausente": "una fecha del reporte trae una metrica ausente: no se puede sumar",
+    "fecha_desconocida": "una fecha sin fila ni cobertura demostrada de la ingesta",
+    "fecha_inmadura": "una fecha todavia sin su reobservacion de 30 dias",
+    "sin_filas_en_ventana": "el producto no tiene ninguna fila en la ventana",
+    "vendio_en_ventana": "el producto vendio en la ventana de la pausa",
+    "venta_otro_sku": "ventas atribuidas de otro SKU en la ventana: no son cero ventas",
+    "venta_reciente_producto": "una venta reciente del producto aun no madura: la pausa espera",
+    "venta_reciente_sin_medir": "un día reciente al que le falta una métrica: la pausa espera",
+    "bajo_limites": "no llega a los clics o al gasto minimos de la pausa",
+    "impulso_abierto": "un impulso abierto del producto: sus anuncios quedan bajo el vigia",
+    "sin_anuncios_elegibles": "ningun anuncio del producto esta al alcance de la pausa",
+    "goal_no_live": "la meta de su campaña no está encendida en vivo",
+    "alta_en_ventana": "el anuncio no existia antes de la ventana",
+    "sin_actividad_en_ventana": "el anuncio no aparece en las filas de la ventana",
+    "clave_en_vuelo": "el anuncio ya tiene una pausa en la cola o un veto vigente",
+    "regresado_por_ti": "lo regresaste hace menos de 7 dias",
+    "sin_historia": "la ventana es anterior al primer dato del reporte de productos: no es cero",
+}
+
 ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "plataforma": PLATAFORMA,
     "motivo_decision": MOTIVO_DECISION,
@@ -976,50 +957,11 @@ ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "accion_siembra": ACCION_SIEMBRA,
     "bloqueo_siembra": BLOQUEO_SIEMBRA,
     "motivo_siembra": MOTIVO_SIEMBRA,
-    "motivo_producto": productos.MOTIVOS_PRODUCTO,
+    "motivo_producto": MOTIVO_PRODUCTO,
     "origen_objetivo": ORIGEN_OBJETIVO,
     "recurso_fabrica": RECURSO_FABRICA,
     "objetivo_puja": OBJETIVO_PUJA,
 }
-
-# Vocabularios cerrados de su modulo dueno: si uno crece sin etiqueta, truena
-# al importar en vez de salir humanizado en la pantalla.
-for _dominio, _vocabulario in (
-    ("plataforma", PLATAFORMAS_MONEDA),
-    ("procedencia", g.PELDANOS_CASCADA),
-    ("pisa", g.PELDANOS_CASCADA),
-    ("tipo_campana", TIPOS),
-    ("ubicacion", UBICACIONES),
-    ("estrategia_puja", get_args(EstrategiaPuja)),
-    ("motivo_retiro", get_args(MotivoRetiro)),
-    ("motivo_abstencion", g.MOTIVOS_ABSTENCION),
-    ("paso_bloqueo", PASOS_VIVOS),
-    ("motivo_estimacion", MOTIVOS_ESTIMACION),
-    ("exclusion_estimacion", EXCLUSIONES_FIJAS),
-    ("resultado_retiro", get_args(ResultadoRetiro)),
-    ("resultado_regreso", get_args(ResultadoRegreso)),
-    ("bloqueo_siembra", get_args(BloqueoSiembra)),
-    (
-        "objetivo_puja",
-        (*fabrica_plan.EXPRESION_BID_POR_ROL.values(), *fabrica_plan.EXPRESIONES_AUTO),
-    ),
-    (
-        "motivo_salud",
-        (
-            *(
-                v
-                for k, v in vars(politica).items()
-                if k.startswith("MOTIVO_") and isinstance(v, str) and v not in MOTIVO_DECISION
-            ),
-            *(v for k, v in vars(ciclo).items() if k.startswith("MOTIVO_") and isinstance(v, str)),
-            proteccion.MOTIVO_PROTEGIDA,
-            proteccion.MOTIVO_INDETERMINADA,
-        ),
-    ),
-):
-    _faltan = set(_vocabulario) - set(ETIQUETAS[_dominio])
-    if _faltan:
-        raise KeyError(f"etiquetas.{_dominio} sin texto para {sorted(_faltan)}")
 
 
 # `fee_error:<codigo>` trae el codigo de error del proveedor, no un motivo del

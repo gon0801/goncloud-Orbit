@@ -72,6 +72,7 @@ from typing import NamedTuple
 import psycopg
 
 from app.db import connect
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
 from app.notifica import envia_aviso
 from app.redaction import install_scrub_filter, scrub
 
@@ -382,18 +383,6 @@ def colapsar(
     return vigencias, skips, stats
 
 
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
-
 # Actualiza el nombre solo si cambia y no degrada un nombre real a uno derivado
 # (por ejemplo, ante un sync incompleto de Odoo). Los dos %s finales reciben el
 # prefijo de nombre derivado. Sin fila devuelta el WHERE corto el UPDATE y el
@@ -425,9 +414,7 @@ _SQL_INSERTAR_VIGENCIA = (
 
 
 def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
+    return formato_skip_reason(skips)
 
 
 def recortar(serie: list[Vigencia], *, corte: dt.date) -> list[Vigencia]:
@@ -588,7 +575,7 @@ def sync_costos(
     vigencias_por_sku, skips, stats = colapsar(origen.filas)
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE)
 
     productos_nuevos = 0
     productos_actualizados = 0
@@ -700,23 +687,7 @@ def sync_costos(
         # El with de arriba ya hizo rollback del trabajo; la run abierta se
         # sella como fallo si la conexion sigue viva (best-effort). BaseException
         # (no solo Exception): un Ctrl-C tambien deja la run sellada, no abierta.
-        try:
-            with conn.transaction():
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=False,
-                    rows_written=0,
-                    rows_skipped=0,
-                    skip_reason=scrub(str(exc)) or type(exc).__name__,
-                )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo; "
-                "el error original de la corrida era: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        sellar_fallo_seguro(conn, run_id, exc)
         raise
 
     return ResultadoSync(
@@ -750,7 +721,14 @@ def _sellar_run(
     rows_skipped: int,
     skip_reason: str | None,
 ) -> None:
-    conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
+    sellar_run(
+        conn,
+        run_id,
+        ok=ok,
+        rows_written=rows_written,
+        rows_skipped=rows_skipped,
+        skip_reason=skip_reason,
+    )
 
 
 # Telegram corta cerca de 4096 caracteres: un cambio masivo no puede perder el

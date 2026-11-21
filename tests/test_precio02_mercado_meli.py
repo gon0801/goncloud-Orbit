@@ -23,13 +23,13 @@ import psycopg
 import pytest
 from test_schema import _postgres_obligatorio_ausente
 
+from app.meli.client import ClienteMeli, MeliCredentials
 from app.precio.puerto import (
     Importe,
     Miembro,
     PrecioVivoAusente,
     UnidadPrecio,
 )
-from app.reputacion_clientes import ClienteMeli, MeliCredentials
 
 RAIZ = Path(__file__).resolve().parents[1]
 
@@ -239,7 +239,7 @@ def test_put_429_reintenta_una_vez_y_5xx_no(tmp_path):
 def test_cliente_meli_rechaza_put_sin_red():
     import httpx
 
-    from app.reputacion_clientes import ReputacionError
+    from app.meli.client import ReputacionError
 
     llamadas = []
 

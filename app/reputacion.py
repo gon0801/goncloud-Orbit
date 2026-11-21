@@ -26,17 +26,17 @@ import httpx
 import psycopg
 
 from app.db import connect
-from app.ingest_run import sanitizar_motivo
-from app.redaction import install_scrub_filter, redact_dsn, scrub
-from app.reputacion_clientes import (
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
+from app.meli.client import (
     ClienteMeli as ClienteMeli,
 )
-from app.reputacion_clientes import (
+from app.meli.client import (
     MeliCredentials as MeliCredentials,
 )
-from app.reputacion_clientes import (
+from app.meli.client import (
     ReputacionError as ReputacionError,
 )
+from app.redaction import install_scrub_filter, redact_dsn, scrub
 from app.reputacion_plan import (
     PlanQuestion as PlanQuestion,
 )
@@ -66,18 +66,6 @@ SOURCE_MELI = "reputacion_meli"
 
 # Escritura en Orbit (rol de ingesta), patron de app/disponibilidad.py
 
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
-
 _SQL_INSERT_SNAPSHOT = """
 INSERT INTO reputation_snapshot
     (platform, external_id, alcance, metric_date, rating, review_count,
@@ -93,12 +81,6 @@ INSERT INTO review_event
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT ON CONSTRAINT review_event_anti_duplicado DO NOTHING
 """
-
-
-def _formato_skips(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
 
 def _reloj(
@@ -412,7 +394,13 @@ def _escribe_todo_meli(
 
 def _abrir_run(conn: psycopg.Connection, source: str) -> int:
     with conn.transaction():
-        return conn.execute(_SQL_ABRIR_RUN, (source,)).fetchone()[0]
+        return abrir_run(conn, source)
+
+
+def _motivo_fallo(causa: str | None, skips: Counter) -> str:
+    base = f"fallo la corrida: {causa}" if causa else "fallo la corrida"
+    resumen = formato_skip_reason(skips)
+    return f"{base} ({resumen})" if resumen else base
 
 
 def _sellar(
@@ -423,16 +411,18 @@ def _sellar(
     ok: bool,
     causa: str | None = None,
 ) -> None:
-    if ok:
-        motivo_raw = _formato_skips(skips)
-    else:
-        base = f"fallo la corrida: {causa}" if causa else "fallo la corrida"
-        motivo_raw = f"{base} ({_formato_skips(skips)})" if skips else base
-    motivo = sanitizar_motivo(motivo_raw) if motivo_raw else None
+    motivo = formato_skip_reason(skips) if ok else _motivo_fallo(causa, skips)
     if conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
         conn.rollback()
     with conn.transaction():
-        conn.execute(_SQL_SELLAR_RUN, (ins, sum(skips.values()), motivo, ok, run_id))
+        sellar_run(
+            conn,
+            run_id,
+            ok=ok,
+            rows_written=ins,
+            rows_skipped=sum(skips.values()),
+            skip_reason=motivo,
+        )
 
 
 def ejecuta_snapshot(
@@ -505,7 +495,9 @@ def _sella_caida_temprana(dsn: str, exc: Exception) -> None:
             run_id = _abrir_run(conn, SOURCE_MELI)
             motivo = f"fallo antes de empezar: {type(exc).__name__}"
             with conn.transaction():
-                conn.execute(_SQL_SELLAR_RUN, (0, 0, motivo, False, run_id))
+                sellar_run(
+                    conn, run_id, ok=False, rows_written=0, rows_skipped=0, skip_reason=motivo
+                )
         finally:
             conn.close()
     except Exception as error:
@@ -543,12 +535,14 @@ def _corre_meli(
         )
         _sellar(conn, run_id, insertadas, skips, True)
     except BaseException as exc:
-        try:
-            _sellar(conn, run_id, 0, skips, False, causa=str(exc) or exc.__class__.__name__)
-        except Exception as err_sello:
-            logger.warning(
-                "reputacion meli: fallo al sellar corrida fallida: %s", scrub(str(err_sello))
-            )
+        sellar_fallo_seguro(
+            conn,
+            run_id,
+            exc,
+            rows_written=0,
+            rows_skipped=sum(skips.values()),
+            motivo=_motivo_fallo(str(exc) or exc.__class__.__name__, skips),
+        )
         raise
     return {
         "fuente": "meli",

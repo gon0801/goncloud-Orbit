@@ -217,7 +217,7 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
-    "app/etiquetas.py": 1078,
+    "app/etiquetas.py": 1022,
     "app/impulso_io.py": 1229,
     # TEMPORADA 01 B: los cuatro marcadores opcionales de temporada y su
     # freeze/desfreeze exacto (temporada, historia, recuperacion,
@@ -2478,3 +2478,37 @@ def test_candado_eras_caza_import_sembrado(tmp_path):
     sano = tmp_path / "sano.py"
     sano.write_text("from app.optimizer import replay\n", encoding="utf-8")
     assert _importa_eras(sano) == []
+
+
+# ---------------------------------------------------------------------------
+# Ola B2: etiquetas hoja pura (cero imports app.*) y sin mutar conn.row_factory
+# ---------------------------------------------------------------------------
+
+
+def test_etiquetas_es_hoja_pura():
+    """app/etiquetas.py es registro de datos puro: no importa ningun modulo app.*."""
+    propios = [
+        imp
+        for imp in _imports_runtime(APP / "etiquetas.py")
+        if imp == "app" or imp.startswith("app.")
+    ]
+    assert propios == [], f"app/etiquetas.py debe ser hoja pura sin imports app.*: {propios}"
+
+
+def test_sin_mutacion_global_row_factory():
+    """Prohibido mutar `conn.row_factory = ...` sobre conexiones psycopg en app/.
+
+    Usa `app.db.cursor_dict(conn)` o `conn.cursor(row_factory=...)` local.
+    Unica excepcion admitida: `con.row_factory = sqlite3.Row` sobre SQLite.
+    """
+    violaciones: list[str] = []
+    for ruta in sorted(APP.rglob("*.py")):
+        rel = ruta.relative_to(RAIZ).as_posix()
+        for idx, linea in enumerate(ruta.read_text(encoding="utf-8").splitlines(), start=1):
+            codigo = linea.split("#", 1)[0]
+            if re.search(r"\.row_factory\s*=", codigo) and "sqlite3.Row" not in codigo:
+                violaciones.append(f"{rel}:{idx}: {codigo.strip()}")
+    assert violaciones == [], (
+        "Mutacion global de row_factory prohibida (usa cursor_dict o conn.cursor local): "
+        f"{violaciones}"
+    )

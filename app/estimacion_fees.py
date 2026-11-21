@@ -30,6 +30,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from app.estimacion_insumos import OfertaResuelta
+from app.http_base import parse_retry_after_finito
 from app.redaction import install_scrub_filter, register_secret, scrub
 from app.secrets import directorio_secretos
 from app.spapi.client import SpapiAuthError, SpapiClient, SpapiRechazoLWA, cliente_compartido
@@ -488,6 +489,7 @@ class ProductFeesClient:
         self._sleep = sleep
         self._clock = clock
         self._timeout = timeout
+        self._http: httpx.Client | None = None
         self._fees_limiter = _RateLimiter(clock=clock, sleep=sleep)
         self._credentials = credentials or self._cargar_credenciales(secrets_dir)
         if spapi_client is not None:
@@ -568,6 +570,22 @@ class ProductFeesClient:
             raise MutationNotAllowedError("SellerSKU requerido para Product Fees")
         self._validar_url_fees(method, url, seller_sku=seller_sku)
 
+    def close(self) -> None:
+        if self._http is not None:
+            self._http.close()
+            self._http = None
+
+    def __enter__(self) -> ProductFeesClient:
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    def _cliente_http(self) -> httpx.Client:
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.Client(timeout=self._timeout, transport=self._transport)
+        return self._http
+
     def _request(
         self,
         method: str,
@@ -585,29 +603,29 @@ class ProductFeesClient:
         self._validar_url(method, url, seller_sku=seller_sku)
         if rate_limit:
             self._fees_limiter.acquire()
-        with httpx.Client(timeout=self._timeout, transport=self._transport) as client:
-            if content is not None:
-                return client.request(method, url, headers=headers, content=content)
-            return client.request(method, url, headers=headers, json=json_body, data=data)
+        client = self._cliente_http()
+        if content is not None:
+            return client.request(method, url, headers=headers, content=content)
+        return client.request(method, url, headers=headers, json=json_body, data=data)
 
     def _acceso(self) -> str:
         # Refrescador unico de app.spapi (D5); HTTP y retries de fees
         # intactos. Rechazo LWA -> fee_http_error (como el HTTPStatusError
         # previo); token ausente -> fee_error; la red propaga httpx igual.
         try:
-            return self._spapi._acceso()
+            return self._spapi.token_acceso()
         except SpapiRechazoLWA:
             raise FeesClientError("fee_http_error") from None
         except SpapiAuthError:
             raise FeesClientError("token LWA ausente") from None
 
     def _retry_after_seconds(self, response: httpx.Response) -> float:
-        raw = response.headers.get("Retry-After", "1")
-        try:
-            segundos = float(raw)
-        except ValueError:
-            segundos = 1.0
-        return min(max(0.0, segundos), RETRY_AFTER_MAX_SECONDS)
+        segundos = parse_retry_after_finito(
+            response.headers.get("Retry-After"),
+            techo=RETRY_AFTER_MAX_SECONDS,
+            ahora_ts=time.time(),
+        )
+        return 1.0 if segundos is None else segundos
 
     def cotizar(self, oferta: OfertaResuelta) -> dict[str, Any]:
         """POST feesEstimate; reintenta 429/timeout; devuelve JSON parseado o lanza."""

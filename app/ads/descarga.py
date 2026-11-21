@@ -51,11 +51,11 @@ import psycopg
 from app.ads.client import AdsApiError
 from app.ads.salud import intentar_procesar_run
 from app.ads.structure import (
-    _SQL_ABRIR_RUN,
     PerfilAds,
     _sellar_run,
     evaluar_perfiles,
 )
+from app.ingest_run import abrir_run
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -516,9 +516,7 @@ class _Corrida:
     def _abrir_runs(self) -> None:
         with self.conn.transaction():
             for grupo in self.grupos:
-                self.run_ids[grupo.clave] = self.conn.execute(
-                    _SQL_ABRIR_RUN, (grupo.source,)
-                ).fetchone()[0]
+                self.run_ids[grupo.clave] = abrir_run(self.conn, grupo.source)
 
     def _registrar_perfiles(self, client) -> list[PerfilAds]:
         todos = evaluar_perfiles(client)

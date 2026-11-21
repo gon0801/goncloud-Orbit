@@ -24,7 +24,7 @@ from decimal import Decimal
 
 import httpx
 
-from app.http_base import parse_retry_after_finito
+from app.http_base import parse_retry_after_finito, validar_ruta_relativa
 from app.spapi.client import (
     ESPERA_429_DEFAULT,
     ESPERA_429_MAX,
@@ -54,14 +54,13 @@ def validar_patch_listings(path: str, seller_id: str, sku: str) -> str:
     segmento del SKU exacto (percent-encoding completo). El verbo no se
     valida aqui: es estructural (el unico metodo publico manda PATCH).
     """
-    if not path or not path.startswith("/") or "://" in path:
-        raise SpapiNoPermitida("path listings invalido: relativo con '/' inicial")
-    if "?" in path or "#" in path:
-        raise SpapiNoPermitida("path listings invalido: query o fragment no permitidos")
-    if "%2f" in path.lower():
-        raise SpapiNoPermitida("path listings invalido: encoding de barra no permitido")
-    if ".." in path.split("/"):
-        raise SpapiNoPermitida("path listings invalido: traversal ('..') no permitido")
+    validar_ruta_relativa(
+        path,
+        error_cls=SpapiNoPermitida,
+        etiqueta="path listings",
+        prohibir_query=True,
+        prohibir_percent_barra=True,
+    )
     if seller_id not in VENDEDORES_PROPIOS.values():
         raise SpapiNoPermitida(f"seller_id fuera de VENDEDORES_PROPIOS: {seller_id!r}")
     esperada = construir_ruta_listings(seller_id, sku)
@@ -145,7 +144,7 @@ class SpapiWriteClient:
         _exigir_cuerpo_serializable(cuerpo)
         url = f"{SP_API_BASE}{ruta}"
         query = {"marketplaceIds": MERCADOS[self._platform]}
-        token = self._lector._acceso()
+        token = self._lector.token_acceso()
         forzados = 0
         reintentos = 0
         with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
@@ -155,7 +154,7 @@ class SpapiWriteClient:
                 )
                 if resp.status_code == 401 and forzados < 1:
                     forzados += 1
-                    token = self._lector._acceso(forzar=True, rechazado=token)
+                    token = self._lector.token_acceso(forzar=True, rechazado=token)
                     continue
                 if resp.status_code == 429 and reintentos < 1:
                     reintentos += 1

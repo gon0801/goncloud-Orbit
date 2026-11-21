@@ -11,8 +11,6 @@ from __future__ import annotations
 import datetime
 import json
 
-from psycopg.rows import tuple_row
-
 from app import fabrica_motor as fm
 from app import fabrica_plan as fp
 from app import fabrica_registro, goals_write
@@ -56,7 +54,6 @@ UPDATE fabrica_lote_paso
 def registrar_lote(lote: str) -> int:
     conn_admin = fm.connect(_dsn_admin())
     try:
-        conn_admin.row_factory = tuple_row
         fila = conn_admin.execute(
             "SELECT plan, estado FROM fabrica_lote WHERE lote = %s", (lote,)
         ).fetchone()

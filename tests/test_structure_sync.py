@@ -1110,6 +1110,7 @@ def test_sql_del_modulo_parsea_como_postgres():
     import pglast
 
     import app.ads.structure as estructura_modulo
+    import app.ingest_run as ingest_run_modulo
 
     # DERIVADO del modulo, no una lista a mano: la lista fija se quedo sin
     # _SQL_MARCAR_ARCHIVADOS y el typo solo lo hubiera cazado el test de
@@ -1117,8 +1118,6 @@ def test_sql_del_modulo_parsea_como_postgres():
     # 2026-08-30). Asi, una constante nueva entra sola a la guarda.
     nombres = sorted(n for n in vars(estructura_modulo) if n.startswith("_SQL_"))
     imprescindibles = {
-        "_SQL_ABRIR_RUN",
-        "_SQL_SELLAR_RUN",
         "_SQL_UPSERT_ENTIDAD",
         "_SQL_UPSERT_STATE",
         "_SQL_UPDATE_LISTING_ID",
@@ -1131,6 +1130,9 @@ def test_sql_del_modulo_parsea_como_postgres():
     for nombre in nombres:
         sql = getattr(estructura_modulo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
+    for nombre in sorted(n for n in vars(ingest_run_modulo) if n.startswith("_SQL_")):
+        sql = getattr(ingest_run_modulo, nombre).replace("%s", "NULL")
+        assert pglast.parse_sql(sql), f"ingest_run.{nombre} no parseo"
 
 
 # ---------------------------------------------------------------------------

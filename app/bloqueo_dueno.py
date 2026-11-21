@@ -314,14 +314,7 @@ def interruptor_encendido(conn) -> bool:
 
 
 def lee_pantalla(conn) -> dict:
-    from psycopg.rows import tuple_row
-
-    fabrica = conn.row_factory
-    conn.row_factory = tuple_row
-    try:
-        return _arma_pantalla(conn)
-    finally:
-        conn.row_factory = fabrica
+    return _arma_pantalla(conn)
 
 
 def lee_pausas(conn) -> dict[str, Pausa]:

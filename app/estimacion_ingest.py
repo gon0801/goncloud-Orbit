@@ -50,6 +50,7 @@ from app.estimacion_repository import (
     sembrar_escenario_negativo_transicion,
 )
 from app.estimacion_universo import plataformas_con_cotizador
+from app.ingest_run import abrir_run, sellar_run
 from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 from app.meli.estimacion import (
     CotizadorMeli,
@@ -84,17 +85,6 @@ MOTIVOS_TRANSICION_NEGATIVA = frozenset(
         "logistica_fbm_pendiente",
     }
 )
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source, started_at) VALUES (%s, %s) RETURNING id"
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
 
 
 @dataclass(frozen=True)
@@ -433,7 +423,7 @@ def ejecutar_ingesta(  # noqa: PLR0915 - ver razon arriba
         listings = [fila for fila in listings if fila[1] != "meli"]
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE, ahora)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE, started_at=ahora)
 
     meli_cotizador = CotizadorMeli(meli_client) if meli_client is not None else None
     # Perezoso: sin items Amazon no se toca `ProductFeesClient` (sus
@@ -598,7 +588,14 @@ def _sellar_run(
     rows_skipped: int,
     skip_reason: str | None,
 ) -> None:
-    conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
+    sellar_run(
+        conn,
+        run_id,
+        ok=ok,
+        rows_written=rows_written,
+        rows_skipped=rows_skipped,
+        skip_reason=skip_reason,
+    )
 
 
 # ARREGLOS 03 D-J (seccion «OK»): nombre en llano de cada plataforma para el
