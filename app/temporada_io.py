@@ -484,12 +484,12 @@ def frontera_hoja(
 ) -> FronteraHoja | None:
     """La misma temporada.frontera para UNA hoja, para la revalidacion de la
     cola al liberar (la conecta el bloque D). None sin config o temporada apagada."""
-    settings = conn.execute(
-        "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    if settings is None or settings[0] is None:
+    from app.db import settings_vigentes
+
+    settings = settings_vigentes(conn)
+    if settings is None:
         return None
-    config = temporada.desde_settings(settings[0])
+    config = temporada.desde_settings(settings)
     if config is None:
         return None
     plataforma = conn.execute(
@@ -498,7 +498,7 @@ def frontera_hoja(
     if plataforma is None:
         return None
     platform = plataforma[0]
-    if temporada.modo_desde_settings(settings[0], platform) is None:
+    if temporada.modo_desde_settings(settings, platform) is None:
         return None
     estacion = temporada.resuelve(config, hoy)
     estado = lee_estado(conn, platform, hoy)

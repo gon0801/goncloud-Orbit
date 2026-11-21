@@ -29,7 +29,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import psycopg
 
-from app.db import connect, tx_durable
+from app.db import connect, settings_vigentes, tx_durable
 from app.estimacion_universo import universo_de
 from app.precio.config import leer_config_motor
 from app.precio.envio import (
@@ -85,7 +85,6 @@ _SQL_INSERT = (
     " VALUES (%s, %s, %s, %s, %s, %s, 'mediana', %s, %s, %s, %s, %s, %s, %s, %s,"
     " %s, %s, %s, %s, %s, %s, %s)"
 )
-_SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
 
 def _medidas(
@@ -263,13 +262,13 @@ def main(argv: list[str] | None = None) -> int:
         conn = connect(dsn)
         try:
             with conn.transaction():
-                fila = conn.execute(_SQL_CONFIG).fetchone()
-            if fila is None:
+                settings = settings_vigentes(conn)
+            if settings is None:
                 print("sin config_version: no se puede muestrear", file=sys.stderr)
                 return 1
             ventana = args.ventana_dias
             if ventana is None:
-                ventana = leer_config_motor(fila[0]).envio_ventana_dias
+                ventana = leer_config_motor(settings).envio_ventana_dias
             elif not 30 <= ventana <= 365:
                 print(f"ventana fuera de cota 30-365: {ventana}", file=sys.stderr)
                 return 2

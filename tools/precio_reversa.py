@@ -34,6 +34,7 @@ import sys
 from datetime import date
 
 import app.precio_mercados as mercados
+from app.ceremonia import ErrorCeremonia, valida_ceremonia
 from app.db import OrbitDbError, connect
 from app.precio import cambios as cambios_mod
 
@@ -118,21 +119,17 @@ def _corre(conn, mercado, platform: str, seleccion, args) -> int:
     for fila in plan.filas:
         print(_linea_plan(fila, platform))
     print(f"huella: {plan.huella}")
-    if not args.acepto_mutacion_real:
-        if args.go:
-            raise Abortar(
-                "falto --acepto-mutacion-real: --go --huella sin"
-                " --acepto-mutacion-real no muta (dry-run enganoso)"
-            )
-        return 0
-    if not args.go:
-        raise Abortar("falta --go: --acepto-mutacion-real sin --go no muta")
-    if not args.huella:
-        raise Abortar("falta --huella: el go exige la huella del dry-run")
-    if args.huella != plan.huella:
-        raise Abortar(
-            f"--huella {args.huella} != huella del plan {plan.huella}: re-corre el dry-run"
+    try:
+        mutar = valida_ceremonia(
+            acepto=args.acepto_mutacion_real,
+            go=args.go,
+            huella=args.huella,
+            huella_plan=plan.huella,
         )
+    except ErrorCeremonia as exc:
+        raise Abortar(str(exc)) from None
+    if not mutar:
+        return 0
     try:
         resultados = cambios_mod.revertir_lote(
             conn,

@@ -29,9 +29,10 @@ import psycopg
 import psycopg.errors
 from psycopg.types.json import Jsonb
 
+from app.lock import soltar_lock_con_advisory, tomar_lock_con_advisory
 from app.precio.compuerta import modo_efectivo
-from app.precio.config import _modo as _modo_config
-from app.precio.config import _modo_universo as _modo_universo_config
+from app.precio.config import leer_modo as _modo_config
+from app.precio.config import leer_modo_universo as _modo_universo_config
 from app.precio.puerto import EscrituraNoDisponible, Importe, UnidadPrecio
 from app.precio.tipos import cambio_sin_efecto
 
@@ -610,43 +611,23 @@ def revertir(
     return _revertir_fila(conn, mercado, fila, momento, lote=None)
 
 
-# Claim `precio:<platform>` compartido con `corrida.py` (mismo job_key y advisory).
-_SQL_CLAIM_LOTE = """
-INSERT INTO ads_optimizer_lock (job_key, owner, claimed_at, heartbeat_at, ttl_seconds)
-VALUES (%s, %s, now(), now(), %s)
-ON CONFLICT (job_key) DO UPDATE
-   SET owner = EXCLUDED.owner, claimed_at = now(), heartbeat_at = now(),
-       ttl_seconds = EXCLUDED.ttl_seconds
- WHERE ads_optimizer_lock.heartbeat_at
-       + make_interval(secs => ads_optimizer_lock.ttl_seconds) <= now()
-RETURNING claimed_at
-"""
-_SQL_LIBERAR_LOTE = "DELETE FROM ads_optimizer_lock WHERE job_key = %s AND owner = %s"
-_SQL_ADVISORY_LOTE_TOMAR = "SELECT pg_try_advisory_lock(hashtext('precio:' || %s))"
-_SQL_ADVISORY_LOTE_SOLTAR = "SELECT pg_advisory_unlock(hashtext('precio:' || %s))"
 _TTL_LOTE_SEGUNDOS = 3600
 
 
 def _tomar_candado_lote(conn: psycopg.Connection, platform: str, owner: str) -> None:
     job = f"precio:{platform}"
-    fila = conn.execute(_SQL_CLAIM_LOTE, (job, owner, _TTL_LOTE_SEGUNDOS)).fetchone()
-    if fila is None:
-        raise CorridaEnCurso(f"hay una corrida en curso ({job} en curso): reintenta")
-    try:
-        tomado = bool(conn.execute(_SQL_ADVISORY_LOTE_TOMAR, (platform,)).fetchone()[0])
-    except Exception:
-        conn.execute(_SQL_LIBERAR_LOTE, (job, owner))
-        raise
-    if not tomado:
-        conn.execute(_SQL_LIBERAR_LOTE, (job, owner))
-        raise CorridaEnCurso(f"hay una corrida en curso ({job} en curso): reintenta")
+    tomar_lock_con_advisory(
+        conn,
+        job,
+        owner,
+        ttl_seconds=_TTL_LOTE_SEGUNDOS,
+        error_cls=CorridaEnCurso,
+        mensaje_ocupado=f"hay una corrida en curso ({job} en curso): reintenta",
+    )
 
 
 def _soltar_candado_lote(conn: psycopg.Connection, platform: str, owner: str) -> None:
-    try:
-        conn.execute(_SQL_ADVISORY_LOTE_SOLTAR, (platform,)).fetchone()
-    finally:
-        conn.execute(_SQL_LIBERAR_LOTE, (f"precio:{platform}", owner))
+    soltar_lock_con_advisory(conn, f"precio:{platform}", owner)
 
 
 _SQL_FILA_PLAN = """

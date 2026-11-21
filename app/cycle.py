@@ -244,6 +244,18 @@ from app.cycle_target import (
 )
 from app.db import tx_durable
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
+from app.lock import (
+    SQL_CLAIM as _SQL_CLAIM,
+)
+from app.lock import (
+    SQL_HEARTBEAT as _SQL_HEARTBEAT,
+)
+from app.lock import (
+    SQL_LIBERAR as _SQL_LIBERAR_LOCK,
+)
+from app.lock import (
+    SQL_OWNER as _SQL_OWNER_LOCK,
+)
 from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, temporada, windows
 from app.optimizer import goals as g
 from app.optimizer import proteccion as subproteccion
@@ -380,19 +392,6 @@ class ResultadoCiclo:
     notes: str
 
 
-# Claim ATOMICO en UNA sentencia (el COMMENT de ads_optimizer_lock sella el
-# patron; la expiracion vive en el WHERE, jamas SELECT-luego-INSERT). Sin fila
-# devuelta = lock vigente ajeno.
-_SQL_CLAIM = """
-INSERT INTO ads_optimizer_lock (job_key, owner)
-VALUES (%s, %s)
-ON CONFLICT (job_key) DO UPDATE
-   SET owner = EXCLUDED.owner, claimed_at = now(), heartbeat_at = now()
- WHERE ads_optimizer_lock.heartbeat_at
-       + make_interval(secs => ads_optimizer_lock.ttl_seconds) <= now()
-RETURNING claimed_at
-"""
-
 # Rastro de ciclos muertos: SOLO alcanzable tras ganar el claim (si el lock
 # estaba tomado, no hay ciclo vivo QUE NOS DEJE CERRAR). Residual declarado:
 # con heartbeat fail-open y latidos fallando >TTL pero conexion principal
@@ -426,13 +425,6 @@ UPDATE optimizer_cycle
  WHERE id = %s AND status = 'running'
 """
 
-# Ownership-check pre-HTTP (decision 11): SELECT fresco del owner del lock.
-# Fuera de transaccion explicita (READ COMMITTED de la sesion): ve el UPDATE
-# commitado del sucesor aunque nuestra sesion tenga una transaccion abierta.
-_SQL_OWNER_LOCK = """
-SELECT owner FROM ads_optimizer_lock WHERE job_key = %s
-"""
-
 # Sello post-apply (2.4): notes['apply'] y, si la fase aborto (%s), degraded.
 # Solo toca envelopes 'done'/'degraded' — si el rastro de un sucesor ya cerro
 # el nuestro en 'failed', NO se pisa (jamas sobre-cerrar; auditoria del zombie).
@@ -456,14 +448,6 @@ _SQL_SELLAR_FALLIDO = """
 UPDATE optimizer_cycle
    SET status = 'failed', finished_at = now(), notes = %s
  WHERE id = %s AND status = 'running'
-"""
-
-_SQL_LIBERAR_LOCK = """
-DELETE FROM ads_optimizer_lock WHERE job_key = %s AND owner = %s
-"""
-
-_SQL_HEARTBEAT = """
-UPDATE ads_optimizer_lock SET heartbeat_at = now() WHERE job_key = %s AND owner = %s
 """
 
 # La escalera global y el setting de target viven en la config_version MAS

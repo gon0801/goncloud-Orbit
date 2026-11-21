@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from app.precio.config import _entero as _entero_config
+from app.precio.config import leer_entero as _entero_config
 
 TIPOS_PRECIO = (
     "no_evaluado",

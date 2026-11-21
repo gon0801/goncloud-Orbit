@@ -57,6 +57,11 @@ from psycopg.types.json import Json
 
 import app.precio.cambios as cambios_mod
 from app.estimacion_venta import DetalleFee
+from app.lock import (
+    latir_lock,
+    soltar_lock_con_advisory,
+    tomar_lock_con_advisory,
+)
 from app.precio.compuerta import (
     Anterior,
     Cortacircuito,
@@ -70,9 +75,9 @@ from app.precio.compuerta import (
     modo_efectivo,
 )
 from app.precio.config import ConfigPrecio, leer_config, leer_config_motor
-from app.precio.config import _entero as _entero_config
-from app.precio.config import _modo as _modo_config
-from app.precio.config import _modo_universo as _modo_universo_config
+from app.precio.config import leer_entero as _entero_config
+from app.precio.config import leer_modo as _modo_config
+from app.precio.config import leer_modo_universo as _modo_universo_config
 from app.precio.puerto import EscrituraNoDisponible
 from app.precio.reglas import decidir
 from app.precio.tipos import (
@@ -144,67 +149,26 @@ def motor_lock(platform: str) -> str:
     return f"precio:{platform}"
 
 
-# Claim ATOMICO en UNA sentencia (patron copiado de `app/cycle.py`, sin
-# importar: `cycle` trae `app.apply`). Sin fila devuelta = lock vigente
-# ajeno. TTL en el WHERE, jamas SELECT-luego-INSERT.
-_SQL_CLAIM = """
-INSERT INTO ads_optimizer_lock (job_key, owner, claimed_at, heartbeat_at, ttl_seconds)
-VALUES (%s, %s, now(), now(), %s)
-ON CONFLICT (job_key) DO UPDATE
-   SET owner = EXCLUDED.owner, claimed_at = now(), heartbeat_at = now(),
-       ttl_seconds = EXCLUDED.ttl_seconds
- WHERE ads_optimizer_lock.heartbeat_at
-       + make_interval(secs => ads_optimizer_lock.ttl_seconds) <= now()
-RETURNING claimed_at
-"""
-
-_SQL_LIBERAR = "DELETE FROM ads_optimizer_lock WHERE job_key = %s AND owner = %s"
-
-# Advisory de la corrida: el de sesion, no el transaccional (S5 exige
-# autocommit para INSERT+COMMIT -> PATCH: un xact-lock moriria en el
-# primer COMMIT; desviacion declarada del `pg_advisory_xact_lock` de S5).
-# Con tope cero: `pg_try_advisory_lock` (K2, r4) en vez de esperar sin
-# tope; si no se obtiene, se suelta el claim propio y sale `LockOcupado`
-# de inmediato (el `finally` ya libera lo propio).
-_SQL_ADVISORY_TOMAR = "SELECT pg_try_advisory_lock(hashtext('precio:' || %s))"
-_SQL_ADVISORY_SOLTAR = "SELECT pg_advisory_unlock(hashtext('precio:' || %s))"
-
-# Latido del claim (K2, r4): patron `_SQL_HEARTBEAT` de `app/cycle.py`
-# l.374, copiado, no importado (`cycle` trae `app.apply`).
-_SQL_LATIDO = "UPDATE ads_optimizer_lock SET heartbeat_at = now() WHERE job_key = %s AND owner = %s"
-
-
 def _tomar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:
-    fila = conn.execute(_SQL_CLAIM, (motor_lock(platform), owner, _TTL_LOCK_SEGUNDOS)).fetchone()
-    if fila is None:
-        raise LockOcupado(f"{motor_lock(platform)} en curso (owner distinto de {owner})")
-    try:
-        obtenido = conn.execute(_SQL_ADVISORY_TOMAR, (platform,)).fetchone()[0]
-    except BaseException:
-        conn.execute(_SQL_LIBERAR, (motor_lock(platform), owner))
-        raise
-    if not obtenido:
-        conn.execute(_SQL_LIBERAR, (motor_lock(platform), owner))
-        raise LockOcupado(f"{motor_lock(platform)} en curso (advisory en otra sesion)")
+    job = motor_lock(platform)
+    tomar_lock_con_advisory(
+        conn,
+        job,
+        owner,
+        ttl_seconds=_TTL_LOCK_SEGUNDOS,
+        error_cls=LockOcupado,
+        mensaje_ocupado=f"{job} en curso (owner distinto de {owner})",
+        mensaje_advisory=f"{job} en curso (advisory en otra sesion)",
+    )
 
 
 def _soltar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:
-    try:
-        conn.execute(_SQL_ADVISORY_SOLTAR, (platform,)).fetchone()
-    finally:
-        conn.execute(_SQL_LIBERAR, (motor_lock(platform), owner))
+    soltar_lock_con_advisory(conn, motor_lock(platform), owner)
 
 
 def _latir_claim(conn: psycopg.Connection, platform: str, owner: str) -> None:
-    """Latido del claim por goal (K2, r4): `heartbeat_at = now()`.
-
-    Fail-open como `cycle` (el TTL es el backstop): un latido fallido se
-    registra con `scrub` y no tumba la corrida.
-    """
-    try:
-        conn.execute(_SQL_LATIDO, (motor_lock(platform), owner))
-    except psycopg.Error as exc:
-        logger.warning("corrida latido fallo (TTL es el backstop): %s", scrub(str(exc)))
+    """Latido del claim por goal (K2, r4): `heartbeat_at = now()`."""
+    latir_lock(conn, motor_lock(platform), owner, etiqueta="corrida")
 
 
 def freno_por_error(

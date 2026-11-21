@@ -24,9 +24,9 @@ import psycopg
 
 from app.precio.cobertura import FilaPublicacion
 from app.precio.compuerta import Retenida
-from app.precio.config import _entero as config_entero
-from app.precio.config import _modo_universo as config_modo_universo
-from app.precio.config import _numero as config_numero
+from app.precio.config import leer_entero as config_entero
+from app.precio.config import leer_modo_universo as config_modo_universo
+from app.precio.config import leer_numero as config_numero
 from app.precio.tipos import CambioPrevio, HistorialMargen, cambio_sin_efecto
 
 __all__ = [

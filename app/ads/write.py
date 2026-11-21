@@ -74,6 +74,7 @@ from app.ads.client import (
     _validate_relative_path,
 )
 from app.ads.config import AdsCredentials
+from app.ads.sp_wire import errores_put as _errores_put
 from app.optimizer.centavos import CENTAVO
 from app.redaction import redact_url, scrub
 
@@ -221,59 +222,6 @@ class AdsApiErrorMutacion(AdsApiError):
         self.status = status
         self.method = method
         self.path = path
-
-
-def _errores_put(respuesta: httpx.Response, contenedor: str = "campaigns") -> list[str]:
-    """Errores anidados de un PUT bulk v3: `errors` no vacio arriba o por
-    item, o `code` 4xx/5xx arriba o por item. El contenedor llega como
-    objeto `{error, success}` (las 4 sondas de V.0) o como lista por item:
-    se procesan ambas. Fail-closed (panel): cuerpo ilegible o item
-    no-dict es error, no exito (un rechazo deja pendiente reintentable;
-    un falso exito sella una mentira). Lista vacia solo con exito."""
-    try:
-        cuerpo = respuesta.json()
-    except ValueError:
-        return ["respuesta sin JSON"]
-    if not isinstance(cuerpo, dict):
-        return ["respuesta no es objeto"]
-    errores = []
-    top = cuerpo.get("errors")
-    if isinstance(top, list) and top:
-        errores.extend(str(e) for e in top)
-    codigo_tope = str(cuerpo.get("code", ""))
-    if codigo_tope[:1] in ("4", "5"):
-        errores.append(cuerpo.get("description") or f"code {codigo_tope}")
-    items = cuerpo.get(contenedor)
-    es_multi = respuesta.status_code == 207
-    if items is None:
-        if es_multi and not errores:
-            errores.append(f"respuesta sin contenedor {contenedor}")
-    elif isinstance(items, dict):
-        fallos = items.get("error")
-        if isinstance(fallos, list) and fallos:
-            errores.extend(str(e) for e in fallos)
-        elif (
-            es_multi
-            and not errores
-            and not (isinstance(items.get("success"), list) and items["success"])
-        ):
-            errores.append(f"contenedor {contenedor} sin success ni error")
-    elif isinstance(items, list):
-        if es_multi and not items and not errores:
-            errores.append(f"contenedor {contenedor} vacio")
-        for item in items:
-            if not isinstance(item, dict):
-                errores.append(f"item de {contenedor} ilegible")
-                continue
-            anidados = item.get("errors")
-            if isinstance(anidados, list) and anidados:
-                errores.extend(str(e) for e in anidados)
-            codigo = str(item.get("code", ""))
-            if codigo[:1] in ("4", "5"):
-                errores.append(item.get("description") or f"code {codigo}")
-    else:
-        errores.append(f"contenedor {contenedor} invalido")
-    return errores
 
 
 def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:

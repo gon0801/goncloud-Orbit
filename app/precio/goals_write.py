@@ -35,8 +35,8 @@ from typing import Any
 import psycopg
 import psycopg.errors
 
-from app.precio.config import _fraccion as config_fraccion
-from app.precio.config import _numero as config_numero
+from app.precio.config import leer_fraccion as config_fraccion
+from app.precio.config import leer_numero as config_numero
 from app.precio.puerto import UnidadPrecio
 from app.precio.siembra import (
     Candidato,

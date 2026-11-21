@@ -29,9 +29,9 @@ import httpx
 import psycopg
 from psycopg.types.json import Json
 
-from app.ads.config import directorio_secretos
 from app.estimacion_insumos import OfertaResuelta
 from app.redaction import install_scrub_filter, register_secret, scrub
+from app.secrets import directorio_secretos
 from app.spapi.client import SpapiAuthError, SpapiClient, SpapiRechazoLWA, cliente_compartido
 
 logger = logging.getLogger(__name__)

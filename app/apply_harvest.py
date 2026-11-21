@@ -93,6 +93,12 @@ from psycopg.types.json import Json
 
 from app import apply, biblioteca, notifica
 from app.ads.client import AdsApiError, AdsClientError
+from app.ads.sp_wire import (
+    errores_de_ack as _errores_de_ack,
+)
+from app.ads.sp_wire import (
+    id_de_ack as _id_de_ack,
+)
 from app.db import tx_durable
 from app.optimizer import goals as g
 from app.optimizer import harvest_destino, hygiene
@@ -582,67 +588,6 @@ def _solo_en_otro_ad_group(items: list[dict], ad_group_id: str, keyword_text: st
         if item.get("keywordText") == keyword_text:
             return True
     return False
-
-
-def _id_de_ack(ack: dict, clave_principal: str) -> str | None:
-    """El id del objeto creado segun el ack. Shape SELLADO por el probe 2.5
-    (2026-08-26, apply_attempt 13 y 16): 207 con success/error ANIDADOS por
-    recurso, el id vive en el primer success — las variantes planas/listas
-    siguen probandose como defensa (GK2(c) de la cross-review). None = ack
-    sin id legible (regla 3: jamas inventado; la reversa resuelve el id por
-    lista si hace falta)."""
-    if not isinstance(ack, dict):
-        return None
-    claves = (clave_principal, f"{clave_principal}List", "keywordId", "keywordIdList")
-    id_ = _id_plano_de(ack, claves)
-    if id_ is not None:
-        return id_
-    for valor in ack.values():
-        if not isinstance(valor, dict):
-            continue
-        success = valor.get("success")
-        if not isinstance(success, list):
-            continue
-        for item in success:
-            if not isinstance(item, dict):
-                continue
-            id_ = _id_plano_de(item, claves)
-            if id_ is not None:
-                return id_
-            for sub in item.values():  # {"keyword": {"keywordId": ...}}
-                if isinstance(sub, dict):
-                    id_ = _id_plano_de(sub, claves)
-                    if id_ is not None:
-                        return id_
-    return None
-
-
-def _id_plano_de(dic: dict, claves: tuple[str, ...]) -> str | None:
-    """El id bajo las claves candidatas de UN dict plano: valor directo o
-    lista de ids (toma el primero). None = nada legible ahi."""
-    for clave in claves:
-        valor = dic.get(clave)
-        if isinstance(valor, str | int) and not isinstance(valor, bool) and str(valor).strip():
-            return str(valor)
-        if isinstance(valor, list) and valor and isinstance(valor[0], str | int):
-            return str(valor[0])
-    return None
-
-
-def _errores_de_ack(ack: dict) -> list:
-    """Las entradas de error[] del ack 207 anidado (shape sellado por el
-    probe 2.5, apply_attempt 13-17: {"<recurso>": {"error": [...], "success":
-    [...]}}): la fila RECHAZADA por-item viaja en error[] y un 2xx NO es
-    exito automatico (CX2/CX3 de la cross-review del dueno). [] = sin
-    rechazos legibles (regla 3: un shape sin anidado no inventa errores)."""
-    if not isinstance(ack, dict):
-        return []
-    for valor in ack.values():
-        if isinstance(valor, dict):
-            error = valor.get("error")
-            if isinstance(error, list) and error:
-                return error
-    return []
 
 
 def _reversa_rechazada(ack: dict, clave_id: str, objeto_id) -> bool:

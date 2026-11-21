@@ -149,8 +149,6 @@ _SQL_HOJA = """
 SELECT platform FROM ad_entity WHERE id = %s AND kind IN ('keyword', 'product_target')
 """
 
-_SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-
 
 def main_efecto_hoja(argv: list[str]) -> int:
     """Efecto del ultimo cambio de puja de una hoja como lo arma el ciclo
@@ -188,8 +186,9 @@ def main_efecto_hoja(argv: list[str]) -> int:
             )
             return 1
         plataforma = fila[0]
-        config = conn.execute(_SQL_CONFIG).fetchone()
-        settings = config[0] if config is not None else {}
+        from app.db import settings_vigentes
+
+        settings = settings_vigentes(conn) or {}
         economia = EconomiaPlataforma(
             moneda=PLATAFORMAS_MONEDA[plataforma],
             equilibrio_acos_pct=None,

@@ -38,6 +38,7 @@ from app.apply_harvest import (
     plan_reversa_harvest,
     plan_reversa_origen_harvest,
 )
+from app.ceremonia import ErrorCeremonia, valida_ceremonia
 from app.db import OrbitDbError, connect
 
 
@@ -112,19 +113,19 @@ def main(argv=None) -> int:
     if not args.acepto_mutacion_real:
         print("dry-run: sin --acepto-mutacion-real no se toca Amazon")
         return 0
-    if args.esperado is None:
-        raise Abortar("mutacion real exige --esperado N (anti-typo del plan)")
-    if not args.go or not args.go.strip():
-        raise Abortar("mutacion real exige --go con el literal del dueno (no vacio)")
-    if len(pendientes) != args.esperado:
-        raise Abortar(
-            f"--esperado {args.esperado} != pasos pendientes {len(pendientes)}: "
-            "el plan cambio, se re-autoriza con el dueno"
+    try:
+        valida_ceremonia(
+            acepto=args.acepto_mutacion_real,
+            go=args.go,
+            huella=args.huella,
+            huella_plan=huella,
+            esperado=args.esperado,
+            real=len(pendientes),
+            exige_esperado=True,
+            etiqueta_real="pasos pendientes",
         )
-    if not args.huella:
-        raise Abortar("mutacion real exige --huella del dry-run (autorizacion por conjunto)")
-    if args.huella != huella:
-        raise Abortar(f"--huella {args.huella} != huella {huella}: el conjunto cambio")
+    except ErrorCeremonia as exc:
+        raise Abortar(str(exc)) from None
     if not pendientes:
         print("nada que revertir: todo confirmado")
         return 0

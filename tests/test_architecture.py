@@ -201,12 +201,12 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # (GET fresco sin reenviar el PUT); el techo sube lo justo del bloque.
     "app/apply.py": 1475,
     "app/apply_cola.py": 1816,
-    "app/apply_harvest.py": 2163,
-    "app/bloqueo_dueno_efecto.py": 1004,
+    "app/apply_harvest.py": 2107,
+    "app/bloqueo_dueno_efecto.py": 999,
     # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
     # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
     # frontera por hoja.
-    "app/cycle.py": 2479,
+    "app/cycle.py": 2463,
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
@@ -216,8 +216,8 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # freeze/desfreeze exacto (temporada, historia, recuperacion,
     # presupuesto).
     "app/optimizer/caso.py": 1476,
-    "app/precio/cambios.py": 1045,
-    "app/precio/corrida.py": 1685,
+    "app/precio/cambios.py": 1025,
+    "app/precio/corrida.py": 1647,
     "app/retiro_anuncios.py": 1388,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
@@ -820,6 +820,9 @@ ALLOWLIST_IMPORTS_HARVEST_EXCEPCION = frozenset(
         "app.db",
         "app.db.OrbitDbError",
         "app.db.connect",
+        "app.ceremonia",
+        "app.ceremonia.ErrorCeremonia",
+        "app.ceremonia.valida_ceremonia",
         "app.goals_write",
         "app.goals_write.GoalInexistente",
         "app.goals_write.GoalInvalido",
@@ -885,6 +888,9 @@ ALLOWLIST_IMPORTS_GOALS_MODO_GRUPO = frozenset(
         "app.db",
         "app.db.OrbitDbError",
         "app.db.connect",
+        "app.ceremonia",
+        "app.ceremonia.ErrorCeremonia",
+        "app.ceremonia.valida_ceremonia",
         "app.goals_write",
         "app.goals_write.GoalInexistente",
         "app.goals_write.GoalInvalido",
@@ -1700,6 +1706,9 @@ ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
     {
         "__future__",
         "__future__.annotations",
+        "app.ceremonia",
+        "app.ceremonia.ErrorCeremonia",
+        "app.ceremonia.valida_ceremonia",
         "app.cli",
         "app.cli._clientes_precio",
         "app.db",
@@ -2176,6 +2185,7 @@ def test_candado_escritura_fuentes_ignora_comentario(tmp_path):
 
 _PERMITIDOS_CORRIDA = (
     "psycopg",
+    "app.lock",  # Ola B1: modulo hoja unico del claim/advisory sobre ads_optimizer_lock
     "app.precio.",
     "app.redaction",  # r2: hoja stdlib, solo `scrub` para errores del log y del gancho
     "app.estimacion_reader",
@@ -2195,20 +2205,21 @@ _PROHIBIDOS_IMPORTS_CORRIDA = tuple(
 
 # Un solo dueno por tabla: `corrida.py` abre y cierra su fila de
 # `precio_corrida` (S.1), retiene (`precio_retencion`, S.2) y mide la
-# compuerta (`precio_compuerta_medicion`, S.3); `precio_cambio` lo escribe
-# `cambios.py` y la liberacion `liberaciones.py` (S.3).
+# compuerta (`precio_compuerta_medicion`, S.3); `ads_optimizer_lock` vive en
+# `app/lock.py`; `precio_cambio` en `cambios.py` y la liberacion en `liberaciones.py`.
 _ESCRIBE_CORRIDA = (
     "precio_decision",
     "precio_cotizacion",
     "precio_corrida",
     "precio_retencion",
     "precio_compuerta_medicion",
-    "ads_optimizer_lock",
 )
 
-# REPRICING 02 S.5: `revertir_lote` toma el claim `precio:<platform>` de
-# la corrida (exclusion mutua reversa/corrida).
-_ESCRIBE_CAMBIOS = ("ads_optimizer_lock", "precio_cambio")
+# REPRICING 02 S.5: `cambios.py` es el unico escritor de `precio_cambio`
+# (el claim `precio:<platform>` en `ads_optimizer_lock` lo delega a `app/lock.py`).
+_ESCRIBE_CAMBIOS = ("precio_cambio",)
+
+_ESCRIBE_LOCK = ("ads_optimizer_lock",)
 
 _ESCRIBE_LIBERACION = ("precio_compuerta_liberacion",)
 
@@ -2307,9 +2318,9 @@ def test_corrida_solo_escribe_sus_tablas():
 
 def test_cambios_solo_escribe_cambio_y_claim():
     """REPRICING 02 0.b + S.5: `cambios.py` es el UNICO escritor de
-    `precio_cambio` y toma el claim `precio:<platform>` en
-    `ads_optimizer_lock` (el mismo que la corrida)."""
+    `precio_cambio` (el claim `ads_optimizer_lock` vive en `app/lock.py`)."""
     assert _tablas_escritas(PRECIO / "cambios.py") == sorted(_ESCRIBE_CAMBIOS)
+    assert _tablas_escritas(APP / "lock.py") == sorted(_ESCRIBE_LOCK)
 
 
 def test_liberaciones_solo_escribe_liberacion():
