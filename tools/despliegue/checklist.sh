@@ -28,8 +28,10 @@ if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
   if R=$(cron_vigia revisa 2>&1); then ok "$R"; else falla "cron del vigia de Jev: $R"; fi
 fi
 
-if git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null && git cat-file -e "$SHA:$CRON_BLOQUE" 2>/dev/null; then
-  if R=$(cron_orbit revisa 2>&1); then ok "$R"; else falla "cron de Orbit: $R"; fi
+CRON_SHA=$SHA
+if contiene "$DESPLEGADO" "$SHA"; then CRON_SHA=$DESPLEGADO; fi
+if git cat-file -e "$CRON_SHA:$CRON_ORBIT" 2>/dev/null && git cat-file -e "$CRON_SHA:$CRON_BLOQUE" 2>/dev/null; then
+  if R=$(SHA=$CRON_SHA; cron_orbit revisa 2>&1); then ok "$R"; else falla "cron de Orbit: $R"; fi
 fi
 
 if git cat-file -e "$SHA:tools/$REFRESCO" 2>/dev/null; then

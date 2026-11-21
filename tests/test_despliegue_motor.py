@@ -345,6 +345,13 @@ def _crea_repo(repo: Path) -> None:
         _commit(repo, nombre, archivos)
     _git(repo, "checkout", "-q", "-b", "convigia2", "ConVigia")
     _commit(repo, "ConVigia2", {})
+    _git(repo, "checkout", "-q", "-b", "concronorbit2", "ConCronOrbit")
+    canon_nuevo = (
+        (ROOT / "tools/despliegue/crontab-orbit.txt")
+        .read_text(encoding="utf-8")
+        .replace("*/10 10-12", "*/15 10-12", 1)
+    )
+    _commit(repo, "ConCronOrbit2", {"tools/despliegue/crontab-orbit.txt": canon_nuevo})
     _git(repo, "checkout", "-q", "master")
 
 
@@ -1574,3 +1581,22 @@ def test_arreglos01_n_el_despliegue_instala_el_bloque_orbit(s):
     assert r.returncode == 1, r.stdout + r.stderr
     assert s.estado_diario() == "revertido"
     assert crontab.read_text(encoding="utf-8") == CRONTAB_GON
+
+
+def test_checklist_cron_orbit_usa_sha_desplegado_en_monotonia(s):
+    """Si produccion ya corre un descendiente con nuevo horario, verificar el ancestro
+    acepta el bloque del descendiente desplegado y rechaza el bloque viejo."""
+    crontab = s.ctl / "crontab"
+    crontab.write_text(CRONTAB_GON, encoding="utf-8", newline="\n")
+    avisa = s.ctl / "cron-avisa"
+    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    avisa.chmod(0o755)
+    assert s.desplegar("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa)).returncode == 0
+    assert s.checklist("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa)).returncode == 0
+    texto_viejo = crontab.read_text(encoding="utf-8")
+    assert s.desplegar("ConCronOrbit2", ORBIT_CRON_AVISA=str(avisa)).returncode == 0
+    assert s.checklist("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa)).returncode == 0
+    crontab.write_text(texto_viejo, encoding="utf-8", newline="\n")
+    r_viejo = s.checklist("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa))
+    assert r_viejo.returncode == 1
+    assert "FALLA cron de Orbit" in r_viejo.stdout
