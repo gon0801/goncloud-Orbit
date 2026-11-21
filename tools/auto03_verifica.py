@@ -56,6 +56,7 @@ from app.cycle import lee_goals
 from app.db import connect
 from app.optimizer import productos as p
 from app.optimizer.replay import reproduce
+from app.redaction import scrub
 
 _SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
@@ -426,7 +427,7 @@ def concilia(plataforma: str, n: int, ruta: str | None) -> int:
     try:
         aceptados = perfiles_aceptados(client)
     except (AdsClientError, AdsStructureError) as exc:
-        print(f"concilia {plataforma}: sin reporte: perfiles de Amazon: {exc}")
+        print(f"concilia {plataforma}: sin reporte: perfiles de Amazon: {scrub(str(exc))}")
         return 2
     perfil = next((x for x in aceptados if x.platform == plataforma), None)
     if perfil is None:
@@ -439,7 +440,7 @@ def concilia(plataforma: str, n: int, ruta: str | None) -> int:
     try:
         filas = descarga_reportes(client, perfil, rangos)
     except SinReporte as exc:
-        print(f"concilia {plataforma}: sin reporte: {exc}")
+        print(f"concilia {plataforma}: sin reporte: {scrub(str(exc))}")
         return 2
     todas = [fila for lote in filas.values() for fila in lote]
     distintos = {"cuenta": 0, "relleno": 0}

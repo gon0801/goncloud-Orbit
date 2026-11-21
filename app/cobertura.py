@@ -174,8 +174,8 @@ def resumen_por_plataforma(filas: list[tuple]) -> dict[tuple[str, str], dict[str
                 "gasto_cubierto": Decimal(0),
                 "gasto_cubierto_unico": Decimal(0),
                 "gasto_sin_fx": Decimal(0),
-                "pct": 0.0,
-                "pct_estricta": 0.0,
+                "pct": None,
+                "pct_estricta": None,
             },
         )
         fila["gasto_total"] += gasto
@@ -188,8 +188,8 @@ def resumen_por_plataforma(filas: list[tuple]) -> dict[tuple[str, str], dict[str
             fila["gasto_cubierto_unico"] += gasto - gasto_sin_fx
     for fila in resumen.values():
         if fila["gasto_total"]:
-            fila["pct"] = float(100 * fila["gasto_cubierto"] / fila["gasto_total"])
-            fila["pct_estricta"] = float(100 * fila["gasto_cubierto_unico"] / fila["gasto_total"])
+            fila["pct"] = Decimal(100) * fila["gasto_cubierto"] / fila["gasto_total"]
+            fila["pct_estricta"] = Decimal(100) * fila["gasto_cubierto_unico"] / fila["gasto_total"]
     return resumen
 
 
@@ -235,10 +235,12 @@ def main(argv: list[str] | None = None) -> int:
         extra = f"  sin_fx={gasto_sin_fx}" if gasto_sin_fx else ""
         print(f"  {plataforma:10} {moneda} {estado:22} grupos={grupos:4} gasto={gasto}{extra}")
     for (plataforma, moneda), fila in sorted(resumen_por_plataforma(filas).items()):
+        pct_txt = f"{fila['pct']:.1f}%" if fila["pct"] is not None else "n/a"
+        est_txt = f"{fila['pct_estricta']:.1f}%" if fila["pct_estricta"] is not None else "n/a"
         print(
-            f">> {plataforma} ({moneda}): cobertura a nivel GRUPO {fila['pct']:.1f}%"
+            f">> {plataforma} ({moneda}): cobertura a nivel GRUPO {pct_txt}"
             f"  ({fila['gasto_cubierto']} de {fila['gasto_total']})"
-            f"  |  estricta (grupo mono-producto) {fila['pct_estricta']:.1f}%"
+            f"  |  estricta (grupo mono-producto) {est_txt}"
         )
     if sin_costo:
         print(f"filas maduras SIN costo (fuera del denominador): {sin_costo}")

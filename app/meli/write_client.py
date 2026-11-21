@@ -33,6 +33,7 @@ from decimal import Decimal
 
 import httpx
 
+from app.http_base import parse_retry_after_finito
 from app.meli.client import MELI_BASE, MeliCredentials, ReputacionError
 from app.precio.puerto import Acuse
 from app.redaction import install_scrub_filter
@@ -103,11 +104,10 @@ def _cuerpo_put_precio(precio_txt: str, variantes: Sequence[str]) -> bytes:
 
 
 def _espera_retry_after(resp: httpx.Response) -> float:
-    try:
-        segundos = float(resp.headers.get("Retry-After", str(_ESPERA_429_DEFAULT)))
-    except ValueError:
-        segundos = _ESPERA_429_DEFAULT
-    return min(max(0.0, segundos), _ESPERA_429_MAX)
+    segundos = parse_retry_after_finito(
+        resp.headers.get("Retry-After"), techo=_ESPERA_429_MAX, ahora_ts=time.time()
+    )
+    return _ESPERA_429_DEFAULT if segundos is None else segundos
 
 
 class MeliWriteClient:

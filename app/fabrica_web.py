@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import os
 import re
 from contextlib import contextmanager
@@ -621,11 +620,13 @@ def _conexion(nombre: str, lote: str):
 
 @contextmanager
 def _lote_bloqueado(lote: str):
-    # Lock de SESION: sobrevive los commits del motor y cubre sus otras conexiones.
+    # Lock de SESION compartido con fabrica_motor (misma llave hashtextextended).
     # La conexion dedicada se cierra en toda salida; PostgreSQL libera el lock.
-    clave = int.from_bytes(hashlib.sha256(f"fabrica-web:{lote}".encode()).digest()[:8], signed=True)
     with _conexion("ORBIT_DSN_ADMIN", lote) as conn:
-        adquirido = conn.execute("SELECT pg_try_advisory_lock(%s)", (clave,)).fetchone()[0]
+        adquirido = conn.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))", (lote,)
+        ).fetchone()[0]
+        conn.commit()
         if not adquirido:
             raise error(409, "Hay otra operación en curso para este lote.", lote)
         yield conn
@@ -669,7 +670,7 @@ def crear(
                 falta_confirmar=True,
             )
         try:
-            fm.mutar(plan, huella, esperado=5, go=confirmacion, lote=lote)
+            fm.mutar(plan, huella, esperado=5, go=confirmacion, lote=lote, lock_ya_tomado=True)
         except Exception as exc:
             # Incluso si fallo antes del INSERT del motor, se conserva el intento.
             # Un retry de la misma huella consulta este lote y nunca vuelve a crear.

@@ -26,6 +26,7 @@ import httpx
 import psycopg
 
 from app.db import connect
+from app.ingest_run import sanitizar_motivo
 from app.redaction import install_scrub_filter, redact_dsn, scrub
 from app.reputacion_clientes import (
     ClienteMeli as ClienteMeli,
@@ -414,10 +415,22 @@ def _abrir_run(conn: psycopg.Connection, source: str) -> int:
         return conn.execute(_SQL_ABRIR_RUN, (source,)).fetchone()[0]
 
 
-def _sellar(conn: psycopg.Connection, run_id: int, ins: int, skips: Counter, ok: bool) -> None:
-    motivo = _formato_skips(skips) if ok else "fallo la corrida"
-    if not ok and skips:
-        motivo += ": " + _formato_skips(skips)
+def _sellar(
+    conn: psycopg.Connection,
+    run_id: int,
+    ins: int,
+    skips: Counter,
+    ok: bool,
+    causa: str | None = None,
+) -> None:
+    if ok:
+        motivo_raw = _formato_skips(skips)
+    else:
+        base = f"fallo la corrida: {causa}" if causa else "fallo la corrida"
+        motivo_raw = f"{base} ({_formato_skips(skips)})" if skips else base
+    motivo = sanitizar_motivo(motivo_raw) if motivo_raw else None
+    if conn.info.transaction_status == psycopg.pq.TransactionStatus.INERROR:
+        conn.rollback()
     with conn.transaction():
         conn.execute(_SQL_SELLAR_RUN, (ins, sum(skips.values()), motivo, ok, run_id))
 
@@ -529,8 +542,8 @@ def _corre_meli(
             conn, snapshots, reviews, seller, questions, metric_date, observed_at
         )
         _sellar(conn, run_id, insertadas, skips, True)
-    except Exception:
-        _sellar(conn, run_id, 0, skips, False)
+    except BaseException as exc:
+        _sellar(conn, run_id, 0, skips, False, causa=str(exc) or exc.__class__.__name__)
         raise
     return {
         "fuente": "meli",

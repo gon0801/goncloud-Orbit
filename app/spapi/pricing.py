@@ -534,7 +534,7 @@ def _procesar_asin(
             _fila_insert(
                 precio,
                 platform=platform,
-                metric_date=momento.date(),
+                metric_date=momento.astimezone(datetime.UTC).date(),
                 observed_at=momento,
                 run_id=run_id,
             ),

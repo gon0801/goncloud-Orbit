@@ -126,7 +126,8 @@ def main_impulso_vigia(argv: list[str]) -> int:
         if not metricas_listas.guarda(conn, plataformas, forzar=forzar):
             return metricas_listas.salida_sin_metricas("impulso-vigia")
         hoy = dt.datetime.now(dt.UTC).date()
-        acciones = impulso_io.vigila(conn, impulso_io.PausadorFabrica(conn), hoy=hoy)
+        with impulso_io.PausadorFabrica(conn) as pausador:
+            acciones = impulso_io.vigila(conn, pausador, hoy=hoy)
     finally:
         conn.close()
     for accion in acciones:

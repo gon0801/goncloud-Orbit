@@ -191,7 +191,6 @@ def _registrar(ctx, plan: fp.PlanGrupoV2, creadas: list[dict]) -> int:
             _SQL_INSERTA_PRODUCTO,
             (grupo, p.product_id, p.listing_id, p.seller_sku, p.margen_neto_pct),
         )
-    conn.commit()
     ahora = datetime.datetime.now(datetime.UTC)
     bid_exact = plan.parametros["category_exact"].bid
     for rol, (camp_id, _ag_id) in ids.items():
@@ -230,6 +229,7 @@ def _registrar(ctx, plan: fp.PlanGrupoV2, creadas: list[dict]) -> int:
             harvest_ad_group_id=exact["ad_group"],
             harvest_default_bid=bid_exact,
             created_at=ahora,
+            commit=False,
         )
         _log(
             "goal_creado",
@@ -239,6 +239,7 @@ def _registrar(ctx, plan: fp.PlanGrupoV2, creadas: list[dict]) -> int:
             mode=plan.modo,
             target=str(goal_target),
         )
+    conn.commit()
     _log("grupo_registrado", lote=ctx.lote, grupo_id=grupo, target=str(target))
     return grupo
 

@@ -122,6 +122,10 @@ def main_precio(args) -> int:
         if isinstance(ventana, int):
             return ventana
         desde, hasta = ventana
+        plats = args.platform or []
+        if len(plats) != 1:
+            print("precio --reporte exige una sola --platform", file=sys.stderr)
+            return 2
         dsn = os.environ.get("ORBIT_DSN_READ", "")
         if not dsn:
             print("precio --reporte exige ORBIT_DSN_READ", file=sys.stderr)
@@ -131,10 +135,6 @@ def main_precio(args) -> int:
         except Exception as exc:
             print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
             return 1
-        plats = args.platform or []
-        if len(plats) != 1:
-            print("precio --reporte exige una sola --platform", file=sys.stderr)
-            return 2
         try:
             for linea in corrida_precios.reporte(conn, desde=desde, hasta=hasta, platform=plats[0]):
                 print(linea)

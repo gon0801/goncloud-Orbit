@@ -2175,7 +2175,7 @@ SELECT modo::text, count(*)
 
 _SQL_CHROME_WATERMARK = """
 SELECT e.platform::text, MAX(m.metric_date)
-  FROM ads_metric_observation m
+  FROM v_metric_latest m
   JOIN ad_entity e ON e.id = m.ad_entity_id
  GROUP BY e.platform
 """
@@ -2184,15 +2184,14 @@ _SQL_CHROME_ULTIMO_CICLO = """
 SELECT DISTINCT ON (platform)
        platform::text, mode::text, status::text, started_at, decisions_count
   FROM optimizer_cycle
- ORDER BY platform, started_at DESC, id DESC
+ WHERE platform IS NOT NULL AND motor = 'ads_optimizer'
+ ORDER BY platform, id DESC
 """
 
 
 @router.get("/chrome")
 def chrome(conn: ConexionLectura) -> dict:
-    """Resumen liviano para la barra lateral/superior (`shell.js`): solo 3
-    queries puntuales en vez de ejecutar `/cortes` y `/salud` completos en
-    cada navegacion."""
+    """Resumen liviano para `shell.js` (3 queries en vez de /cortes + /salud)."""
     modos = dict(conn.execute(_SQL_CHROME_COLA).fetchall())
     watermarks = {
         plat: (dia.isoformat() if dia is not None else None)

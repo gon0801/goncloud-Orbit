@@ -374,8 +374,8 @@ class _ConnFalsa:
             return _Cursor(self.pasos_ledger)
         if "from fabrica_lote" in bajo and "plan" in bajo:
             return _Cursor([self.lote_fila] if self.lote_fila is not None else [])
-        if "pg_advisory_xact_lock" in bajo:
-            return _Cursor([(None,)])
+        if "pg_try_advisory_lock" in bajo or "pg_advisory_unlock" in bajo:
+            return _Cursor([(True,)])
         if bajo.startswith("select estado from fabrica_lote"):
             return _Cursor([])
         if "from fabrica_lote" in bajo and "platform" in bajo:
@@ -719,7 +719,7 @@ def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
     bloqueo = next(
         indice
         for indice, (tipo, valor) in enumerate(secuencia)
-        if tipo == "sql" and "pg_advisory_xact_lock" in valor.lower()
+        if tipo == "sql" and "pg_try_advisory_lock" in valor.lower()
     )
     lwa = next(indice for indice, evento in enumerate(secuencia) if evento == ("http", "lwa"))
     assert bloqueo < lwa

@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import sys
-from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -39,6 +38,7 @@ from app.bloqueo_dueno import (
     motor_oculta,
 )
 from app.db import connect
+from app.db import tx_durable as _durable
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -963,16 +963,6 @@ def _insert_efecto(conn, veredicto_id, paso: str, **campos) -> None:
             campos.get("motivo"),
         ),
     )
-
-
-@contextmanager
-def _durable(conn):
-    # Con conexion sin autocommit, conn.transaction() dentro de una transaccion
-    # abierta es un SAVEPOINT: sin este commit el ledger no es visible antes del HTTP.
-    with conn.transaction():
-        yield
-    if not conn.autocommit:
-        conn.commit()
 
 
 def _llave(ad_group_id: int, termino_sha256: str) -> str:

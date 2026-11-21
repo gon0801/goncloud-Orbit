@@ -365,7 +365,7 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
 
     for q_id, entidad, term, decision_id in filas:
         if apply.gate_ancestros(conn, entidad) is not None:
-            with conn.transaction():
+            with tx_durable(conn):
                 _ejecucion._sella_pendientes(conn, decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED)
                 _ejecucion._termina_cola(conn, q_id, "failed")
             fallidas += 1
@@ -386,7 +386,7 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
         propio = _ejecucion._identidad(items, grupo_ext, term)
         if propio is not None:
             ack = {"fuente": "list", "keywordId": propio.get("keywordId")}
-            with conn.transaction():
+            with tx_durable(conn):
                 _ejecucion._sella_pendientes(conn, decision_id, "ok:reconciliado")
                 apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
                 _ejecucion._termina_cola(conn, q_id, "applied")
@@ -464,12 +464,12 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
             resultado = (
                 f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
             )
-            with conn.transaction():
+            with tx_durable(conn):
                 apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
                 _ejecucion._termina_cola(conn, q_id, "failed")
             fallidas += 1
             continue
-        with conn.transaction():
+        with tx_durable(conn):
             apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
             _ejecucion._sella_pendientes(conn, decision_id, "ok:reconciliado")
             apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
@@ -498,7 +498,7 @@ def _reconcilia_harvest_huerfanas(conn: psycopg.Connection, platform: str) -> in
     for q_id, decision_id in conn.execute(_SQL_HARVEST_APLICANDO, (platform,)).fetchall():
         if conn.execute(_SQL_JOB_EN_VUELO_DE, (decision_id,)).fetchone()[0]:
             continue  # el job en vuelo conduce esta fila
-        with conn.transaction():
+        with tx_durable(conn):
             _ejecucion._sella_pendientes(conn, decision_id, "fallo:huerfana_sin_job")
             _ejecucion._termina_cola(conn, q_id, "failed")
         cerradas += 1
@@ -518,7 +518,7 @@ def _cierra_higiene_apagada(
     for rol in objetivo:
         if "negative_id" not in hermanas.get(rol, {}):
             hermanas[rol] = {"motivo": apply_cola.MOTIVO_MODO_NO_LIVE}
-    with conn.transaction():
+    with tx_durable(conn):
         _ejecucion._avanza(conn, job, None, {"hermanas": hermanas})
     resultado, alerta = _ejecucion._cierra_o_sigue(
         conn, job, objetivo, hermanas, _ejecucion.TOPE_CICLOS_HERMANAS, queue_id
@@ -566,7 +566,7 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
             != "live"
         ):
             if queue_estado == "released":
-                with conn.transaction():
+                with tx_durable(conn):
                     conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
                     conn.execute(_SQL_DESCARTA, (apply_cola.MOTIVO_MODO_NO_LIVE, queue_id))
                 jobs_failed += 1
@@ -584,7 +584,7 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
         en_higiene = job.fase == "hermanas_negadas"
         motivo_gate = None if en_higiene else apply.gate_ancestros(conn, job.ad_entity_id)
         if motivo_gate is not None:
-            with conn.transaction():
+            with tx_durable(conn):
                 conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
                 _ejecucion._sella_pendientes(
                     conn, job.decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED
@@ -605,7 +605,7 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
             except (AdsApiError, AdsAuthError):
                 continue
             if motivo is not None:
-                with conn.transaction():
+                with tx_durable(conn):
                     conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
                     conn.execute(_SQL_DESCARTA, (motivo, queue_id))
                 jobs_failed += 1
