@@ -19,3 +19,12 @@ Re-ejecucion tras la correccion:
 Segunda ronda de revision (6 hilos): baja comida por la preparacion se rechaza (la deja en 0), fin anticipado en enero del bloque dic-feb valido, fin viejo fuera del calendario se descarta, primer guardado sin ediciones permitido (data-guardada), _con_avisos usa ads_campana_topada y los nodos de equilibrio/aviso siempre existen en el HTML. Verificacion en vivo: primer guardado sin tocar nada guarda (config 1 -> 2) y el segundo clic dice «Nada que cambiar.»
 Re-ejecucion tras las correcciones:
 3 passed, 5979 deselected, 1 warning in 5.22s
+
+Tercera ronda (7 bloqueos de Kimi sobre bbc35e6), SHA 3772c13. Acepta A.2:
+4 passed, 5979 deselected, 1 warning in 11.81s
+Acepta A.3 y vecinos:
+112 passed, 1 warning in 50.01s
+Comprobaciones pedidas por Kimi:
+1 passed, 12 deselected, 1 warning in 1.21s
+1 failed
+4 passed, 73 deselected in 0.61s

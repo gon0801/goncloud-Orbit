@@ -1630,7 +1630,7 @@ def metas_vigentes_temporada(
     entra en las metas (regla 3); el peldano si viaja para la frase."""
     metas: dict[str, Decimal] = {}
     peldanos: dict[str, str | None] = {}
-    settings = _config_vigente(conn)
+    settings = _config_vigente_con_id(conn)[1]
     for plataforma in PLATAFORMAS_MONEDA:
         goal_id, goal = _goal_plataforma_de(conn, plataforma)
         valor, peldano = g.cascada_target_acos_con_procedencia(
