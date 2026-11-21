@@ -269,7 +269,7 @@ from app.optimizer import (
 from app.optimizer import goals as g
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.caso import BidVigente, EconomiaPlataforma, InsumosRecuperacion
+from app.optimizer.caso import BidVigente, EconomiaPlataforma, InsumosPausa, InsumosRecuperacion
 from app.optimizer.politica import (
     MOTIVO_REGRESO_ESPERA_PRESUPUESTO,
     Mantener,
@@ -626,6 +626,7 @@ class _Contadores:
     # caso a caso; sale en notes.temporada.
     temporada_sombra_comparadas: int = 0
     temporada_sombra_coinciden: int = 0
+    temporada_sombra_diferencias: list[dict] = field(default_factory=list)
 
 
 def _abre_heartbeat(conn: psycopg.Connection) -> psycopg.Connection | None:
@@ -1145,10 +1146,24 @@ def _estampa_temporada(
     """TEMPORADA 01 B: la decision de temporada lleva el episodio en sus inputs
     (lo lee v_cambio_bid para episodio_id). TX2 estampa el de su frontera; TX3
     lo pisa con el abierto si abrio uno nuevo este ciclo."""
+    # TEMPORADA 01 D: una PAUSE decidida con fase_hoja == "baja" TAMBIEN
+    # lleva el episodio (y su frontera congelada via caso.temporada) — es lo
+    # que la marca como pausa de la baja para la reactivacion del bloque F.
+    motivo = (pendiente.inputs or {}).get("motivo")
+    es_temporada = motivo in temporada_io.MOTIVOS_TEMPORADA
+    es_pausa_de_baja = (
+        pendiente.kind == "pause"
+        and (pendiente.inputs or {})
+        .get("caso", {})
+        .get("temporada", {})
+        .get("frontera", {})
+        .get("fase_hoja")
+        == "baja"
+    )
     if (
         frontera_h is None
-        or (pendiente.inputs or {}).get("motivo") not in temporada_io.MOTIVOS_TEMPORADA
         or frontera_h.episodio_id is None
+        or not (es_temporada or es_pausa_de_baja)
     ):
         return pendiente
     return replace(
@@ -1187,6 +1202,65 @@ def _frontera_temporada(
     return frontera_h, en_vuelo
 
 
+def _pausa_sombra(
+    conn: psycopg.Connection,
+    *,
+    contadores: _Contadores,
+    platform: str,
+    entidad_id: int,
+    decided_at: dt.datetime,
+    frontera_h: temporada.FronteraHoja | None,
+    en_vuelo: bool,
+    evidencia: windows.EvidenciaAdGroup | None,
+    pause_economica: bool,
+    proteccion_cache: proteccion_venta.CacheProteccion | None,
+) -> InsumosPausa | None:
+    """La pausa de la SOMBRA (ads_temporada en shadow): x mult y cerca de la
+    hoja. None fuera de practica o con un efecto de temporada en vuelo."""
+    plat_t = contadores.temporada_plat
+    if plat_t is None or plat_t.modo != "shadow" or frontera_h is None or en_vuelo:
+        return None
+    mult_sombra = frontera_h.mult_cortes if frontera_h.fase_hoja == "baja" else None
+    corte_pause_sombra = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_sombra)
+    _costo_s, _cortes_s, pausa_sombra = _insumos_pausa(
+        conn,
+        platform=platform,
+        entidad_id=entidad_id,
+        decided_at=decided_at,
+        corte_pause=corte_pause_sombra,
+        pause_economica=pause_economica,
+        proteccion_cache=proteccion_cache,
+        mult_baja=mult_sombra,
+        cerca=frontera_h.cerca_hoja,
+    )
+    return pausa_sombra
+
+
+def _compara_temporada(
+    contadores: _Contadores,
+    entidad_id: int,
+    caso,
+    veredicto,
+    veredicto_sombra,
+) -> None:
+    """TEMPORADA 01 D: en practica NADA se escribe salvo notes.temporada
+    (ConteoTemporada: diferencias sombra vs actual, con el caso completo)."""
+    contadores.temporada_sombra_comparadas += 1
+    if veredicto_sombra != veredicto:
+        contadores.temporada_sombra_diferencias.append(
+            {
+                "hoja_id": entidad_id,
+                "real": veredicto.__class__.__name__,
+                "motivo_real": getattr(veredicto, "motivo", None),
+                "sombra": veredicto_sombra.__class__.__name__,
+                "motivo_sombra": getattr(veredicto_sombra, "motivo", None),
+                "caso": caso.como_json(),
+            }
+        )
+    else:
+        contadores.temporada_sombra_coinciden += 1
+
+
 def _anota_regreso_retenido(
     contadores: _Contadores,
     lecturas: LecturasPlataforma | None,
@@ -1218,65 +1292,6 @@ def _anota_regreso_retenido(
         caso.presupuesto is not None and presupuesto_topado(caso) is True
     ):
         contadores.skips_entidad[MOTIVO_REGRESO_ESPERA_PRESUPUESTO] += 1
-
-
-def _compara_sombra(
-    conn: psycopg.Connection,
-    contadores: _Contadores,
-    *,
-    lecturas: LecturasPlataforma,
-    plataforma: str,
-    entidad_id: int,
-    decided_at: dt.datetime,
-    frontera_h: temporada.FronteraHoja | None,
-    en_vuelo: bool,
-    evidencia: windows.EvidenciaAdGroup | None,
-    target: Decimal,
-    current_bid: Decimal | None,
-    bid_currency: str | None,
-    floor: Decimal,
-    ceiling: Decimal,
-    equilibrio_hoja: Decimal | None,
-    procedencia: str | None,
-    pause_economica: bool,
-    proteccion_cache: proteccion_venta.CacheProteccion | None,
-    veredicto,
-) -> None:
-    """TEMPORADA 01 D: la SOMBRA de la baja (ads_temporada en shadow) decide el
-    caso CON marcadores y su propia pausa resuelta (x mult y cerca); el caso
-    real fue byte a byte lo de hoy (el marcador solo viaja en live). La
-    comparacion sale en notes.temporada."""
-    plat_t = contadores.temporada_plat
-    if plat_t is None or plat_t.modo != "shadow" or frontera_h is None or en_vuelo:
-        return
-    mult_sombra = frontera_h.mult_cortes if frontera_h.fase_hoja == "baja" else None
-    corte_pause_sombra = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_sombra)
-    _costo_s, _cortes_s, pausa_sombra = _insumos_pausa(
-        conn,
-        platform=plataforma,
-        entidad_id=entidad_id,
-        decided_at=decided_at,
-        corte_pause=corte_pause_sombra,
-        pause_economica=pause_economica,
-        proteccion_cache=proteccion_cache,
-        mult_baja=mult_sombra,
-        cerca=frontera_h.cerca_hoja,
-    )
-    caso_sombra = lecturas.caso(
-        conn,
-        hoja_id=entidad_id,
-        ad_group_id=None,
-        bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
-        target_acos_pct=target,
-        pausa=pausa_sombra,
-        equilibrio_acos_pct=equilibrio_hoja,
-        procedencia=procedencia,
-        con_temporada=True,
-        sombra=True,
-    )
-    contadores.temporada_sombra_comparadas += 1
-    if decide(caso_sombra) == veredicto:
-        contadores.temporada_sombra_coinciden += 1
 
 
 def _procesa_decisora(  # noqa: PLR0915 - el recorrido de UNA hoja es un solo camino
@@ -1367,10 +1382,14 @@ def _procesa_decisora(  # noqa: PLR0915 - el recorrido de UNA hoja es un solo ca
         contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
         tick()
         return
-    if entidad_id in inertes and not (
+    plat_t_inerte = contadores.temporada_plat
+    entran_inertes = (
         lecturas is not None
+        and plat_t_inerte is not None
+        and plat_t_inerte.modo == "live"
         and lecturas.tiene_pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
-    ):
+    )
+    if entidad_id in inertes and not entran_inertes:
         # BIDS 01 (D3): sin impresiones en 14d desde el watermark -> el ajuste
         # seria inerte (Amazon no sirve la hoja); no gasta consultas ni cupo.
         # TEMPORADA 01 D: una keyword INERTE con entrada/regreso de temporada
@@ -1620,13 +1639,26 @@ def _procesa_decisora(  # noqa: PLR0915 - el recorrido de UNA hoja es un solo ca
         and procedencia == "margen_producto"
         else None
     )
-    caso = lecturas.caso(
+    pausa_sombra = _pausa_sombra(
+        conn,
+        contadores=contadores,
+        platform=platform,
+        entidad_id=entidad_id,
+        decided_at=decided_at,
+        frontera_h=frontera_h,
+        en_vuelo=efecto_en_vuelo,
+        evidencia=evidencia,
+        pause_economica=pause_economica,
+        proteccion_cache=proteccion_cache,
+    )
+    caso, caso_sombra = lecturas.casos(
         conn,
         hoja_id=entidad_id,
         ad_group_id=ad_group_id,
         bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
         target_acos_pct=target,
         pausa=pausa,
+        pausa_sombra=pausa_sombra,
         equilibrio_acos_pct=equilibrio_hoja,
         procedencia=procedencia,
         con_temporada=not efecto_en_vuelo,
@@ -1645,27 +1677,8 @@ def _procesa_decisora(  # noqa: PLR0915 - el recorrido de UNA hoja es un solo ca
         floor=floor,
         techo=ceiling,
     )
-    _compara_sombra(
-        conn,
-        contadores,
-        lecturas=lecturas,
-        plataforma=platform,
-        entidad_id=entidad_id,
-        decided_at=decided_at,
-        frontera_h=frontera_h,
-        en_vuelo=efecto_en_vuelo,
-        evidencia=evidencia,
-        target=target,
-        current_bid=current_bid,
-        bid_currency=bid_currency,
-        floor=floor,
-        ceiling=ceiling,
-        equilibrio_hoja=equilibrio_hoja,
-        procedencia=procedencia,
-        pause_economica=pause_economica,
-        proteccion_cache=proteccion_cache,
-        veredicto=veredicto,
-    )
+    if caso_sombra is not None:
+        _compara_temporada(contadores, entidad_id, caso, veredicto, decide(caso_sombra))
     _anota_sombra(
         productos_ciclo,
         entidad_id=entidad_id,
@@ -2438,6 +2451,7 @@ def _corre_fases(
             {
                 "comparadas": contadores.temporada_sombra_comparadas,
                 "coinciden": contadores.temporada_sombra_coinciden,
+                "diferencias": contadores.temporada_sombra_diferencias,
             }
             if contadores.temporada_sombra_comparadas
             else None

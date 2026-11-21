@@ -38,6 +38,7 @@ from test_cycle import _config_version, _entidad, _estado, _metrica, _run
 from test_optimizer_caso import cambio, efecto, fabrica_caso, nivel, tramo, trayectoria
 from test_temporada01_b import (
     D_E1,
+    _cambio_confirmado,
     _corre,
     _goal_mx,
     _handler_mx,
@@ -247,6 +248,58 @@ def test_temporada01_d_salida_antes_de_pausa(db_template):
         techo=TECHO_MX,
     )
     assert contadores.skips_entidad[politica.MOTIVO_REGRESO_ESPERA_PRESUPUESTO] == 1
+    # al LIBERAR una pausa de la baja, la revalidacion usa frontera_hoja:
+    # x2 (mult del dueno) y la cerca de su entrada
+    conn, _dsn = db_template
+    _run(conn)
+    config_id_salida = _config_version(conn, _settings())
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-salida")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-salida", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    kw1 = _kw(conn, ag, "d-kw-salida", "kw salida", "5.60")
+    _cambio_confirmado(
+        conn,
+        kw1,
+        config_id_salida,
+        dia=D_E1,
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=None,
+    )
+    ciclo_salida = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (_medianoche(D_E1 + dt.timedelta(days=1)), _medianoche(D_E1 + dt.timedelta(days=1))),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s)",
+        (_medianoche(D_E1), ciclo_salida, config_id_salida),
+    )
+    conn.commit()
+    frontera_liberar = temporada_io.frontera_hoja(
+        conn, kw1, D_E1 + dt.timedelta(days=1), piso=PISO_MX, techo=TECHO_MX
+    )
+    assert frontera_liberar is not None
+    assert frontera_liberar.fase_hoja == "baja"
+    assert frontera_liberar.mult_cortes == Decimal("2"), "al liberar: x2"
+    assert frontera_liberar.cerca_hoja == D_E1 + dt.timedelta(days=1), (
+        "cerca = dia siguiente a la entrada confirmada"
+    )
+    # tras el regreso confirmado, la ventana de falla no mira dias de la baja:
+    # sin evidencia nueva, la pausa no califica
+    ventana_salida = windows.ventana_cortes(
+        conn,
+        kw1,
+        dt.datetime(2027, 2, 3, 12, 0, tzinfo=dt.UTC),
+        cerca=frontera_liberar.cerca_hoja,
+    )
+    sin_gasto = ventana_salida is None or not ventana_salida.cost
+    sin_pedidos = ventana_salida is None or not ventana_salida.orders
+    assert sin_gasto and sin_pedidos, "sin evidencia nueva tras el regreso: no pausa"
 
 
 def test_temporada01_d_dia_mixto_excluido(db_template):
@@ -257,9 +310,9 @@ def test_temporada01_d_dia_mixto_excluido(db_template):
     _run(conn)
     _goal_mx(conn)
     camp = _entidad(conn, "amazon_mx", "campaign", "d-camp")
-    dia_mixto = dt.date(2026, 11, 10)
+    dia_mixto = dt.date(2026, 11, 5)
     dia_limpio = dia_mixto + dt.timedelta(days=1)
-    dia_extra = dia_limpio + dt.timedelta(days=5)
+    dia_extra = dia_limpio + dt.timedelta(days=16)
     run_id = conn.execute(
         "INSERT INTO ingest_run (source) VALUES ('test-d') RETURNING id"
     ).fetchone()[0]
@@ -283,16 +336,19 @@ def test_temporada01_d_dia_mixto_excluido(db_template):
         cost="10.00",
         impressions=100,
     )
-    _metrica(
-        conn,
-        run_id,
-        camp,
-        dia_extra,
-        _medianoche(dia_extra),
-        moneda="MXN",
-        cost="1.00",
-        impressions=100,
-    )
+    for i in range(1, 8):
+        dia_sin = dia_limpio + dt.timedelta(days=i)
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            dia_sin,
+            _medianoche(dia_sin),
+            moneda="MXN",
+            cost=None,
+            clicks=0,
+            impressions=10,
+        )
     conn.commit()
     # la cerca de la hoja: confirmado 23:55 del dia mixto -> cerca = dia siguiente
     cadena = HistoriaBid(
@@ -321,12 +377,32 @@ def test_temporada01_d_dia_mixto_excluido(db_template):
     )
     assert ventana is not None
     assert ventana.window_start >= dia_limpio, "la ventana empieza en la cerca"
-    assert ventana.cost == Decimal("10.00"), "el dia mixto (900) queda fuera"
+    assert all(f >= dia_limpio for f in ventana.fechas), (
+        "el dia mixto (150 clics / 750 MXN) queda fuera"
+    )
+    assert ventana.cost is None or ventana.cost < Decimal("500"), (
+        "sin gasto tras la cerca: la pausa no califica"
+    )
+    assert not ventana.orders, "sin pedidos en la ventana: la pausa no califica"
 
 
 def test_temporada01_d_centavos_de_la_entrada(db_template):
     """El ajuste 30 -> 20 recalcula desde la BASE, no sobre el bid reducido:
-    8.00 x 0.80 = 6.40 con motivo ajusta_temporada_baja; jamas 5.60 x algo."""
+    8.00 x 0.80 = 6.40 con motivo ajusta_temporada_baja; jamas 5.60 x algo.
+    Los casos de centavos del diseño: 0.15 USD -> 0.11 (26.7 %); 1.55 MXN ->
+    1.09 (29.7 %); 0.10 USD con piso 0.10 -> sin centavo factible (excluida).
+    La decision congelada es la enviada."""
+    from app.optimizer.temporada import destino_entrada
+
+    assert destino_entrada(Decimal("0.15"), Decimal("0.30"), Decimal("0.10"), Decimal("5.00")) == (
+        Decimal("0.11")
+    )
+    assert destino_entrada(Decimal("1.55"), Decimal("0.30"), Decimal("1.00"), Decimal("50.00")) == (
+        Decimal("1.09")
+    )
+    assert (
+        destino_entrada(Decimal("0.10"), Decimal("0.30"), Decimal("0.10"), Decimal("5.00")) is None
+    ), "sin centavo factible: excluida"
     conn, _dsn = db_template
     _run(conn)
     config_id = _config_version(conn, _settings())
@@ -365,9 +441,7 @@ def test_temporada01_d_centavos_de_la_entrada(db_template):
         (res.cycle_id, kw1),
     ).fetchone()
     assert entrada == (Decimal("5.60"),), entrada
-    episodio_id = conn.execute(
-        "SELECT id FROM temporada_episodio WHERE platform = 'amazon_mx' AND cerrado_el IS NULL"
-    ).fetchone()[0]
+
     # David edita la reduccion a media baja (30 -> 20) DESPUES de la entrada
     # (config_version es APPEND-ONLY: nueva version, no UPDATE)
     import json as _json
@@ -545,6 +619,24 @@ def test_temporada01_d_baja_entra_y_retiene(db_template):
     veredicto = politica.decide(caso_r3)
     assert isinstance(veredicto, politica.Mover) and veredicto.factor < 0, veredicto
     assert veredicto.motivo == politica.MOTIVO_PIERDE_DINERO_FUERTE, veredicto
+    # el regreso conserva el recorte en proporcion (5.60 -> 3.15 regresa a
+    # 4.50, no a 8.00): 8 x 3.15/5.60 = 4.50
+    from app.optimizer.recuperacion import ReduccionVigente
+
+    red_con_recorte = ReduccionVigente(
+        episodio_id=1,
+        base=Decimal("8.00"),
+        primer_el=dt.datetime(2027, 1, 4, 12, 0, tzinfo=dt.UTC),
+        ultimo_bid=Decimal("5.60"),
+        ultimo_el=dt.datetime(2027, 1, 4, 12, 0, tzinfo=dt.UTC),
+        solo_temporada_despues=False,
+    )
+    nivel_proporcional = temporada.nivel_de_regreso(
+        red_con_recorte, Decimal("3.15"), PISO_MX, TECHO_MX
+    )
+    assert nivel_proporcional == Decimal("4.50"), (
+        "el regreso conserva el recorte en proporcion: 8 x 3.15/5.60 = 4.50"
+    )
 
 
 def test_temporada01_d_meta_alta(db_template):
@@ -605,6 +697,55 @@ def test_temporada01_d_meta_alta(db_template):
     caso_manual = replace(caso_manual, temporada=marcador_manual)
     assert temporada.meta_del_juicio(caso_manual) == Decimal("19.05")
     assert temporada.equilibrio_del_juicio(caso_manual) == Decimal("23.81")
+    # los casos del diseño (temporada.py, meta_del_juicio): MX base 20.13 ->
+    # 25; base 30 -> 30 (la meta de alta nunca BAJA la base); sin equilibrio
+    # -> la meta de alta manda igual (25)
+    caso_mx = fabrica_caso(
+        economia=Economia(
+            plataforma=EconomiaPlataforma(
+                moneda="MXN",
+                equilibrio_acos_pct=Decimal("45.5"),
+                gasto_para_concluir=Decimal("350"),
+                confianza_recorte=Decimal("0.80"),
+                confianza_subida=Decimal("0.70"),
+            ),
+            target_acos_pct=Decimal("20.13"),
+        ),
+        temporada=_marcador("alta"),
+    )
+    assert temporada.meta_del_juicio(caso_mx) == Decimal("25")
+    caso_base_alta = fabrica_caso(
+        economia=Economia(
+            plataforma=caso_mx.economia.plataforma,
+            target_acos_pct=Decimal("30"),
+        ),
+        temporada=_marcador("alta"),
+    )
+    assert temporada.meta_del_juicio(caso_base_alta) == Decimal("30")
+    caso_sin_eq = fabrica_caso(
+        economia=Economia(
+            plataforma=replace(caso_mx.economia.plataforma, equilibrio_acos_pct=None),
+            target_acos_pct=Decimal("20.13"),
+        ),
+        temporada=_marcador("alta"),
+    )
+    assert temporada.meta_del_juicio(caso_sin_eq) == Decimal("25")
+    assert temporada.equilibrio_del_juicio(caso_sin_eq) is None
+    # meta de campana 15 (meta manual): la decision mas especifica de David
+    caso_manual_15 = fabrica_caso(
+        economia=Economia(
+            plataforma=EconomiaPlataforma(
+                moneda="MXN",
+                equilibrio_acos_pct=Decimal("45.5"),
+                gasto_para_concluir=Decimal("350"),
+                confianza_recorte=Decimal("0.80"),
+                confianza_subida=Decimal("0.70"),
+            ),
+            target_acos_pct=Decimal("15"),
+        ),
+        temporada=_marcador("alta", meta_manual=True),
+    )
+    assert temporada.meta_del_juicio(caso_manual_15) == Decimal("15")
 
 
 def test_temporada01_d_cortes_por_multiplicador():

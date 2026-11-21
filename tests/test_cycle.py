@@ -3134,7 +3134,10 @@ def _corre_decisora_niveles(monkeypatch, caso: CasoHoja, tick=lambda: None):
     )
     lecturas = SimpleNamespace(
         caso=lambda _conn, **_k: caso,
+        casos=lambda _conn, **_k: (caso, None),
         frontera=lambda _hoja, _bid, *, piso, techo: None,
+        pendiente=lambda *_a, **_k: None,
+        tiene_pendiente=lambda *_a, **_k: False,
     )
     contadores = ciclo._Contadores()
     pendientes: list = []

@@ -104,6 +104,8 @@ def _corre_hoja(
 
     lecturas = SimpleNamespace(
         caso=_caso,
+        casos=lambda _conn, **_k: (_caso(_conn, **_k), None),
+        _temporada=None,
         # TEMPORADA 01 D: sin marcador, frontera y pendiente son None/None
         frontera=lambda *_a, **_k: None,
         pendiente=lambda *_a, **_k: None,

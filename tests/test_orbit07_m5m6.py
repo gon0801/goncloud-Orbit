@@ -295,6 +295,7 @@ def _corre_decisora(monkeypatch, caso: CasoHoja):
     )
     lecturas = SimpleNamespace(
         caso=lambda _conn, **_k: caso,
+        casos=lambda _conn, **_k: (caso, None),
         # TEMPORADA 01 D: sin marcador, frontera y pendiente son None/None
         frontera=lambda *_a, **_k: None,
         pendiente=lambda *_a, **_k: None,

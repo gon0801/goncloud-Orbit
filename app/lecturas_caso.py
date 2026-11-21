@@ -686,6 +686,54 @@ class LecturasPlataforma:
             techo=techo,
         )
 
+    def casos(
+        self,
+        conn: Conexion,
+        *,
+        hoja_id: int,
+        ad_group_id: int | None,
+        bid: BidVigente,
+        target_acos_pct: Decimal,
+        pausa: InsumosPausa,
+        pausa_sombra: InsumosPausa | None = None,
+        equilibrio_acos_pct: Decimal | None = None,
+        procedencia: str | None = None,
+        con_temporada: bool = True,
+    ) -> tuple[CasoHoja, CasoHoja | None]:
+        """(caso que decide, caso de sombra). Live: el que decide trae los
+        marcadores y la sombra es None. Shadow: el que decide va SIN marcadores
+        (byte a byte lo de hoy) y la sombra los trae, con su propia pausa
+        resuelta (x mult y cerca). Reemplaza a `caso` en los llamadores del
+        ciclo (TEMPORADA 01 D)."""
+        t = self._temporada
+        en_shadow = t is not None and t.modo == "shadow"
+        caso = self.caso(
+            conn,
+            hoja_id=hoja_id,
+            ad_group_id=ad_group_id,
+            bid=bid,
+            target_acos_pct=target_acos_pct,
+            pausa=pausa,
+            equilibrio_acos_pct=equilibrio_acos_pct,
+            procedencia=procedencia,
+            con_temporada=con_temporada,
+        )
+        sombra = None
+        if en_shadow and con_temporada and pausa_sombra is not None:
+            sombra = self.caso(
+                conn,
+                hoja_id=hoja_id,
+                ad_group_id=ad_group_id,
+                bid=bid,
+                target_acos_pct=target_acos_pct,
+                pausa=pausa_sombra,
+                equilibrio_acos_pct=equilibrio_acos_pct,
+                procedencia=procedencia,
+                con_temporada=True,
+                sombra=True,
+            )
+        return caso, sombra
+
     def tiene_pendiente(
         self, hoja_id: int, bid_vigente: Decimal | None, *, piso: Decimal, techo: Decimal
     ) -> bool:
