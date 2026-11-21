@@ -1660,19 +1660,23 @@ def _goal_plataforma_de(conn: ConexionLectura, plataforma: str) -> tuple[int | N
 
 
 # TEMPORADA 01 A, bloque de estado de la baja (diseno, «Uso» 1): los conteos
-# salen de decisiones REALES con los motivos de temporada (el motor los
-# empieza a escribir con el bloque D; con fixtures se comprueban aqui). Sin
-# episodios todavia (bloque B), el bloque de baja vigente se acota por su
-# fecha de inicio en el calendario guardado.
+# salen de decisiones REALES de ciclos LIVE (las de practica jamas se envian
+# a Amazon y no pueden confirmarse; hallazgo de la revision), contadas por
+# keyword distinta. Sin episodios todavia (bloque B), el bloque de baja
+# vigente se acota por su fecha de inicio en el calendario guardado.
 _SQL_ESTADO_BAJA_DECISIONES = """
-SELECT EXISTS (SELECT 1 FROM decision_application da
-                WHERE da.decision_id = d.id AND da.verify_ok IS TRUE) AS confirmada
+SELECT d.ad_entity_id,
+       bool_or(EXISTS (SELECT 1 FROM decision_application da
+                        WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)) AS confirmada
   FROM decision d
   JOIN ad_entity e ON e.id = d.ad_entity_id
+  JOIN optimizer_cycle c ON c.id = d.cycle_id
  WHERE e.platform = %s::platform
+   AND c.mode = 'live'
    AND d.kind = 'bid'
    AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
    AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
+ GROUP BY d.ad_entity_id
 """
 
 # Bid propio vs heredado: ad_entity_state.current_bid (NULL = la keyword usa
@@ -1684,20 +1688,25 @@ SELECT count(*) AS total, count(*) FILTER (WHERE s.current_bid IS NULL) AS grupo
  WHERE e.platform = %s::platform AND e.kind = 'keyword'
 """
 
-# Pausas de Orbit confirmadas decididas en la baja (la marca vive en
-# inputs.caso.temporada, como _SQL_PAUSAS_DE_BAJA del diseno), que siguen
-# PAUSED y no estan en «Mantener pausada».
+# Pausas de Orbit de ciclos live, CONFIRMADAS por Amazon (verify_ok), que
+# siguen PAUSED (una reactivacion — de Orbit o del dueno — las deja ENABLED
+# y las saca de la lista) y no estan en «Mantener pausada». Una fila por
+# keyword aunque acumule pausas.
 _SQL_PAUSADAS_DE_BAJA = """
-SELECT d.ad_entity_id, e.name
+SELECT DISTINCT ON (d.ad_entity_id) d.ad_entity_id,
+       COALESCE(e.keyword_text, e.name) AS texto
   FROM decision d
   JOIN ad_entity e ON e.id = d.ad_entity_id
+  JOIN optimizer_cycle c ON c.id = d.cycle_id
+  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
   JOIN ad_entity_state s ON s.ad_entity_id = d.ad_entity_id AND s.status = 'PAUSED'
  WHERE e.platform = %s::platform
+   AND c.mode = 'live'
    AND d.kind = 'pause'
    AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'
    AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
    AND NOT (d.ad_entity_id = ANY(%s::bigint[]))
- ORDER BY d.ad_entity_id
+ ORDER BY d.ad_entity_id, d.decided_at DESC
 """
 
 
@@ -1705,8 +1714,9 @@ def pausadas_de_baja(
     conn: ConexionLectura, plataforma: str, inicio: dt.date, mantener: frozenset[int] | set[int]
 ) -> list[dict]:
     """Las keywords que Orbit pauso en esta baja y va a reactivar al
-    terminar, con su nombre para la lista de la tarjeta. La usa el bloque de
-    estado y el endpoint «Mantener pausada» para validar su boton."""
+    terminar, con su texto para la lista de la tarjeta (el texto visible de
+    una keyword es keyword_text). La usa el bloque de estado y el endpoint
+    «Mantener pausada» para validar su boton."""
     filas = conn.execute(_SQL_PAUSADAS_DE_BAJA, (plataforma, inicio, sorted(mantener))).fetchall()
     return [{"ad_entity_id": fila[0], "nombre": fila[1] or f"keyword #{fila[0]}"} for fila in filas]
 
@@ -1714,17 +1724,18 @@ def pausadas_de_baja(
 def estado_de_baja(
     conn: ConexionLectura, plataforma: str, config: temporada.ConfigTemporada, hoy: dt.date
 ) -> dict:
-    """Lo que la tarjeta muestra durante una baja: confirmaciones de Amazon,
-    pendientes y sin tocar con su razon en llano, mas la lista de keywords
-    pausadas a reactivar. Todo SELECT; sin episodios todavia (bloque B), el
-    bloque de baja se acota por la fecha de inicio del calendario."""
+    """Lo que la tarjeta muestra durante una baja ENCENDIDA (el llamador
+    comprueba el modo de la plataforma): confirmaciones de Amazon, pendientes
+    y sin tocar con su razon en llano, mas la lista de keywords pausadas a
+    reactivar. Todo SELECT; sin episodios todavia (bloque B), el bloque de
+    baja se acota por la fecha de inicio del calendario."""
     estacion = temporada.resuelve(config, hoy)
     if estacion.fase != "baja":
         return {}
     inicio = estacion.inicio_bloque
     confirmados = pendientes = 0
     for fila in conn.execute(_SQL_ESTADO_BAJA_DECISIONES, (plataforma, inicio)).fetchall():
-        if fila[0]:
+        if fila[1]:
             confirmados += 1
         else:
             pendientes += 1
@@ -1917,17 +1928,22 @@ def settings(conn: ConexionLectura) -> dict:
                     hoy=hoy_temporada,
                 ),
                 # TEMPORADA 01 A, bloque de estado de la baja (vacio fuera de
-                # baja): conteos de decisiones de temporada y keywords
-                # pausadas a reactivar, con «Mantener pausada» en la tarjeta.
+                # baja y CON LA TEMPORADA APAGADA: sin modo no hay estado
+                # operativo ni acciones, hallazgo de la revision): conteos de
+                # decisiones de temporada y keywords pausadas a reactivar.
                 "temporada_estado": (
                     estado_de_baja(conn, plataforma, config_temporada, hoy_temporada)
                     if config_temporada is not None
+                    and settings.get(f"ads_temporada_{plataforma}") in temporada.MODOS_MOTOR
                     else None
                 ),
             }
         )
     estado_temporada = None
-    if config_temporada is not None:
+    if config_temporada is not None and any(
+        settings.get(f"ads_temporada_{p}") in temporada.MODOS_MOTOR
+        for p in temporada.PLATAFORMAS_TEMPORADA
+    ):
         estacion_hoy = temporada.resuelve(config_temporada, hoy_temporada)
         estado_temporada = {
             "fase": estacion_hoy.fase,

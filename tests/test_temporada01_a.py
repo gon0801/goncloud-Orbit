@@ -379,15 +379,29 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
     with _db_con_rol_admin("orbit_t01a_estado") as (conn, dsn_admin, dsn_lectura):
         config_id = conn.execute(
             "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
-            ("estado", Json({"ads_optimizer_mode": "shadow", "ads_temporada": blob})),
+            (
+                "estado",
+                Json(
+                    {
+                        "ads_optimizer_mode": "shadow",
+                        "ads_temporada": blob,
+                        "ads_temporada_amazon_mx": "live",
+                    }
+                ),
+            ),
         ).fetchone()[0]
-        ciclo = conn.execute(
-            "INSERT INTO optimizer_cycle (motor, mode, platform, status,"
-            " finished_at, decisions_count) VALUES"
-            " ('ads_optimizer', 'shadow', 'amazon_mx'::platform, 'done', %s, 0)"
-            " RETURNING id",
-            (hoy,),
-        ).fetchone()[0]
+
+        def _ciclo(mode):
+            return conn.execute(
+                "INSERT INTO optimizer_cycle (motor, mode, platform, status,"
+                " finished_at, decisions_count) VALUES"
+                " ('ads_optimizer', %s, 'amazon_mx'::platform, 'done', %s, 0) RETURNING id",
+                (mode, hoy),
+            ).fetchone()[0]
+
+        ciclo = _ciclo("live")
+        ciclo_2 = _ciclo("live")
+        ciclo_sombra = _ciclo("shadow")
         campana = _siembra_entidad(conn, "amazon_mx", "campaign", "c-estado")
         grupo = _siembra_entidad(conn, "amazon_mx", "ad_group", "g-estado", parent=campana)
         kw_bid = _siembra_entidad(
@@ -424,7 +438,7 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             (kw_bid, kw_grupo, kw_pausada),
         )
 
-        def _decision(kind, entidad, motivo, *, fase_baja=False):
+        def _decision(ciclo_d, kind, entidad, motivo, *, fase_baja=False, confirmada=False):
             inputs = {"motor": "ads_optimizer", "motivo": motivo}
             if fase_baja:
                 inputs["caso"] = {"temporada": {"frontera": {"fase_hoja": "baja"}}}
@@ -436,13 +450,13 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             dinero = (
                 (Decimal("8.00"), Decimal("5.60"), "MXN") if kind == "bid" else (None, None, None)
             )
-            return conn.execute(
+            id_d = conn.execute(
                 "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
                 " config_version_id, data_observed_at, window_start, window_end,"
                 " old_value, new_value, value_currency, inputs)"
                 " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (
-                    ciclo,
+                    ciclo_d,
                     entidad,
                     kind,
                     hoy - dt.timedelta(days=1),
@@ -456,15 +470,24 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
                     Json(inputs),
                 ),
             ).fetchone()[0]
+            if confirmada:
+                conn.execute(
+                    "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok,"
+                    " platform_ack) VALUES (%s, %s, TRUE, %s)",
+                    (id_d, hoy, ack),
+                )
+            return id_d
 
-        d1 = _decision("bid", kw_bid, "entra_temporada_baja")
-        _decision("bid", kw_grupo, "entra_temporada_baja")
-        d3 = _decision("pause", kw_pausada, "pausa", fase_baja=True)
-        conn.execute(
-            "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok,"
-            " platform_ack) VALUES (%s, %s, TRUE, %s), (%s, %s, TRUE, %s)",
-            (d1, hoy, ack, d3, hoy, ack),
-        )
+        _decision(ciclo, "bid", kw_bid, "entra_temporada_baja", confirmada=True)
+        # Decisiones repetidas de la MISMA keyword en otro ciclo: cuentan
+        # una sola vez (hallazgo de la revision: confirmados resta unidades
+        # distintas).
+        _decision(ciclo_2, "bid", kw_bid, "ajusta_temporada_baja", confirmada=True)
+        _decision(ciclo, "bid", kw_grupo, "entra_temporada_baja")
+        # Una decision de practica (ciclo shadow) jamas se confirma y no
+        # cuenta como pendiente de Amazon (hallazgo de la revision).
+        _decision(ciclo_sombra, "bid", kw_grupo, "entra_temporada_baja")
+        _decision(ciclo, "pause", kw_pausada, "pausa", fase_baja=True, confirmada=True)
 
         monkeypatch.setenv("ORBIT_DSN_READ", dsn_lectura)
         _secrets_token(tmp_path, monkeypatch)
@@ -475,13 +498,18 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             datos = cliente.get("/api/dashboard/settings").json()
             return {p["plataforma"]: p["temporada_estado"] for p in datos["plataformas"]}
 
-        estado = _estado_mx()["amazon_mx"]
+        estados = _estado_mx()
+        # US no tiene modo: sin estado operativo ni acciones (apagada).
+        assert estados["amazon_us"] is None
+        estado = estados["amazon_mx"]
         assert estado["fase"] == "baja"
         assert estado["confirmados"] == 1
         assert estado["pendientes"] == 1
         assert estado["sin_tocar"] == 0
         assert "1 usan el bid de su grupo" in estado["frase_sin_tocar"]
         assert [p["ad_entity_id"] for p in estado["pausadas"]] == [kw_pausada]
+        # El texto visible de la lista es el TEXTO de la keyword.
+        assert estado["pausadas"][0]["nombre"] == "pausada en la baja"
 
         resp = cliente.post(
             "/api/ads-optimizer/temporada/mantener-pausada",
