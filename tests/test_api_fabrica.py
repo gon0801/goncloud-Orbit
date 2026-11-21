@@ -90,7 +90,7 @@ def escenario(monkeypatch):
         def prohibido(*args, **kwargs):
             raise AssertionError("ninguna llamada externa en estos tests")
 
-        monkeypatch.setattr(fw.fc.AdsCredentials, "from_secrets_dir", prohibido)
+        monkeypatch.setattr(fw.fm.AdsCredentials, "from_secrets_dir", prohibido)
         with TestClient(app) as cliente:
             yield cliente, conn, solicitud, fw, (pid, sin, multiple)
 
@@ -119,9 +119,9 @@ def _solicitud_v2(solicitud, listing_ids, *, objetivo=None):
 def _motor_simulado(monkeypatch, fw, conn, *, error=False):
     llamadas = []
 
-    def mutar(args, plan, huella, *, lote):
+    def mutar(plan, huella, *, esperado, go, lote=None, **_kw):
         llamadas.append(lote)
-        fw.fc._inserta_lote(conn, lote, plan, huella, args.go)
+        fw.fm._inserta_lote(conn, lote, plan, huella, go)
         conn.execute(
             "INSERT INTO fabrica_lote_paso(lote,orden,rol,recurso,request_payload,estado,"
             "external_id,ack,readback_estado) VALUES (%s,1,'category_exact','campaign',"
@@ -129,12 +129,12 @@ def _motor_simulado(monkeypatch, fw, conn, *, error=False):
             (lote, Json({"access_token": TOKEN, "cuerpo": "ACK NO PUBLICO"})),
         )
         if error:
-            fw.fc._sella_lote(conn, lote, "failed", f"ACK NO PUBLICO {TOKEN}")
-            raise fw.fc.Abortar(f"ACK NO PUBLICO {TOKEN}")
-        fw.fc._sella_lote(conn, lote, "applied", None)
+            fw.fm._sella_lote(conn, lote, "failed", f"ACK NO PUBLICO {TOKEN}")
+            raise fw.fd.Abortar(f"ACK NO PUBLICO {TOKEN}")
+        fw.fm._sella_lote(conn, lote, "applied", None)
         return 0
 
-    monkeypatch.setattr(fw.fc, "_mutar", mutar)
+    monkeypatch.setattr(fw.fm, "mutar", mutar)
     return llamadas
 
 
@@ -542,7 +542,7 @@ def test_fallo_previo_a_insert_no_pierde_intento(escenario, monkeypatch):
     def falla(*args, **kwargs):
         raise OSError("credencial privada")
 
-    monkeypatch.setattr(fw.fc, "_mutar", falla)
+    monkeypatch.setattr(fw.fm, "mutar", falla)
     r = _crear(cliente, solicitud, vista["huella"])
     assert r.status_code == 503
     assert conn.execute("SELECT estado FROM fabrica_lote").fetchone()[0] == "failed"
@@ -555,14 +555,14 @@ def test_lock_sesion_serializa_creacion_y_todas_las_acciones(escenario, monkeypa
     dentro = threading.Event()
     liberar = threading.Event()
 
-    def bloqueado(args, plan, huella, *, lote):
-        fw.fc._inserta_lote(conn, lote, plan, huella, args.go)
+    def bloqueado(plan, huella, *, esperado, go, lote=None, **_kw):
+        fw.fm._inserta_lote(conn, lote, plan, huella, go)
         dentro.set()
         assert liberar.wait(8)
-        fw.fc._sella_lote(conn, lote, "applied", None)
+        fw.fm._sella_lote(conn, lote, "applied", None)
         return 0
 
-    monkeypatch.setattr(fw.fc, "_mutar", bloqueado)
+    monkeypatch.setattr(fw.fm, "mutar", bloqueado)
     with ThreadPoolExecutor(max_workers=1) as pool:
         futuro = pool.submit(_crear, cliente, solicitud, vista["huella"])
         try:
@@ -588,23 +588,23 @@ def test_acciones_reutilizan_motor_y_desarmado_no_resucita(escenario, monkeypatc
     _crear(cliente, solicitud, vista["huella"])
     ejecutadas = []
 
-    def reconciliar(args):
-        ejecutadas.append(("reconciliar", args.lote, args.plataforma))
+    def reconciliar(*, lote=None, plataforma=None):
+        ejecutadas.append(("reconciliar", lote, plataforma))
         return 0
 
-    def registrar(args):
-        ejecutadas.append(("registrar", args.registrar))
-        fw.fc._sella_lote(conn, args.registrar, "applied", None)
+    def registrar(lote):
+        ejecutadas.append(("registrar", lote))
+        fw.fm._sella_lote(conn, lote, "applied", None)
         return 0
 
-    def pausar(args):
-        ejecutadas.append(("pausar", args.desarmar, args.acepto_mutacion_real))
-        fw.fc._sella_lote(conn, args.desarmar, "desarmado", None)
+    def pausar(lote, *, acepto_mutacion_real, go):
+        ejecutadas.append(("pausar", lote, acepto_mutacion_real))
+        fw.fm._sella_lote(conn, lote, "desarmado", None)
         return 0
 
-    monkeypatch.setattr(fw.fc, "_reconciliar_cmd", reconciliar)
-    monkeypatch.setattr(fw.fc, "_registrar_cmd", registrar)
-    monkeypatch.setattr(fw.fc, "_desarmar", pausar)
+    monkeypatch.setattr(fw.fl, "reconciliar_lote", reconciliar)
+    monkeypatch.setattr(fw.fl, "registrar_lote", registrar)
+    monkeypatch.setattr(fw.fl, "desarmar_lote", pausar)
     for accion in ("reconciliar", "registrar", "pausar"):
         r = cliente.post(
             f"/api/fabrica/lotes/{vista['lote']}/{accion}",
@@ -779,7 +779,7 @@ def test_bids_sugeridos_reales_dejan_manual_un_rol_sin_objetivos(escenario, monk
 
     monkeypatch.setattr(fw.AdsCredentials, "from_secrets_dir", lambda: object())
     monkeypatch.setattr(fw, "AdsClient", lambda credenciales: ClienteAds())
-    monkeypatch.setattr(fw.fc, "_perfiles", lambda cliente_ads: {"amazon_mx": 101})
+    monkeypatch.setattr(fw.fm, "_perfiles", lambda cliente_ads: {"amazon_mx": 101})
     respuesta = cliente.post(
         "/api/fabrica/bids-sugeridos",
         json={
@@ -803,16 +803,16 @@ def test_detalle_incierto_advierte_no_recrear_y_no_expone_respuesta(escenario, m
     cliente, conn, solicitud, fw, _ = escenario
     vista = _preview(cliente, solicitud)
 
-    def incierto(args, plan, huella, *, lote):
-        fw.fc._inserta_lote(conn, lote, plan, huella, args.go)
+    def incierto(plan, huella, *, esperado, go, lote=None, **_kw):
+        fw.fm._inserta_lote(conn, lote, plan, huella, go)
         conn.execute(
             "INSERT INTO fabrica_lote_paso(lote,orden,rol,recurso,request_payload,estado) "
             "VALUES (%s,1,'category_exact','campaign','{}','planeado')",
             (lote,),
         )
-        raise fw.fc.Abortar("respuesta externa privada")
+        raise fw.fd.Abortar("respuesta externa privada")
 
-    monkeypatch.setattr(fw.fc, "_mutar", incierto)
+    monkeypatch.setattr(fw.fm, "mutar", incierto)
     assert _crear(cliente, solicitud, vista["huella"]).status_code == 409
     detalle = cliente.get("/api/fabrica/lotes/" + vista["lote"]).json()
     assert "incierto" in detalle["detalle"].lower()
@@ -829,7 +829,7 @@ def test_fallo_sin_pasos_informa_revision_configuracion(escenario, monkeypatch):
     def falla(*args, **kwargs):
         raise OSError("configuracion privada")
 
-    monkeypatch.setattr(fw.fc, "_mutar", falla)
+    monkeypatch.setattr(fw.fm, "mutar", falla)
     _crear(cliente, solicitud, vista["huella"])
     r = cliente.get("/api/fabrica/lotes/" + vista["lote"])
     assert "configuración" in r.json()["detalle"].lower()
@@ -850,9 +850,9 @@ def test_configuracion_motor_ausente_es_503_con_lote_recuperable(escenario, monk
     vista = _preview(cliente, solicitud)
 
     def sin_configuracion(*args, **kwargs):
-        raise fw.fc.Abortar("ORBIT_DSN_INGEST no esta en el entorno")
+        raise fw.fd.Abortar("ORBIT_DSN_INGEST no esta en el entorno")
 
-    monkeypatch.setattr(fw.fc, "_mutar", sin_configuracion)
+    monkeypatch.setattr(fw.fm, "mutar", sin_configuracion)
     r = _crear(cliente, solicitud, vista["huella"])
     assert r.status_code == 503
     assert r.json()["detail"]["lote"] == vista["lote"]
@@ -1015,7 +1015,7 @@ def test_get_estimacion_no_llama_http_oauth_ni_write(escenario, monkeypatch):
     def prohibido(*args, **kwargs):
         raise AssertionError("GET no debe llamar red ni escritura")
 
-    monkeypatch.setattr(fw.fc, "_mutar", prohibido)
+    monkeypatch.setattr(fw.fm, "mutar", prohibido)
     monkeypatch.setattr("app.estimacion_repository.persistir_escenario", prohibido)
     monkeypatch.setattr("app.estimacion_fees.ProductFeesClient", prohibido)
     cat = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
@@ -2380,7 +2380,8 @@ def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
     import psycopg
     from test_fabrica_campanas import _CREDS, _Amazon, _ClienteLectura, _perfil
 
-    import tools.fabrica_campanas as fc
+    from app import fabrica_motor as fm
+    from app import fabrica_registro as fr
     from app.ads.config import AdsCredentials
 
     class _AmazonPausado(_Amazon):
@@ -2412,20 +2413,20 @@ def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
     monkeypatch.setattr(
         AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
     )
-    monkeypatch.setattr(fc, "AdsClient", lambda cred: _ClienteLectura(transporte))
-    monkeypatch.setattr(fc, "evaluar_perfiles", lambda c: [_perfil()])
+    monkeypatch.setattr(fm, "AdsClient", lambda cred: _ClienteLectura(transporte))
+    monkeypatch.setattr(fm, "evaluar_perfiles", lambda c: [_perfil()])
     monkeypatch.setattr(
-        fc,
+        fm,
         "httpx",
         SimpleNamespace(
             Client=lambda **kw: httpx.Client(transport=transporte),
             Timeout=lambda **kw: None,
         ),
     )
-    monkeypatch.setattr(fc.time, "sleep", lambda s: None)
+    monkeypatch.setattr(fm.time, "sleep", lambda s: None)
     dsn = _test_dsn()
     dbname = conn.info.dbname
-    monkeypatch.setattr(fc, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
+    monkeypatch.setattr(fm, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
 
     def _sync(cliente_lectura):
         propia = psycopg.connect(dsn, dbname=dbname, autocommit=True)
@@ -2450,7 +2451,7 @@ def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
         finally:
             propia.close()
 
-    monkeypatch.setattr(fc, "_sync", _sync)
+    monkeypatch.setattr(fr, "_sync", _sync)
     lid = _lid_de(conn, ids[0])
     sol = {
         "plataforma": "amazon_mx",
@@ -2613,15 +2614,15 @@ def test_r09r4_a03_actor_nul_rechazado_en_borde():
 
 
 def test_r09r4_a04_lanzar_traduce_abortar_a_422(monkeypatch):
-    """A04: impulso_lanzar traduce fc.Abortar a 422, no deja un 500 crudo."""
+    """A04: impulso_lanzar traduce fd.Abortar a 422, no deja un 500 crudo."""
     from contextlib import nullcontext
 
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     api_fabrica, fw = _modulos()
 
     def _boom(*args, **kwargs):
-        raise fc.Abortar("amazon dijo no")
+        raise fd.Abortar("amazon dijo no")
 
     monkeypatch.setattr(api_fabrica.io, "lanza", _boom)
     monkeypatch.setattr(api_fabrica, "_sugeridor_plataforma", lambda *a: None)
@@ -2644,7 +2645,7 @@ def test_r09r4_a04_lanzar_traduce_abortar_a_422(monkeypatch):
 def test_r09r5_g9_pausar_a_medias_502_no_500(escenario, monkeypatch):
     """R09-r5 B2b (G9): si Amazon rechaza a media pausa, la ruta
     responde 502 con detalle (no 500 pelado)."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
     from app import impulso_io as io
 
     cliente, conn, _, _, ids = escenario
@@ -2672,7 +2673,7 @@ def test_r09r5_g9_pausar_a_medias_502_no_500(escenario, monkeypatch):
     (iid,) = conn.execute("SELECT id FROM impulso").fetchone()
 
     def _abortar(self, lote):
-        raise fc.Abortar("PUT PAUSED de c-x rechazado (status 400)")
+        raise fd.Abortar("PUT PAUSED de c-x rechazado (status 400)")
 
     monkeypatch.setattr(io.PausadorFabrica, "pausa", _abortar)
     r = cliente.post(
@@ -2776,7 +2777,8 @@ def test_r09a_pausar_repetido_desarmado_y_sin_campanas_409(escenario, monkeypatc
     """R09-A: pausar un lote que ya no se puede pausar (ya pausado,
     desarmado o sin campanas) responde 409 con el mensaje de la fabrica;
     el rechazo de Amazon a media pausa sigue en 502 (G9)."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
+    from app import fabrica_lotes as fl
     from app import impulso_io as io
 
     cliente, conn, _, _, ids = escenario
@@ -2816,21 +2818,21 @@ def test_r09a_pausar_repetido_desarmado_y_sin_campanas_409(escenario, monkeypatc
             "SELECT estado FROM fabrica_lote WHERE lote = %s", (lote_,)
         ).fetchone()[0]
         if estado == "desarmado":
-            raise fc.Abortar(f"lote {lote_} desarmado: nunca revive")
+            raise fd.Abortar(f"lote {lote_} desarmado: nunca revive")
         if estado != "applied":
-            raise fc.Abortar(f"lote {lote_} en {estado}: solo se pausa desde applied")
+            raise fd.Abortar(f"lote {lote_} en {estado}: solo se pausa desde applied")
         hay = conn.execute(
             "SELECT 1 FROM fabrica_lote_paso WHERE lote = %s AND recurso = 'campaign'"
             " AND estado IN ('applied', 'failed') AND external_id IS NOT NULL LIMIT 1",
             (lote_,),
         ).fetchone()
         if hay is None:
-            raise fc.Abortar(f"lote {lote_} sin campanas en fabrica_lote_paso: nada que pausado")
+            raise fd.Abortar(f"lote {lote_} sin campanas en fabrica_lote_paso: nada que pausado")
         conn.execute("UPDATE fabrica_lote SET estado = 'pausado' WHERE lote = %s", (lote_,))
         conn.commit()
 
     monkeypatch.setattr(io.PausadorFabrica, "_ctx_para", lambda self, lote_: object())
-    monkeypatch.setattr(fc, "pausar_lote", _pausa_segun_base)
+    monkeypatch.setattr(fl, "pausar_lote", _pausa_segun_base)
 
     def _pausa():
         return cliente.post(
@@ -2865,8 +2867,8 @@ def test_r09a_pausar_repetido_desarmado_y_sin_campanas_409(escenario, monkeypatc
     conn.commit()
 
     def _pausa_rechazada(ctx, lote_, actor):
-        raise fc.Abortar("PUT PAUSED rechazado por Amazon")
+        raise fd.Abortar("PUT PAUSED rechazado por Amazon")
 
-    monkeypatch.setattr(fc, "pausar_lote", _pausa_rechazada)
+    monkeypatch.setattr(fl, "pausar_lote", _pausa_rechazada)
     r = _pausa()
     assert r.status_code == 502, r.text

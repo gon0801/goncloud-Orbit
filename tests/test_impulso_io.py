@@ -2508,26 +2508,26 @@ def test_r09r3_v17_pausador_real_pausa_en_amazon():
 @_skip_db
 def test_r09r3_t06_pausa_exige_readback():
     """R09 B12 (T06): si el readback no muestra PAUSED, la pausa aborta."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with _db_i3("orbit_i3_r3t06") as conn:
         lote = "impulso-t06-1"
         _lote_pausable(conn, lote)
         amazon = _AmazonPausa(readback="ENABLED")
-        with pytest.raises(fc.Abortar, match="readback"):
+        with pytest.raises(fd.Abortar, match="readback"):
             _pausador_real(conn, amazon).pausa(lote)
 
 
 @_skip_db
 def test_r09r3_t07_put_rechazado_detiene_pausa():
     """R09 B12 (T07): si Amazon rechaza el PUT, la pausa aborta."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with _db_i3("orbit_i3_r3t07") as conn:
         lote = "impulso-t07-1"
         _lote_pausable(conn, lote)
         amazon = _AmazonPausa(put_status=400)
-        with pytest.raises(fc.Abortar, match="rechazado"):
+        with pytest.raises(fd.Abortar, match="rechazado"):
             _pausador_real(conn, amazon).pausa(lote)
 
 
@@ -2667,27 +2667,28 @@ def _frontera_impulso(monkeypatch, conn, amazon):
     import psycopg
     from test_fabrica_campanas import _CREDS, _ClienteLectura, _perfil
 
-    import tools.fabrica_campanas as fc
+    from app import fabrica_motor as fm
+    from app import fabrica_registro as fr
     from app.ads.config import AdsCredentials
 
     transporte = httpx.MockTransport(amazon)
     monkeypatch.setattr(
         AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
     )
-    monkeypatch.setattr(fc, "AdsClient", lambda cred: _ClienteLectura(transporte))
-    monkeypatch.setattr(fc, "evaluar_perfiles", lambda c: [_perfil()])
+    monkeypatch.setattr(fm, "AdsClient", lambda cred: _ClienteLectura(transporte))
+    monkeypatch.setattr(fm, "evaluar_perfiles", lambda c: [_perfil()])
     monkeypatch.setattr(
-        fc,
+        fm,
         "httpx",
         SimpleNamespace(
             Client=lambda **kw: httpx.Client(transport=transporte),
             Timeout=lambda **kw: None,
         ),
     )
-    monkeypatch.setattr(fc.time, "sleep", lambda s: None)
+    monkeypatch.setattr(fm.time, "sleep", lambda s: None)
     dsn = _dsn_propia(conn)
     dbname = conn.info.dbname
-    monkeypatch.setattr(fc, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
+    monkeypatch.setattr(fm, "connect", lambda d: psycopg.connect(dsn, dbname=dbname))
     for var in ("ORBIT_DSN_READ", "ORBIT_DSN_ADMIN", "ORBIT_DSN_INGEST"):
         monkeypatch.setenv(var, dsn)
 
@@ -2721,7 +2722,7 @@ def _frontera_impulso(monkeypatch, conn, amazon):
         finally:
             propia.close()
 
-    monkeypatch.setattr(fc, "_sync", _sync)
+    monkeypatch.setattr(fr, "_sync", _sync)
 
 
 def _amazon_estado():
@@ -3457,7 +3458,7 @@ def test_r09r5_mut_reconcilia_put_miente_levanta(monkeypatch):
     """R09-r5 B6 (I34): PUT rechazado (400) aunque aplique: reconciliar
     NO relee para darse por bien (levanta Abortar); la relectura solo
     vale tras un ACK ok."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with _db_i3("orbit_i3_r5mu34") as conn:
         amazon = _amazon_estado()
@@ -3477,7 +3478,7 @@ def test_r09r5_mut_reconcilia_put_miente_levanta(monkeypatch):
         )
         amazon.objetos["campaigns-1"] = {"campaignId": "campaigns-1", "state": "ENABLED"}
         conn.commit()
-        with pytest.raises(fc.Abortar):
+        with pytest.raises(fd.Abortar):
             io.PausadorFabrica(conn).pausa_huerfanas("impulso-9-miente")
 
 
@@ -3485,7 +3486,7 @@ def test_r09r5_mut_reconcilia_put_miente_levanta(monkeypatch):
 def test_r09r5_mut_reconcilia_put_sordo_levanta(monkeypatch):
     """R09-r5 B6 (I35/I36): PUT sordo (207 sin aplicar, sigue ENABLED):
     reconciliar levanta Abortar (no dice que pauso ni calla)."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_datos as fd
 
     with _db_i3("orbit_i3_r5mu35") as conn:
         amazon = _amazon_estado()
@@ -3505,7 +3506,7 @@ def test_r09r5_mut_reconcilia_put_sordo_levanta(monkeypatch):
         )
         amazon.objetos["campaigns-1"] = {"campaignId": "campaigns-1", "state": "ENABLED"}
         conn.commit()
-        with pytest.raises(fc.Abortar, match="siguen ENABLED"):
+        with pytest.raises(fd.Abortar, match="siguen ENABLED"):
             io.PausadorFabrica(conn).pausa_huerfanas("impulso-9-sordo")
 
 
@@ -4024,7 +4025,7 @@ def test_r09r5_mut_corte_sale_de_campanas_no_keywords():
 def test_r09r5_mut_registro_falla_pausa_activadas(monkeypatch):
     """R09-r5 B6 (F03, L8): falla el registro interno tras activar: las
     activadas se pausan (rollback) y el lote queda failed."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_registro as fr
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r5f03") as conn:
@@ -4043,7 +4044,7 @@ def test_r09r5_mut_registro_falla_pausa_activadas(monkeypatch):
         def _registro_roto(*args, **kwargs):
             raise RuntimeError("sync de estructura fallo (simulado)")
 
-        monkeypatch.setattr(fc, "_registrar", _registro_roto)
+        monkeypatch.setattr(fr, "_registrar", _registro_roto)
         with pytest.raises(io.ErrorImpulso) as exc:
             io.lanza(
                 conn,
@@ -4067,7 +4068,7 @@ def test_r09r5_mut_registro_falla_pausa_activadas(monkeypatch):
 def test_r09r5_mut_rollback_incompleto_se_nombra(monkeypatch):
     """R09-r5 B6 (F04, L8): registro falla y el rollback queda
     incompleto (una pausa rechazada): el mensaje lo nombra."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_registro as fr
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r5f04") as conn:
@@ -4086,7 +4087,7 @@ def test_r09r5_mut_rollback_incompleto_se_nombra(monkeypatch):
         def _registro_roto(*args, **kwargs):
             raise RuntimeError("sync de estructura fallo (simulado)")
 
-        monkeypatch.setattr(fc, "_registrar", _registro_roto)
+        monkeypatch.setattr(fr, "_registrar", _registro_roto)
         with pytest.raises(io.ErrorImpulso) as exc:
             io.lanza(
                 conn,
@@ -4105,7 +4106,7 @@ def test_r09r5_mut_rollback_incompleto_se_nombra(monkeypatch):
 def test_r09r5_mut_excepcion_cruda_sella_failed_y_revierte(monkeypatch):
     """R09-r5 B6 (F01): excepcion cruda (no Abortar) creando el
     segundo rol: sella failed y revierte (pausa la creada)."""
-    import tools.fabrica_campanas as fc
+    from app import fabrica_motor as fm
     from app.api_fabrica import _ejecutor_lanzar
 
     with _db_i3("orbit_i3_r5f01") as conn:
@@ -4120,7 +4121,7 @@ def test_r09r5_mut_excepcion_cruda_sella_failed_y_revierte(monkeypatch):
         )
         vista = io.previsualiza(conn, sol, sugeridor=_sugeridor_fijo())
         lote = io.lote_de_plan(vista.planes[0])
-        real = fc._ejecuta_rol
+        real = fm._ejecuta_rol
         veces = {"n": 0}
 
         def _truena(ctx, plan, rol):
@@ -4129,7 +4130,7 @@ def test_r09r5_mut_excepcion_cruda_sella_failed_y_revierte(monkeypatch):
                 raise RuntimeError("muerte viva (simulada)")
             return real(ctx, plan, rol)
 
-        monkeypatch.setattr(fc, "_ejecuta_rol", _truena)
+        monkeypatch.setattr(fm, "_ejecuta_rol", _truena)
         with pytest.raises(io.ErrorImpulso) as exc:
             io.lanza(
                 conn,

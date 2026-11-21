@@ -189,7 +189,8 @@ def _escritor(
                 puts.append((str(entrada["adId"]), str(entrada["state"])))
                 foto[str(entrada["adId"])] = dict(vivos[str(entrada["adId"])])
                 vivos[str(entrada["adId"])]["state"] = str(entrada["state"])
-            return httpx.Response(207, json={"productAds": {"error": [], "success": []}})
+            exitos = [{"adId": str(e["adId"])} for e in cuerpo.get("productAds", [])]
+            return httpx.Response(207, json={"productAds": {"error": [], "success": exitos}})
         if request.method == "POST" and request.url.path == "/sp/productAds":
             nuevo["n"] += 1
             ad_id = f"ad-nuevo-{nuevo['n']}"
@@ -885,7 +886,8 @@ def test_r09r4_ra22_intencion_visible_durante_put():
                 assert suelta.wait(timeout=30)
                 for entrada in cuerpo.get("productAds", []):
                     vivos[str(entrada["adId"])]["state"] = str(entrada["state"])
-                return httpx.Response(207, json={"productAds": {"error": [], "success": []}})
+                exitos = [{"adId": str(e["adId"])} for e in cuerpo.get("productAds", [])]
+                return httpx.Response(207, json={"productAds": {"error": [], "success": exitos}})
             pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
             return httpx.Response(
                 200, json={"productAds": [vivos[p] for p in pedidos if p in vivos]}

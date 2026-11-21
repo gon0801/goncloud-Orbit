@@ -13,7 +13,6 @@ import hashlib
 import sys
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
-from types import SimpleNamespace
 from typing import Protocol
 
 from app import fabrica_bids as br
@@ -147,19 +146,19 @@ class PausadorFabrica:
         self._armado = None
 
     def _ctx_para(self, lote: str):
-        import tools.fabrica_campanas as fc
+        from app import fabrica_motor as fm
         from app.ads.config import AdsCredentials
 
         if self._armado is None:
             cred = AdsCredentials.from_secrets_dir()
-            # fc.AdsClient (no app.ads.client directo): la misma fuente
+            # fm.AdsClient (no app.ads.client directo): la misma fuente
             # que el resto de la fabrica, para que la frontera de
             # pruebas aplique parejo al PUT y al readback.
-            cliente = fc.AdsClient(cred)
-            http = fc.httpx.Client(
-                timeout=fc.httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
+            cliente = fm.AdsClient(cred)
+            http = fm.httpx.Client(
+                timeout=fm.httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
             )
-            self._armado = (cred, cliente, http, fc._perfiles(cliente))
+            self._armado = (cred, cliente, http, fm._perfiles(cliente))
         cred, cliente, http, perfiles = self._armado
         fila = self._conn.execute(
             "SELECT platform::text FROM fabrica_lote WHERE lote = %s", (lote,)
@@ -169,19 +168,20 @@ class PausadorFabrica:
             raise ErrorImpulso(422, f"sin perfil aceptado para el lote {lote}")
         platform = fila[0]
         if platform not in self._ctxs:
-            self._ctxs[platform] = fc._Ctx(
-                http, fc._token_lwa(cred, http), cred, cliente, perfiles[platform], self._conn, lote
+            self._ctxs[platform] = fm._Ctx(
+                http, fm._token_lwa(cred, http), cred, cliente, perfiles[platform], self._conn, lote
             )
         ctx = self._ctxs[platform]
         ctx.lote = lote
         return ctx
 
     def pausa(self, lote: str) -> None:
-        import tools.fabrica_campanas as fc
+        from app import fabrica_datos as fd
+        from app import fabrica_lotes as fl
 
         try:
-            fc.pausar_lote(self._ctx_para(lote), lote, self._actor)
-        except fc.Abortar as exc:
+            fl.pausar_lote(self._ctx_para(lote), lote, self._actor)
+        except fd.Abortar as exc:
             if self._lote_no_pausable(lote):
                 raise ErrorImpulso(409, str(exc)) from None
             raise
@@ -204,29 +204,29 @@ class PausadorFabrica:
         return hay is None
 
     def reanuda(self, lote: str) -> None:
-        import tools.fabrica_campanas as fc
+        from app import fabrica_lotes as fl
 
-        fc.reanudar_lote(self._ctx_para(lote), lote, self._actor)
+        fl.reanudar_lote(self._ctx_para(lote), lote, self._actor)
 
     def reactiva(self, lote: str) -> None:
         """Activa el par (PUT + readback por campana, levanta si
         alguna no queda ENABLED). Quien lanza pide encender ahora;
         graduar filtra antes (solo lo del vigia)."""
-        import tools.fabrica_campanas as fc
+        from app import fabrica_lotes as fl
 
-        fc.reactiva_lote(self._ctx_para(lote), lote, self._actor)
+        fl.reactiva_lote(self._ctx_para(lote), lote, self._actor)
 
     def estados(self, lote: str) -> dict[str, str]:
         """State real en Amazon por campana del lote (GET, sin PUTs):
         leer Amazon antes de creerle al lote."""
-        import tools.fabrica_campanas as fc
+        from app import fabrica_motor as fm
 
         ctx = self._ctx_para(lote)
-        filas = self._conn.execute(fc._SQL_EXTERNALS_CAMPANA_DEL_LOTE, (lote,)).fetchall()
+        filas = self._conn.execute(fm._SQL_EXTERNALS_CAMPANA_DEL_LOTE, (lote,)).fetchall()
         self._conn.commit()
         estados = {}
         for (external,) in filas:
-            leido = fc._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+            leido = fm._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
             estados[external] = leido.get("state") if isinstance(leido, dict) else None
         return estados
 
@@ -236,7 +236,8 @@ class PausadorFabrica:
         reconciliacion (lotes sin impulso) y el vigia cuando el lote
         ya dice pausado (G7: el dueno pudo reencender en consola).
         Devuelve si pauso alguna; si alguna queda ENABLED, levanta."""
-        import tools.fabrica_campanas as fc
+        from app import fabrica_datos as fd
+        from app import fabrica_motor as fm
 
         ctx = self._ctx_para(lote)
         filas = self._conn.execute(
@@ -254,23 +255,23 @@ class PausadorFabrica:
         pauso = False
         pendientes: list[str] = []
         for rol, external in filas:
-            leido = fc._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+            leido = fm._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
             if not isinstance(leido, dict) or leido.get("state") != "ENABLED":
                 continue
             paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, "reconciliar huerfana")
-            paso_id = fc._inserta_paso(ctx, paso, {"campaignId": str(external), "state": "PAUSED"})
-            ack = fc._put_estado_campana(ctx, external, "PAUSED")
+            paso_id = fm._inserta_paso(ctx, paso, {"campaignId": str(external), "state": "PAUSED"})
+            ack = fm._put_estado_campana(ctx, external, "PAUSED")
             visto = None
             if fp.ack_ok(ack):
-                releido = fc._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+                releido = fm._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
                 visto = releido.get("state") if isinstance(releido, dict) else None
-            fc._sella_paso(ctx, paso_id, visto == "PAUSED", external, ack, visto)
+            fm._sella_paso(ctx, paso_id, visto == "PAUSED", external, ack, visto)
             if visto == "PAUSED":
                 pauso = True
             else:
                 pendientes.append(str(external))
         if pendientes:
-            raise fc.Abortar(f"reconciliacion de {lote} incompleta: siguen ENABLED {pendientes}")
+            raise fd.Abortar(f"reconciliacion de {lote} incompleta: siguen ENABLED {pendientes}")
         return pauso
 
 
@@ -331,15 +332,15 @@ def _plan_producto(
         raise fp.PlanInvalido(f"listing {listing_id} no existe en {plataforma}")
     if not fila[0]:
         raise fp.PlanInvalido(f"listing {listing_id} sin seller_sku: no se lanza")
-    args = SimpleNamespace(
+    from app import fabrica_datos as fd
+
+    args = fd.SolicitudDatosPlan(
         listing_ids=str(listing_id),
         plataforma=plataforma,
         origen_objetivo="margen_medido",
         target_acos=None,
     )
-    import tools.fabrica_campanas as fc
-
-    publicaciones, objetivo, semillas, _existentes = fc._datos_plan_v2(args, conn, subfamilia)
+    publicaciones, objetivo, semillas, _existentes = fd._datos_plan_v2(args, conn, subfamilia)
     if len(publicaciones) != 1:
         raise fp.PlanInvalido(
             f"impulso exige un producto: listing {listing_id} dio {len(publicaciones)}"

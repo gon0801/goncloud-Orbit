@@ -8,7 +8,6 @@ import os
 import re
 from contextlib import contextmanager
 from decimal import Decimal
-from types import SimpleNamespace
 
 import httpx
 import psycopg
@@ -18,6 +17,9 @@ from psycopg.rows import tuple_row
 from app import economia_observada
 from app import evaluacion_catalogo as ec
 from app import fabrica_bids as br
+from app import fabrica_datos as fd
+from app import fabrica_lotes as fl
+from app import fabrica_motor as fm
 from app import fabrica_plan as fp
 from app.ads.campana_config import presupuesto_p90
 from app.ads.client import AdsApiError, AdsClient
@@ -28,7 +30,6 @@ from app.disponibilidad import estado_disponibilidad
 from app.estimacion_proyeccion import adjuntar_estimaciones
 from app.optimizer.goals import TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO
 from app.redaction import scrub
-from tools import fabrica_campanas as fc
 
 SUFIJOS = {
     "category_exact": "exact",
@@ -90,29 +91,18 @@ def error(
 def _avisos_de_presupuesto(conn, plan: fp.PlanGrupoV2) -> list[str]:
     """W-N: lineas del aviso (una por campana alta), con el P90 de las
     activas en su moneda leido una vez por previa."""
-    return fc.avisos_presupuesto_alto(plan, presupuesto_p90(conn, plan.moneda))
+    return fd.avisos_presupuesto_alto(plan, presupuesto_p90(conn, plan.moneda))
 
 
-def argumentos(solicitud: dict) -> SimpleNamespace:
-    datos = {k: v for k, v in solicitud.items() if k != "parametros"}
-    listings = solicitud.get("listing_ids")
-    datos["listing_ids"] = ",".join(str(lid) for lid in sorted(listings)) if listings else None
-    objetivo = solicitud.get("objetivo")
-    datos["target_acos"] = objetivo.get("acos_pct") if objetivo else None
-    datos["origen_objetivo"] = objetivo.get("origen") if objetivo else None
-    for rol, sufijo in SUFIJOS.items():
-        for monto in ("budget", "bid"):
-            datos[f"{monto}_{sufijo}"] = solicitud["parametros"][rol][monto]
-        datos[f"fuente_bid_{sufijo}"] = solicitud["parametros"][rol].get("fuente_bid", "manual")
-        datos[f"recomendaciones_{sufijo}"] = solicitud["parametros"][rol].get("recomendaciones", [])
-    return SimpleNamespace(**datos)
+def argumentos(solicitud: dict) -> fd.SolicitudPlan:
+    return fd.SolicitudPlan.desde_web(solicitud)
 
 
 def planificar(conn, solicitud: dict) -> fp.PlanGrupoV2:
     conn.row_factory = tuple_row
     try:
-        return fc._arma_plan(argumentos(solicitud), conn)
-    except fc.Abortar as exc:
+        return fd._arma_plan(argumentos(solicitud), conn)
+    except fd.Abortar as exc:
         if "fraccion" in str(exc):
             raise error(503, "La configuración de margen no está disponible.") from None
         raise error(422, scrub(str(exc))) from None
@@ -197,7 +187,7 @@ def previsualizar(conn, solicitud: dict) -> dict:
 
 def sugerir_bids(conn, solicitud: dict) -> dict:
     """Obtiene bids iniciales de Amazon para el conjunto que se prepara."""
-    args = SimpleNamespace(
+    args = fd.SolicitudDatosPlan(
         plataforma=solicitud["plataforma"],
         listing_ids=",".join(str(i) for i in sorted(solicitud["listing_ids"])),
         origen_objetivo=solicitud["objetivo"]["origen"],
@@ -208,18 +198,18 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
         tipo_dado = fp.valida_tipo_producto(crudo) if crudo is not None else None
         # A2: las semillas se leen con el slug cuando hay familia unica
         # (misma resolucion que el plan).
-        ids = fc._ids_listings(args.listing_ids)
+        ids = fd._ids_listings(args.listing_ids)
         filas = conn.execute(
-            fc._SQL_PRODUCTOS_DE_LISTINGS, (solicitud["plataforma"], ids)
+            fd._SQL_PRODUCTOS_DE_LISTINGS, (solicitud["plataforma"], ids)
         ).fetchall()
-        tipo, _, _ = fc._tipo_desde_familia(
+        tipo, _, _ = fd._tipo_desde_familia(
             conn, solicitud["plataforma"], [fila[0] for fila in filas], tipo_dado
         )
-        publicaciones, _, semillas, _ = fc._datos_plan_v2(args, conn, tipo)
+        publicaciones, _, semillas, _ = fd._datos_plan_v2(args, conn, tipo)
         conn.commit()
         credenciales = AdsCredentials.from_secrets_dir()
         cliente = AdsClient(credenciales)
-        perfiles = fc._perfiles(cliente)
+        perfiles = fm._perfiles(cliente)
         profile_id = perfiles.get(solicitud["plataforma"])
         if profile_id is None:
             raise br.RecomendacionIncompleta("sin perfil Amazon aceptado para la plataforma")
@@ -231,7 +221,7 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
             asins=tuple(publicacion.asin for publicacion in publicaciones),
             expresiones_por_rol=expresiones,
         )
-    except fc.Abortar as exc:
+    except fd.Abortar as exc:
         raise error(422, scrub(str(exc))) from None
     except fp.PlanInvalido as exc:
         raise error(422, scrub(str(exc))) from None
@@ -642,7 +632,7 @@ def _lote_bloqueado(lote: str):
 
 
 def _fallo_operacion(exc: Exception, lote: str) -> HTTPException:
-    configuracion = isinstance(exc, fc.Abortar) and (
+    configuracion = isinstance(exc, fd.Abortar) and (
         str(exc).startswith(("ORBIT_DSN_", "sin perfil aceptado", "LWA "))
     )
     if configuracion or isinstance(
@@ -678,19 +668,14 @@ def crear(
                 lote,
                 falta_confirmar=True,
             )
-        args = argumentos(solicitud)
-        args.acepto_mutacion_real = True
-        args.esperado = 5
-        args.huella = huella
-        args.go = confirmacion
         try:
-            fc._mutar(args, plan, huella, lote=lote)
+            fm.mutar(plan, huella, esperado=5, go=confirmacion, lote=lote)
         except Exception as exc:
             # Incluso si fallo antes del INSERT del motor, se conserva el intento.
             # Un retry de la misma huella consulta este lote y nunca vuelve a crear.
             if detalle_lote(conn, lote) is None:
-                fc._inserta_lote(conn, lote, plan, huella, confirmacion)
-                fc._sella_lote(conn, lote, "failed", "Operación detenida antes de crear pasos.")
+                fm._inserta_lote(conn, lote, plan, huella, confirmacion)
+                fm._sella_lote(conn, lote, "failed", "Operación detenida antes de crear pasos.")
             raise _fallo_operacion(exc, lote) from None
         resultado = detalle_lote(conn, lote)
         if resultado is None:
@@ -709,21 +694,15 @@ def operar(lote: str, accion: str, confirmacion: str) -> dict:
             raise error(409, "El lote está pausado; no puede reactivarse con esta operación.", lote)
         if accion == "registrar" and actual["estado"] == "applied":
             return actual
-        args = SimpleNamespace(
-            plataforma=actual["plataforma"],
-            lote=lote,
-            desarmar=lote,
-            registrar=lote,
-            acepto_mutacion_real=True,
-            go=confirmacion,
-        )
-        funcion = {
-            "pausar": fc._desarmar,
-            "reconciliar": fc._reconciliar_cmd,
-            "registrar": fc._registrar_cmd,
-        }[accion]
         try:
-            funcion(args)
+            if accion == "pausar":
+                fl.desarmar_lote(lote, acepto_mutacion_real=True, go=confirmacion)
+            elif accion == "reconciliar":
+                fl.reconciliar_lote(lote=lote, plataforma=actual["plataforma"])
+            elif accion == "registrar":
+                fl.registrar_lote(lote)
+            else:
+                raise KeyError(accion)
         except Exception as exc:
             raise _fallo_operacion(exc, lote) from None
         return detalle_lote(conn, lote)
@@ -736,15 +715,15 @@ def exportar_semillas(conn, solicitud: dict) -> dict:
     del NUEVO plan."""
     plan = planificar(conn, solicitud)
     huella = fp.huella_plan_v2(plan)
-    kws, negs = fc._biblioteca(conn, plan.tipo_producto, plan.platform)
+    kws, negs = fd._biblioteca(conn, plan.tipo_producto, plan.platform)
     listing_ids = sorted({p.listing_id for p in plan.publicaciones})
     productos = sorted({p.product_id for p in plan.publicaciones})
-    terminos = fc._terminos_producto(conn, plan.platform, listing_ids)
-    terminos_exact = fc._terminos_producto(
+    terminos = fd._terminos_producto(conn, plan.platform, listing_ids)
+    terminos_exact = fd._terminos_producto(
         conn,
         plan.platform,
         listing_ids,
-        sql=fc._SQL_TERMINOS_EXACT,
+        sql=fd._SQL_TERMINOS_EXACT,
         ventana=fp.VENTANA_CORTES_DIAS,
     )
     textos_vendedores = [t.texto for t in terminos]
