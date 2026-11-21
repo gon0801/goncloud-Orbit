@@ -1080,9 +1080,16 @@ def _presupuesto_campanas(
         dias_topados = None
         if monto is not None:
             filas_gasto = gasto.get(campana, {})
-            dias_topados = sum(
-                1 for dia in ultimos_7 if filas_gasto.get(dia, Decimal(0)) >= topada.pct * monto
-            )
+            if any(dia in filas_gasto and filas_gasto[dia] is None for dia in ultimos_7):
+                # La ingesta guarda filas de campana con impresiones y costo
+                # NULL (el esquema lo admite): el gasto de ese dia se
+                # desconoce y la racha no se puede computar de fiar. None =
+                # no se sabe -> BUD no sube (dato faltante, no inventado).
+                dias_topados = None
+            else:
+                dias_topados = sum(
+                    1 for dia in ultimos_7 if filas_gasto.get(dia, Decimal(0)) >= topada.pct * monto
+                )
         resultado[campana] = PresupuestoCampana(
             presupuesto_diario=monto,
             dias_medidos=len(ultimos_7),

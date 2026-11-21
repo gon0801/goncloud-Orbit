@@ -192,25 +192,49 @@ def cadena_bid(caso: CasoHoja) -> CadenaBid | None:
 
 def techo_conocido(caso: CasoHoja, *, hasta: dt.datetime | None = None) -> Decimal | None:
     """El bid mas alto que la hoja tuvo desde la ultima mano del dueno, dentro de
-    la memoria del caso (el lector ya acota historia.desde a memoria_dias).
+    la memoria del caso (`memoria_dias`): el lector puede extender la historia
+    mas atras (un episodio abierto no caduca, lo pide la temporada), pero el
+    techo NUNCA autoriza saltos con pujas fuera de la memoria elegida.
     `hasta` excluye los cambios desde ese instante (techo_de_baja lo usa para
     dejar fuera la propia entrada de temporada). None sin nivel conocido o en
     terreno del dueno (dueno_al_final): ahi solo decide el R6 de hoy.
-    # ancla = ultima mano del dueno, o el inicio de la memoria
+    # ancla = ultima mano del dueno dentro de la memoria, o el inicio de la memoria
     # niveles = [bid al ancla] + [bid_despues de cada cambio posterior al ancla y < hasta]
     #   (bid al ancla = bid_de_la_ultima_mano, o bid_antes del primer cambio si no hubo mano)
     # -> min(max(niveles), caso.bid.techo)"""
     cad = cadena_bid(caso)
     if cad is None or cad.dueno_al_final:
         return None
-    ancla = max(cad.manos_del_dueno) if cad.manos_del_dueno else None
+    inicio_memoria = None
+    if caso.recuperacion is not None:
+        # hoy = ventana_hasta + DIAS_MADUREZ (la ventana madura congela el dia
+        # del caso); la memoria alcanza memoria_dias hacia atras. Import
+        # tardio: caso -> temporada -> aqui.
+        from app.optimizer.caso import DIAS_MADUREZ
+
+        inicio = caso.ventana_hasta + dt.timedelta(
+            days=DIAS_MADUREZ - caso.recuperacion.memoria_dias
+        )
+        inicio_memoria = dt.datetime.combine(inicio, dt.time(0), tzinfo=dt.UTC)
+    en_memoria = (
+        None
+        if inicio_memoria is None
+        else tuple(m for m in cad.manos_del_dueno if m >= inicio_memoria)
+    )
+    ancla = max(en_memoria) if en_memoria else None
     niveles: list[Decimal] = []
     if ancla is not None and cad.bid_de_la_ultima_mano is not None:
         niveles.append(cad.bid_de_la_ultima_mano)
-    elif ancla is None and cad.cambios and cad.cambios[0].bid_antes is not None:
-        # Sin mano del dueno, el bid del ancla es el bid_antes del primer cambio.
-        niveles.append(cad.cambios[0].bid_antes)
-    for cambio in cad.cambios:
+    cambios_memoria = tuple(
+        c
+        for c in cad.cambios
+        if (inicio_memoria is None or c.confirmado_el.astimezone(dt.UTC) >= inicio_memoria)
+    )
+    if ancla is None and cambios_memoria and cambios_memoria[0].bid_antes is not None:
+        # Sin mano del dueno en memoria, el bid del ancla es el bid_antes del
+        # primer cambio dentro de la memoria.
+        niveles.append(cambios_memoria[0].bid_antes)
+    for cambio in cambios_memoria:
         instante = cambio.confirmado_el.astimezone(dt.UTC)
         if (ancla is not None and instante <= ancla) or (hasta is not None and instante >= hasta):
             continue
@@ -273,6 +297,12 @@ def destino_recuperacion(
     if m <= Decimal(1) + PASO_SUBIDA:
         return None
     destino = min(bid * m, techo).quantize(CENTAVO, rounding=ROUND_FLOOR)
+    if destino < caso.bid.piso:
+        # El dueno elevo el piso del goal por encima del nivel que la
+        # evidencia sostiene: el salto no cabe en el rango y subir hasta el
+        # piso seria inventarle evidencia. Lo decide el R6 de hoy (que aplica
+        # su ajuste de rango).
+        return None
     return destino if destino > bid * (Decimal(1) + PASO_SUBIDA) else None
 
 

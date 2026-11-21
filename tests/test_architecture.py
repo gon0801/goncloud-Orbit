@@ -206,7 +206,7 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
     # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
     # frontera por hoja.
-    "app/cycle.py": 2476,
+    "app/cycle.py": 2479,
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
@@ -221,7 +221,7 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/retiro_anuncios.py": 1388,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
-    "app/lecturas_caso.py": 1251,
+    "app/lecturas_caso.py": 1258,
     "app/optimizer/temporada.py": 1218,
 }
 

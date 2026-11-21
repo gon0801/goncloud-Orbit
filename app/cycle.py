@@ -1904,10 +1904,13 @@ def _recorre_plataforma(
             )
             contadores.temporada_plat = plat_t
         # TEMPORADA 01 C: ads_bid_recuperacion_<plat> (y su memoria del bid
-        # mas alto). La definicion de campana topada (defaults 90 %, 5 de 7)
-        # acompana la lectura del presupuesto solo cuando un freno la usa.
+        # mas alto). Igual que la temporada, el marcador solo viaja con modo
+        # live: en shadow el ciclo va byte a byte lo de hoy hasta que la
+        # comparacion de sombra llegue con el bloque D. La definicion de
+        # campana topada (defaults 90 %, 5 de 7) acompana la lectura del
+        # presupuesto solo cuando un freno la usa.
         modo_r = temporada.modo_recuperacion_desde_settings(settings, platform)
-        if modo_r is not None:
+        if modo_r == "live":
             rec_r = InsumosRecuperacion(
                 version="recuperacion_v1",
                 memoria_dias=temporada.memoria_recuperacion_desde_settings(settings, platform),

@@ -38,6 +38,7 @@ from test_temporada01_b import (
 )
 
 from app import cycle as ciclo_mod
+from app.lecturas_caso import _presupuesto_campanas
 from app.optimizer import politica, recuperacion, temporada
 from app.optimizer.caso import (
     BidVigente,
@@ -493,6 +494,68 @@ def test_temporada01_c_freeze_con_y_sin_motivo():
     assert recuperacion.cadena_bid(viejo).ultimo_salto_recuperacion is False
 
 
+def test_temporada01_c_piso_del_goal_sin_evidencia_para_cruzarlo():
+    """Si el dueno elevo el piso del goal por encima del nivel que la evidencia
+    sostiene, el salto no cabe en el rango: R6r se abstiene (subir hasta el
+    piso le inventaria evidencia) y lo decide el R6 de hoy."""
+    caso = _caso_recupera(bid=BidVigente(Decimal("2.16"), "MXN", Decimal("6.00"), TECHO_MX))
+    arg = _arg_del_caso(caso)
+    assert Decimal("2.16") * recuperacion.multiplicador_sostenible(
+        Decimal(6), arg, Decimal("0.70")
+    ) < Decimal("6.00"), "la evidencia sostiene menos que el piso nuevo"
+    assert recuperacion.destino_recuperacion(caso, a_subida=Decimal(6), arg_subida=arg) is None
+    veredicto = politica.decide(caso)
+    assert not isinstance(veredicto, politica.Regresar)
+
+
+def test_temporada01_c_memoria_acota_el_techo():
+    """El techo conocido nunca autoriza saltos con pujas fuera de la memoria
+    elegida, aunque la historia llegue mas atras (un episodio abierto no
+    caduca: la temporada pide la historia larga)."""
+    viejo = dt.datetime(2025, 5, 1, 12, 0, tzinfo=dt.UTC)
+    cadena_larga = HistoriaBid(
+        desde=dt.date(2025, 4, 1),
+        cambios=(
+            CambioFechado(
+                confirmado_el=viejo,
+                decision_id=1,
+                bid_antes=Decimal("30.00"),
+                bid_despues=Decimal("8.00"),
+                origen="motor",
+                motivo_temporada=None,
+                episodio_id=None,
+                motivo="pierde_dinero_fuerte",
+            ),
+            CambioFechado(
+                confirmado_el=dt.datetime(2026, 8, 20, 12, 0, tzinfo=dt.UTC),
+                decision_id=2,
+                bid_antes=Decimal("8.00"),
+                bid_despues=Decimal("2.16"),
+                origen="motor",
+                motivo_temporada=None,
+                episodio_id=None,
+                motivo="pierde_dinero_fuerte",
+            ),
+        ),
+    )
+    dentro = _caso_recupera(historia=cadena_larga)
+    # fabrica_caso congela ventana_hasta 2026-09-29: hoy = 2026-10-09 y la
+    # memoria de 365 dias llega a 2025-10-10; el recorte de 30.00 (2025-05)
+    # queda FUERA.
+    assert recuperacion.techo_conocido(dentro) == Decimal("8.00")
+    destino = recuperacion.destino_recuperacion(
+        dentro, a_subida=Decimal(6), arg_subida=Decimal("1.00")
+    )
+    assert destino is not None and destino <= Decimal("8.00"), "nunca salta con la puja vieja"
+    fuera = _caso_recupera(
+        historia=cadena_larga,
+        recuperacion=InsumosRecuperacion(version="recuperacion_v1", memoria_dias=1000),
+    )
+    assert recuperacion.techo_conocido(fuera) == Decimal("30.00"), (
+        "con memoria larga la puja de 2025 vuelve a contar"
+    )
+
+
 # ---------------------------------------------------------------------------
 # dinero: la fila C.1 de punta a punta (ciclo real con Amazon simulado)
 # ---------------------------------------------------------------------------
@@ -638,6 +701,90 @@ def test_temporada01_c_recupera_con_evidencia(db_template):
     assert conn.execute(
         "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (kw1,)
     ).fetchone()[0] == (decisiones_2[0] if decisiones_2 else nuevo_1)
+
+
+def test_temporada01_c_practica_no_envia_pujas(db_template):
+    """Con `ads_bid_recuperacion_amazon_mx=shadow` el ciclo va byte a byte lo
+    de hoy: el caso real no lleva el marcador de recuperacion y jamas envia el
+    salto a Amazon. La comparacion de sombra llega con el bloque D."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(
+        conn, {**_settings(modo_temporada=None), "ads_bid_recuperacion_amazon_mx": "shadow"}
+    )
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-camp")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "c-ag", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 1000.00, 'MXN')",
+        (camp, _medianoche(D_E1) - dt.timedelta(days=15)),
+    )
+    kw1 = _kw(conn, ag, "c-kw1", "kw 1", "2.16")
+    _siembra_metricas(conn, [kw1])
+    ventana_desde, ventana_hasta = D_E1 - dt.timedelta(days=90), D_E1 - dt.timedelta(days=10)
+    _evidencia_recupera(conn, kw1, ventana_desde, ventana_hasta, con_pedidos=True)
+    _cambio_confirmado(
+        conn,
+        kw1,
+        config_id,
+        dia=D_E1 - dt.timedelta(days=40),
+        antes="8.00",
+        despues="2.16",
+        motivo="pierde_dinero_fuerte",
+    )
+    conn.commit()
+    res = _corre(conn, D_E1, _handler_mx({}))
+    assert res.status == "done", res.notes
+    decisiones = conn.execute(
+        "SELECT d.inputs->>'motivo', d.new_value FROM decision d"
+        " WHERE d.cycle_id = %s AND d.kind = 'bid' AND d.ad_entity_id = %s",
+        (res.cycle_id, kw1),
+    ).fetchall()
+    for motivo, nuevo in decisiones:
+        assert motivo != politica.MOTIVO_RECUPERA_NIVEL, decisiones
+        assert nuevo <= Decimal("2.50"), "sin el marcador, el camino de hoy solo da +15 %"
+    # el handler no vio ningun salto: la puja vigente sigue en el paso de R6
+    assert conn.execute(
+        "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (kw1,)
+    ).fetchone()[0] <= Decimal("2.50")
+
+
+def test_temporada01_c_costo_null_no_tumba_el_ciclo(db_template):
+    """Una fila de campana con impresiones y costo NULL (la ingesta y el
+    esquema lo admiten) NO aborta el ciclo: el gasto de ese dia se desconoce y
+    la racha queda None (BUD no sube: dato faltante, no inventado)."""
+    conn, _dsn = db_template
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-camp-null")
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-c-null') RETURNING id"
+    ).fetchone()[0]
+    dias = [D_E1 - dt.timedelta(days=i) for i in range(1, 8)]
+    for i, dia in enumerate(dias):
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            dia,
+            _medianoche(dia),
+            moneda="MXN",
+            cost=None if i == 0 else "10.00",
+            impressions=100,
+        )
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 1000.00, 'MXN')",
+        (camp, _medianoche(D_E1)),
+    )
+    conn.commit()
+    presupuesto = _presupuesto_campanas(
+        conn, "amazon_mx", frozenset(dias), temporada.CampanaTopada(Decimal("0.90"), 5)
+    )
+    assert presupuesto[camp].presupuesto_diario == Decimal("1000.00")
+    assert presupuesto[camp].dias_medidos == 7
+    assert presupuesto[camp].dias_topados is None, "el dia sin costo se desconoce"
 
 
 def _insumos_del_congelado(caso_json: dict) -> tuple[Decimal, Decimal]:
