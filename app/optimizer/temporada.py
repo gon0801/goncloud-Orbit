@@ -954,21 +954,22 @@ def inicio_episodio(episodio: EpisodioVigente | None, dia: dt.date) -> dt.dateti
     return dt.datetime.combine(base, dt.time(0), tzinfo=dt.UTC)
 
 
-def nivel_de_regreso(red: ReduccionVigente, bid: Decimal, piso: Decimal, techo: Decimal) -> Decimal:
+def nivel_de_regreso(
+    red: ReduccionVigente, bid: Decimal, piso: Decimal, techo: Decimal
+) -> Decimal | None:
     """A donde regresa una hoja reducida. Sin recortes despues de la entrada es la
     base. Si Orbit recorto despues de la entrada, el regreso conserva esos recortes
     en proporcion; nunca baja y siempre queda en centavos del intervalo de
-    [piso, techo] (un goal con limites fraccionarios jamas recibe una puja
-    fuera de centavos).
+    [piso, techo]. None si el rango del goal no tiene ningun centavo factible
+    (piso arriba del techo al redondear): la hoja que lo necesite deja SU
+    regreso pendiente, jamas tumba el ciclo.
     # 8 -> 5.60 (entrada) -> 3.15 (recortes con la temporada apagada): 8 x
     # 3.15 / 5.60 = 4.50, no 8.00. Techo fraccionario 15.999 -> 15.99."""
     rango = _centavos_del_rango(piso, techo)
     if rango is None:
-        raise ValueError(
-            f"nivel_de_regreso sin centavo factible en el rango del goal: [{piso}, {techo}]"
-        )
+        return None
     piso_c, techo_c = rango
-    if red.solo_temporada_despues or bid >= red.ultimo_bid:
+    if red.solo_temporada_despues or bid is None or bid >= red.ultimo_bid:
         factor = Decimal(1)
     else:
         factor = bid / red.ultimo_bid
@@ -1004,9 +1005,10 @@ def reduccion_vigente(
             excluye_abierto=bool(en_baja and ahora),
             bid_visto=bid,
         )
-    if bid is not None and bid >= nivel_de_regreso(red, bid, piso, techo):
+    nivel = nivel_de_regreso(red, bid, piso, techo)
+    if bid is not None and nivel is not None and bid >= nivel:
         return None, FinReduccion(red.episodio_id, "ya_arriba", excluye_abierto=False)
-    return red, None  # su regreso sigue pendiente (p. ej. retenido): sigue reducida
+    return red, None  # su regreso sigue pendiente (retenido o sin centavo factible en el rango)
 
 
 def _pendiente_desde(
@@ -1048,13 +1050,22 @@ def _pendiente_desde(
         if any(m > red.ultimo_el for m in manos) or dueno_al_final:
             return SinPendiente("dueno_decidio")
         if en_baja:
-            mismo_episodio = episodio is not None and red.episodio_id == episodio.id
-            if mismo_episodio and red.solo_temporada_despues:
+            if (
+                episodio is not None
+                and red.episodio_id == episodio.id
+                and red.solo_temporada_despues
+            ):
                 d = destino_entrada(red.base, estacion.reduccion_baja, piso, techo)
                 if d is not None and abs(d - bid) >= CENTAVO:
                     return AjustePendiente(d)
             return SinPendiente("ya_entro")  # nunca otra entrada
         nivel = nivel_de_regreso(red, bid, piso, techo)
+        if nivel is None:
+            # El rango del goal no tiene ningun centavo factible para su
+            # regreso: la reduccion queda pendiente (sin fin) y la hoja no
+            # recibe veredicto de temporada hasta que el dueno arregle el
+            # rango. Jamas tumba el ciclo.
+            return SinPendiente("dato_faltante")
         if bid >= nivel:
             return SinPendiente("ya_arriba")
         return RestauracionPendiente(nivel, red.episodio_id)
@@ -1137,9 +1148,13 @@ def frontera(
     terreno_de_david = en_baja and (
         (episodio is not None and episodio.id in excluida_en) or dueno_al_final
     )
+    # Hoja con reduccion viva y regreso IMPOSIBLE (rango del goal sin centavo
+    # factible): sigue en baja (conservadora, como un regreso retenido) y el
+    # ciclo corre: jamas una excepcion de plataforma.
+    sin_nivel = red is not None and _centavos_del_rango(piso, techo) is None
     if terreno_de_david:
         fase_hoja: Fase = "normal"  # decision 7 del plan: sin reglas de la baja
-    elif en_baja or isinstance(p, RestauracionPendiente):
+    elif en_baja or isinstance(p, RestauracionPendiente) or sin_nivel:
         fase_hoja = "baja"
     else:
         fase_hoja = estacion.fase

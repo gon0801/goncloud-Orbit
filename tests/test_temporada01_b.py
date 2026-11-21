@@ -636,6 +636,69 @@ def test_temporada01_b_pendiente():
         red, Decimal("14.00"), Decimal("1.00"), Decimal("45.00")
     ) == Decimal("20.00")
 
+    # Rango del goal SIN ningun centavo factible: nivel None (jamás una
+    # excepcion de plataforma), la reduccion queda pendiente sin fin falso y
+    # el veredicto de la hoja es dato_faltante (revision).
+    rango_roto = temporada._centavos_del_rango(Decimal("5.6050"), Decimal("5.6090"))
+    assert rango_roto is None, "5.6050..5.6090 no contiene centavos"
+    assert (
+        temporada.nivel_de_regreso(red, Decimal("5.60"), Decimal("5.6050"), Decimal("5.6090"))
+        is None
+    )
+    cadena_kw = HistoriaBid(
+        desde=D_E1,
+        cambios=(
+            CambioFechado(
+                _medianoche(D_E1), 2, Decimal("8.00"), Decimal("5.60"), "temporada", "entra", 1
+            ),
+        ),
+    )
+    normal_rota = Estacion(
+        version=temporada.VERSION_TEMPORADA,
+        dia=D_SALE_E1,
+        fase="normal",
+        previa_alta=True,
+        reduccion_baja=Decimal("0.30"),
+        mult_cortes_baja=Decimal("2"),
+        inicio_bloque=D_SALE_E1,
+    )
+    cad_rota = recuperacion._cadena_desde(cadena_kw, Decimal("5.60"))
+    red_out, fin_out = temporada.reduccion_vigente(
+        cad_rota,
+        en_baja=False,
+        dia=D_SALE_E1,
+        episodio=None,
+        bid=Decimal("5.60"),
+        piso=Decimal("5.6050"),
+        techo=Decimal("5.6090"),
+    )
+    assert fin_out is None, "sin fin falso: el regreso queda pendiente"
+    assert red_out is not None and red_out.episodio_id == 1
+    p = temporada._pendiente_desde(
+        normal_rota,
+        cad_rota,
+        episodio=None,
+        excluida_en=frozenset(),
+        bid=Decimal("5.60"),
+        piso=Decimal("5.6050"),
+        techo=Decimal("5.6090"),
+    )
+    assert p == SinPendiente("dato_faltante"), p
+    frontera_rota = temporada.frontera(
+        normal_rota,
+        cad_rota,
+        episodio=None,
+        excluida_en=frozenset(),
+        cerca_plataforma=None,
+        bid=Decimal("5.60"),
+        piso=Decimal("5.6050"),
+        techo=Decimal("5.6090"),
+    )
+    assert frontera_rota.fin is None and frontera_rota.fase_hoja == "baja", (
+        "la hoja con regreso imposible sigue en baja (conservadora): "
+        f"{frontera_rota.fase_hoja}, fin={frontera_rota.fin}"
+    )
+
 
 def test_temporada01_b_trayectoria_con_temporada_rejuega():
     """Revision: un cambio de temporada dentro de `Trayectoria` (la de 90
@@ -1267,6 +1330,63 @@ def test_temporada01_b_fin_de_reduccion(db_template):
 # ---------------------------------------------------------------------------
 # 4. La migracion: sonda, permisos, triggers solo-cierre y reversas.
 # ---------------------------------------------------------------------------
+
+
+def test_temporada01_b_rango_sin_centavos_no_tumba_plataforma(db_template):
+    """Revision: un goal con rango SIN ningun centavo factible (5.6050 a
+    5.6090) no tumba el ciclo al salir la baja: la hoja con el rango roto deja
+    su regreso pendiente (dato faltante, sin fin falso) y OTRA hoja de la
+    plataforma sigue produciendo decisiones."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+
+    # Camp B con goal de campana de rango roto (5.6050 a 5.6090, cuatro
+    # decimales: la validacion de goals los acepta).
+    camp_b = _entidad(conn, "amazon_mx", "campaign", "b-camp-rota")
+    ag_b = _entidad(conn, "amazon_mx", "ad_group", "b-ag-roto", parent=camp_b)
+    _estado(conn, ag_b, synced_at=_SYNC)
+    _estado(conn, camp_b, synced_at=_SYNC)
+    kw_rota = _kw(conn, ag_b, "b-kw-rota", "kw rango roto", "8.00")
+    kw_buena = _kw(conn, ids["ag"], "b-kw-buena", "kw rango sano", "8.00")
+    _siembra_metricas(conn, [kw_rota, kw_buena])
+
+    remoto = {"b-kw-rota": "8.00", "b-kw-buena": "8.00"}
+    handler = _handler_mx(remoto)
+    res = _corre(conn, D_E1, handler)
+    assert res.status == "done"
+    e1 = _episodio_abierto(conn)
+    entradas = {row[0]: row[1] for row in _temporada_del_ciclo(conn, res.cycle_id)}
+    assert entradas.get(kw_rota) == Decimal("5.60") and entradas.get(kw_buena) == Decimal("5.60")
+
+    # El dueno guarda el rango SIN centavos factibles a MEDIA baja (la
+    # validacion de goals acepta cuatro decimales).
+    conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+        " harvest_default_bid, enabled, mode)"
+        " VALUES ('campaign', %s, 20, 5.6050, 5.6090, 'MXN', '9002', '9102',"
+        " 1.00, true, 'live')",
+        (camp_b,),
+    )
+
+    # Salida de la baja: kw_buena regresa a 8.00; kw_rota (rango roto) deja su
+    # regreso pendiente SIN fin falso, y el ciclo corre completo.
+    handler_out = _handler_mx({"b-kw-rota": "5.60", "b-kw-buena": "5.60"})
+    res = _corre(conn, D_SALE_E1, handler_out)
+    assert res.status == "done", res.notes
+    salidas = {row[0]: row[1] for row in _temporada_del_ciclo(conn, res.cycle_id)}
+    assert salidas.get(kw_buena) == Decimal("8.00"), "la hoja sana regresa"
+    assert kw_rota not in salidas, "la hoja con rango roto no recibe regreso imposible"
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM temporada_fin_reduccion WHERE ad_entity_id = %s", (kw_rota,)
+        ).fetchone()[0]
+        == 0
+    ), "sin fin falso para la hoja con rango roto"
+    assert (
+        conn.execute("SELECT cerrado_el FROM temporada_episodio WHERE id = %s", (e1,)).fetchone()[0]
+        is not None
+    )
 
 
 def test_temporada01_b_migracion_sonda_y_permisos():

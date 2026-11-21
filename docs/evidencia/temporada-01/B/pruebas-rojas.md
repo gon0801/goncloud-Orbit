@@ -103,3 +103,27 @@ Decimal('5.61')`, `assert Decimal('8.0') == Decimal('5.60')`, `AssertionError:
 la trayectoria de la practica es la de 90 dias`, y las tres pruebas DB
 fallidas (UniqueViolation ya no: en esta ronda el fallo DB del regreso fue
 ausencia de fila divergencia).
+
+## Ronda de revision 3 (rango sin centavos factibles tumba la plataforma)
+
+Review de PR #697: un goal con rango SIN ningun centavo factible (5.6050 a
+5.6090, la validacion de goals acepta cuatro decimales) hacia que
+`nivel_de_regreso` levantara ValueError al salir la baja: la excepcion
+escapaba por `_frontera_temporada`, `corre_ciclo` marcaba el ciclo failed y
+TODA la plataforma quedaba sin decisiones hasta cambiar el rango.
+
+Fix: `nivel_de_regreso` devuelve None (sin excepcion) cuando el rango no
+tiene centavos; `reduccion_vigente` conserva la reduccion SIN fin falso;
+`_pendiente_desde` devuelve SinPendiente(dato_faltante); `frontera` mantiene
+la hoja en fase "baja" (conservadora, como un regreso retenido). El ciclo
+corre y las demas hojas deciden.
+
+Prueba nueva: `test_temporada01_b_rango_sin_centavos_no_tumba_plataforma`
+(dos campanas: la del rango roto guardado a media baja deja su regreso
+pendiente sin fin falso; la sana regresa a 8.00; el ciclo corre done).
+Demostrada fallando contra ceb175a con el ValueError del review:
+
+```
+E           ValueError: nivel_de_regreso sin centavo factible en el rango del goal: [5.6050, 5.6090]
+1 failed in 8.07s
+```
