@@ -1484,7 +1484,6 @@ def inertes(conn: ConexionLectura) -> dict:
     return {"totales": totales, "items": items, "lotes": lotes}
 
 
-
 # TEMPORADA 01 A: tarjeta «Temporadas de venta». La lectura del equilibrio es
 # la MISMA vista que lee el ciclo (un numero, una fuente) y el motivo de
 # abstencion sale del MISMO resolver (goals.motivo_dato_invalido). La columna
@@ -1660,6 +1659,96 @@ def _goal_plataforma_de(conn: ConexionLectura, plataforma: str) -> tuple[int | N
     return None, None
 
 
+# TEMPORADA 01 A, bloque de estado de la baja (diseno, «Uso» 1): los conteos
+# salen de decisiones REALES con los motivos de temporada (el motor los
+# empieza a escribir con el bloque D; con fixtures se comprueban aqui). Sin
+# episodios todavia (bloque B), el bloque de baja vigente se acota por su
+# fecha de inicio en el calendario guardado.
+_SQL_ESTADO_BAJA_DECISIONES = """
+SELECT EXISTS (SELECT 1 FROM decision_application da
+                WHERE da.decision_id = d.id AND da.verify_ok IS TRUE) AS confirmada
+  FROM decision d
+  JOIN ad_entity e ON e.id = d.ad_entity_id
+ WHERE e.platform = %s::platform
+   AND d.kind = 'bid'
+   AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+   AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
+"""
+
+# Bid propio vs heredado: ad_entity_state.current_bid (NULL = la keyword usa
+# el bid de su ad group; misma fuente que el sync escribe).
+_SQL_ESTADO_BAJA_KEYWORDS = """
+SELECT count(*) AS total, count(*) FILTER (WHERE s.current_bid IS NULL) AS grupo
+  FROM ad_entity e
+  JOIN ad_entity_state s ON s.ad_entity_id = e.id AND s.status = 'ENABLED'
+ WHERE e.platform = %s::platform AND e.kind = 'keyword'
+"""
+
+# Pausas de Orbit confirmadas decididas en la baja (la marca vive en
+# inputs.caso.temporada, como _SQL_PAUSAS_DE_BAJA del diseno), que siguen
+# PAUSED y no estan en «Mantener pausada».
+_SQL_PAUSADAS_DE_BAJA = """
+SELECT d.ad_entity_id, e.name
+  FROM decision d
+  JOIN ad_entity e ON e.id = d.ad_entity_id
+  JOIN ad_entity_state s ON s.ad_entity_id = d.ad_entity_id AND s.status = 'PAUSED'
+ WHERE e.platform = %s::platform
+   AND d.kind = 'pause'
+   AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'
+   AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
+   AND NOT (d.ad_entity_id = ANY(%s::bigint[]))
+ ORDER BY d.ad_entity_id
+"""
+
+
+def pausadas_de_baja(
+    conn: ConexionLectura, plataforma: str, inicio: dt.date, mantener: frozenset[int] | set[int]
+) -> list[dict]:
+    """Las keywords que Orbit pauso en esta baja y va a reactivar al
+    terminar, con su nombre para la lista de la tarjeta. La usa el bloque de
+    estado y el endpoint «Mantener pausada» para validar su boton."""
+    filas = conn.execute(_SQL_PAUSADAS_DE_BAJA, (plataforma, inicio, sorted(mantener))).fetchall()
+    return [{"ad_entity_id": fila[0], "nombre": fila[1] or f"keyword #{fila[0]}"} for fila in filas]
+
+
+def estado_de_baja(
+    conn: ConexionLectura, plataforma: str, config: temporada.ConfigTemporada, hoy: dt.date
+) -> dict:
+    """Lo que la tarjeta muestra durante una baja: confirmaciones de Amazon,
+    pendientes y sin tocar con su razon en llano, mas la lista de keywords
+    pausadas a reactivar. Todo SELECT; sin episodios todavia (bloque B), el
+    bloque de baja se acota por la fecha de inicio del calendario."""
+    estacion = temporada.resuelve(config, hoy)
+    if estacion.fase != "baja":
+        return {}
+    inicio = estacion.inicio_bloque
+    confirmados = pendientes = 0
+    for fila in conn.execute(_SQL_ESTADO_BAJA_DECISIONES, (plataforma, inicio)).fetchall():
+        if fila[0]:
+            confirmados += 1
+        else:
+            pendientes += 1
+    total, grupo = conn.execute(_SQL_ESTADO_BAJA_KEYWORDS, (plataforma,)).fetchone()
+    sin_tocar = max(0, total - confirmados - pendientes)
+    frase_sin_tocar = f"Sin tocar: {sin_tocar}."
+    if grupo:
+        # La razon «porque cambiaste tú el bid» llega con las exclusiones
+        # del bloque B (temporada_exclusion); hoy la unica fuente real es
+        # el bid heredado del ad group.
+        frase_sin_tocar += (
+            f" {grupo} usan el bid de su grupo (Orbit no los toca hasta que tengan bid propio)."
+        )
+    return {
+        "fase": "baja",
+        "desde": inicio.isoformat(),
+        "confirmados": confirmados,
+        "pendientes": pendientes,
+        "sin_tocar": sin_tocar,
+        "frase_sin_tocar": frase_sin_tocar,
+        "pausadas": pausadas_de_baja(conn, plataforma, inicio, config.mantener_pausadas),
+    }
+
+
 def resumen_temporada_para_guardado(
     conn: ConexionLectura, settings_antes: Mapping, settings_nuevo: Mapping, hoy: dt.date
 ) -> temporada.ResumenTemporada | None:
@@ -1763,6 +1852,7 @@ def settings(conn: ConexionLectura) -> dict:
     plataformas: list[dict] = []
     peldanos: dict[str, str | None] = {}
     hoy_temporada = dt.datetime.now(dt.UTC).date()
+    config_temporada = temporada.desde_settings(settings)
     meta_alta_form = {
         plataforma: temporada.meta_alta_desde_settings(settings, plataforma)
         for plataforma in temporada.PLATAFORMAS_TEMPORADA
@@ -1826,9 +1916,16 @@ def settings(conn: ConexionLectura) -> dict:
                     meta_alta=meta_alta_form.get(plataforma),
                     hoy=hoy_temporada,
                 ),
+                # TEMPORADA 01 A, bloque de estado de la baja (vacio fuera de
+                # baja): conteos de decisiones de temporada y keywords
+                # pausadas a reactivar, con «Mantener pausada» en la tarjeta.
+                "temporada_estado": (
+                    estado_de_baja(conn, plataforma, config_temporada, hoy_temporada)
+                    if config_temporada is not None
+                    else None
+                ),
             }
         )
-    config_temporada = temporada.desde_settings(settings)
     estado_temporada = None
     if config_temporada is not None:
         estacion_hoy = temporada.resuelve(config_temporada, hoy_temporada)

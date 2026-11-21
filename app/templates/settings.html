@@ -88,6 +88,27 @@
   {% for p in datos.plataformas %}
   <div data-temporada-plataforma="{{ p.plataforma }}">
     <h4>{{ p.plataforma | etiqueta("plataforma") }}</h4>
+    {% if p.temporada_estado %}
+    <div class="aviso" data-temporada-estado="{{ p.plataforma }}">
+      <p><strong>Temporada baja desde el <span data-estado-desde>{{ p.temporada_estado.desde }}</span>.</strong></p>
+      <p data-estado-conteo>
+        Bids bajados y confirmados en Amazon: {{ p.temporada_estado.confirmados }}
+        · Pendientes: {{ p.temporada_estado.pendientes }}
+        · {{ p.temporada_estado.frase_sin_tocar }}
+      </p>
+      {% if p.temporada_estado.pausadas %}
+      <p>Keywords que Orbit pausó en la baja y va a reactivar al terminar:</p>
+      <ul data-pausadas>
+        {% for kw in p.temporada_estado.pausadas %}
+        <li>
+          {{ kw.nombre }}
+          <button type="button" data-mantener-pausada="{{ kw.ad_entity_id }}">Mantener pausada</button>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endif %}
     <label>Meta de ACoS en temporada alta (%)
       <input type="number" data-meta-alta="{{ p.plataforma }}" min="10" max="45" step="1"
         value="{{ p.meta_alta }}"> (de 10 a 45)
@@ -116,6 +137,7 @@
 
   <div data-vista-previa>
     <h4>Así queda tu año (hora UTC, la del motor)</h4>
+    <p data-frase-hoy hidden></p>
     <p class="aviso" data-aviso-cambio hidden></p>
     <ul data-proximos></ul>
     <p class="mutado" data-error-previa hidden></p>

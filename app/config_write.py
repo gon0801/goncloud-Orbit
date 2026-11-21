@@ -447,6 +447,10 @@ def _aplica_temporada_modo(
     lo rechaza la validacion final de la resultante (modo_desde_settings)."""
     if modos is None:
         return
+    if not isinstance(modos, Mapping):
+        raise SettingsInvalido(
+            "El modo de temporada llegó mal: recarga la página y vuelve a guardar."
+        )
     for plataforma, modo in modos.items():
         if plataforma not in temporada_mod.PLATAFORMAS_TEMPORADA:
             raise SettingsInvalido(f"plataforma de temporada desconocida: {plataforma!r}")
@@ -470,6 +474,10 @@ def _aplica_meta_alta(
     """Meta de ACoS de temporada alta por plataforma (global la pareja)."""
     if metas is None:
         return
+    if not isinstance(metas, Mapping):
+        raise SettingsInvalido(
+            "La meta de temporada alta llegó mal: recarga la página y vuelve a guardar."
+        )
     for plataforma, crudo in metas.items():
         if plataforma not in temporada_mod.PLATAFORMAS_TEMPORADA:
             raise SettingsInvalido(f"plataforma de temporada desconocida: {plataforma!r}")
@@ -732,11 +740,14 @@ def guarda_config(
     if confirma:
         conn.commit()
     salida = {"config_version_id": nuevo_id, "created": True, "label": label}
-    # TEMPORADA 01 A: cuando la edicion toca la temporada, la respuesta trae
-    # «Así queda tu año» (la misma resumen que la vista previa) y el mensaje
-    # verde que pega settings.js. SELECT de la cascada para la meta de hoy.
+    # TEMPORADA 01 A: cuando la edicion toca la temporada CON VALOR (la clave
+    # sola no: el endpoint manda los seis kwargs siempre, hallazgo de Kimi),
+    # la respuesta trae «Así queda tu año» (la misma resumen que la vista
+    # previa) y el mensaje verde que pega settings.js. SELECT de la cascada
+    # para la meta de hoy.
     if any(
-        clave in edicion for clave in ("temporada", "campana_topada", "temporada_modo", "meta_alta")
+        edicion.get(clave) is not None
+        for clave in ("temporada", "campana_topada", "temporada_modo", "meta_alta")
     ):
         from app.api_dashboard import resumen_temporada_para_guardado
 

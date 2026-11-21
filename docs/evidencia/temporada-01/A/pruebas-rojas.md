@@ -1,19 +1,14 @@
 # Pruebas nuevas del bloque A, demostradas fallando contra el SHA previo (regla 9)
-SHA previo: 43d4e08d132b5234870138b4c76907039bbff473 (master con el bloque I)
-Comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests -k temporada01_a_
-Nota de esta PC (Windows): tests/test_corrige_descripciones_pez.py no colecciona por fcntl (solo Unix); fallo preexistente ajeno al bloque. En Linux/CI el comando corre sin --ignore.
+SHA previo aplicable: b92de90 (master con el bloque I y la limpieza #688; el bloque A no esta).
+Metodo: copia de tests/test_temporada01_a.py sobre ese SHA con el import de app.optimizer.temporada diferido dentro de cada prueba (el modulo no existe ahi; sin el diferido, la coleccion aborta y no se ve el fallo de cada prueba).
+Comando: PYTHONPATH=. uv run --frozen --python 3.12 python -m pytest -q tests/test_temporada01_a.py -v
 
 ```
-    from app.optimizer import temporada
-E   ImportError: cannot import name 'temporada' from 'app.optimizer' (C:\Users\ehven\.ao\data\worktrees\orbit-temporada-01\orbit-temporada-01-3\app\optimizer\__init__.py)
-============================== warnings summary ===============================
-.venv\Lib\site-packages\fastapi\testclient.py:1
-  C:\Users\ehven\.ao\data\worktrees\orbit-temporada-01\orbit-temporada-01-3\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
-    from starlette.testclient import TestClient as TestClient  # noqa
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=========================== short test summary info ===========================
-ERROR tests/test_temporada01_a.py
-!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
-5979 deselected, 1 warning, 1 error in 3.02s
+FAILED tests/test_temporada01_a.py::test_temporada01_a_fechas_del_calendario
+FAILED tests/test_temporada01_a.py::test_temporada01_a_post_rechaza_booleanos
+FAILED tests/test_temporada01_a.py::test_temporada01_a_campana_topada_una_definicion
+FAILED tests/test_temporada01_a.py::test_temporada01_a_estado_de_baja_con_mantener_pausada
+======================== 4 failed, 1 warning in 1.17s =========================
 ```
+
+Cada prueba falla por si sola: el modulo app/optimizer/temporada no existe en el SHA previo (ImportError dentro de la prueba, no en la coleccion). En el bloque queda la corrida verde del SHA entregado en acepta-a2.txt y acepta-a3.txt.

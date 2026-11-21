@@ -43,7 +43,7 @@ _skip_db = pytest.mark.skipif(
 MESES_DEFECTO = list(temporada.MESES_POR_DEFECTO)
 
 
-def _crudo(meses=MESES_DEFECTO, prep=21, reduccion="30", fin=None, mult="2"):
+def _crudo(meses=MESES_DEFECTO, prep=21, reduccion="30", fin=None, mult="2", pausadas=None):
     """El objeto ads_temporada tal como viaja y se guarda."""
     return {
         "version": temporada.VERSION_TEMPORADA,
@@ -53,7 +53,7 @@ def _crudo(meses=MESES_DEFECTO, prep=21, reduccion="30", fin=None, mult="2"):
         "mult_cortes_baja": mult,
         "aumento_presupuesto_alta_pct": "25",
         "fin_anticipado": fin,
-        "mantener_pausadas": [],
+        "mantener_pausadas": [] if pausadas is None else list(pausadas),
     }
 
 
@@ -226,6 +226,54 @@ def test_temporada01_a_post_rechaza_booleanos(tmp_path, monkeypatch):
         # La respuesta trae el resumen de la temporada (vista de «Así queda tu año»).
         assert resp.json()["resumen_temporada"]["fase_hoy"] in ("baja", "normal", "alta")
 
+        # Modos y metas como objetos (bloqueo de Kimi 2): lo que no es objeto
+        # se rechaza con 422 en texto, jamas 500.
+        for cuerpo_malo, mensaje in (
+            (
+                {"temporada_modo": []},
+                "El modo de temporada llegó mal: recarga la página y vuelve a guardar.",
+            ),
+            (
+                {"meta_alta": []},
+                "La meta de temporada alta llegó mal: recarga la página y vuelve a guardar.",
+            ),
+        ):
+            resp = cliente.post(
+                "/api/ads-optimizer/settings/amazon_mx",
+                json={"base_config_version_id": id_2, **cuerpo_malo},
+                headers={"x-orbit-token": TOKEN},
+            )
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"] == mensaje
+        assert conn.execute("SELECT count(*) FROM config_version").fetchone()[0] == 3
+
+        # mantener_pausadas con ids reales y la memoria de la subida rapida
+        # se aceptan sin 500 (bloqueo de Kimi 1: _entero con firma rota).
+        resp = cliente.post(
+            "/api/ads-optimizer/settings/amazon_mx",
+            json={
+                "base_config_version_id": id_2,
+                "temporada": _crudo(reduccion=25, pausadas=[1]),
+                "recuperacion_memoria_dias": 365,
+            },
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 200, resp.text
+        id_3 = resp.json()["config_version_id"]
+        fila = conn.execute(
+            "SELECT settings FROM config_version WHERE id = %s", (id_3,)
+        ).fetchone()[0]
+        assert fila["ads_temporada"]["mantener_pausadas"] == [1]
+        assert fila["ads_bid_recuperacion_memoria_dias_amazon_mx"] == 365
+        # El POST sin cambios sobre config YA guardada sigue en «Nada que
+        # cambiar» a nivel servidor: EdicionVacia.
+        resp = cliente.post(
+            "/api/ads-optimizer/settings/amazon_mx",
+            json={"base_config_version_id": id_3, "temporada": _crudo(reduccion=25, pausadas=[1])},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 422, resp.text
+
         # La vista previa sigue viva con la config guardada SIN fin anticipado
         # (hallazgo de revision: un None no se formatea, jamas 500).
         meses = ",".join(MESES_DEFECTO)
@@ -306,3 +354,148 @@ def test_temporada01_a_campana_topada_una_definicion():
         assert avisos[0].frase == (
             "Topada 80: se queda sin presupuesto. Usó 80 % o más en 3 de los últimos 7 días."
         )
+
+
+@_skip_db
+def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch):
+    """El bloque de estado de la baja (bloqueo de Kimi 4): conteos desde
+    decisiones reales de temporada, keywords pausadas a reactivar y el
+    boton «Mantener pausada» que las guarda en mantener_pausadas."""
+    from test_pantalla_dinero import _siembra_entidad
+
+    hoy = dt.datetime.now(dt.UTC)
+    ack = Json({"request_id": "t"})
+    meses_baja_hoy = ["normal"] * 10 + ["baja", "normal"]  # noviembre en baja
+    blob = temporada.como_guardada(temporada.valida(_crudo(meses=meses_baja_hoy)))
+
+    with _db_con_rol_admin("orbit_t01a_estado") as (conn, dsn_admin, dsn_lectura):
+        config_id = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+            ("estado", Json({"ads_optimizer_mode": "shadow", "ads_temporada": blob})),
+        ).fetchone()[0]
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status,"
+            " finished_at, decisions_count) VALUES"
+            " ('ads_optimizer', 'shadow', 'amazon_mx'::platform, 'done', %s, 0)"
+            " RETURNING id",
+            (hoy,),
+        ).fetchone()[0]
+        campana = _siembra_entidad(conn, "amazon_mx", "campaign", "c-estado")
+        grupo = _siembra_entidad(conn, "amazon_mx", "ad_group", "g-estado", parent=campana)
+        kw_bid = _siembra_entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "k-estado-1",
+            parent=grupo,
+            match="EXACT",
+            texto="bid propio",
+        )
+        kw_grupo = _siembra_entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "k-estado-2",
+            parent=grupo,
+            match="EXACT",
+            texto="bid heredado",
+        )
+        kw_pausada = _siembra_entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "k-estado-3",
+            parent=grupo,
+            match="EXACT",
+            texto="pausada en la baja",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
+            " synced_at) VALUES (%s, 'ENABLED', 5.00, 'MXN', now()),"
+            " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now())",
+            (kw_bid, kw_grupo, kw_pausada),
+        )
+
+        def _decision(kind, entidad, motivo, *, fase_baja=False):
+            inputs = {"motor": "ads_optimizer", "motivo": motivo}
+            if fase_baja:
+                inputs["caso"] = {"temporada": {"frontera": {"fase_hoja": "baja"}}}
+            # Regla 6 (trigger decision_madurez_corte): una pausa exige
+            # ventana cerrada al menos 10 dias antes de la decision.
+            fin_ventana = hoy - dt.timedelta(days=11 if kind == "pause" else 1)
+            # Las pausas no llevan dinero (CHECK decision_moneda_solo_en_
+            # kinds_con_dinero): solo los bids viajan con old/new + moneda.
+            dinero = (
+                (Decimal("8.00"), Decimal("5.60"), "MXN") if kind == "bid" else (None, None, None)
+            )
+            return conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+                " config_version_id, data_observed_at, window_start, window_end,"
+                " old_value, new_value, value_currency, inputs)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (
+                    ciclo,
+                    entidad,
+                    kind,
+                    hoy - dt.timedelta(days=1),
+                    config_id,
+                    fin_ventana - dt.timedelta(days=1),
+                    fin_ventana - dt.timedelta(days=19),
+                    fin_ventana,
+                    dinero[0],
+                    dinero[1],
+                    dinero[2],
+                    Json(inputs),
+                ),
+            ).fetchone()[0]
+
+        d1 = _decision("bid", kw_bid, "entra_temporada_baja")
+        _decision("bid", kw_grupo, "entra_temporada_baja")
+        d3 = _decision("pause", kw_pausada, "pausa", fase_baja=True)
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok,"
+            " platform_ack) VALUES (%s, %s, TRUE, %s), (%s, %s, TRUE, %s)",
+            (d1, hoy, ack, d3, hoy, ack),
+        )
+
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_lectura)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        cliente = TestClient(app)
+
+        def _estado_mx():
+            datos = cliente.get("/api/dashboard/settings").json()
+            return {p["plataforma"]: p["temporada_estado"] for p in datos["plataformas"]}
+
+        estado = _estado_mx()["amazon_mx"]
+        assert estado["fase"] == "baja"
+        assert estado["confirmados"] == 1
+        assert estado["pendientes"] == 1
+        assert estado["sin_tocar"] == 0
+        assert "1 usan el bid de su grupo" in estado["frase_sin_tocar"]
+        assert [p["ad_entity_id"] for p in estado["pausadas"]] == [kw_pausada]
+
+        resp = cliente.post(
+            "/api/ads-optimizer/temporada/mantener-pausada",
+            json={"ad_entity_id": kw_pausada, "base_config_version_id": config_id},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["mantener_pausadas"] == [kw_pausada]
+        id_mantener = resp.json()["config_version_id"]
+        blob_guardado = conn.execute(
+            "SELECT settings->'ads_temporada'->'mantener_pausadas' FROM config_version"
+            " WHERE id = %s",
+            (id_mantener,),
+        ).fetchone()[0]
+        assert blob_guardado == [kw_pausada]
+
+        # La lista del estado ya no la ofrece (esta en Mantener pausada) y
+        # repetir el boton contesta 409 para que David recargue.
+        assert _estado_mx()["amazon_mx"]["pausadas"] == []
+        resp = cliente.post(
+            "/api/ads-optimizer/temporada/mantener-pausada",
+            json={"ad_entity_id": kw_pausada, "base_config_version_id": id_mantener},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 409, resp.text

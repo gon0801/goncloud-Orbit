@@ -316,6 +316,9 @@ function pintaPlataformas(plataformas) {
 }
 
 function pintaVistaPrevia(data) {
+  var fraseHoy = tarjetaTemporada.querySelector("[data-frase-hoy]");
+  fraseHoy.textContent = (data.resumen && data.resumen.frase_hoy) || "";
+  fraseHoy.hidden = !fraseHoy.textContent;
   var aviso = tarjetaTemporada.querySelector("[data-aviso-cambio]");
   aviso.textContent = (data.resumen && data.resumen.aviso_cambio) || "";
   aviso.hidden = !aviso.textContent;
@@ -433,9 +436,37 @@ function prepararTemporada() {
   if (botonGuardar) botonGuardar.addEventListener("click", guardarTemporada);
   var botonBaja = tarjetaTemporada.querySelector("[data-terminar-baja]");
   if (botonBaja) botonBaja.addEventListener("click", terminarBaja);
+  tarjetaTemporada.querySelectorAll("[data-mantener-pausada]").forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      mantenerPausada(boton.getAttribute("data-mantener-pausada"), boton);
+    });
+  });
   var desde = tarjetaTemporada.querySelector("[data-temporada-desde]");
   if (desde && desde.textContent.trim()) {
     desde.textContent = fechaCorta(desde.textContent.trim());
   }
+  tarjetaTemporada.querySelectorAll("[data-estado-desde]").forEach(function (el) {
+    if (el.textContent.trim()) el.textContent = fechaCorta(el.textContent.trim());
+  });
   consultaVistaPrevia();
+}
+
+function mantenerPausada(adEntityId, boton) {
+  var bloque = boton.closest("[data-temporada-estado]");
+  var estado = bloque ? bloque.querySelector("[data-estado-conteo]") : null;
+  if (estado) estado.textContent = "Enviando…";
+  postJson("/api/ads-optimizer/temporada/mantener-pausada", {
+    ad_entity_id: Number(adEntityId),
+    base_config_version_id: Number(tarjetaTemporada.getAttribute("data-config-id")),
+  })
+    .then(function (r) {
+      if (r.ok) {
+        window.location.reload();
+      } else if (estado) {
+        estado.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+      }
+    })
+    .catch(function () {
+      if (estado) estado.textContent = "Error de red al guardar.";
+    });
 }

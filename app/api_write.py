@@ -45,7 +45,6 @@ import datetime as dt
 import hmac
 import logging
 import os
-from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -62,7 +61,7 @@ from app.api import ConexionLectura
 from app.campana_ajustes import _ajuste_de
 from app.db import OrbitDbError, connect
 from app.optimizer import goals as g
-from app.optimizer import productos, temporada
+from app.optimizer import productos
 from app.redaction import install_scrub_filter, register_secret
 
 logger = logging.getLogger(__name__)
@@ -596,129 +595,6 @@ class CuerpoPausaProducto(BaseModel):
 
     modo: Literal["live", "shadow"]
     base_config_version_id: int = Field(ge=1)
-
-
-# ---------------------------------------------------------------------------
-# TEMPORADA 01 A: tarjeta «Temporadas de venta»
-# ---------------------------------------------------------------------------
-
-MESES_QUERY = "meses (12 valores baja|normal|alta separados por coma)"
-
-
-@router.get("/temporada/vista-previa")
-def vista_previa_temporada(
-    conn: ConexionLectura,
-    meses: str | None = None,
-    reduccion_baja_pct: str | None = None,
-    dias_preparacion: str | None = None,
-    mult_cortes_baja: str | None = None,
-    aumento_presupuesto_alta_pct: str | None = None,
-    fin_anticipado: str | None = None,
-    meta_alta_amazon_mx: str | None = None,
-    meta_alta_amazon_us: str | None = None,
-) -> dict:
-    """«Así queda tu año» de la tarjeta (SIN token y de solo lectura, como
-    /campana-ajuste/plan). Llama a temporada.resumen, la misma funcion pura
-    que pinta la pagina; el JS no repite ninguna regla. 422 con el mensaje
-    de temporada.valida (tal cual lo pega settings.js). Devuelve ademas el
-    equilibrio y el aviso por plataforma, que se ven al escribir la meta."""
-    from app.api_dashboard import (
-        _config_vigente_con_id,
-        equilibrio_temporada,
-        metas_vigentes_temporada,
-    )
-
-    _config_id, settings = _config_vigente_con_id(conn)
-    guardada = temporada.desde_settings(settings)
-    crudo = {
-        "version": temporada.VERSION_TEMPORADA,
-        "meses": (meses or "").split(","),
-        "reduccion_baja_pct": reduccion_baja_pct,
-        "dias_preparacion": dias_preparacion,
-        "mult_cortes_baja": mult_cortes_baja,
-        "aumento_presupuesto_alta_pct": aumento_presupuesto_alta_pct,
-        "fin_anticipado": (
-            fin_anticipado
-            if fin_anticipado is not None
-            else (
-                guardada.fin_anticipado.isoformat()
-                if guardada is not None and guardada.fin_anticipado is not None
-                else None
-            )
-        ),
-        "mantener_pausadas": (sorted(guardada.mantener_pausadas) if guardada is not None else []),
-    }
-    try:
-        config_t = temporada.valida(crudo)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    meta_alta: dict[str, Decimal] = {}
-    for plataforma in temporada.PLATAFORMAS_TEMPORADA:
-        crudo_meta = meta_alta_amazon_mx if plataforma == "amazon_mx" else meta_alta_amazon_us
-        if crudo_meta is None or not crudo_meta.strip():
-            meta_alta[plataforma] = temporada.meta_alta_desde_settings(settings, plataforma)
-            continue
-        try:
-            meta_alta[plataforma] = temporada.valida_meta_alta(crudo_meta)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from None
-    hoy = dt.datetime.now(dt.UTC).date()
-    metas_hoy, peldanos = metas_vigentes_temporada(conn)
-    res = temporada.resumen(config_t, hoy, antes=guardada, metas_hoy=metas_hoy, meta_alta=meta_alta)
-    detalle = {}
-    for plataforma in temporada.PLATAFORMAS_TEMPORADA:
-        detalle[plataforma] = equilibrio_temporada(
-            conn,
-            plataforma,
-            meta_hoy=metas_hoy.get(plataforma),
-            peldano=peldanos.get(plataforma),
-            meta_alta=meta_alta.get(plataforma),
-            hoy=hoy,
-        )
-    return {
-        "resumen": res.como_dict(),
-        "mensaje": temporada.mensaje_guardado(res),
-        "plataformas": detalle,
-    }
-
-
-class CuerpoTerminaBaja(BaseModel):
-    """«Terminar la baja hoy»: solo la base optimista; el dia es hoy UTC."""
-
-    base_config_version_id: int = Field(ge=1)
-
-
-@router.post("/temporada/terminar-baja")
-def terminar_baja_temporada(
-    _token: Annotated[str, Depends(exige_token)],
-    conn: ConexionEscritura,
-    cuerpo: CuerpoTerminaBaja,
-) -> dict:
-    """«Terminar la baja hoy»: fija ads_temporada.fin_anticipado = hoy UTC en
-    la config guardada (la misma config_write de siempre; el calendario del
-    ano no cambia). Fuera de una baja -> 422 con el texto de la tarjeta."""
-    from app.api_dashboard import _config_vigente_con_id
-
-    _config_id, settings = _config_vigente_con_id(conn)
-    guardada = temporada.desde_settings(settings)
-    hoy = dt.datetime.now(dt.UTC).date()
-    if guardada is None or temporada.resuelve(guardada, hoy).fase != "baja":
-        raise HTTPException(
-            status_code=422,
-            detail=temporada.MSG_FIN_BAJA,
-        )
-    nueva = replace(guardada, fin_anticipado=hoy)
-    try:
-        return config_write.guarda_config(
-            conn,
-            platform="amazon_mx",  # la tarjeta es global: el label nombra una plataforma
-            base_config_version_id=cuerpo.base_config_version_id,
-            ahora=dt.datetime.now(dt.UTC),
-            actor="terminar-baja",
-            temporada=temporada.como_guardada(nueva),
-        )
-    except tuple(_ERRORES_SETTINGS) as exc:
-        raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None
 
 
 @router.post("/productos/pausa/{platform}")

@@ -640,6 +640,10 @@ SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/campana-ajuste/aplicar", "post"),
     ("/api/ads-optimizer/campana-ajuste/{ajuste_id}/regresar", "post"),
     ("/api/ads-optimizer/productos/pausa/{platform}", "post"),
+    # TEMPORADA 01 A: tarjeta «Temporadas de venta» (app/api_temporada.py).
+    ("/api/ads-optimizer/temporada/vista-previa", "get"),
+    ("/api/ads-optimizer/temporada/terminar-baja", "post"),
+    ("/api/ads-optimizer/temporada/mantener-pausada", "post"),
 }
 
 

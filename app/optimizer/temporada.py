@@ -243,7 +243,7 @@ def _identificadores(crudo) -> frozenset[int]:
         raise ValueError(f"mantener_pausadas admite hasta {MANTENER_PAUSADAS_MAX} keywords")
     ids = []
     for item in crudo:
-        n = _entero(item, "mantener_pausadas")
+        n = _entero(item)
         if n < 1:
             raise ValueError("mantener_pausadas debe ser una lista de ids de keywords")
         ids.append(n)
@@ -522,7 +522,7 @@ def memoria_recuperacion_desde_settings(settings: Mapping, plataforma: str) -> i
     valor = settings.get(clave)
     if valor is None:
         return 365
-    dias = _entero(valor, clave)
+    dias = _entero(valor)
     if not MEMORIA_DIAS_MIN <= dias <= MEMORIA_DIAS_MAX:
         raise ValueError(
             f"setting {clave}: los dias de memoria van de {MEMORIA_DIAS_MIN} a {MEMORIA_DIAS_MAX}"
