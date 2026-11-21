@@ -261,13 +261,15 @@ def fee_variable_efectivo(
     fee_variable: Decimal | None,
     politica: PoliticaCalculo | None,
 ) -> Decimal | None:
-    """Escala la parte variable de la comision segun la politica vigente."""
+    """Escala la parte variable de la comision segun la politica vigente (fail-closed)."""
     if fee_variable is None or politica is None or politica.formula_version != "S4":
         return fee_variable
     try:
         mult = _decimal_setting(politica.settings, "referral_fee_iva_multiplicador")
     except (ValueError, InvalidOperation):
-        return fee_variable
+        return None
+    if not mult.is_finite() or mult < Decimal("1") or mult >= _MAX_DINERO:
+        return None
     if mult == Decimal("1"):
         return fee_variable
     return _cuantizar_frontera(fee_variable * mult)

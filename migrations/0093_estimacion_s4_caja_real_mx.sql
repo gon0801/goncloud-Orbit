@@ -17,10 +17,20 @@
 --
 -- Se preserva todo el historial S3: estimacion_politica_version adopta el mismo
 -- patron de cierre unico de vigencia que sku_cost y precio_goal (solo permite
--- pasar valid_to de NULL a DATE una vez; DELETE y TRUNCATE siguen prohibidos).
+-- pasar valid_to de NULL a DATE una vez; DELETE y TRUNCATE siguen prohibidos) y
+-- admite valid_to = valid_from (intervalo vacio [d, d), como precio_goal en 0039)
+-- para que una reversa o redespliegue el mismo dia UTC tome efecto inmediato sin
+-- borrar referencias historicas.
 --
 -- Sin BEGIN/COMMIT: tools/despliegue/desplegar.sh corre en una transaccion (-1).
 -- Reversa: 0093_reversa_estimacion_s4_caja_real_mx.sql.
+
+ALTER TABLE estimacion_politica_version
+    DROP CONSTRAINT IF EXISTS estimacion_politica_vigencia_coherente;
+
+ALTER TABLE estimacion_politica_version
+    ADD CONSTRAINT estimacion_politica_vigencia_coherente
+    CHECK (valid_to IS NULL OR valid_to >= valid_from);
 
 CREATE OR REPLACE FUNCTION estimacion_politica_solo_cierra_vigencia() RETURNS trigger
 LANGUAGE plpgsql
@@ -54,7 +64,9 @@ COMMENT ON FUNCTION estimacion_politica_solo_cierra_vigencia IS
     'Permite cerrar valid_to una sola vez (NULL -> DATE) sin alterar ningun '
     'otro campo; DELETE y TRUNCATE siguen prohibidos por prohibir_mutacion.';
 
-DROP TRIGGER estimacion_politica_append_only ON estimacion_politica_version;
+DROP TRIGGER IF EXISTS estimacion_politica_append_only ON estimacion_politica_version;
+DROP TRIGGER IF EXISTS estimacion_politica_solo_cierra_vigencia ON estimacion_politica_version;
+DROP TRIGGER IF EXISTS estimacion_politica_sin_borrado ON estimacion_politica_version;
 
 CREATE TRIGGER estimacion_politica_solo_cierra_vigencia
     BEFORE UPDATE ON estimacion_politica_version
@@ -64,13 +76,14 @@ CREATE TRIGGER estimacion_politica_sin_borrado
     BEFORE DELETE ON estimacion_politica_version
     FOR EACH ROW EXECUTE FUNCTION prohibir_mutacion();
 
--- Cierra las politicas S3 abiertas de Mexico a partir de hoy (UTC).
+-- Cierra las politicas S3 abiertas de Mexico a partir de hoy (UTC), incluso si
+-- una reversa previa del mismo dia abrio una continuacion S3 con valid_from = hoy.
 UPDATE estimacion_politica_version
    SET valid_to = (now() AT TIME ZONE 'UTC')::date
  WHERE universo IN ('amazon_mx/fba', 'amazon_mx/fbm', 'meli/meli')
    AND formula_version = 'S3'
    AND valid_to IS NULL
-   AND valid_from < (now() AT TIME ZONE 'UTC')::date;
+   AND valid_from <= (now() AT TIME ZONE 'UTC')::date;
 
 -- Siembra las tres politicas S4 vigentes desde hoy (UTC).
 INSERT INTO estimacion_politica_version (

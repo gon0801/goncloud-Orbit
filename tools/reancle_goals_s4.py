@@ -1,4 +1,4 @@
-"""Re-ancla goals activos de Mexico (S3 -> S4) preservando el P* vigente.
+"""Re-ancla y revierte goals activos de Mexico (S3 <-> S4) preservando P*.
 
 Herramienta operativa para acompaniar la migracion 0093 (S4 caja real MX):
 los goals activos en `amazon_mx` y `meli` fueron sembrados sobre la escala S3
@@ -7,17 +7,18 @@ re-expresar esos goals haria que el motor en `live` viera saltos artificiales
 de margen (~-2 pts en Amazon MX, ~+0.7 pts en MeLi) y disparara cambios de
 precio sin cambio real de costo.
 
-Por cada goal vigente en Mexico:
-- Si `goal_s3` coincide con `m_actual_s3` (siembra "margen de hoy"), el goal
-  equivalente en S4 es exactamente `m_actual_s4` (P* sigue siendo `P_actual`).
-- Si `goal_s3` difiere de `m_actual_s3`, calcula `P*_s3` y evalua el margen S4
-  a ese mismo precio `P*_s3`, preservando el precio objetivo al centavo.
-
-Ceremonia (mismo patron que `tools/precio_goal.py`):
-- Dry-run por omision: imprime tabla completa y huella (`--platform`).
-- Escritura real: exige `--acepto-mutacion-real --huella H --go "<literal>"`,
-  corre TODO O NADA en una transaccion y escribe SOLO via `app.precio.goals_write`
-  (jamas SQL crudo sobre `precio_goal`).
+Reglas de seguridad:
+- Lee las tasas S4 desde `estimacion_politica_version` via
+  `resolver_politica_aplicable` (Regla 2, cero tasas hardcodeadas) y exige que
+  `S4` este vigente antes de construir o aplicar el re-anclaje.
+- Idempotente: excluye goals ya escritos por `reancle_s4` y goals creados
+  cuando ya existia un escenario S4 para esa publicacion (nunca convierte dos
+  veces la misma meta).
+- Reversible (`--revertir`): restaura cada meta activa de un lote `reancle_s4`
+  a la meta S3 inmediatamente anterior cerrada el mismo dia o antes, via
+  `app.precio.goals_write` (nunca SQL crudo sobre `precio_goal`).
+- Conexion `autocommit=True` (espejo de `tools/precio_goal.py`): cada
+  `with conn.transaction():` es una transaccion raiz durable, no un SAVEPOINT.
 """
 
 from __future__ import annotations
@@ -27,10 +28,13 @@ import hashlib
 import os
 import sys
 from dataclasses import dataclass
+from datetime import UTC
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from app.db import OrbitDbError, connect
+from app.estimacion_repository import resolver_politica_aplicable
+from app.estimacion_venta import PoliticaCalculo
 from app.precio.goals_write import (
     PrecioGoalInvalido,
     banda_desde_settings,
@@ -40,14 +44,24 @@ from app.precio.goals_write import (
 )
 from app.precio.objetivo import ErrorObjetivo, margen_a_precio, precio_estrella, techo_centavo
 
-_IVA_DIVISOR_MX = Decimal("1.16")
-_ISR_TASA_MX = Decimal("0.025")
-_RET_IVA_TASA_MX = Decimal("0.08")
-_MULT_REF_AMAZON_MX = Decimal("1.16")
-_MULT_REF_MELI = Decimal("1")
 _CUATRO_DECIMALES = Decimal("0.0001")
 _DOS_DECIMALES = Decimal("0.01")
 _LOTE_DEFAULT = "reancle_s4_2026_11"
+_CREADO_POR_REANCLE = "reancle_s4"
+_CREADO_POR_REVERSA = "reancle_s4_reversa"
+_UNIVERSOS_POR_PLATAFORMA: dict[str, tuple[str, ...]] = {
+    "amazon_mx": ("amazon_mx/fba", "amazon_mx/fbm"),
+    "meli": ("meli/meli",),
+}
+
+
+@dataclass(frozen=True)
+class TasasPoliticaS4:
+    iva_divisor: Decimal
+    isr_tasa: Decimal
+    retencion_iva_tasa: Decimal
+    referral_fee_iva_multiplicador: Decimal
+    precio_incluye_iva: bool
 
 
 @dataclass(frozen=True)
@@ -68,11 +82,58 @@ class FilaReancle:
     fuera_de_banda: bool
 
 
+@dataclass(frozen=True)
+class FilaReversaReancle:
+    goal_s4_id: int
+    goal_s3_id: int
+    listing_id: int
+    platform: str
+    mode: str
+    goal_s4: Decimal
+    goal_s3_restaurar: Decimal
+    m_referencia_s3: Decimal | None
+
+
 def _comp(componentes: list[dict[str, Any]], nombre: str) -> Decimal:
     for item in componentes:
         if item.get("nombre") == nombre and item.get("importe_normalizado") is not None:
             return Decimal(str(item["importe_normalizado"]))
     raise ValueError(f"escenario sin componente {nombre}")
+
+
+def _tasas_de_politica_s4(politica: PoliticaCalculo) -> TasasPoliticaS4:
+    if politica.formula_version != "S4":
+        raise ValueError(
+            f"politica vigente de {politica.universo} es {politica.formula_version!r}, no 'S4'"
+        )
+    s = politica.settings
+    return TasasPoliticaS4(
+        iva_divisor=Decimal(str(s["iva_divisor"])),
+        isr_tasa=Decimal(str(s["isr_tasa"])),
+        retencion_iva_tasa=Decimal(str(s["retencion_iva_tasa"])),
+        referral_fee_iva_multiplicador=Decimal(str(s["referral_fee_iva_multiplicador"])),
+        precio_incluye_iva=bool(s["precio_incluye_iva"]),
+    )
+
+
+def _cargar_politicas_s4(
+    conn,
+    *,
+    plataformas: tuple[str, ...],
+) -> dict[str, TasasPoliticaS4]:
+    """Lee politicas vigentes en BD; aborta si algun universo pedido no esta en S4."""
+    ahora = conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0].replace(tzinfo=UTC)
+    hoy = ahora.date()
+    tasas_por_universo: dict[str, TasasPoliticaS4] = {}
+    for plat in plataformas:
+        for universo in _UNIVERSOS_POR_PLATAFORMA[plat]:
+            res = resolver_politica_aplicable(conn, fecha=hoy, universo=universo, observed_at=ahora)
+            if res.politica is None:
+                raise ValueError(
+                    f"sin politica S4 vigente para {universo}: {res.motivo} (aplica 0093 primero)"
+                )
+            tasas_por_universo[universo] = _tasas_de_politica_s4(res.politica)
+    return tasas_por_universo
 
 
 def calcular_goal_equivalente_s4(
@@ -85,20 +146,38 @@ def calcular_goal_equivalente_s4(
     fee_var_raw: Decimal,
     fee_fijo: Decimal,
     envio: Decimal,
+    tasas_s4: TasasPoliticaS4 | None = None,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal]:
     """Devuelve `(m_s3, m_s4, goal_s4, p_star_s3, p_star_s4)` en Decimal.
 
-    Preserva el mismo precio objetivo `P*` al pasar de S3 a S4:
-    - S3: `I = P / 1.16`, `R = 0.025 * I`, `F = ref_raw * P + fijo`
-    - S4: `I = P`, `R = (0.025 + 0.08) / 1.16 * P`, `F = ref_raw * mult * P + fijo`
+    Preserva el mismo precio objetivo `P*` al pasar de S3 a S4 usando las tasas
+    de la politica S4 vigente.
     """
-    mult_ref = _MULT_REF_AMAZON_MX if platform == "amazon_mx" else _MULT_REF_MELI
+    _ = fee_raw_total
+    if tasas_s4 is None:
+        tasas_s4 = TasasPoliticaS4(
+            iva_divisor=Decimal("1.16"),
+            isr_tasa=Decimal("0.025"),
+            retencion_iva_tasa=Decimal("0.08"),
+            referral_fee_iva_multiplicador=(
+                Decimal("1.16") if platform == "amazon_mx" else Decimal("1")
+            ),
+            precio_incluye_iva=True,
+        )
+    divisor_fiscal = tasas_s4.iva_divisor if tasas_s4.precio_incluye_iva else Decimal("1")
     ref_raw = fee_var_raw / p_actual
-    ref_s4 = ref_raw * mult_ref
-    tasa_ret_s4 = (_ISR_TASA_MX + _RET_IVA_TASA_MX) / _IVA_DIVISOR_MX
+    ref_s4 = ref_raw * tasas_s4.referral_fee_iva_multiplicador
+    tasa_ret_s4 = (tasas_s4.isr_tasa + tasas_s4.retencion_iva_tasa) / divisor_fiscal
 
     m_s3 = margen_a_precio(
-        p_actual, costo, ref_raw, fee_fijo, envio, _ISR_TASA_MX, _IVA_DIVISOR_MX, True
+        p_actual,
+        costo,
+        ref_raw,
+        fee_fijo,
+        envio,
+        tasas_s4.isr_tasa,
+        tasas_s4.iva_divisor,
+        tasas_s4.precio_incluye_iva,
     )
     m_s4 = margen_a_precio(
         p_actual, costo, ref_s4, fee_fijo, envio, tasa_ret_s4, Decimal("1"), False
@@ -110,7 +189,14 @@ def calcular_goal_equivalente_s4(
     else:
         p_star_s3 = techo_centavo(
             precio_estrella(
-                costo, fee_fijo, envio, _ISR_TASA_MX, goal_s3, _IVA_DIVISOR_MX, True, ref_raw
+                costo,
+                fee_fijo,
+                envio,
+                tasas_s4.isr_tasa,
+                goal_s3,
+                tasas_s4.iva_divisor,
+                tasas_s4.precio_incluye_iva,
+                ref_raw,
             )
         )
         goal_s4_exacto = margen_a_precio(
@@ -131,7 +217,8 @@ def calcular_goal_equivalente_s4(
 
 
 def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[FilaReancle], str]:
-    """Lee goals activos MX y su ultimo escenario S3 disponible; calcula plan y huella."""
+    """Lee goals activos S3 de MX y su ultimo escenario S3; exige politica S4 activa."""
+    tasas_por_universo = _cargar_politicas_s4(conn, plataformas=plataformas)
     minimo, maximo = banda_desde_settings(config_vigente_settings(conn))
     filas_db = conn.execute(
         """
@@ -151,9 +238,19 @@ def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[
           JOIN ult_esc u ON u.listing_id = g.listing_id AND u.platform = g.platform
          WHERE g.valid_to IS NULL
            AND g.platform = ANY(%s)
+           AND g.creado_por <> %s
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM estimacion_escenario e4
+                WHERE e4.listing_id = g.listing_id
+                  AND e4.platform = g.platform
+                  AND e4.formula_version = 'S4'
+                  AND e4.estado = 'disponible'
+                  AND e4.observed_at <= g.created_at
+           )
          ORDER BY g.platform, g.listing_id
         """,
-        (list(plataformas), list(plataformas)),
+        (list(plataformas), list(plataformas), _CREADO_POR_REANCLE),
     ).fetchall()
 
     plan: list[FilaReancle] = []
@@ -172,6 +269,10 @@ def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[
     ) in filas_db:
         if fee_var_raw is None or fee_fijo is None:
             raise ValueError(f"listing {listing_id} ({platform}) sin fee_variable/fee_fijo")
+        universo = f"{platform}/{canal}"
+        tasas_s4 = tasas_por_universo.get(universo)
+        if tasas_s4 is None:
+            raise ValueError(f"sin politica S4 cargada para universo {universo}")
         p_actual = _comp(componentes, "precio_bruto")
         costo = _comp(componentes, "costo_normalizado")
         fee_raw = _comp(componentes, "fee_total")
@@ -185,6 +286,7 @@ def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[
             fee_var_raw=Decimal(fee_var_raw),
             fee_fijo=Decimal(fee_fijo),
             envio=envio,
+            tasas_s4=tasas_s4,
         )
         fuera = not (minimo <= goal_s4 <= maximo)
         plan.append(
@@ -208,6 +310,56 @@ def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[
         partes_huella.append(f"{goal_id}:{listing_id}:{platform}:{mode}:{goal_s3}->{goal_s4}")
 
     huella = hashlib.sha256("|".join(partes_huella).encode()).hexdigest()[:16]
+    return plan, huella
+
+
+def construir_plan_reversa_reancle(
+    conn,
+    *,
+    plataformas: tuple[str, ...],
+    lote: str = _LOTE_DEFAULT,
+) -> tuple[list[FilaReversaReancle], str]:
+    """Planea la restauracion de goals activos escritos por `reancle_s4` al S3 previo."""
+    filas_db = conn.execute(
+        """
+        SELECT g.id, g.listing_id, g.platform::text, g.mode::text, g.margen_goal_pct,
+               prev.id, prev.margen_goal_pct, prev.m_referencia
+          FROM precio_goal g
+          JOIN LATERAL (
+              SELECT p.id, p.margen_goal_pct, p.m_referencia
+                FROM precio_goal p
+               WHERE p.listing_id = g.listing_id
+                 AND p.platform = g.platform
+                 AND p.id < g.id
+                 AND p.creado_por <> %s
+               ORDER BY p.id DESC
+               LIMIT 1
+          ) prev ON true
+         WHERE g.valid_to IS NULL
+           AND g.platform = ANY(%s)
+           AND g.creado_por = %s
+           AND g.lote = %s
+         ORDER BY g.platform, g.listing_id
+        """,
+        (_CREADO_POR_REANCLE, list(plataformas), _CREADO_POR_REANCLE, lote),
+    ).fetchall()
+    plan: list[FilaReversaReancle] = []
+    partes: list[str] = []
+    for g4_id, lid, plat, mode, g4_pct, g3_id, g3_pct, m_ref_s3 in filas_db:
+        plan.append(
+            FilaReversaReancle(
+                goal_s4_id=g4_id,
+                goal_s3_id=g3_id,
+                listing_id=lid,
+                platform=plat,
+                mode=mode,
+                goal_s4=Decimal(g4_pct),
+                goal_s3_restaurar=Decimal(g3_pct),
+                m_referencia_s3=Decimal(m_ref_s3) if m_ref_s3 is not None else None,
+            )
+        )
+        partes.append(f"rev:{g4_id}->{g3_id}:{lid}:{plat}:{mode}:{g4_pct}->{g3_pct}")
+    huella = hashlib.sha256("|".join(partes).encode()).hexdigest()[:16]
     return plan, huella
 
 
@@ -237,7 +389,7 @@ def aplicar_reancle(
                 goal_pct=_fmt_pct(fila.goal_s4),
                 mode=fila.mode,
                 go_literal=go_literal if fila.mode == "live" else None,
-                creado_por="reancle_s4",
+                creado_por=_CREADO_POR_REANCLE,
                 origen="cambio_de_modo",
                 lote=lote,
                 m_referencia=fila.m_s4,
@@ -246,15 +398,49 @@ def aplicar_reancle(
     return escritos
 
 
+def aplicar_reversa_reancle(
+    conn,
+    *,
+    plan: list[FilaReversaReancle],
+    go_literal: str,
+    lote: str = _LOTE_DEFAULT,
+) -> int:
+    """Revierte un lote `reancle_s4` restaurando la meta S3 previa via `goals_write`."""
+    escritos = 0
+    lote_rev = f"{lote}_reversa"
+    with conn.transaction():
+        for fila in plan:
+            cerrar_goal(conn, listing_id=fila.listing_id, platform=fila.platform)
+            sembrar_goal(
+                conn,
+                listing_id=fila.listing_id,
+                platform=fila.platform,
+                goal_pct=_fmt_pct(fila.goal_s3_restaurar),
+                mode=fila.mode,
+                go_literal=go_literal if fila.mode == "live" else None,
+                creado_por=_CREADO_POR_REVERSA,
+                origen="cambio_de_modo",
+                lote=lote_rev,
+                m_referencia=fila.m_referencia_s3,
+            )
+            escritos += 1
+    return escritos
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Re-ancla goals activos de Mexico (S3 -> S4) preservando P*."
+        description="Re-ancla o revierte goals activos de Mexico (S3 <-> S4) preservando P*."
     )
     parser.add_argument(
         "--platform",
         choices=("amazon_mx", "meli", "todas"),
         default="todas",
         help="Plataforma MX a evaluar (default: todas).",
+    )
+    parser.add_argument(
+        "--revertir",
+        action="store_true",
+        help="Revierte un lote previo de reancle_s4 a las metas S3 anteriores.",
     )
     parser.add_argument(
         "--acepto-mutacion-real",
@@ -278,7 +464,37 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     plataformas = ("amazon_mx", "meli") if args.platform == "todas" else (args.platform,)
     try:
-        with connect(dsn) as conn:
+        with connect(dsn, autocommit=True) as conn:
+            if args.revertir:
+                plan_rev, huella = construir_plan_reversa_reancle(
+                    conn, plataformas=plataformas, lote=args.lote
+                )
+                print("goal_s4_id|goal_s3_id|listing_id|platform|mode|goal_s4%|goal_s3_restaurar%")
+                for f in plan_rev:
+                    print(
+                        f"{f.goal_s4_id}|{f.goal_s3_id}|{f.listing_id}|{f.platform}|{f.mode}|"
+                        f"{_fmt_pct(f.goal_s4)}|{_fmt_pct(f.goal_s3_restaurar)}"
+                    )
+                print(f"RESUMEN_REVERSA total={len(plan_rev)} huella={huella}")
+                if not args.acepto_mutacion_real:
+                    return 0
+                if args.huella != huella:
+                    print(
+                        f"ERROR: huella distinta (esperaba {args.huella!r}, actual {huella!r})",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if any(f.mode == "live" for f in plan_rev) and not (
+                    args.go_literal and args.go_literal.strip()
+                ):
+                    print("ERROR: hay goals live; exige --go <literal>", file=sys.stderr)
+                    return 2
+                n = aplicar_reversa_reancle(
+                    conn, plan=plan_rev, go_literal=args.go_literal or "", lote=args.lote
+                )
+                print(f"REVERTIDO goals_restaurados={n} lote={args.lote}_reversa")
+                return 0
+
             plan, huella = construir_plan_reancle(conn, plataformas=plataformas)
             print(
                 "goal_id|listing_id|platform|canal|sku|mode|goal_s3%|goal_s4%|delta_pts|"
@@ -301,8 +517,9 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            hay_live = any(f.mode == "live" for f in plan)
-            if hay_live and not (args.go_literal and args.go_literal.strip()):
+            if any(f.mode == "live" for f in plan) and not (
+                args.go_literal and args.go_literal.strip()
+            ):
                 print("ERROR: hay goals live; exige --go <literal>", file=sys.stderr)
                 return 2
             n = aplicar_reancle(conn, plan=plan, go_literal=args.go_literal or "", lote=args.lote)

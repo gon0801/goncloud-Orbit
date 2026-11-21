@@ -27,16 +27,22 @@ from test_schema import _postgres_obligatorio_ausente, _test_dsn
 from app.estimacion_insumos import SOURCE_COSTOS
 from app.estimacion_proyeccion import proyeccion_s5
 from app.estimacion_reader import leer_cuenta, leer_escenarios
-from app.estimacion_repository import persistir_escenario, sembrar_escenario_desde_refs
+from app.estimacion_repository import (
+    persistir_escenario,
+    resolver_politica_aplicable,
+    sembrar_escenario_desde_refs,
+)
 from app.estimacion_venta import (
     DetalleFee,
     EntradaCalculo,
     PoliticaCalculo,
     calcular_contribucion,
+    fee_variable_efectivo,
 )
-from app.precio.config import ConfigPrecio
+from app.precio.config import ConfigMotor, ConfigPrecio
+from app.precio.corrida import _medir_compuerta
 from app.precio.objetivo import paso
-from app.precio.puerto import Cotizacion
+from app.precio.puerto import Cotizacion, MetaGoal
 from app.precio.reglas import decidir
 from app.precio.siembra import LecturaHoy, _referencia
 from app.precio.tipos import (
@@ -48,10 +54,13 @@ from app.precio.tipos import (
     ObservacionPricing,
     SenalVentas,
 )
+from app.spapi.precio_mercado import MercadoAmazon
 from tools.reancle_goals_s4 import (
     aplicar_reancle,
+    aplicar_reversa_reancle,
     calcular_goal_equivalente_s4,
     construir_plan_reancle,
+    construir_plan_reversa_reancle,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -269,6 +278,24 @@ def test_s4_guardas_fail_closed():
     res_sin_ref = calcular_contribucion(entrada_sin_ref, POL_S4_AMZ_FBA, valoracion_date=_FECHA)
     assert res_sin_ref.estado == "incompleta"
     assert "fee_incompatible" in res_sin_ref.motivos
+
+    # F4: fee_variable_efectivo falla cerrado (None) si multiplicador falta o es < 1.
+    assert fee_variable_efectivo(Decimal("100.0000"), pol_mala) is None
+    pol_sin_mult = PoliticaCalculo(
+        politica_version_id=100,
+        label="sin-mult",
+        universo="amazon_mx/fbm",
+        formula_version="S4",
+        settings={
+            k: v
+            for k, v in POL_S4_AMZ_FBM.settings.items()
+            if k != "referral_fee_iva_multiplicador"
+        },
+        valid_from=date(2026, 11, 21),
+        valid_to=None,
+        created_at=_AHORA,
+    )
+    assert fee_variable_efectivo(Decimal("100.0000"), pol_sin_mult) is None
 
 
 def test_objetivo_y_reglas_s4_verifican_cotizacion_cruda_sin_rebotar():
@@ -589,9 +616,55 @@ def test_migracion_0093_ida_reversa_y_escenario_s4_en_pg16():
         assert cuenta.componentes.fees.valor == Decimal("287.1956")
         assert cuenta.componentes.isr.valor == Decimal("134.6897")
 
-        # Reversa CON escenario S4 existente: conserva historial y abre continuacion S3.
+        # F3: MercadoAmazon.insumos parte fees S4 sin inflar fijo
+        # (FBAFees=64, Referral*1.16=223.1956).
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('test-s4', %s)",
+            (Json({"precio_senal_trafico_min": 50}),),
+        )
+        mercado = MercadoAmazon("amazon_mx")
+        unidad = mercado.unidades(conn, [lid])[lid]
+        cfg = ConfigPrecio(
+            caida_ventas_pct=Decimal("0.30"),
+            senal_dias=5,
+            u60_min=5,
+            fechas_excluidas=(),
+            escalon_max_pct=Decimal("0.15"),
+            movimiento_min_pct=Decimal("0.02"),
+            movimiento_min_abs_mxn=Decimal("5"),
+            movimiento_min_abs_usd=Decimal("0.50"),
+            tolerancia=Decimal("0.01"),
+            dias_entre_cambios=7,
+            freno_cambios=3,
+            divergencia_max_pct=Decimal("0.05"),
+        )
+        lectura = mercado.insumos(
+            conn,
+            [unidad],
+            hoy=hoy,
+            ahora=ahora,
+            config=cfg,
+            metas={lid: MetaGoal(Decimal("0.50"), "shadow", hoy)},
+        )[lid]
+        assert isinstance(lectura.fees_escenario, Fees)
+        assert lectura.fees_escenario.fijo.valor == Decimal("64.0000")
+        assert lectura.fees_escenario.variable.valor == Decimal("223.1956")
+        assert lectura.fees_escenario.total.valor == Decimal("287.1956")
+        assert lectura.entrada is not None
+        assert lectura.entrada.escenario.referral_fee_iva_multiplicador == Decimal("1.16")
+
+        # Reversa CON escenario S4 el MISMO dia: resuelve S3 AL INSTANTE y conserva historial.
         conn.execute(SQL_0093_REV)
         assert conn.execute(sonda).fetchone()[0] is False
+        ahora_rev = (
+            conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0].replace(tzinfo=UTC)
+        )
+        pol_tras_rev = resolver_politica_aplicable(
+            conn, fecha=hoy, universo="amazon_mx/fba", observed_at=ahora_rev
+        )
+        assert pol_tras_rev.motivo is None
+        assert pol_tras_rev.politica is not None
+        assert pol_tras_rev.politica.formula_version == "S3"
         assert (
             conn.execute(
                 "SELECT count(*) FROM estimacion_escenario WHERE formula_version = 'S4'"
@@ -599,10 +672,23 @@ def test_migracion_0093_ida_reversa_y_escenario_s4_en_pg16():
             == 1
         )
 
+        # Redespliegue el MISMO dia tras reversa con historial: vuelve a S4 sin ambiguedad ni error.
+        conn.execute(SQL_0093)
+        assert conn.execute(sonda).fetchone()[0] is True
+        ahora_redep = (
+            conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0].replace(tzinfo=UTC)
+        )
+        pol_tras_redep = resolver_politica_aplicable(
+            conn, fecha=hoy, universo="amazon_mx/fba", observed_at=ahora_redep
+        )
+        assert pol_tras_redep.motivo is None
+        assert pol_tras_redep.politica is not None
+        assert pol_tras_redep.politica.formula_version == "S4"
+
 
 @_skip_db
 def test_reancle_goals_s4_en_pg16():
-    """Construye y aplica el re-anclaje S3 -> S4 via goals_write sin SQL crudo."""
+    """Exige S4 activa, re-ancla una sola vez (idempotente) y revierte al S3 exacto."""
     with db_desde_template(prefijo="orbit_reancle_s4", base=_test_dsn(), autocommit=True) as (
         conn,
         _,
@@ -641,6 +727,12 @@ def test_reancle_goals_s4_en_pg16():
             m_referencia=Decimal("0.5336"),
         )
 
+        # F2: sin politica S4 vigente, el re-anclaje aborta en vez de migrar a ciegas.
+        with pytest.raises(ValueError, match="no 'S4'"):
+            construir_plan_reancle(conn, plataformas=("amazon_mx",))
+
+        # Aplicar 0093 -> ahora si lee tasas reales de S4 y planea.
+        conn.execute(SQL_0093)
         plan, huella = construir_plan_reancle(conn, plataformas=("amazon_mx",))
         assert len(plan) == 1
         assert len(huella) == 16
@@ -660,3 +752,248 @@ def test_reancle_goals_s4_en_pg16():
             (lid,),
         ).fetchone()
         assert nuevo == (Decimal("0.5083"), "live", "reancle_s4", Decimal("0.5083"))
+
+        # Idempotencia (Devin #2): correr construir_plan_reancle otra vez devuelve 0 filas.
+        plan_segundo, _ = construir_plan_reancle(conn, plataformas=("amazon_mx",))
+        assert plan_segundo == []
+
+        # Reversa del lote (Devin #3): restaura el goal exacto 53.36% via goals_write.
+        plan_rev, huella_rev = construir_plan_reversa_reancle(conn, plataformas=("amazon_mx",))
+        assert len(plan_rev) == 1
+        assert len(huella_rev) == 16
+        assert plan_rev[0].goal_s3_restaurar == Decimal("0.5336")
+        restaurados = aplicar_reversa_reancle(conn, plan=plan_rev, go_literal="GO-REV-S3")
+        assert restaurados == 1
+        restaurado = conn.execute(
+            "SELECT margen_goal_pct, mode, creado_por, m_referencia FROM precio_goal"
+            " WHERE listing_id = %s AND valid_to IS NULL",
+            (lid,),
+        ).fetchone()
+        assert restaurado == (Decimal("0.5336"), "live", "reancle_s4_reversa", Decimal("0.5336"))
+
+
+@_skip_db
+def test_compuerta_no_traba_en_transicion_s3_a_s4():
+    """Devin #4: el cambio S3 -> S4 no dispara insumo_sistemico en retencion/fees, pero
+    sigue detectando un salto real de costo."""
+    from datetime import timedelta
+
+    with db_desde_template(prefijo="orbit_comp_s4", base=_test_dsn(), autocommit=True) as (
+        conn,
+        _,
+    ):
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        ayer = hoy - timedelta(days=1)
+        ahora = conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0].replace(tzinfo=UTC)
+        ahora_ayer = ahora - timedelta(days=1)
+
+        cfg_id = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('comp-s4', %s) RETURNING id",
+            (Json({"precio_goal_min_pct": "0.10", "precio_goal_max_pct": "0.60"}),),
+        ).fetchone()[0]
+        corrida_ayer = conn.execute(
+            "INSERT INTO precio_corrida"
+            " (platform, fecha, owner, estado, iniciada_at, cerrada_at, config_version_id,"
+            "  modo_global, decisiones, movidas, virtuales, retenidas, errores,"
+            "  saltadas_por_edicion)"
+            " VALUES ('amazon_mx', %s, 'test', 'cerrada', %s, %s, %s, 'live', 12, 0, 0, 0, 0, 0)"
+            " RETURNING id",
+            (ayer, ahora_ayer, ahora_ayer, cfg_id),
+        ).fetchone()[0]
+        corrida_hoy = conn.execute(
+            "INSERT INTO precio_corrida"
+            " (platform, fecha, owner, estado, iniciada_at, config_version_id, modo_global)"
+            " VALUES ('amazon_mx', %s, 'test', 'abierta', %s, %s, 'live') RETURNING id",
+            (hoy, ahora, cfg_id),
+        ).fetchone()[0]
+        pol_s3 = conn.execute(
+            "SELECT id FROM estimacion_politica_version"
+            " WHERE universo = 'amazon_mx/fba' AND formula_version = 'S3' LIMIT 1"
+        ).fetchone()[0]
+        pol_s4 = conn.execute(
+            "SELECT id FROM estimacion_politica_version"
+            " WHERE universo = 'amazon_mx/fba' AND formula_version = 'S4' LIMIT 1"
+        ).fetchone()[0]
+
+        run_id_ayer = conn.execute(
+            "INSERT INTO ingest_run (source, started_at, finished_at, ok)"
+            " VALUES (%s, %s, %s, true) RETURNING id",
+            (SOURCE_COSTOS, ahora_ayer, ahora_ayer),
+        ).fetchone()[0]
+        run_id = conn.execute(
+            "INSERT INTO ingest_run (source, started_at, finished_at, ok)"
+            " VALUES (%s, %s, %s, true) RETURNING id",
+            (SOURCE_COSTOS, ahora, ahora),
+        ).fetchone()[0]
+
+        for idx in range(12):
+            sku = f"SKU-CS4-{idx:02d}"
+            asin = f"B0CS4000{idx:02d}"
+            pid = conn.execute(
+                "INSERT INTO product (odoo_sku, name) VALUES (%s, %s) RETURNING id", (sku, sku)
+            ).fetchone()[0]
+            lid = conn.execute(
+                "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+                " VALUES (%s, 'amazon_mx', %s, %s) RETURNING id",
+                (pid, asin, sku),
+            ).fetchone()[0]
+            cid = conn.execute(
+                "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, valid_from,"
+                " includes_tax, ingest_run_id)"
+                " VALUES (%s, 309.8200, 'MXN', '2026-01-01', false, %s) RETURNING id",
+                (pid, run_id),
+            ).fetchone()[0]
+            oid = conn.execute(
+                "INSERT INTO estimacion_oferta_observation"
+                " (listing_id, platform, seller_sku, asin, canal, price_amount, price_currency,"
+                "  fetched_at, observed_at, source_event_id, canonical_input, context_fingerprint)"
+                " VALUES (%s, 'amazon_mx', %s, %s, 'fba', 1488.0000, 'MXN',"
+                "  %s, %s, %s, '{}'::jsonb, %s) RETURNING id",
+                (lid, sku, asin, ahora, ahora, f"of-cs4-{idx}", f"fp-{idx}"),
+            ).fetchone()[0]
+            fid = conn.execute(
+                "INSERT INTO estimacion_fee_observation"
+                " (oferta_observation_id, listing_id, platform, seller_sku, asin, canal,"
+                "  quoted_price_amount, quoted_price_currency, total_fees, fee_details,"
+                "  fees_estimated_at, fetched_at, observed_at, estado, source_event_id,"
+                "  canonical_input, context_fingerprint)"
+                " VALUES (%s, %s, 'amazon_mx', %s, %s, 'fba', 1488.0000, 'MXN', 256.4100,"
+                "  '[]'::jsonb, %s, %s, %s, 'success', %s, '{}'::jsonb, %s) RETURNING id",
+                (oid, lid, sku, asin, ahora, ahora, ahora, f"fe-cs4-{idx}", f"fp-{idx}"),
+            ).fetchone()[0]
+            gid = conn.execute(
+                "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
+                " valid_from, creado_por, go_literal)"
+                " VALUES (%s, 'amazon_mx', 0.5000, 'live', %s, 'test', 'GO') RETURNING id",
+                (lid, ayer),
+            ).fetchone()[0]
+            esc_s3_id = conn.execute(
+                "INSERT INTO estimacion_escenario"
+                " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
+                "  politica_version_id, formula_version, oferta_observation_id, fee_observation_id,"
+                "  sku_cost_id, costo_validation_run_id, costo_validated_at,"
+                "  estado, motivos, componentes, exclusiones, canonical_input, context_fingerprint,"
+                "  source_event_id, moneda, contribucion, contribucion_pct, logistica_origen,"
+                "  fee_variable, fee_fijo, fee_cotizable)"
+                " VALUES (%s, 'amazon_mx', %s, %s, 'fba', %s, %s, %s, 'S3', %s, %s, %s, %s, %s,"
+                "  'disponible', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, %s, %s,"
+                "  'MXN', 684.46, 53.36, 'politica', 192.41, 64.00, true) RETURNING id",
+                (
+                    lid,
+                    sku,
+                    asin,
+                    ayer,
+                    ahora,
+                    pol_s3,
+                    oid,
+                    fid,
+                    cid,
+                    run_id_ayer,
+                    ahora_ayer,
+                    f"fp-{idx}",
+                    f"ev-s3-{idx}",
+                ),
+            ).fetchone()[0]
+            esc_s4_id = conn.execute(
+                "INSERT INTO estimacion_escenario"
+                " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
+                "  politica_version_id, formula_version, oferta_observation_id, fee_observation_id,"
+                "  sku_cost_id, costo_validation_run_id, costo_validated_at,"
+                "  estado, motivos, componentes, exclusiones, canonical_input, context_fingerprint,"
+                "  source_event_id, moneda, contribucion, contribucion_pct, logistica_origen,"
+                "  fee_variable, fee_fijo, fee_cotizable)"
+                " VALUES (%s, 'amazon_mx', %s, %s, 'fba', %s, %s, %s, 'S4', %s, %s, %s, %s, %s,"
+                "  'disponible', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, %s, %s,"
+                "  'MXN', 756.29, 50.83, 'politica', 223.20, 64.00, true) RETURNING id",
+                (
+                    lid,
+                    sku,
+                    asin,
+                    hoy,
+                    ahora,
+                    pol_s4,
+                    oid,
+                    fid,
+                    cid,
+                    run_id,
+                    ahora,
+                    f"fp-{idx}",
+                    f"ev-s4-{idx}",
+                ),
+            ).fetchone()[0]
+            # Decision previa (ayer, S3: I=1282.76, R=32.07 -> 2.5%)
+            conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER USER")
+            try:
+                conn.execute(
+                    "INSERT INTO precio_decision"
+                    " (listing_id, platform, decision_date, resultado, motivo, product_id, canal,"
+                    "  m_actual, goal, p_actual, p_actual_currency, p_objetivo_currency,"
+                    "  p_aplicado_currency, i_valor, i_currency,"
+                    "  c_valor, c_currency, f_valor, f_currency, l_valor, l_currency,"
+                    "  r_valor, r_currency, escenario_id, fee_observation_id, mode,"
+                    "  config_version_id, corrida_id, goal_id, l_origen)"
+                    " VALUES (%s, 'amazon_mx', %s, 'mantener', 'en_tolerancia', %s, 'fba',"
+                    "  0.5336, 0.5000, 1488.00, 'MXN', 'MXN', 'MXN', 1282.76, 'MXN',"
+                    "  309.82, 'MXN', 256.41, 'MXN', 0.00, 'MXN',"
+                    "  32.07, 'MXN', %s, %s, 'live', %s, %s, %s, 'politica')",
+                    (lid, ayer, pid, esc_s3_id, fid, cfg_id, corrida_ayer, gid),
+                )
+            finally:
+                conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER USER")
+            # Decision hoy (S4: I=1488.00, R=134.69 -> 9.05%; 1 subida pendiente)
+            res_hoy = "subir" if idx == 0 else "mantener"
+            mot_hoy = None if idx == 0 else "en_tolerancia"
+            conn.execute(
+                "INSERT INTO precio_decision"
+                " (listing_id, platform, decision_date, resultado, motivo, product_id, canal,"
+                "  m_actual, goal, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+                "  p_aplicado, p_aplicado_currency, i_valor, i_currency,"
+                "  c_valor, c_currency, f_valor, f_currency, l_valor, l_currency,"
+                "  r_valor, r_currency, escenario_id, fee_observation_id, mode,"
+                "  config_version_id, corrida_id, goal_id, l_origen, verificacion)"
+                " VALUES (%s, 'amazon_mx', %s, %s, %s, %s, 'fba',"
+                "  0.5083, 0.5000, 1488.00, 'MXN', %s, 'MXN', %s, 'MXN', 1488.00, 'MXN',"
+                "  309.82, 'MXN', 287.20, 'MXN', 0.00, 'MXN',"
+                "  134.69, 'MXN', %s, %s, 'live', %s, %s, %s, 'politica', %s)",
+                (
+                    lid,
+                    hoy,
+                    res_hoy,
+                    mot_hoy,
+                    pid,
+                    Decimal("1520.00") if idx == 0 else None,
+                    Decimal("1520.00") if idx == 0 else None,
+                    esc_s4_id,
+                    fid,
+                    cfg_id,
+                    corrida_hoy,
+                    gid,
+                    "cotizada" if idx == 0 else None,
+                ),
+            )
+
+        class _MercadoStub:
+            clave = "amazon_mx"
+            filtra_catalogo = False
+
+        motor = ConfigMotor(
+            modo_global="live",
+            modo_universo={"amazon_mx/fba": "live"},
+            banda_goal=(Decimal("0.10"), Decimal("0.60")),
+            freno_dias_error=3,
+            catalogo_max_dias_sin_reportar=3,
+            aviso_dias_sin_evaluar=3,
+            fusible_frac=Decimal("0.20"),
+            fusible_min_movimientos=10,
+            insumo_salto_pct=Decimal("0.05"),
+            insumo_salto_frac=Decimal("0.30"),
+            corte_errores_consecutivos=5,
+            senal_trafico_min=50,
+            cohorte_caida_pct=Decimal("0.30"),
+            envio_ventana_dias=90,
+        )
+        veredictos = _medir_compuerta(conn, _MercadoStub(), hoy, motor, corrida_hoy)
+        assert "fba" in veredictos
+        assert not hasattr(veredictos["fba"], "causa"), (
+            f"transicion S3->S4 no debe trabar compuerta: {veredictos['fba']}"
+        )
