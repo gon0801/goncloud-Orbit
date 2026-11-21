@@ -51,9 +51,11 @@ from app.optimizer.caso import (
     EvidenciaNivel,
     HistoriaBid,
     InsumosPausa,
+    InsumosRecuperacion,
     ManoExterna,
     Plataforma,
     PrecioVentana,
+    PresupuestoCampana,
     TemporadaCaso,
     Tramo,
     Trayectoria,
@@ -151,10 +153,11 @@ SELECT hoja_id, ad_group_id, campana_id FROM v_hoja_activa WHERE platform = %s
 # trae decision_id, motivo_temporada y episodio_id de la vista de 0093.
 _SQL_CAMBIOS = """
 SELECT c.hoja_id, c.confirmado_el, c.bid_antes, c.bid_despues, c.origen,
-       c.decision_id, c.motivo_temporada, c.episodio_id, d.new_value
+       c.decision_id, c.motivo_temporada, c.episodio_id, d.new_value,
+       d.inputs->>'motivo' AS motivo
   FROM v_cambio_bid c
   JOIN ad_entity k ON k.id = c.hoja_id
-  LEFT JOIN decision d ON d.id = c.decision_id AND c.origen = 'regreso_del_dueno'
+  LEFT JOIN decision d ON d.id = c.decision_id
  WHERE k.platform = %s::platform
    AND c.confirmado_el >= %s{tope}
  ORDER BY c.hoja_id, c.confirmado_el, c.decision_id
@@ -181,6 +184,33 @@ SELECT f.ad_entity_id, f.episodio_id
 
 _SQL_EPISODIO_ABIERTO_VIEJO = """
 SELECT min(abierto_el) FROM temporada_episodio WHERE platform = %s::platform AND cerrado_el IS NULL
+"""
+
+# TEMPORADA 01 C: presupuesto vigente y gasto diario de campana (la MISMA
+# fuente que pantalla_dinero y los avisos de Telegram: v_campana_config_vigente
+# y v_metric_latest con kind='campaign'; Amazon reporta el costo de campana).
+# Con `visto_el` el gasto sale de metrics_as_of y el presupuesto de la ultima
+# observacion CONOCIDA entonces: una correccion append-only posterior o un
+# cambio de presupuesto no altera el rejuego (revision del dueno, PR #701).
+_PRESUPUESTO_VIGENTE = (
+    "(SELECT v.presupuesto_diario FROM v_campana_config_vigente v WHERE v.ad_entity_id = c.id)"
+)
+_PRESUPUESTO_AS_OF = (
+    "(SELECT o.presupuesto_diario FROM ads_campana_config_observation o"
+    " WHERE o.ad_entity_id = c.id AND o.observed_at <= %s"
+    " ORDER BY o.observed_at DESC LIMIT 1)"
+)
+_SQL_PRESUPUESTO_CAMPANA = """
+SELECT c.id, {presupuesto}
+  FROM ad_entity c
+ WHERE c.platform = %s AND c.kind = 'campaign'
+"""
+
+_SQL_GASTO_CAMPANA = """
+SELECT v.ad_entity_id, v.metric_date, v.cost
+  FROM {fuente}
+  JOIN ad_entity c ON c.id = v.ad_entity_id
+ WHERE c.platform = %s AND c.kind = 'campaign' AND v.metric_date >= %s AND v.metric_date <= %s
 """
 
 _SQL_EFECTO = """
@@ -421,6 +451,7 @@ def _cambios_por_hoja(filas: list) -> dict[int, tuple[CambioBid, ...]]:
         _mt,
         _ep,
         revierte_new,
+        _motivo,
     ) in filas:
         previos = por_hoja.setdefault(hoja_id, [])
         if bid_antes is None:
@@ -464,6 +495,7 @@ def _historia_por_hoja(
         motivo_t,
         episodio_id,
         _rev,
+        motivo,
     ) in filas:
         por_hoja.setdefault(hoja_id, []).append(
             CambioFechado(
@@ -474,6 +506,7 @@ def _historia_por_hoja(
                 origen=origen,
                 motivo_temporada=motivo_t,
                 episodio_id=episodio_id,
+                motivo=motivo,
             )
         )
     hojas = set(por_hoja) | set(manos) | set(fines)
@@ -534,6 +567,11 @@ class LecturasPlataforma:
     _temporada: TemporadaPlataforma | None = None
     _historia: dict[int, HistoriaBid] | None = None
     _historia_desde: dt.date | None = None
+    # TEMPORADA 01 C: insumos de la subida rapida (con ellos el caso congelado
+    # trae recuperacion e historia) y presupuesto por campana (BUD); None
+    # conserva el camino de hoy byte a byte.
+    _recuperacion: InsumosRecuperacion | None = None
+    _presupuesto: dict[int, PresupuestoCampana] | None = None
 
     def frontera(
         self,
@@ -637,24 +675,40 @@ class LecturasPlataforma:
             trayectoria = Trayectoria(cambios=(), efecto=None)
         # TEMPORADA 01 B: con temporada live el caso congelado trae los
         # marcadores; en shadow (y sin temporada) va byte a byte lo de hoy.
+        # TEMPORADA 01 C: con recuperacion encendida el caso trae recuperacion
+        # e historia (R6r corre todo el ano, con o sin temporada), y el
+        # presupuesto de su campana cuando la lectura corrio (BUD). `con_temporada`
+        # False (bid en vuelo) omite los marcadores de cadena: la cadena puede
+        # cambiar cuando el vuelo se resuelva.
         temporada_caso = None
         historia_caso = None
+        recuperacion_caso = None
         t = self._temporada
-        if t is not None and t.modo == "live" and con_temporada:
+        con_cadena = (t is not None and t.modo == "live" and con_temporada) or (
+            self._recuperacion is not None and con_temporada
+        )
+        if con_cadena:
             historia_caso = self._historia.get(hoja_id) or HistoriaBid(
                 desde=self._historia_desde or self._d,
                 cambios=(),
                 fines=frozenset(),
                 manos_externas=(),
             )
-            temporada_caso = TemporadaCaso(
-                estacion=t.estacion,
-                episodio=t.estado.episodio,
-                excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
-                meta_alta_pct=t.meta_alta_pct,
-                meta_manual=procedencia in ("goal_campana", "goal_plataforma"),
-                frontera=self.frontera(hoja_id, bid.valor, piso=bid.piso, techo=bid.techo),
-            )
+            if t is not None and t.modo == "live" and con_temporada:
+                temporada_caso = TemporadaCaso(
+                    estacion=t.estacion,
+                    episodio=t.estado.episodio,
+                    excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
+                    meta_alta_pct=t.meta_alta_pct,
+                    meta_manual=procedencia in ("goal_campana", "goal_plataforma"),
+                    frontera=self.frontera(hoja_id, bid.valor, piso=bid.piso, techo=bid.techo),
+                )
+            if self._recuperacion is not None:
+                recuperacion_caso = self._recuperacion
+        presupuesto_caso = None
+        if self._presupuesto is not None:
+            campana = self._campanas.get(hoja_id)
+            presupuesto_caso = self._presupuesto.get(campana) if campana is not None else None
         return CasoHoja(
             plataforma=self.plataforma,
             hoja_id=hoja_id,
@@ -674,6 +728,8 @@ class LecturasPlataforma:
             revision=REVISION_POLITICA,
             temporada=temporada_caso,
             historia=historia_caso,
+            recuperacion=recuperacion_caso,
+            presupuesto=presupuesto_caso,
         )
 
     def efecto(
@@ -943,6 +999,7 @@ def _historia_temporada(
     desde: dt.date,
     visto_el: dt.datetime | None,
     activa: bool,
+    memoria_dias: int = 365,
 ) -> tuple[
     dt.date,
     dict[int, list[ManoExterna]],
@@ -951,14 +1008,16 @@ def _historia_temporada(
     dict[int, HistoriaBid] | None,
 ]:
     """Los cambios de bid de la plataforma, la ventana extendida de la historia
-    (D-365 o el inicio del episodio abierto mas viejo: un episodio abierto no
-    caduca), las manos externas fechadas, los episodios con fin guardado y la
-    trayectoria de 90 dias derivada como hoy (TEMPORADA 01 B). `activa` False
-    conserva el camino de hoy byte a byte. La consulta de cambios vive aqui:
-    la consumen la trayectoria (90 dias) y la historia congelada (entera)."""
+    (D-memoria_dias o el inicio del episodio abierto mas viejo: un episodio
+    abierto no caduca), las manos externas fechadas, los episodios con fin
+    guardado y la trayectoria de 90 dias derivada como hoy (TEMPORADA 01 B).
+    `memoria_dias` (TEMPORADA 01 C) es `ads_bid_recuperacion_memoria_dias_<plat>`
+    y acota hasta donde recuerda el bid mas alto. `activa` False conserva el
+    camino de hoy byte a byte. La consulta de cambios vive aqui: la consumen la
+    trayectoria (90 dias) y la historia congelada (entera)."""
     desde_historia = desde
     if activa:
-        desde_historia = d - dt.timedelta(days=365)
+        desde_historia = d - dt.timedelta(days=memoria_dias)
         viejo = conn.execute(_SQL_EPISODIO_ABIERTO_VIEJO, (plataforma,)).fetchone()[0]
         if viejo is not None:
             desde_historia = min(desde_historia, viejo.astimezone(dt.UTC).date())
@@ -1003,6 +1062,60 @@ def _historia_temporada(
     return desde_historia, manos, fines, {h: cs for h, cs in cambios_90.items() if cs}, historia
 
 
+def _presupuesto_campanas(
+    conn: Conexion,
+    plataforma: Plataforma,
+    dias: frozenset[dt.date],
+    topada: temporada.CampanaTopada,
+    visto_el: dt.datetime | None = None,
+) -> dict[int, PresupuestoCampana]:
+    """PresupuestoCampana por campana (TEMPORADA 01 C): el presupuesto vigente
+    (o el conocido a `visto_el`, para el rejuego bitemporal) y cuantos de los
+    ULTIMOS 7 dias con ingesta de la plataforma el gasto de la campana alcanzo
+    `topada.pct` de el (del mismo corte temporal: metrics_as_of). Dia sin fila
+    de la campana cuenta gasto cero. Sin observacion de presupuesto,
+    dias_topados es None (no se inventa el monto). Los dias salen de la ventana
+    madura que este caso ya midio: el mismo reloj del motor."""
+    fuente, pv = _fuente(visto_el)
+    if visto_el is None:
+        sql = _SQL_PRESUPUESTO_CAMPANA.format(presupuesto=_PRESUPUESTO_VIGENTE)
+        params: tuple = (plataforma,)
+    else:
+        sql = _SQL_PRESUPUESTO_CAMPANA.format(presupuesto=_PRESUPUESTO_AS_OF)
+        params = (visto_el, plataforma)
+    presupuestos = {campana: monto for campana, monto in conn.execute(sql, params).fetchall()}
+    ultimos_7 = sorted(dias)[-7:]
+    gasto: dict[int, dict[dt.date, Decimal]] = {}
+    if ultimos_7:
+        for campana, metric_date, cost in conn.execute(
+            _SQL_GASTO_CAMPANA.format(fuente=fuente),
+            (*pv, plataforma, ultimos_7[0], ultimos_7[-1]),
+        ).fetchall():
+            gasto.setdefault(campana, {})[metric_date] = cost
+    resultado: dict[int, PresupuestoCampana] = {}
+    for campana, monto in presupuestos.items():
+        dias_topados = None
+        if monto is not None:
+            filas_gasto = gasto.get(campana, {})
+            if any(dia in filas_gasto and filas_gasto[dia] is None for dia in ultimos_7):
+                # La ingesta guarda filas de campana con impresiones y costo
+                # NULL (el esquema lo admite): el gasto de ese dia se
+                # desconoce y la racha no se puede computar de fiar. None =
+                # no se sabe -> BUD no sube (dato faltante, no inventado).
+                dias_topados = None
+            else:
+                dias_topados = sum(
+                    1 for dia in ultimos_7 if filas_gasto.get(dia, Decimal(0)) >= topada.pct * monto
+                )
+        resultado[campana] = PresupuestoCampana(
+            presupuesto_diario=monto,
+            dias_medidos=len(ultimos_7),
+            dias_topados=dias_topados,
+            topada=topada,
+        )
+    return resultado
+
+
 def lee_plataforma(
     conn: Conexion,
     plataforma: Plataforma,
@@ -1012,6 +1125,8 @@ def lee_plataforma(
     visto_el: dt.datetime | None = None,
     version_economia: str | None = None,
     temporada_plat: TemporadaPlataforma | None = None,
+    recuperacion: InsumosRecuperacion | None = None,
+    campana_topada: temporada.CampanaTopada | None = None,
 ) -> LecturasPlataforma:
     """Cuatro consultas por plataforma. `visto_el` None = ultima observacion
     (v_metric_latest, el ciclo). `visto_el` con fecha = lectura bitemporal
@@ -1023,7 +1138,12 @@ def lee_plataforma(
     para los eventos que invalidan un episodio (configuracion de campana,
     ajustes, precios, product ads nuevos y negatives o harvests aplicados en
     el mismo ad group) y estampa esa version en el episodio nuevo. None no las
-    ejecuta y deja el camino de consultas historico."""
+    ejecuta y deja el camino de consultas historico.
+
+    TEMPORADA 01 C: `recuperacion` encendido (ads_bid_recuperacion_<plat>)
+    extiende la historia a D-memoria_dias para R6r; `campana_topada` presente
+    (los flags de temporada o recuperacion encendidos) lee el presupuesto por
+    campana para el freno BUD. Sin ellos, byte a byte lo de hoy."""
     _exige_tz(decidido_el, "decidido_el")
     if visto_el is not None:
         _exige_tz(visto_el, "visto_el")
@@ -1048,9 +1168,17 @@ def lee_plataforma(
     filas_hojas = conn.execute(_SQL_HOJAS, (plataforma,)).fetchall()
     # TEMPORADA 01 B: con temporada encendida la historia crece a D-365 (o al
     # inicio del episodio abierto mas viejo) y trae las manos externas, los
-    # fines y la trayectoria de 90 dias derivada como hoy.
+    # fines y la trayectoria de 90 dias derivada como hoy. TEMPORADA 01 C:
+    # con recuperacion encendida tambien (R6r corre todo el ano) y la memoria
+    # del bid mas alto es `ads_bid_recuperacion_memoria_dias_<plat>`.
     desde_historia, manos_por_hoja, fines_por_hoja, cambios_90, historia = _historia_temporada(
-        conn, plataforma, d, desde, visto_el, temporada_plat is not None
+        conn,
+        plataforma,
+        d,
+        desde,
+        visto_el,
+        temporada_plat is not None or recuperacion is not None,
+        memoria_dias=recuperacion.memoria_dias if recuperacion is not None else 365,
     )
     p_pre = [pre_desde, fresco] * 5
     p_inm = [inm_desde, ayer] * 3
@@ -1073,6 +1201,13 @@ def lee_plataforma(
             for entidad, sello in conn.execute(consulta, (plataforma, bajo, corte)).fetchall():
                 eventos_grupo.setdefault(entidad, []).append(sello.astimezone(dt.UTC).date())
     dias = frozenset(f for fila in filas_tramos for f in (fila[14] or ()))
+    # TEMPORADA 01 C: presupuesto por campana (BUD), solo con el freno pedido,
+    # en el mismo corte temporal que el resto de la lectura.
+    presupuesto = (
+        _presupuesto_campanas(conn, plataforma, dias, campana_topada, visto_el)
+        if campana_topada is not None
+        else None
+    )
     por_hoja = {}
     for fila in filas_tramos:
         (hoja, fr, c_r, p_r, v_r, g_r, i_r, fa, c_a, p_a, v_a, g_a, i_a, _obs, _f) = fila
@@ -1136,4 +1271,6 @@ def lee_plataforma(
         _temporada=temporada_plat,
         _historia=historia,
         _historia_desde=desde_historia,
+        _recuperacion=recuperacion,
+        _presupuesto=presupuesto,
     )

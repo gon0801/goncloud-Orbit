@@ -206,23 +206,23 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
     # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
     # frontera por hoja.
-    "app/cycle.py": 2458,
+    "app/cycle.py": 2479,
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
-    "app/etiquetas.py": 1061,
+    "app/etiquetas.py": 1068,
     "app/impulso_io.py": 1232,
     # TEMPORADA 01 B: los cuatro marcadores opcionales de temporada y su
     # freeze/desfreeze exacto (temporada, historia, recuperacion,
     # presupuesto).
-    "app/optimizer/caso.py": 1467,
+    "app/optimizer/caso.py": 1476,
     "app/precio/cambios.py": 1045,
     "app/precio/corrida.py": 1685,
     "app/retiro_anuncios.py": 1388,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
-    "app/lecturas_caso.py": 1139,
-    "app/optimizer/temporada.py": 1191,
+    "app/lecturas_caso.py": 1276,
+    "app/optimizer/temporada.py": 1218,
 }
 
 

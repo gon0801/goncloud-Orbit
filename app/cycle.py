@@ -248,7 +248,7 @@ from app.optimizer import bid, cortes, harvest_destino, hygiene, productos, temp
 from app.optimizer import goals as g
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.caso import BidVigente, EconomiaPlataforma
+from app.optimizer.caso import BidVigente, EconomiaPlataforma, InsumosRecuperacion
 from app.optimizer.politica import Mantener, Pausar, decide
 from app.optimizer.replay import reproduce as reproduce
 from app.redaction import install_scrub_filter, scrub
@@ -1873,6 +1873,10 @@ def _recorre_plataforma(
     # plataforma se resuelven UNA vez por ciclo en TX2. Sin interruptor, ni
     # lectura ni estado (y lecturas va byte a byte lo de hoy).
     plat_t = None
+    # TEMPORADA 01 C: los insumos de la subida rapida (R6r) y la definicion de
+    # campana topada (BUD), tambien UNA vez por plataforma en TX2.
+    rec_r = None
+    topada_r = None
     if politica is not None:
         modo_t = temporada.modo_desde_settings(settings, platform)
         if modo_t is not None:
@@ -1899,6 +1903,21 @@ def _recorre_plataforma(
                 estado=estado_t,
             )
             contadores.temporada_plat = plat_t
+        # TEMPORADA 01 C: ads_bid_recuperacion_<plat> (y su memoria del bid
+        # mas alto). Igual que la temporada, el marcador solo viaja con modo
+        # live: en shadow el ciclo va byte a byte lo de hoy hasta que la
+        # comparacion de sombra llegue con el bloque D. La definicion de
+        # campana topada (defaults 90 %, 5 de 7) acompana la lectura del
+        # presupuesto solo cuando un freno la usa.
+        modo_r = temporada.modo_recuperacion_desde_settings(settings, platform)
+        if modo_r == "live":
+            rec_r = InsumosRecuperacion(
+                version="recuperacion_v1",
+                memoria_dias=temporada.memoria_recuperacion_desde_settings(settings, platform),
+            )
+            topada_r = temporada.campana_topada_desde_settings(settings)
+        elif modo_t == "live":
+            topada_r = temporada.campana_topada_desde_settings(settings)
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
         # Economia resuelta UNA vez por plataforma (las confianzas A3
@@ -1918,6 +1937,8 @@ def _recorre_plataforma(
             economia=economia,
             version_economia=version_economia,
             temporada_plat=plat_t,
+            recuperacion=rec_r,
+            campana_topada=topada_r,
         )
     comunes = dict(
         platform=platform,

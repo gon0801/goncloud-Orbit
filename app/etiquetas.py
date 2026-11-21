@@ -123,6 +123,13 @@ MOTIVO_SALUD: dict[str, str] = {
         "Orbit ajustó la puja al cambiar la reducción de la temporada baja"
     ),
     politica.MOTIVO_SALE_BAJA: "Orbit regresó la puja al terminar la temporada baja",
+    # TEMPORADA 01 C: la subida rapida y su freno de presupuesto.
+    politica.MOTIVO_RECUPERA_NIVEL: (
+        "Orbit recuperó la puja recortada: la evidencia sostiene ese nivel"
+    ),
+    politica.MOTIVO_PRESUPUESTO_TOPADO: (
+        "La campaña anda sin presupuesto (o no se sabe): Orbit no sube la puja"
+    ),
     ciclo.MOTIVO_ENTIDAD_INERTE: "Sin impresiones en 14 días: Orbit no mueve su puja",
     # Lo cuentan la espera tras cualquier cambio aplicado (puja o pausa) y la de
     # una pausa aplicada aunque el dueno la haya revertido (goals.en_cooldown).
