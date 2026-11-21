@@ -1483,9 +1483,15 @@ def test_sql_del_modulo_parsea_como_postgres():
     codex+grok, cross-review 1.2): una constante _SQL_* futura sin listar
     revienta aqui en vez de quedar sin parsear en silencio -- la regression
     del candado vars() original cubierto por lista explicita."""
-    assert set(_SQL_CYCLE) == {n for n in vars(ciclo) if n.startswith("_SQL_")}
+    from app import cycle_target
+
+    encontrados = {
+        **{n: v for n, v in vars(ciclo).items() if n.startswith("_SQL_")},
+        **{n: v for n, v in vars(cycle_target).items() if n.startswith("_SQL_")},
+    }
+    assert set(_SQL_CYCLE) == set(encontrados)
     for nombre in _SQL_CYCLE:
-        sql = getattr(ciclo, nombre).replace("%s", "NULL")
+        sql = encontrados[nombre].replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 
 

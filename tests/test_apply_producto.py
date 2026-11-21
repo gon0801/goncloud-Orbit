@@ -172,7 +172,11 @@ class _Amazon:
                 self.puts.append((ad, str(entrada["state"])))
                 self.estado[ad] = str(entrada["state"])
                 self.caido = self.put == "readback_cae"
-            return httpx.Response(207, json={"productAds": {"error": [], "success": []}})
+            exitosos = [
+                {"adId": str(entrada["adId"]), "index": idx}
+                for idx, entrada in enumerate(cuerpo["productAds"])
+            ]
+            return httpx.Response(207, json={"productAds": {"error": [], "success": exitosos}})
         if request.method == "POST" and request.url.path.endswith("/list"):
             self.lists += 1
             if self.al_list is not None:
@@ -581,7 +585,9 @@ def test_venta_reciente_inmadura_descarta_la_pausa_al_revalidar(plantilla, dias)
         _mundo_pausa(conn)
         _config(conn)
         dec, q = _propuesta(conn)
-        fecha = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=dias)
+        from app.dia_cerrado import ultimo_dia_cerrado
+
+        fecha = ultimo_dia_cerrado(PLAT, ahora_db(conn)) - dt.timedelta(days=dias - 1)
         _ingesta(
             conn,
             fecha,
