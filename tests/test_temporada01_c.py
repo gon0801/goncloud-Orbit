@@ -436,6 +436,53 @@ def test_temporada01_c_frenos_del_salto():
     )
 
 
+def test_temporada01_c_sin_frenos_tras_cambio_de_temporada():
+    """El ultimo cambio de TEMPORADA es un movimiento planeado (decision 7 del
+    plan): ningun freno de _freno_trayectoria lo juzga como si buscara un
+    efecto — arriba solo espero R2 y el piso aprendido lo aplica _paso. Tanto
+    el salto de recuperacion como la subida normal de R6 salen sin R14/R15."""
+    cadena_temporada = HistoriaBid(
+        desde=dt.date(2026, 7, 1),
+        cambios=(
+            CambioFechado(
+                confirmado_el=dt.datetime(2026, 9, 20, 12, 0, tzinfo=dt.UTC),
+                decision_id=1,
+                bid_antes=Decimal("8.00"),
+                bid_despues=Decimal("5.60"),
+                origen="temporada",
+                motivo_temporada="entra",
+                episodio_id=1,
+            ),
+        ),
+    )
+    trayectoria_temporada = trayectoria(
+        [cambio(dt.date(2026, 9, 20), "8.00", "5.60", "temporada")],
+        efecto(dias_post=10, clics_post=10, gasto_post="19.00", vendia=False),
+    )
+    salto = politica.decide(
+        _caso_recupera(
+            bid=BidVigente(Decimal("5.60"), "MXN", Decimal("0.50"), TECHO_MX),
+            historia=cadena_temporada,
+            trayectoria=trayectoria_temporada,
+        )
+    )
+    assert isinstance(salto, politica.Regresar), salto
+    assert salto.motivo == politica.MOTIVO_RECUPERA_NIVEL
+    assert salto.bid_nuevo == Decimal("8.00"), "la evidencia sostiene hasta el techo conocido"
+    # la subida normal de R6 tambien pasa sin R15 (el mismo criterio)
+    subida = politica.decide(
+        _caso_recupera(
+            revision=1,
+            historia=None,
+            recuperacion=None,
+            trayectoria=trayectoria_temporada,
+        )
+    )
+    assert isinstance(subida, politica.Mover), subida
+    assert subida.motivo == politica.MOTIVO_BAJO_TARGET
+    assert subida.bid_nuevo == Decimal("2.48")
+
+
 def test_temporada01_c_ultimo_salto_recuperacion_se_deriva():
     """`ultimo_salto_recuperacion` sale del motivo general congelado del ultimo
     cambio de Orbit; los casos congelados antes de C (motivo None) derivan
@@ -561,18 +608,24 @@ def test_temporada01_c_memoria_acota_el_techo():
 # ---------------------------------------------------------------------------
 
 
-def _evidencia_recupera(conn, kw: int, desde: dt.date, hasta: dt.date, con_pedidos: bool) -> None:
-    """Hora 2 sobre la siembra neutral: pisa v_metric_latest con la evidencia de
-    la ventana madura (1.90 por clic; 5 pedidos con venta 450 repartidos)."""
+def _evidencia_caso_d(conn, kw: int, desde: dt.date, corte: dt.date, hasta: dt.date) -> None:
+    """La evidencia del CASO D del diseno (12 pedidos pesados, cpc 1.90, ticket
+    450 -> m* 3.29), hora 2 sobre la siembra neutral: los 41 dias recientes del
+    tramo pesan entero (2 clics/dia = 82) y los 40 antiguos la mitad (1 clic en
+    36 de ellos = 18) -> clics_pesados 100, pedidos_pesados 12, venta_pesada
+    5400, ticket 450, a_subida 13. La previa de cuenta en CVR 3 % la completa
+    `_evidencia_cuenta` con otra hoja. Los dias DESPUES del corte maduro (hasta
+    D-1) se siembran con el mismo cpc para que el precio medido del cambio no
+    se mezcle con el relleno neutro."""
     run_id = conn.execute(
         "INSERT INTO ingest_run (source) VALUES ('test-c') RETURNING id"
     ).fetchone()[0]
-    dia = desde
-    pedidos_restantes = 5 if con_pedidos else 0
-    while dia <= hasta:
-        es_pedido = con_pedidos and pedidos_restantes > 0 and (dia - desde).days % 16 == 15
-        if es_pedido:
-            pedidos_restantes -= 1
+    for i in range((hasta - desde).days + 1):
+        dia = desde + dt.timedelta(days=i)
+        maduro = dia <= corte
+        reciente = maduro and i >= (corte - desde).days + 1 - 41
+        clicks = 2 if reciente else (0 if maduro and i % 10 == 0 else 1)
+        pedido = reciente and i < (corte - desde).days + 1 - 41 + 12
         _metrica(
             conn,
             run_id,
@@ -580,14 +633,36 @@ def _evidencia_recupera(conn, kw: int, desde: dt.date, hasta: dt.date, con_pedid
             dia,
             dt.datetime(dia.year, dia.month, dia.day, 2, tzinfo=dt.UTC),
             moneda="MXN",
-            cost="1.90",
-            ad_revenue="450.00" if es_pedido else "0.00",
-            clicks=1,
-            orders=1 if es_pedido else 0,
+            cost="3.80" if clicks == 2 else ("1.90" if clicks else "0.00"),
+            ad_revenue="450.00" if pedido else "0.00",
+            clicks=clicks,
+            orders=1 if pedido else 0,
             impressions=100,
         )
-        dia += dt.timedelta(days=1)
-    assert pedidos_restantes == 0
+
+
+def _evidencia_cuenta(conn, kw: int, desde: dt.date, hasta: dt.date) -> None:
+    """Los clics de relleno que dejan la previa de cuenta en CVR 3 % (282
+    clics sin pedidos a 1.20 MXN: debajo del piso de pausa de 500 MXN y del
+    gasto para concluir, la hoja de relleno no decide ni se pausa)."""
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-c-cuenta') RETURNING id"
+    ).fetchone()[0]
+    for i in range((hasta - desde).days + 1):
+        dia = desde + dt.timedelta(days=i)
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            dia,
+            dt.datetime(dia.year, dia.month, dia.day, 2, tzinfo=dt.UTC),
+            moneda="MXN",
+            cost="1.20",
+            ad_revenue="0.00",
+            clicks=4 if i < 39 else 3,
+            orders=0,
+            impressions=100,
+        )
 
 
 def test_temporada01_c_recupera_con_evidencia(db_template):
@@ -612,27 +687,21 @@ def test_temporada01_c_recupera_con_evidencia(db_template):
         (camp, _medianoche(D_E1) - dt.timedelta(days=15)),
     )
     corte_viejo = D_E1 - dt.timedelta(days=40)
-    corte_reciente = D_E1 - dt.timedelta(days=10)
     kw1 = _kw(conn, ag, "c-kw1", "kw 1", "2.16")
-    kw2 = _kw(conn, ag, "c-kw2", "kw 2", "2.16")
-    _siembra_metricas(conn, [kw1, kw2])
+    _siembra_metricas(conn, [kw1])
     ventana_desde, ventana_hasta = D_E1 - dt.timedelta(days=90), D_E1 - dt.timedelta(days=10)
-    _evidencia_recupera(conn, kw1, ventana_desde, ventana_hasta, con_pedidos=True)
-    _evidencia_recupera(conn, kw2, ventana_desde, ventana_hasta, con_pedidos=True)
+    _evidencia_caso_d(conn, kw1, ventana_desde, ventana_hasta, D_E1 - dt.timedelta(days=1))
+    # la previa de cuenta en CVR 3 %: hoja de relleno en OTRO ad group
+    ag2 = _entidad(conn, "amazon_mx", "ad_group", "c-ag2", parent=camp)
+    _estado(conn, ag2, synced_at=_medianoche(D_E1))
+    kw_cuenta = _kw(conn, ag2, "c-kw-cuenta", "kw cuenta", "6.00")
+    _siembra_metricas(conn, [kw_cuenta])
+    _evidencia_cuenta(conn, kw_cuenta, ventana_desde, ventana_hasta)
     _cambio_confirmado(
         conn,
         kw1,
         config_id,
         dia=corte_viejo,
-        antes="8.00",
-        despues="2.16",
-        motivo="pierde_dinero_fuerte",
-    )
-    _cambio_confirmado(
-        conn,
-        kw2,
-        config_id,
-        dia=corte_reciente,
         antes="8.00",
         despues="2.16",
         motivo="pierde_dinero_fuerte",
@@ -650,19 +719,25 @@ def test_temporada01_c_recupera_con_evidencia(db_template):
             (res.cycle_id,),
         ).fetchall()
     }
-    # kw1: recorte de hace 40 dias -> R14 pasa -> R6r decide el salto completo.
+    # kw1: recorte de hace 40 dias -> R14 pasa -> R6r decide el salto completo:
+    # el CASO D del diseno (12 pedidos pesados, m* 3.29) da 2.16 x 3.29 = 7.10.
     motivo_1, nuevo_1 = decisiones[kw1]
     assert motivo_1 == politica.MOTIVO_RECUPERA_NIVEL, decisiones
     congelado = conn.execute(
         "SELECT inputs->'caso' FROM decision WHERE cycle_id = %s AND ad_entity_id = %s",
         (res.cycle_id, kw1),
     ).fetchone()[0]
-    a_subida, arg = _insumos_del_congelado(congelado)
-    m = recuperacion.multiplicador_sostenible(a_subida, arg, Decimal("0.70"))
-    esperado = (Decimal("2.16") * m).quantize(CENTAVO, rounding=ROUND_FLOOR)
-    esperado = min(esperado, Decimal("8.00"), Decimal("45.00"))
-    assert nuevo_1 == esperado, (nuevo_1, esperado)
-    assert esperado > Decimal("2.16") * Decimal("1.15"), "el salto supera un paso de R6"
+    print(
+        "DEPURACION propia",
+        congelado["propia"],
+        "| cuenta",
+        None if congelado.get("cuenta") is None else congelado["cuenta"]["reciente"],
+        None if congelado.get("cuenta") is None else congelado["cuenta"]["antiguo"],
+        "| efecto",
+        congelado["trayectoria"]["efecto"],
+    )
+    assert nuevo_1 == Decimal("7.10"), (nuevo_1, decisiones)
+    assert nuevo_1 > Decimal("2.16") * Decimal("1.15"), "el salto supera un paso de R6"
     # replay fiel: el caso congelado rejuega la misma decision.
     assert ciclo_mod.reproduce(
         conn.execute(
@@ -670,11 +745,8 @@ def test_temporada01_c_recupera_con_evidencia(db_template):
             (res.cycle_id, kw1),
         ).fetchone()[0]
     ) == ("bid", nuevo_1, "MXN")
-    # kw2: recorte de hace 10 dias (R2 pasado, menos de 14 dias y 20 clics)
-    # -> R14 frena el primer salto.
-    assert kw2 not in decisiones, decisiones
-    skips = json.loads(res.notes).get("skips", {}).get("entidad", {})
-    assert skips.get(politica.MOTIVO_ESPERANDO_PRECIO_MEDIDO) == 1, skips
+    # la hoja de relleno no decide (gasto bajo el piso de pausa y de corte)
+    assert kw_cuenta not in decisiones, decisiones
 
     # Ciclo siguiente: la misma evidencia al precio nuevo da bid x m* ~= bid:
     # ningun OTRO salto de recuperacion. El +15 % de R6 que puede seguir (la
@@ -725,7 +797,7 @@ def test_temporada01_c_practica_no_envia_pujas(db_template):
     kw1 = _kw(conn, ag, "c-kw1", "kw 1", "2.16")
     _siembra_metricas(conn, [kw1])
     ventana_desde, ventana_hasta = D_E1 - dt.timedelta(days=90), D_E1 - dt.timedelta(days=10)
-    _evidencia_recupera(conn, kw1, ventana_desde, ventana_hasta, con_pedidos=True)
+    _evidencia_caso_d(conn, kw1, ventana_desde, ventana_hasta, D_E1 - dt.timedelta(days=1))
     _cambio_confirmado(
         conn,
         kw1,
@@ -787,31 +859,71 @@ def test_temporada01_c_costo_null_no_tumba_el_ciclo(db_template):
     assert presupuesto[camp].dias_topados is None, "el dia sin costo se desconoce"
 
 
-def _insumos_del_congelado(caso_json: dict) -> tuple[Decimal, Decimal]:
-    """(a_subida, arg) desde el caso CONGELADO de la decision (la misma fuente
-    que uso el ciclo): evidencia pesada, previa de cuenta y el cpc medido al
-    bid nuevo que congelo `_precio_de_hoy`."""
-    caso = CasoHoja.desde_json(caso_json)
-    propia = caso.propia
-    assert propia is not None
-    pedidos = propia.pedidos_pesados()
-    clics = propia.clics_pesados()
-    venta = propia.venta_pesada()
-    a_subida = pedidos.to_integral_value(rounding=ROUND_FLOOR) + 1
-    cuenta = caso.cuenta
-    assert cuenta is not None
-    cvr = Decimal(cuenta.pedidos_crudos()) / Decimal(cuenta.clics_crudos())
-    aov = cuenta.venta_cruda() / Decimal(cuenta.pedidos_crudos())
-    clics_sub = clics + Decimal(1) / cvr
-    ticket_sub = (venta + aov) / (pedidos + Decimal(1))
-    ultimo = caso.trayectoria.ultimo
-    assert ultimo is not None and caso.trayectoria.efecto is not None
-    efecto_ultimo = caso.trayectoria.efecto
-    assert efecto_ultimo.clics_post is not None and efecto_ultimo.gasto_post is not None
-    cpc = efecto_ultimo.gasto_post / Decimal(efecto_ultimo.clics_post)
-    target = caso.economia.target_acos_pct
-    arg = clics_sub * cpc / (politica.MULT_SUBIDA * target / Decimal(100) * ticket_sub)
-    return a_subida, arg
+def test_temporada01_c_techo_de_baja_comparte_el_caso_d(db_template):
+    """El ejemplo del diseno con su evidencia: la keyword 20 -> 10 (motor) -> 7
+    (entrada de temporada) con la evidencia del caso D sostiene
+    7 x 3.29 = 23.03, pero en baja el techo de baja compartido topa el salto en
+    floor(20 x 0.70) = 14.00 — R6r decide Regresar(14.00), nunca 23.03."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(conn, {**_settings(), "ads_bid_recuperacion_amazon_mx": "live"})
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-camp")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "c-ag", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 1000.00, 'MXN')",
+        (camp, _medianoche(D_E1) - dt.timedelta(days=15)),
+    )
+    ag2 = _entidad(conn, "amazon_mx", "ad_group", "c-ag2", parent=camp)
+    _estado(conn, ag2, synced_at=_medianoche(D_E1))
+    ciclo_previo = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live','amazon_mx','done',%s,%s) RETURNING id",
+        (_medianoche(D_E1 - dt.timedelta(days=50)), _medianoche(D_E1 - dt.timedelta(days=50))),
+    ).fetchone()[0]
+    episodio = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(D_E1 - dt.timedelta(days=50)), ciclo_previo, config_id),
+    ).fetchone()[0]
+    kw2 = _kw(conn, ag, "c-kw2", "kw 2", "7.00")
+    kw_cuenta = _kw(conn, ag2, "c-kw-cuenta", "kw cuenta", "6.00")
+    _siembra_metricas(conn, [kw2, kw_cuenta])
+    ventana_desde, ventana_hasta = D_E1 - dt.timedelta(days=90), D_E1 - dt.timedelta(days=10)
+    _evidencia_caso_d(conn, kw2, ventana_desde, ventana_hasta, D_E1 - dt.timedelta(days=1))
+    _evidencia_cuenta(conn, kw_cuenta, ventana_desde, ventana_hasta)
+    _cambio_confirmado(
+        conn,
+        kw2,
+        config_id,
+        dia=D_E1 - dt.timedelta(days=50),
+        antes="20.00",
+        despues="10.00",
+        motivo="pierde_dinero_fuerte",
+    )
+    _cambio_confirmado(
+        conn,
+        kw2,
+        config_id,
+        dia=D_E1 - dt.timedelta(days=40),
+        antes="10.00",
+        despues="7.00",
+        motivo="entra_temporada_baja",
+        episodio_id=episodio,
+    )
+    conn.commit()
+
+    res = _corre(conn, D_E1, _handler_mx({}))
+    assert res.status == "done", res.notes
+    fila = conn.execute(
+        "SELECT d.inputs->>'motivo', d.new_value FROM decision d"
+        " WHERE d.cycle_id = %s AND d.kind = 'bid' AND d.ad_entity_id = %s",
+        (res.cycle_id, kw2),
+    ).fetchone()
+    assert fila == (politica.MOTIVO_RECUPERA_NIVEL, Decimal("14.00")), fila
 
 
 @pytest.mark.parametrize(

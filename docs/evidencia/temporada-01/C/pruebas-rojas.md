@@ -30,3 +30,24 @@ con la prueba nueva correspondiente:
    `memoria_dias` (hoy = ventana_hasta + DIAS_MADUREZ). Prueba
    `test_temporada01_c_memoria_acota_el_techo` (pura): roja = techo 30.00
    con memoria 365; verde = 8.00 (y 30.00 con memoria 1000).
+
+## Cierre con el detalle del coordinador (caso D del diseno y frenos de temporada)
+
+1. `test_temporada01_c_recupera_con_evidencia` ahora siembra el CASO D exacto
+   (12 pedidos pesados en el tramo reciente, 100 clics pesados, cpc 1.90,
+   ticket 450, previa de cuenta CVR 3 % con la hoja de relleno): la decision
+   del ciclo real es `Regresar(7.10)` (2.16 x 3.2904), el replay del caso
+   congelado rejuega igual y la MISMA evidencia al precio nuevo no repite el
+   salto. Techo de baja compartido aparte:
+   `test_temporada01_c_techo_de_baja_comparte_el_caso_d` (dinero): la cadena
+   20 -> 10 -> 7 con la evidencia del caso D sostiene 23.03 y el techo de baja
+   la topa en `Regresar(14.00)`. Rojas contra c670287 (pre-C: la maquinaria de
+   R6r no existe — ImportError del modulo de pruebas).
+2. `test_temporada01_c_sin_frenos_tras_cambio_de_temporada` (pura): el ultimo
+   cambio de temporada no pasa por `_freno_trayectoria` (decision 7 del plan):
+   el salto de recuperacion y la subida normal de R6 salen sin R14/R15.
+   Roja contra fae87b30ee9ea100332febbd7b8d7c210b7d31c5: el salto quedaba en
+   Mantener(esperando_precio_medido).
+3. Puerta del presupuesto: la lectura solo corre cuando temporada o
+   recuperacion estan en modo `live` (con shadow la plataforma sigue byte a
+   byte lo de hoy; sin flags, identico).

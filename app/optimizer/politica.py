@@ -326,7 +326,11 @@ def decide(caso: CasoHoja) -> Veredicto:
         freno_subida = _frena_subida_normal(caso, factor, _motivo_bloqueado)
         if freno_subida is not None:
             return freno_subida
-        if ultimo is not None:
+        if ultimo is not None and ultimo.origen != "temporada":
+            # TEMPORADA 01 C: el ultimo cambio de temporada es un movimiento
+            # planeado (decision 7 del plan): ningun freno de trayectoria lo
+            # juzga como si buscara un efecto; arriba solo espero R2 y el piso
+            # aprendido lo aplica _paso.
             efecto = caso.trayectoria.efecto
             assert efecto is not None
             freno = _freno_trayectoria(caso, ultimo, efecto, factor)
@@ -518,7 +522,11 @@ def _freno_recupera(caso, ultimo, efecto) -> Mantener | None:
     cambio fue una subida, incluido otro recupera_nivel): pasa por los mismos
     frenos que una subida de R6 (20 clics nuevos al precio nuevo y un juicio
     economico comparable). El CPC del primer salto tiene que estar medido antes
-    de otro. Un ajuste de campana no trae trayectoria de bid que frenar."""
+    de otro. Un ajuste de campana no trae trayectoria de bid que frenar. El
+    ultimo cambio de TEMPORADA es un movimiento planeado: ningun freno (solo
+    R2 espero arriba)."""
+    if ultimo.origen == "temporada":
+        return None
     if ultimo.direccion != -1:
         return _freno_trayectoria(caso, ultimo, efecto, PASO_SUBIDA)
     if efecto.clics_post is None:

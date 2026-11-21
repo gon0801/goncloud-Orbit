@@ -1916,7 +1916,7 @@ def _recorre_plataforma(
                 memoria_dias=temporada.memoria_recuperacion_desde_settings(settings, platform),
             )
             topada_r = temporada.campana_topada_desde_settings(settings)
-        elif modo_t is not None:
+        elif modo_t == "live":
             topada_r = temporada.campana_topada_desde_settings(settings)
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
