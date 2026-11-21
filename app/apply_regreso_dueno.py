@@ -120,10 +120,7 @@ def _racha_vigente_hoja(cambios: list[tuple]) -> list[tuple]:
     subidas = [
         c[0]
         for c in cambios
-        if c[3] != ORIGEN_TEMPORADA
-        and c[1] is not None
-        and c[2] is not None
-        and c[2] > c[1]
+        if c[3] != ORIGEN_TEMPORADA and c[1] is not None and c[2] is not None and c[2] > c[1]
     ]
     ultima = max(subidas) if subidas else None
     regresos = [(c[0], c[4]) for c in cambios if c[3] == ORIGEN_REGRESO_DUENO]

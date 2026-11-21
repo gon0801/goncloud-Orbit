@@ -27,8 +27,6 @@ from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app.lecturas_caso import lee_plataforma
-from app.optimizer.temporada import Estacion as EstacionTemporada
-from app.temporada_io import EstadoTemporada, TemporadaPlataforma
 from app.optimizer.caso import (
     BidVigente,
     CasoHoja,
@@ -40,6 +38,8 @@ from app.optimizer.caso import (
     Tramo,
     Trayectoria,
 )
+from app.optimizer.temporada import Estacion as EstacionTemporada
+from app.temporada_io import EstadoTemporada, TemporadaPlataforma
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1100,9 +1100,7 @@ def test_trayectoria_en_practica_mira_sus_90_dias():
             ),
         )
         practica = _arma(
-            lee_plataforma(
-                conn, "amazon_mx", _DECIDIDO, economia=_economia(), temporada_plat=plat
-            ),
+            lee_plataforma(conn, "amazon_mx", _DECIDIDO, economia=_economia(), temporada_plat=plat),
             conn,
             h,
             g,
@@ -1110,4 +1108,6 @@ def test_trayectoria_en_practica_mira_sus_90_dias():
         assert [(x.bid_antes, x.bid_despues, x.origen) for x in practica.trayectoria.cambios] == [
             (x.bid_antes, x.bid_despues, x.origen) for x in base.trayectoria.cambios
         ], "la trayectoria de la practica es la de 90 dias"
-        assert practica.trayectoria.piso_aprendido == base.trayectoria.piso_aprendido == Decimal("7")
+        assert (
+            practica.trayectoria.piso_aprendido == base.trayectoria.piso_aprendido == Decimal("7")
+        )

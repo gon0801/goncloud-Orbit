@@ -49,9 +49,9 @@ from app.optimizer.caso import (
     CambioBid,
     CambioFechado,
     CasoHoja,
-    EfectoCambio,
     Economia,
     EconomiaPlataforma,
+    EfectoCambio,
     HistoriaBid,
     InsumosPausa,
     PrecioVentana,
@@ -643,12 +643,16 @@ def test_temporada01_b_trayectoria_con_temporada_rejuega():
     origen `temporada` y el rejugado y el panel de ruido no descartan la
     decision."""
     entrada = CambioBid(
-        fecha=D_E1, bid_antes=Decimal("8.00"), bid_despues=Decimal("5.60"),
+        fecha=D_E1,
+        bid_antes=Decimal("8.00"),
+        bid_despues=Decimal("5.60"),
         origen="temporada",
     )
     motor = CambioBid(
-        fecha=D_E1 + dt.timedelta(days=3), bid_antes=Decimal("5.60"),
-        bid_despues=Decimal("5.10"), origen="motor",
+        fecha=D_E1 + dt.timedelta(days=3),
+        bid_antes=Decimal("5.60"),
+        bid_despues=Decimal("5.10"),
+        origen="motor",
     )
     trayectoria = Trayectoria(
         cambios=(entrada, motor),
@@ -666,8 +670,13 @@ def test_temporada01_b_trayectoria_con_temporada_rejuega():
         ),
     )
     estacion = Estacion(
-        version=temporada.VERSION_TEMPORADA, dia=D_E1, fase="baja", previa_alta=False,
-        reduccion_baja=Decimal("0.30"), mult_cortes_baja=Decimal("2"), inicio_bloque=D_E1,
+        version=temporada.VERSION_TEMPORADA,
+        dia=D_E1,
+        fase="baja",
+        previa_alta=False,
+        reduccion_baja=Decimal("0.30"),
+        mult_cortes_baja=Decimal("2"),
+        inicio_bloque=D_E1,
     )
     caso = _caso(HistoriaBid(desde=D_E1, cambios=()), "5.60", estacion, 1)
     caso_con_trayectoria = replace(caso, trayectoria=trayectoria)
@@ -803,12 +812,10 @@ def test_temporada01_b_episodio_reparado_tras_caida(db_template):
 
     res = _corre(conn, D_SALE_E1, handler_div)
     assert res.status == "done"
-    regreso = [
-        row for row in _temporada_del_ciclo(conn, res.cycle_id) if row[0] == kw1
-    ]
-    assert regreso and regreso[0][1] == Decimal("8.00") and regreso[0][2] == "sale_temporada_baja", (
-        regreso
-    )
+    regreso = [row for row in _temporada_del_ciclo(conn, res.cycle_id) if row[0] == kw1]
+    assert (
+        regreso and regreso[0][1] == Decimal("8.00") and regreso[0][2] == "sale_temporada_baja"
+    ), regreso
     filas = conn.execute(
         "SELECT te.episodio_id, te.cerrado_el IS NOT NULL, te.desenlace,"
         "       te.episodio_id = (d.inputs->>'temporada_episodio_id')::bigint"
@@ -820,8 +827,7 @@ def test_temporada01_b_episodio_reparado_tras_caida(db_template):
     assert filas[0][:1] == (e1,) and filas[0][2:4] == ("confirmado", True), filas
     assert filas[1] == (e1, True, "divergencia", True), filas
     exclusion = conn.execute(
-        "SELECT motivo, bid_visto, decision_id FROM temporada_exclusion"
-        " WHERE ad_entity_id = %s",
+        "SELECT motivo, bid_visto, decision_id FROM temporada_exclusion WHERE ad_entity_id = %s",
         (kw1,),
     ).fetchone()
     dec_regreso = conn.execute(
@@ -830,9 +836,10 @@ def test_temporada01_b_episodio_reparado_tras_caida(db_template):
         (kw1,),
     ).fetchone()[0]
     assert exclusion == ("divergencia", Decimal("7.00"), dec_regreso), exclusion
-    assert conn.execute(
-        "SELECT cerrado_el FROM temporada_episodio WHERE id = %s", (e1,)
-    ).fetchone()[0] is not None
+    assert (
+        conn.execute("SELECT cerrado_el FROM temporada_episodio WHERE id = %s", (e1,)).fetchone()[0]
+        is not None
+    )
 
 
 def test_temporada01_b_efecto_con_intento_sellado_se_cierra(db_template):

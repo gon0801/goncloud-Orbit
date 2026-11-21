@@ -2451,7 +2451,6 @@ def test_regreso_del_dueno_ignora_los_movimientos_de_temporada(monkeypatch):
         ids = _semilla(conn)
         ciclo_a = _ciclo_live(conn)
         ciclo_b = _ciclo_live(conn)
-        ciclo_c = _ciclo_live(conn)
         d_temp = _decision_bid(
             conn,
             ciclo_a,

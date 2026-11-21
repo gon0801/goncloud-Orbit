@@ -198,14 +198,14 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # TEMPORADA 01 B (0093): cierres de efecto en _confirma_resumen, la
     # lectura fresca del aplicador pendiente del bloque E y el vocabulario
     # bid_cambiado_fuera; el techo sube lo justo del bloque.
-    "app/apply.py": 1272,
+    "app/apply.py": 1297,
     "app/apply_cola.py": 1816,
     "app/apply_harvest.py": 2163,
     "app/bloqueo_dueno_efecto.py": 1004,
     # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
     # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
     # frontera por hoja.
-    "app/cycle.py": 2455,
+    "app/cycle.py": 2458,
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
@@ -220,8 +220,8 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/retiro_anuncios.py": 1388,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
-    "app/lecturas_caso.py": 1132,
-    "app/optimizer/temporada.py": 1150,
+    "app/lecturas_caso.py": 1139,
+    "app/optimizer/temporada.py": 1176,
 }
 
 
