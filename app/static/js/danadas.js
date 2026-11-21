@@ -14,19 +14,7 @@ function regresar(form) {
     hoja_id: Number(form.dataset.regreso),
     actor: form.elements.actor.value,
   };
-  fetch("/api/ads-optimizer/bid/regresar", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.postJson("/api/ads-optimizer/bid/regresar", cuerpo, form.elements.token.value)
     .then(function (r) {
       if (r.ok) {
         estado.textContent =
@@ -54,19 +42,7 @@ function regresarTodas(form) {
     confirmacion: confirmacion,
     actor: form.elements.actor.value,
   };
-  fetch("/api/ads-optimizer/bid/regresar-todas", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.postJson("/api/ads-optimizer/bid/regresar-todas", cuerpo, form.elements.token.value)
     .then(function (r) {
       if (!r.ok) {
         estado.textContent = "Error: " + (r.data.detail || r.data) + ".";

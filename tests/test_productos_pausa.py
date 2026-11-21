@@ -24,7 +24,6 @@ from test_productos_io import (
     _db,
     _entrada,
     _fila_reporte,
-    _hoy,
     _ingesta,
     _mundo,
     _ventana,
@@ -397,7 +396,9 @@ def test_base_venta_reciente_inmadura_deja_la_pausa_en_espera(dias):
     watermark de hojas): la pausa espera y el ancla es la fecha de esa venta."""
     with _db(f"orbit_m4_venta_reciente_{dias}") as conn:
         m = _mundo_pausa(conn)
-        fecha = _hoy() - dt.timedelta(days=dias)
+        from app.dia_cerrado import ultimo_dia_cerrado
+
+        fecha = ultimo_dia_cerrado("amazon_us", ahora_db(conn)) - dt.timedelta(days=dias - 1)
         _ingesta(
             conn,
             fecha,

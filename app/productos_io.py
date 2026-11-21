@@ -1,26 +1,11 @@
 """Lectura por lote y guardado de las decisiones por producto (AUTO-03, bloque D).
 
-Adaptador de app/optimizer/productos.py: aqui vive todo el SQL; el resolutor
-decide sobre entradas validas.
-
-- lee_entradas_productos (TX2, bajo el snapshot del ciclo): una
-  EntradaProducto por producto con un product ad no archivado y listing en la
-  plataforma. Margen de v_margen_producto como goals.MedicionMargen. Metricas
-  del reporte de productos colapsadas por (asin, sku, fecha) a la ultima
-  observacion anterior a la decision (evaluacion_catalogo.colapsa_por_fecha;
-  el SQL ya trae solo la ultima para no cargar las ~90 reobservaciones de
-  cada fecha) y sumadas por producto solo con advertised_sku =
-  listing.seller_sku (S5). Halo en [D-90, max(metric_date)-3] con las fechas
-  con fila (S7). Actividad de la pausa en [D-60, D-30) con la cobertura S6:
-  una fecha sin fila es cero solo si un written integro de una corrida ok que
-  empezo con la fecha ya madura pidio un rango que la contiene (D.7).
-- Topologia por ad group: product ads no archivados, incluidos los PAUSED y
-  los de estado desconocido, -> listing -> producto. Exclusivo = todos con
-  listing del mismo producto. La huella es sha256 de sus anuncios ordenados.
-- guarda_evaluaciones (TX3, siempre dentro de un SAVEPOINT): todas las filas
-  o ninguna, con el error devuelto y no lanzado.
-- resumen_cobertura: la unica funcion de conteo (notes del ciclo y
-  tools/auto03_verifica.py).
+Adaptador SQL de `app/optimizer/productos.py`:
+- `lee_entradas_productos` (TX2): entradas por producto con anuncio no archivado,
+  margen de `v_margen_producto`, metricas colapsadas por `(asin, sku, fecha)`
+  con `advertised_sku = listing.seller_sku`, halo [D-90, max-3] y pausa [D-60, D-30).
+- `guarda_evaluaciones` (TX3, SAVEPOINT): escribe todo o nada, error devuelto.
+- `resumen_cobertura`: unica fuente de conteos (notes del ciclo y auditoria).
 """
 
 from __future__ import annotations

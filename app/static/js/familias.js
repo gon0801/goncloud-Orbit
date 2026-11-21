@@ -8,18 +8,7 @@ function tokenFamilias() {
 }
 
 function postFamilias(url, cuerpo) {
-  return fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": tokenFamilias(),
-    },
-    body: JSON.stringify(cuerpo),
-  }).then(function (resp) {
-    return resp.json().catch(function () { return {}; }).then(function (data) {
-      return { ok: resp.ok, status: resp.status, data: data };
-    });
-  });
+  return Orbit.postJson(url, cuerpo, tokenFamilias());
 }
 
 function crearFamilia(form, plataforma) {

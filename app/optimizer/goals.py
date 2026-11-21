@@ -88,11 +88,50 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Literal
+from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from app.formato import dinero
-from app.optimizer.caso import VERSIONES_ECONOMIA_CAMBIO
+from app.optimizer.settings_lectura import (  # noqa: F401 - re-export estable de lectores
+    _ORDEN_MODO,
+    CLAVE_SETTING_MODO,
+    CLAVE_SETTING_PAUSE_ECONOMICA,
+    CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID,
+    CLAVE_SETTING_PROPUESTAS_CAMPANA,
+    CONFIANZA_MAX,
+    CONFIANZA_MIN,
+    CONFIANZA_RECORTE_DEFAULT,
+    CONFIANZA_SUBIDA_DEFAULT,
+    GASTO_PARA_CONCLUIR_DEFAULT,
+    MODOS,
+    MONTO_MAXIMO,
+    POLITICA_BID_VIGENTE,
+    TECHOS_HUMANOS_POR_MONEDA,
+    TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO,
+    VECES_PRESUPUESTO_ALTO,
+    PresupuestoAlto,
+    TechoHumano,
+    _confianza_desde_settings,
+    _valida_fraccion,
+    clave_bid_politica,
+    clave_confianza_recorte,
+    clave_confianza_subida,
+    clave_economia_cambio,
+    clave_gasto_para_concluir,
+    clave_target_plataforma,
+    confianza_recorte_desde_settings,
+    confianza_subida_desde_settings,
+    exige_bajo_techo,
+    fraccion_desde_settings,
+    gasto_para_concluir_desde_settings,
+    modo_desde_settings,
+    pause_economica_desde_settings,
+    pause_sin_cooldown_bid_desde_settings,
+    politica_bid_desde_settings,
+    presupuesto_alto,
+    propuestas_campana_desde_settings,
+    target_desde_settings,
+    version_economia_cambio_desde_settings,
+)
 
 if TYPE_CHECKING:
     import psycopg
@@ -106,132 +145,6 @@ DEFAULTS_POR_MONEDA: dict[str, tuple[Decimal, Decimal]] = {
 }
 
 
-@dataclass(frozen=True)
-class TechoHumano:
-    """Tope de lo que TECLEA una persona (no del motor): decision del dueno
-    del 2026-11-09. Se aplica al construir o cambiar un valor, jamas al
-    releer lo guardado."""
-
-    bid: Decimal
-    presupuesto_diario: Decimal
-
-
-# Medido el 2026-11-13 con docs/evidencia/arreglos-01/lee_prod.sh sobre las
-# campanas ENABLED: el presupuesto diario mas alto era 5353.78 MXN y 26.22
-# USD; el tope es el doble redondeado hacia arriba al entero (10708 / 53).
-# La lectura y la consulta quedan en
-# docs/evidencia/arreglos-01/X/presupuestos.txt.
-TECHOS_HUMANOS_POR_MONEDA: dict[str, TechoHumano] = {
-    "USD": TechoHumano(bid=Decimal("10"), presupuesto_diario=Decimal("53")),
-    "MXN": TechoHumano(bid=Decimal("180"), presupuesto_diario=Decimal("10708")),
-}
-
-
-def exige_bajo_techo(
-    clase: Literal["bid", "presupuesto_diario"], monto: Decimal, moneda: str
-) -> None:
-    """ValueError en espanol si `monto` supera el tope humano de su moneda.
-
-    Moneda fuera de la tabla = ValueError (regla 3, mismo trato que
-    DEFAULTS_POR_MONEDA): no se inventan techos. Es validacion de BORDE para
-    lo que teclea una persona; el motor no pasa por aqui y lo ya guardado no
-    se revalida. Cada llamador traduce a su excepcion (PlanInvalido,
-    GoalInvalido, SettingsInvalido o 422).
-    """
-    techo = TECHOS_HUMANOS_POR_MONEDA.get(moneda)
-    if techo is None:
-        raise ValueError(f"moneda {moneda!r} sin tope humano: TECHOS_HUMANOS_POR_MONEDA")
-    if clase == "bid":
-        maximo, nombre = techo.bid, "la puja"
-    elif clase == "presupuesto_diario":
-        maximo, nombre = techo.presupuesto_diario, "el presupuesto diario"
-    else:
-        raise ValueError(f"clase de techo desconocida: {clase!r}")
-    if not monto.is_finite():
-        raise ValueError(f"{nombre} debe ser un numero finito")
-    if monto > maximo:
-        raise ValueError(f"{nombre} de {monto} {moneda} supera el maximo de {maximo} {moneda}")
-
-
-# ARREGLOS 04 W-N (decision del dueno 2026-11-13): un presupuesto diario alto
-# ya no se rechaza, se avisa y se aplica solo con confirmacion expresa. Es
-# AVISO, no techo: el tope de `exige_bajo_techo` sigue para lo que propone
-# la maquina (TEMPORADA 01), no para lo que teclea una persona.
-VECES_PRESUPUESTO_ALTO = 2
-
-# Techo tecnico de un monto, no de negocio: money_amount es NUMERIC(14,4) y
-# el wire va a 2 decimales, asi que el maximo representable al cuantizar es
-# 9,999,999,999.99. Un cero de mas (10,000,000,000.00) ya no cabe y el
-# readback fallaria al guardar el ajuste; se valida al construir el plan.
-MONTO_MAXIMO = Decimal("9999999999.99")
-
-TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO = (
-    "Falta confirmar el presupuesto alto: recarga la página, vuelve a ver el plan"
-    " y marca «Sí, quiero ese presupuesto»"
-)
-
-
-@dataclass(frozen=True)
-class PresupuestoAlto:
-    """Aviso de un presupuesto diario mas del doble de su referencia.
-
-    `contra` nombra la referencia que se uso: esta campaña (su presupuesto
-    de hoy) o tus campañas (P90 de las activas en la moneda). `referencia`
-    None = no habia con que comparar y se uso el numero fijo.
-    """
-
-    monto: Decimal  # por campaña y por dia
-    moneda: str
-    referencia: Decimal | None
-    contra: Literal["esta_campana", "tus_campanas"]
-
-    def texto(self) -> str:
-        """La frase que ve la persona (cifras con miles y dos decimales)."""
-        monto = f"{dinero(self.monto)} {self.moneda}"
-        if self.contra == "esta_campana":
-            if self.referencia is None:
-                return (
-                    f"Vas a poner {monto} diarios."
-                    " Esta campaña no tiene un presupuesto anterior para comparar."
-                )
-            return (
-                f"Vas a poner {monto} diarios. Es más del doble de lo que esta campaña"
-                f" tiene hoy ({dinero(self.referencia)} {self.moneda})."
-            )
-        if self.referencia is None:
-            return (
-                f"Vas a poner {monto} diarios."
-                f" Hoy no tienes campañas activas en {self.moneda} para comparar."
-            )
-        return (
-            f"Vas a poner {monto} diarios. 9 de cada 10 de tus campañas activas"
-            f" tienen {dinero(self.referencia)} {self.moneda} o menos."
-        )
-
-
-def presupuesto_alto(
-    monto: Decimal,
-    moneda: str,
-    referencia: Decimal | None,
-    contra: Literal["esta_campana", "tus_campanas"],
-) -> PresupuestoAlto | None:
-    """Aviso si `monto` pasa del doble de `referencia` (o del numero fijo sin
-    referencia). Moneda fuera de la tabla = ValueError, como
-    `exige_bajo_techo`: no se inventan topes."""
-    techo = TECHOS_HUMANOS_POR_MONEDA.get(moneda)
-    if techo is None:
-        raise ValueError(f"moneda {moneda!r} sin tope humano: TECHOS_HUMANOS_POR_MONEDA")
-    umbral = techo.presupuesto_diario if referencia is None else VECES_PRESUPUESTO_ALTO * referencia
-    return PresupuestoAlto(monto, moneda, referencia, contra) if monto > umbral else None
-
-
-# Clave NUEVA de config_version.settings (sellada en esta task; la siembra
-# humana de 4.3 escribe la escalera global aqui; valores off|shadow|live).
-CLAVE_SETTING_MODO = "ads_optimizer_mode"
-CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID = "ads_pause_sin_cooldown_bid"
-CLAVE_SETTING_PAUSE_ECONOMICA = "ads_pause_economica"
-CLAVE_SETTING_PROPUESTAS_CAMPANA = "ads_propuestas_campana"
-
 # Encendido en ORBIT 04 2.4 (sellado 22: la tarea de integracion lo voltea):
 # con True, resuelve_modo YA NO degrada live->shadow — la fase de apply vive
 # en app/cycle.py y el residual envelope-live/goal-shadow lo resuelve el
@@ -241,9 +154,6 @@ HAY_MODULO_APPLY = True
 
 COOLDOWN = dt.timedelta(days=7)  # por ENTIDAD; comparador ESTRICTO en el umbral
 
-# Reticulo de modos: off < shadow < live. modo_efectivo es el INFIMO (meet).
-MODOS = ("off", "shadow", "live")
-_ORDEN_MODO: dict[str, int] = {modo: indice for indice, modo in enumerate(MODOS)}
 
 # Nota del vocabulario estable para la degradacion live->shadow de PR1.
 NOTA_LIVE_DEGRADADO = "live degradado a shadow: sin modulo apply en PR1"
@@ -294,34 +204,6 @@ def elegible(goal: Goal | None) -> bool:
     """Elegibilidad dura: solo un goal RESUELTO y habilitado entra al ciclo
     (3.1 combina con ad_entity_state.status ENABLED y persiste el motivo)."""
     return goal is not None and goal.enabled
-
-
-def clave_target_plataforma(platform: str) -> str:
-    """Clave sellada del setting de target por plataforma
-    (ads_target_acos_pct_<platform>, docs/DATABASE.md)."""
-    return f"ads_target_acos_pct_{platform}"
-
-
-def target_desde_settings(settings: Mapping, platform: str) -> Decimal | None:
-    """Target ACoS de config_version.settings para la plataforma: None si la
-    clave no esta (sin clave este peldano no resuelve: eso lo decide la
-    cascada). El valor JSON se normaliza via str a Decimal exacto, nunca
-    por binario float (regla 4 de estilo numerico del repo). Un valor PRESENTE
-    pero no numerico, NaN/Inf, 0 o negativo es config CORRUPTA, no dato
-    faltante: ValueError ruidoso (regla 3 -- camuflarlo de ausente decidiria
-    con un target que nadie configuro; hallazgo codex+grok, cross-review
-    ronda 1)."""
-    clave = clave_target_plataforma(platform)
-    valor = settings.get(clave)
-    if valor is None:
-        return None
-    try:
-        target = Decimal(str(valor))
-    except ArithmeticError as exc:  # InvalidOperation: basura no numerica
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
-    if not target.is_finite() or target <= 0:
-        raise ValueError(f"setting {clave}: target debe ser > 0 y finito, llego {target}")
-    return target
 
 
 def _valida_target_peldano(valor: Decimal | None, peldano: str) -> Decimal | None:
@@ -561,48 +443,6 @@ def resuelve_floor_ceiling(goal: Goal | None, moneda: str) -> tuple[Decimal, Dec
     )
 
 
-def modo_desde_settings(settings: Mapping) -> str:
-    """Escalera global desde config_version.settings (clave sellada
-    ads_optimizer_mode). Fail-closed: sin clave, valor invalido o NULL ->
-    'off' (una config corrupta jamas habilita live por accidente)."""
-    valor = settings.get(CLAVE_SETTING_MODO)
-    if isinstance(valor, str) and valor in _ORDEN_MODO:
-        return valor
-    return "off"
-
-
-def pause_sin_cooldown_bid_desde_settings(settings: Mapping) -> bool:
-    """B.2a: True solo si config_version.settings trae JSON true bajo la
-    clave sellada ads_pause_sin_cooldown_bid. Fail-closed como
-    modo_desde_settings: sin clave, NULL o cualquier otro valor -> False
-    (una config corrupta jamas activa la PAUSE nueva por accidente, asi que
-    un deploy no la enciende sin el INSERT de H5). Se enciende insertando una
-    config_version nueva (append-only, la UPDATE esta prohibida):
-
-    INSERT INTO config_version (label, settings)
-    SELECT 'B.2a flag on (H5, go <cita>)',
-           settings || '{"ads_pause_sin_cooldown_bid": true}'::jsonb
-    FROM config_version ORDER BY id DESC LIMIT 1 RETURNING id;
-    """
-    return settings.get(CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID) is True
-
-
-def pause_economica_desde_settings(settings: Mapping) -> bool:
-    """C.3 B1: True solo si config_version.settings trae JSON true bajo la
-    clave sellada ads_pause_economica. Fail-closed como B.2a: sin clave,
-    NULL o cualquier otro valor -> False (un deploy no activa la PAUSE
-    economica sin el INSERT deliberado, igual que H5 de B.2)."""
-    return settings.get(CLAVE_SETTING_PAUSE_ECONOMICA) is True
-
-
-def propuestas_campana_desde_settings(settings: Mapping) -> bool:
-    """C.4 B3: True solo si config_version.settings trae JSON true bajo la
-    clave sellada ads_propuestas_campana. Fail-closed: sin clave, NULL o
-    cualquier otro valor -> False (un deploy no evalua ni avisa propuestas
-    de campana sin el INSERT deliberado)."""
-    return settings.get(CLAVE_SETTING_PROPUESTAS_CAMPANA) is True
-
-
 def _chequea_modo(nombre: str, modo: str) -> None:
     """Vocabulario cerrado {off, shadow, live}: fuera de el, ValueError
     ruidoso y temprano (mismo estilo que PLATAFORMAS_MONEDA en bid)."""
@@ -796,198 +636,6 @@ def medicion_desde_fila(fila: Mapping) -> MedicionMargen:
         ventana_hasta=fila["ventana_hasta"],
         margen_historico_pct=fila["margen_neto_pct"],
     )
-
-
-def fraccion_desde_settings(settings: Mapping, platform: str) -> Decimal | None:
-    """Fraccion del target de margen (clave ads_target_fraccion_margen_<plat>;
-    string decimal; numero JSON tolerado como el target). Ausente (o JSON
-    null) -> None: el peldano NO aplica (abstencion sin_fraccion, el
-    interruptor de la fase). PRESENTE pero invalida (no numerica incl.
-    "0,5" con coma, NaN/Inf, <= 0, > 1) -> ValueError ruidoso que tumba el
-    ciclo, identico a target_desde_settings (A4, D-2.3.12: config CORRUPTA,
-    no dato faltante — camuflarla de ausente decidiria con un target que
-    nadie configuro, regla 3)."""
-    clave = f"ads_target_fraccion_margen_{platform}"
-    valor = settings.get(clave)
-    if valor is None:
-        return None
-    try:
-        fraccion = Decimal(str(valor).strip())
-    except InvalidOperation as exc:
-        raise ValueError(f"setting {clave}: fraccion no numerica: {valor!r}") from exc
-    if not fraccion.is_finite() or not Decimal(0) < fraccion <= Decimal(1):
-        # NaN: Decimal senala al comparar (a diferencia de float) — cae
-        # aqui igual que el resto de lo invalido.
-        raise ValueError(f"setting {clave}: fraccion debe estar en (0, 1], llego {valor!r}")
-    return fraccion
-
-
-def _valida_fraccion(fraccion: Decimal | None) -> Decimal | None:
-    """Fraccion YA parseada: None pasa (ausencia = interruptor, abstencion
-    sin_fraccion); presente pero no finita, <= 0 o > 1 revienta (A4,
-    D-2.3.12: config corrupta, no dato faltante)."""
-    if fraccion is None:
-        return None
-    if not fraccion.is_finite() or not Decimal(0) < fraccion <= Decimal(1):
-        raise ValueError(f"fraccion de margen invalida: {fraccion!r} (debe estar en (0, 1])")
-    return fraccion
-
-
-CONFIANZA_RECORTE_DEFAULT = Decimal("0.80")
-CONFIANZA_SUBIDA_DEFAULT = Decimal("0.70")
-CONFIANZA_MIN = Decimal("0.50")
-CONFIANZA_MAX = Decimal("0.99")
-
-
-def clave_confianza_recorte(platform: str) -> str:
-    """Clave sellada de la confianza de recorte
-    (ads_confianza_recorte_<platform>, docs/DATABASE.md)."""
-    return f"ads_confianza_recorte_{platform}"
-
-
-def clave_confianza_subida(platform: str) -> str:
-    """Clave sellada de la confianza de subida
-    (ads_confianza_subida_<platform>, docs/DATABASE.md)."""
-    return f"ads_confianza_subida_{platform}"
-
-
-def _confianza_desde_settings(
-    settings: Mapping, clave: str, default: Decimal, nombre: str
-) -> Decimal:
-    """Confianza YA resuelta: clave ausente = default (el dueno no ha
-    tocado nada); PRESENTE pero no numerica, NaN/Inf o fuera de
-    [0.50, 0.99] = config CORRUPTA: ValueError ruidoso que tumba al
-    lector (regla 3, mismo trato que target/fraccion: decidir con una
-    confianza que nadie configuro seria inventar lo conservador)."""
-    valor = settings.get(clave)
-    if valor is None:
-        return default
-    try:
-        confianza = Decimal(str(valor).strip())
-    except InvalidOperation as exc:
-        raise ValueError(f"setting {clave}: confianza no numerica: {valor!r}") from exc
-    if not confianza.is_finite() or not CONFIANZA_MIN <= confianza <= CONFIANZA_MAX:
-        raise ValueError(
-            f"setting {clave}: confianza de {nombre} debe estar en [0.50, 0.99], llego {valor!r}"
-        )
-    return confianza
-
-
-def confianza_recorte_desde_settings(settings: Mapping, platform: str) -> Decimal:
-    """Confianza de recorte: mas alta, el motor recorta menos y con mas
-    evidencia. Ausente = 0.80."""
-    return _confianza_desde_settings(
-        settings, clave_confianza_recorte(platform), CONFIANZA_RECORTE_DEFAULT, "recorte"
-    )
-
-
-def confianza_subida_desde_settings(settings: Mapping, platform: str) -> Decimal:
-    """Confianza de subida: mas baja, el motor sube pujas mas facil.
-    Ausente = 0.70."""
-    return _confianza_desde_settings(
-        settings, clave_confianza_subida(platform), CONFIANZA_SUBIDA_DEFAULT, "subida"
-    )
-
-
-# Defaults POR PLATAFORMA (dueno, 2026-10-09): con la clave ausente el motor
-# concluye con 350 MXN / 36 USD. UNICA fuente del numero: lo consumen la regla
-# R9 del motor y el tope por defecto del impulso.
-GASTO_PARA_CONCLUIR_DEFAULT: dict[str, Decimal] = {
-    "amazon_mx": Decimal("350"),
-    "amazon_us": Decimal("36"),
-}
-
-
-def clave_gasto_para_concluir(platform: str) -> str:
-    """Clave de config_version.settings del gasto para concluir
-    (ads_gasto_para_concluir_<platform>)."""
-    return f"ads_gasto_para_concluir_{platform}"
-
-
-def gasto_para_concluir_desde_settings(settings: Mapping, platform: str) -> Decimal:
-    """Lector fail-closed de `ads_gasto_para_concluir_<platform>`: ausente =
-    350 MXN / 36 USD (dueno, 2026-10-09); JSON null = ausente (default),
-    igual que fraccion. Presente pero no numerico, NaN/Inf o <= 0 = config
-    CORRUPTA: ValueError ruidoso (regla 3, mismo trato que
-    target/confianza: decidir con un tope que nadie configuro seria inventar
-    el gasto). Con la clave ausente, plataforma fuera de la tabla =
-    ValueError explicito, no se inventan numeros (mismo trato que
-    DEFAULTS_POR_MONEDA)."""
-    clave = clave_gasto_para_concluir(platform)
-    valor = settings.get(clave)
-    if valor is None:
-        try:
-            return GASTO_PARA_CONCLUIR_DEFAULT[platform]
-        except KeyError as exc:
-            raise ValueError(
-                f"sin default inventado para {platform!r}; agregalo a "
-                "GASTO_PARA_CONCLUIR_DEFAULT con decision del dueno"
-            ) from exc
-    try:
-        gasto = Decimal(str(valor).strip())
-    except InvalidOperation as exc:
-        raise ValueError(f"setting {clave}: gasto no numerico: {valor!r}") from exc
-    if not gasto.is_finite() or gasto <= 0:
-        raise ValueError(
-            f"setting {clave}: gasto para concluir debe ser > 0 y finito, llego {gasto}"
-        )
-    return gasto
-
-
-def clave_bid_politica(platform: str) -> str:
-    """Clave sellada del interruptor del motor de bids
-    (ads_bid_politica_<platform>, docs/DATABASE.md)."""
-    return f"ads_bid_politica_{platform}"
-
-
-# Politica de bids vigente (BIDS 02 M.3): el UNICO valor que enciende el
-# motor. Espejo de caso.POLITICA_BID pineado en tests/test_arq_bids_m.py.
-POLITICA_BID_VIGENTE = "niveles_v3"
-
-
-def politica_bid_desde_settings(settings: Mapping, plataforma: str) -> Literal["niveles_v3"] | None:
-    """Interruptor fail-closed de la clave que ya existe,
-    `ads_bid_politica_<platform>`:
-      ausente              -> None: el motor NO mueve bids en esa plataforma
-                                (PAUSE, negative y harvest siguen). El ciclo
-                                cuenta cada hoja con motivo `politica_apagada`.
-      'niveles_v3'         -> la politica nueva decide.
-      cualquier otro valor -> ValueError: el ciclo falla cerrado, como hoy.
-    El dia del despliegue la clave esta ausente: desplegar ya detiene los
-    recortes. Apagar es quitarla."""
-    clave = clave_bid_politica(plataforma)
-    valor = settings.get(clave)
-    if valor is None:
-        return None
-    if valor == POLITICA_BID_VIGENTE:
-        return POLITICA_BID_VIGENTE
-    raise ValueError(
-        f"setting {clave}: politica de bids debe ser {POLITICA_BID_VIGENTE!r}, llego {valor!r}"
-    )
-
-
-def clave_economia_cambio(plataforma: str) -> str:
-    """Clave de la seleccion de la regla economica de repeticion (M6)."""
-    return f"ads_bid_economia_{plataforma}"
-
-
-def version_economia_cambio_desde_settings(settings: Mapping, plataforma: str) -> str | None:
-    """Interruptor fail-closed de la regla M5/M6 y su version.
-
-    Ausente -> None: el ciclo no lee ni congela episodios economicos y el
-    camino de consultas vuelve al de la base. `economia_cambio_v1` o
-    `economia_cambio_v2` -> esa version, que estampa el episodio nuevo.
-    Cualquier otro valor -> ValueError (config corrupta, ciclo failed), como
-    el resto de los settings del motor. Apagar la regla no borra decisiones
-    historicas ni reescribe sus inputs: el replay lee el caso congelado.
-    """
-    clave = clave_economia_cambio(plataforma)
-    valor = settings.get(clave)
-    if valor is None:
-        return None
-    if valor in VERSIONES_ECONOMIA_CAMBIO:
-        return valor
-    raise ValueError(f"setting {clave}: debe ser {VERSIONES_ECONOMIA_CAMBIO}, llego {valor!r}")
 
 
 def ratio_ads_publicable(
