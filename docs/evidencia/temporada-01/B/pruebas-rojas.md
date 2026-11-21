@@ -236,3 +236,13 @@ recorte 5.60->3.92). Demostrada fallando contra
    desenlace cuando hay efecto de temporada abierto); esta ronda ademas
    cubre el caso bid None del loop de abiertos (punto 1) y la guarda
    general (punto 2).
+
+## Estado final de los Aceptas sobre el SHA de cierre
+
+- B.1: `grep -qx 0 docs/evidencia/temporada-01/B/consulta-previa.txt` -> OK.
+- B.2: `pytest tests -k temporada01_b_` -> 17 passed (14 del bloque + las 3
+  de las rondas de revision: campana_pausa sin sello, sin_bid reintenta y
+  bid ordinario bloqueado).
+- B.3: test_cycle + test_apply + test_apply_cola + test_lecturas_caso +
+  test_optimizer_politica -> 244 passed. Techo de apply.py actualizado a
+  1475 (lineas reales tras las ramas conservadoras de la revision nativa).
