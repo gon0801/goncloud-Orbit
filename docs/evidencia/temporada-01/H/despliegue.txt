@@ -132,3 +132,45 @@ el bloque Orbit ya era el canonico
 == (6) interruptores frente a SHA_PREVIO
 ninguna clave cambia
 == DESPLEGADO 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c (checklist.sh lo pasa a verificado)
+
+# ============================================================================
+# Segundo despliegue: el arreglo de la revision (7fb6037)
+# ============================================================================
+# Motivo: con la temporada y la subida rapida las dos en live (la config que
+# dejo H.2), `lee_plataforma` conservaba la memoria de la subida rapida y
+# acortaba el historial que decide la temporada, asi que `frontera` podia
+# perder la mano del dueno y la entrada recortarle una puja. Lo señalo la
+# revision nativa del PR 730 sobre app/lecturas_caso.py:630.
+# Comando: env -i PATH=/mingw64/bin:/usr/bin:/bin HOME=... MOTOR_SHA=7fb6037 bash tools/despliegue/desplegar.sh
+# Nota: el log del build de la imagen se omite; abajo van las lineas del
+# despliegue que importan, copiadas de la salida real. El checklist verde de
+# checklist.txt es la verificacion completa.
+
+== (1) guardas ==
+guardas libres
+== (4) migraciones de la receta ==
+ya aplicada: 0076_auto03_peldano_producto.sql
+... (las 19 de siempre, ninguna pendiente)
+== (5) codigo de 7fb6037007eb93d9b2622ae35a3e4d30fee36af9 ==
+md5 OK
+ Image orbit-app Built
+imagen construida (el contenedor vivo no se toco)
+espero a que orbit-app-1 no tenga procesos app.cli (plazo 600s)
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+recreado; /health 200; /mnt/data/appdata/orbit/despliegue/sha = 7fb6037007eb93d9b2622ae35a3e4d30fee36af9
+== (5b) linea de cron del vigia de Jev ==
+linea jev-vigia en el bloque Orbit
+la linea ya estaba
+== (5c) bloque de cron de Orbit ==
+bloque Orbit igual al canonico
+el bloque Orbit ya era el canonico
+== (6) interruptores frente a SHA_PREVIO ==
+ninguna clave cambia
+== DESPLEGADO 7fb6037007eb93d9b2622ae35a3e4d30fee36af9 (checklist.sh lo pasa a verificado)
+
+El ensayo previo (`--ensayo`) decia lo mismo y ademas "claves: ninguna cambia", que es lo
+que garantiza que el despliegue no revierte las cuatro claves a `shadow`. Despues del
+despliegue la lectura sigue dando `live|live|live|live` en la config 63.

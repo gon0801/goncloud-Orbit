@@ -1,9 +1,10 @@
-# Checklist de TEMPORADA 01 H — MOTOR_SHA 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c
-# Comando: MOTOR_SHA=57b47ddb7d8356bc5e8d04aa70e53d232b34c05c bash tools/despliegue/checklist.sh
+# Checklist de TEMPORADA 01 H — MOTOR_SHA 7fb6037007eb93d9b2622ae35a3e4d30fee36af9
+# Comando: MOTOR_SHA=7fb6037007eb93d9b2622ae35a3e4d30fee36af9 bash tools/despliegue/checklist.sh
 # Arnes: git-bash con 'env -i PATH=/mingw64/bin:/usr/bin:/bin HOME=...'.
+# Este SHA es el del arreglo que impide que la subida rapida en live acorte el
+# historial de la temporada (lecturas_caso.py); el anterior era 57b47dd.
 # Salida completa:
-
-OK    el SHA desplegado (57b47ddb7d8356bc5e8d04aa70e53d232b34c05c) contiene 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c
+OK    el SHA desplegado (7fb6037007eb93d9b2622ae35a3e4d30fee36af9) contiene 7fb6037007eb93d9b2622ae35a3e4d30fee36af9
 OK    migracion 0076_auto03_peldano_producto.sql aplicada
 OK    migracion 0077_auto03_evaluacion_producto.sql aplicada
 OK    migracion 0078_auto03_retiro_decision.sql aplicada
@@ -27,4 +28,4 @@ OK    linea jev-vigia en el bloque Orbit
 OK    bloque Orbit igual al canonico
 OK    /mnt/data/appdata/orbit/refresh_estimacion.sh es el de tools/
 OK    /health 200
-== CHECKLIST VERDE 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c
+== CHECKLIST VERDE 7fb6037007eb93d9b2622ae35a3e4d30fee36af9
