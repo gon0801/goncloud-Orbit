@@ -318,6 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     codigo, resultado = ejecutar_cli_spapi(
         source=SOURCE,
+        cliente_factory=SpapiClient,
         correr=lambda conn, client: ejecutar_ingesta(
             conn,
             client,

@@ -266,10 +266,11 @@ def _registrar(
 
 def _run_ya_sellada(conn: psycopg.Connection, run_id: int) -> bool:
     """True si `ingest_run` ya tiene `finished_at` (evita doble sellado tras al_completar)."""
-    fila = conn.execute(
-        "SELECT finished_at IS NOT NULL FROM ingest_run WHERE id = %s",
-        (run_id,),
-    ).fetchone()
+    with conn.transaction():
+        fila = conn.execute(
+            "SELECT finished_at IS NOT NULL FROM ingest_run WHERE id = %s",
+            (run_id,),
+        ).fetchone()
     return bool(fila and fila[0])
 
 

@@ -201,6 +201,7 @@ def recorrer_paginas_spapi(
     extraer_lote: Callable[[Any], list[dict]],
     capacidad: int,
     tasa: float,
+    pagina_vacia: Callable[[Any, list[dict]], bool] | None = None,
     max_paginas: int = 100,
     cubo: CuboTasa | None = None,
     medidor: Counter | None = None,
@@ -246,7 +247,8 @@ def recorrer_paginas_spapi(
         if siguiente in vistos:
             aviso = "next_token_repetido"
             break
-        if not lote:
+        esta_vacia = pagina_vacia(carga, lote) if pagina_vacia is not None else not lote
+        if esta_vacia:
             aviso = "pagina_vacia_con_token"
             break
         vistos.add(siguiente)
@@ -354,8 +356,9 @@ def ejecutar_cli_spapi(
     *,
     source: str,
     correr: Callable[[Any, SpapiClient], Any],
+    cliente_factory: Callable[[], SpapiClient] = SpapiClient,
 ) -> tuple[int, Any | None]:
-    """Abre DB con ORBIT_DSN_INGEST, ejecuta `correr(conn, SpapiClient())` y cierra."""
+    """Abre DB con ORBIT_DSN_INGEST, ejecuta `correr(conn, cliente_factory())` y cierra."""
     dsn = os.environ.get("ORBIT_DSN_INGEST")
     if not dsn:
         print(
@@ -368,7 +371,7 @@ def ejecutar_cli_spapi(
 
         conn = connect(dsn)
         try:
-            return 0, correr(conn, SpapiClient())
+            return 0, correr(conn, cliente_factory())
         finally:
             conn.close()
     except Exception as exc:

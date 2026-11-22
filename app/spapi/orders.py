@@ -274,6 +274,11 @@ def _extraer_ordenes(carga: Any) -> list[dict]:
     return [o for o in lote if isinstance(o, dict)]
 
 
+def _pagina_ordenes_vacia(carga: Any, _lote: list[dict]) -> bool:
+    cont = carga.get("payload", carga)
+    return len(cont["orders"]) == 0
+
+
 def recorrer_ordenes(
     client: SpapiClient,
     params_base: dict,
@@ -290,6 +295,7 @@ def recorrer_ordenes(
         fuente="orders",
         error_cls=IngestaOrdersError,
         extraer_lote=_extraer_ordenes,
+        pagina_vacia=_pagina_ordenes_vacia,
         capacidad=ORDERS_BURST,
         tasa=ORDERS_TASA_SEG,
         max_paginas=max_paginas,
@@ -461,6 +467,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     codigo, resultado = ejecutar_cli_spapi(
         source=SOURCE,
+        cliente_factory=SpapiClient,
         correr=lambda conn, client: ejecutar_ingesta(
             conn,
             client,
