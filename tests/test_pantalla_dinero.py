@@ -1074,7 +1074,7 @@ def test_guion_en_cada_celda_campana():
         ],
     )
     fila = _fila_html(html, "<td>—</td>")
-    assert fila.count("—") == 7
+    assert fila.count("—") == 8
 
 
 def test_como_dict_none_viaja_none_en_todos_los_campos():

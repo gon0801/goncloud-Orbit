@@ -2281,7 +2281,10 @@ def test_candado_perdido_responde_en_curso_sin_put(monkeypatch):
         c1 = psycopg.connect(dsn_db)
         c2 = psycopg.connect(dsn_db)
         try:
-            c1.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"aplica:{plan.huella()}",))
+            c1.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"campana:{camp}:presupuesto_diario",),
+            )
             with pytest.raises(apply_ajustes.AjusteEnCurso):
                 apply_ajustes.aplica_ajuste_campana(
                     c2,
@@ -2343,8 +2346,8 @@ def test_acto_ya_confirmado_no_repite_put(monkeypatch):
             plan.clase,
             plan.despues,
             plan.ajuste,
+            campana_id=camp,
             ajuste_id=hecho.ajuste_id,
-            llave="n9:distinta",
             previa=plan.antes,
         )
         assert stub.puts == []

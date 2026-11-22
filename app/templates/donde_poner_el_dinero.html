@@ -83,13 +83,19 @@
 } %}
 <table>
   <thead>
-    <tr><th>Campaña</th><th>Presupuesto/día</th><th>Gasto medio/día</th><th>Uso</th><th>Estrategia</th><th>Ajustes</th><th>Fuera de Amazon</th><th>Cambiar</th><th>Avisos</th></tr>
+    <tr><th>Campaña</th><th>Presupuesto/día</th><th>Temporada</th><th>Gasto medio/día</th><th>Uso</th><th>Estrategia</th><th>Ajustes</th><th>Fuera de Amazon</th><th>Cambiar</th><th>Avisos</th></tr>
   </thead>
   <tbody>
     {% for fila in por_campana %}
     <tr>
       <td data-dato-libre>{{ fila.nombre or "—" }}</td>
       <td class="num">{{ fila.presupuesto_diario | dinero }}</td>
+      <td data-propuesta-temporada>
+        {% if fila.propuesta_temporada %}
+        {{ fila.propuesta_temporada.frase }}
+        <button type="button" data-propuesta-presupuesto="{{ fila.propuesta_temporada.propuesto }}" data-campana-id="{{ fila.campana_id }}">Revisar</button>
+        {% else %}—{% endif %}
+      </td>
       <td class="num">{{ fila.gasto_medio_diario | dinero }}</td>
       <td class="num">{{ fila.uso_presupuesto_pct | pct }}</td>
       <td>{% if fila.estrategia is none %}—{% else %}{{ fila.estrategia | etiqueta("estrategia_puja") }}{% endif %}</td>

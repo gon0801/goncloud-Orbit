@@ -128,3 +128,7 @@ from app.optimizer.temporada_hoja import (  # noqa: F401
     reduccion_vigente,
     techo_de_baja,
 )
+from app.optimizer.temporada_presupuesto import (  # noqa: F401
+    PropuestaPresupuesto,
+    propuesta_presupuesto,
+)
