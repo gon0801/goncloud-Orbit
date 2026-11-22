@@ -444,6 +444,22 @@ def test_siembra_referencia_usa_retencion_iva_s4():
 
 def test_reancle_preserva_precio_objetivo_exacto():
     """Re-anclar un goal S3 a S4 mantiene P* intacto en Amazon MX y MeLi."""
+    from tools.reancle_goals_s4 import TasasPoliticaS4
+
+    tasas_mx = TasasPoliticaS4(
+        iva_divisor=Decimal("1.16"),
+        isr_tasa=Decimal("0.025"),
+        retencion_iva_tasa=Decimal("0.08"),
+        referral_fee_iva_multiplicador=Decimal("1.16"),
+        precio_incluye_iva=True,
+    )
+    tasas_meli = TasasPoliticaS4(
+        iva_divisor=Decimal("1.16"),
+        isr_tasa=Decimal("0.025"),
+        retencion_iva_tasa=Decimal("0.08"),
+        referral_fee_iva_multiplicador=Decimal("1"),
+        precio_incluye_iva=True,
+    )
     # Caso 1: goal sembrado con margen de hoy (Amazon MX FBM)
     m_s3, m_s4, goal_s4, p3, p4 = calcular_goal_equivalente_s4(
         platform="amazon_mx",
@@ -454,6 +470,7 @@ def test_reancle_preserva_precio_objetivo_exacto():
         fee_var_raw=Decimal("127.89"),
         fee_fijo=Decimal("0.00"),
         envio=Decimal("91.00"),
+        tasas_s4=tasas_mx,
     )
     assert m_s3 == Decimal("0.4339")
     assert m_s4 == Decimal("0.4223")
@@ -471,6 +488,7 @@ def test_reancle_preserva_precio_objetivo_exacto():
         fee_var_raw=Decimal("192.41"),
         fee_fijo=Decimal("64.00"),
         envio=Decimal("0.00"),
+        tasas_s4=tasas_mx,
     )
     assert abs(p4_fba - p3_fba) <= Decimal("0.50")
 
@@ -484,6 +502,7 @@ def test_reancle_preserva_precio_objetivo_exacto():
         fee_var_raw=Decimal("290.16"),
         fee_fijo=Decimal("0.00"),
         envio=Decimal("84.50"),
+        tasas_s4=tasas_meli,
     )
     assert abs(p4_meli - p3_meli) <= Decimal("0.50")
 

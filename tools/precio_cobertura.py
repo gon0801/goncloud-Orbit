@@ -78,7 +78,7 @@ def _cobertura_meli(conn) -> int:
 
     0 cuadran, 1 difieren, 2 sin corrida terminada de hoy (no medido).
     """
-    hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+    hoy = hoy_base(conn)
     corrida = conn.execute(_SQL_CORRIDA_MELI_HOY).fetchone()
     if corrida is None:
         print("cobertura meli: sin corrida meli_catalogo terminada de hoy (no medido)")

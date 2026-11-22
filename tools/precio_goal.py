@@ -250,16 +250,20 @@ def _planear_tool(conn, entradas, args):
             textos[(lid, plat)] = (goal_texto, numero)
             valores.append(ValorPorUnidad(lid, plat, fraccion))
         pedido = PedidoValores(goals=tuple(valores), mode=args.mode)
-    candidatos = []
-    for lid, plat, _goal, numero in entradas:
-        prefijo = f"linea {numero}: " if numero else ""
-        try:
-            (cand,) = leer_candidatos(conn, filtro=PorIds(pares=((lid, plat),)), vitrina=vitrina_de)
-        except (PrecioGoalAusente, PrecioGoalInvalido) as exc:
-            raise Abortar(f"{prefijo}{exc}") from exc
-        candidatos.append(cand)
+    pares = tuple((lid, plat) for lid, plat, _goal, _numero in entradas)
     try:
-        plan = planear(tuple(candidatos), pedido=pedido, banda=banda)
+        candidatos = leer_candidatos(conn, filtro=PorIds(pares=pares), vitrina=vitrina_de)
+    except (PrecioGoalAusente, PrecioGoalInvalido) as exc:
+        texto_err = str(exc)
+        numero = 0
+        for lid, plat, _goal, n_linea in entradas:
+            if f"listing {lid} inexistente en {plat}" in texto_err or str((lid, plat)) in texto_err:
+                numero = n_linea
+                break
+        prefijo = f"linea {numero}: " if numero else ""
+        raise Abortar(f"{prefijo}{exc}") from exc
+    try:
+        plan = planear(candidatos, pedido=pedido, banda=banda)
     except PedidoInvalido as exc:
         numero = lineas.get((exc.listing_id, exc.platform), 0)
         prefijo = f"linea {numero}: " if numero else ""

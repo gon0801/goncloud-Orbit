@@ -353,27 +353,32 @@ class ResultadoPlan:
     omitidas: tuple[OmitidaPlan, ...] = ()
 
 
-_SQL_LISTING = (
-    "SELECT id, product_id, external_id, seller_sku FROM listing WHERE id = %s AND platform = %s"
+_SQL_LISTINGS_LOTE = (
+    "SELECT id, platform, product_id, external_id, seller_sku"
+    " FROM listing WHERE platform = %s AND id = ANY(%s)"
 )
-_SQL_VIGENTE = (
-    "SELECT goal_id, margen_goal_pct, mode::text FROM v_precio_goal_vigente"
-    " WHERE listing_id = %s AND platform = %s"
+_SQL_VIGENTES_LOTE = (
+    "SELECT listing_id, goal_id, margen_goal_pct, mode::text"
+    " FROM v_precio_goal_vigente WHERE platform = %s AND listing_id = ANY(%s)"
 )
-_SQL_ESCENARIO = (
-    "SELECT id, contribucion_pct, componentes, fee_observation_id,"
+_SQL_ESCENARIOS_LOTE = (
+    "SELECT DISTINCT ON (listing_id)"
+    " listing_id, id, contribucion_pct, componentes, fee_observation_id,"
     " oferta_observation_id, moneda, canal, fee_variable, fee_fijo"
     " FROM estimacion_escenario"
-    " WHERE listing_id = %s AND platform = %s AND estado = 'disponible'"
-    " ORDER BY observed_at DESC LIMIT 1"
+    " WHERE platform = %s AND listing_id = ANY(%s) AND estado = 'disponible'"
+    " ORDER BY listing_id, observed_at DESC"
 )
-_SQL_OFERTA = "SELECT price_amount, price_currency FROM estimacion_oferta_observation WHERE id = %s"
-_SQL_FEE = (
-    "SELECT total_fees, quoted_price_amount, estado FROM estimacion_fee_observation WHERE id = %s"
+_SQL_OFERTAS_LOTE = (
+    "SELECT id, price_amount, price_currency FROM estimacion_oferta_observation WHERE id = ANY(%s)"
+)
+_SQL_FEES_LOTE = (
+    "SELECT id, total_fees, quoted_price_amount, estado"
+    " FROM estimacion_fee_observation WHERE id = ANY(%s)"
 )
 
 
-def _unidades_por_listing(conn, pares, vitrina) -> dict[int, UnidadPrecio]:
+def _unidades_por_listing(conn, pares, vitrina) -> dict[tuple[int, str], UnidadPrecio]:
     """La unidad real de cada par, leida por lote y por plataforma.
 
     `vitrina` es la raiz de composicion (`precio_mercados.vitrina`): este
@@ -383,23 +388,24 @@ def _unidades_por_listing(conn, pares, vitrina) -> dict[int, UnidadPrecio]:
     por_plataforma: dict[str, list[int]] = {}
     for lid, platform in pares:
         por_plataforma.setdefault(platform, []).append(lid)
-    unidades: dict[int, UnidadPrecio] = {}
+    unidades: dict[tuple[int, str], UnidadPrecio] = {}
     for platform, lids in por_plataforma.items():
-        unidades.update(vitrina(platform).unidades(conn, lids))
+        for lid, unidad in vitrina(platform).unidades(conn, lids).items():
+            unidades[(lid, platform)] = unidad
     return unidades
 
 
 def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds, vitrina) -> tuple[Candidato, ...]:
     """Unidades pedidas con su goal vigente y su lectura de hoy (solo base).
 
-    G.1 lee `listing` + `v_precio_goal_vigente` + el escenario disponible
-    mas reciente con su oferta y su fee (la misma fuente del tool, sin
-    overlay de frescura: el contrato congela esa lectura). La vitrina
-    alimenta candidatos en G.2, con los adaptadores de F.4.
+    Lectura por lote (O(1) consultas por plataforma, en vez de 5N):
+    `listing` + `v_precio_goal_vigente` + ultimo `estimacion_escenario`
+    disponible + sus ofertas y fees en bloque.
     """
     if not isinstance(filtro, PorIds):
         raise TypeError(f"filtro desconocido: {type(filtro).__name__}")
     vistos: set[tuple[int, str]] = set()
+    por_plataforma: dict[str, list[int]] = {}
     for lid, plat in filtro.pares:
         if isinstance(lid, bool) or not isinstance(lid, int):
             raise PrecioGoalInvalido(f"listing_id invalido: {lid!r}")
@@ -413,22 +419,48 @@ def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds, vitrina) -> tup
                 " el lote se aborta antes del plan"
             )
         vistos.add((lid, plat))
+        por_plataforma.setdefault(plat, []).append(lid)
+    if not filtro.pares:
+        return ()
     unidades = _unidades_por_listing(conn, filtro.pares, vitrina)
+    listings_map: dict[tuple[int, str], tuple] = {}
+    vigentes_map: dict[tuple[int, str], GoalVigente] = {}
+    escenarios_map: dict[tuple[int, str], tuple] = {}
+    for plat, lids in por_plataforma.items():
+        for fila in conn.execute(_SQL_LISTINGS_LOTE, (plat, lids)).fetchall():
+            listings_map[(int(fila[0]), plat)] = fila
+        for fila in conn.execute(_SQL_VIGENTES_LOTE, (plat, lids)).fetchall():
+            vigentes_map[(int(fila[0]), plat)] = GoalVigente(
+                id=int(fila[1]), goal=fila[2], mode=fila[3]
+            )
+        for fila in conn.execute(_SQL_ESCENARIOS_LOTE, (plat, lids)).fetchall():
+            escenarios_map[(int(fila[0]), plat)] = fila[1:]
+    oferta_ids = sorted({esc[4] for esc in escenarios_map.values() if esc[4] is not None})
+    fee_ids = sorted({esc[3] for esc in escenarios_map.values() if esc[3] is not None})
+    ofertas_map = (
+        {int(f[0]): (f[1], f[2]) for f in conn.execute(_SQL_OFERTAS_LOTE, (oferta_ids,)).fetchall()}
+        if oferta_ids
+        else {}
+    )
+    fees_map = (
+        {int(f[0]): (f[1], f[2], f[3]) for f in conn.execute(_SQL_FEES_LOTE, (fee_ids,)).fetchall()}
+        if fee_ids
+        else {}
+    )
     candidatos: list[Candidato] = []
     for lid, plat in filtro.pares:
-        fila = conn.execute(_SQL_LISTING, (lid, plat)).fetchone()
+        fila = listings_map.get((lid, plat))
         if fila is None:
             raise PrecioGoalAusente(f"listing {lid} inexistente en {plat}: sin listing no hay goal")
-        _id, _product_id, _externo, sku = fila
-        vig = conn.execute(_SQL_VIGENTE, (lid, plat)).fetchone()
-        vigente = None if vig is None else GoalVigente(id=int(vig[0]), goal=vig[1], mode=vig[2])
-        esc = conn.execute(_SQL_ESCENARIO, (lid, plat)).fetchone()
+        _id, _plat, _product_id, _externo, sku = fila
+        vigente = vigentes_map.get((lid, plat))
+        esc = escenarios_map.get((lid, plat))
         lectura: LecturaHoy | None = None
         canal: str | None = None
         if esc is not None:
             canal = esc[6]
-            oferta = conn.execute(_SQL_OFERTA, (esc[4],)).fetchone()
-            fee = conn.execute(_SQL_FEE, (esc[3],)).fetchone()
+            oferta = ofertas_map.get(esc[4]) if esc[4] is not None else None
+            fee = fees_map.get(esc[3]) if esc[3] is not None else None
             lectura = LecturaHoy(
                 m_pct=esc[1],
                 p_actual=None if oferta is None else oferta[0],
@@ -440,7 +472,7 @@ def leer_candidatos(conn: psycopg.Connection, *, filtro: PorIds, vitrina) -> tup
                 fee_fijo=esc[8],
                 fee_estado=None if fee is None else fee[2],
             )
-        unidad = unidades.get(lid)
+        unidad = unidades.get((lid, plat))
         if unidad is None:
             raise PrecioGoalAusente(f"listing {lid} inexistente en {plat}: sin listing no hay goal")
         candidatos.append(

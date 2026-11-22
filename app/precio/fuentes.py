@@ -24,6 +24,7 @@ import psycopg
 
 from app.precio.cobertura import FilaPublicacion
 from app.precio.compuerta import Retenida
+from app.precio.config import MODOS
 from app.precio.config import leer_entero as config_entero
 from app.precio.config import leer_modo_universo as config_modo_universo
 from app.precio.config import leer_numero as config_numero
@@ -40,10 +41,12 @@ __all__ = [
     "EstadoSeguridad",
     "leer_seguridad",
     "VentasUnidad",
+    "ledger_cubierto_hasta",
     "ventas_unidad",
     "cambios_previos",
     "ultima_subida",
     "historial_margenes",
+    "reporte",
 ]
 
 _SQL_CANAL = (
@@ -97,8 +100,6 @@ def universos_encendidos(conn: psycopg.Connection) -> dict | None:
     todo encendido, comportamiento de hoy). Solo lee los modos (no el
     motor completo: la cobertura no exige las demas claves H).
     """
-    from app.precio.config import MODOS
-
     settings = config_vigente_settings(conn)
     global_modo = settings.get("precio_modo_global")
     if global_modo is None:
@@ -235,8 +236,6 @@ def leer_seguridad(conn: psycopg.Connection, plataforma: str, *, hoy: date) -> E
     retenciones se leen igual. Clave presente pero invalida = `ValueError`
     que la nombra.
     """
-    from app.precio.config import MODOS
-
     settings = config_vigente_settings(conn)
     modo_global = settings.get("precio_modo_global")
     if modo_global is not None and modo_global not in MODOS:
@@ -295,6 +294,20 @@ class VentasUnidad:
     ledger_cubierto_hasta: date | None
 
 
+_SIN_CACHE_LEDGER = object()
+
+
+def ledger_cubierto_hasta(conn: psycopg.Connection, platform: str) -> date | None:
+    """Ultimo `event_date` de ventas del ledger cubierto para la plataforma."""
+    return conn.execute(
+        "SELECT max(e.event_date) FROM ledger_event e"
+        " JOIN ingest_run r ON r.id = e.ingest_run_id"
+        " WHERE e.platform = %s AND e.kind = 'sale' AND r.ok"
+        " AND r.source = 'accounting_ledger_events'",
+        (platform,),
+    ).fetchone()[0]
+
+
 def ventas_unidad(
     conn: psycopg.Connection,
     *,
@@ -303,8 +316,13 @@ def ventas_unidad(
     platform: str,
     desde: date,
     hoy: date,
+    cubierto_hasta: Any = _SIN_CACHE_LEDGER,
 ) -> VentasUnidad:
-    """Ventas de `v_precio_venta_unidad` + cobertura del ledger (por unidad)."""
+    """Ventas de `v_precio_venta_unidad` + cobertura del ledger (por unidad).
+
+    `cubierto_hasta` permite precargar `ledger_cubierto_hasta` una sola vez
+    por lote en `insumos()` evitando repetir `max(event_date)` por unidad.
+    """
     dias: dict[date, int] = {}
     for dia, qty in conn.execute(
         "SELECT event_date, quantity FROM v_precio_venta_unidad"
@@ -328,13 +346,11 @@ def ventas_unidad(
             (producto_ancla, platform, desde, hasta),
         ).fetchall()
     )
-    cubierto = conn.execute(
-        "SELECT max(e.event_date) FROM ledger_event e"
-        " JOIN ingest_run r ON r.id = e.ingest_run_id"
-        " WHERE e.platform = %s AND e.kind = 'sale' AND r.ok"
-        " AND r.source = 'accounting_ledger_events'",
-        (platform,),
-    ).fetchone()[0]
+    cubierto = (
+        ledger_cubierto_hasta(conn, platform)
+        if cubierto_hasta is _SIN_CACHE_LEDGER
+        else cubierto_hasta
+    )
     return VentasUnidad(
         dias=dias,
         primera_venta=primera,
@@ -442,3 +458,54 @@ def historial_margenes(
             )
         )
     return tuple(puntos)
+
+
+def reporte(
+    conn: psycopg.Connection, *, desde: date, hasta: date, platform: str | None = None
+) -> list[str]:
+    """Resumen de solo lectura (SELECT): decisiones y cambios por dia."""
+    extra = "AND platform = %s" if platform else ""
+    params_dec = [desde, hasta] + ([platform] if platform else [])
+    decisiones = conn.execute(
+        "SELECT decision_date, platform, resultado, count(*)"
+        " FROM precio_decision WHERE decision_date BETWEEN %s AND %s "
+        + extra
+        + " GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+        params_dec,
+    ).fetchall()
+    cambios = conn.execute(
+        "SELECT (enviado_at AT TIME ZONE 'UTC')::date, platform, estado, count(*)"
+        " FROM precio_cambio WHERE (enviado_at AT TIME ZONE 'UTC')::date"
+        " BETWEEN %s AND %s " + extra + " GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+        params_dec,
+    ).fetchall()
+    por_dia: dict = {}
+    for fecha, plat, resultado, cuenta in decisiones:
+        dia = por_dia.setdefault((str(fecha), plat), {"decisiones": 0, "cambios": {}})
+        dia["decisiones"] += cuenta
+        dia[resultado] = dia.get(resultado, 0) + cuenta
+    for fecha, plat, estado, cuenta in cambios:
+        if fecha is None:
+            continue
+        dia = por_dia.setdefault((str(fecha), plat), {"decisiones": 0, "cambios": {}})
+        dia["cambios"][estado] = dia["cambios"].get(estado, 0) + cuenta
+    lineas = []
+    for fecha, plat in sorted(por_dia):
+        dia = por_dia[(fecha, plat)]
+        partes = [f"{fecha} {plat} decisiones={dia['decisiones']}"]
+        for resultado in (
+            "subir",
+            "bajar",
+            "mantener",
+            "no_evaluado",
+            "goal_inalcanzable",
+            "frenado",
+        ):
+            if resultado in dia:
+                partes.append(f"{resultado}={dia[resultado]}")
+        if dia["cambios"]:
+            partes.append(
+                "cambios:" + ",".join(f"{e}={c}" for e, c in sorted(dia["cambios"].items()))
+            )
+        lineas.append(" ".join(partes))
+    return lineas

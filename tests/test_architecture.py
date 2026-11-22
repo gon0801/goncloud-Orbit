@@ -64,26 +64,11 @@ ALLOWLIST_TAMANO = {
         "revisar la separacion de consultas y agregacion por esa frontera, "
         "sin duplicar reglas para bajar el contador."
     ),
-    "app/precio/cambios.py": (
-        "REPRICING 02 S.5: el protocolo de `precio_cambio` vive en un solo "
-        "modulo por diseno (seccion I del bosquejo: unitario + lote + "
-        "cierre + claim compartido con la corrida). Partirlo por cuota "
-        "separaria `revertir` de su nucleo `_revertir_fila` — jamas partir "
-        "por partir"
-    ),
     "app/api_dashboard.py": (
         "Feed de Decisiones/Cortes/Inertes (SQL + _fila_* + filtros). "
         "El wiring de Entidad (kind/keyword_text + JOINs de campana) "
         "lo empujo 25 lineas sobre 900. Candidato a partir cortes/"
         "inertes del feed de decisiones; no se parte por partir."
-    ),
-    "app/precio/corrida.py": (
-        "REPRICING 01 A.5 + 02 S.1: orquestador sellado de la corrida diaria "
-        "por plataforma (claim, fila corrida, huerfanas, cierre por "
-        "observacion, decidir, compuerta, aplicar y frenos en un solo "
-        "camino dueno). Partirlo crearia un segundo dueno del camino; "
-        "las piezas con frontera propia ya viven fuera (reglas, fuentes, "
-        "precio_write). No se parte por partir."
     ),
 }
 
@@ -95,8 +80,6 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/dashboard_resumen.py": 995,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
-    "app/precio/cambios.py": 1025,
-    "app/precio/corrida.py": 1647,
 }
 
 
@@ -1088,28 +1071,30 @@ EXCEPCIONES_PURAS_PRECIO = (
     "goals_write.py",
     "fuentes.py",
     "corrida.py",
+    "decision_io.py",
+    "compuerta_io.py",
     "cambios.py",
+    "reversas.py",
     "liberaciones.py",
 )
 
 
 def test_precio_excepcion_por_nombre():
-    """A.1 + A.7 + A.5 + S.1 + S.3: la excepcion de pureza es una tupla por
-    nombre con `goals_write.py`, `fuentes.py`, `corrida.py`, `cambios.py` y
-    `liberaciones.py` y nada mas (`cuota.py` murio en S.1); quitar el
-    `rglob` o exceptuar la carpeta la rompe."""
+    """A.1 + A.7 + A.5 + S.1 + S.3 + Ola E: la excepcion de pureza es una
+    tupla por nombre con los modulos de IO explicitos y nada mas (`cuota.py`
+    murio en S.1); quitar el `rglob` o exceptuar la carpeta la rompe."""
     assert EXCEPCIONES_PURAS_PRECIO == (
         "goals_write.py",
         "fuentes.py",
         "corrida.py",
+        "decision_io.py",
+        "compuerta_io.py",
         "cambios.py",
+        "reversas.py",
         "liberaciones.py",
     )
-    assert (PRECIO / "goals_write.py").is_file()
-    assert (PRECIO / "fuentes.py").is_file()
-    assert (PRECIO / "corrida.py").is_file()
-    assert (PRECIO / "cambios.py").is_file()
-    assert (PRECIO / "liberaciones.py").is_file()
+    for nombre in EXCEPCIONES_PURAS_PRECIO:
+        assert (PRECIO / nombre).is_file(), f"falta excepcion declarada: {nombre}"
     assert (PRECIO / "tipos.py").is_file()
     assert not (PRECIO / "cuota.py").exists()
 
@@ -2158,9 +2143,11 @@ def _tablas_escritas(path: Path) -> list[str]:
 
 
 def test_corrida_solo_importa_permitido():
-    """A.5: `corrida.py` no trae red, reloj, entorno, `app.apply` ni nada
-    fuera de la lista (el detector muerde: ver fugas sembradas)."""
-    assert _fugas_imports_corrida(PRECIO / "corrida.py", permitidos=_PERMITIDOS_CORRIDA) == []
+    """A.5 + Ola E: `corrida.py`, `decision_io.py`, `compuerta_io.py` y
+    `reversas.py` no traen red, reloj, entorno, `app.apply` ni nada fuera de
+    la lista (el detector muerde: ver fugas sembradas)."""
+    for nombre in ("corrida.py", "decision_io.py", "compuerta_io.py", "reversas.py"):
+        assert _fugas_imports_corrida(PRECIO / nombre, permitidos=_PERMITIDOS_CORRIDA) == [], nombre
 
 
 def test_corrida_borde_de_punto_en_permitidos(tmp_path):
@@ -2173,25 +2160,37 @@ def test_corrida_borde_de_punto_en_permitidos(tmp_path):
 
 
 def test_corrida_sin_reloj_ni_dinamico():
-    """A.5: la excepcion no ampara reloj ni import dinamico en `corrida.py`."""
-    arbol = ast.parse((PRECIO / "corrida.py").read_text(encoding="utf-8"))
-    assert _usos_reloj(arbol) == []
-    assert _usos_import_dinamico(arbol) == []
+    """A.5 + Ola E: la excepcion no ampara reloj ni import dinamico en la familia corrida."""
+    for nombre in ("corrida.py", "decision_io.py", "compuerta_io.py", "reversas.py"):
+        arbol = ast.parse((PRECIO / nombre).read_text(encoding="utf-8"))
+        assert _usos_reloj(arbol) == [], nombre
+        assert _usos_import_dinamico(arbol) == [], nombre
 
 
 def test_corrida_solo_escribe_sus_tablas():
-    """A.5 + REPRICING 02 0.b + S.1 + S.2 + S.3: `corrida.py` escribe solo
-    sus tablas (ni Ads ni ingest; `precio_cambio` lo escribe `cambios.py`
-    y la liberacion `liberaciones.py`; `precio_corrida` es su fila por
-    ejecucion, `precio_retencion` sus retenciones y
-    `precio_compuerta_medicion` su medicion por universo)."""
-    assert _tablas_escritas(PRECIO / "corrida.py") == sorted(_ESCRIBE_CORRIDA)
+    """A.5 + REPRICING 02 0.b + S.1 + S.2 + S.3 + Ola E: un solo dueno por
+    tabla: `corrida.py` escribe `precio_corrida` y `precio_retencion`,
+    `decision_io.py` escribe `precio_decision` y `precio_cotizacion`, y
+    `compuerta_io.py` escribe `precio_compuerta_medicion`."""
+    assert _tablas_escritas(PRECIO / "corrida.py") == ["precio_corrida", "precio_retencion"]
+    assert _tablas_escritas(PRECIO / "decision_io.py") == [
+        "precio_cotizacion",
+        "precio_decision",
+    ]
+    assert _tablas_escritas(PRECIO / "compuerta_io.py") == ["precio_compuerta_medicion"]
+    union = sorted(
+        set(_tablas_escritas(PRECIO / "corrida.py"))
+        | set(_tablas_escritas(PRECIO / "decision_io.py"))
+        | set(_tablas_escritas(PRECIO / "compuerta_io.py"))
+    )
+    assert union == sorted(_ESCRIBE_CORRIDA)
 
 
 def test_cambios_solo_escribe_cambio_y_claim():
-    """REPRICING 02 0.b + S.5: `cambios.py` es el UNICO escritor de
-    `precio_cambio` (el claim `ads_optimizer_lock` vive en `app/lock.py`)."""
+    """REPRICING 02 0.b + S.5 + Ola E: `cambios.py` y `reversas.py` escriben
+    UNICAMENTE `precio_cambio` (el claim `ads_optimizer_lock` vive en `app/lock.py`)."""
     assert _tablas_escritas(PRECIO / "cambios.py") == sorted(_ESCRIBE_CAMBIOS)
+    assert _tablas_escritas(PRECIO / "reversas.py") == sorted(_ESCRIBE_CAMBIOS)
     assert _tablas_escritas(APP / "lock.py") == sorted(_ESCRIBE_LOCK)
 
 

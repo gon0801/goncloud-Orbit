@@ -104,18 +104,31 @@ _FAMILIA_POR_TIPO_PRECIO = {
     "corrida_fallida": (CorridaFallidaPrecio,),
 }
 
-_BUILDER_POR_FAMILIA_PRECIO = {
-    GrupoPrecio: "aviso_precio_grupo",
-    ProductoPrecio: "aviso_precio_producto",
-    HuerfanaPrecio: "aviso_precio_huerfana",
-    ResumenDiarioPrecio: "aviso_precio_resumen",
-    CompuertaPrecio: "aviso_precio_compuerta",
-    CambioErrorPrecio: "aviso_precio_cambio_error",
-    CorteErroresPrecio: "aviso_precio_corte_errores",
-    ReversaPrecio: "aviso_precio_reversa",
-    CohortePrecio: "aviso_precio_cohorte",
-    CorridaFallidaPrecio: "aviso_precio_corrida_fallida",
-}
+
+def _construye_aviso_precio(payload) -> str:
+    """Despacho explicito por familia (resuelve funciones en el modulo para
+    permitir monkeypatch en pruebas, sin `globals()`)."""
+    if isinstance(payload, GrupoPrecio):
+        return aviso_precio_grupo(payload)
+    if isinstance(payload, ProductoPrecio):
+        return aviso_precio_producto(payload)
+    if isinstance(payload, HuerfanaPrecio):
+        return aviso_precio_huerfana(payload)
+    if isinstance(payload, ResumenDiarioPrecio):
+        return aviso_precio_resumen(payload)
+    if isinstance(payload, CompuertaPrecio):
+        return aviso_precio_compuerta(payload)
+    if isinstance(payload, CambioErrorPrecio):
+        return aviso_precio_cambio_error(payload)
+    if isinstance(payload, CorteErroresPrecio):
+        return aviso_precio_corte_errores(payload)
+    if isinstance(payload, ReversaPrecio):
+        return aviso_precio_reversa(payload)
+    if isinstance(payload, CohortePrecio):
+        return aviso_precio_cohorte(payload)
+    if isinstance(payload, CorridaFallidaPrecio):
+        return aviso_precio_corrida_fallida(payload)
+    raise AssertionError(f"familia de aviso sin builder: {type(payload).__name__}")
 
 
 def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None = None) -> bool:
@@ -142,17 +155,9 @@ def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None
                 scrub(str(tipo)),
             )
             return False
-        nombre_builder = None
-        for familia, candidato in _BUILDER_POR_FAMILIA_PRECIO.items():
-            if isinstance(payload, familia):
-                nombre_builder = candidato
-                break
-        if nombre_builder is None:
-            raise AssertionError(f"familia de aviso sin builder: {type(payload).__name__}")
         if not notifica.canal_activo():
             return True
-        builder = globals()[nombre_builder]
-        return notifica._envia_texto(builder(payload), transport=transport)
+        return notifica._envia_texto(_construye_aviso_precio(payload), transport=transport)
     except Exception as exc:
         logger.warning("telegram: fallo armando el aviso de precio: %s", scrub(str(exc)))
         return False
@@ -378,40 +383,26 @@ SELECT 1 FROM precio_corrida
 
 _SQL_SELLAR_RESUMEN = "UPDATE precio_corrida SET resumen_enviado_at = now() WHERE id = %s"
 
-_SQL_RESUMEN_MOVIMIENTOS = """
-SELECT resultado, count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND mode = 'live'
-   AND resultado IN ('subir', 'bajar')
- GROUP BY resultado
-"""
-
-_SQL_RESUMEN_SOMBRA = """
-SELECT count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND mode = 'shadow'
-   AND resultado IN ('subir', 'bajar')
-"""
-
-_SQL_RESUMEN_RETENIDOS = """
-SELECT count(DISTINCT r.decision_id)
-  FROM precio_retencion r JOIN precio_corrida c ON c.id = r.corrida_id
- WHERE c.platform = %s AND c.fecha = %s
-"""
-
-_SQL_RESUMEN_ERRORES = """
-SELECT count(*)
-  FROM precio_cambio c JOIN precio_decision d ON d.id = c.decision_id
- WHERE c.platform = %s AND d.decision_date = %s AND c.estado = 'error'
-   AND c.aplicado AND NOT c.es_reversa
-"""
-
-_SQL_RESUMEN_SIN_EVALUAR = """
-SELECT count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND resultado = 'no_evaluado'
-"""
-
-_SQL_RESUMEN_IMPUTADO = """
-SELECT count(*) FROM precio_decision
- WHERE platform = %s AND decision_date = %s AND l_origen IN ('familia', 'marketplace')
+_SQL_RESUMEN_CONTEOS = """
+SELECT
+    count(*) FILTER (WHERE mode = 'live' AND resultado = 'subir') AS subieron,
+    count(*) FILTER (WHERE mode = 'live' AND resultado = 'bajar') AS bajaron,
+    count(*) FILTER (WHERE mode = 'shadow' AND resultado IN ('subir', 'bajar')) AS en_sombra,
+    count(*) FILTER (WHERE resultado = 'no_evaluado') AS sin_evaluar,
+    count(*) FILTER (WHERE l_origen IN ('familia', 'marketplace')) AS imputados,
+    (
+        SELECT count(DISTINCT r.decision_id)
+          FROM precio_retencion r JOIN precio_corrida c ON c.id = r.corrida_id
+         WHERE c.platform = %s AND c.fecha = %s
+    ) AS retenidos,
+    (
+        SELECT count(*)
+          FROM precio_cambio c JOIN precio_decision d ON d.id = c.decision_id
+         WHERE c.platform = %s AND d.decision_date = %s AND c.estado = 'error'
+           AND c.aplicado AND NOT c.es_reversa
+    ) AS errores
+  FROM precio_decision
+ WHERE platform = %s AND decision_date = %s
 """
 
 _SQL_RESUMEN_MUESTRA = """
@@ -449,7 +440,9 @@ def _corrida_cerrada_hoy(conn, platform: str, hoy):
 
 
 def _leer_resumen_diario(conn, platform: str, hoy) -> ResumenDiarioPrecio:
-    movs = dict(conn.execute(_SQL_RESUMEN_MOVIMIENTOS, (platform, hoy)).fetchall())
+    subieron, bajaron, en_sombra, sin_evaluar, imputados, retenidos, errores = conn.execute(
+        _SQL_RESUMEN_CONTEOS, (platform, hoy, platform, hoy, platform, hoy)
+    ).fetchone()
     muestra = tuple(
         (sku, str(antes), str(despues))
         for sku, antes, despues in conn.execute(_SQL_RESUMEN_MUESTRA, (platform, hoy)).fetchall()
@@ -457,13 +450,13 @@ def _leer_resumen_diario(conn, platform: str, hoy) -> ResumenDiarioPrecio:
     return ResumenDiarioPrecio(
         platform=platform,
         dia=hoy,
-        subieron=int(movs.get("subir", 0)),
-        bajaron=int(movs.get("bajar", 0)),
-        en_sombra=conn.execute(_SQL_RESUMEN_SOMBRA, (platform, hoy)).fetchone()[0],
-        retenidos=conn.execute(_SQL_RESUMEN_RETENIDOS, (platform, hoy)).fetchone()[0],
-        errores=conn.execute(_SQL_RESUMEN_ERRORES, (platform, hoy)).fetchone()[0],
-        sin_evaluar=conn.execute(_SQL_RESUMEN_SIN_EVALUAR, (platform, hoy)).fetchone()[0],
-        con_envio_imputado=conn.execute(_SQL_RESUMEN_IMPUTADO, (platform, hoy)).fetchone()[0],
+        subieron=int(subieron),
+        bajaron=int(bajaron),
+        en_sombra=int(en_sombra),
+        retenidos=int(retenidos),
+        errores=int(errores),
+        sin_evaluar=int(sin_evaluar),
+        con_envio_imputado=int(imputados),
         muestra=muestra,
     )
 
