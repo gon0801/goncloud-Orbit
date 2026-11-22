@@ -1,16 +1,16 @@
-# Despliegue de TEMPORADA 01 H — MOTOR_SHA 2a8a6b035f503555ce4d33a59ed13aaeda5a5e03
-# Motivo: la practica compara R6r con marcadores, no acorta el historial de la temporada y guarda el caso de la sombra para replay.
+# Despliegue de TEMPORADA 01 H — MOTOR_SHA 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c
+# Motivo: la practica compara R6r con marcadores (tambien con la temporada apagada o en vivo), no acorta el historial de la temporada y guarda caso_sombra para replay.
 # Arnes: git-bash con 'env -i PATH=/mingw64/bin:/usr/bin:/bin HOME=...'.
-# Comando: MOTOR_SHA=2a8a6b035f503555ce4d33a59ed13aaeda5a5e03 bash tools/despliegue/desplegar.sh
+# Comando: MOTOR_SHA=57b47ddb7d8356bc5e8d04aa70e53d232b34c05c bash tools/despliegue/desplegar.sh
 
 == Salida completa ==
 == (0) candado y diario
-MOTOR_SHA=2a8a6b035f503555ce4d33a59ed13aaeda5a5e03 SHA_PREVIO=ff2c1e3119aa21b73096d4e2ef70311ab8edabb3
+MOTOR_SHA=57b47ddb7d8356bc5e8d04aa70e53d232b34c05c SHA_PREVIO=e5f9a2cff628d2eeea5b18aae8c6a9607c218d58
 == (1) guardas (plazo comun 600s)
 guardas libres
 == (2) monotonia
 == (3) respaldo
-respaldo /mnt/data/appdata/orbit/despliegue/predeploy-20261122-180530 completo
+respaldo /mnt/data/appdata/orbit/despliegue/predeploy-20261122-191206 completo
 == (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_*, *_temporada01_* y *_estimacion_s4_*)
 ya aplicada: 0076_auto03_peldano_producto.sql
 ya aplicada: 0077_auto03_evaluacion_producto.sql
@@ -31,9 +31,9 @@ ya aplicada: 0091_arreglos03_sin_precio_cap.sql
 ya aplicada: 0092_temporada01_margen_vigente.sql
 ya aplicada: 0093_estimacion_s4_caja_real_mx.sql
 ya aplicada: 0093_temporada01_episodio.sql
-== (5) codigo de 2a8a6b035f503555ce4d33a59ed13aaeda5a5e03
+== (5) codigo de 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c
 md5 OK: 285 archivos
-/mnt/data/appdata/orbit/refresh_estimacion.sh = tools/refresh_estimacion.sh de 2a8a6b035f503555ce4d33a59ed13aaeda5a5e03
+/mnt/data/appdata/orbit/refresh_estimacion.sh = tools/refresh_estimacion.sh de 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c
  Image orbit-app Building 
 #1 [internal] load local bake definitions
 #1 reading from stdin 482B done
@@ -43,22 +43,25 @@ md5 OK: 285 archivos
 #2 transferring dockerfile: 1.33kB done
 #2 DONE 0.0s
 
-#3 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
-#3 DONE 0.4s
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
 
-#4 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
 #4 DONE 0.6s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.7s
 
 #5 [internal] load .dockerignore
 #5 transferring context: 199B done
 #5 DONE 0.0s
 
-#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
-#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 [stage-0  1/12] FROM docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+#6 resolve docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df 0.0s done
 #6 DONE 0.0s
 
-#7 [stage-0  1/12] FROM docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
-#7 resolve docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df 0.0s done
+#7 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#7 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
 #7 DONE 0.0s
 
 #8 [internal] load build context
@@ -84,13 +87,13 @@ md5 OK: 285 archivos
 #14 DONE 0.0s
 
 #15 [stage-0  8/12] COPY tools/jev_ads.py ./tools/jev_ads.py
-#15 DONE 0.0s
+#15 DONE 0.1s
 
 #16 [stage-0  9/12] COPY tools/jev_fichas.py ./tools/jev_fichas.py
 #16 DONE 0.0s
 
 #17 [stage-0 10/12] COPY tools/precio_sonda.py ./tools/precio_sonda.py
-#17 DONE 0.1s
+#17 DONE 0.0s
 
 #18 [stage-0 11/12] COPY tools/precio_cobertura.py ./tools/precio_cobertura.py
 #18 DONE 0.0s
@@ -100,15 +103,15 @@ md5 OK: 285 archivos
 
 #20 exporting to image
 #20 exporting layers
-#20 exporting layers 0.2s done
-#20 exporting manifest sha256:77444964f6df3bd7435e5f4f863962371770e526a6506450f33869652d4b6a01 0.0s done
-#20 exporting config sha256:8b7624bf024d6cea4c4f258df371e939ac3f774e396be7883fc0462164325567 0.0s done
-#20 exporting attestation manifest sha256:b9230a9e5d940679ef66f173fcfe0ea33e5e8869dfd6b0e0184130ea8b41257f 0.0s done
-#20 exporting manifest list sha256:6a0faa0eb5a5e9237e0262c6a4bf0b9f2ce1258d602685b5cebda474c4bda696 0.0s done
+#20 exporting layers 0.4s done
+#20 exporting manifest sha256:77c73b9ef874171f2a49ba5e55eec8e275dab86fc97b9ea92ff7b02552651454 0.0s done
+#20 exporting config sha256:65257118b7ae55b3b037307e1f8b06a34fb7de729b6519f1c73c93689f4e14cd done
+#20 exporting attestation manifest sha256:9ec2546ca457676e8de9e404dfbd4069e3f3d551f2976a9912dd552b269bd7e2 0.0s done
+#20 exporting manifest list sha256:6013345d3a55240757881bb197992005b499fa31dd2a7b908696650f901699cd 0.0s done
 #20 naming to docker.io/library/orbit-app:latest done
 #20 unpacking to docker.io/library/orbit-app:latest
-#20 unpacking to docker.io/library/orbit-app:latest 0.2s done
-#20 DONE 0.5s
+#20 unpacking to docker.io/library/orbit-app:latest 0.7s done
+#20 DONE 1.2s
 
 #21 resolving provenance for metadata file
 #21 DONE 0.0s
@@ -119,7 +122,7 @@ espero a que orbit-app-1 no tenga procesos app.cli (plazo 600s)
  Container orbit-app-1 Recreated 
  Container orbit-app-1 Starting 
  Container orbit-app-1 Started 
-recreado; /health 200; /mnt/data/appdata/orbit/despliegue/sha = 2a8a6b035f503555ce4d33a59ed13aaeda5a5e03
+recreado; /health 200; /mnt/data/appdata/orbit/despliegue/sha = 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c
 == (5b) linea de cron del vigia de Jev
 linea jev-vigia en el bloque Orbit
 la linea ya estaba
@@ -128,4 +131,4 @@ bloque Orbit igual al canonico
 el bloque Orbit ya era el canonico
 == (6) interruptores frente a SHA_PREVIO
 ninguna clave cambia
-== DESPLEGADO 2a8a6b035f503555ce4d33a59ed13aaeda5a5e03 (checklist.sh lo pasa a verificado)
+== DESPLEGADO 57b47ddb7d8356bc5e8d04aa70e53d232b34c05c (checklist.sh lo pasa a verificado)
