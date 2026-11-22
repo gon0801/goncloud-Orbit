@@ -15,7 +15,7 @@ from typing import Protocol
 
 from psycopg.conninfo import make_conninfo
 
-from app import db, goals_write, retiro_anuncios
+from app import db, retiro_anuncios
 from app import fabrica_bids as br
 from app import fabrica_plan as fp
 from app import impulso as im
@@ -459,7 +459,3 @@ def previsualiza(
         moneda=moneda,
         p90=p90,
     )
-
-
-_SQL_SETTINGS = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-_ = goals_write  # mantenido en dependencia del dominio de impulso

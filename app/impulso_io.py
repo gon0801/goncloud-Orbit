@@ -27,7 +27,6 @@ from app.impulso_lanza import (  # noqa: F401
 )
 from app.impulso_preview import (  # noqa: F401
     _SQL_ESTADO_LOTE,
-    _SQL_SETTINGS,
     _SQL_VIVO_OTRO_LISTING,
     AccionVigia,
     EjecucionFabrica,
