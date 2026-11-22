@@ -1,3 +1,4 @@
+(function () {
 "use strict";
 // El chrome lee las mismas APIs que Propuestas y Salud; no replica consultas.
 document.addEventListener("DOMContentLoaded", function () {
@@ -17,14 +18,14 @@ document.addEventListener("DOMContentLoaded", function () {
     return document.querySelectorAll('[data-rol="' + rol + '"]');
   }
 
-  async function leer(ruta) {
-    const respuesta = await fetch("/api/dashboard/" + ruta, {cache: "no-store"});
-    if (!respuesta.ok) throw new Error("Lectura no disponible");
-    return respuesta.json();
+  async function leer(url) {
+    const r = await Orbit.getJson(url);
+    if (!r.ok || !r.jsonOk) throw new Error("Lectura no disponible");
+    return r.data;
   }
 
   // Endpoint liviano (/chrome): evita disparar /cortes + /salud completos en cada pagina.
-  leer("chrome").then(datos => {
+  leer("/api/dashboard/chrome").then(datos => {
     const prop = datos.propuestas || {};
     const n = Number(prop.live) || 0;
     const practica = Number(prop.shadow) || 0;
@@ -64,10 +65,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // Contador de alertas de reputacion: el badge es aviso de accion, solo
   // se muestra cuando hay abiertas; en cero o error queda oculto.
   if (repContador) {
-    fetch("/api/reputacion/contador", {cache: "no-store"}).then(respuesta => {
-      if (!respuesta.ok) throw new Error("Lectura no disponible");
-      return respuesta.json();
-    }).then(datos => {
+    leer("/api/reputacion/contador").then(datos => {
       const total = Number(datos.total_alertas) || 0;
       const etiqueta = total + " alertas abiertas";
       if (total > 0) {
@@ -77,3 +75,4 @@ document.addEventListener("DOMContentLoaded", function () {
     }).catch(() => {});
   }
 });
+})();

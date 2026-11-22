@@ -12,19 +12,8 @@
 // "[object Object]".
 var CAMPOS = { dias: "Días", actor: "Actor", queue_id: "Propuesta" };
 
-function mensajeError(data) {
-  var detalle = data && data.detail;
-  if (Array.isArray(detalle)) {
-    return detalle
-      .map(function (d) {
-        var campo = d && d.loc ? d.loc[d.loc.length - 1] : null;
-        var nombre = CAMPOS[campo] || campo;
-        return (nombre ? nombre + ": " : "") + ((d && d.msg) || "valor no válido");
-      })
-      .join("; ");
-  }
-  if (typeof detalle === "string") return detalle;
-  return "la respuesta no trae detalle";
+function mensajeError(data, status) {
+  return Orbit.errorTexto(data, status, CAMPOS);
 }
 
 function fechaLegible(iso) {
@@ -47,24 +36,12 @@ function vetar(form) {
     actor: form.elements.actor.value,
     dias: Number(form.elements.dias.value),
   };
-  fetch("/api/ads-optimizer/veto", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.postJson("/api/ads-optimizer/veto", cuerpo, form.elements.token.value)
     .then(function (r) {
       if (r.ok) {
         estado.textContent = "Rechazado hasta el " + fechaLegible(r.data.vence_el) + ".";
       } else {
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data, r.status) + ".";
       }
     })
     .catch(function () {
@@ -84,24 +61,16 @@ function descartar(form) {
   var cuerpo = {
     actor: form.elements.actor.value,
   };
-  fetch("/api/ads-optimizer/propuestas-campana/" + form.dataset.descarte + "/descartar", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.postJson(
+    "/api/ads-optimizer/propuestas-campana/" + form.dataset.descarte + "/descartar",
+    cuerpo,
+    form.elements.token.value
+  )
     .then(function (r) {
       if (r.ok) {
         estado.textContent = "Descartada (propuesta " + (r.data.id || "?") + ").";
       } else {
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data, r.status) + ".";
       }
     })
     .catch(function () {
@@ -130,19 +99,7 @@ function postBloqueo(form) {
   } else {
     cuerpo = { senal_id: form.dataset.senal };
   }
-  fetch("/api/jev-bloqueo/" + form.dataset.bloqueo, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.postJson("/api/jev-bloqueo/" + form.dataset.bloqueo, cuerpo, form.elements.token.value)
     .then(function (r) {
       if (r.ok) {
         var paso = r.data.paso ? Orbit.etiqueta(r.data.paso, "paso_bloqueo") : "ok";
@@ -153,7 +110,7 @@ function postBloqueo(form) {
         var error =
           typeof detalle === "string" && /^[a-z_]+$/.test(detalle)
             ? motivoBloqueo(detalle)
-            : mensajeError(r.data);
+            : mensajeError(r.data, r.status);
         estado.textContent = "Error: " + error + ".";
         if (boton) boton.disabled = false;
       }
@@ -165,31 +122,9 @@ function postBloqueo(form) {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll("button[data-vetar]").forEach(function (boton) {
-    boton.addEventListener("click", function () {
-      var fila = document.getElementById("form-" + boton.dataset.vetar);
-      if (fila) fila.hidden = !fila.hidden;
-    });
-  });
-  document.querySelectorAll("form[data-veto]").forEach(function (form) {
-    form.addEventListener("submit", function (evento) {
-      evento.preventDefault();
-      vetar(form);
-    });
-  });
-  document.querySelectorAll("button[data-descartar]").forEach(function (boton) {
-    boton.addEventListener("click", function () {
-      var fila = document.getElementById("descarte-" + boton.dataset.descartar);
-      if (fila) fila.hidden = !fila.hidden;
-    });
-  });
-  document.querySelectorAll("form[data-descarte]").forEach(function (form) {
-    form.addEventListener("submit", function (evento) {
-      evento.preventDefault();
-      descartar(form);
-    });
-  });
   [
+    ["data-vetar", "form-"],
+    ["data-descartar", "descarte-"],
     ["data-bloquear", "bloquear-"],
     ["data-rechazar", "rechazar-"],
     ["data-quitar", "quitar-"],
@@ -202,10 +137,16 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     });
   });
-  document.querySelectorAll("form[data-bloqueo]").forEach(function (form) {
-    form.addEventListener("submit", function (evento) {
-      evento.preventDefault();
-      postBloqueo(form);
+  [
+    ["form[data-veto]", vetar],
+    ["form[data-descarte]", descartar],
+    ["form[data-bloqueo]", postBloqueo],
+  ].forEach(function (par) {
+    document.querySelectorAll(par[0]).forEach(function (form) {
+      form.addEventListener("submit", function (evento) {
+        evento.preventDefault();
+        par[1](form);
+      });
     });
   });
 });

@@ -1,39 +1,9 @@
 (function () {
 "use strict";
-// JS de productos sin clics (BIDS 02, P.4). Vive en /static por la CSP
-// `default-src 'self'`: los <script> inline y los handlers on*= quedan
-// BLOQUEADOS por esa politica. "Ver lanzamiento" pide POST
-// /api/fabrica/impulso/plan con los listings marcados y pinta la vista
-// previa (avisa la subfamilia nueva, que arranca sin negativos); "Lanzar
-// impulso" exige el literal LANZAR IMPULSO DE <N> PRODUCTOS antes de
-// mandar POST /api/fabrica/impulso/lanzar.
-// "Regresarlo a sus grupos de antes" exige REGRESAR <N> ANUNCIOS y manda
-// POST /api/fabrica/retiro/reponer. Sacar y regresar dicen "n de m" y
-// nombran cada anuncio que no quedo (AUTO-03 G.4); los adoptados y los
-// archivados piden su propio literal: REGRESAR <K> ANUNCIOS con
-// incluye_adoptados, o RECREAR <K> ANUNCIOS a /api/fabrica/retiro/recrear.
-// El token viaja en el header x-orbit-token (la query string JAMAS
-// autentica).
-// "Sacar", "Ver lanzamiento" e "Impulsar aparte" (ARREGLOS 04 W-P): cada flujo
-// lleva su revision; cambiar la seleccion o fallar la previa nueva esconde el
-// formulario, y solo se manda la solicitud de la previa que se esta viendo.
-// "Meta por producto" (AUTO-03 E.1) solo filtra filas ya pintadas por el
-// servidor: con meta, sin meta o por motivo.
-// "Limites de la pausa" (AUTO-03 H.9): al cambiar un limite pide GET
-// /api/dashboard/productos/simula-pausa (lectura, no guarda) y pinta lo que
-// pausaria, el gasto que se habria evitado y las ventas que se habrian
-// perdido; un 422 muestra el minimo que dice el servidor. "Guardar limites"
-// manda POST /api/ads-optimizer/settings/<plataforma> con x-orbit-token,
-// como settings.js.
-// "Encender la pausa" y "Volver a practica" (AUTO-03 I.8): ver cableaPausa.
-
-// --- Previa visible = solicitud ejecutable (ARREGLOS 04 W-P, TN04) ---------
-// Un estado por flujo: revision, solicitud, previa y fase. La revision sube
-// con cada previa pedida y con cada cambio de seleccion, y una solicitud con
-// su previa solo vale para su revision. Lo que se pinta y lo que se manda
-// salen de aqui, asi que una previa que dejo de verse no se puede ejecutar.
-// La API valida la huella de los IDs que recibe, pero no sabe que hay marcado
-// en la pantalla: esta revision es la que cierra la carrera.
+// JS de productos sin clics — flujos de impulso, retiro y reposicion (BIDS 02,
+// P.4; ARREGLOS 04 W-P). Vive en /static por la CSP `default-src 'self'`.
+// Token SOLO en header x-orbit-token (la query string JAMAS autentica).
+// La seccion de filtro/limites/pausa vive en productos_pausa.js.
 
 function flujoNuevo() {
   return {
@@ -59,6 +29,7 @@ function contextoImpulso() {
     errorRed: "Error de red al pedir la vista previa.",
     pidePrimero: "Pide primero la vista previa.",
     cambio: "La selección cambió: pide la vista previa otra vez.",
+    incierto: "No se sabe si el impulso se aplicó: recarga la página y revisa Impulsos antes de reintentar.",
     conPresupuesto: true,
   };
 }
@@ -73,6 +44,7 @@ function contextoRetiro() {
     errorRed: "Error de red al pedir el plan de retiro.",
     pidePrimero: "Pide primero el plan de retiro.",
     cambio: "La selección cambió: pide el plan de retiro otra vez.",
+    incierto: "No se sabe si el retiro se aplicó: recarga la página y revisa los retiros antes de reintentar.",
     conPresupuesto: false,
   };
 }
@@ -112,6 +84,13 @@ function invalidaPrevia(flujo, ctx) {
   }
 }
 
+function parrafo(texto, clase) {
+  var p = document.createElement("p");
+  p.textContent = texto;
+  if (clase) p.className = clase;
+  return p;
+}
+
 // La previa no se pudo ver: se explica y no queda nada que ejecutar.
 function fallaPrevia(flujo, ctx, texto) {
   invalidaPrevia(flujo, ctx);
@@ -123,8 +102,6 @@ function vigente(flujo, revision, solicitud) {
   return flujo.revision === revision && flujo.solicitud === solicitud;
 }
 
-// La seleccion que el flujo pidio sigue siendo la que hay marcada. Cuenta la
-// subfamilia, no solo los IDs: cambiar una tambien deja vieja la previa.
 function mismoMapa(pedido, actual) {
   var claves = Object.keys(pedido);
   if (claves.length !== Object.keys(actual).length) return false;
@@ -146,7 +123,6 @@ function mismaSeleccion(flujo) {
   if (!pedida) return false;
   if (flujo.selector) {
     var marca = marcados(flujo.selector);
-    // Un marcado que se quedo sin subfamilia ya no es lo que se pidio.
     if (marca.faltan.length) return false;
     if (!mismoMapa(marca.subfamilias, pedida.subfamilia_por_listing || {})) return false;
     return mismaLista(marca.listings, pedida.listing_ids);
@@ -171,8 +147,25 @@ function envioPendiente(flujo, ctx) {
   return true;
 }
 
-// Solo una respuesta de la revision vigente pasa a lista; la tardia se tira
-// con su error. Abortar ayuda, pero no impide toda respuesta fuera de orden.
+// Sin el punto final: quien llama cierra la frase con el suyo.
+function mensajeError(data, status) {
+  var detalle = data && data.detail;
+  if (detalle && typeof detalle === "object" && !Array.isArray(detalle) && detalle.mensaje) {
+    var texto = String(detalle.mensaje).replace(/\.$/, "");
+    var lanzados = detalle.lanzados || [];
+    if (lanzados.length) texto += " · lanzados: " + lanzados.length;
+    var fallos = detalle.fallos || {};
+    Object.keys(fallos).forEach(function (lid) {
+      texto += " · " + lid + ": " + fallos[lid];
+    });
+    return texto;
+  }
+  var base = Orbit.errorTexto(data, status);
+  if (base === "la respuesta no trae detalle") return "No se pudo completar la solicitud";
+  return base.replace(/\.$/, "");
+}
+
+// Solo una respuesta de la revision vigente pasa a lista; la tardia se tira.
 function pidePrevia(flujo, ctx, url, solicitud, grupos, selector, pintaLista) {
   if (envioPendiente(flujo, ctx)) return;
   invalidaPrevia(flujo, ctx);
@@ -183,20 +176,11 @@ function pidePrevia(flujo, ctx, url, solicitud, grupos, selector, pintaLista) {
   flujo.selector = selector;
   if (ctx.bloque) ctx.bloque.hidden = false;
   ctx.zona.replaceChildren(parrafo(ctx.pidiendo));
-  fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(solicitud),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.postJson(url, solicitud)
     .then(function (r) {
       if (!vigente(flujo, revision, solicitud)) return;
       if (!r.ok) {
-        fallaPrevia(flujo, ctx, "Error: " + mensajeError(r.data) + ".");
+        fallaPrevia(flujo, ctx, "Error: " + mensajeError(r.data, r.status) + ".");
         return;
       }
       flujo.previa = r.data;
@@ -209,15 +193,67 @@ function pidePrevia(flujo, ctx, url, solicitud, grupos, selector, pintaLista) {
     });
 }
 
-// Cambiar la seleccion mientras algo viaja o se ve deja vieja la previa.
-// Con un envio en curso o incierto no se toca el estado: la solicitud ya
-// salio y el resultado manda hasta que se recargue la pagina.
 function cambioDeSeleccion(flujo, ctx) {
   if (flujo.fase === "enviando" || flujo.fase === "incierta") return;
   if (flujo.fase === "vacia" && !flujo.previa) return;
   invalidaPrevia(flujo, ctx);
   if (ctx.bloque) ctx.bloque.hidden = false;
   ctx.zona.replaceChildren(parrafo(ctx.cambio));
+}
+
+// Ejecutor comun de lanzar impulso y ejecutar retiro: valida fase/literal,
+// congela revision, evita doble clic, maneja 409 con vista nueva, error HTTP
+// (incluido 502/504 sin JSON) y timeout incierto.
+function ejecutaFlujo(flujo, ctx, form, opts) {
+  var estado = form.querySelector("[data-estado]");
+  if (flujo.fase === "enviando") {
+    estado.textContent = "Enviando: espera la respuesta antes de reintentar.";
+    return;
+  }
+  if (flujo.fase === "incierta") {
+    estado.textContent = ctx.incierto;
+    return;
+  }
+  if (flujo.fase !== "lista" || !flujo.previa || !flujo.solicitud) {
+    estado.textContent = ctx.pidePrimero;
+    return;
+  }
+  var esperada = opts.esperada(flujo.previa);
+  var confirmacion = form.elements.confirmacion.value;
+  if (confirmacion !== esperada) {
+    estado.textContent = "Escribe " + esperada + " para confirmar.";
+    return;
+  }
+  if (opts.validaExtra && !opts.validaExtra(flujo, estado)) return;
+  var envio = { revision: flujo.revision, solicitud: flujo.solicitud, previa: flujo.previa };
+  var cuerpo = opts.cuerpo(envio, confirmacion, form);
+  flujo.fase = "enviando";
+  habilitaEnvio(ctx, false);
+  estado.textContent = "Enviando…";
+  Orbit.postJson(opts.url, cuerpo, form.elements.token.value)
+    .then(function (r) {
+      if (flujo.revision !== envio.revision) return;
+      if (!r.ok) {
+        if (opts.enError && opts.enError(r, flujo, ctx, envio, form, estado)) return;
+        var texto = "Error: " + mensajeError(r.data, r.status) + ".";
+        fallaPrevia(flujo, ctx, texto);
+        estado.textContent = texto;
+        return;
+      }
+      flujo.revision += 1;
+      flujo.fase = "resultado";
+      flujo.solicitud = null;
+      flujo.previa = null;
+      form.elements.token.value = "";
+      habilitaEnvio(ctx, false);
+      opts.enExito(r.data, form, estado);
+    })
+    .catch(function () {
+      if (flujo.revision !== envio.revision) return;
+      flujo.fase = "incierta";
+      habilitaEnvio(ctx, false);
+      estado.textContent = ctx.incierto;
+    });
 }
 
 function marcados(selector) {
@@ -249,36 +285,6 @@ function marcados(selector) {
   return { listings: listings, subfamilias: subfamilias, faltan: faltan };
 }
 
-// Sin el punto final: quien llama cierra la frase con el suyo.
-function mensajeError(data) {
-  var detalle = data && data.detail;
-  if (typeof detalle === "string") return detalle.replace(/\.$/, "");
-  if (detalle && detalle.mensaje) {
-    var texto = detalle.mensaje.replace(/\.$/, "");
-    var lanzados = detalle.lanzados || [];
-    if (lanzados.length) texto += " · lanzados: " + lanzados.length;
-    var fallos = detalle.fallos || {};
-    Object.keys(fallos).forEach(function (lid) {
-      texto += " · " + lid + ": " + fallos[lid];
-    });
-    return texto;
-  }
-  if (Array.isArray(detalle)) {
-    return detalle
-      .map(function (e) {
-        return e.msg;
-      })
-      .join("; ");
-  }
-  return "No se pudo completar la solicitud.";
-}
-
-function parrafo(texto) {
-  var p = document.createElement("p");
-  p.textContent = texto;
-  return p;
-}
-
 function pintaVista(zona, vista) {
   zona.replaceChildren();
   var conAviso = false;
@@ -286,26 +292,24 @@ function pintaVista(zona, vista) {
     var div = document.createElement("div");
     div.appendChild(parrafo(plan.seller_sku + " · " + plan.subfamilia));
     if (plan.presupuesto_alto) {
-      // W-N: aviso, no rechazo; cada previa nueva deja la casilla sin marcar.
       conAviso = true;
-      var avisoP = parrafo(plan.presupuesto_alto);
-      avisoP.className = "aviso";
+      var avisoP = parrafo(plan.presupuesto_alto, "aviso");
       avisoP.setAttribute("data-aviso-presupuesto", "");
       div.appendChild(avisoP);
     }
     if (plan.subfamilia_nueva) {
       var aviso = parrafo(
-        "Subfamilia nueva: arranca sin negativos; Orbit los aprende con este impulso."
+        "Subfamilia nueva: arranca sin negativos; Orbit los aprende con este impulso.",
+        "aviso"
       );
-      aviso.className = "aviso";
       aviso.setAttribute("data-subfamilia-nueva", "");
       div.appendChild(aviso);
     } else if (plan.sin_negativos) {
       var avisoNeg = parrafo(
         "Esta subfamilia todavía no tiene negativos: arranca sin negativos; " +
-          "Orbit los aprende con este impulso."
+          "Orbit los aprende con este impulso.",
+        "aviso"
       );
-      avisoNeg.className = "aviso";
       avisoNeg.setAttribute("data-sin-negativos", "");
       div.appendChild(avisoNeg);
     }
@@ -325,9 +329,16 @@ function pintaVista(zona, vista) {
       )
     );
     if (plan.bids_acotados && plan.bids_acotados.length) {
-      div.appendChild(parrafo("Pujas acotadas al tope: " + plan.bids_acotados.map(function (rol) {
-        return Orbit.etiqueta(rol, "rol_campana");
-      }).join(", ")));
+      div.appendChild(
+        parrafo(
+          "Pujas acotadas al tope: " +
+            plan.bids_acotados
+              .map(function (rol) {
+                return Orbit.etiqueta(rol, "rol_campana");
+              })
+              .join(", ")
+        )
+      );
     }
     var sinSugerencia = plan.bid_por_rol
       ? Object.keys(plan.bid_por_rol).filter(function (rol) {
@@ -338,7 +349,11 @@ function pintaVista(zona, vista) {
       div.appendChild(
         parrafo(
           "Sin sugerencia de Amazon (usan el presupuesto diario de su campaña): " +
-            sinSugerencia.map(function (rol) { return Orbit.etiqueta(rol, "rol_campana"); }).join(", ")
+            sinSugerencia
+              .map(function (rol) {
+                return Orbit.etiqueta(rol, "rol_campana");
+              })
+              .join(", ")
         )
       );
     }
@@ -393,117 +408,54 @@ function verLanzamiento(selectorCasillas) {
 }
 
 function lanzar(form) {
-  var ctx = contextoImpulso();
-  var flujo = flujoImpulso;
-  var estado = form.querySelector("[data-estado]");
-  if (flujo.fase === "enviando") {
-    estado.textContent = "Enviando: espera la respuesta antes de reintentar.";
-    return;
-  }
-  if (flujo.fase === "incierta") {
-    estado.textContent =
-      "No se sabe si el impulso se aplicó: recarga la página y revisa Impulsos antes de reintentar.";
-    return;
-  }
-  if (flujo.fase !== "lista" || !flujo.previa || !flujo.solicitud) {
-    estado.textContent = ctx.pidePrimero;
-    return;
-  }
-  var esperada = flujo.previa.confirmacion_esperada;
-  var confirmacion = form.elements.confirmacion.value;
-  if (confirmacion !== esperada) {
-    estado.textContent = "Escribe " + esperada + " para confirmar.";
-    return;
-  }
   var casilla = document.getElementById("productos-acepto-presupuesto-alto");
-  var hayAviso = (flujo.previa.planes || []).some(function (p) {
-    return !!p.presupuesto_alto;
-  });
-  if (hayAviso && !(casilla && casilla.checked)) {
-    estado.textContent = "Marca «Sí, quiero ese presupuesto» para continuar";
-    return;
-  }
-  // Se congela lo que se manda: la revision, la solicitud y su previa.
-  var envio = { revision: flujo.revision, solicitud: flujo.solicitud, previa: flujo.previa };
-  var cuerpo = {
-    solicitud: envio.solicitud,
-    huella: envio.previa.huella,
-    confirmacion: confirmacion,
-    actor: form.elements.actor.value,
-  };
-  if (casilla && casilla.checked) cuerpo.acepto_presupuesto_alto = true;
-  flujo.fase = "enviando";
-  habilitaEnvio(ctx, false);
-  estado.textContent = "Enviando…";
-  fetch("/api/fabrica/impulso/lanzar", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
+  ejecutaFlujo(flujoImpulso, contextoImpulso(), form, {
+    url: "/api/fabrica/impulso/lanzar",
+    esperada: function (previa) {
+      return previa.confirmacion_esperada;
     },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, status: resp.status, data: data };
+    validaExtra: function (flujo, estado) {
+      var hayAviso = (flujo.previa.planes || []).some(function (p) {
+        return !!p.presupuesto_alto;
       });
-    })
-    .then(function (r) {
-      if (flujo.revision !== envio.revision) return;
-      var texto;
-      if (!r.ok) {
-        var detalle = r.data && r.data.detail ? r.data.detail : {};
-        if (r.status === 409 && detalle.vista_previa) {
-          // La unica previa ejecutable es la que acaba de mandar el servidor,
-          // y solo si la seleccion marcada sigue siendo la que la pidio.
-          if (!mismaSeleccion(flujo)) {
-            texto = "El plan cambió y la selección ya no es la de esa vista: pide la nueva antes de confirmar.";
-            fallaPrevia(flujo, ctx, texto);
-            estado.textContent = texto;
-            return;
-          }
-          flujo.revision += 1;
-          flujo.solicitud = envio.solicitud;
-          flujo.previa = detalle.vista_previa;
-          flujo.fase = "lista";
-          pintaListaImpulso(flujo, ctx);
-          // El literal escrito era de la revision anterior: se pide otra vez.
-          form.elements.confirmacion.value = "";
-          estado.textContent = "El plan cambió: revisa la vista nueva y confirma de nuevo.";
-          return;
-        }
-        texto = "Error: " + mensajeError(r.data) + ".";
+      if (hayAviso && !(casilla && casilla.checked)) {
+        estado.textContent = "Marca «Sí, quiero ese presupuesto» para continuar";
+        return false;
+      }
+      return true;
+    },
+    cuerpo: function (envio, confirmacion, f) {
+      var c = {
+        solicitud: envio.solicitud,
+        huella: envio.previa.huella,
+        confirmacion: confirmacion,
+        actor: f.elements.actor.value,
+      };
+      if (casilla && casilla.checked) c.acepto_presupuesto_alto = true;
+      return c;
+    },
+    enError: function (r, flujo, ctx, envio, f, estado) {
+      var detalle = r.data && r.data.detail ? r.data.detail : {};
+      if (r.status !== 409 || !detalle.vista_previa) return false;
+      if (!mismaSeleccion(flujo)) {
+        var texto =
+          "El plan cambió y la selección ya no es la de esa vista: pide la nueva antes de confirmar.";
         fallaPrevia(flujo, ctx, texto);
         estado.textContent = texto;
-        return;
+        return true;
       }
       flujo.revision += 1;
-      flujo.fase = "resultado";
-      flujo.solicitud = null;
-      flujo.previa = null;
-      form.elements.token.value = "";
-      habilitaEnvio(ctx, false);
-      estado.textContent = "Lanzados " + (r.data.lanzados || []).length + ".";
-    })
-    .catch(function () {
-      if (flujo.revision !== envio.revision) return;
-      // Timeout o desconexion: el servidor pudo haber actuado.
-      flujo.fase = "incierta";
-      habilitaEnvio(ctx, false);
-      estado.textContent =
-        "No se sabe si el impulso se aplicó: recarga la página y revisa Impulsos antes de reintentar.";
-    });
-}
-
-function postJson(url, token, cuerpo) {
-  return fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-orbit-token": token },
-    body: JSON.stringify(cuerpo),
-  }).then(function (resp) {
-    return resp.json().then(function (data) {
-      return { ok: resp.ok, data: data };
-    });
+      flujo.solicitud = envio.solicitud;
+      flujo.previa = detalle.vista_previa;
+      flujo.fase = "lista";
+      pintaListaImpulso(flujo, ctx);
+      f.elements.confirmacion.value = "";
+      estado.textContent = "El plan cambió: revisa la vista nueva y confirma de nuevo.";
+      return true;
+    },
+    enExito: function (data, _f, estado) {
+      estado.textContent = "Lanzados " + (data.lanzados || []).length + ".";
+    },
   });
 }
 
@@ -517,8 +469,6 @@ function zonaResultado(form) {
   return zona;
 }
 
-// Una linea por anuncio que no quedo como se pidio (los que si, solo
-// cuentan en el n de "n de m").
 function pintaAnuncios(zona, anuncios, dominio, bien) {
   zona.replaceChildren();
   anuncios.forEach(function (a) {
@@ -528,9 +478,6 @@ function pintaAnuncios(zona, anuncios, dominio, bien) {
   });
 }
 
-/// Segundo paso que pide su propio literal: regresar tambien los
-// adoptados, o recrear los archivados. Usa el actor y el token del form;
-// pinta su respuesta en su propia caja, sin borrar la de los demas.
 function pasoConLiteral(form, zona, ids, literal, boton, enviar) {
   var esperada = literal + " " + ids.length + " ANUNCIOS";
   var caja = document.createElement("div");
@@ -556,7 +503,6 @@ function pasoConLiteral(form, zona, ids, literal, boton, enviar) {
   form.pasosAbiertos = (form.pasosAbiertos || 0) + 1;
 }
 
-// El token se borra cuando ya no queda ningun paso por confirmar.
 function cierraPaso(form) {
   form.pasosAbiertos = Math.max(0, (form.pasosAbiertos || 0) - 1);
   if (!form.pasosAbiertos) form.elements.token.value = "";
@@ -569,10 +515,10 @@ function regresar(form, ids, confirmacion, incluyeAdoptados, estado, zona) {
     actor: form.elements.actor.value,
   };
   if (incluyeAdoptados) cuerpo.incluye_adoptados = true;
-  return postJson("/api/fabrica/retiro/reponer", form.elements.token.value, cuerpo)
+  return Orbit.postJson("/api/fabrica/retiro/reponer", cuerpo, form.elements.token.value)
     .then(function (r) {
       if (!r.ok) {
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data, r.status) + ".";
         return;
       }
       estado.textContent = "Regresados " + r.data.repuestos + " de " + r.data.total + ".";
@@ -580,16 +526,28 @@ function regresar(form, ids, confirmacion, incluyeAdoptados, estado, zona) {
       var adoptados = r.data.adoptados || [];
       var archivados = r.data.requieren_recreacion || [];
       if (adoptados.length) {
-        pasoConLiteral(form, zona, adoptados, "REGRESAR", "Regresar también los adoptados",
+        pasoConLiteral(
+          form,
+          zona,
+          adoptados,
+          "REGRESAR",
+          "Regresar también los adoptados",
           function (literal, estadoPaso, zonaPaso) {
             regresar(form, adoptados, literal, true, estadoPaso, zonaPaso);
-          });
+          }
+        );
       }
       if (archivados.length) {
-        pasoConLiteral(form, zona, archivados, "RECREAR", "Recrear los archivados",
+        pasoConLiteral(
+          form,
+          zona,
+          archivados,
+          "RECREAR",
+          "Recrear los archivados",
           function (literal, estadoPaso) {
             recrear(form, archivados, literal, estadoPaso);
-          });
+          }
+        );
       }
       cierraPaso(form);
     })
@@ -599,14 +557,18 @@ function regresar(form, ids, confirmacion, incluyeAdoptados, estado, zona) {
 }
 
 function recrear(form, ids, confirmacion, estado) {
-  return postJson("/api/fabrica/retiro/recrear", form.elements.token.value, {
-    retiro_ids: ids,
-    confirmacion: confirmacion,
-    actor: form.elements.actor.value,
-  })
+  return Orbit.postJson(
+    "/api/fabrica/retiro/recrear",
+    {
+      retiro_ids: ids,
+      confirmacion: confirmacion,
+      actor: form.elements.actor.value,
+    },
+    form.elements.token.value
+  )
     .then(function (r) {
       if (!r.ok) {
-        estado.textContent = "Error: " + mensajeError(r.data) + ".";
+        estado.textContent = "Error: " + mensajeError(r.data, r.status) + ".";
         return;
       }
       var fallidos = (r.data.anuncios || []).filter(function (a) {
@@ -642,12 +604,9 @@ function reponer(form) {
     .filter(function (x) {
       return x > 0;
     });
-  // Un envio nuevo repinta la zona: los pasos de la respuesta anterior
-  // desaparecen con ella.
   form.pasosAbiertos = 1;
   regresar(form, ids, confirmacion, false, estado, zonaResultado(form));
 }
-
 
 function listingsPorCasilla(selector) {
   var porCasilla = [];
@@ -696,17 +655,15 @@ function pintaListaRetiro(flujo, ctx) {
       "No se sacó ningún anuncio: las ventas de la contabilidad " +
         motivo +
         ", así que Orbit no puede comprobar que estos productos no vendieron. " +
-        "Vuelve a intentarlo cuando se actualicen."
+        "Vuelve a intentarlo cuando se actualicen.",
+      "aviso"
     );
-    alerta.className = "aviso";
     ctx.zona.appendChild(alerta);
     ctx.bloque.hidden = false;
     return;
   }
   if (plan.vendieron && plan.vendieron.length) {
-    var excluidos = parrafo(avisoVendieron(flujo.grupos, plan.vendieron));
-    excluidos.className = "aviso";
-    ctx.zona.appendChild(excluidos);
+    ctx.zona.appendChild(parrafo(avisoVendieron(flujo.grupos, plan.vendieron), "aviso"));
   }
   if (!plan.anuncios.length) {
     invalidaPrevia(flujo, ctx);
@@ -750,547 +707,34 @@ function verRetiro() {
 }
 
 function ejecutarRetiro(form) {
-  var ctx = contextoRetiro();
-  var flujo = flujoRetiro;
-  var estado = form.querySelector("[data-estado]");
-  if (flujo.fase === "enviando") {
-    estado.textContent = "Enviando: espera la respuesta antes de reintentar.";
-    return;
-  }
-  if (flujo.fase === "incierta") {
-    estado.textContent =
-      "No se sabe si el retiro se aplicó: recarga la página y revisa los retiros antes de reintentar.";
-    return;
-  }
-  if (flujo.fase !== "lista" || !flujo.previa || !flujo.solicitud) {
-    estado.textContent = ctx.pidePrimero;
-    return;
-  }
-  var esperada = "SACAR " + flujo.previa.anuncios.length + " ANUNCIOS";
-  var confirmacion = form.elements.confirmacion.value;
-  if (confirmacion !== esperada) {
-    estado.textContent = "Escribe " + esperada + " para confirmar.";
-    return;
-  }
-  var envio = { revision: flujo.revision, solicitud: flujo.solicitud, previa: flujo.previa };
-  flujo.fase = "enviando";
-  habilitaEnvio(ctx, false);
-  estado.textContent = "Enviando…";
-  fetch("/api/fabrica/retiro/ejecutar", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
+  ejecutaFlujo(flujoRetiro, contextoRetiro(), form, {
+    url: "/api/fabrica/retiro/ejecutar",
+    esperada: function (previa) {
+      return "SACAR " + previa.anuncios.length + " ANUNCIOS";
     },
-    body: JSON.stringify({
-      plataforma: envio.solicitud.plataforma,
-      listing_ids: envio.solicitud.listing_ids,
-      motivo: "sin_pedidos",
-      huella: envio.previa.huella,
-      confirmacion: confirmacion,
-      actor: form.elements.actor.value,
-    }),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
-    .then(function (r) {
-      if (flujo.revision !== envio.revision) return;
-      if (!r.ok) {
-        var texto = "Error: " + mensajeError(r.data) + ".";
-        fallaPrevia(flujo, ctx, texto);
-        estado.textContent = texto;
-        return;
-      }
-      flujo.revision += 1;
-      flujo.fase = "resultado";
-      flujo.solicitud = null;
-      flujo.previa = null;
-      form.elements.token.value = "";
-      habilitaEnvio(ctx, false);
-      estado.textContent = "Retirados " + r.data.retirados + " de " + r.data.total + ".";
-      pintaAnuncios(zonaResultado(form), r.data.anuncios || [], "resultado_retiro", ["retirado"]);
-    })
-    .catch(function () {
-      if (flujo.revision !== envio.revision) return;
-      flujo.fase = "incierta";
-      habilitaEnvio(ctx, false);
-      estado.textContent =
-        "No se sabe si el retiro se aplicó: recarga la página y revisa los retiros antes de reintentar.";
-    });
-}
-
-function filtraDecisiones(valor) {
-  document.querySelectorAll("tr[data-decision-producto]").forEach(function (fila) {
-    var motivos = fila.dataset.motivos ? fila.dataset.motivos.split(" ") : [];
-    var visible = true;
-    if (valor === "con-meta") visible = fila.dataset.conMeta === "si";
-    else if (valor === "sin-meta") visible = fila.dataset.conMeta === "no";
-    else if (valor.indexOf("motivo:") === 0) visible = motivos.indexOf(valor.slice(7)) !== -1;
-    fila.hidden = !visible;
-  });
-}
-
-function dineroTexto(d) {
-  return Orbit.dinero(d.valor) + " " + d.moneda;
-}
-
-function cuentaProductos(n) {
-  return n + (n === 1 ? " producto" : " productos");
-}
-
-function nodo(tag, texto, clase) {
-  var el = document.createElement(tag);
-  if (texto !== undefined && texto !== null) el.textContent = texto;
-  if (clase) el.className = clase;
-  return el;
-}
-
-function nombreProducto(productId) {
-  var fila = document.querySelector('tr[data-pausa-producto="' + productId + '"]');
-  return fila && fila.dataset.nombre ? fila.dataset.nombre : "producto " + productId;
-}
-
-function tablaSimulacion(sim) {
-  var envoltura = nodo("div", null, "tabla-scroll");
-  envoltura.setAttribute("role", "region");
-  envoltura.setAttribute("aria-label", "Productos que pausaría");
-  envoltura.tabIndex = 0;
-  var tabla = nodo("table");
-  tabla.id = "limites-tabla";
-  var cabeza = nodo("tr");
-  ["Producto", "Gasto en la ventana", "Clics", "Anuncios"].forEach(function (t) {
-    cabeza.appendChild(nodo("th", t));
-  });
-  tabla.appendChild(nodo("thead")).appendChild(cabeza);
-  var cuerpo = tabla.appendChild(nodo("tbody"));
-  sim.productos.forEach(function (x) {
-    var fila = nodo("tr");
-    fila.dataset.simulado = String(x.producto.product_id);
-    fila.appendChild(nodo("td", nombreProducto(x.producto.product_id)));
-    fila.appendChild(nodo("td", dineroTexto(x.gasto)));
-    fila.appendChild(nodo("td", Orbit.numero(x.clics)));
-    fila.appendChild(nodo("td", Orbit.numero(x.anuncios)));
-    cuerpo.appendChild(fila);
-  });
-  var total = nodo("tr");
-  total.appendChild(nodo("th", "Total"));
-  total.appendChild(nodo("td", dineroTexto(sim.gasto_total)));
-  total.appendChild(nodo("td", ""));
-  total.appendChild(nodo("td", Orbit.numero(sim.anuncios_total)));
-  tabla.appendChild(nodo("tfoot")).appendChild(total);
-  envoltura.appendChild(tabla);
-  return envoltura;
-}
-
-// Gasto evitado o ventas perdidas: Dinero, o SinDato con su porque. Nunca
-// un cero en lugar de un dato que falta.
-function cajaCosto(titulo, dato, marca, sim) {
-  var caja = nodo("div", null, "limites-costo");
-  caja.dataset[marca] = "";
-  caja.appendChild(nodo("p", titulo, "kpi-etiqueta"));
-  if (dato && dato.tipo === "SinDato") {
-    caja.appendChild(nodo("p", "sin dato", "kpi-valor"));
-    var porque = (dato.motivos || []).indexOf("sin_historia") !== -1
-      ? sim.primer_dato
-        ? "Sin historia: el reporte de productos empieza el " + sim.primer_dato +
-          ", después del " + sim.ventana_anterior.desde + "."
-        : "Sin historia: todavía no hay datos del reporte de productos."
-      : "Sin dato: " + (dato.motivos || []).map(function (m) {
-        return Orbit.etiqueta(m, "motivo_producto");
-      }).join(", ") + ".";
-    caja.appendChild(nodo("p", porque, "kpi-contexto"));
-  } else {
-    caja.appendChild(nodo("p", dineroTexto(dato), "kpi-valor"));
-  }
-  return caja;
-}
-
-// "del 2026-09-08 al 2026-10-07" para la ventana [desde, hasta_exclusivo).
-function ventanaTexto(ventana) {
-  var fin = new Date(Date.parse(ventana.hasta_exclusivo + "T00:00:00Z") - 86400000);
-  return "del " + ventana.desde + " al " + fin.toISOString().slice(0, 10);
-}
-
-function pintaSimulacion(zona, sim) {
-  zona.replaceChildren();
-  var lim = sim.limites;
-  zona.appendChild(
-    parrafo(
-      "Con " + Orbit.numero(lim.clics_min) + " clics y " + dineroTexto(lim.gasto_min) +
-        " como mínimos, en la ventana " + ventanaTexto(sim.ventana) + " se pausaría:"
-    )
-  );
-  if (sim.productos.length) {
-    zona.appendChild(tablaSimulacion(sim));
-  } else {
-    var vacio = parrafo("Ningún producto con datos completos llegaría a la pausa con estos límites.");
-    vacio.dataset.simulacionVacia = "";
-    zona.appendChild(vacio);
-  }
-  if (sim.sin_cobertura_d7 > 0) {
-    var cobertura = nodo(
-      "p",
-      cuentaProductos(sim.sin_cobertura_d7) + (sim.sin_cobertura_d7 === 1 ? " no se puede" : " no se pueden") +
-        " juzgar: alguna fecha de la ventana no " +
-        "tiene fila ni cobertura demostrada del reporte. No es cero: falta el dato.",
-      "aviso"
-    );
-    cobertura.dataset.sinCobertura = String(sim.sin_cobertura_d7);
-    zona.appendChild(cobertura);
-  }
-  var costos = nodo("div", null, "limites-costos");
-  costos.appendChild(
-    cajaCosto("Gasto que se habría evitado", sim.gasto_evitado, "gastoEvitado", sim)
-  );
-  costos.appendChild(
-    cajaCosto("Ventas que se habrían perdido", sim.ventas_perdidas, "ventasPerdidas", sim)
-  );
-  zona.appendChild(costos);
-  var anterior =
-    "Con estos límites, la ventana " + ventanaTexto(sim.ventana_anterior) + " habría pausado " +
-    cuentaProductos(sim.productos_anteriores.length) + "; arriba, lo que esos productos gastaron y " +
-    "vendieron después, " + ventanaTexto(sim.ventana) + ".";
-  if (sim.sin_cobertura_d7_anterior > 0) {
-    anterior += " " + cuentaProductos(sim.sin_cobertura_d7_anterior) + " de aquella ventana sin cobertura.";
-  }
-  if (sim.sin_dato_despues > 0) {
-    anterior +=
-      " " + sim.sin_dato_despues + " de los pausados no tienen dato completo después: no suman.";
-  }
-  zona.appendChild(nodo("p", anterior, "mutado"));
-  var frase = nodo(
-    "p",
-    "El gasto pasado no es ahorro seguro: es lo que esos productos gastaron, no lo que dejarán de gastar."
-  );
-  frase.dataset.fraseAhorro = "";
-  zona.appendChild(frase);
-  var desde = nodo(
-    "p",
-    sim.primer_dato
-      ? "Hay datos del reporte de productos desde el " + sim.primer_dato + "."
-      : "Todavía no hay datos del reporte de productos.",
-    "mutado"
-  );
-  desde.dataset.primerDato = sim.primer_dato || "";
-  zona.appendChild(desde);
-  zona.appendChild(nodo("p", "Sin guardar: los límites vigentes no cambiaron.", "mutado"));
-}
-
-var simulacionEnCurso = 0;
-
-function simularLimites(form) {
-  var zona = document.getElementById("limites-simulacion");
-  var estado = document.getElementById("limites-sim-estado");
-  var clics = form.elements.clics.value.trim();
-  var gasto = form.elements.gasto.value.trim();
-  var url =
-    "/api/dashboard/productos/simula-pausa?platform=" + encodeURIComponent(form.dataset.plataforma) +
-    "&clics=" + encodeURIComponent(clics) + "&gasto=" + encodeURIComponent(gasto);
-  var turno = ++simulacionEnCurso;
-  estado.textContent = "Simulando sin guardar…";
-  fetch(url)
-    .then(function (resp) {
-      return resp.json().then(
-        function (data) {
-          return { ok: resp.ok, status: resp.status, data: data };
-        },
-        function () {
-          return { ok: false, status: resp.status, data: {} };
-        }
-      );
-    })
-    .then(function (r) {
-      // Solo pinta la respuesta del ultimo cambio.
-      if (turno !== simulacionEnCurso) return;
-      if (!r.ok) {
-        var error = nodo(
-          "p",
-          (r.status === 422 ? "No se puede simular: " : "Error: ") + mensajeError(r.data) + ".",
-          "alerta"
-        );
-        error.dataset.limitesRechazo = String(r.status);
-        zona.replaceChildren(error);
-        estado.textContent =
-          r.status === 422 ? "La simulación no corrió: " + mensajeError(r.data) + "." : "La simulación falló.";
-        return;
-      }
-      pintaSimulacion(zona, r.data);
-      estado.textContent = "Simulación lista: pausaría " + cuentaProductos(r.data.productos.length) + ".";
-    })
-    .catch(function () {
-      if (turno !== simulacionEnCurso) return;
-      estado.textContent = "Error de red al simular.";
-    });
-}
-
-function guardarLimites(form, campos) {
-  var estado = form.querySelector("[data-estado]");
-  var clics = campos.elements.clics;
-  var gasto = campos.elements.gasto;
-  if (!/^\d+$/.test(clics.value.trim())) {
-    estado.textContent = "Clics mínimos: escribe un número entero.";
-    return;
-  }
-  // Sin las dos claves guardadas los valores son los de omision: guardarlos
-  // tal cual SI es un cambio.
-  if (
-    form.dataset.guardados === "true" &&
-    clics.value.trim() === clics.defaultValue.trim() &&
-    gasto.value.trim() === gasto.defaultValue.trim()
-  ) {
-    estado.textContent = "Nada que cambiar.";
-    return;
-  }
-  var cuerpo = {
-    base_config_version_id: Number(form.dataset.configId),
-    limites_pausa: {
-      clics: Number(clics.value.trim()),
-      gasto: { valor: gasto.value.trim(), moneda: campos.dataset.moneda },
+    cuerpo: function (envio, confirmacion, f) {
+      return {
+        plataforma: envio.solicitud.plataforma,
+        listing_ids: envio.solicitud.listing_ids,
+        motivo: "sin_pedidos",
+        huella: envio.previa.huella,
+        confirmacion: confirmacion,
+        actor: f.elements.actor.value,
+      };
     },
-  };
-  estado.textContent = "Enviando…";
-  fetch("/api/ads-optimizer/settings/" + form.dataset.plataforma, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-orbit-token": form.elements.token.value },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, status: resp.status, data: data };
-      });
-    })
-    .then(function (r) {
-      if (r.ok) {
-        form.elements.token.value = "";
-        estado.textContent = "Guardado: " + (r.data.label || r.data.config_version_id) + ".";
-        window.location.reload();
-        return;
-      }
-      if (r.status === 409) {
-        estado.textContent =
-          "No se guardó: la config cambió mientras editabas (" + mensajeError(r.data) +
-          "). Recarga la página.";
-        return;
-      }
-      estado.textContent =
-        (r.status === 422 ? "No se guardó: " : "Error: ") + mensajeError(r.data) + ".";
-    })
-    .catch(function () {
-      estado.textContent = "Error de red al guardar los límites.";
-    });
-}
-
-// --- Encender la pausa o volver a practica (AUTO-03 I.8) -------------------
-// "Encender la pausa" pide primero la simulacion de H.8 con los limites
-// guardados (GET simula-pausa sin clics ni gasto) y muestra cuantos anuncios
-// y productos pausaria y su gasto; solo "Confirmar" manda POST
-// /api/ads-optimizer/productos/pausa/<plataforma> con x-orbit-token y
-// {modo, base_config_version_id}. "Cancelar" no escribe. "Volver a practica"
-// pide la misma confirmacion. 422 muestra el motivo del servidor y 409 pide
-// recargar; al encender o volver, la pagina recarga.
-
-var pasoPausa = null;
-
-function cuentaAnuncios(n) {
-  return n + (n === 1 ? " anuncio" : " anuncios");
-}
-
-function cajaPausa() {
-  var caja = document.getElementById("pausa-vivo");
-  return {
-    caja: caja,
-    confirmar: document.getElementById("pausa-confirmar"),
-    titulo: document.querySelector("#pausa-confirmar-titulo strong"),
-    detalle: document.getElementById("pausa-confirmar-detalle"),
-    form: document.getElementById("pausa-confirmar-form"),
-    estado: document.getElementById("pausa-vivo-estado"),
-  };
-}
-
-function resumenEncender(sim) {
-  var lim = sim.limites;
-  var partes = [
-    parrafo(
-      "Con tus límites guardados (" + Orbit.numero(lim.clics_min) + " clics y " + dineroTexto(lim.gasto_min) +
-        "), Orbit pausaría " + cuentaAnuncios(sim.anuncios_total) + " de " +
-        cuentaProductos(sim.productos.length) + ", que gastaron " + dineroTexto(sim.gasto_total) +
-        " en la ventana " + ventanaTexto(sim.ventana) + "."
-    ),
-  ];
-  partes[0].dataset.resumenEncender = "";
-  if (sim.sin_cobertura_d7 > 0) {
-    var cobertura = nodo(
-      "p",
-      cuentaProductos(sim.sin_cobertura_d7) + (sim.sin_cobertura_d7 === 1 ? " no se puede" : " no se pueden") +
-        " juzgar todavía: falta cobertura del reporte. No se pausan hasta tener el dato.",
-      "aviso"
-    );
-    cobertura.dataset.sinCobertura = String(sim.sin_cobertura_d7);
-    partes.push(cobertura);
-  }
-  partes.push(
-    parrafo(
-      "Encendida, Orbit pausa después de las 48 horas de veto y puedes regresar cualquier anuncio " +
-        "desde esta pantalla. Las propuestas de práctica abiertas se descartan y el ciclo siguiente " +
-        "propone las reales."
-    )
-  );
-  return partes;
-}
-
-function abrePasoPausa(modo, disparador) {
-  var p = cajaPausa();
-  pasoPausa = { modo: modo, disparador: disparador };
-  p.confirmar.hidden = false;
-  p.form.hidden = true;
-  p.form.elements.token.value = "";
-  p.estado.textContent = "";
-  if (modo === "shadow") {
-    p.titulo.textContent = "¿Volver a práctica?";
-    p.detalle.replaceChildren(
-      parrafo(
-        "La pausa vuelve a práctica: Orbit deja de pausar anuncios y las propuestas quedan " +
-          "registradas sin efecto. Los anuncios que Orbit ya pausó siguen pausados."
-      )
-    );
-    p.form.hidden = false;
-    p.form.elements.token.focus();
-    return;
-  }
-  p.titulo.textContent = "¿Encender la pausa?";
-  p.detalle.replaceChildren(parrafo("Simulando con tus límites guardados…"));
-  p.confirmar.focus();
-  var paso = pasoPausa;
-  fetch(
-    "/api/dashboard/productos/simula-pausa?platform=" + encodeURIComponent(p.caja.dataset.plataforma)
-  )
-    .then(function (resp) {
-      return resp.json().then(
-        function (data) {
-          return { ok: resp.ok, status: resp.status, data: data };
-        },
-        function () {
-          return { ok: false, status: resp.status, data: {} };
-        }
-      );
-    })
-    .then(function (r) {
-      // Un "Cancelar" mientras simulaba cierra el paso: no se pinta nada.
-      if (pasoPausa !== paso) return;
-      if (!r.ok) {
-        var error = nodo(
-          "p",
-          "No se puede encender sin ver la simulación: " + mensajeError(r.data) + ".",
-          "alerta"
-        );
-        error.dataset.simulacionFallo = String(r.status);
-        p.detalle.replaceChildren(error);
-        return;
-      }
-      p.detalle.replaceChildren.apply(p.detalle, resumenEncender(r.data));
-      p.form.hidden = false;
-      p.form.elements.token.focus();
-    })
-    .catch(function () {
-      if (pasoPausa !== paso) return;
-      p.detalle.replaceChildren(nodo("p", "Error de red al simular: no se puede encender.", "alerta"));
-    });
-}
-
-function cancelaPasoPausa() {
-  var p = cajaPausa();
-  var disparador = pasoPausa && pasoPausa.disparador;
-  pasoPausa = null;
-  p.confirmar.hidden = true;
-  p.form.hidden = true;
-  p.form.elements.token.value = "";
-  p.detalle.replaceChildren();
-  p.estado.textContent = "Cancelado: no se cambió nada.";
-  if (disparador) disparador.focus();
-}
-
-function confirmaPasoPausa() {
-  var p = cajaPausa();
-  if (!pasoPausa || pasoPausa.enviando) return;
-  var paso = pasoPausa;
-  var modo = paso.modo;
-  paso.enviando = true;
-  var cuerpo = { modo: modo, base_config_version_id: Number(p.caja.dataset.configId) };
-  p.estado.textContent = "Enviando…";
-  fetch("/api/ads-optimizer/productos/pausa/" + p.caja.dataset.plataforma, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-orbit-token": p.form.elements.token.value },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(
-        function (data) {
-          return { ok: resp.ok, status: resp.status, data: data };
-        },
-        function () {
-          return { ok: false, status: resp.status, data: {} };
-        }
-      );
-    })
-    .then(function (r) {
-      if (r.ok) {
-        p.form.elements.token.value = "";
-        p.estado.textContent =
-          modo === "live" ? "Pausa en vivo. Recargando…" : "La pausa volvió a práctica. Recargando…";
-        window.location.reload();
-        return;
-      }
-      paso.enviando = false;
-      if (r.status === 409) {
-        p.estado.textContent =
-          "No se cambió: la config cambió mientras mirabas (" + mensajeError(r.data) +
-          "). Recarga la página.";
-        return;
-      }
-      p.estado.textContent =
-        (r.status === 422 ? "No se cambió: " : "Error: ") + mensajeError(r.data) + ".";
-    })
-    .catch(function () {
-      paso.enviando = false;
-      p.estado.textContent = "Error de red: no se cambió la pausa.";
-    });
-}
-
-function cableaPausa() {
-  var caja = document.getElementById("pausa-vivo");
-  if (!caja) return;
-  var encender = document.getElementById("pausa-encender");
-  if (encender) {
-    encender.addEventListener("click", function () {
-      if (encender.disabled) return;
-      abrePasoPausa("live", encender);
-    });
-  }
-  var volver = document.getElementById("pausa-volver");
-  if (volver) {
-    volver.addEventListener("click", function () {
-      abrePasoPausa("shadow", volver);
-    });
-  }
-  document.getElementById("pausa-cancelar").addEventListener("click", cancelaPasoPausa);
-  var form = document.getElementById("pausa-confirmar-form");
-  form.addEventListener("submit", function (evento) {
-    evento.preventDefault();
-    confirmaPasoPausa();
+    enExito: function (data, f, estado) {
+      estado.textContent = "Retirados " + data.retirados + " de " + data.total + ".";
+      pintaAnuncios(zonaResultado(f), data.anuncios || [], "resultado_retiro", ["retirado"]);
+    },
   });
 }
 
-// Un cambio de selección o de subfamilia deja vieja la previa que se ve.
 document.addEventListener("change", function (evento) {
   var destino = evento.target;
   if (!destino || !destino.dataset) return;
   if (destino.dataset.marcarCandidato !== undefined) {
     cambioDeSeleccion(flujoImpulso, contextoImpulso());
   } else if (destino.dataset.marcarSinPedido !== undefined) {
-    // Esa tabla alimenta las dos rutas: "Sacar" e "Impulsar aparte".
     cambioDeSeleccion(flujoRetiro, contextoRetiro());
     cambioDeSeleccion(flujoImpulso, contextoImpulso());
   } else if (destino.dataset.subfamilia !== undefined) {
@@ -1299,32 +743,6 @@ document.addEventListener("change", function (evento) {
 });
 
 document.addEventListener("DOMContentLoaded", function () {
-  cableaPausa();
-  var campos = document.getElementById("limites-simular");
-  if (campos) {
-    campos.addEventListener("submit", function (evento) {
-      evento.preventDefault();
-      simularLimites(campos);
-    });
-    [campos.elements.clics, campos.elements.gasto].forEach(function (campo) {
-      campo.addEventListener("change", function () {
-        simularLimites(campos);
-      });
-    });
-    var guardar = document.getElementById("limites-guardar");
-    if (guardar) {
-      guardar.addEventListener("submit", function (evento) {
-        evento.preventDefault();
-        guardarLimites(guardar, campos);
-      });
-    }
-  }
-  var filtro = document.getElementById("decisiones-filtro");
-  if (filtro) {
-    filtro.addEventListener("change", function () {
-      filtraDecisiones(filtro.value);
-    });
-  }
   var verCandidatos = document.getElementById("productos-ver-candidatos");
   if (verCandidatos) {
     verCandidatos.addEventListener("click", function () {

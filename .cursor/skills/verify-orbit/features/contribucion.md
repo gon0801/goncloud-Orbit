@@ -15,19 +15,21 @@ Sin JS: tarjetas y tabla server-rendered. No es decisoria (etiqueta fija).
   la leyenda `contribucion pre-cargos · no decisoria · MONEDA · el tipo de cambio
   aproximado se marca en la fila`.
 - `contribucion-clases` cada fila y cada segmento llevan `contribucion-pos`,
-  `contribucion-cruza`, `contribucion-neg` o `contribucion-sin`; el conteo de la
-  tarjeta usa `contribucion-seg-<clase>` y `contribucion-ancho-<n>`.
+  `contribucion-cruza`, `contribucion-neg` o `contribucion-sin`; la barra
+  segmentada usa `<svg class="contribucion-segmentos-svg">` con `<rect>`
+  `contribucion-seg-<clase>`.
 - `contribucion-tabla` una tabla real por plataforma
   (`table.contribucion-tabla`) con columnas Campana, Contribucion (MONEDA),
   barra de rango y Datos.
 - `contribucion-barra` `td.contribucion-col-barra` dibuja `span.contribucion-barra`
-  con `span.contribucion-rango` o `span.contribucion-punto` cuando minimo = maximo;
-  una fila sin dato no dibuja barra. La linea en 0 es `span.contribucion-linea-cero`.
-  La fila recortada por la escala muestra `span.contribucion-real` con
+  con `<svg class="contribucion-barra-svg">` que contiene `rect.contribucion-rango`
+  o `rect.contribucion-punto` cuando minimo = maximo; una fila sin dato no dibuja
+  barra. La linea en 0 es `line.contribucion-linea-cero`. La fila recortada por la
+  escala muestra `rect.contribucion-fuera` y `span.contribucion-real` con
   `▸ valor real: <monto>`.
 - `contribucion-eje` el encabezado de la columna de barra lleva
-  `span.contribucion-eje` con `.contribucion-eje-min`, `.contribucion-eje-cero`
-  y `.contribucion-eje-max`; el cero se posiciona con `contribucion-izq-<n>`.
+  `span.contribucion-eje` con `.contribucion-eje-min`, `<svg>` `.contribucion-eje-cero`
+  y `.contribucion-eje-max`.
 - `contribucion-vacio` sin hijas con metrica madura muestra `Sin campañas con
   actividad madura en la ventana.` y conserva la tarjeta de la plataforma.
 - `contribucion-api` `GET /api/dashboard/contribucion` es el mismo snapshot y no

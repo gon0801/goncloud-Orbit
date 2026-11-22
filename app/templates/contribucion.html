@@ -17,9 +17,11 @@
     </div>
     {% if p.segmentos %}
     <div class="contribucion-segmentos" role="img" aria-label="Clases de contribución de {{ p.nombre }}: {{ p.segmentos | map(attribute='etiqueta') | join(', ') }}">
-      {% for s in p.segmentos %}
-      <span class="contribucion-segmento contribucion-seg-{{ s.clase }} contribucion-ancho-{{ s.ancho }}"></span>
-      {% endfor %}
+      <svg class="contribucion-segmentos-svg" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true">
+        {% for s in p.segmentos %}
+        <rect class="contribucion-segmento contribucion-seg-{{ s.clase }}" x="{{ s.x }}" y="0" width="{{ s.ancho }}" height="10" />
+        {% endfor %}
+      </svg>
     </div>
     <ul class="contribucion-clases">
       {% for s in p.segmentos %}
@@ -61,7 +63,9 @@
         <th class="contribucion-col-eje">
           <span class="contribucion-eje" aria-hidden="true">
             {% if p.eje.mostrar_min %}<span class="num contribucion-eje-min">{{ p.eje.min_texto }}</span>{% endif %}
-            <span class="num contribucion-eje-cero contribucion-izq-{{ p.eje.cero_clase }}">0</span>
+            <svg class="contribucion-eje-cero-svg" viewBox="0 0 100 17" preserveAspectRatio="none">
+              <text class="num contribucion-eje-cero" x="{{ p.eje.cero_clase }}" y="14" text-anchor="middle">0</text>
+            </svg>
             <span class="num contribucion-eje-max">{{ p.eje.max_texto }}</span>
           </span>
           <span class="contribucion-eje-titulo">Rango de contribución</span>
@@ -83,15 +87,17 @@
         <td class="contribucion-col-barra">
           {% if item.punto or item.ancho or item.fuera_escala %}
           <span class="contribucion-barra" aria-hidden="true">
-            <span class="contribucion-linea-base"></span>
-            <span class="contribucion-linea-cero contribucion-izq-{{ p.eje.cero_clase }}"></span>
-            {% if item.fuera_escala %}
-            <span class="contribucion-fuera contribucion-barra-{{ item.clase }}"></span>
-            {% elif item.punto %}
-            <span class="contribucion-punto contribucion-barra-{{ item.clase }} contribucion-izq-{{ item.izquierda }}"></span>
-            {% else %}
-            <span class="contribucion-rango contribucion-barra-{{ item.clase }} contribucion-izq-{{ item.izquierda }} contribucion-ancho-{{ item.ancho }}"></span>
-            {% endif %}
+            <svg class="contribucion-barra-svg" viewBox="0 0 240 22" preserveAspectRatio="none">
+              <line class="contribucion-linea-base" x1="0" y1="11" x2="240" y2="11" />
+              <line class="contribucion-linea-cero" x1="{{ p.eje.cero_clase * 2.4 }}" y1="0" x2="{{ p.eje.cero_clase * 2.4 }}" y2="22" />
+              {% if item.fuera_escala %}
+              <rect class="contribucion-fuera contribucion-barra-{{ item.clase }}" x="233" y="4" width="7" height="14" rx="3" />
+              {% elif item.punto %}
+              <rect class="contribucion-punto contribucion-barra-{{ item.clase }}" x="{{ [0, item.izquierda * 2.4 - 5] | max }}" y="5" width="10" height="12" rx="5" />
+              {% else %}
+              <rect class="contribucion-rango contribucion-barra-{{ item.clase }}" x="{{ item.izquierda * 2.4 }}" y="5" width="{{ item.ancho * 2.4 }}" height="12" rx="6" />
+              {% endif %}
+            </svg>
           </span>
           {% if item.recortado %}
           <span class="contribucion-real num">▸ valor real: {{ item.real_texto }}</span>

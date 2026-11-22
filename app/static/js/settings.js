@@ -9,18 +9,7 @@ function tokenSettings() {
 }
 
 function postJson(url, cuerpo) {
-  return fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": tokenSettings(),
-    },
-    body: JSON.stringify(cuerpo),
-  }).then(function (resp) {
-    return resp.json().then(function (data) {
-      return { ok: resp.ok, status: resp.status, data: data };
-    });
-  });
+  return Orbit.postJson(url, cuerpo, tokenSettings());
 }
 
 // Solo viaja lo que el operador CAMBIO respecto a lo que el servidor pinto
@@ -113,19 +102,7 @@ function guardarConfig(form) {
   var memoria = form.elements.recuperacion_memoria_dias;
   if (cambio(memoria)) cuerpo.recuperacion_memoria_dias = Number(memoria.value);
 
-  if (
-    !cuerpo.target_manual_pct &&
-    !cuerpo.margen &&
-    !cuerpo.caps &&
-    !cuerpo.confianza_recorte &&
-    !cuerpo.confianza_subida &&
-    !("motor_bid" in cuerpo) &&
-    !("precio_modo_global" in cuerpo) &&
-    !("precio_modo_universo" in cuerpo) &&
-    !("resumen_acos_objetivo" in cuerpo) &&
-    !("recuperacion_modo" in cuerpo) &&
-    !("recuperacion_memoria_dias" in cuerpo)
-  ) {
+  if (Object.keys(cuerpo).length <= 2) {
     estado.textContent = "Nada que cambiar.";
     return;
   }
@@ -137,7 +114,7 @@ function guardarConfig(form) {
         estado.textContent = "Guardado: " + (r.data.label || r.data.config_version_id);
         window.location.reload();
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {
@@ -166,7 +143,7 @@ function guardarGoal(form) {
         estado.textContent = "Goal #" + goalId + " actualizado.";
         window.location.reload();
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {
@@ -197,17 +174,10 @@ document.addEventListener("DOMContentLoaded", function () {
 // servidor (temporada.valida) y la vista previa en temporada.resumen.
 // ---------------------------------------------------------------------------
 
-var MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 var tarjetaTemporada = null;
 var temporadaInicial = null;
 var finGuardado = null;
 var pausadasGuardadas = [];
-
-function fechaCorta(iso) {
-  if (!iso) return "";
-  var partes = iso.split("-");
-  return Number(partes[2]) + " " + (MESES_CORTOS[Number(partes[1]) - 1] || "");
-}
 
 function valorCampo(nombre) {
   var el = tarjetaTemporada.querySelector("[data-temporada-campo='" + nombre + "']");
@@ -254,37 +224,17 @@ function temporadaDesdeFormulario() {
 }
 
 function temporadaCuerpoComparable() {
-  var meses = [];
-  tarjetaTemporada.querySelectorAll("select[data-mes]").forEach(function (sel) {
-    meses.push(sel.value);
-  });
-  var campos = {};
-  ["reduccion_baja_pct", "dias_preparacion", "mult_cortes_baja", "aumento_presupuesto_alta_pct"].forEach(
-    function (nombre) {
-      campos[nombre] = valorCampo(nombre);
-    }
-  );
-  var topada = {
-    pct: (tarjetaTemporada.querySelector("[data-topada-campo='pct']") || {}).value || "",
-    dias: (tarjetaTemporada.querySelector("[data-topada-campo='dias']") || {}).value || "",
-  };
-  var modos = {};
-  tarjetaTemporada.querySelectorAll("[data-temporada-plataforma]").forEach(function (bloque) {
-    var plataforma = bloque.getAttribute("data-temporada-plataforma");
-    var marcado = bloque.querySelector("input[name='modo_" + plataforma + "']:checked");
-    modos[plataforma] = marcado ? marcado.value : "off";
-  });
-  var metas = {};
-  tarjetaTemporada.querySelectorAll("input[data-meta-alta]").forEach(function (inp) {
-    var valor = inp.value.trim();
-    if (valor !== "") metas[inp.getAttribute("data-meta-alta")] = valor;
-  });
+  var cuerpo = temporadaDesdeFormulario();
+  var t = cuerpo.temporada;
   return JSON.stringify({
-    meses: meses,
-    campos: campos,
-    topada: topada,
-    modos: modos,
-    metas: metas,
+    meses: t.meses,
+    reduccion_baja_pct: t.reduccion_baja_pct,
+    dias_preparacion: t.dias_preparacion,
+    mult_cortes_baja: t.mult_cortes_baja,
+    aumento_presupuesto_alta_pct: t.aumento_presupuesto_alta_pct,
+    campana_topada: cuerpo.campana_topada,
+    temporada_modo: cuerpo.temporada_modo,
+    meta_alta: cuerpo.meta_alta,
   });
 }
 
@@ -327,7 +277,7 @@ function pintaVistaPrevia(data) {
   lista.replaceChildren();
   (data.resumen ? data.resumen.proximos : []).forEach(function (evento) {
     var li = document.createElement("li");
-    li.textContent = fechaCorta(evento.fecha) + " — " + evento.frase;
+    li.textContent = Orbit.fechaCorta(evento.fecha) + " — " + evento.frase;
     lista.appendChild(li);
   });
   pintaPlataformas(data.plataformas);
@@ -349,19 +299,14 @@ function consultaVistaPrevia() {
     var valor = inp.value.trim();
     if (valor !== "") params.set("meta_alta_" + inp.getAttribute("data-meta-alta"), valor);
   });
-  fetch("/api/ads-optimizer/temporada/vista-previa?" + params.toString())
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, status: resp.status, data: data };
-      });
-    })
+  Orbit.getJson("/api/ads-optimizer/temporada/vista-previa?" + params.toString())
     .then(function (r) {
       var error = tarjetaTemporada.querySelector("[data-error-previa]");
       if (r.ok) {
         error.hidden = true;
         pintaVistaPrevia(r.data);
       } else {
-        error.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+        error.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
         error.hidden = false;
       }
     })
@@ -388,7 +333,7 @@ function guardarTemporada() {
         estado.textContent = r.data.mensaje || "Guardado: " + (r.data.label || r.data.config_version_id);
         window.location.reload();
       } else {
-        estado.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {
@@ -407,7 +352,7 @@ function terminarBaja() {
         estado.textContent = "La baja termina hoy: los bids regresan en el siguiente ciclo.";
         window.location.reload();
       } else {
-        estado.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {
@@ -444,10 +389,10 @@ function prepararTemporada() {
   });
   var desde = tarjetaTemporada.querySelector("[data-temporada-desde]");
   if (desde && desde.textContent.trim()) {
-    desde.textContent = fechaCorta(desde.textContent.trim());
+    desde.textContent = Orbit.fechaCorta(desde.textContent.trim());
   }
   tarjetaTemporada.querySelectorAll("[data-estado-desde]").forEach(function (el) {
-    if (el.textContent.trim()) el.textContent = fechaCorta(el.textContent.trim());
+    if (el.textContent.trim()) el.textContent = Orbit.fechaCorta(el.textContent.trim());
   });
   consultaVistaPrevia();
 }
@@ -464,7 +409,7 @@ function mantenerPausada(adEntityId, boton) {
       if (r.ok) {
         window.location.reload();
       } else if (estado) {
-        estado.textContent = "Error: " + ((r.data && r.data.detail) || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {

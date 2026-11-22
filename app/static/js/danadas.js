@@ -21,7 +21,7 @@ function regresar(form) {
         estado.textContent =
           "Regresada a " + Orbit.dinero(r.data.bid_ahora) + " " + (r.data.moneda || "") + ".";
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status) + ".";
       }
     })
     .catch(function () {
@@ -46,7 +46,7 @@ function regresarTodas(form) {
   Orbit.postJson("/api/ads-optimizer/bid/regresar-todas", cuerpo, form.elements.token.value)
     .then(function (r) {
       if (!r.ok) {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status) + ".";
         return;
       }
       var resultados = r.data.resultados || [];

@@ -148,8 +148,7 @@ function planear(form) {
         aplicarBtn.disabled = false;
         estado.textContent = "Plan listo: revisa bloqueos y aplica.";
       } else {
-        var detalle = r.data && r.data.detail;
-        estado.textContent = "Error: " + (detalle || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {
@@ -236,8 +235,7 @@ function aplicar(form) {
         pintarVista(form, r.data.detail.plan_nuevo);
         estado.textContent = "El plan cambio: revisalo y aplica de nuevo.";
       } else {
-        var detalle = r.data && r.data.detail;
-        estado.textContent = "Error: " + (detalle && detalle.message ? detalle.message : detalle || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {
@@ -293,8 +291,7 @@ function cablearSoltar(boton) {
             estado.textContent = "Soltada.";
             window.location.reload();
           } else {
-            var detalle = r.data && r.data.detail;
-            estado.textContent = "Error: " + (detalle && detalle.message ? detalle.message : detalle || r.status);
+            estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
           }
         })
         .catch(function () {

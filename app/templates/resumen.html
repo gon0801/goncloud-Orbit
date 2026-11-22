@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block estilos %}
+<link rel="stylesheet" href="/static/css/resumen.css?v={{ asset_version }}">
+{% endblock %}
 {% block contenido %}
 {% set vista = contrato | vista_resumen %}
 {% set metricas = [

@@ -22,6 +22,13 @@ from app.main import app
 RAIZ = Path(ui.__file__).resolve().parent
 
 
+def _codigo_fabrica() -> str:
+    return "\n".join(
+        (RAIZ / "static" / "js" / nombre).read_text(encoding="utf-8")
+        for nombre in ("fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js")
+    )
+
+
 def test_flujo_js_no_se_omite_en_ci_sin_node(monkeypatch):
     monkeypatch.setenv("CI", "true")
     monkeypatch.setattr(shutil, "which", lambda _: None)
@@ -102,7 +109,7 @@ def test_preview_sin_manual_muestra_linea_de_margen():
     MISMO del nucleo."""
     from app import fabrica_plan as fp
 
-    codigo = (RAIZ / "static/js/fabrica.js").read_text()
+    codigo = _codigo_fabrica()
     assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in codigo
     assert "plan.goals_fijan_target !== false" in codigo
     assert '["Target ACoS aplicado", aplicado]' in codigo
@@ -116,7 +123,7 @@ def test_pantalla_carga_bids_sugeridos_y_firma_su_fuente():
     respuesta = TestClient(app).get("/campanas/nuevas")
     assert respuesta.status_code == 200
     assert 'id="fabrica-bids-amazon"' in respuesta.text
-    codigo = (RAIZ / "static/js/fabrica.js").read_text()
+    codigo = _codigo_fabrica()
     assert 'solicitar("/bids-sugeridos"' in codigo
     assert 'fuente_bid: "amazon_v4"' in codigo
     assert "sugerencias[rol].disponible" in codigo
@@ -152,12 +159,13 @@ def test_dinero_vacio_y_token_sin_nombre_para_no_enviarlo_por_formulario():
 def test_js_datos_externos_sin_html_y_token_sin_persistencia():
     archivo = RAIZ / "static/js/fabrica.js"
     assert archivo.exists(), "Falta el cliente de fabrica"
-    codigo = archivo.read_text()
+    codigo = _codigo_fabrica()
+    formato = (RAIZ / "static/js/formato.js").read_text(encoding="utf-8")
     assert "textContent" in codigo
     assert "innerHTML" not in codigo
     assert "insertAdjacentHTML" not in codigo
     assert "localStorage" not in codigo and "sessionStorage" not in codigo
-    assert '"x-orbit-token"' in codigo
+    assert "Orbit.postJson" in codigo and '"x-orbit-token"' in formato
 
 
 def test_hash_del_lote_envuelve_en_movil_sin_quitar_scroll_de_tablas():
@@ -309,7 +317,10 @@ const emit = async (id, event = "submit") => {
   await new Promise(resolve => setImmediate(resolve));
 };
 const text = node => node.textContent + node.children.map(text).join(" ");
-vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+const _dir = require("node:path").dirname(process.argv[2]);
+for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
+  vm.runInThisContext(fs.readFileSync(require("node:path").join(_dir, _f), "utf8"));
+}
 (async () => {
   await docEvents.DOMContentLoaded();
   await new Promise(resolve => setImmediate(resolve));
@@ -608,7 +619,10 @@ const emit = async (id, event = "change") => {
   await new Promise(resolve => setImmediate(resolve));
 };
 const text = node => node.textContent + node.children.map(text).join(" ");
-vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+const _dir = require("node:path").dirname(process.argv[2]);
+for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
+  vm.runInThisContext(fs.readFileSync(require("node:path").join(_dir, _f), "utf8"));
+}
 (async () => {
   await docEvents.DOMContentLoaded();
   await new Promise(resolve => setImmediate(resolve));
@@ -782,7 +796,10 @@ const emit = async (id, event = "change") => {
   await new Promise(resolve => setImmediate(resolve));
 };
 const consultas = () => calls.filter(c => c.url.includes("/evaluacion"));
-vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+const _dir = require("node:path").dirname(process.argv[2]);
+for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
+  vm.runInThisContext(fs.readFileSync(require("node:path").join(_dir, _f), "utf8"));
+}
 (async () => {
   await docEvents.DOMContentLoaded();
   await new Promise(resolve => setImmediate(resolve));
@@ -939,7 +956,10 @@ const emit = async (id, event = "change") => {
   await new Promise(resolve => setImmediate(resolve));
 };
 const text = node => node.textContent + node.children.map(text).join(" ");
-vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+const _dir = require("node:path").dirname(process.argv[2]);
+for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
+  vm.runInThisContext(fs.readFileSync(require("node:path").join(_dir, _f), "utf8"));
+}
 (async () => {
   await docEvents.DOMContentLoaded();
   await new Promise(resolve => setImmediate(resolve));
@@ -976,7 +996,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
 def test_ui_estimacion_etiqueta_separada_y_sin_columna_ancha():
     """B.2: la estimacion tiene etiqueta propia, no se llama margen neto y
     no abre un colgroup nuevo en el comparador."""
-    js = (RAIZ / "static/js/fabrica.js").read_text()
+    js = _codigo_fabrica()
     css = (RAIZ / "static/css/fabrica.css").read_text()
     assert "Contribución estimada por venta" in js
     assert "Antes de Ads" in js
@@ -1147,7 +1167,10 @@ const emit = async (id, event = "change") => {
 };
 const text = node => node.textContent + node.children.map(text).join(" ");
 const all = node => node.querySelectorAll("*");
-vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+const _dir = require("node:path").dirname(process.argv[2]);
+for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
+  vm.runInThisContext(fs.readFileSync(require("node:path").join(_dir, _f), "utf8"));
+}
 (async () => {
   await docEvents.DOMContentLoaded();
   await new Promise(resolve => setImmediate(resolve));
@@ -1314,7 +1337,10 @@ const emit = async (id, event = "submit") => {
   await new Promise(resolve => setImmediate(resolve));
 };
 const text = node => node.textContent + node.children.map(text).join(" ");
-vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+const _dir = require("node:path").dirname(process.argv[2]);
+for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
+  vm.runInThisContext(fs.readFileSync(require("node:path").join(_dir, _f), "utf8"));
+}
 """
 
 _ROLES_FABRICA = [
@@ -1987,7 +2013,10 @@ global.fetch = async (url, options = {}) => {
   return ok(detalle());
 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+const _dir = require("node:path").dirname(process.argv[2]);
+for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
+  vm.runInThisContext(fs.readFileSync(require("node:path").join(_dir, _f), "utf8"));
+}
 (async () => {
   await docEvents.DOMContentLoaded();
   await tick(); await tick();
