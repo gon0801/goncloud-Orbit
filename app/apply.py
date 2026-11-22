@@ -34,10 +34,13 @@ Diseno SELLADO (plans/orbit-04.md decisiones 7-12, 14, 16, 21; docs/APPLY.md
   (regla 3: desconocido) queda al final de SU banda. Los que no cupieron
   vuelven como descarte estructurado (motivo), JAMAS reintentados; la
   ausencia de fila no se confunde con un bug porque el conteo lo declara.
-- SECUENCIA SELLADA POR MUTACION: re-resolucion -> consume_quota (si no
-  cabe: descartado, JAMAS HTTP) -> fila del ledger PRE-HTTP (seq =
-  count(*)+1 del decision_id; tope 3: COUNT >= 3 -> no existe 4o intento,
-  salta con motivo) + COMMIT (la intencion durable ANTES del HTTP) -> HTTP
+- SECUENCIA SELLADA POR MUTACION: re-resolucion -> LECTURA FRESCA del bid
+  (TEMPORADA 01 E: si Amazon no responde o trae un bid distinto del visto al
+  decidir, no hay cuota ni ledger ni PUT: `sin_respuesta` o
+  `bid_cambiado_fuera`, exclusion de temporada y cache con lo leido) ->
+  consume_quota (si no cabe: descartado, JAMAS HTTP) -> fila del ledger
+  PRE-HTTP (seq = count(*)+1 del decision_id; tope 3: COUNT >= 3 -> no existe
+  4o intento, salta con motivo) + COMMIT (la intencion durable ANTES del HTTP) -> HTTP
   (write client) -> readback por LIST FRESCO con el MISMO scope sellado
   (probe 2.5: el GET directo de entidad sp responde 403, retirado) ->
   sellar ledger (ack/resultado/finished_at una vez) -> UPSERT
@@ -1064,18 +1067,21 @@ class Aplicador:
     ) -> ResultadoAplicador:
         """Aplica el lote de bids del ciclo en el ORDEN sellado bajo cap.
 
-        Por decision: re-resolucion -> quota (si no cabe: descartado, JAMAS
-        HTTP) -> ledger PRE-HTTP + COMMIT -> HTTP -> readback sellado ->
-        sello de ledger + resumen + cache + applied_count (ver docstring del
-        modulo). >=400 se captura (ledger sellado con el cuerpo); 5xx/fallo
-        ambiguo SUBE (ledger sin sello: la fila ES el rastro)."""
+        Por decision: re-resolucion -> tope de intentos -> LECTURA FRESCA del
+        bid (TEMPORADA 01 E: sin respuesta o con un bid distinto del visto al
+        decidir no hay cuota, ni ledger, ni PUT) -> quota (si no cabe:
+        descartado, JAMAS HTTP) -> ledger PRE-HTTP + COMMIT -> HTTP -> readback
+        sellado -> sello de ledger + resumen + cache + applied_count (ver
+        docstring del modulo). >=400 se captura (ledger sellado con el
+        cuerpo); 5xx/fallo ambiguo SUBE (ledger sin sello: la fila ES el
+        rastro)."""
         ordenadas = orden_bajo_cupo(decisiones)
         skips: list[str] = []
         descartadas: list[str] = []
         aplicadas = 0
         divergencias = 0
         caps_saturados: list[CapSaturado] = []
-        for decision in ordenadas:
+        for indice, decision in enumerate(ordenadas):
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
                 skips.append(MOTIVO_MODO_NO_LIVE)
@@ -1091,28 +1097,83 @@ class Aplicador:
                 # desenlace YA es decision_application.
                 skips.append(MOTIVO_YA_APLICADA)
                 continue
-            if decision.new_value is None or decision.value_currency is None:
-                skips.append(MOTIVO_BID_INCOMPLETO)
+            motivo_datos, identidad = self._guarda_de_datos(decision)
+            if motivo_datos is not None:
+                skips.append(motivo_datos)
+                registra_sin_aplicar(self._conn, decision.id, self.cycle_id_ejecutor, motivo_datos)
+                continue
+            assert identidad is not None  # sin motivo, _guarda_de_datos la devuelve
+            # TEMPORADA 01 E: lectura fresca ANTES de la cuota y del PUT, para
+            # TODA decision de bid. Amazon no ofrece compare-and-set: entre
+            # este LIST y el PUT queda una ventana corta, pero el bid que se
+            # pisa ya no es el que Orbit vio al decidir.
+            cliente = self._cliente()
+            try:
+                leido = self._readback(cliente, identidad)
+            except AdsApiError as exc:
+                if exc.status == 429:
+                    # Amazon esta limitando la ruta de lectura: el cliente ya
+                    # agoto sus reintentos para ESTA puja. Repetir el LIST por
+                    # cada puja multiplica la espera del ciclo y retrasa la
+                    # liberacion de cortes (otra ruta). Esta puja queda sin
+                    # respuesta y el lote de bids se corta aqui. Cero cuota,
+                    # cero PUT.
+                    skips.append(MOTIVO_SIN_RESPUESTA)
+                    registra_sin_aplicar(
+                        self._conn,
+                        decision.id,
+                        self.cycle_id_ejecutor,
+                        MOTIVO_SIN_RESPUESTA,
+                        detalle={"http": "429"},
+                    )
+                    # Las que faltan tampoco se consultan, pero SI dejan su
+                    # desenlace: sin fila, la vista de auditoria las leeria
+                    # como huerfanas de un ciclo live cerrado.
+                    skips.extend(
+                        self._registra_lote_cortado(
+                            ordenadas[indice + 1 :], escalera_global=escalera_global
+                        )
+                    )
+                    break
+                # Una lectura fallida NO cancela el lote: antes del PUT no hay
+                # escritura ambigua que reconciliar, asi que esta puja queda
+                # sin respuesta y las demas siguen (mismo criterio que la
+                # revalidacion de cortes). ApplyAbortado y los fallos del PUT
+                # siguen propagando.
+                leido = None
+            if leido is None:
+                skips.append(MOTIVO_SIN_RESPUESTA)
                 registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_BID_INCOMPLETO
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_SIN_RESPUESTA
                 )
                 continue
-            identidad = _identidad(self._conn, decision.ad_entity_id)
-            if identidad is None or identidad[0] not in _KINDS_DECISORAS:
-                skips.append(MOTIVO_ENTIDAD_NO_DECISORA)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_ENTIDAD_NO_DECISORA
-                )
-                continue
-            # Verificar tope antes de cobrar quota para no quemar unidades en
-            # decisiones agotadas (_ledger vuelve a verificar ante carreras).
-            if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (
-                TOPE_INTENTOS
+            # old_value None: la fila vieja no trae contra que comparar (regla
+            # 3); sin comparacion, sigue el camino de hoy.
+            if (
+                decision.old_value is not None
+                and abs(leido - decision.old_value) > temporada_io.TOLERANCIA_CADENA
             ):
-                skips.append(MOTIVO_TOPE_INTENTOS)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
-                )
+                # Otra mano (el dueno, otro proceso) movio la hoja: CERO PUT del
+                # destino viejo. El desenlace es mano_del_dueno; en temporada la
+                # hoja queda excluida del episodio. El cache lleva LO LEIDO para
+                # que el ciclo siguiente decida desde el valor real.
+                # tx_durable: con la conexion SIN autocommit de produccion la
+                # carga de pujas ya dejo la sesion en INTRANS; un
+                # conn.transaction() a secas seria un savepoint y el rollback
+                # de la fase (cycle.py) borraria la mano del dueno.
+                with tx_durable(self._conn):
+                    registra_sin_aplicar(
+                        self._conn,
+                        decision.id,
+                        self.cycle_id_ejecutor,
+                        MOTIVO_BID_CAMBIADO_FUERA,
+                        detalle={"leido": str(leido)},
+                    )
+                    temporada_io.excluye_mano_del_aplicador(
+                        self._conn, decision_id=decision.id, leido=leido
+                    )
+                    _actualiza_cache(self._conn, decision.ad_entity_id, leido)
+                skips.append(MOTIVO_BID_CAMBIADO_FUERA)
                 continue
             usada, saturada = consume_quota_y_sello(self._conn, self._platform, "bid")
             if not usada:
@@ -1154,6 +1215,60 @@ class Aplicador:
             divergencias=divergencias,
             caps_saturados=tuple(caps_saturados),
         )
+
+    def _guarda_de_datos(self, decision: DecisionBid) -> tuple[str | None, tuple[str, str] | None]:
+        """Guardas LOCALES de datos previas al LIST (cero HTTP): bid completo,
+        entidad decisora y tope de intentos. Devuelve (motivo, identidad);
+        motivo None = la puja llega a la lectura fresca. Las comparten el lote
+        normal y el corte por 429 para que una puja descartable nunca quede
+        como `sin_respuesta`."""
+        if decision.new_value is None or decision.value_currency is None:
+            return MOTIVO_BID_INCOMPLETO, None
+        identidad = _identidad(self._conn, decision.ad_entity_id)
+        if identidad is None or identidad[0] not in _KINDS_DECISORAS:
+            return MOTIVO_ENTIDAD_NO_DECISORA, None
+        # Verificar tope antes de cobrar quota para no quemar unidades en
+        # decisiones agotadas (_ledger vuelve a verificar ante carreras).
+        if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (TOPE_INTENTOS):
+            return MOTIVO_TOPE_INTENTOS, None
+        return None, identidad
+
+    def _registra_lote_cortado(
+        self, restantes: list[DecisionBid], *, escalera_global: str
+    ) -> list[str]:
+        """El 429 agoto la lectura fresca y corta el lote: cada puja restante
+        deja su desenlace SIN HTTP, con las MISMAS guardas locales del camino
+        normal (modo, aplicacion previa y datos). Una puja de campana en
+        practica conserva `modo_no_live`, una descartable conserva su motivo
+        (`bid_incompleto`, `entidad_no_decisora`, `tope_intentos`), y solo la
+        que habria llegado al LIST queda `sin_respuesta` con
+        `detalle.lote_cortado`."""
+        motivos: list[str] = []
+        for restante in restantes:
+            if self.modo_efectivo(self._conn, restante, escalera_global=escalera_global) != "live":
+                motivos.append(MOTIVO_MODO_NO_LIVE)
+                if not _ya_aplicada(self._conn, restante.id):
+                    registra_sin_aplicar(
+                        self._conn, restante.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
+                    )
+                continue
+            if _ya_aplicada(self._conn, restante.id):
+                motivos.append(MOTIVO_YA_APLICADA)
+                continue
+            motivo, _identidad = self._guarda_de_datos(restante)
+            if motivo is not None:
+                motivos.append(motivo)
+                registra_sin_aplicar(self._conn, restante.id, self.cycle_id_ejecutor, motivo)
+                continue
+            motivos.append(MOTIVO_SIN_RESPUESTA)
+            registra_sin_aplicar(
+                self._conn,
+                restante.id,
+                self.cycle_id_ejecutor,
+                MOTIVO_SIN_RESPUESTA,
+                detalle={"lote_cortado": "429"},
+            )
+        return motivos
 
     def _ejecuta_mutacion(
         self, decision: DecisionBid, identidad: tuple[str, str], id_attempt: int

@@ -437,13 +437,14 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
     """El zombie perdio el lock (el sucesor reclamo tras el TTL) y lo descubre
     en el ownership-check PRE-HTTP: aborta SIN nigun HTTP de mutacion (regla
     9: sin el check, el zombie habria hecho el PUT tambien — dos procesos
-    escribiendo a Amazon). El sucesor NO re-decide las claves que el zombie
-    dejo en vuelo (skip veto_pendiente) y la hoja del bid sin sello espera a
-    confirmarse (ARREGLOS 01 K, E-H3: skip bid_en_vuelo, cero PUT nuevo)."""
+    escribiendo a Amazon). TEMPORADA 01 E: el aborto cae en la LECTURA FRESCA
+    (antes de la cuota y del ledger), asi que el zombie no deja bid en vuelo;
+    el sucesor aplica el bid UNA vez y no re-decide las claves de la cola que
+    el zombie dejo en vuelo (skip veto_pendiente)."""
     with _db_temporal("orbit_cyc_zombie") as (conn, _c):
         _siembra_maestra(conn, escalera="live")
         _config_live_caps(conn)
-        handler, vistos = _handler({"9201": "0.88", "9203": "0.75"})
+        handler, vistos = _handler({"9201": "1.00", "9203": "1.00"})
 
         def fabrica_zombie(conn, **kwargs):
             # El zombie pierde el lease MIENTRAS corre (sucesor reclamo el
@@ -487,26 +488,30 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         res_s = _corre(conn, factory=_fabrica_real_mock(handler), owner="sucesor")
 
         assert res_s.status == "done"
-        assert _puts(vistos) == [], "el rastro en vuelo del zombie bloquea otro PUT de bid"
-        assert json.loads(res_s.notes)["apply"]["bids_aplicados"] == 0
+        puts = _puts(vistos)
+        assert len(puts) == 1, "solo el sucesor muta"
+        assert json.loads(puts[0].content) == {"keywords": [{"keywordId": "9201", "bid": 0.88}]}
+        assert json.loads(res_s.notes)["apply"]["bids_aplicados"] == 1
         # El sucesor NO re-decide las claves que el zombie dejo en vuelo: la
         # pause de kw_pause y los terminos de la negative y del HARVEST
         # (term_cut: negative y harvest CHOCAN por el mismo termino, sellado 4)
         notas_s = json.loads(res_s.notes)
-        assert notas_s["skips"]["entidad"].get(ciclo.MOTIVO_BID_EN_VUELO) == 1  # bid de kw_bid
+        assert ciclo.MOTIVO_BID_EN_VUELO not in notas_s["skips"]["entidad"], (
+            "el zombie aborto antes del ledger: no hay hoja en vuelo que esperar"
+        )
         assert notas_s["skips"]["entidad"].get("veto_pendiente") == 1  # pause de kw_pause
         assert notas_s["skips"]["termino"].get("veto_pendiente") == 2  # tortugas + buena yarda
         assert notas_s["apply"]["cortes_encolados"] == {"live": 0, "shadow": 0, "choques": 0}
-        # ADV-04: el rastro del zombie (ledger sin sello, su PUT jamas salio)
-        # lo cierra el reconciliador de bids del sucesor — el mock de Amazon
-        # ya tenia 0.88, el GET fresco CONFIRMA sin nuevo HTTP de mutacion.
-        assert notas_s["apply"]["bids_reconciliados"] == {"confirmados": 1, "fallidos": 0}
+        # ADV-04: no hay ledger sin sello del zombie (nacio despues de la
+        # lectura fresca), asi que la reconciliacion de bids no tiene nada que
+        # cerrar y el unico applied_count es la mutacion del sucesor.
+        assert notas_s["apply"]["bids_reconciliados"] == {"confirmados": 0, "fallidos": 0}
         assert (
             conn.execute(
                 "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (res_s.cycle_id,)
             ).fetchone()[0]
             == 1
-        ), "solo 1 reconciliado del zombie (ejecutor): no hubo segundo bid"
+        ), "solo el bid aplicado por el sucesor cuenta en su envelope"
 
 
 # ---------------------------------------------------------------------------
@@ -525,23 +530,23 @@ def test_lease_perdido_a_medida_aborta_sin_http(secrets_falsos):
         _config_live_caps(conn)
         _agrega_kw2(conn, ids)
         flip = {"hecho": False}
+        listas = {"n": 0}
 
         def al_request(request: httpx.Request) -> None:
-            # Tras el readback por LIST del primer bid (PUT+LIST completos), el
-            # sucesor reclama el lock: el zombie recien lo descubre en el
-            # PROXIMO HTTP (probe 2.5: el GET directo esta retirado).
-            if (
-                not flip["hecho"]
-                and request.method == "POST"
-                and request.url.path == "/sp/keywords/list"
-            ):
+            # Tras el readback por LIST del primer bid (lectura fresca + PUT +
+            # readback completos), el sucesor reclama el lock: el zombie recien
+            # lo descubre en el PROXIMO HTTP (probe 2.5: el GET directo esta
+            # retirado). TEMPORADA 01 E: el primer LIST es la lectura fresca.
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                listas["n"] += 1
+            if not flip["hecho"] and listas["n"] == 2:
                 flip["hecho"] = True
                 conn.execute(
                     "UPDATE ads_optimizer_lock SET owner = 'sucesor' WHERE job_key = %s",
                     (JOB_KEY,),
                 )
 
-        handler, vistos = _handler({"9201": "0.88", "9203": "0.75"}, al_request=al_request)
+        handler, vistos = _handler({"9201": "1.00", "9203": "1.00"}, al_request=al_request)
         res = _corre(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "degraded"
@@ -557,13 +562,15 @@ def test_lease_perdido_a_medida_aborta_sin_http(secrets_falsos):
             ).fetchone()[0]
             == 2
         )
-        # El segundo bid queda como rastro en vuelo: ledger sin sello (la fila
-        # ES el rastro; la reconciliacion del ciclo siguiente decide)
+        # TEMPORADA 01 E: el aborto del segundo bid cae en su LECTURA FRESCA,
+        # antes de la cuota y del ledger: no nace ledger sin sello y la
+        # decision queda sin desenlace (el ciclo siguiente la re-decide).
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 1
         assert (
             conn.execute("SELECT count(*) FROM apply_attempt WHERE finished_at IS NULL").fetchone()[
                 0
             ]
-            == 1
+            == 0
         )
 
 
@@ -586,7 +593,7 @@ def test_lock_se_libera_despues_del_apply(secrets_falsos):
             ).fetchone()
             vigilados.append(fila[0] if fila is not None else None)
 
-        handler, vistos = _handler({"9201": "0.88"}, al_request=al_request)
+        handler, vistos = _handler({"9201": "1.00"}, al_request=al_request)
         res = _corre(conn, factory=_fabrica_real_mock(handler))
         extra.close()
 
@@ -678,7 +685,7 @@ def test_e2e_live_bids_aplicados_y_cortes_encolados(secrets_falsos):
     with _db_temporal("orbit_cyc_e2e") as (conn, _c):
         ids = _siembra_maestra(conn, escalera="live")
         _config_live_caps(conn)
-        handler, vistos = _handler({"9201": "0.88"})
+        handler, vistos = _handler({"9201": "1.00"})
         res = _corre(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "done"

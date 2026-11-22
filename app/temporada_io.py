@@ -438,6 +438,28 @@ def cierra_efecto_resumen(
     _excluye(conn, episodio_id, hoja, "divergencia", leido, moneda, decision_id)
 
 
+def excluye_mano_del_aplicador(
+    conn: psycopg.Connection, *, decision_id: int, leido: Decimal
+) -> None:
+    """La lectura fresca del aplicador encontro en Amazon un bid distinto del
+    que Orbit vio al decidir: excluye la hoja del episodio de la decision.
+
+    Solo las decisiones de temporada tienen fila en temporada_efecto (TX3 la
+    abre); fuera de temporada no hay episodio que excluir y no se escribe nada.
+    Se llama en la MISMA transaccion que `registra_sin_aplicar` (que cierra el
+    efecto con 'mano_del_dueno'); esta guarda la exclusion durable que el
+    siguiente ciclo lee en TX2."""
+    fila = conn.execute(
+        "SELECT e.episodio_id, e.ad_entity_id, d.value_currency"
+        "  FROM temporada_efecto e JOIN decision d ON d.id = e.decision_id"
+        " WHERE e.decision_id = %s",
+        (decision_id,),
+    ).fetchone()
+    if fila is None:
+        return
+    _excluye(conn, fila[0], fila[1], "mano_del_dueno", leido, fila[2], decision_id)
+
+
 def cierra_efecto_sin_aplicar(conn: psycopg.Connection, *, decision_id: int, motivo: str) -> None:
     """La MISMA transaccion que decision_sin_aplicar (registra_sin_aplicar):
     cierra el efecto con 'sin_aplicar', o 'mano_del_dueno' cuando el motivo es

@@ -311,7 +311,7 @@ def test_bids_saturan_cap_un_evento_y_rechazo_no_agrega():
         ids = _semilla_bids(conn, caps={"ads_apply_cap_amazon_us_bid": 1})
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], cost="120.50")
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw2"], cost="80.00")
-        handler, _vistos = _handler_api({"7201": "0.85", "7202": "0.85"})
+        handler, _vistos = _handler_api({"7201": "1.00", "7202": "1.00"})
         ap = _aplicador_bids(conn, handler, ids["ciclo_ejec"])
 
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -501,7 +501,7 @@ def test_ciclo_live_cap_agotado_canal_caido_termina_done_con_nota(canal_fail, se
                 "ads_apply_cap_amazon_us_harvest": 2,
             },
         )
-        handler, _vistos = _handler({"9201": "0.88"})
+        handler, _vistos = _handler({"9201": "1.00"})
         res = _corre_ciclo(conn, factory=_fabrica_real_mock(handler))
 
         assert res.status == "done", "el fallo del canal no degrada el ciclo"
