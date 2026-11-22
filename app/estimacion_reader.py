@@ -16,7 +16,7 @@ from typing import Any
 import psycopg
 
 from app.estimacion_insumos import FRESHNESS_LIMIT
-from app.estimacion_venta import DetalleFee
+from app.estimacion_venta import DetalleFee, detalles_fee_desde_json
 from app.precio.puerto import RefsAuditoria
 from app.precio.tipos import Componentes, Importe, MuestraEnvio, Tasas
 
@@ -200,23 +200,6 @@ class CuentaLeida:
     referral_fee_iva_multiplicador: Decimal = Decimal("1")
 
 
-def _detalle_fee(nodo: dict) -> DetalleFee:
-    """`fee_details` normalizado (forma de `parsear_respuesta_fees`) a arbol."""
-    if not isinstance(nodo, dict):
-        raise ValueError(f"detalle de fee no es objeto: {nodo!r}")
-    try:
-        tasa_raw = nodo.get("tax_amount")
-        hijos_raw = nodo.get("included_fee_details") or ()
-        return DetalleFee(
-            fee_type=nodo["fee_type"],
-            final_fee=Decimal(str(nodo["final_fee"])),
-            tax_amount=None if tasa_raw is None else Decimal(str(tasa_raw)),
-            included_fee_details=tuple(_detalle_fee(hijo) for hijo in hijos_raw),
-        )
-    except (KeyError, InvalidOperation, ValueError, TypeError) as exc:
-        raise ValueError(f"detalle de fee invalido: {nodo!r}") from exc
-
-
 def _importe(valor, moneda: str, *, campo: str) -> Importe:
     if valor is None or moneda is None:
         raise ValueError(f"{campo} sin valor o sin moneda")
@@ -228,6 +211,21 @@ def _componentes_por_nombre(componentes: list) -> dict:
         return {c["nombre"]: c for c in componentes}
     except (KeyError, TypeError) as exc:
         raise ValueError(f"componentes no son lista de dicts: {componentes!r}") from exc
+
+
+_SQL_CUENTA_DETALLE = (
+    "SELECT e.oferta_observation_id, e.fee_observation_id, e.envio_muestra_id,"
+    " e.logistica_origen, e.miembro_product_id, e.fee_variable, e.fee_fijo, e.fee_cotizable,"
+    " o.id, o.price_amount, o.price_currency, o.observed_at,"
+    " f.id, f.total_fees, f.quoted_price_currency, f.fee_details,"
+    " m.id, m.product_id, m.platform, m.canal, m.origen, m.valor, m.valor_currency,"
+    " m.envios, m.donantes, m.ventana_desde, m.ventana_hasta, m.regla_version"
+    " FROM estimacion_escenario e"
+    " LEFT JOIN estimacion_oferta_observation o ON o.id = e.oferta_observation_id"
+    " LEFT JOIN estimacion_fee_observation f ON f.id = e.fee_observation_id"
+    " LEFT JOIN precio_envio_muestra m ON m.id = e.envio_muestra_id"
+    " WHERE e.id = %s"
+)
 
 
 def leer_cuenta(
@@ -247,39 +245,43 @@ def leer_cuenta(
     if esc.estado != "disponible":
         return esc.motivos[0] if esc.motivos else "estimacion_motivo_desconocido"
 
-    fila_ids = conn.execute(
-        "SELECT oferta_observation_id, fee_observation_id, envio_muestra_id,"
-        " logistica_origen, miembro_product_id, fee_variable, fee_fijo, fee_cotizable"
-        " FROM estimacion_escenario WHERE id = %s",
-        (esc.id,),
-    ).fetchone()
-    if fila_ids is None:
+    fila = conn.execute(_SQL_CUENTA_DETALLE, (esc.id,)).fetchone()
+    if fila is None:
         raise ValueError(f"escenario {esc.id} desaparecio")
-    oferta_id, fee_id, muestra_id, l_origen, miembro, fee_var, fee_fijo, fee_cot = fila_ids
+    (
+        oferta_id,
+        fee_id,
+        muestra_id,
+        l_origen,
+        miembro,
+        fee_var,
+        fee_fijo,
+        fee_cot,
+        oferta_existe,
+        p_valor,
+        p_moneda,
+        oferta_obs_en,
+        fee_existe,
+        fee_total,
+        fee_moneda,
+        fee_detalles_raw,
+        m_id,
+        m_pid,
+        m_plat,
+        m_canal,
+        m_origen,
+        m_valor,
+        m_moneda,
+        m_envios,
+        m_donantes,
+        m_desde,
+        m_hasta,
+        m_regla,
+    ) = fila
     muestra = None
     if muestra_id is not None:
-        fila_muestra = conn.execute(
-            "SELECT id, product_id, platform, canal, origen, valor, valor_currency,"
-            " envios, donantes, ventana_desde, ventana_hasta, regla_version"
-            " FROM precio_envio_muestra WHERE id = %s",
-            (muestra_id,),
-        ).fetchone()
-        if fila_muestra is None:
+        if m_id is None:
             raise ValueError(f"muestra {muestra_id} del escenario {esc.id} ausente")
-        (
-            m_id,
-            m_pid,
-            m_plat,
-            m_canal,
-            m_origen,
-            m_valor,
-            m_moneda,
-            m_envios,
-            m_donantes,
-            m_desde,
-            m_hasta,
-            m_regla,
-        ) = fila_muestra
         muestra = MuestraEnvio(
             id=m_id,
             product_id=m_pid,
@@ -292,22 +294,10 @@ def leer_cuenta(
             ventana=(m_desde, m_hasta),
             regla_version=m_regla,
         )
-    oferta = conn.execute(
-        "SELECT price_amount, price_currency, observed_at"
-        " FROM estimacion_oferta_observation WHERE id = %s",
-        (oferta_id,),
-    ).fetchone()
-    if oferta is None:
+    if oferta_existe is None:
         raise ValueError(f"oferta {oferta_id} del escenario {esc.id} ausente")
-    p_valor, p_moneda, oferta_obs_en = oferta
-    fee = conn.execute(
-        "SELECT total_fees, quoted_price_currency, fee_details FROM estimacion_fee_observation"
-        " WHERE id = %s",
-        (fee_id,),
-    ).fetchone()
-    if fee is None:
+    if fee_existe is None:
         raise ValueError(f"fee {fee_id} del escenario {esc.id} ausente")
-    fee_total, fee_moneda, fee_detalles_raw = fee
 
     partes = _componentes_por_nombre(esc.componentes)
     es_s4 = esc.formula_version == "S4"
@@ -370,7 +360,7 @@ def leer_cuenta(
         divisor_iva = Decimal(bruto.get("importe_normalizado")) / comp.ingreso.valor
         isr_tasa = comp.isr.valor / comp.ingreso.valor
         try:
-            detalles = tuple(_detalle_fee(nodo) for nodo in (fee_detalles_raw or []))
+            detalles = detalles_fee_desde_json(fee_detalles_raw, estricto=False)
         except ValueError as exc:
             raise ValueError(f"fee_details del escenario {esc.id}: {exc}") from exc
     except KeyError as exc:

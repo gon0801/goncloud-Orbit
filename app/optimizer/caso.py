@@ -12,9 +12,12 @@ ante clave ausente, clave extra o tipo ajeno. Sin IO, sin reloj.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+import functools
+import sys
+import types
+from dataclasses import dataclass, fields, is_dataclass
 from decimal import Decimal, localcontext
-from typing import Any, Literal
+from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from app.optimizer import temporada
 from app.optimizer.windows import AgregadoMetricas
@@ -520,294 +523,88 @@ class CasoHoja:
 
     def como_json(self) -> dict:
         """Freeze. Decimal como string, fechas ISO, None explicito. Unica serializacion del caso."""
-        caso = {
-            "plataforma": self.plataforma,
-            "hoja_id": self.hoja_id,
-            "ad_group_id": self.ad_group_id,
-            "bid": _bid_json(self.bid),
-            "economia": _economia_json(self.economia),
-            "propia": _evidencia_json(self.propia),
-            "pedidos_inmaduros": self.pedidos_inmaduros,
-            "grupo": _evidencia_json(self.grupo),
-            "cuenta": _evidencia_json(self.cuenta),
-            "precio": _precio_json(self.precio),
-            "trayectoria": _trayectoria_json(self.trayectoria),
-            "pausa": _pausa_json(self.pausa),
-            "ventana_desde": self.ventana_desde.isoformat(),
-            "ventana_hasta": self.ventana_hasta.isoformat(),
-            "observado_al": self.observado_al.isoformat() if self.observado_al else None,
-        }
-        if self.revision > 0:
-            caso["revision"] = self.revision
-        if self.temporada is not None:
-            caso["temporada"] = _temporada_json(self.temporada)
-        if self.historia is not None:
-            caso["historia"] = _historia_json(self.historia)
-        if self.recuperacion is not None:
-            caso["recuperacion"] = _recuperacion_json(self.recuperacion)
-        if self.presupuesto is not None:
-            caso["presupuesto"] = _presupuesto_json(self.presupuesto)
-        return caso
+        return _a_json(self)
 
     @classmethod
     def desde_json(cls, datos: dict) -> CasoHoja:
         """Inversa exacta de `como_json`; clave ausente o tipo ajeno levanta ValueError
         (frontera). `revision` es opcional: ausente = 0 = semantica de su era. Las claves
         de TEMPORADA 01 son opcionales igual: ausentes = semantica de hoy."""
-        d = _objeto_con_opcionales(datos, _CLAVES_CASO, _OPCIONALES_CASO, "caso")
-        return cls(
-            plataforma=_literal(d["plataforma"], ("amazon_mx", "amazon_us"), "plataforma"),
-            hoja_id=_entero(d["hoja_id"], "hoja_id"),
-            ad_group_id=_opcional(d["ad_group_id"], "ad_group_id", _entero),
-            bid=_bid_desde(d["bid"]),
-            economia=_economia_desde(d["economia"]),
-            propia=_evidencia_desde(d["propia"], "propia"),
-            pedidos_inmaduros=_opcional(d["pedidos_inmaduros"], "pedidos_inmaduros", _entero),
-            grupo=_evidencia_desde(d["grupo"], "grupo"),
-            cuenta=_evidencia_desde(d["cuenta"], "cuenta"),
-            precio=_precio_desde(d["precio"]),
-            trayectoria=_trayectoria_desde(d["trayectoria"]),
-            pausa=_pausa_desde(d["pausa"]),
-            ventana_desde=_fecha(d["ventana_desde"], "ventana_desde"),
-            ventana_hasta=_fecha(d["ventana_hasta"], "ventana_hasta"),
-            observado_al=_opcional(d["observado_al"], "observado_al", _momento),
-            revision=_entero(d["revision"], "revision") if "revision" in d else 0,
-            temporada=_temporada_desde(d["temporada"]) if "temporada" in d else None,
-            historia=_historia_desde(d["historia"]) if "historia" in d else None,
-            recuperacion=_recuperacion_desde(d["recuperacion"]) if "recuperacion" in d else None,
-            presupuesto=_presupuesto_desde(d["presupuesto"]) if "presupuesto" in d else None,
-        )
+        return _desde_dataclass(datos, cls, "caso")
 
 
-def _dinero(valor: Decimal | None) -> str | None:
-    return str(valor) if valor is not None else None
+# ---------------------------------------------------------------------------
+# Codec JSON dirigido por tipos (inversa exacta, fail-closed en claves y tipos)
+# ---------------------------------------------------------------------------
+
+_OPCIONALES_POR_TIPO: dict[type, frozenset[str]] = {
+    CasoHoja: frozenset({"revision", "temporada", "historia", "recuperacion", "presupuesto"}),
+    Trayectoria: frozenset({"episodio"}),
+    InsumosPausa: frozenset({"proteccion", "exceso_minimo"}),
+    InsumosProteccion: frozenset({"frena_subidas"}),
+    CambioFechado: frozenset({"motivo"}),
+}
+
+# Claves opcionales de CasoHoja que `como_json` omite en su valor por defecto y
+# que, si aparecen explicitamente en JSON, no admiten `null`.
+_CASO_OMITIR_SI_DEFAULT: frozenset[str] = _OPCIONALES_POR_TIPO[CasoHoja]
+
+# Restricciones de vocabulario cerrado sobre campos anotados como `str`.
+_LITERALES_CAMPO: dict[tuple[type, str], tuple[str, ...]] = {
+    (EvidenciaNivel, "esquema"): (ESQUEMA_PESOS,),
+    (EpisodioEconomico, "version"): VERSIONES_ECONOMIA_CAMBIO,
+    (InsumosProteccion, "version"): (VERSION_PROTECCION_VENTA,),
+}
 
 
-def _tramo_json(tramo: Tramo) -> dict:
-    return {
-        "clics": tramo.clics,
-        "pedidos": tramo.pedidos,
-        "venta": _dinero(tramo.venta),
-        "gasto": _dinero(tramo.gasto),
-        "impresiones": tramo.impresiones,
-    }
-
-
-def _evidencia_json(ev: EvidenciaNivel | None) -> dict | None:
-    if ev is None:
-        return None
-    return {
-        "reciente": _tramo_json(ev.reciente),
-        "antiguo": _tramo_json(ev.antiguo),
-        "esquema": ev.esquema,
-    }
-
-
-def _bid_json(bid: BidVigente) -> dict:
-    return {
-        "valor": _dinero(bid.valor),
-        "moneda": bid.moneda,
-        "piso": str(bid.piso),
-        "techo": str(bid.techo),
-    }
-
-
-def _economia_json(economia: Economia) -> dict:
-    plat = economia.plataforma
-    return {
-        "plataforma": {
-            "moneda": plat.moneda,
-            "equilibrio_acos_pct": _dinero(plat.equilibrio_acos_pct),
-            "gasto_para_concluir": str(plat.gasto_para_concluir),
-            "confianza_recorte": str(plat.confianza_recorte),
-            "confianza_subida": str(plat.confianza_subida),
-        },
-        "target_acos_pct": str(economia.target_acos_pct),
-    }
-
-
-def _precio_json(precio: PrecioVentana) -> dict:
-    return {"gasto": _dinero(precio.gasto), "clics": precio.clics}
-
-
-def _trayectoria_json(tray: Trayectoria) -> dict:
-    efecto = tray.efecto
-    return {
-        "cambios": [
-            {
-                "fecha": c.fecha.isoformat(),
-                "bid_antes": str(c.bid_antes),
-                "bid_despues": str(c.bid_despues),
-                "origen": c.origen,
-            }
-            for c in tray.cambios
-        ],
-        "efecto": {
-            "dias_post": efecto.dias_post,
-            "impresiones_pre7": efecto.impresiones_pre7,
-            "clics_pre7": efecto.clics_pre7,
-            "impresiones_post": efecto.impresiones_post,
-            "dias_post_trafico": efecto.dias_post_trafico,
-            "clics_post": efecto.clics_post,
-            "gasto_post": _dinero(efecto.gasto_post),
-            "clics_pre": efecto.clics_pre,
-            "gasto_pre": _dinero(efecto.gasto_pre),
-            "vendia": efecto.vendia,
-        }
-        if efecto is not None
-        else None,
-        "episodio": _episodio_economico_json(tray.episodio),
-    }
-
-
-def _ventana_economica_json(ventana: VentanaEconomica) -> dict:
-    return {
-        "desde": ventana.desde.isoformat(),
-        "hasta": ventana.hasta.isoformat(),
-        "gasto": _dinero(ventana.gasto),
-        "venta": _dinero(ventana.venta),
-        "venta_mismo_sku": _dinero(ventana.venta_mismo_sku),
-        "pedidos": ventana.pedidos,
-        "clics": ventana.clics,
-    }
-
-
-def _episodio_economico_json(episodio: EpisodioEconomico | None) -> dict | None:
-    if episodio is None:
-        return None
-    return {
-        "version": episodio.version,
-        "fecha_cambio": episodio.fecha_cambio.isoformat(),
-        "moneda": episodio.moneda,
-        "pre": _ventana_economica_json(episodio.pre),
-        "post": _ventana_economica_json(episodio.post) if episodio.post is not None else None,
-        "estado": episodio.estado,
-        "motivo": episodio.motivo,
-        "aplicable": episodio.aplicable,
-        "motivo_aplicabilidad": episodio.motivo_aplicabilidad,
-        "margen_pct": _dinero(episodio.margen_pct),
-        "contribucion_pre": _dinero(episodio.contribucion_pre),
-        "contribucion_post": _dinero(episodio.contribucion_post),
-    }
-
-
-def _cortes_json(cortes: AgregadoMetricas | None) -> dict | None:
-    if cortes is None:
-        return None
-    return {
-        "window_start": cortes.window_start.isoformat(),
-        "window_end": cortes.window_end.isoformat(),
-        "fechas": [f.isoformat() for f in cortes.fechas],
-        "metric_currency": cortes.metric_currency,
-        "cost": _dinero(cortes.cost),
-        "ad_revenue": _dinero(cortes.ad_revenue),
-        "revenue_same_sku": _dinero(cortes.revenue_same_sku),
-        "impressions": cortes.impressions,
-        "clicks": cortes.clicks,
-        "orders": cortes.orders,
-        "observed_at_max": cortes.observed_at_max.isoformat() if cortes.observed_at_max else None,
-    }
-
-
-def _pausa_json(pausa: InsumosPausa) -> dict:
-    salida = {
-        "cortes": _cortes_json(pausa.cortes),
-        "umbral_clics": pausa.umbral_clics,
-        "gasto_minimo": str(pausa.gasto_minimo),
-        "expected_clicks": _dinero(pausa.expected_clicks),
-        "politica_economica": pausa.politica_economica,
-        "proteccion": _proteccion_json(pausa.proteccion),
-    }
-    # TEMPORADA 01 D: solo los casos de pausas de la baja lo traen; los viejos
-    # rejuegan con None (EXCESO_MINIMO[moneda], semantica de hoy).
-    if pausa.exceso_minimo is not None:
-        salida["exceso_minimo"] = str(pausa.exceso_minimo)
-    return salida
-
-
-def _lectura_reciente_json(lectura: LecturaReciente) -> dict:
-    return {
-        "pedidos": lectura.pedidos,
-        "ancla": lectura.ancla.isoformat() if lectura.ancla is not None else None,
-        "cubierta": lectura.cubierta,
-        "observado_al": lectura.observado_al.isoformat() if lectura.observado_al else None,
-    }
-
-
-def _episodio_json(episodio: EpisodioProteccion | None) -> dict | None:
-    if episodio is None:
-        return None
-    return {"ancla": episodio.ancla.isoformat(), "vence_el": episodio.vence_el.isoformat()}
+# Claves obligatorias del freeze de CasoHoja (derivadas de los campos).
+_CLAVES_CASO: frozenset[str] = frozenset(f.name for f in fields(CasoHoja)) - _CASO_OMITIR_SI_DEFAULT
 
 
 def _proteccion_json(proteccion: InsumosProteccion | None) -> dict | None:
-    if proteccion is None:
-        return None
-    return {
-        "version": proteccion.version,
-        "evaluado_el": proteccion.evaluado_el.isoformat(),
-        "reciente": _lectura_reciente_json(proteccion.reciente),
-        "ventana_desde": proteccion.ventana_desde.isoformat()
-        if proteccion.ventana_desde is not None
-        else None,
-        "ventana_hasta": proteccion.ventana_hasta.isoformat()
-        if proteccion.ventana_hasta is not None
-        else None,
-        "episodio": _episodio_json(proteccion.episodio),
-        "frena_subidas": proteccion.frena_subidas,
-    }
+    """Freeze de `InsumosProteccion` (reutilizado por `app.cycle_serializacion`)."""
+    return _a_json(proteccion)
 
 
-_CLAVES_CASO = frozenset(
-    {
-        "plataforma",
-        "hoja_id",
-        "ad_group_id",
-        "bid",
-        "economia",
-        "propia",
-        "pedidos_inmaduros",
-        "grupo",
-        "cuenta",
-        "precio",
-        "trayectoria",
-        "pausa",
-        "ventana_desde",
-        "ventana_hasta",
-        "observado_al",
-    }
-)
-
-# Claves que solo algunas eras congelan (ARREGLOS 02 B: revision; TEMPORADA 01:
-# temporada, historia, recuperacion y presupuesto). TEMPORADA 01 sumara las
-# suyas aqui.
-_OPCIONALES_CASO = frozenset({"revision", "temporada", "historia", "recuperacion", "presupuesto"})
-
-_CLAVES_PROTECCION = frozenset(
-    {
-        "version",
-        "evaluado_el",
-        "reciente",
-        "ventana_desde",
-        "ventana_hasta",
-        "episodio",
-    }
-)
+@functools.lru_cache(maxsize=64)
+def _esquema_dataclass(
+    cls: type,
+) -> tuple[frozenset[str], frozenset[str], tuple[tuple[str, Any], ...]]:
+    ns = vars(sys.modules[cls.__module__])
+    hints = get_type_hints(cls, globalns=ns)
+    opcionales = _OPCIONALES_POR_TIPO.get(cls, frozenset())
+    campos = tuple((f.name, hints[f.name]) for f in fields(cls))
+    obligatorias = frozenset(nombre for nombre, _ in campos) - opcionales
+    return obligatorias, opcionales, campos
 
 
-def _objeto(datos: Any, claves: frozenset, nombre: str) -> dict:
-    if not isinstance(datos, dict) or set(datos) != claves:
-        raise ValueError(f"{nombre}: claves distintas a {sorted(claves)}")
-    return datos
-
-
-def _objeto_con_opcionales(
-    datos: Any, obligatorias: frozenset, opcionales: frozenset, nombre: str
-) -> dict:
-    """Como `_objeto`, pero acepta cualquier subconjunto de `opcionales`. Clave ajena = error."""
-    if not isinstance(datos, dict) or not (obligatorias <= set(datos) <= obligatorias | opcionales):
-        raise ValueError(f"{nombre}: claves distintas a {sorted(obligatorias | opcionales)}")
-    return datos
+def _a_json(valor: Any) -> Any:
+    if valor is None or isinstance(valor, bool | int | str):
+        return valor
+    if isinstance(valor, Decimal):
+        return str(valor)
+    if isinstance(valor, dt.datetime | dt.date):
+        return valor.isoformat()
+    if isinstance(valor, frozenset):
+        return [_a_json(x) for x in sorted(valor)]
+    if isinstance(valor, tuple | list):
+        return [_a_json(x) for x in valor]
+    if is_dataclass(valor):
+        cls = type(valor)
+        salida: dict[str, Any] = {}
+        for f in fields(valor):
+            dato = getattr(valor, f.name)
+            if cls is CasoHoja and f.name in _CASO_OMITIR_SI_DEFAULT:
+                if f.name == "revision":
+                    if dato <= 0:
+                        continue
+                elif dato is None:
+                    continue
+            elif cls is InsumosPausa and f.name == "exceso_minimo" and dato is None:
+                continue
+            salida[f.name] = _a_json(dato)
+        return salida
+    raise TypeError(f"tipo no serializable en CasoHoja: {type(valor).__name__}")
 
 
 def _entero(valor: Any, nombre: str) -> int:
@@ -841,647 +638,69 @@ def _booleano(valor: Any, nombre: str) -> bool:
 
 
 def _literal(valor: Any, opciones: tuple, nombre: str) -> Any:
-    if valor not in opciones:
+    if not any(type(valor) is type(op) and valor == op for op in opciones):
         raise ValueError(f"{nombre}: fuera de {opciones}, llego {valor!r}")
     return valor
 
 
-def _fecha(valor: Any, nombre: str) -> dt.date:
-    _texto(valor, nombre)
-    return dt.date.fromisoformat(valor)
-
-
-def _momento(valor: Any, nombre: str) -> dt.datetime:
-    _texto(valor, nombre)
-    return dt.datetime.fromisoformat(valor)
-
-
-def _opcional(valor: Any, nombre: str, lector) -> Any:
-    if valor is None:
-        return None
-    return lector(valor, nombre)
-
-
-def _tramo_desde(datos: Any) -> Tramo:
-    d = _objeto(datos, frozenset({"clics", "pedidos", "venta", "gasto", "impresiones"}), "tramo")
-    return Tramo(
-        clics=_opcional(d["clics"], "clics", _entero),
-        pedidos=_opcional(d["pedidos"], "pedidos", _entero),
-        venta=_opcional(d["venta"], "venta", _decimal),
-        gasto=_opcional(d["gasto"], "gasto", _decimal),
-        impresiones=_opcional(d["impresiones"], "impresiones", _entero),
-    )
-
-
-def _evidencia_desde(datos: Any, nombre: str) -> EvidenciaNivel | None:
-    if datos is None:
-        return None
-    d = _objeto(datos, frozenset({"reciente", "antiguo", "esquema"}), nombre)
-    return EvidenciaNivel(
-        reciente=_tramo_desde(d["reciente"]),
-        antiguo=_tramo_desde(d["antiguo"]),
-        esquema=_literal(d["esquema"], (ESQUEMA_PESOS,), f"{nombre}.esquema"),
-    )
-
-
-def _bid_desde(datos: Any) -> BidVigente:
-    d = _objeto(datos, frozenset({"valor", "moneda", "piso", "techo"}), "bid")
-    return BidVigente(
-        valor=_opcional(d["valor"], "bid.valor", _decimal),
-        moneda=_opcional(d["moneda"], "bid.moneda", _texto),
-        piso=_decimal(d["piso"], "bid.piso"),
-        techo=_decimal(d["techo"], "bid.techo"),
-    )
-
-
-def _economia_desde(datos: Any) -> Economia:
-    d = _objeto(datos, frozenset({"plataforma", "target_acos_pct"}), "economia")
-    p = _objeto(
-        d["plataforma"],
-        frozenset(
-            {
-                "moneda",
-                "equilibrio_acos_pct",
-                "gasto_para_concluir",
-                "confianza_recorte",
-                "confianza_subida",
-            }
-        ),
-        "economia.plataforma",
-    )
-    return Economia(
-        plataforma=EconomiaPlataforma(
-            moneda=_literal(p["moneda"], ("MXN", "USD"), "moneda"),
-            equilibrio_acos_pct=_opcional(
-                p["equilibrio_acos_pct"], "equilibrio_acos_pct", _decimal
-            ),
-            gasto_para_concluir=_decimal(p["gasto_para_concluir"], "gasto_para_concluir"),
-            confianza_recorte=_decimal(p["confianza_recorte"], "confianza_recorte"),
-            confianza_subida=_decimal(p["confianza_subida"], "confianza_subida"),
-        ),
-        target_acos_pct=_decimal(d["target_acos_pct"], "target_acos_pct"),
-    )
-
-
-def _precio_desde(datos: Any) -> PrecioVentana:
-    d = _objeto(datos, frozenset({"gasto", "clics"}), "precio")
-    return PrecioVentana(
-        gasto=_opcional(d["gasto"], "precio.gasto", _decimal),
-        clics=_opcional(d["clics"], "precio.clics", _entero),
-    )
-
-
-def _cambio_desde(datos: Any) -> CambioBid:
-    d = _objeto(datos, frozenset({"fecha", "bid_antes", "bid_despues", "origen"}), "cambio")
-    return CambioBid(
-        fecha=_fecha(d["fecha"], "cambio.fecha"),
-        bid_antes=_decimal(d["bid_antes"], "cambio.bid_antes"),
-        bid_despues=_decimal(d["bid_despues"], "cambio.bid_despues"),
-        origen=_literal(d["origen"], _ORIGENES_CAMBIO, "cambio.origen"),
-    )
-
-
-def _efecto_desde(datos: Any) -> EfectoCambio | None:
-    if datos is None:
-        return None
-    d = _objeto(
-        datos,
-        frozenset(
-            {
-                "dias_post",
-                "impresiones_pre7",
-                "clics_pre7",
-                "impresiones_post",
-                "dias_post_trafico",
-                "clics_post",
-                "gasto_post",
-                "clics_pre",
-                "gasto_pre",
-                "vendia",
-            }
-        ),
-        "efecto",
-    )
-    return EfectoCambio(
-        dias_post=_entero(d["dias_post"], "dias_post"),
-        impresiones_pre7=_opcional(d["impresiones_pre7"], "impresiones_pre7", _entero),
-        clics_pre7=_opcional(d["clics_pre7"], "clics_pre7", _entero),
-        impresiones_post=_opcional(d["impresiones_post"], "impresiones_post", _entero),
-        dias_post_trafico=_entero(d["dias_post_trafico"], "dias_post_trafico"),
-        clics_post=_opcional(d["clics_post"], "clics_post", _entero),
-        gasto_post=_opcional(d["gasto_post"], "gasto_post", _decimal),
-        clics_pre=_opcional(d["clics_pre"], "clics_pre", _entero),
-        gasto_pre=_opcional(d["gasto_pre"], "gasto_pre", _decimal),
-        vendia=_opcional(d["vendia"], "vendia", _booleano),
-    )
-
-
-def _trayectoria_desde(datos: Any) -> Trayectoria:
-    d = _objeto_versionado(
-        datos,
-        _CLAVES_TRAYECTORIA,
-        _CLAVES_TRAYECTORIA | {"episodio"},
-        "trayectoria",
-    )
-    if not isinstance(d["cambios"], list):
-        raise ValueError(f"trayectoria.cambios: lista esperada, llego {d['cambios']!r}")
-    return Trayectoria(
-        cambios=tuple(_cambio_desde(c) for c in d["cambios"]),
-        efecto=_efecto_desde(d["efecto"]),
-        episodio=_episodio_economico_desde(d.get("episodio")),
-    )
-
-
-_CLAVES_TRAYECTORIA = frozenset({"cambios", "efecto"})
-
-
-def _ventana_economica_desde(datos: Any, nombre: str) -> VentanaEconomica:
-    d = _objeto(
-        datos,
-        frozenset({"desde", "hasta", "gasto", "venta", "venta_mismo_sku", "pedidos", "clics"}),
-        nombre,
-    )
-    return VentanaEconomica(
-        desde=_fecha(d["desde"], f"{nombre}.desde"),
-        hasta=_fecha(d["hasta"], f"{nombre}.hasta"),
-        gasto=_opcional(d["gasto"], f"{nombre}.gasto", _decimal),
-        venta=_opcional(d["venta"], f"{nombre}.venta", _decimal),
-        venta_mismo_sku=_opcional(d["venta_mismo_sku"], f"{nombre}.venta_mismo_sku", _decimal),
-        pedidos=_opcional(d["pedidos"], f"{nombre}.pedidos", _entero),
-        clics=_opcional(d["clics"], f"{nombre}.clics", _entero),
-    )
-
-
-def _episodio_economico_desde(datos: Any) -> EpisodioEconomico | None:
-    if datos is None:
-        return None
-    d = _objeto(
-        datos,
-        frozenset(
-            {
-                "version",
-                "fecha_cambio",
-                "moneda",
-                "pre",
-                "post",
-                "estado",
-                "motivo",
-                "aplicable",
-                "motivo_aplicabilidad",
-                "margen_pct",
-                "contribucion_pre",
-                "contribucion_post",
-            }
-        ),
-        "trayectoria.episodio",
-    )
-    return EpisodioEconomico(
-        version=_literal(d["version"], VERSIONES_ECONOMIA_CAMBIO, "trayectoria.episodio.version"),
-        fecha_cambio=_fecha(d["fecha_cambio"], "trayectoria.episodio.fecha_cambio"),
-        moneda=_literal(d["moneda"], ("MXN", "USD"), "trayectoria.episodio.moneda"),
-        pre=_ventana_economica_desde(d["pre"], "trayectoria.episodio.pre"),
-        post=(
-            _ventana_economica_desde(d["post"], "trayectoria.episodio.post")
-            if d["post"] is not None
-            else None
-        ),
-        estado=_literal(
-            d["estado"],
-            ("maduro", "inmaduro", "incomparable"),
-            "trayectoria.episodio.estado",
-        ),
-        motivo=_opcional(d["motivo"], "trayectoria.episodio.motivo", _texto),
-        aplicable=_booleano(d["aplicable"], "trayectoria.episodio.aplicable"),
-        motivo_aplicabilidad=_opcional(
-            d["motivo_aplicabilidad"], "trayectoria.episodio.motivo_aplicabilidad", _texto
-        ),
-        margen_pct=_opcional(d["margen_pct"], "trayectoria.episodio.margen_pct", _decimal),
-        contribucion_pre=_opcional(
-            d["contribucion_pre"], "trayectoria.episodio.contribucion_pre", _decimal
-        ),
-        contribucion_post=_opcional(
-            d["contribucion_post"], "trayectoria.episodio.contribucion_post", _decimal
-        ),
-    )
-
-
-def _cortes_desde(datos: Any) -> AgregadoMetricas | None:
-    if datos is None:
-        return None
-    d = _objeto(
-        datos,
-        frozenset(
-            {
-                "window_start",
-                "window_end",
-                "fechas",
-                "metric_currency",
-                "cost",
-                "ad_revenue",
-                "revenue_same_sku",
-                "impressions",
-                "clicks",
-                "orders",
-                "observed_at_max",
-            }
-        ),
-        "cortes",
-    )
-    if not isinstance(d["fechas"], list):
-        raise ValueError("cortes.fechas: lista esperada")
-    return AgregadoMetricas(
-        window_start=_fecha(d["window_start"], "window_start"),
-        window_end=_fecha(d["window_end"], "window_end"),
-        fechas=tuple(_fecha(f, "cortes.fechas[]") for f in d["fechas"]),
-        metric_currency=_opcional(d["metric_currency"], "metric_currency", _texto),
-        cost=_opcional(d["cost"], "cost", _decimal),
-        ad_revenue=_opcional(d["ad_revenue"], "ad_revenue", _decimal),
-        revenue_same_sku=_opcional(d["revenue_same_sku"], "revenue_same_sku", _decimal),
-        impressions=_opcional(d["impressions"], "impressions", _entero),
-        clicks=_opcional(d["clicks"], "clicks", _entero),
-        orders=_opcional(d["orders"], "orders", _entero),
-        observed_at_max=_opcional(d["observed_at_max"], "observed_at_max", _momento),
-    )
-
-
-def _pausa_desde(datos: Any) -> InsumosPausa:
-    d = _objeto_con_opcionales(
-        datos,
-        _CLAVES_PAUSA,
-        {"proteccion", "exceso_minimo"},
-        "pausa",
-    )
-    return InsumosPausa(
-        cortes=_cortes_desde(d["cortes"]),
-        umbral_clics=_entero(d["umbral_clics"], "umbral_clics"),
-        gasto_minimo=_decimal(d["gasto_minimo"], "gasto_minimo"),
-        expected_clicks=_opcional(d["expected_clicks"], "expected_clicks", _decimal),
-        politica_economica=_opcional(d["politica_economica"], "politica_economica", _texto),
-        proteccion=_proteccion_desde(d.get("proteccion")),
-        exceso_minimo=_opcional(d.get("exceso_minimo"), "pausa.exceso_minimo", _decimal),
-    )
-
-
-_CLAVES_PAUSA = frozenset(
-    {
-        "cortes",
-        "umbral_clics",
-        "gasto_minimo",
-        "expected_clicks",
-        "politica_economica",
-    }
-)
-
-
-def _objeto_versionado(datos: Any, viejo: frozenset, nuevo: frozenset, nombre: str) -> dict:
-    """`_objeto` que acepta la forma historica o la ampliada (M1).
-
-    Las decisiones anteriores a la version nueva no llevan el marcador; su
-    ausencia conserva la semantica de su era. Una clave ajena sigue siendo
-    error.
-    """
-    if not isinstance(datos, dict) or set(datos) not in (viejo, nuevo):
-        raise ValueError(f"{nombre}: claves distintas a {sorted(nuevo)}")
-    return datos
-
-
-def _lectura_reciente_desde(datos: Any, nombre: str) -> LecturaReciente:
-    d = _objeto(
-        datos,
-        frozenset({"pedidos", "ancla", "cubierta", "observado_al"}),
-        f"{nombre}.reciente",
-    )
-    return LecturaReciente(
-        pedidos=_opcional(d["pedidos"], f"{nombre}.pedidos", _entero),
-        ancla=_opcional(d["ancla"], f"{nombre}.ancla", _fecha),
-        cubierta=_booleano(d["cubierta"], f"{nombre}.cubierta"),
-        observado_al=_opcional(d["observado_al"], f"{nombre}.observado_al", _momento),
-    )
-
-
-def _episodio_desde(datos: Any, nombre: str) -> EpisodioProteccion | None:
-    if datos is None:
-        return None
-    d = _objeto(datos, frozenset({"ancla", "vence_el"}), f"{nombre}.episodio")
-    return EpisodioProteccion(
-        ancla=_fecha(d["ancla"], f"{nombre}.ancla"),
-        vence_el=_fecha(d["vence_el"], f"{nombre}.vence_el"),
-    )
-
-
-def _proteccion_desde(datos: Any) -> InsumosProteccion | None:
-    if datos is None:
-        return None
-    d = _objeto_versionado(
-        datos,
-        _CLAVES_PROTECCION,
-        _CLAVES_PROTECCION | {"frena_subidas"},
-        "proteccion",
-    )
-    return InsumosProteccion(
-        version=_literal(d["version"], (VERSION_PROTECCION_VENTA,), "proteccion.version"),
-        evaluado_el=_fecha(d["evaluado_el"], "proteccion.evaluado_el"),
-        reciente=_lectura_reciente_desde(d["reciente"], "proteccion"),
-        ventana_desde=_opcional(d["ventana_desde"], "proteccion.ventana_desde", _fecha),
-        ventana_hasta=_opcional(d["ventana_hasta"], "proteccion.ventana_hasta", _fecha),
-        episodio=_episodio_desde(d["episodio"], "proteccion"),
-        frena_subidas=_booleano(d["frena_subidas"], "proteccion.frena_subidas")
-        if "frena_subidas" in d
-        else False,
-    )
-
-
-# ---------------------------------------------------------------------------
-# TEMPORADA 01 B: freeze de los cuatro marcadores opcionales. La inversa es
-# exacta (claves cerradas; Decimal como string; fechas ISO; None explicito).
-# ---------------------------------------------------------------------------
-
-_FASES = ("baja", "normal", "alta")
-_MOTIVOS_TEMPORADA = ("entra", "ajusta", "sale")
-_ORIGENES_CAMBIO = (
-    "motor",
-    "regreso_por_desplome",
-    "regreso_del_dueno",
-    "ajuste_de_campana",
-    "temporada",
-)
-_ORIGENES_MANO = ("exclusion", "reactivacion_manual")
-_MOTIVOS_FIN = ("ya_arriba", "mano_del_dueno")
-
-
-def _estacion_json(estacion: temporada.Estacion) -> dict:
-    return {
-        "version": estacion.version,
-        "dia": estacion.dia.isoformat(),
-        "fase": estacion.fase,
-        "previa_alta": estacion.previa_alta,
-        "reduccion_baja": str(estacion.reduccion_baja),
-        "mult_cortes_baja": str(estacion.mult_cortes_baja),
-        "inicio_bloque": estacion.inicio_bloque.isoformat(),
-    }
-
-
-def _estacion_desde(datos: Any, nombre: str) -> temporada.Estacion:
-    d = _objeto(
-        datos,
-        frozenset(
-            {
-                "version",
-                "dia",
-                "fase",
-                "previa_alta",
-                "reduccion_baja",
-                "mult_cortes_baja",
-                "inicio_bloque",
-            }
-        ),
-        nombre,
-    )
-    return temporada.Estacion(
-        version=_texto(d["version"], f"{nombre}.version"),
-        dia=_fecha(d["dia"], f"{nombre}.dia"),
-        fase=_literal(d["fase"], _FASES, f"{nombre}.fase"),
-        previa_alta=_booleano(d["previa_alta"], f"{nombre}.previa_alta"),
-        reduccion_baja=_decimal(d["reduccion_baja"], f"{nombre}.reduccion_baja"),
-        mult_cortes_baja=_decimal(d["mult_cortes_baja"], f"{nombre}.mult_cortes_baja"),
-        inicio_bloque=_fecha(d["inicio_bloque"], f"{nombre}.inicio_bloque"),
-    )
-
-
-def _fin_json(fin: temporada.FinReduccion) -> dict:
-    return {
-        "episodio_id": fin.episodio_id,
-        "motivo": fin.motivo,
-        "excluye_abierto": fin.excluye_abierto,
-        "bid_visto": _dinero(fin.bid_visto),
-    }
-
-
-def _fin_desde(datos: Any, nombre: str) -> temporada.FinReduccion:
-    d = _objeto(datos, frozenset({"episodio_id", "motivo", "excluye_abierto", "bid_visto"}), nombre)
-    return temporada.FinReduccion(
-        episodio_id=_entero(d["episodio_id"], f"{nombre}.episodio_id"),
-        motivo=_literal(d["motivo"], _MOTIVOS_FIN, f"{nombre}.motivo"),
-        excluye_abierto=_booleano(d["excluye_abierto"], f"{nombre}.excluye_abierto"),
-        bid_visto=_opcional(d["bid_visto"], f"{nombre}.bid_visto", _decimal),
-    )
-
-
-def _frontera_json(frontera: temporada.FronteraHoja) -> dict:
-    return {
-        "fase_hoja": frontera.fase_hoja,
-        "mult_cortes": str(frontera.mult_cortes),
-        "cerca_hoja": frontera.cerca_hoja.isoformat() if frontera.cerca_hoja is not None else None,
-        "cerca_plataforma": (
-            frontera.cerca_plataforma.isoformat() if frontera.cerca_plataforma is not None else None
-        ),
-        "episodio_id": frontera.episodio_id,
-        "fin": _fin_json(frontera.fin) if frontera.fin is not None else None,
-        "exclusion_hoy": _dinero(frontera.exclusion_hoy),
-    }
-
-
-def _frontera_desde(datos: Any, nombre: str) -> temporada.FronteraHoja:
-    d = _objeto(
-        datos,
-        frozenset(
-            {
-                "fase_hoja",
-                "mult_cortes",
-                "cerca_hoja",
-                "cerca_plataforma",
-                "episodio_id",
-                "fin",
-                "exclusion_hoy",
-            }
-        ),
-        nombre,
-    )
-    return temporada.FronteraHoja(
-        fase_hoja=_literal(d["fase_hoja"], _FASES, f"{nombre}.fase_hoja"),
-        mult_cortes=_decimal(d["mult_cortes"], f"{nombre}.mult_cortes"),
-        cerca_hoja=_opcional(d["cerca_hoja"], f"{nombre}.cerca_hoja", _fecha),
-        cerca_plataforma=_opcional(d["cerca_plataforma"], f"{nombre}.cerca_plataforma", _fecha),
-        episodio_id=_opcional(d["episodio_id"], f"{nombre}.episodio_id", _entero),
-        fin=_fin_desde(d["fin"], f"{nombre}.fin") if d["fin"] is not None else None,
-        exclusion_hoy=_opcional(d["exclusion_hoy"], f"{nombre}.exclusion_hoy", _decimal),
-    )
-
-
-def _temporada_json(t: TemporadaCaso) -> dict:
-    return {
-        "estacion": _estacion_json(t.estacion),
-        "episodio": (
-            None
-            if t.episodio is None
-            else {"id": t.episodio.id, "abierto_el": t.episodio.abierto_el.isoformat()}
-        ),
-        "excluida_en": sorted(t.excluida_en),
-        "meta_alta_pct": str(t.meta_alta_pct),
-        "meta_manual": t.meta_manual,
-        "frontera": _frontera_json(t.frontera),
-    }
-
-
-def _temporada_desde(datos: Any) -> TemporadaCaso:
-    d = _objeto(
-        datos,
-        frozenset(
-            {
-                "estacion",
-                "episodio",
-                "excluida_en",
-                "meta_alta_pct",
-                "meta_manual",
-                "frontera",
-            }
-        ),
-        "temporada",
-    )
-    episodio = None
-    if d["episodio"] is not None:
-        e = _objeto(d["episodio"], frozenset({"id", "abierto_el"}), "temporada.episodio")
-        episodio = temporada.EpisodioVigente(
-            id=_entero(e["id"], "temporada.episodio.id"),
-            abierto_el=_momento(e["abierto_el"], "temporada.episodio.abierto_el"),
-        )
-    if not isinstance(d["excluida_en"], list):
-        raise ValueError("temporada.excluida_en: lista esperada")
-    return TemporadaCaso(
-        estacion=_estacion_desde(d["estacion"], "temporada.estacion"),
-        episodio=episodio,
-        excluida_en=frozenset(_entero(x, "temporada.excluida_en[]") for x in d["excluida_en"]),
-        meta_alta_pct=_decimal(d["meta_alta_pct"], "temporada.meta_alta_pct"),
-        meta_manual=_booleano(d["meta_manual"], "temporada.meta_manual"),
-        frontera=_frontera_desde(d["frontera"], "temporada.frontera"),
-    )
-
-
-def _historia_json(h: HistoriaBid) -> dict:
-    return {
-        "desde": h.desde.isoformat(),
-        "cambios": [
-            {
-                "confirmado_el": c.confirmado_el.isoformat(),
-                "decision_id": c.decision_id,
-                "bid_antes": _dinero(c.bid_antes),
-                "bid_despues": str(c.bid_despues),
-                "origen": c.origen,
-                "motivo_temporada": c.motivo_temporada,
-                "episodio_id": c.episodio_id,
-                "motivo": c.motivo,
-            }
-            for c in h.cambios
-        ],
-        "fines": sorted(h.fines),
-        "manos_externas": [
-            {
-                "instante": m.instante.isoformat(),
-                "bid_visto": _dinero(m.bid_visto),
-                "origen": m.origen,
-            }
-            for m in h.manos_externas
-        ],
-    }
-
-
-def _historia_desde(datos: Any) -> HistoriaBid:
-    d = _objeto(datos, frozenset({"desde", "cambios", "fines", "manos_externas"}), "historia")
-    if not isinstance(d["cambios"], list) or not isinstance(d["manos_externas"], list):
-        raise ValueError("historia.cambios/manos_externas: lista esperada")
-    if not isinstance(d["fines"], list):
-        raise ValueError("historia.fines: lista esperada")
-    cambios = []
-    for c in d["cambios"]:
-        # TEMPORADA 01 C: `motivo` es opcional en el freeze; los casos
-        # congelados antes de C no la traen y la leen como None (replay
-        # historico byte a byte). Clave ajena = error, como siempre.
-        x = _objeto_con_opcionales(
-            c,
-            frozenset(
-                {
-                    "confirmado_el",
-                    "decision_id",
-                    "bid_antes",
-                    "bid_despues",
-                    "origen",
-                    "motivo_temporada",
-                    "episodio_id",
-                }
-            ),
-            frozenset({"motivo"}),
-            "historia.cambios[]",
-        )
-        cambios.append(
-            CambioFechado(
-                confirmado_el=_momento(x["confirmado_el"], "historia.cambios[].confirmado_el"),
-                decision_id=_opcional(x["decision_id"], "historia.cambios[].decision_id", _entero),
-                bid_antes=_opcional(x["bid_antes"], "historia.cambios[].bid_antes", _decimal),
-                bid_despues=_decimal(x["bid_despues"], "historia.cambios[].bid_despues"),
-                origen=_literal(x["origen"], _ORIGENES_CAMBIO, "historia.cambios[].origen"),
-                motivo_temporada=_opcional(
-                    x["motivo_temporada"],
-                    "historia.cambios[].motivo_temporada",
-                    lambda v, n: _literal(v, _MOTIVOS_TEMPORADA, n),
-                ),
-                episodio_id=_opcional(x["episodio_id"], "historia.cambios[].episodio_id", _entero),
-                motivo=_opcional(x.get("motivo"), "historia.cambios[].motivo", _texto),
-            )
-        )
-    manos = []
-    for m in d["manos_externas"]:
-        x = _objeto(m, frozenset({"instante", "bid_visto", "origen"}), "historia.manos_externas[]")
-        manos.append(
-            ManoExterna(
-                instante=_momento(x["instante"], "historia.manos_externas[].instante"),
-                bid_visto=_opcional(
-                    x["bid_visto"], "historia.manos_externas[].bid_visto", _decimal
-                ),
-                origen=_literal(x["origen"], _ORIGENES_MANO, "historia.manos_externas[].origen"),
-            )
-        )
-    return HistoriaBid(
-        desde=_fecha(d["desde"], "historia.desde"),
-        cambios=tuple(cambios),
-        fines=frozenset(_entero(f, "historia.fines[]") for f in d["fines"]),
-        manos_externas=tuple(manos),
-    )
-
-
-def _recuperacion_json(i: InsumosRecuperacion) -> dict:
-    return {"version": i.version, "memoria_dias": i.memoria_dias}
-
-
-def _recuperacion_desde(datos: Any) -> InsumosRecuperacion:
-    d = _objeto(datos, frozenset({"version", "memoria_dias"}), "recuperacion")
-    return InsumosRecuperacion(
-        version=_literal(d["version"], ("recuperacion_v1",), "recuperacion.version"),
-        memoria_dias=_entero(d["memoria_dias"], "recuperacion.memoria_dias"),
-    )
-
-
-def _presupuesto_json(p: PresupuestoCampana) -> dict:
-    return {
-        "presupuesto_diario": _dinero(p.presupuesto_diario),
-        "dias_medidos": p.dias_medidos,
-        "dias_topados": p.dias_topados,
-        "topada": {"pct": str(p.topada.pct), "dias": p.topada.dias},
-    }
-
-
-def _presupuesto_desde(datos: Any) -> PresupuestoCampana:
-    d = _objeto(
-        datos,
-        frozenset({"presupuesto_diario", "dias_medidos", "dias_topados", "topada"}),
-        "presupuesto",
-    )
-    t = _objeto(d["topada"], frozenset({"pct", "dias"}), "presupuesto.topada")
-    return PresupuestoCampana(
-        presupuesto_diario=_opcional(d["presupuesto_diario"], "presupuesto.diario", _decimal),
-        dias_medidos=_entero(d["dias_medidos"], "presupuesto.dias_medidos"),
-        dias_topados=_opcional(d["dias_topados"], "presupuesto.dias_topados", _entero),
-        topada=temporada.CampanaTopada(
-            pct=_decimal(t["pct"], "presupuesto.topada.pct"),
-            dias=_entero(t["dias"], "presupuesto.topada.dias"),
-        ),
-    )
+def _desde_tipo(valor: Any, tipo: Any, nombre: str, *, permitir_none: bool = True) -> Any:
+    origin = get_origin(tipo)
+    if origin in (Union, types.UnionType):
+        ramas = get_args(tipo)
+        es_opcional = type(None) in ramas
+        if valor is None:
+            if es_opcional and permitir_none:
+                return None
+            raise ValueError(f"{nombre}: valor no puede ser null")
+        no_nulas = [r for r in ramas if r is not type(None)]
+        if len(no_nulas) == 1:
+            return _desde_tipo(valor, no_nulas[0], nombre)
+        raise ValueError(f"{nombre}: union no soportada {tipo!r}")
+
+    if origin is Literal:
+        return _literal(valor, get_args(tipo), nombre)
+    if origin is tuple:
+        if not isinstance(valor, list):
+            raise ValueError(f"{nombre}: lista esperada, llego {valor!r}")
+        elem_tipo = get_args(tipo)[0]
+        return tuple(_desde_tipo(x, elem_tipo, f"{nombre}[]") for x in valor)
+    if origin is frozenset:
+        if not isinstance(valor, list):
+            raise ValueError(f"{nombre}: lista esperada, llego {valor!r}")
+        elem_tipo = get_args(tipo)[0]
+        return frozenset(_desde_tipo(x, elem_tipo, f"{nombre}[]") for x in valor)
+
+    if tipo is int:
+        return _entero(valor, nombre)
+    if tipo is bool:
+        return _booleano(valor, nombre)
+    if tipo is str:
+        return _texto(valor, nombre)
+    if tipo is Decimal:
+        return _decimal(valor, nombre)
+    if tipo is dt.datetime:
+        return dt.datetime.fromisoformat(_texto(valor, nombre))
+    if tipo is dt.date:
+        return dt.date.fromisoformat(_texto(valor, nombre))
+    if isinstance(tipo, type) and is_dataclass(tipo):
+        return _desde_dataclass(valor, tipo, nombre)
+    raise ValueError(f"{nombre}: tipo no soportado {tipo!r}")
+
+
+def _desde_dataclass(datos: Any, cls: type, nombre: str) -> Any:
+    obligatorias, opcionales, campos = _esquema_dataclass(cls)
+    if not isinstance(datos, dict) or not (obligatorias <= set(datos) <= obligatorias | opcionales):
+        raise ValueError(f"{nombre}: claves distintas a {sorted(obligatorias | opcionales)}")
+    kwargs: dict[str, Any] = {}
+    for campo, tipo in campos:
+        if campo not in datos:
+            continue
+        etiqueta = f"{nombre}.{campo}"
+        raw = datos[campo]
+        opciones = _LITERALES_CAMPO.get((cls, campo))
+        if opciones is not None:
+            kwargs[campo] = _literal(raw, opciones, etiqueta)
+        else:
+            permitir_none = not (cls is CasoHoja and campo in _CASO_OMITIR_SI_DEFAULT)
+            kwargs[campo] = _desde_tipo(raw, tipo, etiqueta, permitir_none=permitir_none)
+    return cls(**kwargs)

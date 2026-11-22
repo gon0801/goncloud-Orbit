@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 from app.estimacion_insumos import oferta_para_cotizar
-from app.estimacion_venta import DetalleFee
+from app.estimacion_venta import DetalleFee, detalle_fee_desde_json
 from app.precio import puerto
 from app.precio.config import ConfigPrecio
 from app.precio.config import leer_entero as _entero
@@ -31,21 +31,7 @@ from app.precio.ventas import evaluar_senal
 
 def detalle_fee_desde_dict(nodo: dict, *, con_hijos: bool = True) -> DetalleFee:
     """Normaliza un dict de fee a `DetalleFee`; lo corrupto levanta `ValueError`."""
-    if not isinstance(nodo, dict):
-        raise ValueError(f"detalle de fee no es objeto: {nodo!r}")
-    try:
-        tasa_raw = nodo.get("tax_amount") if con_hijos else None
-        hijos_raw = (nodo.get("included_fee_details") or ()) if con_hijos else ()
-        return DetalleFee(
-            fee_type=nodo["fee_type"],
-            final_fee=Decimal(str(nodo["final_fee"])),
-            tax_amount=None if tasa_raw is None else Decimal(str(tasa_raw)),
-            included_fee_details=tuple(
-                detalle_fee_desde_dict(hijo, con_hijos=True) for hijo in hijos_raw
-            ),
-        )
-    except (KeyError, InvalidOperation, ValueError, TypeError) as exc:
-        raise ValueError(f"detalle de fee invalido: {nodo!r}") from exc
+    return detalle_fee_desde_json(nodo, estricto=False, con_hijos=con_hijos)
 
 
 def tiene_tax(detalles: tuple[DetalleFee, ...]) -> bool:
