@@ -1,4 +1,4 @@
-# Prueba-real de la fila H (solo lectura) — 2026-11-22 UTC
+# Prueba-real de la fila H (solo lectura) — 2026-11-22 20:25 UTC
 # Comando: (el de la fila H del plan) las cuatro claves de la config mas reciente en live; grep -o live | wc -l debe dar 4
 
 $ echo "select settings->>'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_us', settings->>'ads_bid_recuperacion_amazon_mx', settings->>'ads_bid_recuperacion_amazon_us' from config_version order by id desc limit 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
@@ -8,3 +8,7 @@ $ ... | grep -o live | wc -l
 4
 
 EXIT=0
+
+# La config mas reciente es la 63 (2026-11-22 20:22:47 UTC), la del encendido definitivo.
+# La prueba se corrio despues de leer la puerta de H.1 (practica.md, ciclos 206 y 207) y de
+# escribir las cuatro claves con escribe_api.sh sobre la base 61 (settings.txt).

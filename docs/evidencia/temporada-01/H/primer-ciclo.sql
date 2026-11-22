@@ -10,6 +10,10 @@
 -- con esas palabras, y si una plataforma no tiene ambito activo el veredicto es
 -- NO EVALUADO.
 --
+-- Encendido definitivo: config_version 63 (2026-11-22 20:22:47 UTC), la primera con
+-- las cuatro claves en live. La racha se calcula sola desde ahi, pero ese es el id
+-- que fija el primer ciclo en vivo (2026-11-23 09:40 UTC).
+--
 -- Casos de paro (todos deben dar 0):
 --   1) un bid enviado que baja mas que la reduccion de la entrada
 --      (solo motivo entra_temporada_baja: un ajusta_temporada_baja puede bajar

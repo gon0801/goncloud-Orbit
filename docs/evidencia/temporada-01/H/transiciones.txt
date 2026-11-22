@@ -1,19 +1,20 @@
 # TEMPORADA 01 H.3 — Fechas de las transiciones y sus trabajos de `at`
 
 Servidor: **goncloud** (reloj en UTC). Directorio de los trabajos:
-`/mnt/data/appdata/orbit/recordatorios/`. Programado el **2026-11-22 18:55 UTC**, con la temporada
-todavía en `shadow` (config **61**): los `at` de las transiciones no dependen de que las claves estén en
-`live`, y el chequeo del primer ciclo en vivo se programa el día del encendido definitivo, cuando la
-puerta de H.1 esté cumplida.
+`/mnt/data/appdata/orbit/recordatorios/`. Reprogramados el **2026-11-22 20:24 UTC**, con el
+encendido definitivo ya hecho (config **63**, las cuatro claves en `live` desde las 20:22): el trabajo
+**52** es el chequeo del primer ciclo en vivo y los **53 a 64** son las 12 transiciones del calendario.
 
 ## Las fechas, calculadas con `temporada.eventos`
 
-No se escribieron a mano: se leyeron las claves guardadas de la config 59 en producción y se pasaron
-por el motor, con la ventana de 12 meses que abre el encendido:
+No se escribieron a mano: se leyeron las claves guardadas de la config **63** en producción (la del
+encendido definitivo) y se pasaron por el motor, con la ventana de 12 meses que abre el encendido. La
+primera vez se calcularon sobre la 59, que tiene el mismo calendario; se repitieron sobre la 63 después
+del encendido y salieron idénticas, que es la prueba de que el encendido no movió ninguna fecha:
 
 ```
-$ echo "select jsonb_build_object('ads_temporada', settings->'ads_temporada', 'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_mx', 'ads_temporada_amazon_us', settings->>'ads_temporada_amazon_us')::text from config_version where id = 59" | bash docs/evidencia/arreglos-01/lee_prod.sh > settings-59.json
-$ PYTHONPATH=. uv run --frozen --python 3.12 python docs/evidencia/temporada-01/H/fechas.py < settings-59.json
+$ echo "select jsonb_build_object('ads_temporada', settings->'ads_temporada', 'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_mx', 'ads_temporada_amazon_us', settings->>'ads_temporada_amazon_us')::text from config_version where id = 63" | bash docs/evidencia/arreglos-01/lee_prod.sh > settings-63.json
+$ PYTHONPATH=. uv run --frozen --python 3.12 python docs/evidencia/temporada-01/H/fechas.py < settings-63.json
 ```
 
 El script es `docs/evidencia/temporada-01/H/fechas.py` (en el repo, sin heredocs): lee la config por la
@@ -47,24 +48,24 @@ hora con ARREGLOS 03 D-E), todos con el mismo `primer-ciclo.sql` y `primer-ciclo
 
 | Fecha (UTC) | Qué es | Trabajo de `at` |
 | --- | --- | --- |
-| 2027-01-01 10:05 | `entra_baja` | 40 |
-| 2027-01-02 10:05 | día siguiente a la entrada | 41 |
-| 2027-02-08 10:05 | `restaura` (regreso) | 42 |
-| 2027-02-09 10:05 | día siguiente al regreso | 43 |
-| 2027-03-01 10:05 | `entra_alta` | 44 |
-| 2027-03-02 10:05 | día siguiente al inicio de la alta | 45 |
-| 2027-05-01 10:05 | `entra_baja` (y `sale_alta`) | 46 |
-| 2027-05-02 10:05 | día siguiente a la entrada | 47 |
-| 2027-07-01 10:05 | `restaura` (regreso) | 48 |
-| 2027-07-02 10:05 | día siguiente al regreso | 49 |
-| 2027-10-01 10:05 | `entra_alta` | 50 |
-| 2027-10-02 10:05 | día siguiente al inicio de la alta | 51 |
+| 2026-11-23 10:05 | primer ciclo en vivo (día siguiente al encendido) | 52 |
+| 2027-01-01 10:05 | `entra_baja` | 53 |
+| 2027-01-02 10:05 | día siguiente a la entrada | 54 |
+| 2027-02-08 10:05 | `restaura` (regreso) | 55 |
+| 2027-02-09 10:05 | día siguiente al regreso | 56 |
+| 2027-03-01 10:05 | `entra_alta` | 57 |
+| 2027-03-02 10:05 | día siguiente al inicio de la alta | 58 |
+| 2027-05-01 10:05 | `entra_baja` (y `sale_alta`) | 59 |
+| 2027-05-02 10:05 | día siguiente a la entrada | 60 |
+| 2027-07-01 10:05 | `restaura` (regreso) | 61 |
+| 2027-07-02 10:05 | día siguiente al regreso | 62 |
+| 2027-10-01 10:05 | `entra_alta` | 63 |
+| 2027-10-02 10:05 | día siguiente al inicio de la alta | 64 |
 
-El chequeo del **primer ciclo en vivo** va a las 10:05 UTC del día siguiente al encendido definitivo. Su
-fecha no existe hasta que se cumpla la puerta de H.1 (el ciclo de práctica del 2026-11-23), así que se
-programa en el mismo acto del encendido, con el mismo `.sql` y `.sh`, y su número de trabajo se agrega a
-esta tabla. Programarlo antes sería programar una fecha inventada: mientras las claves sigan en `shadow`
-el chequeo responde `NO EVALUADO`.
+Los 13 corren el mismo `.sql` y `.sh` y la racha se calcula sola desde la config 63, así que el número
+del trabajo no depende del id de la config. El 52 es el único que depende del día del encendido: se
+programó el 2026-11-22 a las 20:24 UTC, con las claves ya en `live`, para el día siguiente a las 10:05
+UTC, después del ciclo de las 09:40.
 
 El comando, repetido una vez por fecha:
 
@@ -72,13 +73,14 @@ El comando, repetido una vez por fecha:
 TZ=UTC at -M -t AAAAMMDDhhmm -f /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sh
 ```
 
-`atq` devuelve los 12 trabajos (40 a 51) en sus fechas. La copia de `at -c 40`, con el script completo
-que ejecuta cada trabajo, está en `at-c.txt`.
+`atq` devuelve los 13 trabajos (52 a 64) en sus fechas. La copia de `at -c 52` (el primer ciclo en vivo)
+y de `at -c 53` (la primera transición), con el script completo que ejecuta cada trabajo, está en
+`at-c.txt`.
 
 Una nota sobre los números: `at` copia el contenido del script al programar el trabajo. La revisión del
-PR pidió dos correcciones al `.sh` (rol de lectura y no mandar el diagnóstico crudo) y una al `.sql`
-(referencia de la racha viva), así que los trabajos anteriores se dieron de baja con `atrm` y se
-volvieron a programar con la versión corregida: los que quedan vigentes son los 40 a 51.
+PR pidió correcciones al `.sh` y al `.sql`, y este bloque agregó el id de la config definitiva (63) a las
+cabeceras, así que los trabajos anteriores (40 a 51) se dieron de baja con `atrm` y se volvieron a
+programar con la versión final: los que quedan vigentes son los 52 a 64.
 
 ## Qué hace el trabajo
 
@@ -99,10 +101,34 @@ paro del plan. Cuando todavía no hay ningún ciclo terminado, la sección (2) l
 El resultado se manda por Telegram con `envia_recordatorio.py`, y la última línea trae el total y el
 veredicto: `0 | SIN CASOS DE PARO` o `N | CASO DE PARO: revisar la seccion (8)`.
 
-Se ejecutó a mano para probar el camino completo (2026-11-22 18:50 UTC, sobre la versión final con la
-temporada todavía en `shadow`): salió «sin ambito activo» en las dos plataformas (la temporada sigue en práctica),
+Se ejecutó a mano dos veces. La primera (2026-11-22 18:50 UTC, con la temporada todavía en `shadow`)
+probó el camino completo del `.sh`: salió «sin ambito activo» en las dos plataformas,
 `0 | NO EVALUADO: temporada y subida rapida sin ambito activo en las dos plataformas`, y `envios.log`
 registró `enviado: True`.
+
+La segunda, ya con el encendido hecho (2026-11-22 20:25 UTC), corrió solo el `.sql` contra la base, sin el
+`.sh`, para no mandar un aviso de prueba al dueño:
+
+```
+$ ssh goncloud "docker exec -i orbit-db-1 psql -U orbit_read -d orbit -v ON_ERROR_STOP=1 -q -tA -F ' | ' \
+    < /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sql"
+(0) referencia por plataforma: la PRIMERA de su racha viva (temporada o subida rapida en live)
+amazon_mx: racha viva desde 2026-11-22 20:22:42.035697+00 | amazon_us: racha viva desde 2026-11-22 20:22:42.035697+00
+(1) ciclos terminados que empezaron despues de esa config
+(2) cobertura por plataforma: ambito activo y ciclos terminados
+amazon_mx | ambito activo, sin ciclos terminados todavia
+amazon_us | ambito activo, sin ciclos terminados todavia
+...
+(9) casos de paro en total y veredicto (una sola linea)
+0 | SIN CASOS DE PARO (amazon_us sin ciclos terminados todavia, amazon_mx sin ciclos terminados todavia)
+```
+
+Las dos plataformas ya tienen la racha viva (la config 63) y todavía no hay ningún ciclo terminado, que
+es lo correcto: el primero es el de las 09:40 UTC del 2026-11-23, una hora antes del trabajo 52.
+
+La última línea dice «SIN CASOS DE PARO» con el sufijo que aclara que ninguna plataforma tiene ciclos
+todavía. Hay que leerla como lo que es: **no es un aprobado**, es un chequeo que todavía no tenía nada
+que mirar. El trabajo 52 es el primero que va a mirar un ciclo de verdad.
 
 ## Por qué los casos 1 y 2 miran el ledger y no solo lo confirmado
 

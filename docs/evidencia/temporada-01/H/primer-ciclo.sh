@@ -1,6 +1,8 @@
 #!/bin/sh
 # TEMPORADA 01 H.3: chequeo de los ciclos de la temporada en vivo. SOLO LECTURA.
 # Lo corre `at` un trabajo por fecha (ver transiciones.txt del repo).
+# Encendido definitivo: config_version 63 (2026-11-22 20:22:47 UTC), la primera con
+# las cuatro claves en live; el primer ciclo en vivo es el del 2026-11-23 09:40 UTC.
 # El .sql abre BEGIN READ ONLY y cierra con ROLLBACK, y psql entra con orbit_read
 # (ese rol solo puede SELECT). Si el chequeo falla, el aviso NO lleva el
 # diagnostico crudo: se queda en primer-ciclo.out, en el servidor.
