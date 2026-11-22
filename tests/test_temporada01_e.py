@@ -13,8 +13,8 @@
   salto de R6r, con ella no.
 - `test_temporada01_e_exclusion_sobrevive_al_aborto` (escribe en produccion):
   con la conexion SIN autocommit de produccion, un `bid_cambiado_fuera`
-  confirma la exclusion y el cache antes del LIST siguiente; si ese LIST
-  revienta y la fase de apply hace rollback, la mano del dueno sigue guardada.
+  confirma la exclusion y el cache antes del LIST siguiente; si la fase de
+  apply aborta (lease perdido) y hace rollback, la mano del dueno sigue guardada.
 
 La lectura fresca corre en el ciclo real de MX (Amazon simulado); el control
 puro aisla la puerta de R6r porque con el bid del dueno (7.00) el techo no deja
@@ -292,9 +292,9 @@ def test_temporada01_e_exclusion_sobrevive_al_aborto():
     """La exclusion y el cache de un `bid_cambiado_fuera` se CONFIRMAN antes de
     la puja siguiente, con la conexion SIN autocommit de produccion
     (`app/cli.py` abre la conexion del ciclo asi y la carga de pujas ya dejo la
-    sesion en INTRANS). Si el LIST de la puja siguiente revienta, la fase de
-    apply del ciclo hace rollback (`app/cycle.py`): la mano del dueno tiene que
-    seguir guardada. Regla 9: con un simple savepoint, el rollback borra el
+    sesion en INTRANS). Si la fase de apply del ciclo aborta (lease perdido)
+    y hace rollback (`app/cycle.py`), la mano del dueno tiene que seguir
+    guardada. Regla 9: con un simple savepoint, el rollback borra el
     desenlace, la exclusion y el cache."""
     import httpx as _httpx
     import pytest as _pytest
