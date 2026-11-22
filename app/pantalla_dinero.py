@@ -430,9 +430,10 @@ def lee_campanas(
         fila[0]: fila[1]
         for fila in conn.execute(_SQL_FUERA_CAMPANA, (plataforma, desde, hasta)).fetchall()
     }
+    hoy = hasta + dt.timedelta(days=1)
     configs: dict[int, list] = {}
     for cid, vigente_desde, presupuesto in conn.execute(
-        _SQL_CONFIGS_HIST, (plataforma, hasta)
+        _SQL_CONFIGS_HIST, (plataforma, hoy)
     ).fetchall():
         configs.setdefault(cid, []).append((vigente_desde, presupuesto))
     from app.ads.campana_config import config_por_id, config_vigente_con_id
@@ -468,7 +469,6 @@ def lee_campanas(
     }
     # TEMPORADA 01 G: propuesta de presupuesto por campana (solo lectura).
     config_t = temporada.desde_settings(crudo)
-    hoy = hasta + dt.timedelta(days=1)
     episodio = None
     estacion = None
     if config_t is not None:
@@ -476,11 +476,13 @@ def lee_campanas(
         abierto = next((e for e in episodios if e.cerrado_el is None), None)
         episodio = abierto if abierto is not None else (episodios[0] if episodios else None)
         estacion = temporada.resuelve(config_t, hoy)
-    inicio_alto = (
-        estacion.inicio_bloque
-        if estacion is not None and (estacion.previa_alta or estacion.fase == "alta")
-        else None
-    )
+    inicio_alto = None
+    if estacion is not None and estacion.previa_alta:
+        inicio_alto = estacion.inicio_bloque
+    elif estacion is not None and estacion.fase == "alta" and config_t is not None:
+        # La preparacion del MISMO bloque: si el aumento se aprobo alli, la
+        # entrada a la alta no lo olvida y no propone una segunda subida.
+        inicio_alto = estacion.inicio_bloque - dt.timedelta(days=config_t.dias_preparacion)
     techo = TECHOS_HUMANOS_POR_MONEDA[PLATAFORMAS_MONEDA[plataforma]].presupuesto_diario
     dias = (hasta - desde).days + 1
 

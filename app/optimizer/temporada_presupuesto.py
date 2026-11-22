@@ -83,7 +83,10 @@ def propuesta_presupuesto(
     escrituras; regresa el monto absoluto y su frase."""
     if config is None or estacion is None or not historial:
         return None
-    ordenado = tuple(sorted(historial))
+    # El orden es el cronologico que entrega SQL (`observed_at`): dos cambios
+    # el mismo dia son dos filas y la ultima manda; ordenar por (fecha, monto)
+    # perderia cual fue el ultimo aplicado.
+    ordenado = tuple(historial)
     hoy_vigente = _vigente_en(ordenado, hoy)
     if hoy_vigente is None or hoy_vigente <= 0:
         return None
@@ -108,7 +111,9 @@ def propuesta_presupuesto(
         and config.aumento_presupuesto_alta > 0
     ):
         piso = antes if antes is not None else Decimal(0)
-        subidas = tuple((d, m) for d, m in ordenado if d >= inicio_bloque_alto and m > piso)
+        subidas = tuple(
+            (d, m) for d, m in ordenado if d >= inicio_bloque_alto and m is not None and m > piso
+        )
         if not subidas:
             objetivo = _q(hoy_vigente * (Decimal(1) + config.aumento_presupuesto_alta))
             propuesto = min(objetivo, techo_humano)

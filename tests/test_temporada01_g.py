@@ -161,6 +161,46 @@ def test_temporada01_g_propuestas_absolutas():
     assert tope.propuesto == TECHO_MXN
     assert "topado por el techo humano" in tope.frase
 
+    # Dos cambios el MISMO dia: manda el ultimo aplicado (orden del SQL).
+    mismo_dia = _propuesta(
+        hoy=dt.date(2027, 1, 10),
+        episodio=_episodio(abierto=dt.date(2027, 1, 6), cerrado=None),
+        historial=(
+            (dt.date(2026, 12, 1), Decimal("300")),
+            (dt.date(2027, 1, 5), Decimal("250")),
+            (dt.date(2027, 1, 5), Decimal("220")),
+        ),
+    )
+    assert mismo_dia is not None and mismo_dia.actual == Decimal("220")
+
+    # Una observacion sin presupuesto no rompe la revision de aumentos.
+    sin_monto = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=None,
+        historial=(
+            (dt.date(2027, 2, 5), Decimal("300")),
+            (dt.date(2027, 2, 20), None),
+            (dt.date(2027, 2, 25), Decimal("300")),
+        ),
+        inicio_bloque_alto=dt.date(2027, 3, 1),
+        dias_topados_7d=5,
+    )
+    assert sin_monto is not None and sin_monto.propuesto == Decimal("375.00")
+
+    # La frontera estable es la preparacion: un aumento aprobado alli no se
+    # repite al entrar en alta.
+    prep = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=None,
+        historial=(
+            (dt.date(2027, 2, 1), Decimal("300")),
+            (dt.date(2027, 2, 15), Decimal("375")),
+        ),
+        inicio_bloque_alto=dt.date(2027, 2, 8),
+        dias_topados_7d=5,
+    )
+    assert prep is None
+
 
 @_skip_db
 def test_temporada01_g_presupuesto_misma_campana_en_orden(monkeypatch):
@@ -235,3 +275,68 @@ def test_temporada01_g_presupuesto_misma_campana_en_orden(monkeypatch):
             ).fetchone()[0]
             is None
         ), "A queda sin confirmar"
+
+
+@_skip_db
+def test_temporada01_g_reaprobacion_tras_regreso_no_hereda_orden_vieja(monkeypatch):
+    """Tras un regreso a la configuracion inicial, la reaprobacion del mismo
+    plan no reusa la orden pendiente superada: crea un acto nuevo y envia."""
+    import datetime as dt
+    import json
+
+    import httpx
+    from test_aplica_ajuste import (
+        EXTERNA,
+        _creds_fake,
+        _db,
+        _handler_campanas,
+        _plan,
+        _siembra,
+        _vigente_config,
+    )
+
+    from app import apply_ajustes
+    from app.ads.campana_config import config_vigente, guarda_config
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_g_reapr") as conn:
+        camp, cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan_a = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("375")))
+        a_id = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, regresa_a)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, %s, 'dueno',"
+            " 'APLICAR AJUSTE', NULL) RETURNING id",
+            (camp, cfg, json.dumps(plan_a.despues.como_json()), plan_a.huella() + "#a"),
+        ).fetchone()[0]
+        conn.commit()
+        plan_b = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("270")))
+        apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan_b,
+            huella=plan_b.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+        # El dueno regresa a la configuracion inicial (100).
+        guarda_config(conn, "amazon_mx", [_vigente_config()], dt.datetime.now(dt.UTC))
+        conn.commit()
+        assert config_vigente(conn, camp).presupuesto_diario == Decimal("100")
+
+        hecho = apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan_a,
+            huella=plan_a.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler),
+        )
+
+        assert hecho.confirmada is True
+        assert hecho.ajuste_id != a_id, "no hereda la orden vieja superada"
+        assert config_vigente(conn, camp).presupuesto_diario == Decimal("375")
+        assert len([r for r in vistos if r.method == "PUT"]) == 2
