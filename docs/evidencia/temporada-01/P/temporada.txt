@@ -1,0 +1,13 @@
+arnes: bash=/usr/bin/bash  fecha=2026-11-22 (America/Los_Angeles: 2026-11-21)
+
+== P.2 POST temporada (tarjeta global + modos MX y US) ==
+$ bash docs/evidencia/arreglos-01/escribe_api.sh /api/ads-optimizer/settings/amazon_mx '<cuerpo>'
+cuerpo:
+{"base_config_version_id": 56, "temporada": {"version": "temporada_v1", "meses": ["baja", "baja", "alta", "alta", "baja", "baja", "normal", "normal", "normal", "alta", "alta", "normal"], "reduccion_baja_pct": "30", "dias_preparacion": 21, "mult_cortes_baja": "2", "aumento_presupuesto_alta_pct": "25", "fin_anticipado": null, "mantener_pausadas": []}, "temporada_modo": {"amazon_mx": "shadow", "amazon_us": "shadow"}}
+200 {"config_version_id":57,"created":true,"label":"settings UI · settings-ui · 2026-11-22 · amazon_mx: temporadas de venta (calendario y parametros), temporada amazon_mx ausente -> shadow, temporada amazon_us ausente -> shadow","resumen_temporada":{"hoy":"2026-11-22","fase_hoy":"alta","frase_hoy":"Hoy: temporada alta. Meta de ACoS 25 % en MX y US.","proximos":[{"fecha":"2026-12-01","tipo":"sale_alta","frase":"La meta de ACoS regresa a la normal."},{"fecha":"2027-01-01","tipo":"entra_baja","frase":"Empieza la temporada baja: Orbit baja todos los bids 30 %."},{"fecha":"2027-02-08","tipo":"restaura","frase":"Empieza la preparación: los bids regresan a como estaban antes de la baja y Orbit reactiva las keywords que pausó durante la baja."},{"fecha":"2027-03-01","tipo":"entra_alta","frase":"Empieza la temporada alta. Meta de ACoS 25 % en MX y US."},{"fecha":"2027-05-01","tipo":"entra_baja","frase":"Empieza la temporada baja: Orbit baja todos los bids 30 %."},{"fecha":"2027-05-01","tipo":"sale_alta","frase":"La meta de ACoS regresa a la normal."},{"fecha":"2027-07-01","tipo":"restaura","frase":"Termina la baja: los bids regresan. Sigue un mes normal."},{"fecha":"2027-09-10","tipo":"prepara_alta","frase":"Empieza la previa de la temporada alta; todavía no cambia nada."},{"fecha":"2027-10-01","tipo":"entra_alta","frase":"Empieza la temporada alta. Meta de ACoS 25 % en MX y US."}],"aviso_cambio":null},"mensaje":"Guardado. Próximo cambio: el 1 de diciembre la meta de ACoS regresa a la normal. La próxima preparación empieza el 8 de febrero."}
+
+== lectura posterior (config mas reciente: meses y modos) ==
+57|['baja', 'baja', 'alta', 'alta', 'baja', 'baja', 'normal', 'normal', 'normal', 'alta', 'alta', 'normal']|shadow|shadow|shadow|shadow
+
+== diff de claves 56 -> 57 (solo las tres nuevas) ==
+None|['ads_temporada', 'ads_temporada_amazon_mx', 'ads_temporada_amazon_us']
