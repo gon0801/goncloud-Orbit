@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -368,6 +369,16 @@ SELECT count(*) FILTER (
 """
 
 
+_SQL_EXCLUSIONES_APLICADAS = """
+SELECT DISTINCT x.ad_entity_id
+  FROM temporada_exclusion x
+  JOIN decision d ON d.id = x.decision_id
+ WHERE d.cycle_id = %s
+   AND d.inputs->>'motivo' = 'entra_temporada_baja'
+   AND x.motivo = 'mano_del_dueno'
+"""
+
+
 def pendiente_reactivacion(
     r: temporada_io.Reactivacion, estacion: temporada.Estacion, *, decidido_el: dt.datetime
 ) -> _Pendiente:
@@ -419,17 +430,27 @@ def _conteo_temporada(
     *,
     reactivaciones: int,
     retenidos: int,
-    excluidas: dict[str, int],
+    excluidas: dict[int, str],
 ) -> temporada.ConteoTemporada:
     """Lo que conto el ciclo para el aviso del dia: confirmaciones del ciclo,
-    pendientes, exclusiones reales y reactivaciones confirmadas."""
+    pendientes, exclusiones reales y reactivaciones confirmadas.
+
+    Las exclusiones se juntan de dos fuentes y cada hoja cuenta UNA vez: las
+    que vio el recorrido (mano registrada, bid heredado, sin centavo) y las que
+    descubrio la lectura fresca del aplicador (mano del dueno en Amazon), que
+    se registran despues del recorrido."""
     entradas, regresos, pendientes = conn.execute(_SQL_TEMPORADA_CICLO, (cycle_id,)).fetchone()
+    aplicadas = {f[0] for f in conn.execute(_SQL_EXCLUSIONES_APLICADAS, (cycle_id,)).fetchall()}
+    hojas = dict(excluidas)
+    for hoja in aplicadas:
+        hojas.setdefault(hoja, "dueno_decidio")
+    conteo = Counter(hojas.values())
     return temporada.ConteoTemporada(
         entradas_confirmadas=int(entradas or 0),
         regresos_confirmados=int(regresos or 0),
         pendientes=int(pendientes or 0),
         retenidos_por_presupuesto=retenidos,
-        excluidas={motivo: cantidad for motivo, cantidad in excluidas.items() if cantidad},
+        excluidas={motivo: cantidad for motivo, cantidad in conteo.items() if cantidad},
         reactivaciones=reactivaciones,
     )
 
@@ -615,7 +636,12 @@ def _corre_fases(
             status = "degraded"
     plat_t = contadores.temporada_plat
     aviso_temporada: str | None = None
-    if plat_t is not None and plat_t.modo == "live" and cuerpo.get("temporada") is not None:
+    if (
+        plat_t is not None
+        and plat_t.modo == "live"
+        and modo.modo == "live"
+        and cuerpo.get("temporada") is not None
+    ):
         reactivaciones = (
             int(notas_apply["reactivaciones"]["confirmadas"])
             if notas_apply and notas_apply.get("reactivaciones")
@@ -633,7 +659,7 @@ def _corre_fases(
                 cycle_id,
                 reactivaciones=reactivaciones,
                 retenidos=retenidos,
-                excluidas=dict(contadores.excluidas_temporada),
+                excluidas=contadores.excluidas_temporada,
             ),
             propuestas=len(contadores.propuestas_campana),
         )

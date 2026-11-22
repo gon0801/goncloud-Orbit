@@ -132,7 +132,7 @@ def _cuenta_excluidas_temporada(
     if isinstance(pendiente_t, temporada.SinPendiente) and (
         pendiente_t.motivo in _MOTIVOS_EXCLUIDAS_TEMPORADA
     ):
-        contadores.excluidas_temporada[pendiente_t.motivo] += 1
+        contadores.excluidas_temporada[entidad_id] = pendiente_t.motivo
 
 
 def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
@@ -205,6 +205,12 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
         tick()
         return
+    # TEMPORADA 01 F: las exclusiones de la entrada se cuentan ANTES del
+    # retorno de inertes: una inerte con bid heredado, mano del dueno o sin
+    # centavo factible tambien es «no toco» para el aviso.
+    _cuenta_excluidas_temporada(
+        contadores, lecturas, entidad_id, current_bid, floor=floor, ceiling=ceiling
+    )
     plat_t_inerte = contadores.temporada_plat
     entran_inertes = (
         lecturas is not None
@@ -250,9 +256,6 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         tick()
         return
     assert not isinstance(meta_viva, str)
-    _cuenta_excluidas_temporada(
-        contadores, lecturas, entidad_id, current_bid, floor=floor, ceiling=ceiling
-    )
     target_margen_producto = meta_viva.resolucion.aplicado if meta_viva is not None else None
     if meta_viva is not None:
         assert productos_ciclo is not None

@@ -492,14 +492,14 @@ def test_temporada01_f_conteo_confirmado_pendiente_y_divergencia():
             ciclo_id,
             reactivaciones=2,
             retenidos=1,
-            excluidas={"dueno_decidio": 3, "bid_heredado": 0},
+            excluidas={101: "dueno_decidio", 102: "bid_heredado"},
         )
 
         assert conteo.entradas_confirmadas == 1
         assert conteo.regresos_confirmados == 0, "la divergencia no es un regreso confirmado"
         assert conteo.pendientes == 1, "solo la decision sin desenlace es pendiente"
         assert conteo.reactivaciones == 2 and conteo.retenidos_por_presupuesto == 1
-        assert conteo.excluidas == {"dueno_decidio": 3}, "un cero no se anuncia"
+        assert conteo.excluidas == {"dueno_decidio": 1, "bid_heredado": 1}
 
 
 @_skip_db
@@ -639,3 +639,84 @@ def test_temporada01_f_aviso_al_canal_fallido_deja_nota(monkeypatch):
         assert res.status == "done", "un fallo de Telegram no degrada el ciclo"
         nota = json.loads(res.notes)["telegram"]["aviso_temporada"]
         assert nota.startswith("fallo:")
+
+
+@_skip_db
+def test_temporada01_f_aviso_incluye_la_mano_del_aplicador(monkeypatch):
+    """La lectura fresca del aplicador descubre una mano del dueno que el
+    recorrido no veia: esa hoja tambien aparece en «No tocó» del aviso."""
+    from app import notifica
+
+    with _db_temporal("orbit_t01_f_mano") as (conn, _conectar):
+        ids = _escenario(conn)
+        kw = _kw(conn, ids["ag"], "e-mano", "kw mano", "8.00")
+        _siembra_metricas(conn, [kw])
+        enviados: list[str] = []
+        monkeypatch.setattr(
+            notifica,
+            "notifica_temporada",
+            lambda texto, **_k: (enviados.append(texto), True)[1],
+        )
+        handler = _handler_mx({"e-mano": "7.00"})  # Amazon ya tiene 7.00
+        res = _corre(conn, dt.date(2027, 1, 1), handler)
+
+        assert res.status == "done", res.notes
+        assert len(enviados) == 1
+        assert "No tocó 1" in enviados[0], enviados[0]
+        assert "los cambiaste tú" in enviados[0]
+
+
+@_skip_db
+def test_temporada01_f_aviso_cuenta_la_inerte_con_bid_heredado(monkeypatch):
+    """Una hoja inerte con bid heredado sale por el retorno de inertes y aun
+    asi cuenta en «No tocó»: su exclusion es real."""
+    from app import notifica
+
+    with _db_temporal("orbit_t01_f_inerte") as (conn, _conectar):
+        ids = _escenario(conn)
+        kw = _kw(conn, ids["ag"], "e-kw", "kw", "8.00")
+        _siembra_metricas(conn, [kw])
+        inerte = _kw(conn, ids["ag"], "e-inerte", "kw inerte", "8.00")
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = NULL, bid_currency = NULL"
+            " WHERE ad_entity_id = %s",
+            (inerte,),
+        )
+        # sin metricas: v_entidad_inerte la saca del juicio antes del aviso
+        enviados: list[str] = []
+        monkeypatch.setattr(
+            notifica,
+            "notifica_temporada",
+            lambda texto, **_k: (enviados.append(texto), True)[1],
+        )
+        handler = _handler_mx({"e-kw": "8.00"})
+        res = _corre(conn, dt.date(2027, 1, 1), handler)
+
+        assert res.status == "done", res.notes
+        assert len(enviados) == 1
+        assert "No tocó 1" in enviados[0], enviados[0]
+
+
+@_skip_db
+def test_temporada01_f_aviso_solo_en_ciclo_live(monkeypatch):
+    """Con la escalera del ciclo en practica no se envia el aviso operativo,
+    aunque la temporada este en live: las pujas son simuladas."""
+    from test_cycle import _config_version
+
+    from app import notifica
+
+    with _db_temporal("orbit_t01_f_shadow") as (conn, _conectar):
+        _mundo_aviso(conn)
+        _config_version(conn, {**CONFIG_TEMPORADA, "ads_optimizer_mode": "shadow"})
+        enviados: list[str] = []
+        monkeypatch.setattr(
+            notifica,
+            "notifica_temporada",
+            lambda texto, **_k: (enviados.append(texto), True)[1],
+        )
+        handler = _handler_mx({"e-kw": "8.00", "e-kw-h": "8.00"})
+        res = _corre(conn, dt.date(2027, 1, 1), handler)
+
+        assert res.status == "done", res.notes
+        assert enviados == [], "en practica no hay aviso operativo"
+        assert "aviso" not in (json.loads(res.notes).get("temporada") or {})
