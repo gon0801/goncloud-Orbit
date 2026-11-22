@@ -3,8 +3,8 @@
 Mismo prefijo /api/ads-optimizer que la escritura (app/api_write.py) y la
 misma auth (token solo en el header; sellado 18): viven en modulo propio
 para respetar el presupuesto de tamaño (test_architecture). La lectura de
-equilibrio y estado de baja vive en app/api_dashboard (misma vista y mismos
-conteos que pinta la tarjeta); este modulo es la cascara delgado.
+equilibrio y estado de baja vive en app/dashboard_temporada (misma vista y
+mismos conteos que pinta la tarjeta); este modulo es la cascara delgada.
 
 - GET  /temporada/vista-previa  (sin token, solo lectura, como
   /campana-ajuste/plan): temporada.resumen + equilibrio por plataforma.

@@ -51,8 +51,8 @@ from app.dashboard_resumen_calc import (  # noqa: F401 - reexport contrato publi
 )
 from app.dia_cerrado import ZONAS, dia_local
 
-# Dias inmaduros de Amazon: [D-8, D-1]. Unico dueno del numero; la serie de
-# `api_dashboard` importa esta constante (misma ventana, cero copias).
+# Dias inmaduros de Amazon: [D-8, D-1]. Unico dueno del numero; `dashboard_salud`
+# y `api_dashboard` importan esta constante (misma ventana, cero copias).
 DIAS_INMADUROS = 8
 
 # Tope duro del rango visible (la comparacion puede ir mas atras: la ventana

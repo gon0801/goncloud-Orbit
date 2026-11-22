@@ -110,7 +110,6 @@ from app.dashboard_temporada import (  # noqa: F401 - reexport contrato pruebas
     _config_vigente_con_id,
     _equilibrio_de_fila,
     _goal_desde_fila,
-    _goal_plataforma_de,
     _numero_corto,
     _pct_un_decimal,
     equilibrio_temporada,

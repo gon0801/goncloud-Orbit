@@ -533,3 +533,100 @@ def test_arreglos04_w_n_el_p90_solo_cuenta_campanas_activas_de_la_moneda():
     with _db_config("orbit_cfg_p90_sin") as conn:
         siembra(conn, "amazon_mx", "mx-5000", "5000", "ENABLED", "MXN")
         assert presupuesto_p90(conn, "USD") is None
+
+
+@_skip_db
+def test_cargas_por_lote_coinciden_campo_por_campo_con_unitarias():
+    """F7/F9 (Ola F1): `configs_por_ids` y `configs_vigentes_por_campana`
+    devuelven exactamente los mismos ConfigCampana (todos sus campos, sin
+    permutacion de columnas) que `config_por_id` y `config_vigente_con_id`."""
+    import datetime as dt
+
+    from app.ads.campana_config import (
+        config_por_id,
+        config_vigente_con_id,
+        configs_por_ids,
+        configs_vigentes_por_campana,
+    )
+
+    t1 = dt.datetime(2026, 10, 1, 8, 0, tzinfo=dt.UTC)
+    t2 = dt.datetime(2026, 10, 2, 8, 0, tzinfo=dt.UTC)
+    with _db_config("orbit_cfg_lote") as conn:
+        c1 = _campana(conn, platform="amazon_mx", external="cam-mx-1")
+        c2 = _campana(conn, platform="amazon_us", external="cam-us-2")
+        c3 = _campana(conn, platform="amazon_mx", external="cam-mx-3")
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [
+                _config(
+                    externa="cam-mx-1",
+                    presupuesto_diario=Decimal("100.50"),
+                    moneda="MXN",
+                    estrategia_puja="LEGACY_FOR_SALES",
+                    ajuste_top_pct=15,
+                    ajuste_resto_pct=5,
+                    ajuste_producto_pct=10,
+                    fuera_de_amazon='{"offAmazonBudgetControlStrategy":"MINIMIZE_SPEND"}',
+                )
+            ],
+            t1,
+        )
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [
+                _config(
+                    externa="cam-mx-1",
+                    presupuesto_diario=Decimal("250.25"),
+                    moneda="MXN",
+                    estrategia_puja="AUTO_FOR_SALES",
+                    ajuste_top_pct=30,
+                    ajuste_resto_pct=12,
+                    ajuste_producto_pct=8,
+                    fuera_de_amazon='{"offAmazonBudgetControlStrategy":"MAXIMIZE_REACH"}',
+                )
+            ],
+            t2,
+        )
+        guarda_config(
+            conn,
+            "amazon_us",
+            [
+                _config(
+                    externa="cam-us-2",
+                    presupuesto_diario=Decimal("45.00"),
+                    moneda="USD",
+                    estrategia_puja="MANUAL",
+                    ajuste_top_pct=20,
+                    ajuste_resto_pct=0,
+                    ajuste_producto_pct=4,
+                    fuera_de_amazon=None,
+                )
+            ],
+            t1,
+        )
+
+        u1_id, u1_cfg = config_vigente_con_id(conn, c1)
+        u2_id, u2_cfg = config_vigente_con_id(conn, c2)
+        vigentes = configs_vigentes_por_campana(conn, [c1, c2, c3])
+        assert vigentes == {c1: u1_cfg, c2: u2_cfg}
+        assert vigentes[c1].presupuesto_diario == Decimal("250.25")
+        assert vigentes[c1].moneda == "MXN"
+        assert vigentes[c1].estrategia_puja == "AUTO_FOR_SALES"
+        assert vigentes[c1].ajuste_top_pct == 30
+        assert vigentes[c1].ajuste_resto_pct == 12
+        assert vigentes[c1].ajuste_producto_pct == 8
+        assert vigentes[c1].campana_externa == "cam-mx-1"
+
+        ids_todos = [
+            fila[0]
+            for fila in conn.execute(
+                "SELECT id FROM ads_campana_config_observation ORDER BY id"
+            ).fetchall()
+        ]
+        assert len(ids_todos) == 3
+        por_id = configs_por_ids(conn, ids_todos)
+        assert por_id == {cid: config_por_id(conn, cid) for cid in ids_todos}
+        assert por_id[u1_id] == u1_cfg
+        assert por_id[u2_id] == u2_cfg

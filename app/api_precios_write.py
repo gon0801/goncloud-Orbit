@@ -271,10 +271,10 @@ def aplicar_goals(
     cuerpo: CuerpoAplicar,
 ) -> dict:
     """Aplica el plan que el dueno vio: lo recalcula y escribe el lote
-    ENTERO o nada (`aplicar_plan`, una transaccion). La respuesta lista
+    ENTERO o nada (`aplicar_pedido`, una transaccion). La respuesta lista
     lo escrito (`hechos`) y lo omitido (`omitidas`, con bloqueo y
     motivo). 409 con el plan nuevo si la huella ya no coincide; 422
-    `live` sin go literal (lo exige `aplicar_plan` antes de abrir la
+    `live` sin go literal (lo exige `aplicar_pedido` antes de abrir la
     transaccion, aun sin filas escribibles) o pedido que no cierra; 404
     listing sin publicacion."""
     if not cuerpo.actor.strip():

@@ -268,11 +268,6 @@ def _goals_plataforma(conn) -> dict[str, tuple[int, g.Goal]]:
     return salida
 
 
-def _goal_plataforma_de(conn, plataforma: str) -> tuple[int | None, g.Goal | None]:
-    par = _goals_plataforma(conn).get(plataforma)
-    return par if par is not None else (None, None)
-
-
 def metas_vigentes_temporada(conn) -> tuple[dict[str, Decimal], dict[str, str | None]]:
     """Meta que gobierna hoy cada plataforma y su peldano (1 sola lectura de goals)."""
     metas: dict[str, Decimal] = {}
