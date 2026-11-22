@@ -132,6 +132,7 @@ def reproduce(inputs: dict) -> tuple[str | None, Decimal | None, str | None]:
       inputs["politica"] == "niveles_v3" -> decide(CasoHoja.desde_json(inputs["caso"]))
       inputs["motor"] == "bid" sin esa clave -> decide_bid_era_bandas(inputs)
       inputs["motor"] == "hygiene" -> _replay_hygiene, como hoy.
+      inputs["motor"] == "temporada" -> ("resume", None, None): la reactivacion planeada.
       inputs["motor"] == "producto" -> la propuesta de pausa congelada.
     """
     if inputs.get("politica") == POLITICA_BID:
@@ -144,6 +145,12 @@ def reproduce(inputs: dict) -> tuple[str | None, Decimal | None, str | None]:
         assert isinstance(veredicto, Mantener)
         return (None, None, None)
     motor = inputs.get("motor")
+    if motor == "temporada":
+        # TEMPORADA 01 F: la reactivacion planeada no lleva dinero; su replay
+        # solo confirma el kind. La version se valida para no aceptar otra era.
+        if inputs.get("version") != "temporada_v1":
+            raise ValueError(f"version de temporada desconocida: {inputs.get('version')!r}")
+        return ("resume", None, None)
     if motor == "producto":
         # AUTO-03 H.4: la pausa por producto devuelve su propuesta congelada;
         # tools/auto03_verifica.py replay la contrasta con resolver_producto

@@ -80,6 +80,24 @@ class EpisodioPresupuesto:
     cerrado_el: dt.date | None
 
 
+@dataclass(frozen=True)
+class Reactivacion:
+    """Una pausa de Orbit de una baja ya cerrada que toca reactivar (bloque F)."""
+
+    ad_entity_id: int
+    queue_id: int
+    pausa_decision_id: int
+    episodio_id: int
+
+    def como_json(self) -> dict:
+        return {
+            "ad_entity_id": self.ad_entity_id,
+            "queue_id": self.queue_id,
+            "pausa_decision_id": self.pausa_decision_id,
+            "episodio_id": self.episodio_id,
+        }
+
+
 _SQL_EPISODIO_ABIERTO = """
 SELECT id, abierto_el FROM temporada_episodio
  WHERE platform = %s::platform AND cerrado_el IS NULL
@@ -404,6 +422,45 @@ def episodios(conn: psycopg.Connection, platform: str) -> tuple[EpisodioPresupue
             abierto_el=f[1].astimezone(dt.UTC).date(),
             cerrado_el=f[2].astimezone(dt.UTC).date() if f[2] is not None else None,
         )
+        for f in filas
+    )
+
+
+_SQL_PAUSAS_DE_BAJA = """
+SELECT q.ad_entity_id, q.id, q.decision_id, e.id
+  FROM apply_queue q
+  JOIN decision d               ON d.id = q.decision_id
+  JOIN decision_application da  ON da.decision_id = d.id AND da.verify_ok IS TRUE
+  JOIN temporada_episodio e     ON e.id = (d.inputs->>'temporada_episodio_id')::bigint
+                               AND e.cerrado_el IS NOT NULL
+  JOIN ad_entity_state s        ON s.ad_entity_id = q.ad_entity_id
+ WHERE q.platform = %s::platform AND q.kind = 'pause' AND q.modo = 'live' AND q.estado = 'applied'
+   AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'
+   AND s.status = 'PAUSED'
+   AND NOT (q.ad_entity_id = ANY(%s))
+   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
+                    WHERE a.decision_id = q.decision_id AND a.tipo = 'reversa'
+                    GROUP BY a.decision_id
+                   HAVING bool_or(a.resultado = 'ok') OR count(*) >= 3)
+   AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r
+                    WHERE r.ad_entity_id = q.ad_entity_id AND r.detectada_en > q.applied_at)
+   AND q.id = (SELECT q2.id FROM apply_queue q2
+                WHERE q2.ad_entity_id = q.ad_entity_id AND q2.kind = 'pause'
+                  AND q2.estado = 'applied'
+                ORDER BY q2.applied_at DESC LIMIT 1)
+"""
+
+
+def reactivaciones_pendientes(
+    conn: psycopg.Connection, platform: str, mantener: frozenset[int]
+) -> tuple[Reactivacion, ...]:
+    """Pausas de Orbit confirmadas, decididas en una baja ya cerrada, que toca
+    reactivar (TEMPORADA 01 F). Solo SELECT e idempotente: una reversa ok o
+    agotada sale del conjunto, igual que una hoja que el dueno reactivo a mano,
+    una en «Mantener pausada» o una pausa que ya no es la ultima de la hoja."""
+    filas = conn.execute(_SQL_PAUSAS_DE_BAJA, (platform, list(mantener))).fetchall()
+    return tuple(
+        Reactivacion(ad_entity_id=f[0], queue_id=f[1], pausa_decision_id=f[2], episodio_id=f[3])
         for f in filas
     )
 

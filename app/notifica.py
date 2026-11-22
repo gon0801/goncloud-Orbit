@@ -553,6 +553,17 @@ def notifica_propuesta_campana(
     )
 
 
+def notifica_temporada(texto: str, *, transport: httpx.BaseTransport | None = None) -> bool:
+    """Aviso de temporada del dia (TEMPORADA 01 F). Canal apagado -> True."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(texto, transport=transport)
+    except Exception as exc:
+        logger.warning("telegram: fallo armando el aviso de temporada: %s", scrub(str(exc)))
+        return False
+
+
 def notifica_cortes_encolados(
     avisos: Sequence[CorteEncolado], *, transport: httpx.BaseTransport | None = None
 ) -> bool:

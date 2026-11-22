@@ -99,22 +99,40 @@ SELECT k.id, k.parent_id AS ad_group_id, ag.parent_id AS campaign_id,
 
 _SQL_INERTES = "SELECT id FROM v_entidad_inerte WHERE platform = %s::platform"
 
-_SQL_GRUPOS_PAUSA_PRODUCTO = """
-SELECT DISTINCT pa.parent_id
-  FROM apply_queue q
-  JOIN ad_entity pa ON pa.id = q.ad_entity_id AND pa.kind = 'product_ad'
- WHERE q.platform = %s::platform AND q.kind = 'pause' AND q.modo = 'live'
-   AND q.estado IN ('pending_veto', 'released', 'applying') AND q.vetoed_at IS NULL
-   AND (SELECT count(*) FILTER (WHERE li.product_id IS NULL) = 0
-               AND count(DISTINCT li.product_id) = 1
-          FROM ad_entity o
-          LEFT JOIN ad_entity_state s ON s.ad_entity_id = o.id
-          LEFT JOIN listing li ON li.id = o.listing_id AND li.platform = o.platform
-         WHERE o.parent_id = pa.parent_id AND o.kind = 'product_ad'
-           AND s.status IS DISTINCT FROM 'ARCHIVED')
-"""
+_SQL_GRUPOS_PAUSA_PRODUCTO = apply_cola.SQL_GRUPOS_PAUSA_PRODUCTO
+
 
 _SQL_TIENE_GRUPOS_FABRICA = "SELECT to_regclass('public.campana_grupo_rol') IS NOT NULL"
+
+
+_MOTIVOS_EXCLUIDAS_TEMPORADA = frozenset({"dueno_decidio", "bid_heredado", "sin_centavo_factible"})
+
+
+def _cuenta_excluidas_temporada(
+    contadores: _Contadores,
+    lecturas,
+    entidad_id: int,
+    current_bid,
+    *,
+    floor,
+    ceiling,
+) -> None:
+    """TEMPORADA 01 F: cuenta para el aviso del dia las hojas que la entrada no
+    toco (mano del dueno, bid heredado, sin centavo factible). Solo en una baja
+    viva; es una lectura en memoria, sin HTTP ni escrituras."""
+    plat_t = contadores.temporada_plat
+    if (
+        lecturas is None
+        or plat_t is None
+        or plat_t.modo != "live"
+        or plat_t.estacion.fase != "baja"
+    ):
+        return
+    pendiente_t = lecturas.pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
+    if isinstance(pendiente_t, temporada.SinPendiente) and (
+        pendiente_t.motivo in _MOTIVOS_EXCLUIDAS_TEMPORADA
+    ):
+        contadores.excluidas_temporada[entidad_id] = pendiente_t.motivo
 
 
 def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
@@ -187,6 +205,12 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
         tick()
         return
+    # TEMPORADA 01 F: las exclusiones de la entrada se cuentan ANTES del
+    # retorno de inertes: una inerte con bid heredado, mano del dueno o sin
+    # centavo factible tambien es «no toco» para el aviso.
+    _cuenta_excluidas_temporada(
+        contadores, lecturas, entidad_id, current_bid, floor=floor, ceiling=ceiling
+    )
     plat_t_inerte = contadores.temporada_plat
     entran_inertes = (
         lecturas is not None
@@ -593,9 +617,7 @@ def _recorre_plataforma(
         proteccion_cache = None
         claves_released = frozenset()
     inertes = {f[0] for f in conn.execute(_SQL_INERTES, (platform,)).fetchall()}
-    grupos_pausa_producto = frozenset(
-        f[0] for f in conn.execute(_SQL_GRUPOS_PAUSA_PRODUCTO, (platform,)).fetchall()
-    )
+    grupos_pausa_producto = apply_cola.grupos_con_pausa_producto(conn, platform)
     hojas_bid_en_vuelo = apply.hojas_con_bid_sin_sello(conn, platform)
     tiene_grupos_fabrica = bool(conn.execute(_SQL_TIENE_GRUPOS_FABRICA).fetchone()[0])
     corte_pause_por_grupo: dict[int, windows.EvidenciaAdGroup | None] = {}
@@ -625,6 +647,9 @@ def _recorre_plataforma(
                 estado=estado_t,
             )
             contadores.temporada_plat = plat_t
+            contadores.reactivaciones = temporada_io.reactivaciones_pendientes(
+                conn, platform, plat_t.config.mantener_pausadas
+            )
         modo_r = temporada.modo_recuperacion_desde_settings(settings, platform)
         if modo_r == "live":
             rec_r = InsumosRecuperacion(

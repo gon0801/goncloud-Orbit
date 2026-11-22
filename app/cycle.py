@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -132,11 +133,12 @@ from app.lock import (
 from app.lock import (  # noqa: F401 - re-export estable para tests
     SQL_OWNER as _SQL_OWNER_LOCK,
 )
-from app.optimizer import bid, cortes, windows  # noqa: F401 - re-export estable para tests
+from app.optimizer import bid, cortes, temporada, windows  # noqa: F401 - re-export
 from app.optimizer import goals as g
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.politica import decide
+from app.optimizer.caso import _a_json as _caso_json
+from app.optimizer.politica import MOTIVO_REGRESO_ESPERA_PRESUPUESTO, decide
 from app.optimizer.replay import reproduce as reproduce
 from app.redaction import install_scrub_filter, scrub
 
@@ -343,6 +345,116 @@ def _inserta_targets(
     conn.cursor().executemany(_SQL_INSERT_TARGET_CICLO, filas)
 
 
+_SQL_TEMPORADA_CICLO = """
+SELECT count(*) FILTER (
+           WHERE d.inputs->>'motivo' = 'entra_temporada_baja'
+             AND EXISTS (SELECT 1 FROM decision_application da
+                          WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)
+       ) AS entradas,
+       count(*) FILTER (
+           WHERE d.inputs->>'motivo' = 'sale_temporada_baja'
+             AND EXISTS (SELECT 1 FROM decision_application da
+                          WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)
+       ) AS regresos,
+       count(*) FILTER (
+           WHERE NOT EXISTS (SELECT 1 FROM decision_application da
+                              WHERE da.decision_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa
+                              WHERE sa.decision_id = d.id)
+       ) AS pendientes
+  FROM decision d
+ WHERE d.cycle_id = %s AND d.kind = 'bid'
+   AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja',
+                               'sale_temporada_baja')
+"""
+
+
+_SQL_EXCLUSIONES_APLICADAS = """
+SELECT DISTINCT x.ad_entity_id
+  FROM temporada_exclusion x
+  JOIN decision d ON d.id = x.decision_id
+ WHERE d.cycle_id = %s
+   AND d.inputs->>'motivo' = 'entra_temporada_baja'
+   AND x.motivo = 'mano_del_dueno'
+"""
+
+
+def pendiente_reactivacion(
+    r: temporada_io.Reactivacion, estacion: temporada.Estacion, *, decidido_el: dt.datetime
+) -> _Pendiente:
+    """Decision kind 'resume' (sin dinero): reactiva la pausa que Orbit hizo en
+    una baja ya cerrada. `inputs` lleva la pausa, su fila de cola y el episodio
+    que la origino, con la estacion congelada para el replay."""
+    return _Pendiente(
+        ad_entity_id=r.ad_entity_id,
+        kind="resume",
+        data_observed_at=decidido_el,
+        window_start=decidido_el.date(),
+        window_end=decidido_el.date(),
+        search_term=None,
+        old_value=None,
+        new_value=None,
+        value_currency=None,
+        inputs={
+            "motor": "temporada",
+            "version": "temporada_v1",
+            "pausa_decision_id": r.pausa_decision_id,
+            "queue_id": r.queue_id,
+            "temporada_episodio_id": r.episodio_id,
+            "estacion": _caso_json(estacion),
+        },
+    )
+
+
+def _notas_temporada(contadores: _Contadores) -> dict | None:
+    """Seccion notes.temporada: reactivaciones pendientes y la comparacion de
+    la practica (B/D). None sin temporada encendida."""
+    plat_t = contadores.temporada_plat
+    if plat_t is None:
+        return None
+    notas: dict = {"reactivaciones": len(contadores.reactivaciones)}
+    if contadores.temporada_sombra_comparadas:
+        notas.update(
+            {
+                "comparadas": contadores.temporada_sombra_comparadas,
+                "coinciden": contadores.temporada_sombra_coinciden,
+                "diferencias": contadores.temporada_sombra_diferencias,
+            }
+        )
+    return notas
+
+
+def _conteo_temporada(
+    conn: psycopg.Connection,
+    cycle_id: int,
+    *,
+    reactivaciones: int,
+    retenidos: int,
+    excluidas: dict[int, str],
+) -> temporada.ConteoTemporada:
+    """Lo que conto el ciclo para el aviso del dia: confirmaciones del ciclo,
+    pendientes, exclusiones reales y reactivaciones confirmadas.
+
+    Las exclusiones se juntan de dos fuentes y cada hoja cuenta UNA vez: las
+    que vio el recorrido (mano registrada, bid heredado, sin centavo) y las que
+    descubrio la lectura fresca del aplicador (mano del dueno en Amazon), que
+    se registran despues del recorrido."""
+    entradas, regresos, pendientes = conn.execute(_SQL_TEMPORADA_CICLO, (cycle_id,)).fetchone()
+    aplicadas = {f[0] for f in conn.execute(_SQL_EXCLUSIONES_APLICADAS, (cycle_id,)).fetchall()}
+    hojas = dict(excluidas)
+    for hoja in aplicadas:
+        hojas.setdefault(hoja, "dueno_decidio")
+    conteo = Counter(hojas.values())
+    return temporada.ConteoTemporada(
+        entradas_confirmadas=int(entradas or 0),
+        regresos_confirmados=int(regresos or 0),
+        pendientes=int(pendientes or 0),
+        retenidos_por_presupuesto=retenidos,
+        excluidas={motivo: cantidad for motivo, cantidad in conteo.items() if cantidad},
+        reactivaciones=reactivaciones,
+    )
+
+
 def _cierra_envelope(
     conn: psycopg.Connection, cycle_id: int, status: str, decisions_count: int, notes: str
 ) -> bool:
@@ -453,15 +565,7 @@ def _corre_fases(
         guarda.detalle if guarda is not None else None,
         target_ciclo.snapshot if target_ciclo is not None else None,
         harvest_destino=(_harvest_destino_notes(contadores) if target_ciclo is not None else None),
-        temporada=(
-            {
-                "comparadas": contadores.temporada_sombra_comparadas,
-                "coinciden": contadores.temporada_sombra_coinciden,
-                "diferencias": contadores.temporada_sombra_diferencias,
-            }
-            if contadores.temporada_sombra_comparadas
-            else None
-        ),
+        temporada=_notas_temporada(contadores),
     )
     status = "degraded" if guarda is not None else "done"
     with conn.transaction():
@@ -485,6 +589,12 @@ def _corre_fases(
                 fines=contadores.fines,
                 exclusiones=contadores.exclusiones,
                 moneda=PLATAFORMAS_MONEDA[platform],
+            )
+            # TEMPORADA 01 F: una decision resume por pausa de la baja que toca
+            # reactivar. El efecto de temporada no aplica: es una reactivacion.
+            pendientes.extend(
+                pendiente_reactivacion(r, plat_t.estacion, decidido_el=decided_at)
+                for r in contadores.reactivaciones
             )
             pendientes = [temporada_io.estampa(p, ep_abierto) for p in pendientes]
         ids_evaluacion: dict[int, int] = {}
@@ -524,6 +634,38 @@ def _corre_fases(
         cuerpo["apply"] = notas_apply
         if fase.fallo:
             status = "degraded"
+    plat_t = contadores.temporada_plat
+    aviso_temporada: str | None = None
+    if (
+        plat_t is not None
+        and plat_t.modo == "live"
+        and modo.modo == "live"
+        and cuerpo.get("temporada") is not None
+    ):
+        reactivaciones = (
+            int(notas_apply["reactivaciones"]["confirmadas"])
+            if notas_apply and notas_apply.get("reactivaciones")
+            else 0
+        )
+        cuerpo["temporada"]["reactivaciones"] = reactivaciones
+        retenidos = int(
+            cuerpo.get("skips", {}).get("entidad", {}).get(MOTIVO_REGRESO_ESPERA_PRESUPUESTO, 0)
+        )
+        aviso = temporada.aviso_del_dia(
+            plat_t.config,
+            plat_t.estacion,
+            conteo=_conteo_temporada(
+                conn,
+                cycle_id,
+                reactivaciones=reactivaciones,
+                retenidos=retenidos,
+                excluidas=contadores.excluidas_temporada,
+            ),
+            propuestas=len(contadores.propuestas_campana),
+        )
+        if aviso:
+            cuerpo["temporada"]["aviso"] = aviso
+            aviso_temporada = aviso
     nota_propuesta: str | None = None
     if g.propuestas_campana_desde_settings(settings):
         try:
@@ -545,6 +687,7 @@ def _corre_fases(
         fase.alertas,
         caps_saturados=fase.caps_saturados,
         avisos_destino=fase.avisos_destino,
+        aviso_temporada=aviso_temporada,
         cycle_id=cycle_id,
         platform=platform,
         modo=modo.modo,

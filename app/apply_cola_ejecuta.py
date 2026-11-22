@@ -143,8 +143,14 @@ def reversa_pause(
     fila: FilaCola,
     *,
     tick=None,
+    durable: bool = False,
 ) -> bool:
-    """Reversa del pause: reanudar keyword/target, readback y cache con lo leido."""
+    """Reversa del pause: reanudar keyword/target, readback y cache con lo leido.
+
+    `durable=True` (TEMPORADA 01 F) confirma el sello con `tx_durable`: en la
+    fase de apply la conexion de produccion ya esta en INTRANS y un
+    `conn.transaction()` seria un savepoint; un aborto posterior perderia el
+    sello de una habilitacion que Amazon si aplico y el ciclo la repetiria."""
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return False
@@ -176,7 +182,8 @@ def reversa_pause(
         if verify
         else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
     )
-    with conn.transaction():
+    cierre = tx_durable(conn) if durable else conn.transaction()
+    with cierre:
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         if estado is not None:
             conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
