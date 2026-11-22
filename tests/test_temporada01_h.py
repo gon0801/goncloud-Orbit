@@ -24,6 +24,7 @@ import datetime as dt
 import json
 from decimal import Decimal
 
+import pytest
 from test_cycle import _config_version, _entidad, _estado, _run
 from test_temporada01_b import (
     D_E1,
@@ -206,3 +207,74 @@ def test_temporada01_h_practica_no_pierde_la_mano_del_dueno(db_template):
         "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (kw,)
     ).fetchone()[0]
     assert vigente == Decimal("7.00"), vigente
+
+
+@pytest.mark.parametrize("modo_temporada", [None, "live"])
+def test_temporada01_h_practica_compara_recuperacion_sin_temporada_en_shadow(
+    db_template, modo_temporada
+):
+    """La subida rapida en practica se compara tambien con la temporada apagada
+    o en vivo: `casos()` genera el caso de sombra con la pausa base y
+    `notes.temporada` guarda la diferencia aunque no haya temporada que contar."""
+    conn, _dsn = db_template
+    _run(conn)
+    _config_version(
+        conn,
+        {
+            **_settings(modo_temporada=modo_temporada),
+            "ads_bid_recuperacion_amazon_mx": "shadow",
+        },
+    )
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "h3-camp")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "h3-ag", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(DIA))
+    _estado(conn, camp, synced_at=_medianoche(DIA))
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 1000.00, 'MXN')",
+        (camp, _medianoche(DIA) - dt.timedelta(days=15)),
+    )
+    kw = _kw(conn, ag, "h3-kw", "kw 3", "2.16")
+    _siembra_metricas(conn, [kw])
+    _evidencia_caso_d(
+        conn,
+        kw,
+        DIA - dt.timedelta(days=90),
+        DIA - dt.timedelta(days=10),
+        DIA - dt.timedelta(days=1),
+    )
+    _cambio_confirmado(
+        conn,
+        kw,
+        conn.execute("SELECT max(id) FROM config_version").fetchone()[0],
+        dia=DIA - dt.timedelta(days=40),
+        antes="8.00",
+        despues="2.16",
+        motivo="pierde_dinero_fuerte",
+    )
+    conn.commit()
+
+    res = _corre(conn, DIA, _handler_mx({"h3-kw": "2.16"}))
+    assert res.status == "done", res.notes
+
+    motivos = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT d.inputs->>'motivo' FROM decision d"
+            " WHERE d.cycle_id = %s AND d.kind = 'bid' AND d.ad_entity_id = %s",
+            (res.cycle_id, kw),
+        ).fetchall()
+    ]
+    assert "recupera_nivel" not in motivos, motivos
+
+    notas = json.loads(res.notes)
+    seccion = notas["temporada"]
+    assert seccion["comparadas"] >= 1, seccion
+    difs = [d for d in seccion["diferencias"] if d["hoja_id"] == kw]
+    assert len(difs) == 1, difs
+    assert difs[0]["motivo_sombra"] == "recupera_nivel", difs[0]
+    # El destino es el salto topado por el techo conocido (8.00); lo que importa
+    # es que R6r se evaluo y supero un paso de R6.
+    assert Decimal(difs[0]["destino_sombra"]) > Decimal("2.16") * Decimal("1.15"), difs[0]
+    assert Decimal(difs[0]["destino_sombra"]) <= Decimal("8.00"), difs[0]

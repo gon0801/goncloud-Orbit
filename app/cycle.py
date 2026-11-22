@@ -408,12 +408,16 @@ def pendiente_reactivacion(
 
 def _notas_temporada(contadores: _Contadores) -> dict | None:
     """Seccion notes.temporada: reactivaciones pendientes y la comparacion de
-    la practica (B/D). None sin temporada encendida."""
+    la practica (B/D). None sin temporada encendida ni practica que comparar
+    (la subida rapida tambien se compara con la temporada apagada)."""
     plat_t = contadores.temporada_plat
-    if plat_t is None:
+    comparadas = contadores.temporada_sombra_comparadas
+    if plat_t is None and not comparadas:
         return None
-    notas: dict = {"reactivaciones": len(contadores.reactivaciones)}
-    if contadores.temporada_sombra_comparadas:
+    notas: dict = {}
+    if plat_t is not None:
+        notas["reactivaciones"] = len(contadores.reactivaciones)
+    if comparadas:
         notas.update(
             {
                 "comparadas": contadores.temporada_sombra_comparadas,

@@ -343,14 +343,26 @@ class LecturasPlataforma:
             con_temporada=con_temporada,
         )
         sombra = None
-        if en_shadow and con_temporada and pausa_sombra is not None:
+        # La sombra tambien se decide con solo la subida rapida en practica
+        # (temporada apagada o en live): ahi no hay pausa de sombra que la
+        # temporada resuelva y se usa la pausa base (Devin y revision, PR 730).
+        pausa_de_sombra = (
+            pausa_sombra
+            if en_shadow and pausa_sombra is not None
+            else (
+                pausa
+                if con_temporada and self._recuperacion is not None and not self._recuperacion_live
+                else None
+            )
+        )
+        if pausa_de_sombra is not None:
             sombra = self.caso(
                 conn,
                 hoja_id=hoja_id,
                 ad_group_id=ad_group_id,
                 bid=bid,
                 target_acos_pct=target_acos_pct,
-                pausa=pausa_sombra,
+                pausa=pausa_de_sombra,
                 equilibrio_acos_pct=equilibrio_acos_pct,
                 procedencia=procedencia,
                 con_temporada=True,
