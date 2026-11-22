@@ -1,0 +1,6 @@
+# Prueba-real de la fila F (solo lectura) — SHA desplegado 9f6c989805b3dd235ca284a8b887976fa6874a99
+# Comando: bash docs/evidencia/arreglos-01/desplegado.sh reactivaciones_pendientes
+# Sale 0 si el texto esta en los .py del paquete app que corre en orbit-app-1.
+# El script no imprime nada cuando encuentra el texto: silencio + EXIT=0 es el pase.
+
+EXIT=0

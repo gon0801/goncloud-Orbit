@@ -1,0 +1,31 @@
+# Checklist de TEMPORADA 01 F — MOTOR_SHA 9f6c989805b3dd235ca284a8b887976fa6874a99
+# Comando: bash tools/despliegue/checklist.sh (exige MOTOR_SHA en el entorno).
+# Arnes: git-bash de hermes con `env -i PATH=/mingw64/bin:/usr/bin:/bin HOME=...`.
+# Salida completa:
+
+OK    el SHA desplegado (9f6c989805b3dd235ca284a8b887976fa6874a99) contiene 9f6c989805b3dd235ca284a8b887976fa6874a99
+OK    migracion 0076_auto03_peldano_producto.sql aplicada
+OK    migracion 0077_auto03_evaluacion_producto.sql aplicada
+OK    migracion 0078_auto03_retiro_decision.sql aplicada
+OK    migracion 0079_auto03_vista_impulso.sql aplicada
+OK    migracion 0080_auto03_retiro_desde_ciclo.sql aplicada
+OK    migracion 0081_orbit07_proteccion_venta.sql aplicada
+OK    migracion 0082_claridad01_entidad_inerte.sql aplicada
+OK    migracion 0083_arreglos01_costos_sin_compuerta.sql aplicada
+OK    migracion 0084_arreglos01_impulso_desarmado.sql aplicada
+OK    migracion 0085_arreglos01_ledger_reatribucion.sql aplicada
+OK    migracion 0086_arreglos02_cargos.sql aplicada
+OK    migracion 0087_arreglos03_devoluciones_meli.sql aplicada
+OK    migracion 0088_arreglos03_ledger_original.sql aplicada
+OK    migracion 0089_arreglos03_reputacion_avisada.sql aplicada
+OK    migracion 0090_arreglos03_error_cierra_por_observacion.sql aplicada
+OK    migracion 0091_arreglos03_sin_precio_cap.sql aplicada
+OK    migracion 0092_temporada01_margen_vigente.sql aplicada
+OK    migracion 0093_estimacion_s4_caja_real_mx.sql aplicada
+OK    migracion 0093_temporada01_episodio.sql aplicada
+OK    linea jev-vigia en el bloque Orbit
+OK    bloque Orbit igual al canonico
+OK    /mnt/data/appdata/orbit/refresh_estimacion.sh es el de tools/
+OK    /health 200
+== CHECKLIST VERDE 9f6c989805b3dd235ca284a8b887976fa6874a99
+EXIT=0
