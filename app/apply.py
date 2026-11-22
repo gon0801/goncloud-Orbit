@@ -1127,7 +1127,20 @@ class Aplicador:
             cliente = self._cliente()
             try:
                 leido = self._readback(cliente, identidad)
-            except AdsApiError:
+            except AdsApiError as exc:
+                if exc.status == 429:
+                    # Amazon esta limitando la ruta de lectura: el cliente ya
+                    # agoto sus reintentos para ESTA puja. Repetir el LIST por
+                    # cada puja multiplica la espera del ciclo y retrasa la
+                    # liberacion de cortes (otra ruta). Esta puja queda sin
+                    # respuesta y el lote de bids se corta aqui; las que faltan
+                    # no se tocan y se derivan otra vez manana. Cero cuota,
+                    # cero PUT, cero desenlace inventado.
+                    skips.append(MOTIVO_SIN_RESPUESTA)
+                    registra_sin_aplicar(
+                        self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_SIN_RESPUESTA
+                    )
+                    break
                 # Una lectura fallida NO cancela el lote: antes del PUT no hay
                 # escritura ambigua que reconciliar, asi que esta puja queda
                 # sin respuesta y las demas siguen (mismo criterio que la

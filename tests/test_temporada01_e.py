@@ -494,3 +494,47 @@ def test_temporada01_e_lectura_fallida_no_cancela_el_lote():
         assert conn.execute(
             "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec_ok,)
         ).fetchone() == (True,), "la segunda puja queda confirmada"
+
+
+def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
+    """Un 429 agotado en la lectura fresca corta el lote de bids: el cliente ya
+    gasto sus MAX_RETRIES en ESA puja y repetir el LIST por cada puja
+    multiplicaria la espera del ciclo y retrasaria la liberacion de cortes
+    (otra ruta de Amazon). La puja intentada queda sin_respuesta; las que
+    faltan no se leen ni se tocan, y el ciclo sigue con la cola."""
+    import httpx as _httpx
+    from test_apply import _aplicador, _db_temporal, _decision_bid, _semilla
+
+    from app.ads.client import MAX_RETRIES
+    from app.apply import MOTIVO_SIN_RESPUESTA, bids_del_ciclo
+
+    with _db_temporal("orbit_t01_e_429") as conn:
+        ids = _semilla(conn)
+        dec_uno = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], cost="200.00")
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw2"], cost="80.00")
+        listas = {"n": 0}
+
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                listas["n"] += 1
+                return _httpx.Response(429, headers={"Retry-After": "0"}, json={"m": "throttled"})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        res = _aplicador(conn, handler, ids["ciclo_ejec"]).aplica_bids(
+            bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live"
+        )
+
+        assert res.aplicadas == 0
+        assert res.skips == [MOTIVO_SIN_RESPUESTA], res.skips
+        assert listas["n"] == MAX_RETRIES, (
+            "UN presupuesto de reintentos para el lote: la segunda puja no se consulta"
+        )
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec_uno,)
+        ).fetchone() == (ids["ciclo_ejec"], "sin_respuesta")
