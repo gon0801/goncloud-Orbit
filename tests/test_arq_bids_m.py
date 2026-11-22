@@ -15,6 +15,8 @@ from test_architecture import _escritura_en_fuentes, _imports_runtime, _usos_rel
 RAIZ = Path(__file__).resolve().parents[1]
 MODULOS = [RAIZ / "app" / "optimizer" / "caso.py", RAIZ / "app" / "optimizer" / "politica.py"]
 LECTURAS = RAIZ / "app" / "lecturas_caso.py"
+LECTURAS_EFECTO = RAIZ / "app" / "lecturas_efecto.py"
+LECTURAS_HISTORIA = RAIZ / "app" / "lecturas_historia.py"
 
 
 def _fugas_reloj(modulos):
@@ -90,14 +92,16 @@ def test_politica_importa_gamma_y_pausa_en_vez_de_copiar():
 
 
 def test_lecturas_caso_solo_select_y_sin_escritura_en_imports():
-    """M.2: `app/lecturas_caso.py` solo hace SELECT (cero verbos de
-    escritura en sus constantes de texto, mismo detector que fuentes.py)
-    y no importa `app.apply` ni `app.ads`."""
-    assert LECTURAS.exists(), "sin app/lecturas_caso.py el candado pasaria en falso"
-    assert _escritura_en_fuentes(LECTURAS) == []
-    assert "SELECT" in LECTURAS.read_text(encoding="utf-8")
-    fugas = _violaciones(_imports_runtime(LECTURAS), ("app.apply", "app.ads"))
-    assert not fugas, f"lecturas_caso.py importa fuera de su frontera: {fugas}"
+    """M.2: `app/lecturas_caso.py`, `app/lecturas_efecto.py` y
+    `app/lecturas_historia.py` solo hacen SELECT (cero verbos de escritura en
+    sus constantes de texto, mismo detector que fuentes.py) y no importan
+    `app.apply` ni `app.ads`."""
+    for modulo in (LECTURAS, LECTURAS_EFECTO, LECTURAS_HISTORIA):
+        assert modulo.exists(), f"sin {modulo.name} el candado pasaria en falso"
+        assert _escritura_en_fuentes(modulo) == []
+        assert "SELECT" in modulo.read_text(encoding="utf-8")
+        fugas = _violaciones(_imports_runtime(modulo), ("app.apply", "app.ads"))
+        assert not fugas, f"{modulo.name} importa fuera de su frontera: {fugas}"
 
 
 def test_detector_caza_verbo_e_import_fuga_en_lecturas(tmp_path):
