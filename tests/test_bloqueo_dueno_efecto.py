@@ -516,8 +516,16 @@ def test_allowlist_y_el_motor_no_importa_el_efecto():
     assert "app.ads.write" in _imports_runtime(RAIZ / ruta)
     assert "app.ads.write" not in _imports_runtime(RAIZ / "app/bloqueo_dueno.py")
     prohibidos = ("app.bloqueo_dueno", "app.bloqueo_dueno_efecto")
-    modulos_ciclo = sorted(p.relative_to(RAIZ).as_posix() for p in (RAIZ / "app").glob("cycle*.py"))
-    assert "app/cycle.py" in modulos_ciclo
+    modulos_ciclo = sorted(
+        p.relative_to(RAIZ).as_posix() for p in (RAIZ / "app").rglob("cycle*.py")
+    )
+    assert {
+        "app/cycle.py",
+        "app/cycle_apply.py",
+        "app/cycle_grupos.py",
+        "app/cycle_recorrido.py",
+        "app/cycle_temporada.py",
+    } <= set(modulos_ciclo)
     for rel in (*modulos_ciclo, "app/apply_cola.py", "app/optimizer/__init__.py"):
         imports = _imports_runtime(RAIZ / rel)
         assert not any(nombre in imports for nombre in prohibidos), rel
