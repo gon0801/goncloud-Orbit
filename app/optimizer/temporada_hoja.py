@@ -205,10 +205,13 @@ def es_terreno_del_dueno(
 def en_terreno_del_dueno(caso: CasoHoja, cadena: CadenaBid | None) -> bool:
     """Puerta de «terreno del dueno» sobre un `CasoHoja` (la usa R6r en
     `recuperacion.destino_recuperacion` para compartir exactamente la misma
-    regla que `evalua_hoja` y `_pendiente_resuelto`)."""
+    regla que `evalua_hoja` y `_pendiente_resuelto`). Conserva el veto cuando
+    el episodio aun abierto figura en `excluida_en`."""
     t = caso.temporada
     if t is None:
         return False
+    if t.episodio is not None and t.episodio.id in t.excluida_en:
+        return True
     if cadena is None:
         red, fin = None, None
     else:

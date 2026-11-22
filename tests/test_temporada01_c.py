@@ -991,3 +991,96 @@ def test_temporada01_c_biseccion_parametrizada(a: int, arg: str, confianza: str)
     """Misma inversion de gamma_q, mas casos: la propiedad que usa R6r."""
     m = recuperacion.multiplicador_sostenible(Decimal(a), Decimal(arg), Decimal(confianza))
     assert abs(gamma_q(Decimal(a), m * Decimal(arg)) - Decimal(confianza)) < Decimal("1e-9")
+
+
+def test_temporada01_criterio_topada_unificado_motor_y_pantalla(db_template):
+    """Motor (`_presupuesto_campanas`) y «Donde poner el dinero» (`lee_campanas`)
+    dan exactamente el mismo conteo de dias al tope: ultimos 7 dias CON ingesta
+    comparados contra el presupuesto vigente de cada dia."""
+    from app.pantalla_dinero import lee_campanas
+
+    conn, _dsn = db_template
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-camp-unif")
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-c-unif') RETURNING id"
+    ).fetchone()[0]
+    # 7 dias con ingesta saltando D-3 (hueco de ingesta) y cambio de presupuesto
+    # a media semana: dias D-8..D-5 con presupuesto 100 (gasto 95 -> 4 topados),
+    # dias D-4, D-2, D-1 con presupuesto 200 (gasto 100 -> 0 topados).
+    dias_ingesta = [
+        D_E1 - dt.timedelta(days=8),
+        D_E1 - dt.timedelta(days=7),
+        D_E1 - dt.timedelta(days=6),
+        D_E1 - dt.timedelta(days=5),
+        D_E1 - dt.timedelta(days=4),
+        D_E1 - dt.timedelta(days=2),
+        D_E1 - dt.timedelta(days=1),
+    ]
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 100.00, 'MXN'),"
+        " (%s, %s, 200.00, 'MXN')",
+        (
+            camp,
+            _medianoche(D_E1 - dt.timedelta(days=10)),
+            camp,
+            _medianoche(D_E1 - dt.timedelta(days=4)),
+        ),
+    )
+    for dia in dias_ingesta:
+        costo = "95.00" if dia < D_E1 - dt.timedelta(days=4) else "100.00"
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost=costo,
+            impressions=100,
+        )
+    conn.commit()
+    topada = temporada.CampanaTopada(pct=Decimal("0.90"), dias=5)
+    motor = _presupuesto_campanas(conn, "amazon_mx", frozenset(dias_ingesta), topada)[camp]
+    filas = lee_campanas(
+        conn,
+        plataforma="amazon_mx",
+        desde=D_E1 - dt.timedelta(days=30),
+        hasta=D_E1 - dt.timedelta(days=1),
+    )
+    pantalla = next(f for f in filas if f.campana_id == camp)
+    assert motor.dias_topados == 4
+    assert pantalla.dias_al_tope_7d == motor.dias_topados == 4
+
+
+def test_temporada01_en_terreno_del_dueno_con_episodio_abierto_en_normal():
+    """En el primer ciclo normal antes de cerrar el episodio, una exclusion
+    persistida en ese episodio abierto sigue vetando la subida rapida R6r."""
+    cfg = temporada.desde_settings(_settings())
+    assert cfg is not None
+    est_normal = temporada.resuelve(cfg, dt.date(2027, 2, 1))
+    assert est_normal.fase == "normal"
+    caso = _caso_recupera(
+        temporada=TemporadaCaso(
+            estacion=est_normal,
+            episodio=temporada.EpisodioVigente(id=42, abierto_el=_medianoche(dt.date(2027, 1, 1))),
+            excluida_en=frozenset({42}),
+            meta_alta_pct=Decimal("25"),
+            meta_manual=False,
+            frontera=temporada.FronteraHoja(
+                fase_hoja="normal",
+                mult_cortes=Decimal("1"),
+                cerca_hoja=None,
+                cerca_plataforma=None,
+                episodio_id=42,
+                fin=None,
+                exclusion_hoy=None,
+            ),
+        )
+    )
+    assert temporada.en_terreno_del_dueno(caso, recuperacion.cadena_bid(caso)) is True
+    assert (
+        recuperacion.destino_recuperacion(caso, a_subida=Decimal("6"), arg_subida=Decimal("1.5"))
+        is None
+    )
