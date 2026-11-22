@@ -142,3 +142,28 @@ regreso 5.60 -> 6.40 (sube)|0
 
 El borde exacto del 30 % no dispara (5.60 es la reducción legítima de 8.00) y un centavo más abajo sí.
 El regreso que sube no dispara y el que baja sí.
+
+## Cobertura por plataforma
+
+La sección (2) dice, plataforma por plataforma, si tiene ámbito activo y cuántos ciclos terminados hay
+desde su referencia, y el veredicto agrega «(amazon_xx sin ciclos terminados todavia)» cuando una
+plataforma con ámbito activo todavía no tiene ninguno. El sufijo se probó con una referencia futura para
+US, por la misma entrada de solo lectura:
+
+```
+select coalesce(
+         (SELECT ' (' || string_agg(p.plataforma || ' sin ciclos terminados todavia', ', ') || ')'
+            FROM (VALUES ('amazon_mx', '2099-01-01T00:00:00Z'::timestamptz),
+                         ('amazon_us', '2030-01-01T00:00:00Z'::timestamptz)) AS p(plataforma, ref)
+           WHERE p.ref <> '2099-01-01T00:00:00Z'::timestamptz
+             AND NOT EXISTS (SELECT 1 FROM optimizer_cycle c
+                              WHERE c.platform = p.plataforma::platform
+                                AND c.status = 'done' AND c.started_at > p.ref)),
+         '') as sufijo_us_activo_sin_ciclos
+```
+
+```
+ (amazon_us sin ciclos terminados todavia)
+```
+
+Así un ciclo de US no tapa que MX sigue sin revisarse.

@@ -73,14 +73,22 @@ SELECT c.id, c.platform, c.started_at, c.finished_at, c.decisions_count
    AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
  ORDER BY c.id;
 
-\echo '(2) aviso cuando todavia no hay ninguno'
-SELECT CASE WHEN count(*) = 0
-            THEN 'todavia no hay ningun ciclo terminado despues del encendido'
-            ELSE count(*) || ' ciclo(s) terminado(s) despues del encendido'
-       END AS aviso
-  FROM optimizer_cycle c
- WHERE c.status = 'done'
-   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'));
+\echo '(2) cobertura por plataforma: ambito activo y ciclos terminados'
+SELECT p.plataforma,
+       CASE WHEN p.ref = '2099-01-01T00:00:00Z'::timestamptz
+            THEN 'sin ambito activo (temporada y subida rapida apagadas o en practica)'
+            WHEN count(c.id) = 0
+            THEN 'ambito activo, sin ciclos terminados todavia'
+            ELSE 'ambito activo, ' || count(c.id) || ' ciclo(s) terminado(s)'
+       END AS cobertura
+  FROM (VALUES ('amazon_mx', :'ref_mx'::timestamptz),
+               ('amazon_us', :'ref_us'::timestamptz)) AS p(plataforma, ref)
+  LEFT JOIN optimizer_cycle c
+    ON c.platform = p.plataforma::platform
+   AND c.status = 'done'
+   AND c.started_at > p.ref
+ GROUP BY p.plataforma, p.ref
+ ORDER BY p.plataforma;
 
 \echo '(3) entradas a la baja: confirmadas | enviadas por el ledger | de esas, bajo la reduccion (paro) | enviadas sin sello'
 SELECT count(DISTINCT d.id) FILTER (
@@ -333,7 +341,18 @@ SELECT (SELECT count(DISTINCT d.id)
                  AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE')
                  AND ((a.platform = 'amazon_mx' AND a.creado_el > :'ref_mx') OR (a.platform = 'amazon_us' AND a.creado_el > :'ref_us')))
          ) = 0
-         THEN 'SIN CASOS DE PARO'
+         THEN 'SIN CASOS DE PARO' || coalesce(
+                (SELECT ' (' || string_agg(p.plataforma || ' sin ciclos terminados todavia', ', ')
+                          || ')'
+                   FROM (VALUES ('amazon_mx', :'ref_mx'::timestamptz),
+                                ('amazon_us', :'ref_us'::timestamptz)) AS p(plataforma, ref)
+                  WHERE p.ref <> '2099-01-01T00:00:00Z'::timestamptz
+                    AND NOT EXISTS (
+                          SELECT 1 FROM optimizer_cycle c
+                           WHERE c.platform = p.plataforma::platform
+                             AND c.status = 'done'
+                             AND c.started_at > p.ref)),
+                '')
          ELSE 'CASO DE PARO: revisar la seccion (8)'
        END AS veredicto;
 
