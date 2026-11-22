@@ -263,14 +263,15 @@ def _envenenar_clave(
     clave: tuple,
     *,
     por_clave: dict,
-    plan: list,
+    plan: list | None = None,
     envenenadas: set,
     skips: Counter[str],
 ) -> None:
-    """Un constituyente INVALIDO envenena su clave para TODO el reporte."""
+    """Un constituyente INVALIDO envenena su clave para TODO el reporte (O(1) con dict)."""
     previa = por_clave.pop(clave, None)
     if previa is not None:
-        plan.remove(previa)
+        if plan is not None:
+            plan.remove(previa)
         skips["fila de clave envenenada (subtotal parcial)"] += 1
     envenenadas.add(clave)
     logger.debug("fila invalida envenena la clave (subtotal parcial): %s", clave)
@@ -285,10 +286,10 @@ def _planea_filas_terminos(
     fecha_fin: dt.date,
 ) -> tuple[list[_FilaTermino], Counter[str]]:
     """Valida, CLASIFICA y FUSIONA las filas de search terms ANTES de la base."""
-    plan: list[_FilaTermino] = []
     skips: Counter[str] = Counter()
     etiqueta = reporte_cfg["nombre"]
     campo_id = reporte_cfg["id_field"]
+    # `por_clave` preserva orden de insercion y permite borrado O(1) al envenenar.
     por_clave: dict[tuple[str, str, dt.date], _FilaTermino] = {}
     envenenadas: set[tuple[str, str, dt.date]] = set()
 
@@ -323,16 +324,12 @@ def _planea_filas_terminos(
             orders = _entero_reporte(fila.get("purchases7d"), "purchases7d")
         except ValueError:
             skips[f"fila de {etiqueta} con metrica no numerica o fraccionaria"] += 1
-            _envenenar_clave(
-                clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
-            )
+            _envenenar_clave(clave, por_clave=por_clave, envenenadas=envenenadas, skips=skips)
             continue
         if cost is None and ad_revenue is None and clicks is None and orders is None:
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: %s %s %s", etiqueta, external_id, metric_date)
-            _envenenar_clave(
-                clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
-            )
+            _envenenar_clave(clave, por_clave=por_clave, envenenadas=envenenadas, skips=skips)
             continue
         if (
             (cost is not None and cost < 0)
@@ -347,9 +344,7 @@ def _planea_filas_terminos(
         if orders is None and (clicks is not None or cost is not None):
             skips["fila con pedidos vacíos"] += 1
             logger.debug("fila con pedidos vacios: %s %s %s", etiqueta, external_id, metric_date)
-            _envenenar_clave(
-                clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
-            )
+            _envenenar_clave(clave, por_clave=por_clave, envenenadas=envenenadas, skips=skips)
             continue
         if clave in envenenadas:
             skips["fila de clave envenenada (subtotal parcial)"] += 1
@@ -381,11 +376,9 @@ def _planea_filas_terminos(
                     etiqueta,
                     clave,
                 )
-                _envenenar_clave(
-                    clave, por_clave=por_clave, plan=plan, envenenadas=envenenadas, skips=skips
-                )
+                _envenenar_clave(clave, por_clave=por_clave, envenenadas=envenenadas, skips=skips)
             continue
-        fila_plan = _FilaTermino(
+        por_clave[clave] = _FilaTermino(
             external_id=external_id,
             search_term=search_term,
             is_asin_like=es_asin_like(search_term),
@@ -395,10 +388,8 @@ def _planea_filas_terminos(
             clicks=clicks,
             orders=orders,
         )
-        por_clave[clave] = fila_plan
-        plan.append(fila_plan)
 
-    return plan, skips
+    return list(por_clave.values()), skips
 
 
 def _fusionar_fila_producto(
@@ -417,12 +408,12 @@ def _fusionar_fila_producto(
     campaign_id: str | None,
     ad_id: str | None,
     por_clave: dict[tuple[str, str, dt.date], _FilaProducto],
-    plan: list[_FilaProducto],
+    plan: list[_FilaProducto] | None = None,
     envenenadas: set[tuple[str, str, dt.date]],
     skips: Counter[str],
 ) -> None:
     """Absorbe una fila duplicada (mismo asin/sku/fecha, otra campana) hacia
-    el grano sellado con envenenamiento de None."""
+    el grano sellado con envenenamiento de None (O(1) con dict)."""
     previa.impressions = _sumar_entero(previa.impressions, impressions)
     previa.clicks = _sumar_entero(previa.clicks, clicks)
     previa.cost = _sumar_decimal(previa.cost, cost)
@@ -453,7 +444,8 @@ def _fusionar_fila_producto(
         )
     ):
         del por_clave[(asin, sku, metric_date)]
-        plan.remove(previa)
+        if plan is not None:
+            plan.remove(previa)
         envenenadas.add((asin, sku, metric_date))
         skips["fila sin ninguna metrica"] += 1
         logger.debug(
@@ -473,7 +465,6 @@ def _planea_filas_productos(
 ) -> tuple[list[_FilaProducto], Counter[str]]:
     """Valida y AGREGA las filas de spAdvertisedProduct por SUMA al grano
     (asin, sku, fecha) ANTES de la base (ORBIT 19 B.1, politica 0.4 §2)."""
-    plan: list[_FilaProducto] = []
     skips: Counter[str] = Counter()
     por_clave: dict[tuple[str, str, dt.date], _FilaProducto] = {}
     envenenadas: set[tuple[str, str, dt.date]] = set()
@@ -500,6 +491,7 @@ def _planea_filas_productos(
         )
         if metric_date is None:
             continue
+        clave = (asin, sku, metric_date)
         try:
             impressions = _entero_reporte(fila.get("impressions"), "impressions")
             clicks = _entero_reporte(fila.get("clicks"), "clicks")
@@ -514,13 +506,7 @@ def _planea_filas_productos(
             )
         except ValueError:
             skips["fila de productos con metrica no numerica o fraccionaria"] += 1
-            _envenenar_clave(
-                (asin, sku, metric_date),
-                por_clave=por_clave,
-                plan=plan,
-                envenenadas=envenenadas,
-                skips=skips,
-            )
+            _envenenar_clave(clave, por_clave=por_clave, envenenadas=envenenadas, skips=skips)
             continue
         if all(
             valor is None
@@ -536,13 +522,7 @@ def _planea_filas_productos(
         ):
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: producto %s/%s %s", asin, sku, metric_date)
-            _envenenar_clave(
-                (asin, sku, metric_date),
-                por_clave=por_clave,
-                plan=plan,
-                envenenadas=envenenadas,
-                skips=skips,
-            )
+            _envenenar_clave(clave, por_clave=por_clave, envenenadas=envenenadas, skips=skips)
             continue
         if any(
             valor is not None and valor < 0
@@ -575,22 +555,16 @@ def _planea_filas_productos(
                 sales,
                 purchases,
             )
-            _envenenar_clave(
-                (asin, sku, metric_date),
-                por_clave=por_clave,
-                plan=plan,
-                envenenadas=envenenadas,
-                skips=skips,
-            )
+            _envenenar_clave(clave, por_clave=por_clave, envenenadas=envenenadas, skips=skips)
             continue
         campaign_id = str(fila["campaignId"]) if fila.get("campaignId") is not None else None
         ad_id = str(fila["adId"]) if fila.get("adId") is not None else None
 
-        previa = por_clave.get((asin, sku, metric_date))
-        if (asin, sku, metric_date) in envenenadas:
+        if clave in envenenadas:
             skips["fila de clave envenenada (subtotal parcial)"] += 1
             logger.debug("fila descartada por clave envenenada: %s/%s %s", asin, sku, metric_date)
             continue
+        previa = por_clave.get(clave)
         if previa is not None:
             _fusionar_fila_producto(
                 previa,
@@ -607,12 +581,11 @@ def _planea_filas_productos(
                 campaign_id=campaign_id,
                 ad_id=ad_id,
                 por_clave=por_clave,
-                plan=plan,
                 envenenadas=envenenadas,
                 skips=skips,
             )
             continue
-        nueva = _FilaProducto(
+        por_clave[clave] = _FilaProducto(
             asin=asin,
             sku=sku,
             metric_date=metric_date,
@@ -626,7 +599,5 @@ def _planea_filas_productos(
             campaign_ids=[campaign_id] if campaign_id is not None else [],
             ad_ids=[ad_id] if ad_id is not None else [],
         )
-        por_clave[(asin, sku, metric_date)] = nueva
-        plan.append(nueva)
 
-    return plan, skips
+    return list(por_clave.values()), skips

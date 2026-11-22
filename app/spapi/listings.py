@@ -23,28 +23,26 @@ from __future__ import annotations
 import argparse
 import datetime
 import logging
-import os
-import sys
 import time
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-import httpx
 import psycopg
 
-from app.redaction import install_scrub_filter, scrub
+from app.redaction import install_scrub_filter
 from app.spapi._ingesta import (
-    HTTP_FATAL as _HTTP_FATAL,
-)
-from app.spapi._ingesta import (
-    HTTP_OMITIDO as _HTTP_OMITIDO,
+    AvanceEntidad as _Avance,
 )
 from app.spapi._ingesta import (
     abrir_run_spapi,
+    ejecutar_cli_spapi,
+    ejecutar_con_politica_f2,
     formato_skip_reason,
+    llamar_json_spapi,
     sellar_fallo_spapi,
     sellar_spapi,
+    texto_limpio,
     vigilar_umbral,
 )
 from app.spapi.client import (
@@ -54,7 +52,6 @@ from app.spapi.client import (
     SpapiClient,
     SpapiNoPermitida,
     construir_ruta_listings,
-    sanear,
 )
 from app.spapi.salud import evaluar_alertas
 
@@ -94,15 +91,6 @@ class IngestaListingsError(Exception):
     """La corrida no pudo completarse (el sello ok=false queda cuando se puede)."""
 
 
-class _FalloHttp(Exception):
-    """Una llamada volvio status != 200; el pase decide por codigo."""
-
-    def __init__(self, sku: str, status: int) -> None:
-        super().__init__(f"listings {sku} status={status}")
-        self.sku = sku
-        self.status = status
-
-
 @dataclass(frozen=True)
 class EstadoParseado:
     seller_sku: str
@@ -124,24 +112,7 @@ class ResultadoIngesta:
     segundos: float
 
 
-@dataclass
-class _Avance:
-    """Contadores mutables del pase (el helper por SKU los actualiza)."""
-
-    escritas: int = 0
-    vistas: int = 0
-    fallos: int = 0
-    racha: int = 0
-    llamadas: int = 0
-    skips: Counter = field(default_factory=Counter)
-    ultimo_status: int | None = None
-    total: int | None = None
-
-
-def _texto(valor: Any) -> str | None:
-    if isinstance(valor, str) and valor.strip():
-        return valor.strip()
-    return None
+_texto = texto_limpio
 
 
 def _estado_texto(valor: Any) -> str | None:
@@ -206,15 +177,15 @@ def _universo(conn: psycopg.Connection, platform: str) -> list[str]:
 
 
 def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, sku: str) -> Any:
-    # El cubo viaja DENTRO del get: cada intento consume cuota y honra
-    # x-amzn-RateLimit-Limit (patron A.3 revision #5).
-    resp = client.get(path, params=params, limitador=cubo)
-    if resp.status_code != 200:
-        raise _FalloHttp(sku, resp.status_code)
-    try:
-        return sanear(resp.json(), "listings")
-    except ValueError:
-        raise IngestaListingsError(f"listings {sku} respuesta no JSON") from None
+    return llamar_json_spapi(
+        client,
+        cubo,
+        path=path,
+        params=params,
+        fuente="listings",
+        clave=sku,
+        error_cls=IngestaListingsError,
+    )
 
 
 def _vigilar_umbral(
@@ -281,7 +252,8 @@ def _procesar_sku(
         av.skips["sku_invalido"] += 1
         return
     av.vistas += 1
-    try:
+
+    def _leer() -> EstadoParseado:
         av.llamadas += 1
         cuerpo = _llamar(
             client,
@@ -290,36 +262,18 @@ def _procesar_sku(
             params={"marketplaceIds": marketplace_id},
             sku=sku,
         )
-        estado = parsear_estado(sku, cuerpo, marketplace_id=marketplace_id)
-    except EstadoOmitido as exc:
-        av.skips[exc.motivo] += 1
-        av.racha = 0
-        return
-    except _FalloHttp as exc:
-        if exc.status in _HTTP_OMITIDO:
-            av.skips[f"http_{exc.status}"] += 1
-            av.racha = 0
-            return
-        if exc.status in _HTTP_FATAL:
-            raise IngestaListingsError(f"listings {sku} status={exc.status} persistente") from exc
-        av.fallos += 1
-        av.racha += 1
-        av.skips[f"http_{exc.status}"] += 1
-        av.ultimo_status = exc.status
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
-        return
-    except IngestaListingsError:
-        av.fallos += 1
-        av.racha += 1
-        av.skips["contrato"] += 1
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
-        return
-    except httpx.HTTPError:
-        # El cliente no reintenta errores de red; cuentan al umbral sin abortar el lote.
-        av.fallos += 1
-        av.racha += 1
-        av.skips["red"] += 1
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
+        return parsear_estado(sku, cuerpo, marketplace_id=marketplace_id)
+
+    ok, estado = ejecutar_con_politica_f2(
+        clave=sku,
+        fuente="listings",
+        error_cls=IngestaListingsError,
+        omitido_cls=EstadoOmitido,
+        av=av,
+        obtener_y_parsear=_leer,
+        vigilar=_vigilar_umbral,
+    )
+    if not ok:
         return
     with conn.transaction():
         cur = conn.execute(
@@ -456,33 +410,18 @@ def main(argv: list[str] | None = None) -> int:
         help="seller propio del marketplace (por defecto: el verificado en A.3)",
     )
     args = parser.parse_args(argv)
-    dsn = os.environ.get("ORBIT_DSN_INGEST")
-    if not dsn:
-        print(
-            "ORBIT_DSN_INGEST no esta definido: no se puede ingerir (fail-closed)",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        from app.db import connect
-
-        conn = connect(dsn)
-        try:
-            resultado = ejecutar_ingesta(
-                conn,
-                SpapiClient(),
-                platform=args.platform,
-                max_skus=args.max_skus,
-                seller_id=args.seller_id,
-            )
-        finally:
-            conn.close()
-    except IngestaListingsError as exc:
-        print(f"ingesta spapi_listings fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"ingesta spapi_listings fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
+    codigo, resultado = ejecutar_cli_spapi(
+        source=SOURCE,
+        correr=lambda conn, client: ejecutar_ingesta(
+            conn,
+            client,
+            platform=args.platform,
+            max_skus=args.max_skus,
+            seller_id=args.seller_id,
+        ),
+    )
+    if codigo != 0 or resultado is None:
+        return codigo
     print(
         f"spapi_listings {args.platform}: run={resultado.run_id} "
         f"escritas={resultado.escritas} omitidas={resultado.omitidas} "

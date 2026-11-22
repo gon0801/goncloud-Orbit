@@ -27,15 +27,14 @@ from app.ads.reports import (
     ResultadoIngesta,
     _decimal_reporte,
     _entero_reporte,
-    _registrar_resultado,
+    escribir_grupo_transaccional,
 )
 from app.ads.structure import (
     PerfilAds,
     _formato_skip_reason,
-    _sellar_run,
 )
 from app.dia_cerrado import ultimo_dia_cerrado
-from app.redaction import install_scrub_filter, scrub
+from app.redaction import install_scrub_filter
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
@@ -279,83 +278,30 @@ def escribir_grupo(
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ):
-    """Fase DB del grupo placements: la escribe `al_completar` de
-    app.ads.descarga cuando el grupo cierra su fase de API. Una transaccion:
-    ingest_placements por reporte (observed_at lo fija Python por reporte: dos
-    reportes del mismo dia dejan dos observaciones), `written` por reporte y
-    sello ok=true en la misma. En fallo: rollback + sello best-effort ok=false
-    + re-lanzamiento (descarga marca el grupo y sigue con los demas)."""
-    from app.ads.descarga import ResultadoEscritura
-
+    """Fase DB del grupo placements (reutiliza `escribir_grupo_transaccional`)."""
     del grupo
-    escritos = 0
-    skips: Counter[str] = Counter()
-    perfil_actual: PerfilAds | None = None
-    try:
-        with conn.transaction():
-            for item in items:
-                perfil = item.perfil
-                perfil_actual = perfil
-                observado = dt.datetime.now(dt.UTC)
-                resultado = ingest_placements(
-                    conn,
-                    perfil,
-                    item.report_id,
-                    item.filas,
-                    observed_at=observado,
-                    desde=fecha_ini,
-                    hasta=fecha_fin,
-                )
-                escritos += resultado.rows_written
-                skips.update(resultado.skips)
-                _registrar_resultado(
-                    conn,
-                    run_id,
-                    perfil,
-                    PLACEMENTS_CFG,
-                    item.report_id,
-                    "written",
-                    rango=(fecha_ini, fecha_fin),
-                )
-            _sellar_run(
-                conn,
-                run_id,
-                ok=True,
-                rows_written=escritos,
-                rows_skipped=sum(skips.values()),
-                skip_reason=_formato_skip_reason(skips),
-            )
-    except BaseException as exc:
-        try:
-            with conn.transaction():
-                _registrar_resultado(
-                    conn,
-                    run_id,
-                    perfil_actual,
-                    PLACEMENTS_CFG,
-                    None,
-                    "failed" if perfil_actual else "global_failed",
-                    str(exc) or type(exc).__name__,
-                    rango=(fecha_ini, fecha_fin) if perfil_actual else None,
-                )
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=False,
-                    rows_skipped=0,
-                    skip_reason=scrub(str(exc)) or type(exc).__name__,
-                )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo; "
-                "el error original de la corrida era: %s",
-                run_id,
-                scrub(str(exc)),
-            )
-        raise
 
-    return ResultadoEscritura(
-        rows_written=escritos,
-        rows_skipped=sum(skips.values()),
-        skip_reason=_formato_skip_reason(skips),
+    def _ingestar(item, _ahora):
+        resultado = ingest_placements(
+            conn,
+            item.perfil,
+            item.report_id,
+            item.filas,
+            observed_at=dt.datetime.now(dt.UTC),
+            desde=fecha_ini,
+            hasta=fecha_fin,
+        )
+        return resultado, PLACEMENTS_CFG
+
+    return escribir_grupo_transaccional(
+        conn,
+        run_id,
+        items,
+        fecha_ini=fecha_ini,
+        fecha_fin=fecha_fin,
+        ingestar_item=_ingestar,
+        leer_ahora_db=False,
+        incluir_resumenes=False,
+        cfg_en_fallo=PLACEMENTS_CFG,
+        report_id_en_fallo=False,
     )
