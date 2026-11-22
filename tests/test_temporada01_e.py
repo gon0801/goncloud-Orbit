@@ -29,6 +29,7 @@ import datetime as dt
 from dataclasses import replace
 from decimal import Decimal
 
+from test_apply import _skip_db
 from test_cycle import _config_version, _entidad, _estado, _metrica, _run
 from test_temporada01_b import (
     D_E1,
@@ -286,6 +287,7 @@ def test_temporada01_e_excluida_sin_recupera_control():
     assert not isinstance(politica.decide(excluido), politica.Regresar)
 
 
+@_skip_db
 def test_temporada01_e_exclusion_sobrevive_al_aborto():
     """La exclusion y el cache de un `bid_cambiado_fuera` se CONFIRMAN antes de
     la puja siguiente, con la conexion SIN autocommit de produccion
@@ -391,6 +393,7 @@ def test_temporada01_e_exclusion_sobrevive_al_aborto():
         )
 
 
+@_skip_db
 def test_temporada01_e_bid_ordinario_cambiado_no_pisa():
     """La lectura fresca es de TODA decision de bid, no solo de temporada. Un
     recorte del motor encuentra en Amazon otro bid: cero PUT, el skip queda
@@ -434,6 +437,7 @@ def test_temporada01_e_prioridad_bajo_cupo():
     assert prioridad_bajo_cupo("Mover", "bajo_target") == 2
 
 
+@_skip_db
 def test_temporada01_e_lectura_fallida_no_cancela_el_lote():
     """Un LIST que falla antes del PUT deja ESA puja sin respuesta y el lote
     sigue: la puja siguiente se aplica en el mismo ciclo. Antes del PUT no hay
@@ -496,6 +500,7 @@ def test_temporada01_e_lectura_fallida_no_cancela_el_lote():
         ).fetchone() == (True,), "la segunda puja queda confirmada"
 
 
+@_skip_db
 def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
     """Un 429 agotado en la lectura fresca corta el lote de bids: el cliente ya
     gasto sus MAX_RETRIES en ESA puja y repetir el LIST por cada puja
