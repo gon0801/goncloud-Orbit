@@ -1465,3 +1465,34 @@ def test_checklist_cron_orbit_usa_sha_desplegado_en_monotonia(s):
     r_viejo = s.checklist("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa))
     assert r_viejo.returncode == 1
     assert "FALLA cron de Orbit" in r_viejo.stdout
+
+
+def test_cron_orbit_deduplica_jev_vigia_fuera_del_bloque_y_restaura(s):
+    """Ola G2: si jev-vigia estaba fuera del bloque Orbit, cron_orbit.sh falla
+    revisa, lo elimina de fuera al instalar (dejando una sola entrada dentro del
+    bloque) y restaura devuelve su posicion previa sin tocar tareas ajenas."""
+    crontab = s.ctl / "crontab"
+    reputacion = "0 9 * * * docker exec orbit-app-1 python -m app.cli reputacion alertas\n"
+    previo = CRONTAB_GON.replace(reputacion, reputacion + LINEAS_VIGIA, 1)
+    crontab.write_text(previo, encoding="utf-8", newline="\n")
+    avisa = s.ctl / "cron-avisa"
+    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    avisa.chmod(0o755)
+    entorno = s.entorno(
+        ORBIT_CRON_BLOQUE=str(ROOT / "tools/despliegue/crontab-orbit.txt"),
+        ORBIT_CRON_AVISA=str(avisa),
+        ORBIT_CRON_ARCHIVO=str(s.srv / "archive"),
+    )
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 1
+    r = _corre_cron_orbit(entorno, "instala")
+    assert r.returncode == 0, r.stdout + r.stderr
+    instalado = crontab.read_text(encoding="utf-8")
+    assert instalado.count("app.cli jev-vigia") == 1
+    assert "reputacion alertas" in instalado
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 0
+    respaldo = next(
+        ln.split("=", 1)[1] for ln in r.stdout.splitlines() if ln.startswith("respaldo=")
+    )
+    r_rest = _corre_cron_orbit({**entorno, "ORBIT_CRON_RESPALDO": respaldo}, "restaura")
+    assert r_rest.returncode == 0, r_rest.stdout + r_rest.stderr
+    assert crontab.read_text(encoding="utf-8") == previo

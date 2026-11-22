@@ -72,8 +72,23 @@ extrae_bloque() {
   awk '/^# === / { dentro = ($0 ~ /^# === Orbit \(/) } dentro { print }' "$1" > "$2"
 }
 
+vigia_fuera() {
+  awk '
+    /^# === / { dentro = ($0 ~ /^# === Orbit \(/) }
+    !dentro && ($0 ~ /app\.cli jev-vigia/ || $0 ~ /^# job_key=jev-vigia/) { print }
+  ' "$1"
+}
+
+fuera_sin_vigia() {
+  awk '
+    /^# === / { dentro = ($0 ~ /^# === Orbit \(/) }
+    !dentro && !($0 ~ /app\.cli jev-vigia/ || $0 ~ /^# job_key=jev-vigia/) { print }
+  ' "$1"
+}
+
 reemplaza_bloque() {
-  awk -v canon="$1" '
+  local quita_vigia=${2:-0}
+  awk -v canon="$1" -v quita="$quita_vigia" '
     BEGIN { while ((getline l < canon) > 0) bloque = bloque l "\n"; close(canon) }
     /^# === / {
       if (dentro) dentro = 0
@@ -84,7 +99,10 @@ reemplaza_bloque() {
         next
       }
     }
-    !dentro { print }
+    !dentro {
+      if (quita == 1 && ($0 ~ /app\.cli jev-vigia/ || $0 ~ /^# job_key=jev-vigia/)) next
+      print
+    }
     END { if (!puesto) exit 3 }' "$ACTUAL" > "$NUEVO"
 }
 
@@ -98,7 +116,7 @@ respalda() {
 # Prepara el reemplazo: NO escribe el crontab. Sale 0 con `sin cambios` o con un
 # respaldo existente en `respaldo=<ruta>`.
 prepara_reemplazo() {
-  reemplaza_bloque "$BLOQUE" || {
+  reemplaza_bloque "$BLOQUE" 1 || {
     echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
     return 1
   }
@@ -122,6 +140,10 @@ case "$ACCION" in
       echo "el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
       exit 1
     fi
+    if [ -n "$(vigia_fuera "$ACTUAL")" ]; then
+      echo "hay lineas jev-vigia fuera del bloque Orbit en el crontab de $USUARIO" >&2
+      exit 1
+    fi
     if diff -u "$HOST" "$BLOQUE" >&2; then
       echo "bloque Orbit igual al canonico"
       exit 0
@@ -131,7 +153,7 @@ case "$ACCION" in
   prepara)
     prepara_reemplazo ;;
   instala)
-    reemplaza_bloque "$BLOQUE" || {
+    reemplaza_bloque "$BLOQUE" 1 || {
       echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
       exit 1
     }
@@ -163,10 +185,18 @@ case "$ACCION" in
       echo "el respaldo no trae el bloque '# === Orbit ('" >&2
       exit 1
     fi
-    reemplaza_bloque "$HOST" || {
-      echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
-      exit 1
-    }
+    vigia_respaldo=$(vigia_fuera "$RESPALDO")
+    if [ -n "$vigia_respaldo" ] && [ "$(fuera_sin_vigia "$ACTUAL")" = "$(fuera_sin_vigia "$RESPALDO")" ]; then
+      cp "$RESPALDO" "$NUEVO"
+    else
+      reemplaza_bloque "$HOST" 0 || {
+        echo "ABORTA: el crontab de $USUARIO no trae el bloque '# === Orbit ('" >&2
+        exit 1
+      }
+      if [ -n "$vigia_respaldo" ] && [ -z "$(vigia_fuera "$NUEVO")" ]; then
+        printf '%s\n' "$vigia_respaldo" >> "$NUEVO"
+      fi
+    fi
     if cmp -s "$NUEVO" "$ACTUAL"; then
       echo "sin cambios"
       exit 0

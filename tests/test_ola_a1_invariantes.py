@@ -30,6 +30,7 @@ from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import (
+    cli,
     cli_precio,
     fabrica_web,
     impulso_io,
@@ -38,6 +39,7 @@ from app import (
     reputacion,
     temporada_io,
 )
+from app.ads import archivar_inertes
 from app.api_dashboard import _SQL_CHROME_ULTIMO_CICLO
 from app.estimacion_venta import (
     DetalleFee,
@@ -51,7 +53,6 @@ from app.meli import write_client as meli_wc
 from app.precio import cambios as precio_cambios
 from app.spapi import orders as spapi_orders
 from app.spapi import write_client as spapi_wc
-from tools import archiva_inertes
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 
@@ -117,12 +118,16 @@ def test_retry_after_nan_e_inf_caen_a_default():
 def test_archiva_inertes_perfiles_duplicados_aborta(monkeypatch):
     """P0-7: dos perfiles aceptados para la misma plataforma abortan fail-closed."""
     duplicados = [
-        SimpleNamespace(aceptado=True, platform="amazon_mx", profile_id=101),
-        SimpleNamespace(aceptado=True, platform="amazon_mx", profile_id=102),
+        SimpleNamespace(
+            aceptado=True, platform="amazon_mx", profile_id=101, country="MX", motivo=None
+        ),
+        SimpleNamespace(
+            aceptado=True, platform="amazon_mx", profile_id=102, country="MX", motivo=None
+        ),
     ]
-    monkeypatch.setattr(archiva_inertes, "evaluar_perfiles", lambda _c: duplicados)
-    with pytest.raises(archiva_inertes.Abortar, match="multiples perfiles aceptados"):
-        archiva_inertes._perfiles(object())
+    monkeypatch.setattr(archivar_inertes, "evaluar_perfiles", lambda _c: duplicados)
+    with pytest.raises(archivar_inertes.Abortar, match="multiples perfiles aceptados"):
+        archivar_inertes._perfiles(object())
 
 
 def test_cli_precio_reporte_invalido_no_abre_conexion(monkeypatch):
@@ -134,7 +139,15 @@ def test_cli_precio_reporte_invalido_no_abre_conexion(monkeypatch):
 
     monkeypatch.setattr(cli_precio, "connect", _no_conectar)
     args = argparse.Namespace(reporte=True, desde=None, hasta=None, platform=["amazon_mx", "meli"])
-    assert cli_precio.main_precio(args) == 2
+    assert (
+        cli_precio.main_precio(
+            args,
+            conexion_decide=_no_conectar,
+            clientes_precio=lambda _p: ("l", "e", "f", "cubo"),
+            falta_dsn_cls=cli._FaltaDsn,
+        )
+        == 2
+    )
 
 
 def test_pausador_fabrica_close_cierra_http_y_propia():

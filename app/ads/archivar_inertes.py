@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Collection
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
 
@@ -28,7 +29,7 @@ from app.ads import sp_wire
 from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles
-from app.ceremonia import ErrorCeremonia, valida_ceremonia
+from app.ceremonia import ErrorCeremonia, agrega_flags_ceremonia, valida_ceremonia
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA as MONEDA_POR_PLATAFORMA
 from app.redaction import install_scrub_filter, register_secret, scrub
@@ -179,32 +180,37 @@ def _dsn_admin() -> str:
     return dsn
 
 
-def _perfiles(cliente_lectura: AdsClient) -> dict[str, int]:
-    """platform -> profile_id ACEPTADO (fail-closed ante perfiles o paises duplicados)."""
+def _perfiles(
+    cliente_lectura: AdsClient,
+    *,
+    plataformas: Collection[str] | None = None,
+) -> dict[str, int]:
+    """platform -> profile_id ACEPTADO (fail-closed ante duplicados del mercado)."""
     todos = evaluar_perfiles(cliente_lectura)
     out: dict[str, int] = {}
     paises_aceptados: dict[str, str] = {}
     for p in todos:
         if p.aceptado and p.platform and p.profile_id is not None:
             if p.platform in out and out[p.platform] != p.profile_id:
-                raise Abortar(
-                    f"multiples perfiles aceptados para {p.platform}: "
-                    f"{out[p.platform]} y {p.profile_id} (fail-closed)"
-                )
+                if plataformas is None or p.platform in plataformas:
+                    raise Abortar(
+                        f"multiples perfiles aceptados para {p.platform}: "
+                        f"{out[p.platform]} y {p.profile_id} (fail-closed)"
+                    )
+                out.pop(p.platform, None)
+                continue
             out[p.platform] = p.profile_id
-            if p.country:
-                paises_aceptados[p.country] = p.platform
+            pais = getattr(p, "country", None)
+            if pais:
+                paises_aceptados[pais] = p.platform
     for p in todos:
-        if (
-            not p.aceptado
-            and p.country
-            and p.country in paises_aceptados
-            and "duplicado" in (p.motivo or "")
-        ):
-            raise Abortar(
-                f"multiples perfiles para pais {p.country} ({paises_aceptados[p.country]}): "
-                "operacion irreversible aborta fail-closed"
-            )
+        pais = getattr(p, "country", None)
+        motivo = getattr(p, "motivo", None) or ""
+        if not p.aceptado and pais in paises_aceptados and "duplicado" in motivo:
+            plat = paises_aceptados[pais]
+            if plataformas is None or plat in plataformas:
+                raise Abortar(f"multiples perfiles para pais {pais} ({plat}): fail-closed")
+            out.pop(plat, None)
     return out
 
 
@@ -485,7 +491,7 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
             httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         )
 
-        perfiles = _perfiles(cliente_lectura)
+        perfiles = _perfiles(cliente_lectura, plataformas={p["platform"] for p in plan})
         _log("perfiles", perfiles=perfiles)
         for p in plan:
             if p["platform"] not in perfiles:
@@ -651,21 +657,28 @@ def _reconciliar(
     return resumen
 
 
+def _detiene_reponer(lote: str, external_id: str, ack: dict, motivo: str, repuestas: int) -> None:
+    _log("reponer", external_id=external_id, ack=ack["cuerpo"], ok=False, motivo=motivo)
+    _log("lote_detenido", lote=lote, motivo=motivo, repuestas=repuestas)
+    raise Abortar(motivo)
+
+
 def _fila_reponer(f: tuple) -> dict:
-    return {
-        "id": f[0],
-        "ad_entity_id": f[1],
-        "platform": f[2],
-        "campaign_external": f[3],
-        "ad_group_external": f[4],
-        "keyword_external": f[5],
-        "texto": f[6],
-        "match": f[7],
-        "bid": f[8],
-        "bid_currency": f[9],
-        "clasificacion": f[10],
-        "dias": f[11],
-    }
+    claves = (
+        "id",
+        "ad_entity_id",
+        "platform",
+        "campaign_external",
+        "ad_group_external",
+        "keyword_external",
+        "texto",
+        "match",
+        "bid",
+        "bid_currency",
+        "clasificacion",
+        "dias",
+    )
+    return dict(zip(claves, f, strict=False))
 
 
 def _reconciliar_cmd(args) -> int:
@@ -674,7 +687,7 @@ def _reconciliar_cmd(args) -> int:
     try:
         cred = AdsCredentials.from_secrets_dir()
         cliente_lectura = AdsClient(cred)
-        perfiles = _perfiles(cliente_lectura)
+        perfiles = _perfiles(cliente_lectura, plataformas=set())
         _log("perfiles", perfiles=perfiles)
         _reconciliar(conn_admin, cliente_lectura, perfiles, args.lote)
     finally:
@@ -690,7 +703,12 @@ def _reponer(args) -> int:
         if args.acepto_mutacion_real:
             cred_rec = AdsCredentials.from_secrets_dir()
             cliente_rec = AdsClient(cred_rec)
-            _reconciliar(conn_admin, cliente_rec, _perfiles(cliente_rec), args.reponer)
+            _reconciliar(
+                conn_admin,
+                cliente_rec,
+                _perfiles(cliente_rec, plataformas=set()),
+                args.reponer,
+            )
         filas = [
             _fila_reponer(f) for f in conn_admin.execute(_SQL_REPONER, (args.reponer,)).fetchall()
         ]
@@ -734,7 +752,7 @@ def _reponer(args) -> int:
             httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         )
 
-        perfiles = _perfiles(cliente_lectura)
+        perfiles = _perfiles(cliente_lectura, plataformas={f["platform"] for f in filas})
         _log("perfiles", perfiles=perfiles)
         for f in filas:
             if f["platform"] not in perfiles:
@@ -798,30 +816,14 @@ def _reponer(args) -> int:
                     f"CREATE de {f['keyword_external']} rechazado "
                     f"(status {ack.get('status')}): el lote se detiene"
                 )
-                _log(
-                    "reponer",
-                    external_id=f["keyword_external"],
-                    ack=ack["cuerpo"],
-                    ok=False,
-                    motivo=motivo,
-                )
-                _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=repuestas)
-                raise Abortar(motivo)
+                _detiene_reponer(args.reponer, f["keyword_external"], ack, motivo, repuestas)
             nuevo = _id_creado_de_ack(ack)
             if nuevo is None:
                 motivo = (
                     f"el ack del CREATE de {f['keyword_external']} no trae "
                     "keywordId: sin id no hay readback, el lote se detiene"
                 )
-                _log(
-                    "reponer",
-                    external_id=f["keyword_external"],
-                    ack=ack["cuerpo"],
-                    ok=False,
-                    motivo=motivo,
-                )
-                _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=repuestas)
-                raise Abortar(motivo)
+                _detiene_reponer(args.reponer, f["keyword_external"], ack, motivo, repuestas)
             time.sleep(0.3)
             leido = _readback_salvo(cliente_lectura, profile, nuevo)
             cuadra = _readback_reponer_cuadra(leido, f)
@@ -849,40 +851,15 @@ def _reponer(args) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--plataforma",
-        default=None,
-        choices=("amazon_mx", "amazon_us"),
-        help="filtra el plan a una plataforma (default: las dos)",
-    )
+    ap.add_argument("--plataforma", default=None, choices=("amazon_mx", "amazon_us"))
     ap.add_argument("--clasificacion", default="peso_muerto", choices=CLASIFICACIONES)
     ap.add_argument("--min-dias-sin-impresiones", type=int, default=30)
-    ap.add_argument(
-        "--min-antiguedad-dias",
-        type=int,
-        default=30,
-        help="edad minima de la entidad (first_seen_at <= hoy - N)",
-    )
+    ap.add_argument("--min-antiguedad-dias", type=int, default=30)
     ap.add_argument("--limite", type=int, default=None)
-    ap.add_argument(
-        "--acepto-mutacion-real",
-        action="store_true",
-        help="obligatorio para tocar Amazon; sin el = dry-run",
-    )
-    ap.add_argument("--esperado", type=int, default=None, help="candidatas autorizadas del dry-run")
-    ap.add_argument("--go", default=None, help="literal del dueno que autoriza el lote")
-    ap.add_argument("--huella", default=None, help="huella del conjunto del dry-run")
-    ap.add_argument(
-        "--reponer",
-        default=None,
-        help="lote del ledger a recrear en PAUSED (en modo real exige --go)",
-    )
-    ap.add_argument(
-        "--reconciliar",
-        action="store_true",
-        help="cruza planeado/failed contra el LIST real y promueve a applied lo ya ARCHIVED",
-    )
-    ap.add_argument("--lote", default=None, help="lote del ledger para --reconciliar")
+    agrega_flags_ceremonia(ap, con_huella=True, con_esperado=True)
+    ap.add_argument("--reponer", default=None)
+    ap.add_argument("--reconciliar", action="store_true")
+    ap.add_argument("--lote", default=None)
     args = ap.parse_args()
 
     if args.reconciliar:

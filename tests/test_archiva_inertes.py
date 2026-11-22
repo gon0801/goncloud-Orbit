@@ -1791,9 +1791,10 @@ def test_21_migracion_rellena_sin_nulos_y_fija_default():
 
 def test_perfiles_aborta_fail_closed_si_hay_pais_duplicado(monkeypatch):
     """Ola G2: si evaluar_perfiles rechazo un segundo perfil por pais duplicado,
-    _perfiles aborta fail-closed en lugar de elegir uno en silencio."""
-    aceptado = _perfil("amazon_mx", 101)
-    duplicado = PerfilAds(
+    _perfiles aborta solo para ese mercado y no bloquea un lote de otro pais."""
+    aceptado_mx = _perfil("amazon_mx", 101)
+    aceptado_us = _perfil("amazon_us", 202)
+    duplicado_mx = PerfilAds(
         profile_id=102,
         country="MX",
         currency_code="MXN",
@@ -1805,7 +1806,10 @@ def test_perfiles_aborta_fail_closed_si_hay_pais_duplicado(monkeypatch):
         moneda=None,
         motivo="pais duplicado",
     )
-    monkeypatch.setattr(ar, "evaluar_perfiles", lambda _c: [aceptado, duplicado])
+    monkeypatch.setattr(ar, "evaluar_perfiles", lambda _c: [aceptado_mx, duplicado_mx, aceptado_us])
+    assert ar._perfiles(object(), plataformas={"amazon_us"}) == {"amazon_us": 202}
+    with pytest.raises(ar.Abortar, match="pais MX"):
+        ar._perfiles(object(), plataformas={"amazon_mx"})
     with pytest.raises(ar.Abortar, match="pais MX"):
         ar._perfiles(object())
 

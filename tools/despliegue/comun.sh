@@ -308,7 +308,7 @@ sigue_candado() {
 
 # revierte: la reversa de B.2 bajo el candado ya tomado; la usan rollback.sh y desplegar.sh
 # (salida 75 con cambios, porque el motor no corre rollback con 75). Deshace solo lo anotado
-# en ultimo.env por $SHA, en orden: claves, cron (bloque Orbit y jev-vigia), codigo, sha y reversas de las migraciones
+# en ultimo.env por $SHA, en orden: claves, cron (bloque Orbit), codigo, sha y reversas de las migraciones
 # (inverso), siguiendo aunque un paso falle. Antes de cada cambio comprueba que sigue el
 # candado: sin el sale 1 dejando ESTADO=revirtiendo, y otra corrida continua la reversa.
 # Sale 0 si no habia nada que deshacer, 1 con ESTADO=revertido y 2 con rollback_incompleto.

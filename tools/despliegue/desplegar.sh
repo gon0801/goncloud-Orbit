@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Despliegue de Orbit por el motor (AUTO-03 B.1). Uso: MOTOR_SHA=<sha> bash desplegar.sh [--ensayo]
 # Pasos: (0) candado y diario, (1) guardas, (2) monotonia, (3) respaldo, (4) migraciones
-# de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*,
-# *_arreglos03_* y *_temporada01_*) con sonda, (5) codigo,
+# de la receta (>= 0076, sin reversa) con sonda, (5) codigo,
 # build aparte y recreacion que espera cero procesos app.cli (con $SRV/refresh_estimacion.sh),
-# (5b) linea de cron del vigia de Jev, (5c) bloque de cron de Orbit, (6) interruptores.
+# (5b) bloque de cron de Orbit, (6) interruptores.
 # Salidas: 0 bien; 75 no es el codigo (guardas o candado ocupados, o app.cli vivo al recrear; si
 # el diario ya traia cambios, los revierte antes); otra, falla. Contrato completo: docs/DEPLOY.md.
 set -euo pipefail
