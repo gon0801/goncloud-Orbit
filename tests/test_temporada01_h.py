@@ -146,21 +146,27 @@ def test_temporada01_h_practica_compara_recuperacion(db_template):
     assert veredicto_sombra.bid_nuevo == destino, veredicto_sombra
 
 
-def test_temporada01_h_practica_no_pierde_la_mano_del_dueno(db_template):
-    """Temporada en vivo + subida rapida en practica con memoria de 90 dias: el
-    historial que decide la temporada NO se acorta con esa memoria, asi que la
-    entrada no recorta una puja que el dueno cambio y el sync ya leyo.
+@pytest.mark.parametrize("modo_recuperacion", ["shadow", "live"])
+def test_temporada01_h_practica_no_pierde_la_mano_del_dueno(db_template, modo_recuperacion):
+    """Temporada en vivo + subida rapida con memoria de 90 dias: el historial que
+    decide la temporada NO se acorta con esa memoria, asi que la entrada no
+    recorta una puja que el dueno cambio y el sync ya leyo.
 
     Sin el arreglo, la lectura de 90 dias pierde el cambio de Orbit de hace 120
     dias, `dueno_al_final` no se detecta y la entrada baja 7.00 a 4.90 (Devin,
-    PR 730)."""
+    PR 730).
+
+    El caso `live` importa de verdad: con temporada y subida rapida en `live` es
+    la config que quedo encendida en H.2, y la subida rapida sigue siendo la que
+    acorta la lectura salvo que la temporada mande. R6r aplica su propia memoria
+    en `techo_conocido`, asi que la lectura compartida no necesita acortarla."""
     conn, _dsn = db_template
     _run(conn)
     config_id = _config_version(
         conn,
         {
             **_settings(modo_temporada="live"),
-            "ads_bid_recuperacion_amazon_mx": "shadow",
+            "ads_bid_recuperacion_amazon_mx": modo_recuperacion,
             "ads_bid_recuperacion_memoria_dias_amazon_mx": 90,
         },
     )

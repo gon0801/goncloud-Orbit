@@ -622,12 +622,15 @@ def lee_plataforma(
     if visto_el is not None:
         _exige_tz(visto_el, "visto_el")
     # El historial que decide la temporada nunca se acorta por la memoria de una
-    # subida rapida en practica (Devin, PR 730): con temporada encendida y
-    # recuperacion en shadow, la practica leeria menos dias que la temporada y
-    # `frontera` dejaria de ver la mano del dueno ya sincronizada. La sombra
-    # sigue topando su techo con su propia memoria (recuperacion.techo_conocido).
+    # subida rapida (Devin, PR 730): con la temporada encendida, `frontera`
+    # dejaria de ver la mano del dueno ya sincronizada y la entrada recortaria
+    # una puja suya. Vale igual con la subida rapida en `live`, que es la config
+    # final de H.2: R6r ya topa su techo con su propia memoria en
+    # `recuperacion.techo_conocido`, asi que la lectura compartida no necesita
+    # acortarse. Sin temporada no hay frontera que proteger y manda la subida
+    # rapida.
     memoria_historia = 365
-    if recuperacion is not None and (recuperacion_live or temporada_plat is None):
+    if temporada_plat is None and recuperacion is not None:
         memoria_historia = recuperacion.memoria_dias
     d = decidido_el.astimezone(dt.UTC).date()
     hasta = d - dt.timedelta(days=DIAS_MADUREZ)
