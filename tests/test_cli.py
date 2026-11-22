@@ -975,3 +975,34 @@ def test_arreglos04_ba_archivar_y_reponer_por_terminal_no_escriben(monkeypatch, 
         ("SystemExit", 2),
         [],
     )
+
+
+def test_cli_precio_no_importa_app_cli():
+    """Ola G2: app/cli_precio.py no cierra un ciclo de importacion con app/cli.py."""
+    import ast
+    from pathlib import Path
+
+    ruta = Path(__file__).resolve().parent.parent / "app" / "cli_precio.py"
+    arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+    imports: set[str] = set()
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Import):
+            imports.update(a.name for a in nodo.names)
+        elif isinstance(nodo, ast.ImportFrom) and nodo.module:
+            imports.add(nodo.module)
+            imports.update(f"{nodo.module}.{a.name}" for a in nodo.names)
+    assert "app.cli" not in imports
+
+
+def test_cli_bids_forzar_y_help_sin_hack_en_cli(monkeypatch, capsys):
+    """Ola G2: avisos-campana recibe --forzar y --help directo sin re-sintesis."""
+    from app import cli_bids
+
+    recibido = []
+    monkeypatch.setitem(
+        cli_bids.COMANDOS, "avisos-campana", lambda rest: recibido.append(rest) or 0
+    )
+    assert cli.main(["avisos-campana", "--forzar"]) == 0
+    assert recibido == [["--forzar"]]
+    assert cli_bids.main_avisos_campana(["--help"]) == 0
+    assert "--forzar" in capsys.readouterr().out

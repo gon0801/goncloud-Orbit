@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -19,6 +18,7 @@ from .runs import (
     load_run,
     tree_fingerprint,
 )
+from .schemas import GradeFileModel, MetricsModel, ReviewModel, validate_model
 
 
 def _run_directories(root: Path) -> list[Path]:
@@ -33,58 +33,14 @@ def _run_directories(root: Path) -> list[Path]:
     return found
 
 
-def _number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _validate_metrics(path: Path) -> dict[str, int | float | None]:
-    metrics = _read_json(path)
-    if set(metrics) != set(METRIC_FIELDS):
-        raise BenchError(f"campos invalidos en {path}")
-    for field in ("duration_seconds", "cost_usd", "rework_minutes"):
-        value = metrics[field]
-        if value is not None and (not _number(value) or not math.isfinite(value) or value < 0):
-            raise BenchError(f"metrica invalida {field} en {path}")
-    for field in ("interventions", "input_tokens", "output_tokens"):
-        value = metrics[field]
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-        ):
-            raise BenchError(f"metrica invalida {field} en {path}")
-    return metrics
+    return validate_model(MetricsModel, _read_json(path), error_cls=BenchError, context=path)
 
 
 def _validate_review(path: Path, dimensions: list[str]) -> dict[str, Any]:
-    review = _read_json(path)
-    required = {"reviewer", "accepted", "scores", "critical_failures", "grade_fingerprint"}
-    if set(review) != required:
-        raise BenchError(f"campos invalidos en {path}")
-    if review["reviewer"] is not None and (
-        not isinstance(review["reviewer"], str) or not review["reviewer"].strip()
-    ):
-        raise BenchError(f"reviewer invalido en {path}")
-    if review["accepted"] is not None and not isinstance(review["accepted"], bool):
-        raise BenchError(f"accepted invalido en {path}")
-    failures = review["critical_failures"]
-    if not isinstance(failures, list) or not all(
-        isinstance(item, str) and item.strip() for item in failures
-    ):
-        raise BenchError(f"critical_failures invalido en {path}")
-    if review["grade_fingerprint"] is not None and not isinstance(review["grade_fingerprint"], str):
-        raise BenchError(f"grade_fingerprint invalido en {path}")
-    scores = review["scores"]
-    if not isinstance(scores, dict) or set(scores) != set(dimensions):
+    review = validate_model(ReviewModel, _read_json(path), error_cls=BenchError, context=path)
+    if set(review["scores"]) != set(dimensions):
         raise BenchError(f"dimensiones invalidas en {path}")
-    for dimension, item in scores.items():
-        if not isinstance(item, dict) or set(item) != {"score", "evidence"}:
-            raise BenchError(f"nota invalida para {dimension} en {path}")
-        score = item["score"]
-        if score is not None and (
-            isinstance(score, bool) or not isinstance(score, int) or not 0 <= score <= 4
-        ):
-            raise BenchError(f"nota invalida para {dimension} en {path}")
-        if not isinstance(item["evidence"], str):
-            raise BenchError(f"evidence invalida para {dimension} en {path}")
     return review
 
 
@@ -115,31 +71,13 @@ def _validate_grade(
     case_id: str,
     automatic: bool,
 ) -> dict[str, Any]:
-    grade = _read_json(path)
-    required = {
-        "case_id",
-        "submission_fingerprint",
-        "checks",
-        "automatic_pass",
-        "artifacts_present",
-        "graded_at",
-    }
-    if set(grade) != required:
-        raise BenchError(f"campos invalidos en {path}")
+    grade = validate_model(GradeFileModel, _read_json(path), error_cls=BenchError, context=path)
     if grade["case_id"] != case_id:
         raise BenchError(f"case_id invalido en {path}")
-    fingerprint = grade["submission_fingerprint"]
-    if (
-        not isinstance(fingerprint, str)
-        or len(fingerprint) != 64
-        or any(character not in "0123456789abcdef" for character in fingerprint)
-    ):
-        raise BenchError(f"submission_fingerprint invalido en {path}")
-    if not isinstance(grade["artifacts_present"], bool):
-        raise BenchError(f"artifacts_present invalido en {path}")
-    if not isinstance(grade["graded_at"], str) or not grade["graded_at"]:
-        raise BenchError(f"graded_at invalido en {path}")
-    _validate_grade_result(grade, automatic)
+    _validate_grade_result(
+        {"checks": grade["checks"], "automatic_pass": grade["automatic_pass"]},
+        automatic,
+    )
     return grade
 
 

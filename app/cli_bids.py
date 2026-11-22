@@ -35,7 +35,13 @@ def _ya_salio(conn, plataforma: str, clase: str, hoy: dt.date) -> bool:
 
 def _parsea_forzar(argv: list[str], comando: str) -> tuple[bool, int | None]:
     """--forzar corre el comando a mano sin las guardas de metricas de ayer;
-    cualquier otro token es error de uso (exit 2)."""
+    -h/--help muestra uso (exit 0); cualquier otro token es error de uso (exit 2)."""
+    if argv in (["-h"], ["--help"]):
+        print(
+            f"uso: python -m app.cli {comando} [--forzar]\n\n"
+            "  --forzar  corre sin las guardas de metricas de ayer"
+        )
+        return False, 0
     if argv == ["--forzar"]:
         return True, None
     if argv:
@@ -226,16 +232,16 @@ COMANDOS = {
 
 
 def registra(sub) -> None:
-    """Agrega los subparsers BIDS al CLI principal."""
-    p_avisos = sub.add_parser(
-        "avisos-campana", help="avisos diarios de campana por Telegram (BIDS 02 V.4)"
+    """Agrega los subparsers BIDS al CLI principal (parsean sus flags al despachar)."""
+    sub.add_parser(
+        "avisos-campana",
+        add_help=False,
+        help="avisos diarios de campana por Telegram (BIDS 02 V.4)",
     )
-    p_avisos.add_argument(
-        "--forzar", action="store_true", help="corre sin las guardas de métricas de ayer"
-    )
-    p_vigia = sub.add_parser("impulso-vigia", help="vigia diario del impulso (BIDS 02 I.3)")
-    p_vigia.add_argument(
-        "--forzar", action="store_true", help="corre sin las guardas de métricas de ayer"
+    sub.add_parser(
+        "impulso-vigia",
+        add_help=False,
+        help="vigia diario del impulso (BIDS 02 I.3)",
     )
     sub.add_parser(
         "efecto-hoja",

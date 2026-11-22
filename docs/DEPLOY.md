@@ -93,14 +93,14 @@ orbit-app-1` no tenga procesos `app.cli` y recién entonces recrea (`up -d
 --no-deps --no-build app`): la última mirada y la recreación comparten shell,
 así un ciclo que arranque durante el build no se corta. Si el plazo agota con
 procesos vivos sale 75 y revierte (`AVISO` y recreación forzada en la reversa);
-después, `/health` 200 y `$SRV/despliegue/sha`; (5b) si el
-SHA trae `tools/despliegue/cron_jev_vigia.sh` y la línea `jev-vigia` no está
-una sola vez dentro del bloque Orbit del crontab de `gon`, corre `instala`
-(respalda el crontab en `$SRV/archive/` y agrega esa línea con su `job_key`, o
-la mueve al bloque si estaba fuera); anota `CRON=jev-vigia` antes, y solo si leyó
-el crontab y la línea no existía en ninguna parte, así la reversa no borra una
-línea previa. Si no puede leer el crontab, aborta (sale 1) sin anotar ni instalar; (6) interruptores. Con ese archivo en el SHA, `checklist.sh` falla
-si la línea efectiva no está una sola vez dentro del bloque. Con
+después, `/health` 200 y `$SRV/despliegue/sha`; (5b) si el SHA trae
+`tools/despliegue/cron_orbit.sh` y `tools/despliegue/crontab-orbit.txt`, converge
+el bloque `# === Orbit (` del crontab de `gon` (que incluye `jev-vigia` y
+`ads-salud`, y elimina cualquier línea `jev-vigia` huérfana fuera del bloque para
+no duplicarla): `prepara` deja respaldo en `$SRV/archive/`, anota
+`CRON_ARCHIVO=<respaldo>` y `CRON=orbit`, e `instala` escribe el bloque; (6)
+interruptores. `checklist.sh` exige `cron_orbit revisa` en verde (bloque igual al
+canónico y sin `jev-vigia` fuera del bloque). Con
 `tools/refresh_estimacion.sh` en el SHA, falla si `$SRV/refresh_estimacion.sh` no es
 igual a `$SRV/tools/refresh_estimacion.sh`. `AUTO03_ESPERA_S` (600 por omisión) es el plazo del
 candado y de las guardas, y el tope de la espera de `app.cli` antes de recrear; esa espera se acota
@@ -108,10 +108,8 @@ además al presupuesto que queda del tope de despliegue del motor (`AUTO03_TOPE_
 que el propio paso 5 no provoque el corte `124`. `AUTO03_ESPERA_REVERSA_S` (300) es el de la
 reversa, que espera ese plazo y recrea de todos modos con `AVISO`.
 
-**Cabecera de sonda.** Toda migración de la receta (`migrations/*_auto03_*`
-de AUTO-03, `migrations/*_orbit07_*` de ORBIT 07, `migrations/*_claridad01_*`
-de CLARIDAD 01, `*_arreglos01/02/03_*`, `*_temporada01_*` y `*_estimacion_s4_*`)
-lleva en sus primeras 10
+**Cabecera de sonda.** Toda migración de la receta (numerada `>= 0076`,
+excluyendo `*_reversa_*`) lleva en sus primeras 10
 líneas `-- sonda-aplicada: <SELECT booleano>`, que da `t` si ya está aplicada
 y `f` si falta, y trae su `NNNN_reversa_*`. `desplegar.sh` aborta antes de
 tocar nada si una no trae cabecera o reversa, o si trae
@@ -177,7 +175,7 @@ la última corrida: `MOTOR_SHA`, `SHA_PREVIO` (el contenido de
 `$SRV/despliegue/sha` al empezar; una reanudación del mismo `MOTOR_SHA`
 conserva el de la primera corrida), una línea por cambio anotada antes
 de hacerlo (`MIGRACION=<archivo>`, `CLAVE=<clave>:<valor previo>`,
-`CRON=jev-vigia`, `CRON_ARCHIVO=<respaldo>` y `CRON=orbit`) y
+`CRON_ARCHIVO=<respaldo>` y `CRON=orbit`) y
 `CODIGO=predeploy-<stamp>`, que se anota solo con el respaldo completo y
 sin la cual no corre ninguna migración ni sustitución de código. Las
 líneas `ESTADO=` se agregan en orden; vale la última. Terminales:
@@ -194,9 +192,8 @@ sosteniendo el candado; si la perdió, sale 1 sin hacer el siguiente
 cambio, el diario queda en `revirtiendo` y la próxima corrida continúa):
 las claves anotadas a su valor previo (vía `productos-modo`), el bloque
 `# === Orbit (` si se anotó `CRON=orbit` (`cron_orbit.sh restaura
-<CRON_ARCHIVO>`, antes de la línea del vigía porque el respaldo puede
-incluirla), la línea `jev-vigia` si se anotó `CRON=jev-vigia`
-(`cron_jev_vigia.sh quita`), los
+<CRON_ARCHIVO>`, que también devuelve `jev-vigia` si el respaldo lo tenía fuera
+del bloque), los
 archivos de `predeploy-<stamp>` (borra `app/` y `tools/` y los copia del
 respaldo) con rebuild y `/health` 200, `$SRV/despliegue/sha` a
 `SHA_PREVIO` (lo borra si venía vacío) y, en orden inverso, la reversa
@@ -867,7 +864,7 @@ El server está en UTC: estas horas SON UTC.
 | 09:20, 10:20, 13:20, 16:20 | `impulso-vigia` | `python -m app.cli impulso-vigia` (BIDS 02 I.3; reintenta si la ingesta llega tarde; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
 | 09:40/09:41, 10:40/10:41, 13:40/13:41, 16:40/16:41 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (US y MX arrancan con un minuto de diferencia y pueden solaparse si US sigue activo; cada plataforma tiene su candado; los reintentos corren si la ingesta llega tarde y no repiten un ciclo cerrado) |
 | 09:30, 21:30 | `jev-senales` | `python -m app.cli jev-senales --aplicar` (JEV ADS 02 S.4; en el bloque canónico `tools/despliegue/crontab-orbit.txt`) |
-| 11:00 | `jev-vigia` | `python -m app.cli jev-vigia` (CLARIDAD 01 B.5: si Jev está encendido y su último `inicio` tiene más de 13 h, avisa por Telegram; cubre la línea de jev-senales borrada o un candado colgado. Lee con `ORBIT_DSN_READ`, sin estado. Vive en el bloque canónico `tools/despliegue/crontab-orbit.txt`; `tools/despliegue/cron_jev_vigia.sh instala` la mueve ahí si el crontab la tenía fuera) |
+| 11:00 | `jev-vigia` | `python -m app.cli jev-vigia` (CLARIDAD 01 B.5: si Jev está encendido y su último `inicio` tiene más de 13 h, avisa por Telegram; cubre la línea de jev-senales borrada o un candado colgado. Lee con `ORBIT_DSN_READ`, sin estado. Vive en el bloque canónico `tools/despliegue/crontab-orbit.txt`; `tools/despliegue/cron_orbit.sh instala` elimina cualquier duplicado que hubiera quedado fuera del bloque) |
 | 10:00–12:50, /10 min | `ads-salud` | `python -m app.cli ads-salud` (ads-proteccion-01 A.3: salud de la ingesta principal; el cron dispara cada 10 min y el job reporta el atraso desde las 10:30 UTC con reintentos hasta las 12:50; la linea no cambio en ingesta-01 A.4) |
 | 12:15 | `precio-muestras:amazon_mx` | `python -m app.envio_muestras --platform amazon_mx --canal fbm` (REPRICING 02 D.3: job diario de muestras MX antes de la estimacion) |
 | 12:20 | `precio-muestras:amazon_us` | `python -m app.envio_muestras --platform amazon_us --canal fbm` (REPRICING 02 D.3: job diario de muestras US antes de la estimacion) |
@@ -1183,8 +1180,9 @@ de `HORARIOS_INGESTA` (`app/ads/diario.py`; la prueba `tests/test_ingesta_cron.p
 fija que coincidan). El uso manual en `goncloud` está en la cabecera del script.
 
 La línea del vigía (`app.cli jev-vigia`) forma parte del bloque canónico. Si un
-crontab la tenía fuera, `tools/despliegue/cron_jev_vigia.sh instala` la mueve
-adentro (imprime `movida`); `desplegar.sh` lo hace en el siguiente despliegue.
+crontab la tenía fuera, `tools/despliegue/cron_orbit.sh revisa` falla y
+`tools/despliegue/cron_orbit.sh instala` elimina la copia externa al escribir el
+bloque canónico (`desplegar.sh` lo hace en el siguiente despliegue).
 
 Diff obligatorio contra el respaldo: las líneas de accounting deben
 seguir byte-iguales. Solo aparecen las siete líneas del bloque Orbit y sus comentarios.

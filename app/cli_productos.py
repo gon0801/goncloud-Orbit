@@ -131,10 +131,14 @@ def corre(args) -> int:
                 economia_cambio=args.bid_economia,
             )
             if apaga_proteccion:
-                descartadas_proteccion = sum(
-                    apply_cola.descarta_esperas_proteccion(conn, p) for p in PLATAFORMAS_MONEDA
-                )
-                conn.commit()
+                try:
+                    descartadas_proteccion = sum(
+                        apply_cola.descarta_esperas_proteccion(conn, p) for p in PLATAFORMAS_MONEDA
+                    )
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
         finally:
             conn.close()
     except config_write.EdicionVacia:

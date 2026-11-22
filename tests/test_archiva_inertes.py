@@ -38,10 +38,7 @@ import pytest
 from psycopg import sql as pgsql
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-
-import archiva_inertes as ar  # noqa: E402
-
+from app.ads import archivar_inertes as ar  # noqa: E402
 from app.ads.config import AdsCredentials  # noqa: E402
 from app.ads.structure import (  # noqa: E402
     EstructuraAds,
@@ -404,7 +401,7 @@ def test_migracion_0014_crea_el_ledger_con_grants_y_estados():
     import pglast
 
     texto = (
-        Path(ar.__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
+        Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
     ).read_text(encoding="utf-8")
     pglast.parse_sql(texto)  # revienta si el SQL no parsea
     assert "CREATE TABLE keyword_archivo_manual" in texto
@@ -1790,3 +1787,45 @@ def test_21_migracion_rellena_sin_nulos_y_fija_default():
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+def test_perfiles_aborta_fail_closed_si_hay_pais_duplicado(monkeypatch):
+    """Ola G2: si evaluar_perfiles rechazo un segundo perfil por pais duplicado,
+    _perfiles aborta solo para ese mercado y no bloquea un lote de otro pais."""
+    aceptado_mx = _perfil("amazon_mx", 101)
+    aceptado_us = _perfil("amazon_us", 202)
+    duplicado_mx = PerfilAds(
+        profile_id=102,
+        country="MX",
+        currency_code="MXN",
+        account_type="seller",
+        valid_payment_method=True,
+        account_name="cuenta duplicada",
+        aceptado=False,
+        platform=None,
+        moneda=None,
+        motivo="pais duplicado",
+    )
+    monkeypatch.setattr(ar, "evaluar_perfiles", lambda _c: [aceptado_mx, duplicado_mx, aceptado_us])
+    assert ar._perfiles(object(), plataformas={"amazon_us"}) == {"amazon_us": 202}
+    with pytest.raises(ar.Abortar, match="pais MX"):
+        ar._perfiles(object(), plataformas={"amazon_mx"})
+    with pytest.raises(ar.Abortar, match="pais MX"):
+        ar._perfiles(object())
+
+
+def test_main_cierra_conexion_read_al_fallar(monkeypatch):
+    """Ola G2: main cierra conn_read en finally aunque _archivar aborte."""
+    cerradas = []
+
+    class _ConnRastreada(_ConnFalsa):
+        def close(self):
+            cerradas.append("read")
+
+    conn = _ConnRastreada(plan=[_FILA_KW_MX])
+    monkeypatch.setenv("ORBIT_DSN_READ", "dsn-read-falso")
+    monkeypatch.setattr(ar, "connect", lambda _dsn: conn)
+    monkeypatch.setattr(sys, "argv", ["archiva_inertes.py", "--acepto-mutacion-real"])
+    with pytest.raises(ar.Abortar):
+        ar.main()
+    assert cerradas == ["read"]

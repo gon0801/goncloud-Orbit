@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import catalog, graders
+from .schemas import CaseSpecModel, GradeResultModel, validate_model
 
 METRIC_FIELDS = (
     "duration_seconds",
@@ -152,30 +153,20 @@ def _validate_limit(name: str, value: int | float | None) -> float | None:
 
 
 def _case_snapshot(case_id: str, case: dict[str, Any]) -> dict[str, Any]:
-    files = case.get("files")
-    artifacts = case.get("artifacts")
-    dimensions = case.get("dimensions")
-    if not isinstance(files, dict) or not all(
-        isinstance(path, str) and isinstance(content, str) for path, content in files.items()
-    ):
-        raise BenchError("files del caso debe mapear rutas a texto")
-    if not isinstance(artifacts, list) or not all(isinstance(item, str) for item in artifacts):
-        raise BenchError("artifacts del caso debe ser una lista de rutas")
-    if not isinstance(dimensions, list) or not all(isinstance(item, str) for item in dimensions):
-        raise BenchError("dimensions del caso debe ser una lista")
+    validated = validate_model(CaseSpecModel, case, error_cls=BenchError, context=f"caso {case_id}")
+    files = validated["files"]
+    artifacts = validated["artifacts"]
+    dimensions = validated["dimensions"]
     for relative in [*files, *artifacts]:
         _safe_relative(relative)
-    required = ("title", "category", "prompt", "automatic", "extension_of")
-    if any(key not in case for key in required):
-        raise BenchError("caso incompleto")
     return {
-        "title": case["title"],
-        "category": case["category"],
+        "title": validated["title"],
+        "category": validated["category"],
         "artifacts": list(artifacts),
         "dimensions": list(dimensions),
-        "automatic": case["automatic"],
-        "extension_of": case["extension_of"],
-        "task_text": _task_text(case_id, case),
+        "automatic": validated["automatic"],
+        "extension_of": validated["extension_of"],
+        "task_text": _task_text(case_id, validated),
         "initial_files": dict(files),
     }
 
@@ -323,31 +314,17 @@ def load_run(run: Path | str) -> tuple[Path, dict[str, Any]]:
 
 
 def _validate_grade_result(result: object, expected_automatic: bool) -> dict[str, Any]:
-    if not isinstance(result, dict):
-        raise BenchError("el calificador no devolvio un objeto")
-    checks = result.get("checks")
-    automatic_pass = result.get("automatic_pass")
-    if not isinstance(checks, list):
-        raise BenchError("checks del calificador debe ser una lista")
-    for check in checks:
-        if not isinstance(check, dict) or set(check) != {"name", "passed", "detail"}:
-            raise BenchError("check del calificador invalido")
-        if (
-            not isinstance(check["name"], str)
-            or not isinstance(check["passed"], bool)
-            or not isinstance(check["detail"], str)
-        ):
-            raise BenchError("tipos invalidos en check del calificador")
+    parsed = validate_model(
+        GradeResultModel, result, error_cls=BenchError, context="resultado del calificador"
+    )
+    checks = parsed["checks"]
+    automatic_pass = parsed["automatic_pass"]
     expected = {True, False} if expected_automatic else {None}
-    if (
-        automatic_pass not in expected
-        or isinstance(automatic_pass, int)
-        and not isinstance(automatic_pass, bool)
-    ):
+    if automatic_pass not in expected:
         raise BenchError("automatic_pass incompatible con el caso")
     if expected_automatic and automatic_pass is not all(check["passed"] for check in checks):
         raise BenchError("automatic_pass no coincide con los checks")
-    return {"checks": checks, "automatic_pass": automatic_pass}
+    return parsed
 
 
 def _review_has_human_content(review: dict[str, Any]) -> bool:

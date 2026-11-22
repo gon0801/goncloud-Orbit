@@ -314,11 +314,6 @@ def _crea_repo(repo: Path) -> None:
             "migrations/9004_reversa_auto03_revienta.sql": "DROP TABLE public.auto03_revienta;\n",
         },
         "PausaLive": {inter: "ads_producto_pausa_amazon_mx=live\n"},
-        "ConVigia": {
-            "tools/despliegue/cron_jev_vigia.sh": (
-                ROOT / "tools/despliegue/cron_jev_vigia.sh"
-            ).read_text(encoding="utf-8")
-        },
         "ConCronOrbit": {
             "tools/despliegue/cron_orbit.sh": (ROOT / "tools/despliegue/cron_orbit.sh").read_text(
                 encoding="utf-8"
@@ -343,8 +338,6 @@ def _crea_repo(repo: Path) -> None:
     for nombre, archivos in ramas.items():
         _git(repo, "checkout", "-q", "-b", nombre.lower(), "E")
         _commit(repo, nombre, archivos)
-    _git(repo, "checkout", "-q", "-b", "convigia2", "ConVigia")
-    _commit(repo, "ConVigia2", {})
     _git(repo, "checkout", "-q", "-b", "concronorbit2", "ConCronOrbit")
     canon_nuevo = (
         (ROOT / "tools/despliegue/crontab-orbit.txt")
@@ -950,166 +943,6 @@ def test_interruptores_del_repo_son_los_del_lector():
         productos.modos_desde_settings(deseado, plataforma)
 
 
-def _cron_vigia(tmp: Path, accion: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["bash", str(ROOT / "tools/despliegue/cron_jev_vigia.sh"), accion],
-        text=True,
-        capture_output=True,
-        env={
-            **os.environ,
-            "PATH": f"{tmp / 'bin'}{os.pathsep}{os.environ['PATH']}",
-            "ORBIT_FAKE_CRONTAB": str(tmp / "crontab"),
-            "ORBIT_CRON_ARCHIVO": str(tmp / "archive"),
-        },
-    )
-
-
-def test_jev_vigia_instalar_dos_veces_y_quitar_deja_el_crontab_igual(tmp_path):
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin/crontab").write_text(CRONTAB, encoding="utf-8", newline="\n")
-    (tmp_path / "bin/crontab").chmod(0o755)
-    crontab = tmp_path / "crontab"
-    crontab.write_bytes(CRONTAB_GON.encode())
-    con_vigia = CRONTAB_GON.replace("--aplicar\n", "--aplicar\n" + LINEAS_VIGIA, 1)
-
-    assert _cron_vigia(tmp_path, "revisa").returncode == 1
-    r = _cron_vigia(tmp_path, "instala")
-    assert (r.returncode, r.stdout) == (0, "agregada\n"), r.stderr
-    assert crontab.read_bytes() == con_vigia.encode()
-    r = _cron_vigia(tmp_path, "instala")
-    assert (r.returncode, r.stdout) == (0, "sin cambios\n"), r.stderr
-    assert crontab.read_bytes() == con_vigia.encode()
-    assert _cron_vigia(tmp_path, "revisa").returncode == 0
-
-    r = _cron_vigia(tmp_path, "quita")
-    assert (r.returncode, r.stdout) == (0, "quitada\n"), r.stderr
-    assert crontab.read_bytes() == CRONTAB_GON.encode()
-    r = _cron_vigia(tmp_path, "quita")
-    assert (r.returncode, r.stdout) == (0, "sin cambios\n"), r.stderr
-    assert crontab.read_bytes() == CRONTAB_GON.encode()
-
-    respaldos = sorted((tmp_path / "archive").iterdir())
-    assert [p.read_bytes() for p in respaldos] == [CRONTAB_GON.encode(), con_vigia.encode()]
-
-
-def test_jev_vigia_desplegar_la_instala_el_checklist_la_exige_y_el_rollback_la_quita(s):
-    crontab = s.ctl / "crontab"
-    crontab.write_bytes(CRONTAB_GON.encode())
-    assert s.desplegar("ConVigia").returncode == 0
-    assert "CRON=jev-vigia" in s.ultimo()
-    con_vigia = crontab.read_bytes()
-    assert con_vigia == CRONTAB_GON.replace("--aplicar\n", "--aplicar\n" + LINEAS_VIGIA).encode()
-    assert s.checklist("ConVigia").returncode == 0
-
-    crontab.write_bytes(CRONTAB_GON.encode())
-    r = s.checklist("ConVigia")
-    assert r.returncode == 1
-    assert "FALLA cron del vigia de Jev" in r.stdout
-    crontab.write_bytes(con_vigia)
-
-    assert s.rollback("ConVigia").returncode == 1
-    assert s.estado_diario() == "revertido"
-    assert crontab.read_bytes() == CRONTAB_GON.encode()
-
-
-def _vigia_en_bloque_orbit(texto: str) -> bool:
-    linea = LINEAS_VIGIA.splitlines()[1]
-    bloque = texto.split("# === Orbit (", 1)[1].split("\n# === ", 1)[0]
-    return texto.count(linea + "\n") == 1 and linea in bloque
-
-
-def test_jev_vigia_fuera_del_bloque_se_mueve_sin_tocar_lo_demas(tmp_path):
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin/crontab").write_text(CRONTAB, encoding="utf-8", newline="\n")
-    (tmp_path / "bin/crontab").chmod(0o755)
-    crontab = tmp_path / "crontab"
-    reputacion = "0 9 * * * docker exec orbit-app-1 python -m app.cli reputacion alertas\n"
-    fuera = CRONTAB_GON.replace(reputacion, reputacion + LINEAS_VIGIA, 1)
-    crontab.write_bytes(fuera.encode())
-
-    assert _cron_vigia(tmp_path, "presente").returncode == 0
-    assert _cron_vigia(tmp_path, "revisa").returncode == 1
-    r = _cron_vigia(tmp_path, "instala")
-    assert (r.returncode, r.stdout) == (0, "movida\n"), r.stderr
-    assert (
-        crontab.read_bytes()
-        == CRONTAB_GON.replace("--aplicar\n", "--aplicar\n" + LINEAS_VIGIA, 1).encode()
-    )
-    assert _cron_vigia(tmp_path, "revisa").returncode == 0
-
-
-def _reinstala_bloque_orbit(s: Servidor) -> str:
-    avisa = s.ctl / "cron-avisa"
-    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
-    avisa.chmod(0o755)
-    entorno = s.entorno(
-        ORBIT_CRON_BLOQUE=str(ROOT / "tools/despliegue/crontab-orbit.txt"),
-        ORBIT_CRON_AVISA=str(avisa),
-        ORBIT_CRON_ARCHIVO=str(s.srv / "archive"),
-    )
-    r = _corre_cron_orbit(entorno, "instala")
-    assert r.returncode == 0, r.stderr
-    return (s.ctl / "crontab").read_text(encoding="utf-8")
-
-
-def test_jev_vigia_reinstalar_el_bloque_y_desplegar_otra_vez_no_borra_el_vigia(s):
-    """Hallazgo h_62d4909e: el bloque canonico incluye jev-vigia; el siguiente despliegue no
-    debe anotarlo como propio ni borrarlo al revertir."""
-    crontab = s.ctl / "crontab"
-    crontab.write_bytes(CRONTAB_GON.encode())
-    assert s.motor("ConVigia") == "ok"
-    _reinstala_bloque_orbit(s)
-    assert "app.cli jev-vigia" in crontab.read_text()
-    assert _vigia_en_bloque_orbit(crontab.read_text())
-
-    assert s.motor("ConVigia2") == "ok"
-    assert "CRON=jev-vigia" not in s.ultimo()
-    assert _vigia_en_bloque_orbit(crontab.read_text())
-
-    assert s.rollback("ConVigia2").returncode == 1
-    assert s.estado_diario() == "revertido"
-    assert _vigia_en_bloque_orbit(crontab.read_text())
-
-
-def test_jev_vigia_presente_distingue_ausencia_de_lectura_fallida(tmp_path):
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin/crontab").write_text(CRONTAB, encoding="utf-8", newline="\n")
-    (tmp_path / "bin/crontab").chmod(0o755)
-    assert _cron_vigia(tmp_path, "presente").returncode == 1, "sin crontab legible no hay ausencia"
-    (tmp_path / "crontab").write_bytes(CRONTAB_GON.encode())
-    assert _cron_vigia(tmp_path, "presente").returncode == 10
-    assert _cron_vigia(tmp_path, "instala").stdout == "agregada\n"
-    assert _cron_vigia(tmp_path, "presente").returncode == 0
-
-
-def test_jev_vigia_lectura_fallida_no_anota_ni_instala_y_la_reversa_conserva_el_vigia(s):
-    """Hallazgo h_62d4909e (segunda ronda): una lectura de presencia fallida (ssh 255) no es
-    ausencia; desplegar aborta sin anotar CRON= y la reversa no borra la linea previa."""
-    crontab = s.ctl / "crontab"
-    crontab.write_bytes(CRONTAB_GON.encode())
-    assert s.motor("ConVigia") == "ok"
-    texto = _reinstala_bloque_orbit(s)
-    sin_vigia = [
-        ln
-        for ln in texto.splitlines()
-        if "app.cli jev-vigia" not in ln and not ln.startswith("# job_key=jev-vigia")
-    ]
-    previo = LINEAS_VIGIA + "\n".join(sin_vigia) + "\n"
-    crontab.write_text(previo, encoding="utf-8", newline="\n")
-    assert not _vigia_en_bloque_orbit(previo)
-    (s.ctl / "ssh_falla_presente").touch()
-
-    assert s.motor("ConVigia2") == "fallo_1"
-    assert "CRON=jev-vigia" not in s.ultimo()
-    assert s.estado_diario() == "revertido"
-    assert crontab.read_text() == previo
-
-    (s.ctl / "ssh_falla_presente").unlink()
-    assert s.motor("ConVigia2") == "ok"
-    assert "CRON=jev-vigia" not in s.ultimo()
-    assert _vigia_en_bloque_orbit(crontab.read_text())
-
-
 def test_refresh_estimacion_desplegar_lo_instala_el_checklist_lo_exige_y_el_rollback_lo_restaura(s):
     """CLARIDAD 01 F: el cron de root corre $SRV/refresh_estimacion.sh, que antes se copiaba a
     mano. desplegar lo instala desde tools/, checklist exige que sea igual y la reversa deja la
@@ -1296,6 +1129,38 @@ def test_estimacion_s4_migracion_en_migraciones_de():
     assert r.returncode == 0, r.stderr
     assert "0093_estimacion_s4_caja_real_mx.sql\tSELECT " in r.stdout
     assert (ROOT / "migrations" / "0093_reversa_estimacion_s4_caja_real_mx.sql").exists()
+
+
+def test_migraciones_de_umbral_numerico_incluye_futuras_y_excluye_viejas(tmp_path):
+    """Ola G2: migraciones_de selecciona por umbral numerico >= 0076 (no por
+    lista de nombres de plan), excluyendo < 0076 y *_reversa_*."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master")
+    _git(repo, "config", "core.autocrlf", "false")
+    (repo / "tools/despliegue").mkdir(parents=True)
+    shutil.copy(ROOT / "tools/despliegue/comun.sh", repo / "tools/despliegue/comun.sh")
+    migrations = repo / "migrations"
+    migrations.mkdir()
+    (migrations / "0075_vieja_sin_sonda.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (migrations / "0094_futuro_plan_nuevo.sql").write_text(
+        "-- sonda-aplicada: SELECT true\nSELECT 1;\n", encoding="utf-8", newline="\n"
+    )
+    (migrations / "0094_reversa_futuro_plan_nuevo.sql").write_text(
+        "SELECT 1;\n", encoding="utf-8", newline="\n"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "umbral")
+
+    r = subprocess.run(
+        ["bash", "-c", ". tools/despliegue/comun.sh && migraciones_de HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "ORBIT_SIMULACION": "0"},
+    )
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "0094_futuro_plan_nuevo.sql\tSELECT true"
 
 
 def _compose_log(s: Servidor) -> list[str]:
@@ -1600,3 +1465,49 @@ def test_checklist_cron_orbit_usa_sha_desplegado_en_monotonia(s):
     r_viejo = s.checklist("ConCronOrbit", ORBIT_CRON_AVISA=str(avisa))
     assert r_viejo.returncode == 1
     assert "FALLA cron de Orbit" in r_viejo.stdout
+
+
+def test_cron_orbit_deduplica_jev_vigia_fuera_del_bloque_y_restaura(s):
+    """Ola G2: si jev-vigia estaba fuera del bloque Orbit, cron_orbit.sh falla
+    revisa, lo elimina de fuera al instalar (dejando una sola entrada dentro del
+    bloque) y restaura devuelve su posicion previa sin tocar tareas ajenas."""
+    crontab = s.ctl / "crontab"
+    reputacion = "0 9 * * * docker exec orbit-app-1 python -m app.cli reputacion alertas\n"
+    previo = CRONTAB_GON.replace(reputacion, reputacion + LINEAS_VIGIA, 1)
+    crontab.write_text(previo, encoding="utf-8", newline="\n")
+    avisa = s.ctl / "cron-avisa"
+    avisa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+    avisa.chmod(0o755)
+    entorno = s.entorno(
+        ORBIT_CRON_BLOQUE=str(ROOT / "tools/despliegue/crontab-orbit.txt"),
+        ORBIT_CRON_AVISA=str(avisa),
+        ORBIT_CRON_ARCHIVO=str(s.srv / "archive"),
+    )
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 1
+    r = _corre_cron_orbit(entorno, "instala")
+    assert r.returncode == 0, r.stdout + r.stderr
+    instalado = crontab.read_text(encoding="utf-8")
+    assert instalado.count("app.cli jev-vigia") == 1
+    assert "reputacion alertas" in instalado
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 0
+    respaldo = next(
+        ln.split("=", 1)[1] for ln in r.stdout.splitlines() if ln.startswith("respaldo=")
+    )
+    r_rest = _corre_cron_orbit({**entorno, "ORBIT_CRON_RESPALDO": respaldo}, "restaura")
+    assert r_rest.returncode == 0, r_rest.stdout + r_rest.stderr
+    assert crontab.read_text(encoding="utf-8") == previo
+
+    # Caso duplicado: bloque canonico ya presente + copia externa (fuera del bloque) con cron-avisa.
+    # prepara e instala deben limpiar la copia externa sin que la guarda de avisos aborte.
+    duplicado = instalado.replace(reputacion, reputacion + LINEAS_VIGIA, 1)
+    crontab.write_text(duplicado, encoding="utf-8", newline="\n")
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 1
+    r_prep = _corre_cron_orbit(entorno, "prepara")
+    assert r_prep.returncode == 0, r_prep.stdout + r_prep.stderr
+    respaldo_dup = next(
+        ln.split("=", 1)[1] for ln in r_prep.stdout.splitlines() if ln.startswith("respaldo=")
+    )
+    r_inst = _corre_cron_orbit({**entorno, "ORBIT_CRON_RESPALDO_NUEVO": respaldo_dup}, "instala")
+    assert r_inst.returncode == 0, r_inst.stdout + r_inst.stderr
+    assert crontab.read_text(encoding="utf-8").count("app.cli jev-vigia") == 1
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 0

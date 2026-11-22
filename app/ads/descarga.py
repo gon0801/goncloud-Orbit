@@ -166,12 +166,15 @@ class _FalloDeGrupo(Exception):
         self.exc = exc
 
 
-def _id_de_duplicado(exc: AdsApiError) -> str | None:
+def id_de_duplicado(exc: AdsApiError) -> str | None:
     """El 425 documenta el id duplicado en el cuerpo; None si no parsea."""
     if exc.status != 425 or not exc.cuerpo:
         return None
     match = _RE_DUPLICADO.search(exc.cuerpo)
     return match.group(1) if match else None
+
+
+_id_de_duplicado = id_de_duplicado
 
 
 def _post_reintentable(exc: AdsApiError) -> bool:
@@ -229,7 +232,7 @@ def _emitir_post(client, logico: _Logico, ahora: float) -> None:
         return
 
 
-def _url_de_completado(data: dict, report_id: str) -> str:
+def url_de_completado(data: dict, report_id: str) -> str:
     """Valida el COMPLETED antes de descargar (fileSize anormal = fail-closed
     ANTES de meter el gzip a memoria). Misma iglesia que la validacion que el
     pipeline secuencial hacia en su poll antes de descargar."""
@@ -248,6 +251,9 @@ def _url_de_completado(data: dict, report_id: str) -> str:
             "fail-closed"
         )
     return url
+
+
+_url_de_completado = url_de_completado
 
 
 def _registrar(

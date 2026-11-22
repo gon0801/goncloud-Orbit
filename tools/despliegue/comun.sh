@@ -26,7 +26,6 @@ TOPE_MOTOR=${AUTO03_TOPE_MOTOR_S:-900}
 INTERRUPTORES=tools/despliegue/interruptores.env
 TERMINALES=" verificado sin_cambios abortado_sin_cambios revertido "
 CAMBIO_RE='^(CODIGO|MIGRACION|CLAVE|CRON)='
-CRON_VIGIA=tools/despliegue/cron_jev_vigia.sh
 # ARREGLOS 01 N: el bloque de cron de Orbit vive en un archivo del repo; el instalador
 # reemplaza SOLO ese bloque y nunca quita avisos.
 CRON_ORBIT=tools/despliegue/cron_orbit.sh
@@ -192,13 +191,12 @@ aplica_clave() {
   srv "docker exec orbit-app-1 python -m app.cli productos-modo --platform $plat --$tipo ${2:-off}"
 }
 
-# migraciones_de <sha>: `archivo<TAB>sonda` de las migraciones de la receta
-# (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*,
-# *_arreglos03_*, *_temporada01_* y *_estimacion_s4_*) sin reversa, en orden.
+# migraciones_de <sha>: `archivo<TAB>sonda` de todas las migraciones numeradas >= 0076
+# sin reversa, en orden (umbral numerico en vez de lista de nombres de plan).
 migraciones_de() {
   local f s r
   for f in $(git ls-tree --name-only "$1" migrations/ | sed 's#^migrations/##' \
-    | grep -E '_(auto03|orbit07|claridad01|arreglos01|arreglos02|arreglos03|temporada01|estimacion_s4)_' | grep -v '_reversa_' | LC_ALL=C sort); do
+    | awk -F_ '$1 ~ /^[0-9]+$/ && ($1 + 0) >= 76' | grep -v '_reversa_' | LC_ALL=C sort); do
     if git show "$1:migrations/$f" | tr -d '\r' \
       | grep -Eiq '^[[:space:]]*(BEGIN|START[[:space:]]+TRANSACTION|COMMIT|ROLLBACK)[[:space:]]*(TRANSACTION|WORK)?[[:space:]]*;'; then
       echo "ABORTA: migrations/$f trae control de transaccion propio; desplegar la envuelve en una sola" >&2
@@ -223,9 +221,6 @@ sonda() {
     *) echo "ERROR: la sonda no dio t/f (salida '${r}'): $1" >&2; return 1 ;;
   esac
 }
-
-# cron_vigia <instala|quita|revisa|presente>: el instalador de la linea jev-vigia de $SHA, corrido en goncloud.
-cron_vigia() { git show "$SHA:$CRON_VIGIA" | srv "ORBIT_CRON_ARCHIVO=$SRV/archive bash -s -- $1"; }
 
 # cron_orbit <prepara|instala|revisa|restaura> [respaldo]: el instalador del bloque de
 # cron de Orbit de $SHA, corrido en goncloud. El bloque canonico viaja como archivo
@@ -313,7 +308,7 @@ sigue_candado() {
 
 # revierte: la reversa de B.2 bajo el candado ya tomado; la usan rollback.sh y desplegar.sh
 # (salida 75 con cambios, porque el motor no corre rollback con 75). Deshace solo lo anotado
-# en ultimo.env por $SHA, en orden: claves, cron (bloque Orbit y jev-vigia), codigo, sha y reversas de las migraciones
+# en ultimo.env por $SHA, en orden: claves, cron (bloque Orbit), codigo, sha y reversas de las migraciones
 # (inverso), siguiendo aunque un paso falle. Antes de cada cambio comprueba que sigue el
 # candado: sin el sale 1 dejando ESTADO=revirtiendo, y otra corrida continua la reversa.
 # Sale 0 si no habia nada que deshacer, 1 con ESTADO=revertido y 2 con rollback_incompleto.
@@ -348,8 +343,6 @@ revierte() {
   done 3<<< "$(printf '%s\n' "$L" | sed -n 's/^CLAVE=//p')"
 
   echo "== cron"
-  # El bloque Orbit se restaura primero: el respaldo de instala se tomo despues del
-  # paso 5b, asi que puede incluir jev-vigia; el quita de abajo lo vuelve a quitar.
   if printf '%s\n' "$L" | grep -qx 'CRON=orbit'; then
     respaldo=$(ultimo_de CRON_ARCHIVO "$L")
     if [ -n "$respaldo" ]; then
@@ -358,10 +351,6 @@ revierte() {
     else
       PEND="$PEND cron:orbit"
     fi
-  fi
-  if printf '%s\n' "$L" | grep -qx 'CRON=jev-vigia'; then
-    sigue_candado
-    cron_vigia quita || PEND="$PEND cron:jev-vigia"
   fi
 
   echo "== codigo"

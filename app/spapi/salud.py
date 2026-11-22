@@ -10,11 +10,10 @@ plataforma (corridas pre-A.5) = invisible para este modulo, nunca error.
 llaman las 4 ingestas justo despues de sellar y es fail-silent: ningun
 fallo suyo (ni del canal Telegram) rompe la ingesta que la llamo.
 
-Aislamiento Ads: este modulo no importa app.ads DIRECTO en ningun
-nivel (AST); en runtime solo entra app.ads.config (constantes inertes,
-cero IO) via app.notifica — nunca app.ads.write/client. El ciclo de Ads
-corre en otro proceso con otras credenciales, asi que un fallo SP-API
-—incluido LWA caido— jamas lo tumba.
+Aislamiento Ads: este modulo no importa app.ads en ningun nivel (AST ni
+runtime): los avisos salen por app.spapi.avisos -> app.notifica -> app.secrets,
+sin tocar app.ads.config/client/write. El ciclo de Ads corre en otro proceso con
+otras credenciales, asi que un fallo SP-API —incluido LWA caido— jamas lo tumba.
 """
 
 from __future__ import annotations

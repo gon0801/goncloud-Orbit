@@ -151,6 +151,11 @@ def _resenas_de(carga: Any) -> list[dict]:
     return [r for r in lote if isinstance(r, dict)]
 
 
+def _pagina_inventario_vacia(carga: Any, _lote: list[dict]) -> bool:
+    cont = carga.get("payload", carga)
+    return len(cont["inventorySummaries"]) == 0
+
+
 def recorrer_summaries(
     client: SpapiClient,
     params_base: dict,
@@ -168,6 +173,7 @@ def recorrer_summaries(
         fuente="inventario",
         error_cls=IngestaInventarioError,
         extraer_lote=_resenas_de,
+        pagina_vacia=_pagina_inventario_vacia,
         capacidad=INVENTARIO_BURST,
         tasa=INVENTARIO_TASA_SEG,
         max_paginas=max_paginas,

@@ -246,11 +246,13 @@ Orden libre entre ellos; cada merge pide su go con PR + SHA final. Gates:
 3. A.4 deploy (go de deploy): regla 2 + B.2a resuelto + aislamiento B.2
    recomprobado en el SHA final por el metodo que B.2a dejo registrado.
    El chequeo de las 10:30 exige ademas el cron real de `gon`:
-   `ssh goncloud 'bash -s' < tools/check_ads_salud_cron.sh` debe salir 0.
-   Si sale 1, A.4 no cuenta como verificada: con un go de deploy especifico,
-   respaldar el crontab de `gon`, instalar la linea exacta de `docs/DEPLOY.md`
-   para `ads-salud`, repetir el checker y observar su primera salida en
-   `logs/ads-salud.log`. No inferir que el cron existe porque el codigo esta
+   verificar con `tools/despliegue/cron_orbit.sh revisa` (el bloque canonico
+   `tools/despliegue/crontab-orbit.txt` incluye `ads-salud`) o correr
+   `MOTOR_SHA=<sha> bash tools/despliegue/checklist.sh` (debe salir 0).
+   Si falla, A.4 no cuenta como verificada: con un go de deploy especifico,
+   converger el bloque canonico con `tools/despliegue/cron_orbit.sh instala`
+   (que respalda el crontab de `gon` antes de escribir), repetir `revisa` y
+   observar su primera salida en `logs/ads-salud.log`. No inferir que el cron existe porque el codigo esta
    desplegado o porque la ingesta de las 07:10 termina bien. Los dias sin
    cron no cuentan para los siete dias de observacion de ese aviso.
    Readback diario (7 dias naturales, app en `127.0.0.1:8010` del server,

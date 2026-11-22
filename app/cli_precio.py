@@ -50,7 +50,7 @@ def _avisar_caida(plataformas, exc) -> None:
         avisar_corrida_fallida(platform, exc)
 
 
-def _abrir_plataforma(cli_mod, platform):
+def _abrir_plataforma(clientes_precio, platform):
     """El mercado ABIERTO de `platform` (ya dentro del contextmanager).
 
     `None` = la plataforma no tiene mercado (meli hasta M): exit 2.
@@ -61,7 +61,7 @@ def _abrir_plataforma(cli_mod, platform):
     de `main_precio`.
     """
     try:
-        lector, escritor, fees, limitador = cli_mod._clientes_precio(platform)
+        lector, escritor, fees, limitador = clientes_precio(platform)
     except Exception as exc:
         print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
         _avisar_caida((platform,), exc)
@@ -112,9 +112,14 @@ def _ventana_reporte(args):
     return desde, hasta
 
 
-def main_precio(args) -> int:
+def main_precio(
+    args,
+    *,
+    conexion_decide,
+    clientes_precio,
+    falta_dsn_cls: type[Exception],
+) -> int:
     """Corrida diaria del motor de precios o su reporte (REPRICING 01 A.5)."""
-    from app import cli as cli_mod
     from app.precio import corrida as corrida_precios
 
     if args.reporte:
@@ -152,8 +157,8 @@ def main_precio(args) -> int:
         print("precio exige --platform (amazon_mx|amazon_us|meli)", file=sys.stderr)
         return 2
     try:
-        conn, cerrar = cli_mod._conexion_decide()
-    except cli_mod._FaltaDsn as exc:
+        conn, cerrar = conexion_decide()
+    except falta_dsn_cls as exc:
         print(f"precio exige {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
@@ -163,7 +168,7 @@ def main_precio(args) -> int:
     rc = 0
     try:
         for indice, platform in enumerate(plataformas):
-            mercado_ctx = _abrir_plataforma(cli_mod, platform)
+            mercado_ctx = _abrir_plataforma(clientes_precio, platform)
             if mercado_ctx is None:
                 return 2
             if isinstance(mercado_ctx, int):

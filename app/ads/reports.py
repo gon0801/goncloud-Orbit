@@ -34,6 +34,8 @@ from app.ads.reports_plan import (  # noqa: F401 - re-export estable de planific
     _planea_filas_terminos,
     _sumar_decimal,
     _sumar_entero,
+    decimal_reporte,
+    entero_reporte,
     es_asin_like,
 )
 from app.ads.reports_specs import (  # noqa: F401 - re-export estable de specs/transporte
