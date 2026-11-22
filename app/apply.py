@@ -1142,7 +1142,11 @@ class Aplicador:
                 # destino viejo. El desenlace es mano_del_dueno; en temporada la
                 # hoja queda excluida del episodio. El cache lleva LO LEIDO para
                 # que el ciclo siguiente decida desde el valor real.
-                with self._conn.transaction():
+                # tx_durable: con la conexion SIN autocommit de produccion la
+                # carga de pujas ya dejo la sesion en INTRANS; un
+                # conn.transaction() a secas seria un savepoint y el rollback
+                # de la fase (cycle.py) borraria la mano del dueno.
+                with tx_durable(self._conn):
                     registra_sin_aplicar(
                         self._conn,
                         decision.id,

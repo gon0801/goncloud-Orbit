@@ -11,6 +11,10 @@
 - `test_temporada01_e_excluida_sin_recupera_control` (dinero): el mismo caso
   con UNA diferencia, la exclusion del episodio; sin ella `decide` devuelve el
   salto de R6r, con ella no.
+- `test_temporada01_e_exclusion_sobrevive_al_aborto` (escribe en produccion):
+  con la conexion SIN autocommit de produccion, un `bid_cambiado_fuera`
+  confirma la exclusion y el cache antes del LIST siguiente; si ese LIST
+  revienta y la fase de apply hace rollback, la mano del dueno sigue guardada.
 
 La lectura fresca corre en el ciclo real de MX (Amazon simulado); el control
 puro aisla la puerta de R6r porque con el bid del dueno (7.00) el techo no deja
@@ -280,3 +284,149 @@ def test_temporada01_e_excluida_sin_recupera_control():
         is None
     )
     assert not isinstance(politica.decide(excluido), politica.Regresar)
+
+
+def test_temporada01_e_exclusion_sobrevive_al_aborto():
+    """La exclusion y el cache de un `bid_cambiado_fuera` se CONFIRMAN antes de
+    la puja siguiente, con la conexion SIN autocommit de produccion
+    (`app/cli.py` abre la conexion del ciclo asi y la carga de pujas ya dejo la
+    sesion en INTRANS). Si el LIST de la puja siguiente revienta, la fase de
+    apply del ciclo hace rollback (`app/cycle.py`): la mano del dueno tiene que
+    seguir guardada. Regla 9: con un simple savepoint, el rollback borra el
+    desenlace, la exclusion y el cache."""
+    import httpx as _httpx
+    import pytest as _pytest
+    from test_apply import _aplicador, _decision_bid, _semilla
+    from test_cycle_apply import _db_temporal
+
+    from app.ads.client import AdsApiError
+    from app.apply import bids_del_ciclo
+
+    with _db_temporal("orbit_t01_e_dur") as (admin, conectar):
+        ids = _semilla(admin)
+        episodio = admin.execute(
+            "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+            " config_version_id) VALUES ('amazon_us', now(), %s, %s) RETURNING id",
+            (ids["ciclo_ejec"], ids["config"]),
+        ).fetchone()[0]
+        # Costo alto en la primera: el orden bajo cupo la pone delante.
+        dec_mano = _decision_bid(admin, ids["ciclo_dec"], ids["config"], ids["kw"], cost="200.00")
+        dec_rota = _decision_bid(admin, ids["ciclo_dec"], ids["config"], ids["kw2"], cost="80.00")
+        for dec, hoja in ((dec_mano, ids["kw"]), (dec_rota, ids["kw2"])):
+            admin.execute(
+                "INSERT INTO temporada_efecto (episodio_id, ad_entity_id, decision_id, tipo)"
+                " VALUES (%s, %s, %s, 'entra')",
+                (episodio, hoja, dec),
+            )
+        admin.commit()
+
+        listas = {"n": 0}
+
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                listas["n"] += 1
+                if listas["n"] == 1:
+                    # La primera hoja cambio de manos: Amazon tiene 1.10.
+                    return _httpx.Response(
+                        200,
+                        json={
+                            "keywords": [
+                                {"keywordId": "7201", "bid": 1.10},
+                                {"keywordId": "7202", "bid": 1.00},
+                            ]
+                        },
+                    )
+                return _httpx.Response(503, json={"message": "boom"})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        conn = conectar(autocommit=False)
+        try:
+            ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+            with _pytest.raises(AdsApiError):
+                ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+            conn.rollback()  # lo que no se confirmo se pierde (cycle.py)
+        finally:
+            conn.close()
+
+        # La sesion de control (autocommit) ve SOLO lo confirmado.
+        assert admin.execute(
+            "SELECT motivo, bid_visto FROM temporada_exclusion WHERE ad_entity_id = %s",
+            (ids["kw"],),
+        ).fetchone() == ("mano_del_dueno", Decimal("1.10")), (
+            "la exclusion del dueno se confirma antes de la puja siguiente"
+        )
+        assert admin.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0] == Decimal("1.10"), "el cache conserva lo leido"
+        assert (
+            admin.execute(
+                "SELECT desenlace FROM temporada_efecto WHERE decision_id = %s", (dec_mano,)
+            ).fetchone()[0]
+            == "mano_del_dueno"
+        )
+        assert (
+            admin.execute(
+                "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id = %s", (dec_mano,)
+            ).fetchone()[0]
+            == 1
+        )
+        # La puja que reventó no dejo exclusion ni desenlace.
+        assert (
+            admin.execute(
+                "SELECT count(*) FROM temporada_exclusion WHERE ad_entity_id = %s", (ids["kw2"],)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            admin.execute(
+                "SELECT desenlace FROM temporada_efecto WHERE decision_id = %s", (dec_rota,)
+            ).fetchone()[0]
+            is None
+        )
+
+
+def test_temporada01_e_bid_ordinario_cambiado_no_pisa():
+    """La lectura fresca es de TODA decision de bid, no solo de temporada. Un
+    recorte del motor encuentra en Amazon otro bid: cero PUT, el skip queda
+    como bid_cambiado_fuera y el cache lleva lo leido. Sin efecto de temporada
+    no hay exclusion que escribir (la frontera de la tabla manda)."""
+    from test_apply import _aplicador, _db_temporal, _decision_bid, _handler_api, _semilla
+
+    from app.apply import MOTIVO_BID_CAMBIADO_FUERA, bids_del_ciclo
+
+    with _db_temporal("orbit_t01_e_ord") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.00", new="0.85")
+        handler, vistos = _handler_api({"7201": "1.10"})
+        res = _aplicador(conn, handler, ids["ciclo_ejec"]).aplica_bids(
+            bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live"
+        )
+
+        assert res.skips == [MOTIVO_BID_CAMBIADO_FUERA], res.skips
+        assert res.aplicadas == 0
+        assert [p for p in vistos if p.method == "PUT"] == [], "jamas se pisa el bid real"
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT motivo, detalle->>'leido' FROM decision_sin_aplicar"
+        ).fetchone() == ("bid_cambiado_fuera", "1.10")
+        assert conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0] == Decimal("1.10")
+        assert conn.execute("SELECT count(*) FROM temporada_exclusion").fetchone()[0] == 0
+
+
+def test_temporada01_e_prioridad_bajo_cupo():
+    """Bajo cupo, la entrada de la baja compite con los recortes con evidencia
+    propia (nivel 1) y por delante van los movimientos que devuelven valor a la
+    hoja (nivel 0: regreso de la baja, recupera_nivel)."""
+    from app.apply import prioridad_bajo_cupo
+
+    assert prioridad_bajo_cupo("Mover", "entra_temporada_baja") == 1
+    assert prioridad_bajo_cupo("Mover", politica.MOTIVO_PIERDE_DINERO) == 1
+    assert prioridad_bajo_cupo("Regresar", "sale_temporada_baja") == 0
+    assert prioridad_bajo_cupo("Regresar", recuperacion.MOTIVO_RECUPERA_NIVEL) == 0
+    assert prioridad_bajo_cupo("Mover", "bajo_target") == 2
