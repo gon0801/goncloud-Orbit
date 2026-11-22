@@ -178,16 +178,30 @@ def _config_leida(cliente, plataforma: str, externa: str):
 
 
 _SQL_AJUSTE_POSTERIOR = """
-SELECT id, antes_config_id, despues
+SELECT id, antes_config_id, despues, regresa_a
   FROM campana_ajuste
  WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NOT NULL
  ORDER BY id
 """
 
 
-def _toca_campo(conn, antes_id: int, despues: dict, campo: str) -> bool:
+def _toca_campo(
+    conn, antes_id: int, despues: dict, campo: str, *, regresa_a: int | None = None
+) -> bool:
     """True si la fila cambio ESE campo de ConfigCampana (una orden de otra
-    ubicacion no invalida la de esta)."""
+    ubicacion no invalida la de esta).
+
+    Una REVERSION guarda como `despues` la configuracion completa anterior al
+    ajuste original, aunque solo restaura UNA ubicacion; su campo real es el
+    del ajuste padre (`regresa_a`), no las diferencias del completo."""
+    if regresa_a is not None:
+        padre = conn.execute(
+            "SELECT antes_config_id, despues FROM campana_ajuste WHERE id = %s",
+            (regresa_a,),
+        ).fetchone()
+        if padre is None:
+            return False
+        antes_id, despues = padre
     antes = config_por_id(conn, antes_id)
     despues_cfg = ConfigCampana.desde_json(despues)
     return getattr(antes, campo) != getattr(despues_cfg, campo)
@@ -210,10 +224,10 @@ def _superada(conn, ajuste_id: int, *, campana_id: int, clase: str, ajuste) -> b
     """True si una orden aceptada DESPUES toco el mismo campo: la pendiente
     quedo superada y reusarla condenaria la reaprobacion a un 409 eterno."""
     campo = campo_del_ajuste(ajuste)
-    for _pid, antes_id, despues in conn.execute(
+    for _pid, antes_id, despues, regresa_a in conn.execute(
         _SQL_AJUSTE_POSTERIOR, (campana_id, clase, ajuste_id)
     ).fetchall():
-        if _toca_campo(conn, antes_id, despues, campo):
+        if _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
             return True
     return False
 
@@ -245,10 +259,10 @@ def _aplica_y_confirma(
     if ya is not None and ya[0]:
         conn.rollback()
         return
-    for _pid, antes_id, despues in conn.execute(
+    for _pid, antes_id, despues, regresa_a in conn.execute(
         _SQL_AJUSTE_POSTERIOR, (campana_id, clase, ajuste_id)
     ).fetchall():
-        if _toca_campo(conn, antes_id, despues, campo):
+        if _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
             # La orden quedo vieja: hay otra aceptada DESPUES para el mismo
             # campo. Sin PUT; el endpoint responde 409 y el dueno recarga.
             raise AjusteEnCurso(
