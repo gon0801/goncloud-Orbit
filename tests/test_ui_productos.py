@@ -269,15 +269,13 @@ def test_r09d_error_objeto_muestra_mensaje_y_fallos_sin_object_object():
     producto) se pinta con su mensaje y cada fallo, nunca como
     [object Object]; un detail de texto se pinta tal cual."""
     archivo = RAIZ / "app" / "static" / "js" / "productos.js"
-    assert archivo.exists(), "Falta el cliente de productos"
-    # Los doce sitios de error usan mensajeError (cinco de impulso y retiro:
-    # pedir la previa vale para los dos flujos, mas lanzar, ejecutar el retiro
-    # y regresar/recrear; cuatro de los limites de la pausa: el rechazo de
-    # simular y su estado, 409 y 422 al guardar; tres del encendido: la
-    # simulacion que falla, 409 y 422 al confirmar):
-    # ninguno conserva el patron que pintaba [object Object].
-    assert "(r.data.detail || r.data)" not in archivo.read_text(encoding="utf-8")
-    assert archivo.read_text(encoding="utf-8").count("mensajeError(r.data)") == 12
+    archivo_pausa = RAIZ / "app" / "static" / "js" / "productos_pausa.js"
+    assert archivo.exists() and archivo_pausa.exists(), "Faltan los clientes de productos"
+    fuente_total = (
+        archivo.read_text(encoding="utf-8") + "\n" + archivo_pausa.read_text(encoding="utf-8")
+    )
+    assert "(r.data.detail || r.data)" not in fuente_total
+    assert fuente_total.count("mensajeError(r.data, r.status)") == 11
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:
@@ -558,7 +556,7 @@ def test_guardar_limites_por_omision_sin_claves_si_envia():
     valores por omision tal cual SI manda el POST (S8 exige los limites
     guardados antes de encender); con las claves ya guardadas e iguales, no
     se envia nada."""
-    archivo = RAIZ / "app" / "static" / "js" / "productos.js"
+    archivo = RAIZ / "app" / "static" / "js" / "productos_pausa.js"
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:
@@ -586,6 +584,12 @@ async function corre(guardados) {
     elements: {token}, querySelector: (sel) => sel === "[data-estado]" ? estado : null});
   const ids = {"limites-simular": campos, "limites-guardar": guardar};
   const llamadas = [];
+  const fetchFn = (url, opts) => {
+    llamadas.push({url, body: JSON.parse(opts.body), token: opts.headers["x-orbit-token"]});
+    return Promise.resolve({ok: true, status: 200,
+      json: () => Promise.resolve({config_version_id: 45})});
+  };
+  global.fetch = fetchFn;
   const ctx = {
     document: {
       getElementById: (id) => ids[id] || null,
@@ -594,11 +598,8 @@ async function corre(guardados) {
       createElement: () => ({}),
     },
     window: {location: {reload: () => {}}},
-    fetch: (url, opts) => {
-      llamadas.push({url, body: JSON.parse(opts.body), token: opts.headers["x-orbit-token"]});
-      return Promise.resolve({ok: true, status: 200,
-        json: () => Promise.resolve({config_version_id: 45})});
-    },
+    fetch: fetchFn,
+    Orbit,
     console,
   };
   vm.createContext(ctx);
@@ -705,7 +706,7 @@ def test_encender_js_simula_confirma_cancela_y_vuelve_a_practica():
     anuncios, productos y gasto, y solo Confirmar manda el POST con el token
     y el cuerpo exacto; Cancelar no manda POST; Volver a practica confirma y
     manda shadow; 422 muestra el motivo y 409 pide recargar."""
-    archivo = RAIZ / "app" / "static" / "js" / "productos.js"
+    archivo = RAIZ / "app" / "static" / "js" / "productos_pausa.js"
     node = shutil.which("node")
     if not node:
         if "CI" in os.environ:
@@ -756,6 +757,17 @@ async function escena({modo = "shadow", disabled = false, respuestaPost = {ok: t
     "pausa-confirmar-form": form, "pausa-cancelar": cancelar, "pausa-vivo-estado": estado};
   const llamadas = [];
   let recargas = 0;
+  const fetchFn = (url, opts) => {
+    if (!opts || !opts.method || opts.method === "GET") {
+      llamadas.push({url, metodo: "GET"});
+      return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve(SIM)});
+    }
+    llamadas.push({url, metodo: opts.method, token: opts.headers["x-orbit-token"],
+      body: JSON.parse(opts.body)});
+    const r = respuestaPost;
+    return Promise.resolve({ok: r.ok, status: r.status, json: () => Promise.resolve(r.data)});
+  };
+  global.fetch = fetchFn;
   const ctx = {
     document: {
       getElementById: (id) => ids[id] || null,
@@ -765,16 +777,7 @@ async function escena({modo = "shadow", disabled = false, respuestaPost = {ok: t
       createElement: (tag) => el({tag}),
     },
     window: {location: {reload: () => { recargas += 1; }}},
-    fetch: (url, opts) => {
-      if (!opts) {
-        llamadas.push({url, metodo: "GET"});
-        return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve(SIM)});
-      }
-      llamadas.push({url, metodo: opts.method, token: opts.headers["x-orbit-token"],
-        body: JSON.parse(opts.body)});
-      const r = respuestaPost;
-      return Promise.resolve({ok: r.ok, status: r.status, json: () => Promise.resolve(r.data)});
-    },
+    fetch: fetchFn,
     console,
     Orbit,
   };
@@ -1528,3 +1531,35 @@ def test_arreglos04_w_p_impulsar_aparte_invalida_su_previa_en_la_tabla_sin_pedid
         atributo="marcarSinPedido",
         pedir='api.verLanzamiento("[data-marcar-sin-pedido]")',
     )
+
+
+_GUION_W_P_NO_JSON = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  pendientes[pendientes.length - 1].resolve({
+    ok: STATUS_NO_JSON < 400,
+    status: STATUS_NO_JSON,
+    json: () => Promise.reject(new SyntaxError("Unexpected token '<'")),
+  });
+  await tick();
+  assert.match(estado.textContent, /No se sabe si/, "respuesta sin JSON deja estado incierto");
+  assert.equal(boton.disabled, true, "el boton queda deshabilitado tras respuesta ilegible");
+  const trasFallo = llamadas.length;
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, trasFallo, "no permite reenviar tras respuesta ilegible");
+  PEDIR();
+  assert.equal(llamadas.length, trasFallo, "no permite pedir nueva previa tras estado incierto");
+"""
+
+
+@pytest.mark.parametrize("modo", ["impulso", "retiro"])
+@pytest.mark.parametrize("status_http", [504, 200])
+def test_ejecuta_flujo_respuesta_sin_json_queda_incierta(modo, status_http):
+    """Un 504 HTML del proxy o un 200 truncado no son rechazos limpios: el
+    envio pudo haberse aplicado en Amazon y debe quedar bloqueado en fase
+    incierta hasta recargar."""
+    _corre_guion_w_p(modo, _GUION_W_P_NO_JSON.replace("STATUS_NO_JSON", str(status_http)))

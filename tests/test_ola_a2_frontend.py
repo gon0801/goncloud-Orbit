@@ -83,6 +83,7 @@ def test_scripts_aislados_en_iife_sin_colisiones_en_window():
     archivos = [
         str(JS_DIR / nombre)
         for nombre in (
+            "shell.js",
             "dashboard.js",
             "cortes.js",
             "settings.js",
@@ -91,6 +92,9 @@ def test_scripts_aislados_en_iife_sin_colisiones_en_window():
             "familias.js",
             "precios.js",
             "productos.js",
+            "productos_pausa.js",
+            "fabrica_vistas.js",
+            "fabrica_lotes.js",
             "fabrica.js",
         )
     ]
@@ -201,6 +205,7 @@ function coincide(n, sel) {
   if (sel === "[data-liberar-form]") return "data-liberar-form" in n.attrs;
   if (sel === "[data-recargar]") return "data-recargar" in n.attrs;
   if (sel === "form") return n.tagName === "FORM";
+  if (sel === "input") return n.tagName === "INPUT";
   return false;
 }
 function textoTotal(n) {
@@ -298,10 +303,77 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
   const libForm = cajaSoltar.querySelector("[data-liberar-form]");
   assert.ok(libForm && libForm.tagName === "FORM", "cablearSoltar crea un <form> real");
   assert.equal(libForm.innerHTML, undefined);
+  const inputsLib = libForm.querySelectorAll("input");
+  const porNombre = Object.fromEntries(inputsLib.map(i => [i.getAttribute("name"), i]));
+  porNombre.actor.value = "david";
+  porNombre.nota.value = "destrabar prueba";
+  porNombre.token.value = "tok-soltar";
+  libForm.events.submit({preventDefault() {}});
+  await tick();
+  const callLib = calls.find(c => c.url === "/api/precios/compuerta/44/liberar");
+  assert.ok(callLib, "submit de Soltar envia POST /liberar");
+  assert.equal(callLib.opts.headers["x-orbit-token"], "tok-soltar");
+  assert.deepEqual(JSON.parse(callLib.opts.body), {actor: "david", nota: "destrabar prueba"});
 })().catch(err => { console.error(err); process.exitCode = 1; });
 """
     r = subprocess.run(
         [node, "-e", con_formato(guion), str(JS_DIR / "precios.js")],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_ola_g1_orbit_http_error_texto_sin_fetch_manual_y_css_dividido():
+    """Ola G1 (S9): Orbit.getJson/postJson/errorTexto/fechaCorta, cero fetch
+    manual fuera de formato.js, contribucion SVG sin 200 clases CSS y modo noche."""
+    node = _node()
+    # Solo formato.js puede llamar fetch() directamente.
+    con_fetch = [
+        p.name
+        for p in sorted(JS_DIR.glob("*.js"))
+        if p.name != "formato.js" and re.search(r"\bfetch\s*\(", p.read_text(encoding="utf-8"))
+    ]
+    assert con_fetch == [], f"fetch() directo fuera de formato.js: {con_fetch}"
+
+    css_dir = JS_DIR.parent / "css"
+    contrib_css = (css_dir / "contribucion.css").read_text(encoding="utf-8")
+    decisiones_css = (css_dir / "decisiones.css").read_text(encoding="utf-8")
+    assert ".contribucion-izq-0" not in contrib_css
+    assert ".contribucion-ancho-0" not in contrib_css
+    assert 'html[data-tema="noche"]' in contrib_css
+    assert 'html[data-tema="noche"]' in decisiones_css
+    assert (css_dir / "resumen.css").exists()
+    assert (css_dir / "salud.css").exists()
+
+    guion = r"""
+const assert = require("node:assert/strict");
+assert.equal(Orbit.fechaCorta("2026-09-08"), "8 sep");
+assert.equal(
+  Orbit.errorTexto({detail: [{loc: ["body", "dias"], msg: "entero >= 1"}]}, 422, {dias: "Días"}),
+  "Días: entero >= 1",
+);
+assert.equal(Orbit.errorTexto({detail: {message: "conflicto"}}, 409), "conflicto");
+assert.equal(Orbit.errorTexto({detail: {mensaje: "fallo lote"}}, 500), "fallo lote");
+assert.equal(Orbit.errorTexto({detail: "token invalido"}, 401), "token invalido");
+assert.equal(Orbit.errorTexto({}, 502), "HTTP 502");
+
+global.fetch = async () => ({
+  ok: false,
+  status: 502,
+  json: async () => { throw new SyntaxError("Unexpected token <"); },
+});
+(async () => {
+  const r = await Orbit.postJson("/api/test", {a: 1}, "tok");
+  assert.deepEqual(r, {ok: false, status: 502, data: {}, jsonOk: false});
+  const g = await Orbit.getJson("/api/test");
+  assert.deepEqual(g, {ok: false, status: 502, data: {}, jsonOk: false});
+})().catch(err => { console.error(err); process.exitCode = 1; });
+"""
+    r = subprocess.run(
+        [node, "-e", con_formato(guion)],
         capture_output=True,
         text=True,
         check=False,

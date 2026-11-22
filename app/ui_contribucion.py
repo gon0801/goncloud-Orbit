@@ -113,15 +113,31 @@ def _eje(filas: list[tuple[Decimal, Decimal]]) -> dict | None:
 
 
 def _segmentos(conteos: dict[str, int], total: int) -> list[dict]:
+    presentes = [clase for clase in _ORDEN_CLASES if conteos[clase]]
+    if not presentes:
+        return []
+    acum_n = 0
+    acum_x = 0
     segmentos: list[dict] = []
-    for clase in _ORDEN_CLASES:
+    for idx, clase in enumerate(presentes):
         n = conteos[clase]
-        if not n:
-            continue
-        ancho = max(1, _clase_pct(Decimal(n) * 100 / Decimal(total)))
+        acum_n += n
+        restantes = len(presentes) - idx - 1
+        if restantes == 0:
+            fin = 100
+        else:
+            objetivo = _clase_pct(Decimal(acum_n) * 100 / Decimal(total))
+            fin = max(acum_x + 1, min(100 - restantes, objetivo))
         segmentos.append(
-            {"clase": clase, "etiqueta": _CLASES[clase], "n": n, "ancho": min(100, ancho)}
+            {
+                "clase": clase,
+                "etiqueta": _CLASES[clase],
+                "n": n,
+                "x": acum_x,
+                "ancho": fin - acum_x,
+            }
         )
+        acum_x = fin
     return segmentos
 
 

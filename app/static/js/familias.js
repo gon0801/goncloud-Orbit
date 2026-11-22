@@ -29,7 +29,7 @@ function crearFamilia(form, plataforma) {
         estado.textContent = "Familia creada: " + r.data.nombre;
         window.location.reload();
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {
@@ -59,7 +59,7 @@ function asignarSeleccionados(form) {
         estado.textContent = "Asignados: " + r.data.asignados;
         window.location.reload();
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.status);
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status);
       }
     })
     .catch(function () {

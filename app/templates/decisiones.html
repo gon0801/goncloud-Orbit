@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block estilos %}
+<link rel="stylesheet" href="/static/css/decisiones.css?v={{ asset_version }}">
+{% endblock %}
 
 {% macro paginador(v, prev_href, next_href) -%}
 <nav class="paginador paginador-decisiones" aria-label="Páginas">

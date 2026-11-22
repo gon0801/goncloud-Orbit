@@ -2501,7 +2501,7 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
 
     checks.update(_simula_limites(base, evidence, semilla, limites_antes))
 
-    stjs, _, js = _http(f"{base}/static/js/productos.js")
+    stjs, _, js = _http(f"{base}/static/js/productos_pausa.js")
     checks["js_filtro_cableado"] = stjs == 200 and b'getElementById("decisiones-filtro")' in js
     checks["js_limites_cableado"] = stjs == 200 and all(
         marca.encode() in js
@@ -2509,7 +2509,7 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
             'getElementById("limites-simular")',
             "/api/dashboard/productos/simula-pausa?platform=",
             '"/api/ads-optimizer/settings/"',
-            '"x-orbit-token"',
+            "Orbit.postJson",
             "El gasto pasado no es ahorro seguro",
             "Gasto que se habría evitado",
             "Ventas que se habrían perdido",

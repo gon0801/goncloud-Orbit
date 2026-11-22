@@ -546,3 +546,35 @@ def test_ui_contribucion_integracion_rollup_campana(monkeypatch):
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(name))
         )
         admin.close()
+
+
+@pytest.mark.parametrize(
+    "conteos",
+    [
+        {"pos": 16, "cruza": 16, "neg": 38, "sin": 1},
+        {"pos": 1000, "cruza": 1, "neg": 1, "sin": 1},
+        {"pos": 0, "cruza": 5, "neg": 0, "sin": 0},
+    ],
+)
+def test_segmentos_todas_las_clases_presentes_tienen_ancho_y_suman_100(conteos):
+    """Regresion barra SVG: ninguna clase presente cae a ancho 0 por redondeo
+    y los segmentos cierran exactamente en 100 sin huecos ni traslapes."""
+    from app.ui_contribucion import _segmentos
+
+    segs = _segmentos(conteos, sum(conteos.values()))
+    esperadas = [c for c in ("pos", "cruza", "neg", "sin") if conteos[c] > 0]
+    assert [s["clase"] for s in segs] == esperadas
+    assert all(s["ancho"] >= 1 for s in segs), segs
+    pos = 0
+    for s in segs:
+        assert s["x"] == pos
+        pos += s["ancho"]
+    assert pos == 100
+
+
+def test_ui_contribucion_eje_cero_no_deforma_texto_con_viewbox(monkeypatch):
+    """El texto '0' del eje usa SVG con porcentaje sin viewBox/preserveAspectRatio."""
+    html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=[_item_con_rango()]))
+    assert '<svg class="contribucion-eje-cero-svg" width="100%" height="17">' in html
+    assert 'text-anchor="middle">0</text>' in html
+    assert re.search(r'class="num contribucion-eje-cero" x="\d+%"', html)

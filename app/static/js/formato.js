@@ -155,20 +155,63 @@ var Orbit = (function () {
     return Number(p.day) + " " + MESES[Number(p.month) - 1] + ", " + p.hour + ":" + p.minute;
   }
 
+  // «2026-09-08» -> «8 sep» (usa la unica lista MESES).
+  function fechaCorta(iso) {
+    if (!iso) return "";
+    var partes = String(iso).split("-");
+    if (partes.length < 3) return String(iso);
+    return Number(partes[2]) + " " + (MESES[Number(partes[1]) - 1] || "");
+  }
+
+  // Extrae un mensaje legible de un error FastAPI (string, objeto o lista 422)
+  // para evitar "[object Object]" en cualquier pantalla.
+  function errorTexto(data, status, campos) {
+    var detalle = data && data.detail;
+    if (typeof detalle === "string" && detalle) return detalle;
+    if (Array.isArray(detalle) && detalle.length) {
+      return detalle
+        .map(function (d) {
+          var campo = d && d.loc ? d.loc[d.loc.length - 1] : null;
+          var nombre = campos && campo ? campos[campo] || campo : null;
+          return (nombre ? nombre + ": " : "") + ((d && d.msg) || "valor no válido");
+        })
+        .join("; ");
+    }
+    if (detalle && typeof detalle === "object") {
+      if (detalle.message) return String(detalle.message);
+      if (detalle.mensaje) return String(detalle.mensaje);
+    }
+    if (status) return "HTTP " + status;
+    return "la respuesta no trae detalle";
+  }
+
+  function leeJson(resp) {
+    return resp.json().then(
+      function (data) {
+        return { ok: resp.ok, status: resp.status, data: data, jsonOk: true };
+      },
+      function () {
+        return { ok: false, status: resp.status, data: {}, jsonOk: false };
+      }
+    );
+  }
+
+  // GET JSON sin cache con parseo tolerante (un 502/504 HTML no rompe la cadena).
+  function getJson(url) {
+    return fetch(url, { method: "GET", cache: "no-store" }).then(leeJson);
+  }
+
   // POST JSON autenticado SOLO por header x-orbit-token (nunca query string).
+  // Sin token (undefined/null) omite el header (rutas de solo lectura/plan).
   function postJson(url, cuerpo, token) {
+    var headers = { "Content-Type": "application/json" };
+    if (token !== undefined && token !== null) headers["x-orbit-token"] = token;
     return fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-orbit-token": token,
-      },
+      cache: "no-store",
+      headers: headers,
       body: JSON.stringify(cuerpo),
-    }).then(function (resp) {
-      return resp.json().catch(function () { return {}; }).then(function (data) {
-        return { ok: resp.ok, status: resp.status, data: data };
-      });
-    });
+    }).then(leeJson);
   }
 
   return {
@@ -178,6 +221,9 @@ var Orbit = (function () {
     fraccionPct: fraccionPct,
     numero: numero,
     fechaHora: fechaHora,
+    fechaCorta: fechaCorta,
+    errorTexto: errorTexto,
+    getJson: getJson,
     postJson: postJson,
     el: el,
   };

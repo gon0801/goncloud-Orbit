@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block estilos %}
+<link rel="stylesheet" href="/static/css/salud.css?v={{ asset_version }}">
+{% endblock %}
 {% block subtitulo_pagina %}Último ciclo, los 14 anteriores y lo que se saltó{% endblock %}
 {% block contenido %}
 <section class="salud-plataformas" aria-label="Estado por plataforma">

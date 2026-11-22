@@ -40,15 +40,10 @@ function verPlan(form) {
   var estado = form.querySelector("[data-estado]");
   var aplicar = form.querySelector('button[type="submit"]');
   estado.textContent = "Consultando…";
-  fetch("/api/ads-optimizer/campana-ajuste/plan?" + paramsAjuste(form))
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.getJson("/api/ads-optimizer/campana-ajuste/plan?" + paramsAjuste(form))
     .then(function (r) {
       if (!r.ok) {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status) + ".";
         return;
       }
       frase.textContent = r.data.frase;
@@ -104,26 +99,13 @@ function aplicar(form) {
   if (casilla && casilla.checked) {
     cuerpo.acepto_presupuesto_alto = true;
   }
-  fetch("/api/ads-optimizer/campana-ajuste/aplicar", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify(cuerpo),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, status: resp.status, data: data };
-      });
-    })
+  Orbit.postJson("/api/ads-optimizer/campana-ajuste/aplicar", cuerpo, form.elements.token.value)
     .then(function (r) {
       if (r.ok) {
         estado.textContent = "Ajuste aplicado.";
         return;
       }
-      var detalle = r.data.detail;
-      estado.textContent = "Error: " + ((detalle && detalle.message) || detalle || r.data) + ".";
+      estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status) + ".";
       aplicarBtn.disabled = false;
     })
     .catch(function () {
@@ -144,24 +126,16 @@ function regresar(form) {
   var boton = form.querySelector('button[type="submit"]');
   boton.disabled = true;
   estado.textContent = "Enviando…";
-  fetch("/api/ads-optimizer/campana-ajuste/" + form.dataset.ajusteId + "/regresar", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-orbit-token": form.elements.token.value,
-    },
-    body: JSON.stringify({ actor: form.elements.actor.value }),
-  })
-    .then(function (resp) {
-      return resp.json().then(function (data) {
-        return { ok: resp.ok, data: data };
-      });
-    })
+  Orbit.postJson(
+    "/api/ads-optimizer/campana-ajuste/" + form.dataset.ajusteId + "/regresar",
+    { actor: form.elements.actor.value },
+    form.elements.token.value
+  )
     .then(function (r) {
       if (r.ok) {
         estado.textContent = "Ajuste regresado.";
       } else {
-        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+        estado.textContent = "Error: " + Orbit.errorTexto(r.data, r.status) + ".";
         boton.disabled = false;
       }
     })
