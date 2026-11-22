@@ -570,10 +570,24 @@ def test_cli_reconcilia_sin_huerfanos_sale_0(monkeypatch):
         assert efecto.main([]) == 0
 
 
+# Migraciones posteriores a ORDEN_PERIMETRO necesarias para _confirma_resumen
+# (apply.py cierra efecto de temporada y registra sin_aplicar / ajuste).
+_MIGRACIONES_EXTRA_DUPLICADO_MOTOR = (
+    "0044_decision_sin_aplicar.sql",
+    "0045_sin_aplicar_choque_clave.sql",
+    "0060_bids02_base_lectura.sql",
+    "0061_bids02_campana_config.sql",
+    "0067_bids02_campana_ajuste.sql",
+    "0093_temporada01_episodio.sql",
+)
+
+
 @_skip_db
 def test_duplicado_del_motor_sella_ack_sin_id(monkeypatch):
     _parche(monkeypatch)
     with _db() as conn:
+        for mig in _MIGRACIONES_EXTRA_DUPLICADO_MOTOR:
+            conn.execute((RAIZ / "migrations" / mig).read_text(encoding="utf-8"))
         _grupo_id, grupo_ext, campana = _grupo(conn, "amazon_mx")
         _cola(conn, _grupo_id, "amazon_mx", "baño")
         fila_id = conn.execute("SELECT id FROM apply_queue").fetchone()[0]
@@ -2028,3 +2042,20 @@ def test_arreglos04_bb_reparacion_nace_marcada_antes_del_acuse(monkeypatch):
             f"la recuperacion adopto el ENABLED ajeno kid-ajeno: {pasos}"
         )
         assert not any(p[0] == "aplicado" for p in pasos)
+
+
+def test_fallo_de_redacta_secretos_en_cuerpo_ads_api_error():
+    """F2 (Ola D3a): _fallo_de pasa el cuerpo 4xx de AdsApiError por scrub."""
+    from app.ads.client import AdsApiError
+    from app.redaction import REDACTED, register_secret
+
+    secreto = "tok-bloqueo-super-secreto-987654"
+    register_secret(secreto)
+    err = AdsApiError(f"rechazo 400 con token {secreto}")
+    err.status = 400
+    err.cuerpo = f'{{"error":"invalid","token":"{secreto}"}}'
+    motivo, status, cuerpo = efecto._fallo_de(err)
+    assert motivo == "http_400"
+    assert status == 400
+    assert secreto not in cuerpo
+    assert REDACTED in cuerpo

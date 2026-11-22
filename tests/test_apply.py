@@ -2761,3 +2761,62 @@ def test_clave_orden_cambio_empate_con_null_no_revienta():
     ajuste = (ancla, 2, 2, "MXN", None)
     assert max([motor, ajuste], key=_clave_orden_cambio) == ajuste
     assert min([motor, ajuste], key=_clave_orden_cambio) == motor
+
+
+def test_reconcilia_bids_reutiliza_cliente_entre_ambiguos_y_sin_sello(monkeypatch):
+    """Ola D3a (regla 9): reconcilia_bids reutiliza cliente_holder[0] entre la
+    pasada de ambiguos sellados y la de intentos sin sello en vez de llamar
+    aplicador._cliente() dos veces."""
+    from contextlib import nullcontext
+
+    from app import apply_reconcilia
+    from app.apply import reconcilia_bids
+
+    class _Cur:
+        def __init__(self, filas):
+            self._filas = filas
+
+        def fetchall(self):
+            return self._filas
+
+        def fetchone(self):
+            return self._filas[0] if self._filas else None
+
+    class _Conn:
+        autocommit = True
+
+        def execute(self, sql, params=None):
+            if "fallo:readback_ambiguo" in sql:
+                return _Cur([(1, 10, 100, Decimal("5.00"), Decimal("4.50"))])
+            if "finished_at IS NULL" in sql:
+                return _Cur([(2, 20, {}, 200, Decimal("3.50"), "MXN")])
+            return _Cur([])
+
+        def transaction(self):
+            return nullcontext()
+
+    llamadas_cliente = 0
+
+    class _Aplicador:
+        cycle_id_ejecutor = 7
+
+        def _cliente(self):
+            nonlocal llamadas_cliente
+            llamadas_cliente += 1
+            return object()
+
+    monkeypatch.setattr(apply_reconcilia, "gate_ancestros", lambda _c, _e: None)
+    monkeypatch.setattr(apply_reconcilia, "_identidad", lambda _c, eid: ("keyword", str(eid)))
+    monkeypatch.setattr(
+        apply_reconcilia,
+        "_bid_de_readback",
+        lambda _cli, _p, _c, _k, ext: Decimal("4.50") if ext == "100" else Decimal("3.50"),
+    )
+    monkeypatch.setattr(apply_reconcilia, "_ledger", lambda *_a, **_k: 99)
+    monkeypatch.setattr(apply_reconcilia, "_sella_ledger", lambda *_a, **_k: None)
+    monkeypatch.setattr(apply_reconcilia, "_confirma_resumen", lambda *_a, **_k: None)
+    monkeypatch.setattr(apply_reconcilia, "_actualiza_cache", lambda *_a, **_k: None)
+
+    confirmadas, fallidas = reconcilia_bids(_Conn(), _Aplicador(), "amazon_mx")
+    assert (confirmadas, fallidas) == (2, 0)
+    assert llamadas_cliente == 1

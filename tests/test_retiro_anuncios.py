@@ -575,7 +575,7 @@ def test_repone_reactiva_y_segunda_no_repite():
 def test_parejas_ignora_archived():
     """I.4: una campana cuyo unico product ad de otra familia esta
     ARCHIVED conserva su familia (el SQL solo cuenta ENABLED/PAUSED)."""
-    from app import cycle as ciclo
+    from app import cycle_target
     from app.optimizer.goals import familia_efectiva_por_campana
 
     with _db_i4("orbit_i4_pf") as conn:
@@ -605,7 +605,9 @@ def test_parejas_ignora_archived():
         )
         pares = [
             (f[0], f[1])
-            for f in conn.execute(ciclo._SQL_PAREJAS_CAMPANA_FAMILIA, ("amazon_mx",)).fetchall()
+            for f in conn.execute(
+                cycle_target._SQL_PAREJAS_CAMPANA_FAMILIA, ("amazon_mx",)
+            ).fetchall()
         ]
         assert pares == [(camp, fam_a)]
         assert familia_efectiva_por_campana(pares) == {camp: fam_a}

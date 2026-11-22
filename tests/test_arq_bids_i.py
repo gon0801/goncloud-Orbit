@@ -31,11 +31,20 @@ def test_detector_caza_import_fuga_en_impulso(tmp_path):
 
 
 def test_retiro_no_importa_write_directo():
-    """I.4: app/retiro_anuncios.py escribe por archivar, nunca por
-    app.ads.write directo (regla 15)."""
-    assert RETIRO.exists(), "sin app/retiro_anuncios.py el candado pasaria en falso"
-    fugas = _violaciones(_imports_runtime(RETIRO), ("app.ads.write",))
-    assert not fugas, f"app/retiro_anuncios.py no toca app.ads.write: {fugas}"
+    """I.4: toda la familia app/retiro_anuncios*.py escribe por archivar,
+    nunca por app.ads.write directo (regla 15)."""
+    modulos = sorted(
+        p.relative_to(RAIZ).as_posix() for p in (RAIZ / "app").rglob("retiro_anuncios*.py")
+    )
+    assert {
+        "app/retiro_anuncios.py",
+        "app/retiro_anuncios_base.py",
+        "app/retiro_anuncios_regreso.py",
+        "app/retiro_anuncios_reconcilia.py",
+    } <= set(modulos), f"faltan modulos del retiro: {modulos}"
+    for rel in modulos:
+        fugas = _violaciones(_imports_runtime(RAIZ / rel), ("app.ads.write",))
+        assert not fugas, f"{rel} no toca app.ads.write: {fugas}"
 
 
 def test_detector_caza_write_en_retiro(tmp_path):
