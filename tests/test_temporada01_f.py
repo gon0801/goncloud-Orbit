@@ -41,7 +41,7 @@ from test_temporada01_b import (
     _siembra_metricas,
 )
 
-from app import apply, apply_cola, temporada_io
+from app import apply_cola, temporada_io
 from app import cycle as ciclo
 from app.optimizer import temporada
 
@@ -280,7 +280,9 @@ def test_temporada01_f_reactiva_solo_pausas_de_baja():
 
         handler, vistos = _handler_cortes(estados={"7201": "PAUSED"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
-        res = ap.aplica_reactivaciones(conn, apply.resumes_del_ciclo(conn, ciclo_resume), tick=None)
+        res = apply_cola.aplica_reactivaciones(
+            conn, ap, apply_cola.resumes_del_ciclo(conn, ciclo_resume), tick=None
+        )
 
         assert res.confirmadas == 1, res
         assert res.omitidas == 0 and res.fallidas == 0 and res.sin_quota == 0
@@ -568,9 +570,10 @@ def test_temporada01_f_sello_de_reactivacion_sobrevive_al_aborto():
         try:
             ap = _aplicador(conn_no_auto, handler, ids["ciclo_ejec"])
             with _pytest.raises(ApplyAbortado):
-                ap.aplica_reactivaciones(
+                apply_cola.aplica_reactivaciones(
                     conn_no_auto,
-                    apply.resumes_del_ciclo(conn_no_auto, ciclo_resume),
+                    ap,
+                    apply_cola.resumes_del_ciclo(conn_no_auto, ciclo_resume),
                     tick=tick_que_aborta,
                 )
             conn_no_auto.rollback()
@@ -720,3 +723,71 @@ def test_temporada01_f_aviso_solo_en_ciclo_live(monkeypatch):
         assert res.status == "done", res.notes
         assert enviados == [], "en practica no hay aviso operativo"
         assert "aviso" not in (json.loads(res.notes).get("temporada") or {})
+
+
+@_skip_db
+def test_temporada01_ola2_reactivaciones_un_escaneo_y_cap_saturado(monkeypatch):
+    """Ola 2D: aplica_reactivaciones consulta presupuestos UNA sola vez por
+    lote (no por decision) y reporta CapSaturado cuando satura el cupo."""
+    from app import apply_cola_ejecuta
+
+    with _db_temporal("orbit_t01_ola2_react") as (conn, _conectar):
+        ahora = _reloj()
+        ids = _semilla(conn)
+        from psycopg.types.json import Json
+
+        settings_f = {**CONFIG_TEMPORADA, "ads_apply_cap_amazon_us_pause": 2}
+        config_id = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('ola2-cap', %s) RETURNING id",
+            (Json(settings_f),),
+        ).fetchone()[0]
+        cerrado = _episodio(conn, config_id, ids["ciclo_ejec"], ahora, cerrado=True)
+        for hoja in (ids["kw"], ids["kw2"]):
+            _pausa_baja(
+                conn,
+                ciclo_id=ids["ciclo_dec"],
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            _pausado(conn, hoja)
+        ciclo_resume = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        estacion = temporada.resuelve(temporada.desde_settings(settings_f), estacion_dia())
+        for r in temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset()):
+            p = ciclo.pendiente_reactivacion(r, estacion, decidido_el=ahora)
+            conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+                " config_version_id, data_observed_at, window_start, window_end, inputs)"
+                " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+                (
+                    ciclo_resume,
+                    r.ad_entity_id,
+                    ahora,
+                    config_id,
+                    ahora,
+                    ahora.date(),
+                    ahora.date(),
+                    json.dumps(p.inputs),
+                ),
+            )
+        escaneos = {"n": 0}
+        original = apply_cola_ejecuta.presupuestos_campanas_hoy
+
+        def _contando(*args, **kwargs):
+            escaneos["n"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(apply_cola_ejecuta, "presupuestos_campanas_hoy", _contando)
+        handler, _vistos = _handler_cortes(estados={"7201": "PAUSED", "7202": "PAUSED"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = apply_cola.aplica_reactivaciones(
+            conn, ap, apply_cola.resumes_del_ciclo(conn, ciclo_resume), tick=None
+        )
+
+        assert res.confirmadas == 2, res
+        assert escaneos["n"] == 1, f"esperaba 1 escaneo de presupuesto, hubo {escaneos['n']}"
+        assert len(res.caps_saturados) == 1, res.caps_saturados
+        assert res.caps_saturados[0].kind == "pause"

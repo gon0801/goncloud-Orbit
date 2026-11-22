@@ -116,19 +116,21 @@ def _cuenta_excluidas_temporada(
     *,
     floor,
     ceiling,
+    pendiente_t: temporada.Pendiente | None = None,
 ) -> None:
     """TEMPORADA 01 F: cuenta para el aviso del dia las hojas que la entrada no
     toco (mano del dueno, bid heredado, sin centavo factible). Solo en una baja
     viva; es una lectura en memoria, sin HTTP ni escrituras."""
     plat_t = contadores.temporada_plat
     if (
-        lecturas is None
+        (pendiente_t is None and lecturas is None)
         or plat_t is None
-        or plat_t.modo != "live"
+        or not plat_t.en_vivo
         or plat_t.estacion.fase != "baja"
     ):
         return
-    pendiente_t = lecturas.pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
+    if pendiente_t is None:
+        pendiente_t = lecturas.pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
     if isinstance(pendiente_t, temporada.SinPendiente) and (
         pendiente_t.motivo in _MOTIVOS_EXCLUIDAS_TEMPORADA
     ):
@@ -194,7 +196,7 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         return
     assert goal is not None
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
-    frontera_h, efecto_en_vuelo = _frontera_temporada(
+    pendiente_t, frontera_h, efecto_en_vuelo = _frontera_temporada(
         lecturas, contadores, entidad_id, current_bid, floor=floor, ceiling=ceiling
     )
     clave_pausa = (entidad_id, "entity_cut", None)
@@ -209,15 +211,32 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
     # retorno de inertes: una inerte con bid heredado, mano del dueno o sin
     # centavo factible tambien es «no toco» para el aviso.
     _cuenta_excluidas_temporada(
-        contadores, lecturas, entidad_id, current_bid, floor=floor, ceiling=ceiling
+        contadores,
+        lecturas,
+        entidad_id,
+        current_bid,
+        floor=floor,
+        ceiling=ceiling,
+        pendiente_t=pendiente_t,
     )
-    plat_t_inerte = contadores.temporada_plat
-    entran_inertes = (
-        lecturas is not None
-        and plat_t_inerte is not None
-        and plat_t_inerte.modo == "live"
-        and lecturas.tiene_pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
+    plat_t = contadores.temporada_plat
+    temporada_viva = plat_t is not None and plat_t.en_vivo
+    tiene_pendiente_t = (
+        isinstance(
+            pendiente_t,
+            (
+                temporada.EntradaPendiente,
+                temporada.AjustePendiente,
+                temporada.RestauracionPendiente,
+            ),
+        )
+        if pendiente_t is not None
+        else (
+            lecturas is not None
+            and lecturas.tiene_pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
+        )
     )
+    entran_inertes = temporada_viva and tiene_pendiente_t
     if entidad_id in inertes and not entran_inertes:
         contadores.skips_entidad[MOTIVO_ENTIDAD_INERTE] += 1
         tick()
@@ -225,15 +244,9 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
     if ad_group_id not in corte_pause_por_grupo:
         corte_pause_por_grupo[ad_group_id] = evidencia_ad_groups.get(ad_group_id)
     evidencia = corte_pause_por_grupo[ad_group_id]
-    plat_t_hoja = contadores.temporada_plat
     mult_baja_hoja = (
         frontera_h.mult_cortes
-        if (
-            frontera_h is not None
-            and frontera_h.fase_hoja == "baja"
-            and plat_t_hoja is not None
-            and plat_t_hoja.modo == "live"
-        )
+        if (frontera_h is not None and frontera_h.fase_hoja == "baja" and temporada_viva)
         else None
     )
     corte_pause = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_baja_hoja)
@@ -315,9 +328,8 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
     }.get(procedencia)
     evaluacion_producto = meta_viva.product_id if meta_viva is not None else None
     contadores.targets[entidad_id] = (target, procedencia)
-    plat_t = contadores.temporada_plat
     mult_live = cerca_live = None
-    if plat_t is not None and plat_t.modo == "live" and frontera_h is not None:
+    if temporada_viva and frontera_h is not None:
         cerca_live = frontera_h.cerca_hoja
         if frontera_h.fase_hoja == "baja":
             mult_live = frontera_h.mult_cortes
@@ -445,6 +457,7 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         equilibrio_acos_pct=equilibrio_hoja,
         procedencia=procedencia,
         con_temporada=not efecto_en_vuelo,
+        frontera_h=frontera_h,
     )
     veredicto = decisor(caso)
     _anota_regreso_retenido(
@@ -457,6 +470,7 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         current_bid,
         floor=floor,
         techo=ceiling,
+        pendiente_t=pendiente_t,
     )
     if caso_sombra is not None:
         _compara_temporada(

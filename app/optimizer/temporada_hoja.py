@@ -14,44 +14,19 @@ from typing import TYPE_CHECKING, Literal
 
 from app.optimizer import recuperacion
 from app.optimizer.centavos import CENTAVO, centavo_hacia
-from app.optimizer.temporada_config import Estacion, Fase
+from app.optimizer.temporada_config import (
+    EpisodioVigente,
+    Estacion,
+    Fase,
+    FinReduccion,
+    FronteraHoja,
+)
 
 if TYPE_CHECKING:
     from app.optimizer.caso import CasoHoja
     from app.optimizer.recuperacion import CadenaBid, ReduccionVigente
 
 DIAS_CERCA = 90  # la cerca caduca a los 90 dias (caso.DIAS_LOOKBACK)
-
-
-@dataclass(frozen=True)
-class EpisodioVigente:
-    """El episodio abierto de la plataforma (lo lee temporada_io.lee_estado)."""
-
-    id: int
-    abierto_el: dt.datetime
-
-
-@dataclass(frozen=True)
-class FinReduccion:
-    """La reduccion vieja de una hoja termina en este ciclo, sin enviar nada."""
-
-    episodio_id: int
-    motivo: Literal["ya_arriba", "mano_del_dueno"]
-    excluye_abierto: bool
-    bid_visto: Decimal | None = None
-
-
-@dataclass(frozen=True)
-class FronteraHoja:
-    """Lo que la temporada dice de UNA keyword para cortes y juicio."""
-
-    fase_hoja: Fase
-    mult_cortes: Decimal
-    cerca_hoja: dt.date | None
-    cerca_plataforma: dt.date | None
-    episodio_id: int | None
-    fin: FinReduccion | None = None
-    exclusion_hoy: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -131,16 +106,16 @@ def nivel_de_regreso(
     return min(max(nivel, piso_c), techo_c)
 
 
-def techo_de_baja(caso: CasoHoja) -> Decimal | None:
+def techo_de_baja(caso: CasoHoja, *, cadena: CadenaBid | None = None) -> Decimal | None:
     t = caso.temporada
     if t is None or t.frontera.fase_hoja != "baja" or t.frontera.fin is not None:
         return None
-    cad = recuperacion.cadena_bid(caso)
+    cad = cadena if cadena is not None else recuperacion.cadena_bid(caso)
     red = cad.reduccion if cad is not None else None
     if red is None:
         return None
     r_efectiva = Decimal(1) - red.ultimo_bid / red.base
-    techo_eco = recuperacion.techo_conocido(caso, hasta=red.primer_el) or red.base
+    techo_eco = recuperacion.techo_conocido(caso, hasta=red.primer_el, cadena=cad) or red.base
     techo_eco = max(techo_eco, red.base)
     return (techo_eco * (Decimal(1) - r_efectiva)).quantize(CENTAVO, rounding=ROUND_FLOOR)
 

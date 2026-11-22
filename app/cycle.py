@@ -575,7 +575,7 @@ def _corre_fases(
     with conn.transaction():
         plat_t = contadores.temporada_plat
         ep_abierto = None
-        if plat_t is not None and plat_t.modo == "live" and modo.modo == "live":
+        if plat_t is not None and plat_t.en_vivo and modo.modo == "live":
             ep = temporada_io.registra_ciclo(
                 conn,
                 platform,
@@ -642,7 +642,7 @@ def _corre_fases(
     aviso_temporada: str | None = None
     if (
         plat_t is not None
-        and plat_t.modo == "live"
+        and plat_t.en_vivo
         and modo.modo == "live"
         and cuerpo.get("temporada") is not None
     ):

@@ -163,6 +163,46 @@ class ResumenTemporada:
 
 
 @dataclass(frozen=True)
+class EpisodioVigente:
+    """El episodio abierto de la plataforma (lo lee temporada_io.lee_estado)."""
+
+    id: int
+    abierto_el: dt.datetime
+
+
+@dataclass(frozen=True)
+class FinReduccion:
+    """La reduccion vieja de una hoja termina en este ciclo, sin enviar nada."""
+
+    episodio_id: int
+    motivo: Literal["ya_arriba", "mano_del_dueno"]
+    excluye_abierto: bool
+    bid_visto: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class FronteraHoja:
+    """Lo que la temporada dice de UNA keyword para cortes y juicio."""
+
+    fase_hoja: Fase
+    mult_cortes: Decimal
+    cerca_hoja: dt.date | None
+    cerca_plataforma: dt.date | None
+    episodio_id: int | None
+    fin: FinReduccion | None = None
+    exclusion_hoy: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class EpisodioPresupuesto:
+    """Hechos de un episodio para propuestas de presupuesto (bloque G)."""
+
+    id: int
+    abierto_el: dt.date
+    cerrado_el: dt.date | None
+
+
+@dataclass(frozen=True)
 class _Bloque:
     """Bloque circular instanciado en fechas reales de un ano."""
 
@@ -261,16 +301,13 @@ def _fecha_mes(anio: int, mes: int) -> dt.date:
     return dt.date(anio + (mes - 1) // 12, (mes - 1) % 12 + 1, 1)
 
 
-def _instancias(config_like, anio: int) -> list[_Bloque]:
+def _instancias(
+    meses: tuple[TipoMes, ...],
+    dias_preparacion: int,
+    fin_anticipado: dt.date | None,
+    anio: int,
+) -> list[_Bloque]:
     """Bloques del ano `anio` en fechas reales con `restaura` para bloques de baja."""
-    if isinstance(config_like, ConfigTemporada):
-        meses, prep, fin = (
-            config_like.meses,
-            config_like.dias_preparacion,
-            config_like.fin_anticipado,
-        )
-    else:
-        meses, prep, fin = config_like[0], config_like[1], None
     rachas = _rachas(meses)
     altas_vecinas = [
         _fecha_mes(vecino, m0 + 1)
@@ -287,9 +324,9 @@ def _instancias(config_like, anio: int) -> list[_Bloque]:
             r = fin_natural
             siguientes = [a for a in altas_vecinas if a > inicio]
             if siguientes:
-                r = min(r, min(siguientes) - dt.timedelta(days=prep))
-            if fin is not None and inicio <= fin < r:
-                r = fin
+                r = min(r, min(siguientes) - dt.timedelta(days=dias_preparacion))
+            if fin_anticipado is not None and inicio <= fin_anticipado < r:
+                r = fin_anticipado
             restaura = r
         bloques.append(_Bloque(tipo=tipo, inicio=inicio, fin=fin_natural, restaura=restaura))
     return bloques
@@ -302,7 +339,7 @@ def _nombre_bloque(m0: int, largo: int) -> str:
 
 
 def _chequea_bloques_de_baja(meses: tuple[TipoMes, ...], prep: int) -> None:
-    bloques = _instancias((meses, prep), ANIO_REFERENCIA)
+    bloques = _instancias(meses, prep, None, ANIO_REFERENCIA)
     for tipo, m0, largo in _rachas(meses):
         if tipo != "baja":
             continue
@@ -321,7 +358,7 @@ def _chequea_bloques_de_baja(meses: tuple[TipoMes, ...], prep: int) -> None:
 
 def _fin_dentro_de_baja(meses: tuple[TipoMes, ...], prep: int, fin: dt.date) -> bool:
     for anio in (fin.year - 1, fin.year):
-        for bloque in _instancias((meses, prep), anio):
+        for bloque in _instancias(meses, prep, None, anio):
             if (
                 bloque.tipo == "baja"
                 and bloque.restaura is not None

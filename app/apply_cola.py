@@ -28,17 +28,26 @@ from app.ads.client import AdsApiError
 from app.apply import (
     Aplicador,
     CapSaturado,
-    DecisionBid,
     consume_quota_y_sello,
     evento_cap_saturado,
 )
 from app.apply_cola_ejecuta import (  # noqa: F401 - re-export estable
     _SQL_CACHE_ESTADO,
+    _SQL_FILA,
+    _SQL_RESUMES_CICLO,
+    SQL_GRUPOS_PAUSA_PRODUCTO,
+    DecisionResume,
+    FilaCola,
+    ResumenReactivacion,
     _cliente_mutacion,
     _ejecuta_negative,
     _ejecuta_pause,
     _ejecuta_rama,
     _termina,
+    aplica_reactivaciones,
+    fila_cola,
+    grupos_con_pausa_producto,
+    resumes_del_ciclo,
     reversa_negative,
     reversa_pause,
 )
@@ -131,11 +140,6 @@ SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
  ORDER BY encolado_at, id
 """
 
-_SQL_FILA = """
-SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
-  FROM apply_queue WHERE id = %s
-"""
-
 _SQL_LIBERA = """
 UPDATE apply_queue SET estado = 'released', released_at = now()
  WHERE id = %s AND estado = 'pending_veto'
@@ -188,30 +192,6 @@ _SQL_CANDADO_PAUSA_PRODUCTO = (
     "SELECT pg_advisory_xact_lock_shared(hashtext('auto03-pausa-' || %s::text))"
 )
 
-# TEMPORADA 01 F: grupos (ad_group) con una pausa de producto en vuelo. UNA
-# fuente: la usan el recorrido del ciclo (salta hojas) y el aplicador de
-# reactivaciones (no reactiva una hoja de un grupo con pausa de producto).
-SQL_GRUPOS_PAUSA_PRODUCTO = """
-SELECT DISTINCT pa.parent_id
-  FROM apply_queue q
-  JOIN ad_entity pa ON pa.id = q.ad_entity_id AND pa.kind = 'product_ad'
- WHERE q.platform = %s::platform AND q.kind = 'pause' AND q.modo = 'live'
-   AND q.estado IN ('pending_veto', 'released', 'applying') AND q.vetoed_at IS NULL
-   AND (SELECT count(*) FILTER (WHERE li.product_id IS NULL) = 0
-               AND count(DISTINCT li.product_id) = 1
-          FROM ad_entity o
-          LEFT JOIN ad_entity_state s ON s.ad_entity_id = o.id
-          LEFT JOIN listing li ON li.id = o.listing_id AND li.platform = o.platform
-         WHERE o.parent_id = pa.parent_id AND o.kind = 'product_ad'
-           AND s.status IS DISTINCT FROM 'ARCHIVED')
-"""
-
-
-def grupos_con_pausa_producto(conn: psycopg.Connection, platform: str) -> frozenset[int]:
-    """Los ad_group con una pausa de producto en vuelo (solo lectura)."""
-    return frozenset(f[0] for f in conn.execute(SQL_GRUPOS_PAUSA_PRODUCTO, (platform,)).fetchall())
-
-
 _SQL_GRUPO_VIVO = """
 SELECT e.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
   FROM ad_entity e
@@ -242,23 +222,6 @@ class ResultadoLiberacion:
     alertas: tuple[apply_harvest.AlertaHarvest, ...] = ()
     caps_saturados: tuple[CapSaturado, ...] = ()
     revalidaciones_economicas: tuple[dict, ...] = ()
-
-
-@dataclass(frozen=True)
-class FilaCola:
-    id: int
-    kind: str
-    ad_entity_id: int
-    search_term: str | None
-    decision_id: int
-    request_payload: dict
-    estado: str
-
-
-def fila_cola(conn: psycopg.Connection, queue_id: int) -> FilaCola | None:
-    """Carga UNA fila de la cola como FilaCola (None si no existe)."""
-    fila = conn.execute(_SQL_FILA, (queue_id,)).fetchone()
-    return FilaCola(*fila) if fila is not None else None
 
 
 def claves_bloqueadas(
@@ -320,15 +283,7 @@ def _modo_efectivo_corte(
     if identidad is None:
         return "shadow"
     if identidad[0] in ("keyword", "product_target"):
-        decision = DecisionBid(
-            id=0,
-            ad_entity_id=ad_entity_id,
-            old_value=None,
-            new_value=None,
-            value_currency=None,
-            inputs={},
-        )
-        return aplicador.modo_efectivo(conn, decision, escalera_global=escalera_global)
+        return aplicador.modo_efectivo(conn, ad_entity_id, escalera_global=escalera_global)
     if identidad[0] == "product_ad":
         return _modo_pausa_producto(conn, platform, ad_entity_id, escalera_global)
     fila = conn.execute(_SQL_GRUPO_VIVO, (ad_entity_id,)).fetchone()

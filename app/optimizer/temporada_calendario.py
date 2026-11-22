@@ -40,10 +40,14 @@ NOMBRES_PLATAFORMA = {"amazon_mx": "MX", "amazon_us": "US"}
 MESES_LARGOS = MESES_ANIO
 
 
+def _bloques_de(config: ConfigTemporada, anio: int):
+    return _instancias(config.meses, config.dias_preparacion, config.fin_anticipado, anio)
+
+
 def resuelve(config: ConfigTemporada, dia: dt.date) -> Estacion:
     """Fase de `dia` para TODA la plataforma (prioridad: alta > preparacion > baja > normal)."""
-    bloques_prev_y_actual = _instancias(config, dia.year - 1) + _instancias(config, dia.year)
-    bloques = bloques_prev_y_actual + _instancias(config, dia.year + 1)
+    bloques_prev_y_actual = _bloques_de(config, dia.year - 1) + _bloques_de(config, dia.year)
+    bloques = bloques_prev_y_actual + _bloques_de(config, dia.year + 1)
 
     def _estacion(fase: Fase, *, previa_alta: bool, inicio_bloque: dt.date) -> Estacion:
         return Estacion(
@@ -104,7 +108,7 @@ def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Ev
     if all(m == "alta" for m in config.meses):
         return ()
     anios = range(desde.year - 1, hasta.year + 2)
-    bloques = [b for anio in anios for b in _instancias(config, anio)]
+    bloques = [b for anio in anios for b in _bloques_de(config, anio)]
     preps = {
         b.inicio - dt.timedelta(days=config.dias_preparacion) for b in bloques if b.tipo == "alta"
     }

@@ -329,7 +329,7 @@ def _procesa_grupo(
 ) -> None:
     grupo_id, campaign_id, status, status_campana, grupo_external = fila
     plat_t = contadores.temporada_plat
-    en_live = plat_t is not None and plat_t.modo == "live"
+    en_live = plat_t is not None and plat_t.en_vivo
     cerca_plat = plat_t.estado.cerca_plataforma if en_live else None
     mult_neg = (
         plat_t.estacion.mult_cortes_baja if en_live and plat_t.estacion.fase == "baja" else None

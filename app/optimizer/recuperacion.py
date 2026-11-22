@@ -15,11 +15,8 @@ que la hoja tuvo desde la ultima mano del dueno, dentro de memoria_dias),
 (freno BUD). Politica llama a destino_recuperacion en R6: None = decide el
 R6 de hoy, la recuperacion solo acelera y nunca frena.
 
-Sin IO, sin reloj, Decimal. No importa `app.optimizer.caso` ni
-`app.optimizer.temporada` en runtime (el modulo solo lee duck-typed
-`caso.historia` y `caso.bid.valor`; los dos imports que necesita son
-tardios, dentro de las funciones): caso.py importa temporada.py y
-temporada.py importa este modulo; el ciclo de imports se rompe aqui.
+Sin IO, sin reloj, Decimal. DAG aciclico: `temporada_config` -> `caso` ->
+`recuperacion` -> `temporada_hoja` -> `politica`.
 """
 
 from __future__ import annotations
@@ -27,10 +24,17 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from decimal import ROUND_FLOOR, Decimal, localcontext
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.optimizer.caso import CambioFechado, CasoHoja, HistoriaBid, PresupuestoCampana
+from app.optimizer.caso import (
+    DIAS_MADUREZ,
+    PRECISION,
+    CambioFechado,
+    CasoHoja,
+    HistoriaBid,
+    ManoExterna,
+    PresupuestoCampana,
+)
+from app.optimizer.evidencia import gamma_q
 
 # write.py redondea a 0.01 HALF_EVEN: mas que esto es otra mano.
 TOLERANCIA_CADENA = Decimal("0.005")
@@ -45,8 +49,6 @@ MOTIVO_RECUPERA_NIVEL = "recupera_nivel"
 # de temporada rompe `solo_temporada_despues`. La mano del dueno (con fecha)
 # y los ajustes de campana no son movimientos de Orbit.
 ORIGENES_ORBIT = frozenset({"motor", "regreso_por_desplome", "temporada"})
-
-_ORIGENES_MANO = ("exclusion", "reactivacion_manual")
 
 
 @dataclass(frozen=True)
@@ -77,7 +79,7 @@ class CadenaBid:
     ultimo_salto_recuperacion: bool
 
 
-def _ordenados(historia: HistoriaBid) -> tuple:
+def _ordenados(historia: HistoriaBid) -> tuple[CambioFechado | ManoExterna, ...]:
     """Cambios (sin ajustes de campana) y manos externas intercalados por
     instante. En empate exacto primero el cambio, despues la mano (la mano
     observada gana al final del dia)."""
@@ -88,13 +90,6 @@ def _ordenados(historia: HistoriaBid) -> tuple:
     ] + [(m.instante.astimezone(dt.UTC), 1, i, m) for i, m in enumerate(historia.manos_externas)]
     pares.sort(key=lambda p: (p[0], p[1], p[2]))
     return tuple(p[3] for p in pares)
-
-
-def _es_mano(evento) -> bool:
-    """ManoExterna (exclusion con bid_visto o reactivacion manual). CambioFechado
-    jamas lleva esos valores en `origen`, asi que el chequeo no necesita importar
-    el tipo (romperia el ciclo caso -> temporada -> recuperacion)."""
-    return getattr(evento, "origen", None) in _ORIGENES_MANO
 
 
 def _reduccion_vigente(
@@ -140,7 +135,7 @@ def _cadena_desde(historia: HistoriaBid | None, bid_vigente: Decimal | None) -> 
     conocido: Decimal | None = None  # el ultimo bid que Orbit sabe que hubo
     cambios: list[CambioFechado] = []
     for evento in _ordenados(historia):
-        if _es_mano(evento):
+        if isinstance(evento, ManoExterna):
             manos.append(evento.instante.astimezone(dt.UTC))
             bid_de_la_ultima_mano = evento.bid_visto
             if evento.bid_visto is not None:
@@ -190,7 +185,12 @@ def cadena_bid(caso: CasoHoja) -> CadenaBid | None:
     return _cadena_desde(caso.historia, caso.bid.valor)
 
 
-def techo_conocido(caso: CasoHoja, *, hasta: dt.datetime | None = None) -> Decimal | None:
+def techo_conocido(
+    caso: CasoHoja,
+    *,
+    hasta: dt.datetime | None = None,
+    cadena: CadenaBid | None = None,
+) -> Decimal | None:
     """El bid mas alto que la hoja tuvo desde la ultima mano del dueno, dentro de
     la memoria del caso (`memoria_dias`): el lector puede extender la historia
     mas atras (un episodio abierto no caduca, lo pide la temporada), pero el
@@ -202,16 +202,13 @@ def techo_conocido(caso: CasoHoja, *, hasta: dt.datetime | None = None) -> Decim
     # niveles = [bid al ancla] + [bid_despues de cada cambio posterior al ancla y < hasta]
     #   (bid al ancla = bid_de_la_ultima_mano, o bid_antes del primer cambio si no hubo mano)
     # -> min(max(niveles), caso.bid.techo)"""
-    cad = cadena_bid(caso)
+    cad = cadena if cadena is not None else cadena_bid(caso)
     if cad is None or cad.dueno_al_final:
         return None
     inicio_memoria = None
     if caso.recuperacion is not None:
         # hoy = ventana_hasta + DIAS_MADUREZ (la ventana madura congela el dia
-        # del caso); la memoria alcanza memoria_dias hacia atras. Import
-        # tardio: caso -> temporada -> aqui.
-        from app.optimizer.caso import DIAS_MADUREZ
-
+        # del caso); la memoria alcanza memoria_dias hacia atras.
         inicio = caso.ventana_hasta + dt.timedelta(
             days=DIAS_MADUREZ - caso.recuperacion.memoria_dias
         )
@@ -251,9 +248,6 @@ def multiplicador_sostenible(a_subida: Decimal, arg_subida: Decimal, confianza: 
     >= confianza y gamma_q(a, a + 40) < confianza para el rango operativo: la biseccion
     de 60 iteraciones parte [0, a_subida + 40] y conserva en `lo` el lado que sigue
     sosteniendo la confianza; determinista, replay fiel."""
-    from app.optimizer.caso import PRECISION  # import tardio: caso -> temporada -> aqui
-    from app.optimizer.evidencia import gamma_q
-
     assert arg_subida > 0, "arg_subida > 0: _fondo_juicio exige pedidos y venta > 0"
     with localcontext(prec=PRECISION):
         lo = Decimal(0)
@@ -274,18 +268,18 @@ def destino_recuperacion(
     None = decide el R6 de hoy (la recuperacion solo acelera, nunca frena). Topes
     todos a la vez: techo_conocido, techo del goal, techo_de_baja y la regla de
     que solo actua si pasa de bid x (1 + PASO_SUBIDA)."""
-    from app.optimizer import temporada  # import tardio: temporada importa este modulo
+    from app.optimizer import temporada_hoja
 
     if caso.recuperacion is None:
         return None
     cad = cadena_bid(caso)
-    if temporada.en_terreno_del_dueno(caso, cad):
+    if temporada_hoja.en_terreno_del_dueno(caso, cad):
         return None  # terreno del dueno (decision 7 del plan)
     bid = caso.bid.valor
-    techo = techo_conocido(caso)
+    techo = techo_conocido(caso, cadena=cad)
     if techo is None or bid is None:
         return None
-    tb = temporada.techo_de_baja(caso)
+    tb = temporada_hoja.techo_de_baja(caso, cadena=cad)
     techo = min(techo, caso.bid.techo, tb if tb is not None else techo)
     if techo <= bid * (Decimal(1) + PASO_SUBIDA):
         return None

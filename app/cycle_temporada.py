@@ -59,18 +59,23 @@ def _frontera_temporada(
     *,
     floor: Decimal,
     ceiling: Decimal,
-) -> tuple[temporada.FronteraHoja | None, bool]:
+) -> tuple[temporada.Pendiente | None, temporada.FronteraHoja | None, bool]:
     if lecturas is None:
-        return None, False
+        return None, None, False
     plat_t = contadores.temporada_plat
     en_vuelo = plat_t is not None and plat_t.estado.efectos_abiertos.get(entidad_id) == "en_vuelo"
-    frontera_h = lecturas.frontera(entidad_id, current_bid, piso=floor, techo=ceiling)
+    if hasattr(lecturas, "evalua_temporada"):
+        evaluacion = lecturas.evalua_temporada(entidad_id, current_bid, piso=floor, techo=ceiling)
+        pendiente_t, frontera_h = evaluacion if evaluacion is not None else (None, None)
+    else:
+        pendiente_t = None
+        frontera_h = lecturas.frontera(entidad_id, current_bid, piso=floor, techo=ceiling)
     if frontera_h is not None and not en_vuelo:
         if frontera_h.fin is not None:
             contadores.fines[entidad_id] = frontera_h.fin
         if frontera_h.exclusion_hoy is not None:
             contadores.exclusiones[entidad_id] = frontera_h.exclusion_hoy
-    return frontera_h, en_vuelo
+    return pendiente_t, frontera_h, en_vuelo
 
 
 def _pausa_sombra(
@@ -88,7 +93,7 @@ def _pausa_sombra(
 ) -> InsumosPausa | None:
     """Pausa de la sombra (ads_temporada en shadow): x mult y cerca de la hoja."""
     plat_t = contadores.temporada_plat
-    if plat_t is None or plat_t.modo != "shadow" or frontera_h is None or en_vuelo:
+    if plat_t is None or plat_t.en_vivo or frontera_h is None or en_vuelo:
         return None
     mult_sombra = frontera_h.mult_cortes if frontera_h.fase_hoja == "baja" else None
     corte_pause_sombra = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_sombra)
@@ -146,19 +151,24 @@ def _anota_regreso_retenido(
     *,
     floor: Decimal,
     techo: Decimal,
+    pendiente_t: temporada.Pendiente | None = None,
 ) -> None:
     """Anota en notes.skips el regreso retenido por campana topada (bloque D)."""
     plat_t = contadores.temporada_plat
     if (
         plat_t is None
-        or plat_t.modo != "live"
+        or not plat_t.en_vivo
         or frontera_h is None
         or frontera_h.fase_hoja != "baja"
         or isinstance(veredicto, politica_mod.Regresar)
-        or lecturas is None
+        or (pendiente_t is None and lecturas is None)
     ):
         return
-    pendiente_temporada = lecturas.pendiente(entidad_id, current_bid, piso=floor, techo=techo)
+    pendiente_temporada = (
+        pendiente_t
+        if pendiente_t is not None
+        else lecturas.pendiente(entidad_id, current_bid, piso=floor, techo=techo)
+    )
     if isinstance(pendiente_temporada, temporada.RestauracionPendiente) and (
         caso.presupuesto is not None and presupuesto_topado(caso) is True
     ):

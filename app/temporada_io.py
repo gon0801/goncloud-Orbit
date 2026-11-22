@@ -33,7 +33,12 @@ from app.db import settings_vigentes
 from app.lecturas_historia import historia_de_hoja
 from app.optimizer import temporada
 from app.optimizer.recuperacion import TOLERANCIA_CADENA, _cadena_desde
-from app.optimizer.temporada import EpisodioVigente, FinReduccion, FronteraHoja
+from app.optimizer.temporada import (
+    EpisodioPresupuesto,
+    EpisodioVigente,
+    FinReduccion,
+    FronteraHoja,
+)
 
 MOTIVO_ENTRA = "entra_temporada_baja"
 MOTIVO_AJUSTA = "ajusta_temporada_baja"
@@ -70,14 +75,9 @@ class TemporadaPlataforma:
     meta_alta_pct: Decimal
     estado: EstadoTemporada
 
-
-@dataclass(frozen=True)
-class EpisodioPresupuesto:
-    """Hechos de un episodio para la pantalla de dinero (bloque G)."""
-
-    id: int
-    abierto_el: dt.date
-    cerrado_el: dt.date | None
+    @property
+    def en_vivo(self) -> bool:
+        return self.modo == "live"
 
 
 @dataclass(frozen=True)
