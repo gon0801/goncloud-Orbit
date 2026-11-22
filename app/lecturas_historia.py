@@ -58,6 +58,30 @@ _SQL_EPISODIO_ABIERTO_VIEJO = """
 SELECT min(abierto_el) FROM temporada_episodio WHERE platform = %s::platform AND cerrado_el IS NULL
 """
 
+_SQL_CAMBIOS_HOJA = """
+SELECT c.confirmado_el, c.bid_antes, c.bid_despues, c.origen,
+       c.decision_id, c.motivo_temporada, c.episodio_id,
+       d.inputs->>'motivo' AS motivo
+  FROM v_cambio_bid c
+  LEFT JOIN decision d ON d.id = c.decision_id
+ WHERE c.hoja_id = %s AND c.confirmado_el >= %s AND c.origen <> 'ajuste_de_campana'
+ ORDER BY c.confirmado_el, c.decision_id
+"""
+
+_SQL_MANOS_EXTERNAS_HOJA = """
+SELECT x.detectada_el, x.bid_visto, 'exclusion'::text
+  FROM temporada_exclusion x
+ WHERE x.ad_entity_id = %s AND x.bid_visto IS NOT NULL AND x.detectada_el >= %s
+ UNION ALL
+SELECT r.detectada_en, NULL::numeric, 'reactivacion_manual'::text
+  FROM reactivacion_manual r
+ WHERE r.ad_entity_id = %s AND r.detectada_en >= %s
+"""
+
+_SQL_FINES_HOJA = """
+SELECT f.episodio_id FROM temporada_fin_reduccion f WHERE f.ad_entity_id = %s
+"""
+
 # TEMPORADA 01 C: presupuesto vigente y gasto diario de campana (la MISMA
 # fuente que pantalla_dinero y los avisos de Telegram: v_campana_config_vigente
 # y v_metric_latest con kind='campaign'; Amazon reporta el costo de campana).
@@ -231,6 +255,38 @@ def _historia_temporada(
     }
     historia = _historia_por_hoja(filas_cambios, manos, fines, desde_historia)
     return desde_historia, manos, fines, {h: cs for h, cs in cambios_90.items() if cs}, historia
+
+
+def historia_de_hoja(conn: Conexion, hoja_id: int, desde: dt.date) -> HistoriaBid | None:
+    """Lector canonico de `HistoriaBid` para UNA hoja (compartido por la
+    revalidacion en `temporada_io.frontera_hoja`): trae cambios confirmados con
+    `motivo`, manos externas (`exclusion` + `reactivacion_manual`) y fines."""
+    desde_dt = dt.datetime.combine(desde, dt.time(0), tzinfo=dt.UTC)
+    cambios = tuple(
+        CambioFechado(
+            confirmado_el=confirmado_el.astimezone(dt.UTC),
+            decision_id=did,
+            bid_antes=bid_antes,
+            bid_despues=bid_despues,
+            origen=origen,
+            motivo_temporada=motivo_t,
+            episodio_id=episodio_id,
+            motivo=motivo,
+        )
+        for confirmado_el, bid_antes, bid_despues, origen, did, motivo_t, episodio_id, motivo in (
+            conn.execute(_SQL_CAMBIOS_HOJA, (hoja_id, desde_dt)).fetchall()
+        )
+    )
+    manos = tuple(
+        ManoExterna(instante=instante.astimezone(dt.UTC), bid_visto=bid_visto, origen=origen)
+        for instante, bid_visto, origen in conn.execute(
+            _SQL_MANOS_EXTERNAS_HOJA, (hoja_id, desde_dt, hoja_id, desde_dt)
+        ).fetchall()
+    )
+    fines = frozenset(int(f[0]) for f in conn.execute(_SQL_FINES_HOJA, (hoja_id,)).fetchall())
+    if not (cambios or manos or fines):
+        return None
+    return HistoriaBid(desde=desde, cambios=cambios, fines=fines, manos_externas=manos)
 
 
 _SQL_DIAS_INGESTA = """

@@ -483,6 +483,7 @@ def revalida_pause(
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
     *,
     evidencia_grupos: dict | None = None,
+    temporada_ctx: temporada_io.ContextoRevalidacion | None = None,
     gracia_activa_fn=_gracia_activa,
     pause_propio_fn=_pause_propio_verificado,
     flag_economica_fn=_flag_pause_economica,
@@ -548,8 +549,9 @@ def revalida_pause(
     )
     evidencia = mapa_ev.get(grupo)
     floor_rv, ceiling_rv = _floor_ceiling_hoja(conn, platform, grupo)
+    hoy_utc = ahora.astimezone(dt.UTC).date() if ahora.tzinfo is not None else ahora.date()
     frontera_h = temporada_io.frontera_hoja(
-        conn, fila.ad_entity_id, ahora.date(), piso=floor_rv, techo=ceiling_rv
+        conn, fila.ad_entity_id, hoy_utc, piso=floor_rv, techo=ceiling_rv, contexto=temporada_ctx
     )
     mult_baja = (
         frontera_h.mult_cortes
@@ -573,6 +575,11 @@ def revalida_pause(
         if proteccion_cache is not None
         else None
     )
+    exceso_min_usado = (
+        cortes.exceso_minimo(motor_bid.PLATAFORMAS_MONEDA[platform], mult_baja=mult_baja)
+        if mult_baja is not None
+        else None
+    )
     resultado = motor_bid.decide_pause(
         platform=platform,
         bids=None,
@@ -584,11 +591,7 @@ def revalida_pause(
         ),
         policy_version=version_efectiva,
         proteccion=proteccion,
-        exceso_minimo=(
-            cortes.exceso_minimo(motor_bid.PLATAFORMAS_MONEDA[platform], mult_baja=mult_baja)
-            if mult_baja is not None
-            else None
-        ),
+        exceso_minimo=exceso_min_usado,
     )
     califica = resultado.kind == "pause"
     if (
@@ -600,6 +603,11 @@ def revalida_pause(
             motor_bid.exceso_economico(fresco, target, motor_bid.PLATAFORMAS_MONEDA[platform])
             if target is not None
             else None
+        )
+        exceso_min_reportado = (
+            exceso_min_usado
+            if exceso_min_usado is not None
+            else motor_bid.EXCESO_MINIMO[motor_bid.PLATAFORMAS_MONEDA[platform]]
         )
         _registra_evidencia(
             conn,
@@ -620,9 +628,7 @@ def revalida_pause(
                 else None,
                 "exceso": str(exceso) if exceso is not None else None,
                 "multiplicador": str(motor_bid.MULT_PAUSE_ECONOMICA),
-                "exceso_minimo": str(
-                    motor_bid.EXCESO_MINIMO[motor_bid.PLATAFORMAS_MONEDA[platform]]
-                ),
+                "exceso_minimo": str(exceso_min_reportado),
                 "resultado": "califica" if califica else MOTIVO_YA_NO_CALIFICA,
                 **({"economia": resolucion_economica} if resolucion_economica else {}),
             },
@@ -669,6 +675,7 @@ def revalida_negative(
     ahora: dt.datetime,
     *,
     evidencia_grupos: dict | None = None,
+    temporada_neg: tuple[Decimal | None, dt.date | None] | None = None,
 ) -> str | None:
     """Re-validacion de un negative con evidencia fresca al reloj de liberacion."""
     grupo = fila.ad_entity_id
@@ -678,8 +685,12 @@ def revalida_negative(
         else windows.ventanas_evidencia_ad_group(conn, platform, ahora)
     )
     evidencia = mapa_ev.get(grupo)
-    mult_baja = temporada_io.mult_negativa(conn, platform, ahora.date())
-    cerca_plat = temporada_io.cerca_plataforma(conn, platform, ahora.date())
+    if temporada_neg is not None:
+        mult_baja, cerca_plat = temporada_neg
+    else:
+        hoy_utc = ahora.astimezone(dt.UTC).date() if ahora.tzinfo is not None else ahora.date()
+        mult_baja = temporada_io.mult_negativa(conn, platform, hoy_utc)
+        cerca_plat = temporada_io.cerca_plataforma(conn, platform, hoy_utc)
     umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=mult_baja).umbral
     piso = cortes.piso_corte(evidencia, platform, mult_baja=mult_baja).piso_cost
     terminos = windows.terminos_cortes(conn, grupo, ahora, cerca=cerca_plat)

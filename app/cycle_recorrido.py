@@ -635,12 +635,10 @@ def _recorre_plataforma(
             config_t = temporada.desde_settings(settings)
             estacion = temporada.resuelve(config_t, decided_at.astimezone(dt.UTC).date())
             estado_t = temporada_io.lee_estado(conn, platform, estacion.dia)
-            if (
-                estacion.fase == "baja"
-                and estado_t.episodio is not None
-                and estado_t.episodio.abierto_el.astimezone(dt.UTC).date() < estacion.inicio_bloque
-            ):
-                estado_t = replace(estado_t, episodio=None)
+            estado_t = replace(
+                estado_t,
+                episodio=temporada_io.episodio_vigente_en_estacion(estado_t.episodio, estacion),
+            )
             plat_t = temporada_io.TemporadaPlataforma(
                 estacion=estacion,
                 modo=modo_t,

@@ -30,8 +30,8 @@ from typing import Any, Literal
 import psycopg
 
 from app.db import settings_vigentes
+from app.lecturas_historia import historia_de_hoja
 from app.optimizer import temporada
-from app.optimizer.caso import CambioFechado, HistoriaBid, ManoExterna
 from app.optimizer.recuperacion import TOLERANCIA_CADENA, _cadena_desde
 from app.optimizer.temporada import EpisodioVigente, FinReduccion, FronteraHoja
 
@@ -153,6 +153,16 @@ SELECT max(primera)
 """
 
 
+def _lee_cerca_plataforma(conn: psycopg.Connection, platform: str, hoy: dt.date) -> dt.date | None:
+    primera = conn.execute(_SQL_CERCA_PLATAFORMA, (platform,)).fetchone()[0]
+    if primera is None:
+        return None
+    cerca = (primera.astimezone(dt.UTC) + dt.timedelta(days=1)).date()
+    if cerca < hoy - dt.timedelta(days=temporada.DIAS_CERCA):
+        return None
+    return cerca
+
+
 def lee_estado(conn: psycopg.Connection, platform: str, hoy: dt.date) -> EstadoTemporada:
     """Solo SELECT (TX2). Un efecto abierto es 'obsoleto' si su decision ya
     tiene desenlace o quedo sin intento en un ciclo terminado; 'en_vuelo' si su
@@ -167,18 +177,27 @@ def lee_estado(conn: psycopg.Connection, platform: str, hoy: dt.date) -> EstadoT
     excluidas: dict[int, set[int]] = {}
     for hoja, episodio_id in conn.execute(_SQL_EXCLUIDAS, (platform,)).fetchall():
         excluidas.setdefault(int(hoja), set()).add(int(episodio_id))
-    cerca = None
-    primera = conn.execute(_SQL_CERCA_PLATAFORMA, (platform,)).fetchone()[0]
-    if primera is not None:
-        cerca = (primera.astimezone(dt.UTC) + dt.timedelta(days=1)).date()
-        if cerca < hoy - dt.timedelta(days=temporada.DIAS_CERCA):
-            cerca = None
+    cerca = _lee_cerca_plataforma(conn, platform, hoy)
     return EstadoTemporada(
         episodio=episodio,
         efectos_abiertos=efectos,
         excluidas={h: frozenset(e) for h, e in excluidas.items()},
         cerca_plataforma=cerca,
     )
+
+
+def episodio_vigente_en_estacion(
+    episodio: EpisodioVigente | None, estacion: temporada.Estacion
+) -> EpisodioVigente | None:
+    """Normaliza un episodio abierto de otra baja: si estamos en baja y el
+    episodio abierto es anterior al bloque actual, ya no es el de esta baja."""
+    if (
+        estacion.fase == "baja"
+        and episodio is not None
+        and episodio.abierto_el.astimezone(dt.UTC).date() < estacion.inicio_bloque
+    ):
+        return None
+    return episodio
 
 
 _SQL_RECONCILIA_DESENLACE = """
@@ -529,28 +548,24 @@ def cierra_efecto_sin_aplicar(conn: psycopg.Connection, *, decision_id: int, mot
     )
 
 
-_SQL_CADENA_HOJA = """
-SELECT c.confirmado_el, c.decision_id, c.bid_antes, c.bid_despues, c.origen,
-       c.motivo_temporada, c.episodio_id
-  FROM v_cambio_bid c
- WHERE c.hoja_id = %s AND c.confirmado_el >= %s AND c.origen <> 'ajuste_de_campana'
- UNION ALL
-SELECT x.detectada_el, NULL, x.bid_visto, x.bid_visto, 'exclusion', NULL, x.episodio_id
-  FROM temporada_exclusion x
- WHERE x.ad_entity_id = %s AND x.bid_visto IS NOT NULL AND x.detectada_el >= %s
- ORDER BY 1, 2
-"""
-
-_SQL_FINES_HOJA = """
-SELECT f.episodio_id FROM temporada_fin_reduccion f WHERE f.ad_entity_id = %s
-"""
-
 _SQL_BID_HOJA = """
 SELECT s.current_bid
   FROM ad_entity k
   LEFT JOIN ad_entity_state s ON s.ad_entity_id = k.id
  WHERE k.id = %s
 """
+
+
+@dataclass(frozen=True)
+class ContextoRevalidacion:
+    """Estado de temporada de la plataforma cargado UNA sola vez por barrido de
+    `libera_vencidos`, evitando repetir config/estado/episodio en cada fila."""
+
+    platform: str
+    hoy: dt.date
+    estacion: temporada.Estacion
+    estado: EstadoTemporada
+    desde_historia: dt.date
 
 
 def _config_live(conn: psycopg.Connection, platform: str) -> temporada.ConfigTemporada | None:
@@ -561,6 +576,29 @@ def _config_live(conn: psycopg.Connection, platform: str) -> temporada.ConfigTem
     if temporada.modo_desde_settings(crudo, platform) != "live":
         return None
     return temporada.desde_settings(crudo)
+
+
+def lee_contexto_revalidacion(
+    conn: psycopg.Connection, platform: str, hoy: dt.date
+) -> ContextoRevalidacion | None:
+    """Precarga una vez por plataforma el estado de temporada para revalidar
+    cortes en `libera_vencidos`. None sin config o temporada fuera de live."""
+    config = _config_live(conn, platform)
+    if config is None:
+        return None
+    estacion = temporada.resuelve(config, hoy)
+    estado = lee_estado(conn, platform, hoy)
+    desde = hoy - dt.timedelta(days=365)
+    if estado.episodio is not None:
+        desde = min(desde, estado.episodio.abierto_el.astimezone(dt.UTC).date())
+    estado = replace(estado, episodio=episodio_vigente_en_estacion(estado.episodio, estacion))
+    return ContextoRevalidacion(
+        platform=platform,
+        hoy=hoy,
+        estacion=estacion,
+        estado=estado,
+        desde_historia=desde,
+    )
 
 
 def mult_negativa(conn: psycopg.Connection, platform: str, hoy: dt.date) -> Decimal | None:
@@ -581,8 +619,7 @@ def cerca_plataforma(conn: psycopg.Connection, platform: str, hoy: dt.date) -> d
     encendida o sin transicion en 90 dias."""
     if _config_live(conn, platform) is None:
         return None
-    estado = lee_estado(conn, platform, hoy)
-    return estado.cerca_plataforma
+    return _lee_cerca_plataforma(conn, platform, hoy)
 
 
 def frontera_hoja(
@@ -592,63 +629,29 @@ def frontera_hoja(
     *,
     piso: Decimal,
     techo: Decimal,
+    contexto: ContextoRevalidacion | None = None,
 ) -> FronteraHoja | None:
     """La misma temporada.frontera para UNA hoja, para la revalidacion de la
     cola al liberar (la conecta el bloque D). None sin config o temporada apagada."""
-    plataforma = conn.execute(
-        "SELECT platform::text FROM ad_entity WHERE id = %s", (ad_entity_id,)
-    ).fetchone()
-    if plataforma is None:
-        return None
-    platform = plataforma[0]
-    config = _config_live(conn, platform)
-    if config is None:
-        return None
-    estacion = temporada.resuelve(config, hoy)
-    estado = lee_estado(conn, platform, hoy)
-    desde = hoy - dt.timedelta(days=365)
-    viejo = conn.execute(
-        "SELECT min(abierto_el) FROM temporada_episodio"
-        " WHERE platform = %s::platform AND cerrado_el IS NULL",
-        (platform,),
-    ).fetchone()
-    if viejo[0] is not None:
-        desde = min(desde, viejo[0].astimezone(dt.UTC).date())
-    cambios = []
-    manos = []
-    for fila in conn.execute(_SQL_CADENA_HOJA, (ad_entity_id, desde, ad_entity_id, desde)):
-        instante = fila[0].astimezone(dt.UTC)
-        if fila[4] == "exclusion":
-            manos.append(ManoExterna(instante=instante, bid_visto=fila[2], origen="exclusion"))
-            continue
-        cambios.append(
-            CambioFechado(
-                confirmado_el=instante,
-                decision_id=fila[1],
-                bid_antes=fila[2],
-                bid_despues=fila[3],
-                origen=fila[4],
-                motivo_temporada=fila[5],
-                episodio_id=fila[6],
-            )
-        )
-    fines = frozenset(int(f[0]) for f in conn.execute(_SQL_FINES_HOJA, (ad_entity_id,)).fetchall())
+    if contexto is None:
+        plataforma = conn.execute(
+            "SELECT platform::text FROM ad_entity WHERE id = %s", (ad_entity_id,)
+        ).fetchone()
+        if plataforma is None:
+            return None
+        contexto = lee_contexto_revalidacion(conn, plataforma[0], hoy)
+        if contexto is None:
+            return None
+    historia = historia_de_hoja(conn, ad_entity_id, contexto.desde_historia)
     bid_cache = conn.execute(_SQL_BID_HOJA, (ad_entity_id,)).fetchone()
     bid = bid_cache[0] if bid_cache is not None else None
-    cadena = None
-    if cambios or manos:
-        cadena = _cadena_desde(
-            HistoriaBid(
-                desde=desde, cambios=tuple(cambios), fines=fines, manos_externas=tuple(manos)
-            ),
-            bid,
-        )
+    cadena = _cadena_desde(historia, bid)
     return temporada.frontera(
-        estacion,
+        contexto.estacion,
         cadena,
-        episodio=estado.episodio,
-        excluida_en=estado.excluidas.get(ad_entity_id, frozenset()),
-        cerca_plataforma=estado.cerca_plataforma,
+        episodio=contexto.estado.episodio,
+        excluida_en=contexto.estado.excluidas.get(ad_entity_id, frozenset()),
+        cerca_plataforma=contexto.estado.cerca_plataforma,
         bid=bid,
         piso=piso,
         techo=techo,

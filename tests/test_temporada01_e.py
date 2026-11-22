@@ -287,6 +287,136 @@ def test_temporada01_e_excluida_sin_recupera_control():
     assert not isinstance(politica.decide(excluido), politica.Regresar)
 
 
+def test_temporada01_ola1_terreno_del_dueno_con_mano_fechada():
+    """Ola 1A (regla 9 / decision 7): una mano fechada del dueno en la baja
+    (regreso_del_dueno desde la UI o reactivacion_manual en Amazon) sin fila en
+    temporada_exclusion y con dueno_al_final=False tambien saca la hoja a
+    fase_hoja='normal' (mult 1) y bloquea R6r."""
+    from test_temporada01_c import _caso_baja, _nivel_caso_b
+
+    from app.optimizer import temporada
+    from app.optimizer.caso import CambioFechado, HistoriaBid, ManoExterna
+
+    estacion = temporada.Estacion(
+        version=temporada.VERSION_TEMPORADA,
+        dia=dt.date(2027, 1, 12),
+        fase="baja",
+        previa_alta=False,
+        reduccion_baja=Decimal("0.30"),
+        mult_cortes_baja=Decimal("2"),
+        inicio_bloque=dt.date(2027, 1, 1),
+    )
+    episodio = temporada.EpisodioVigente(id=1, abierto_el=_medianoche(dt.date(2027, 1, 1)))
+
+    # 1) regreso_del_dueno en la baja tras una entrada del mismo episodio
+    # (dueno_al_final=False porque bid vigente == bid del regreso).
+    historia_regreso = HistoriaBid(
+        desde=dt.date(2026, 1, 1),
+        cambios=(
+            CambioFechado(
+                confirmado_el=dt.datetime(2026, 12, 1, 12, tzinfo=dt.UTC),
+                decision_id=10,
+                bid_antes=Decimal("20.00"),
+                bid_despues=Decimal("10.00"),
+                origen="motor",
+                motivo_temporada=None,
+                episodio_id=None,
+            ),
+            CambioFechado(
+                confirmado_el=dt.datetime(2027, 1, 2, 12, tzinfo=dt.UTC),
+                decision_id=11,
+                bid_antes=Decimal("10.00"),
+                bid_despues=Decimal("7.00"),
+                origen="temporada",
+                motivo_temporada="entra",
+                episodio_id=1,
+            ),
+            CambioFechado(
+                confirmado_el=dt.datetime(2027, 1, 5, 12, tzinfo=dt.UTC),
+                decision_id=11,
+                bid_antes=None,
+                bid_despues=Decimal("8.00"),
+                origen="regreso_del_dueno",
+                motivo_temporada=None,
+                episodio_id=None,
+            ),
+        ),
+    )
+    cad_regreso = recuperacion._cadena_desde(historia_regreso, Decimal("8.00"))
+    assert cad_regreso is not None and not cad_regreso.dueno_al_final
+    pend_r, front_r = temporada.evalua_hoja(
+        estacion,
+        cad_regreso,
+        episodio=episodio,
+        excluida_en=frozenset(),
+        cerca_plataforma=None,
+        bid=Decimal("8.00"),
+        piso=Decimal("1.00"),
+        techo=Decimal("45.00"),
+    )
+    assert pend_r == temporada.SinPendiente("dueno_decidio")
+    assert front_r.fase_hoja == "normal"
+    assert front_r.mult_cortes == Decimal(1)
+
+    # 2) reactivacion_manual en la baja (sin reduccion previa, dueno_al_final=False).
+    historia_react = HistoriaBid(
+        desde=dt.date(2026, 1, 1),
+        cambios=(
+            CambioFechado(
+                confirmado_el=dt.datetime(2026, 12, 1, 12, tzinfo=dt.UTC),
+                decision_id=20,
+                bid_antes=Decimal("20.00"),
+                bid_despues=Decimal("7.00"),
+                origen="motor",
+                motivo_temporada=None,
+                episodio_id=None,
+            ),
+        ),
+        manos_externas=(
+            ManoExterna(
+                instante=dt.datetime(2027, 1, 10, 12, tzinfo=dt.UTC),
+                bid_visto=None,
+                origen="reactivacion_manual",
+            ),
+        ),
+    )
+    cad_react = recuperacion._cadena_desde(historia_react, Decimal("7.00"))
+    assert cad_react is not None and not cad_react.dueno_al_final
+    pend_m, front_m = temporada.evalua_hoja(
+        estacion,
+        cad_react,
+        episodio=episodio,
+        excluida_en=frozenset(),
+        cerca_plataforma=None,
+        bid=Decimal("7.00"),
+        piso=Decimal("1.00"),
+        techo=Decimal("45.00"),
+    )
+    assert pend_m == temporada.SinPendiente("dueno_decidio")
+    assert front_m.fase_hoja == "normal"
+    assert front_m.mult_cortes == Decimal(1)
+
+    # R6r (destino_recuperacion) tambien respeta la mano fechada en esa baja.
+    caso_react = replace(
+        _caso_baja(historia_react, "7.00"),
+        temporada=replace(
+            _caso_baja(historia_react, "7.00").temporada,
+            estacion=estacion,
+            episodio=episodio,
+            excluida_en=frozenset(),
+            frontera=front_m,
+        ),
+        grupo=_nivel_caso_b(),
+        cuenta=_nivel_caso_b(),
+    )
+    assert (
+        recuperacion.destino_recuperacion(
+            caso_react, a_subida=Decimal(6), arg_subida=Decimal("1.00")
+        )
+        is None
+    )
+
+
 @_skip_db
 def test_temporada01_e_exclusion_sobrevive_al_aborto():
     """La exclusion y el cache de un `bid_cambiado_fuera` se CONFIRMAN antes de
