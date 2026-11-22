@@ -1471,6 +1471,9 @@ _SQL_CYCLE = (
     "_SQL_INSERT_TARGET_CICLO",
     # TEMPORADA 01 F: el conteo del aviso del dia (confirmados y pendientes).
     "_SQL_TEMPORADA_CICLO",
+    # TEMPORADA 01 F: las exclusiones que descubre la lectura fresca del
+    # aplicador; `_conteo_temporada` las junta con las del recorrido.
+    "_SQL_EXCLUSIONES_APLICADAS",
     "_SQL_OWNER_LOCK",
     "_SQL_SELLA_APPLY",
     "_SQL_APPLIED_COUNT_CICLO",
