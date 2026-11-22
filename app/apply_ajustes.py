@@ -87,6 +87,14 @@ _SQL_AJUSTE_POR_HUELLA_RECONCILIA = """
 SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues
   FROM campana_ajuste WHERE huella = %s
 """
+_SQL_CONFIRMADAS_HN = """
+SELECT id, despues
+  FROM campana_ajuste
+ WHERE campana_id = %s AND clase = %s AND huella LIKE %s AND confirmado_el IS NOT NULL
+ ORDER BY id DESC
+"""
+
+
 _SQL_CONFIRMADA_POR_ID = """
 SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s
 """
@@ -183,6 +191,19 @@ def _toca_campo(conn, antes_id: int, despues: dict, campo: str) -> bool:
     antes = config_por_id(conn, antes_id)
     despues_cfg = ConfigCampana.desde_json(despues)
     return getattr(antes, campo) != getattr(despues_cfg, campo)
+
+
+def _confirmada_equivalente(
+    conn, huella: str, *, campana_id: int, clase: str, ajuste, vigente
+) -> int | None:
+    """El acto con sufijo que SI confirmo el destino, para no sellar la orden
+    base superada en una reconciliacion."""
+    for pid, despues in conn.execute(
+        _SQL_CONFIRMADAS_HN, (campana_id, clase, huella + "#%")
+    ).fetchall():
+        if coincide_campo(ajuste, vigente, ConfigCampana.desde_json(despues)):
+            return pid
+    return None
 
 
 def _superada(conn, ajuste_id: int, *, campana_id: int, clase: str, ajuste) -> bool:
@@ -441,12 +462,31 @@ def reconcilia_ajuste_campana(
     # R07-09C: cada H#N pendiente cuyo efecto el sync ya observo se
     # sella aqui. Devolver la base sellada dejaria las pendientes
     # huerfanas para siempre con su efecto vivo.
-    sellada = _sella_pendientes_en_destino(
-        conn, _pendientes_hn(conn, huella, campana_id, clase), ajuste, vigente
-    )
+    pendientes = [
+        p
+        for p in _pendientes_hn(conn, huella, campana_id, clase)
+        if not _superada(conn, p[0], campana_id=campana_id, clase=clase, ajuste=ajuste)
+    ]
+    sellada = _sella_pendientes_en_destino(conn, pendientes, ajuste, vigente)
     if sellada is not None:
         return AjusteHecho(sellada, campana_id, clase, True)
+    superada = (not confirmada) and _superada(
+        conn, _eid, campana_id=campana_id, clase=clase, ajuste=ajuste
+    )
+    equivalente = (
+        _confirmada_equivalente(
+            conn, huella, campana_id=campana_id, clase=clase, ajuste=ajuste, vigente=vigente
+        )
+        if superada
+        else None
+    )
     if vigente == ConfigCampana.desde_json(despues):
+        if superada:
+            if equivalente is not None:
+                return AjusteHecho(equivalente, campana_id, clase, True)
+            raise HuellaDesactualizada(
+                "la orden quedo superada por otra posterior: pide un plan nuevo", None
+            )
         if not confirmada:
             _sella_pendiente(conn, _eid)
         return AjusteHecho(_eid, campana_id, clase, True)
@@ -455,6 +495,12 @@ def reconcilia_ajuste_campana(
         # completo ya no coincide. Se sella igual: el acto se cumplio.
         if confirmada:
             return AjusteHecho(_eid, campana_id, clase, True)
+        if superada:
+            if equivalente is not None:
+                return AjusteHecho(equivalente, campana_id, clase, True)
+            raise HuellaDesactualizada(
+                "la orden quedo superada por otra posterior: pide un plan nuevo", None
+            )
         _sella_pendiente(conn, _eid)
         return AjusteHecho(_eid, campana_id, clase, True)
     try:
