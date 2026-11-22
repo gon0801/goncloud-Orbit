@@ -19,7 +19,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from decimal import Decimal, localcontext
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
-from app.optimizer import temporada
+from app.optimizer import temporada_config as temporada
 from app.optimizer.windows import AgregadoMetricas
 
 Plataforma = Literal["amazon_mx", "amazon_us"]

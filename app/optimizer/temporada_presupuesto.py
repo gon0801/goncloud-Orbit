@@ -11,16 +11,22 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-from app.formato import dinero
-from app.optimizer.temporada_config import CampanaTopada, ConfigTemporada, Estacion
-
-if TYPE_CHECKING:
-    from app.temporada_io import EpisodioPresupuesto
+from app.optimizer.temporada_config import (
+    CampanaTopada,
+    ConfigTemporada,
+    EpisodioPresupuesto,
+    Estacion,
+)
 
 CENTAVO = Decimal("0.01")
 MotivoPropuesta = Literal["baja", "fin_de_baja", "alta_sin_presupuesto"]
+
+
+def _dinero(valor: Decimal) -> str:
+    """Formato puro de dinero con miles y 2 decimales (espejo de app.formato.dinero)."""
+    return f"{valor:,.2f}"
 
 
 def _q(valor: Decimal) -> Decimal:
@@ -95,7 +101,7 @@ def _frase(motivo: MotivoPropuesta, actual: Decimal, propuesto: Decimal, moneda:
         "fin_de_baja": "Fin de la baja: ",
         "alta_sin_presupuesto": "Temporada alta: se queda sin presupuesto; ",
     }[motivo]
-    return f"{prefijo}{verbo} de {dinero(actual)} a {dinero(propuesto)} {moneda} al día"
+    return f"{prefijo}{verbo} de {_dinero(actual)} a {_dinero(propuesto)} {moneda} al día"
 
 
 def propuesta_presupuesto(

@@ -1400,3 +1400,113 @@ def test_temporada01_ola1_frontera_hoja_reactivacion_y_revalida_utc(db_template,
     assert evidencias[-1]["exceso_minimo"] == str(motor_bid.EXCESO_MINIMO["MXN"] * 2), (
         f"esperaba exceso_minimo x2 en baja UTC, llego {evidencias[-1]['exceso_minimo']}"
     )
+
+
+def test_temporada01_ola2_modo_decision_y_un_solo_pase(monkeypatch):
+    """Ola 2B+2C: ModoDecision cubre combinaciones shadow/live y el recorrido
+    de una hoja evalua `temporada.evalua_hoja` una sola vez por ciclo."""
+    from types import SimpleNamespace
+
+    from app.lecturas_caso import ModoDecision, resuelve_modos_decision
+    from app.optimizer import caso as caso_mod
+
+    top = temporada.campana_topada_desde_settings({})
+    rec = caso_mod.InsumosRecuperacion(version="recuperacion_v1", memoria_dias=90)
+    t_live = SimpleNamespace(en_vivo=True)
+    t_shadow = SimpleNamespace(en_vivo=False)
+
+    assert resuelve_modos_decision(None, None, None) == (ModoDecision(), None)
+    assert resuelve_modos_decision(
+        t_shadow, None, None, recuperacion_live=False, presupuesto_live=False
+    ) == (ModoDecision(), ModoDecision(temporada=True, recuperacion=False, presupuesto=False))
+    assert resuelve_modos_decision(
+        t_live, rec, top, recuperacion_live=False, presupuesto_live=True
+    ) == (
+        ModoDecision(temporada=True, recuperacion=False, presupuesto=True),
+        ModoDecision(temporada=True, recuperacion=True, presupuesto=True),
+    )
+    assert resuelve_modos_decision(
+        t_live, rec, top, recuperacion_live=True, presupuesto_live=True
+    ) == (ModoDecision(temporada=True, recuperacion=True, presupuesto=True), None)
+
+    llamadas = {"n": 0}
+    orig_evalua = temporada.evalua_hoja
+
+    def _contando(*args, **kwargs):
+        llamadas["n"] += 1
+        return orig_evalua(*args, **kwargs)
+
+    monkeypatch.setattr(temporada, "evalua_hoja", _contando)
+    from app.optimizer import temporada_hoja
+
+    monkeypatch.setattr(temporada_hoja, "evalua_hoja", _contando)
+    from app.lecturas_caso import LecturasPlataforma
+
+    cfg = temporada.desde_settings(_settings())
+    assert cfg is not None
+    est = temporada.resuelve(cfg, dt.date(2027, 1, 1))
+    plat_t = temporada_io.TemporadaPlataforma(
+        estacion=est,
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(id=1, abierto_el=_medianoche(dt.date(2027, 1, 1))),
+            efectos_abiertos={},
+            excluidas={},
+            cerca_plataforma=None,
+        ),
+    )
+    lect = LecturasPlataforma(
+        plataforma="amazon_mx",
+        decidido_el=_medianoche(dt.date(2027, 1, 1)),
+        economia=caso_mod.EconomiaPlataforma(
+            moneda="MXN",
+            equilibrio_acos_pct=Decimal("30"),
+            gasto_para_concluir=Decimal("200"),
+            confianza_recorte=Decimal("0.80"),
+            confianza_subida=Decimal("0.80"),
+        ),
+        _por_hoja={},
+        _por_grupo={},
+        _cuenta=None,
+        _cambios={},
+        _precio={},
+        _inmaduros={},
+        _campanas={},
+        _eventos_campana={},
+        _eventos_grupo={},
+        _version_economia=None,
+        _dias_con_ingesta=frozenset(),
+        _d=dt.date(2027, 1, 1),
+        _visto_el=None,
+        _observado_al=None,
+        _temporada=plat_t,
+        _historia={},
+        _historia_desde=dt.date(2026, 1, 1),
+        _modo_real=ModoDecision(temporada=True),
+        _modo_sombra=None,
+    )
+    contadores = ciclo._Contadores(temporada_plat=plat_t)
+    pend_t, front_h, en_vuelo = ciclo._frontera_temporada(
+        lect, contadores, 1001, Decimal("8.00"), floor=PISO_MX, ceiling=TECHO_MX
+    )
+    assert not en_vuelo and pend_t is not None and front_h is not None
+    caso_real, caso_sombra = lect.casos(
+        object(),
+        hoja_id=1001,
+        ad_group_id=10,
+        bid=caso_mod.BidVigente(valor=Decimal("8.00"), moneda="MXN", piso=PISO_MX, techo=TECHO_MX),
+        target_acos_pct=Decimal("20"),
+        pausa=caso_mod.InsumosPausa(
+            cortes=None,
+            umbral_clics=100,
+            gasto_minimo=Decimal("0"),
+            expected_clicks=None,
+            politica_economica=None,
+        ),
+        frontera_h=front_h,
+    )
+    assert caso_real.temporada is not None and caso_real.temporada.frontera == front_h
+    assert caso_sombra is None
+    assert llamadas["n"] == 1, f"esperaba 1 evalua_hoja por hoja, hubo {llamadas['n']}"

@@ -255,9 +255,10 @@ def _fase_apply(
             )
             alertas_harvest += res_cola.alertas
             caps_saturados += res_cola.caps_saturados
-            res_react = aplicador.aplica_reactivaciones(
-                conn, apply.resumes_del_ciclo(conn, cycle_id), tick=guard
+            res_react = apply_cola.aplica_reactivaciones(
+                conn, aplicador, apply_cola.resumes_del_ciclo(conn, cycle_id), tick=guard
             )
+            caps_saturados += res_react.caps_saturados
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)
             notas["bids_divergentes"] = res_bids.divergencias

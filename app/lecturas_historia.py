@@ -297,6 +297,21 @@ SELECT DISTINCT v.metric_date
 """
 
 
+def presupuestos_campanas_hoy(
+    conn: Conexion,
+    plataforma: Plataforma,
+    hoy: dt.date,
+    topada: temporada.CampanaTopada,
+) -> dict[int, PresupuestoCampana]:
+    """PresupuestoCampana por campana con los ultimos 7 dias con ingesta (el
+    mismo criterio que `_presupuesto_campanas` usa en el ciclo). Solo lectura."""
+    desde = hoy - dt.timedelta(days=13)
+    dias = frozenset(
+        f[0] for f in conn.execute(_SQL_DIAS_INGESTA, (plataforma, desde, hoy)).fetchall()
+    )
+    return _presupuesto_campanas(conn, plataforma, dias, topada)
+
+
 def presupuesto_campana_hoy(
     conn: Conexion,
     plataforma: Plataforma,
@@ -307,11 +322,7 @@ def presupuesto_campana_hoy(
     """PresupuestoCampana de UNA campana con los ultimos 7 dias con ingesta
     (el mismo criterio que `_presupuesto_campanas` usa en el ciclo). None si
     la campana no tiene presupuesto conocido. Solo lectura."""
-    desde = hoy - dt.timedelta(days=13)
-    dias = frozenset(
-        f[0] for f in conn.execute(_SQL_DIAS_INGESTA, (plataforma, desde, hoy)).fetchall()
-    )
-    return _presupuesto_campanas(conn, plataforma, dias, topada).get(campana_id)
+    return presupuestos_campanas_hoy(conn, plataforma, hoy, topada).get(campana_id)
 
 
 def _presupuesto_campanas(

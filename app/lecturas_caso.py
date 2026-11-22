@@ -250,6 +250,46 @@ def _enrolla(niveles: list[EvidenciaNivel]) -> EvidenciaNivel | None:
 
 
 @dataclass(frozen=True)
+class ModoDecision:
+    """Marcadores activos para construir un `CasoHoja` (real o sombra)."""
+
+    temporada: bool = False
+    recuperacion: bool = False
+    presupuesto: bool = False
+
+
+def resuelve_modos_decision(
+    temporada_plat: TemporadaPlataforma | None,
+    recuperacion: InsumosRecuperacion | None,
+    campana_topada: temporada.CampanaTopada | None,
+    *,
+    recuperacion_live: bool = True,
+    presupuesto_live: bool = True,
+) -> tuple[ModoDecision, ModoDecision | None]:
+    """Traduce la config de temporada y recuperacion a `(modo_real, modo_sombra)`."""
+    temp_en_vivo = temporada_plat is not None and temporada_plat.en_vivo
+    temp_en_sombra = temporada_plat is not None and not temporada_plat.en_vivo
+    rec_activa = recuperacion is not None
+    pres_activo = campana_topada is not None
+    modo_real = ModoDecision(
+        temporada=temp_en_vivo,
+        recuperacion=rec_activa and recuperacion_live,
+        presupuesto=pres_activo and presupuesto_live,
+    )
+    hay_sombra = temp_en_sombra or (rec_activa and not recuperacion_live)
+    modo_sombra = (
+        ModoDecision(
+            temporada=temporada_plat is not None,
+            recuperacion=rec_activa,
+            presupuesto=pres_activo,
+        )
+        if hay_sombra
+        else None
+    )
+    return modo_real, modo_sombra
+
+
+@dataclass(frozen=True)
 class LecturasPlataforma:
     """Todo lo que se lee UNA vez por plataforma y ciclo: tramos por hoja,
     roll-up a ad group y cuenta solo con hojas activas, cambios de bid de
@@ -277,14 +317,33 @@ class LecturasPlataforma:
     _historia: dict[int, HistoriaBid] | None = None
     _historia_desde: dt.date | None = None
     _recuperacion: InsumosRecuperacion | None = None
-    # El caso que decide solo lleva los marcadores de recuperacion y de
-    # presupuesto cuando su motor esta en live; el caso de sombra los lleva
-    # siempre (diseno, decision 12: la practica decide un segundo caso con
-    # marcadores). Por defecto live, que es como los llamadores historicos
-    # construian el unico caso.
-    _recuperacion_live: bool = True
     _presupuesto: dict[int, PresupuestoCampana] | None = None
-    _presupuesto_live: bool = True
+    _modo_real: ModoDecision = ModoDecision()
+    _modo_sombra: ModoDecision | None = None
+
+    def evalua_temporada(
+        self,
+        hoja_id: int,
+        bid_vigente: Decimal | None,
+        *,
+        piso: Decimal,
+        techo: Decimal,
+    ) -> tuple[temporada.Pendiente, temporada.FronteraHoja] | None:
+        """Evalua pendiente y frontera de UNA hoja en un solo pase (sin consulta)."""
+        t = self._temporada
+        if t is None:
+            return None
+        cadena = _cadena_desde(self._historia.get(hoja_id), bid_vigente)
+        return temporada.evalua_hoja(
+            t.estacion,
+            cadena,
+            episodio=t.estado.episodio,
+            excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
+            cerca_plataforma=t.estado.cerca_plataforma,
+            bid=bid_vigente,
+            piso=piso,
+            techo=techo,
+        )
 
     def frontera(
         self,
@@ -295,20 +354,8 @@ class LecturasPlataforma:
         techo: Decimal,
     ) -> temporada.FronteraHoja | None:
         """temporada.frontera sobre lo leido, sin consulta. None sin temporada."""
-        t = self._temporada
-        if t is None:
-            return None
-        cadena = _cadena_desde(self._historia.get(hoja_id), bid_vigente)
-        return temporada.frontera(
-            t.estacion,
-            cadena,
-            episodio=t.estado.episodio,
-            excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
-            cerca_plataforma=t.estado.cerca_plataforma,
-            bid=bid_vigente,
-            piso=piso,
-            techo=techo,
-        )
+        res = self.evalua_temporada(hoja_id, bid_vigente, piso=piso, techo=techo)
+        return res[1] if res is not None else None
 
     def casos(
         self,
@@ -323,6 +370,7 @@ class LecturasPlataforma:
         equilibrio_acos_pct: Decimal | None = None,
         procedencia: str | None = None,
         con_temporada: bool = True,
+        frontera_h: temporada.FronteraHoja | None = None,
     ) -> tuple[CasoHoja, CasoHoja | None]:
         """(caso que decide, caso de sombra). Live: el que decide trae los
         marcadores y la sombra es None. Shadow: el que decide va SIN marcadores
@@ -330,7 +378,7 @@ class LecturasPlataforma:
         resuelta (x mult y cerca). Reemplaza a `caso` en los llamadores del
         ciclo (TEMPORADA 01 D)."""
         t = self._temporada
-        en_shadow = t is not None and t.modo == "shadow"
+        en_shadow = t is not None and not t.en_vivo
         caso = self.caso(
             conn,
             hoja_id=hoja_id,
@@ -341,21 +389,25 @@ class LecturasPlataforma:
             equilibrio_acos_pct=equilibrio_acos_pct,
             procedencia=procedencia,
             con_temporada=con_temporada,
+            modo=self._modo_real,
+            frontera_h=frontera_h,
         )
         sombra = None
         # La sombra tambien se decide con solo la subida rapida en practica
         # (temporada apagada o en live): ahi no hay pausa de sombra que la
         # temporada resuelva y se usa la pausa base (Devin y revision, PR 730).
+        solo_rec_sombra = (
+            con_temporada
+            and self._modo_sombra is not None
+            and self._modo_sombra.recuperacion
+            and not self._modo_real.recuperacion
+        )
         pausa_de_sombra = (
             pausa_sombra
             if en_shadow and pausa_sombra is not None
-            else (
-                pausa
-                if con_temporada and self._recuperacion is not None and not self._recuperacion_live
-                else None
-            )
+            else (pausa if solo_rec_sombra else None)
         )
-        if pausa_de_sombra is not None:
+        if pausa_de_sombra is not None and self._modo_sombra is not None:
             sombra = self.caso(
                 conn,
                 hoja_id=hoja_id,
@@ -366,7 +418,8 @@ class LecturasPlataforma:
                 equilibrio_acos_pct=equilibrio_acos_pct,
                 procedencia=procedencia,
                 con_temporada=True,
-                sombra=True,
+                modo=self._modo_sombra,
+                frontera_h=frontera_h,
             )
         return caso, sombra
 
@@ -389,19 +442,8 @@ class LecturasPlataforma:
     ) -> temporada.Pendiente | None:
         """El pendiente de temporada de UNA hoja (None sin temporada). Lo usa el
         ciclo para anotar el regreso retenido por campana topada (bloque D)."""
-        t = self._temporada
-        if t is None:
-            return None
-        cadena = _cadena_desde(self._historia.get(hoja_id), bid_vigente)
-        return temporada._pendiente_desde(
-            t.estacion,
-            cadena,
-            episodio=t.estado.episodio,
-            excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
-            bid=bid_vigente,
-            piso=piso,
-            techo=techo,
-        )
+        res = self.evalua_temporada(hoja_id, bid_vigente, piso=piso, techo=techo)
+        return res[0] if res is not None else None
 
     def caso(
         self,
@@ -416,6 +458,8 @@ class LecturasPlataforma:
         procedencia: str | None = None,
         con_temporada: bool = True,
         sombra: bool = False,
+        modo: ModoDecision | None = None,
+        frontera_h: temporada.FronteraHoja | None = None,
     ) -> CasoHoja:
         """Arma el caso de una hoja. Cero consultas si la hoja no cambio de
         bid en 90 dias; UNA consulta (`_SQL_EFECTO`) si cambio."""
@@ -445,36 +489,47 @@ class LecturasPlataforma:
             trayectoria = Trayectoria(cambios=cambios, efecto=leido.efecto, episodio=episodio)
         else:
             trayectoria = Trayectoria(cambios=(), efecto=None)
+        if modo is None:
+            if sombra:
+                modo = self._modo_sombra or ModoDecision(
+                    temporada=self._temporada is not None,
+                    recuperacion=self._recuperacion is not None,
+                    presupuesto=self._presupuesto is not None,
+                )
+            else:
+                modo = self._modo_real
         temporada_caso = None
         historia_caso = None
         recuperacion_caso = None
         t = self._temporada
-        recuperacion_decide = (
-            self._recuperacion is not None and con_temporada and (sombra or self._recuperacion_live)
-        )
-        con_cadena = (
-            t is not None and (t.modo == "live" or sombra) and con_temporada
-        ) or recuperacion_decide
-        if con_cadena:
+        usa_temporada = modo.temporada and con_temporada and t is not None
+        usa_recuperacion = modo.recuperacion and con_temporada and self._recuperacion is not None
+        if usa_temporada or usa_recuperacion:
             historia_caso = self._historia.get(hoja_id) or HistoriaBid(
                 desde=self._historia_desde or self._d,
                 cambios=(),
                 fines=frozenset(),
                 manos_externas=(),
             )
-            if t is not None and (t.modo == "live" or sombra) and con_temporada:
+            if usa_temporada:
+                assert t is not None
+                frontera_uso = (
+                    frontera_h
+                    if frontera_h is not None
+                    else self.frontera(hoja_id, bid.valor, piso=bid.piso, techo=bid.techo)
+                )
                 temporada_caso = TemporadaCaso(
                     estacion=t.estacion,
                     episodio=t.estado.episodio,
                     excluida_en=t.estado.excluidas.get(hoja_id, frozenset()),
                     meta_alta_pct=t.meta_alta_pct,
                     meta_manual=procedencia in ("goal_campana", "goal_plataforma"),
-                    frontera=self.frontera(hoja_id, bid.valor, piso=bid.piso, techo=bid.techo),
+                    frontera=frontera_uso,
                 )
-            if recuperacion_decide:
+            if usa_recuperacion:
                 recuperacion_caso = self._recuperacion
         presupuesto_caso = None
-        if self._presupuesto is not None and (sombra or self._presupuesto_live):
+        if modo.presupuesto and self._presupuesto is not None:
             campana = self._campanas.get(hoja_id)
             presupuesto_caso = self._presupuesto.get(campana) if campana is not None else None
         return CasoHoja(
@@ -544,11 +599,11 @@ def _lee_tramos(
     )
     cerca_plat = (
         temporada_plat.estado.cerca_plataforma
-        if temporada_plat is not None and temporada_plat.modo == "live"
+        if temporada_plat is not None and temporada_plat.en_vivo
         else None
     )
     cercas: dict[int, dt.date] = {}
-    if temporada_plat is not None and temporada_plat.modo == "live" and historia:
+    if temporada_plat is not None and temporada_plat.en_vivo and historia:
         for hoja_h, hist_h in historia.items():
             cerca_h = temporada.cerca_hoja_de(_cadena_desde(hist_h, None), d)
             if cerca_h is not None:
@@ -762,6 +817,14 @@ def lee_plataforma(
     sellos = [fila[13] for fila in filas_tramos] + [fila[6] for fila in filas_precio]
     observado = max((s for s in sellos if s is not None), default=None)
 
+    modo_real, modo_sombra = resuelve_modos_decision(
+        temporada_plat,
+        recuperacion,
+        campana_topada,
+        recuperacion_live=recuperacion_live,
+        presupuesto_live=presupuesto_live,
+    )
+
     return LecturasPlataforma(
         plataforma=plataforma,
         decidido_el=decidido_el,
@@ -784,7 +847,7 @@ def lee_plataforma(
         _historia=historia,
         _historia_desde=desde_historia,
         _recuperacion=recuperacion,
-        _recuperacion_live=recuperacion_live,
         _presupuesto=presupuesto,
-        _presupuesto_live=presupuesto_live,
+        _modo_real=modo_real,
+        _modo_sombra=modo_sombra,
     )
