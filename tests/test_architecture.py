@@ -86,14 +86,6 @@ ALLOWLIST_TAMANO = {
         "lectura separaria la evidencia del caso que la congela — jamas "
         "partir por partir"
     ),
-    "app/optimizer/temporada.py": (
-        "TEMPORADA 01 A/B: el calendario de David, la unica resolucion de «que "
-        "dia es que fase» y la unica resolucion de «¿esta hoja sigue "
-        "reducida?» (reduccion_vigente) con su frontera y su pendiente viven "
-        "en UN modulo PURO: el ciclo, la cola, TX3 y el replay usan la misma "
-        "funcion. Partir resuelve/frontera/pendiente duplicaria la resolucion "
-        "que la regla de diseno manda unica — jamas partir por partir"
-    ),
     "app/dashboard_resumen.py": (
         "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
         "Ventanas, cobertura por metrica, comparacion y MA7 usan "
@@ -109,12 +101,6 @@ ALLOWLIST_TAMANO = {
         "cierre + claim compartido con la corrida). Partirlo por cuota "
         "separaria `revertir` de su nucleo `_revertir_fila` — jamas partir "
         "por partir"
-    ),
-    "app/impulso_io.py": (
-        "BIDS 02 R09-r4: IO transaccional del impulso (previa + lanza + "
-        "vigia + reconciliacion H2/H6): un solo flujo con estados "
-        "compartidos (pendientes, sellos, pausador propio); partirlo por "
-        "cuota separaria lanza de su reconciliacion — jamas partir por partir"
     ),
     "app/cycle.py": (
         "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
@@ -196,14 +182,12 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/dashboard_resumen.py": 995,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
-    "app/impulso_io.py": 1229,
     "app/precio/cambios.py": 1025,
     "app/precio/corrida.py": 1647,
     "app/retiro_anuncios.py": 1386,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
     "app/lecturas_caso.py": 1540,
-    "app/optimizer/temporada.py": 1265,
 }
 
 

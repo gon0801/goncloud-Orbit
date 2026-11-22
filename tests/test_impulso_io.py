@@ -4242,3 +4242,78 @@ def test_r09r6_i75_detalle_graduado_sin_reencender(monkeypatch):
         assert conn.execute(
             "SELECT detalle FROM fabrica_lote WHERE lote = %s", (ids["lote"],)
         ).fetchone() == ("graduado sin reencender: pauso dueno, goals a live",)
+
+
+def test_conecta_propia_usa_db_connect_y_respeta_orbit_pg_host(monkeypatch):
+    """Ola D2 (regla 9): `_conecta_propia` enruta por `app.db.connect` para
+    aplicar `ORBIT_PG_HOST` y redaccion. Contra el `psycopg.connect` directo
+    anterior, el host override se ignoraba y este test fallaba."""
+    from types import SimpleNamespace
+
+    from app import db as db_mod
+    from app import impulso_preview
+
+    vistos: list[tuple[str, dict]] = []
+
+    def _connect_falso(dsn, **kwargs):
+        vistos.append((dsn, kwargs))
+        return "conn-ok"
+
+    monkeypatch.setenv("ORBIT_PG_HOST", "db-override")
+    monkeypatch.setattr(db_mod.psycopg, "connect", _connect_falso)
+    conn_falsa = SimpleNamespace(
+        info=SimpleNamespace(
+            dsn="host=127.0.0.1 port=5432 user=orbit dbname=orbit",
+            password="secreto-orbit-test",
+            dbname="orbit",
+        )
+    )
+    res = impulso_preview._conecta_propia(conn_falsa, autocommit=True)
+    assert res == "conn-ok"
+    assert len(vistos) == 1
+    dsn_usado, kw = vistos[0]
+    assert "db-override" in dsn_usado
+    assert "secreto-orbit-test" in dsn_usado
+    assert kw.get("dbname") == "orbit"
+    assert kw.get("autocommit") is True
+
+
+def test_descarta_huerfano_cierra_http_y_propia_del_pausador(monkeypatch):
+    """Ola D2 (regla 9): `_descarta_huerfano` usa `with _pausador_propio(conn)`
+    y garantiza cerrar tanto el `httpx.Client` (`_armado[2]`) como la conexion
+    propia incluso si `pausa()` falla."""
+    from app import impulso_lanza, impulso_preview
+
+    class _Cerrable:
+        def __init__(self):
+            self.cerrado = False
+
+        def close(self):
+            self.cerrado = True
+
+    class _ConnRegistro:
+        def __init__(self):
+            self.updates = []
+
+        def execute(self, sql, params=None):
+            self.updates.append((sql, params))
+
+    http_spy = _Cerrable()
+    propia_spy = _Cerrable()
+
+    class _PausadorEspia(impulso_preview.PausadorFabrica):
+        def __init__(self):
+            super().__init__(propia_spy)
+            self._propia = propia_spy
+            self._armado = (object(), propia_spy, http_spy)
+
+        def pausa(self, lote: str) -> None:
+            raise RuntimeError("fallo best-effort")
+
+    monkeypatch.setattr(impulso_lanza, "_pausador_propio", lambda _conn: _PausadorEspia())
+    conn_reg = _ConnRegistro()
+    aviso = impulso_lanza._descarta_huerfano(conn_reg, "impulso-huerfano-1", "dueno")
+    assert aviso is not None and "impulso-huerfano-1" in aviso
+    assert http_spy.cerrado is True
+    assert propia_spy.cerrado is True
+    assert len(conn_reg.updates) == 1

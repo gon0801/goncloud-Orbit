@@ -29,9 +29,10 @@ from typing import Any, Literal
 
 import psycopg
 
+from app.db import settings_vigentes
 from app.optimizer import temporada
 from app.optimizer.caso import CambioFechado, HistoriaBid, ManoExterna
-from app.optimizer.recuperacion import _cadena_desde
+from app.optimizer.recuperacion import TOLERANCIA_CADENA, _cadena_desde
 from app.optimizer.temporada import EpisodioVigente, FinReduccion, FronteraHoja
 
 MOTIVO_ENTRA = "entra_temporada_baja"
@@ -41,8 +42,6 @@ MOTIVOS_TEMPORADA = (MOTIVO_ENTRA, MOTIVO_AJUSTA, MOTIVO_SALE)
 
 # inputs.motivo -> temporada_efecto.tipo
 _TIPO_POR_MOTIVO = {MOTIVO_ENTRA: "entra", MOTIVO_AJUSTA: "ajusta", MOTIVO_SALE: "sale"}
-
-TOLERANCIA_CADENA = Decimal("0.005")  # espejo de recuperacion (mismo criterio)
 
 # La cerca de plataforma caduca a los 90 dias (temporada.DIAS_CERCA: una fuente).
 
@@ -370,7 +369,7 @@ def abre_efectos(conn: psycopg.Connection, episodio_id: int | None, pendientes, 
         (p.inputs or {}).get("temporada_episodio_id") for p in pendientes
     ):
         return
-    for pendiente, decision_id in zip(pendientes, ids, strict=False):
+    for pendiente, decision_id in zip(pendientes, ids, strict=True):
         tipo = _TIPO_POR_MOTIVO.get((pendiente.inputs or {}).get("motivo"))
         if tipo is None:
             continue
@@ -475,19 +474,21 @@ SELECT s.current_bid
 """
 
 
-def mult_negativa(conn: psycopg.Connection, platform: str, hoy: dt.date) -> Decimal | None:
-    """El multiplicador del dueno para los NEGATIVES cuando la plataforma
-    decide la baja en live (TEMPORADA 01 D, al liberar): la estacion del
-    config vigente. None sin temporada, en shadow o fuera de baja."""
-    settings = conn.execute(
-        "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    crudo = settings[0] if settings else None
+def _config_live(conn: psycopg.Connection, platform: str) -> temporada.ConfigTemporada | None:
+    """ConfigTemporada si `ads_temporada_<platform>` esta en `live`; None en otro caso."""
+    crudo = settings_vigentes(conn)
     if not isinstance(crudo, Mapping):
         return None
     if temporada.modo_desde_settings(crudo, platform) != "live":
         return None
-    config = temporada.desde_settings(crudo)
+    return temporada.desde_settings(crudo)
+
+
+def mult_negativa(conn: psycopg.Connection, platform: str, hoy: dt.date) -> Decimal | None:
+    """El multiplicador del dueno para los NEGATIVES cuando la plataforma
+    decide la baja en live (TEMPORADA 01 D, al liberar): la estacion del
+    config vigente. None sin temporada, en shadow o fuera de baja."""
+    config = _config_live(conn, platform)
     if config is None:
         return None
     estacion = temporada.resuelve(config, hoy)
@@ -499,16 +500,7 @@ def cerca_plataforma(conn: psycopg.Connection, platform: str, hoy: dt.date) -> d
     la primera confirmacion de la ultima transicion (entrada o salida) — lo
     que grupo y cuenta usan para sus ventanas de falla. None sin temporada
     encendida o sin transicion en 90 dias."""
-    settings = conn.execute(
-        "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    crudo = settings[0] if settings else None
-    if not isinstance(crudo, Mapping):
-        return None
-    if temporada.modo_desde_settings(crudo, platform) != "live":
-        return None
-    config = temporada.desde_settings(crudo)
-    if config is None:
+    if _config_live(conn, platform) is None:
         return None
     estado = lee_estado(conn, platform, hoy)
     return estado.cerca_plataforma
@@ -524,21 +516,14 @@ def frontera_hoja(
 ) -> FronteraHoja | None:
     """La misma temporada.frontera para UNA hoja, para la revalidacion de la
     cola al liberar (la conecta el bloque D). None sin config o temporada apagada."""
-    from app.db import settings_vigentes
-
-    settings = settings_vigentes(conn)
-    if settings is None:
-        return None
-    config = temporada.desde_settings(settings)
-    if config is None:
-        return None
     plataforma = conn.execute(
         "SELECT platform::text FROM ad_entity WHERE id = %s", (ad_entity_id,)
     ).fetchone()
     if plataforma is None:
         return None
     platform = plataforma[0]
-    if temporada.modo_desde_settings(settings, platform) != "live":
+    config = _config_live(conn, platform)
+    if config is None:
         return None
     estacion = temporada.resuelve(config, hoy)
     estado = lee_estado(conn, platform, hoy)
