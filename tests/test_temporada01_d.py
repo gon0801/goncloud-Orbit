@@ -842,7 +842,6 @@ def test_temporada01_d_liberacion_techo_heredado(db_template):
         " VALUES ('platform', 'amazon_mx', 20, 1.00, 8.00, 'MXN', true, 'live')"
         " RETURNING id"
     ).fetchone()[0]
-    _goal_mx(conn)
     camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-techo")
     ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-techo", parent=camp)
     _estado(conn, ag, synced_at=_medianoche(D_E1))
