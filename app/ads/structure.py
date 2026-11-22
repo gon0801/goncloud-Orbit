@@ -169,14 +169,13 @@ from app.ads.structure_plan import (  # noqa: F401 - fachada sellada (ESTRUCTURA
     huella_anuncios,
 )
 from app.db import connect
+from app.ingest_run import abrir_run, sellar_fallo_seguro, sellar_run
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
 
 SOURCE = "amazon_ads_structure_v2"
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
 # xmax = 0 distingue INSERT de UPDATE en PostgreSQL. DO UPDATE solo toca name
 # para devolver los valores existentes de columnas inmutables (parent_id,
@@ -228,13 +227,6 @@ _SQL_MARCAR_ARCHIVADOS = """
        AND s.status IS DISTINCT FROM %s
 """
 
-_SQL_SELLAR_RUN = """
-    UPDATE ingest_run
-    SET finished_at = now(), rows_written = %s, rows_skipped = %s,
-        skip_reason = %s, ok = %s
-    WHERE id = %s
-"""
-
 # El upsert no toca listing_id: un INSERT de campaign/keyword con NULL no
 # puede borrar un vinculo. Solo product_ad lo escribe despues (tambien NULL
 # si el listing ya no esta).
@@ -283,7 +275,14 @@ def _sellar_run(
     rows_skipped: int | None = None,
     skip_reason: str | None = None,
 ) -> None:
-    conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
+    sellar_run(
+        conn,
+        run_id,
+        ok=ok,
+        rows_written=rows_written,
+        rows_skipped=0 if rows_skipped is None else rows_skipped,
+        skip_reason=skip_reason,
+    )
 
 
 def _insertar_acta(
@@ -356,7 +355,7 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
     items, skips = _plan_items(estructura)
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE)
 
     written = 0
     nuevas = 0
@@ -455,26 +454,8 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
             )
     except BaseException as exc:
         # BaseException (no solo Exception) para sellar la run tambien ante
-        # KeyboardInterrupt. rows_skipped=0 explicito: el DEFAULT de la columna
-        # NOT NULL no aplica en UPDATE.
-        try:
-            with conn.transaction():
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=False,
-                    rows_skipped=0,
-                    # str(KeyboardInterrupt) es "": el nombre del tipo es el
-                    # rastro honesto minimo para esa familia de excepciones.
-                    skip_reason=scrub(str(exc)) or type(exc).__name__,
-                )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo; "
-                "el error original de la corrida era: %s",
-                run_id,
-                scrub(str(exc)),
-            )
+        # KeyboardInterrupt. rows_written=None (regla 3: nunca llego a contar).
+        sellar_fallo_seguro(conn, run_id, exc, rows_written=None)
         raise
 
     return ResultadoSync(

@@ -1030,6 +1030,44 @@ def test_recopia_deduplicada_avanza_la_marca_y_bloquea_el_snapshot_anterior(pg, 
     assert _conteos(pg)[1] == observaciones
 
 
+def test_recopia_con_secreto_numerico_no_corrompe_marca_as_of(pg, tmp_path):
+    """Un secreto registrado que coincida con digitos del epoch no altera `as_of=<epoch>`."""
+    from app import redaction
+
+    original = _snapshot(
+        tmp_path / "orig_sec.db",
+        [(D1.isoformat(), "C2", "NOMBRE NUEVO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_INICIAL,
+    )
+    recopia = _snapshot(
+        tmp_path / "recopia_sec.db",
+        [(D1.isoformat(), "C2", "NOMBRE NUEVO", 3, 50, 6.5, 20.0)],
+        as_of=AS_OF_CORRECCION,
+    )
+    atrasado = _snapshot(
+        tmp_path / "atrasado_sec.db",
+        [(D1.isoformat(), "C2", "NOMBRE VIEJO", 3, 50, 5.0, 20.0)],
+        as_of=AS_OF_INTERMEDIO,
+    )
+    epoch_12 = int(dt.datetime.fromisoformat(AS_OF_CORRECCION).replace(tzinfo=dt.UTC).timestamp())
+    subcadena = str(epoch_12)[2:7]
+    previos = list(redaction._secrets)
+    redaction.register_secret(subcadena)
+    try:
+        ingest_meli_ads(pg, original)
+        resultado = ingest_meli_ads(pg, recopia)
+        marca = pg.execute(
+            "SELECT skip_reason FROM ingest_run WHERE id = %s", (resultado["run_id"],)
+        ).fetchone()[0]
+        assert marca.startswith(f"as_of={epoch_12}; snap=")
+        assert "***REDACTED***" not in marca.split(";")[0]
+        with pytest.raises(MeliAdsError, match="snapshot atrasado"):
+            ingest_meli_ads(pg, atrasado)
+    finally:
+        with redaction._lock:
+            redaction._secrets[:] = previos
+
+
 def test_futuro_dentro_de_tolerancia_no_envenena_la_marca(pg, tmp_path):
     """Un as-of hasta 24 h adelante se acepta, pero no puede dejar atras una
     correccion real posterior."""

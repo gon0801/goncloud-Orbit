@@ -35,8 +35,8 @@ import psycopg
 
 from app.ads.descarga import GrupoDescarga, ResultadoGrupo, _registrar, descarga
 from app.ads.salud import intentar_procesar_run
-from app.ads.structure import _SQL_ABRIR_RUN, _sellar_run
 from app.dia_cerrado import ultimo_dia_cerrado
+from app.ingest_run import abrir_run, sellar_run
 from app.metricas_listas import (
     SOURCE_METRICAS,
     SOURCE_PLACEMENTS,
@@ -266,9 +266,9 @@ def _sella_fallo_de_credenciales(conn: psycopg.Connection, grupos, exc: BaseExce
     motivo = scrub(str(exc)) or type(exc).__name__
     for grupo in grupos:
         with conn.transaction():
-            run_id = conn.execute(_SQL_ABRIR_RUN, (grupo.source,)).fetchone()[0]
+            run_id = abrir_run(conn, grupo.source)
             _registrar(conn, run_id, None, None, None, "global_failed", motivo)
-            _sellar_run(conn, run_id, ok=False, rows_skipped=0, skip_reason=motivo)
+            sellar_run(conn, run_id, ok=False, rows_skipped=0, skip_reason=motivo)
         intentar_procesar_run(conn, run_id)
 
 

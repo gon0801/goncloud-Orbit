@@ -13,7 +13,7 @@ import pytest
 from app import api_dashboard, notifica, precio_avisos, ui
 from app.ads import descarga, reports
 from app.ads import write as ads_write
-from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
+from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 from app.spapi import listings as spapi_listings
 from app.spapi import pricing as spapi_pricing
 from tests.helpers.pg import db_desde_template, pg_disponible

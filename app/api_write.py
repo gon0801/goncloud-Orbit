@@ -26,7 +26,6 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import Path as RutaPath
-from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from app import (
@@ -41,7 +40,7 @@ from app import (
 )
 from app.api import ConexionLectura
 from app.campana_ajustes import _ajuste_de
-from app.db import OrbitDbError, connect
+from app.db import OrbitDbError, connect, cursor_dict
 from app.optimizer import goals as g
 from app.optimizer import productos
 from app.redaction import install_scrub_filter, register_secret
@@ -293,26 +292,26 @@ def veto(
     'app_admin')). pending_veto y released son vetables (released sigue
     vetable mientras espera quota, r2 grok); applying es punto de no retorno
     (409 en vuelo); los terminales son inmutables (409); inexistente 404."""
-    conn.row_factory = dict_row
-    fila = conn.execute(_SQL_VETO, (cuerpo.dias, cuerpo.actor, cuerpo.queue_id)).fetchone()
-    if fila is None:
-        estado = conn.execute(_SQL_ESTADO_FILA, (cuerpo.queue_id,)).fetchone()
-        if estado is None:
-            raise HTTPException(status_code=404, detail=f"queue_id {cuerpo.queue_id} no existe")
-        # dict_row activo: la columna se lee por nombre (AS estado), jamas por indice
-        estado_fila = estado["estado"]
-        if estado_fila == "applying":
+    with cursor_dict(conn) as cur:
+        fila = cur.execute(_SQL_VETO, (cuerpo.dias, cuerpo.actor, cuerpo.queue_id)).fetchone()
+        if fila is None:
+            estado = cur.execute(_SQL_ESTADO_FILA, (cuerpo.queue_id,)).fetchone()
+            if estado is None:
+                raise HTTPException(status_code=404, detail=f"queue_id {cuerpo.queue_id} no existe")
+            # cursor dict_row local: la columna se lee por nombre (AS estado), jamas por indice
+            estado_fila = estado["estado"]
+            if estado_fila == "applying":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"fila {cuerpo.queue_id} en vuelo (applying), no vetable: SOLO"
+                        " applying es punto de no retorno (sellado 4)"
+                    ),
+                )
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    f"fila {cuerpo.queue_id} en vuelo (applying), no vetable: SOLO"
-                    " applying es punto de no retorno (sellado 4)"
-                ),
+                detail=f"fila {cuerpo.queue_id} en estado terminal {estado_fila}: no vetable",
             )
-        raise HTTPException(
-            status_code=409,
-            detail=f"fila {cuerpo.queue_id} en estado terminal {estado_fila}: no vetable",
-        )
     conn.commit()
     return {
         "id": fila["id"],

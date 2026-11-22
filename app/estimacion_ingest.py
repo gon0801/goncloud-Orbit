@@ -50,6 +50,7 @@ from app.estimacion_repository import (
     sembrar_escenario_negativo_transicion,
 )
 from app.estimacion_universo import plataformas_con_cotizador
+from app.ingest_run import abrir_run, sellar_run
 from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 from app.meli.estimacion import (
     CotizadorMeli,
@@ -84,17 +85,6 @@ MOTIVOS_TRANSICION_NEGATIVA = frozenset(
         "logistica_fbm_pendiente",
     }
 )
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source, started_at) VALUES (%s, %s) RETURNING id"
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
 
 
 @dataclass(frozen=True)
@@ -433,128 +423,134 @@ def ejecutar_ingesta(  # noqa: PLR0915 - ver razon arriba
         listings = [fila for fila in listings if fila[1] != "meli"]
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE, ahora)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE, started_at=ahora)
 
     meli_cotizador = CotizadorMeli(meli_client) if meli_client is not None else None
     # Perezoso: sin items Amazon no se toca `ProductFeesClient` (sus
     # secretos); con `client` inyectado el comportamiento no cambia.
     fees_client: ProductFeesClient | None = client
+    fees_client_propio = False
 
-    for listing_id, platform, asin, seller_sku in listings:
-        es_meli = platform == "meli"
-        if not es_meli and fees_client is None:
-            try:
-                fees_client = ProductFeesClient()
-            except Exception:
-                with conn.transaction():
-                    _sellar_run(
-                        conn,
-                        run_id,
-                        ok=False,
-                        rows_written=tally.rows_written,
-                        rows_skipped=sum(skips.values()),
-                        skip_reason=_formato_skip_reason(skips),
-                    )
-                raise
-        # Falla real 2026-10-16 (D.4): el carril meli lee con SELECTs
-        # pelados (`resolver_oferta_meli`, `_huella_meli_actual`) que dejan
-        # la conexion INTRANS; sin este bloque, cada `with
-        # conn.transaction()` de persistir seria SAVEPOINT y todo el carril
-        # (mas el sello del run) se revertia al cerrar. Amazon no lo sufre:
-        # resuelve del snapshot del bridge sin tocar `conn`.
-        try:
-            with conn.transaction():
-                resultado_oferta = _resolver_oferta_item(
-                    conn, filas_bridge, listing_id, platform, seller_sku, asin, ahora
-                )
-        except Exception as exc:
-            _log_excepcion_item(SKIP_OFERTA_EXCEPCION, exc)
-            skips[SKIP_OFERTA_EXCEPCION] += 1
-            continue
-
-        if resultado_oferta.motivo is not None:
-            try:
-                with conn.transaction():
-                    huella = _huella_item(
-                        conn, filas_bridge, platform, asin, resultado_oferta.motivo
-                    )
-                    tally.negativos(
-                        *_contar_transicion_negativa_huella(
+    try:
+        for listing_id, platform, asin, seller_sku in listings:
+            es_meli = platform == "meli"
+            if not es_meli and fees_client is None:
+                try:
+                    fees_client = ProductFeesClient()
+                    fees_client_propio = True
+                except Exception:
+                    with conn.transaction():
+                        _sellar_run(
                             conn,
-                            listing_id=listing_id,
-                            motivo=resultado_oferta.motivo,
-                            huella=huella,
-                            observed_at=ahora,
+                            run_id,
+                            ok=False,
+                            rows_written=tally.rows_written,
+                            rows_skipped=sum(skips.values()),
+                            skip_reason=_formato_skip_reason(skips),
                         )
+                    raise
+            # Falla real 2026-10-16 (D.4): el carril meli lee con SELECTs
+            # pelados (`resolver_oferta_meli`, `_huella_meli_actual`) que dejan
+            # la conexion INTRANS; sin este bloque, cada `with
+            # conn.transaction()` de persistir seria SAVEPOINT y todo el carril
+            # (mas el sello del run) se revertia al cerrar. Amazon no lo sufre:
+            # resuelve del snapshot del bridge sin tocar `conn`.
+            try:
+                with conn.transaction():
+                    resultado_oferta = _resolver_oferta_item(
+                        conn, filas_bridge, listing_id, platform, seller_sku, asin, ahora
                     )
             except Exception as exc:
                 _log_excepcion_item(SKIP_OFERTA_EXCEPCION, exc)
                 skips[SKIP_OFERTA_EXCEPCION] += 1
                 continue
-            skips[resultado_oferta.motivo] += 1
-            continue
 
-        oferta = resultado_oferta.oferta
-        assert oferta is not None
+            if resultado_oferta.motivo is not None:
+                try:
+                    with conn.transaction():
+                        huella = _huella_item(
+                            conn, filas_bridge, platform, asin, resultado_oferta.motivo
+                        )
+                        tally.negativos(
+                            *_contar_transicion_negativa_huella(
+                                conn,
+                                listing_id=listing_id,
+                                motivo=resultado_oferta.motivo,
+                                huella=huella,
+                                observed_at=ahora,
+                            )
+                        )
+                except Exception as exc:
+                    _log_excepcion_item(SKIP_OFERTA_EXCEPCION, exc)
+                    skips[SKIP_OFERTA_EXCEPCION] += 1
+                    continue
+                skips[resultado_oferta.motivo] += 1
+                continue
 
-        oferta_row = _persistir_oferta_item(conn, oferta=oferta, ahora=ahora, run_id=run_id)
-        if oferta_row is None:
-            skips[SKIP_OFERTA_PERSISTENCIA] += 1
-            continue
-        oferta_id, oferta_reutilizada = oferta_row
-        tally.oferta(oferta_reutilizada)
+            oferta = resultado_oferta.oferta
+            assert oferta is not None
 
-        # ARREGLOS 03 D-J: la publicacion ya resolvio y persistio su oferta;
-        # llega a cotizarse. Una excepcion de cotizacion ya conto como
-        # intentada (seccion «OK» del diseno).
-        tally.intentadas[platform] += 1
-        try:
-            cotizacion = _cotizar_item(
-                oferta,
-                es_meli=es_meli,
-                meli_cotizador=meli_cotizador,
-                fees_client=fees_client,
-                reloj_fee=reloj_fee,
+            oferta_row = _persistir_oferta_item(conn, oferta=oferta, ahora=ahora, run_id=run_id)
+            if oferta_row is None:
+                skips[SKIP_OFERTA_PERSISTENCIA] += 1
+                continue
+            oferta_id, oferta_reutilizada = oferta_row
+            tally.oferta(oferta_reutilizada)
+
+            # ARREGLOS 03 D-J: la publicacion ya resolvio y persistio su oferta;
+            # llega a cotizarse. Una excepcion de cotizacion ya conto como
+            # intentada (seccion «OK» del diseno).
+            tally.intentadas[platform] += 1
+            try:
+                cotizacion = _cotizar_item(
+                    oferta,
+                    es_meli=es_meli,
+                    meli_cotizador=meli_cotizador,
+                    fees_client=fees_client,
+                    reloj_fee=reloj_fee,
+                )
+            except Exception as exc:
+                _log_excepcion_item(SKIP_FEE_EXCEPCION, exc)
+                skips[SKIP_FEE_EXCEPCION] += 1
+                continue
+
+            fee_observed_at = cotizacion.fetched_at
+            fee_row = _persistir_fee_item(
+                conn,
+                oferta=oferta,
+                cotizacion=cotizacion,
+                oferta_id=oferta_id,
+                fee_observed_at=fee_observed_at,
+                run_id=run_id,
             )
-        except Exception as exc:
-            _log_excepcion_item(SKIP_FEE_EXCEPCION, exc)
-            skips[SKIP_FEE_EXCEPCION] += 1
-            continue
+            if fee_row is None:
+                skips[SKIP_FEE_PERSISTENCIA] += 1
+                continue
+            fee_id, fee_reutilizada = fee_row
+            tally.fee(fee_reutilizada)
+            if cotizacion.estado == "error":
+                tally.fees_error += 1
+                skips[cotizacion.error_code or "fee_error"] += 1
+            else:
+                # ARREGLOS 03 D-J: cotizacion persistida con estado distinto de
+                # "error": esta plataforma si quedo evaluable hoy.
+                tally.cotizadas[platform] += 1
 
-        fee_observed_at = cotizacion.fetched_at
-        fee_row = _persistir_fee_item(
-            conn,
-            oferta=oferta,
-            cotizacion=cotizacion,
-            oferta_id=oferta_id,
-            fee_observed_at=fee_observed_at,
-            run_id=run_id,
-        )
-        if fee_row is None:
-            skips[SKIP_FEE_PERSISTENCIA] += 1
-            continue
-        fee_id, fee_reutilizada = fee_row
-        tally.fee(fee_reutilizada)
-        if cotizacion.estado == "error":
-            tally.fees_error += 1
-            skips[cotizacion.error_code or "fee_error"] += 1
-        else:
-            # ARREGLOS 03 D-J: cotizacion persistida con estado distinto de
-            # "error": esta plataforma si quedo evaluable hoy.
-            tally.cotizadas[platform] += 1
-
-        esc_row = _persistir_escenario_item(
-            conn,
-            listing_id=listing_id,
-            oferta_id=oferta_id,
-            fee_id=fee_id,
-            fee_observed_at=fee_observed_at,
-        )
-        if esc_row is None:
-            skips[SKIP_ESCENARIO_PERSISTENCIA] += 1
-            continue
-        esc_nuevo, esc_reutilizado = esc_row
-        tally.escenario(esc_reutilizado)
+            esc_row = _persistir_escenario_item(
+                conn,
+                listing_id=listing_id,
+                oferta_id=oferta_id,
+                fee_id=fee_id,
+                fee_observed_at=fee_observed_at,
+            )
+            if esc_row is None:
+                skips[SKIP_ESCENARIO_PERSISTENCIA] += 1
+                continue
+            esc_nuevo, esc_reutilizado = esc_row
+            tally.escenario(esc_reutilizado)
+    finally:
+        if fees_client_propio and fees_client is not None:
+            fees_client.close()
 
     skip_reason = _formato_skip_reason(skips)
     sin_cotizar = plataformas_sin_cotizar(tally.intentadas, tally.cotizadas)
@@ -598,7 +594,14 @@ def _sellar_run(
     rows_skipped: int,
     skip_reason: str | None,
 ) -> None:
-    conn.execute(_SQL_SELLAR_RUN, (rows_written, rows_skipped, skip_reason, ok, run_id))
+    sellar_run(
+        conn,
+        run_id,
+        ok=ok,
+        rows_written=rows_written,
+        rows_skipped=rows_skipped,
+        skip_reason=skip_reason,
+    )
 
 
 # ARREGLOS 03 D-J (seccion «OK»): nombre en llano de cada plataforma para el

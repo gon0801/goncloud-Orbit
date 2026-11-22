@@ -98,7 +98,6 @@ def argumentos(solicitud: dict) -> fd.SolicitudPlan:
 
 
 def planificar(conn, solicitud: dict) -> fp.PlanGrupoV2:
-    conn.row_factory = tuple_row
     try:
         return fd._arma_plan(argumentos(solicitud), conn)
     except fd.Abortar as exc:
@@ -275,7 +274,6 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
 
 
 def catalogo(conn, plataforma: str, as_of: dt.datetime | None = None) -> dict:
-    conn.row_factory = tuple_row
     productos = []
     for pid, sku, nombre, publicaciones in conn.execute(_SQL_CATALOGO, (plataforma,)).fetchall():
         dominio = {"amazon_mx": "www.amazon.com.mx", "amazon_us": "www.amazon.com"}[plataforma]
@@ -431,7 +429,6 @@ def evaluacion(
         raise error(422, "El criterio de orden no es válido.")
     if direccion not in ("asc", "desc"):
         raise error(422, "La dirección del orden no es válida.")
-    conn.row_factory = tuple_row
     # Reloj Ads: siempre pared UTC. Independiente de as_of (AC10).
     hoy = dt.datetime.now(dt.UTC).date()
     hasta = hoy - dt.timedelta(days=1)
@@ -561,7 +558,6 @@ def _fila_lote(fila) -> dict:
 
 
 def detalle_lote(conn, lote: str) -> dict | None:
-    conn.row_factory = tuple_row
     fila = conn.execute(_SQL_LOTE, (lote,)).fetchone()
     if fila is None:
         return None
@@ -594,7 +590,6 @@ def detalle_lote(conn, lote: str) -> dict | None:
 
 
 def lotes(conn, plataforma: str) -> dict:
-    conn.row_factory = tuple_row
     filas = conn.execute(
         _SQL_RESUMEN_LOTE + " WHERE l.platform = %s::platform "
         "ORDER BY l.created_at DESC, l.lote DESC LIMIT 50",

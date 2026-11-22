@@ -907,7 +907,7 @@ def test_ingesta_meli_punta_a_punta(tmp_path):
     import httpx
 
     from app.estimacion_ingest import ejecutar_ingesta
-    from app.reputacion_clientes import ClienteMeli, MeliCredentials
+    from app.meli.client import ClienteMeli, MeliCredentials
 
     with _db() as conn:
         pid = _producto(conn, "SKU-M3-A")
@@ -1062,7 +1062,7 @@ def test_ingesta_meli_no_toca_secretos_amazon(monkeypatch, tmp_path):
     import httpx
 
     from app.estimacion_ingest import ejecutar_ingesta
-    from app.reputacion_clientes import ClienteMeli, MeliCredentials
+    from app.meli.client import ClienteMeli, MeliCredentials
 
     def _explota(*args, **kwargs):
         raise AssertionError("no debe construir ProductFeesClient")

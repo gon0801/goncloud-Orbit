@@ -66,6 +66,7 @@ from pathlib import Path
 import psycopg
 
 from app.db import connect
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
 from app.meli.ads_source import (
     KIND,
     PLATAFORMA,
@@ -82,18 +83,6 @@ install_scrub_filter(logger)
 
 SOURCE = "accounting_meli_ads_campaigns"
 _SKEW_RELOJ = dt.timedelta(minutes=5)  # futuro que aun se considera reloj real
-
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-
-_SQL_SELLAR_RUN = """
-UPDATE ingest_run
-   SET finished_at = now(),
-       rows_written = %s,
-       rows_skipped = %s,
-       skip_reason = %s,
-       ok = %s
- WHERE id = %s
-"""
 
 # El nombre se actualiza solo cuando el origen trae uno distinto: uno ausente
 # (NULL) no borra el ya publicado. Sin cambio real, el WHERE corta el UPDATE y
@@ -232,9 +221,7 @@ def _texto_persistible(texto: str | None) -> str | None:
 
 
 def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
+    return formato_skip_reason(skips)
 
 
 # ARREGLOS 03 D-F: las filas cuyo dia no habia cerrado en Mexico al escribirse el snapshot
@@ -252,9 +239,19 @@ def _sellar_run(
     rows_skipped: int,
     skip_reason: str | None,
 ) -> None:
-    conn.execute(
-        _SQL_SELLAR_RUN,
-        (rows_written, rows_skipped, _texto_persistible(skip_reason), ok, run_id),
+    # Las marcas estructuradas (`as_of=<epoch>`, `snap=<sha256>`, `piso=<epoch>`)
+    # nacen validadas aqui; los motivos libres de `skips` ya pasaron por
+    # `formato_skip_reason` (que aplica `scrub`). No re-redactar el campo
+    # completo evita corromper epochs/hashes si un secreto registrado coincide
+    # con una subcadena numerica.
+    sellar_run(
+        conn,
+        run_id,
+        ok=ok,
+        rows_written=rows_written,
+        rows_skipped=rows_skipped,
+        skip_reason=_texto_persistible(skip_reason),
+        redactar_motivo=not ok,
     )
 
 
@@ -634,7 +631,7 @@ def ingest_meli_ads(
     rechazo_total = False
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = abrir_run(conn, SOURCE)
 
     entidades_nuevas = 0
     entidades_actualizadas = 0
@@ -800,23 +797,14 @@ def ingest_meli_ads(
         # Ctrl-C tambien deja la corrida sellada, no abierta.
         motivo = _texto_persistible(scrub(str(exc)) or type(exc).__name__)
         rows_skipped = origen.total if (origen is not None and rechazo_total) else 0
-        try:
-            with conn.transaction():
-                _sellar_run(
-                    conn,
-                    run_id,
-                    ok=False,
-                    rows_written=0,
-                    rows_skipped=rows_skipped,
-                    skip_reason=motivo,
-                )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo;"
-                " el error original de la corrida era: %s",
-                run_id,
-                motivo,
-            )
+        sellar_fallo_seguro(
+            conn,
+            run_id,
+            exc,
+            rows_written=0,
+            rows_skipped=rows_skipped,
+            motivo=motivo,
+        )
         raise
 
     duplicados = duplicados_version + duplicados_id

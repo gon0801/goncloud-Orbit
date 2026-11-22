@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from app.estimacion_insumos import OfertaResuelta
-from app.reputacion_clientes import ClienteMeli, MeliCredentials
+from app.meli.client import ClienteMeli, MeliCredentials
 
 AHORA = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
 

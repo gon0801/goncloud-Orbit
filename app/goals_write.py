@@ -71,9 +71,9 @@ import datetime as dt
 from decimal import Decimal
 
 import psycopg
-from psycopg.rows import dict_row
 
 from app.api_common import _dec_str
+from app.db import cursor_dict
 from app.optimizer import goals as g
 from app.optimizer.goals import MODOS, resuelve_floor_ceiling
 
@@ -425,25 +425,17 @@ def edita_goal(
                 " la terna harvest se borra con harvest_limpia"
             )
 
-    # La conexion es del caller: se lee y escribe con dict_row pero el
-    # factory ORIGINAL se restaura en finally (FABRICA 02 A.1: la
-    # herramienta de A.5 sigue usando la conexion con tuplas tras editar;
-    # contaminarla rompia apply_cola, que desempaqueta por posicion). Las
-    # conns falsas de los tests unitarios (sin row_factory) se dejan
-    # intactas: ya devuelven dicts.
-    anterior = getattr(conn, "row_factory", None)
-    if anterior is not None:
-        conn.row_factory = dict_row
-    try:
-        fila = conn.execute(_SQL_LEE, (goal_id,)).fetchone()
+    # Cursor local con dict_row: nunca muta `conn.row_factory` del caller.
+    with cursor_dict(conn) as cur:
+        fila = cur.execute(_SQL_LEE, (goal_id,)).fetchone()
         if fila is None:
             raise GoalInexistente(f"goal {goal_id} no existe")
 
         if harvest_limpia_destino:
-            _valida_limpia_destino_post_lectura(conn, fila)
+            _valida_limpia_destino_post_lectura(cur, fila)
 
         if cambios.get("mode") == "live":
-            _valida_live_destino_post_lectura(conn, goal_id, fila, cambios)
+            _valida_live_destino_post_lectura(cur, goal_id, fila, cambios)
 
         # Defensa en profundidad: hoy bid_floor/bid_ceiling son NOT NULL en DB,
         # pero si el estado efectivo quedara con alguno en None se resuelve con
@@ -465,7 +457,7 @@ def edita_goal(
             permite_bid_solo = (
                 fila["scope"] == "campaign"
                 and fila["ad_entity_id"] is not None
-                and conn.execute(
+                and cur.execute(
                     "SELECT 1 FROM campana_grupo_rol WHERE ad_entity_id = %s LIMIT 1",
                     (fila["ad_entity_id"],),
                 ).fetchone()
@@ -477,10 +469,7 @@ def edita_goal(
         # parametros): mismo estilo de SQL fijo + %s del resto del repo.
         sets = ", ".join([*(f"{col} = %s" for col in cambios), "updated_at = %s"])
         sql = f"UPDATE ads_optimizer_goal SET {sets} WHERE id = %s RETURNING {_COLUMNAS}"
-        fila_nueva = conn.execute(sql, (*cambios.values(), updated_at, goal_id)).fetchone()
-    finally:
-        if anterior is not None:
-            conn.row_factory = anterior
+        fila_nueva = cur.execute(sql, (*cambios.values(), updated_at, goal_id)).fetchone()
     conn.commit()
     return _fila_respuesta(fila_nueva)
 
@@ -556,38 +545,32 @@ def crea_goal(
     }
     _valida_pre_editar(fila_nueva, {})  # mismos espejos de CHECK que la edicion
 
-    # El row_factory del caller se restaura en finally (ver edita_goal);
-    # las conns falsas sin row_factory se dejan intactas.
-    anterior = getattr(conn, "row_factory", None)
-    if anterior is not None:
-        conn.row_factory = dict_row
+    # Cursor local con dict_row: nunca muta `conn.row_factory` del caller.
     try:
-        fila = conn.execute(
-            _SQL_CREA,
-            (
-                ad_entity_id,
-                target_acos_pct,
-                piso,
-                techo,
-                bid_currency,
-                fila_nueva["harvest_campaign_id"],
-                fila_nueva["harvest_ad_group_id"],
-                harvest_default_bid,
-                enabled,
-                mode,
-                created_at,
-                created_at,
-            ),
-        ).fetchone()
+        with cursor_dict(conn) as cur:
+            fila = cur.execute(
+                _SQL_CREA,
+                (
+                    ad_entity_id,
+                    target_acos_pct,
+                    piso,
+                    techo,
+                    bid_currency,
+                    fila_nueva["harvest_campaign_id"],
+                    fila_nueva["harvest_ad_group_id"],
+                    harvest_default_bid,
+                    enabled,
+                    mode,
+                    created_at,
+                    created_at,
+                ),
+            ).fetchone()
     except psycopg.errors.UniqueViolation as exc:
         conn.rollback()
         raise GoalInvalido(f"la campana {ad_entity_id} ya tiene goal (goal_unico_campana)") from exc
     except psycopg.errors.CheckViolation as exc:
         conn.rollback()
         raise GoalInvalido(f"la base rechazo el goal: {exc.diag.message_primary}") from exc
-    finally:
-        if anterior is not None:
-            conn.row_factory = anterior
     if commit:
         conn.commit()
     return _fila_respuesta(fila)

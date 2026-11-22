@@ -39,6 +39,7 @@ from urllib.parse import urljoin
 import httpx
 
 from app.ads.config import AdsCredentials
+from app.http_base import validar_ruta_relativa
 from app.redaction import install_scrub_filter, redact_url, register_secret, scrub
 
 logger = logging.getLogger(__name__)
@@ -135,12 +136,12 @@ def _validate_relative_path(path: str) -> None:
     que cualquier variante (incluida una doble barra que colapsaria al path
     permitido) se rechaza por diseno conservador (default-deny estricto).
     """
-    if not path or not path.startswith("/") or _ABSOLUTE_URL_RE.match(path):
-        raise MutationNotAllowedError("path invalido: debe ser relativo y empezar con '/'")
-    if "%2f" in path.lower():
-        raise MutationNotAllowedError("path invalido: encoding de barra no permitido")
-    if ".." in _clean_path(path).split("/"):
-        raise MutationNotAllowedError("path invalido: traversal ('..') no permitido")
+    validar_ruta_relativa(
+        path,
+        error_cls=MutationNotAllowedError,
+        etiqueta="path",
+        prohibir_percent_barra=True,
+    )
 
 
 class AdsClient:

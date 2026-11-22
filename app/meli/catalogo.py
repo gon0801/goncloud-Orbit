@@ -15,6 +15,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from app.db import connect
+from app.ingest_run import abrir_run, formato_skip_reason, sellar_fallo_seguro, sellar_run
 from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 from app.redaction import scrub
 
@@ -28,11 +29,6 @@ SKIP_VISITAS = "meli: visitas sin dato"
 
 _ERRORES_ITEM = (ReputacionError, ValueError, TypeError, KeyError)
 
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
-_SQL_SELLAR_RUN = (
-    "UPDATE ingest_run SET finished_at = now(), rows_written = %s,"
-    " rows_skipped = %s, skip_reason = %s, ok = %s WHERE id = %s"
-)
 _SQL_PRODUCTOS = "SELECT odoo_sku, id FROM product ORDER BY odoo_sku"
 _SQL_ALIASES = "SELECT seller_sku, product_id FROM meli_sku_alias ORDER BY seller_sku"
 _SQL_EXISTENTES = (
@@ -239,12 +235,6 @@ def _fetch_item(cliente: ClienteCatalogo, item_id: str) -> PlanItem:
     )
 
 
-def _formato_skips(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
-
-
 def _sella(
     conn: psycopg.Connection,
     run_id: int,
@@ -253,9 +243,13 @@ def _sella(
     observadas: int,
     skips: Counter,
 ) -> None:
-    conn.execute(
-        _SQL_SELLAR_RUN,
-        (observadas, sum(skips.values()), _formato_skips(skips), ok, run_id),
+    sellar_run(
+        conn,
+        run_id,
+        ok=ok,
+        rows_written=observadas,
+        rows_skipped=sum(skips.values()),
+        skip_reason=formato_skip_reason(skips),
     )
 
 
@@ -429,7 +423,7 @@ def sincronizar(
             if sku in mapa and mapa[sku] != pid:
                 raise ReputacionError(f"meli: alias en conflicto con producto canonico: {sku}")
             mapa[sku] = pid
-        resultado.run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        resultado.run_id = abrir_run(conn, SOURCE)
     try:
         with conn.transaction():
             existentes = {
@@ -479,19 +473,14 @@ def sincronizar(
                 skips=resultado.skips,
             )
     except BaseException as exc:
-        try:
-            if not conn.autocommit:
-                conn.rollback()
-            with conn.transaction():
-                _sella(
-                    conn,
-                    resultado.run_id,
-                    ok=False,
-                    observadas=0,
-                    skips=Counter({f"error: {type(exc).__name__}": 1}),
-                )
-        except Exception:
-            pass
+        sellar_fallo_seguro(
+            conn,
+            resultado.run_id,
+            exc,
+            rows_written=0,
+            rows_skipped=1,
+            motivo=f"1x error: {type(exc).__name__}",
+        )
         raise
     return resultado
 

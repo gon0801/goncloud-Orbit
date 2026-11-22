@@ -24,7 +24,7 @@ import pytest
 from test_schema import _postgres_obligatorio_ausente
 
 from app.meli import catalogo
-from app.reputacion_clientes import ClienteMeli, MeliCredentials, ReputacionError
+from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 
 RAIZ = Path(__file__).resolve().parents[1]
 

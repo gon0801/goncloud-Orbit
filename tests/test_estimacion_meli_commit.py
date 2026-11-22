@@ -173,7 +173,7 @@ def _puente_vacio(tmp_path: Path) -> Path:
 
 
 def _cliente_meli():
-    from app.reputacion_clientes import ClienteMeli, MeliCredentials
+    from app.meli.client import ClienteMeli, MeliCredentials
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=RESPUESTA_FEE)

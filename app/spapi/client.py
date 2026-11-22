@@ -50,6 +50,7 @@ from urllib.parse import quote, unquote
 
 import httpx
 
+from app.http_base import validar_ruta_relativa
 from app.redaction import install_scrub_filter, register_secret, scrub
 from app.secrets import directorio_secretos
 
@@ -192,15 +193,13 @@ def validar_get(path: str) -> str:
     ASIN). Rechaza traversal (..), encodings de barra (%2f), query/fragment
     embebidos y parametros malformados. Falla antes de red.
     """
-    if not path or not path.startswith("/") or "://" in path:
-        raise SpapiNoPermitida(f"path invalido (relativo con '/' inicial): {path!r}")
-    if "?" in path or "#" in path:
-        raise SpapiNoPermitida("path invalido: query o fragment embebidos no permitidos")
-    if "%2f" in path.lower():
-        raise SpapiNoPermitida("path invalido: encoding de barra no permitido")
-    if ".." in path.split("/"):
-        raise SpapiNoPermitida("path invalido: traversal ('..') no permitido")
-    solo = path
+    solo = validar_ruta_relativa(
+        path,
+        error_cls=SpapiNoPermitida,
+        etiqueta="path",
+        prohibir_query=True,
+        prohibir_percent_barra=True,
+    )
     if solo in RUTAS_FIJAS:
         return solo
     if solo.startswith(_PREFIJO_LISTINGS):
@@ -260,14 +259,13 @@ def construir_ruta_fees(seller_sku: str) -> str:
 
 def validar_post_fees(path: str, seller_sku: str) -> str:
     """Valida el unico POST permitido contra la allowlist (falla antes de red)."""
-    if not path or not path.startswith("/") or "://" in path:
-        raise SpapiNoPermitida("path fees invalido: relativo con '/' inicial")
-    if "?" in path or "#" in path:
-        raise SpapiNoPermitida("path fees invalido: query o fragment no permitidos")
-    if "%2f" in path.lower():
-        raise SpapiNoPermitida("path fees invalido: encoding de barra no permitido")
-    if ".." in path.split("/"):
-        raise SpapiNoPermitida("path fees invalido: traversal ('..') no permitido")
+    validar_ruta_relativa(
+        path,
+        error_cls=SpapiNoPermitida,
+        etiqueta="path fees",
+        prohibir_query=True,
+        prohibir_percent_barra=True,
+    )
     if not path.startswith(FEES_PATH_PREFIX) or not path.endswith(FEES_PATH_SUFFIX):
         raise SpapiNoPermitida(f"POST fuera de allowlist: {path}")
     segmento = path[len(FEES_PATH_PREFIX) : -len(FEES_PATH_SUFFIX)]
@@ -439,7 +437,29 @@ class SpapiClient:
         self._token: str | None = None
         self._vence = 0.0
         self._lock = threading.Lock()
+        self._http: httpx.Client | None = None
         self.refreshes = 0
+
+    def close(self) -> None:
+        with self._lock:
+            if self._http is not None:
+                self._http.close()
+                self._http = None
+
+    def __enter__(self) -> SpapiClient:
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    def _cliente_http(self) -> httpx.Client:
+        http = self._http
+        if http is not None and not http.is_closed:
+            return http
+        with self._lock:
+            if self._http is None or self._http.is_closed:
+                self._http = httpx.Client(transport=self._transport, timeout=self._timeout)
+            return self._http
 
     def _cargar_credenciales(self, secrets_dir: str | Path | None) -> dict[str, str]:
         base = Path(secrets_dir) if secrets_dir else directorio_secretos()
@@ -459,6 +479,10 @@ class SpapiClient:
             register_secret(valor)
         return campos
 
+    def token_acceso(self, *, forzar: bool = False, rechazado: str | None = None) -> str:
+        """Devuelve un access token LWA vigente (publico para clientes hermanos)."""
+        return self._acceso(forzar=forzar, rechazado=rechazado)
+
     def _acceso(self, *, forzar: bool = False, rechazado: str | None = None) -> str:
         with self._lock:
             if (
@@ -476,16 +500,17 @@ class SpapiClient:
                 # Otro consumidor ya refresco tras nuestro 401: el instalado
                 # vale, sin POST nuevo (F2).
                 return self._token
-            with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
-                resp = client.post(
-                    LWA_TOKEN_URL,
-                    data={
-                        "grant_type": "refresh_token",
-                        "client_id": self._cred["lwa_app_id"],
-                        "client_secret": self._cred["lwa_client_secret"],
-                        "refresh_token": self._cred["refresh_token"],
-                    },
-                )
+            if self._http is None or self._http.is_closed:
+                self._http = httpx.Client(transport=self._transport, timeout=self._timeout)
+            resp = self._http.post(
+                LWA_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": self._cred["lwa_app_id"],
+                    "client_secret": self._cred["lwa_client_secret"],
+                    "refresh_token": self._cred["refresh_token"],
+                },
+            )
             if resp.status_code >= 400:
                 raise SpapiRechazoLWA(resp.status_code)
             try:
@@ -536,25 +561,25 @@ class SpapiClient:
         forzados = 0
         reintentos = 0
         esperado = 0.0
-        with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
-            while True:
-                if limitador is not None:
-                    limitador.consumir()
-                resp = client.get(url, params=params, headers={"x-amz-access-token": token})
-                self._honrar_tasa(limitador, resp)
-                if resp.status_code == 401 and forzados < 1:
-                    forzados += 1
-                    token = self._acceso(forzar=True, rechazado=token)
-                    continue
-                if resp.status_code == 429:
-                    espera = _espera_429(resp, "GET", solo, reintentos, esperado)
-                    if espera is None:
-                        return resp
-                    reintentos += 1
-                    esperado += espera
-                    self._sleep(espera)
-                    continue
-                return resp
+        client = self._cliente_http()
+        while True:
+            if limitador is not None:
+                limitador.consumir()
+            resp = client.get(url, params=params, headers={"x-amz-access-token": token})
+            self._honrar_tasa(limitador, resp)
+            if resp.status_code == 401 and forzados < 1:
+                forzados += 1
+                token = self._acceso(forzar=True, rechazado=token)
+                continue
+            if resp.status_code == 429:
+                espera = _espera_429(resp, "GET", solo, reintentos, esperado)
+                if espera is None:
+                    return resp
+                reintentos += 1
+                esperado += espera
+                self._sleep(espera)
+                continue
+            return resp
 
     def post_fees(
         self,
@@ -575,32 +600,32 @@ class SpapiClient:
         forzados = 0
         reintentos = 0
         esperado = 0.0
-        with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
-            while True:
-                if limitador is not None:
-                    limitador.consumir()
-                resp = client.post(
-                    url,
-                    content=content,
-                    headers={
-                        "x-amz-access-token": token,
-                        "Content-Type": "application/json",
-                    },
-                )
-                self._honrar_tasa(limitador, resp)
-                if resp.status_code == 401 and forzados < 1:
-                    forzados += 1
-                    token = self._acceso(forzar=True, rechazado=token)
-                    continue
-                if resp.status_code == 429:
-                    espera = _espera_429(resp, "POST", ruta, reintentos, esperado)
-                    if espera is None:
-                        return resp
-                    reintentos += 1
-                    esperado += espera
-                    self._sleep(espera)
-                    continue
-                return resp
+        client = self._cliente_http()
+        while True:
+            if limitador is not None:
+                limitador.consumir()
+            resp = client.post(
+                url,
+                content=content,
+                headers={
+                    "x-amz-access-token": token,
+                    "Content-Type": "application/json",
+                },
+            )
+            self._honrar_tasa(limitador, resp)
+            if resp.status_code == 401 and forzados < 1:
+                forzados += 1
+                token = self._acceso(forzar=True, rechazado=token)
+                continue
+            if resp.status_code == 429:
+                espera = _espera_429(resp, "POST", ruta, reintentos, esperado)
+                if espera is None:
+                    return resp
+                reintentos += 1
+                esperado += espera
+                self._sleep(espera)
+                continue
+            return resp
 
 
 class CuboTasa:

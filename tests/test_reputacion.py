@@ -980,7 +980,7 @@ def test_clientes_meli_sin_posts():
     """Cero POSTs en clientes de reputacion: con el pase del bridge
     Orbit NUNCA pega a /oauth/token (no refresca) y MeLi es resto
     solo-GET."""
-    fuente = Path(__file__).resolve().parents[1] / "app" / "reputacion_clientes.py"
+    fuente = Path(__file__).resolve().parents[1] / "app" / "meli" / "client.py"
     texto = fuente.read_text(encoding="utf-8")
     assert texto.count(".post(") == 0
     assert "/oauth/token" not in texto

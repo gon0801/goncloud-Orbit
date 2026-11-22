@@ -44,14 +44,13 @@ from typing import Annotated, Literal
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
-from psycopg.rows import dict_row
 
 from app.api_common import (
     _SQL_ULTIMO_CICLO_POR_PLATAFORMA,
     _dec_str,
     _fila_ciclo,
 )
-from app.db import OrbitDbError, connect
+from app.db import OrbitDbError, connect, cursor_dict
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
 from app.redaction import install_scrub_filter
@@ -242,26 +241,28 @@ def audit(
     404 para ids inexistentes (cycle_id/ad_entity_id que no existen en el
     esquema); un id existente sin decisiones devuelve items vacios.
     """
-    conn.row_factory = dict_row
-    if cycle_id is not None and conn.execute(_SQL_CICLO_EXISTE, (cycle_id,)).fetchone() is None:
-        raise HTTPException(status_code=404, detail=f"cycle_id {cycle_id} no existe")
-    if (
-        ad_entity_id is not None
-        and conn.execute(_SQL_ENTIDAD_EXISTE, (ad_entity_id,)).fetchone() is None
-    ):
-        raise HTTPException(status_code=404, detail=f"ad_entity_id {ad_entity_id} no existe")
+    with cursor_dict(conn) as cur:
+        if cycle_id is not None and cur.execute(_SQL_CICLO_EXISTE, (cycle_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail=f"cycle_id {cycle_id} no existe")
+        if (
+            ad_entity_id is not None
+            and cur.execute(_SQL_ENTIDAD_EXISTE, (ad_entity_id,)).fetchone() is None
+        ):
+            raise HTTPException(status_code=404, detail=f"ad_entity_id {ad_entity_id} no existe")
 
-    filtros, params = _filtros_decision(cycle_id, ad_entity_id, kind)
-    if cycle_id is None and ad_entity_id is None and kind is None:
-        # sin filtros no se paga un count(*) de toda la tabla (ver docstring)
-        total = None
-    else:
-        # dict_row activo: la columna se lee por nombre (AS total), jamas por indice
-        total = conn.execute(_SQL_AUDIT_TOTAL.format(filtros=filtros), params).fetchone()["total"]
-    filas = conn.execute(
-        _SQL_AUDIT_BASE.format(filtros=filtros),
-        (*params, limit, offset),
-    ).fetchall()
+        filtros, params = _filtros_decision(cycle_id, ad_entity_id, kind)
+        if cycle_id is None and ad_entity_id is None and kind is None:
+            # sin filtros no se paga un count(*) de toda la tabla (ver docstring)
+            total = None
+        else:
+            # cursor dict_row local: la columna se lee por nombre (AS total), jamas por indice
+            total = cur.execute(_SQL_AUDIT_TOTAL.format(filtros=filtros), params).fetchone()[
+                "total"
+            ]
+        filas = cur.execute(
+            _SQL_AUDIT_BASE.format(filtros=filtros),
+            (*params, limit, offset),
+        ).fetchall()
     items = []
     for fila in filas:
         items.append(
@@ -301,9 +302,9 @@ def goals(
     su ad_entity_id). El filtro `platform` SI lo incluye (subconsulta a
     ad_entity, misma resolucion que app/cycle), pero el consumidor que quiera
     la plataforma de un goal de campana debe unirla por ad_entity_id."""
-    conn.row_factory = dict_row
     filtros, params = _filtros_goals(platform, scope, enabled)
-    filas = conn.execute(_SQL_GOALS.format(filtros=filtros), params).fetchall()
+    with cursor_dict(conn) as cur:
+        filas = cur.execute(_SQL_GOALS.format(filtros=filtros), params).fetchall()
     return [
         {
             "id": fila["id"],
@@ -340,10 +341,10 @@ def campaign_proposals(
     no accionables). `sales30d` es el nombre del reporte (misma fuente que
     revenue); `motivo` sale a primer nivel (en evidence sigue anidado).
     Dinero como string (regla 4), NULL como null (regla 3)."""
-    conn.row_factory = dict_row
-    filas = conn.execute(
-        _SQL_PROPUESTAS_CAMPANA, (status, status, platform, platform, limit)
-    ).fetchall()
+    with cursor_dict(conn) as cur:
+        filas = cur.execute(
+            _SQL_PROPUESTAS_CAMPANA, (status, status, platform, platform, limit)
+        ).fetchall()
     return [_fila_propuesta_campana(fila) for fila in filas]
 
 
@@ -395,11 +396,11 @@ def propuestas_campana_visibles(conn: ConexionLectura) -> list[dict]:
     """Propuestas visibles en la pantalla (B2): open accionables primero,
     luego paused_observed informativas y paused_external (cierre C.5 por
     readback PAUSED: como se cerro y cuando). Sin limite (son decenas)."""
-    conn.row_factory = dict_row
     items = []
-    for estado in ("open", "paused_observed", "paused_external"):
-        filas = conn.execute(
-            _SQL_PROPUESTAS_CAMPANA, (estado, estado, None, None, LIMITE_MAX)
-        ).fetchall()
-        items.extend(_fila_propuesta_campana(fila) for fila in filas)
+    with cursor_dict(conn) as cur:
+        for estado in ("open", "paused_observed", "paused_external"):
+            filas = cur.execute(
+                _SQL_PROPUESTAS_CAMPANA, (estado, estado, None, None, LIMITE_MAX)
+            ).fetchall()
+            items.extend(_fila_propuesta_campana(fila) for fila in filas)
     return items

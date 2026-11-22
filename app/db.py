@@ -12,8 +12,10 @@ import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 import psycopg
+from psycopg.rows import dict_row
 
 from app.redaction import install_scrub_filter, redact_dsn, scrub
 
@@ -74,6 +76,21 @@ def tx_durable(conn: psycopg.Connection) -> Iterator[None]:
         yield
     if not conn.autocommit:
         conn.commit()
+
+
+@contextmanager
+def cursor_dict(conn: Any) -> Iterator[Any]:
+    """Devuelve un cursor `dict_row` sin mutar `conn.row_factory`.
+
+    Mutar `conn.row_factory` en una conexion compartida contamina al resto de
+    los llamadores. Para conexiones falsas de tests sin `.cursor` (que ya
+    devuelven dicts desde `conn.execute`), cede la propia conexion.
+    """
+    if hasattr(conn, "cursor"):
+        with conn.cursor(row_factory=dict_row) as cur:
+            yield cur
+    else:
+        yield conn
 
 
 def preparar_lectura_contribucion(conn: psycopg.Connection) -> None:
