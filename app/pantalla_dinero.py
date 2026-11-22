@@ -15,12 +15,16 @@ cinco entra al total, no a los renglones, y se cuenta aparte.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Literal, get_args
 
+from app import temporada_io
+from app.optimizer import temporada
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import gasto_para_concluir_desde_settings
+from app.optimizer.settings_lectura import TECHOS_HUMANOS_POR_MONEDA
 
 Plataforma = Literal["amazon_mx", "amazon_us"]
 Moneda = Literal["MXN", "USD"]
@@ -267,6 +271,7 @@ class FilaCampana:
     avisos: tuple[str, ...] = ()
     ajustes_regresables: tuple[AjusteRegresable, ...] = ()
     aviso_ajuste: str | None = None
+    propuesta_temporada: temporada.PropuestaPresupuesto | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -292,6 +297,9 @@ class FilaCampana:
                 {"ajuste_id": r.ajuste_id, "frase": r.frase} for r in self.ajustes_regresables
             ],
             "aviso_ajuste": self.aviso_ajuste,
+            "propuesta_temporada": None
+            if self.propuesta_temporada is None
+            else self.propuesta_temporada.como_dict(),
         }
 
 
@@ -409,7 +417,11 @@ def lee_campanas(
     presupuesto no cuenta (la regla de "anterior a la primera
     observacion" se cumple por construccion: sin gasto no hay tope)."""
     campanas = conn.execute(_SQL_CAMPANAS, (plataforma,)).fetchall()
-    topada = campana_topada_vigente(conn)
+    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
+    crudo = fila_settings[0] if fila_settings is not None else None
+    if not isinstance(crudo, Mapping):
+        crudo = {}
+    topada = temporada.campana_topada_desde_settings(crudo)
     gasto = {
         (fila[0], fila[1]): fila[2]
         for fila in conn.execute(_SQL_GASTO_DIARIO, (plataforma, desde, hasta)).fetchall()
@@ -454,6 +466,22 @@ def lee_campanas(
         cid: confirmado
         for cid, confirmado in conn.execute(_SQL_ULTIMO_AJUSTE_PRECIO, (plataforma,)).fetchall()
     }
+    # TEMPORADA 01 G: propuesta de presupuesto por campana (solo lectura).
+    config_t = temporada.desde_settings(crudo)
+    hoy = hasta + dt.timedelta(days=1)
+    episodio = None
+    estacion = None
+    if config_t is not None:
+        episodios = temporada_io.episodios(conn, plataforma)
+        abierto = next((e for e in episodios if e.cerrado_el is None), None)
+        episodio = abierto if abierto is not None else (episodios[0] if episodios else None)
+        estacion = temporada.resuelve(config_t, hoy)
+    inicio_alto = (
+        estacion.inicio_bloque
+        if estacion is not None and (estacion.previa_alta or estacion.fase == "alta")
+        else None
+    )
+    techo = TECHOS_HUMANOS_POR_MONEDA[PLATAFORMAS_MONEDA[plataforma]].presupuesto_diario
     dias = (hasta - desde).days + 1
 
     def _presupuesto_dia(cid: int, dia: dt.date) -> Decimal | None:
@@ -504,6 +532,18 @@ def lee_campanas(
                 dias_al_tope_7d=al_tope,
                 ajustes_regresables=tuple(regresables.get(cid, ())),
                 aviso_ajuste=_aviso_ajuste_de(ultimo_precio.get(cid), hasta),
+                propuesta_temporada=temporada.propuesta_presupuesto(
+                    estacion=estacion,
+                    config=config_t,
+                    episodio=episodio,
+                    historial=tuple(configs.get(cid, ())),
+                    hoy=hoy,
+                    inicio_bloque_alto=inicio_alto,
+                    dias_topados_7d=al_tope,
+                    topada=topada,
+                    techo_humano=techo,
+                    moneda=PLATAFORMAS_MONEDA[plataforma],
+                ),
             )
         )
     return tuple(filas)

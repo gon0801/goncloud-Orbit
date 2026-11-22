@@ -188,6 +188,18 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
   });
+  document.querySelectorAll("button[data-propuesta-presupuesto]").forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      var form = document.getElementById(
+        "ajuste-" + boton.dataset.campanaId + "-presupuesto"
+      );
+      if (!form) return;
+      form.hidden = false;
+      var input = form.querySelector('input[name="presupuesto"]');
+      if (input) input.value = boton.dataset.propuestaPresupuesto;
+      verPlan(form);
+    });
+  });
   document.querySelectorAll("button[data-regresar-ajuste]").forEach(function (boton) {
     boton.addEventListener("click", function () {
       var form = document.getElementById("regreso-ajuste-" + boton.dataset.regresarAjuste);

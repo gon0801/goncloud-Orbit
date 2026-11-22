@@ -169,8 +169,24 @@ def _config_leida(cliente, plataforma: str, externa: str):
     return None
 
 
+_SQL_AJUSTE_POSTERIOR = """
+SELECT id, antes_config_id, despues
+  FROM campana_ajuste
+ WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NOT NULL
+ ORDER BY id
+"""
+
+
+def _toca_campo(conn, antes_id: int, despues: dict, campo: str) -> bool:
+    """True si la fila cambio ESE campo de ConfigCampana (una orden de otra
+    ubicacion no invalida la de esta)."""
+    antes = config_por_id(conn, antes_id)
+    despues_cfg = ConfigCampana.desde_json(despues)
+    return getattr(antes, campo) != getattr(despues_cfg, campo)
+
+
 def _aplica_y_confirma(
-    conn, cliente, plataforma, clase, destino, ajuste, *, ajuste_id, llave, previa
+    conn, cliente, plataforma, clase, destino, ajuste, *, campana_id, ajuste_id, previa
 ) -> None:
     """PUT del campo + readback + sello, serializado por acto (B9). El
     PUT lleva SOLO el campo que el ajuste cambia (B11: un placement
@@ -184,6 +200,9 @@ def _aplica_y_confirma(
     la fila queda sin confirmar (reintentable: el reintento reusa la
     pendiente). Lo que se guarda es la leida mezclada sobre `previa`
     (B1: el PUT no mueve campos ajenos)."""
+    # TEMPORADA 01 G: el candado es por campaña y campo, tambien al regresar.
+    campo = campo_del_ajuste(ajuste)
+    llave = f"campana:{campana_id}:{campo}"
     candado = conn.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s))", (llave,)).fetchone()[0]
     if not candado:
         # Otro intento trabaja este acto (try, no espera: un reintento
@@ -193,6 +212,15 @@ def _aplica_y_confirma(
     if ya is not None and ya[0]:
         conn.rollback()
         return
+    for _pid, antes_id, despues in conn.execute(
+        _SQL_AJUSTE_POSTERIOR, (campana_id, clase, ajuste_id)
+    ).fetchall():
+        if _toca_campo(conn, antes_id, despues, campo):
+            # La orden quedo vieja: hay otra aceptada DESPUES para el mismo
+            # campo. Sin PUT; el endpoint responde 409 y el dueno recarga.
+            raise AjusteEnCurso(
+                "Ya mandaste otra orden para esta campaña después de esta. Recarga."
+            )
     if isinstance(ajuste, CambiarAjusteUbicacion):
         actual = _config_leida(cliente, plataforma, destino.campana_externa)
         strategy = actual.estrategia_puja if actual is not None else None
@@ -350,8 +378,8 @@ def aplica_ajuste_campana(
         plan.clase,
         plan.despues,
         plan.ajuste,
+        campana_id=plan.campana_id,
         ajuste_id=ajuste_id,
-        llave=f"aplica:{huella_efectiva}",
         previa=plan.antes,
     )
     return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
@@ -501,8 +529,8 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         clase,
         antes,
         ajuste_hijo,
+        campana_id=campana_id,
         ajuste_id=nuevo_id,
-        llave=f"regresa:{nuevo_id}",
         previa=vigente,
     )
     return AjusteHecho(nuevo_id, campana_id, clase, True)
