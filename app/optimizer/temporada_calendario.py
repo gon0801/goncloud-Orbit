@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from app.optimizer.temporada_config import (
@@ -136,6 +136,93 @@ def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Ev
             if prep not in restaura_en and desde <= prep < hasta:
                 sueltos.append(Evento(prep, "prepara_alta", FRASE_PREPARA_ALTA))
     return tuple(sorted(sueltos, key=lambda e: (e.fecha, e.tipo)))
+
+
+_NOMBRES_EXCLUIDAS = {
+    "dueno_decidio": "los cambiaste tú",
+    "bid_heredado": "con el bid de su grupo",
+    "sin_centavo_factible": "no tienen un centavo que no baje más de la cuenta",
+}
+
+
+@dataclass(frozen=True)
+class ConteoTemporada:
+    """Lo que contó el ciclo para el aviso del día (notes.temporada): confirmados,
+    pendientes, retenidos, excluidos por motivo y reactivaciones."""
+
+    entradas_confirmadas: int
+    regresos_confirmados: int
+    pendientes: int
+    retenidos_por_presupuesto: int
+    excluidas: Mapping[str, int]
+    reactivaciones: int
+
+
+def _texto_propuestas(propuestas: int, detalle: str) -> str:
+    if propuestas <= 0:
+        return ""
+    return f" Hay {propuestas} campañas {detalle} en «Dónde poner el dinero»."
+
+
+def _texto_excluidas(excluidas: Mapping[str, int]) -> str:
+    partes = [
+        f"{cantidad} {_NOMBRES_EXCLUIDAS.get(motivo, motivo)}"
+        for motivo, cantidad in sorted(excluidas.items())
+        if cantidad
+    ]
+    return ", ".join(partes)
+
+
+def aviso_del_dia(
+    config: ConfigTemporada,
+    estacion: Estacion,
+    *,
+    conteo: ConteoTemporada,
+    propuestas: int,
+) -> str | None:
+    """Telegram en el día de cada cambio y 3 días antes de cada entrada y cada
+    regreso; None los demás. Cuenta confirmaciones, no decisiones, y el texto no
+    lleva costo, margen ni meta (regla de avisos_campana)."""
+    hoy = eventos(config, estacion.dia, estacion.dia + dt.timedelta(days=1))
+    if hoy:
+        evento = hoy[0]
+        if evento.tipo == "entra_baja":
+            partes = [
+                evento.frase,
+                f"Orbit bajó {conteo.entradas_confirmadas} bids y Amazon lo confirmó.",
+            ]
+            if conteo.pendientes > 0:
+                partes.append(f"Quedan {conteo.pendientes} para mañana.")
+            no_toco = sum(cantidad for cantidad in conteo.excluidas.values() if cantidad)
+            if no_toco > 0:
+                partes.append(f"No tocó {no_toco}: {_texto_excluidas(conteo.excluidas)}.")
+            return " ".join(partes) + _texto_propuestas(propuestas, "con un presupuesto más bajo")
+        if evento.tipo == "restaura":
+            partes = [
+                evento.frase,
+                "Orbit regresó"
+                f" {conteo.regresos_confirmados} bids a como estaban antes de la baja.",
+            ]
+            if conteo.retenidos_por_presupuesto > 0:
+                partes.append(
+                    f"{conteo.retenidos_por_presupuesto} esperan presupuesto:"
+                    " su campaña se queda sin presupuesto."
+                )
+            if conteo.reactivaciones > 0:
+                partes.append(
+                    f"Va a reactivar {conteo.reactivaciones} keywords que pausó en la baja."
+                )
+            return " ".join(partes) + _texto_propuestas(propuestas, "que sube al terminar la baja")
+        return f"{evento.frase}{_texto_propuestas(propuestas, 'con un presupuesto sugerido')}"
+    en_tres = eventos(
+        config, estacion.dia + dt.timedelta(days=3), estacion.dia + dt.timedelta(days=4)
+    )
+    for evento in en_tres:
+        if evento.tipo in ("entra_baja", "restaura"):
+            return f"En 3 días: {evento.frase}" + _texto_propuestas(
+                propuestas, "con un presupuesto sugerido"
+            )
+    return None
 
 
 def _texto_metas(metas: Mapping[str, Decimal]) -> str:

@@ -63,6 +63,7 @@ class _FaseApply:
     alertas: tuple = ()
     caps_saturados: tuple[CapSaturado, ...] = ()
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = ()
+    reactivaciones: dict | None = None
 
 
 def _guard_apply(
@@ -254,6 +255,9 @@ def _fase_apply(
             )
             alertas_harvest += res_cola.alertas
             caps_saturados += res_cola.caps_saturados
+            res_react = aplicador.aplica_reactivaciones(
+                conn, apply.resumes_del_ciclo(conn, cycle_id), tick=guard
+            )
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)
             notas["bids_divergentes"] = res_bids.divergencias
@@ -275,9 +279,16 @@ def _fase_apply(
             }
             if res_cola.revalidaciones_economicas:
                 notas["revalidaciones_economicas"] = res_cola.revalidaciones_economicas
+            notas["reactivaciones"] = {
+                "confirmadas": res_react.confirmadas,
+                "fallidas": res_react.fallidas,
+                "sin_quota": res_react.sin_quota,
+                "omitidas": res_react.omitidas,
+            }
             total = (
                 res_bids.aplicadas
                 + res_cola.aplicadas
+                + res_react.confirmadas
                 + reconciliacion.jobs_done
                 + reconciliacion.negativas_confirmadas
                 + reconciliacion.pausas_confirmadas
@@ -303,4 +314,5 @@ def _fase_apply(
         alertas=tuple(alertas_harvest),
         caps_saturados=tuple(caps_saturados),
         avisos_destino=avisos_destino,
+        reactivaciones=notas.get("reactivaciones"),
     )

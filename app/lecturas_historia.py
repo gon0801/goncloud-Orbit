@@ -233,6 +233,31 @@ def _historia_temporada(
     return desde_historia, manos, fines, {h: cs for h, cs in cambios_90.items() if cs}, historia
 
 
+_SQL_DIAS_INGESTA = """
+SELECT DISTINCT v.metric_date
+  FROM v_metric_latest v
+  JOIN ad_entity e ON e.id = v.ad_entity_id
+ WHERE e.platform = %s::platform AND v.metric_date >= %s AND v.metric_date <= %s
+"""
+
+
+def presupuesto_campana_hoy(
+    conn: Conexion,
+    plataforma: Plataforma,
+    campana_id: int,
+    hoy: dt.date,
+    topada: temporada.CampanaTopada,
+) -> PresupuestoCampana | None:
+    """PresupuestoCampana de UNA campana con los ultimos 7 dias con ingesta
+    (el mismo criterio que `_presupuesto_campanas` usa en el ciclo). None si
+    la campana no tiene presupuesto conocido. Solo lectura."""
+    desde = hoy - dt.timedelta(days=13)
+    dias = frozenset(
+        f[0] for f in conn.execute(_SQL_DIAS_INGESTA, (plataforma, desde, hoy)).fetchall()
+    )
+    return _presupuesto_campanas(conn, plataforma, dias, topada).get(campana_id)
+
+
 def _presupuesto_campanas(
     conn: Conexion,
     plataforma: Plataforma,

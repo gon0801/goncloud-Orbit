@@ -15,6 +15,7 @@ antes del cupo y del PUT (TEMPORADA 01 E).
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from decimal import Decimal
 
 import httpx
@@ -202,6 +203,42 @@ def reconcilia_bids(
 ) -> tuple[int, int]:
     """Reconciliacion del ledger de BIDS sin sello y ambiguos de UNA plataforma."""
     return _reconcilia_bids_impl(conn, aplicador, platform, bid_quantizado=_bid_quantizado)
+
+
+@dataclass(frozen=True)
+class DecisionResume:
+    """Una decision kind='resume' del ciclo (motor temporada, bloque F)."""
+
+    id: int
+    ad_entity_id: int
+    inputs: dict
+
+
+_SQL_RESUMES_CICLO = """
+SELECT id, ad_entity_id, inputs
+  FROM decision
+ WHERE cycle_id = %s AND kind = 'resume'
+ ORDER BY id
+"""
+
+
+def resumes_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionResume]:
+    """Las decisiones resume del ciclo, para el aplicador de reactivaciones."""
+    return [
+        DecisionResume(id=f[0], ad_entity_id=f[1], inputs=f[2] or {})
+        for f in conn.execute(_SQL_RESUMES_CICLO, (cycle_id,)).fetchall()
+    ]
+
+
+@dataclass(frozen=True)
+class ResumenReactivacion:
+    """Resultado del lote de reactivaciones: confirmadas por Amazon, fallidas,
+    sin cupo y omitidas por una guarda (van al ciclo siguiente sin tocar nada)."""
+
+    confirmadas: int = 0
+    fallidas: int = 0
+    sin_quota: int = 0
+    omitidas: int = 0
 
 
 class _TransportGuardado(httpx.BaseTransport):
@@ -504,6 +541,96 @@ class Aplicador:
                 detalle={"lote_cortado": "429"},
             )
         return motivos
+
+    def aplica_reactivaciones(
+        self, conn: psycopg.Connection, decisiones: list[DecisionResume], *, tick=None
+    ) -> ResumenReactivacion:
+        """Reactiva (resume) las pausas que el ciclo decidio reactivar, con
+        TODAS las guardas del diseno: temporada en live, campana y grupo
+        ENABLED, goal habilitado y no 'off', sin pausa de producto en vuelo del
+        grupo, campana no topada, hoja PAUSED y fuera de «Mantener pausada»;
+        cuota 'pause' y la reversa de la fila de la cola (tope de 3 en el
+        ledger, que no se reinicia aunque haya otra resume). Sin cupo o con una
+        guarda en contra no se toca Amazon: el ciclo siguiente lo vuelve a
+        decidir. En los inputs viaja la pausa original y su cola."""
+        from app import apply_cola
+        from app.lecturas_historia import presupuesto_campana_hoy
+        from app.optimizer import recuperacion, temporada
+
+        fila_settings = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        settings = (fila_settings[0] if fila_settings is not None else None) or {}
+        if temporada.modo_desde_settings(settings, self._platform) != "live":
+            return ResumenReactivacion(omitidas=len(decisiones))
+        config = temporada.desde_settings(settings)
+        if config is None:
+            # live sin configuracion de calendario: no se inventa una reactivacion.
+            return ResumenReactivacion(omitidas=len(decisiones))
+        mantener = config.mantener_pausadas
+        topada = temporada.campana_topada_desde_settings(settings)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        grupos_pausa = apply_cola.grupos_con_pausa_producto(conn, self._platform)
+        confirmadas = fallidas = sin_quota = omitidas = 0
+        for decision in decisiones:
+            _tick(tick)
+            fila = (
+                apply_cola.fila_cola(conn, decision.inputs["queue_id"])
+                if decision.inputs.get("queue_id") is not None
+                else None
+            )
+            if fila is None or fila.ad_entity_id != decision.ad_entity_id:
+                omitidas += 1
+                continue
+            if decision.ad_entity_id in mantener:
+                omitidas += 1
+                continue
+            if gate_ancestros(conn, decision.ad_entity_id) is not None:
+                omitidas += 1
+                continue
+            dummy = DecisionBid(
+                id=decision.id,
+                ad_entity_id=decision.ad_entity_id,
+                old_value=None,
+                new_value=None,
+                value_currency=None,
+                inputs={},
+            )
+            if self.modo_efectivo(conn, dummy, escalera_global="live") != "live":
+                omitidas += 1
+                continue
+            viva = conn.execute(_SQL_ENTIDAD_VIVA, (decision.ad_entity_id,)).fetchone()
+            estado = conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s",
+                (decision.ad_entity_id,),
+            ).fetchone()
+            if viva is None or not viva[1] or estado is None or estado[0] != "PAUSED":
+                omitidas += 1
+                continue
+            grupo = conn.execute(
+                "SELECT parent_id FROM ad_entity WHERE id = %s", (decision.ad_entity_id,)
+            ).fetchone()
+            if grupo is None or grupo[0] in grupos_pausa:
+                omitidas += 1
+                continue
+            presupuesto = presupuesto_campana_hoy(conn, self._platform, viva[0], hoy, topada)
+            if recuperacion.presupuesto_topado_de(presupuesto) is True:
+                omitidas += 1
+                continue
+            usada, _saturada = consume_quota_y_sello(conn, self._platform, "pause")
+            if not usada:
+                sin_quota += 1
+                continue
+            if apply_cola.reversa_pause(conn, self._cliente(), fila, tick=tick):
+                confirmadas += 1
+            else:
+                fallidas += 1
+        return ResumenReactivacion(
+            confirmadas=confirmadas,
+            fallidas=fallidas,
+            sin_quota=sin_quota,
+            omitidas=omitidas,
+        )
 
     def _ejecuta_mutacion(
         self, decision: DecisionBid, identidad: tuple[str, str], id_attempt: int

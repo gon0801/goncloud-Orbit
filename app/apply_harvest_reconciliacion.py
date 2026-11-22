@@ -103,6 +103,14 @@ SELECT EXISTS (
       FROM decision_application da
       JOIN decision d ON d.id = da.decision_id
      WHERE d.ad_entity_id = %s AND d.kind = 'pause' AND da.verify_ok IS TRUE
+       AND NOT EXISTS (
+           SELECT 1
+             FROM decision r
+            WHERE r.kind = 'resume' AND r.inputs->>'motor' = 'temporada'
+              AND (r.inputs->>'pausa_decision_id')::bigint = d.id
+              AND EXISTS (SELECT 1 FROM apply_attempt a
+                           WHERE a.decision_id = d.id
+                             AND a.tipo = 'reversa' AND a.resultado = 'ok'))
 )
 """
 

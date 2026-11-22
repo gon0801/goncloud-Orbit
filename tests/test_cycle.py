@@ -1469,6 +1469,8 @@ _SQL_CYCLE = (
     "_SQL_INSERT_DECISION",
     # ADS C.2a: el freeze del target por hoja se escribe en TX3.
     "_SQL_INSERT_TARGET_CICLO",
+    # TEMPORADA 01 F: el conteo del aviso del dia (confirmados y pendientes).
+    "_SQL_TEMPORADA_CICLO",
     "_SQL_OWNER_LOCK",
     "_SQL_SELLA_APPLY",
     "_SQL_APPLIED_COUNT_CICLO",

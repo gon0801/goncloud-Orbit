@@ -30,7 +30,7 @@ from decimal import ROUND_FLOOR, Decimal, localcontext
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.optimizer.caso import CambioFechado, CasoHoja, HistoriaBid
+    from app.optimizer.caso import CambioFechado, CasoHoja, HistoriaBid, PresupuestoCampana
 
 # write.py redondea a 0.01 HALF_EVEN: mas que esto es otra mano.
 TOLERANCIA_CADENA = Decimal("0.005")
@@ -306,14 +306,19 @@ def destino_recuperacion(
     return destino if destino > bid * (Decimal(1) + PASO_SUBIDA) else None
 
 
-def presupuesto_topado(caso: CasoHoja) -> bool | None:
+def presupuesto_topado_de(p: PresupuestoCampana | None) -> bool | None:
     """BUD (TEMPORADA 01 C): True si la campana gasto >= topada.pct de su
     presupuesto en al menos topada.dias de los ultimos 7 con ingesta; None si el
     dato no alcanza a medir la racha (o falta el presupuesto vigente); False sin
-    caso.presupuesto (la lectura no corre: semantica de hoy)."""
-    p = caso.presupuesto
+    presupuesto (la lectura no corre: semantica de hoy). UNA fuente: la usan
+    `presupuesto_topado` (el caso congelado) y las reactivaciones (bloque F)."""
     if p is None:
         return False
     if p.presupuesto_diario is None or p.dias_topados is None or p.dias_medidos < p.topada.dias:
         return None
     return p.dias_topados >= p.topada.dias
+
+
+def presupuesto_topado(caso: CasoHoja) -> bool | None:
+    """BUD sobre el presupuesto congelado del caso (TEMPORADA 01 C)."""
+    return presupuesto_topado_de(caso.presupuesto)
