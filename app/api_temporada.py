@@ -36,10 +36,6 @@ from app.optimizer import temporada
 
 router = APIRouter(prefix="/api/ads-optimizer", tags=["ads-optimizer-temporada"])
 
-# Mismo candado transaccional que `config_write.guarda_config`: serializa
-# la lectura de `ads_temporada` y su escritura posterior bajo la misma clave.
-_SQL_LOCK_CONFIG_VERSION = "SELECT pg_advisory_xact_lock(hashtext('config_version'))"
-
 
 @router.get("/temporada/vista-previa")
 def vista_previa_temporada(
@@ -127,7 +123,7 @@ def terminar_baja_temporada(
     """«Terminar la baja hoy»: fija ads_temporada.fin_anticipado = hoy UTC en
     la config guardada (la misma config_write de siempre; el calendario del
     ano no cambia). Fuera de una baja -> 422 con el texto de la tarjeta."""
-    conn.execute(_SQL_LOCK_CONFIG_VERSION)
+    config_write.lock_config_version(conn)
     _config_id, settings = _config_vigente_con_id(conn)
     guardada = temporada.desde_settings(settings)
     hoy = dt.datetime.now(dt.UTC).date()
@@ -168,11 +164,12 @@ def mantener_pausada_temporada(
     (la misma config_write de siempre; la lista la consume el bloque F al
     reactivar). Fuera de una baja -> 422; una keyword que ya no esta en la
     lista de pausadas de la baja -> 409 (recarga la pagina)."""
-    conn.execute(_SQL_LOCK_CONFIG_VERSION)
+    config_write.lock_config_version(conn)
     _config_id, settings = _config_vigente_con_id(conn)
     guardada = temporada.desde_settings(settings)
     hoy = dt.datetime.now(dt.UTC).date()
-    if guardada is None or temporada.resuelve(guardada, hoy).fase != "baja":
+    estacion = temporada.resuelve(guardada, hoy) if guardada is not None else None
+    if guardada is None or estacion is None or estacion.fase != "baja":
         raise HTTPException(
             status_code=422,
             detail="Solo puedes mantener keywords pausadas durante una temporada baja.",
@@ -185,7 +182,7 @@ def mantener_pausada_temporada(
     en_lista = any(
         fila["ad_entity_id"] == cuerpo.ad_entity_id
         for fila in pausadas_de_baja(
-            conn, plataforma[0], estacion_inicio(guardada, hoy), guardada.mantener_pausadas
+            conn, plataforma[0], estacion.inicio_bloque, guardada.mantener_pausadas
         )
     )
     if not en_lista:
@@ -209,8 +206,3 @@ def mantener_pausada_temporada(
         raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None
     salida["mantener_pausadas"] = sorted(nueva.mantener_pausadas)
     return salida
-
-
-def estacion_inicio(config: temporada.ConfigTemporada, hoy: dt.date) -> dt.date:
-    """Primer dia del bloque de baja vigente (el mismo que pinta la tarjeta)."""
-    return temporada.resuelve(config, hoy).inicio_bloque
