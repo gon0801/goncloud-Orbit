@@ -77,15 +77,6 @@ ALLOWLIST_TAMANO = {
         "bloqueo). Partir quitar o reparar de aprobar separaria las dos "
         "mitades de la misma exclusion."
     ),
-    "app/lecturas_caso.py": (
-        "BIDS 02 M.2 y TEMPORADA 01 B: lo que se lee UNA vez por plataforma y "
-        "ciclo (tramos, roll-ups, cambios de bid con instante, historia "
-        "congelada de temporada, presupuesto) y el armado del CasoHoja con "
-        "cero consultas por hoja. La frontera de lectura y la frontera de "
-        "temporada comparten el mismo snapshot REPEATABLE READ; partir la "
-        "lectura separaria la evidencia del caso que la congela — jamas "
-        "partir por partir"
-    ),
     "app/dashboard_resumen.py": (
         "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
         "Ventanas, cobertura por metrica, comparacion y MA7 usan "
@@ -101,18 +92,6 @@ ALLOWLIST_TAMANO = {
         "cierre + claim compartido con la corrida). Partirlo por cuota "
         "separaria `revertir` de su nucleo `_revertir_fila` — jamas partir "
         "por partir"
-    ),
-    "app/cycle.py": (
-        "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
-        "plan (importa psycopg, fuera del motor puro) y API publica sellada "
-        "(corre_ciclo + reexport de reproduce para el spot-check 4.4). "
-        "ORBIT 04 2.4 "
-        "agrego la fase de apply dentro del lock (TX4 + aplicador + guard de "
-        "ownership). Sus piezas (SQL sellada de claim/envelope/rastro, fases "
-        "de transaccion, serializacion congelada de inputs y la fase "
-        "de apply) no tienen frontera coherente para partirse sin romper el "
-        "sellado; partir por partir esta prohibido por la regla "
-        "anti-Goodhart. El replay puro ya vive en app/optimizer/replay.py"
     ),
     "app/apply_harvest.py": (
         "ORBIT 04 2.3 + FABRICA 02 A.3a: maquina de ejecucion del corte harvest "
@@ -175,19 +154,12 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/apply_cola.py": 1878,
     "app/apply_harvest.py": 2113,
     "app/bloqueo_dueno_efecto.py": 999,
-    # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
-    # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
-    # frontera por hoja.
-    "app/cycle.py": 2676,
     "app/dashboard_resumen.py": 995,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
     "app/precio/cambios.py": 1025,
     "app/precio/corrida.py": 1647,
     "app/retiro_anuncios.py": 1386,
-    # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
-    # frontera por hoja y el caso con marcadores.
-    "app/lecturas_caso.py": 1540,
 }
 
 
@@ -2420,9 +2392,21 @@ def _importa_eras(path: Path) -> list[str]:
 
 
 def test_ciclo_no_importa_eras():
-    """M.3: app/cycle.py no importa app.optimizer.eras en runtime (ni
-    absoluto ni relativo de nivel >= 2, que desde app alcanza igual)."""
-    assert _importa_eras(APP / "cycle.py") == []
+    """M.3: ningun modulo del ciclo vivo importa app.optimizer.eras en runtime
+    (ni absoluto ni relativo de nivel >= 2, que desde app alcanza igual)."""
+    modulos_ciclo = (
+        "cycle.py",
+        "cycle_apply.py",
+        "cycle_grupos.py",
+        "cycle_notifica.py",
+        "cycle_recorrido.py",
+        "cycle_serializacion.py",
+        "cycle_sombra.py",
+        "cycle_target.py",
+        "cycle_temporada.py",
+    )
+    for nombre in modulos_ciclo:
+        assert _importa_eras(APP / nombre) == [], nombre
 
 
 def test_candado_eras_caza_import_sembrado(tmp_path):

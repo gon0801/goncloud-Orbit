@@ -1490,22 +1490,28 @@ _SQL_CYCLE = (
     # ingesta-01 A.3: la guarda del cron (ciclo cerrado hoy / running
     # reciente) lee el ultimo ciclo del dia.
     "_SQL_ULTIMO_CICLO_HOY",
+    "_SQL_TIENE_GRUPOS_FABRICA",
 )
 
 
 def test_sql_del_modulo_parsea_como_postgres():
     """Patron del repo: pglast es dev-dep declarada y su desaparicion debe
     FALLAR ruidosamente, no saltar en silencio. La lista es LITERAL (el SQL
-    nuevo visible en diff) PERO exhaustiva contra el modulo (hallazgos
-    codex+grok, cross-review 1.2): una constante _SQL_* futura sin listar
-    revienta aqui en vez de quedar sin parsear en silencio -- la regression
-    del candado vars() original cubierto por lista explicita."""
-    from app import cycle_target
+    nuevo visible en diff) PERO exhaustiva contra todos los modulos del ciclo
+    (hallazgos codex+grok, cross-review 1.2 + Ola D1)."""
+    from app import (
+        cycle_apply,
+        cycle_grupos,
+        cycle_recorrido,
+        cycle_target,
+        cycle_temporada,
+    )
 
-    encontrados = {
-        **{n: v for n, v in vars(ciclo).items() if n.startswith("_SQL_")},
-        **{n: v for n, v in vars(cycle_target).items() if n.startswith("_SQL_")},
-    }
+    encontrados: dict[str, str] = {}
+    for mod in (ciclo, cycle_target, cycle_recorrido, cycle_grupos, cycle_apply, cycle_temporada):
+        for n, v in vars(mod).items():
+            if n.startswith("_SQL_"):
+                encontrados[n] = v
     assert set(_SQL_CYCLE) == set(encontrados)
     for nombre in _SQL_CYCLE:
         sql = encontrados[nombre].replace("%s", "NULL")
