@@ -281,9 +281,11 @@ class Relevancia:
     juicio_ids: tuple[UUID, ...]
 
 
-def leer(economia: Economia, relevancia: Relevancia) -> tuple[Lectura, frozenset[MotivoSinLectura]]:
-    """LA regla. Orden estricto; el primero que aplica gana: las ventas
-    mandan y Jev solo desempata cuando nada vende en ningun grupo."""
+def _lectura_por_hechos(
+    economia: Economia,
+) -> tuple[Lectura, frozenset[MotivoSinLectura]] | None:
+    """Reglas 1-4 (ventas y completitud). Si los hechos ya deciden, devuelve la
+    lectura; None significa que se necesita a Jev para desempatar."""
     historial = economia.historial
     if historial is not None and historial.ordenes_conocidas > 0:
         return "vendio_aqui", frozenset()
@@ -294,6 +296,15 @@ def leer(economia: Economia, relevancia: Relevancia) -> tuple[Lectura, frozenset
         return "sin_lectura", frozenset({"sin_observaciones"})
     if aqui.ordenes is None or economia.otros_sin_dato > 0:
         return "sin_lectura", frozenset({"dato_de_venta_faltante"})
+    return None
+
+
+def leer(economia: Economia, relevancia: Relevancia) -> tuple[Lectura, frozenset[MotivoSinLectura]]:
+    """LA regla. Orden estricto; el primero que aplica gana: las ventas
+    mandan y Jev solo desempata cuando nada vende en ningun grupo."""
+    por_hechos = _lectura_por_hechos(economia)
+    if por_hechos is not None:
+        return por_hechos
     conjunto = relevancia.conjunto
     if isinstance(conjunto, HayCompatible):
         return "relevante_sin_venta", frozenset()
@@ -400,15 +411,8 @@ def _orden_clave(clave: ClaveBusqueda) -> tuple[str, int, str]:
 
 
 def _necesita_a_jev(eco: Economia) -> bool:
-    """Espejo de `leer` 1-4: True cuando los hechos no deciden y la lectura
-    necesitaria a Jev. En planificacion no se distingue el paso 8."""
-    if eco.historial is not None and eco.historial.ordenes_conocidas > 0:
-        return False
-    if eco.otros_que_venden:
-        return False
-    if eco.aqui is None or eco.aqui.ordenes is None:
-        return False
-    return eco.otros_sin_dato == 0
+    """True cuando los hechos economicos no deciden (`_lectura_por_hechos` es None)."""
+    return _lectura_por_hechos(eco) is None
 
 
 def _es_candidata(

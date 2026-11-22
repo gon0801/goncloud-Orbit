@@ -16,6 +16,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from app.jev_consultas import (  # noqa: F401 - reexport contrato pruebas
+    _COLUMNAS_SENAL,
+    _SQL_SENAL_BASE,
+    CierreCorrida,
+    _ajustes,
+    _fila_senal,
+    _propuestas,
+    _vistas_de_claves,
+)
+from app.jev_consultas import (
+    HORAS_SIN_CORRER as HORAS_FIN_VIEJO,
+)
 from app.jev_lectura import (
     Ajustes,
     Apagado,
@@ -25,12 +37,9 @@ from app.jev_lectura import (
     PlataformaAmazon,
     PropuestaEnVeto,
     SenalPropuesta,
-    SenalVista,
     vista_de_dict,
 )
 from app.jev_libro import intenciones_del_dia
-from app.jev_senales import CierreCorrida, _ajustes, _propuestas
-from app.jev_vigia import HORAS_SIN_CORRER as HORAS_FIN_VIEJO
 
 
 @dataclass(frozen=True)
@@ -158,71 +167,6 @@ def salud(conn, *, ahora: datetime) -> SaludJev:
             ahora + timedelta(days=14),
         ),
     )
-
-
-_COLUMNAS_SENAL = (
-    "senal_id",
-    "plataforma",
-    "ad_group_id",
-    "termino",
-    "lectura",
-    "motivos_lectura",
-    "relevancia",
-    "motivos_jev",
-    "productos_ok",
-    "evaluados",
-    "miembros",
-    "regla_version",
-    "roster_probado",
-    "roster_prueba",
-    "ventana_inicio",
-    "ventana_fin",
-    "datos_hasta",
-    "moneda",
-    "clics",
-    "gasto",
-    "ordenes",
-    "otros_que_venden",
-    "otros_sin_dato",
-    "historial",
-    "valida_hasta",
-    "created_at",
-    "vigente",
-)
-
-_SQL_SENAL_BASE = (
-    "SELECT s.id AS senal_id, s.plataforma::text AS plataforma, s.ad_group_id,"
-    " s.termino, s.lectura, s.motivos_lectura, s.relevancia, s.motivos_jev,"
-    " s.productos_ok, s.evaluados, s.miembros, s.regla_version,"
-    " s.roster_probado, s.roster_prueba, s.ventana_inicio, s.ventana_fin,"
-    " s.datos_hasta, s.moneda::text AS moneda, s.clics, s.gasto, s.ordenes,"
-    " s.otros_que_venden, s.otros_sin_dato, s.historial,"
-    " s.valida_hasta, s.created_at, v.vigente"
-    " FROM jev_senal_vigente v JOIN jev_senal s ON s.id = v.senal_id"
-)
-
-
-def _fila_senal(fila) -> dict:
-    """Normaliza fila psycopg (dict_row o tuple) al dict que lee
-    `vista_de_dict` (misma idea que `_fila_dict` de `jev_vista`)."""
-    return dict(fila) if isinstance(fila, dict) else dict(zip(_COLUMNAS_SENAL, fila, strict=True))
-
-
-def _vistas_de_claves(conn, claves: set[ClaveBusqueda]) -> dict[ClaveBusqueda, SenalVista]:
-    """La senal mas reciente de cada clave (vacia si el job no la sello)."""
-    if not claves:
-        return {}
-    # Plazas por clave: psycopg no expande un solo %s en IN; los valores
-    # siguen parametrizados (el f-string solo cuenta plazas).
-    marcas = ",".join(["(%s,%s,%s)"] * len(claves))
-    parametros = [
-        valor for clave in claves for valor in (clave.plataforma, clave.ad_group_id, clave.termino)
-    ]
-    filas = conn.execute(
-        _SQL_SENAL_BASE + f" WHERE (s.plataforma::text, s.ad_group_id, s.termino) IN ({marcas})",
-        parametros,
-    ).fetchall()
-    return {vista.clave: vista for vista in (vista_de_dict(_fila_senal(f)) for f in filas)}
 
 
 def de_propuestas(conn, decision_ids: Iterable[int]) -> dict[int, SenalPropuesta]:

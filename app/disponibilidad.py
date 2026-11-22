@@ -431,3 +431,25 @@ def estado_disponibilidad(
     return estado_desde_observaciones(
         [(fuente, quantity, fetched_at) for fuente, quantity, fetched_at in filas]
     )
+
+
+def estados_disponibilidad_por_sku(
+    conn: psycopg.Connection,
+    platform: str,
+    seller_skus: list[str] | set[str],
+) -> dict[str, dict]:
+    """Disponibilidad de stock de varios SKUs en 1 sola consulta (evita N+1)."""
+    skus = sorted({sku for sku in seller_skus if sku})
+    if not skus:
+        return {}
+    filas = conn.execute(
+        "SELECT DISTINCT ON (seller_sku, fuente) seller_sku, fuente, quantity, fetched_at"
+        " FROM disponibilidad_observation"
+        " WHERE platform = %s AND seller_sku = ANY(%s)"
+        " ORDER BY seller_sku, fuente, observed_at DESC, fetched_at DESC",
+        (platform, skus),
+    ).fetchall()
+    por_sku: dict[str, list[tuple[str, int | None, dt.datetime]]] = {}
+    for seller_sku, fuente, quantity, fetched_at in filas:
+        por_sku.setdefault(seller_sku, []).append((fuente, quantity, fetched_at))
+    return {sku: estado_desde_observaciones(por_sku.get(sku, [])) for sku in skus}

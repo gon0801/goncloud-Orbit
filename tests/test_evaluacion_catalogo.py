@@ -825,7 +825,11 @@ def test_evaluacion_as_of_no_desplaza_ventana_ads(monkeypatch):
             7: EconomiaProducto(platform="amazon_mx", product_id=1, moneda="MXN")
         },
     )
-    monkeypatch.setattr(fw, "estado_disponibilidad", lambda *_a, **_k: {"estado": "desconocido"})
+    monkeypatch.setattr(
+        fw,
+        "estados_disponibilidad_por_sku",
+        lambda _conn, _plat, skus: {sku: {"estado": "desconocido"} for sku in skus},
+    )
 
     def fake_adjuntar(_conn, listing_ids, *, as_of):
         as_of_estimacion.append(as_of)
@@ -879,7 +883,11 @@ def test_evaluacion_us_muestra_ads_en_usd_aunque_economia_venga_mxn(monkeypatch)
             7: EconomiaProducto(platform="amazon_us", product_id=1, moneda="MXN")
         },
     )
-    monkeypatch.setattr(fw, "estado_disponibilidad", lambda *_a, **_k: {"estado": "desconocido"})
+    monkeypatch.setattr(
+        fw,
+        "estados_disponibilidad_por_sku",
+        lambda _conn, _plat, skus: {sku: {"estado": "desconocido"} for sku in skus},
+    )
     from app.estimacion_proyeccion import proyeccion_s5
 
     monkeypatch.setattr(

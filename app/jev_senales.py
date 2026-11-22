@@ -14,7 +14,6 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from typing import Literal
 from uuid import UUID, uuid4
 
 from app.ads.structure_plan import huella_anuncios
@@ -35,6 +34,15 @@ from app.jev_ads import (
 )
 from app.jev_avisos import _avisos_de
 from app.jev_catalogo import censo_grupo, resolver_fichas
+from app.jev_consultas import (  # noqa: F401 - reexport contrato pruebas
+    MOTIVOS_SIN_JUICIO,
+    TEXTO_SIN_JUICIO,
+    CierreCorrida,
+    MotivoCierre,
+    _ajustes,
+    _grupo_interno,
+    _propuestas,
+)
 from app.jev_juicios import (
     clave_de,
     contrato_por_defecto,
@@ -52,13 +60,11 @@ from app.jev_lectura import (
     Gasto,
     Historial,
     NoEvaluada,
-    PropuestaEnVeto,
     Relevancia,
     Roster,
     RosterProbado,
     Unidad,
     VentaEnOtroGrupo,
-    ajustes_desde_settings,
     anunciados_hoy,
     leer,
     planear,
@@ -79,30 +85,6 @@ from app.redaction import scrub
 _FALLOS_SEGUIDOS_MAX = 5
 _HORAS_VIGENCIA = 36
 
-MotivoCierre = Literal["apagado", "ocupado", "completa", "tope", "proveedor_caido", "sin_api_key"]
-
-# ARREGLOS 03 D-J (seccion «OK»): cierres donde no se juzgo ninguna busqueda.
-# La salida 1 hace que cron-avisa mande el aviso ese mismo dia; el vigia no
-# cambia (sigue cuidando que la tarea arranque).
-MOTIVOS_SIN_JUICIO: frozenset[MotivoCierre] = frozenset({"sin_api_key", "proveedor_caido", "tope"})
-TEXTO_SIN_JUICIO: dict[MotivoCierre, str] = {
-    "sin_api_key": "falta la llave del proveedor de JEV",
-    "proveedor_caido": "el proveedor de JEV no respondió",
-    "tope": "se acabó el tope diario de consultas de JEV",
-}
-
-
-@dataclass(frozen=True)
-class CierreCorrida:
-    corrida_id: UUID | None
-    motivo: MotivoCierre
-    unidades: int
-    llamadas: int
-    fallos: int
-    senales_nuevas: int
-    avisos_enviados: int
-    avisos_error: str | None = None
-
 
 @dataclass
 class _Estado:
@@ -116,58 +98,24 @@ class _Estado:
     memo_fallos: dict = field(default_factory=dict)
 
 
-_SQL_HISTORIAL = (
-    "SELECT min(metric_date), max(metric_date),"
+_SQL_HISTORIALES_LOTE = (
+    "WITH pares(ent_id, term) AS ("
+    " SELECT DISTINCT ent_id, term"
+    "   FROM unnest(%s::bigint[], %s::text[]) AS t(ent_id, term)"
+    "), colapsado AS ("
+    + windows._SQL_COLAPSO_TERMINOS.format(
+        where=(
+            "JOIN pares p ON p.ent_id = search_term_observation.ad_entity_id"
+            " AND p.term = search_term_observation.search_term"
+        )
+    )
+    + ") SELECT ad_entity_id, search_term, min(metric_date), max(metric_date),"
     " CASE WHEN bool_and(clicks IS NOT NULL) THEN sum(clicks)::bigint END,"
     " COALESCE(sum(orders) FILTER (WHERE orders IS NOT NULL), 0)::bigint,"
-    " count(*) FILTER (WHERE orders IS NULL), max(observed_at) FROM ("
-    + windows._SQL_COLAPSO_TERMINOS.format(where="WHERE ad_entity_id = %s AND search_term = %s")
-    + ") h"
+    " count(*) FILTER (WHERE orders IS NULL), max(observed_at)"
+    " FROM colapsado"
+    " GROUP BY ad_entity_id, search_term"
 )
-
-
-def _ajustes(lector) -> Ajustes | Apagado:
-    fila = lector.execute(
-        "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    return Apagado("sin config vigente") if fila is None else ajustes_desde_settings(*fila)
-
-
-def _grupo_interno(lector, plataforma: str, externo: object) -> int | None:
-    fila = lector.execute(
-        "SELECT id FROM ad_entity WHERE platform = %s AND kind = 'ad_group' AND external_id = %s",
-        (plataforma, str(externo)),
-    ).fetchone()
-    return fila[0] if fila is not None else None
-
-
-def _propuestas(lector) -> tuple[tuple, tuple]:
-    propuestas = []
-    ilegibles = []
-    filas = lector.execute(
-        "SELECT q.id, q.decision_id, q.kind::text, q.modo, q.vence_el, q.ad_entity_id,"
-        " q.search_term, q.platform::text, d.inputs"
-        " FROM apply_queue q JOIN decision d ON d.id = q.decision_id"
-        " WHERE q.kind IN ('negative', 'harvest') AND q.estado IN ('pending_veto', 'released')"
-        " AND q.platform IN ('amazon_mx', 'amazon_us') ORDER BY q.vence_el, q.id"
-    ).fetchall()
-    for cola, decision, kind, modo, vence, grupo, termino, plataforma, inputs in filas:
-        origen = ClaveBusqueda(plataforma, grupo, termino)
-        destino = None
-        ilegible = False
-        if kind == "harvest":
-            cosecha = ((inputs or {}).get("goal") or {}).get("harvest") or {}
-            externo = cosecha.get("ad_group_id")
-            interno = _grupo_interno(lector, plataforma, externo) if externo is not None else None
-            if interno is None:
-                ilegible = True
-                ilegibles.append(cola)
-            else:
-                destino = ClaveBusqueda(plataforma, interno, termino)
-        propuestas.append(
-            PropuestaEnVeto(cola, decision, kind, modo, origen, destino, ilegible, vence)
-        )
-    return tuple(propuestas), tuple(ilegibles)
 
 
 def _aplicados(lector) -> frozenset:
@@ -186,11 +134,19 @@ def _vigentes(lector) -> frozenset:
     return frozenset(ClaveBusqueda(*fila) for fila in filas)
 
 
-def _historial(lector, clave: ClaveBusqueda):
-    fila = lector.execute(_SQL_HISTORIAL, (clave.ad_group_id, clave.termino)).fetchone()
-    if fila[0] is None:
-        return None, None
-    return Historial(*fila[:5]), fila[5]
+def _historiales_lote(lector, claves: set[ClaveBusqueda]) -> dict[tuple[int, str], tuple]:
+    """Lee todos los historiales del conjunto en 1 consulta dentro de REPEATABLE READ."""
+    pares = sorted({(c.ad_group_id, c.termino) for c in claves})
+    if not pares:
+        return {}
+    grupos = [g for g, _ in pares]
+    terminos = [t for _, t in pares]
+    filas = lector.execute(_SQL_HISTORIALES_LOTE, (grupos, terminos)).fetchall()
+    return {
+        (fila[0], fila[1]): (Historial(*fila[2:7]), fila[7])
+        for fila in filas
+        if fila[2] is not None
+    }
 
 
 def _gasto_de(ventana, agregado) -> Gasto:
@@ -208,21 +164,25 @@ def _busca(ventana, termino: str):
     return None
 
 
-def _economia_de(lector, clave: ClaveBusqueda, ventanas: dict):
+def _economia_de(
+    clave: ClaveBusqueda,
+    *,
+    propios: dict,
+    por_termino: dict,
+    historiales: dict,
+):
     vistos: list = []
-    propio = _busca(ventanas.get((clave.plataforma, clave.ad_group_id)), clave.termino)
+    par_propio = propios.get((clave.plataforma, clave.ad_group_id, clave.termino))
     aqui = None
-    if propio is not None:
-        aqui = _gasto_de(ventanas[(clave.plataforma, clave.ad_group_id)], propio)
+    if par_propio is not None:
+        ventana_propia, propio = par_propio
+        aqui = _gasto_de(ventana_propia, propio)
         vistos.append(propio.observed_at_max)
     otros_que_venden = []
     otros_sin_venta = 0
     otros_sin_dato = 0
-    for (plataforma, grupo), ajeno in ventanas.items():
-        if plataforma != clave.plataforma or grupo == clave.ad_group_id:
-            continue
-        agregado = _busca(ajeno, clave.termino)
-        if agregado is None:
+    for grupo, ajeno, agregado in por_termino.get((clave.plataforma, clave.termino), ()):
+        if grupo == clave.ad_group_id:
             continue
         vistos.append(agregado.observed_at_max)
         if agregado.orders is None:
@@ -231,7 +191,7 @@ def _economia_de(lector, clave: ClaveBusqueda, ventanas: dict):
             otros_que_venden.append(VentaEnOtroGrupo(grupo, _gasto_de(ajeno, agregado)))
         else:
             otros_sin_venta += 1
-    historial, obs_historial = _historial(lector, clave)
+    historial, obs_historial = historiales.get((clave.ad_group_id, clave.termino), (None, None))
     vistos.append(obs_historial)
     return Economia(
         PLATAFORMAS_MONEDA[clave.plataforma],
@@ -253,15 +213,29 @@ def _economia(lector, ahora: datetime, propuestas: tuple, vigentes: frozenset) -
         ).fetchall()
         for (grupo,) in grupos:
             ventanas[(plataforma, grupo)] = windows.terminos_cortes(lector, grupo, ahora)
+    propios: dict[tuple[str, int, str], tuple] = {}
+    por_termino: dict[tuple[str, str], list] = {}
     claves = set(vigentes)
     for (plataforma, grupo), ventana in ventanas.items():
+        if ventana is None or ventana.window_start is None:
+            continue
         for agregado in ventana.terminos:
             claves.add(ClaveBusqueda(plataforma, grupo, agregado.search_term))
+            propios[(plataforma, grupo, agregado.search_term)] = (ventana, agregado)
+            por_termino.setdefault((plataforma, agregado.search_term), []).append(
+                (grupo, ventana, agregado)
+            )
     for propuesta in propuestas:
         claves.add(propuesta.origen)
         if propuesta.destino is not None:
             claves.add(propuesta.destino)
-    return {clave: _economia_de(lector, clave, ventanas) for clave in claves}
+    historiales = _historiales_lote(lector, claves)
+    return {
+        clave: _economia_de(
+            clave, propios=propios, por_termino=por_termino, historiales=historiales
+        )
+        for clave in claves
+    }
 
 
 def _leer_mundo(lector, ahora: datetime) -> tuple:
@@ -665,6 +639,8 @@ def _aplicar(
         def pedir_real(termino, ficha):
             return pedir_juicio(termino, ficha, contrato, api_key=api_key)
 
+    # Libro cuenta intenciones contra `jev_par_evento.created_at` (DEFAULT now()
+    # en Postgres): debe usar el mismo reloj UTC del servidor que el INSERT.
     libro = Libro(escritor, pedir=pedir_real, contrato=contrato, ahora=lambda: datetime.now(UTC))
     lote = _abrir_lote(escritor, plan, contrato, ahora)
     motivo_base = None if api_key else "sin_api_key"

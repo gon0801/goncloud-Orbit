@@ -14,7 +14,6 @@ import json
 from app import fabrica_motor as fm
 from app import fabrica_plan as fp
 from app import fabrica_registro, goals_write
-from app.ads.config import AdsCredentials
 from app.fabrica_datos import Abortar, _roles_del_plan
 from app.fabrica_registro import _SQL_CAMPANAS_APPLIED, _cierra, _dsn_admin, _log
 
@@ -81,11 +80,7 @@ def registrar_lote(lote: str) -> int:
             raise Abortar(
                 f"lote {lote} sin campana+ad group applied para {faltan}: --reconciliar primero"
             )
-        cred = AdsCredentials.from_secrets_dir()
-        cliente_lectura = fm.AdsClient(cred)
-        perfiles = fm._perfiles(cliente_lectura)
-        if plan.platform not in perfiles:
-            raise Abortar(f"sin perfil aceptado para {plan.platform}")
+        cred, cliente_lectura, perfiles = fm._bootstrap_amazon(plan.platform)
         ctx = fm._Ctx(None, "", cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
         fabrica_registro._registrar(ctx, plan, [creadas[r] for r in _roles_del_plan(plan)])
         fm._sella_lote(conn_admin, lote, "applied", "registro reintentado")
@@ -106,7 +101,6 @@ def _pausa_una(ctx: fm._Ctx, rol: str, external: str, goal_id) -> None:
         fm._PAUSADA,
         descripcion=f"desarmar {rol}",
         evento_log="desarmar",
-        sella_put_abortado=True,
         log_ack=True,
     )
     if goal_id is not None:
@@ -225,13 +219,14 @@ def desarmar_lote(lote: str, *, acepto_mutacion_real: bool, go: str | None) -> i
             return 0
         if not go or not go.strip():
             raise Abortar("desarmar real exige --go con el literal del dueno")
-        cred = AdsCredentials.from_secrets_dir()
-        cliente_lectura = fm.AdsClient(cred)
-        perfiles = fm._perfiles(cliente_lectura)
         platform = conn_admin.execute(
             "SELECT platform::text FROM fabrica_lote WHERE lote = %s", (lote,)
         ).fetchone()
-        if platform is None or platform[0] not in perfiles:
+        cred, cliente_lectura, perfiles = fm._bootstrap_amazon(
+            platform[0] if platform is not None else None,
+            error_sin_perfil=f"sin perfil aceptado para el lote {lote}",
+        )
+        if platform is None:
             raise Abortar(f"sin perfil aceptado para el lote {lote}")
         http = fm.httpx.Client(
             timeout=fm.httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
@@ -340,9 +335,7 @@ def reconciliar_lote(*, lote: str | None = None, plataforma: str | None = None) 
         if plataforma is None and lote is None:
             raise Abortar("--reconciliar exige --lote X o --plataforma (para elegir el perfil)")
         conn_admin = fm.connect(_dsn_admin())
-        cred = AdsCredentials.from_secrets_dir()
-        cliente_lectura = fm.AdsClient(cred)
-        perfiles = fm._perfiles(cliente_lectura)
+        _cred, cliente_lectura, perfiles = fm._bootstrap_amazon()
         platform = plataforma
         if lote is not None:
             fila = conn_admin.execute(

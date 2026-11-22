@@ -8,15 +8,15 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from app.jev_consultas import _vistas_de_claves
 from app.jev_lectura import Ajustes, PropuestaEnVeto, SenalPropuesta
 
 
 def _nombres_grupo(lector, ids: set[int]) -> dict[int, str]:
     if not ids:
         return {}
-    marcas = ",".join(["%s"] * len(ids))
     filas = lector.execute(
-        f"SELECT id, name FROM ad_entity WHERE id IN ({marcas})", tuple(ids)
+        "SELECT id, name FROM ad_entity WHERE id = ANY(%s)", (sorted(ids),)
     ).fetchall()
     return {fila[0]: fila[1] for fila in filas if fila[1]}
 
@@ -50,11 +50,16 @@ def _enviar_avisos(escritor, lote, propuestas, vistas, nombres, avisar) -> int:
     from app.jev_vista import texto_aviso
 
     enviados = 0
+    vistos: set[tuple[int, str]] = set()
     for propuesta in propuestas:
         armado = _armado_aviso(propuesta, vistas)
         if armado is None:
             continue
         lectura, origen_id, destino_id, senal = armado
+        llave_aviso = (propuesta.cola_id, lectura)
+        if llave_aviso in vistos:
+            continue
+        vistos.add(llave_aviso)
         fila = escritor.execute(
             "SELECT a.id, a.texto, (e.aviso_id IS NOT NULL)"
             " FROM jev_aviso a LEFT JOIN jev_aviso_entrega e ON e.aviso_id = a.id"
@@ -104,8 +109,6 @@ def _enviar_avisos(escritor, lote, propuestas, vistas, nombres, avisar) -> int:
 
 
 def _avisar(lector, escritor, lote, propuestas, avisar) -> int:
-    from app.jev_salud import _vistas_de_claves
-
     claves: set = set()
     for propuesta in propuestas:
         claves.add(propuesta.origen)

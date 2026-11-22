@@ -257,11 +257,11 @@ def test_recuperacion_v2_y_acciones_ignoran_estimacion(escenario, monkeypatch):
 
     ejecutadas = []
 
-    def reconciliar(args):
-        ejecutadas.append(("reconciliar", args.lote, args.plataforma))
+    def reconciliar(*, lote=None, plataforma=None):
+        ejecutadas.append(("reconciliar", lote, plataforma))
         return 0
 
-    monkeypatch.setattr(fw.fc, "_reconciliar_cmd", reconciliar)
+    monkeypatch.setattr(fw.fl, "reconciliar_lote", reconciliar)
     _fijar_sobre(monkeypatch, _sobre_incompleta())
     detalle_b = cliente.get("/api/fabrica/lotes/" + vista["lote"]).json()
     rec = cliente.post(

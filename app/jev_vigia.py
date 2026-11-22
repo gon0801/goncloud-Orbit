@@ -18,11 +18,9 @@ import sys
 from datetime import timedelta
 
 from app.db import connect
+from app.jev_consultas import HORAS_SIN_CORRER, _ajustes
 from app.jev_lectura import Apagado
-from app.jev_senales import _ajustes
 from app.redaction import scrub
-
-HORAS_SIN_CORRER = 13
 
 
 def revisa(conn) -> str | None:
