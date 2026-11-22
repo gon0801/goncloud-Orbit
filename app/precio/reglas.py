@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 
 from app.precio import puerto as puerto_mod
 from app.precio.config import ConfigPrecio
@@ -227,7 +228,7 @@ def decidir(
     `fees_escenario` trae los fees del escenario ya partidos (`Fees`) o el
     motivo (`str`) cuando partirlos fallo. LAZY: con `str`, una decision
     dentro de tolerancia sigue saliendo `mantener(en_tolerancia)`; solo
-    `_subir`/`_bajar` convierten el str en `no_evaluado(motivo)`.
+    `_mover` convierte el str en `no_evaluado(motivo)`.
     """
     freno = _freno_entrada(entrada, config)
     if freno is not None:
@@ -313,8 +314,9 @@ def decidir(
             )
 
     if m_actual < goal - tol:
-        return _subir(
+        return _mover(
             entrada,
+            "subir",
             config=config,
             m_actual=m_actual,
             cotizaciones=cotizaciones,
@@ -331,8 +333,9 @@ def decidir(
                 m_actual=m_actual,
             )
         if senal.estado == "perdiendo":
-            return _bajar(
+            return _mover(
                 entrada,
+                "bajar",
                 config=config,
                 m_actual=m_actual,
                 cotizaciones=cotizaciones,
@@ -354,26 +357,28 @@ def decidir(
     )
 
 
-def _subir(
+def _mover(
     entrada: EntradaDecision,
+    direccion: Literal["subir", "bajar"],
     *,
     config: ConfigPrecio,
     m_actual: Decimal,
     cotizaciones: tuple[puerto_mod.Cotizacion, ...],
     fees_escenario: Fees | str,
 ) -> Decision | PideCotizacion:
+    """Camino unico para `subir` y `bajar` (S4 #3/#4/#8/#11).
+
+    Ambos usan la misma maquina de `objetivo.paso` (cotizacion real), la
+    misma regla 11 y el mismo umbral de movimiento minimo; solo difieren en
+    el signo del escalon maximo y la guarda direccional contra `p_actual`.
+    """
     comp = entrada.escenario.componentes
     moneda = comp.p_actual.moneda
     escenario = entrada.escenario
     if isinstance(fees_escenario, str):
         return _no_evaluado(entrada, fees_escenario)
-    # `ref` y `fijo` llegan partidos por el adaptador (`Fees.variable`
-    # sobre el precio cotizado).
     ref = fees_escenario.variable.valor / escenario.precio_cotizado.valor
     fijo = fees_escenario.fijo.valor
-    # r3-L1: sin estrella cruda ni regla-11-cruda; `margen_imposible` sale
-    # de la maquina (rama de cero cotizaciones) y la regla 11 sale del
-    # wrapper de abajo: un solo punto de control por camino.
     salida = paso(
         costo=comp.costo.valor,
         fijo=fijo,
@@ -419,107 +424,30 @@ def _subir(
             m_actual=m_actual,
             p_objetivo=p_cierre,
         )
-    tope = piso_centavo(comp.p_actual.valor * (Decimal(1) + config.escalon_max_pct))
-    p_aplicado = min(p_objetivo, tope)
-    if p_objetivo <= comp.p_actual.valor or p_aplicado <= comp.p_actual.valor:
+    if direccion == "subir":
+        limite = piso_centavo(comp.p_actual.valor * (Decimal(1) + config.escalon_max_pct))
+        p_aplicado = min(p_objetivo, limite)
+        incoherente = p_objetivo <= comp.p_actual.valor or p_aplicado <= comp.p_actual.valor
+        op = "<="
+    else:
+        limite = techo_centavo(comp.p_actual.valor * (Decimal(1) - config.escalon_max_pct))
+        p_aplicado = max(p_objetivo, limite)
+        incoherente = p_objetivo >= comp.p_actual.valor or p_aplicado >= comp.p_actual.valor
+        op = ">="
+    if incoherente:
         return _no_evaluado(
             entrada,
             "escenario_incoherente",
-            f"subir con p_objetivo={p_objetivo} p_aplicado={p_aplicado} <= P={comp.p_actual.valor}",
+            f"{direccion} con p_objetivo={p_objetivo} p_aplicado={p_aplicado}"
+            f" {op} P={comp.p_actual.valor}",
         )
     base = _base_senal(entrada)
     return replace(
         base,
-        resultado="subir",
+        resultado=direccion,
         motivo=None,
         m_actual=m_actual,
         p_objetivo=p_cierre,
-        p_aplicado=Importe(p_aplicado, moneda),
-        aplicado=entrada.mode == "live",
-        verificacion=None,
-    )
-
-
-def _bajar(
-    entrada: EntradaDecision,
-    *,
-    config: ConfigPrecio,
-    m_actual: Decimal,
-    cotizaciones: tuple[puerto_mod.Cotizacion, ...],
-    fees_escenario: Fees | str,
-) -> Decision | PideCotizacion:
-    """r1-A3: la bajada usa la misma maquina (S4 #4 «nunca menor que el goal»
-    verificado por cotizacion real, no supuesto por linealidad)."""
-    comp = entrada.escenario.componentes
-    moneda = comp.p_actual.moneda
-    escenario = entrada.escenario
-    if isinstance(fees_escenario, str):
-        return _no_evaluado(entrada, fees_escenario)
-    ref = fees_escenario.variable.valor / escenario.precio_cotizado.valor
-    fijo = fees_escenario.fijo.valor
-    # r3b-2, opción (a): sin estrella cruda ni regla-11-cruda tampoco aquí;
-    # `margen_imposible` sale de la máquina y la regla 11 del wrapper, igual
-    # que en `_subir`: los dos caminos con un solo control, el del pedido.
-    salida = paso(
-        costo=comp.costo.valor,
-        fijo=fijo,
-        envio=comp.envio.valor,
-        isr_tasa=escenario.isr_tasa,
-        goal=entrada.goal,
-        iva_divisor=escenario.iva_divisor,
-        incluye_iva=escenario.precio_incluye_iva,
-        ref=ref,
-        moneda=moneda,
-        tolerancia=config.tolerancia,
-        cotizaciones=cotizaciones,
-        fee_variable_multiplicador=escenario.referral_fee_iva_multiplicador,
-    )
-    if isinstance(salida, PideCotizacion):
-        freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
-        return freno if freno is not None else salida
-    assert isinstance(salida, ResultadoObjetivo)
-    if salida.resultado == "no_evaluado":
-        assert salida.motivo is not None
-        return _no_evaluado(entrada, salida.motivo)
-    if salida.resultado == "goal_inalcanzable":
-        base = _base_senal(entrada)
-        return replace(
-            base,
-            resultado="goal_inalcanzable",
-            motivo=salida.motivo,
-            m_actual=m_actual,
-        )
-    assert salida.precio is not None
-    p_cierre = salida.precio
-    freno = _frena_regla11(entrada, m_actual, p_cierre.valor)
-    if freno is not None:
-        return freno
-    p_goal = p_cierre.valor
-    umbral = max(config.movimiento_min_pct * comp.p_actual.valor, _min_abs(config, moneda))
-    if abs(p_goal - comp.p_actual.valor) < umbral:
-        base = _base_senal(entrada)
-        return replace(
-            base,
-            resultado="mantener",
-            motivo="movimiento_minimo",
-            m_actual=m_actual,
-            p_objetivo=Importe(p_goal, moneda),
-        )
-    piso = techo_centavo(comp.p_actual.valor * (Decimal(1) - config.escalon_max_pct))
-    p_aplicado = max(p_goal, piso)
-    if p_goal >= comp.p_actual.valor or p_aplicado >= comp.p_actual.valor:
-        return _no_evaluado(
-            entrada,
-            "escenario_incoherente",
-            f"bajar con p_objetivo={p_goal} p_aplicado={p_aplicado} >= P={comp.p_actual.valor}",
-        )
-    base = _base_senal(entrada)
-    return replace(
-        base,
-        resultado="bajar",
-        motivo=None,
-        m_actual=m_actual,
-        p_objetivo=Importe(p_goal, moneda),
         p_aplicado=Importe(p_aplicado, moneda),
         aplicado=entrada.mode == "live",
         verificacion=None,

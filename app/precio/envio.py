@@ -175,6 +175,36 @@ def _medianas_por_producto(ordenes: Sequence[OrdenMedida]) -> dict[int, Importe]
     return {pid: _mediana(costos) for pid, costos in por_producto.items()}
 
 
+def _construir_muestra(
+    product_id: int,
+    *,
+    plataforma: str,
+    canal: str,
+    origen: Literal["propio", "familia", "marketplace"],
+    valores: Sequence[Importe],
+    envios: int,
+    donantes: int | None,
+    familia_id: int | None,
+    ventana: tuple[date, date],
+) -> MuestraNueva:
+    mediana = _mediana(valores)
+    return MuestraNueva(
+        product_id=product_id,
+        plataforma=plataforma,
+        canal=canal,
+        origen=origen,
+        valor=mediana,
+        envios=envios,
+        donantes=donantes,
+        familia_id=familia_id,
+        ventana=ventana,
+        mediana=mediana,
+        p90=_p90(valores),
+        maximo=_maximo(valores),
+        regla_version=REGLA_VERSION,
+    )
+
+
 def resolver_envio(
     product_id: int,
     *,
@@ -195,57 +225,41 @@ def resolver_envio(
     constante.
     """
     if propias:
-        costos = [o.costo for o in propias]
-        mediana = _mediana(costos)
-        return MuestraNueva(
-            product_id=product_id,
+        return _construir_muestra(
+            product_id,
             plataforma=plataforma,
             canal=canal,
             origen="propio",
-            valor=mediana,
+            valores=[o.costo for o in propias],
             envios=len(propias),
             donantes=None,
             familia_id=None,
             ventana=ventana,
-            mediana=mediana,
-            p90=_p90(costos),
-            maximo=_maximo(costos),
-            regla_version=REGLA_VERSION,
         )
     if hermanas and familia_id is not None:
         medianas = list(_medianas_por_producto(hermanas).values())
-        mediana = _mediana(medianas)
-        return MuestraNueva(
-            product_id=product_id,
+        return _construir_muestra(
+            product_id,
             plataforma=plataforma,
             canal=canal,
             origen="familia",
-            valor=mediana,
+            valores=medianas,
             envios=len(hermanas),
             donantes=len(medianas),
             familia_id=familia_id,
             ventana=ventana,
-            mediana=mediana,
-            p90=_p90(medianas),
-            maximo=_maximo(medianas),
-            regla_version=REGLA_VERSION,
         )
     if marketplace:
         medianas = list(_medianas_por_producto(marketplace).values())
-        mediana = _mediana(medianas)
-        return MuestraNueva(
-            product_id=product_id,
+        return _construir_muestra(
+            product_id,
             plataforma=plataforma,
             canal=canal,
             origen="marketplace",
-            valor=mediana,
+            valores=medianas,
             envios=len(marketplace),
             donantes=len(medianas),
             familia_id=None,
             ventana=ventana,
-            mediana=mediana,
-            p90=_p90(medianas),
-            maximo=_maximo(medianas),
-            regla_version=REGLA_VERSION,
         )
     return None

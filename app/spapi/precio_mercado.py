@@ -28,7 +28,7 @@ from app.estimacion_reader import leer_cuenta
 from app.estimacion_venta import DetalleFee
 from app.precio import puerto
 from app.precio.config import ConfigPrecio
-from app.precio.fuentes import ventas_unidad
+from app.precio.fuentes import _SIN_CACHE_LEDGER, ledger_cubierto_hasta, ventas_unidad
 from app.precio.objetivo import ErrorObjetivo, derivar_ref_fijo
 from app.precio.puerto import Lectura, MetaGoal
 from app.precio.tipos import Fees, Importe, ObservacionPricing
@@ -99,6 +99,7 @@ def historia_unidad(
     unidad: puerto.UnidadPrecio,
     canal: str | None,
     hoy: date,
+    cubierto_hasta: object = _SIN_CACHE_LEDGER,
 ) -> puerto.HistoriaUnidad:
     """Ventas y disponibilidad de ESTA unidad (F.4).
 
@@ -119,6 +120,7 @@ def historia_unidad(
         platform=platform,
         desde=desde,
         hoy=hoy,
+        cubierto_hasta=cubierto_hasta,
     )
     unidades = ventas.dias
     primera = ventas.primera_venta
@@ -129,19 +131,19 @@ def historia_unidad(
     for codigo in skus:
         for estado, obs in conn.execute(
             "SELECT status, observed_at FROM spapi_listing_estado_observation"
-            " WHERE seller_sku = %s AND platform = %s",
-            (codigo, platform),
+            " WHERE seller_sku = %s AND platform = %s"
+            " AND (observed_at AT TIME ZONE 'UTC')::date BETWEEN %s AND %s",
+            (codigo, platform, desde, hoy),
         ).fetchall():
             dia = _dia_utc(obs)
-            if desde <= dia <= hoy:
-                estados.setdefault(dia, []).append(estado)
+            estados.setdefault(dia, []).append(estado)
         for dia_obs, qty in conn.execute(
             "SELECT metric_date, total_quantity FROM spapi_inventario_observation"
-            " WHERE seller_sku = %s AND platform = %s",
-            (codigo, platform),
+            " WHERE seller_sku = %s AND platform = %s"
+            " AND metric_date BETWEEN %s AND %s",
+            (codigo, platform, desde, hoy),
         ).fetchall():
-            if desde <= dia_obs <= hoy:
-                stocks.setdefault(dia_obs, []).append(qty)
+            stocks.setdefault(dia_obs, []).append(qty)
     trafico: dict = {}
     for dia_obs, obs, impresiones, clics in conn.execute(
         "SELECT metric_date, observed_at, impressions, clicks"
@@ -343,6 +345,7 @@ class MercadoAmazon:
                 ([u.externo for u in unidades], self.clave, hoy),
             ).fetchall()
         }
+        cubierto_lote = ledger_cubierto_hasta(conn, self.clave)
         lecturas: dict[int, Lectura] = {}
         for unidad in unidades:
             meta = metas[unidad.listing_id]
@@ -363,6 +366,7 @@ class MercadoAmazon:
                     pricing_por_asin=pricing_por_asin,
                     racha_por_lid=racha_por_lid,
                     trafico_min=trafico_min,
+                    cubierto_hasta=cubierto_lote,
                 )
             except psycopg.Error:
                 raise
@@ -383,6 +387,7 @@ class MercadoAmazon:
         pricing_por_asin,
         racha_por_lid,
         trafico_min,
+        cubierto_hasta: object = _SIN_CACHE_LEDGER,
     ) -> Lectura:
         """La Lectura de una unidad con cuenta disponible (levanta ValueError)."""
         if cuenta is None:
@@ -416,7 +421,9 @@ class MercadoAmazon:
                 observada_en=fila_pricing[3],
             )
             buy_box = fila_pricing[4]
-        historia = historia_unidad(conn, unidad=unidad, canal=cuenta.canal, hoy=hoy)
+        historia = historia_unidad(
+            conn, unidad=unidad, canal=cuenta.canal, hoy=hoy, cubierto_hasta=cubierto_hasta
+        )
         return construir_lectura_unidad(
             conn,
             platform=self.clave,

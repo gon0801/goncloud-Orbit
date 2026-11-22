@@ -27,8 +27,6 @@ __all__ = [
     "DiaUnidad",
     "HistoriaUnidad",
     "RefsAuditoria",
-    "Insumos",
-    "SinInsumos",
     "Cotizacion",
     "Acuse",
     "PrecioVivoAusente",
@@ -130,37 +128,6 @@ class RefsAuditoria:
 
 
 @dataclass(frozen=True)
-class Insumos:
-    """Todo lo que la plataforma aporta a una decision, leido y tipado.
-
-    `cuenta` es la del miembro que manda; `miembros` trae la de todos.
-    `cotizable` es un token opaco del adaptador: el motor lo devuelve tal
-    cual en `Mercado.cotizar`.
-    """
-
-    unidad: UnidadPrecio
-    cuenta: Cuenta
-    miembros: tuple[tuple[Miembro, Cuenta], ...]
-    tasas: Any
-    oferta_observada_en: datetime
-    pricing: ObservacionPricing | None
-    historia: HistoriaUnidad
-    refs: RefsAuditoria
-    cotizable: object
-
-
-@dataclass(frozen=True)
-class SinInsumos:
-    """No hay cuenta. `motivo` ya esta en vocabulario; el crudo va en
-    `diagnostico`."""
-
-    unidad: UnidadPrecio
-    motivo: str
-    diagnostico: str
-    refs: RefsAuditoria
-
-
-@dataclass(frozen=True)
 class Cotizacion:
     """Fees reales a un precio. `fees is None` exactamente cuando
     `error_code is not None`."""
@@ -198,7 +165,6 @@ class Vitrina(Protocol):
     """Cara de LECTURA de una plataforma: solo base, sin red ni credenciales."""
 
     clave: Plataforma
-    moneda: Moneda
     # CLARIDAD 01 E.2: la corrida decide, mide y aplica solo sobre `catalogo`
     # (Amazon: lo que esta a la venta); sin el, sobre todo goal vigente (MeLi).
     filtra_catalogo: bool
@@ -217,13 +183,20 @@ class Vitrina(Protocol):
         ...
 
     def insumos(
-        self, conn: Conexion, unidades: Sequence[UnidadPrecio], *, hoy: date, ahora: datetime
-    ) -> Mapping[int, Insumos | SinInsumos]:
-        """La cuenta del dia y la historia de CADA unidad, por `listing_id`.
+        self,
+        conn: Conexion,
+        unidades: Sequence[UnidadPrecio],
+        *,
+        hoy: date,
+        ahora: datetime,
+        config: Any,
+        metas: Mapping[int, MetaGoal],
+    ) -> Mapping[int, Lectura]:
+        """La lectura del dia y la historia de CADA unidad, por `listing_id`.
 
         Una llamada por plataforma (lecturas por lote). Toda unidad pedida
-        viene en la respuesta. Nunca levanta por un dato faltante: lo devuelve
-        como `SinInsumos(motivo)`.
+        viene en la respuesta. Nunca levanta por un dato faltante: el motivo
+        viaja en `Lectura(entrada=None, motivo=...)`.
         """
         ...
 
@@ -242,11 +215,26 @@ class Mercado(Vitrina, Protocol):
     `escribir` es la UNICA mutacion externa del motor.
     """
 
-    grupo_tasa: str
+    def validar_destino(self, unidad: UnidadPrecio) -> None:
+        """Valida que la unidad tiene identificadores completos para escribir."""
+        ...
 
-    def cotizar(self, conn: Conexion, insumos: Insumos, precio: Importe) -> Cotizacion:
+    def cotizar(self, conn: Conexion, oferta: object, precio: Importe) -> Cotizacion:
         """Fees reales a `precio`. Un error de la plataforma es un
         `Cotizacion(error_code=...)`, no una excepcion."""
+        ...
+
+    def cotizacion_guardada(
+        self,
+        conn: Conexion,
+        *,
+        evento: str,
+        listing_id: int,
+        hoy: date,
+        oferta_id: int,
+        pedido: Any,
+    ) -> tuple[int, Cotizacion] | None:
+        """Reusa una cotizacion ya persistida hoy para el mismo intento, o None."""
         ...
 
     def precio_vivo(self, unidad: UnidadPrecio) -> Importe:

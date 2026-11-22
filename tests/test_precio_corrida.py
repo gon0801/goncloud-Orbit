@@ -2371,7 +2371,7 @@ def test_goal_reeditado_a_media_corrida_sale_goal_cambiado():
 def test_decidir_aisla_typeerror_de_publicacion(monkeypatch):
     """R02-r1 (CodeRabbit): un `TypeError` en insumos tambien aisla la
     publicacion (B1 cubre toda `Exception` no-psycopg)."""
-    import app.spapi.precio_mercado as mercado_mod
+    import app.precio_mercado_base as mercado_mod
 
     with _db() as (conn, _dsn):
         a = _cadena(conn, sku="SKU-R3-T", ext="B0A50000RA", mode="live")
@@ -2512,7 +2512,7 @@ def test_cli_precio_con_errores_sale_distinto_de_cero(monkeypatch, capsys):
 @_skip_sin_pg
 def test_decidir_aisla_error_de_publicacion(monkeypatch):
     """B1: un `ValueError` al decidir deja `no_evaluado` y la corrida sigue."""
-    import app.spapi.precio_mercado as mercado_mod
+    import app.precio_mercado_base as mercado_mod
 
     with _db() as (conn, _dsn):
         a = _cadena(conn, sku="SKU-R3-A", ext="B0A50000RA", mode="live")
@@ -3004,10 +3004,12 @@ def test_diagnostico_con_secreto_no_sale_en_log(caplog):
     from app.redaction import register_secret
 
     register_secret("s3cr3t-r4c")
-    with caplog.at_level(logging.INFO, logger="app.precio.corrida"):
+    with caplog.at_level(logging.INFO, logger="app.precio"):
         _no_evaluado(Decimal("0.30"), "live", "precio_ausente", "diag s3cr3t-r4c")
         _frenado(Decimal("0.30"), "live", "api_error", "diag s3cr3t-r4c")
     texto = "\n".join(r.getMessage() for r in caplog.records)
+    assert len(caplog.records) >= 2, "debe capturar logs de decision_io"
+    assert "REDACTED" in texto
     assert "s3cr3t-r4c" not in texto
 
 

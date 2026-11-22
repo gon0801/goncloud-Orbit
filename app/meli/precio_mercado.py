@@ -30,7 +30,7 @@ from app.meli.estimacion import partir_fees_meli
 from app.precio import puerto
 from app.precio.cambios import PublicacionSinSku
 from app.precio.config import ConfigPrecio
-from app.precio.fuentes import ventas_unidad
+from app.precio.fuentes import _SIN_CACHE_LEDGER, ledger_cubierto_hasta, ventas_unidad
 from app.precio.puerto import Lectura, MetaGoal
 from app.precio.tipos import Fees, Importe, ObservacionPricing
 from app.precio_mercado_base import (
@@ -106,7 +106,11 @@ def _disponibilidad_meli(estados: list[str], stocks: list) -> str:
 
 
 def historia_meli_unidad(
-    conn: psycopg.Connection, unidad: puerto.UnidadPrecio, hoy: date
+    conn: psycopg.Connection,
+    unidad: puerto.UnidadPrecio,
+    hoy: date,
+    *,
+    cubierto_hasta: object = _SIN_CACHE_LEDGER,
 ) -> puerto.HistoriaUnidad:
     """Historia de 75 dias de la unidad MeLi (para `elegir_senal`).
 
@@ -124,6 +128,7 @@ def historia_meli_unidad(
         platform=platform,
         desde=desde,
         hoy=hoy,
+        cubierto_hasta=cubierto_hasta,
     )
     estados: dict = {}
     stocks: dict = {}
@@ -306,6 +311,7 @@ class MercadoMeli:
                 ([u.externo for u in unidades], hoy),
             ).fetchall()
         }
+        cubierto_lote = ledger_cubierto_hasta(conn, self.clave)
         lecturas: dict[int, Lectura] = {}
         for unidad in unidades:
             meta = metas[unidad.listing_id]
@@ -338,6 +344,7 @@ class MercadoMeli:
                     obs_por_item=obs_por_item,
                     racha_por_lid=racha_por_lid,
                     trafico_min=trafico_min,
+                    cubierto_hasta=cubierto_lote,
                 )
             except psycopg.Error:
                 raise
@@ -358,6 +365,7 @@ class MercadoMeli:
         obs_por_item,
         racha_por_lid,
         trafico_min,
+        cubierto_hasta: object = _SIN_CACHE_LEDGER,
     ) -> Lectura:
         """La Lectura de una unidad con cuenta disponible (levanta ValueError)."""
         if cuenta is None:
@@ -383,7 +391,7 @@ class MercadoMeli:
                 precio=Importe(Decimal(fila_obs[1]), fila_obs[2]),
                 observada_en=fila_obs[3],
             )
-        historia = historia_meli_unidad(conn, unidad=unidad, hoy=hoy)
+        historia = historia_meli_unidad(conn, unidad=unidad, hoy=hoy, cubierto_hasta=cubierto_hasta)
         return construir_lectura_unidad(
             conn,
             platform=self.clave,

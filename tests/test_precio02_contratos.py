@@ -205,11 +205,25 @@ def test_miembro_que_manda_desempata_por_sku_ascendente():
 
 
 def test_puerto_expone_vitrina_y_mercado():
+    from app.meli.precio_mercado import MercadoMeli
+    from app.spapi.precio_mercado import MercadoAmazon
+
     assert puerto.Vitrina is not None and puerto.Mercado is not None
-    for nombre in ("catalogo", "insumos", "observado"):
+    for nombre in ("catalogo", "unidades", "insumos", "observado"):
         assert hasattr(puerto.Vitrina, nombre)
-    for nombre in ("cotizar", "precio_vivo", "escribir", "cerrar"):
+    for nombre in (
+        "validar_destino",
+        "cotizar",
+        "cotizacion_guardada",
+        "precio_vivo",
+        "escribir",
+        "cerrar",
+    ):
         assert hasattr(puerto.Mercado, nombre)
+    amz = MercadoAmazon("amazon_mx")
+    meli = MercadoMeli("meli")
+    assert isinstance(amz, puerto.Vitrina) and isinstance(amz, puerto.Mercado)
+    assert isinstance(meli, puerto.Vitrina) and isinstance(meli, puerto.Mercado)
 
 
 # ---------------------------------------------------------------------------

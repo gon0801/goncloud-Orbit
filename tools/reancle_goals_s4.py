@@ -32,6 +32,7 @@ from datetime import UTC
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from app.ceremonia import ErrorCeremonia, valida_ceremonia
 from app.db import OrbitDbError, connect
 from app.estimacion_repository import resolver_politica_aplicable
 from app.estimacion_venta import PoliticaCalculo
@@ -146,24 +147,14 @@ def calcular_goal_equivalente_s4(
     fee_var_raw: Decimal,
     fee_fijo: Decimal,
     envio: Decimal,
-    tasas_s4: TasasPoliticaS4 | None = None,
+    tasas_s4: TasasPoliticaS4,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal]:
     """Devuelve `(m_s3, m_s4, goal_s4, p_star_s3, p_star_s4)` en Decimal.
 
     Preserva el mismo precio objetivo `P*` al pasar de S3 a S4 usando las tasas
-    de la politica S4 vigente.
+    de la politica S4 vigente (Regla 2: sin fallback hardcodeado).
     """
-    _ = fee_raw_total
-    if tasas_s4 is None:
-        tasas_s4 = TasasPoliticaS4(
-            iva_divisor=Decimal("1.16"),
-            isr_tasa=Decimal("0.025"),
-            retencion_iva_tasa=Decimal("0.08"),
-            referral_fee_iva_multiplicador=(
-                Decimal("1.16") if platform == "amazon_mx" else Decimal("1")
-            ),
-            precio_incluye_iva=True,
-        )
+    _ = (platform, fee_raw_total)
     divisor_fiscal = tasas_s4.iva_divisor if tasas_s4.precio_incluye_iva else Decimal("1")
     ref_raw = fee_var_raw / p_actual
     ref_s4 = ref_raw * tasas_s4.referral_fee_iva_multiplicador
@@ -489,19 +480,15 @@ def main(argv: list[str] | None = None) -> int:
                         f"{_fmt_pct(f.goal_s4)}|{_fmt_pct(f.goal_s3_restaurar)}"
                     )
                 print(f"RESUMEN_REVERSA total={len(plan_rev)} huella={huella}")
-                if not args.acepto_mutacion_real:
+                mutar = valida_ceremonia(
+                    acepto=args.acepto_mutacion_real,
+                    go=args.go_literal,
+                    huella=args.huella,
+                    huella_plan=huella,
+                    exige_go=any(f.mode == "live" for f in plan_rev),
+                )
+                if not mutar:
                     return 0
-                if args.huella != huella:
-                    print(
-                        f"ERROR: huella distinta (esperaba {args.huella!r}, actual {huella!r})",
-                        file=sys.stderr,
-                    )
-                    return 2
-                if any(f.mode == "live" for f in plan_rev) and not (
-                    args.go_literal and args.go_literal.strip()
-                ):
-                    print("ERROR: hay goals live; exige --go <literal>", file=sys.stderr)
-                    return 2
                 n = aplicar_reversa_reancle(
                     conn, plan=plan_rev, go_literal=args.go_literal or "", lote=args.lote
                 )
@@ -522,23 +509,19 @@ def main(argv: list[str] | None = None) -> int:
                     f"{'FUERA' if f.fuera_de_banda else 'ok'}"
                 )
             print(f"RESUMEN total={len(plan)} huella={huella}")
-            if not args.acepto_mutacion_real:
+            mutar = valida_ceremonia(
+                acepto=args.acepto_mutacion_real,
+                go=args.go_literal,
+                huella=args.huella,
+                huella_plan=huella,
+                exige_go=any(f.mode == "live" for f in plan),
+            )
+            if not mutar:
                 return 0
-            if args.huella != huella:
-                print(
-                    f"ERROR: huella distinta (esperaba {args.huella!r}, actual {huella!r})",
-                    file=sys.stderr,
-                )
-                return 2
-            if any(f.mode == "live" for f in plan) and not (
-                args.go_literal and args.go_literal.strip()
-            ):
-                print("ERROR: hay goals live; exige --go <literal>", file=sys.stderr)
-                return 2
             n = aplicar_reancle(conn, plan=plan, go_literal=args.go_literal or "", lote=args.lote)
             print(f"APLICADO goals_reanclados={n} lote={args.lote}")
             return 0
-    except (OrbitDbError, PrecioGoalInvalido, ErrorObjetivo, ValueError) as exc:
+    except (ErrorCeremonia, OrbitDbError, PrecioGoalInvalido, ErrorObjetivo, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
