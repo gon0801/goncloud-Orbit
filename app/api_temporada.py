@@ -26,9 +26,19 @@ from pydantic import BaseModel, Field
 from app import config_write
 from app.api import ConexionLectura
 from app.api_write import _ERRORES_SETTINGS, ConexionEscritura, exige_token
+from app.dashboard_temporada import (
+    _config_vigente_con_id,
+    equilibrio_temporada,
+    metas_vigentes_temporada,
+    pausadas_de_baja,
+)
 from app.optimizer import temporada
 
 router = APIRouter(prefix="/api/ads-optimizer", tags=["ads-optimizer-temporada"])
+
+# Mismo candado transaccional que `config_write.guarda_config`: serializa
+# la lectura de `ads_temporada` y su escritura posterior bajo la misma clave.
+_SQL_LOCK_CONFIG_VERSION = "SELECT pg_advisory_xact_lock(hashtext('config_version'))"
 
 
 @router.get("/temporada/vista-previa")
@@ -48,12 +58,6 @@ def vista_previa_temporada(
     que pinta la pagina; el JS no repite ninguna regla. 422 con el mensaje
     de temporada.valida (tal cual lo pega settings.js). Devuelve ademas el
     equilibrio y el aviso por plataforma, que se ven al escribir la meta."""
-    from app.api_dashboard import (
-        _config_vigente_con_id,
-        equilibrio_temporada,
-        metas_vigentes_temporada,
-    )
-
     _config_id, settings = _config_vigente_con_id(conn)
     guardada = temporada.desde_settings(settings)
     crudo = {
@@ -123,8 +127,7 @@ def terminar_baja_temporada(
     """«Terminar la baja hoy»: fija ads_temporada.fin_anticipado = hoy UTC en
     la config guardada (la misma config_write de siempre; el calendario del
     ano no cambia). Fuera de una baja -> 422 con el texto de la tarjeta."""
-    from app.api_dashboard import _config_vigente_con_id
-
+    conn.execute(_SQL_LOCK_CONFIG_VERSION)
     _config_id, settings = _config_vigente_con_id(conn)
     guardada = temporada.desde_settings(settings)
     hoy = dt.datetime.now(dt.UTC).date()
@@ -165,8 +168,7 @@ def mantener_pausada_temporada(
     (la misma config_write de siempre; la lista la consume el bloque F al
     reactivar). Fuera de una baja -> 422; una keyword que ya no esta en la
     lista de pausadas de la baja -> 409 (recarga la pagina)."""
-    from app.api_dashboard import _config_vigente_con_id, pausadas_de_baja
-
+    conn.execute(_SQL_LOCK_CONFIG_VERSION)
     _config_id, settings = _config_vigente_con_id(conn)
     guardada = temporada.desde_settings(settings)
     hoy = dt.datetime.now(dt.UTC).date()

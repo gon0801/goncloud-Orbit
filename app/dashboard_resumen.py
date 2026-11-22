@@ -5,82 +5,51 @@ media movil del Resumen. La API (`app/api_dashboard.py`) delega aqui y la
 presentacion (`app/ui_metricas.py`) reutiliza la MISMA agregacion; no hay dos
 copias de las sumas ni de ACoS/ROAS.
 
-Reglas del contrato (plan `plans/resumen-ads-multicanal.md`, seccion
-RESUMEN-ADS-02):
-
-1. CATALOGO PROPIO: `amazon_mx` (MXN), `amazon_us` (USD) y `meli` (MXN). NO se
-   amplia `PLATAFORMAS_MONEDA` ni el vocabulario del optimizador. Las dos
-   entradas de Amazon coinciden con la moneda sellada del motor (lo comprueba
-   la prueba monetaria); MeLi trae su moneda del codigo de ADS-01
-   (`app/meli/ads_source.py`: site MLM, trigger `meli -> MXN`). La ZONA del
-   dia de reporte de cada canal es la de `app.dia_cerrado.ZONAS`, la misma
-   tabla que usa la ingesta (ARREGLOS 03 D-F): Amazon MX y MeLi cierran el
-   dia en `America/Mexico_City`, Amazon US en `America/Los_Angeles`.
-2. VENTANA: periodos de 7, 30 y 90 dias o rango personalizado `desde`/`hasta`.
-   La ventana visible termina en el D-1 del "hoy" del Resumen: la fecha local
-   MINIMA entre las zonas de los canales pedidos, calculada desde un instante
-   inyectable. Asi D-1 esta cerrado en TODOS (entre 18:00 y 24:00 CDMX, UTC ya
-   es el dia siguiente pero CDMX no). Un `hasta` >= hoy se RECORTA a D-1 y la
-   respuesta declara `hasta_solicitado` y `recortado: true`. Rango invertido,
-   fuera del calendario o de mas de 366 dias -> `ValueError` (la API lo
-   publica 422). La validacion cubre TODA resta de fechas de la ventana,
-   incluido el calentamiento del MA7 (`desde - 6`), para que una fecha absurda
-   nunca llegue a un `OverflowError` en la consulta.
-3. COMPARACION: el periodo anterior de igual longitud (termina el dia previo
-   a `desde`). Totales con la misma semantica que el periodo visible. Cada
-   variacion se publica solo si la cobertura de ESA metrica es igual en ambos
-   periodos y completa respecto de sus dias con dato; `comparable` conserva la
-   lectura global (mismo `dias_con_dato`) y `motivo_por_metrica` declara por
-   que una variacion quedo `None` por cobertura. ACoS/ROAS exigen ademas
-   dinero alineado en ambos periodos (un dia faltante contaria como cero).
-4. DINERO: `NUMERIC` -> `Decimal`, jamas float. En JSON viaja como STRING tal
-   cual sale de la base (4 decimales, criterio de la serie del dashboard).
-5. NULOS Y CEROS: dia sin dato -> todas sus metricas `None` (brecha visible);
-   cero conocido -> `0`. Una metrica `NULL` en alguna campana del dia
-   envenena ESA metrica del agregado (`bool_and`), jamas una suma parcial.
-6. ACoS Y ROAS: desde LAS SUMAS del periodo (`acos = cost/revenue*100`,
-   `roas = revenue/cost`), nunca promediando ratios diarios. Denominador cero
-   o valor necesario desconocido -> `None`; `sin_ventas` solo se afirma cuando
-   la venta esta cubierta en TODOS los dias del rango. Si gasto y ventas no
-   cubren exactamente los mismos dias, ACoS/ROAS son `None` (`dinero_alineado`
-   en los totales): sumar dias distintos seria un ratio inventado.
-7. MA7: media diaria movil de 7 dias (el dia y los 6 anteriores). Cada metrica
-   es la suma de la ventana dividida entre 7, para compartir escala con la
-   serie diaria; si falta CUALQUIER dia de la ventana, su MA7 es `None` (no se
-   rellena con cero). `ma7.completo` declara si las dos metricas de dinero
-   estan completas en la ventana. Para el primer dia visible se consultan 6
-   dias de calentamiento antes de `desde`.
-8. GRANO: solo `ad_entity.kind = 'campaign'` sobre `v_metric_latest` (ultima
-   observacion por entidad/dia), para no doble contar keyword/product_target.
-9. MADUREZ: Amazon marca `inmaduro` en [D-8, D-1]. MeLi NO hereda esa
-   madurez: `maduracion.aplica=false`, `inmaduro=null` y motivo explicito.
-10. FRESCURA: `max_metric_date` (ultima fecha con dato de campana),
-    `last_ingest_at` (ultima corrida `ok=true` que escribio observaciones de
-    campana dentro de la ventana y su calentamiento) y `edad_dias`. No se
-    inventa un umbral de frescura: sin corrida -> `last_ingest_at: null`.
-11. TOTALES POR MONEDA: una metrica que algun canal del grupo no tiene (p. ej.
-    `orders` de MeLi) NO se suma como si fuera completa: queda `None` y
-    `cobertura` lo declara por metrica. Si todos los canales aportan la
-    metrica, su suma observada se conserva aunque falten dias. Cada marca de
-    `cobertura` exige ESA metrica en TODOS los dias de TODOS los canales;
-    `completo` exige todas las metricas y la cobertura por dia. ACoS/ROAS
-    requieren gasto y ventas completos y alineados en el grupo.
-12. CIERRE DEL DIA: cada punto declara `cerrado` (la ultima `observed_at` del
-    dia es posterior al fin de ese dia en la zona del canal). `false` +
-    `motivo_cierre: "observado_antes_del_cierre"` avisa que la foto se tomo
-    antes del cierre y aun puede moverse; los valores NO se cambian ni se
-    anulan. `coverage.cierre` cuenta y lista esas fechas.
+Los calculos puros sin SQL (agregacion, ACoS/ROAS, MA7, cobertura, cierre,
+variacion y totales por moneda) viven en `app/dashboard_resumen_calc.py` y se
+reexportan aqui para conservar la interfaz publica del modulo.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
 
-from app.api_common import _dec_str
-from app.dia_cerrado import ZONAS, dia_local, fin_del_dia
+from app.dashboard_resumen_calc import (  # noqa: F401 - reexport contrato publico
+    _CUATRO_DEC,
+    _DOS_DEC,
+    _METRICAS_TOTALES,
+    DIAS_CALENTAMIENTO,
+    DIAS_MA7,
+    Agregado,
+    Canal,
+    Dia,
+    _cerrado,
+    _cobertura_variacion,
+    _decimal,
+    _dinero_variacion,
+    _entero,
+    _inmaduro,
+    _ma7,
+    _pct,
+    _promedio_ventana,
+    _suma_conocidos,
+    _suma_grupo,
+    _suma_ventana,
+    acos_texto,
+    agrega_filas,
+    arma_dias,
+    cierre_cobertura,
+    cobertura,
+    fila_serie,
+    roas_texto,
+    serie_publica,
+    totales_dias,
+    totales_por_moneda,
+    variacion,
+)
+from app.dia_cerrado import ZONAS, dia_local
 
 # Dias inmaduros de Amazon: [D-8, D-1]. Unico dueno del numero; la serie de
 # `api_dashboard` importa esta constante (misma ventana, cero copias).
@@ -93,32 +62,6 @@ MAX_DIAS_VENTANA = 366
 # Periodos cerrados del selector y default.
 PERIODOS = (7, 30, 90)
 DIAS_PERIODO_DEFAULT = 30
-
-# MA7: 6 dias previos al primero visible.
-DIAS_CALENTAMIENTO = 6
-
-# MA7 es media diaria: la ventana completa mide 7 dias.
-DIAS_MA7 = 7
-_CUATRO_DEC = Decimal("0.0001")
-_DOS_DEC = Decimal("0.01")
-
-
-@dataclass(frozen=True)
-class Canal:
-    """Un canal del Resumen: moneda NATIVA y madurez.
-
-    La zona en la que la fuente cierra su dia de reporte es la de
-    `app.dia_cerrado.ZONAS[plataforma]`. El "hoy" del Resumen es la fecha
-    local MINIMA entre los canales pedidos, para que D-1 este cerrado en
-    todos. `dias_inmaduros=None` significa "la fuente no publica madurez": el
-    contrato lo declara y jamas se rellena con la ventana de Amazon.
-    """
-
-    plataforma: str
-    moneda: str
-    dias_inmaduros: int | None
-    motivo_sin_madurez: str | None
-
 
 # Catalogo PROPIO del Resumen (no amplia PLATAFORMAS_MONEDA del optimizador).
 # Las zonas de cada canal viven en `app.dia_cerrado.ZONAS`.
@@ -177,10 +120,7 @@ SELECT v.metric_date,
  ORDER BY v.metric_date
 """
 
-# Frescura factica: la fecha MAS NUEVA observada para campanas del canal. Se
-# lee la tabla cruda (no v_metric_latest) porque aqui no se agrega ninguna
-# metrica: la ultima fecha observada es identica en ambas fuentes y el indice
-# por entidad evita el DISTINCT ON completo de la vista (~75 ms -> ~5 ms).
+# Frescura factica: la fecha MAS NUEVA observada para campanas del canal.
 _SQL_MAX_METRIC_DATE = """
 SELECT max(o.metric_date)
   FROM ads_metric_observation o
@@ -190,8 +130,7 @@ SELECT max(o.metric_date)
 """
 
 # Ultima corrida exitosa que escribio observaciones de campana DENTRO de la
-# ventana consultada (visible + calentamiento). Un canal sin ingesta que cubra
-# la ventana -> None explicito (regla 3: jamas se inventa una frescura).
+# ventana consultada (visible + calentamiento).
 _SQL_LAST_INGEST = """
 SELECT max(r.finished_at)
   FROM ingest_run r
@@ -220,24 +159,14 @@ class Ventana:
 
 
 def hoy_por_canal(canales: Iterable[str], instante: dt.datetime) -> dict[str, dt.date]:
-    """Fecha local del dia de reporte de cada canal en `instante`.
-
-    La zona es la de `app.dia_cerrado.ZONAS`, la misma regla que la ingesta.
-    `instante` debe ser consciente (tz-aware): un instante sin zona no define
-    un dia local.
-    """
+    """Fecha local del dia de reporte de cada canal en `instante`."""
     if instante.tzinfo is None:
         raise ValueError("el instante del resumen debe incluir zona horaria")
     return {nombre: dia_local(CANALES[nombre].plataforma, instante) for nombre in canales}
 
 
 def hoy_resumen(canales: Iterable[str], instante: dt.datetime) -> dt.date:
-    """`hoy` del Resumen: fecha local MINIMA entre los canales pedidos.
-
-    Asi D-1 esta cerrado en TODOS: a las 23:15 CDMX del 31-oct Amazon MX y
-    MeLi siguen en 31-oct aunque UTC ya sea 1-nov. El calculo depende solo del
-    instante inyectado, jamas del reloj del proceso.
-    """
+    """`hoy` del Resumen: fecha local MINIMA entre los canales pedidos."""
     return min(hoy_por_canal(canales, instante).values())
 
 
@@ -248,14 +177,7 @@ def ventana_resumen(
     hasta: dt.date | None,
     hoy: dt.date,
 ) -> Ventana:
-    """Ventana visible (termina en D-1) y su comparacion de igual longitud.
-
-    Personalizado cuando vienen `desde` y `hasta` (ambos; uno solo -> error).
-    En ese caso `periodo` se ignora y la respuesta usa "personalizado". Un
-    `hasta` >= hoy se RECORTA a D-1 (se declara `recortado`); un rango
-    invertido, fuera del calendario soportado o de mas de 366 dias es error
-    4xx (`ValueError`).
-    """
+    """Ventana visible (termina en D-1) y su comparacion de igual longitud."""
     ultimo = hoy - dt.timedelta(days=1)
     if (desde is None) != (hasta is None):
         raise ValueError("desde y hasta van juntos: el rango personalizado pide ambos")
@@ -281,9 +203,6 @@ def ventana_resumen(
     try:
         anterior_hasta = desde - dt.timedelta(days=1)
         anterior_desde = anterior_hasta - dt.timedelta(days=dias - 1)
-        # El calentamiento del MA7 resta fechas fuera del rango visible: se
-        # valida aqui para que una fecha absurda (p. ej. 0001-01-02) sea 422 y
-        # jamas un OverflowError en la consulta.
         calentamiento_desde = desde - dt.timedelta(days=DIAS_CALENTAMIENTO)
     except OverflowError:
         raise ValueError(
@@ -300,462 +219,6 @@ def ventana_resumen(
         anterior_hasta=anterior_hasta,
         calentamiento_desde=calentamiento_desde,
     )
-
-
-@dataclass(frozen=True)
-class Dia:
-    """Un dia del spine: `None` = sin dato (brecha), `Decimal(0)` = cero real.
-
-    `observed_at` es la ULTIMA observacion (maximo) de ese dia y canal; sirve
-    solo para marcar si el dia estaba cerrado cuando se tomo la foto. Jamas
-    cambia los valores.
-    """
-
-    fecha: dt.date
-    cost: Decimal | None
-    ad_revenue: Decimal | None
-    clicks: int | None
-    orders: int | None
-    observed_at: dt.datetime | None = None
-
-
-@dataclass(frozen=True)
-class Agregado:
-    """Sumas y cobertura de una lista de dias (o de filas de serie).
-
-    `dias_pares` cuenta los dias con gasto Y venta conocidos;
-    `dinero_alineado` exige que gasto, venta y pares cubran el mismo conjunto
-    de dias: solo entonces el ACoS/ROAS de las sumas es un ratio honesto.
-    """
-
-    cost: Decimal | None
-    ad_revenue: Decimal | None
-    clicks: int | None
-    orders: int | None
-    dias_cost: int
-    dias_ad_revenue: int
-    dias_clicks: int
-    dias_orders: int
-    dias_pares: int
-    dias_con_dato: int
-
-    @property
-    def dinero_alineado(self) -> bool:
-        return (
-            self.dias_cost > 0
-            and self.dias_cost == self.dias_ad_revenue
-            and self.dias_cost == self.dias_pares
-        )
-
-
-def _decimal(valor) -> Decimal | None:
-    """Dinero/entero de una fila a Decimal exacto. `None` pasa como `None`."""
-    if valor is None:
-        return None
-    return valor if isinstance(valor, Decimal) else Decimal(str(valor))
-
-
-def _entero(valor) -> int | None:
-    return None if valor is None else int(valor)
-
-
-def agrega_filas(filas: Iterable[Mapping]) -> Agregado:
-    """Suma SOLO los valores conocidos y declara la cobertura de cada uno.
-
-    Jamas convierte un `None` en cero: si no hay ningun dia con la metrica, la
-    suma es `None`. Es la MISMA agregacion para el Resumen y para la
-    presentacion que ya usaba `ui_metricas`.
-    """
-    cost = Decimal(0)
-    ad_revenue = Decimal(0)
-    clicks = 0
-    orders = 0
-    dias_cost = dias_ad_revenue = dias_clicks = dias_orders = 0
-    dias_pares = dias_con_dato = 0
-    for fila in filas:
-        valor_cost = _decimal(fila.get("cost"))
-        valor_revenue = _decimal(fila.get("ad_revenue"))
-        valor_clicks = _entero(fila.get("clicks"))
-        valor_orders = _entero(fila.get("orders"))
-        if valor_cost is not None:
-            cost += valor_cost
-            dias_cost += 1
-        if valor_revenue is not None:
-            ad_revenue += valor_revenue
-            dias_ad_revenue += 1
-        if valor_clicks is not None:
-            clicks += valor_clicks
-            dias_clicks += 1
-        if valor_orders is not None:
-            orders += valor_orders
-            dias_orders += 1
-        if valor_cost is not None and valor_revenue is not None:
-            dias_pares += 1
-        if any(
-            valor is not None for valor in (valor_cost, valor_revenue, valor_clicks, valor_orders)
-        ):
-            dias_con_dato += 1
-    return Agregado(
-        cost=cost if dias_cost else None,
-        ad_revenue=ad_revenue if dias_ad_revenue else None,
-        clicks=clicks if dias_clicks else None,
-        orders=orders if dias_orders else None,
-        dias_cost=dias_cost,
-        dias_ad_revenue=dias_ad_revenue,
-        dias_clicks=dias_clicks,
-        dias_orders=dias_orders,
-        dias_pares=dias_pares,
-        dias_con_dato=dias_con_dato,
-    )
-
-
-def acos_texto(cost: Decimal | None, ad_revenue: Decimal | None) -> str | None:
-    """ACoS de DOS SUMAS: `cost/revenue*100`, 2 decimales, STRING.
-
-    Venta cero o desconocida -> `None` (infinito o dato faltante: jamas
-    division). Costo desconocido -> `None`. Redondeo HALF_UP explicito (la
-    convencion comercial del dashboard, no el half-even del contexto).
-    """
-    if cost is None or ad_revenue is None or ad_revenue == 0:
-        return None
-    ratio = (cost / ad_revenue * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return str(ratio)
-
-
-def roas_texto(cost: Decimal | None, ad_revenue: Decimal | None) -> str | None:
-    """ROAS de DOS SUMAS: `revenue/cost`, 2 decimales, STRING.
-
-    Gasto cero o desconocido -> `None` (jamas division); venta desconocida ->
-    `None`.
-    """
-    if cost is None or ad_revenue is None or cost == 0:
-        return None
-    ratio = (ad_revenue / cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return str(ratio)
-
-
-def totales_dias(dias: Sequence[Dia], dias_rango: int) -> dict:
-    """Totales del rango desde las sumas (regla 6).
-
-    `sin_ventas` solo se afirma cuando la venta esta cubierta en TODOS los dias
-    del rango y suma cero: con dias desconocidos no se puede concluir.
-    `dinero_alineado` explica por que ACoS/ROAS pueden ser `None` aunque haya
-    totales.
-    """
-    agregado = agrega_filas(
-        {
-            "cost": dia.cost,
-            "ad_revenue": dia.ad_revenue,
-            "clicks": dia.clicks,
-            "orders": dia.orders,
-        }
-        for dia in dias
-    )
-    alineado = agregado.dinero_alineado
-    return {
-        "cost": _dec_str(agregado.cost),
-        "ad_revenue": _dec_str(agregado.ad_revenue),
-        "clicks": agregado.clicks,
-        "orders": agregado.orders,
-        "acos": acos_texto(agregado.cost, agregado.ad_revenue) if alineado else None,
-        "roas": roas_texto(agregado.cost, agregado.ad_revenue) if alineado else None,
-        "sin_ventas": (
-            agregado.ad_revenue is not None
-            and agregado.ad_revenue == 0
-            and agregado.dias_ad_revenue == dias_rango
-        ),
-        "dias_con_dato": agregado.dias_con_dato,
-        # Cobertura POR METRICA: la variacion de cada una exige que su
-        # cobertura sea igual en ambos periodos y completa respecto de los
-        # dias con dato (ver `variacion`).
-        "dias_cost": agregado.dias_cost,
-        "dias_ad_revenue": agregado.dias_ad_revenue,
-        "dias_clicks": agregado.dias_clicks,
-        "dinero_alineado": alineado,
-    }
-
-
-def arma_dias(por_fecha: Mapping[dt.date, tuple], desde: dt.date, hasta: dt.date) -> list[Dia]:
-    """Spine completo [desde, hasta]: fecha sin fila -> todo `None` (jamas 0)."""
-    dias: list[Dia] = []
-    fecha = desde
-    while fecha <= hasta:
-        fila = por_fecha.get(fecha)
-        dias.append(
-            Dia(
-                fecha=fecha,
-                cost=None if fila is None else fila[0],
-                ad_revenue=None if fila is None else fila[1],
-                clicks=None if fila is None else fila[2],
-                orders=None if fila is None else fila[3],
-                observed_at=None if fila is None or len(fila) < 5 else fila[4],
-            )
-        )
-        fecha += dt.timedelta(days=1)
-    return dias
-
-
-def _suma_ventana(valores: Sequence) -> Decimal | int | None:
-    """Suma de una metrica en la ventana; un solo dia desconocido -> None."""
-    if any(valor is None for valor in valores):
-        return None
-    return sum(valores)
-
-
-def _promedio_ventana(valor, cuantia: Decimal):
-    """Media diaria de una suma ya completa; `None` si falta algun dia."""
-    if valor is None:
-        return None
-    return (Decimal(valor) / DIAS_MA7).quantize(cuantia, rounding=ROUND_HALF_UP)
-
-
-def _ma7(ventana: Sequence[Dia]) -> dict:
-    """MA7 del dia: media diaria de 7 dias; faltante -> None (no cero).
-
-    La suma de la ventana se divide entre 7 para que la linea MA7 y la diaria
-    compartan escala. `completo` declara si las DOS metricas de dinero tienen
-    sus 7 dias. ACoS/ROAS del MA7 salen de las sumas, jamas del promedio de
-    ratios.
-    """
-    cost = _suma_ventana([dia.cost for dia in ventana])
-    ad_revenue = _suma_ventana([dia.ad_revenue for dia in ventana])
-    clicks = _suma_ventana([dia.clicks for dia in ventana])
-    orders = _suma_ventana([dia.orders for dia in ventana])
-    return {
-        "cost": _dec_str(_promedio_ventana(cost, _CUATRO_DEC)),
-        "ad_revenue": _dec_str(_promedio_ventana(ad_revenue, _CUATRO_DEC)),
-        "clicks": _dec_str(_promedio_ventana(clicks, _DOS_DEC)),
-        "orders": _dec_str(_promedio_ventana(orders, _DOS_DEC)),
-        "acos": acos_texto(cost, ad_revenue),
-        "roas": roas_texto(cost, ad_revenue),
-        "completo": all(dia.cost is not None and dia.ad_revenue is not None for dia in ventana),
-    }
-
-
-def _inmaduro(fecha: dt.date, hoy: dt.date, canal: Canal) -> bool | None:
-    """Amazon: [D-8, D-1]. Canal sin madurez publicada -> `None` (no se inventa)."""
-    if canal.dias_inmaduros is None:
-        return None
-    return hoy - dt.timedelta(days=canal.dias_inmaduros) <= fecha <= hoy - dt.timedelta(days=1)
-
-
-def _cerrado(dia: Dia, canal: Canal) -> bool | None:
-    """`True` si la ultima observacion del dia es posterior a su cierre.
-
-    Sin observacion -> `None` (no hay foto que juzgar). `False` marca un dia
-    copiado antes de que cerrara en la zona del canal: el valor NO se cambia ni
-    se vuelve `None`, solo se declara que aun puede moverse.
-    """
-    if dia.observed_at is None:
-        return None
-    observado = dia.observed_at
-    if observado.tzinfo is None:
-        observado = observado.replace(tzinfo=dt.UTC)
-    return observado >= fin_del_dia(canal.plataforma, dia.fecha)
-
-
-def fila_serie(dia: Dia, ma7: dict | None, canal: Canal, hoy: dt.date) -> dict:
-    """Una fila visible: valores del dia, ACoS/ROAS del dia y su MA7.
-
-    Dia sin dato -> todas las metricas `None` (brecha). Cero conocido -> `0`.
-    `cerrado: false` no altera ninguna cifra: solo avisa que la ultima
-    observacion del dia se tomo antes de su cierre en la zona del canal.
-    """
-    cerrado = _cerrado(dia, canal)
-    return {
-        "fecha": dia.fecha.isoformat(),
-        "cost": _dec_str(dia.cost),
-        "ad_revenue": _dec_str(dia.ad_revenue),
-        "clicks": dia.clicks,
-        "orders": dia.orders,
-        "acos": acos_texto(dia.cost, dia.ad_revenue),
-        "roas": roas_texto(dia.cost, dia.ad_revenue),
-        "sin_ventas": dia.ad_revenue is not None and dia.ad_revenue == 0,
-        "inmaduro": _inmaduro(dia.fecha, hoy, canal),
-        "cerrado": cerrado,
-        "motivo_cierre": None if cerrado is not False else "observado_antes_del_cierre",
-        "ma7": ma7,
-    }
-
-
-def serie_publica(
-    por_fecha: Mapping[dt.date, tuple],
-    desde: dt.date,
-    hasta: dt.date,
-    canal: Canal,
-    hoy: dt.date,
-) -> list[dict]:
-    """Un punto por dia del rango visible; MA7 con 6 dias de calentamiento."""
-    inicio_ma7 = desde - dt.timedelta(days=DIAS_CALENTAMIENTO)
-    por_dia = {dia.fecha: dia for dia in arma_dias(por_fecha, inicio_ma7, hasta)}
-    filas: list[dict] = []
-    fecha = desde
-    while fecha <= hasta:
-        ventana = [
-            por_dia[fecha - dt.timedelta(days=atras)] for atras in range(DIAS_CALENTAMIENTO + 1)
-        ]
-        filas.append(fila_serie(por_dia[fecha], _ma7(ventana), canal, hoy))
-        fecha += dt.timedelta(days=1)
-    return filas
-
-
-def cierre_cobertura(dias: Sequence[Dia], canal: Canal) -> dict:
-    """Declara, en la cobertura del canal, los dias copiados antes del cierre.
-
-    No corrige ni anula valores: solo cuenta y lista las fechas cuya ultima
-    observacion (`observed_at`) es anterior al fin del dia en la zona del
-    canal (`cerrado: false` en la serie).
-    """
-    observados = [dia for dia in dias if dia.observed_at is not None]
-    antes = [dia.fecha for dia in observados if _cerrado(dia, canal) is False]
-    return {
-        "dias_observados": len(observados),
-        "dias_antes_del_cierre": len(antes),
-        "fechas_antes_del_cierre": [fecha.isoformat() for fecha in antes],
-        "todos_cerrados": not antes,
-    }
-
-
-def cobertura(dias: Sequence[Dia], dias_rango: int, canal: Canal | None = None) -> dict:
-    """Dias con dato / dias del rango y dias faltantes, por metrica.
-
-    Con `canal` agrega `cierre`, el resumen de dias observados antes del cierre
-    de su dia local (mismo criterio `cerrado` de la serie).
-    """
-    agregado = agrega_filas(
-        {
-            "cost": dia.cost,
-            "ad_revenue": dia.ad_revenue,
-            "clicks": dia.clicks,
-            "orders": dia.orders,
-        }
-        for dia in dias
-    )
-    salida = {
-        "dias_rango": dias_rango,
-        "dias_con_dato": agregado.dias_con_dato,
-        "dias_faltantes": dias_rango - agregado.dias_con_dato,
-        "por_metrica": {
-            "cost": agregado.dias_cost,
-            "ad_revenue": agregado.dias_ad_revenue,
-            "clicks": agregado.dias_clicks,
-            "orders": agregado.dias_orders,
-        },
-        "completo": agregado.dias_con_dato == dias_rango,
-    }
-    if canal is not None:
-        salida["cierre"] = cierre_cobertura(dias, canal)
-    return salida
-
-
-def _pct(nuevo, anterior) -> str | None:
-    """Variacion porcentual exacta; base desconocida o cero -> `None`."""
-    if nuevo is None or anterior is None:
-        return None
-    valor_nuevo, valor_anterior = _decimal(nuevo), _decimal(anterior)
-    if valor_nuevo is None or valor_anterior is None or valor_anterior == 0:
-        return None
-    variacion = ((valor_nuevo - valor_anterior) / valor_anterior * Decimal("100")).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
-    return str(variacion)
-
-
-def _cobertura_variacion(actual: Mapping, anterior: Mapping, campo: str) -> tuple[bool, str | None]:
-    """Una metrica se compara solo con cobertura igual y completa en ambos periodos.
-
-    `completa` significa conocida en TODOS los dias con dato del periodo: si no,
-    el hueco contaria como cero en el porcentaje. Cobertura desconocida o
-    distinta -> motivo explicito.
-    """
-    dias_actual = actual.get("dias_con_dato")
-    dias_anterior = anterior.get("dias_con_dato")
-    cob_actual = actual.get(campo)
-    cob_anterior = anterior.get(campo)
-    if dias_actual is None or dias_anterior is None or cob_actual is None or cob_anterior is None:
-        return False, "cobertura_desconocida"
-    if cob_actual != cob_anterior:
-        return False, "cobertura_distinta"
-    if cob_actual != dias_actual or cob_anterior != dias_anterior:
-        return False, "cobertura_incompleta"
-    return True, None
-
-
-def _dinero_variacion(actual: Mapping, anterior: Mapping) -> tuple[bool, str | None]:
-    """ACoS/ROAS exigen la MISMA cobertura de dinero y ademas dinero alineado.
-
-    Gasto y venta deben cubrir los mismos dias dentro de cada periodo
-    (`dinero_alineado`) y esa cobertura debe ser igual y completa en ambos.
-    La cobertura va PRIMERO para que el motivo sea el real: un periodo sin
-    datos da `cobertura_distinta`, no `dinero_no_alineado`. Sin dinero en
-    NINGUN periodo no hay cobertura que comparar ni sumas que alinear: el
-    `None` viene del valor y el motivo queda `None`.
-    """
-    for campo in ("dias_cost", "dias_ad_revenue"):
-        publicado, motivo = _cobertura_variacion(actual, anterior, campo)
-        if not publicado:
-            return False, motivo
-    if not actual.get("dinero_alineado") or not anterior.get("dinero_alineado"):
-        if not actual.get("dias_cost") and not anterior.get("dias_cost"):
-            return False, None
-        return False, "dinero_no_alineado"
-    return True, None
-
-
-def variacion(actual: Mapping, anterior: Mapping) -> dict:
-    """Cambio contra el periodo anterior: % en volumen y puntos en ACoS.
-
-    `comparable` conserva su semantica: AMBOS periodos con el mismo numero de
-    dias con dato; si difiere, todas las variaciones son `None` y `motivo` es
-    `"cobertura_distinta"`. Ademas, cada variacion se publica solo si la
-    cobertura de ESA metrica (`dias_cost`, `dias_ad_revenue`, `dias_clicks`)
-    es igual en ambos periodos y completa respecto de sus `dias_con_dato`: dos
-    periodos pueden empatar en dias con dato y aun asi tener coberturas
-    distintas por metrica (p. ej. gasto `10, null` frente a `10, 10`).
-    `acos_pp` y `roas_delta` exigen ademas `dinero_alineado` en ambos periodos
-    con la misma cobertura. Cuando una variacion es `None` por cobertura,
-    `motivo_por_metrica` declara el motivo exacto de esa metrica; `None`
-    significa que no hubo problema de cobertura (el `None` viene del valor).
-    `roas_delta` es la diferencia absoluta del ratio (no porcentaje).
-    """
-    dias_actual = actual.get("dias_con_dato")
-    dias_anterior = anterior.get("dias_con_dato")
-    comparable = dias_actual is not None and dias_actual == dias_anterior
-    acos_actual, acos_anterior = _decimal(actual.get("acos")), _decimal(anterior.get("acos"))
-    roas_actual, roas_anterior = _decimal(actual.get("roas")), _decimal(anterior.get("roas"))
-    cost_publica, cost_motivo = _cobertura_variacion(actual, anterior, "dias_cost")
-    revenue_publica, revenue_motivo = _cobertura_variacion(actual, anterior, "dias_ad_revenue")
-    clicks_publica, clicks_motivo = _cobertura_variacion(actual, anterior, "dias_clicks")
-    dinero_publica, dinero_motivo = _dinero_variacion(actual, anterior)
-    dos_dec = Decimal("0.01")
-    return {
-        "cost_pct": _pct(actual.get("cost"), anterior.get("cost")) if cost_publica else None,
-        "ad_revenue_pct": (
-            _pct(actual.get("ad_revenue"), anterior.get("ad_revenue")) if revenue_publica else None
-        ),
-        "clicks_pct": (
-            _pct(actual.get("clicks"), anterior.get("clicks")) if clicks_publica else None
-        ),
-        "acos_pp": (
-            None
-            if not dinero_publica or acos_actual is None or acos_anterior is None
-            else str((acos_actual - acos_anterior).quantize(dos_dec, rounding=ROUND_HALF_UP))
-        ),
-        "roas_delta": (
-            None
-            if not dinero_publica or roas_actual is None or roas_anterior is None
-            else str((roas_actual - roas_anterior).quantize(dos_dec, rounding=ROUND_HALF_UP))
-        ),
-        "comparable": comparable,
-        "motivo": None if comparable else "cobertura_distinta",
-        "motivo_por_metrica": {
-            "cost_pct": cost_motivo,
-            "ad_revenue_pct": revenue_motivo,
-            "clicks_pct": clicks_motivo,
-            "acos_pp": dinero_motivo,
-            "roas_delta": dinero_motivo,
-        },
-    }
 
 
 def _maduracion(canal: Canal, hoy: dt.date) -> dict:
@@ -794,14 +257,7 @@ def last_ingest_at(conn, plataforma: str, desde: dt.date, hasta: dt.date) -> dt.
 def bloque_canal(
     conn, canal: Canal, ventana: Ventana, hoy: dt.date, *, instante: dt.datetime
 ) -> dict:
-    """Bloque de un canal: totales, comparacion, serie, cobertura y frescura.
-
-    La consulta de dias cubre la ventana visible y su calentamiento. El periodo
-    anterior de un canal con madurez publicada (Amazon) se lee tal como estaba
-    en `instante - ventana.dias`, para que cada dia anterior tenga la misma
-    edad que su par actual; sin madurez publicada (Mercado Libre) se compara
-    la ultima lectura y `observado_hasta` es `None`.
-    """
+    """Bloque de un canal: totales, comparacion, serie, cobertura y frescura."""
     filas = conn.execute(
         _SQL_DIAS, (canal.plataforma, ventana.calentamiento_desde, ventana.hasta)
     ).fetchall()
@@ -854,112 +310,6 @@ def bloque_canal(
     }
 
 
-def _suma_conocidos(valores: Sequence) -> Decimal | None:
-    """Suma de los totales conocidos; `None` si ninguno lo es (jamas 0)."""
-    conocidos = [_decimal(valor) for valor in valores]
-    conocidos = [valor for valor in conocidos if valor is not None]
-    return sum(conocidos) if conocidos else None
-
-
-_METRICAS_TOTALES = ("cost", "ad_revenue", "clicks", "orders")
-
-
-def _suma_grupo(totales: Sequence[Mapping], metrica: str) -> Decimal | None:
-    """Suma de una metrica solo si TODOS los canales del grupo la tienen.
-
-    Una metrica que un canal no publica (p. ej. `orders` de MeLi siempre NULL)
-    jamas se suma como si fuera completa: queda `None` y la cobertura por
-    metrica lo declara.
-    """
-    valores = [total.get(metrica) for total in totales]
-    if any(valor is None for valor in valores):
-        return None
-    return _suma_conocidos(valores)
-
-
-def totales_por_moneda(bloques: Mapping[str, Mapping]) -> list[dict]:
-    """Totales multi-canal AGRUPADOS por moneda (jamas una moneda mezclada).
-
-    Recibe bloques de `bloque_canal`, con `coverage` y `dias` obligatorios;
-    cobertura ausente o incompleta en la estructura produce `ValueError`.
-    Cada metrica se suma solo si TODOS los canales del grupo la tienen; si
-    alguno no la publica, la metrica del grupo es `None` (nunca una suma
-    parcial disfrazada). `cobertura` exige, metrica por metrica, dato en TODOS
-    los dias de TODOS los canales; `dias` indica si hubo alguna metrica cada
-    dia. Las sumas observadas se conservan aunque su cobertura sea parcial.
-    `completo` exige ambas cosas. ACoS/ROAS se publican solo con dinero
-    completo y alineado en todos los canales; en cualquier otro caso son
-    `None` (no se inventa un ratio entre dias distintos). `canales_sin_dato`
-    lista los que no aportaron dinero.
-    """
-    grupos: dict[str, list[tuple[str, Mapping]]] = {}
-    for nombre, bloque in bloques.items():
-        cobertura_canal = bloque.get("coverage")
-        if (
-            "dias" not in bloque
-            or not isinstance(cobertura_canal, Mapping)
-            or "completo" not in cobertura_canal
-            or not isinstance(cobertura_canal.get("por_metrica"), Mapping)
-            or not set(_METRICAS_TOTALES).issubset(cobertura_canal["por_metrica"])
-        ):
-            raise ValueError(
-                f"el bloque {nombre} requiere dias y coverage con completo y "
-                "por_metrica para cost, ad_revenue, clicks y orders"
-            )
-        grupos.setdefault(bloque["moneda"], []).append((nombre, bloque))
-    salida: list[dict] = []
-    for moneda in sorted(grupos):
-        miembros = grupos[moneda]
-        totales = [bloque["totals"] for _nombre, bloque in miembros]
-        dias_completos = all(bloque["coverage"]["completo"] for _nombre, bloque in miembros)
-        cobertura = {
-            metrica: all(
-                bloque["coverage"]["por_metrica"][metrica] == bloque["dias"]
-                for _nombre, bloque in miembros
-            )
-            for metrica in _METRICAS_TOTALES
-        }
-        cobertura["dias"] = dias_completos
-        completo = all(cobertura.values())
-        alineado = (
-            cobertura["cost"]
-            and cobertura["ad_revenue"]
-            and dias_completos
-            and all(bool(total.get("dinero_alineado")) for total in totales)
-        )
-        cost = _suma_grupo(totales, "cost")
-        ad_revenue = _suma_grupo(totales, "ad_revenue")
-        clicks = _suma_grupo(totales, "clicks")
-        orders = _suma_grupo(totales, "orders")
-        salida.append(
-            {
-                "moneda": moneda,
-                "canales": [nombre for nombre, _bloque in miembros],
-                "canales_sin_dato": [
-                    nombre
-                    for nombre, bloque in miembros
-                    if bloque["totals"].get("cost") is None
-                    and bloque["totals"].get("ad_revenue") is None
-                ],
-                "cost": _dec_str(cost),
-                "ad_revenue": _dec_str(ad_revenue),
-                "clicks": None if clicks is None else int(clicks),
-                "orders": None if orders is None else int(orders),
-                "acos": acos_texto(cost, ad_revenue) if alineado else None,
-                "roas": roas_texto(cost, ad_revenue) if alineado else None,
-                "sin_ventas": (
-                    alineado
-                    and ad_revenue is not None
-                    and ad_revenue == 0
-                    and all(bool(total.get("sin_ventas")) for total in totales)
-                ),
-                "cobertura": cobertura,
-                "completo": completo,
-            }
-        )
-    return salida
-
-
 def resumen(
     conn,
     *,
@@ -968,11 +318,7 @@ def resumen(
     hoy: dt.date,
     instante: dt.datetime,
 ) -> dict:
-    """Respuesta del Resumen: rango efectivo, bloques por canal y monedas.
-
-    `hoy` es la fecha local MINIMA de los canales pedidos; la respuesta
-    declara el instante UTC y la zona de cada canal con los que se calculo.
-    """
+    """Respuesta del Resumen: rango efectivo, bloques por canal y monedas."""
     fechas = hoy_por_canal(canales, instante)
     bloques = {
         nombre: bloque_canal(conn, CANALES[nombre], ventana, hoy, instante=instante)

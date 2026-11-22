@@ -55,29 +55,12 @@ ALLOWLIST_TAMANO = {
         "el registro entero. Partirlo por dominio volveria a los diccionarios "
         "sueltos que H borro — no se parte por partir"
     ),
-    "app/dashboard_resumen.py": (
-        "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
-        "Ventanas, cobertura por metrica, comparacion y MA7 usan "
-        "el mismo modelo Dia y los mismos calculos monetarios; se conserva "
-        "ese nucleo cohesivo en esta correccion. La interfaz de fase 03 "
-        "vive fuera y consume el contrato. Si el contrato vuelve a crecer, "
-        "revisar la separacion de consultas y agregacion por esa frontera, "
-        "sin duplicar reglas para bajar el contador."
-    ),
-    "app/api_dashboard.py": (
-        "Feed de Decisiones/Cortes/Inertes (SQL + _fila_* + filtros). "
-        "El wiring de Entidad (kind/keyword_text + JOINs de campana) "
-        "lo empujo 25 lineas sobre 900. Candidato a partir cortes/"
-        "inertes del feed de decisiones; no se parte por partir."
-    ),
 }
 
 # Fase 3.5 (ratchet solo-a-la-baja): techo de lineas por modulo allowlisted.
 # Un monolito historico puede adelgazar (y al bajar <= 900 sale de la allowlist),
 # pero NUNCA crecer silenciosamente sin justificar el techo en review.
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
-    "app/api_dashboard.py": 2244,
-    "app/dashboard_resumen.py": 995,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
 }
@@ -2226,7 +2209,8 @@ def test_candado_tablas_corrida_caza_tabla_ads(tmp_path):
 
 _PERMITIDOS_JEV = frozenset(
     {
-        "app/api_dashboard.py",  # bloque jev de /salud (S.4) + senal en /cortes
+        "app/dashboard_salud.py",  # bloque jev de /salud (S.4)
+        "app/dashboard_cortes.py",  # senal en /cortes y /gasto-sin-venta (S.5)
         "app/cli.py",  # despacho de jev-senales, con import tardio (S.4)
         "app/fabrica_web.py",  # asesoria visible del plan de fabrica
     }

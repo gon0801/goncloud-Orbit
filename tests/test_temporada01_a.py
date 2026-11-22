@@ -750,4 +750,74 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
             json={"ad_entity_id": kw_pausada, "base_config_version_id": id_mantener},
             headers={"x-orbit-token": TOKEN},
         )
-        assert resp.status_code == 409, resp.text
+        assert resp.status_code == 409
+
+
+@_skip_db
+def test_terminar_baja_serializa_con_advisory_lock_config_version(tmp_path, monkeypatch):
+    """F3/F6 (Ola F1): `terminar_baja_temporada` toma el advisory lock de
+    `config_version` ANTES de leer la config vigente. Si otra transaccion
+    sostiene el candado y termina la baja antes de commitear, el endpoint lee
+    el estado ya actualizado (fuera de baja -> 422) en lugar de leer el viejo
+    y llegar hasta guarda_config (409)."""
+    import threading
+    import time
+
+    import psycopg
+
+    hoy = dt.datetime.now(dt.UTC).date()
+    meses_baja = ["normal"] * 12
+    meses_baja[hoy.month - 1] = "baja"
+    meses_normal = ["normal"] * 12
+    with _db_con_rol_admin("orbit_temp_lock") as (conn, dsn_admin, _dsn_lectura):
+        config_id = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('base', %s) RETURNING id",
+            (
+                Json(
+                    {
+                        "ads_temporada": _crudo(meses=meses_baja),
+                        "ads_temporada_modo_amazon_mx": "live",
+                    }
+                ),
+            ),
+        ).fetchone()[0]
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        cliente = TestClient(app)
+
+        resultado: dict = {}
+
+        def _corre_endpoint():
+            resp = cliente.post(
+                "/api/ads-optimizer/temporada/terminar-baja",
+                json={"base_config_version_id": config_id},
+                headers={"x-orbit-token": TOKEN},
+            )
+            resultado["status"] = resp.status_code
+
+        with psycopg.connect(dsn_admin, autocommit=False) as bloqueadora:
+            bloqueadora.execute("SELECT pg_advisory_xact_lock(hashtext('config_version'))")
+            hilo = threading.Thread(target=_corre_endpoint, daemon=True)
+            hilo.start()
+            # Mientras la transaccion bloqueadora sostiene el candado, el endpoint
+            # espera en lugar de leer config_version antes del lock.
+            time.sleep(0.15)
+            assert hilo.is_alive(), "terminar-baja debio esperar el advisory lock"
+            bloqueadora.execute(
+                "INSERT INTO config_version (label, settings) VALUES ('fin_baja', %s)",
+                (
+                    Json(
+                        {
+                            "ads_temporada": _crudo(meses=meses_normal),
+                            "ads_temporada_modo_amazon_mx": "live",
+                        }
+                    ),
+                ),
+            )
+            bloqueadora.commit()
+
+        hilo.join(timeout=5)
+        assert not hilo.is_alive()
+        # Con el lock previo a la lectura lee 'fin_baja' (fuera de baja -> 422);
+        # sin ese lock habria leido 'base' y chocado en guarda_config con 409.
+        assert resultado.get("status") == 422

@@ -749,7 +749,7 @@ def guarda_config(
         edicion.get(clave) is not None
         for clave in ("temporada", "campana_topada", "temporada_modo", "meta_alta")
     ):
-        from app.api_dashboard import resumen_temporada_para_guardado
+        from app.dashboard_temporada import resumen_temporada_para_guardado
 
         resumen_guardado = resumen_temporada_para_guardado(conn, fila[1], nuevo, ahora.date())
         if resumen_guardado is not None:

@@ -440,6 +440,25 @@ SELECT o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_t
  WHERE o.id = %s
 """
 
+_SQL_CONFIGS_POR_IDS = """
+SELECT o.id, o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja, o.ajuste_top_pct,
+       o.ajuste_resto_pct, o.ajuste_producto_pct, o.fuera_de_amazon, e.external_id
+  FROM ads_campana_config_observation o
+  JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE o.id = ANY(%s)
+"""
+
+_SQL_CONFIGS_VIGENTES_POR_CAMPANA = """
+SELECT DISTINCT ON (o.ad_entity_id)
+       o.ad_entity_id, o.presupuesto_diario, o.presupuesto_moneda, o.estrategia_puja,
+       o.ajuste_top_pct, o.ajuste_resto_pct, o.ajuste_producto_pct,
+       o.fuera_de_amazon, e.external_id
+  FROM ads_campana_config_observation o
+  JOIN ad_entity e ON e.id = o.ad_entity_id
+ WHERE o.ad_entity_id = ANY(%s)
+ ORDER BY o.ad_entity_id, o.observed_at DESC, o.id DESC
+"""
+
 
 def _config_desde_fila(fila) -> ConfigCampana:
     return ConfigCampana(
@@ -459,6 +478,30 @@ def config_por_id(conn, config_id: int) -> ConfigCampana | None:
     if fila is None:
         return None
     return _config_desde_fila(fila)
+
+
+def configs_por_ids(conn, config_ids: list[int] | set[int]) -> dict[int, ConfigCampana]:
+    """Carga por lote varias observaciones de config por id (evita N+1)."""
+    ids = sorted(set(config_ids))
+    if not ids:
+        return {}
+    return {
+        fila[0]: _config_desde_fila(fila[1:])
+        for fila in conn.execute(_SQL_CONFIGS_POR_IDS, (ids,)).fetchall()
+    }
+
+
+def configs_vigentes_por_campana(
+    conn, ad_entity_ids: list[int] | set[int]
+) -> dict[int, ConfigCampana]:
+    """Carga por lote la config vigente de varias campanas (evita N+1)."""
+    ids = sorted(set(ad_entity_ids))
+    if not ids:
+        return {}
+    return {
+        fila[0]: _config_desde_fila(fila[1:])
+        for fila in conn.execute(_SQL_CONFIGS_VIGENTES_POR_CAMPANA, (ids,)).fetchall()
+    }
 
 
 def config_vigente(conn, ad_entity_id: int) -> ConfigCampana | None:
