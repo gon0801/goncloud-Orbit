@@ -121,6 +121,92 @@ SELECT v.ad_entity_id,
  GROUP BY v.ad_entity_id
 """
 
+# TEMPORADA 01 D (decision 8 del plan): la MISMA consulta de tramos con la
+# cerca de la hoja — cada rango empieza en greatest(rango, cerca), asi que la
+# evidencia del juicio no mira dias anteriores al ultimo movimiento de
+# temporada confirmado. Corre UNA vez para las hojas CON cerca (los pares
+# hoja/cerca llegan por unnest); las hojas sin cerca y los rolls de grupo y
+# cuenta usan la corrida sin cerca, cuyo inicio se corre a la cerca de la
+# PLATAFORMA cuando existe (grupo y cuenta usan la cerca de la plataforma).
+_SQL_TRAMOS_CERCA = """
+SELECT v.ad_entity_id,
+       count(*) FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s),
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.clicks)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)::bigint END,
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.orders)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)::bigint END,
+       CASE WHEN bool_and(v.ad_revenue IS NOT NULL AND v.ad_revenue >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.ad_revenue)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s) END,
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.cost)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s) END,
+       CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.impressions)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)::bigint END,
+       count(*) FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s),
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.clicks)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)::bigint END,
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.orders)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)::bigint END,
+       CASE WHEN bool_and(v.ad_revenue IS NOT NULL AND v.ad_revenue >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.ad_revenue)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s) END,
+       CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.cost)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s) END,
+       CASE WHEN bool_and(v.impressions IS NOT NULL AND v.impressions >= 0)
+                 FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)
+            THEN sum(v.impressions)
+FILTER (WHERE v.metric_date BETWEEN greatest(%s, h.cerca)
+                                 AND %s)::bigint END,
+       max(v.observed_at),
+       array_agg(DISTINCT v.metric_date)
+  FROM {fuente}
+  JOIN unnest(%s::bigint[], %s::date[]) AS h(hoja_id, cerca)
+    ON v.ad_entity_id = h.hoja_id
+  JOIN ad_entity k ON k.id = v.ad_entity_id
+ WHERE k.platform = %s::platform
+   AND k.kind IN ('keyword', 'product_target')
+   AND v.metric_currency = %s
+   AND v.metric_date BETWEEN greatest(%s, h.cerca) AND %s
+ GROUP BY v.ad_entity_id
+"""
+
 _SQL_PRECIO = """
 SELECT v.ad_entity_id,
        count(*) FILTER (WHERE v.metric_date BETWEEN %s AND %s),
@@ -600,16 +686,78 @@ class LecturasPlataforma:
             techo=techo,
         )
 
+    def casos(
+        self,
+        conn: Conexion,
+        *,
+        hoja_id: int,
+        ad_group_id: int | None,
+        bid: BidVigente,
+        target_acos_pct: Decimal,
+        pausa: InsumosPausa,
+        pausa_sombra: InsumosPausa | None = None,
+        equilibrio_acos_pct: Decimal | None = None,
+        procedencia: str | None = None,
+        con_temporada: bool = True,
+    ) -> tuple[CasoHoja, CasoHoja | None]:
+        """(caso que decide, caso de sombra). Live: el que decide trae los
+        marcadores y la sombra es None. Shadow: el que decide va SIN marcadores
+        (byte a byte lo de hoy) y la sombra los trae, con su propia pausa
+        resuelta (x mult y cerca). Reemplaza a `caso` en los llamadores del
+        ciclo (TEMPORADA 01 D)."""
+        t = self._temporada
+        en_shadow = t is not None and t.modo == "shadow"
+        caso = self.caso(
+            conn,
+            hoja_id=hoja_id,
+            ad_group_id=ad_group_id,
+            bid=bid,
+            target_acos_pct=target_acos_pct,
+            pausa=pausa,
+            equilibrio_acos_pct=equilibrio_acos_pct,
+            procedencia=procedencia,
+            con_temporada=con_temporada,
+        )
+        sombra = None
+        if en_shadow and con_temporada and pausa_sombra is not None:
+            sombra = self.caso(
+                conn,
+                hoja_id=hoja_id,
+                ad_group_id=ad_group_id,
+                bid=bid,
+                target_acos_pct=target_acos_pct,
+                pausa=pausa_sombra,
+                equilibrio_acos_pct=equilibrio_acos_pct,
+                procedencia=procedencia,
+                con_temporada=True,
+                sombra=True,
+            )
+        return caso, sombra
+
     def tiene_pendiente(
         self, hoja_id: int, bid_vigente: Decimal | None, *, piso: Decimal, techo: Decimal
     ) -> bool:
-        """¿Entrada, ajuste o regreso pendiente? Lo usa el ciclo para no saltar
-        una inerte en vivo (bloque D)."""
+        """¿Entrada, ajuste o regreso pendiente? Lo usa el ciclo para que una
+        keyword INERTE con movimiento de temporada entre al ciclo (bloque D)."""
+        return isinstance(
+            self.pendiente(hoja_id, bid_vigente, piso=piso, techo=techo),
+            (
+                temporada.EntradaPendiente,
+                temporada.AjustePendiente,
+                temporada.RestauracionPendiente,
+            ),
+        )
+
+    def pendiente(
+        self, hoja_id: int, bid_vigente: Decimal | None, *, piso: Decimal, techo: Decimal
+    ) -> temporada.Pendiente | None:
+        """El pendiente de temporada de UNA hoja (None sin temporada). Lo usa el
+        ciclo para anotar el regreso retenido por campana topada (bloque D)."""
         t = self._temporada
         if t is None:
-            return False
+            return None
         cadena = _cadena_desde(self._historia.get(hoja_id), bid_vigente)
-        p = temporada._pendiente_desde(
+        return temporada._pendiente_desde(
             t.estacion,
             cadena,
             episodio=t.estado.episodio,
@@ -618,7 +766,6 @@ class LecturasPlataforma:
             piso=piso,
             techo=techo,
         )
-        return not isinstance(p, temporada.SinPendiente)
 
     def caso(
         self,
@@ -632,6 +779,7 @@ class LecturasPlataforma:
         equilibrio_acos_pct: Decimal | None = None,
         procedencia: str | None = None,
         con_temporada: bool = True,
+        sombra: bool = False,
     ) -> CasoHoja:
         """Arma el caso de una hoja. Cero consultas si la hoja no cambio de
         bid en 90 dias; UNA consulta (`_SQL_EFECTO`) si cambio. La ventana
@@ -684,7 +832,7 @@ class LecturasPlataforma:
         historia_caso = None
         recuperacion_caso = None
         t = self._temporada
-        con_cadena = (t is not None and t.modo == "live" and con_temporada) or (
+        con_cadena = (t is not None and (t.modo == "live" or sombra) and con_temporada) or (
             self._recuperacion is not None and con_temporada
         )
         if con_cadena:
@@ -694,7 +842,7 @@ class LecturasPlataforma:
                 fines=frozenset(),
                 manos_externas=(),
             )
-            if t is not None and t.modo == "live" and con_temporada:
+            if t is not None and (t.modo == "live" or sombra) and con_temporada:
                 temporada_caso = TemporadaCaso(
                     estacion=t.estacion,
                     episodio=t.estado.episodio,
@@ -1114,6 +1262,97 @@ def _presupuesto_campanas(
     return resultado
 
 
+def _lee_tramos(
+    conn: Conexion,
+    plataforma: Plataforma,
+    d: dt.date,
+    desde: dt.date,
+    hasta: dt.date,
+    rec_desde: dt.date,
+    ant_hasta: dt.date,
+    cal_desde: dt.date,
+    ayer: dt.date,
+    fuente: str,
+    pv: tuple,
+    moneda: str,
+    temporada_plat: TemporadaPlataforma | None,
+    recuperacion: InsumosRecuperacion | None,
+    visto_el: dt.datetime | None,
+) -> tuple[
+    list, list | None, dict[int, dt.date], dt.date, dt.date, dt.date, dict, dict, dict, dict | None
+]:
+    """Las DOS corridas de tramos y la historia extendida (TEMPORADA 01 D,
+    decision 8 del plan): la corrida CON cerca trae la evidencia de juicio de
+    las hojas con movimiento propio de temporada (cada rango empieza en
+    greatest(rango, cerca), via unnest hoja/cerca); la corrida SIN cerca trae
+    a las demas hojas y los rolls de grupo y cuenta, cuyo inicio se corre a la
+    cerca de la PLATAFORMA cuando existe. La historia va primero porque la
+    cerca de cada hoja sale de su cadena. Sin temporada: una sola corrida,
+    byte a byte lo de hoy."""
+    desde_historia, manos_por_hoja, fines_por_hoja, cambios_90, historia = _historia_temporada(
+        conn,
+        plataforma,
+        d,
+        desde,
+        visto_el,
+        activa=temporada_plat is not None or recuperacion is not None,
+        memoria_dias=recuperacion.memoria_dias if recuperacion is not None else 365,
+    )
+    # TEMPORADA 01 D (revision Devin 66dkEF): la doble corrida SOLO con
+    # temporada en LIVE — en practica la lectura que decide conserva las
+    # ventanas SIN cerca (byte a byte lo de hoy) y la sombra compara con la
+    # evidencia disponible.
+    cerca_plat = (
+        temporada_plat.estado.cerca_plataforma
+        if temporada_plat is not None and temporada_plat.modo == "live"
+        else None
+    )
+    cercas: dict[int, dt.date] = {}
+    if temporada_plat is not None and temporada_plat.modo == "live" and historia:
+        for hoja_h, hist_h in historia.items():
+            cerca_h = temporada.cerca_hoja_de(_cadena_desde(hist_h, None), d)
+            if cerca_h is not None:
+                cercas[hoja_h] = cerca_h
+    rec_desde_2 = max(rec_desde, cerca_plat) if cerca_plat is not None else rec_desde
+    desde_2 = max(desde, cerca_plat) if cerca_plat is not None else desde
+    p_rec = [rec_desde_2, hasta] * 11
+    p_ant = [desde_2, ant_hasta] * 11
+    filas_tramos = conn.execute(
+        _SQL_TRAMOS.format(fuente=fuente),
+        (*p_rec, *p_ant, *pv, plataforma, moneda, cal_desde, ayer),
+    ).fetchall()
+    filas_tramos_cerca = None
+    if cercas:
+        hojas_cerca = list(cercas)
+        cercas_orden = [cercas[h] for h in hojas_cerca]
+        filas_tramos_cerca = conn.execute(
+            _SQL_TRAMOS_CERCA.format(fuente=fuente),
+            (
+                *([rec_desde, hasta] * 11),
+                *([desde, ant_hasta] * 11),
+                *pv,
+                hojas_cerca,
+                cercas_orden,
+                plataforma,
+                moneda,
+                cal_desde,
+                ayer,
+            ),
+        ).fetchall()
+    return (
+        filas_tramos,
+        filas_tramos_cerca,
+        cercas,
+        rec_desde_2,
+        desde_2,
+        desde_historia,
+        manos_por_hoja,
+        fines_por_hoja,
+        cambios_90,
+        historia,
+    )
+
+
 def lee_plataforma(
     conn: Conexion,
     plataforma: Plataforma,
@@ -1157,27 +1396,37 @@ def lee_plataforma(
     inm_desde = d - dt.timedelta(days=DIAS_INMADUROS_DESDE)
     moneda = economia.moneda
     fuente, pv = _fuente(visto_el)
-    p_rec = [rec_desde, hasta] * 11  # 1 conteo + 5 metricas x 2 filtros
-    p_ant = [desde, ant_hasta] * 11
-    filas_tramos = conn.execute(
-        _SQL_TRAMOS.format(fuente=fuente),
-        (*p_rec, *p_ant, *pv, plataforma, moneda, cal_desde, ayer),
-    ).fetchall()
-    filas_hojas = conn.execute(_SQL_HOJAS, (plataforma,)).fetchall()
-    # TEMPORADA 01 B: con temporada encendida la historia crece a D-365 (o al
-    # inicio del episodio abierto mas viejo) y trae las manos externas, los
-    # fines y la trayectoria de 90 dias derivada como hoy. TEMPORADA 01 C:
-    # con recuperacion encendida tambien (R6r corre todo el ano) y la memoria
-    # del bid mas alto es `ads_bid_recuperacion_memoria_dias_<plat>`.
-    desde_historia, manos_por_hoja, fines_por_hoja, cambios_90, historia = _historia_temporada(
+    # TEMPORADA 01 D: las DOS corridas de tramos (con y sin cerca) y la
+    # historia, en un solo helper (decision 8 del plan; detalle en el).
+    (
+        filas_tramos,
+        filas_tramos_cerca,
+        cercas,
+        rec_desde_2,
+        desde_2,
+        desde_historia,
+        manos_por_hoja,
+        fines_por_hoja,
+        cambios_90,
+        historia,
+    ) = _lee_tramos(
         conn,
         plataforma,
         d,
         desde,
+        hasta,
+        rec_desde,
+        ant_hasta,
+        cal_desde,
+        ayer,
+        fuente,
+        pv,
+        moneda,
+        temporada_plat,
+        recuperacion,
         visto_el,
-        temporada_plat is not None or recuperacion is not None,
-        memoria_dias=recuperacion.memoria_dias if recuperacion is not None else 365,
     )
+    filas_hojas = conn.execute(_SQL_HOJAS, (plataforma,)).fetchall()
     p_pre = [pre_desde, fresco] * 5
     p_inm = [inm_desde, ayer] * 3
     filas_precio = conn.execute(
@@ -1206,15 +1455,32 @@ def lee_plataforma(
         if campana_topada is not None
         else None
     )
-    por_hoja = {}
-    for fila in filas_tramos:
-        (hoja, fr, c_r, p_r, v_r, g_r, i_r, fa, c_a, p_a, v_a, g_a, i_a, _obs, _f) = fila
-        if fr + fa == 0:
-            continue  # sin filas en la ventana madura: propia None
-        por_hoja[hoja] = EvidenciaNivel(
-            reciente=_tramo(fr, (c_r, p_r, v_r, g_r, i_r), rec_desde, hasta, dias),
-            antiguo=_tramo(fa, (c_a, p_a, v_a, g_a, i_a), desde, ant_hasta, dias),
-        )
+
+    def _niveles_de(filas: list, rec: dt.date, des: dt.date) -> dict[int, EvidenciaNivel]:
+        niveles: dict[int, EvidenciaNivel] = {}
+        for fila in filas:
+            (hoja, fr, c_r, p_r, v_r, g_r, i_r, fa, c_a, p_a, v_a, g_a, i_a, _obs, _f) = fila
+            if fr + fa == 0:
+                continue  # sin filas en la ventana madura: propia None
+            niveles[hoja] = EvidenciaNivel(
+                reciente=_tramo(fr, (c_r, p_r, v_r, g_r, i_r), rec, hasta, dias),
+                antiguo=_tramo(fa, (c_a, p_a, v_a, g_a, i_a), des, ant_hasta, dias),
+            )
+        return niveles
+
+    evid_sin_cerca = _niveles_de(filas_tramos, rec_desde_2, desde_2)
+    por_hoja = evid_sin_cerca
+    niveles_rolls = evid_sin_cerca
+    if filas_tramos_cerca:
+        # TEMPORADA 01 D (revision Devin dAHP): la hoja con cerca usa SOLO su
+        # corrida — si su ventana individual esta vacia (todo inmaduro), queda
+        # SIN evidencia (cero medido), jamas con la de antes de la cerca. Los
+        # rolls de grupo y cuenta usan la corrida corrida a la cerca de la
+        # plataforma.
+        evid_cerca = _niveles_de(filas_tramos_cerca, rec_desde, desde)
+        por_hoja = {h: ev for h, ev in evid_sin_cerca.items() if h not in cercas}
+        por_hoja.update(evid_cerca)
+        niveles_rolls = evid_sin_cerca
     activas: dict[int, int] = {}
     miembros: dict[int, list[int]] = {}
     campanas: dict[int, int] = {}
@@ -1224,10 +1490,10 @@ def lee_plataforma(
         miembros.setdefault(grupo, []).append(hoja)
     por_grupo = {}
     for grupo, hojas in miembros.items():
-        nivel = _enrolla([por_hoja[h] for h in hojas if h in por_hoja])
+        nivel = _enrolla([niveles_rolls[h] for h in hojas if h in niveles_rolls])
         if nivel is not None:
             por_grupo[grupo] = nivel
-    cuenta = _enrolla([ev for h, ev in por_hoja.items() if h in activas])
+    cuenta = _enrolla([ev for h, ev in niveles_rolls.items() if h in activas])
     precio_ok = _completo(pre_desde, fresco, dias)
     inm_ok = _completo(inm_desde, ayer, dias)
     precio = {}

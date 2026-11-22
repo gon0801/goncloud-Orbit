@@ -203,6 +203,7 @@ def _decide_pause(
     target_acos_pct: Decimal,
     policy_version: str | None,
     proteccion: ResultadoProteccion | None = None,
+    exceso_minimo: Decimal | None = None,
 ) -> tuple[ResultadoBid | None, str | None]:
     """El bloque pause: regla de cero pedidos con clicks/cost sobre el
     piso, y despues la economica versionada. El pause no consume bandas:
@@ -242,7 +243,7 @@ def _decide_pause(
         and cortes.orders is not None
         and cortes.clicks is not None
         and cortes.cost > MULT_PAUSE_ECONOMICA * target_acos_pct * cortes.ad_revenue / _CIEN
-        and exceso >= EXCESO_MINIMO[moneda]
+        and exceso >= (exceso_minimo if exceso_minimo is not None else EXCESO_MINIMO[moneda])
     )
     if pausa_umbral:
         if proteccion is not None and proteccion.accion in ("esperar", "indeterminada"):
@@ -303,6 +304,7 @@ def decide_pause(
     cost_min: Decimal | None = None,
     policy_version: str | None = None,
     proteccion: InsumosProteccion | None = None,
+    exceso_minimo: Decimal | None = None,
 ) -> ResultadoBid:
     """Decide SOLO la PAUSE con _decide_pause (BIDS 02 M.3): la usan el
     ciclo con la politica apagada y la revalidacion de la cola. Si pausa,
@@ -333,6 +335,7 @@ def decide_pause(
         target_acos_pct,
         policy_version,
         proteccion=resultado_proteccion,
+        exceso_minimo=exceso_minimo,
     )
     if pausa is not None:
         return pausa

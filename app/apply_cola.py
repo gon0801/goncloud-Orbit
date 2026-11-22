@@ -99,6 +99,7 @@ from app import (
     notifica,
     productos_io,
     proteccion_venta,
+    temporada_io,
 )
 from app.ads.client import AdsApiError
 from app.apply import (
@@ -1154,8 +1155,53 @@ def _revalida_pause(
         return MOTIVO_ESPERA_TARGET if espera else MOTIVO_YA_NO_CALIFICA
     grupo = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    umbral = cortes.umbral_corte(evidencia, "pause").umbral
-    fresco = windows.ventana_cortes(conn, fila.ad_entity_id, ahora)
+    # TEMPORADA 01 D (al liberar): la frontera de la hoja trae el multiplicador
+    # del dueno y la cerca — la pausa de la baja se revalida con 2x clics,
+    # 2x piso y 2x exceso, y su ventana no mira dias de la baja. El piso y el
+    # techo vienen del goal de la CAMPAÑA de la hoja (revision Devin dAIN: la
+    # fila es una keyword; el goal de plataforma no la describe).
+    grupo_rv = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
+    campana_rv = conn.execute(_SQL_CAMPANA_DE_GRUPO, (grupo_rv,)).fetchone()[0]
+    # TEMPORADA 01 D (revision Devin dAIN/dJ_e): el piso y el techo salen del
+    # GOAL EFECTIVO de la hoja con la precedencia del ciclo (campana >
+    # plataforma via resuelve_goal) y los defaults de su moneda
+    # (resuelve_floor_ceiling) — 999999 inventaba un techo que hacia parecer
+    # un regreso pendiente donde la puja ya alcanzo el techo real.
+    goal_campana = goal_plataforma = None
+    for fila_g in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, campana_rv)).fetchall():
+        goal_rv = g.Goal(
+            scope=fila_g[0],
+            ad_entity_id=fila_g[1],
+            platform=fila_g[2],
+            target_acos_pct=fila_g[3],
+            bid_floor=fila_g[4],
+            bid_ceiling=fila_g[5],
+            bid_currency=fila_g[6],
+            harvest_campaign_id=fila_g[7],
+            harvest_ad_group_id=fila_g[8],
+            harvest_default_bid=fila_g[9],
+            enabled=fila_g[10],
+            mode=fila_g[11],
+        )
+        if fila_g[0] == "campaign":
+            goal_campana = goal_rv
+        else:
+            goal_plataforma = goal_rv
+    moneda_hoja = motor_bid.PLATAFORMAS_MONEDA[platform]
+    floor_rv, ceiling_rv = g.resuelve_floor_ceiling(
+        g.resuelve_goal(goal_campana, goal_plataforma), moneda_hoja
+    )
+    frontera_h = temporada_io.frontera_hoja(
+        conn, fila.ad_entity_id, ahora.date(), piso=floor_rv, techo=ceiling_rv
+    )
+    mult_baja = (
+        frontera_h.mult_cortes
+        if frontera_h is not None and frontera_h.fase_hoja == "baja"
+        else None
+    )
+    cerca = frontera_h.cerca_hoja if frontera_h is not None else None
+    umbral = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_baja).umbral
+    fresco = windows.ventana_cortes(conn, fila.ad_entity_id, ahora, cerca=cerca)
     # C.3 B1 + obs3r2: la politica EFECTIVA (una sola lectura del flag;
     # la evidencia registra esta, no la version nominal).
     version_efectiva = (
@@ -1178,10 +1224,22 @@ def _revalida_pause(
         cortes=fresco,
         target_acos_pct=target if target is not None else _TARGET_REVALIDA,
         umbral_pause=umbral,
+        # TEMPORADA 01 D (al liberar, revision Devin dAF4): el piso de gasto
+        # tambien va x mult (1000 MXN en baja) — sin el, pausas que ya no
+        # califican seguirian aplicando.
+        cost_min=(
+            cortes.piso_pausa(platform, mult_baja=mult_baja) if mult_baja is not None else None
+        ),
         # C.3 B1: la revalidacion economica rige solo con el flag (con
         # flag apagado, camino pre-economico aunque la fila sea vieja).
         policy_version=version_efectiva,
         proteccion=proteccion,
+        # TEMPORADA 01 D (al liberar): el exceso economico de la baja va x mult.
+        exceso_minimo=(
+            cortes.exceso_minimo(motor_bid.PLATAFORMAS_MONEDA[platform], mult_baja=mult_baja)
+            if mult_baja is not None
+            else None
+        ),
     )
     # Obs1: una fila economica aplica si la hoja califica PAUSE por
     # CUALQUIER regla (si ademas califica la umbral, pausar sigue siendo
@@ -1275,9 +1333,13 @@ def _revalida_negative(
     una entidad — su re-validacion ES la regla con evidencia fresca."""
     grupo = fila.ad_entity_id
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    umbral = cortes.umbral_corte(evidencia, "negative").umbral
-    piso = cortes.piso_corte(evidencia, platform).piso_cost
-    terminos = windows.terminos_cortes(conn, grupo, ahora)
+    # TEMPORADA 01 D (al liberar): el multiplicador del dueno para los
+    # negatives cuando la plataforma decide la baja en live.
+    mult_baja = temporada_io.mult_negativa(conn, platform, ahora.date())
+    cerca_plat = temporada_io.cerca_plataforma(conn, platform, ahora.date())
+    umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=mult_baja).umbral
+    piso = cortes.piso_corte(evidencia, platform, mult_baja=mult_baja).piso_cost
+    terminos = windows.terminos_cortes(conn, grupo, ahora, cerca=cerca_plat)
     term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
     if term is None:
         # Sin observaciones frescas del termino en la ventana: no alcanza el

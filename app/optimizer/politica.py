@@ -9,7 +9,7 @@ importados, jamas copiados. Las bandas, pasos y clamps son los de hoy
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from typing import Literal
 
@@ -87,6 +87,11 @@ MOTIVO_SALE_BAJA = "sale_temporada_baja"
 MOTIVOS_TEMPORADA = (MOTIVO_ENTRA_BAJA, MOTIVO_AJUSTA_BAJA, MOTIVO_SALE_BAJA)
 # TEMPORADA 01 C: la subida rapida (R6r) y su freno de presupuesto.
 MOTIVO_PRESUPUESTO_TOPADO = "presupuesto_topado"
+# TEMPORADA 01 D: los retenidos de la baja, el techo de subidas y el regreso
+# que espera por campana topada (solo notes; no es veredicto final).
+MOTIVO_TEMPORADA_BAJA = "temporada_baja"
+MOTIVO_TECHO_DE_BAJA = "techo_de_baja"
+MOTIVO_REGRESO_ESPERA_PRESUPUESTO = "regreso_espera_presupuesto"
 
 NivelQueJuzga = Literal["hoja", "ad_group"]
 EstadoGrupo = Literal["sangra", "cumple", "sin_veredicto"]
@@ -237,11 +242,16 @@ def decide(caso: CasoHoja) -> Veredicto:
 
     # RTs (TEMPORADA 01): el regreso pendiente va ANTES que la pausa (decision
     # 6 del plan): una keyword que sale de la baja restaura su bid aunque R0 la
-    # pausaria; la espera por venta reciente no retiene un regreso planeado y
-    # el freno por campana topada llega con el bloque C. Los cortes se vuelven
-    # a juzgar solo con evidencia posterior al regreso (cerca, bloque D).
+    # pausaria; la espera por venta reciente no retiene un regreso planeado.
+    # TEMPORADA 01 D (retenciones): con la campana topada el regreso ESPERA (no
+    # sale) y la hoja sigue en baja para cortes, juicio y techo; el ciclo anota
+    # regreso_espera_presupuesto en notas. Presupuesto desconocido (None) no
+    # retiene una bajada.
     if isinstance(p, temporada.RestauracionPendiente):
-        return Regresar(p.nivel, MOTIVO_SALE_BAJA)
+        if presupuesto_topado(caso) is True:
+            pass  # el regreso espera: sigue el camino normal (R0, RTe, R1...)
+        else:
+            return Regresar(p.nivel, MOTIVO_SALE_BAJA)
 
     # R0: PAUSE decide primero; solo un pause real interrumpe (un bloqueo se descarta y sigue).
     # ORBIT 07 M1: la pausa por cero pedidos consulta la subpolitica de venta
@@ -257,6 +267,7 @@ def decide(caso: CasoHoja) -> Veredicto:
         target,
         caso.pausa.politica_economica,
         proteccion=resultado_proteccion,
+        exceso_minimo=caso.pausa.exceso_minimo,
     )
     if pausa is not None:
         assert pausa.kind == "pause"
@@ -266,7 +277,8 @@ def decide(caso: CasoHoja) -> Veredicto:
     # RTe (TEMPORADA 01): la entrada de la baja no espera R2, la espera por
     # venta reciente ni presupuesto: es una bajada planeada. El ajuste de una
     # reduccion editada a media baja baja por el paso en centavos o sube por
-    # Regresar (la espera por campana topada llega con el bloque C).
+    # Regresar; la SUBIDA del ajuste espera si la campana esta topada
+    # (TEMPORADA 01 D, retenciones) y sigue el camino normal.
     rte = _rte_pendiente(caso, p)
     if rte is not None:
         return rte
@@ -281,9 +293,80 @@ def decide(caso: CasoHoja) -> Veredicto:
 
     ultimo = caso.trayectoria.ultimo
     centavos = caso.revision >= 1
-    if ultimo is not None:
-        efecto = caso.trayectoria.efecto
-        assert efecto is not None  # lo sella Trayectoria.__post_init__
+    freno_r1 = _trayectoria_r1_r2(caso, t, ultimo, centavos)
+    if freno_r1 is not None:
+        return freno_r1
+
+    with localcontext(prec=PRECISION):
+        # TEMPORADA 01 D (decision 4 del plan): el juicio R3-R13 corre con la
+        # META DEL JUICIO (alta: max(base, meta_alta), libre por encima del
+        # equilibrio; el limite de R3 la sigue). El caso congela base, meta de
+        # alta y frontera; la meta del juicio se deriva aqui. Fuera de alta el
+        # replace es identidad: byte a byte lo de hoy. R0 ya corrio arriba con
+        # la base, igual que las metas escritas a mano.
+        caso_j = replace(
+            caso,
+            economia=replace(
+                caso.economia,
+                target_acos_pct=temporada.meta_del_juicio(caso),
+                plataforma=replace(
+                    caso.economia.plataforma,
+                    equilibrio_acos_pct=temporada.equilibrio_del_juicio(caso),
+                ),
+            ),
+        )
+        estado = estado_grupo(caso_j.grupo, caso_j.economia)
+        fallo = _juzga_hoja(caso_j, estado)
+        if isinstance(fallo, Mantener):
+            return fallo
+        if isinstance(fallo, _Recupera):
+            return _resuelve_recupera(caso_j, fallo, ultimo, _motivo_bloqueado)
+        factor, motivo, nivel = fallo
+        # TEMPORADA 01 D (decision 7 del plan): en baja SOLO R3 recorta (vende
+        # y pierde dinero); R4, R9 y R11 quedan retenidos — la evidencia de la
+        # baja mezcla la caida de conversion con el precio nuevo y no sirve
+        # para afinar hacia la meta ni castigar la falta de ventas.
+        if (
+            t is not None
+            and t.frontera.fase_hoja == "baja"
+            and factor < 0
+            and motivo not in (MOTIVO_PIERDE_DINERO, MOTIVO_PIERDE_DINERO_FUERTE)
+        ):
+            return Mantener(MOTIVO_TEMPORADA_BAJA)
+        freno_subida = _frena_subida_normal(caso, factor, _motivo_bloqueado)
+        if freno_subida is not None:
+            return freno_subida
+        if ultimo is not None and ultimo.origen != "temporada":
+            # TEMPORADA 01 C: el ultimo cambio de temporada es un movimiento
+            # planeado (decision 7 del plan): ningun freno de trayectoria lo
+            # juzga como si buscara un efecto; arriba solo espero R2 y el piso
+            # aprendido lo aplica _paso.
+            efecto = caso.trayectoria.efecto
+            assert efecto is not None
+            freno = _freno_trayectoria(caso, ultimo, efecto, factor)
+            if freno is not None:
+                return freno
+        return _paso(
+            caso.bid,
+            factor,
+            motivo,
+            nivel,
+            caso.trayectoria.piso_aprendido,
+            centavos=centavos,
+            techo_extra=temporada.techo_de_baja(caso) if factor > 0 else None,
+        )
+
+
+def _trayectoria_r1_r2(caso: CasoHoja, t, ultimo, centavos: bool) -> Veredicto | None:
+    """R1 y R2: el efecto del ultimo cambio (trayectoria). None = sigue al
+    juicio. TEMPORADA 01 D (decision 7 del plan): en baja R1 NO aplica — la
+    evidencia de la baja mezcla la caida de conversion con el precio nuevo y
+    no sirve para revertir; solo R2 espera el efecto."""
+    if ultimo is None:
+        return None
+    efecto = caso.trayectoria.efecto
+    assert efecto is not None  # lo sella Trayectoria.__post_init__
+    if t is None or t.frontera.fase_hoja != "baja":
         r1 = _evalua_r1(ultimo, efecto)
         if r1 is None:
             return Mantener(MOTIVO_DATO_FALTANTE)
@@ -312,38 +395,9 @@ def decide(caso: CasoHoja) -> Veredicto:
             if (destino - valor) * (ultimo.bid_antes - valor) <= 0:
                 return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
             return Regresar(destino, MOTIVO_REGRESO_DESPLOME)
-        if efecto.dias_post < DIAS_EFECTO:
-            return Mantener(MOTIVO_ESPERANDO_EFECTO)
-
-    with localcontext(prec=PRECISION):
-        estado = estado_grupo(caso.grupo, caso.economia)
-        fallo = _juzga_hoja(caso, estado)
-        if isinstance(fallo, Mantener):
-            return fallo
-        if isinstance(fallo, _Recupera):
-            return _resuelve_recupera(caso, fallo, ultimo, _motivo_bloqueado)
-        factor, motivo, nivel = fallo
-        freno_subida = _frena_subida_normal(caso, factor, _motivo_bloqueado)
-        if freno_subida is not None:
-            return freno_subida
-        if ultimo is not None and ultimo.origen != "temporada":
-            # TEMPORADA 01 C: el ultimo cambio de temporada es un movimiento
-            # planeado (decision 7 del plan): ningun freno de trayectoria lo
-            # juzga como si buscara un efecto; arriba solo espero R2 y el piso
-            # aprendido lo aplica _paso.
-            efecto = caso.trayectoria.efecto
-            assert efecto is not None
-            freno = _freno_trayectoria(caso, ultimo, efecto, factor)
-            if freno is not None:
-                return freno
-        return _paso(
-            caso.bid,
-            factor,
-            motivo,
-            nivel,
-            caso.trayectoria.piso_aprendido,
-            centavos=centavos,
-        )
+    if efecto.dias_post < DIAS_EFECTO:
+        return Mantener(MOTIVO_ESPERANDO_EFECTO)
+    return None
 
 
 def _subida_en_espera(proteccion: InsumosProteccion | None, motivo_bloqueado: str | None) -> bool:
@@ -798,13 +852,17 @@ def _paso_a_centavo(
 
 def _rte_pendiente(caso: CasoHoja, p: object) -> Veredicto | None:
     """RTe de temporada (TEMPORADA 01 B): la entrada de la baja o el ajuste de
-    una reduccion editada. None si no es su turno (el camino de hoy sigue)."""
+    una reduccion editada. None si no es su turno (el camino de hoy sigue).
+    TEMPORADA 01 D: la subida del ajuste espera si la campana esta topada
+    (presupuesto_topado True); None deja seguir el camino normal."""
     if isinstance(p, temporada.EntradaPendiente):
         return _paso_a_centavo(caso.bid, p.destino, MOTIVO_ENTRA_BAJA, "hoja")
     if isinstance(p, temporada.AjustePendiente):
         valor = caso.bid.valor
         if valor is not None and p.destino < valor:
             return _paso_a_centavo(caso.bid, p.destino, MOTIVO_AJUSTA_BAJA, "hoja")
+        if presupuesto_topado(caso) is True:
+            return None
         return Regresar(p.destino, MOTIVO_AJUSTA_BAJA)
     return None
 
@@ -817,24 +875,30 @@ def _paso(
     piso_aprendido: Decimal | None,
     *,
     centavos: bool,
+    techo_extra: Decimal | None = None,
 ) -> Mover | Mantener:
     """Cola de clamps de hoy: redondeo a centavos (revision >= 1, sin salir del
     rango del goal), piso aprendido, delta minimo, rango. Solo aqui nace un
-    Mover."""
+    Mover. TEMPORADA 01 D: `techo_extra` (el techo de baja compartido) se aplica
+    junto con piso y techo, ANTES del redondeo; si deja el delta bajo un
+    centavo, la subida no sale (techo_de_baja)."""
     valor = bid.valor
     if valor is None or valor <= 0:
         return Mantener(MOTIVO_DATO_FALTANTE)
     factor_c = min(max(factor, CLAMP_FACTOR_MIN), CLAMP_FACTOR_MAX)
     nuevo = valor * (_UNO + factor_c)
-    nuevo = min(max(nuevo, bid.piso), bid.techo)
+    techo = bid.techo if techo_extra is None else min(bid.techo, techo_extra)
+    nuevo = min(max(nuevo, bid.piso), techo)
     if centavos:
         # F1/F3: un piso o techo que no es centavo puede dejar al redondeo
         # fuera del rango del goal; la regla de app.optimizer.centavos elige
         # el centavo dentro del rango y None solo si ninguno cabe.
-        redondeado = centavo_en_rango(nuevo, desde=valor, piso=bid.piso, techo=bid.techo)
+        redondeado = centavo_en_rango(nuevo, desde=valor, piso=bid.piso, techo=techo)
         if redondeado is None:
             return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
         nuevo = redondeado
+    if techo_extra is not None and abs(nuevo - valor) < MIN_DELTA_ABSOLUTO:
+        return Mantener(MOTIVO_TECHO_DE_BAJA)
     if factor_c < 0 and piso_aprendido is not None and nuevo <= piso_aprendido:
         return Mantener(MOTIVO_PISO_APRENDIDO)
     if abs(nuevo - valor) < MIN_DELTA_ABSOLUTO:

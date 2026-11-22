@@ -277,7 +277,7 @@ def _corre_decisora(monkeypatch, caso: CasoHoja):
 
     from app.optimizer import goals as g
 
-    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_: None)
+    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_, **__: None)
     monkeypatch.setattr(ciclo.g, "en_cooldown", lambda *_a, **_k: False)
     goal = g.Goal(
         scope="platform",
@@ -293,7 +293,14 @@ def _corre_decisora(monkeypatch, caso: CasoHoja):
         enabled=True,
         mode="shadow",
     )
-    lecturas = SimpleNamespace(caso=lambda _conn, **_k: caso)
+    lecturas = SimpleNamespace(
+        caso=lambda _conn, **_k: caso,
+        casos=lambda _conn, **_k: (caso, None),
+        # TEMPORADA 01 D: sin marcador, frontera y pendiente son None/None
+        frontera=lambda *_a, **_k: None,
+        pendiente=lambda *_a, **_k: None,
+        tiene_pendiente=lambda *_a, **_k: False,
+    )
     contadores = ciclo._Contadores()
     pendientes: list = []
     ciclo._procesa_decisora(

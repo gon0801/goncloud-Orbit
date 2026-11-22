@@ -102,8 +102,11 @@ def test_revalida_pause_economica_con_venta_tardia(monkeypatch, cost, revenue, t
     from app import apply_cola
 
     class Conn:
-        def execute(self, sql, params):
+        def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if "SELECT inputs" in sql:
                         return (
@@ -126,9 +129,13 @@ def test_revalida_pause_economica_con_venta_tardia(monkeypatch, cost, revenue, t
         apply_cola, "_target_pause_vigente", lambda *_: (Decimal(target), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
-    monkeypatch.setattr(apply_cola.windows, "ventana_cortes", lambda *_: _corte(cost, revenue))
     monkeypatch.setattr(
-        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+        apply_cola.windows,
+        "ventana_cortes",
+        lambda *_, **__: _corte(cost, revenue),
+    )
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 300})()
     )
     fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
     aplicador = type(
@@ -190,8 +197,11 @@ def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monk
     from app import apply_cola
 
     class Conn:
-        def execute(self, sql, params):
+        def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_umbral"},)
@@ -209,9 +219,13 @@ def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monk
         apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
-    monkeypatch.setattr(apply_cola.windows, "ventana_cortes", lambda *_: _corte("100", "100"))
     monkeypatch.setattr(
-        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+        apply_cola.windows,
+        "ventana_cortes",
+        lambda *_, **__: _corte("100", "100"),
+    )
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 300})()
     )
     fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
     aplicador = type(
@@ -229,8 +243,11 @@ def test_revalida_pause_sin_target_espera_solo_con_goal(monkeypatch, hay_goal, e
     from app import apply_cola
 
     class Conn:
-        def execute(self, sql, params):
+        def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if "SELECT inputs" in sql:
                         return ({"motivo": "pause_economica"},)
@@ -399,8 +416,11 @@ def test_flag_apagado_revalidacion_legada_no_adopta_regla_economica(monkeypatch)
     from app import apply_cola
 
     class Conn:
-        def execute(self, sql, params):
+        def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_umbral"},)
@@ -417,9 +437,13 @@ def test_flag_apagado_revalidacion_legada_no_adopta_regla_economica(monkeypatch)
         apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
-    monkeypatch.setattr(apply_cola.windows, "ventana_cortes", lambda *_: _corte("100", "100"))
     monkeypatch.setattr(
-        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+        apply_cola.windows,
+        "ventana_cortes",
+        lambda *_, **__: _corte("100", "100"),
+    )
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 300})()
     )
     fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
     aplicador = type(
@@ -438,8 +462,11 @@ def test_fila_economica_que_solo_califica_umbral_sigue_aplicando(monkeypatch):
     from app import apply_cola
 
     class Conn:
-        def execute(self, sql, params):
+        def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_economica"},)
@@ -460,11 +487,13 @@ def test_fila_economica_que_solo_califica_umbral_sigue_aplicando(monkeypatch):
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
     monkeypatch.setattr(
-        apply_cola.windows, "ventana_cortes", lambda *_: _corte("50", "0", clicks=300, orders=0)
+        apply_cola.windows,
+        "ventana_cortes",
+        lambda *_, **__: _corte("50", "0", clicks=300, orders=0),
     )
     evidencias_b: list = []
     monkeypatch.setattr(
-        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 300})()
     )
     fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
     aplicador = type(
@@ -482,8 +511,11 @@ def test_evidencia_registra_version_efectiva_no_nominal(monkeypatch):
     from app import apply_cola
 
     class Conn:
-        def execute(self, sql, params):
+        def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return ({"motivo": "pause_economica"},)
@@ -503,9 +535,13 @@ def test_evidencia_registra_version_efectiva_no_nominal(monkeypatch):
         apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
-    monkeypatch.setattr(apply_cola.windows, "ventana_cortes", lambda *_: _corte("100", "500"))
     monkeypatch.setattr(
-        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+        apply_cola.windows,
+        "ventana_cortes",
+        lambda *_, **__: _corte("100", "500"),
+    )
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 300})()
     )
     fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
     aplicador = type(
@@ -537,6 +573,9 @@ def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypat
     class Conn:
         def execute(self, sql, params=None):
             class Cursor:
+                def fetchall(self):
+                    return []
+
                 def fetchone(self):
                     if sql == apply_cola._SQL_DECISION_INPUTS:
                         return (
@@ -547,8 +586,17 @@ def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypat
                         )
                     if sql == apply_cola._SQL_CONFIG_TARGET:
                         return ({"ads_producto_economia_amazon_us": "producto_directo_v1"},)
+                    if "SELECT parent_id FROM ad_entity WHERE id = %s" in sql:
+                        return (1,)
+                    if "kind = 'ad_group'" in sql:
+                        return (2,)
+                    if "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1" in sql:
+                        return (None,)
                     if sql == apply_cola._SQL_PADRE:
                         return (1,)
+                    if "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1" in sql:
+                        # TEMPORADA 01 D: sin temporada en el config vigente.
+                        return ({"ads_target_acos_pct_amazon_us": "10"},)
                     raise AssertionError(sql)
 
             return Cursor()
@@ -562,10 +610,10 @@ def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypat
     monkeypatch.setattr(
         apply_cola.windows,
         "ventana_cortes",
-        lambda *_: _corte("100", "100", clicks=300, orders=0),
+        lambda *_, **__: _corte("100", "100", clicks=300, orders=0),
     )
     monkeypatch.setattr(
-        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 100})()
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 100})()
     )
     evidencias: list[dict] = []
     monkeypatch.setattr(

@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING
 
 import psycopg
 
-from app import apply, biblioteca
+from app import apply, biblioteca, temporada_io
 from app import apply_harvest as _ejecucion
 from app.ads.client import AdsApiError, AdsAuthError
 from app.db import tx_durable
@@ -206,9 +206,14 @@ def revalida_harvest(
         )
         keywords = hygiene.keywords_campana_destino(conn, platform, destino.campaign_external)
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    umbral = cortes.umbral_corte(evidencia, "negative").umbral
-    piso = cortes.piso_corte(evidencia, platform).piso_cost
-    terminos = windows.terminos_cortes(conn, grupo, ahora)
+    # TEMPORADA 01 D: mult_baja None — el x2 del dueno cubre pausas y
+    # negatives de corte; la cosecha conserva sus umbrales de hoy. La cerca de
+    # la plataforma SI aplica (revision Devin dAGx: la ventana no mira dias de
+    # la baja aunque la cosecha no se multiplique).
+    umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=None).umbral
+    piso = cortes.piso_corte(evidencia, platform, mult_baja=None).piso_cost
+    cerca_plat = temporada_io.cerca_plataforma(conn, platform, ahora.date())
+    terminos = windows.terminos_cortes(conn, grupo, ahora, cerca=cerca_plat)
     term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
     if term is None:
         # Sin observaciones frescas del termino en la ventana: ausencia, no

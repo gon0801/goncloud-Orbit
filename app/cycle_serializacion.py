@@ -445,6 +445,7 @@ def _notas_cuerpo(
     detalle: str | None,
     target: dict | None = None,
     harvest_destino: dict | None = None,
+    temporada: dict | None = None,
 ) -> dict:
     cuerpo = {
         "skips": {
@@ -462,6 +463,10 @@ def _notas_cuerpo(
         cuerpo["target"] = target
     if harvest_destino is not None:
         cuerpo["harvest_destino"] = harvest_destino
+    # TEMPORADA 01 D: la sombra de la baja comparada caso a caso (solo con
+    # ads_temporada_<plat> en shadow; claves ausentes = no se comparo nada).
+    if temporada is not None:
+        cuerpo["temporada"] = temporada
     if motivo_skip is not None:
         cuerpo["motivo_skip"] = motivo_skip
         cuerpo["detalle"] = detalle

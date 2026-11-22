@@ -53,6 +53,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
+from app.optimizer import bid
 from app.optimizer.windows import EvidenciaAdGroup
 
 O_MIN = 3  # ordenes del grupo para calificar (>=)
@@ -111,16 +112,22 @@ def _califica(evidencia: EvidenciaAdGroup | None) -> bool:
     )
 
 
-def umbral_corte(evidencia: EvidenciaAdGroup | None, regla: Regla) -> UmbralResuelto:
+def umbral_corte(
+    evidencia: EvidenciaAdGroup | None, regla: Regla, *, mult_baja: Decimal | None
+) -> UmbralResuelto:
     """Resuelve el umbral de clicks de UNA regla de corte para el ad group
     de `evidencia`. La elegibilidad (orders>=O_MIN ∧ clicks>=C_MIN ∧
     fechas_distintas>=Z_MIN, todo inclusivo, via _califica) se evalua ANTES
     de dividir; sin ella el umbral es el fallback F de la regla. SIEMPRE
     aplica el piso: max(LEGACY[regla], bruto) -- el adaptativo solo SUBE
     umbrales (sellado). `regla` fuera de {negative, pause} revienta
-    ruidosamente."""
+    ruidosamente. TEMPORADA 01 D: `mult_baja` es OBLIGATORIO (keyword, para
+    que ningun camino de corte lo olvide): en baja el multiplicador del dueno
+    (x2 por defecto) pide ceil(umbral x mult) clics; None = lo de hoy.
+    `mult_baja` < 1 revienta (solo sube)."""
     if regla not in FALLBACK:
         raise ValueError(f"regla fuera del vocabulario sellado {{negative, pause}}: {regla!r}")
+    _valida_mult(mult_baja)
     elegible = _califica(evidencia)
     expected: Decimal | None = None
     if elegible:
@@ -129,8 +136,11 @@ def umbral_corte(evidencia: EvidenciaAdGroup | None, regla: Regla) -> UmbralResu
         bruto = math.ceil(expected * M)
     else:
         bruto = FALLBACK[regla]
+    umbral = max(LEGACY[regla], bruto)
+    if mult_baja is not None:
+        umbral = math.ceil(Decimal(umbral) * mult_baja)
     return UmbralResuelto(
-        umbral=max(LEGACY[regla], bruto),
+        umbral=umbral,
         elegible=elegible,
         expected_clicks=expected,
     )
@@ -148,7 +158,45 @@ class PisoResuelto:
     aov: Decimal | None
 
 
-def piso_corte(evidencia: EvidenciaAdGroup | None, platform: str) -> PisoResuelto:
+def _valida_mult(mult_baja: Decimal | None) -> None:
+    """El multiplicador del dueno solo sube umbrales: None (sin baja) o >= 1."""
+    if mult_baja is not None and mult_baja < 1:
+        raise ValueError(f"mult_baja debe ser None o >= 1, llego {mult_baja!r}")
+
+
+def piso_pausa(platform: str, *, mult_baja: Decimal | None) -> Decimal:
+    """El piso de COST de la PAUSE en `platform` (PAUSE_COST_MIN). TEMPORADA 01
+    D: con el multiplicador del dueno en baja, ceil(piso x mult) — con x2 la
+    pausa pide 1,000 MXN (80 USD) sin pedidos en la ventana. `mult_baja` None
+    = lo de hoy (el vigente sin tocar); < 1 revienta (solo sube)."""
+    if platform not in bid.PAUSE_COST_MIN:
+        raise ValueError(
+            f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
+        )
+    _valida_mult(mult_baja)
+    piso = bid.PAUSE_COST_MIN[platform]
+    if mult_baja is not None:
+        piso = math.ceil(Decimal(piso) * mult_baja)
+    return Decimal(piso)
+
+
+def exceso_minimo(moneda: str, *, mult_baja: Decimal | None) -> Decimal:
+    """El exceso minimo de la pausa economica para `moneda` (EXCESO_MINIMO).
+    TEMPORADA 01 D: con el multiplicador del dueno en baja, ceil(exceso x
+    mult) — con x2 son 2,000 MXN (160 USD). Llega a _decide_pause por
+    InsumosPausa.exceso_minimo. `mult_baja` None = lo de hoy; < 1 revienta."""
+    if moneda not in bid.EXCESO_MINIMO:
+        raise ValueError(f"moneda fuera del vocabulario sellado {{MXN, USD}}: {moneda!r}")
+    _valida_mult(mult_baja)
+    exceso = bid.EXCESO_MINIMO[moneda]
+    if mult_baja is not None:
+        exceso = math.ceil(Decimal(exceso) * mult_baja)
+    return Decimal(exceso)
+
+
+def piso_corte(
+    evidencia: EvidenciaAdGroup | None, platform: str, *, mult_baja: Decimal | None
+) -> PisoResuelto:
     """Resuelve el piso de COST del camino negative para el ad group de
     `evidencia` en la moneda de `platform` (5bis). Mismo contrato que
     umbral_corte: elegibilidad 3/60/14 ANTES de dividir; con ella y
@@ -159,15 +207,20 @@ def piso_corte(evidencia: EvidenciaAdGroup | None, platform: str) -> PisoResuelt
     adaptativo solo SUBE pisos. INDEPENDIENTE de umbral_corte: este calculo
     no exige revenue (un grupo elegible con revenue None responde respaldo,
     no inventa AOV). `platform` fuera de {amazon_us, amazon_mx} revienta
-    ruidosamente."""
+    ruidosamente. TEMPORADA 01 D: `mult_baja` es OBLIGATORIO (keyword) —
+    en baja ceil(piso x mult); None = lo de hoy; < 1 revienta."""
     if platform not in NEGATIVE_COST_MIN:
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
         )
+    _valida_mult(mult_baja)
     aov: Decimal | None = None
     if _califica(evidencia):
         assert evidencia is not None  # _califica True implica evidencia con clicks/orders
         if evidencia.ad_revenue is not None:
             aov = evidencia.ad_revenue / Decimal(evidencia.orders)
     bruto = aov * K if aov is not None else RESPALDO_PISO_NEGATIVE[platform]
-    return PisoResuelto(piso_cost=max(NEGATIVE_COST_MIN[platform], bruto), aov=aov)
+    piso = max(NEGATIVE_COST_MIN[platform], bruto)
+    if mult_baja is not None:
+        piso = math.ceil(Decimal(piso) * mult_baja)
+    return PisoResuelto(piso_cost=Decimal(piso), aov=aov)

@@ -92,17 +92,25 @@ def _corre_hoja(
 ):
     corte = _agregado() if corte is None else corte
     base = _caso_base()
-    monkeypatch.setattr(cycle.windows, "ventana_cortes", lambda *_: corte)
+    monkeypatch.setattr(cycle.windows, "ventana_cortes", lambda *_, **__: corte)
     monkeypatch.setattr(
         cycle.cortes,
         "umbral_corte",
-        lambda *_: SimpleNamespace(umbral=157, expected_clicks=None, elegible=False),
+        lambda *_, **__: SimpleNamespace(umbral=157, expected_clicks=None, elegible=False),
     )
 
     def _caso(_conn, **kwargs):
         return dataclasses.replace(base, pausa=kwargs["pausa"])
 
-    lecturas = SimpleNamespace(caso=_caso)
+    lecturas = SimpleNamespace(
+        caso=_caso,
+        casos=lambda _conn, **_k: (_caso(_conn, **_k), None),
+        _temporada=None,
+        # TEMPORADA 01 D: sin marcador, frontera y pendiente son None/None
+        frontera=lambda *_a, **_k: None,
+        pendiente=lambda *_a, **_k: None,
+        tiene_pendiente=lambda *_a, **_k: False,
+    )
     consultas = []
 
     def cooldown(_conn, _id, *, ahora, kind=None):

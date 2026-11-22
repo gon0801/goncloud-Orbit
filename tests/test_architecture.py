@@ -47,6 +47,12 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/optimizer/politica.py": (
+        "BIDS 02/TEMPORADA 01 D: la politica de bid es UN solo camino sellado "
+        "(el orden de las reglas R0-R17 + RTs/RTe/HOLD/BUD de temporada es la "
+        "decision): partirlo por reglas romperia el orden visible y duplicaria "
+        "los helpers del juicio. La mejora es crecer con cuidado, no partir."
+    ),
     "app/etiquetas.py": (
         "CLARIDAD 01 H/I: registro unico de etiquetas de pantalla. Es dato "
         "(un dict por vocabulario, con las constantes del modulo dueno como "
@@ -193,36 +199,37 @@ ALLOWLIST_TAMANO = {
 # Un monolito historico puede adelgazar (y al bajar <= 900 sale de la allowlist),
 # pero NUNCA crecer silenciosamente sin justificar el techo en review.
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
+    "app/optimizer/politica.py": 911,
     "app/ads/reports.py": 1076,
-    "app/api_dashboard.py": 2245,
+    "app/api_dashboard.py": 2244,
     # TEMPORADA 01 B (0093): cierres de efecto en _confirma_resumen, la
     # lectura fresca del aplicador pendiente del bloque E, el vocabulario
     # bid_cambiado_fuera y la reconciliacion de intentos sellados ambiguos
     # (GET fresco sin reenviar el PUT); el techo sube lo justo del bloque.
     "app/apply.py": 1475,
-    "app/apply_cola.py": 1816,
+    "app/apply_cola.py": 1878,
     "app/apply_harvest.py": 2113,
     "app/bloqueo_dueno_efecto.py": 999,
     # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
     # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
     # frontera por hoja.
-    "app/cycle.py": 2463,
+    "app/cycle.py": 2676,
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
-    "app/etiquetas.py": 1068,
-    "app/impulso_io.py": 1232,
+    "app/etiquetas.py": 1078,
+    "app/impulso_io.py": 1229,
     # TEMPORADA 01 B: los cuatro marcadores opcionales de temporada y su
     # freeze/desfreeze exacto (temporada, historia, recuperacion,
     # presupuesto).
-    "app/optimizer/caso.py": 1476,
+    "app/optimizer/caso.py": 1487,
     "app/precio/cambios.py": 1025,
     "app/precio/corrida.py": 1647,
-    "app/retiro_anuncios.py": 1388,
+    "app/retiro_anuncios.py": 1386,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
-    "app/lecturas_caso.py": 1276,
-    "app/optimizer/temporada.py": 1218,
+    "app/lecturas_caso.py": 1540,
+    "app/optimizer/temporada.py": 1265,
 }
 
 

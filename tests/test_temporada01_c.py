@@ -17,7 +17,6 @@ Sin acentos en el codigo, por regla del repo.
 from __future__ import annotations
 
 import datetime as dt
-import json
 from dataclasses import replace
 from decimal import ROUND_FLOOR, Decimal
 from typing import Any
@@ -625,7 +624,7 @@ def _evidencia_caso_d(conn, kw: int, desde: dt.date, corte: dt.date, hasta: dt.d
         maduro = dia <= corte
         reciente = maduro and i >= (corte - desde).days + 1 - 41
         clicks = 2 if reciente else (0 if maduro and i % 10 == 0 else 1)
-        pedido = reciente and i < (corte - desde).days + 1 - 41 + 12
+        pedido = reciente and i >= (corte - desde).days + 1 - 12
         _metrica(
             conn,
             run_id,

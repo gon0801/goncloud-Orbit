@@ -123,6 +123,17 @@ MOTIVO_SALUD: dict[str, str] = {
         "Orbit ajustó la puja al cambiar la reducción de la temporada baja"
     ),
     politica.MOTIVO_SALE_BAJA: "Orbit regresó la puja al terminar la temporada baja",
+    # TEMPORADA 01 D: los retenidos de la baja, el techo de subidas y el
+    # regreso que espera por campana topada.
+    politica.MOTIVO_TEMPORADA_BAJA: (
+        "Estamos en temporada baja: Orbit solo recorta si pierde dinero"
+    ),
+    politica.MOTIVO_TECHO_DE_BAJA: (
+        "La puja no sube más: tocaría el techo que protege el ahorro de la baja"
+    ),
+    politica.MOTIVO_REGRESO_ESPERA_PRESUPUESTO: (
+        "Su regreso espera: la campaña anda sin presupuesto"
+    ),
     # TEMPORADA 01 C: la subida rapida y su freno de presupuesto.
     politica.MOTIVO_RECUPERA_NIVEL: (
         "Orbit recuperó la puja recortada: la evidencia sostiene ese nivel"
