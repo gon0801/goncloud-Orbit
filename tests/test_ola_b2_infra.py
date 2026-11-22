@@ -111,3 +111,39 @@ def test_cursor_dict_no_muta_row_factory():
     with db.cursor_dict(conn) as cur:
         assert cur.rf is db.dict_row
     assert conn.row_factory == "tuple_row_original"
+
+
+def test_product_fees_client_reutiliza_pool_y_cierra():
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "tok-fees", "expires_in": 3600})
+        return httpx.Response(200, json={"payload": {}})
+
+    with estimacion_fees.ProductFeesClient(
+        credentials={"lwa_app_id": "id", "lwa_client_secret": "sec", "refresh_token": "ref"},
+        transport=httpx.MockTransport(handler),
+    ) as cli:
+        url = "https://sellingpartnerapi-na.amazon.com/products/fees/v0/listings/SKU-1/feesEstimate"
+        r1 = cli._request("POST", url, content=b"{}", seller_sku="SKU-1")
+        pool1 = cli._http
+        r2 = cli._request("POST", url, content=b"{}", seller_sku="SKU-1")
+        assert r1.status_code == 200 and r2.status_code == 200
+        assert cli._http is pool1
+    assert cli._http is None
+
+
+def test_fotos_publicacion_reutiliza_pool_y_cierra():
+    img = b"\xff\xd8\xff" + b"\x00" * 32
+    servicio = publicacion_fotos.FotosPublicacion(
+        transport=httpx.MockTransport(
+            lambda _r: httpx.Response(200, content=img, headers={"content-type": "image/jpeg"})
+        )
+    )
+    pool1 = servicio._cliente_http()
+    r1 = pool1.get("https://m.media-amazon.com/images/I/test1.jpg")
+    pool2 = servicio._cliente_http()
+    r2 = pool2.get("https://m.media-amazon.com/images/I/test2.jpg")
+    assert r1.content == img and r2.content == img
+    assert pool2 is pool1
+    servicio.close()
+    assert servicio._http is None

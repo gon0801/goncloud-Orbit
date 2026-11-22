@@ -1106,8 +1106,8 @@ def _hermanas_de(conn, grupo_id: int, campana_id: int) -> list[dict] | None:
     es de decenas, no de miles). Si revienta (p. ej. esquema sin 0018) ->
     None + warning y la pantalla NO muere (patron _spapi_de)."""
     try:
-        # tuple_row EXPLICITO: cortes() trabaja con dict_row y este helper
-        # desempaqueta por posicion (con dicts iteraria las claves).
+        # tuple_row explicito: este helper desempaqueta por posicion aunque la
+        # conexion recibida tenga un row_factory distinto al predeterminado.
         with conn.cursor(row_factory=tuple_row) as cur:
             filas = cur.execute(_SQL_HERMANAS_GRUPO, (grupo_id, campana_id)).fetchall()
     except Exception as exc:

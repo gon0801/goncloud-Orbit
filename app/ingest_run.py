@@ -85,9 +85,20 @@ def sellar_run(
     rows_skipped: int = 0,
     skip_reason: str | None = None,
     llamadas: int | None = None,
+    redactar_motivo: bool = True,
 ) -> None:
-    """Sella `ingest_run` con `finished_at = now()` y `skip_reason` saneado."""
-    motivo = sanitizar_motivo(skip_reason)
+    """Sella `ingest_run` con `finished_at = now()` y `skip_reason` saneado.
+
+    Con `redactar_motivo=False`, el llamador ya redacto la parte libre y pasa
+    marcas estructuradas validadas (p. ej. `as_of=<epoch>; snap=<sha256>`)
+    que no deben alterarse si un secreto registrado coincide con digitos.
+    """
+    if skip_reason is None:
+        motivo = None
+    elif redactar_motivo:
+        motivo = sanitizar_motivo(skip_reason)
+    else:
+        motivo = str(skip_reason).replace("\x00", "")
     if llamadas is not None:
         conn.execute(
             _SQL_SELLAR_CON_LLAMADAS,

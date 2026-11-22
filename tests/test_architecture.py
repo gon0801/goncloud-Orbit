@@ -2485,14 +2485,26 @@ def test_candado_eras_caza_import_sembrado(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_etiquetas_es_hoja_pura():
-    """app/etiquetas.py es registro de datos puro: no importa ningun modulo app.*."""
-    propios = [
-        imp
-        for imp in _imports_runtime(APP / "etiquetas.py")
-        if imp == "app" or imp.startswith("app.")
-    ]
+def _imports_internos_raiz_app(ruta: Path) -> list[str]:
+    """Imports hacia `app` / `app.*` o relativos (`level >= 1`) en un archivo de `app/`."""
+    arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+    propios: set[str] = {
+        imp for imp in _imports_runtime(ruta) if imp == "app" or imp.startswith("app.")
+    }
+    for nodo in _nodos_runtime(arbol):
+        if isinstance(nodo, ast.ImportFrom) and nodo.level >= 1:
+            propios.add("." * nodo.level + (nodo.module or ""))
+    return sorted(propios)
+
+
+def test_etiquetas_es_hoja_pura(tmp_path):
+    """app/etiquetas.py es registro de datos puro: no importa ningun modulo app.* ni relativo."""
+    propios = _imports_internos_raiz_app(APP / "etiquetas.py")
     assert propios == [], f"app/etiquetas.py debe ser hoja pura sin imports app.*: {propios}"
+    # Prueba del propio candado: detecta `from . import X` (level=1).
+    trampa = tmp_path / "etiquetas_trampa.py"
+    trampa.write_text("from . import optimizer\nfrom .optimizer import bid\n", encoding="utf-8")
+    assert _imports_internos_raiz_app(trampa) == [".", ".optimizer"]
 
 
 def test_sin_mutacion_global_row_factory():

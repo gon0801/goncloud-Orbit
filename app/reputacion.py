@@ -8,7 +8,7 @@ Conciliacion (D-LEAD-A2-1, patron 0022, sin FK desde 0025): MeLi vs
 items del seller. Sin match = skip contado.
 
 Estructura (D-LEAD-A4-4, guardrail 900 lineas): clientes en
-app/reputacion_clientes.py, planes puros en app/reputacion_plan.py;
+app/meli/client.py, planes puros en app/reputacion_plan.py;
 aqui fetch + escritura + CLI.
 """
 

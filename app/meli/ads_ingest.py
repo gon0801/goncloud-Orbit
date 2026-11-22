@@ -239,6 +239,11 @@ def _sellar_run(
     rows_skipped: int,
     skip_reason: str | None,
 ) -> None:
+    # Las marcas estructuradas (`as_of=<epoch>`, `snap=<sha256>`, `piso=<epoch>`)
+    # nacen validadas aqui; los motivos libres de `skips` ya pasaron por
+    # `formato_skip_reason` (que aplica `scrub`). No re-redactar el campo
+    # completo evita corromper epochs/hashes si un secreto registrado coincide
+    # con una subcadena numerica.
     sellar_run(
         conn,
         run_id,
@@ -246,6 +251,7 @@ def _sellar_run(
         rows_written=rows_written,
         rows_skipped=rows_skipped,
         skip_reason=_texto_persistible(skip_reason),
+        redactar_motivo=not ok,
     )
 
 
