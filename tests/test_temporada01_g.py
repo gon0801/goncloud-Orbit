@@ -237,7 +237,7 @@ def test_temporada01_g_presupuesto_misma_campana_en_orden(monkeypatch):
             " despues, huella, actor, go_literal, regresa_a)"
             " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, %s, 'dueno',"
             " 'APLICAR AJUSTE', NULL) RETURNING id",
-            (camp, cfg, json.dumps(plan_a.despues.como_json()), plan_a.huella() + "#a"),
+            (camp, cfg, json.dumps(plan_a.despues.como_json()), plan_a.huella()),
         ).fetchone()[0]
         conn.commit()
 
@@ -310,7 +310,7 @@ def test_temporada01_g_reaprobacion_tras_regreso_no_hereda_orden_vieja(monkeypat
             " despues, huella, actor, go_literal, regresa_a)"
             " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, %s, 'dueno',"
             " 'APLICAR AJUSTE', NULL) RETURNING id",
-            (camp, cfg, json.dumps(plan_a.despues.como_json()), plan_a.huella() + "#a"),
+            (camp, cfg, json.dumps(plan_a.despues.como_json()), plan_a.huella()),
         ).fetchone()[0]
         conn.commit()
         plan_b = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("270")))
@@ -340,3 +340,27 @@ def test_temporada01_g_reaprobacion_tras_regreso_no_hereda_orden_vieja(monkeypat
         assert hecho.ajuste_id != a_id, "no hereda la orden vieja superada"
         assert config_vigente(conn, camp).presupuesto_diario == Decimal("375")
         assert len([r for r in vistos if r.method == "PUT"]) == 2
+
+        # Reenviar el POST viejo (huella base) no sella la orden superada:
+        # devuelve el acto con sufijo que si confirmo el destino.
+        rehecho = apply_ajustes.reconcilia_ajuste_campana(
+            conn,
+            camp,
+            "presupuesto",
+            plan_a.ajuste,
+            huella=plan_a.huella(),
+            actor="dueno",
+        )
+        assert rehecho.ajuste_id == hecho.ajuste_id
+        assert (
+            conn.execute(
+                "SELECT confirmado_el FROM campana_ajuste WHERE id = %s", (a_id,)
+            ).fetchone()[0]
+            is None
+        ), "la orden base superada no se sella"
+        confirmadas = conn.execute(
+            "SELECT count(*) FROM campana_ajuste WHERE huella LIKE %s"
+            " AND confirmado_el IS NOT NULL",
+            (plan_a.huella() + "#%",),
+        ).fetchone()[0]
+        assert confirmadas == 1, "un solo acto confirmado por el cambio"
