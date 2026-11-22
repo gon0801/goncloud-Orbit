@@ -12,14 +12,13 @@ from collections.abc import Mapping
 from decimal import Decimal
 
 from app.api_common import target_margen_del_ciclo as _target_margen_del_ciclo
+from app.db import _SQL_CONFIG_VIGENTE as _SQL_CONFIG_VIGENTE
+from app.db import config_vigente
 from app.etiquetas import etiqueta
 from app.optimizer import goals as g
 from app.optimizer import temporada
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-
-_SQL_CONFIG_VIGENTE = """
-SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
-"""
+from app.temporada_io import sql_pausas_de_baja
 
 _SQL_GOALS_SETTINGS = """
 SELECT g.id, g.scope, g.ad_entity_id, g.platform, g.target_acos_pct, g.bid_floor,
@@ -87,58 +86,41 @@ SELECT ultima.ad_entity_id,
 """
 
 _SQL_ESTADO_BAJA_KEYWORDS = """
+WITH tocadas AS (
+    SELECT DISTINCT d.ad_entity_id
+      FROM decision d
+      JOIN optimizer_cycle c ON c.id = d.cycle_id
+     WHERE c.mode = 'live'
+       AND d.kind = 'bid'
+       AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
+       AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
+)
 SELECT count(*) AS total,
-       count(*) FILTER (WHERE s.current_bid IS NULL AND NOT EXISTS (
-           SELECT 1 FROM decision d
-             JOIN optimizer_cycle c ON c.id = d.cycle_id
-            WHERE d.ad_entity_id = e.id AND c.mode = 'live' AND d.kind = 'bid'
-              AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
-              AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s)) AS grupo,
-       count(*) FILTER (WHERE NOT EXISTS (
-           SELECT 1 FROM decision d
-             JOIN optimizer_cycle c ON c.id = d.cycle_id
-            WHERE d.ad_entity_id = e.id AND c.mode = 'live' AND d.kind = 'bid'
-              AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja')
-              AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s)) AS sin_tocar
+       count(*) FILTER (WHERE s.current_bid IS NULL AND t.ad_entity_id IS NULL) AS grupo,
+       count(*) FILTER (WHERE t.ad_entity_id IS NULL) AS sin_tocar
   FROM ad_entity e
   JOIN ad_entity_state s ON s.ad_entity_id = e.id AND s.status = 'ENABLED'
- WHERE e.platform = %s::platform AND e.kind = 'keyword'
+  LEFT JOIN tocadas t ON t.ad_entity_id = e.id
+ WHERE e.platform = %s::platform AND e.kind IN ('keyword', 'product_target')
 """
 
-_SQL_PAUSADAS_DE_BAJA = """
-SELECT DISTINCT ON (q.ad_entity_id) q.ad_entity_id,
-       COALESCE(e.keyword_text, e.name) AS texto
-  FROM apply_queue q
-  JOIN decision d ON d.id = q.decision_id
-  JOIN optimizer_cycle c ON c.id = d.cycle_id
-  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
-  JOIN ad_entity e ON e.id = q.ad_entity_id
-  JOIN ad_entity_state s ON s.ad_entity_id = q.ad_entity_id AND s.status = 'PAUSED'
- WHERE q.platform = %s::platform
-   AND q.kind = 'pause' AND q.modo = 'live' AND q.estado = 'applied'
-   AND c.mode = 'live'
-   AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'
-   AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
-   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
-                    WHERE a.decision_id = d.id AND a.tipo = 'reversa'
-                    GROUP BY a.decision_id
-                    HAVING bool_or(a.resultado = 'ok') OR count(*) >= 3)
-   AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r
-                    WHERE r.ad_entity_id = q.ad_entity_id
-                      AND r.detectada_en > q.applied_at)
-   AND NOT (q.ad_entity_id = ANY(%s::bigint[]))
-   AND q.id = (SELECT q2.id FROM apply_queue q2
-                WHERE q2.ad_entity_id = q.ad_entity_id
-                  AND q2.kind = 'pause' AND q2.estado = 'applied'
-                ORDER BY q2.applied_at DESC LIMIT 1)
- ORDER BY q.ad_entity_id
-"""
+_SQL_PAUSADAS_DE_BAJA = sql_pausas_de_baja(
+    select_cols=(
+        "DISTINCT ON (q.ad_entity_id) q.ad_entity_id, COALESCE(e.keyword_text, e.name) AS texto"
+    ),
+    joins_extra=(
+        "  JOIN optimizer_cycle c        ON c.id = d.cycle_id\n"
+        "  JOIN ad_entity e              ON e.id = q.ad_entity_id"
+    ),
+    where_extra="   AND c.mode = 'live'\n   AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s",
+    order_by=" ORDER BY q.ad_entity_id",
+)
 
 
 def _config_vigente_con_id(conn) -> tuple[int | None, dict]:
     """(id, settings) de la config_version VIGENTE; sin config -> (None, {})."""
-    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
-    return (fila[0], fila[1]) if fila is not None else (None, {})
+    vigente = config_vigente(conn)
+    return vigente if vigente is not None else (None, {})
 
 
 def _goal_desde_fila(fila) -> g.Goal:
@@ -312,7 +294,7 @@ def estado_de_baja(conn, plataforma: str, config: temporada.ConfigTemporada, hoy
         else:
             pendientes += 1
     _total, grupo, sin_tocar = conn.execute(
-        _SQL_ESTADO_BAJA_KEYWORDS, (inicio, inicio, plataforma)
+        _SQL_ESTADO_BAJA_KEYWORDS, (inicio, plataforma)
     ).fetchone()
     frase_sin_tocar = f"Sin tocar: {sin_tocar}."
     if grupo:
