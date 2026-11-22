@@ -299,8 +299,8 @@ def test_temporada01_e_exclusion_sobrevive_al_aborto():
     from test_apply import _aplicador, _decision_bid, _semilla
     from test_cycle_apply import _db_temporal
 
-    from app.ads.client import AdsApiError
     from app.apply import bids_del_ciclo
+    from app.cycle import ApplyAbortado
 
     with _db_temporal("orbit_t01_e_dur") as (admin, conectar):
         ids = _semilla(admin)
@@ -340,13 +340,15 @@ def test_temporada01_e_exclusion_sobrevive_al_aborto():
                             ]
                         },
                     )
-                return _httpx.Response(503, json={"message": "boom"})
+                # El lease se pierde en la puja siguiente (ApplyAbortado: el
+                # guard del ciclo aborta la fase y hace rollback).
+                raise ApplyAbortado("lease perdido")
             raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
         conn = conectar(autocommit=False)
         try:
             ap = _aplicador(conn, handler, ids["ciclo_ejec"])
-            with _pytest.raises(AdsApiError):
+            with _pytest.raises(ApplyAbortado):
                 ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
             conn.rollback()  # lo que no se confirmo se pierde (cycle.py)
         finally:
@@ -430,3 +432,65 @@ def test_temporada01_e_prioridad_bajo_cupo():
     assert prioridad_bajo_cupo("Regresar", "sale_temporada_baja") == 0
     assert prioridad_bajo_cupo("Regresar", recuperacion.MOTIVO_RECUPERA_NIVEL) == 0
     assert prioridad_bajo_cupo("Mover", "bajo_target") == 2
+
+
+def test_temporada01_e_lectura_fallida_no_cancela_el_lote():
+    """Un LIST que falla antes del PUT deja ESA puja sin respuesta y el lote
+    sigue: la puja siguiente se aplica en el mismo ciclo. Antes del PUT no hay
+    escritura ambigua que reconciliar, asi que no se cancela el lote ni se
+    salta la liberacion de cortes; ApplyAbortado (lease) sigue propagando."""
+    import json as _json
+
+    import httpx as _httpx
+    from test_apply import _aplicador, _db_temporal, _decision_bid, _semilla
+
+    from app.apply import MOTIVO_SIN_RESPUESTA, bids_del_ciclo
+
+    with _db_temporal("orbit_t01_e_lote") as conn:
+        ids = _semilla(conn)
+        dec_rota = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], cost="200.00")
+        dec_ok = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw2"], cost="80.00")
+        remoto = {"7201": 1.00, "7202": 1.00}
+        listas = {"n": 0}
+
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                listas["n"] += 1
+                if listas["n"] == 1:
+                    # 200 SIN el contenedor esperado: la lectura revienta.
+                    return _httpx.Response(200, json={"totalResults": 5})
+                return _httpx.Response(
+                    200,
+                    json={
+                        "keywords": [{"keywordId": ext, "bid": bid} for ext, bid in remoto.items()]
+                    },
+                )
+            if request.method == "PUT":
+                obj = _json.loads(request.content)["keywords"][0]
+                remoto[obj["keywordId"]] = obj["bid"]
+                return _httpx.Response(207, json={"ack": obj})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        res = _aplicador(conn, handler, ids["ciclo_ejec"]).aplica_bids(
+            bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live"
+        )
+
+        assert res.skips == [MOTIVO_SIN_RESPUESTA], res.skips
+        assert res.aplicadas == 1, "la puja siguiente SI se aplica en el mismo lote"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE decision_id = %s", (dec_rota,)
+            ).fetchone()[0]
+            == 0
+        ), "la lectura fallida no cobra cuota ni deja ledger"
+        assert conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec_rota,),
+        ).fetchone() == (ids["ciclo_ejec"], "sin_respuesta")
+        assert conn.execute(
+            "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec_ok,)
+        ).fetchone() == (True,), "la segunda puja queda confirmada"

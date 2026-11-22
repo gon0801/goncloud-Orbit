@@ -1125,7 +1125,15 @@ class Aplicador:
             # este LIST y el PUT queda una ventana corta, pero el bid que se
             # pisa ya no es el que Orbit vio al decidir.
             cliente = self._cliente()
-            leido = self._readback(cliente, identidad)
+            try:
+                leido = self._readback(cliente, identidad)
+            except AdsApiError:
+                # Una lectura fallida NO cancela el lote: antes del PUT no hay
+                # escritura ambigua que reconciliar, asi que esta puja queda
+                # sin respuesta y las demas siguen (mismo criterio que la
+                # revalidacion de cortes). ApplyAbortado y los fallos del PUT
+                # siguen propagando.
+                leido = None
             if leido is None:
                 skips.append(MOTIVO_SIN_RESPUESTA)
                 registra_sin_aplicar(
