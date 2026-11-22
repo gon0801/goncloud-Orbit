@@ -574,6 +574,15 @@ def test_cli_reconcilia_sin_huerfanos_sale_0(monkeypatch):
 def test_duplicado_del_motor_sella_ack_sin_id(monkeypatch):
     _parche(monkeypatch)
     with _db() as conn:
+        for mig in (
+            "0044_decision_sin_aplicar.sql",
+            "0045_sin_aplicar_choque_clave.sql",
+            "0060_bids02_base_lectura.sql",
+            "0061_bids02_campana_config.sql",
+            "0067_bids02_campana_ajuste.sql",
+            "0093_temporada01_episodio.sql",
+        ):
+            conn.execute((RAIZ / "migrations" / mig).read_text(encoding="utf-8"))
         _grupo_id, grupo_ext, campana = _grupo(conn, "amazon_mx")
         _cola(conn, _grupo_id, "amazon_mx", "baño")
         fila_id = conn.execute("SELECT id FROM apply_queue").fetchone()[0]

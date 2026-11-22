@@ -61,22 +61,6 @@ ALLOWLIST_TAMANO = {
         "el registro entero. Partirlo por dominio volveria a los diccionarios "
         "sueltos que H borro — no se parte por partir"
     ),
-    "app/retiro_anuncios.py": (
-        "AUTO-03 G: unico propietario del ledger de retiro de product ads "
-        "(spec decisiones-producto): sacar, regresar, recrear y reconciliar "
-        "comparten la llave retiro-ad:<id>, el patron intencion/sello, la "
-        "autoria y las autorizaciones tipadas. Partir repone/recrea de "
-        "ejecuta_retiro separaria las dos mitades de la misma exclusion — "
-        "jamas partir por partir"
-    ),
-    "app/bloqueo_dueno_efecto.py": (
-        "JEV ADS 03 B.3 y ARREGLOS 04 B-B. Unico propietario del ledger, las "
-        "mutaciones a Amazon y la reconciliacion del bloqueo del dueno "
-        "(aprobar, rechazar, quitar, reanudar, reconciliar y las "
-        "precondiciones de reparacion bajo el mismo candado de sesion "
-        "bloqueo). Partir quitar o reparar de aprobar separaria las dos "
-        "mitades de la misma exclusion."
-    ),
     "app/dashboard_resumen.py": (
         "RESUMEN ADS 02, cierre #509: contrato de lectura multicanal. "
         "Ventanas, cobertura por metrica, comparacion y MA7 usan "
@@ -102,16 +86,6 @@ ALLOWLIST_TAMANO = {
         "compartidos); lo que queda aqui es ejecucion + superficie compatible "
         "y no tiene frontera coherente para partirse mas (partir por partir "
         "esta prohibido por la regla anti-Goodhart)"
-    ),
-    "app/apply.py": (
-        "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
-        "de mutaciones, reversas). La review adversaria de phase 2 le SUMO "
-        "reconcilia_bids (ADV-04: el ledger de bids sin sello no tenia "
-        "caller) y con eso paso el umbral (936). Mismo candidato DECLARADO "
-        "que apply_harvest: partir ejecucion (Aplicador + _ejecuta_mutacion) "
-        "de reconciliacion de ledger (reconcilia_bids) la proxima vez que se "
-        "tome en grande; partir por partir esta prohibido por la regla "
-        "anti-Goodhart"
     ),
     "app/apply_cola.py": (
         "ORBIT 04 2.2: cola de cortes (encolado, re-validacion PRE-claim, "
@@ -146,20 +120,13 @@ ALLOWLIST_TAMANO = {
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/optimizer/politica.py": 911,
     "app/api_dashboard.py": 2244,
-    # TEMPORADA 01 B (0093): cierres de efecto en _confirma_resumen, la
-    # lectura fresca del aplicador pendiente del bloque E, el vocabulario
-    # bid_cambiado_fuera y la reconciliacion de intentos sellados ambiguos
-    # (GET fresco sin reenviar el PUT); el techo sube lo justo del bloque.
-    "app/apply.py": 1475,
     "app/apply_cola.py": 1878,
     "app/apply_harvest.py": 2113,
-    "app/bloqueo_dueno_efecto.py": 999,
     "app/dashboard_resumen.py": 995,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
     "app/precio/cambios.py": 1025,
     "app/precio/corrida.py": 1647,
-    "app/retiro_anuncios.py": 1386,
 }
 
 

@@ -412,18 +412,18 @@ def test_muerte_entre_sello_y_cierre_de_un_adoptado_conserva_la_marca(monkeypatc
         _bolsa(conn, lid, "ad-1")
         incierto, _ = _escritor(_fila("ad-1", "ENABLED"), lists_que_fallan=frozenset(range(3, 40)))
         ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=incierto)
-        real = ra._cierra_intencion
+        real_sella = ra._sella_retiro
 
-        def _muere_al_cerrar(conn_, iid, detalle, retiro_id):
-            if retiro_id is not None:
-                raise RuntimeError("muerte entre sello y cierre (simulada)")
-            return real(conn_, iid, detalle, retiro_id)
+        def _sella_y_muere_antes_del_cierre(*args, **kwargs):
+            kwargs["cerrar_intencion"] = None
+            real_sella(*args, **kwargs)
+            raise RuntimeError("muerte entre sello y cierre (simulada)")
 
-        monkeypatch.setattr(ra, "_cierra_intencion", _muere_al_cerrar)
+        monkeypatch.setattr(ra, "_sella_retiro", _sella_y_muere_antes_del_cierre)
         pausado, _ = _escritor(_fila("ad-1", "PAUSED"))
         with pytest.raises(RuntimeError, match="muerte"):
             ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=pausado)
-        monkeypatch.setattr(ra, "_cierra_intencion", real)
+        monkeypatch.setattr(ra, "_sella_retiro", real_sella)
         (res,) = ra.ejecuta_retiro(conn, _plan(conn, lid), autorizacion=DUENO, escritor=pausado)
         assert res.resultado == "ya_retirado"
         assert conn.execute(
