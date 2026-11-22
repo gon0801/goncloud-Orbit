@@ -49,16 +49,29 @@ goal propio, entrada 12 -> 8 por el techo heredado, episodio cerrado: la
 frontera de liberacion da `fin ya_arriba` (sin regreso pendiente) y la
 aritmetica muestra 8.00 con el techo real contra 12.00 con el inventado.
 
-## Deuda declarada: prueba de CICLO con terminos (hallazgo 66dkEF)
+## Ronda 3 (revision nativa sobre e32c3e2): ciclo con terminos, cerca en shadow
 
-El guard del fix esta aplicado y verificado (cerca_plat/mult_neg SOLO con
-temporada live en _procesa_grupo; frontera_hoja/cerca_plataforma SOLO live en
-temporada_io). La prueba de CICLO completo con terminos (veredictos reales
-identicos entre shadow y flag ausente sobre negatives de hygiene) requiere el
-arnes golden de terminos de test_cycle (siembra con fechas de julio 2026 y
-aplicador de cortes); queda para la revision del bloque E, donde la cola de
-negatives se revalida. La cobertura del fix en este push: los tests de
-lecturas (practica_lecturas_sin_cerca: evidencia y veredictos identicos) y
-revalidacion (revalidacion_igual_en_shadow: fila released igual en shadow y
-sin flag, con control live x2), mas la verificacion empirica del techo
-heredado contra aace267 en este mismo archivo.
+Prueba `test_temporada01_d_ciclo_terminos_shadow_igual_a_hoy` (regla 9,
+ Revision nativa sobre e32c3e2): dos corridas de `_procesa_grupo` sobre el
+mismo grupo sembrado — 8 fechas del termino (11-10..11-24, todas ANTES de la
+cerca fijada 12-01) + ancla 12-10; ventana natural 11-08..12-07, entidad
+completa (8 fechas >= 7), cost 800 MXN x fecha, clicks 60 x fecha, orders 0.
+
+- corrida SHADOW (plat con cerca 12-01 y mult_cortes_baja 2, modo shadow):
+  la guarda en_live deja cerca_plat=None y mult_neg=None -> negative
+  `negative_umbral` emitido, ventana congelada COMPLETA (11-08..12-07, 8
+  fechas) y veredictos IDENTICOS a los del flag ausente.
+- corrida SIN flag (contadores sin temporada): misma negative, byte a byte.
+
+ROJA demostrada contra e798f7f (el commit ANTERIOR a la guarda): sin la
+guarda, cerca_plat=12-01 levantaba el INICIO de la ventana por encima de
+todas las fechas sembradas y la corrida shadow perdia el negative:
+
+    E   AssertionError: []
+    E   assert [] == [('tortugas n...tive_umbral')]
+    FAILED tests/test_temporada01_d.py::test_temporada01_d_ciclo_terminos_shadow_igual_a_hoy
+
+(pre-guarda el multiplicador x2 tambien aplicaba en shadow: umbral 40 -> 80
+clicks y piso 600 -> 1200 MXN; con esta siembra la cerca es el mecanismo que
+vacia la evidencia). En head la prueba pasa: 1 passed contra el guard
+`en_live` de `_procesa_grupo` (cerca_plat/mult_neg SOLO con temporada live).

@@ -836,12 +836,11 @@ def test_temporada01_d_liberacion_techo_heredado(db_template):
         "mode": "live",
     }
     config_id = _config_version(conn, settings_d)
-    goal_plat = conn.execute(
+    conn.execute(
         "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
         " bid_ceiling, bid_currency, enabled, mode)"
         " VALUES ('platform', 'amazon_mx', 20, 1.00, 8.00, 'MXN', true, 'live')"
-        " RETURNING id"
-    ).fetchone()[0]
+    )
     camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-techo")
     ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-techo", parent=camp)
     _estado(conn, ag, synced_at=_medianoche(D_E1))
@@ -984,7 +983,7 @@ def test_temporada01_d_practica_lecturas_sin_cerca(db_template):
         else:
             settings["ads_temporada_amazon_mx"] = modo
         conn.execute("DELETE FROM config_version WHERE label = 'd-sh'")
-        config_sh = _config_version(conn, settings)
+        _config_version(conn, settings)
         conn.commit()
         lecturas = lee_plataforma(
             conn,
@@ -1128,3 +1127,163 @@ def test_temporada01_d_revalidacion_igual_en_shadow(db_template):
     assert temporada_io.cerca_plataforma(conn, "amazon_mx", hoy) is None
 
 
+def _termino_negative(conn, run_id, ag, term, fechas):
+    """Observaciones del termino que DISPARA negative: 8 fechas de la
+    entidad dentro de la ventana (>= MIN_FECHAS_COMPLETITUD 7), clicks 60 y
+    cost 800 MXN por dia (>= fallback 40 clicks y >= piso 600 MXN sin
+    evidencia de grupo), orders 0. TODAS las fechas caen ANTES de la cerca
+    del 12-01: si la cerca se aplicara en shadow, levantaria el inicio de la
+    ventana y VACIARIA la evidencia (la roja de la regla 9)."""
+    for fecha in fechas:
+        conn.execute(
+            "INSERT INTO search_term_observation (platform, ad_entity_id,"
+            " search_term, metric_date, observed_at, metric_currency, cost,"
+            " clicks, orders, ad_revenue, is_asin_like, ingest_run_id)"
+            " VALUES ('amazon_mx', %s, %s, %s, %s, 'MXN', 800.00, 60, 0,"
+            " 0.00, false, %s)",
+            (ag, term, fecha, _medianoche(fecha), run_id),
+        )
+
+
+def _goal_plataforma_mx():
+    from app.optimizer import goals as _g
+
+    return _g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_mx",
+        target_acos_pct=Decimal("20"),
+        bid_floor=Decimal("1.00"),
+        bid_ceiling=Decimal("45.00"),
+        bid_currency="MXN",
+        harvest_campaign_id="9002",
+        harvest_ad_group_id="9102",
+        harvest_default_bid=Decimal("1.00"),
+        enabled=True,
+        mode="live",
+    )
+
+
+def _negativas_pendientes(pendientes: list) -> list:
+    return [
+        (p.inputs.get("termino", {}).get("search_term"), p.inputs.get("motivo"))
+        for p in pendientes
+        if p.kind == "negative"
+    ]
+
+
+def test_temporada01_d_ciclo_terminos_shadow_igual_a_hoy(db_template):
+    """Revision nativa sobre e32c3e2 (ciclo de terminos): con ads_temporada
+    en SHADOW las decisiones de NEGATIVE del ciclo son IDENTICAS a las del
+    flag ausente — la cerca de la plataforma NO recorta la ventana de
+    terminos del camino real (la cerca y el multiplicador solo aplican en
+    live). Roja contra e798f7f (pre-guarda): la cerca del 12-01 levantaba el
+    inicio de la ventana por encima del 11-15 y el negative no se emitia."""
+    conn, _dsn = db_template
+    _run(conn)
+    _config_version(conn, {**_settings(), "ads_temporada_amazon_mx": "shadow"})
+    camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-neg")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-neg", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-d-neg') RETURNING id"
+    ).fetchone()[0]
+    _termino_negative(
+        conn,
+        run_id,
+        ag,
+        "tortugas ninja calzas",
+        [dt.date(2026, 11, d) for d in (10, 12, 14, 16, 18, 20, 22, 24)] + [dt.date(2026, 12, 10)],
+    )
+    conn.commit()
+
+    decided = _medianoche(D_E1 + dt.timedelta(days=1))
+    # plat shadow con cerca FIJADA al 12-01: levantaria el inicio de la
+    # ventana (11-08) por encima del 11-15 y el termino perderia evidencia.
+    plat_shadow = temporada_io.TemporadaPlataforma(
+        estacion=temporada.Estacion(
+            version=temporada.VERSION_TEMPORADA,
+            dia=D_E1 + dt.timedelta(days=1),
+            fase="baja",
+            previa_alta=False,
+            reduccion_baja=Decimal("0.30"),
+            mult_cortes_baja=Decimal("2"),
+            inicio_bloque=dt.date(2027, 1, 1),
+        ),
+        modo="shadow",
+        config=temporada.desde_settings(
+            conn.execute("SELECT settings FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[
+                0
+            ]
+        ),
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(id=1, abierto_el=_medianoche(D_E1)),
+            efectos_abiertos={},
+            excluidas={},
+            cerca_plataforma=dt.date(2026, 12, 1),
+        ),
+    )
+    fila = (ag, camp, "ENABLED", "ENABLED", "d-ag-neg")
+    familias = ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, D_E1, None, {})
+
+    # corrida SHADOW: la cerca no recorta (guarda en_live) -> negative de hoy
+    contadores_shadow = ciclo._Contadores()
+    contadores_shadow.temporada_plat = plat_shadow
+    pendientes_shadow: list = []
+    ciclo._procesa_grupo(
+        conn,
+        fila=fila,
+        platform="amazon_mx",
+        setting_target=None,
+        goals=(_goal_plataforma_mx(), {}),
+        acos_campanas={},
+        modo="shadow",
+        decided_at=decided,
+        contadores=contadores_shadow,
+        pendientes=pendientes_shadow,
+        tick=lambda: None,
+        evidencia_ad_groups={},
+        keywords_propias={},
+        bloqueadas=set(),
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=familias,
+    )
+    negativas_shadow = _negativas_pendientes(pendientes_shadow)
+    assert negativas_shadow == [("tortugas ninja calzas", "negative_umbral")], negativas_shadow
+    # la ventana CONGELADA en el freeze es la completa: la cerca NO levanto
+    # el inicio (11-08), la evidencia del negative conserva las 8 fechas.
+    ventana_shadow = pendientes_shadow[0].inputs["ventana_terminos"]
+    assert ventana_shadow["window_start"] == "2026-11-08", ventana_shadow
+    assert ventana_shadow["window_end"] == "2026-12-07", ventana_shadow
+    assert ventana_shadow["fechas"] == 8, ventana_shadow
+
+    # corrida SIN flag (el camino de hoy, contadores sin temporada): la
+    # misma decision, byte a byte.
+    contadores_hoy = ciclo._Contadores()
+    pendientes_hoy: list = []
+    ciclo._procesa_grupo(
+        conn,
+        fila=fila,
+        platform="amazon_mx",
+        setting_target=None,
+        goals=(_goal_plataforma_mx(), {}),
+        acos_campanas={},
+        modo="shadow",
+        decided_at=decided,
+        contadores=contadores_hoy,
+        pendientes=pendientes_hoy,
+        tick=lambda: None,
+        evidencia_ad_groups={},
+        keywords_propias={},
+        bloqueadas=set(),
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=familias,
+    )
+    negativas_hoy = _negativas_pendientes(pendientes_hoy)
+    assert negativas_hoy == negativas_shadow, (
+        f"practica cambia los negatives: {negativas_hoy} vs {negativas_shadow}"
+    )
