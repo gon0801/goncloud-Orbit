@@ -88,11 +88,110 @@ class PoliticaCalculo:
 
 
 @dataclass(frozen=True)
+class ReglasPolitica:
+    """Parametros fiscales/logisticos de `PoliticaCalculo` validados una sola vez."""
+
+    es_s4: bool
+    precio_incluye_iva: bool
+    iva_divisor: Decimal
+    isr_tasa: Decimal
+    ret_iva_tasa: Decimal
+    mult_ref: Decimal
+    logistica_base: Decimal
+
+
+@dataclass(frozen=True)
 class DetalleFee:
     fee_type: str
     final_fee: Decimal
     tax_amount: Decimal | None = None
     included_fee_details: tuple[DetalleFee, ...] = ()
+
+
+def _parse_decimal_estricto(raw: Any, *, campo: str) -> Decimal:
+    if raw is None:
+        raise ValueError(f"{campo} ausente")
+    try:
+        return Decimal(str(raw))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{campo} invalido") from exc
+
+
+def detalle_fee_desde_json(
+    raw: Any,
+    *,
+    estricto: bool = True,
+    con_hijos: bool = True,
+) -> DetalleFee:
+    """Parser canonico de un nodo JSON de `fee_details` a `DetalleFee`."""
+    if not isinstance(raw, dict):
+        raise ValueError("fee_detalle no es objeto")
+    if estricto:
+        fee_type = raw.get("fee_type")
+        if not isinstance(fee_type, str) or not fee_type.strip():
+            raise ValueError("fee_type invalido")
+        final_fee = _parse_decimal_estricto(raw.get("final_fee"), campo="final_fee")
+        validar_dinero(final_fee, campo="final_fee", positivo=False, permitir_cero=True)
+        tax_raw = raw.get("tax_amount") if con_hijos else None
+        tax_amount: Decimal | None = None
+        if tax_raw is not None:
+            tax_amount = _parse_decimal_estricto(tax_raw, campo="tax_amount")
+            validar_dinero(tax_amount, campo="tax_amount", positivo=False, permitir_cero=True)
+        incluidos_raw = raw.get("included_fee_details") if con_hijos else []
+        if incluidos_raw is None:
+            incluidos_raw = []
+        if not isinstance(incluidos_raw, list):
+            raise ValueError("included_fee_details invalido")
+        incluidos = tuple(
+            detalle_fee_desde_json(inc, estricto=True, con_hijos=True) for inc in incluidos_raw
+        )
+        return DetalleFee(
+            fee_type=fee_type,
+            final_fee=final_fee,
+            tax_amount=tax_amount,
+            included_fee_details=incluidos,
+        )
+    try:
+        tasa_raw = raw.get("tax_amount") if con_hijos else None
+        hijos_raw = (raw.get("included_fee_details") or ()) if con_hijos else ()
+        return DetalleFee(
+            fee_type=raw["fee_type"],
+            final_fee=Decimal(str(raw["final_fee"])),
+            tax_amount=None if tasa_raw is None else Decimal(str(tasa_raw)),
+            included_fee_details=tuple(
+                detalle_fee_desde_json(hijo, estricto=False, con_hijos=True) for hijo in hijos_raw
+            ),
+        )
+    except (KeyError, InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"detalle de fee invalido: {raw!r}") from exc
+
+
+def detalles_fee_desde_json(
+    fee_details: Any,
+    *,
+    estricto: bool = True,
+    con_hijos: bool = True,
+) -> tuple[DetalleFee, ...]:
+    """Convierte una lista JSON `fee_details` en tupla de `DetalleFee`."""
+    if fee_details is None:
+        return ()
+    if not isinstance(fee_details, list):
+        raise ValueError("fee_details no es lista")
+    return tuple(
+        detalle_fee_desde_json(raw, estricto=estricto, con_hijos=con_hijos) for raw in fee_details
+    )
+
+
+def detalle_fee_a_json(detalle: DetalleFee) -> dict[str, Any]:
+    """Serializa `DetalleFee` a diccionario JSON deterministico."""
+    return {
+        "fee_type": detalle.fee_type,
+        "final_fee": str(detalle.final_fee),
+        "tax_amount": str(detalle.tax_amount) if detalle.tax_amount is not None else None,
+        "included_fee_details": [
+            detalle_fee_a_json(incluido) for incluido in detalle.included_fee_details
+        ],
+    }
 
 
 @dataclass(frozen=True)
@@ -275,29 +374,32 @@ def fee_variable_efectivo(
     return _cuantizar_frontera(fee_variable * mult)
 
 
-def _validar_politica(
+def parsear_politica(
     politica: PoliticaCalculo,
     fecha: date,
     *,
     universo_esperado: str | None = None,
-) -> str | None:
+) -> tuple[ReglasPolitica | None, str | None]:
+    """Valida y parsea una sola vez los settings de `PoliticaCalculo`."""
     if politica.valid_from > fecha:
-        return "politica_no_vigente"
+        return None, "politica_no_vigente"
     if politica.valid_to is not None and politica.valid_to <= fecha:
-        return "politica_no_vigente"
+        return None, "politica_no_vigente"
     if universo_esperado is not None and politica.universo != universo_esperado:
-        return "politica_invalida"
+        return None, "politica_invalida"
     if politica.formula_version not in ("S3", "S4"):
-        return "politica_invalida"
+        return None, "politica_invalida"
     settings = politica.settings
-    if settings.get("precio_incluye_iva") not in (True, False):
-        return "politica_invalida"
+    precio_incluye_iva = settings.get("precio_incluye_iva")
+    if precio_incluye_iva not in (True, False):
+        return None, "politica_invalida"
     if settings.get("fee_tax_amount_requiere_politica") is not True:
-        return "politica_invalida"
+        return None, "politica_invalida"
+    es_s4 = politica.formula_version == "S4"
     try:
         divisor = _decimal_setting(settings, "iva_divisor")
         if not divisor.is_finite() or divisor <= 0 or divisor >= _MAX_DINERO:
-            return "politica_invalida"
+            return None, "politica_invalida"
         isr_tasa = _validar_tasa_no_negativa(
             _decimal_setting(settings, "isr_tasa"), campo="isr_tasa"
         )
@@ -306,7 +408,7 @@ def _validar_politica(
         )
         validar_dinero(isr_tasa, campo="isr_tasa", positivo=False, permitir_cero=True)
         validar_dinero(logistica, campo="logistica", positivo=False, permitir_cero=True)
-        if politica.formula_version == "S3":
+        if not es_s4:
             ret_iva = _validar_tasa_no_negativa(
                 _decimal_setting(settings, "retencion_iva_reconciliacion"),
                 campo="retencion_iva_reconciliacion",
@@ -314,6 +416,7 @@ def _validar_politica(
             validar_dinero(
                 ret_iva, campo="retencion_iva_reconciliacion", positivo=False, permitir_cero=True
             )
+            mult_ref = Decimal("1")
         else:
             ret_iva = _validar_tasa_no_negativa(
                 _decimal_setting(settings, "retencion_iva_tasa"),
@@ -322,7 +425,7 @@ def _validar_politica(
             validar_dinero(ret_iva, campo="retencion_iva_tasa", positivo=False, permitir_cero=True)
             mult_ref = _decimal_setting(settings, "referral_fee_iva_multiplicador")
             if not mult_ref.is_finite() or mult_ref < Decimal("1") or mult_ref >= _MAX_DINERO:
-                return "politica_invalida"
+                return None, "politica_invalida"
             validar_dinero(
                 mult_ref,
                 campo="referral_fee_iva_multiplicador",
@@ -332,10 +435,30 @@ def _validar_politica(
         if logistica == Decimal("0"):
             sem = settings.get("logistica_semantica")
             if not isinstance(sem, str) or not sem.strip():
-                return "politica_invalida"
+                return None, "politica_invalida"
     except (ValueError, InvalidOperation):
-        return "politica_invalida"
-    return None
+        return None, "politica_invalida"
+    return (
+        ReglasPolitica(
+            es_s4=es_s4,
+            precio_incluye_iva=bool(precio_incluye_iva),
+            iva_divisor=divisor,
+            isr_tasa=isr_tasa,
+            ret_iva_tasa=ret_iva,
+            mult_ref=mult_ref,
+            logistica_base=logistica,
+        ),
+        None,
+    )
+
+
+def _validar_politica(
+    politica: PoliticaCalculo,
+    fecha: date,
+    *,
+    universo_esperado: str | None = None,
+) -> str | None:
+    return parsear_politica(politica, fecha, universo_esperado=universo_esperado)[1]
 
 
 def _normalizar_costo(
@@ -427,8 +550,7 @@ def _normalizar_costo(
 
 def _normalizar_ingreso(
     entrada: EntradaCalculo,
-    politica: PoliticaCalculo,
-    es_s4: bool,
+    reglas: ReglasPolitica,
     moneda_venta: str | None,
     motivos: list[str],
     componentes: list[ComponenteEconomico],
@@ -450,10 +572,9 @@ def _normalizar_ingreso(
             moneda_normalizada=entrada.precio_moneda,
         )
     )
-    divisor = _decimal_setting(politica.settings, "iva_divisor")
-    if politica.settings.get("precio_incluye_iva"):
-        base_fiscal_exacta = precio / divisor
-        ingreso_exacto = precio if es_s4 else base_fiscal_exacta
+    if reglas.precio_incluye_iva:
+        base_fiscal_exacta = precio / reglas.iva_divisor
+        ingreso_exacto = precio if reglas.es_s4 else base_fiscal_exacta
     else:
         base_fiscal_exacta = precio
         ingreso_exacto = precio
@@ -566,7 +687,9 @@ def calcular_contribucion(
     componentes: list[ComponenteEconomico] = []
     exclusiones = EXCLUSIONES_FIJAS
 
-    motivo_pol = _validar_politica(politica, valoracion_date, universo_esperado=universo_esperado)
+    reglas, motivo_pol = parsear_politica(
+        politica, valoracion_date, universo_esperado=universo_esperado
+    )
     if motivo_pol:
         motivos.append(motivo_pol)
 
@@ -592,7 +715,7 @@ def calcular_contribucion(
             exclusiones=exclusiones,
         )
 
-    if motivo_pol:
+    if motivo_pol or reglas is None:
         return ResultadoCalculo(
             estado="incompleta",
             motivos=tuple(dict.fromkeys(motivos)),
@@ -603,34 +726,25 @@ def calcular_contribucion(
             exclusiones=exclusiones,
         )
 
-    es_s4 = politica.formula_version == "S4"
+    es_s4 = reglas.es_s4
     moneda_venta = entrada.moneda_base or entrada.precio_moneda
     ingreso_exacto, ingreso, base_fiscal_exacta, moneda_venta = _normalizar_ingreso(
-        entrada, politica, es_s4, moneda_venta, motivos, componentes
+        entrada, reglas, moneda_venta, motivos, componentes
     )
-    mult_ref = (
-        _decimal_setting(politica.settings, "referral_fee_iva_multiplicador")
-        if es_s4
-        else Decimal("1")
-    )
-    fee_exacto = _normalizar_fee(entrada, mult_ref, moneda_venta, motivos, componentes)
+    fee_exacto = _normalizar_fee(entrada, reglas.mult_ref, moneda_venta, motivos, componentes)
     costo_exacto = _normalizar_costo(entrada, moneda_venta or "", motivos, componentes)
 
     # L resuelta por el universo; None con motivo bloquea abajo.
     logistica = entrada.logistica
-    isr_tasa = _decimal_setting(politica.settings, "isr_tasa")
-    ret_iva_tasa = _decimal_setting(
-        politica.settings, "retencion_iva_tasa" if es_s4 else "retencion_iva_reconciliacion"
-    )
 
     isr_exacto: Decimal | None = None
     isr: Decimal | None = None
     ret_iva_exacto: Decimal | None = None
     ret_iva: Decimal | None = None
     if base_fiscal_exacta is not None:
-        isr_exacto = base_fiscal_exacta * isr_tasa
+        isr_exacto = base_fiscal_exacta * reglas.isr_tasa
         isr = _cuantizar_frontera(isr_exacto)
-        ret_iva_exacto = base_fiscal_exacta * ret_iva_tasa
+        ret_iva_exacto = base_fiscal_exacta * reglas.ret_iva_tasa
         ret_iva = _cuantizar_frontera(ret_iva_exacto)
         if logistica is not None:
             componentes.append(

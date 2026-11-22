@@ -34,11 +34,13 @@ _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postg
 PROHIBIDOS_ESTIMACION = (
     "app.estimacion_proyeccion",
     "app.estimacion_repository",
+    "app.estimacion_siembra",
     "app.estimacion_venta",
 )
 TOKENS_FUENTE = (
     "estimacion_proyeccion",
     "estimacion_repository",
+    "estimacion_siembra",
     "estimacion_venta",
 )
 CLAVES_INCIDENTALES = frozenset({"created_at", "finished_at", "observed_at"})

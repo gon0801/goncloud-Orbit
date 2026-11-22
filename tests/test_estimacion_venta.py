@@ -212,9 +212,10 @@ def test_sin_imports_motor_ads():
     fuente = (ROOT / "app" / "estimacion_venta.py").read_text(encoding="utf-8")
     assert "app.ads" not in fuente
     assert "from app.ads" not in fuente
-    mod_repo = (ROOT / "app" / "estimacion_repository.py").read_text(encoding="utf-8")
-    assert "app.ads" not in mod_repo
-    assert "httpx" not in mod_repo
+    for nombre in ("estimacion_repository.py", "estimacion_siembra.py"):
+        mod_repo = (ROOT / "app" / nombre).read_text(encoding="utf-8")
+        assert "app.ads" not in mod_repo
+        assert "httpx" not in mod_repo
 
 
 def test_ac1_inputs_completos_contribucion_39():

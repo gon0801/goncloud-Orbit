@@ -362,6 +362,7 @@ _MODULOS_ESTIMACION = (
     "estimacion_venta",
     "estimacion_ingest",
     "estimacion_repository",
+    "estimacion_siembra",
     "estimacion_reader",
     "estimacion_fees",
     # M.3: el cotizador/resolver MeLi tambien emite motivos persistidos.

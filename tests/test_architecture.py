@@ -77,14 +77,6 @@ ALLOWLIST_TAMANO = {
         "bloqueo). Partir quitar o reparar de aprobar separaria las dos "
         "mitades de la misma exclusion."
     ),
-    "app/optimizer/caso.py": (
-        "BIDS 02 M.1 y ORBIT 07 M1/M5/M6: el contrato congelado del caso, su "
-        "freeze (`como_json`) y su inversa exacta (`desde_json`, que levanta "
-        "ValueError ante clave ausente, extra o tipo ajeno) viven en UN modulo "
-        "por invariante. El episodio economico M5 es parte del MISMO freeze; "
-        "partirlo separaria el caso de su inversa exacta y del replay que lo "
-        "despacha — jamas partir por partir"
-    ),
     "app/lecturas_caso.py": (
         "BIDS 02 M.2 y TEMPORADA 01 B: lo que se lee UNA vez por plataforma y "
         "ciclo (tramos, roll-ups, cambios de bid con instante, historia "
@@ -110,13 +102,6 @@ ALLOWLIST_TAMANO = {
         "vive fuera y consume el contrato. Si el contrato vuelve a crecer, "
         "revisar la separacion de consultas y agregacion por esa frontera, "
         "sin duplicar reglas para bajar el contador."
-    ),
-    "app/estimacion_repository.py": (
-        "REPRICING 02 M.3: nucleo de siembra compartido Amazon/MeLi (el "
-        "despacho es por plataforma dentro de `sembrar_escenario_desde_refs` "
-        "y el bloque meli usa sus validaciones). Partirlo por plataforma "
-        "separaria `_sembrar_meli` de su nucleo con import circular — jamas "
-        "partir por partir"
     ),
     "app/precio/cambios.py": (
         "REPRICING 02 S.5: el protocolo de `precio_cambio` vive en un solo "
@@ -215,14 +200,9 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # frontera por hoja.
     "app/cycle.py": 2676,
     "app/dashboard_resumen.py": 995,
-    "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
     "app/impulso_io.py": 1229,
-    # TEMPORADA 01 B: los cuatro marcadores opcionales de temporada y su
-    # freeze/desfreeze exacto (temporada, historia, recuperacion,
-    # presupuesto).
-    "app/optimizer/caso.py": 1487,
     "app/precio/cambios.py": 1025,
     "app/precio/corrida.py": 1647,
     "app/retiro_anuncios.py": 1386,
