@@ -1,0 +1,6 @@
+# Prueba-real de la fila G (solo lectura) — SHA desplegado 9c99f0df56ff846efbd4d8bfa7d8b227db4d5f5d
+# Comando: bash docs/evidencia/arreglos-01/desplegado.sh propuesta_presupuesto
+# Sale 0 si el texto esta en los .py del paquete app que corre en orbit-app-1.
+# El script no imprime nada cuando encuentra el texto: silencio + EXIT=0 es el pase.
+
+EXIT=0
