@@ -621,7 +621,7 @@ class Aplicador:
             if not usada:
                 sin_quota += 1
                 continue
-            if apply_cola.reversa_pause(conn, self._cliente(), fila, tick=tick):
+            if apply_cola.reversa_pause(conn, self._cliente(), fila, tick=tick, durable=True):
                 confirmadas += 1
             else:
                 fallidas += 1

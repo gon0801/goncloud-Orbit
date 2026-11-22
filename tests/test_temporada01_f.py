@@ -32,7 +32,14 @@ from test_apply_cola import (
     _skip_db,
 )
 from test_cycle_apply import _db_temporal
-from test_temporada01_b import MESES_PRUEBA
+from test_temporada01_b import (
+    MESES_PRUEBA,
+    _corre,
+    _escenario,
+    _handler_mx,
+    _kw,
+    _siembra_metricas,
+)
 
 from app import apply, apply_cola, temporada_io
 from app import cycle as ciclo
@@ -428,3 +435,207 @@ def test_temporada01_f_aviso_del_dia():
     preparado = temporada.resuelve(config, dt.date(2027, 1, 29))  # 3 dias antes del 1 feb
     aviso_3 = temporada.aviso_del_dia(config, preparado, conteo=conteo, propuestas=0)
     assert aviso_3 is not None and aviso_3.startswith("En 3 días:")
+
+
+@_skip_db
+def test_temporada01_f_conteo_confirmado_pendiente_y_divergencia():
+    """El aviso cuenta confirmadas por Amazon, pendientes y divergencias por
+    separado: una decision sin aplicar no se anuncia como confirmada y una
+    aplicacion con verify_ok false no vuelve a contar como pendiente."""
+    with _db_temporal("orbit_t01_f_conteo") as (conn, _conectar):
+        config_id, _settings_f = _config(conn)
+        ciclo_id = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        hojas = [
+            conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id) VALUES"
+                " ('amazon_us', 'campaign', %s) RETURNING id",
+                (f"e-f-conteo-{i}",),
+            ).fetchone()[0]
+            for i in range(4)
+        ]
+
+        def _decision(motivo: str, hoja_id: int) -> int:
+            return conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+                " data_observed_at, window_start, window_end, new_value, value_currency, inputs)"
+                " VALUES (%s, %s, 'bid', %s, now() - interval '1 day', CURRENT_DATE - 60,"
+                " CURRENT_DATE - 30, 1.00, 'USD', %s) RETURNING id",
+                (ciclo_id, hoja_id, config_id, json.dumps({"motor": "bid", "motivo": motivo})),
+            ).fetchone()[0]
+
+        confirmada = _decision("entra_temporada_baja", hojas[0])
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack, verify_ok)"
+            " VALUES (%s, now(), '{}'::jsonb, true)",
+            (confirmada,),
+        )
+        sin_aplicar = _decision("entra_temporada_baja", hojas[1])
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " VALUES (%s, %s, 'sin_respuesta')",
+            (sin_aplicar, ciclo_id),
+        )
+        divergente = _decision("sale_temporada_baja", hojas[2])
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack, verify_ok)"
+            " VALUES (%s, now(), '{}'::jsonb, false)",
+            (divergente,),
+        )
+
+        _sin_desenlace = _decision("entra_temporada_baja", hojas[3])
+        assert _sin_desenlace is not None
+
+        conteo = ciclo._conteo_temporada(
+            conn,
+            ciclo_id,
+            reactivaciones=2,
+            retenidos=1,
+            excluidas={"dueno_decidio": 3, "bid_heredado": 0},
+        )
+
+        assert conteo.entradas_confirmadas == 1
+        assert conteo.regresos_confirmados == 0, "la divergencia no es un regreso confirmado"
+        assert conteo.pendientes == 1, "solo la decision sin desenlace es pendiente"
+        assert conteo.reactivaciones == 2 and conteo.retenidos_por_presupuesto == 1
+        assert conteo.excluidas == {"dueno_decidio": 3}, "un cero no se anuncia"
+
+
+@_skip_db
+def test_temporada01_f_sello_de_reactivacion_sobrevive_al_aborto():
+    """Cada reactivacion sella su reversa de forma DURABLE antes de la
+    siguiente: si la fase aborta en la segunda, la habilitacion que Amazon ya
+    aplico no se pierde ni se repite el PUT."""
+    import pytest as _pytest
+
+    from app.cycle import ApplyAbortado
+
+    with _db_temporal("orbit_t01_f_dur") as (conn, conectar):
+        ahora = _reloj()
+        ids = _semilla(conn)
+        config_id, _settings_f = _config(conn)
+        cerrado = _episodio(conn, config_id, ids["ciclo_ejec"], ahora, cerrado=True)
+        hojas = [ids["kw"], ids["kw2"]]
+        pausas = []
+        for hoja in hojas:
+            dec_pausa, _q = _pausa_baja(
+                conn,
+                ciclo_id=ids["ciclo_dec"],
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            pausas.append(dec_pausa)
+            _pausado(conn, hoja)
+        ciclo_resume = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        estacion = temporada.resuelve(temporada.desde_settings(_settings_f), estacion_dia())
+        pendientes = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        decision_ids = []
+        for r in pendientes:
+            p = ciclo.pendiente_reactivacion(r, estacion, decidido_el=ahora)
+            decision_ids.append(
+                conn.execute(
+                    "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+                    " config_version_id, data_observed_at, window_start, window_end, inputs)"
+                    " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (
+                        ciclo_resume,
+                        r.ad_entity_id,
+                        ahora,
+                        config_id,
+                        ahora,
+                        ahora.date(),
+                        ahora.date(),
+                        json.dumps(p.inputs),
+                    ),
+                ).fetchone()[0]
+            )
+        assert len(decision_ids) == 2
+
+        handler, _vistos = _handler_cortes(estados={"7201": "PAUSED", "7202": "PAUSED"})
+        conn_no_auto = conectar(autocommit=False)
+        llamadas = {"n": 0}
+
+        def tick_que_aborta() -> None:
+            llamadas["n"] += 1
+            if llamadas["n"] == 3:
+                raise ApplyAbortado("lease perdido en la segunda reactivacion")
+
+        try:
+            ap = _aplicador(conn_no_auto, handler, ids["ciclo_ejec"])
+            with _pytest.raises(ApplyAbortado):
+                ap.aplica_reactivaciones(
+                    conn_no_auto,
+                    apply.resumes_del_ciclo(conn_no_auto, ciclo_resume),
+                    tick=tick_que_aborta,
+                )
+            conn_no_auto.rollback()
+        finally:
+            conn_no_auto.close()
+
+        primera = pausas[0]
+        sellos = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'",
+            (primera,),
+        ).fetchall()
+        assert sellos == [("ok",)], "el sello de la primera sigue tras el rollback"
+        pendientes_tras = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        assert [r.ad_entity_id for r in pendientes_tras] == [hojas[1]], (
+            "la primera ya no se repite; la segunda espera"
+        )
+
+
+def _mundo_aviso(conn) -> tuple[dict, int, int]:
+    ids = _escenario(conn)
+    kw = _kw(conn, ids["ag"], "e-kw", "kw", "8.00")
+    kw_heredado = _kw(conn, ids["ag"], "e-kw-h", "kw h", "8.00")
+    conn.execute(
+        "UPDATE ad_entity_state SET current_bid = NULL, bid_currency = NULL"
+        " WHERE ad_entity_id = %s",
+        (kw_heredado,),
+    )
+    _siembra_metricas(conn, [kw, kw_heredado])
+    return ids, kw, kw_heredado
+
+
+@_skip_db
+def test_temporada01_f_aviso_llega_al_canal(monkeypatch):
+    """El aviso del dia sale por el canal fail-silent (no solo en notes) y
+    cuenta la exclusion real de la hoja con bid heredado."""
+    from app import notifica
+
+    with _db_temporal("orbit_t01_f_canal") as (conn, _conectar):
+        _ids, _kw_bid, _kw_h = _mundo_aviso(conn)
+        enviados: list[str] = []
+        monkeypatch.setattr(
+            notifica,
+            "notifica_temporada",
+            lambda texto, **_k: (enviados.append(texto), True)[1],
+        )
+        handler = _handler_mx({"e-kw": "8.00", "e-kw-h": "8.00"})
+        res = _corre(conn, dt.date(2027, 1, 1), handler)
+
+        assert res.status == "done", res.notes
+        assert len(enviados) == 1, "un aviso de temporada por ciclo"
+        assert "No tocó 1" in enviados[0], enviados[0]
+        assert json.loads(res.notes)["temporada"]["aviso"] == enviados[0]
+
+
+@_skip_db
+def test_temporada01_f_aviso_al_canal_fallido_deja_nota(monkeypatch):
+    """Si el canal falla, el ciclo no se degrada: queda la nota fail-silent."""
+    from app import notifica
+
+    with _db_temporal("orbit_t01_f_canal2") as (conn, _conectar):
+        _mundo_aviso(conn)
+        monkeypatch.setattr(notifica, "notifica_temporada", lambda *_a, **_k: False)
+        handler = _handler_mx({"e-kw": "8.00", "e-kw-h": "8.00"})
+        res = _corre(conn, dt.date(2027, 1, 1), handler)
+
+        assert res.status == "done", "un fallo de Telegram no degrada el ciclo"
+        nota = json.loads(res.notes)["telegram"]["aviso_temporada"]
+        assert nota.startswith("fallo:")

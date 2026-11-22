@@ -345,16 +345,23 @@ def _inserta_targets(
 
 
 _SQL_TEMPORADA_CICLO = """
-SELECT count(*) FILTER (WHERE d.inputs->>'motivo' = 'entra_temporada_baja')
-         AS entradas,
-       count(*) FILTER (WHERE d.inputs->>'motivo' = 'sale_temporada_baja')
-         AS regresos,
-       count(*) FILTER (WHERE da.decision_id IS NULL AND sa.decision_id IS NULL)
-         AS pendientes
+SELECT count(*) FILTER (
+           WHERE d.inputs->>'motivo' = 'entra_temporada_baja'
+             AND EXISTS (SELECT 1 FROM decision_application da
+                          WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)
+       ) AS entradas,
+       count(*) FILTER (
+           WHERE d.inputs->>'motivo' = 'sale_temporada_baja'
+             AND EXISTS (SELECT 1 FROM decision_application da
+                          WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)
+       ) AS regresos,
+       count(*) FILTER (
+           WHERE NOT EXISTS (SELECT 1 FROM decision_application da
+                              WHERE da.decision_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa
+                              WHERE sa.decision_id = d.id)
+       ) AS pendientes
   FROM decision d
-  LEFT JOIN decision_application da
-         ON da.decision_id = d.id AND da.verify_ok IS TRUE
-  LEFT JOIN decision_sin_aplicar sa ON sa.decision_id = d.id
  WHERE d.cycle_id = %s AND d.kind = 'bid'
    AND d.inputs->>'motivo' IN ('entra_temporada_baja', 'ajusta_temporada_baja',
                                'sale_temporada_baja')
@@ -412,16 +419,17 @@ def _conteo_temporada(
     *,
     reactivaciones: int,
     retenidos: int,
+    excluidas: dict[str, int],
 ) -> temporada.ConteoTemporada:
     """Lo que conto el ciclo para el aviso del dia: confirmaciones del ciclo,
-    pendientes y reactivaciones confirmadas."""
+    pendientes, exclusiones reales y reactivaciones confirmadas."""
     entradas, regresos, pendientes = conn.execute(_SQL_TEMPORADA_CICLO, (cycle_id,)).fetchone()
     return temporada.ConteoTemporada(
         entradas_confirmadas=int(entradas or 0),
         regresos_confirmados=int(regresos or 0),
         pendientes=int(pendientes or 0),
         retenidos_por_presupuesto=retenidos,
-        excluidas={},
+        excluidas={motivo: cantidad for motivo, cantidad in excluidas.items() if cantidad},
         reactivaciones=reactivaciones,
     )
 
@@ -606,6 +614,7 @@ def _corre_fases(
         if fase.fallo:
             status = "degraded"
     plat_t = contadores.temporada_plat
+    aviso_temporada: str | None = None
     if plat_t is not None and plat_t.modo == "live" and cuerpo.get("temporada") is not None:
         reactivaciones = (
             int(notas_apply["reactivaciones"]["confirmadas"])
@@ -624,11 +633,13 @@ def _corre_fases(
                 cycle_id,
                 reactivaciones=reactivaciones,
                 retenidos=retenidos,
+                excluidas=dict(contadores.excluidas_temporada),
             ),
             propuestas=len(contadores.propuestas_campana),
         )
         if aviso:
             cuerpo["temporada"]["aviso"] = aviso
+            aviso_temporada = aviso
     nota_propuesta: str | None = None
     if g.propuestas_campana_desde_settings(settings):
         try:
@@ -650,6 +661,7 @@ def _corre_fases(
         fase.alertas,
         caps_saturados=fase.caps_saturados,
         avisos_destino=fase.avisos_destino,
+        aviso_temporada=aviso_temporada,
         cycle_id=cycle_id,
         platform=platform,
         modo=modo.modo,

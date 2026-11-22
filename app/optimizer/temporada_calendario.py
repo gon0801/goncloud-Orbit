@@ -158,6 +158,14 @@ class ConteoTemporada:
     reactivaciones: int
 
 
+def _texto_bids(cantidad: int) -> str:
+    return f"{cantidad} bid" if cantidad == 1 else f"{cantidad} bids"
+
+
+def _texto_keywords(cantidad: int) -> str:
+    return f"{cantidad} keyword" if cantidad == 1 else f"{cantidad} keywords"
+
+
 def _texto_propuestas(propuestas: int, detalle: str) -> str:
     if propuestas <= 0:
         return ""
@@ -189,7 +197,7 @@ def aviso_del_dia(
         if evento.tipo == "entra_baja":
             partes = [
                 evento.frase,
-                f"Orbit bajó {conteo.entradas_confirmadas} bids y Amazon lo confirmó.",
+                f"Orbit bajó {_texto_bids(conteo.entradas_confirmadas)} y Amazon lo confirmó.",
             ]
             if conteo.pendientes > 0:
                 partes.append(f"Quedan {conteo.pendientes} para mañana.")
@@ -201,7 +209,7 @@ def aviso_del_dia(
             partes = [
                 evento.frase,
                 "Orbit regresó"
-                f" {conteo.regresos_confirmados} bids a como estaban antes de la baja.",
+                f" {_texto_bids(conteo.regresos_confirmados)} a como estaban antes de la baja.",
             ]
             if conteo.retenidos_por_presupuesto > 0:
                 partes.append(
@@ -210,7 +218,7 @@ def aviso_del_dia(
                 )
             if conteo.reactivaciones > 0:
                 partes.append(
-                    f"Va a reactivar {conteo.reactivaciones} keywords que pausó en la baja."
+                    f"Va a reactivar {_texto_keywords(conteo.reactivaciones)} que pausó en la baja."
                 )
             return " ".join(partes) + _texto_propuestas(propuestas, "que sube al terminar la baja")
         return f"{evento.frase}{_texto_propuestas(propuestas, 'con un presupuesto sugerido')}"

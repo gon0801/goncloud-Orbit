@@ -55,6 +55,7 @@ def _fase_notifica(
     target_ancla: str | None = None,
     caps_saturados: tuple = (),
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
+    aviso_temporada: str | None = None,
     tick: Callable[[], None] | None = None,
 ) -> dict:
     """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por ciclo con sus cortes
@@ -111,6 +112,14 @@ def _fase_notifica(
     except Exception as exc:
         _acumula(notas, "cap_agotado", "fallo: el aviso de cap agotado no salio (ver log)")
         logger.warning("notifica: fallo en avisos de cap agotado: %s", scrub(str(exc)))
+    if aviso_temporada:
+        try:
+            if not notifica.notifica_temporada(aviso_temporada):
+                notas["aviso_temporada"] = "fallo: aviso de temporada no enviado por Telegram"
+            _latido()
+        except Exception as exc:
+            notas["aviso_temporada"] = "fallo: el aviso de temporada no salio (ver log)"
+            logger.warning("notifica: fallo en el aviso de temporada: %s", scrub(str(exc)))
     try:
         resumen = {
             "cycle_id": cycle_id,

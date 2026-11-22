@@ -105,6 +105,36 @@ _SQL_GRUPOS_PAUSA_PRODUCTO = apply_cola.SQL_GRUPOS_PAUSA_PRODUCTO
 _SQL_TIENE_GRUPOS_FABRICA = "SELECT to_regclass('public.campana_grupo_rol') IS NOT NULL"
 
 
+_MOTIVOS_EXCLUIDAS_TEMPORADA = frozenset({"dueno_decidio", "bid_heredado", "sin_centavo_factible"})
+
+
+def _cuenta_excluidas_temporada(
+    contadores: _Contadores,
+    lecturas,
+    entidad_id: int,
+    current_bid,
+    *,
+    floor,
+    ceiling,
+) -> None:
+    """TEMPORADA 01 F: cuenta para el aviso del dia las hojas que la entrada no
+    toco (mano del dueno, bid heredado, sin centavo factible). Solo en una baja
+    viva; es una lectura en memoria, sin HTTP ni escrituras."""
+    plat_t = contadores.temporada_plat
+    if (
+        lecturas is None
+        or plat_t is None
+        or plat_t.modo != "live"
+        or plat_t.estacion.fase != "baja"
+    ):
+        return
+    pendiente_t = lecturas.pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
+    if isinstance(pendiente_t, temporada.SinPendiente) and (
+        pendiente_t.motivo in _MOTIVOS_EXCLUIDAS_TEMPORADA
+    ):
+        contadores.excluidas_temporada[pendiente_t.motivo] += 1
+
+
 def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
     conn: psycopg.Connection,
     *,
@@ -220,6 +250,9 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         tick()
         return
     assert not isinstance(meta_viva, str)
+    _cuenta_excluidas_temporada(
+        contadores, lecturas, entidad_id, current_bid, floor=floor, ceiling=ceiling
+    )
     target_margen_producto = meta_viva.resolucion.aplicado if meta_viva is not None else None
     if meta_viva is not None:
         assert productos_ciclo is not None

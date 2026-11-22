@@ -101,6 +101,7 @@ class _Contadores:
     protecciones: list[proteccion_venta.TransicionProteccion] = field(default_factory=list)
     temporada_plat: temporada_io.TemporadaPlataforma | None = None
     reactivaciones: tuple[temporada_io.Reactivacion, ...] = ()
+    excluidas_temporada: Counter = field(default_factory=Counter)
     fines: dict[int, temporada.FinReduccion] = field(default_factory=dict)
     exclusiones: dict[int, Decimal] = field(default_factory=dict)
     temporada_sombra_comparadas: int = 0
