@@ -1,6 +1,7 @@
 -- TEMPORADA 01 H.3: vigilancia de los ciclos de la temporada en vivo. SOLO LECTURA.
 -- Un disparo por fecha (los trabajos de `at` estan en docs/evidencia/temporada-01/H/transiciones.txt).
--- Lo corre primer-ciclo.sh desde /mnt/data/appdata/orbit/recordatorios/ y manda el resultado por Telegram.
+-- Lo corre primer-ciclo.sh desde /mnt/data/appdata/orbit/recordatorios/ con el rol orbit_read
+-- y manda el resultado por Telegram.
 --
 -- Referencia: la PRIMERA config que dejo las cuatro claves en live (la de H.2).
 -- Solo mira ciclos TERMINADOS que EMPEZARON despues de esa config; si no hay
@@ -8,11 +9,19 @@
 --
 -- Casos de paro (todos deben dar 0):
 --   1) un bid enviado que baja mas que la reduccion de la entrada
+--      (solo motivo entra_temporada_baja: un ajusta_temporada_baja puede bajar
+--       mas cuando el dueno sube el porcentaje a media baja, y eso es correcto)
 --   2) un regreso que baja un bid
 --   3) un PUT despues de una lectura fresca distinta
 --   4) dos entradas confirmadas para una keyword en el mismo episodio
 --      (una decision que no se aplico y se vuelve a derivar manana es lo esperado)
 --   5) un presupuesto escrito sin APLICAR AJUSTE
+--
+-- Los casos 1 y 2 juzgan lo que se ENVIO, no lo que se confirmo: el ledger
+-- (apply_attempt) nace ANTES del PUT con el importe exacto
+-- (request_payload->>'bid'), y una verificacion fallida deja verify_ok = false
+-- o ninguna fila en decision_application. Mirar solo lo confirmado escondería
+-- justo el PUT indebido.
 BEGIN READ ONLY;
 
 \echo '(0) config de referencia: la primera con las cuatro claves en live'
@@ -55,18 +64,23 @@ SELECT CASE WHEN count(*) = 0
           ORDER BY id
           LIMIT 1);
 
-\echo '(3) entradas a la baja: confirmadas | bajaron mas que la reduccion (paro)'
-SELECT count(*) AS entradas_confirmadas,
-       count(*) FILTER (
-           WHERE d.new_value IS NOT NULL
-             AND d.old_value IS NOT NULL
+\echo '(3) entradas a la baja: confirmadas | enviadas por el ledger | de esas, bajo la reduccion (paro) | enviadas sin sello'
+SELECT count(DISTINCT d.id) FILTER (
+           WHERE EXISTS (SELECT 1 FROM decision_application da
+                          WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)
+       ) AS entradas_confirmadas,
+       count(DISTINCT d.id) AS entradas_enviadas,
+       count(DISTINCT d.id) FILTER (
+           WHERE d.old_value IS NOT NULL
              AND cv.settings->'ads_temporada'->>'reduccion_baja_pct' IS NOT NULL
-             AND d.new_value
+             AND (aa.request_payload->>'bid')::numeric
                  < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
-       ) AS paro_baja_mas_que_la_reduccion
+       ) AS paro_baja_mas_que_la_reduccion,
+       count(DISTINCT d.id) FILTER (WHERE aa.resultado IS NULL) AS enviadas_sin_sello
   FROM decision d
   JOIN optimizer_cycle c ON c.id = d.cycle_id
-  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+  JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                       AND aa.request_payload ? 'bid'
   JOIN config_version cv ON cv.id = d.config_version_id
  WHERE d.kind = 'bid'
    AND d.inputs->>'motivo' = 'entra_temporada_baja'
@@ -80,14 +94,21 @@ SELECT count(*) AS entradas_confirmadas,
           ORDER BY id
           LIMIT 1);
 
-\echo '(4) regresos de la baja: confirmados | bajaron un bid (paro)'
-SELECT count(*) AS regresos_confirmados,
-       count(*) FILTER (WHERE d.new_value IS NOT NULL
-                          AND d.old_value IS NOT NULL
-                          AND d.new_value < d.old_value) AS paro_regreso_que_baja
+\echo '(4) regresos de la baja: confirmados | enviados por el ledger | de esos, bajan un bid (paro) | enviados sin sello'
+SELECT count(DISTINCT d.id) FILTER (
+           WHERE EXISTS (SELECT 1 FROM decision_application da
+                          WHERE da.decision_id = d.id AND da.verify_ok IS TRUE)
+       ) AS regresos_confirmados,
+       count(DISTINCT d.id) AS regresos_enviados,
+       count(DISTINCT d.id) FILTER (
+           WHERE d.old_value IS NOT NULL
+             AND (aa.request_payload->>'bid')::numeric < d.old_value
+       ) AS paro_regreso_que_baja,
+       count(DISTINCT d.id) FILTER (WHERE aa.resultado IS NULL) AS enviados_sin_sello
   FROM decision d
   JOIN optimizer_cycle c ON c.id = d.cycle_id
-  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+  JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                       AND aa.request_payload ? 'bid'
  WHERE d.kind = 'bid'
    AND d.inputs->>'motivo' = 'sale_temporada_baja'
    AND c.status = 'done'
@@ -100,10 +121,10 @@ SELECT count(*) AS regresos_confirmados,
           ORDER BY id
           LIMIT 1);
 
-\echo '(5) lectura fresca distinta: sin aplicar | aplicadas a pesar de ella (paro)'
+\echo '(5) lectura fresca distinta: sin aplicar | con un PUT registrado a pesar de ella (paro)'
 SELECT count(*) AS sin_aplicar_por_lectura,
        count(*) FILTER (
-           WHERE EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = s.decision_id)
+           WHERE EXISTS (SELECT 1 FROM apply_attempt aa WHERE aa.decision_id = s.decision_id)
        ) AS paro_put_tras_lectura_fresca
   FROM decision_sin_aplicar s
   JOIN optimizer_cycle c ON c.id = s.cycle_id
@@ -171,20 +192,18 @@ SELECT count(*) AS paro_presupuesto_sin_aplicar_ajuste
    AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE');
 
 \echo '(8) resumen de casos de paro (cada linea debe dar 0)'
-SELECT 'baja_mas_que_la_reduccion' AS caso,
-       count(*) FILTER (
-           WHERE d.new_value IS NOT NULL
-             AND d.old_value IS NOT NULL
-             AND cv.settings->'ads_temporada'->>'reduccion_baja_pct' IS NOT NULL
-             AND d.new_value
-                 < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
-       ) AS n
+SELECT 'baja_mas_que_la_reduccion' AS caso, count(DISTINCT d.id) AS n
   FROM decision d
   JOIN optimizer_cycle c ON c.id = d.cycle_id
-  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+  JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                       AND aa.request_payload ? 'bid'
   JOIN config_version cv ON cv.id = d.config_version_id
  WHERE d.kind = 'bid'
    AND d.inputs->>'motivo' = 'entra_temporada_baja'
+   AND d.old_value IS NOT NULL
+   AND cv.settings->'ads_temporada'->>'reduccion_baja_pct' IS NOT NULL
+   AND (aa.request_payload->>'bid')::numeric
+       < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
    AND c.status = 'done'
    AND c.started_at > (
          SELECT created_at FROM config_version
@@ -195,15 +214,15 @@ SELECT 'baja_mas_que_la_reduccion' AS caso,
           ORDER BY id
           LIMIT 1)
 UNION ALL
-SELECT 'regreso_que_baja',
-       count(*) FILTER (WHERE d.new_value IS NOT NULL
-                          AND d.old_value IS NOT NULL
-                          AND d.new_value < d.old_value)
+SELECT 'regreso_que_baja', count(DISTINCT d.id)
   FROM decision d
   JOIN optimizer_cycle c ON c.id = d.cycle_id
-  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+  JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                       AND aa.request_payload ? 'bid'
  WHERE d.kind = 'bid'
    AND d.inputs->>'motivo' = 'sale_temporada_baja'
+   AND d.old_value IS NOT NULL
+   AND (aa.request_payload->>'bid')::numeric < d.old_value
    AND c.status = 'done'
    AND c.started_at > (
          SELECT created_at FROM config_version
@@ -216,7 +235,7 @@ SELECT 'regreso_que_baja',
 UNION ALL
 SELECT 'put_tras_lectura_fresca',
        count(*) FILTER (
-           WHERE EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = s.decision_id)
+           WHERE EXISTS (SELECT 1 FROM apply_attempt aa WHERE aa.decision_id = s.decision_id)
        )
   FROM decision_sin_aplicar s
   JOIN optimizer_cycle c ON c.id = s.cycle_id
@@ -267,58 +286,123 @@ SELECT 'presupuesto_sin_aplicar_ajuste', count(*)
    AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE')
 ORDER BY 1;
 
-\echo '(9) veredicto'
-SELECT CASE
-         WHEN (
-           (SELECT count(*) FROM (
-              SELECT d.ad_entity_id, d.inputs->>'temporada_episodio_id'
+\echo '(9) casos de paro en total y veredicto (una sola linea)'
+SELECT (SELECT count(DISTINCT d.id)
+          FROM decision d
+          JOIN optimizer_cycle c ON c.id = d.cycle_id
+          JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                               AND aa.request_payload ? 'bid'
+          JOIN config_version cv ON cv.id = d.config_version_id
+         WHERE d.kind = 'bid'
+           AND d.inputs->>'motivo' = 'entra_temporada_baja'
+           AND d.old_value IS NOT NULL
+           AND cv.settings->'ads_temporada'->>'reduccion_baja_pct' IS NOT NULL
+           AND (aa.request_payload->>'bid')::numeric
+               < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
+           AND c.status = 'done'
+           AND c.started_at > (
+                 SELECT created_at FROM config_version
+                  WHERE settings->>'ads_temporada_amazon_mx' = 'live'
+                    AND settings->>'ads_temporada_amazon_us' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+                  ORDER BY id
+                  LIMIT 1))
+     + (SELECT count(DISTINCT d.id)
+          FROM decision d
+          JOIN optimizer_cycle c ON c.id = d.cycle_id
+          JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                               AND aa.request_payload ? 'bid'
+         WHERE d.kind = 'bid'
+           AND d.inputs->>'motivo' = 'sale_temporada_baja'
+           AND d.old_value IS NOT NULL
+           AND (aa.request_payload->>'bid')::numeric < d.old_value
+           AND c.status = 'done'
+           AND c.started_at > (
+                 SELECT created_at FROM config_version
+                  WHERE settings->>'ads_temporada_amazon_mx' = 'live'
+                    AND settings->>'ads_temporada_amazon_us' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+                  ORDER BY id
+                  LIMIT 1))
+     + (SELECT count(*)
+          FROM decision_sin_aplicar s
+          JOIN optimizer_cycle c ON c.id = s.cycle_id
+         WHERE s.motivo = 'bid_cambiado_fuera'
+           AND EXISTS (SELECT 1 FROM apply_attempt aa WHERE aa.decision_id = s.decision_id)
+           AND c.status = 'done'
+           AND c.started_at > (
+                 SELECT created_at FROM config_version
+                  WHERE settings->>'ads_temporada_amazon_mx' = 'live'
+                    AND settings->>'ads_temporada_amazon_us' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+                  ORDER BY id
+                  LIMIT 1))
+     + (SELECT count(*) FROM (
+          SELECT d.ad_entity_id, d.inputs->>'temporada_episodio_id'
+            FROM decision d
+            JOIN optimizer_cycle c ON c.id = d.cycle_id
+            JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+           WHERE d.kind = 'bid'
+             AND d.inputs->>'motivo' = 'entra_temporada_baja'
+             AND d.inputs->>'temporada_episodio_id' IS NOT NULL
+             AND c.status = 'done'
+             AND c.started_at > (
+                   SELECT created_at FROM config_version
+                    WHERE settings->>'ads_temporada_amazon_mx' = 'live'
+                      AND settings->>'ads_temporada_amazon_us' = 'live'
+                      AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
+                      AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+                    ORDER BY id
+                    LIMIT 1)
+           GROUP BY 1, 2
+          HAVING count(*) > 1) AS dos)
+     + (SELECT count(*)
+          FROM campana_ajuste a
+         WHERE a.clase = 'presupuesto'
+           AND a.confirmado_el IS NOT NULL
+           AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE')
+           AND a.creado_el > (
+                 SELECT created_at FROM config_version
+                  WHERE settings->>'ads_temporada_amazon_mx' = 'live'
+                    AND settings->>'ads_temporada_amazon_us' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
+                    AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+                  ORDER BY id
+                  LIMIT 1)) AS casos_de_paro,
+       CASE WHEN (
+           (SELECT count(DISTINCT d.id)
+              FROM decision d
+              JOIN optimizer_cycle c ON c.id = d.cycle_id
+              JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                                   AND aa.request_payload ? 'bid'
+              JOIN config_version cv ON cv.id = d.config_version_id
+             WHERE d.kind = 'bid'
+               AND d.inputs->>'motivo' = 'entra_temporada_baja'
+               AND d.old_value IS NOT NULL
+               AND cv.settings->'ads_temporada'->>'reduccion_baja_pct' IS NOT NULL
+               AND (aa.request_payload->>'bid')::numeric
+                   < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
+               AND c.status = 'done'
+               AND c.started_at > (
+                     SELECT created_at FROM config_version
+                      WHERE settings->>'ads_temporada_amazon_mx' = 'live'
+                        AND settings->>'ads_temporada_amazon_us' = 'live'
+                        AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
+                        AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+                      ORDER BY id
+                      LIMIT 1))
+           + (SELECT count(DISTINCT d.id)
                 FROM decision d
                 JOIN optimizer_cycle c ON c.id = d.cycle_id
-                JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
-               WHERE d.kind = 'bid'
-                 AND d.inputs->>'motivo' = 'entra_temporada_baja'
-                 AND d.inputs->>'temporada_episodio_id' IS NOT NULL
-                 AND c.status = 'done'
-                 AND c.started_at > (
-                       SELECT created_at FROM config_version
-                        WHERE settings->>'ads_temporada_amazon_mx' = 'live'
-                          AND settings->>'ads_temporada_amazon_us' = 'live'
-                          AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
-                          AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
-                        ORDER BY id
-                        LIMIT 1)
-               GROUP BY 1, 2
-              HAVING count(*) > 1) AS dos)
-           + (SELECT count(*)
-                FROM decision d
-                JOIN optimizer_cycle c ON c.id = d.cycle_id
-                JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
-                JOIN config_version cv ON cv.id = d.config_version_id
-               WHERE d.kind = 'bid'
-                 AND d.inputs->>'motivo' = 'entra_temporada_baja'
-                 AND cv.settings->'ads_temporada'->>'reduccion_baja_pct' IS NOT NULL
-                 AND d.new_value IS NOT NULL
-                 AND d.old_value IS NOT NULL
-                 AND d.new_value
-                     < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
-                 AND c.status = 'done'
-                 AND c.started_at > (
-                       SELECT created_at FROM config_version
-                        WHERE settings->>'ads_temporada_amazon_mx' = 'live'
-                          AND settings->>'ads_temporada_amazon_us' = 'live'
-                          AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
-                          AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
-                        ORDER BY id
-                        LIMIT 1))
-           + (SELECT count(*)
-                FROM decision d
-                JOIN optimizer_cycle c ON c.id = d.cycle_id
-                JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+                JOIN apply_attempt aa ON aa.decision_id = d.id AND aa.tipo = 'normal'
+                                     AND aa.request_payload ? 'bid'
                WHERE d.kind = 'bid'
                  AND d.inputs->>'motivo' = 'sale_temporada_baja'
-                 AND d.new_value IS NOT NULL
                  AND d.old_value IS NOT NULL
-                 AND d.new_value < d.old_value
+                 AND (aa.request_payload->>'bid')::numeric < d.old_value
                  AND c.status = 'done'
                  AND c.started_at > (
                        SELECT created_at FROM config_version
@@ -332,8 +416,7 @@ SELECT CASE
                 FROM decision_sin_aplicar s
                 JOIN optimizer_cycle c ON c.id = s.cycle_id
                WHERE s.motivo = 'bid_cambiado_fuera'
-                 AND EXISTS (SELECT 1 FROM decision_application da
-                              WHERE da.decision_id = s.decision_id)
+                 AND EXISTS (SELECT 1 FROM apply_attempt aa WHERE aa.decision_id = s.decision_id)
                  AND c.status = 'done'
                  AND c.started_at > (
                        SELECT created_at FROM config_version
@@ -343,6 +426,25 @@ SELECT CASE
                           AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
                         ORDER BY id
                         LIMIT 1))
+           + (SELECT count(*) FROM (
+                SELECT d.ad_entity_id, d.inputs->>'temporada_episodio_id'
+                  FROM decision d
+                  JOIN optimizer_cycle c ON c.id = d.cycle_id
+                  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+                 WHERE d.kind = 'bid'
+                   AND d.inputs->>'motivo' = 'entra_temporada_baja'
+                   AND d.inputs->>'temporada_episodio_id' IS NOT NULL
+                   AND c.status = 'done'
+                   AND c.started_at > (
+                         SELECT created_at FROM config_version
+                          WHERE settings->>'ads_temporada_amazon_mx' = 'live'
+                            AND settings->>'ads_temporada_amazon_us' = 'live'
+                            AND settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
+                            AND settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+                          ORDER BY id
+                          LIMIT 1)
+                 GROUP BY 1, 2
+                HAVING count(*) > 1) AS dos)
            + (SELECT count(*)
                 FROM campana_ajuste a
                WHERE a.clase = 'presupuesto'
