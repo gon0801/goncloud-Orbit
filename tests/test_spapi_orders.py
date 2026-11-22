@@ -1126,3 +1126,59 @@ def test_cli_registra_pipeline():
         cwd=str(ROOT),
     )
     assert "spapi_orders" in proc.stdout
+
+
+def test_pagina_con_entradas_no_dict_y_next_token_continua_paginando():
+    """Regresion Ola C2: una pagina con entradas no-objeto (p. ej. `[None]`) y
+    `nextToken` nuevo NO debe abortar la paginacion como pagina vacia."""
+    llamadas: list = []
+    paginas = [
+        {
+            "cuerpo": {
+                "payload": {
+                    "orders": [
+                        _resumen(
+                            "MX-P1",
+                            createdTime="2026-09-07T10:00:00Z",
+                            lastUpdatedTime="2026-09-07T11:00:00Z",
+                        )
+                    ],
+                    "pagination": {"nextToken": "P2"},
+                }
+            }
+        },
+        {
+            "token_entrada": "P2",
+            "cuerpo": {
+                "payload": {
+                    "orders": [None],
+                    "pagination": {"nextToken": "P3"},
+                }
+            },
+        },
+        {
+            "token_entrada": "P3",
+            "cuerpo": {
+                "payload": {
+                    "orders": [
+                        _resumen(
+                            "MX-P3",
+                            createdTime="2026-09-06T10:00:00Z",
+                            lastUpdatedTime="2026-09-06T11:00:00Z",
+                        )
+                    ]
+                }
+            },
+        },
+    ]
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_fixture(paginas, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    ordenes, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "A1AM78C64UM0Y8"})
+    assert [o["orderId"] for o in ordenes] == ["MX-P1", "MX-P3"]
+    assert info["paginas"] == 3
+    assert info["aviso_paginacion"] is None
+    assert len(llamadas) == 3

@@ -35,27 +35,27 @@ from __future__ import annotations
 import argparse
 import datetime
 import logging
-import os
-import sys
 import time
 from collections import Counter
-from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
-import httpx
 import psycopg
 
-from app.redaction import install_scrub_filter, scrub
+from app.redaction import install_scrub_filter
 from app.spapi._ingesta import (
-    HTTP_FATAL as _HTTP_FATAL,
-)
-from app.spapi._ingesta import (
-    HTTP_OMITIDO as _HTTP_OMITIDO,
+    AvanceEntidad as _Avance,
 )
 from app.spapi._ingesta import (
     abrir_run_spapi,
+    dia_utc,
+    ejecutar_cli_spapi,
+    ejecutar_con_politica_f2,
+    entero_no_negativo,
     formato_skip_reason,
+    llamar_json_spapi,
+    parsear_dinero_spapi,
     sellar_fallo_spapi,
     sellar_spapi,
     vigilar_umbral,
@@ -67,7 +67,6 @@ from app.spapi.client import (
     SpapiClient,
     SpapiNoPermitida,
     construir_ruta_ofertas,
-    sanear,
 )
 from app.spapi.salud import evaluar_alertas
 
@@ -83,10 +82,6 @@ RUTA_COMPETITIVO = "/products/pricing/v0/competitivePrice"
 # burst supuesto, 1 llamada cada 2 s como minimo).
 PRICING_TASA_SEG = 0.5
 PRICING_BURST = 1
-
-MONEDAS = frozenset({"MXN", "USD"})
-_MAX_DINERO = Decimal(10) ** 10
-_MAX_DECIMALES = Decimal("0.0001")
 
 _SQL_UNIVERSO = "SELECT DISTINCT external_id FROM listing WHERE platform = %s ORDER BY 1"
 _SQL_INSERTAR = """
@@ -111,15 +106,6 @@ class PrecioOmitido(Exception):
 
 class IngestaPricingError(Exception):
     """La corrida no pudo completarse (el sello ok=false queda cuando se puede)."""
-
-
-class _FalloHttp(Exception):
-    """Una llamada volvio status != 200; el pase decide por codigo (F2)."""
-
-    def __init__(self, asin: str, status: int) -> None:
-        super().__init__(f"pricing {asin} status={status}")
-        self.asin = asin
-        self.status = status
 
 
 @dataclass(frozen=True)
@@ -150,24 +136,7 @@ class ResultadoIngesta:
 
 
 def _dinero(obj: Any) -> tuple[Decimal | None, str | None]:
-    # Money de Amazon con CurrencyCode siempre presente; sin moneda
-    # utilizable (ausente, fuera de MXN/USD, monto ilegitimo) = (None, None).
-    if not isinstance(obj, dict):
-        return None, None
-    moneda = obj.get("CurrencyCode")
-    if not isinstance(moneda, str) or moneda.strip() not in MONEDAS:
-        return None, None
-    try:
-        monto = Decimal(str(obj.get("Amount")))
-    except (InvalidOperation, ValueError, TypeError):
-        return None, None
-    if not monto.is_finite() or abs(monto) >= _MAX_DINERO:
-        return None, None
-    try:
-        monto = monto.quantize(_MAX_DECIMALES)
-    except InvalidOperation:
-        return None, None
-    return monto, moneda.strip()
+    return parsear_dinero_spapi(obj, aceptar_camel=False)
 
 
 def _ofertas_de(carga: Any) -> list[dict]:
@@ -198,10 +167,7 @@ def _resumen_de(cuerpo_ofertas: Any) -> dict:
     return resumen if isinstance(resumen, dict) else {}
 
 
-def _entero_no_negativo(valor: Any) -> int | None:
-    if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
-        return None
-    return valor
+_entero_no_negativo = entero_no_negativo
 
 
 def _conteo_total_resumen(resumen: dict) -> int | None:
@@ -394,15 +360,15 @@ def _universo(conn: psycopg.Connection, platform: str) -> list[str]:
 
 
 def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, asin: str) -> Any:
-    # El cubo viaja DENTRO del get: cada intento (incluido el reintento por
-    # 429) consume cuota y honra x-amzn-RateLimit-Limit (revision #5).
-    resp = client.get(path, params=params, limitador=cubo)
-    if resp.status_code != 200:
-        raise _FalloHttp(asin, resp.status_code)
-    try:
-        return sanear(resp.json(), "pricing")
-    except ValueError:
-        raise IngestaPricingError(f"pricing {asin} respuesta no JSON") from None
+    return llamar_json_spapi(
+        client,
+        cubo,
+        path=path,
+        params=params,
+        fuente="pricing",
+        clave=asin,
+        error_cls=IngestaPricingError,
+    )
 
 
 def _vigilar_umbral(
@@ -426,20 +392,6 @@ def _vigilar_umbral(
     )
 
 
-@dataclass
-class _Avance:
-    """Contadores mutables del pase (el helper por ASIN los actualiza)."""
-
-    escritas: int = 0
-    vistas: int = 0
-    fallos: int = 0
-    racha: int = 0
-    llamadas: int = 0
-    skips: Counter = field(default_factory=Counter)
-    ultimo_status: int | None = None
-    total: int | None = None
-
-
 def _procesar_asin(
     conn: psycopg.Connection,
     client: SpapiClient,
@@ -453,20 +405,15 @@ def _procesar_asin(
     run_id: int,
     av: _Avance,
 ) -> None:
-    """Un ASIN: dos llamadas, parseo y su propia transaccion de INSERT (F1).
-
-    Los fallos siguen la politica F2 (omitir, contar o abortar); solo el
-    aborto sale como excepcion.
-    """
+    """Un ASIN: dos llamadas, parseo y su propia transaccion de INSERT (F1)."""
     try:
         ruta = construir_ruta_ofertas(asin)
     except SpapiNoPermitida:
         av.skips["asin_invalido"] += 1
         return
     av.vistas += 1
-    try:
-        # Llamadas logicas (una por endpoint/ASIN): los reintentos internos
-        # 401/429 del cliente consumen cuota pero no se cuentan aqui.
+
+    def _leer() -> PrecioParseado:
         av.llamadas += 1
         cuerpo_ofertas = _llamar(
             client,
@@ -487,46 +434,23 @@ def _procesar_asin(
             },
             asin=asin,
         )
-        precio = parsear_precios(
+        return parsear_precios(
             asin,
             cuerpo_ofertas,
             cuerpo_competitivo,
             vendedor_propio=propio,
         )
-    except PrecioOmitido as exc:
-        av.skips[exc.motivo] += 1
-        av.racha = 0
-        return
-    except _FalloHttp as exc:
-        if exc.status in _HTTP_OMITIDO:
-            av.skips[f"http_{exc.status}"] += 1
-            av.racha = 0
-            return
-        if exc.status in _HTTP_FATAL:
-            raise IngestaPricingError(f"pricing {asin} status={exc.status} persistente") from exc
-        av.fallos += 1
-        av.racha += 1
-        av.skips[f"http_{exc.status}"] += 1
-        av.ultimo_status = exc.status
-        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
-        return
-    except IngestaPricingError:
-        # Contrato o respuesta no JSON: cuenta contra el umbral (un cambio
-        # de forma tumba el pase en vez de escribir 342 filas vacias) sin
-        # matar el pase al primer ASIN raro.
-        av.fallos += 1
-        av.racha += 1
-        av.skips["contrato"] += 1
-        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
-        return
-    except httpx.HTTPError:
-        # Red (timeout, conexion): el cliente no reintenta 5xx/red por
-        # politica A.1; el PASE si los acota con el mismo umbral F2
-        # (revision #6: un timeout aislado no detiene el universo).
-        av.fallos += 1
-        av.racha += 1
-        av.skips["red"] += 1
-        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas, av.ultimo_status, total=av.total)
+
+    ok, precio = ejecutar_con_politica_f2(
+        clave=asin,
+        fuente="pricing",
+        error_cls=IngestaPricingError,
+        omitido_cls=PrecioOmitido,
+        av=av,
+        obtener_y_parsear=_leer,
+        vigilar=_vigilar_umbral,
+    )
+    if not ok:
         return
     with conn.transaction():
         cur = conn.execute(
@@ -534,7 +458,7 @@ def _procesar_asin(
             _fila_insert(
                 precio,
                 platform=platform,
-                metric_date=momento.astimezone(datetime.UTC).date(),
+                metric_date=dia_utc(momento),
                 observed_at=momento,
                 run_id=run_id,
             ),
@@ -696,30 +620,19 @@ def main(argv: list[str] | None = None) -> int:
         help="seller propio del marketplace (por defecto: el verificado en A.3)",
     )
     args = parser.parse_args(argv)
-    dsn = os.environ.get("ORBIT_DSN_INGEST")
-    if not dsn:
-        print(
-            "ORBIT_DSN_INGEST no esta definido: no se puede ingerir (fail-closed)",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        from app.db import connect
-
-        conn = connect(dsn)
-        try:
-            resultado = ejecutar_ingesta(
-                conn,
-                SpapiClient(),
-                platform=args.platform,
-                max_asins=args.max_asins,
-                vendedor_propio=args.seller_id,
-            )
-        finally:
-            conn.close()
-    except Exception as exc:
-        print(f"ingesta spapi_pricing fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
+    codigo, resultado = ejecutar_cli_spapi(
+        source=SOURCE,
+        cliente_factory=SpapiClient,
+        correr=lambda conn, client: ejecutar_ingesta(
+            conn,
+            client,
+            platform=args.platform,
+            max_asins=args.max_asins,
+            vendedor_propio=args.seller_id,
+        ),
+    )
+    if codigo != 0 or resultado is None:
+        return codigo
     print(
         f"spapi_pricing {args.platform}: run={resultado.run_id} "
         f"escritas={resultado.escritas} omitidas={resultado.omitidas} "

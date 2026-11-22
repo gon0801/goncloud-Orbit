@@ -31,9 +31,9 @@ ads_report_result); la fase de DB corre en UNA transaccion por grupo con el
 resultado contable).
 
 `reloj` y `sleep` se inyectan: los tests manejan un calendario falso (5 s/30 s
-sin dormir). El modulo NO importa app.ads.reports a nivel de modulo: reports
-y placements delegan aqui su fase de API (import de descarga a nivel modulo)
-y descarga los usa por import diferido, para no armar un ciclo.
+sin dormir). El modulo importa sus primitivas de reporte de
+`app.ads.reports_specs` a nivel de modulo (DAG aciclico: `reports` y
+`placements` dependen de `descarga` y de `reports_specs`, nunca al reves).
 """
 
 from __future__ import annotations
@@ -49,6 +49,14 @@ from typing import Any
 import psycopg
 
 from app.ads.client import AdsApiError
+from app.ads.reports_specs import (
+    MAX_BYTES_REPORTE,
+    AdsReportsError,
+    descargar_filas,
+    solicitar_reporte,
+)
+from app.ads.reports_specs import json_de as _json_de
+from app.ads.reports_specs import registrar_resultado as _registrar_resultado
 from app.ads.salud import intentar_procesar_run
 from app.ads.structure import (
     PerfilAds,
@@ -179,8 +187,6 @@ def _emitir_post(client, logico: _Logico, ahora: float) -> None:
     cliente). Otro 4xx -> _FalloDeGrupo. Sin pedidos disponibles -> queda lo
     que haya (el plazo de sondeo falla el grupo si nada completo).
     """
-    from app.ads.reports import AdsReportsError, solicitar_reporte
-
     while True:
         if logico.pedidos == 0:
             sufijo = ""
@@ -227,8 +233,6 @@ def _url_de_completado(data: dict, report_id: str) -> str:
     """Valida el COMPLETED antes de descargar (fileSize anormal = fail-closed
     ANTES de meter el gzip a memoria). Misma iglesia que la validacion que el
     pipeline secuencial hacia en su poll antes de descargar."""
-    from app.ads.reports import MAX_BYTES_REPORTE, AdsReportsError
-
     url = data.get("url")
     if not isinstance(url, str) or not url:
         raise AdsReportsError(f"reporte {report_id} COMPLETED sin url de descarga")
@@ -257,9 +261,17 @@ def _registrar(
     *,
     rango: tuple[dt.date, dt.date] | None = None,
 ) -> None:
-    from app.ads.reports import _registrar_resultado
-
     _registrar_resultado(conn, run_id, perfil, cfg, report_id, status, reason, rango=rango)
+
+
+def _run_ya_sellada(conn: psycopg.Connection, run_id: int) -> bool:
+    """True si `ingest_run` ya tiene `finished_at` (evita doble sellado tras al_completar)."""
+    with conn.transaction():
+        fila = conn.execute(
+            "SELECT finished_at IS NOT NULL FROM ingest_run WHERE id = %s",
+            (run_id,),
+        ).fetchone()
+    return bool(fila and fila[0])
 
 
 def _sondear_intento(
@@ -268,8 +280,6 @@ def _sondear_intento(
     """Un GET de estado. COMPLETED -> descarga (validando) y marca ganador;
     FAILED -> terminal + repetido; PENDING/PROCESSING -> repetido si pasaron
     40 min; GET que falla -> se reintenta la siguiente vuelta."""
-    from app.ads.reports import AdsReportsError, _json_de, descargar_filas
-
     path = f"/reporting/reports/{intento.report_id}"
     try:
         data = _json_de(
@@ -374,36 +384,44 @@ class _Corrida:
         exc: BaseException | None = None,
         fallos: list[tuple[str | None, str | None, int | None]] | None = None,
         unidad: tuple[PerfilAds | None, dict | None, str | None] | None = None,
+        verificar_sello_previo: bool = False,
     ) -> None:
         if grupo.clave in self.sellado:
             return
         self.sellado.add(grupo.clave)
-        try:
-            with self.conn.transaction():
-                if unidad is not None:
-                    perfil, cfg, reason = unidad
-                    _registrar(
+        ya_sellada = False
+        if verificar_sello_previo:
+            try:
+                ya_sellada = _run_ya_sellada(self.conn, self.run_ids[grupo.clave])
+            except Exception:
+                ya_sellada = False
+        if not ya_sellada:
+            try:
+                with self.conn.transaction():
+                    if unidad is not None:
+                        perfil, cfg, reason = unidad
+                        _registrar(
+                            self.conn,
+                            self.run_ids[grupo.clave],
+                            perfil,
+                            cfg,
+                            None,
+                            "failed",
+                            reason,
+                            rango=(self.fecha_ini, self.fecha_fin),
+                        )
+                    _sellar_run(
                         self.conn,
                         self.run_ids[grupo.clave],
-                        perfil,
-                        cfg,
-                        None,
-                        "failed",
-                        reason,
-                        rango=(self.fecha_ini, self.fecha_fin),
+                        ok=False,
+                        rows_skipped=0,
+                        skip_reason=skip_reason,
                     )
-                _sellar_run(
-                    self.conn,
+            except Exception:
+                logger.warning(
+                    "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo",
                     self.run_ids[grupo.clave],
-                    ok=False,
-                    rows_skipped=0,
-                    skip_reason=skip_reason,
                 )
-        except Exception:
-            logger.warning(
-                "ingest_run %s quedo ABIERTA: fallo tambien su sello de fallo",
-                self.run_ids[grupo.clave],
-            )
         intentar_procesar_run(self.conn, self.run_ids[grupo.clave])
         self.resultados[grupo.clave] = ResultadoGrupo(
             clave=grupo.clave,
@@ -606,7 +624,7 @@ class _Corrida:
                     fecha_ini=self.fecha_ini,
                     fecha_fin=self.fecha_fin,
                 )
-            except Exception as exc:  # el escritor ya sello ok=false
+            except Exception as exc:  # si el escritor ya sello ok=false, no resella
                 self._sellar_fallo(
                     grupo,
                     "error",
@@ -616,6 +634,7 @@ class _Corrida:
                         (logico.perfil.platform, logico.cfg["nombre"], logico.perfil.profile_id)
                         for logico in suyos
                     ],
+                    verificar_sello_previo=True,
                 )
             else:
                 self.sellado.add(grupo.clave)

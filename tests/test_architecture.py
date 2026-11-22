@@ -116,11 +116,6 @@ ALLOWLIST_TAMANO = {
         "compartidos (pendientes, sellos, pausador propio); partirlo por "
         "cuota separaria lanza de su reconciliacion — jamas partir por partir"
     ),
-    "app/ads/reports.py": (
-        "pipeline compartido de reporting v3 (metricas + search terms + "
-        "fusion de grano); candidato DECLARADO a partirse en "
-        "report_pipeline/metrics/terms la proxima vez que se toque en grande"
-    ),
     "app/cycle.py": (
         "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
         "plan (importa psycopg, fuera del motor puro) y API publica sellada "
@@ -185,7 +180,6 @@ ALLOWLIST_TAMANO = {
 # pero NUNCA crecer silenciosamente sin justificar el techo en review.
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/optimizer/politica.py": 911,
-    "app/ads/reports.py": 1076,
     "app/api_dashboard.py": 2244,
     # TEMPORADA 01 B (0093): cierres de efecto en _confirma_resumen, la
     # lectura fresca del aplicador pendiente del bloque E, el vocabulario

@@ -821,3 +821,72 @@ def test_corrida_metricas_sellada_ok_y_unidades(conn_pg):
     ).fetchall()
     assert filas == [("downloaded", 8), ("pending", 8), ("written", 8)]
     assert SOURCE == "amazon_ads_reports_v3"
+
+
+@_skip_db
+def test_fallo_de_escritor_no_resella_ni_deja_transaccion_abierta(conn_pg):
+    """Regresion Ola C2: tras fallo del escritor que ya sello ok=False,
+    `_run_ya_sellada` corre en su propia transaccion, NO resella la run y NO
+    deja una transaccion implicita abierta en una conexion autocommit=False
+    (de modo que los grupos posteriores si confirman en DB y son visibles desde
+    otra conexion antes de cerrar el CLI)."""
+    import psycopg
+    from psycopg import pq
+
+    from app.ingest_run import sellar_run
+
+    reloj, duerme = _calendario_falso()
+    teatro = _Teatro(reloj, fecha_ini=dt.date(2026, 10, 20))
+    teatro.estado("rep-campanas-101", lambda _t: {"status": "COMPLETED"})
+    teatro.estado("rep-campanas-202", lambda _t: {"status": "COMPLETED"})
+    teatro.estado("rep-keywords-101", lambda t: {"status": "COMPLETED" if t >= 5 else "PROCESSING"})
+    teatro.estado("rep-keywords-202", lambda t: {"status": "COMPLETED" if t >= 5 else "PROCESSING"})
+
+    g_fallo = GrupoDescarga(clave="fallo", source="test_c2_fallo", cfgs=(CAMPANAS_CFG,))
+    g_ok = GrupoDescarga(clave="ok", source="test_c2_ok", cfgs=(KEYWORDS_CFG,))
+
+    def _al_completar(conn, run_id, grupo, _items, **_kwargs):
+        if grupo.clave == "fallo":
+            with conn.transaction():
+                sellar_run(
+                    conn,
+                    run_id,
+                    ok=False,
+                    rows_written=0,
+                    rows_skipped=0,
+                    skip_reason="sello_original_escritor",
+                )
+            raise RuntimeError("error_posterior_al_sello")
+        with conn.transaction():
+            sellar_run(conn, run_id, ok=True, rows_written=7, rows_skipped=0, skip_reason=None)
+        return ResultadoEscritura(rows_written=7, rows_skipped=0, skip_reason=None)
+
+    conn_cli = psycopg.connect(_test_dsn(), dbname=conn_pg.info.dbname, autocommit=False)
+    try:
+        resultados = descarga(
+            conn_cli,
+            teatro._cliente(),
+            [g_fallo, g_ok],
+            (teatro.fecha_ini, teatro.fecha_ini),
+            reloj=lambda: reloj["t"],
+            sleep=duerme,
+            al_completar=_al_completar,
+        )
+        assert resultados["fallo"].ok is False
+        assert resultados["ok"].ok is True
+        assert conn_cli.info.transaction_status == pq.TransactionStatus.IDLE
+
+        # Desde una segunda conexion independiente (antes de cerrar conn_cli):
+        fila_fallo = conn_pg.execute(
+            "SELECT ok, finished_at IS NOT NULL, skip_reason FROM ingest_run WHERE id = %s",
+            (resultados["fallo"].run_id,),
+        ).fetchone()
+        assert fila_fallo == (False, True, "sello_original_escritor")
+
+        fila_ok = conn_pg.execute(
+            "SELECT ok, finished_at IS NOT NULL, rows_written FROM ingest_run WHERE id = %s",
+            (resultados["ok"].run_id,),
+        ).fetchone()
+        assert fila_ok == (True, True, 7)
+    finally:
+        conn_cli.close()

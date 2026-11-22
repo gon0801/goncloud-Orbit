@@ -747,10 +747,10 @@ def test_aislamiento_sin_imports_ads():
 
 
 def test_aislamiento_grafo_runtime_solo_config_inerte():
-    """En runtime `import app.spapi.salud` SI mete app.ads en sys.modules,
-    pero SOLO app.ads.config (constantes inertes, cero IO) via
-    app/notifica.py:38 — nunca app.ads.write/client. Allowlist explicita
-    en subproceso limpio (el proceso de pytest ya trae medio mundo)."""
+    """En runtime `import app.spapi.salud` no debe meter ningun modulo de
+    `app.ads` en sys.modules (Ola B1 movio `directorio_secretos` a
+    `app/secrets.py`, cortando la antigua dependencia transitiva de
+    `app.notifica` hacia `app.ads.config`)."""
     import subprocess
 
     codigo = (
@@ -767,7 +767,7 @@ def test_aislamiento_grafo_runtime_solo_config_inerte():
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    assert ast.literal_eval(proc.stdout.strip()) == ["app.ads", "app.ads.config"]
+    assert ast.literal_eval(proc.stdout.strip()) == []
 
 
 @_skip_db

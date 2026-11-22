@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import datetime
 import logging
-import os
 import sys
 import time
 from collections import Counter
@@ -32,11 +31,15 @@ from typing import Any
 
 import psycopg
 
-from app.redaction import install_scrub_filter, scrub
+from app.redaction import install_scrub_filter
 from app.spapi._ingesta import (
     abrir_run_spapi,
     dia_utc,
+    ejecutar_cli_spapi,
+    entero_no_negativo,
     formato_skip_reason,
+    recorrer_paginas_spapi,
+    sellar_con_aviso_paginacion,
     sellar_fallo_spapi,
     sellar_spapi,
     texto_limpio,
@@ -46,8 +49,6 @@ from app.spapi.client import (
     RUTA_INVENTARIO,
     CuboTasa,
     SpapiClient,
-    sanear,
-    siguiente_token,
 )
 from app.spapi.salud import evaluar_alertas
 
@@ -108,12 +109,7 @@ class ResultadoIngesta:
 
 _texto = texto_limpio
 _dia_utc = dia_utc
-
-
-def _cantidad(valor: Any) -> int | None:
-    if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
-        return None
-    return valor
+_cantidad = entero_no_negativo
 
 
 def parsear_summary(obj: Any) -> InventarioParseado:
@@ -163,70 +159,21 @@ def recorrer_summaries(
     cubo: CuboTasa | None = None,
     medidor: Counter | None = None,
 ) -> tuple[list[dict], dict]:
-    """Recorre todas las paginas con las guardas hermanas de orders.
-
-    Devuelve (resenas crudas acumuladas, info con paginas/conteo/aviso).
-    Un status != 200 es fatal; pagina vacia o token repetido paran y se
-    marcan, nunca loop. Con `medidor`, cada intento HTTP suma
-    `medidor["llamadas"]` (hallazgo 2 grok: si el recorrido muere, el
-    sello igual declara las llamadas que si ocurrieron).
-    """
-    if max_paginas < 1:
-        raise IngestaInventarioError("--max-paginas debe ser >= 1")
-    # Reloj y espera salen del cliente (inyectables en tests).
-    if cubo is None:
-        cubo = CuboTasa(
-            sleep=client._sleep,
-            clock=client._clock,
-            capacidad=INVENTARIO_BURST,
-            tasa=INVENTARIO_TASA_SEG,
-        )
-    resenas: list[dict] = []
-    vistos: set[str] = set()
-    token: str | None = None
-    aviso: str | None = None
-    siguiente: str | None = None
-    paginas = 0
-    llamadas = 0
-    for pagina in range(1, max_paginas + 1):
-        params = dict(params_base)
-        if token is not None:
-            params["nextToken"] = token
-        # El cubo viaja DENTRO del get (patron A.3 revision #5).
-        resp = client.get(RUTA_INVENTARIO, params=params, limitador=cubo)
-        llamadas += 1
-        if medidor is not None:
-            medidor["llamadas"] += 1
-        if resp.status_code != 200:
-            raise IngestaInventarioError(f"inventario status={resp.status_code}")
-        try:
-            carga = resp.json()
-        except ValueError:
-            raise IngestaInventarioError("inventario respuesta no JSON") from None
-        carga = sanear(carga, "inventario")
-        lote = _resenas_de(carga)
-        paginas = pagina
-        resenas.extend(lote)
-        siguiente = siguiente_token(carga)
-        if siguiente is None:
-            break
-        if siguiente in vistos:
-            aviso = "next_token_repetido"
-            break
-        if not lote:
-            aviso = "pagina_vacia_con_token"
-            break
-        vistos.add(siguiente)
-        token = siguiente
-    else:
-        if siguiente is not None:
-            aviso = "limite_max_paginas"
-    return resenas, {
-        "paginas": paginas,
-        "conteo": len(resenas),
-        "aviso_paginacion": aviso,
-        "llamadas": llamadas,
-    }
+    """Recorre todas las paginas con las guardas compartidas de `app.spapi._ingesta`."""
+    return recorrer_paginas_spapi(
+        client,
+        ruta=RUTA_INVENTARIO,
+        params_base=params_base,
+        param_token="nextToken",
+        fuente="inventario",
+        error_cls=IngestaInventarioError,
+        extraer_lote=_resenas_de,
+        capacidad=INVENTARIO_BURST,
+        tasa=INVENTARIO_TASA_SEG,
+        max_paginas=max_paginas,
+        cubo=cubo,
+        medidor=medidor,
+    )
 
 
 def _fila_insert(
@@ -249,12 +196,6 @@ def _fila_insert(
         API_VERSION,
         run_id,
     )
-
-
-def _formato_skip_reason(skips: Counter) -> str | None:
-    if not skips:
-        return None
-    return ", ".join(f"{n}x {motivo}" for motivo, n in sorted(skips.items()))
 
 
 _sellar = sellar_spapi
@@ -319,30 +260,14 @@ def ejecutar_ingesta(
                     escritas += 1
                 else:
                     skips["duplicada"] += 1
-            motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
-            if aviso is not None:
-                motivo_aviso = f"paginacion_incompleta:{aviso}"
-                if motivo:
-                    motivo_aviso = f"{motivo_aviso}; {motivo}"
-                _sellar(
-                    conn,
-                    run_id,
-                    ok=False,
-                    escritas=escritas,
-                    skips=skips,
-                    motivo=motivo_aviso,
-                    llamadas=llamadas,
-                )
-            else:
-                _sellar(
-                    conn,
-                    run_id,
-                    ok=True,
-                    escritas=escritas,
-                    skips=skips,
-                    motivo=motivo,
-                    llamadas=llamadas,
-                )
+            sellar_con_aviso_paginacion(
+                conn,
+                run_id,
+                aviso=aviso,
+                escritas=escritas,
+                skips=skips,
+                llamadas=llamadas,
+            )
         # A.5: alertas en flanco, FUERA de la transaccion del sello
         # (fail-silent: jamas rompe la ingesta).
         evaluar_alertas(conn, SOURCE, platform, run_id)
@@ -391,32 +316,18 @@ def main(argv: list[str] | None = None) -> int:
         "--max-paginas", type=int, default=MAX_PAGINAS_DEFAULT, help="tope de paginas"
     )
     args = parser.parse_args(argv)
-    dsn = os.environ.get("ORBIT_DSN_INGEST")
-    if not dsn:
-        print(
-            "ORBIT_DSN_INGEST no esta definido: no se puede ingerir (fail-closed)",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        from app.db import connect
-
-        conn = connect(dsn)
-        try:
-            resultado = ejecutar_ingesta(
-                conn,
-                SpapiClient(),
-                platform=args.platform,
-                max_paginas=args.max_paginas,
-            )
-        finally:
-            conn.close()
-    except IngestaInventarioError as exc:
-        print(f"ingesta spapi_inventario fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"ingesta spapi_inventario fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
+    codigo, resultado = ejecutar_cli_spapi(
+        source=SOURCE,
+        cliente_factory=SpapiClient,
+        correr=lambda conn, client: ejecutar_ingesta(
+            conn,
+            client,
+            platform=args.platform,
+            max_paginas=args.max_paginas,
+        ),
+    )
+    if codigo != 0 or resultado is None:
+        return codigo
     print(
         f"spapi_inventario {args.platform}: run={resultado.run_id} "
         f"escritas={resultado.escritas} omitidas={resultado.omitidas} "

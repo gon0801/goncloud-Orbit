@@ -29,25 +29,30 @@ from __future__ import annotations
 import argparse
 import datetime
 import logging
-import os
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 import psycopg
 
-from app.ingest_run import formato_skip_reason, sellar_fallo_seguro, sellar_run
-from app.redaction import install_scrub_filter, scrub
-from app.spapi._ingesta import abrir_run_spapi
+from app.ingest_run import formato_skip_reason
+from app.redaction import install_scrub_filter
+from app.spapi._ingesta import (
+    abrir_run_spapi,
+    ejecutar_cli_spapi,
+    parsear_dinero_spapi,
+    recorrer_paginas_spapi,
+    sellar_con_aviso_paginacion,
+    sellar_fallo_spapi,
+    sellar_spapi,
+    texto_limpio,
+)
 from app.spapi.client import (
     MERCADOS,
     CuboTasa,
     SpapiClient,
-    prefijo_motivo,
-    sanear,
-    siguiente_token,
 )
 from app.spapi.salud import evaluar_alertas
 
@@ -61,10 +66,6 @@ RESULTADOS_POR_PAGINA = "100"
 MAX_PAGINAS_DEFAULT = 100
 DIAS_INICIAL_DEFAULT = 30
 SOLAPE_DIAS = 1
-
-MONEDAS = frozenset({"MXN", "USD"})
-_MAX_DINERO = Decimal(10) ** 10
-_MAX_DECIMALES = Decimal("0.0001")
 
 # Rate limit oficial de Orders (E/0.1: 0.0056 req/s, burst 20). El cubo
 # vive en app.spapi.client (una copia, A.3).
@@ -147,33 +148,7 @@ def _parsear_tiempo(valor: Any, *, campo: str) -> datetime.datetime | None:
 
 
 def _parsear_dinero(obj: Any) -> tuple[Decimal | None, str | None]:
-    # Formas Money de Amazon: v0 {"Amount", "CurrencyCode"} y 2026
-    # {"amount", "currencyCode"} (grandTotal de PROCEEDS, acta A.2b).
-    # Ausente o incoherente = (None, None): la fila se escribe igual porque
-    # la identidad es orden + tiempo, no el total (regla 3).
-    if not isinstance(obj, dict):
-        return None, None
-    # Respaldo solo por None (no falsy): un Amount de 0 es valido y un null
-    # en la clave v0 no debe tapar la clave 2026.
-    moneda = obj.get("CurrencyCode")
-    if moneda is None:
-        moneda = obj.get("currencyCode")
-    if not isinstance(moneda, str) or moneda.strip() not in MONEDAS:
-        return None, None
-    bruto = obj.get("Amount")
-    if bruto is None:
-        bruto = obj.get("amount")
-    try:
-        monto = Decimal(str(bruto))
-    except (InvalidOperation, ValueError, TypeError):
-        return None, None
-    if not monto.is_finite() or abs(monto) >= _MAX_DINERO:
-        return None, None
-    try:
-        monto = monto.quantize(_MAX_DECIMALES)
-    except InvalidOperation:
-        return None, None
-    return monto, moneda.strip()
+    return parsear_dinero_spapi(obj, aceptar_camel=True)
 
 
 def _parsear_items(valor: Any) -> int | None:
@@ -193,10 +168,7 @@ def _parsear_items(valor: Any) -> int | None:
     return None
 
 
-def _texto(valor: Any) -> str | None:
-    if isinstance(valor, str) and valor.strip():
-        return valor.strip()
-    return None
+_texto = texto_limpio
 
 
 def parsear_orden(obj: Any) -> OrdenParseada:
@@ -290,6 +262,23 @@ def parametros_ventana(
     return base
 
 
+def _extraer_ordenes(carga: Any) -> list[dict]:
+    if not isinstance(carga, dict):
+        raise IngestaOrdersError("contrato inesperado: sin lista orders")
+    cont = carga.get("payload", carga)
+    if not isinstance(cont, dict) or "orders" not in cont:
+        raise IngestaOrdersError("contrato inesperado: sin lista orders")
+    lote = cont["orders"]
+    if not isinstance(lote, list):
+        raise IngestaOrdersError("contrato inesperado: sin lista orders")
+    return [o for o in lote if isinstance(o, dict)]
+
+
+def _pagina_ordenes_vacia(carga: Any, _lote: list[dict]) -> bool:
+    cont = carga.get("payload", carga)
+    return len(cont["orders"]) == 0
+
+
 def recorrer_ordenes(
     client: SpapiClient,
     params_base: dict,
@@ -297,74 +286,25 @@ def recorrer_ordenes(
     max_paginas: int = MAX_PAGINAS_DEFAULT,
     cubo: CuboTasa | None = None,
 ) -> tuple[list[dict], dict]:
-    """Sigue `paginationToken` con las guardas de TRASPASO-1.
-
-    Devuelve (ordenes crudas acumuladas, info con paginas/conteo/aviso).
-    Un status != 200 es fatal (la corrida sella ok=false); pagina vacia o
-    token repetido paran y se marcan, nunca loop. El cubo viaja DENTRO del
-    get: cada intento (incluido el reintento por 429) consume cuota y honra
-    `x-amzn-RateLimit-Limit` (revision #5); sin cubo se construye el de
-    Orders y el comportamiento previo queda intacto.
-    """
-    if max_paginas < 1:
-        raise IngestaOrdersError("--max-paginas debe ser >= 1")
-    # Reloj y espera salen del cliente (inyectables en tests).
-    if cubo is None:
-        cubo = CuboTasa(
-            sleep=client._sleep,
-            clock=client._clock,
-            capacidad=ORDERS_BURST,
-            tasa=ORDERS_TASA_SEG,
-        )
-    ordenes: list[dict] = []
-    vistos: set[str] = set()
-    token: str | None = None
-    aviso: str | None = None
-    siguiente: str | None = None
-    paginas = 0
-    for pagina in range(1, max_paginas + 1):
-        params = dict(params_base)
-        if token is not None:
-            params["paginationToken"] = token
-        resp = client.get(RUTA_ORDERS, params=params, limitador=cubo)
-        if resp.status_code != 200:
-            raise IngestaOrdersError(f"orders status={resp.status_code}")
-        try:
-            carga = resp.json()
-        except ValueError:
-            raise IngestaOrdersError("orders respuesta no JSON") from None
-        carga = sanear(carga, "orders")
-        # Contrato estricto: sin lista `orders` no hay nada que conciliar
-        # (la corrida sella ok=false); la lista VACIA con la clave presente
-        # si es valida (puede ser ventana sin pedidos).
-        if not isinstance(carga, dict):
-            raise IngestaOrdersError("contrato inesperado: sin lista orders")
-        cont = carga.get("payload", carga)
-        if not isinstance(cont, dict) or "orders" not in cont:
-            raise IngestaOrdersError("contrato inesperado: sin lista orders")
-        lote = cont["orders"]
-        if not isinstance(lote, list):
-            raise IngestaOrdersError("contrato inesperado: sin lista orders")
-        paginas = pagina
-        ordenes.extend(o for o in lote if isinstance(o, dict))
-        siguiente = siguiente_token(carga)
-        if siguiente is None:
-            break
-        if siguiente in vistos:
-            aviso = "next_token_repetido"
-            break
-        if not lote:
-            aviso = "pagina_vacia_con_token"
-            break
-        vistos.add(siguiente)
-        token = siguiente
-    else:
-        if siguiente is not None:
-            aviso = "limite_max_paginas"
+    """Sigue `paginationToken` con las guardas compartidas de `app.spapi._ingesta`."""
+    ordenes, info = recorrer_paginas_spapi(
+        client,
+        ruta=RUTA_ORDERS,
+        params_base=params_base,
+        param_token="paginationToken",
+        fuente="orders",
+        error_cls=IngestaOrdersError,
+        extraer_lote=_extraer_ordenes,
+        pagina_vacia=_pagina_ordenes_vacia,
+        capacidad=ORDERS_BURST,
+        tasa=ORDERS_TASA_SEG,
+        max_paginas=max_paginas,
+        cubo=cubo,
+    )
     return ordenes, {
-        "paginas": paginas,
-        "conteo": len(ordenes),
-        "aviso_paginacion": aviso,
+        "paginas": info["paginas"],
+        "conteo": info["conteo"],
+        "aviso_paginacion": info["aviso_paginacion"],
     }
 
 
@@ -464,35 +404,21 @@ def ejecutar_ingesta(
                     escritas += 1
                 else:
                     skips["duplicada"] += 1
-            motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
             # Paginacion incompleta no es exito: las filas parciales ya se
             # escriben y el siguiente watermark avanza sobre el hueco, asi que
             # ok=False deja rastro en ingest_run para reparar con --desde.
-            if aviso is not None:
-                motivo_aviso = f"paginacion_incompleta:{aviso}"
-                if motivo:
-                    motivo_aviso = f"{motivo_aviso}; {motivo}"
-                _sellar(
-                    conn,
-                    run_id,
-                    ok=False,
-                    escritas=escritas,
-                    skips=skips,
-                    motivo=motivo_aviso,
-                )
-            else:
-                _sellar(conn, run_id, ok=True, escritas=escritas, skips=skips, motivo=motivo)
+            sellar_con_aviso_paginacion(
+                conn,
+                run_id,
+                aviso=aviso,
+                escritas=escritas,
+                skips=skips,
+            )
         # A.5: alertas en flanco, FUERA de la transaccion del sello
         # (fail-silent: jamas rompe la ingesta).
         evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
-        sellar_fallo_seguro(
-            conn,
-            run_id,
-            exc,
-            motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
-            tras_sellar=lambda: evaluar_alertas(conn, SOURCE, platform, run_id),
-        )
+        sellar_fallo_spapi(conn, run_id, exc, source=SOURCE, platform=platform)
         raise
     return ResultadoIngesta(
         run_id=run_id,
@@ -506,23 +432,7 @@ def ejecutar_ingesta(
     )
 
 
-def _sellar(
-    conn: psycopg.Connection,
-    run_id: int,
-    *,
-    ok: bool,
-    escritas: int,
-    skips: Counter,
-    motivo: str | None,
-) -> None:
-    sellar_run(
-        conn,
-        run_id,
-        ok=ok,
-        rows_written=escritas,
-        rows_skipped=sum(v for v in skips.values() if v > 0),
-        skip_reason=motivo,
-    )
+_sellar = sellar_spapi
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -555,34 +465,20 @@ def main(argv: list[str] | None = None) -> int:
         help="backfill A.2b (YYYY-MM-DD): fuerza lastUpdatedAfter a esa fecha",
     )
     args = parser.parse_args(argv)
-    dsn = os.environ.get("ORBIT_DSN_INGEST")
-    if not dsn:
-        print(
-            "ORBIT_DSN_INGEST no esta definido: no se puede ingerir (fail-closed)",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        from app.db import connect
-
-        conn = connect(dsn)
-        try:
-            resultado = ejecutar_ingesta(
-                conn,
-                SpapiClient(),
-                platform=args.platform,
-                max_paginas=args.max_paginas,
-                dias_inicial=args.dias_inicial,
-                desde=args.desde,
-            )
-        finally:
-            conn.close()
-    except IngestaOrdersError as exc:
-        print(f"ingesta spapi_orders fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"ingesta spapi_orders fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
+    codigo, resultado = ejecutar_cli_spapi(
+        source=SOURCE,
+        cliente_factory=SpapiClient,
+        correr=lambda conn, client: ejecutar_ingesta(
+            conn,
+            client,
+            platform=args.platform,
+            max_paginas=args.max_paginas,
+            dias_inicial=args.dias_inicial,
+            desde=args.desde,
+        ),
+    )
+    if codigo != 0 or resultado is None:
+        return codigo
     print(
         f"spapi_orders {args.platform}: run={resultado.run_id} "
         f"escritas={resultado.escritas} omitidas={resultado.omitidas} "
