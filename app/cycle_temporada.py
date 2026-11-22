@@ -112,6 +112,7 @@ def _compara_temporada(
     """En practica (shadow) solo registra diferencias en notes.temporada."""
     contadores.temporada_sombra_comparadas += 1
     if veredicto_sombra != veredicto:
+        destino = getattr(veredicto_sombra, "bid_nuevo", None)
         contadores.temporada_sombra_diferencias.append(
             {
                 "hoja_id": entidad_id,
@@ -119,6 +120,9 @@ def _compara_temporada(
                 "motivo_real": getattr(veredicto, "motivo", None),
                 "sombra": veredicto_sombra.__class__.__name__,
                 "motivo_sombra": getattr(veredicto_sombra, "motivo", None),
+                # El destino de la sombra (Mover/Regresar) es lo que hace
+                # revisable el m* de una subida rapida en la practica.
+                "destino_sombra": None if destino is None else str(destino),
                 "caso": caso.como_json(),
             }
         )

@@ -277,7 +277,14 @@ class LecturasPlataforma:
     _historia: dict[int, HistoriaBid] | None = None
     _historia_desde: dt.date | None = None
     _recuperacion: InsumosRecuperacion | None = None
+    # El caso que decide solo lleva los marcadores de recuperacion y de
+    # presupuesto cuando su motor esta en live; el caso de sombra los lleva
+    # siempre (diseno, decision 12: la practica decide un segundo caso con
+    # marcadores). Por defecto live, que es como los llamadores historicos
+    # construian el unico caso.
+    _recuperacion_live: bool = True
     _presupuesto: dict[int, PresupuestoCampana] | None = None
+    _presupuesto_live: bool = True
 
     def frontera(
         self,
@@ -430,9 +437,12 @@ class LecturasPlataforma:
         historia_caso = None
         recuperacion_caso = None
         t = self._temporada
-        con_cadena = (t is not None and (t.modo == "live" or sombra) and con_temporada) or (
-            self._recuperacion is not None and con_temporada
+        recuperacion_decide = (
+            self._recuperacion is not None and con_temporada and (sombra or self._recuperacion_live)
         )
+        con_cadena = (
+            t is not None and (t.modo == "live" or sombra) and con_temporada
+        ) or recuperacion_decide
         if con_cadena:
             historia_caso = self._historia.get(hoja_id) or HistoriaBid(
                 desde=self._historia_desde or self._d,
@@ -449,10 +459,10 @@ class LecturasPlataforma:
                     meta_manual=procedencia in ("goal_campana", "goal_plataforma"),
                     frontera=self.frontera(hoja_id, bid.valor, piso=bid.piso, techo=bid.techo),
                 )
-            if self._recuperacion is not None:
+            if recuperacion_decide:
                 recuperacion_caso = self._recuperacion
         presupuesto_caso = None
-        if self._presupuesto is not None:
+        if self._presupuesto is not None and (sombra or self._presupuesto_live):
             campana = self._campanas.get(hoja_id)
             presupuesto_caso = self._presupuesto.get(campana) if campana is not None else None
         return CasoHoja(
@@ -590,7 +600,9 @@ def lee_plataforma(
     version_economia: str | None = None,
     temporada_plat: TemporadaPlataforma | None = None,
     recuperacion: InsumosRecuperacion | None = None,
+    recuperacion_live: bool = True,
     campana_topada: temporada.CampanaTopada | None = None,
+    presupuesto_live: bool = True,
 ) -> LecturasPlataforma:
     """Lectura unica por plataforma y ciclo (v_metric_latest o metrics_as_of)."""
     _exige_tz(decidido_el, "decidido_el")
@@ -747,5 +759,7 @@ def lee_plataforma(
         _historia=historia,
         _historia_desde=desde_historia,
         _recuperacion=recuperacion,
+        _recuperacion_live=recuperacion_live,
         _presupuesto=presupuesto,
+        _presupuesto_live=presupuesto_live,
     )

@@ -651,13 +651,15 @@ def _recorre_plataforma(
                 conn, platform, plat_t.config.mantener_pausadas
             )
         modo_r = temporada.modo_recuperacion_desde_settings(settings, platform)
-        if modo_r == "live":
+        if modo_r is not None:
+            # Tambien en practica: el segundo caso (sombra) lleva el marcador y
+            # el caso que decide no (diseno, decision 12). Sin esto la practica
+            # nunca compara R6r y el encendido llega sin sus numeros.
             rec_r = InsumosRecuperacion(
                 version="recuperacion_v1",
                 memoria_dias=temporada.memoria_recuperacion_desde_settings(settings, platform),
             )
-            topada_r = temporada.campana_topada_desde_settings(settings)
-        elif modo_t == "live":
+        if modo_r is not None or modo_t == "live":
             topada_r = temporada.campana_topada_desde_settings(settings)
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
@@ -676,7 +678,9 @@ def _recorre_plataforma(
             version_economia=version_economia,
             temporada_plat=plat_t,
             recuperacion=rec_r,
+            recuperacion_live=(modo_r == "live"),
             campana_topada=topada_r,
+            presupuesto_live=(modo_r == "live" or modo_t == "live"),
         )
     comunes = dict(
         platform=platform,
