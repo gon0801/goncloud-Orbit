@@ -1,0 +1,3 @@
+arnes: bash=/usr/bin/bash  sha_en_produccion=90811c88efc6044ddb520e76a31d1ce57d8388ba
+$ bash docs/evidencia/arreglos-01/desplegado.sh _paso_a_centavo frontera_hoja
+EXIT=0
