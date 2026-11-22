@@ -51,10 +51,10 @@ las metas de alta, y de ahí salen las dos diferencias.
 ## Las dos diferencias de MX, con el caso rejugado
 
 ```
-hoja|real|sombra|destino_sombra|replay_sombra|m_estrella|m_estrella_sin_tope|techo_efectivo|gasto_ventana|gasto_extra
-2457|Mantener(azar_lo_explica)|Mover(bajo_target)|23.48|Mover(bajo_target)|R6r no llego a m*|1.047300919852685259527551050|23.195500|2306.8300|345.69
-2969|Mantener(azar_lo_explica)|Mover(bajo_target)|7.70|Mover(bajo_target)|R6r no llego a m*|1.001592509809653414288664064|6.7000|153.8000|22.96
-total| | | | | | | | |368.64
+hoja|real|sombra|destino_sombra|replay_sombra|m_estrella|m_estrella_sin_tope|gamma_q_base|gamma_q_juicio|confianza|techo_efectivo|gasto_ventana|gasto_extra
+2457|Mantener(azar_lo_explica)|Mover(bajo_target)|23.48|Mover(bajo_target)|R6r no llego a m*|1.047300919852685259527551050|0.6634869036566673150705835614|0.7537874196951052446201276572|0.70|23.195500|2306.8300|345.69
+2969|Mantener(azar_lo_explica)|Mover(bajo_target)|7.70|Mover(bajo_target)|R6r no llego a m*|1.001592509809653414288664064|0.6605252144095406147383533060|0.7008219810804959065148415665|0.70|6.7000|153.8000|22.96
+total| | | | | | | | | | | |368.64
 ```
 
 Sale de `docs/evidencia/temporada-01/H/replay_sombra.py`, que lee el `notes.temporada` del ciclo y
@@ -69,9 +69,23 @@ $ PYTHONPATH=. python docs/evidencia/temporada-01/H/replay_sombra.py temporada-2
 El replay de la sombra devuelve `Mover(bajo_target)` con el mismo destino que guardó el ciclo (23.48 y
 7.70), así que el caso está completo: se puede volver a decidir sin la base.
 
-Las dos son la meta de alta en acción. Las dos hojas tenían el veredicto real `Mantener`
-(`azar_lo_explica`, meta base 23.1920 %) y la sombra dio `Mover` (`bajo_target`) con la meta del juicio
-en 25 %: el umbral de R6 sube de 0.85 × 23.1920 = 19.72 % a 0.85 × 25 = 21.25 %, y esas dos hojas cruzan.
+Las dos son la meta de alta en acción, y la cuenta exacta está en las columnas `gamma_q_base` y
+`gamma_q_juicio` de la salida de arriba. R6 no dispara por un ACoS debajo de un tope: dispara cuando
+`gamma_q(a_subida, arg_subida)` alcanza la confianza de subida (0.70). El argumento es
+`clics_sub × cpc / (0.85 × meta/100 × ticket_sub)`, así que subir la meta del juicio de 23.1920 % a 25 %
+baja el argumento y sube la probabilidad:
+
+| Hoja | `gamma_q` con meta 23.1920 % | `gamma_q` con meta 25 % | Confianza |
+| --- | --- | --- | --- |
+| 2457 | 0.663487 | 0.753787 | 0.70 |
+| 2969 | 0.660525 | 0.700822 | 0.70 |
+
+Con la meta base las dos quedan **por debajo de 0.70** y el veredicto real es `Mantener`
+(`azar_lo_explica`). Con la meta de alta las dos la alcanzan y la sombra da `Mover` (`bajo_target`).
+Conviene no contarlo como «el ACoS baja del tope»: el ACoS de hoy de esas hojas es 15.98 % y 14.73 %, por
+debajo de los dos límites (19.72 % y 21.25 %) y por eso ninguno de los dos explica nada. Lo que cambia es
+la probabilidad, no el ACoS.
+
 El destino de las dos es exactamente el paso de +15 % de R6, truncado a centavos: 20.42 × 1.15 = 23.483 →
 23.48, y 6.70 × 1.15 = 7.705 → 7.70.
 
@@ -117,7 +131,7 @@ de alta mande, y es el número que el dueño necesita para decidir el encendido.
 
 ## Lo que la práctica no toca (y por eso no se puede dar por bueno)
 
-En los ciclos 206 y 207: **0 decisiones**, **0 temporada**, **0 filas** en `temporada_episodio`,
+En los ciclos 206 y 207: **0 decisiones**, **0 episodios abiertos**, **0 filas** en `temporada_episodio`,
 `temporada_efecto`, `temporada_fin_reduccion` y `temporada_exclusion`, **0** filas nuevas en
 `decision_application` y `decision_sin_aplicar`, **0** en `campana_ajuste` y **0** intentos nuevos en
 `apply_attempt`. Las marcas completas están en `ciclo-forzado.txt`. La práctica cumplió su contrato:

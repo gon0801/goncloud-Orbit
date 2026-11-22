@@ -31,6 +31,7 @@ from decimal import Decimal, localcontext
 
 from app.optimizer import recuperacion, temporada
 from app.optimizer.caso import CasoHoja
+from app.optimizer.evidencia import gamma_q
 from app.optimizer.politica import (
     _CIEN,
     MULT_SUBIDA,
@@ -76,6 +77,28 @@ def m_sin_tope(caso: CasoHoja) -> Decimal | None:
     return _sostenible(fondo.a_subida, arg_subida, caso.economia.plataforma.confianza_subida)
 
 
+def gamma_q_subida(caso_base: CasoHoja, caso_juicio: CasoHoja) -> tuple[Decimal, Decimal] | None:
+    """`gamma_q` de R6 con la meta base y con la meta del juicio: lo que hace R6 para
+    pasar de `Mantener` a `Mover` cuando la temporada cambia la meta."""
+    cpc, _fuente = _precio_de_hoy(caso_base)
+    propia = caso_base.propia
+    if cpc is None or propia is None:
+        return None
+    fondo = _fondo_juicio(propia, cpc)
+    if fondo is None:
+        return None
+    previa = _previa(caso_base.cuenta, caso_base.grupo, propia)
+    if previa is None:
+        return None
+    clics_sub, ticket_sub = _proyeccion_subida(fondo, previa)
+
+    def _g(target: Decimal) -> Decimal:
+        arg = clics_sub * cpc / ((MULT_SUBIDA * target / _CIEN) * ticket_sub)
+        return gamma_q(fondo.a_subida, arg)
+
+    return _g(caso_base.economia.target_acos_pct), _g(caso_juicio.economia.target_acos_pct)
+
+
 _real = recuperacion.multiplicador_sostenible
 _capturado: list[Decimal] = []
 
@@ -100,7 +123,7 @@ def main(ruta: str) -> int:
     diferencias = temporada.get("diferencias") or []
     print(
         "hoja|real|sombra|destino_sombra|replay_sombra|m_estrella|m_estrella_sin_tope|"
-        "techo_efectivo|gasto_ventana|gasto_extra"
+        "gamma_q_base|gamma_q_juicio|confianza|techo_efectivo|gasto_ventana|gasto_extra"
     )
     total_extra = Decimal(0)
     for d in diferencias:
@@ -109,10 +132,13 @@ def main(ruta: str) -> int:
             print(f"{d['hoja_id']}|sin caso_sombra: no replayable")
             continue
         caso = CasoHoja.desde_json(sombra_json)
+        juicio = _caso_del_juicio(caso)
         _capturado.clear()
         replay = decide(caso)
         m = _capturado[0] if _capturado else None
-        m_libre = m_sin_tope(_caso_del_juicio(caso))
+        m_libre = m_sin_tope(juicio)
+        gq = gamma_q_subida(caso, juicio)
+        confianza = caso.economia.plataforma.confianza_subida
         techo = recuperacion.techo_conocido(caso)
         gasto = caso.propia.reciente.gasto
         bid = caso.bid.valor
@@ -126,9 +152,11 @@ def main(ruta: str) -> int:
             f"{d['sombra']}({d['motivo_sombra']})|{destino}|"
             f"{veredicto(replay)}|{m if m is not None else 'R6r no llego a m*'}|"
             f"{m_libre if m_libre is not None else 'sin insumos'}|"
+            f"{gq[0] if gq is not None else 'sin insumos'}|"
+            f"{gq[1] if gq is not None else 'sin insumos'}|{confianza}|"
             f"{techo}|{gasto}|{extra:.2f}"
         )
-    print(f"total|{'|' * 9}{total_extra:.2f}")
+    print(f"total|{'|' * 12}{total_extra:.2f}")
     return 0
 
 
