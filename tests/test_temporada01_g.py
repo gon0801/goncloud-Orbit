@@ -364,3 +364,84 @@ def test_temporada01_g_reaprobacion_tras_regreso_no_hereda_orden_vieja(monkeypat
             (plan_a.huella() + "#%",),
         ).fetchone()[0]
         assert confirmadas == 1, "un solo acto confirmado por el cambio"
+
+
+@_skip_db
+def test_temporada01_g_reversion_de_otra_ubicacion_no_supera():
+    """Una reversion de resto no invalida una orden de top: la reversion
+    guarda la config completa vieja, pero solo restaura SU ubicacion."""
+    import datetime as dt
+    import json
+    from dataclasses import replace
+
+    from test_aplica_ajuste import EXTERNA, _db, _siembra
+
+    from app import apply_ajustes
+    from app.ads.campana_config import ConfigCampana, guarda_config
+    from app.campana_ajustes import CambiarAjusteUbicacion
+
+    with _db("orbit_t01_g_rev") as conn:
+        camp, _cfg = _siembra(conn)
+        t0 = dt.datetime.now(dt.UTC)
+
+        def _obs(config: ConfigCampana, segundos: int) -> int:
+            guarda_config(conn, "amazon_mx", [config], t0 + dt.timedelta(seconds=segundos))
+            return conn.execute(
+                "SELECT id FROM ads_campana_config_observation WHERE ad_entity_id = %s"
+                " ORDER BY id DESC LIMIT 1",
+                (camp,),
+            ).fetchone()[0]
+
+        cfg0 = ConfigCampana(
+            campana_externa=EXTERNA,
+            presupuesto_diario=Decimal("100"),
+            moneda="MXN",
+            estrategia_puja="LEGACY_FOR_SALES",
+            ajuste_top_pct=0,
+            ajuste_resto_pct=0,
+            ajuste_producto_pct=40,
+            fuera_de_amazon=None,
+        )
+        obs1 = _obs(cfg0, 0)
+        cfg2 = replace(cfg0, ajuste_resto_pct=20)
+        obs2 = _obs(cfg2, 1)
+        cfg3 = replace(cfg2, ajuste_top_pct=30)
+        obs3 = _obs(cfg3, 2)
+
+        def _fila(
+            antes: int,
+            despues: ConfigCampana,
+            huella: str,
+            *,
+            pagada=None,
+            confirmada=False,
+        ) -> int:
+            return conn.execute(
+                "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+                " despues, huella, actor, go_literal, regresa_a, confirmado_el)"
+                " VALUES (%s, 'amazon_mx', 'ajuste_ubicacion', %s, %s, %s, 'dueno',"
+                " 'APLICAR AJUSTE', %s, %s) RETURNING id",
+                (
+                    camp,
+                    antes,
+                    json.dumps(despues.como_json()),
+                    huella,
+                    pagada,
+                    t0 if confirmada else None,
+                ),
+            ).fetchone()[0]
+
+        padre = _fila(obs1, cfg2, "rev-padre", confirmada=True)  # resto 0 -> 20
+        orden = _fila(obs2, cfg3, "rev-orden")  # top 0 -> 30, pendiente
+        _fila(obs3, cfg0, "rev-padre-reg", pagada=padre, confirmada=True)  # regresa resto
+
+        assert (
+            apply_ajustes._superada(
+                conn,
+                orden,
+                campana_id=camp,
+                clase="ajuste_ubicacion",
+                ajuste=CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=30),
+            )
+            is False
+        ), "la reversion de resto no toca el top"
