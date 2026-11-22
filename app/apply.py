@@ -1097,29 +1097,12 @@ class Aplicador:
                 # desenlace YA es decision_application.
                 skips.append(MOTIVO_YA_APLICADA)
                 continue
-            if decision.new_value is None or decision.value_currency is None:
-                skips.append(MOTIVO_BID_INCOMPLETO)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_BID_INCOMPLETO
-                )
+            motivo_datos, identidad = self._guarda_de_datos(decision)
+            if motivo_datos is not None:
+                skips.append(motivo_datos)
+                registra_sin_aplicar(self._conn, decision.id, self.cycle_id_ejecutor, motivo_datos)
                 continue
-            identidad = _identidad(self._conn, decision.ad_entity_id)
-            if identidad is None or identidad[0] not in _KINDS_DECISORAS:
-                skips.append(MOTIVO_ENTIDAD_NO_DECISORA)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_ENTIDAD_NO_DECISORA
-                )
-                continue
-            # Verificar tope antes de cobrar quota para no quemar unidades en
-            # decisiones agotadas (_ledger vuelve a verificar ante carreras).
-            if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (
-                TOPE_INTENTOS
-            ):
-                skips.append(MOTIVO_TOPE_INTENTOS)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
-                )
-                continue
+            assert identidad is not None  # sin motivo, _guarda_de_datos la devuelve
             # TEMPORADA 01 E: lectura fresca ANTES de la cuota y del PUT, para
             # TODA decision de bid. Amazon no ofrece compare-and-set: entre
             # este LIST y el PUT queda una ventana corta, pero el bid que se
@@ -1233,24 +1216,49 @@ class Aplicador:
             caps_saturados=tuple(caps_saturados),
         )
 
+    def _guarda_de_datos(self, decision: DecisionBid) -> tuple[str | None, tuple[str, str] | None]:
+        """Guardas LOCALES de datos previas al LIST (cero HTTP): bid completo,
+        entidad decisora y tope de intentos. Devuelve (motivo, identidad);
+        motivo None = la puja llega a la lectura fresca. Las comparten el lote
+        normal y el corte por 429 para que una puja descartable nunca quede
+        como `sin_respuesta`."""
+        if decision.new_value is None or decision.value_currency is None:
+            return MOTIVO_BID_INCOMPLETO, None
+        identidad = _identidad(self._conn, decision.ad_entity_id)
+        if identidad is None or identidad[0] not in _KINDS_DECISORAS:
+            return MOTIVO_ENTIDAD_NO_DECISORA, None
+        # Verificar tope antes de cobrar quota para no quemar unidades en
+        # decisiones agotadas (_ledger vuelve a verificar ante carreras).
+        if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (TOPE_INTENTOS):
+            return MOTIVO_TOPE_INTENTOS, None
+        return None, identidad
+
     def _registra_lote_cortado(
         self, restantes: list[DecisionBid], *, escalera_global: str
     ) -> list[str]:
         """El 429 agoto la lectura fresca y corta el lote: cada puja restante
-        deja su desenlace SIN HTTP (modo y aplicacion previa son lecturas
-        locales). Una puja de campana en practica conserva `modo_no_live`, como
-        en el camino normal; las elegibles quedan `sin_respuesta` con
-        `detalle.lote_cortado` porque no llegaron a consultarse."""
+        deja su desenlace SIN HTTP, con las MISMAS guardas locales del camino
+        normal (modo, aplicacion previa y datos). Una puja de campana en
+        practica conserva `modo_no_live`, una descartable conserva su motivo
+        (`bid_incompleto`, `entidad_no_decisora`, `tope_intentos`), y solo la
+        que habria llegado al LIST queda `sin_respuesta` con
+        `detalle.lote_cortado`."""
         motivos: list[str] = []
         for restante in restantes:
+            if self.modo_efectivo(self._conn, restante, escalera_global=escalera_global) != "live":
+                motivos.append(MOTIVO_MODO_NO_LIVE)
+                if not _ya_aplicada(self._conn, restante.id):
+                    registra_sin_aplicar(
+                        self._conn, restante.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
+                    )
+                continue
             if _ya_aplicada(self._conn, restante.id):
                 motivos.append(MOTIVO_YA_APLICADA)
                 continue
-            if self.modo_efectivo(self._conn, restante, escalera_global=escalera_global) != "live":
-                motivos.append(MOTIVO_MODO_NO_LIVE)
-                registra_sin_aplicar(
-                    self._conn, restante.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
-                )
+            motivo, _identidad = self._guarda_de_datos(restante)
+            if motivo is not None:
+                motivos.append(motivo)
+                registra_sin_aplicar(self._conn, restante.id, self.cycle_id_ejecutor, motivo)
                 continue
             motivos.append(MOTIVO_SIN_RESPUESTA)
             registra_sin_aplicar(

@@ -527,7 +527,27 @@ def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
             match_type="EXACT",
             keyword_text="kw shadow",
         )
-        for entidad in (camp2, ag2, kw3):
+        kw4 = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "e-kw-4",
+            parent=ids["ag"],
+            match_type="EXACT",
+            keyword_text="kw 4",
+        )
+        kw5 = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "e-kw-5",
+            parent=ids["ag"],
+            match_type="EXACT",
+            keyword_text="kw 5",
+        )
+        # Hoja de un kind que no decide bids pero cuelga de un grupo vivo.
+        pa = _entidad(conn, "amazon_us", "placement", "e-pa", parent=ids["ag"])
+        for entidad in (camp2, ag2, kw3, kw4, kw5, pa):
             conn.execute(
                 "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
                 " status, synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
@@ -540,6 +560,25 @@ def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
             (camp2,),
         )
         dec_shadow = _decision_bid(conn, ids["ciclo_dec"], ids["config"], kw3, cost="10.00")
+        # Tres pujas que el camino normal descarta ANTES de consultar Amazon:
+        # datos incompletos, entidad no decisora y tope de intentos.
+        # `decision` es append-only: el bid incompleto nace asi, no se edita.
+        dec_incompleto = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+            " data_observed_at, window_start, window_end, old_value, new_value,"
+            " value_currency, inputs) VALUES (%s, %s, 'bid', %s, now() - interval '40 days',"
+            " CURRENT_DATE - 60, CURRENT_DATE - 30, NULL, NULL, 'USD', '{}'::jsonb)"
+            " RETURNING id",
+            (ids["ciclo_dec"], kw4, ids["config"]),
+        ).fetchone()[0]
+        dec_entidad = _decision_bid(conn, ids["ciclo_dec"], ids["config"], pa, cost="8.00")
+        dec_tope = _decision_bid(conn, ids["ciclo_dec"], ids["config"], kw5, cost="7.00")
+        for seq in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, 'normal', '{}'::jsonb, true)",
+                (dec_tope, seq),
+            )
         listas = {"n": 0}
 
         def handler(request: _httpx.Request) -> _httpx.Response:
@@ -561,11 +600,22 @@ def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
             MOTIVO_SIN_RESPUESTA,
             MOTIVO_SIN_RESPUESTA,
             MOTIVO_MODO_NO_LIVE,
+            "bid_incompleto",
+            "entidad_no_decisora",
+            "tope_intentos",
         ], res.skips
         assert listas["n"] == MAX_RETRIES, (
             "UN presupuesto de reintentos para el lote: las demas pujas no se consultan"
         )
-        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 3, (
+            "solo los tres intentos presembrados del tope: el corte no crea ledger"
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE decision_id = %s", (dec_uno,)
+            ).fetchone()[0]
+            == 0
+        )
         desenlaces = conn.execute(
             "SELECT decision_id, cycle_id, motivo, detalle"
             "  FROM decision_sin_aplicar ORDER BY decision_id"
@@ -574,4 +624,7 @@ def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
             (dec_uno, ids["ciclo_ejec"], "sin_respuesta", {"http": "429"}),
             (dec_dos, ids["ciclo_ejec"], "sin_respuesta", {"lote_cortado": "429"}),
             (dec_shadow, ids["ciclo_ejec"], "modo_no_live", None),
+            (dec_incompleto, ids["ciclo_ejec"], "bid_incompleto", None),
+            (dec_entidad, ids["ciclo_ejec"], "entidad_no_decisora", None),
+            (dec_tope, ids["ciclo_ejec"], "tope_intentos", None),
         ], "cada puja cortada conserva su motivo real"
