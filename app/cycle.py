@@ -1799,15 +1799,15 @@ def _procesa_grupo(
     familias_ciclo: _FamiliasCiclo,
 ) -> None:
     grupo_id, campaign_id, status, status_campana, grupo_external = fila
-    # TEMPORADA 01 D: la cerca de la PLATAFORMA (decision 8) levanta el inicio
-    # de la ventana de terminos, y el multiplicador del dueno en baja aplica a
-    # los umbrales del negative (al decidir).
+    # TEMPORADA 01 D (revision Devin 66dAGx/66dkEF): la cerca de la PLATAFORMA
+    # (decision 8) y el multiplicador del dueno SOLO con temporada en LIVE —
+    # en practica los negatives reales ven la ventana completa de hoy (la
+    # sombra compara con la evidencia disponible).
     plat_t = contadores.temporada_plat
-    cerca_plat = plat_t.estado.cerca_plataforma if plat_t is not None else None
+    en_live = plat_t is not None and plat_t.modo == "live"
+    cerca_plat = plat_t.estado.cerca_plataforma if en_live else None
     mult_neg = (
-        plat_t.estacion.mult_cortes_baja
-        if (plat_t is not None and plat_t.modo == "live" and plat_t.estacion.fase == "baja")
-        else None
+        plat_t.estacion.mult_cortes_baja if en_live and plat_t.estacion.fase == "baja" else None
     )
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at, cerca=cerca_plat)
     contadores.terminos += len(terminos.terminos)

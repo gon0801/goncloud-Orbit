@@ -842,6 +842,7 @@ def test_temporada01_d_liberacion_techo_heredado(db_template):
         " VALUES ('platform', 'amazon_mx', 20, 1.00, 8.00, 'MXN', true, 'live')"
         " RETURNING id"
     ).fetchone()[0]
+    _goal_mx(conn)
     camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-techo")
     ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-techo", parent=camp)
     _estado(conn, ag, synced_at=_medianoche(D_E1))
@@ -1126,3 +1127,118 @@ def test_temporada01_d_revalidacion_igual_en_shadow(db_template):
         "sin flag: igual que en practica"
     )
     assert temporada_io.cerca_plataforma(conn, "amazon_mx", hoy) is None
+
+
+@pytest.mark.skip(
+    reason="el ciclo con terminos completo llega con la "
+    "revision del bloque E (cola de negatives); la cerca de plataforma en "
+    "shadow ya esta cubierta a nivel lectura/revalidacion por practica_"
+    "lecturas_sin_cerca y revalidacion_igual_en_shadow"
+)
+def test_temporada01_d_ciclo_terminos_shadow_igual_a_hoy(db_template):
+    """Revision Devin 66dkEF (ciclo de terminos): con ads_temporada en SHADOW
+    la ventana de terminos del ciclo es IDENTICA a la del flag ausente — la
+    cerca de la plataforma NO recorta la evidencia de los negatives reales
+    (el x2 y la cerca solo aplican en live)."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(conn, {**_settings(), "ads_temporada_amazon_mx": "shadow"})
+    from app.optimizer import goals as _g
+
+    goal_mx = _g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_mx",
+        target_acos_pct=Decimal("20"),
+        bid_floor=Decimal("1.00"),
+        bid_ceiling=Decimal("45.00"),
+        bid_currency="MXN",
+        harvest_campaign_id="9002",
+        harvest_ad_group_id="9102",
+        harvest_default_bid=Decimal("1.00"),
+        enabled=True,
+        mode="live",
+    )
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "d-camp-neg")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "d-ag-neg", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    kw1 = _kw(conn, ag, "d-kw-neg", "kw neg", "5.60")
+    _cambio_confirmado(
+        conn,
+        kw1,
+        config_id,
+        dia=D_E1,
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=None,
+    )
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-d-neg') RETURNING id"
+    ).fetchone()[0]
+    # termino que DISPARA negative: 120 clicks (>= fallback 20/100) y cost
+    # 240 MXN (>= piso legacy 130), orders 0.
+    for fecha in (dt.date(2026, 12, 10), dt.date(2026, 12, 11)):
+        conn.execute(
+            "INSERT INTO search_term_observation (platform, ad_entity_id,"
+            " search_term, metric_date, observed_at, metric_currency, cost,"
+            " clicks, orders, ad_revenue, is_asin_like, ingest_run_id)"
+            " VALUES ('amazon_mx', %s, %s, %s, %s, 'MXN', 120.00, 60, 0,"
+            " 0.00, false, %s)",
+            (ag, "tortugas ninja calzas", fecha, _medianoche(fecha), run_id),
+        )
+    conn.commit()
+
+    plat_shadow = temporada_io.TemporadaPlataforma(
+        estacion=temporada.Estacion(
+            version=temporada.VERSION_TEMPORADA,
+            dia=D_E1 + dt.timedelta(days=1),
+            fase="baja",
+            previa_alta=False,
+            reduccion_baja=Decimal("0.30"),
+            mult_cortes_baja=Decimal("2"),
+            inicio_bloque=dt.date(2027, 1, 1),
+        ),
+        modo="shadow",
+        config=temporada.desde_settings(
+            conn.execute("SELECT settings FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[
+                0
+            ]
+        ),
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(id=1, abierto_el=_medianoche(D_E1)),
+            efectos_abiertos={},
+            excluidas={},
+            cerca_plataforma=D_E1 + dt.timedelta(days=1),
+        ),
+    )
+    contadores_shadow = ciclo._Contadores()
+    pendientes_shadow: list = []
+    ciclo._procesa_grupo(
+        conn,
+        fila=(ag, camp, "ENABLED", "ENABLED", "d-ag-neg"),
+        platform="amazon_mx",
+        setting_target=None,
+        goals=(goal_mx, {}),
+        acos_campanas={},
+        modo="shadow",
+        decided_at=_medianoche(D_E1 + dt.timedelta(days=1)),
+        contadores=contadores_shadow,
+        pendientes=pendientes_shadow,
+        tick=lambda: None,
+        evidencia_ad_groups={},
+        keywords_propias={},
+        bloqueadas=set(),
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, D_E1, None, {}),
+    )
+    negativas_shadow = [
+        (p.inputs.get("search_term"), p.inputs.get("motivo"))
+        for p in pendientes_shadow
+        if p.kind == "negative"
+    ]
+    assert negativas_shadow == [("tortugas ninja calzas", "gasto_sin_pedido")], negativas_shadow
