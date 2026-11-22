@@ -36,9 +36,9 @@ from typing import Protocol
 
 import httpx
 
-from app.ads import config as config_ads
 from app.jev_ads import ClavePar, FichaVersion, Juicio, Relacion
 from app.redaction import register_secret, scrub
+from app.secrets import directorio_secretos
 
 MODELO = "jev-1.13.0"
 OPCIONES: tuple[Relacion, ...] = (
@@ -214,7 +214,7 @@ def leer_api_key() -> str:
     viene o viene vacia (`directorio_secretos`); NUNCA el cwd. Sin archivo o sin clave
     devuelve cadena vacia; el llamador produce el estado visible
     sin_api_key sin HTTP."""
-    path = config_ads.directorio_secretos() / "typesafe.json"
+    path = directorio_secretos() / "typesafe.json"
     try:
         datos = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):

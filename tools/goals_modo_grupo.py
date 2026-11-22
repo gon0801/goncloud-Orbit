@@ -32,6 +32,7 @@ import hashlib
 import os
 import sys
 
+from app.ceremonia import ErrorCeremonia, valida_ceremonia
 from app.db import OrbitDbError, connect
 from app.goals_write import GoalInexistente, GoalInvalido, edita_goal
 from app.optimizer.goals import (
@@ -130,23 +131,21 @@ def _cmd(conn, args) -> int:
     huella = _huella(gid, pedido, candidatas)
     print(f"candidatas: {len(candidatas)}")
     print(f"huella: {huella}")
-    if not args.acepto_mutacion_real:
-        return 0
-    # Ceremonia sellada (orden de reversa_harvest: esperado -> go ->
-    # huella; `--go` solo-espacios cuenta como ausente).
-    if args.esperado is None:
-        raise Abortar("mutacion real exige --esperado N (anti-typo del plan)")
-    if not args.go or not args.go.strip():
-        raise Abortar("mutacion real exige --go con el literal del dueno (no vacio)")
-    if len(candidatas) != args.esperado:
-        raise Abortar(
-            f"--esperado {args.esperado} != {len(candidatas)} candidatas:"
-            " el plan cambio, se re-autoriza con el dueno"
+    try:
+        mutar = valida_ceremonia(
+            acepto=args.acepto_mutacion_real,
+            go=args.go,
+            huella=args.huella,
+            huella_plan=huella,
+            esperado=args.esperado,
+            real=len(candidatas),
+            exige_esperado=True,
+            rechaza_sin_acepto=False,
         )
-    if not args.huella:
-        raise Abortar("mutacion real exige --huella del dry-run (autorizacion por conjunto)")
-    if args.huella != huella:
-        raise Abortar(f"--huella {args.huella} != huella {huella}: el conjunto cambio")
+    except ErrorCeremonia as exc:
+        raise Abortar(str(exc)) from None
+    if not mutar:
+        return 0
     # Por goal, reanudable: cada `edita_goal` confirma su propia llamada
     # (no hay transaccion global a proposito); un fallo a mitad aborta con
     # el `goal_id` y lo cambiado queda cambiado, y re-correr con ceremonia

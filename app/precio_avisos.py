@@ -199,8 +199,6 @@ SELECT c.precio_antes, c.precio_antes_currency,
  ORDER BY c.id DESC LIMIT 1
 """
 
-_SQL_PRECIO_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-
 TOPE_PRODUCTO_PRECIO = 5
 
 
@@ -546,11 +544,13 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
     para que el dia se resuma con sus decisiones y cambios reales.
     """
     try:
-        fila = conn.execute(_SQL_PRECIO_CONFIG).fetchone()
-        if fila is None:
+        from app.db import settings_vigentes
+
+        settings = settings_vigentes(conn)
+        if settings is None:
             return 0
         try:
-            umbral = validar_precio_aviso_dias(fila[0])
+            umbral = validar_precio_aviso_dias(settings)
         except ValueError as exc:
             logger.warning("telegram: umbral de aviso de precio invalido: %s", scrub(str(exc)))
             umbral = None

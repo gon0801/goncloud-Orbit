@@ -37,8 +37,8 @@ from typing import TYPE_CHECKING
 import httpx
 
 from app import formato, notifica_contribucion
-from app.ads.config import directorio_secretos
 from app.redaction import install_scrub_filter, register_secret, scrub
+from app.secrets import directorio_secretos
 
 if TYPE_CHECKING:
     # Solo anotacion: importarlo en runtime crearia el ciclo

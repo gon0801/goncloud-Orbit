@@ -44,10 +44,6 @@ from app.optimizer import productos as p
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.productos_io import evaluacion_de_fila
 
-_SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-
-_SQL_CONFIG_VIGENTE = "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
-
 _SQL_CAMPANAS = """
 SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = 'campaign'
 """
@@ -348,8 +344,10 @@ def lee_limites(conn, plataforma: str) -> LimitesVista:
     pausa y si sus limites estan guardados (I.8), con la misma regla que
     `productos_modo.cambia_pausa` exige para encenderla."""
     moneda = PLATAFORMAS_MONEDA[plataforma]
-    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
-    config_id, settings = (fila[0], fila[1] or {}) if fila else (None, {})
+    from app.db import config_vigente
+
+    vigente = config_vigente(conn)
+    config_id, settings = vigente if vigente is not None else (None, {})
     try:
         modo, modo_error = p.modos_desde_settings(settings, plataforma).pausa, None
     except ValueError as exc:
@@ -428,8 +426,9 @@ def simula_pausa(
     que pida la pantalla (sin guardarlos). La usan la ruta de la pantalla y
     tools.auto03_verifica simula. Un limite invalido lanza
     config_write.SettingsInvalido."""
-    fila = conn.execute(_SQL_CONFIG).fetchone()
-    settings = fila[0] if fila else {}
+    from app.db import settings_vigentes
+
+    settings = settings_vigentes(conn) or {}
     limites = productos_io.limites_de_simulacion(settings, plataforma, clics=clics, gasto=gasto)
     campanas = [f[0] for f in conn.execute(_SQL_CAMPANAS, (plataforma,))]
     return productos_io.simula_pausa(

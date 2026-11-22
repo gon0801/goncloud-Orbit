@@ -53,6 +53,7 @@ import os
 import sys
 from pathlib import Path
 
+from app.ceremonia import ErrorCeremonia, valida_ceremonia
 from app.db import OrbitDbError, connect
 from app.precio.goals_write import (
     PLATAFORMAS_PRECIO_GOAL,
@@ -333,29 +334,24 @@ def _exigir_sembrable(plan: PlanGoals, args, textos, banda, lineas) -> None:
 
 def _go_con_ceremonia(conn, plan: PlanGoals, args, textos, banda, lineas) -> int:
     """Ceremonia y mutacion: shadow/cerrar sin go, live con go literal."""
-    if not args.acepto_mutacion_real:
-        if args.go is not None or args.huella is not None:
-            raise Abortar(
-                "falto --acepto-mutacion-real: --go/--huella sin"
-                " --acepto-mutacion-real no muta (dry-run enganoso)"
-            )
-        return 0
-    if not args.huella:
-        raise Abortar("falta --huella: el go exige la huella del dry-run")
-    if args.huella != plan.huella:
-        raise Abortar(
-            f"--huella {args.huella} != huella del plan {plan.huella}: re-corre el dry-run"
-        )
     es_cierre = isinstance(plan.pedido, PedidoCierre)
-    if es_cierre or args.mode == "shadow":
-        if args.go is not None:
-            donde = "--cerrar" if es_cierre else "shadow"
-            raise Abortar(f"{donde} es sin go literal: --go no aplica (el go solo enciende live)")
-        go_literal = None
-    else:
-        if not args.go or not args.go.strip():
-            raise Abortar("falta --go: el go en live exige el literal del dueno")
-        go_literal = args.go
+    sin_go = es_cierre or args.mode == "shadow"
+    donde = "--cerrar" if es_cierre else "shadow"
+    try:
+        mutar = valida_ceremonia(
+            acepto=args.acepto_mutacion_real,
+            go=args.go,
+            huella=args.huella,
+            huella_plan=plan.huella,
+            exige_go=not sin_go,
+            rechaza_go_si_no_exige=True,
+            nota_rechazo_go=f"{donde} es sin go literal: --go no aplica (el go solo enciende live)",
+        )
+    except ErrorCeremonia as exc:
+        raise Abortar(str(exc)) from None
+    if not mutar:
+        return 0
+    go_literal = None if sin_go else args.go
     try:
         res = aplicar_plan(
             conn,

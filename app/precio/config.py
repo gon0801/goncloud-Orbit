@@ -18,7 +18,19 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-__all__ = ["ConfigPrecio", "ConfigMotor", "leer_config", "leer_config_motor"]
+__all__ = [
+    "ConfigPrecio",
+    "ConfigMotor",
+    "MODOS",
+    "leer_config",
+    "leer_config_motor",
+    "leer_numero",
+    "leer_fraccion",
+    "leer_entero",
+    "leer_positivo",
+    "leer_modo",
+    "leer_modo_universo",
+]
 
 MODOS = ("off", "shadow", "live")
 _MONEDA_ORDEN = {"off": 0, "shadow": 1, "live": 2}
@@ -234,3 +246,12 @@ def leer_config(settings: Mapping) -> ConfigPrecio:
             settings, "precio_divergencia_max_pct", minima="0", maxima="0.10"
         ),
     )
+
+
+# Superficie publica de lectores atomicos (reemplaza imports de `_privados`).
+leer_numero = _numero
+leer_fraccion = _fraccion
+leer_entero = _entero
+leer_positivo = _positivo
+leer_modo = _modo
+leer_modo_universo = _modo_universo

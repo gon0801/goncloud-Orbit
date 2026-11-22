@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from app import secrets
 from app.ads import config
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -21,8 +22,9 @@ def test_sin_variable_o_vacia_es_la_ruta_canonica(monkeypatch, variable):
         monkeypatch.delenv("ORBIT_SECRETS_DIR", raising=False)
     else:
         monkeypatch.setenv("ORBIT_SECRETS_DIR", variable)
-    monkeypatch.setattr(config, "DEFAULT_SECRETS_DIR", "/ruta/canonica")
+    monkeypatch.setattr(secrets, "DEFAULT_SECRETS_DIR", "/ruta/canonica")
     assert config.directorio_secretos() == Path("/ruta/canonica")
+    assert secrets.directorio_secretos() == Path("/ruta/canonica")
 
 
 def test_con_variable_es_la_variable(monkeypatch):

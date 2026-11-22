@@ -14,6 +14,12 @@ from dataclasses import dataclass
 
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.sp_wire import (
+    errores_de_ack as _errores_del_ack,
+)
+from app.ads.sp_wire import (
+    id_product_ad_de_ack as _id_del_ack,
+)
 from app.ads.structure import PATH_PRODUCT_ADS, evaluar_perfiles
 from app.ads.write import AdsApiErrorMutacion, AdsWriteClient
 
@@ -226,25 +232,6 @@ def estados_actuales(escritor: AdsWriteClient, ad_ids: Sequence[str]) -> dict[st
     return {k: str(v["state"]) for k, v in leer_anuncios(escritor, ad_ids).items()}
 
 
-def _errores_del_ack(ack: object) -> list:
-    """Los rechazos POR-ITEM de un 207.
-
-    Shape SELLADO por el probe 2.5 y ya explotado por el aplicador
-    (`_errores_de_ack` de app/apply_harvest.py): {"<recurso>": {"error":
-    [...], "success": [...]}}. Un 2xx NO es exito automatico — Amazon
-    contesta 207 y mete el rechazo adentro. [] = sin rechazos legibles
-    (regla 3: un shape sin anidado no inventa errores).
-    """
-    if not isinstance(ack, dict):
-        return []
-    for valor in ack.values():
-        if isinstance(valor, dict):
-            error = valor.get("error")
-            if isinstance(error, list) and error:
-                return error
-    return []
-
-
 CLAVES_REVERSA = ("adGroupId", "campaignId", "sku", "state", "asin")
 
 
@@ -276,25 +263,6 @@ def parsear_reversa(linea: str) -> dict[str, str]:
         raise ListaInvalida(f"linea de reversa sin {', '.join(faltan)}: {linea.strip()!r}")
     datos.setdefault("state", ESTADO_PAUSADO)
     return datos
-
-
-def _id_del_ack(ack: object) -> str | None:
-    """El adId que Amazon devuelve al crear, si es legible.
-
-    Mismo shape anidado sellado que el resto ({"<recurso>": {"success":
-    [...]}}). None = ack sin id legible: regla 3, no se inventa.
-    """
-    if not isinstance(ack, dict):
-        return None
-    for valor in ack.values():
-        if not isinstance(valor, dict):
-            continue
-        for item in valor.get("success") or []:
-            if isinstance(item, dict):
-                for clave in ("adId", "productAdId"):
-                    if item.get(clave):
-                        return str(item[clave])
-    return None
 
 
 def reponer_anuncios(
@@ -340,7 +308,12 @@ def reponer_anuncios(
             try:
                 ack = resp.json()
             except ValueError:
-                ack = {}
+                resultados.append(
+                    ResultadoAnuncio(
+                        d["sku"], d["state"], "sin_confirmar", "ack sin JSON legible", reversa
+                    )
+                )
+                continue
             errores = _errores_del_ack(ack)
             if errores:
                 detalle = f"207 con rechazo por-item: {errores}"[:300]

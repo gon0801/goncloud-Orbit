@@ -50,8 +50,8 @@ from urllib.parse import quote, unquote
 
 import httpx
 
-from app.ads.config import directorio_secretos
 from app.redaction import install_scrub_filter, register_secret, scrub
+from app.secrets import directorio_secretos
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)

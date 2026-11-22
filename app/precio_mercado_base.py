@@ -16,7 +16,8 @@ from typing import Any
 from app.estimacion_insumos import oferta_para_cotizar
 from app.estimacion_venta import DetalleFee
 from app.precio import puerto
-from app.precio.config import ConfigPrecio, _entero
+from app.precio.config import ConfigPrecio
+from app.precio.config import leer_entero as _entero
 from app.precio.fuentes import (
     cambios_previos,
     config_vigente_settings,

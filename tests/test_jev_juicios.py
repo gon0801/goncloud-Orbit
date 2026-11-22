@@ -541,5 +541,5 @@ def test_leer_api_key_sin_variable_usa_la_ruta_canonica(tmp_path, monkeypatch, v
         monkeypatch.delenv("ORBIT_SECRETS_DIR", raising=False)
     else:
         monkeypatch.setenv("ORBIT_SECRETS_DIR", variable)
-    monkeypatch.setattr("app.ads.config.DEFAULT_SECRETS_DIR", str(canonico))
+    monkeypatch.setattr("app.secrets.DEFAULT_SECRETS_DIR", str(canonico))
     assert leer_api_key() == "canonica"

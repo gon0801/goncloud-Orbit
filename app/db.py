@@ -88,3 +88,26 @@ def preparar_lectura_contribucion(conn: psycopg.Connection) -> None:
     del ciclo (notifica), que leen las mismas vistas.
     """
     conn.execute("SET LOCAL enable_nestloop = off")
+
+
+_SQL_CONFIG_VIGENTE = "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
+
+
+def config_vigente(conn: psycopg.Connection) -> tuple[int, dict] | None:
+    """Devuelve `(id, settings)` de la `config_version` mas reciente, o `None`."""
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+    if fila is None:
+        return None
+    if isinstance(fila, dict):
+        cid, settings = fila["id"], fila["settings"]
+    else:
+        cid, settings = fila[0], fila[1]
+    if settings is None:
+        return None
+    return (int(cid), settings)
+
+
+def settings_vigentes(conn: psycopg.Connection) -> dict | None:
+    """Devuelve `settings` de la `config_version` mas reciente, o `None`."""
+    vigente = config_vigente(conn)
+    return None if vigente is None else vigente[1]

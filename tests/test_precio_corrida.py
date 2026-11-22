@@ -3102,36 +3102,37 @@ def test_latido_aplicar_late_un_goal(monkeypatch):
 def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
     """R4-latido-fail-closed: un latido que levanta `psycopg.Error` no tumba.
 
-    `_SQL_LATIDO` saboteado apunta a una tabla inexistente cuyo nombre trae
-    el secreto: el `UndefinedTable` se traga (fail-open, el TTL es el
-    backstop), la corrida decide y aplica normal, y el warning sale
+    `app.lock.SQL_HEARTBEAT` saboteado apunta a una tabla inexistente cuyo
+    nombre trae el secreto: el `UndefinedTable` se traga (fail-open, el TTL es
+    el backstop), la corrida decide y aplica normal, y el warning sale
     scrubbeado.
     """
     import logging
 
-    import app.precio.corrida as corrida_mod
+    import app.lock as lock_mod
     from app.redaction import register_secret
 
-    register_secret("s3cr3t-lat5")
+    register_secret("s3cr3t_lat5")
     with _db() as (conn, _dsn):
         ua = _cadena(conn, sku="SKU-LT-E", ext="B0A50000LE", mode="live")
         ub = _cadena(conn, sku="SKU-LT-F", ext="B0A50000LF", mode="live")
         _price_obs(conn, asin="B0A50000LE")
         _price_obs(conn, asin="B0A50000LF")
         monkeypatch.setattr(
-            corrida_mod,
-            "_SQL_LATIDO",
+            lock_mod,
+            "SQL_HEARTBEAT",
             "UPDATE ads_optimizer_lock_s3cr3t_lat5 SET heartbeat_at = now()"
             " WHERE job_key = %s AND owner = %s",
         )
         red = _RedFalsa(skus={ua["evento"]: ua["sku"], ub["evento"]: ub["sku"]})
-        with caplog.at_level(logging.WARNING, logger="app.precio.corrida"):
+        with caplog.at_level(logging.WARNING, logger="app.lock"):
             res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (2, 2)
         assert _cuenta_decisiones(conn) == 2
         texto = "\n".join(r.getMessage() for r in caplog.records)
         assert "latido fallo" in texto
-        assert "s3cr3t-lat5" not in texto
+        assert "s3cr3t_lat5" not in texto
+        assert "***REDACTED***" in texto
 
 
 # ---------------------------------------------------------------------------

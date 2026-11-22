@@ -27,6 +27,7 @@ import sys
 from decimal import Decimal
 
 import app.precio_mercados as mercados
+from app.ceremonia import ErrorCeremonia, valida_ceremonia
 from app.db import OrbitDbError, connect
 from app.precio.puerto import Acuse, Importe, PrecioVivoAusente, UnidadPrecio
 
@@ -126,15 +127,16 @@ def _corre(conn, mercado, unidad: UnidadPrecio, args) -> int:
         f" vivo={vivo.valor:.2f} {vivo.moneda} -> {sonda.valor:.2f} {sonda.moneda}"
         f" -> {vivo.valor:.2f} {vivo.moneda}"
     )
-    if not args.acepto_mutacion_real:
-        if args.go:
-            raise Abortar(
-                "falto --acepto-mutacion-real: --go sin --acepto-mutacion-real"
-                " no muta (dry-run enganoso)"
-            )
+    try:
+        mutar = valida_ceremonia(
+            acepto=args.acepto_mutacion_real,
+            go=args.go,
+            exige_huella=False,
+        )
+    except ErrorCeremonia as exc:
+        raise Abortar(str(exc)) from None
+    if not mutar:
         return 0
-    if not args.go:
-        raise Abortar("falta --go: --acepto-mutacion-real sin --go no muta")
     try:
         ida = mercado.escribir(unidad, sonda)
     except Exception as exc:

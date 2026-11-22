@@ -18,13 +18,13 @@ from psycopg import pq
 
 from app import apply
 from app.ads.client import AdsAuthError
+from app.ads.sp_wire import errores_de_ack as _errores_de_ack
+from app.ads.sp_wire import id_de_ack as _id_de_ack
 from app.ads.write import AdsApiError
 from app.apply_cola import _SQL_EXTERNALES_GRUPO
 from app.apply_harvest import (
     ListaIncompleta,
     _coincidencias,
-    _errores_de_ack,
-    _id_de_ack,
     _lista_completa,
 )
 from app.bloqueo_dueno import (
@@ -981,7 +981,12 @@ def _toma(conn, ad_group_id: int, termino_sha256: str) -> bool:
 
 def _suelta(conn, ad_group_id: int, termino_sha256: str) -> None:
     try:
-        if not conn.autocommit and conn.info.transaction_status == pq.TransactionStatus.INERROR:
+        info = getattr(conn, "info", None)
+        if (
+            not conn.autocommit
+            and info is not None
+            and info.transaction_status == pq.TransactionStatus.INERROR
+        ):
             conn.rollback()
         conn.execute(
             "SELECT pg_advisory_unlock(hashtext(%s))",

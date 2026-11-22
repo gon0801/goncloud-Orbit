@@ -56,8 +56,6 @@ _SQL_DECISION = """
 SELECT inputs, decided_at FROM decision WHERE id = %s
 """
 
-_SQL_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
-
 _SQL_CAMPANAS = "SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = 'campaign'"
 
 _SQL_PADRE = "SELECT parent_id FROM ad_entity WHERE id = %s"
@@ -163,8 +161,10 @@ def _revalida(
         return MOTIVO_ENTIDAD_NO_VIVA
     if productos_io.huella_grupo(conn, grupo[0]) != inputs.get("huella_alcance"):
         return MOTIVO_ALCANCE_CAMBIO
-    config = conn.execute(_SQL_CONFIG).fetchone()
-    settings = config[0] if config is not None and isinstance(config[0], dict) else {}
+    from app.db import settings_vigentes
+
+    crudo = settings_vigentes(conn)
+    settings = crudo if isinstance(crudo, dict) else {}
     lectura = {
         "settings": settings,
         "goals": _goals(conn, platform),
