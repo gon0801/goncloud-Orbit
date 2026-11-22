@@ -513,6 +513,7 @@ def _lee_tramos(
     moneda: str,
     temporada_plat: TemporadaPlataforma | None,
     recuperacion: InsumosRecuperacion | None,
+    memoria_historia: int,
     visto_el: dt.datetime | None,
 ) -> tuple[
     list, list | None, dict[int, dt.date], dt.date, dt.date, dt.date, dict, dict, dict, dict | None
@@ -527,7 +528,7 @@ def _lee_tramos(
         desde,
         visto_el,
         activa=temporada_plat is not None or recuperacion is not None,
-        memoria_dias=recuperacion.memoria_dias if recuperacion is not None else 365,
+        memoria_dias=memoria_historia,
     )
     cerca_plat = (
         temporada_plat.estado.cerca_plataforma
@@ -608,6 +609,14 @@ def lee_plataforma(
     _exige_tz(decidido_el, "decidido_el")
     if visto_el is not None:
         _exige_tz(visto_el, "visto_el")
+    # El historial que decide la temporada nunca se acorta por la memoria de una
+    # subida rapida en practica (Devin, PR 730): con temporada encendida y
+    # recuperacion en shadow, la practica leeria menos dias que la temporada y
+    # `frontera` dejaria de ver la mano del dueno ya sincronizada. La sombra
+    # sigue topando su techo con su propia memoria (recuperacion.techo_conocido).
+    memoria_historia = 365
+    if recuperacion is not None and (recuperacion_live or temporada_plat is None):
+        memoria_historia = recuperacion.memoria_dias
     d = decidido_el.astimezone(dt.UTC).date()
     hasta = d - dt.timedelta(days=DIAS_MADUREZ)
     desde = d - dt.timedelta(days=DIAS_LOOKBACK)
@@ -646,6 +655,7 @@ def lee_plataforma(
         moneda,
         temporada_plat,
         recuperacion,
+        memoria_historia,
         visto_el,
     )
     filas_hojas = conn.execute(_SQL_HOJAS, (plataforma,)).fetchall()

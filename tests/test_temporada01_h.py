@@ -26,6 +26,7 @@ from decimal import Decimal
 
 from test_cycle import _config_version, _entidad, _estado, _run
 from test_temporada01_b import (
+    D_E1,
     _cambio_confirmado,
     _corre,
     _goal_mx,
@@ -129,3 +130,66 @@ def test_temporada01_h_practica_compara_recuperacion(db_template):
     destino = Decimal(dif["destino_sombra"])
     assert destino == Decimal("7.10"), dif
     assert destino > Decimal("2.16") * Decimal("1.15"), "el salto supera un paso de R6"
+
+
+def test_temporada01_h_practica_no_pierde_la_mano_del_dueno(db_template):
+    """Temporada en vivo + subida rapida en practica con memoria de 90 dias: el
+    historial que decide la temporada NO se acorta con esa memoria, asi que la
+    entrada no recorta una puja que el dueno cambio y el sync ya leyo.
+
+    Sin el arreglo, la lectura de 90 dias pierde el cambio de Orbit de hace 120
+    dias, `dueno_al_final` no se detecta y la entrada baja 7.00 a 4.90 (Devin,
+    PR 730)."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(
+        conn,
+        {
+            **_settings(modo_temporada="live"),
+            "ads_bid_recuperacion_amazon_mx": "shadow",
+            "ads_bid_recuperacion_memoria_dias_amazon_mx": 90,
+        },
+    )
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "h2-camp")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "h2-ag", parent=camp)
+    _estado(conn, ag, synced_at=_medianoche(D_E1))
+    _estado(conn, camp, synced_at=_medianoche(D_E1))
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 1000.00, 'MXN')",
+        (camp, _medianoche(D_E1) - dt.timedelta(days=15)),
+    )
+    # Orbit dejo la puja en 8.00 hace 120 dias; despues el dueno la puso en 7.00
+    # en Amazon y el sync ya trae ese valor (sin fila en el ledger de Orbit).
+    kw = _kw(conn, ag, "h2-kw", "kw dueno", "7.00")
+    _siembra_metricas(conn, [kw])
+    _cambio_confirmado(
+        conn,
+        kw,
+        config_id,
+        dia=D_E1 - dt.timedelta(days=120),
+        antes="6.00",
+        despues="8.00",
+        motivo="bajo_target",
+    )
+    conn.commit()
+
+    handler = _handler_mx({"h2-kw": "7.00"})
+    res = _corre(conn, D_E1, handler)
+    assert res.status == "done", res.notes
+
+    entradas = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT d.ad_entity_id FROM decision d"
+            " WHERE d.cycle_id = %s AND d.kind = 'bid'"
+            "   AND d.inputs->>'motivo' = 'entra_temporada_baja'",
+            (res.cycle_id,),
+        ).fetchall()
+    ]
+    assert kw not in entradas, "la entrada recorto la puja del dueno"
+    vigente = conn.execute(
+        "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (kw,)
+    ).fetchone()[0]
+    assert vigente == Decimal("7.00"), vigente
