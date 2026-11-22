@@ -34,10 +34,13 @@ Diseno SELLADO (plans/orbit-04.md decisiones 7-12, 14, 16, 21; docs/APPLY.md
   (regla 3: desconocido) queda al final de SU banda. Los que no cupieron
   vuelven como descarte estructurado (motivo), JAMAS reintentados; la
   ausencia de fila no se confunde con un bug porque el conteo lo declara.
-- SECUENCIA SELLADA POR MUTACION: re-resolucion -> consume_quota (si no
-  cabe: descartado, JAMAS HTTP) -> fila del ledger PRE-HTTP (seq =
-  count(*)+1 del decision_id; tope 3: COUNT >= 3 -> no existe 4o intento,
-  salta con motivo) + COMMIT (la intencion durable ANTES del HTTP) -> HTTP
+- SECUENCIA SELLADA POR MUTACION: re-resolucion -> LECTURA FRESCA del bid
+  (TEMPORADA 01 E: si Amazon no responde o trae un bid distinto del visto al
+  decidir, no hay cuota ni ledger ni PUT: `sin_respuesta` o
+  `bid_cambiado_fuera`, exclusion de temporada y cache con lo leido) ->
+  consume_quota (si no cabe: descartado, JAMAS HTTP) -> fila del ledger
+  PRE-HTTP (seq = count(*)+1 del decision_id; tope 3: COUNT >= 3 -> no existe
+  4o intento, salta con motivo) + COMMIT (la intencion durable ANTES del HTTP) -> HTTP
   (write client) -> readback por LIST FRESCO con el MISMO scope sellado
   (probe 2.5: el GET directo de entidad sp responde 403, retirado) ->
   sellar ledger (ack/resultado/finished_at una vez) -> UPSERT
@@ -1064,11 +1067,14 @@ class Aplicador:
     ) -> ResultadoAplicador:
         """Aplica el lote de bids del ciclo en el ORDEN sellado bajo cap.
 
-        Por decision: re-resolucion -> quota (si no cabe: descartado, JAMAS
-        HTTP) -> ledger PRE-HTTP + COMMIT -> HTTP -> readback sellado ->
-        sello de ledger + resumen + cache + applied_count (ver docstring del
-        modulo). >=400 se captura (ledger sellado con el cuerpo); 5xx/fallo
-        ambiguo SUBE (ledger sin sello: la fila ES el rastro)."""
+        Por decision: re-resolucion -> tope de intentos -> LECTURA FRESCA del
+        bid (TEMPORADA 01 E: sin respuesta o con un bid distinto del visto al
+        decidir no hay cuota, ni ledger, ni PUT) -> quota (si no cabe:
+        descartado, JAMAS HTTP) -> ledger PRE-HTTP + COMMIT -> HTTP -> readback
+        sellado -> sello de ledger + resumen + cache + applied_count (ver
+        docstring del modulo). >=400 se captura (ledger sellado con el
+        cuerpo); 5xx/fallo ambiguo SUBE (ledger sin sello: la fila ES el
+        rastro)."""
         ordenadas = orden_bajo_cupo(decisiones)
         skips: list[str] = []
         descartadas: list[str] = []
@@ -1113,6 +1119,42 @@ class Aplicador:
                 registra_sin_aplicar(
                     self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
                 )
+                continue
+            # TEMPORADA 01 E: lectura fresca ANTES de la cuota y del PUT, para
+            # TODA decision de bid. Amazon no ofrece compare-and-set: entre
+            # este LIST y el PUT queda una ventana corta, pero el bid que se
+            # pisa ya no es el que Orbit vio al decidir.
+            cliente = self._cliente()
+            leido = self._readback(cliente, identidad)
+            if leido is None:
+                skips.append(MOTIVO_SIN_RESPUESTA)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_SIN_RESPUESTA
+                )
+                continue
+            # old_value None: la fila vieja no trae contra que comparar (regla
+            # 3); sin comparacion, sigue el camino de hoy.
+            if (
+                decision.old_value is not None
+                and abs(leido - decision.old_value) > temporada_io.TOLERANCIA_CADENA
+            ):
+                # Otra mano (el dueno, otro proceso) movio la hoja: CERO PUT del
+                # destino viejo. El desenlace es mano_del_dueno; en temporada la
+                # hoja queda excluida del episodio. El cache lleva LO LEIDO para
+                # que el ciclo siguiente decida desde el valor real.
+                with self._conn.transaction():
+                    registra_sin_aplicar(
+                        self._conn,
+                        decision.id,
+                        self.cycle_id_ejecutor,
+                        MOTIVO_BID_CAMBIADO_FUERA,
+                        detalle={"leido": str(leido)},
+                    )
+                    temporada_io.excluye_mano_del_aplicador(
+                        self._conn, decision_id=decision.id, leido=leido
+                    )
+                    _actualiza_cache(self._conn, decision.ad_entity_id, leido)
+                skips.append(MOTIVO_BID_CAMBIADO_FUERA)
                 continue
             usada, saturada = consume_quota_y_sello(self._conn, self._platform, "bid")
             if not usada:

@@ -342,8 +342,10 @@ _GASTO_DESCONOCIDO = Decimal(-1)
 
 def prioridad_bajo_cupo(veredicto_kind: str, motivo: str) -> int:
     """Nivel de seleccion bajo cap (BIDS 02 M.3, bosquejo apply.py): 0
-    regresos (R1), 1 recortes con evidencia propia (R3, R9), 2 subidas
-    (R6), 3 recortes heredados del ad group (R4, R11); lo demas al
+    regresos (R1) y los movimientos que devuelven valor a la hoja
+    (sale_temporada_baja, ajusta hacia arriba, recupera_nivel); 1 recortes
+    con evidencia propia (R3, R9) y la entrada de la baja (TEMPORADA 01 E);
+    2 subidas (R6), 3 recortes heredados del ad group (R4, R11); lo demas al
     final. Motivos como literales, como hoy (este modulo no importa
     bid/politica; cada literal se pinea contra politica.py en tests)."""
     if veredicto_kind == "Regresar" or motivo == "regreso_por_desplome":
@@ -353,6 +355,7 @@ def prioridad_bajo_cupo(veredicto_kind: str, motivo: str) -> int:
         "pierde_dinero_fuerte",
         "gasto_sin_venta",
         "gasto_sin_venta_doble",
+        "entra_temporada_baja",
     ):
         return 1
     if motivo == "bajo_target":
