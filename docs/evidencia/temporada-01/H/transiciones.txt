@@ -84,11 +84,13 @@ volvieron a programar con la versión corregida: los que quedan vigentes son los
 (ese rol solo puede `SELECT`). El `.sql` abre `BEGIN READ ONLY` y cierra con `ROLLBACK`, así que no
 puede escribir.
 
-La referencia no es un número fijo: el `.sql` busca la **primera config de la racha viva**, es decir, la
-primera que tiene las cuatro claves en `live` y a la que ninguna config posterior le quitó ninguna de
-las cuatro. Así el chequeo mide siempre desde el encendido vigente, aunque el dueño edite otros ajustes
-después, y si las claves están apagadas la sección (0) dice «temporada apagada» en vez de juzgar una
-práctica como si fuera en vivo.
+La referencia no es un número fijo y es **por plataforma**: el `.sql` busca, para MX y para US, la
+primera config de su racha viva, es decir, la primera en la que esa plataforma tenía temporada o subida
+rápida en `live` y a la que ninguna config posterior le apagó las dos. Así una edición que solo pasa la
+subida rápida de una plataforma a práctica no apaga el chequeo de la otra, el chequeo mide siempre
+desde el encendido vigente aunque el dueño edite otros ajustes, y cuando una plataforma no tiene ningún
+motor en vivo la sección (0) lo dice y el veredicto sale `NO EVALUADO` en vez de un «sin casos de paro»
+que no revisó nada.
 
 Mira solo los ciclos **terminados** que empezaron después de esa config y responde a los cinco casos de
 paro del plan. Cuando todavía no hay ningún ciclo terminado, la sección (2) lo dice con esas palabras.
@@ -96,8 +98,9 @@ El resultado se manda por Telegram con `envia_recordatorio.py`, y la última lí
 veredicto: `0 | SIN CASOS DE PARO` o `N | CASO DE PARO: revisar la seccion (8)`.
 
 Se ejecutó a mano para probar el camino completo (2026-11-22 18:50 UTC, sobre la versión final con la
-temporada todavía en `shadow`): salió «temporada apagada: sin racha viva con las cuatro claves en live»,
-`0 | SIN CASOS DE PARO`, y `envios.log` registró `enviado: True`.
+temporada todavía en `shadow`): salió «sin ambito activo» en las dos plataformas (la temporada sigue en práctica),
+`0 | NO EVALUADO: temporada y subida rapida sin ambito activo en las dos plataformas`, y `envios.log`
+registró `enviado: True`.
 
 ## Por qué los casos 1 y 2 miran el ledger y no solo lo confirmado
 

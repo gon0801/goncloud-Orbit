@@ -24,39 +24,50 @@
 -- justo el PUT indebido.
 BEGIN READ ONLY;
 
--- La racha vigente: la primera config que sigue live hasta la ultima. Sin
--- racha, `ref` queda en el futuro y ninguna fila cuenta: la seccion (0) lo dice
--- con esas palabras en vez de juzgar una practica como si fuera live.
+-- La racha vigente, POR PLATAFORMA: la primera config en la que la plataforma
+-- tenia temporada o subida rapida en live y a la que ninguna config posterior le
+-- apago las dos. Una edicion que solo cambia una plataforma no apaga el
+-- chequeo de la otra (Devin, PR 730).
 SELECT coalesce(
-         (SELECT cv.created_at
-            FROM config_version cv
-           WHERE cv.settings->>'ads_temporada_amazon_mx' = 'live'
-             AND cv.settings->>'ads_temporada_amazon_us' = 'live'
-             AND cv.settings->>'ads_bid_recuperacion_amazon_mx' = 'live'
-             AND cv.settings->>'ads_bid_recuperacion_amazon_us' = 'live'
+         (SELECT cv.created_at FROM config_version cv
+           WHERE (cv.settings->>'ads_temporada_amazon_mx' = 'live'
+               OR cv.settings->>'ads_bid_recuperacion_amazon_mx' = 'live')
              AND NOT EXISTS (
                    SELECT 1 FROM config_version nx
                     WHERE nx.id > cv.id
-                      AND (nx.settings->>'ads_temporada_amazon_mx' IS DISTINCT FROM 'live'
-                        OR nx.settings->>'ads_temporada_amazon_us' IS DISTINCT FROM 'live'
-                        OR nx.settings->>'ads_bid_recuperacion_amazon_mx' IS DISTINCT FROM 'live'
-                        OR nx.settings->>'ads_bid_recuperacion_amazon_us' IS DISTINCT FROM 'live'))
-           ORDER BY cv.id
-           LIMIT 1),
-         '2099-01-01 00:00:00+00'::timestamptz) AS ref
+                      AND nx.settings->>'ads_temporada_amazon_mx' IS DISTINCT FROM 'live'
+                      AND nx.settings->>'ads_bid_recuperacion_amazon_mx' IS DISTINCT FROM 'live')
+           ORDER BY cv.id LIMIT 1),
+         '2099-01-01 00:00:00+00'::timestamptz) AS ref_mx
+\gset
+SELECT coalesce(
+         (SELECT cv.created_at FROM config_version cv
+           WHERE (cv.settings->>'ads_temporada_amazon_us' = 'live'
+               OR cv.settings->>'ads_bid_recuperacion_amazon_us' = 'live')
+             AND NOT EXISTS (
+                   SELECT 1 FROM config_version nx
+                    WHERE nx.id > cv.id
+                      AND nx.settings->>'ads_temporada_amazon_us' IS DISTINCT FROM 'live'
+                      AND nx.settings->>'ads_bid_recuperacion_amazon_us' IS DISTINCT FROM 'live')
+           ORDER BY cv.id LIMIT 1),
+         '2099-01-01 00:00:00+00'::timestamptz) AS ref_us
 \gset
 
-\echo '(0) config de referencia: la PRIMERA de la racha vigente con las cuatro claves en live'
-SELECT CASE WHEN :'ref' = '2099-01-01 00:00:00+00'
-            THEN 'temporada apagada: sin racha viva con las cuatro claves en live; no hay ciclos en vivo que vigilar'
-            ELSE 'racha viva con las cuatro claves en live desde ' || :'ref'
-       END AS estado;
+\echo '(0) referencia por plataforma: la PRIMERA de su racha viva (temporada o subida rapida en live)'
+SELECT CASE WHEN :'ref_mx' = '2099-01-01 00:00:00+00'
+            THEN 'amazon_mx: sin ambito activo (temporada y subida rapida apagadas o en practica)'
+            ELSE 'amazon_mx: racha viva desde ' || :'ref_mx'
+       END AS mx,
+       CASE WHEN :'ref_us' = '2099-01-01 00:00:00+00'
+            THEN 'amazon_us: sin ambito activo (temporada y subida rapida apagadas o en practica)'
+            ELSE 'amazon_us: racha viva desde ' || :'ref_us'
+       END AS us;
 
 \echo '(1) ciclos terminados que empezaron despues de esa config'
 SELECT c.id, c.platform, c.started_at, c.finished_at, c.decisions_count
   FROM optimizer_cycle c
  WHERE c.status = 'done'
-   AND c.started_at > :'ref'
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
  ORDER BY c.id;
 
 \echo '(2) aviso cuando todavia no hay ninguno'
@@ -66,7 +77,7 @@ SELECT CASE WHEN count(*) = 0
        END AS aviso
   FROM optimizer_cycle c
  WHERE c.status = 'done'
-   AND c.started_at > :'ref';
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'));
 
 \echo '(3) entradas a la baja: confirmadas | enviadas por el ledger | de esas, bajo la reduccion (paro) | enviadas sin sello'
 SELECT count(DISTINCT d.id) FILTER (
@@ -89,7 +100,7 @@ SELECT count(DISTINCT d.id) FILTER (
  WHERE d.kind = 'bid'
    AND d.inputs->>'motivo' = 'entra_temporada_baja'
    AND c.status = 'done'
-   AND c.started_at > :'ref';
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'));
 
 \echo '(4) regresos de la baja: confirmados | enviados por el ledger | de esos, bajan un bid (paro) | enviados sin sello'
 SELECT count(DISTINCT d.id) FILTER (
@@ -109,7 +120,7 @@ SELECT count(DISTINCT d.id) FILTER (
  WHERE d.kind = 'bid'
    AND d.inputs->>'motivo' = 'sale_temporada_baja'
    AND c.status = 'done'
-   AND c.started_at > :'ref';
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'));
 
 \echo '(5) lectura fresca distinta: sin aplicar | con un PUT registrado a pesar de ella (paro)'
 SELECT count(*) AS sin_aplicar_por_lectura,
@@ -120,7 +131,7 @@ SELECT count(*) AS sin_aplicar_por_lectura,
   JOIN optimizer_cycle c ON c.id = s.cycle_id
  WHERE s.motivo = 'bid_cambiado_fuera'
    AND c.status = 'done'
-   AND c.started_at > :'ref';
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'));
 
 \echo '(6) keywords con mas de una entrada CONFIRMADA en el mismo episodio (paro) | entradas confirmadas sin episodio estampado'
 SELECT (SELECT count(*) FROM (
@@ -132,7 +143,7 @@ SELECT (SELECT count(*) FROM (
              AND d.inputs->>'motivo' = 'entra_temporada_baja'
              AND d.inputs->>'temporada_episodio_id' IS NOT NULL
              AND c.status = 'done'
-             AND c.started_at > :'ref'
+             AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
            GROUP BY 1, 2
           HAVING count(*) > 1) AS dos) AS paro_dos_entradas_en_un_episodio,
        (SELECT count(*)
@@ -143,14 +154,14 @@ SELECT (SELECT count(*) FROM (
            AND d.inputs->>'motivo' = 'entra_temporada_baja'
            AND d.inputs->>'temporada_episodio_id' IS NULL
            AND c.status = 'done'
-           AND c.started_at > :'ref') AS entradas_sin_episodio;
+           AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))) AS entradas_sin_episodio;
 
 \echo '(7) presupuestos confirmados sin APLICAR AJUSTE ni REGRESAR AJUSTE (paro)'
 SELECT count(*) AS paro_presupuesto_sin_aplicar_ajuste
   FROM campana_ajuste a
  WHERE a.clase = 'presupuesto'
    AND a.confirmado_el IS NOT NULL
-   AND a.creado_el > :'ref'
+   AND ((a.platform = 'amazon_mx' AND a.creado_el > :'ref_mx') OR (a.platform = 'amazon_us' AND a.creado_el > :'ref_us'))
    AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE');
 
 \echo '(8) resumen de casos de paro (cada linea debe dar 0)'
@@ -167,7 +178,7 @@ SELECT 'baja_mas_que_la_reduccion' AS caso, count(DISTINCT d.id) AS n
    AND (aa.request_payload->>'bid')::numeric
        < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
    AND c.status = 'done'
-   AND c.started_at > :'ref'
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
 UNION ALL
 SELECT 'regreso_que_baja', count(DISTINCT d.id)
   FROM decision d
@@ -179,7 +190,7 @@ SELECT 'regreso_que_baja', count(DISTINCT d.id)
    AND d.old_value IS NOT NULL
    AND (aa.request_payload->>'bid')::numeric < d.old_value
    AND c.status = 'done'
-   AND c.started_at > :'ref'
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
 UNION ALL
 SELECT 'put_tras_lectura_fresca',
        count(*) FILTER (
@@ -189,7 +200,7 @@ SELECT 'put_tras_lectura_fresca',
   JOIN optimizer_cycle c ON c.id = s.cycle_id
  WHERE s.motivo = 'bid_cambiado_fuera'
    AND c.status = 'done'
-   AND c.started_at > :'ref'
+   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
 UNION ALL
 SELECT 'dos_entradas_en_un_episodio',
        (SELECT count(*) FROM (
@@ -201,7 +212,7 @@ SELECT 'dos_entradas_en_un_episodio',
              AND d.inputs->>'motivo' = 'entra_temporada_baja'
              AND d.inputs->>'temporada_episodio_id' IS NOT NULL
              AND c.status = 'done'
-             AND c.started_at > :'ref'
+             AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
            GROUP BY 1, 2
           HAVING count(*) > 1) AS dos)
 UNION ALL
@@ -209,7 +220,7 @@ SELECT 'presupuesto_sin_aplicar_ajuste', count(*)
   FROM campana_ajuste a
  WHERE a.clase = 'presupuesto'
    AND a.confirmado_el IS NOT NULL
-   AND a.creado_el > :'ref'
+   AND ((a.platform = 'amazon_mx' AND a.creado_el > :'ref_mx') OR (a.platform = 'amazon_us' AND a.creado_el > :'ref_us'))
    AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE')
 ORDER BY 1;
 
@@ -227,7 +238,7 @@ SELECT (SELECT count(DISTINCT d.id)
            AND (aa.request_payload->>'bid')::numeric
                < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
            AND c.status = 'done'
-           AND c.started_at > :'ref')
+           AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us')))
      + (SELECT count(DISTINCT d.id)
           FROM decision d
           JOIN optimizer_cycle c ON c.id = d.cycle_id
@@ -238,14 +249,14 @@ SELECT (SELECT count(DISTINCT d.id)
            AND d.old_value IS NOT NULL
            AND (aa.request_payload->>'bid')::numeric < d.old_value
            AND c.status = 'done'
-           AND c.started_at > :'ref')
+           AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us')))
      + (SELECT count(*)
           FROM decision_sin_aplicar s
           JOIN optimizer_cycle c ON c.id = s.cycle_id
          WHERE s.motivo = 'bid_cambiado_fuera'
            AND EXISTS (SELECT 1 FROM apply_attempt aa WHERE aa.decision_id = s.decision_id)
            AND c.status = 'done'
-           AND c.started_at > :'ref')
+           AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us')))
      + (SELECT count(*) FROM (
           SELECT d.ad_entity_id, d.inputs->>'temporada_episodio_id'
             FROM decision d
@@ -255,7 +266,7 @@ SELECT (SELECT count(DISTINCT d.id)
              AND d.inputs->>'motivo' = 'entra_temporada_baja'
              AND d.inputs->>'temporada_episodio_id' IS NOT NULL
              AND c.status = 'done'
-             AND c.started_at > :'ref'
+             AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
            GROUP BY 1, 2
           HAVING count(*) > 1) AS dos)
      + (SELECT count(*)
@@ -263,8 +274,11 @@ SELECT (SELECT count(DISTINCT d.id)
          WHERE a.clase = 'presupuesto'
            AND a.confirmado_el IS NOT NULL
            AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE')
-           AND a.creado_el > :'ref') AS casos_de_paro,
-       CASE WHEN (
+           AND ((a.platform = 'amazon_mx' AND a.creado_el > :'ref_mx') OR (a.platform = 'amazon_us' AND a.creado_el > :'ref_us'))) AS casos_de_paro,
+       CASE WHEN :'ref_mx' = '2099-01-01 00:00:00+00'
+                  AND :'ref_us' = '2099-01-01 00:00:00+00'
+            THEN 'NO EVALUADO: temporada y subida rapida sin ambito activo en las dos plataformas'
+            WHEN (
            (SELECT count(DISTINCT d.id)
               FROM decision d
               JOIN optimizer_cycle c ON c.id = d.cycle_id
@@ -278,7 +292,7 @@ SELECT (SELECT count(DISTINCT d.id)
                AND (aa.request_payload->>'bid')::numeric
                    < d.old_value * (1 - (cv.settings->'ads_temporada'->>'reduccion_baja_pct')::numeric / 100)
                AND c.status = 'done'
-               AND c.started_at > :'ref')
+               AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us')))
            + (SELECT count(DISTINCT d.id)
                 FROM decision d
                 JOIN optimizer_cycle c ON c.id = d.cycle_id
@@ -289,14 +303,14 @@ SELECT (SELECT count(DISTINCT d.id)
                  AND d.old_value IS NOT NULL
                  AND (aa.request_payload->>'bid')::numeric < d.old_value
                  AND c.status = 'done'
-                 AND c.started_at > :'ref')
+                 AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us')))
            + (SELECT count(*)
                 FROM decision_sin_aplicar s
                 JOIN optimizer_cycle c ON c.id = s.cycle_id
                WHERE s.motivo = 'bid_cambiado_fuera'
                  AND EXISTS (SELECT 1 FROM apply_attempt aa WHERE aa.decision_id = s.decision_id)
                  AND c.status = 'done'
-                 AND c.started_at > :'ref')
+                 AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us')))
            + (SELECT count(*) FROM (
                 SELECT d.ad_entity_id, d.inputs->>'temporada_episodio_id'
                   FROM decision d
@@ -306,7 +320,7 @@ SELECT (SELECT count(DISTINCT d.id)
                    AND d.inputs->>'motivo' = 'entra_temporada_baja'
                    AND d.inputs->>'temporada_episodio_id' IS NOT NULL
                    AND c.status = 'done'
-                   AND c.started_at > :'ref'
+                   AND ((c.platform = 'amazon_mx' AND c.started_at > :'ref_mx') OR (c.platform = 'amazon_us' AND c.started_at > :'ref_us'))
                  GROUP BY 1, 2
                 HAVING count(*) > 1) AS dos)
            + (SELECT count(*)
@@ -314,7 +328,7 @@ SELECT (SELECT count(DISTINCT d.id)
                WHERE a.clase = 'presupuesto'
                  AND a.confirmado_el IS NOT NULL
                  AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE')
-                 AND a.creado_el > :'ref')
+                 AND ((a.platform = 'amazon_mx' AND a.creado_el > :'ref_mx') OR (a.platform = 'amazon_us' AND a.creado_el > :'ref_us')))
          ) = 0
          THEN 'SIN CASOS DE PARO'
          ELSE 'CASO DE PARO: revisar la seccion (8)'
