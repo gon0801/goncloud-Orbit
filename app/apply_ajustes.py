@@ -255,52 +255,52 @@ def _aplica_y_confirma(
         # Otro intento trabaja este acto (try, no espera: un reintento
         # anidado dentro del PUT del primero se interbloquearia, L).
         raise AjusteEnCurso(f"ajuste {ajuste_id} en curso: reintenta en un momento")
-    ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
-    if ya is not None and ya[0]:
-        conn.rollback()
-        return
-    for _pid, antes_id, despues, regresa_a in conn.execute(
-        _SQL_AJUSTE_POSTERIOR, (campana_id, clase, ajuste_id)
-    ).fetchall():
-        if _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
+    try:
+        ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
+        if ya is not None and ya[0]:
+            conn.rollback()
+            return
+        if _superada(conn, ajuste_id, campana_id=campana_id, clase=clase, ajuste=ajuste):
             # La orden quedo vieja: hay otra aceptada DESPUES para el mismo
             # campo. Sin PUT; el endpoint responde 409 y el dueno recarga.
             raise AjusteEnCurso(
                 "Ya mandaste otra orden para esta campaña después de esta. Recarga."
             )
-    if isinstance(ajuste, CambiarAjusteUbicacion):
-        actual = _config_leida(cliente, plataforma, destino.campana_externa)
-        strategy = actual.estrategia_puja if actual is not None else None
-        if strategy is None:
-            # La lectura no trae dynamicBidding (raro: el vigente si
-            # tenia, o planear habria rechazado): fallback al vigente,
-            # no hay actual que respetar. Sin ninguna, fail-closed.
-            strategy = destino.estrategia_puja
-        if strategy is None:
-            raise AjusteNoConfirmado(
-                f"ajuste {ajuste_id}: sin estrategia no se manda el PUT de un placement"
+        if isinstance(ajuste, CambiarAjusteUbicacion):
+            actual = _config_leida(cliente, plataforma, destino.campana_externa)
+            strategy = actual.estrategia_puja if actual is not None else None
+            if strategy is None:
+                # La lectura no trae dynamicBidding (raro: el vigente si
+                # tenia, o planear habria rechazado): fallback al vigente,
+                # no hay actual que respetar. Sin ninguna, fail-closed.
+                strategy = destino.estrategia_puja
+            if strategy is None:
+                raise AjusteNoConfirmado(
+                    f"ajuste {ajuste_id}: sin estrategia no se manda el PUT de un placement"
+                )
+            cuerpo = cuerpo_put_ubicacion(
+                PLACEMENT_POR_CAMPO[campo], ajuste.porcentaje, destino, strategy
             )
-        campo = campo_del_ajuste(ajuste)
-        cuerpo = cuerpo_put_ubicacion(
-            PLACEMENT_POR_CAMPO[campo], ajuste.porcentaje, destino, strategy
+        else:
+            cuerpo = cuerpo_put_clase(clase, destino)
+        cliente.ajustar_campana(
+            destino.campana_externa,
+            {k: v for k, v in cuerpo.items() if k != "campaignId"},
         )
-    else:
-        cuerpo = cuerpo_put_clase(clase, destino)
-    cliente.ajustar_campana(
-        destino.campana_externa,
-        {k: v for k, v in cuerpo.items() if k != "campaignId"},
-    )
-    leida = _config_leida(cliente, plataforma, destino.campana_externa)
-    if leida is None or not coincide_campo(ajuste, leida, destino):
-        raise AjusteNoConfirmado(
-            f"ajuste {ajuste_id}: Amazon no confirma la config enviada"
-            " (readback distinto); la fila queda sin confirmar"
-        )
-    ahora = datetime.datetime.now(datetime.UTC)
-    with conn.transaction():
-        conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
-        guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
-    conn.commit()
+        leida = _config_leida(cliente, plataforma, destino.campana_externa)
+        if leida is None or not coincide_campo(ajuste, leida, destino):
+            raise AjusteNoConfirmado(
+                f"ajuste {ajuste_id}: Amazon no confirma la config enviada"
+                " (readback distinto); la fila queda sin confirmar"
+            )
+        ahora = datetime.datetime.now(datetime.UTC)
+        with conn.transaction():
+            conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
+            guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def _pendientes_hn(conn, huella: str, campana_id: int, clase: str) -> list:
@@ -494,19 +494,10 @@ def reconcilia_ajuste_campana(
         if superada
         else None
     )
-    if vigente == ConfigCampana.desde_json(despues):
-        if superada:
-            if equivalente is not None:
-                return AjusteHecho(equivalente, campana_id, clase, True)
-            raise HuellaDesactualizada(
-                "la orden quedo superada por otra posterior: pide un plan nuevo", None
-            )
-        if not confirmada:
-            _sella_pendiente(conn, _eid)
-        return AjusteHecho(_eid, campana_id, clase, True)
-    if coincide_campo(ajuste, vigente, ConfigCampana.desde_json(despues)):
-        # B12: Amazon tiene el ajuste; otro campo cambio por fuera y el
-        # completo ya no coincide. Se sella igual: el acto se cumplio.
+    destino = ConfigCampana.desde_json(despues)
+    if vigente == destino or coincide_campo(ajuste, vigente, destino):
+        # B12: si el completo o el campo del ajuste ya coincide en Amazon,
+        # el acto se cumplio (respetando si quedo superado por orden posterior).
         if confirmada:
             return AjusteHecho(_eid, campana_id, clase, True)
         if superada:

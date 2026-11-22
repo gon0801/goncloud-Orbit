@@ -32,6 +32,7 @@ from app.apply_store import (
     _sella_ledger,
 )
 from app.db import tx_durable
+from app.optimizer.recuperacion import TOLERANCIA_CADENA
 
 if TYPE_CHECKING:
     from app.apply import Aplicador
@@ -110,7 +111,7 @@ def _reconcilia_ambiguos_sellados(
                 )
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
             confirmadas += 1
-        elif old_value is not None and bid_leido == old_value:
+        elif old_value is not None and abs(bid_leido - old_value) <= TOLERANCIA_CADENA:
             with tx_durable(conn):
                 id_probe = _ledger(
                     conn, decision_id, "probe", {"leido": str(bid_leido)}, quota_cobrada=False

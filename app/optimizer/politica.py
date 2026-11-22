@@ -9,16 +9,28 @@ importados, jamas copiados. Las bandas, pasos y clamps son los de hoy
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from typing import Literal
 
 from app.optimizer import economia_cambio, recuperacion, temporada
+from app.optimizer import politica_temporada as pt
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import _decide_pause
-from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel, InsumosProteccion
+from app.optimizer.caso import PRECISION, CasoHoja, Economia, EvidenciaNivel
 from app.optimizer.centavos import centavo_en_rango
 from app.optimizer.evidencia import gamma_p, gamma_q
+from app.optimizer.politica_temporada import (  # noqa: F401 - re-export estable
+    MOTIVO_AJUSTA_BAJA,
+    MOTIVO_ENTRA_BAJA,
+    MOTIVO_PRESUPUESTO_TOPADO,
+    MOTIVO_REGRESO_ESPERA_PRESUPUESTO,
+    MOTIVO_SALE_BAJA,
+    MOTIVO_TECHO_DE_BAJA,
+    MOTIVO_TEMPORADA_BAJA,
+    MOTIVOS_TEMPORADA,
+    _Recupera,
+)
 from app.optimizer.recuperacion import MOTIVO_RECUPERA_NIVEL, presupuesto_topado
 
 # Bandas y pasos: los de hoy (docs/CONTEXTO.md), sin tocar.
@@ -77,22 +89,6 @@ MOTIVO_RANGO_BLOQUEA_AJUSTE = "rango_bloquea_ajuste"  # espejo de bid.py
 MOTIVO_DELTA_BAJO_UMBRAL = "delta_bajo_umbral"  # espejo de bid.py
 MOTIVO_VIGENTE_ENCIMA = "vigente_por_encima"
 
-# TEMPORADA 01: los motivos de temporada (la vista v_cambio_bid de 0093 los
-# clasifica con origen 'temporada'; R1 no los ve, piso_aprendido no los cuenta
-# y los frenos de trayectoria no los juzgan). El resto del vocabulario de
-# temporada llega con los bloques C y D.
-MOTIVO_ENTRA_BAJA = "entra_temporada_baja"
-MOTIVO_AJUSTA_BAJA = "ajusta_temporada_baja"
-MOTIVO_SALE_BAJA = "sale_temporada_baja"
-MOTIVOS_TEMPORADA = (MOTIVO_ENTRA_BAJA, MOTIVO_AJUSTA_BAJA, MOTIVO_SALE_BAJA)
-# TEMPORADA 01 C: la subida rapida (R6r) y su freno de presupuesto.
-MOTIVO_PRESUPUESTO_TOPADO = "presupuesto_topado"
-# TEMPORADA 01 D: los retenidos de la baja, el techo de subidas y el regreso
-# que espera por campana topada (solo notes; no es veredicto final).
-MOTIVO_TEMPORADA_BAJA = "temporada_baja"
-MOTIVO_TECHO_DE_BAJA = "techo_de_baja"
-MOTIVO_REGRESO_ESPERA_PRESUPUESTO = "regreso_espera_presupuesto"
-
 NivelQueJuzga = Literal["hoja", "ad_group"]
 EstadoGrupo = Literal["sangra", "cumple", "sin_veredicto"]
 FuentePrecio = Literal["medido_tras_cambio", "proyectado", "ventana", "ventana_madura"]
@@ -133,16 +129,6 @@ class Regresar:
 @dataclass(frozen=True)
 class Pausar:
     motivo: str
-
-
-@dataclass(frozen=True)
-class _Recupera:
-    """Candidato interno de R6r (TEMPORADA 01 C): sube directo al nivel que la
-    evidencia sostiene (ya en centavos, topado por techo_conocido, techo del
-    goal y techo_de_baja). No sale de decide: se convierte en Regresar despues
-    de P, BUD y sus frenos de salto."""
-
-    destino: Decimal
 
 
 Veredicto = Mantener | Mover | Regresar | Pausar
@@ -298,23 +284,7 @@ def decide(caso: CasoHoja) -> Veredicto:
         return freno_r1
 
     with localcontext(prec=PRECISION):
-        # TEMPORADA 01 D (decision 4 del plan): el juicio R3-R13 corre con la
-        # META DEL JUICIO (alta: max(base, meta_alta), libre por encima del
-        # equilibrio; el limite de R3 la sigue). El caso congela base, meta de
-        # alta y frontera; la meta del juicio se deriva aqui. Fuera de alta el
-        # replace es identidad: byte a byte lo de hoy. R0 ya corrio arriba con
-        # la base, igual que las metas escritas a mano.
-        caso_j = replace(
-            caso,
-            economia=replace(
-                caso.economia,
-                target_acos_pct=temporada.meta_del_juicio(caso),
-                plataforma=replace(
-                    caso.economia.plataforma,
-                    equilibrio_acos_pct=temporada.equilibrio_del_juicio(caso),
-                ),
-            ),
-        )
+        caso_j = pt.caso_para_juicio(caso)
         estado = estado_grupo(caso_j.grupo, caso_j.economia)
         fallo = _juzga_hoja(caso_j, estado)
         if isinstance(fallo, Mantener):
@@ -322,15 +292,11 @@ def decide(caso: CasoHoja) -> Veredicto:
         if isinstance(fallo, _Recupera):
             return _resuelve_recupera(caso_j, fallo, ultimo, _motivo_bloqueado)
         factor, motivo, nivel = fallo
-        # TEMPORADA 01 D (decision 7 del plan): en baja SOLO R3 recorta (vende
-        # y pierde dinero); R4, R9 y R11 quedan retenidos — la evidencia de la
-        # baja mezcla la caida de conversion con el precio nuevo y no sirve
-        # para afinar hacia la meta ni castigar la falta de ventas.
-        if (
-            t is not None
-            and t.frontera.fase_hoja == "baja"
-            and factor < 0
-            and motivo not in (MOTIVO_PIERDE_DINERO, MOTIVO_PIERDE_DINERO_FUERTE)
+        if pt.recorte_retenido_en_baja(
+            caso,
+            factor,
+            motivo,
+            motivos_r3=(MOTIVO_PIERDE_DINERO, MOTIVO_PIERDE_DINERO_FUERTE),
         ):
             return Mantener(MOTIVO_TEMPORADA_BAJA)
         freno_subida = _frena_subida_normal(caso, factor, _motivo_bloqueado)
@@ -398,19 +364,6 @@ def _trayectoria_r1_r2(caso: CasoHoja, t, ultimo, centavos: bool) -> Veredicto |
     if efecto.dias_post < DIAS_EFECTO:
         return Mantener(MOTIVO_ESPERANDO_EFECTO)
     return None
-
-
-def _subida_en_espera(proteccion: InsumosProteccion | None, motivo_bloqueado: str | None) -> bool:
-    """True si una subida debe esperar: la pausa se suprimio porque hay una
-    venta reciente conocida (espera activa), no porque el dato faltara.
-
-    El marcador `frena_subidas` deja intacta la semantica de las decisiones
-    historicas, que no lo llevan (regla de replay)."""
-    return (
-        proteccion is not None
-        and proteccion.frena_subidas
-        and motivo_bloqueado in (subproteccion.MOTIVO_PROTEGIDA, subproteccion.MOTIVO_INDETERMINADA)
-    )
 
 
 def _evalua_r1(ultimo, efecto) -> bool | None:
@@ -569,58 +522,42 @@ def _freno_trayectoria(caso, ultimo, efecto, factor: Decimal) -> Mantener | None
     return None
 
 
-def _freno_recupera(caso, ultimo, efecto) -> Mantener | None:
-    """Frenos del salto R6r (TEMPORADA 01 C). Primer salto tras un recorte: solo
-    R14 — R15, R16 y el juicio economico piden repetir pasos chicos para medir,
-    y aqui el destino ya sale de la evidencia. Segundo salto seguido (el ultimo
-    cambio fue una subida, incluido otro recupera_nivel): pasa por los mismos
-    frenos que una subida de R6 (20 clics nuevos al precio nuevo y un juicio
-    economico comparable). El CPC del primer salto tiene que estar medido antes
-    de otro. Un ajuste de campana no trae trayectoria de bid que frenar. El
-    ultimo cambio de TEMPORADA es un movimiento planeado: ningun freno (solo
-    R2 espero arriba)."""
-    if ultimo.origen == "temporada":
-        return None
-    if ultimo.direccion != -1:
-        return _freno_trayectoria(caso, ultimo, efecto, PASO_SUBIDA)
-    if efecto.clics_post is None:
-        return Mantener(MOTIVO_DATO_FALTANTE)
-    if efecto.clics_post < CLICS_NUEVOS and efecto.dias_post < DIAS_SALIDA:
-        return Mantener(MOTIVO_ESPERANDO_PRECIO_MEDIDO)
-    return None
-
-
 def _frena_subida_normal(
     caso: CasoHoja, factor: Decimal, motivo_bloqueado: str | None
 ) -> Mantener | None:
-    """P y BUD de la subida normal de R6 (TEMPORADA 01 C), en el orden sellado:
-    la espera por venta reciente (contrato de ARREGLOS 01) y luego la campana
-    topada o sin dato de presupuesto (BUD; solo con la lectura presente, los
-    flags de temporada o recuperacion encendidos: sin ella, lo de hoy)."""
-    if factor <= 0:
-        return None
-    if _subida_en_espera(caso.pausa.proteccion, motivo_bloqueado):
-        return Mantener(MOTIVO_SUBIDA_EN_ESPERA)
-    if caso.presupuesto is not None and presupuesto_topado(caso) in (True, None):
-        return Mantener(MOTIVO_PRESUPUESTO_TOPADO)
-    return None
+    motivo = pt.motivo_freno_subida_normal(
+        caso, factor, motivo_bloqueado, motivo_espera_venta=MOTIVO_SUBIDA_EN_ESPERA
+    )
+    return Mantener(motivo) if motivo is not None else None
 
 
 def _resuelve_recupera(
     caso: CasoHoja, fallo: _Recupera, ultimo, motivo_bloqueado: str | None
 ) -> Veredicto:
-    """R6r (TEMPORADA 01 C): P, BUD y frenos de salto; el destino ya viene en
-    centavos y topado, y decide Regresar (el movimiento que regresa al nivel
-    que la evidencia sostiene)."""
+    """R6r (TEMPORADA 01 C): P, BUD y frenos de salto; devuelve Regresar."""
     freno_subida = _frena_subida_normal(caso, PASO_SUBIDA, motivo_bloqueado)
     if freno_subida is not None:
         return freno_subida
     if ultimo is not None:
         efecto = caso.trayectoria.efecto
         assert efecto is not None
-        freno = _freno_recupera(caso, ultimo, efecto)
-        if freno is not None:
-            return freno
+
+        def _trayectoria_subida() -> str | None:
+            freno_t = _freno_trayectoria(caso, ultimo, efecto, PASO_SUBIDA)
+            return None if freno_t is None else freno_t.motivo
+
+        motivo_freno = pt.motivo_freno_recupera(
+            caso,
+            ultimo,
+            efecto,
+            freno_trayectoria_subida=_trayectoria_subida,
+            clics_nuevos=CLICS_NUEVOS,
+            dias_salida=DIAS_SALIDA,
+            motivo_dato_faltante=MOTIVO_DATO_FALTANTE,
+            motivo_esperando_precio=MOTIVO_ESPERANDO_PRECIO_MEDIDO,
+        )
+        if motivo_freno is not None:
+            return Mantener(motivo_freno)
     return Regresar(fallo.destino, MOTIVO_RECUPERA_NIVEL)
 
 
@@ -803,45 +740,25 @@ def _precio_de_hoy(caso: CasoHoja) -> tuple[Decimal | None, FuentePrecio | None]
     return (None, None)
 
 
-def _paso_a_centavo(
-    bid,
-    destino: Decimal,
-    motivo: str,
-    nivel: NivelQueJuzga,
-) -> Mover | Mantener:
-    """Mover a un destino YA en centavos (TEMPORADA 01): la entrada de la baja y
-    el ajuste de una reduccion editada. Misma cola que `_paso`: valor > 0,
-    destino en [piso, techo], |delta| >= MIN_DELTA_ABSOLUTO y magnitud dentro de
-    los clamps por decision. factor = destino / valor - 1 (informativo). Solo
-    `_paso` y `_paso_a_centavo` crean un Mover."""
-    valor = bid.valor
-    if valor is None or valor <= 0:
-        return Mantener(MOTIVO_DATO_FALTANTE)
-    nuevo = min(max(destino, bid.piso), bid.techo)
-    if abs(nuevo - valor) < MIN_DELTA_ABSOLUTO:
-        return Mantener(MOTIVO_DELTA_BAJO_UMBRAL)
-    delta = nuevo - valor
-    magnitud_ok = delta <= CLAMP_FACTOR_MAX * valor and (-delta <= -CLAMP_FACTOR_MIN * valor)
-    if not magnitud_ok:
-        return Mantener(MOTIVO_RANGO_BLOQUEA_AJUSTE)
-    return Mover(nuevo / valor - 1, nuevo, motivo, nivel)
-
-
 def _rte_pendiente(caso: CasoHoja, p: object) -> Veredicto | None:
-    """RTe de temporada (TEMPORADA 01 B): la entrada de la baja o el ajuste de
-    una reduccion editada. None si no es su turno (el camino de hoy sigue).
-    TEMPORADA 01 D: la subida del ajuste espera si la campana esta topada
-    (presupuesto_topado True); None deja seguir el camino normal."""
-    if isinstance(p, temporada.EntradaPendiente):
-        return _paso_a_centavo(caso.bid, p.destino, MOTIVO_ENTRA_BAJA, "hoja")
-    if isinstance(p, temporada.AjustePendiente):
-        valor = caso.bid.valor
-        if valor is not None and p.destino < valor:
-            return _paso_a_centavo(caso.bid, p.destino, MOTIVO_AJUSTA_BAJA, "hoja")
-        if presupuesto_topado(caso) is True:
-            return None
-        return Regresar(p.destino, MOTIVO_AJUSTA_BAJA)
-    return None
+    """RTe de temporada (TEMPORADA 01 B/D): entrada de la baja o ajuste."""
+    accion = pt.accion_rte_pendiente(
+        caso,
+        p,
+        min_delta=MIN_DELTA_ABSOLUTO,
+        clamp_min=CLAMP_FACTOR_MIN,
+        clamp_max=CLAMP_FACTOR_MAX,
+        motivo_dato_faltante=MOTIVO_DATO_FALTANTE,
+        motivo_delta_bajo=MOTIVO_DELTA_BAJO_UMBRAL,
+        motivo_rango_bloquea=MOTIVO_RANGO_BLOQUEA_AJUSTE,
+    )
+    if accion is None:
+        return None
+    if accion[0] == "mantener":
+        return Mantener(accion[1])
+    if accion[0] == "regresar":
+        return Regresar(accion[1], accion[2])
+    return Mover(accion[1], accion[2], accion[3], "hoja")
 
 
 def _paso(

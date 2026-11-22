@@ -324,7 +324,8 @@ class Aplicador:
         aplicadas = 0
         divergencias = 0
         caps_saturados: list[CapSaturado] = []
-        for indice, decision in enumerate(ordenadas):
+        lote_cortado_429 = False
+        for decision in ordenadas:
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
                 skips.append(MOTIVO_MODO_NO_LIVE)
@@ -342,6 +343,19 @@ class Aplicador:
                 registra_sin_aplicar(self._conn, decision.id, self.cycle_id_ejecutor, motivo_datos)
                 continue
             assert identidad is not None  # sin motivo, _guarda_de_datos la devuelve
+            if lote_cortado_429:
+                # Las que faltan tras un 429 tampoco se consultan, pero SI dejan
+                # su desenlace: sin fila, la vista de auditoria las leeria como
+                # huerfanas de un ciclo live cerrado.
+                skips.append(MOTIVO_SIN_RESPUESTA)
+                registra_sin_aplicar(
+                    self._conn,
+                    decision.id,
+                    self.cycle_id_ejecutor,
+                    MOTIVO_SIN_RESPUESTA,
+                    detalle={"lote_cortado": "429"},
+                )
+                continue
             # TEMPORADA 01 E: lectura fresca ANTES de la cuota y del PUT, para
             # TODA decision de bid. Amazon no ofrece compare-and-set: entre
             # este LIST y el PUT queda una ventana corta, pero el bid que se
@@ -365,15 +379,8 @@ class Aplicador:
                         MOTIVO_SIN_RESPUESTA,
                         detalle={"http": "429"},
                     )
-                    # Las que faltan tampoco se consultan, pero SI dejan su
-                    # desenlace: sin fila, la vista de auditoria las leeria
-                    # como huerfanas de un ciclo live cerrado.
-                    skips.extend(
-                        self._registra_lote_cortado(
-                            ordenadas[indice + 1 :], escalera_global=escalera_global
-                        )
-                    )
-                    break
+                    lote_cortado_429 = True
+                    continue
                 # Una lectura fallida NO cancela el lote: antes del PUT no hay
                 # escritura ambigua que reconciliar, asi que esta puja queda
                 # sin respuesta y las demas siguen (mismo criterio que la
@@ -468,43 +475,6 @@ class Aplicador:
         if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (TOPE_INTENTOS):
             return MOTIVO_TOPE_INTENTOS, None
         return None, identidad
-
-    def _registra_lote_cortado(
-        self, restantes: list[DecisionBid], *, escalera_global: str
-    ) -> list[str]:
-        """El 429 agoto la lectura fresca y corta el lote: cada puja restante
-        deja su desenlace SIN HTTP, con las MISMAS guardas locales del camino
-        normal (modo, aplicacion previa y datos). Una puja de campana en
-        practica conserva `modo_no_live`, una descartable conserva su motivo
-        (`bid_incompleto`, `entidad_no_decisora`, `tope_intentos`), y solo la
-        que habria llegado al LIST queda `sin_respuesta` con
-        `detalle.lote_cortado`."""
-        motivos: list[str] = []
-        for restante in restantes:
-            if self.modo_efectivo(self._conn, restante, escalera_global=escalera_global) != "live":
-                motivos.append(MOTIVO_MODO_NO_LIVE)
-                if not _ya_aplicada(self._conn, restante.id):
-                    registra_sin_aplicar(
-                        self._conn, restante.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
-                    )
-                continue
-            if _ya_aplicada(self._conn, restante.id):
-                motivos.append(MOTIVO_YA_APLICADA)
-                continue
-            motivo, _identidad = self._guarda_de_datos(restante)
-            if motivo is not None:
-                motivos.append(motivo)
-                registra_sin_aplicar(self._conn, restante.id, self.cycle_id_ejecutor, motivo)
-                continue
-            motivos.append(MOTIVO_SIN_RESPUESTA)
-            registra_sin_aplicar(
-                self._conn,
-                restante.id,
-                self.cycle_id_ejecutor,
-                MOTIVO_SIN_RESPUESTA,
-                detalle={"lote_cortado": "429"},
-            )
-        return motivos
 
     def _ejecuta_mutacion(
         self, decision: DecisionBid, identidad: tuple[str, str], id_attempt: int

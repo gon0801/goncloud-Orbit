@@ -533,3 +533,67 @@ def test_temporada01_g_reversion_de_otra_ubicacion_no_supera():
             )
             is False
         ), "la reversion de resto no toca el top"
+
+
+@_skip_db
+def test_temporada01_ola3_aplica_y_confirma_libera_lock_al_fallar():
+    """Ola 3B: si _aplica_y_confirma falla despues de tomar el advisory lock,
+    hace rollback y libera el candado de inmediato para otra sesion."""
+    import psycopg
+    import pytest
+    from psycopg import pq
+    from test_aplica_ajuste import EXTERNA, _db, _siembra
+
+    from app import apply_ajustes
+    from app.ads.campana_config import config_vigente
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_ola3_lock") as conn:
+        camp, obs_id = _siembra(conn)
+        cfg0 = config_vigente(conn, camp)
+        assert cfg0 is not None
+        dsn = conn.info.dsn
+        if conn.info.password:
+            from psycopg.conninfo import make_conninfo
+
+            dsn = make_conninfo(dsn, password=conn.info.password)
+        conn_tx = psycopg.connect(dsn, autocommit=False)
+        conn_otra = psycopg.connect(dsn, autocommit=True)
+        try:
+            ajuste = CambiarPresupuesto(presupuesto_diario=Decimal("150"))
+            destino = cfg0
+            orden = conn.execute(
+                "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+                " despues, huella, actor, go_literal)"
+                " VALUES (%s, 'amazon_mx', 'presupuesto', %s, '{}'::jsonb, 'h-lock-err',"
+                " 'dueno', 'APLICAR AJUSTE') RETURNING id",
+                (camp, obs_id),
+            ).fetchone()[0]
+            conn.commit()
+
+            class _ClienteFalla:
+                def ajustar_campana(self, *_a, **_k):
+                    raise RuntimeError("error simulado en PUT")
+
+            with pytest.raises(RuntimeError, match="error simulado"):
+                apply_ajustes._aplica_y_confirma(
+                    conn_tx,
+                    _ClienteFalla(),
+                    "amazon_mx",
+                    "presupuesto",
+                    destino,
+                    ajuste,
+                    campana_id=camp,
+                    ajuste_id=orden,
+                    previa=cfg0,
+                )
+            assert conn_tx.info.transaction_status == pq.TransactionStatus.IDLE
+            llave = f"campana:{camp}:presupuesto_diario"
+            libre = conn_otra.execute(
+                "SELECT pg_try_advisory_xact_lock(hashtext(%s))", (llave,)
+            ).fetchone()[0]
+            assert libre is True, f"el lock {llave} quedo retenido tras la excepcion"
+            assert cfg0.campana_externa == EXTERNA
+        finally:
+            conn_tx.close()
+            conn_otra.close()

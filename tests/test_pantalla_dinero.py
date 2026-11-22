@@ -89,24 +89,23 @@ def _lee(
         if target is not None
         else []
     )
+    settings_norm = [
+        (1, fila[0]) if isinstance(fila, tuple) and len(fila) == 1 else fila
+        for fila in settings_fila
+    ]
     conn = _ConnFalsa(
         [
             list(grupos),
+            # Ola 3A: lee_dinero lee config_version UNA sola vez y la comparte
+            # entre lee_ubicaciones, lee_campanas y _con_avisos.
+            settings_norm,
             list(ubicaciones),
-            list(settings_fila),
             list(campanas),
-            # TEMPORADA 01 A: lee_campanas lee ads_campana_topada (una sola
-            # definicion) justo despues del SELECT de campanas.
-            list(settings_fila),
             list(gasto_diario),
             list(fuera),
             list(configs_hist),
             list(regresables),
             list(ultimo_precio),
-            # _con_avisos repite el criterio (umbral + topada) y despues va
-            # el target del ultimo ciclo.
-            list(settings_fila),
-            list(settings_fila),
             notas,
         ]
     )

@@ -113,12 +113,15 @@ SELECT d.ad_entity_id,
        CASE WHEN da.decision_id IS NOT NULL OR sa.decision_id IS NOT NULL THEN 'obsoleto'
             WHEN EXISTS (SELECT 1 FROM apply_attempt a
                           WHERE a.decision_id = e.decision_id
+                            AND a.tipo = 'normal'
                             AND a.resultado = 'fallo:readback_ambiguo') THEN 'en_vuelo'
             WHEN EXISTS (SELECT 1 FROM apply_attempt a
                           WHERE a.decision_id = e.decision_id
+                            AND a.tipo = 'normal'
                             AND a.finished_at IS NULL) THEN 'en_vuelo'
             WHEN EXISTS (SELECT 1 FROM apply_attempt a
-                          WHERE a.decision_id = e.decision_id) THEN 'obsoleto'
+                          WHERE a.decision_id = e.decision_id
+                            AND a.tipo = 'normal') THEN 'obsoleto'
             WHEN oc.status IS DISTINCT FROM 'running' THEN 'obsoleto'
             ELSE 'en_vuelo' END
   FROM temporada_efecto e
@@ -244,11 +247,12 @@ UPDATE temporada_efecto e SET cerrado_el = now(), desenlace = 'sin_aplicar'
    AND NOT EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = d.id)
    AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa WHERE sa.decision_id = d.id)
    AND EXISTS (SELECT 1 FROM apply_attempt a
-                WHERE a.decision_id = d.id AND a.finished_at IS NOT NULL)
+                WHERE a.decision_id = d.id AND a.tipo = 'normal' AND a.finished_at IS NOT NULL)
    AND NOT EXISTS (SELECT 1 FROM apply_attempt a
-                    WHERE a.decision_id = d.id AND a.finished_at IS NULL)
+                    WHERE a.decision_id = d.id AND a.tipo = 'normal' AND a.finished_at IS NULL)
    AND NOT EXISTS (SELECT 1 FROM apply_attempt a
-                    WHERE a.decision_id = d.id AND a.resultado = 'fallo:readback_ambiguo')
+                    WHERE a.decision_id = d.id AND a.tipo = 'normal'
+                      AND a.resultado = 'fallo:readback_ambiguo')
 """
 
 _SQL_INSERT_EPISODIO = """
@@ -301,7 +305,7 @@ def registra_ciclo(
     abre uno nuevo si el abierto es de otra baja. Un segundo INSERT concurrente
     choca el indice unico `temporada_episodio_uno_abierto` y el ciclo falla
     cerrado. Devuelve el episodio abierto tras todo, o None."""
-    if plataforma is None or plataforma.modo != "live":
+    if plataforma is None or not plataforma.en_vivo:
         return None
     estacion = plataforma.estacion
     _reconcilia_efectos(conn, platform)
@@ -445,29 +449,51 @@ def episodios(conn: psycopg.Connection, platform: str) -> tuple[EpisodioPresupue
     )
 
 
-_SQL_PAUSAS_DE_BAJA = """
-SELECT q.ad_entity_id, q.id, q.decision_id, e.id
-  FROM apply_queue q
-  JOIN decision d               ON d.id = q.decision_id
-  JOIN decision_application da  ON da.decision_id = d.id AND da.verify_ok IS TRUE
-  JOIN temporada_episodio e     ON e.id = (d.inputs->>'temporada_episodio_id')::bigint
-                               AND e.cerrado_el IS NOT NULL
-  JOIN ad_entity_state s        ON s.ad_entity_id = q.ad_entity_id
- WHERE q.platform = %s::platform AND q.kind = 'pause' AND q.modo = 'live' AND q.estado = 'applied'
-   AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'
-   AND s.status = 'PAUSED'
-   AND NOT (q.ad_entity_id = ANY(%s))
-   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
-                    WHERE a.decision_id = q.decision_id AND a.tipo = 'reversa'
-                    GROUP BY a.decision_id
-                   HAVING bool_or(a.resultado = 'ok') OR count(*) >= 3)
-   AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r
-                    WHERE r.ad_entity_id = q.ad_entity_id AND r.detectada_en > q.applied_at)
-   AND q.id = (SELECT q2.id FROM apply_queue q2
-                WHERE q2.ad_entity_id = q.ad_entity_id AND q2.kind = 'pause'
-                  AND q2.estado = 'applied'
-                ORDER BY q2.applied_at DESC LIMIT 1)
-"""
+def sql_pausas_de_baja(
+    *,
+    select_cols: str,
+    joins_extra: str = "",
+    where_extra: str = "",
+    order_by: str = "",
+) -> str:
+    """Unica fuente SQL de pausas confirmadas de Orbit en temporada baja
+    (compartida por `reactivaciones_pendientes` y `dashboard_temporada.pausadas_de_baja`).
+    Orden posicional de parametros: `(plataforma, *params_de_where_extra, mantener)`."""
+    bloques_join = f"\n{joins_extra.rstrip()}" if joins_extra.strip() else ""
+    bloque_where = f"\n{where_extra.rstrip()}" if where_extra.strip() else ""
+    bloque_order = f"\n{order_by.rstrip()}" if order_by.strip() else ""
+    return (
+        f"SELECT {select_cols}\n"
+        "  FROM apply_queue q\n"
+        "  JOIN decision d               ON d.id = q.decision_id\n"
+        "  JOIN decision_application da  ON da.decision_id = d.id AND da.verify_ok IS TRUE\n"
+        f"  JOIN ad_entity_state s        ON s.ad_entity_id = q.ad_entity_id{bloques_join}\n"
+        " WHERE q.platform = %s::platform\n"
+        "   AND q.kind = 'pause' AND q.modo = 'live' AND q.estado = 'applied'\n"
+        "   AND d.inputs->'caso'->'temporada'->'frontera'->>'fase_hoja' = 'baja'\n"
+        f"   AND s.status = 'PAUSED'{bloque_where}\n"
+        "   AND NOT (q.ad_entity_id = ANY(%s::bigint[]))\n"
+        "   AND NOT EXISTS (SELECT 1 FROM apply_attempt a\n"
+        "                    WHERE a.decision_id = q.decision_id AND a.tipo = 'reversa'\n"
+        "                    GROUP BY a.decision_id\n"
+        "                   HAVING bool_or(a.resultado = 'ok') OR count(*) >= 3)\n"
+        "   AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r\n"
+        "                    WHERE r.ad_entity_id = q.ad_entity_id\n"
+        "                      AND r.detectada_en > q.applied_at)\n"
+        "   AND q.id = (SELECT q2.id FROM apply_queue q2\n"
+        "                WHERE q2.ad_entity_id = q.ad_entity_id AND q2.kind = 'pause'\n"
+        "                  AND q2.estado = 'applied'\n"
+        f"                ORDER BY q2.applied_at DESC LIMIT 1){bloque_order}\n"
+    )
+
+
+_SQL_PAUSAS_DE_BAJA = sql_pausas_de_baja(
+    select_cols="q.ad_entity_id, q.id, q.decision_id, e.id",
+    joins_extra=(
+        "  JOIN temporada_episodio e     ON e.id = (d.inputs->>'temporada_episodio_id')::bigint\n"
+        "                               AND e.cerrado_el IS NOT NULL"
+    ),
+)
 
 
 def reactivaciones_pendientes(

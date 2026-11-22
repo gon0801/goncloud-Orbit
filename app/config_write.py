@@ -694,6 +694,13 @@ def proxima_config(
 
 _SQL_VIGENTE = "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
 _SQL_INSERTA = "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id"
+_SQL_LOCK_CONFIG_VERSION = "SELECT pg_advisory_xact_lock(hashtext('config_version'))"
+
+
+def lock_config_version(conn: psycopg.Connection) -> None:
+    """Candado transaccional compartido para serializar lecturas+escrituras de
+    `config_version` (usado por `guarda_config` y los endpoints de temporada)."""
+    conn.execute(_SQL_LOCK_CONFIG_VERSION)
 
 
 def config_vigente_id(conn: psycopg.Connection) -> int | None:
@@ -726,7 +733,7 @@ def guarda_config(
     # LOCK TABLE): dos guardados simultaneos se serializan y el segundo ve la
     # fila del primero -> 409, en vez de pisarla en silencio. En autocommit se
     # libera al instante y no estorba.
-    conn.execute("SELECT pg_advisory_xact_lock(hashtext('config_version'))")
+    lock_config_version(conn)
     fila = conn.execute(_SQL_VIGENTE).fetchone()
     vigente = fila[0] if fila is not None else None
     if vigente != base_config_version_id:

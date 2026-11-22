@@ -21,6 +21,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Literal, get_args
 
 from app import temporada_io
+from app.db import settings_vigentes
 from app.optimizer import temporada
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import gasto_para_concluir_desde_settings
@@ -82,10 +83,6 @@ SELECT u.placement, sum(u.cost), sum(u.clicks)::bigint, sum(u.orders)::bigint, s
          WHERE o.platform = %s AND o.metric_date BETWEEN %s AND %s
          ORDER BY o.ad_entity_id, o.placement, o.metric_date, o.observed_at DESC) u
  GROUP BY u.placement
-"""
-
-_SQL_SETTINGS = """
-SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
 _SQL_CAMPANAS = """
@@ -353,27 +350,33 @@ def _dinero2(valor: Decimal | None) -> Decimal | None:
     return valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
 
-def umbral_concluir(conn, plataforma: Plataforma) -> Decimal:
+def _settings_de(conn, settings: Mapping | None) -> Mapping:
+    crudo = settings if settings is not None else settings_vigentes(conn)
+    return crudo if isinstance(crudo, Mapping) else {}
+
+
+def umbral_concluir(conn, plataforma: Plataforma, *, settings: Mapping | None = None) -> Decimal:
     """Gasto para concluir del mercado (settings vigentes, default del
     dueno sin config). Un SELECT de una fila; unica fuente del umbral
     (la usan el lector de ubicaciones, el reparto de avisos y el
     comando via `notifica`)."""
-    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
-    return gasto_para_concluir_desde_settings(fila_settings[0] if fila_settings else {}, plataforma)
+    return gasto_para_concluir_desde_settings(_settings_de(conn, settings), plataforma)
 
 
-def campana_topada_vigente(conn):
+def campana_topada_vigente(conn, *, settings: Mapping | None = None):
     """Criterio de campana topada vigente (TEMPORADA 01 A, una sola
     definicion: temporada.campana_topada_desde_settings). La usan el conteo
     de dias al tope de esta pantalla y el reparto de avisos."""
-    from app.optimizer import temporada
-
-    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
-    return temporada.campana_topada_desde_settings(fila_settings[0] if fila_settings else {})
+    return temporada.campana_topada_desde_settings(_settings_de(conn, settings))
 
 
 def lee_ubicaciones(
-    conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date
+    conn,
+    *,
+    plataforma: Plataforma,
+    desde: dt.date,
+    hasta: dt.date,
+    settings: Mapping | None = None,
 ) -> tuple[FilaUbicacion, ...]:
     """30 dias de placements por ubicacion, solo campanas ENABLED del
     mercado, con colapso DISTINCT ON (espejo de la consulta de control
@@ -383,7 +386,7 @@ def lee_ubicaciones(
         fila[0]: fila[1:]
         for fila in conn.execute(_SQL_UBICACIONES, (plataforma, desde, hasta)).fetchall()
     }
-    umbral = umbral_concluir(conn, plataforma)
+    umbral = umbral_concluir(conn, plataforma, settings=settings)
     total = sum(vals[0] for vals in grupos.values() if vals[0] is not None)
 
     def _fila(ubicacion: str) -> FilaUbicacion:
@@ -407,7 +410,12 @@ def lee_ubicaciones(
 
 
 def lee_campanas(
-    conn, *, plataforma: Plataforma, desde: dt.date, hasta: dt.date
+    conn,
+    *,
+    plataforma: Plataforma,
+    desde: dt.date,
+    hasta: dt.date,
+    settings: Mapping | None = None,
 ) -> tuple[FilaCampana, ...]:
     """Campanas ENABLED del mercado con config vigente y gasto. El gasto
     medio es sobre dias con dato desde el primer dia con dato (dias sin
@@ -417,10 +425,7 @@ def lee_campanas(
     presupuesto no cuenta (la regla de "anterior a la primera
     observacion" se cumple por construccion: sin gasto no hay tope)."""
     campanas = conn.execute(_SQL_CAMPANAS, (plataforma,)).fetchall()
-    fila_settings = conn.execute(_SQL_SETTINGS).fetchone()
-    crudo = fila_settings[0] if fila_settings is not None else None
-    if not isinstance(crudo, Mapping):
-        crudo = {}
+    crudo = _settings_de(conn, settings)
     topada = temporada.campana_topada_desde_settings(crudo)
     gasto = {
         (fila[0], fila[1]): fila[2]
@@ -608,9 +613,14 @@ def lee_dinero(
         hojas=hojas_total,
     )
     desde_30 = fin - dt.timedelta(days=DIAS_UBICACION - 1)
-    por_ubicacion = lee_ubicaciones(conn, plataforma=plataforma, desde=desde_30, hasta=fin)
-    por_campana = lee_campanas(conn, plataforma=plataforma, desde=desde_30, hasta=fin)
-    por_campana = _con_avisos(conn, plataforma, por_ubicacion, por_campana)
+    settings = _settings_de(conn, None)
+    por_ubicacion = lee_ubicaciones(
+        conn, plataforma=plataforma, desde=desde_30, hasta=fin, settings=settings
+    )
+    por_campana = lee_campanas(
+        conn, plataforma=plataforma, desde=desde_30, hasta=fin, settings=settings
+    )
+    por_campana = _con_avisos(conn, plataforma, por_ubicacion, por_campana, settings=settings)
     return PantallaDinero(
         plataforma=plataforma,
         moneda=PLATAFORMAS_MONEDA[plataforma],
@@ -625,7 +635,9 @@ def lee_dinero(
     )
 
 
-def _con_avisos(conn, plataforma: Plataforma, por_ubicacion, por_campana):
+def _con_avisos(
+    conn, plataforma: Plataforma, por_ubicacion, por_campana, *, settings: Mapping | None = None
+):
     """Reparte las frases de campana de `avisos_del_dia` en cada
     `FilaCampana.avisos` (V.4; import diferido, este modulo no carga el
     de avisos al importar). El criterio de campana topada es el mismo
@@ -633,12 +645,13 @@ def _con_avisos(conn, plataforma: Plataforma, por_ubicacion, por_campana):
     revision: sin el argumento, la pantalla avisaba con 90 % en 5)."""
     from app.avisos_campana import avisos_del_dia
 
+    crudo = _settings_de(conn, settings)
     avisos = avisos_del_dia(
         por_ubicacion,
         por_campana,
         plataforma=plataforma,
-        gasto_para_concluir=umbral_concluir(conn, plataforma),
-        topada=campana_topada_vigente(conn),
+        gasto_para_concluir=umbral_concluir(conn, plataforma, settings=crudo),
+        topada=campana_topada_vigente(conn, settings=crudo),
     )
     return tuple(
         replace(
