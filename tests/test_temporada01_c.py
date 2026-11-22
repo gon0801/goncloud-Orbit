@@ -17,7 +17,6 @@ Sin acentos en el codigo, por regla del repo.
 from __future__ import annotations
 
 import datetime as dt
-import json
 from dataclasses import replace
 from decimal import ROUND_FLOOR, Decimal
 from typing import Any

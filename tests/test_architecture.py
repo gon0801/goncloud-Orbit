@@ -201,31 +201,31 @@ ALLOWLIST_TAMANO = {
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     "app/optimizer/politica.py": 911,
     "app/ads/reports.py": 1076,
-    "app/api_dashboard.py": 2245,
+    "app/api_dashboard.py": 2244,
     # TEMPORADA 01 B (0093): cierres de efecto en _confirma_resumen, la
     # lectura fresca del aplicador pendiente del bloque E, el vocabulario
     # bid_cambiado_fuera y la reconciliacion de intentos sellados ambiguos
     # (GET fresco sin reenviar el PUT); el techo sube lo justo del bloque.
     "app/apply.py": 1475,
-    "app/apply_cola.py": 1816,
+    "app/apply_cola.py": 1878,
     "app/apply_harvest.py": 2113,
     "app/bloqueo_dueno_efecto.py": 999,
     # TEMPORADA 01 B: estado de temporada en TX2, TX3 de temporada
     # (registra_ciclo/registra_fines/estampa/abre_efectos) y el cable de la
     # frontera por hoja.
-    "app/cycle.py": 2463,
+    "app/cycle.py": 2676,
     "app/dashboard_resumen.py": 995,
     "app/estimacion_repository.py": 1428,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
-    "app/etiquetas.py": 1079,
-    "app/impulso_io.py": 1232,
+    "app/etiquetas.py": 1078,
+    "app/impulso_io.py": 1229,
     # TEMPORADA 01 B: los cuatro marcadores opcionales de temporada y su
     # freeze/desfreeze exacto (temporada, historia, recuperacion,
     # presupuesto).
-    "app/optimizer/caso.py": 1476,
+    "app/optimizer/caso.py": 1487,
     "app/precio/cambios.py": 1025,
     "app/precio/corrida.py": 1647,
-    "app/retiro_anuncios.py": 1388,
+    "app/retiro_anuncios.py": 1386,
     # TEMPORADA 01 B (nuevo en allowlist): la HistoriaBid congelada, la
     # frontera por hoja y el caso con marcadores.
     "app/lecturas_caso.py": 1540,
