@@ -46,13 +46,45 @@ class PropuestaPresupuesto:
         }
 
 
-def _vigente_en(historial: tuple[tuple[dt.date, Decimal], ...], dia: dt.date) -> Decimal | None:
-    valor = None
-    for vigente_desde, monto in historial:
-        if vigente_desde > dia:
+def _transiciones_presupuesto(
+    historial: tuple[tuple[dt.date, Decimal | None], ...],
+    hasta: dt.date,
+) -> tuple[tuple[dt.date, Decimal | None], ...]:
+    """Colapsa observaciones consecutivas con el mismo presupuesto (p. ej.
+    cuando solo cambio un placement o la estrategia en
+    `ads_campana_config_observation`), quedandose con las transiciones reales
+    hasta `hasta` inclusive en orden cronologico."""
+    salida: list[tuple[dt.date, Decimal | None]] = []
+    for dia, monto in historial:
+        if dia > hasta:
             break
-        valor = monto
-    return valor
+        if salida and salida[-1][1] == monto:
+            continue
+        salida.append((dia, monto))
+    return tuple(salida)
+
+
+def _base_y_cambios(
+    transiciones: tuple[tuple[dt.date, Decimal | None], ...],
+    corte: dt.date,
+) -> tuple[Decimal | None, tuple[tuple[dt.date, Decimal | None], ...]]:
+    """Presupuesto vigente al corte y cambios reales posteriores a esa base.
+
+    Si hubo observaciones antes de `corte`, la ultima `< corte` es la base y
+    toda transicion `>= corte` es un cambio. Si la primera observacion de la
+    campana ocurrio exactamente el dia `corte`, esa primera fila es la base y
+    solo cuentan las transiciones posteriores a ella."""
+    idx_base = None
+    for i, (dia, _monto) in enumerate(transiciones):
+        if dia < corte:
+            idx_base = i
+        else:
+            break
+    if idx_base is not None:
+        return transiciones[idx_base][1], transiciones[idx_base + 1 :]
+    if transiciones and transiciones[0][0] == corte:
+        return transiciones[0][1], transiciones[1:]
+    return None, transiciones
 
 
 def _frase(motivo: MotivoPropuesta, actual: Decimal, propuesto: Decimal, moneda: str) -> str:
@@ -84,18 +116,22 @@ def propuesta_presupuesto(
     if config is None or estacion is None or not historial:
         return None
     # El orden es el cronologico que entrega SQL (`observed_at`): dos cambios
-    # el mismo dia son dos filas y la ultima manda; ordenar por (fecha, monto)
-    # perderia cual fue el ultimo aplicado.
-    ordenado = tuple(historial)
-    hoy_vigente = _vigente_en(ordenado, hoy)
+    # el mismo dia son dos filas y la ultima manda; colapsamos repeticiones del
+    # mismo presupuesto (cambios de placement/estrategia) para ver solo cambios
+    # reales de presupuesto.
+    transiciones = _transiciones_presupuesto(tuple(historial), hoy)
+    if not transiciones:
+        return None
+    hoy_vigente = transiciones[-1][1]
     if hoy_vigente is None or hoy_vigente <= 0:
         return None
-    antes = _vigente_en(ordenado, episodio.abierto_el) if episodio is not None else None
+    antes, cambios = (
+        _base_y_cambios(transiciones, episodio.abierto_el) if episodio is not None else (None, ())
+    )
     candidatas: list[tuple[Decimal, MotivoPropuesta, int | None]] = []
 
     if episodio is not None and antes is not None and antes > 0:
         bajo = _q(antes * (Decimal(1) - config.reduccion_baja))
-        cambios = tuple((d, m) for d, m in ordenado if d >= episodio.abierto_el)
         if episodio.cerrado_el is None:
             if hoy_vigente > bajo and not cambios:
                 candidatas.append((bajo, "baja", episodio.id))
@@ -110,10 +146,9 @@ def propuesta_presupuesto(
         and dias_topados_7d >= topada.dias
         and config.aumento_presupuesto_alta > 0
     ):
-        piso = antes if antes is not None else Decimal(0)
-        subidas = tuple(
-            (d, m) for d, m in ordenado if d >= inicio_bloque_alto and m is not None and m > piso
-        )
+        base_alto, cambios_alto = _base_y_cambios(transiciones, inicio_bloque_alto)
+        piso = antes if antes is not None else (base_alto if base_alto is not None else Decimal(0))
+        subidas = tuple((d, m) for d, m in cambios_alto if m is not None and m > piso)
         if not subidas:
             objetivo = _q(hoy_vigente * (Decimal(1) + config.aumento_presupuesto_alta))
             propuesto = min(objetivo, techo_humano)

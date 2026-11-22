@@ -211,6 +211,7 @@ def grupos_con_pausa_producto(conn: psycopg.Connection, platform: str) -> frozen
     """Los ad_group con una pausa de producto en vuelo (solo lectura)."""
     return frozenset(f[0] for f in conn.execute(SQL_GRUPOS_PAUSA_PRODUCTO, (platform,)).fetchall())
 
+
 _SQL_GRUPO_VIVO = """
 SELECT e.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
   FROM ad_entity e
@@ -469,6 +470,7 @@ def _revalida_pause(
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
     *,
     evidencia_grupos: dict | None = None,
+    temporada_ctx=None,
 ) -> str | None:
     """Wrapper estable sobre `apply_revalidacion.revalida_pause` (respeta parches del modulo)."""
     return apply_revalidacion.revalida_pause(
@@ -480,6 +482,7 @@ def _revalida_pause(
         evidencias,
         proteccion_cache,
         evidencia_grupos=evidencia_grupos,
+        temporada_ctx=temporada_ctx,
         gracia_activa_fn=_gracia_activa,
         pause_propio_fn=_pause_propio_verificado,
         flag_economica_fn=_flag_pause_economica,
@@ -495,9 +498,15 @@ def _revalida_negative(
     ahora: dt.datetime,
     *,
     evidencia_grupos: dict | None = None,
+    temporada_neg=None,
 ) -> str | None:
     return apply_revalidacion.revalida_negative(
-        conn, platform, fila, ahora, evidencia_grupos=evidencia_grupos
+        conn,
+        platform,
+        fila,
+        ahora,
+        evidencia_grupos=evidencia_grupos,
+        temporada_neg=temporada_neg,
     )
 
 
@@ -514,6 +523,8 @@ def _revalida(
     evidencias: list[dict] | None = None,
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
     evidencia_grupos: dict | None = None,
+    temporada_ctx=None,
+    temporada_neg=None,
 ) -> str | None:
     motivo = _revalida_ancestros(conn, fila)
     if motivo is not None:
@@ -529,11 +540,19 @@ def _revalida(
             evidencias,
             proteccion_cache,
             evidencia_grupos=evidencia_grupos,
+            temporada_ctx=temporada_ctx,
         )
     if rama == "pause_producto":
         return apply_producto.revalida_pause_producto(conn, aplicador, fila, ahora)
     if rama == "negative":
-        return _revalida_negative(conn, platform, fila, ahora, evidencia_grupos=evidencia_grupos)
+        return _revalida_negative(
+            conn,
+            platform,
+            fila,
+            ahora,
+            evidencia_grupos=evidencia_grupos,
+            temporada_neg=temporada_neg,
+        )
     return apply_harvest.revalida_harvest(conn, platform, fila, ahora)
 
 
@@ -611,6 +630,10 @@ def libera_vencidos(
         proteccion_venta.lee_cache(conn, platform, ahora) if proteccion_activa else None
     )
     evidencia_grupos: dict | None = None
+    hoy_utc = ahora.astimezone(dt.UTC).date() if ahora.tzinfo is not None else ahora.date()
+    sin_cargar = object()
+    temporada_ctx = sin_cargar
+    temporada_neg = sin_cargar
 
     def _registra(fila: FilaCola, motivo: str) -> None:
         if cycle_id is not None and fila.decision_id is not None:
@@ -640,6 +663,15 @@ def libera_vencidos(
             continue
         if evidencia_grupos is None and fila.kind in ("pause", "negative"):
             evidencia_grupos = windows.ventanas_evidencia_ad_group(conn, platform, ahora)
+        if fila.kind == "pause" and temporada_ctx is sin_cargar:
+            temporada_ctx = apply_revalidacion.temporada_io.lee_contexto_revalidacion(
+                conn, platform, hoy_utc
+            )
+        if fila.kind == "negative" and temporada_neg is sin_cargar:
+            temporada_neg = (
+                apply_revalidacion.temporada_io.mult_negativa(conn, platform, hoy_utc),
+                apply_revalidacion.temporada_io.cerca_plataforma(conn, platform, hoy_utc),
+            )
         try:
             motivo = _revalida(
                 conn,
@@ -650,6 +682,8 @@ def libera_vencidos(
                 revalidaciones_economicas,
                 proteccion_cache,
                 evidencia_grupos,
+                None if temporada_ctx is sin_cargar else temporada_ctx,
+                None if temporada_neg is sin_cargar else temporada_neg,
             )
         except AdsApiError:
             sin_respuesta += 1

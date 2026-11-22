@@ -194,6 +194,68 @@ def reduccion_vigente(
     return red, None
 
 
+def es_terreno_del_dueno(
+    estacion: Estacion,
+    cadena: CadenaBid | None,
+    *,
+    red: ReduccionVigente | None,
+    fin: FinReduccion | None,
+    episodio: EpisodioVigente | None,
+    excluida_en: frozenset[int],
+) -> bool:
+    """Unica fuente de «terreno del dueno» (decision 7 del plan): en esta
+    temporada la hoja no recibe bajada, regreso, subida rapida ni reglas de la
+    baja (retencion de recortes o multiplicador de cortes). Cubre exclusion
+    persistida, bid cambiado fuera (`dueno_al_final`) y manos fechadas del
+    dueno (`regreso_del_dueno` y `reactivacion_manual`)."""
+    manos = cadena.manos_del_dueno if cadena is not None else ()
+    dueno_al_final = cadena.dueno_al_final if cadena is not None else False
+    if fin is not None and fin.excluye_abierto:
+        return True
+    if red is not None:
+        return (
+            red.episodio_id in excluida_en
+            or any(m > red.ultimo_el for m in manos)
+            or dueno_al_final
+        )
+    if estacion.fase != "baja":
+        return False
+    return (
+        (episodio is not None and episodio.id in excluida_en)
+        or any(m >= inicio_episodio(episodio, estacion.dia) for m in manos)
+        or dueno_al_final
+    )
+
+
+def en_terreno_del_dueno(caso: CasoHoja, cadena: CadenaBid | None) -> bool:
+    """Puerta de «terreno del dueno» sobre un `CasoHoja` (la usa R6r en
+    `recuperacion.destino_recuperacion` para compartir exactamente la misma
+    regla que `evalua_hoja` y `_pendiente_resuelto`)."""
+    t = caso.temporada
+    if t is None:
+        return False
+    if cadena is None:
+        red, fin = None, None
+    else:
+        red, fin = reduccion_vigente(
+            cadena,
+            en_baja=(t.estacion.fase == "baja"),
+            dia=t.estacion.dia,
+            episodio=t.episodio,
+            bid=caso.bid.valor,
+            piso=caso.bid.piso,
+            techo=caso.bid.techo,
+        )
+    return es_terreno_del_dueno(
+        t.estacion,
+        cadena,
+        red=red,
+        fin=fin,
+        episodio=t.episodio,
+        excluida_en=t.excluida_en,
+    )
+
+
 def _pendiente_resuelto(
     estacion: Estacion,
     cadena: CadenaBid | None,
@@ -208,16 +270,12 @@ def _pendiente_resuelto(
 ) -> Pendiente:
     if bid is None:
         return SinPendiente("bid_heredado")
-    manos = cadena.manos_del_dueno if cadena is not None else ()
-    dueno_al_final = cadena.dueno_al_final if cadena is not None else False
     en_baja = estacion.fase == "baja"
-    if fin is not None and fin.excluye_abierto:
+    if es_terreno_del_dueno(
+        estacion, cadena, red=red, fin=fin, episodio=episodio, excluida_en=excluida_en
+    ):
         return SinPendiente("dueno_decidio")
     if red is not None:
-        if red.episodio_id in excluida_en:
-            return SinPendiente("dueno_decidio")
-        if any(m > red.ultimo_el for m in manos) or dueno_al_final:
-            return SinPendiente("dueno_decidio")
         if en_baja:
             if (
                 episodio is not None
@@ -236,12 +294,6 @@ def _pendiente_resuelto(
         return RestauracionPendiente(nivel, red.episodio_id)
     if not en_baja:
         return SinPendiente("fuera_de_temporada")
-    if episodio is not None and episodio.id in excluida_en:
-        return SinPendiente("dueno_decidio")
-    if any(m >= inicio_episodio(episodio, estacion.dia) for m in manos):
-        return SinPendiente("dueno_decidio")
-    if dueno_al_final:
-        return SinPendiente("dueno_decidio")
     d = destino_entrada(bid, estacion.reduccion_baja, piso, techo)
     if d is None:
         return SinPendiente("sin_centavo_factible")
@@ -356,8 +408,8 @@ def evalua_hoja(
         piso=piso,
         techo=techo,
     )
-    terreno_de_david = en_baja and (
-        (episodio is not None and episodio.id in excluida_en) or dueno_al_final
+    terreno_de_david = en_baja and es_terreno_del_dueno(
+        estacion, cadena, red=red, fin=fin, episodio=episodio, excluida_en=excluida_en
     )
     sin_nivel = red is not None and _centavos_del_rango(piso, techo) is None
     if terreno_de_david:

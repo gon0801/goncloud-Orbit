@@ -1288,3 +1288,115 @@ def test_temporada01_d_ciclo_terminos_shadow_igual_a_hoy(db_template):
     assert negativas_hoy == negativas_shadow, (
         f"practica cambia los negatives: {negativas_hoy} vs {negativas_shadow}"
     )
+
+
+def test_temporada01_ola1_frontera_hoja_reactivacion_y_revalida_utc(db_template, monkeypatch):
+    """Ola 1D (regla 9):
+    1) temporada_io.frontera_hoja debe leer reactivacion_manual (igual que
+       lecturas_historia) y normalizar un episodio abierto de otra baja.
+    2) apply_revalidacion.revalida_pause y revalida_negative deben resolver el
+       dia en UTC (no ahora.date() local) y registrar el exceso_minimo real."""
+    from app import apply_cola, apply_revalidacion
+    from app.optimizer import bid as motor_bid
+
+    conn, _dsn = db_template
+    _run(conn)
+    cfg_id = _config_version(conn, {**_settings(), "ads_temporada_amazon_mx": "live"})
+    _goal_mx(conn)
+    camp = _entidad(conn, "amazon_mx", "campaign", "ola1d-camp")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "ola1d-ag", parent=camp)
+    kw = _kw(conn, ag, "ola1d-kw", "kw react", "8.00")
+    for entidad in (ag, camp):
+        _estado(conn, entidad, synced_at=_medianoche(D_E1))
+    cyc = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, notes)"
+        " VALUES ('ads_optimizer', 'live', 'amazon_mx', 'done', %s) RETURNING id",
+        ('{"target": {"target_aplicado": "20"}}',),
+    ).fetchone()[0]
+    ep_actual = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo, config_version_id)"
+        " VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(dt.date(2027, 1, 1)), cyc, cfg_id),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO reactivacion_manual (ad_entity_id, detectada_en) VALUES (%s, %s)",
+        (kw, dt.datetime(2027, 1, 5, 12, tzinfo=dt.UTC)),
+    )
+    conn.commit()
+
+    # 1) Con reactivacion_manual en la baja actual, frontera_hoja pasa a normal (mult 1).
+    front = temporada_io.frontera_hoja(conn, kw, dt.date(2027, 1, 6), piso=PISO_MX, techo=TECHO_MX)
+    assert front is not None
+    assert front.fase_hoja == "normal"
+    assert front.mult_cortes == Decimal(1)
+
+    # 2) Episodio viejo (mayo 2026) aun sin cerrar al entrar a enero 2027:
+    # frontera_hoja no debe heredar el episodio viejo como abierto.
+    kw2 = _kw(conn, ag, "ola1d-kw2", "kw viejo", "8.00")
+    conn.execute(
+        "UPDATE temporada_episodio SET cerrado_el = %s, cerrado_en_ciclo = %s WHERE id = %s",
+        (_medianoche(dt.date(2027, 1, 2)), cyc, ep_actual),
+    )
+    ep_viejo = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo, config_version_id)"
+        " VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(dt.date(2026, 5, 1)), cyc, cfg_id),
+    ).fetchone()[0]
+    conn.commit()
+    front_viejo = temporada_io.frontera_hoja(
+        conn, kw2, dt.date(2027, 1, 2), piso=PISO_MX, techo=TECHO_MX
+    )
+    assert front_viejo is not None
+    assert front_viejo.episodio_id != ep_viejo
+
+    # 3) Hora tz-aware NO-UTC: 2026-12-31 20:00-07:00 == 2027-01-01 03:00 UTC
+    # (en UTC ya es temporada baja; en fecha local aun seria 31-dic normal).
+    tz_m7 = dt.timezone(dt.timedelta(hours=-7))
+    ahora_m7 = dt.datetime(2026, 12, 31, 20, 0, tzinfo=tz_m7)
+    dec_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs)"
+        " VALUES (%s, %s, 'pause', %s, %s, %s, %s, %s, %s) RETURNING id",
+        (
+            cyc,
+            kw2,
+            ahora_m7,
+            cfg_id,
+            ahora_m7,
+            dt.date(2026, 12, 1),
+            dt.date(2026, 12, 20),
+            '{"motivo": "pause_economica"}',
+        ),
+    ).fetchone()[0]
+    fila = apply_cola.FilaCola(
+        id=1,
+        kind="pause",
+        ad_entity_id=kw2,
+        search_term=None,
+        decision_id=dec_id,
+        request_payload={},
+        estado="released",
+    )
+    monkeypatch.setattr(apply_revalidacion.apply, "_estado_de_readback", lambda *_a: "ENABLED")
+    monkeypatch.setattr(
+        apply_revalidacion.windows,
+        "ventana_cortes",
+        lambda *_a, **_k: _corte_pausa(clicks=250, orders=2, cost="1500"),
+    )
+    aplicador = type("A", (), {"cycle_id_ejecutor": cyc, "_cliente": lambda self: None})()
+    evidencias: list[dict] = []
+    apply_revalidacion.revalida_pause(
+        conn,
+        aplicador,
+        "amazon_mx",
+        fila,
+        ahora_m7,
+        evidencias,
+        evidencia_grupos={},
+        flag_economica_fn=lambda _c: True,
+        pause_propio_fn=lambda _c, _e: False,
+    )
+    assert evidencias, "la pausa economica debe registrar su evidencia"
+    assert evidencias[-1]["exceso_minimo"] == str(motor_bid.EXCESO_MINIMO["MXN"] * 2), (
+        f"esperaba exceso_minimo x2 en baja UTC, llego {evidencias[-1]['exceso_minimo']}"
+    )

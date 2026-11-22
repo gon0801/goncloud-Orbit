@@ -202,6 +202,94 @@ def test_temporada01_g_propuestas_absolutas():
     assert prep is None
 
 
+def test_temporada01_ola1_propuesta_ignora_observaciones_sin_cambio_y_frontera():
+    """Ola 1B (regla 9): observaciones de placement/estrategia que repiten el
+    mismo presupuesto no cuentan como cambio; una observacion inicial el mismo
+    dia de apertura es la base (no un cambio posterior); en la primera alta sin
+    episodio previo el piso es el presupuesto al inicio del bloque, no 0."""
+    # 1) Cambio de placement durante baja (300 -> 300): sigue proponiendo baja.
+    baja_placement = _propuesta(
+        hoy=dt.date(2027, 1, 10),
+        episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=None),
+        historial=(
+            (dt.date(2026, 12, 1), Decimal("300")),
+            (dt.date(2027, 1, 5), Decimal("300")),
+        ),
+    )
+    assert baja_placement is not None
+    assert (baja_placement.propuesto, baja_placement.motivo) == (Decimal("210.00"), "baja")
+
+    # 2) Cambio de placement tras bajar a 210 (300 -> 210 -> 210): propone fin de baja.
+    fin_placement = _propuesta(
+        hoy=dt.date(2027, 2, 5),
+        episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+        historial=(
+            (dt.date(2026, 12, 1), Decimal("300")),
+            (dt.date(2027, 1, 5), Decimal("210")),
+            (dt.date(2027, 1, 12), Decimal("210")),
+        ),
+    )
+    assert fin_placement is not None
+    assert (fin_placement.propuesto, fin_placement.motivo) == (Decimal("300"), "fin_de_baja")
+
+    # 3) Primera observacion el MISMO dia de apertura del episodio: es la base.
+    baja_mismo_dia = _propuesta(
+        hoy=dt.date(2027, 1, 10),
+        episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=None),
+        historial=((dt.date(2027, 1, 1), Decimal("300")),),
+    )
+    assert baja_mismo_dia is not None
+    assert (baja_mismo_dia.propuesto, baja_mismo_dia.motivo) == (Decimal("210.00"), "baja")
+
+    # 4) Primera alta sin episodio previo + cambio de placement (300 -> 300).
+    alta_placement = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=None,
+        historial=(
+            (dt.date(2027, 2, 5), Decimal("300")),
+            (dt.date(2027, 3, 2), Decimal("300")),
+        ),
+        inicio_bloque_alto=dt.date(2027, 3, 1),
+        dias_topados_7d=5,
+    )
+    assert alta_placement is not None
+    assert (alta_placement.propuesto, alta_placement.motivo) == (
+        Decimal("375.00"),
+        "alta_sin_presupuesto",
+    )
+
+    # 5) Primera alta sin episodio previo + primera observacion el inicio del bloque.
+    alta_inicio = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=None,
+        historial=((dt.date(2027, 3, 1), Decimal("300")),),
+        inicio_bloque_alto=dt.date(2027, 3, 1),
+        dias_topados_7d=5,
+    )
+    assert alta_inicio is not None
+    assert (alta_inicio.propuesto, alta_inicio.motivo) == (
+        Decimal("375.00"),
+        "alta_sin_presupuesto",
+    )
+
+    # 6) Primera alta sin episodio previo + el dueno bajo el presupuesto (no subio).
+    alta_bajada = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=None,
+        historial=(
+            (dt.date(2027, 2, 5), Decimal("300")),
+            (dt.date(2027, 3, 2), Decimal("250")),
+        ),
+        inicio_bloque_alto=dt.date(2027, 3, 1),
+        dias_topados_7d=5,
+    )
+    assert alta_bajada is not None
+    assert (alta_bajada.propuesto, alta_bajada.motivo) == (
+        Decimal("312.50"),
+        "alta_sin_presupuesto",
+    )
+
+
 @_skip_db
 def test_temporada01_g_presupuesto_misma_campana_en_orden(monkeypatch):
     """A aprueba 375 antes que B ordene 270; B termina primero. Al aplicar A,

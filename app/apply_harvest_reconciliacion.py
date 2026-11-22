@@ -220,7 +220,8 @@ def revalida_harvest(
     # la baja aunque la cosecha no se multiplique).
     umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=None).umbral
     piso = cortes.piso_corte(evidencia, platform, mult_baja=None).piso_cost
-    cerca_plat = temporada_io.cerca_plataforma(conn, platform, ahora.date())
+    hoy_utc = ahora.astimezone(dt.UTC).date() if ahora.tzinfo is not None else ahora.date()
+    cerca_plat = temporada_io.cerca_plataforma(conn, platform, hoy_utc)
     terminos = windows.terminos_cortes(conn, grupo, ahora, cerca=cerca_plat)
     term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
     if term is None:

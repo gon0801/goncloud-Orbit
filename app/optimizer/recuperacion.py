@@ -278,12 +278,8 @@ def destino_recuperacion(
 
     if caso.recuperacion is None:
         return None
-    t = caso.temporada
     cad = cadena_bid(caso)
-    if t is not None and (
-        (t.episodio is not None and t.episodio.id in t.excluida_en)
-        or (cad is not None and cad.dueno_al_final)
-    ):
+    if temporada.en_terreno_del_dueno(caso, cad):
         return None  # terreno del dueno (decision 7 del plan)
     bid = caso.bid.valor
     techo = techo_conocido(caso)
