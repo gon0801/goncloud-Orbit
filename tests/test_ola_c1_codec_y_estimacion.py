@@ -46,17 +46,99 @@ def test_caso_codec_roundtrip_y_errores_estrictos():
     with pytest.raises(ValueError, match="string decimal"):
         CasoHoja.desde_json(bad_float)
 
-    # Marcadores opcionales de eras nuevas pueden venir ausentes (replay historico)
-    sin_opcionales = dict(crudo)
-    for opcional in (
-        "episodio",
-        "temporada",
-        "historia",
-        "recuperacion",
-        "presupuesto",
-    ):
-        sin_opcionales.pop(opcional, None)
+    # Marcadores opcionales de eras nuevas: se eliminan del dict ya poblado y el
+    # codec historico los reconstruye como None.
+    crudo_con_claves = {
+        **crudo,
+        "temporada": None,
+        "historia": None,
+        "recuperacion": None,
+        "presupuesto": None,
+        "trayectoria": {**crudo["trayectoria"], "episodio": None},
+    }
+    sin_opcionales = dict(crudo_con_claves)
+    for opcional in ("temporada", "historia", "recuperacion", "presupuesto"):
+        assert opcional in sin_opcionales
+        del sin_opcionales[opcional]
+    sin_opcionales["trayectoria"] = dict(sin_opcionales["trayectoria"])
+    assert "episodio" in sin_opcionales["trayectoria"]
+    del sin_opcionales["trayectoria"]["episodio"]
     assert CasoHoja.desde_json(sin_opcionales) == caso
+
+
+def test_sembrar_amazon_preserva_orden_motivos_costo_antes_de_fee(monkeypatch):
+    """Amazon mantiene previos -> costo/FX -> fee -> logistica (huella estable)."""
+    from datetime import UTC
+    from types import SimpleNamespace
+
+    from app import estimacion_siembra as siembra
+    from app.estimacion_universo import universo_de
+
+    monkeypatch.setattr(
+        siembra,
+        "resolver_costo",
+        lambda *_a, **_kw: SimpleNamespace(motivo="costo_ausente", costo=None),
+    )
+    monkeypatch.setattr(
+        siembra,
+        "logistica_del_universo",
+        lambda *_a, **_kw: "envio_sin_historia",
+    )
+    pol = PoliticaCalculo(
+        politica_version_id=1,
+        label="mx-s4",
+        universo="amazon_mx/fbm",
+        formula_version="S4",
+        settings={
+            "precio_incluye_iva": True,
+            "iva_divisor": "1.16",
+            "isr_tasa": "0.025",
+            "retencion_iva_tasa": "0.08",
+            "referral_fee_iva_multiplicador": "1.16",
+            "logistica": "0",
+            "logistica_semantica": "muestra",
+            "fee_tax_amount_requiere_politica": True,
+        },
+        valid_from=date(2026, 1, 1),
+        valid_to=None,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    ahora = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    esc = siembra.sembrar_desde_insumos(
+        None,  # type: ignore[arg-type]
+        listing_id=7,
+        product_id=11,
+        oferta_raw={
+            "oferta_observation_id": 100,
+            "platform": "amazon_mx",
+            "seller_sku": "SKU-1",
+            "asin": "B000000001",
+            "canal": "fbm",
+            "price_amount": Decimal("116.0000"),
+            "price_currency": "MXN",
+            "context_fingerprint": "fp-1",
+        },
+        fee_raw={
+            "platform": "amazon_mx",
+            "total_fees": Decimal("12.0000"),
+            "estado": "success",
+            # Sin ReferralFee -> partir_fees devuelve fee_incompatible.
+            "fee_details": [{"fee_type": "FBAFees", "final_fee": "12.0000"}],
+        },
+        fee_observation_id=200,
+        universo="amazon_mx/fbm",
+        uni=universo_de("amazon_mx", "fbm"),
+        politica=pol,
+        motivos=[],
+        valoracion_date=date(2026, 6, 1),
+        observed_at=ahora,
+    )
+    assert esc.motivos[:3] == ("costo_ausente", "fee_incompatible", "envio_sin_historia")
+    assert esc.canonical_input["motivos"][:3] == [
+        "costo_ausente",
+        "fee_incompatible",
+        "envio_sin_historia",
+    ]
 
 
 def test_parsear_politica_s3_y_s4():

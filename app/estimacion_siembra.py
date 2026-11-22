@@ -148,9 +148,14 @@ class _InsumosMiembro:
     product_id: int | None
     costo_fx: CostoFxEscenario
     resuelta: LogisticaResuelta
-    motivos_in: list[str]
+    motivos_costo: list[str]
+    motivos_logistica: list[str]
     resultado: ResultadoCalculo | None = None
     motivos_propios: list[str] | None = None
+
+    @property
+    def motivos_in(self) -> list[str]:
+        return [*self.motivos_costo, *self.motivos_logistica]
 
 
 def _estado_sin_cuenta(motivos: Sequence[str]) -> str:
@@ -359,11 +364,12 @@ def _resolver_miembro(
     sku: str,
     product_id: int | None,
 ) -> _InsumosMiembro:
-    mot_in: list[str] = []
+    mot_costo: list[str] = []
+    mot_logistica: list[str] = []
     costo_fx = CostoFxEscenario()
     resuelta = LogisticaResuelta(None, None, None, None, None, None, None)
     if product_id is None:
-        mot_in.append("costo_ausente")
+        mot_costo.append("costo_ausente")
     else:
         costo_fx = _resolver_costo_fx_escenario(
             conn,
@@ -371,7 +377,7 @@ def _resolver_miembro(
             valoracion_date=ctx.valoracion_date,
             observed_at=ctx.observed_at,
             moneda_venta=ctx.oferta_raw["price_currency"],
-            motivos=mot_in,
+            motivos=mot_costo,
             fx_max_dias=ctx.uni.fx_max_dias if ctx.uni is not None else None,
         )
         if ctx.uni is not None and ctx.politica is not None:
@@ -386,7 +392,7 @@ def _resolver_miembro(
                 ),
             )
             if isinstance(res_envio, str):
-                mot_in.append(res_envio)
+                mot_logistica.append(res_envio)
             else:
                 resuelta = envio_a_logistica(res_envio)
     return _InsumosMiembro(
@@ -394,7 +400,8 @@ def _resolver_miembro(
         product_id=product_id,
         costo_fx=costo_fx,
         resuelta=resuelta,
-        motivos_in=mot_in,
+        motivos_costo=mot_costo,
+        motivos_logistica=mot_logistica,
     )
 
 
@@ -731,7 +738,14 @@ def sembrar_desde_insumos(
         return _sembrar_meli(conn, ctx, motivos_fila)
 
     miembro = _resolver_miembro(conn, ctx, sku=oferta_raw["seller_sku"], product_id=product_id)
-    motivos_todos = [*motivos_fila, *miembro.motivos_in]
+    # Amazon preserva el orden historico: previos -> costo/FX -> fee -> logistica
+    # para mantener estable `canonical_input`, `source_event_id` y `motivos[0]`.
+    motivos_todos = [
+        *motivos,
+        *miembro.motivos_costo,
+        *motivos_fee,
+        *miembro.motivos_logistica,
+    ]
     entrada = _construir_entrada(ctx, miembro, tuple(dict.fromkeys(motivos_todos)))
 
     if politica is None:
