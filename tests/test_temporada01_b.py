@@ -841,6 +841,8 @@ def test_temporada01_b_episodio_reparado_tras_caida(db_template):
     # efecto del regreso se abre con el episodio ESTAMPADO (E1, ya cerrado) y
     # su desenlace divergente deja la exclusion con el bid leido. Amazon
     # "tiene" 7.00 y NO aplica el PUT del regreso (el dueno gano la carrera).
+    listas = {"n": 0}
+
     def handler_div(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
             return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
@@ -868,10 +870,11 @@ def test_temporada01_b_episodio_reparado_tras_caida(db_template):
                 if request.url.path == "/sp/targets/list"
                 else ("keywords", "keywordId")
             )
-            return httpx.Response(
-                200,
-                json={contenedor: [{campo: "b-kw1", "bid": "7.00"}]},
-            )
+            listas["n"] += 1
+            # La lectura fresca ve el 5.60 que Orbit esperaba; el readback del
+            # PUT ve 7.00 (el dueno gano la carrera DESPUES de la lectura).
+            bid = "5.60" if listas["n"] == 1 else "7.00"
+            return httpx.Response(200, json={contenedor: [{campo: "b-kw1", "bid": bid}]})
         raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
     res = _corre(conn, D_SALE_E1, handler_div)
@@ -1458,7 +1461,7 @@ def test_temporada01_b_cerca_plataforma_no_se_reinicia_con_ajuste(db_template):
     ids = _escenario(conn)
     kw1 = _kw(conn, ids["ag"], "b-kw1", "kw 1", "8.00")
     _siembra_metricas(conn, [kw1])
-    handler = _handler_mx({"b-kw1": "5.60"})
+    handler = _handler_mx({"b-kw1": "8.00"})
 
     # Ciclo de E1: la entrada se confirma (esta es la transicion).
     res = _corre(conn, D_E1, handler)
@@ -1622,6 +1625,7 @@ def test_temporada01_b_fin_de_reduccion(db_template):
         motivo="bajo_target",
     )
     conn.execute("UPDATE ad_entity_state SET current_bid = 14.00 WHERE ad_entity_id = %s", (kw_a,))
+    remoto["b-c1"] = "14.00"  # el mock de Amazon espeja la historia confirmada
 
     # ================= Caso 2 (apagado): la temporada se apaga antes de la
     # salida natural de E1: el regreso de kw1 queda RETENIDO y E1 sigue
@@ -1657,6 +1661,7 @@ def test_temporada01_b_fin_de_reduccion(db_template):
         motivo="pierde_dinero",
     )
     conn.execute("UPDATE ad_entity_state SET current_bid = 3.15 WHERE ad_entity_id = %s", (kw5,))
+    remoto["b-kw5"] = "3.15"
     # Caso 7b: Orbit movio la hoja DESPUES de la mano sin registro (mes
     # normal): la discontinuidad del recorte FECHA la mano el 15 de abril.
     _cambio_confirmado(
@@ -1669,6 +1674,7 @@ def test_temporada01_b_fin_de_reduccion(db_template):
         motivo="pierde_dinero",
     )
     conn.execute("UPDATE ad_entity_state SET current_bid = 2.10 WHERE ad_entity_id = %s", (_kw10,))
+    remoto["b-c7b"] = "2.10"
     _config_version(conn, _settings())  # re-encender para E2
 
     # Caso 1 (continua): R6 sube 14 -> 16.10 (historia confirmada del motor,
@@ -1683,11 +1689,13 @@ def test_temporada01_b_fin_de_reduccion(db_template):
         motivo="bajo_target",
     )
     conn.execute("UPDATE ad_entity_state SET current_bid = 16.10 WHERE ad_entity_id = %s", (kw_a,))
+    remoto["b-c1"] = "16.10"
     # ================= E2 (3 may, temporada live): un episodio de otra baja
     # (E1) se cierra y se abre E2 (caso 8). Entradas de la baja; kw2 con la
     # mano del dueno el MISMO dia (caso 3a): sin entrada y exclusion de E2 con
     # bid_visto; kw10 (mano fechada en abril): la entrada SI sale (caso 7b).
     conn.execute("UPDATE ad_entity_state SET current_bid = 7.00 WHERE ad_entity_id = %s", (kw2,))
+    remoto["b-kw2"] = "7.00"
     res_e2 = _corre(conn, D_E2, handler)
     assert res_e2.status == "done"
     e2 = _episodio_abierto(conn)
@@ -1751,8 +1759,10 @@ def test_temporada01_b_fin_de_reduccion(db_template):
     # siguiente ni el posterior, aunque el bid vigente ya coincida con el
     # bid_visto (dueno_al_final False).
     conn.execute("UPDATE ad_entity_state SET current_bid = 7.00 WHERE ad_entity_id = %s", (kw1,))
+    remoto["b-kw1"] = "7.00"
     _mano(conn, e2, kw3, dt.datetime(2027, 5, 3, 9, 30, tzinfo=dt.UTC), "7.00")
     conn.execute("UPDATE ad_entity_state SET current_bid = 7.00 WHERE ad_entity_id = %s", (kw3,))
+    remoto["b-kw3"] = "7.00"
     res_5 = _corre(conn, dt.date(2027, 5, 6), handler)
     assert res_5.status == "done"
     assert all(k != kw1 for k, _d, _m, _e in _temporada_del_ciclo(conn, res_5.cycle_id))

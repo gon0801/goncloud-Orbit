@@ -707,7 +707,7 @@ def test_temporada01_c_recupera_con_evidencia(db_template):
     )
     conn.commit()
 
-    handler = _handler_mx({})
+    handler = _handler_mx({"c-kw1": "2.16", "c-kw-cuenta": "6.00"})
     res = _corre(conn, D_E1, handler)
     assert res.status == "done", res.notes
     decisiones = {

@@ -434,8 +434,11 @@ def test_temporada01_d_centavos_de_la_entrada(db_template):
         )
         dia += dt.timedelta(days=1)
     conn.commit()
-    # el ciclo D_E1 abre el episodio y aplica la entrada: 8.00 -> 5.60
-    res = _corre(conn, D_E1, _handler_mx({}))
+    # el ciclo D_E1 abre el episodio y aplica la entrada: 8.00 -> 5.60. El
+    # mock es UNO para los dos ciclos: la lectura fresca del dia 2 ve el bid
+    # que dejo el PUT del dia 1.
+    remoto = {"d-kw1": "8.00"}
+    res = _corre(conn, D_E1, _handler_mx(remoto))
     assert res.status == "done", res.notes
     entrada = conn.execute(
         "SELECT d.new_value FROM decision d WHERE d.cycle_id = %s"
@@ -459,7 +462,7 @@ def test_temporada01_d_centavos_de_la_entrada(db_template):
         (_json.dumps(settings_nuevos),),
     )
     conn.commit()
-    res = _corre(conn, D_E1 + dt.timedelta(days=1), _handler_mx({}))
+    res = _corre(conn, D_E1 + dt.timedelta(days=1), _handler_mx(remoto))
     assert res.status == "done", res.notes
     fila = conn.execute(
         "SELECT d.inputs->>'motivo', d.new_value FROM decision d"

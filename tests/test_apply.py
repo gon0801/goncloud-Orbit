@@ -308,9 +308,16 @@ def _handler_api(remoto: dict[str, str], *, desviado: dict[str, str] | None = No
     UNICA entrada del contenedor del recurso (keywords/targetingClauses) con
     bid NUMERO, y el readback es el POST de LISTA (el GET directo responde
     403 — retirado; apply_attempt 4-5) devolviendo TODAS las filas del
-    `remoto` (el cruce de id es del motor). `desviado` pisa el bid leido de
-    una clave (test de cache con lo LEIDO != enviado)."""
+    `remoto` (el cruce de id es del motor).
+
+    `remoto` es el bid que Amazon tiene ANTES del envio (el que Orbit vio al
+    decidir): la lectura fresca de TEMPORADA 01 E lo compara con el old_value.
+    `desviado` pisa el bid leido DESPUES del primer PUT (la escritura salio y
+    Amazon quedo con otro valor); antes del PUT el mock devuelve el remoto de
+    verdad, porque un cambio previo lo frena la lectura fresca y no el
+    readback."""
     vistos: list[httpx.Request] = []
+    put_hechos = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -322,6 +329,7 @@ def _handler_api(remoto: dict[str, str], *, desviado: dict[str, str] | None = No
             obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
             ext = str(obj.get("keywordId") or obj.get("targetId"))
             remoto[ext] = obj["bid"]  # bid NUMERO en el wire (apply_attempt 3)
+            put_hechos["n"] += 1
             return httpx.Response(207, json={"ack": obj})
         if request.method == "POST" and request.url.path.endswith("/list"):
             contenedor, campo = (
@@ -331,8 +339,10 @@ def _handler_api(remoto: dict[str, str], *, desviado: dict[str, str] | None = No
             )
             filas = []
             for ext, bid in remoto.items():
-                leido = (desviado or {}).get(ext, bid)
-                filas.append({campo: ext, "bid": leido, "state": "ENABLED"})
+                leido = (desviado or {}).get(ext) if put_hechos["n"] else None
+                filas.append(
+                    {campo: ext, "bid": leido if leido is not None else bid, "state": "ENABLED"}
+                )
             return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
         raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
@@ -516,7 +526,7 @@ def test_bid_descartado_bajo_cap_no_reaparece():
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 1})
         dec1 = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], cost="120.50")
         dec2 = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw2"], cost="80.00")
-        handler, vistos = _handler_api({"7201": "0.85", "7202": "0.85"})
+        handler, vistos = _handler_api({"7201": "1.00", "7202": "1.00"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -525,7 +535,9 @@ def test_bid_descartado_bajo_cap_no_reaparece():
         assert res.aplicadas == 1
         assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
         assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201"]
-        assert len(_lists(vistos)) == 1
+        # TEMPORADA 01 E: lectura fresca + readback del primer bid, y la
+        # lectura fresca del descartado (que ya no llega a la cuota).
+        assert len(_lists(vistos)) == 3
 
         # Re-llamar: el aplicado salta (ya_aplicada) y el descartado NO se
         # reintenta (bids fuera de cap = DESCARTADOS, sellado 8).
@@ -560,7 +572,7 @@ def test_cache_actualizado_post_readback_con_lo_leido():
     with _db_temporal("orbit_apply_rb") as conn:
         ids = _semilla(conn)
         dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
-        handler, vistos = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        handler, vistos = _handler_api({"7201": "1.00"}, desviado={"7201": "0.90"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -632,7 +644,7 @@ def test_applied_count_y_applied_cycle_por_ciclo_ejecutor():
     with _db_temporal("orbit_apply_ejec") as conn:
         ids = _semilla(conn, mode_ciclo_dec="shadow")
         dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="shadow")
-        handler, vistos = _handler_api({"7201": "0.85"})
+        handler, vistos = _handler_api({"7201": "1.00"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -766,6 +778,10 @@ def test_aplicador_sella_fallo_http_en_ledger_y_no_marca_aplicada():
             if request.url.host == "api.amazon.com":
                 return _token_response()
             vistos.append(request)
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                # La lectura fresca ve el bid que Orbit esperaba; el rechazo
+                # llega en el PUT y NO hay readback despues.
+                return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 1.00}]})
             assert request.method == "PUT", "sin readback tras un rechazo >=400"
             return httpx.Response(400, json={"detail": "INVALID_BID"})
 
@@ -1064,7 +1080,7 @@ def test_aplica_bids_cupo_dos_aplica_regreso_y_propio_descarta_resto():
             gasto="10",
         )
         handler, vistos = _handler_api(
-            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+            {"7201": "1.00", "7202": "1.00", "7203": "1.00", "7204": "1.00"}
         )
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
@@ -1102,7 +1118,7 @@ def test_aplica_bids_cupo_uno_regreso_barato_antes_que_recorte_caro():
             motivo="regreso_por_desplome",
             gasto="10",
         )
-        handler, vistos = _handler_api({"7201": "0.88", "7202": "0.88"})
+        handler, vistos = _handler_api({"7201": "1.00", "7202": "1.00"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -1160,7 +1176,7 @@ def test_aplica_bids_cupo_tres_descarta_heredado_aunque_mas_gasto():
             gasto="10",
         )
         handler, vistos = _handler_api(
-            {"7201": "0.88", "7202": "0.88", "7203": "0.88", "7204": "0.88"}
+            {"7201": "1.00", "7202": "1.00", "7203": "1.00", "7204": "1.00"}
         )
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
@@ -1183,7 +1199,7 @@ def test_secuencia_sellada_bid_ok():
         ids = _semilla(conn)
         dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
         ticks: list[int] = []
-        handler, vistos = _handler_api({"7201": "0.85"})
+        handler, vistos = _handler_api({"7201": "1.00"})
         ap = Aplicador(
             conn,
             platform="amazon_us",
@@ -1222,8 +1238,12 @@ def test_secuencia_sellada_bid_ok():
         assert [json.loads(p.content) for p in _puts(vistos)] == [
             {"keywords": [{"keywordId": "7201", "bid": 0.85}]}
         ], "contenedor del recurso + bid NUMERO (probe 2.5)"
-        assert len(_lists(vistos)) == 1
-        assert _lists(vistos)[0].headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+        # TEMPORADA 01 E: lectura fresca ANTES de la cuota + readback del PUT.
+        assert len(_lists(vistos)) == 2
+        assert all(
+            r.headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+            for r in _lists(vistos)
+        )
         # Resumen: la terna junta + applied_cycle_id AL CONFIRMAR.
         resumen = conn.execute(
             "SELECT confirmed_at, platform_ack, verify_ok, applied_cycle_id"
@@ -1305,7 +1325,9 @@ def test_reconcilia_bids_divergencia_sella_y_no_reenvia():
             " VALUES (%s, 1, 'normal', %s, true)",
             (dec, Json({"keywordId": "7201", "bid": "0.85"})),
         )
-        handler, vistos = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        # Amazon tiene OTRO bid del que se pidio: la reconciliacion lo lee
+        # directo (no hay lectura fresca ni PUT en este camino).
+        handler, vistos = _handler_api({"7201": "0.90"})
 
         confirmadas, fallidas = reconcilia_bids(
             conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us"
@@ -1487,6 +1509,8 @@ def test_readback_que_devuelve_otra_entidad_no_confirma_ni_toca_cache():
         dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
         vistos: list[httpx.Request] = []
 
+        listas = {"n": 0}
+
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.amazon.com":
                 return _token_response()
@@ -1496,14 +1520,18 @@ def test_readback_que_devuelve_otra_entidad_no_confirma_ni_toca_cache():
             assert request.method == "POST" and request.url.path.endswith("/list"), (
                 "solo PUT + readback por LIST (probe 2.5: GET retirado)"
             )
-            # Respuesta de OTRA entidad: el id NO es el pedido.
+            listas["n"] += 1
+            if listas["n"] == 1:
+                # La lectura fresca ve la entidad con el bid que Orbit esperaba.
+                return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 1.00}]})
+            # El readback del PUT responde con OTRA entidad: el id NO es el pedido.
             return httpx.Response(200, json={"keywords": [{"keywordId": "9999", "bid": 0.85}]})
 
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
 
         assert res.aplicadas == 0
-        assert len(_puts(vistos)) == 1 and len(_lists(vistos)) == 1
+        assert len(_puts(vistos)) == 1 and len(_lists(vistos)) == 2
         cache = conn.execute(
             "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()[0]
@@ -1527,7 +1555,7 @@ def test_divergencia_readback_sella_la_misma_etiqueta_en_apply_y_reversa():
     with _db_temporal("orbit_apply_etq") as conn:
         ids = _semilla(conn)
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.00", new="0.85")
-        handler, _v = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        handler, _v = _handler_api({"7201": "1.00"}, desviado={"7201": "0.90"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -1582,6 +1610,8 @@ def test_ack_2xx_con_secreto_queda_redactado_en_el_ledger():
         ids = _semilla(conn)
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
 
+        listas = {"n": 0}
+
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.amazon.com":
                 return _token_response()
@@ -1590,7 +1620,9 @@ def test_ack_2xx_con_secreto_queda_redactado_en_el_ledger():
                     200, json={"ack": json.loads(request.content), "eco_token": "fake-access-1"}
                 )
             assert request.method == "POST" and request.url.path.endswith("/list")
-            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
+            listas["n"] += 1
+            leido = 1.00 if listas["n"] == 1 else 0.85
+            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": leido}]})
 
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -1610,7 +1642,7 @@ def test_divergencia_de_readback_es_observable_en_el_resultado():
     with _db_temporal("orbit_apply_divo") as conn:
         ids = _semilla(conn)
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
-        handler, _v = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        handler, _v = _handler_api({"7201": "1.00"}, desviado={"7201": "0.90"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -1633,6 +1665,7 @@ def test_write_client_de_produccion_duerme_el_backoff_de_429():
         ids = _semilla(conn)
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
         puts = {"n": 0}
+        listas = {"n": 0}
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.amazon.com":
@@ -1644,7 +1677,9 @@ def test_write_client_de_produccion_duerme_el_backoff_de_429():
                     return httpx.Response(429, json={"message": "throttled"})
                 return httpx.Response(200, json={"ack": "reintento"})
             assert request.method == "POST" and request.url.path.endswith("/list")
-            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
+            listas["n"] += 1
+            leido = 1.00 if listas["n"] == 1 else 0.85
+            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": leido}]})
 
         ap = Aplicador(
             conn,
@@ -1867,7 +1902,7 @@ def test_readback_encuentra_el_bid_en_la_pagina_dos_del_list():
         dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
         # El senuelo 9999 va PRIMERO en el almacen: la entidad pedida vive en
         # la pagina 2 del LIST.
-        handler, vistos = _handler_api({"9999": "9.99", "7201": "0.85"})
+        handler, vistos = _handler_api({"9999": "9.99", "7201": "1.00"})
 
         def paginado(request: httpx.Request) -> httpx.Response:
             if request.method == "POST" and request.url.path.endswith("/list"):
@@ -1901,7 +1936,10 @@ def test_readback_encuentra_el_bid_en_la_pagina_dos_del_list():
         ).fetchone()[0]
         assert resultado == "ok", "la entidad de la pagina 2 se lee: NO es divergencia"
         lists = [r for r in vistos if r.method == "POST" and r.url.path.endswith("/list")]
-        assert len(lists) == 2, "pagino: pagina 1 (senuelo) + pagina 2 (la pedida)"
+        assert len(lists) == 4, (
+            "pagino dos veces (lectura fresca + readback): "
+            "pagina 1 (senuelo) + pagina 2 (la pedida)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2101,7 +2139,7 @@ def test_sin_aplicar_fuera_de_cap_registra_el_bid_descartado():
             _decision_bid(conn, ids["ciclo_dec"], ids["config"], kw, cost=f"{200 - 10 * i}.00")
             for i, kw in enumerate(kws)
         ]
-        remoto = {f"72{i:02d}": "0.85" for i in range(1, 12)}
+        remoto = {f"72{i:02d}": "1.00" for i in range(1, 12)}
         handler, vistos = _handler_api(remoto)
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
@@ -2192,7 +2230,7 @@ def test_sin_aplicar_ya_aplicada_no_deja_fila():
     with _db_temporal("orbit_apply_dsa_ya") as conn:
         ids = _semilla(conn)
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
-        handler, vistos = _handler_api({"7201": "0.85"})
+        handler, vistos = _handler_api({"7201": "1.00"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -2246,6 +2284,8 @@ def test_sin_aplicar_fallo_http_registra_el_skip():
             if request.url.host == "api.amazon.com":
                 return _token_response()
             vistos.append(request)
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 1.00}]})
             return httpx.Response(400, json={"detail": "INVALID_BID"})
 
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
