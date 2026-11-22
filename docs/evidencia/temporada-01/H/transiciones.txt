@@ -1,0 +1,114 @@
+# TEMPORADA 01 H.3 — Fechas de las transiciones y sus trabajos de `at`
+
+Servidor: **goncloud** (reloj en UTC). Directorio de los trabajos:
+`/mnt/data/appdata/orbit/recordatorios/`. Programado el **2026-11-22 17:01 UTC**, con las cuatro
+claves ya en `live` (config **59**).
+
+## Las fechas, calculadas con `temporada.eventos`
+
+No se escribieron a mano: se leyeron las claves guardadas de la config 59 en producción y se pasaron
+por el motor, con la ventana de 12 meses que abre el encendido:
+
+```
+$ echo "select jsonb_build_object('ads_temporada', settings->'ads_temporada', 'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_mx', 'ads_temporada_amazon_us', settings->>'ads_temporada_amazon_us')::text from config_version where id = 59" | bash docs/evidencia/arreglos-01/lee_prod.sh > settings-59.json
+$ PYTHONPATH=. uv run --frozen --python 3.12 python - <<'PY' < settings-59.json
+from app.optimizer import temporada
+config = temporada.desde_settings(json.load(sys.stdin))
+for ev in temporada.eventos(config, date(2026, 11, 22), date(2027, 11, 22)):
+    print(ev.fecha, ev.tipo, ev.frase)
+PY
+```
+
+Salida completa del motor:
+
+```
+2026-12-01 sale_alta | La meta de ACoS regresa a la normal.
+2027-01-01 entra_baja | Empieza la temporada baja: Orbit baja todos los bids 30 %.
+2027-02-08 restaura | Empieza la preparación: los bids regresan a como estaban antes de la baja y Orbit reactiva las keywords que pausó durante la baja.
+2027-03-01 entra_alta | Empieza la temporada alta.
+2027-05-01 entra_baja | Empieza la temporada baja: Orbit baja todos los bids 30 %.
+2027-05-01 sale_alta | La meta de ACoS regresa a la normal.
+2027-07-01 restaura | Termina la baja: los bids regresan. Sigue un mes normal.
+2027-09-10 prepara_alta | Empieza la previa de la temporada alta; todavía no cambia nada.
+2027-10-01 entra_alta | Empieza la temporada alta.
+```
+
+Coincide con el plan: **1 y 2 de enero, 8 y 9 de febrero y 1 y 2 de marzo de 2027**. Las tres
+transiciones que mueven bids o cambian la meta del juicio (`entra_baja`, `restaura`, `entra_alta`)
+vuelven a caer el 1 de julio y el 1 de octubre dentro de esos 12 meses, así que también quedan
+programadas; `sale_alta` (1 dic y 1 may) y `prepara_alta` (10 sep) no están en la lista del plan y no
+se programan.
+
+## Los trabajos
+
+Un trabajo de `at` por fecha, a las **10:05 UTC** (después del ciclo de Ads de las 09:40, que es la
+hora con ARREGLOS 03 D-E), todos con el mismo `primer-ciclo.sql` y `primer-ciclo.sh`:
+
+| Fecha (UTC) | Qué es | Trabajo de `at` |
+| --- | --- | --- |
+| 2026-11-23 10:05 | primer ciclo en vivo (día siguiente al encendido) | 14 |
+| 2027-01-01 10:05 | `entra_baja` | 15 |
+| 2027-01-02 10:05 | día siguiente a la entrada | 16 |
+| 2027-02-08 10:05 | `restaura` (regreso) | 17 |
+| 2027-02-09 10:05 | día siguiente al regreso | 18 |
+| 2027-03-01 10:05 | `entra_alta` | 19 |
+| 2027-03-02 10:05 | día siguiente al inicio de la alta | 20 |
+| 2027-05-01 10:05 | `entra_baja` (y `sale_alta`) | 21 |
+| 2027-05-02 10:05 | día siguiente a la entrada | 22 |
+| 2027-07-01 10:05 | `restaura` (regreso) | 23 |
+| 2027-07-02 10:05 | día siguiente al regreso | 24 |
+| 2027-10-01 10:05 | `entra_alta` | 25 |
+| 2027-10-02 10:05 | día siguiente al inicio de la alta | 26 |
+
+El comando, repetido una vez por fecha:
+
+```
+TZ=UTC at -M -t AAAAMMDDhhmm -f /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sh
+```
+
+`atq` después de programarlos devuelve los 13 trabajos (14 a 26) en sus fechas. La copia de
+`at -c 14` y `at -c 15`, con el script completo que ejecuta cada trabajo, está en `at-c.txt`.
+
+## Qué hace el trabajo
+
+`primer-ciclo.sh` corre `primer-ciclo.sql` con `psql` dentro de `orbit-db-1`. El `.sql` abre
+`BEGIN READ ONLY` y cierra con `ROLLBACK`, así que no puede escribir. Mira solo los ciclos terminados
+que **empezaron después** de la primera config que dejó las cuatro claves en `live` (la 59, buscada por
+sus claves y no por su número) y responde a los cinco casos de paro del plan. Cuando todavía no hay
+ningún ciclo terminado, la sección (2) lo dice con esas palabras. El resultado se manda por Telegram
+con `envia_recordatorio.py`, y la última línea del mensaje es el veredicto: `SIN CASOS DE PARO` o
+`CASO DE PARO: revisar la seccion (8)`.
+
+Se ejecutó una vez a mano para probar el camino completo (2026-11-22 17:01 UTC): salió
+`SIN CASOS DE PARO`, con el aviso de que todavía no hay ningún ciclo terminado después del encendido,
+y `envios.log` registró `enviado: True`.
+
+## La sonda detecta lo que debe detectar
+
+Como en producción todavía no hay ninguna entrada ni ningún regreso, las dos comparaciones del `.sql`
+se probaron con valores conocidos, por la misma entrada de solo lectura:
+
+```
+select 'baja 8.00 -> 5.59 (mas de 30%)' as caso,
+       count(*) filter (where n < a * (1 - 30::numeric / 100)) as paro
+  from (values (8.00::numeric, 5.59::numeric)) v(a, n)
+union all
+select 'baja 8.00 -> 5.60 (exacto 30%)', count(*) filter (where n < a * (1 - 30::numeric / 100))
+  from (values (8.00::numeric, 5.60::numeric)) v(a, n)
+union all
+select 'regreso 5.60 -> 5.59 (baja)', count(*) filter (where n < a)
+  from (values (5.60::numeric, 5.59::numeric)) v(a, n)
+union all
+select 'regreso 5.60 -> 6.40 (sube)', count(*) filter (where n < a)
+  from (values (5.60::numeric, 6.40::numeric)) v(a, n)
+```
+
+```
+baja 8.00 -> 5.59 (mas de 30%)|1
+baja 8.00 -> 5.60 (exacto 30%)|0
+regreso 5.60 -> 5.59 (baja)|1
+regreso 5.60 -> 6.40 (sube)|0
+```
+
+El borde exacto del 30 % no dispara (5.60 es la reducción legítima de 8.00) y un centavo más abajo sí.
+El regreso que sube no dispara y el que baja sí.
