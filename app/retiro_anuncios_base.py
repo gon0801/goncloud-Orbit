@@ -3,6 +3,10 @@
 Extraido de `app/retiro_anuncios.py` (Ola D3a). Modulo base compartido por
 `app/retiro_anuncios.py`, `app/retiro_anuncios_regreso.py` y
 `app/retiro_anuncios_reconcilia.py`.
+
+El candado de exclusion mutua por anuncio (`retiro-ad:<id>`) permanece
+unificado aqui para que retiro, regreso y reconciliacion serialicen sobre la
+misma llave de sesion.
 """
 
 from __future__ import annotations

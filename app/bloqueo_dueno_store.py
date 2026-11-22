@@ -2,6 +2,10 @@
 
 Extraido de `app/bloqueo_dueno_efecto.py` (Ola D3a). Modulo hoja sin imports de
 `app.ads.write` ni de `app.apply`: solo SQL, DTOs y advisory lock de sesion.
+
+El candado de exclusion mutua (`bloqueo:<ad_group_id>:<termino_sha256>`) vive
+unificado aqui para que aprobar, rechazar, quitar, reanudar y reconciliar
+serialicen siempre sobre la misma llave de sesion.
 """
 
 from __future__ import annotations
