@@ -1,0 +1,107 @@
+# TEMPORADA 01 H.1 — Los dos ciclos de práctica se forzaron, con autorización del dueño
+
+## Por qué se forzaron
+
+El ciclo automático de cada plataforma ya había corrido el 2026-11-22 (204 y 205, 09:40 y 09:41 UTC),
+antes de que estuviera desplegado el arreglo de la práctica (`57b47dd`). Sin un ciclo nuevo, la puerta de
+H.1 no tenía dato: los casos de 204 y 205 no traen `caso_sombra` porque el código de entonces no lo
+guardaba.
+
+El dueño autorizó forzar los dos ciclos. Los corrió el coordinador, no una automatización, con el
+`--forzar` explícito de la CLI:
+
+```
+$ ssh goncloud "docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us --forzar"
+cycle_id=206 status=done decisions_count=0
+
+$ ssh goncloud "docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx --forzar"
+cycle_id=207 status=done decisions_count=0
+```
+
+Esto queda escrito porque un ciclo forzado no es lo mismo que el ciclo programado: se saltó la guarda
+que impide dos ciclos el mismo día. Se forzó **con la temporada y la subida rápida en `shadow`** (config
+**61**), así que ninguna de las dos podía escribir en Amazon. Ese es el motivo por el que forzar era
+seguro y por el que el resultado es una práctica y no un encendido.
+
+## Las marcas de agua
+
+Cuatro contadores que solo crecen si el ciclo escribe. Antes y después de los dos ciclos:
+
+| Marca | Antes | Después | Diferencia |
+| --- | --- | --- | --- |
+| `apply_attempt` | 571 | 571 | 0 |
+| `decision` | 2923 | 2923 | 0 |
+| `optimizer_cycle` | 205 | 207 | +2 (los dos ciclos) |
+| config vigente | 61 | 61 | 0 |
+
+Consultadas así, por la entrada de solo lectura:
+
+```
+$ echo "select 'apply_attempt' as marca, count(*)::text as total from apply_attempt
+        union all select 'decision', count(*)::text from decision
+        union all select 'optimizer_cycle', count(*)::text from optimizer_cycle
+        order by 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
+apply_attempt|571
+decision|2923
+optimizer_cycle|207
+```
+
+La comprobación que importa no es el total sino que no haya filas **nuevas**. Ninguna tabla de escritura
+tiene una fila posterior al arranque de los ciclos (2026-11-22 20:15 UTC):
+
+```
+$ echo "select 'decision' as tabla, count(*)::text as tras_ciclos from decision where decided_at >= '2026-11-22 20:00:00+00'
+        union all select 'apply_attempt', count(*)::text from apply_attempt where started_at >= '2026-11-22 20:00:00+00'
+        union all select 'apply_queue', count(*)::text from apply_queue where encolado_at >= '2026-11-22 20:00:00+00'
+        union all select 'decision_application', count(*)::text from decision_application where attempted_at >= '2026-11-22 20:00:00+00'
+        union all select 'decision_sin_aplicar', count(*)::text from decision_sin_aplicar where registrado_at >= '2026-11-22 20:00:00+00'
+        order by 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
+apply_attempt|0
+apply_queue|0
+decision|0
+decision_application|0
+decision_sin_aplicar|0
+```
+
+Las últimas filas de verdad son del día anterior:
+
+```
+$ echo "select 'decision' as tabla, max(decided_at)::text as ultima from decision
+        union all select 'apply_attempt', max(started_at)::text from apply_attempt
+        union all select 'apply_queue', max(encolado_at)::text from apply_queue
+        order by 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
+apply_attempt|2026-11-21 09:40:11.103875+00
+apply_queue|2026-11-21 09:40:09.603406+00
+decision|2026-11-21 09:40:02.181753+00
+```
+
+## «0 en cola» necesita una precisión
+
+La cola (`apply_queue`) tiene **32 filas abiertas**, pero **ninguna es de los ciclos**:
+
+```
+$ echo "select estado, kind, count(*), max(encolado_at)::text from apply_queue
+         where applied_at is null and failed_at is null
+           and discarded_at is null and vetoed_at is null
+         group by 1,2" | bash docs/evidencia/arreglos-01/lee_prod.sh
+pending_veto|pause|31|2026-11-08 08:40:06+00
+pending_veto|negative|1|2026-11-21 09:40:09+00
+```
+
+Son 31 pausas en `pending_veto` del 2026-11-08 y un negativo del 2026-11-21, todas anteriores a los
+ciclos. Decir «la cola quedó en 0» sería falso; lo cierto es **0 filas encoladas por los ciclos** y 32
+`pending_veto` que ya estaban y que no toca este bloque.
+
+## Las otras tablas de temporada
+
+Las cuatro tablas del bloque no se movieron: `temporada_episodio`, `temporada_efecto`,
+`temporada_fin_reduccion` y `temporada_exclusion` siguen en 0 filas, y `campana_ajuste` también. Un ciclo
+en `shadow` no abre episodios ni confirma nada, así que era lo esperado. Se verificó porque «lo esperado»
+no es evidencia por sí solo.
+
+## Cero escrituras en Amazon
+
+La temporada y la subida rápida estaban las dos en `shadow` (config 61), y el ciclo no generó ni una
+decisión (`decisions_count = 0` en los dos). Sin decisión no hay `apply_attempt`, y sin `apply_attempt` no
+hay PUT. La tabla de arriba lo confirma: `apply_attempt` quedó en 571. Cero escrituras en Amazon, no por
+confianza en el modo, sino porque no hubo ni una fila que enviar.

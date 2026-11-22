@@ -277,7 +277,14 @@ class LecturasPlataforma:
     _historia: dict[int, HistoriaBid] | None = None
     _historia_desde: dt.date | None = None
     _recuperacion: InsumosRecuperacion | None = None
+    # El caso que decide solo lleva los marcadores de recuperacion y de
+    # presupuesto cuando su motor esta en live; el caso de sombra los lleva
+    # siempre (diseno, decision 12: la practica decide un segundo caso con
+    # marcadores). Por defecto live, que es como los llamadores historicos
+    # construian el unico caso.
+    _recuperacion_live: bool = True
     _presupuesto: dict[int, PresupuestoCampana] | None = None
+    _presupuesto_live: bool = True
 
     def frontera(
         self,
@@ -336,14 +343,26 @@ class LecturasPlataforma:
             con_temporada=con_temporada,
         )
         sombra = None
-        if en_shadow and con_temporada and pausa_sombra is not None:
+        # La sombra tambien se decide con solo la subida rapida en practica
+        # (temporada apagada o en live): ahi no hay pausa de sombra que la
+        # temporada resuelva y se usa la pausa base (Devin y revision, PR 730).
+        pausa_de_sombra = (
+            pausa_sombra
+            if en_shadow and pausa_sombra is not None
+            else (
+                pausa
+                if con_temporada and self._recuperacion is not None and not self._recuperacion_live
+                else None
+            )
+        )
+        if pausa_de_sombra is not None:
             sombra = self.caso(
                 conn,
                 hoja_id=hoja_id,
                 ad_group_id=ad_group_id,
                 bid=bid,
                 target_acos_pct=target_acos_pct,
-                pausa=pausa_sombra,
+                pausa=pausa_de_sombra,
                 equilibrio_acos_pct=equilibrio_acos_pct,
                 procedencia=procedencia,
                 con_temporada=True,
@@ -430,9 +449,12 @@ class LecturasPlataforma:
         historia_caso = None
         recuperacion_caso = None
         t = self._temporada
-        con_cadena = (t is not None and (t.modo == "live" or sombra) and con_temporada) or (
-            self._recuperacion is not None and con_temporada
+        recuperacion_decide = (
+            self._recuperacion is not None and con_temporada and (sombra or self._recuperacion_live)
         )
+        con_cadena = (
+            t is not None and (t.modo == "live" or sombra) and con_temporada
+        ) or recuperacion_decide
         if con_cadena:
             historia_caso = self._historia.get(hoja_id) or HistoriaBid(
                 desde=self._historia_desde or self._d,
@@ -449,10 +471,10 @@ class LecturasPlataforma:
                     meta_manual=procedencia in ("goal_campana", "goal_plataforma"),
                     frontera=self.frontera(hoja_id, bid.valor, piso=bid.piso, techo=bid.techo),
                 )
-            if self._recuperacion is not None:
+            if recuperacion_decide:
                 recuperacion_caso = self._recuperacion
         presupuesto_caso = None
-        if self._presupuesto is not None:
+        if self._presupuesto is not None and (sombra or self._presupuesto_live):
             campana = self._campanas.get(hoja_id)
             presupuesto_caso = self._presupuesto.get(campana) if campana is not None else None
         return CasoHoja(
@@ -503,6 +525,7 @@ def _lee_tramos(
     moneda: str,
     temporada_plat: TemporadaPlataforma | None,
     recuperacion: InsumosRecuperacion | None,
+    memoria_historia: int,
     visto_el: dt.datetime | None,
 ) -> tuple[
     list, list | None, dict[int, dt.date], dt.date, dt.date, dt.date, dict, dict, dict, dict | None
@@ -517,7 +540,7 @@ def _lee_tramos(
         desde,
         visto_el,
         activa=temporada_plat is not None or recuperacion is not None,
-        memoria_dias=recuperacion.memoria_dias if recuperacion is not None else 365,
+        memoria_dias=memoria_historia,
     )
     cerca_plat = (
         temporada_plat.estado.cerca_plataforma
@@ -590,12 +613,25 @@ def lee_plataforma(
     version_economia: str | None = None,
     temporada_plat: TemporadaPlataforma | None = None,
     recuperacion: InsumosRecuperacion | None = None,
+    recuperacion_live: bool = True,
     campana_topada: temporada.CampanaTopada | None = None,
+    presupuesto_live: bool = True,
 ) -> LecturasPlataforma:
     """Lectura unica por plataforma y ciclo (v_metric_latest o metrics_as_of)."""
     _exige_tz(decidido_el, "decidido_el")
     if visto_el is not None:
         _exige_tz(visto_el, "visto_el")
+    # El historial que decide la temporada nunca se acorta por la memoria de una
+    # subida rapida (Devin, PR 730): con la temporada encendida, `frontera`
+    # dejaria de ver la mano del dueno ya sincronizada y la entrada recortaria
+    # una puja suya. Vale igual con la subida rapida en `live`, que es la config
+    # final de H.2: R6r ya topa su techo con su propia memoria en
+    # `recuperacion.techo_conocido`, asi que la lectura compartida no necesita
+    # acortarse. Sin temporada no hay frontera que proteger y manda la subida
+    # rapida.
+    memoria_historia = 365
+    if temporada_plat is None and recuperacion is not None:
+        memoria_historia = recuperacion.memoria_dias
     d = decidido_el.astimezone(dt.UTC).date()
     hasta = d - dt.timedelta(days=DIAS_MADUREZ)
     desde = d - dt.timedelta(days=DIAS_LOOKBACK)
@@ -634,6 +670,7 @@ def lee_plataforma(
         moneda,
         temporada_plat,
         recuperacion,
+        memoria_historia,
         visto_el,
     )
     filas_hojas = conn.execute(_SQL_HOJAS, (plataforma,)).fetchall()
@@ -747,5 +784,7 @@ def lee_plataforma(
         _historia=historia,
         _historia_desde=desde_historia,
         _recuperacion=recuperacion,
+        _recuperacion_live=recuperacion_live,
         _presupuesto=presupuesto,
+        _presupuesto_live=presupuesto_live,
     )

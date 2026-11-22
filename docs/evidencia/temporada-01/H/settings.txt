@@ -1,0 +1,148 @@
+# TEMPORADA 01 H.2 — Las cuatro claves a live
+
+La config que quedó vigente y que vale es la **63**. Este archivo cuenta los tres actos del mismo día,
+en orden, porque los tres pasaron: un primer encendido a las 16:59 UTC (58 y 59), la vuelta a `shadow`
+a las 17:17 para practicar R6r (60 y 61), y el encendido definitivo a las 20:22, con la puerta de H.1
+cumplida (62 y 63). Los actos 1 y 2 quedan abajo porque son la reversa y el replay: cualquiera puede ver
+que las claves se apagaron y volvieron a encender sin dejar la config anterior inservible.
+
+Fecha del primer acto: **2026-11-22 16:59 UTC**. Arnés: `bash docs/evidencia/arreglos-01/escribe_api.sh <ruta> <json>`
+desde dentro del contenedor `orbit-app-1` (el token no sale del servidor). Config vigente antes del
+cambio: **57** (la que dejó P en `shadow`, creada el 2026-11-22 02:50:07 UTC).
+
+## POST 1 — amazon_mx: temporada MX y US a live, subida rápida MX a live
+
+```
+$ bash docs/evidencia/arreglos-01/escribe_api.sh /api/ads-optimizer/settings/amazon_mx '{"base_config_version_id": 57, "recuperacion_modo": "live", "temporada_modo": {"amazon_mx": "live", "amazon_us": "live"}}'
+200 {"config_version_id":58,"created":true,"label":"settings UI · settings-ui · 2026-11-22 · amazon_mx: temporada amazon_mx shadow -> live, temporada amazon_us shadow -> live, subida rapida shadow -> live","resumen_temporada":{"hoy":"2026-11-22","fase_hoy":"alta","frase_hoy":"Hoy: temporada alta. Meta de ACoS 25 % en MX y US.","proximos":[{"fecha":"2026-12-01","tipo":"sale_alta","frase":"La meta de ACoS regresa a la normal."},{"fecha":"2027-01-01","tipo":"entra_baja","frase":"Empieza la temporada baja: Orbit baja todos los bids 30 %."},{"fecha":"2027-02-08","tipo":"restaura","frase":"Empieza la preparación: los bids regresan a como estaban antes de la baja y Orbit reactiva las keywords que pausó durante la baja."},{"fecha":"2027-03-01","tipo":"entra_alta","frase":"Empieza la temporada alta. Meta de ACoS 25 % en MX y US."},{"fecha":"2027-05-01","tipo":"entra_baja","frase":"Empieza la temporada baja: Orbit baja todos los bids 30 %."},{"fecha":"2027-05-01","tipo":"sale_alta","frase":"La meta de ACoS regresa a la normal."},{"fecha":"2027-07-01","tipo":"restaura","frase":"Termina la baja: los bids regresan. Sigue un mes normal."},{"fecha":"2027-09-10","tipo":"prepara_alta","frase":"Empieza la previa de la temporada alta; todavía no cambia nada."},{"fecha":"2027-10-01","tipo":"entra_alta","frase":"Empieza la temporada alta. Meta de ACoS 25 % en MX y US."}],"aviso_cambio":null},"mensaje":"Guardado. Próximo cambio: el 1 de diciembre la meta de ACoS regresa a la normal. La próxima preparación empieza el 8 de febrero."}
+```
+
+## POST 2 — amazon_us: subida rápida US a live
+
+```
+$ bash docs/evidencia/arreglos-01/escribe_api.sh /api/ads-optimizer/settings/amazon_us '{"base_config_version_id": 58, "recuperacion_modo": "live"}'
+200 {"config_version_id":59,"created":true,"label":"settings UI · settings-ui · 2026-11-22 · amazon_us: subida rapida shadow -> live"}
+```
+
+La config que queda vigente es la **59**, y es la que llevan las cuatro claves.
+
+## Lectura posterior del mismo config_version (59)
+
+```
+$ echo "select id, settings->>'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_us', settings->>'ads_bid_recuperacion_amazon_mx', settings->>'ads_bid_recuperacion_amazon_us', settings->'ads_temporada'->>'version', settings->'ads_temporada'->>'reduccion_baja_pct', settings->'ads_temporada'->>'dias_preparacion', settings->'ads_temporada'->>'mult_cortes_baja', settings->'ads_temporada'->>'aumento_presupuesto_alta_pct', settings->'ads_temporada'->'meses' from config_version where id = 59" | bash docs/evidencia/arreglos-01/lee_prod.sh
+```
+
+Salida (una fila, columnas separadas por `|`):
+
+```
+59|live|live|live|live|temporada_v1|30|21|2|25|['baja', 'baja', 'alta', 'alta', 'baja', 'baja', 'normal', 'normal', 'normal', 'alta', 'alta', 'normal']
+```
+
+El calendario es el de la decisión 1 y los parámetros son los que aprobó el dueño (baja 30 %, 21 días
+de preparación, cortes ×2, alta +25 % de presupuesto). `ads_temporada_meta_alta_*` y
+`ads_campana_topada` siguen ausentes, que es su estado por defecto (meta de alta 25 % y campaña
+topada 90 % en 5 de 7 días).
+
+## Qué cambió y qué no (diff de claves 57 -> 59)
+
+```
+with a as (select settings::jsonb s from config_version where id = 57),
+     b as (select settings::jsonb s from config_version where id = 59)
+select coalesce(ka.key, kb.key) as clave, ka.value as antes, kb.value as despues
+  from jsonb_each_text((select s from a)) ka
+  full join jsonb_each_text((select s from b)) kb using (key)
+ where ka.value is distinct from kb.value
+ order by 1
+```
+
+```
+ads_bid_recuperacion_amazon_mx|shadow|live
+ads_bid_recuperacion_amazon_us|shadow|live
+ads_temporada_amazon_mx|shadow|live
+ads_temporada_amazon_us|shadow|live
+```
+
+Cuatro claves, las cuatro del bloque, y nada más. La fila es nueva (config 59), append-only, como
+manda el diseño: la 57 sigue intacta para el replay.
+
+## La vuelta a `shadow` (configs 60 y 61) antes de la práctica
+
+El encendido de arriba se revirtió el mismo día, a propósito y desde esta sesión (no desde la pantalla
+del dueño): el dueño señaló en la revisión que la práctica nunca había comparado R6r, así que hacía
+falta un ciclo en `shadow` con la ruta corregida antes de encender. La lectura de esos dos configs:
+
+```
+$ echo "select id, created_at, settings->>'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_us', settings->>'ads_bid_recuperacion_amazon_mx', settings->>'ads_bid_recuperacion_amazon_us' from config_version where id in (58,59,60,61) order by id" | bash docs/evidencia/arreglos-01/lee_prod.sh
+```
+
+```
+58|2026-11-22 16:59:36.456965+00:00|live|live|live|shadow
+59|2026-11-22 16:59:41.675408+00:00|live|live|live|live
+60|2026-11-22 17:17:12.372509+00:00|shadow|shadow|shadow|live
+61|2026-11-22 17:17:15.433156+00:00|shadow|shadow|shadow|shadow
+```
+
+La **61** es la config vigente mientras corre la práctica: las cuatro claves en `shadow`, con el mismo
+calendario y los mismos parámetros de la 59.
+
+## El encendido definitivo, con la puerta de H.1 cumplida (config 62 y 63)
+
+Con `practica.md` cerrada sobre los ciclos 206 y 207 (cero escrituras, `recupera_nivel` 0 con `m*` 1.0473
+medido), se encendió otra vez, desde la config **61** como base y el mismo día 2026-11-22.
+
+```
+$ bash docs/evidencia/arreglos-01/escribe_api.sh /api/ads-optimizer/settings/amazon_mx '{"base_config_version_id": 61, "recuperacion_modo": "live", "temporada_modo": {"amazon_mx": "live", "amazon_us": "live"}}'
+200 {"config_version_id":62,"created":true,"label":"settings UI · settings-ui · 2026-11-22 · amazon_mx: temporada amazon_mx shadow -> live, temporada amazon_us shadow -> live, subida rapida shadow -> live","resumen_temporada":{"hoy":"2026-11-22","fase_hoy":"alta","frase_hoy":"Hoy: temporada alta. Meta de ACoS 25 % en MX y US.","proximos":[{"fecha":"2026-12-01","tipo":"sale_alta","frase":"La meta de ACoS regresa a la normal."},{"fecha":"2027-01-01","tipo":"entra_baja","frase":"Empieza la temporada baja: Orbit baja todos los bids 30 %."},{"fecha":"2027-02-08","tipo":"restaura","frase":"Empieza la preparación: los bids regresan a como estaban antes de la baja y Orbit reactiva las keywords que pausó durante la baja."},{"fecha":"2027-03-01","tipo":"entra_alta","frase":"Empieza la temporada alta. Meta de ACoS 25 % en MX y US."},{"fecha":"2027-05-01","tipo":"entra_baja","frase":"Empieza la temporada baja: Orbit baja todos los bids 30 %."},{"fecha":"2027-05-01","tipo":"sale_alta","frase":"La meta de ACoS regresa a la normal."},{"fecha":"2027-07-01","tipo":"restaura","frase":"Termina la baja: los bids regresan. Sigue un mes normal."},{"fecha":"2027-09-10","tipo":"prepara_alta","frase":"Empieza la previa de la temporada alta; todavía no cambia nada."},{"fecha":"2027-10-01","tipo":"entra_alta","frase":"Empieza la temporada alta. Meta de ACoS 25 % en MX y US."}],"aviso_cambio":null},"mensaje":"Guardado. Próximo cambio: el 1 de diciembre la meta de ACoS regresa a la normal. La próxima preparación empieza el 8 de febrero."}
+
+$ bash docs/evidencia/arreglos-01/escribe_api.sh /api/ads-optimizer/settings/amazon_us '{"base_config_version_id": 62, "recuperacion_modo": "live"}'
+200 {"config_version_id":63,"created":true,"label":"settings UI · settings-ui · 2026-11-22 · amazon_us: subida rapida shadow -> live"}
+```
+
+La config definitiva es la **63** (2026-11-22 20:22:47 UTC), y es la que llevan las cuatro claves.
+
+## Lectura posterior del mismo `config_version` (63)
+
+```
+$ echo "select id, created_at, settings->>'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_us', settings->>'ads_bid_recuperacion_amazon_mx', settings->>'ads_bid_recuperacion_amazon_us', settings->'ads_temporada'->>'version', settings->'ads_temporada'->>'reduccion_baja_pct', settings->'ads_temporada'->>'dias_preparacion', settings->'ads_temporada'->>'mult_cortes_baja', settings->'ads_temporada'->>'aumento_presupuesto_alta_pct', settings->'ads_temporada'->'meses' from config_version where id = 63" | bash docs/evidencia/arreglos-01/lee_prod.sh
+```
+
+Salida (una fila, columnas separadas por `|`):
+
+```
+63|2026-11-22 20:22:47.288691+00:00|live|live|live|live|temporada_v1|30|21|2|25|['baja', 'baja', 'alta', 'alta', 'baja', 'baja', 'normal', 'normal', 'normal', 'alta', 'alta', 'normal']
+```
+
+El calendario es el de la decisión 1 y los parámetros son los que aprobó el dueño (baja 30 %, 21 días de
+preparación, cortes ×2, alta +25 % de presupuesto). `ads_temporada_meta_alta_*` y `ads_campana_topada`
+siguen ausentes, que es su estado por defecto (meta de alta 25 % y campaña topada 90 % en 5 de 7 días).
+La config 63 es la última: `max(id) = 63` y no hay ninguna posterior.
+
+## Qué cambió y qué no (diff de claves 61 -> 63)
+
+```
+with a as (select settings::jsonb s from config_version where id = 61),
+     b as (select settings::jsonb s from config_version where id = 63)
+select coalesce(ka.key, kb.key) as clave, ka.value as antes, kb.value as despues
+  from jsonb_each_text((select s from a)) ka
+  full join jsonb_each_text((select s from b)) kb using (key)
+ where ka.value is distinct from kb.value
+ order by 1
+```
+
+```
+ads_bid_recuperacion_amazon_mx|shadow|live
+ads_bid_recuperacion_amazon_us|shadow|live
+ads_temporada_amazon_mx|shadow|live
+ads_temporada_amazon_us|shadow|live
+```
+
+Cuatro claves, las cuatro del bloque, y nada más. La fila es nueva (config 63), append-only, como manda
+el diseño: la 61 sigue intacta para el replay y la reversa es dejar las cuatro en `shadow` o en `off`
+desde Ajustes, o «Terminar la baja hoy» para regresar los bids de la baja.
+
+## El primer ciclo en vivo
+
+Las claves quedaron en `live` el 2026-11-22 20:22 UTC. El primer ciclo que las usa es el programado del
+**2026-11-23 09:40 UTC** (el de Ads, con ARREGLOS 03 D-E); su chequeo de `at` está en `transiciones.txt`
+a las 10:05 UTC de ese día.
+
