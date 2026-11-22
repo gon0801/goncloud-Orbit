@@ -48,7 +48,7 @@ ensayo() {
     s=$(sonda "$s") || exit 1
     [ "$s" = t ] && echo "migracion aplicada: $m" || echo "migracion pendiente: $m"
   done 3<<< "$MIGS"
-  [ -n "$MIGS" ] || echo "migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_*, *_temporada01_* y *_estimacion_s4_*): ninguna en $SHA"
+  [ -n "$MIGS" ] || echo "migraciones de la receta (>= 0076): ninguna en $SHA"
   VIEJO=$(interruptores_de "$previo") || exit 1
   CAMBIADAS=$(claves_a_converger "$previo" "$VIEJO" "$NUEVO")
   for k in $CAMBIADAS; do
@@ -56,9 +56,6 @@ ensayo() {
     echo "clave que cambiaria: $k: vigente '$vig' -> '$(valor "$k" "$NUEVO")'"
   done
   [ -n "$CAMBIADAS" ] || echo "claves: ninguna cambia"
-  if git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
-    cron_vigia revisa 2>&1 || echo "desplegar instalaria (o moveria al bloque) la linea jev-vigia"
-  fi
   if git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null; then
     cron_orbit revisa 2>&1 || echo "desplegar instalaria el bloque Orbit del crontab"
   fi
@@ -230,27 +227,7 @@ srv "printf '%s\n' $SHA > $DESP/sha"
 echo "recreado; /health 200; $DESP/sha = $SHA"
 corte 5
 
-echo "== (5b) linea de cron del vigia de Jev"
-if ! git cat-file -e "$SHA:$CRON_VIGIA" 2>/dev/null; then
-  echo "$SHA no trae $CRON_VIGIA"
-elif cron_vigia revisa; then
-  echo "la linea ya estaba"
-else
-  # CRON= solo con la ausencia comprobada (presente sale 10): la reversa quita lo que agrego esta
-  # corrida, no una linea previa que el instalador del bloque de docs/DEPLOY.md dejo fuera y aqui
-  # se mueve. Si no se pudo leer el crontab, no se anota ni se instala.
-  sigue_candado
-  rc=0
-  cron_vigia presente || rc=$?
-  case "$rc" in
-    0) ;;
-    10) printf '%s\n' "$(lee_ultimo)" | grep -qx 'CRON=jev-vigia' || anota CRON=jev-vigia ;;
-    *) echo "ABORTA: no pude leer si el crontab de gon ya trae la linea jev-vigia (salida $rc)" >&2; exit 1 ;;
-  esac
-  cron_vigia instala
-fi
-
-echo "== (5c) bloque de cron de Orbit"
+echo "== (5b) bloque de cron de Orbit"
 if ! git cat-file -e "$SHA:$CRON_ORBIT" 2>/dev/null; then
   echo "$SHA no trae $CRON_ORBIT"
 elif cron_orbit revisa; then

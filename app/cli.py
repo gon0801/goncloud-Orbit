@@ -425,7 +425,12 @@ def _precio(args: argparse.Namespace) -> int:
     """Comando `precio` (vive en `app/cli_precio.py` desde REPRICING 02 0.b)."""
     from app import cli_precio
 
-    return cli_precio.main_precio(args)
+    return cli_precio.main_precio(
+        args,
+        conexion_decide=_conexion_decide,
+        clientes_precio=_clientes_precio,
+        falta_dsn_cls=_FaltaDsn,
+    )
 
 
 def _construye_parser() -> argparse.ArgumentParser:
@@ -630,16 +635,6 @@ def _construye_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _despacha_bids(comando: str, rest: list[str], forzar: bool) -> int:
-    """avisos-campana e impulso-vigia: parse_known_args consumio --forzar
-    del subparser en args.forzar; se reenvia como token para que cli_bids
-    mantenga su contrato despacha(comando, rest) (iglesia de
-    jev-senales.main(rest))."""
-    if forzar:
-        rest = [*rest, "--forzar"]
-    return cli_bids.despacha(comando, rest)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = _construye_parser()
     args, rest = parser.parse_known_args(argv)
@@ -695,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return _precio(args) if args.comando == "precio" else cli_productos.corre(args)
     if args.comando in cli_bids.COMANDOS:
-        return _despacha_bids(args.comando, rest, getattr(args, "forzar", False))
+        return cli_bids.despacha(args.comando, rest)
     return _ingest(args, rest)
 
 

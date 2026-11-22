@@ -529,3 +529,23 @@ def test_cli_sin_dsn_falla_cerrado(monkeypatch):
 
     monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
     assert cli.main(["ingest", "spapi_inventario", "--platform", "amazon_mx"]) == 2
+
+
+def test_pagina_con_elemento_no_dict_no_se_marca_como_pagina_vacia():
+    """Paridad con orders.py: una pagina con inventorySummaries no vacio en crudo
+    sigue paginando aunque un elemento corrupto se descarte al extraer dicts."""
+    paginas = [
+        _pagina(["basura"], token="P2"),
+        {"token_entrada": "P2", "cuerpo": _pagina([_summary(sku="SKU-OK")])},
+    ]
+    resenas, info = inventario.recorrer_summaries(
+        _cliente(paginas),
+        {
+            "granularityType": "Marketplace",
+            "granularityId": MID_MX,
+            "marketplaceIds": MID_MX,
+        },
+    )
+    assert [r["sellerSku"] for r in resenas] == ["SKU-OK"]
+    assert info["aviso_paginacion"] is None
+    assert info["paginas"] == 2

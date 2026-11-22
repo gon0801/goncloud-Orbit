@@ -79,7 +79,7 @@ class _FilaProducto:
     ad_ids: list[str]
 
 
-def _decimal_reporte(valor: object, campo: str) -> Decimal | None:
+def decimal_reporte(valor: object, campo: str) -> Decimal | None:
     """Convierte una metrica de dinero a Decimal (via str, sin float a NUMERIC).
 
     None (ausente) -> None (regla 3). Un valor presente pero no numerico o no
@@ -98,15 +98,19 @@ def _decimal_reporte(valor: object, campo: str) -> Decimal | None:
     return numero
 
 
-def _entero_reporte(valor: object, campo: str) -> int | None:
+def entero_reporte(valor: object, campo: str) -> int | None:
     """Convierte un contador a int. None -> None; fraccion o no numerico -> ValueError."""
     if valor is None:
         return None
-    numero = _decimal_reporte(valor, campo)
+    numero = decimal_reporte(valor, campo)
     assert numero is not None
     if numero != numero.to_integral_value():
         raise ValueError(f"{campo} fraccionario")
     return int(numero)
+
+
+_decimal_reporte = decimal_reporte
+_entero_reporte = entero_reporte
 
 
 def _valida_fecha_fila(
