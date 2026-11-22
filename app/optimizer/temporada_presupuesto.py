@@ -9,6 +9,7 @@ el unico camino de escritura sigue siendo el de ajustes de campana con
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Literal
@@ -22,6 +23,44 @@ from app.optimizer.temporada_config import (
 
 CENTAVO = Decimal("0.01")
 MotivoPropuesta = Literal["baja", "fin_de_baja", "alta_sin_presupuesto"]
+
+
+def presupuesto_en_dia(
+    historial: Sequence[tuple[dt.date, Decimal | None]],
+    dia: dt.date,
+) -> Decimal | None:
+    """Ultimo presupuesto observado en o antes de `dia` (UTC); None si no hay."""
+    vigente = None
+    for vigente_desde, presupuesto in historial:
+        if vigente_desde <= dia:
+            vigente = presupuesto
+        else:
+            break
+    return vigente
+
+
+def cuenta_dias_topados(
+    ultimos_7: Sequence[dt.date],
+    gasto_por_dia: Mapping[dt.date, Decimal | None],
+    historial: Sequence[tuple[dt.date, Decimal | None]],
+    topada: CampanaTopada,
+) -> int | None:
+    """Unica definicion de «dias al tope» en los ultimos 7 dias con ingesta
+    (compartida por el motor, «Donde poner el dinero» y los avisos de Telegram).
+
+    Compara el gasto de cada dia de `ultimos_7` contra el presupuesto vigente
+    ese mismo dia (`presupuesto_en_dia`). Un gasto NULL en algun dia de la
+    ventana (dato venenoso) devuelve None (regla 3: nunca inventar 0)."""
+    if any(dia in gasto_por_dia and gasto_por_dia[dia] is None for dia in ultimos_7):
+        return None
+    topados = 0
+    for dia in ultimos_7:
+        gasto_dia = gasto_por_dia.get(dia, Decimal(0))
+        assert gasto_dia is not None
+        presup_dia = presupuesto_en_dia(historial, dia)
+        if presup_dia is not None and gasto_dia >= topada.pct * presup_dia:
+            topados += 1
+    return topados
 
 
 def _dinero(valor: Decimal) -> str:
@@ -153,9 +192,25 @@ def propuesta_presupuesto(
         and config.aumento_presupuesto_alta > 0
     ):
         base_alto, cambios_alto = _base_y_cambios(transiciones, inicio_bloque_alto)
-        piso = antes if antes is not None else (base_alto if base_alto is not None else Decimal(0))
-        subidas = tuple((d, m) for d, m in cambios_alto if m is not None and m > piso)
-        if not subidas:
+        if antes is not None:
+            # Con una baja previa, restaurar al presupuesto `antes` no cuenta
+            # como aumento de temporada alta; solo un monto > `antes`.
+            ya_subio = any(m is not None and m > antes for _d, m in cambios_alto)
+        else:
+            # Sin baja previa, cualquier subida real entre observaciones
+            # consecutivas desde `inicio_bloque_alto` cuenta como aumento ya
+            # aplicado (aunque haya bajado manualmente antes y no supere
+            # `base_alto`).
+            previo = base_alto
+            ya_subio = False
+            for _d, m in cambios_alto:
+                if m is None:
+                    continue
+                if previo is not None and m > previo:
+                    ya_subio = True
+                    break
+                previo = m
+        if not ya_subio:
             objetivo = _q(hoy_vigente * (Decimal(1) + config.aumento_presupuesto_alta))
             propuesto = min(objetivo, techo_humano)
             if propuesto > hoy_vigente:

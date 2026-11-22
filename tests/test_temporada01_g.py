@@ -597,3 +597,22 @@ def test_temporada01_ola3_aplica_y_confirma_libera_lock_al_fallar():
         finally:
             conn_tx.close()
             conn_otra.close()
+
+
+def test_temporada01_propuesta_alta_no_repite_aumento_tras_bajada_manual():
+    """Sin baja previa, bajar de 300 a 200 y aprobar +25 % (250) ya cuenta como
+    aumento del bloque alto: no propone un segundo aumento (312.50)."""
+    assert (
+        _propuesta(
+            hoy=dt.date(2027, 3, 15),
+            episodio=None,
+            historial=(
+                (dt.date(2027, 2, 1), Decimal("300")),
+                (dt.date(2027, 3, 5), Decimal("200")),
+                (dt.date(2027, 3, 10), Decimal("250")),
+            ),
+            inicio_bloque_alto=dt.date(2027, 3, 1),
+            dias_topados_7d=5,
+        )
+        is None
+    )

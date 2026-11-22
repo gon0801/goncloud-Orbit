@@ -427,10 +427,16 @@ def lee_campanas(
     campanas = conn.execute(_SQL_CAMPANAS, (plataforma,)).fetchall()
     crudo = _settings_de(conn, settings)
     topada = temporada.campana_topada_desde_settings(crudo)
-    gasto = {
-        (fila[0], fila[1]): fila[2]
-        for fila in conn.execute(_SQL_GASTO_DIARIO, (plataforma, desde, hasta)).fetchall()
-    }
+    gasto: dict[tuple[int, dt.date], Decimal | None] = {}
+    gasto_por_campana: dict[int, dict[dt.date, Decimal | None]] = {}
+    dias_ingesta: set[dt.date] = set()
+    for cid_g, dia_g, costo_g in conn.execute(
+        _SQL_GASTO_DIARIO, (plataforma, desde, hasta)
+    ).fetchall():
+        gasto[(cid_g, dia_g)] = costo_g
+        gasto_por_campana.setdefault(cid_g, {})[dia_g] = costo_g
+        dias_ingesta.add(dia_g)
+    ultimos_7 = sorted(dias_ingesta)[-DIAS_TOPE:]
     fuera = {
         fila[0]: fila[1]
         for fila in conn.execute(_SQL_FUERA_CAMPANA, (plataforma, desde, hasta)).fetchall()
@@ -489,34 +495,18 @@ def lee_campanas(
     techo = TECHOS_HUMANOS_POR_MONEDA[PLATAFORMAS_MONEDA[plataforma]].presupuesto_diario
     dias = (hasta - desde).days + 1
 
-    def _presupuesto_dia(cid: int, dia: dt.date) -> Decimal | None:
-        vigente = None
-        for vigente_desde, presupuesto in configs.get(cid, []):
-            if vigente_desde <= dia:
-                vigente = presupuesto
-            else:
-                break
-        return vigente
-
     filas = []
     for cid, nombre, cfg_id, presupuesto, estrategia_txt, top, resto, prod in campanas:
         gastos = [gasto.get((cid, desde + dt.timedelta(days=i))) for i in range(dias)]
         conocidos = [g for g in gastos if g is not None]
         medio = _dinero2(sum(conocidos) / len(conocidos)) if conocidos else None
-        if cfg_id is None:
-            al_tope = None
-        else:
-            al_tope = 0
-            for i in range(DIAS_TOPE):
-                dia = hasta - dt.timedelta(days=DIAS_TOPE - 1 - i)
-                gasto_dia = gasto.get((cid, dia))
-                presup_dia = _presupuesto_dia(cid, dia)
-                if (
-                    gasto_dia is not None
-                    and presup_dia is not None
-                    and gasto_dia >= presup_dia * topada.pct
-                ):
-                    al_tope += 1
+        al_tope = (
+            None
+            if cfg_id is None
+            else temporada.cuenta_dias_topados(
+                ultimos_7, gasto_por_campana.get(cid, {}), configs.get(cid, ()), topada
+            )
+        )
         ajustes = tuple(
             (ubicacion, (top, resto, prod)[indice])
             for ubicacion, indice in _AJUSTE_A_UBICACION

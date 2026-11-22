@@ -102,6 +102,15 @@ SELECT c.id, {presupuesto}
  WHERE c.platform = %s AND c.kind = 'campaign'
 """
 
+_SQL_HISTORIAL_PRESUPUESTO = """
+SELECT c.id, (o.observed_at AT TIME ZONE 'UTC')::date, o.presupuesto_diario
+  FROM ad_entity c
+  LEFT JOIN ads_campana_config_observation o
+    ON o.ad_entity_id = c.id{tope}
+ WHERE c.platform = %s AND c.kind = 'campaign'
+ ORDER BY c.id, o.observed_at NULLS FIRST
+"""
+
 _SQL_GASTO_CAMPANA = """
 SELECT v.ad_entity_id, v.metric_date, v.cost
   FROM {fuente}
@@ -303,11 +312,13 @@ def presupuestos_campanas_hoy(
     hoy: dt.date,
     topada: temporada.CampanaTopada,
 ) -> dict[int, PresupuestoCampana]:
-    """PresupuestoCampana por campana con los ultimos 7 dias con ingesta (el
-    mismo criterio que `_presupuesto_campanas` usa en el ciclo). Solo lectura."""
-    desde = hoy - dt.timedelta(days=13)
+    """PresupuestoCampana por campana con los ultimos 7 dias con ingesta hasta
+    ayer UTC (regla 6: el dia en curso se descarta; mismo criterio que
+    `_presupuesto_campanas` y `pantalla_dinero`). Solo lectura."""
+    ayer = hoy - dt.timedelta(days=1)
+    desde = ayer - dt.timedelta(days=13)
     dias = frozenset(
-        f[0] for f in conn.execute(_SQL_DIAS_INGESTA, (plataforma, desde, hoy)).fetchall()
+        f[0] for f in conn.execute(_SQL_DIAS_INGESTA, (plataforma, desde, ayer)).fetchall()
     )
     return _presupuesto_campanas(conn, plataforma, dias, topada)
 
@@ -332,20 +343,25 @@ def _presupuesto_campanas(
     topada: temporada.CampanaTopada,
     visto_el: dt.datetime | None = None,
 ) -> dict[int, PresupuestoCampana]:
-    """PresupuestoCampana por campana (TEMPORADA 01 C): el presupuesto vigente
-    (o el conocido a `visto_el`, para el rejuego bitemporal) y cuantos de los
-    ULTIMOS 7 dias con ingesta de la plataforma el gasto de la campana alcanzo
-    `topada.pct` de el (del mismo corte temporal: metrics_as_of)."""
+    """PresupuestoCampana por campana (TEMPORADA 01 C + criterio unificado):
+    el presupuesto vigente (o conocido a `visto_el` para el rejuego bitemporal)
+    y cuantos de los ULTIMOS 7 dias con ingesta de la plataforma el gasto de la
+    campana alcanzo `topada.pct` del presupuesto vigente ESE dia (misma funcion
+    `temporada.cuenta_dias_topados` que «Donde poner el dinero» y avisos)."""
     fuente, pv = _fuente(visto_el)
     if visto_el is None:
-        sql = _SQL_PRESUPUESTO_CAMPANA.format(presupuesto=_PRESUPUESTO_VIGENTE)
+        sql = _SQL_HISTORIAL_PRESUPUESTO.format(tope="")
         params: tuple = (plataforma,)
     else:
-        sql = _SQL_PRESUPUESTO_CAMPANA.format(presupuesto=_PRESUPUESTO_AS_OF)
+        sql = _SQL_HISTORIAL_PRESUPUESTO.format(tope=" AND o.observed_at <= %s")
         params = (visto_el, plataforma)
-    presupuestos = {campana: monto for campana, monto in conn.execute(sql, params).fetchall()}
+    historiales: dict[int, list[tuple[dt.date, Decimal | None]]] = {}
+    for campana, dia_obs, monto in conn.execute(sql, params).fetchall():
+        lista = historiales.setdefault(campana, [])
+        if dia_obs is not None:
+            lista.append((dia_obs, monto))
     ultimos_7 = sorted(dias)[-7:]
-    gasto: dict[int, dict[dt.date, Decimal]] = {}
+    gasto: dict[int, dict[dt.date, Decimal | None]] = {}
     if ultimos_7:
         for campana, metric_date, cost in conn.execute(
             _SQL_GASTO_CAMPANA.format(fuente=fuente),
@@ -353,16 +369,13 @@ def _presupuesto_campanas(
         ).fetchall():
             gasto.setdefault(campana, {})[metric_date] = cost
     resultado: dict[int, PresupuestoCampana] = {}
-    for campana, monto in presupuestos.items():
-        dias_topados = None
-        if monto is not None:
-            filas_gasto = gasto.get(campana, {})
-            if any(dia in filas_gasto and filas_gasto[dia] is None for dia in ultimos_7):
-                dias_topados = None
-            else:
-                dias_topados = sum(
-                    1 for dia in ultimos_7 if filas_gasto.get(dia, Decimal(0)) >= topada.pct * monto
-                )
+    for campana, hist in historiales.items():
+        monto = hist[-1][1] if hist else None
+        dias_topados = (
+            temporada.cuenta_dias_topados(ultimos_7, gasto.get(campana, {}), hist, topada)
+            if monto is not None
+            else None
+        )
         resultado[campana] = PresupuestoCampana(
             presupuesto_diario=monto,
             dias_medidos=len(ultimos_7),

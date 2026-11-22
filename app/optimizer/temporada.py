@@ -116,5 +116,7 @@ from app.optimizer.temporada_hoja import (  # noqa: F401
 )
 from app.optimizer.temporada_presupuesto import (  # noqa: F401
     PropuestaPresupuesto,
+    cuenta_dias_topados,
+    presupuesto_en_dia,
     propuesta_presupuesto,
 )
