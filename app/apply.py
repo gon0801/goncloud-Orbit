@@ -1081,7 +1081,7 @@ class Aplicador:
         aplicadas = 0
         divergencias = 0
         caps_saturados: list[CapSaturado] = []
-        for decision in ordenadas:
+        for indice, decision in enumerate(ordenadas):
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
                 skips.append(MOTIVO_MODO_NO_LIVE)
@@ -1133,13 +1133,33 @@ class Aplicador:
                     # agoto sus reintentos para ESTA puja. Repetir el LIST por
                     # cada puja multiplica la espera del ciclo y retrasa la
                     # liberacion de cortes (otra ruta). Esta puja queda sin
-                    # respuesta y el lote de bids se corta aqui; las que faltan
-                    # no se tocan y se derivan otra vez manana. Cero cuota,
-                    # cero PUT, cero desenlace inventado.
+                    # respuesta y el lote de bids se corta aqui. Cero cuota,
+                    # cero PUT.
                     skips.append(MOTIVO_SIN_RESPUESTA)
                     registra_sin_aplicar(
-                        self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_SIN_RESPUESTA
+                        self._conn,
+                        decision.id,
+                        self.cycle_id_ejecutor,
+                        MOTIVO_SIN_RESPUESTA,
+                        detalle={"http": "429"},
                     )
+                    # Las que faltan tampoco se consultan, pero SI dejan su
+                    # desenlace: sin fila, la vista de auditoria las leeria
+                    # como huerfanas de un ciclo live cerrado. Mismo motivo
+                    # (vocabulario cerrado, sin migracion en este bloque) y
+                    # `detalle` que dice que las corto el 429 del lote.
+                    for restante in ordenadas[indice + 1 :]:
+                        if _ya_aplicada(self._conn, restante.id):
+                            skips.append(MOTIVO_YA_APLICADA)
+                            continue
+                        skips.append(MOTIVO_SIN_RESPUESTA)
+                        registra_sin_aplicar(
+                            self._conn,
+                            restante.id,
+                            self.cycle_id_ejecutor,
+                            MOTIVO_SIN_RESPUESTA,
+                            detalle={"lote_cortado": "429"},
+                        )
                     break
                 # Una lectura fallida NO cancela el lote: antes del PUT no hay
                 # escritura ambigua que reconciliar, asi que esta puja queda
