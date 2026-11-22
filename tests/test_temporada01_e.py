@@ -501,19 +501,45 @@ def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
     gasto sus MAX_RETRIES en ESA puja y repetir el LIST por cada puja
     multiplicaria la espera del ciclo y retrasaria la liberacion de cortes
     (otra ruta de Amazon). La puja intentada queda sin_respuesta con
-    detalle http=429; las que faltan no se consultan pero SI dejan su
-    desenlace visible (detalle lote_cortado=429), para que la vista de
-    auditoria no las lea como huerfanas. El ciclo sigue con la cola."""
+    detalle http=429; las elegibles que faltan no se consultan pero SI dejan
+    su desenlace (detalle lote_cortado=429) y una puja de campana en practica
+    conserva su modo_no_live (la comprobacion local de modo no hace HTTP),
+    para que la vista de auditoria no las lea como huerfanas."""
     import httpx as _httpx
     from test_apply import _aplicador, _db_temporal, _decision_bid, _semilla
 
     from app.ads.client import MAX_RETRIES
-    from app.apply import MOTIVO_SIN_RESPUESTA, bids_del_ciclo
+    from app.apply import MOTIVO_MODO_NO_LIVE, MOTIVO_SIN_RESPUESTA, bids_del_ciclo
 
     with _db_temporal("orbit_t01_e_429") as conn:
         ids = _semilla(conn)
         dec_uno = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], cost="200.00")
         dec_dos = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw2"], cost="80.00")
+        # Tercera puja en OTRA campana, con goal de campana en practica.
+        camp2 = _entidad(conn, "amazon_us", "campaign", "e-camp-shadow")
+        ag2 = _entidad(conn, "amazon_us", "ad_group", "e-ag-shadow", parent=camp2)
+        kw3 = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "e-kw-shadow",
+            parent=ag2,
+            match_type="EXACT",
+            keyword_text="kw shadow",
+        )
+        for entidad in (camp2, ag2, kw3):
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+                " status, synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+                (entidad,),
+            )
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
+            " bid_floor, bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('campaign', %s, 55, 0.10, 2.50, 'USD', true, 'shadow')",
+            (camp2,),
+        )
+        dec_shadow = _decision_bid(conn, ids["ciclo_dec"], ids["config"], kw3, cost="10.00")
         listas = {"n": 0}
 
         def handler(request: _httpx.Request) -> _httpx.Response:
@@ -531,9 +557,13 @@ def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
         )
 
         assert res.aplicadas == 0
-        assert res.skips == [MOTIVO_SIN_RESPUESTA, MOTIVO_SIN_RESPUESTA], res.skips
+        assert res.skips == [
+            MOTIVO_SIN_RESPUESTA,
+            MOTIVO_SIN_RESPUESTA,
+            MOTIVO_MODO_NO_LIVE,
+        ], res.skips
         assert listas["n"] == MAX_RETRIES, (
-            "UN presupuesto de reintentos para el lote: la segunda puja no se consulta"
+            "UN presupuesto de reintentos para el lote: las demas pujas no se consultan"
         )
         assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 0
         desenlaces = conn.execute(
@@ -543,4 +573,5 @@ def test_temporada01_e_429_corta_el_lote_sin_reiniciar_la_espera():
         assert desenlaces == [
             (dec_uno, ids["ciclo_ejec"], "sin_respuesta", {"http": "429"}),
             (dec_dos, ids["ciclo_ejec"], "sin_respuesta", {"lote_cortado": "429"}),
-        ], "la puja leida y la cortada dejan desenlaces distintos"
+            (dec_shadow, ids["ciclo_ejec"], "modo_no_live", None),
+        ], "cada puja cortada conserva su motivo real"

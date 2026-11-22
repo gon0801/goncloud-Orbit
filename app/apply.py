@@ -1145,21 +1145,12 @@ class Aplicador:
                     )
                     # Las que faltan tampoco se consultan, pero SI dejan su
                     # desenlace: sin fila, la vista de auditoria las leeria
-                    # como huerfanas de un ciclo live cerrado. Mismo motivo
-                    # (vocabulario cerrado, sin migracion en este bloque) y
-                    # `detalle` que dice que las corto el 429 del lote.
-                    for restante in ordenadas[indice + 1 :]:
-                        if _ya_aplicada(self._conn, restante.id):
-                            skips.append(MOTIVO_YA_APLICADA)
-                            continue
-                        skips.append(MOTIVO_SIN_RESPUESTA)
-                        registra_sin_aplicar(
-                            self._conn,
-                            restante.id,
-                            self.cycle_id_ejecutor,
-                            MOTIVO_SIN_RESPUESTA,
-                            detalle={"lote_cortado": "429"},
+                    # como huerfanas de un ciclo live cerrado.
+                    skips.extend(
+                        self._registra_lote_cortado(
+                            ordenadas[indice + 1 :], escalera_global=escalera_global
                         )
+                    )
                     break
                 # Una lectura fallida NO cancela el lote: antes del PUT no hay
                 # escritura ambigua que reconciliar, asi que esta puja queda
@@ -1241,6 +1232,35 @@ class Aplicador:
             divergencias=divergencias,
             caps_saturados=tuple(caps_saturados),
         )
+
+    def _registra_lote_cortado(
+        self, restantes: list[DecisionBid], *, escalera_global: str
+    ) -> list[str]:
+        """El 429 agoto la lectura fresca y corta el lote: cada puja restante
+        deja su desenlace SIN HTTP (modo y aplicacion previa son lecturas
+        locales). Una puja de campana en practica conserva `modo_no_live`, como
+        en el camino normal; las elegibles quedan `sin_respuesta` con
+        `detalle.lote_cortado` porque no llegaron a consultarse."""
+        motivos: list[str] = []
+        for restante in restantes:
+            if _ya_aplicada(self._conn, restante.id):
+                motivos.append(MOTIVO_YA_APLICADA)
+                continue
+            if self.modo_efectivo(self._conn, restante, escalera_global=escalera_global) != "live":
+                motivos.append(MOTIVO_MODO_NO_LIVE)
+                registra_sin_aplicar(
+                    self._conn, restante.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
+                )
+                continue
+            motivos.append(MOTIVO_SIN_RESPUESTA)
+            registra_sin_aplicar(
+                self._conn,
+                restante.id,
+                self.cycle_id_ejecutor,
+                MOTIVO_SIN_RESPUESTA,
+                detalle={"lote_cortado": "429"},
+            )
+        return motivos
 
     def _ejecuta_mutacion(
         self, decision: DecisionBid, identidad: tuple[str, str], id_attempt: int
