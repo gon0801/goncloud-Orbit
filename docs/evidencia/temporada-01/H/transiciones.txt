@@ -60,9 +60,11 @@ hora con ARREGLOS 03 D-E), todos con el mismo `primer-ciclo.sql` y `primer-ciclo
 | 2027-10-01 10:05 | `entra_alta` | 50 |
 | 2027-10-02 10:05 | día siguiente al inicio de la alta | 51 |
 
-El chequeo del **primer ciclo en vivo** va a las 10:05 UTC del día siguiente al encendido definitivo; su
-fecha depende de cuándo se cumpla la puerta de H.1, así que se programa en ese momento con el mismo
-`.sql` y `.sh`, y su número de trabajo se agregará a esta tabla.
+El chequeo del **primer ciclo en vivo** va a las 10:05 UTC del día siguiente al encendido definitivo. Su
+fecha no existe hasta que se cumpla la puerta de H.1 (el ciclo de práctica del 2026-11-23), así que se
+programa en el mismo acto del encendido, con el mismo `.sql` y `.sh`, y su número de trabajo se agrega a
+esta tabla. Programarlo antes sería programar una fecha inventada: mientras las claves sigan en `shadow`
+el chequeo responde `NO EVALUADO`.
 
 El comando, repetido una vez por fecha:
 

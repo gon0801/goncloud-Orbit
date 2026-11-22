@@ -58,3 +58,24 @@ ads_temporada_amazon_us|shadow|live
 
 Cuatro claves, las cuatro del bloque, y nada más. La fila es nueva (config 59), append-only, como
 manda el diseño: la 57 sigue intacta para el replay.
+
+## La vuelta a `shadow` (configs 60 y 61) antes de la práctica
+
+El encendido de arriba se revirtió el mismo día, a propósito y desde esta sesión (no desde la pantalla
+del dueño): el dueño señaló en la revisión que la práctica nunca había comparado R6r, así que hacía
+falta un ciclo en `shadow` con la ruta corregida antes de encender. La lectura de esos dos configs:
+
+```
+$ echo "select id, created_at, settings->>'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_us', settings->>'ads_bid_recuperacion_amazon_mx', settings->>'ads_bid_recuperacion_amazon_us' from config_version where id in (58,59,60,61) order by id" | bash docs/evidencia/arreglos-01/lee_prod.sh
+```
+
+```
+58|2026-11-22 16:59:36.456965+00:00|live|live|live|shadow
+59|2026-11-22 16:59:41.675408+00:00|live|live|live|live
+60|2026-11-22 17:17:12.372509+00:00|shadow|shadow|shadow|live
+61|2026-11-22 17:17:15.433156+00:00|shadow|shadow|shadow|shadow
+```
+
+La **61** es la config vigente mientras corre la práctica: las cuatro claves en `shadow`, con el mismo
+calendario y los mismos parámetros de la 59. El encendido definitivo se hace después de leer ese ciclo y
+su lectura se agrega aquí abajo con el id que le toque.

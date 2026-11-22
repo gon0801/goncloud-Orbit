@@ -67,7 +67,7 @@ calculaba ningún candidato. Los dos casos congelados del ciclo 205 no traen `re
 Consecuencia: **m\* máximo y gasto extra de R6r no eran medibles** con esa práctica.
 
 Era una desviación de la decisión 12 del diseño («el caso que decide va sin marcadores y se decide un
-segundo caso con marcadores»), y el dueño la señaló en la revisión del PR 730. Se corrigió en dos pasos:
+segundo caso con marcadores»), y el dueño la señaló en la revisión del PR 730. Se corrigió en tres pasos:
 
 1. **`49f8734`** — en práctica el caso que decide sigue sin marcadores y el caso de sombra lleva
    `recuperacion` y `presupuesto`; la diferencia guarda `destino_sombra`. Prueba:

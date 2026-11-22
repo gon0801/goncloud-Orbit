@@ -3,9 +3,12 @@
 -- Lo corre primer-ciclo.sh desde /mnt/data/appdata/orbit/recordatorios/ con el rol orbit_read
 -- y manda el resultado por Telegram.
 --
--- Referencia: la PRIMERA config que dejo las cuatro claves en live (la de H.2).
--- Solo mira ciclos TERMINADOS que EMPEZARON despues de esa config; si no hay
--- ninguno, la seccion (2) lo dice con esas palabras.
+-- Referencia: la PRIMERA config de la racha vigente de cada plataforma, es decir,
+-- la primera en la que esa plataforma tenia temporada o subida rapida en live y a
+-- la que ninguna config posterior le apago las dos. Solo mira ciclos TERMINADOS
+-- que EMPEZARON despues de esa config; si no hay ninguno, la seccion (2) lo dice
+-- con esas palabras, y si una plataforma no tiene ambito activo el veredicto es
+-- NO EVALUADO.
 --
 -- Casos de paro (todos deben dar 0):
 --   1) un bid enviado que baja mas que la reduccion de la entrada
@@ -54,11 +57,11 @@ SELECT coalesce(
 \gset
 
 \echo '(0) referencia por plataforma: la PRIMERA de su racha viva (temporada o subida rapida en live)'
-SELECT CASE WHEN :'ref_mx' = '2099-01-01 00:00:00+00'
+SELECT CASE WHEN :'ref_mx'::timestamptz = '2099-01-01T00:00:00Z'::timestamptz
             THEN 'amazon_mx: sin ambito activo (temporada y subida rapida apagadas o en practica)'
             ELSE 'amazon_mx: racha viva desde ' || :'ref_mx'
        END AS mx,
-       CASE WHEN :'ref_us' = '2099-01-01 00:00:00+00'
+       CASE WHEN :'ref_us'::timestamptz = '2099-01-01T00:00:00Z'::timestamptz
             THEN 'amazon_us: sin ambito activo (temporada y subida rapida apagadas o en practica)'
             ELSE 'amazon_us: racha viva desde ' || :'ref_us'
        END AS us;
@@ -275,8 +278,8 @@ SELECT (SELECT count(DISTINCT d.id)
            AND a.confirmado_el IS NOT NULL
            AND a.go_literal NOT IN ('APLICAR AJUSTE', 'REGRESAR AJUSTE')
            AND ((a.platform = 'amazon_mx' AND a.creado_el > :'ref_mx') OR (a.platform = 'amazon_us' AND a.creado_el > :'ref_us'))) AS casos_de_paro,
-       CASE WHEN :'ref_mx' = '2099-01-01 00:00:00+00'
-                  AND :'ref_us' = '2099-01-01 00:00:00+00'
+       CASE WHEN :'ref_mx'::timestamptz = '2099-01-01T00:00:00Z'::timestamptz
+                  AND :'ref_us'::timestamptz = '2099-01-01T00:00:00Z'::timestamptz
             THEN 'NO EVALUADO: temporada y subida rapida sin ambito activo en las dos plataformas'
             WHEN (
            (SELECT count(DISTINCT d.id)
