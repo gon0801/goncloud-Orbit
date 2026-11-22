@@ -1,0 +1,130 @@
+== (0) candado y diario
+MOTOR_SHA=ac67c17c425ed4650f655723538a961e974328ce SHA_PREVIO=9c99f0df56ff846efbd4d8bfa7d8b227db4d5f5d
+== (1) guardas (plazo comun 600s)
+guardas libres
+== (2) monotonia
+== (3) respaldo
+respaldo /mnt/data/appdata/orbit/despliegue/predeploy-20261122-092902 completo
+== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_*, *_temporada01_* y *_estimacion_s4_*)
+ya aplicada: 0076_auto03_peldano_producto.sql
+ya aplicada: 0077_auto03_evaluacion_producto.sql
+ya aplicada: 0078_auto03_retiro_decision.sql
+ya aplicada: 0079_auto03_vista_impulso.sql
+ya aplicada: 0080_auto03_retiro_desde_ciclo.sql
+ya aplicada: 0081_orbit07_proteccion_venta.sql
+ya aplicada: 0082_claridad01_entidad_inerte.sql
+ya aplicada: 0083_arreglos01_costos_sin_compuerta.sql
+ya aplicada: 0084_arreglos01_impulso_desarmado.sql
+ya aplicada: 0085_arreglos01_ledger_reatribucion.sql
+ya aplicada: 0086_arreglos02_cargos.sql
+ya aplicada: 0087_arreglos03_devoluciones_meli.sql
+ya aplicada: 0088_arreglos03_ledger_original.sql
+ya aplicada: 0089_arreglos03_reputacion_avisada.sql
+ya aplicada: 0090_arreglos03_error_cierra_por_observacion.sql
+ya aplicada: 0091_arreglos03_sin_precio_cap.sql
+ya aplicada: 0092_temporada01_margen_vigente.sql
+ya aplicada: 0093_estimacion_s4_caja_real_mx.sql
+ya aplicada: 0093_temporada01_episodio.sql
+== (5) codigo de ac67c17c425ed4650f655723538a961e974328ce
+md5 OK: 282 archivos
+/mnt/data/appdata/orbit/refresh_estimacion.sh = tools/refresh_estimacion.sh de ac67c17c425ed4650f655723538a961e974328ce
+ Image orbit-app Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.33kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.4s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 1.1s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.1s
+
+#6 [stage-0  1/12] FROM docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+#6 resolve docker.io/library/python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df 0.0s done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 4.88MB 0.0s done
+#7 DONE 0.1s
+
+#8 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#8 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0  3/12] WORKDIR /app
+#9 CACHED
+
+#10 [stage-0  4/12] COPY pyproject.toml uv.lock ./
+#10 CACHED
+
+#11 [stage-0  2/12] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#11 CACHED
+
+#12 [stage-0  5/12] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0  6/12] COPY app ./app
+#13 DONE 0.1s
+
+#14 [stage-0  7/12] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0  8/12] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0  9/12] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 [stage-0 10/12] COPY tools/precio_sonda.py ./tools/precio_sonda.py
+#17 DONE 0.0s
+
+#18 [stage-0 11/12] COPY tools/precio_cobertura.py ./tools/precio_cobertura.py
+#18 DONE 0.0s
+
+#19 [stage-0 12/12] COPY tools/auto03_verifica.py ./tools/auto03_verifica.py
+#19 DONE 0.0s
+
+#20 exporting to image
+#20 exporting layers
+#20 exporting layers 0.4s done
+#20 exporting manifest sha256:b17161985022d748e99e424eb1ad75a1ad4819b139f1483e56e6cb1fd14114db done
+#20 exporting config sha256:304f6b519052382c5e6d00f4e35f022dd170ca209aeee15c5a90067e597ed326 0.0s done
+#20 exporting attestation manifest sha256:d4c4fd7b7664464afb0318f2821df4c314674e8e0fff50e511c4d75e69bb0ab8 0.0s done
+#20 exporting manifest list sha256:1590a060e418e66016d30ab90b1edab69db4fffc88fff48814ec1bdc40b83f38 done
+#20 naming to docker.io/library/orbit-app:latest done
+#20 unpacking to docker.io/library/orbit-app:latest
+#20 unpacking to docker.io/library/orbit-app:latest 0.2s done
+#20 DONE 0.6s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image orbit-app Built 
+imagen construida (el contenedor vivo no se toco)
+espero a que orbit-app-1 no tenga procesos app.cli (plazo 600s)
+procesos app.cli vivos (1); reviso en 5 s
+procesos app.cli vivos (1); reviso en 5 s
+ Container orbit-app-1 Recreate 
+ Container orbit-app-1 Recreated 
+ Container orbit-app-1 Starting 
+ Container orbit-app-1 Started 
+recreado; /health 200; /mnt/data/appdata/orbit/despliegue/sha = ac67c17c425ed4650f655723538a961e974328ce
+== (5b) linea de cron del vigia de Jev
+linea jev-vigia en el bloque Orbit
+la linea ya estaba
+== (5c) bloque de cron de Orbit
+bloque Orbit igual al canonico
+el bloque Orbit ya era el canonico
+== (6) interruptores frente a SHA_PREVIO
+ninguna clave cambia
+== DESPLEGADO ac67c17c425ed4650f655723538a961e974328ce (checklist.sh lo pasa a verificado)
