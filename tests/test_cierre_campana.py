@@ -449,14 +449,28 @@ def test_cero_ruta_sp_campaigns_en_camino_de_escritura():
     Dos excepciones selladas (BIDS 02 V.3, guia V.3 cambio 4 + plan V.3 DoD:
     PUT /sp/campaigns entra al allowlist con la evidencia de V.0): en
     write.py solo el allowlist y `ajustar_campana` nombran la ruta (nunca
-    `state`), y en apply.py solo el readback de lectura
-    POST /sp/campaigns/list."""
-    for rel in (
+    `state`), en apply_ajustes.py solo el readback de lectura
+    POST /sp/campaigns/list, y cero menciones en apply.py."""
+    modulos_apply = sorted(
+        {
+            *(f"app/{p.name}" for p in (RAIZ / "app").glob("apply_cola*.py")),
+            *(f"app/{p.name}" for p in (RAIZ / "app").glob("apply_harvest*.py")),
+            "app/apply_revalidacion.py",
+            "app/propuestas_campana.py",
+        }
+    )
+    assert {
         "app/apply_cola.py",
+        "app/apply_cola_ejecuta.py",
+        "app/apply_revalidacion.py",
         "app/apply_harvest.py",
+        "app/apply_harvest_list.py",
+        "app/apply_harvest_reversa.py",
+        "app/apply_harvest_hermanas.py",
         "app/apply_harvest_reconciliacion.py",
         "app/propuestas_campana.py",
-    ):
+    } <= set(modulos_apply)
+    for rel in modulos_apply:
         fuente = (RAIZ / rel).read_text(encoding="utf-8")
         assert "/sp/campaigns" not in fuente, f"{rel} toca el recurso campana"
     _solo_put_sellado_en_write()
@@ -556,11 +570,13 @@ def _solo_put_sellado_en_write():
 
 
 def _solo_readback_list_en_apply():
-    """apply.py nombra /sp/campaigns solo en el readback de lectura
-    POST /sp/campaigns/list (V.3, guia cambio 6)."""
-    rel = "app/apply.py"
+    """apply.py ya no nombra /sp/campaigns; el readback de lectura
+    POST /sp/campaigns/list vive en apply_ajustes.py (V.3, guia cambio 6)."""
+    fuente_apply = (RAIZ / "app/apply.py").read_text(encoding="utf-8")
+    assert "/sp/campaigns" not in fuente_apply, "app/apply.py toca el recurso campana"
+    rel = "app/apply_ajustes.py"
     fuente = (RAIZ / rel).read_text(encoding="utf-8")
-    assert "/sp/campaigns/list" in fuente, "el readback list desaparecio de apply.py"
+    assert "/sp/campaigns/list" in fuente, f"el readback list desaparecio de {rel}"
     sin_list = fuente.replace("/sp/campaigns/list", "")
     assert "/sp/campaigns" not in sin_list, f"{rel} toca el recurso campana fuera del readback"
 

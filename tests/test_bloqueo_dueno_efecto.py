@@ -526,7 +526,18 @@ def test_allowlist_y_el_motor_no_importa_el_efecto():
         "app/cycle_recorrido.py",
         "app/cycle_temporada.py",
     } <= set(modulos_ciclo)
-    for rel in (*modulos_ciclo, "app/apply_cola.py", "app/optimizer/__init__.py"):
+    modulos_cola = sorted(
+        {
+            *(p.relative_to(RAIZ).as_posix() for p in (RAIZ / "app").rglob("apply_cola*.py")),
+            "app/apply_revalidacion.py",
+        }
+    )
+    assert {
+        "app/apply_cola.py",
+        "app/apply_cola_ejecuta.py",
+        "app/apply_revalidacion.py",
+    } <= set(modulos_cola)
+    for rel in (*modulos_ciclo, *modulos_cola, "app/optimizer/__init__.py"):
         imports = _imports_runtime(RAIZ / rel)
         assert not any(nombre in imports for nombre in prohibidos), rel
     arbol = ast.parse((RAIZ / "app/cli.py").read_text(encoding="utf-8"))

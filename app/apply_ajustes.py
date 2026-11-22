@@ -11,7 +11,30 @@ import hashlib
 import json
 
 from app import apply
+from app.ads.campana_config import (
+    PLACEMENT_POR_CAMPO,
+    ConfigCampana,
+    config_de_payload,
+    config_por_id,
+    config_vigente,
+    config_vigente_con_id,
+    cuerpo_put_clase,
+    cuerpo_put_ubicacion,
+    guarda_config,
+    mezcla_observacion,
+)
 from app.apply import SinPerfilAjuste as SinPerfilAjuste
+from app.campana_ajustes import (
+    AjusteSinCambio,
+    CambiarAjusteUbicacion,
+    CambiarPresupuesto,
+    PlanAjuste,
+    campo_del_ajuste,
+    coincide_campo,
+    coincide_clase,
+    planea_ajuste,
+)
+from app.optimizer.bid import PLATAFORMAS_MONEDA
 
 GO_AJUSTE = "APLICAR AJUSTE"
 GO_REGRESO_AJUSTE = "REGRESAR AJUSTE"
@@ -128,9 +151,6 @@ def _config_leida(cliente, plataforma: str, externa: str):
     la config parseada, o None si Amazon no la trae, trae otra (cruce por
     id, nunca items[0]: la API ignora filtros en silencio) o la trae
     ilegible (fail-closed, reintentable)."""
-    from app.ads.campana_config import config_de_payload
-    from app.optimizer.bid import PLATAFORMAS_MONEDA
-
     respuesta = cliente.list_sellado(
         "/sp/campaigns/list", {"campaignIdFilter": {"include": [externa]}}
     )
@@ -164,15 +184,6 @@ def _aplica_y_confirma(
     la fila queda sin confirmar (reintentable: el reintento reusa la
     pendiente). Lo que se guarda es la leida mezclada sobre `previa`
     (B1: el PUT no mueve campos ajenos)."""
-    from app.ads.campana_config import (
-        PLACEMENT_POR_CAMPO,
-        cuerpo_put_clase,
-        cuerpo_put_ubicacion,
-        guarda_config,
-        mezcla_observacion,
-    )
-    from app.campana_ajustes import CambiarAjusteUbicacion, campo_del_ajuste, coincide_campo
-
     candado = conn.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s))", (llave,)).fetchone()[0]
     if not candado:
         # Otro intento trabaja este acto (try, no espera: un reintento
@@ -227,9 +238,6 @@ def _sella_pendientes_en_destino(conn, pendientes, ajuste, vigente) -> int | Non
     """Sella cada pendiente cuyo destino ya es el vigente y devuelve el
     id de la primera, o None si ninguna llego. Sellar solo la primera
     dejaria el resto huerfanas con el mismo efecto vivo."""
-    from app.ads.campana_config import ConfigCampana
-    from app.campana_ajustes import coincide_campo
-
     sellada = None
     for pid, _huella, despues in pendientes:
         destino = ConfigCampana.desde_json(despues)
@@ -267,9 +275,6 @@ def aplica_ajuste_campana(
     sigue en destino (tras un regreso, re-aplicar es un acto nuevo con
     huella H#N). Una pendiente con el vigente ya en destino se reconcilia
     sin PUT; una carrera perdida devuelve 409, nunca 500."""
-    from app.ads.campana_config import config_vigente_con_id
-    from app.campana_ajustes import planea_ajuste
-
     if confirmacion != GO_AJUSTE:
         raise ConfirmacionInvalida(f"confirmacion invalida: esperaba {GO_AJUSTE!r}")
     if not actor or not actor.strip():
@@ -363,9 +368,6 @@ def reconcilia_ajuste_campana(
     huella, ValueError (422, como antes). Si el completo difiere pero
     el campo del ajuste ya esta en el destino (otro campo cambio por
     fuera), tambien sella (B12)."""
-    from app.ads.campana_config import ConfigCampana, config_vigente
-    from app.campana_ajustes import AjusteSinCambio, coincide_campo, planea_ajuste
-
     if not actor or not actor.strip():
         raise ValueError("actor vacio")
     fila = conn.execute(_SQL_PLATAFORMA_CAMPANA, (campana_id,)).fetchone()
@@ -413,9 +415,6 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     posteriores de otra clase y podria SUBIR un presupuesto). Un solo
     regreso por ajuste; fuera_de_amazon no tiene regreso sellado (V.0)
     y no presenta boton."""
-    from app.ads.campana_config import ConfigCampana, config_por_id, config_vigente_con_id
-    from app.campana_ajustes import PlanAjuste, coincide_clase
-
     if not actor or not actor.strip():
         raise ValueError("actor vacio")
     fila = conn.execute(_SQL_AJUSTE_POR_ID, (ajuste_id,)).fetchone()
@@ -523,8 +522,6 @@ def _ajuste_hacia(clase, antes, despues_padre):
     el monto de antes; la ubicacion restaura el placement que el padre
     movio (diff entre su antes y su despues, no contra el vigente:
     otro ajuste posterior no se toca)."""
-    from app.campana_ajustes import CambiarAjusteUbicacion, CambiarPresupuesto
-
     if clase == "presupuesto":
         if antes.presupuesto_diario is None:
             raise AjusteSinRegreso("la configuracion de antes no trae presupuesto")
