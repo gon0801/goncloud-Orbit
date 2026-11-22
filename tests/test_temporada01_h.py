@@ -38,6 +38,9 @@ from test_temporada01_b import (
 )
 from test_temporada01_c import _evidencia_caso_d, _evidencia_cuenta
 
+from app.optimizer.caso import CasoHoja
+from app.optimizer.politica import decide
+
 DIA = dt.date(2027, 2, 15)  # febrero: normal (la entrada de la baja no estorba)
 
 
@@ -130,6 +133,16 @@ def test_temporada01_h_practica_compara_recuperacion(db_template):
     destino = Decimal(dif["destino_sombra"])
     assert destino == Decimal("7.10"), dif
     assert destino > Decimal("2.16") * Decimal("1.15"), "el salto supera un paso de R6"
+
+    # 4) El caso de la sombra queda congelado y rejuega el MISMO veredicto y
+    # destino: sin el, un recupera_nivel no es reproducible (sus topes y su
+    # redondeo esconden el multiplicador de R6r).
+    assert dif["caso_sombra"]["recuperacion"], dif["caso_sombra"]
+    assert dif["caso_sombra"]["temporada"], dif["caso_sombra"]
+    veredicto_sombra = decide(CasoHoja.desde_json(dif["caso_sombra"]))
+    assert type(veredicto_sombra).__name__ == "Regresar", veredicto_sombra
+    assert veredicto_sombra.motivo == "recupera_nivel", veredicto_sombra
+    assert veredicto_sombra.bid_nuevo == destino, veredicto_sombra
 
 
 def test_temporada01_h_practica_no_pierde_la_mano_del_dueno(db_template):

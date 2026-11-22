@@ -107,9 +107,13 @@ def _pausa_sombra(
 
 
 def _compara_temporada(
-    contadores: _Contadores, entidad_id: int, caso, veredicto, veredicto_sombra
+    contadores: _Contadores, entidad_id: int, caso, veredicto, veredicto_sombra, caso_sombra
 ) -> None:
-    """En practica (shadow) solo registra diferencias en notes.temporada."""
+    """En practica (shadow) solo registra diferencias en notes.temporada.
+
+    Guarda el caso real en `caso` y el caso CON marcadores en `caso_sombra`: sin
+    el segundo, un `recupera_nivel` no es reproducible (sus topes y su redondeo
+    esconden el multiplicador con el que R6r lo decidio)."""
     contadores.temporada_sombra_comparadas += 1
     if veredicto_sombra != veredicto:
         destino = getattr(veredicto_sombra, "bid_nuevo", None)
@@ -124,6 +128,7 @@ def _compara_temporada(
                 # revisable el m* de una subida rapida en la practica.
                 "destino_sombra": None if destino is None else str(destino),
                 "caso": caso.como_json(),
+                "caso_sombra": caso_sombra.como_json(),
             }
         )
     else:

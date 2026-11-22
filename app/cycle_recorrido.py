@@ -459,7 +459,9 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         techo=ceiling,
     )
     if caso_sombra is not None:
-        _compara_temporada(contadores, entidad_id, caso, veredicto, decisor(caso_sombra))
+        _compara_temporada(
+            contadores, entidad_id, caso, veredicto, decisor(caso_sombra), caso_sombra
+        )
     _anota_sombra(
         productos_ciclo,
         entidad_id=entidad_id,
