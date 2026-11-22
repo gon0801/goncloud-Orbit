@@ -2634,3 +2634,86 @@ def test_descarte_por_revalidacion_no_graba_sin_aplicar():
         ).fetchone()
         assert fila == ("discarded", MOTIVO_YA_NO_CALIFICA)
         assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0
+
+
+def test_veredicto_de_motivo_separa_aplicar_esperar_descartar():
+    """Ola D3b: VeredictoRevalidacion distingue tipadamente aplicar/esperar/descartar."""
+    from app.apply_cola import (
+        MOTIVO_ESPERA_PROTECCION,
+        MOTIVO_ESPERA_TARGET,
+        MOTIVO_YA_NO_CALIFICA,
+        VeredictoRevalidacion,
+        veredicto_de_motivo,
+    )
+
+    assert veredicto_de_motivo(None) == VeredictoRevalidacion("aplicar", None)
+    assert veredicto_de_motivo(MOTIVO_ESPERA_TARGET) == VeredictoRevalidacion(
+        "esperar", MOTIVO_ESPERA_TARGET
+    )
+    assert veredicto_de_motivo(MOTIVO_ESPERA_PROTECCION) == VeredictoRevalidacion(
+        "esperar", MOTIVO_ESPERA_PROTECCION
+    )
+    assert veredicto_de_motivo(MOTIVO_YA_NO_CALIFICA) == VeredictoRevalidacion(
+        "descartar", MOTIVO_YA_NO_CALIFICA
+    )
+
+
+def test_libera_vencidos_calcula_evidencia_grupos_una_sola_vez(monkeypatch):
+    """Ola D3b (regla 9): libera_vencidos evita el N+1 de ventanas_evidencia_ad_group
+    al revalidar multiples filas pause/negative en el mismo barrido FIFO."""
+    import app.apply_cola as cola_mod
+
+    filas_db = [
+        (1, "negative", 101, "termino-1", 10, {}, "released"),
+        (2, "negative", 102, "termino-2", 11, {}, "released"),
+        (3, "negative", 103, "termino-3", 12, {}, "released"),
+    ]
+
+    class _Cur:
+        def __init__(self, filas):
+            self._filas = filas
+
+        def fetchall(self):
+            return self._filas
+
+        def fetchone(self):
+            return self._filas[0] if self._filas else None
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            if "FROM apply_queue" in sql and "ORDER BY encolado_at" in sql:
+                return _Cur(filas_db)
+            return _Cur([])
+
+    llamadas_evidencia = 0
+
+    def _evidencia_espia(_conn, _platform, _ahora):
+        nonlocal llamadas_evidencia
+        llamadas_evidencia += 1
+        return {}
+
+    monkeypatch.setattr(cola_mod, "descarta_esperas_proteccion", lambda _c, _p: 0)
+    monkeypatch.setattr(cola_mod, "_modo_efectivo_corte", lambda *_a, **_k: "live")
+    monkeypatch.setattr(cola_mod.windows, "ventanas_evidencia_ad_group", _evidencia_espia)
+    monkeypatch.setattr(cola_mod.apply, "gate_ancestros", lambda _c, _e: None)
+    monkeypatch.setattr(
+        cola_mod.apply_revalidacion.temporada_io, "mult_negativa", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        cola_mod.apply_revalidacion.temporada_io, "cerca_plataforma", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        cola_mod.apply_revalidacion.windows,
+        "terminos_cortes",
+        lambda _c, g, _a, **_k: type("T", (), {"terminos": ()})(),
+    )
+
+    res = cola_mod.libera_vencidos(
+        _Conn(),
+        "amazon_us",
+        ahora=dt.datetime(2026, 10, 1, 12, tzinfo=dt.UTC),
+        aplicador=object(),
+        proteccion_activa=False,
+    )
+    assert len(res.descartadas) == 3
+    assert llamadas_evidencia == 1

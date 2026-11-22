@@ -246,7 +246,7 @@ def techo_conocido(caso: CasoHoja, *, hasta: dt.datetime | None = None) -> Decim
 
 def multiplicador_sostenible(a_subida: Decimal, arg_subida: Decimal, confianza: Decimal) -> Decimal:
     """m* tal que gamma_q(a_subida, m* x arg_subida) == confianza. `arg_subida` es el
-    argumento que politica._p_bajo pasa a gamma_q al CPC de hoy: clics_sub x cpc /
+    argumento que `politica.py` pasa a gamma_q al CPC de hoy: clics_sub x cpc /
     (0.85 x meta/100 x ticket_sub). gamma_q es decreciente en x, asi que gamma_q(a, 0) = 1
     >= confianza y gamma_q(a, a + 40) < confianza para el rango operativo: la biseccion
     de 60 iteraciones parte [0, a_subida + 40] y conserva en `lo` el lado que sigue

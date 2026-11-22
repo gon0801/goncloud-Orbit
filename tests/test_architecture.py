@@ -47,12 +47,6 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
-    "app/optimizer/politica.py": (
-        "BIDS 02/TEMPORADA 01 D: la politica de bid es UN solo camino sellado "
-        "(el orden de las reglas R0-R17 + RTs/RTe/HOLD/BUD de temporada es la "
-        "decision): partirlo por reglas romperia el orden visible y duplicaria "
-        "los helpers del juicio. La mejora es crecer con cuidado, no partir."
-    ),
     "app/etiquetas.py": (
         "CLARIDAD 01 H/I: registro unico de etiquetas de pantalla. Es dato "
         "(un dict por vocabulario, con las constantes del modulo dueno como "
@@ -77,27 +71,6 @@ ALLOWLIST_TAMANO = {
         "separaria `revertir` de su nucleo `_revertir_fila` — jamas partir "
         "por partir"
     ),
-    "app/apply_harvest.py": (
-        "ORBIT 04 2.3 + FABRICA 02 A.3a: maquina de ejecucion del corte harvest "
-        "sellada (cadena de fases del job, bid sugerido, reversas, delegados "
-        "compatibles). La reconciliacion YA fue extraida a "
-        "app/apply_harvest_reconciliacion.py (revalida_harvest, "
-        "reconcilia_harvest y sus barridos/SQL exclusivos, sin duplicar "
-        "compartidos); lo que queda aqui es ejecucion + superficie compatible "
-        "y no tiene frontera coherente para partirse mas (partir por partir "
-        "esta prohibido por la regla anti-Goodhart)"
-    ),
-    "app/apply_cola.py": (
-        "ORBIT 04 2.2: cola de cortes (encolado, re-validacion PRE-claim, "
-        "liberacion FIFO y reversas). La cross-review del dueno (codex+grok"
-        "+qwen, ORBIT 04 P2) le sumo el barrido resiliente (GK3: AdsApiError "
-        "por fila en la re-validacion), el verify honesto del negative "
-        "(CX4/GK6) y el cruce de id del readback de estado (CX6/GK8) y con "
-        "eso paso el umbral (912). Mismo candidato DECLARADO que la familia "
-        "apply: partir la ejecucion sellada por fila (_revalida*/_ejecuta_*) "
-        "de la maquina de encolado/liberacion la proxima vez que se toque en "
-        "grande; partir por partir esta prohibido por la regla anti-Goodhart"
-    ),
     "app/api_dashboard.py": (
         "Feed de Decisiones/Cortes/Inertes (SQL + _fila_* + filtros). "
         "El wiring de Entidad (kind/keyword_text + JOINs de campana) "
@@ -118,10 +91,7 @@ ALLOWLIST_TAMANO = {
 # Un monolito historico puede adelgazar (y al bajar <= 900 sale de la allowlist),
 # pero NUNCA crecer silenciosamente sin justificar el techo en review.
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
-    "app/optimizer/politica.py": 911,
     "app/api_dashboard.py": 2244,
-    "app/apply_cola.py": 1878,
-    "app/apply_harvest.py": 2113,
     "app/dashboard_resumen.py": 995,
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
@@ -1027,10 +997,7 @@ def test_biblioteca_sin_apply_ni_escritura_ni_red():
     `httpx` (cero red). Solo `psycopg`, higiene (normalizacion) y
     notifica (alerta)."""
     prohibidos = (
-        "app.apply",
-        "app.apply_cola",
-        "app.apply_harvest",
-        "app.apply_harvest_reconciliacion",
+        *(f"app.{p.stem}" for p in sorted(APP.glob("apply*.py"))),
         "app.ads.write",
         "httpx",
     )

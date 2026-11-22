@@ -612,10 +612,9 @@ def _resuelve_recupera(
     """R6r (TEMPORADA 01 C): P, BUD y frenos de salto; el destino ya viene en
     centavos y topado, y decide Regresar (el movimiento que regresa al nivel
     que la evidencia sostiene)."""
-    if _subida_en_espera(caso.pausa.proteccion, motivo_bloqueado):
-        return Mantener(MOTIVO_SUBIDA_EN_ESPERA)
-    if caso.presupuesto is not None and presupuesto_topado(caso) in (True, None):
-        return Mantener(MOTIVO_PRESUPUESTO_TOPADO)
+    freno_subida = _frena_subida_normal(caso, PASO_SUBIDA, motivo_bloqueado)
+    if freno_subida is not None:
+        return freno_subida
     if ultimo is not None:
         efecto = caso.trayectoria.efecto
         assert efecto is not None
@@ -664,16 +663,6 @@ def _proyeccion_subida(
     )
 
 
-def _p_bajo(
-    fondo: _Fondo,
-    cpc: Decimal,
-    target: Decimal,
-    previa: tuple[Decimal | None, Decimal | None],
-) -> Decimal:
-    clics_sub, ticket_sub = _proyeccion_subida(fondo, previa)
-    return gamma_q(fondo.a_subida, clics_sub * cpc / ((MULT_SUBIDA * target / _CIEN) * ticket_sub))
-
-
 def _previa(
     cuenta: EvidenciaNivel | None,
     grupo: EvidenciaNivel | None,
@@ -686,26 +675,14 @@ def _previa(
     """
     if cuenta is None or grupo is None:
         return None
-    ped_c = cuenta.pedidos_crudos()
-    cli_c = cuenta.clics_crudos()
-    ven_c = cuenta.venta_cruda()
-    ped_g = grupo.pedidos_crudos()
-    cli_g = grupo.clics_crudos()
-    ven_g = grupo.venta_cruda()
-    ped_p = propia.pedidos_crudos()
-    cli_p = propia.clics_crudos()
-    ven_p = propia.venta_cruda()
-    crudos = (ped_c, cli_c, ven_c, ped_g, cli_g, ven_g, ped_p, cli_p, ven_p)
-    if any(c is None for c in crudos):
+    ped_c, cli_c, ven_c = cuenta.pedidos_crudos(), cuenta.clics_crudos(), cuenta.venta_cruda()
+    ped_g, cli_g, ven_g = grupo.pedidos_crudos(), grupo.clics_crudos(), grupo.venta_cruda()
+    ped_p, cli_p, ven_p = propia.pedidos_crudos(), propia.clics_crudos(), propia.venta_cruda()
+    if any(c is None for c in (ped_c, cli_c, ven_c, ped_g, cli_g, ven_g, ped_p, cli_p, ven_p)):
         return None
-    assert ped_c is not None and cli_c is not None and ven_c is not None
-    assert ped_g is not None and cli_g is not None and ven_g is not None
-    assert ped_p is not None and cli_p is not None and ven_p is not None
     if ped_c <= 0 or cli_c <= 0:
         return (None, None)
-    ped_r = ped_g - ped_p
-    cli_r = cli_g - cli_p
-    ven_r = ven_g - ven_p
+    ped_r, cli_r, ven_r = ped_g - ped_p, cli_g - cli_p, ven_g - ven_p
     if ped_r < 0 or cli_r < 0 or ven_r < 0:
         return None
     cvr_cuenta = Decimal(ped_c) / Decimal(cli_c)

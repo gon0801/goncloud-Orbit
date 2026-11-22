@@ -2,90 +2,16 @@
 
 La cola de CORTES (pause/negative/harvest) con ventana de veto: los bids
 aplican en su ciclo SIN tocar esta cola (sellado 1). Este modulo NO importa
-app.ads.write (candado de test_architecture: solo app/apply.py): el cliente
-de escritura llega por parametro o se le pide al Aplicador, y quota/ledger/
-readback se REUSAN de app/apply — la cola no reimplementa nada de eso.
+app.ads.write (candado de test_architecture: solo app/apply.py).
 
-Diseno SELLADO (plans/orbit-04.md decisiones 1-6, 8, 17; docs/APPLY.md §1-§3,
-§5.4; contrato cross-plan de CORTES 01):
-
-- ENCOLA LA APP (sellado 4): toda decision de corte del ciclo deja fila en
-  apply_queue (invariante corte<->cola; no hay skip posible al ENCOLAR — el
-  skip por clave va en el ciclo siguiente, antes de decidir). El modo se
-  re-resuelve POR DECISION (escalera + goal.mode + enabled + existencia,
-  JAMAS inputs.modo): live -> modo='live'; no-live -> modo='shadow' (el dueno
-  practica el veto con candidatos reales). Si el INSERT choca el unico parcial
-  por clave de efecto, la decision queda (append-only) y el choque viaja en
-  el resumen. vence_el = ahora + 48h.
-- SKIP POR CLAVE DE EFECTO (sellado 5): en-vuelo (fila NO terminal) o bloqueo
-  vigente (vetoed con vence_el > ahora) bloquean la clave (platform,
-  ad_entity_id, familia, search_term); un veto VENCIDO no bloquea.
-- LIBERACION FIFO de vencidas (pending_veto, modo live) con el ORDEN SELLADO
-  del brief §3: liberacion atomica -> re-validacion PRE-claim sobre released
-  -> cobro de quota -> claim atomico released->applying -> ledger PRE-HTTP ->
-  HTTP -> readback + sello. Un descarte SIEMPRE antes del claim y NUNCA
-  despues del cobro (la quota no se quema en descartes).
-- RE-VALIDACION (sellado 6 + contrato cross-plan CORTES 01, ronda 2 qwen): la
-  regla completa del motor SE RE-DECIDE con evidencia FRESCA anclada al reloj
-  de LIBERACION — ventanas_evidencia_ad_group(conn, platform, decided_at) se
-  llama con el instante de LIBERAR como decided_at, NO el de decidir, y el
-  umbral/piso se RE-RESUELVEN (cortes.umbral_corte / cortes.piso_corte). Se
-  JAMAS reusa inputs.corte.umbral_clicks_usado congelado (y NO se limita a
-  "orders>0": el umbral fresco tambien descarta — pause: decide_bid con
-  umbral fresco; negative: decide_hygiene con umbral+piso frescos).
-- RE-CHECK DE ESTADO VIVO por LIST fresco (jamas el cache, sellado 16; probe
-  2.5: el GET directo de entidad esta retirado) en la familia entity_cut
-  (pause): entidad no viva -> el corte es moot; ENABLED + pause propio
-  verificado -> INSERT reactivacion_manual (idempotente por PK, sellado 17)
-  y el corte se descarta: la gracia de 7d desde detectada_en no vuelve a
-  cortar la entidad.
-- CAP AGOTADO -> cortes esperan FIFO en released y SIGUEN vetables (§5.4).
-- REVERSAS pause/negative (regla 7, sellado 12): ledger tipo 'reversa'
-  EXENTAS de quota, mismo readback; no limpian cooldown.
-- HARVEST (2.3): hook delegado a apply_harvest.aplica_harvest — harvest_job
-  nace AL LIBERAR (sellado 13) y TODA la ejecucion (fases, bid sugerido
-  clampeado, reversas) vive en ese modulo; la cola solo conecta el hook.
-
-Elecciones DECLARADAS de esta task:
-
-- Re-validacion sobre la fila RELEASED (se libera pending_veto->released y
-  ahi se re-valida): es la letra del brief §3.1 y deja el discard vivir en la
-  transicion released->discarded que el GRANT del motor ya tiene. El discard
-  del motor es SOLO de filas LIVE (el de filas shadow exige admin por trigger,
-  hallazgo post-merge PR #25) — y esta cola solo selecciona live.
-- El cobro de quota va ANTES del claim (ver docstring de libera_vencidos):
-  la maquina de 0002 no tiene applying -> released y §5.4 exige que la fila
-  que espera quota quede released y vetable.
-- La escalera de un corte de TERMINO mira la existencia/state del GRUPO y su
-  campana por el salto grupo->campana (Aplicador.modo_efectivo esta sellado
-  para hojas keyword/product_target; las pausas delegan en el VERBATIM).
-- Encola necesita las ids de las decisiones del ciclo recien commitado: las
-  lee por SELECT del ciclo (cycle.py NO se toca — _inserta_decisiones no
-  expone RETURNING y aqui no hace falta).
-
-READBACK: SELLADO por el probe 2.5 (corrida autorizada del dueno 2026-08-26,
-ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el estado
-vivo se lee por LIST (POST /sp/{keywords|targets}/list — el GET directo
-responde 403, retirado) con cruce de id, y el vocabulario del wire es UPPER
-(apply.ESTADO_WIRE_*: ENABLED/PAUSED/ARCHIVED; ARCHIVED = operativamente
-muerto). El state del REQUEST del PUT de pause/resume quedo SELLADO el
-2026-08-27: UPPER, igual que el wire (write.py ESTADO_PUT_*, re-exportada
-por apply — QW2, UNA fuente).
-
-Ronda de CROSS-REVIEW del dueno (codex+qwen, shapes del probe 2.5,
-out/cross-review-shapes-*.log): el LIST de readback PAGINA por nextToken
-(apply._estado_de_readback — CX1/QW1: el body {} solo ve la primera pagina
-de una cuenta con 1334 keywords); la reversa del negative exige un 207 sin
-rechazo por-item (CX3, 'fallo:reversa_rechazada'); y reversa_pause sella
-'ok' SOLO si el readback lee ENABLED (QW6, misma regla que PR27-3).
+La re-validacion economica y por evidencia de `pause`/`negative` vive en
+`app/apply_revalidacion.py` (Ola D3b), y sus simbolos se re-exportan desde aqui.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import json
 from dataclasses import dataclass
-from decimal import Decimal
 
 import psycopg
 from psycopg.types.json import Json
@@ -94,12 +20,9 @@ from app import (
     apply,
     apply_harvest,
     apply_producto,
-    biblioteca,
-    economia_revalidacion_io,
+    apply_revalidacion,
     notifica,
-    productos_io,
     proteccion_venta,
-    temporada_io,
 )
 from app.ads.client import AdsApiError
 from app.apply import (
@@ -109,52 +32,64 @@ from app.apply import (
     consume_quota_y_sello,
     evento_cap_saturado,
 )
-from app.db import tx_durable
-from app.optimizer import bid as motor_bid
-from app.optimizer import cortes, hygiene, productos, windows
+from app.apply_cola_ejecuta import (  # noqa: F401 - re-export estable
+    _SQL_CACHE_ESTADO,
+    _cliente_mutacion,
+    _ejecuta_negative,
+    _ejecuta_pause,
+    _ejecuta_rama,
+    _termina,
+    reversa_negative,
+    reversa_pause,
+)
+from app.apply_revalidacion import (  # noqa: F401 - re-export estable
+    _SQL_CAMPANA_DE_GRUPO,
+    _SQL_CONFIG_TARGET,
+    _SQL_DECISION_INPUTS,
+    _SQL_ESCRIBE_NOTAS_CICLO,
+    _SQL_GRACIA,
+    _SQL_HAY_GOAL,
+    _SQL_INSERT_REACTIVACION,
+    _SQL_LEE_NOTAS_CICLO,
+    _SQL_NOTAS_CICLO_APLICADOR,
+    _SQL_PADRE,
+    _SQL_PAUSE_PROPIO,
+    _SQL_PAUSE_TARGET_STATE,
+    _TARGET_REVALIDA,
+    GRACIA_REACTIVACION,
+    MOTIVO_ALCANCE_CAMBIO,
+    MOTIVO_CAMPANA_NO_ENABLED,
+    MOTIVO_ENTIDAD_NO_VIVA,
+    MOTIVO_ESPERA_PROTECCION,
+    MOTIVO_ESPERA_TARGET,
+    MOTIVO_GRUPO_NO_ENABLED,
+    MOTIVO_MODO_NO_LIVE,
+    MOTIVO_PROTECCION_APAGADA,
+    MOTIVO_REACTIVACION_MANUAL,
+    MOTIVO_VENDIO_EN_VENTANA,
+    MOTIVO_YA_NO_CALIFICA,
+    VeredictoRevalidacion,
+    _alcance_cambio,
+    _economia_elegida,
+    _familia_respaldo,
+    _flag_pause_economica,
+    _gracia_activa,
+    _hay_goal,
+    _pause_propio_verificado,
+    _peldano_congelado,
+    _producto_fresco,
+    _registra_evidencia,
+    _settings_vigentes,
+    _target_pause_vigente,
+    _target_pause_vigente_detalle,
+    veredicto_de_motivo,
+)
+from app.optimizer import cortes, productos, windows
 from app.optimizer import goals as g
-from app.optimizer import proteccion as subproteccion
 
-# Ventana de veto de 48h al encolar (sellado 2: el reloj NO se detiene por
-# infra caida). Gracia de reactivacion 7d DESDE detectada_en (sellado 17).
+# Ventana de veto de 48h al encolar (sellado 2).
 VENTANA_VETO = dt.timedelta(hours=48)
-GRACIA_REACTIVACION = dt.timedelta(days=7)
-
-# Skip del ciclo por clave de efecto (sellado 5): motivo del vocabulario
-# cerrado con el que el ciclo NO re-decide una clave bloqueada.
 MOTIVO_VETO_PENDIENTE = "veto_pendiente"
-
-# Descartes por re-validacion fallida (solo filas live; descartar shadow exige
-# rol admin por trigger).
-MOTIVO_VENDIO_EN_VENTANA = "vendio_en_ventana"
-MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
-MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
-MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
-MOTIVO_MODO_NO_LIVE = "modo_no_live"
-# AUTO-03 F.3 (S12): la pausa de una hoja decidida con la meta de su producto
-# se descarta si la mezcla de anuncios de su grupo cambio desde la decision.
-MOTIVO_ALCANCE_CAMBIO = "alcance_cambio"
-# ADS D.1: el literal vive en apply.MOTIVO_ESPERA_TARGET (vocabulario de
-# decision_sin_aplicar, UNA fuente); este modulo lo reexporta como alias.
-MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
-# ORBIT 07 M1: la pausa por cero ventas espera el vencimiento del episodio de
-# venta reciente sin cobrar cuota ni entrar a applying (fila released).
-MOTIVO_ESPERA_PROTECCION = apply.MOTIVO_ESPERA_PROTECCION
-# D-H1: apagar la proteccion descarta, antes del claim, las pausas released
-# que esperaban por venta reciente (sin cuota ni HTTP). Sin esto caerian de
-# golpe con la semantica historica.
-MOTIVO_PROTECCION_APAGADA = "proteccion_apagada"
-# CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
-# (la funcion compartida del gate vive en apply, dueno del write client; cycle
-# y los tests siguen importando de AQUI): un corte cuya campaña o ad group
-# dejo de estar ENABLED durante la ventana de veto es moot -> discard
-# PRE-claim.
-MOTIVO_CAMPANA_NO_ENABLED = apply.MOTIVO_CAMPANA_NO_ENABLED
-MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
-
-# El PAUSE antiguo no consume target; el economico resuelve el vigente.
-_TARGET_REVALIDA = Decimal("100")
-
 
 _SQL_CLAVES_BLOQUEADAS = """
 SELECT ad_entity_id, familia, search_term
@@ -164,10 +99,6 @@ SELECT ad_entity_id, familia, search_term
         OR (estado = 'vetoed' AND vence_el > %s))
 """
 
-# ORBIT 07 M1: una fila released es la unica no terminal que NO congela las
-# pujas cuando hay venta reciente protegida (el ciclo sigue evaluando el bid y
-# solo descarta el veredicto Pausar). Veto pendiente, veto del dueno y applying
-# siguen bloqueando la hoja entera.
 _SQL_CLAVES_RELEASED = """
 SELECT ad_entity_id, familia, search_term
   FROM apply_queue
@@ -192,8 +123,6 @@ VALUES (%s::platform, %s, %s, %s, %s, %s, 'pending_veto', %s, %s)
 RETURNING id
 """
 
-# Barrido FIFO: incluye pending_veto vencidas y filas released que esperaban
-# quota (sin reintentarlas, su clave quedaria bloqueada indefinidamente).
 _SQL_VENCIDAS = """
 SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
   FROM apply_queue
@@ -207,8 +136,6 @@ SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
   FROM apply_queue WHERE id = %s
 """
 
-# Transiciones atomicas: el WHERE del estado esperado ES la carrera (cero
-# filas = alguien mas movio la fila: releer y saltar, brief §1.5/§3.2).
 _SQL_LIBERA = """
 UPDATE apply_queue SET estado = 'released', released_at = now()
  WHERE id = %s AND estado = 'pending_veto'
@@ -227,13 +154,6 @@ UPDATE apply_queue SET estado = 'discarded', discarded_at = now(), discard_motiv
 RETURNING id
 """
 
-# D-H1: descarte masivo PRE-claim de las pausas live que esperaban por venta
-# reciente. La marca es el ULTIMO no-apply CONCLUYENTE de la decision: los
-# transitorios sin_respuesta (LIST de re-validacion muerto) y espera_target (sin
-# target confiable) no dicen si M1 sigue encendida, asi que no tapan una espera
-# por proteccion. Si una espera vieja ya fue reemplazada por un motivo
-# concluyente (p.ej. quota), la fila no espera por M1 y no se descarta. No se
-# adivina por estado.
 _SQL_DESCARTA_ESPERAS = """
 UPDATE apply_queue q
    SET estado = 'discarded', discarded_at = now(), discard_motivo = %s
@@ -249,60 +169,6 @@ UPDATE apply_queue q
 RETURNING q.id
 """
 
-# Sellado 17: la gracia vive en reactivacion_manual (detectada_en PK por
-# entidad) y el pause propio verificado se lee del resumen (verify_ok TRUE).
-_SQL_GRACIA = """
-SELECT detectada_en FROM reactivacion_manual WHERE ad_entity_id = %s
-"""
-
-_SQL_PAUSE_PROPIO = """
-SELECT EXISTS (
-    SELECT 1
-      FROM decision_application da
-      JOIN decision d ON d.id = da.decision_id
-     WHERE d.ad_entity_id = %s AND d.kind = 'pause' AND da.verify_ok IS TRUE
-)
-"""
-
-_SQL_INSERT_REACTIVACION = """
-INSERT INTO reactivacion_manual (ad_entity_id) VALUES (%s) ON CONFLICT DO NOTHING
-"""
-
-_SQL_PADRE = """
-SELECT parent_id FROM ad_entity WHERE id = %s
-"""
-
-_SQL_CAMPANA_DE_GRUPO = """
-SELECT parent_id FROM ad_entity WHERE id = %s AND kind = 'ad_group'
-"""
-
-_SQL_DECISION_INPUTS = """
-SELECT inputs FROM decision WHERE id = %s
-"""
-
-_SQL_PAUSE_TARGET_STATE = """
-SELECT ag.parent_id, s.acos_target
-  FROM ad_entity e
-  JOIN ad_entity ag ON ag.id = e.parent_id AND ag.kind = 'ad_group'
-  JOIN ad_entity_state s ON s.ad_entity_id = e.id
- WHERE e.id = %s AND e.kind IN ('keyword', 'product_target')
-"""
-
-_SQL_NOTAS_CICLO_APLICADOR = """
-SELECT notes FROM optimizer_cycle WHERE id = %s
-"""
-
-_SQL_CONFIG_TARGET = """
-SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
-"""
-
-_SQL_LEE_NOTAS_CICLO = "SELECT notes FROM optimizer_cycle WHERE id = %s FOR UPDATE"
-_SQL_ESCRIBE_NOTAS_CICLO = "UPDATE optimizer_cycle SET notes = %s WHERE id = %s"
-
-# CAMPANA ACTIVA 01 · 1.6: el SQL y la semantica del gate de ancestros viven
-# en apply.gate_ancestros (funcion UNICA, reusada por los reconciliadores);
-# este modulo ya importa apply.
-
 _SQL_EXTERNALES_GRUPO = """
 SELECT grp.external_id, cam.external_id
   FROM ad_entity grp
@@ -310,8 +176,6 @@ SELECT grp.external_id, cam.external_id
  WHERE grp.id = %s
 """
 
-# AUTO-03 H.4: el product ad resuelve su modo por ad group -> campana, como
-# el grupo de un corte de termino.
 _SQL_ANUNCIO_VIVO = """
 SELECT ag.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
   FROM ad_entity pa
@@ -320,21 +184,10 @@ SELECT ag.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
  WHERE pa.id = %s AND pa.kind = 'product_ad'
 """
 
-# El encendido de la pausa (I.7) toma este candado EXCLUSIVO para descartar
-# las practicas y escribir la config en la misma transaccion; el encolado lo
-# toma compartido y lee la config despues.
 _SQL_CANDADO_PAUSA_PRODUCTO = (
     "SELECT pg_advisory_xact_lock_shared(hashtext('auto03-pausa-' || %s::text))"
 )
 
-_SQL_CACHE_ESTADO = """
-UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
-"""
-
-# La escalera de un corte de TERMINO mira la existencia/state del GRUPO (la
-# entidad que decide el ciclo, _SQL_GRUPOS de cycle.py) y su campana es el
-# padre directo del grupo — mismo criterio que Aplicador.modo_efectivo, que
-# esta sellado para hojas keyword/product_target (decisiones de bid/pause).
 _SQL_GRUPO_VIVO = """
 SELECT e.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
   FROM ad_entity e
@@ -345,14 +198,6 @@ SELECT e.parent_id AS campaign_id, (s.ad_entity_id IS NOT NULL) AS tiene_state
 
 @dataclass(frozen=True)
 class ResumenEncolado:
-    """Resultado del encolado de UN ciclo. `choques` declara las decisiones
-    cuyo INSERT choco el unico parcial por clave de efecto (clave ya en
-    vuelo): la decision NO se borra (decision es append-only) y el skip por
-    clave lo hace el CICLO siguiente antes de decidir — semantica declarada
-    del invariante corte<->cola (sellado 4). `avisos` lleva UN CorteEncolado
-    por fila NUEVA commitada (3.3: el aviso Telegram al dueno sale al
-    ENCOLAR, sellado 2; los choques no avisaron nada nuevo)."""
-
     encoladas_live: int
     encoladas_shadow: int
     choques: list[str]
@@ -361,16 +206,6 @@ class ResumenEncolado:
 
 @dataclass(frozen=True)
 class ResultadoLiberacion:
-    """Resultado del barrido FIFO de vencidas. `sin_quota` son las que
-    esperan en released (cap agotado: siguen vetables, brief §5.4);
-    `carreras_perdidas` son los claims/liberaciones atomicos que vieron 0
-    filas (un veto llego primero: pierden LIMPIO, sin HTTP);
-    `revalida_sin_respuesta` cuenta las filas cuyo LIST fresco de
-    re-validacion murio (GK3 de la cross-review: quedan released con esta
-    nota y el barrido SIGUE — una entidad muerta no degrada el ciclo);
-    `espera_target` cuenta las economicas sin target confiable pero CON goal
-    que esperan en released y reintentan al ciclo siguiente (obs4)."""
-
     liberadas: int
     aplicadas: int
     fallidas: int
@@ -379,29 +214,14 @@ class ResultadoLiberacion:
     carreras_perdidas: int
     revalida_sin_respuesta: int = 0
     espera_target: int = 0
-    # ORBIT 07 M1: filas de pausa por cero ventas que esperan el vencimiento
-    # del episodio de venta reciente (siguen released, sin cuota).
     espera_proteccion: int = 0
-    # 3.3 (sellados 13/19): las alertas de harvest failed del barrido viajan
-    # al ciclo (con la bandera de envio fallido del canal) para la NOTA
-    # notes['telegram'] — antes se caian aqui.
     alertas: tuple[apply_harvest.AlertaHarvest, ...] = ()
-    # Preflight 1.4 (D3d): los caps de quota que ESTE barrido llevo a su
-    # transicion (los propios de la cola + los del hook harvest) viajan al
-    # ciclo para el aviso fail-silent; el consumo rechazado NO agrega.
     caps_saturados: tuple[CapSaturado, ...] = ()
     revalidaciones_economicas: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
 class FilaCola:
-    """Espejo de una fila de apply_queue tal como la consume el aplicador de
-    cortes (reversas incluidas). `request_payload` es la intencion EXACTA que
-    el ledger congela pre-HTTP (COMMENT de la columna en 0002). `estado`
-    viaja desde el barrido FIFO: distingue la vencida pending_veto (se
-    libera) de la released que espera quota (se REINTENTA sin re-liberar,
-    ADV-02)."""
-
     id: int
     kind: str
     ad_entity_id: int
@@ -420,11 +240,7 @@ def fila_cola(conn: psycopg.Connection, queue_id: int) -> FilaCola | None:
 def claves_bloqueadas(
     conn: psycopg.Connection, platform: str, ahora: dt.datetime
 ) -> set[tuple[int, str, str | None]]:
-    """Claves de efecto (ad_entity_id, familia, search_term) con fila NO
-    terminal en-vuelo O fila vetoed con bloqueo VIGENTE (vence_el > ahora).
-
-    Un veto VENCIDO no bloquea: al vencer el motor re-propone con fila nueva
-    (sellado 3). `ahora` llega por parametro (determinismo, regla 2)."""
+    """Claves de efecto con fila NO terminal en-vuelo O fila vetoed vigente."""
     return {
         (fila[0], fila[1], fila[2])
         for fila in conn.execute(_SQL_CLAVES_BLOQUEADAS, (platform, ahora)).fetchall()
@@ -434,9 +250,7 @@ def claves_bloqueadas(
 def claves_released(
     conn: psycopg.Connection, platform: str
 ) -> frozenset[tuple[int, str, str | None]]:
-    """Claves con una fila released (ORBIT 07 M1). El ciclo solo las deja
-    seguir cuando ademas hay venta reciente protegida: entonces evalua las
-    pujas y descarta un Pausar duplicado."""
+    """Claves con una fila released (ORBIT 07 M1)."""
     return frozenset(
         (fila[0], fila[1], fila[2])
         for fila in conn.execute(_SQL_CLAVES_RELEASED, (platform,)).fetchall()
@@ -449,34 +263,16 @@ def skip_por_clave(
     claves,
     ahora: dt.datetime,
 ) -> set[tuple[int, str, str | None]]:
-    """Cuales de `claves` estan bloqueadas (en-vuelo o veto vigente): el ciclo
-    (2.4) las salta con motivo MOTIVO_VETO_PENDIENTE ANTES de decidir. Devuelve
-    el subconjunto bloqueado de los candidatos."""
+    """Subconjunto bloqueado de los candidatos."""
     return set(claves) & claves_bloqueadas(conn, platform, ahora)
 
 
 def _meet_goals(conn: psycopg.Connection, platform: str, campaign_id, escalera_global: str) -> str:
-    """Meet escalera + goal (precedencia campana > plataforma con
-    goals.resuelve_goal) para la campana dada. Es el mismo criterio (y el
-    mismo SQL de goals) que Aplicador.modo_efectivo, extendido para el salto
-    grupo->campana de los cortes de termino."""
+    """Meet escalera + goal (precedencia campana > plataforma)."""
     goal_campana: g.Goal | None = None
     goal_plataforma: g.Goal | None = None
     for f in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, campaign_id)).fetchall():
-        goal = g.Goal(
-            scope=f[0],
-            ad_entity_id=f[1],
-            platform=f[2],
-            target_acos_pct=f[3],
-            bid_floor=f[4],
-            bid_ceiling=f[5],
-            bid_currency=f[6],
-            harvest_campaign_id=f[7],
-            harvest_ad_group_id=f[8],
-            harvest_default_bid=f[9],
-            enabled=f[10],
-            mode=f[11],
-        )
+        goal = g.Goal(*f)
         if goal.scope == "campaign":
             goal_campana = goal
         else:
@@ -495,11 +291,7 @@ def _modo_efectivo_corte(
     *,
     escalera_global: str,
 ) -> str:
-    """Re-resuelve el modo POR DECISION para un corte. Las pausas viven sobre
-    hojas keyword/product_target: delega VERBATIM en Aplicador.modo_efectivo
-    (2.1). Los cortes de termino viven sobre el GRUPO: mismo criterio
-    (escalera + goal.mode + enabled + existencia/state) con el salto
-    grupo->campana que el SQL de hojas de 2.1 no tiene — DECLARADO."""
+    """Re-resuelve el modo POR DECISION para un corte."""
     identidad = apply._identidad(conn, ad_entity_id)
     if identidad is None:
         return "shadow"
@@ -517,18 +309,14 @@ def _modo_efectivo_corte(
         return _modo_pausa_producto(conn, platform, ad_entity_id, escalera_global)
     fila = conn.execute(_SQL_GRUPO_VIVO, (ad_entity_id,)).fetchone()
     if fila is None or not fila[1]:
-        return "shadow"  # grupo inexistente o sin state (regla 3)
+        return "shadow"
     return _meet_goals(conn, platform, fila[0], escalera_global)
 
 
 def _modo_pausa_producto(
     conn: psycopg.Connection, platform: str, ad_entity_id: int, escalera_global: str
 ) -> str:
-    """AUTO-03 H.4: la pausa de un product ad es live solo si la escalera y
-    el goal de su campana (product_ad -> ad group -> campana) lo son Y la
-    config vigente trae ads_producto_pausa_<plataforma> en live. Asi apagar la
-    pausa descarta sus pendientes (modo_no_live) y en sombra la fila nace
-    shadow."""
+    """AUTO-03 H.4: modo live para pausa de product_ad."""
     fila = conn.execute(_SQL_ANUNCIO_VIVO, (ad_entity_id,)).fetchone()
     if fila is None or not fila[1]:
         return "shadow"
@@ -544,20 +332,11 @@ def _modo_pausa_producto(
 
 
 def _payload_pause(kind_entidad: str, external_id: str) -> dict:
-    """Payload EXACTO del corte pause (mismo shape que _cambiar_estado del
-    write client). El state del REQUEST vive de la constante re-exportada
-    (QW2 de la cross-review: UNA fuente — write.py ESTADO_PUT_PAUSED, SELLADA
-    el 2026-08-27 por la corrida de reactivacion; cambiarla ahi cambia
-    el ledger del pause SIN tocar este modulo)."""
     campo = "keywordId" if kind_entidad == "keyword" else "targetId"
     return {campo: external_id, "state": apply.ESTADO_PUT_PAUSED}
 
 
 def _payload_term(grupo_ext: str, campana_ext: str, term: str) -> dict:
-    """Payload EXACTO del primer HTTP de un corte de termino: el negative
-    exacto en el ad group ORIGEN (para harvest es el primer paso de su cadena,
-    brief §6 — 2.3 extiende el segundo POST con su bid). Enums del wire REAL
-    (probe 2.5, apply_attempt 13: matchType NEGATIVE_EXACT + state ENABLED)."""
     return {
         "adGroupId": grupo_ext,
         "campaignId": campana_ext,
@@ -575,23 +354,7 @@ def encola_cortes(
     modo_envelope: str,
     ahora: dt.datetime,
 ) -> ResumenEncolado:
-    """Encola TODAS las decisiones de corte del ciclo (pause/negative/harvest).
-
-    INVARIANTE corte<->cola (sellado 4): toda decision de corte del ciclo deja
-    su fila — no hay skip posible al ENCOLAR (el skip por clave va en el ciclo
-    siguiente, antes de decidir). El modo se re-resuelve POR DECISION (misma
-    escalera de 2.1, JAMAS inputs.modo): live -> modo='live'; no-live ->
-    modo='shadow' (el dueno practica el veto con candidatos reales, sellado 6).
-    Si el INSERT choca el unico parcial (clave ya en vuelo), la decision queda
-    (decision es append-only), el choque viaja en el resumen y —solo en ciclos
-    con modo_envelope='live'— queda registrado en decision_sin_aplicar como
-    'choque_clave' (fuera del savepoint por fila, con el modo del ENVELOPE:
-    una decision que choca no tiene fila en la cola y sin registro su goal en
-    shadow la listaria v_decision_huerfana como 'huerfana'; en shadow el
-    desenlace es la practica de veto del dueno, sellado 6). vence_el =
-    ahora + 48h. `aplicador` llega por parametro porque modo_efectivo es
-    metodo de Aplicador (plataforma atada a la instancia); la plataforma de la
-    cola sale del ciclo (la fuente de sus decisiones)."""
+    """Encola TODAS las decisiones de corte del ciclo (pause/negative/harvest)."""
     platform = conn.execute(_SQL_PLATFORM_CICLO, (cycle_id,)).fetchone()[0]
     live = 0
     shadow = 0
@@ -604,8 +367,6 @@ def encola_cortes(
             kind == "pause" and identidad is not None and identidad[0] == "product_ad"
         )
         if es_pausa_producto and not candado_tomado:
-            # H.4: con el candado compartido, el modo (y su config) se lee
-            # despues de cualquier encendido ya confirmado (I.7).
             conn.execute(_SQL_CANDADO_PAUSA_PRODUCTO, (platform,))
             candado_tomado = True
         modo = _modo_efectivo_corte(
@@ -624,8 +385,6 @@ def encola_cortes(
         elif es_pausa_producto:
             payload = {"adId": identidad[1], "state": apply.ESTADO_PUT_PAUSED}
         elif kind == "pause":
-            # Entidad de pause sin identidad conocida: fila shadow (nunca
-            # vuela) con payload vacio — regla 3, jamas un id inventado.
             payload = {}
         else:
             fila = conn.execute(_SQL_EXTERNALES_GRUPO, (entidad,)).fetchone()
@@ -650,9 +409,6 @@ def encola_cortes(
                 live += 1
             else:
                 shadow += 1
-            # 3.3 (sellado 2): el aviso al dueno sale al ENCOLAR, con el
-            # vencimiento de la ventana — el ciclo lo envia tras el commit
-            # de TX4 (fail-silent; un fallo del canal deja NOTA en notes).
             avisos.append(
                 notifica.CorteEncolado(
                     platform=platform,
@@ -663,9 +419,6 @@ def encola_cortes(
                 )
             )
         except psycopg.errors.UniqueViolation:
-            # D.1b: el registro usa el modo del ENVELOPE (no el efectivo de la
-            # fila) y corre FUERA del savepoint por fila: el rollback del
-            # INSERT choque no se lo lleva.
             if modo_envelope == "live":
                 apply.registra_sin_aplicar(
                     conn,
@@ -683,395 +436,6 @@ def encola_cortes(
     )
 
 
-def _gracia_activa(conn: psycopg.Connection, ad_entity_id: int, ahora: dt.datetime) -> bool:
-    fila = conn.execute(_SQL_GRACIA, (ad_entity_id,)).fetchone()
-    return fila is not None and (ahora - fila[0]) < GRACIA_REACTIVACION
-
-
-def _pause_propio_verificado(conn: psycopg.Connection, ad_entity_id: int) -> bool:
-    return conn.execute(_SQL_PAUSE_PROPIO, (ad_entity_id,)).fetchone()[0]
-
-
-def _flag_pause_economica(conn: psycopg.Connection) -> bool:
-    """C.3 B1: la PAUSE economica rige solo con ads_pause_economica=true.
-
-    Fail-closed SOLO en datos (sin fila, NULL o settings no-dict ->
-    False). Un SELECT fallido NO se atrapa: dejaria la TX abortada y el
-    siguiente statement tronaria con InFailedSqlTransaction — el
-    "fail-closed" seria ilusorio (obs7r2). Si la config es ilegible, el
-    ciclo debe fallar ruidoso aqui, no seguir con un False mentiroso.
-    """
-    config = conn.execute(_SQL_CONFIG_TARGET).fetchone()
-    settings = config[0] if config is not None else {}
-    if not isinstance(settings, dict):
-        return False
-    return g.pause_economica_desde_settings(settings)
-
-
-def _peldano_congelado(inputs: dict, peldano: str) -> Decimal | None:
-    """El target_aplicado del snapshot de la decision si gano `peldano`."""
-    snapshot = inputs.get("target_snapshot")
-    if inputs.get("target_procedencia") != peldano or not isinstance(snapshot, dict):
-        return None
-    valor = snapshot.get("target_aplicado")
-    return Decimal(str(valor)) if valor is not None else None
-
-
-def _alcance_cambio(conn: psycopg.Connection, ad_entity_id: int, inputs: dict) -> bool:
-    """AUTO-03 F.3 (S12): en la version anterior, una decision con la meta
-    del producto solo se revalida con ella si la huella del grupo sigue igual
-    a la congelada. La version M2 sustituye este descarte por el respaldo
-    fresco."""
-    if inputs.get("target_procedencia") != "margen_producto":
-        return False
-    snapshot = inputs.get("target_snapshot")
-    congelada = snapshot.get("huella_alcance") if isinstance(snapshot, dict) else None
-    grupo = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()[0]
-    return congelada is None or productos_io.huella_grupo(conn, grupo) != congelada
-
-
-def _settings_vigentes(conn: psycopg.Connection) -> dict:
-    config = conn.execute(_SQL_CONFIG_TARGET, ()).fetchone()
-    settings = config[0] if config is not None else {}
-    return settings if isinstance(settings, dict) else {}
-
-
-def _economia_elegida(settings: dict, platform: str) -> str:
-    if platform not in productos.PLATAFORMAS:
-        return productos.ECONOMIA_AUTO03
-    return productos.economia_desde_settings(settings, platform)
-
-
-def _producto_fresco(
-    conn: psycopg.Connection,
-    platform: str,
-    grupo: int,
-    cycle_id: int,
-    settings: dict,
-    inputs: dict,
-    *,
-    ad_entity_id: int,
-    destino: Decimal | None,
-) -> tuple[Decimal | None, dict]:
-    """ORBIT 07 M2: la meta del producto resuelta con la evaluacion del ciclo
-    EJECUTOR, por el mismo resolutor del ciclo y bajo las mismas reglas de
-    goal, identidad, atribucion, moneda y respaldo.
-
-    Usa el mismo previo y destino que `cycle._meta_viva`: con un motivo
-    transitorio (ledger_rancio) el peldano de producto converge y la cola no
-    cae a la plataforma. Devuelve (None, detalle) cuando el peldano individual
-    no aplica: la cascada resuelve entonces el respaldo completo (familia/
-    plataforma/setting) en este mismo ciclo. La seleccion de la version
-    anterior (`ads_producto_meta_<plat>` distinto de live) restaura la cascada
-    previa sin borrar evaluaciones. Los inputs originales de la decision no se
-    tocan: el detalle viaja a notes.revalidaciones_economicas."""
-    detalle: dict = {"grupo_id": grupo}
-    modos = productos.modos_desde_settings(settings, platform)
-    if modos.meta != "live":
-        detalle["motivo"] = "meta_no_live"
-        return (None, detalle)
-    producto = economia_revalidacion_io.producto_exclusivo(conn, grupo)
-    detalle["product_id"] = producto
-    if producto is None:
-        detalle["motivo"] = "grupo_no_exclusivo"
-        return (None, detalle)
-    snapshot = inputs.get("target_snapshot")
-    snapshot = snapshot if isinstance(snapshot, dict) else {}
-    congelado = snapshot.get("product_id")
-    if congelado is not None and int(congelado) != producto:
-        detalle["motivo"] = "identidad_cambio"
-        return (None, detalle)
-    leida = economia_revalidacion_io.lee_evaluacion_ciclo(conn, cycle_id, platform, producto)
-    if leida is None:
-        detalle["motivo"] = "sin_evaluacion_fresca"
-        return (None, detalle)
-    evaluacion_id, evaluacion = leida
-    detalle.update(
-        {
-            "evaluacion_id": evaluacion_id,
-            "politica": evaluacion.politica,
-            "motivos": list(evaluacion.motivos),
-        }
-    )
-    grupo_apto = next(
-        (gr for gr in evaluacion.entrada.grupos_aptos_para_meta if gr.grupo_id == grupo),
-        None,
-    )
-    if grupo_apto is None:
-        detalle["motivo"] = "grupo_no_apto"
-        return (None, detalle)
-    if grupo_apto.huella_alcance != productos_io.huella_grupo(conn, grupo):
-        detalle["motivo"] = MOTIVO_ALCANCE_CAMBIO
-        return (None, detalle)
-    margen = evaluacion.entrada.margen
-    detalle.update(
-        {
-            "meta_pct": str(evaluacion.meta.porcentaje)
-            if isinstance(evaluacion.meta, productos.MetaReferencia)
-            else None,
-            "equilibrio_pct": str(margen.margen_neto_pct)
-            if isinstance(margen, g.MedicionMargen) and margen.margen_neto_pct is not None
-            else None,
-            "moneda": margen.moneda if isinstance(margen, g.MedicionMargen) else None,
-            "huella_alcance": grupo_apto.huella_alcance,
-        }
-    )
-    previo = economia_revalidacion_io.previo_hoja(conn, ad_entity_id, platform, cycle_id)
-    tiene_previo = previo is not None and previo[1] == "margen_producto"
-    resolucion = productos.meta_de_hoja(
-        evaluacion.meta,
-        ultimo=previo[0] if previo is not None else None,
-        destino=destino,
-        tiene_previo=tiene_previo,
-        version=productos.POLITICA_ECONOMIA,
-    )
-    detalle["motivo"] = resolucion.motivo
-    detalle["previo"] = str(previo[0]) if previo is not None else None
-    detalle["tiene_previo"] = tiene_previo
-    if resolucion.aplicado is None:
-        return (None, detalle)
-    detalle["target_aplicado"] = str(resolucion.aplicado)
-    return (resolucion.aplicado, detalle)
-
-
-def _familia_respaldo(
-    conn: psycopg.Connection,
-    platform: str,
-    grupo: int,
-    settings: dict,
-    destino: Decimal | None,
-    ahora: dt.datetime,
-    *,
-    ad_entity_id: int,
-    cycle_id: int,
-    economia: str,
-) -> tuple[Decimal | None, dict]:
-    """ORBIT 07 M2: el peldano familia del respaldo, fresco, cuando la hoja
-    venia de la meta individual. Usa la misma medicion y el mismo resolutor
-    puro que el ciclo (A5); el target individual no es ancla de la familia."""
-    campana = conn.execute(_SQL_CAMPANA_DE_GRUPO, (grupo,)).fetchone()
-    if campana is None:
-        return (None, {"motivo": "sin_campana"})
-    return economia_revalidacion_io.familia_fresca(
-        conn,
-        platform,
-        campana[0],
-        ad_entity_id=ad_entity_id,
-        cycle_id=cycle_id,
-        ahora=ahora,
-        fraccion=g.fraccion_desde_settings(settings, platform),
-        destino=destino,
-        version=economia,
-    )
-
-
-def _target_pause_vigente_detalle(
-    conn: psycopg.Connection,
-    platform: str,
-    ad_entity_id: int,
-    cycle_id: int,
-    inputs: dict,
-    ahora: dt.datetime,
-    economia: str | None = None,
-) -> tuple[Decimal | None, str | None, dict]:
-    """Resuelve la cascada del ciclo aplicador con goal y cache frescos.
-
-    El ciclo ya midio el peldano margen y lo sello en notes.target. Si ese
-    snapshot falta, no se inventa un margen ausente para caer al default.
-    ORBIT 07 M2: una decision con procedencia `margen_producto` se revalida
-    con la evaluacion fresca del ciclo EJECUTOR (misma regla que el ciclo) y,
-    si el peldano individual perdio elegibilidad, con el respaldo completo
-    (familia fresca + plataforma/setting). Las decisiones de otro peldano
-    conservan su snapshot congelado. El detalle de la resolucion viaja a la
-    evidencia del intento; los inputs de la decision no se reescriben."""
-    detalle: dict = {}
-    estado = conn.execute(_SQL_PAUSE_TARGET_STATE, (ad_entity_id,)).fetchone()
-    notas_fila = conn.execute(_SQL_NOTAS_CICLO_APLICADOR, (cycle_id,)).fetchone()
-    if estado is None or notas_fila is None:
-        return (None, None, detalle)
-    try:
-        notas = json.loads(notas_fila[0]) if isinstance(notas_fila[0], str) else notas_fila[0]
-        snapshot = notas["target"]
-        if not isinstance(snapshot, dict) or "target_aplicado" not in snapshot:
-            return (None, None, detalle)
-        margen = snapshot["target_aplicado"]
-        margen = Decimal(str(margen)) if margen is not None else None
-        config = conn.execute(_SQL_CONFIG_TARGET).fetchone()
-        settings = config[0] if config is not None else {}
-        if economia is None:
-            economia = (
-                productos.economia_desde_settings(settings, platform)
-                if platform in productos.PLATAFORMAS
-                else productos.ECONOMIA_AUTO03
-            )
-        detalle["version"] = economia
-        campana = plataforma = None
-        for f in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, estado[0])).fetchall():
-            goal = g.Goal(
-                scope=f[0],
-                ad_entity_id=f[1],
-                platform=f[2],
-                target_acos_pct=f[3],
-                bid_floor=f[4],
-                bid_ceiling=f[5],
-                bid_currency=f[6],
-                harvest_campaign_id=f[7],
-                harvest_ad_group_id=f[8],
-                harvest_default_bid=f[9],
-                enabled=f[10],
-                mode=f[11],
-            )
-            if goal.scope == "campaign":
-                campana = goal
-            else:
-                plataforma = goal
-        elegido = g.resuelve_goal(campana, plataforma)
-        if elegido is None or not elegido.enabled or elegido.mode == "off":
-            return (None, None, detalle)
-        # Destino = cascada sin los peldanos por entidad (ancla del respaldo).
-        destino, _ = g.cascada_target_acos_con_procedencia(
-            campana, plataforma, settings, estado[1], platform, margen
-        )
-        detalle["destino"] = str(destino) if destino is not None else None
-        if (
-            economia == productos.POLITICA_ECONOMIA
-            and inputs.get("target_procedencia") == "margen_producto"
-        ):
-            grupo_fila = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()
-            if grupo_fila is None:
-                return (None, None, detalle)
-            grupo = grupo_fila[0]
-            producto, detalle["producto"] = _producto_fresco(
-                conn,
-                platform,
-                grupo,
-                cycle_id,
-                settings,
-                inputs,
-                ad_entity_id=ad_entity_id,
-                destino=destino,
-            )
-            familia = None
-            if producto is None:
-                familia, detalle["familia"] = _familia_respaldo(
-                    conn,
-                    platform,
-                    grupo,
-                    settings,
-                    destino,
-                    ahora,
-                    ad_entity_id=ad_entity_id,
-                    cycle_id=cycle_id,
-                    economia=economia,
-                )
-        elif economia == productos.POLITICA_ECONOMIA:
-            producto = None
-            familia = _peldano_congelado(inputs, "margen_familia")
-        else:
-            # AUTO-03: los peldaños por entidad salen congelados del snapshot
-            # de la decision, como antes de M2.
-            producto = _peldano_congelado(inputs, "margen_producto")
-            familia = _peldano_congelado(inputs, "margen_familia")
-        target, procedencia = g.cascada_target_acos_con_procedencia(
-            campana,
-            plataforma,
-            settings,
-            estado[1],
-            platform,
-            margen,
-            familia,
-            target_margen_producto=producto,
-        )
-        detalle["procedencia"] = procedencia
-        detalle["target"] = str(target) if target is not None else None
-        return (target, procedencia, detalle)
-    except (KeyError, TypeError, ValueError, ArithmeticError, json.JSONDecodeError):
-        return (None, None, detalle)
-
-
-def _target_pause_vigente(
-    conn: psycopg.Connection,
-    platform: str,
-    ad_entity_id: int,
-    cycle_id: int,
-    inputs: dict,
-    ahora: dt.datetime | None = None,
-    detalle: dict | None = None,
-    economia: str | None = None,
-) -> tuple[Decimal | None, str | None]:
-    """La cascada vigente y, si se pasa el contenedor, su detalle economico
-    para la evidencia del intento (nunca reescribe los inputs de la decision)."""
-    target, procedencia, resolucion = _target_pause_vigente_detalle(
-        conn,
-        platform,
-        ad_entity_id,
-        cycle_id,
-        inputs,
-        ahora or dt.datetime.now(dt.UTC),
-        economia,
-    )
-    if detalle is not None:
-        detalle.update(resolucion)
-    return (target, procedencia)
-
-
-_SQL_HAY_GOAL = """
-SELECT 1 FROM ads_optimizer_goal
- WHERE (scope = 'platform' AND platform = %s)
-    OR (scope = 'campaign' AND ad_entity_id = %s)
- LIMIT 1
-"""
-
-
-def _hay_goal(conn: psycopg.Connection, platform: str, ad_entity_id: int) -> bool:
-    """True si existe goal de plataforma o de la campana (aunque este
-    deshabilitado/apagado: puede volver). Sin goal no hay nada que esperar."""
-    estado = conn.execute(_SQL_PAUSE_TARGET_STATE, (ad_entity_id,)).fetchone()
-    if estado is None:
-        return False
-    return conn.execute(_SQL_HAY_GOAL, (platform, estado[0])).fetchone() is not None
-
-
-def _registra_evidencia(
-    conn: psycopg.Connection,
-    cycle_id: int,
-    evidencias: list[dict] | None,
-    evidencia: dict,
-) -> None:
-    """Obs3: la evidencia economica se anexa a notes (TEXT con JSON) del
-    ciclo EJECUTOR en la misma TX que el descarte/aplicacion. El sello
-    post-apply REEMPLAZA notes, asi que _corre_fases mezcla lo persistido
-    a apply.revalidaciones_economicas antes de sellar (obs3r2): la
-    evidencia sobrevive al aborto y no se duplica en exito."""
-    if evidencias is not None:
-        evidencias.append(evidencia)
-    fila = conn.execute(_SQL_LEE_NOTAS_CICLO, (cycle_id,)).fetchone()
-    crudo = fila[0] if fila is not None else None
-    notas: dict = {}
-    previo = None
-    if isinstance(crudo, str) and crudo:
-        try:
-            notas = json.loads(crudo)
-        except ValueError:
-            previo = crudo
-    if not isinstance(notas, dict):
-        previo = crudo if previo is None else previo
-        notas = {}
-    if previo is not None:
-        # notes puede traer texto libre (el rastro del sucesor lo ANEXA
-        # con ||): jamas se pisa evidencia ajena, se conserva anidada.
-        notas.setdefault("nota_previa_no_json", previo)
-    lista = notas.get("revalidaciones_economicas")
-    if not isinstance(lista, list):
-        lista = []
-        notas["revalidaciones_economicas"] = lista
-    lista.append(evidencia)
-    conn.execute(
-        _SQL_ESCRIBE_NOTAS_CICLO,
-        (json.dumps(notas, ensure_ascii=False, default=str), cycle_id),
-    )
-
-
 def _revalida_pause(
     conn: psycopg.Connection,
     aplicador: Aplicador,
@@ -1080,244 +444,25 @@ def _revalida_pause(
     ahora: dt.datetime,
     evidencias: list[dict] | None = None,
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    *,
+    evidencia_grupos: dict | None = None,
 ) -> str | None:
-    """Re-validacion de un pause: re-check de estado vivo por LIST FRESCO
-    (jamas el cache, sellado 16; probe 2.5: el GET directo esta retirado) y
-    re-decision de la regla completa del motor con el umbral RE-RESUELTO a la
-    evidencia FRESCA anclada al reloj de LIBERACION (el decided_at de
-    ventanas_evidencia_ad_group es el instante de liberar, NO el de decidir —
-    contrato cross-plan de CORTES 01).
-
-    ORBIT 07 M1: la misma subpolitica pura del ciclo decide la espera por
-    venta reciente con la lectura fresca. Si el episodio esta vigente, la fila
-    queda released (MOTIVO_ESPERA_PROTECCION): sin cuota, sin applying y sin
-    reiniciar el veto. Abrir un episodio escribe la transicion append-only en
-    la MISMA transaccion."""
-    identidad = apply._identidad(conn, fila.ad_entity_id)
-    if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
-        return MOTIVO_ENTIDAD_NO_VIVA
-    kind, external_id = identidad
-    _, path, contenedor, param = apply._KINDS_DECISORAS[kind]
-    estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, external_id)
-    if estado != apply.ESTADO_WIRE_ENABLED:
-        # Ya no existe / ARCHIVED / ya PAUSED: el corte es moot (ARCHIVED es
-        # operativamente muerto — probe 2.5: el "delete" v3 archiva). La marca
-        # de reactivacion_manual NO aplica aqui: es el caso pause-propio +
-        # ENABLED (sellado 17), no el de entidad apagada.
-        return MOTIVO_ENTIDAD_NO_VIVA
-    if _gracia_activa(conn, fila.ad_entity_id, ahora):
-        return MOTIVO_REACTIVACION_MANUAL
-    if _pause_propio_verificado(conn, fila.ad_entity_id):
-        # Pause propio verificado + estado vivo ENABLED: el dueno re-activo a
-        # mano. Se marca el instante (idempotente por PK) y NO se vuelve a
-        # cortar durante la gracia de 7d.
-        conn.execute(_SQL_INSERT_REACTIVACION, (fila.ad_entity_id,))
-        return MOTIVO_REACTIVACION_MANUAL
-    decision = conn.execute(_SQL_DECISION_INPUTS, (fila.decision_id,)).fetchone()
-    if decision is None or not isinstance(decision[0], dict):
-        return MOTIVO_YA_NO_CALIFICA
-    razon = decision[0].get("motivo")
-    economica = razon == motor_bid.MOTIVO_PAUSE_ECONOMICA
-    settings = _settings_vigentes(conn)
-    economia = _economia_elegida(settings, platform)
-    if economia == productos.ECONOMIA_AUTO03 and _alcance_cambio(
-        conn, fila.ad_entity_id, decision[0]
-    ):
-        return MOTIVO_ALCANCE_CAMBIO
-    resolucion_economica: dict = {}
-    target, procedencia = _target_pause_vigente(
+    """Wrapper estable sobre `apply_revalidacion.revalida_pause` (respeta parches del modulo)."""
+    return apply_revalidacion.revalida_pause(
         conn,
+        aplicador,
         platform,
-        fila.ad_entity_id,
-        aplicador.cycle_id_ejecutor,
-        decision[0],
+        fila,
         ahora,
-        resolucion_economica,
-        economia,
+        evidencias,
+        proteccion_cache,
+        evidencia_grupos=evidencia_grupos,
+        gracia_activa_fn=_gracia_activa,
+        pause_propio_fn=_pause_propio_verificado,
+        flag_economica_fn=_flag_pause_economica,
+        target_vigente_fn=_target_pause_vigente,
+        hay_goal_fn=_hay_goal,
     )
-    if target is None and economica:
-        # Obs4: con goal existente se ESPERA (released, reintenta al ciclo
-        # siguiente como sin_quota/sin_respuesta); sin goal no hay nada que
-        # esperar y se descarta terminal.
-        espera = _hay_goal(conn, platform, fila.ad_entity_id)
-        _registra_evidencia(
-            conn,
-            aplicador.cycle_id_ejecutor,
-            evidencias,
-            {
-                "decision_id": fila.decision_id,
-                "resultado": MOTIVO_ESPERA_TARGET if espera else MOTIVO_YA_NO_CALIFICA,
-                "motivo": "target_no_confiable",
-                "revalidado_at": ahora.isoformat(),
-                **({"economia": resolucion_economica} if resolucion_economica else {}),
-            },
-        )
-        return MOTIVO_ESPERA_TARGET if espera else MOTIVO_YA_NO_CALIFICA
-    grupo = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
-    evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    # TEMPORADA 01 D (al liberar): la frontera de la hoja trae el multiplicador
-    # del dueno y la cerca — la pausa de la baja se revalida con 2x clics,
-    # 2x piso y 2x exceso, y su ventana no mira dias de la baja. El piso y el
-    # techo vienen del goal de la CAMPAÑA de la hoja (revision Devin dAIN: la
-    # fila es una keyword; el goal de plataforma no la describe).
-    grupo_rv = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
-    campana_rv = conn.execute(_SQL_CAMPANA_DE_GRUPO, (grupo_rv,)).fetchone()[0]
-    # TEMPORADA 01 D (revision Devin dAIN/dJ_e): el piso y el techo salen del
-    # GOAL EFECTIVO de la hoja con la precedencia del ciclo (campana >
-    # plataforma via resuelve_goal) y los defaults de su moneda
-    # (resuelve_floor_ceiling) — 999999 inventaba un techo que hacia parecer
-    # un regreso pendiente donde la puja ya alcanzo el techo real.
-    goal_campana = goal_plataforma = None
-    for fila_g in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, campana_rv)).fetchall():
-        goal_rv = g.Goal(
-            scope=fila_g[0],
-            ad_entity_id=fila_g[1],
-            platform=fila_g[2],
-            target_acos_pct=fila_g[3],
-            bid_floor=fila_g[4],
-            bid_ceiling=fila_g[5],
-            bid_currency=fila_g[6],
-            harvest_campaign_id=fila_g[7],
-            harvest_ad_group_id=fila_g[8],
-            harvest_default_bid=fila_g[9],
-            enabled=fila_g[10],
-            mode=fila_g[11],
-        )
-        if fila_g[0] == "campaign":
-            goal_campana = goal_rv
-        else:
-            goal_plataforma = goal_rv
-    moneda_hoja = motor_bid.PLATAFORMAS_MONEDA[platform]
-    floor_rv, ceiling_rv = g.resuelve_floor_ceiling(
-        g.resuelve_goal(goal_campana, goal_plataforma), moneda_hoja
-    )
-    frontera_h = temporada_io.frontera_hoja(
-        conn, fila.ad_entity_id, ahora.date(), piso=floor_rv, techo=ceiling_rv
-    )
-    mult_baja = (
-        frontera_h.mult_cortes
-        if frontera_h is not None and frontera_h.fase_hoja == "baja"
-        else None
-    )
-    cerca = frontera_h.cerca_hoja if frontera_h is not None else None
-    umbral = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_baja).umbral
-    fresco = windows.ventana_cortes(conn, fila.ad_entity_id, ahora, cerca=cerca)
-    # C.3 B1 + obs3r2: la politica EFECTIVA (una sola lectura del flag;
-    # la evidencia registra esta, no la version nominal).
-    version_efectiva = (
-        motor_bid.POLITICA_PAUSE_ECONOMICA
-        if target is not None and _flag_pause_economica(conn)
-        else None
-    )
-    proteccion = (
-        proteccion_cache.insumos(
-            fila.ad_entity_id,
-            ventana_desde=fresco.window_start if fresco is not None else None,
-            ventana_hasta=fresco.window_end if fresco is not None else None,
-        )
-        if proteccion_cache is not None
-        else None
-    )
-    resultado = motor_bid.decide_pause(
-        platform=platform,
-        bids=None,  # la re-decision es SOLO de la regla pause (cortes)
-        cortes=fresco,
-        target_acos_pct=target if target is not None else _TARGET_REVALIDA,
-        umbral_pause=umbral,
-        # TEMPORADA 01 D (al liberar, revision Devin dAF4): el piso de gasto
-        # tambien va x mult (1000 MXN en baja) — sin el, pausas que ya no
-        # califican seguirian aplicando.
-        cost_min=(
-            cortes.piso_pausa(platform, mult_baja=mult_baja) if mult_baja is not None else None
-        ),
-        # C.3 B1: la revalidacion economica rige solo con el flag (con
-        # flag apagado, camino pre-economico aunque la fila sea vieja).
-        policy_version=version_efectiva,
-        proteccion=proteccion,
-        # TEMPORADA 01 D (al liberar): el exceso economico de la baja va x mult.
-        exceso_minimo=(
-            cortes.exceso_minimo(motor_bid.PLATAFORMAS_MONEDA[platform], mult_baja=mult_baja)
-            if mult_baja is not None
-            else None
-        ),
-    )
-    # Obs1: una fila economica aplica si la hoja califica PAUSE por
-    # CUALQUIER regla (si ademas califica la umbral, pausar sigue siendo
-    # correcto); solo se cancela si ya no califica ninguna.
-    califica = resultado.kind == "pause"
-    if (
-        economica
-        or resultado.motivo == motor_bid.MOTIVO_PAUSE_ECONOMICA
-        or decision[0].get("target_procedencia") == "margen_producto"
-    ):
-        exceso = (
-            motor_bid.exceso_economico(fresco, target, motor_bid.PLATAFORMAS_MONEDA[platform])
-            if target is not None
-            else None
-        )
-        _registra_evidencia(
-            conn,
-            aplicador.cycle_id_ejecutor,
-            evidencias,
-            {
-                "decision_id": fila.decision_id,
-                "revalidado_at": ahora.isoformat(),
-                "version": version_efectiva,
-                "window_start": fresco.window_start.isoformat() if fresco else None,
-                "window_end": fresco.window_end.isoformat() if fresco else None,
-                "moneda": fresco.metric_currency if fresco else None,
-                "target": str(target) if target is not None else None,
-                "target_procedencia": procedencia,
-                "cost": str(fresco.cost) if fresco and fresco.cost is not None else None,
-                "revenue": str(fresco.ad_revenue)
-                if fresco and fresco.ad_revenue is not None
-                else None,
-                "exceso": str(exceso) if exceso is not None else None,
-                "multiplicador": str(motor_bid.MULT_PAUSE_ECONOMICA),
-                "exceso_minimo": str(
-                    motor_bid.EXCESO_MINIMO[motor_bid.PLATAFORMAS_MONEDA[platform]]
-                ),
-                "resultado": "califica" if califica else MOTIVO_YA_NO_CALIFICA,
-                **({"economia": resolucion_economica} if resolucion_economica else {}),
-            },
-        )
-    if califica:
-        return None
-    if (
-        resultado.proteccion is not None
-        and resultado.motivo in (subproteccion.MOTIVO_PROTEGIDA, subproteccion.MOTIVO_INDETERMINADA)
-        and resultado.proteccion.accion in ("esperar", "indeterminada")
-    ):
-        # La espera conserva la UNICA fila released y sus ancla/vencimiento
-        # originales. Si la subpolitica abrio el episodio en esta revalidacion,
-        # se persiste aqui para que el ciclo siguiente lo vea y libere las
-        # pujas.
-        if resultado.proteccion.abre_episodio and proteccion_cache is not None:
-            transicion = proteccion_cache.transicion(fila.ad_entity_id, resultado.proteccion, ahora)
-            if transicion is not None:
-                proteccion_venta.inserta_transiciones(conn, [transicion])
-        _registra_evidencia(
-            conn,
-            aplicador.cycle_id_ejecutor,
-            evidencias,
-            {
-                "decision_id": fila.decision_id,
-                "revalidado_at": ahora.isoformat(),
-                "resultado": MOTIVO_ESPERA_PROTECCION,
-                "motivo": resultado.motivo,
-                "ancla": resultado.proteccion.ancla.isoformat()
-                if resultado.proteccion.ancla is not None
-                else None,
-                "vence_el": resultado.proteccion.vence_el.isoformat()
-                if resultado.proteccion.vence_el is not None
-                else None,
-                "abre_episodio": resultado.proteccion.abre_episodio,
-            },
-        )
-        return MOTIVO_ESPERA_PROTECCION
-    if not economica and fresco is not None and fresco.orders is not None and fresco.orders > 0:
-        return MOTIVO_VENDIO_EN_VENTANA
-    return MOTIVO_YA_NO_CALIFICA
 
 
 def _revalida_negative(
@@ -1325,61 +470,15 @@ def _revalida_negative(
     platform: str,
     fila: FilaCola,
     ahora: dt.datetime,
+    *,
+    evidencia_grupos: dict | None = None,
 ) -> str | None:
-    """Re-validacion de un negative: la regla completa del motor contra la
-    ventana FRESCA del termino (terminos_cortes a la hora de liberar) con
-    umbral Y piso RE-RESUELTOS de la evidencia fresca del grupo (CORTES 01
-    1.2/1.4). Sin re-check HTTP de estado vivo: la familia term_cut no pausa
-    una entidad — su re-validacion ES la regla con evidencia fresca."""
-    grupo = fila.ad_entity_id
-    evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
-    # TEMPORADA 01 D (al liberar): el multiplicador del dueno para los
-    # negatives cuando la plataforma decide la baja en live.
-    mult_baja = temporada_io.mult_negativa(conn, platform, ahora.date())
-    cerca_plat = temporada_io.cerca_plataforma(conn, platform, ahora.date())
-    umbral = cortes.umbral_corte(evidencia, "negative", mult_baja=mult_baja).umbral
-    piso = cortes.piso_corte(evidencia, platform, mult_baja=mult_baja).piso_cost
-    terminos = windows.terminos_cortes(conn, grupo, ahora, cerca=cerca_plat)
-    term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
-    if term is None:
-        # Sin observaciones frescas del termino en la ventana: no alcanza el
-        # umbral por construccion (regla 3: ausencia, jamas ceros inventados).
-        return MOTIVO_YA_NO_CALIFICA
-    single = windows.TerminosCortes(
-        ad_entity_id=grupo,
-        window_start=terminos.window_start,
-        window_end=terminos.window_end,
-        fechas_entidad=terminos.fechas_entidad,
-        terminos=(term,),
+    return apply_revalidacion.revalida_negative(
+        conn, platform, fila, ahora, evidencia_grupos=evidencia_grupos
     )
-    (resultado,) = hygiene.decide_hygiene(
-        platform=platform,
-        terminos=single,
-        target_acos_pct=_TARGET_REVALIDA,
-        config_harvest=None,
-        keywords_existentes=frozenset(),
-        # ARREGLOS 01 B (E-S1): el negative no debe apagar una keyword EXACT
-        # propia del mismo ad group aunque el texto venga de una propuesta.
-        keywords_propias=hygiene.keywords_exactas_por_grupo(conn, platform, solo_grupo=grupo).get(
-            grupo, frozenset()
-        ),
-        umbral_negative=umbral,
-        piso_negative=piso,
-    )
-    if resultado.kind == "negative":
-        return None
-    if term.orders is not None and term.orders > 0:
-        return MOTIVO_VENDIO_EN_VENTANA
-    return MOTIVO_YA_NO_CALIFICA
 
 
 def _revalida_ancestros(conn: psycopg.Connection, fila: FilaCola) -> str | None:
-    """CAMPANA ACTIVA 01: gate de campaña y ad group ENABLED al LIBERAR, con
-    el cache de estructura (sync diario; guarda de 48h del ciclo) — no un
-    LIST fresco de campañas (residual declarado en el plan). Corre ANTES del
-    dispatch por kind: sin LIST de la hoja, sin cobro, sin claim. Entidad sin
-    fila o ancestro sin state -> fuera (regla 3). Desde 1.6 delega en
-    apply.gate_ancestros (funcion UNICA compartida con los reconciliadores)."""
     return apply.gate_ancestros(conn, fila.ad_entity_id)
 
 
@@ -1391,35 +490,31 @@ def _revalida(
     ahora: dt.datetime,
     evidencias: list[dict] | None = None,
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    evidencia_grupos: dict | None = None,
 ) -> str | None:
-    """None = el corte sigue calificando. Un motivo = discard (PRE-claim: el
-    descarte ocurre SIEMPRE antes del cobro, brief §3), SALVO
-    MOTIVO_ESPERA_TARGET que deja la fila released para reintentar al ciclo
-    siguiente (obs4). El gate de ancestros
-    (campaña/ad group ENABLED en el cache) va PRIMERO para todos los kinds.
-    El harvest delega en apply_harvest.revalida_harvest (ADV-05 de la review
-    adversaria: la regla se re-evalua con evidencia FRESCA al reloj de
-    liberacion — jamas se cosecha por silencio contra la regla lo que
-    vendio/dejo de calificar durante la ventana)."""
     motivo = _revalida_ancestros(conn, fila)
     if motivo is not None:
         return motivo
     rama = _rama(conn, fila)
     if rama == "pause_hoja":
-        return _revalida_pause(conn, aplicador, platform, fila, ahora, evidencias, proteccion_cache)
+        return _revalida_pause(
+            conn,
+            aplicador,
+            platform,
+            fila,
+            ahora,
+            evidencias,
+            proteccion_cache,
+            evidencia_grupos=evidencia_grupos,
+        )
     if rama == "pause_producto":
         return apply_producto.revalida_pause_producto(conn, aplicador, fila, ahora)
     if rama == "negative":
-        return _revalida_negative(conn, platform, fila, ahora)
+        return _revalida_negative(conn, platform, fila, ahora, evidencia_grupos=evidencia_grupos)
     return apply_harvest.revalida_harvest(conn, platform, fila, ahora)
 
 
 def _rama(conn: psycopg.Connection, fila: FilaCola) -> str:
-    """AUTO-03 H.4: la rama de revalidacion y ejecucion de una fila, por kind
-    y entidad. Un kind o una entidad sin rama propia LANZA: antes un pause de
-    product_ad caia en _revalida_pause (entidad_no_viva) y cualquier kind
-    ajeno caia a harvest o a negative. I.4: pause sobre product_ad tiene su
-    rama, app/apply_producto.py (revalida, ejecuta y reconcilia)."""
     if fila.kind == "pause":
         identidad = apply._identidad(conn, fila.ad_entity_id)
         if identidad is not None and identidad[0] in apply._KINDS_DECISORAS:
@@ -1433,151 +528,7 @@ def _rama(conn: psycopg.Connection, fila: FilaCola) -> str:
     )
 
 
-def _termina(conn: psycopg.Connection, fila: FilaCola, estado: str) -> None:
-    sello = "applied_at" if estado == "applied" else "failed_at"
-    conn.execute(
-        f"UPDATE apply_queue SET estado = %s, {sello} = now() WHERE id = %s", (estado, fila.id)
-    )
-
-
-def _cliente_mutacion(aplicador: Aplicador):
-    """El write client vive DETRAS del Aplicador: el candado de
-    test_architecture (solo app/apply.py importa app.ads.write) obliga a que
-    este modulo reciba el cliente por parametro o lo pida al aplicador —
-    nunca construirlo (ni importarlo) aqui."""
-    return aplicador._cliente()
-
-
-def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola) -> str:
-    identidad = apply._identidad(conn, fila.ad_entity_id)
-    if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
-        _termina(conn, fila, "failed")
-        return "failed"
-    id_attempt = apply._ledger(
-        conn, fila.decision_id, "normal", fila.request_payload, quota_cobrada=True
-    )
-    if id_attempt is None:
-        _termina(conn, fila, "failed")  # tope 3: no existe 4o intento
-        return "failed"
-    conn.commit()  # intencion durable PRE-HTTP
-    cliente = _cliente_mutacion(aplicador)
-    try:
-        if identidad[0] == "keyword":
-            resp_http = cliente.pausar_keyword(identidad[1])
-        else:
-            resp_http = cliente.pausar_target(identidad[1])
-    except apply.AdsApiErrorMutacion as exc:
-        with tx_durable(conn):
-            apply._sella_ledger(
-                conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-            )
-            _termina(conn, fila, "failed")
-        return "failed"
-    # 5xx/fallo ambiguo (AdsApiError): SUBE — ledger sin sello y fila applying
-    # huerfana: ES el rastro, la reconciliacion (2.3, matriz §6.1) decide.
-    ack = apply._json_seguro(resp_http)
-    _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
-    verify = estado == apply.ESTADO_WIRE_PAUSED
-    resultado = (
-        "ok"
-        if verify
-        else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
-    )
-    with tx_durable(conn):
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
-        if estado is not None:
-            # cache con LO LEIDO (sellado 16): el status queda como Amazon lo
-            # devolvio en el readback, jamas como lo pedimos.
-            conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-        _termina(conn, fila, "applied" if verify else "failed")
-    return "applied" if verify else "failed"
-
-
-def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola) -> str:
-    payload = fila.request_payload
-    id_attempt = apply._ledger(conn, fila.decision_id, "normal", payload, quota_cobrada=True)
-    if id_attempt is None:
-        _termina(conn, fila, "failed")
-        return "failed"
-    conn.commit()  # intencion durable PRE-HTTP
-    try:
-        resp_http = _cliente_mutacion(aplicador).crear_negative_exacto(
-            payload["adGroupId"], payload["campaignId"], payload["keywordText"]
-        )
-    except apply.AdsApiErrorMutacion as exc:
-        with tx_durable(conn):
-            apply._sella_ledger(
-                conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-            )
-            _termina(conn, fila, "failed")
-        return "failed"
-    ack = apply._json_seguro(resp_http)
-    # Exige negativeKeywordId en el ack (207 con success anidado): _json_seguro
-    # siempre devuelve dict y un 2xx sin id no prueba creacion.
-    verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
-    resultado = "ok" if verify else "fallo:ack_sin_id"
-    rastro_biblio: dict | None = None
-    grupo_biblio: int | None = None
-    with tx_durable(conn):
-        if verify:
-            # F2 A.4: un negative APLICADO de verdad (verify) en campana de
-            # grupo ensena el termino a negative_biblioteca, en SAVEPOINT
-            # dentro de este mismo sello (sin grupo no se llama: cero
-            # statements, cero alerta, no es fallo). El fallo de biblioteca
-            # NO toca el resultado del ledger (`_SQL_ACK_OK` lo lee con
-            # `resultado = 'ok'` exacto para la reversa manual; una nota lo
-            # romperia) — queda en el log con scrub y se avisa DESPUES del
-            # commit (opcion (b) del brief, declarada en el PR).
-            grupo = biblioteca.grupo_de_ad_group(conn, fila.ad_entity_id)
-            if grupo is not None:
-                grupo_biblio = grupo[0]
-                rastro_biblio = biblioteca.registra_negative(
-                    conn,
-                    grupo_id=grupo[0],
-                    tipo_producto=grupo[1],
-                    platform=aplicador._platform,
-                    texto=fila.search_term,
-                    origen=(f"grupo:{grupo[0]}/campana:{grupo[2]}/decision:{fila.decision_id}"),
-                    decision_id=fila.decision_id,
-                )
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
-        _termina(conn, fila, "applied" if verify else "failed")
-    # A.4r1: el aviso sale DESPUES del commit (el HTTP no alarga el
-    # sello); sin grupo, exito o precedencia no hace nada.
-    biblioteca.avisa_si_fallo(
-        "negative",
-        rastro_biblio,
-        plataforma=aplicador._platform,
-        grupo_id=grupo_biblio,
-        decision_id=fila.decision_id,
-        job_id=None,
-        texto=fila.search_term,
-    )
-    return "applied" if verify else "failed"
-
-
-def _ejecuta_rama(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, rama: str) -> str:
-    """La ejecucion de una fila reclamada, por su rama. I.4: la pausa por
-    producto corre con la cuota de pause ya cobrada; un PUT incierto la deja
-    applying ("pendiente") para su reconciliacion."""
-    if rama == "pause_hoja":
-        return _ejecuta_pause(conn, aplicador, fila)
-    if rama == "pause_producto":
-        return apply_producto.ejecuta_pause_producto(conn, aplicador, fila)
-    return _ejecuta_negative(conn, aplicador, fila)
-
-
 def descarta_esperas_proteccion(conn: psycopg.Connection, platform: str) -> int:
-    """Descarta, antes del claim (sin cuota ni HTTP), las pausas released cuyo
-    ULTIMO no-apply CONCLUYENTE fue `espera_proteccion` (se ignoran los
-    transitorios `sin_respuesta` y `espera_target`, que no dicen si M1 sigue
-    encendida): si una espera vieja ya fue reemplazada por un motivo concluyente
-    (p.ej. quota), la fila no espera por M1. Es idempotente: la segunda corrida
-    no encuentra filas. Si el llamador revierte su transaccion, la fila sigue
-    released y la proxima corrida la vuelve a encontrar."""
     filas = conn.execute(_SQL_DESCARTA_ESPERAS, (MOTIVO_PROTECCION_APAGADA, platform)).fetchall()
     return len(filas)
 
@@ -1585,11 +536,33 @@ def descarta_esperas_proteccion(conn: psycopg.Connection, platform: str) -> int:
 def _descartes_al_apagar_proteccion(
     conn: psycopg.Connection, platform: str, proteccion_activa: bool
 ) -> list[str]:
-    """D-H1: descartes del inicio del barrido. Con M1 encendida no hay nada que
-    descartar por este camino; el detalle del porque vive en libera_vencidos."""
     if proteccion_activa:
         return []
     return [MOTIVO_PROTECCION_APAGADA] * descarta_esperas_proteccion(conn, platform)
+
+
+def _procesa_harvest_liberada(
+    conn: psycopg.Connection,
+    aplicador: Aplicador,
+    platform: str,
+    fila: FilaCola,
+    alertas_harvest: list[apply_harvest.AlertaHarvest],
+    caps_saturados: list[CapSaturado],
+    registra,
+) -> tuple[int, int, int, int]:
+    """Ejecuta el hook harvest y devuelve deltas `(aplicadas, fallidas, carreras, sin_quota)`."""
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+    if resultado_h.alerta is not None:
+        alertas_harvest.append(resultado_h.alerta)
+    caps_saturados.extend(resultado_h.caps_saturados)
+    if resultado_h.estado == "applied":
+        return (1, 0, 0, 0)
+    if resultado_h.estado == "failed":
+        return (0, 1, 0, 0)
+    if resultado_h.estado == "perdida":
+        return (0, 0, 1, 0)
+    registra(fila, apply.MOTIVO_SIN_QUOTA)
+    return (0, 0, 0, 1)
 
 
 def libera_vencidos(
@@ -1601,70 +574,20 @@ def libera_vencidos(
     cycle_id: int | None = None,
     proteccion_activa: bool = False,
 ) -> ResultadoLiberacion:
-    """Barrido FIFO de las filas vencidas (pending_veto, modo live, vence_el
-    <= ahora; por encolado_at/id) Y de las released no terminales que
-    esperaron quota (ADV-02: misma secuencia al ciclo siguiente — sin este
-    barrido la fila huerfana bloqueaba su clave de efecto para siempre).
-    ORDEN SELLADO por fila (brief §3):
+    """Barrido FIFO de filas vencidas y released en modo live.
 
-    1. liberacion atomica pending_veto -> released (la fila que YA viene
-       released NO se re-libera y JAMAS cuenta como carrera: esperaba FIFO);
-    2. re-validacion PRE-claim SOBRE la fila released (gate de ancestros
-       CAMPANA ACTIVA 01 + evidencia FRESCA al reloj de LIBERACION + LIST
-       fresco de estado vivo): motivo -> discard
-       (un descarte SIEMPRE antes del claim, NUNCA despues del cobro);
-    3. cobro de quota (apply.consume_quota_y_sello): sin quota la fila QUEDA en
-       released (espera FIFO y SIGUE vetable, §5.4). Se cobra ANTES del claim
-       porque la maquina no tiene applying -> released (0002): cobrar despues
-       del claim dejaria atrapada la fila que espera quota — declarado; el
-       invariante "descarte jamas post-cobro" se conserva (el discard es el
-       paso 2). Residuales aceptados: (a) si un veto gana la carrera entre
-       cobro y claim, esa unidad queda cobrada sin intento (ventana de
-       microsegundos, una unidad, visible en apply_quota_state); (b) ADV-11:
-       si la decision ya agoto el tope de 3 intentos del ledger, `_ledger`
-       devuelve None DESPUES del cobro — una unidad quemada sin intento ni
-       fila (edge: exige 3 intentos previos de la MISMA decision);
-    4. claim atomico released -> applying (0 filas = perdio la carrera);
-    5. fila del ledger PRE-HTTP + commit (apply._ledger);
-    6. HTTP (write client del aplicador) + readback + sello -> applied|failed.
-
-    Las filas shadow JAMAS se seleccionan (sellado 6). kind harvest delega al
-    hook apply_harvest.aplica_harvest (2.3: harvest_job nace AL LIBERAR,
-    sellado 13) DESPUES de la re-validacion y ANTES del cobro de la cola — la
-    UNICA unidad de la operacion logica la cobra el hook. GK3
-    (cross-review): si el LIST fresco de la re-validacion de una fila muere
-    (AdsApiError), ESA fila queda released con nota y el FIFO continua con las
-    demas — una entidad muerta NO aborta el barrido.
-
-    ORBIT 07 M1: `proteccion_activa` selecciona la subpolitica. Con False
-    (setting ausente) la re-validacion es la historica y no se leen episodios;
-    con True, la espera por venta reciente deja la fila released sin cuota ni
-    claim. La seleccion la resuelve el ciclo desde el mismo setting.
-
-    ADS D.1: con `cycle_id` (el ciclo EJECUTOR; None = no registra, compat
-    con callers viejos) los no-applies del barrido quedan en
-    decision_sin_aplicar: sin_quota (cola y hook harvest), espera_target
-    (economica sin target confiable que espera en released) y sin_respuesta
-    (LIST de re-validacion muerto). D.1b: `perdida` ya NO se escribe — el
-    claim del harvest perdido contra un veto queda como contador del resumen
-    (carreras_perdidas) y su desenlace ya es visible en la fila de la cola
-    ('vetoed'); el motivo sigue en el vocabulario y el CHECK por las filas
-    historicas. Los DESCARTES no se graban: su desenlace ya es la fila
-    terminal discarded + discard_motivo.
-
-    D-H1: con la proteccion APAGADA, primero se descartan las pausas released
-    cuyo ULTIMO no-apply CONCLUYENTE fue `espera_proteccion` (se ignoran
-    `sin_respuesta` y `espera_target`; sin cuota ni HTTP y antes de la seleccion
-    FIFO), asi no caen de golpe con la semantica historica. Las que apaguen la
-    proteccion vuelven a proponerse con su veto de 48h; una espera vieja ya
-    reemplazada por un motivo concluyente (p.ej. quota) no se toca."""
+    Precalcula `windows.ventanas_evidencia_ad_group` a lo sumo UNA vez por
+    barrido para las filas `pause`/`negative` (lazy en la primera que llega a
+    revalidacion), evitando re-agregar 80 dias de metricas por cada corte
+    `pause`/`negative`. Las filas `harvest` siguen delegando en
+    `apply_harvest.revalida_harvest`.
+    """
     descartadas = _descartes_al_apagar_proteccion(conn, platform, proteccion_activa)
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
-    # ORBIT 07 M1: la misma seleccion de politica que el ciclo. Apagada, la
-    # cola revalida con la semantica historica y no lee la tabla de episodios.
     proteccion_cache = (
         proteccion_venta.lee_cache(conn, platform, ahora) if proteccion_activa else None
     )
+    evidencia_grupos: dict | None = None
 
     def _registra(fila: FilaCola, motivo: str) -> None:
         if cycle_id is not None and fila.decision_id is not None:
@@ -1683,8 +606,6 @@ def libera_vencidos(
                 carreras += 1
                 continue
             liberadas += 1
-        # released (esperaba quota FIFO o es el reintento del ciclo
-        # siguiente): SIN re-liberacion — directa a la secuencia sellada.
         if (
             _modo_efectivo_corte(
                 conn, aplicador, platform, fila.ad_entity_id, escalera_global="live"
@@ -1694,67 +615,53 @@ def libera_vencidos(
             conn.execute(_SQL_DESCARTA, (MOTIVO_MODO_NO_LIVE, fila.id, "released"))
             descartadas.append(MOTIVO_MODO_NO_LIVE)
             continue
+        if evidencia_grupos is None and fila.kind in ("pause", "negative"):
+            evidencia_grupos = windows.ventanas_evidencia_ad_group(conn, platform, ahora)
         try:
             motivo = _revalida(
-                conn, aplicador, platform, fila, ahora, revalidaciones_economicas, proteccion_cache
+                conn,
+                aplicador,
+                platform,
+                fila,
+                ahora,
+                revalidaciones_economicas,
+                proteccion_cache,
+                evidencia_grupos,
             )
         except AdsApiError:
-            # Fallo de lectura en re-validacion deja esta fila en released y
-            # continua el barrido; los 5xx de mutacion siguen propagando.
             sin_respuesta += 1
             _registra(fila, apply.MOTIVO_SIN_RESPUESTA)
             continue
-        if motivo == MOTIVO_ESPERA_TARGET:
-            # Obs4: la fila economica sin target confiable (pero CON goal
-            # que puede volver) queda released y reintenta al ciclo
-            # siguiente; sigue vetable. No se consume cuota ni claim.
-            espera_target += 1
-            _registra(fila, MOTIVO_ESPERA_TARGET)
+        veredicto = veredicto_de_motivo(motivo)
+        if veredicto.accion == "esperar":
+            assert veredicto.motivo is not None
+            if veredicto.motivo == MOTIVO_ESPERA_TARGET:
+                espera_target += 1
+            else:
+                espera_proteccion += 1
+            _registra(fila, veredicto.motivo)
             continue
-        if motivo == MOTIVO_ESPERA_PROTECCION:
-            # ORBIT 07 M1: la pausa por cero ventas espera el vencimiento del
-            # episodio. Queda released (una sola fila, ancla y vencimiento
-            # originales), vetable y sin cobro de cuota ni claim.
-            espera_proteccion += 1
-            _registra(fila, MOTIVO_ESPERA_PROTECCION)
-            continue
-        if motivo is not None:
-            conn.execute(_SQL_DESCARTA, (motivo, fila.id, "released"))
-            descartadas.append(motivo)
+        if veredicto.accion == "descartar":
+            assert veredicto.motivo is not None
+            conn.execute(_SQL_DESCARTA, (veredicto.motivo, fila.id, "released"))
+            descartadas.append(veredicto.motivo)
             continue
         if fila.kind == "harvest":
-            # ORBIT 04 2.3: harvest_job nace al liberar (sellado 13) y TODA
-            # la ejecucion vive en apply_harvest (job → quota → claim →
-            # ledger → 2 HTTPs → readback por identidad completa).
-            resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
-            if resultado_h.alerta is not None:
-                # 3.3: la alerta viaja al ciclo (NOTA telegram si su envio fallo)
-                alertas_harvest.append(resultado_h.alerta)
-            # Preflight 1.4: la unidad del harvest la cobra el hook — si esa
-            # cobro saturo el cap, el evento viaja con el resultado.
-            caps_saturados.extend(resultado_h.caps_saturados)
-            if resultado_h.estado == "applied":
-                aplicadas += 1
-            elif resultado_h.estado == "failed":
-                fallidas += 1
-            elif resultado_h.estado == "perdida":
-                # D.1b: sin registro — duplicaria el desenlace que ya es
-                # visible en la fila de la cola ('vetoed').
-                carreras += 1
-            else:
-                sin_quota += 1
-                _registra(fila, apply.MOTIVO_SIN_QUOTA)
+            da, df, dc, dq = _procesa_harvest_liberada(
+                conn, aplicador, platform, fila, alertas_harvest, caps_saturados, _registra
+            )
+            aplicadas += da
+            fallidas += df
+            carreras += dc
+            sin_quota += dq
             continue
-        # H.4: la rama se resuelve ANTES del cobro (lanza sin cobrar).
         rama = _rama(conn, fila)
         usada, saturada = consume_quota_y_sello(conn, platform, fila.kind)
         if not usada:
             sin_quota += 1
             _registra(fila, apply.MOTIVO_SIN_QUOTA)
-            continue  # queda en released: espera FIFO y SIGUE vetable
+            continue
         if saturada:
-            # Preflight 1.4 (D3a): el cobro que llevo used a cap es UN evento
-            # por (motor, dia); las filas siguientes quedan sin quota (arriba).
             evento = evento_cap_saturado(conn, platform, fila.kind)
             if evento is not None:
                 caps_saturados.append(evento)
@@ -1782,97 +689,4 @@ def libera_vencidos(
     )
 
 
-def reversa_pause(
-    conn: psycopg.Connection,
-    cliente,
-    fila: FilaCola,
-    *,
-    tick=None,
-) -> bool:
-    """Reversa del pause: reanudar la keyword/target. Misma secuencia sellada
-    (ledger tipo 'reversa', quota_cobrada=false EXENTA), readback y cache con
-    lo leido. No toca decision_application ni applied_count; una reversa NO
-    limpia el cooldown (sellado 12). True = confirmada por readback."""
-    identidad = apply._identidad(conn, fila.ad_entity_id)
-    if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
-        return False
-    campo = "keywordId" if identidad[0] == "keyword" else "targetId"
-    payload = {campo: identidad[1], "state": apply.ESTADO_PUT_ENABLED}
-    id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
-    if id_attempt is None:
-        return False  # tope 3 del ledger: no existe 4o intento
-    conn.commit()  # intencion durable PRE-HTTP
-    try:
-        if identidad[0] == "keyword":
-            resp_http = cliente.reanudar_keyword(identidad[1])
-        else:
-            resp_http = cliente.reanudar_target(identidad[1])
-    except apply.AdsApiErrorMutacion as exc:
-        apply._sella_ledger(
-            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-        )
-        conn.commit()
-        return False
-    ack = apply._json_seguro(resp_http)
-    if tick is not None:
-        tick()
-    _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
-    verify = estado == apply.ESTADO_WIRE_ENABLED
-    resultado = (
-        "ok"
-        if verify
-        else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
-    )
-    with conn.transaction():
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        if estado is not None:
-            conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-    return verify
-
-
-def reversa_negative(
-    conn: psycopg.Connection,
-    cliente,
-    fila: FilaCola,
-    negative_id: str | int,
-    *,
-    tick=None,
-) -> bool:
-    """Reversa del negative: POST /sp/negativeKeywords/delete del negativo
-    creado (regla 7; shape real del probe 2.5, apply_attempt 14: filtro de
-    ids — el DELETE directo del collection NO existe, 403). Ledger tipo
-    'reversa' EXENTO de quota; el `negative_id` es el que devolvio el ack del
-    apply — lo pasa el caller porque la fila de la cola no lo congela.
-    CX3 de la cross-review: el 207 NO es exito automatico — la fila
-    rechazada viaja en error[] y la reversa se confirma SOLO sin rechazo
-    por-item (con el id de success[] siendo el del negativo borrado). True =
-    el delete fue aceptado."""
-    payload = {"negativeKeywordIdFilter": {"include": [str(negative_id)]}}
-    id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
-    if id_attempt is None:
-        return False
-    conn.commit()  # intencion durable PRE-HTTP
-    try:
-        resp_http = cliente.borrar_negative(negative_id)
-    except apply.AdsApiErrorMutacion as exc:
-        apply._sella_ledger(
-            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-        )
-        conn.commit()
-        return False
-    ack = apply._json_seguro(resp_http)
-    if tick is not None:
-        tick()
-    if apply_harvest._reversa_rechazada(ack, "negativeKeywordId", negative_id):
-        with conn.transaction():
-            apply._sella_ledger(
-                conn,
-                id_attempt,
-                ack=ack,
-                resultado=apply_harvest._resultado_reversa_rechazada(ack),
-            )
-        return False
-    with conn.transaction():
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-    return True
+_ = cortes  # re-exportado para parches de tests sobre `apply_cola.cortes`
