@@ -136,6 +136,20 @@ def _perfiles(cliente_lectura) -> dict[str, int]:
     }
 
 
+def _bootstrap_amazon(
+    plataforma: str | None = None,
+    *,
+    error_sin_perfil: str | None = None,
+) -> tuple[AdsCredentials, AdsClient, dict[str, int]]:
+    """Arranque unico de credenciales + cliente de lectura + perfiles aceptados."""
+    cred = AdsCredentials.from_secrets_dir()
+    cliente_lectura = AdsClient(cred)
+    perfiles = _perfiles(cliente_lectura)
+    if plataforma is not None and plataforma not in perfiles:
+        raise Abortar(error_sin_perfil or f"sin perfil aceptado para {plataforma}")
+    return cred, cliente_lectura, perfiles
+
+
 def _post(client, token: str, cred: AdsCredentials, profile: int, path: str, payload: dict) -> dict:
     vendor = fp.VENDOR_POR_PATH[path]
     resp = client.post(
@@ -461,12 +475,11 @@ def mutar(
             raise Abortar(
                 f"lote {lote} ya existe ({estado}): usa --reconciliar, --registrar o --desarmar"
             )
-        cred = AdsCredentials.from_secrets_dir()
-        cliente_lectura = AdsClient(cred)
-        perfiles = _perfiles(cliente_lectura)
+        cred, cliente_lectura, perfiles = _bootstrap_amazon(
+            plan.platform,
+            error_sin_perfil=f"sin perfil aceptado para {plan.platform}: no se muta",
+        )
         _log("perfiles", perfiles=perfiles)
-        if plan.platform not in perfiles:
-            raise Abortar(f"sin perfil aceptado para {plan.platform}: no se muta")
         http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         token = _token_lwa(cred, http)
         assert go is not None
@@ -609,6 +622,17 @@ def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
     return {"status": resp.status_code, "cuerpo": cuerpo, "texto": scrub(resp.text[:400])}
 
 
+def _put_y_readback_estado(ctx: _Ctx, external: str, nuevo: str) -> tuple[dict, str | None, bool]:
+    """Ejecuta PUT estado + sleep + readback; devuelve (ack, estado_visto, ack_ok)."""
+    ack = _put_estado_campana(ctx, external, nuevo)
+    if not fp.ack_ok(ack):
+        return ack, None, False
+    time.sleep(0.3)
+    leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+    visto = leido.get("state") if isinstance(leido, dict) else None
+    return ack, visto, True
+
+
 def _aplica_estado_campana_con_ledger(
     ctx: _Ctx,
     rol: str,
@@ -617,30 +641,32 @@ def _aplica_estado_campana_con_ledger(
     *,
     descripcion: str,
     evento_log: str,
-    sella_put_abortado: bool = False,
     log_ack: bool = False,
 ) -> None:
-    """Ciclo comun ledger -> PUT -> sleep -> readback -> sello -> Abortar."""
+    """Ciclo comun ledger -> PUT -> sleep -> readback -> sello -> Abortar.
+
+    Siempre sella el paso como `failed` ante Abortar o excepcion en readback
+    (no deja filas `planeado` huerfanas).
+    """
     paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, descripcion)
     paso_id = _inserta_paso(ctx, paso, {"campaignId": str(external), "state": nuevo})
     try:
         ack = _put_estado_campana(ctx, external, nuevo)
     except Abortar:
-        if sella_put_abortado:
-            _sella_paso(ctx, paso_id, False, external, {}, None)
+        _sella_paso(ctx, paso_id, False, external, {}, None)
         raise
     if not fp.ack_ok(ack):
         _sella_paso(ctx, paso_id, False, external, ack, None)
         if log_ack:
             _log("lote_detenido", lote=ctx.lote, motivo=f"PUT {nuevo} de {rol} rechazado")
         raise Abortar(f"PUT {nuevo} de {external} ({rol}) rechazado (status {ack.get('status')})")
-    time.sleep(0.3)
     try:
+        time.sleep(0.3)
         leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+        visto = leido.get("state") if isinstance(leido, dict) else None
     except Exception as exc:
         _sella_paso(ctx, paso_id, False, external, ack, None)
         raise Abortar(f"readback de {external} ({rol}) levanto ({exc}): se detiene") from exc
-    visto = leido.get("state") if isinstance(leido, dict) else None
     campos_log: dict[str, Any] = {
         "lote": ctx.lote,
         "rol": rol,
@@ -666,12 +692,9 @@ def _revierte_parcial(ctx: _Ctx, lote: str) -> dict:
     filas = ctx.conn_admin.execute(_SQL_EXTERNALS_CAMPANA_DEL_LOTE, (lote,)).fetchall()
     for (external,) in filas:
         try:
-            ack = _put_estado_campana(ctx, external, _PAUSADA)
-            if not fp.ack_ok(ack):
+            ack, estado, ok_ack = _put_y_readback_estado(ctx, external, _PAUSADA)
+            if not ok_ack:
                 raise Abortar(f"PUT PAUSED rechazado (status {ack.get('status')})")
-            time.sleep(0.3)
-            leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
-            estado = leido.get("state") if isinstance(leido, dict) else None
             if estado != _PAUSADA:
                 raise Abortar(f"readback tras PUT: {estado}")
             resumen["pausadas"].append(external)
@@ -697,12 +720,9 @@ def _activa_campanas(ctx: _Ctx, lote: str) -> None:
     if not filas:
         raise Abortar(f"lote {lote} sin campanas con external: nada que activar")
     for (external,) in filas:
-        ack = _put_estado_campana(ctx, external, fp.ESTADO_NUEVO)
-        if not fp.ack_ok(ack):
+        ack, estado, ok_ack = _put_y_readback_estado(ctx, external, fp.ESTADO_NUEVO)
+        if not ok_ack:
             raise Abortar(f"PUT ENABLED de {external} rechazado (status {ack.get('status')})")
-        time.sleep(0.3)
-        leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
-        estado = leido.get("state") if isinstance(leido, dict) else None
         _log("campana_activada", lote=lote, external=external, readback=estado)
         if estado != fp.ESTADO_NUEVO:
             raise Abortar(f"readback de {external} tras activar != ENABLED ({estado})")

@@ -266,6 +266,31 @@ def ficha_vigente(
     return _ficha_de_fila(fila) if fila is not None else None
 
 
+def _fichas_vigentes_lote(
+    conn: psycopg.Connection,
+    *,
+    plataforma: str,
+    producto_ids: set[int],
+    ahora: datetime,
+) -> dict[int, list[FichaVersion]]:
+    """Todas las fichas vigentes de `producto_ids` en 1 sola consulta (ordenadas)."""
+    if not producto_ids:
+        return {}
+    filas = conn.execute(
+        f"{_FICHA_SELECT}"
+        " LEFT JOIN jev_ficha_revocacion r ON r.ficha_version_id = f.id"
+        " WHERE f.producto_id = ANY(%s) AND f.plataforma = %s"
+        "   AND r.id IS NULL AND f.revisar_antes_de >= %s"
+        " ORDER BY f.observado_at DESC, f.created_at DESC",
+        (sorted(producto_ids), plataforma, ahora),
+    ).fetchall()
+    por_producto: dict[int, list[FichaVersion]] = {}
+    for fila in filas:
+        ficha = _ficha_de_fila(fila)
+        por_producto.setdefault(ficha.producto_id, []).append(ficha)
+    return por_producto
+
+
 def resolver_fichas(
     conn: psycopg.Connection,
     censo: CensoCongelado,
@@ -278,19 +303,20 @@ def resolver_fichas(
     (R8); una ficha que cubre una parte deja al miembro sin ficha. Un
     miembro que no acredita conserva el id que traia; el estado del anuncio
     no cuenta (un archivado tambien recibe ficha)."""
+    producto_ids = {
+        m.producto_id for m in censo.miembros if m.producto_id is not None and m.listing_ids
+    }
+    fichas_por_producto = _fichas_vigentes_lote(
+        conn, plataforma=plataforma, producto_ids=producto_ids, ahora=ahora
+    )
     fichas: dict[UUID, FichaVersion] = {}
     miembros = []
     for miembro in censo.miembros:
         ficha = None
         if miembro.producto_id is not None and miembro.listing_ids:
+            candidatas = fichas_por_producto.get(miembro.producto_id, ())
             por_listing = [
-                ficha_vigente(
-                    conn,
-                    producto_id=miembro.producto_id,
-                    plataforma=plataforma,
-                    listing_id=listing_id,
-                    ahora=ahora,
-                )
+                next((f for f in candidatas if listing_id in f.listings), None)
                 for listing_id in sorted(miembro.listing_ids)
             ]
             ids = {f.id if f is not None else None for f in por_listing}

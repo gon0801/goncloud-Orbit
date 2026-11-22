@@ -226,6 +226,19 @@ def leer_api_key() -> str:
     return ""
 
 
+def exceso_contexto_detalle(termino: str, ficha: FichaVersion, contrato: Contrato) -> str | None:
+    """Unica fuente del limite de bytes UTF-8 de termino y ficha (sin prefijo)."""
+    bytes_termino = len(termino.encode("utf-8"))
+    if bytes_termino > contrato.max_bytes_termino:
+        return f"termino de {bytes_termino} bytes supera el maximo {contrato.max_bytes_termino}"
+    bytes_ficha = len(
+        json.dumps(_ficha_a_state(ficha), ensure_ascii=False, sort_keys=True).encode("utf-8")
+    )
+    if bytes_ficha > contrato.max_bytes_ficha:
+        return f"ficha de {bytes_ficha} bytes supera el maximo {contrato.max_bytes_ficha}"
+    return None
+
+
 def pedir_juicio(
     termino: str,
     ficha: FichaVersion,
@@ -244,19 +257,9 @@ def pedir_juicio(
     if not api_key:
         return FalloPar("sin_api_key", "falta la clave de TypeSafe en ORBIT_SECRETS_DIR")
     register_secret(api_key)
-    if len(termino.encode("utf-8")) > contrato.max_bytes_termino:
-        return FalloPar(
-            "contexto_excedido",
-            f"termino de {len(termino.encode('utf-8'))} bytes supera el maximo"
-            f" {contrato.max_bytes_termino}",
-        )
-    state_ficha = _ficha_a_state(ficha)
-    bytes_ficha = len(json.dumps(state_ficha, ensure_ascii=False, sort_keys=True).encode("utf-8"))
-    if bytes_ficha > contrato.max_bytes_ficha:
-        return FalloPar(
-            "contexto_excedido",
-            f"ficha de {bytes_ficha} bytes supera el maximo {contrato.max_bytes_ficha}",
-        )
+    detalle_exceso = exceso_contexto_detalle(termino, ficha, contrato)
+    if detalle_exceso is not None:
+        return FalloPar("contexto_excedido", detalle_exceso)
     payload = _payload(termino, ficha, contrato)
     try:
         respuesta = transporte(

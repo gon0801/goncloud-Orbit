@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import (
+    AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -73,6 +74,37 @@ Plataforma = Literal["amazon_mx", "amazon_us"]
 Accion = Literal["pausar", "reconciliar", "registrar"]
 Identificador = Annotated[int, Field(strict=True, ge=1, le=9223372036854775807)]
 Lote = Annotated[str, Field(min_length=1, max_length=240, pattern=r"^[a-zA-Z0-9_-]+$")]
+
+
+def _unicos_publicaciones(valor: list[int]) -> list[int]:
+    if len(valor) != len(set(valor)):
+        raise ValueError("publicaciones repetidas")
+    return valor
+
+
+def _unicos_retiros(valor: list[int]) -> list[int]:
+    if len(valor) != len(set(valor)):
+        raise ValueError("retiros repetidos")
+    return valor
+
+
+def _actor_limpio(valor: str) -> str:
+    """Actor 1..100 sin NUL (Postgres lo rechaza en text): se valida en
+    el borde, antes de mutar nada."""
+    if "\x00" in valor:
+        raise ValueError("actor con NUL")
+    if not valor.strip():
+        raise ValueError("actor vacio")
+    return valor.strip()
+
+
+ListingsUnicos = Annotated[
+    list[Identificador], Field(min_length=1, max_length=100), AfterValidator(_unicos_publicaciones)
+]
+RetirosUnicos = Annotated[
+    list[Identificador], Field(min_length=1, max_length=100), AfterValidator(_unicos_retiros)
+]
+ActorLimpio = Annotated[str, Field(min_length=1, max_length=100), AfterValidator(_actor_limpio)]
 
 
 class _Cuerpo(BaseModel):
@@ -158,7 +190,7 @@ class SolicitudPlan(_Cuerpo):
         default=None, min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$"
     )
     nombre_base: str = Field(min_length=1, max_length=100)
-    listing_ids: list[Identificador] = Field(min_length=1, max_length=100)
+    listing_ids: ListingsUnicos
     objetivo: ObjetivoPlan
     modo: Literal["shadow", "live"]
     parametros: dict[str, ParametrosRol]
@@ -169,13 +201,6 @@ class SolicitudPlan(_Cuerpo):
         if not valor.strip() or any(ord(c) < 32 for c in valor):
             raise ValueError("nombre vacio o con caracteres de control")
         return valor.strip()
-
-    @field_validator("listing_ids")
-    @classmethod
-    def listings_unicos(cls, valor):
-        if len(valor) != len(set(valor)):
-            raise ValueError("publicaciones repetidas")
-        return valor
 
     @model_validator(mode="after")
     def parametros_validos(self):
@@ -207,15 +232,8 @@ class SolicitudBids(_Cuerpo):
     tipo_producto: str | None = Field(
         default=None, min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$"
     )
-    listing_ids: list[Identificador] = Field(min_length=1, max_length=100)
+    listing_ids: ListingsUnicos
     objetivo: ObjetivoPlan
-
-    @field_validator("listing_ids")
-    @classmethod
-    def listings_unicos(cls, valor):
-        if len(valor) != len(set(valor)):
-            raise ValueError("publicaciones repetidas")
-        return valor
 
 
 class Confirmacion(_Cuerpo):
@@ -278,9 +296,7 @@ def evaluacion(
 def imagen_publicacion(
     listing_id: Annotated[int, Path(ge=1, le=9223372036854775807)], conn: ConexionLectura
 ):
-    fila = conn.execute(
-        "SELECT platform::text, external_id FROM listing WHERE id = %s", (listing_id,)
-    ).fetchone()
+    fila = fw.listing_plataforma_externo(conn, listing_id)
     if fila is None:
         raise HTTPException(404, "Publicacion sin foto disponible.")
     try:
@@ -373,35 +389,16 @@ Subfamilia = Annotated[
     BeforeValidator(familias.slug),
     Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$"),
 ]
-Actor = Annotated[str, Field(min_length=1, max_length=100)]
-
-
-def _actor_limpio(valor: str) -> str:
-    """Actor 1..100 sin NUL (Postgres lo rechaza en text): se valida en
-    el borde, antes de mutar nada."""
-    if "\x00" in valor:
-        raise ValueError("actor con NUL")
-    if not valor.strip():
-        raise ValueError("actor vacio")
-    return valor.strip()
-
-
+Actor = ActorLimpio
 Huella = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
-Listings = Annotated[list[Identificador], Field(min_length=1, max_length=100)]
+Listings = ListingsUnicos
 
 
 class SolicitudImpulsoPlan(_Cuerpo):
     plataforma: Plataforma
-    listing_ids: Listings
+    listing_ids: ListingsUnicos
     subfamilia_por_listing: dict[str, Subfamilia]
     tope_monto: Annotated[str, Field(min_length=1, max_length=14)] | None = None
-
-    @field_validator("listing_ids")
-    @classmethod
-    def listings_unicos(cls, valor):
-        if len(valor) != len(set(valor)):
-            raise ValueError("publicaciones repetidas")
-        return valor
 
     @field_validator("subfamilia_por_listing")
     @classmethod
@@ -444,13 +441,8 @@ class CuerpoLanzarImpulso(_Cuerpo):
     solicitud: SolicitudImpulsoPlan
     huella: Huella
     confirmacion: str = Field(min_length=1, max_length=60)
-    actor: Actor
+    actor: ActorLimpio
     acepto_presupuesto_alto: bool = False
-
-    @field_validator("actor")
-    @classmethod
-    def actor_no_vacio(cls, valor):
-        return _actor_limpio(valor)
 
 
 class CuerpoPausarImpulso(_Cuerpo):
@@ -459,75 +451,32 @@ class CuerpoPausarImpulso(_Cuerpo):
 
 class CuerpoRetiroPlan(_Cuerpo):
     plataforma: Plataforma
-    listing_ids: Listings
+    listing_ids: ListingsUnicos
     motivo: MotivoRetiro
     lote: Lote | None = None
-
-    @field_validator("listing_ids")
-    @classmethod
-    def listings_unicos(cls, valor):
-        if len(valor) != len(set(valor)):
-            raise ValueError("publicaciones repetidas")
-        return valor
 
 
 class CuerpoRetiroEjecutar(_Cuerpo):
     plataforma: Plataforma
-    listing_ids: Listings
+    listing_ids: ListingsUnicos
     motivo: MotivoRetiro
     lote: Lote | None = None
     huella: Huella
     confirmacion: str = Field(min_length=1, max_length=60)
-    actor: Actor
-
-    @field_validator("listing_ids")
-    @classmethod
-    def listings_unicos(cls, valor):
-        if len(valor) != len(set(valor)):
-            raise ValueError("publicaciones repetidas")
-        return valor
-
-    @field_validator("actor")
-    @classmethod
-    def actor_no_vacio(cls, valor):
-        return _actor_limpio(valor)
+    actor: ActorLimpio
 
 
 class CuerpoRetiroReponer(_Cuerpo):
-    retiro_ids: Listings
+    retiro_ids: RetirosUnicos
     confirmacion: str = Field(min_length=1, max_length=60)
-    actor: Actor
+    actor: ActorLimpio
     incluye_adoptados: bool = False
-
-    @field_validator("retiro_ids")
-    @classmethod
-    def retiros_unicos(cls, valor):
-        if len(valor) != len(set(valor)):
-            raise ValueError("retiros repetidos")
-        return valor
-
-    @field_validator("actor")
-    @classmethod
-    def actor_no_vacio(cls, valor):
-        return _actor_limpio(valor)
 
 
 class CuerpoRetiroRecrear(_Cuerpo):
-    retiro_ids: Listings
+    retiro_ids: RetirosUnicos
     confirmacion: str = Field(min_length=1, max_length=60)
-    actor: Actor
-
-    @field_validator("retiro_ids")
-    @classmethod
-    def retiros_unicos(cls, valor):
-        if len(valor) != len(set(valor)):
-            raise ValueError("retiros repetidos")
-        return valor
-
-    @field_validator("actor")
-    @classmethod
-    def actor_no_vacio(cls, valor):
-        return _actor_limpio(valor)
+    actor: ActorLimpio
 
 
 def _sugeridor_plataforma(plataforma: str, moneda: str):
@@ -561,11 +510,11 @@ def _ejecutor_lanzar(conn, confirmacion: str):
             revierte_al_fallar=True,
             crear_pausado=True,
         )
-        grupo = conn.execute(io._SQL_GRUPO_DE_LOTE, (lote,)).fetchone()
-        estado = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)).fetchone()
+        grupo = ra.grupo_de_lote(conn, lote)
+        estado = fw.estado_lote(conn, lote)
         if grupo is None or estado is None:
             raise fd.Abortar(f"lote {lote} sin grupo o estado tras mutar")
-        return io.EjecucionFabrica(lote=lote, grupo_id=grupo[0], estado_lote=estado[0])
+        return io.EjecucionFabrica(lote=lote, grupo_id=grupo, estado_lote=estado)
 
     return ejecuta
 
@@ -584,11 +533,6 @@ def _error_impulso(exc: io.ErrorImpulso, *, vista: dict | None = None) -> HTTPEx
     return HTTPException(exc.status, detail=detalle)
 
 
-_SQL_IMPULSO_DE_GRUPO = """
-SELECT id FROM impulso WHERE grupo_id = %s
-"""
-
-
 def _conservar_y_impulso(
     conn, lote: str | None, motivo: str, listing_ids
 ) -> tuple[int | None, int | None]:
@@ -605,12 +549,12 @@ def _conservar_y_impulso(
     if grupo is None:
         raise fw.error(404, "El lote no existe.", lote)
     if motivo == "impulso":
-        imp = conn.execute(_SQL_IMPULSO_DE_GRUPO, (grupo,)).fetchone()
-        if imp is None:
+        imp_id = fw.impulso_id_de_grupo(conn, grupo)
+        if imp_id is None:
             raise fw.error(404, "El lote no tiene impulso.", lote)
-        if not ra.impulso_tuvo_impresiones(conn, imp[0]):
+        if not ra.impulso_tuvo_impresiones(conn, imp_id):
             raise fw.error(422, "El impulso aun no tiene impresiones: nada que retirar.")
-        return grupo, imp[0]
+        return grupo, imp_id
     if not ra.grupo_alcanza_listings(conn, grupo, listing_ids):
         raise fw.error(422, "El lote no es de estos productos.")
     return grupo, None
@@ -692,11 +636,6 @@ def impulso_lanzar(_token: Annotated[str, Depends(exige_token)], cuerpo: CuerpoL
         }
 
 
-_SQL_LOTE_DE_IMPULSO = """
-SELECT lote FROM impulso WHERE id = %s
-"""
-
-
 @router.post("/impulso/{impulso_id}/pausar")
 def impulso_pausar(
     _token: Annotated[str, Depends(exige_token)],
@@ -706,12 +645,12 @@ def impulso_pausar(
     from app import fabrica_datos as fd
 
     with fw._conexion("ORBIT_DSN_ADMIN", "impulso") as conn:
-        fila = conn.execute(_SQL_LOTE_DE_IMPULSO, (impulso_id,)).fetchone()
-        if fila is None:
+        lote = fw.lote_de_impulso(conn, impulso_id)
+        if lote is None:
             raise fw.error(404, "El impulso no existe.")
         try:
             with io.PausadorFabrica(conn, actor="dueno") as pausador:
-                pausador.pausa(fila[0])
+                pausador.pausa(lote)
         except io.ErrorImpulso as exc:
             raise _error_impulso(exc) from None
         except fd.Abortar as exc:
@@ -720,7 +659,7 @@ def impulso_pausar(
             # no 500 pelado.
             raise fw.error(502, str(exc)) from None
         conn.commit()
-        return {"impulso_id": impulso_id, "lote": fila[0], "estado": "pausado"}
+        return {"impulso_id": impulso_id, "lote": lote, "estado": "pausado"}
 
 
 @router.post("/retiro/plan")
@@ -764,7 +703,7 @@ def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: Cuerpo
         except RuntimeError as exc:
             raise fw.error(502, f"Retiro no ejecutado: {exc}") from None
         lote = ra.lote_retiro_de_plan(plan)
-        ids = [f[0] for f in conn.execute(_SQL_ABIERTOS_DE_LOTE, (lote,)).fetchall()]
+        ids = fw.retiros_abiertos_de_lote(conn, lote)
         return {
             "retirados": sum(1 for r in resultados if r.fuera),
             "total": len(resultados),
@@ -774,24 +713,12 @@ def retiro_ejecutar(_token: Annotated[str, Depends(exige_token)], cuerpo: Cuerpo
         }
 
 
-_SQL_RETIROS_EXISTEN = """
-SELECT count(*) FROM anuncio_retiro WHERE id = ANY(%s)
-"""
-
-_SQL_ABIERTOS_DE_LOTE = """
-SELECT r.id FROM anuncio_retiro r
- WHERE r.lote_retiro = %s
-   AND NOT EXISTS (SELECT 1 FROM anuncio_reposicion p WHERE p.retiro_id = r.id)
- ORDER BY r.id
-"""
-
-
 def _regresa_retiros(cuerpo, verbo: str, literal: str, regresar):
     """/retiro/reponer y /retiro/recrear: los retiros existen, el literal
     nombra cuantos y cada uno trae su resultado. Un parcial no es error
     del servidor: la respuesta dice cual regreso y cual no."""
     with fw._conexion("ORBIT_DSN_ADMIN", "retiro") as conn:
-        hay = conn.execute(_SQL_RETIROS_EXISTEN, (list(cuerpo.retiro_ids),)).fetchone()[0]
+        hay = fw.retiros_existen(conn, list(cuerpo.retiro_ids))
         if hay != len(cuerpo.retiro_ids):
             raise fw.error(404, "Algun retiro pedido no existe.")
         if cuerpo.confirmacion != f"{literal} {len(cuerpo.retiro_ids)} ANUNCIOS":

@@ -9,7 +9,6 @@ atomica y jamas abre intencion sin cupo.
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -73,25 +72,11 @@ def fallo_tras_http(fallo: FalloProveedor) -> bool:
 
 
 def _exceso_contexto(termino: str, ficha: FichaVersion, contrato) -> str | None:
-    """Lo que no cabe en el contrato, con el mismo motivo que `pedir_juicio`
-    (determinista: no abre intencion, no gasta cupo)."""
-    from app.jev_juicios import _ficha_a_state
+    """Lo que no cabe en el contrato, reutilizando la regla unica de `jev_juicios`."""
+    from app.jev_juicios import exceso_contexto_detalle
 
-    bytes_termino = len(termino.encode("utf-8"))
-    if bytes_termino > contrato.max_bytes_termino:
-        return (
-            f"{_PREFIJO_SIN_HTTP}termino de {bytes_termino} bytes supera el maximo"
-            f" {contrato.max_bytes_termino}"
-        )
-    bytes_ficha = len(
-        json.dumps(_ficha_a_state(ficha), ensure_ascii=False, sort_keys=True).encode("utf-8")
-    )
-    if bytes_ficha > contrato.max_bytes_ficha:
-        return (
-            f"{_PREFIJO_SIN_HTTP}ficha de {bytes_ficha} bytes supera el maximo"
-            f" {contrato.max_bytes_ficha}"
-        )
-    return None
+    detalle = exceso_contexto_detalle(termino, ficha, contrato)
+    return None if detalle is None else f"{_PREFIJO_SIN_HTTP}{detalle}"
 
 
 class Libro:

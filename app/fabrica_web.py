@@ -25,7 +25,7 @@ from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsConfigError, AdsCredentials
 from app.api_common import _dos_dec
 from app.db import OrbitDbError, connect
-from app.disponibilidad import estado_disponibilidad
+from app.disponibilidad import estados_disponibilidad_por_sku
 from app.estimacion_proyeccion import adjuntar_estimaciones
 from app.optimizer.goals import TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO
 from app.redaction import scrub
@@ -97,9 +97,9 @@ def argumentos(solicitud: dict) -> fd.SolicitudPlan:
     return fd.SolicitudPlan.desde_web(solicitud)
 
 
-def planificar(conn, solicitud: dict) -> fp.PlanGrupoV2:
+def planificar_con_fuentes(conn, solicitud: dict) -> tuple[fp.PlanGrupoV2, fd.FuentesPlan]:
     try:
-        return fd._arma_plan(argumentos(solicitud), conn)
+        return fd._arma_plan_con_fuentes(argumentos(solicitud), conn)
     except fd.Abortar as exc:
         if "fraccion" in str(exc):
             raise error(503, "La configuración de margen no está disponible.") from None
@@ -108,6 +108,11 @@ def planificar(conn, solicitud: dict) -> fp.PlanGrupoV2:
         raise error(503, "La configuración del plan no es válida.") from None
     except psycopg.Error:
         raise error(503, "No se pudo consultar la información del plan.") from None
+
+
+def planificar(conn, solicitud: dict) -> fp.PlanGrupoV2:
+    plan, _fuentes = planificar_con_fuentes(conn, solicitud)
+    return plan
 
 
 # A7: decimales con punto dentro de la procedencia ("0.5 x 38.21 = 19.105").
@@ -187,7 +192,7 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
     """Obtiene bids iniciales de Amazon para el conjunto que se prepara."""
     args = fd.SolicitudDatosPlan(
         plataforma=solicitud["plataforma"],
-        listing_ids=",".join(str(i) for i in sorted(solicitud["listing_ids"])),
+        listing_ids=tuple(sorted(solicitud["listing_ids"])),
         origen_objetivo=solicitud["objetivo"]["origen"],
         target_acos=solicitud["objetivo"].get("acos_pct"),
     )
@@ -470,14 +475,15 @@ def evaluacion(
         )
 
     economia = economia_observada.por_listing(conn, plataforma)
+    try:
+        disponibilidades = estados_disponibilidad_por_sku(
+            conn, plataforma, [sku for _, _, _, sku in listings if sku]
+        )
+    except psycopg.Error:
+        raise error(503, "No se pudo consultar la evaluación del catálogo.") from None
     evaluaciones = []
     for listing_id, product_id, asin, seller_sku in listings:
-        try:
-            disponibilidad = (
-                estado_disponibilidad(conn, plataforma, seller_sku) if seller_sku else None
-            )
-        except psycopg.Error:
-            raise error(503, "No se pudo consultar la evaluación del catálogo.") from None
+        disponibilidad = disponibilidades.get(seller_sku) if seller_sku else None
         evaluaciones.append(
             ec.evaluar_listing(
                 listing_id=listing_id,
@@ -706,24 +712,16 @@ def operar(lote: str, accion: str, confirmacion: str) -> dict:
 
 def exportar_semillas(conn, solicitud: dict) -> dict:
     """Exporta del preview el plan canonico, su huella y las filas fuente de
-    las semillas (biblioteca heredada y terminos vendedores). Los terminos a
-    cotejar son los HEREDADOS (biblioteca): se juzgan contra los productos
-    del NUEVO plan."""
-    plan = planificar(conn, solicitud)
+    las semillas (biblioteca heredada y terminos vendedores). Reutiliza las
+    fuentes leidas en el armado del plan (cero consultas duplicadas)."""
+    plan, fuentes = planificar_con_fuentes(conn, solicitud)
     huella = fp.huella_plan_v2(plan)
-    kws, negs = fd._biblioteca(conn, plan.tipo_producto, plan.platform)
+    kws = fuentes.kws
+    negs = fuentes.negs
     listing_ids = sorted({p.listing_id for p in plan.publicaciones})
     productos = sorted({p.product_id for p in plan.publicaciones})
-    terminos = fd._terminos_producto(conn, plan.platform, listing_ids)
-    terminos_exact = fd._terminos_producto(
-        conn,
-        plan.platform,
-        listing_ids,
-        sql=fd._SQL_TERMINOS_EXACT,
-        ventana=fp.VENTANA_CORTES_DIAS,
-    )
-    textos_vendedores = [t.texto for t in terminos]
-    textos_exactos = [t.texto for t in terminos_exact]
+    textos_vendedores = [t.texto for t in fuentes.terminos]
+    textos_exactos = [t.texto for t in fuentes.terminos_exact]
     return {
         "huella": huella,
         "plan_sha256": huella,
@@ -746,6 +744,46 @@ def exportar_semillas(conn, solicitud: dict) -> dict:
             for termino in sorted(set(kws) | set(negs))
         },
     }
+
+
+def listing_plataforma_externo(conn, listing_id: int) -> tuple[str, str] | None:
+    """(platform, external_id) de una publicacion para resolver su foto."""
+    fila = conn.execute(
+        "SELECT platform::text, external_id FROM listing WHERE id = %s", (listing_id,)
+    ).fetchone()
+    return None if fila is None else (fila[0], fila[1])
+
+
+def impulso_id_de_grupo(conn, grupo_id: int) -> int | None:
+    fila = conn.execute("SELECT id FROM impulso WHERE grupo_id = %s", (grupo_id,)).fetchone()
+    return None if fila is None else fila[0]
+
+
+def lote_de_impulso(conn, impulso_id: int) -> str | None:
+    fila = conn.execute("SELECT lote FROM impulso WHERE id = %s", (impulso_id,)).fetchone()
+    return None if fila is None else fila[0]
+
+
+def retiros_existen(conn, retiro_ids: list[int]) -> int:
+    return conn.execute(
+        "SELECT count(*) FROM anuncio_retiro WHERE id = ANY(%s)", (retiro_ids,)
+    ).fetchone()[0]
+
+
+def retiros_abiertos_de_lote(conn, lote_retiro: str) -> list[int]:
+    filas = conn.execute(
+        "SELECT r.id FROM anuncio_retiro r"
+        " WHERE r.lote_retiro = %s"
+        "   AND NOT EXISTS (SELECT 1 FROM anuncio_reposicion p WHERE p.retiro_id = r.id)"
+        " ORDER BY r.id",
+        (lote_retiro,),
+    ).fetchall()
+    return [f[0] for f in filas]
+
+
+def estado_lote(conn, lote: str) -> str | None:
+    fila = conn.execute("SELECT estado FROM fabrica_lote WHERE lote = %s", (lote,)).fetchone()
+    return None if fila is None else fila[0]
 
 
 def asesoria_por_huella(conn, huella: str, *, ahora: dt.datetime | None = None) -> dict | None:

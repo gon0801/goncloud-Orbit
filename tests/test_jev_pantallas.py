@@ -206,7 +206,7 @@ def test_vista_de_dict_falla_cerrado_ante_basura():
 )
 def test_relevancia_de_texto_tabla(texto, tipo):
     relevancia = relevancia_de_texto(
-        texto, productos_ok=(11,), evaluados=3, miembros=5, motivos_jev=("motivo_x",)
+        texto, productos_ok=(11,), evaluados=3, miembros=5, motivos_jev=("sin_cupo",)
     )
     assert type(relevancia.conjunto).__name__ == tipo
     assert relevancia.satisfacen == 1
@@ -838,3 +838,39 @@ def test_gasto_sin_venta_acepta_conexion_con_dict_row():
     pantalla = pantallas.gasto_sin_venta(conn, plataforma="amazon_mx")
     assert [v.clave.termino for v in pantalla.filas] == ["bota negra"]
     assert pantalla.calculado_el == AHORA
+
+
+def test_ola_f2_sin_ciclo_jev_ni_sql_en_router_ni_csv_roundtrip():
+    """Ola F2: DAG aciclico en JEV, cero SQL directo en api_fabrica y sin
+    round-trip CSV en SolicitudPlan.desde_web."""
+    from pathlib import Path
+
+    from test_architecture import _imports_runtime
+
+    from app import fabrica_datos as fd
+
+    raiz = Path(__file__).resolve().parent.parent
+    for mod, prohibidos in (
+        (
+            "app/jev_consultas.py",
+            ("app.jev_senales", "app.jev_salud", "app.jev_avisos", "app.jev_vigia"),
+        ),
+        ("app/jev_vigia.py", ("app.jev_senales", "app.jev_salud", "app.jev_avisos")),
+        ("app/jev_avisos.py", ("app.jev_senales", "app.jev_salud", "app.jev_vigia")),
+        ("app/jev_salud.py", ("app.jev_senales", "app.jev_vigia")),
+    ):
+        imps = _imports_runtime(raiz / mod)
+        for proh in prohibidos:
+            assert proh not in imps, f"{mod} sigue importando {proh}"
+    api_src = (raiz / "app/api_fabrica.py").read_text(encoding="utf-8")
+    assert "conn.execute(" not in api_src
+    sol = fd.SolicitudPlan.desde_web(
+        {
+            "plataforma": "amazon_mx",
+            "nombre_base": "Prueba",
+            "listing_ids": [9, 3],
+            "modo": "shadow",
+            "parametros": {},
+        }
+    )
+    assert sol.listing_ids == (3, 9)

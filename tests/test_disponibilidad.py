@@ -37,6 +37,7 @@ from app.disponibilidad import (
     DisponibilidadError,
     estado_desde_observaciones,
     estado_disponibilidad,
+    estados_disponibilidad_por_sku,
     leer_snapshot,
     plan_disponibilidad,
     sync_disponibilidad,
@@ -436,3 +437,47 @@ def test_featured_offer_sin_verificar_no_toca_la_base():
         assert "ampliacion abierta ORBIT19 B.3" in res["nota"]
         with pytest.raises(DisponibilidadError):
             estado_disponibilidad(conn, "amazon_mx", "SS-X", aspecto="inexistente")
+
+
+@_skip_db
+def test_estados_disponibilidad_por_sku_coincide_con_unitario_y_respeta_reciente():
+    """F2 (Ola F2): consulta por lote con varios SKUs (FBA+FBM, 0/NULL/positivo,
+    observacion superada y SKU sin filas) coincide 1:1 con estado_disponibilidad."""
+    with db_disponibilidad() as conn:
+        for idx, sku in enumerate(("SS-A", "SS-B", "SS-C", "SS-VACIO"), start=1):
+            _sembrar_catalogo(conn, f"P-{idx}", "amazon_mx", f"B0L{idx:07d}", sku)
+
+        # Observaciones viejas (deben quedar superadas por las mas recientes).
+        filas_sql = [
+            # SS-A: FBA viejo=10 -> nuevo=0; FBM viejo=0 -> nuevo=4 => positivo {fba: 0, fbm: 4}
+            ("SS-A", "fba", 10, "2026-09-05 10:00:00+00", "2026-09-05 12:00:00+00"),
+            ("SS-A", "fba", 0, "2026-09-06 10:00:00+00", "2026-09-06 12:00:00+00"),
+            ("SS-A", "fbm", 0, "2026-09-05 10:00:00+00", "2026-09-05 12:00:00+00"),
+            ("SS-A", "fbm", 4, "2026-09-06 10:00:00+00", "2026-09-06 12:00:00+00"),
+            # SS-B: FBA viejo=7 -> nuevo=0; FBM=0 => cero {fba: 0, fbm: 0}
+            ("SS-B", "fba", 7, "2026-09-05 10:00:00+00", "2026-09-05 12:00:00+00"),
+            ("SS-B", "fba", 0, "2026-09-06 10:00:00+00", "2026-09-06 12:00:00+00"),
+            ("SS-B", "fbm", 0, "2026-09-06 10:00:00+00", "2026-09-06 12:00:00+00"),
+            # SS-C: FBA=NULL => desconocido {fba: None}
+            ("SS-C", "fba", None, "2026-09-06 10:00:00+00", "2026-09-06 12:00:00+00"),
+        ]
+        for sku, fuente, qty, fetched_at, observed_at in filas_sql:
+            conn.execute(
+                "INSERT INTO disponibilidad_observation"
+                " (platform, seller_sku, metric_date, fuente, quantity, fetched_at, observed_at)"
+                " VALUES ('amazon_mx', %s, '2026-09-06', %s, %s, %s, %s)",
+                (sku, fuente, qty, fetched_at, observed_at),
+            )
+
+        skus = ["SS-A", "SS-B", "SS-C", "SS-VACIO"]
+        lote = estados_disponibilidad_por_sku(conn, "amazon_mx", skus)
+        assert set(lote) == set(skus)
+        for sku in skus:
+            assert lote[sku] == estado_disponibilidad(conn, "amazon_mx", sku), sku
+        assert lote["SS-A"]["estado"] == ESTADO_POSITIVO
+        assert lote["SS-A"]["cantidad"] == {"fba": 0, "fbm": 4}
+        assert lote["SS-B"]["estado"] == ESTADO_CERO
+        assert lote["SS-B"]["cantidad"] == {"fba": 0, "fbm": 0}
+        assert lote["SS-C"]["estado"] == ESTADO_DESCONOCIDO
+        assert lote["SS-C"]["cantidad"] == {"fba": None}
+        assert lote["SS-VACIO"]["estado"] == ESTADO_DESCONOCIDO

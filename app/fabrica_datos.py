@@ -8,6 +8,7 @@ Extraido de `tools/fabrica_campanas.py` en Fase 3.2 para invertir la fuga
 from __future__ import annotations
 
 import datetime
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -129,9 +130,19 @@ class SolicitudDatosPlan:
     """Entradas tipadas para leer datos observados de un plan v2 (sin SimpleNamespace)."""
 
     plataforma: str
-    listing_ids: str
+    listing_ids: str | Sequence[int]
     origen_objetivo: str | None = None
     target_acos: Any = None
+
+
+@dataclass(frozen=True)
+class FuentesPlan:
+    """Fuentes observadas de semillas leidas una sola vez durante el armado del plan."""
+
+    kws: tuple[str, ...]
+    negs: tuple[str, ...]
+    terminos: tuple[fp.TerminoProducto, ...]
+    terminos_exact: tuple[fp.TerminoProducto, ...]
 
 
 @dataclass(frozen=True)
@@ -140,7 +151,7 @@ class SolicitudPlan:
 
     plataforma: str
     nombre_base: str
-    listing_ids: str | None
+    listing_ids: str | Sequence[int] | None
     modo: str
     parametros: dict[str, dict[str, Any]]
     tipo_producto: str | None = None
@@ -150,7 +161,7 @@ class SolicitudPlan:
     @classmethod
     def desde_web(cls, solicitud: dict[str, Any]) -> SolicitudPlan:
         listings = solicitud.get("listing_ids")
-        listing_ids = ",".join(str(lid) for lid in sorted(listings)) if listings else None
+        listing_ids = tuple(sorted(listings)) if listings else None
         objetivo = solicitud.get("objetivo") or {}
         return cls(
             plataforma=solicitud["plataforma"],
@@ -295,11 +306,18 @@ def _parametros(args) -> dict[str, fp.ParametrosRol]:
     }
 
 
-def _ids_listings(texto: str) -> list[int]:
-    try:
-        ids = [int(p) for p in (texto or "").split(",") if p.strip()]
-    except ValueError:
-        raise Abortar(f"--listing-ids debe ser ids enteros separados por coma: {texto!r}") from None
+def _ids_listings(valor: str | Sequence[int] | None) -> list[int]:
+    if valor is None:
+        raise Abortar("--listing-ids no puede ser vacio ni contener duplicados")
+    if isinstance(valor, str):
+        try:
+            ids = [int(p) for p in valor.split(",") if p.strip()]
+        except ValueError:
+            raise Abortar(
+                f"--listing-ids debe ser ids enteros separados por coma: {valor!r}"
+            ) from None
+    else:
+        ids = [int(i) for i in valor]
     if not ids or len(ids) != len(set(ids)):
         raise Abortar("--listing-ids no puede ser vacio ni contener duplicados")
     return sorted(ids)
@@ -345,14 +363,12 @@ def avisos_presupuesto_alto(plan: fp.PlanGrupoV2, p90: Decimal | None) -> list[s
     return avisos
 
 
-def _datos_plan_v2(args, conn_read, tipo: str):
-    """Datos observados del plan v2; independientes de budgets y bids."""
+def _datos_plan_v2_con_fuentes(args, conn_read, tipo: str):
+    """Datos observados del plan v2 + fuentes de semillas en 1 solo paso."""
     ids = _ids_listings(args.listing_ids)
     publicaciones = _publicaciones_v2(conn_read, args.plataforma, ids)
     origen = getattr(args, "origen_objetivo", None)
     if origen is None:
-        # A1: --target-acos es opcional; sin el, el CLI deriva del margen
-        # medido (la web siempre manda origen_objetivo explicito).
         if getattr(args, "target_acos", None) is not None:
             origen = "manual_lanzamiento"
         else:
@@ -362,8 +378,6 @@ def _datos_plan_v2(args, conn_read, tipo: str):
             target = _decimal(args.target_acos, "--target-acos")
         except (InvalidOperation, TypeError):
             raise Abortar("--target-acos invalido") from None
-        # Banda y forma se validan aqui porque es el unico punto de alta manual
-        # compartido por CLI, preview, crear y sugerir_bids.
         fp.valida_banda_manual(target)
         fp.valida_forma_objetivo(target)
         objetivo = fp.ObjetivoPlanV2(origen, target, "manual_lanzamiento confirmado")
@@ -395,20 +409,34 @@ def _datos_plan_v2(args, conn_read, tipo: str):
         terminos, kws, negs, objetivo.acos_pct, terminos_exact=terminos_exact
     )
     existentes = tuple(_existentes(conn_read, args.plataforma, listings))
+    fuentes = FuentesPlan(
+        kws=tuple(kws),
+        negs=tuple(negs),
+        terminos=tuple(terminos),
+        terminos_exact=tuple(terminos_exact),
+    )
+    return publicaciones, objetivo, semillas, existentes, fuentes
+
+
+def _datos_plan_v2(args, conn_read, tipo: str):
+    """Datos observados del plan v2; independientes de budgets y bids."""
+    publicaciones, objetivo, semillas, existentes, _fuentes = _datos_plan_v2_con_fuentes(
+        args, conn_read, tipo
+    )
     return publicaciones, objetivo, semillas, existentes
 
 
-def _arma_plan_v2(
+def _arma_plan_v2_con_fuentes(
     args, conn_read, tipo_dado: str | None, moneda: str, parametros: dict
-) -> fp.PlanGrupoV2:
-    # A2: la familia sale de los productos de los listings; con familia
-    # unica el tipo es su slug (el dado se corrige).
+) -> tuple[fp.PlanGrupoV2, FuentesPlan]:
     ids = _ids_listings(args.listing_ids)
     filas = conn_read.execute(_SQL_PRODUCTOS_DE_LISTINGS, (args.plataforma, ids)).fetchall()
     tipo, familia, advertencia = _tipo_desde_familia(
         conn_read, args.plataforma, [fila[0] for fila in filas], tipo_dado
     )
-    publicaciones, objetivo, semillas, existentes = _datos_plan_v2(args, conn_read, tipo)
+    publicaciones, objetivo, semillas, existentes, fuentes = _datos_plan_v2_con_fuentes(
+        args, conn_read, tipo
+    )
     plan = fp.PlanGrupoV2(
         args.plataforma,
         tipo,
@@ -425,11 +453,20 @@ def _arma_plan_v2(
         advertencia,
     )
     fp._valida_plan_v2(plan)
+    return plan, fuentes
+
+
+def _arma_plan_v2(
+    args, conn_read, tipo_dado: str | None, moneda: str, parametros: dict
+) -> fp.PlanGrupoV2:
+    plan, _fuentes = _arma_plan_v2_con_fuentes(args, conn_read, tipo_dado, moneda, parametros)
     return plan
 
 
-def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupoV2:
-    """Plan completo desde la base + validacion SIN HTTP (spec §5.1)."""
+def _arma_plan_con_fuentes(
+    args, conn_read: psycopg.Connection
+) -> tuple[fp.PlanGrupoV2, FuentesPlan]:
+    """Plan completo + fuentes de semillas en 1 solo pase (evita 4 queries en export)."""
     try:
         tipo_dado = (
             fp.valida_tipo_producto(args.tipo_producto)
@@ -441,8 +478,14 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupoV2:
         fp.valida_parametros(parametros, moneda)
         if not args.nombre_base or not args.nombre_base.strip():
             raise Abortar("--nombre-base no puede ser vacio")
-        return _arma_plan_v2(args, conn_read, tipo_dado, moneda, parametros)
+        return _arma_plan_v2_con_fuentes(args, conn_read, tipo_dado, moneda, parametros)
     except fp.PlanInvalido as exc:
         raise Abortar(str(exc)) from exc
     finally:
-        conn_read.commit()  # la lectura cierra su txn ANTES de cualquier salida
+        conn_read.commit()
+
+
+def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupoV2:
+    """Plan completo desde la base + validacion SIN HTTP (spec §5.1)."""
+    plan, _fuentes = _arma_plan_con_fuentes(args, conn_read)
+    return plan
