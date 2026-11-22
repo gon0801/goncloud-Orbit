@@ -65,10 +65,6 @@ details.custom-range[open] > summary {
   color: var(--o-ink3);
   margin: 6px 0 0;
 }
-.btn-limpiar {
-  padding: 7px 10px;
-  font-size: 12px;
-}
 
 .resumen-seccion {
   margin-bottom: 22px;

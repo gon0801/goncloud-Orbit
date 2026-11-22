@@ -73,7 +73,7 @@ Receta empaquetada:
 
 ## Gotchas
 
-- El filtro, la simulación y el guardado de límites viven en `/static/js/productos.js`: la CSP bloquea scripts inline.
+- El filtro, la simulación y el guardado de límites viven en `/static/js/productos_pausa.js`: la CSP bloquea scripts inline.
 - La simulación lee todo el mercado con el lector del ciclo: no corre al cargar la página, solo al cambiar un límite. Sin watermark del mercado (ninguna métrica de anuncios) la ruta da error y la pantalla lo dice.
 - La simulación solo devuelve `product_id`: el nombre sale de la fila del producto en `#pausa-producto` (el ciclo evalúa los mismos productos); si falta, se ve `producto <id>`.
 - Mientras falte la cobertura D.7 casi todos los productos salen en `sin_cobertura_d7` y la lista puede venir vacía: la pantalla lo dice en `[data-sin-cobertura]`, no muestra cero.

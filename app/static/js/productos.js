@@ -233,6 +233,7 @@ function ejecutaFlujo(flujo, ctx, form, opts) {
   Orbit.postJson(opts.url, cuerpo, form.elements.token.value)
     .then(function (r) {
       if (flujo.revision !== envio.revision) return;
+      if (!r.jsonOk) throw new Error(ctx.incierto);
       if (!r.ok) {
         if (opts.enError && opts.enError(r, flujo, ctx, envio, form, estado)) return;
         var texto = "Error: " + mensajeError(r.data, r.status) + ".";

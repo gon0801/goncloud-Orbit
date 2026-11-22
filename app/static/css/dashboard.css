@@ -98,6 +98,7 @@ button, input, select { font: inherit; }
 button, .boton { display: inline-block; cursor: pointer; border: 1px solid var(--o-borde); background: var(--o-card); color: var(--o-ink2); padding: 7px 14px; border-radius: 8px; }
 button:hover { border-color: var(--o-borde-h); }
 button[type="submit"], .boton-primario { background: var(--o-ac); color: var(--o-on-ac); border-color: var(--o-ac); font-weight: 550; }
+.btn-limpiar { padding: 7px 10px; font-size: 12px; }
 button[type="submit"]:hover { background: var(--o-ac2); }
 button[data-vetar]:hover { color: var(--o-mal); border-color: var(--o-mal); }
 button:disabled { cursor: not-allowed; opacity: .6; }

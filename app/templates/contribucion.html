@@ -63,8 +63,8 @@
         <th class="contribucion-col-eje">
           <span class="contribucion-eje" aria-hidden="true">
             {% if p.eje.mostrar_min %}<span class="num contribucion-eje-min">{{ p.eje.min_texto }}</span>{% endif %}
-            <svg class="contribucion-eje-cero-svg" viewBox="0 0 100 17" preserveAspectRatio="none">
-              <text class="num contribucion-eje-cero" x="{{ p.eje.cero_clase }}" y="14" text-anchor="middle">0</text>
+            <svg class="contribucion-eje-cero-svg" width="100%" height="17">
+              <text class="num contribucion-eje-cero" x="{{ p.eje.cero_clase }}%" y="14" text-anchor="middle">0</text>
             </svg>
             <span class="num contribucion-eje-max">{{ p.eje.max_texto }}</span>
           </span>

@@ -1531,3 +1531,35 @@ def test_arreglos04_w_p_impulsar_aparte_invalida_su_previa_en_la_tabla_sin_pedid
         atributo="marcarSinPedido",
         pedir='api.verLanzamiento("[data-marcar-sin-pedido]")',
     )
+
+
+_GUION_W_P_NO_JSON = r"""
+  marca(casillaA, true);
+  PEDIR();
+  await tick();
+  entrega(0, PREVIA_A());
+  await tick();
+  ejecuta(ESPERADA_A);
+  pendientes[pendientes.length - 1].resolve({
+    ok: STATUS_NO_JSON < 400,
+    status: STATUS_NO_JSON,
+    json: () => Promise.reject(new SyntaxError("Unexpected token '<'")),
+  });
+  await tick();
+  assert.match(estado.textContent, /No se sabe si/, "respuesta sin JSON deja estado incierto");
+  assert.equal(boton.disabled, true, "el boton queda deshabilitado tras respuesta ilegible");
+  const trasFallo = llamadas.length;
+  ejecuta(ESPERADA_A);
+  assert.equal(llamadas.length, trasFallo, "no permite reenviar tras respuesta ilegible");
+  PEDIR();
+  assert.equal(llamadas.length, trasFallo, "no permite pedir nueva previa tras estado incierto");
+"""
+
+
+@pytest.mark.parametrize("modo", ["impulso", "retiro"])
+@pytest.mark.parametrize("status_http", [504, 200])
+def test_ejecuta_flujo_respuesta_sin_json_queda_incierta(modo, status_http):
+    """Un 504 HTML del proxy o un 200 truncado no son rechazos limpios: el
+    envio pudo haberse aplicado en Amazon y debe quedar bloqueado en fase
+    incierta hasta recargar."""
+    _corre_guion_w_p(modo, _GUION_W_P_NO_JSON.replace("STATUS_NO_JSON", str(status_http)))
