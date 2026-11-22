@@ -68,6 +68,21 @@ fi
 
 cuenta_avisos() { grep -c 'cron-avisa' "$1" || true; }
 
+# Cuenta avisos de $1 contando como maximo una linea jev-vigia con cron-avisa
+# (deduplicar copias repetidas de jev-vigia dentro o fuera del bloque no reduce
+# los avisos reales; quitar cron-avisa de jev-vigia o de otra tarea sigue abortando).
+cuenta_avisos_dedup_vigia() {
+  awk '
+    /cron-avisa/ {
+      if ($0 ~ /app\.cli jev-vigia/) {
+        if (!vio_vigia) { vio_vigia = 1; n++ }
+      } else {
+        n++
+      }
+    }
+    END { print n + 0 }' "$1"
+}
+
 extrae_bloque() {
   awk '/^# === / { dentro = ($0 ~ /^# === Orbit \(/) } dentro { print }' "$1" > "$2"
 }
@@ -124,7 +139,7 @@ prepara_reemplazo() {
     echo "sin cambios"
     return 0
   fi
-  antes=$(cuenta_avisos "$ACTUAL")
+  antes=$(cuenta_avisos_dedup_vigia "$ACTUAL")
   despues=$(cuenta_avisos "$NUEVO")
   if [ "$despues" -lt "$antes" ]; then
     echo "ABORTA: el bloque canonico dejaria menos avisos ($despues < $antes); no escribo" >&2
@@ -161,7 +176,7 @@ case "$ACCION" in
       echo "sin cambios"
       exit 0
     fi
-    antes=$(cuenta_avisos "$ACTUAL")
+    antes=$(cuenta_avisos_dedup_vigia "$ACTUAL")
     despues=$(cuenta_avisos "$NUEVO")
     if [ "$despues" -lt "$antes" ]; then
       echo "ABORTA: el bloque canonico dejaria menos avisos ($despues < $antes); no escribo" >&2

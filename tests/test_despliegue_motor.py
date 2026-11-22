@@ -1496,3 +1496,18 @@ def test_cron_orbit_deduplica_jev_vigia_fuera_del_bloque_y_restaura(s):
     r_rest = _corre_cron_orbit({**entorno, "ORBIT_CRON_RESPALDO": respaldo}, "restaura")
     assert r_rest.returncode == 0, r_rest.stdout + r_rest.stderr
     assert crontab.read_text(encoding="utf-8") == previo
+
+    # Caso duplicado: bloque canonico ya presente + copia externa (fuera del bloque) con cron-avisa.
+    # prepara e instala deben limpiar la copia externa sin que la guarda de avisos aborte.
+    duplicado = instalado.replace(reputacion, reputacion + LINEAS_VIGIA, 1)
+    crontab.write_text(duplicado, encoding="utf-8", newline="\n")
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 1
+    r_prep = _corre_cron_orbit(entorno, "prepara")
+    assert r_prep.returncode == 0, r_prep.stdout + r_prep.stderr
+    respaldo_dup = next(
+        ln.split("=", 1)[1] for ln in r_prep.stdout.splitlines() if ln.startswith("respaldo=")
+    )
+    r_inst = _corre_cron_orbit({**entorno, "ORBIT_CRON_RESPALDO_NUEVO": respaldo_dup}, "instala")
+    assert r_inst.returncode == 0, r_inst.stdout + r_inst.stderr
+    assert crontab.read_text(encoding="utf-8").count("app.cli jev-vigia") == 1
+    assert _corre_cron_orbit(entorno, "revisa").returncode == 0
