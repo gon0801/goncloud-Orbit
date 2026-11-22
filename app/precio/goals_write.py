@@ -42,6 +42,7 @@ from app.precio.siembra import (
     Candidato,
     GoalVigente,
     LecturaHoy,
+    Pedido,
     PedidoMargenDeHoy,
     PedidoModo,
     PedidoValor,
@@ -508,10 +509,11 @@ def _m_referencia_de(m_hoy: Decimal | None) -> Decimal | None:
     return m_hoy.quantize(Decimal("0.0001"))
 
 
-def aplicar_plan(
+def aplicar_pedido(
     conn: psycopg.Connection,
-    plan: PlanGoals,
     *,
+    pares: tuple[tuple[int, str], ...],
+    pedido: Pedido,
     huella: str,
     confirmados: frozenset[int],
     go_literal: str | None,
@@ -519,29 +521,22 @@ def aplicar_plan(
     vitrina,
     estricto: bool = False,
 ) -> ResultadoPlan:
-    """Escribe el plan ENTERO en una transaccion o no escribe nada.
+    """Recalcula el plan UNA sola vez contra la base viva y escribe el lote
+    ENTERO en una transaccion o no escribe nada.
 
-    Recalcula adentro (`leer_candidatos` + `planear`); si su huella no
-    coincide con `huella` -> `HuellaDistinta` con el plan nuevo (nada
-    escrito). Se escribe el recalculo fresco, no el plan viajero.
-    Fila con bloqueo no confirmable, o confirmable sin confirmar: se omite
-    y se LISTA en `omitidas` (B-C1); en `estricto` (el tool) aborta con
-    `BloqueoSinConfirmar` en vez de omitir. `live` con filas accionables
-    exige `go_literal` aunque ninguna sea escribible (W5: sin go, un plan
-    live todo bloqueado pintaba 0/0 como exito). Reemplazar = cerrar +
-    sembrar; reeditar el mismo dia deja la anterior ANULADA
-    (`sembrar_goal`/`cerrar_goal` son los pasos internos).
+    Si la huella del recalculo no coincide con `huella` -> `HuellaDistinta`
+    con el plan nuevo (nada escrito). Evita el doble recalculo en el endpoint
+    HTTP `/api/precios/goals/aplicar`.
     """
     if not conn.autocommit:
         raise ValueError("aplicar_plan exige conexion en autocommit: el lote confirma al salir")
     confirmados = frozenset(confirmados)
-    pares = tuple((f.listing_id, f.plataforma) for f in plan.filas)
     ajenos = sorted(set(confirmados) - {lid for lid, _plat in pares})
     if ajenos:
         raise PrecioGoalInvalido(f"confirmados fuera del plan: {ajenos}")
     candidatos = leer_candidatos(conn, filtro=PorIds(pares=pares), vitrina=vitrina)
     minimo, maximo = banda_desde_settings(config_vigente_settings(conn))
-    nuevo = planear(candidatos, pedido=plan.pedido, banda=(minimo, maximo))
+    nuevo = planear(candidatos, pedido=pedido, banda=(minimo, maximo))
     if nuevo.huella != huella:
         raise HuellaDistinta(nuevo, esperada=huella)
     escribibles = []
@@ -560,7 +555,7 @@ def aplicar_plan(
             )
             continue
         escribibles.append(fila)
-    modo = getattr(plan.pedido, "mode", None)
+    modo = getattr(pedido, "mode", None)
     if modo == "live" and (go_literal is None or not go_literal.strip()):
         if escribibles:
             raise PrecioGoalInvalido(
@@ -600,7 +595,7 @@ def aplicar_plan(
                 mode=modo,
                 go_literal=go_literal if modo == "live" else None,
                 creado_por=actor,
-                origen=_ORIGEN_POR_PEDIDO[type(plan.pedido)],
+                origen=_ORIGEN_POR_PEDIDO[type(pedido)],
                 lote=huella,
                 m_referencia=_m_referencia_de(fila.m_hoy),
             )
@@ -612,4 +607,33 @@ def aplicar_plan(
         lote=huella,
         hechos=tuple(hechos),
         omitidas=tuple(omitidas),
+    )
+
+
+def aplicar_plan(
+    conn: psycopg.Connection,
+    plan: PlanGoals,
+    *,
+    huella: str,
+    confirmados: frozenset[int],
+    go_literal: str | None,
+    actor: str,
+    vitrina,
+    estricto: bool = False,
+) -> ResultadoPlan:
+    """Escribe el plan ENTERO en una transaccion o no escribe nada.
+
+    Delega en `aplicar_pedido` usando los pares y el pedido de `plan`.
+    """
+    pares = tuple((f.listing_id, f.plataforma) for f in plan.filas)
+    return aplicar_pedido(
+        conn,
+        pares=pares,
+        pedido=plan.pedido,
+        huella=huella,
+        confirmados=confirmados,
+        go_literal=go_literal,
+        actor=actor,
+        vitrina=vitrina,
+        estricto=estricto,
     )

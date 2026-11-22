@@ -392,15 +392,45 @@ def _fila_propuesta_campana(fila: dict) -> dict:
     }
 
 
+_SQL_PROPUESTAS_CAMPANA_VISIBLES = """
+SELECT id, campaign_id, platform, campaign_external_id, profile_id,
+       nombre, status, risk_type, first_seen_at, last_seen_at,
+       closed_at, close_reason,
+       window_start, window_end, observed_at, cost, revenue,
+       currency, target_pct, target_source, excess, acos_pct,
+       campaign_status, status_synced_at, evidence,
+       aviso_estado, aviso_intentos, aviso_enviado_at
+  FROM (
+    SELECT p.id, p.campaign_id, p.platform, p.campaign_external_id, p.profile_id,
+           e.name AS nombre, p.status, p.risk_type, p.first_seen_at, p.last_seen_at,
+           p.closed_at, p.close_reason,
+           p.window_start, p.window_end, p.observed_at, p.cost, p.revenue,
+           p.currency, p.target_pct, p.target_source, p.excess, p.acos_pct,
+           p.campaign_status, p.status_synced_at, p.evidence,
+           p.aviso_estado, p.aviso_intentos, p.aviso_enviado_at,
+           row_number() OVER (
+             PARTITION BY p.status ORDER BY p.last_seen_at DESC, p.id DESC
+           ) AS _rn
+      FROM ads_campaign_proposal p
+      JOIN ad_entity e ON e.id = p.campaign_id
+     WHERE p.status IN ('open', 'paused_observed', 'paused_external')
+  ) t
+ WHERE _rn <= %s
+ ORDER BY CASE status
+          WHEN 'open' THEN 0
+          WHEN 'paused_observed' THEN 1
+          ELSE 2
+          END,
+          last_seen_at DESC,
+          id DESC
+"""
+
+
 def propuestas_campana_visibles(conn: ConexionLectura) -> list[dict]:
     """Propuestas visibles en la pantalla (B2): open accionables primero,
     luego paused_observed informativas y paused_external (cierre C.5 por
-    readback PAUSED: como se cerro y cuando). Sin limite (son decenas)."""
-    items = []
+    readback PAUSED: como se cerro y cuando). Una sola consulta con tope
+    `LIMITE_MAX` por estado."""
     with cursor_dict(conn) as cur:
-        for estado in ("open", "paused_observed", "paused_external"):
-            filas = cur.execute(
-                _SQL_PROPUESTAS_CAMPANA, (estado, estado, None, None, LIMITE_MAX)
-            ).fetchall()
-            items.extend(_fila_propuesta_campana(fila) for fila in filas)
-    return items
+        filas = cur.execute(_SQL_PROPUESTAS_CAMPANA_VISIBLES, (LIMITE_MAX,)).fetchall()
+    return [_fila_propuesta_campana(fila) for fila in filas]

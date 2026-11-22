@@ -52,7 +52,21 @@ from app.optimizer.goals import PELDANOS_CASCADA
 from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
 from app.redaction import scrub
-from app.ui_campanas import VISTAS_RAPIDAS, presenta_campanas
+from app.ui_campanas import (  # noqa: F401 - reexport para pruebas y tabla
+    COLUMNAS_NUMERICAS,
+    COLUMNAS_ORDEN,
+    ESTADOS_CAMPANA,
+    VISTAS_RAPIDAS,
+    _decimal_o_none,
+    _href_campanas,
+    _params_vista,
+    _pasa_filtro,
+    _texto_filtro,
+    _valor_orden,
+    filtra_y_ordena_campanas,
+    presenta_campanas,
+    vista_tabla_campanas,
+)
 from app.ui_contribucion import vista_contribucion
 from app.ui_decisiones import TIPOS_TAB, vista_decisiones
 from app.ui_metricas import kpis_inertes, vista_resumen
@@ -173,21 +187,6 @@ def hace(valor, ahora=None) -> str:
 templates.env.filters["fecha_corta"] = fecha_corta
 templates.env.filters["hace"] = hace
 
-# Columnas que YA estan en campanas.html. No se inventan orders/impressions.
-COLUMNAS_ORDEN = (
-    "nombre",
-    "estado",
-    "plataforma",
-    "cost",
-    "revenue",
-    "clicks",
-    "acos",
-    "target",
-    "procedencia",
-)
-COLUMNAS_NUMERICAS = frozenset({"cost", "revenue", "clicks", "acos", "target"})
-ESTADOS_CAMPANA = ("ENABLED", "PAUSED", "ARCHIVED")
-
 
 def _limpia_query(valor: str | None) -> str | None:
     """Query vacia o solo espacios = ausente (el form GET manda "")."""
@@ -232,166 +231,19 @@ def _vocab_o_422(valor: str | None, permitidos: frozenset[str], nombre: str) -> 
     return limpio
 
 
-def _decimal_o_none(valor: str | None) -> Decimal | None:
-    if valor is None:
-        return None
-    try:
-        return Decimal(valor)
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def _valor_orden(item: dict, columna: str):
-    """Valor TIPEADO para sort numerico (9 < 80). Hueco = None (regla 3)."""
-    metricas = item.get("metricas_30d") or {}
-    if columna == "nombre":
-        return item.get("nombre")
-    if columna == "estado":
-        return item.get("status")
-    if columna == "plataforma":
-        return item.get("plataforma")
-    if columna == "cost":
-        return _decimal_o_none(metricas.get("cost"))
-    if columna == "revenue":
-        return _decimal_o_none(metricas.get("ad_revenue"))
-    if columna == "clicks":
-        return metricas.get("clicks")
-    if columna == "acos":
-        return _decimal_o_none(metricas.get("acos"))
-    if columna == "target":
-        te = item.get("target_efectivo") or {}
-        return _decimal_o_none(te.get("valor")) or _decimal_o_none(te.get("minimo"))
-    if columna == "procedencia":
-        return (item.get("target_efectivo") or {}).get("peldano")
-    return None
-
-
-def _texto_filtro(item: dict, columna: str) -> str:
-    """Texto de la celda para filtrar (lo que el dueno ve, no un id interno)."""
-    metricas = item.get("metricas_30d") or {}
-    if columna == "nombre":
-        return item.get("nombre") or ""
-    if columna == "clicks":
-        clicks = metricas.get("clicks")
-        return "" if clicks is None else str(clicks)
-    if columna == "acos":
-        if metricas.get("sin_ventas"):
-            return "sin ventas"
-        return metricas.get("acos") or ""
-    if columna == "cost":
-        return metricas.get("cost") or ""
-    if columna == "revenue":
-        return metricas.get("ad_revenue") or ""
-    if columna == "target":
-        valor = (item.get("target_efectivo") or {}).get("valor")
-        return "" if valor is None else str(valor)
-    if columna == "procedencia":
-        return (item.get("target_efectivo") or {}).get("peldano") or ""
-    return ""
-
-
-def _pasa_filtro(item: dict, filtros: dict) -> bool:
-    """AND de los filtros presentes. Plataforma/estado son igualdad exacta."""
-    if filtros.get("plataforma") and item.get("plataforma") != filtros["plataforma"]:
-        return False
-    if filtros.get("estado") and item.get("status") != filtros["estado"]:
-        return False
-    pedido_clicks = filtros.get("clicks")
-    if pedido_clicks:
-        clicks = (item.get("metricas_30d") or {}).get("clicks")
-        if clicks is None:
-            return False
-        if pedido_clicks.isdigit() or (
-            pedido_clicks.startswith("-") and pedido_clicks[1:].isdigit()
-        ):
-            if clicks != int(pedido_clicks):
-                return False
-        elif pedido_clicks.casefold() not in str(clicks).casefold():
-            return False
-    for columna in ("nombre", "acos", "cost", "revenue", "target", "procedencia"):
-        pedido = filtros.get(columna)
-        if not pedido:
-            continue
-        if pedido.casefold() not in _texto_filtro(item, columna).casefold():
-            return False
-    return True
-
-
-def filtra_y_ordena_campanas(
-    items: list[dict],
-    filtros: dict,
-    ordenar: str | None,
-    direccion: str | None,
-) -> list[dict]:
-    """Vista de la tabla: filtra en memoria y ordena. No reimplementa SQL."""
-    visibles = [item for item in items if _pasa_filtro(item, filtros)]
-    if ordenar is None:
-        return visibles
-    presentes = [item for item in visibles if _valor_orden(item, ordenar) is not None]
-    ausentes = [item for item in visibles if _valor_orden(item, ordenar) is None]
-    reverso = direccion == "desc"
-    presentes.sort(key=lambda item: _valor_orden(item, ordenar), reverse=reverso)
-    return presentes + ausentes
-
-
-def _href_campanas(params: dict) -> str:
-    pares = [(k, v) for k, v in params.items() if v not in (None, "")]
-    if not pares:
-        return "/campanas"
-    return "/campanas?" + urlencode(pares)
-
-
-def _params_vista(
-    filtros: dict,
-    ordenar: str | None,
-    direccion: str | None,
-    vista: str | None = None,
-) -> dict:
-    params = {
-        "plataforma": filtros.get("plataforma"),
-        "estado": filtros.get("estado"),
-        "nombre": filtros.get("nombre"),
-        "clicks": filtros.get("clicks"),
-        "acos": filtros.get("acos"),
-        "cost": filtros.get("cost"),
-        "revenue": filtros.get("revenue"),
-        "target": filtros.get("target"),
-        "procedencia": filtros.get("procedencia"),
-        "ordenar": ordenar,
-        "dir": direccion,
-    }
-    if vista not in (None, "", "todas"):
-        params["vista"] = vista
-    return params
-
-
-def vista_tabla_campanas(
-    filtros: dict,
-    ordenar: str | None,
-    direccion: str | None,
-    vista: str | None = None,
-) -> dict:
-    """Hrefs de headers y el form GET (CSP: cero JS)."""
-    base = _params_vista(filtros, ordenar, direccion, vista)
-    hrefs_orden = {}
-    for col in COLUMNAS_ORDEN:
-        if ordenar == col:
-            nueva_dir = "asc" if direccion == "desc" else "desc"
-        else:
-            nueva_dir = "desc" if col in COLUMNAS_NUMERICAS else "asc"
-        hrefs_orden[col] = _href_campanas({**base, "ordenar": col, "dir": nueva_dir})
-    return {
-        "filtros": filtros,
-        "ordenar": ordenar,
-        "dir": direccion,
-        "hrefs_orden": hrefs_orden,
-        "href_limpiar": "/campanas",
-        "plataformas": tuple(PLATAFORMAS_MONEDA),
-        "estados": ESTADOS_CAMPANA,
-        "peldanos": PELDANOS_CASCADA,
-        "vista_rapida": vista or "todas",
-        "activo": any(filtros.values()) or ordenar is not None or vista not in (None, "todas"),
-    }
+def _pagina_mercado(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: str | None,
+    *,
+    lector,
+    template: str,
+    pantalla: str,
+) -> HTMLResponse:
+    """Helper comun para pantallas filtradas por `?plataforma=` (default amazon_mx)."""
+    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+    datos = lector(conn=conn, plataforma=mercado or "amazon_mx")
+    return templates.TemplateResponse(request, template, {"pantalla": pantalla, **datos})
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -684,18 +536,14 @@ def pagina_gasto_sin_venta(
     conn: ConexionLectura,
     plataforma: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    """Gasto sin venta (JEV ADS 02, S.5 J5b): busquedas que gastan y no
-    venden, por lectura, con bandas de proporcion en "corresponden y no
-    venden". Server-rendered desde el endpoint (regla 22); el termino es
-    texto libre y se renderiza ESCAPADO ({{ }}). Mercado con
-    `?plataforma=` (vocabulario cerrado, sin componente de pestanas);
-    sin mercado se mira amazon_mx."""
-    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
-    datos = dash.gasto_sin_venta(conn=conn, plataforma=mercado or "amazon_mx")
-    return templates.TemplateResponse(
+    """Gasto sin venta (JEV ADS 02, S.5 J5b): busquedas que gastan y no venden."""
+    return _pagina_mercado(
         request,
-        "gasto_sin_venta.html",
-        {"pantalla": "gasto-sin-venta", **datos},
+        conn,
+        plataforma,
+        lector=dash.gasto_sin_venta,
+        template="gasto_sin_venta.html",
+        pantalla="gasto-sin-venta",
     )
 
 
@@ -705,18 +553,14 @@ def pagina_keywords_danadas(
     conn: ConexionLectura,
     plataforma: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    """Keywords danadas (BIDS 02, P.3b): las que vendian y perdieron su
-    trafico tras un recorte, con el boton de regreso por hoja y "Regresar
-    todas" arriba. Server-rendered desde el endpoint (regla 22); el nombre
-    es texto libre y se renderiza ESCAPADO ({{ }}). Mercado con
-    `?plataforma=` (vocabulario cerrado, sin componente de pestanas);
-    sin mercado se mira amazon_mx."""
-    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
-    datos = dash.keywords_danadas(conn=conn, plataforma=mercado or "amazon_mx")
-    return templates.TemplateResponse(
+    """Keywords danadas (BIDS 02, P.3b): vendian y perdieron trafico tras un recorte."""
+    return _pagina_mercado(
         request,
-        "keywords_danadas.html",
-        {"pantalla": "keywords-danadas", **datos},
+        conn,
+        plataforma,
+        lector=dash.keywords_danadas,
+        template="keywords_danadas.html",
+        pantalla="keywords-danadas",
     )
 
 
@@ -726,17 +570,14 @@ def pagina_ruido(
     conn: ConexionLectura,
     plataforma: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    """Tablero de ruido (BIDS 02, P.5): decisiones y abstenciones por ciclo,
-    encogimiento por hoja y comparacion simple de antes y despues del
-    encendido. Server-rendered desde el endpoint (regla 22). Mercado con
-    `?plataforma=` (vocabulario cerrado, sin componente de pestanas);
-    sin mercado se mira amazon_mx."""
-    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
-    datos = dash.ruido(conn=conn, plataforma=mercado or "amazon_mx")
-    return templates.TemplateResponse(
+    """Tablero de ruido (BIDS 02, P.5): decisiones y abstenciones por ciclo."""
+    return _pagina_mercado(
         request,
-        "ruido.html",
-        {"pantalla": "ruido", **datos},
+        conn,
+        plataforma,
+        lector=dash.ruido,
+        template="ruido.html",
+        pantalla="ruido",
     )
 
 
@@ -746,16 +587,14 @@ def pagina_donde_poner_el_dinero(
     conn: ConexionLectura,
     plataforma: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    """Donde poner el dinero (BIDS 02, P.1): gasto y ACoS por tipo de
-    campana, solo lo que hoy esta encendido. Server-rendered desde el
-    endpoint (regla 22). Mercado con `?plataforma=` (vocabulario cerrado,
-    sin componente de pestanas); sin mercado se mira amazon_mx."""
-    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
-    datos = dash.donde_poner_el_dinero(conn=conn, plataforma=mercado or "amazon_mx")
-    return templates.TemplateResponse(
+    """Donde poner el dinero (BIDS 02, P.1): gasto y ACoS por tipo de campana."""
+    return _pagina_mercado(
         request,
-        "donde_poner_el_dinero.html",
-        {"pantalla": "donde-poner-el-dinero", **datos},
+        conn,
+        plataforma,
+        lector=dash.donde_poner_el_dinero,
+        template="donde_poner_el_dinero.html",
+        pantalla="donde-poner-el-dinero",
     )
 
 
@@ -765,18 +604,14 @@ def pagina_productos_sin_clics(
     conn: ConexionLectura,
     plataforma: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    """Productos sin clics (BIDS 02, P.4): candidatos a impulsar, impulsos
-    en curso y sin pedido en 11 meses, con el flujo de lanzamiento y el
-    regreso a sus grupos. Server-rendered desde el endpoint (regla 22);
-    el nombre es texto libre y se renderiza ESCAPADO ({{ }}). Mercado con
-    `?plataforma=` (vocabulario cerrado, sin componente de pestanas);
-    sin mercado se mira amazon_mx."""
-    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
-    datos = dash.productos_sin_clics(conn=conn, plataforma=mercado or "amazon_mx")
-    return templates.TemplateResponse(
+    """Productos sin clics (BIDS 02, P.4): candidatos a impulsar e impulsos en curso."""
+    return _pagina_mercado(
         request,
-        "productos_sin_clics.html",
-        {"pantalla": "productos-sin-clics", **datos},
+        conn,
+        plataforma,
+        lector=dash.productos_sin_clics,
+        template="productos_sin_clics.html",
+        pantalla="productos-sin-clics",
     )
 
 
@@ -786,17 +621,14 @@ def pagina_busquedas_sin_venta(
     conn: ConexionLectura,
     plataforma: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
-    """Busquedas que gastan sin vender (BIDS 02, P.6): paginas de
-    producto ajenas y palabras que ya gastaron el minimo sin un
-    pedido, con la referencia de azar. Solo lectura: ningun boton y
-    la busqueda de ejemplo se renderiza ESCAPADA ({{ }}). Mercado con
-    `?plataforma=`; sin mercado se mira amazon_mx."""
-    mercado = _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
-    datos = dash.busquedas_sin_venta(conn=conn, plataforma=mercado or "amazon_mx")
-    return templates.TemplateResponse(
+    """Busquedas que gastan sin vender (BIDS 02, P.6): solo lectura."""
+    return _pagina_mercado(
         request,
-        "busquedas_sin_venta.html",
-        {"pantalla": "busquedas-sin-venta", **datos},
+        conn,
+        plataforma,
+        lector=dash.busquedas_sin_venta,
+        template="busquedas_sin_venta.html",
+        pantalla="busquedas-sin-venta",
     )
 
 

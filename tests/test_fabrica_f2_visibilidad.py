@@ -442,14 +442,122 @@ def test_a6_cortes_hermanas_query_rota_no_tumba_la_pantalla(monkeypatch, caplog)
     al mutante que devuelve [] (la pantalla diria 'no hay hermanas')."""
     import logging
 
+    from app import dashboard_cortes
+
     with db_f2_0092("orbit_a6_cortesrot") as conn:
         _siembra_corte_harvest(conn)
-        monkeypatch.setattr(dash, "_SQL_HERMANAS_GRUPO", "SELECT no_existe FROM tampoco_existe")
-        with caplog.at_level(logging.WARNING, logger="app.api_dashboard"):
+        monkeypatch.setattr(
+            dashboard_cortes, "_SQL_HERMANAS_GRUPOS", "SELECT no_existe FROM tampoco_existe"
+        )
+        with caplog.at_level(logging.WARNING, logger="app.dashboard_cortes"):
             resp = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes")
         assert resp.status_code == 200
         assert resp.json()["items"][0]["hermanas"] is None
         assert "ilegibles" in caplog.text
+
+
+@_skip_db
+def test_a6_cortes_hermanas_lote_multiples_grupos_sin_cruce(monkeypatch):
+    """Dos cortes harvest de grupos distintos en el mismo /cortes: una sola
+    consulta por lote a `_hermanas_por_grupo` y cada item recibe solo las
+    hermanas de su propio grupo sin cruzar campanas."""
+    from test_fabrica_f2 import ROLES_F2
+
+    from app import dashboard_cortes
+
+    with db_f2_0092("orbit_a6_corteslote") as conn:
+        s1 = _siembra_corte_harvest(conn, rol_origen="category_phrase")
+        g1_id = s1["gpo"]["grupo_id"]
+
+        # Segundo grupo en la misma plataforma con external_id 63xx/64xx.
+        lote2 = "fabrica-f2-amazon_us-correa_perro-t2"
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES (%s, %s, 'correa_perro', 'Base G2',"
+            " 'go', 'h2', '{}'::jsonb, 'live', 'applied')",
+            (lote2, PLATFORM),
+        )
+        g2_id = conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal)"
+            " VALUES (%s, 'correa_perro', 'Base G2', %s, 20, 20, 0.5, 'humo', 'go') RETURNING id",
+            (PLATFORM, lote2),
+        ).fetchone()[0]
+        roles2: dict[str, dict] = {}
+        for i, rol in enumerate(ROLES_F2):
+            camp_ext, ag_ext = f"63{i:02d}", f"64{i:02d}"
+            camp = conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id) VALUES (%s, 'campaign', %s)"
+                " RETURNING id",
+                (PLATFORM, camp_ext),
+            ).fetchone()[0]
+            ag = conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+                " VALUES (%s, 'ad_group', %s, %s) RETURNING id",
+                (PLATFORM, ag_ext, camp),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+                " VALUES (%s, %s, %s, %s)",
+                (g2_id, rol, camp, ag),
+            )
+            roles2[rol] = {"camp": camp, "ag": ag, "camp_ext": camp_ext, "ag_ext": ag_ext}
+
+        ciclo2 = _ciclo_d(conn, platform=PLATFORM)
+        cfg2 = _config_version_d(conn, {})
+        origen2 = roles2["auto_discovery"]
+        exacta2 = roles2["category_exact"]
+        termino2 = "correa perro grande"
+        dec2 = _decision_d(
+            conn,
+            ciclo2,
+            origen2["ag"],
+            kind="harvest",
+            config_id=cfg2,
+            inputs={
+                "motivo": "x",
+                "target_acos_pct_usado": "20.00",
+                "goal": {
+                    "harvest": {
+                        "campaign_id": exacta2["camp_ext"],
+                        "ad_group_id": exacta2["ag_ext"],
+                        "default_bid": "11.62",
+                        "moneda": "USD",
+                        "resuelto_por": "grupo",
+                        "grupo_id": g2_id,
+                        "motivo": None,
+                    }
+                },
+            },
+            search_term=termino2,
+            moneda="USD",
+            window_end=dt.date(2026, 8, 1),
+        )
+        _encola_corte_d(conn, PLATFORM, origen2["ag"], "harvest", dec2, termino2)
+
+        llamadas: list[set[int]] = []
+        orig_lote = dashboard_cortes._hermanas_por_grupo
+
+        def _espia_lote(conn_arg, grupos_arg):
+            llamadas.append(set(grupos_arg))
+            return orig_lote(conn_arg, grupos_arg)
+
+        monkeypatch.setattr(dashboard_cortes, "_hermanas_por_grupo", _espia_lote)
+        items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
+
+        assert llamadas == [{g1_id, g2_id}], f"se esperaba 1 consulta por lote: {llamadas}"
+        por_grupo = {it["destino"]["grupo_id"]: it for it in items}
+        assert set(por_grupo) == {g1_id, g2_id}
+        assert [(h["rol"], h["campaign_id"]) for h in por_grupo[g1_id]["hermanas"]] == [
+            ("auto_discovery", s1["gpo"]["roles"]["auto_discovery"]["camp_ext"]),
+            ("category_broad", s1["gpo"]["roles"]["category_broad"]["camp_ext"]),
+            ("product_targeting", s1["gpo"]["roles"]["product_targeting"]["camp_ext"]),
+        ]
+        assert [(h["rol"], h["campaign_id"]) for h in por_grupo[g2_id]["hermanas"]] == [
+            ("category_phrase", roles2["category_phrase"]["camp_ext"]),
+            ("category_broad", roles2["category_broad"]["camp_ext"]),
+            ("product_targeting", roles2["product_targeting"]["camp_ext"]),
+        ]
 
 
 @_skip_db

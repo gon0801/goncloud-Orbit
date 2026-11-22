@@ -486,9 +486,18 @@ def test_feed_sql_compuesto_parsea_con_todos_los_filtros():
 def test_sql_del_modulo_dashboard_parsea_como_postgres():
     """Sintaxis de las SQL del modulo (patron test_api): pglast valida que las
     constantes parsean como Postgres real (un typo muere en CI, no en prod)."""
+    from app import dashboard_cortes as cortes_mod
     from app import dashboard_pagina as pagina
+    from app import dashboard_salud as salud_mod
+    from app import dashboard_temporada as temp_mod
 
-    for modulo, etiqueta in ((dash, "api_dashboard"), (pagina, "dashboard_pagina")):
+    for modulo, etiqueta in (
+        (dash, "api_dashboard"),
+        (pagina, "dashboard_pagina"),
+        (salud_mod, "dashboard_salud"),
+        (cortes_mod, "dashboard_cortes"),
+        (temp_mod, "dashboard_temporada"),
+    ):
         nombres = sorted(n for n in vars(modulo) if n.startswith("_SQL_"))
         assert nombres, f"no se encontraron constantes _SQL_* en app/{etiqueta}"
         for nombre in nombres:
@@ -2195,6 +2204,50 @@ def test_cortes_incluye_propuestas_campana(monkeypatch):
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_propuestas_campana_tope_por_estado(monkeypatch):
+    """F4/F5 (Ola F1): propuestas_campana_visibles limita a LIMITE_MAX (200)
+    POR estado (`PARTITION BY p.status`), no globalmente: con 205 open + 2
+    paused_observed devuelve 200 open y las 2 paused_observed."""
+    from app.api import LIMITE_MAX
+
+    with _db_temporal("orbit_dash_cortes_tope") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL42)
+        conn.execute(
+            """
+            WITH cams AS (
+                INSERT INTO ad_entity (platform, kind, external_id, name)
+                SELECT 'amazon_us', 'campaign', 'COPEN-' || g, 'Camp Open ' || g
+                  FROM generate_series(1, %s) g
+                RETURNING id, external_id
+            )
+            INSERT INTO ads_campaign_proposal
+                (campaign_id, platform, campaign_external_id, risk_type, status,
+                 first_seen_at, last_seen_at, closed_at, close_reason,
+                 window_start, window_end, observed_at, cost, revenue, currency,
+                 target_pct, target_source, excess, campaign_status,
+                 status_synced_at, evidence)
+            SELECT id, 'amazon_us', external_id, 'exceso_economico', 'open',
+                   %s, %s, NULL, NULL,
+                   '2026-08-16', '2026-09-14', %s, 200, 0, 'USD',
+                   20, 'goal_plataforma', 200, 'ENABLED', %s, %s
+              FROM cams
+            """,
+            (LIMITE_MAX + 5, AHORA, AHORA, AHORA, AHORA, Json({"motivo": "exceso_economico"})),
+        )
+        for idx in (1, 2):
+            camp = _campana(conn, "amazon_us", f"CPAUS-{idx}", name=f"Camp Paus {idx}")
+            _propuesta_campana(conn, camp, estado="paused_observed", external=f"CPAUS-{idx}")
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200, resp.text
+        props = resp.json()["propuestas_campana"]
+        abiertas = [pr for pr in props if pr["status"] == "open"]
+        pausadas = [pr for pr in props if pr["status"] == "paused_observed"]
+        assert len(abiertas) == LIMITE_MAX
+        assert len(pausadas) == 2
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
 def test_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
     """C.4 B1: /salud trae pendientes de aviso + fallo del ultimo ciclo."""
     with _db_temporal("orbit_dash_saludaviso") as (conn, dsn):
@@ -3719,3 +3772,19 @@ def test_busquedas_sin_venta_api_forma_y_422(monkeypatch):
             "/api/dashboard/busquedas-sin-venta", params={"plataforma": "meli"}
         )
         assert malo.status_code == 422
+
+
+def test_ola_f1_sin_inversion_ni_commits_en_lectura():
+    """Ola F1: config_write/api_temporada no importan api_dashboard, el router
+    de lectura no hace conn.commit() y aplicar_goals no recalcula dos veces."""
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parent.parent
+    for ruta in ("app/config_write.py", "app/api_temporada.py"):
+        texto = (raiz / ruta).read_text(encoding="utf-8")
+        assert "app.api_dashboard" not in texto, f"{ruta} sigue importando api_dashboard"
+    dash_src = (raiz / "app/api_dashboard.py").read_text(encoding="utf-8")
+    assert "conn.commit(" not in dash_src
+    write_src = (raiz / "app/api_precios_write.py").read_text(encoding="utf-8")
+    assert "aplicar_pedido(" in write_src
+    assert "plan = _plan_fresco(" not in write_src.split("def aplicar_goals", 1)[1]

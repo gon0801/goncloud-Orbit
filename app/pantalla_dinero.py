@@ -436,23 +436,21 @@ def lee_campanas(
         _SQL_CONFIGS_HIST, (plataforma, hoy)
     ).fetchall():
         configs.setdefault(cid, []).append((vigente_desde, presupuesto))
-    from app.ads.campana_config import config_por_id, config_vigente_con_id
+    from app.ads.campana_config import configs_por_ids, configs_vigentes_por_campana
     from app.campana_ajustes import coincide_clase
 
+    filas_regresables = conn.execute(_SQL_REGRESABLES, (plataforma,)).fetchall()
+    vigentes = configs_vigentes_por_campana(conn, {fila[1] for fila in filas_regresables})
+    antes_por_id = configs_por_ids(conn, {fila[4] for fila in filas_regresables if not fila[5]})
     regresables: dict[int, list] = {}
-    vigentes: dict[int, object] = {}
-    for aid, cid, clase, confirmado, antes_id, regreso_pendiente in conn.execute(
-        _SQL_REGRESABLES, (plataforma,)
-    ).fetchall():
+    for aid, cid, clase, confirmado, antes_id, regreso_pendiente in filas_regresables:
         # R07-H: si el vigente ya volvio al valor de antes, la ruta de
         # regreso contesta 409; la pantalla no ofrece el boton. Con un
         # regreso pendiente cuyo efecto ya se observo, la ruta lo sella
         # y contesta 200: ahi el boton si se ofrece.
-        if cid not in vigentes:
-            vigentes[cid] = config_vigente_con_id(conn, cid)[1]
-        vigente = vigentes[cid]
+        vigente = vigentes.get(cid)
         if vigente is not None and not regreso_pendiente:
-            antes = config_por_id(conn, antes_id)
+            antes = antes_por_id.get(antes_id)
             if vigente == antes or coincide_clase(clase, vigente, antes):
                 continue
         regresables.setdefault(cid, []).append(

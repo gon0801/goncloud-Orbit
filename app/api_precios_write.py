@@ -46,7 +46,7 @@ from app.precio.goals_write import (
     PorIds,
     PrecioGoalAusente,
     PrecioGoalInvalido,
-    aplicar_plan,
+    aplicar_pedido,
     banda_desde_settings,
     config_vigente_settings,
     fraccion_desde_porcentaje,
@@ -271,35 +271,39 @@ def aplicar_goals(
     cuerpo: CuerpoAplicar,
 ) -> dict:
     """Aplica el plan que el dueno vio: lo recalcula y escribe el lote
-    ENTERO o nada (`aplicar_plan`, una transaccion). La respuesta lista
+    ENTERO o nada (`aplicar_pedido`, una transaccion). La respuesta lista
     lo escrito (`hechos`) y lo omitido (`omitidas`, con bloqueo y
     motivo). 409 con el plan nuevo si la huella ya no coincide; 422
-    `live` sin go literal (lo exige `aplicar_plan` antes de abrir la
+    `live` sin go literal (lo exige `aplicar_pedido` antes de abrir la
     transaccion, aun sin filas escribibles) o pedido que no cierra; 404
     listing sin publicacion."""
     if not cuerpo.actor.strip():
         raise HTTPException(status_code=422, detail="actor en blanco: quien aplica firma")
     try:
-        plan = _plan_fresco(conn, cuerpo)
+        pedido = _pedido_de(cuerpo.pedido, cuerpo.platform)
+        pares = _seleccion(conn, cuerpo)
     except PrecioGoalAusente as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except (PrecioGoalInvalido, PedidoInvalido) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    # `aplicar_plan` exige autocommit (el lote confirma al salir de SU
+    # `aplicar_pedido` exige autocommit (el lote confirma al salir de SU
     # transaccion) y psycopg no deja cambiarlo con transaccion abierta:
-    # se suelta el snapshot de lectura (`aplicar_plan` relee adentro).
+    # se suelta el snapshot de lectura (`aplicar_pedido` lee y planea UNA vez).
     conn.rollback()
     conn.autocommit = True
     try:
-        resultado = aplicar_plan(
+        resultado = aplicar_pedido(
             conn,
-            plan,
+            pares=pares,
+            pedido=pedido,
             huella=cuerpo.huella,
             confirmados=frozenset(cuerpo.confirmados),
             go_literal=cuerpo.go_literal,
             actor=cuerpo.actor,
             vitrina=vitrina_de,
         )
+    except PrecioGoalAusente as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
     except HuellaDistinta as exc:
         raise HTTPException(
             status_code=409,
