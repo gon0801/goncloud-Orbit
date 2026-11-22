@@ -1,28 +1,42 @@
-# TEMPORADA 01 H.1 — Lo que vio la práctica (y lo que falta para la puerta)
+# TEMPORADA 01 H.1 — La práctica con el código corregido (ciclos 206 y 207)
 
 Lectura de solo lectura sobre producción (`docs/evidencia/arreglos-01/lee_prod.sh`, rol `orbit_read`,
-transacción `READ ONLY`). **Este documento no cierra H.1 todavía**: la puerta exige datos de una práctica
-que compare la subida rápida, y esa práctica es el ciclo de las 09:40 UTC del 2026-11-23, el primero que
-corre con los dos arreglos de abajo ya desplegados. Aquí queda lo medido, el hueco que encontró la
-revisión del dueño y lo que se va a medir.
+transacción `READ ONLY`). Son los dos primeros ciclos que corren con el arreglo de la práctica
+(`49f8734`, `ff2c1e3`, `2a8a6b0`, `57b47dd`) y con las cuatro claves en `shadow` (config **61**). Este
+documento **cierra H.1**: trae el dato, no una promesa.
 
-## El ciclo que sí corrió en práctica (204 US y 205 MX)
+Los dos ciclos se forzaron con `--forzar` por autorización del dueño, porque el ciclo automático ya
+había corrido ese día (204 y 205). Las marcas de agua, el antes y el después y el resultado de cero
+escrituras están en `ciclo-forzado.txt`, al lado de este archivo.
 
-P dejó las claves en `shadow` con los `config_version` **55**, **56** y **57** (2026-11-22 02:49–02:50 UTC).
-El primer ciclo terminado después de esa config fue el de ese mismo día:
+## Los ciclos
 
-| Ciclo | Plataforma | Terminó | Decisiones | `notes.temporada` |
+| Ciclo | Plataforma | Terminó (UTC) | Decisiones | `notes.temporada` |
 | --- | --- | --- | --- | --- |
-| 204 | amazon_us | 2026-11-22 09:40:07 UTC | 0 | `comparadas` 82, `coinciden` 82, `diferencias` 0, `reactivaciones` 0 |
-| 205 | amazon_mx | 2026-11-22 09:41:10 UTC | 0 | `comparadas` 112, `coinciden` 110, `diferencias` 2, `reactivaciones` 0 |
+| 206 | amazon_us | 2026-11-22 20:15:26 | 0 | `comparadas` 82, `coinciden` 82, `diferencias` 0, `reactivaciones` 0 |
+| 207 | amazon_mx | 2026-11-22 20:15:54 | 0 | `comparadas` 112, `coinciden` 110, `diferencias` 2, `reactivaciones` 0 |
 
-El calendario guardado tiene **noviembre en alta**, y la vista previa de P.2 ya lo decía: «Hoy: temporada
-alta. Meta de ACoS 25 % en MX y US.» El ciclo cayó en **temporada alta**, con 9 días por delante antes
-del `2026-12-01` (`sale_alta`).
+**US: 82 comparadas, 82 coinciden, 0 diferencias, 0 reactivaciones.** La sombra y el juicio real coinciden
+en las 82 hojas de Amazon US.
+
+**MX: 112 comparadas, 110 coinciden, 2 diferencias, 0 reactivaciones.** Las dos diferencias están
+abajo, con su caso reproducible.
+
+Los dos ciclos corrieron con la config **61** vigente: se creó el 2026-11-22 17:17:15 UTC y no hubo
+ninguna config posterior hasta después de los ciclos, así que era la vigente a las 20:15.
+
+`recupera_nivel` es **0**: ninguna de las dos diferencias tiene `motivo_sombra = "recupera_nivel"`. Y
+ahora el 0 está respaldado con un número, no con un hueco de cobertura: ver «R6r: el 0 tiene número».
+
+## La fase en la que cayó el ciclo
+
+El calendario guardado tiene **noviembre en alta** (`temporada.estacion.fase = "alta"`, día
+`2026-11-22`, `inicio_bloque` `2026-10-01`, `previa_alta` `false`). El ciclo cayó en **temporada alta**,
+con 9 días por delante antes del `2026-12-01` (`sale_alta`).
 
 Eso fija qué podía aparecer y qué no:
 
-- **Entradas a la baja: 0, por la fase.** En un mes alto no hay entrada que decidir; la línea solo se
+- **Entradas a la baja: 0, por la fase.** En un mes alto no hay entrada que decidir; esa línea solo se
   puede juzgar en enero, febrero, mayo o junio.
 - **Regresos: 0 por diseño.** La práctica no abre episodios ni confirma nada.
 - **Retenidos por presupuesto: 0 por diseño.** `_anota_regreso_retenido` solo cuenta con la temporada en
@@ -30,24 +44,65 @@ Eso fija qué podía aparecer y qué no:
 - **Reactivaciones: 0.** Sin episodio no hay pausa de la baja que reactivar.
 - **Metas de alta: sí actuaron.** Es lo único que esta práctica sí pudo ejercer.
 
-### Las metas de alta, con la cuenta hecha
+Un 0 en esta tabla no es «todo bien». Los tres ceros de en medio son estructurales (no había nada que
+contar) y no dicen nada sobre si esas rutas funcionan. Lo único que la práctica ejerció de verdad son
+las metas de alta, y de ahí salen las dos diferencias.
 
-Las dos diferencias de MX son la meta de alta en acción. Las dos hojas tenían el veredicto real
-`Mantener` (`azar_lo_explica`, meta base 23.1920 %) y la sombra dio `Mover` (`bajo_target`) con la meta
-del juicio en 25 %: el umbral de R6 sube de 0.85 × 23.1920 = 19.72 % a 0.85 × 25 = 21.25 %, y esas dos
-hojas cruzan.
-
-Se reprodujo el caso congelado con el `decide` del repo, primero tal cual y después con los marcadores de
-temporada que la sombra lleva (estación `alta`, `meta_alta_pct` 25, frontera `alta`), sin tocar nada más:
+## Las dos diferencias de MX, con el caso rejugado
 
 ```
-2457 | real: Mantener(azar_lo_explica) | sombra: Mover(bajo_target, 23.48) | base 23.19201313987196647242583925 | alta 25
-2969 | real: Mantener(azar_lo_explica) | sombra: Mover(bajo_target, 7.70)  | base 23.19201313987196647242583925 | alta 25
+hoja|real|sombra|destino_sombra|replay_sombra|m_estrella|m_estrella_sin_tope|techo_efectivo|gasto_ventana|gasto_extra
+2457|Mantener(azar_lo_explica)|Mover(bajo_target)|23.48|Mover(bajo_target)|R6r no llego a m*|1.047300919852685259527551050|23.195500|2306.8300|345.69
+2969|Mantener(azar_lo_explica)|Mover(bajo_target)|7.70|Mover(bajo_target)|R6r no llego a m*|1.001592509809653414288664064|6.7000|153.8000|22.96
+total| | | | | | | | |368.64
 ```
 
-Sale idéntico a lo que guardó el ciclo, así que la causa de las dos diferencias es la meta de alta.
+Sale de `docs/evidencia/temporada-01/H/replay_sombra.py`, que lee el `notes.temporada` del ciclo y
+rejuega el `caso_sombra` con `CasoHoja.desde_json` y `decide` del repo. El comando, reproducible:
 
-Lo proyectable con lo medido, con el mismo gasto y los mismos clics (CPC lineal, el supuesto del diseño):
+```
+$ echo "select (notes::jsonb->'temporada')::text from optimizer_cycle where id = 207" \
+    | bash docs/evidencia/arreglos-01/lee_prod.sh > temporada-207.json
+$ PYTHONPATH=. python docs/evidencia/temporada-01/H/replay_sombra.py temporada-207.json
+```
+
+El replay de la sombra devuelve `Mover(bajo_target)` con el mismo destino que guardó el ciclo (23.48 y
+7.70), así que el caso está completo: se puede volver a decidir sin la base.
+
+Las dos son la meta de alta en acción. Las dos hojas tenían el veredicto real `Mantener`
+(`azar_lo_explica`, meta base 23.1920 %) y la sombra dio `Mover` (`bajo_target`) con la meta del juicio
+en 25 %: el umbral de R6 sube de 0.85 × 23.1920 = 19.72 % a 0.85 × 25 = 21.25 %, y esas dos hojas cruzan.
+El destino de las dos es exactamente el paso de +15 % de R6, truncado a centavos: 20.42 × 1.15 = 23.483 →
+23.48, y 6.70 × 1.15 = 7.705 → 7.70.
+
+## R6r: el 0 tiene número
+
+En los ciclos 204 y 205 `recupera_nivel` también daba 0, pero por una razón que no valía: la práctica no
+construía los insumos de la subida rápida en `shadow`, así que no había `caso_sombra`, `m*` ni gasto que
+medir. Eso fue el hallazgo de la revisión y se corrigió en `2a8a6b0`. En 206 y 207 el `caso_sombra` ya
+viene con `recuperacion` e `historia`.
+
+Ahora R6r se puede juzgar, y el 0 es un 0 con causa:
+
+- **`recupera_nivel`: 0 de 2 diferencias.** Las dos son `bajo_target` (R6, el paso de +15 %), no R6r.
+- **`m*` máximo observable: 1.0473** (hoja 2457), y 1.0016 en la 2969.
+- **R6r no llegó a calcular `m*` por su cuenta** en ninguno de los dos casos: la última compuerta,
+  `techo_conocido`, corta antes. En 2457 el techo es 23.1955 y el salto mínimo de R6r exige superar
+  20.42 × 1.15 = 23.4830; en 2969 el techo es 6.70, igual al bid vigente. Sin hueco bajo el techo, R6r no
+  actúa. Por eso la columna `m_estrella` dice «R6r no llegó a m*».
+- **La columna `m_estrella_sin_tope`** pide el mismo `m*` con la misma cadena de R6r pero sin la compuerta
+  del techo, y es la que dice cuánto sostenía la evidencia: **1.0473** y **1.0016**. Las dos quedan por
+  debajo de 1 + 0.15, que es el mínimo para que R6r se mueva (`app/optimizer/recuperacion.py:297`). Es
+  decir: aunque el techo hubiera dejado hueco, R6r tampoco habría actuado. Las dos compuertas coinciden y
+  ninguna de las dos escondía un salto que valiera la pena.
+
+Las dos `m*` se calcularon con la meta del juicio (25 %), que es la que usa la sombra, no con la base
+23.192 %. Con la base el número saldría por debajo de 1 y contradiría que R6 haya dado +15 %; ese fue el
+primer error del script y está corregido: `_caso_del_juicio` aplica la misma sustitución que `decide`.
+
+**Gasto extra proyectado.** Por R6r: **0.00 MXN**, porque no hubo ni un caso. El gasto de las dos
+diferencias es el del paso de +15 % de R6 que la sombra propuso y el juicio real no aplicó, con el mismo
+CPC (supuesto del diseño: los clics no cambian):
 
 | Hoja | Bid hoy | Destino sombra | Factor | Gasto de la ventana madura | Gasto extra |
 | --- | --- | --- | --- | --- | --- |
@@ -55,67 +110,28 @@ Lo proyectable con lo medido, con el mismo gasto y los mismos clics (CPC lineal,
 | 2969 | 6.70 MXN | 7.70 | 1.149254 | 153.80 MXN | +22.96 MXN |
 | Total | | | | 2,460.63 MXN | **+368.64 MXN** |
 
-La suma exacta es 368.64 MXN; los dos renglones redondeados por separado dan 368.65, la diferencia es
-el redondeo a centavos.
-
-## El hueco que encontró la revisión: la práctica no evaluaba R6r
-
-`recupera_nivel`: **0, y no porque la evidencia no lo justificara**. En el código de entonces
-(`app/cycle_recorrido.py:654`), los insumos de la subida rápida solo se construían con
-`ads_bid_recuperacion_<plat>` en `live`; en `shadow` el caso no llevaba el marcador y el ciclo no
-calculaba ningún candidato. Los dos casos congelados del ciclo 205 no traen `recuperacion` ni `historia`.
-Consecuencia: **m\* máximo y gasto extra de R6r no eran medibles** con esa práctica.
-
-Era una desviación de la decisión 12 del diseño («el caso que decide va sin marcadores y se decide un
-segundo caso con marcadores»), y el dueño la señaló en la revisión del PR 730. Se corrigió en tres pasos:
-
-1. **`49f8734`** — en práctica el caso que decide sigue sin marcadores y el caso de sombra lleva
-   `recuperacion` y `presupuesto`; la diferencia guarda `destino_sombra`. Prueba:
-   `test_temporada01_h_practica_compara_recuperacion` (falla contra `88a421e` con `assert 0 == 1` en las
-   diferencias y pasa con el arreglo).
-2. **`ff2c1e3`** — la memoria de la subida rápida en práctica (90 a 730 días) ya no acorta el historial
-   que decide la temporada, para no perder la mano del dueño ya sincronizada. Prueba:
-   `test_temporada01_h_practica_no_pierde_la_mano_del_dueno` (falla contra `49f8734`: la entrada recorta
-   una puja de 7.00 a 4.90; con el arreglo no hay entrada y el bid sigue en 7.00).
-3. **`2a8a6b0`** — la diferencia guarda también `caso_sombra` con sus marcadores, y la prueba rejuega ese
-   caso con `decide` y exige el mismo veredicto y destino. Sin él, un `recupera_nivel` no es
-   reproducible: los topes y el redondeo esconden el multiplicador de R6r.
-
-Los tres commits están desplegados (`2a8a6b0`, checklist verde) y la temporada quedó otra vez en
-`shadow` (config **61**) para que el ciclo del 2026-11-23 09:40 UTC sea una práctica de verdad.
-
-## Lo que se va a medir en el ciclo del 2026-11-23 y cómo
-
-Con la temporada y la subida rápida en `shadow` y el código ya desplegado, `notes.temporada` de ese
-ciclo traerá, por cada diferencia, `motivo_sombra`, `destino_sombra` y `caso_sombra`. El resumen leerá:
-
-- **`recupera_nivel`**: cuántas diferencias tienen `motivo_sombra = "recupera_nivel"`.
-- **m\* máximo**: del `caso_sombra` de cada una, con la misma lógica de R6r (`politica._fondo_juicio`,
-  `_proyeccion_subida` y `recuperacion.multiplicador_sostenible`), no del cociente entre pujas.
-- **Gasto extra proyectado**: `gasto de la ventana × (destino / bid - 1)` para cada salto, con el CPC
-  lineal del diseño.
-- **Entradas, regresos, retenidos, metas de alta y reactivaciones**: con las mismas reglas de esta
-  lectura, y diciendo en qué fase cayó el ciclo.
-
-Si el ciclo vuelve a caer en una fase donde R6r no tenga candidatos, el documento lo dirá con el número
-de comparaciones a la vista, y ese 0 no se leerá como un aprobado.
+La suma exacta es 368.640816 MXN; los dos renglones redondeados por separado dan 368.65 y la diferencia
+es el redondeo a centavos. Son 368.64 MXN más de gasto en las dos ventanas maduras si se aplicara la
+meta de alta. Eso es lo que la temporada en `live` va a gastar de más en estas dos hojas cuando la meta
+de alta mande, y es el número que el dueño necesita para decidir el encendido.
 
 ## Lo que la práctica no toca (y por eso no se puede dar por bueno)
 
-En los ciclos 204 y 205: **0 decisiones**, **0 temporada**, **0 filas** en `temporada_episodio`,
-`temporada_efecto`, `temporada_fin_reduccion` y `temporada_exclusion`, **0** `decision_application`,
-**0** `decision_sin_aplicar` y **0** `campana_ajuste`. La práctica cumplió su contrato: anotó y no
-escribió.
+En los ciclos 206 y 207: **0 decisiones**, **0 temporada**, **0 filas** en `temporada_episodio`,
+`temporada_efecto`, `temporada_fin_reduccion` y `temporada_exclusion`, **0** filas nuevas en
+`decision_application` y `decision_sin_aplicar`, **0** en `campana_ajuste` y **0** intentos nuevos en
+`apply_attempt`. Las marcas completas están en `ciclo-forzado.txt`. La práctica cumplió su contrato:
+anotó y no escribió.
 
 Quedan sin ejercitar, por diseño, las rutas que solo existen en vivo (diseño, «Riesgos y límites
 honestos», punto 16): la lectura fresca antes del PUT, la exclusión por la mano del dueño, la
 reactivación de pausas de la baja, la retención del regreso por presupuesto y el candado de las
-propuestas. Lo vigila H.3 desde el primer ciclo en vivo.
+propuestas. Lo vigila H.3 desde el primer ciclo en vivo, con el chequeo programado en `transiciones.txt`.
 
 ## Casos de paro de H.3 en la práctica
 
-Las cinco condiciones de `docs/evidencia/temporada-01/H/primer-ciclo.sql`, aplicadas a los ciclos 204 y
-205:
+Las cinco condiciones de `docs/evidencia/temporada-01/H/primer-ciclo.sql`, aplicadas a los ciclos 206 y
+207:
 
 | Caso de paro | Resultado en práctica |
 | --- | --- |
@@ -125,5 +141,5 @@ Las cinco condiciones de `docs/evidencia/temporada-01/H/primer-ciclo.sql`, aplic
 | dos entradas para una keyword en un episodio | 0 (0 episodios, 0 entradas) |
 | presupuesto escrito sin `APLICAR AJUSTE` | 0 (`campana_ajuste`: 0 filas) |
 
-Ninguno aparece. Y conviene decirlo: **que los cinco den 0 en práctica no significa que los cinco estén
-bien**; tres de ellos solo pueden fallar cuando hay escrituras, y la práctica no escribe.
+Ninguno aparece. Y conviene decirlo otra vez: **que los cinco den 0 en práctica no significa que los
+cinco estén bien**; tres de ellos solo pueden fallar cuando hay escrituras, y la práctica no escribe.
