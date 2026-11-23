@@ -1592,3 +1592,93 @@ def test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno(monkeypat
             (anterior["ciclo"],),
         ).fetchone()
         assert sello is None and decisiones == 0, "la TX3 del anterior no dejo sello ni decisiones"
+
+
+def _termina_en(segundos: int, accion) -> dict:
+    """Corre `accion` en un hilo y espera `segundos`. Devuelve su caja (`r` o
+    `error`) o hace fallar si no termino: eso es un cuelgue."""
+    caja: dict = {}
+
+    def correr() -> None:
+        try:
+            caja["r"] = accion()
+        except BaseException as exc:  # noqa: BLE001 - el test inspecciona la excepcion
+            caja["error"] = exc
+
+    hilo = threading.Thread(target=correr, daemon=True)
+    hilo.start()
+    hilo.join(timeout=segundos)
+    assert not hilo.is_alive(), f"no termino en {segundos} s: se colgo esperando un cerrojo"
+    return caja
+
+
+def _aqui(caja: dict) -> None:
+    """Vuelve a lanzar en el hilo del test la excepcion que tuvo la accion."""
+    if "error" in caja:
+        raise caja["error"]
+
+
+@_skip_db
+def test_arreglos05_a_ninguna_espera_del_claim_es_infinita():
+    """Revision del PR #746: si una conexion queda con la transaccion abierta
+    reteniendo la fila del claim, nada del ciclo puede esperar para siempre.
+    El claim, la TX3 y la cerca esperan con tope y tratan el cerrojo ocupado
+    como claim no probado; el latido falla rapido (el TTL es el respaldo)."""
+    from app import apply, lock
+
+    with _db("orbit_a05_tope") as (conn, extra):
+        _semilla_live(conn)
+        assert lock.claim_lock(conn, JOB_KEY, OWNER) is not None
+        aplicador = _directa(_Amazon(**REMOTO_INICIAL))(
+            conn,
+            platform="amazon_us",
+            cycle_id_ejecutor=1,
+            owner=OWNER,
+            job_key=JOB_KEY,
+            tick=lambda: None,
+        )
+        hb = ciclo._abre_heartbeat(conn)
+        assert hb is not None
+        retenedora = extra()
+        try:
+            with retenedora.transaction():
+                retenedora.execute(
+                    "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s FOR UPDATE",
+                    (JOB_KEY,),
+                )
+                latido = _termina_en(15, lambda: lock.latir_lock(hb, JOB_KEY, OWNER))
+                _aqui(latido)  # fail-open: regresa, no se cuelga
+
+                def cerca() -> None:
+                    with conn.transaction():
+                        aplicador.exige_dueno()
+
+                with pytest.raises(apply.DuenoDelClaimCambio):
+                    _aqui(_termina_en(15, cerca))
+
+                def tx3() -> None:
+                    with conn.transaction():
+                        ciclo._compromete_tx3(
+                            conn,
+                            1,
+                            "done",
+                            0,
+                            "{}",
+                            decided_at=DECIDED_AT,
+                            job_key=JOB_KEY,
+                            owner=OWNER,
+                        )
+
+                with pytest.raises(ciclo.CicloOcupado):
+                    _aqui(_termina_en(15, tx3))
+
+                def claim() -> None:
+                    ciclo.atender_plataforma(
+                        conn, "amazon_us", owner="sucesor:1", ahora=DECIDED_AT, heartbeat_cada=1
+                    )
+
+                with pytest.raises(ciclo.CicloOcupado):
+                    _aqui(_termina_en(15, claim))
+        finally:
+            retenedora.close()
+            hb.close()

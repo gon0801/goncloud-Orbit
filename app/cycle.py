@@ -26,9 +26,10 @@ from dataclasses import dataclass
 import psycopg
 from psycopg import pq
 from psycopg.conninfo import make_conninfo
+from psycopg.errors import LockNotAvailable
 from psycopg.types.json import Json
 
-from app import apply, pantalla_dinero, propuestas_campana, proteccion_venta, temporada_io
+from app import apply, lock, pantalla_dinero, propuestas_campana, proteccion_venta, temporada_io
 from app.apply import Aplicador, DuenoDelClaimCambio
 from app.cycle_apply import (  # noqa: F401 - re-export estable
     _SQL_APPLIED_COUNT_CICLO,
@@ -348,7 +349,11 @@ def _abre_heartbeat(conn: psycopg.Connection) -> psycopg.Connection | None:
         dsn = conn.info.dsn
         if conn.info.password:
             dsn = make_conninfo(dsn, password=conn.info.password)
-        return psycopg.connect(dsn, autocommit=True, connect_timeout=5)
+        latido = psycopg.connect(dsn, autocommit=True, connect_timeout=5)
+        # El latido nunca espera un cerrojo del claim para siempre: si la fila
+        # esta retenida falla rapido y el TTL sigue siendo el respaldo.
+        lock.acota_espera_de_cerrojos(latido, lock.TIEMPO_MAXIMO_LATIDO, transaccional=False)
+        return latido
     except psycopg.Error as exc:
         logger.warning(
             "heartbeat no disponible (fail-open; el TTL es el backstop): %s", scrub(str(exc))
@@ -417,7 +422,14 @@ def _compromete_tx3(
     envelope ya no es `running` (el sucesor lo marco con el rastro). En ambos
     casos la transaccion se deshace y ese proceso no deja decisiones
     comprometidas: nunca dos origenes el mismo dia."""
-    dueno = conn.execute(_SQL_CLAIM_EN_TX3, (job_key,)).fetchone()
+    lock.acota_espera_de_cerrojos(conn)
+    try:
+        dueno = conn.execute(_SQL_CLAIM_EN_TX3, (job_key,)).fetchone()
+    except LockNotAvailable as exc:
+        raise CicloOcupado(
+            f"claim {job_key} retenido por otra transaccion:"
+            f" su TX3 del ciclo {cycle_id} no se compromete"
+        ) from exc
     if dueno is None or dueno[0] != owner:
         raise CicloOcupado(
             f"el claim {job_key} ya no es de este owner ({owner}):"
@@ -1011,9 +1023,16 @@ def _atiende(
     muertos: list[int] = []
     try:
         with conn.transaction():
+            # Tope de espera: un claim retenido por otra transaccion no cuelga el
+            # horario; a los 5 s esta corrida se trata como ocupada.
+            lock.acota_espera_de_cerrojos(conn)
             config_id, settings = _config_reciente(conn)
             modo = g.resuelve_modo(g.modo_desde_settings(settings), _MODO_TOPE_ENVELOPE)
-            if not _toma_claim(conn, job_key, owner):
+            try:
+                tomado = _toma_claim(conn, job_key, owner)
+            except LockNotAvailable as exc:
+                raise CicloOcupado(f"claim {job_key} retenido por otra transaccion: {exc}") from exc
+            if not tomado:
                 raise CicloOcupado(f"lock vigente de otro owner para {job_key}")
             plan = (
                 _plan_de_hoy(conn, platform, hoy=decided_at.astimezone(dt.UTC).date())

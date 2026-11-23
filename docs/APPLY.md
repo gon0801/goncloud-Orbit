@@ -732,6 +732,12 @@ atajo que trataba `degraded` como día cerrado. Un `running` huérfano nunca
 comprometió su TX3, así que no cuenta como decisión: el siguiente horario
 reclama el lock cuando vence y lo cierra con su rastro.
 
+**Ninguna espera del claim es infinita.** El claim, la TX3 y la cerca del sello
+esperan como mucho 5 s el cerrojo de la fila (`lock_timeout` transaccional); si no
+lo consiguen, la corrida se trata como ocupada y el sello como claim perdido: quien
+no prueba a tiempo que es dueño no envía. El latido lleva 3 s y, si falla, el TTL
+sigue siendo el respaldo. Así una conexión que quede con la transacción abierta
+reteniendo la fila del claim no puede colgar un horario.
 **Progreso durable.** La TX3 cierra el envelope y lo sella
 (`optimizer_cycle.decision_committed_at`) en la misma sentencia, aunque el
 lote válido traiga cero decisiones. El sello lleva el reloj de la decisión

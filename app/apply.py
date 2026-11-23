@@ -26,8 +26,9 @@ from typing import Literal
 
 import httpx
 import psycopg
+from psycopg.errors import LockNotAvailable
 
-from app import temporada_io
+from app import lock, temporada_io
 from app.ads.client import AdsApiError as AdsApiError  # noqa: F401 - re-export estable
 from app.ads.config import AdsCredentials
 
@@ -620,7 +621,15 @@ class Aplicador:
         Sin fila tampoco se sella: el claim se solto (este owner al terminar, o
         un sucesor que lo tomo y lo solto entre el aviso anterior y la cerca),
         asi que ya no es dueno de la ejecucion."""
-        fila = self._conn.execute(_SQL_DUENO_CERCA, (self.job_key,)).fetchone()
+        # Cerca con tope: si otra transaccion retiene la fila y no la suelta a
+        # tiempo, el dueno no se puede probar y se trata como perdido.
+        lock.acota_espera_de_cerrojos(self._conn)
+        try:
+            fila = self._conn.execute(_SQL_DUENO_CERCA, (self.job_key,)).fetchone()
+        except LockNotAvailable as exc:
+            raise DuenoDelClaimCambio(
+                f"lock {self.job_key} retenido por otra transaccion: no se sella"
+            ) from exc
         if fila is not None and fila[0] == self.owner:
             return
         raise DuenoDelClaimCambio(
