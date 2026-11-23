@@ -845,6 +845,42 @@ def test_eventos_no_emite_prepara_alta_durante_bloque_alta_anterior():
     assert [ev.fecha for ev in preps] == [dt.date(2027, 2, 1), dt.date(2027, 12, 2)]
 
 
+def test_aviso_del_dia_combina_sale_alta_y_prepara_alta_en_mismo_dia():
+    """Cuando prepara_alta se desplaza al mismo dia que sale_alta, la vista
+    previa conserva ambos eventos y aviso_del_dia anuncia tanto la vuelta a
+    la meta normal como el inicio de la previa, sin decir que no cambia nada."""
+    meses = ["alta", "normal", "alta"] + ["normal"] * 9
+    cfg = temporada.valida(_crudo(meses=meses, prep=30))
+    conteo = temporada.ConteoTemporada(0, 0, 0, 0, {}, 0)
+
+    # Dentro del bloque alta anterior no sale aviso de preparacion.
+    assert (
+        temporada.aviso_del_dia(
+            cfg, temporada.resuelve(cfg, dt.date(2027, 1, 30)), conteo=conteo, propuestas=0
+        )
+        is None
+    )
+
+    dia_cruce = dt.date(2027, 2, 1)
+    evs_dia = temporada.eventos(cfg, dia_cruce, dia_cruce + dt.timedelta(days=1))
+    assert {ev.tipo for ev in evs_dia} == {"sale_alta", "prepara_alta"}
+
+    aviso = temporada.aviso_del_dia(
+        cfg, temporada.resuelve(cfg, dia_cruce), conteo=conteo, propuestas=2
+    )
+    assert aviso is not None
+    assert "La meta de ACoS regresa a la normal." in aviso
+    assert "Empieza la previa de la temporada alta." in aviso
+    assert "todavía no cambia nada" not in aviso
+    assert "Hay 2 campañas con un presupuesto sugerido" in aviso
+
+    # En un dia donde solo cae prepara_alta se conserva la frase normal.
+    aviso_solo = temporada.aviso_del_dia(
+        cfg, temporada.resuelve(cfg, dt.date(2027, 12, 2)), conteo=conteo, propuestas=0
+    )
+    assert aviso_solo == temporada.FRASE_PREPARA_ALTA
+
+
 def test_identificadores_rechaza_id_fuera_de_bigint():
     """Hallazgo #15: mantener_pausadas exige 1 <= id <= 2**63 - 1 para no
     reventar consultas SQL con NumericValueOutOfRange."""

@@ -33,6 +33,9 @@ FRASE_RESTAURA_PREPARA = (
 )
 FRASE_RESTAURA = "Termina la baja: los bids regresan. Sigue un mes normal."
 FRASE_PREPARA_ALTA = "Empieza la previa de la temporada alta; todavía no cambia nada."
+FRASE_SALE_ALTA_PREPARA = (
+    "La meta de ACoS regresa a la normal. Empieza la previa de la temporada alta."
+)
 FRASE_ENTRA_ALTA = "Empieza la temporada alta."
 FRASE_SALE_ALTA = "La meta de ACoS regresa a la normal."
 
@@ -205,6 +208,11 @@ def aviso_del_dia(
     lleva costo, margen ni meta (regla de avisos_campana)."""
     hoy = eventos(config, estacion.dia, estacion.dia + dt.timedelta(days=1))
     if hoy:
+        if {e.tipo for e in hoy} == {"sale_alta", "prepara_alta"}:
+            return (
+                f"{FRASE_SALE_ALTA_PREPARA}"
+                f"{_texto_propuestas(propuestas, 'con un presupuesto sugerido')}"
+            )
         evento = hoy[0]
         if evento.tipo == "entra_baja":
             partes = [
