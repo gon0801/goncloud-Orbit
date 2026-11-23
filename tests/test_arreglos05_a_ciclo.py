@@ -1843,3 +1843,68 @@ def test_arreglos05_a_rechazo_de_identidad_en_la_recuperacion_de_cosecha(monkeyp
     monkeypatch.setattr(recuperacion._ejecucion, "_continua_job", ambiguo)
     resumen = recuperacion.reconcilia_harvest(conn, aplicador, "amazon_us")
     assert resumen.jobs_done == 0, "un 5xx no se trata como fallo global"
+
+
+@_skip_db
+def test_arreglos05_a_reversa_manual_con_rechazo_de_identidad_no_es_un_500(monkeypatch):
+    """Revision de Devin del PR #746: con un 401/403 la reversa MANUAL
+    propagaba la excepcion (lo exige el barrido automatico, que detiene sus
+    mutaciones) y la API respondia 500. En la frontera manual es un resultado:
+    confirmada False. Otros errores de la API siguen propagandose."""
+    from test_apply_cola import _reloj, _semilla
+    from test_cycle_apply import _db_temporal
+    from test_temporada01_f import _config, _pausa_baja
+
+    from app import apply_cola
+    from app import apply_reversa as manual
+    from app.ads.client import AdsApiError
+    from app.ads.write import AdsApiErrorMutacion
+
+    def rechazo(status: int) -> AdsApiErrorMutacion:
+        return AdsApiErrorMutacion(
+            f"status={status}: PUT /sp/keywords",
+            cuerpo="{}",
+            status=status,
+            method="PUT",
+            path="/sp/keywords",
+        )
+
+    with _db_temporal("orbit_a05_reversa_manual") as (conn, _extra):
+        ids = _semilla(conn)
+        config_id, _settings = _config(conn)
+        _pausa, fila = _pausa_baja(
+            conn, ciclo_id=ids["ciclo_dec"], config_id=config_id, hoja=ids["kw"], ahora=_reloj()
+        )
+        monkeypatch.setattr(manual, "_negative_id_del_ledger", lambda _conn, _decision: "n-1")
+
+        def rechazada(*_args, **_kwargs):
+            raise rechazo(403)
+
+        monkeypatch.setattr(apply_cola, "reversa_pause", rechazada)
+        monkeypatch.setattr(apply_cola, "reversa_negative", rechazada)
+        for tipo in ("pause", "negative"):
+            assert (
+                manual.reversa_manual(
+                    conn,
+                    tipo=tipo,
+                    queue_id=fila,
+                    cliente_reversa=lambda *_a, **_k: object(),
+                    reversa_bid_fn=lambda *_a, **_k: True,
+                )["confirmada"]
+                is False
+            )
+
+        def falla(*_args, **_kwargs):
+            error = AdsApiError("status=500: PUT /sp/keywords")
+            error.status = 500
+            raise error
+
+        monkeypatch.setattr(apply_cola, "reversa_pause", falla)
+        with pytest.raises(AdsApiError):
+            manual.reversa_manual(
+                conn,
+                tipo="pause",
+                queue_id=fila,
+                cliente_reversa=lambda *_a, **_k: object(),
+                reversa_bid_fn=lambda *_a, **_k: True,
+            )

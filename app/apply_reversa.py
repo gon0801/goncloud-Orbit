@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import httpx
 import psycopg
 
+from app.ads.client import AdsApiError
 from app.ads.sp_wire import id_de_ack
 from app.apply_cuota import DecisionBid
 from app.apply_store import (
@@ -26,6 +27,7 @@ from app.apply_store import (
     _ledger,
     _sella_ledger,
     _tick,
+    es_rechazo_de_identidad,
 )
 
 if TYPE_CHECKING:
@@ -170,6 +172,21 @@ def reversa_bid(
     return confirmada
 
 
+def _confirmada_en_la_frontera_manual(accion) -> bool:
+    """Resultado de una reversa MANUAL. Un rechazo de identidad o permisos de
+    Amazon (401/403) es un resultado, `confirmada: false`: la API responde con
+    el cuerpo estructurado y no con un 500. El barrido automatico de
+    reactivaciones recibe el mismo error y lo propaga, porque detras de ese
+    rechazo no debe salir ninguna mutacion (ARREGLOS 05 A, revision). Los
+    demas errores de la API siguen propagandose."""
+    try:
+        return bool(accion())
+    except AdsApiError as exc:
+        if es_rechazo_de_identidad(exc):
+            return False
+        raise
+
+
 def reversa_manual(
     conn: psycopg.Connection,
     *,
@@ -228,10 +245,14 @@ def reversa_manual(
         platform = conn.execute(_SQL_PLATAFORMA_FILA, (queue_id,)).fetchone()[0]
         cliente = cliente_reversa(platform, transport=transport)
         if tipo == "pause":
-            confirmada = apply_cola.reversa_pause(conn, cliente, fila)
+            confirmada = _confirmada_en_la_frontera_manual(
+                lambda: apply_cola.reversa_pause(conn, cliente, fila)
+            )
             return {"tipo": "pause", "queue_id": queue_id, "confirmada": confirmada}
         negative_id = _negative_id_del_ledger(conn, fila.decision_id)
-        confirmada = apply_cola.reversa_negative(conn, cliente, fila, negative_id)
+        confirmada = _confirmada_en_la_frontera_manual(
+            lambda: apply_cola.reversa_negative(conn, cliente, fila, negative_id)
+        )
         return {
             "tipo": "negative",
             "queue_id": queue_id,
