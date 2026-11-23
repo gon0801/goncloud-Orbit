@@ -94,18 +94,24 @@ rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde, y su commit.
 | 2 | Un 401 o 403 de identidad o permisos se trataba como el rechazo de ESA hoja y el lote segui con la siguiente. | Fallo global en pujas, cortes, harvest, hermanas y reversas: el intento se sella con su rechazo y se propaga; los aisladores por fila dejan de tragarselo. | `test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones`, `test_arreglos05_a_rechazo_de_identidad_no_se_aisla_por_fila` | `a7d7df0e` |
 | 3 | Una reactivacion con la respuesta perdida cobraba cuota y reenviaba el PUT aunque Amazon ya habilito la hoja. | La reversa sin sello se resuelve por lectura antes de cobrar cuota y reenviar; el sello y el cache pasan por la cerca del claim. | `test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar` | `8de0d66f` |
 | 4 | La TX3 podia cerrar despues de que el sucesor tomo el claim y leyo el plan: dos origenes decidian el mismo dia. | Dentro de la TX3 se comprueba y bloquea la fila del claim antes de sellar. | `test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno` (dos conexiones) | `9b178290` |
+| — | Sin `lock_timeout`, una conexion con la transaccion abierta reteniendo la fila del claim colgaba para siempre al latido, al claim, a la TX3 y a la cerca (lo destapo un cuelgue del lote de vecinos; diagnostico del coordinador). | Claim, TX3 y cerca esperan como mucho 5 s y tratan el cerrojo ocupado como claim no probado; el latido lleva 3 s y sigue siendo fail-open. | `test_arreglos05_a_ninguna_espera_del_claim_es_infinita` | `a8e10145` |
 
 Montaje de pruebas ajustado por estas correcciones: las de los hilos 1 y 6 toman
 el claim del ejecutor antes de su fase, porque la cerca exige la fila del claim.
+ La fixture autouse de `tests/conftest.py` hace ademas que todo aplicador de prueba
+nazca con el claim, tomado por una conexion propia y con tope (`ec543465`): tomado en la
+conexion del aplicador retenia el cerrojo y colgaba el latido del ciclo.
 
 ## Vecinos
 
-Lote de 28 archivos de ciclo, cron, apply, cola, harvest, temporada,
-notificaciones, CLI, goals, fabrica y dashboard: 960 pasan y 7 fallan. Los 7
-fallan igual en `149bf454` en este entorno (comprobado ejecutandolos sobre un
-`git archive` del padre): `test_harvest_destino` x3 (su banco no aplica la
-0093 y `temporada_efecto` no existe), `test_notifica::test_avisar_campanas_*`
-x3 y `test_orbit07_m1::test_sombra_sin_target_aplica_la_proteccion_en_el_juicio_hipotetico`.
+Lote de 30 archivos de ciclo, cron, apply, cola, harvest (con grupos hermanos),
+temporada, notificaciones, CLI, goals, fabrica y dashboard: 1089 pasan y 31
+fallan. Los 31 fallan igual en `149bf454` en este entorno (comprobado
+ejecutandolos sobre un `git archive` del padre): `test_fabrica_f2_hermanas` x24
+(22 dan `temporada_efecto` inexistente y 2 son consecuencia de ese aborto; su banco
+no aplica la 0093), `test_harvest_destino` x3 (misma causa),
+`test_notifica::test_avisar_campanas_*` x3 y
+`test_orbit07_m1::test_sombra_sin_target_aplica_la_proteccion_en_el_juicio_hipotetico`.
 No son de este bloque y no se corrigieron aqui.
 
 Pruebas existentes adaptadas al orden nuevo, sin quitar aserciones: el CLI y
