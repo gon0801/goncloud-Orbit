@@ -55,10 +55,12 @@ def cuenta_dias_topados(
         return None
     topados = 0
     for dia in ultimos_7:
-        gasto_dia = gasto_por_dia.get(dia, Decimal(0))
+        if dia not in gasto_por_dia:
+            continue
+        gasto_dia = gasto_por_dia[dia]
         assert gasto_dia is not None
         presup_dia = presupuesto_en_dia(historial, dia)
-        if presup_dia is not None and gasto_dia >= topada.pct * presup_dia:
+        if presup_dia is not None and presup_dia > 0 and gasto_dia >= topada.pct * presup_dia:
             topados += 1
     return topados
 
@@ -192,24 +194,32 @@ def propuesta_presupuesto(
         and config.aumento_presupuesto_alta > 0
     ):
         base_alto, cambios_alto = _base_y_cambios(transiciones, inicio_bloque_alto)
-        if antes is not None:
-            # Con una baja previa, restaurar al presupuesto `antes` no cuenta
-            # como aumento de temporada alta; solo un monto > `antes`.
-            ya_subio = any(m is not None and m > antes for _d, m in cambios_alto)
-        else:
-            # Sin baja previa, cualquier subida real entre observaciones
-            # consecutivas desde `inicio_bloque_alto` cuenta como aumento ya
-            # aplicado (aunque haya bajado manualmente antes y no supere
-            # `base_alto`).
-            previo = base_alto
-            ya_subio = False
-            for _d, m in cambios_alto:
-                if m is None:
-                    continue
-                if previo is not None and m > previo:
-                    ya_subio = True
-                    break
-                previo = m
+        cambios_antes_alto = tuple(
+            (d, m) for d, m in cambios if d < inicio_bloque_alto and m is not None
+        )
+        restaurable = (
+            episodio is not None
+            and episodio.cerrado_el is not None
+            and antes is not None
+            and antes > 0
+            and base_alto is not None
+            and base_alto < antes
+            and bool(cambios_antes_alto)
+            and cambios_antes_alto[-1][0] <= episodio.cerrado_el
+            and cambios_antes_alto[-1][1] == base_alto
+        )
+        previo = base_alto
+        ya_subio = False
+        for _d, m in cambios_alto:
+            if m is None:
+                continue
+            es_restauracion = restaurable and previo == base_alto and m == antes
+            if previo is not None and m > previo and not es_restauracion:
+                ya_subio = True
+                break
+            if es_restauracion:
+                restaurable = False
+            previo = m
         if not ya_subio:
             objetivo = _q(hoy_vigente * (Decimal(1) + config.aumento_presupuesto_alta))
             propuesto = min(objetivo, techo_humano)

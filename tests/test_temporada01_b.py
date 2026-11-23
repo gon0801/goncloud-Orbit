@@ -2150,3 +2150,37 @@ def test_temporada01_b_bid_ordinario_ambiguo_bloqueado(db_template):
     ).fetchone()
     assert resumen == (True,), resumen
     assert _bid_cache(conn, kw1) == Decimal("5.60")
+
+
+def test_shadow_global_no_abre_temporada_efecto_ni_falla_segundo_ciclo(db_template):
+    """Hallazgo #1: con ads_optimizer_mode='shadow' y temporada='live' sobre un
+    episodio abierto previo, TX3 no abre temporada_efecto y dos ciclos seguidos
+    terminan en done sin chocar temporada_efecto_uno_pendiente."""
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw-shadow", "kw shadow", "8.00")
+    _siembra_metricas(conn, [kw1])
+
+    ciclo_previo = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (_medianoche(D_E1), _medianoche(D_E1)),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s)",
+        (_medianoche(D_E1), ciclo_previo, ids["config_id"]),
+    )
+    settings_shadow = {**_settings("live"), "ads_optimizer_mode": "shadow"}
+    _config_version(conn, settings_shadow)
+    conn.commit()
+
+    def _sin_http(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"shadow global no debe llamar HTTP: {request.method} {request.url}")
+
+    res1 = _corre(conn, D_E1 + dt.timedelta(days=1), _sin_http)
+    res2 = _corre(conn, D_E1 + dt.timedelta(days=2), _sin_http)
+    assert res1.status == "done", res1.notes
+    assert res2.status == "done", res2.notes
+    abiertos = conn.execute("SELECT count(*) FROM temporada_efecto").fetchone()[0]
+    assert abiertos == 0, f"shadow global no debe abrir temporada_efecto, hubo {abiertos}"

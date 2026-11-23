@@ -575,7 +575,8 @@ def _corre_fases(
     with conn.transaction():
         plat_t = contadores.temporada_plat
         ep_abierto = None
-        if plat_t is not None and plat_t.en_vivo and modo.modo == "live":
+        temporada_live = plat_t is not None and plat_t.en_vivo and modo.modo == "live"
+        if temporada_live:
             ep = temporada_io.registra_ciclo(
                 conn,
                 platform,
@@ -610,7 +611,8 @@ def _corre_fases(
         ids_decisiones = _inserta_decisiones(
             conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion
         )
-        temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
+        if temporada_live:
+            temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
         _inserta_targets(conn, cycle_id, decided_at, contadores)
         proteccion_venta.inserta_transiciones(conn, contadores.protecciones)
         if target_ciclo is not None and g.propuestas_campana_desde_settings(settings):

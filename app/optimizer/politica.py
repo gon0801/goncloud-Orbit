@@ -309,7 +309,7 @@ def decide(caso: CasoHoja) -> Veredicto:
             # aprendido lo aplica _paso.
             efecto = caso.trayectoria.efecto
             assert efecto is not None
-            freno = _freno_trayectoria(caso, ultimo, efecto, factor)
+            freno = _freno_trayectoria(caso_j, ultimo, efecto, factor)
             if freno is not None:
                 return freno
         return _paso(

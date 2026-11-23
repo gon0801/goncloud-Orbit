@@ -298,12 +298,41 @@ def historia_de_hoja(conn: Conexion, hoja_id: int, desde: dt.date) -> HistoriaBi
     return HistoriaBid(desde=desde, cambios=cambios, fines=fines, manos_externas=manos)
 
 
-_SQL_DIAS_INGESTA = """
+DIAS_VENTANA_INGESTA_CAMPANAS = 14
+
+_SQL_DIAS_INGESTA_CAMPANAS = """
 SELECT DISTINCT v.metric_date
-  FROM v_metric_latest v
-  JOIN ad_entity e ON e.id = v.ad_entity_id
- WHERE e.platform = %s::platform AND v.metric_date >= %s AND v.metric_date <= %s
+  FROM {fuente}
+  JOIN ad_entity c ON c.id = v.ad_entity_id
+ WHERE c.platform = %s::platform
+   AND c.kind = 'campaign'
+   AND v.metric_date >= %s
+   AND v.metric_date <= %s
+ ORDER BY v.metric_date DESC
+ LIMIT %s
 """
+
+
+def ultimos_dias_ingesta_campanas(
+    conn: Conexion,
+    plataforma: Plataforma,
+    hasta: dt.date,
+    *,
+    limite: int = 7,
+    visto_el: dt.datetime | None = None,
+) -> tuple[dt.date, ...]:
+    """Ultimos `limite` dias con ingesta de campanas de `plataforma` en la
+    ventana de 14 dias `[hasta - 13d, hasta]` (orden ascendente, respetando
+    `visto_el`). Unica fuente para motor, cola y «Donde poner el dinero»."""
+    if limite <= 0:
+        return ()
+    desde = hasta - dt.timedelta(days=DIAS_VENTANA_INGESTA_CAMPANAS - 1)
+    fuente, pv = _fuente(visto_el)
+    filas = conn.execute(
+        _SQL_DIAS_INGESTA_CAMPANAS.format(fuente=fuente),
+        (*pv, plataforma, desde, hasta, limite),
+    ).fetchall()
+    return tuple(sorted(f[0] for f in filas))
 
 
 def presupuestos_campanas_hoy(
@@ -312,14 +341,11 @@ def presupuestos_campanas_hoy(
     hoy: dt.date,
     topada: temporada.CampanaTopada,
 ) -> dict[int, PresupuestoCampana]:
-    """PresupuestoCampana por campana con los ultimos 7 dias con ingesta hasta
-    ayer UTC (regla 6: el dia en curso se descarta; mismo criterio que
-    `_presupuesto_campanas` y `pantalla_dinero`). Solo lectura."""
+    """PresupuestoCampana por campana con los ultimos 7 dias con ingesta de
+    campanas hasta ayer UTC (regla 6: el dia en curso se descarta; mismo
+    criterio que `_presupuesto_campanas` y `pantalla_dinero`). Solo lectura."""
     ayer = hoy - dt.timedelta(days=1)
-    desde = ayer - dt.timedelta(days=13)
-    dias = frozenset(
-        f[0] for f in conn.execute(_SQL_DIAS_INGESTA, (plataforma, desde, ayer)).fetchall()
-    )
+    dias = frozenset(ultimos_dias_ingesta_campanas(conn, plataforma, ayer))
     return _presupuesto_campanas(conn, plataforma, dias, topada)
 
 

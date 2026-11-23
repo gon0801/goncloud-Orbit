@@ -409,6 +409,7 @@ def _proteccion_activa(
         cost_min=costo_piso,
         policy_version=pausa.politica_economica,
         proteccion=pausa.proteccion,
+        exceso_minimo=pausa.exceso_minimo,
     )
     if resultado.proteccion is None or resultado.motivo not in (
         subproteccion.MOTIVO_PROTEGIDA,

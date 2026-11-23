@@ -214,7 +214,7 @@ def techo_conocido(
         )
         inicio_memoria = dt.datetime.combine(inicio, dt.time(0), tzinfo=dt.UTC)
     en_memoria = (
-        None
+        cad.manos_del_dueno
         if inicio_memoria is None
         else tuple(m for m in cad.manos_del_dueno if m >= inicio_memoria)
     )

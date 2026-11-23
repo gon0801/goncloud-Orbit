@@ -1510,3 +1510,419 @@ def test_temporada01_ola2_modo_decision_y_un_solo_pase(monkeypatch):
     assert caso_real.temporada is not None and caso_real.temporada.frontera == front_h
     assert caso_sombra is None
     assert llamadas["n"] == 1, f"esperaba 1 evalua_hoja por hoja, hubo {llamadas['n']}"
+
+
+def test_inerte_con_efecto_en_vuelo_se_salta_como_inerte_sin_pausa():
+    """Hallazgo #7: una keyword inerte con efecto de temporada en vuelo debe
+    saltarse como entidad inerte y nunca entrar al juicio sin temporada."""
+    from app import cycle_recorrido
+    from app.cycle_target import _FamiliasCiclo
+    from app.optimizer import goals as g
+    from app.optimizer import productos
+
+    cfg = temporada.desde_settings(_settings())
+    assert cfg is not None
+    est = temporada.resuelve(cfg, D_E1)
+    plat_t = temporada_io.TemporadaPlataforma(
+        estacion=est,
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(id=1, abierto_el=_medianoche(D_E1)),
+            efectos_abiertos={1001: "en_vuelo"},
+            excluidas={},
+            cerca_plataforma=None,
+        ),
+    )
+    frontera = temporada.FronteraHoja(
+        fase_hoja="baja",
+        mult_cortes=Decimal("2"),
+        cerca_hoja=None,
+        cerca_plataforma=None,
+        episodio_id=1,
+    )
+
+    class _LecturasStub:
+        def evalua_temporada(self, hoja_id, current_bid, *, piso, techo):
+            return (temporada.EntradaPendiente(destino=Decimal("5.60")), frontera)
+
+    class _ConnTrampa:
+        def execute(self, *args, **kwargs):
+            raise AssertionError("inerte con efecto en vuelo no debe entrar al juicio")
+
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_mx",
+        target_acos_pct=Decimal("20"),
+        bid_floor=PISO_MX,
+        bid_ceiling=TECHO_MX,
+        bid_currency="MXN",
+        harvest_campaign_id=None,
+        harvest_ad_group_id=None,
+        harvest_default_bid=None,
+        enabled=True,
+        mode="live",
+    )
+    contadores = ciclo._Contadores(temporada_plat=plat_t)
+    pendientes: list = []
+    cycle_recorrido._procesa_decisora(
+        _ConnTrampa(),
+        fila=(1001, 10, 100, Decimal("8.00"), "MXN", "ENABLED", None, "ENABLED", "ENABLED"),
+        platform="amazon_mx",
+        setting_target=Decimal("20"),
+        goals=(goal, {}),
+        modo="live",
+        decided_at=_medianoche(D_E1),
+        contadores=contadores,
+        pendientes=pendientes,
+        tick=lambda: None,
+        evidencia_ad_groups={},
+        corte_pause_por_grupo={},
+        bloqueadas=set(),
+        inertes={1001},
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=_FamiliasCiclo(
+            {}, {}, {}, {}, {}, None, D_E1, None, {}, productos.ECONOMIA_AUTO03
+        ),
+        pause_economica=True,
+        politica="niveles_v3",
+        lecturas=_LecturasStub(),
+    )
+    assert contadores.skips_entidad[ciclo.MOTIVO_ENTIDAD_INERTE] == 1
+    assert pendientes == []
+
+
+def test_proteccion_activa_respeta_exceso_minimo_de_baja():
+    """Hallazgo #9: _proteccion_activa debe pasar exceso_minimo=pausa.exceso_minimo
+    a bid.decide_pause para no perder la proteccion por venta reciente en baja."""
+    from app import cycle_serializacion, proteccion_venta
+    from app.optimizer import bid, proteccion
+    from app.optimizer.caso import InsumosProteccion, LecturaReciente
+
+    decided_at = dt.datetime(2027, 1, 20, 12, 0, tzinfo=dt.UTC)
+    evaluado_el = decided_at.date()
+    ancla = evaluado_el - dt.timedelta(days=2)
+    gasto_intermedio = bid.EXCESO_MINIMO["MXN"] + Decimal("100")
+    cortes_hoja = _corte_pausa(clicks=300, orders=0, cost=str(gasto_intermedio))
+    insumos_prot = InsumosProteccion(
+        version=proteccion.VERSION_PROTECCION_VENTA,
+        evaluado_el=evaluado_el,
+        reciente=LecturaReciente(pedidos=1, ancla=ancla, cubierta=True, observado_al=decided_at),
+        ventana_desde=cortes_hoja.window_start,
+        ventana_hasta=cortes_hoja.window_end,
+        episodio=None,
+        frena_subidas=True,
+    )
+    pausa = InsumosPausa(
+        cortes=cortes_hoja,
+        umbral_clics=200,
+        gasto_minimo=Decimal("1000"),
+        expected_clicks=None,
+        politica_economica=bid.POLITICA_PAUSE_ECONOMICA,
+        proteccion=insumos_prot,
+        exceso_minimo=2 * bid.EXCESO_MINIMO["MXN"],
+    )
+    corte_pause = cortes.UmbralResuelto(umbral=200, elegible=True, expected_clicks=None)
+    cache = proteccion_venta.CacheProteccion(
+        plataforma="amazon_mx",
+        evaluado_el=evaluado_el,
+        _lee_desde=evaluado_el - dt.timedelta(days=100),
+        _dias_plataforma=frozenset(),
+        _historia={},
+        _episodios={},
+    )
+    contadores = ciclo._Contadores()
+    activa = cycle_serializacion._proteccion_activa(
+        platform="amazon_mx",
+        entidad_id=1001,
+        target=Decimal("20"),
+        corte_pause=corte_pause,
+        cortes_hoja=cortes_hoja,
+        costo_piso=Decimal("1000"),
+        pausa=pausa,
+        proteccion_cache=cache,
+        contadores=contadores,
+        decided_at=decided_at,
+    )
+    assert activa is True
+    assert len(contadores.protecciones) == 1
+
+
+def test_r16b_en_temporada_alta_usa_meta_alta_de_caso_j():
+    """Hallazgo #8: en temporada alta, R16b en _freno_trayectoria debe juzgar
+    con la meta_alta de caso_j (25 %) y no con la meta base de caso (20 %)."""
+    from app.optimizer.caso import (
+        VERSION_ECONOMIA_CAMBIO_V2,
+        EpisodioEconomico,
+        PrecioVentana,
+        Trayectoria,
+        VentanaEconomica,
+    )
+
+    evidencia = nivel(
+        tramo(clics=50, pedidos=10, venta="10000", gasto="100", impresiones=500),
+        tramo(clics=50, pedidos=10, venta="10000", gasto="100", impresiones=500),
+    )
+    fecha_cambio = dt.date(2027, 2, 15)
+    ep_eco = EpisodioEconomico(
+        version=VERSION_ECONOMIA_CAMBIO_V2,
+        fecha_cambio=fecha_cambio,
+        moneda="MXN",
+        pre=VentanaEconomica(
+            desde=fecha_cambio - dt.timedelta(days=7),
+            hasta=fecha_cambio - dt.timedelta(days=1),
+            gasto=Decimal("150"),
+            venta=Decimal("1000"),
+            venta_mismo_sku=Decimal("1000"),
+            pedidos=2,
+            clics=25,
+        ),
+        post=VentanaEconomica(
+            desde=fecha_cambio + dt.timedelta(days=1),
+            hasta=fecha_cambio + dt.timedelta(days=7),
+            gasto=Decimal("330"),
+            venta=Decimal("1500"),
+            venta_mismo_sku=Decimal("1500"),
+            pedidos=3,
+            clics=30,
+        ),
+        estado="maduro",
+        motivo=None,
+        aplicable=True,
+        motivo_aplicabilidad=None,
+        margen_pct=None,
+        contribucion_pre=None,
+        contribucion_post=None,
+    )
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("4.60"), "MXN", PISO_MX, TECHO_MX),
+        economia=Economia(
+            plataforma=EconomiaPlataforma(
+                moneda="MXN",
+                equilibrio_acos_pct=Decimal("40"),
+                gasto_para_concluir=Decimal("350"),
+                confianza_recorte=Decimal("0.80"),
+                confianza_subida=Decimal("0.70"),
+            ),
+            target_acos_pct=Decimal("20"),
+        ),
+        propia=evidencia,
+        grupo=evidencia,
+        cuenta=evidencia,
+        precio=PrecioVentana(Decimal("200"), 100),
+        trayectoria=Trayectoria(
+            cambios=(cambio(fecha_cambio, "4.00", "4.60", "motor"),),
+            efecto=efecto(
+                dias_post=10,
+                pre_impr=1000,
+                pre_clics=30,
+                post_impr=1500,
+                dias_trafico=7,
+                clics_post=25,
+                gasto_post="50",
+                clics_pre=30,
+                gasto_pre="54",
+                vendia=True,
+            ),
+            episodio=ep_eco,
+        ),
+        historia=HistoriaBid(desde=dt.date(2026, 9, 1), cambios=()),
+        temporada=_marcador("alta"),
+    )
+    veredicto = politica.decide(caso)
+    assert isinstance(veredicto, politica.Mover), veredicto
+    assert veredicto.factor > 0, veredicto
+
+
+def test_cerca_hoja_sin_filas_post_cerca_deja_propia_none_y_hueco_pre_cerca_no_envenena_antiguo(
+    db_template,
+):
+    """Hallazgo #5: (A) si las hojas cercadas tienen 0 filas post-cerca no deben
+    caer a evid_sin_cerca pre-cerca; (B) un hueco de ingesta anterior a la cerca
+    no debe envenenar `antiguo` en `_niveles_de`."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(conn, _settings())
+    hoy = D_E1
+    cfg = temporada.desde_settings(_settings())
+    assert cfg is not None
+    est = temporada.resuelve(cfg, hoy)
+
+    # Caso A (amazon_mx): hoja con entra_temporada_baja confirmada ayer
+    # (cerca = hoy > ayer -> 0 filas post-cerca en _SQL_TRAMOS_CERCA).
+    camp_a = _entidad(conn, "amazon_mx", "campaign", "cerca-camp-a")
+    ag_a = _entidad(conn, "amazon_mx", "ad_group", "cerca-ag-a", parent=camp_a)
+    kw_a = _kw(conn, ag_a, "cerca-kw-a", "kw cerca a", "5.60")
+    _estado(conn, camp_a, synced_at=_medianoche(hoy))
+    _estado(conn, ag_a, synced_at=_medianoche(hoy))
+    run_a = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-cerca-a') RETURNING id"
+    ).fetchone()[0]
+    for offset in range(90, 0, -1):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_a,
+            kw_a,
+            dia,
+            _medianoche(dia),
+            moneda="MXN",
+            cost="10.00",
+            ad_revenue="100.00",
+            clicks=5,
+            orders=1,
+            impressions=100,
+        )
+    ciclo_a = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=1)), _medianoche(hoy - dt.timedelta(days=1))),
+    ).fetchone()[0]
+    ep_a = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=1)), ciclo_a, config_id),
+    ).fetchone()[0]
+    _cambio_confirmado(
+        conn,
+        kw_a,
+        config_id,
+        dia=hoy - dt.timedelta(days=1),
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=ep_a,
+    )
+
+    # Caso B (amazon_us): hoja con entra_temporada_baja confirmada en D-50
+    # (cerca = D-49), hueco de ingesta en D-80 (pre-cerca) y dias completos D-49..ayer.
+    camp_b = _entidad(conn, "amazon_us", "campaign", "cerca-camp-b")
+    ag_b = _entidad(conn, "amazon_us", "ad_group", "cerca-ag-b", parent=camp_b)
+    kw_b = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "cerca-kw-b",
+        parent=ag_b,
+        match_type="EXACT",
+        keyword_text="kw cerca b",
+    )
+    _estado(conn, camp_b, synced_at=_medianoche(hoy))
+    _estado(conn, ag_b, synced_at=_medianoche(hoy))
+    _estado(conn, kw_b, synced_at=_medianoche(hoy), current_bid=Decimal("1.40"), bid_currency="USD")
+    run_b = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-cerca-b') RETURNING id"
+    ).fetchone()[0]
+    for offset in range(90, 0, -1):
+        if offset == 80:
+            continue  # hueco de ingesta pre-cerca en D-80
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_b,
+            kw_b,
+            dia,
+            _medianoche(dia),
+            moneda="USD",
+            cost="2.00",
+            ad_revenue="20.00",
+            clicks=2,
+            orders=1,
+            impressions=50,
+        )
+    ciclo_b = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_us', 'done', %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=50)), _medianoche(hoy - dt.timedelta(days=50))),
+    ).fetchone()[0]
+    ep_b = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_us', %s, %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=50)), ciclo_b, config_id),
+    ).fetchone()[0]
+    dec_b = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs, old_value, new_value,"
+        " value_currency)"
+        " VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s,"
+        "  jsonb_build_object('motor', 'bid', 'motivo', 'entra_temporada_baja',"
+        "                     'temporada_episodio_id', %s::bigint),"
+        "  2.00, 1.40, 'USD') RETURNING id",
+        (
+            ciclo_b,
+            kw_b,
+            _medianoche(hoy - dt.timedelta(days=50)),
+            config_id,
+            _medianoche(hoy - dt.timedelta(days=50)),
+            hoy - dt.timedelta(days=140),
+            hoy - dt.timedelta(days=60),
+            ep_b,
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+        " verify_ok, applied_cycle_id) VALUES (%s, %s, '{}', true, %s)",
+        (dec_b, _medianoche(hoy - dt.timedelta(days=50)), ciclo_b),
+    )
+    conn.commit()
+
+    plat_a = temporada_io.TemporadaPlataforma(
+        estacion=est,
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(
+                id=ep_a, abierto_el=_medianoche(hoy - dt.timedelta(days=1))
+            ),
+            efectos_abiertos={},
+            excluidas={},
+            cerca_plataforma=None,
+        ),
+    )
+    econ_mx = EconomiaPlataforma(
+        moneda="MXN",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("350"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    lect_a = lee_plataforma(
+        conn, "amazon_mx", _medianoche(hoy), economia=econ_mx, temporada_plat=plat_a
+    )
+    assert lect_a._por_hoja.get(kw_a) is None, (
+        "hoja cercada con 0 filas post-cerca no debe caer a evidencia pre-cerca"
+    )
+
+    plat_b = temporada_io.TemporadaPlataforma(
+        estacion=est,
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(
+                id=ep_b, abierto_el=_medianoche(hoy - dt.timedelta(days=50))
+            ),
+            efectos_abiertos={},
+            excluidas={},
+            cerca_plataforma=None,
+        ),
+    )
+    econ_us = EconomiaPlataforma(
+        moneda="USD",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("36"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    lect_b = lee_plataforma(
+        conn, "amazon_us", _medianoche(hoy), economia=econ_us, temporada_plat=plat_b
+    )
+    ev_b = lect_b._por_hoja.get(kw_b)
+    assert ev_b is not None
+    assert ev_b.antiguo.clics is not None, (
+        "un hueco de ingesta en D-80 (pre-cerca) no debe envenenar antiguo tras cerca en D-49"
+    )

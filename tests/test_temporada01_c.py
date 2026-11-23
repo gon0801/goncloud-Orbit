@@ -687,7 +687,7 @@ def test_temporada01_c_recupera_con_evidencia(db_template):
     )
     corte_viejo = D_E1 - dt.timedelta(days=40)
     kw1 = _kw(conn, ag, "c-kw1", "kw 1", "2.16")
-    _siembra_metricas(conn, [kw1])
+    _siembra_metricas(conn, [camp, kw1])
     ventana_desde, ventana_hasta = D_E1 - dt.timedelta(days=90), D_E1 - dt.timedelta(days=10)
     _evidencia_caso_d(conn, kw1, ventana_desde, ventana_hasta, D_E1 - dt.timedelta(days=1))
     # la previa de cuenta en CVR 3 %: hoja de relleno en OTRO ad group
@@ -948,7 +948,7 @@ def test_temporada01_c_techo_de_baja_comparte_el_caso_d(db_template):
     ).fetchone()[0]
     kw2 = _kw(conn, ag, "c-kw2", "kw 2", "7.00")
     kw_cuenta = _kw(conn, ag2, "c-kw-cuenta", "kw cuenta", "6.00")
-    _siembra_metricas(conn, [kw2, kw_cuenta])
+    _siembra_metricas(conn, [camp, kw2, kw_cuenta])
     ventana_desde, ventana_hasta = D_E1 - dt.timedelta(days=90), D_E1 - dt.timedelta(days=10)
     _evidencia_caso_d(conn, kw2, ventana_desde, ventana_hasta, D_E1 - dt.timedelta(days=1))
     _evidencia_cuenta(conn, kw_cuenta, ventana_desde, ventana_hasta)
@@ -1084,3 +1084,298 @@ def test_temporada01_en_terreno_del_dueno_con_episodio_abierto_en_normal():
         recuperacion.destino_recuperacion(caso, a_subida=Decimal("6"), arg_subida=Decimal("1.5"))
         is None
     )
+
+
+def test_techo_conocido_sin_recuperacion_respeta_mano_del_dueno():
+    """Hallazgo #4: con caso.recuperacion=None, techo_conocido debe respetar
+    cad.manos_del_dueno para no doblar el techo_de_baja."""
+    ts_entrada = dt.datetime(2027, 1, 4, 12, 0, tzinfo=dt.UTC)
+    cadena = HistoriaBid(
+        desde=dt.date(2026, 7, 1),
+        cambios=(
+            CambioFechado(
+                confirmado_el=dt.datetime(2026, 9, 1, 12, 0, tzinfo=dt.UTC),
+                decision_id=1,
+                bid_antes=Decimal("20.00"),
+                bid_despues=Decimal("15.00"),
+                origen="motor",
+                motivo_temporada=None,
+                episodio_id=None,
+                motivo="pierde_dinero_fuerte",
+            ),
+            CambioFechado(
+                confirmado_el=ts_entrada,
+                decision_id=2,
+                bid_antes=Decimal("10.00"),
+                bid_despues=Decimal("7.00"),
+                origen="temporada",
+                motivo_temporada="entra",
+                episodio_id=1,
+            ),
+        ),
+        manos_externas=(
+            ManoExterna(
+                instante=dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC),
+                bid_visto=Decimal("10.00"),
+                origen="exclusion",
+            ),
+        ),
+    )
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("7.00"), "MXN", PISO_MX, TECHO_MX),
+        propia=_nivel_caso_b(),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2027, 1, 4), "10.00", "7.00", "temporada")],
+            efecto(dias_post=10, clics_post=25, gasto_post="47.50", vendia=False),
+        ),
+        historia=cadena,
+        recuperacion=None,
+        temporada=_temporada_caso_baja(),
+    )
+    assert recuperacion.techo_conocido(caso, hasta=ts_entrada) == Decimal("10.00")
+    assert temporada.techo_de_baja(caso) == Decimal("7.00")
+
+
+def test_dias_topados_coincide_en_motor_cola_y_pantalla_dinero(db_template):
+    """Hallazgo #2: motor (lee_plataforma), cola (presupuestos_campanas_hoy) y
+    pantalla_dinero (lee_campanas) deben compartir los ultimos 7 dias con
+    ingesta de campanas (incluidas pausadas, excluyendo keywords)."""
+    from app.lecturas_caso import lee_plataforma
+    from app.lecturas_historia import presupuestos_campanas_hoy
+    from app.optimizer.caso import EconomiaPlataforma, InsumosPausa
+    from app.pantalla_dinero import lee_campanas
+
+    conn, _dsn = db_template
+    hoy = D_E1
+    ayer = hoy - dt.timedelta(days=1)
+    camp_on = _entidad(conn, "amazon_mx", "campaign", "c-unif-on")
+    camp_off = _entidad(conn, "amazon_mx", "campaign", "c-unif-off")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "ag-unif", parent=camp_on)
+    kw = _kw(conn, ag, "kw-unif", "kw unif", "5.00")
+    _estado(conn, camp_on, synced_at=_medianoche(hoy), status="ENABLED")
+    _estado(conn, camp_off, synced_at=_medianoche(hoy), status="PAUSED")
+    _estado(conn, ag, synced_at=_medianoche(hoy), status="ENABLED")
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 100.00, 'MXN')",
+        (camp_on, _medianoche(hoy - dt.timedelta(days=15))),
+    )
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-unif-3vias') RETURNING id"
+    ).fetchone()[0]
+    # Campana ENABLED: 5 dias topados (D-8..D-4) + 2 dias no topados (D-3..D-2).
+    for offset in range(8, 3, -1):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_id,
+            camp_on,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost="95.00",
+            impressions=100,
+        )
+    for offset in (3, 2):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_id,
+            camp_on,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost="10.00",
+            impressions=100,
+        )
+    # Campana PAUSED con metrica en D-1: desplaza la ventana de 7 dias a D-7..D-1.
+    _metrica(
+        conn,
+        run_id,
+        camp_off,
+        ayer,
+        _medianoche(ayer) + dt.timedelta(hours=1),
+        moneda="MXN",
+        cost="5.00",
+        impressions=10,
+    )
+    # Keyword con metricas solo D-10..D-4 (no debe definir el calendario de campanas).
+    for offset in range(10, 3, -1):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost="1.00",
+            clicks=1,
+            orders=0,
+            impressions=10,
+        )
+    conn.commit()
+
+    topada = temporada.CampanaTopada(pct=Decimal("0.90"), dias=5)
+    economia = EconomiaPlataforma(
+        moneda="MXN",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("350"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    lect = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(hoy),
+        economia=economia,
+        campana_topada=topada,
+        presupuesto_live=True,
+    )
+    caso = lect.caso(
+        conn,
+        hoja_id=kw,
+        ad_group_id=ag,
+        bid=BidVigente(Decimal("5.00"), "MXN", PISO_MX, TECHO_MX),
+        target_acos_pct=Decimal("20"),
+        pausa=InsumosPausa(
+            cortes=None,
+            umbral_clics=100,
+            gasto_minimo=Decimal("500"),
+            expected_clicks=None,
+            politica_economica=None,
+        ),
+    )
+    assert caso.presupuesto is not None
+    motor_dias = caso.presupuesto.dias_topados
+    cola_dias = presupuestos_campanas_hoy(conn, "amazon_mx", hoy, topada)[camp_on].dias_topados
+    filas = lee_campanas(
+        conn,
+        plataforma="amazon_mx",
+        desde=ayer - dt.timedelta(days=29),
+        hasta=ayer,
+    )
+    pantalla_dias = next(f for f in filas if f.campana_id == camp_on).dias_al_tope_7d
+    assert motor_dias == cola_dias == pantalla_dias == 4, (
+        f"divergencia 3 vias: motor={motor_dias}, cola={cola_dias}, pantalla={pantalla_dias}"
+    )
+
+
+def test_dias_ingesta_campanas_viejos_falla_cerrado_fuera_de_ventana_14d(db_template):
+    """Review PR #738: si la ultima ingesta de campanas cae fuera de la ventana
+    de 14 dias `[hasta - 13d, hasta]`, ultimos_dias_ingesta_campanas devuelve
+    vacio, dias_medidos es 0 y presupuesto_topado falla cerrado (None)."""
+    from app.lecturas_caso import lee_plataforma
+    from app.lecturas_historia import (
+        presupuestos_campanas_hoy,
+        ultimos_dias_ingesta_campanas,
+    )
+    from app.optimizer.caso import EconomiaPlataforma, InsumosPausa
+    from app.pantalla_dinero import lee_campanas
+
+    conn, _dsn = db_template
+    hoy = D_E1
+    ayer = hoy - dt.timedelta(days=1)
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-vieja")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "ag-vieja", parent=camp)
+    kw = _kw(conn, ag, "kw-vieja", "kw vieja", "5.00")
+    _estado(conn, camp, synced_at=_medianoche(hoy), status="ENABLED")
+    _estado(conn, ag, synced_at=_medianoche(hoy), status="ENABLED")
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 100.00, 'MXN')",
+        (camp, _medianoche(hoy - dt.timedelta(days=35))),
+    )
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-ventana-14d') RETURNING id"
+    ).fetchone()[0]
+    # 7 dias topados hace 3 semanas (D-27..D-21), fuera de [D-14, D-1].
+    for offset in range(27, 20, -1):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost="95.00",
+            impressions=100,
+        )
+    # Metrica exactamente en D-15 (ayer - 14d): queda fuera del limite inclusivo.
+    dia_fuera = ayer - dt.timedelta(days=14)
+    _metrica(
+        conn,
+        run_id,
+        camp,
+        dia_fuera,
+        _medianoche(dia_fuera) + dt.timedelta(hours=1),
+        moneda="MXN",
+        cost="95.00",
+        impressions=100,
+    )
+    conn.commit()
+
+    topada = temporada.CampanaTopada(pct=Decimal("0.90"), dias=5)
+    assert ultimos_dias_ingesta_campanas(conn, "amazon_mx", ayer) == ()
+
+    p_cola = presupuestos_campanas_hoy(conn, "amazon_mx", hoy, topada)[camp]
+    assert p_cola.dias_medidos == 0
+    assert recuperacion.presupuesto_topado_de(p_cola) is None
+
+    economia = EconomiaPlataforma(
+        moneda="MXN",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("350"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    lect = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(hoy),
+        economia=economia,
+        campana_topada=topada,
+        presupuesto_live=True,
+    )
+    caso = lect.caso(
+        conn,
+        hoja_id=kw,
+        ad_group_id=ag,
+        bid=BidVigente(Decimal("5.00"), "MXN", PISO_MX, TECHO_MX),
+        target_acos_pct=Decimal("20"),
+        pausa=InsumosPausa(
+            cortes=None,
+            umbral_clics=100,
+            gasto_minimo=Decimal("500"),
+            expected_clicks=None,
+            politica_economica=None,
+        ),
+    )
+    assert caso.presupuesto is not None
+    assert caso.presupuesto.dias_medidos == 0
+    assert recuperacion.presupuesto_topado(caso) is None
+
+    filas = lee_campanas(
+        conn,
+        plataforma="amazon_mx",
+        desde=ayer - dt.timedelta(days=29),
+        hasta=ayer,
+    )
+    pantalla = next(f for f in filas if f.campana_id == camp)
+    assert pantalla.dias_al_tope_7d == 0
+
+    # Borde inclusivo: una metrica exactamente en ayer - 13d (D-14) si entra.
+    dia_borde = ayer - dt.timedelta(days=13)
+    _metrica(
+        conn,
+        run_id,
+        camp,
+        dia_borde,
+        _medianoche(dia_borde) + dt.timedelta(hours=1),
+        moneda="MXN",
+        cost="95.00",
+        impressions=100,
+    )
+    conn.commit()
+    assert ultimos_dias_ingesta_campanas(conn, "amazon_mx", ayer) == (dia_borde,)
