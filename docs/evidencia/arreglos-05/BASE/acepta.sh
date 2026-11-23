@@ -10,19 +10,46 @@ set -uo pipefail
 cd "$(dirname -- "$0")/../../../.." || exit 2
 unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL
 
+# libpq toma valores por omision de las variables PG* del entorno (PGHOSTADDR,
+# PGSERVICE...) y el parser de psycopg no los expone. Se quitan todas antes de
+# conectar, asi que el DSN es la unica fuente del destino.
+pg_quitadas=$(compgen -e | grep -c -E '^PG')
+while IFS= read -r variable; do unset "$variable"; done < <(compgen -e | grep -E '^PG')
+
 # Guarda antes de abrir cualquier conexion: solo el PG desechable del laboratorio.
-# Los comandos de pytest directo no pasan por la guarda de comprobar.sh, y la suite
-# solo entiende el DSN en forma de URL (tests/helpers/pg.py lo parte con urlsplit).
+# El destino lo decide libpq, no la URL a simple vista: una consulta en la propia
+# URL (?hostaddr=, ?service=) lo puede cambiar. Se exige la forma de URL sin
+# consulta, que es la unica que entiende la suite (tests/helpers/pg.py la parte
+# con urlsplit), y se confirma el destino con el parser de psycopg.
+# Los comandos de pytest directo no pasan por la guarda de comprobar.sh.
 uv run --frozen --python 3.12 python - <<'PY' || exit 2
 import os
 from urllib.parse import urlsplit
 
-url = urlsplit(os.environ.get("ORBIT_TEST_DSN", ""))
-autorizados = {("127.0.0.1", 55449), ("orbit-review-current-pg", 5432)}
-if url.scheme != "postgresql" or url.path != "/postgres" or (url.hostname, url.port) not in autorizados:
+import psycopg
+from psycopg.conninfo import conninfo_to_dict
+
+dsn = os.environ.get("ORBIT_TEST_DSN", "")
+url = urlsplit(dsn)
+try:
+    cfg = conninfo_to_dict(dsn, use_env=False)
+    destino = (cfg.get("host"), str(cfg.get("port")))
+    redirige = cfg.get("hostaddr") or cfg.get("service")
+except psycopg.Error:
+    destino, redirige = None, True
+laboratorio = {("127.0.0.1", "55449"), ("orbit-review-current-pg", "5432")}
+fuera = (
+    url.scheme != "postgresql"
+    or url.path != "/postgres"
+    or url.query
+    or url.fragment
+    or destino not in laboratorio
+    or redirige
+)
+if fuera:
     raise SystemExit(
-        "ORBIT_TEST_DSN no es el del laboratorio (postgresql://...@127.0.0.1:55449/postgres);"
-        " no se abrio conexion"
+        "ORBIT_TEST_DSN no es el del laboratorio"
+        " (postgresql://...@127.0.0.1:55449/postgres, sin opciones); no se abrio conexion"
     )
 PY
 
@@ -65,6 +92,7 @@ corre() {
 }
 
 echo "# Acepta de ARREGLOS 05 BASE. SHA $(git rev-parse HEAD)"
+echo "# variables PG* quitadas del entorno: $pg_quitadas"
 echo "# PG: $(uv run --frozen --python 3.12 python -c 'import os,psycopg; c=psycopg.connect(os.environ["ORBIT_TEST_DSN"]); print(c.execute("select version()").fetchone()[0].split(",")[0], "|", c.execute("show server_version_num").fetchone()[0])' 2>&1)"
 
 corre ACEPTA "BASE.0 plan y diseno en origin/master" bash -c \

@@ -40,12 +40,13 @@ Los originales estan en `revision/historico/` y coinciden con `manifest.json`: `
 
 ## Correcciones despues de la revision automatica del PR
 
-Las cinco observaciones eran ciertas y tocaban solo a las herramientas de esta carpeta.
+Las seis observaciones eran ciertas y tocaban solo a las herramientas de esta carpeta. Cinco salieron en la primera ronda y una en la segunda.
 
 | Herramienta | Defecto | Correccion y prueba |
 |---|---|---|
 | `acepta.sh`, BASE.0 | La cadena terminaba en `echo`, asi que devolvia 0 aunque la comprobacion de Git fallara. | El `echo` va con `&&`. En un repositorio desechable la cadena nueva sale 1 cuando `origin/master` no es ancestro y cuando falta un archivo, y 0 en orden. La anterior salia 0 en los tres casos. |
-| `acepta.sh`, arranque | Abria la conexion para imprimir la version de PG antes de validar el DSN, y los comandos de pytest directo no pasan por la guarda de `comprobar.sh`. | Guarda al inicio: solo URL `postgresql` con base `postgres` en `127.0.0.1:55449` o `orbit-review-current-pg:5432`. Con un DSN en pares `clave=valor`, con otro puerto, con otro host o vacio sale 2 con su mensaje y sin linea de PG. |
+| `acepta.sh`, arranque | Abria la conexion para imprimir la version de PG antes de validar el DSN, y los comandos de pytest directo no pasan por la guarda de `comprobar.sh`. | Guarda al inicio. El destino se confirma con el parser de psycopg (`conninfo_to_dict`) y se exige la forma de URL sin consulta ni fragmento, que es la unica que entiende `tests/helpers/pg.py`. Con un DSN en pares `clave=valor`, con otro puerto, con otro host o vacio sale 2 con su mensaje y sin linea de PG. |
+| `acepta.sh`, guarda | `urlsplit` no ve que libpq puede cambiar el destino con una consulta en la URL (`?hostaddr=`, `?service=`) o con una variable `PG*`. El parser de psycopg tampoco expone esas variables. | Se rechaza cualquier consulta o fragmento y se quitan del entorno todas las `PG*` antes de conectar. Probado contra la guarda anterior: la anterior aceptaba `?port=1`, `?hostaddr=`, `?service=` y `#x`; la nueva las rechaza y acepta el DSN del laboratorio con o sin clave. |
 | `acepta.sh`, controles | Un control con pruebas omitidas salia 0 y se daba por bueno. | `resumen_limpio` rechaza un resumen de pytest con `skipped`, `error`, `failed` o sin casos. Probado con once resumenes. |
 | `clasifica.py` | Solo miraba los casos presentes en la corrida nueva. Una corrida incompleta salia 0. | Compara los nombres de ambos XML y sale 1 si falta uno de la base. Con un caso retirado sale 1 y lo nombra; con un XML vacio reporta 31 ausentes. |
 | `previa.sql` | Atribuia el desenlace sin aplicar al ciclo ejecutor, igual que hace `registra_sin_aplicar`, mientras las aplicaciones se atribuyen al ciclo que decidio. | El `EXISTS` une `decision_sin_aplicar` con `decision` por `decision_id`. El bloque nuevo `desenlaces_con_ciclo_distinto` mide cuantos difieren. En una base desechable con un ejecutor distinto, la consulta vieja atribuye al ejecutor y la nueva al origen. En produccion los conteos por ciclo no cambian: las 193 filas llevan el ciclo de la decision. |
