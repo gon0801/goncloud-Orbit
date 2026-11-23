@@ -372,7 +372,7 @@ def test_arreglos05_a_degraded_por_apply_abre_un_ejecutor_en_el_siguiente_horari
         assert conn.execute("SELECT count(*) FROM decision_application").fetchone()[0] == 0, (
             "sin perfil no se aplico nada",
         )
-        assert ciclo.motivo_de_salto(conn, "amazon_us") is None, (
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is None, (
             "el siguiente horario debe poder completar lo pendiente"
         )
 
@@ -416,7 +416,7 @@ def test_arreglos05_a_lock_expirado_con_running_reciente_no_bloquea_el_horario()
             " VALUES (%s, 'muerto:1', now() - interval '2 hours', now() - interval '2 hours')",
             (JOB_KEY,),
         )
-        assert ciclo.motivo_de_salto(conn, "amazon_us") is None, (
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is None, (
             "un running huerfano con lock vencido no bloquea el horario"
         )
 
@@ -460,7 +460,7 @@ def test_arreglos05_a_caida_despues_de_tx3_abre_ejecutor_sin_decidir_de_nuevo(mo
         assert conn.execute("SELECT count(*) FROM apply_queue").fetchone()[0] == 0, (
             "la caida fue antes de encolar los cortes"
         )
-        assert ciclo.motivo_de_salto(conn, "amazon_us") is None, (
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is None, (
             "quedan decisiones por completar: el horario siguiente corre"
         )
 
@@ -591,7 +591,7 @@ def test_arreglos05_a_owner_vencido_con_respuesta_retenerida_no_sella_ni_repite(
             "SELECT finished_at, resultado FROM apply_attempt WHERE decision_id = %s", (en_vuelo,)
         ).fetchone() == (None, None), "el owner vencido no sella el intento"
         assert _desenlace(conn, en_vuelo) is None
-        assert ciclo.motivo_de_salto(conn, "amazon_us") is None, (
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is None, (
             "quedan decisiones del origen por completar"
         )
 
@@ -1067,7 +1067,9 @@ def test_arreglos05_a_interrumpido_tras_tx3_abre_ejecutor_sin_huerfanas(monkeypa
             ).fetchone()[0]
             == 0
         )
-        assert ciclo.motivo_de_salto(conn, "amazon_us") is None, "quedan fases sin correr"
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is None, (
+            "quedan fases sin correr"
+        )
 
         amazon = _Amazon(**REMOTO_INICIAL)
         res = _atiende(conn, factory=_directa(amazon))
@@ -1076,7 +1078,9 @@ def test_arreglos05_a_interrumpido_tras_tx3_abre_ejecutor_sin_huerfanas(monkeypa
         notas = json.loads(res.ciclo.notes)["apply"]
         assert "cortes_liberados" in notas and "reactivaciones" in notas
         assert amazon.pujas_enviadas() == [], "nada sin desenlace: ninguna puja sale"
-        assert ciclo.motivo_de_salto(conn, "amazon_us") is not None, "ya no hace falta otro"
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is not None, (
+            "ya no hace falta otro"
+        )
 
 
 def _zombi_con_list_retenido(extra, *, con_guard):

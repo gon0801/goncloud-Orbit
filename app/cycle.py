@@ -180,8 +180,7 @@ SELECT c.id, c.mode, c.status,
   FROM optimizer_cycle c
  WHERE c.motor = 'ads_optimizer' AND c.platform = %s::platform
    AND c.resume_of IS NULL
-   AND (c.decision_committed_at AT TIME ZONE 'UTC')::date
-       = (now() AT TIME ZONE 'UTC')::date
+   AND (c.decision_committed_at AT TIME ZONE 'UTC')::date = %s::date
  ORDER BY c.id DESC
  LIMIT 1
 """
@@ -211,15 +210,25 @@ UPDATE optimizer_cycle
 """
 
 
-def _plan_de_hoy(conn: psycopg.Connection, platform: str) -> _PlanHoy:
+def _plan_de_hoy(
+    conn: psycopg.Connection, platform: str, *, hoy: dt.date | None = None
+) -> _PlanHoy:
     """El plan del dia para `platform` (ARREGLOS 05 A.2).
 
     Manda el claim, no la edad de 3 h: un `running` huerfano no bloquea nada
     porque su lock vence y el siguiente horario lo reclama. Un ciclo cerrado
     hoy sin decisiones pendientes significa que ya se decidio. Un ciclo cuyo
-    apply no termino deja decisiones sin desenlace, y eso (no su estado) es lo
-    que abre un ejecutor en el horario siguiente."""
-    fila = conn.execute(_SQL_ORIGEN_HOY, (platform,)).fetchone()
+    apply no termino deja decisiones sin desenlace o fases incompletas, y eso
+    (no su estado) es lo que abre un ejecutor en el horario siguiente.
+
+    `hoy` es el dia (UTC) del reloj de la corrida. Sin el, el de la base: es
+    el que usa el cron y el de las consultas sueltas."""
+    dia = (
+        hoy
+        if hoy is not None
+        else conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+    )
+    fila = conn.execute(_SQL_ORIGEN_HOY, (platform, dia)).fetchone()
     if fila is None:
         return _PlanHoy()
     id_origen, mode, status, pendientes, completo = fila
@@ -230,12 +239,14 @@ def _plan_de_hoy(conn: psycopg.Connection, platform: str) -> _PlanHoy:
     )
 
 
-def motivo_de_salto(conn: psycopg.Connection, platform: str) -> str | None:
+def motivo_de_salto(
+    conn: psycopg.Connection, platform: str, *, hoy: dt.date | None = None
+) -> str | None:
     """Razon por la que hoy NO se abre nada para `platform`, o None.
 
     None tambien cuando queda trabajo por completar: entonces lo que se abre
     es un ejecutor, y eso lo decide `atender_plataforma` bajo el claim."""
-    return _plan_de_hoy(conn, platform).motivo
+    return _plan_de_hoy(conn, platform, hoy=hoy).motivo
 
 
 def _dumps(obj) -> str:
@@ -284,13 +295,17 @@ RETURNING id
 """
 
 # Cierre de la TX3: la MISMA sentencia cierra el envelope y sella que sus
-# decisiones quedaron comprometidas (ARREGLOS 05 A.2), aunque sean cero. Si el
-# envelope ya no es `running`, otro owner lo reclamo y dejo el rastro: ninguna
-# fila vuelve y la transaccion entera se deshace, decisiones incluidas.
+# decisiones quedaron comprometidas (ARREGLOS 05 A.2), aunque sean cero. El
+# sello lleva el RELOJ DE LA DECISION de esa corrida, acotado al ahora de la
+# base: es el mismo reloj que fecha las decisiones y el que rige su vigencia.
+# Con la hora de la base, un ciclo corrido con `--decided-at` de ayer pero
+# terminado hoy pasaria por la decision de hoy y suprimiria el origen de hoy.
+# Si el envelope ya no es `running`, otro owner lo reclamo y dejo el rastro:
+# ninguna fila vuelve y la transaccion entera se deshace, decisiones incluidas.
 _SQL_CERRAR_TX3 = """
 UPDATE optimizer_cycle
    SET status = %s, finished_at = now(), decisions_count = %s, notes = %s,
-       decision_committed_at = now()
+       decision_committed_at = least(%s::timestamptz, now())
  WHERE id = %s AND status = 'running'
 RETURNING id
 """
@@ -376,14 +391,23 @@ def _abre_envelope(
 
 
 def _compromete_tx3(
-    conn: psycopg.Connection, cycle_id: int, status: str, decisions_count: int, notas: str
+    conn: psycopg.Connection,
+    cycle_id: int,
+    status: str,
+    decisions_count: int,
+    notas: str,
+    *,
+    decided_at: dt.datetime,
 ) -> None:
-    """Cierra el envelope en la TX3 que inserto sus decisiones y lo sella.
+    """Cierra el envelope en la TX3 que inserto sus decisiones y lo sella con
+    el reloj de la decision de la corrida.
 
     Corre DENTRO de esa transaccion. Si el envelope ya no es `running` (otro
     owner lo reclamo y lo marco con el rastro) levanta `CicloOcupado`: la
     transaccion se deshace y ese proceso no deja decisiones comprometidas."""
-    fila = conn.execute(_SQL_CERRAR_TX3, (status, decisions_count, notas, cycle_id)).fetchone()
+    fila = conn.execute(
+        _SQL_CERRAR_TX3, (status, decisions_count, notas, decided_at, cycle_id)
+    ).fetchone()
     if fila is None:
         raise CicloOcupado(
             f"el ciclo {cycle_id} ya no esta running (otro owner lo reclamo):"
@@ -764,7 +788,7 @@ def _corre_fases(
                     conn, contadores.propuestas_campana, decided_at
                 )
             notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
-            _compromete_tx3(conn, cycle_id, status, len(pendientes), notas)
+            _compromete_tx3(conn, cycle_id, status, len(pendientes), notas, decided_at=decided_at)
     else:
         cuerpo = {"resume_of": origen}
         status = "done"
@@ -964,7 +988,11 @@ def _atiende(
             modo = g.resuelve_modo(g.modo_desde_settings(settings), _MODO_TOPE_ENVELOPE)
             if not _toma_claim(conn, job_key, owner):
                 raise CicloOcupado(f"lock vigente de otro owner para {job_key}")
-            plan = _plan_de_hoy(conn, platform) if plan_del_dia else _PlanHoy()
+            plan = (
+                _plan_de_hoy(conn, platform, hoy=decided_at.astimezone(dt.UTC).date())
+                if plan_del_dia
+                else _PlanHoy()
+            )
             origen, motivo = plan.origen, plan.motivo
             if origen is not None and modo.modo != "live":
                 motivo = (

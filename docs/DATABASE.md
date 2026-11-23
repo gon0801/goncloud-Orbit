@@ -1074,8 +1074,11 @@ Un ciclo tiene dos clases de envelope, y las dos viven en `optimizer_cycle`:
 Columnas nuevas (aditivas):
 
 - `decision_committed_at TIMESTAMPTZ NULL` — sello único de la TX3: la
-  transacción que inserta las decisiones, aunque sean cero. Se escribe en la
-  MISMA sentencia que cierra el envelope como `done` o `degraded`. NULL
+  transacción que inserta las decisiones, aunque sean cero. Se escribe en la MISMA sentencia que cierra el envelope
+como `done` o `degraded`, y lleva el reloj de la **decisión** de esa corrida
+(acotado al ahora de la base): el mismo que fecha las decisiones y rige su
+vigencia, para que un ciclo corrido con `--decided-at` de otro día no cuente
+como la decisión de hoy. NULL
   significa que ese envelope nunca comprometió decisiones (murió antes de
   TX3, falló, salió `skipped`, o es anterior a `0094`). Es la fuente única de
   «hoy ya se decidió»: se retiró la heurística de 3 horas sobre `running` y
@@ -1084,10 +1087,17 @@ Columnas nuevas (aditivas):
   INSERT; debe apuntar a un origen de la misma plataforma con TX3
   comprometida y sin su propio `resume_of` (nunca una cadena).
 
+El origen guarda además `notes.apply.completo` cuando encolado, pujas,
+cortes y reactivaciones terminaron sin fallo; el plan del día abre un
+ejecutor si hay decisiones sin desenlace **o** si falta esa marca.
+
+El origen guarda además `notes.apply.completo` cuando encolado, pujas,
+cortes y reactivaciones terminaron sin fallo; el plan del día abre un
+ejecutor si hay decisiones sin desenlace **o** si falta esa marca.
+
 Disparador `optimizer_cycle_0094_progreso` (BEFORE INSERT OR UPDATE): el sello
 no nace en el INSERT, tiene una sola transición (NULL → valor), se escribe solo
-al cerrar como `done`/`degraded` con `finished_at`, y no es del futuro ni
-anterior a `started_at`. Los ciclos anteriores a `0094` se cierran sin sello y
+al cerrar como `done`/`degraded` con `finished_at`, y no es del futuro. Los ciclos anteriores a `0094` se cierran sin sello y
 siguen pasando: un rollback de código no los rompe.
 
 Permisos: `app_decide` gana `UPDATE (decision_committed_at)` y nada más. No

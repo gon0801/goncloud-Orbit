@@ -734,7 +734,9 @@ reclama el lock cuando vence y lo cierra con su rastro.
 
 **Progreso durable.** La TX3 cierra el envelope y lo sella
 (`optimizer_cycle.decision_committed_at`) en la misma sentencia, aunque el
-lote válido traiga cero decisiones. Si el envelope ya no es `running` (otro
+lote válido traiga cero decisiones. El sello lleva el reloj de la decisión
+de la corrida, no el de la base: un ciclo corrido con `--decided-at` de otro
+día no cuenta como la decisión de hoy. Si el envelope ya no es `running` (otro
 owner lo reclamó), esa transacción se deshace con sus decisiones: un proceso
 que perdió el claim no deja decisiones comprometidas. Una caída antes de TX3
 no tiene sello y no se parece a un lote vacío terminado. Detalle del esquema,
@@ -744,7 +746,10 @@ disparador y reversa en `docs/DATABASE.md`.
 (cuota y fila del ledger), antes de cada HTTP y antes de cada sello. Un owner
 vencido no sella: su intento queda sin sellar y la conciliación del sucesor
 lo resuelve con una lectura. Un HTTP tardío no se considera cancelado por
-haber vencido el lock; tampoco se repite.
+haber vencido el lock; tampoco se repite. Toda confirmación pasa por una cerca: dentro
+de la transacción que sella se lee la fila del claim con bloqueo, así que el
+sello y un cambio de dueño se ordenan aunque el aviso llegue tarde (lectura
+de vuelta en vuelo).
 
 **Aislamiento por entidad y por fase** (cambia el aborto de lote que este
 documento daba por deseado):
@@ -768,7 +773,14 @@ documento daba por deseado):
   `apply_error`, no sale ninguna mutación y el horario siguiente abre el
   ejecutor.
 
-**Recuperación.** Antes de cada escritura nueva se vuelven a mirar goal, modo,
+**Recuperación.** El origen guarda `apply.completo` cuando sus fases
+terminaron; si falta o queda alguna decisión sin desenlace, el horario
+siguiente abre un ejecutor (la vista de huérfanas no ve reactivaciones ni
+cortes en cola). El ejecutor solo intenta lo que sigue sin desenlace: una
+decisión que ya lo tuvo sin intento (`modo_no_live`, `choque_clave`,
+`vigencia_vencida`) no se reevalúa aunque sus condiciones hayan cambiado; al
+terminar bien, marca el origen y revalida los cortes con el target de ese
+origen. Antes de cada escritura nueva se vuelven a mirar goal, modo,
 campaña y ad group habilitados, claim y lectura viva del bid. El ejecutor
 reencola solo los cortes que quedaron sin fila; los que ya están en la cola
 conservan la suya. `decision_application.applied_cycle_id` sigue sellando al

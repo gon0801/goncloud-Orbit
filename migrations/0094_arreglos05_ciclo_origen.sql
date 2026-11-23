@@ -4,7 +4,9 @@
 --
 -- 1. optimizer_cycle.decision_committed_at: el sello UNICO de la TX3 del ciclo
 --    (la transaccion que inserta sus decisiones), aunque el lote valido traiga
---    cero. NULL significa que ese envelope nunca comprometio decisiones: murio
+--    cero. Lleva el reloj de la DECISION de esa corrida, acotado al ahora de la
+--    base: el mismo que fecha las decisiones y rige su vigencia, para que un
+--    ciclo corrido con un reloj de otro dia no cuente como la decision de hoy. NULL significa que ese envelope nunca comprometio decisiones: murio
 --    antes de TX3, fallo, o salio `skipped` (escalera off). Se escribe en la
 --    MISMA sentencia que lo cierra como done o degraded y admite una sola
 --    transicion (NULL a valor), por disparador. Un ciclo cerrado sin sello
@@ -124,11 +126,6 @@ BEGIN
             RAISE EXCEPTION 'optimizer_cycle_0094: el sello de TX3 no puede ser del futuro'
                 USING ERRCODE = 'check_violation';
         END IF;
-        IF NEW.decision_committed_at < NEW.started_at THEN
-            RAISE EXCEPTION
-                'optimizer_cycle_0094: el sello de TX3 no puede ser anterior al inicio del ciclo'
-                USING ERRCODE = 'check_violation';
-        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -189,7 +186,8 @@ COMMENT ON COLUMN optimizer_cycle.resume_of IS
 COMMENT ON FUNCTION optimizer_cycle_0094_progreso() IS
     'Invariantes de progreso del ciclo (ARREGLOS 05 A.2): el sello de TX3 no nace '
     'en el INSERT, tiene una sola transicion, se escribe solo al cerrar como done '
-    'o degraded y no es del futuro ni anterior al inicio; resume_of solo en el '
+    'o degraded y no es del futuro; lleva el reloj de la decision de la corrida, '
+    'acotado al ahora de la base; resume_of solo en el '
     'INSERT, hacia un origen de la misma plataforma con TX3 comprometida. El '
     'binario anterior a 0094 cierra sus ciclos sin sello y sigue pasando: un '
     'rollback de codigo no lo rompe.';
