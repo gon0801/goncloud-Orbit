@@ -1,0 +1,231 @@
+# Lectura previa de produccion (solo SELECT). SHA 2639ff8fd7ce51b23926733d1faf4b9372222dbe
+
+== momento_utc
+2026-11-23 06:07:47.828151|orbit_read|on|160015
+
+== esquema_columnas
+ads_optimizer_goal|id,scope,ad_entity_id,platform,target_acos_pct,bid_floor,bid_ceiling,bid_currency,harvest_campaign_id,harvest_ad_group_id,harvest_default_bid,enabled,mode,created_at,updated_at
+apply_attempt|id,decision_id,seq,tipo,request_payload,quota_cobrada,started_at,ack,resultado,finished_at
+apply_queue|id,platform,ad_entity_id,familia,search_term,kind,decision_id,modo,estado,vence_el,encolado_at,released_at,applying_at,applied_at,failed_at,discarded_at,vetoed_at,vetoed_by,discard_motivo,request_payload
+decision|id,cycle_id,ad_entity_id,kind,decided_at,config_version_id,data_observed_at,window_start,window_end,search_term,old_value,new_value,value_currency,inputs,evaluacion_producto_id
+decision_application|decision_id,attempted_at,confirmed_at,verify_ok,platform_ack,error,applied_cycle_id
+decision_sin_aplicar|decision_id,cycle_id,motivo,detalle,registrado_at
+harvest_job|id,decision_id,search_term,platform,ad_entity_id,fase,external_ids,created_at,updated_at
+keyword_archivo_manual|id,lote,ad_entity_id,platform,campaign_external,ad_group_external,keyword_external,keyword_text,match_type,bid,bid_currency,clasificacion,dias_sin_impresiones,go_literal,intentado_at,ack,readback_estado,estado,repuesto_at,repuesto_external,repuesto_ack
+optimizer_cycle|id,motor,mode,platform,started_at,finished_at,decisions_count,applied_count,status,notes
+sku_cost|id,product_id,cost_amount,cost_currency,includes_tax,valid_from,valid_to,ingest_run_id
+temporada_efecto|id,episodio_id,ad_entity_id,decision_id,tipo,abierto_el,cerrado_el,desenlace
+temporada_episodio|id,platform,abierto_el,abierto_en_ciclo,config_version_id,cerrado_el,cerrado_en_ciclo
+temporada_exclusion|episodio_id,ad_entity_id,motivo,bid_visto,bid_visto_moneda,decision_id,detectada_el
+temporada_fin_reduccion|episodio_id,ad_entity_id,motivo,cycle_id,cerrado_el
+
+== sonda_0083_arreglos01_costos_sin_compuerta.sql
+True
+
+== sonda_0084_arreglos01_impulso_desarmado.sql
+True
+
+== sonda_0085_arreglos01_ledger_reatribucion.sql
+True
+
+== sonda_0086_arreglos02_cargos.sql
+True
+
+== sonda_0087_arreglos03_devoluciones_meli.sql
+True
+
+== sonda_0088_arreglos03_ledger_original.sql
+True
+
+== sonda_0089_arreglos03_reputacion_avisada.sql
+True
+
+== sonda_0090_arreglos03_error_cierra_por_observacion.sql
+True
+
+== sonda_0091_arreglos03_sin_precio_cap.sql
+True
+
+== sonda_0092_temporada01_margen_vigente.sql
+True
+
+== sonda_0093_estimacion_s4_caja_real_mx.sql
+True
+
+== sonda_0093_temporada01_episodio.sql
+True
+
+== ciclos_por_modo_estado
+live|done|175
+off|skipped|2
+shadow|done|30
+
+== ciclos_decisiones_y_aplicacion
+done|live|True|False|False|False|False|64
+done|live|True|True|True|False|False|2
+done|live|True|True|True|False|True|8
+done|live|True|True|True|True|False|100
+done|live|True|True|True|True|True|1
+done|shadow|True|True|True|False|False|30
+skipped|off|True|False|False|False|False|2
+
+== ciclos_sin_cerrar
+
+
+== lock_optimizador
+
+
+== intentos_por_estado
+bid|normal|ok|True|True|499|2026-09-02 16:12:52.545173+00:00|2026-11-21 09:40:11.103875+00:00
+bid|reversa|ok|True|True|11|2026-10-11 09:52:35.009530+00:00|2026-11-12 05:32:08.985527+00:00
+pause|normal|ok|True|True|3|2026-09-21 08:40:06.196251+00:00|2026-11-12 08:40:10.746941+00:00
+negative|normal|ok|True|True|2|2026-09-16 08:40:04.282844+00:00|2026-09-16 08:40:05.743150+00:00
+negative|reversa|ok|True|True|2|2026-11-10 09:17:06.719049+00:00|2026-11-10 09:17:13.302424+00:00
+harvest|normal|ok|True|True|22|2026-09-14 08:40:03.827739+00:00|2026-10-31 08:41:12.590147+00:00
+harvest|reversa|ok|True|True|1|2026-10-02 04:10:52.399409+00:00|2026-10-02 04:10:52.399409+00:00
+
+== aplicacion_por_ack_y_verificacion
+bid|True|True|499
+pause|True|True|3
+negative|True|True|2
+harvest|True|True|11
+
+== negatives_reconciliados
+0|0|0
+
+== harvest_por_fase
+amazon_mx|done|8
+amazon_us|done|3
+
+== reposicion_estados
+
+
+== reposicion_ids_duplicados
+0
+
+== reposicion_intentos_existe
+False|0
+
+== colas_por_modo_estado
+live|applied|16
+live|discarded|3
+live|pending_veto|1
+live|vetoed|2
+shadow|discarded|3
+shadow|pending_veto|31
+shadow|vetoed|2
+
+== colas_en_vuelo_y_vencidas
+live|pending_veto|1|0|2026-11-23 09:40:02.181753+00:00|2026-11-23 09:40:02.181753+00:00
+shadow|pending_veto|31|31|2026-11-10 08:40:02.288083+00:00|2026-11-10 08:40:02.288083+00:00
+
+== colas_clave_con_historia_y_practica
+0
+
+== inputs_claves_por_tipo
+bid|bid_actual|2784
+bid|bid_moneda|2784
+bid|factor|2784
+bid|goal|2784
+bid|modo|2784
+bid|motivo|2784
+bid|motor|2784
+bid|platform|2784
+bid|target_acos_pct_usado|2784
+bid|ventanas|2723
+bid|corte|2471
+bid|target_procedencia|673
+bid|target_snapshot|612
+bid|cooldown_policy_version|386
+bid|economic_policy|375
+bid|inversion_policy_version|310
+bid|evidencia_v2|88
+bid|politica_bandas_usada|87
+bid|caso|61
+bid|nivel|61
+bid|politica|61
+bid|veredicto_kind|61
+pause|modo|69
+pause|motivo|69
+pause|motor|69
+pause|platform|69
+pause|bid_actual|38
+pause|bid_moneda|38
+pause|factor|38
+pause|goal|38
+pause|target_acos_pct_usado|38
+pause|ventanas|36
+pause|politica|33
+pause|actividad|31
+pause|huella_alcance|31
+pause|limites|31
+pause|product_id|31
+pause|propuesta|31
+pause|ventana|31
+pause|corte|8
+pause|target_procedencia|4
+pause|target_snapshot|4
+pause|caso|2
+pause|nivel|2
+pause|veredicto_kind|2
+pause|cooldown_policy_version|1
+pause|economic_policy|1
+pause|evidencia_v2|1
+pause|inversion_policy_version|1
+pause|politica_bandas_usada|1
+negative|goal|54
+negative|modo|54
+negative|motivo|54
+negative|motor|54
+negative|platform|54
+negative|target_acos_pct_usado|54
+negative|termino|54
+negative|ventana_terminos|54
+negative|corte|6
+negative|target_procedencia|6
+negative|target_snapshot|6
+harvest|goal|16
+harvest|modo|16
+harvest|motivo|16
+harvest|motor|16
+harvest|platform|16
+harvest|target_acos_pct_usado|16
+harvest|termino|16
+harvest|ventana_terminos|16
+harvest|target_procedencia|12
+harvest|target_snapshot|12
+
+== inputs_version_del_caso
+bid|None|61
+pause|None|2
+
+== inputs_target_por_procedencia
+goal_campana|False|61
+margen_plataforma|True|634
+None|False|2228
+
+== intentos_bid_por_ciclo
+amazon_mx|49|45|40.0|6
+amazon_us|49|24|21.0|5
+
+== decisiones_de_temporada
+
+
+== temporada_registros
+0|0|0|0|0|0
+
+== temporada_efectos_por_desenlace
+
+
+== config_versiones
+60|2026-08-24 00:34:50.894180+00:00|2026-11-22 20:22:47.288691+00:00
+
+== settings_modos_y_topes
+{"precio_modo_global": "shadow", "precio_modo_universo": {"meli/meli": "live", "amazon_mx/fba": "live", "amazon_mx/fbm": "live", "amazon_us/fbm": "live"}, "ads_temporada_amazon_mx": "live", "ads_temporada_amazon_us": "live", "ads_bid_politica_amazon_mx": "niveles_v3", "ads_bid_politica_amazon_us": "niveles_v3", "ads_apply_cap_amazon_mx_bid": 1000000, "ads_apply_cap_amazon_us_bid": 1000000, "ads_producto_meta_amazon_mx": "live", "ads_producto_meta_amazon_us": "live", "ads_producto_pausa_amazon_mx": "shadow", "ads_producto_pausa_amazon_us": "shadow", "ads_apply_cap_amazon_mx_pause": 1000000, "ads_apply_cap_amazon_us_pause": 1000000, "ads_apply_cap_amazon_mx_harvest": 1000000, "ads_apply_cap_amazon_us_harvest": 1000000, "ads_producto_economia_amazon_mx": "producto_directo_v1", "ads_producto_economia_amazon_us": "producto_directo_v1", "ads_apply_cap_amazon_mx_negative": 1000000, "ads_apply_cap_amazon_us_negative": 1000000}
+
+== goals
+amazon_mx|live|True|1
+amazon_us|live|True|1
+None|live|True|7
+
+# bloques con error: 0

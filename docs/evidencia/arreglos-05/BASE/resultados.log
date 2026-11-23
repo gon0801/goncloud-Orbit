@@ -1,0 +1,144 @@
+{"sha": "2639ff8fd7ce51b23926733d1faf4b9372222dbe", "python": "3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]", "root": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33", "apply_import": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\apply.py", "harvest_import": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\apply_harvest.py", "tools_import": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\tools\\archiva_inertes.py", "database": "thermo_writes_current"}
+{"mode": "shadow", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}, "reactivaciones": {"confirmadas": 0, "fallidas": 0, "sin_quota": 0, "omitidas": 0}}}
+.{"mode": "off", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}, "reactivaciones": {"confirmadas": 0, "fallidas": 0, "sin_quota": 0, "omitidas": 0}}}
+.{"mode": "live", "enabled": false, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}, "reactivaciones": {"confirmadas": 0, "fallidas": 0, "sin_quota": 0, "omitidas": 0}}}
+.{"mode": "live", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}, "reactivaciones": {"confirmadas": 0, "fallidas": 0, "sin_quota": 0, "omitidas": 0}}}
+.{"shape": "missing", "reposts": 0, "queue": "applying", "lectura_ambigua": null, "confirmada": false}
+.{"shape": "truncated", "reposts": 0, "queue": "applying", "lectura_ambigua": null, "confirmada": false}
+.{"fase": "done", "external_ids": {"hermanas": {"auto_discovery": {"creada": true, "negative_id": "n-3"}, "category_broad": {"creada": true, "negative_id": "n-4"}, "product_targeting": {"creada": true, "negative_id": "n-5"}}, "biblioteca": {"id": 4, "escrita": true}, "keyword_id": "ajena", "negative_id": "n-1", "keyword_creada": true, "hermanas_ciclos": 1, "negative_creada": true, "hermanas_objetivo": {"auto_discovery": {"ad_group_id": "6200", "campaign_id": "6100"}, "category_broad": {"ad_group_id": "6203", "campaign_id": "6103"}, "product_targeting": {"ad_group_id": "6202", "campaign_id": "6102"}}, "hermanas_pendientes": {}}, "ack_keyword": [[{"keywords": {"error": [], "success": [{"index": 0, "keywordId": "k-2"}]}}]], "deletes_keyword": [{"keywordIdFilter": {"include": ["ajena"]}}], "keywords_remote": [{"adGroupId": "6204", "campaignId": "6104", "keywordText": "termino hermana f2", "matchType": "EXACT", "state": "ARCHIVED", "bid": 1.0, "keywordId": "k-2"}, {"adGroupId": "6204", "campaignId": "6104", "keywordText": "termino hermana f2", "matchType": "EXACT", "state": "ARCHIVED", "bid": 1.0, "keywordId": "ajena"}]}
+F{"status": 422, "result": "no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)", "ledger": [["ok:reconciliado", null]], "summary": {"fuente": "list", "keywordId": "n-1"}, "deletes": []}
+F{"posts": 2, "ledger": ["applied", null, null], "outcomes": ["readback de la repuesta k-1 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene", "readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene"]}
+FMIGRACIONES COMPLETAS: 91 0093_temporada01_episodio.sql
+jev-senales motivo=completa unidades=0 llamadas=0 fallos=0 senales=0 avisos=0
+.CLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 91 0093_temporada01_episodio.sql
+.CLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 91 0093_temporada01_episodio.sql
+catalogo meli: observadas=1 nuevos=0 actualizados=0 miembros=1 todos=1 alguno=0 ninguno=0 reconciliados=0 run=2 skips={'meli: scan truncado': 1}
+.CLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 91 0093_temporada01_episodio.sql
+.CLEANUP: thermo_ingest_current eliminada
+MIGRACIONES COMPLETAS: 91 0093_temporada01_episodio.sql
+.CLEANUP: thermo_ingest_current eliminada
+.{'sha': '2639ff8fd7ce51b23926733d1faf4b9372222dbe', 'python': '3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]', 'repo': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33', 'imports': ['C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\cycle.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\optimizer\\replay.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\tests\\test_cycle.py']}
+{"database": "thermo_optimizer_current", "migrations": 91, "last": "0093_temporada01_episodio.sql"}
+F{'sha': '2639ff8fd7ce51b23926733d1faf4b9372222dbe', 'python': '3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]', 'repo': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33', 'imports': ['C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\cycle.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\optimizer\\replay.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\tests\\test_cycle.py']}
+{"database": "thermo_optimizer_current", "migrations": 91, "last": "0093_temporada01_episodio.sql"}
+{"database": "thermo_optimizer_current", "migrations": 91, "last": "0093_temporada01_episodio.sql"}
+F{"database": "thermo_optimizer_current", "migrations": 91, "last": "0093_temporada01_episodio.sql"}
+.PG: thermo_pricing_current; migraciones=91; ultima=0093_temporada01_episodio.sql
+07 estado alcanzable: PideCotizacion(precio=Importe(valor=Decimal('1037.45'), moneda='MXN'), intento=1) listing= 11
+07 cierre: corrida completa, persistencia y readback conservan metadatos
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=91; ultima=0093_temporada01_episodio.sql
+07 estado alcanzable: PideCotizacion(precio=Importe(valor=Decimal('1037.45'), moneda='MXN'), intento=1) listing= 11
+07 cierre: corrida completa, persistencia y readback conservan metadatos
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=11; ultima=0059_precio02_repara_retencion_coherente.sql
+Limpieza: eliminada solo thermo_pricing_current
+PG: thermo_pricing_current; migraciones=11; ultima=0059_precio02_repara_retencion_coherente.sql
+Limpieza: eliminada solo thermo_pricing_current
+PG: thermo_pricing_current; migraciones=11; ultima=0059_precio02_repara_retencion_coherente.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=13; ultima=0090_arreglos03_error_cierra_por_observacion.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=91; ultima=0093_temporada01_episodio.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=91; ultima=0093_temporada01_episodio.sql
+Limpieza: eliminada solo thermo_pricing_current
+.PG: thermo_pricing_current; migraciones=91; ultima=0093_temporada01_episodio.sql
+Limpieza: eliminada solo thermo_pricing_current
+.{'sha_reportado': '2639ff8fd7ce51b23926733d1faf4b9372222dbe', 'repo': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33', 'python': '3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]', 'imports': {'app.main': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\main.py', 'app.pantalla_ruido': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\pantalla_ruido.py', 'app.ui_metricas': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-33\\app\\ui_metricas.py'}}
+......
+================================== FAILURES ===================================
+_____________ test_03_harvest_y_reversa_no_archivan_keyword_ajena _____________
+
+    def test_03_harvest_y_reversa_no_archivan_keyword_ajena():
+        result = writes.scenario03()
+        print(json.dumps(result, default=str))
+>       assert not any("ajena" in b["keywordIdFilter"]["include"] for b in result["deletes_keyword"]), result
+E       AssertionError: {'fase': 'done', 'external_ids': {'hermanas': {'auto_discovery': {'creada': True, 'negative_id': 'n-3'}, 'category_bro...eywords': {'error': [], 'success': [{...}]}},)], 'deletes_keyword': [{'keywordIdFilter': {'include': ['ajena']}}], ...}
+E       assert not True
+E        +  where True = any(<generator object test_03_harvest_y_reversa_no_archivan_keyword_ajena.<locals>.<genexpr> at 0x000001E458F312F0>)
+
+docs\evidencia\arreglos-05\revision\test_accept_writes.py:32: AssertionError
+_______________ test_10_negative_reconciliado_conserva_reversa ________________
+
+    def test_10_negative_reconciliado_conserva_reversa():
+        result = writes.scenario10()
+        print(json.dumps(result, default=str))
+>       assert result["status"] == 200, result
+E       AssertionError: {'status': 422, 'result': 'no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)', 'ledger': [('ok:reconciliado', None)], 'summary': {'fuente': 'list', 'keywordId': 'n-1'}, ...}
+E       assert 422 == 200
+
+docs\evidencia\arreglos-05\revision\test_accept_writes.py:39: AssertionError
+____________ test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo ____________
+
+    def test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo():
+        result = writes.scenario11()
+        print(json.dumps(result, default=str))
+>       assert result["posts"] == 1, result
+E       AssertionError: {'posts': 2, 'ledger': ('applied', None, None), 'outcomes': ['readback de la repuesta k-1 no cuadra con el ledger (tex...e', 'readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene']}
+E       assert 2 == 1
+
+docs\evidencia\arreglos-05\revision\test_accept_writes.py:47: AssertionError
+___________ test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio ___________
+
+    def test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio():
+        print(review.metadata())
+        with review.database() as conn:
+            result = review.convergence_scenario(conn)
+        assert result["initial_status"] == "done"
+        initial = Decimal(result["initial"]["target_aplicado"])
+        assert initial > Decimal("21.5"), result
+        steps = result["steps"]
+        assert all(s["status"] == "done" for s in steps), result
+        assert all(s["target"]["motivo_abstencion"] == "ledger_rancio" for s in steps), result
+        assert all(s["target"]["convergiendo_a_setting"] for s in steps), result
+        expected = [initial - Decimal("0.5") * n for n in (1, 2, 3)]
+        actual = [Decimal(s["target"]["target_aplicado"]) for s in steps]
+>       assert actual == expected, result
+E       AssertionError: {'initial_status': 'done', 'initial': {'procedencia': 'margen_plataforma', 'paso_politica': 'asimetrico_v1', 'motivo_a...rico_v1', 'motivo_abstencion': 'ledger_rancio', 'convergiendo_a_setting': True, ...}, 'leaves': [(Decimal('29.0'),)]}]}
+E       assert [Decimal('29....cimal('29.0')] == [Decimal('29....cimal('28.0')]
+E         
+E         At index 1 diff: Decimal('29.0') != Decimal('28.5')
+E         
+E         Full diff:
+E           [
+E               Decimal('29.0'),
+E         -     Decimal('28.5'),
+E         -     Decimal('28.0'),
+E         ?               ^
+E         +     Decimal('29.0'),
+E         ?               ^
+E         +     Decimal('29.0'),
+E           ]
+
+docs\evidencia\arreglos-05\revision\test_accept_optimizer.py:19: AssertionError
+___________ test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo ___________
+
+    def test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo():
+        print(review.metadata())
+        with review.database() as conn:
+            control = review.harvest_scenario(conn)
+            assert control["status"] == "done", control
+            assert set(control["kinds"]) == {"pause", "negative", "harvest"}, control
+            for row in control["rows"]:
+                assert review.replay.reproduce(row[9]) == (row[1], row[4], row[5])
+        with review.database() as conn:
+            result = review.harvest_scenario(conn, reobservado=True)
+>       assert result["status"] == "done", result
+E       AssertionError: {'status': 'failed', 'constraint': 'decision_dato_no_del_futuro', 'persisted': 0}
+E       assert 'failed' == 'done'
+E         
+E         - done
+E         + failed
+
+docs\evidencia\arreglos-05\revision\test_accept_optimizer.py:33: AssertionError
+============================== warnings summary ===============================
+docs/evidencia/arreglos-05/revision/test_accept_ui.py::test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-33\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+5 failed, 26 passed, 1 warning in 120.13s (0:02:00)

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="31" time="120.102" timestamp="2026-11-22T21:57:51.179007-08:00" hostname="Gon-PC"><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[shadow-True]" time="3.636" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[off-True]" time="3.738" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[live-False]" time="3.675" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_01_reconciliacion_no_reenvia_bid_anterior[live-True]" time="3.622" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_02_lista_incompleta_no_autoriza_repost[missing]" time="3.887" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_02_lista_incompleta_no_autoriza_repost[truncated]" time="3.757" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_03_harvest_y_reversa_no_archivan_keyword_ajena" time="4.013"><failure message="AssertionError: {'fase': 'done', 'external_ids': {'hermanas': {'auto_discovery': {'creada': True, 'negative_id': 'n-3'}, 'category_bro...eywords': {'error': [], 'success': [{...}]}},)], 'deletes_keyword': [{'keywordIdFilter': {'include': ['ajena']}}], ...}&#10;assert not True&#10; +  where True = any(&lt;generator object test_03_harvest_y_reversa_no_archivan_keyword_ajena.&lt;locals&gt;.&lt;genexpr&gt; at 0x000001E458F312F0&gt;)">def test_03_harvest_y_reversa_no_archivan_keyword_ajena():
+        result = writes.scenario03()
+        print(json.dumps(result, default=str))
+&gt;       assert not any("ajena" in b["keywordIdFilter"]["include"] for b in result["deletes_keyword"]), result
+E       AssertionError: {'fase': 'done', 'external_ids': {'hermanas': {'auto_discovery': {'creada': True, 'negative_id': 'n-3'}, 'category_bro...eywords': {'error': [], 'success': [{...}]}},)], 'deletes_keyword': [{'keywordIdFilter': {'include': ['ajena']}}], ...}
+E       assert not True
+E        +  where True = any(&lt;generator object test_03_harvest_y_reversa_no_archivan_keyword_ajena.&lt;locals&gt;.&lt;genexpr&gt; at 0x000001E458F312F0&gt;)
+
+docs\evidencia\arreglos-05\revision\test_accept_writes.py:32: AssertionError</failure></testcase><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_10_negative_reconciliado_conserva_reversa" time="3.861"><failure message="AssertionError: {'status': 422, 'result': 'no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)', 'ledger': [('ok:reconciliado', None)], 'summary': {'fuente': 'list', 'keywordId': 'n-1'}, ...}&#10;assert 422 == 200">def test_10_negative_reconciliado_conserva_reversa():
+        result = writes.scenario10()
+        print(json.dumps(result, default=str))
+&gt;       assert result["status"] == 200, result
+E       AssertionError: {'status': 422, 'result': 'no se resolvio el negative_id de la decision 1 desde el ledger (sin intento normal resultado ok con ack legible)', 'ledger': [('ok:reconciliado', None)], 'summary': {'fuente': 'list', 'keywordId': 'n-1'}, ...}
+E       assert 422 == 200
+
+docs\evidencia\arreglos-05\revision\test_accept_writes.py:39: AssertionError</failure></testcase><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_writes" name="test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo" time="20.153"><failure message="AssertionError: {'posts': 2, 'ledger': ('applied', None, None), 'outcomes': ['readback de la repuesta k-1 no cuadra con el ledger (tex...e', 'readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene']}&#10;assert 2 == 1">def test_11_reponer_no_recrea_tras_ack_y_readback_ambiguo():
+        result = writes.scenario11()
+        print(json.dumps(result, default=str))
+&gt;       assert result["posts"] == 1, result
+E       AssertionError: {'posts': 2, 'ledger': ('applied', None, None), 'outcomes': ['readback de la repuesta k-1 no cuadra con el ledger (tex...e', 'readback de la repuesta k-2 no cuadra con el ledger (texto+match+grupo+campana+bid, PAUSED): el lote se detiene']}
+E       assert 2 == 1
+
+docs\evidencia\arreglos-05\revision\test_accept_writes.py:47: AssertionError</failure></testcase><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ingest" name="test_09_jev_cron_cierra_corrida_sin_forzar_y_preserva_tx_ajena" time="3.798" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ingest" name="test_05_fuente_corrupta_no_publica_subtotal_ni_recrea_clave" time="3.594" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ingest" name="test_06_scan_incompleto_no_desactiva_ausentes" time="3.597" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ingest" name="test_14_contencion_no_declara_escrituras_revertidas" time="3.595" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ingest" name="test_S1_error_de_proveedor_redactado_antes_de_persistir" time="3.451" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ingest" name="test_control_productos_no_publica_subtotal_en_ningun_orden" time="0.000" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_optimizer" name="test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio" time="5.265"><failure message="AssertionError: {'initial_status': 'done', 'initial': {'procedencia': 'margen_plataforma', 'paso_politica': 'asimetrico_v1', 'motivo_a...rico_v1', 'motivo_abstencion': 'ledger_rancio', 'convergiendo_a_setting': True, ...}, 'leaves': [(Decimal('29.0'),)]}]}&#10;assert [Decimal('29....cimal('29.0')] == [Decimal('29....cimal('28.0')]&#10;  &#10;  At index 1 diff: Decimal('29.0') != Decimal('28.5')&#10;  &#10;  Full diff:&#10;    [&#10;        Decimal('29.0'),&#10;  -     Decimal('28.5'),&#10;  -     Decimal('28.0'),&#10;  ?               ^&#10;  +     Decimal('29.0'),&#10;  ?               ^&#10;  +     Decimal('29.0'),&#10;    ]">def test_12_la_meta_avanza_en_ciclos_live_con_ledger_rancio():
+        print(review.metadata())
+        with review.database() as conn:
+            result = review.convergence_scenario(conn)
+        assert result["initial_status"] == "done"
+        initial = Decimal(result["initial"]["target_aplicado"])
+        assert initial &gt; Decimal("21.5"), result
+        steps = result["steps"]
+        assert all(s["status"] == "done" for s in steps), result
+        assert all(s["target"]["motivo_abstencion"] == "ledger_rancio" for s in steps), result
+        assert all(s["target"]["convergiendo_a_setting"] for s in steps), result
+        expected = [initial - Decimal("0.5") * n for n in (1, 2, 3)]
+        actual = [Decimal(s["target"]["target_aplicado"]) for s in steps]
+&gt;       assert actual == expected, result
+E       AssertionError: {'initial_status': 'done', 'initial': {'procedencia': 'margen_plataforma', 'paso_politica': 'asimetrico_v1', 'motivo_a...rico_v1', 'motivo_abstencion': 'ledger_rancio', 'convergiendo_a_setting': True, ...}, 'leaves': [(Decimal('29.0'),)]}]}
+E       assert [Decimal('29....cimal('29.0')] == [Decimal('29....cimal('28.0')]
+E         
+E         At index 1 diff: Decimal('29.0') != Decimal('28.5')
+E         
+E         Full diff:
+E           [
+E               Decimal('29.0'),
+E         -     Decimal('28.5'),
+E         -     Decimal('28.0'),
+E         ?               ^
+E         +     Decimal('29.0'),
+E         ?               ^
+E         +     Decimal('29.0'),
+E           ]
+
+docs\evidencia\arreglos-05\revision\test_accept_optimizer.py:19: AssertionError</failure></testcase><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_optimizer" name="test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo" time="8.079"><failure message="AssertionError: {'status': 'failed', 'constraint': 'decision_dato_no_del_futuro', 'persisted': 0}&#10;assert 'failed' == 'done'&#10;  &#10;  - done&#10;  + failed">def test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo():
+        print(review.metadata())
+        with review.database() as conn:
+            control = review.harvest_scenario(conn)
+            assert control["status"] == "done", control
+            assert set(control["kinds"]) == {"pause", "negative", "harvest"}, control
+            for row in control["rows"]:
+                assert review.replay.reproduce(row[9]) == (row[1], row[4], row[5])
+        with review.database() as conn:
+            result = review.harvest_scenario(conn, reobservado=True)
+&gt;       assert result["status"] == "done", result
+E       AssertionError: {'status': 'failed', 'constraint': 'decision_dato_no_del_futuro', 'persisted': 0}
+E       assert 'failed' == 'done'
+E         
+E         - done
+E         + failed
+
+docs\evidencia\arreglos-05\revision\test_accept_optimizer.py:33: AssertionError</failure></testcase><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_optimizer" name="test_control_arreglos01_b_no_harvestea_keyword_exact_propia" time="4.079" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_pricing" name="test_07_corrida_meli_conserva_fecha_y_detalle[corriente]" time="3.836" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_pricing" name="test_07_corrida_meli_conserva_fecha_y_detalle[persistida]" time="3.686" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_pricing" name="test_08_aplicar_y_guardas_reversa_con_unidades_reales" time="4.670" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_pricing" name="test_D2_retencion_ayer_sin_liberar_no_abre_hoy" time="1.743" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_pricing" name="test_arreglos02_cargos_y_reversa_existentes[test_arreglos02_d_la_estimada_no_se_suma_a_la_comision_real]" time="3.774" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_pricing" name="test_arreglos02_cargos_y_reversa_existentes[test_arreglos02_d_el_cargo_sin_source_event_id_no_se_descarta]" time="3.739" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_pricing" name="test_arreglos02_cargos_y_reversa_existentes[test_arreglos02_d_la_reversa_regresa_las_vistas]" time="3.625" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ui" name="test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa" time="5.837" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ui" name="test_04_vecino_impulso_no_envia_plan_borrado_tras_fallar_nueva_previa" time="1.991" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ui" name="test_15_ruido_no_publica_acos_con_gasto_desconocido" time="0.082" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ui" name="test_16_resumen_no_afirma_ausencia_de_ventas_que_api_reporta" time="0.027" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ui" name="test_control_contrato_resumen_conserva_desconocido_y_csp" time="0.024" /><testcase classname="docs.evidencia.arreglos-05.revision.test_accept_ui" name="test_control_auth_query_y_form_no_sustituyen_header" time="0.096" /></testsuite></testsuites>
