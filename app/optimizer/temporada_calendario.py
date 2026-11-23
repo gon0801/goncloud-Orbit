@@ -106,20 +106,35 @@ def _inicio_racha_normal(meses: tuple[TipoMes, ...], dia: dt.date) -> dt.date:
     raise AssertionError("fase normal sin racha normal que contenga el mes")
 
 
+def _dia_preparacion(config: ConfigTemporada, inicio_alta: dt.date) -> dt.date | None:
+    """Primer dia en [inicio_alta - dias_preparacion, inicio_alta) con previa_alta=True."""
+    prep = inicio_alta - dt.timedelta(days=config.dias_preparacion)
+    return next(
+        (
+            prep + dt.timedelta(days=offset)
+            for offset in range(config.dias_preparacion)
+            if resuelve(config, prep + dt.timedelta(days=offset)).previa_alta
+        ),
+        None,
+    )
+
+
 def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Evento, ...]:
     """Los cambios del calendario en [desde, hasta), en orden."""
     if all(m == "alta" for m in config.meses):
         return ()
     anios = range(desde.year - 1, hasta.year + 2)
     bloques = [b for anio in anios for b in _bloques_de(config, anio)]
-    preps = {
-        b.inicio - dt.timedelta(days=config.dias_preparacion) for b in bloques if b.tipo == "alta"
+    dia_prep_por_inicio = {
+        b.inicio: _dia_preparacion(config, b.inicio) for b in bloques if b.tipo == "alta"
     }
+    dias_prep = {d for d in dia_prep_por_inicio.values() if d is not None}
     restaura_en: set[dt.date] = {
         b.restaura
         for b in bloques
         if b.tipo == "baja" and b.restaura is not None and b.inicio < b.restaura
     }
+    sale_alta_en: set[dt.date] = {b.fin for b in bloques if b.tipo == "alta"}
     sueltos: list[Evento] = []
     for bloque in bloques:
         if bloque.tipo == "baja" and bloque.restaura is not None:
@@ -132,23 +147,21 @@ def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Ev
                     )
                 )
             if bloque.inicio < bloque.restaura and desde <= bloque.restaura < hasta:
-                frase = FRASE_RESTAURA_PREPARA if bloque.restaura in preps else FRASE_RESTAURA
+                frase = FRASE_RESTAURA_PREPARA if bloque.restaura in dias_prep else FRASE_RESTAURA
                 sueltos.append(Evento(bloque.restaura, "restaura", frase))
         elif bloque.tipo == "alta":
             if desde <= bloque.inicio < hasta:
                 sueltos.append(Evento(bloque.inicio, "entra_alta", FRASE_ENTRA_ALTA))
             if desde <= bloque.fin < hasta:
-                sueltos.append(Evento(bloque.fin, "sale_alta", FRASE_SALE_ALTA))
-            prep = bloque.inicio - dt.timedelta(days=config.dias_preparacion)
-            dia_prep = next(
-                (
-                    prep + dt.timedelta(days=offset)
-                    for offset in range(config.dias_preparacion)
-                    if resuelve(config, prep + dt.timedelta(days=offset)).previa_alta
-                ),
-                None,
-            )
-            if dia_prep is not None and dia_prep not in restaura_en and desde <= dia_prep < hasta:
+                frase = FRASE_SALE_ALTA_PREPARA if bloque.fin in dias_prep else FRASE_SALE_ALTA
+                sueltos.append(Evento(bloque.fin, "sale_alta", frase))
+            dia_prep = dia_prep_por_inicio[bloque.inicio]
+            if (
+                dia_prep is not None
+                and dia_prep not in restaura_en
+                and dia_prep not in sale_alta_en
+                and desde <= dia_prep < hasta
+            ):
                 sueltos.append(Evento(dia_prep, "prepara_alta", FRASE_PREPARA_ALTA))
     return tuple(sorted(sueltos, key=lambda e: (e.fecha, e.tipo)))
 
@@ -208,11 +221,6 @@ def aviso_del_dia(
     lleva costo, margen ni meta (regla de avisos_campana)."""
     hoy = eventos(config, estacion.dia, estacion.dia + dt.timedelta(days=1))
     if hoy:
-        if {e.tipo for e in hoy} == {"sale_alta", "prepara_alta"}:
-            return (
-                f"{FRASE_SALE_ALTA_PREPARA}"
-                f"{_texto_propuestas(propuestas, 'con un presupuesto sugerido')}"
-            )
         evento = hoy[0]
         if evento.tipo == "entra_baja":
             partes = [

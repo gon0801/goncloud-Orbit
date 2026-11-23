@@ -828,8 +828,9 @@ def test_terminar_baja_serializa_con_advisory_lock_config_version(tmp_path, monk
 def test_eventos_no_emite_prepara_alta_durante_bloque_alta_anterior():
     """Hallazgo #14: si dos bloques alta se separan por un hueco menor a
     dias_preparacion (febrero normal de 28 dias con prep=30), prepara_alta
-    nunca cae en un dia con fase=='alta' y se emite el primer dia real con
-    previa_alta=True."""
+    nunca cae en un dia con fase=='alta'; el 2027-02-01 emite un unico evento
+    sale_alta con la frase combinada (sin duplicar prepara_alta) y 2027-12-02
+    conserva su prepara_alta normal."""
     meses = ["alta", "normal", "alta"] + ["normal"] * 9
     cfg = temporada.valida(_crudo(meses=meses, prep=30))
     evs = temporada.eventos(cfg, dt.date(2027, 1, 1), dt.date(2027, 12, 31))
@@ -840,15 +841,22 @@ def test_eventos_no_emite_prepara_alta_durante_bloque_alta_anterior():
         est = temporada.resuelve(cfg, ev.fecha)
         assert est.fase != "alta", f"prepara_alta cayo dentro de alta en {ev.fecha}"
         assert est.previa_alta is True
-    # 2027-01-30 y 2027-01-31 siguen en enero alta; el primer dia real con
-    # previa_alta=True para marzo alta es 2027-02-01.
-    assert [ev.fecha for ev in preps] == [dt.date(2027, 2, 1), dt.date(2027, 12, 2)]
+    # 2027-01-30 sigue en enero alta (sin evento); 2027-02-01 coincide con
+    # sale_alta y se consolida en una sola frase combinada; 2027-12-02 queda
+    # como prepara_alta normal.
+    assert [ev.fecha for ev in preps] == [dt.date(2027, 12, 2)]
+    evs_feb1 = [ev for ev in evs if ev.fecha == dt.date(2027, 2, 1)]
+    assert len(evs_feb1) == 1
+    assert evs_feb1[0].tipo == "sale_alta"
+    assert evs_feb1[0].frase == (
+        "La meta de ACoS regresa a la normal. Empieza la previa de la temporada alta."
+    )
 
 
 def test_aviso_del_dia_combina_sale_alta_y_prepara_alta_en_mismo_dia():
-    """Cuando prepara_alta se desplaza al mismo dia que sale_alta, la vista
-    previa conserva ambos eventos y aviso_del_dia anuncia tanto la vuelta a
-    la meta normal como el inicio de la previa, sin decir que no cambia nada."""
+    """Cuando prepara_alta se desplaza al mismo dia que sale_alta, eventos
+    consolida un solo evento sale_alta con la frase combinada y aviso_del_dia
+    anuncia la vuelta a la meta normal y la previa, sin decir que no cambia nada."""
     meses = ["alta", "normal", "alta"] + ["normal"] * 9
     cfg = temporada.valida(_crudo(meses=meses, prep=30))
     conteo = temporada.ConteoTemporada(0, 0, 0, 0, {}, 0)
@@ -863,7 +871,7 @@ def test_aviso_del_dia_combina_sale_alta_y_prepara_alta_en_mismo_dia():
 
     dia_cruce = dt.date(2027, 2, 1)
     evs_dia = temporada.eventos(cfg, dia_cruce, dia_cruce + dt.timedelta(days=1))
-    assert {ev.tipo for ev in evs_dia} == {"sale_alta", "prepara_alta"}
+    assert [ev.tipo for ev in evs_dia] == ["sale_alta"]
 
     aviso = temporada.aviso_del_dia(
         cfg, temporada.resuelve(cfg, dia_cruce), conteo=conteo, propuestas=2
@@ -879,6 +887,34 @@ def test_aviso_del_dia_combina_sale_alta_y_prepara_alta_en_mismo_dia():
         cfg, temporada.resuelve(cfg, dt.date(2027, 12, 2)), conteo=conteo, propuestas=0
     )
     assert aviso_solo == temporada.FRASE_PREPARA_ALTA
+
+
+def test_resumen_y_mensaje_guardado_no_mienten_en_cruce_sale_alta_prepara():
+    """Con enero/marzo en alta y prep=30, resumen y mensaje_guardado anuncian
+    en el 2027-02-01 el regreso de la meta normal junto con la previa y nunca
+    la frase enganosa 'todavia no cambia nada'."""
+    meses = ["alta", "normal", "alta"] + ["normal"] * 9
+    cfg = temporada.valida(_crudo(meses=meses, prep=30))
+    metas_hoy = {"amazon_mx": Decimal("20")}
+    meta_alta = {"amazon_mx": Decimal("25")}
+
+    for dia in (dt.date(2027, 1, 15), dt.date(2027, 2, 1)):
+        res = temporada.resumen(cfg, dia, antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta)
+        assert res.proximos[0].fecha == dt.date(2027, 2, 1)
+        assert res.proximos[0].tipo == "sale_alta"
+        assert "todavía no cambia nada" not in res.proximos[0].frase
+
+        msg = temporada.mensaje_guardado(res)
+        assert "1 de febrero" in msg
+        assert "la meta de ACoS regresa a la normal." in msg
+        assert "Empieza la previa de la temporada alta." in msg
+        assert "todavía no cambia nada" not in msg
+
+    res_feb1 = temporada.resumen(
+        cfg, dt.date(2027, 2, 1), antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta
+    )
+    assert res_feb1.fase_hoy == "normal"
+    assert "preparación de la temporada alta" in res_feb1.frase_hoy
 
 
 def test_identificadores_rechaza_id_fuera_de_bigint():
