@@ -2053,3 +2053,54 @@ def test_arreglos05_a_el_rechazo_de_una_puja_se_cierra_con_su_sello(monkeypatch)
         assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is not None, (
             "sin pendientes, el plan deja de abrir ejecutores"
         )
+
+
+@_skip_db
+def test_arreglos05_a_la_pausa_de_producto_propaga_el_rechazo_de_identidad(monkeypatch):
+    """Revision de Astra del PR #746 (tercera pasada): si el LIST previo de la
+    pausa de producto recibe un 403, `ejecuta_pause_producto` lo trataba como
+    lectura sin respuesta y devolvia `pendiente`; `_aisla_corte` recibia un
+    retorno normal y el barrido enviaba la mutacion de la fila siguiente. Es un
+    fallo global: el intento queda pendiente y el rechazo sube a la fase."""
+    from types import SimpleNamespace
+
+    from app import apply_cola, apply_producto
+    from app import retiro_anuncios as ra
+    from app.ads.client import AdsApiError
+
+    with _db("orbit_a05_producto_403") as (conn, _extra):
+        _semilla_live(conn)
+        _muere_en_apply(monkeypatch)
+        with pytest.raises(_Muerte):
+            _corre(conn)
+        monkeypatch.undo()
+        entidad, decision = conn.execute(
+            "SELECT ad_entity_id, id FROM decision WHERE kind = 'pause' ORDER BY id LIMIT 1"
+        ).fetchone()
+        fila = apply_cola.FilaCola(1, "pause", entidad, None, decision, {}, "applying")
+        aplicador = SimpleNamespace(_cliente=lambda: object())
+        monkeypatch.setattr(ra, "plan_de_decision", lambda _conn, _decision: object())
+
+        def rechaza(*_args, **_kwargs):
+            error = AdsApiError("status=403: POST /sp/productAds/list")
+            error.status = 403
+            raise error
+
+        monkeypatch.setattr(ra, "ejecuta_retiro", rechaza)
+        with pytest.raises(AdsApiError, match="status=403"):
+            apply_producto.ejecuta_pause_producto(conn, aplicador, fila)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND finished_at IS NULL",
+                (decision,),
+            ).fetchone()[0]
+            == 1
+        ), "el intento queda pendiente, abierto"
+
+        def sin_respuesta(*_args, **_kwargs):
+            error = AdsApiError("status=500: POST /sp/productAds/list")
+            error.status = 500
+            raise error
+
+        monkeypatch.setattr(ra, "ejecuta_retiro", sin_respuesta)
+        assert apply_producto.ejecuta_pause_producto(conn, aplicador, fila) == "pendiente"
