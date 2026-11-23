@@ -49,7 +49,6 @@ _skip_db = pytest.mark.skipif(
 )
 
 MIGRACIONES = Path(__file__).resolve().parents[1] / "migrations"
-AMBIGUO = "fallo:readback_ambiguo"
 VENCIDA = "vigencia_vencida"
 DIA = dt.timedelta(days=1)
 KW_BID, KW_PAUSA, KW2 = "9201", "9202", "9203"
@@ -259,8 +258,9 @@ def _muere_en_apply(monkeypatch) -> None:
 @_skip_db
 def test_arreglos05_a_5xx_en_el_primer_bid_no_frena_el_segundo():
     """F1 (pujas): Amazon responde 500 a la PRIMERA puja del lote. La segunda se
-    intenta y se aplica, y la primera queda incierta: sellada como ambigua y sin
-    desenlace, porque solo una lectura puede resolverla, nunca otro PUT. El ciclo
+    intenta y se aplica, y la primera queda incierta: su fila del ledger queda
+    sin sello (el rastro de siempre) y la decision sin desenlace, porque solo una
+    lectura puede resolverla, nunca otro PUT. El ciclo
     siguiente la resuelve leyendo: Amazon no la aplico, asi que queda perdida y
     la decision conserva un unico intento."""
     with _db("orbit_a05_5xx") as (conn, _extra):
@@ -281,12 +281,17 @@ def test_arreglos05_a_5xx_en_el_primer_bid_no_frena_el_segundo():
         incierta = _decision(conn, res.cycle_id, "bid", external=fallida)
         assert _desenlace(conn, incierta) is None, "la puja incierta aun no tiene desenlace"
         assert conn.execute(
-            "SELECT resultado, ack FROM apply_attempt WHERE decision_id = %s", (incierta,)
-        ).fetchone() == (AMBIGUO, None)
+            "SELECT finished_at, resultado FROM apply_attempt WHERE decision_id = %s",
+            (incierta,),
+        ).fetchone() == (None, None), "el intento incierto queda sin sellar"
 
         res2 = _corre(conn, factory=_directa(amazon))
 
-        assert _desenlace(conn, incierta) == "perdida", "la conciliacion la resuelve leyendo"
+        # La conciliacion la resuelve leyendo: Amazon conservo el bid anterior,
+        # asi que queda como divergencia de readback (no aplicada).
+        assert _desenlace(conn, incierta) == "aplicada:False", (
+            "la conciliacion la resuelve leyendo, sin reenviar"
+        )
         assert (
             conn.execute(
                 "SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'",

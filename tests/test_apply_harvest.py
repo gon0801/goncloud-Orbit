@@ -1002,15 +1002,16 @@ def test_intencion_con_bid_efectivo_en_ledger_pre_post_sobrevive_crash(monkeypat
             apply_harvest, "bid_sugerido", lambda cliente, keyword_id=None: Decimal("15")
         )
 
-        from app.ads.client import AdsApiError
-
-        with pytest.raises(AdsApiError):
-            libera_vencidos(
-                conn,
-                "amazon_us",
-                ahora=dt.datetime.now(dt.UTC),
-                aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
-            )
+        # ARREGLOS 05 A.3: el fallo ambiguo de ESTE job ya no aborta el barrido
+        # de la cola; queda como rastro y el barrido sigue con la fila siguiente.
+        # Lo durable es el mismo que cuando abortaba.
+        resultado = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=dt.datetime.now(dt.UTC),
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+        )
+        assert resultado.fallidas == 1 and resultado.aplicadas == 0
 
         intento = conn.execute(
             "SELECT request_payload, finished_at FROM apply_attempt WHERE decision_id = %s"

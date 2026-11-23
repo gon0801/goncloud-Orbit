@@ -7,9 +7,10 @@ abrir nada: sin la corrida ok de hoy con filas de D-1 llaman a
 `sin métricas de ayer: espera al siguiente horario` y salen 75; desde el fin
 salen 1 con el aviso en stderr. En ambos casos hay cero envelopes, cero
 escrituras y cero mensajes. Con la corrida lista corren;
-`--forzar` salta la guarda. cycle además no repite un ciclo done/degraded
-de hoy ni interrumpe uno running de menos de 3 h (un running más viejo es
-huérfano y sí se reintenta: el rastro lo cierra al ganar el claim).
+`--forzar` salta la guarda. cycle ya no decide por su cuenta si hoy hubo
+ciclo: desde ARREGLOS 05 A eso lo resuelve `atender_plataforma` bajo el
+claim (un ciclo con TX3 comprometida hoy y nada pendiente no se repite; un
+running huérfano no bloquea, porque nunca comprometió decisiones).
 
 Postgres real (patron de tests/test_ingest_diario.py); el "corre" de cada
 comando se stubbea (monkeypatch) porque lo que se prueba es la guarda, no el
@@ -191,30 +192,6 @@ def test_guarda_exige_cada_plataforma_y_placements_cuando_se_pide():
     assert metricas_listas.guarda(_ConnGuarda(), ("amazon_us",), forzar=True, ahora=AHORA)
 
 
-def test_motivo_de_salto_con_conn_falso(monkeypatch):
-    from app import cycle
-
-    class _ConnCiclo:
-        def __init__(self, fila):
-            self._fila = fila
-
-        def execute(self, sql, params=None):
-            assert "FROM optimizer_cycle" in sql
-            return _R(self._fila)
-
-    def _motivo(fila):
-        return cycle.motivo_de_salto(_ConnCiclo(fila), "amazon_us")
-
-    assert _motivo(None) is None, "sin ciclo hoy: se corre"
-    assert _motivo(("done", False)) is not None
-    assert _motivo(("degraded", False)) is not None
-    assert "ya hay un ciclo done hoy" in _motivo(("done", False))
-    assert _motivo(("running", True)) is not None, "running de menos de 3 h"
-    assert _motivo(("running", False)) is None, "running viejo = huerfano: se reintenta"
-    assert _motivo(("failed", False)) is None
-    assert _motivo(("skipped", False)) is None
-
-
 def test_sql_de_metricas_listas_parsea_como_postgres():
     import pglast
 
@@ -350,10 +327,13 @@ def _corre_cycle(conn_pg, monkeypatch, capsys, argv=("cycle", "--platform", "ama
     llamados: list = []
     monkeypatch.setattr(
         cycle,
-        "corre_ciclo",
+        "atender_plataforma",
         lambda *a, **k: (
             llamados.append((a, k)),
-            types.SimpleNamespace(cycle_id=1, status="done", decisions_count=0, notes="{}"),
+            cycle.ResultadoAtencion(
+                cycle.ResultadoCiclo(cycle_id=1, status="done", decisions_count=0, notes="{}"),
+                None,
+            ),
         )[1],
     )
     salida = cli.main(list(argv))
@@ -401,7 +381,12 @@ def test_cycle_forzar_corre_sin_metricas(conn_pg, monkeypatch, capsys):
 
 @_skip_db
 @pytest.mark.parametrize("status", ["done", "degraded"])
-def test_cycle_no_repite_un_ciclo_cerrado_hoy(conn_pg, monkeypatch, capsys, status):
+def test_cycle_delega_el_plan_del_dia_a_la_operacion(conn_pg, monkeypatch, capsys, status):
+    """ARREGLOS 05 A: el CLI ya no consulta por su cuenta si hoy hubo ciclo
+    cerrado. Siempre llama a `atender_plataforma`, que es quien lee el plan
+    bajo el claim (si hoy ya se decidio y no queda nada por completar, no
+    abre ciclo y devuelve el motivo; lo prueban las test_arreglos05_a_ sobre
+    base real)."""
     conn, _ = conn_pg
     _siembra_metricas(conn)
     conn.execute(
@@ -409,36 +394,29 @@ def test_cycle_no_repite_un_ciclo_cerrado_hoy(conn_pg, monkeypatch, capsys, stat
         " VALUES ('ads_optimizer', 'live', 'amazon_us', now(), %s)",
         (status,),
     )
-    salida, llamados, out = _corre_cycle(conn_pg, monkeypatch, capsys)
-    assert salida == 0 and llamados == []
-    assert f"ya hay un ciclo {status} hoy" in out
+    salida, llamados, _out = _corre_cycle(conn_pg, monkeypatch, capsys)
+    assert salida == 0 and len(llamados) == 1
+    assert llamados[0][1]["forzar"] is False
 
 
 @_skip_db
-def test_cycle_respeta_un_running_reciente_y_reintenta_uno_viejo(conn_pg, monkeypatch, capsys):
+def test_cycle_un_running_huerfano_no_bloquea_el_horario(conn_pg, monkeypatch, capsys):
+    """ARREGLOS 05 A (F3): un `running` huerfano nunca comprometio su TX3. Su
+    edad no decide nada (se retiraron las 3 h): el horario corre y manda el
+    claim, que es quien ve si el lock ya vencio."""
     conn, _ = conn_pg
     _siembra_metricas(conn)
-    for horas, debe_correr in ((1, False), (4, True)):
+    for horas in (1, 4):
         conn.execute("DELETE FROM optimizer_cycle")
-        # La guarda mira el ultimo ciclo de HOY (UTC). Entre 00:00 y 03:00,
-        # now()-1h cae ayer y no bloquea: se siembra a 1 min para seguir
-        # siendo reciente y de hoy. now()-4h, aunque sea ayer, no bloquea.
         conn.execute(
             "INSERT INTO optimizer_cycle (motor, mode, platform, started_at, status)"
             " VALUES ('ads_optimizer', 'live', 'amazon_us',"
-            " CASE WHEN %s < 3 AND"
-            "   ((now() - make_interval(hours => %s)) AT TIME ZONE 'UTC')::date"
-            "     < (now() AT TIME ZONE 'UTC')::date"
-            " THEN now() - interval '1 minute'"
-            " ELSE now() - make_interval(hours => %s) END,"
-            " 'running')",
-            (horas, horas, horas),
+            " now() - make_interval(hours => %s), 'running')",
+            (horas,),
         )
         salida, llamados, out = _corre_cycle(conn_pg, monkeypatch, capsys)
-        assert salida == 0
-        assert (len(llamados) == 1) is debe_correr, f"running de {horas} h"
-        if not debe_correr:
-            assert "hace menos de 3 h" in out
+        assert salida == 0 and len(llamados) == 1, f"running de {horas} h"
+        assert "hace menos de 3 h" not in out
 
 
 @_skip_db

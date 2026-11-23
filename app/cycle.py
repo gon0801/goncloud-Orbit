@@ -754,11 +754,11 @@ def _corre_fases(
 
     fase = _fase_apply(
         conn,
-        cycle_id_origen=cycle_id if origen is None else origen,
-        cycle_id_ejecutor=cycle_id,
+        cycle_id=cycle_id,
+        origen=origen,
         modo=modo,
         platform=platform,
-        ahora=decided_at,
+        decided_at=decided_at,
         job_key=job_key,
         owner=owner,
         guard=guard,

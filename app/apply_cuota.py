@@ -74,11 +74,6 @@ MOTIVO_VIGENCIA_VENCIDA = "vigencia_vencida"
 # mandar. Su desenlace lo pone la conciliacion con una lectura fresca.
 MOTIVO_YA_INTENTADA = "ya_intentada"
 
-# Sello del ledger cuando el resultado de un PUT es incierto (5xx, red o
-# lectura de vuelta ilegible): Amazon pudo aplicar. Mismo literal que leen
-# _SQL_INTENTOS_BID_AMBIGUOS_SIN_DESENLACE y _SQL_HOJAS_BID_PENDIENTE.
-RESULTADO_READBACK_AMBIGUO = "fallo:readback_ambiguo"
-
 # ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
 # CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
 # tabla es su espejo (test estatico y test de la constraint viva en
@@ -379,8 +374,8 @@ class ResultadoAplicador:
     skips: list[str]
     divergencias: int = 0
     # ARREGLOS 05 A.3: pujas cuyo PUT quedo incierto (5xx, red o lectura de
-    # vuelta ilegible). Selladas como ambiguas y sin desenlace: la
-    # conciliacion del ciclo siguiente las resuelve leyendo.
+    # vuelta ilegible). Su fila del ledger queda sin sello y la decision sin
+    # desenlace: la conciliacion del ciclo siguiente las resuelve leyendo.
     inciertos: int = 0
     # Preflight 1.4 (D3d): los caps que ESTE lote llevo a su transicion
     # (used == cap) — viajan al ciclo para el aviso fail-silent. El consumo

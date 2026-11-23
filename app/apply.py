@@ -71,7 +71,6 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     MOTIVO_YA_INTENTADA,
     MOTIVOS_SIN_APLICAR,
     RESULTADO_ANCESTRO_NO_ENABLED,
-    RESULTADO_READBACK_AMBIGUO,
     CapSaturado,
     DecisionBid,
     ResultadoAplicador,
@@ -188,8 +187,9 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
 
 # Lo que le pasa a UNA mutacion de puja cuyo ledger ya nacio PRE-HTTP.
 # `incierta`: Amazon pudo aplicarla (5xx o red al enviar, o lectura de vuelta
-# ilegible tras un ack). Queda sellada como ambigua y sin desenlace hasta que
-# la conciliacion la resuelve con una lectura: JAMAS se vuelve a enviar.
+# ilegible tras un ack). Su fila queda sin sello y la decision sin desenlace
+# hasta que la conciliacion la resuelve con una lectura: JAMAS se vuelve a
+# enviar.
 DesenlaceBid = Literal["aplicada", "divergente", "rechazada", "incierta"]
 
 
@@ -525,12 +525,14 @@ class Aplicador:
         """Secuencia sellada de UNA mutacion cuyo ledger ya nacio PRE-HTTP.
 
         Aislamiento por entidad (ARREGLOS 05 A.3): un fallo remoto de ESTA
-        puja (`AdsApiError`) la deja `incierta` y no detiene a las demas ni a
-        las fases que siguen. Los fallos globales (claim perdido, base
+        puja (`AdsApiError`: 5xx, red o lectura de vuelta ilegible) la deja
+        `incierta` y no detiene a las demas ni a las fases que siguen. Su fila
+        del ledger queda SIN sello, que es el rastro de siempre (APPLY.md
+        §6.1): lo resuelve la conciliacion del ciclo siguiente con una
+        lectura, jamas otro envio. Los fallos globales (claim perdido, base
         indisponible, identidad o permisos invalidos) siguen propagando. Se
         sella solo con el claim todavia en poder de este owner: `_tick`
-        valida al dueno antes de cada sello, y un owner vencido deja la fila
-        sin sellar para que la conciliacion la resuelva."""
+        valida al dueno antes de cada sello."""
         self._conn.commit()
         cliente = self._cliente()
         try:
@@ -550,13 +552,14 @@ class Aplicador:
             self._conn.commit()
             return "rechazada"
         except AdsApiError:
-            return self._sella_incierta(id_attempt, ack=None)
+            # Amazon pudo aplicarla: la fila queda sin sello (el rastro).
+            return "incierta"
         ack = _json_seguro(resp_http)
         _tick(self._tick_fn)
         try:
             bid_leido = self._readback(cliente, identidad)
         except AdsApiError:
-            return self._sella_incierta(id_attempt, ack=ack)
+            return "incierta"
         verify_ok = bid_leido is not None and bid_leido == _bid_quantizado(decision.new_value)
         resultado = (
             "ok"
@@ -573,18 +576,6 @@ class Aplicador:
             if bid_leido is not None:
                 _actualiza_cache(self._conn, decision.ad_entity_id, bid_leido)
         return "aplicada" if verify_ok else "divergente"
-
-    def _sella_incierta(self, id_attempt: int, *, ack: dict | None) -> DesenlaceBid:
-        """5xx o red al enviar, o lectura de vuelta ilegible tras un ack:
-        Amazon pudo aplicar. La fila se sella como lectura ambigua (con el ack
-        si lo hubo) y la decision queda sin desenlace: solo la conciliacion,
-        con una lectura fresca, la resuelve."""
-        _tick(self._tick_fn)
-        with tx_durable(self._conn):
-            if ack is not None:
-                _guarda_ack(self._conn, id_attempt, ack)
-            _sella_resultado(self._conn, id_attempt, RESULTADO_READBACK_AMBIGUO)
-        return "incierta"
 
     def _muta_bid(
         self,
