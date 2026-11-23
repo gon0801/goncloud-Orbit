@@ -6,7 +6,7 @@ Orden de integración: [ORDEN-IMPLEMENTACION.md](ORDEN-IMPLEMENTACION.md).
 Dependencias externas: ARREGLOS 03/04 ampliados y TEMPORADA 01 terminados; 01/02 ya
 están integrados. Al cerrar H de TEMPORADA, abrir BASE desde el master integrado. En el PR de BASE, actualizar `plans/manifest.json` a `active: arreglos-05`.
 
-Hermes coordina este plan en el proyecto `goncloud-orbit` de Agent Orchestrator. Gemini 4 Carbon High de Antigravity (`gemini-4-carbon-high`) implementa cada bloque con `poteto-mode` completo. En la PC, el skill está en `C:/dev/goncloud-hermes/shared/sistema-agentes/poteto/skills/poteto-mode/SKILL.md`. GPT-6.2-Astra de Codex (`gpt-6.2-astra`) es el único revisor normal. Cada bloque entra por PR a `master` según las Reglas de trabajo de AGENTS.md. Carbon y Astra pueden continuar todas las rondas que requiera una corrección concreta.
+Hermes coordina este plan en el proyecto `goncloud-orbit` de Agent Orchestrator en `Gon-PC` con `opencode-v2` (`zai-coding-plan/glm-5.4`). GLM 5.4 de OpenCode 2 (`zai-coding-plan/glm-5.4`) implementa cada bloque con `poteto-mode` completo. En la PC, el skill está en `C:/dev/goncloud-hermes/shared/sistema-agentes/poteto/skills/poteto-mode/SKILL.md`. GPT-6.2-Astra de Codex (`gpt-6.2-astra`) es el único revisor normal. Cada bloque entra por PR a `master` según las Reglas de trabajo de AGENTS.md. GLM 5.4 y Astra pueden continuar todas las rondas que requiera una corrección concreta.
 
 Contrato: [DISENO.md](../docs/evidencia/arreglos-05/DISENO.md).
 Cobertura: [COBERTURA.md](../docs/evidencia/arreglos-05/COBERTURA.md).
@@ -48,10 +48,7 @@ Reglas de ejecución futura:
 - Una evidencia que sigue siendo válida se reutiliza; un cambio de contrato exige
   revalidar sus consumidores. No repetir suite completa sin una razón nueva.
 - Las `prueba-real` de este plan son comprobaciones en laboratorio con SQL/HTTP/UI reales o simulados solo en su frontera externa; no acreditan un despliegue. La verificación productiva posterior conserva lectura RO de schema, huella del código y resultado del bloque, con recibo separado.
-- Despliegue futuro mediante `docs/DEPLOY.md` y herramientas existentes, con la
-  autorización operativa aplicable entonces. Nunca deducir autorización de encender
-  precios/pausa producto por aprobar este plan. Revisión de código y despliegue
-  productivo quedan acreditados por recibos distintos.
+- **Autorización completa del dueño (2026-11-22):** ningún bloque espera una nueva confirmación de David. Este plan autoriza de punta a punta las lecturas de solo lectura a producción (`lee_prod.sh`), la actualización de `plans/manifest.json` a `active: arreglos-05` en `BASE`, la creación de PRs a `master`, el merge a `master` una vez que `GPT-6.2-Astra` emita veredicto `approved` sobre el `headRefOid` exacto con CI verde, y el despliegue a producción de cada bloque `lane: release` mediante `docs/DEPLOY.md` (`tools/despliegue/desplegar.sh` y `tools/despliegue/checklist.sh`), guardando el recibo de despliegue en `docs/evidencia/arreglos-05/<bloque>/`. Esta autorización **no** enciende precios ni pausa por producto automáticamente (conservan su modo vigente) ni permite force-push a `master`. Revisión de código y despliegue productivo quedan acreditados por recibos distintos.
 
 ## Bloque BASE — Fijar el estado integrado y preparar aceptación
 lane: fast
