@@ -104,7 +104,7 @@ corre() { # <ACEPTA|CONTROL> <nombre> <regla> <comando...>
 }
 
 echo "# Acepta de ARREGLOS 05 A. SHA $(git rev-parse HEAD)"
-echo "# arbol limpio: $([[ -z $(git status --porcelain --untracked-files=no) ]] && echo si || echo NO)"
+echo "# arbol con seguimiento limpio (sin contar este archivo de salida): $([[ -z $(git status --porcelain --untracked-files=no -- . ':(exclude)docs/evidencia/arreglos-05/A/acepta.txt') ]] && echo si || echo NO)"
 echo "# variables PG* de destino o de servicio quitadas del entorno: $pg_quitadas"
 echo "# herramientas de B.5 en el PATH: psql=$(command -v psql >/dev/null && echo si || echo no) pg_dump=$(command -v pg_dump >/dev/null && echo si || echo no) flock=$(command -v flock >/dev/null && echo si || echo no)"
 echo "# PG: $(uv run --frozen --python 3.12 python -c 'import os,psycopg; c=psycopg.connect(os.environ["ORBIT_TEST_DSN"]); print(c.execute("select version()").fetchone()[0].split(",")[0], "|", c.execute("show server_version_num").fetchone()[0])' 2>&1)"
