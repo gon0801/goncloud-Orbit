@@ -331,6 +331,49 @@ def reversa_negative(
     return True
 
 
+_SQL_REVERSA_SIN_SELLO = """
+SELECT id FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa' AND finished_at IS NULL
+ ORDER BY seq DESC
+ LIMIT 1
+"""
+
+
+def resuelve_reversa_sin_sello(
+    conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, *, tick=None
+) -> bool | None:
+    """Resuelve por LECTURA la reversa de esta fila que quedo sin sello (ARREGLOS
+    05 A, revision): Amazon pudo habilitar la hoja aunque la respuesta se
+    perdiera, y el cache seguira diciendo PAUSED.
+
+    None si la fila no tiene ninguna pendiente. True si la lectura dice que la
+    hoja ya esta ENABLED: el intento se sella `ok:reconciliado`, el cache toma
+    lo leido y no hace falta reenviar. False si sigue pausada: el intento viejo
+    se sella `ok:no_aplicado` y la reactivacion sigue su curso normal."""
+    intento = conn.execute(_SQL_REVERSA_SIN_SELLO, (fila.decision_id,)).fetchone()
+    if intento is None:
+        return None
+    identidad = apply._identidad(conn, fila.ad_entity_id)
+    if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
+        return False
+    apply._tick(tick)
+    _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
+    estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, identidad[1])
+    if estado == apply.ESTADO_WIRE_ENABLED:
+        resultado, ya_habilitada = "ok:reconciliado", True
+    elif estado is not None:
+        resultado, ya_habilitada = "ok:no_aplicado", False
+    else:
+        resultado, ya_habilitada = "fallo:readback_sin_estado", False
+    with tx_durable(conn):
+        # Cerca del claim: el sello y el cache se escriben solo siendo dueno.
+        aplicador.exige_dueno()
+        apply._sella_ledger(conn, intento[0], ack=None, resultado=resultado)
+        if estado is not None:
+            conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
+    return ya_habilitada
+
+
 def aplica_reactivaciones(
     conn: psycopg.Connection,
     aplicador: Aplicador,
@@ -344,7 +387,9 @@ def aplica_reactivaciones(
     topada, hoja PAUSED y fuera de «Mantener pausada»; cuota 'pause' y la
     reversa de la fila de la cola (tope de 3 en el ledger, que no se reinicia
     aunque haya otra resume). Sin cupo o con una guarda en contra no se toca
-    Amazon: el ciclo siguiente lo vuelve a decidir."""
+    Amazon: el ciclo siguiente lo vuelve a decidir. Una reversa de la fila que
+    quedo sin sello se resuelve por lectura antes de cobrar cuota y volver a
+    enviar (ARREGLOS 05 A, revision)."""
     if not decisiones:
         return ResumenReactivacion()
     platform = aplicador._platform
@@ -385,6 +430,20 @@ def aplica_reactivaciones(
         presupuesto = presupuestos.get(entidad[1])
         if recuperacion.presupuesto_topado_de(presupuesto) is True:
             omitidas += 1
+            continue
+        try:
+            ya_habilitada = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
+        except AdsApiError as exc:
+            if apply.es_rechazo_de_identidad(exc):
+                raise
+            # La lectura no alcanzo a resolver el intento anterior: sigue sin
+            # sello, y por esta hoja no se cobra ni se envia nada en la pasada.
+            if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
+                conn.rollback()
+            fallidas += 1
+            continue
+        if ya_habilitada:
+            confirmadas += 1
             continue
         usada, saturada = apply.consume_quota_y_sello(conn, platform, "pause")
         if not usada:

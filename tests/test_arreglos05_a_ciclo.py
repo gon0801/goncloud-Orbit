@@ -1406,3 +1406,123 @@ def test_arreglos05_a_rechazo_de_identidad_no_se_aisla_por_fila(monkeypatch):
         assert apply_cola._aisla_corte(conn, object(), object(), "pause_hoja") == "failed", (
             "el rechazo de esa hoja sigue aislado"
         )
+
+
+@_skip_db
+def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar():
+    """Revision de Astra del PR #746: Amazon habilito la hoja pero la respuesta
+    se perdio (5xx). Queda un intento `reversa` sin sello y el cache sigue en
+    PAUSED, asi que un ejecutor del mismo origen vuelve a recorrer sus resumes.
+    Antes de cobrar cuota y volver a enviar, ese intento se resuelve con una
+    lectura. Si la hoja ya esta ENABLED se sella y se actualiza el cache sin
+    otro PUT; si sigue PAUSED, el intento viejo se sella como no aplicado y la
+    reactivacion sigue su curso."""
+    from test_apply_cola import _aplicador, _handler_cortes, _reloj, _semilla
+    from test_cycle_apply import _db_temporal
+    from test_temporada01_f import (
+        _config,
+        _episodio,
+        _pausa_baja,
+        _pausado,
+        estacion_dia,
+    )
+
+    from app import apply_cola, lock, temporada_io
+    from app.optimizer import temporada
+
+    def cache(hoja: int) -> str:
+        return conn.execute(
+            "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (hoja,)
+        ).fetchone()[0]
+
+    def cuota() -> int:
+        return conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0]
+
+    def intentos(pausa: int) -> list[tuple]:
+        return conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'"
+            " ORDER BY seq",
+            (pausa,),
+        ).fetchall()
+
+    with _db_temporal("orbit_a05_reversa") as (conn, _extra):
+        ids = _semilla(conn)
+        ahora = _reloj()
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ids["ciclo_ejec"], ahora, cerrado=True)
+        pausas = {}
+        for hoja in (ids["kw"], ids["kw2"]):
+            pausa, _q = _pausa_baja(
+                conn,
+                ciclo_id=ids["ciclo_dec"],
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            _pausado(conn, hoja)
+            pausas[hoja] = pausa
+        [primera, segunda] = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        assert (primera.ad_entity_id, segunda.ad_entity_id) == (ids["kw"], ids["kw2"])
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        ciclo_resume = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        for pendiente in (primera, segunda):
+            propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+            conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+                " data_observed_at, window_start, window_end, inputs)"
+                " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+                (
+                    ciclo_resume,
+                    pendiente.ad_entity_id,
+                    ahora,
+                    config_id,
+                    propuesta.data_observed_at,
+                    propuesta.window_start,
+                    propuesta.window_end,
+                    json.dumps(propuesta.inputs),
+                ),
+            )
+        resumes = apply_cola.resumes_del_ciclo(conn, ciclo_resume)
+        assert len(resumes) == 2
+        # La cerca del sello exige la fila del claim: el ejecutor lo tiene.
+        assert lock.claim_lock(conn, "ads_optimizer:amazon_us", "test:cola") is not None
+
+        # Primera pasada: los dos PUT salen y Amazon pierde las respuestas.
+        base, _vistos = _handler_cortes(estados={"7201": "PAUSED", "7202": "PAUSED"})
+        perdidos: list[httpx.Request] = []
+
+        def pierde_la_respuesta(request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                perdidos.append(request)
+                return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+            return base(request)
+
+        res1 = apply_cola.aplica_reactivaciones(
+            conn, _aplicador(conn, pierde_la_respuesta, ids["ciclo_ejec"]), resumes, tick=None
+        )
+        assert (res1.confirmadas, res1.fallidas) == (0, 2), res1
+        assert len(perdidos) == 2, "los dos PUT de reactivacion si salieron"
+        for hoja in (ids["kw"], ids["kw2"]):
+            assert [f[0] for f in intentos(pausas[hoja])] == [None], "quedan sin sello"
+            assert cache(hoja) == "PAUSED", "el cache no llego a actualizarse"
+        cuota1 = cuota()
+        assert cuota1 == 2
+
+        # El ejecutor del mismo origen vuelve a recorrer sus resumes. Amazon SI
+        # habilito la primera hoja; la segunda sigue pausada.
+        amazon, vistos = _handler_cortes(estados={"7201": "ENABLED", "7202": "PAUSED"})
+        res2 = apply_cola.aplica_reactivaciones(
+            conn, _aplicador(conn, amazon, ids["ciclo_ejec"]), resumes, tick=None
+        )
+        enviados = [
+            json.loads(r.content)["keywords"][0]["keywordId"] for r in vistos if r.method == "PUT"
+        ]
+        assert enviados == ["7202"], "la hoja ya habilitada no se reenvia"
+        assert (res2.confirmadas, res2.fallidas, res2.sin_quota) == (2, 0, 0), res2
+        assert [f[0] for f in intentos(pausas[ids["kw"]])] == ["ok:reconciliado"]
+        assert [f[0] for f in intentos(pausas[ids["kw2"]])] == ["ok:no_aplicado", "ok"]
+        assert cache(ids["kw"]) == "ENABLED" and cache(ids["kw2"]) == "ENABLED"
+        assert cuota() == cuota1 + 1, "solo la hoja que sigue pausada cobra cuota"
