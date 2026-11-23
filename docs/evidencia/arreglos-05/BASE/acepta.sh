@@ -85,31 +85,41 @@ if [[ ${1:-} == ALL ]]; then
 fi
 fallos=0
 
-# Un skip, un error de fixture o cero casos no son aceptacion aunque pytest salga 0.
-# Solo mira la linea de resumen de pytest; una salida sin ella pasa.
-resumen_limpio() {
+# Un control de pytest solo pasa con evidencia positiva de casos ejecutados.
+# Regla N: resumen de pytest con al menos N passed y sin skipped, error ni "no
+# tests ran". Regla "rojo": resumen con failed, para el control que hoy debe
+# fallar. Regla "-": la comprobacion de Git, que no produce resumen y solo mira
+# su salida. Una salida sin resumen (p. ej. PYTEST_ADDOPTS=--collect-only) no cuenta.
+pytest_paso() {
   local linea
+  [[ $2 != - ]] || return 0
   linea=$(printf '%s\n' "$1" | grep -E ' in [0-9.]+s( \([0-9:]+\))?( =+)?$' | tail -n 1)
-  [[ -z $linea ]] && return 0
-  [[ $linea =~ [0-9]+\ passed && ! $linea =~ (skipped|error|failed|no\ tests\ ran) ]]
+  [[ -n $linea ]] || { echo "sin resumen de pytest"; return 1; }
+  if [[ $2 == rojo ]]; then
+    [[ $linea =~ [0-9]+\ failed ]] || { echo "se esperaba un control rojo y el resumen es: $linea"; return 1; }
+    return 0
+  fi
+  [[ $linea =~ ([0-9]+)\ passed ]] || { echo "resumen sin passed: $linea"; return 1; }
+  local pasaron=${BASH_REMATCH[1]}
+  [[ $linea =~ (skipped|error|failed|no\ tests\ ran) ]] && { echo "resumen con omision o error: $linea"; return 1; }
+  ((pasaron >= $2)) || { echo "pasaron $pasaron y se esperaban al menos $2: $linea"; return 1; }
 }
 
-corre() {
-  local tipo=$1 nombre=$2
-  shift 2
+corre() { # <ACEPTA|CONTROL> <nombre> <regla> <comando...>
+  local tipo=$1 nombre=$2 regla=$3
+  shift 3
   echo
   echo "### [$tipo] $nombre"
   echo "\$ $*"
-  local salida codigo veredicto
+  local salida codigo veredicto="" motivo
   salida=$("$@" 2>&1)
   codigo=$?
   printf '%s\n' "$salida"
-  if [[ $codigo != 0 ]]; then
+  if [[ $codigo != 0 && $tipo != CONTROL ]]; then
     veredicto="salida=$codigo"
-  elif ! resumen_limpio "$salida"; then
-    veredicto="FALLO: omision o error en el resumen de pytest"
   else
-    veredicto=ok
+    motivo=$(pytest_paso "$salida" "$regla") || veredicto="FALLO: $motivo"
+    [[ -n $veredicto ]] || veredicto=ok
   fi
   echo "resultado=$veredicto"
   [[ $tipo == CONTROL || $veredicto == ok ]] || fallos=$((fallos + 1))
@@ -119,14 +129,14 @@ echo "# Acepta de ARREGLOS 05 BASE. SHA $(git rev-parse HEAD)"
 echo "# variables PG* de destino o de servicio quitadas del entorno: $pg_quitadas"
 echo "# PG: $(uv run --frozen --python 3.12 python -c 'import os,psycopg; c=psycopg.connect(os.environ["ORBIT_TEST_DSN"]); print(c.execute("select version()").fetchone()[0].split(",")[0], "|", c.execute("show server_version_num").fetchone()[0])' 2>&1)"
 
-corre ACEPTA "BASE.0 plan y diseno en origin/master" bash -c \
+corre ACEPTA "BASE.0 plan y diseno en origin/master" - bash -c \
   'git merge-base --is-ancestor origin/master HEAD && (for f in plans/arreglos-05.md docs/evidencia/arreglos-05/{DISENO.md,COBERTURA.md,ACEPTACION.md,comprobar.sh}; do git cat-file -e "origin/master:$f" || exit 1; done) && echo "origin/master=$(git rev-parse origin/master) HEAD=$(git rev-parse HEAD)"'
-corre ACEPTA "BASE.3 control 01" uv run --frozen --python 3.12 bash "$comprobar" T writes test_01
-corre ACEPTA "BASE.3 controles 08 y D2" uv run --frozen --python 3.12 bash "$comprobar" T pricing 'test_08 or test_D2'
-corre ACEPTA "BASE.3 control 09" uv run --frozen --python 3.12 bash "$comprobar" T ingest test_09
-corre ACEPTA "BASE.3 banda manual 01X" env CI=1 PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -p no:cacheprovider tests/test_config_write.py -k arreglos01_x
-corre ACEPTA "BASE.3 controles TEMPORADA B.2, E y F" env PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -p no:cacheprovider tests -k 'temporada01_b_ or temporada01_e_ or temporada01_f_'
-corre CONTROL "Ciclo 4 legado: conciliacion antes de decidir" env PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -rs -p no:cacheprovider docs/evidencia/arreglos-2026-11-12/pruebas/ciclo/test_revision_ciclo.py -k reconciliacion_corre_despues_de_decidir
+corre ACEPTA "BASE.3 control 01" 4 uv run --frozen --python 3.12 bash "$comprobar" T writes test_01
+corre ACEPTA "BASE.3 controles 08 y D2" 2 uv run --frozen --python 3.12 bash "$comprobar" T pricing 'test_08 or test_D2'
+corre ACEPTA "BASE.3 control 09" 1 uv run --frozen --python 3.12 bash "$comprobar" T ingest test_09
+corre ACEPTA "BASE.3 banda manual 01X" 1 env CI=1 PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -p no:cacheprovider tests/test_config_write.py -k arreglos01_x
+corre ACEPTA "BASE.3 controles TEMPORADA B.2, E y F" 34 env PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -p no:cacheprovider tests -k 'temporada01_b_ or temporada01_e_ or temporada01_f_'
+corre CONTROL "Ciclo 4 legado: conciliacion antes de decidir" rojo env PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -rs -p no:cacheprovider docs/evidencia/arreglos-2026-11-12/pruebas/ciclo/test_revision_ciclo.py -k reconciliacion_corre_despues_de_decidir
 
 echo
 echo "# comandos Acepta que no pasaron: $fallos"

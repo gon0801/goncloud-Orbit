@@ -36,11 +36,11 @@ Los originales estan en `revision/historico/` y coinciden con `manifest.json`: `
 4. **`CI=1` exige `psql`.** `tests/test_despliegue_motor.py` aborta la recoleccion con `CI=1` si no esta `psql`, que esta PC no tiene. El comando de 01X solo recolecta `tests/test_config_write.py` y pasa. Los controles TEMPORADA no llevan `CI=1`.
 5. **Sin `pre-commit`.** No esta instalado, el repo no tiene ganchos y Windows bloquea por politica de control de aplicaciones el ejecutable que baja `uvx`. Los dos ganchos de `.pre-commit-config.yaml` se corrieron a mano: `gitleaks protect --staged` con la misma version del gancho (8.30.1) y la busqueda de marcadores de conflicto. Ambos limpios.
 6. **PG del laboratorio.** `127.0.0.1:55449` es el contenedor `orbit-review-current-pg` (`postgres:16`, 16.15) en el Docker de WSL. Ya estaba arriba y lo comparten varias sesiones. Las corridas son en serie.
-7. **`lee_prod.sh` ejecuta una sentencia por llamada.** `previa.sh` parte `previa.sql` en bloques y hace una llamada por bloque.
+7. **`lee_prod.sh` ejecuta una sentencia por llamada.** `previa.sh` parte `previa.sql` en bloques y hace una llamada por bloque. Aborta antes de consultar si el archivo no trae exactamente los 39 bloques obligatorios.
 
 ## Correcciones despues de la revision automatica del PR
 
-Las siete observaciones de Devin eran ciertas y tocaban solo a las herramientas de esta carpeta. Cinco salieron en la primera ronda y una en cada una de las dos siguientes. Astra, el revisor normal, anadio la ultima, sobre la entrada del runner completo.
+Las siete observaciones de Devin eran ciertas y tocaban solo a las herramientas de esta carpeta. Cinco salieron en la primera ronda y una en cada una de las dos siguientes. Astra, el revisor normal, anadio tres mas sobre la entrada del runner completo, el veredicto de los controles y la lista de bloques de la lectura.
 
 | Herramienta | Defecto | Correccion y prueba |
 |---|---|---|
@@ -52,6 +52,8 @@ Las siete observaciones de Devin eran ciertas y tocaban solo a las herramientas 
 | `previa.sql` | Atribuia el desenlace sin aplicar al ciclo ejecutor, igual que hace `registra_sin_aplicar`, mientras las aplicaciones se atribuyen al ciclo que decidio. | El `EXISTS` une `decision_sin_aplicar` con `decision` por `decision_id`. El bloque nuevo `desenlaces_con_ciclo_distinto` mide cuantos difieren. En una base desechable con un ejecutor distinto, la consulta vieja atribuye al ejecutor y la nueva al origen. En produccion los conteos por ciclo no cambian: las 193 filas llevan el ciclo de la decision. |
 | `acepta.sh`, entorno | Quitar todas las `PG*` tambien borraba `PGPASSWORD` y `PGPASSFILE`, que no cambian el destino y pueden ser la unica forma de autenticar. | Solo se quitan las ocho variables de destino, servicio y sesion. Con doce variables exportadas quedan `PGPASSWORD`, `PGPASSFILE`, `PGSSLMODE` y `PGUSER`. El rechazo de DSN no cambia. |
 | `README.md`, runner completo (Astra) | Reproducia `comprobar.sh ALL` a secas. Asi corre en el shell del operador, toma el `python` del PATH (3.11 en esta PC) y la guarda de `comprobar.sh` solo compara host, puerto y base: no ve una `PGHOSTADDR` heredada, con la que libpq conecta las pruebas a otra direccion. | Modo `acepta.sh ALL <destino-nuevo.xml>`, con las mismas guardas y el Python 3.12 del proyecto. Con `PGHOSTADDR=127.0.0.2` exportada, `comprobar.sh` a secas no logra conectar y el modo `ALL` corre completo contra el laboratorio (5 rojos y 26 verdes). |
+| `acepta.sh`, veredicto (Astra) | Un control de pytest pasaba si la salida no traia resumen reconocible. Con `PYTEST_ADDOPTS="--collect-only -qq"` o `-p no:terminal` los seis controles se marcaban ok sin ejecutar un caso. | Cada control de pytest exige un resumen con al menos el numero esperado de passed (4, 2, 1, 1 y 34); el control que hoy debe fallar exige su `failed`; la comprobacion de Git solo mira su salida. Con esas dos opciones el lanzador anterior salia 0 con todo en ok y el nuevo sale 1 con seis fallos. |
+| `previa.sh`, lista de bloques (Astra) | Con un `previa.sql` vacio, sin marcadores o truncado, el bucle corria cero consultas y el script certificaba la lectura con salida 0. | Trae la lista de los 39 bloques obligatorios y aborta con salida 2 antes de consultar si el archivo no la trae exacta (falta uno, sobra uno o se repite). Al cierre exige haber procesado los 39. Probado en seco con las cinco variantes y con un lector que falla en la decima llamada. |
 
 ## Notas que no son bloqueo
 

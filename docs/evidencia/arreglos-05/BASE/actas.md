@@ -2,7 +2,7 @@
 
 Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.3`. Salida completa en [acepta.txt](acepta.txt), que genera [acepta.sh](acepta.sh). PG 16.15 del laboratorio. El SHA de la corrida esta en la cabecera de `acepta.txt`.
 
-`acepta.sh` valida que el DSN sea el del laboratorio antes de abrir cualquier conexion, y cuenta como fallo un comando que salga distinto de 0 o cuyo resumen de pytest traiga omisiones o errores.
+`acepta.sh` valida que el DSN sea el del laboratorio antes de abrir cualquier conexion. Un comando cuenta como fallo si sale distinto de 0 o si, siendo de pytest, su resumen no muestra al menos el numero esperado de casos pasados sin omisiones ni errores.
 
 ## Comandos de la fila
 
