@@ -1,4 +1,4 @@
-# ARREGLOS 05 — evidencia del bloque BASE
+# Evidencia del bloque BASE de ARREGLOS 05
 
 Bloque documental, `lane: fast`. No despliega y no cambia `app/`, `tools/` ni `migrations/`.
 Base: `master` en `33844bb365d707e523fc7865dd56668d69047dc4`. El unico commit que toca algo

@@ -1,4 +1,4 @@
-# BASE.1 — Casos vecinos identificados
+# Casos vecinos identificados (BASE.1)
 
 Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.1`. Vecinos por causa, con las pruebas vigentes que ya los cubren en `33844bb3`. El numero es la cantidad de funciones `test_` del archivo; una funcion parametrizada trae mas de un caso. Son la linea verde sobre la que cada bloque debe mostrar su rojo y su verde. BASE no las corrio todas.
 

@@ -1,4 +1,4 @@
-# BASE.0 — Contratos vigentes y firmas reales
+# Contratos vigentes y firmas reales (BASE.0)
 
 Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.0`. Fecha: 2026-11-22 (America/Vancouver).
 

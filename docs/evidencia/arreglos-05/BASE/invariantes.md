@@ -1,4 +1,4 @@
-# BASE.2 — Lectura previa de produccion e invariantes demostrados
+# Lectura previa de produccion e invariantes demostrados (BASE.2)
 
 Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.2`. Solo lectura.
 

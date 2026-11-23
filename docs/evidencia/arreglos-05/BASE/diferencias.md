@@ -1,4 +1,4 @@
-# BASE — Diferencias entre el codigo integrado y el diseno
+# Diferencias entre el codigo integrado y el diseno (BASE)
 
 Bloque `BASE` de `plans/arreglos-05.md`. SHA cotejado: `33844bb3`. Las lineas son de ese SHA.
 Los bloques A a K y Z consumen esta lista antes de implementar. BASE no cambia codigo de

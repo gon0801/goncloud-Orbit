@@ -1,4 +1,4 @@
-# BASE.3 — Controles confirmados y actas residuales
+# Controles confirmados y actas residuales (BASE.3)
 
 Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.3`. SHA: `2639ff8f`. Salida completa en [acepta.txt](acepta.txt), que genera [acepta.sh](acepta.sh). PG 16.15 del laboratorio.
 

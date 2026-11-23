@@ -1,4 +1,4 @@
-# BASE.1 — Laboratorio, corrida completa y clasificacion de los 31 casos
+# Laboratorio, corrida completa y clasificacion de los 31 casos (BASE.1)
 
 Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.1`.
 
