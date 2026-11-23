@@ -341,37 +341,45 @@ SELECT id FROM apply_attempt
 
 def resuelve_reversa_sin_sello(
     conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, *, tick=None
-) -> bool | None:
+) -> str | None:
     """Resuelve por LECTURA la reversa de esta fila que quedo sin sello (ARREGLOS
     05 A, revision): Amazon pudo habilitar la hoja aunque la respuesta se
     perdiera, y el cache seguira diciendo PAUSED.
 
-    None si la fila no tiene ninguna pendiente. True si la lectura dice que la
-    hoja ya esta ENABLED: el intento se sella `ok:reconciliado`, el cache toma
-    lo leido y no hace falta reenviar. False si sigue pausada: el intento viejo
-    se sella `ok:no_aplicado` y la reactivacion sigue su curso normal."""
+    None si la fila no tiene ninguna pendiente. `ya_habilitada` si la lectura
+    dice que la hoja ya esta ENABLED: el intento se sella `ok`, el unico exito
+    que reconocen la reversa manual, temporada y la pausa propia, con
+    `conciliado` en el ack; el cache toma lo leido y no hace falta reenviar.
+    `pausada` si sigue PAUSED: el intento viejo se sella `ok:no_aplicado` y la
+    reactivacion sigue su curso. `inconclusa` si la lectura no trae el estado
+    de la hoja: no se sella nada y no se cobra ni se envia. `archivada` para
+    cualquier otro estado: el intento se cierra sin reenviar y el cache toma lo
+    leido."""
     intento = conn.execute(_SQL_REVERSA_SIN_SELLO, (fila.decision_id,)).fetchone()
     if intento is None:
         return None
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
-        return False
+        return "inconclusa"
     apply._tick(tick)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
     estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, identidad[1])
+    if estado is None:
+        # Un LIST que omite la hoja o su estado no prueba nada: el intento
+        # sigue abierto para la siguiente pasada, sin cuota ni PUT.
+        return "inconclusa"
     if estado == apply.ESTADO_WIRE_ENABLED:
-        resultado, ya_habilitada = "ok:reconciliado", True
-    elif estado is not None:
-        resultado, ya_habilitada = "ok:no_aplicado", False
+        veredicto, resultado, ack = "ya_habilitada", "ok", {"conciliado": True}
+    elif estado == apply.ESTADO_WIRE_PAUSED:
+        veredicto, resultado, ack = "pausada", "ok:no_aplicado", None
     else:
-        resultado, ya_habilitada = "fallo:readback_sin_estado", False
+        veredicto, resultado, ack = "archivada", f"fallo:entidad_{estado.lower()}", None
     with tx_durable(conn):
         # Cerca del claim: el sello y el cache se escriben solo siendo dueno.
         aplicador.exige_dueno()
-        apply._sella_ledger(conn, intento[0], ack=None, resultado=resultado)
-        if estado is not None:
-            conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-    return ya_habilitada
+        apply._sella_ledger(conn, intento[0], ack=ack, resultado=resultado)
+        conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
+    return veredicto
 
 
 def aplica_reactivaciones(
@@ -432,7 +440,7 @@ def aplica_reactivaciones(
             omitidas += 1
             continue
         try:
-            ya_habilitada = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
+            veredicto = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
         except AdsApiError as exc:
             if apply.es_rechazo_de_identidad(exc):
                 raise
@@ -442,8 +450,11 @@ def aplica_reactivaciones(
                 conn.rollback()
             fallidas += 1
             continue
-        if ya_habilitada:
-            confirmadas += 1
+        if veredicto in ("ya_habilitada", "inconclusa", "archivada"):
+            # La hoja se cuenta y se pasa: ya habilitada (por lectura), sin
+            # lectura conclusiva (sin cuota ni PUT) o archivada (sin reenviar).
+            confirmadas += veredicto == "ya_habilitada"
+            fallidas += veredicto != "ya_habilitada"
             continue
         usada, saturada = apply.consume_quota_y_sello(conn, platform, "pause")
         if not usada:

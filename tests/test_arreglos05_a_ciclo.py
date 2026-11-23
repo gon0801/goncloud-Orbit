@@ -1447,6 +1447,7 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
     from test_temporada01_f import (
         _config,
         _episodio,
+        _nueva_kw,
         _pausa_baja,
         _pausado,
         estacion_dia,
@@ -1487,13 +1488,30 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
             )
             _pausado(conn, hoja)
             pausas[hoja] = pausa
-        [primera, segunda] = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        # Dos hojas mas: una que el LIST de recuperacion omitira y otra ARCHIVED.
+        kw3 = _nueva_kw(conn, ids["ag"], "7203")
+        kw4 = _nueva_kw(conn, ids["ag"], "7204")
+        for hoja in (kw3, kw4):
+            pausa, _q = _pausa_baja(
+                conn,
+                ciclo_id=ids["ciclo_dec"],
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            _pausado(conn, hoja)
+            pausas[hoja] = pausa
+        [primera, segunda, tercera, cuarta] = temporada_io.reactivaciones_pendientes(
+            conn, "amazon_us", frozenset()
+        )
         assert (primera.ad_entity_id, segunda.ad_entity_id) == (ids["kw"], ids["kw2"])
+        assert (tercera.ad_entity_id, cuarta.ad_entity_id) == (kw3, kw4)
         estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
         ciclo_resume = conn.execute(
             "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
         ).fetchone()[0]
-        for pendiente in (primera, segunda):
+        for pendiente in (primera, segunda, tercera, cuarta):
             propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
             conn.execute(
                 "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
@@ -1511,12 +1529,14 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
                 ),
             )
         resumes = apply_cola.resumes_del_ciclo(conn, ciclo_resume)
-        assert len(resumes) == 2
+        assert len(resumes) == 4
         # La cerca del sello exige la fila del claim: el ejecutor lo tiene.
         assert lock.claim_lock(conn, "ads_optimizer:amazon_us", "test:cola") is not None
 
-        # Primera pasada: los dos PUT salen y Amazon pierde las respuestas.
-        base, _vistos = _handler_cortes(estados={"7201": "PAUSED", "7202": "PAUSED"})
+        # Primera pasada: los cuatro PUT salen y Amazon pierde las respuestas.
+        base, _vistos = _handler_cortes(
+            estados={"7201": "PAUSED", "7202": "PAUSED", "7203": "PAUSED", "7204": "PAUSED"}
+        )
         perdidos: list[httpx.Request] = []
 
         def pierde_la_respuesta(request: httpx.Request) -> httpx.Response:
@@ -1528,29 +1548,42 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
         res1 = apply_cola.aplica_reactivaciones(
             conn, _aplicador(conn, pierde_la_respuesta, ids["ciclo_ejec"]), resumes, tick=None
         )
-        assert (res1.confirmadas, res1.fallidas) == (0, 2), res1
-        assert len(perdidos) == 2, "los dos PUT de reactivacion si salieron"
-        for hoja in (ids["kw"], ids["kw2"]):
+        assert (res1.confirmadas, res1.fallidas) == (0, 4), res1
+        assert len(perdidos) == 4, "los cuatro PUT de reactivacion si salieron"
+        for hoja in pausas:
             assert [f[0] for f in intentos(pausas[hoja])] == [None], "quedan sin sello"
             assert cache(hoja) == "PAUSED", "el cache no llego a actualizarse"
         cuota1 = cuota()
-        assert cuota1 == 2
+        assert cuota1 == 4
 
         # El ejecutor del mismo origen vuelve a recorrer sus resumes. Amazon SI
-        # habilito la primera hoja; la segunda sigue pausada.
-        amazon, vistos = _handler_cortes(estados={"7201": "ENABLED", "7202": "PAUSED"})
+        # habilito la primera hoja; la segunda sigue pausada; la tercera no
+        # aparece en el LIST; la cuarta esta ARCHIVED.
+        amazon, vistos = _handler_cortes(
+            estados={"7201": "ENABLED", "7202": "PAUSED", "7204": "ARCHIVED"}
+        )
         res2 = apply_cola.aplica_reactivaciones(
             conn, _aplicador(conn, amazon, ids["ciclo_ejec"]), resumes, tick=None
         )
         enviados = [
             json.loads(r.content)["keywords"][0]["keywordId"] for r in vistos if r.method == "PUT"
         ]
-        assert enviados == ["7202"], "la hoja ya habilitada no se reenvia"
-        assert (res2.confirmadas, res2.fallidas, res2.sin_quota) == (2, 0, 0), res2
-        assert [f[0] for f in intentos(pausas[ids["kw"]])] == ["ok:reconciliado"]
+        assert enviados == ["7202"], "solo la hoja que sigue pausada se reenvia"
+        assert (res2.confirmadas, res2.fallidas, res2.sin_quota) == (2, 2, 0), res2
+        assert [f[0] for f in intentos(pausas[ids["kw"]])] == ["ok"]
         assert [f[0] for f in intentos(pausas[ids["kw2"]])] == ["ok:no_aplicado", "ok"]
+        assert [f[0] for f in intentos(pausas[kw3])] == [None], "sin lectura no se sella"
+        assert [f[0] for f in intentos(pausas[kw4])] == ["fallo:entidad_archived"]
         assert cache(ids["kw"]) == "ENABLED" and cache(ids["kw2"]) == "ENABLED"
+        assert cache(kw3) == "PAUSED" and cache(kw4) == "ARCHIVED"
         assert cuota() == cuota1 + 1, "solo la hoja que sigue pausada cobra cuota"
+        # La guarda de la reversa manual reconoce la reversa conciliada (sella
+        # `ok`): un segundo intento manual no vuelve a enviar. La que sigue
+        # abierta, no.
+        from app import apply_reversa
+
+        assert apply_reversa._reversa_ya_hecha(conn, pausas[ids["kw"]])
+        assert not apply_reversa._reversa_ya_hecha(conn, pausas[kw3])
 
 
 @_skip_db
