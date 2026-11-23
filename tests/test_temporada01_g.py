@@ -760,6 +760,28 @@ def test_propuesta_alta_conserva_propuesta_tras_cambiar_porcentaje_baja():
     )
 
 
+def test_propuesta_alta_no_confunde_recorte_post_cierre_con_restauracion():
+    """Review PR #738 (Devin #2): un recorte manual despues del cierre de la
+    baja y antes de la preparacion (300 en enero, baja cerrada el 1 feb, recorte
+    a 240 el 3 feb, subida a 300 el 10 feb) no es una restauracion de la baja y
+    debe contar como subida ya aplicada del bloque alto."""
+    for fecha_recorte in (dt.date(2027, 2, 3), dt.date(2027, 2, 1)):
+        assert (
+            _propuesta(
+                hoy=dt.date(2027, 3, 10),
+                episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+                historial=(
+                    (dt.date(2026, 12, 1), Decimal("300")),
+                    (fecha_recorte, Decimal("240")),
+                    (dt.date(2027, 2, 10), Decimal("300")),
+                ),
+                inicio_bloque_alto=dt.date(2027, 2, 8),
+                dias_topados_7d=5,
+            )
+            is None
+        ), f"recorte post-cierre el {fecha_recorte} no debe ocultarse como restauracion"
+
+
 def test_cuenta_dias_topados_omite_dia_sin_fila_y_presupuesto_cero():
     """Hallazgo #2 y Review Focus #1: cuenta_dias_topados no inventa Decimal(0)
     en dias sin fila ni cuenta presupuesto_diario == 0 como topado."""

@@ -194,6 +194,9 @@ def propuesta_presupuesto(
         and config.aumento_presupuesto_alta > 0
     ):
         base_alto, cambios_alto = _base_y_cambios(transiciones, inicio_bloque_alto)
+        cambios_antes_alto = tuple(
+            (d, m) for d, m in cambios if d < inicio_bloque_alto and m is not None
+        )
         restaurable = (
             episodio is not None
             and episodio.cerrado_el is not None
@@ -201,6 +204,9 @@ def propuesta_presupuesto(
             and antes > 0
             and base_alto is not None
             and base_alto < antes
+            and bool(cambios_antes_alto)
+            and cambios_antes_alto[-1][0] < episodio.cerrado_el
+            and cambios_antes_alto[-1][1] == base_alto
         )
         previo = base_alto
         ya_subio = False
