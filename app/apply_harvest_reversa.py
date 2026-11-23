@@ -130,6 +130,10 @@ def _post_delete_reversa(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if apply.es_rechazo_de_identidad(exc):
+            # Identidad o permisos de toda la corrida: el sello del DELETE se
+            # conserva y el rechazo sube; no es un fallo de esta reversa.
+            raise
         return (None, None)
     except AdsApiError:
         if capturar_ambiguo:
@@ -470,4 +474,6 @@ def _reversa_automatica(
             return f"reversa: fallo borrando negativo {neg_id}"
         return "reversa: ok"
     except AdsClientError as exc:
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         return f"reversa: fallo ({exc})"

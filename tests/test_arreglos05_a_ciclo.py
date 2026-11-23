@@ -2104,3 +2104,44 @@ def test_arreglos05_a_la_pausa_de_producto_propaga_el_rechazo_de_identidad(monke
 
         monkeypatch.setattr(ra, "ejecuta_retiro", sin_respuesta)
         assert apply_producto.ejecuta_pause_producto(conn, aplicador, fila) == "pendiente"
+
+
+@_skip_db
+def test_arreglos05_a_la_reversa_de_cosecha_propaga_el_rechazo_de_identidad(monkeypatch):
+    """Revision de Astra del PR #746 (tercera pasada): cuando el DELETE
+    compensatorio de una negativa recibe 403, `_post_delete_reversa` sellaba el
+    intento y devolvia (None, None), y `_reversa_automatica` convertia el fallo
+    en texto: el trabajo volvia sin excepcion y el ciclo seguia enviando
+    mutaciones. El sello del DELETE se conserva y el rechazo sube."""
+    from app import apply_harvest_reversa
+    from app.ads.write import AdsApiErrorMutacion
+
+    class Cliente:
+        def borrar_negative(self, _neg_id):
+            raise AdsApiErrorMutacion(
+                "status=403: POST /sp/negativeKeywords/delete",
+                cuerpo="{}",
+                status=403,
+                method="POST",
+                path="/sp/negativeKeywords/delete",
+            )
+
+    with _db("orbit_a05_reversa_403") as (conn, _extra):
+        _semilla_live(conn)
+        _muere_en_apply(monkeypatch)
+        with pytest.raises(_Muerte):
+            _corre(conn)
+        monkeypatch.undo()
+        decision = conn.execute("SELECT id FROM decision ORDER BY id LIMIT 1").fetchone()[0]
+        with pytest.raises(AdsApiErrorMutacion, match="status=403"):
+            apply_harvest_reversa._post_delete_reversa(
+                conn, Cliente(), decision, "negative", "n-1", capturar_ambiguo=False
+            )
+        assert (
+            conn.execute(
+                "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'",
+                (decision,),
+            )
+            .fetchone()[0]
+            .startswith("fallo http 403")
+        ), "el sello del DELETE se conserva"
