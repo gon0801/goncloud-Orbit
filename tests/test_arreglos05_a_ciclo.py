@@ -2009,3 +2009,47 @@ def test_arreglos05_a_la_puja_rechazada_no_se_cierra_sin_el_claim(monkeypatch):
             ).fetchone()[0]
             == 0
         ), "el intento queda abierto, sin sello"
+
+
+@_skip_db
+def test_arreglos05_a_el_rechazo_de_una_puja_se_cierra_con_su_sello(monkeypatch):
+    """Revision de Astra del PR #746 (tercera pasada): para un 400 el intento
+    se sellaba en la mutacion y `aplica_bids` escribia `fallo_http` despues.
+    Si el proceso caia entre ambas escrituras, la recuperacion encontraba un
+    intento sellado sin desenlace: no se reintenta, no se concilia ni vence, y
+    la decision quedaba huerfana para siempre. El desenlace va en la misma
+    transaccion que el sello."""
+    from app import apply
+
+    with _db("orbit_a05_rechazo_400") as (conn, _extra):
+        ids = _semilla_live(conn)
+        _agrega_kw2(conn, ids)
+        original = apply.Aplicador._ejecuta_mutacion
+
+        def muta_y_muere(self, decision, identidad, id_attempt):
+            original(self, decision, identidad, id_attempt)
+            raise _Muerte("el proceso cayo antes de que el llamador registrara algo")
+
+        monkeypatch.setattr(apply.Aplicador, "_ejecuta_mutacion", muta_y_muere)
+        with pytest.raises(_Muerte):
+            _corre(conn, factory=_directa(_Amazon(**REMOTO_INICIAL, rechaza_bids=True)))
+
+        [rechazada] = [
+            f[0] for f in conn.execute("SELECT decision_id FROM apply_attempt").fetchall()
+        ]
+        assert _desenlace(conn, rechazada) == "fallo_http", "el desenlace va con el sello"
+        monkeypatch.undo()
+
+        # El horario siguiente recupera sin repetir la puja rechazada.
+        restaurado = _Amazon(**REMOTO_INICIAL, rechaza_bids=True)
+        rec = _atiende(conn, factory=_directa(restaurado))
+        assert rec.ciclo is not None
+        externa = conn.execute(
+            "SELECT e.external_id FROM decision d JOIN ad_entity e ON e.id = d.ad_entity_id"
+            " WHERE d.id = %s",
+            (rechazada,),
+        ).fetchone()[0]
+        assert externa not in restaurado.pujas_enviadas(), "la puja rechazada no vuelve a salir"
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is not None, (
+            "sin pendientes, el plan deja de abrir ejecutores"
+        )

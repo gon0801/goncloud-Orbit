@@ -491,10 +491,8 @@ class Aplicador:
             elif desenlace == "divergente":
                 divergencias += 1
             elif desenlace == "rechazada":
+                # Su desenlace fallo_http ya quedo escrito con el sello del intento.
                 skips.append(MOTIVO_FALLO_HTTP)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FALLO_HTTP
-                )
             else:
                 inciertos += 1
         return ResultadoAplicador(
@@ -565,32 +563,32 @@ class Aplicador:
             _tick(self._tick_fn)
             identidad_o_permisos = es_rechazo_de_identidad(exc)
             with tx_durable(self._conn):
-                if identidad_o_permisos:
-                    # Cerca del claim: el desenlace definitivo de la puja solo
-                    # lo escribe el dueno. Si el claim cambio entre el aviso
-                    # previo y aqui, el intento queda abierto y no se cierra
-                    # nada; la conciliacion del sucesor lo resuelve leyendo.
-                    self.exige_dueno()
+                # Cerca del claim: el sello y el desenlace solo los escribe el
+                # dueno. Con el claim en manos de otro el intento queda abierto.
+                self.exige_dueno()
                 _sella_ledger(
                     self._conn,
                     id_attempt,
                     ack=None,
                     resultado=f"fallo http {exc.status}: {exc.cuerpo}",
                 )
-                if identidad_o_permisos:
-                    # Fallo global: la fase aborta y `aplica_bids` no llegara a
-                    # registrar el desenlace de esta puja. Se cierra aqui, en la
-                    # misma transaccion que el sello: sin desenlace quedaria
-                    # huerfana (tiene intento: no se reintenta, no se concilia
-                    # ni vence) y el plan abriria un ejecutor en cada horario.
-                    registra_sin_aplicar(
-                        self._conn,
-                        decision.id,
-                        self.cycle_id_ejecutor,
-                        MOTIVO_FALLO_HTTP,
-                        detalle={"http": str(exc.status), "fallo": "identidad_o_permisos"},
-                    )
+                # El desenlace va en la MISMA transaccion que el sello. Si el
+                # proceso cayera entre ambos, la recuperacion encontraria un
+                # intento sellado sin desenlace: no se reintenta, no se concilia
+                # ni vence, y la decision quedaria huerfana para siempre.
+                registra_sin_aplicar(
+                    self._conn,
+                    decision.id,
+                    self.cycle_id_ejecutor,
+                    MOTIVO_FALLO_HTTP,
+                    detalle=(
+                        {"http": str(exc.status), "fallo": "identidad_o_permisos"}
+                        if identidad_o_permisos
+                        else {"http": str(exc.status)}
+                    ),
+                )
             if identidad_o_permisos:
+                # Fallo global: la fase aborta y no sale ninguna mutacion mas.
                 raise
             return "rechazada"
         except AdsApiError:
