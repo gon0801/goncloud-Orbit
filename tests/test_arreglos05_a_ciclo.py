@@ -1112,23 +1112,28 @@ def _zombi_con_list_retenido(extra, *, con_guard):
 
 @_skip_db
 @pytest.mark.parametrize("con_guard", [True, False])
-def test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella(con_guard):
+@pytest.mark.parametrize("desplaza", ["otro_dueno", "sin_fila"])
+def test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella(con_guard, desplaza):
     """Revision del PR #746: el claim cambia de dueno MIENTRAS vuela el LIST de
     verificacion (el PUT ya volvio y Amazon lo aplico). El dueno anterior no
     sella aunque su lectura termine bien. Con `con_guard` False el aplicador no
     tiene el aviso pre-HTTP: lo detiene la cerca del sello sobre la fila del
-    claim."""
+    claim. `sin_fila`: el sucesor tomo y solto el claim entre el aviso anterior
+    y la cerca, asi que la fila ya no existe; sin fila tampoco es dueno."""
     with _db("orbit_a05_cerca") as (conn, extra):
         _semilla_live(conn)
         llego, liberar, amazon, zombi, hilo = _zombi_con_list_retenido(extra, con_guard=con_guard)
         hilo.start()
         assert llego.wait(timeout=30), "el zombie nunca llego a la lectura de vuelta"
-        conn.execute(
-            "UPDATE ads_optimizer_lock SET owner = 'sucesor',"
-            " claimed_at = now() - interval '31 minutes',"
-            " heartbeat_at = now() - interval '31 minutes' WHERE job_key = %s",
-            (JOB_KEY,),
-        )
+        if desplaza == "sin_fila":
+            conn.execute("DELETE FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,))
+        else:
+            conn.execute(
+                "UPDATE ads_optimizer_lock SET owner = 'sucesor',"
+                " claimed_at = now() - interval '31 minutes',"
+                " heartbeat_at = now() - interval '31 minutes' WHERE job_key = %s",
+                (JOB_KEY,),
+            )
         liberar.set()
         hilo.join(timeout=60)
         assert not hilo.is_alive() and "error" not in zombi, zombi.get("error")

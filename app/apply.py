@@ -602,12 +602,16 @@ class Aplicador:
         claima actualiza esa misma fila. Si la fila nombra a otro owner, el
         proceso fue desplazado mientras esperaba una respuesta y no sella: el
         intento queda sin sellar y la conciliacion del sucesor lo resuelve.
-        Sin fila no hay de quien haber sido desplazado."""
+        Sin fila tampoco se sella: el claim se solto (este owner al terminar, o
+        un sucesor que lo tomo y lo solto entre el aviso anterior y la cerca),
+        asi que ya no es dueno de la ejecucion."""
         fila = self._conn.execute(_SQL_DUENO_CERCA, (self.job_key,)).fetchone()
-        if fila is not None and fila[0] != self.owner:
-            raise DuenoDelClaimCambio(
-                f"lock {self.job_key} ya no es nuestro (owner: {fila[0]}): no se sella"
-            )
+        if fila is not None and fila[0] == self.owner:
+            return
+        raise DuenoDelClaimCambio(
+            f"lock {self.job_key} ya no es nuestro"
+            f" (owner: {fila[0] if fila is not None else 'sin fila'}): no se sella"
+        )
 
     def confirma_cercada(
         self,
