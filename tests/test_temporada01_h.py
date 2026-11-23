@@ -68,7 +68,7 @@ def test_temporada01_h_practica_compara_recuperacion(db_template):
         (camp, _medianoche(DIA) - dt.timedelta(days=15)),
     )
     kw1 = _kw(conn, ag, "h-kw1", "kw 1", "2.16")
-    _siembra_metricas(conn, [kw1])
+    _siembra_metricas(conn, [camp, kw1])
     _evidencia_caso_d(
         conn,
         kw1,
@@ -242,7 +242,7 @@ def test_temporada01_h_practica_compara_recuperacion_sin_temporada_en_shadow(
         (camp, _medianoche(DIA) - dt.timedelta(days=15)),
     )
     kw = _kw(conn, ag, "h3-kw", "kw 3", "2.16")
-    _siembra_metricas(conn, [kw])
+    _siembra_metricas(conn, [camp, kw])
     _evidencia_caso_d(
         conn,
         kw,
