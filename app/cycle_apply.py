@@ -389,6 +389,7 @@ def _fase_apply(
                 "fallidas": res_react.fallidas,
                 "sin_quota": res_react.sin_quota,
                 "omitidas": res_react.omitidas,
+                "pendientes_de_lectura": res_react.pendientes_de_lectura,
             }
             total = (
                 res_bids.aplicadas

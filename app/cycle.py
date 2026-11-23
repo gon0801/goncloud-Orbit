@@ -851,7 +851,11 @@ def _corre_fases(
         cuerpo["apply"] = notas_apply
         if fase.fallo:
             status = "degraded"
-    if not fase.fallo:
+    # Una reactivacion cuya lectura no trajo el estado dejo su intento abierto:
+    # falta leerla, asi que el origen no esta completo (la vista de huerfanas
+    # no la ve y sin esta marca nadie volveria a hacerlo ese dia).
+    pendientes_de_lectura = bool((fase.reactivaciones or {}).get("pendientes_de_lectura"))
+    if not fase.fallo and not pendientes_de_lectura:
         # Progreso durable de las fases (ARREGLOS 05 A): `apply.completo` en el
         # ORIGEN dice que encolado, pujas, cortes y reactivaciones corrieron.
         # Sin esa marca el plan del dia abre un ejecutor aunque ninguna

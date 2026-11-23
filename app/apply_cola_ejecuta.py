@@ -95,6 +95,8 @@ class ResumenReactivacion:
     fallidas: int = 0
     sin_quota: int = 0
     omitidas: int = 0
+    # Con la lectura sin estado: el intento queda abierto y falta leerla.
+    pendientes_de_lectura: int = 0
     caps_saturados: tuple[CapSaturado, ...] = ()
 
 
@@ -346,12 +348,13 @@ def resuelve_reversa_sin_sello(
     05 A, revision): Amazon pudo habilitar la hoja aunque la respuesta se
     perdiera, y el cache seguira diciendo PAUSED.
 
-    None si la fila no tiene ninguna pendiente. `ya_habilitada` si la lectura
+    None si no habia intento pendiente o si sigue PAUSED: en ese caso el
+    intento viejo se sella `ok:no_aplicado` y la reactivacion sigue su curso.
+    `ya_habilitada` si la lectura
     dice que la hoja ya esta ENABLED: el intento se sella `ok`, el unico exito
     que reconocen la reversa manual, temporada y la pausa propia, con
     `conciliado` en el ack; el cache toma lo leido y no hace falta reenviar.
-    `pausada` si sigue PAUSED: el intento viejo se sella `ok:no_aplicado` y la
-    reactivacion sigue su curso. `inconclusa` si la lectura no trae el estado
+    `inconclusa` si la lectura no trae el estado
     de la hoja: no se sella nada y no se cobra ni se envia. `archivada` para
     cualquier otro estado: el intento se cierra sin reenviar y el cache toma lo
     leido."""
@@ -360,7 +363,7 @@ def resuelve_reversa_sin_sello(
         return None
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
-        return "inconclusa"
+        return "sin_identidad"
     apply._tick(tick)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
     estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, identidad[1])
@@ -371,7 +374,7 @@ def resuelve_reversa_sin_sello(
     if estado == apply.ESTADO_WIRE_ENABLED:
         veredicto, resultado, ack = "ya_habilitada", "ok", {"conciliado": True}
     elif estado == apply.ESTADO_WIRE_PAUSED:
-        veredicto, resultado, ack = "pausada", "ok:no_aplicado", None
+        veredicto, resultado, ack = None, "ok:no_aplicado", None
     else:
         veredicto, resultado, ack = "archivada", f"fallo:entidad_{estado.lower()}", None
     with tx_durable(conn):
@@ -413,7 +416,7 @@ def aplica_reactivaciones(
     hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
     grupos_pausa = grupos_con_pausa_producto(conn, platform)
     presupuestos = presupuestos_campanas_hoy(conn, platform, hoy, topada)
-    confirmadas = fallidas = sin_quota = omitidas = 0
+    confirmadas = fallidas = sin_quota = omitidas = pendientes_de_lectura = 0
     caps_saturados: list[CapSaturado] = []
     for decision in decisiones:
         apply._tick(tick)
@@ -450,11 +453,13 @@ def aplica_reactivaciones(
                 conn.rollback()
             fallidas += 1
             continue
-        if veredicto in ("ya_habilitada", "inconclusa", "archivada"):
+        if veredicto is not None:
             # La hoja se cuenta y se pasa: ya habilitada (por lectura), sin
-            # lectura conclusiva (sin cuota ni PUT) o archivada (sin reenviar).
+            # lectura conclusiva (sin cuota ni PUT: queda pendiente de leerla
+            # en otro horario) o cerrada sin reenviar (archivada, sin identidad).
             confirmadas += veredicto == "ya_habilitada"
-            fallidas += veredicto != "ya_habilitada"
+            fallidas += veredicto in ("archivada", "sin_identidad")
+            pendientes_de_lectura += veredicto == "inconclusa"
             continue
         usada, saturada = apply.consume_quota_y_sello(conn, platform, "pause")
         if not usada:
@@ -488,5 +493,6 @@ def aplica_reactivaciones(
         fallidas=fallidas,
         sin_quota=sin_quota,
         omitidas=omitidas,
+        pendientes_de_lectura=pendientes_de_lectura,
         caps_saturados=tuple(caps_saturados),
     )

@@ -16,6 +16,7 @@ dia y la migracion 0094.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import json
 import threading
@@ -1572,7 +1573,8 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
             json.loads(r.content)["keywords"][0]["keywordId"] for r in vistos if r.method == "PUT"
         ]
         assert enviados == ["7202"], "solo la hoja que sigue pausada se reenvia"
-        assert (res2.confirmadas, res2.fallidas, res2.sin_quota) == (2, 2, 0), res2
+        assert (res2.confirmadas, res2.fallidas, res2.sin_quota) == (2, 1, 0), res2
+        assert res2.pendientes_de_lectura == 1, "la hoja sin lectura queda pendiente"
         assert [f[0] for f in intentos(pausas[ids["kw"]])] == ["ok"]
         assert [f[0] for f in intentos(pausas[ids["kw2"]])] == ["ok:no_aplicado", "ok"]
         assert [f[0] for f in intentos(pausas[kw3])] == [None], "sin lectura no se sella"
@@ -1587,6 +1589,57 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
 
         assert apply_reversa._reversa_ya_hecha(conn, pausas[ids["kw"]])
         assert not apply_reversa._reversa_ya_hecha(conn, pausas[kw3])
+
+
+@_skip_db
+def test_arreglos05_a_reactivacion_pendiente_de_lectura_no_cierra_el_origen(monkeypatch):
+    """Revision de Devin del PR #746: una reactivacion incierta cuya lectura no
+    trae el estado deja su intento abierto sin cobrar ni enviar. Eso es
+    trabajo pendiente: si el cierre daba el origen por completo, la vista de
+    huerfanas (que no ve reactivaciones) no abria otro ejecutor y ese dia
+    nadie volveria a leerla. Con dos horarios del mismo dia: el primero no
+    marca completo el origen; el segundo, ya sin pendientes, si."""
+    with _db("orbit_a05_pendiente_lectura") as (conn, _extra):
+        _semilla_live(conn)
+        _muere_en_apply(monkeypatch)
+        with pytest.raises(_Muerte):
+            _corre(conn)
+        monkeypatch.undo()
+        origen = conn.execute("SELECT max(id) FROM optimizer_cycle").fetchone()[0]
+        real = ciclo._fase_apply
+
+        def con_pendiente_de_lectura(*args, **kwargs):
+            fase = real(*args, **kwargs)
+            reactivaciones = {
+                **(fase.notas.get("reactivaciones") or {}),
+                "pendientes_de_lectura": 1,
+            }
+            return dataclasses.replace(
+                fase,
+                notas={**fase.notas, "reactivaciones": reactivaciones},
+                reactivaciones=reactivaciones,
+            )
+
+        monkeypatch.setattr(ciclo, "_fase_apply", con_pendiente_de_lectura)
+        primero = _atiende(conn, factory=_directa(_Amazon(**REMOTO_INICIAL)))
+        assert primero.ciclo is not None and primero.ciclo.resume_of == origen
+        assert (
+            json.loads(primero.ciclo.notes)["apply"]["reactivaciones"]["pendientes_de_lectura"] == 1
+        )
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is None, (
+            "queda una reactivacion por leer: el origen no se marca completo"
+        )
+        notas_origen = json.loads(
+            conn.execute("SELECT notes FROM optimizer_cycle WHERE id = %s", (origen,)).fetchone()[0]
+        )
+        assert "completo" not in notas_origen.get("apply", {})
+
+        monkeypatch.setattr(ciclo, "_fase_apply", real)
+        segundo = _atiende(conn, factory=_directa(_Amazon(**REMOTO_INICIAL)))
+        assert segundo.ciclo is not None and segundo.ciclo.resume_of == origen
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is not None, (
+            "sin pendientes, el horario siguiente ya no abre nada"
+        )
 
 
 @_skip_db
