@@ -2253,3 +2253,197 @@ def test_estampa_no_contamina_decision_normal_con_episodio():
         42,
     )
     assert pausa_baja.inputs["temporada_episodio_id"] == 42
+
+
+def test_historia_temporada_bitemporal_filtra_manos_y_fines_futuros(db_template):
+    """Hallazgo #10a: lee_plataforma(..., visto_el=...) filtra temporada_exclusion,
+    reactivacion_manual y temporada_fin_reduccion con timestamps > visto_el."""
+    from app.lecturas_caso import lee_plataforma
+
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw-bit", "kw bit", "5.60")
+    _siembra_metricas(conn, [kw1])
+
+    t_entra = _medianoche(D_E1)
+    visto_el = t_entra + dt.timedelta(hours=1)
+    t_futuro = visto_el + dt.timedelta(hours=2)
+
+    ciclo_id = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (t_entra, t_entra),
+    ).fetchone()[0]
+    ep_id = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (t_entra, ciclo_id, ids["config_id"]),
+    ).fetchone()[0]
+    _cambio_confirmado(
+        conn,
+        kw1,
+        ids["config_id"],
+        instante=t_entra,
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=ep_id,
+    )
+    _mano(conn, ep_id, kw1, t_futuro, "7.50")
+    _reactivacion_manual(conn, kw1, t_futuro)
+    conn.execute(
+        "INSERT INTO temporada_fin_reduccion (episodio_id, ad_entity_id, motivo, cycle_id,"
+        " cerrado_el) VALUES (%s, %s, 'mano_del_dueno', %s, %s)",
+        (ep_id, kw1, ciclo_id, t_futuro),
+    )
+    conn.commit()
+
+    cfg = temporada.desde_settings(_settings("live"))
+    assert cfg is not None
+    dia_lect = D_E1 + dt.timedelta(days=1)
+    plat_t = temporada_io.TemporadaPlataforma(
+        estacion=temporada.resuelve(cfg, dia_lect),
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.lee_estado(conn, "amazon_mx", dia_lect),
+    )
+    economia = EconomiaPlataforma(
+        moneda="MXN",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("350"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+
+    lect_corte = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(dia_lect),
+        economia=economia,
+        temporada_plat=plat_t,
+        visto_el=visto_el,
+    )
+    assert lect_corte._historia is not None
+    hist_corte = lect_corte._historia[kw1]
+    assert hist_corte.manos_externas == (), f"fugo mano futura: {hist_corte.manos_externas}"
+    assert hist_corte.fines == frozenset(), f"fugo fin futuro: {hist_corte.fines}"
+
+    # Control positivo: sin visto_el si aparecen los 3 eventos posteriores.
+    lect_ahora = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(dia_lect),
+        economia=economia,
+        temporada_plat=plat_t,
+    )
+    assert lect_ahora._historia is not None
+    hist_ahora = lect_ahora._historia[kw1]
+    assert {m.origen for m in hist_ahora.manos_externas} == {"exclusion", "reactivacion_manual"}
+    assert ep_id in hist_ahora.fines
+
+
+def test_historia_cubre_episodio_cerrado_mayor_365d_sin_fin_de_reduccion(db_template):
+    """Hallazgo #10b: un episodio cerrado hace >365 dias con hoja reducida y sin
+    temporada_fin_reduccion ni regreso confirmado extiende desde_historia hasta
+    abierto_el y lecturas.pendiente(...) devuelve RestauracionPendiente."""
+    from app.lecturas_caso import lee_plataforma
+
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw1 = _kw(conn, ids["ag"], "b-kw-365", "kw 365", "5.60")
+    _siembra_metricas(conn, [kw1])
+
+    hoy = dt.date(2027, 2, 10)
+    dia_abierto = hoy - dt.timedelta(days=400)
+    dia_entra = hoy - dt.timedelta(days=399)
+    dia_cerrado = hoy - dt.timedelta(days=370)
+
+    ciclo_viejo = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (_medianoche(dia_abierto), _medianoche(dia_abierto)),
+    ).fetchone()[0]
+    ep_viejo = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id, cerrado_el, cerrado_en_ciclo)"
+        " VALUES ('amazon_mx', %s, %s, %s, %s, %s) RETURNING id",
+        (
+            _medianoche(dia_abierto),
+            ciclo_viejo,
+            ids["config_id"],
+            _medianoche(dia_cerrado),
+            ciclo_viejo,
+        ),
+    ).fetchone()[0]
+    _cambio_confirmado(
+        conn,
+        kw1,
+        ids["config_id"],
+        dia=dia_entra,
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=ep_viejo,
+    )
+    conn.commit()
+
+    cfg = temporada.desde_settings(_settings("live"))
+    assert cfg is not None
+    plat_t = temporada_io.TemporadaPlataforma(
+        estacion=temporada.resuelve(cfg, hoy),
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.lee_estado(conn, "amazon_mx", hoy),
+    )
+    economia = EconomiaPlataforma(
+        moneda="MXN",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("350"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+
+    lect = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(hoy),
+        economia=economia,
+        temporada_plat=plat_t,
+    )
+    assert lect._historia_desde is not None and lect._historia_desde <= dia_abierto, (
+        f"esperaba desde_historia <= {dia_abierto}, obtuvo {lect._historia_desde}"
+    )
+    pend = lect.pendiente(kw1, Decimal("5.60"), piso=_PISO, techo=_TECHO)
+    assert pend == RestauracionPendiente(nivel=Decimal("8.00"), episodio_id=ep_viejo), pend
+
+    # Si se registra fin despues de visto_el, el replay en visto_el aun cubre el episodio,
+    # pero la lectura actual (sin visto_el) ya no extiende mas alla de 365d.
+    visto_antes_fin = _medianoche(hoy)
+    conn.execute(
+        "INSERT INTO temporada_fin_reduccion (episodio_id, ad_entity_id, motivo, cycle_id,"
+        " cerrado_el) VALUES (%s, %s, 'ya_arriba', %s, %s)",
+        (ep_viejo, kw1, ciclo_viejo, visto_antes_fin + dt.timedelta(hours=2)),
+    )
+    conn.commit()
+    lect_replay = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(hoy),
+        economia=economia,
+        temporada_plat=plat_t,
+        visto_el=visto_antes_fin,
+    )
+    assert lect_replay._historia_desde is not None and lect_replay._historia_desde <= dia_abierto
+    assert lect_replay.pendiente(kw1, Decimal("5.60"), piso=_PISO, techo=_TECHO) == (
+        RestauracionPendiente(nivel=Decimal("8.00"), episodio_id=ep_viejo)
+    )
+    lect_cerrado = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(hoy),
+        economia=economia,
+        temporada_plat=plat_t,
+    )
+    assert lect_cerrado._historia_desde == hoy - dt.timedelta(days=365)

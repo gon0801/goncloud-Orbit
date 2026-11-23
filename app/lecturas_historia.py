@@ -39,23 +39,49 @@ _SQL_MANOS_EXTERNAS = """
 SELECT x.ad_entity_id, x.detectada_el, x.bid_visto, 'exclusion'::text
   FROM temporada_exclusion x
   JOIN temporada_episodio e ON e.id = x.episodio_id
- WHERE e.platform = %s::platform AND x.bid_visto IS NOT NULL AND x.detectada_el >= %s
+ WHERE e.platform = %s::platform AND x.bid_visto IS NOT NULL AND x.detectada_el >= %s{tope_x}
  UNION ALL
 SELECT r.ad_entity_id, r.detectada_en, NULL::numeric, 'reactivacion_manual'::text
   FROM reactivacion_manual r
   JOIN ad_entity k ON k.id = r.ad_entity_id
- WHERE k.platform = %s::platform AND r.detectada_en >= %s
+ WHERE k.platform = %s::platform AND r.detectada_en >= %s{tope_r}
 """
 
 _SQL_FINES = """
 SELECT f.ad_entity_id, f.episodio_id
   FROM temporada_fin_reduccion f
   JOIN temporada_episodio e ON e.id = f.episodio_id
- WHERE e.platform = %s::platform
+ WHERE e.platform = %s::platform{tope}
 """
 
 _SQL_EPISODIO_ABIERTO_VIEJO = """
-SELECT min(abierto_el) FROM temporada_episodio WHERE platform = %s::platform AND cerrado_el IS NULL
+SELECT min(e.abierto_el)
+  FROM temporada_episodio e
+ WHERE e.platform = %s::platform{tope_abierto}
+   AND (
+       {abierto}
+       OR EXISTS (
+           SELECT 1
+             FROM v_cambio_bid c
+            WHERE c.episodio_id = e.id
+              AND c.origen = 'temporada'
+              AND c.motivo_temporada IN ('entra', 'ajusta'){tope_c}
+              AND NOT EXISTS (
+                  SELECT 1
+                    FROM temporada_fin_reduccion f
+                   WHERE f.episodio_id = e.id
+                     AND f.ad_entity_id = c.hoja_id{tope_f}
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                    FROM v_cambio_bid s
+                   WHERE s.episodio_id = e.id
+                     AND s.hoja_id = c.hoja_id
+                     AND s.origen = 'temporada'
+                     AND s.motivo_temporada = 'sale'{tope_s}
+              )
+       )
+   )
 """
 
 _SQL_CAMBIOS_HOJA = """
@@ -229,7 +255,25 @@ def _historia_temporada(
     desde_historia = desde
     if activa:
         desde_historia = d - dt.timedelta(days=memoria_dias)
-        viejo = conn.execute(_SQL_EPISODIO_ABIERTO_VIEJO, (plataforma,)).fetchone()[0]
+        if visto_el is None:
+            sql_ep = _SQL_EPISODIO_ABIERTO_VIEJO.format(
+                tope_abierto="",
+                abierto="e.cerrado_el IS NULL",
+                tope_c="",
+                tope_f="",
+                tope_s="",
+            )
+            p_ep: tuple = (plataforma,)
+        else:
+            sql_ep = _SQL_EPISODIO_ABIERTO_VIEJO.format(
+                tope_abierto=" AND e.abierto_el <= %s",
+                abierto="(e.cerrado_el IS NULL OR e.cerrado_el > %s)",
+                tope_c=" AND c.confirmado_el <= %s",
+                tope_f=" AND f.cerrado_el <= %s",
+                tope_s=" AND s.confirmado_el <= %s",
+            )
+            p_ep = (plataforma, visto_el, visto_el, visto_el, visto_el, visto_el)
+        viejo = conn.execute(sql_ep, p_ep).fetchone()[0]
         if viejo is not None:
             desde_historia = min(desde_historia, viejo.astimezone(dt.UTC).date())
     tope = "" if visto_el is None else " AND c.confirmado_el <= %s"
@@ -247,15 +291,25 @@ def _historia_temporada(
     desde_h = dt.datetime(
         desde_historia.year, desde_historia.month, desde_historia.day, tzinfo=dt.UTC
     )
+    if visto_el is None:
+        sql_manos = _SQL_MANOS_EXTERNAS.format(tope_x="", tope_r="")
+        p_manos: tuple = (plataforma, desde_h, plataforma, desde_h)
+        sql_fines = _SQL_FINES.format(tope="")
+        p_fines: tuple = (plataforma,)
+    else:
+        sql_manos = _SQL_MANOS_EXTERNAS.format(
+            tope_x=" AND x.detectada_el <= %s", tope_r=" AND r.detectada_en <= %s"
+        )
+        p_manos = (plataforma, desde_h, visto_el, plataforma, desde_h, visto_el)
+        sql_fines = _SQL_FINES.format(tope=" AND f.cerrado_el <= %s")
+        p_fines = (plataforma, visto_el)
     manos: dict[int, list[ManoExterna]] = {}
-    for hoja, instante, bid_visto, origen in conn.execute(
-        _SQL_MANOS_EXTERNAS, (plataforma, desde_h, plataforma, desde_h)
-    ).fetchall():
+    for hoja, instante, bid_visto, origen in conn.execute(sql_manos, p_manos).fetchall():
         manos.setdefault(hoja, []).append(
             ManoExterna(instante=instante.astimezone(dt.UTC), bid_visto=bid_visto, origen=origen)
         )
     fines: dict[int, set[int]] = {}
-    for hoja, episodio_id in conn.execute(_SQL_FINES, (plataforma,)).fetchall():
+    for hoja, episodio_id in conn.execute(sql_fines, p_fines).fetchall():
         fines.setdefault(hoja, set()).add(episodio_id)
     limite = desde
     cambios_90 = {
