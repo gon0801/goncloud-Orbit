@@ -1,0 +1,28 @@
+# Pruebas reales despues del despliegue - OLA 2 TEMPORADA 01
+# Fecha: 2026-11-23 02:05 UTC
+# PR 738 merge: 42a69c1f54123ee04e43f676ae2409f4fcae5073
+# PR 739 merge y MOTOR_SHA: 8ce205d054374b9463c129bef64d8029d9d07cec
+# Las tres primeras comprueban textos del paquete app dentro de orbit-app-1;
+# la cuarta comprueba el codigo nuevo de Ola 2 y la quinta consulta las claves
+# live del bloque H.
+
+$ bash docs/evidencia/arreglos-01/desplegado.sh bid_cambiado_fuera
+EXIT=0
+
+$ bash docs/evidencia/arreglos-01/desplegado.sh reactivaciones_pendientes
+EXIT=0
+
+$ bash docs/evidencia/arreglos-01/desplegado.sh propuesta_presupuesto
+EXIT=0
+
+$ bash docs/evidencia/arreglos-01/desplegado.sh _pendiente_posterior_con_otro_destino
+EXIT=0
+
+$ echo "select settings->>'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_us', settings->>'ads_bid_recuperacion_amazon_mx', settings->>'ads_bid_recuperacion_amazon_us' from config_version order by id desc limit 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
+live|live|live|live
+
+$ ... | grep -o live | wc -l
+4
+
+# /mnt/data/appdata/orbit/despliegue/sha = 8ce205d054374b9463c129bef64d8029d9d07cec
+# /health = 200
