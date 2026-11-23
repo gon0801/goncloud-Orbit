@@ -183,7 +183,7 @@ def test_temporada01_h_practica_no_pierde_la_mano_del_dueno(db_template, modo_re
     # Orbit dejo la puja en 8.00 hace 120 dias; despues el dueno la puso en 7.00
     # en Amazon y el sync ya trae ese valor (sin fila en el ledger de Orbit).
     kw = _kw(conn, ag, "h2-kw", "kw dueno", "7.00")
-    _siembra_metricas(conn, [kw])
+    _siembra_metricas(conn, [camp, kw])
     _cambio_confirmado(
         conn,
         kw,
