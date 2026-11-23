@@ -146,7 +146,10 @@ def test_temporada01_e_mano_del_dueno_excluye(db_template):
             " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 1000.00, 'MXN')",
             (campana, _medianoche(D_E1) - dt.timedelta(days=15)),
         )
-    _siembra_metricas(conn, [kw_mano, kw_rec, kw_r4, kw_cuenta])
+    # La ingesta diaria trae la fila de campana junto a la de la hoja, y BUD
+    # cuenta los ultimos 7 dias con ingesta de CAMPANAS: sin esas filas el
+    # presupuesto queda sin medir y toda subida se retiene como topada.
+    _siembra_metricas(conn, [camp, camp_r4, kw_mano, kw_rec, kw_r4, kw_cuenta])
     desde = D_E1 - dt.timedelta(days=90)
     corte = D_E1 - dt.timedelta(days=10)
     hasta = D_E1 - dt.timedelta(days=1)
