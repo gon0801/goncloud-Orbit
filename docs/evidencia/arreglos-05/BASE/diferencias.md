@@ -40,7 +40,7 @@ Los originales estan en `revision/historico/` y coinciden con `manifest.json`: `
 
 ## Correcciones despues de la revision automatica del PR
 
-Las siete observaciones de Devin eran ciertas y tocaban solo a las herramientas de esta carpeta. Cinco salieron en la primera ronda y una en cada una de las dos siguientes. Astra, el revisor normal, anadio tres mas sobre la entrada del runner completo, el veredicto de los controles y la lista de bloques de la lectura.
+Las siete observaciones de Devin eran ciertas y tocaban solo a las herramientas de esta carpeta. Cinco salieron en la primera ronda y una en cada una de las dos siguientes. Astra, el revisor normal, anadio tres mas sobre la entrada del runner completo, el veredicto de los controles y la lista de bloques de la lectura. La ultima fila es de Devin y la mando corregir el coordinador.
 
 | Herramienta | Defecto | Correccion y prueba |
 |---|---|---|
@@ -54,6 +54,7 @@ Las siete observaciones de Devin eran ciertas y tocaban solo a las herramientas 
 | `README.md`, runner completo (Astra) | Reproducia `comprobar.sh ALL` a secas. Asi corre en el shell del operador, toma el `python` del PATH (3.11 en esta PC) y la guarda de `comprobar.sh` solo compara host, puerto y base: no ve una `PGHOSTADDR` heredada, con la que libpq conecta las pruebas a otra direccion. | Modo `acepta.sh ALL <destino-nuevo.xml>`, con las mismas guardas y el Python 3.12 del proyecto. Con `PGHOSTADDR=127.0.0.2` exportada, `comprobar.sh` a secas no logra conectar y el modo `ALL` corre completo contra el laboratorio (5 rojos y 26 verdes). |
 | `acepta.sh`, veredicto (Astra) | Un control de pytest pasaba si la salida no traia resumen reconocible. Con `PYTEST_ADDOPTS="--collect-only -qq"` o `-p no:terminal` los seis controles se marcaban ok sin ejecutar un caso. | Cada control de pytest exige un resumen con al menos el numero esperado de passed (4, 2, 1, 1 y 34); el control que hoy debe fallar exige su `failed`; la comprobacion de Git solo mira su salida. Con esas dos opciones el lanzador anterior salia 0 con todo en ok y el nuevo sale 1 con seis fallos. |
 | `previa.sh`, lista de bloques (Astra) | Con un `previa.sql` vacio, sin marcadores o truncado, el bucle corria cero consultas y el script certificaba la lectura con salida 0. | Trae la lista de los 39 bloques obligatorios y aborta con salida 2 antes de consultar si el archivo no la trae exacta (falta uno, sobra uno o se repite). Al cierre exige haber procesado los 39. Probado en seco con las cinco variantes y con un lector que falla en la decima llamada. |
+| `acepta.sh`, rutas en Linux (Devin, por orden del coordinador) | El modo `ALL` y el temporal propio usaban `cygpath -m`, que solo existe en Git Bash. En Linux las tres rutas quedaban vacias y `comprobar.sh` abortaba por falta de destino: en el laboratorio Docker de ACEPTACION solo quedaba el camino sin guardas. | `ruta()` usa `cygpath -m` si existe y si no devuelve la ruta nativa. Se aplica al temporal, al interprete y al destino, y cada uno se comprueba antes de delegar. Probado en esta PC con `cygpath` escondido del PATH, donde tampoco hay `python`: `ALL` corre completo con el interprete del proyecto (5 rojos y 26 verdes) y crea el XML. |
 
 ## Notas que no son bloqueo
 

@@ -61,9 +61,20 @@ if fuera:
     )
 PY
 
+# Ruta lista para un programa nativo: en Git Bash, cygpath -m la vuelve C:/...;
+# en Linux y en macOS cygpath no existe y la ruta nativa ya sirve (solo se
+# cambian las barras invertidas por normales, por si llegan de un interprete).
+ruta() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "${1//\\//}"; fi
+}
+
 # Varias sesiones comparten el temporal del sistema y pytest se cae al cerrar si
 # otra tiene tomado su pytest-of-<usuario>/pytest-current. Temporal propio.
-TMPDIR=$(cygpath -m "$(mktemp -d)")
+TMPDIR=$(ruta "$(mktemp -d)")
+if [[ -z $TMPDIR || ! -d $TMPDIR ]]; then
+  echo "No se pudo crear el temporal propio de pytest: TMPDIR vacio o inexistente" >&2
+  exit 2
+fi
 trap 'rm -rf "$TMPDIR"' EXIT
 export TMPDIR
 comprobar=docs/evidencia/arreglos-05/comprobar.sh
@@ -77,10 +88,18 @@ if [[ ${1:-} == ALL ]]; then
     echo "Uso: $0 ALL <destino-nuevo.xml>, con un archivo que aun no exista" >&2
     exit 2
   fi
-  python_proyecto=$(cygpath -m "$(uv run --frozen --python 3.12 python -c 'import sys; print(sys.executable)')")
+  python_proyecto=$(ruta "$(uv run --frozen --python 3.12 python -c 'import sys; print(sys.executable)')")
+  destino_xml=$(ruta "$2")
+  if [[ -z $python_proyecto || ! -x $python_proyecto ]]; then
+    echo "No se encontro el interprete Python 3.12 del proyecto" >&2
+    exit 2
+  fi
+  if [[ -z $destino_xml ]]; then
+    echo "No se pudo convertir la ruta del destino XML: $2" >&2
+    exit 2
+  fi
   echo "# ALL de ARREGLOS 05 sobre $(git rev-parse HEAD); PG* de destino quitadas: $pg_quitadas" >&2
-  ORBIT_ACCEPT_PYTHON="$python_proyecto" ORBIT_ACCEPTANCE_XML="$(cygpath -m "$2")" \
-    bash "$comprobar" ALL
+  ORBIT_ACCEPT_PYTHON="$python_proyecto" ORBIT_ACCEPTANCE_XML="$destino_xml" bash "$comprobar" ALL
   exit $?
 fi
 fallos=0
