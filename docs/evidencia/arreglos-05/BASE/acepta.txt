@@ -1,28 +1,28 @@
-# Acepta de ARREGLOS 05 BASE. SHA 2639ff8fd7ce51b23926733d1faf4b9372222dbe
+# Acepta de ARREGLOS 05 BASE. SHA 3f018190287d01add406a3cb88e331799db326bf
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
 
 ### [ACEPTA] BASE.0 plan y diseno en origin/master
-$ bash -c git merge-base --is-ancestor origin/master HEAD && (for f in plans/arreglos-05.md docs/evidencia/arreglos-05/{DISENO.md,COBERTURA.md,ACEPTACION.md,comprobar.sh}; do git cat-file -e "origin/master:$f" || exit 1; done); echo "origin/master=$(git rev-parse origin/master) HEAD=$(git rev-parse HEAD)"
-origin/master=33844bb365d707e523fc7865dd56668d69047dc4 HEAD=2639ff8fd7ce51b23926733d1faf4b9372222dbe
-salida=0
+$ bash -c git merge-base --is-ancestor origin/master HEAD && (for f in plans/arreglos-05.md docs/evidencia/arreglos-05/{DISENO.md,COBERTURA.md,ACEPTACION.md,comprobar.sh}; do git cat-file -e "origin/master:$f" || exit 1; done) && echo "origin/master=$(git rev-parse origin/master) HEAD=$(git rev-parse HEAD)"
+origin/master=33844bb365d707e523fc7865dd56668d69047dc4 HEAD=3f018190287d01add406a3cb88e331799db326bf
+resultado=ok
 
 ### [ACEPTA] BASE.3 control 01
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_01
 ....                                                                     [100%]
-4 passed, 5 deselected in 15.65s
-salida=0
+4 passed, 5 deselected in 15.83s
+resultado=ok
 
 ### [ACEPTA] BASE.3 controles 08 y D2
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T pricing test_08 or test_D2
 ..                                                                       [100%]
-2 passed, 5 deselected in 6.54s
-salida=0
+2 passed, 5 deselected in 6.62s
+resultado=ok
 
 ### [ACEPTA] BASE.3 control 09
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T ingest test_09
 .                                                                        [100%]
-1 passed, 5 deselected in 4.13s
-salida=0
+1 passed, 5 deselected in 4.15s
+resultado=ok
 
 ### [ACEPTA] BASE.3 banda manual 01X
 $ env CI=1 PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -p no:cacheprovider tests/test_config_write.py -k arreglos01_x
@@ -33,8 +33,8 @@ $ env CI=1 PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q 
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-1 passed, 26 deselected, 1 warning in 1.03s
-salida=0
+1 passed, 26 deselected, 1 warning in 1.09s
+resultado=ok
 
 ### [ACEPTA] BASE.3 controles TEMPORADA B.2, E y F
 $ env PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -p no:cacheprovider tests -k temporada01_b_ or temporada01_e_ or temporada01_f_
@@ -45,8 +45,8 @@ $ env PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -p no
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-34 passed, 6057 deselected, 1 warning in 55.66s
-salida=0
+34 passed, 6057 deselected, 1 warning in 55.65s
+resultado=ok
 
 ### [CONTROL] Ciclo 4 legado: conciliacion antes de decidir
 $ env PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q -rs -p no:cacheprovider docs/evidencia/arreglos-2026-11-12/pruebas/ciclo/test_revision_ciclo.py -k reconciliacion_corre_despues_de_decidir
@@ -85,7 +85,7 @@ docs\evidencia\arreglos-2026-11-12\pruebas\ciclo\test_revision_ciclo.py:174: Ass
 ciclo1: degraded | ciclo2 skips bid_en_vuelo: 1 | ciclo2 reconciliados confirmados: 1
 ------------------------------ Captured log call ------------------------------
 WARNING  app.cycle_apply:cycle_apply.py:310 fase de apply abortada por error: status=500 sin retry (POST no idempotente): PUT https://advertising-api.amazon.com/sp/keywords
-1 failed, 4 deselected in 3.14s
-salida=1
+1 failed, 4 deselected in 3.25s
+resultado=salida=1
 
-# comandos Acepta con salida distinta de 0: 0
+# comandos Acepta que no pasaron: 0

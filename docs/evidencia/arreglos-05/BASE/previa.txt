@@ -1,7 +1,7 @@
-# Lectura previa de produccion (solo SELECT). SHA 2639ff8fd7ce51b23926733d1faf4b9372222dbe
+# Lectura previa de produccion (solo SELECT). SHA 3f018190287d01add406a3cb88e331799db326bf
 
 == momento_utc
-2026-11-23 06:07:47.828151|orbit_read|on|160015
+2026-11-23 06:41:37.208158|orbit_read|on|160015
 
 == esquema_columnas
 ads_optimizer_goal|id,scope,ad_entity_id,platform,target_acos_pct,bid_floor,bid_ceiling,bid_currency,harvest_campaign_id,harvest_ad_group_id,harvest_default_bid,enabled,mode,created_at,updated_at
@@ -68,6 +68,9 @@ done|live|True|True|True|True|False|100
 done|live|True|True|True|True|True|1
 done|shadow|True|True|True|False|False|30
 skipped|off|True|False|False|False|False|2
+
+== desenlaces_con_ciclo_distinto
+193|0|515|16
 
 == ciclos_sin_cerrar
 
