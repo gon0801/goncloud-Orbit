@@ -1773,3 +1773,73 @@ def test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote(cuando
             "SELECT id FROM decision WHERE cycle_id = %s AND kind = 'bid'", (res.cycle_id,)
         ).fetchall()
         assert len(pujas) == 2 and all(_desenlace(conn, p[0]) is None for p in pujas)
+
+
+def test_arreglos05_a_rechazo_de_identidad_en_la_recuperacion_de_cosecha(monkeypatch):
+    """Revision de Devin del PR #746: la recuperacion de cosecha llama al mismo
+    ejecutor que aplica una cosecha nueva. Un 401/403 de ese ejecutor, o de una
+    de sus lecturas, se trataba como ambiguo y el ciclo seguia mutando. Se
+    propaga; un 5xx sigue siendo ambiguo y el trabajo queda, tal cual, para el
+    ciclo siguiente."""
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from test_apply_harvest import _aplicador
+
+    from app import apply, apply_cola
+    from app import apply_harvest_reconciliacion as recuperacion
+    from app.ads.client import AdsApiError
+    from app.ads.write import AdsApiErrorMutacion
+
+    estado = {"job": "exact_created", "cola": "applying"}
+
+    def execute(sql, params=None):
+        filas: list = []
+        if sql == recuperacion._SQL_JOBS_EN_VUELO:
+            filas = [(53, 90)]
+        elif sql == recuperacion._SQL_HARVEST_APLICANDO and estado["cola"] == "applying":
+            filas = [(90, 53)]
+        elif sql == recuperacion._SQL_JOB_EN_VUELO_DE:
+            filas = [(True,)]
+        elif sql == recuperacion._ejecucion._SQL_CLAIM:
+            filas = [(1,)]
+        elif "UPDATE apply_queue SET estado = %s" in sql:
+            estado["cola"] = params[0]
+        return SimpleNamespace(fetchall=lambda: filas, fetchone=lambda: filas[0] if filas else None)
+
+    conn = Mock()
+    conn.transaction.side_effect = nullcontext
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(apply, "gate_ancestros", lambda _c, _e: None)
+    monkeypatch.setattr(apply_cola, "_modo_efectivo_corte", lambda *_a, **_k: "live")
+    job = SimpleNamespace(id=53, decision_id=90, ad_entity_id=1, fase="exact_created")
+    monkeypatch.setattr(recuperacion._ejecucion, "_job_de_fila", lambda _fila: job)
+    monkeypatch.setattr(recuperacion, "_cola_de", lambda _conn, _decision: (90, "applying"))
+    alcance: list = []
+    aplicador = _aplicador(conn, lambda request: None, 7)
+
+    def rechazado(*_args, **_kwargs):
+        alcance.append(1)
+        raise AdsApiErrorMutacion(
+            "status=403: POST /sp/keywords",
+            cuerpo="{}",
+            status=403,
+            method="POST",
+            path="/sp/keywords",
+        )
+
+    monkeypatch.setattr(recuperacion._ejecucion, "_continua_job", rechazado)
+    with pytest.raises(AdsApiErrorMutacion, match="status=403"):
+        recuperacion.reconcilia_harvest(conn, aplicador, "amazon_us")
+    assert alcance == [1], "la recuperacion llamo al ejecutor del trabajo"
+    assert estado == {"job": "exact_created", "cola": "applying"}, "el trabajo queda como estaba"
+
+    def ambiguo(*_args, **_kwargs):
+        error = AdsApiError("status=500: POST /sp/keywords")
+        error.status = 500
+        raise error
+
+    monkeypatch.setattr(recuperacion._ejecucion, "_continua_job", ambiguo)
+    resumen = recuperacion.reconcilia_harvest(conn, aplicador, "amazon_us")
+    assert resumen.jobs_done == 0, "un 5xx no se trata como fallo global"
