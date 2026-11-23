@@ -31,10 +31,10 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 27 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 27 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 27 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 27 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 32 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 32 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 32 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 32 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -102,6 +102,19 @@ el claim del ejecutor antes de su fase, porque la cerca exige la fila del claim.
  La fixture autouse de `tests/conftest.py` hace ademas que todo aplicador de prueba
 nazca con el claim, tomado por una conexion propia y con tope (`ec543465`): tomado en la
 conexion del aplicador retenia el cerrojo y colgaba el latido del ciclo.
+
+### Ronda 3 (Astra y Devin, segunda pasada)
+
+Seis correcciones, cada una con su prueba en rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde, y su commit.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Astra 5 | El 403 o el 401 persistente en una LECTURA se trataba como fallo de ESA puja: el lote seguia con la siguiente. | El rechazo de identidad se reconoce en cualquier `AdsApiError` con 401/403 y se propaga en el LIST previo al PUT, el de verificacion, la revalidacion de cortes y los reconciliadores; el intento cuyo PUT salio queda abierto. | `test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote` | `6ee6a5fd` |
+| Astra 6, Devin 10 | Una reactivacion incierta se reenviaba aunque el LIST omitiera la hoja o dijera ARCHIVED. | Solo una lectura PAUSED autoriza el reenvio; sin estado el intento queda abierto sin cuota ni PUT; archivada se cierra sin reenviar. | `test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar` | `7e3ae4a8` |
+| Devin 8 | El intento conciliado se sellaba `ok:reconciliado`, que la reversa manual, temporada y la pausa propia no leen. | Se sella `ok` con `conciliado` en el ack; la guarda de la reversa manual lo reconoce. | misma prueba, con la guarda de la reversa manual | `7e3ae4a8` |
+| Devin 9 | La recuperacion de cosecha trataba el 401/403 como ambiguo y el ciclo seguia mutando. | Se propaga en las seis capturas de la recuperacion; lo demas sigue ambiguo. | `test_arreglos05_a_rechazo_de_identidad_en_la_recuperacion_de_cosecha` | `213c3ad9` |
+| Devin 11 | Con 401/403 la reversa manual propagaba la excepcion y la API respondia 500. | En la frontera manual es un resultado: `confirmada: false`. Cobertura declarada: la prueba parchea las dos funciones de reversa y no ejercita los endpoints. | `test_arreglos05_a_reversa_manual_con_rechazo_de_identidad_no_es_un_500` | `5b42dba8` |
+| Devin 12 | En el camino del 401/403 el desenlace se escribia con el aviso previo del dueno, sin la cerca. | El cierre pasa por la cerca del claim dentro de la transaccion; sin claim el intento queda abierto. | `test_arreglos05_a_la_puja_rechazada_no_se_cierra_sin_el_claim` | `1cce20d4` |
 
 ## Vecinos
 

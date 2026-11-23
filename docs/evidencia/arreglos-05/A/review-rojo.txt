@@ -45,3 +45,17 @@ test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[401]
   AssertionError: la puja rechazada se cierra
 test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[403]
   AssertionError: la puja rechazada se cierra
+
+# Ronda 3: rojo sobre la cabeza anterior a cada correccion (4d6f3f67 y los commits anteriores de esta ronda):
+test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote[antes]
+  AssertionError: assert 'done' == 'degraded'
+test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote[despues]
+  AssertionError: assert 'done' == 'degraded'
+test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
+  AssertionError: ResumenReactivacion(confirmadas=2, fallidas=0, sin_quota=2, omitidas=0, caps_saturados=(CapSaturado(platform='amazon_us', kind='pause', used=5, cap=5),))
+test_arreglos05_a_rechazo_de_identidad_en_la_recuperacion_de_cosecha
+  Failed: DID NOT RAISE AdsApiErrorMutacion
+test_arreglos05_a_reversa_manual_con_rechazo_de_identidad_no_es_un_500
+  app.ads.write.AdsApiErrorMutacion: status=403: PUT /sp/keywords
+test_arreglos05_a_la_puja_rechazada_no_se_cierra_sin_el_claim
+  AssertionError: {'bids_reconciliados': {'confirmados': 0, 'fallidos': 0}, 'pausas_reconciliadas': {'confirmadas': 0, 'fallidas': 0}, '...'live': 3, 'shadow': 0, 'choques': 0}, 'apply_error': 'status=403: PUT https://advertising-ap
