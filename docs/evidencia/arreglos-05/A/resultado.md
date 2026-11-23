@@ -31,10 +31,10 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 32 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 32 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 32 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 32 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 37 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 37 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 37 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 37 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -115,6 +115,17 @@ Seis correcciones, cada una con su prueba en rojo (registro en [review-rojo.txt]
 | Devin 9 | La recuperacion de cosecha trataba el 401/403 como ambiguo y el ciclo seguia mutando. | Se propaga en las seis capturas de la recuperacion; lo demas sigue ambiguo. | `test_arreglos05_a_rechazo_de_identidad_en_la_recuperacion_de_cosecha` | `213c3ad9` |
 | Devin 11 | Con 401/403 la reversa manual propagaba la excepcion y la API respondia 500. | En la frontera manual es un resultado: `confirmada: false`. Cobertura declarada: la prueba parchea las dos funciones de reversa y no ejercita los endpoints. | `test_arreglos05_a_reversa_manual_con_rechazo_de_identidad_no_es_un_500` | `5b42dba8` |
 | Devin 12 | En el camino del 401/403 el desenlace se escribia con el aviso previo del dueno, sin la cerca. | El cierre pasa por la cerca del claim dentro de la transaccion; sin claim el intento queda abierto. | `test_arreglos05_a_la_puja_rechazada_no_se_cierra_sin_el_claim` | `1cce20d4` |
+
+### Tercera pasada (Astra y Devin)
+
+Cuatro correcciones y sus pruebas de nivel de barrido, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Devin 13 | Una reactivacion incierta sin estado en la lectura contaba como fallo y el origen quedaba completo: ese dia nadie volvia a leerla. | Cuenta como pendiente de lectura y el cierre no marca completo el origen mientras quede alguna. | `test_arreglos05_a_reactivacion_pendiente_de_lectura_no_cierra_el_origen` | `a99097d3` |
+| Astra 10 | Con un 400 el desenlace lo escribia el llamador despues del sello; una caida entre ambos dejaba la puja huerfana. | El desenlace `fallo_http` va en la misma transaccion que el sello, para todo 4xx; el aborto global sigue siendo solo del 401/403. | `test_arreglos05_a_el_rechazo_de_una_puja_se_cierra_con_su_sello` | `9665191e` |
+| Astra 8 | Un 403 en el LIST previo de la pausa de producto devolia `pendiente` y el barrido seguia con el corte siguiente. | El intento queda pendiente y el rechazo sube hasta la fase. | unitaria y de barrido: `..._la_pausa_de_producto_propaga_el_rechazo_de_identidad`, `..._barrido_pausa_de_producto_403_detiene_el_corte_siguiente` | `80978ff4`, `a3fc579e` |
+| Astra 9 | Un 403 en el DELETE compensatorio de la cosecha sellaba el intento y la capa de arriba lo convertia en texto. | El sello se conserva y el rechazo sube por las dos capas. | `..._la_reversa_de_cosecha_propaga_el_rechazo_de_identidad` (dos capas) | `2c0c33d8`, `a3fc579e` |
 
 ## Vecinos
 
