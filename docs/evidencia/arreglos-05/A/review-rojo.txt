@@ -39,3 +39,9 @@ test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
   AssertionError: la hoja ya habilitada no se reenvia
 test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno
   AssertionError: None
+
+# Setimo hilo de Devin, rojo sobre 0f30fc16 (lo destapo la correccion del 401/403):
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[401]
+  AssertionError: la puja rechazada se cierra
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[403]
+  AssertionError: la puja rechazada se cierra
