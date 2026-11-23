@@ -205,7 +205,7 @@ def propuesta_presupuesto(
             and base_alto is not None
             and base_alto < antes
             and bool(cambios_antes_alto)
-            and cambios_antes_alto[-1][0] < episodio.cerrado_el
+            and cambios_antes_alto[-1][0] <= episodio.cerrado_el
             and cambios_antes_alto[-1][1] == base_alto
         )
         previo = base_alto

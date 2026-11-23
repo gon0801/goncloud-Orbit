@@ -761,11 +761,12 @@ def test_propuesta_alta_conserva_propuesta_tras_cambiar_porcentaje_baja():
 
 
 def test_propuesta_alta_no_confunde_recorte_post_cierre_con_restauracion():
-    """Review PR #738 (Devin #2): un recorte manual despues del cierre de la
-    baja y antes de la preparacion (300 en enero, baja cerrada el 1 feb, recorte
-    a 240 el 3 feb, subida a 300 el 10 feb) no es una restauracion de la baja y
-    debe contar como subida ya aplicada del bloque alto."""
-    for fecha_recorte in (dt.date(2027, 2, 3), dt.date(2027, 2, 1)):
+    """Review PR #738 (Devin #2 y #3): un recorte manual posterior al cierre
+    (2 o 3 feb tras cerrar el 1 feb) no es restauracion de la baja y cuenta como
+    subida aplicada del bloque alto; en cambio, un recorte observado la misma
+    fecha UTC del cierre (ingest structure 06:45 UTC antes del ciclo 09:40 UTC)
+    si se reconoce al restaurarse en preparacion."""
+    for fecha_recorte in (dt.date(2027, 2, 2), dt.date(2027, 2, 3)):
         assert (
             _propuesta(
                 hoy=dt.date(2027, 3, 10),
@@ -780,6 +781,25 @@ def test_propuesta_alta_no_confunde_recorte_post_cierre_con_restauracion():
             )
             is None
         ), f"recorte post-cierre el {fecha_recorte} no debe ocultarse como restauracion"
+
+    # Recorte del ultimo dia de baja observado el mismo dia UTC del cierre (1 feb
+    # antes del ciclo) y restaurado en preparacion (8 feb): conserva 375.00.
+    mismo_dia_cierre = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+        historial=(
+            (dt.date(2026, 12, 1), Decimal("300")),
+            (dt.date(2027, 2, 1), Decimal("210")),
+            (dt.date(2027, 2, 8), Decimal("300")),
+        ),
+        inicio_bloque_alto=dt.date(2027, 2, 8),
+        dias_topados_7d=5,
+    )
+    assert mismo_dia_cierre is not None
+    assert (mismo_dia_cierre.propuesto, mismo_dia_cierre.motivo) == (
+        Decimal("375.00"),
+        "alta_sin_presupuesto",
+    )
 
 
 def test_cuenta_dias_topados_omite_dia_sin_fila_y_presupuesto_cero():
