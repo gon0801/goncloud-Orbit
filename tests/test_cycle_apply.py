@@ -572,15 +572,20 @@ def test_lease_perdido_a_medida_aborta_sin_http(secrets_falsos):
             == 2
         )
         # TEMPORADA 01 E: el aborto del segundo bid cae en su LECTURA FRESCA,
-        # antes de la cuota y del ledger: no nace ledger sin sello y la
-        # decision queda sin desenlace (el ciclo siguiente la re-decide).
+        # antes de la cuota y del ledger: no nace ledger por el y la decision
+        # queda sin desenlace (el ciclo siguiente la re-decide).
         assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 1
+        # ARREGLOS 05 A: el dueno cambio mientras volaba la lectura de vuelta
+        # del PRIMER bid. Ese owner desplazado no sella (cerca del claim en la
+        # transaccion del sello): el intento queda sin sellar y sin resumen, y
+        # la conciliacion del sucesor lo resuelve leyendo.
         assert (
             conn.execute("SELECT count(*) FROM apply_attempt WHERE finished_at IS NULL").fetchone()[
                 0
             ]
-            == 0
-        )
+            == 1
+        ), "el dueno desplazado no sella el primer bid"
+        assert conn.execute("SELECT count(*) FROM decision_application").fetchone()[0] == 0
 
 
 # ---------------------------------------------------------------------------
