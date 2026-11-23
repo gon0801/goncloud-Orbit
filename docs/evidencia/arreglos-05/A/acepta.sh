@@ -72,7 +72,7 @@ pytest_paso() {
   linea=$(printf '%s\n' "$1" | grep -E ' in [0-9.]+s( \([0-9:]+\))?( =+)?$' | tail -n 1)
   [[ -n $linea ]] || { echo "sin resumen de pytest"; return 1; }
   if [[ $2 == legado ]]; then
-    [[ $linea =~ ^4\ passed,\ 1\ failed\ in ]] || { echo "se esperaba 4 passed, 1 failed y el resumen es: $linea"; return 1; }
+    [[ $linea =~ ^(4\ passed,\ 1\ failed|1\ failed,\ 4\ passed)\ in ]] || { echo "se esperaba 4 passed, 1 failed y el resumen es: $linea"; return 1; }
     return 0
   fi
   [[ $linea =~ ([0-9]+)\ passed ]] || { echo "resumen sin passed: $linea"; return 1; }
