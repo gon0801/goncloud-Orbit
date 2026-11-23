@@ -363,9 +363,10 @@ def _aprende_negative(
 def _propaga_si_es_global(exc: BaseException) -> None:
     """Deja pasar un fallo ambiguo de ESTE trabajo (el ciclo siguiente lo
     retoma) y propaga el de toda la corrida: Amazon rechazo la identidad o los
-    permisos (401/403) o el token no se pudo refrescar. Detras de ese rechazo
-    no sale ninguna mutacion mas (ARREGLOS 05 A, revision)."""
-    if isinstance(exc, AdsAuthError) or apply.es_rechazo_de_identidad(exc):
+    permisos con un 401/403. Detras de ese rechazo no sale ninguna mutacion
+    mas (ARREGLOS 05 A, revision). Un fallo del token de LWA sigue siendo
+    ambiguo, como fijo ARREGLOS 04 BC: el trabajo queda pendiente."""
+    if apply.es_rechazo_de_identidad(exc):
         raise exc
 
 
