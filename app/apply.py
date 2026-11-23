@@ -565,6 +565,12 @@ class Aplicador:
             _tick(self._tick_fn)
             identidad_o_permisos = es_rechazo_de_identidad(exc)
             with tx_durable(self._conn):
+                if identidad_o_permisos:
+                    # Cerca del claim: el desenlace definitivo de la puja solo
+                    # lo escribe el dueno. Si el claim cambio entre el aviso
+                    # previo y aqui, el intento queda abierto y no se cierra
+                    # nada; la conciliacion del sucesor lo resuelve leyendo.
+                    self.exige_dueno()
                 _sella_ledger(
                     self._conn,
                     id_attempt,

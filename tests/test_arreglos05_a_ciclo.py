@@ -153,6 +153,7 @@ class _Amazon:
         self.falla_primer_put = falla_primer_put
         self.aplica_al_fallar = aplica_al_fallar
         self.rechaza_identidad = rechaza_identidad
+        self.al_rechazo_identidad = None
         self.rechaza_lectura = rechaza_lectura
         self.al_put_bid = None
         self.al_list = None
@@ -190,6 +191,8 @@ class _Amazon:
                 # 401/403: Amazon rechaza la identidad o los permisos de toda
                 # la corrida. No aplica nada; el envio queda registrado.
                 (self.puts_bid if "bid" in obj else self.puts_estado).append(obj)
+                if self.al_rechazo_identidad is not None:
+                    self.al_rechazo_identidad()
                 return httpx.Response(self.rechaza_identidad, json={"code": "ACCESS_DENIED"})
             if "bid" in obj:
                 self.puts_bid.append(obj)
@@ -1908,3 +1911,48 @@ def test_arreglos05_a_reversa_manual_con_rechazo_de_identidad_no_es_un_500(monke
                 cliente_reversa=lambda *_a, **_k: object(),
                 reversa_bid_fn=lambda *_a, **_k: True,
             )
+
+
+@_skip_db
+def test_arreglos05_a_la_puja_rechazada_no_se_cierra_sin_el_claim(monkeypatch):
+    """Revision de Devin del PR #746: en el camino del 401/403 el dueno se
+    validaba con el aviso previo, que lee sin bloquear, y el desenlace se
+    escribia sin la cerca. Si el claim cambiaba entre ese aviso y la
+    escritura, el ciclo desplazado cerraba la puja. Ahora el cierre pasa por
+    la cerca: el intento queda abierto y nada se cierra."""
+    from app import apply
+
+    with _db("orbit_a05_cierre_sin_claim") as (conn, _extra):
+        _semilla_live(conn)
+        amazon = _Amazon(**REMOTO_INICIAL, rechaza_identidad=403)
+        senal: dict = {}
+        amazon.al_rechazo_identidad = lambda: senal.__setitem__("visto", True)
+        aviso_previo = apply._tick
+
+        def aviso_y_pierde(fn):
+            aviso_previo(fn)
+            if senal.pop("visto", None):
+                # El sucesor toma el claim justo despues del aviso previo.
+                conn.execute(
+                    "UPDATE ads_optimizer_lock SET owner = 'sucesor' WHERE job_key = %s",
+                    (JOB_KEY,),
+                )
+
+        monkeypatch.setattr(apply, "_tick", aviso_y_pierde)
+
+        res = _corre(conn, factory=_directa(amazon))
+
+        notas = json.loads(res.notes)["apply"]
+        assert notas.get("apply_abortado_owner") is True, notas
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_sin_aplicar WHERE motivo = 'fallo_http'"
+            ).fetchone()[0]
+            == 0
+        ), "el ciclo desplazado no cierra la puja"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE finished_at IS NOT NULL"
+            ).fetchone()[0]
+            == 0
+        ), "el intento queda abierto, sin sello"
