@@ -685,6 +685,16 @@ def _migracion(nombre: str) -> Path:
     return MIGRACIONES / nombre
 
 
+def _sonda_de(ruta: Path) -> str:
+    """El SELECT de la cabecera `-- sonda-aplicada:` que lee el instalador."""
+    cabecera = next(
+        cruda
+        for cruda in ruta.read_text(encoding="utf-8").splitlines()[:10]
+        if cruda.startswith("-- sonda-aplicada:")
+    )
+    return cabecera.split("-- sonda-aplicada:", 1)[1].strip().rstrip(";")
+
+
 def _columnas_nuevas(conn) -> set[str]:
     return {
         fila[0]
@@ -708,6 +718,7 @@ def test_arreglos05_a_migracion_sello_y_origen_ida_reversa_e_ida():
     assert ida.exists() and reversa.exists(), "falta la migracion 0094 o su reversa"
     with _db("orbit_a05_mig") as (conn, _extra):
         assert _columnas_nuevas(conn) == {"decision_committed_at", "resume_of"}
+        assert conn.execute(_sonda_de(ida)).fetchone() == (True,), "la sonda da true aplicada"
         assert conn.execute(
             "SELECT has_column_privilege('app_decide', 'public.optimizer_cycle',"
             " 'decision_committed_at', 'UPDATE'),"
@@ -817,6 +828,7 @@ def test_arreglos05_a_migracion_sello_y_origen_ida_reversa_e_ida():
         conn.execute(reversa.read_text(encoding="utf-8"))
 
         assert _columnas_nuevas(conn) == set()
+        assert conn.execute(_sonda_de(ida)).fetchone() == (False,), "la sonda da false revertida"
         assert (
             conn.execute(
                 "SELECT count(*) FROM optimizer_cycle WHERE id IN (%s, %s)", (origen, ejecutor)
@@ -835,6 +847,7 @@ def test_arreglos05_a_migracion_sello_y_origen_ida_reversa_e_ida():
             )
         conn.execute(ida.read_text(encoding="utf-8"))
         assert _columnas_nuevas(conn) == {"decision_committed_at", "resume_of"}
+        assert conn.execute(_sonda_de(ida)).fetchone() == (True,)
 
 
 def _decision_de_prueba(conn, cycle_id: int) -> int:
@@ -855,7 +868,7 @@ def _decision_de_prueba(conn, cycle_id: int) -> int:
         " window_start, window_end, old_value, new_value, value_currency, inputs) VALUES"
         " (%s, %s, 'bid', %s, now(), now() - interval '30 days', now() - interval '1 day',"
         " 1.00, 0.90, 'USD', '{}'::jsonb) RETURNING id",
-        (cycle_id, config, entidad),
+        (cycle_id, entidad, config),
     ).fetchone()[0]
 
 
