@@ -37,6 +37,8 @@ from app.optimizer.goals import ModoEfectivo
 from app.ads.config import AdsCredentials
 from app.ads.client import AdsApiError
 from tools import archiva_inertes as ar, reversa_harvest as rh
+# El SQL del ledger de archivo vive en el motor; tools/archiva_inertes solo reenvia el CLI.
+from app.ads.archivar_inertes import _SQL_INSERT_PLANEADO, _SQL_SELLA_APPLIED
 
 DBNAME = "thermo_writes_current"
 SAFE_HOSTS = {"127.0.0.1", "localhost", "orbit-review-current-pg"}
@@ -313,8 +315,8 @@ def scenario11():
         with external_io(server):
             ids = ta._semilla(conn)
             # Estado aplicado legal: una keyword archivada con ack y readback.
-            fid = conn.execute(ar._SQL_INSERT_PLANEADO, ("writes-lote", ids["kw"], "amazon_us", "7001", "7101", "7201", "kw 7201", "EXACT", 1, "USD", "peso_muerto", 90, "archivo autorizado")).fetchone()[0]
-            conn.execute(ar._SQL_SELLA_APPLIED, (json.dumps({"keywords": {"success": [{"keywordId": "7201"}]}}), "ARCHIVED", fid))
+            fid = conn.execute(_SQL_INSERT_PLANEADO, ("writes-lote", ids["kw"], "amazon_us", "7001", "7101", "7201", "kw 7201", "EXACT", 1, "USD", "peso_muerto", 90, "archivo autorizado")).fetchone()[0]
+            conn.execute(_SQL_SELLA_APPLIED, (json.dumps({"keywords": {"success": [{"keywordId": "7201"}]}}), "ARCHIVED", fid))
             server.fail_keyword_readback = True
             outcomes = []
             for _ in range(2):

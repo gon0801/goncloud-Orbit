@@ -33,7 +33,7 @@ from app.ads import reports
 from app.ads.structure import evaluar_perfiles
 from app.dia_cerrado import ultimo_dia_cerrado
 from app.meli import catalogo
-from app.reputacion_clientes import ClienteMeli, MeliCredentials
+from app.meli.client import ClienteMeli, MeliCredentials
 from app.optimizer import windows
 
 DATABASE = "thermo_ingest_current"

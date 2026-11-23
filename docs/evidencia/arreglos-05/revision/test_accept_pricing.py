@@ -72,7 +72,7 @@ def preparar_meli(conn):
     from app.meli.precio_mercado import MercadoMeli
     from app.meli.estimacion import CotizadorMeli
     from app.meli.write_client import MeliWriteClient
-    from app.reputacion_clientes import ClienteMeli, MeliCredentials
+    from app.meli.client import ClienteMeli, MeliCredentials
     from app.precio.puerto import MetaGoal
 
     ahora = conn.execute('SELECT clock_timestamp()').fetchone()[0]
@@ -101,7 +101,14 @@ def preparar_meli(conn):
         (pid, ahora.date()-timedelta(days=200), run_costo),
     )
     semillas._muestra(conn, pid)
-    semillas._politica(conn)
+    # La cadena 0093 trae una politica S4 abierta para meli/meli: una segunda abierta
+    # vuelve ambigua la resolucion. La de prueba solo cubre cadenas que no la traen.
+    politica_de_la_cadena = conn.execute(
+        "SELECT 1 FROM estimacion_politica_version"
+        " WHERE universo = 'meli/meli' AND valid_to IS NULL"
+    ).fetchone()
+    if not politica_de_la_cadena:
+        semillas._politica(conn)
     ahora = conn.execute('SELECT clock_timestamp()').fetchone()[0]
     # Fuera de la ventana 00:00-01:00 UTC esto es `ahora` (comportamiento
     # historico). Dentro, se corre para que el fee de _siembra (que fecha a
@@ -146,6 +153,7 @@ def preparar_meli(conn):
 @pytest.mark.parametrize('guardada', [False, True], ids=['corriente', 'persistida'])
 def test_07_corrida_meli_conserva_fecha_y_detalle(guardada):
     from app.precio import corrida
+    from app.precio.decision_io import _evento_cotizacion
     from app.precio.reglas import decidir
     from app.precio.tipos import PideCotizacion
     with base() as (conn, _):
@@ -157,7 +165,7 @@ def test_07_corrida_meli_conserva_fecha_y_detalle(guardada):
             print('07 estado alcanzable:', pedido, 'listing=', lectura.entrada.listing_id)
             lid = lectura.entrada.listing_id
             oid = lectura.ids['oferta_observation_id']
-            evento = corrida._evento_cotizacion(lid, 'meli', ahora.date(), pedido.intento)
+            evento = _evento_cotizacion(lid, 'meli', ahora.date(), pedido.intento)
             if guardada:
                 # Estado persistido valido; fecha/arbol proceden del cotizador real.
                 resultado = mercado._fees.cotizar(lectura.cotizable, pedido.precio.valor,
