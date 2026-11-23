@@ -26,7 +26,6 @@ from app.apply_store import (
     _KINDS_DECISORAS,
     _actualiza_cache,
     _bid_de_readback,
-    _confirma_resumen,
     _identidad,
     _ledger,
     _sella_ledger,
@@ -106,9 +105,7 @@ def _reconcilia_ambiguos_sellados(
                 )
                 if id_probe is not None:
                     _sella_ledger(conn, id_probe, ack=ack, resultado="ok:reconciliado")
-                _confirma_resumen(
-                    conn, decision_id, ack, True, aplicador.cycle_id_ejecutor, leido=bid_leido
-                )
+                aplicador.confirma_cercada(decision_id, ack, True, leido=bid_leido)
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
             confirmadas += 1
         elif old_value is not None and abs(bid_leido - old_value) <= TOLERANCIA_CADENA:
@@ -134,12 +131,10 @@ def _reconcilia_ambiguos_sellados(
                 )
                 if id_probe is not None:
                     _sella_ledger(conn, id_probe, ack=ack, resultado="fallo:divergencia_readback")
-                _confirma_resumen(
-                    conn,
+                aplicador.confirma_cercada(
                     decision_id,
                     ack or {},
                     False,
-                    aplicador.cycle_id_ejecutor,
                     leido=bid_leido,
                 )
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
@@ -215,9 +210,7 @@ def reconcilia_bids(
             ack = {"fuente": "readback", "bid": str(bid_leido)}
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=ack, resultado="ok:reconciliado")
-                _confirma_resumen(
-                    conn, decision_id, ack, True, aplicador.cycle_id_ejecutor, leido=bid_leido
-                )
+                aplicador.confirma_cercada(decision_id, ack, True, leido=bid_leido)
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
             confirmadas += 1
             continue
@@ -232,8 +225,6 @@ def reconcilia_bids(
             _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
             if bid_leido is not None:
                 _actualiza_cache(conn, ad_entity_id, bid_leido)
-            _confirma_resumen(
-                conn, decision_id, ack or {}, False, aplicador.cycle_id_ejecutor, leido=bid_leido
-            )
+            aplicador.confirma_cercada(decision_id, ack or {}, False, leido=bid_leido)
         fallidas += 1
     return (confirmadas, fallidas)

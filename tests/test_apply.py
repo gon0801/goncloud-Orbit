@@ -2809,6 +2809,11 @@ def test_reconcilia_bids_reutiliza_cliente_entre_ambiguos_y_sin_sello(monkeypatc
             llamadas_cliente += 1
             return object()
 
+        def confirma_cercada(self, decision_id, *_a, **_k):
+            # ARREGLOS 05 A: la confirmacion pasa por la cerca del claim del
+            # aplicador; aqui solo se cuenta.
+            confirmaciones.append(decision_id)
+
     monkeypatch.setattr(apply_reconcilia, "gate_ancestros", lambda _c, _e: None)
     monkeypatch.setattr(apply_reconcilia, "_identidad", lambda _c, eid: ("keyword", str(eid)))
     monkeypatch.setattr(
@@ -2818,9 +2823,10 @@ def test_reconcilia_bids_reutiliza_cliente_entre_ambiguos_y_sin_sello(monkeypatc
     )
     monkeypatch.setattr(apply_reconcilia, "_ledger", lambda *_a, **_k: 99)
     monkeypatch.setattr(apply_reconcilia, "_sella_ledger", lambda *_a, **_k: None)
-    monkeypatch.setattr(apply_reconcilia, "_confirma_resumen", lambda *_a, **_k: None)
     monkeypatch.setattr(apply_reconcilia, "_actualiza_cache", lambda *_a, **_k: None)
+    confirmaciones: list = []
 
     confirmadas, fallidas = reconcilia_bids(_Conn(), _Aplicador(), "amazon_mx")
     assert (confirmadas, fallidas) == (2, 0)
+    assert len(confirmaciones) == 2, "cada resuelta se confirma una vez"
     assert llamadas_cliente == 1

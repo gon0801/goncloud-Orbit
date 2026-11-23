@@ -29,7 +29,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 
 from app import apply, pantalla_dinero, propuestas_campana, proteccion_venta, temporada_io
-from app.apply import Aplicador
+from app.apply import Aplicador, DuenoDelClaimCambio
 from app.cycle_apply import (  # noqa: F401 - re-export estable
     _SQL_APPLIED_COUNT_CICLO,
     _SQL_NOTAS_VIGENTES,
@@ -668,7 +668,7 @@ def _corre_fases(
             aplicador_factory=aplicador_factory,
             origen=origen,
         )
-    except ApplyAbortado as exc:
+    except (ApplyAbortado, DuenoDelClaimCambio) as exc:
         # Perder el claim antes de decidir no deja comprometer nada: decide el
         # sucesor. Para el cron es la misma condicion que hallar el lock tomado.
         raise CicloOcupado(f"claim perdido antes de decidir: {exc}") from exc

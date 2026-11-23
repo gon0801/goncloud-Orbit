@@ -26,7 +26,7 @@ from psycopg import pq
 from app import apply, apply_cola, apply_harvest, notifica
 from app.ads.client import AdsClientError
 from app.ads.config import AdsConfigError, AdsCredentials
-from app.apply import Aplicador
+from app.apply import Aplicador, DuenoDelClaimCambio
 from app.apply_cuota import CapSaturado
 from app.db import tx_durable
 from app.lock import SQL_OWNER as _SQL_OWNER_LOCK
@@ -402,7 +402,7 @@ def _fase_apply(
             with conn.transaction():
                 conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))
         conn.commit()
-    except ApplyAbortado as exc:
+    except (ApplyAbortado, DuenoDelClaimCambio) as exc:
         conn.rollback()
         notas["apply_abortado_owner"] = True
         fallo = True

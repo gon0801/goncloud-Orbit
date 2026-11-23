@@ -164,7 +164,7 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
     )
     with tx_durable(conn):
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
+        aplicador.confirma_cercada(fila.decision_id, ack, verify)
         if estado is not None:
             conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
         _termina(conn, fila, "applied" if verify else "failed")
@@ -209,7 +209,7 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
                     decision_id=fila.decision_id,
                 )
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
+        aplicador.confirma_cercada(fila.decision_id, ack, verify)
         _termina(conn, fila, "applied" if verify else "failed")
     biblioteca.avisa_si_fallo(
         "negative",

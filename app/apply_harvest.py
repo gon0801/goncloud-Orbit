@@ -638,7 +638,7 @@ def _paso_readback(
         with tx_durable(conn):
             _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
             _avanza(conn, job, "done")
-            apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
+            aplicador.confirma_cercada(job.decision_id, ack, True)
             if queue_id is not None:
                 _termina_cola(conn, queue_id, "applied")
         return "done", None
@@ -659,7 +659,7 @@ def _paso_readback(
                 "hermanas_ciclos": 0,
             },
         )
-        apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
+        aplicador.confirma_cercada(job.decision_id, ack, True)
         if queue_id is not None:
             _termina_cola(conn, queue_id, "applied")
         rastro_biblioteca = biblioteca.registra_keyword(

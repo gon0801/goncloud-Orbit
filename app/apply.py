@@ -194,6 +194,16 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
 DesenlaceBid = Literal["aplicada", "divergente", "rechazada", "incierta"]
 
 
+class DuenoDelClaimCambio(Exception):
+    """El sello encontro la fila del claim en manos de otro owner: este
+    proceso fue desplazado mientras esperaba una respuesta de Amazon (ARREGLOS
+    05 A). El intento queda sin sellar; lo trata igual que `ApplyAbortado`."""
+
+
+# Cerca del sello: la fila del claim bloqueada en la transaccion que sella.
+_SQL_DUENO_CERCA = "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s FOR UPDATE"
+
+
 def _bid_quantizado(bid: Decimal) -> Decimal:
     """Decimal quantizado con la MISMA fuente que el wire (`app.ads.write._bid_payload`)."""
     return Decimal(_bid_payload(bid))
@@ -574,14 +584,45 @@ class Aplicador:
                 "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
             )
         )
+        # La lectura de vuelta pudo tardar: el dueno se vuelve a validar al
+        # volver y, dentro del sello, con la fila del claim bloqueada.
+        _tick(self._tick_fn)
         with tx_durable(self._conn):
             _sella_ledger(self._conn, id_attempt, ack=ack, resultado=resultado)
-            _confirma_resumen(
-                self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor, leido=bid_leido
-            )
+            self.confirma_cercada(decision.id, ack, verify_ok, leido=bid_leido)
             if bid_leido is not None:
                 _actualiza_cache(self._conn, decision.ad_entity_id, bid_leido)
         return "aplicada" if verify_ok else "divergente"
+
+    def exige_dueno(self) -> None:
+        """Cerca del claim para el sello en curso (ARREGLOS 05 A).
+
+        Lee la fila del claim con FOR UPDATE dentro de la transaccion que
+        sella: el sello y cualquier cambio de dueno se ordenan, porque quien
+        claima actualiza esa misma fila. Si la fila nombra a otro owner, el
+        proceso fue desplazado mientras esperaba una respuesta y no sella: el
+        intento queda sin sellar y la conciliacion del sucesor lo resuelve.
+        Sin fila no hay de quien haber sido desplazado."""
+        fila = self._conn.execute(_SQL_DUENO_CERCA, (self.job_key,)).fetchone()
+        if fila is not None and fila[0] != self.owner:
+            raise DuenoDelClaimCambio(
+                f"lock {self.job_key} ya no es nuestro (owner: {fila[0]}): no se sella"
+            )
+
+    def confirma_cercada(
+        self,
+        decision_id: int,
+        ack: dict,
+        verify_ok: bool,
+        *,
+        leido: Decimal | None = None,
+    ) -> None:
+        """Confirma el resumen solo si el claim sigue en manos de este owner
+        (misma transaccion que el sello del ledger)."""
+        self.exige_dueno()
+        _confirma_resumen(
+            self._conn, decision_id, ack, verify_ok, self.cycle_id_ejecutor, leido=leido
+        )
 
     def _muta_bid(
         self,
