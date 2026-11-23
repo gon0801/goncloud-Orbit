@@ -1,0 +1,23 @@
+# Pruebas reales despues del despliegue - OLA 1 TEMPORADA 01
+# Fecha: 2026-11-23 01:16 UTC
+# MOTOR_SHA: 42a69c1f54123ee04e43f676ae2409f4fcae5073
+# PR: https://github.com/gon0801/goncloud-Orbit/pull/738 (#738, merge 42a69c1f)
+# Las tres primeras comprueban, dentro de orbit-app-1, que el texto existe en el
+# paquete app que corre en produccion. La cuarta es la prueba-real del bloque H.
+
+$ bash docs/evidencia/arreglos-01/desplegado.sh bid_cambiado_fuera
+EXIT=0
+
+$ bash docs/evidencia/arreglos-01/desplegado.sh reactivaciones_pendientes
+EXIT=0
+
+$ bash docs/evidencia/arreglos-01/desplegado.sh propuesta_presupuesto
+EXIT=0
+
+$ echo "select settings->>'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_us', settings->>'ads_bid_recuperacion_amazon_mx', settings->>'ads_bid_recuperacion_amazon_us' from config_version order by id desc limit 1" | bash docs/evidencia/arreglos-01/lee_prod.sh
+live|live|live|live
+
+$ ... | grep -o live | wc -l
+4
+
+# Las cuatro claves de la config mas reciente estan en live.
