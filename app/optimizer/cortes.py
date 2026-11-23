@@ -221,6 +221,6 @@ def piso_corte(
             aov = evidencia.ad_revenue / Decimal(evidencia.orders)
     bruto = aov * K if aov is not None else RESPALDO_PISO_NEGATIVE[platform]
     piso = max(NEGATIVE_COST_MIN[platform], bruto)
-    if mult_baja is not None:
+    if mult_baja is not None and mult_baja > 1:
         piso = math.ceil(Decimal(piso) * mult_baja)
     return PisoResuelto(piso_cost=Decimal(piso), aov=aov)

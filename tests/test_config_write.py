@@ -637,3 +637,28 @@ def test_arreglos01_x_la_meta_manual_de_settings_vive_en_la_banda():
     )
     assert nuevo[f"ads_target_acos_pct_{PLAT}"] == "10"
     assert cambios == ["target manual 20 -> 10"]
+
+
+def test_aplica_recuperacion_normaliza_memoria_a_int():
+    """Hallazgo #17: recuperacion_memoria_dias en str o float se persiste como
+    int normalizado y repetir con el mismo entero produce 0 cambios."""
+    clave = f"ads_bid_recuperacion_memoria_dias_{PLAT}"
+
+    nuevo_str, cambios_str = config_write.proxima_config(
+        _base(), PLAT, recuperacion_memoria_dias="180"
+    )
+    assert nuevo_str[clave] == 180
+    assert type(nuevo_str[clave]) is int
+    assert cambios_str == ["memoria del bid mas alto ausente -> 180"]
+    for repetido in (180, "180", 180.0):
+        with pytest.raises(config_write.EdicionVacia):
+            config_write.proxima_config(nuevo_str, PLAT, recuperacion_memoria_dias=repetido)
+
+    nuevo_flt, cambios_flt = config_write.proxima_config(
+        _base(), PLAT, recuperacion_memoria_dias=180.0
+    )
+    assert nuevo_flt[clave] == 180
+    assert type(nuevo_flt[clave]) is int
+    assert cambios_flt == ["memoria del bid mas alto ausente -> 180"]
+    with pytest.raises(config_write.EdicionVacia):
+        config_write.proxima_config(nuevo_flt, PLAT, recuperacion_memoria_dias=180)

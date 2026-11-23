@@ -292,3 +292,19 @@ def test_piso_plataforma_fuera_de_vocabulario_rechaza():
     jamas un fallback silencioso (mismo patron que umbral_corte)."""
     with pytest.raises(ValueError, match="vocabulario"):
         cortes.piso_corte(_evid(clicks=60, orders=3, fechas=20), "mercadolibre", mult_baja=None)
+
+
+def test_piso_corte_mult_baja_uno_es_identidad_decimal():
+    """Hallazgo #18: con mult_baja == 1, piso_corte conserva el Decimal exacto
+    del AOV (411.500) igual que mult_baja=None, sin redondear a 412 con ceil."""
+    ev = _evid(clicks=60, orders=4, fechas=20, ad_revenue=Decimal("1646.000"))
+    sin_mult = cortes.piso_corte(ev, "amazon_mx", mult_baja=None)
+    con_uno = cortes.piso_corte(ev, "amazon_mx", mult_baja=Decimal("1"))
+    con_uno_dec = cortes.piso_corte(ev, "amazon_mx", mult_baja=Decimal("1.00"))
+    con_uno_y_medio = cortes.piso_corte(ev, "amazon_mx", mult_baja=Decimal("1.5"))
+
+    assert sin_mult.piso_cost == Decimal("411.500")
+    assert con_uno.piso_cost == Decimal("411.500")
+    assert con_uno.piso_cost == sin_mult.piso_cost
+    assert con_uno_dec.piso_cost == Decimal("411.500")
+    assert con_uno_y_medio.piso_cost == Decimal("618")

@@ -451,10 +451,12 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
         )
         conn.execute(
             "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
-            " synced_at) VALUES (%s, 'ENABLED', 5.00, 'MXN', now()),"
+            " synced_at) VALUES (%s, 'ENABLED', NULL, NULL, now()),"
+            " (%s, 'ENABLED', NULL, NULL, now()),"
+            " (%s, 'ENABLED', 5.00, 'MXN', now()),"
             " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now()),"
             " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now())",
-            (kw_bid, kw_grupo, kw_pausada, kw_sin, kw_david),
+            (campana, grupo, kw_bid, kw_grupo, kw_pausada, kw_sin, kw_david),
         )
 
         def _decision(ciclo_d, kind, entidad, motivo, *, fase_baja=False, confirmada=False):
@@ -821,3 +823,333 @@ def test_terminar_baja_serializa_con_advisory_lock_config_version(tmp_path, monk
         # Con el lock previo a la lectura lee 'fin_baja' (fuera de baja -> 422);
         # sin ese lock habria leido 'base' y chocado en guarda_config con 409.
         assert resultado.get("status") == 422
+
+
+def test_eventos_no_emite_prepara_alta_durante_bloque_alta_anterior():
+    """Hallazgo #14: si dos bloques alta se separan por un hueco menor a
+    dias_preparacion (febrero normal de 28 dias con prep=30), prepara_alta
+    nunca cae en un dia con fase=='alta'; el 2027-02-01 emite un unico evento
+    sale_alta con la frase combinada (sin duplicar prepara_alta) y 2027-12-02
+    conserva su prepara_alta normal."""
+    meses = ["alta", "normal", "alta"] + ["normal"] * 9
+    cfg = temporada.valida(_crudo(meses=meses, prep=30))
+    evs = temporada.eventos(cfg, dt.date(2027, 1, 1), dt.date(2027, 12, 31))
+    preps = [ev for ev in evs if ev.tipo == "prepara_alta"]
+
+    assert preps
+    for ev in preps:
+        est = temporada.resuelve(cfg, ev.fecha)
+        assert est.fase != "alta", f"prepara_alta cayo dentro de alta en {ev.fecha}"
+        assert est.previa_alta is True
+    # 2027-01-30 sigue en enero alta (sin evento); 2027-02-01 coincide con
+    # sale_alta y se consolida en una sola frase combinada; 2027-12-02 queda
+    # como prepara_alta normal.
+    assert [ev.fecha for ev in preps] == [dt.date(2027, 12, 2)]
+    evs_feb1 = [ev for ev in evs if ev.fecha == dt.date(2027, 2, 1)]
+    assert len(evs_feb1) == 1
+    assert evs_feb1[0].tipo == "sale_alta"
+    assert evs_feb1[0].frase == (
+        "La meta de ACoS regresa a la normal. Empieza la previa de la temporada alta."
+    )
+
+
+def test_aviso_del_dia_combina_sale_alta_y_prepara_alta_en_mismo_dia():
+    """Cuando prepara_alta se desplaza al mismo dia que sale_alta, eventos
+    consolida un solo evento sale_alta con la frase combinada y aviso_del_dia
+    anuncia la vuelta a la meta normal y la previa, sin decir que no cambia nada."""
+    meses = ["alta", "normal", "alta"] + ["normal"] * 9
+    cfg = temporada.valida(_crudo(meses=meses, prep=30))
+    conteo = temporada.ConteoTemporada(0, 0, 0, 0, {}, 0)
+
+    # Dentro del bloque alta anterior no sale aviso de preparacion.
+    assert (
+        temporada.aviso_del_dia(
+            cfg, temporada.resuelve(cfg, dt.date(2027, 1, 30)), conteo=conteo, propuestas=0
+        )
+        is None
+    )
+
+    dia_cruce = dt.date(2027, 2, 1)
+    evs_dia = temporada.eventos(cfg, dia_cruce, dia_cruce + dt.timedelta(days=1))
+    assert [ev.tipo for ev in evs_dia] == ["sale_alta"]
+
+    aviso = temporada.aviso_del_dia(
+        cfg, temporada.resuelve(cfg, dia_cruce), conteo=conteo, propuestas=2
+    )
+    assert aviso is not None
+    assert "La meta de ACoS regresa a la normal." in aviso
+    assert "Empieza la previa de la temporada alta." in aviso
+    assert "todavía no cambia nada" not in aviso
+    assert "Hay 2 campañas con un presupuesto sugerido" in aviso
+
+    # En un dia donde solo cae prepara_alta se conserva la frase normal.
+    aviso_solo = temporada.aviso_del_dia(
+        cfg, temporada.resuelve(cfg, dt.date(2027, 12, 2)), conteo=conteo, propuestas=0
+    )
+    assert aviso_solo == temporada.FRASE_PREPARA_ALTA
+
+
+def test_resumen_y_mensaje_guardado_no_mienten_en_cruce_sale_alta_prepara():
+    """Con enero/marzo en alta y prep=30, resumen y mensaje_guardado anuncian
+    en el 2027-02-01 el regreso de la meta normal junto con la previa y nunca
+    la frase enganosa 'todavia no cambia nada'."""
+    meses = ["alta", "normal", "alta"] + ["normal"] * 9
+    cfg = temporada.valida(_crudo(meses=meses, prep=30))
+    metas_hoy = {"amazon_mx": Decimal("20")}
+    meta_alta = {"amazon_mx": Decimal("25")}
+
+    for dia in (dt.date(2027, 1, 15), dt.date(2027, 2, 1)):
+        res = temporada.resumen(cfg, dia, antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta)
+        assert res.proximos[0].fecha == dt.date(2027, 2, 1)
+        assert res.proximos[0].tipo == "sale_alta"
+        assert "todavía no cambia nada" not in res.proximos[0].frase
+
+        msg = temporada.mensaje_guardado(res)
+        assert "1 de febrero" in msg
+        assert "la meta de ACoS regresa a la normal." in msg
+        assert "Empieza la previa de la temporada alta." in msg
+        assert "todavía no cambia nada" not in msg
+
+    res_feb1 = temporada.resumen(
+        cfg, dt.date(2027, 2, 1), antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta
+    )
+    assert res_feb1.fase_hoy == "normal"
+    assert "preparación de la temporada alta" in res_feb1.frase_hoy
+
+
+def test_mensaje_guardado_reconoce_sale_alta_combinado_como_proxima_preparacion():
+    """Si el primer cambio es anterior al cruce sale_alta+prepara_alta,
+    mensaje_guardado reconoce la marca de preparacion del evento combinado
+    (1 de enero) en lugar de saltarlo hasta una preparacion posterior (30 de
+    abril), sin confundir un sale_alta normal como preparacion."""
+    # Diciembre (11), febrero (1) y junio (5) en alta; 32 dias de preparacion.
+    meses = ["normal"] * 12
+    meses[11] = "alta"
+    meses[1] = "alta"
+    meses[5] = "alta"
+    cfg = temporada.valida(_crudo(meses=meses, prep=32))
+    metas_hoy = {"amazon_mx": Decimal("20")}
+    meta_alta = {"amazon_mx": Decimal("25")}
+
+    res_nov = temporada.resumen(
+        cfg, dt.date(2026, 11, 23), antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta
+    )
+    assert res_nov.proximos[0].fecha == dt.date(2026, 12, 1)
+    assert res_nov.proximos[0].tipo == "entra_alta"
+    assert res_nov.proximos[1].fecha == dt.date(2027, 1, 1)
+    assert res_nov.proximos[1].tipo == "sale_alta"
+    assert res_nov.proximos[1].inicia_preparacion is True
+    msg_nov = temporada.mensaje_guardado(res_nov)
+    assert "La próxima preparación empieza el 1 de enero." in msg_nov
+    assert "30 de abril" not in msg_nov
+
+    # Control positivo: un sale_alta normal (1 de marzo, sin preparacion) no se
+    # toma como preparacion y se anuncia el 30 de abril.
+    res_ene = temporada.resumen(
+        cfg, dt.date(2027, 1, 20), antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta
+    )
+    assert res_ene.proximos[0].fecha == dt.date(2027, 2, 1)
+    assert res_ene.proximos[1].fecha == dt.date(2027, 3, 1)
+    assert res_ene.proximos[1].tipo == "sale_alta"
+    assert res_ene.proximos[1].inicia_preparacion is False
+    msg_ene = temporada.mensaje_guardado(res_ene)
+    assert "La próxima preparación empieza el 30 de abril." in msg_ene
+    assert "1 de marzo" not in msg_ene
+
+
+def test_identificadores_rechaza_id_fuera_de_bigint():
+    """Hallazgo #15: mantener_pausadas exige 1 <= id <= 2**63 - 1 para no
+    reventar consultas SQL con NumericValueOutOfRange."""
+    bigint_max = 2**63 - 1
+    cfg = temporada.valida(_crudo(pausadas=[1, bigint_max]))
+    assert cfg.mantener_pausadas == frozenset({1, bigint_max})
+
+    for fuera in (0, -1, 2**63, 10**30):
+        with pytest.raises(ValueError):
+            temporada.valida(_crudo(pausadas=[fuera]))
+
+
+@_skip_db
+def test_estado_de_baja_excluye_sin_aplicar_y_campanas_pausadas(db_template):
+    """Hallazgo #16: estado_de_baja no cuenta como pendientes decisiones
+    cerradas en decision_sin_aplicar ni hojas no confirmadas excluidas en
+    temporada_exclusion para ese episodio, ni cuenta en sin_tocar hojas
+    ENABLED dentro de campanas o ad groups PAUSED."""
+    from test_pantalla_dinero import _siembra_entidad
+
+    from app.dashboard_temporada import estado_de_baja
+
+    conn, _dsn = db_template
+    hoy = dt.datetime(2027, 1, 15, 12, 0, tzinfo=dt.UTC)
+    meses_ene_baja = ["baja"] + ["normal"] * 11
+    config = temporada.valida(_crudo(meses=meses_ene_baja))
+    config_id = conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('t01a-16', %s) RETURNING id",
+        (Json({"ads_optimizer_mode": "live", "ads_temporada": temporada.como_guardada(config)}),),
+    ).fetchone()[0]
+    ciclo_viejo = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at, decisions_count)"
+        " VALUES ('ads_optimizer', 'live', 'amazon_mx'::platform, 'done', %s, 0) RETURNING id",
+        (hoy - dt.timedelta(days=400),),
+    ).fetchone()[0]
+    ciclo_live = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at, decisions_count)"
+        " VALUES ('ads_optimizer', 'live', 'amazon_mx'::platform, 'done', %s, 0) RETURNING id",
+        (hoy,),
+    ).fetchone()[0]
+    ep_viejo = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id, cerrado_el, cerrado_en_ciclo)"
+        " VALUES ('amazon_mx'::platform, %s, %s, %s, %s, %s) RETURNING id",
+        (
+            hoy - dt.timedelta(days=400),
+            ciclo_viejo,
+            config_id,
+            hoy - dt.timedelta(days=370),
+            ciclo_viejo,
+        ),
+    ).fetchone()[0]
+    ep_actual = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id)"
+        " VALUES ('amazon_mx'::platform, %s, %s, %s) RETURNING id",
+        (dt.datetime(2027, 1, 1, 12, 0, tzinfo=dt.UTC), ciclo_live, config_id),
+    ).fetchone()[0]
+
+    camp_activa = _siembra_entidad(conn, "amazon_mx", "campaign", "c-16-act")
+    ag_activo = _siembra_entidad(conn, "amazon_mx", "ad_group", "ag-16-act", parent=camp_activa)
+    ag_pausado = _siembra_entidad(conn, "amazon_mx", "ad_group", "ag-16-pau", parent=camp_activa)
+    camp_pausada = _siembra_entidad(conn, "amazon_mx", "campaign", "c-16-pau")
+    ag_camp_pausada = _siembra_entidad(
+        conn, "amazon_mx", "ad_group", "ag-16-cpau", parent=camp_pausada
+    )
+
+    kw_sin_aplicar = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-dsa", parent=ag_activo, match="EXACT", texto="dsa"
+    )
+    kw_excluida = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-excl", parent=ag_activo, match="EXACT", texto="excl"
+    )
+    kw_en_camp_pausada = _siembra_entidad(
+        conn,
+        "amazon_mx",
+        "keyword",
+        "k-16-cpau",
+        parent=ag_camp_pausada,
+        match="EXACT",
+        texto="en camp pausada",
+    )
+    kw_en_ag_pausado = _siembra_entidad(
+        conn,
+        "amazon_mx",
+        "keyword",
+        "k-16-agpau",
+        parent=ag_pausado,
+        match="EXACT",
+        texto="en ag pausado",
+    )
+
+    for ent, estado_ent, bid, moneda in (
+        (camp_activa, "ENABLED", None, None),
+        (ag_activo, "ENABLED", None, None),
+        (ag_pausado, "PAUSED", None, None),
+        (camp_pausada, "PAUSED", None, None),
+        (ag_camp_pausada, "ENABLED", None, None),
+        (kw_sin_aplicar, "ENABLED", Decimal("8.00"), "MXN"),
+        (kw_excluida, "ENABLED", Decimal("8.00"), "MXN"),
+        (kw_en_camp_pausada, "ENABLED", None, None),
+        (kw_en_ag_pausado, "ENABLED", None, None),
+    ):
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
+            " synced_at) VALUES (%s, %s, %s, %s, %s)",
+            (ent, estado_ent, bid, moneda, hoy),
+        )
+
+    def _dec_baja(entidad, *, episodio_id, confirmada=False):
+        dec_id = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end,"
+            " old_value, new_value, value_currency, inputs)"
+            " VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 8.00, 5.60, 'MXN', %s)"
+            " RETURNING id",
+            (
+                ciclo_live,
+                entidad,
+                hoy - dt.timedelta(days=1),
+                config_id,
+                hoy - dt.timedelta(days=2),
+                hoy.date() - dt.timedelta(days=20),
+                hoy.date() - dt.timedelta(days=2),
+                Json(
+                    {
+                        "motor": "temporada",
+                        "motivo": "entra_temporada_baja",
+                        "temporada_episodio_id": episodio_id,
+                    }
+                ),
+            ),
+        ).fetchone()[0]
+        if confirmada:
+            conn.execute(
+                "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok,"
+                " platform_ack) VALUES (%s, %s, TRUE, %s)",
+                (dec_id, hoy, Json({"request_id": "ok"})),
+            )
+        return dec_id
+
+    d_dsa = _dec_baja(kw_sin_aplicar, episodio_id=ep_actual)
+    conn.execute(
+        "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+        " VALUES (%s, %s, 'bid_cambiado_fuera')",
+        (d_dsa, ciclo_live),
+    )
+    d_excl = _dec_baja(kw_excluida, episodio_id=ep_actual)
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok, platform_ack)"
+        " VALUES (%s, %s, FALSE, %s)",
+        (d_excl, hoy, Json({"request_id": "div"})),
+    )
+    conn.execute(
+        "INSERT INTO temporada_exclusion (episodio_id, ad_entity_id, motivo, bid_visto,"
+        " bid_visto_moneda, decision_id) VALUES (%s, %s, 'divergencia', 9.00, 'MXN', %s)",
+        (ep_actual, kw_excluida, d_excl),
+    )
+
+    estado = estado_de_baja(conn, "amazon_mx", config, hoy.date())
+    assert estado["confirmados"] == 0
+    assert estado["pendientes"] == 0
+    assert estado["sin_tocar"] == 0
+
+    # Controles positivos: una confirmada aunque luego excluida sigue en
+    # confirmados, y una pendiente cuya exclusion fue de un episodio viejo
+    # sigue en pendientes.
+    kw_conf_excl = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-conf", parent=ag_activo, match="EXACT", texto="conf"
+    )
+    kw_pend_otro_ep = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-pend", parent=ag_activo, match="EXACT", texto="pend"
+    )
+    for ent in (kw_conf_excl, kw_pend_otro_ep):
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
+            " synced_at) VALUES (%s, 'ENABLED', 8.00, 'MXN', %s)",
+            (ent, hoy),
+        )
+    _dec_baja(kw_conf_excl, episodio_id=ep_actual, confirmada=True)
+    conn.execute(
+        "INSERT INTO temporada_exclusion (episodio_id, ad_entity_id, motivo, bid_visto,"
+        " bid_visto_moneda) VALUES (%s, %s, 'mano_del_dueno', 7.00, 'MXN')",
+        (ep_actual, kw_conf_excl),
+    )
+    _dec_baja(kw_pend_otro_ep, episodio_id=ep_actual, confirmada=False)
+    conn.execute(
+        "INSERT INTO temporada_exclusion (episodio_id, ad_entity_id, motivo, bid_visto,"
+        " bid_visto_moneda) VALUES (%s, %s, 'mano_del_dueno', 7.00, 'MXN')",
+        (ep_viejo, kw_pend_otro_ep),
+    )
+
+    estado2 = estado_de_baja(conn, "amazon_mx", config, hoy.date())
+    assert estado2["confirmados"] == 1
+    assert estado2["pendientes"] == 1
+    assert estado2["sin_tocar"] == 0
