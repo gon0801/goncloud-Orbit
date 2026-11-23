@@ -493,7 +493,11 @@ def _aplica_meta_alta(
 
 
 def _aplica_recuperacion(
-    nuevo: dict, cambios: list[str], platform: str, modo: str | None, memoria: int | None
+    nuevo: dict,
+    cambios: list[str],
+    platform: str,
+    modo: str | None,
+    memoria: int | float | str | None,
 ) -> None:
     """Campos de subida rapida bajo «Motor de bids» (bloque A los guarda;
     el motor que los lee llega con el bloque C, detras de
@@ -514,12 +518,12 @@ def _aplica_recuperacion(
         return
     clave = f"ads_bid_recuperacion_memoria_dias_{platform}"
     try:
-        temporada_mod.memoria_recuperacion_desde_settings({clave: memoria}, platform)
+        valor = temporada_mod.memoria_recuperacion_desde_settings({clave: memoria}, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
-    if nuevo.get(clave) != memoria:
-        cambios.append(f"memoria del bid mas alto {_antes(nuevo.get(clave))} -> {memoria}")
-        nuevo[clave] = memoria
+    if nuevo.get(clave) != valor or type(nuevo.get(clave)) is not int:
+        cambios.append(f"memoria del bid mas alto {_antes(nuevo.get(clave))} -> {valor}")
+        nuevo[clave] = valor
 
 
 def _valida_resultante_temporada(nuevo: Mapping) -> None:
@@ -562,7 +566,7 @@ def proxima_config(
     temporada_modo: Mapping[str, str] | None = None,
     meta_alta: Mapping[str, str | int | Decimal] | None = None,
     recuperacion_modo: str | None = None,
-    recuperacion_memoria_dias: int | None = None,
+    recuperacion_memoria_dias: int | float | str | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 

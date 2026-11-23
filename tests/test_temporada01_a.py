@@ -821,3 +821,35 @@ def test_terminar_baja_serializa_con_advisory_lock_config_version(tmp_path, monk
         # Con el lock previo a la lectura lee 'fin_baja' (fuera de baja -> 422);
         # sin ese lock habria leido 'base' y chocado en guarda_config con 409.
         assert resultado.get("status") == 422
+
+
+def test_eventos_no_emite_prepara_alta_durante_bloque_alta_anterior():
+    """Hallazgo #14: si dos bloques alta se separan por un hueco menor a
+    dias_preparacion (febrero normal de 28 dias con prep=30), prepara_alta
+    nunca cae en un dia con fase=='alta' y se emite el primer dia real con
+    previa_alta=True."""
+    meses = ["alta", "normal", "alta"] + ["normal"] * 9
+    cfg = temporada.valida(_crudo(meses=meses, prep=30))
+    evs = temporada.eventos(cfg, dt.date(2027, 1, 1), dt.date(2027, 12, 31))
+    preps = [ev for ev in evs if ev.tipo == "prepara_alta"]
+
+    assert preps
+    for ev in preps:
+        est = temporada.resuelve(cfg, ev.fecha)
+        assert est.fase != "alta", f"prepara_alta cayo dentro de alta en {ev.fecha}"
+        assert est.previa_alta is True
+    # 2027-01-30 y 2027-01-31 siguen en enero alta; el primer dia real con
+    # previa_alta=True para marzo alta es 2027-02-01.
+    assert [ev.fecha for ev in preps] == [dt.date(2027, 2, 1), dt.date(2027, 12, 2)]
+
+
+def test_identificadores_rechaza_id_fuera_de_bigint():
+    """Hallazgo #15: mantener_pausadas exige 1 <= id <= 2**63 - 1 para no
+    reventar consultas SQL con NumericValueOutOfRange."""
+    bigint_max = 2**63 - 1
+    cfg = temporada.valida(_crudo(pausadas=[1, bigint_max]))
+    assert cfg.mantener_pausadas == frozenset({1, bigint_max})
+
+    for fuera in (0, -1, 2**63, 10**30):
+        with pytest.raises(ValueError):
+            temporada.valida(_crudo(pausadas=[fuera]))

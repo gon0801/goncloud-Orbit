@@ -137,8 +137,16 @@ def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Ev
             if desde <= bloque.fin < hasta:
                 sueltos.append(Evento(bloque.fin, "sale_alta", FRASE_SALE_ALTA))
             prep = bloque.inicio - dt.timedelta(days=config.dias_preparacion)
-            if prep not in restaura_en and desde <= prep < hasta:
-                sueltos.append(Evento(prep, "prepara_alta", FRASE_PREPARA_ALTA))
+            dia_prep = next(
+                (
+                    prep + dt.timedelta(days=offset)
+                    for offset in range(config.dias_preparacion)
+                    if resuelve(config, prep + dt.timedelta(days=offset)).previa_alta
+                ),
+                None,
+            )
+            if dia_prep is not None and dia_prep not in restaura_en and desde <= dia_prep < hasta:
+                sueltos.append(Evento(dia_prep, "prepara_alta", FRASE_PREPARA_ALTA))
     return tuple(sorted(sueltos, key=lambda e: (e.fecha, e.tipo)))
 
 

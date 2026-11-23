@@ -38,6 +38,7 @@ MULT_CORTES_MIN, MULT_CORTES_MAX = Decimal("1"), Decimal("3")
 AUMENTO_PRESUPUESTO_MIN, AUMENTO_PRESUPUESTO_MAX = Decimal("0"), Decimal("1")
 META_ALTA_MIN, META_ALTA_MAX = Decimal("10"), Decimal("45")
 MANTENER_PAUSADAS_MAX = 500
+BIGINT_MAX = 9_223_372_036_854_775_807
 TOPADA_PCT_MIN, TOPADA_PCT_MAX = Decimal("50"), Decimal("100")
 TOPADA_DIAS_MIN, TOPADA_DIAS_MAX = 1, 7
 MEMORIA_DIAS_MIN, MEMORIA_DIAS_MAX = 90, 730
@@ -262,7 +263,7 @@ def _identificadores(crudo) -> frozenset[int]:
     ids = []
     for item in crudo:
         n = _entero(item)
-        if n < 1:
+        if not 1 <= n <= BIGINT_MAX:
             raise ValueError("mantener_pausadas debe ser una lista de ids de keywords")
         ids.append(n)
     return frozenset(ids)
