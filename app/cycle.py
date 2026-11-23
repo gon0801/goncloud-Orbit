@@ -390,6 +390,13 @@ def _abre_envelope(
     return conn.execute(_SQL_ABRIR_ENVELOPE, (modo, platform, resume_of)).fetchone()[0]
 
 
+# Dentro de la TX3, antes de sellar: la fila del claim BLOQUEADA. El cierre se
+# serializa con la toma del claim del sucesor (ARREGLOS 05 A, revision): quien
+# claima actualiza esa misma fila y espera a que la TX3 comprometa, asi que su
+# plan ya ve el sello; y una TX3 cuyo claim cambio de dueno no se compromete.
+_SQL_CLAIM_EN_TX3 = "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s FOR UPDATE"
+
+
 def _compromete_tx3(
     conn: psycopg.Connection,
     cycle_id: int,
@@ -398,13 +405,24 @@ def _compromete_tx3(
     notas: str,
     *,
     decided_at: dt.datetime,
+    job_key: str,
+    owner: str,
 ) -> None:
     """Cierra el envelope en la TX3 que inserto sus decisiones y lo sella con
     el reloj de la decision de la corrida.
 
-    Corre DENTRO de esa transaccion. Si el envelope ya no es `running` (otro
-    owner lo reclamo y lo marco con el rastro) levanta `CicloOcupado`: la
-    transaccion se deshace y ese proceso no deja decisiones comprometidas."""
+    Corre DENTRO de esa transaccion. Antes de sellar comprueba y bloquea la
+    fila del claim: si ya no nombra a este owner (un sucesor lo tomo al vencer
+    el TTL, o el claim se solto) levanta `CicloOcupado`. Lo mismo si el
+    envelope ya no es `running` (el sucesor lo marco con el rastro). En ambos
+    casos la transaccion se deshace y ese proceso no deja decisiones
+    comprometidas: nunca dos origenes el mismo dia."""
+    dueno = conn.execute(_SQL_CLAIM_EN_TX3, (job_key,)).fetchone()
+    if dueno is None or dueno[0] != owner:
+        raise CicloOcupado(
+            f"el claim {job_key} ya no es de este owner ({owner}):"
+            f" su TX3 del ciclo {cycle_id} no se compromete"
+        )
     fila = conn.execute(
         _SQL_CERRAR_TX3, (status, decisions_count, notas, decided_at, cycle_id)
     ).fetchone()
@@ -788,7 +806,16 @@ def _corre_fases(
                     conn, contadores.propuestas_campana, decided_at
                 )
             notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
-            _compromete_tx3(conn, cycle_id, status, len(pendientes), notas, decided_at=decided_at)
+            _compromete_tx3(
+                conn,
+                cycle_id,
+                status,
+                len(pendientes),
+                notas,
+                decided_at=decided_at,
+                job_key=job_key,
+                owner=owner,
+            )
     else:
         cuerpo = {"resume_of": origen}
         status = "done"

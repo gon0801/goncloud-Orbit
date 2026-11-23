@@ -736,7 +736,10 @@ reclama el lock cuando vence y lo cierra con su rastro.
 (`optimizer_cycle.decision_committed_at`) en la misma sentencia, aunque el
 lote válido traiga cero decisiones. El sello lleva el reloj de la decisión
 de la corrida, no el de la base: un ciclo corrido con `--decided-at` de otro
-día no cuenta como la decisión de hoy. Si el envelope ya no es `running` (otro
+día no cuenta como la decisión de hoy. Antes de sellar, la TX3 comprueba y
+bloquea la fila del claim: el cierre se serializa con la toma del claim del
+sucesor, y si el claim ya es de otro la transacción se deshace. Si el envelope
+ya no es `running` (otro
 owner lo reclamó), esa transacción se deshace con sus decisiones: un proceso
 que perdió el claim no deja decisiones comprometidas. Una caída antes de TX3
 no tiene sello y no se parece a un lote vacío terminado. Detalle del esquema,
@@ -763,11 +766,17 @@ documento daba por deseado):
 - Un 5xx no autoriza repetir la misma mutación: una decisión con un intento
   `normal` no vuelve a salir por el aplicador (`ya_intentada`); solo la
   conciliación, leyendo, le pone desenlace.
+- Una reactivación cuya reversa quedó sin sello se resuelve por lectura antes
+  de cobrar cuota y volver a enviar: si Amazon ya habilitó la hoja, el intento se
+  sella y no sale otro PUT.
 - Cada fase (encolado, pujas, cortes, reactivaciones) deja su resultado en
   `notes.apply` antes de pasar a la siguiente, así que un fallo global no
   borra lo ya hecho.
 - **Fallo global aborta las fases que faltan**: perder el claim, la base
-  indisponible, la identidad o los permisos de Amazon inválidos. No hay un
+  indisponible, la identidad o los permisos de Amazon inválidos. Un 403, o un 401 que sigue
+  tras refrescar el token, en cualquier mutación (puja, corte, harvest,
+  reactivación) es ese fallo global: el intento queda sellado con su rechazo y
+  detrás no sale otra. Un 400 sigue siendo el rechazo de esa hoja. No hay un
   `except Exception` que siga mutando. Que la fábrica no encuentre perfil, o
   un fallo de la API, no impide comprometer decisiones: se anota
   `apply_error`, no sale ninguna mutación y el horario siguiente abre el

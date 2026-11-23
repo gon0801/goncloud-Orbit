@@ -1526,3 +1526,69 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
         assert [f[0] for f in intentos(pausas[ids["kw2"]])] == ["ok:no_aplicado", "ok"]
         assert cache(ids["kw"]) == "ENABLED" and cache(ids["kw2"]) == "ENABLED"
         assert cuota() == cuota1 + 1, "solo la hoja que sigue pausada cobra cuota"
+
+
+@_skip_db
+def test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno(monkeypatch):
+    """Revision de Astra del PR #746: el TTL vence con la TX3 del anterior
+    todavia abierta. El sucesor toma el claim y consulta el plan: su SELECT no
+    ve el sello (sin commit) y abrira otro origen. Si la TX3 del anterior
+    cerraba antes del rastro del sucesor, ambos decidian el mismo dia. Dentro
+    de la TX3 se comprueba y bloquea la fila del claim antes de sellar: la TX3
+    espera a que el sucesor comprometa su claim, ve el dueno nuevo y no se
+    compromete."""
+    with _db("orbit_a05_tx3_claim") as (conn, extra):
+        _semilla_live(conn)
+        dentro_tx3, seguir = threading.Event(), threading.Event()
+        original = ciclo._inserta_decisiones
+        anterior: dict = {}
+
+        def inserta_y_espera(*args, **kwargs):
+            ids = original(*args, **kwargs)
+            anterior["ciclo"] = args[1]
+            dentro_tx3.set()
+            assert seguir.wait(timeout=30), "el test nunca libero la TX3"
+            return ids
+
+        monkeypatch.setattr(ciclo, "_inserta_decisiones", inserta_y_espera)
+
+        def correr() -> None:
+            conexion = extra()
+            try:
+                _corre(
+                    conexion,
+                    factory=_directa(_Amazon(**REMOTO_INICIAL)),
+                    owner="anterior:1",
+                )
+            except BaseException as exc:  # noqa: BLE001 - el test inspecciona la excepcion
+                anterior["error"] = exc
+            finally:
+                conexion.close()
+
+        hilo = threading.Thread(target=correr, daemon=True)
+        hilo.start()
+        assert dentro_tx3.wait(timeout=30), "el anterior nunca llego a su TX3"
+        # El TTL vence. El sucesor toma el claim y lee el plan bajo el, en una
+        # transaccion todavia abierta: su SELECT no ve el sello del anterior.
+        conn.execute(
+            "UPDATE ads_optimizer_lock SET heartbeat_at = now() - interval '31 minutes'"
+            " WHERE job_key = %s",
+            (JOB_KEY,),
+        )
+        with conn.transaction():
+            assert ciclo._toma_claim(conn, JOB_KEY, "sucesor:1")
+            plan = ciclo._plan_de_hoy(conn, "amazon_us", hoy=DECIDED_AT.date())
+            assert plan.origen is None, "el sucesor no ve el sello: abrira su propio origen"
+            seguir.set()
+            hilo.join(timeout=3)
+            assert hilo.is_alive(), "la TX3 del anterior espera a que el sucesor comprometa"
+        hilo.join(timeout=30)
+        assert not hilo.is_alive()
+        assert isinstance(anterior.get("error"), ciclo.CicloOcupado), anterior.get("error")
+        sello, decisiones = conn.execute(
+            "SELECT to_jsonb(c) ->> 'decision_committed_at',"
+            " (SELECT count(*) FROM decision d WHERE d.cycle_id = c.id)"
+            " FROM optimizer_cycle c WHERE id = %s",
+            (anterior["ciclo"],),
+        ).fetchone()
+        assert sello is None and decisiones == 0, "la TX3 del anterior no dejo sello ni decisiones"
