@@ -393,9 +393,19 @@ def estampa(pendiente: Any, episodio_id: int | None) -> Any:
     Fuera de inputs.caso: el replay no lo lee. Con episodio None no estampa."""
     if episodio_id is None:
         return pendiente
-    inputs = dict(pendiente.inputs)
-    inputs.setdefault("temporada_episodio_id", episodio_id)
-    return replace(pendiente, inputs=inputs)
+    inputs = pendiente.inputs or {}
+    es_temporada = inputs.get("motivo") in MOTIVOS_TEMPORADA
+    es_pausa_de_baja = False
+    if not es_temporada and pendiente.kind == "pause":
+        caso = inputs.get("caso")
+        temp = caso.get("temporada") if isinstance(caso, Mapping) else None
+        frontera = temp.get("frontera") if isinstance(temp, Mapping) else None
+        es_pausa_de_baja = isinstance(frontera, Mapping) and frontera.get("fase_hoja") == "baja"
+    if not (es_temporada or es_pausa_de_baja):
+        return pendiente
+    copia = dict(inputs)
+    copia.setdefault("temporada_episodio_id", episodio_id)
+    return replace(pendiente, inputs=copia)
 
 
 def abre_efectos(conn: psycopg.Connection, episodio_id: int | None, pendientes, ids) -> None:

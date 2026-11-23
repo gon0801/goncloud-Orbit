@@ -20,7 +20,7 @@ from psycopg import pq
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 
-from app import propuestas_campana, proteccion_venta, temporada_io
+from app import pantalla_dinero, propuestas_campana, proteccion_venta, temporada_io
 from app.apply import Aplicador
 from app.cycle_apply import (  # noqa: F401 - re-export estable
     _SQL_APPLIED_COUNT_CICLO,
@@ -596,7 +596,13 @@ def _corre_fases(
                 moneda=PLATAFORMAS_MONEDA[platform],
             )
             # TEMPORADA 01 F: una decision resume por pausa de la baja que toca
-            # reactivar. El efecto de temporada no aplica: es una reactivacion.
+            # reactivar. Se lee tras registra_ciclo para capturar el episodio
+            # cerrado hoy mismo. El efecto de temporada no aplica.
+            contadores.reactivaciones = temporada_io.reactivaciones_pendientes(
+                conn, platform, plat_t.config.mantener_pausadas
+            )
+            if cuerpo.get("temporada") is not None:
+                cuerpo["temporada"]["reactivaciones"] = len(contadores.reactivaciones)
             pendientes.extend(
                 pendiente_reactivacion(r, plat_t.estacion, decidido_el=decided_at)
                 for r in contadores.reactivaciones
@@ -657,6 +663,18 @@ def _corre_fases(
         retenidos = int(
             cuerpo.get("skips", {}).get("entidad", {}).get(MOTIVO_REGRESO_ESPERA_PRESUPUESTO, 0)
         )
+        ayer = plat_t.estacion.dia - dt.timedelta(days=1)
+        propuestas_t = sum(
+            1
+            for fila in pantalla_dinero.lee_campanas(
+                conn,
+                plataforma=platform,
+                desde=ayer - dt.timedelta(days=pantalla_dinero.DIAS_UBICACION - 1),
+                hasta=ayer,
+                settings=settings,
+            )
+            if fila.propuesta_temporada is not None
+        )
         aviso = temporada.aviso_del_dia(
             plat_t.config,
             plat_t.estacion,
@@ -667,7 +685,7 @@ def _corre_fases(
                 retenidos=retenidos,
                 excluidas=contadores.excluidas_temporada,
             ),
-            propuestas=len(contadores.propuestas_campana),
+            propuestas=propuestas_t,
         )
         if aviso:
             cuerpo["temporada"]["aviso"] = aviso

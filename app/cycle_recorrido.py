@@ -661,9 +661,6 @@ def _recorre_plataforma(
                 estado=estado_t,
             )
             contadores.temporada_plat = plat_t
-            contadores.reactivaciones = temporada_io.reactivaciones_pendientes(
-                conn, platform, plat_t.config.mantener_pausadas
-            )
         modo_r = temporada.modo_recuperacion_desde_settings(settings, platform)
         if modo_r is not None:
             # Tambien en practica: el segundo caso (sombra) lleva el marcador y
@@ -673,7 +670,7 @@ def _recorre_plataforma(
                 version="recuperacion_v1",
                 memoria_dias=temporada.memoria_recuperacion_desde_settings(settings, platform),
             )
-        if modo_r is not None or modo_t == "live":
+        if modo_r is not None or modo_t is not None:
             topada_r = temporada.campana_topada_desde_settings(settings)
     lecturas: LecturasPlataforma | None = None
     if politica is not None:

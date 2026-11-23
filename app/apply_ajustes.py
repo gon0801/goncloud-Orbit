@@ -184,6 +184,20 @@ SELECT id, antes_config_id, despues, regresa_a
  ORDER BY id
 """
 
+_SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF = """
+SELECT id, antes_config_id, despues, regresa_a
+  FROM campana_ajuste
+ WHERE campana_id = %s AND clase = %s AND id > %s
+ ORDER BY id
+"""
+
+_SQL_AJUSTE_POSTERIOR_PENDIENTE = """
+SELECT id, antes_config_id, despues, regresa_a
+  FROM campana_ajuste
+ WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NULL
+ ORDER BY id
+"""
+
 
 def _toca_campo(
     conn, antes_id: int, despues: dict, campo: str, *, regresa_a: int | None = None
@@ -210,24 +224,60 @@ def _toca_campo(
 def _confirmada_equivalente(
     conn, huella: str, *, campana_id: int, clase: str, ajuste, vigente
 ) -> int | None:
-    """El acto con sufijo que SI confirmo el destino, para no sellar la orden
-    base superada en una reconciliacion."""
+    """El acto con sufijo que SI confirmo el destino y no fue superado por
+    otra orden confirmada posterior en el mismo campo."""
     for pid, despues in conn.execute(
         _SQL_CONFIRMADAS_HN, (campana_id, clase, huella + "#%")
     ).fetchall():
+        if _superada(conn, pid, campana_id=campana_id, clase=clase, ajuste=ajuste):
+            continue
         if coincide_campo(ajuste, vigente, ConfigCampana.desde_json(despues)):
             return pid
     return None
 
 
-def _superada(conn, ajuste_id: int, *, campana_id: int, clase: str, ajuste) -> bool:
-    """True si una orden aceptada DESPUES toco el mismo campo: la pendiente
-    quedo superada y reusarla condenaria la reaprobacion a un 409 eterno."""
+def _superada(
+    conn,
+    ajuste_id: int,
+    *,
+    campana_id: int,
+    clase: str,
+    ajuste,
+    incluir_pendientes: bool = False,
+) -> bool:
+    """True si una orden posterior toco el mismo campo: con `incluir_pendientes=False`
+    solo revisa ordenes confirmadas; con `True` bloquea tambien ante pendientes."""
     campo = campo_del_ajuste(ajuste)
+    sql = _SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF if incluir_pendientes else _SQL_AJUSTE_POSTERIOR
     for _pid, antes_id, despues, regresa_a in conn.execute(
-        _SQL_AJUSTE_POSTERIOR, (campana_id, clase, ajuste_id)
+        sql, (campana_id, clase, ajuste_id)
     ).fetchall():
         if _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
+            return True
+    return False
+
+
+def _pendiente_posterior_con_otro_destino(
+    conn, ajuste_id: int, *, campana_id: int, clase: str, ajuste
+) -> bool:
+    """True si otra orden PENDIENTE posterior (aun no superada por una
+    confirmada en el mismo campo) cambia el mismo campo hacia un valor distinto.
+    Esas ordenes mandan sobre `ajuste_id`: su PUT pudo llegar a Amazon sin
+    readback ni sync. Las pendientes ya superadas por una confirmada posterior
+    (p. ej. una reversion confirmada) ya no bloquean."""
+    campo = campo_del_ajuste(ajuste)
+    fila = conn.execute(_SQL_DESPUES_POR_ID, (ajuste_id,)).fetchone()
+    if fila is None:
+        return False
+    valor = getattr(ConfigCampana.desde_json(fila[0]), campo)
+    for pid, antes_id, despues, regresa_a in conn.execute(
+        _SQL_AJUSTE_POSTERIOR_PENDIENTE, (campana_id, clase, ajuste_id)
+    ).fetchall():
+        if not _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
+            continue
+        if _superada(conn, pid, campana_id=campana_id, clase=clase, ajuste=ajuste):
+            continue
+        if getattr(ConfigCampana.desde_json(despues), campo) != valor:
             return True
     return False
 
@@ -254,18 +304,29 @@ def _aplica_y_confirma(
     if not candado:
         # Otro intento trabaja este acto (try, no espera: un reintento
         # anidado dentro del PUT del primero se interbloquearia, L).
+        conn.rollback()
         raise AjusteEnCurso(f"ajuste {ajuste_id} en curso: reintenta en un momento")
     try:
         ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
         if ya is not None and ya[0]:
             conn.rollback()
             return
-        if _superada(conn, ajuste_id, campana_id=campana_id, clase=clase, ajuste=ajuste):
-            # La orden quedo vieja: hay otra aceptada DESPUES para el mismo
-            # campo. Sin PUT; el endpoint responde 409 y el dueno recarga.
+        if _superada(
+            conn,
+            ajuste_id,
+            campana_id=campana_id,
+            clase=clase,
+            ajuste=ajuste,
+            incluir_pendientes=True,
+        ):
+            # La orden quedo vieja: hay otra (confirmada o pendiente) DESPUES
+            # para el mismo campo. Sin PUT; el endpoint responde 409.
             raise AjusteEnCurso(
                 "Ya mandaste otra orden para esta campaña después de esta. Recarga."
             )
+        vigente_actual = config_vigente(conn, campana_id)
+        if vigente_actual is None or not coincide_campo(ajuste, vigente_actual, previa):
+            raise HuellaDesactualizada("el vigente cambio antes de enviar el ajuste", None)
         if isinstance(ajuste, CambiarAjusteUbicacion):
             actual = _config_leida(cliente, plataforma, destino.campana_externa)
             strategy = actual.estrategia_puja if actual is not None else None
@@ -309,18 +370,58 @@ def _pendientes_hn(conn, huella: str, campana_id: int, clase: str) -> list:
     return conn.execute(_SQL_AJUSTES_PENDIENTES_HN, (huella + "#%", campana_id, clase)).fetchall()
 
 
+def _pendientes_reconciliables(
+    conn, pendientes_hn: list, *, campana_id: int, clase: str, ajuste
+) -> list:
+    """Filtra H#N pendientes que siguen vigentes (sin orden posterior confirmada
+    ni pendiente activa de otro destino en el mismo campo)."""
+    return [
+        p
+        for p in pendientes_hn
+        if not _superada(conn, p[0], campana_id=campana_id, clase=clase, ajuste=ajuste)
+        and not _pendiente_posterior_con_otro_destino(
+            conn, p[0], campana_id=campana_id, clase=clase, ajuste=ajuste
+        )
+    ]
+
+
 def _sella_pendientes_en_destino(conn, pendientes, ajuste, vigente) -> int | None:
-    """Sella cada pendiente cuyo destino ya es el vigente y devuelve el
-    id de la primera, o None si ninguna llego. Sellar solo la primera
-    dejaria el resto huerfanas con el mismo efecto vivo."""
+    """Sella cada pendiente vigente cuyo destino ya es el vigente y devuelve el
+    id mas reciente, o None si ninguna llego."""
     sellada = None
     for pid, _huella, despues in pendientes:
         destino = ConfigCampana.desde_json(despues)
         if vigente == destino or coincide_campo(ajuste, vigente, destino):
             _sella_pendiente(conn, pid)
-            if sellada is None:
-                sellada = pid
+            sellada = pid
     return sellada
+
+
+def _reconcilia_base_en_destino(
+    conn, *, huella: str, eid: int, confirmada: bool, campana_id: int, clase: str, ajuste, vigente
+) -> AjusteHecho:
+    """Reconcilia la fila base cuando el vigente ya esta en destino: nunca
+    devuelve una base ya superada por una confirmada (p. ej. revertida)."""
+    superada_conf = _superada(conn, eid, campana_id=campana_id, clase=clase, ajuste=ajuste)
+    if confirmada and not superada_conf:
+        return AjusteHecho(eid, campana_id, clase, True)
+    superada = superada_conf or (
+        (not confirmada)
+        and _pendiente_posterior_con_otro_destino(
+            conn, eid, campana_id=campana_id, clase=clase, ajuste=ajuste
+        )
+    )
+    if not superada:
+        _sella_pendiente(conn, eid)
+        return AjusteHecho(eid, campana_id, clase, True)
+    equivalente = _confirmada_equivalente(
+        conn, huella, campana_id=campana_id, clase=clase, ajuste=ajuste, vigente=vigente
+    )
+    if equivalente is not None:
+        return AjusteHecho(equivalente, campana_id, clase, True)
+    raise HuellaDesactualizada(
+        "la orden quedo superada por otra posterior: pide un plan nuevo", None
+    )
 
 
 def _sella_pendiente(conn, ajuste_id: int) -> None:
@@ -370,42 +471,68 @@ def aplica_ajuste_campana(
         _eid, confirmada, ecamp, eclase = existente
         if ecamp != plan.campana_id or eclase != plan.clase:
             raise ValueError(f"la huella {huella} es de otra campana o clase")
-        if confirmada:
-            # R07-09C: una H#N pendiente se reusa; abrir la siguiente
-            # la dejaria huerfana para siempre.
-            pendientes = [
-                p
-                for p in _pendientes_hn(conn, huella, plan.campana_id, plan.clase)
-                if not _superada(
-                    conn,
-                    p[0],
-                    campana_id=plan.campana_id,
-                    clase=plan.clase,
-                    ajuste=plan.ajuste,
-                )
-            ]
-            if pendientes:
-                if vigente == plan.despues:
-                    sellada = _sella_pendientes_en_destino(conn, pendientes, plan.ajuste, vigente)
-                    return AjusteHecho(sellada, plan.campana_id, plan.clase, True)
-                ajuste_id = pendientes[0][0]
-                huella_efectiva = pendientes[0][1]
-            elif vigente == plan.despues:
-                return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
-            else:
-                n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
-                huella_efectiva = f"{huella}#{n}"
-        elif vigente == plan.despues:
-            _sella_pendiente(conn, _eid)
-            return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
-        elif _superada(
+        pendientes_hn = _pendientes_hn(conn, huella, plan.campana_id, plan.clase)
+        if vigente == plan.despues:
+            pendientes_rec = _pendientes_reconciliables(
+                conn,
+                pendientes_hn,
+                campana_id=plan.campana_id,
+                clase=plan.clase,
+                ajuste=plan.ajuste,
+            )
+            sellada = _sella_pendientes_en_destino(conn, pendientes_rec, plan.ajuste, vigente)
+            if sellada is not None:
+                return AjusteHecho(sellada, plan.campana_id, plan.clase, True)
+            return _reconcilia_base_en_destino(
+                conn,
+                huella=huella,
+                eid=_eid,
+                confirmada=confirmada,
+                campana_id=plan.campana_id,
+                clase=plan.clase,
+                ajuste=plan.ajuste,
+                vigente=vigente,
+            )
+        # R07-09C + PR #739: solo se reutiliza una pendiente que siga vigente
+        # bajo la misma regla que el candado (incluir_pendientes=True). Si quedo
+        # superada por otra orden posterior (confirmada o pendiente), se abre H#N.
+        pendientes_activas = [
+            p
+            for p in pendientes_hn
+            if not _superada(
+                conn,
+                p[0],
+                campana_id=plan.campana_id,
+                clase=plan.clase,
+                ajuste=plan.ajuste,
+                incluir_pendientes=True,
+            )
+        ]
+        if pendientes_activas:
+            ajuste_id = pendientes_activas[0][0]
+            huella_efectiva = pendientes_activas[0][1]
+        elif not confirmada and not _superada(
+            conn,
+            _eid,
+            campana_id=plan.campana_id,
+            clase=plan.clase,
+            ajuste=plan.ajuste,
+            incluir_pendientes=True,
+        ):
+            ajuste_id = _eid
+        elif _pendiente_posterior_con_otro_destino(
             conn, _eid, campana_id=plan.campana_id, clase=plan.clase, ajuste=plan.ajuste
         ):
-            # La aprobacion nueva no hereda la orden vieja superada.
+            # El sufijo nace DESPUES de la orden que invalido esta aprobacion:
+            # _aplica_y_confirma solo mira ids mayores y ya no la veria. Si esa
+            # orden pendiente llego a Amazon, reenviar esta la pisa con un valor
+            # viejo. Se rechaza y se pide recargar la vista previa.
+            raise AjusteEnCurso(
+                "Ya mandaste otra orden pendiente para esta campaña. Recarga la vista previa."
+            )
+        else:
             n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
             huella_efectiva = f"{huella}#{n}"
-        else:
-            ajuste_id = _eid
     fresco = planea_ajuste(
         vigente, plan.ajuste, campana_id=plan.campana_id, plataforma=plan.plataforma
     )
@@ -473,41 +600,32 @@ def reconcilia_ajuste_campana(
     _eid, confirmada, ecamp, eclase, despues = previa
     if ecamp != campana_id or eclase != clase:
         raise HuellaDesactualizada(f"la huella {huella} es de otra campana o clase", None)
-    # R07-09C: cada H#N pendiente cuyo efecto el sync ya observo se
-    # sella aqui. Devolver la base sellada dejaria las pendientes
-    # huerfanas para siempre con su efecto vivo.
-    pendientes = [
-        p
-        for p in _pendientes_hn(conn, huella, campana_id, clase)
-        if not _superada(conn, p[0], campana_id=campana_id, clase=clase, ajuste=ajuste)
-    ]
+    # R07-09C: sella solo el acto vigente o sus reintentos consecutivos cuyo efecto
+    # el sync ya observo, sin sellar actos reemplazados por otra orden posterior.
+    pendientes = _pendientes_reconciliables(
+        conn,
+        _pendientes_hn(conn, huella, campana_id, clase),
+        campana_id=campana_id,
+        clase=clase,
+        ajuste=ajuste,
+    )
     sellada = _sella_pendientes_en_destino(conn, pendientes, ajuste, vigente)
     if sellada is not None:
         return AjusteHecho(sellada, campana_id, clase, True)
-    superada = (not confirmada) and _superada(
-        conn, _eid, campana_id=campana_id, clase=clase, ajuste=ajuste
-    )
-    equivalente = (
-        _confirmada_equivalente(
-            conn, huella, campana_id=campana_id, clase=clase, ajuste=ajuste, vigente=vigente
-        )
-        if superada
-        else None
-    )
     destino = ConfigCampana.desde_json(despues)
     if vigente == destino or coincide_campo(ajuste, vigente, destino):
         # B12: si el completo o el campo del ajuste ya coincide en Amazon,
-        # el acto se cumplio (respetando si quedo superado por orden posterior).
-        if confirmada:
-            return AjusteHecho(_eid, campana_id, clase, True)
-        if superada:
-            if equivalente is not None:
-                return AjusteHecho(equivalente, campana_id, clase, True)
-            raise HuellaDesactualizada(
-                "la orden quedo superada por otra posterior: pide un plan nuevo", None
-            )
-        _sella_pendiente(conn, _eid)
-        return AjusteHecho(_eid, campana_id, clase, True)
+        # reconcilia la base solo si no quedo superada por orden posterior.
+        return _reconcilia_base_en_destino(
+            conn,
+            huella=huella,
+            eid=_eid,
+            confirmada=confirmada,
+            campana_id=campana_id,
+            clase=clase,
+            ajuste=ajuste,
+            vigente=vigente,
+        )
     try:
         fresco = planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=fila[0])
     except AjusteSinCambio:
@@ -568,6 +686,18 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     )
     ajuste_hijo = _ajuste_hacia(clase, antes, despues_padre)
     if hijo is not None and not hijo[1]:
+        if _superada(
+            conn,
+            hijo[0],
+            campana_id=campana_id,
+            clase=clase,
+            ajuste=ajuste_hijo,
+            incluir_pendientes=True,
+        ):
+            raise AjusteSinRegreso(
+                f"ajuste {ajuste_id}: el regreso pendiente quedo superado por otra orden"
+                " posterior en el mismo campo; aplica un ajuste nuevo con el valor deseado"
+            )
         nuevo_id = hijo[0]
     else:
         regreso = PlanAjuste(

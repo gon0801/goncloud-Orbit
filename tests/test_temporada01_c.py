@@ -1379,3 +1379,62 @@ def test_dias_ingesta_campanas_viejos_falla_cerrado_fuera_de_ventana_14d(db_temp
     )
     conn.commit()
     assert ultimos_dias_ingesta_campanas(conn, "amazon_mx", ayer) == (dia_borde,)
+
+
+def test_temporada_shadow_sin_recuperacion_simula_presupuesto_topado(db_template):
+    """Hallazgo #13: con ads_temporada_amazon_mx='shadow' y sin recuperacion,
+    cycle_recorrido debe cargar topada_r para que caso_sombra lleve presupuesto
+    y simule presupuesto_topado (sin afectar el caso real)."""
+    import json
+
+    conn, _dsn = db_template
+    _run(conn)
+    _config_version(conn, _settings(modo_temporada="shadow"))
+    _goal_mx(conn)
+    hoy = dt.date(2027, 2, 1)  # fase normal: R6 quiere subir +15 %, BUD lo frena en sombra
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-camp-sh13")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "c-ag-sh13", parent=camp)
+    ag2 = _entidad(conn, "amazon_mx", "ad_group", "c-ag2-sh13", parent=camp)
+    for ent in (camp, ag, ag2):
+        _estado(conn, ent, synced_at=_medianoche(hoy))
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 100.00, 'MXN')",
+        (camp, _medianoche(hoy - dt.timedelta(days=15))),
+    )
+    kw1 = _kw(conn, ag, "c-kw-sh13", "kw sh13", "2.16")
+    kw_cuenta = _kw(conn, ag2, "c-kw-sh13-cta", "kw sh13 cta", "6.00")
+    _siembra_metricas(conn, [kw1, kw_cuenta])
+    ventana_desde, ventana_hasta = hoy - dt.timedelta(days=90), hoy - dt.timedelta(days=10)
+    _evidencia_caso_d(conn, kw1, ventana_desde, ventana_hasta, hoy - dt.timedelta(days=1))
+    _evidencia_cuenta(conn, kw_cuenta, ventana_desde, ventana_hasta)
+    # 7 dias topados en la campana (95/100 >= 90 %): BUD bloquea la subida en sombra.
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-sh13-camp') RETURNING id"
+    ).fetchone()[0]
+    for offset in range(1, 8):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost="95.00",
+            impressions=100,
+        )
+    conn.commit()
+
+    handler = _handler_mx({"c-kw-sh13": "2.16", "c-kw-sh13-cta": "6.00"})
+    res = _corre(conn, hoy, handler)
+    assert res.status == "done", res.notes
+    notas = json.loads(res.notes)
+    difs = [d for d in (notas.get("temporada") or {}).get("diferencias", []) if d["hoja_id"] == kw1]
+    assert len(difs) == 1, f"esperaba diferencia por presupuesto_topado en sombra: {notas}"
+    dif = difs[0]
+    assert dif["motivo_real"] == politica.MOTIVO_BAJO_TARGET, dif
+    assert dif["motivo_sombra"] == politica.MOTIVO_PRESUPUESTO_TOPADO, dif
+    assert dif["caso"].get("presupuesto") is None, "en shadow el caso real no cambia"
+    assert dif["caso_sombra"].get("presupuesto") is not None
+    assert dif["caso_sombra"]["presupuesto"]["dias_topados"] == 7

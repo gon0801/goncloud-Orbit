@@ -755,9 +755,10 @@ def test_r07_09c_reconcilia_sella_todas_las_pendientes(monkeypatch):
 
 @_skip_db
 def test_r07_09c_reintento_no_reusa_la_pendiente_de_otro_plan(monkeypatch):
-    """R07-09C: con una H#2 pendiente del plan de 120 y otra pendiente
-    del plan de 150 en la misma campana y clase, reintentar el de 120
-    confirma SU H#2 y deja la del 150 sin confirmar."""
+    """PR #739 (Kimi #1): con una H#2 pendiente del plan de 120 y otra
+    pendiente del plan de 150 en la misma campana y clase, reintentar el
+    de 120 responde AjusteEnCurso: su id nace despues de la 150 y no veria
+    esa orden, que pudo llegar a Amazon sin readback ni sync."""
     with _db("orbit_aj_09c_otro") as conn:
         camp, _cfg = _siembra(conn)
         remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
@@ -788,32 +789,25 @@ def test_r07_09c_reintento_no_reusa_la_pendiente_de_otro_plan(monkeypatch):
                 actor="dueno",
                 transport=transporte_div,
             )
-        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+        # Con 150 pendiente, reintentar 120 se rechaza: el acto no puede nacer
+        # con un id que ya no ve la orden de 150.
+        with pytest.raises(apply_ajustes.AjusteEnCurso, match="otra orden pendiente"):
             apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan_120,
                 huella=plan_120.huella(),
                 confirmacion="APLICAR AJUSTE",
                 actor="dueno",
-                transport=transporte_div,
+                transport=transporte_ok,
             )
-        filas = conn.execute("SELECT id, huella FROM campana_ajuste ORDER BY id").fetchall()
-        (id_h2,) = [f[0] for f in filas if f[1] == plan_120.huella() + "#2"]
+        filas = conn.execute(
+            "SELECT id, huella, confirmado_el IS NOT NULL FROM campana_ajuste ORDER BY id"
+        ).fetchall()
         (id_otra,) = [f[0] for f in filas if f[1] == plan_150.huella()]
-        hecho2 = apply_ajustes.aplica_ajuste_campana(
-            conn,
-            plan_120,
-            huella=plan_120.huella(),
-            confirmacion="APLICAR AJUSTE",
-            actor="dueno",
-            transport=transporte_ok,
+        assert not [f for f in filas if f[1] == plan_120.huella() + "#2"], (
+            "el reenvio rechazado no crea H#2"
         )
-        confirmada = dict(
-            conn.execute("SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste").fetchall()
-        )
-        assert hecho2.ajuste_id == id_h2
-        assert confirmada[id_h2] is True
-        assert confirmada[id_otra] is False
+        assert dict((f[0], f[2]) for f in filas)[id_otra] is False
 
 
 @_skip_db
