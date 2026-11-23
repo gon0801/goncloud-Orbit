@@ -1,7 +1,7 @@
-# Lectura previa de produccion (solo SELECT). SHA 3f018190287d01add406a3cb88e331799db326bf
+# Lectura previa de produccion (solo SELECT). SHA 736cdee6c93d1bffff6091f8ac0f0136bb165907
 
 == momento_utc
-2026-11-23 06:41:37.208158|orbit_read|on|160015
+2026-11-23 07:32:01.139395|orbit_read|on|160015
 
 == esquema_columnas
 ads_optimizer_goal|id,scope,ad_entity_id,platform,target_acos_pct,bid_floor,bid_ceiling,bid_currency,harvest_campaign_id,harvest_ad_group_id,harvest_default_bid,enabled,mode,created_at,updated_at
@@ -231,4 +231,4 @@ amazon_mx|live|True|1
 amazon_us|live|True|1
 None|live|True|7
 
-# bloques con error: 0
+# bloques procesados: 39 de 39; con error: 0
