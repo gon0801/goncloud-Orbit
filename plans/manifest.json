@@ -233,7 +233,7 @@
     {
       "name": "arreglos-04",
       "path": "plans/arreglos-04.md",
-      "description": "ARREGLOS 04 — activo desde BASE, sobre ARREGLOS 03 integrado y antes de TEMPORADA 01, en serie. B-C cierra 02 completo (incluido contenedor ausente), W-P nuevo cierra 04, W-E cierra 15 y W-D 16; conserva pantallas, fabrica, bloqueos y confirmacion de presupuesto alto."
+      "description": "ARREGLOS 04 — INTEGRADO Y DESPLEGADO en f5dc86d5 (2026-11-19); cierre en docs/evidencia/arreglos-04/CIERRE/. B-C cerro 02 completo (incluido contenedor ausente), W-P cerro 04, W-E cerro 15 y W-D 16; conserva pantallas, fabrica, bloqueos y confirmacion de presupuesto alto."
     },
     {
       "name": "arreglos-01",
@@ -243,13 +243,13 @@
     {
       "name": "temporada-01",
       "path": "plans/temporada-01.md",
-      "description": "TEMPORADA 01 — bloque A implementado sobre I: app/optimizer/temporada.py puro (config, valida con mensajes exactos, lectores, resuelve sobre fechas reales, eventos y resumen), tarjeta «Temporadas de venta» en Ajustes con vista previa GET /temporada/vista-previa, terminar-baja, ads_campana_topada leida por avisos y dinero. Siguen B, C, D, P, E, F, G y H, en serie."
+      "description": "TEMPORADA 01 — INTEGRADA Y DESPLEGADA: bloques I a H y las olas OLA1 a OLA3 (OLA3 el 2026-11-23 sobre f07ab667). Evidencia en docs/evidencia/temporada-01/H y en OLA1, OLA2 y OLA3. Queda pendiente para 05 BASE/A el orden ciclo 4 (conciliar antes de decidir), que B.2 no movio."
     },
     {
       "name": "arreglos-05",
       "path": "plans/arreglos-05.md",
-      "description": "ARREGLOS 05 — plan disenado ahora para ejecutar despues de TEMPORADA 01. BASE; A ciclo; B reversas 03/10; C reposicion 11; D frontera Ads; E shadow; F target 12; G sello 13; H150; I settings; J modos; K fees; Z aceptacion global de los 14 hallazgos con correcciones de 03/04. No implementado."
+      "description": "ARREGLOS 05 — ACTIVO desde BASE, sobre master 33844bb3. BASE entregado (docs/evidencia/arreglos-05/BASE): 31 casos, 26 verdes y 5 rojos de producto (03, 10, 11, 12, 13). Sigue en serie A ciclo; B reversas 03/10; C reposicion 11; D frontera Ads; E shadow; F target 12; G sello 13; H tope 150; I settings; J modos; K fees; Z aceptacion global."
     }
   ],
-  "active": "temporada-01"
+  "active": "arreglos-05"
 }
