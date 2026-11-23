@@ -20,3 +20,7 @@ test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy
 # Hilo 1, rojo de comportamiento (con el origen ya entregado al aplicador):
 test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen
   AssertionError: la pausa economica pendiente del origen se completa en la recuperacion
+
+# Hilo 6, rojo sobre b76fff40 (lo destapo la correccion del hilo 1; se corrigio despues):
+test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen
+  AssertionError: la pausa no sale a Amazon sin una elegibilidad comprobable

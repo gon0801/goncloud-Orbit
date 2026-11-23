@@ -1182,3 +1182,133 @@ def test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy
             ).fetchone()[0]
             == decididas
         ), "lo de ayer vence con motivo auditable"
+
+
+@_skip_db
+def test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen(monkeypatch):
+    """Revision del PR #746: una pausa economica decidida por margen de
+    producto llega a un ejecutor de recuperacion con el veto ya vencido. La
+    revalidacion toma el target de las notas del ORIGEN, pero no su evaluacion
+    de producto: tiene horas y, despues de decidir, el producto perdio su
+    costo vigente. Con la evaluacion del origen la pausa sale a Amazon aunque
+    ya no califique; sin una elegibilidad que se pueda comprobar, la pausa
+    espera al ciclo que si evalua."""
+
+    from test_apply_cola import _aplicador, _encola_fila, _handler_cortes, _payload_pause
+    from test_cycle import _config_version, _run
+    from test_orbit07_m2 import (
+        _db as _db_producto,
+    )
+    from test_orbit07_m2 import (
+        _metrica_economica,
+        _mundo,
+        _pausa_de,
+        _producto,
+        _ventas_sin_costo,
+    )
+    from test_productos_meta_ciclo import _settings
+
+    from app import apply_cola
+    from app.optimizer import goals as g
+
+    with _db_producto("orbit_a05_eval_origen") as conn:
+        ids = _mundo(conn)
+        _config_version(
+            conn,
+            {
+                **_settings(conn),
+                "ads_optimizer_mode": "live",
+                "ads_pause_economica": True,
+                "ads_apply_cap_amazon_us_pause": 2,
+            },
+        )
+        _metrica_economica(conn, _run(conn), ids["kw"])
+        _muere_en_apply(monkeypatch)
+        with pytest.raises(_Muerte):
+            _corre(conn)
+        monkeypatch.undo()
+        origen = conn.execute("SELECT max(id) FROM optimizer_cycle").fetchone()[0]
+        pausa = _pausa_de(conn, origen, ids["kw"])
+        assert pausa is not None and pausa["target_procedencia"] == "margen_producto", (
+            "el origen decide la pausa economica por margen de producto"
+        )
+        assert Decimal(pausa["target_acos_pct_usado"]) == Decimal("4"), (
+            "con su costo vigente el origen la decide al 4 %"
+        )
+        ext = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        ejecutor = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform, resume_of)"
+            " VALUES ('live', 'amazon_us', %s) RETURNING id",
+            (origen,),
+        ).fetchone()[0]
+        q = _encola_fila(
+            conn,
+            pausa["decision_id"],
+            ids["kw"],
+            "pause",
+            vence=DECIDED_AT,
+            encolado=DECIDED_AT,
+            payload=_payload_pause(ext),
+        )
+        # Despues de decidir, el producto pierde su costo vigente sin cambiar
+        # de grupo ni de huella: el margen deja de medir.
+        _ventas_sin_costo(conn, _producto(conn))
+        conn.execute(
+            "UPDATE sku_cost SET valid_to = CURRENT_DATE WHERE product_id = %s",
+            (_producto(conn),),
+        )
+        assert (
+            conn.execute(
+                "SELECT margen_neto_pct FROM v_margen_producto WHERE product_id = %s",
+                (_producto(conn),),
+            ).fetchone()[0]
+            is None
+        ), "a la hora de recuperar, el producto ya no tiene margen vigente"
+
+        handler, vistos = _handler_cortes({ext: "ENABLED"})
+        conciliacion = ciclo._fase_reconciliacion(
+            conn,
+            modo=g.ModoEfectivo("live", None),
+            platform="amazon_us",
+            cycle_id_ejecutor=ejecutor,
+            job_key="ads_optimizer:amazon_us",
+            owner="ejecutor:1",
+            guard=lambda: None,
+            aplicador_factory=lambda c, **kw: _aplicador(c, handler, kw["cycle_id_ejecutor"]),
+            origen=origen,
+        )
+        aplicador = conciliacion.aplicador
+        assert aplicador is not None and conciliacion.notas.get("apply_error") is None
+        assert aplicador.ciclo_origen == origen, "se revalida contra el ciclo que decidio"
+
+        resultado = apply_cola.libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=DECIDED_AT + dt.timedelta(hours=1),
+            aplicador=aplicador,
+            cycle_id=ejecutor,
+        )
+
+        assert [r for r in vistos if r.method == "PUT"] == [], (
+            "la pausa no sale a Amazon sin una elegibilidad comprobable"
+        )
+        assert (resultado.aplicadas, resultado.espera_target) == (0, 1), (
+            "sin evaluacion vigente la pausa economica espera"
+        )
+        estado = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert estado == ("released",), "la fila sigue en cola para el ciclo que si evalua"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s",
+                (pausa["decision_id"],),
+            ).fetchone()[0]
+            == 0
+        )
+        notas_ejecutor = conn.execute(
+            "SELECT notes FROM optimizer_cycle WHERE id = %s", (ejecutor,)
+        ).fetchone()[0]
+        [evidencia] = json.loads(notas_ejecutor)["revalidaciones_economicas"]
+        assert evidencia["resultado"] == "espera_target"
+        assert evidencia["economia"]["producto"]["motivo"] == "sin_evaluacion_fresca"

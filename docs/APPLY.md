@@ -780,7 +780,9 @@ cortes en cola). El ejecutor solo intenta lo que sigue sin desenlace: una
 decisión que ya lo tuvo sin intento (`modo_no_live`, `choque_clave`,
 `vigencia_vencida`) no se reevalúa aunque sus condiciones hayan cambiado; al
 terminar bien, marca el origen y revalida los cortes con el target de ese
-origen. Antes de cada escritura nueva se vuelven a mirar goal, modo,
+origen. La evaluación de producto del origen no cuenta como vigente: un
+ejecutor no evalúa, así que una pausa económica decidida por margen de
+producto espera (`espera_target`) al ciclo que sí la evalúe. Antes de cada escritura nueva se vuelven a mirar goal, modo,
 campaña y ad group habilitados, claim y lectura viva del bid. El ejecutor
 reencola solo los cortes que quedaron sin fila; los que ya están en la cola
 conservan la suya. `decision_application.applied_cycle_id` sigue sellando al
