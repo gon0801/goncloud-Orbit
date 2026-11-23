@@ -784,7 +784,10 @@ documento daba por deseado):
   indisponible, la identidad o los permisos de Amazon inválidos. Un 403, o un 401 que sigue
   tras refrescar el token, en cualquier mutación (puja, corte, harvest,
   reactivación) es ese fallo global: el intento queda sellado con su rechazo y
-  detrás no sale otra. Un 400 sigue siendo el rechazo de esa hoja. No hay un
+  detrás no sale otra. Un 400 sigue siendo el rechazo de esa hoja. Si el
+  rechazo llega durante la reversa automática de una cosecha, el trabajo se cierra
+  como fallido antes de propagar: la recuperación no vuelve a crear la keyword. El
+  negativo del origen queda sin retirar y consta en el detalle. No hay un
   `except Exception` que siga mutando. Que la fábrica no encuentre perfil, o
   un fallo de la API, no impide comprometer decisiones: se anota
   `apply_error`, no sale ninguna mutación y el horario siguiente abre el

@@ -3193,3 +3193,54 @@ def test_arreglos04_bc_pg_harvest_readback_incompleto_cero_borrado():
             "SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)
         ).fetchone()[0]
         assert fase_job == "exact_created"
+
+
+@_skip_db
+def test_arreglos05_a_reversa_con_rechazo_de_identidad_cierra_el_job_y_no_repite_el_post():
+    """Revision de Devin del PR #746: el POST de la keyword recibe 400 y el
+    DELETE compensatorio del negativo recibe 403. El rechazo de identidad se
+    propaga (el barrido se detiene), pero el job queda cerrado como fallido
+    ANTES: si se quedaba en negative_created, el horario siguiente volvia a
+    mandar el POST de creacion de una keyword que Amazon ya rechazo."""
+    from app.ads.write import AdsApiErrorMutacion
+
+    with _db_temporal("orbit_har_fail_id") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        base, _vistos = _handler_harvest(fallo_keyword_status=400)
+
+        def rechaza_el_delete(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path == "/sp/negativeKeywords/delete":
+                return httpx.Response(403, json={"code": "ACCESS_DENIED"})
+            return base(request)
+
+        with pytest.raises(AdsApiErrorMutacion, match="status=403"):
+            aplica_harvest(
+                conn,
+                _aplicador(conn, rechaza_el_delete, ids["ciclo_ejec"]),
+                fila_cola(conn, q),
+                platform="amazon_us",
+            )
+        assert conn.execute(
+            "SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)
+        ).fetchone() == ("failed",), "el job se cierra como fallido antes de propagar el rechazo"
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "failed"
+        )
+        sellos = [
+            f[0]
+            for f in conn.execute(
+                "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'",
+                (dec,),
+            ).fetchall()
+        ]
+        assert sellos and sellos[0].startswith("fallo http 403"), "el sello del DELETE se conserva"
+
+        # El horario siguiente recupera y no vuelve a emitir el POST de creacion.
+        restaurado, vistos = _handler_harvest()
+        reconcilia_harvest(conn, _aplicador(conn, restaurado, ids["ciclo_ejec"]), "amazon_us")
+        creaciones = [r for r in _mutaciones(vistos) if r.url.path == "/sp/keywords"]
+        assert creaciones == [], "no se vuelve a intentar crear la keyword"

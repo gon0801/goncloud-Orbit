@@ -30,6 +30,7 @@ from app import (
     biblioteca,
     notifica,
 )
+from app.ads.client import AdsApiError
 from app.ads.sp_wire import (  # noqa: F401 - re-export estable
     errores_de_ack as _errores_de_ack,
 )
@@ -372,21 +373,54 @@ def ejecuta_reversa_harvest(
     )
 
 
+# Un job cuya reversa automatica se interrumpe porque Amazon rechazo la identidad
+# o los permisos: se cierra como fallido con este motivo antes de propagar.
+MOTIVO_REVERSA_RECHAZADA = "reversa_rechazo_de_identidad"
+_SQL_COLA_APLICANDO_DEL_JOB = """
+SELECT id FROM apply_queue
+ WHERE decision_id = %s AND estado = 'applying'
+ ORDER BY id DESC
+ LIMIT 1
+"""
+
+
 def _reversa_automatica(
     conn: psycopg.Connection,
     aplicador,
     job: _Job,
     ctx: _Contexto,
 ) -> str:
-    """Reversa automatica tras fallo definitivo (wrapper que respeta parches)."""
-    return apply_harvest_reversa._reversa_automatica(
-        conn,
-        aplicador,
-        job,
-        ctx,
-        lista_completa_fn=_lista_completa,
-        reversa_delete_fn=_reversa_delete,
-    )
+    """Reversa automatica tras fallo definitivo (wrapper que respeta parches).
+
+    Si Amazon rechaza la identidad o los permisos durante la reversa (401/403),
+    el rechazo se propaga para detener el barrido, pero ANTES el job se cierra
+    como fallido: la creacion que fallo ya es definitiva y, si quedara en su
+    fase, la recuperacion volveria a intentar crear la keyword. El negativo del
+    origen queda sin retirar y consta en el detalle (ARREGLOS 05 A, revision)."""
+    try:
+        return apply_harvest_reversa._reversa_automatica(
+            conn,
+            aplicador,
+            job,
+            ctx,
+            lista_completa_fn=_lista_completa,
+            reversa_delete_fn=_reversa_delete,
+        )
+    except AdsApiError as exc:
+        if not apply.es_rechazo_de_identidad(exc):
+            raise
+        cola = conn.execute(_SQL_COLA_APLICANDO_DEL_JOB, (job.decision_id,)).fetchone()
+        _falla_job(
+            conn,
+            job,
+            MOTIVO_REVERSA_RECHAZADA,
+            queue_id=cola[0] if cola is not None else None,
+            detalle=(
+                "reversa interrumpida: Amazon rechazo la identidad o los permisos"
+                f" (http {getattr(exc, 'status', None)}); el negativo del origen queda sin retirar"
+            ),
+        )
+        raise
 
 
 def _termina_cola_si_applying(conn: psycopg.Connection, queue_id: int | None) -> None:
