@@ -71,3 +71,9 @@ test_arreglos05_a_la_reversa_de_cosecha_propaga_el_rechazo_de_identidad
   Failed: DID NOT RAISE AdsApiErrorMutacion
 test_arreglos05_a_barrido_pausa_de_producto_403_detiene_el_corte_siguiente
   Failed: DID NOT RAISE AdsApiError
+
+# Cuarta pasada (Devin): rojo contra 487e0eaa:
+test_arreglos05_a_reversa_con_rechazo_de_identidad_cierra_el_job_y_no_repite_el_post
+  AssertionError: el job se cierra como fallido antes de propagar el rechazo
+test_arreglos05_a_el_barrido_de_reactivaciones_lee_antes_de_reenviar
+  assert (0, 1) == (0, 0)
