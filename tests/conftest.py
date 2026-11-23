@@ -32,6 +32,26 @@ def ahora_db(conn):
 
 
 @pytest.fixture(autouse=True)
+def _aplicador_de_prueba_nace_con_el_claim(monkeypatch):
+    """ARREGLOS 05 A: la cerca del sello exige la fila del claim, igual que el
+    ciclo la exige al construir el aplicador (toma el claim antes). Todo
+    `Aplicador` de prueba nace dueno de su claim `(job_key, owner)`; sobre una
+    conexion de pega no hay base que tocar."""
+    import psycopg
+
+    from app import apply, lock
+
+    original = apply.Aplicador.__init__
+
+    def nace(self, conn, *args, **kwargs):
+        original(self, conn, *args, **kwargs)
+        if isinstance(conn, psycopg.Connection):
+            lock.claim_lock(conn, self.job_key, self.owner)
+
+    monkeypatch.setattr(apply.Aplicador, "__init__", nace)
+
+
+@pytest.fixture(autouse=True)
 def _canal_telegram_deshabilitado(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path_factory.mktemp("secrets_vacios")))
     monkeypatch.delenv("ORBIT_DSN_READ", raising=False)
