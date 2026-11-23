@@ -115,14 +115,17 @@ SELECT ad_entity_id, familia, search_term
  WHERE platform = %s::platform AND estado = 'released'
 """
 
-# Solo los cortes que todavia no tienen fila en la cola: una decision que ya
-# esta encolada (por su propio ciclo o por un ejecutor anterior) conserva su
-# fila y no choca consigo misma (ARREGLOS 05 A.2).
+# Solo los cortes que todavia no tienen fila en la cola NI otro desenlace: una
+# decision ya encolada (por su propio ciclo o por un ejecutor anterior)
+# conserva su fila, y una que ya se cerro sin fila (choque_clave) no se
+# reevalua, aunque las condiciones hayan cambiado (ARREGLOS 05 A).
 _SQL_CORTES_CICLO = """
 SELECT d.id, d.ad_entity_id, d.kind, d.search_term
   FROM decision d
  WHERE d.cycle_id = %s AND d.kind IN ('pause', 'negative', 'harvest')
    AND NOT EXISTS (SELECT 1 FROM apply_queue q WHERE q.decision_id = d.id)
+   AND NOT EXISTS (SELECT 1 FROM decision_application da WHERE da.decision_id = d.id)
+   AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa WHERE sa.decision_id = d.id)
  ORDER BY d.id
 """
 

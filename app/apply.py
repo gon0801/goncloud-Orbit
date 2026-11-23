@@ -76,6 +76,7 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     ResultadoAplicador,
     _cap_de_config,
     bids_del_ciclo,
+    bids_recuperables,
     cap_desde_settings,
     consume_quota,
     consume_quota_y_sello,

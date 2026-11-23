@@ -350,7 +350,7 @@ def _fase_apply(
         }
         if modo.modo == "live" and reconciliacion.aplicador is not None:
             res_bids = aplicador.aplica_bids(
-                apply.bids_del_ciclo(conn, origen), escalera_global=modo.modo
+                apply.bids_recuperables(conn, origen), escalera_global=modo.modo
             )
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)

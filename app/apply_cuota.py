@@ -390,10 +390,24 @@ SELECT id, ad_entity_id, old_value, new_value, value_currency, inputs
  ORDER BY id
 """
 
+# ARREGLOS 05 A: las pujas que un ejecutor de recuperacion puede completar.
+# Mismo criterio de "sin desenlace" que el plan del dia: sin aplicacion y sin
+# no-apply registrado. Una decision que ya tuvo desenlace sin intento
+# (modo_no_live, vigencia_vencida...) no se reevalua aunque sus condiciones
+# hayan cambiado desde entonces.
+_SQL_BIDS_SIN_DESENLACE = """
+SELECT id, ad_entity_id, old_value, new_value, value_currency, inputs
+   FROM decision
+  WHERE cycle_id = %s AND kind = 'bid'
+    AND NOT EXISTS (SELECT 1 FROM decision_application da
+                     WHERE da.decision_id = decision.id)
+    AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa
+                     WHERE sa.decision_id = decision.id)
+  ORDER BY id
+"""
 
-def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]:
-    """Las decisiones kind='bid' de un ciclo (los bids aplican en su ciclo;
-    los cortes van a la cola, sellado 1)."""
+
+def _decisions_de(filas) -> list[DecisionBid]:
     return [
         DecisionBid(
             id=fila[0],
@@ -403,8 +417,21 @@ def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]
             value_currency=fila[4],
             inputs=fila[5] or {},
         )
-        for fila in conn.execute(_SQL_BIDS_CICLO, (cycle_id,)).fetchall()
+        for fila in filas
     ]
+
+
+def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]:
+    """Las decisiones kind='bid' de un ciclo (los bids aplican en su ciclo;
+    los cortes van a la cola, sellado 1)."""
+    return _decisions_de(conn.execute(_SQL_BIDS_CICLO, (cycle_id,)).fetchall())
+
+
+def bids_recuperables(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]:
+    """Las decisiones kind='bid' de un ciclo que siguen sin desenlace: las
+    unicas que la fase de apply intenta. Recien decidido un ciclo es el lote
+    completo; en un ejecutor son solo las que falta completar."""
+    return _decisions_de(conn.execute(_SQL_BIDS_SIN_DESENLACE, (cycle_id,)).fetchall())
 
 
 # Clave de orden para gasto desconocido (regla 3): dentro de SU nivel, al

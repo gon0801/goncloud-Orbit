@@ -1044,7 +1044,7 @@ def test_arreglos05_a_ejecutor_no_repite_decisiones_que_ya_tienen_desenlace(monk
 
 
 @_skip_db
-def test_arreglos05_a_interrupcion_tras_tx3_abre_ejecutor_aunque_no_queden_huerfanas(monkeypatch):
+def test_arreglos05_a_interrumpido_tras_tx3_abre_ejecutor_sin_huerfanas(monkeypatch):
     """Revision del PR #746: si la interrupcion dejo las fases de cortes y
     reactivaciones sin correr, el plan abre un ejecutor aunque ninguna decision
     este huerfana (la vista no ve reactivaciones ni cortes en cola). Con las
@@ -1171,7 +1171,8 @@ def test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy
         ), "nada de ayer se intenta"
         assert (
             conn.execute(
-                "SELECT count(*) FROM decision_sin_aplicar s JOIN decision d ON d.id = s.decision_id"
+                "SELECT count(*) FROM decision_sin_aplicar s"
+                " JOIN decision d ON d.id = s.decision_id"
                 " WHERE d.cycle_id = %s AND s.motivo = %s",
                 (ayer_id, VENCIDA),
             ).fetchone()[0]
