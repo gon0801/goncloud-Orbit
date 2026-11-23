@@ -319,7 +319,8 @@ espejado por el CHECK de la tabla): `modo_no_live`, `ya_aplicada` (en el
 vocabulario pero **jamás escrita**: su desenlace ya es el resumen),
 `bid_incompleto`, `entidad_no_decisora`, `tope_intentos`, `fuera_de_cap`,
 `fallo_http`, `sin_quota`, `espera_target`, `sin_respuesta`, `perdida`,
-`choque_clave` (D.1b).
+`choque_clave` (D.1b). Después se agregaron `espera_proteccion` (0081),
+`bid_cambiado_fuera` (0093) y `vigencia_vencida` (0094, §9.1).
 
 **`choque_clave` (D.1b):** la decisión de corte live cuyo INSERT chocó la
 clave de efecto en vuelo (otra fila no terminal con la misma clave). No
@@ -514,6 +515,13 @@ codex 7: el texto solo producía falsos "ya aplicada" — fixture señuelo en
 otro ad group). Cubre harvest pendiente, negatives normales y `applying`
 huérfanos del ledger.
 
+Desde ARREGLOS 05 A corre de verdad **antes de la decisión** (TX2), con el
+claim ya tomado. Hasta ese bloque corría dentro de la fase de apply, después
+de decidir: una puja que Amazon sí aplicó pero respondió 500 dejaba la hoja
+«en vuelo» en el ciclo siguiente, que la saltaba y, minutos después, la
+confirmaba (§9.1). El orden es claim → conciliación → TX2 → TX3 → apply →
+cierre.
+
 **Evidencia en vivo (regla 8; log `out/regla8-negkeywords.log`):**
 `POST /sp/negativeKeywords/list` con vendor
 `application/vnd.spnegativekeyword.v3+json` responde 200 en AMBOS perfiles
@@ -703,6 +711,84 @@ PUT de pause/resume.
   ejecutor (invariante).
 
 ---
+
+### 9.1 Recuperación del ciclo y aislamiento de fallos (ARREGLOS 05 A)
+
+Para el dueño: un fallo de Amazon en una hoja ya no deja sin aplicar el resto
+del ciclo, y si el apply no termina, el horario siguiente completa lo
+pendiente sin volver a decidir ni repetir envíos.
+
+**Flujo de un horario.** `atender_plataforma` (`app/cycle.py`) es la única
+operación: toma el claim y elige entre tres cosas. Sin decisión comprometida
+hoy abre un **origen** y lo corre entero. Con la TX3 de hoy comprometida y
+decisiones live sin desenlace abre un **ejecutor de recuperación** (`resume_of`
+= el origen): no toma el snapshot ni inserta decisiones (`decisions_count` 0),
+aplica lo pendiente del origen y cierra. Con la TX3 de hoy comprometida y nada
+pendiente no abre nada. La escalera en `off` o `shadow` no abre ejecutores.
+`--forzar` (corrida manual) salta ese plan.
+
+**El claim manda.** Se retiró la heurística de 3 horas sobre `running` y el
+atajo que trataba `degraded` como día cerrado. Un `running` huérfano nunca
+comprometió su TX3, así que no cuenta como decisión: el siguiente horario
+reclama el lock cuando vence y lo cierra con su rastro.
+
+**Progreso durable.** La TX3 cierra el envelope y lo sella
+(`optimizer_cycle.decision_committed_at`) en la misma sentencia, aunque el
+lote válido traiga cero decisiones. Si el envelope ya no es `running` (otro
+owner lo reclamó), esa transacción se deshace con sus decisiones: un proceso
+que perdió el claim no deja decisiones comprometidas. Una caída antes de TX3
+no tiene sello y no se parece a un lote vacío terminado. Detalle del esquema,
+disparador y reversa en `docs/DATABASE.md`.
+
+**Quién es dueño.** Owner distinto por adquisición; se valida en la reserva
+(cuota y fila del ledger), antes de cada HTTP y antes de cada sello. Un owner
+vencido no sella: su intento queda sin sellar y la conciliación del sucesor
+lo resuelve con una lectura. Un HTTP tardío no se considera cancelado por
+haber vencido el lock; tampoco se repite.
+
+**Aislamiento por entidad y por fase** (cambia el aborto de lote que este
+documento daba por deseado):
+
+- Un fallo remoto de UNA puja (`AdsApiError`: 5xx, red o lectura de vuelta
+  ilegible) la deja incierta: su fila del ledger queda **sin sello** (el
+  rastro de §6.1), la decisión sin desenlace, y el lote sigue con la
+  siguiente. En la cola de cortes y en las reactivaciones pasa lo mismo por
+  fila: la fila queda `applying` con su ledger sin sello, que es lo que la
+  conciliación ya sabía resolver.
+- Un 5xx no autoriza repetir la misma mutación: una decisión con un intento
+  `normal` no vuelve a salir por el aplicador (`ya_intentada`); solo la
+  conciliación, leyendo, le pone desenlace.
+- Cada fase (encolado, pujas, cortes, reactivaciones) deja su resultado en
+  `notes.apply` antes de pasar a la siguiente, así que un fallo global no
+  borra lo ya hecho.
+- **Fallo global aborta las fases que faltan**: perder el claim, la base
+  indisponible, la identidad o los permisos de Amazon inválidos. No hay un
+  `except Exception` que siga mutando. Que la fábrica no encuentre perfil, o
+  un fallo de la API, no impide comprometer decisiones: se anota
+  `apply_error`, no sale ninguna mutación y el horario siguiente abre el
+  ejecutor.
+
+**Recuperación.** Antes de cada escritura nueva se vuelven a mirar goal, modo,
+campaña y ad group habilitados, claim y lectura viva del bid. El ejecutor
+reencola solo los cortes que quedaron sin fila; los que ya están en la cola
+conservan la suya. `decision_application.applied_cycle_id` sigue sellando al
+ejecutor que confirmó, `applied_count` cuadra por ejecutor, y el cupo diario es
+el mismo: una recuperación no abre otro. El digest del ejecutor nombra el ciclo
+de origen y no repite la contribución del día; las pantallas de "último ciclo"
+y de target ignoran los ejecutores.
+
+**Vigencia de lo ordinario.** Una decisión es elegible solo el día en que se
+decidió. Al cambiar el día, el ciclo concilia los intentos ambiguos anteriores
+(leyendo) y lo que nunca se intentó deja de ser elegible con
+`decision_sin_aplicar.vigencia_vencida`; no se borra ninguna decisión y el
+ciclo nuevo decide con datos frescos. Solo aplica a ciclos con sello de TX3:
+la historia anterior a la migración no se reclasifica.
+
+Regresiones: `tests/test_arreglos05_a_ciclo.py`
+(`comprobar.sh N a`). Límites declarados: una tormenta de 5xx en los PUT deja
+cada puja del lote incierta y todas se concilian con lecturas en el ciclo
+siguiente; el aviso del día de temporada y el aviso de target pertenecen al
+ciclo que decidió y un ejecutor no los repite.
 
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 
@@ -1140,4 +1226,7 @@ Declarados SIN fix tras la cross-review del dueño (codex+grok+qwen,
   `json.loads(scrub(...))` del ack.
 - Un 5xx/fallo ambiguo de mutación ABORTA el lote de bids en curso (qwen):
   diseño sellado (§5.3, "no se reintenta") — el ciclo sella degraded y el
-  siguiente reconcilia; confirmado deseado.
+  siguiente reconcilia; confirmado deseado. **Cambiado en ARREGLOS 05 A**: el
+  fallo remoto de una puja ya no aborta el lote ni la fase (§9.1). Lo que se
+  conserva es lo sellado: esa mutación no se reintenta; su fila queda sin
+  sello y solo la conciliación la resuelve, leyendo.
