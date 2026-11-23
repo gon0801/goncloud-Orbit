@@ -156,6 +156,7 @@ class _Amazon:
         self.rechaza_identidad = rechaza_identidad
         self.al_rechazo_identidad = None
         self.rechaza_lectura = rechaza_lectura
+        self.omite_en_el_list: set[str] = set()
         self.al_put_bid = None
         self.al_list = None
 
@@ -182,7 +183,7 @@ class _Amazon:
                     "bid": self.bids.get(ext),
                     "state": self.estados.get(ext, "ENABLED"),
                 }
-                for ext in sorted(set(self.bids) | set(self.estados))
+                for ext in sorted((set(self.bids) | set(self.estados)) - self.omite_en_el_list)
             ]
             return httpx.Response(200, json={"keywords": filas})
         if request.method == "PUT" and request.url.path == "/sp/keywords":
@@ -1766,6 +1767,113 @@ def test_arreglos05_a_barrido_pausa_de_producto_403_detiene_el_corte_siguiente(m
             ).fetchone()[0]
             == "applying"
         ), "la pausa de producto queda pendiente"
+
+
+@_skip_db
+def test_arreglos05_a_el_barrido_de_reactivaciones_lee_antes_de_reenviar():
+    """Revision de Devin del PR #746 (cuarta pasada). Dos hojas en un mismo
+    origen. La hoja A ya tiene un intento abierto y su LIST no trae estado. En
+    el primer horario la hoja B recibe su PUT y Amazon la habilita, pero su
+    lectura de vuelta tampoco trae estado: el intento de B debe quedar ABIERTO
+    (Amazon pudo aplicarlo) y B pendiente de lectura. En el segundo horario se
+    lee a B antes de cobrar o reenviar: ya esta habilitada y no sale otro PUT.
+    Antes, el intento de B se sellaba como fallo y el segundo horario cobraba
+    otro cupo y reenviaba el PUT sin comprobar nada."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import (
+        _config,
+        _episodio,
+        _nueva_kw,
+        _pausa_baja,
+        _pausado,
+        estacion_dia,
+    )
+
+    from app import apply_cola, lock, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_reactivar_sin_verificar") as (conn, _extra):
+        ids = _semilla_live(conn)
+        a, b = ids["kw_pause"], _nueva_kw(conn, ids["ag"], "9204")
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausas = {}
+        for hoja in (a, b):
+            pausa, _q = _pausa_baja(
+                conn,
+                ciclo_id=ciclo_prev,
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            _pausado(conn, hoja)
+            pausas[hoja] = pausa
+        conn.execute("INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us')")
+        origen = conn.execute("SELECT max(id) FROM optimizer_cycle").fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        for pendiente in temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset()):
+            propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+            conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+                " data_observed_at, window_start, window_end, inputs)"
+                " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+                (
+                    origen,
+                    pendiente.ad_entity_id,
+                    ahora,
+                    config_id,
+                    propuesta.data_observed_at,
+                    propuesta.window_start,
+                    propuesta.window_end,
+                    json.dumps(propuesta.inputs),
+                ),
+            )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 2
+        assert lock.claim_lock(conn, JOB_KEY, "test:cola") is not None
+        # La hoja A ya tiene un intento de reactivacion abierto.
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'reversa', '{}'::jsonb, false)",
+            (pausas[a],),
+        )
+        conn.execute("DELETE FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,))
+        amazon = _Amazon(**REMOTO_INICIAL)
+        amazon.omite_en_el_list = {"9202", "9204"}
+
+        primero = _atiende(conn, factory=_directa(amazon), ahora=ahora)
+        assert primero.ciclo is not None and primero.ciclo.resume_of == origen
+        reactivaciones = json.loads(primero.ciclo.notes)["apply"]["reactivaciones"]
+        assert [p["keywordId"] for p in amazon.puts_estado] == ["9204"], "solo sale el PUT de B"
+        assert (reactivaciones["confirmadas"], reactivaciones["fallidas"]) == (0, 0)
+        assert reactivaciones["pendientes_de_lectura"] == 2, "A y B quedan pendientes de lectura"
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=ahora.astimezone(dt.UTC).date()) is None
+
+        # Segundo horario: A sigue sin estado; Amazon ya devuelve a B habilitada.
+        amazon.omite_en_el_list = {"9202"}
+        segundo = _atiende(conn, factory=_directa(amazon), ahora=ahora)
+        assert segundo.ciclo is not None and segundo.ciclo.resume_of == origen
+        assert [p["keywordId"] for p in amazon.puts_estado] == ["9204"], (
+            "B se lee antes de reenviar: no sale otro PUT"
+        )
+        reactivaciones = json.loads(segundo.ciclo.notes)["apply"]["reactivaciones"]
+        assert (reactivaciones["confirmadas"], reactivaciones["pendientes_de_lectura"]) == (1, 1)
+        assert (
+            conn.execute(
+                "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'",
+                (pausas[b],),
+            ).fetchone()[0]
+            == "ok"
+        )
 
 
 @_skip_db

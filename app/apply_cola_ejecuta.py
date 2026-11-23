@@ -244,8 +244,13 @@ def reversa_pause(
     *,
     tick=None,
     durable: bool = False,
-) -> bool:
+) -> bool | str:
     """Reversa del pause: reanudar keyword/target, readback y cache con lo leido.
+
+    Si la lectura de vuelta no trae el estado devuelve `PENDIENTE_LECTURA`: el
+    intento queda ABIERTO (Amazon pudo haber habilitado la hoja) y la
+    recuperacion lo lee antes de cobrar cuota o reenviar (ARREGLOS 05 A,
+    revision). Reenviar sin leer repetiria un PUT que quizas ya aplico.
 
     `durable=True` (TEMPORADA 01 F) confirma el sello con `tx_durable`: en la
     fase de apply la conexion de produccion ya esta en INTRANS y un
@@ -278,6 +283,8 @@ def reversa_pause(
         tick()
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
     estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
+    if estado is None:
+        return PENDIENTE_LECTURA
     verify = estado == apply.ESTADO_WIRE_ENABLED
     resultado = (
         "ok"
@@ -332,6 +339,10 @@ def reversa_negative(
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
     return True
 
+
+# Lo que devuelve `reversa_pause` cuando la lectura de vuelta no trajo el estado
+# de la hoja: el intento queda abierto y la hoja pendiente de lectura.
+PENDIENTE_LECTURA = "pendiente_de_lectura"
 
 _SQL_REVERSA_SIN_SELLO = """
 SELECT id FROM apply_attempt
@@ -484,10 +495,9 @@ def aplica_reactivaciones(
                 conn.rollback()
             fallidas += 1
             continue
-        if reanudada:
-            confirmadas += 1
-        else:
-            fallidas += 1
+        confirmadas += reanudada is True
+        pendientes_de_lectura += reanudada is PENDIENTE_LECTURA
+        fallidas += reanudada is False
     return ResumenReactivacion(
         confirmadas=confirmadas,
         fallidas=fallidas,

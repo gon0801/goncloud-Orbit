@@ -776,7 +776,9 @@ documento daba por deseado):
   de cobrar cuota y volver a enviar: si Amazon ya habilitó la hoja, el intento se
   sella y no sale otro PUT. Si la lectura no trae el estado, el intento sigue
   abierto y la reactivación cuenta como pendiente de lectura: el origen no se
-  marca completo y el horario siguiente vuelve a leerla.
+  marca completo y el horario siguiente vuelve a leerla. Lo mismo si es la lectura
+  de vuelta del PUT la que no trae estado: ese intento queda abierto, no sellado
+  como fallo, y la hoja cuenta como pendiente de lectura.
 - Cada fase (encolado, pujas, cortes, reactivaciones) deja su resultado en
   `notes.apply` antes de pasar a la siguiente, así que un fallo global no
   borra lo ya hecho.

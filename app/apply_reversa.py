@@ -180,7 +180,8 @@ def _confirmada_en_la_frontera_manual(accion) -> bool:
     rechazo no debe salir ninguna mutacion (ARREGLOS 05 A, revision). Los
     demas errores de la API siguen propagandose."""
     try:
-        return bool(accion())
+        # Una lectura sin estado (PENDIENTE_LECTURA) no confirma.
+        return accion() is True
     except AdsApiError as exc:
         if es_rechazo_de_identidad(exc):
             return False
