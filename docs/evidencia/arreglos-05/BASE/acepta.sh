@@ -10,11 +10,18 @@ set -uo pipefail
 cd "$(dirname -- "$0")/../../../.." || exit 2
 unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL
 
-# libpq toma valores por omision de las variables PG* del entorno (PGHOSTADDR,
-# PGSERVICE...) y el parser de psycopg no los expone. Se quitan todas antes de
-# conectar, asi que el DSN es la unica fuente del destino.
-pg_quitadas=$(compgen -e | grep -c -E '^PG')
-while IFS= read -r variable; do unset "$variable"; done < <(compgen -e | grep -E '^PG')
+# libpq completa con el entorno los parametros que el DSN no trae, y el parser
+# de psycopg no los expone. Se quitan los que pueden cambiar el servidor, elegir
+# un servicio o alterar la sesion, asi que el DSN es la unica fuente del destino.
+# Las fuentes de credencial (PGPASSWORD, PGPASSFILE) se conservan: no cambian el
+# destino y pueden ser la unica forma de autenticar.
+pg_quitadas=0
+for variable in PGHOST PGHOSTADDR PGPORT PGDATABASE PGSERVICE PGSERVICEFILE PGLOADBALANCEHOSTS PGOPTIONS; do
+  if [[ -n ${!variable:-} ]]; then
+    unset "$variable"
+    pg_quitadas=$((pg_quitadas + 1))
+  fi
+done
 
 # Guarda antes de abrir cualquier conexion: solo el PG desechable del laboratorio.
 # El destino lo decide libpq, no la URL a simple vista: una consulta en la propia
@@ -92,7 +99,7 @@ corre() {
 }
 
 echo "# Acepta de ARREGLOS 05 BASE. SHA $(git rev-parse HEAD)"
-echo "# variables PG* quitadas del entorno: $pg_quitadas"
+echo "# variables PG* de destino o de servicio quitadas del entorno: $pg_quitadas"
 echo "# PG: $(uv run --frozen --python 3.12 python -c 'import os,psycopg; c=psycopg.connect(os.environ["ORBIT_TEST_DSN"]); print(c.execute("select version()").fetchone()[0].split(",")[0], "|", c.execute("show server_version_num").fetchone()[0])' 2>&1)"
 
 corre ACEPTA "BASE.0 plan y diseno en origin/master" bash -c \
