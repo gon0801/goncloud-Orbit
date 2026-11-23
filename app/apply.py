@@ -256,6 +256,7 @@ class Aplicador:
         credentials: AdsCredentials | None = None,
         profile_id: str | int | None = None,
         guard_http: Callable[[], None] | None = None,
+        ciclo_origen: int | None = None,
     ) -> None:
         if platform not in PLATAFORMA_MONEDA:
             raise ValueError(
@@ -267,6 +268,10 @@ class Aplicador:
         self._profile_id = profile_id
         self._credentials = credentials
         self.cycle_id_ejecutor = cycle_id_ejecutor
+        # ARREGLOS 05 A: el ciclo cuyas notas y evaluaciones son el contexto de
+        # decision. Es el propio, salvo en un ejecutor de recuperacion, que
+        # completa las decisiones de otro ciclo y no decidio nada.
+        self.ciclo_origen = cycle_id_ejecutor if ciclo_origen is None else ciclo_origen
         self.owner = owner
         self.job_key = job_key
         self._tick_fn = tick

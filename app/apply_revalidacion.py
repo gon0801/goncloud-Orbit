@@ -520,7 +520,10 @@ def revalida_pause(
         conn,
         platform,
         fila.ad_entity_id,
-        aplicador.cycle_id_ejecutor,
+        # ARREGLOS 05 A: el target es el del ciclo que DECIDIO (el origen), no
+        # el del ejecutor que revalida: un ejecutor de recuperacion no decide
+        # y sus notas no traen `target`.
+        getattr(aplicador, "ciclo_origen", aplicador.cycle_id_ejecutor),
         decision[0],
         ahora,
         resolucion_economica,

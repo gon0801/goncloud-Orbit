@@ -89,9 +89,10 @@ def _atiende(conn, *, factory=None, owner=OWNER, ahora=DECIDED_AT, forzar=False)
     )
 
 
-def _directa(amazon):
+def _directa(amazon, *, con_guard=True):
     """Fabrica que construye el Aplicador contra la API simulada, sin resolver
-    perfil: para las pruebas donde el perfil no es el sujeto."""
+    perfil: para las pruebas donde el perfil no es el sujeto. Con `con_guard`
+    False el aplicador no recibe el guard de ownership."""
 
     def fabrica(conn, *, platform, cycle_id_ejecutor, owner, job_key, tick, transport=None):
         from test_cycle_apply import (
@@ -116,8 +117,8 @@ def _directa(amazon):
             cycle_id_ejecutor=cycle_id_ejecutor,
             owner=owner,
             job_key=job_key,
-            tick=tick,
-            guard_http=tick,
+            tick=tick if con_guard else None,
+            guard_http=tick if con_guard else None,
             transport=httpx.MockTransport(amazon),
             sleep=lambda seconds: None,
         )
@@ -150,6 +151,7 @@ class _Amazon:
         self.falla_primer_put = falla_primer_put
         self.aplica_al_fallar = aplica_al_fallar
         self.al_put_bid = None
+        self.al_list = None
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -159,6 +161,8 @@ class _Amazon:
         if request.method == "GET" and request.url.path == "/v2/profiles":
             return httpx.Response(200, json={"profiles": [PERFIL_US]})
         if request.method == "POST" and request.url.path == "/sp/keywords/list":
+            if self.al_list is not None and self.puts_bid:
+                self.al_list(request)
             filas = [
                 {
                     "keywordId": ext,
@@ -530,7 +534,7 @@ def test_arreglos05_a_lote_valido_vacio_deja_tx3_comprometida():
             sello = _sello(otra, res.cycle_id)
         assert sello[0] is not None, "TX3 comprometida aunque el lote valido este vacio"
         assert sello[1] is None
-        salto = ciclo.motivo_de_salto(conn, "amazon_us")
+        salto = ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date())
         assert salto is not None and "ya hay un ciclo done hoy" in salto
 
 
@@ -903,3 +907,273 @@ def test_arreglos05_a_fallo_de_identidad_detiene_todas_las_mutaciones():
             ).fetchone()[0]
             == 0
         )
+
+
+@_skip_db
+def test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen():
+    """Un ejecutor de recuperacion no decide, asi que sus notas no traen
+    `target`. La revalidacion de una pausa economica debe leer el target del
+    ORIGEN: leida del ejecutor la pausa queda en espera y el horario siguiente
+    no completa lo pendiente (revision del PR #746). Los intentos y la
+    confirmacion siguen siendo del ejecutor."""
+    from test_apply_cola import (
+        _db_temporal as _db_cola,
+    )
+    from test_apply_cola import (
+        _decision_corte,
+        _encola_fila,
+        _fechas,
+        _handler_cortes,
+        _metrica,
+        _payload_pause,
+        _semilla,
+    )
+
+    from app import apply_cola
+    from app.optimizer import goals as g
+
+    with _db_cola("orbit_a05_econ") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica": True})
+        d = ids["ahora"]
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+        )
+        origen = ids["ciclo_ejec"]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = now(),"
+            " decision_committed_at = now(), notes = %s WHERE id = %s",
+            (json.dumps({"target": {"target_aplicado": None}}), origen),
+        )
+        ejecutor = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform, resume_of)"
+            " VALUES ('live', 'amazon_us', %s) RETURNING id",
+            (origen,),
+        ).fetchone()[0]
+        for i, fecha in enumerate(
+            _fechas(d.date() - dt.timedelta(days=20), d.date() - dt.timedelta(days=11))
+        ):
+            _metrica(
+                conn,
+                ids["run"],
+                ids["kw"],
+                fecha,
+                clicks=5,
+                cost=10 if i == 0 else 15,
+                orders=1 if i == 0 else 0,
+                ad_revenue=100 if i == 0 else 0,
+            )
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+
+        conciliacion = ciclo._fase_reconciliacion(
+            conn,
+            modo=g.ModoEfectivo("live", None),
+            platform="amazon_us",
+            cycle_id_ejecutor=ejecutor,
+            job_key="ads_optimizer:amazon_us",
+            owner="ejecutor:1",
+            guard=lambda: None,
+            aplicador_factory=lambda c, **kw: __import__("test_apply_cola")._aplicador(
+                c, handler, kw["cycle_id_ejecutor"]
+            ),
+            origen=origen,
+        )
+
+        aplicador = conciliacion.aplicador
+        assert aplicador is not None and conciliacion.notas.get("apply_error") is None
+        assert aplicador.cycle_id_ejecutor == ejecutor, "los intentos son del ejecutor"
+        assert aplicador.ciclo_origen == origen, "el contexto de decision es el del origen"
+        resultado = apply_cola.libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=aplicador, cycle_id=ejecutor
+        )
+        assert resultado.aplicadas == 1 and resultado.espera_target == 0, (
+            "la pausa economica pendiente del origen se completa en la recuperacion"
+        )
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "applied",
+        )
+        assert conn.execute(
+            "SELECT applied_cycle_id FROM decision_application WHERE decision_id = %s", (dec,)
+        ).fetchone() == (ejecutor,)
+
+
+@_skip_db
+def test_arreglos05_a_ejecutor_no_repite_decisiones_que_ya_tienen_desenlace(monkeypatch):
+    """Revision del PR #746: el ejecutor carga todas las decisiones del origen.
+    Las que ya tienen desenlace sin intento (una puja descartada por
+    `modo_no_live`, un corte cerrado por `choque_clave`) no se reevaluan ni se
+    reencolan aunque sus condiciones hayan cambiado; solo se completa lo que
+    sigue sin desenlace."""
+    with _db("orbit_a05_desenlace") as (conn, _extra):
+        ids = _semilla_live(conn)
+        _agrega_kw2(conn, ids)
+        _muere_en_apply(monkeypatch)
+        with pytest.raises(_Muerte):
+            _corre(conn)
+        monkeypatch.undo()
+        origen = conn.execute("SELECT max(id) FROM optimizer_cycle").fetchone()[0]
+        descartada = _decision(conn, origen, "bid", external=KW2)
+        choca = _decision(conn, origen, "pause")
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " VALUES (%s, %s, 'modo_no_live'), (%s, %s, 'choque_clave')",
+            (descartada, origen, choca, origen),
+        )
+
+        amazon = _Amazon(**REMOTO_INICIAL)
+        res = _atiende(conn, factory=_directa(amazon))
+
+        assert res.ciclo is not None and res.ciclo.resume_of == origen
+        assert KW2 not in amazon.pujas_enviadas(), "la puja con desenlace no se reevalua"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE decision_id = %s", (descartada,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_queue WHERE decision_id = %s", (choca,)
+            ).fetchone()[0]
+            == 0
+        ), "el corte cerrado por choque no se reencola"
+        assert KW_BID in amazon.pujas_enviadas(), "lo que sigue sin desenlace se completa"
+
+
+@_skip_db
+def test_arreglos05_a_interrupcion_tras_tx3_abre_ejecutor_aunque_no_queden_huerfanas(monkeypatch):
+    """Revision del PR #746: si la interrupcion dejo las fases de cortes y
+    reactivaciones sin correr, el plan abre un ejecutor aunque ninguna decision
+    este huerfana (la vista no ve reactivaciones ni cortes en cola). Con las
+    fases completas, un corte con el veto abierto no abre nada."""
+    with _db("orbit_a05_fases") as (conn, _extra):
+        _semilla_live(conn)
+        _muere_en_apply(monkeypatch)
+        with pytest.raises(_Muerte):
+            _corre(conn)
+        monkeypatch.undo()
+        origen = conn.execute("SELECT max(id) FROM optimizer_cycle").fetchone()[0]
+        conn.execute(
+            "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+            " SELECT id, %s, 'sin_respuesta' FROM decision WHERE cycle_id = %s",
+            (origen, origen),
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM v_decision_huerfana WHERE cycle_id = %s", (origen,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert ciclo.motivo_de_salto(conn, "amazon_us") is None, "quedan fases sin correr"
+
+        amazon = _Amazon(**REMOTO_INICIAL)
+        res = _atiende(conn, factory=_directa(amazon))
+
+        assert res.ciclo is not None and res.ciclo.resume_of == origen
+        notas = json.loads(res.ciclo.notes)["apply"]
+        assert "cortes_liberados" in notas and "reactivaciones" in notas
+        assert amazon.pujas_enviadas() == [], "nada sin desenlace: ninguna puja sale"
+        assert ciclo.motivo_de_salto(conn, "amazon_us") is not None, "ya no hace falta otro"
+
+
+def _zombi_con_list_retenido(extra, *, con_guard):
+    """Corre el ciclo en un hilo y retiene el LIST de verificacion que viene
+    despues del PUT. Devuelve (llego, liberar, amazon, zombi, hilo)."""
+    llego, liberar = threading.Event(), threading.Event()
+
+    def retener(_request: httpx.Request) -> None:
+        llego.set()
+        assert liberar.wait(timeout=30), "el test nunca libero la lectura"
+
+    amazon = _Amazon(**REMOTO_INICIAL)
+    amazon.al_list = retener
+    zombi: dict = {}
+
+    def correr() -> None:
+        conexion = extra()
+        try:
+            zombi["r"] = _corre(
+                conexion, factory=_directa(amazon, con_guard=con_guard), owner="zombie:1"
+            )
+        except BaseException as exc:  # noqa: BLE001 - el test inspecciona la excepcion
+            zombi["error"] = exc
+        finally:
+            conexion.close()
+
+    return llego, liberar, amazon, zombi, threading.Thread(target=correr, daemon=True)
+
+
+@_skip_db
+@pytest.mark.parametrize("con_guard", [True, False])
+def test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella(con_guard):
+    """Revision del PR #746: el claim cambia de dueno MIENTRAS vuela el LIST de
+    verificacion (el PUT ya volvio y Amazon lo aplico). El dueno anterior no
+    sella aunque su lectura termine bien. Con `con_guard` False el aplicador no
+    tiene el aviso pre-HTTP: lo detiene la cerca del sello sobre la fila del
+    claim."""
+    with _db("orbit_a05_cerca") as (conn, extra):
+        _semilla_live(conn)
+        llego, liberar, amazon, zombi, hilo = _zombi_con_list_retenido(extra, con_guard=con_guard)
+        hilo.start()
+        assert llego.wait(timeout=30), "el zombie nunca llego a la lectura de vuelta"
+        conn.execute(
+            "UPDATE ads_optimizer_lock SET owner = 'sucesor',"
+            " claimed_at = now() - interval '31 minutes',"
+            " heartbeat_at = now() - interval '31 minutes' WHERE job_key = %s",
+            (JOB_KEY,),
+        )
+        liberar.set()
+        hilo.join(timeout=60)
+        assert not hilo.is_alive() and "error" not in zombi, zombi.get("error")
+        assert amazon.pujas_enviadas() == [KW_BID]
+        puja = _decision(conn, zombi["r"].cycle_id, "bid", external=KW_BID)
+        assert conn.execute(
+            "SELECT finished_at, resultado FROM apply_attempt WHERE decision_id = %s", (puja,)
+        ).fetchone() == (None, None), "el dueno desplazado no sella"
+        assert _desenlace(conn, puja) is None
+
+
+@_skip_db
+def test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy(monkeypatch):
+    """Revision del PR #746: el sello de TX3 lleva el reloj de la DECISION, no
+    el de la base. Un ciclo corrido con el reloj de ayer no es la decision de
+    hoy: el horario de hoy abre un origen nuevo y lo de ayer no sale a Amazon
+    (vence sin borrarse)."""
+    with _db("orbit_a05_reloj") as (conn, _extra):
+        _semilla_live(conn)
+        ayer = DECIDED_AT - DIA
+        _muere_en_apply(monkeypatch)
+        with pytest.raises(_Muerte):
+            _corre(conn, ahora=ayer)
+        monkeypatch.undo()
+        ayer_id = conn.execute("SELECT max(id) FROM optimizer_cycle").fetchone()[0]
+        decididas = conn.execute(
+            "SELECT count(*) FROM decision WHERE cycle_id = %s", (ayer_id,)
+        ).fetchone()[0]
+        assert decididas > 0, "el ciclo de ayer si decidio"
+
+        amazon = _Amazon(**REMOTO_INICIAL)
+        res = _atiende(conn, factory=_directa(amazon), ahora=DECIDED_AT)
+
+        assert res.ciclo is not None and res.ciclo.resume_of is None, (
+            "hoy se decide de nuevo; no se recuperan propuestas de ayer"
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt a JOIN decision d ON d.id = a.decision_id"
+                " WHERE d.cycle_id = %s",
+                (ayer_id,),
+            ).fetchone()[0]
+            == 0
+        ), "nada de ayer se intenta"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_sin_aplicar s JOIN decision d ON d.id = s.decision_id"
+                " WHERE d.cycle_id = %s AND s.motivo = %s",
+                (ayer_id, VENCIDA),
+            ).fetchone()[0]
+            == decididas
+        ), "lo de ayer vence con motivo auditable"

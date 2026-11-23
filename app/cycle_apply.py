@@ -211,6 +211,7 @@ def _fase_reconciliacion(
     owner: str,
     guard: Callable[[], None],
     aplicador_factory: Callable[..., Aplicador] | None,
+    origen: int | None = None,
 ) -> _Reconciliacion:
     """Concilia el ledger y la cola contra Amazon VIVO antes de decidir (ARREGLOS
     05 A.2; CONTEXTO: «al inicio de cada ciclo»). La decision parte de lo que
@@ -237,6 +238,9 @@ def _fase_reconciliacion(
             job_key=job_key,
             tick=guard,
         )
+        if origen is not None:
+            # La revalidacion de cortes lee el target del ciclo que decidio.
+            aplicador.ciclo_origen = origen
         reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
         confirmados, fallidos = apply.reconcilia_bids(conn, aplicador, platform)
     except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
@@ -318,6 +322,7 @@ def _fase_apply(
                 owner=owner,
                 guard=guard,
                 aplicador_factory=aplicador_factory,
+                origen=origen if origen != cycle_id else None,
             )
         fallo = modo.modo == "live" and reconciliacion.aplicador is None
         notas.update(reconciliacion.notas)
