@@ -173,7 +173,10 @@ def job_key_de(platform: str) -> str:
 _SQL_ORIGEN_HOY = """
 SELECT c.id, c.mode, c.status,
        EXISTS (SELECT 1 FROM v_decision_huerfana h
-                WHERE h.cycle_id = c.id AND h.origen = 'huerfana') AS pendientes
+                WHERE h.cycle_id = c.id AND h.origen = 'huerfana') AS pendientes,
+       CASE WHEN c.notes IS NOT NULL AND left(ltrim(c.notes), 1) = '{'
+            THEN coalesce(c.notes::jsonb #> '{apply,completo}', 'false'::jsonb)
+            ELSE 'false'::jsonb END = 'true'::jsonb AS completo
   FROM optimizer_cycle c
  WHERE c.motor = 'ads_optimizer' AND c.platform = %s::platform
    AND c.resume_of IS NULL
@@ -187,12 +190,25 @@ SELECT c.id, c.mode, c.status,
 @dataclass(frozen=True)
 class _PlanHoy:
     """Lo que le toca a un horario para una plataforma. Nunca los dos a la vez:
-    `origen` es el ciclo de hoy cuyas decisiones live todavia se pueden
-    completar (el horario abre un ejecutor ligado a el); `motivo` es la razon
-    por la que hoy no se abre nada."""
+    `origen` es el ciclo de hoy con decisiones live sin completar o con fases
+    sin terminar (el horario abre un ejecutor ligado a el); `motivo` es la
+    razon por la que hoy no se abre nada."""
 
     origen: int | None = None
     motivo: str | None = None
+
+
+# El ejecutor que termina sin fallo marca el origen: sus fases ya corrieron.
+# `apply` puede no existir en las notas del origen (murio antes de la fase),
+# asi que el objeto se arma completo en vez de jsonb_set sobre un camino corto.
+_SQL_MARCA_APLICADO = """
+UPDATE optimizer_cycle
+   SET notes = jsonb_set(
+           coalesce(notes::jsonb, '{}'::jsonb), '{apply}',
+           coalesce(notes::jsonb #> '{apply}', '{}'::jsonb) || '{"completo": true}'::jsonb
+       )::text
+ WHERE id = %s
+"""
 
 
 def _plan_de_hoy(conn: psycopg.Connection, platform: str) -> _PlanHoy:
@@ -206,8 +222,8 @@ def _plan_de_hoy(conn: psycopg.Connection, platform: str) -> _PlanHoy:
     fila = conn.execute(_SQL_ORIGEN_HOY, (platform,)).fetchone()
     if fila is None:
         return _PlanHoy()
-    id_origen, mode, status, pendientes = fila
-    if pendientes and mode == "live":
+    id_origen, mode, status, pendientes, completo = fila
+    if mode == "live" and (pendientes or not completo):
         return _PlanHoy(origen=id_origen)
     return _PlanHoy(
         motivo=f"cycle {platform}: ya hay un ciclo {status} hoy; espera al siguiente horario"
@@ -772,6 +788,16 @@ def _corre_fases(
         cuerpo["apply"] = notas_apply
         if fase.fallo:
             status = "degraded"
+    if not fase.fallo:
+        # Progreso durable de las fases (ARREGLOS 05 A): `apply.completo` en el
+        # ORIGEN dice que encolado, pujas, cortes y reactivaciones corrieron.
+        # Sin esa marca el plan del dia abre un ejecutor aunque ninguna
+        # decision este huerfana: la vista de auditoria no ve reactivaciones
+        # ni cortes en cola.
+        notas_apply["completo"] = True
+        if origen is not None:
+            with tx_durable(conn):
+                conn.execute(_SQL_MARCA_APLICADO, (origen,))
     aviso_temporada = _aviso_temporada_del_dia(
         conn,
         origen=origen,
