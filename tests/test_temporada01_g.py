@@ -1013,3 +1013,207 @@ def test_aplica_y_confirma_relee_vigente_bajo_candado_y_aborta_si_cambio():
             assert conn_tx.info.transaction_status == pq.TransactionStatus.IDLE
         finally:
             conn_tx.close()
+
+
+@_skip_db
+def test_reaprobacion_tras_dos_pendientes_fallidas_crea_acto_nuevo_y_aplica(monkeypatch):
+    """Review PR #739 (Devin): con 300 vigentes, si 250 falla (pendiente) y luego
+    200 tambien falla (pendiente), reaprobar 250 via aplica_ajuste_campana debe
+    abrir un acto nuevo con sufijo y aplicarlo sin quedar atascado en 409; si ese
+    acto nuevo falla y se reintenta sin otra orden posterior, se reutiliza."""
+    import httpx
+    import pytest
+    from test_aplica_ajuste import (
+        EXTERNA,
+        _creds_fake,
+        _db,
+        _handler_campanas,
+        _plan,
+        _siembra,
+        _vigente_config,
+    )
+
+    from app import apply_ajustes
+    from app.ads.campana_config import config_vigente
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_g_reapr_pend") as conn:
+        from dataclasses import replace
+
+        camp, _obs = _siembra(
+            conn, config=replace(_vigente_config(), presupuesto_diario=Decimal("300"))
+        )
+        remoto = {EXTERNA: {"budget": {"budget": 300.0, "budgetType": "DAILY"}}}
+        falla_readback = {"activo": True}
+        handler_ok, vistos = _handler_campanas(remoto)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if falla_readback["activo"] and request.method == "PUT":
+                vistos.append(request)
+                # Simula 207 ok sin mutar `remoto`: el readback sigue en 300 -> AjusteNoConfirmado.
+                return httpx.Response(
+                    207, json={"campaigns": {"success": [{"campaignId": EXTERNA}], "error": []}}
+                )
+            return handler_ok(request)
+
+        _creds_fake(monkeypatch)
+        transport = httpx.MockTransport(handler)
+
+        # 1) 300 -> 250 falla y queda pendiente (id1).
+        plan_250 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("250")))
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan_250,
+                huella=plan_250.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transport,
+            )
+        id1 = conn.execute(
+            "SELECT id FROM campana_ajuste WHERE huella = %s", (plan_250.huella(),)
+        ).fetchone()[0]
+
+        # 2) 300 -> 200 tambien falla y queda pendiente (id2 > id1).
+        plan_200 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("200")))
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan_200,
+                huella=plan_200.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transport,
+            )
+        id2 = conn.execute(
+            "SELECT id FROM campana_ajuste WHERE huella = %s", (plan_200.huella(),)
+        ).fetchone()[0]
+        assert id1 < id2
+
+        # 3) Reaprobar 250 aun fallando abre H250#2 (id3 > id2) y un reintento
+        # inmediato sin orden nueva reutiliza id3 en vez de abrir H250#3.
+        plan_250_b = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("250")))
+        assert plan_250_b.huella() == plan_250.huella()
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan_250_b,
+                huella=plan_250_b.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transport,
+            )
+        id3 = conn.execute(
+            "SELECT id FROM campana_ajuste WHERE huella LIKE %s ORDER BY id DESC LIMIT 1",
+            (plan_250.huella() + "#%",),
+        ).fetchone()[0]
+        assert id3 > id2
+
+        # 4) Amazon ya acepta el cambio: reaprobar 250 reutiliza id3 y confirma 250 MXN.
+        falla_readback["activo"] = False
+        hecho = apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan_250_b,
+            huella=plan_250_b.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transport,
+        )
+        assert hecho.confirmada is True
+        assert hecho.ajuste_id == id3, "reutiliza el acto H#2 vigente y no crea H#3 huerfano"
+        assert config_vigente(conn, camp).presupuesto_diario == Decimal("250")
+        assert (
+            conn.execute(
+                "SELECT confirmado_el FROM campana_ajuste WHERE id = %s", (id1,)
+            ).fetchone()[0]
+            is None
+        ), "la orden vieja superada queda sin confirmar"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM campana_ajuste WHERE huella LIKE %s",
+                (plan_250.huella() + "#%",),
+            ).fetchone()[0]
+            == 1
+        ), "un solo acto sufijado H#2"
+
+
+@_skip_db
+def test_regreso_con_hijo_pendiente_superado_devuelve_error_estable_sin_put(monkeypatch):
+    """Review PR #739 (Opus): si el regreso pendiente (`hijo`) quedo superado por
+    otra orden posterior pendiente en el mismo campo, regresa_ajuste_campana
+    devuelve AjusteSinRegreso (422 estable) sin mandar PUT ni 409 eterno."""
+    from dataclasses import replace
+
+    import httpx
+    import pytest
+    from test_aplica_ajuste import (
+        EXTERNA,
+        _creds_fake,
+        _db,
+        _handler_campanas,
+        _plan,
+        _siembra,
+        _vigente_config,
+    )
+
+    from app import apply_ajustes
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_g_reg_sup") as conn:
+        camp, _obs = _siembra(
+            conn, config=replace(_vigente_config(), presupuesto_diario=Decimal("100"))
+        )
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        falla_readback = {"activo": False}
+        handler_ok, vistos = _handler_campanas(remoto)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if falla_readback["activo"] and request.method == "PUT":
+                vistos.append(request)
+                return httpx.Response(
+                    207, json={"campaigns": {"success": [{"campaignId": EXTERNA}], "error": []}}
+                )
+            return handler_ok(request)
+
+        _creds_fake(monkeypatch)
+        transport = httpx.MockTransport(handler)
+
+        # 1) Ajuste padre 100 -> 250 confirmado.
+        plan_padre = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("250")))
+        padre = apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan_padre,
+            huella=plan_padre.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transport,
+        )
+        assert padre.confirmada is True
+
+        # 2) El regreso a 100 falla readback y deja hijo pendiente.
+        falla_readback["activo"] = True
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.regresa_ajuste_campana(
+                conn, ajuste_id=padre.ajuste_id, actor="dueno", transport=transport
+            )
+
+        # 3) Orden posterior 250 -> 200 en el mismo campo tambien queda pendiente.
+        plan_post = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("200")))
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan_post,
+                huella=plan_post.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transport,
+            )
+
+        # 4) Reintentar el regreso devuelve AjusteSinRegreso (422 estable) sin PUT.
+        puts_antes = len([r for r in vistos if r.method == "PUT"])
+        falla_readback["activo"] = False
+        with pytest.raises(apply_ajustes.AjusteSinRegreso):
+            apply_ajustes.regresa_ajuste_campana(
+                conn, ajuste_id=padre.ajuste_id, actor="dueno", transport=transport
+            )
+        assert len([r for r in vistos if r.method == "PUT"]) == puts_antes

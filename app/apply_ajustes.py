@@ -397,12 +397,11 @@ def aplica_ajuste_campana(
         _eid, confirmada, ecamp, eclase = existente
         if ecamp != plan.campana_id or eclase != plan.clase:
             raise ValueError(f"la huella {huella} es de otra campana o clase")
-        if confirmada:
-            # R07-09C: una H#N pendiente se reusa; abrir la siguiente
-            # la dejaria huerfana para siempre.
-            pendientes = [
+        pendientes_hn = _pendientes_hn(conn, huella, plan.campana_id, plan.clase)
+        if vigente == plan.despues:
+            pendientes_rec = [
                 p
-                for p in _pendientes_hn(conn, huella, plan.campana_id, plan.clase)
+                for p in pendientes_hn
                 if not _superada(
                     conn,
                     p[0],
@@ -411,28 +410,56 @@ def aplica_ajuste_campana(
                     ajuste=plan.ajuste,
                 )
             ]
-            if pendientes:
-                if vigente == plan.despues:
-                    sellada = _sella_pendientes_en_destino(conn, pendientes, plan.ajuste, vigente)
-                    return AjusteHecho(sellada, plan.campana_id, plan.clase, True)
-                ajuste_id = pendientes[0][0]
-                huella_efectiva = pendientes[0][1]
-            elif vigente == plan.despues:
+            if pendientes_rec:
+                sellada = _sella_pendientes_en_destino(conn, pendientes_rec, plan.ajuste, vigente)
+                return AjusteHecho(sellada, plan.campana_id, plan.clase, True)
+            if confirmada:
                 return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
-            else:
-                n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
-                huella_efectiva = f"{huella}#{n}"
-        elif vigente == plan.despues:
-            _sella_pendiente(conn, _eid)
-            return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
-        elif _superada(
-            conn, _eid, campana_id=plan.campana_id, clase=plan.clase, ajuste=plan.ajuste
+            if not _superada(
+                conn, _eid, campana_id=plan.campana_id, clase=plan.clase, ajuste=plan.ajuste
+            ):
+                _sella_pendiente(conn, _eid)
+                return AjusteHecho(_eid, plan.campana_id, plan.clase, True)
+            equivalente = _confirmada_equivalente(
+                conn,
+                huella,
+                campana_id=plan.campana_id,
+                clase=plan.clase,
+                ajuste=plan.ajuste,
+                vigente=vigente,
+            )
+            if equivalente is not None:
+                return AjusteHecho(equivalente, plan.campana_id, plan.clase, True)
+        # R07-09C + PR #739: solo se reutiliza una pendiente que siga vigente
+        # bajo la misma regla que el candado (incluir_pendientes=True). Si quedo
+        # superada por otra orden posterior (confirmada o pendiente), se abre H#N.
+        pendientes_activas = [
+            p
+            for p in pendientes_hn
+            if not _superada(
+                conn,
+                p[0],
+                campana_id=plan.campana_id,
+                clase=plan.clase,
+                ajuste=plan.ajuste,
+                incluir_pendientes=True,
+            )
+        ]
+        if pendientes_activas:
+            ajuste_id = pendientes_activas[0][0]
+            huella_efectiva = pendientes_activas[0][1]
+        elif not confirmada and not _superada(
+            conn,
+            _eid,
+            campana_id=plan.campana_id,
+            clase=plan.clase,
+            ajuste=plan.ajuste,
+            incluir_pendientes=True,
         ):
-            # La aprobacion nueva no hereda la orden vieja superada.
+            ajuste_id = _eid
+        else:
             n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
             huella_efectiva = f"{huella}#{n}"
-        else:
-            ajuste_id = _eid
     fresco = planea_ajuste(
         vigente, plan.ajuste, campana_id=plan.campana_id, plataforma=plan.plataforma
     )
@@ -595,6 +622,18 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
     )
     ajuste_hijo = _ajuste_hacia(clase, antes, despues_padre)
     if hijo is not None and not hijo[1]:
+        if _superada(
+            conn,
+            hijo[0],
+            campana_id=campana_id,
+            clase=clase,
+            ajuste=ajuste_hijo,
+            incluir_pendientes=True,
+        ):
+            raise AjusteSinRegreso(
+                f"ajuste {ajuste_id}: el regreso pendiente quedo superado por otra orden"
+                " posterior en el mismo campo; aplica un ajuste nuevo con el valor deseado"
+            )
         nuevo_id = hijo[0]
     else:
         regreso = PlanAjuste(
