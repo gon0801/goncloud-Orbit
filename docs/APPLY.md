@@ -774,8 +774,7 @@ reencola solo los cortes que quedaron sin fila; los que ya están en la cola
 conservan la suya. `decision_application.applied_cycle_id` sigue sellando al
 ejecutor que confirmó, `applied_count` cuadra por ejecutor, y el cupo diario es
 el mismo: una recuperación no abre otro. El digest del ejecutor nombra el ciclo
-de origen y no repite la contribución del día; las pantallas de "último ciclo"
-y de target ignoran los ejecutores.
+de origen y no repite la contribución del día.
 
 **Vigencia de lo ordinario.** Una decisión es elegible solo el día en que se
 decidió. Al cambiar el día, el ciclo concilia los intentos ambiguos anteriores
@@ -788,7 +787,12 @@ Regresiones: `tests/test_arreglos05_a_ciclo.py`
 (`comprobar.sh N a`). Límites declarados: una tormenta de 5xx en los PUT deja
 cada puja del lote incierta y todas se concilian con lecturas en el ciclo
 siguiente; el aviso del día de temporada y el aviso de target pertenecen al
-ciclo que decidió y un ejecutor no los repite.
+ciclo que decidió y un ejecutor no los repite. Las pantallas de «último ciclo»
+(Salud, `/status`, el chrome del dashboard y el target vigente) eligen el
+ciclo de mayor `id` sin mirar `resume_of`: mientras un ejecutor sea el más
+reciente de su plataforma lo muestran con `decisions_count` 0, y Salud no
+muestra el target de ese día. Pendiente de un bloque que toque esas pantallas
+y sus bancos de prueba.
 
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 

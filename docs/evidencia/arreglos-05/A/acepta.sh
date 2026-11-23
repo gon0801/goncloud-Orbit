@@ -92,7 +92,8 @@ corre() { # <ACEPTA|CONTROL> <nombre> <regla> <comando...>
   salida=$("$@" 2>&1)
   codigo=$?
   printf '%s\n' "$salida"
-  if [[ $codigo != 0 ]]; then
+  # La regla "legado" espera "4 passed, 1 failed": pytest sale 1 y aun asi paso.
+  if [[ $codigo != 0 && ! ( $regla == legado && $codigo == 1 ) ]]; then
     veredicto="salida=$codigo"
   else
     motivo=$(pytest_paso "$salida" "$regla") || veredicto="FALLO: $motivo"
