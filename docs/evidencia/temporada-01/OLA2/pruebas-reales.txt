@@ -3,7 +3,8 @@
 # PR 738 merge: 42a69c1f54123ee04e43f676ae2409f4fcae5073
 # PR 739 merge y MOTOR_SHA: 8ce205d054374b9463c129bef64d8029d9d07cec
 # Las tres primeras comprueban textos del paquete app dentro de orbit-app-1;
-# la cuarta es la prueba-real del bloque H y la quinta el codigo nuevo de Ola 2.
+# la cuarta comprueba el codigo nuevo de Ola 2 y la quinta consulta las claves
+# live del bloque H.
 
 $ bash docs/evidencia/arreglos-01/desplegado.sh bid_cambiado_fuera
 EXIT=0
