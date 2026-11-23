@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import psycopg
+from psycopg import pq
 from psycopg.types.json import Json
 
 from app import temporada_io
@@ -166,20 +167,29 @@ def expira_no_intentadas(
     ser elegible con motivo auditable (ARREGLOS 05 A.3). `hoy` es la fecha UTC
     del reloj de la corrida. No borra decisiones ni promueve propuestas
     shadow; el ciclo en curso decide de nuevo con datos frescos. Devuelve
-    cuantas dejaron de ser elegibles."""
-    filas = conn.execute(_SQL_NO_INTENTADAS_VENCIDAS, (platform, hoy)).fetchall()
-    if not filas:
-        return 0
-    with tx_durable(conn):
-        for decision_id, origen in filas:
-            registra_sin_aplicar(
-                conn,
-                decision_id,
-                cycle_id_ejecutor,
-                MOTIVO_VIGENCIA_VENCIDA,
-                detalle={"origen": origen},
-            )
-    return len(filas)
+    cuantas dejaron de ser elegibles.
+
+    Deja la conexion como la recibio: sin autocommit, el SELECT abre una
+    transaccion y el `SET TRANSACTION ISOLATION LEVEL` de TX2, que viene
+    despues, revienta con ActiveSqlTransaction."""
+    estaba_idle = not conn.autocommit and conn.info.transaction_status == pq.TransactionStatus.IDLE
+    try:
+        filas = conn.execute(_SQL_NO_INTENTADAS_VENCIDAS, (platform, hoy)).fetchall()
+        if not filas:
+            return 0
+        with tx_durable(conn):
+            for decision_id, origen in filas:
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    cycle_id_ejecutor,
+                    MOTIVO_VIGENCIA_VENCIDA,
+                    detalle={"origen": origen},
+                )
+        return len(filas)
+    finally:
+        if estaba_idle:
+            conn.rollback()
 
 
 # Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger

@@ -143,6 +143,9 @@ SQL67 = (
 SQL93 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
 ).read_text(encoding="utf-8")
+SQL94 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
+).read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -503,6 +506,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL61)
         conn.execute(SQL67)
         conn.execute(SQL93)
+        conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal

@@ -149,6 +149,9 @@ SQL67 = (
 SQL93 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0093_temporada01_episodio.sql"
 ).read_text(encoding="utf-8")
+SQL94 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0094_arreglos05_ciclo_origen.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -224,6 +227,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
+        conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         yield conn
     finally:
         if conn is not None:
