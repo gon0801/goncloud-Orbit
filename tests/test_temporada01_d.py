@@ -1510,3 +1510,142 @@ def test_temporada01_ola2_modo_decision_y_un_solo_pase(monkeypatch):
     assert caso_real.temporada is not None and caso_real.temporada.frontera == front_h
     assert caso_sombra is None
     assert llamadas["n"] == 1, f"esperaba 1 evalua_hoja por hoja, hubo {llamadas['n']}"
+
+
+def test_inerte_con_efecto_en_vuelo_se_salta_como_inerte_sin_pausa():
+    """Hallazgo #7: una keyword inerte con efecto de temporada en vuelo debe
+    saltarse como entidad inerte y nunca entrar al juicio sin temporada."""
+    from app import cycle_recorrido
+    from app.cycle_target import _FamiliasCiclo
+    from app.optimizer import goals as g
+    from app.optimizer import productos
+
+    cfg = temporada.desde_settings(_settings())
+    assert cfg is not None
+    est = temporada.resuelve(cfg, D_E1)
+    plat_t = temporada_io.TemporadaPlataforma(
+        estacion=est,
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(id=1, abierto_el=_medianoche(D_E1)),
+            efectos_abiertos={1001: "en_vuelo"},
+            excluidas={},
+            cerca_plataforma=None,
+        ),
+    )
+    frontera = temporada.FronteraHoja(
+        fase_hoja="baja",
+        mult_cortes=Decimal("2"),
+        cerca_hoja=None,
+        cerca_plataforma=None,
+        episodio_id=1,
+    )
+
+    class _LecturasStub:
+        def evalua_temporada(self, hoja_id, current_bid, *, piso, techo):
+            return (temporada.EntradaPendiente(destino=Decimal("5.60")), frontera)
+
+    class _ConnTrampa:
+        def execute(self, *args, **kwargs):
+            raise AssertionError("inerte con efecto en vuelo no debe entrar al juicio")
+
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_mx",
+        target_acos_pct=Decimal("20"),
+        bid_floor=PISO_MX,
+        bid_ceiling=TECHO_MX,
+        bid_currency="MXN",
+        harvest_campaign_id=None,
+        harvest_ad_group_id=None,
+        harvest_default_bid=None,
+        enabled=True,
+        mode="live",
+    )
+    contadores = ciclo._Contadores(temporada_plat=plat_t)
+    pendientes: list = []
+    cycle_recorrido._procesa_decisora(
+        _ConnTrampa(),
+        fila=(1001, 10, 100, Decimal("8.00"), "MXN", "ENABLED", None, "ENABLED", "ENABLED"),
+        platform="amazon_mx",
+        setting_target=Decimal("20"),
+        goals=(goal, {}),
+        modo="live",
+        decided_at=_medianoche(D_E1),
+        contadores=contadores,
+        pendientes=pendientes,
+        tick=lambda: None,
+        evidencia_ad_groups={},
+        corte_pause_por_grupo={},
+        bloqueadas=set(),
+        inertes={1001},
+        margen_plataforma=None,
+        snapshot_margen={},
+        familias_ciclo=_FamiliasCiclo(
+            {}, {}, {}, {}, {}, None, D_E1, None, {}, productos.ECONOMIA_AUTO03
+        ),
+        pause_economica=True,
+        politica="niveles_v3",
+        lecturas=_LecturasStub(),
+    )
+    assert contadores.skips_entidad[ciclo.MOTIVO_ENTIDAD_INERTE] == 1
+    assert pendientes == []
+
+
+def test_proteccion_activa_respeta_exceso_minimo_de_baja():
+    """Hallazgo #9: _proteccion_activa debe pasar exceso_minimo=pausa.exceso_minimo
+    a bid.decide_pause para no perder la proteccion por venta reciente en baja."""
+    from app import cycle_serializacion, proteccion_venta
+    from app.optimizer import bid, proteccion
+    from app.optimizer.caso import InsumosProteccion, LecturaReciente
+
+    decided_at = dt.datetime(2027, 1, 20, 12, 0, tzinfo=dt.UTC)
+    evaluado_el = decided_at.date()
+    ancla = evaluado_el - dt.timedelta(days=2)
+    gasto_intermedio = bid.EXCESO_MINIMO["MXN"] + Decimal("100")
+    cortes_hoja = _corte_pausa(clicks=300, orders=0, cost=str(gasto_intermedio))
+    insumos_prot = InsumosProteccion(
+        version=proteccion.VERSION_PROTECCION_VENTA,
+        evaluado_el=evaluado_el,
+        reciente=LecturaReciente(pedidos=1, ancla=ancla, cubierta=True, observado_al=decided_at),
+        ventana_desde=cortes_hoja.window_start,
+        ventana_hasta=cortes_hoja.window_end,
+        episodio=None,
+        frena_subidas=True,
+    )
+    pausa = InsumosPausa(
+        cortes=cortes_hoja,
+        umbral_clics=200,
+        gasto_minimo=Decimal("1000"),
+        expected_clicks=None,
+        politica_economica=bid.POLITICA_PAUSE_ECONOMICA,
+        proteccion=insumos_prot,
+        exceso_minimo=2 * bid.EXCESO_MINIMO["MXN"],
+    )
+    corte_pause = cortes.UmbralResuelto(umbral=200, elegible=True, expected_clicks=None)
+    cache = proteccion_venta.CacheProteccion(
+        plataforma="amazon_mx",
+        evaluado_el=evaluado_el,
+        _lee_desde=evaluado_el - dt.timedelta(days=100),
+        _dias_plataforma=frozenset(),
+        _historia={},
+        _episodios={},
+    )
+    contadores = ciclo._Contadores()
+    activa = cycle_serializacion._proteccion_activa(
+        platform="amazon_mx",
+        entidad_id=1001,
+        target=Decimal("20"),
+        corte_pause=corte_pause,
+        cortes_hoja=cortes_hoja,
+        costo_piso=Decimal("1000"),
+        pausa=pausa,
+        proteccion_cache=cache,
+        contadores=contadores,
+        decided_at=decided_at,
+    )
+    assert activa is True
+    assert len(contadores.protecciones) == 1

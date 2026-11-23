@@ -236,7 +236,7 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
             and lecturas.tiene_pendiente(entidad_id, current_bid, piso=floor, techo=ceiling)
         )
     )
-    entran_inertes = temporada_viva and tiene_pendiente_t
+    entran_inertes = temporada_viva and not efecto_en_vuelo and tiene_pendiente_t
     if entidad_id in inertes and not entran_inertes:
         contadores.skips_entidad[MOTIVO_ENTIDAD_INERTE] += 1
         tick()
