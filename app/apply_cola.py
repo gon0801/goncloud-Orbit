@@ -586,7 +586,9 @@ def _aisla_corte(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola,
     globales (claim perdido, base, identidad) siguen propagando."""
     try:
         return _ejecuta_rama(conn, aplicador, fila, rama)
-    except AdsApiError:
+    except AdsApiError as exc:
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         _aisla_fila(conn)
         return "failed"
 
@@ -606,7 +608,9 @@ def _aisla_harvest(
         return _procesa_harvest_liberada(
             conn, aplicador, platform, fila, alertas_harvest, caps_saturados, registra
         )
-    except AdsApiError:
+    except AdsApiError as exc:
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         _aisla_fila(conn)
         return (0, 1, 0, 0)
 

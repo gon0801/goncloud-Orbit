@@ -203,6 +203,19 @@ class DuenoDelClaimCambio(Exception):
 # Cerca del sello: la fila del claim bloqueada en la transaccion que sella.
 _SQL_DUENO_CERCA = "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s FOR UPDATE"
 
+# Un 403, o un 401 que sigue despues de refrescar el token, no rechaza ESA
+# hoja: Amazon rechaza la identidad o los permisos de toda la corrida.
+STATUS_IDENTIDAD_RECHAZADA = frozenset({401, 403})
+
+
+def es_rechazo_de_identidad(exc: BaseException) -> bool:
+    """True si `exc` es un rechazo de mutacion por identidad o permisos.
+
+    Es un fallo global, no el desenlace de una hoja: quien lo recibe sella SU
+    intento con el rechazo (Amazon no aplico) y lo propaga. Asi se detienen las
+    mutaciones que faltan y las fases despues (ARREGLOS 05 A, revision)."""
+    return isinstance(exc, AdsApiErrorMutacion) and exc.status in STATUS_IDENTIDAD_RECHAZADA
+
 
 def _bid_quantizado(bid: Decimal) -> Decimal:
     """Decimal quantizado con la MISMA fuente que el wire (`app.ads.write._bid_payload`)."""
@@ -566,6 +579,8 @@ class Aplicador:
                 resultado=f"fallo http {exc.status}: {exc.cuerpo}",
             )
             self._conn.commit()
+            if es_rechazo_de_identidad(exc):
+                raise
             return "rechazada"
         except AdsApiError:
             # Amazon pudo aplicarla: la fila queda sin sello (el rastro).

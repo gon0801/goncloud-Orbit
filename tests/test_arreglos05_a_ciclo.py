@@ -141,6 +141,7 @@ class _Amazon:
         rechaza_bids=False,
         falla_primer_put=False,
         aplica_al_fallar=False,
+        rechaza_identidad: int | None = None,
     ):
         self.bids: dict[str, str] = dict(bids or {})
         self.estados: dict[str, str] = dict(estados or {})
@@ -150,6 +151,7 @@ class _Amazon:
         self.rechaza_bids = rechaza_bids
         self.falla_primer_put = falla_primer_put
         self.aplica_al_fallar = aplica_al_fallar
+        self.rechaza_identidad = rechaza_identidad
         self.al_put_bid = None
         self.al_list = None
 
@@ -175,6 +177,11 @@ class _Amazon:
         if request.method == "PUT" and request.url.path == "/sp/keywords":
             obj = cuerpo["keywords"][0]
             ext = str(obj["keywordId"])
+            if self.rechaza_identidad is not None:
+                # 401/403: Amazon rechaza la identidad o los permisos de toda
+                # la corrida. No aplica nada; el envio queda registrado.
+                (self.puts_bid if "bid" in obj else self.puts_estado).append(obj)
+                return httpx.Response(self.rechaza_identidad, json={"code": "ACCESS_DENIED"})
             if "bid" in obj:
                 self.puts_bid.append(obj)
                 if self.al_put_bid is not None:
@@ -929,7 +936,7 @@ def test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen()
         _semilla,
     )
 
-    from app import apply_cola
+    from app import apply_cola, lock
     from app.optimizer import goals as g
 
     with _db_cola("orbit_a05_econ") as conn:
@@ -967,6 +974,8 @@ def test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen()
         )
         q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         handler, _vistos = _handler_cortes()
+        # La cerca del sello exige la fila del claim: el ejecutor lo tiene.
+        assert lock.claim_lock(conn, "ads_optimizer:amazon_us", "test:cola") is not None
 
         conciliacion = ciclo._fase_reconciliacion(
             conn,
@@ -1213,7 +1222,7 @@ def test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen(monk
     )
     from test_productos_meta_ciclo import _settings
 
-    from app import apply_cola
+    from app import apply_cola, lock
     from app.optimizer import goals as g
 
     with _db_producto("orbit_a05_eval_origen") as conn:
@@ -1272,6 +1281,8 @@ def test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen(monk
             is None
         ), "a la hora de recuperar, el producto ya no tiene margen vigente"
 
+        # La cerca del sello exige la fila del claim: el ejecutor lo tiene.
+        assert lock.claim_lock(conn, "ads_optimizer:amazon_us", "test:cola") is not None
         handler, vistos = _handler_cortes({ext: "ENABLED"})
         conciliacion = ciclo._fase_reconciliacion(
             conn,
@@ -1317,3 +1328,81 @@ def test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen(monk
         [evidencia] = json.loads(notas_ejecutor)["revalidaciones_economicas"]
         assert evidencia["resultado"] == "espera_target"
         assert evidencia["economia"]["producto"]["motivo"] == "sin_evaluacion_fresca"
+
+
+@_skip_db
+@pytest.mark.parametrize("estado", [401, 403])
+def test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones(estado):
+    """Revision de Astra del PR #746: un 403, o un 401 que sigue despues de
+    refrescar el token, no es el rechazo de UNA puja: Amazon rechaza la
+    identidad o los permisos de toda la corrida. Es fallo global. La puja queda
+    sellada con su rechazo y no sale ninguna mutacion mas, ni de las pujas que
+    faltan ni de las fases posteriores."""
+    with _db("orbit_a05_identidad") as (conn, _extra):
+        ids = _semilla_live(conn)
+        _agrega_kw2(conn, ids)
+        amazon = _Amazon(**REMOTO_INICIAL, rechaza_identidad=estado)
+
+        res = _corre(conn, factory=_directa(amazon))
+
+        assert res.status == "degraded" and res.decisions_count == 5
+        notas = json.loads(res.notes)["apply"]
+        assert "apply_error" in notas and "apply_abortado_owner" not in notas
+        enviadas = amazon.pujas_enviadas()
+        assert len(enviadas) >= 1 and len(set(enviadas)) == 1, "tras el rechazo no sale otra puja"
+        primera = _decision(conn, res.cycle_id, "bid", external=enviadas[0])
+        sin_enviar = ({KW_BID, KW2} - set(enviadas)).pop()
+        assert amazon.puts_estado == [], "las fases posteriores no corren"
+        assert "cortes_liberados" not in notas and "reactivaciones" not in notas
+        assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 1, (
+            "solo nace el intento de la primera puja"
+        )
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (primera,)
+        ).fetchone()[0]
+        assert resultado.startswith(f"fallo http {estado}"), "el rechazo queda en el ledger"
+        assert _desenlace(conn, primera) is None, "no es el desenlace de esa hoja"
+        assert _desenlace(conn, _decision(conn, res.cycle_id, "bid", external=sin_enviar)) is None
+
+
+@_skip_db
+def test_arreglos05_a_rechazo_de_identidad_no_se_aisla_por_fila(monkeypatch):
+    """Revision de Astra del PR #746: los aisladores por fila dejan pasar un
+    5xx, la red o un rechazo 400 de ESA fila. Un 401/403 de identidad o
+    permisos no es un desenlace de la fila: se propaga y la fase se detiene."""
+    from app import apply_cola
+    from app.ads.write import AdsApiErrorMutacion
+
+    def rechazo(status: int) -> AdsApiErrorMutacion:
+        return AdsApiErrorMutacion(
+            f"status={status}: PUT /sp/keywords",
+            cuerpo="{}",
+            status=status,
+            method="PUT",
+            path="/sp/keywords",
+        )
+
+    with _db("orbit_a05_ident_fila") as (conn, _extra):
+        _semilla_live(conn)
+
+        def corte(*_args, **_kwargs):
+            raise rechazo(403)
+
+        monkeypatch.setattr(apply_cola, "_ejecuta_rama", corte)
+        with pytest.raises(AdsApiErrorMutacion, match="status=403"):
+            apply_cola._aisla_corte(conn, object(), object(), "pause_hoja")
+
+        def harvest(*_args, **_kwargs):
+            raise rechazo(401)
+
+        monkeypatch.setattr(apply_cola, "_procesa_harvest_liberada", harvest)
+        with pytest.raises(AdsApiErrorMutacion, match="status=401"):
+            apply_cola._aisla_harvest(conn, object(), "amazon_us", object(), [], [], None)
+
+        def corte_de_la_hoja(*_args, **_kwargs):
+            raise rechazo(400)
+
+        monkeypatch.setattr(apply_cola, "_ejecuta_rama", corte_de_la_hoja)
+        assert apply_cola._aisla_corte(conn, object(), object(), "pause_hoja") == "failed", (
+            "el rechazo de esa hoja sigue aislado"
+        )

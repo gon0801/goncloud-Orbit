@@ -193,6 +193,8 @@ def _post_hermana(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         return (_motivo_rechazo_hermana(rol, exc.status), None, None, None)
     except AdsApiError as exc_ambigua:
         return (_motivo_ambiguo_hermana(exc_ambigua), None, None, None)

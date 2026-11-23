@@ -152,6 +152,8 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
                 conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
             )
             _termina(conn, fila, "failed")
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         return "failed"
     ack = apply._json_seguro(resp_http)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
@@ -188,6 +190,8 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
                 conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
             )
             _termina(conn, fila, "failed")
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         return "failed"
     ack = apply._json_seguro(resp_http)
     verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
@@ -264,6 +268,8 @@ def reversa_pause(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         return False
     ack = apply._json_seguro(resp_http)
     if tick is not None:
@@ -305,6 +311,8 @@ def reversa_negative(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         return False
     ack = apply._json_seguro(resp_http)
     if tick is not None:
@@ -390,7 +398,9 @@ def aplica_reactivaciones(
             reanudada = reversa_pause(
                 conn, _cliente_mutacion(aplicador), fila, tick=tick, durable=True
             )
-        except AdsApiError:
+        except AdsApiError as exc:
+            if apply.es_rechazo_de_identidad(exc):
+                raise
             # ARREGLOS 05 A.3: 5xx o red de ESTA reactivacion. Amazon pudo
             # reanudarla; el intento `reversa` queda sin sellar y las guardas
             # de la siguiente pasada (hoja PAUSED en el cache) deciden. No se

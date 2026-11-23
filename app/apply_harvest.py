@@ -486,6 +486,8 @@ def _paso_negative(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         return _falla_job(
             conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=f"fallo http {exc.status}"
         )
@@ -595,6 +597,8 @@ def _paso_keyword(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if apply.es_rechazo_de_identidad(exc):
+            raise
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | fallo http {exc.status}"
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     ack = apply._json_seguro(resp)
