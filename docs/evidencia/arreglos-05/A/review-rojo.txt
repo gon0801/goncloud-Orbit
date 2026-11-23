@@ -1,0 +1,22 @@
+# Rojo de la revision automatica del PR #746 (cinco hilos de Devin)
+# Codigo antes de las correcciones: 92371a22 (cabeza con la que se abrio el PR).
+# Comando: comprobar.sh N a, solo las pruebas nuevas de los hilos.
+# Seis casos (el hilo 4 tiene dos variantes: con el aviso pre-HTTP y sin el).
+# El hilo 1 se escribio en dos pasos: el rojo de comportamiento es el segundo bloque.
+
+test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen
+  TypeError: _fase_reconciliacion() got an unexpected keyword argument 'origen'
+test_arreglos05_a_ejecutor_no_repite_decisiones_que_ya_tienen_desenlace
+  AssertionError: la puja con desenlace no se reevalua
+test_arreglos05_a_interrupcion_tras_tx3_abre_ejecutor_aunque_no_queden_huerfanas
+  AssertionError: quedan fases sin correr
+test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella[True]
+  AssertionError: el dueno desplazado no sella
+test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella[False]
+  AssertionError: el dueno desplazado no sella
+test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy
+  AssertionError: hoy se decide de nuevo; no se recuperan propuestas de ayer
+
+# Hilo 1, rojo de comportamiento (con el origen ya entregado al aplicador):
+test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen
+  AssertionError: la pausa economica pendiente del origen se completa en la recuperacion

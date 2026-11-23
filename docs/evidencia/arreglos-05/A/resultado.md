@@ -31,10 +31,10 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 12 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 12 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 12 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 12 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 18 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 18 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 18 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 18 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -62,6 +62,25 @@ control de identidad, verde por diseno). Verde en el SHA de `acepta.txt`.
 
 El selector del instalador se cubre en
 `tests/test_despliegue_motor.py::test_arreglos05_a_la_migracion_del_bloque_entra_en_el_despliegue`.
+
+## Revision automatica del PR #746
+
+El revisor automatico abrio cinco hilos. Los cinco eran de grado bloqueante
+para lo que A promete y se corrigieron, cada uno con su prueba en rojo
+(`92371a22`, registro en [review-rojo.txt](review-rojo.txt)) y en verde, y su
+commit.
+
+| Hilo | Que fallaba | Correccion | Prueba nueva | Commit |
+|---|---|---|---|---|
+| 1 | Un ejecutor no decide, asi que sus notas no traen `target`: la revalidacion de una pausa economica quedaba en `espera_target` y el horario siguiente no la completaba. | El aplicador lleva `ciclo_origen` (el ciclo que decidio) y la revalidacion de pausas resuelve el target ahi. Intentos y confirmacion siguen del ejecutor. | `test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen` | `914424e5` |
+| 2 | El ejecutor cargaba todas las pujas del origen y reencolaba todo corte sin fila: reevaluaba decisiones ya cerradas sin intento (`modo_no_live`, `choque_clave`). | `bids_recuperables` y el encolado usan el mismo criterio de desenlace que el plan; se filtra al aplicar, despues de conciliar. | `test_arreglos05_a_ejecutor_no_repite_decisiones_que_ya_tienen_desenlace` | `06fde246` |
+| 3 | El plan solo abria ejecutor con alguna decision huerfana; la vista no ve reactivaciones ni cortes en cola, y esas fases quedaban sin correr. | El origen guarda `notes.apply.completo` cuando sus fases terminan; el plan abre ejecutor si falta o hay decisiones sin desenlace; el ejecutor marca el origen al terminar bien. | `test_arreglos05_a_interrumpido_tras_tx3_abre_ejecutor_sin_huerfanas` (en el rojo aparece con su nombre anterior) | `21a23178` |
+| 4 | El dueno se validaba antes de cada HTTP y no al volver: con el LIST de verificacion en vuelo, el dueno desplazado sellaba la puja. | Toda confirmacion pasa por `Aplicador.confirma_cercada`: la fila del claim se lee con `FOR UPDATE` dentro de la transaccion que sella; un dueno desplazado no sella. | `test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella`, con y sin aviso pre-HTTP | `f6333519` |
+| 5 | El sello iba con la hora de la base: un ciclo corrido con `--decided-at` de ayer y terminado hoy contaba como la decision de hoy y suprimia el origen de hoy. | El sello lleva el reloj de la decision (acotado al ahora de la base); el plan compara con el dia del reloj de la corrida. | `test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy` | `3c7693bb` |
+
+Pruebas existentes tocadas por estas correcciones: la del reconciliador que
+espiaba `_confirma_resumen` ahora cuenta las confirmaciones cercadas del
+aplicador (sigue exigiendo dos confirmaciones y un solo cliente).
 
 ## Vecinos
 
