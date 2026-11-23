@@ -451,10 +451,12 @@ def test_temporada01_a_estado_de_baja_con_mantener_pausada(tmp_path, monkeypatch
         )
         conn.execute(
             "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
-            " synced_at) VALUES (%s, 'ENABLED', 5.00, 'MXN', now()),"
+            " synced_at) VALUES (%s, 'ENABLED', NULL, NULL, now()),"
+            " (%s, 'ENABLED', NULL, NULL, now()),"
+            " (%s, 'ENABLED', 5.00, 'MXN', now()),"
             " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now()),"
             " (%s, 'ENABLED', NULL, NULL, now()), (%s, 'PAUSED', NULL, NULL, now())",
-            (kw_bid, kw_grupo, kw_pausada, kw_sin, kw_david),
+            (campana, grupo, kw_bid, kw_grupo, kw_pausada, kw_sin, kw_david),
         )
 
         def _decision(ciclo_d, kind, entidad, motivo, *, fase_baja=False, confirmada=False):
@@ -853,3 +855,189 @@ def test_identificadores_rechaza_id_fuera_de_bigint():
     for fuera in (0, -1, 2**63, 10**30):
         with pytest.raises(ValueError):
             temporada.valida(_crudo(pausadas=[fuera]))
+
+
+@_skip_db
+def test_estado_de_baja_excluye_sin_aplicar_y_campanas_pausadas(db_template):
+    """Hallazgo #16: estado_de_baja no cuenta como pendientes decisiones
+    cerradas en decision_sin_aplicar ni hojas no confirmadas excluidas en
+    temporada_exclusion para ese episodio, ni cuenta en sin_tocar hojas
+    ENABLED dentro de campanas o ad groups PAUSED."""
+    from test_pantalla_dinero import _siembra_entidad
+
+    from app.dashboard_temporada import estado_de_baja
+
+    conn, _dsn = db_template
+    hoy = dt.datetime(2027, 1, 15, 12, 0, tzinfo=dt.UTC)
+    meses_ene_baja = ["baja"] + ["normal"] * 11
+    config = temporada.valida(_crudo(meses=meses_ene_baja))
+    config_id = conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('t01a-16', %s) RETURNING id",
+        (Json({"ads_optimizer_mode": "live", "ads_temporada": temporada.como_guardada(config)}),),
+    ).fetchone()[0]
+    ciclo_viejo = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at, decisions_count)"
+        " VALUES ('ads_optimizer', 'live', 'amazon_mx'::platform, 'done', %s, 0) RETURNING id",
+        (hoy - dt.timedelta(days=400),),
+    ).fetchone()[0]
+    ciclo_live = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at, decisions_count)"
+        " VALUES ('ads_optimizer', 'live', 'amazon_mx'::platform, 'done', %s, 0) RETURNING id",
+        (hoy,),
+    ).fetchone()[0]
+    ep_viejo = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id, cerrado_el, cerrado_en_ciclo)"
+        " VALUES ('amazon_mx'::platform, %s, %s, %s, %s, %s) RETURNING id",
+        (
+            hoy - dt.timedelta(days=400),
+            ciclo_viejo,
+            config_id,
+            hoy - dt.timedelta(days=370),
+            ciclo_viejo,
+        ),
+    ).fetchone()[0]
+    ep_actual = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id)"
+        " VALUES ('amazon_mx'::platform, %s, %s, %s) RETURNING id",
+        (dt.datetime(2027, 1, 1, 12, 0, tzinfo=dt.UTC), ciclo_live, config_id),
+    ).fetchone()[0]
+
+    camp_activa = _siembra_entidad(conn, "amazon_mx", "campaign", "c-16-act")
+    ag_activo = _siembra_entidad(conn, "amazon_mx", "ad_group", "ag-16-act", parent=camp_activa)
+    ag_pausado = _siembra_entidad(conn, "amazon_mx", "ad_group", "ag-16-pau", parent=camp_activa)
+    camp_pausada = _siembra_entidad(conn, "amazon_mx", "campaign", "c-16-pau")
+    ag_camp_pausada = _siembra_entidad(
+        conn, "amazon_mx", "ad_group", "ag-16-cpau", parent=camp_pausada
+    )
+
+    kw_sin_aplicar = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-dsa", parent=ag_activo, match="EXACT", texto="dsa"
+    )
+    kw_excluida = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-excl", parent=ag_activo, match="EXACT", texto="excl"
+    )
+    kw_en_camp_pausada = _siembra_entidad(
+        conn,
+        "amazon_mx",
+        "keyword",
+        "k-16-cpau",
+        parent=ag_camp_pausada,
+        match="EXACT",
+        texto="en camp pausada",
+    )
+    kw_en_ag_pausado = _siembra_entidad(
+        conn,
+        "amazon_mx",
+        "keyword",
+        "k-16-agpau",
+        parent=ag_pausado,
+        match="EXACT",
+        texto="en ag pausado",
+    )
+
+    for ent, estado_ent, bid, moneda in (
+        (camp_activa, "ENABLED", None, None),
+        (ag_activo, "ENABLED", None, None),
+        (ag_pausado, "PAUSED", None, None),
+        (camp_pausada, "PAUSED", None, None),
+        (ag_camp_pausada, "ENABLED", None, None),
+        (kw_sin_aplicar, "ENABLED", Decimal("8.00"), "MXN"),
+        (kw_excluida, "ENABLED", Decimal("8.00"), "MXN"),
+        (kw_en_camp_pausada, "ENABLED", None, None),
+        (kw_en_ag_pausado, "ENABLED", None, None),
+    ):
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
+            " synced_at) VALUES (%s, %s, %s, %s, %s)",
+            (ent, estado_ent, bid, moneda, hoy),
+        )
+
+    def _dec_baja(entidad, *, episodio_id, confirmada=False):
+        dec_id = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end,"
+            " old_value, new_value, value_currency, inputs)"
+            " VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 8.00, 5.60, 'MXN', %s)"
+            " RETURNING id",
+            (
+                ciclo_live,
+                entidad,
+                hoy - dt.timedelta(days=1),
+                config_id,
+                hoy - dt.timedelta(days=2),
+                hoy.date() - dt.timedelta(days=20),
+                hoy.date() - dt.timedelta(days=2),
+                Json(
+                    {
+                        "motor": "temporada",
+                        "motivo": "entra_temporada_baja",
+                        "temporada_episodio_id": episodio_id,
+                    }
+                ),
+            ),
+        ).fetchone()[0]
+        if confirmada:
+            conn.execute(
+                "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok,"
+                " platform_ack) VALUES (%s, %s, TRUE, %s)",
+                (dec_id, hoy, Json({"request_id": "ok"})),
+            )
+        return dec_id
+
+    d_dsa = _dec_baja(kw_sin_aplicar, episodio_id=ep_actual)
+    conn.execute(
+        "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+        " VALUES (%s, %s, 'bid_cambiado_fuera')",
+        (d_dsa, ciclo_live),
+    )
+    d_excl = _dec_baja(kw_excluida, episodio_id=ep_actual)
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, verify_ok, platform_ack)"
+        " VALUES (%s, %s, FALSE, %s)",
+        (d_excl, hoy, Json({"request_id": "div"})),
+    )
+    conn.execute(
+        "INSERT INTO temporada_exclusion (episodio_id, ad_entity_id, motivo, bid_visto,"
+        " bid_visto_moneda, decision_id) VALUES (%s, %s, 'divergencia', 9.00, 'MXN', %s)",
+        (ep_actual, kw_excluida, d_excl),
+    )
+
+    estado = estado_de_baja(conn, "amazon_mx", config, hoy.date())
+    assert estado["confirmados"] == 0
+    assert estado["pendientes"] == 0
+    assert estado["sin_tocar"] == 0
+
+    # Controles positivos: una confirmada aunque luego excluida sigue en
+    # confirmados, y una pendiente cuya exclusion fue de un episodio viejo
+    # sigue en pendientes.
+    kw_conf_excl = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-conf", parent=ag_activo, match="EXACT", texto="conf"
+    )
+    kw_pend_otro_ep = _siembra_entidad(
+        conn, "amazon_mx", "keyword", "k-16-pend", parent=ag_activo, match="EXACT", texto="pend"
+    )
+    for ent in (kw_conf_excl, kw_pend_otro_ep):
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, current_bid, bid_currency,"
+            " synced_at) VALUES (%s, 'ENABLED', 8.00, 'MXN', %s)",
+            (ent, hoy),
+        )
+    _dec_baja(kw_conf_excl, episodio_id=ep_actual, confirmada=True)
+    conn.execute(
+        "INSERT INTO temporada_exclusion (episodio_id, ad_entity_id, motivo, bid_visto,"
+        " bid_visto_moneda) VALUES (%s, %s, 'mano_del_dueno', 7.00, 'MXN')",
+        (ep_actual, kw_conf_excl),
+    )
+    _dec_baja(kw_pend_otro_ep, episodio_id=ep_actual, confirmada=False)
+    conn.execute(
+        "INSERT INTO temporada_exclusion (episodio_id, ad_entity_id, motivo, bid_visto,"
+        " bid_visto_moneda) VALUES (%s, %s, 'mano_del_dueno', 7.00, 'MXN')",
+        (ep_viejo, kw_pend_otro_ep),
+    )
+
+    estado2 = estado_de_baja(conn, "amazon_mx", config, hoy.date())
+    assert estado2["confirmados"] == 1
+    assert estado2["pendientes"] == 1
+    assert estado2["sin_tocar"] == 0

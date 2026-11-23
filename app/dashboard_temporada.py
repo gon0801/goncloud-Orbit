@@ -67,12 +67,15 @@ RAZON_SIN_EQUILIBRIO = {
 
 _SQL_ESTADO_BAJA_DECISIONES = """
 SELECT ultima.ad_entity_id,
-       EXISTS (SELECT 1 FROM decision_application da
-                WHERE da.decision_id = ultima.decision_id
-                  AND da.verify_ok IS TRUE) AS confirmada
+       ultima.confirmada
   FROM (
     SELECT DISTINCT ON (d.ad_entity_id)
-           d.ad_entity_id, d.id AS decision_id
+           d.ad_entity_id,
+           d.id AS decision_id,
+           (d.inputs->>'temporada_episodio_id')::bigint AS episodio_id,
+           EXISTS (SELECT 1 FROM decision_application da
+                    WHERE da.decision_id = d.id
+                      AND da.verify_ok IS TRUE) AS confirmada
       FROM decision d
       JOIN ad_entity e ON e.id = d.ad_entity_id
       JOIN optimizer_cycle c ON c.id = d.cycle_id
@@ -83,6 +86,14 @@ SELECT ultima.ad_entity_id,
        AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
      ORDER BY d.ad_entity_id, d.decided_at DESC, d.id DESC
   ) ultima
+ WHERE NOT EXISTS (SELECT 1 FROM decision_sin_aplicar dsa
+                    WHERE dsa.decision_id = ultima.decision_id)
+   AND (
+       ultima.confirmada
+       OR NOT EXISTS (SELECT 1 FROM temporada_exclusion tx
+                       WHERE tx.episodio_id = ultima.episodio_id
+                         AND tx.ad_entity_id = ultima.ad_entity_id)
+   )
 """
 
 _SQL_ESTADO_BAJA_KEYWORDS = """
@@ -96,12 +107,11 @@ WITH tocadas AS (
        AND (d.decided_at AT TIME ZONE 'UTC')::date >= %s
 )
 SELECT count(*) AS total,
-       count(*) FILTER (WHERE s.current_bid IS NULL AND t.ad_entity_id IS NULL) AS grupo,
+       count(*) FILTER (WHERE h.current_bid IS NULL AND t.ad_entity_id IS NULL) AS grupo,
        count(*) FILTER (WHERE t.ad_entity_id IS NULL) AS sin_tocar
-  FROM ad_entity e
-  JOIN ad_entity_state s ON s.ad_entity_id = e.id AND s.status = 'ENABLED'
-  LEFT JOIN tocadas t ON t.ad_entity_id = e.id
- WHERE e.platform = %s::platform AND e.kind IN ('keyword', 'product_target')
+  FROM v_hoja_activa h
+  LEFT JOIN tocadas t ON t.ad_entity_id = h.hoja_id
+ WHERE h.platform = %s::platform
 """
 
 _SQL_PAUSADAS_DE_BAJA = sql_pausas_de_baja(
