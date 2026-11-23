@@ -24,3 +24,18 @@ test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen
 # Hilo 6, rojo sobre b76fff40 (lo destapo la correccion del hilo 1; se corrigio despues):
 test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen
   AssertionError: la pausa no sale a Amazon sin una elegibilidad comprobable
+
+# Revision de Astra y sexto hilo de Devin: rojo sobre el codigo anterior a cada
+# correccion (b76fff40 mas los commits anteriores de esta lista).
+test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella[sin_fila-False]
+  AssertionError: el dueno desplazado no sella
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[401]
+  AssertionError: assert ('done' == 'degraded'
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[403]
+  AssertionError: assert ('done' == 'degraded'
+test_arreglos05_a_rechazo_de_identidad_no_se_aisla_por_fila
+  Failed: DID NOT RAISE AdsApiErrorMutacion
+test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
+  AssertionError: la hoja ya habilitada no se reenvia
+test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno
+  AssertionError: None

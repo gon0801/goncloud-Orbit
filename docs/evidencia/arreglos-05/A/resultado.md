@@ -31,10 +31,10 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 18 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 18 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 18 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 18 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 26 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 26 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 26 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 26 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -77,10 +77,26 @@ commit.
 | 3 | El plan solo abria ejecutor con alguna decision huerfana; la vista no ve reactivaciones ni cortes en cola, y esas fases quedaban sin correr. | El origen guarda `notes.apply.completo` cuando sus fases terminan; el plan abre ejecutor si falta o hay decisiones sin desenlace; el ejecutor marca el origen al terminar bien. | `test_arreglos05_a_interrumpido_tras_tx3_abre_ejecutor_sin_huerfanas` (en el rojo aparece con su nombre anterior) | `21a23178` |
 | 4 | El dueno se validaba antes de cada HTTP y no al volver: con el LIST de verificacion en vuelo, el dueno desplazado sellaba la puja. | Toda confirmacion pasa por `Aplicador.confirma_cercada`: la fila del claim se lee con `FOR UPDATE` dentro de la transaccion que sella; un dueno desplazado no sella. | `test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella`, con y sin aviso pre-HTTP | `f6333519` |
 | 5 | El sello iba con la hora de la base: un ciclo corrido con `--decided-at` de ayer y terminado hoy contaba como la decision de hoy y suprimia el origen de hoy. | El sello lleva el reloj de la decision (acotado al ahora de la base); el plan compara con el dia del reloj de la corrida. | `test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy` | `3c7693bb` |
+| 6 | La revalidacion tomaba del origen, ademas del target, su evaluacion de producto, que tiene horas: si el producto perdia su costo vigente, la recuperacion aplicaba la pausa al 4 % del origen. | Notas y economia separadas: en un ejecutor la evaluacion de producto no cuenta como fresca y una pausa por margen de producto queda en `espera_target`, fila `released` en cola. | `test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen` | `160612ce` |
 
 Pruebas existentes tocadas por estas correcciones: la del reconciliador que
 espiaba `_confirma_resumen` ahora cuenta las confirmaciones cercadas del
 aplicador (sigue exigiendo dos confirmaciones y un solo cliente).
+
+### Revision de Astra (gpt-6.2-astra)
+
+Cuatro comentarios P1 sobre `b76fff40`, corregidos cada uno con su prueba en
+rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde, y su commit.
+
+| Comentario | Que fallaba | Correccion | Prueba nueva | Commit |
+|---|---|---|---|---|
+| 1 | Sin fila del claim la cerca del sello dejaba sellar: si el sucesor tomaba y soltaba el claim, el dueno desplazado sellaba con una lectura vieja. | Sin fila no se es dueno: no se sella. | Variante `sin_fila` de `test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella` | `616c61a0` |
+| 2 | Un 401 o 403 de identidad o permisos se trataba como el rechazo de ESA hoja y el lote segui con la siguiente. | Fallo global en pujas, cortes, harvest, hermanas y reversas: el intento se sella con su rechazo y se propaga; los aisladores por fila dejan de tragarselo. | `test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones`, `test_arreglos05_a_rechazo_de_identidad_no_se_aisla_por_fila` | `a7d7df0e` |
+| 3 | Una reactivacion con la respuesta perdida cobraba cuota y reenviaba el PUT aunque Amazon ya habilito la hoja. | La reversa sin sello se resuelve por lectura antes de cobrar cuota y reenviar; el sello y el cache pasan por la cerca del claim. | `test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar` | `8de0d66f` |
+| 4 | La TX3 podia cerrar despues de que el sucesor tomo el claim y leyo el plan: dos origenes decidian el mismo dia. | Dentro de la TX3 se comprueba y bloquea la fila del claim antes de sellar. | `test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno` (dos conexiones) | `9b178290` |
+
+Montaje de pruebas ajustado por estas correcciones: las de los hilos 1 y 6 toman
+el claim del ejecutor antes de su fase, porque la cerca exige la fila del claim.
 
 ## Vecinos
 
