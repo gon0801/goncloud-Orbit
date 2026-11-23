@@ -815,3 +815,201 @@ def test_cuenta_dias_topados_omite_dia_sin_fila_y_presupuesto_cero():
     hist_pos = ((dt.date(2026, 12, 1), Decimal("100")),)
     assert cuenta_dias_topados(dias, {}, hist_pos, TOPADA) == 0
     assert cuenta_dias_topados(dias, {dias[0]: Decimal("95")}, hist_pos, TOPADA) == 1
+
+
+@_skip_db
+def test_aplica_y_confirma_lock_ocupado_hace_rollback_y_deja_idle():
+    """Hallazgo #11a: si pg_try_advisory_xact_lock falla, _aplica_y_confirma
+    hace rollback antes de lanzar AjusteEnCurso y deja conn en IDLE."""
+    import json
+
+    import psycopg
+    import pytest
+    from psycopg import pq
+    from psycopg.conninfo import make_conninfo
+    from test_aplica_ajuste import _db, _plan, _siembra
+
+    from app import apply_ajustes
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_g_lock_idle") as conn:
+        camp, obs_id = _siembra(conn)
+        plan_a = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("150")))
+        orden = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s::jsonb, 'h-lock-busy',"
+            " 'dueno', 'APLICAR AJUSTE') RETURNING id",
+            (camp, obs_id, json.dumps(plan_a.despues.como_json())),
+        ).fetchone()[0]
+        conn.commit()
+
+        dsn = conn.info.dsn
+        if conn.info.password:
+            dsn = make_conninfo(dsn, password=conn.info.password)
+        conn_holder = psycopg.connect(dsn, autocommit=False)
+        conn_tx = psycopg.connect(dsn, autocommit=False)
+        try:
+            llave = f"campana:{camp}:presupuesto_diario"
+            assert (
+                conn_holder.execute(
+                    "SELECT pg_try_advisory_xact_lock(hashtext(%s))", (llave,)
+                ).fetchone()[0]
+                is True
+            )
+
+            class _ClienteTrampa:
+                def ajustar_campana(self, *_a, **_k):
+                    raise AssertionError("no debe mandar PUT cuando el lock esta ocupado")
+
+            with pytest.raises(apply_ajustes.AjusteEnCurso):
+                apply_ajustes._aplica_y_confirma(
+                    conn_tx,
+                    _ClienteTrampa(),
+                    "amazon_mx",
+                    "presupuesto",
+                    plan_a.despues,
+                    plan_a.ajuste,
+                    campana_id=camp,
+                    ajuste_id=orden,
+                    previa=plan_a.antes,
+                )
+            assert conn_tx.info.transaction_status == pq.TransactionStatus.IDLE, (
+                f"conn quedo en {conn_tx.info.transaction_status}"
+            )
+        finally:
+            conn_holder.rollback()
+            conn_holder.close()
+            conn_tx.close()
+
+
+@_skip_db
+def test_orden_posterior_pendiente_en_mismo_campo_bloquea_orden_vieja():
+    """Hallazgo #11b y Review Focus #4: con dos ordenes pendientes id1 < id2
+    para la misma campana y campo, aplicar id1 lanza AjusteEnCurso sin PUT."""
+    import json
+
+    import psycopg
+    import pytest
+    from psycopg import pq
+    from psycopg.conninfo import make_conninfo
+    from test_aplica_ajuste import _db, _plan, _siembra
+
+    from app import apply_ajustes
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_g_pend_post") as conn:
+        camp, obs_id = _siembra(conn)
+        plan_1 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("375")))
+        plan_2 = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("270")))
+        id1 = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s::jsonb, %s,"
+            " 'dueno', 'APLICAR AJUSTE') RETURNING id",
+            (camp, obs_id, json.dumps(plan_1.despues.como_json()), plan_1.huella()),
+        ).fetchone()[0]
+        id2 = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s::jsonb, %s,"
+            " 'dueno', 'APLICAR AJUSTE') RETURNING id",
+            (camp, obs_id, json.dumps(plan_2.despues.como_json()), plan_2.huella()),
+        ).fetchone()[0]
+        assert id1 < id2
+        conn.commit()
+
+        dsn = conn.info.dsn
+        if conn.info.password:
+            dsn = make_conninfo(dsn, password=conn.info.password)
+        conn_tx = psycopg.connect(dsn, autocommit=False)
+        puts: list = []
+        try:
+
+            class _ClienteTrampa:
+                def ajustar_campana(self, *a, **k):
+                    puts.append((a, k))
+                    raise AssertionError("orden vieja no debe mandar PUT con pendiente posterior")
+
+            with pytest.raises(apply_ajustes.AjusteEnCurso, match="Ya mandaste otra orden"):
+                apply_ajustes._aplica_y_confirma(
+                    conn_tx,
+                    _ClienteTrampa(),
+                    "amazon_mx",
+                    "presupuesto",
+                    plan_1.despues,
+                    plan_1.ajuste,
+                    campana_id=camp,
+                    ajuste_id=id1,
+                    previa=plan_1.antes,
+                )
+            assert puts == []
+            assert conn_tx.info.transaction_status == pq.TransactionStatus.IDLE
+        finally:
+            conn_tx.close()
+
+
+@_skip_db
+def test_aplica_y_confirma_relee_vigente_bajo_candado_y_aborta_si_cambio():
+    """Hallazgo #11c: si ads_campana_config_observation cambia el campo antes
+    de tomar el candado, _aplica_y_confirma lanza HuellaDesactualizada sin PUT."""
+    import json
+    from dataclasses import replace
+
+    import psycopg
+    import pytest
+    from psycopg import pq
+    from psycopg.conninfo import make_conninfo
+    from test_aplica_ajuste import _db, _plan, _siembra
+
+    from app import apply_ajustes
+    from app.ads.campana_config import guarda_config
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_g_relee_vig") as conn:
+        camp, obs_id = _siembra(conn)
+        plan_a = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("375")))
+        orden = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal)"
+            " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s::jsonb, %s,"
+            " 'dueno', 'APLICAR AJUSTE') RETURNING id",
+            (camp, obs_id, json.dumps(plan_a.despues.como_json()), plan_a.huella()),
+        ).fetchone()[0]
+        # Cambio externo observado antes de tomar el candado: 100 -> 150.
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [replace(plan_a.antes, presupuesto_diario=Decimal("150"))],
+            dt.datetime.now(dt.UTC) + dt.timedelta(seconds=5),
+        )
+        conn.commit()
+
+        dsn = conn.info.dsn
+        if conn.info.password:
+            dsn = make_conninfo(dsn, password=conn.info.password)
+        conn_tx = psycopg.connect(dsn, autocommit=False)
+        puts: list = []
+        try:
+
+            class _ClienteTrampa:
+                def ajustar_campana(self, *a, **k):
+                    puts.append((a, k))
+                    raise AssertionError("no debe mandar PUT cuando el vigente cambio fuera")
+
+            with pytest.raises(apply_ajustes.HuellaDesactualizada):
+                apply_ajustes._aplica_y_confirma(
+                    conn_tx,
+                    _ClienteTrampa(),
+                    "amazon_mx",
+                    "presupuesto",
+                    plan_a.despues,
+                    plan_a.ajuste,
+                    campana_id=camp,
+                    ajuste_id=orden,
+                    previa=plan_a.antes,
+                )
+            assert puts == []
+            assert conn_tx.info.transaction_status == pq.TransactionStatus.IDLE
+        finally:
+            conn_tx.close()

@@ -184,6 +184,13 @@ SELECT id, antes_config_id, despues, regresa_a
  ORDER BY id
 """
 
+_SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF = """
+SELECT id, antes_config_id, despues, regresa_a
+  FROM campana_ajuste
+ WHERE campana_id = %s AND clase = %s AND id > %s
+ ORDER BY id
+"""
+
 
 def _toca_campo(
     conn, antes_id: int, despues: dict, campo: str, *, regresa_a: int | None = None
@@ -220,12 +227,21 @@ def _confirmada_equivalente(
     return None
 
 
-def _superada(conn, ajuste_id: int, *, campana_id: int, clase: str, ajuste) -> bool:
-    """True si una orden aceptada DESPUES toco el mismo campo: la pendiente
-    quedo superada y reusarla condenaria la reaprobacion a un 409 eterno."""
+def _superada(
+    conn,
+    ajuste_id: int,
+    *,
+    campana_id: int,
+    clase: str,
+    ajuste,
+    incluir_pendientes: bool = False,
+) -> bool:
+    """True si una orden posterior toco el mismo campo: con `incluir_pendientes=False`
+    solo revisa ordenes confirmadas; con `True` bloquea tambien ante pendientes."""
     campo = campo_del_ajuste(ajuste)
+    sql = _SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF if incluir_pendientes else _SQL_AJUSTE_POSTERIOR
     for _pid, antes_id, despues, regresa_a in conn.execute(
-        _SQL_AJUSTE_POSTERIOR, (campana_id, clase, ajuste_id)
+        sql, (campana_id, clase, ajuste_id)
     ).fetchall():
         if _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
             return True
@@ -254,18 +270,29 @@ def _aplica_y_confirma(
     if not candado:
         # Otro intento trabaja este acto (try, no espera: un reintento
         # anidado dentro del PUT del primero se interbloquearia, L).
+        conn.rollback()
         raise AjusteEnCurso(f"ajuste {ajuste_id} en curso: reintenta en un momento")
     try:
         ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
         if ya is not None and ya[0]:
             conn.rollback()
             return
-        if _superada(conn, ajuste_id, campana_id=campana_id, clase=clase, ajuste=ajuste):
-            # La orden quedo vieja: hay otra aceptada DESPUES para el mismo
-            # campo. Sin PUT; el endpoint responde 409 y el dueno recarga.
+        if _superada(
+            conn,
+            ajuste_id,
+            campana_id=campana_id,
+            clase=clase,
+            ajuste=ajuste,
+            incluir_pendientes=True,
+        ):
+            # La orden quedo vieja: hay otra (confirmada o pendiente) DESPUES
+            # para el mismo campo. Sin PUT; el endpoint responde 409.
             raise AjusteEnCurso(
                 "Ya mandaste otra orden para esta campaña después de esta. Recarga."
             )
+        vigente_actual = config_vigente(conn, campana_id)
+        if vigente_actual is None or not coincide_campo(ajuste, vigente_actual, previa):
+            raise HuellaDesactualizada("el vigente cambio antes de enviar el ajuste", None)
         if isinstance(ajuste, CambiarAjusteUbicacion):
             actual = _config_leida(cliente, plataforma, destino.campana_externa)
             strategy = actual.estrategia_puja if actual is not None else None
