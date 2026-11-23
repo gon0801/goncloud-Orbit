@@ -64,6 +64,7 @@ from test_cycle import (
     SQL51,
     SQL60,
     SQL61,
+    SQL62,
     SQL67,
     SQL77,
     SQL81,
@@ -220,6 +221,7 @@ def _db_temporal(prefijo: str):
         # TEMPORADA 01 B (0093): 0093 recrea v_cambio_bid desde 0067 y el
         # aplicador cierra temporada_efecto.
         conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
+        conn.execute(SQL62)  # 0062 (V.2): ads_placement_observation (lee_campanas en aviso)
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma

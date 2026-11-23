@@ -2184,3 +2184,72 @@ def test_shadow_global_no_abre_temporada_efecto_ni_falla_segundo_ciclo(db_templa
     assert res2.status == "done", res2.notes
     abiertos = conn.execute("SELECT count(*) FROM temporada_efecto").fetchone()[0]
     assert abiertos == 0, f"shadow global no debe abrir temporada_efecto, hubo {abiertos}"
+
+
+def test_estampa_no_contamina_decision_normal_con_episodio():
+    """Hallazgo #12: temporada_io.estampa solo sella temporada_episodio_id en
+    decisiones con motivo de temporada o pausas con fase_hoja == 'baja'."""
+    ahora = _medianoche(D_E1)
+
+    def _pend(kind: str, inputs: dict) -> ciclo._Pendiente:
+        return ciclo._Pendiente(
+            ad_entity_id=1,
+            kind=kind,
+            data_observed_at=ahora,
+            window_start=D_E1,
+            window_end=D_E1,
+            search_term=None,
+            old_value=Decimal("8.00") if kind == "bid" else None,
+            new_value=Decimal("9.00") if kind == "bid" else None,
+            value_currency="MXN" if kind == "bid" else None,
+            inputs=inputs,
+        )
+
+    bid_normal = temporada_io.estampa(_pend("bid", {"motor": "bid", "motivo": "bajo_target"}), 42)
+    assert "temporada_episodio_id" not in bid_normal.inputs
+
+    pausa_normal = temporada_io.estampa(
+        _pend(
+            "pause",
+            {
+                "motor": "bid",
+                "motivo": "pause_economica",
+                "caso": {"temporada": {"frontera": {"fase_hoja": "normal"}}},
+            },
+        ),
+        42,
+    )
+    assert "temporada_episodio_id" not in pausa_normal.inputs
+
+    pausa_sin_temp = temporada_io.estampa(
+        _pend("pause", {"motor": "bid", "motivo": "pause_economica", "caso": {"temporada": None}}),
+        42,
+    )
+    assert "temporada_episodio_id" not in pausa_sin_temp.inputs
+
+    bid_entra = temporada_io.estampa(
+        _pend("bid", {"motor": "bid", "motivo": "entra_temporada_baja"}), 42
+    )
+    assert bid_entra.inputs["temporada_episodio_id"] == 42
+
+    bid_sale_prev = temporada_io.estampa(
+        _pend(
+            "bid",
+            {"motor": "bid", "motivo": "sale_temporada_baja", "temporada_episodio_id": 7},
+        ),
+        42,
+    )
+    assert bid_sale_prev.inputs["temporada_episodio_id"] == 7
+
+    pausa_baja = temporada_io.estampa(
+        _pend(
+            "pause",
+            {
+                "motor": "bid",
+                "motivo": "pause_economica",
+                "caso": {"temporada": {"frontera": {"fase_hoja": "baja"}}},
+            },
+        ),
+        42,
+    )
+    assert pausa_baja.inputs["temporada_episodio_id"] == 42

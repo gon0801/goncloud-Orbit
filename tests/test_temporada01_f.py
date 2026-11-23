@@ -791,3 +791,253 @@ def test_temporada01_ola2_reactivaciones_un_escaneo_y_cap_saturado(monkeypatch):
         assert escaneos["n"] == 1, f"esperaba 1 escaneo de presupuesto, hubo {escaneos['n']}"
         assert len(res.caps_saturados) == 1, res.caps_saturados
         assert res.caps_saturados[0].kind == "pause"
+
+
+def _handler_mx_completo(bids: dict[str, str], estados: dict[str, str]):
+    """Amazon MX simulado: soporta PUT de bid y PUT de state (resume)."""
+    import httpx
+
+    remoto_bid = dict(bids)
+    remoto_estado = dict(estados)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+        if request.method == "GET" and request.url.path == "/v2/profiles":
+            return httpx.Response(
+                200,
+                json={
+                    "profiles": [
+                        {
+                            "profileId": 414141,
+                            "countryCode": "MX",
+                            "currencyCode": "MXN",
+                            "accountInfo": {"type": "seller", "name": "MX"},
+                        }
+                    ]
+                },
+            )
+        if request.method == "PUT":
+            body = json.loads(request.content)
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            if "bid" in obj:
+                remoto_bid[ext] = str(obj["bid"])
+            if "state" in obj:
+                remoto_estado[ext] = str(obj["state"])
+            return httpx.Response(207, json={"ack": obj})
+        if request.method == "POST" and request.url.path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if request.url.path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            claves = sorted(set(remoto_bid) | set(remoto_estado))
+            filas = []
+            for ext in claves:
+                fila: dict = {campo: ext}
+                if ext in remoto_bid:
+                    fila["bid"] = remoto_bid[ext]
+                if ext in remoto_estado:
+                    fila["state"] = remoto_estado[ext]
+                filas.append(fila)
+            return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
+        raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+    return handler
+
+
+def test_dia_de_salida_cierra_episodio_y_reactiva_en_el_mismo_ciclo(db_template, monkeypatch):
+    """Hallazgo #6a + Review Focus #3: en shadow global no cierra episodio ni
+    inserta resume; el dia exacto de restaura en live cierra el episodio y
+    emite y confirma la reactivacion en ESE mismo ciclo."""
+    from psycopg.types.json import Json
+    from test_cycle import _config_version
+    from test_temporada01_b import _medianoche, _settings
+
+    from app import notifica
+
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw_act = _kw(conn, ids["ag"], "e-act", "kw act", "8.00")
+    kw_pausa = _kw(conn, ids["ag"], "e-pausa", "kw pausa", "8.00")
+    _siembra_metricas(conn, [kw_act, kw_pausa])
+
+    dia_baja = dt.date(2027, 1, 1)
+    dia_salida = dt.date(2027, 2, 1)
+    ciclo_baja = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (_medianoche(dia_baja), _medianoche(dia_baja)),
+    ).fetchone()[0]
+    ep_id = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(dia_baja), ciclo_baja, ids["config_id"]),
+    ).fetchone()[0]
+
+    decidido = _medianoche(dt.date(2027, 1, 15))
+    dec_pausa = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs)"
+        " VALUES (%s, %s, 'pause', %s, %s, %s, %s, %s, %s) RETURNING id",
+        (
+            ciclo_baja,
+            kw_pausa,
+            decidido,
+            ids["config_id"],
+            decidido - dt.timedelta(days=1),
+            dt.date(2026, 11, 15),
+            dt.date(2027, 1, 1),
+            Json(
+                {
+                    "motor": "bid",
+                    "motivo": "pause_economica",
+                    "temporada_episodio_id": ep_id,
+                    "caso": {"temporada": {"frontera": {"fase_hoja": "baja"}}},
+                }
+            ),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack, verify_ok)"
+        " VALUES (%s, %s, '{}'::jsonb, true)",
+        (dec_pausa, decidido),
+    )
+    q_id = conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id, modo, estado,"
+        " vence_el, encolado_at, request_payload) VALUES ('amazon_mx', %s, 'pause', %s, 'live',"
+        " 'pending_veto', %s, %s, '{}'::jsonb) RETURNING id",
+        (kw_pausa, dec_pausa, decidido, decidido),
+    ).fetchone()[0]
+    for estado, col in (
+        ("released", "released_at"),
+        ("applying", "applying_at"),
+        ("applied", "applied_at"),
+    ):
+        conn.execute(
+            f"UPDATE apply_queue SET estado = %s, {col} = %s WHERE id = %s",
+            (estado, decidido, q_id),
+        )
+    _pausado(conn, kw_pausa)
+    conn.commit()
+
+    enviados: list[str] = []
+    monkeypatch.setattr(
+        notifica,
+        "notifica_temporada",
+        lambda texto, **_k: (enviados.append(texto), True)[1],
+    )
+
+    # Primero en shadow global: no cierra episodio, no abre efecto ni inserta resume.
+    _config_version(conn, {**_settings("live"), "ads_optimizer_mode": "shadow"})
+    conn.commit()
+
+    def _sin_http(request):
+        raise AssertionError(f"shadow global no debe llamar HTTP: {request.method} {request.url}")
+
+    res_shadow = _corre(conn, dia_salida, _sin_http)
+    assert res_shadow.status == "done", res_shadow.notes
+    assert (
+        conn.execute(
+            "SELECT cerrado_el FROM temporada_episodio WHERE id = %s", (ep_id,)
+        ).fetchone()[0]
+        is None
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM decision WHERE cycle_id = %s AND kind = 'resume'",
+            (res_shadow.cycle_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert conn.execute("SELECT count(*) FROM temporada_efecto").fetchone()[0] == 0
+    assert enviados == []
+
+    # Ahora en live el dia exacto de salida: cierra episodio y reactiva en ESE ciclo.
+    _config_version(conn, _settings("live"))
+    conn.commit()
+    handler = _handler_mx_completo(
+        bids={"e-act": "8.00", "e-pausa": "8.00"},
+        estados={"e-act": "ENABLED", "e-pausa": "PAUSED"},
+    )
+    res = _corre(conn, dia_salida, handler)
+
+    assert res.status == "done", res.notes
+    cerrado_el, cerrado_en = conn.execute(
+        "SELECT cerrado_el, cerrado_en_ciclo FROM temporada_episodio WHERE id = %s",
+        (ep_id,),
+    ).fetchone()
+    assert cerrado_el is not None and cerrado_en == res.cycle_id
+    resumes = conn.execute(
+        "SELECT ad_entity_id FROM decision WHERE cycle_id = %s AND kind = 'resume'",
+        (res.cycle_id,),
+    ).fetchall()
+    assert resumes == [(kw_pausa,)], f"debio emitir resume el dia de salida, obtuvo {resumes}"
+    notas = json.loads(res.notes)
+    assert notas["apply"]["reactivaciones"]["confirmadas"] == 1, notas
+    assert notas["temporada"]["reactivaciones"] == 1, notas
+    assert len(enviados) == 1, enviados
+    assert "Va a reactivar 1 keyword que pausó en la baja." in enviados[0], enviados[0]
+    assert notas["temporada"]["aviso"] == enviados[0]
+
+
+def test_aviso_temporada_cuenta_propuestas_temporada_y_no_proteccion_campana(
+    db_template, monkeypatch
+):
+    """Hallazgo #6b: el aviso del dia cuenta propuestas reales de presupuesto de
+    temporada (pantalla_dinero.lee_campanas) y no len(contadores.propuestas_campana)."""
+    from test_cycle import _config_version, _entidad, _estado
+    from test_temporada01_b import _medianoche, _settings
+
+    from app import notifica
+    from app.ads.campana_config import ConfigCampana, guarda_config
+
+    conn, _dsn = db_template
+    ids = _escenario(conn)
+    kw = _kw(conn, ids["ag"], "e-kw-prop", "kw prop", "8.00")
+    _siembra_metricas(conn, [kw])
+
+    # Dos campanas adicionales ENABLED sin config de presupuesto: ADS PROTECCION 01
+    # evalua las 3 campanas, pero solo la primera tiene propuesta de temporada (300 -> 210).
+    for ext in ("b-camp-2", "b-camp-3"):
+        c_extra = _entidad(conn, "amazon_mx", "campaign", ext)
+        _estado(conn, c_extra, synced_at=_medianoche(dt.date(2026, 12, 31)))
+
+    guarda_config(
+        conn,
+        "amazon_mx",
+        [
+            ConfigCampana(
+                campana_externa="b-camp",
+                presupuesto_diario=Decimal("300.00"),
+                moneda="MXN",
+                estrategia_puja="LEGACY_FOR_SALES",
+                ajuste_top_pct=0,
+                ajuste_resto_pct=0,
+                ajuste_producto_pct=0,
+                fuera_de_amazon=None,
+            )
+        ],
+        _medianoche(dt.date(2026, 12, 15)),
+    )
+    _config_version(conn, {**_settings("live"), "ads_propuestas_campana": True})
+    conn.commit()
+
+    enviados: list[str] = []
+    monkeypatch.setattr(
+        notifica,
+        "notifica_temporada",
+        lambda texto, **_k: (enviados.append(texto), True)[1],
+    )
+    handler = _handler_mx({"e-kw-prop": "8.00"})
+    res = _corre(conn, dt.date(2027, 1, 1), handler)
+
+    assert res.status == "done", res.notes
+    notas = json.loads(res.notes)
+    assert sum(notas["propuestas_campana"].values()) == 3, notas["propuestas_campana"]
+    assert len(enviados) == 1, enviados
+    assert (
+        "Hay 1 campañas con un presupuesto más bajo en «Dónde poner el dinero»." in enviados[0]
+    ), enviados[0]
+    assert "Hay 3 campañas" not in enviados[0], enviados[0]

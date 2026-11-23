@@ -145,6 +145,9 @@ SQL81 = (
 SQL61 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0061_bids02_campana_config.sql"
 ).read_text(encoding="utf-8")
+SQL62 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0062_bids02_placement.sql"
+).read_text(encoding="utf-8")
 SQL67 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0067_bids02_campana_ajuste.sql"
 ).read_text(encoding="utf-8")
@@ -259,6 +262,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL81)
         # TEMPORADA 01 B: episodia de temporada y CHECK con bid_cambiado_fuera.
         conn.execute(SQL61)
+        conn.execute(SQL62)
         conn.execute(SQL67)
         conn.execute(SQL93)
         # ARREGLOS 01 J: acta de listado por plataforma (la guarda la lee).

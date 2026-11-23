@@ -661,9 +661,6 @@ def _recorre_plataforma(
                 estado=estado_t,
             )
             contadores.temporada_plat = plat_t
-            contadores.reactivaciones = temporada_io.reactivaciones_pendientes(
-                conn, platform, plat_t.config.mantener_pausadas
-            )
         modo_r = temporada.modo_recuperacion_desde_settings(settings, platform)
         if modo_r is not None:
             # Tambien en practica: el segundo caso (sombra) lleva el marcador y
