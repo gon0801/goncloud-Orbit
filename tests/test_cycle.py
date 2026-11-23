@@ -1504,6 +1504,7 @@ _SQL_CYCLE = (
     # y el cierre de TX3 con su sello.
     "_SQL_ORIGEN_HOY",
     "_SQL_CERRAR_TX3",
+    "_SQL_CLAIM_EN_TX3",
     "_SQL_MARCA_APLICADO",
     "_SQL_TIENE_GRUPOS_FABRICA",
 )

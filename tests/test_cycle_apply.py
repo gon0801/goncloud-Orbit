@@ -442,7 +442,7 @@ def _fabrica_directa(handler):
 
 
 @_skip_db
-def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
+def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos, monkeypatch):
     """El zombie perdio el lock (el sucesor reclamo tras el TTL) y lo descubre
     en el ownership-check PRE-HTTP: aborta SIN nigun HTTP de mutacion (regla
     9: sin el check, el zombie habria hecho el PUT tambien — dos procesos
@@ -455,16 +455,21 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         _config_live_caps(conn)
         handler, vistos = _handler({"9201": "1.00", "9203": "1.00"})
 
-        def fabrica_zombie(conn, **kwargs):
-            # El zombie pierde el lease MIENTRAS corre (sucesor reclamo el
-            # lock tras el TTL): el owner de la fila ya NO es el nuestro.
+        tx3_original = ciclo._compromete_tx3
+
+        def tx3_y_pierde_el_lease(conn, *args, **kwargs):
+            # El zombie pierde el lease MIENTRAS corre (el sucesor reclamo el
+            # lock tras el TTL): el owner de la fila ya NO es el nuestro. Se
+            # pierde al comprometer sus decisiones: antes de eso la TX3 exige
+            # el claim (ARREGLOS 05 A) y no llegaba a comprometerse.
+            tx3_original(conn, *args, **kwargs)
             conn.execute(
                 "UPDATE ads_optimizer_lock SET owner = 'sucesor' WHERE job_key = %s", (JOB_KEY,)
             )
-            kwargs["transport"] = httpx.MockTransport(handler)
-            return ciclo._aplicador_real(conn, **kwargs)
 
-        res_z = _corre(conn, factory=fabrica_zombie, owner="zombie:1")
+        monkeypatch.setattr(ciclo, "_compromete_tx3", tx3_y_pierde_el_lease)
+
+        res_z = _corre(conn, factory=_fabrica_real_mock(handler), owner="zombie:1")
 
         # El zombie NO libero el lock del sucesor (liberacion por owner)
         assert (
@@ -488,6 +493,7 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         assert _mutaciones(vistos) == []
         assert [r.url.path for r in vistos] == ["/v2/profiles"]
 
+        monkeypatch.setattr(ciclo, "_compromete_tx3", tx3_original)
         # El sucesor reclama (TTL vencido) y aplica NORMAL
         conn.execute(
             "UPDATE ads_optimizer_lock SET heartbeat_at = now() - interval '31 minutes'"
