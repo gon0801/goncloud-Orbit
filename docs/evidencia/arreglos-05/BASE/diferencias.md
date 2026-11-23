@@ -8,7 +8,7 @@ Los bloques A a K y Z consumen esta lista antes de implementar. BASE no cambia c
 
 | Id | Que supone DISENO | Que hay en `33844bb3` | Bloque |
 |---|---|---|---|
-| D-1 | TEMPORADA B.2 es el unico dueno de mover la conciliacion antes de TX2 y 05 solo lo verifica (DISENO, seccion A; fila A.2 del plan). | La conciliacion del ledger sigue despues de decidir. `reconcilia_harvest` y `reconcilia_bids` se llaman en `app/cycle_apply.py:240` y `:243`, dentro de `_fase_apply`, que `_corre_fases` invoca en `app/cycle.py:631` tras `_fase_lecturas` (546) y la TX3 (575-629). El diseno de TEMPORADA las deja "como hoy" en su fase d. La reproduccion legada `test_reconciliacion_corre_despues_de_decidir` (Ciclo 4) falla con `assert not (1 and 1)` ([acepta.txt](acepta.txt)). | A |
+| D-1 | TEMPORADA B.2 es el unico dueno de mover la conciliacion antes de TX2 y 05 solo lo verifica (DISENO, seccion A; fila A.2 del plan). | La conciliacion del ledger sigue despues de decidir. `reconcilia_harvest` y `reconcilia_bids` se llaman en `app/cycle_apply.py:240` y `:243`, dentro de `_fase_apply`, que `_corre_fases` invoca en `app/cycle.py:631` tras `_fase_lecturas` (546) y la TX3 (575-629). El diseno de TEMPORADA las deja "como hoy" en su fase d. La reproduccion legada `test_reconciliacion_corre_despues_de_decidir` (Ciclo 4) falla con `assert not (1 and 1)` ([acepta.txt](acepta.txt)). En produccion 16 de 515 aplicaciones las confirmo un ciclo distinto del que decidio ([invariantes.md](invariantes.md)). | A |
 | D-2 | La reversa de bid usa el valor leido antes del PUT, aportado por TEMP E y congelado (seccion B). | La lectura previa existe (`app/apply.py:363-395`) pero el valor no se guarda en `apply_attempt`, que solo tiene `tipo`, `request_payload`, `ack`, `resultado` y tiempos. Deja rastro en `decision_sin_aplicar.detalle.leido` y en `temporada_exclusion.bid_visto` solo cuando la puja cambio por fuera. | B |
 | D-3 | El cupo de 150 excluye entrada y regreso "por marcador congelado" y cuenta `tipo=normal` (seccion H). | El ledger no tiene tipo propio de temporada. `apply_attempt.tipo` es `normal`, `reversa`, `probe` o `hermana`, y toda puja entra por `_ledger(..., "normal", ...)` (`app/apply.py:436`). El marcador congelado es `decision.inputs->>'motivo'` con los tres valores de `temporada_io.MOTIVOS_TEMPORADA` y `inputs.temporada_episodio_id`; `temporada_efecto.tipo` es `entra`, `ajusta` o `sale`. H define si `ajusta` cuenta como entrada o regreso. | H |
 | D-4 | "Numeracion libre al rebasar; 0086 ya esta ocupada". | `0093` esta tomado dos veces en master: `0093_estimacion_s4_caja_real_mx.sql` (#699) y `0093_temporada01_episodio.sql` (TEMPORADA B). El instalador aplica por nombre de archivo y cada una tiene su sonda y su reversa, asi que funcionan. El numero libre es `0094`. | A (primera migracion) |
@@ -37,6 +37,18 @@ Los originales estan en `revision/historico/` y coinciden con `manifest.json`: `
 5. **Sin `pre-commit`.** No esta instalado, el repo no tiene ganchos y Windows bloquea por politica de control de aplicaciones el ejecutable que baja `uvx`. Los dos ganchos de `.pre-commit-config.yaml` se corrieron a mano: `gitleaks protect --staged` con la misma version del gancho (8.30.1) y la busqueda de marcadores de conflicto. Ambos limpios.
 6. **PG del laboratorio.** `127.0.0.1:55449` es el contenedor `orbit-review-current-pg` (`postgres:16`, 16.15) en el Docker de WSL. Ya estaba arriba y lo comparten varias sesiones. Las corridas son en serie.
 7. **`lee_prod.sh` ejecuta una sentencia por llamada.** `previa.sh` parte `previa.sql` en bloques y hace una llamada por bloque.
+
+## Correcciones despues de la revision automatica del PR
+
+Las cinco observaciones eran ciertas y tocaban solo a las herramientas de esta carpeta.
+
+| Herramienta | Defecto | Correccion y prueba |
+|---|---|---|
+| `acepta.sh`, BASE.0 | La cadena terminaba en `echo`, asi que devolvia 0 aunque la comprobacion de Git fallara. | El `echo` va con `&&`. En un repositorio desechable la cadena nueva sale 1 cuando `origin/master` no es ancestro y cuando falta un archivo, y 0 en orden. La anterior salia 0 en los tres casos. |
+| `acepta.sh`, arranque | Abria la conexion para imprimir la version de PG antes de validar el DSN, y los comandos de pytest directo no pasan por la guarda de `comprobar.sh`. | Guarda al inicio: solo URL `postgresql` con base `postgres` en `127.0.0.1:55449` o `orbit-review-current-pg:5432`. Con un DSN en pares `clave=valor`, con otro puerto, con otro host o vacio sale 2 con su mensaje y sin linea de PG. |
+| `acepta.sh`, controles | Un control con pruebas omitidas salia 0 y se daba por bueno. | `resumen_limpio` rechaza un resumen de pytest con `skipped`, `error`, `failed` o sin casos. Probado con once resumenes. |
+| `clasifica.py` | Solo miraba los casos presentes en la corrida nueva. Una corrida incompleta salia 0. | Compara los nombres de ambos XML y sale 1 si falta uno de la base. Con un caso retirado sale 1 y lo nombra; con un XML vacio reporta 31 ausentes. |
+| `previa.sql` | Atribuia el desenlace sin aplicar al ciclo ejecutor, igual que hace `registra_sin_aplicar`, mientras las aplicaciones se atribuyen al ciclo que decidio. | El `EXISTS` une `decision_sin_aplicar` con `decision` por `decision_id`. El bloque nuevo `desenlaces_con_ciclo_distinto` mide cuantos difieren. En una base desechable con un ejecutor distinto, la consulta vieja atribuye al ejecutor y la nueva al origen. En produccion los conteos por ciclo no cambian: las 193 filas llevan el ciclo de la decision. |
 
 ## Notas que no son bloqueo
 

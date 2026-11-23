@@ -63,12 +63,14 @@ uv run --frozen --python 3.12 python docs/evidencia/arreglos-05/BASE/clasifica.p
 | test_arreglos02_cargos_y_reversa_existentes[test_arreglos02_d_la_reversa_regresa_las_vistas] | pricing | control ARREGLOS 02 | 02 D | pasa | pasa | verde | verde |
 | test_D2_retencion_ayer_sin_liberar_no_abre_hoy | pricing | control D2 | 01E | pasa | pasa | verde | verde |
 
-- Casos recogidos: 31.
+- Casos recogidos: 31; la base trae 31.
 - Por clase: producto 5, verde 26.
 - Cerrados antes de 05 y controles (deben estar verdes): 26; de 05 (hoy rojos de producto): 5.
 - Casos fuera de lo exigido: 0.
+- Casos de la base ausentes: 0.
+- Casos nuevos que la base no trae: 0.
 
-Ningun caso esta fuera de lo exigido. Los cerrados por 03 y 04 y los controles estan verdes. Los cinco rojos son de producto y pertenecen a 05.
+Ningun caso esta fuera de lo exigido ni ausente. Los cerrados por 03 y 04 y los controles estan verdes. Los cinco rojos son de producto y pertenecen a 05.
 
 ## Los cinco rojos de producto
 

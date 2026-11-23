@@ -1,6 +1,8 @@
 # Controles confirmados y actas residuales (BASE.3)
 
-Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.3`. SHA: `2639ff8f`. Salida completa en [acepta.txt](acepta.txt), que genera [acepta.sh](acepta.sh). PG 16.15 del laboratorio.
+Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.3`. Salida completa en [acepta.txt](acepta.txt), que genera [acepta.sh](acepta.sh). PG 16.15 del laboratorio. El SHA de la corrida esta en la cabecera de `acepta.txt`.
+
+`acepta.sh` valida que el DSN sea el del laboratorio antes de abrir cualquier conexion, y cuenta como fallo un comando que salga distinto de 0 o cuyo resumen de pytest traiga omisiones o errores.
 
 ## Comandos de la fila
 

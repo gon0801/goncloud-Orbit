@@ -3,8 +3,8 @@
 Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.2`. Solo lectura.
 
 - Consulta: [previa.sql](previa.sql). Lanzador: [previa.sh](previa.sh), que pasa cada bloque por `docs/evidencia/arreglos-01/lee_prod.sh`.
-- Resultado: [previa.txt](previa.txt), 38 bloques, cero errores. Rol `orbit_read`, `transaction_read_only = on`, PostgreSQL 16.15. Solo conteos, modos y fechas.
-- SHA del lanzador: `2639ff8f`. Corrida del 2026-11-23 (UTC). La hora exacta esta en el bloque `momento_utc`.
+- Resultado: [previa.txt](previa.txt), 39 bloques, cero errores. Rol `orbit_read`, `transaction_read_only = on`, PostgreSQL 16.15. Solo conteos, modos y fechas.
+- SHA del lanzador: el de la cabecera de `previa.txt`. Corrida del 2026-11-23 (UTC). La hora exacta esta en el bloque `momento_utc`.
 
 ## Invariantes demostrados
 
@@ -15,6 +15,7 @@ Cada fila es un hecho medido. El bloque de la ultima columna depende de el y no 
 | A | Todo envelope historico esta cerrado y en estado terminal. | 0 ciclos con `finished_at` nulo. Estados: `done` 205, `skipped` 2. |
 | A | El contador de decisiones no se contradice con las filas. | En los 207 ciclos, `decisions_count > 0` coincide con tener filas en `decision`. 64 ciclos live `done` sin decisiones. |
 | A | Hay decisiones live sin desenlace registrado. | 2 ciclos live `done` con decisiones y sin `decision_application` ni `decision_sin_aplicar`. |
+| A | Un desenlace puede llevar un ciclo distinto del que decidio. | 193 filas en `decision_sin_aplicar`, todas con el ciclo de la decision. 515 aplicaciones con `applied_cycle_id`, 16 confirmadas por un ciclo distinto del que decidio. |
 | A | No hay claim tomado ni intento abierto. | `ads_optimizer_lock` vacia. Las 540 filas de `apply_attempt` tienen `finished_at` y `ack`. |
 | B | No hay negative confirmado por conciliacion. | 0 filas con resultado `ok:reconciliado`. Igual que la foto de diseno. |
 | B | Toda aplicacion tiene ACK y verificacion. | 515 filas en `decision_application`, todas con `platform_ack` y `verify_ok`. |

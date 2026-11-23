@@ -9,6 +9,7 @@ El primer XML es la corrida original de la revision (ff03ed61); el segundo, la
 corrida a clasificar. Imprime Markdown. Un fallo es de producto solo si repite
 el de la revision original (misma excepcion y misma sentencia que fallo).
 Una excepcion de carga o de archivo, o un rojo distinto del original, no lo es.
+Sale 1 si algun caso queda fuera de lo exigido o si la corrida omite uno de la base.
 """
 
 import re
@@ -137,8 +138,12 @@ def main() -> None:
         totales[f[6]] = totales.get(f[6], 0) + 1
     sin_cerrar = sum(1 for f in filas if f[7] == "producto")
     fuera = [f[0] for f in filas if f[6] != f[7]]
+    # Una corrida a la que le falte un caso de la base no es aceptacion: la tabla
+    # solo se arma con los casos presentes, asi que hay que comparar los nombres.
+    ausentes = sorted(set(original) - set(actual))
+    nuevos = sorted(set(actual) - set(original))
     print()
-    print(f"- Casos recogidos: {len(filas)}.")
+    print(f"- Casos recogidos: {len(filas)}; la base trae {len(original)}.")
     print("- Por clase: " + ", ".join(f"{k} {v}" for k, v in sorted(totales.items())) + ".")
     print(
         f"- Cerrados antes de 05 y controles (deben estar verdes): {len(filas) - sin_cerrar};"
@@ -147,7 +152,15 @@ def main() -> None:
     print(
         f"- Casos fuera de lo exigido: {len(fuera)}" + (f": {', '.join(fuera)}." if fuera else ".")
     )
-    sys.exit(1 if fuera else 0)
+    print(
+        f"- Casos de la base ausentes: {len(ausentes)}"
+        + (f": {', '.join(ausentes)}." if ausentes else ".")
+    )
+    print(
+        f"- Casos nuevos que la base no trae: {len(nuevos)}"
+        + (f": {', '.join(nuevos)}." if nuevos else ".")
+    )
+    sys.exit(1 if fuera or ausentes else 0)
 
 
 if __name__ == "__main__":

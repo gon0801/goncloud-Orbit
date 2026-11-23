@@ -38,7 +38,10 @@ GROUP BY table_name ORDER BY table_name;
 
 -- Bloque A: poblacion historica de envelopes antes de la migracion de origen
 -- y progreso. Un ciclo 'done' con decisiones pero sin sello es lo que A no
--- puede clasificar por status a ciegas.
+-- puede clasificar por status a ciegas. Todo se atribuye al ciclo que tomo la
+-- decision (decision.cycle_id). decision_sin_aplicar guarda el ciclo EJECUTOR y
+-- decision_application.applied_cycle_id tambien: desenlaces_con_ciclo_distinto
+-- mide cuantos difieren del ciclo de la decision.
 
 -- @ciclos_por_modo_estado
 SELECT mode, status, count(*) AS n FROM optimizer_cycle GROUP BY 1,2 ORDER BY 1,2;
@@ -49,9 +52,19 @@ SELECT c.status, c.mode, (c.finished_at IS NOT NULL) AS cerrado,
        EXISTS (SELECT 1 FROM decision d WHERE d.cycle_id = c.id) AS tiene_decisiones,
        EXISTS (SELECT 1 FROM decision_application da JOIN decision d ON d.id = da.decision_id
                WHERE d.cycle_id = c.id) AS tiene_aplicacion,
-       EXISTS (SELECT 1 FROM decision_sin_aplicar s WHERE s.cycle_id = c.id) AS tiene_sin_aplicar,
+       EXISTS (SELECT 1 FROM decision_sin_aplicar s JOIN decision d ON d.id = s.decision_id
+               WHERE d.cycle_id = c.id) AS tiene_sin_aplicar,
        count(*) AS n
 FROM optimizer_cycle c GROUP BY 1,2,3,4,5,6,7 ORDER BY 1,2,3,4,5,6,7;
+
+-- @desenlaces_con_ciclo_distinto
+SELECT (SELECT count(*) FROM decision_sin_aplicar) AS sin_aplicar,
+       (SELECT count(*) FROM decision_sin_aplicar s JOIN decision d ON d.id = s.decision_id
+         WHERE s.cycle_id <> d.cycle_id) AS sin_aplicar_en_otro_ciclo,
+       (SELECT count(*) FROM decision_application WHERE applied_cycle_id IS NOT NULL) AS aplicaciones,
+       (SELECT count(*) FROM decision_application da JOIN decision d ON d.id = da.decision_id
+         WHERE da.applied_cycle_id IS NOT NULL AND da.applied_cycle_id <> d.cycle_id)
+         AS aplicaciones_en_otro_ciclo;
 
 -- @ciclos_sin_cerrar
 SELECT platform, status, count(*) AS n, min(started_at) AS primero, max(started_at) AS ultimo
