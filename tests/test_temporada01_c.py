@@ -1259,3 +1259,123 @@ def test_dias_topados_coincide_en_motor_cola_y_pantalla_dinero(db_template):
     assert motor_dias == cola_dias == pantalla_dias == 4, (
         f"divergencia 3 vias: motor={motor_dias}, cola={cola_dias}, pantalla={pantalla_dias}"
     )
+
+
+def test_dias_ingesta_campanas_viejos_falla_cerrado_fuera_de_ventana_14d(db_template):
+    """Review PR #738: si la ultima ingesta de campanas cae fuera de la ventana
+    de 14 dias `[hasta - 13d, hasta]`, ultimos_dias_ingesta_campanas devuelve
+    vacio, dias_medidos es 0 y presupuesto_topado falla cerrado (None)."""
+    from app.lecturas_caso import lee_plataforma
+    from app.lecturas_historia import (
+        presupuestos_campanas_hoy,
+        ultimos_dias_ingesta_campanas,
+    )
+    from app.optimizer.caso import EconomiaPlataforma, InsumosPausa
+    from app.pantalla_dinero import lee_campanas
+
+    conn, _dsn = db_template
+    hoy = D_E1
+    ayer = hoy - dt.timedelta(days=1)
+    camp = _entidad(conn, "amazon_mx", "campaign", "c-vieja")
+    ag = _entidad(conn, "amazon_mx", "ad_group", "ag-vieja", parent=camp)
+    kw = _kw(conn, ag, "kw-vieja", "kw vieja", "5.00")
+    _estado(conn, camp, synced_at=_medianoche(hoy), status="ENABLED")
+    _estado(conn, ag, synced_at=_medianoche(hoy), status="ENABLED")
+    conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda) VALUES (%s, %s, 100.00, 'MXN')",
+        (camp, _medianoche(hoy - dt.timedelta(days=35))),
+    )
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-ventana-14d') RETURNING id"
+    ).fetchone()[0]
+    # 7 dias topados hace 3 semanas (D-27..D-21), fuera de [D-14, D-1].
+    for offset in range(27, 20, -1):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_id,
+            camp,
+            dia,
+            _medianoche(dia) + dt.timedelta(hours=1),
+            moneda="MXN",
+            cost="95.00",
+            impressions=100,
+        )
+    # Metrica exactamente en D-15 (ayer - 14d): queda fuera del limite inclusivo.
+    dia_fuera = ayer - dt.timedelta(days=14)
+    _metrica(
+        conn,
+        run_id,
+        camp,
+        dia_fuera,
+        _medianoche(dia_fuera) + dt.timedelta(hours=1),
+        moneda="MXN",
+        cost="95.00",
+        impressions=100,
+    )
+    conn.commit()
+
+    topada = temporada.CampanaTopada(pct=Decimal("0.90"), dias=5)
+    assert ultimos_dias_ingesta_campanas(conn, "amazon_mx", ayer) == ()
+
+    p_cola = presupuestos_campanas_hoy(conn, "amazon_mx", hoy, topada)[camp]
+    assert p_cola.dias_medidos == 0
+    assert recuperacion.presupuesto_topado_de(p_cola) is None
+
+    economia = EconomiaPlataforma(
+        moneda="MXN",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("350"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    lect = lee_plataforma(
+        conn,
+        "amazon_mx",
+        _medianoche(hoy),
+        economia=economia,
+        campana_topada=topada,
+        presupuesto_live=True,
+    )
+    caso = lect.caso(
+        conn,
+        hoja_id=kw,
+        ad_group_id=ag,
+        bid=BidVigente(Decimal("5.00"), "MXN", PISO_MX, TECHO_MX),
+        target_acos_pct=Decimal("20"),
+        pausa=InsumosPausa(
+            cortes=None,
+            umbral_clics=100,
+            gasto_minimo=Decimal("500"),
+            expected_clicks=None,
+            politica_economica=None,
+        ),
+    )
+    assert caso.presupuesto is not None
+    assert caso.presupuesto.dias_medidos == 0
+    assert recuperacion.presupuesto_topado(caso) is None
+
+    filas = lee_campanas(
+        conn,
+        plataforma="amazon_mx",
+        desde=ayer - dt.timedelta(days=29),
+        hasta=ayer,
+    )
+    pantalla = next(f for f in filas if f.campana_id == camp)
+    assert pantalla.dias_al_tope_7d == 0
+
+    # Borde inclusivo: una metrica exactamente en ayer - 13d (D-14) si entra.
+    dia_borde = ayer - dt.timedelta(days=13)
+    _metrica(
+        conn,
+        run_id,
+        camp,
+        dia_borde,
+        _medianoche(dia_borde) + dt.timedelta(hours=1),
+        moneda="MXN",
+        cost="95.00",
+        impressions=100,
+    )
+    conn.commit()
+    assert ultimos_dias_ingesta_campanas(conn, "amazon_mx", ayer) == (dia_borde,)

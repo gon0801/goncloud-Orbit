@@ -194,23 +194,25 @@ def propuesta_presupuesto(
         and config.aumento_presupuesto_alta > 0
     ):
         base_alto, cambios_alto = _base_y_cambios(transiciones, inicio_bloque_alto)
-        bajo_episodio = (
-            _q(antes * (Decimal(1) - config.reduccion_baja))
-            if episodio is not None
+        restaurable = (
+            episodio is not None
             and episodio.cerrado_el is not None
             and antes is not None
             and antes > 0
-            else None
+            and base_alto is not None
+            and base_alto < antes
         )
         previo = base_alto
         ya_subio = False
         for _d, m in cambios_alto:
             if m is None:
                 continue
-            es_restauracion = bajo_episodio is not None and previo == bajo_episodio and m == antes
+            es_restauracion = restaurable and previo == base_alto and m == antes
             if previo is not None and m > previo and not es_restauracion:
                 ya_subio = True
                 break
+            if es_restauracion:
+                restaurable = False
             previo = m
         if not ya_subio:
             objetivo = _q(hoy_vigente * (Decimal(1) + config.aumento_presupuesto_alta))

@@ -677,6 +677,89 @@ def test_propuesta_presupuesto_no_repite_subida_bajo_antes_ni_suprime_recorte_en
     )
 
 
+def test_propuesta_alta_conserva_propuesta_tras_cambiar_porcentaje_baja():
+    """Review PR #738 (Devin): restaurar 210 -> 300 tras una baja de 30 % y luego
+    editar reduccion_baja_pct a 20 % en config vigente no debe reclasificar la
+    restauracion como subida de alta ni ocultar la propuesta de 375.00. En
+    cambio, si la campana nunca bajo en la baja (300 -> 240 -> 300 en previa),
+    la subida 240 -> 300 si cuenta como aumento aplicado."""
+    cfg_20 = temporada.desde_settings(
+        {
+            "ads_temporada": {
+                **CONFIG["ads_temporada"],
+                "reduccion_baja_pct": "20",
+            }
+        }
+    )
+    assert cfg_20 is not None
+    # Baja cerrada con 30 % (300 -> 210), restauracion 210 -> 300 en previa,
+    # y luego el dueno edita la reduccion de baja a 20 %: sigue proponiendo 375.00.
+    prop = propuesta_presupuesto(
+        estacion=temporada.resuelve(cfg_20, dt.date(2027, 3, 10)),
+        config=cfg_20,
+        episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+        historial=(
+            (dt.date(2026, 12, 1), Decimal("300")),
+            (dt.date(2027, 1, 5), Decimal("210")),
+            (dt.date(2027, 2, 10), Decimal("300")),
+        ),
+        hoy=dt.date(2027, 3, 10),
+        inicio_bloque_alto=dt.date(2027, 2, 8),
+        dias_topados_7d=5,
+        topada=TOPADA,
+        techo_humano=TECHO_MXN,
+        moneda="MXN",
+    )
+    assert prop is not None
+    assert (prop.propuesto, prop.motivo) == (Decimal("375.00"), "alta_sin_presupuesto")
+
+    # Control: si nunca bajo durante el episodio (base_alto == antes == 300),
+    # bajar 300 -> 240 y subir 240 -> 300 en previa SI bloquea otra subida.
+    assert (
+        propuesta_presupuesto(
+            estacion=temporada.resuelve(cfg_20, dt.date(2027, 3, 10)),
+            config=cfg_20,
+            episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+            historial=(
+                (dt.date(2026, 12, 1), Decimal("300")),
+                (dt.date(2027, 2, 10), Decimal("240")),
+                (dt.date(2027, 2, 15), Decimal("300")),
+            ),
+            hoy=dt.date(2027, 3, 10),
+            inicio_bloque_alto=dt.date(2027, 2, 8),
+            dias_topados_7d=5,
+            topada=TOPADA,
+            techo_humano=TECHO_MXN,
+            moneda="MXN",
+        )
+        is None
+    )
+
+    # Control 2: tras restaurar 210 -> 300, bajar a 240 y subir de nuevo a 300
+    # ya cuenta como subida real del bloque alto (no se trata como segunda restauracion).
+    assert (
+        propuesta_presupuesto(
+            estacion=temporada.resuelve(cfg_20, dt.date(2027, 3, 10)),
+            config=cfg_20,
+            episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+            historial=(
+                (dt.date(2026, 12, 1), Decimal("300")),
+                (dt.date(2027, 1, 5), Decimal("210")),
+                (dt.date(2027, 2, 10), Decimal("300")),
+                (dt.date(2027, 2, 12), Decimal("240")),
+                (dt.date(2027, 2, 15), Decimal("300")),
+            ),
+            hoy=dt.date(2027, 3, 10),
+            inicio_bloque_alto=dt.date(2027, 2, 8),
+            dias_topados_7d=5,
+            topada=TOPADA,
+            techo_humano=TECHO_MXN,
+            moneda="MXN",
+        )
+        is None
+    )
+
+
 def test_cuenta_dias_topados_omite_dia_sin_fila_y_presupuesto_cero():
     """Hallazgo #2 y Review Focus #1: cuenta_dias_topados no inventa Decimal(0)
     en dias sin fila ni cuenta presupuesto_diario == 0 como topado."""
