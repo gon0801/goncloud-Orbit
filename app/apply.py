@@ -573,14 +573,28 @@ class Aplicador:
         except AdsApiErrorMutacion as exc:
             # Rechazo determinista (4xx con cuerpo): Amazon NO la aplico.
             _tick(self._tick_fn)
-            _sella_ledger(
-                self._conn,
-                id_attempt,
-                ack=None,
-                resultado=f"fallo http {exc.status}: {exc.cuerpo}",
-            )
-            self._conn.commit()
-            if es_rechazo_de_identidad(exc):
+            identidad_o_permisos = es_rechazo_de_identidad(exc)
+            with tx_durable(self._conn):
+                _sella_ledger(
+                    self._conn,
+                    id_attempt,
+                    ack=None,
+                    resultado=f"fallo http {exc.status}: {exc.cuerpo}",
+                )
+                if identidad_o_permisos:
+                    # Fallo global: la fase aborta y `aplica_bids` no llegara a
+                    # registrar el desenlace de esta puja. Se cierra aqui, en la
+                    # misma transaccion que el sello: sin desenlace quedaria
+                    # huerfana (tiene intento: no se reintenta, no se concilia
+                    # ni vence) y el plan abriria un ejecutor en cada horario.
+                    registra_sin_aplicar(
+                        self._conn,
+                        decision.id,
+                        self.cycle_id_ejecutor,
+                        MOTIVO_FALLO_HTTP,
+                        detalle={"http": str(exc.status), "fallo": "identidad_o_permisos"},
+                    )
+            if identidad_o_permisos:
                 raise
             return "rechazada"
         except AdsApiError:

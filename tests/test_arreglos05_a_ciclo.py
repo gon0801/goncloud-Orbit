@@ -1361,8 +1361,24 @@ def test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones(estado):
             "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (primera,)
         ).fetchone()[0]
         assert resultado.startswith(f"fallo http {estado}"), "el rechazo queda en el ledger"
-        assert _desenlace(conn, primera) is None, "no es el desenlace de esa hoja"
+        # Revision de Devin: la puja rechazada se cierra en la misma transaccion
+        # que el sello. Sin desenlace quedaria huerfana (tiene intento: no se
+        # reintenta, no se concilia y no vence) y el plan abriria un ejecutor en
+        # cada horario del dia.
+        assert _desenlace(conn, primera) == "fallo_http", "la puja rechazada se cierra"
         assert _desenlace(conn, _decision(conn, res.cycle_id, "bid", external=sin_enviar)) is None
+        # Se restauran los permisos: el horario siguiente abre UN ejecutor, que
+        # completa la otra puja, no repite la rechazada y cierra el origen.
+        restaurado = _Amazon(**REMOTO_INICIAL)
+        rec = _atiende(conn, factory=_directa(restaurado))
+        assert rec.ciclo is not None and rec.ciclo.resume_of == res.cycle_id
+        assert restaurado.pujas_enviadas() == [sin_enviar], "solo sale la puja que faltaba"
+        assert _desenlace(conn, _decision(conn, res.cycle_id, "bid", external=sin_enviar)) == (
+            "aplicada:True"
+        )
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=DECIDED_AT.date()) is not None, (
+            "al terminar el resto, el plan deja de abrir ejecutores"
+        )
 
 
 @_skip_db
