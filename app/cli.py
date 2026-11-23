@@ -1,9 +1,10 @@
 """CLI de operacion de Orbit (ORBIT 03, task 3.3): `python -m app.cli`.
 
 Envoltorio DELGADO: cada subcomando invoca EXACTAMENTE el mismo camino que ya
-existe — `cycle` llama al orquestador de `app.cycle.py` (`corre_ciclo`, con su
-MISMO claim/job_key/envelope; el job_key del lock es COMPARTIDO entre cron y
-CLI via `app.cycle.job_key_de`, una sola fuente), `ingest` delega a los mains
+existe — `cycle` llama a `atender_plataforma` en `app.cycle.py` (con su MISMO
+claim/job_key/envelope; el job_key del lock es COMPARTIDO entre cron y CLI
+via `app.cycle.job_key_de`, una sola fuente; si hoy ya hubo decision y no
+queda nada por completar, no abre ciclo), `ingest` delega a los mains
 de los pipelines de `app/ads/` (structure/diario, con su ORBIT_DSN_INGEST y
 su contabilidad de ingest_run), de `app/costs.py` / `app/listings.py` /
 `app/fx.py` / `app/ledger.py` (ORBIT 06: costos, listings, FX y ledger
@@ -123,14 +124,15 @@ def _cycle(args) -> int:
 
             if not metricas_listas.guarda(conn, (args.platform,), forzar=args.forzar):
                 return metricas_listas.salida_sin_metricas(f"cycle {args.platform}")
-            if not args.forzar:
-                salto = ciclo.motivo_de_salto(conn, args.platform)
-                if salto is not None:
-                    print(salto)
-                    return 0
-            resultado = ciclo.corre_ciclo(
-                conn, platform=args.platform, owner=owner, decided_at=decided_at
+            # `atender_plataforma` es la operacion completa del horario
+            # (ARREGLOS 05 A): toma el claim y decide entre un origen nuevo,
+            # un ejecutor que completa lo pendiente del origen de hoy, o nada.
+            # El CLI no consulta guardas de ciclo por su cuenta: la edad de un
+            # `running` o el estado `degraded` ya no deciden nada.
+            atencion = ciclo.atender_plataforma(
+                conn, args.platform, owner=owner, ahora=decided_at, forzar=args.forzar
             )
+            resultado = atencion.ciclo
         finally:
             conn.close()
     except ciclo.CicloOcupado as exc:
@@ -144,11 +146,16 @@ def _cycle(args) -> int:
             file=sys.stderr,
         )
         return 1
+    if resultado is None:
+        print(atencion.motivo)
+        return 0
     print(f"== Ciclo del optimizador ({ciclo.job_key_de(args.platform)}) ==")
     print(
         f"cycle_id={resultado.cycle_id} status={resultado.status} "
         f"decisions_count={resultado.decisions_count}"
     )
+    if resultado.resume_of is not None:
+        print(f"recupera_el_ciclo={resultado.resume_of}")
     if resultado.status != "done":
         # El operador manual del ciclo necesita el PORQUE de un skipped/
         # degraded sin tragar el JSON entero (observacion reviewer 3.2).

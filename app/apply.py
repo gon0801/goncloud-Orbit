@@ -10,12 +10,19 @@ Este modulo es el UNICO importador de `app.ads.write` para el aplicador y
 re-exporta la superficie estable de `app.apply_cuota`, `app.apply_store`,
 `app.apply_reconcilia` y `app.apply_reversa`. Incluye la lectura fresca del bid
 antes del cupo y del PUT (TEMPORADA 01 E).
+
+Aislamiento por entidad (ARREGLOS 05 A.3): un fallo remoto de UNA puja
+(5xx, red o lectura ilegible) la deja incierta y no detiene a las demas pujas
+ni a las fases que siguen (cortes, reactivaciones). Los fallos globales
+(claim perdido, base indisponible, identidad o permisos invalidos) si
+detienen todas las mutaciones.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from decimal import Decimal
+from typing import Literal
 
 import httpx
 import psycopg
@@ -59,9 +66,12 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     MOTIVO_SIN_QUOTA,
     MOTIVO_SIN_RESPUESTA,
     MOTIVO_TOPE_INTENTOS,
+    MOTIVO_VIGENCIA_VENCIDA,
     MOTIVO_YA_APLICADA,
+    MOTIVO_YA_INTENTADA,
     MOTIVOS_SIN_APLICAR,
     RESULTADO_ANCESTRO_NO_ENABLED,
+    RESULTADO_READBACK_AMBIGUO,
     CapSaturado,
     DecisionBid,
     ResultadoAplicador,
@@ -72,6 +82,7 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     consume_quota_y_sello,
     estado_quota,
     evento_cap_saturado,
+    expira_no_intentadas,
     gate_ancestros,
     hojas_con_bid_sin_sello,
     intentos_sin_sello,
@@ -173,6 +184,13 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
  WHERE (scope = 'platform' AND platform = %s)
     OR (scope = 'campaign' AND ad_entity_id = %s)
 """
+
+
+# Lo que le pasa a UNA mutacion de puja cuyo ledger ya nacio PRE-HTTP.
+# `incierta`: Amazon pudo aplicarla (5xx o red al enviar, o lectura de vuelta
+# ilegible tras un ack). Queda sellada como ambigua y sin desenlace hasta que
+# la conciliacion la resuelve con una lectura: JAMAS se vuelve a enviar.
+DesenlaceBid = Literal["aplicada", "divergente", "rechazada", "incierta"]
 
 
 def _bid_quantizado(bid: Decimal) -> Decimal:
@@ -323,6 +341,7 @@ class Aplicador:
         descartadas: list[str] = []
         aplicadas = 0
         divergencias = 0
+        inciertos = 0
         caps_saturados: list[CapSaturado] = []
         lote_cortado_429 = False
         for decision in ordenadas:
@@ -340,7 +359,10 @@ class Aplicador:
             motivo_datos, identidad = self._guarda_de_datos(decision)
             if motivo_datos is not None:
                 skips.append(motivo_datos)
-                registra_sin_aplicar(self._conn, decision.id, self.cycle_id_ejecutor, motivo_datos)
+                if motivo_datos != MOTIVO_YA_INTENTADA:
+                    registra_sin_aplicar(
+                        self._conn, decision.id, self.cycle_id_ejecutor, motivo_datos
+                    )
                 continue
             assert identidad is not None  # sin motivo, _guarda_de_datos la devuelve
             if lote_cortado_429:
@@ -433,6 +455,9 @@ class Aplicador:
                 if evento is not None:
                     caps_saturados.append(evento)
             payload = _payload_bid(identidad[0], identidad[1], decision.new_value)
+            # La reserva (cuota y fila del ledger) nace solo del dueno del
+            # claim: un owner vencido no deja intencion durable ni gasta cupo.
+            _tick(self._tick_fn)
             id_attempt = _ledger(self._conn, decision.id, "normal", payload, quota_cobrada=True)
             if id_attempt is None:
                 skips.append(MOTIVO_TOPE_INTENTOS)
@@ -440,31 +465,41 @@ class Aplicador:
                     self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
                 )
                 continue
-            resultado_bid = self._ejecuta_mutacion(decision, identidad, id_attempt)
-            if resultado_bid is None:
+            desenlace = self._ejecuta_mutacion(decision, identidad, id_attempt)
+            if desenlace == "aplicada":
+                aplicadas += 1
+            elif desenlace == "divergente":
+                divergencias += 1
+            elif desenlace == "rechazada":
                 skips.append(MOTIVO_FALLO_HTTP)
                 registra_sin_aplicar(
                     self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FALLO_HTTP
                 )
-            elif resultado_bid:
-                aplicadas += 1
             else:
-                divergencias += 1
+                inciertos += 1
         return ResultadoAplicador(
             orden=[d.id for d in ordenadas],
             aplicadas=aplicadas,
             descartadas=descartadas,
             skips=skips,
             divergencias=divergencias,
+            inciertos=inciertos,
             caps_saturados=tuple(caps_saturados),
         )
 
     def _guarda_de_datos(self, decision: DecisionBid) -> tuple[str | None, tuple[str, str] | None]:
         """Guardas LOCALES de datos previas al LIST (cero HTTP): bid completo,
-        entidad decisora y tope de intentos. Devuelve (motivo, identidad);
-        motivo None = la puja llega a la lectura fresca. Las comparten el lote
-        normal y el corte por 429 para que una puja descartable nunca quede
-        como `sin_respuesta`."""
+        entidad decisora, tope de intentos y, para una recuperacion, que la
+        decision no tenga ya un intento. Devuelve (motivo, identidad); motivo
+        None = la puja llega a la lectura fresca. Las comparten el lote normal
+        y el corte por 429 para que una puja descartable nunca quede como
+        `sin_respuesta`.
+
+        ARREGLOS 05 A.3: una decision con un intento `normal`, cierto o
+        incierto, no vuelve a salir por el aplicador (`ya_intentada`: etiqueta
+        en memoria, sin desenlace propio). Solo la conciliacion la resuelve,
+        leyendo; asi ni un 5xx ni un ejecutor de recuperacion repetiran la
+        misma mutacion."""
         if decision.new_value is None or decision.value_currency is None:
             return MOTIVO_BID_INCOMPLETO, None
         identidad = _identidad(self._conn, decision.ad_entity_id)
@@ -472,14 +507,30 @@ class Aplicador:
             return MOTIVO_ENTIDAD_NO_DECISORA, None
         # Verificar tope antes de cobrar quota para no quemar unidades en
         # decisiones agotadas (_ledger vuelve a verificar ante carreras).
-        if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (TOPE_INTENTOS):
+        intentos = self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0]
+        if intentos >= TOPE_INTENTOS:
             return MOTIVO_TOPE_INTENTOS, None
+        if intentos > 0:
+            return MOTIVO_YA_INTENTADA, None
+        # Campana y ad group ENABLED (misma fuente que la cola y los
+        # reconciliadores): al decidir ya se miraron; una recuperacion horas
+        # despues los vuelve a mirar.
+        if gate_ancestros(self._conn, decision.ad_entity_id) is not None:
+            return MOTIVO_ENTIDAD_NO_DECISORA, None
         return None, identidad
 
     def _ejecuta_mutacion(
         self, decision: DecisionBid, identidad: tuple[str, str], id_attempt: int
-    ) -> bool | None:
-        """Secuencia sellada de UNA mutacion cuyo ledger ya nacio PRE-HTTP."""
+    ) -> DesenlaceBid:
+        """Secuencia sellada de UNA mutacion cuyo ledger ya nacio PRE-HTTP.
+
+        Aislamiento por entidad (ARREGLOS 05 A.3): un fallo remoto de ESTA
+        puja (`AdsApiError`) la deja `incierta` y no detiene a las demas ni a
+        las fases que siguen. Los fallos globales (claim perdido, base
+        indisponible, identidad o permisos invalidos) siguen propagando. Se
+        sella solo con el claim todavia en poder de este owner: `_tick`
+        valida al dueno antes de cada sello, y un owner vencido deja la fila
+        sin sellar para que la conciliacion la resuelva."""
         self._conn.commit()
         cliente = self._cliente()
         try:
@@ -488,6 +539,8 @@ class Aplicador:
                 cliente, identidad, decision.new_value, decision.value_currency
             )
         except AdsApiErrorMutacion as exc:
+            # Rechazo determinista (4xx con cuerpo): Amazon NO la aplico.
+            _tick(self._tick_fn)
             _sella_ledger(
                 self._conn,
                 id_attempt,
@@ -495,10 +548,15 @@ class Aplicador:
                 resultado=f"fallo http {exc.status}: {exc.cuerpo}",
             )
             self._conn.commit()
-            return None
+            return "rechazada"
+        except AdsApiError:
+            return self._sella_incierta(id_attempt, ack=None)
         ack = _json_seguro(resp_http)
         _tick(self._tick_fn)
-        bid_leido = self._readback(cliente, identidad)
+        try:
+            bid_leido = self._readback(cliente, identidad)
+        except AdsApiError:
+            return self._sella_incierta(id_attempt, ack=ack)
         verify_ok = bid_leido is not None and bid_leido == _bid_quantizado(decision.new_value)
         resultado = (
             "ok"
@@ -514,7 +572,19 @@ class Aplicador:
             )
             if bid_leido is not None:
                 _actualiza_cache(self._conn, decision.ad_entity_id, bid_leido)
-        return verify_ok
+        return "aplicada" if verify_ok else "divergente"
+
+    def _sella_incierta(self, id_attempt: int, *, ack: dict | None) -> DesenlaceBid:
+        """5xx o red al enviar, o lectura de vuelta ilegible tras un ack:
+        Amazon pudo aplicar. La fila se sella como lectura ambigua (con el ack
+        si lo hubo) y la decision queda sin desenlace: solo la conciliacion,
+        con una lectura fresca, la resuelve."""
+        _tick(self._tick_fn)
+        with tx_durable(self._conn):
+            if ack is not None:
+                _guarda_ack(self._conn, id_attempt, ack)
+            _sella_resultado(self._conn, id_attempt, RESULTADO_READBACK_AMBIGUO)
+        return "incierta"
 
     def _muta_bid(
         self,

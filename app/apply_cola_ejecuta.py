@@ -11,8 +11,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import psycopg
+from psycopg import pq
 
 from app import apply, apply_harvest, apply_producto, biblioteca
+from app.ads.client import AdsApiError
 from app.apply_cuota import CapSaturado
 from app.db import settings_vigentes, tx_durable
 from app.lecturas_historia import presupuestos_campanas_hoy
@@ -384,7 +386,20 @@ def aplica_reactivaciones(
             evento = apply.evento_cap_saturado(conn, platform, "pause")
             if evento is not None:
                 caps_saturados.append(evento)
-        if reversa_pause(conn, _cliente_mutacion(aplicador), fila, tick=tick, durable=True):
+        try:
+            reanudada = reversa_pause(
+                conn, _cliente_mutacion(aplicador), fila, tick=tick, durable=True
+            )
+        except AdsApiError:
+            # ARREGLOS 05 A.3: 5xx o red de ESTA reactivacion. Amazon pudo
+            # reanudarla; el intento `reversa` queda sin sellar y las guardas
+            # de la siguiente pasada (hoja PAUSED en el cache) deciden. No se
+            # repite en este ciclo. Los fallos globales siguen propagando.
+            if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
+                conn.rollback()
+            fallidas += 1
+            continue
+        if reanudada:
             confirmadas += 1
         else:
             fallidas += 1

@@ -14,6 +14,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 import psycopg
+from psycopg import pq
 from psycopg.types.json import Json
 
 from app import (
@@ -114,11 +115,15 @@ SELECT ad_entity_id, familia, search_term
  WHERE platform = %s::platform AND estado = 'released'
 """
 
+# Solo los cortes que todavia no tienen fila en la cola: una decision que ya
+# esta encolada (por su propio ciclo o por un ejecutor anterior) conserva su
+# fila y no choca consigo misma (ARREGLOS 05 A.2).
 _SQL_CORTES_CICLO = """
-SELECT id, ad_entity_id, kind, search_term
-  FROM decision
- WHERE cycle_id = %s AND kind IN ('pause', 'negative', 'harvest')
- ORDER BY id
+SELECT d.id, d.ad_entity_id, d.kind, d.search_term
+  FROM decision d
+ WHERE d.cycle_id = %s AND d.kind IN ('pause', 'negative', 'harvest')
+   AND NOT EXISTS (SELECT 1 FROM apply_queue q WHERE q.decision_id = d.id)
+ ORDER BY d.id
 """
 
 _SQL_PLATFORM_CICLO = """
@@ -562,6 +567,47 @@ def _procesa_harvest_liberada(
     return (0, 0, 0, 1)
 
 
+def _aisla_fila(conn: psycopg.Connection) -> None:
+    """Cierra lo que dejo abierto la fila de la cola que fallo (ARREGLOS 05
+    A.3): lo durable (`tx_durable`, commits del ledger) queda; lo escrito a
+    medias se descarta. El barrido sigue con la fila siguiente."""
+    if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
+        conn.rollback()
+
+
+def _aisla_corte(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, rama: str) -> str:
+    """Ejecuta UN corte ya reclamado. Un fallo remoto de esa fila
+    (`AdsApiError`: 5xx, red o lectura ilegible) cuenta como fallido y la deja
+    como esta, `applying` con su ledger sin sello: es el rastro que la
+    conciliacion del ciclo siguiente resuelve con una lectura. Los fallos
+    globales (claim perdido, base, identidad) siguen propagando."""
+    try:
+        return _ejecuta_rama(conn, aplicador, fila, rama)
+    except AdsApiError:
+        _aisla_fila(conn)
+        return "failed"
+
+
+def _aisla_harvest(
+    conn: psycopg.Connection,
+    aplicador: Aplicador,
+    platform: str,
+    fila: FilaCola,
+    alertas_harvest: list[apply_harvest.AlertaHarvest],
+    caps_saturados: list[CapSaturado],
+    registra,
+) -> tuple[int, int, int, int]:
+    """`_procesa_harvest_liberada` con el mismo aislamiento por fila que
+    `_aisla_corte`: un fallo remoto del job cuenta como fallido."""
+    try:
+        return _procesa_harvest_liberada(
+            conn, aplicador, platform, fila, alertas_harvest, caps_saturados, registra
+        )
+    except AdsApiError:
+        _aisla_fila(conn)
+        return (0, 1, 0, 0)
+
+
 def libera_vencidos(
     conn: psycopg.Connection,
     platform: str,
@@ -572,6 +618,13 @@ def libera_vencidos(
     proteccion_activa: bool = False,
 ) -> ResultadoLiberacion:
     """Barrido FIFO de filas vencidas y released en modo live.
+
+    Aislamiento por fila (ARREGLOS 05 A.3): un fallo remoto de UN corte
+    (`AdsApiError`: 5xx, red o lectura ilegible al ejecutarlo) cuenta como
+    fallido y lo deja como esta, `applying` con su ledger sin sello, que es
+    el rastro que la conciliacion del ciclo siguiente resuelve con una
+    lectura. Los fallos globales (claim perdido, base indisponible, identidad
+    o permisos invalidos) siguen propagando y detienen el barrido.
 
     Precalcula `windows.ventanas_evidencia_ad_group` a lo sumo UNA vez por
     barrido para las filas `pause`/`negative` (lazy en la primera que llega a
@@ -659,7 +712,7 @@ def libera_vencidos(
             descartadas.append(veredicto.motivo)
             continue
         if fila.kind == "harvest":
-            da, df, dc, dq = _procesa_harvest_liberada(
+            da, df, dc, dq = _aisla_harvest(
                 conn, aplicador, platform, fila, alertas_harvest, caps_saturados, _registra
             )
             aplicadas += da
@@ -680,7 +733,7 @@ def libera_vencidos(
         if conn.execute(_SQL_CLAIM, (fila.id,)).fetchone() is None:
             carreras += 1
             continue
-        ok = _ejecuta_rama(conn, aplicador, fila, rama)
+        ok = _aisla_corte(conn, aplicador, fila, rama)
         if ok == "applied":
             aplicadas += 1
         elif ok == "failed":

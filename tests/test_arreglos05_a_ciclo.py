@@ -36,6 +36,7 @@ from test_cycle_apply import (
     _handler,
     _puts,
     _siembra_maestra,
+    secrets_falsos,  # noqa: F401 - fixture de la fabrica real del ciclo (credenciales falsas)
 )
 from test_schema import _postgres_obligatorio_ausente
 
@@ -308,24 +309,21 @@ def test_arreglos05_a_5xx_en_un_bid_no_frena_la_liberacion_de_cortes():
         res0 = _corre(
             conn, factory=_directa(anterior), ahora=DECIDED_AT - 26 * dt.timedelta(hours=1)
         )
-        cortes = dict(
-            conn.execute(
-                "SELECT q.kind, q.id FROM apply_queue q JOIN decision d ON d.id = q.decision_id"
-                " WHERE d.cycle_id = %s",
-                (res0.cycle_id,),
-            ).fetchall()
-        )
-        assert "pause" in cortes, "el ciclo anterior encolo la pausa"
+        pausa = conn.execute(
+            "SELECT q.id FROM apply_queue q JOIN decision d ON d.id = q.decision_id"
+            " WHERE d.cycle_id = %s AND q.kind = 'pause'",
+            (res0.cycle_id,),
+        ).fetchone()
+        assert pausa is not None, "el ciclo anterior encolo la pausa"
         # Los terminos quedan vetados: esta prueba solo necesita la pausa.
         conn.execute(
             "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(), vetoed_by = 'test',"
-            " vence_el = now() + interval '30 days' WHERE id = ANY(%s)",
-            ([i for kind, i in cortes.items() if kind != "pause"],),
+            " vence_el = now() + interval '30 days' WHERE kind <> 'pause'"
         )
         hoy = DECIDED_AT + DIA
         assert conn.execute(
             "SELECT vence_el <= %s AND estado = 'pending_veto' FROM apply_queue WHERE id = %s",
-            (hoy, cortes["pause"]),
+            (hoy, pausa[0]),
         ).fetchone() == (True,), "el veto de la pausa ya vencio al correr este ciclo"
 
         amazon = _Amazon(**REMOTO_INICIAL, falla_primer_put=True)
@@ -337,18 +335,19 @@ def test_arreglos05_a_5xx_en_un_bid_no_frena_la_liberacion_de_cortes():
             "un 500 de una puja ya no aborta la fase de apply"
         )
         assert res.status == "done"
-        assert notas["apply"].get("cortes_liberados", {}).get("liberadas") == 1, (
-            "la cola de cortes corre despues del 500"
-        )
-        assert (
-            conn.execute(
-                "SELECT estado FROM apply_queue WHERE id = %s", (cortes["pause"],)
-            ).fetchone()[0]
-            != "pending_veto"
-        )
+        liberados = notas["apply"].get("cortes_liberados", {})
+        assert liberados.get("liberadas") == 1, "la cola de cortes corre despues del 500"
+        assert _estado_cola(conn, pausa[0]) == "applied"
+        assert amazon.estados[KW_PAUSA] == "PAUSED", "la pausa vencida se aplica"
+        assert liberados.get("aplicadas") == 1 and liberados.get("fallidas") == 0
+
+
+def _estado_cola(conn, queue_id: int) -> str:
+    return conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (queue_id,)).fetchone()[0]
 
 
 @_skip_db
+@pytest.mark.usefixtures("secrets_falsos")
 def test_arreglos05_a_degraded_por_apply_abre_un_ejecutor_en_el_siguiente_horario():
     """F2: la fabrica del aplicador no encuentra perfil aceptado. El ciclo queda
     degradado con sus decisiones intactas y el siguiente horario ABRE un
@@ -660,7 +659,7 @@ def test_arreglos05_a_al_dia_siguiente_concilia_y_vence_lo_no_intentado(monkeypa
             " WHERE s.motivo = %s ORDER BY s.decision_id",
             (VENCIDA,),
         ).fetchall()
-        assert [fila[0] for fila in vencidas] == sin_intento, (
+        assert sorted(fila[0] for fila in vencidas) == sorted(sin_intento), (
             "solo lo que nunca se intento vence, con motivo auditable"
         )
         assert {fila[1] for fila in vencidas} == {res.cycle_id}

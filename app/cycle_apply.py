@@ -1,9 +1,14 @@
-"""Fase de apply del ciclo del optimizador Ads (TX4 + ejecucion + sello post-apply).
+"""Apply del ciclo del optimizador Ads: conciliacion previa, TX4, ejecucion y sellos.
 
 Extraido de `app/cycle.py` (Ola D1): concentra la construccion del `Aplicador`,
-el guard de ownership/heartbeat pre-HTTP, la ejecucion de TX4 + reconciliaciones
-+ bids + cola de cortes, y la unificacion del sello post-apply sobre
-`optimizer_cycle.notes`.
+el guard de ownership/heartbeat pre-HTTP, la conciliacion del ledger que corre
+ANTES de decidir, la ejecucion de TX4 + bids + cola de cortes por fases, y la
+unificacion del sello post-apply sobre `optimizer_cycle.notes`.
+
+Orden desde ARREGLOS 05 A: claim -> conciliacion -> snapshot y decision (TX2,
+TX3) -> apply -> cierre. Antes la conciliacion corria dentro del apply, ya
+despues de decidir, y la decision saltaba como «bid en vuelo» hojas cuyo
+resultado una lectura habria resuelto.
 """
 
 from __future__ import annotations
@@ -19,7 +24,8 @@ import psycopg
 from psycopg import pq
 
 from app import apply, apply_cola, apply_harvest, notifica
-from app.ads.config import AdsCredentials
+from app.ads.client import AdsClientError
+from app.ads.config import AdsConfigError, AdsCredentials
 from app.apply import Aplicador
 from app.apply_cuota import CapSaturado
 from app.db import tx_durable
@@ -64,6 +70,20 @@ class _FaseApply:
     caps_saturados: tuple[CapSaturado, ...] = ()
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = ()
     reactivaciones: dict | None = None
+
+
+@dataclass(frozen=True)
+class _Reconciliacion:
+    """Lo que la conciliacion previa a la decision dejo hecho en esta corrida."""
+
+    aplicador: Aplicador | None
+    notas: dict
+    alertas: tuple = ()
+    caps_saturados: tuple[CapSaturado, ...] = ()
+    jobs_done: int = 0
+    negativas_confirmadas: int = 0
+    pausas_confirmadas: int = 0
+    bids_confirmados: int = 0
 
 
 def _guard_apply(
@@ -181,54 +201,117 @@ def sella_notas_post_apply(
     return notas
 
 
-def _fase_apply(
+def _fase_reconciliacion(
     conn: psycopg.Connection,
     *,
-    cycle_id: int,
     modo: g.ModoEfectivo,
     platform: str,
-    decided_at: dt.datetime,
+    cycle_id_ejecutor: int,
     job_key: str,
     owner: str,
     guard: Callable[[], None],
     aplicador_factory: Callable[..., Aplicador] | None,
-    proteccion_activa: bool = False,
-    avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
-) -> _FaseApply:
-    """TX4 + fase de apply fail-closed-auditada dentro del lock del ciclo."""
-    notas: dict = {}
-    fallo = False
-    aplicador: Aplicador | None = None
-    avisos: tuple[notifica.CorteEncolado, ...] = ()
-    alertas_harvest: list = []
-    caps_saturados: list = []
-    if modo.modo == "live":
-        try:
-            fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
-            aplicador = fabrica(
-                conn,
-                platform=platform,
-                cycle_id_ejecutor=cycle_id,
-                owner=owner,
-                job_key=job_key,
-                tick=guard,
-            )
-        except Exception as exc:
-            notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
-            fallo = True
-    if aplicador is None:
-        aplicador = Aplicador(
+) -> _Reconciliacion:
+    """Concilia el ledger y la cola contra Amazon VIVO antes de decidir (ARREGLOS
+    05 A.2; CONTEXTO: «al inicio de cada ciclo»). La decision parte de lo que
+    Amazon ya tiene: una puja que salio y quedo incierta deja de estar «en
+    vuelo» en cuanto una lectura la resuelve. `reconcilia_bids` solo lee; nunca
+    reenvia. Corre con el claim en poder de este owner.
+
+    Lo que NO detiene la decision: la fabrica sin perfil aceptado, o un fallo
+    de la API, la identidad o los permisos de Amazon. Se anotan como
+    `apply_error`, no hay aplicador, ninguna mutacion sale y las decisiones se
+    comprometen igual: un ejecutor del siguiente horario las completa. Lo que
+    SI detiene todo: perder el claim (`ApplyAbortado`), la base indisponible o
+    cualquier error que no venga de la API, que abortan antes de comprometer
+    decisiones en vez de decidir a ciegas."""
+    if modo.modo != "live":
+        return _Reconciliacion(aplicador=None, notas={})
+    try:
+        fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
+        aplicador = fabrica(
             conn,
             platform=platform,
-            cycle_id_ejecutor=cycle_id,
+            cycle_id_ejecutor=cycle_id_ejecutor,
             owner=owner,
             job_key=job_key,
             tick=guard,
         )
+        reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
+        confirmados, fallidos = apply.reconcilia_bids(conn, aplicador, platform)
+    except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+        conn.rollback()
+        return _Reconciliacion(
+            aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
+        )
+    conn.commit()
+    return _Reconciliacion(
+        aplicador=aplicador,
+        notas={
+            "bids_reconciliados": {"confirmados": confirmados, "fallidos": fallidos},
+            "pausas_reconciliadas": {
+                "confirmadas": reconciliacion.pausas_confirmadas,
+                "fallidas": reconciliacion.pausas_fallidas,
+            },
+        },
+        alertas=reconciliacion.alertas,
+        caps_saturados=reconciliacion.caps_saturados,
+        jobs_done=reconciliacion.jobs_done,
+        negativas_confirmadas=reconciliacion.negativas_confirmadas,
+        pausas_confirmadas=reconciliacion.pausas_confirmadas,
+        bids_confirmados=confirmados,
+    )
+
+
+def _fase_apply(
+    conn: psycopg.Connection,
+    *,
+    cycle_id_origen: int,
+    cycle_id_ejecutor: int,
+    modo: g.ModoEfectivo,
+    platform: str,
+    ahora: dt.datetime,
+    job_key: str,
+    owner: str,
+    guard: Callable[[], None],
+    reconciliacion: _Reconciliacion,
+    proteccion_activa: bool = False,
+    avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
+) -> _FaseApply:
+    """TX4 y, en live, pujas, liberacion de cortes y reactivaciones.
+
+    `cycle_id_origen` es el ciclo que decidio (el propio, o el que recupera un
+    ejecutor); `cycle_id_ejecutor`, el sobre de esta corrida, que es quien
+    confirma y a quien se atribuyen los desenlaces.
+
+    Por fases (ARREGLOS 05 A.3): cada fase deja su resultado en notes['apply']
+    antes de pasar a la siguiente, y un fallo global aborta las que faltan sin
+    borrar lo ya hecho. Dentro de cada fase el aislamiento es por entidad: un
+    fallo remoto de UNA puja o de UN corte no detiene a las demas (ver
+    `Aplicador.aplica_bids`, `apply_cola.libera_vencidos` y
+    `aplica_reactivaciones`). Fallo global es perder el claim, la base
+    indisponible o la identidad y permisos: despues ninguno sale otra
+    mutacion. Un 5xx no autoriza repetir la misma mutacion: la decision
+    incierta queda sellada como ambigua y solo la conciliacion la resuelve."""
+    notas: dict = dict(reconciliacion.notas)
+    fallo = modo.modo == "live" and reconciliacion.aplicador is None
+    avisos: tuple[notifica.CorteEncolado, ...] = ()
+    alertas_harvest: list = list(reconciliacion.alertas)
+    caps_saturados: list = list(reconciliacion.caps_saturados)
+    aplicador = reconciliacion.aplicador
     try:
+        if aplicador is None:
+            aplicador = Aplicador(
+                conn,
+                platform=platform,
+                cycle_id_ejecutor=cycle_id_ejecutor,
+                owner=owner,
+                job_key=job_key,
+                tick=guard,
+            )
         with conn.transaction():
             resumen = apply_cola.encola_cortes(
-                conn, aplicador, cycle_id, modo_envelope=modo.modo, ahora=decided_at
+                conn, aplicador, cycle_id_origen, modo_envelope=modo.modo, ahora=ahora
             )
         avisos = resumen.avisos
         notas["cortes_encolados"] = {
@@ -236,40 +319,27 @@ def _fase_apply(
             "shadow": resumen.encoladas_shadow,
             "choques": len(resumen.choques),
         }
-        if modo.modo == "live" and "apply_error" not in notas:
-            reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
-            alertas_harvest += reconciliacion.alertas
-            caps_saturados += reconciliacion.caps_saturados
-            rec_bids = apply.reconcilia_bids(conn, aplicador, platform)
+        if modo.modo == "live" and reconciliacion.aplicador is not None:
             res_bids = aplicador.aplica_bids(
-                apply.bids_del_ciclo(conn, cycle_id), escalera_global=modo.modo
+                apply.bids_del_ciclo(conn, cycle_id_origen), escalera_global=modo.modo
             )
+            notas["bids_aplicados"] = res_bids.aplicadas
+            notas["bids_descartados"] = len(res_bids.descartadas)
+            notas["bids_divergentes"] = res_bids.divergencias
+            if res_bids.inciertos:
+                notas["bids_inciertos"] = res_bids.inciertos
             caps_saturados += res_bids.caps_saturados
+
             res_cola = apply_cola.libera_vencidos(
                 conn,
                 platform,
-                ahora=decided_at,
+                ahora=ahora,
                 aplicador=aplicador,
-                cycle_id=cycle_id,
+                cycle_id=cycle_id_ejecutor,
                 proteccion_activa=proteccion_activa,
             )
             alertas_harvest += res_cola.alertas
             caps_saturados += res_cola.caps_saturados
-            res_react = apply_cola.aplica_reactivaciones(
-                conn, aplicador, apply_cola.resumes_del_ciclo(conn, cycle_id), tick=guard
-            )
-            caps_saturados += res_react.caps_saturados
-            notas["bids_aplicados"] = res_bids.aplicadas
-            notas["bids_descartados"] = len(res_bids.descartadas)
-            notas["bids_divergentes"] = res_bids.divergencias
-            notas["bids_reconciliados"] = {
-                "confirmados": rec_bids[0],
-                "fallidos": rec_bids[1],
-            }
-            notas["pausas_reconciliadas"] = {
-                "confirmadas": reconciliacion.pausas_confirmadas,
-                "fallidas": reconciliacion.pausas_fallidas,
-            }
             notas["cortes_liberados"] = {
                 "liberadas": res_cola.liberadas,
                 "aplicadas": res_cola.aplicadas,
@@ -280,6 +350,11 @@ def _fase_apply(
             }
             if res_cola.revalidaciones_economicas:
                 notas["revalidaciones_economicas"] = res_cola.revalidaciones_economicas
+
+            res_react = apply_cola.aplica_reactivaciones(
+                conn, aplicador, apply_cola.resumes_del_ciclo(conn, cycle_id_origen), tick=guard
+            )
+            caps_saturados += res_react.caps_saturados
             notas["reactivaciones"] = {
                 "confirmadas": res_react.confirmadas,
                 "fallidas": res_react.fallidas,
@@ -293,10 +368,10 @@ def _fase_apply(
                 + reconciliacion.jobs_done
                 + reconciliacion.negativas_confirmadas
                 + reconciliacion.pausas_confirmadas
-                + rec_bids[0]
+                + reconciliacion.bids_confirmados
             )
             with conn.transaction():
-                conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))
+                conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id_ejecutor))
         conn.commit()
     except ApplyAbortado as exc:
         conn.rollback()

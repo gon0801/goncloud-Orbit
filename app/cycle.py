@@ -1,9 +1,17 @@
 """Orquestador del ciclo del optimizador Ads (TX1 -> TX2 -> TX3 -> TX4/Apply -> Notifica).
 
-Mantiene la superficie publica sellada (`corre_ciclo`, `reproduce`, `job_key_de`,
-`motivo_de_salto`, `lee_goals`, `CicloOcupado`, `ApplyAbortado`,
-`SinPerfilAplicar`, `ResultadoCiclo`, `MOTIVO_*`). El recorrido TX2 vive en
-`app.cycle_recorrido` y la fase de apply TX4+ en `app.cycle_apply`.
+`atender_plataforma` es la operacion de UN horario (ARREGLOS 05 A): toma el
+claim, mira si hoy ya hubo decision y elige entre abrir un origen nuevo, abrir
+un ejecutor que complete lo pendiente del origen de hoy, o no abrir nada.
+`corre_ciclo` corre siempre un origen nuevo (corrida manual y el arnes de
+aceptacion). Flujo: claim -> conciliacion previa a TX2 -> snapshot y decision
+-> TX3 con su sello -> apply -> cierre.
+
+Mantiene la superficie publica sellada (`corre_ciclo`, `atender_plataforma`,
+`reproduce`, `job_key_de`, `motivo_de_salto`, `lee_goals`, `CicloOcupado`,
+`ApplyAbortado`, `SinPerfilAplicar`, `ResultadoCiclo`, `ResultadoAtencion`,
+`MOTIVO_*`). El recorrido TX2 vive en `app.cycle_recorrido`, la conciliacion
+previa y la fase de apply en `app.cycle_apply`.
 """
 
 from __future__ import annotations
@@ -20,7 +28,7 @@ from psycopg import pq
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 
-from app import pantalla_dinero, propuestas_campana, proteccion_venta, temporada_io
+from app import apply, pantalla_dinero, propuestas_campana, proteccion_venta, temporada_io
 from app.apply import Aplicador
 from app.cycle_apply import (  # noqa: F401 - re-export estable
     _SQL_APPLIED_COUNT_CICLO,
@@ -30,9 +38,11 @@ from app.cycle_apply import (  # noqa: F401 - re-export estable
     SinPerfilAplicar,
     _aplicador_real,
     _fase_apply,
+    _fase_reconciliacion,
     _FaseApply,
     _guard_apply,
     _mezcla_evidencias_persistidas,
+    _Reconciliacion,
     _sella_apply,
     sella_notas_post_apply,
 )
@@ -154,27 +164,62 @@ def job_key_de(platform: str) -> str:
     return f"{MOTOR}:{platform}"
 
 
-_SQL_ULTIMO_CICLO_HOY = """
-SELECT status, started_at > now() - interval '3 hours'
-  FROM optimizer_cycle
- WHERE platform = %s
-   AND (started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
- ORDER BY started_at DESC
+# Origen de hoy: el ultimo ciclo dueno de sus decisiones (`resume_of` NULL) con
+# la TX3 comprometida hoy. El dia lo mide el reloj de la base porque el sello
+# lleva ese reloj. `pendientes` pregunta a la vista de auditoria si alguna de
+# sus decisiones sigue sin desenlace y sin fila en la cola: es lo que un
+# ejecutor puede completar. Un ciclo muerto antes de TX3 no tiene sello y no
+# cuenta: hoy se puede decidir de nuevo.
+_SQL_ORIGEN_HOY = """
+SELECT c.id, c.mode, c.status,
+       EXISTS (SELECT 1 FROM v_decision_huerfana h
+                WHERE h.cycle_id = c.id AND h.origen = 'huerfana') AS pendientes
+  FROM optimizer_cycle c
+ WHERE c.motor = 'ads_optimizer' AND c.platform = %s::platform
+   AND c.resume_of IS NULL
+   AND (c.decision_committed_at AT TIME ZONE 'UTC')::date
+       = (now() AT TIME ZONE 'UTC')::date
+ ORDER BY c.id DESC
  LIMIT 1
 """
 
 
-def motivo_de_salto(conn: psycopg.Connection, platform: str) -> str | None:
-    """Razon por la que hoy NO se abre un ciclo nuevo para `platform`, o None."""
-    fila = conn.execute(_SQL_ULTIMO_CICLO_HOY, (platform,)).fetchone()
+@dataclass(frozen=True)
+class _PlanHoy:
+    """Lo que le toca a un horario para una plataforma. Nunca los dos a la vez:
+    `origen` es el ciclo de hoy cuyas decisiones live todavia se pueden
+    completar (el horario abre un ejecutor ligado a el); `motivo` es la razon
+    por la que hoy no se abre nada."""
+
+    origen: int | None = None
+    motivo: str | None = None
+
+
+def _plan_de_hoy(conn: psycopg.Connection, platform: str) -> _PlanHoy:
+    """El plan del dia para `platform` (ARREGLOS 05 A.2).
+
+    Manda el claim, no la edad de 3 h: un `running` huerfano no bloquea nada
+    porque su lock vence y el siguiente horario lo reclama. Un ciclo cerrado
+    hoy sin decisiones pendientes significa que ya se decidio. Un ciclo cuyo
+    apply no termino deja decisiones sin desenlace, y eso (no su estado) es lo
+    que abre un ejecutor en el horario siguiente."""
+    fila = conn.execute(_SQL_ORIGEN_HOY, (platform,)).fetchone()
     if fila is None:
-        return None
-    status, corriendo_reciente = fila
-    if status in ("done", "degraded"):
-        return f"cycle {platform}: ya hay un ciclo {status} hoy; espera al siguiente horario"
-    if status == "running" and corriendo_reciente:
-        return f"cycle {platform}: ciclo running iniciado hace menos de 3 h"
-    return None
+        return _PlanHoy()
+    id_origen, mode, status, pendientes = fila
+    if pendientes and mode == "live":
+        return _PlanHoy(origen=id_origen)
+    return _PlanHoy(
+        motivo=f"cycle {platform}: ya hay un ciclo {status} hoy; espera al siguiente horario"
+    )
+
+
+def motivo_de_salto(conn: psycopg.Connection, platform: str) -> str | None:
+    """Razon por la que hoy NO se abre nada para `platform`, o None.
+
+    None tambien cuando queda trabajo por completar: entonces lo que se abre
+    es un ejecutor, y eso lo decide `atender_plataforma` bajo el claim."""
+    return _plan_de_hoy(conn, platform).motivo
 
 
 def _dumps(obj) -> str:
@@ -187,12 +232,23 @@ class CicloOcupado(Exception):
 
 @dataclass(frozen=True)
 class ResultadoCiclo:
-    """Resumen del ciclo corrido (done | degraded | skipped)."""
+    """Resumen del ciclo corrido (done | degraded | skipped). `resume_of` es el
+    ciclo de origen cuando este envelope es un ejecutor de recuperacion."""
 
     cycle_id: int
     status: str
     decisions_count: int
     notes: str
+    resume_of: int | None = None
+
+
+@dataclass(frozen=True)
+class ResultadoAtencion:
+    """Lo que hizo `atender_plataforma` en un horario: el ciclo que corrio, o
+    la razon por la que no abrio ninguno. Uno de los dos es None."""
+
+    ciclo: ResultadoCiclo | None
+    motivo: str | None
 
 
 _SQL_RASTRO = """
@@ -206,11 +262,25 @@ RETURNING id
 """
 
 _SQL_ABRIR_ENVELOPE = """
-INSERT INTO optimizer_cycle (motor, mode, platform)
-VALUES ('ads_optimizer', %s, %s::platform)
+INSERT INTO optimizer_cycle (motor, mode, platform, resume_of)
+VALUES ('ads_optimizer', %s, %s::platform, %s)
 RETURNING id
 """
 
+# Cierre de la TX3: la MISMA sentencia cierra el envelope y sella que sus
+# decisiones quedaron comprometidas (ARREGLOS 05 A.2), aunque sean cero. Si el
+# envelope ya no es `running`, otro owner lo reclamo y dejo el rastro: ninguna
+# fila vuelve y la transaccion entera se deshace, decisiones incluidas.
+_SQL_CERRAR_TX3 = """
+UPDATE optimizer_cycle
+   SET status = %s, finished_at = now(), decisions_count = %s, notes = %s,
+       decision_committed_at = now()
+ WHERE id = %s AND status = 'running'
+RETURNING id
+"""
+
+# Cierre sin sello: la escalera off, o el cierre final de un ejecutor (que no
+# decide, asi que no compromete decisiones).
 _SQL_CERRAR_ENVELOPE = """
 UPDATE optimizer_cycle
    SET status = %s, finished_at = now(), decisions_count = %s, notes = %s
@@ -282,8 +352,27 @@ def _toma_claim(conn: psycopg.Connection, job_key: str, owner: str) -> bool:
     return conn.execute(_SQL_CLAIM, (job_key, owner)).fetchone() is not None
 
 
-def _abre_envelope(conn: psycopg.Connection, modo: str, platform: str) -> int:
-    return conn.execute(_SQL_ABRIR_ENVELOPE, (modo, platform)).fetchone()[0]
+def _abre_envelope(
+    conn: psycopg.Connection, modo: str, platform: str, *, resume_of: int | None = None
+) -> int:
+    """Abre el envelope de esta corrida: origen nuevo, o ejecutor de `resume_of`."""
+    return conn.execute(_SQL_ABRIR_ENVELOPE, (modo, platform, resume_of)).fetchone()[0]
+
+
+def _compromete_tx3(
+    conn: psycopg.Connection, cycle_id: int, status: str, decisions_count: int, notas: str
+) -> None:
+    """Cierra el envelope en la TX3 que inserto sus decisiones y lo sella.
+
+    Corre DENTRO de esa transaccion. Si el envelope ya no es `running` (otro
+    owner lo reclamo y lo marco con el rastro) levanta `CicloOcupado`: la
+    transaccion se deshace y ese proceso no deja decisiones comprometidas."""
+    fila = conn.execute(_SQL_CERRAR_TX3, (status, decisions_count, notas, cycle_id)).fetchone()
+    if fila is None:
+        raise CicloOcupado(
+            f"el ciclo {cycle_id} ya no esta running (otro owner lo reclamo):"
+            " su TX3 no se compromete"
+        )
 
 
 def _cierra_rastro(
@@ -521,6 +610,7 @@ def _corre_fases(
     conn: psycopg.Connection,
     *,
     cycle_id: int,
+    origen: int | None,
     config_id: int | None,
     settings: dict,
     modo: g.ModoEfectivo,
@@ -534,7 +624,14 @@ def _corre_fases(
     heartbeat_cada: int,
     aplicador_factory: Callable[..., Aplicador] | None = None,
 ) -> ResultadoCiclo:
-    if modo.modo == "off":
+    """Conduce un envelope ya abierto bajo el claim: concilia, decide (si es un
+    origen), aplica por fases y cierra.
+
+    `origen` None: este envelope es dueno de sus decisiones. Si no: es un
+    ejecutor de recuperacion de ese ciclo; no vuelve a tomar el snapshot ni
+    inserta decisiones (`decisions_count` 0) y aplica lo pendiente del origen.
+    """
+    if origen is None and modo.modo == "off":
         notas = _notas_json(
             contadores, ciclos_muertos, modo.nota, MOTIVO_ESCALERA_OFF, "escalera global off"
         )
@@ -542,102 +639,130 @@ def _corre_fases(
             _cierra_envelope(conn, cycle_id, "skipped", 0, notas)
         return ResultadoCiclo(cycle_id, "skipped", 0, notas)
     tick = _tick_heartbeat(hb, job_key, owner, heartbeat_cada)
-    pendientes: list[_Pendiente] = []
-    guarda, target_ciclo, saltos_previos = _fase_lecturas(
-        conn,
-        platform=platform,
-        settings=settings,
-        modo=modo.modo,
-        decided_at=decided_at,
-        contadores=contadores,
-        pendientes=pendientes,
-        tick=tick,
-        cycle_id=cycle_id,
-        decisor=decide,
-    )
-    avisos_destino = tuple(
-        salto
-        for camp, salto in contadores.saltos_grupo.items()
-        if saltos_previos is None or saltos_previos.get(str(camp)) != salto.motivo
-    )
-    motivo = f"guarda_{guarda.guarda}" if guarda is not None else None
-    cuerpo = _notas_cuerpo(
-        contadores,
-        ciclos_muertos,
-        modo.nota,
-        motivo,
-        guarda.detalle if guarda is not None else None,
-        target_ciclo.snapshot if target_ciclo is not None else None,
-        harvest_destino=(_harvest_destino_notes(contadores) if target_ciclo is not None else None),
-        temporada=_notas_temporada(contadores),
-    )
-    status = "degraded" if guarda is not None else "done"
-    with conn.transaction():
-        plat_t = contadores.temporada_plat
-        ep_abierto = None
-        temporada_live = plat_t is not None and plat_t.en_vivo and modo.modo == "live"
-        if temporada_live:
-            ep = temporada_io.registra_ciclo(
-                conn,
-                platform,
-                cycle_id=cycle_id,
-                decidido_el=decided_at,
-                plataforma=plat_t,
-                config_version_id=config_id,
-            )
-            ep_abierto = ep.id if ep is not None else None
-            temporada_io.registra_fines(
-                conn,
-                platform,
-                cycle_id=cycle_id,
-                episodio_abierto=ep_abierto,
-                fines=contadores.fines,
-                exclusiones=contadores.exclusiones,
-                moneda=PLATAFORMAS_MONEDA[platform],
-            )
-            # TEMPORADA 01 F: una decision resume por pausa de la baja que toca
-            # reactivar. Se lee tras registra_ciclo para capturar el episodio
-            # cerrado hoy mismo. El efecto de temporada no aplica.
-            contadores.reactivaciones = temporada_io.reactivaciones_pendientes(
-                conn, platform, plat_t.config.mantener_pausadas
-            )
-            if cuerpo.get("temporada") is not None:
-                cuerpo["temporada"]["reactivaciones"] = len(contadores.reactivaciones)
-            pendientes.extend(
-                pendiente_reactivacion(r, plat_t.estacion, decidido_el=decided_at)
-                for r in contadores.reactivaciones
-            )
-            pendientes = [temporada_io.estampa(p, ep_abierto) for p in pendientes]
-        ids_evaluacion: dict[int, int] = {}
-        if contadores.productos is not None:
-            cuerpo["productos"], ids_evaluacion = _notas_productos(
-                conn, cycle_id, config_id, contadores.productos
-            )
-            _descarta_sin_evidencia(contadores, pendientes, ids_evaluacion, cuerpo)
-        ids_decisiones = _inserta_decisiones(
-            conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion
+    guard = _guard_apply(conn, job_key, owner, tick, hb=hb)
+    try:
+        reconciliacion = _fase_reconciliacion(
+            conn,
+            modo=modo,
+            platform=platform,
+            cycle_id_ejecutor=cycle_id,
+            job_key=job_key,
+            owner=owner,
+            guard=guard,
+            aplicador_factory=aplicador_factory,
         )
-        if temporada_live:
-            temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
-        _inserta_targets(conn, cycle_id, decided_at, contadores)
-        proteccion_venta.inserta_transiciones(conn, contadores.protecciones)
-        if target_ciclo is not None and g.propuestas_campana_desde_settings(settings):
-            cuerpo["propuestas_campana"] = propuestas_campana.guarda_evaluaciones(
-                conn, contadores.propuestas_campana, decided_at
+    except ApplyAbortado as exc:
+        # Perder el claim antes de decidir no deja comprometer nada: decide el
+        # sucesor. Para el cron es la misma condicion que hallar el lock tomado.
+        raise CicloOcupado(f"claim perdido antes de decidir: {exc}") from exc
+    apply.expira_no_intentadas(
+        conn, platform, hoy=decided_at.astimezone(dt.UTC).date(), cycle_id_ejecutor=cycle_id
+    )
+    pendientes: list[_Pendiente] = []
+    target_ciclo = None
+    avisos_destino: tuple = ()
+    if origen is None:
+        guarda, target_ciclo, saltos_previos = _fase_lecturas(
+            conn,
+            platform=platform,
+            settings=settings,
+            modo=modo.modo,
+            decided_at=decided_at,
+            contadores=contadores,
+            pendientes=pendientes,
+            tick=tick,
+            cycle_id=cycle_id,
+            decisor=decide,
+        )
+        avisos_destino = tuple(
+            salto
+            for camp, salto in contadores.saltos_grupo.items()
+            if saltos_previos is None or saltos_previos.get(str(camp)) != salto.motivo
+        )
+        motivo = f"guarda_{guarda.guarda}" if guarda is not None else None
+        cuerpo = _notas_cuerpo(
+            contadores,
+            ciclos_muertos,
+            modo.nota,
+            motivo,
+            guarda.detalle if guarda is not None else None,
+            target_ciclo.snapshot if target_ciclo is not None else None,
+            harvest_destino=(
+                _harvest_destino_notes(contadores) if target_ciclo is not None else None
+            ),
+            temporada=_notas_temporada(contadores),
+        )
+        status = "degraded" if guarda is not None else "done"
+        with conn.transaction():
+            plat_t = contadores.temporada_plat
+            ep_abierto = None
+            temporada_live = plat_t is not None and plat_t.en_vivo and modo.modo == "live"
+            if temporada_live:
+                ep = temporada_io.registra_ciclo(
+                    conn,
+                    platform,
+                    cycle_id=cycle_id,
+                    decidido_el=decided_at,
+                    plataforma=plat_t,
+                    config_version_id=config_id,
+                )
+                ep_abierto = ep.id if ep is not None else None
+                temporada_io.registra_fines(
+                    conn,
+                    platform,
+                    cycle_id=cycle_id,
+                    episodio_abierto=ep_abierto,
+                    fines=contadores.fines,
+                    exclusiones=contadores.exclusiones,
+                    moneda=PLATAFORMAS_MONEDA[platform],
+                )
+                # TEMPORADA 01 F: una decision resume por pausa de la baja que
+                # toca reactivar. Se lee tras registra_ciclo para capturar el
+                # episodio cerrado hoy mismo. El efecto de temporada no aplica.
+                contadores.reactivaciones = temporada_io.reactivaciones_pendientes(
+                    conn, platform, plat_t.config.mantener_pausadas
+                )
+                if cuerpo.get("temporada") is not None:
+                    cuerpo["temporada"]["reactivaciones"] = len(contadores.reactivaciones)
+                pendientes.extend(
+                    pendiente_reactivacion(r, plat_t.estacion, decidido_el=decided_at)
+                    for r in contadores.reactivaciones
+                )
+                pendientes = [temporada_io.estampa(p, ep_abierto) for p in pendientes]
+            ids_evaluacion: dict[int, int] = {}
+            if contadores.productos is not None:
+                cuerpo["productos"], ids_evaluacion = _notas_productos(
+                    conn, cycle_id, config_id, contadores.productos
+                )
+                _descarta_sin_evidencia(contadores, pendientes, ids_evaluacion, cuerpo)
+            ids_decisiones = _inserta_decisiones(
+                conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion
             )
-        notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
-        _cierra_envelope(conn, cycle_id, status, len(pendientes), notas)
+            if temporada_live:
+                temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
+            _inserta_targets(conn, cycle_id, decided_at, contadores)
+            proteccion_venta.inserta_transiciones(conn, contadores.protecciones)
+            if target_ciclo is not None and g.propuestas_campana_desde_settings(settings):
+                cuerpo["propuestas_campana"] = propuestas_campana.guarda_evaluaciones(
+                    conn, contadores.propuestas_campana, decided_at
+                )
+            notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
+            _compromete_tx3(conn, cycle_id, status, len(pendientes), notas)
+    else:
+        cuerpo = {"resume_of": origen}
+        status = "done"
 
     fase = _fase_apply(
         conn,
-        cycle_id=cycle_id,
+        cycle_id_origen=cycle_id if origen is None else origen,
+        cycle_id_ejecutor=cycle_id,
         modo=modo,
         platform=platform,
-        decided_at=decided_at,
+        ahora=decided_at,
         job_key=job_key,
         owner=owner,
-        guard=_guard_apply(conn, job_key, owner, tick, hb=hb),
-        aplicador_factory=aplicador_factory,
+        guard=guard,
+        reconciliacion=reconciliacion,
         proteccion_activa=subproteccion.activa_desde_settings(settings),
         avisos_destino=avisos_destino,
     )
@@ -646,66 +771,18 @@ def _corre_fases(
         cuerpo["apply"] = notas_apply
         if fase.fallo:
             status = "degraded"
-    plat_t = contadores.temporada_plat
-    aviso_temporada: str | None = None
-    if (
-        plat_t is not None
-        and plat_t.en_vivo
-        and modo.modo == "live"
-        and cuerpo.get("temporada") is not None
-    ):
-        reactivaciones = (
-            int(notas_apply["reactivaciones"]["confirmadas"])
-            if notas_apply and notas_apply.get("reactivaciones")
-            else 0
-        )
-        cuerpo["temporada"]["reactivaciones"] = reactivaciones
-        retenidos = int(
-            cuerpo.get("skips", {}).get("entidad", {}).get(MOTIVO_REGRESO_ESPERA_PRESUPUESTO, 0)
-        )
-        ayer = plat_t.estacion.dia - dt.timedelta(days=1)
-        propuestas_t = sum(
-            1
-            for fila in pantalla_dinero.lee_campanas(
-                conn,
-                plataforma=platform,
-                desde=ayer - dt.timedelta(days=pantalla_dinero.DIAS_UBICACION - 1),
-                hasta=ayer,
-                settings=settings,
-            )
-            if fila.propuesta_temporada is not None
-        )
-        aviso = temporada.aviso_del_dia(
-            plat_t.config,
-            plat_t.estacion,
-            conteo=_conteo_temporada(
-                conn,
-                cycle_id,
-                reactivaciones=reactivaciones,
-                retenidos=retenidos,
-                excluidas=contadores.excluidas_temporada,
-            ),
-            propuestas=propuestas_t,
-        )
-        if aviso:
-            cuerpo["temporada"]["aviso"] = aviso
-            aviso_temporada = aviso
-    nota_propuesta: str | None = None
-    if g.propuestas_campana_desde_settings(settings):
-        try:
-            resultado_avisos = propuestas_campana.envia_avisos_pendientes(conn)
-        except Exception as exc:
-            logger.warning("notifica: fallo enviando avisos de propuesta: %s", scrub(str(exc)))
-            nota_propuesta = "fallo: avisos de propuesta no enviados (ver log)"
-        else:
-            if resultado_avisos["fallos"]:
-                nota_propuesta = (
-                    "fallo: aviso de propuesta nueva no enviado por Telegram "
-                    f"(propuestas {resultado_avisos['fallos']}: quedan pending "
-                    "y reintentan en el ciclo siguiente)"
-                )
-            for _ in range(len(resultado_avisos["enviados"]) + len(resultado_avisos["fallos"])):
-                tick()
+    aviso_temporada = _aviso_temporada_del_dia(
+        conn,
+        origen=origen,
+        contadores=contadores,
+        cuerpo=cuerpo,
+        notas_apply=notas_apply,
+        cycle_id=cycle_id,
+        platform=platform,
+        settings=settings,
+        modo=modo,
+    )
+    nota_propuesta = _avisa_propuestas_pendientes(conn, settings, tick)
     telegram = _fase_notifica(
         fase.avisos,
         fase.alertas,
@@ -718,10 +795,11 @@ def _corre_fases(
         status=status,
         decisions_count=len(pendientes),
         notas_apply=notas_apply,
-        skips=cuerpo["skips"],
+        skips=cuerpo.get("skips"),
         target=cuerpo.get("target"),
         target_ancla=target_ciclo.ancla if target_ciclo is not None else None,
         tick=tick,
+        resume_of=origen,
     )
     ancla_avanzo = (
         target_ciclo is not None
@@ -730,6 +808,14 @@ def _corre_fases(
     )
     if nota_propuesta is not None:
         telegram["aviso_propuesta"] = nota_propuesta
+    if origen is not None:
+        # El ejecutor se cierra una sola vez, al terminar, con lo que hizo.
+        if telegram:
+            cuerpo["telegram"] = telegram
+        notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
+        with tx_durable(conn):
+            _cierra_envelope(conn, cycle_id, status, 0, notas)
+        return ResultadoCiclo(cycle_id, status, 0, notas, resume_of=origen)
     if notas_apply or telegram or ancla_avanzo:
         if telegram:
             cuerpo["telegram"] = telegram
@@ -737,27 +823,112 @@ def _corre_fases(
     return ResultadoCiclo(cycle_id, status, len(pendientes), notas)
 
 
-def corre_ciclo(
+def _avisa_propuestas_pendientes(conn: psycopg.Connection, settings: dict, tick) -> str | None:
+    """Envia los avisos de propuestas de campana pendientes y devuelve la nota
+    de lo que fallo (None si salieron o no habia nada que enviar)."""
+    if not g.propuestas_campana_desde_settings(settings):
+        return None
+    try:
+        resultado_avisos = propuestas_campana.envia_avisos_pendientes(conn)
+    except Exception as exc:
+        logger.warning("notifica: fallo enviando avisos de propuesta: %s", scrub(str(exc)))
+        return "fallo: avisos de propuesta no enviados (ver log)"
+    nota = None
+    if resultado_avisos["fallos"]:
+        nota = (
+            "fallo: aviso de propuesta nueva no enviado por Telegram "
+            f"(propuestas {resultado_avisos['fallos']}: quedan pending "
+            "y reintentan en el ciclo siguiente)"
+        )
+    for _ in range(len(resultado_avisos["enviados"]) + len(resultado_avisos["fallos"])):
+        tick()
+    return nota
+
+
+def _aviso_temporada_del_dia(
     conn: psycopg.Connection,
     *,
+    origen: int | None,
+    contadores: _Contadores,
+    cuerpo: dict,
+    notas_apply: dict,
+    cycle_id: int,
     platform: str,
-    owner: str,
-    decided_at: dt.datetime,
-    heartbeat_cada: int = 25,
-    aplicador_factory: Callable[..., Aplicador] | None = None,
-) -> ResultadoCiclo:
-    """Corre UN ciclo del optimizador para `platform` (amazon_us|amazon_mx)."""
+    settings: dict,
+    modo: g.ModoEfectivo,
+) -> str | None:
+    """El aviso del dia de temporada, con lo que el ciclo confirmo. Es del ciclo
+    que decidio: un ejecutor (origen distinto de None) no lo repite."""
+    if origen is not None or modo.modo != "live" or cuerpo.get("temporada") is None:
+        return None
+    plat_t = contadores.temporada_plat
+    if plat_t is None or not plat_t.en_vivo:
+        return None
+    reactivaciones = (
+        int(notas_apply["reactivaciones"]["confirmadas"])
+        if notas_apply and notas_apply.get("reactivaciones")
+        else 0
+    )
+    cuerpo["temporada"]["reactivaciones"] = reactivaciones
+    retenidos = int(
+        cuerpo.get("skips", {}).get("entidad", {}).get(MOTIVO_REGRESO_ESPERA_PRESUPUESTO, 0)
+    )
+    ayer = plat_t.estacion.dia - dt.timedelta(days=1)
+    propuestas_t = sum(
+        1
+        for fila in pantalla_dinero.lee_campanas(
+            conn,
+            plataforma=platform,
+            desde=ayer - dt.timedelta(days=pantalla_dinero.DIAS_UBICACION - 1),
+            hasta=ayer,
+            settings=settings,
+        )
+        if fila.propuesta_temporada is not None
+    )
+    aviso = temporada.aviso_del_dia(
+        plat_t.config,
+        plat_t.estacion,
+        conteo=_conteo_temporada(
+            conn,
+            cycle_id,
+            reactivaciones=reactivaciones,
+            retenidos=retenidos,
+            excluidas=contadores.excluidas_temporada,
+        ),
+        propuestas=propuestas_t,
+    )
+    if aviso:
+        cuerpo["temporada"]["aviso"] = aviso
+    return aviso
+
+
+def _validar_entrada(platform: str, decided_at: dt.datetime, heartbeat_cada: int) -> None:
     if decided_at.tzinfo is None:
         raise ValueError("decided_at debe ser tz-aware (UTC): un naive evaluaria segun la TZ local")
     if platform not in PLATAFORMAS_MONEDA:
         raise ValueError(f"plataforma fuera del vocabulario sellado: {platform!r}")
     if heartbeat_cada <= 0:
         raise ValueError("heartbeat_cada debe ser > 0")
+
+
+def _atiende(
+    conn: psycopg.Connection,
+    *,
+    platform: str,
+    owner: str,
+    decided_at: dt.datetime,
+    heartbeat_cada: int,
+    aplicador_factory: Callable[..., Aplicador] | None,
+    plan_del_dia: bool,
+) -> ResultadoAtencion:
+    """Un envelope bajo un claim unico (ARREGLOS 05 A.2). Con `plan_del_dia` el
+    plan se lee YA bajo el claim: nadie mas puede abrir un ciclo de la
+    plataforma mientras se decide que abrir."""
+    _validar_entrada(platform, decided_at, heartbeat_cada)
     job_key = job_key_de(platform)
     conn.commit()
     hb = _abre_heartbeat(conn)
-    cycle_id: int | None = None
-    gano = False
+    ciclo_id: int | None = None
     contadores = _Contadores()
     muertos: list[int] = []
     try:
@@ -766,12 +937,24 @@ def corre_ciclo(
             modo = g.resuelve_modo(g.modo_desde_settings(settings), _MODO_TOPE_ENVELOPE)
             if not _toma_claim(conn, job_key, owner):
                 raise CicloOcupado(f"lock vigente de otro owner para {job_key}")
-            gano = True
-            cycle_id = _abre_envelope(conn, modo.modo, platform)
-            muertos = _cierra_rastro(conn, owner, platform, cycle_id)
-        return _corre_fases(
+            plan = _plan_de_hoy(conn, platform) if plan_del_dia else _PlanHoy()
+            origen, motivo = plan.origen, plan.motivo
+            if origen is not None and modo.modo != "live":
+                motivo = (
+                    f"cycle {platform}: quedan decisiones del ciclo {origen} por completar;"
+                    f" la escalera esta en {modo.modo} y no aplica nada"
+                )
+            if motivo is None:
+                ciclo_id = _abre_envelope(conn, modo.modo, platform, resume_of=origen)
+                muertos = _cierra_rastro(conn, owner, platform, ciclo_id)
+        if ciclo_id is None:
+            # Hoy no se abre nada: el claim se suelta aqui mismo, no al vencer.
+            _libera_lock(hb, conn, job_key, owner)
+            return ResultadoAtencion(None, motivo)
+        resultado = _corre_fases(
             conn,
-            cycle_id=cycle_id,
+            cycle_id=ciclo_id,
+            origen=origen,
             config_id=config_id,
             settings=settings,
             modo=modo,
@@ -785,12 +968,76 @@ def corre_ciclo(
             heartbeat_cada=heartbeat_cada,
             aplicador_factory=aplicador_factory,
         )
+        return ResultadoAtencion(resultado, None)
     except BaseException as exc:
-        if cycle_id is not None:
-            _sello_fallido(conn, cycle_id, exc, contadores, muertos)
+        if ciclo_id is not None:
+            _sello_fallido(conn, ciclo_id, exc, contadores, muertos)
         raise
     finally:
-        if gano:
+        if ciclo_id is not None:
             _libera_lock(hb, conn, job_key, owner)
         if hb is not None:
             hb.close()
+
+
+def atender_plataforma(
+    conn: psycopg.Connection,
+    plataforma: str,
+    *,
+    owner: str,
+    ahora: dt.datetime,
+    heartbeat_cada: int = 25,
+    aplicador_factory: Callable[..., Aplicador] | None = None,
+    forzar: bool = False,
+) -> ResultadoAtencion:
+    """Atende UN horario del optimizador para `plataforma` (ARREGLOS 05 A).
+
+    El caller no coordina pasos: la operacion toma el claim y decide que toca.
+
+    - Sin decision comprometida hoy: abre un origen y lo corre entero.
+    - Decision comprometida hoy con decisiones live sin completar (apply que
+      no termino, proceso muerto despues de TX3): abre un ejecutor ligado a ese
+      origen. No vuelve a decidir ni renueva el cupo; completa lo pendiente.
+    - Decision comprometida hoy y nada pendiente: no abre nada y devuelve la
+      razon. Un `running` huerfano no cuenta como decision: manda el claim.
+    - La escalera en off o shadow no abre ejecutores porque no habria
+      mutaciones que hacer.
+
+    `forzar` salta el plan y abre un origen nuevo (corrida manual): es la
+    unica forma de decidir dos veces el mismo dia. `ahora` es el reloj de la
+    decision (tz-aware). El resultado conserva el ciclo de origen y el
+    ejecutor de esta invocacion.
+    """
+    return _atiende(
+        conn,
+        platform=plataforma,
+        owner=owner,
+        decided_at=ahora,
+        heartbeat_cada=heartbeat_cada,
+        aplicador_factory=aplicador_factory,
+        plan_del_dia=not forzar,
+    )
+
+
+def corre_ciclo(
+    conn: psycopg.Connection,
+    *,
+    platform: str,
+    owner: str,
+    decided_at: dt.datetime,
+    heartbeat_cada: int = 25,
+    aplicador_factory: Callable[..., Aplicador] | None = None,
+) -> ResultadoCiclo:
+    """Corre UN ciclo del optimizador para `platform` (amazon_us|amazon_mx),
+    siempre como origen nuevo y sin consultar el plan del dia."""
+    atencion = _atiende(
+        conn,
+        platform=platform,
+        owner=owner,
+        decided_at=decided_at,
+        heartbeat_cada=heartbeat_cada,
+        aplicador_factory=aplicador_factory,
+        plan_del_dia=False,
+    )
+    assert atencion.ciclo is not None, "sin plan del dia siempre se abre un origen"
+    return atencion.ciclo
