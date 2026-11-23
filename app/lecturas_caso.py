@@ -58,6 +58,7 @@ from app.lecturas_historia import (  # noqa: F401 - re-export estable de histori
     _historia_por_hoja,
     _historia_temporada,
     _presupuesto_campanas,
+    ultimos_dias_ingesta_campanas,
 )
 from app.optimizer import temporada
 from app.optimizer.caso import (
@@ -759,28 +760,42 @@ def lee_plataforma(
                 eventos_grupo.setdefault(entidad, []).append(sello.astimezone(dt.UTC).date())
     dias = frozenset(f for fila in filas_tramos for f in (fila[14] or ()))
     presupuesto = (
-        _presupuesto_campanas(conn, plataforma, dias, campana_topada, visto_el)
+        _presupuesto_campanas(
+            conn,
+            plataforma,
+            frozenset(ultimos_dias_ingesta_campanas(conn, plataforma, ayer, visto_el=visto_el)),
+            campana_topada,
+            visto_el,
+        )
         if campana_topada is not None
         else None
     )
 
-    def _niveles_de(filas: list, rec: dt.date, des: dt.date) -> dict[int, EvidenciaNivel]:
+    def _niveles_de(
+        filas: list,
+        rec: dt.date,
+        des: dt.date,
+        cercas_hoja: dict[int, dt.date] | None = None,
+    ) -> dict[int, EvidenciaNivel]:
         niveles: dict[int, EvidenciaNivel] = {}
         for fila in filas:
             (hoja, fr, c_r, p_r, v_r, g_r, i_r, fa, c_a, p_a, v_a, g_a, i_a, _obs, _f) = fila
             if fr + fa == 0:
                 continue  # sin filas en la ventana madura: propia None
+            cerca_h = cercas_hoja.get(hoja) if cercas_hoja is not None else None
+            rec_h = max(rec, cerca_h) if cerca_h is not None else rec
+            des_h = max(des, cerca_h) if cerca_h is not None else des
             niveles[hoja] = EvidenciaNivel(
-                reciente=_tramo(fr, (c_r, p_r, v_r, g_r, i_r), rec, hasta, dias),
-                antiguo=_tramo(fa, (c_a, p_a, v_a, g_a, i_a), des, ant_hasta, dias),
+                reciente=_tramo(fr, (c_r, p_r, v_r, g_r, i_r), rec_h, hasta, dias),
+                antiguo=_tramo(fa, (c_a, p_a, v_a, g_a, i_a), des_h, ant_hasta, dias),
             )
         return niveles
 
     evid_sin_cerca = _niveles_de(filas_tramos, rec_desde_2, desde_2)
     por_hoja = evid_sin_cerca
     niveles_rolls = evid_sin_cerca
-    if filas_tramos_cerca:
-        evid_cerca = _niveles_de(filas_tramos_cerca, rec_desde, desde)
+    if cercas:
+        evid_cerca = _niveles_de(filas_tramos_cerca or [], rec_desde, desde, cercas_hoja=cercas)
         por_hoja = {h: ev for h, ev in evid_sin_cerca.items() if h not in cercas}
         por_hoja.update(evid_cerca)
         niveles_rolls = evid_sin_cerca

@@ -55,10 +55,12 @@ def cuenta_dias_topados(
         return None
     topados = 0
     for dia in ultimos_7:
-        gasto_dia = gasto_por_dia.get(dia, Decimal(0))
+        if dia not in gasto_por_dia:
+            continue
+        gasto_dia = gasto_por_dia[dia]
         assert gasto_dia is not None
         presup_dia = presupuesto_en_dia(historial, dia)
-        if presup_dia is not None and gasto_dia >= topada.pct * presup_dia:
+        if presup_dia is not None and presup_dia > 0 and gasto_dia >= topada.pct * presup_dia:
             topados += 1
     return topados
 

@@ -22,6 +22,7 @@ from typing import Literal, get_args
 
 from app import temporada_io
 from app.db import settings_vigentes
+from app.lecturas_historia import ultimos_dias_ingesta_campanas
 from app.optimizer import temporada
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import gasto_para_concluir_desde_settings
@@ -427,16 +428,15 @@ def lee_campanas(
     campanas = conn.execute(_SQL_CAMPANAS, (plataforma,)).fetchall()
     crudo = _settings_de(conn, settings)
     topada = temporada.campana_topada_desde_settings(crudo)
+    ultimos_7 = list(ultimos_dias_ingesta_campanas(conn, plataforma, hasta, limite=DIAS_TOPE))
+    gasto_desde = min(desde, ultimos_7[0]) if ultimos_7 else desde
     gasto: dict[tuple[int, dt.date], Decimal | None] = {}
     gasto_por_campana: dict[int, dict[dt.date, Decimal | None]] = {}
-    dias_ingesta: set[dt.date] = set()
     for cid_g, dia_g, costo_g in conn.execute(
-        _SQL_GASTO_DIARIO, (plataforma, desde, hasta)
+        _SQL_GASTO_DIARIO, (plataforma, gasto_desde, hasta)
     ).fetchall():
         gasto[(cid_g, dia_g)] = costo_g
         gasto_por_campana.setdefault(cid_g, {})[dia_g] = costo_g
-        dias_ingesta.add(dia_g)
-    ultimos_7 = sorted(dias_ingesta)[-DIAS_TOPE:]
     fuera = {
         fila[0]: fila[1]
         for fila in conn.execute(_SQL_FUERA_CAMPANA, (plataforma, desde, hasta)).fetchall()

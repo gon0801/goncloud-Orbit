@@ -675,3 +675,18 @@ def test_propuesta_presupuesto_no_repite_subida_bajo_antes_ni_suprime_recorte_en
         Decimal("437.50"),
         "alta_sin_presupuesto",
     )
+
+
+def test_cuenta_dias_topados_omite_dia_sin_fila_y_presupuesto_cero():
+    """Hallazgo #2 y Review Focus #1: cuenta_dias_topados no inventa Decimal(0)
+    en dias sin fila ni cuenta presupuesto_diario == 0 como topado."""
+    from app.optimizer.temporada_presupuesto import cuenta_dias_topados
+
+    dias = tuple(dt.date(2027, 1, 1) + dt.timedelta(days=i) for i in range(7))
+    hist_cero = ((dt.date(2026, 12, 1), Decimal("0")),)
+    assert cuenta_dias_topados(dias, {}, hist_cero, TOPADA) == 0
+    assert cuenta_dias_topados(dias, {dias[0]: Decimal("0")}, hist_cero, TOPADA) == 0
+
+    hist_pos = ((dt.date(2026, 12, 1), Decimal("100")),)
+    assert cuenta_dias_topados(dias, {}, hist_pos, TOPADA) == 0
+    assert cuenta_dias_topados(dias, {dias[0]: Decimal("95")}, hist_pos, TOPADA) == 1

@@ -1735,3 +1735,194 @@ def test_r16b_en_temporada_alta_usa_meta_alta_de_caso_j():
     veredicto = politica.decide(caso)
     assert isinstance(veredicto, politica.Mover), veredicto
     assert veredicto.factor > 0, veredicto
+
+
+def test_cerca_hoja_sin_filas_post_cerca_deja_propia_none_y_hueco_pre_cerca_no_envenena_antiguo(
+    db_template,
+):
+    """Hallazgo #5: (A) si las hojas cercadas tienen 0 filas post-cerca no deben
+    caer a evid_sin_cerca pre-cerca; (B) un hueco de ingesta anterior a la cerca
+    no debe envenenar `antiguo` en `_niveles_de`."""
+    conn, _dsn = db_template
+    _run(conn)
+    config_id = _config_version(conn, _settings())
+    hoy = D_E1
+    cfg = temporada.desde_settings(_settings())
+    assert cfg is not None
+    est = temporada.resuelve(cfg, hoy)
+
+    # Caso A (amazon_mx): hoja con entra_temporada_baja confirmada ayer
+    # (cerca = hoy > ayer -> 0 filas post-cerca en _SQL_TRAMOS_CERCA).
+    camp_a = _entidad(conn, "amazon_mx", "campaign", "cerca-camp-a")
+    ag_a = _entidad(conn, "amazon_mx", "ad_group", "cerca-ag-a", parent=camp_a)
+    kw_a = _kw(conn, ag_a, "cerca-kw-a", "kw cerca a", "5.60")
+    _estado(conn, camp_a, synced_at=_medianoche(hoy))
+    _estado(conn, ag_a, synced_at=_medianoche(hoy))
+    run_a = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-cerca-a') RETURNING id"
+    ).fetchone()[0]
+    for offset in range(90, 0, -1):
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_a,
+            kw_a,
+            dia,
+            _medianoche(dia),
+            moneda="MXN",
+            cost="10.00",
+            ad_revenue="100.00",
+            clicks=5,
+            orders=1,
+            impressions=100,
+        )
+    ciclo_a = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_mx', 'done', %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=1)), _medianoche(hoy - dt.timedelta(days=1))),
+    ).fetchone()[0]
+    ep_a = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_mx', %s, %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=1)), ciclo_a, config_id),
+    ).fetchone()[0]
+    _cambio_confirmado(
+        conn,
+        kw_a,
+        config_id,
+        dia=hoy - dt.timedelta(days=1),
+        antes="8.00",
+        despues="5.60",
+        motivo="entra_temporada_baja",
+        episodio_id=ep_a,
+    )
+
+    # Caso B (amazon_us): hoja con entra_temporada_baja confirmada en D-50
+    # (cerca = D-49), hueco de ingesta en D-80 (pre-cerca) y dias completos D-49..ayer.
+    camp_b = _entidad(conn, "amazon_us", "campaign", "cerca-camp-b")
+    ag_b = _entidad(conn, "amazon_us", "ad_group", "cerca-ag-b", parent=camp_b)
+    kw_b = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "cerca-kw-b",
+        parent=ag_b,
+        match_type="EXACT",
+        keyword_text="kw cerca b",
+    )
+    _estado(conn, camp_b, synced_at=_medianoche(hoy))
+    _estado(conn, ag_b, synced_at=_medianoche(hoy))
+    _estado(conn, kw_b, synced_at=_medianoche(hoy), current_bid=Decimal("1.40"), bid_currency="USD")
+    run_b = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test-cerca-b') RETURNING id"
+    ).fetchone()[0]
+    for offset in range(90, 0, -1):
+        if offset == 80:
+            continue  # hueco de ingesta pre-cerca en D-80
+        dia = hoy - dt.timedelta(days=offset)
+        _metrica(
+            conn,
+            run_b,
+            kw_b,
+            dia,
+            _medianoche(dia),
+            moneda="USD",
+            cost="2.00",
+            ad_revenue="20.00",
+            clicks=2,
+            orders=1,
+            impressions=50,
+        )
+    ciclo_b = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform, status, started_at, finished_at)"
+        " VALUES ('live', 'amazon_us', 'done', %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=50)), _medianoche(hoy - dt.timedelta(days=50))),
+    ).fetchone()[0]
+    ep_b = conn.execute(
+        "INSERT INTO temporada_episodio (platform, abierto_el, abierto_en_ciclo,"
+        " config_version_id) VALUES ('amazon_us', %s, %s, %s) RETURNING id",
+        (_medianoche(hoy - dt.timedelta(days=50)), ciclo_b, config_id),
+    ).fetchone()[0]
+    dec_b = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs, old_value, new_value,"
+        " value_currency)"
+        " VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s,"
+        "  jsonb_build_object('motor', 'bid', 'motivo', 'entra_temporada_baja',"
+        "                     'temporada_episodio_id', %s::bigint),"
+        "  2.00, 1.40, 'USD') RETURNING id",
+        (
+            ciclo_b,
+            kw_b,
+            _medianoche(hoy - dt.timedelta(days=50)),
+            config_id,
+            _medianoche(hoy - dt.timedelta(days=50)),
+            hoy - dt.timedelta(days=140),
+            hoy - dt.timedelta(days=60),
+            ep_b,
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+        " verify_ok, applied_cycle_id) VALUES (%s, %s, '{}', true, %s)",
+        (dec_b, _medianoche(hoy - dt.timedelta(days=50)), ciclo_b),
+    )
+    conn.commit()
+
+    plat_a = temporada_io.TemporadaPlataforma(
+        estacion=est,
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(
+                id=ep_a, abierto_el=_medianoche(hoy - dt.timedelta(days=1))
+            ),
+            efectos_abiertos={},
+            excluidas={},
+            cerca_plataforma=None,
+        ),
+    )
+    econ_mx = EconomiaPlataforma(
+        moneda="MXN",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("350"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    lect_a = lee_plataforma(
+        conn, "amazon_mx", _medianoche(hoy), economia=econ_mx, temporada_plat=plat_a
+    )
+    assert lect_a._por_hoja.get(kw_a) is None, (
+        "hoja cercada con 0 filas post-cerca no debe caer a evidencia pre-cerca"
+    )
+
+    plat_b = temporada_io.TemporadaPlataforma(
+        estacion=est,
+        modo="live",
+        config=cfg,
+        meta_alta_pct=Decimal("25"),
+        estado=temporada_io.EstadoTemporada(
+            episodio=temporada.EpisodioVigente(
+                id=ep_b, abierto_el=_medianoche(hoy - dt.timedelta(days=50))
+            ),
+            efectos_abiertos={},
+            excluidas={},
+            cerca_plataforma=None,
+        ),
+    )
+    econ_us = EconomiaPlataforma(
+        moneda="USD",
+        equilibrio_acos_pct=Decimal("30"),
+        gasto_para_concluir=Decimal("36"),
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    lect_b = lee_plataforma(
+        conn, "amazon_us", _medianoche(hoy), economia=econ_us, temporada_plat=plat_b
+    )
+    ev_b = lect_b._por_hoja.get(kw_b)
+    assert ev_b is not None
+    assert ev_b.antiguo.clics is not None, (
+        "un hueco de ingesta en D-80 (pre-cerca) no debe envenenar antiguo tras cerca en D-49"
+    )

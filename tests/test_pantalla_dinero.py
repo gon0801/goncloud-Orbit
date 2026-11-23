@@ -78,6 +78,7 @@ def _lee(
     ubicaciones=(),
     settings_fila=(),
     campanas=(),
+    dias_gasto=None,
     gasto_diario=(),
     fuera=(),
     configs_hist=(),
@@ -93,6 +94,11 @@ def _lee(
         (1, fila[0]) if isinstance(fila, tuple) and len(fila) == 1 else fila
         for fila in settings_fila
     ]
+    dias_ingesta = (
+        [(d,) for d in sorted({fila[1] for fila in gasto_diario}, reverse=True)[:7]]
+        if dias_gasto is None
+        else list(dias_gasto)
+    )
     conn = _ConnFalsa(
         [
             list(grupos),
@@ -101,6 +107,7 @@ def _lee(
             settings_norm,
             list(ubicaciones),
             list(campanas),
+            dias_ingesta,
             list(gasto_diario),
             list(fuera),
             list(configs_hist),
