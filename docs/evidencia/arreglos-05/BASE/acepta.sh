@@ -2,6 +2,7 @@
 # Corre, en serie sobre el PG desechable, los comandos de Acepta de las filas
 # BASE.0 y BASE.3 y los controles TEMPORADA B/E/F, y registra la salida de cada uno.
 # Uso desde la raiz: bash docs/evidencia/arreglos-05/BASE/acepta.sh > acepta.txt
+# Con "ALL <destino-nuevo.xml>" corre el runner completo de ACEPTACION con las mismas guardas.
 # Sale 0 solo si todos los comandos marcados ACEPTA salen 0 sin omisiones. Los
 # marcados CONTROL se registran y no cuentan: hoy deben salir distinto de 0 y su
 # bloque los atiende.
@@ -66,6 +67,22 @@ TMPDIR=$(cygpath -m "$(mktemp -d)")
 trap 'rm -rf "$TMPDIR"' EXIT
 export TMPDIR
 comprobar=docs/evidencia/arreglos-05/comprobar.sh
+
+# Modo ALL: el runner completo de ACEPTACION con las mismas guardas. Llamarlo
+# directo corre en el shell del operador: comprobar.sh solo compara host, puerto
+# y base, no ve una PGHOSTADDR heredada y toma el python del PATH.
+#   bash docs/evidencia/arreglos-05/BASE/acepta.sh ALL <destino-nuevo.xml>
+if [[ ${1:-} == ALL ]]; then
+  if [[ $# != 2 || -z $2 || -e $2 ]]; then
+    echo "Uso: $0 ALL <destino-nuevo.xml>, con un archivo que aun no exista" >&2
+    exit 2
+  fi
+  python_proyecto=$(cygpath -m "$(uv run --frozen --python 3.12 python -c 'import sys; print(sys.executable)')")
+  echo "# ALL de ARREGLOS 05 sobre $(git rev-parse HEAD); PG* de destino quitadas: $pg_quitadas" >&2
+  ORBIT_ACCEPT_PYTHON="$python_proyecto" ORBIT_ACCEPTANCE_XML="$(cygpath -m "$2")" \
+    bash "$comprobar" ALL
+  exit $?
+fi
 fallos=0
 
 # Un skip, un error de fixture o cero casos no son aceptacion aunque pytest salga 0.

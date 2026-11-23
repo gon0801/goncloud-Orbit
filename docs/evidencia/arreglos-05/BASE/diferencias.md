@@ -30,7 +30,7 @@ Los originales estan en `revision/historico/` y coinciden con `manifest.json`: `
 
 ## Entorno de esta PC (Git Bash sobre Windows)
 
-1. **Variables MSYS del shell de sesion.** Trae `MSYS_NO_PATHCONV=1` y `MSYS2_ARG_CONV_EXCL=*`. Apagan la conversion de rutas y `comprobar.sh` le pasa a Python rutas `/c/...`: pytest sale con 4 y cero casos. Hay que quitarlas (`env -u MSYS_NO_PATHCONV -u MSYS2_ARG_CONV_EXCL`). `acepta.sh` lo hace solo.
+1. **Variables MSYS del shell de sesion.** Trae `MSYS_NO_PATHCONV=1` y `MSYS2_ARG_CONV_EXCL=*`. Apagan la conversion de rutas y `comprobar.sh` le pasa a Python rutas `/c/...`: pytest sale con 4 y cero casos. Hay que quitarlas (`env -u MSYS_NO_PATHCONV -u MSYS2_ARG_CONV_EXCL`). `acepta.sh` lo hace solo, tambien en su modo `ALL`.
 2. **Mayusculas de la carpeta.** Con `core.ignorecase=true`, `git add` con ruta `BASE/` registra `base/` y mezclaria esta evidencia con la foto de diseno. Los archivos se registran con `git hash-object -w` y `git update-index --add --cacheinfo`. Comprobacion: `git ls-files docs/evidencia/arreglos-05 | tr 'A-Z' 'a-z' | sort | uniq -d` no imprime nada.
 3. **Temporal de pytest compartido.** Varias sesiones usan `pytest-of-ehven`. Si otra esta corriendo, pytest se cae al cerrar por `pytest-current` y la salida es 1 aunque las pruebas pasen. `acepta.sh` usa un `TMPDIR` propio. Otra opcion es `--basetemp`.
 4. **`CI=1` exige `psql`.** `tests/test_despliegue_motor.py` aborta la recoleccion con `CI=1` si no esta `psql`, que esta PC no tiene. El comando de 01X solo recolecta `tests/test_config_write.py` y pasa. Los controles TEMPORADA no llevan `CI=1`.
@@ -40,7 +40,7 @@ Los originales estan en `revision/historico/` y coinciden con `manifest.json`: `
 
 ## Correcciones despues de la revision automatica del PR
 
-Las siete observaciones eran ciertas y tocaban solo a las herramientas de esta carpeta. Cinco salieron en la primera ronda y una en cada una de las dos siguientes.
+Las siete observaciones de Devin eran ciertas y tocaban solo a las herramientas de esta carpeta. Cinco salieron en la primera ronda y una en cada una de las dos siguientes. Astra, el revisor normal, anadio la ultima, sobre la entrada del runner completo.
 
 | Herramienta | Defecto | Correccion y prueba |
 |---|---|---|
@@ -51,6 +51,7 @@ Las siete observaciones eran ciertas y tocaban solo a las herramientas de esta c
 | `clasifica.py` | Solo miraba los casos presentes en la corrida nueva. Una corrida incompleta salia 0. | Compara los nombres de ambos XML y sale 1 si falta uno de la base. Con un caso retirado sale 1 y lo nombra; con un XML vacio reporta 31 ausentes. |
 | `previa.sql` | Atribuia el desenlace sin aplicar al ciclo ejecutor, igual que hace `registra_sin_aplicar`, mientras las aplicaciones se atribuyen al ciclo que decidio. | El `EXISTS` une `decision_sin_aplicar` con `decision` por `decision_id`. El bloque nuevo `desenlaces_con_ciclo_distinto` mide cuantos difieren. En una base desechable con un ejecutor distinto, la consulta vieja atribuye al ejecutor y la nueva al origen. En produccion los conteos por ciclo no cambian: las 193 filas llevan el ciclo de la decision. |
 | `acepta.sh`, entorno | Quitar todas las `PG*` tambien borraba `PGPASSWORD` y `PGPASSFILE`, que no cambian el destino y pueden ser la unica forma de autenticar. | Solo se quitan las ocho variables de destino, servicio y sesion. Con doce variables exportadas quedan `PGPASSWORD`, `PGPASSFILE`, `PGSSLMODE` y `PGUSER`. El rechazo de DSN no cambia. |
+| `README.md`, runner completo (Astra) | Reproducia `comprobar.sh ALL` a secas. Asi corre en el shell del operador, toma el `python` del PATH (3.11 en esta PC) y la guarda de `comprobar.sh` solo compara host, puerto y base: no ve una `PGHOSTADDR` heredada, con la que libpq conecta las pruebas a otra direccion. | Modo `acepta.sh ALL <destino-nuevo.xml>`, con las mismas guardas y el Python 3.12 del proyecto. Con `PGHOSTADDR=127.0.0.2` exportada, `comprobar.sh` a secas no logra conectar y el modo `ALL` corre completo contra el laboratorio (5 rojos y 26 verdes). |
 
 ## Notas que no son bloqueo
 
