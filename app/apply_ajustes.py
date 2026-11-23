@@ -191,6 +191,13 @@ SELECT id, antes_config_id, despues, regresa_a
  ORDER BY id
 """
 
+_SQL_AJUSTE_POSTERIOR_PENDIENTE = """
+SELECT id, antes_config_id, despues, regresa_a
+  FROM campana_ajuste
+ WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NULL
+ ORDER BY id
+"""
+
 
 def _toca_campo(
     conn, antes_id: int, despues: dict, campo: str, *, regresa_a: int | None = None
@@ -244,6 +251,29 @@ def _superada(
         sql, (campana_id, clase, ajuste_id)
     ).fetchall():
         if _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
+            return True
+    return False
+
+
+def _pendiente_posterior_con_otro_destino(
+    conn, ajuste_id: int, *, campana_id: int, clase: str, ajuste
+) -> bool:
+    """True si otra orden PENDIENTE posterior cambia el mismo campo hacia un
+    valor distinto. Esas ordenes mandan sobre `ajuste_id`: su PUT pudo llegar a
+    Amazon sin readback ni sync, asi que reenviar la vieja (o sellarla como
+    confirmada) pisaria su valor y atribuiria un efecto que no produjo. Las
+    posteriores hacia el MISMO valor son reintentos del mismo acto."""
+    campo = campo_del_ajuste(ajuste)
+    fila = conn.execute(_SQL_DESPUES_POR_ID, (ajuste_id,)).fetchone()
+    if fila is None:
+        return False
+    valor = getattr(ConfigCampana.desde_json(fila[0]), campo)
+    for _pid, antes_id, despues, regresa_a in conn.execute(
+        _SQL_AJUSTE_POSTERIOR_PENDIENTE, (campana_id, clase, ajuste_id)
+    ).fetchall():
+        if not _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
+            continue
+        if getattr(ConfigCampana.desde_json(despues), campo) != valor:
             return True
     return False
 
@@ -457,6 +487,16 @@ def aplica_ajuste_campana(
             incluir_pendientes=True,
         ):
             ajuste_id = _eid
+        elif _pendiente_posterior_con_otro_destino(
+            conn, _eid, campana_id=plan.campana_id, clase=plan.clase, ajuste=plan.ajuste
+        ):
+            # El sufijo nace DESPUES de la orden que invalido esta aprobacion:
+            # _aplica_y_confirma solo mira ids mayores y ya no la veria. Si esa
+            # orden pendiente llego a Amazon, reenviar esta la pisa con un valor
+            # viejo. Se rechaza y se pide recargar la vista previa.
+            raise AjusteEnCurso(
+                "Ya mandaste otra orden pendiente para esta campaña. Recarga la vista previa."
+            )
         else:
             n = 1 + conn.execute(_SQL_CUENTA_HUELLA, (huella, huella + "#%")).fetchone()[0]
             huella_efectiva = f"{huella}#{n}"
@@ -534,12 +574,18 @@ def reconcilia_ajuste_campana(
         p
         for p in _pendientes_hn(conn, huella, campana_id, clase)
         if not _superada(conn, p[0], campana_id=campana_id, clase=clase, ajuste=ajuste)
+        and not _pendiente_posterior_con_otro_destino(
+            conn, p[0], campana_id=campana_id, clase=clase, ajuste=ajuste
+        )
     ]
     sellada = _sella_pendientes_en_destino(conn, pendientes, ajuste, vigente)
     if sellada is not None:
         return AjusteHecho(sellada, campana_id, clase, True)
-    superada = (not confirmada) and _superada(
-        conn, _eid, campana_id=campana_id, clase=clase, ajuste=ajuste
+    superada = (not confirmada) and (
+        _superada(conn, _eid, campana_id=campana_id, clase=clase, ajuste=ajuste)
+        or _pendiente_posterior_con_otro_destino(
+            conn, _eid, campana_id=campana_id, clase=clase, ajuste=ajuste
+        )
     )
     equivalente = (
         _confirmada_equivalente(

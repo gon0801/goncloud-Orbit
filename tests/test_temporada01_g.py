@@ -454,6 +454,122 @@ def test_temporada01_g_reaprobacion_tras_regreso_no_hereda_orden_vieja(monkeypat
         assert confirmadas == 1, "un solo acto confirmado por el cambio"
 
 
+def _pendiente_presupuesto(conn, camp: int, cfg: int, plan, huella: str | None = None) -> int:
+    """Fila pendiente de presupuesto para las secuencias de review de Ola 2."""
+    import json
+
+    return conn.execute(
+        "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+        " despues, huella, actor, go_literal, regresa_a)"
+        " VALUES (%s, 'amazon_mx', 'presupuesto', %s, %s, %s, 'dueno',"
+        " 'APLICAR AJUSTE', NULL) RETURNING id",
+        (camp, cfg, json.dumps(plan.despues.como_json()), huella or plan.huella()),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_ola2_reaprobar_orden_superada_por_pendiente_no_pisa(monkeypatch):
+    """Review PR #739 (Kimi #1): con A=250 y B=200 pendientes, reenviar A no
+    abre un sufijo despues de B: ese id quedaria fuera de la mirada de
+    _aplica_y_confirma y el PUT viejo pisaria el 200 remoto. Responde 409 sin
+    PUT y deja ambas pendientes."""
+    import httpx
+    import pytest
+    from test_aplica_ajuste import (
+        EXTERNA,
+        _creds_fake,
+        _db,
+        _handler_campanas,
+        _plan,
+        _siembra,
+    )
+
+    from app import apply_ajustes
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_ola2_suf") as conn:
+        camp, cfg = _siembra(conn)
+        remoto = {EXTERNA: {"budget": {"budget": 100.0, "budgetType": "DAILY"}}}
+        handler, vistos = _handler_campanas(remoto)
+        _creds_fake(monkeypatch)
+        plan_a = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("250")))
+        plan_b = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("200")))
+        a_id = _pendiente_presupuesto(conn, camp, cfg, plan_a)
+        b_id = _pendiente_presupuesto(conn, camp, cfg, plan_b)
+        conn.commit()
+
+        with pytest.raises(apply_ajustes.AjusteEnCurso, match="otra orden pendiente"):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan_a,
+                huella=plan_a.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+
+        assert [r for r in vistos if r.method == "PUT"] == [], "no envia el valor viejo"
+        pendientes = conn.execute(
+            "SELECT id FROM campana_ajuste WHERE confirmado_el IS NULL ORDER BY id"
+        ).fetchall()
+        assert [f[0] for f in pendientes] == [a_id, b_id], "ambas siguen pendientes"
+        sufijos = conn.execute(
+            "SELECT count(*) FROM campana_ajuste WHERE huella LIKE %s",
+            (plan_a.huella() + "#%",),
+        ).fetchone()[0]
+        assert sufijos == 0, "no nace un sufijo despues de la orden que invalido la aprobacion"
+
+
+@_skip_db
+def test_ola2_reconciliacion_sella_solo_el_acto_vigente():
+    """Review PR #739 (Kimi #2): con A=250, B=200, A#2=250, C=220 y A#3=250
+    pendientes, si el sync observa 250 solo se sella A#3. A#2 fue reemplazado
+    por C y nunca produjo ese valor; sellarlo seria confirmar un acto ajeno."""
+    from dataclasses import replace
+
+    from test_aplica_ajuste import _db, _plan, _siembra, _vigente_config
+
+    from app import apply_ajustes
+    from app.ads.campana_config import config_vigente, guarda_config
+    from app.campana_ajustes import CambiarPresupuesto
+
+    with _db("orbit_t01_ola2_rec") as conn:
+        camp, cfg = _siembra(conn)
+        plan_a = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("250")))
+        plan_b = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("200")))
+        plan_c = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("220")))
+        base = plan_a.huella()
+        _pendiente_presupuesto(conn, camp, cfg, plan_a)
+        _pendiente_presupuesto(conn, camp, cfg, plan_b)
+        _pendiente_presupuesto(conn, camp, cfg, plan_a, huella=base + "#2")
+        _pendiente_presupuesto(conn, camp, cfg, plan_c)
+        a3 = _pendiente_presupuesto(conn, camp, cfg, plan_a, huella=base + "#3")
+        guarda_config(
+            conn,
+            "amazon_mx",
+            [replace(_vigente_config(), presupuesto_diario=Decimal("250"))],
+            dt.datetime.now(dt.UTC),
+        )
+        conn.commit()
+
+        hecho = apply_ajustes.reconcilia_ajuste_campana(
+            conn,
+            camp,
+            "presupuesto",
+            CambiarPresupuesto(presupuesto_diario=Decimal("250")),
+            huella=base,
+            actor="dueno",
+        )
+
+        assert hecho.ajuste_id == a3
+        assert hecho.confirmada is True
+        confirmadas = conn.execute(
+            "SELECT id FROM campana_ajuste WHERE confirmado_el IS NOT NULL ORDER BY id"
+        ).fetchall()
+        assert [f[0] for f in confirmadas] == [a3], "solo el acto vigente se sella"
+        assert config_vigente(conn, camp).presupuesto_diario == Decimal("250")
+
+
 @_skip_db
 def test_temporada01_g_reversion_de_otra_ubicacion_no_supera():
     """Una reversion de resto no invalida una orden de top: la reversion
@@ -1017,10 +1133,10 @@ def test_aplica_y_confirma_relee_vigente_bajo_candado_y_aborta_si_cambio():
 
 @_skip_db
 def test_reaprobacion_tras_dos_pendientes_fallidas_crea_acto_nuevo_y_aplica(monkeypatch):
-    """Review PR #739 (Devin): con 300 vigentes, si 250 falla (pendiente) y luego
-    200 tambien falla (pendiente), reaprobar 250 via aplica_ajuste_campana debe
-    abrir un acto nuevo con sufijo y aplicarlo sin quedar atascado en 409; si ese
-    acto nuevo falla y se reintenta sin otra orden posterior, se reutiliza."""
+    """Review PR #739 (Devin y Kimi #1): con 300 vigentes, si 250 falla
+    (pendiente) y luego 200 tambien falla (pendiente), reaprobar 250 responde
+    409: el acto nuevo naceria despues de 200 y no veria esa orden. El retry de
+    la orden vigente (200) si reutiliza su pendiente y confirma sin otra fila."""
     import httpx
     import pytest
     from test_aplica_ajuste import (
@@ -1090,11 +1206,12 @@ def test_reaprobacion_tras_dos_pendientes_fallidas_crea_acto_nuevo_y_aplica(monk
         ).fetchone()[0]
         assert id1 < id2
 
-        # 3) Reaprobar 250 aun fallando abre H250#2 (id3 > id2) y un reintento
-        # inmediato sin orden nueva reutiliza id3 en vez de abrir H250#3.
+        # 3) Reaprobar 250 con la orden de 200 pendiente responde 409: el acto
+        # nuevo naceria despues de 200 y no veria esa orden, que pudo llegar a
+        # Amazon sin readback ni sync. No nace sufijo y no hay PUT.
         plan_250_b = _plan(conn, camp, CambiarPresupuesto(presupuesto_diario=Decimal("250")))
         assert plan_250_b.huella() == plan_250.huella()
-        with pytest.raises(apply_ajustes.AjusteNoConfirmado):
+        with pytest.raises(apply_ajustes.AjusteEnCurso, match="otra orden pendiente"):
             apply_ajustes.aplica_ajuste_campana(
                 conn,
                 plan_250_b,
@@ -1103,38 +1220,34 @@ def test_reaprobacion_tras_dos_pendientes_fallidas_crea_acto_nuevo_y_aplica(monk
                 actor="dueno",
                 transport=transport,
             )
-        id3 = conn.execute(
-            "SELECT id FROM campana_ajuste WHERE huella LIKE %s ORDER BY id DESC LIMIT 1",
-            (plan_250.huella() + "#%",),
-        ).fetchone()[0]
-        assert id3 > id2
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM campana_ajuste WHERE huella LIKE %s",
+                (plan_250.huella() + "#%",),
+            ).fetchone()[0]
+            == 0
+        ), "no nace un sufijo mientras 200 siga pendiente"
 
-        # 4) Amazon ya acepta el cambio: reaprobar 250 reutiliza id3 y confirma 250 MXN.
+        # 4) Retry de la orden vigente (200, sin orden posterior distinta):
+        # reutiliza id2 y confirma 200 MXN.
         falla_readback["activo"] = False
         hecho = apply_ajustes.aplica_ajuste_campana(
             conn,
-            plan_250_b,
-            huella=plan_250_b.huella(),
+            plan_200,
+            huella=plan_200.huella(),
             confirmacion="APLICAR AJUSTE",
             actor="dueno",
             transport=transport,
         )
         assert hecho.confirmada is True
-        assert hecho.ajuste_id == id3, "reutiliza el acto H#2 vigente y no crea H#3 huerfano"
-        assert config_vigente(conn, camp).presupuesto_diario == Decimal("250")
+        assert hecho.ajuste_id == id2, "reutiliza la pendiente vigente"
+        assert config_vigente(conn, camp).presupuesto_diario == Decimal("200")
         assert (
             conn.execute(
                 "SELECT confirmado_el FROM campana_ajuste WHERE id = %s", (id1,)
             ).fetchone()[0]
             is None
         ), "la orden vieja superada queda sin confirmar"
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM campana_ajuste WHERE huella LIKE %s",
-                (plan_250.huella() + "#%",),
-            ).fetchone()[0]
-            == 1
-        ), "un solo acto sufijado H#2"
 
 
 @_skip_db
