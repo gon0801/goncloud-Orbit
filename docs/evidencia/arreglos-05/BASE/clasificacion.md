@@ -12,11 +12,13 @@ Bloque `BASE` de `plans/arreglos-05.md`, fila `BASE.1`.
 ## Corrida completa
 
 ```bash
-ORBIT_ACCEPTANCE_XML=<destino nuevo> uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh ALL
+bash docs/evidencia/arreglos-05/BASE/acepta.sh ALL resultados.xml > resultados.log 2>&1
 ```
 
-- SHA: `2639ff8f`, con `app/`, `tools/`, `migrations/`, `tests/` y `revision/` sin cambios locales respecto de ese commit.
-- Fecha: 2026-11-23, de 05:57 a 05:59 UTC. Duracion 120 s.
+La entrada aplica las guardas de la aceptacion y pasa a `comprobar.sh` el Python 3.12 del proyecto; llamando a `comprobar.sh ALL` a secas esas guardas no corren.
+
+- SHA: `5554d0a3`, con el arbol limpio. El codigo ejecutable es el mismo que en `2639ff8f`.
+- Fecha: 2026-11-23, de 07:15 a 07:17 UTC. Duracion 118 s.
 - Resultado: 31 casos, 5 fallan, 26 pasan, 0 errores, 0 omisiones. Salida 1 por los cinco rojos de producto.
 - Archivos: [resultados.xml](resultados.xml) y [resultados.log](resultados.log).
 
@@ -91,6 +93,7 @@ Ningun caso esta fuera de lo exigido ni ausente. Los cerrados por 03 y 04 y los 
 | 3 | 1 | 7 rojos y 24 verdes. Tres eran de fixture: TN07 en sus dos variantes y TN11. Los otros cuatro, de producto. |
 | 4 a 6 | 1 | Comprobaciones sueltas de cada porte con `T pricing test_07` y `T writes test_11`, hasta que TN07 paso y TN11 fallo por su asercion. |
 | 7 | 1 | 5 rojos y 26 verdes, con los tres fixtures portados. |
-| Definitiva | 1 | 5 rojos y 26 verdes sobre `2639ff8f`. Es la guardada. |
+| 8 | 1 | 5 rojos y 26 verdes sobre `2639ff8f`, con el lanzador directo. |
+| Definitiva | 1 | La misma cuenta sobre `5554d0a3`, por `acepta.sh ALL`. Es la guardada. |
 
 Los portes estan descritos en [diferencias.md](diferencias.md). Ninguna asercion cambio.
