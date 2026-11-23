@@ -1643,6 +1643,132 @@ def test_arreglos05_a_reactivacion_pendiente_de_lectura_no_cierra_el_origen(monk
 
 
 @_skip_db
+def test_arreglos05_a_barrido_pausa_de_producto_403_detiene_el_corte_siguiente(monkeypatch):
+    """Revision de Astra del PR #746 (tercera pasada), a nivel de barrido: una
+    pausa de producto cuyo LIST previo recibe 403, seguida de otro corte
+    elegible (la pausa de keyword que el ciclo anterior encolo). El rechazo es
+    de toda la corrida: no sale la mutacion del corte siguiente y la fase
+    aborta. La pausa de producto queda pendiente."""
+    from psycopg.types.json import Json
+    from test_apply_cola import _entidad
+    from test_cycle import _config_version
+
+    from app import apply_cola, apply_producto
+    from app import retiro_anuncios as ra
+    from app.ads.client import AdsApiError
+
+    with _db("orbit_a05_barrido_producto") as (conn, _extra):
+        ids = _semilla_live(conn)
+        # La pausa de producto exige su modo en live; el resto de la config, igual.
+        vigente = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        ids["config_id"] = _config_version(
+            conn, {**vigente, "ads_producto_pausa_amazon_us": "live"}
+        )
+
+        # El ciclo anterior encola la pausa de keyword: es el corte elegible.
+        anterior = _Amazon(**REMOTO_INICIAL, rechaza_bids=True)
+        res0 = _corre(
+            conn, factory=_directa(anterior), ahora=DECIDED_AT - 26 * dt.timedelta(hours=1)
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_queue q JOIN decision d ON d.id = q.decision_id"
+                " WHERE d.cycle_id = %s AND q.kind = 'pause'",
+                (res0.cycle_id,),
+            ).fetchone()[0]
+            == 1
+        ), "el ciclo anterior encolo la pausa de keyword"
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(), vetoed_by = 'test',"
+            " vence_el = now() + interval '30 days' WHERE kind <> 'pause'"
+        )
+
+        # La pausa de producto entra despues pero es mas antigua: el barrido la
+        # toma primero.
+        producto = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('SKU-A8', 'SKU-A8') RETURNING id"
+        ).fetchone()[0]
+        listing = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_us', 'ASIN-A8', 'SS-A8') RETURNING id",
+            (producto,),
+        ).fetchone()[0]
+        anuncio = _entidad(conn, "product_ad", "pa-0", parent=ids["ag"])
+        conn.execute("UPDATE ad_entity SET listing_id = %s WHERE id = %s", (listing, anuncio))
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', now())",
+            (anuncio,),
+        )
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec_producto = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'pause', %s, %s, %s, %s, '{}'::jsonb) RETURNING id",
+            (
+                ciclo,
+                anuncio,
+                ids["config_id"],
+                DECIDED_AT - 5 * DIA,
+                (DECIDED_AT - 65 * DIA).date(),
+                (DECIDED_AT - 36 * DIA).date(),
+            ),
+        ).fetchone()[0]
+        fila_producto = conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id, modo, estado,"
+            " vence_el, encolado_at, request_payload)"
+            " VALUES ('amazon_us', %s, 'pause', %s, 'live', 'pending_veto', %s, %s, %s)"
+            " RETURNING id",
+            (
+                anuncio,
+                dec_producto,
+                DECIDED_AT - dt.timedelta(hours=2),
+                DECIDED_AT - 5 * DIA,
+                Json({"adId": "pa-0"}),
+            ),
+        ).fetchone()[0]
+
+        def retiro_rechazado(*_args, **_kwargs):
+            error = AdsApiError("status=403: POST /sp/productAds/list")
+            error.status = 403
+            raise error
+
+        # Lo que la pausa de producto necesita del mundo de producto se sustituye;
+        # el barrido, la fila y `ejecuta_pause_producto` son los reales.
+        monkeypatch.setattr(apply_producto, "revalida_pause_producto", lambda *_a, **_k: None)
+        monkeypatch.setattr(ra, "plan_de_decision", lambda *_a, **_k: object())
+        monkeypatch.setattr(ra, "ejecuta_retiro", retiro_rechazado)
+        amazon = _Amazon(**REMOTO_INICIAL)
+        aplicador = _directa(amazon)(
+            conn,
+            platform="amazon_us",
+            cycle_id_ejecutor=res0.cycle_id,
+            owner=OWNER,
+            job_key=JOB_KEY,
+            tick=lambda: None,
+        )
+        with pytest.raises(AdsApiError, match="status=403"):
+            apply_cola.libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=DECIDED_AT + DIA,
+                aplicador=aplicador,
+                cycle_id=res0.cycle_id,
+            )
+        assert amazon.puts_estado == [], "no sale la mutacion del corte siguiente"
+        assert (
+            conn.execute(
+                "SELECT estado FROM apply_queue WHERE id = %s", (fila_producto,)
+            ).fetchone()[0]
+            == "applying"
+        ), "la pausa de producto queda pendiente"
+
+
+@_skip_db
 def test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno(monkeypatch):
     """Revision de Astra del PR #746: el TTL vence con la TX3 del anterior
     todavia abierta. El sucesor toma el claim y consulta el plan: su SELECT no
@@ -2113,6 +2239,8 @@ def test_arreglos05_a_la_reversa_de_cosecha_propaga_el_rechazo_de_identidad(monk
     intento y devolvia (None, None), y `_reversa_automatica` convertia el fallo
     en texto: el trabajo volvia sin excepcion y el ciclo seguia enviando
     mutaciones. El sello del DELETE se conserva y el rechazo sube."""
+    from types import SimpleNamespace
+
     from app import apply_harvest_reversa
     from app.ads.write import AdsApiErrorMutacion
 
@@ -2145,3 +2273,37 @@ def test_arreglos05_a_la_reversa_de_cosecha_propaga_el_rechazo_de_identidad(monk
             .fetchone()[0]
             .startswith("fallo http 403")
         ), "el sello del DELETE se conserva"
+
+        # La capa de arriba (_reversa_automatica) deja de convertirlo en texto.
+        def rechaza(status: int, *_args, **_kwargs):
+            raise AdsApiErrorMutacion(
+                f"status={status}: POST /sp/negativeKeywords/delete",
+                cuerpo="{}",
+                status=status,
+                method="POST",
+                path="/sp/negativeKeywords/delete",
+            )
+
+        job = SimpleNamespace(
+            external_ids={"negative_id": "n-1", "negative_creada": True},
+            search_term="x",
+            decision_id=decision,
+        )
+        contexto = SimpleNamespace(destino_grupo="g")
+        aplicador = SimpleNamespace(_cliente=lambda: object())
+        argumentos = {"lista_completa_fn": lambda *_a: [], "reversa_delete_fn": rechaza}
+        with pytest.raises(AdsApiErrorMutacion, match="status=403"):
+            apply_harvest_reversa._reversa_automatica(
+                conn,
+                aplicador,
+                job,
+                contexto,
+                **{**argumentos, "reversa_delete_fn": lambda *a: rechaza(403, *a)},
+            )
+        assert apply_harvest_reversa._reversa_automatica(
+            conn,
+            aplicador,
+            job,
+            contexto,
+            **{**argumentos, "reversa_delete_fn": lambda *a: rechaza(400, *a)},
+        ).startswith("reversa: fallo"), "un 400 sigue siendo texto"
