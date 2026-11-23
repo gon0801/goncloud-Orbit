@@ -192,24 +192,24 @@ def propuesta_presupuesto(
         and config.aumento_presupuesto_alta > 0
     ):
         base_alto, cambios_alto = _base_y_cambios(transiciones, inicio_bloque_alto)
-        if antes is not None:
-            # Con una baja previa, restaurar al presupuesto `antes` no cuenta
-            # como aumento de temporada alta; solo un monto > `antes`.
-            ya_subio = any(m is not None and m > antes for _d, m in cambios_alto)
-        else:
-            # Sin baja previa, cualquier subida real entre observaciones
-            # consecutivas desde `inicio_bloque_alto` cuenta como aumento ya
-            # aplicado (aunque haya bajado manualmente antes y no supere
-            # `base_alto`).
-            previo = base_alto
-            ya_subio = False
-            for _d, m in cambios_alto:
-                if m is None:
-                    continue
-                if previo is not None and m > previo:
-                    ya_subio = True
-                    break
-                previo = m
+        bajo_episodio = (
+            _q(antes * (Decimal(1) - config.reduccion_baja))
+            if episodio is not None
+            and episodio.cerrado_el is not None
+            and antes is not None
+            and antes > 0
+            else None
+        )
+        previo = base_alto
+        ya_subio = False
+        for _d, m in cambios_alto:
+            if m is None:
+                continue
+            es_restauracion = bajo_episodio is not None and previo == bajo_episodio and m == antes
+            if previo is not None and m > previo and not es_restauracion:
+                ya_subio = True
+                break
+            previo = m
         if not ya_subio:
             objetivo = _q(hoy_vigente * (Decimal(1) + config.aumento_presupuesto_alta))
             propuesto = min(objetivo, techo_humano)

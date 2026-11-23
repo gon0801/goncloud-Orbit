@@ -616,3 +616,62 @@ def test_temporada01_propuesta_alta_no_repite_aumento_tras_bajada_manual():
         )
         is None
     )
+
+
+def test_propuesta_presupuesto_no_repite_subida_bajo_antes_ni_suprime_recorte_en_previa():
+    """Hallazgo #3: con episodio de baja cerrado, subir 140 -> 175 (< antes=200)
+    ya cuenta como aumento del bloque alto (no propone 218.75), restaurar
+    exactamente 140 -> 200 no bloquea el +25 % (propone 250.00), y bajar
+    400 -> 350 en previa con antes=300 no suprime la propuesta (437.50)."""
+    # 1) Baja cerrada 200 -> 140, luego aplico +25 % a 175 en previa: no repite.
+    assert (
+        _propuesta(
+            hoy=dt.date(2027, 3, 10),
+            episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+            historial=(
+                (dt.date(2026, 12, 1), Decimal("200")),
+                (dt.date(2027, 1, 5), Decimal("140")),
+                (dt.date(2027, 2, 10), Decimal("175")),
+            ),
+            inicio_bloque_alto=dt.date(2027, 2, 8),
+            dias_topados_7d=5,
+        )
+        is None
+    )
+
+    # 2) Baja cerrada 200 -> 140, restauracion exacta 140 -> 200 en previa: propone 250.00.
+    restaurada = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+        historial=(
+            (dt.date(2026, 12, 1), Decimal("200")),
+            (dt.date(2027, 1, 5), Decimal("140")),
+            (dt.date(2027, 2, 10), Decimal("200")),
+        ),
+        inicio_bloque_alto=dt.date(2027, 2, 8),
+        dias_topados_7d=5,
+    )
+    assert restaurada is not None
+    assert (restaurada.propuesto, restaurada.motivo) == (
+        Decimal("250.00"),
+        "alta_sin_presupuesto",
+    )
+
+    # 3) Baja cerrada antes=300, subio a 400 antes de previa y bajo a 350 en previa: propone 437.50.
+    recortada = _propuesta(
+        hoy=dt.date(2027, 3, 10),
+        episodio=_episodio(abierto=dt.date(2027, 1, 1), cerrado=dt.date(2027, 2, 1)),
+        historial=(
+            (dt.date(2026, 12, 1), Decimal("300")),
+            (dt.date(2027, 1, 5), Decimal("210")),
+            (dt.date(2027, 2, 2), Decimal("400")),
+            (dt.date(2027, 2, 10), Decimal("350")),
+        ),
+        inicio_bloque_alto=dt.date(2027, 2, 8),
+        dias_topados_7d=5,
+    )
+    assert recortada is not None
+    assert (recortada.propuesto, recortada.motivo) == (
+        Decimal("437.50"),
+        "alta_sin_presupuesto",
+    )

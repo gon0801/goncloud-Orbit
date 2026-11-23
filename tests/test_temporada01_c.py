@@ -1084,3 +1084,53 @@ def test_temporada01_en_terreno_del_dueno_con_episodio_abierto_en_normal():
         recuperacion.destino_recuperacion(caso, a_subida=Decimal("6"), arg_subida=Decimal("1.5"))
         is None
     )
+
+
+def test_techo_conocido_sin_recuperacion_respeta_mano_del_dueno():
+    """Hallazgo #4: con caso.recuperacion=None, techo_conocido debe respetar
+    cad.manos_del_dueno para no doblar el techo_de_baja."""
+    ts_entrada = dt.datetime(2027, 1, 4, 12, 0, tzinfo=dt.UTC)
+    cadena = HistoriaBid(
+        desde=dt.date(2026, 7, 1),
+        cambios=(
+            CambioFechado(
+                confirmado_el=dt.datetime(2026, 9, 1, 12, 0, tzinfo=dt.UTC),
+                decision_id=1,
+                bid_antes=Decimal("20.00"),
+                bid_despues=Decimal("15.00"),
+                origen="motor",
+                motivo_temporada=None,
+                episodio_id=None,
+                motivo="pierde_dinero_fuerte",
+            ),
+            CambioFechado(
+                confirmado_el=ts_entrada,
+                decision_id=2,
+                bid_antes=Decimal("10.00"),
+                bid_despues=Decimal("7.00"),
+                origen="temporada",
+                motivo_temporada="entra",
+                episodio_id=1,
+            ),
+        ),
+        manos_externas=(
+            ManoExterna(
+                instante=dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC),
+                bid_visto=Decimal("10.00"),
+                origen="exclusion",
+            ),
+        ),
+    )
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("7.00"), "MXN", PISO_MX, TECHO_MX),
+        propia=_nivel_caso_b(),
+        trayectoria=trayectoria(
+            [cambio(dt.date(2027, 1, 4), "10.00", "7.00", "temporada")],
+            efecto(dias_post=10, clics_post=25, gasto_post="47.50", vendia=False),
+        ),
+        historia=cadena,
+        recuperacion=None,
+        temporada=_temporada_caso_baja(),
+    )
+    assert recuperacion.techo_conocido(caso, hasta=ts_entrada) == Decimal("10.00")
+    assert temporada.techo_de_baja(caso) == Decimal("7.00")

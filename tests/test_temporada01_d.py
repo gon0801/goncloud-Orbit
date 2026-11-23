@@ -1649,3 +1649,89 @@ def test_proteccion_activa_respeta_exceso_minimo_de_baja():
     )
     assert activa is True
     assert len(contadores.protecciones) == 1
+
+
+def test_r16b_en_temporada_alta_usa_meta_alta_de_caso_j():
+    """Hallazgo #8: en temporada alta, R16b en _freno_trayectoria debe juzgar
+    con la meta_alta de caso_j (25 %) y no con la meta base de caso (20 %)."""
+    from app.optimizer.caso import (
+        VERSION_ECONOMIA_CAMBIO_V2,
+        EpisodioEconomico,
+        PrecioVentana,
+        Trayectoria,
+        VentanaEconomica,
+    )
+
+    evidencia = nivel(
+        tramo(clics=50, pedidos=10, venta="10000", gasto="100", impresiones=500),
+        tramo(clics=50, pedidos=10, venta="10000", gasto="100", impresiones=500),
+    )
+    fecha_cambio = dt.date(2027, 2, 15)
+    ep_eco = EpisodioEconomico(
+        version=VERSION_ECONOMIA_CAMBIO_V2,
+        fecha_cambio=fecha_cambio,
+        moneda="MXN",
+        pre=VentanaEconomica(
+            desde=fecha_cambio - dt.timedelta(days=7),
+            hasta=fecha_cambio - dt.timedelta(days=1),
+            gasto=Decimal("150"),
+            venta=Decimal("1000"),
+            venta_mismo_sku=Decimal("1000"),
+            pedidos=2,
+            clics=25,
+        ),
+        post=VentanaEconomica(
+            desde=fecha_cambio + dt.timedelta(days=1),
+            hasta=fecha_cambio + dt.timedelta(days=7),
+            gasto=Decimal("330"),
+            venta=Decimal("1500"),
+            venta_mismo_sku=Decimal("1500"),
+            pedidos=3,
+            clics=30,
+        ),
+        estado="maduro",
+        motivo=None,
+        aplicable=True,
+        motivo_aplicabilidad=None,
+        margen_pct=None,
+        contribucion_pre=None,
+        contribucion_post=None,
+    )
+    caso = fabrica_caso(
+        bid=BidVigente(Decimal("4.60"), "MXN", PISO_MX, TECHO_MX),
+        economia=Economia(
+            plataforma=EconomiaPlataforma(
+                moneda="MXN",
+                equilibrio_acos_pct=Decimal("40"),
+                gasto_para_concluir=Decimal("350"),
+                confianza_recorte=Decimal("0.80"),
+                confianza_subida=Decimal("0.70"),
+            ),
+            target_acos_pct=Decimal("20"),
+        ),
+        propia=evidencia,
+        grupo=evidencia,
+        cuenta=evidencia,
+        precio=PrecioVentana(Decimal("200"), 100),
+        trayectoria=Trayectoria(
+            cambios=(cambio(fecha_cambio, "4.00", "4.60", "motor"),),
+            efecto=efecto(
+                dias_post=10,
+                pre_impr=1000,
+                pre_clics=30,
+                post_impr=1500,
+                dias_trafico=7,
+                clics_post=25,
+                gasto_post="50",
+                clics_pre=30,
+                gasto_pre="54",
+                vendia=True,
+            ),
+            episodio=ep_eco,
+        ),
+        historia=HistoriaBid(desde=dt.date(2026, 9, 1), cambios=()),
+        temporada=_marcador("alta"),
+    )
+    veredicto = politica.decide(caso)
+    assert isinstance(veredicto, politica.Mover), veredicto
+    assert veredicto.factor > 0, veredicto
