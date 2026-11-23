@@ -147,14 +147,20 @@ def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Ev
                     )
                 )
             if bloque.inicio < bloque.restaura and desde <= bloque.restaura < hasta:
-                frase = FRASE_RESTAURA_PREPARA if bloque.restaura in dias_prep else FRASE_RESTAURA
-                sueltos.append(Evento(bloque.restaura, "restaura", frase))
+                inicia_prep = bloque.restaura in dias_prep
+                frase = FRASE_RESTAURA_PREPARA if inicia_prep else FRASE_RESTAURA
+                sueltos.append(
+                    Evento(bloque.restaura, "restaura", frase, inicia_preparacion=inicia_prep)
+                )
         elif bloque.tipo == "alta":
             if desde <= bloque.inicio < hasta:
                 sueltos.append(Evento(bloque.inicio, "entra_alta", FRASE_ENTRA_ALTA))
             if desde <= bloque.fin < hasta:
-                frase = FRASE_SALE_ALTA_PREPARA if bloque.fin in dias_prep else FRASE_SALE_ALTA
-                sueltos.append(Evento(bloque.fin, "sale_alta", frase))
+                inicia_prep = bloque.fin in dias_prep
+                frase = FRASE_SALE_ALTA_PREPARA if inicia_prep else FRASE_SALE_ALTA
+                sueltos.append(
+                    Evento(bloque.fin, "sale_alta", frase, inicia_preparacion=inicia_prep)
+                )
             dia_prep = dia_prep_por_inicio[bloque.inicio]
             if (
                 dia_prep is not None
@@ -162,7 +168,9 @@ def eventos(config: ConfigTemporada, desde: dt.date, hasta: dt.date) -> tuple[Ev
                 and dia_prep not in sale_alta_en
                 and desde <= dia_prep < hasta
             ):
-                sueltos.append(Evento(dia_prep, "prepara_alta", FRASE_PREPARA_ALTA))
+                sueltos.append(
+                    Evento(dia_prep, "prepara_alta", FRASE_PREPARA_ALTA, inicia_preparacion=True)
+                )
     return tuple(sorted(sueltos, key=lambda e: (e.fecha, e.tipo)))
 
 
@@ -355,7 +363,11 @@ def mensaje_guardado(resumen_temporada: ResumenTemporada) -> str:
         frase = primero.frase[0].lower() + primero.frase[1:]
         partes.append(f"Próximo cambio: el {fecha_larga(primero.fecha)} {frase}")
         prepara = next(
-            (e for e in resumen_temporada.proximos[1:] if e.tipo in ("restaura", "prepara_alta")),
+            (
+                e
+                for e in resumen_temporada.proximos[1:]
+                if e.tipo in ("restaura", "prepara_alta") or e.inicia_preparacion
+            ),
             None,
         )
         if prepara is not None:

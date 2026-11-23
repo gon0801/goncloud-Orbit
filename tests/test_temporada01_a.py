@@ -917,6 +917,46 @@ def test_resumen_y_mensaje_guardado_no_mienten_en_cruce_sale_alta_prepara():
     assert "preparación de la temporada alta" in res_feb1.frase_hoy
 
 
+def test_mensaje_guardado_reconoce_sale_alta_combinado_como_proxima_preparacion():
+    """Si el primer cambio es anterior al cruce sale_alta+prepara_alta,
+    mensaje_guardado reconoce la marca de preparacion del evento combinado
+    (1 de enero) en lugar de saltarlo hasta una preparacion posterior (30 de
+    abril), sin confundir un sale_alta normal como preparacion."""
+    # Diciembre (11), febrero (1) y junio (5) en alta; 32 dias de preparacion.
+    meses = ["normal"] * 12
+    meses[11] = "alta"
+    meses[1] = "alta"
+    meses[5] = "alta"
+    cfg = temporada.valida(_crudo(meses=meses, prep=32))
+    metas_hoy = {"amazon_mx": Decimal("20")}
+    meta_alta = {"amazon_mx": Decimal("25")}
+
+    res_nov = temporada.resumen(
+        cfg, dt.date(2026, 11, 23), antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta
+    )
+    assert res_nov.proximos[0].fecha == dt.date(2026, 12, 1)
+    assert res_nov.proximos[0].tipo == "entra_alta"
+    assert res_nov.proximos[1].fecha == dt.date(2027, 1, 1)
+    assert res_nov.proximos[1].tipo == "sale_alta"
+    assert res_nov.proximos[1].inicia_preparacion is True
+    msg_nov = temporada.mensaje_guardado(res_nov)
+    assert "La próxima preparación empieza el 1 de enero." in msg_nov
+    assert "30 de abril" not in msg_nov
+
+    # Control positivo: un sale_alta normal (1 de marzo, sin preparacion) no se
+    # toma como preparacion y se anuncia el 30 de abril.
+    res_ene = temporada.resumen(
+        cfg, dt.date(2027, 1, 20), antes=None, metas_hoy=metas_hoy, meta_alta=meta_alta
+    )
+    assert res_ene.proximos[0].fecha == dt.date(2027, 2, 1)
+    assert res_ene.proximos[1].fecha == dt.date(2027, 3, 1)
+    assert res_ene.proximos[1].tipo == "sale_alta"
+    assert res_ene.proximos[1].inicia_preparacion is False
+    msg_ene = temporada.mensaje_guardado(res_ene)
+    assert "La próxima preparación empieza el 30 de abril." in msg_ene
+    assert "1 de marzo" not in msg_ene
+
+
 def test_identificadores_rechaza_id_fuera_de_bigint():
     """Hallazgo #15: mantener_pausadas exige 1 <= id <= 2**63 - 1 para no
     reventar consultas SQL con NumericValueOutOfRange."""

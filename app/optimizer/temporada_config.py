@@ -140,6 +140,7 @@ class Evento:
     fecha: dt.date
     tipo: EventoTipo
     frase: str
+    inicia_preparacion: bool = False
 
 
 @dataclass(frozen=True)
