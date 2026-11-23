@@ -29,6 +29,7 @@ from app.apply_store import (
     _identidad,
     _ledger,
     _sella_ledger,
+    es_rechazo_de_identidad,
 )
 from app.db import tx_durable
 from app.optimizer.recuperacion import TOLERANCIA_CADENA
@@ -91,7 +92,9 @@ def _reconcilia_ambiguos_sellados(
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
         try:
             bid_leido = _bid_de_readback(cliente_holder[0], path, contenedor, param, external_id)
-        except AdsApiError:
+        except AdsApiError as exc:
+            if es_rechazo_de_identidad(exc):
+                raise
             fallidas += 1
             continue
         ack = {"fuente": "readback", "bid": str(bid_leido)} if bid_leido is not None else None
@@ -201,7 +204,9 @@ def reconcilia_bids(
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
         try:
             bid_leido = _bid_de_readback(cliente_holder[0], path, contenedor, param, external_id)
-        except AdsApiError:
+        except AdsApiError as exc:
+            if es_rechazo_de_identidad(exc):
+                raise
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
             fallidas += 1

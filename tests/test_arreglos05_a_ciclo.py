@@ -142,6 +142,7 @@ class _Amazon:
         falla_primer_put=False,
         aplica_al_fallar=False,
         rechaza_identidad: int | None = None,
+        rechaza_lectura: str | None = None,
     ):
         self.bids: dict[str, str] = dict(bids or {})
         self.estados: dict[str, str] = dict(estados or {})
@@ -152,6 +153,7 @@ class _Amazon:
         self.falla_primer_put = falla_primer_put
         self.aplica_al_fallar = aplica_al_fallar
         self.rechaza_identidad = rechaza_identidad
+        self.rechaza_lectura = rechaza_lectura
         self.al_put_bid = None
         self.al_list = None
 
@@ -163,6 +165,13 @@ class _Amazon:
         if request.method == "GET" and request.url.path == "/v2/profiles":
             return httpx.Response(200, json={"profiles": [PERFIL_US]})
         if request.method == "POST" and request.url.path == "/sp/keywords/list":
+            if self.rechaza_lectura == "antes" or (
+                self.rechaza_lectura == "despues" and self.puts_bid
+            ):
+                # 403 en una lectura: Amazon rechaza la identidad o los
+                # permisos de toda la corrida.
+                self.vistos.append(request)
+                return httpx.Response(403, json={"code": "ACCESS_DENIED"})
             if self.al_list is not None and self.puts_bid:
                 self.al_list(request)
             filas = [
@@ -1698,3 +1707,36 @@ def test_arreglos05_a_ninguna_espera_del_claim_es_infinita():
         finally:
             retenedora.close()
             hb.close()
+
+
+@_skip_db
+@pytest.mark.parametrize("cuando", ["antes", "despues"])
+def test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote(cuando):
+    """Revision de Astra del PR #746: el 403, o el 401 que sigue despues de
+    refrescar el token, en una LECTURA (el LIST previo al PUT o el de
+    verificacion) llega como AdsApiError y se trataba como fallo de ESA puja:
+    el lote segui con la siguiente. Es fallo global. El intento cuyo PUT ya
+    salio queda abierto, sin sello, y no sale ninguna mutacion mas."""
+    with _db("orbit_a05_ident_lectura") as (conn, _extra):
+        ids = _semilla_live(conn)
+        _agrega_kw2(conn, ids)
+        amazon = _Amazon(**REMOTO_INICIAL, rechaza_lectura=cuando)
+
+        res = _corre(conn, factory=_directa(amazon))
+
+        assert res.status == "degraded"
+        notas = json.loads(res.notes)["apply"]
+        assert "apply_error" in notas
+        assert "cortes_liberados" not in notas, "las fases posteriores no corren"
+        assert len(amazon.puts_bid) == (0 if cuando == "antes" else 1), (
+            "tras el rechazo no sale otra puja"
+        )
+        assert amazon.puts_estado == []
+        intentos = conn.execute("SELECT count(*), count(finished_at) FROM apply_attempt").fetchone()
+        assert intentos == ((0, 0) if cuando == "antes" else (1, 0)), (
+            "el PUT que llego a salir queda abierto, sin sello"
+        )
+        pujas = conn.execute(
+            "SELECT id FROM decision WHERE cycle_id = %s AND kind = 'bid'", (res.cycle_id,)
+        ).fetchall()
+        assert len(pujas) == 2 and all(_desenlace(conn, p[0]) is None for p in pujas)

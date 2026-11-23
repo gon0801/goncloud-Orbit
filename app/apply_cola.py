@@ -700,7 +700,9 @@ def libera_vencidos(
                 None if temporada_ctx is sin_cargar else temporada_ctx,
                 None if temporada_neg is sin_cargar else temporada_neg,
             )
-        except AdsApiError:
+        except AdsApiError as exc:
+            if apply.es_rechazo_de_identidad(exc):
+                raise
             sin_respuesta += 1
             _registra(fila, apply.MOTIVO_SIN_RESPUESTA)
             continue
