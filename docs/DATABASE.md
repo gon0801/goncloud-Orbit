@@ -1201,7 +1201,9 @@ reemplaza la vista: la rama `regreso_del_dueno` publica como `bid_despues` el
 `bid` del payload del intento de reversa que quedó `ok` (lo que se envió y cuya
 lectura de vuelta confirmó), con respaldo en `decision.old_value` si el payload
 no trae un monto legible. `regreso_del_dueno` usa ese mismo valor en la guarda
-que impide bajar la puja y en su respuesta. `CREATE OR REPLACE VIEW` conserva
+que impide bajar la puja y en su respuesta. Una reversa confirmada por lectura
+sin PUT lleva `ack.sin_envio` y no cuenta como escritura de Orbit para la
+autoría de la puja vigente. `CREATE OR REPLACE VIEW` conserva
 los privilegios de `0060`; no hay grants nuevos.
 
 Reversa (`0096_reversa_arreglos05_regreso_destino_efectivo.sql`): devuelve la

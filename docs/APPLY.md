@@ -651,9 +651,10 @@ sale cero DELETE ajeno: la reversa automática omite lo propio ausente y
 sigue con lo propio vivo; la manual detiene el orden sellado.
 
 **Reversa de bid (ARREGLOS 05 B).** Antes del PUT se relee la hoja. Si el
-valor vivo no lo escribió Orbit —no es la última escritura confirmada suya
-desde la decisión que se revierte, ni la de una decisión posterior ni la de
-la reversa de cualquiera— es un cambio manual posterior
+valor vivo no lo escribió Orbit —no es la última escritura suya por hora desde
+la decisión que se revierte: ni la de una decisión posterior ni la de la
+reversa de cualquiera; una reversa confirmada sin envío no cuenta— es un
+cambio manual posterior
 y no se envía (`confirmada: false`, cero PUT). Si ya es el valor previo, se
 confirma por lectura. Un intento de reversa abierto se resuelve leyendo
 antes de otro envío. Que Orbit haya movido la hoja después con una decisión
@@ -1001,12 +1002,15 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   remoto; cuenta como reversa hecha y la reanudación no la repite.
 - **Un job que cierra fallido no deja intentos abiertos (ARREGLOS 05 B):**
   `_falla_job` sella en su misma transacción los intentos abiertos del job.
-  Una creación cuyo ACK ya se guardó la aceptó Amazon y se sella `ok`, aunque
-  el trabajo no prospere; los demás toman el resultado del cierre.
+  `ok` solo lo pone la lectura que verificó el objeto: una creación que cerró
+  sin lectura de vuelta conserva su ACK y lleva el motivo del cierre; una
+  reversa con la respuesta perdida se sella `fallo:reversa_sin_verificar`.
 - **El regreso del dueño usa el destino efectivo (ARREGLOS 05 B, migración
   `0096`):** la guarda que impide bajar la puja, la respuesta y `v_cambio_bid`
   usan el bid que la reversa restauró (el del payload del intento `ok`), no
-  `decision.old_value`.
+  `decision.old_value`. Un intento abierto se resuelve primero solo por
+  lectura; la guarda vale solo para un envío nuevo, compara con el destino
+  cuantizado y responde 409 si el vigente ya es el destino.
 - La tabla completa (165 casillas desde ARREGLOS 05 B), el mapa de los
   hallazgos de revisión a su casilla y la demostración por nivel `/correct`
   viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del

@@ -208,8 +208,8 @@ Los dos se recorren sobre toda la tabla en
 ### Mapa `hallazgo -> casilla` del bloque B
 
 Los seis primeros no vinieron de un revisor: los destaparon las corridas de
-vecinos antes de empujar. Los tres ultimos son los P1 de la primera pasada de
-Astra (Devin duplico dos).
+vecinos antes de empujar. Los tres siguientes son los P1 de la primera pasada de
+Astra (Devin duplico dos) y el ultimo, un P1 de Devin sobre la cabeza nueva.
 
 | Hallazgo | Casilla o clasificador | Prueba de regression |
 |---|---|---|
@@ -222,6 +222,7 @@ Astra (Devin duplico dos).
 | Astra: un job que cerraba fallido dejaba abierto el intento de creacion con su ACK, y la reversa de la 0095 abortaba. | Fuera de la tabla: `_falla_job` es el cierre unico del job y sella sus intentos abiertos en la misma transaccion. | `...cosecha_con_roster_imposible_sella_la_creacion_verificada`, `...cosecha_cerrada_sin_contexto_sella_la_creacion_con_ack`, `...cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack` |
 | Astra: cualquier importe que Orbit hubiera escrito alguna vez en la hoja contaba como suyo. | `evento_desde_lectura_bid` con `escritos` = la ultima escritura confirmada desde la decision que se revierte. | `...un_importe_antiguo_de_orbit_no_autoriza_la_reversa` |
 | Astra: el regreso del dueno y `v_cambio_bid` seguian usando `old_value`. | Fuera de la tabla: `regreso_del_dueno` y la vista (0096) leen el destino efectivo. | `...el_regreso_usa_el_destino_efectivo_en_guarda_respuesta_e_historial`, `...migracion_del_historial_de_regreso_ida_reversa_e_ida` |
+| Devin: una reversa confirmada sin envio contaba como escritura de Orbit, y la ultima escritura se elegia por ID de decision. | `evento_desde_lectura_bid` con `escritos` = la ultima escritura real de Orbit, por hora. | `...una_reversa_confirmada_sin_envio_no_vuelve_propia_la_puja_del_dueno`, `...revertir_la_segunda_de_tres_no_bloquea_la_reversa_de_la_primera` |
 
 El chequeo estructural `_violaciones_chequeo_dueno_unico` cubrio ahora 15
 modulos (sumo `app/apply_negative.py` y `app/apply_harvest_contexto.py`) y

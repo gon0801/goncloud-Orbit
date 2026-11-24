@@ -3,7 +3,7 @@
 Bloque de implementacion, `lane: release`. Base: `master` en
 `23ba2385c7394ef5f9693e2802dbe9bb640ac791` (el codigo de `app/` y
 `migrations/` es el de `17fa9a17`). Rama `arreglos-05/b`. Codigo verificado:
-`5fbb78ef`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
+`79e2bca1`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
 «B. Identidad, confirmacion y reversas» de [DISENO.md](../DISENO.md).
 
 ## Para el dueño
@@ -41,10 +41,10 @@ Bloque de implementacion, `lane: release`. Base: `master` en
 
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| B.1 | `T writes test_03` | `5fbb78ef` | 1 passed, salida 0 | La cosecha conserva el ID del ACK, no adopta una keyword sustituida y su reversa no borra la ajena. | Codigo: `rollback.sh` con el SHA anterior. Datos: ninguno cambia en Amazon salvo lo que la reversa propia ya hacia. |
-| B.1 | `N b` | `5fbb78ef` | 26 passed, 0 omitidas, salida 0 | Regresiones propias del bloque, mas la del selector del instalador. | Igual que arriba. |
-| B.2 | `T writes test_10` | `5fbb78ef` | 1 passed, salida 0 | Un negative aceptado sin respuesta se confirma leyendo y su reversa manual lo retira una vez. | Migracion `0095_reversa_...` (aborta si hay un intento abierto con evidencia). |
-| B.3 | `N b` | `5fbb78ef` | 26 passed, salida 0 | La reversa de bid vuelve al valor leido, respeta un cambio manual y no repite el PUT tras una caida. | Igual que B.2. |
+| B.1 | `T writes test_03` | `79e2bca1` | 1 passed, salida 0 | La cosecha conserva el ID del ACK, no adopta una keyword sustituida y su reversa no borra la ajena. | Codigo: `rollback.sh` con el SHA anterior. Datos: ninguno cambia en Amazon salvo lo que la reversa propia ya hacia. |
+| B.1 | `N b` | `79e2bca1` | 38 passed, 0 omitidas, salida 0 | Regresiones propias del bloque, mas la del selector del instalador. | Igual que arriba. |
+| B.2 | `T writes test_10` | `79e2bca1` | 1 passed, salida 0 | Un negative aceptado sin respuesta se confirma leyendo y su reversa manual lo retira una vez. | Migracion `0095_reversa_...` (aborta si hay un intento abierto con evidencia). |
+| B.3 | `N b` | `79e2bca1` | 38 passed, salida 0 | La reversa de bid vuelve al valor leido, respeta un cambio manual y no repite el PUT tras una caida. | Igual que B.2. |
 
 Comandos y salidas completos en [acepta.txt](acepta.txt), que genera
 [acepta.sh](acepta.sh). El SHA del encabezado de cada parte es el arbol
@@ -143,13 +143,14 @@ ida con el rol real del motor y del selector del instalador:
 
 ## Rojo y verde
 
-[rojo.txt](rojo.txt): contra `23ba2385`, 22 de las 25 regresiones del archivo
+[rojo.txt](rojo.txt): contra `23ba2385`, 32 de las 37 regresiones del archivo
 fallan por asercion de comportamiento, mas la del selector del instalador. Las
-tres que pasan en el padre son controles declarados en su docstring. La prueba
+cinco que pasan en el padre: tres controles declarados y dos que ya se
+cumplian en master (detalle en rojo.txt). La prueba
 de la tabla no puede importarse en el padre: nombra tipos que no existen; la
 tabla del padre tiene 9 estados, 12 eventos y 108 casillas.
 
-En `5fbb78ef`: `N b` 26 passed; tabla 170 passed.
+En `79e2bca1`: `N b` 38 passed; tabla 170 passed.
 
 ## Vecinos
 
@@ -182,10 +183,18 @@ antes de empujar.
   decision que se revierte (su apply, el de una decision posterior o la reversa
   de cualquiera). Un importe que Orbit escribio antes de esa decision y que hoy
   vuelve a estar en la hoja lo puso otra mano. Fuente: el ledger, nunca el
-  cache, que la ingesta tambien sincroniza.
+  cache, que la ingesta tambien sincroniza. Se ordena por la HORA de cada
+  escritura: una reversa se atribuye a la decision que deshace, no a una
+  nueva, asi que el ID no la ordena. Una reversa confirmada por lectura sin
+  envio (`ack.sin_envio`) no es escritura de Orbit.
+- **El regreso lee antes de guardar.** Un intento abierto se resuelve solo por
+  lectura; la guarda vale solo para un envio nuevo, compara con el destino
+  cuantizado y responde 409 si el vigente ya es el destino.
 - **Un job que cierra fallido no deja intentos abiertos.** `_falla_job` sella en
-  su misma transaccion los intentos abiertos. Una creacion cuyo ACK ya se
-  guardo la acepto Amazon y se sella `ok`, aunque el trabajo no prospere.
+  su misma transaccion los intentos abiertos. `ok` solo lo pone la lectura que
+  verifico el objeto: una creacion que cerro sin lectura de vuelta conserva su
+  ACK y lleva el motivo del cierre (como en master); una reversa con la
+  respuesta perdida se sella `fallo:reversa_sin_verificar`.
 - **El regreso del dueno usa el destino efectivo.** Su guarda, su respuesta y
   `v_cambio_bid` (migracion `0096`) usan el bid que la reversa restauro, no
   `decision.old_value`.
@@ -266,6 +275,21 @@ anterior: `...cosecha_con_roster_imposible_sella_la_creacion_verificada`,
 Migracion `0096` (aditiva, `CREATE OR REPLACE VIEW v_cambio_bid`, con su
 reversa y sin grants nuevos): el historial publica como destino del regreso el
 bid del payload del intento de reversa que quedo `ok`.
+
+Despues, Devin reviso las cabezas nuevas (informativo; Astra revisa la cabeza
+final). Dos P1 que introdujeron los arreglos anteriores: la ultima escritura
+se elegia por ID de decision (tras revertir la segunda de tres, la reversa de
+la primera se bloqueaba) y la guarda del regreso rechazaba para siempre un
+intento abierto cuando la ingesta sincronizaba el destino. Un P1 mas, de la
+misma clase que el ajuste manual: una reversa confirmada sin envio contaba
+como escritura de Orbit. Tres P2 en las mismas lineas: `ok` con solo el ACK,
+el motivo de la cosecha en una reversa sin respuesta y la guarda sin
+cuantizar; y el `bid_antes` del recibo de un regreso conciliado. Regresiones:
+`...revertir_la_segunda_de_tres_no_bloquea_la_reversa_de_la_primera`,
+`...el_regreso_confirma_por_lectura_un_envio_con_respuesta_perdida`,
+`...el_regreso_no_cierra_la_racha_si_el_vigente_ya_es_el_destino`,
+`...una_reversa_confirmada_sin_envio_no_vuelve_propia_la_puja_del_dueno` y
+`...una_reversa_de_compensacion_sin_respuesta_no_lleva_el_motivo_del_job`.
 
 ## Fase 2
 
