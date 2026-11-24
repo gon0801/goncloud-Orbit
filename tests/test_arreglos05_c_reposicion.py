@@ -136,7 +136,9 @@ class _Amazon:
         self.falla_delete: int | None = None
         self.pierde_post = False
         self.pierde_delete = False
+        self.post_cuerpo_nulo = False
         self.list_truncada = False
+        self.total_declarado: int | None = None
         self.al_post = None
         self.al_delete = None
         self._seq = 0
@@ -153,8 +155,9 @@ class _Amazon:
                 return httpx.Response(self.falla_lectura, json={"message": "sin lectura"})
             if self.list_truncada:
                 return httpx.Response(200, json={"keywords": [], "nextToken": "misma"})
+            total = len(self.keywords) if self.total_declarado is None else self.total_declarado
             return httpx.Response(
-                200, json={"keywords": list(self.keywords), "totalResults": len(self.keywords)}
+                200, json={"keywords": list(self.keywords), "totalResults": total}
             )
         if path == "/sp/keywords" and request.method == "POST":
             self.posts.append(cuerpo)
@@ -165,6 +168,11 @@ class _Amazon:
             self._seq += 1
             nuevo = f"k-{self._seq}"
             self.keywords.append({**cuerpo["keywords"][0], "keywordId": nuevo})
+            if self.post_cuerpo_nulo:
+                self.post_cuerpo_nulo = False
+                return httpx.Response(
+                    207, content=b"null", headers={"content-type": "application/json"}
+                )
             if self.pierde_post:
                 self.pierde_post = False
                 raise httpx.ReadTimeout("creada; respuesta perdida", request=request)
@@ -544,6 +552,74 @@ def test_arreglos05_c_dos_cli_no_crean_dos_objetos():
 
 
 @_skip_db
+def test_arreglos05_c_total_declarado_mayor_no_autoriza_ausencia():
+    """Una pagina con keywords vacio y totalResults=1 no prueba ausencia: el
+    intento sigue abierto y el segundo bucle de --reponer no envia otro POST."""
+    with _db("orbit_c05_total") as (conn, _extra):
+        fila, _viejo, _texto = _semilla(conn)
+        amazon = _Amazon()
+        amazon.total_declarado = 1
+        _abre_intento(conn, fila, owner="cli-a")
+        enviados: list[dict] = []
+
+        def enviar(plataforma, profile, payload):
+            enviados.append(payload)
+            return _respuesta(amazon, "POST", "/sp/keywords", payload, "keywords")
+
+        resultados = archivar.reponer_keyword(
+            conn,
+            lote="lote-c",
+            cliente=_cliente(amazon),
+            perfiles=PERFILES,
+            enviar=enviar,
+            owner="cli-a",
+            ejecutar=True,
+            dormir=lambda _s: None,
+        )
+        assert enviados == [], "la ausencia declarada parcial no autoriza POST"
+        assert resultados and resultados[0].resultado == "pendiente", resultados
+        (intento,) = _intentos(conn, fila)
+        assert intento["resultado"] is None and intento["finished_at"] is None
+
+
+@_skip_db
+def test_arreglos05_c_ack_nulo_no_sella_rechazo():
+    """Un 207 con cuerpo null no es rechazo: deja el intento abierto y la
+    segunda corrida no repite el POST."""
+    with _db("orbit_c05_ack_nulo") as (conn, _extra):
+        fila, _viejo, _texto = _semilla(conn)
+        amazon = _Amazon()
+        amazon.post_cuerpo_nulo = True
+        primero = archivar.reponer_keyword(
+            conn,
+            lote="lote-c",
+            cliente=_cliente(amazon),
+            perfiles=PERFILES,
+            enviar=_enviar(amazon),
+            owner="cli-1",
+            ejecutar=True,
+            dormir=lambda _s: None,
+        )
+        assert primero[0].resultado == "pendiente"
+        (intento,) = _intentos(conn, fila)
+        assert intento["resultado"] is None and intento["ack"]["status"] == 207
+
+        segundo = archivar.reponer_keyword(
+            conn,
+            lote="lote-c",
+            cliente=_cliente(amazon),
+            perfiles=PERFILES,
+            enviar=_enviar(amazon),
+            owner="cli-2",
+            ejecutar=True,
+            dormir=lambda _s: None,
+        )
+        assert len(amazon.posts) == 1, "un ACK de forma inesperada no autoriza otro POST"
+        assert segundo[0].resultado == "pendiente"
+        assert _intentos(conn, fila)[0]["resultado"] is None
+
+
+@_skip_db
 @pytest.mark.parametrize("forma", ["omitido", "truncado", "duplicado"])
 def test_arreglos05_c_lectura_incompleta_o_duplicada_no_autoriza_post(forma):
     with _db(f"orbit_c05_lectura_{forma}") as (conn, _extra):
@@ -673,7 +749,6 @@ def test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar():
             )
         (intento,) = _intentos(conn, fila)
         assert intento["resultado"] is None and intento["finished_at"] is None
-        assert intento["ack"]["status"] == 403, "el rechazo quedo durable"
 
         _vence_lease(conn, fila)
         amazon.falla_delete = None
@@ -693,6 +768,7 @@ def test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar():
             est.RESULTADO_REPOSICION_RECHAZO,
             "ok",
         ]
+        assert _intentos(conn, fila)[0]["ack"]["status"] == 403, "el rechazo quedo durable"
 
 
 @_skip_db

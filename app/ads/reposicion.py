@@ -391,7 +391,22 @@ def _reponer_fila(
         _trans(est.EstadoCambio.INCIERTO, est.EventoCambio.ERROR_5XX_O_RED)
         return _pendiente(fila, f"envio incierto ({status}): el intento sigue abierto")
     cuerpo = ack.get("cuerpo")
-    if status < 400 and isinstance(cuerpo, dict) and not errores_de_ack(cuerpo):
+    if status >= 400:
+        _sella_resultado(
+            conn, fila.id, "reponer", intento.id, est.RESULTADO_REPOSICION_RECHAZO, ack
+        )
+        return ResultadoReposicionKeyword(
+            fila.id, fila.keyword_external, "fallo", f"rechazo {status}: {ack.get('texto', '')}"
+        )
+    if not isinstance(cuerpo, dict):
+        # 200/207 con JSON null, lista u otra forma: Amazon pudo crear el
+        # objeto y no hay ID. No es un rechazo; el intento sigue abierto y el
+        # ACK queda durable para la lectura siguiente.
+        with conn.transaction():
+            store.guarda_ack(conn, intento.id, ack)
+        conn.commit()
+        return _pendiente(fila, "ACK sin objeto legible: el intento sigue abierto")
+    if not errores_de_ack(cuerpo):
         external = id_de_ack(cuerpo, "keywordId")
         if not external:
             with conn.transaction():
@@ -574,6 +589,11 @@ def _revertir_fila(
         return ResultadoReposicionKeyword(
             fila.id, fila.keyword_external, "fallo", f"rechazo {status}: {ack.get('texto', '')}"
         )
+    if not isinstance(cuerpo, dict):
+        with conn.transaction():
+            store.guarda_ack(conn, intento.id, ack)
+        conn.commit()
+        return _pendiente(fila, "ACK sin objeto legible: el intento sigue abierto")
     with conn.transaction():
         if not store.guarda_ack_e_id(conn, intento.id, ack, str(fila.repuesto_external)):
             raise AbortoFase(f"el intento {intento.id} fue tomado por otro dueno")

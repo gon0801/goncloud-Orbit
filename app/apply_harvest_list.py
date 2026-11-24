@@ -267,6 +267,7 @@ def _lista_completa(
         dentro = None
     items: list[dict] = []
     vistos: set[str] = set()
+    declarado: int | None = None
     token = None
     for _ in range(TOPE_PAGINAS_LIST):
         body: dict = (
@@ -281,6 +282,9 @@ def _lista_completa(
         pagina, valida = _valida_pagina_list(data, contenedor)
         if not valida:
             raise ListaIncompleta("ambiguo: contenedor o item invalido")
+        total = data.get("totalResults") if isinstance(data, dict) else None
+        if declarado is None and isinstance(total, int) and not isinstance(total, bool):
+            declarado = total
         if dentro is not None and any(str(x["adGroupId"]) not in dentro for x in pagina):
             raise ListaIncompleta("ambiguo: respuesta fuera del filtro")
         estado = _valida_token_list(data.get("nextToken"))
@@ -288,6 +292,13 @@ def _lista_completa(
             raise ListaIncompleta("ambiguo: token ilegible")
         items.extend(pagina)
         if estado == "fin":
+            # `nextToken` ausente no basta como prueba de completitud cuando
+            # la propia pagina declaro un total mayor (mismo guard que
+            # structure_api): una respuesta parcial no autoriza ausencia.
+            if declarado is not None and declarado != len(items):
+                raise ListaIncompleta(f"truncado: totalResults {declarado} y llegaron {len(items)}")
+            if isinstance(total, int) and not isinstance(total, bool) and total != len(items):
+                raise ListaIncompleta(f"truncado: totalResults {total} y llegaron {len(items)}")
             return items
         token = data["nextToken"]
         if token in vistos:
