@@ -92,6 +92,7 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     prioridad_bajo_cupo,
     registra_sin_aplicar,
 )
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_reconcilia import (  # noqa: F401 - re-export estable
     _SQL_INTENTOS_BID_AMBIGUOS_SIN_DESENLACE,
 )
@@ -164,7 +165,6 @@ from app.apply_store import (  # noqa: F401 - re-export estable
     _sella_resultado,
     _tick,
     _ya_aplicada,
-    es_rechazo_de_identidad,
     perfil_aceptado_de,
 )
 from app.db import tx_durable
@@ -404,7 +404,7 @@ class Aplicador:
             try:
                 leido = self._readback(cliente, identidad)
             except AdsApiError as exc:
-                if es_rechazo_de_identidad(exc):
+                if transicion_desde_error(EstadoCambio.PENDIENTE, exc).propaga_aborto:
                     raise
                 if exc.status == 429:
                     # Amazon esta limitando la ruta de lectura: el cliente ya
@@ -561,7 +561,10 @@ class Aplicador:
         except AdsApiErrorMutacion as exc:
             # Rechazo determinista (4xx con cuerpo): Amazon NO la aplico.
             _tick(self._tick_fn)
-            identidad_o_permisos = es_rechazo_de_identidad(exc)
+            transicion = transicion_desde_error(
+                EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+            )
+            identidad_o_permisos = transicion.propaga_aborto
             with tx_durable(self._conn):
                 # Cerca del claim: el sello y el desenlace solo los escribe el
                 # dueno. Con el claim en manos de otro el intento queda abierto.
@@ -591,7 +594,9 @@ class Aplicador:
                 # Fallo global: la fase aborta y no sale ninguna mutacion mas.
                 raise
             return "rechazada"
-        except AdsApiError:
+        except AdsApiError as exc:
+            if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+                raise
             # Amazon pudo aplicarla: la fila queda sin sello (el rastro).
             return "incierta"
         ack = _json_seguro(resp_http)
@@ -599,7 +604,7 @@ class Aplicador:
         try:
             bid_leido = self._readback(cliente, identidad)
         except AdsApiError as exc:
-            if es_rechazo_de_identidad(exc):
+            if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
                 # Fallo global: el intento queda abierto, sin sello.
                 raise
             return "incierta"

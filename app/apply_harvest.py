@@ -37,6 +37,7 @@ from app.ads.sp_wire import (  # noqa: F401 - re-export estable
 from app.ads.sp_wire import (
     id_de_ack as _id_de_ack,
 )
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_harvest_hermanas import (  # noqa: F401 - re-export estable
     _SQL_ESTADO_COLA,
     _SQL_ROL_ORIGEN,
@@ -407,7 +408,7 @@ def _reversa_automatica(
             reversa_delete_fn=_reversa_delete,
         )
     except AdsApiError as exc:
-        if not apply.es_rechazo_de_identidad(exc):
+        if not transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
             raise
         cola = conn.execute(_SQL_COLA_APLICANDO_DEL_JOB, (job.decision_id,)).fetchone()
         _falla_job(
@@ -520,7 +521,9 @@ def _paso_negative(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
             raise
         return _falla_job(
             conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=f"fallo http {exc.status}"
@@ -631,7 +634,9 @@ def _paso_keyword(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
             raise
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | fallo http {exc.status}"
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)

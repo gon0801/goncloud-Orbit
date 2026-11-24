@@ -36,6 +36,7 @@ import psycopg
 from app import apply, biblioteca, temporada_io
 from app import apply_harvest as _ejecucion
 from app.ads.client import AdsApiError, AdsAuthError
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.db import tx_durable
 from app.optimizer import cortes, harvest_destino, hygiene, windows
 
@@ -366,7 +367,7 @@ def _propaga_si_es_global(exc: BaseException) -> None:
     permisos con un 401/403. Detras de ese rechazo no sale ninguna mutacion
     mas (ARREGLOS 05 A, revision). Un fallo del token de LWA sigue siendo
     ambiguo, como fijo ARREGLOS 04 BC: el trabajo queda pendiente."""
-    if apply.es_rechazo_de_identidad(exc):
+    if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
         raise exc
 
 

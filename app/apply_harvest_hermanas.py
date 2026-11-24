@@ -20,6 +20,7 @@ from app.ads.sp_wire import (
 from app.ads.sp_wire import (
     id_de_ack as _id_de_ack,
 )
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_harvest_list import (
     MOTIVO_ENTIDAD_INCOMPLETA,
     MOTIVO_HERMANAS_PENDIENTES,
@@ -193,7 +194,9 @@ def _post_hermana(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
             raise
         return (_motivo_rechazo_hermana(rol, exc.status), None, None, None)
     except AdsApiError as exc_ambigua:

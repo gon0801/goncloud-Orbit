@@ -22,6 +22,7 @@ from app.apply_cuota import (
     gate_ancestros,
     registra_sin_aplicar,
 )
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_store import (
     _KINDS_DECISORAS,
     _actualiza_cache,
@@ -29,7 +30,6 @@ from app.apply_store import (
     _identidad,
     _ledger,
     _sella_ledger,
-    es_rechazo_de_identidad,
 )
 from app.db import tx_durable
 from app.optimizer.recuperacion import TOLERANCIA_CADENA
@@ -93,7 +93,7 @@ def _reconcilia_ambiguos_sellados(
         try:
             bid_leido = _bid_de_readback(cliente_holder[0], path, contenedor, param, external_id)
         except AdsApiError as exc:
-            if es_rechazo_de_identidad(exc):
+            if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
                 raise
             fallidas += 1
             continue
@@ -205,7 +205,7 @@ def reconcilia_bids(
         try:
             bid_leido = _bid_de_readback(cliente_holder[0], path, contenedor, param, external_id)
         except AdsApiError as exc:
-            if es_rechazo_de_identidad(exc):
+            if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
                 raise
             with tx_durable(conn):
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")

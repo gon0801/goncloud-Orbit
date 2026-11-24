@@ -18,6 +18,20 @@ from psycopg import pq
 from app import apply, apply_harvest, apply_producto, biblioteca
 from app.ads.client import AdsApiError
 from app.apply_cuota import CapSaturado
+from app.apply_estados import (
+    RESULTADO_NO_APLICADO,
+    RESULTADO_OK,
+    RESULTADO_PAUSADA_POR_DUENO,
+    RESULTADOS_TERMINALES_REVERSA,
+    AccionCambio,
+    EstadoCambio,
+    EventoCambio,
+    Transicion,
+    decidir,
+    estado_inicial_desde_hechos,
+    evento_desde_lectura_estado,
+    transicion_desde_error,
+)
 from app.db import settings_vigentes, tx_durable
 from app.lecturas_historia import presupuestos_campanas_hoy
 from app.optimizer import recuperacion, temporada
@@ -156,7 +170,9 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
                 conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
             )
             _termina(conn, fila, "failed")
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
             raise
         return "failed"
     ack = apply._json_seguro(resp_http)
@@ -194,7 +210,9 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
                 conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
             )
             _termina(conn, fila, "failed")
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
             raise
         return "failed"
     ack = apply._json_seguro(resp_http)
@@ -286,7 +304,9 @@ def reversa_pause(
             apply._sella_ledger(
                 conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
             )
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
             raise
         return False
     ack = apply._json_seguro(resp_http)
@@ -295,7 +315,12 @@ def reversa_pause(
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
     estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
     if estado is None:
-        return PENDIENTE_LECTURA
+        tr_sin_estado = decidir(
+            EstadoCambio.INCIERTO,
+            evento_desde_lectura_estado(None, destino=apply.ESTADO_WIRE_ENABLED),
+        )
+        if not tr_sin_estado.sella_intento:
+            return PENDIENTE_LECTURA
     verify = estado == apply.ESTADO_WIRE_ENABLED
     resultado = (
         "ok"
@@ -333,7 +358,9 @@ def reversa_negative(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
             raise
         return False
     ack = apply._json_seguro(resp_http)
@@ -357,11 +384,6 @@ def reversa_negative(
 # de la hoja: el intento queda abierto y la hoja pendiente de lectura.
 PENDIENTE_LECTURA = "pendiente_de_lectura"
 
-# Resultado durable de una reversa abierta cuando la ingesta ya vio la hoja
-# ENABLED tras iniciar el intento y Amazon vuelve a mostrarla PAUSED (pausa
-# manual posterior del dueno): cierra sin atribuir `ok` al PUT ni reenviar.
-RESULTADO_PAUSADA_TRAS_HABILITAR = "omitida:pausada_tras_habilitar"
-
 _SQL_REVERSA_SIN_SELLO = """
 SELECT id, started_at FROM apply_attempt
  WHERE decision_id = %s AND tipo = 'reversa' AND finished_at IS NULL
@@ -369,21 +391,55 @@ SELECT id, started_at FROM apply_attempt
  LIMIT 1
 """
 
+_SQL_REVERSAS_DECISION = """
+SELECT id, started_at, resultado, finished_at
+  FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC
+"""
+
 _SQL_ESTADO_CACHE_PREVIO = """
 SELECT status, synced_at FROM ad_entity_state WHERE ad_entity_id = %s
 """
 
-_SQL_REVERSA_TERMINAL = """
-SELECT EXISTS (
-    SELECT 1 FROM apply_attempt
-     WHERE decision_id = %s AND tipo = 'reversa'
-     GROUP BY decision_id
-    HAVING bool_or(resultado IN ('ok', %s)) OR count(*) >= %s
-)
-"""
-
 _SQL_CANDADO_REVERSA_TOMAR = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
 _SQL_CANDADO_REVERSA_SOLTAR = "SELECT pg_advisory_unlock(hashtextextended(%s, 0))"
+
+
+@dataclass(frozen=True)
+class _HechosReversa:
+    """Hechos observables del ledger `apply_attempt` (tipo `reversa`) de una pausa."""
+
+    intento_abierto_id: int | None
+    iniciado_el: object | None
+    resultado_terminal: str | None
+    intentos_totales: int
+
+
+def _hechos_reversa(conn: psycopg.Connection, decision_id: int) -> _HechosReversa:
+    """Lee hechos del ledger sin logica de decision SQL: la tabla decide el estado."""
+    filas = conn.execute(_SQL_REVERSAS_DECISION, (decision_id,)).fetchall()
+    abierto = next(((f[0], f[1]) for f in filas if f[3] is None), None)
+    resultados = [f[2] for f in filas if f[2] is not None]
+    if RESULTADO_OK in resultados:
+        terminal: str | None = RESULTADO_OK
+    elif RESULTADO_PAUSADA_POR_DUENO in resultados:
+        terminal = RESULTADO_PAUSADA_POR_DUENO
+    else:
+        terminal = next(
+            (
+                r
+                for r in resultados
+                if r in RESULTADOS_TERMINALES_REVERSA or r.startswith("fallo:entidad_archived")
+            ),
+            None,
+        )
+    return _HechosReversa(
+        intento_abierto_id=abierto[0] if abierto is not None else None,
+        iniciado_el=abierto[1] if abierto is not None else None,
+        resultado_terminal=terminal,
+        intentos_totales=len(filas),
+    )
 
 
 @contextmanager
@@ -417,28 +473,21 @@ def resuelve_reversa_abierta(
     *,
     tick=None,
     cerca_dueno=None,
-) -> str | None:
-    """Resuelve por LECTURA la reversa de esta fila que quedo sin sello (ARREGLOS
-    05 A, revision): Amazon pudo habilitar la hoja aunque la respuesta se
-    perdiera, y el cache seguira diciendo PAUSED.
+) -> Transicion | None:
+    """Resuelve por LECTURA la reversa de esta fila que quedo sin sello usando
+    la tabla unica `app.apply_estados.TABLA_TRANSICIONES`.
 
-    None si no habia intento pendiente o si sigue PAUSED sin haber sido vista
-    ENABLED tras iniciar el intento: en ese caso el intento viejo se sella
-    `ok:no_aplicado` y la reactivacion sigue su curso.
-    `pausada_manual` si Amazon dice PAUSED pero `ad_entity_state` ya registro
-    ENABLED con `synced_at >= started_at` (el dueno volvio a pausarla despues):
-    el intento se sella `omitida:pausada_tras_habilitar` sin atribuir `ok` al
-    PUT ni reenviar, y la pausa original queda excluida de futuras
-    reactivaciones.
-    `ya_habilitada` si la lectura
-    dice que la hoja ya esta ENABLED: el intento se sella `ok`, el unico exito
-    que reconocen la reversa manual, temporada y la pausa propia, con
-    `conciliado` en el ack; el cache toma lo leido y no hace falta reenviar.
-    `inconclusa` si la lectura no trae el estado
-    de la hoja: no se sella nada y no se cobra ni se envia. `archivada` para
-    cualquier otro estado: el intento se cierra sin reenviar y el cache toma lo
-    leido. Si se entrega `cerca_dueno` (ruta automatica), valida el claim dentro
-    de la transaccion que sella y actualiza el cache."""
+    Devuelve `None` si no habia intento abierto, o la `Transicion` decidida por
+    `decidir(EstadoCambio.INCIERTO, evento)`:
+    - `SELLAR_APLICADO` (`APLICADO`): sella `ok` con `conciliado: True` y cache.
+    - `SELLAR_PAUSADO_DUENO` (`PAUSADO_POR_DUENO`): sella
+      `RESULTADO_PAUSADA_POR_DUENO` sin atribuir `ok` ni reenviar.
+    - `CONTAR_INTENTO` (`PENDIENTE`): sella `ok:no_aplicado` y actualiza cache.
+    - `SELLAR_TERMINAL` (`ARCHIVADO` / `SIN_IDENTIDAD`): cierra sin reenviar.
+    - `MANTENER_INCIERTO` (`INCIERTO`): deja el intento abierto sin tocar nada.
+
+    Si se entrega `cerca_dueno` (ruta automatica), valida el claim dentro de la
+    transaccion que sella y actualiza el cache."""
     intento = conn.execute(_SQL_REVERSA_SIN_SELLO, (fila.decision_id,)).fetchone()
     if intento is None:
         return None
@@ -446,48 +495,65 @@ def resuelve_reversa_abierta(
     cache_previo = conn.execute(_SQL_ESTADO_CACHE_PREVIO, (fila.ad_entity_id,)).fetchone()
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
-        return "sin_identidad"
+        return decidir(EstadoCambio.INCIERTO, EventoCambio.ENTIDAD_SIN_IDENTIDAD)
     apply._tick(tick)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
     estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
-    if estado is None:
-        # Un LIST que omite la hoja o su estado no prueba nada: el intento
-        # sigue abierto para la siguiente pasada, sin cuota ni PUT.
-        return "inconclusa"
-    if estado == apply.ESTADO_WIRE_ENABLED:
-        veredicto, resultado, ack = "ya_habilitada", "ok", {"conciliado": True}
-    elif estado == apply.ESTADO_WIRE_PAUSED:
-        habilitada_despues = (
-            cache_previo is not None
-            and cache_previo[0] == apply.ESTADO_WIRE_ENABLED
-            and cache_previo[1] is not None
-            and cache_previo[1] >= iniciado_el
-        )
-        if habilitada_despues:
-            veredicto = "pausada_manual"
-            resultado = RESULTADO_PAUSADA_TRAS_HABILITAR
-            ack = {"conciliado": True, "cache_previo": apply.ESTADO_WIRE_ENABLED}
-        else:
-            veredicto, resultado, ack = None, "ok:no_aplicado", None
+    posterior_al_intento = (
+        cache_previo is not None and cache_previo[1] is not None and cache_previo[1] >= iniciado_el
+    )
+    evento = evento_desde_lectura_estado(
+        estado,
+        destino=apply.ESTADO_WIRE_ENABLED,
+        cache_previo_estado=cache_previo[0] if cache_previo is not None else None,
+        cache_previo_posterior_al_intento=posterior_al_intento,
+    )
+    transicion = decidir(EstadoCambio.INCIERTO, evento)
+    if not transicion.sella_intento:
+        return transicion
+    assert estado is not None  # toda transicion con sella_intento viene de lectura con estado
+    if transicion.accion == AccionCambio.SELLAR_APLICADO:
+        resultado, ack = RESULTADO_OK, {"conciliado": True}
+    elif transicion.accion == AccionCambio.SELLAR_PAUSADO_DUENO:
+        resultado = RESULTADO_PAUSADA_POR_DUENO
+        ack = {"conciliado": True, "cache_previo": apply.ESTADO_WIRE_ENABLED}
+    elif transicion.accion == AccionCambio.CONTAR_INTENTO:
+        resultado, ack = RESULTADO_NO_APLICADO, None
     else:
-        veredicto, resultado, ack = "archivada", f"fallo:entidad_{estado.lower()}", None
+        resultado, ack = f"fallo:entidad_{estado.lower()}", None
     with tx_durable(conn):
         if cerca_dueno is not None:
             cerca_dueno()
         apply._sella_ledger(conn, intento_id, ack=ack, resultado=resultado)
         conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-    return veredicto
+    return transicion
 
 
 def resuelve_reversa_sin_sello(
     conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, *, tick=None
-) -> str | None:
+) -> Transicion | None:
     """Version con cerca del claim para el barrido automatico de reactivaciones."""
     if conn.execute(_SQL_REVERSA_SIN_SELLO, (fila.decision_id,)).fetchone() is None:
         return None
     return resuelve_reversa_abierta(
         conn, aplicador._cliente(), fila, tick=tick, cerca_dueno=aplicador.exige_dueno
     )
+
+
+def _rollback_si_abierta(conn: psycopg.Connection) -> None:
+    if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
+        conn.rollback()
+
+
+def _contabiliza_transicion_reactivacion(transicion: Transicion) -> tuple[int, int, int, int]:
+    """Traduce una `Transicion` a deltas `(confirmadas, fallidas, omitidas, pendientes)`."""
+    if transicion.estado_siguiente == EstadoCambio.APLICADO:
+        return (1, 0, 0, 0)
+    if transicion.origen_incompleto:
+        return (0, 0, 0, 1)
+    if transicion.estado_siguiente in (EstadoCambio.ARCHIVADO, EstadoCambio.SIN_IDENTIDAD):
+        return (0, 1, 0, 0)
+    return (0, 0, 1, 0)
 
 
 def _elegible_para_put_reactivacion(
@@ -518,15 +584,14 @@ def aplica_reactivaciones(
     *,
     tick=None,
 ) -> ResumenReactivacion:
-    """Reactiva (resume) las pausas que el ciclo decidio reactivar, con TODAS
-    las guardas del diseno: temporada en live, campana y grupo ENABLED, goal
-    habilitado y no 'off', sin pausa de producto en vuelo del grupo, campana no
-    topada, hoja PAUSED y fuera de «Mantener pausada»; cuota 'pause' y la
-    reversa de la fila de la cola (tope de 3 en el ledger, que no se reinicia
-    aunque haya otra resume). Sin cupo o con una guarda en contra no se toca
-    Amazon: el ciclo siguiente lo vuelve a decidir. Una reversa de la fila que
-    quedo sin sello se resuelve por lectura antes de cobrar cuota y volver a
-    enviar (ARREGLOS 05 A, revision)."""
+    """Reactiva (resume) las pausas que el ciclo decidio reactivar consultando
+    la tabla unica `app.apply_estados.TABLA_TRANSICIONES`.
+
+    Toda decision pasa por `estado_inicial_desde_hechos` + `decidir(estado,
+    NUEVO_HORARIO)` bajo `candado_reversa_pause`: lo en vuelo se respeta, lo
+    incierto se lee antes de mirar filtros o tope, lo pausado por el dueno o
+    agotado al tope (`apply.TOPE_INTENTOS`) no vuelve a salir, y solo lo
+    pendiente y elegible cobra cuota y envia PUT."""
     if not decisiones:
         return ResumenReactivacion()
     platform = aplicador._platform
@@ -552,50 +617,45 @@ def aplica_reactivaciones(
             omitidas += 1
             continue
         with candado_reversa_pause(conn, fila.decision_id) as tomado:
-            if not tomado:
-                # Otra ruta (p.ej. reversa manual concurrente) ya esta operando
-                # sobre esta pausa: no se concilia ni reenvia sobre su envio en
-                # vuelo y queda pendiente de lectura para el siguiente horario.
-                pendientes_de_lectura += 1
-                continue
-            # Resuelve cualquier intento `reversa` abierto por lectura ANTES de
-            # los filtros que solo condicionan un nuevo PUT: si Amazon habilito
-            # la hoja, se perdio la respuesta y la ingesta actualizo la cache a
-            # ENABLED (o cambio una guarda), el intento abierto debe sellarse
-            # sin reenviar.
-            try:
-                veredicto = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
-            except AdsApiError as exc:
-                if apply.es_rechazo_de_identidad(exc):
-                    raise
-                # La lectura no alcanzo a resolver el intento anterior: sigue
-                # sin sello y pendiente de lectura; no se cobra ni se envia nada.
-                if (
-                    not conn.autocommit
-                    and conn.info.transaction_status != pq.TransactionStatus.IDLE
-                ):
-                    conn.rollback()
-                pendientes_de_lectura += 1
-                continue
-            if veredicto is not None:
-                # La hoja se cuenta y se pasa: ya habilitada (por lectura),
-                # pausada de nuevo por el dueno tras haberse visto habilitada
-                # (omitida sin reenviar), sin lectura conclusiva (pendiente de
-                # leerla en otro horario) o cerrada sin reenviar (archivada,
-                # sin identidad).
-                confirmadas += veredicto == "ya_habilitada"
-                fallidas += veredicto in ("archivada", "sin_identidad")
-                omitidas += veredicto == "pausada_manual"
-                pendientes_de_lectura += veredicto == "inconclusa"
-                continue
-            if conn.execute(
-                _SQL_REVERSA_TERMINAL,
-                (fila.decision_id, RESULTADO_PAUSADA_TRAS_HABILITAR, apply.TOPE_INTENTOS),
-            ).fetchone()[0]:
-                # Desenlace terminal ya registrado (ok, pausa manual posterior o
-                # tope de 3 intentos de reversa): un ejecutor posterior que
-                # recarga todos los resumes del origen no cobra ni envia otro PUT.
-                omitidas += 1
+            hechos = _hechos_reversa(conn, fila.decision_id) if tomado else None
+            estado = estado_inicial_desde_hechos(
+                en_vuelo_ajeno=not tomado,
+                tiene_intento_abierto=hechos.intento_abierto_id is not None if hechos else False,
+                resultado_terminal=hechos.resultado_terminal if hechos else None,
+                intentos_totales=hechos.intentos_totales if hechos else 0,
+                tope_intentos=apply.TOPE_INTENTOS,
+            )
+            transicion = decidir(estado, EventoCambio.NUEVO_HORARIO)
+            if transicion.accion == AccionCambio.LEER_RESULTADO:
+                try:
+                    tr_lectura = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
+                except AdsApiError as exc:
+                    if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+                        raise
+                    _rollback_si_abierta(conn)
+                    pendientes_de_lectura += 1
+                    continue
+                if tr_lectura is not None and tr_lectura.accion != AccionCambio.CONTAR_INTENTO:
+                    dc, df, do, dp = _contabiliza_transicion_reactivacion(tr_lectura)
+                    confirmadas += dc
+                    fallidas += df
+                    omitidas += do
+                    pendientes_de_lectura += dp
+                    continue
+                # El intento incierto se sello como no aplicado: reevalua contra
+                # el tope antes de cobrar cuota o enviar un nuevo PUT.
+                assert hechos is not None
+                estado_post = estado_inicial_desde_hechos(
+                    intentos_totales=hechos.intentos_totales,
+                    tope_intentos=apply.TOPE_INTENTOS,
+                )
+                transicion = decidir(estado_post, EventoCambio.NUEVO_HORARIO)
+            if transicion.accion != AccionCambio.ENVIAR:
+                dc, df, do, dp = _contabiliza_transicion_reactivacion(transicion)
+                confirmadas += dc
+                fallidas += df
+                omitidas += do
+                pendientes_de_lectura += dp
                 continue
             if not _elegible_para_put_reactivacion(
                 conn, aplicador, decision, mantener, grupos_pausa, presupuestos
@@ -620,18 +680,9 @@ def aplica_reactivaciones(
                     cerca_dueno=aplicador.exige_dueno,
                 )
             except AdsApiError as exc:
-                if apply.es_rechazo_de_identidad(exc):
+                if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
                     raise
-                # ARREGLOS 05 A.3: 5xx o red de ESTA reactivacion. Amazon pudo
-                # reanudarla; el intento `reversa` ya nacio y queda sin sellar,
-                # pendiente de lectura para que el horario siguiente abra
-                # ejecutor y concilie antes de reenviar. Los fallos globales
-                # siguen propagando.
-                if (
-                    not conn.autocommit
-                    and conn.info.transaction_status != pq.TransactionStatus.IDLE
-                ):
-                    conn.rollback()
+                _rollback_si_abierta(conn)
                 pendientes_de_lectura += 1
                 continue
             confirmadas += reanudada is True

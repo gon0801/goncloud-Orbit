@@ -21,6 +21,7 @@ from app import pantalla_productos as pp
 from app.ads import archivar
 from app.ads.client import AdsApiError
 from app.ads.config import AdsConfigError
+from app.apply_estados import EstadoCambio, transicion_desde_error, transicion_desde_status
 from app.dashboard_resumen import hoy_resumen
 from app.dia_cerrado import dia_local
 from app.redaction import scrub
@@ -397,7 +398,6 @@ def _ejecuta_pendientes(
             (reversa,) = conn.execute(
                 "SELECT reversa FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
             ).fetchone()
-        from app.apply_store import STATUS_IDENTIDAD_RECHAZADA, es_rechazo_de_identidad
         from app.cycle import ApplyAbortado
 
         try:
@@ -405,7 +405,10 @@ def _ejecuta_pendientes(
         except ApplyAbortado:
             raise
         except Exception as exc:
-            if decision_id is not None and es_rechazo_de_identidad(exc):
+            if (
+                decision_id is not None
+                and transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto
+            ):
                 raise
             resultados.append(
                 ResultadoAnuncio(
@@ -418,7 +421,10 @@ def _ejecuta_pendientes(
             )
             continue
         detalle = res.detalle if res.detalle else res.resultado
-        if decision_id is not None and res.status_http in STATUS_IDENTIDAD_RECHAZADA:
+        if (
+            decision_id is not None
+            and transicion_desde_status(EstadoCambio.INCIERTO, res.status_http).propaga_aborto
+        ):
             # Solo en cortes automaticos (AutorizacionDeDecision): el barrido
             # aborta la fase y deja la intencion abierta (resuelve_intencion_de_decision
             # solo lee y nunca reenvia). En retiros humanos (decision_id None)

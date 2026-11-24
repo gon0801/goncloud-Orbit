@@ -19,14 +19,11 @@ from app import temporada_io
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PerfilAds, evaluar_perfiles
+from app.apply_estados import TOPE_INTENTOS_CAMBIO as TOPE_INTENTOS
 from app.redaction import scrub
 
 if TYPE_CHECKING:
     from app.ads.write import AdsWriteClient
-
-# Tope de intentos por decision: "no existe 4o intento" es un COUNT verificable
-# contra el ledger (sellado 10 / brief §4.1).
-TOPE_INTENTOS = 3
 
 # Tope de paginas para readback por /list (page size v3 ~1000, cubre ~20k
 # filas): evita colgar el ciclo ante un nextToken infinito. Si la cuenta supera
@@ -328,19 +325,3 @@ def _actualiza_cache(conn: psycopg.Connection, ad_entity_id: int, bid_leido: Dec
 def _tick(tick: Callable[[], None] | None) -> None:
     if tick is not None:
         tick()
-
-
-# Un 403, o un 401 que sigue despues de refrescar el token, no rechaza ESA hoja
-# ni ESA lectura: Amazon rechaza la identidad o los permisos de toda la corrida.
-STATUS_IDENTIDAD_RECHAZADA = frozenset({401, 403})
-
-
-def es_rechazo_de_identidad(exc: BaseException) -> bool:
-    """True si `exc` es un rechazo por identidad o permisos, en una mutacion o
-    en una lectura.
-
-    Es un fallo global, no el desenlace de una hoja: quien lo recibe sella SU
-    intento con el rechazo si Amazon no aplico (o lo deja abierto si el PUT ya
-    salio y no se pudo leer) y lo propaga. Asi se detienen las mutaciones que
-    faltan y las fases despues (ARREGLOS 05 A, revision)."""
-    return isinstance(exc, AdsApiError) and exc.status in STATUS_IDENTIDAD_RECHAZADA

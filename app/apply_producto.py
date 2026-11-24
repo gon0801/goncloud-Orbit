@@ -36,6 +36,7 @@ from app import apply, productos_io
 from app import retiro_anuncios as ra
 from app.ads import archivar
 from app.ads.client import AdsApiError
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.optimizer import productos
 
 if TYPE_CHECKING:
@@ -278,7 +279,7 @@ def ejecuta_pause_producto(conn: psycopg.Connection, aplicador: Aplicador, fila:
         _sella_fallida(conn, fila.id, id_attempt, None, f"fallo:autorizacion_invalida: {exc}")
         return "failed"
     except AdsApiError as exc:
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
             # Identidad o permisos de toda la corrida: fallo global. El intento
             # queda pendiente, como en cualquier lectura sin respuesta, y la
             # fase aborta: ninguna mutacion mas sale (ARREGLOS 05 A, revision).

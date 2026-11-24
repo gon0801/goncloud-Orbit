@@ -55,6 +55,14 @@ ALLOWLIST_TAMANO = {
         "el registro entero. Partirlo por dominio volveria a los diccionarios "
         "sueltos que H borro — no se parte por partir"
     ),
+    "app/cycle.py": (
+        "ARREGLOS 05 A: orquestador unico de un horario (`atender_plataforma`, "
+        "plan del dia, TX1/TX2/TX3 con cerca de claim, recuperacion con "
+        "`resume_of` y `corre_ciclo`). La ejecucion y reconciliacion ya viven "
+        "en `app/cycle_apply.py` y el modelo de estados en `app/apply_estados.py`; "
+        "partir TX3 o el plan del dia en pedazos artificiales romperia la "
+        "cohesion del unico dueno del ciclo (regla anti-Goodhart)"
+    ),
 }
 
 # Fase 3.5 (ratchet solo-a-la-baja): techo de lineas por modulo allowlisted.
@@ -63,6 +71,8 @@ ALLOWLIST_TAMANO = {
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     "app/etiquetas.py": 1022,
+    # ARREGLOS 05 A: techo congelado del orquestador unico del ciclo.
+    "app/cycle.py": 1148,
 }
 
 

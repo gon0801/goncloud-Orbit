@@ -18,6 +18,14 @@ import psycopg
 from app.ads.client import AdsApiError
 from app.ads.sp_wire import id_de_ack
 from app.apply_cuota import DecisionBid
+from app.apply_estados import (
+    AccionCambio,
+    EstadoCambio,
+    EventoCambio,
+    decidir,
+    estado_inicial_desde_hechos,
+    transicion_desde_error,
+)
 from app.apply_store import (
     _KINDS_DECISORAS,
     _actualiza_cache,
@@ -27,7 +35,6 @@ from app.apply_store import (
     _ledger,
     _sella_ledger,
     _tick,
-    es_rechazo_de_identidad,
 )
 
 if TYPE_CHECKING:
@@ -183,7 +190,7 @@ def _confirmada_en_la_frontera_manual(accion) -> bool:
         # Una lectura sin estado (PENDIENTE_LECTURA) no confirma.
         return accion() is True
     except AdsApiError as exc:
-        if es_rechazo_de_identidad(exc):
+        if transicion_desde_error(EstadoCambio.PENDIENTE, exc).propaga_aborto:
             return False
         raise
 
@@ -249,13 +256,28 @@ def reversa_manual(
 
             def _reversa_pause_manual() -> bool | str:
                 with apply_cola.candado_reversa_pause(conn, fila.decision_id) as tomado:
-                    if not tomado:
-                        return False
-                    if _reversa_ya_hecha(conn, fila.decision_id):
+                    hechos = apply_cola._hechos_reversa(conn, fila.decision_id) if tomado else None
+                    estado = estado_inicial_desde_hechos(
+                        en_vuelo_ajeno=not tomado,
+                        tiene_intento_abierto=(
+                            hechos.intento_abierto_id is not None if hechos else False
+                        ),
+                        resultado_terminal=hechos.resultado_terminal if hechos else None,
+                        intentos_totales=0,
+                    )
+                    if estado == EstadoCambio.APLICADO:
                         raise ReversaYaHecha(fila.decision_id)
-                    veredicto = apply_cola.resuelve_reversa_abierta(conn, cliente, fila)
-                    if veredicto is not None:
-                        return veredicto == "ya_habilitada"
+                    if estado == EstadoCambio.EN_VUELO:
+                        return False
+                    if decidir(estado, EventoCambio.NUEVO_HORARIO).accion == (
+                        AccionCambio.LEER_RESULTADO
+                    ):
+                        tr_lectura = apply_cola.resuelve_reversa_abierta(conn, cliente, fila)
+                        if (
+                            tr_lectura is not None
+                            and tr_lectura.accion != AccionCambio.CONTAR_INTENTO
+                        ):
+                            return tr_lectura.estado_siguiente == EstadoCambio.APLICADO
                     return apply_cola.reversa_pause(conn, cliente, fila)
 
             confirmada = _confirmada_en_la_frontera_manual(_reversa_pause_manual)

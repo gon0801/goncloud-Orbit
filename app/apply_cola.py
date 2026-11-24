@@ -44,6 +44,7 @@ from app.apply_cola_ejecuta import (  # noqa: F401 - re-export estable
     _ejecuta_negative,
     _ejecuta_pause,
     _ejecuta_rama,
+    _hechos_reversa,
     _termina,
     aplica_reactivaciones,
     candado_reversa_pause,
@@ -54,6 +55,7 @@ from app.apply_cola_ejecuta import (  # noqa: F401 - re-export estable
     reversa_negative,
     reversa_pause,
 )
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_revalidacion import (  # noqa: F401 - re-export estable
     _SQL_CAMPANA_DE_GRUPO,
     _SQL_CONFIG_TARGET,
@@ -589,7 +591,7 @@ def _aisla_corte(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola,
     try:
         return _ejecuta_rama(conn, aplicador, fila, rama)
     except AdsApiError as exc:
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
             raise
         _aisla_fila(conn)
         return "failed"
@@ -611,7 +613,7 @@ def _aisla_harvest(
             conn, aplicador, platform, fila, alertas_harvest, caps_saturados, registra
         )
     except AdsApiError as exc:
-        if apply.es_rechazo_de_identidad(exc):
+        if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
             raise
         _aisla_fila(conn)
         return (0, 1, 0, 0)
@@ -703,7 +705,7 @@ def libera_vencidos(
                 None if temporada_neg is sin_cargar else temporada_neg,
             )
         except AdsApiError as exc:
-            if apply.es_rechazo_de_identidad(exc):
+            if transicion_desde_error(EstadoCambio.PENDIENTE, exc).propaga_aborto:
                 raise
             sin_respuesta += 1
             _registra(fila, apply.MOTIVO_SIN_RESPUESTA)
