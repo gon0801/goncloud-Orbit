@@ -31,7 +31,17 @@ SELECT id, lote, platform::text, campaign_external, ad_group_external,
  ORDER BY id
 """
 
-_SQL_SEQ = """
+_SQL_ARCHIVO = """
+SELECT estado, repuesto_external FROM keyword_archivo_manual WHERE id = %s
+"""
+
+_SQL_INTENTOS_TIPO = """
+SELECT seq, resultado, finished_at FROM keyword_reposicion_intento
+ WHERE archivo_id = %s AND tipo = %s
+ ORDER BY seq
+"""
+
+_SQL_MAX_SEQ = """
 SELECT coalesce(max(seq), 0) + 1 FROM keyword_reposicion_intento WHERE archivo_id = %s
 """
 
@@ -244,6 +254,19 @@ def hechos(conn: psycopg.Connection, archivo_id: int, tipo: str) -> Hechos:
     )
 
 
+def bloquea_reposicion(conn: psycopg.Connection, archivo_id: int, tipo: str) -> None:
+    """Cerrojo transaccional por fila y operacion: serializa claim y sello.
+
+    Sin el, un segundo CLI que decidio enviar antes del sello del primero
+    podria reservar una secuencia nueva justo despues de ese sello y emitir
+    otro CREATE. El cerrojo se libera al terminar la transaccion.
+    """
+    conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (f"reposicion:{archivo_id}:{tipo}",),
+    )
+
+
 def abre_intento(
     conn: psycopg.Connection,
     *,
@@ -252,18 +275,39 @@ def abre_intento(
     owner: str,
     payload: dict,
     lease_hasta: dt.datetime,
+    estado_esperado: str,
+    repuesto_external_esperado: str | None = None,
 ) -> int | None:
-    """Intencion durable. None si ya hay un intento abierto de esa operacion."""
-    seq = conn.execute(_SQL_SEQ, (archivo_id,)).fetchone()[0]
+    """Intencion durable, revalidando el sello de la fila bajo el cerrojo.
+
+    None si la fila ya no esta en el estado que autorizo el envio (otro CLI
+    sello antes), si ya hay un intento abierto de esa operacion o si la
+    operacion ya quedo `ok`.
+    """
     try:
         with conn.transaction():
+            bloquea_reposicion(conn, archivo_id, tipo)
+            archivo = conn.execute(_SQL_ARCHIVO, (archivo_id,)).fetchone()
+            if archivo is None or archivo[0] != estado_esperado:
+                return None
+            if tipo == "reversa" and (
+                repuesto_external_esperado is None
+                or str(archivo[1]) != str(repuesto_external_esperado)
+            ):
+                return None
+            intentos = conn.execute(_SQL_INTENTOS_TIPO, (archivo_id, tipo)).fetchall()
+            if any(f[1] == "ok" for f in intentos):
+                return None
+            if any(f[2] is None for f in intentos):
+                return None
+            seq = conn.execute(_SQL_MAX_SEQ, (archivo_id,)).fetchone()[0]
             fila = conn.execute(
                 _SQL_INSERTA,
                 (archivo_id, seq, tipo, owner, lease_hasta, Json(payload)),
             ).fetchone()
     except psycopg.errors.UniqueViolation:
-        # Otra sesion tomo el mismo seq entre el calculo y el INSERT: es un
-        # intento ajeno, no un error del protocolo.
+        # Otra sesion gano el mismo seq o el intento abierto entre la lectura
+        # y el INSERT: es un intento ajeno, no un error del protocolo.
         return None
     return fila[0] if fila is not None else None
 

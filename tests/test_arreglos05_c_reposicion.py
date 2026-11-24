@@ -27,6 +27,7 @@ from test_schema import _postgres_obligatorio_ausente
 
 from app import apply_estados as est
 from app.ads import archivar, archivar_inertes
+from app.ads import reposicion_store as store
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
 
@@ -437,6 +438,72 @@ def test_arreglos05_c_ack_y_readback_caido_no_repite_post(monkeypatch):
 
 
 @_skip_db
+def test_arreglos05_c_claim_revalida_el_sello_bajo_cerrojo():
+    """Dos CLI: si A sella antes de la reserva de B, B no reserva ni envia.
+    La reserva revalida el estado del archivo y el ultimo `ok` bajo el
+    cerrojo transaccional de la fila y la operacion."""
+    with _db("orbit_c05_claim") as (conn, extra):
+        fila, _viejo, _texto = _semilla(conn)
+        lease = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=5)
+        primero = store.abre_intento(
+            conn,
+            archivo_id=fila,
+            tipo="reponer",
+            owner="cli-a",
+            payload={},
+            lease_hasta=lease,
+            estado_esperado="applied",
+        )
+        assert primero is not None
+        store.guarda_ack_e_id(conn, primero, {"ok": True}, "k-1")
+        with conn.transaction():
+            assert store.sella(conn, primero, "ok")
+            assert store.sella_archivo_repuesto(conn, fila, "k-1", {"ok": True})
+        with extra() as otra:
+            assert (
+                store.abre_intento(
+                    otra,
+                    archivo_id=fila,
+                    tipo="reponer",
+                    owner="cli-b",
+                    payload={},
+                    lease_hasta=lease,
+                    estado_esperado="applied",
+                )
+                is None
+            ), "la fila ya no esta applied: no hay otro CREATE"
+        reversa = store.abre_intento(
+            conn,
+            archivo_id=fila,
+            tipo="reversa",
+            owner="cli-a",
+            payload={},
+            lease_hasta=lease,
+            estado_esperado="repuesto",
+            repuesto_external_esperado="k-1",
+        )
+        assert reversa is not None
+        store.guarda_ack_e_id(conn, reversa, {"ok": True}, "k-1")
+        with conn.transaction():
+            assert store.sella(conn, reversa, "ok")
+        with extra() as otra:
+            assert (
+                store.abre_intento(
+                    otra,
+                    archivo_id=fila,
+                    tipo="reversa",
+                    owner="cli-b",
+                    payload={},
+                    lease_hasta=lease,
+                    estado_esperado="repuesto",
+                    repuesto_external_esperado="k-1",
+                )
+                is None
+            ), "la reversa ya quedo ok: no hay otro DELETE"
+        assert [i["resultado"] for i in _intentos(conn, fila)] == ["ok", "ok"]
+
+
+@_skip_db
 def test_arreglos05_c_dos_cli_no_crean_dos_objetos():
     """Con un lease vivo, el segundo CLI no envia. Vencido el lease, lo toma y
     concilia por lectura, sin otro POST."""
@@ -792,6 +859,10 @@ def test_arreglos05_c_migracion_ida_reversa_e_ida_y_roles_reales():
             conn.execute(reversa.read_text(encoding="utf-8"))
 
     with _db("orbit_c05_mig_vacia") as (conn, _extra):
+        # El instalador evalua la sonda ANTES de aplicar: sobre una base sin la
+        # tabla no debe resolver ningun ::regclass de una relacion ausente.
+        conn.execute("DROP TABLE keyword_reposicion_intento")
+        assert conn.execute(_sonda(ida)).fetchone() == (False,)
         conn.execute(reversa.read_text(encoding="utf-8"))
         assert conn.execute(
             "SELECT to_regclass('public.keyword_reposicion_intento') IS NULL"

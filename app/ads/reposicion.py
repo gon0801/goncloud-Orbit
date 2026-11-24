@@ -162,6 +162,7 @@ def _sella_ok(
 ) -> None:
     """Sello del intento y del archivo en la misma transaccion."""
     with conn.transaction():
+        store.bloquea_reposicion(conn, fila.id, intento.tipo)
         if intento.external_id is None:
             store.guarda_external(conn, intento.id, external_id)
         if intento.ack is None:
@@ -174,9 +175,15 @@ def _sella_ok(
 
 
 def _sella_resultado(
-    conn: psycopg.Connection, intento_id: int, resultado: str, ack: dict | None = None
+    conn: psycopg.Connection,
+    archivo_id: int,
+    tipo: str,
+    intento_id: int,
+    resultado: str,
+    ack: dict | None = None,
 ) -> None:
     with conn.transaction():
+        store.bloquea_reposicion(conn, archivo_id, tipo)
         if ack is not None:
             store.guarda_ack(conn, intento_id, ack)
         if not store.sella(conn, intento_id, resultado):
@@ -248,13 +255,13 @@ def _desenlace(
         )
     if trans.accion == est.AccionCambio.SELLAR_TERMINAL:
         resultado = _resultado_terminal(evento)
-        _sella_resultado(conn, intento.id, resultado)
+        _sella_resultado(conn, fila.id, tipo, intento.id, resultado)
         nombre = "ajeno" if resultado == est.RESULTADO_IDENTIDAD_SUSTITUIDA else "archivado"
         return ResultadoReposicionKeyword(
             fila.id, fila.keyword_external, nombre, f"sellado {resultado}"
         )
     if trans.accion == est.AccionCambio.CONTAR_INTENTO:
-        _sella_resultado(conn, intento.id, est.RESULTADO_NO_APLICADO)
+        _sella_resultado(conn, fila.id, tipo, intento.id, est.RESULTADO_NO_APLICADO)
         return _pendiente(fila, "lectura completa no encontro el efecto: se cuenta el intento")
     if trans.accion == est.AccionCambio.ABORTAR_FASE:
         raise AbortoFase(f"rechazo de identidad en la lectura de {fila.keyword_external}")
@@ -333,6 +340,7 @@ def _reponer_fila(
         owner=owner,
         payload=payload,
         lease_hasta=_lease(),
+        estado_esperado="applied",
     )
     conn.commit()
     if intento_id is None:
@@ -386,7 +394,7 @@ def _reponer_fila(
             estado_esperado=ESTADO_PAUSADO,
         )
         return _desenlace(conn, fila, intento, evento, tipo="reponer")
-    _sella_resultado(conn, intento.id, est.RESULTADO_REPOSICION_RECHAZO, ack)
+    _sella_resultado(conn, fila.id, "reponer", intento.id, est.RESULTADO_REPOSICION_RECHAZO, ack)
     return ResultadoReposicionKeyword(
         fila.id, fila.keyword_external, "fallo", f"rechazo {status}: {ack.get('texto', '')}"
     )
@@ -475,6 +483,8 @@ def _revertir_fila(
             owner=owner,
             payload=_payload_reversa(fila),
             lease_hasta=_lease(),
+            estado_esperado="repuesto",
+            repuesto_external_esperado=str(fila.repuesto_external),
         )
         conn.commit()
         if intento_id is None:
@@ -502,6 +512,8 @@ def _revertir_fila(
         owner=owner,
         payload=_payload_reversa(fila),
         lease_hasta=_lease(),
+        estado_esperado="repuesto",
+        repuesto_external_esperado=str(fila.repuesto_external),
     )
     conn.commit()
     if intento_id is None:
@@ -525,7 +537,9 @@ def _revertir_fila(
         return _pendiente(fila, f"DELETE incierto ({status}): el intento sigue abierto")
     cuerpo = ack.get("cuerpo")
     if status >= 400 or (isinstance(cuerpo, dict) and errores_de_ack(cuerpo)):
-        _sella_resultado(conn, intento.id, est.RESULTADO_REPOSICION_RECHAZO, ack)
+        _sella_resultado(
+            conn, fila.id, "reversa", intento.id, est.RESULTADO_REPOSICION_RECHAZO, ack
+        )
         return ResultadoReposicionKeyword(
             fila.id, fila.keyword_external, "fallo", f"rechazo {status}: {ack.get('texto', '')}"
         )
