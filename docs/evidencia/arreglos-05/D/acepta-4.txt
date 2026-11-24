@@ -1,5 +1,5 @@
-# Acepta de ARREGLOS 05 D. SHA 72c4ee299d4331e688ef1237c57930dcce0d1740 (parte 4 de 4)
-# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 4 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
@@ -15,33 +15,33 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-163 passed, 1 warning in 231.21s (0:03:51)
+163 passed, 1 warning in 237.92s (0:03:57)
 resultado=ok
 
 ### [CONTROL] reposicion durable del bloque C
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_c_reposicion.py
 ....................                                                     [100%]
-20 passed in 20.33s
+20 passed in 20.06s
 resultado=ok
 
 ### [CONTROL] esquema y ledger del aplicador
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
 ........................................................................ [ 61%]
 .............................................                            [100%]
-117 passed in 23.62s
+117 passed in 25.53s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migraciones de ARREGLOS 05
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
 ...                                                                      [100%]
-3 passed, 47 deselected in 3.56s
+3 passed, 47 deselected in 3.59s
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=7ef47542f5ab421359f049583b1bc7db95662079..HEAD
-[90m1:57PM[0m [32mINF[0m [1m5 commits scanned.[0m
-[90m1:57PM[0m [32mINF[0m [1mscanned ~151851 bytes (151.85 KB) in 236ms[0m
-[90m1:57PM[0m [32mINF[0m [1mno leaks found[0m
+[90m2:29PM[0m [32mINF[0m [1m7 commits scanned.[0m
+[90m2:29PM[0m [32mINF[0m [1mscanned ~169889 bytes (169.89 KB) in 264ms[0m
+[90m2:29PM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0

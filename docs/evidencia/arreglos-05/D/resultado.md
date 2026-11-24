@@ -3,8 +3,8 @@
 Bloque de implementacion, `lane: release`. Base: `master` en
 `7ef47542f5ab421359f049583b1bc7db95662079` (con BASE, A, B y C integrados y
 desplegados). Rama `arreglos-05/d`. Codigo verificado: `9acd2646` y las
-correcciones de la ronda 1 `d4e613b8`/`72c4ee29`; pruebas y candados:
-`f946d329` y `d4e613b8`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
+correcciones de las rondas 1 y 2 `d4e613b8`/`72c4ee29`/`db5e5485`; pruebas
+y candados: `f946d329`, `d4e613b8` y `db5e5485`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
 «D-E. Escritor unico y practicas vencidas» de [DISENO.md](../DISENO.md), solo
 la parte D.
 
@@ -48,10 +48,10 @@ la parte D.
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
 | D.1 | `D/escritores.tsv` + `rg -n -e '_client[.]request' -e 'def _post' app tools` | `9acd2646` | Inventario con 22 callers; 5 nombres `_post*` revisados por semantica y solo dos eran transporte propio | Cada caller declara metodo, ruta, perfil, modo, ledger, confirmacion y reversa | Es documental |
-| D.2 | `N d` | `d4e613b8` | 22 passed, salida 0 | Perfil, metodo o ruta ajenos se deniegan antes del HTTP; cada mutacion tiene intencion previa; un error por item no sella ok | `rollback.sh` con el `MOTOR_SHA` desplegado; sin migracion que deshacer |
-| D.2 | `T writes test_11` | `d4e613b8` | 1 passed, salida 0 | El contrato de C sigue intacto por el transporte nuevo | Igual que D.2 |
-| D.3 | `N d` + suites de los duenos | `d4e613b8` | 22 passed; fabrica 192, API 113, impulso 114, archivo 47, product ads 136, aplicador 168 | Fabrica parcial, retiro, reactivacion, sonda (operaciones del cliente) y reposicion/reversa verificadas por su dueno | Igual que D.2 |
-| D.3 | `test_architecture.py` | `d4e613b8` | 99 passed, 2 skipped, salida 0 | El mapa de importadores del cliente de escritura quedo con dos entradas nuevas y su razon; presupuesto de 900 lineas intacto | Igual que D.2 |
+| D.2 | `N d` | `db5e5485` | 23 passed, salida 0 | Perfil, metodo o ruta ajenos se deniegan antes del HTTP; cada mutacion tiene intencion previa; un error por item no sella ok | `rollback.sh` con el `MOTOR_SHA` desplegado; sin migracion que deshacer |
+| D.2 | `T writes test_11` | `db5e5485` | 1 passed, salida 0 | El contrato de C sigue intacto por el transporte nuevo | Igual que D.2 |
+| D.3 | `N d` + suites de los duenos | `db5e5485` | 23 passed; fabrica 192, API 113, impulso 114, archivo 47, product ads 136, aplicador 168 | Fabrica parcial, retiro, reactivacion, sonda (operaciones del cliente) y reposicion/reversa verificadas por su dueno | Igual que D.2 |
+| D.3 | `test_architecture.py` | `db5e5485` | 99 passed, 2 skipped, salida 0 | El mapa de importadores del cliente de escritura quedo con dos entradas nuevas y su razon; presupuesto de 900 lineas intacto | Igual que D.2 |
 
 Comandos y salidas completos en [acepta.txt](acepta.txt) (partes 1 a 4 en
 `acepta-1.txt` a `acepta-4.txt`), que genera [acepta.sh](acepta.sh). El SHA del
@@ -163,7 +163,21 @@ cuatro se corrigieron con su regresion en rojo contra `acaf7da7`
   `test_arreglos05_d_reposicion_lwa_rechazado_detiene_la_fase` (dos filas y
   un rechazo de LWA: solo la primera abre intento).
 
-Recibo rehecho sobre `d4e613b8`: `N d` 22 y las cuatro partes en verde.
+Recibo rehecho sobre `db5e5485`: `N d` 23 y las cuatro partes en verde.
+
+## Ronda 2 de revision (P1 corregido)
+
+**P1, LWA caido en el camino del vigia.** `PausadorFabrica.pausa_huerfanas` no
+pasa por el preflight de `mutar`. Si el primer token del escritor fallaba,
+`AdsAuthError` (hermano, no subclase, de `AdsApiError`) escapaba de
+`_put_estado_campana` **despues** del `INSERT` del paso: la fila quedaba
+`planeado` sin `external_id` ni ACK y las demas campanas del lote no se
+pausaban. Ahora ese fallo se reporta como `ACK_SIN_ENVIO` (nada salio, sin
+ambiguedad), el paso se sella `failed` con su ID y el motivo de LWA, y la
+siguiente campana se intenta con el token que ya funciona.
+Regresion: `test_arreglos05_d_fabrica_pausa_huerfanas_sigue_sin_token` (dos
+campanas, LWA que agota sus reintentos en la primera y token valido en la
+segunda; rojo contra `0965b1ce` en [rojo-ronda2.txt](rojo-ronda2.txt)).
 
 ## Como se regresa
 

@@ -1,0 +1,57 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+__________ test_arreglos05_d_fabrica_pausa_huerfanas_sigue_sin_token __________
+
+    def test_arreglos05_d_fabrica_pausa_huerfanas_sigue_sin_token():
+        """Un fallo de LWA en la primera pausa no deja el paso a medias ni frena el resto.
+
+        `AdsAuthError` no es `AdsApiError`: sin este camino escapaba despues del
+        INSERT del paso, dejandolo `planeado` sin ID y saltandose las demas
+        campanas. Ahora el paso se sella `failed` con su `external_id` y el motivo,
+        y la siguiente campana se intenta con el token que ya funciona."""
+        from app import impulso_preview as io
+
+        estados = {"c-1": "ENABLED", "c-2": "ENABLED"}
+        puts: list[str] = []
+        intentos_lwa: list[int] = []
+
+        def handler_lector(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "lector", "expires_in": 3600})
+            assert request.url.path.endswith("/list")
+            pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            return httpx.Response(
+                200, json={"campaigns": [{"campaignId": pedido, "state": estados[pedido]}]}
+            )
+
+        def handler_escritor(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                intentos_lwa.append(1)
+                # El refresh es idempotente: el cliente agota sus reintentos y
+                # recien entonces lanza AdsAuthError. La segunda campana ya
+                # encuentra el token.
+                if len(intentos_lwa) <= 4:
+                    return httpx.Response(503, json={"error": "temporal"})
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            assert request.method == "PUT" and request.url.path == "/sp/campaigns"
+            campana = json.loads(request.content)["campaigns"][0]
+            puts.append(campana["campaignId"])
+            estados[campana["campaignId"]] = campana["state"]
+            return httpx.Response(207, json={"campaigns": {"success": [{}], "error": []}})
+
+        conn = _ConnPausaHuerfanas([("exact", "c-1"), ("auto", "c-2")])
+        pausador = io.PausadorFabrica(conn)
+        pausador._armado = (CRC, _Lector(handler_lector), {"amazon_mx": 101})
+        pausador._ctxs["amazon_mx"] = fm._Ctx(
+            _escritor(handler_escritor), _Lector(handler_lector), 101, conn, "L1"
+        )
+>       with pytest.raises(Exception, match="c-1"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'c-1'
+E         Actual message: 'fallo refrescando el token LWA: POST https://api.amazon.com/auth/o2/token'
+
+tests\test_arreglos05_d_write.py:587: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_fabrica_pausa_huerfanas_sigue_sin_token
+1 failed in 1.98s

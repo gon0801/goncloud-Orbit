@@ -1,5 +1,5 @@
-# Acepta de ARREGLOS 05 D. SHA 72c4ee299d4331e688ef1237c57930dcce0d1740 (parte 3 de 4)
-# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 3 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
@@ -8,13 +8,13 @@
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_ads_write.py tests/test_ads_client.py tests/test_ads_archivar.py
 ........................................................................ [ 52%]
 ................................................................         [100%]
-136 passed in 3.34s
+136 passed in 3.39s
 resultado=ok
 
 ### [CONTROL] archivo manual de inertes y reposicion
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_archiva_inertes.py
 ...............................................                          [100%]
-47 passed in 12.56s
+47 passed in 13.03s
 resultado=ok
 
 ### [CONTROL] aplicador, cosecha y reversa
@@ -22,7 +22,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 42%]
 ........................................................................ [ 85%]
 ........................                                                 [100%]
-168 passed in 185.95s (0:03:05)
+168 passed in 195.83s (0:03:15)
 resultado=ok
 
 # comandos que no pasaron: 0

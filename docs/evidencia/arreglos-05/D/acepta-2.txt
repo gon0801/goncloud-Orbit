@@ -1,5 +1,5 @@
-# Acepta de ARREGLOS 05 D. SHA 72c4ee299d4331e688ef1237c57930dcce0d1740 (parte 2 de 4)
-# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 2 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
@@ -9,7 +9,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 37%]
 ........................................................................ [ 75%]
 ................................................                         [100%]
-192 passed in 64.44s (0:01:04)
+192 passed in 66.60s (0:01:06)
 resultado=ok
 
 ### [CONTROL] API de la fabrica (retiro, impulso y post-lotes)
@@ -22,14 +22,14 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-113 passed, 1 warning in 178.76s (0:02:58)
+113 passed, 1 warning in 181.22s (0:03:01)
 resultado=ok
 
 ### [CONTROL] pausador y vigia del impulso (sin el caso de password del entorno)
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_impulso_io.py -k not b1a_conexion_propia_lleva_credencial
 ........................................................................ [ 63%]
 ..........................................                               [100%]
-114 passed, 1 deselected in 184.89s (0:03:04)
+114 passed, 1 deselected in 177.65s (0:02:57)
 resultado=ok
 
 # comandos que no pasaron: 0
