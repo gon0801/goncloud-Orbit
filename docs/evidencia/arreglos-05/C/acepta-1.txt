@@ -1,5 +1,5 @@
-# Acepta de ARREGLOS 05 C. SHA 40eb2bb9eb9d6c95ea7a89d6232c9e75b2c00ada (parte 1 de 3)
-# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
+# Acepta de ARREGLOS 05 C. SHA 057f2ab1a36de0a7ac0a9135b6f5b7149a42a95e (parte 1 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
@@ -7,7 +7,7 @@
 ### [ACEPTA] C.2: T writes test_11, un solo POST tras ACK y readback fallido
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_11
 .                                                                        [100%]
-1 passed, 8 deselected in 14.33s
+1 passed, 8 deselected in 14.14s
 resultado=ok
 
 ### [ACEPTA] C.1 a C.3: N c, regresiones del bloque (incluye selector del instalador)
@@ -19,7 +19,7 @@ $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N c
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-16 passed, 6362 deselected, 1 warning in 36.07s
+16 passed, 6362 deselected, 1 warning in 35.50s
 resultado=ok
 
 ### [ACEPTA] C.1: modelo de estados completo (165 casillas), invariantes y clasificadores
@@ -27,20 +27,20 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 42%]
 ........................................................................ [ 84%]
 ..........................                                               [100%]
-170 passed in 1.12s
+170 passed in 1.91s
 resultado=ok
 
 ### [CONTROL] bloque A: regresiones de ciclo
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
 .........................................................                [100%]
-57 passed in 105.05s (0:01:45)
+57 passed in 105.67s (0:01:45)
 resultado=ok
 
 ### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
 ..............................................................ss........ [ 71%]
 .............................                                            [100%]
-99 passed, 2 skipped in 10.41s
+99 passed, 2 skipped in 10.68s
 resultado=ok
 
 # comandos que no pasaron: 0
