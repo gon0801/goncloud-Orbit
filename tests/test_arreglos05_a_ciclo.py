@@ -2415,3 +2415,182 @@ def test_arreglos05_a_la_reversa_de_cosecha_propaga_el_rechazo_de_identidad(monk
             contexto,
             **{**argumentos, "reversa_delete_fn": lambda *a: rechaza(400, *a)},
         ).startswith("reversa: fallo"), "un 400 sigue siendo texto"
+
+
+@_skip_db
+@pytest.mark.parametrize("en", ["put", "readback", "previa_interna"])
+def test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente(
+    monkeypatch, en
+):
+    """Revision de Astra del PR #746 (cuarta pasada): recorrido real de la
+    pausa de producto sin sustituir `ejecuta_retiro` ni `pausar_anuncios`. Con
+    las lecturas previas exitosas, un 403 en el PUT `/sp/productAds`, en su
+    readback posterior o en la lectura previa interna de `pausar_anuncios` debe
+    propagar hasta el limite de fase, dejar la intencion abierta y frenar el
+    corte elegible siguiente (la pausa de keyword)."""
+    from psycopg.types.json import Json
+    from test_apply_cola import _entidad
+    from test_cycle import _config_version
+
+    from app import apply_cola, apply_producto
+    from app.ads import archivar
+    from app.ads.client import AdsApiError
+
+    with _db(f"orbit_a05_prod_real_{en}") as (conn, _extra):
+        ids = _semilla_live(conn)
+        vigente = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        ids["config_id"] = _config_version(
+            conn, {**vigente, "ads_producto_pausa_amazon_us": "live"}
+        )
+
+        anterior = _Amazon(**REMOTO_INICIAL, rechaza_bids=True)
+        res0 = _corre(
+            conn, factory=_directa(anterior), ahora=DECIDED_AT - 26 * dt.timedelta(hours=1)
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(), vetoed_by = 'test',"
+            " vence_el = now() + interval '30 days' WHERE kind <> 'pause'"
+        )
+
+        producto = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('SKU-A11', 'SKU-A11') RETURNING id"
+        ).fetchone()[0]
+        listing = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_us', 'ASIN-A11', 'SS-A11') RETURNING id",
+            (producto,),
+        ).fetchone()[0]
+        anuncio = _entidad(conn, "product_ad", "pa-11", parent=ids["ag"])
+        conn.execute("UPDATE ad_entity SET listing_id = %s WHERE id = %s", (listing, anuncio))
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', now())",
+            (anuncio,),
+        )
+        ciclo_prod = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec_producto = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'pause', %s, %s, %s, %s, '{}'::jsonb) RETURNING id",
+            (
+                ciclo_prod,
+                anuncio,
+                ids["config_id"],
+                DECIDED_AT - 5 * DIA,
+                (DECIDED_AT - 65 * DIA).date(),
+                (DECIDED_AT - 36 * DIA).date(),
+            ),
+        ).fetchone()[0]
+        fila_producto = conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id, modo, estado,"
+            " vence_el, encolado_at, request_payload)"
+            " VALUES ('amazon_us', %s, 'pause', %s, 'live', 'pending_veto', %s, %s, %s)"
+            " RETURNING id",
+            (
+                anuncio,
+                dec_producto,
+                DECIDED_AT - dt.timedelta(hours=2),
+                DECIDED_AT - 5 * DIA,
+                Json({"adId": "pa-11"}),
+            ),
+        ).fetchone()[0]
+
+        ag_ext = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (ids["ag"],)
+        ).fetchone()[0]
+        camp_ext = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (ids["camp"],)
+        ).fetchone()[0]
+
+        base = _Amazon(**REMOTO_INICIAL)
+        lists_pa: list[int] = []
+        puts_pa: list[dict] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/productAds/list":
+                lists_pa.append(len(lists_pa) + 1)
+                # 1: revalida_pause_producto, 2: ejecuta_retiro, 3: previa interna de
+                # pausar_anuncios, 4: readback posterior al PUT.
+                if en == "previa_interna" and len(lists_pa) == 3:
+                    return httpx.Response(403, json={"code": "ACCESS_DENIED"})
+                if en == "readback" and puts_pa:
+                    return httpx.Response(403, json={"code": "ACCESS_DENIED"})
+                return httpx.Response(
+                    200,
+                    json={
+                        "productAds": [
+                            {
+                                "adId": "pa-11",
+                                "adGroupId": ag_ext,
+                                "campaignId": camp_ext,
+                                "sku": "SS-A11",
+                                "asin": "ASIN-A11",
+                                "state": "ENABLED",
+                            }
+                        ]
+                    },
+                )
+            if request.method == "PUT" and request.url.path == "/sp/productAds":
+                cuerpo = json.loads(request.content)["productAds"][0]
+                puts_pa.append(cuerpo)
+                if en == "put":
+                    return httpx.Response(403, json={"code": "ACCESS_DENIED"})
+                return httpx.Response(207, json={"productAds": {"success": [cuerpo]}})
+            return base(request)
+
+        # La revalidacion economica del producto se salta, pero su lectura viva
+        # en Amazon si corre; plan, retiro, pausar_anuncios y el PUT son reales.
+        def revalida_solo_lectura(_conn, ap, _fila, _ahora):
+            vista = archivar.leer_anuncios(ap._cliente(), ["pa-11"]).get("pa-11")
+            assert vista is not None and vista["state"] == "ENABLED"
+            return None
+
+        monkeypatch.setattr(apply_producto, "revalida_pause_producto", revalida_solo_lectura)
+        aplicador = _directa(api)(
+            conn,
+            platform="amazon_us",
+            cycle_id_ejecutor=res0.cycle_id,
+            owner=OWNER,
+            job_key=JOB_KEY,
+            tick=lambda: None,
+        )
+        with pytest.raises(AdsApiError) as fallo:
+            apply_cola.libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=DECIDED_AT + DIA,
+                aplicador=aplicador,
+                cycle_id=res0.cycle_id,
+            )
+        assert fallo.value.status == 403
+        assert len(puts_pa) == (0 if en == "previa_interna" else 1)
+        assert base.puts_estado == [], "no sale la mutacion del corte siguiente"
+        assert (
+            conn.execute(
+                "SELECT estado FROM apply_queue WHERE id = %s", (fila_producto,)
+            ).fetchone()[0]
+            == "applying"
+        ), "la pausa de producto queda pendiente"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM anuncio_retiro_intencion"
+                " WHERE decision_id = %s AND cerrada_el IS NULL",
+                (dec_producto,),
+            ).fetchone()[0]
+            == 1
+        ), "la intencion de retiro queda abierta para reconciliacion"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND finished_at IS NULL",
+                (dec_producto,),
+            ).fetchone()[0]
+            == 1
+        ), "el intento queda abierto"

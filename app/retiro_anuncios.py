@@ -397,6 +397,7 @@ def _ejecuta_pendientes(
             (reversa,) = conn.execute(
                 "SELECT reversa FROM anuncio_retiro_intencion WHERE id = %s", (iid,)
             ).fetchone()
+        from app.apply_store import STATUS_IDENTIDAD_RECHAZADA, es_rechazo_de_identidad
         from app.cycle import ApplyAbortado
 
         try:
@@ -404,6 +405,8 @@ def _ejecuta_pendientes(
         except ApplyAbortado:
             raise
         except Exception as exc:
+            if es_rechazo_de_identidad(exc):
+                raise
             resultados.append(
                 ResultadoAnuncio(
                     ad_id,
@@ -415,6 +418,10 @@ def _ejecuta_pendientes(
             )
             continue
         detalle = res.detalle if res.detalle else res.resultado
+        if res.status_http in STATUS_IDENTIDAD_RECHAZADA:
+            error = AdsApiError(f"status={res.status_http}: {scrub(detalle)}")
+            error.status = res.status_http
+            raise error
         if res.resultado in ("pausado", "ya_estaba"):
             propio = _put_propio(res)
             rid = _sella_retiro(
