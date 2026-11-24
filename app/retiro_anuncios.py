@@ -405,7 +405,7 @@ def _ejecuta_pendientes(
         except ApplyAbortado:
             raise
         except Exception as exc:
-            if es_rechazo_de_identidad(exc):
+            if decision_id is not None and es_rechazo_de_identidad(exc):
                 raise
             resultados.append(
                 ResultadoAnuncio(
@@ -418,7 +418,11 @@ def _ejecuta_pendientes(
             )
             continue
         detalle = res.detalle if res.detalle else res.resultado
-        if res.status_http in STATUS_IDENTIDAD_RECHAZADA:
+        if decision_id is not None and res.status_http in STATUS_IDENTIDAD_RECHAZADA:
+            # Solo en cortes automaticos (AutorizacionDeDecision): el barrido
+            # aborta la fase y deja la intencion abierta (resuelve_intencion_de_decision
+            # solo lee y nunca reenvia). En retiros humanos (decision_id None)
+            # el rechazo explicito cierra la intencion y responde por anuncio.
             error = AdsApiError(f"status={res.status_http}: {scrub(detalle)}")
             error.status = res.status_http
             raise error

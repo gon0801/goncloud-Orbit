@@ -2872,3 +2872,102 @@ def test_r09a_pausar_repetido_desarmado_y_sin_campanas_409(escenario, monkeypatc
     monkeypatch.setattr(fl, "pausar_lote", _pausa_rechazada)
     r = _pausa()
     assert r.status_code == 502, r.text
+
+
+def test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia(escenario, monkeypatch):
+    """Revision de Devin del PR #746 (quinta pasada): en un retiro humano
+    (`/api/fabrica/retiro/ejecutar`, AutorizacionHumana, decision_id None), si
+    los LIST responden 200 ENABLED y el PUT devuelve 403, `_ejecuta_pendientes`
+    no debe elevar `AdsApiError` (que daba 500 sin resultados por anuncio y
+    dejaba abierta la intencion para que `reconcilia_intenciones` reenviara la
+    pausa despues). Debe cerrar la intencion como rechazado, devolver 200 con
+    el detalle por anuncio y el vigia no debe reenviar nada. Tambien ante un
+    readback posterior 403 el endpoint devuelve 200 `pendiente` (no 500)."""
+    import httpx
+    from test_retiro_anuncios import _bolsa, _escritor, _fila
+
+    from app import retiro_anuncios as ra
+    from app.ads import archivar
+    from tests.test_ads_write import _token_response, make_write_client
+
+    cliente, conn, _, _, ids = escenario
+    _db_i5(conn)
+    lid = _lid_de(conn, ids[1])
+    _bolsa(conn, lid, "ad-403")
+    fila_ad = _fila("ad-403", "ENABLED")["ad-403"]
+
+    def _handler_put_403(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.method == "PUT" and request.url.path == "/sp/productAds":
+            return httpx.Response(403, json={"code": "ACCESS_DENIED"})
+        if request.method == "POST" and request.url.path == "/sp/productAds/list":
+            return httpx.Response(200, json={"productAds": [fila_ad]})
+        raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+    escritor_403 = make_write_client(_handler_put_403, platform="amazon_mx")
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor_403)
+    plan = cliente.post(
+        "/api/fabrica/retiro/plan",
+        json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
+    ).json()
+    r = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert cuerpo["retirados"] == 0 and cuerpo["total"] == 1
+    assert cuerpo["anuncios"][0]["resultado"] == "rechazado"
+    assert (
+        conn.execute(
+            "SELECT count(*) FROM anuncio_retiro_intencion WHERE cerrada_el IS NULL"
+        ).fetchone()[0]
+        == 0
+    ), "la intencion rechazada debe quedar cerrada"
+
+    # Con permisos restaurados, el vigia diario no reenvia la pausa rechazada.
+    escritor_ok, puts_vigia = _escritor(_fila("ad-403", "ENABLED"))
+    assert ra.reconcilia_intenciones(conn, escritor=escritor_ok) == []
+    assert puts_vigia == [], "el vigia no debe reenviar una pausa humana rechazada"
+    assert conn.execute("SELECT count(*) FROM anuncio_retiro").fetchone()[0] == 0
+
+    # Segundo caso humano: PUT 207 y readback posterior 403 -> 200 pendiente, no 500.
+    puts_rb: list[dict] = []
+
+    def _handler_readback_403(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        if request.method == "PUT" and request.url.path == "/sp/productAds":
+            puts_rb.append({"adId": "ad-403"})
+            return httpx.Response(207, json={"productAds": {"success": [{"adId": "ad-403"}]}})
+        if request.method == "POST" and request.url.path == "/sp/productAds/list":
+            if puts_rb:
+                return httpx.Response(403, json={"code": "ACCESS_DENIED"})
+            return httpx.Response(200, json={"productAds": [fila_ad]})
+        raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+    escritor_rb = make_write_client(_handler_readback_403, platform="amazon_mx")
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor_rb)
+    r2 = cliente.post(
+        "/api/fabrica/retiro/ejecutar",
+        headers=HEADERS,
+        json={
+            "plataforma": "amazon_mx",
+            "listing_ids": [lid],
+            "motivo": "sin_pedidos",
+            "huella": plan["huella"],
+            "confirmacion": "SACAR 1 ANUNCIOS",
+            "actor": "dueno",
+        },
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["anuncios"][0]["resultado"] == "pendiente"
