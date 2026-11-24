@@ -712,17 +712,26 @@ def aplica_reactivaciones(
         return ResumenReactivacion()
     platform = aplicador._platform
     settings = settings_vigentes(conn)
-    if temporada.modo_desde_settings(settings, platform) != "live":
-        return ResumenReactivacion(omitidas=len(decisiones))
-    config = temporada.desde_settings(settings)
-    if config is None:
-        # live sin configuracion de calendario: no se inventa una reactivacion.
-        return ResumenReactivacion(omitidas=len(decisiones))
-    mantener = config.mantener_pausadas
-    topada = temporada.campana_topada_desde_settings(settings)
-    hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
-    grupos_pausa = grupos_con_pausa_producto(conn, platform)
-    presupuestos = presupuestos_campanas_hoy(conn, platform, hoy, topada)
+    # Los intentos abiertos se concilian por lectura incluso si temporada paso a
+    # shadow/off o quedo sin calendario: el apagador solo impide nuevos envios
+    # (ARREGLOS 05 A, 9a pasada de Astra).
+    config = (
+        temporada.desde_settings(settings)
+        if temporada.modo_desde_settings(settings, platform) == "live"
+        else None
+    )
+    temporada_en_vivo = config is not None
+    if temporada_en_vivo:
+        assert config is not None
+        mantener = config.mantener_pausadas
+        topada = temporada.campana_topada_desde_settings(settings)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        grupos_pausa = grupos_con_pausa_producto(conn, platform)
+        presupuestos = presupuestos_campanas_hoy(conn, platform, hoy, topada)
+    else:
+        mantener = frozenset()
+        grupos_pausa = frozenset()
+        presupuestos = {}
     confirmadas = fallidas = sin_quota = omitidas = pendientes_de_lectura = 0
     caps_saturados: list[CapSaturado] = []
     for decision in decisiones:
@@ -776,7 +785,7 @@ def aplica_reactivaciones(
                 omitidas += do
                 pendientes_de_lectura += dp
                 continue
-            if not _elegible_para_put_reactivacion(
+            if not temporada_en_vivo or not _elegible_para_put_reactivacion(
                 conn, aplicador, decision, mantener, grupos_pausa, presupuestos
             ):
                 omitidas += 1

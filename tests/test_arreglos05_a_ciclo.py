@@ -4201,3 +4201,150 @@ def test_arreglos05_a_tercer_put_incierto_al_cambio_de_dia_se_concilia_sin_cuart
             ).fetchone()[0]
             == "PAUSED"
         )
+
+
+@_skip_db
+def test_arreglos05_a_reversa_abierta_se_concilia_aunque_temporada_pase_a_shadow():
+    """Revision de Astra (PR #746, 9a pasada): si un PUT de reactivacion queda
+    incierto en el horario 1 y antes del horario 2 del mismo dia se cambia
+    temporada a `shadow` manteniendo el optimizador global en `live`, el
+    ejecutor debe leer y sellar los intentos abiertos antes de la guarda de
+    temporada (ENABLED -> `ok`; PAUSED -> `ok:no_aplicado`), dejando al
+    apagador de temporada impedir cualquier nuevo PUT o cuota."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import (
+        _config,
+        _episodio,
+        _nueva_kw,
+        _pausa_baja,
+        _pausado,
+        estacion_dia,
+    )
+
+    from app import apply_cola, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_temp_shadow_concilia") as (conn, _extra):
+        ids = _semilla_live(conn)
+        a, b = ids["kw_pause"], _nueva_kw(conn, ids["ag"], "9204")
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausas = {}
+        for hoja in (a, b):
+            pausa, _q = _pausa_baja(
+                conn,
+                ciclo_id=ciclo_prev,
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            _pausado(conn, hoja)
+            pausas[hoja] = pausa
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        for pendiente in temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset()):
+            propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+            conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+                " data_observed_at, window_start, window_end, inputs)"
+                " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+                (
+                    origen,
+                    pendiente.ad_entity_id,
+                    ahora,
+                    config_id,
+                    propuesta.data_observed_at,
+                    propuesta.window_start,
+                    propuesta.window_end,
+                    json.dumps(propuesta.inputs),
+                ),
+            )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 2
+
+        estado_remoto = {"9202": "PAUSED", "9204": "PAUSED"}
+        puts_estado: list[dict] = []
+        lecturas: list[int] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                lecturas.append(1)
+                filas = [{"keywordId": k, "state": v} for k, v in sorted(estado_remoto.items())]
+                return httpx.Response(200, json={"keywords": filas})
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_estado.append(obj)
+                # 9202 si se habilita en Amazon antes del 500; 9204 sigue PAUSED.
+                if str(obj["keywordId"]) == "9202":
+                    estado_remoto["9202"] = "ENABLED"
+                return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        def cuota_pause() -> int:
+            return int(
+                conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0]
+            )
+
+        # Horario 1 (temporada live): ambos PUT salen con 500 -> dos intentos abiertos.
+        h1 = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert h1.ciclo is not None and h1.ciclo.resume_of == origen
+        assert [p["keywordId"] for p in puts_estado] == ["9202", "9204"]
+        cuota_h1 = cuota_pause()
+        assert cuota_h1 == 2
+
+        # Entre horarios del mismo dia: temporada pasa a shadow, global sigue live.
+        settings_shadow = {**settings, "ads_temporada_amazon_us": "shadow"}
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('temp_shadow', %s)",
+            (json.dumps(settings_shadow),),
+        )
+
+        # Horario 2: el ejecutor lee y sella los dos intentos abiertos por LIST,
+        # sin emitir otro PUT ni cobrar cuota.
+        h2 = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert h2.ciclo is not None and h2.ciclo.resume_of == origen
+        assert len(puts_estado) == 2, "temporada en shadow impide nuevos PUT"
+        assert cuota_pause() == cuota_h1, "cero cuota adicional al conciliar en shadow"
+        assert len(lecturas) == 2, "concilia por LIST ambos intentos abiertos"
+        react2 = json.loads(h2.ciclo.notes)["apply"]["reactivaciones"]
+        assert (
+            react2["confirmadas"],
+            react2["omitidas"],
+            react2["fallidas"],
+            react2["pendientes_de_lectura"],
+        ) == (1, 1, 0, 0), react2
+        assert conn.execute(
+            "SELECT resultado, ack, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa'",
+            (pausas[a],),
+        ).fetchone() == ("ok", {"conciliado": True}, True)
+        assert conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa'",
+            (pausas[b],),
+        ).fetchone() == ("ok:no_aplicado", True)
+        assert (
+            conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (a,)
+            ).fetchone()[0]
+            == "ENABLED"
+        )
+        assert (
+            ciclo.motivo_de_salto(conn, "amazon_us", hoy=ahora.astimezone(dt.UTC).date())
+            is not None
+        )
