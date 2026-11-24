@@ -43,3 +43,4 @@ EXIT=0
 #   - si hubo una recuperacion: el ejecutor cerrado conserva decision_committed_at IS NULL
 #     y resume_of apunta al origen sellado de su misma plataforma
 #   - un ciclo skipped o fallido antes de TX3 tambien conserva decision_committed_at IS NULL
+# Verificado el 2026-11-24 a las 11:09:57 UTC (ver primer-ciclo.txt): ciclos 210 (amazon_us, 0/0) y 211 (amazon_mx, 1/1) en done con decision_committed_at sellado, resume_of NULL, 0 ejecutores, 0 apply_attempt abiertos hoy (1 normal ok) y 0 decision_sin_aplicar hoy.

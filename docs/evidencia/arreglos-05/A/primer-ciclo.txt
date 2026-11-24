@@ -1,0 +1,61 @@
+# Lectura del primer ciclo real en produccion - ARREGLOS 05 A
+# Fecha de lectura: 2026-11-24 11:09:57 UTC (despues de los horarios 09:40/10:40 UTC amazon_us y 09:41/10:41 UTC amazon_mx)
+# Binario desplegado: fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97 (PR #746)
+# Canal: docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read, transaccion read_only)
+
+## 1. Momento UTC y modo de sesion
+# SELECT (now() AT TIME ZONE 'UTC')::text AS momento_utc,
+#        current_user AS rol,
+#        current_setting('transaction_read_only') AS solo_lectura;
+2026-11-24 11:09:57.891389|orbit_read|on
+
+## 2. Ciclos de hoy en optimizer_cycle (2026-11-24 UTC)
+# SELECT id, platform::text, mode, status,
+#        to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS iniciado_utc,
+#        to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS cerrado_utc,
+#        to_char(decision_committed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS sello_tx3_utc,
+#        resume_of, decisions_count, applied_count,
+#        CASE WHEN notes LIKE '{%' THEN (notes::jsonb -> 'apply' ->> 'completo') END AS apply_completo
+# FROM optimizer_cycle
+# WHERE (started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
+# ORDER BY id;
+210|amazon_us|live|done|2026-11-24 09:40:02|2026-11-24 09:40:08|2026-11-24 09:40:02|None|0|0|true
+211|amazon_mx|live|done|2026-11-24 09:41:02|2026-11-24 09:41:11|2026-11-24 09:41:02|None|1|1|true
+
+## 3. Verificacion del criterio sobre los ciclos de hoy
+# Columnas:
+#   total_ciclos_hoy | origenes_tx3 | origenes_tx3_sin_sello | ejecutores |
+#   ejecutores_invalidos | skipped_o_failed | skipped_o_failed_con_sello | running_abiertos
+2|2|0|0|0|0|0|0
+
+# Resultado: CUMPLE
+# - Dos origenes cerrados en done (210 amazon_us con 0 decisiones y 211 amazon_mx con 1 decision),
+#   ambos con decision_committed_at sellado (NOT NULL) y apply.completo=true.
+# - Sin interrupciones ni ejecutores (resume_of IS NULL en todo el dia); los horarios de 10:40 y
+#   10:41 UTC no abrieron nuevos ciclos porque los origenes del dia ya estaban completos.
+# - Cero ciclos skipped/failed con sello y cero ciclos running abiertos.
+
+## 4. Intentos de apply_attempt abiertos hoy (finished_at IS NULL OR resultado IS NULL)
+# SELECT a.id, a.decision_id, a.seq, a.tipo, a.quota_cobrada,
+#        to_char(a.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS started_utc,
+#        a.resultado,
+#        to_char(a.finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS finished_utc
+# FROM apply_attempt a
+# WHERE (a.started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
+#   AND (a.finished_at IS NULL OR a.resultado IS NULL)
+# ORDER BY a.id;
+(0 filas)
+
+## 5. Resumen de apply_attempt de hoy por tipo y resultado
+# SELECT tipo, coalesce(resultado, '<abierto>') AS resultado, count(*) AS n
+# FROM apply_attempt
+# WHERE (started_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
+# GROUP BY 1, 2 ORDER BY 1, 2;
+normal|ok|1
+
+## 6. Conteo de decision_sin_aplicar de hoy por motivo
+# SELECT motivo, count(*) AS n
+# FROM decision_sin_aplicar
+# WHERE (registrado_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date
+# GROUP BY 1 ORDER BY 1;
+(0 filas)
