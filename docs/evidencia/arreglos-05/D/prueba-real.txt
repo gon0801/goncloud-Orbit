@@ -1,0 +1,71 @@
+# Prueba real despues del despliegue - ARREGLOS 05 D
+# Fecha: 2026-11-24 22:42-22:44 UTC (14:42-14:44 America/Vancouver)
+# PR 759 merge y MOTOR_SHA: 8c58f5483b62abbc2253f6e102a3ca7cd5ff46d6
+
+## 1. Repeticion de N d sobre el SHA integrado en el laboratorio
+# Repeticion de N d sobre el SHA integrado
+# HEAD=8c58f5483b62abbc2253f6e102a3ca7cd5ff46d6
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N d
+
+.......................                                                  [100%]
+============================== warnings summary ===============================
+<venv>\Lib\site-packages\fastapi\testclient.py:1
+  <venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+23 passed, 6394 deselected, 1 warning in 23.40s
+
+## 2. Huella del codigo desplegado
+# De la salida de desplegar.sh y checklist.sh:
+#   md5 OK: 303 archivos (git archive del SHA contra el codigo subido)
+#   /health 200
+#   /mnt/data/appdata/orbit/despliegue/sha = 8c58f5483b62abbc2253f6e102a3ca7cd5ff46d6
+#   migracion 0097_arreglos05_reposicion.sql aplicada (ultima; D no trae migracion)
+# El detalle completo esta en despliegue.txt y checklist.txt.
+
+## 3. Lectura de solo lectura en produccion
+# Herramienta: docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read,
+# transaccion read_only). Solo conteos, esquema y privilegios visibles.
+
+# Lectura RO de produccion - ARREGLOS 05 D
+# SHA desplegado: 8c58f5483b62abbc2253f6e102a3ca7cd5ff46d6
+# Herramienta: docs/evidencia/arreglos-01/lee_prod.sh (orbit_read, read_only)
+
+## current_user / version / UTC
+orbit_read|16.15 (Debian 16.15-1.pgdg13+2)|2026-11-24 22:44:39.783493
+
+## ledgers del bloque (fabrica, archivo, reposicion)
+True|True|True
+
+## fabrica_lote_paso por estado
+applied|87
+
+## keyword_archivo_manual por estado
+
+## intentos de reposicion (total y abiertos)
+0|0
+
+## columnas de los dos ledgers que D toca
+fabrica_lote_paso|11
+keyword_reposicion_intento|13
+
+## privilegios de keyword_reposicion_intento visibles para orbit_read (la 0097 no cambia grants con D)
+app_read|SELECT
+
+## huella del esquema publico (tablas y vistas)
+97|27
+
+## 4. Lectura
+- `N d` pasa 23 en el SHA integrado, igual que en la cabeza revisada.
+- El despliegue no aplico ninguna migracion: la 0097 sigue siendo la ultima y
+  el ensayo no lista ninguna pendiente. El bloque D no trae DDL.
+- Los tres ledgers del bloque existen: `fabrica_lote_paso` con 87 filas y todas
+  `applied` (ni una `planeado`/`failed`, asi que el codigo nuevo no dejo pasos a
+  medias), `keyword_archivo_manual` sin filas y `keyword_reposicion_intento` con
+  0 filas y 0 intentos abiertos.
+- Las columnas de los dos ledgers que D toca siguen iguales (11 y 13) y la
+  huella del esquema publico es 97 tablas y 27 vistas, la misma cadena de
+  migraciones que dejo C.
+- `/health` 200 con el SHA nuevo en `despliegue/sha` y `md5 OK: 303 archivos`
+  confirman el binario desplegado.

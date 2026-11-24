@@ -179,8 +179,42 @@ Regresion: `test_arreglos05_d_fabrica_pausa_huerfanas_sigue_sin_token` (dos
 campanas, LWA que agota sus reintentos en la primera y token valido en la
 segunda; rojo contra `0965b1ce` en [rojo-ronda2.txt](rojo-ronda2.txt)).
 
-## Como se regresa
+## Fase 2: despliegue y recibo
 
+Hecha el 2026-11-24. La integracion es
+`8c58f5483b62abbc2253f6e102a3ca7cd5ff46d6` (merge del PR #759 en `master`) y el
+SHA desplegado es el mismo. `SHA_PREVIO` era
+`73ea8f901a3951dd1a74ac8aae1c47fb476e6e77` (el merge de C).
+
+- Ensayo de solo lectura OK: guardas libres, monotonia, ninguna migracion
+  pendiente (la `0097` sigue siendo la ultima) y ninguna clave cambia.
+- Despliegue real OK: respaldo `predeploy-20261124-223851`, `md5 OK: 303
+  archivos`, contenedor recreado, `/health` 200 y `despliegue/sha` con el SHA
+  nuevo. Cero migraciones aplicadas: D no trae DDL.
+- `checklist.sh` verde en la cabeza desplegada, con la `0097` como ultima
+  migracion aplicada.
+- `N d` repetido sobre el SHA integrado: 23 passed.
+- Lectura RO de produccion (`lee_prod.sh`, `orbit_read`, `read_only`): los tres
+  ledgers existen, `fabrica_lote_paso` tiene 87 filas todas `applied` (cero
+  `planeado`/`failed`, el codigo nuevo no dejo pasos a medias),
+  `keyword_archivo_manual` sin filas, `keyword_reposicion_intento` con 0 filas y
+  0 abiertos, las columnas de los ledgers intactas (11 y 13) y el esquema
+  publico con 97 tablas y 27 vistas.
+
+Recibos: [despliegue.txt](despliegue.txt), [checklist.txt](checklist.txt) y
+[prueba-real.txt](prueba-real.txt).
+
+**Reversa.** `MOTOR_SHA=8c58f5483b62abbc2253f6e102a3ca7cd5ff46d6 bash
+tools/despliegue/rollback.sh`: restaura el codigo del respaldo `predeploy-*`
+que dejo este despliegue, recrea el contenedor, comprueba `/health` y fija
+`despliegue/sha` al `SHA_PREVIO` (`73ea8f90`). Como D no registra reversas de
+migracion (no aplico ninguna), el rollback es solo de codigo. El script deshace
+unicamente lo anotado en `ultimo.env` para el `MOTOR_SHA` desplegado; con otro
+SHA sale 0 sin deshacer nada, y no toca el binario anterior por su cuenta. Los
+pasos a medias (una fila `planeado` de la fabrica o un intento abierto de
+reposicion) se concilian con `--reconciliar`; el rollback no los borra.
+
+## Como se regresa
 1. No hay migracion: el esquema no cambia, asi que no hay reversa de datos que
    correr. Los ledgers (`fabrica_lote_paso`, `keyword_archivo_manual`,
    `keyword_reposicion_intento`, `apply_attempt`) conservan su forma.
