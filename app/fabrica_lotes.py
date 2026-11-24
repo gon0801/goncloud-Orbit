@@ -81,7 +81,9 @@ def registrar_lote(lote: str) -> int:
                 f"lote {lote} sin campana+ad group applied para {faltan}: --reconciliar primero"
             )
         cred, cliente_lectura, perfiles = fm._bootstrap_amazon(plan.platform)
-        ctx = fm._Ctx(None, "", cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
+        # El registro no muta: el contexto lleva el lector y deja el escritor
+        # en None (si un paso intentara escribir, reventaria, no inventaria).
+        ctx = fm._Ctx(None, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
         fabrica_registro._registrar(ctx, plan, [creadas[r] for r in _roles_del_plan(plan)])
         fm._sella_lote(conn_admin, lote, "applied", "registro reintentado")
         return 0
@@ -195,7 +197,7 @@ def reactiva_lote(ctx: fm._Ctx, lote: str, actor: str) -> None:
 
 def desarmar_lote(lote: str, *, acepto_mutacion_real: bool, go: str | None) -> int:
     conn_admin = None
-    http = None
+    escritor = None
     try:
         conn_admin = fm.connect(_dsn_admin())
         if fm._estado_lote(conn_admin, lote) == "desarmado":
@@ -228,18 +230,8 @@ def desarmar_lote(lote: str, *, acepto_mutacion_real: bool, go: str | None) -> i
         )
         if platform is None:
             raise Abortar(f"sin perfil aceptado para el lote {lote}")
-        http = fm.httpx.Client(
-            timeout=fm.httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
-        )
-        ctx = fm._Ctx(
-            http,
-            fm._token_lwa(cred, http),
-            cred,
-            cliente_lectura,
-            perfiles[platform[0]],
-            conn_admin,
-            lote,
-        )
+        escritor = fm._escritor(cred, platform[0], perfiles[platform[0]])
+        ctx = fm._Ctx(escritor, cliente_lectura, perfiles[platform[0]], conn_admin, lote)
         # R09-I: el ledger de _pausa_una continua en max(orden), como _cambia_estado_lote.
         ctx.orden = conn_admin.execute(
             "SELECT COALESCE(MAX(orden), 0) FROM fabrica_lote_paso WHERE lote = %s",
@@ -254,7 +246,7 @@ def desarmar_lote(lote: str, *, acepto_mutacion_real: bool, go: str | None) -> i
         _log("reconciliacion_final", lote=lote, pausadas=pausadas, ok=True)
         return 0
     finally:
-        _cierra(http, conn_admin)
+        _cierra(escritor, conn_admin)
 
 
 def _desarmar(args) -> int:

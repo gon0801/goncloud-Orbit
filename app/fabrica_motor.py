@@ -4,30 +4,33 @@ Extraido de `tools/fabrica_campanas.py` en Fase 3.2: elimina la inversion de
 dependencias `app/ -> tools/` y sustituye adaptadores `SimpleNamespace` por
 entradas tipadas (`mutar`, `registrar_lote`, `desarmar_lote`, `reconciliar_lote`).
 
-Aislamiento de `app.ads.write`: esta capa opera con go explicito del dueno
-(incluyendo lotes que nacen con goals en `shadow`) y crea recursos SP v3 fuera
-de la superficie de APPLY; jamas importa `app.ads.write`.
+ARREGLOS 05 D: toda mutacion sale por `app.ads.write.AdsWriteClient` (ruta
+sellada, vendor de la allowlist y perfil de la instancia). Este modulo ya no
+trae token LWA, headers ni `httpx.Client` propios: conserva su ceremonia, su
+ledger `fabrica_lote_paso` (payload e ID+ACK antes del LIST) y su readback.
 """
 
 from __future__ import annotations
 
-import contextlib
+import datetime as dt
 import json
 import time
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
 import psycopg
-from httpx import HTTPError as _HTTPError
-from httpx import TimeoutException as _TimeoutException
+
+if TYPE_CHECKING:  # solo anotaciones: el transporte HTTP lo pone el cliente
+    import httpx
 
 from app import fabrica_plan as fp
 from app import fabrica_registro
-from app.ads.client import DEFAULT_BASE_URL, AdsClient
+from app.ads import sp_wire
+from app.ads.client import DEFAULT_BASE_URL, AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles
+from app.ads.write import MODO_CONFIRMADO_LIVE, AdsWriteClient
 from app.db import connect
 from app.fabrica_datos import Abortar, _roles_del_plan
 from app.fabrica_registro import (
@@ -38,11 +41,9 @@ from app.fabrica_registro import (
     _log,
     _plan_como_json,
 )
-from app.redaction import register_secret, scrub
+from app.redaction import scrub
 
 API = DEFAULT_BASE_URL
-LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
-VENDOR_CAMPANAS = fp.VENDOR_POR_PATH["/sp/campaigns"]
 _PAUSADA = "PAUSED"
 # Ante cualquier 5xx, Amazon Ads pudo haber creado el recurso antes de responder.
 _HTTP_INCERTO = range(500, 600)
@@ -94,9 +95,7 @@ UPDATE fabrica_lote_paso
 
 @dataclass
 class _Ctx:
-    http: Any
-    token: str
-    cred: AdsCredentials
+    escritor: Any
     cliente_lectura: Any
     profile: int
     conn_admin: psycopg.Connection
@@ -111,21 +110,20 @@ def _lote_nuevo(huella: str) -> str:
     return f"cli-{huella}"
 
 
-def _token_lwa(cred: AdsCredentials, client) -> str:
-    resp = client.post(
-        LWA_TOKEN_URL,
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": cred.refresh_token,
-            "client_id": cred.client_id,
-            "client_secret": cred.client_secret,
-        },
+def _escritor(cred: AdsCredentials, platform: str, profile: int) -> AdsWriteClient:
+    """UN escritor sellado por plataforma para este lote.
+
+    Solo se construye DESPUES de la ceremonia (`--acepto-mutacion-real`,
+    `--go`, `--huella`, `--esperado`), que es la autorizacion real del dueno:
+    el cliente vuelve a exigir el modo live antes de cualquier HTTP y sella el
+    perfil, asi que ningun paso posterior elige ruta ni cuenta.
+    """
+    return AdsWriteClient(
+        cred,
+        platform=platform,
+        profile_id=profile,
+        modo_confirmado=MODO_CONFIRMADO_LIVE,
     )
-    if resp.status_code != 200:
-        raise Abortar(f"LWA {resp.status_code}: {scrub(resp.text[:300])}")
-    token = resp.json()["access_token"]
-    register_secret(token)
-    return token
 
 
 def _perfiles(cliente_lectura) -> dict[str, int]:
@@ -150,23 +148,103 @@ def _bootstrap_amazon(
     return cred, cliente_lectura, perfiles
 
 
-def _post(client, token: str, cred: AdsCredentials, profile: int, path: str, payload: dict) -> dict:
-    vendor = fp.VENDOR_POR_PATH[path]
-    resp = client.post(
-        f"{API}{path}",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Amazon-Advertising-API-ClientId": cred.client_id,
-            "Amazon-Advertising-API-Scope": str(profile),
-            "Content-Type": vendor,
-            "Accept": vendor,
-        },
-        json={fp.ENVOLTURA_POR_PATH[path]: [payload]},
-    )
-    cuerpo: dict = {}
-    with contextlib.suppress(ValueError):
-        cuerpo = resp.json()
-    return {"status": resp.status_code, "cuerpo": cuerpo, "texto": scrub(resp.text[:400])}
+def errores_207(ack: dict) -> list:
+    """Errores por item de un ACK 207, con la gramatica unica de `sp_wire`.
+
+    Un cuerpo que no es objeto no es un exito: se reporta como error."""
+    cuerpo = ack.get("cuerpo")
+    if not isinstance(cuerpo, dict):
+        return [{"no_json": ack.get("texto")}]
+    return sp_wire.errores_de_ack(cuerpo)
+
+
+def ack_ok(ack: dict) -> bool:
+    """2xx sin errores por item. El juicio es del dueno del ledger."""
+    return ack.get("status") in (200, 207) and not errores_207(ack)
+
+
+def id_creado(ack: dict, clave: str) -> str | None:
+    """Id del objeto creado segun el ack (mismo lector que el resto)."""
+    cuerpo = ack.get("cuerpo")
+    if not isinstance(cuerpo, dict):
+        return None
+    return sp_wire.id_de_ack(cuerpo, clave)
+
+
+def _decimal_wire(valor: object) -> Decimal:
+    """El payload del ledger ya trae el numero cuantizado (`fp.monto_wire`);
+    volver a Decimal no inventa precision y deja que el cliente lo revalide."""
+    return Decimal(str(valor))
+
+
+def _crea_paso(escritor: AdsWriteClient, paso: fp.Paso, payload: dict) -> httpx.Response:
+    """Manda UN paso de creacion por la operacion especifica del cliente.
+
+    El payload es el que el ledger guardo antes del HTTP (`fabrica_plan`); aqui
+    solo se traduce a la firma tipada, que revalida montos, enums y la moneda
+    de la plataforma ANTES de la red. Devuelve la respuesta cruda (el ACK).
+    """
+    recurso = paso.recurso
+    if recurso == "campaign":
+        return escritor.crear_campana(
+            nombre=str(payload["name"]),
+            targeting_type=str(payload["targetingType"]),
+            estado=str(payload["state"]),
+            presupuesto=_decimal_wire(payload["budget"]["budget"]),
+            moneda=escritor.moneda,
+            fecha_inicio=dt.date.fromisoformat(str(payload["startDate"])),
+        )
+    if recurso == "ad_group":
+        return escritor.crear_ad_group(
+            payload["campaignId"],
+            nombre=str(payload["name"]),
+            estado=str(payload["state"]),
+            default_bid=_decimal_wire(payload["defaultBid"]),
+            moneda=escritor.moneda,
+        )
+    if recurso == "product_ad":
+        return escritor.crear_product_ad(
+            payload["adGroupId"], payload["campaignId"], str(payload["sku"]), str(payload["state"])
+        )
+    if recurso == "keyword":
+        return escritor.crear_keyword(
+            payload["adGroupId"],
+            payload["campaignId"],
+            str(payload["keywordText"]),
+            _decimal_wire(payload["bid"]),
+            escritor.moneda,
+            match_type=str(payload["matchType"]),
+            estado=str(payload["state"]),
+        )
+    if recurso == "target":
+        (expresion,) = payload["expression"]
+        return escritor.crear_target_asin(
+            payload["adGroupId"],
+            payload["campaignId"],
+            str(expresion["value"]),
+            _decimal_wire(payload["bid"]),
+            escritor.moneda,
+            estado=str(payload["state"]),
+        )
+    if recurso == "negative_keyword":
+        return escritor.crear_negative_exacto(
+            payload["adGroupId"], payload["campaignId"], str(payload["keywordText"])
+        )
+    raise Abortar(f"recurso sin operacion en el cliente protegido: {recurso}")
+
+
+def _mutacion_de_paso(escritor: AdsWriteClient, paso: fp.Paso, payload: dict) -> dict:
+    """ACK canonico de una creacion; un fallo del cliente tambien es un ACK."""
+    try:
+        return sp_wire.ack_de(_crea_paso(escritor, paso, payload))
+    except AdsApiError as exc:
+        return sp_wire.ack_de_error(exc)
+    except Exception as exc:  # noqa: BLE001 - pudo salir: se sella incierto
+        return {
+            "status": sp_wire.ACK_SIN_RESPUESTA,
+            "cuerpo": {},
+            "texto": scrub(str(exc))[:300],
+        }
 
 
 def _readback(cliente_lectura, profile: int, path_create: str, external: str) -> dict | None:
@@ -350,13 +428,10 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
         # que no gasta (sin vigia no se sirve nada).
         payload["state"] = _PAUSADA
     paso_id = _inserta_paso(ctx, paso, payload)
-    try:
-        ack = _post(ctx.http, ctx.token, ctx.cred, ctx.profile, paso.path, payload)
-    except Exception as exc:
-        ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
-    if not fp.ack_ok(ack):
+    ack = _mutacion_de_paso(ctx.escritor, paso, payload)
+    if not ack_ok(ack):
         _falla_paso(ctx, paso, paso_id, ack, None, _motivo_post_fallido(ctx, paso, ack))
-    external = fp.id_creado(ack, fp.CLAVE_ID_POR_PATH[paso.path])
+    external = id_creado(ack, fp.CLAVE_ID_POR_PATH[paso.path])
     if external is None:
         _falla_paso(
             ctx,
@@ -462,7 +537,7 @@ def mutar(
     if lote is None:
         lote = _lote_nuevo(huella)
     conn_admin = None
-    http = None
+    escritor = None
     lock_propio = False
     try:
         conn_admin = connect(_dsn_admin())
@@ -480,14 +555,11 @@ def mutar(
             error_sin_perfil=f"sin perfil aceptado para {plan.platform}: no se muta",
         )
         _log("perfiles", perfiles=perfiles)
-        http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
-        token = _token_lwa(cred, http)
+        escritor = _escritor(cred, plan.platform, perfiles[plan.platform])
         assert go is not None
         _inserta_lote(conn_admin, lote, plan, huella, go)
         ctx = _Ctx(
-            http,
-            token,
-            cred,
+            escritor,
             cliente_lectura,
             perfiles[plan.platform],
             conn_admin,
@@ -570,7 +642,7 @@ def mutar(
     finally:
         if lock_propio and conn_admin is not None:
             _desbloquea_lote(conn_admin, lote)
-        _cierra(http, conn_admin)
+        _cierra(escritor, conn_admin)
 
 
 def _mutar(
@@ -595,37 +667,28 @@ def _mutar(
 
 
 def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
-    # R09-r4 L3/L3b: la excepcion de red no sale pelada (como el POST
-    # declara INCERTO): se envuelve en Abortar para que _mutar selle
-    # failed + revierta y el dueno lea un mensaje, no un traceback.
+    """PUT de estado por el cliente protegido; el ACK vuelve canonico.
+
+    Un 5xx o una respuesta perdida pudieron APLICAR: no se sigue como si no
+    (mismo criterio que el POST de creacion, sellado 8). El rechazo
+    deterministico (4xx) vuelve como ACK para que el llamador lo selle.
+    """
     try:
-        resp = ctx.http.put(
-            f"{API}/sp/campaigns",
-            headers={
-                "Authorization": f"Bearer {ctx.token}",
-                "Amazon-Advertising-API-ClientId": ctx.cred.client_id,
-                "Amazon-Advertising-API-Scope": str(ctx.profile),
-                "Content-Type": VENDOR_CAMPANAS,
-                "Accept": VENDOR_CAMPANAS,
-            },
-            json={"campaigns": [{"campaignId": str(external), "state": estado}]},
-        )
-    except _TimeoutException as exc:
-        raise Abortar(
-            f"PUT {estado} de {external} INCERTO (timeout: {exc}): pudo aplicarse"
-        ) from exc
-    except _HTTPError as exc:
-        raise Abortar(f"PUT {estado} de {external} fallo (red: {exc})") from exc
-    cuerpo: dict = {}
-    with contextlib.suppress(ValueError):
-        cuerpo = resp.json()
-    return {"status": resp.status_code, "cuerpo": cuerpo, "texto": scrub(resp.text[:400])}
+        resp = ctx.escritor.cambiar_estado_campana(external, estado)
+    except AdsApiError as exc:
+        ack = sp_wire.ack_de_error(exc)
+        if ack["status"] == sp_wire.ACK_SIN_RESPUESTA or ack["status"] in _HTTP_INCERTO:
+            raise Abortar(
+                f"PUT {estado} de {external} INCERTO (status {ack['status']}): pudo aplicarse"
+            ) from exc
+        return ack
+    return sp_wire.ack_de(resp)
 
 
 def _put_y_readback_estado(ctx: _Ctx, external: str, nuevo: str) -> tuple[dict, str | None, bool]:
     """Ejecuta PUT estado + sleep + readback; devuelve (ack, estado_visto, ack_ok)."""
     ack = _put_estado_campana(ctx, external, nuevo)
-    if not fp.ack_ok(ack):
+    if not ack_ok(ack):
         return ack, None, False
     time.sleep(0.3)
     leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
@@ -655,7 +718,7 @@ def _aplica_estado_campana_con_ledger(
     except Abortar:
         _sella_paso(ctx, paso_id, False, external, {}, None)
         raise
-    if not fp.ack_ok(ack):
+    if not ack_ok(ack):
         _sella_paso(ctx, paso_id, False, external, ack, None)
         if log_ack:
             _log("lote_detenido", lote=ctx.lote, motivo=f"PUT {nuevo} de {rol} rechazado")

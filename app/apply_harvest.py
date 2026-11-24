@@ -624,7 +624,7 @@ def _paso_keyword(
         return _falla_job(conn, job, MOTIVO_TOPE_INTENTOS, queue_id=queue_id, detalle=detalle)
     conn.commit()
     try:
-        resp = cliente.crear_keyword_exacta(
+        resp = cliente.crear_keyword(
             ctx.destino_grupo, ctx.destino_campana, job.search_term, bid, ctx.moneda
         )
     except apply.AdsApiErrorMutacion as exc:
