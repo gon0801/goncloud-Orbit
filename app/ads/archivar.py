@@ -33,7 +33,7 @@ from app.ads.sp_wire import (
     id_product_ad_de_ack as _id_del_ack,
 )
 from app.ads.structure import PATH_PRODUCT_ADS, evaluar_perfiles
-from app.ads.write import AdsApiErrorMutacion, AdsWriteClient
+from app.ads.write import MODO_CONFIRMADO_LIVE, AdsApiErrorMutacion, AdsWriteClient
 
 # Estados wire del list (UPPER, mismo vocabulario que app/apply.py).
 ESTADO_ARCHIVADO = "ARCHIVED"
@@ -45,6 +45,13 @@ ESTADO_HABILITADO = "ENABLED"
 # Ids por llamada de LECTURA. Las lecturas si baten (el sync pagina de a
 # 1000); la regla "una entrada, jamas un lote" es de las MUTACIONES.
 IDS_POR_LECTURA = 100
+
+
+# El unico modo que autoriza una mutacion de product ads lo prueba la
+# autorizacion del dueno (humana o de decision) o el veredicto del vigia ANTES
+# de construir el escritor; este literal es ese valor y el cliente lo revalida
+# fail-closed (ARREGLOS 05 D: el helper ya no lo escribe por su cuenta).
+MODO_AUTORIZADO_LIVE = MODO_CONFIRMADO_LIVE
 
 
 class ListaInvalida(ValueError):
@@ -98,7 +105,7 @@ RESULTADOS = frozenset(
 )
 
 
-def preparar_escritor(platform: str) -> AdsWriteClient:
+def preparar_escritor(platform: str, *, modo_confirmado: str) -> AdsWriteClient:
     """Escritor con el scope SELLADO del perfil de `platform`.
 
     Vive aqui y no en el CLI por el candado de arquitectura: `app.ads.write`
@@ -106,6 +113,11 @@ def preparar_escritor(platform: str) -> AdsWriteClient:
     esta acotada a proposito (un importador de mas = un segundo dueno de la
     mutacion). Este modulo es ese unico dueno para la limpieza; el CLI queda
     de envoltorio delgado, sin tocar el cliente de escritura.
+
+    ARREGLOS 05 D: `modo_confirmado` es OBLIGATORIO y lo resuelve el dueno.
+    Antes el helper escribia `live` de fabrica en nombre de cualquiera; ahora
+    un modo distinto revienta en el constructor del cliente ANTES de cualquier
+    HTTP y sin argumento no compila (fail-closed, decision 9).
 
     Fail-closed DOBLE (hallazgo cross-review codex/grok 2026-08-30):
 
@@ -140,7 +152,7 @@ def preparar_escritor(platform: str) -> AdsWriteClient:
         credenciales,
         platform=platform,
         profile_id=perfiles[0].profile_id,
-        modo_confirmado="live",
+        modo_confirmado=modo_confirmado,
     )
 
 

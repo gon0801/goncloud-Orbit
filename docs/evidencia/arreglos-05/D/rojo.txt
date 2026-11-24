@@ -1,0 +1,313 @@
+FFFFFFFFFF..FFF....                                                      [100%]
+================================== FAILURES ===================================
+__________ test_arreglos05_d_crear_campana_sella_ruta_vendor_y_scope __________
+
+    def test_arreglos05_d_crear_campana_sella_ruta_vendor_y_scope():
+        """POST /sp/campaigns con el cuerpo sellado y el scope de la instancia."""
+        pedidos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            pedidos.append(request)
+            return httpx.Response(207, json={"campaigns": {"success": [{"campaignId": "c-1"}]}})
+
+>       _escritor(handler).crear_campana(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            nombre="t | base | exact | 2026-11-24",
+            targeting_type="MANUAL",
+            estado="ENABLED",
+            presupuesto=Decimal("150"),
+            moneda="MXN",
+            fecha_inicio=dt.date(2026, 11, 24),
+        )
+E       AttributeError: 'AdsWriteClient' object has no attribute 'crear_campana'. Did you mean: 'ajustar_campana'?
+
+tests\test_arreglos05_d_write.py:131: AttributeError
+_______________ test_arreglos05_d_crear_ad_group_y_target_asin ________________
+
+    def test_arreglos05_d_crear_ad_group_y_target_asin():
+        """ad group con defaultBid y target ASIN_SAME_AS: mismas rutas selladas."""
+        pedidos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            pedidos.append(request)
+            path = request.url.path
+            return httpx.Response(207, json={MUTATION_CONTAINERS[path]: {"success": [{}]}})
+
+        escritor = _escritor(handler)
+>       escritor.crear_ad_group(
+        ^^^^^^^^^^^^^^^^^^^^^^^
+            "21", nombre="ag", estado="ENABLED", default_bid=Decimal("2.50"), moneda="MXN"
+        )
+E       AttributeError: 'AdsWriteClient' object has no attribute 'crear_ad_group'
+
+tests\test_arreglos05_d_write.py:170: AttributeError
+____ test_arreglos05_d_crear_keyword_respeta_match_y_estado_de_reposicion _____
+
+    def test_arreglos05_d_crear_keyword_respeta_match_y_estado_de_reposicion():
+        """El mismo camino sirve al harvest (EXACT/ENABLED) y a la reposicion (PAUSED)."""
+        pedidos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            pedidos.append(request)
+            return httpx.Response(207, json={"keywords": {"success": [{"keywordId": "1"}]}})
+
+        escritor = _escritor(handler)
+>       escritor.crear_keyword(
+        ^^^^^^^^^^^^^^^^^^^^^^
+            "31", "21", "arras de plata", Decimal("12.5"), "MXN", match_type="PHRASE", estado="PAUSED"
+        )
+E       AttributeError: 'AdsWriteClient' object has no attribute 'crear_keyword'. Did you mean: 'borrar_keyword'?
+
+tests\test_arreglos05_d_write.py:206: AttributeError
+_ test_arreglos05_d_crear_keyword_rechaza_match_y_estado_fuera_del_wire_sin_http _
+
+    def test_arreglos05_d_crear_keyword_rechaza_match_y_estado_fuera_del_wire_sin_http():
+        """Un valor fuera del enum revienta ANTES del HTTP (ni siquiera el token)."""
+        emitidos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            emitidos.append(request)
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+
+        escritor = _escritor(handler)
+        with pytest.raises(ValueError):
+>           escritor.crear_keyword("31", "21", "x", Decimal("1"), "MXN", match_type="NEGATIVE_EXACT")
+            ^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: 'AdsWriteClient' object has no attribute 'crear_keyword'. Did you mean: 'borrar_keyword'?
+
+tests\test_arreglos05_d_write.py:237: AttributeError
+________ test_arreglos05_d_cambiar_estado_campana_solo_activa_o_pausa _________
+
+    def test_arreglos05_d_cambiar_estado_campana_solo_activa_o_pausa():
+        """PUT /sp/campaigns de estado: ENABLED/PAUSED; ARCHIVED no se escribe."""
+        pedidos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            pedidos.append(request)
+            return httpx.Response(207, json={"campaigns": {"success": [{}], "error": []}})
+
+        escritor = _escritor(handler)
+>       escritor.cambiar_estado_campana("c-1", "PAUSED")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'AdsWriteClient' object has no attribute 'cambiar_estado_campana'
+
+tests\test_arreglos05_d_write.py:256: AttributeError
+______ test_arreglos05_d_vendor_de_la_fabrica_y_del_cliente_es_el_mismo _______
+
+    def test_arreglos05_d_vendor_de_la_fabrica_y_del_cliente_es_el_mismo():
+        """El mapa del plan y el del cliente no pueden divergir (regla 2)."""
+        for path, vendor in fp.VENDOR_POR_PATH.items():
+>           assert MUTATION_REQUEST_TYPES[("POST", path)] == vendor
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: ('POST', '/sp/campaigns')
+
+tests\test_arreglos05_d_write.py:270: KeyError
+____ test_arreglos05_d_allowlist_suma_los_creates_y_conserva_default_deny _____
+
+    def test_arreglos05_d_allowlist_suma_los_creates_y_conserva_default_deny():
+        """Las tres rutas nuevas entran con su vendor; nada mas se abre."""
+        for path, contenedor, vendor in (
+            ("/sp/campaigns", "campaigns", "application/vnd.spcampaign.v3+json"),
+            ("/sp/adGroups", "adGroups", "application/vnd.spadgroup.v3+json"),
+            ("/sp/targets", "targetingClauses", "application/vnd.sptargetingclause.v3+json"),
+        ):
+>           assert MUTATION_REQUEST_TYPES[("POST", path)] == vendor
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: ('POST', '/sp/campaigns')
+
+tests\test_arreglos05_d_write.py:280: KeyError
+___ test_arreglos05_d_ack_de_y_ack_de_error_conservan_el_207_y_lo_incierto ____
+
+    def test_arreglos05_d_ack_de_y_ack_de_error_conservan_el_207_y_lo_incierto():
+        """Un solo ack canonico: cuerpo tal cual y rechazo/incierto distinguibles."""
+>       from app.ads.sp_wire import ack_de, ack_de_error
+E       ImportError: cannot import name 'ack_de' from 'app.ads.sp_wire' (<padre>\app\ads\sp_wire.py)
+
+tests\test_arreglos05_d_write.py:289: ImportError
+________ test_arreglos05_d_preparar_escritor_exige_el_modo_autorizado _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000022154DBBA70>
+
+    def test_arreglos05_d_preparar_escritor_exige_el_modo_autorizado(monkeypatch):
+        """Sin argumento no compila; `shadow` revienta antes de construir nada."""
+        from app.ads.structure_api import PerfilAds
+
+        perfil = PerfilAds(
+            profile_id=101,
+            country="MX",
+            currency_code="MXN",
+            account_type="seller",
+            valid_payment_method=True,
+            account_name="t",
+            aceptado=True,
+            platform="amazon_mx",
+            moneda="MXN",
+            motivo=None,
+        )
+        monkeypatch.setattr(archivar, "evaluar_perfiles", lambda _c: [perfil])
+        monkeypatch.setattr(AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: CRC))
+>       with pytest.raises(TypeError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE TypeError
+
+tests\test_arreglos05_d_write.py:326: Failed
+___ test_arreglos05_d_fabrica_crea_por_el_cliente_y_cuerpo_igual_al_ledger ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000022154DBBB00>
+capsys = <_pytest.capture.CaptureFixture object at 0x0000022154DBBCB0>
+
+    def test_arreglos05_d_fabrica_crea_por_el_cliente_y_cuerpo_igual_al_ledger(monkeypatch, capsys):
+        """Cada POST sale con el scope sellado y el mismo objeto que el ledger guardo."""
+        _solo_cliente_con_transporte(monkeypatch)
+        huella = _huella(monkeypatch, capsys)
+        conn_admin = _ConnFabrica()
+        amazon = _AmazonFabrica()
+        _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
+        monkeypatch.setattr(sys, "argv", _args_go(huella))
+        assert fc.main() == 0
+
+        creados = [p for p in amazon.pedidos if (p.method, p.url.path) in MUTATION_REQUEST_TYPES]
+        assert creados, "no hubo mutaciones"
+        for pedido in creados:
+            par = (pedido.method, pedido.url.path)
+            assert par in MUTATION_REQUEST_TYPES, par
+            assert pedido.headers["Amazon-Advertising-API-Scope"] == "101"
+            assert pedido.headers["Content-Type"] == MUTATION_REQUEST_TYPES[par]
+
+        payloads = [json.loads(p[4]) for p in _pasos(conn_admin)]
+        enviados = [
+            json.loads(pedido.content)[fp.ENVOLTURA_POR_PATH[pedido.url.path]][0] for pedido in creados
+        ]
+>       assert enviados == payloads, "el cuerpo enviado no es el payload del ledger"
+E       AssertionError: el cuerpo enviado no es el payload del ledger
+E       assert [{'campaignId...T', ...}, ...] == [{'name': 'co...d': 5.0}, ...]
+E
+E         At index 0 diff: {'campaignId': 'campaigns-1', 'adGroupId': 'adGroups-1', 'sku': 'SS-1', 'state': 'ENABLED'} != {'name': 'collar_perro | Collar reflectante | category_exact | 2026-11-24', 'targetingType': 'MANUAL', 'state': 'ENABLED', 'budget': {'budgetType': 'DAILY', 'budget': 150.0}, 'startDate': '2026-11-24', 'dynamicBidding': {'strategy': 'LEGACY_FOR_SALES'}}
+E         Right contains 11 more items, first extra item: {'campaignId': 'campaigns-3', 'adGroupId': 'adGroups-3', 'keywordText': 'collar noche', 'matchType': 'BROAD', ...}
+E         Use -v to get more diff
+
+tests\test_arreglos05_d_write.py:368: AssertionError
+---------------------------- Captured stdout call -----------------------------
+target: margen de la plataforma (se ajusta cada ciclo)
+category_exact: budget=150 bid=6.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=1
+category_phrase: budget=120 bid=5.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=3
+category_broad: budget=120 bid=4.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=3
+product_targeting: budget=120 bid=5.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=1
+auto_discovery: budget=150 bid=4.50 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=2
+publicacion=11 asin=B0AAAAAAAA seller_sku=SS-1 margen=38.20
+huella del conjunto: 0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9
+{"evento": "perfiles", "perfiles": {"amazon_mx": 101}}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_exact", "recurso": "campaign", "external": "campaigns-1", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_exact", "recurso": "ad_group", "external": "adGroups-1", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_exact", "recurso": "product_ad", "external": "productAds-1", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_exact", "recurso": "keyword", "external": "keywords-1", "ack": {"keywords": {"success": [{"index": 0, "keywordId": "keywords-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_exact", "external": "campaigns-1"}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_phrase", "recurso": "campaign", "external": "campaigns-2", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_phrase", "recurso": "ad_group", "external": "adGroups-2", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_phrase", "recurso": "product_ad", "external": "productAds-2", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_phrase", "recurso": "keyword", "external": "keywords-2", "ack": {"keywords": {"success": [{"index": 0, "keywordId": "keywords-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_phrase", "recurso": "keyword", "external": "keywords-3", "ack": {"keywords": {"success": [{"index": 0, "keywordId": "keywords-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_phrase", "recurso": "negative_keyword", "external": "negativeKeywords-1", "ack": {"negativeKeywords": {"success": [{"index": 0, "keywordId": "negativeKeywords-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_phrase", "external": "campaigns-2"}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_broad", "recurso": "campaign", "external": "campaigns-3", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_broad", "recurso": "ad_group", "external": "adGroups-3", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_broad", "recurso": "product_ad", "external": "productAds-3", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_broad", "recurso": "keyword", "external": "keywords-4", "ack": {"keywords": {"success": [{"index": 0, "keywordId": "keywords-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_broad", "recurso": "keyword", "external": "keywords-5", "ack": {"keywords": {"success": [{"index": 0, "keywordId": "keywords-5"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_broad", "recurso": "negative_keyword", "external": "negativeKeywords-2", "ack": {"negativeKeywords": {"success": [{"index": 0, "keywordId": "negativeKeywords-2"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "category_broad", "external": "campaigns-3"}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "product_targeting", "recurso": "campaign", "external": "campaigns-4", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "product_targeting", "recurso": "ad_group", "external": "adGroups-4", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "product_targeting", "recurso": "product_ad", "external": "productAds-4", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "product_targeting", "recurso": "target", "external": "targetingClauses-1", "ack": {"targetingClauses": {"success": [{"index": 0, "targetId": "targetingClauses-1"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "product_targeting", "external": "campaigns-4"}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "auto_discovery", "recurso": "campaign", "external": "campaigns-5", "ack": {"campaigns": {"success": [{"index": 0, "campaignId": "campaigns-5"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "auto_discovery", "recurso": "ad_group", "external": "adGroups-5", "ack": {"adGroups": {"success": [{"index": 0, "adGroupId": "adGroups-5"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "auto_discovery", "recurso": "product_ad", "external": "productAds-5", "ack": {"productAds": {"success": [{"index": 0, "adId": "productAds-5"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "auto_discovery", "recurso": "negative_keyword", "external": "negativeKeywords-3", "ack": {"negativeKeywords": {"success": [{"index": 0, "keywordId": "negativeKeywords-3"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "paso", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "auto_discovery", "recurso": "negative_keyword", "external": "negativeKeywords-4", "ack": {"negativeKeywords": {"success": [{"index": 0, "keywordId": "negativeKeywords-4"}], "error": []}}, "readback": "ENABLED", "ok": true}
+{"evento": "campana_creada", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "rol": "auto_discovery", "external": "campaigns-5"}
+{"evento": "reconciliacion_final", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "campanas": ["campaigns-1", "campaigns-2", "campaigns-3", "campaigns-4", "campaigns-5"], "ok": true}
+___________ test_arreglos05_d_fabrica_dry_run_no_construye_escritor ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000022154E535F0>
+capsys = <_pytest.capture.CaptureFixture object at 0x0000022154E53B90>
+
+    def test_arreglos05_d_fabrica_dry_run_no_construye_escritor(monkeypatch, capsys):
+        """Sin ceremonia no hay cliente de escritura ni se toca Amazon."""
+        _huella_de(monkeypatch)
+        capsys.readouterr()
+
+        def _no_debe(*_a, **_k):
+            raise AssertionError("el dry-run construyo un AdsWriteClient")
+
+>       monkeypatch.setattr(fm, "AdsWriteClient", _no_debe)
+E       AttributeError: <module 'app.fabrica_motor' from '<padre>\\app\\fabrica_motor.py'> has no attribute 'AdsWriteClient'
+
+tests\test_arreglos05_d_write.py:432: AttributeError
+_________ test_arreglos05_d_fabrica_reactiva_por_el_cliente_protegido _________
+
+    def test_arreglos05_d_fabrica_reactiva_por_el_cliente_protegido():
+        """La reactivacion de campanas (graduacion de la fabrica) usa el mismo PUT."""
+        pedidos: list[httpx.Request] = []
+        estados = {"c-1": "PAUSED"}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            pedidos.append(request)
+            if request.url.path == "/sp/campaigns/list":
+                return httpx.Response(
+                    200, json={"campaigns": [{"campaignId": "c-1", "state": estados["c-1"]}]}
+                )
+            assert request.method == "PUT" and request.url.path == "/sp/campaigns"
+            estados["c-1"] = json.loads(request.content)["campaigns"][0]["state"]
+            return httpx.Response(207, json={"campaigns": {"success": [{}], "error": []}})
+
+        class _ConnPaquetes(_ConnFabrica):
+            def execute(self, sql, params=None):
+                plano = " ".join(str(sql).split()).lower()
+                if plano.startswith("select estado from fabrica_lote"):
+                    return _Cursor([("pausado",)])
+                return super().execute(sql, params)
+
+        conn = _ConnPaquetes(grupo=[("exact", "c-1", None)])
+>       ctx = fm._Ctx(_escritor(handler), _Lector(handler), 101, conn, "L1")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: _Ctx.__init__() missing 2 required positional arguments: 'conn_admin' and 'lote'
+
+tests\test_arreglos05_d_write.py:462: TypeError
+_______________ test_arreglos05_d_sin_transporte_mutante_propio _______________
+
+    def test_arreglos05_d_sin_transporte_mutante_propio():
+        """Los modulos que escriben ya no tienen POST/PUT/httpx propios."""
+        for modulo in (fm, archivar_inertes):
+>           assert not hasattr(modulo, "_token_lwa"), modulo.__name__
+E           AssertionError: app.fabrica_motor
+E           assert not True
+E            +  where True = hasattr(<module 'app.fabrica_motor' from '<padre>\\app\\fabrica_motor.py'>, '_token_lwa')
+
+tests\test_arreglos05_d_write.py:472: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_crear_campana_sella_ruta_vendor_y_scope
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_crear_ad_group_y_target_asin
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_crear_keyword_respeta_match_y_estado_de_reposicion
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_crear_keyword_rechaza_match_y_estado_fuera_del_wire_sin_http
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_cambiar_estado_campana_solo_activa_o_pausa
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_vendor_de_la_fabrica_y_del_cliente_es_el_mismo
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_allowlist_suma_los_creates_y_conserva_default_deny
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_ack_de_y_ack_de_error_conservan_el_207_y_lo_incierto
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_preparar_escritor_exige_el_modo_autorizado
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_fabrica_crea_por_el_cliente_y_cuerpo_igual_al_ledger
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_fabrica_dry_run_no_construye_escritor
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_fabrica_reactiva_por_el_cliente_protegido
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_sin_transporte_mutante_propio
+13 failed, 6 passed in 9.04s

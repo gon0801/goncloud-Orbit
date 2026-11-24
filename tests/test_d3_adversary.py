@@ -399,7 +399,7 @@ def test_reversa_automatica_no_borra_keyword_sin_post_propio():
         patch.object(apply_harvest, "_falla_job", return_value=("failed", None)),
     ):
         apply_harvest._paso_negative(conn, aplicador, job, contexto, None)
-    assert cliente.crear_keyword_exacta.call_count == 0
+    assert cliente.crear_keyword.call_count == 0
     borrado.assert_not_called()
 
 
@@ -438,7 +438,7 @@ def test_reversa_no_borra_keyword_ajena_sin_confirmacion(ack_keyword):
         "amazon_mx",
     )
     cliente = Mock()
-    cliente.crear_keyword_exacta.return_value = httpx.Response(207, json=ack_keyword)
+    cliente.crear_keyword.return_value = httpx.Response(207, json=ack_keyword)
     ajena = {
         "keywordId": "keyword-ajena",
         "adGroupId": "destino",

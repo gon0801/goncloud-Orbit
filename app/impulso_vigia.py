@@ -196,7 +196,9 @@ def _vigila_uno(conn, pausador, fila, *, hoy, escritor_retiro):
                 if escritor_retiro is None:
                     from app.ads import archivar
 
-                    escritor_retiro = archivar.preparar_escritor(platform)
+                    escritor_retiro = archivar.preparar_escritor(
+                        platform, modo_confirmado=archivar.MODO_AUTORIZADO_LIVE
+                    )
                 resultados = retiro_anuncios.ejecuta_retiro(
                     conn,
                     pendientes,

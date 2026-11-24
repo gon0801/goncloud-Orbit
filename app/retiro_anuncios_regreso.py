@@ -65,7 +65,9 @@ def _regresa(conn, retiro_ids, autorizacion, escritor, verbo: str, paso, al_sell
             raise ValueError(f"{verbo} mezcla plataformas {sorted(plataformas)}: una por llamada")
         if escritor is None:
             try:
-                escritor = archivar.preparar_escritor(next(iter(plataformas)))
+                escritor = archivar.preparar_escritor(
+                    next(iter(plataformas)), modo_confirmado=archivar.MODO_AUTORIZADO_LIVE
+                )
             except (ValueError, AdsApiError, AdsConfigError) as exc:
                 raise RuntimeError(f"Amazon no disponible para {verbo}: {exc}") from exc
         with _bloqueados(conn, [f"retiro-ad:{r.ad_entity_id}" for r in abiertos]):

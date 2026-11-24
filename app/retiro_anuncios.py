@@ -236,12 +236,15 @@ def grupo_de_lote(conn, lote: str) -> int | None:
     return fila[0] if fila is not None else None
 
 
-def _verifica_autorizacion(conn, plan: PlanRetiro, autorizacion: Autorizacion, candidatos) -> None:
-    """Verifica autorizacion humana o de decision antes del primer PUT."""
+def _verifica_autorizacion(conn, plan: PlanRetiro, autorizacion: Autorizacion, candidatos) -> str:
+    """Verifica autorizacion humana o de decision antes del primer PUT.
+
+    Devuelve el modo autorizado que el escritor revalida: solo una autorizacion
+    probada en vivo llega a `preparar_escritor` (ARREGLOS 05 D)."""
     if isinstance(autorizacion, AutorizacionHumana):
         if plan.motivo == "producto_sin_ventas":
             raise AutorizacionInvalida("producto_sin_ventas solo se retira con su decision")
-        return
+        return archivar.MODO_AUTORIZADO_LIVE
     if not isinstance(autorizacion, AutorizacionDeDecision):
         raise AutorizacionInvalida(f"autorizacion desconocida: {type(autorizacion).__name__}")
     if plan.motivo != "producto_sin_ventas" or len(candidatos) != 1:
@@ -269,6 +272,7 @@ def _verifica_autorizacion(conn, plan: PlanRetiro, autorizacion: Autorizacion, c
             " este retiro: exige pause sobre ese product_ad, cola applying en live, veto"
             " vencido y cuota cobrada"
         )
+    return archivar.MODO_AUTORIZADO_LIVE
 
 
 def ejecuta_retiro(
@@ -296,12 +300,12 @@ def ejecuta_retiro(
                 )
         candidatos.append((ent[0], anuncio))
     conn.commit()
-    _verifica_autorizacion(conn, plan, autorizacion, candidatos)
+    modo = _verifica_autorizacion(conn, plan, autorizacion, candidatos)
     if not candidatos:
         return ()
     if escritor is None:
         try:
-            escritor = archivar.preparar_escritor(plan.plataforma)
+            escritor = archivar.preparar_escritor(plan.plataforma, modo_confirmado=modo)
         except (ValueError, AdsApiError, AdsConfigError) as exc:
             raise RuntimeError(f"Amazon no disponible para retirar: {exc}") from exc
     decision_id = (

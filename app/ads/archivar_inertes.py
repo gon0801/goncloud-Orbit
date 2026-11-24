@@ -6,6 +6,11 @@ Motor del CLI `tools/archiva_inertes.py`: construye el plan desde
 antes de mutar Amazon por HTTP v3 y ofrece reconciliacion (`--reconciliar`) y
 reposicion (`--reponer`). Amazon NO des-archiva: archivar es IRREVERSIBLE en la
 practica y `--reponer` CREA otra keyword en estado PAUSED sin historia.
+
+ARREGLOS 05 D: las tres mutaciones (DELETE del archivo, POST de la reposicion y
+POST de su reversa) salen por `app.ads.write.AdsWriteClient` con el perfil
+sellado; aqui solo viven la ceremonia, el ledger y la traduccion del payload
+durable de C a la operacion tipada.
 """
 
 from __future__ import annotations
@@ -20,24 +25,23 @@ import os
 import time
 import uuid
 from collections.abc import Collection
+from decimal import Decimal
 from typing import Any
 
-import httpx
 import psycopg
 
-from app.ads import archivar, sp_wire
-from app.ads.client import DEFAULT_BASE_URL, AdsClient
+from app.ads import archivar, reposicion, sp_wire
+from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles
+from app.ads.write import MODO_CONFIRMADO_LIVE, AdsWriteClient
 from app.ceremonia import ErrorCeremonia, agrega_flags_ceremonia, valida_ceremonia
 from app.db import connect
-from app.redaction import install_scrub_filter, register_secret, scrub
+from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.redaction import install_scrub_filter, scrub
 
 install_scrub_filter(logging.getLogger())
 
-API = DEFAULT_BASE_URL
-LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
-VENDOR_KEYWORDS = "application/vnd.spkeyword.v3+json"
 CLASIFICACIONES = ("peso_muerto", "gasto_sin_ventas", "con_ventas_previas")
 
 _ESTADO_VIVO = "ENABLED"
@@ -126,25 +130,13 @@ def _cerrar(recurso: Any) -> None:
         close()
 
 
+def _cerra_escritores(escritores: dict[str, AdsWriteClient]) -> None:
+    for escritor in escritores.values():
+        escritor.close()
+
+
 def _log(evento: str, **campos: Any) -> None:
     print(scrub(json.dumps({"evento": evento, **campos}, default=str)), flush=True)
-
-
-def _token_lwa(cred: AdsCredentials, client: httpx.Client) -> str:
-    resp = client.post(
-        LWA_TOKEN_URL,
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": cred.refresh_token,
-            "client_id": cred.client_id,
-            "client_secret": cred.client_secret,
-        },
-    )
-    if resp.status_code != 200:
-        raise Abortar(f"LWA {resp.status_code}: {scrub(resp.text[:300])}")
-    token = resp.json()["access_token"]
-    register_secret(token)
-    return token
 
 
 def _dsn_read() -> str:
@@ -265,33 +257,65 @@ def _linea_plan(p: dict) -> str:
     )
 
 
-def _post(
-    client: httpx.Client,
-    token: str,
-    cred: AdsCredentials,
-    profile: int,
-    path: str,
-    payload: dict,
-    envolver: str | None = None,
+def _escritores(
+    cred: AdsCredentials, perfiles: dict[str, int], *, modo_confirmado: str
+) -> dict[str, AdsWriteClient]:
+    """UN escritor sellado por plataforma con perfil aceptado (ARREGLOS 05 D)."""
+    return {
+        plataforma: AdsWriteClient(
+            cred,
+            platform=plataforma,
+            profile_id=perfil,
+            modo_confirmado=modo_confirmado,
+        )
+        for plataforma, perfil in perfiles.items()
+    }
+
+
+def _ack_de_mutacion(
+    llamada,
 ) -> dict:
-    """POST de mutacion con vendor v3 en Content-Type y Accept."""
-    if envolver is not None:
-        payload = {envolver: [payload]}
-    resp = client.post(
-        f"{API}{path}",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Amazon-Advertising-API-ClientId": cred.client_id,
-            "Amazon-Advertising-API-Scope": str(profile),
-            "Content-Type": VENDOR_KEYWORDS,
-            "Accept": VENDOR_KEYWORDS,
-        },
-        json=payload,
-    )
-    cuerpo: dict = {}
-    with contextlib.suppress(ValueError):
-        cuerpo = resp.json()
-    return {"status": resp.status_code, "cuerpo": cuerpo, "texto": scrub(resp.text[:400])}
+    """ACK canonico de una mutacion: un rechazo o un fallo tambien es un ACK."""
+    try:
+        return sp_wire.ack_de(llamada())
+    except AdsApiError as exc:
+        return sp_wire.ack_de_error(exc)
+
+
+def _enviar_keyword(escritores: dict[str, AdsWriteClient]) -> reposicion.Enviar:
+    """Traduce el payload durable de la reposicion (bloque C) al cliente.
+
+    La moneda sale del mapa unico de plataformas: el cliente la revalida antes
+    del HTTP. El perfil que recibe `Enviar` se ignora a proposito: el scope ya
+    vive sellado en el escritor de esa plataforma.
+    """
+
+    def enviar(plataforma: str, _profile: int, payload: dict) -> dict:
+        escritor = escritores[plataforma]
+        return _ack_de_mutacion(
+            lambda: escritor.crear_keyword(
+                payload["adGroupId"],
+                payload["campaignId"],
+                payload["keywordText"],
+                Decimal(str(payload["bid"])),
+                PLATAFORMAS_MONEDA[plataforma],
+                match_type=payload["matchType"],
+                estado=payload["state"],
+            )
+        )
+
+    return enviar
+
+
+def _eliminar_keyword(escritores: dict[str, AdsWriteClient]) -> reposicion.Enviar:
+    """Reversa de la reposicion: archiva SOLO el id repuesto propio."""
+
+    def eliminar(plataforma: str, _profile: int, payload: dict) -> dict:
+        (keyword_id,) = payload["keywordIdFilter"]["include"]
+        escritor = escritores[plataforma]
+        return _ack_de_mutacion(lambda: escritor.borrar_keyword(keyword_id))
+
+    return eliminar
 
 
 def _errores_207(ack: dict) -> list:
@@ -430,9 +454,6 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
     with contextlib.ExitStack() as stack:
         conn_admin = connect(_dsn_admin())
         stack.callback(_cerrar, conn_admin)
-        http = stack.enter_context(
-            httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
-        )
 
         perfiles = _perfiles(cliente_lectura, plataformas={p["platform"] for p in plan})
         _log("perfiles", perfiles=perfiles)
@@ -440,7 +461,10 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
             if p["platform"] not in perfiles:
                 raise Abortar(f"sin perfil aceptado para {p['platform']} ({p['external_id']})")
 
-        token = _token_lwa(cred, http)
+        # La ceremonia ya autorizo la mutacion: ese es el modo real que recibe
+        # el escritor (ARREGLOS 05 D).
+        escritores = _escritores(cred, perfiles, modo_confirmado=MODO_CONFIRMADO_LIVE)
+        stack.callback(_cerra_escritores, escritores)
 
         archivadas = 0
         saltadas = 0
@@ -464,16 +488,15 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
                 continue
             fila_id = _inserta_planeado(conn_admin, lote, p, args.go)
             try:
-                ack = _post(
-                    http,
-                    token,
-                    cred,
-                    profile,
-                    "/sp/keywords/delete",
-                    {"keywordIdFilter": {"include": [str(p["external_id"])]}},
+                ack = _ack_de_mutacion(
+                    lambda p=p: escritores[p["platform"]].borrar_keyword(p["external_id"])
                 )
-            except Exception as exc:
-                ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
+            except Exception as exc:  # noqa: BLE001 - se sella como incierto
+                ack = {
+                    "status": sp_wire.ACK_SIN_RESPUESTA,
+                    "cuerpo": {},
+                    "texto": scrub(str(exc))[:300],
+                }
             if not _ack_ok(ack):
                 _sella(conn_admin, _SQL_SELLA_FAILED, (json.dumps(ack, default=str), None, fila_id))
                 motivo = (
@@ -688,20 +711,17 @@ def _reponer(args) -> int:
             return 0
         cred = AdsCredentials.from_secrets_dir()
         cliente_lectura = AdsClient(cred)
-        http = stack.enter_context(
-            httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
-        )
         perfiles = _perfiles(cliente_lectura, plataformas=set())
         _log("perfiles", perfiles=perfiles)
-        token = _token_lwa(cred, http)
+        escritores = _escritores(cred, perfiles, modo_confirmado=MODO_CONFIRMADO_LIVE)
+        stack.callback(_cerra_escritores, escritores)
 
         # La recuperacion del ledger de archivo sigue siendo parte de --reponer
         # con mutacion: una fila failed archivada en Amazon se promueve antes
         # de leer las filas reponibles.
         _reconciliar(conn_admin, cliente_lectura, perfiles, args.reponer)
 
-        def enviar(plataforma: str, profile: int, payload: dict) -> dict:
-            return _post(http, token, cred, profile, "/sp/keywords", payload, envolver="keywords")
+        enviar = _enviar_keyword(escritores)
 
         try:
             resultados = archivar.reponer_keyword(
@@ -745,15 +765,12 @@ def _revertir(args) -> int:
             return 0
         cred = AdsCredentials.from_secrets_dir()
         cliente_lectura = AdsClient(cred)
-        http = stack.enter_context(
-            httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
-        )
         perfiles = _perfiles(cliente_lectura, plataformas=set())
         _log("perfiles", perfiles=perfiles)
-        token = _token_lwa(cred, http)
+        escritores = _escritores(cred, perfiles, modo_confirmado=MODO_CONFIRMADO_LIVE)
+        stack.callback(_cerra_escritores, escritores)
 
-        def eliminar(plataforma: str, profile: int, payload: dict) -> dict:
-            return _post(http, token, cred, profile, "/sp/keywords/delete", payload)
+        eliminar = _eliminar_keyword(escritores)
 
         try:
             resultados = archivar.revertir_reposicion(

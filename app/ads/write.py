@@ -27,12 +27,12 @@ Diseno SELLADO (plans/orbit-04.md decision 9; docs/APPLY.md §8):
   `MutationNotAllowedError` ANTES de pedir token.
 - Payload de UN objeto por mutacion: un parametro multi (lista/dict/etc)
   revienta ValueError antes de tocar la red.
-- Presentacion sellada: el bid viaja quantizado a 2 decimales (sin
-  quantize, el payload llevaria los 4 decimales del NUMERIC de origen) y
-  como string (float prohibido para dinero, regla 4); la moneda se
-  verifica contra `PLATAFORMA_MONEDA[platform]` (el caller pasa
-  `goal.bid_currency`) ANTES del HTTP — si no coincide, algo esta podrido
-  y NO se escribe.
+- Presentacion sellada: el monto viaja quantizado a 2 decimales (sin
+  quantize, el payload llevaria los 4 decimales del NUMERIC de origen) como
+  NUMERO JSON, encoding final de un valor ya cuantizado (float prohibido para
+  decidir o guardar, regla 4); la moneda se verifica contra
+  `PLATAFORMA_MONEDA[platform]` (el caller pasa `goal.bid_currency`) ANTES del
+  HTTP — si no coincide, algo esta podrido y NO se escribe.
 - Quien puede importar este modulo: candado en tests/test_architecture.py.
 - Errores >=400 (ORBIT 04 2.1, hallazgo r1 del brief §13): AdsApiError perdia
   el body de Amazon; el `resultado` del ledger lo heredaria. `_mutate` lanza
@@ -52,6 +52,14 @@ enums UPPER (matchType EXACT/NEGATIVE_EXACT, state ENABLED en creates), bid
 como NUMERO JSON y deletes por POST /sp/{recurso}/delete con filtro de ids
 — todo verificado en vivo con las 4 formas neto cero. El state del PUT de
 pause/resume quedo SELLADO el 2026-08-27 (ver ESTADO_PUT_PAUSED).
+
+ARREGLOS 05 D: aqui vive TODA mutacion de Amazon Ads. La fabrica (API,
+impulso y vigia), el archivo manual de inertes, la reposicion y su reversa
+dejaron de armar su propio `httpx.Client`; suman operaciones especificas
+(`crear_campana`, `crear_ad_group`, `crear_target_asin`, `crear_keyword`,
+`cambiar_estado_campana`) y conservan su ledger y su juicio del ACK 207 por
+item (`app/ads/sp_wire.py`). El modo sigue siendo argumento obligatorio del
+dueno: este modulo no lo decide.
 """
 
 from __future__ import annotations
@@ -59,6 +67,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
+from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 from types import MappingProxyType
 
@@ -122,6 +131,13 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         # con readback igual; conclusion y salidas literales en
         # docs/evidencia/bids-02/ejecucion/V.0/.
         ("PUT", "/sp/productAds"): "application/vnd.spproductad.v3+json",
+        # Creaciones de la fabrica (ARREGLOS 05 D). SELLADAS por la sonda del
+        # 2026-09-09 (creacion real, lote web-923cb2) y por el probe 2.5
+        # (2026-08-26): campaign, ad group y target responden 207 con el
+        # contenedor de MUTATION_CONTAINERS. Mismo vendor v3 que su PUT/list.
+        ("POST", "/sp/campaigns"): "application/vnd.spcampaign.v3+json",
+        ("POST", "/sp/adGroups"): "application/vnd.spadgroup.v3+json",
+        ("POST", "/sp/targets"): "application/vnd.sptargetingclause.v3+json",
     }
 )
 
@@ -142,6 +158,8 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
         "/sp/productAds": "productAds",
         # Misma clave que el list de campanas (sondas V.0 del 2026-10-10).
         "/sp/campaigns": "campaigns",
+        # Ad groups (sonda de creacion del 2026-09-09, lote web-923cb2).
+        "/sp/adGroups": "adGroups",
     }
 )
 
@@ -158,6 +176,18 @@ ESTADO_PUT_ENABLED = "ENABLED"
 ESTADO_PUT_PROPOSED = "PROPOSED"
 # Create de product ad: solo estados vivos del wire; ARCHIVED no se crea.
 ESTADOS_CREATE_PRODUCT_AD = frozenset({ESTADO_PUT_ENABLED, ESTADO_PUT_PAUSED, ESTADO_PUT_PROPOSED})
+
+# Vocabulario del wire para las creaciones de la fabrica (ARREGLOS 05 D;
+# SELLADO por la sonda del 2026-09-09: creacion real de campanas, ad groups,
+# keywords y targets desde la fabrica, lote web-923cb2). El matchType de las
+# keywords es UPPER y su NEGATIVE_* es exclusivo de los negativos, que tienen
+# operacion propia. El estado de una campana solo se activa o se pausa: ARCHIVED
+# y PROPOSED no se escriben por ahi.
+MATCH_TYPES_KEYWORD = frozenset({"EXACT", "PHRASE", "BROAD"})
+TARGETING_TYPES_CAMPANA = frozenset({"MANUAL", "AUTO"})
+TIPO_PRESUPUESTO = "DAILY"
+ESTRATEGIA_PUJA_CAMPANA = "LEGACY_FOR_SALES"
+ESTADOS_ESTADO_CAMPANA = frozenset({ESTADO_PUT_ENABLED, ESTADO_PUT_PAUSED})
 
 
 def _un_objeto(valor: object, nombre: str) -> object:
@@ -179,7 +209,34 @@ def _bid_wire(bid: Decimal) -> float:
     decisiones — este es el encoding FINAL del valor YA cuantizado a 2
     decimales: float(Decimal("0.76")) serializa como 0.76 exacto (repr de
     round-trip), sin inventar precisión."""
-    return float(_bid_payload(bid))
+    return _monto_wire(bid)
+
+
+def _monto_wire(monto: Decimal) -> float:
+    """Monto de dinero para el PAYLOAD: cuantizado a 2 decimales (HALF_EVEN)
+    y serializado como numero JSON. Unico encoding de dinero del cliente
+    (bids, defaultBid y presupuesto de campana); Decimal antes y despues."""
+    if not isinstance(monto, Decimal):
+        raise TypeError(
+            f"monto debe ser Decimal, no {type(monto).__name__} (float prohibido para dinero)"
+        )
+    return float(monto.quantize(CENTAVO, rounding=ROUND_HALF_EVEN))
+
+
+def _estado_de_creacion(estado: object, nombre: str) -> str:
+    """`state` de una creacion: enum UPPER del wire, ARCHIVED nunca."""
+    if estado not in ESTADOS_CREATE_PRODUCT_AD:
+        raise ValueError(
+            f"{nombre} debe ser UPPER wire {sorted(ESTADOS_CREATE_PRODUCT_AD)}; llego {estado!r}"
+        )
+    return str(estado)
+
+
+def _texto_no_vacio(valor: object, nombre: str) -> str:
+    texto = _un_objeto(valor, nombre)
+    if not isinstance(texto, str) or not texto.strip():
+        raise ValueError(f"{nombre} debe ser texto no vacio; llego {texto!r}")
+    return texto
 
 
 def _bid_payload(bid: Decimal) -> str:
@@ -238,12 +295,13 @@ def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:
 class AdsWriteClient(AdsClient):
     """Cliente de escritura Amazon Ads: SOLO las mutaciones del allowlist.
 
-    La superficie publica es EXACTA (las 9 mutaciones selladas + las dos
-    puertas de lectura sellada: list_sellado para el readback de entidad y
-    get_sellado solo para el PENDIENTE-DE-REGLA-8; ningun metodo generico
-    request/post) y ningun metodo acepta profile/platform: el scope vive en
-    la instancia. Devuelven el `httpx.Response` crudo (el ack); el
-    sello/parseo es del aplicador (2.1).
+    La superficie publica es EXACTA (las mutaciones selladas, incluidas las
+    creaciones de la fabrica, + las dos puertas de lectura sellada:
+    list_sellado para el readback de entidad y get_sellado solo para el
+    PENDIENTE-DE-REGLA-8; ningun metodo generico request/post) y ningun
+    metodo acepta profile/platform: el scope vive en la instancia. Devuelven
+    el `httpx.Response` crudo (el ack); el sello/parseo es del dueno, que lo
+    arma con `app/ads/sp_wire.ack_de`.
     """
 
     def __init__(
@@ -369,30 +427,142 @@ class AdsWriteClient(AdsClient):
             envolver=False,
         )
 
-    def crear_keyword_exacta(
+    def crear_keyword(
         self,
         ad_group_id: str | int,
         campaign_id: str | int,
         keyword_text: str,
         bid: Decimal,
         moneda: str,
+        *,
+        match_type: str = "EXACT",
+        estado: str = ESTADO_PUT_ENABLED,
     ) -> httpx.Response:
-        """POST /sp/keywords: keyword EXACT nueva (el corazon del harvest).
+        """POST /sp/keywords: keyword nueva de UNA keyword.
 
-        Shapes del probe 2.5 (apply_attempt 15): matchType enum UPPER
-        (EXACT/PHRASE/BROAD) y state OBLIGATORIO (ENABLED)."""
+        Shapes del probe 2.5 (apply_attempt 15): matchType UPPER
+        (EXACT/PHRASE/BROAD) y `state` OBLIGATORIO. El harvest usa el default
+        EXACT/ENABLED; la fabrica manda los tres match; la reposicion (bloque
+        C) la crea PAUSED. Los dos ultimos van keyword-only y validados ANTES
+        del HTTP: un valor fuera del enum no viaja."""
         self._verificar_moneda(moneda)
+        if match_type not in MATCH_TYPES_KEYWORD:
+            raise ValueError(
+                f"matchType de keyword debe ser {sorted(MATCH_TYPES_KEYWORD)}; llego {match_type!r}"
+            )
         return self._mutate(
             "POST",
             "/sp/keywords",
             {
                 "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
                 "campaignId": _un_objeto(campaign_id, "campaign_id"),
-                "keywordText": _un_objeto(keyword_text, "keyword_text"),
-                "matchType": "EXACT",
-                "state": "ENABLED",
+                "keywordText": _texto_no_vacio(keyword_text, "keyword_text"),
+                "matchType": match_type,
+                "state": _estado_de_creacion(estado, "estado"),
                 "bid": _bid_wire(bid),
             },
+        )
+
+    def crear_campana(
+        self,
+        *,
+        nombre: str,
+        targeting_type: str,
+        estado: str,
+        presupuesto: Decimal,
+        moneda: str,
+        fecha_inicio: date,
+    ) -> httpx.Response:
+        """POST /sp/campaigns: campana nueva de la fabrica (probe 2026-09-09).
+
+        `budget` anidado DAILY, `startDate` ISO y `dynamicBidding`
+        LEGACY_FOR_SALES: los tres campos quedaron sellados por la creacion
+        real del lote web-923cb2. La campana puede nacer PAUSED (camino
+        impulso) y activarse despues con `cambiar_estado_campana`."""
+        self._verificar_moneda(moneda)
+        if targeting_type not in TARGETING_TYPES_CAMPANA:
+            raise ValueError(
+                f"targetingType debe ser {sorted(TARGETING_TYPES_CAMPANA)};"
+                f" llego {targeting_type!r}"
+            )
+        return self._mutate(
+            "POST",
+            "/sp/campaigns",
+            {
+                "name": _texto_no_vacio(nombre, "nombre"),
+                "targetingType": targeting_type,
+                "state": _estado_de_creacion(estado, "estado"),
+                "budget": {
+                    "budgetType": TIPO_PRESUPUESTO,
+                    "budget": _monto_wire(presupuesto),
+                },
+                "startDate": fecha_inicio.isoformat(),
+                "dynamicBidding": {"strategy": ESTRATEGIA_PUJA_CAMPANA},
+            },
+        )
+
+    def crear_ad_group(
+        self, campaign_id: str | int, *, nombre: str, estado: str, default_bid: Decimal, moneda: str
+    ) -> httpx.Response:
+        """POST /sp/adGroups: ad group nuevo de UNA campana (probe 2026-09-09).
+
+        `campaignId` viaja en el cuerpo (el ad group cuelga de su campana) y
+        `defaultBid` como numero."""
+        self._verificar_moneda(moneda)
+        return self._mutate(
+            "POST",
+            "/sp/adGroups",
+            {
+                "campaignId": _un_objeto(campaign_id, "campaign_id"),
+                "name": _texto_no_vacio(nombre, "nombre"),
+                "state": _estado_de_creacion(estado, "estado"),
+                "defaultBid": _monto_wire(default_bid),
+            },
+        )
+
+    def crear_target_asin(
+        self,
+        ad_group_id: str | int,
+        campaign_id: str | int,
+        asin: str,
+        bid: Decimal,
+        moneda: str,
+        *,
+        estado: str = ESTADO_PUT_ENABLED,
+    ) -> httpx.Response:
+        """POST /sp/targets: product_target MANUAL de UN ASIN_SAME_AS.
+
+        Sonda 2026-09-09: `expressionType` MANUAL, `expression` con
+        `ASIN_SAME_AS` (el endpoint de recomendaciones v4 usa PAT_ASIN, otro
+        contrato) y `bid` como numero."""
+        self._verificar_moneda(moneda)
+        return self._mutate(
+            "POST",
+            "/sp/targets",
+            {
+                "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
+                "campaignId": _un_objeto(campaign_id, "campaign_id"),
+                "expressionType": "MANUAL",
+                "expression": [{"type": "ASIN_SAME_AS", "value": _texto_no_vacio(asin, "asin")}],
+                "state": _estado_de_creacion(estado, "estado"),
+                "bid": _bid_wire(bid),
+            },
+        )
+
+    def cambiar_estado_campana(self, externa: str | int, estado: str) -> httpx.Response:
+        """PUT /sp/campaigns: activa o pausa UNA campana.
+
+        Solo viajan ENABLED y PAUSED (ARCHIVED y PROPOSED no son un cambio de
+        estado reversible). El dueno juzga el 207 por item con `sp_wire`; el
+        rechazo >=400 sale como `AdsApiErrorMutacion`."""
+        if estado not in ESTADOS_ESTADO_CAMPANA:
+            raise ValueError(
+                f"estado de campana debe ser {sorted(ESTADOS_ESTADO_CAMPANA)}; llego {estado!r}"
+            )
+        return self._mutate(
+            "PUT",
+            "/sp/campaigns",
+            {"campaignId": str(_un_objeto(externa, "externa")), "state": estado},
         )
 
     def borrar_keyword(self, keyword_id: str | int) -> httpx.Response:
@@ -417,7 +587,7 @@ class AdsWriteClient(AdsClient):
         la unica vuelta atras es volver a crear el anuncio en su mismo ad
         group. Decision del dueno del 2026-08-30, tomada a sabiendas de que
         crear un anuncio habilita GASTO — el mismo precio que ya paga el
-        harvest con crear_keyword_exacta.
+        harvest con crear_keyword.
 
         `sku` y no `asin` A PROPOSITO: la guia oficial de Sponsored Products
         pide ASIN para vendors/KDP y SKU para SELLERS, y el gate de perfiles
@@ -554,11 +724,30 @@ class AdsWriteClient(AdsClient):
         que get_sellado: el profile JAMAS viaja a mano — vive en la instancia."""
         return self.list_objects(path, body, profile_id=self._profile_id)
 
+    def autenticar(self) -> None:
+        """Preflight del token LWA, sin enviar ninguna mutacion.
+
+        La fabrica lo llama despues de su ceremonia y ANTES de registrar el
+        lote: si LWA rechaza, no queda un lote fallido que bloquee repetir la
+        misma huella cuando el token vuelva (revision P1 de #759). El token
+        queda cacheado en la instancia para las mutaciones que siguen.
+        """
+        self._ensure_token()
+
+    def close(self) -> None:
+        """Cierra el cliente HTTP interno (los CLI y el pausador lo usan)."""
+        self._client.close()
+
+    @property
+    def moneda(self) -> str:
+        """Moneda de la plataforma sellada (regla 4: el caller la coteja antes)."""
+        return PLATAFORMA_MONEDA[self._platform]
+
     def _verificar_moneda(self, moneda: str) -> None:
         """Regla 4: la moneda del payload se verifica contra la moneda de la
         plataforma ANTES del HTTP. El caller pasa `goal.bid_currency`; si no
         coincide, algo esta podrido y NO se escribe."""
-        esperada = PLATAFORMA_MONEDA[self._platform]
+        esperada = self.moneda
         if moneda != esperada:
             raise MutationNotAllowedError(
                 f"moneda {moneda!r} != moneda de la plataforma {self._platform} "

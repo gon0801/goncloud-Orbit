@@ -784,38 +784,3 @@ def pasos_del_rol(plan: PlanGrupoV2, rol: str) -> list[Paso]:
     )
     pasos.extend(_semillas_del_rol(plan, rol))
     return pasos
-
-
-def errores_207(ack: dict) -> list:
-    cuerpo = ack.get("cuerpo")
-    if not isinstance(cuerpo, dict):
-        return [{"no_json": ack.get("texto")}]
-    errores: list = []
-    for valor in cuerpo.values():
-        if isinstance(valor, dict):
-            errores.extend(valor.get("error") or [])
-    return errores
-
-
-def ack_ok(ack: dict) -> bool:
-    return ack.get("status") in (200, 207) and not errores_207(ack)
-
-
-def id_creado(ack: dict, clave: str) -> str | None:
-    """El id del objeto creado segun el ack (success plano o anidado por
-    recurso). None = sin id legible (regla 3: jamas inventado)."""
-    cuerpo = ack.get("cuerpo")
-    if not isinstance(cuerpo, dict):
-        return None
-    for valor in cuerpo.values():
-        if not isinstance(valor, dict) or not isinstance(valor.get("success"), list):
-            continue
-        for item in valor["success"]:
-            if not isinstance(item, dict):
-                continue
-            if item.get(clave) is not None:
-                return str(item[clave])
-            for sub in item.values():
-                if isinstance(sub, dict) and sub.get(clave) is not None:
-                    return str(sub[clave])
-    return None

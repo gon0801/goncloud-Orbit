@@ -1,0 +1,40 @@
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 1 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [ACEPTA] D.1 a D.3: N d, regresiones del bloque
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N d
+.......................                                                  [100%]
+============================== warnings summary ===============================
+<venv>\Lib\site-packages\fastapi\testclient.py:1
+  C:\<venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+23 passed, 6394 deselected, 1 warning in 23.19s
+resultado=ok
+
+### [ACEPTA] D.2: contrato de reposicion de C (T writes test_11)
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_11
+.                                                                        [100%]
+1 passed, 8 deselected in 13.62s
+resultado=ok
+
+### [ACEPTA] D.2: modelo de estados completo (sin casillas nuevas)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
+........................................................................ [ 39%]
+........................................................................ [ 79%]
+.....................................                                    [100%]
+181 passed in 1.22s
+resultado=ok
+
+### [CONTROL] arquitectura: presupuesto de tamano e imports del cliente de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
+..............................................................ss........ [ 71%]
+.............................                                            [100%]
+99 passed, 2 skipped in 10.52s
+resultado=ok
+
+# comandos que no pasaron: 0

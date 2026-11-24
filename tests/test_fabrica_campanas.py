@@ -30,6 +30,7 @@ from test_schema import _postgres_obligatorio_ausente, _test_dsn
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure_api import PerfilAds
+from app.ads.write import MUTATION_REQUEST_TYPES, AdsWriteClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
@@ -979,15 +980,15 @@ class _Amazon:
         url = str(request.url)
         if "auth/o2/token" in url:
             self.secuencia.append(("http", "lwa"))
-            return httpx.Response(200, json={"access_token": "tok"})
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
         path = url.replace(fm.API, "")
         self.secuencia.append(("http", path))
         if path.endswith("/list"):
             return self._list(path, json.loads(request.content))
         self._sello(request)
-        assert path in fp.VENDOR_POR_PATH, path
-        assert request.headers["Content-Type"] == fp.VENDOR_POR_PATH[path]
-        assert request.headers["Accept"] == fp.VENDOR_POR_PATH[path]
+        vendor = MUTATION_REQUEST_TYPES[(request.method, path)]
+        assert request.headers["Content-Type"] == vendor
+        assert request.headers["Accept"] == vendor
         cuerpo = json.loads(request.content)
         assert list(cuerpo) == [fp.ENVOLTURA_POR_PATH[path]]
         assert len(cuerpo[fp.ENVOLTURA_POR_PATH[path]]) == 1
@@ -1089,10 +1090,8 @@ def _frontera_mutacion(
     )
     monkeypatch.setattr(
         fm,
-        "httpx",
-        SimpleNamespace(
-            Client=lambda **kw: httpx.Client(transport=transporte), Timeout=lambda **kw: None
-        ),
+        "AdsWriteClient",
+        lambda *a, **kw: AdsWriteClient(*a, **{**kw, "transport": transporte}),
     )
     monkeypatch.setattr(fm.time, "sleep", lambda s: None)
     if stub_registrar:
@@ -1169,6 +1168,26 @@ def test_go_exige_esperado_huella_y_literal(monkeypatch, capsys):
         with pytest.raises(fd.Abortar, match=patron):
             fc.main()
         assert conn_admin.escrituras == [], "ningun guard debe escribir el ledger"
+
+
+def test_ack_ok_e_id_creado_usan_la_gramatica_unica_del_207():
+    """ARREGLOS 05 D: el juicio por item del ledger lo hace el ejecutor con
+    `app.ads.sp_wire` (una sola gramatica del 207)."""
+    assert fm.ack_ok({"status": 207, "cuerpo": {"campaigns": {"success": [{}], "error": []}}})
+    assert not fm.ack_ok({"status": 207, "cuerpo": {"campaigns": {"error": [{"index": 0}]}}})
+    assert not fm.ack_ok({"status": 400, "cuerpo": {}})
+    assert fm.errores_207({"status": 207, "cuerpo": "no json"}) == [{"no_json": None}]
+    plano = {
+        "status": 207,
+        "cuerpo": {"campaigns": {"success": [{"index": 0, "campaignId": "c1"}]}},
+    }
+    anidado = {"status": 207, "cuerpo": {"keywords": {"success": [{"keyword": {"keywordId": 9}}]}}}
+    assert fm.id_creado(plano, "campaignId") == "c1"
+    assert fm.id_creado(anidado, "keywordId") == "9"
+    assert (
+        fm.id_creado({"status": 207, "cuerpo": {"keywords": {"success": []}}}, "keywordId") is None
+    )
+    assert fm.id_creado({"status": 500, "cuerpo": {}}, "keywordId") is None
 
 
 def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
@@ -1405,10 +1424,14 @@ def test_post_incierto_declara_incierto_no_rechazado(monkeypatch, capsys):
     amazon = _Amazon()
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
 
-    def _boom(*_a, **_k):
-        raise TimeoutError("simulado")
+    class _AmazonSinRespuesta(_Amazon):
+        def __call__(self, request):
+            if request.url.path == "/sp/adGroups":
+                raise httpx.ReadTimeout("simulado", request=request)
+            return super().__call__(request)
 
-    monkeypatch.setattr(fm, "_post", _boom)
+    amazon = _AmazonSinRespuesta()
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
     with pytest.raises(fd.Abortar, match="INCERTO"):
         fc.main()
@@ -1590,7 +1613,7 @@ def test_registrar_escribe_grupo_roles_productos_y_goals(monkeypatch):
                 ),
             ),
         )
-        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
+        ctx = fm._Ctx(None, None, 101, conn, "L1")
         grupo = fr._registrar(ctx, plan, _CREADAS)
         conn.row_factory = tuple_row
         fila = conn.execute(
@@ -1648,7 +1671,7 @@ def test_registrar_aborta_si_el_sync_no_trajo_la_campana(monkeypatch):
             " '{}', 'shadow', 'planeado')"
         )
         monkeypatch.setattr(fr, "_sync", lambda cliente: None)
-        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
+        ctx = fm._Ctx(None, None, 101, conn, "L1")
         with pytest.raises(fd.Abortar, match="ad_entity"):
             fr._registrar(ctx, _plan_min(), _CREADAS)
         assert conn.execute("SELECT count(*) FROM campana_grupo").fetchone()[0] == 0
@@ -1662,7 +1685,7 @@ def test_registrar_sincroniza_antes_de_escribir(monkeypatch):
     monkeypatch.setattr(
         fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
     )
-    ctx = fm._Ctx(None, "tok", None, "cliente", 101, conn, "L1")
+    ctx = fm._Ctx(None, "cliente", 101, conn, "L1")
     fr._registrar(ctx, _plan_min(), _CREADAS)
     assert llamadas[0] == "sync" and llamadas.count("goal") == 5
     assert any(s.lower().startswith("insert into campana_grupo ") for s, _ in conn.escrituras)
@@ -1676,7 +1699,7 @@ def test_registrar_v2_conserva_dos_listings_y_objetivo_manual(monkeypatch):
     monkeypatch.setattr(
         fr.goals_write, "crea_goal", lambda c, **kw: llamadas.append(kw) or {"id": 1}
     )
-    ctx = fm._Ctx(None, "tok", None, "cliente", 101, conn, "L2")
+    ctx = fm._Ctx(None, "cliente", 101, conn, "L2")
     fr._registrar(ctx, _plan_v2_min(), _CREADAS)
     grupo = next(
         params for sql, params in conn.escrituras if "insert into campana_grupo " in sql.lower()
@@ -2006,8 +2029,10 @@ def test_f2_ack_visible_en_otra_conexion_antes_de_list(monkeypatch):
                     ).fetchone()
                 return httpx.Response(200, content=b"not json")
 
-        class _Http:
-            def post(self, url, headers=None, json=None):
+        class _Escritor:
+            moneda = "MXN"
+
+            def crear_campana(self, **_kw):
                 return httpx.Response(
                     207,
                     json={
@@ -2018,7 +2043,7 @@ def test_f2_ack_visible_en_otra_conexion_antes_de_list(monkeypatch):
                     },
                 )
 
-        ctx = fm._Ctx(_Http(), "tok", _CREDS, _Cliente(), 101, conn, "L2")
+        ctx = fm._Ctx(_Escritor(), _Cliente(), 101, conn, "L2")
         monkeypatch.setattr(fm.time, "sleep", lambda s: None)
         paso = fp.pasos_del_rol(plan, "category_exact")[0]
         with pytest.raises(fd.Abortar, match="external_id=camp-f2"):
@@ -2114,7 +2139,9 @@ class _AmazonDesarme(_Amazon):
         if request.method == "PUT":
             self.puts.append(request)
             self._sello(request)
-            assert request.headers["Content-Type"] == fp.VENDOR_POR_PATH["/sp/campaigns"]
+            assert (
+                request.headers["Content-Type"] == MUTATION_REQUEST_TYPES[("POST", "/sp/campaigns")]
+            )
             cuerpo = json.loads(request.content)["campaigns"][0]
             assert cuerpo["state"] == "PAUSED" and isinstance(cuerpo["campaignId"], str)
             return httpx.Response(
@@ -2340,7 +2367,7 @@ def test_lote_v2_parcial_se_recupera_sin_post_de_creacion(monkeypatch):
     assert not [
         pedido
         for pedido in amazon.pedidos
-        for path in fp.VENDOR_POR_PATH
+        for path in fp.PATH_CREATE.values()
         if pedido.method == "POST" and pedido.url.path == path
     ]
     assert any("estado = 'applied'" in sql.lower() for sql, _ in conn_admin.escrituras)
@@ -2567,7 +2594,7 @@ def test_reconciliar_lote_y_plataforma_cruzados_aborta(monkeypatch):
 def test_sql_del_ledger_contra_postgres_real():
     with db_fabrica("orbit_fab_sql") as conn:
         fm._inserta_lote(conn, "L1", _plan_min(), "h", "go")
-        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
+        ctx = fm._Ctx(None, None, 101, conn, "L1")
         paso_c = fp.Paso("category_exact", "campaign", "/sp/campaigns", {"name": "x"}, "c")
         paso_a = fp.Paso("category_phrase", "ad_group", "/sp/adGroups", {"name": "y"}, "a")
         pid1 = fm._inserta_paso(ctx, paso_c, {"name": "x"})
@@ -2705,8 +2732,22 @@ def test_mutar_plan_dos_roles_con_esperado_cinco_aborta_sin_post(monkeypatch):
 
 
 def _ctx_pausa(conn, transporte, lote):
-    cliente_http = httpx.Client(transport=transporte)
-    return fm._Ctx(cliente_http, "tok", _CREDS, _ClienteLectura(transporte), 101, conn, lote)
+    proveedor = transporte.handler
+
+    def handler(request):
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return proveedor(request)
+
+    escritor = AdsWriteClient(
+        _CREDS,
+        platform="amazon_mx",
+        profile_id=101,
+        modo_confirmado="live",
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _s: None,
+    )
+    return fm._Ctx(escritor, _ClienteLectura(httpx.MockTransport(handler)), 101, conn, lote)
 
 
 def _lote_applied_dos(conn):
@@ -3073,7 +3114,7 @@ def test_r14r3_sql_campanas_del_lote_respeta_el_orden_del_ledger():
     """R14-r3: el orden no es el alfabetico de rol."""
     with db_fabrica("orbit_fc_r14r3_orden") as conn:
         fm._inserta_lote(conn, "L1", _plan_min(), "h", "go")
-        ctx = fm._Ctx(None, "tok", None, None, 101, conn, "L1")
+        ctx = fm._Ctx(None, None, 101, conn, "L1")
         for rol, ext in (("auto_discovery", "c-auto"), ("category_exact", "c-exact")):
             paso = fp.Paso(rol, "campaign", "/sp/campaigns", {"name": "x"}, "c")
             pid = fm._inserta_paso(ctx, paso, {"name": "x"})
@@ -3638,21 +3679,39 @@ def test_r09r5_g9_pausa_a_medias_deja_actor():
 
 
 def test_r09r5_f05_put_timeout_declara_incierto():
-    """R09-r5 B6 (F05, L3b): timeout del PUT de campana: Abortar dice
-    INCERTO (pudo aplicarse), no 'fallo (red'."""
-    import httpx
+    """R09-r5 B6 (F05, L3b): timeout del PUT de campana: el sello dice
+    INCERTO (pudo aplicarse), no 'rechazado' ni 'fallo (red'.
 
-    def _expira(*args, **kwargs):
-        raise httpx.TimeoutException("simulado")
+    ARREGLOS 05 D: `_put_estado_campana` ya no levanta —devuelve el ack para
+    que el paso conserve su ID y la conciliacion lo lea—, asi que el INCERTO
+    lo declara el dueno del ledger al sellar."""
 
-    ctx = SimpleNamespace(
-        http=SimpleNamespace(put=_expira),
-        token="t",
-        cred=SimpleNamespace(client_id="c"),
-        profile="p",
+    def _expira(request):
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        raise httpx.ReadTimeout("simulado", request=request)
+
+    escritor = AdsWriteClient(
+        _CREDS,
+        platform="amazon_mx",
+        profile_id=101,
+        modo_confirmado="live",
+        transport=httpx.MockTransport(_expira),
+        sleep=lambda _s: None,
     )
+    ack = fm._put_estado_campana(fm._Ctx(escritor, None, 101, None, "L1"), "c-1", "PAUSED")
+    assert ack["status"] == "excepcion"
+
+    conn = _ConnFalsa(secuencia=None)
+    ctx = fm._Ctx(escritor, None, 101, conn, "L1")
     with pytest.raises(fd.Abortar, match="INCERTO"):
-        fm._put_estado_campana(ctx, "c-1", "PAUSED")
+        fm._aplica_estado_campana_con_ledger(
+            ctx, "exact", "c-1", "PAUSED", descripcion="pausar", evento_log="cambio_estado"
+        )
+    sellos = [p for s, p in conn.escrituras if "fabrica_lote_paso" in s.lower()]
+    assert len(sellos) == 2, "un INSERT del paso y un UPDATE de sello"
+    (external, ack_json, _readback, _paso) = sellos[1]
+    assert external == "c-1" and json.loads(ack_json)["status"] == "excepcion"
 
 
 def test_arreglos04_w_n_la_terminal_rechaza_un_presupuesto_que_no_cabe(monkeypatch):

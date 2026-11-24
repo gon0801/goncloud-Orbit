@@ -4,11 +4,53 @@ Consolida las variantes que antes vivian duplicadas en `app/ads/write.py`,
 `app/ads/archivar.py` y `app/apply_harvest.py`. Fail-closed en `errores_put`
 (un 207 sin contenedor/success o cuerpo ilegible se reporta como error, nunca
 exito).
+
+ARREGLOS 05 D: el ACK canonico que guardan los ledgers (`status`, `cuerpo`,
+`texto`) se arma SOLO aqui (`ack_de`) y el rechazo/incierto de una mutacion
+del cliente protegido se traduce aqui (`ack_de_error`). El dueno sigue
+juzgando por item con `errores_de_ack` / `errores_put` / `id_de_ack`.
 """
 
 from __future__ import annotations
 
 import httpx
+
+from app.redaction import scrub
+
+ACK_SIN_RESPUESTA = "excepcion"
+
+
+def ack_de(respuesta: httpx.Response) -> dict:
+    """ACK canonico de una respuesta de mutacion: `{status, cuerpo, texto}`.
+
+    `cuerpo` es el JSON tal cual (dict, lista o `null`): el dueno decide con
+    `errores_de_ack`/`errores_put` si hay error por item. `texto` va saneado y
+    acotado: el ACK se guarda en ledgers y logs.
+    """
+    try:
+        cuerpo = respuesta.json()
+    except ValueError:
+        cuerpo = {}
+    try:
+        texto = respuesta.text
+    except Exception:  # noqa: BLE001 - un cuerpo corrupto no puede tumbar el ACK
+        texto = ""
+    return {"status": respuesta.status_code, "cuerpo": cuerpo, "texto": scrub(texto)[:400]}
+
+
+def ack_de_error(exc: Exception) -> dict:
+    """ACK canonico de una mutacion que no devolvio respuesta util.
+
+    Un rechazo determinista (>=400) conserva su status; un fallo de red o un
+    cuerpo perdido quedan `ACK_SIN_RESPUESTA` (incierto, jamas un "no aplico").
+    """
+    status = getattr(exc, "status", None)
+    cuerpo = getattr(exc, "cuerpo", None) or ""
+    return {
+        "status": status if status is not None else ACK_SIN_RESPUESTA,
+        "cuerpo": {"error": [cuerpo]} if cuerpo else {},
+        "texto": cuerpo,
+    }
 
 
 def errores_put(respuesta: httpx.Response, contenedor: str = "campaigns") -> list[str]:

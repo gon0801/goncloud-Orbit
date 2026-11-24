@@ -1155,7 +1155,7 @@ def test_vigia_retira_cada_plataforma_con_su_escritor(monkeypatch):
         escritor_us, puts_us = _escritor(_fila("ad-us", "ENABLED"))
         llamadas: list[str] = []
 
-        def _preparar(platform):
+        def _preparar(platform, **_kw):
             llamadas.append(platform)
             return {"amazon_mx": escritor_mx, "amazon_us": escritor_us}[platform]
 
@@ -2442,23 +2442,32 @@ class _AmazonPausa:
 
 
 def _pausador_real(conn, amazon):
-    """PausadorFabrica real con red falsa: LWA+PUT por MockTransport, LIST
-    por cliente falso. Solo credenciales y red; la logica intacta."""
-    from types import SimpleNamespace
-
+    """PausadorFabrica real con red falsa: LWA+PUT por el cliente protegido,
+    LIST por cliente falso. Solo credenciales y red; la logica intacta."""
     import httpx
+    from test_fabrica_campanas import _CREDS
+
+    from app import fabrica_motor as fm
+    from app.ads.write import AdsWriteClient
 
     def _handler(request):
         if request.url.path == "/auth/o2/token":
-            return httpx.Response(200, json={"access_token": "tok"})
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
         if request.method == "PUT" and request.url.path == "/sp/campaigns":
             return amazon.put(request)
         return httpx.Response(404, json={})
 
-    http = httpx.Client(transport=httpx.MockTransport(_handler))
-    cred = SimpleNamespace(client_id="cid", client_secret="sec", refresh_token="rt")
     pausador = io.PausadorFabrica(conn)
-    pausador._armado = (cred, amazon, http, {"amazon_mx": 101})
+    pausador._armado = (_CREDS, amazon, {"amazon_mx": 101})
+    escritor = AdsWriteClient(
+        _CREDS,
+        platform="amazon_mx",
+        profile_id=101,
+        modo_confirmado="live",
+        transport=httpx.MockTransport(_handler),
+        sleep=lambda _s: None,
+    )
+    pausador._ctxs["amazon_mx"] = fm._Ctx(escritor, amazon, 101, conn, "LP2")
     return pausador
 
 
@@ -2661,7 +2670,6 @@ class _AmazonImpulsoReal:
 def _frontera_impulso(monkeypatch, conn, amazon):
     """Frontera mock para lanzar de verdad: credenciales, perfiles, HTTP
     falso, sync minimo a ad_entity. Como el R5 de test_api_fabrica."""
-    from types import SimpleNamespace
 
     import httpx
     import psycopg
@@ -2670,6 +2678,7 @@ def _frontera_impulso(monkeypatch, conn, amazon):
     from app import fabrica_motor as fm
     from app import fabrica_registro as fr
     from app.ads.config import AdsCredentials
+    from app.ads.write import AdsWriteClient
 
     transporte = httpx.MockTransport(amazon)
     monkeypatch.setattr(
@@ -2679,11 +2688,8 @@ def _frontera_impulso(monkeypatch, conn, amazon):
     monkeypatch.setattr(fm, "evaluar_perfiles", lambda c: [_perfil()])
     monkeypatch.setattr(
         fm,
-        "httpx",
-        SimpleNamespace(
-            Client=lambda **kw: httpx.Client(transport=transporte),
-            Timeout=lambda **kw: None,
-        ),
+        "AdsWriteClient",
+        lambda *a, **kw: AdsWriteClient(*a, **{**kw, "transport": transporte}),
     )
     monkeypatch.setattr(fm.time, "sleep", lambda s: None)
     dsn = _dsn_propia(conn)
@@ -4280,8 +4286,10 @@ def test_conecta_propia_usa_db_connect_y_respeta_orbit_pg_host(monkeypatch):
 
 def test_descarta_huerfano_cierra_http_y_propia_del_pausador(monkeypatch):
     """Ola D2 (regla 9): `_descarta_huerfano` usa `with _pausador_propio(conn)`
-    y garantiza cerrar tanto el `httpx.Client` (`_armado[2]`) como la conexion
-    propia incluso si `pausa()` falla."""
+    y garantiza cerrar el escritor sellado y la conexion propia incluso si
+    `pausa()` falla (ARREGLOS 05 D: el HTTP vive en el cliente protegido)."""
+    from types import SimpleNamespace
+
     from app import impulso_lanza, impulso_preview
 
     class _Cerrable:
@@ -4305,7 +4313,8 @@ def test_descarta_huerfano_cierra_http_y_propia_del_pausador(monkeypatch):
         def __init__(self):
             super().__init__(propia_spy)
             self._propia = propia_spy
-            self._armado = (object(), propia_spy, http_spy)
+            self._armado = (object(), propia_spy, {"amazon_mx": 101})
+            self._ctxs["amazon_mx"] = SimpleNamespace(escritor=http_spy)
 
         def pausa(self, lote: str) -> None:
             raise RuntimeError("fallo best-effort")

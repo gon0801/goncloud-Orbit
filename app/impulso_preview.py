@@ -2,7 +2,8 @@
 
 Extraido de `app/impulso_io.py` (Ola D2). `_conecta_propia` pasa siempre por
 `app.db.connect` (redaccion de secretos y override de host) y `PausadorFabrica`
-cierra tanto su `httpx.Client` como la conexion propia al salir de `with`.
+cierra los escritores sellados de `app.ads.write` y la conexion propia al
+salir de `with` (ARREGLOS 05 D: no hay `httpx.Client` propio).
 """
 
 from __future__ import annotations
@@ -140,11 +141,13 @@ class PausadorFabrica:
         self._armado, self._propia = None, None
 
     def close(self) -> None:
-        armado, propia = self._armado, self._propia
+        propia = self._propia
         self._armado, self._propia = None, None
+        for ctx in self._ctxs.values():
+            escritor = getattr(ctx, "escritor", None)
+            if escritor is not None:
+                escritor.close()
         self._ctxs.clear()
-        if armado is not None and hasattr(armado[2], "close"):
-            armado[2].close()
         if propia is not None:
             propia.close()
 
@@ -161,11 +164,8 @@ class PausadorFabrica:
         if self._armado is None:
             cred = AdsCredentials.from_secrets_dir()
             cliente = fm.AdsClient(cred)
-            http = fm.httpx.Client(
-                timeout=fm.httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0)
-            )
-            self._armado = (cred, cliente, http, fm._perfiles(cliente))
-        cred, cliente, http, perfiles = self._armado
+            self._armado = (cred, cliente, fm._perfiles(cliente))
+        cred, cliente, perfiles = self._armado
         fila = self._conn.execute(
             "SELECT platform::text FROM fabrica_lote WHERE lote = %s", (lote,)
         ).fetchone()
@@ -175,7 +175,11 @@ class PausadorFabrica:
         platform = fila[0]
         if platform not in self._ctxs:
             self._ctxs[platform] = fm._Ctx(
-                http, fm._token_lwa(cred, http), cred, cliente, perfiles[platform], self._conn, lote
+                fm._escritor(cred, platform, perfiles[platform]),
+                cliente,
+                perfiles[platform],
+                self._conn,
+                lote,
             )
         ctx = self._ctxs[platform]
         ctx.lote = lote
@@ -253,7 +257,7 @@ class PausadorFabrica:
             paso_id = fm._inserta_paso(ctx, paso, {"campaignId": str(external), "state": "PAUSED"})
             ack = fm._put_estado_campana(ctx, external, "PAUSED")
             visto = None
-            if fp.ack_ok(ack):
+            if fm.ack_ok(ack):
                 releido = fm._readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
                 visto = releido.get("state") if isinstance(releido, dict) else None
             fm._sella_paso(ctx, paso_id, visto == "PAUSED", external, ack, visto)

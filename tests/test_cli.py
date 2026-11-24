@@ -945,7 +945,9 @@ def test_arreglos04_ba_archivar_y_reponer_por_terminal_no_escriben(monkeypatch, 
             return httpx.Response(207, json={"productAds": {"success": [{"adId": "901"}]}})
         return httpx.Response(500)
 
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda _platform: make_write_client(handler))
+    monkeypatch.setattr(
+        archivar, "preparar_escritor", lambda _platform, **_kw: make_write_client(handler)
+    )
     ids_file = tmp_path / "ids.txt"
     ids_file.write_text("1\n", encoding="utf-8")
     reversa_file = tmp_path / "reversa.txt"

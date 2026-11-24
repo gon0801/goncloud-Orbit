@@ -1,0 +1,156 @@
+# Recibo de ARREGLOS 05 D: union de las cuatro partes (acepta-1 a acepta-4),
+# corridas en serie sobre el mismo SHA f946d329. Cada parte conserva su salida.
+
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 1 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [ACEPTA] D.1 a D.3: N d, regresiones del bloque
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N d
+.......................                                                  [100%]
+============================== warnings summary ===============================
+<venv>\Lib\site-packages\fastapi\testclient.py:1
+  C:\<venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+23 passed, 6394 deselected, 1 warning in 23.19s
+resultado=ok
+
+### [ACEPTA] D.2: contrato de reposicion de C (T writes test_11)
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_11
+.                                                                        [100%]
+1 passed, 8 deselected in 13.62s
+resultado=ok
+
+### [ACEPTA] D.2: modelo de estados completo (sin casillas nuevas)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
+........................................................................ [ 39%]
+........................................................................ [ 79%]
+.....................................                                    [100%]
+181 passed in 1.22s
+resultado=ok
+
+### [CONTROL] arquitectura: presupuesto de tamano e imports del cliente de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
+..............................................................ss........ [ 71%]
+.............................                                            [100%]
+99 passed, 2 skipped in 10.52s
+resultado=ok
+
+# comandos que no pasaron: 0
+
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 2 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] fabrica: motor, plan y ledger pre-HTTP
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_fabrica_plan.py tests/test_fabrica_campanas.py
+........................................................................ [ 37%]
+........................................................................ [ 75%]
+................................................                         [100%]
+192 passed in 66.60s (0:01:06)
+resultado=ok
+
+### [CONTROL] API de la fabrica (retiro, impulso y post-lotes)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_api_fabrica.py
+........................................................................ [ 63%]
+.........................................                                [100%]
+============================== warnings summary ===============================
+<venv>\Lib\site-packages\fastapi\testclient.py:1
+  C:\<venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+113 passed, 1 warning in 181.22s (0:03:01)
+resultado=ok
+
+### [CONTROL] pausador y vigia del impulso (sin el caso de password del entorno)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_impulso_io.py -k not b1a_conexion_propia_lleva_credencial
+........................................................................ [ 63%]
+..........................................                               [100%]
+114 passed, 1 deselected in 177.65s (0:02:57)
+resultado=ok
+
+# comandos que no pasaron: 0
+
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 3 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] cliente de escritura, cliente de lectura y product ads
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_ads_write.py tests/test_ads_client.py tests/test_ads_archivar.py
+........................................................................ [ 52%]
+................................................................         [100%]
+136 passed in 3.39s
+resultado=ok
+
+### [CONTROL] archivo manual de inertes y reposicion
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_archiva_inertes.py
+...............................................                          [100%]
+47 passed in 13.03s
+resultado=ok
+
+### [CONTROL] aplicador, cosecha y reversa
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply.py tests/test_apply_harvest.py tests/test_reversa_harvest.py
+........................................................................ [ 42%]
+........................................................................ [ 85%]
+........................                                                 [100%]
+168 passed in 195.83s (0:03:15)
+resultado=ok
+
+# comandos que no pasaron: 0
+
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 4 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] API de escritura, dueno del efecto y retiro
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_api_write.py tests/test_bloqueo_dueno_efecto.py tests/test_retiro_anuncios.py
+........................................................................ [ 44%]
+........................................................................ [ 88%]
+...................                                                      [100%]
+============================== warnings summary ===============================
+<venv>\Lib\site-packages\fastapi\testclient.py:1
+  C:\<venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+163 passed, 1 warning in 237.92s (0:03:57)
+resultado=ok
+
+### [CONTROL] reposicion durable del bloque C
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_c_reposicion.py
+....................                                                     [100%]
+20 passed in 20.06s
+resultado=ok
+
+### [CONTROL] esquema y ledger del aplicador
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
+........................................................................ [ 61%]
+.............................................                            [100%]
+117 passed in 25.53s
+resultado=ok
+
+### [CONTROL] selector del instalador: migraciones de ARREGLOS 05
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
+...                                                                      [100%]
+3 passed, 47 deselected in 3.59s
+resultado=ok
+
+### [ACEPTA] revision de secretos de los commits del bloque
+$ gitleaks detect --redact --no-banner --log-opts=7ef47542f5ab421359f049583b1bc7db95662079..HEAD
+[90m2:29PM[0m [32mINF[0m [1m7 commits scanned.[0m
+[90m2:29PM[0m [32mINF[0m [1mscanned ~169889 bytes (169.89 KB) in 264ms[0m
+[90m2:29PM[0m [32mINF[0m [1mno leaks found[0m
+resultado=ok
+
+# comandos que no pasaron: 0

@@ -81,7 +81,9 @@ def reconcilia_intenciones(conn, *, escritor=None, escritores=None) -> list[tupl
                     continue
                 esc = escritor if escritor is not None else propios.get(platform)
                 if esc is None:
-                    esc = archivar.preparar_escritor(platform)
+                    esc = archivar.preparar_escritor(
+                        platform, modo_confirmado=archivar.MODO_AUTORIZADO_LIVE
+                    )
                     propios[platform] = esc
                 try:
                     leidas = archivar.leer_anuncios(esc, [ad_id])

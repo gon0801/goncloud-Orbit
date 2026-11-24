@@ -1,0 +1,35 @@
+# Acepta de ARREGLOS 05 D. SHA db5e548532565a36195e33428bd7e9094ca0260e (parte 2 de 4)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): NO
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] fabrica: motor, plan y ledger pre-HTTP
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_fabrica_plan.py tests/test_fabrica_campanas.py
+........................................................................ [ 37%]
+........................................................................ [ 75%]
+................................................                         [100%]
+192 passed in 66.60s (0:01:06)
+resultado=ok
+
+### [CONTROL] API de la fabrica (retiro, impulso y post-lotes)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_api_fabrica.py
+........................................................................ [ 63%]
+.........................................                                [100%]
+============================== warnings summary ===============================
+<venv>\Lib\site-packages\fastapi\testclient.py:1
+  C:\<venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+113 passed, 1 warning in 181.22s (0:03:01)
+resultado=ok
+
+### [CONTROL] pausador y vigia del impulso (sin el caso de password del entorno)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_impulso_io.py -k not b1a_conexion_propia_lleva_credencial
+........................................................................ [ 63%]
+..........................................                               [100%]
+114 passed, 1 deselected in 177.65s (0:02:57)
+resultado=ok
+
+# comandos que no pasaron: 0
