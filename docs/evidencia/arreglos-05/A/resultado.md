@@ -288,5 +288,10 @@ PR #746 en `master`: `fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97` (`SHA_PREVIO`:
 - **Lectura pendiente del primer ciclo real (09:40 UTC):** el primer ciclo real
   con el binario nuevo corre a las 09:40 UTC (`amazon_us`) y 09:41 UTC
   (`amazon_mx`). Esa lectura se hace despues de esa hora (no se espera aqui) y
-  debe confirmar `decision_committed_at` sellado en los ciclos de ese dia y
-  `resume_of` en `NULL` si no hubo interrupciones.
+  debe comprobar `decision_committed_at` sellado (`NOT NULL`) en los origenes
+  del dia que comprometieron TX3 (`resume_of IS NULL` y estado `done` o
+  `degraded`), con `resume_of` en `NULL` en todo el dia si no hubo
+  interrupciones. Si hubo recuperacion, el ejecutor cerrado conserva
+  `decision_committed_at` en `NULL` con `resume_of` apuntando al origen
+  sellado; un ciclo `skipped` o fallido antes de TX3 tambien conserva el sello
+  en `NULL`.

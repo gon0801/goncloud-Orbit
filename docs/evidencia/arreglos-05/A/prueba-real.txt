@@ -36,6 +36,10 @@ EXIT=0
 # (amazon_us) y 09:41 UTC (amazon_mx) del 2026-11-24.
 # No se espera a esa hora para cerrar este recibo. La verificacion posterior
 # en produccion (solo lectura via docs/evidencia/arreglos-01/lee_prod.sh) debe
-# confirmar en los ciclos de ese dia:
-#   - decision_committed_at sellado (NOT NULL) en los ciclos cerrados del dia
-#   - resume_of en NULL si no hubo interrupciones
+# distinguir el tipo de envelope en los ciclos de ese dia:
+#   - origenes que comprometieron TX3 (resume_of IS NULL y status IN ('done', 'degraded')):
+#     decision_committed_at sellado (NOT NULL)
+#   - si no hubo interrupciones: solo existen esos origenes y resume_of es NULL en todos
+#   - si hubo una recuperacion: el ejecutor cerrado conserva decision_committed_at IS NULL
+#     y resume_of apunta al origen sellado de su misma plataforma
+#   - un ciclo skipped o fallido antes de TX3 tambien conserva decision_committed_at IS NULL
