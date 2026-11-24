@@ -30,6 +30,7 @@ from app.ads import archivar, archivar_inertes
 from app.ads import reposicion_store as store
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
+from app.apply_harvest_list import ListaIncompleta, _lista_completa
 
 MIGRACIONES = Path(__file__).resolve().parents[1] / "migrations"
 PERFILES = {"amazon_us": PERFIL_US["profileId"]}
@@ -293,6 +294,34 @@ def _vence_lease(conn, fila: int) -> None:
 # ---------------------------------------------------------------------------
 # Modelo puro: adaptadores de la reposicion
 # ---------------------------------------------------------------------------
+
+
+class _LectorLista:
+    def __init__(self, respuestas: list[dict]) -> None:
+        self.respuestas = list(respuestas)
+
+    def list_sellado(self, path: str, body: dict):
+        return httpx.Response(200, json=self.respuestas.pop(0))
+
+
+def test_arreglos05_c_total_solo_se_exige_sin_filtro():
+    """El total declarado prueba ausencia solo en la consulta sin filtro.
+
+    Con `adGroupIdFilter` Amazon puede contar filas de otros grupos: se
+    conservan el token y la pertenencia, no el total (contrato 04 B-C)."""
+    fila = {
+        "keywordId": "k-1",
+        "adGroupId": "6201",
+        "keywordText": "termino",
+        "matchType": "EXACT",
+        "state": "PAUSED",
+    }
+    lector = _LectorLista([{"keywords": [fila], "totalResults": 50}])
+    with pytest.raises(ListaIncompleta):
+        _lista_completa(lector, "/sp/keywords/list")
+
+    lector = _LectorLista([{"keywords": [fila], "totalResults": 50}])
+    assert _lista_completa(lector, "/sp/keywords/list", grupos=("6201",)) == [fila]
 
 
 def test_arreglos05_c_omision_y_duplicado_no_confirman_y_rechazo_no_cierra():

@@ -282,7 +282,7 @@ def _lista_completa(
         pagina, valida = _valida_pagina_list(data, contenedor)
         if not valida:
             raise ListaIncompleta("ambiguo: contenedor o item invalido")
-        total = data.get("totalResults") if isinstance(data, dict) else None
+        total = data.get("totalResults") if grupos_norm is None and isinstance(data, dict) else None
         if declarado is None and isinstance(total, int) and not isinstance(total, bool):
             declarado = total
         if dentro is not None and any(str(x["adGroupId"]) not in dentro for x in pagina):
