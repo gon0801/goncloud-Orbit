@@ -1409,6 +1409,50 @@ def test_arreglos05_b_el_regreso_confirma_por_lectura_un_envio_con_respuesta_per
 
 
 @_skip_db
+def test_arreglos05_b_el_regreso_con_readback_sin_bid_se_resuelve_leyendo(monkeypatch):
+    """Amazon aplica el regreso a 1.00 pero el LIST inmediato no trae el bid.
+    El intento no se sella como fallo: conserva su ACK y queda pendiente de
+    lectura. La ingesta sincroniza 1.00 y el reintento confirma ese mismo
+    intento leyendo, sin otro PUT y sin el 409 de la guarda."""
+    with _db("orbit_b05_regreso_sin_readback") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        amazon = _Amazon(bids={"7201": "1.00"})
+        dec = _decision_bid(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.004", new="0.80"
+        )
+        _aplicador_bid(conn, amazon, ids["ciclo_ejec"]).aplica_bids(
+            apply.bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live"
+        )
+        _red_por(monkeypatch, amazon)
+        oculto: dict[str, str] = {}
+        amazon.al_put_bid = lambda kid: oculto.setdefault("bid", amazon.bids.pop(kid))
+
+        with pytest.raises(apply_regreso_dueno.RegresoNoConfirmado):
+            apply_regreso_dueno.regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno")
+        pendiente = _ledger(conn, dec, "reversa")[0]
+        assert (pendiente["resultado"], pendiente["finished_at"]) == (None, None), (
+            "sin lectura de vuelta el intento sigue abierto"
+        )
+        assert pendiente["ack"] is not None, "el ACK del PUT se conserva en el intento abierto"
+        assert Decimal(str(oculto["bid"])) == Decimal("1.00"), "Amazon aplico el regreso"
+
+        amazon.al_put_bid = None
+        amazon.bids["7201"] = oculto["bid"]
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 1.00 WHERE ad_entity_id = %s", (ids["kw"],)
+        )
+
+        hecho = apply_regreso_dueno.regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno")
+
+        assert (hecho.bid_antes, hecho.bid_ahora) == (Decimal("0.80"), Decimal("1.00"))
+        assert _pujas_de_reversa(amazon) == [Decimal("1.00")], "un solo PUT: el original"
+        sellada = _ledger(conn, dec, "reversa")
+        assert sellada[0]["resultado"] == "ok"
+        assert sellada[0]["ack"] == pendiente["ack"], "conserva el ACK del PUT tal cual"
+        assert len(sellada) == 1, "confirma el intento original, no abre otro"
+
+
+@_skip_db
 @pytest.mark.parametrize(
     "old,previo,vigente", [("1.00", "1.004", "1.00"), ("1.01", "1.014", "1.01")]
 )

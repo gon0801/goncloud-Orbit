@@ -34,12 +34,15 @@ from app.apply_estados import (
 )
 from app.apply_store import (
     _KINDS_DECISORAS,
+    _ack_del_intento,
     _actualiza_cache,
     _bid_de_readback,
+    _guarda_ack,
     _identidad,
     _json_seguro,
     _ledger,
     _sella_ledger,
+    _sella_resultado,
     _tick,
     bid_previo_comprobado,
     estado_de_reversa,
@@ -240,7 +243,13 @@ def _aplica_lectura_reversa_bid(
     else:
         resultado, ack = "fallo:divergencia_readback", ack_put
     with tx_durable(conn):
-        _sella_ledger(conn, intento_id, ack=ack, resultado=resultado)
+        if _ack_del_intento(conn, intento_id) is not None:
+            # El ACK del PUT ya se guardo al quedar pendiente de lectura. El
+            # trigger de 0002 solo admite escribirlo una vez: se conserva y se
+            # sella el resultado.
+            _sella_resultado(conn, intento_id, resultado)
+        else:
+            _sella_ledger(conn, intento_id, ack=ack, resultado=resultado)
         if bid_vivo is not None:
             _actualiza_cache(conn, ad_entity_id, bid_vivo)
     return transicion
@@ -353,9 +362,25 @@ def reversa_bid(
     _tick(tick)
     bid_leido = _lee_bid_vivo(cliente, identidad)
     if bid_leido is None:
-        with conn.transaction():
-            _sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:readback_sin_bid")
-        return False
+        # El PUT ya salio y esta lectura no trae el bid: el efecto pudo
+        # aplicarse y quedaria sin verificar. Se conserva el ACK en el intento
+        # abierto y la proxima llamada lo resuelve leyendo, nunca con otro PUT.
+        # Sellarlo como fallo cerraria el intento y la guarda del regreso
+        # rechazaria la hoja por vigente: la racha se quedaria sin su regreso.
+        with tx_durable(conn):
+            if ack is not None:
+                _guarda_ack(conn, id_attempt, ack)
+        resuelta = _aplica_lectura_reversa_bid(
+            conn,
+            intento_id=id_attempt,
+            ad_entity_id=decision.ad_entity_id,
+            bid_vivo=None,
+            destino=destino,
+            escritos=escritos,
+            ack_put=ack,
+            inmediata=True,
+        )
+        return resuelta.accion == AccionCambio.SELLAR_APLICADO
     resuelta = _aplica_lectura_reversa_bid(
         conn,
         intento_id=id_attempt,

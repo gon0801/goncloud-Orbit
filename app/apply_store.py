@@ -133,6 +133,10 @@ _SQL_SELLA_RESULTADO = """
 UPDATE apply_attempt SET resultado = %s, finished_at = now() WHERE id = %s
 """
 
+_SQL_ACK_INTENTO = """
+SELECT ack FROM apply_attempt WHERE id = %s
+"""
+
 # La ultima escritura confirmada de Orbit en una hoja (ARREGLOS 05 B,
 # revision): su apply, el de cualquier decision de esa hoja o la reversa de
 # cualquiera de ellas. Con hechos durables del ledger y nunca el cache (que la
@@ -408,6 +412,13 @@ def _sella_ledger(
 def _guarda_ack(conn: psycopg.Connection, id_attempt: int, ack: dict) -> None:
     """Guarda el ack SIN sellar el resultado (F2, A.3 r3)."""
     conn.execute(_SQL_GUARDA_ACK, (Json(ack), id_attempt))
+
+
+def _ack_del_intento(conn: psycopg.Connection, id_attempt: int) -> dict | None:
+    """El ack ya guardado en un intento abierto, o None. El trigger de 0002
+    admite escribirlo UNA vez: quien sella despues solo puede conservarlo."""
+    fila = conn.execute(_SQL_ACK_INTENTO, (id_attempt,)).fetchone()
+    return fila[0] if fila is not None else None
 
 
 def _sella_resultado(conn: psycopg.Connection, id_attempt: int, resultado: str) -> None:
