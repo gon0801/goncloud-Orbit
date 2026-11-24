@@ -2,7 +2,7 @@
 
 Bloque de implementacion, `lane: release`. Base: `master` en
 `d0ed286e6048d38db45abe49006a20f25d2b3cdf` (con BASE, A y B). Rama
-`arreglos-05/c`. Codigo verificado: `36372517`. Fecha: 2026-11-24
+`arreglos-05/c`. Codigo verificado: `40eb2bb9`. Fecha: 2026-11-24
 (America/Vancouver). Contrato: seccion «C. Reposicion durable por fila» de
 [DISENO.md](../DISENO.md).
 
@@ -38,10 +38,10 @@ Bloque de implementacion, `lane: release`. Base: `master` en
 
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| C.1 | `N c` | `36372517` | 15 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el `MOTOR_SHA` anterior; la reversa `0097` aborta si hay intentos y nunca borra el historial. |
-| C.2 | `T writes test_11` | `36372517` | 1 passed, salida 0 | Un solo POST tras ACK y readback fallido; dos CLI no crean dos objetos; el objeto repuesto nace PAUSED. | Igual que C.1. |
-| C.2 | `N c` | `36372517` | 15 passed, salida 0 | Cobertura de crash antes/despues de POST, ACK y readback, rechazo 4xx, 5xx, 401/403, lectura truncada/omitida/duplicada y repeticion sin HTTP. | Igual que C.1. |
-| C.3 | `N c` | `36372517` | 15 passed, salida 0 | La reversa archiva solo `repuesto_external`; una caida no repite el DELETE; un rechazo definitivo permite otro intento registrado; el historial y la keyword original no se tocan. | Igual que C.1. |
+| C.1 | `N c` | `40eb2bb9` | 16 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el `MOTOR_SHA` anterior; la reversa `0097` aborta si hay intentos y nunca borra el historial. |
+| C.2 | `T writes test_11` | `40eb2bb9` | 1 passed, salida 0 | Un solo POST tras ACK y readback fallido; dos CLI no crean dos objetos; el objeto repuesto nace PAUSED. | Igual que C.1. |
+| C.2 | `N c` | `40eb2bb9` | 16 passed, salida 0 | Cobertura de crash antes/despues de POST, ACK y readback, rechazo 4xx, 5xx, 401/403, lectura truncada/omitida/duplicada y repeticion sin HTTP. | Igual que C.1. |
+| C.3 | `N c` | `40eb2bb9` | 16 passed, salida 0 | La reversa archiva solo `repuesto_external`; una caida no repite el DELETE; un rechazo definitivo permite otro intento registrado; el historial y la keyword original no se tocan. | Igual que C.1. |
 
 Comandos y salidas completos en [acepta.txt](acepta.txt), que genera
 [acepta.sh](acepta.sh). El SHA del encabezado de cada parte es el arbol
@@ -98,11 +98,11 @@ y del archivo en la misma transaccion.
 ## Rojo y verde
 
 [rojo.txt](rojo.txt): contra `d0ed286e`, `T writes test_11` falla con
-`posts: 2` y la misma corrida en `36372517` da `1 passed`. El padre no tiene
+`posts: 2` y la misma corrida en `40eb2bb9` da `1 passed`. El padre no tiene
 `reponer_keyword` ni `revertir_reposicion`, no acepta
 `--revertir-reposicion` y no tiene la tabla `0097`.
 
-En `36372517`: `N c` 15 passed; `T writes test_11` 1 passed; modelo de estados
+En `40eb2bb9`: `N c` 16 passed; `T writes test_11` 1 passed; modelo de estados
 170 passed.
 
 ## Lectura previa de produccion
@@ -171,6 +171,33 @@ Ninguno bloquea; requieren dos o mas fallos o una carrera.
 
 ## Revision
 
-Pendiente de la revision asignada. El bloque entra por PR a `master`; el
-revisor asignado (Astra u otro modelo distinto al implementador) revisa la
-cabeza. `ai-review` es informativo y Devin no cuenta como compuerta.
+Ronda 1 (Devin, informativo; `40eb2bb9`): cuatro hallazgos, dos P1 reales
+corregidos con su regresion.
+
+- **P1, sonda del instalador.** La sonda usaba
+  `'public.keyword_reposicion_intento'::regclass` dentro del `EXISTS`; en una
+  base sin la tabla PostgreSQL resuelve el literal antes del `AND` y el
+  instalador aborta antes de aplicar. Se cambio a
+  `to_regclass('public.keyword_reposicion_intento')` y la prueba
+  `test_arreglos05_c_migracion_ida_reversa_e_ida_y_roles_reales` evalua la
+  sonda sobre una base sin la tabla: `False`, sin error, y luego aplica.
+- **P1, dos claims tras el sello.** Dos CLI podian decidir enviar antes de que
+  el primero sellara; el segundo reservaba despues del sello y creaba otro
+  objeto. `store.abre_intento` ahora toma un cerrojo transaccional por
+  `(archivo, tipo)` y revalida el estado del archivo, el ultimo `ok` y la
+  ausencia de intentos abiertos; el sello toma el mismo cerrojo. Regresion:
+  `test_arreglos05_c_claim_revalida_el_sello_bajo_cerrojo`, con una segunda
+  conexion.
+- **P2, 401/403 en la reversa.** El bloque aborta la fase y deja el intento
+  abierto; tras corregir credenciales, la lectura del objetivo vivo es
+  incertidumbre y no reenvia. Es la politica pedida para un resultado
+  desconocido y el modelo de A no sella un rechazo de identidad en `incierto`
+  (`sella_intento=False`); queda para reconciliacion manual. No se corrige en
+  esta ronda.
+- **P2, el lote sigue tras un rechazo.** El motor aisla filas: un 400 en una
+  fila no impide atender las siguientes (cada una PAUSED). El mensaje de la
+  CLI decia «lote detenido»; se cambio a «lote con fallos» para no mentir. No
+  es un fallo de datos ni de dinero.
+
+Pendiente la revision asignada (Astra u otro modelo distinto al
+implementador). `ai-review` es informativo y Devin no cuenta como compuerta.
