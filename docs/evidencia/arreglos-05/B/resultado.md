@@ -178,9 +178,17 @@ antes de empujar.
 ## Decisiones y limites
 
 - **Que es un cambio manual.** No un valor distinto del de esta decision: un
-  valor vivo que Orbit no escribio. Cada PUT propio que quedo `ok` y el destino
-  de cada decision de puja aplicada cuentan como suyos. Fuente: el ledger,
-  nunca el cache, que la ingesta tambien sincroniza.
+  valor vivo que no es la ultima escritura confirmada de Orbit desde la
+  decision que se revierte (su apply, el de una decision posterior o la reversa
+  de cualquiera). Un importe que Orbit escribio antes de esa decision y que hoy
+  vuelve a estar en la hoja lo puso otra mano. Fuente: el ledger, nunca el
+  cache, que la ingesta tambien sincroniza.
+- **Un job que cierra fallido no deja intentos abiertos.** `_falla_job` sella en
+  su misma transaccion los intentos abiertos. Una creacion cuyo ACK ya se
+  guardo la acepto Amazon y se sella `ok`, aunque el trabajo no prospere.
+- **El regreso del dueno usa el destino efectivo.** Su guarda, su respuesta y
+  `v_cambio_bid` (migracion `0096`) usan el bid que la reversa restauro, no
+  `decision.old_value`.
 - **Historia anterior a la 0095.** Sin lectura previa guardada la reversa de
   bid vuelve a `decision.old_value`. La relectura y el respeto por un cambio
   manual se aplican igual. Se resuelve solo a medida que las decisiones nuevas
@@ -242,6 +250,22 @@ Ninguno bloquea; requieren dos o mas fallos o una carrera.
    lecturas por paso en vez de una.
 4. El trabajo pendiente en `docs/APPLY.md` 9.1 sobre las pantallas de «ultimo
    ciclo» no cambia con este bloque.
+
+## Revision
+
+Ronda 1 (Astra, tres P1; Devin duplico dos): intento de creacion abierto al
+cerrar un job, autoria por cualquier importe historico y regreso con
+`old_value`. Los tres se corrigieron con su regresion, roja contra el codigo
+anterior: `...cosecha_con_roster_imposible_sella_la_creacion_verificada`,
+`...cosecha_cerrada_sin_contexto_sella_la_creacion_con_ack`,
+`...cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack`,
+`...un_importe_antiguo_de_orbit_no_autoriza_la_reversa`,
+`...el_regreso_usa_el_destino_efectivo_en_guarda_respuesta_e_historial` y
+`...migracion_del_historial_de_regreso_ida_reversa_e_ida`.
+
+Migracion `0096` (aditiva, `CREATE OR REPLACE VIEW v_cambio_bid`, con su
+reversa y sin grants nuevos): el historial publica como destino del regreso el
+bid del payload del intento de reversa que quedo `ok`.
 
 ## Fase 2
 

@@ -1191,3 +1191,19 @@ migraciones, y el binario anterior corre contra este esquema. Límites
 conocidos con el binario anterior: confirma un negative por identidad sin
 evidencia previa, sobrescribe el ID del ACK con el que encuentre en la
 lectura de vuelta y revierte una puja al valor de la caché.
+
+### Historial del regreso del dueño (ARREGLOS 05 B, migración `0096`)
+
+`v_cambio_bid` informaba para cada regreso confirmado `decision.old_value`, el
+bid de la caché al decidir. La reversa vuelve al bid leído antes del PUT
+(`apply_attempt.bid_previo`), que puede diferir en el redondeo. La `0096`
+reemplaza la vista: la rama `regreso_del_dueno` publica como `bid_despues` el
+`bid` del payload del intento de reversa que quedó `ok` (lo que se envió y cuya
+lectura de vuelta confirmó), con respaldo en `decision.old_value` si el payload
+no trae un monto legible. `regreso_del_dueno` usa ese mismo valor en la guarda
+que impide bajar la puja y en su respuesta. `CREATE OR REPLACE VIEW` conserva
+los privilegios de `0060`; no hay grants nuevos.
+
+Reversa (`0096_reversa_arreglos05_regreso_destino_efectivo.sql`): devuelve la
+definición de `0093`. Solo toca la vista; con el binario anterior a ARREGLOS 05
+B la reversa siempre escribe `old_value`, así que vuelve a coincidir.

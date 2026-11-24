@@ -207,8 +207,9 @@ Los dos se recorren sobre toda la tabla en
 
 ### Mapa `hallazgo -> casilla` del bloque B
 
-Estos no vinieron de un revisor: los destaparon las corridas de vecinos antes
-de empujar, y cada uno cerro en su casilla con su prueba.
+Los seis primeros no vinieron de un revisor: los destaparon las corridas de
+vecinos antes de empujar. Los tres ultimos son los P1 de la primera pasada de
+Astra (Devin duplico dos).
 
 | Hallazgo | Casilla o clasificador | Prueba de regression |
 |---|---|---|
@@ -218,6 +219,9 @@ de empujar, y cada uno cerro en su casilla con su prueba.
 | La reversa de bid exigia que la hoja tuviera el valor de ESA decision, y el regreso revierte la primera de una racha. | `evento_desde_lectura_bid` con `escritos`: cada PUT propio que quedo `ok` y el destino de cada decision aplicada. | `test_arreglos05_a_estados.py::test_arreglos05_a_clasificadores_de_identidad_y_de_puja` |
 | Un apply que divergio dejaba en Amazon un valor que el ledger no guarda. | fuera de `_SQL_BIDS_ESCRITOS`: no es un valor escribible por Orbit. | `test_apply.py::test_divergencia_readback_sella_la_misma_etiqueta_en_apply_y_reversa` |
 | El resolver del `negative_id` no encontraba el id cuando el apply solo estaba en el ledger. | resumen sellado y, sin el, ACK del ultimo intento aplicado. | `test_api_write.py::test_reversa_manual_negative_resuelve_id_del_ledger` |
+| Astra: un job que cerraba fallido dejaba abierto el intento de creacion con su ACK, y la reversa de la 0095 abortaba. | Fuera de la tabla: `_falla_job` es el cierre unico del job y sella sus intentos abiertos en la misma transaccion. | `...cosecha_con_roster_imposible_sella_la_creacion_verificada`, `...cosecha_cerrada_sin_contexto_sella_la_creacion_con_ack`, `...cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack` |
+| Astra: cualquier importe que Orbit hubiera escrito alguna vez en la hoja contaba como suyo. | `evento_desde_lectura_bid` con `escritos` = la ultima escritura confirmada desde la decision que se revierte. | `...un_importe_antiguo_de_orbit_no_autoriza_la_reversa` |
+| Astra: el regreso del dueno y `v_cambio_bid` seguian usando `old_value`. | Fuera de la tabla: `regreso_del_dueno` y la vista (0096) leen el destino efectivo. | `...el_regreso_usa_el_destino_efectivo_en_guarda_respuesta_e_historial`, `...migracion_del_historial_de_regreso_ida_reversa_e_ida` |
 
 El chequeo estructural `_violaciones_chequeo_dueno_unico` cubrio ahora 15
 modulos (sumo `app/apply_negative.py` y `app/apply_harvest_contexto.py`) y

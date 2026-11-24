@@ -651,8 +651,9 @@ sale cero DELETE ajeno: la reversa automática omite lo propio ausente y
 sigue con lo propio vivo; la manual detiene el orden sellado.
 
 **Reversa de bid (ARREGLOS 05 B).** Antes del PUT se relee la hoja. Si el
-valor vivo no lo escribió Orbit —no es un PUT suyo que quedó `ok` ni el
-destino de una decisión de puja suya aplicada— es un cambio manual posterior
+valor vivo no lo escribió Orbit —no es la última escritura confirmada suya
+desde la decisión que se revierte, ni la de una decisión posterior ni la de
+la reversa de cualquiera— es un cambio manual posterior
 y no se envía (`confirmada: false`, cero PUT). Si ya es el valor previo, se
 confirma por lectura. Un intento de reversa abierto se resuelve leyendo
 antes de otro envío. Que Orbit haya movido la hoja después con una decisión
@@ -998,6 +999,14 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   que lo propio ya no vive, nace una fila `reversa` sellada `ok` con
   `ack.conciliado` y su `fuente`. Es un ack que declara su fuente, no un ACK
   remoto; cuenta como reversa hecha y la reanudación no la repite.
+- **Un job que cierra fallido no deja intentos abiertos (ARREGLOS 05 B):**
+  `_falla_job` sella en su misma transacción los intentos abiertos del job.
+  Una creación cuyo ACK ya se guardó la aceptó Amazon y se sella `ok`, aunque
+  el trabajo no prospere; los demás toman el resultado del cierre.
+- **El regreso del dueño usa el destino efectivo (ARREGLOS 05 B, migración
+  `0096`):** la guarda que impide bajar la puja, la respuesta y `v_cambio_bid`
+  usan el bid que la reversa restauró (el del payload del intento `ok`), no
+  `decision.old_value`.
 - La tabla completa (165 casillas desde ARREGLOS 05 B), el mapa de los
   hallazgos de revisión a su casilla y la demostración por nivel `/correct`
   viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del

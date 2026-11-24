@@ -129,7 +129,7 @@ en_parte 1 && corre ACEPTA "B.1: T writes test_03, la cosecha y su reversa no ar
   uv run --frozen --python 3.12 bash "$comprobar" T writes test_03
 en_parte 1 && corre ACEPTA "B.2: T writes test_10, el negative conciliado conserva reversa ejecutable" 1 \
   uv run --frozen --python 3.12 bash "$comprobar" T writes test_10
-en_parte 1 && corre ACEPTA "B.1 a B.3: N b, regresiones del bloque" 26 \
+en_parte 1 && corre ACEPTA "B.1 a B.3: N b, regresiones del bloque" 32 \
   uv run --frozen --python 3.12 bash "$comprobar" N b
 en_parte 1 && corre ACEPTA "B.1: tabla de estados completa (165 casillas), invariantes y clasificadores" 170 \
   uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
