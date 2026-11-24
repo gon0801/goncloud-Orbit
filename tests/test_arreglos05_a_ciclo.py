@@ -2739,3 +2739,136 @@ def test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reen
         assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None, (
             "resuelta la reactivacion, el origen queda completo"
         )
+
+
+@_skip_db
+def test_arreglos05_a_reversa_abierta_se_sella_aunque_cache_ya_este_enabled():
+    """Revision de Astra del PR #746 (quinta pasada): si Amazon habilita la
+    hoja, se pierde la respuesta del PUT y la ingesta actualiza la cache local
+    (`ad_entity_state.status`) a ENABLED antes del siguiente horario, el filtro
+    por PAUSED saltaba la fila: el intento abierto nunca se conciliaba y el
+    origen se marcaba completo. Los intentos abiertos se resuelven por lectura
+    antes de los filtros que solo condicionan un nuevo PUT, sellando el intento
+    sin cobrar cuota ni reenviar."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import _config, _episodio, _pausa_baja, _pausado, estacion_dia
+
+    from app import apply_cola, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_reversa_cache_enabled") as (conn, _extra):
+        ids = _semilla_live(conn)
+        hoja = ids["kw_pause"]
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausa, _q = _pausa_baja(
+            conn,
+            ciclo_id=ciclo_prev,
+            config_id=config_id,
+            hoja=hoja,
+            ahora=ahora,
+            episodio=cerrado,
+        )
+        _pausado(conn, hoja)
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        pendientes = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        assert len(pendientes) == 1
+        propuesta = ciclo.pendiente_reactivacion(pendientes[0], estacion, decidido_el=ahora)
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+            (
+                origen,
+                pendientes[0].ad_entity_id,
+                ahora,
+                config_id,
+                propuesta.data_observed_at,
+                propuesta.window_start,
+                propuesta.window_end,
+                json.dumps(propuesta.inputs),
+            ),
+        )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 1
+
+        estado_remoto = {"9202": "PAUSED"}
+        puts_estado: list[dict] = []
+        lecturas: list[int] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                lecturas.append(len(lecturas) + 1)
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": "9202", "state": estado_remoto["9202"]}]},
+                )
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_estado.append(obj)
+                estado_remoto[str(obj["keywordId"])] = obj["state"]
+                return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        def cuota_pause() -> int:
+            return int(
+                conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0]
+            )
+
+        hoy = ahora.astimezone(dt.UTC).date()
+
+        # Horario 1: Amazon habilita la hoja pero la respuesta al PUT se pierde con 500.
+        primero = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert primero.ciclo is not None and primero.ciclo.resume_of == origen
+        assert [p["keywordId"] for p in puts_estado] == ["9202"]
+        assert conn.execute(
+            "SELECT resultado, finished_at FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa'",
+            (pausa,),
+        ).fetchone() == (None, None)
+        cuota_h1 = cuota_pause()
+        assert cuota_h1 == 1
+
+        # La ingesta actualiza la cache local a ENABLED antes del siguiente horario.
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'ENABLED', synced_at = now()"
+            " WHERE ad_entity_id = %s",
+            (hoja,),
+        )
+
+        # Horario 2: el ejecutor concilia el intento abierto por lectura antes del
+        # filtro por PAUSED, sella el intento como `ok` y no cobra cuota ni reenvia.
+        segundo = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert segundo.ciclo is not None and segundo.ciclo.resume_of == origen
+        assert len(puts_estado) == 1, "no reenvia el PUT"
+        assert len(lecturas) == 1, "lee el estado vivo de Amazon para conciliar"
+        assert cuota_pause() == cuota_h1, "no cobra cuota al conciliar"
+        react2 = json.loads(segundo.ciclo.notes)["apply"]["reactivaciones"]
+        assert (
+            react2["confirmadas"],
+            react2["omitidas"],
+            react2["fallidas"],
+            react2["pendientes_de_lectura"],
+        ) == (1, 0, 0, 0), react2
+        sello = conn.execute(
+            "SELECT resultado, ack, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa'",
+            (pausa,),
+        ).fetchone()
+        assert sello == ("ok", {"conciliado": True}, True), f"intento sin sellar: {sello}"
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None

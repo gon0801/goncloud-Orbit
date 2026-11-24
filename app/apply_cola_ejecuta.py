@@ -436,23 +436,10 @@ def aplica_reactivaciones(
         if fila is None or fila.ad_entity_id != decision.ad_entity_id:
             omitidas += 1
             continue
-        if decision.ad_entity_id in mantener:
-            omitidas += 1
-            continue
-        if apply.gate_ancestros(conn, decision.ad_entity_id) is not None:
-            omitidas += 1
-            continue
-        if aplicador.modo_efectivo(conn, decision.ad_entity_id, escalera_global="live") != "live":
-            omitidas += 1
-            continue
-        entidad = conn.execute(_SQL_ENTIDAD_REACTIVACION, (decision.ad_entity_id,)).fetchone()
-        if entidad is None or entidad[2] != "PAUSED" or entidad[0] in grupos_pausa:
-            omitidas += 1
-            continue
-        presupuesto = presupuestos.get(entidad[1])
-        if recuperacion.presupuesto_topado_de(presupuesto) is True:
-            omitidas += 1
-            continue
+        # Resuelve cualquier intento `reversa` abierto por lectura ANTES de los
+        # filtros que solo condicionan un nuevo PUT: si Amazon habilito la hoja,
+        # se perdio la respuesta y la ingesta actualizo la cache a ENABLED (o
+        # cambio una guarda), el intento abierto debe sellarse sin reenviar.
         try:
             veredicto = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
         except AdsApiError as exc:
@@ -471,6 +458,23 @@ def aplica_reactivaciones(
             confirmadas += veredicto == "ya_habilitada"
             fallidas += veredicto in ("archivada", "sin_identidad")
             pendientes_de_lectura += veredicto == "inconclusa"
+            continue
+        if decision.ad_entity_id in mantener:
+            omitidas += 1
+            continue
+        if apply.gate_ancestros(conn, decision.ad_entity_id) is not None:
+            omitidas += 1
+            continue
+        if aplicador.modo_efectivo(conn, decision.ad_entity_id, escalera_global="live") != "live":
+            omitidas += 1
+            continue
+        entidad = conn.execute(_SQL_ENTIDAD_REACTIVACION, (decision.ad_entity_id,)).fetchone()
+        if entidad is None or entidad[2] != "PAUSED" or entidad[0] in grupos_pausa:
+            omitidas += 1
+            continue
+        presupuesto = presupuestos.get(entidad[1])
+        if recuperacion.presupuesto_topado_de(presupuesto) is True:
+            omitidas += 1
             continue
         usada, saturada = apply.consume_quota_y_sello(conn, platform, "pause")
         if not usada:
