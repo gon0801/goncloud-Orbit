@@ -295,3 +295,10 @@ PR #746 en `master`: `fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97` (`SHA_PREVIO`:
   `decision_committed_at` en `NULL` con `resume_of` apuntando al origen
   sellado; un ciclo `skipped` o fallido antes de TX3 tambien conserva el sello
   en `NULL`.
+- **Lectura del primer ciclo real completada** ([primer-ciclo.txt](primer-ciclo.txt)):
+  el 2026-11-24 a las 11:09:57 UTC (tras 09:40/10:40 UTC y 09:41/10:41 UTC),
+  `lee_prod.sh` confirmo los origenes 210 (`amazon_us`, `done`, `0/0`) y 211
+  (`amazon_mx`, `done`, `1/1`), ambos con `decision_committed_at` sellado,
+  `resume_of` en `NULL`, `apply.completo=true`, `0` ejecutores, `0` intentos
+  `apply_attempt` abiertos hoy (`1` `normal|ok`) y `0` filas en
+  `decision_sin_aplicar` hoy.
