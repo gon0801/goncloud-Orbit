@@ -46,3 +46,18 @@ El rechazo no quedaba durable y la conciliacion mantenia la reversa incierta
 para siempre, incluso tras corregir credenciales.
 
 En la cabeza final `5e8c9b86` los tres casos quedan verdes.
+
+## 4. totalResultados de la cuenta en una lista filtrada (seguimiento Devin)
+
+En `64e06ec8`, la validacion de total se aplicaba tambien con
+`adGroupIdFilter`; una lista filtrada completa con `totalResults` de toda la
+cuenta se rechazaba. Rojo contra esa cabeza:
+
+```text
+$ pytest -q tests/test_arreglos05_c_reposicion.py -k total_solo_se_exige
+E   app.apply_harvest_list.ListaIncompleta: truncado: totalResults 50 y llegaron 1
+1 failed, 18 deselected
+```
+
+En `afeecf11` el total solo se exige sin filtro; con filtro se conservan token
+y pertenencia al grupo, y la prueba cubre ambos casos con el mismo total.

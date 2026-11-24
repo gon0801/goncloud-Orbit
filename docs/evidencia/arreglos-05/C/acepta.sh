@@ -130,7 +130,7 @@ echo "# PG: $(uv run --frozen --python 3.12 python -c 'import os,psycopg; c=psyc
 # --- Parte 1: lo que pide la columna Acepta, el modelo y el bloque A ---
 en_parte 1 && corre ACEPTA "C.2: T writes test_11, un solo POST tras ACK y readback fallido" 1 \
   uv run --frozen --python 3.12 bash "$comprobar" T writes test_11
-en_parte 1 && corre ACEPTA "C.1 a C.3: N c, regresiones del bloque (incluye selector del instalador)" 19 \
+en_parte 1 && corre ACEPTA "C.1 a C.3: N c, regresiones del bloque (incluye selector del instalador)" 20 \
   uv run --frozen --python 3.12 bash "$comprobar" N c
 en_parte 1 && corre ACEPTA "C.1: modelo de estados completo (165 casillas), invariantes y clasificadores" 181 \
   uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
