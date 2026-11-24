@@ -1,7 +1,7 @@
-# Acepta de ARREGLOS 05 C. SHA 5e8c9b86a212f74e947eb58a4341a92d22d673b9
+# Acepta de ARREGLOS 05 C. SHA 3f8d1005 (codigo)
 # Salida de las tres partes (1, 2 y 3); cada parte trae su propio encabezado.
 
-# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 1 de 3)
+# Acepta de ARREGLOS 05 C. SHA 41fdb5ab3d8b0e4a8a36310a8f2b83e706abe5bb (parte 1 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -10,19 +10,19 @@
 ### [ACEPTA] C.2: T writes test_11, un solo POST tras ACK y readback fallido
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_11
 .                                                                        [100%]
-1 passed, 8 deselected in 14.11s
+1 passed, 8 deselected in 16.21s
 resultado=ok
 
 ### [ACEPTA] C.1 a C.3: N c, regresiones del bloque (incluye selector del instalador)
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N c
-...................                                                      [100%]
+.....................                                                    [100%]
 ============================== warnings summary ===============================
 <venv>\Lib\site-packages\fastapi\testclient.py:1
   <venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-19 passed, 6373 deselected, 1 warning in 35.63s
+21 passed, 6373 deselected, 1 warning in 46.99s
 resultado=ok
 
 ### [ACEPTA] C.1: modelo de estados completo (165 casillas), invariantes y clasificadores
@@ -30,24 +30,24 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 39%]
 ........................................................................ [ 79%]
 .....................................                                    [100%]
-181 passed in 1.38s
+181 passed in 1.27s
 resultado=ok
 
 ### [CONTROL] bloque A: regresiones de ciclo
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
 .........................................................                [100%]
-57 passed in 105.18s (0:01:45)
+57 passed in 148.13s (0:02:28)
 resultado=ok
 
 ### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
 ..............................................................ss........ [ 71%]
 .............................                                            [100%]
-99 passed, 2 skipped in 10.77s
+99 passed, 2 skipped in 10.52s
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 2 de 3)
+# Acepta de ARREGLOS 05 C. SHA 41fdb5ab3d8b0e4a8a36310a8f2b83e706abe5bb (parte 2 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -57,7 +57,7 @@ resultado=ok
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_archiva_inertes.py tests/test_ads_archivar.py
 ........................................................................ [ 93%]
 .....                                                                    [100%]
-77 passed in 13.86s
+77 passed in 12.90s
 resultado=ok
 
 ### [CONTROL] cosecha, reversa manual y aplicador de bids
@@ -72,11 +72,11 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-217 passed, 1 warning in 242.95s (0:04:02)
+217 passed, 1 warning in 245.20s (0:04:05)
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 3 de 3)
+# Acepta de ARREGLOS 05 C. SHA 41fdb5ab3d8b0e4a8a36310a8f2b83e706abe5bb (parte 3 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -86,20 +86,20 @@ resultado=ok
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
 ........................................................................ [ 61%]
 .............................................                            [100%]
-117 passed in 23.88s
+117 passed in 23.66s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migraciones de ARREGLOS 05
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
 ...                                                                      [100%]
-3 passed, 47 deselected in 4.81s
+3 passed, 47 deselected in 4.65s
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=d0ed286e6048d38db45abe49006a20f25d2b3cdf..HEAD
-[90m10:44AM[0m [32mINF[0m [1m10 commits scanned.[0m
-[90m10:44AM[0m [32mINF[0m [1mscanned ~185504 bytes (185.50 KB) in 275ms[0m
-[90m10:44AM[0m [32mINF[0m [1mno leaks found[0m
+[90m11:07AM[0m [32mINF[0m [1m15 commits scanned.[0m
+[90m11:07AM[0m [32mINF[0m [1mscanned ~196894 bytes (196.89 KB) in 268ms[0m
+[90m11:07AM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0
