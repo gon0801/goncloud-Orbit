@@ -866,9 +866,13 @@ estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`.
 `tests/test_arreglos05_a_estados.py`):
 
 1. **Lo incierto se lee antes de reenviar:** ninguna casilla de `incierto`
-   emite `enviar`; ante `nuevo_horario` o `intentos_agotados` ordena
-   `leer_resultado`, y ante `error_5xx_o_red` conserva `incierto` con
-   `origen_incompleto=True` y `sella_intento=False`.
+   emite `enviar`, y ninguna casilla con `sella_intento=False` puede dejar
+   `origen_incompleto=False`. Ante `nuevo_horario` o `intentos_agotados` ordena
+   `leer_resultado` de forma incondicional en `_fase_reconciliacion` (en todo
+   horario y con cualquier modo de temporada o global `live`/`shadow`/`off`,
+   dejando a los apagadores impedir únicamente `enviar`), y ante
+   `error_5xx_o_red` conserva `incierto` con `origen_incompleto=True` y
+   `sella_intento=False`.
 2. **Tope único de 3 intentos por pausa:** `TOPE_INTENTOS_CAMBIO` (3) es la
    única fuente para `apply.TOPE_INTENTOS`, `aplica_reactivaciones` y
    `temporada_io.sql_pausas_de_baja`. Un tercer intento abierto se lee primero

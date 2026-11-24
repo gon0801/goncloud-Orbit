@@ -135,3 +135,9 @@ test_arreglos05_a_tercer_put_incierto_al_cambio_de_dia_se_concilia_sin_cuarto_pu
   AssertionError: [('ok:no_aplicado', True), ('ok:no_aplicado', True), (None, False)] (3er intento seguia abierto el dia 2)
 test_arreglos05_a_reversa_manual_archivado_en_primer_list_un_solo_intento
   AssertionError: dos peticiones manuales deben generar un solo PUT (assert 2 == 1)
+
+# Novena pasada (Astra, temporada o global pasados a shadow): rojo contra a08d5b13 y fdea6b3d:
+test_arreglos05_a_reversa_abierta_se_concilia_aunque_temporada_pase_a_shadow
+  AssertionError: concilia por LIST ambos intentos abiertos (assert 0 == 2)
+test_arreglos05_a_reversa_abierta_se_concilia_aunque_global_pase_a_shadow
+  AssertionError: concilia por LIST la reversa abierta incluso en global shadow (assert 0 == 1)
