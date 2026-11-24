@@ -872,7 +872,10 @@ estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`.
 2. **Tope único de 3 intentos por pausa:** `TOPE_INTENTOS_CAMBIO` (3) es la
    única fuente para `apply.TOPE_INTENTOS`, `aplica_reactivaciones` y
    `temporada_io.sql_pausas_de_baja`. Un tercer intento abierto se lee primero
-   antes de entrar a `tope_intentos` sin cobrar cuota ni emitir un cuarto PUT.
+   antes de entrar a `tope_intentos` sin cobrar cuota ni emitir un cuarto PUT;
+   si quedó abierto en el último horario UTC del día, `reconcilia_reversas_pause`
+   lo recupera por lectura en `_fase_reconciliacion` al abrir el origen del día
+   siguiente, independientemente de la elegibilidad para un nuevo envío.
 3. **Lo pausado por el dueño no se reactiva:** `pausado_por_dueno` es
    absorbente ante `nuevo_horario` (`no_tocar`) y nunca se sella como
    `aplicado`.
@@ -888,9 +891,12 @@ estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`.
 observables obligatorios a `estado_inicial_desde_hechos(...)` (sin defaults
 que descarten conteos) y ramifica exclusivamente por `transicion.accion`
 (nunca por `transicion.estado_siguiente`). En particular, solo `ENVIAR`
-autoriza emitir un PUT y solo `SELLAR_APLICADO` atribuye una confirmación al
-ejecutor en curso. El chequeo estructural `/correct` en
-`tests/test_arreglos05_a_estados.py` hace cumplir ambas reglas sobre los 13
+autoriza emitir un PUT, solo `SELLAR_APLICADO` atribuye una confirmación al
+ejecutor en curso, y toda lectura de vuelta de reversa (inmediata tras PUT y
+de conciliación) pasa por el mismo clasificador `_aplica_lectura_reversa` +
+`TABLA_TRANSICIONES` para persistir desenlaces terminales (`fallo:entidad_*`)
+desde el primer LIST. El chequeo estructural `/correct` en
+`tests/test_arreglos05_a_estados.py` hace cumplir estas reglas sobre los 13
 módulos llamadores.
 
 **Límites del modelo:**

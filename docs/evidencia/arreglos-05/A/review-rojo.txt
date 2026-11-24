@@ -129,3 +129,9 @@ test_arreglos05_a_reversa_manual_respeta_tope_de_tres_en_abierto_y_cerrados
   AssertionError: tras CONTAR_INTENTO del 3er intento no debe enviar un 4o PUT (assert 4 == 3)
 test_arreglos05_a_segundo_ejecutor_solo_cuenta_confirmadas_de_esa_corrida
   AssertionError: assert (2, 0, 0, 0) == (1, 1, 0, 0) (atribuia A de nuevo al 2o ejecutor)
+
+# Octava pasada (Astra, cambio de dia con 3er PUT incierto y ARCHIVED en primer LIST): rojo contra 0a634deb:
+test_arreglos05_a_tercer_put_incierto_al_cambio_de_dia_se_concilia_sin_cuarto_put
+  AssertionError: [('ok:no_aplicado', True), ('ok:no_aplicado', True), (None, False)] (3er intento seguia abierto el dia 2)
+test_arreglos05_a_reversa_manual_archivado_en_primer_list_un_solo_intento
+  AssertionError: dos peticiones manuales deben generar un solo PUT (assert 2 == 1)
