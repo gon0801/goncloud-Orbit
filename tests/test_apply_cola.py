@@ -128,6 +128,11 @@ SQL94 = (
 SQL95 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0095_arreglos05_evidencia_previa.sql"
 ).read_text(encoding="utf-8")
+SQL96 = (
+    Path(__file__).resolve().parents[1]
+    / "migrations"
+    / "0096_arreglos05_regreso_destino_efectivo.sql"
+).read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +164,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
+        conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
         yield conn
     finally:
         if conn is not None:

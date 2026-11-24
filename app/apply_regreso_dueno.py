@@ -46,9 +46,11 @@ _SQL_VIGENTE = """
 SELECT current_bid FROM v_hoja_activa WHERE hoja_id = %s
 """
 
+# Sello y destino confirmado del regreso: el `bid` del payload es lo que se
+# envio y cuya lectura de vuelta confirmo (ARREGLOS 05 B).
 _SQL_FIN_REVERSA = """
-SELECT finished_at FROM apply_attempt
- WHERE decision_id = %s AND tipo = 'reversa'
+SELECT finished_at, request_payload->>'bid' FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa' AND resultado = 'ok'
  ORDER BY seq DESC LIMIT 1
 """
 
@@ -182,9 +184,13 @@ def regreso_del_dueno(
     # del grupo) no hay nada que comparar y se sigue como antes.
     fila_vigente = conn.execute(_SQL_VIGENTE, (hoja_id,)).fetchone()
     vigente = _celda_cambio(fila_vigente, 0, "current_bid") if fila_vigente is not None else None
-    if vigente is not None and vigente >= primera[1]:
+    # ARREGLOS 05 B: el destino del regreso es el bid que la reversa va a
+    # restaurar (el leido antes del PUT; old_value solo para historia anterior
+    # a la 0095). Guarda, respuesta e historial usan ese mismo valor.
+    destino = apply.bid_previo_comprobado(conn, primera[4], respaldo=primera[1])
+    if vigente is not None and vigente >= destino:
         raise VigentePorEncima(
-            f"la hoja {hoja_id} trae vigente {vigente} por encima del destino {primera[1]}"
+            f"la hoja {hoja_id} trae vigente {vigente} por encima del destino {destino}"
         )
     ultimo = max(cambios, key=_clave_orden_cambio)
     reversa = apply.reversa_manual(conn, tipo="bid", decision_id=primera[4], transport=transport)
@@ -194,10 +200,11 @@ def regreso_del_dueno(
         raise RegresoNoConfirmado(f"regreso de la hoja {hoja_id} sin confirmar: {motivo}")
     fin = conn.execute(_SQL_FIN_REVERSA, (primera[4],)).fetchone()
     sello = fin[0].isoformat() if fin is not None and fin[0] is not None else None
+    confirmado = Decimal(fin[1]) if fin is not None and fin[1] is not None else None
     return RegresoHecho(
         hoja_id=hoja_id,
         bid_antes=vigente if vigente is not None else ultimo[2],
-        bid_ahora=primera[1],
+        bid_ahora=confirmado if confirmado is not None else destino,
         moneda=primera[5],
         decision_revertida_id=primera[4],
         actor=actor,

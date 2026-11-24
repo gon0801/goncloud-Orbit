@@ -57,7 +57,7 @@ from test_fabrica_f2_hermanas import (
 from test_reversa_harvest import _job_done_mixto, _vivos_reversa
 from test_schema import _postgres_obligatorio_ausente
 
-from app import api_write, apply, apply_cola, apply_cola_ejecuta, apply_harvest
+from app import api_write, apply, apply_cola, apply_cola_ejecuta, apply_harvest, apply_regreso_dueno
 from app.ads.client import AdsApiError
 from app.ads.config import AdsCredentials
 
@@ -1186,6 +1186,70 @@ def test_arreglos05_b_cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack(mon
         assert resumen.jobs_failed == 1
         assert _job(conn, dec)[1] == "failed"
         _creacion_sellada_ok(conn, dec)
+
+
+@_skip_db
+def test_arreglos05_b_el_regreso_usa_el_destino_efectivo_en_guarda_respuesta_e_historial(
+    monkeypatch,
+):
+    """La cache traia 1.004 y Orbit leyo 1.008 antes del recorte: el regreso
+    restaura 1.01. La guarda que impide bajar la puja, la respuesta del regreso
+    y el historial (`v_cambio_bid`) usan ese destino efectivo, no `old_value`."""
+    with _db("orbit_b05_regreso_efectivo") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        amazon = _Amazon(bids={"7201": "1.008"})
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.004", new="0.80")
+        _aplicador_bid(conn, amazon, ids["ciclo_ejec"]).aplica_bids(
+            apply.bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live"
+        )
+        assert amazon.bid() == Decimal("0.80")
+        _red_por(monkeypatch, amazon)
+        # Guarda: un vigente entre old_value (1.004) y el destino efectivo (1.01)
+        # no impide el regreso, porque volver a 1.01 sube la puja.
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 1.005 WHERE ad_entity_id = %s", (ids["kw"],)
+        )
+
+        hecho = apply_regreso_dueno.regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno")
+
+        assert (hecho.bid_antes, hecho.bid_ahora) == (Decimal("1.005"), Decimal("1.01"))
+        assert hecho.como_dict()["bid_ahora"] == "1.01"
+        assert amazon.bid() == Decimal("1.01"), "Amazon quedo en lo que confirma la respuesta"
+        historia = conn.execute(
+            "SELECT bid_despues FROM v_cambio_bid"
+            " WHERE hoja_id = %s AND origen = 'regreso_del_dueno'",
+            (ids["kw"],),
+        ).fetchall()
+        assert historia == [(Decimal("1.01"),)], "el historial publica el bid restaurado"
+
+
+@_skip_db
+def test_arreglos05_b_migracion_del_historial_de_regreso_ida_reversa_e_ida():
+    """0096: `v_cambio_bid` publica como destino del regreso el bid del payload
+    del intento ok; la reversa devuelve `old_value`; se puede aplicar de nuevo."""
+    ida = MIGRACIONES / "0096_arreglos05_regreso_destino_efectivo.sql"
+    reversa = MIGRACIONES / "0096_reversa_arreglos05_regreso_destino_efectivo.sql"
+    assert ida.exists() and reversa.exists(), "falta la migracion 0096 o su reversa"
+    definicion = (
+        "SELECT definition FROM pg_views WHERE schemaname = 'public' AND viewname = 'v_cambio_bid'"
+    )
+
+    def trae_payload() -> bool:
+        return "request_payload" in conn.execute(definicion).fetchone()[0]
+
+    with _db("orbit_b05_mig96") as (conn, _extra):
+        assert conn.execute(_sonda_de(ida)).fetchone() == (True,), "la sonda da true aplicada"
+        assert trae_payload()
+        assert conn.execute(
+            "SELECT has_table_privilege('app_decide', 'public.v_cambio_bid', 'SELECT'),"
+            " has_table_privilege('app_read', 'public.v_cambio_bid', 'SELECT')"
+        ).fetchone() == (True, True), "CREATE OR REPLACE conserva los privilegios de lectura"
+
+        conn.execute(reversa.read_text(encoding="utf-8"))
+        assert not trae_payload() and conn.execute(_sonda_de(ida)).fetchone() == (False,)
+
+        conn.execute(ida.read_text(encoding="utf-8"))
+        assert trae_payload() and conn.execute(_sonda_de(ida)).fetchone() == (True,)
 
 
 # ---------------------------------------------------------------------------
