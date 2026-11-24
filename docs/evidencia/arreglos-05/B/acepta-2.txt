@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 B. SHA 79e2bca17e0dcf61bd9766d06aa412e1302584c2 (parte 2 de 3)
+# Acepta de ARREGLOS 05 B. SHA 2ca60605212f8c22b90a5a84540189aa2357c3d9 (parte 2 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -14,7 +14,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-114 passed, 1 warning in 103.37s (0:01:43)
+114 passed, 1 warning in 104.29s (0:01:44)
 resultado=ok
 
 ### [CONTROL] cola, cosecha y reversa manual de cosecha
@@ -22,7 +22,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 48%]
 ........................................................................ [ 97%]
 ...                                                                      [100%]
-147 passed in 183.32s (0:03:03)
+147 passed in 185.76s (0:03:05)
 resultado=ok
 
 # comandos que no pasaron: 0

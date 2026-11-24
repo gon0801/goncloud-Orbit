@@ -68,6 +68,25 @@ respondian esa lectura.
 | `test_d3_adversary.py` | su arnes conoce el intento abierto con evidencia. |
 | Listas explicitas de migraciones | `test_api_write.py`, `test_apply.py`, `test_apply_cola.py`, `test_apply_harvest.py`, `test_apply_schema.py`, `test_cycle.py`, `test_cycle_apply.py`, `test_fabrica_f2.py` (`ORDEN_F2`) y `test_bloqueo_dueno_efecto.py` aplican la 0095. |
 
+## Ronda 3 de revision (2026-11-24)
+
+Se repitieron por grupos sobre el arbol `2ca60605`, en serie y en primer plano,
+con el mismo entorno del laboratorio:
+
+| Grupo | Archivos | Resultado |
+|---|---|---|
+| Cliente de escritura, ajuste, archivo, vistas y dueno bloqueado | `test_ads_write.py`, `test_aplica_ajuste.py`, `test_archiva_inertes.py`, `test_bids02_vistas.py`, `test_bloqueo_dueno_efecto.py` | 191 passed |
+| Producto, ledgers y metricas | `test_apply_producto.py`, `test_productos_pausa.py`, `test_lecturas_caso.py`, `test_ledger_atribucion.py`, `test_ledger_sync.py`, `test_metricas_listas.py` | 135 passed |
+| Precio, mercado y MeLi (primera mitad) | `test_precio_corrida.py` y 8 archivos `test_precio02_*` | 271 passed, 1 failed previo |
+| Precio (cotizador, ledger, mercado, retencion, sonda), preflight, propuestas y retiro | 6 archivos `test_precio02_*` mas `test_preflight_1_4.py`, `test_propuestas_campana.py`, `test_retiro_contrato.py`, `test_retiro_anuncios.py` | 237 passed |
+| Cron y fabrica F2 | `test_*_cron.py`, `test_fabrica_f2.py`, `test_fabrica_f2_visibilidad.py` | 39 passed |
+
+El unico fallo es
+`test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue`
+(`ingest_run.ok` es False aunque el `skip_reason` es el esperado). Se reprodujo
+aislado y en un worktree del padre `23ba2385`: falla identico, asi que es
+previo y fuera de este bloque (ingesta MeLi).
+
 ## Fuera del alcance, anotado
 
 `tests/test_despliegue_motor.py` tiene un banco (`banco`) que no corre en esta

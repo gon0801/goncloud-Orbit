@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 B. SHA 79e2bca17e0dcf61bd9766d06aa412e1302584c2 (parte 3 de 3)
+# Acepta de ARREGLOS 05 B. SHA 2ca60605212f8c22b90a5a84540189aa2357c3d9 (parte 3 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -10,13 +10,13 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 59%]
 ........................................................................ [ 89%]
 .........................                                                [100%]
-241 passed in 187.80s (0:03:07)
+241 passed in 186.09s (0:03:06)
 resultado=ok
 
 ### [CONTROL] reproducciones writes 01, 02, 03 y 10
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_01 or test_02 or test_03 or test_10
 ........                                                                 [100%]
-8 passed, 1 deselected in 31.80s
+8 passed, 1 deselected in 33.45s
 resultado=ok
 
 ### [CONTROL] temporada A a I (E aporta la lectura previa al PUT)
@@ -29,14 +29,14 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-128 passed, 1 warning in 118.22s (0:01:58)
+128 passed, 1 warning in 117.12s (0:01:57)
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=23ba2385..HEAD
-[90m6:54AM[0m [32mINF[0m [1m14 commits scanned.[0m
-[90m6:54AM[0m [32mINF[0m [1mscanned ~299249 bytes (299.25 KB) in 273ms[0m
-[90m6:54AM[0m [32mINF[0m [1mno leaks found[0m
+[90m7:27AM[0m [32mINF[0m [1m17 commits scanned.[0m
+[90m7:27AM[0m [32mINF[0m [1mscanned ~319426 bytes (319.43 KB) in 346ms[0m
+[90m7:27AM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0

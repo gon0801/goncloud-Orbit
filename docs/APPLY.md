@@ -651,16 +651,20 @@ sale cero DELETE ajeno: la reversa automática omite lo propio ausente y
 sigue con lo propio vivo; la manual detiene el orden sellado.
 
 **Reversa de bid (ARREGLOS 05 B).** Antes del PUT se relee la hoja. Si el
-valor vivo no lo escribió Orbit —no es la última escritura suya por hora desde
-la decisión que se revierte: ni la de una decisión posterior ni la de la
-reversa de cualquiera; una reversa confirmada sin envío no cuenta— es un
-cambio manual posterior
-y no se envía (`confirmada: false`, cero PUT). Si ya es el valor previo, se
-confirma por lectura. Un intento de reversa abierto se resuelve leyendo
-antes de otro envío. Que Orbit haya movido la hoja después con una decisión
-propia no impide revertir: por eso el regreso del dueño sigue revirtiendo la
-primera decisión de una racha. Una decisión cuyo apply divergió no tiene un
-valor atribuible y no se revierte a ciegas.
+valor vivo no lo escribió Orbit —no es la última escritura suya en la hoja por
+hora: ni su apply, ni el de otra decisión, ni la reversa de cualquiera; una
+reversa confirmada sin envío no cuenta— es un cambio manual posterior y no se
+envía (`confirmada: false`, cero PUT). La última escritura de la hoja manda
+aunque cuelgue de una decisión anterior; pero si es de una anterior a la que
+se revierte, no autoriza: es un valor residual. Si el valor vivo ya es el
+previo, se confirma por lectura. Un intento de reversa abierto se resuelve
+leyendo antes de otro envío; si la lectura inmediata tras el PUT no trae el
+bid, el intento queda abierto con el ACK del PUT y la llamada siguiente lo
+confirma leyendo, sin otro envío (la guarda del regreso no lo rechaza por
+vigente mientras siga abierto). Que Orbit haya movido la hoja después con una
+decisión propia no impide revertir: por eso el regreso del dueño sigue
+revirtiendo la primera decisión de una racha. Una decisión cuyo apply divergió
+no tiene un valor atribuible y no se revierte a ciegas.
 
 **Negative conciliado (ARREGLOS 05 B).** `EfectoReconciliado` es distinto de
 `CreacionPropia`: ausencia previa más aparición posterior no prueba autoría
@@ -1000,6 +1004,11 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   que lo propio ya no vive, nace una fila `reversa` sellada `ok` con
   `ack.conciliado` y su `fuente`. Es un ack que declara su fuente, no un ACK
   remoto; cuenta como reversa hecha y la reanudación no la repite.
+- **Una reversa con la lectura de vuelta sin estado (ARREGLOS 05 B):** el
+  intento queda abierto, conserva el ACK del PUT y se sella `ok` cuando una
+  lectura posterior confirma el destino; no se repite el PUT. La guarda del
+  regreso lee ese intento abierto antes de comparar el vigente, así que la
+  ingesta que sincroniza el destino no lo convierte en un 409.
 - **Un job que cierra fallido no deja intentos abiertos (ARREGLOS 05 B):**
   `_falla_job` sella en su misma transacción los intentos abiertos del job.
   `ok` solo lo pone la lectura que verificó el objeto: una creación que cerró

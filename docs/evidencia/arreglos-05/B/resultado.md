@@ -3,7 +3,7 @@
 Bloque de implementacion, `lane: release`. Base: `master` en
 `23ba2385c7394ef5f9693e2802dbe9bb640ac791` (el codigo de `app/` y
 `migrations/` es el de `17fa9a17`). Rama `arreglos-05/b`. Codigo verificado:
-`79e2bca1`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
+`2ca60605`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
 «B. Identidad, confirmacion y reversas» de [DISENO.md](../DISENO.md).
 
 ## Para el dueño
@@ -41,10 +41,10 @@ Bloque de implementacion, `lane: release`. Base: `master` en
 
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| B.1 | `T writes test_03` | `79e2bca1` | 1 passed, salida 0 | La cosecha conserva el ID del ACK, no adopta una keyword sustituida y su reversa no borra la ajena. | Codigo: `rollback.sh` con el SHA anterior. Datos: ninguno cambia en Amazon salvo lo que la reversa propia ya hacia. |
-| B.1 | `N b` | `79e2bca1` | 38 passed, 0 omitidas, salida 0 | Regresiones propias del bloque, mas la del selector del instalador. | Igual que arriba. |
-| B.2 | `T writes test_10` | `79e2bca1` | 1 passed, salida 0 | Un negative aceptado sin respuesta se confirma leyendo y su reversa manual lo retira una vez. | Migracion `0095_reversa_...` (aborta si hay un intento abierto con evidencia). |
-| B.3 | `N b` | `79e2bca1` | 38 passed, salida 0 | La reversa de bid vuelve al valor leido, respeta un cambio manual y no repite el PUT tras una caida. | Igual que B.2. |
+| B.1 | `T writes test_03` | `2ca60605` | 1 passed, salida 0 | La cosecha conserva el ID del ACK, no adopta una keyword sustituida y su reversa no borra la ajena. | Codigo: `rollback.sh` con el SHA anterior. Datos: ninguno cambia en Amazon salvo lo que la reversa propia ya hacia. |
+| B.1 | `N b` | `2ca60605` | 40 passed, 0 omitidas, salida 0 | Regresiones propias del bloque (39 del archivo, con las dos de la ronda 3, mas la del selector del instalador). | Igual que arriba. |
+| B.2 | `T writes test_10` | `2ca60605` | 1 passed, salida 0 | Un negative aceptado sin respuesta se confirma leyendo y su reversa manual lo retira una vez. | Migracion `0095_reversa_...` (aborta si hay un intento abierto con evidencia). |
+| B.3 | `N b` | `2ca60605` | 40 passed, salida 0 | La reversa de bid vuelve al valor leido, respeta un cambio manual (tambien el de una decision anterior) y no repite el PUT tras una caida. | Igual que B.2. |
 
 Comandos y salidas completos en [acepta.txt](acepta.txt), que genera
 [acepta.sh](acepta.sh). El SHA del encabezado de cada parte es el arbol
@@ -148,16 +148,20 @@ fallan por asercion de comportamiento, mas la del selector del instalador. Las
 cinco que pasan en el padre: tres controles declarados y dos que ya se
 cumplian en master (detalle en rojo.txt). La prueba
 de la tabla no puede importarse en el padre: nombra tipos que no existen; la
-tabla del padre tiene 9 estados, 12 eventos y 108 casillas.
+tabla del padre tiene 9 estados, 12 eventos y 108 casillas. Las dos regresiones
+de la ronda 3 (39 en el archivo) se midieron ademas contra la cabeza que las
+recibio: `6939524a` y `9ba71760` (seccion 4 de rojo.txt).
 
-En `79e2bca1`: `N b` 38 passed; tabla 170 passed.
+En `2ca60605`: `N b` 40 passed; tabla 170 passed.
 
 ## Vecinos
 
 [vecinos.md](vecinos.md). Ninguna suite empeora: todas las que fallan en la
 rama fallan igual y en los mismos casos en `23ba2385`, medido en un worktree
 aparte. Once archivos de pruebas se portaron al contrato nuevo conservando sus
-aserciones.
+aserciones. En la ronda 3 se sumo
+`test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue`,
+que falla identico en `23ba2385` (ingesta MeLi, fuera de este bloque).
 
 ## Lectura previa de produccion
 
@@ -179,17 +183,23 @@ antes de empujar.
 ## Decisiones y limites
 
 - **Que es un cambio manual.** No un valor distinto del de esta decision: un
-  valor vivo que no es la ultima escritura confirmada de Orbit desde la
-  decision que se revierte (su apply, el de una decision posterior o la reversa
-  de cualquiera). Un importe que Orbit escribio antes de esa decision y que hoy
-  vuelve a estar en la hoja lo puso otra mano. Fuente: el ledger, nunca el
-  cache, que la ingesta tambien sincroniza. Se ordena por la HORA de cada
-  escritura: una reversa se atribuye a la decision que deshace, no a una
-  nueva, asi que el ID no la ordena. Una reversa confirmada por lectura sin
-  envio (`ack.sin_envio`) no es escritura de Orbit.
+  valor vivo que no es la ultima escritura confirmada de Orbit en la hoja (su
+  apply, el de cualquier decision de esa hoja o la reversa de cualquiera),
+  contada por la HORA de cada escritura. Una escritura de una decision ANTERIOR
+  a la que se revierte tampoco autoriza: es un valor residual y el vivo de hoy
+  lo pudo poner otra mano. Un importe que Orbit escribio antes y que hoy vuelve
+  a estar en la hoja lo puso otra mano. Fuente: el ledger, nunca el cache, que
+  la ingesta tambien sincroniza. Una reversa se atribuye a la decision que
+  deshace, no a una nueva, asi que el ID no la ordena. Una reversa confirmada
+  por lectura sin envio (`ack.sin_envio`) no es escritura de Orbit.
 - **El regreso lee antes de guardar.** Un intento abierto se resuelve solo por
   lectura; la guarda vale solo para un envio nuevo, compara con el destino
   cuantizado y responde 409 si el vigente ya es el destino.
+- **Una reversa sin readback queda pendiente.** Si el PUT salio y la lectura
+  inmediata no trae el bid, el intento no se sella en fallo: conserva el ACK
+  del PUT y la llamada siguiente lo confirma leyendo, sin otro envio. Asi la
+  guarda del regreso no rechaza la hoja por vigente antes de que ese intento se
+  resuelva.
 - **Un job que cierra fallido no deja intentos abiertos.** `_falla_job` sella en
   su misma transaccion los intentos abiertos. `ok` solo lo pone la lectura que
   verifico el objeto: una creacion que cerro sin lectura de vuelta conserva su
@@ -290,6 +300,17 @@ cuantizar; y el `bid_antes` del recibo de un regreso conciliado. Regresiones:
 `...el_regreso_no_cierra_la_racha_si_el_vigente_ya_es_el_destino`,
 `...una_reversa_confirmada_sin_envio_no_vuelve_propia_la_puja_del_dueno` y
 `...una_reversa_de_compensacion_sin_respuesta_no_lleva_el_motivo_del_job`.
+
+Ronda 3 (Astra, pasada 2; dos P1): la autoria de la escritura se filtraba por
+`d.id >= la decision que se revierte`, asi que una reversa posterior de una
+decision anterior quedaba invisible y el valor que esa decision habia escrito
+se tomaba por la ultima escritura de Orbit; y un readback sin bid sellaba el
+intento en fallo, de modo que la guarda del regreso rechazaba despues por
+vigente. La primera usa la ultima escritura efectiva de la hoja y descarta la
+autoria cuando cuelga de una decision anterior; la segunda conserva el ACK en
+el intento abierto y lo resuelve por lectura sin otro PUT. Regresiones:
+`...una_reversa_de_decision_anterior_sigue_siendo_la_ultima_escritura` y
+`...el_regreso_con_readback_sin_bid_se_resuelve_leyendo`.
 
 ## Fase 2
 

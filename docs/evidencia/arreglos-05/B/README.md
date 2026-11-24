@@ -2,7 +2,7 @@
 
 Bloque de implementacion, `lane: release`. Base: `master` en
 `23ba2385c7394ef5f9693e2802dbe9bb640ac791`. Rama `arreglos-05/b`.
-Fecha: 2026-11-24 (America/Vancouver). Codigo verificado: `79e2bca1`.
+Fecha: 2026-11-24 (America/Vancouver). Codigo verificado: `2ca60605`.
 
 Esta carpeta convive con `docs/evidencia/arreglos-05/base/`, la foto de la fase
 de diseno, que no cambia. `B/` no tiene hermana en minusculas.
