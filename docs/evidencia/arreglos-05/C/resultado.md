@@ -38,7 +38,7 @@ Bloque de implementacion, `lane: release`. Base: `master` en
 
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| C.1 | `N c` | `3f8d1005` | 21 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el SHA desplegado `73ea8f90`; la reversa `0097` aborta si hay intentos y nunca borra el historial. |
+| C.1 | `N c` | `3f8d1005` | 21 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el SHA desplegado `73ea8f90`; la reversa `0097` aborta si la tabla conserva cualquier fila y nunca borra el historial. |
 | C.2 | `T writes test_11` | `3f8d1005` | 1 passed, salida 0 | Un solo POST tras ACK y readback fallido; dos CLI no crean dos objetos; el objeto repuesto nace PAUSED. | Igual que C.1. |
 | C.2 | `N c` | `3f8d1005` | 21 passed, salida 0 | Cobertura de crash antes/despues de POST, ACK y readback, rechazo 4xx, 5xx, 401/403, lectura truncada/omitida/duplicada y repeticion sin HTTP. | Igual que C.1. |
 | C.3 | `N c` | `3f8d1005` | 21 passed, salida 0 | La reversa archiva solo `repuesto_external`; una caida no repite el DELETE; un rechazo definitivo permite otro intento registrado; el historial y la keyword original no se tocan. | Igual que C.1. |
@@ -131,10 +131,15 @@ No hay backfill. La migracion no asume filas.
    (`ae7626ba4c22ad5d09979b9fb5d7a115b0cc990f`). Solo despues intenta la
    reversa de la migracion `0097`.
 3. La reversa `0097_reversa_arreglos05_reposicion.sql` aborta si la tabla
-   conserva intentos. En ese caso el esquema se conserva y el motor informa
-   `rollback_incompleto` (sale 2) aunque el codigo ya se haya restaurado. Se
-   concilian los intentos y se repite el MISMO rollback para continuar; jamas
-   se borran intentos para forzar el down.
+   conserva CUALQUIER fila, incluida una sellada `ok`: su `IF EXISTS` no
+   distingue abiertos de sellados. En ese caso el esquema y el historial se
+   conservan; el codigo ya se restauro y el motor informa
+   `rollback_incompleto` (sale 2). Es una reversa PARCIAL del despliegue:
+   registrar que el codigo quedo restaurado y que la migracion no se retiro.
+   No se repite el rollback para "arreglarla": volveria a recrear el
+   contenedor y saldria otra vez 2. Si quedan intentos abiertos, se concilian
+   con una version compatible del motor como operacion aparte; aun asi la
+   tabla conserva filas y el down no procede.
 4. Con el codigo restaurado (`ae7626ba`) la tabla `0097` queda ignorada y la
    reposicion vuelve al camino viejo (un segundo POST tras un ACK sin
    readback). No se borran intentos.
@@ -268,6 +273,9 @@ filas y 0 intentos abiertos. Recibos: [despliegue.txt](despliegue.txt),
 tools/despliegue/rollback.sh`, con el SHA desplegado y su diario `ultimo.env`.
 Restaura el codigo del respaldo `CODIGO=predeploy-*`, recrea el contenedor,
 comprueba `/health` y despues intenta la reversa de la `0097`. Si la tabla
-conserva intentos, el esquema se conserva y el motor informa
-`rollback_incompleto` aunque el codigo ya este restaurado. Con el SHA anterior
+conserva cualquier fila (sellada o abierta), la reversa de la migracion aborta:
+el esquema y el historial se conservan y el motor informa
+`rollback_incompleto` aunque el codigo ya este restaurado. Es una reversa
+parcial; no se repite el rollback para forzarla. Los intentos abiertos se
+concilian con una version compatible como operacion aparte. Con el SHA anterior
 el script sale 0 sin deshacer nada.
