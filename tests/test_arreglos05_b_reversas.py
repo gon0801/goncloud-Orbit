@@ -47,7 +47,13 @@ from test_apply_harvest import (
 )
 from test_arreglos05_a_ciclo import _db, _Muerte
 from test_cycle_apply import PERFIL_US
-from test_fabrica_f2_hermanas import _grupo_listo
+from test_fabrica_f2_hermanas import (
+    ROLES_DISCOVERY,
+    TERMINO_F2,
+    _decision_harvest_grupo,
+    _encola_fila,
+    _grupo_listo,
+)
 from test_reversa_harvest import _job_done_mixto, _vivos_reversa
 from test_schema import _postgres_obligatorio_ausente
 
@@ -994,6 +1000,158 @@ def test_arreglos05_b_reversa_de_bid_que_diverge_al_volver_sella_la_etiqueta_uni
             "fallo:divergencia_readback"
         ]
         assert amazon.bid() == Decimal("1.50")
+
+
+def _abiertos(conn, decision: int) -> list[dict]:
+    """Intentos del job todavia sin sello."""
+    return conn.execute(
+        "SELECT to_jsonb(a) FROM apply_attempt a"
+        " WHERE decision_id = %s AND finished_at IS NULL ORDER BY seq",
+        (decision,),
+    ).fetchall()
+
+
+def _sin_abiertos_con_evidencia(conn) -> int:
+    """Lo que la reversa de la 0095 revisa antes de seguir."""
+    return conn.execute(
+        "SELECT count(*) FROM apply_attempt"
+        " WHERE finished_at IS NULL AND (bid_previo IS NOT NULL OR ausencia_previa IS NOT NULL)"
+    ).fetchone()[0]
+
+
+def _cosecha_grupo(conn) -> tuple[dict, int]:
+    """Cosecha de grupo (con hermanas) lista para correr por la cola."""
+    setup = _grupo_listo(conn)
+    exacta = setup["roles"]["category_exact"]
+    dec = _decision_harvest_grupo(
+        conn,
+        setup["ciclo_dec"],
+        setup["config"],
+        setup["origen"]["ag"],
+        grupo_id=setup["grupo_id"],
+        exacta_camp_ext=exacta["camp_ext"],
+        exacta_ag_ext=exacta["ag_ext"],
+    )
+    return setup, dec
+
+
+@_skip_db
+def test_arreglos05_b_cosecha_con_roster_imposible_sella_la_creacion_verificada():
+    """La lectura de vuelta verifica la keyword propia, pero al grupo le falta
+    un rol de descubrimiento: el job cierra fallido y compensa. El intento de
+    creacion, que ya trae su ACK, se sella como aplicado; la compensacion queda
+    en sus propias filas. Ningun intento queda abierto."""
+    with _db("orbit_b05_roster_imposible") as (conn, _extra):
+        setup, dec = _cosecha_grupo(conn)
+        faltante = next(r for r in ROLES_DISCOVERY if r != setup["origen_rol"])
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = %s",
+            (setup["grupo_id"], faltante),
+        )
+        amazon = _Amazon()
+        ap = _aplicador_harvest(conn, amazon, setup["ciclo_ejec"])
+        qid = _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_F2)
+        apply_cola.libera_vencidos(conn, "amazon_us", ahora=dt.datetime.now(dt.UTC), aplicador=ap)
+
+        assert _job(conn, dec)[1] == "failed"
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (qid,)).fetchone()[0]
+            == "failed"
+        )
+        creacion = [
+            f[0]
+            for f in conn.execute(
+                "SELECT to_jsonb(a) FROM apply_attempt a WHERE decision_id = %s"
+                " AND tipo = 'normal' ORDER BY seq",
+                (dec,),
+            ).fetchall()
+        ]
+        keyword = next(f for f in creacion if f["request_payload"]["matchType"] == "EXACT")
+        assert (keyword["resultado"], keyword["finished_at"] is not None) == ("ok", True), (
+            "la creacion verificada se sella como aplicada, con su ACK"
+        )
+        assert (
+            keyword["ack"]["keywords"]["success"][0]["keywordId"]
+            == _job(conn, dec)[2]["keyword_id"]
+        )
+        compensacion = [f["resultado"] for f in _ledger(conn, dec, "reversa")]
+        assert compensacion == ["ok", "ok"], "la compensacion queda en sus propias filas"
+        assert amazon.borrados("keyword") and amazon.borrados("negative")
+        assert _abiertos(conn, dec) == [], "ningun intento queda abierto"
+        assert _sin_abiertos_con_evidencia(conn) == 0, "la reversa de la 0095 puede seguir"
+
+
+def _cosecha_con_ack_durable(conn, monkeypatch) -> tuple[dict, int, _Amazon]:
+    """Cosecha de plataforma interrumpida entre el ACK y la lectura de vuelta:
+    el job queda en exact_created con el intento de creacion abierto y su ACK."""
+    ids = _semilla_harvest(conn)
+    dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"], TERMINO)
+    amazon = _Amazon()
+
+    def muere(*_args, **_kwargs):
+        raise _Muerte("el proceso murio entre el ACK y el readback")
+
+    monkeypatch.setattr(apply_harvest, "_paso_readback", muere)
+    with pytest.raises(_Muerte):
+        _aplicar_cosecha(conn, amazon, ids, dec)
+    monkeypatch.setattr(apply_harvest, "_paso_readback", PASO_READBACK)
+    assert _job(conn, dec)[1] == "exact_created"
+    abiertos = _abiertos(conn, dec)
+    assert len(abiertos) == 1 and isinstance(abiertos[0][0]["ack"], dict)
+    return ids, dec, amazon
+
+
+def _creacion_sellada_ok(conn, dec: int) -> None:
+    creacion = [f for f in _ledger(conn, dec, "normal") if f["request_payload"].get("bid")]
+    assert [(f["resultado"], f["finished_at"] is not None) for f in creacion] == [("ok", True)], (
+        "el intento con ACK guardado se sella como aplicado"
+    )
+    assert _abiertos(conn, dec) == [], "ningun intento queda abierto"
+    assert _sin_abiertos_con_evidencia(conn) == 0, "la reversa de la 0095 puede seguir"
+
+
+@_skip_db
+def test_arreglos05_b_cosecha_cerrada_sin_contexto_sella_la_creacion_con_ack(monkeypatch):
+    """El proceso muere entre el ACK y la lectura de vuelta y, en la corrida que
+    lo retoma, el destino ya no se puede resolver. El job cierra fallido y el
+    intento de creacion, que ya trae su ACK, no queda abierto."""
+    with _db("orbit_b05_cierra_sin_contexto") as (conn, _extra):
+        ids, dec, amazon = _cosecha_con_ack_durable(conn, monkeypatch)
+        monkeypatch.setattr(
+            apply_harvest,
+            "_contexto",
+            lambda *_a, **_k: (_ for _ in ()).throw(ValueError("destino_desincronizado")),
+        )
+
+        resumen = apply_harvest.reconcilia_harvest(
+            conn, _aplicador_harvest(conn, amazon, ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert resumen.jobs_failed == 1
+        assert _job(conn, dec)[1] == "failed"
+        _creacion_sellada_ok(conn, dec)
+
+
+@_skip_db
+def test_arreglos05_b_cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack(monkeypatch):
+    """El proceso muere entre el ACK y la lectura de vuelta y, en la corrida que
+    lo retoma, la campana de origen ya no esta habilitada. El job cierra fallido
+    y el intento de creacion se sella como aplicado: Amazon lo acepto, aunque el
+    trabajo no prospero. No se le cuelga el motivo del cierre del job."""
+    with _db("orbit_b05_cierra_por_ancestro") as (conn, _extra):
+        ids, dec, amazon = _cosecha_con_ack_durable(conn, monkeypatch)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+
+        resumen = apply_harvest.reconcilia_harvest(
+            conn, _aplicador_harvest(conn, amazon, ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert resumen.jobs_failed == 1
+        assert _job(conn, dec)[1] == "failed"
+        _creacion_sellada_ok(conn, dec)
 
 
 # ---------------------------------------------------------------------------

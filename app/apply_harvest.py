@@ -193,6 +193,17 @@ UPDATE apply_attempt SET resultado = %s, finished_at = now()
  WHERE decision_id = %s AND finished_at IS NULL AND resultado IS NULL
 """
 
+# ARREGLOS 05 B: nadie retoma un job cerrado, asi que cerrarlo resuelve sus
+# intentos abiertos en la misma transaccion. Un intento de creacion cuyo ACK ya
+# esta guardado lo acepto Amazon: se sella `ok`, aunque el trabajo no prospere.
+# Los demas toman el resultado del cierre.
+_SQL_SELLA_ABIERTOS_AL_CERRAR = """
+UPDATE apply_attempt
+   SET resultado = CASE WHEN tipo = 'normal' AND ack IS NOT NULL THEN 'ok' ELSE %s END,
+       finished_at = now()
+ WHERE decision_id = %s AND finished_at IS NULL AND resultado IS NULL
+"""
+
 
 def _nace_job(conn: psycopg.Connection, platform: str, fila) -> _Job:
     """Nace 'pending' AL LIBERAR, antes de cualquier HTTP (con SAVEPOINT)."""
@@ -234,6 +245,11 @@ def _sella_pendientes(conn: psycopg.Connection, decision_id: int, resultado: str
     conn.execute(_SQL_SELLA_PENDIENTES, (resultado, decision_id))
 
 
+def _sella_abiertos_al_cerrar(conn: psycopg.Connection, decision_id: int, resultado: str) -> None:
+    """Sella los intentos abiertos del job cuando este se cierra (ARREGLOS 05 B)."""
+    conn.execute(_SQL_SELLA_ABIERTOS_AL_CERRAR, (resultado, decision_id))
+
+
 def _falla_job(
     conn: psycopg.Connection,
     job: _Job,
@@ -242,8 +258,12 @@ def _falla_job(
     queue_id: int | None,
     detalle: str = "",
 ) -> tuple[str, AlertaHarvest]:
+    """Cierra el job como fallido. Sus intentos abiertos se resuelven aqui, en
+    la misma transaccion: la conciliacion no retoma jobs cerrados y un intento
+    con evidencia previa abierto bloquearia la reversa de la migracion."""
     with tx_durable(conn):
         conn.execute(_SQL_JOB_FAILED, (job.id,))
+        _sella_abiertos_al_cerrar(conn, job.decision_id, f"fallo:{motivo}")
         if queue_id is not None:
             _termina_cola(conn, queue_id, "failed")
     job.fase = "failed"
@@ -708,6 +728,11 @@ def _paso_readback(
         return "done", None
     roster = _roster_hermanas(conn, job, ctx)
     if isinstance(roster, str):
+        # La lectura ya verifico la creacion: se sella antes de compensar, y
+        # la compensacion queda en sus propias filas de reversa.
+        if abierto is not None:
+            with tx_durable(conn):
+                apply._sella_ledger(conn, abierto.id, ack=abierto.ack, resultado="ok")
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | roster imposible ({roster})"
         return _falla_job(conn, job, roster, queue_id=queue_id, detalle=detalle)
     with tx_durable(conn):

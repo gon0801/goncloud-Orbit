@@ -673,7 +673,9 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
         if motivo_gate is not None:
             with tx_durable(conn):
                 conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
-                _ejecucion._sella_pendientes(
+                # ARREGLOS 05 B: la creacion cuyo ACK ya se guardo la acepto
+                # Amazon; no lleva el motivo del cierre del job.
+                _ejecucion._sella_abiertos_al_cerrar(
                     conn, job.decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED
                 )
                 if queue_id is not None:
