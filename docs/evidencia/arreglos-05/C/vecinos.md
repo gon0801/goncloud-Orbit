@@ -1,14 +1,14 @@
 # Vecinos del bloque C
 
-Todos contra el SHA de codigo `40eb2bb9`, con el PG16 desechable del
+Todos contra el SHA de codigo `5e8c9b86`, con el PG16 desechable del
 laboratorio y HTTP simulado. Ninguna suite empeora: los conteos son los mismos
 del padre cuando la suite no toca C, y las que C toca quedan en verde.
 
 | Suite | Resultado | Por que es vecina |
 |---|---|---|
-| `tests/test_arreglos05_c_reposicion.py` | 15 passed | Regresiones propias de C.2 y C.3, mas la migracion 0097 |
+| `tests/test_arreglos05_c_reposicion.py` | 18 passed | Regresiones propias de C.2 y C.3, mas la migracion 0097 |
 | `tests/test_despliegue_motor.py -k arreglos05` | 3 passed | Selector del instalador de A, B y C |
-| `tests/test_arreglos05_a_estados.py` | 170 passed | La tabla sigue en 165 casillas; los adaptadores C no agregan estados |
+| `tests/test_arreglos05_a_estados.py` | 181 passed | La tabla pasa a 176 casillas (11 x 16); C no agrega estados |
 | `tests/test_arreglos05_a_ciclo.py` | 57 passed | El ciclo del bloque A no cambia |
 | `tests/test_arreglos05_b_reversas.py` | 39 passed | La tabla y los clasificadores B siguen igual |
 | `tests/test_architecture.py` | 99 passed, 2 skipped | Presupuesto de 900 lineas e imports del cliente de escritura |

@@ -1,0 +1,48 @@
+# Rojo de la ronda 2 contra 6577a5eb
+
+Revision asignada (Astra, pasada 1). Tres P1, cada uno con su prueba en rojo
+contra la cabeza revisada `6577a5eb`, misma base desechable y HTTP simulado.
+Comando:
+
+```text
+$ uv run --frozen --python 3.12 python -B -m pytest -q \
+    tests/test_arreglos05_c_reposicion.py \
+    -k "total_declarado_mayor or ack_nulo or 403_en_reversa"
+3 failed, 15 deselected
+```
+
+## 1. totalResults declara filas y la pagina no las trae
+
+`test_arreglos05_c_total_declarado_mayor_no_autoriza_ausencia`:
+
+```text
+AssertionError: la ausencia declarada parcial no autoriza POST
+assert [{'adGroupId': 'ag-1', ...}] == []
+```
+
+La lectura aceptaba `keywords: []` con `totalResults: 1` como ausencia, sellaba
+`ok:no_aplicado` y el segundo bucle enviaba un CREATE.
+
+## 2. 207 con cuerpo null se sellaba como rechazo
+
+`test_arreglos05_c_ack_nulo_no_sella_rechazo`:
+
+```text
+AssertionError: assert 'fallo' == 'pendiente'
+```
+
+Amazon creaba la keyword y el cuerpo nulo se tomaba por rechazo; la corrida
+siguiente quedaba autorizada a otro POST.
+
+## 3. 403 del DELETE bloqueaba la reversa
+
+`test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar`:
+
+```text
+AssertionError: assert ['pendiente', 'pendiente'] == ['reintentable', 'revertido']
+```
+
+El rechazo no quedaba durable y la conciliacion mantenia la reversa incierta
+para siempre, incluso tras corregir credenciales.
+
+En la cabeza final `5e8c9b86` los tres casos quedan verdes.

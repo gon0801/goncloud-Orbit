@@ -2,7 +2,7 @@
 
 Bloque de implementacion, `lane: release`. Base: `master` en
 `d0ed286e6048d38db45abe49006a20f25d2b3cdf` (con BASE, A y B). Rama
-`arreglos-05/c`. Codigo verificado: `40eb2bb9`. Fecha: 2026-11-24
+`arreglos-05/c`. Codigo verificado: `5e8c9b86`. Fecha: 2026-11-24
 (America/Vancouver). Contrato: seccion «C. Reposicion durable por fila» de
 [DISENO.md](../DISENO.md).
 
@@ -38,10 +38,10 @@ Bloque de implementacion, `lane: release`. Base: `master` en
 
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| C.1 | `N c` | `40eb2bb9` | 16 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el `MOTOR_SHA` anterior; la reversa `0097` aborta si hay intentos y nunca borra el historial. |
-| C.2 | `T writes test_11` | `40eb2bb9` | 1 passed, salida 0 | Un solo POST tras ACK y readback fallido; dos CLI no crean dos objetos; el objeto repuesto nace PAUSED. | Igual que C.1. |
-| C.2 | `N c` | `40eb2bb9` | 16 passed, salida 0 | Cobertura de crash antes/despues de POST, ACK y readback, rechazo 4xx, 5xx, 401/403, lectura truncada/omitida/duplicada y repeticion sin HTTP. | Igual que C.1. |
-| C.3 | `N c` | `40eb2bb9` | 16 passed, salida 0 | La reversa archiva solo `repuesto_external`; una caida no repite el DELETE; un rechazo definitivo permite otro intento registrado; el historial y la keyword original no se tocan. | Igual que C.1. |
+| C.1 | `N c` | `5e8c9b86` | 19 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el `MOTOR_SHA` anterior; la reversa `0097` aborta si hay intentos y nunca borra el historial. |
+| C.2 | `T writes test_11` | `5e8c9b86` | 1 passed, salida 0 | Un solo POST tras ACK y readback fallido; dos CLI no crean dos objetos; el objeto repuesto nace PAUSED. | Igual que C.1. |
+| C.2 | `N c` | `5e8c9b86` | 19 passed, salida 0 | Cobertura de crash antes/despues de POST, ACK y readback, rechazo 4xx, 5xx, 401/403, lectura truncada/omitida/duplicada y repeticion sin HTTP. | Igual que C.1. |
+| C.3 | `N c` | `5e8c9b86` | 19 passed, salida 0 | La reversa archiva solo `repuesto_external`; una caida no repite el DELETE; un rechazo definitivo permite otro intento registrado; el historial y la keyword original no se tocan. | Igual que C.1. |
 
 Comandos y salidas completos en [acepta.txt](acepta.txt), que genera
 [acepta.sh](acepta.sh). El SHA del encabezado de cada parte es el arbol
@@ -98,12 +98,12 @@ y del archivo en la misma transaccion.
 ## Rojo y verde
 
 [rojo.txt](rojo.txt): contra `d0ed286e`, `T writes test_11` falla con
-`posts: 2` y la misma corrida en `40eb2bb9` da `1 passed`. El padre no tiene
+`posts: 2` y la misma corrida en `5e8c9b86` da `1 passed`. El padre no tiene
 `reponer_keyword` ni `revertir_reposicion`, no acepta
 `--revertir-reposicion` y no tiene la tabla `0097`.
 
-En `40eb2bb9`: `N c` 16 passed; `T writes test_11` 1 passed; modelo de estados
-170 passed.
+En `5e8c9b86`: `N c` 19 passed; `T writes test_11` 1 passed; modelo de estados
+181 passed.
 
 ## Lectura previa de produccion
 
@@ -171,8 +171,8 @@ Ninguno bloquea; requieren dos o mas fallos o una carrera.
 
 ## Revision
 
-Ronda 1 (Devin, informativo; `40eb2bb9`): cuatro hallazgos, dos P1 reales
-corregidos con su regresion.
+Ronda 1 (Devin, informativo; `5e8c9b86`): cuatro hallazgos, tres corregidos con
+su regresion y uno de aislamiento anotado.
 
 - **P1, sonda del instalador.** La sonda usaba
   `'public.keyword_reposicion_intento'::regclass` dentro del `EXISTS`; en una
@@ -188,12 +188,16 @@ corregidos con su regresion.
   ausencia de intentos abiertos; el sello toma el mismo cerrojo. Regresion:
   `test_arreglos05_c_claim_revalida_el_sello_bajo_cerrojo`, con una segunda
   conexion.
-- **P2, 401/403 en la reversa.** El bloque aborta la fase y deja el intento
-  abierto; tras corregir credenciales, la lectura del objetivo vivo es
-  incertidumbre y no reenvia. Es la politica pedida para un resultado
-  desconocido y el modelo de A no sella un rechazo de identidad en `incierto`
-  (`sella_intento=False`); queda para reconciliacion manual. No se corrige en
-  esta ronda.
+- **P1, 401/403 en la reversa (corregido).** El 401/403 de un DELETE o POST
+  queda ahora en el ACK durable del intento abierto. Al vencer el lease, la
+  conciliacion clasifica ese ACK con el evento nuevo
+  `rechazo_identidad_definitivo`: `(INCIERTO, RECHAZO_IDENTIDAD_DEFINITIVO) ->
+  SELLAR_RECHAZADO -> RECHAZADO` (`sella_intento=True`), y la misma corrida
+  registra un intento nuevo. El 5xx o la respuesta perdida no llevan ese ACK y
+  siguen inciertos: la prueba de no reenviar se conserva. Regresion:
+  `test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar`. La tabla
+  pasa de 165 a 176 casillas (11 estados por 16 eventos); los 181 casos de
+  `test_arreglos05_a_estados.py` quedan verdes.
 - **P2, el lote sigue tras un rechazo.** El motor aisla filas: un 400 en una
   fila no impide atender las siguientes (cada una PAUSED). El mensaje de la
   CLI decia «lote detenido»; se cambio a «lote con fallos» para no mentir. No
@@ -201,3 +205,26 @@ corregidos con su regresion.
 
 Pendiente la revision asignada (Astra u otro modelo distinto al
 implementador). `ai-review` es informativo y Devin no cuenta como compuerta.
+
+## Ronda 2 (Astra, revisor asignado, pasada 1; `5e8c9b86`)
+
+Tres P1, corregidos con su prueba en rojo contra `6577a5eb`
+([rojo-ronda2.txt](rojo-ronda2.txt)):
+
+- **Total declarado.** `app/apply_harvest_list._lista_completa` ahora exige que
+  `totalResults` cuadre con lo acumulado antes de aceptar el fin de la lista,
+  igual que `structure_api`. Una pagina `keywords: []` con `totalResults: 1`
+  lanza `ListaIncompleta` y no autoriza ausencia. Regresion:
+  `test_arreglos05_c_total_declarado_mayor_no_autoriza_ausencia` (el intento
+  sigue abierto y no hay POST).
+- **ACK de forma inesperada.** Un 200/207 con cuerpo JSON null (o lista) ya no
+  se sella como `fallo:rechazo`: el intento queda abierto con el ACK durable.
+  Solo un 4xx o un 207 con errores por item cuentan como rechazo explicito.
+  Regresion: `test_arreglos05_c_ack_nulo_no_sella_rechazo` (dos corridas, un
+  solo POST).
+- **401/403 durable.** El rechazo de identidad del DELETE (y del POST) se
+  guarda en el ACK antes de abortar la fase. La conciliacion lo clasifica con
+  `rechazo_identidad_definitivo` y lo sella; la misma corrida registra el
+  intento siguiente. Regresion:
+  `test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar` (403,
+  credenciales corregidas, DELETE exitoso). Un 5xx sigue sin reenviar.

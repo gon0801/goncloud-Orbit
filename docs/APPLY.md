@@ -1043,7 +1043,10 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   sola vez; el índice único parcial y el lease por fila impiden dos intentos
   abiertos y hacen que dos CLI no creen dos objetos. `app/ads/archivar.py`
   expone `reponer_keyword` / `revertir_reposicion`; la implementación vive en
-  `app/ads/reposicion.py` por el presupuesto de 900 líneas.
+  `app/ads/reposicion.py` por el presupuesto de 900 líneas. El lector estricto
+  exige que `totalResults` cuadre con lo acumulado antes de aceptar ausencia
+  (una pagina vacia con total pendiente no autoriza otro POST), y un 200/207
+  con cuerpo JSON que no sea objeto no es rechazo: deja el intento abierto.
 - La tabla completa (176 casillas desde ARREGLOS 05 C), el mapa de los
   hallazgos de revisión a su casilla y la demostración por nivel `/correct`
   viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del
