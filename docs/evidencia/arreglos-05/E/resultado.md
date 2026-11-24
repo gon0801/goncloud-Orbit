@@ -3,7 +3,8 @@
 - Base: `5223bfae1e85fee2d2d956962563ee030113e333` (master con BASE, A, B, C y D
   integrados y desplegados).
 - Rama: `arreglos-05/e`.
-- Cabeza de la implementacion: `64c29136a95c5be354d745c6199000a70b501499`.
+- Cabeza de la implementacion (ronda 1 de revision): `4b79de0e96598f24ff2d060c166482e3cca6d4a1`.
+  Primera cabeza del bloque: `64c29136`.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md` seccion "D-E. Escritor unico
   y practicas vencidas" (parte E) e "Integracion con TEMPORADA y migraciones".
 - Aviso del bloque: una propuesta de practica vencida deja de congelar la
@@ -40,8 +41,8 @@ esta en `E/estados.md`.
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| E.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e` | `64c29136` | 13 passed | shadow vencida no bloquea SELECT ni INSERT; live/veto vigente protegidos; migracion 0098 y su reversa | `0098_reversa_arreglos05_indice_shadow.sql` restaura el indice mixto de 0002 si no hay colisiones; con colisiones rehusa sin borrar filas |
-| E.2 | mismos `N e` mas vecinos: `tests/test_apply_cola.py`, `tests/test_apply_producto.py`, `tests/test_apply_harvest.py`, `tests/test_arreglos05_a_ciclo.py`, `tests/test_productos_io.py`, `tests/test_productos_pausa.py` | `64c29136` | verde (ver abajo) | mismo efecto con shadow vieja, vigente y live; dos workers con maximo un live no terminal; historial identico antes/despues | igual que E.1; el rollback de despliegue usa `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado |
+| E.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e` | `4b79de0e` | 15 passed | shadow vencida no bloquea SELECT ni INSERT; live/veto vigente protegidos; migracion 0098 y su reversa; el veto de la practica veta el corte real | `0098_reversa_arreglos05_indice_shadow.sql` restaura el indice mixto de 0002 si no hay colisiones; con colisiones rehusa sin borrar filas |
+| E.2 | mismos `N e` mas vecinos: `tests/test_apply_cola.py`, `tests/test_apply_producto.py`, `tests/test_apply_harvest.py`, `tests/test_arreglos05_a_ciclo.py`, `tests/test_api_write.py`, `tests/test_productos_io.py`, `tests/test_productos_pausa.py` | `4b79de0e` | verde (ver abajo) | mismo efecto con shadow vieja, vigente y live; dos workers con maximo un live no terminal; historial identico antes/despues; veto por efecto | igual que E.1; el rollback de despliegue usa `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado |
 
 ## Ronda 1 de revision (Devin): el veto es del efecto
 
@@ -125,7 +126,8 @@ modulos E, 2 del veto por clave y la prueba del selector del instalador).
 - `migrations/0098_arreglos05_indice_shadow.sql` y
   `migrations/0098_reversa_arreglos05_indice_shadow.sql`.
 - `app/apply_cola.py` (SELECT de claves bloqueadas), `app/productos_io.py`
-  (espejo del mismo predicado) y `app/api_write.py` (el veto es del efecto).
+  (espejo del mismo predicado) y `app/api_write.py` + `app/apply_veto.py`
+  (el veto es del efecto).
 - `tests/test_arreglos05_e_shadow.py`, `tests/test_arreglos05_e_migracion.py`,
   `tests/test_apply_cola.py` (suma 0098 a su cadena),
   `tests/test_api_write.py` (suma 0098 y las pruebas del veto por clave) y

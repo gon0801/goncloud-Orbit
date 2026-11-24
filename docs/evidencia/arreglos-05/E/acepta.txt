@@ -1,19 +1,19 @@
-# Acepta de ARREGLOS 05 E. SHA 64c29136a95c5be354d745c6199000a70b501499 (parte 1 de 3)
+# Acepta de ARREGLOS 05 E. SHA 4b79de0e96598f24ff2d060c166482e3cca6d4a1 (parte 1 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
 
-### [ACEPTA] E.1 y E.2: N e, regresiones del bloque (shadow vencida/vigente/live, reversa y selector)
+### [ACEPTA] E.1 y E.2: N e, regresiones del bloque (shadow vencida/vigente/live, reversa, veto y selector)
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e
-.............                                                            [100%]
+...............                                                          [100%]
 ============================== warnings summary ===============================
 .venv\Lib\site-packages\fastapi\testclient.py:1
-  .venv/Lib/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  <repo>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-13 passed, 6417 deselected, 1 warning in 26.40s
+15 passed, 6417 deselected, 1 warning in 29.43s
 resultado=ok
 
 ### [CONTROL] bloque A: modelo de estados completo (176 casillas), invariantes y clasificadores
@@ -21,18 +21,18 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 39%]
 ........................................................................ [ 79%]
 .....................................                                    [100%]
-181 passed in 1.44s
+181 passed in 1.51s
 resultado=ok
 
 ### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
 ..............................................................ss........ [ 71%]
 .............................                                            [100%]
-99 passed, 2 skipped in 10.74s
+99 passed, 2 skipped in 10.50s
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 E. SHA 64c29136a95c5be354d745c6199000a70b501499 (parte 2 de 3)
+# Acepta de ARREGLOS 05 E. SHA 4b79de0e96598f24ff2d060c166482e3cca6d4a1 (parte 2 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -41,7 +41,7 @@ resultado=ok
 ### [CONTROL] cola de cortes: todo test_apply_cola sigue verde con 0098
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply_cola.py
 ............................................                             [100%]
-44 passed in 46.39s
+44 passed in 49.96s
 resultado=ok
 
 ### [CONTROL] producto y cosecha: cola, veto y aislamiento por fila
@@ -50,27 +50,39 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ................................                                         [100%]
 ============================== warnings summary ===============================
 .venv\Lib\site-packages\fastapi\testclient.py:1
-  .venv/Lib/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  <repo>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-104 passed, 1 warning in 110.73s (0:01:50)
+104 passed, 1 warning in 110.98s (0:01:50)
 resultado=ok
 
 ### [CONTROL] ciclo A: la cola se libera y encola bajo el mismo contrato
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
 .........................................................                [100%]
-57 passed in 99.88s (0:01:39)
+57 passed in 101.06s (0:01:41)
+resultado=ok
+
+### [CONTROL] API de escritura: el veto veta el efecto de la clave
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_api_write.py
+...................................................                      [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <repo>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+51 passed, 1 warning in 54.86s
 resultado=ok
 
 ### [CONTROL] productos y pausa de producto leen el mismo predicado
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_productos_io.py tests/test_productos_pausa.py
 ...........................................                              [100%]
-43 passed in 71.32s (0:01:11)
+43 passed in 72.38s (0:01:12)
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 E. SHA 64c29136a95c5be354d745c6199000a70b501499 (parte 3 de 3)
+# Acepta de ARREGLOS 05 E. SHA 4b79de0e96598f24ff2d060c166482e3cca6d4a1 (parte 3 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -80,13 +92,13 @@ resultado=ok
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
 ........................................................................ [ 61%]
 .............................................                            [100%]
-117 passed in 23.31s
+117 passed in 23.55s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migracion 0098, sonda y reversa
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05_e
 .                                                                        [100%]
-1 passed, 50 deselected in 2.26s
+1 passed, 50 deselected in 2.31s
 resultado=ok
 
 ### [CONTROL] temporada conserva prioridad y reactivaciones
@@ -95,18 +107,18 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................                 [100%]
 ============================== warnings summary ===============================
 .venv\Lib\site-packages\fastapi\testclient.py:1
-  .venv/Lib/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  <repo>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-128 passed, 1 warning in 128.00s (0:02:08)
+128 passed, 1 warning in 116.23s (0:01:56)
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=5223bfae1e85fee2d2d956962563ee030113e333..HEAD
-[90m3:20PM[0m [32mINF[0m [1m1 commits scanned.[0m
-[90m3:20PM[0m [32mINF[0m [1mscanned ~61961 bytes (61.96 KB) in 216ms[0m
-[90m3:20PM[0m [32mINF[0m [1mno leaks found[0m
+[90m3:47PM[0m [32mINF[0m [1m4 commits scanned.[0m
+[90m3:47PM[0m [32mINF[0m [1mscanned ~98267 bytes (98.27 KB) in 227ms[0m
+[90m3:47PM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0
