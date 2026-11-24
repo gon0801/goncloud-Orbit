@@ -541,6 +541,66 @@ def test_arreglos05_d_fabrica_pausa_huerfanas_sigue_tras_un_503():
     assert json.loads(ack)["status"] == 503, "el ACK incierto queda en el ledger"
 
 
+def test_arreglos05_d_fabrica_pausa_huerfanas_sigue_sin_token():
+    """Un fallo de LWA en la primera pausa no deja el paso a medias ni frena el resto.
+
+    `AdsAuthError` no es `AdsApiError`: sin este camino escapaba despues del
+    INSERT del paso, dejandolo `planeado` sin ID y saltandose las demas
+    campanas. Ahora el paso se sella `failed` con su `external_id` y el motivo,
+    y la siguiente campana se intenta con el token que ya funciona."""
+    from app import impulso_preview as io
+
+    estados = {"c-1": "ENABLED", "c-2": "ENABLED"}
+    puts: list[str] = []
+    intentos_lwa: list[int] = []
+
+    def handler_lector(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "lector", "expires_in": 3600})
+        assert request.url.path.endswith("/list")
+        pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": pedido, "state": estados[pedido]}]}
+        )
+
+    def handler_escritor(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            intentos_lwa.append(1)
+            # El refresh es idempotente: el cliente agota sus reintentos y
+            # recien entonces lanza AdsAuthError. La segunda campana ya
+            # encuentra el token.
+            if len(intentos_lwa) <= 4:
+                return httpx.Response(503, json={"error": "temporal"})
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        assert request.method == "PUT" and request.url.path == "/sp/campaigns"
+        campana = json.loads(request.content)["campaigns"][0]
+        puts.append(campana["campaignId"])
+        estados[campana["campaignId"]] = campana["state"]
+        return httpx.Response(207, json={"campaigns": {"success": [{}], "error": []}})
+
+    conn = _ConnPausaHuerfanas([("exact", "c-1"), ("auto", "c-2")])
+    pausador = io.PausadorFabrica(conn)
+    pausador._armado = (CRC, _Lector(handler_lector), {"amazon_mx": 101})
+    pausador._ctxs["amazon_mx"] = fm._Ctx(
+        _escritor(handler_escritor), _Lector(handler_lector), 101, conn, "L1"
+    )
+    with pytest.raises(Exception, match="c-1"):
+        pausador.pausa_huerfanas("L1")
+
+    assert puts == ["c-2"], "la campana con token valido si se pausa"
+    assert len(intentos_lwa) == 5, (
+        "4 intentos del refresh que agota sus reintentos + 1 del token que ya funciona"
+    )
+    sellos = [e for e in conn.escrituras if "fabrica_lote_paso" in e[0].lower()]
+    fallados = [e for e in sellos if "'failed'" in e[0]]
+    aplicados = [e for e in sellos if "'applied'" in e[0]]
+    assert len(fallados) == 1 and len(aplicados) == 1
+    (external, ack, _readback, _paso) = fallados[0][1]
+    assert external == "c-1", "el paso fallido conserva su external_id"
+    assert json.loads(ack)["status"] == fm.ACK_SIN_ENVIO, "nada salio: no es incierto"
+    assert "LWA" in json.loads(ack)["texto"], "el motivo queda en el ledger"
+
+
 def test_arreglos05_d_fabrica_lwa_rechazado_no_registra_lote(monkeypatch, capsys):
     """Si LWA rechaza el preflight, no queda un lote que bloquee el reintento."""
     huella = _huella(monkeypatch, capsys)

@@ -45,6 +45,10 @@ from app.redaction import scrub
 
 API = DEFAULT_BASE_URL
 _PAUSADA = "PAUSED"
+# ACK de un PUT que NO salio por falta de token: no es ambiguo (nada se aplico)
+# y el paso se sella con su ID y el motivo para que la siguiente pasada lo
+# reintente (revision P1 de #759: LWA tambien falla en el camino del vigia).
+ACK_SIN_ENVIO = "sin_envio"
 # Ante cualquier 5xx, Amazon Ads pudo haber creado el recurso antes de responder.
 _HTTP_INCERTO = range(500, 600)
 
@@ -680,17 +684,32 @@ def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
     viaja al llamador para que lo selle con el `external_id` que ya conoce y la
     conciliacion del lote lo pueda leer. Nunca levanta: un fallo de una campana
     no frena las demas pausas del mismo lote (revision P1 de #759).
+
+    `AdsAuthError` (LWA rechazo el refresh) no es un `AdsApiError` y ocurre
+    ANTES de emitir el PUT: se reporta `ACK_SIN_ENVIO`, sin ambiguedad, para que
+    el paso conserve su ID y el motivo y la pasada siguiente reintente.
     """
     try:
         resp = ctx.escritor.cambiar_estado_campana(external, estado)
+    except AdsAuthError as exc:
+        return {
+            "status": ACK_SIN_ENVIO,
+            "cuerpo": {},
+            "texto": scrub(str(exc))[:300],
+        }
     except AdsApiError as exc:
         return sp_wire.ack_de_error(exc)
     return sp_wire.ack_de(resp)
 
 
 def _motivo_put_fallido(ack: dict, external: str, nuevo: str) -> str:
-    """Motivo del sello: INCERTO cuando el PUT pudo aplicarse, rechazo si no."""
+    """Motivo del sello: sin envio, INCERTO o rechazo, segun el ACK."""
     status = ack.get("status")
+    if status == ACK_SIN_ENVIO:
+        return (
+            f"PUT {nuevo} de {external} no salio (autenticacion de Amazon):"
+            " nada se aplico; el paso queda failed con su ID y se reintenta"
+        )
     if status == sp_wire.ACK_SIN_RESPUESTA or status in _HTTP_INCERTO:
         return (
             f"PUT {nuevo} de {external} INCERTO (status {status}): pudo aplicarse;"
