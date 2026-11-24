@@ -690,12 +690,12 @@ def _corre_fases(
     contadores: _Contadores,
     job_key: str,
     owner: str,
-    hb,
-    heartbeat_cada: int,
-    aplicador_factory: Callable[..., Aplicador] | None = None,
+    reconciliacion,
+    tick,
+    guard,
 ) -> ResultadoCiclo:
-    """Conduce un envelope ya abierto bajo el claim: concilia, decide (si es un
-    origen), aplica por fases y cierra.
+    """Conduce un envelope ya abierto bajo el claim y con la conciliacion previa
+    ya ejecutada: decide (si es un origen), aplica por fases y cierra.
 
     `origen` None: este envelope es dueno de sus decisiones. Si no: es un
     ejecutor de recuperacion de ese ciclo; no vuelve a tomar el snapshot ni
@@ -708,24 +708,6 @@ def _corre_fases(
         with conn.transaction():
             _cierra_envelope(conn, cycle_id, "skipped", 0, notas)
         return ResultadoCiclo(cycle_id, "skipped", 0, notas)
-    tick = _tick_heartbeat(hb, job_key, owner, heartbeat_cada)
-    guard = _guard_apply(conn, job_key, owner, tick, hb=hb)
-    try:
-        reconciliacion = _fase_reconciliacion(
-            conn,
-            modo=modo,
-            platform=platform,
-            cycle_id_ejecutor=cycle_id,
-            job_key=job_key,
-            owner=owner,
-            guard=guard,
-            aplicador_factory=aplicador_factory,
-            origen=origen,
-        )
-    except (ApplyAbortado, DuenoDelClaimCambio) as exc:
-        # Perder el claim antes de decidir no deja comprometer nada: decide el
-        # sucesor. Para el cron es la misma condicion que hallar el lock tomado.
-        raise CicloOcupado(f"claim perdido antes de decidir: {exc}") from exc
     apply.expira_no_intentadas(
         conn, platform, hoy=decided_at.astimezone(dt.UTC).date(), cycle_id_ejecutor=cycle_id
     )
@@ -1023,6 +1005,7 @@ def _atiende(
     conn.commit()
     hb = _abre_heartbeat(conn)
     ciclo_id: int | None = None
+    tomado = False
     contadores = _Contadores()
     muertos: list[int] = []
     try:
@@ -1052,9 +1035,26 @@ def _atiende(
             if motivo is None:
                 ciclo_id = _abre_envelope(conn, modo.modo, platform, resume_of=origen)
                 muertos = _cierra_rastro(conn, owner, platform, ciclo_id)
+        # Primer paso de TODO horario bajo el claim (antes de saltar o cerrar en off):
+        # en live concilia todo; sin ciclo o en shadow/off solo lee reversas abiertas.
+        tick = _tick_heartbeat(hb, job_key, owner, heartbeat_cada)
+        guard = _guard_apply(conn, job_key, owner, tick, hb=hb)
+        modo_rec = modo if ciclo_id is not None else g.ModoEfectivo(modo="shadow", nota=modo.nota)
+        try:
+            reconciliacion = _fase_reconciliacion(
+                conn,
+                modo=modo_rec,
+                platform=platform,
+                cycle_id_ejecutor=ciclo_id or 0,
+                job_key=job_key,
+                owner=owner,
+                guard=guard,
+                aplicador_factory=aplicador_factory,
+                origen=origen,
+            )
+        except (ApplyAbortado, DuenoDelClaimCambio) as exc:
+            raise CicloOcupado(f"claim perdido antes de decidir: {exc}") from exc
         if ciclo_id is None:
-            # Hoy no se abre nada: el claim se suelta aqui mismo, no al vencer.
-            _libera_lock(hb, conn, job_key, owner)
             return ResultadoAtencion(None, motivo)
         resultado = _corre_fases(
             conn,
@@ -1069,9 +1069,9 @@ def _atiende(
             contadores=contadores,
             job_key=job_key,
             owner=owner,
-            hb=hb,
-            heartbeat_cada=heartbeat_cada,
-            aplicador_factory=aplicador_factory,
+            reconciliacion=reconciliacion,
+            tick=tick,
+            guard=guard,
         )
         return ResultadoAtencion(resultado, None)
     except BaseException as exc:
@@ -1079,7 +1079,7 @@ def _atiende(
             _sello_fallido(conn, ciclo_id, exc, contadores, muertos)
         raise
     finally:
-        if ciclo_id is not None:
+        if tomado:
             _libera_lock(hb, conn, job_key, owner)
         if hb is not None:
             hb.close()
