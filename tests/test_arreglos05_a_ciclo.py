@@ -3366,3 +3366,169 @@ def test_arreglos05_a_reversa_manual_concurrente_no_cierra_put_automatico_en_vue
             (pausa,),
         ).fetchall()
         assert intentos == [("ok", True)], intentos
+
+
+@_skip_db
+def test_arreglos05_a_tercer_horario_preserva_pausa_manual_cuando_otra_hoja_sigue_pendiente():
+    """Revision de Astra del PR #746 (sexta pasada): un origen con dos `resume`
+    (A y B). En el horario 1 ambos PUT devuelven 500; entre horarios la ingesta
+    ve A ENABLED y el dueno la pausa manualmente; en el horario 2 A se sella
+    `omitida:pausada_tras_habilitar` (cache PAUSED) mientras B queda pendiente
+    de lectura (LIST la omite). En el horario 3, el ejecutor vuelve a cargar
+    ambos `resume` del origen: debe comprobar desenlaces terminales bajo el
+    candado y omitir A sin otro PUT ni cuota, mientras concilia B."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import (
+        _config,
+        _episodio,
+        _nueva_kw,
+        _pausa_baja,
+        _pausado,
+        estacion_dia,
+    )
+
+    from app import apply_cola, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_tercer_horario_pausa") as (conn, _extra):
+        ids = _semilla_live(conn)
+        a, b = ids["kw_pause"], _nueva_kw(conn, ids["ag"], "9204")
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausas = {}
+        for hoja in (a, b):
+            pausa, _q = _pausa_baja(
+                conn,
+                ciclo_id=ciclo_prev,
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            _pausado(conn, hoja)
+            pausas[hoja] = pausa
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        for pendiente in temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset()):
+            propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+            conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+                " data_observed_at, window_start, window_end, inputs)"
+                " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+                (
+                    origen,
+                    pendiente.ad_entity_id,
+                    ahora,
+                    config_id,
+                    propuesta.data_observed_at,
+                    propuesta.window_start,
+                    propuesta.window_end,
+                    json.dumps(propuesta.inputs),
+                ),
+            )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 2
+
+        estado_remoto = {"9202": "PAUSED", "9204": "PAUSED"}
+        modo = {"falla_put": True, "omite_b": False}
+        puts_estado: list[dict] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                filas = [
+                    {"keywordId": k, "state": v}
+                    for k, v in sorted(estado_remoto.items())
+                    if not (modo["omite_b"] and k == "9204")
+                ]
+                return httpx.Response(200, json={"keywords": filas})
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_estado.append(obj)
+                estado_remoto[str(obj["keywordId"])] = obj["state"]
+                if modo["falla_put"]:
+                    return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+                return httpx.Response(207, json={"keywords": {"success": [obj]}})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        def cuota_pause() -> int:
+            return int(
+                conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0]
+            )
+
+        hoy = ahora.astimezone(dt.UTC).date()
+
+        # Horario 1: ambos PUT salen, Amazon habilita A y B, pero ambos responden 500.
+        h1 = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert h1.ciclo is not None and h1.ciclo.resume_of == origen
+        assert [p["keywordId"] for p in puts_estado] == ["9202", "9204"]
+        cuota_h1 = cuota_pause()
+        assert cuota_h1 == 2
+
+        # Ingesta ve A ENABLED y el dueno la pausa manualmente; B se omite en el LIST.
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'ENABLED', synced_at = now()"
+            " WHERE ad_entity_id = %s",
+            (a,),
+        )
+        estado_remoto["9202"] = "PAUSED"
+        modo["falla_put"] = False
+        modo["omite_b"] = True
+
+        # Horario 2: A se sella `omitida:pausada_tras_habilitar`, B queda pendiente de lectura.
+        h2 = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert h2.ciclo is not None and h2.ciclo.resume_of == origen
+        react2 = json.loads(h2.ciclo.notes)["apply"]["reactivaciones"]
+        assert (
+            react2["confirmadas"],
+            react2["omitidas"],
+            react2["fallidas"],
+            react2["pendientes_de_lectura"],
+        ) == (0, 1, 0, 1), react2
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is None
+
+        # Horario 3: B ya aparece ENABLED en el LIST; A debe preservar su pausa manual.
+        modo["omite_b"] = False
+        h3 = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert h3.ciclo is not None and h3.ciclo.resume_of == origen
+        assert [p["keywordId"] for p in puts_estado] == ["9202", "9204"], (
+            "el tercer horario no debe reenviar PUT para A ni para B"
+        )
+        assert cuota_pause() == cuota_h1, "no debe cobrar nueva cuota para A"
+        react3 = json.loads(h3.ciclo.notes)["apply"]["reactivaciones"]
+        assert (
+            react3["confirmadas"],
+            react3["omitidas"],
+            react3["fallidas"],
+            react3["pendientes_de_lectura"],
+        ) == (1, 1, 0, 0), react3
+        assert conn.execute(
+            "SELECT resultado FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausas[a],),
+        ).fetchall() == [("omitida:pausada_tras_habilitar",)]
+        assert conn.execute(
+            "SELECT resultado FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausas[b],),
+        ).fetchall() == [("ok",)]
+        assert (
+            conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (a,)
+            ).fetchone()[0]
+            == "PAUSED"
+        )
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None

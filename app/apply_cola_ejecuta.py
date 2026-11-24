@@ -373,6 +373,13 @@ _SQL_ESTADO_CACHE_PREVIO = """
 SELECT status, synced_at FROM ad_entity_state WHERE ad_entity_id = %s
 """
 
+_SQL_REVERSA_TERMINAL = """
+SELECT EXISTS (
+    SELECT 1 FROM apply_attempt
+     WHERE decision_id = %s AND tipo = 'reversa' AND resultado IN ('ok', %s)
+)
+"""
+
 _SQL_CANDADO_REVERSA_TOMAR = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
 _SQL_CANDADO_REVERSA_SOLTAR = "SELECT pg_advisory_unlock(hashtextextended(%s, 0))"
 
@@ -481,6 +488,27 @@ def resuelve_reversa_sin_sello(
     )
 
 
+def _elegible_para_put_reactivacion(
+    conn: psycopg.Connection,
+    aplicador: Aplicador,
+    decision: DecisionResume,
+    mantener,
+    grupos_pausa: set[int],
+    presupuestos: dict,
+) -> bool:
+    """Guardas que condicionan cobrar cuota y enviar un nuevo PUT de reactivacion."""
+    if decision.ad_entity_id in mantener:
+        return False
+    if apply.gate_ancestros(conn, decision.ad_entity_id) is not None:
+        return False
+    if aplicador.modo_efectivo(conn, decision.ad_entity_id, escalera_global="live") != "live":
+        return False
+    entidad = conn.execute(_SQL_ENTIDAD_REACTIVACION, (decision.ad_entity_id,)).fetchone()
+    if entidad is None or entidad[2] != "PAUSED" or entidad[0] in grupos_pausa:
+        return False
+    return recuperacion.presupuesto_topado_de(presupuestos.get(entidad[1])) is not True
+
+
 def aplica_reactivaciones(
     conn: psycopg.Connection,
     aplicador: Aplicador,
@@ -558,24 +586,17 @@ def aplica_reactivaciones(
                 omitidas += veredicto == "pausada_manual"
                 pendientes_de_lectura += veredicto == "inconclusa"
                 continue
-            if decision.ad_entity_id in mantener:
+            if conn.execute(
+                _SQL_REVERSA_TERMINAL, (fila.decision_id, RESULTADO_PAUSADA_TRAS_HABILITAR)
+            ).fetchone()[0]:
+                # Desenlace terminal ya registrado (ok o pausa manual posterior):
+                # un ejecutor posterior que recarga todos los resumes del origen
+                # no vuelve a cobrar cuota ni enviar PUT.
                 omitidas += 1
                 continue
-            if apply.gate_ancestros(conn, decision.ad_entity_id) is not None:
-                omitidas += 1
-                continue
-            if (
-                aplicador.modo_efectivo(conn, decision.ad_entity_id, escalera_global="live")
-                != "live"
+            if not _elegible_para_put_reactivacion(
+                conn, aplicador, decision, mantener, grupos_pausa, presupuestos
             ):
-                omitidas += 1
-                continue
-            entidad = conn.execute(_SQL_ENTIDAD_REACTIVACION, (decision.ad_entity_id,)).fetchone()
-            if entidad is None or entidad[2] != "PAUSED" or entidad[0] in grupos_pausa:
-                omitidas += 1
-                continue
-            presupuesto = presupuestos.get(entidad[1])
-            if recuperacion.presupuesto_topado_de(presupuesto) is True:
                 omitidas += 1
                 continue
             usada, saturada = apply.consume_quota_y_sello(conn, platform, "pause")
