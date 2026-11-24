@@ -253,3 +253,13 @@ hechos en el mismo modulo:
 El chequeo estructural `_violaciones_chequeo_dueno_unico` ahora recorre tambien
 `app/ads/archivar.py` y `app/ads/reposicion.py`: ningun llamador de C ramifica
 por `.estado_siguiente` ni redefine los literales del modelo.
+
+## Ampliacion del bloque E (ARREGLOS 05 E)
+
+El bloque E NO agrega estados, eventos ni casillas: la disponibilidad de una
+clave de efecto de la cola (`apply_queue`) es una precondicion de encolar, no un
+cambio enviado a Amazon, y por eso no pertenece a `TABLA_TRANSICIONES`. La tabla
+sigue en 176 casillas. El modelo por camino (que fila de `apply_queue`, que
+evento de la base, que accion del indice o del trigger) y el papel de
+`apply_queue_live_efecto_unico` y `apply_queue_clave_vigente` viven en
+[`../E/estados.md`](../E/estados.md).

@@ -1,0 +1,35 @@
+# Lectura previa de produccion del bloque E (solo SELECT). SHA 5223bfae1e85fee2d2d956962563ee030113e333
+
+== momento
+2026-11-24 22:53:04|orbit_read|on|58
+
+== indice_actual
+apply_queue_ad_entity_id_idx|CREATE INDEX apply_queue_ad_entity_id_idx ON public.apply_queue USING btree (ad_entity_id)
+apply_queue_clave_efecto_en_vuelo|CREATE UNIQUE INDEX apply_queue_clave_efecto_en_vuelo ON public.apply_queue USING btree (platform, ad_entity_id, familia, search_term) NULLS NOT DISTINCT WHERE (estado <> ALL (ARRAY['applied'::text, 'failed'::text, 'vetoed'::text, 'discarded'::text]))
+apply_queue_decision_id_idx|CREATE INDEX apply_queue_decision_id_idx ON public.apply_queue USING btree (decision_id)
+apply_queue_pkey|CREATE UNIQUE INDEX apply_queue_pkey ON public.apply_queue USING btree (id)
+
+== colas_por_modo_estado
+live|applied|17
+live|discarded|3
+live|vetoed|2
+shadow|discarded|3
+shadow|pending_veto|31
+shadow|vetoed|2
+
+== colas_en_vuelo
+shadow|pending_veto|31|31|0
+
+== claves_live_no_terminales_duplicadas
+0
+
+== claves_no_terminales_duplicadas
+0
+
+== claves_practica_vencida_con_efecto_live
+0
+
+== practicas_shadow
+36|31|31|0
+
+# bloques procesados: 8 de 8; con error: 0

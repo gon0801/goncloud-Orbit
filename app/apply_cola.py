@@ -107,11 +107,18 @@ from app.optimizer import goals as g
 VENTANA_VETO = dt.timedelta(hours=48)
 MOTIVO_VETO_PENDIENTE = "veto_pendiente"
 
+# Una clave de efecto bloquea cuando tiene un efecto LIVE no terminal (se
+# aplica o esta en vuelo) o una PRACTICA shadow todavia VIGENTE (vence_el >
+# ahora, reloj de la base); un veto vigente protege la clave en cualquier modo.
+# Una practica shadow VENCIDA no bloquea: conserva su historia pero deja de
+# congelar el trabajo real (ARREGLOS 05 E, indice apply_queue_live_efecto_unico
+# y trigger apply_queue_clave_vigente).
 _SQL_CLAVES_BLOQUEADAS = """
 SELECT ad_entity_id, familia, search_term
   FROM apply_queue
  WHERE platform = %s::platform
-   AND (estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')
+   AND ((estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')
+         AND (modo = 'live' OR vence_el > %s))
         OR (estado = 'vetoed' AND vence_el > %s))
 """
 
@@ -241,10 +248,11 @@ class ResultadoLiberacion:
 def claves_bloqueadas(
     conn: psycopg.Connection, platform: str, ahora: dt.datetime
 ) -> set[tuple[int, str, str | None]]:
-    """Claves de efecto con fila NO terminal en-vuelo O fila vetoed vigente."""
+    """Claves de efecto con un efecto live no terminal, una practica shadow
+    vigente o un veto vigente. Una shadow vencida no bloquea (ARREGLOS 05 E)."""
     return {
         (fila[0], fila[1], fila[2])
-        for fila in conn.execute(_SQL_CLAVES_BLOQUEADAS, (platform, ahora)).fetchall()
+        for fila in conn.execute(_SQL_CLAVES_BLOQUEADAS, (platform, ahora, ahora)).fetchall()
     }
 
 

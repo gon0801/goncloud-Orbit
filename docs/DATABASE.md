@@ -518,9 +518,17 @@ veto y revienta); transiciones por trigger de UPDATE, atómicas en la app
 familia, search_term)`** con familia `entity_cut` (pause, término NULL) /
 `term_cut` (negative Y harvest — con `kind` en la clave un veto de negative
 se eludía proponiendo harvest del mismo término; `kind` queda como dato
-auditable). **Único parcial en-vuelo sobre no terminales con
-`NULLS NOT DISTINCT`** (sin él, dos pause de la misma entidad no
-chocarían). **`vetoed` exige admin**: la transición a `vetoed` valida
+auditable). **Unicidad de efectos live + deduplicación de prácticas vigentes
+(ARREGLOS 05 E, migración 0098):** el índice único parcial
+`apply_queue_live_efecto_unico` cubre solo `modo='live'` no terminal (como
+máximo un efecto live no terminal por clave, con `NULLS NOT DISTINCT`; sin él,
+dos pause de la misma entidad no chocarían), y el trigger
+`apply_queue_clave_vigente` deduplica las prácticas shadow no terminales
+mientras `vence_el > now()` y bloquea un shadow contra un efecto live de la
+misma clave. Una práctica shadow **vencida** no bloquea el SELECT ni el INSERT
+de la decision real y conserva su fila e historial; no se promociona a live ni
+se borra. La vigencia es del reloj de la base (UTC), nunca del proceso.
+**`vetoed` exige admin**: la transición a `vetoed` valida
 `current_user` por trigger — el rol del motor no puede vetar con el UPDATE
 que usa para el claim. Ventana 48h (`vence_el`, el reloj no se detiene por
 infra), veto durable 30d editable al vetar (`vetoed_at`/`vetoed_by`),
@@ -529,9 +537,10 @@ trigger de transiciones: su perímetro es `vetoed`|`discarded`),
 `request_payload` con lo que se va a mandar. La encola la APP (necesita el
 modo efectivo por decisión), con invariante testeado: toda decisión de
 corte del ciclo tiene fila en cola o skip registrado.
-*Cómo se audita*: invariante — cortes del ciclo sin fila ni skip; filas no
-terminales con `vence_el` vencido (el liberador las toma FIFO); vetos
-vigentes por clave de efecto (los consulta el skip del ciclo).
+*Cómo se audita*: invariante — cortes del ciclo sin fila ni skip; filas live no
+terminales con `vence_el` vencido (el liberador las toma FIFO); prácticas
+shadow no terminales vencidas (historial que ya no debe bloquear, ARREGLOS 05
+E); vetos vigentes por clave de efecto (los consulta el skip del ciclo).
 
 **`ads_campaign_proposal`** (0042) — Propuestas para pausa manual de una
 campaña con riesgo económico. El dinero viene solo de `spCampaigns` en
