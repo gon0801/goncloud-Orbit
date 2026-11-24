@@ -139,20 +139,34 @@ UPDATE apply_attempt SET resultado = %s, finished_at = now() WHERE id = %s
 # ledger y nunca el cache (que la ingesta tambien sincroniza). Solo ese valor
 # prueba que la puja vigente es de Orbit: un importe que Orbit escribio antes
 # de esa decision y que hoy vuelve a estar en la hoja lo puso otra mano.
-_SQL_ULTIMA_ESCRITURA_DESDE = """
+#
+# Las escrituras se ordenan por SU hora, no por el ID de la decision: una
+# reversa se atribuye a la decision que deshace (no nace una decision nueva),
+# asi que tras revertir la segunda de tres decisiones su escritura es la
+# ultima aunque su ID sea menor que el de la tercera.
+_MONTO_LEGIBLE = "^[0-9]+([.][0-9]+)?$"
+
+_SQL_ULTIMA_ESCRITURA_DESDE = f"""
 SELECT bid FROM (
-    SELECT (a.request_payload->>'bid')::numeric AS bid, a.started_at AS cuando, d.id AS decision_id
+    SELECT (a.request_payload->>'bid')::numeric AS bid, a.started_at AS cuando,
+           1 AS es_intento, a.id AS orden
       FROM apply_attempt a
       JOIN decision d ON d.id = a.decision_id AND d.kind = 'bid'
      WHERE d.ad_entity_id = %s AND d.id >= %s AND a.resultado = 'ok'
-       AND (a.request_payload->>'bid') ~ '^[0-9]+([.][0-9]+)?$'
+       AND (a.request_payload->>'bid') ~ '{_MONTO_LEGIBLE}'
     UNION
-    SELECT d.new_value, d.decided_at, d.id
+    -- Respaldo historico: aplicada y verificada sin intento en el ledger
+    -- (anterior a el). confirmed_at es la hora en que el readback confirmo.
+    SELECT d.new_value, da.confirmed_at, 0, d.id
       FROM decision d
       JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
      WHERE d.ad_entity_id = %s AND d.id >= %s AND d.kind = 'bid' AND d.new_value IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1 FROM apply_attempt x
+            WHERE x.decision_id = d.id AND x.resultado = 'ok'
+              AND (x.request_payload->>'bid') ~ '{_MONTO_LEGIBLE}')
 ) escritas
- ORDER BY decision_id DESC, cuando DESC
+ ORDER BY cuando DESC, es_intento DESC, orden DESC
  LIMIT 1
 """
 

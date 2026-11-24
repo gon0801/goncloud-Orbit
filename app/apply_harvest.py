@@ -194,12 +194,16 @@ UPDATE apply_attempt SET resultado = %s, finished_at = now()
 """
 
 # ARREGLOS 05 B: nadie retoma un job cerrado, asi que cerrarlo resuelve sus
-# intentos abiertos en la misma transaccion. Un intento de creacion cuyo ACK ya
-# esta guardado lo acepto Amazon: se sella `ok`, aunque el trabajo no prospere.
-# Los demas toman el resultado del cierre.
+# intentos abiertos en la misma transaccion. `ok` solo lo pone la lectura que
+# verifico el objeto en Amazon: una creacion que cerro sin lectura de vuelta
+# lleva el motivo del cierre (su ACK, si lo hubo, se conserva) y nunca se dice
+# aplicada. Una reversa con la respuesta perdida tampoco lleva el motivo de la
+# cosecha: su desenlace no se comprobo.
+RESULTADO_REVERSA_SIN_VERIFICAR = "fallo:reversa_sin_verificar"
+
 _SQL_SELLA_ABIERTOS_AL_CERRAR = """
 UPDATE apply_attempt
-   SET resultado = CASE WHEN tipo = 'normal' AND ack IS NOT NULL THEN 'ok' ELSE %s END,
+   SET resultado = CASE WHEN tipo = 'reversa' THEN %s ELSE %s END,
        finished_at = now()
  WHERE decision_id = %s AND finished_at IS NULL AND resultado IS NULL
 """
@@ -246,8 +250,15 @@ def _sella_pendientes(conn: psycopg.Connection, decision_id: int, resultado: str
 
 
 def _sella_abiertos_al_cerrar(conn: psycopg.Connection, decision_id: int, resultado: str) -> None:
-    """Sella los intentos abiertos del job cuando este se cierra (ARREGLOS 05 B)."""
-    conn.execute(_SQL_SELLA_ABIERTOS_AL_CERRAR, (resultado, decision_id))
+    """Sella los intentos abiertos del job cuando este se cierra (ARREGLOS 05 B).
+
+    Una creacion abierta toma `resultado` (el motivo del cierre) y conserva su
+    ACK: nadie la leyo en Amazon, asi que no se dice aplicada. Una reversa
+    abierta quedo sin respuesta: se sella como no verificada.
+    """
+    conn.execute(
+        _SQL_SELLA_ABIERTOS_AL_CERRAR, (RESULTADO_REVERSA_SIN_VERIFICAR, resultado, decision_id)
+    )
 
 
 def _falla_job(

@@ -1135,11 +1135,18 @@ def _cosecha_con_ack_durable(conn, monkeypatch) -> tuple[dict, int, _Amazon]:
     return ids, dec, amazon
 
 
-def _creacion_sellada_ok(conn, dec: int) -> None:
+def _creacion_cerrada_sin_verificar(conn, dec: int, resultado: str | None) -> None:
+    """El intento de creacion cerro: no queda abierto, conserva su ACK y no se
+    dice aplicado, porque ninguna lectura comprobo el objeto en Amazon."""
     creacion = [f for f in _ledger(conn, dec, "normal") if f["request_payload"].get("bid")]
-    assert [(f["resultado"], f["finished_at"] is not None) for f in creacion] == [("ok", True)], (
-        "el intento con ACK guardado se sella como aplicado"
-    )
+    assert len(creacion) == 1, "un solo intento de creacion"
+    sello = creacion[0]["resultado"]
+    assert creacion[0]["finished_at"] is not None, "no queda abierto"
+    if resultado is None:
+        assert sello is not None and sello.startswith("fallo:"), sello
+    else:
+        assert sello == resultado
+    assert isinstance(creacion[0]["ack"], dict), "el ACK de Amazon se conserva"
     assert _abiertos(conn, dec) == [], "ningun intento queda abierto"
     assert _sin_abiertos_con_evidencia(conn) == 0, "la reversa de la 0095 puede seguir"
 
@@ -1147,8 +1154,9 @@ def _creacion_sellada_ok(conn, dec: int) -> None:
 @_skip_db
 def test_arreglos05_b_cosecha_cerrada_sin_contexto_sella_la_creacion_con_ack(monkeypatch):
     """El proceso muere entre el ACK y la lectura de vuelta y, en la corrida que
-    lo retoma, el destino ya no se puede resolver. El job cierra fallido y el
-    intento de creacion, que ya trae su ACK, no queda abierto."""
+    lo retoma, el destino ya no se puede resolver. El job cierra fallido: el
+    intento de creacion no queda abierto, conserva su ACK y lleva el motivo del
+    cierre. Nadie lo leyo en Amazon, asi que no se dice aplicado."""
     with _db("orbit_b05_cierra_sin_contexto") as (conn, _extra):
         ids, dec, amazon = _cosecha_con_ack_durable(conn, monkeypatch)
         monkeypatch.setattr(
@@ -1163,15 +1171,16 @@ def test_arreglos05_b_cosecha_cerrada_sin_contexto_sella_la_creacion_con_ack(mon
 
         assert resumen.jobs_failed == 1
         assert _job(conn, dec)[1] == "failed"
-        _creacion_sellada_ok(conn, dec)
+        _creacion_cerrada_sin_verificar(conn, dec, None)
 
 
 @_skip_db
 def test_arreglos05_b_cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack(monkeypatch):
     """El proceso muere entre el ACK y la lectura de vuelta y, en la corrida que
     lo retoma, la campana de origen ya no esta habilitada. El job cierra fallido
-    y el intento de creacion se sella como aplicado: Amazon lo acepto, aunque el
-    trabajo no prospero. No se le cuelga el motivo del cierre del job."""
+    y el intento de creacion no queda abierto: conserva su ACK y se sella con el
+    motivo de la compuerta, como antes de ARREGLOS 05 B. Nadie lo leyo en
+    Amazon, asi que no se dice aplicado."""
     with _db("orbit_b05_cierra_por_ancestro") as (conn, _extra):
         ids, dec, amazon = _cosecha_con_ack_durable(conn, monkeypatch)
         conn.execute(
@@ -1185,7 +1194,7 @@ def test_arreglos05_b_cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack(mon
 
         assert resumen.jobs_failed == 1
         assert _job(conn, dec)[1] == "failed"
-        _creacion_sellada_ok(conn, dec)
+        _creacion_cerrada_sin_verificar(conn, dec, "fallo:ancestro_no_enabled")
 
 
 @_skip_db
@@ -1250,6 +1259,153 @@ def test_arreglos05_b_migracion_del_historial_de_regreso_ida_reversa_e_ida():
 
         conn.execute(ida.read_text(encoding="utf-8"))
         assert trae_payload() and conn.execute(_sonda_de(ida)).fetchone() == (True,)
+
+
+def _otro_ciclo_live(conn) -> int:
+    return conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_arreglos05_b_revertir_la_segunda_de_tres_no_bloquea_la_reversa_de_la_primera(monkeypatch):
+    """Tres recortes seguidos: 1.00 a 0.85, 0.85 a 0.70 y 0.70 a 0.60. El dueno
+    revierte el segundo y Orbit escribe 0.85. Al revertir el primero, esa
+    escritura es la ultima de Orbit aunque cuelgue de una decision con ID menor
+    que la tercera: la puja es propia y la reversa restaura 1.00."""
+    with _db("orbit_b05_tres_decisiones") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        amazon = _Amazon(bids={"7201": "1.00"})
+        ap = _aplicador_bid(conn, amazon, ids["ciclo_ejec"])
+        decisiones = []
+        for ciclo, (viejo, nuevo) in zip(
+            [ids["ciclo_dec"], _otro_ciclo_live(conn), _otro_ciclo_live(conn)],
+            [("1.00", "0.85"), ("0.85", "0.70"), ("0.70", "0.60")],
+            strict=True,
+        ):
+            decisiones.append(
+                _decision_bid(conn, ciclo, ids["config"], ids["kw"], old=viejo, new=nuevo)
+            )
+            ap.aplica_bids(apply.bids_del_ciclo(conn, ciclo), escalera_global="live")
+        assert amazon.bid() == Decimal("0.60")
+        _red_por(monkeypatch, amazon)
+        puestas = len(amazon.puestas())
+        primera, segunda, tercera = decisiones
+
+        assert _reversa_bid_api(conn, segunda)["confirmada"] is True
+        assert amazon.bid() == Decimal("0.85")
+        assert _reversa_bid_api(conn, tercera)["confirmada"] is False, "0.85 no es de la tercera"
+        assert amazon.bid() == Decimal("0.85")
+
+        assert _reversa_bid_api(conn, primera)["confirmada"] is True, "0.85 lo escribio Orbit"
+        assert amazon.bid() == Decimal("1.00")
+        assert amazon.puestas()[puestas:] == [Decimal("0.85"), Decimal("1.00")], "dos PUT"
+
+
+@_skip_db
+def test_arreglos05_b_el_regreso_confirma_por_lectura_un_envio_con_respuesta_perdida(monkeypatch):
+    """Amazon aplica el regreso a 1.00 y la respuesta se pierde. La ingesta
+    sincroniza ese 1.00 en la cache. El reintento no lo rechaza la guarda:
+    resuelve el intento abierto leyendo y lo sella, sin otro PUT."""
+    with _db("orbit_b05_regreso_perdido") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        amazon = _Amazon(bids={"7201": "1.00"})
+        dec = _decision_bid(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.004", new="0.80"
+        )
+        _aplicador_bid(conn, amazon, ids["ciclo_ejec"]).aplica_bids(
+            apply.bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live"
+        )
+        _red_por(monkeypatch, amazon)
+        amazon.pierde_respuesta.add("put_bid")
+        with pytest.raises(AdsApiError):
+            apply_regreso_dueno.regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno")
+        assert amazon.bid() == Decimal("1.00"), "Amazon aplico el regreso"
+        amazon.pierde_respuesta.clear()
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = 1.00 WHERE ad_entity_id = %s", (ids["kw"],)
+        )
+
+        hecho = apply_regreso_dueno.regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno")
+
+        assert hecho.bid_ahora == Decimal("1.00")
+        assert _pujas_de_reversa(amazon) == [Decimal("1.00")], (
+            "un solo PUT: el que perdio respuesta"
+        )
+        sellada = _ledger(conn, dec, "reversa")
+        assert [(f["resultado"], f["ack"]["conciliado"]) for f in sellada] == [("ok", True)]
+
+
+@_skip_db
+@pytest.mark.parametrize(
+    "old,previo,vigente", [("1.00", "1.004", "1.00"), ("1.01", "1.014", "1.01")]
+)
+def test_arreglos05_b_el_regreso_no_cierra_la_racha_si_el_vigente_ya_es_el_destino(
+    monkeypatch, old, previo, vigente
+):
+    """El dueno ya volvio a poner en Amazon el destino del regreso y la ingesta
+    lo refleja. No hay nada que subir: 409, sin intento de reversa y sin PUT.
+    La guarda compara con el destino cuantizado que enviaria la reversa."""
+    with _db("orbit_b05_regreso_en_destino") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        amazon = _Amazon(bids={"7201": previo})
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old=old, new="0.80")
+        _aplicador_bid(conn, amazon, ids["ciclo_ejec"]).aplica_bids(
+            apply.bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live"
+        )
+        _red_por(monkeypatch, amazon)
+        amazon.bids["7201"] = vigente
+        puestas = len(amazon.puestas())
+        conn.execute(
+            "UPDATE ad_entity_state SET current_bid = %s WHERE ad_entity_id = %s",
+            (vigente, ids["kw"]),
+        )
+
+        with pytest.raises(apply_regreso_dueno.VigentePorEncima):
+            apply_regreso_dueno.regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno")
+
+        assert _ledger(conn, dec, "reversa") == [], "sin envio no nace intento de reversa"
+        assert len(amazon.puestas()) == puestas, "cero PUT"
+        assert amazon.bid() == Decimal(vigente)
+
+
+@_skip_db
+def test_arreglos05_b_una_reversa_de_compensacion_sin_respuesta_no_lleva_el_motivo_del_job():
+    """En la compensacion el DELETE del negativo aplica en Amazon y se pierde la
+    respuesta. El job termina fallido y esa reversa queda sellada como no
+    verificada: su desenlace no se comprobo y no recibe el motivo de la cosecha."""
+    with _db("orbit_b05_compensacion_perdida") as (conn, _extra):
+        setup, dec = _cosecha_grupo(conn)
+        faltante = next(r for r in ROLES_DISCOVERY if r != setup["origen_rol"])
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = %s",
+            (setup["grupo_id"], faltante),
+        )
+        amazon = _Amazon()
+        amazon.pierde_respuesta.add("delete_negative")
+        ap = _aplicador_harvest(conn, amazon, setup["ciclo_ejec"])
+        _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_F2)
+        abortada = None
+        try:
+            apply_cola.libera_vencidos(
+                conn, "amazon_us", ahora=dt.datetime.now(dt.UTC), aplicador=ap
+            )
+        except Exception as exc:  # noqa: BLE001 - se afirma abajo cual fue
+            abortada = exc
+        assert (abortada is None) == (_job(conn, dec)[1] == "failed"), abortada
+        if abortada is not None:
+            apply_cola.libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC) + dt.timedelta(hours=48),
+                aplicador=ap,
+            )
+
+        assert _job(conn, dec)[1] == "failed"
+        assert amazon.borrados("negative"), "el DELETE se aplico en Amazon"
+        compensacion = {f["resultado"] for f in _ledger(conn, dec, "reversa")}
+        assert compensacion == {"ok", "fallo:reversa_sin_verificar"}, compensacion
+        assert _abiertos(conn, dec) == [], "ningun intento queda abierto"
 
 
 # ---------------------------------------------------------------------------

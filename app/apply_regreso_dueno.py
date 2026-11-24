@@ -160,7 +160,8 @@ def regreso_del_dueno(
     `regreso_del_dueno`. Idempotente: una racha ya regresada levanta
     ReversaYaHecha (409), nunca escribe dos veces. Si el vigente ya esta
     por encima del destino levanta VigentePorEncima (409): un regreso
-    nunca baja el bid. `transport` es la puerta
+    nunca baja el bid, y tampoco se mueve si el vigente ya es el destino.
+    `transport` es la puerta
     de tests (MockTransport); el endpoint NO lo pasa."""
     _actor_no_vacio(actor)
     cambios = [
@@ -178,26 +179,61 @@ def regreso_del_dueno(
     if not racha:
         raise SinRachaDeRecortes(f"la hoja {hoja_id} no tiene racha vigente de recortes")
     primera = min(racha, key=_clave_orden_cambio)
+    ultimo = max(cambios, key=_clave_orden_cambio)
     # El vigente se lee ANTES del HTTP: despues nace la fila del regreso.
-    # Si el vigente ya esta por encima del destino, no se mueve: un
-    # regreso nunca baja el bid. Con vigente desconocido (NULL: hereda
-    # del grupo) no hay nada que comparar y se sigue como antes.
     fila_vigente = conn.execute(_SQL_VIGENTE, (hoja_id,)).fetchone()
     vigente = _celda_cambio(fila_vigente, 0, "current_bid") if fila_vigente is not None else None
     # ARREGLOS 05 B: el destino del regreso es el bid que la reversa va a
-    # restaurar (el leido antes del PUT; old_value solo para historia anterior
-    # a la 0095). Guarda, respuesta e historial usan ese mismo valor.
-    destino = apply.bid_previo_comprobado(conn, primera[4], respaldo=primera[1])
-    if vigente is not None and vigente >= destino:
+    # restaurar, cuantizado como el envio (el leido antes del PUT; old_value
+    # solo para historia anterior a la 0095). Guarda, respuesta e historial
+    # usan ese mismo valor.
+    previo = apply.bid_previo_comprobado(conn, primera[4], respaldo=primera[1])
+    destino = None if previo is None else apply.bid_del_wire(previo)
+    if apply.hechos_reversa(conn, primera[4]).intento_abierto_id is not None:
+        # Un intento abierto se resuelve SOLO por lectura, antes de la guarda: si
+        # Amazon aplico el regreso y se perdio la respuesta, la ingesta sincroniza
+        # el destino y la guarda de un envio nuevo lo rechazaria para siempre.
+        resuelta = apply.reversa_manual(
+            conn,
+            tipo="bid",
+            decision_id=primera[4],
+            transport=transport,
+            solo_resolver=True,
+        )
+        if resuelta["confirmada"]:
+            return _hecho(
+                conn, hoja_id, primera, vigente=vigente, ultimo=ultimo, destino=destino, actor=actor
+            )
+    # Si el vigente ya esta EN el destino o por encima, no se mueve: un regreso
+    # nunca baja el bid ni cierra la racha sin mover la puja. Con vigente
+    # desconocido (NULL: hereda del grupo) no hay nada que comparar y se sigue
+    # como antes.
+    if vigente is not None and destino is not None and vigente >= destino:
         raise VigentePorEncima(
             f"la hoja {hoja_id} trae vigente {vigente} por encima del destino {destino}"
         )
-    ultimo = max(cambios, key=_clave_orden_cambio)
     reversa = apply.reversa_manual(conn, tipo="bid", decision_id=primera[4], transport=transport)
     if not reversa["confirmada"]:
         fila = conn.execute(_SQL_MOTIVO_REVERSA, (primera[4],)).fetchone()
         motivo = fila[0] if fila is not None else "sin sello en el ledger"
         raise RegresoNoConfirmado(f"regreso de la hoja {hoja_id} sin confirmar: {motivo}")
+    return _hecho(
+        conn, hoja_id, primera, vigente=vigente, ultimo=ultimo, destino=destino, actor=actor
+    )
+
+
+def _hecho(
+    conn: psycopg.Connection,
+    hoja_id: int,
+    primera,
+    *,
+    vigente,
+    ultimo,
+    destino,
+    actor: str,
+) -> RegresoHecho:
+    """El regreso hecho: `bid_ahora` es el bid del intento de reversa que quedo
+    ok, lo que se envio y cuya lectura confirmo (ARREGLOS 05 B)."""
     fin = conn.execute(_SQL_FIN_REVERSA, (primera[4],)).fetchone()
     sello = fin[0].isoformat() if fin is not None and fin[0] is not None else None
     confirmado = Decimal(fin[1]) if fin is not None and fin[1] is not None else None

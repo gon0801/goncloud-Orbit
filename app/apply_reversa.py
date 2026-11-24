@@ -248,6 +248,7 @@ def reversa_bid(
     payload_bid: Callable[[str, str, Decimal], dict],
     bid_quantizado: Callable[[Decimal], Decimal],
     error_mutacion_cls: type[Exception],
+    solo_resolver: bool = False,
 ) -> bool:
     """Reversa del bid: PUT con el bid que Orbit leyo en Amazon antes del PUT
     aplicado, ledger tipo 'reversa' exento de quota, readback y sello. No
@@ -259,7 +260,11 @@ def reversa_bid(
     Un intento de reversa abierto se resuelve leyendo antes de otro envio.
     Antes del PUT se relee la hoja: si el valor vivo no lo escribio Orbit (otra
     mano lo movio despues), no se envia; si ya esta en el valor previo, se
-    confirma por lectura. El cache queda con LO LEIDO."""
+    confirma por lectura. El cache queda con LO LEIDO. Con `solo_resolver` solo
+    resuelve por lectura un intento abierto: nunca envia (el regreso del dueno
+    evalua su guarda antes de un envio nuevo)."""
+    if solo_resolver and hechos_reversa(conn, decision.id).intento_abierto_id is None:
+        return False
     previo = bid_previo_comprobado(conn, decision.id, respaldo=decision.old_value)
     if previo is None:
         raise ReversaNoAplicada(
@@ -293,6 +298,8 @@ def reversa_bid(
             )
             if resuelta.accion != AccionCambio.CONTAR_INTENTO:
                 return resuelta.accion == AccionCambio.SELLAR_APLICADO
+            if solo_resolver:
+                return False
         transicion = decidir(estado_de_reversa(conn, decision.id), EventoCambio.NUEVO_HORARIO)
     if transicion.accion != AccionCambio.ENVIAR:
         return False
@@ -377,6 +384,7 @@ def reversa_manual(
     decision_id: int | None = None,
     queue_id: int | None = None,
     transport: httpx.BaseTransport | None = None,
+    solo_resolver: bool = False,
     cliente_reversa: Callable[..., AdsWriteClient],
     reversa_bid_fn: Callable[[psycopg.Connection, AdsWriteClient, DecisionBid], bool],
 ) -> dict:
@@ -384,6 +392,8 @@ def reversa_manual(
     y negative. Precondiciones antes de construir cliente o HTTP."""
     from app import apply_cola  # diferido: apply_cola importa apply
 
+    if solo_resolver and tipo != "bid":
+        raise ValueError("solo_resolver solo aplica a la reversa de bid")
     if tipo == "bid":
         if decision_id is None:
             raise ValueError("reversa de bid exige decision_id")
@@ -415,7 +425,12 @@ def reversa_manual(
                 " sin moneda: no hay valor al que volver (regla 7)"
             )
         confirmada = _confirmada_en_la_frontera_manual(
-            lambda: reversa_bid_fn(conn, cliente_reversa(fila[7], transport=transport), decision)
+            lambda: reversa_bid_fn(
+                conn,
+                cliente_reversa(fila[7], transport=transport),
+                decision,
+                solo_resolver=solo_resolver,
+            )
         )
         return {"tipo": "bid", "decision_id": decision_id, "confirmada": confirmada}
 

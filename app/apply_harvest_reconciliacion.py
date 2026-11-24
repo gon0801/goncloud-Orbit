@@ -673,8 +673,10 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
         if motivo_gate is not None:
             with tx_durable(conn):
                 conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
-                # ARREGLOS 05 B: la creacion cuyo ACK ya se guardo la acepto
-                # Amazon; no lleva el motivo del cierre del job.
+                # ARREGLOS 05 B: nadie retoma un job fallido, asi que el cierre
+                # resuelve sus intentos abiertos en la misma transaccion. Una
+                # creacion conserva su ACK y lleva este motivo: nadie la leyo en
+                # Amazon, no se dice aplicada.
                 _ejecucion._sella_abiertos_al_cerrar(
                     conn, job.decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED
                 )

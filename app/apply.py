@@ -214,6 +214,12 @@ def _bid_quantizado(bid: Decimal) -> Decimal:
     return Decimal(_bid_payload(bid))
 
 
+def bid_del_wire(bid: Decimal) -> Decimal:
+    """El bid como lo recibe Amazon (misma fuente que el envio). Puerta publica
+    para quien compara un valor vigente con el destino de una puja."""
+    return _bid_quantizado(bid)
+
+
 def _payload_bid(kind_entidad: str, external_id: str, bid: Decimal) -> dict:
     """Payload EXACTO del ledger: MISMO shape y MISMA serializacion que el write client."""
     campo = "keywordId" if kind_entidad == "keyword" else "targetId"
@@ -743,8 +749,10 @@ def reversa_bid(
     decision: DecisionBid,
     *,
     tick: Callable[[], None] | None = None,
+    solo_resolver: bool = False,
 ) -> bool:
-    """Reversa del bid: PUT con old_value, ledger tipo 'reversa', readback y sello."""
+    """Reversa del bid: PUT con el bid leido antes del apply (ARREGLOS 05 B), ledger
+    tipo 'reversa', readback y sello. `solo_resolver` solo lee un intento abierto."""
     return _reversa_bid_impl(
         conn,
         cliente,
@@ -753,6 +761,7 @@ def reversa_bid(
         payload_bid=_payload_bid,
         bid_quantizado=_bid_quantizado,
         error_mutacion_cls=AdsApiErrorMutacion,
+        solo_resolver=solo_resolver,
     )
 
 
@@ -763,6 +772,7 @@ def reversa_manual(
     decision_id: int | None = None,
     queue_id: int | None = None,
     transport: httpx.BaseTransport | None = None,
+    solo_resolver: bool = False,
 ) -> dict:
     """Reversa MANUAL (regla 7, sellado 12): bid, pause o negative."""
     return _reversa_manual_impl(
@@ -771,6 +781,7 @@ def reversa_manual(
         decision_id=decision_id,
         queue_id=queue_id,
         transport=transport,
+        solo_resolver=solo_resolver,
         cliente_reversa=_cliente_reversa,
         reversa_bid_fn=reversa_bid,
     )
