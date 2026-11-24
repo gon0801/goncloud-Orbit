@@ -1553,7 +1553,7 @@ def test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
         res1 = apply_cola.aplica_reactivaciones(
             conn, _aplicador(conn, pierde_la_respuesta, ids["ciclo_ejec"]), resumes, tick=None
         )
-        assert (res1.confirmadas, res1.fallidas) == (0, 4), res1
+        assert (res1.confirmadas, res1.fallidas, res1.pendientes_de_lectura) == (0, 0, 4), res1
         assert len(perdidos) == 4, "los cuatro PUT de reactivacion si salieron"
         for hoja in pausas:
             assert [f[0] for f in intentos(pausas[hoja])] == [None], "quedan sin sello"
@@ -2594,3 +2594,148 @@ def test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_co
             ).fetchone()[0]
             == 1
         ), "el intento queda abierto"
+
+
+@_skip_db
+def test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reenviar():
+    """Revision de Astra del PR #746 (cuarta pasada): un origen con un UNICO
+    resume pendiente cuyo PUT pierde la respuesta (500) y despues cuya lectura
+    de resolucion falla con 500. En ambos casos el intento de reversa queda
+    abierto y debe contar como pendiente de lectura (no solo fallida) para que
+    el origen no se marque completo: la vista de huerfanas excluye `resume`, asi
+    que sin esa marca el horario siguiente nunca abre ejecutor ni concilia."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import _config, _episodio, _pausa_baja, _pausado, estacion_dia
+
+    from app import apply_cola, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_unico_resume_500") as (conn, _extra):
+        ids = _semilla_live(conn)
+        hoja = ids["kw_pause"]
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausa, _q = _pausa_baja(
+            conn,
+            ciclo_id=ciclo_prev,
+            config_id=config_id,
+            hoja=hoja,
+            ahora=ahora,
+            episodio=cerrado,
+        )
+        _pausado(conn, hoja)
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        pendientes = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        assert len(pendientes) == 1
+        propuesta = ciclo.pendiente_reactivacion(pendientes[0], estacion, decidido_el=ahora)
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+            (
+                origen,
+                pendientes[0].ad_entity_id,
+                ahora,
+                config_id,
+                propuesta.data_observed_at,
+                propuesta.window_start,
+                propuesta.window_end,
+                json.dumps(propuesta.inputs),
+            ),
+        )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 1
+
+        estado_remoto = {"9202": "PAUSED"}
+        modo = {"falla_put": True, "falla_list": False}
+        puts_estado: list[dict] = []
+        lecturas: list[int] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                lecturas.append(len(lecturas) + 1)
+                if modo["falla_list"]:
+                    return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": "9202", "state": estado_remoto["9202"]}]},
+                )
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_estado.append(obj)
+                # Amazon aplica la habilitacion pero la respuesta se pierde con 500.
+                estado_remoto[str(obj["keywordId"])] = obj["state"]
+                if modo["falla_put"]:
+                    return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+                return httpx.Response(207, json={"keywords": {"success": [obj]}})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        hoy = ahora.astimezone(dt.UTC).date()
+
+        # Horario 1: el unico resume envia el PUT y pierde la respuesta con 500.
+        primero = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert primero.ciclo is not None and primero.ciclo.resume_of == origen
+        assert [p["keywordId"] for p in puts_estado] == ["9202"]
+        react1 = json.loads(primero.ciclo.notes)["apply"]["reactivaciones"]
+        assert (react1["confirmadas"], react1["fallidas"], react1["pendientes_de_lectura"]) == (
+            0,
+            0,
+            1,
+        ), react1
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is None, (
+            "el origen no se marca completo mientras el intento de reversa siga abierto"
+        )
+
+        # Horario 2: el ejecutor intenta leer el intento abierto pero el LIST da 500.
+        modo["falla_put"] = False
+        modo["falla_list"] = True
+        segundo = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert segundo.ciclo is not None and segundo.ciclo.resume_of == origen
+        assert len(puts_estado) == 1, "con LIST caido no se reenvia ningun PUT"
+        react2 = json.loads(segundo.ciclo.notes)["apply"]["reactivaciones"]
+        assert (react2["confirmadas"], react2["fallidas"], react2["pendientes_de_lectura"]) == (
+            0,
+            0,
+            1,
+        ), react2
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is None, (
+            "si la lectura de conciliacion falla con 500, el origen sigue incompleto"
+        )
+
+        # Horario 3: el ejecutor lee el estado ENABLED y sella sin reenviar otro PUT.
+        modo["falla_list"] = False
+        tercero = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert tercero.ciclo is not None and tercero.ciclo.resume_of == origen
+        assert len(puts_estado) == 1, "lee el estado antes de cualquier reenvio: cero PUT extra"
+        assert len(lecturas) >= 2
+        react3 = json.loads(tercero.ciclo.notes)["apply"]["reactivaciones"]
+        assert (react3["confirmadas"], react3["fallidas"], react3["pendientes_de_lectura"]) == (
+            1,
+            0,
+            0,
+        ), react3
+        assert (
+            conn.execute(
+                "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'",
+                (pausa,),
+            ).fetchone()[0]
+            == "ok"
+        )
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None, (
+            "resuelta la reactivacion, el origen queda completo"
+        )

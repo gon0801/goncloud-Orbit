@@ -459,10 +459,10 @@ def aplica_reactivaciones(
             if apply.es_rechazo_de_identidad(exc):
                 raise
             # La lectura no alcanzo a resolver el intento anterior: sigue sin
-            # sello, y por esta hoja no se cobra ni se envia nada en la pasada.
+            # sello y pendiente de lectura; no se cobra ni se envia nada.
             if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
                 conn.rollback()
-            fallidas += 1
+            pendientes_de_lectura += 1
             continue
         if veredicto is not None:
             # La hoja se cuenta y se pasa: ya habilitada (por lectura), sin
@@ -488,12 +488,12 @@ def aplica_reactivaciones(
             if apply.es_rechazo_de_identidad(exc):
                 raise
             # ARREGLOS 05 A.3: 5xx o red de ESTA reactivacion. Amazon pudo
-            # reanudarla; el intento `reversa` queda sin sellar y las guardas
-            # de la siguiente pasada (hoja PAUSED en el cache) deciden. No se
-            # repite en este ciclo. Los fallos globales siguen propagando.
+            # reanudarla; el intento `reversa` ya nacio y queda sin sellar,
+            # pendiente de lectura para que el horario siguiente abra ejecutor
+            # y concilie antes de reenviar. Los fallos globales siguen propagando.
             if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
                 conn.rollback()
-            fallidas += 1
+            pendientes_de_lectura += 1
             continue
         confirmadas += reanudada is True
         pendientes_de_lectura += reanudada is PENDIENTE_LECTURA
