@@ -19,6 +19,7 @@ from app.ads.client import AdsApiError
 from app.ads.sp_wire import id_de_ack
 from app.apply_cuota import DecisionBid
 from app.apply_estados import (
+    TOPE_INTENTOS_CAMBIO,
     AccionCambio,
     EstadoCambio,
     EventoCambio,
@@ -263,21 +264,30 @@ def reversa_manual(
                             hechos.intento_abierto_id is not None if hechos else False
                         ),
                         resultado_terminal=hechos.resultado_terminal if hechos else None,
-                        intentos_totales=0,
+                        intentos_totales=hechos.intentos_totales if hechos else 0,
+                        tope_intentos=TOPE_INTENTOS_CAMBIO,
                     )
                     if estado == EstadoCambio.APLICADO:
                         raise ReversaYaHecha(fila.decision_id)
-                    if estado == EstadoCambio.EN_VUELO:
-                        return False
-                    if decidir(estado, EventoCambio.NUEVO_HORARIO).accion == (
-                        AccionCambio.LEER_RESULTADO
-                    ):
+                    transicion = decidir(estado, EventoCambio.NUEVO_HORARIO)
+                    if transicion.accion == AccionCambio.LEER_RESULTADO:
                         tr_lectura = apply_cola.resuelve_reversa_abierta(conn, cliente, fila)
                         if (
                             tr_lectura is not None
                             and tr_lectura.accion != AccionCambio.CONTAR_INTENTO
                         ):
-                            return tr_lectura.estado_siguiente == EstadoCambio.APLICADO
+                            return tr_lectura.accion == AccionCambio.SELLAR_APLICADO
+                        assert hechos is not None
+                        estado_post = estado_inicial_desde_hechos(
+                            en_vuelo_ajeno=False,
+                            tiene_intento_abierto=False,
+                            resultado_terminal=None,
+                            intentos_totales=hechos.intentos_totales,
+                            tope_intentos=TOPE_INTENTOS_CAMBIO,
+                        )
+                        transicion = decidir(estado_post, EventoCambio.NUEVO_HORARIO)
+                    if transicion.accion != AccionCambio.ENVIAR:
+                        return False
                     return apply_cola.reversa_pause(conn, cliente, fila)
 
             confirmada = _confirmada_en_la_frontera_manual(_reversa_pause_manual)

@@ -430,7 +430,7 @@ def _hechos_reversa(conn: psycopg.Connection, decision_id: int) -> _HechosRevers
             (
                 r
                 for r in resultados
-                if r in RESULTADOS_TERMINALES_REVERSA or r.startswith("fallo:entidad_archived")
+                if r in RESULTADOS_TERMINALES_REVERSA or r.startswith("fallo:entidad_")
             ),
             None,
         )
@@ -546,12 +546,17 @@ def _rollback_si_abierta(conn: psycopg.Connection) -> None:
 
 
 def _contabiliza_transicion_reactivacion(transicion: Transicion) -> tuple[int, int, int, int]:
-    """Traduce una `Transicion` a deltas `(confirmadas, fallidas, omitidas, pendientes)`."""
-    if transicion.estado_siguiente == EstadoCambio.APLICADO:
+    """Traduce una `Transicion` a deltas `(confirmadas, fallidas, omitidas, pendientes)`
+    actuando solo sobre `accion` (jamas sobre `estado_siguiente`).
+
+    Solo `SELLAR_APLICADO` atribuye confirmacion a esta corrida: un `NO_TOCAR`
+    sobre un estado `APLICADO` previo cuenta como omitida y no vuelve a sumar a
+    `applied_count`."""
+    if transicion.accion == AccionCambio.SELLAR_APLICADO:
         return (1, 0, 0, 0)
     if transicion.origen_incompleto:
         return (0, 0, 0, 1)
-    if transicion.estado_siguiente in (EstadoCambio.ARCHIVADO, EstadoCambio.SIN_IDENTIDAD):
+    if transicion.accion in (AccionCambio.SELLAR_TERMINAL, AccionCambio.SELLAR_RECHAZADO):
         return (0, 1, 0, 0)
     return (0, 0, 1, 0)
 
@@ -646,6 +651,9 @@ def aplica_reactivaciones(
                 # el tope antes de cobrar cuota o enviar un nuevo PUT.
                 assert hechos is not None
                 estado_post = estado_inicial_desde_hechos(
+                    en_vuelo_ajeno=False,
+                    tiene_intento_abierto=False,
+                    resultado_terminal=None,
                     intentos_totales=hechos.intentos_totales,
                     tope_intentos=apply.TOPE_INTENTOS,
                 )

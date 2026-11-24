@@ -242,15 +242,17 @@ def decidir(estado: EstadoCambio, evento: EventoCambio) -> Transicion:
 
 def estado_inicial_desde_hechos(
     *,
-    en_vuelo_ajeno: bool = False,
-    tiene_intento_abierto: bool = False,
-    resultado_terminal: str | None = None,
-    intentos_totales: int = 0,
+    en_vuelo_ajeno: bool,
+    tiene_intento_abierto: bool,
+    resultado_terminal: str | None,
+    intentos_totales: int,
     tope_intentos: int = TOPE_INTENTOS_CAMBIO,
 ) -> EstadoCambio:
     """Deriva el `EstadoCambio` actual a partir de hechos observables del ledger.
 
-    Prioridad fija:
+    Los cuatro hechos observables son obligatorios (sin valor por omision) para
+    que ningun llamador pueda descartar el conteo de intentos ni un resultado
+    terminal. Prioridad fija:
     1. Otra ruta operando (`en_vuelo_ajeno`) -> `EN_VUELO` (ni concilia ni envia).
     2. Intento abierto sin sello -> `INCIERTO` (siempre se lee antes de mirar el tope).
     3. Desenlace terminal sellado -> `APLICADO`, `PAUSADO_POR_DUENO` o `ARCHIVADO`.
@@ -265,9 +267,7 @@ def estado_inicial_desde_hechos(
         return EstadoCambio.APLICADO
     if resultado_terminal == RESULTADO_PAUSADA_POR_DUENO:
         return EstadoCambio.PAUSADO_POR_DUENO
-    if isinstance(resultado_terminal, str) and resultado_terminal.startswith(
-        "fallo:entidad_archived"
-    ):
+    if isinstance(resultado_terminal, str) and resultado_terminal.startswith("fallo:entidad_"):
         return EstadoCambio.ARCHIVADO
     if intentos_totales >= tope_intentos:
         return EstadoCambio.TOPE_INTENTOS

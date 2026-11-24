@@ -189,18 +189,76 @@ def test_arreglos05_a_invariantes_globales_de_la_tabla():
 def test_arreglos05_a_clasificadores_puros_del_modelo():
     """Los clasificadores traducen hechos del ledger, HTTP y lecturas sin ambiguedad."""
     assert (
-        estado_inicial_desde_hechos(en_vuelo_ajeno=True, tiene_intento_abierto=True) == E.EN_VUELO
+        estado_inicial_desde_hechos(
+            en_vuelo_ajeno=True,
+            tiene_intento_abierto=True,
+            resultado_terminal=None,
+            intentos_totales=0,
+        )
+        == E.EN_VUELO
     )
     # Con 3 intentos pero el 3o abierto, primero se lee (INCIERTO), no se omite por tope.
-    assert estado_inicial_desde_hechos(tiene_intento_abierto=True, intentos_totales=3) == E.INCIERTO
-    assert estado_inicial_desde_hechos(resultado_terminal=RESULTADO_OK) == E.APLICADO
     assert (
-        estado_inicial_desde_hechos(resultado_terminal=RESULTADO_PAUSADA_POR_DUENO)
+        estado_inicial_desde_hechos(
+            en_vuelo_ajeno=False,
+            tiene_intento_abierto=True,
+            resultado_terminal=None,
+            intentos_totales=3,
+        )
+        == E.INCIERTO
+    )
+    assert (
+        estado_inicial_desde_hechos(
+            en_vuelo_ajeno=False,
+            tiene_intento_abierto=False,
+            resultado_terminal=RESULTADO_OK,
+            intentos_totales=1,
+        )
+        == E.APLICADO
+    )
+    assert (
+        estado_inicial_desde_hechos(
+            en_vuelo_ajeno=False,
+            tiene_intento_abierto=False,
+            resultado_terminal=RESULTADO_PAUSADA_POR_DUENO,
+            intentos_totales=1,
+        )
         == E.PAUSADO_POR_DUENO
     )
-    assert estado_inicial_desde_hechos(resultado_terminal="fallo:entidad_archived") == E.ARCHIVADO
-    assert estado_inicial_desde_hechos(intentos_totales=3) == E.TOPE_INTENTOS
-    assert estado_inicial_desde_hechos(intentos_totales=2) == E.PENDIENTE
+    assert (
+        estado_inicial_desde_hechos(
+            en_vuelo_ajeno=False,
+            tiene_intento_abierto=False,
+            resultado_terminal="fallo:entidad_archived",
+            intentos_totales=1,
+        )
+        == E.ARCHIVADO
+    )
+    assert (
+        estado_inicial_desde_hechos(
+            en_vuelo_ajeno=False,
+            tiene_intento_abierto=False,
+            resultado_terminal=None,
+            intentos_totales=3,
+        )
+        == E.TOPE_INTENTOS
+    )
+    assert (
+        estado_inicial_desde_hechos(
+            en_vuelo_ajeno=False,
+            tiene_intento_abierto=False,
+            resultado_terminal=None,
+            intentos_totales=2,
+        )
+        == E.PENDIENTE
+    )
+    # Nivel tipos (/correct): ningun hecho obligatorio puede omitirse.
+    with pytest.raises(TypeError):
+        estado_inicial_desde_hechos(  # type: ignore[call-arg]
+            en_vuelo_ajeno=False,
+            tiene_intento_abierto=False,
+            resultado_terminal=None,
+        )
 
     err_403 = AdsApiErrorMutacion(
         "status=403", cuerpo="{}", status=403, method="PUT", path="/sp/productAds"
@@ -289,6 +347,26 @@ def _violaciones_chequeo_dueno_unico(fuentes: dict[str, str]) -> list[str]:
                 errores.append(
                     f"{rel}: redefine es_rechazo_de_identidad; usa app.apply_estados.decidir"
                 )
+            elif isinstance(nodo, ast.Attribute) and nodo.attr == "estado_siguiente":
+                errores.append(
+                    f"{rel}: ramifica por .estado_siguiente; los llamadores actuan solo "
+                    "segun transicion.accion"
+                )
+            elif (
+                isinstance(nodo, ast.Call)
+                and isinstance(nodo.func, ast.Name)
+                and nodo.func.id == "estado_inicial_desde_hechos"
+            ):
+                for kw in nodo.keywords:
+                    if (
+                        kw.arg == "intentos_totales"
+                        and isinstance(kw.value, ast.Constant)
+                        and kw.value.value == 0
+                    ):
+                        errores.append(
+                            f"{rel}: pasa intentos_totales=0 literal a "
+                            "estado_inicial_desde_hechos; pasa el conteo real del ledger"
+                        )
     return errores
 
 
@@ -313,7 +391,8 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
     fuentes = {rel: (RAIZ / rel).read_text(encoding="utf-8") for rel in modulos}
     assert _violaciones_chequeo_dueno_unico(fuentes) == []
 
-    # El chequeo muerde sobre muestras reales del codigo anterior (antes de migrar).
+    # El chequeo muerde sobre muestras reales del codigo anterior (antes de migrar
+    # y de los dos defectos de integracion de la 7a pasada de Astra).
     violaciones = _violaciones_chequeo_dueno_unico(
         {
             "app/apply_cola_ejecuta.py": (
@@ -321,6 +400,15 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
                 "    'SELECT 1 FROM apply_attempt GROUP BY 1 HAVING count(*) >= 3'\n"
                 ")\n"
                 "RESULTADO_PAUSADA_TRAS_HABILITAR = 'omitida:pausada_tras_habilitar'\n"
+                "def _mal(tr): return tr.estado_siguiente\n"
+            ),
+            "app/apply_reversa.py": (
+                "estado_inicial_desde_hechos(\n"
+                "    en_vuelo_ajeno=False,\n"
+                "    tiene_intento_abierto=False,\n"
+                "    resultado_terminal=None,\n"
+                "    intentos_totales=0,\n"
+                ")\n"
             ),
             "app/apply_store.py": (
                 "STATUS_IDENTIDAD_RECHAZADA = frozenset({401, 403})\n"
@@ -329,4 +417,4 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
             ),
         }
     )
-    assert len(violaciones) == 6
+    assert len(violaciones) == 8
