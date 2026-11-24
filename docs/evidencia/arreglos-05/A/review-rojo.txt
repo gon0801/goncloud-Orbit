@@ -104,6 +104,11 @@ test_arreglos05_a_reversa_manual_resuelve_intento_abierto_sin_reenviar_put
 test_arreglos05_a_reversa_incierta_no_deshace_pausa_manual_posterior
   AssertionError: no debe deshacer la pausa manual del dueno (assert 2 == 1)
 
+# Septima pasada (Devin): rojo contra 589b9e20:
+test_arreglos05_a_reversa_manual_concurrente_no_cierra_put_automatico_en_vuelo
+  AssertionError: confirmada True != False (y apply_attempt_solo_sella_resultado aborto apply)
+
+
 
 
 
