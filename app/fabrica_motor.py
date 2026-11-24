@@ -27,7 +27,7 @@ if TYPE_CHECKING:  # solo anotaciones: el transporte HTTP lo pone el cliente
 from app import fabrica_plan as fp
 from app import fabrica_registro
 from app.ads import sp_wire
-from app.ads.client import DEFAULT_BASE_URL, AdsApiError, AdsClient
+from app.ads.client import DEFAULT_BASE_URL, AdsApiError, AdsAuthError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles
 from app.ads.write import MODO_CONFIRMADO_LIVE, AdsWriteClient
@@ -556,6 +556,12 @@ def mutar(
         )
         _log("perfiles", perfiles=perfiles)
         escritor = _escritor(cred, plan.platform, perfiles[plan.platform])
+        # El token se pide ANTES de registrar el lote: si LWA rechaza, no queda
+        # un lote que impida repetir la misma huella (revision P1 de #759).
+        try:
+            escritor.autenticar()
+        except AdsAuthError as exc:
+            raise Abortar(f"LWA rechazo el token del escritor: {exc}") from exc
         assert go is not None
         _inserta_lote(conn_admin, lote, plan, huella, go)
         ctx = _Ctx(
@@ -667,22 +673,30 @@ def _mutar(
 
 
 def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
-    """PUT de estado por el cliente protegido; el ACK vuelve canonico.
+    """PUT de estado por el cliente protegido; SIEMPRE vuelve un ACK canonico.
 
     Un 5xx o una respuesta perdida pudieron APLICAR: no se sigue como si no
-    (mismo criterio que el POST de creacion, sellado 8). El rechazo
-    deterministico (4xx) vuelve como ACK para que el llamador lo selle.
+    (mismo criterio que el POST de creacion, sellado 8), pero el ACK incierto
+    viaja al llamador para que lo selle con el `external_id` que ya conoce y la
+    conciliacion del lote lo pueda leer. Nunca levanta: un fallo de una campana
+    no frena las demas pausas del mismo lote (revision P1 de #759).
     """
     try:
         resp = ctx.escritor.cambiar_estado_campana(external, estado)
     except AdsApiError as exc:
-        ack = sp_wire.ack_de_error(exc)
-        if ack["status"] == sp_wire.ACK_SIN_RESPUESTA or ack["status"] in _HTTP_INCERTO:
-            raise Abortar(
-                f"PUT {estado} de {external} INCERTO (status {ack['status']}): pudo aplicarse"
-            ) from exc
-        return ack
+        return sp_wire.ack_de_error(exc)
     return sp_wire.ack_de(resp)
+
+
+def _motivo_put_fallido(ack: dict, external: str, nuevo: str) -> str:
+    """Motivo del sello: INCERTO cuando el PUT pudo aplicarse, rechazo si no."""
+    status = ack.get("status")
+    if status == sp_wire.ACK_SIN_RESPUESTA or status in _HTTP_INCERTO:
+        return (
+            f"PUT {nuevo} de {external} INCERTO (status {status}): pudo aplicarse;"
+            " el paso queda failed con su ID y su ack"
+        )
+    return f"PUT {nuevo} de {external} rechazado (status {status})"
 
 
 def _put_y_readback_estado(ctx: _Ctx, external: str, nuevo: str) -> tuple[dict, str | None, bool]:
@@ -713,16 +727,13 @@ def _aplica_estado_campana_con_ledger(
     """
     paso = fp.Paso(rol, "campaign", "/sp/campaigns", {}, descripcion)
     paso_id = _inserta_paso(ctx, paso, {"campaignId": str(external), "state": nuevo})
-    try:
-        ack = _put_estado_campana(ctx, external, nuevo)
-    except Abortar:
-        _sella_paso(ctx, paso_id, False, external, {}, None)
-        raise
+    ack = _put_estado_campana(ctx, external, nuevo)
     if not ack_ok(ack):
         _sella_paso(ctx, paso_id, False, external, ack, None)
+        motivo = _motivo_put_fallido(ack, external, nuevo)
         if log_ack:
-            _log("lote_detenido", lote=ctx.lote, motivo=f"PUT {nuevo} de {rol} rechazado")
-        raise Abortar(f"PUT {nuevo} de {external} ({rol}) rechazado (status {ack.get('status')})")
+            _log("lote_detenido", lote=ctx.lote, motivo=motivo)
+        raise Abortar(motivo)
     try:
         time.sleep(0.3)
         leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)

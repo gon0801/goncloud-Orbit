@@ -154,6 +154,7 @@ METODOS_PUBLICOS = {
     "ajustar_campana",
     "cambiar_estado_campana",
     "cambiar_estado_product_ad",
+    "autenticar",
     "close",
     "get_sellado",
     "list_sellado",

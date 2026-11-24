@@ -466,6 +466,106 @@ def test_arreglos05_d_fabrica_reactiva_por_el_cliente_protegido():
     assert len(_sellos(conn, "applied")) == 1
 
 
+class _ConnPausaHuerfanas:
+    """Conexion enlatada para `pausa_huerfanas`: filas del lote + escrituras."""
+
+    def __init__(self, filas):
+        self.filas = list(filas)
+        self.escrituras = []
+        self.commits = 0
+
+    def execute(self, sql, params=None):
+        plano = " ".join(str(sql).split())
+        bajo = plano.lower()
+        if bajo.startswith("select platform::text from fabrica_lote"):
+            return _Cursor([("amazon_mx",)])
+        if bajo.startswith("select coalesce(max(orden)"):
+            return _Cursor([(0,)])
+        if bajo.startswith("select distinct p.rol"):
+            return _Cursor(self.filas)
+        if bajo.startswith(("insert", "update", "delete")):
+            self.escrituras.append((plano, params))
+            if "insert into fabrica_lote_paso" in bajo:
+                return _Cursor([(len(self.escrituras),)])
+            return _Cursor([])
+        raise AssertionError(f"SQL inesperado: {plano[:120]}")
+
+    def commit(self):
+        self.commits += 1
+
+
+def test_arreglos05_d_fabrica_pausa_huerfanas_sigue_tras_un_503():
+    """Un 5xx en una campana no frena las demas pausas del lote.
+
+    El paso de la que fallo queda `failed` CON su external_id y su ACK incierto
+    (la conciliacion lo puede leer); las siguientes se intentan igual y el
+    residuo se informa al final, como antes del cliente protegido."""
+    from app import impulso_preview as io
+
+    estados = {"c-1": "ENABLED", "c-2": "ENABLED"}
+    pedidos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        pedidos.append(request)
+        if request.url.path.endswith("/list"):
+            pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            return httpx.Response(
+                200, json={"campaigns": [{"campaignId": pedido, "state": estados[pedido]}]}
+            )
+        assert request.method == "PUT" and request.url.path == "/sp/campaigns"
+        campana = json.loads(request.content)["campaigns"][0]
+        if campana["campaignId"] == "c-1":
+            return httpx.Response(503, json={"code": "503"})
+        estados[campana["campaignId"]] = campana["state"]
+        return httpx.Response(207, json={"campaigns": {"success": [{}], "error": []}})
+
+    conn = _ConnPausaHuerfanas([("exact", "c-1"), ("auto", "c-2")])
+    pausador = io.PausadorFabrica(conn)
+    pausador._armado = (CRC, _Lector(handler), {"amazon_mx": 101})
+    pausador._ctxs["amazon_mx"] = fm._Ctx(_escritor(handler), _Lector(handler), 101, conn, "L1")
+    with pytest.raises(Exception, match="c-1"):
+        pausador.pausa_huerfanas("L1")
+
+    puts = [
+        json.loads(p.content)["campaigns"][0]["campaignId"] for p in pedidos if p.method == "PUT"
+    ]
+    assert puts == ["c-1", "c-2"], "la segunda campana tambien se intenta"
+    sellos = [e for e in conn.escrituras if "fabrica_lote_paso" in e[0].lower()]
+    fallados = [e for e in sellos if "'failed'" in e[0]]
+    aplicados = [e for e in sellos if "'applied'" in e[0]]
+    assert len(fallados) == 1 and len(aplicados) == 1
+    (external, ack, _readback, _paso) = fallados[0][1]
+    assert external == "c-1", "el paso fallido conserva su external_id"
+    assert json.loads(ack)["status"] == 503, "el ACK incierto queda en el ledger"
+
+
+def test_arreglos05_d_fabrica_lwa_rechazado_no_registra_lote(monkeypatch, capsys):
+    """Si LWA rechaza el preflight, no queda un lote que bloquee el reintento."""
+    huella = _huella(monkeypatch, capsys)
+    conn_admin = _ConnFabrica()
+
+    class _AmazonSinToken(_AmazonFabrica):
+        def __call__(self, request):
+            if "auth/o2/token" in str(request.url):
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return super().__call__(request)
+
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, _AmazonSinToken())
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    with pytest.raises(Exception, match="LWA"):
+        fc.main()
+    lotes = [
+        e for e in conn_admin.escrituras if e[0].lower().startswith("insert into fabrica_lote ")
+    ]
+    assert lotes == [], "sin token no se registra el lote: la misma huella se puede repetir"
+
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, _AmazonFabrica())
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    assert fc.main() == 0, "la misma orden se repite cuando LWA vuelve"
+
+
 def test_arreglos05_d_sin_transporte_mutante_propio():
     """Los modulos que escriben ya no tienen POST/PUT/httpx propios."""
     for modulo in (fm, archivar_inertes):
@@ -637,3 +737,47 @@ def test_arreglos05_d_inertes_401_del_cliente_llega_como_rechazo_al_intento(monk
             (fila,),
         ).fetchall()
         assert int(intento[0]["status"]) == 401
+
+
+@_skip_db
+def test_arreglos05_d_reposicion_lwa_rechazado_detiene_la_fase():
+    """Sin token no sale ningun POST: el intento se sella no_aplicado y la fase
+    se detiene antes de abrir el intento de la fila siguiente."""
+    from test_arreglos05_c_reposicion import PERFILES
+
+    from app import apply_estados as est
+
+    with _db("orbit_d_sin_token") as (conn, _extra):
+        fila1, _ext1, _t1 = _semilla(conn, texto="termino uno", externo="vieja-1")
+        fila2, _ext2, _t2 = _semilla(conn, texto="termino dos", externo="vieja-2")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            raise AssertionError(f"no debe salir HTTP de mutacion: {request.url}")
+
+        escritor = AdsWriteClient(
+            CRC,
+            platform="amazon_us",
+            profile_id=PERFILES["amazon_us"],
+            modo_confirmado="live",
+            transport=httpx.MockTransport(handler),
+            sleep=lambda _s: None,
+        )
+        enviar = archivar_inertes._enviar_keyword({"amazon_us": escritor})
+        with pytest.raises(archivar.AbortoFase):
+            archivar.reponer_keyword(
+                conn,
+                lote="lote-c",
+                cliente=object(),
+                perfiles=PERFILES,
+                enviar=enviar,
+                owner="cli-a",
+                ejecutar=True,
+                dormir=lambda _s: None,
+            )
+        intentos = conn.execute(
+            "SELECT archivo_id, resultado FROM keyword_reposicion_intento ORDER BY archivo_id"
+        ).fetchall()
+        assert [i[0] for i in intentos] == [fila1], "la segunda fila ni abre intento"
+        assert intentos[0][1] == est.RESULTADO_NO_APLICADO

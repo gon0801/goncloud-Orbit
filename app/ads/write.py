@@ -724,6 +724,16 @@ class AdsWriteClient(AdsClient):
         que get_sellado: el profile JAMAS viaja a mano — vive en la instancia."""
         return self.list_objects(path, body, profile_id=self._profile_id)
 
+    def autenticar(self) -> None:
+        """Preflight del token LWA, sin enviar ninguna mutacion.
+
+        La fabrica lo llama despues de su ceremonia y ANTES de registrar el
+        lote: si LWA rechaza, no queda un lote fallido que bloquee repetir la
+        misma huella cuando el token vuelva (revision P1 de #759). El token
+        queda cacheado en la instancia para las mutaciones que siguen.
+        """
+        self._ensure_token()
+
     def close(self) -> None:
         """Cierra el cliente HTTP interno (los CLI y el pausador lo usan)."""
         self._client.close()

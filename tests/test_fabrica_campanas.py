@@ -3679,8 +3679,12 @@ def test_r09r5_g9_pausa_a_medias_deja_actor():
 
 
 def test_r09r5_f05_put_timeout_declara_incierto():
-    """R09-r5 B6 (F05, L3b): timeout del PUT de campana: Abortar dice
-    INCERTO (pudo aplicarse), no 'fallo (red'."""
+    """R09-r5 B6 (F05, L3b): timeout del PUT de campana: el sello dice
+    INCERTO (pudo aplicarse), no 'rechazado' ni 'fallo (red'.
+
+    ARREGLOS 05 D: `_put_estado_campana` ya no levanta —devuelve el ack para
+    que el paso conserve su ID y la conciliacion lo lea—, asi que el INCERTO
+    lo declara el dueno del ledger al sellar."""
 
     def _expira(request):
         if request.url.host == "api.amazon.com":
@@ -3695,9 +3699,19 @@ def test_r09r5_f05_put_timeout_declara_incierto():
         transport=httpx.MockTransport(_expira),
         sleep=lambda _s: None,
     )
-    ctx = fm._Ctx(escritor, None, 101, None, "L1")
+    ack = fm._put_estado_campana(fm._Ctx(escritor, None, 101, None, "L1"), "c-1", "PAUSED")
+    assert ack["status"] == "excepcion"
+
+    conn = _ConnFalsa(secuencia=None)
+    ctx = fm._Ctx(escritor, None, 101, conn, "L1")
     with pytest.raises(fd.Abortar, match="INCERTO"):
-        fm._put_estado_campana(ctx, "c-1", "PAUSED")
+        fm._aplica_estado_campana_con_ledger(
+            ctx, "exact", "c-1", "PAUSED", descripcion="pausar", evento_log="cambio_estado"
+        )
+    sellos = [p for s, p in conn.escrituras if "fabrica_lote_paso" in s.lower()]
+    assert len(sellos) == 2, "un INSERT del paso y un UPDATE de sello"
+    (external, ack_json, _readback, _paso) = sellos[1]
+    assert external == "c-1" and json.loads(ack_json)["status"] == "excepcion"
 
 
 def test_arreglos04_w_n_la_terminal_rechaza_un_presupuesto_que_no_cabe(monkeypatch):
