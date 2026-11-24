@@ -2,9 +2,16 @@
 
 Particion de Ola D3b sin cambio de comportamiento:
 - `app.apply_harvest_list`: tipos, `ListaIncompleta`, `_lista_completa`, identidad y acks.
+- `app.apply_harvest_contexto`: resolucion del destino y del bid por defecto
+  (`_contexto`, `_contexto_congelado`, `_goal_del_grupo`), del congelado F2 o
+  del goal fresco (ARREGLOS 05 B, presupuesto de tamano).
 - `app.apply_harvest_reversa`: reversa automatica, parcial, completa y manual.
 - `app.apply_harvest_hermanas`: fase de higiene `hermanas_negadas`.
 - `app.apply_harvest_reconciliacion`: revalidacion PRE-claim y reconciliacion.
+
+ARREGLOS 05 B: la creacion guarda su ACK antes de la lectura de vuelta y el
+intento sigue abierto hasta que esa lectura verifique el ID del ACK con su
+identidad (`evento_de_identidad`, el resolver unico de `app.apply_estados`).
 
 Este modulo mantiene la maquina principal de ejecucion (`aplica_harvest`,
 `_continua_job`, `_paso_negative`, `_paso_keyword`, `_paso_readback`) y
