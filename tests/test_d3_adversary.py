@@ -91,6 +91,8 @@ def test_apagar_goal_detiene_harvest_encolado_en_live():
 @pytest.mark.parametrize("ya_aplicado", [False, True])
 def test_apagar_goal_confirma_negative_aplicado_sin_reintentar_post(ya_aplicado):
     """La reconciliacion lee Amazon, pero no crea un negative en shadow."""
+    from app.apply_store import _SQL_INTENTO_NORMAL_ABIERTO
+
     conn = Mock()
     conn.transaction.side_effect = lambda: nullcontext()
 
@@ -98,6 +100,23 @@ def test_apagar_goal_confirma_negative_aplicado_sin_reintentar_post(ya_aplicado)
         filas = {
             apply_harvest_reconciliacion._SQL_NEGATIVAS_APLICANDO: [(1, 10, "arras", 99)],
             apply_harvest._SQL_EXTERNALES: [("origen", "campana")],
+            # ARREGLOS 05 B: la fila applying trae su intento abierto, nacido
+            # con la evidencia de que la identidad no estaba viva.
+            _SQL_INTENTO_NORMAL_ABIERTO: [
+                (
+                    5,
+                    None,
+                    {
+                        "lectura": "/sp/negativeKeywords/list",
+                        "plataforma": "amazon_mx",
+                        "identidad": {
+                            "adGroupId": "origen",
+                            "keywordText": "arras",
+                            "matchType": "NEGATIVE_EXACT",
+                        },
+                    },
+                )
+            ],
         }[sql]
         return SimpleNamespace(
             fetchall=lambda: filas,
