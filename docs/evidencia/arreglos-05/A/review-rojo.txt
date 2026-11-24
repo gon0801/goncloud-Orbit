@@ -108,6 +108,13 @@ test_arreglos05_a_reversa_incierta_no_deshace_pausa_manual_posterior
 test_arreglos05_a_reversa_manual_concurrente_no_cierra_put_automatico_en_vuelo
   AssertionError: confirmada True != False (y apply_attempt_solo_sella_resultado aborto apply)
 
+# Sexta pasada (Astra): rojo contra 049659ee y 35859807:
+test_arreglos05_a_tercer_horario_preserva_pausa_manual_cuando_otra_hoja_sigue_pendiente
+  AssertionError: assert ['9202', '9204', '9202'] == ['9202', '9204']
+test_arreglos05_a_reversa_respeta_tope_de_tres_y_cuarto_horario_lee_sin_reenviar
+  AssertionError: tope de 3 reversas por pausa: cero 4o PUT (assert 4 == 3)
+
+
 
 
 
