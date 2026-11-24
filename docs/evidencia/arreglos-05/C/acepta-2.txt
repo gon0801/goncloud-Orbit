@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 C. SHA 057f2ab1a36de0a7ac0a9135b6f5b7149a42a95e (parte 2 de 3)
+# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 2 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -8,7 +8,7 @@
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_archiva_inertes.py tests/test_ads_archivar.py
 ........................................................................ [ 93%]
 .....                                                                    [100%]
-77 passed in 13.52s
+77 passed in 13.86s
 resultado=ok
 
 ### [CONTROL] cosecha, reversa manual y aplicador de bids
@@ -23,7 +23,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-217 passed, 1 warning in 242.46s (0:04:02)
+217 passed, 1 warning in 242.95s (0:04:02)
 resultado=ok
 
 # comandos que no pasaron: 0

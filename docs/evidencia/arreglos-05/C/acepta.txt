@@ -1,7 +1,7 @@
-# Acepta de ARREGLOS 05 C. SHA 40eb2bb9eb9d6c95ea7a89d6232c9e75b2c00ada
+# Acepta de ARREGLOS 05 C. SHA 5e8c9b86a212f74e947eb58a4341a92d22d673b9
 # Salida de las tres partes (1, 2 y 3); cada parte trae su propio encabezado.
 
-# Acepta de ARREGLOS 05 C. SHA 057f2ab1a36de0a7ac0a9135b6f5b7149a42a95e (parte 1 de 3)
+# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 1 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -10,44 +10,44 @@
 ### [ACEPTA] C.2: T writes test_11, un solo POST tras ACK y readback fallido
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_11
 .                                                                        [100%]
-1 passed, 8 deselected in 14.14s
+1 passed, 8 deselected in 14.11s
 resultado=ok
 
 ### [ACEPTA] C.1 a C.3: N c, regresiones del bloque (incluye selector del instalador)
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N c
-................                                                         [100%]
+...................                                                      [100%]
 ============================== warnings summary ===============================
 <venv>\Lib\site-packages\fastapi\testclient.py:1
   <venv>\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-16 passed, 6362 deselected, 1 warning in 35.50s
+19 passed, 6373 deselected, 1 warning in 35.63s
 resultado=ok
 
 ### [ACEPTA] C.1: modelo de estados completo (165 casillas), invariantes y clasificadores
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
-........................................................................ [ 42%]
-........................................................................ [ 84%]
-..........................                                               [100%]
-170 passed in 1.91s
+........................................................................ [ 39%]
+........................................................................ [ 79%]
+.....................................                                    [100%]
+181 passed in 1.38s
 resultado=ok
 
 ### [CONTROL] bloque A: regresiones de ciclo
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
 .........................................................                [100%]
-57 passed in 105.67s (0:01:45)
+57 passed in 105.18s (0:01:45)
 resultado=ok
 
 ### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
 ..............................................................ss........ [ 71%]
 .............................                                            [100%]
-99 passed, 2 skipped in 10.68s
+99 passed, 2 skipped in 10.77s
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 C. SHA 057f2ab1a36de0a7ac0a9135b6f5b7149a42a95e (parte 2 de 3)
+# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 2 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -57,7 +57,7 @@ resultado=ok
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_archiva_inertes.py tests/test_ads_archivar.py
 ........................................................................ [ 93%]
 .....                                                                    [100%]
-77 passed in 13.52s
+77 passed in 13.86s
 resultado=ok
 
 ### [CONTROL] cosecha, reversa manual y aplicador de bids
@@ -72,11 +72,11 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-217 passed, 1 warning in 242.46s (0:04:02)
+217 passed, 1 warning in 242.95s (0:04:02)
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 C. SHA 057f2ab1a36de0a7ac0a9135b6f5b7149a42a95e (parte 3 de 3)
+# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 3 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -86,20 +86,20 @@ resultado=ok
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
 ........................................................................ [ 61%]
 .............................................                            [100%]
-117 passed in 23.86s
+117 passed in 23.88s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migraciones de ARREGLOS 05
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
 ...                                                                      [100%]
-3 passed, 47 deselected in 4.98s
+3 passed, 47 deselected in 4.81s
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=d0ed286e6048d38db45abe49006a20f25d2b3cdf..HEAD
-[90m9:41AM[0m [32mINF[0m [1m6 commits scanned.[0m
-[90m9:41AM[0m [32mINF[0m [1mscanned ~165461 bytes (165.46 KB) in 236ms[0m
-[90m9:41AM[0m [32mINF[0m [1mno leaks found[0m
+[90m10:44AM[0m [32mINF[0m [1m10 commits scanned.[0m
+[90m10:44AM[0m [32mINF[0m [1mscanned ~185504 bytes (185.50 KB) in 275ms[0m
+[90m10:44AM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0

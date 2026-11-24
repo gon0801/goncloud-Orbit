@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 C. SHA 057f2ab1a36de0a7ac0a9135b6f5b7149a42a95e (parte 3 de 3)
+# Acepta de ARREGLOS 05 C. SHA 5ff3ac4be708aa163f1d6bc4432c0ae6ecc5db20 (parte 3 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -8,20 +8,20 @@
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
 ........................................................................ [ 61%]
 .............................................                            [100%]
-117 passed in 23.86s
+117 passed in 23.88s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migraciones de ARREGLOS 05
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
 ...                                                                      [100%]
-3 passed, 47 deselected in 4.98s
+3 passed, 47 deselected in 4.81s
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=d0ed286e6048d38db45abe49006a20f25d2b3cdf..HEAD
-[90m9:41AM[0m [32mINF[0m [1m6 commits scanned.[0m
-[90m9:41AM[0m [32mINF[0m [1mscanned ~165461 bytes (165.46 KB) in 236ms[0m
-[90m9:41AM[0m [32mINF[0m [1mno leaks found[0m
+[90m10:44AM[0m [32mINF[0m [1m10 commits scanned.[0m
+[90m10:44AM[0m [32mINF[0m [1mscanned ~185504 bytes (185.50 KB) in 275ms[0m
+[90m10:44AM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0
