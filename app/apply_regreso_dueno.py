@@ -49,7 +49,7 @@ SELECT current_bid FROM v_hoja_activa WHERE hoja_id = %s
 # Sello y destino confirmado del regreso: el `bid` del payload es lo que se
 # envio y cuya lectura de vuelta confirmo (ARREGLOS 05 B).
 _SQL_FIN_REVERSA = """
-SELECT finished_at, request_payload->>'bid' FROM apply_attempt
+SELECT finished_at, request_payload->>'bid', bid_previo FROM apply_attempt
  WHERE decision_id = %s AND tipo = 'reversa' AND resultado = 'ok'
  ORDER BY seq DESC LIMIT 1
 """
@@ -202,7 +202,14 @@ def regreso_del_dueno(
         )
         if resuelta["confirmada"]:
             return _hecho(
-                conn, hoja_id, primera, vigente=vigente, ultimo=ultimo, destino=destino, actor=actor
+                conn,
+                hoja_id,
+                primera,
+                vigente=vigente,
+                ultimo=ultimo,
+                destino=destino,
+                actor=actor,
+                por_lectura=True,
             )
     # Si el vigente ya esta EN el destino o por encima, no se mueve: un regreso
     # nunca baja el bid ni cierra la racha sin mover la puja. Con vigente
@@ -231,15 +238,22 @@ def _hecho(
     ultimo,
     destino,
     actor: str,
+    por_lectura: bool = False,
 ) -> RegresoHecho:
     """El regreso hecho: `bid_ahora` es el bid del intento de reversa que quedo
-    ok, lo que se envio y cuya lectura confirmo (ARREGLOS 05 B)."""
+    ok, lo que se envio y cuya lectura confirmo (ARREGLOS 05 B). Cuando el
+    regreso se confirmo leyendo un envio con respuesta perdida, la ingesta
+    pudo sincronizar ya el destino: `bid_antes` es entonces lo que Amazon
+    mostraba antes del envio, guardado en ese mismo intento."""
     fin = conn.execute(_SQL_FIN_REVERSA, (primera[4],)).fetchone()
     sello = fin[0].isoformat() if fin is not None and fin[0] is not None else None
     confirmado = Decimal(fin[1]) if fin is not None and fin[1] is not None else None
+    antes = vigente if vigente is not None else ultimo[2]
+    if por_lectura and fin is not None and fin[2] is not None:
+        antes = Decimal(fin[2])
     return RegresoHecho(
         hoja_id=hoja_id,
-        bid_antes=vigente if vigente is not None else ultimo[2],
+        bid_antes=antes,
         bid_ahora=confirmado if confirmado is not None else destino,
         moneda=primera[5],
         decision_revertida_id=primera[4],

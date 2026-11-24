@@ -195,7 +195,14 @@ def _confirma_reversa_bid_por_lectura(
         _sella_ledger(
             conn,
             id_attempt,
-            ack={"conciliado": True, "fuente": "readback", "bid": str(previo)},
+            # `sin_envio`: esta fila nace y se sello sin PUT. No es una
+            # escritura de Orbit y no prueba autoria de la puja vigente.
+            ack={
+                "conciliado": True,
+                "fuente": "readback",
+                "bid": str(previo),
+                "sin_envio": True,
+            },
             resultado=RESULTADO_OK,
         )
         _actualiza_cache(conn, decision.ad_entity_id, previo)

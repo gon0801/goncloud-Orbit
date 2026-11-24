@@ -1303,6 +1303,40 @@ def test_arreglos05_b_revertir_la_segunda_de_tres_no_bloquea_la_reversa_de_la_pr
 
 
 @_skip_db
+def test_arreglos05_b_una_reversa_confirmada_sin_envio_no_vuelve_propia_la_puja_del_dueno(
+    monkeypatch,
+):
+    """Tres recortes (1.00, 0.85, 0.70, 0.60). El dueno vuelve a poner 0.85 en
+    Amazon y pide revertir el segundo: Orbit lo confirma leyendo, sin PUT. Al
+    pedir revertir el primero, esa confirmacion no vuelve propia la puja: la
+    ultima escritura real de Orbit fue 0.60 y 0.85 lo puso el dueno."""
+    with _db("orbit_b05_sin_envio") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        amazon = _Amazon(bids={"7201": "1.00"})
+        ap = _aplicador_bid(conn, amazon, ids["ciclo_ejec"])
+        decisiones = []
+        for ciclo, (viejo, nuevo) in zip(
+            [ids["ciclo_dec"], _otro_ciclo_live(conn), _otro_ciclo_live(conn)],
+            [("1.00", "0.85"), ("0.85", "0.70"), ("0.70", "0.60")],
+            strict=True,
+        ):
+            decisiones.append(
+                _decision_bid(conn, ciclo, ids["config"], ids["kw"], old=viejo, new=nuevo)
+            )
+            ap.aplica_bids(apply.bids_del_ciclo(conn, ciclo), escalera_global="live")
+        _red_por(monkeypatch, amazon)
+        puestas = len(amazon.puestas())
+        primera, segunda, _tercera = decisiones
+        amazon.bids["7201"] = "0.85"
+        assert _reversa_bid_api(conn, segunda)["confirmada"] is True
+        assert len(amazon.puestas()) == puestas, "ya esta en el destino: confirma leyendo"
+
+        assert _reversa_bid_api(conn, primera)["confirmada"] is False, "0.85 lo puso el dueno"
+        assert len(amazon.puestas()) == puestas, "cero PUT"
+        assert amazon.bid() == Decimal("0.85")
+
+
+@_skip_db
 def test_arreglos05_b_el_regreso_confirma_por_lectura_un_envio_con_respuesta_perdida(monkeypatch):
     """Amazon aplica el regreso a 1.00 y la respuesta se pierde. La ingesta
     sincroniza ese 1.00 en la cache. El reintento no lo rechaza la guarda:
@@ -1328,7 +1362,9 @@ def test_arreglos05_b_el_regreso_confirma_por_lectura_un_envio_con_respuesta_per
 
         hecho = apply_regreso_dueno.regreso_del_dueno(conn, hoja_id=ids["kw"], actor="dueno")
 
-        assert hecho.bid_ahora == Decimal("1.00")
+        assert (hecho.bid_antes, hecho.bid_ahora) == (Decimal("0.80"), Decimal("1.00")), (
+            "el recibo informa 0.80 -> 1.00 aunque la ingesta ya sincronizara 1.00"
+        )
         assert _pujas_de_reversa(amazon) == [Decimal("1.00")], (
             "un solo PUT: el que perdio respuesta"
         )
