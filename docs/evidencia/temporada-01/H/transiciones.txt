@@ -1,9 +1,13 @@
 # TEMPORADA 01 H.3 — Fechas de las transiciones y sus trabajos de `at`
 
 Servidor: **goncloud** (reloj en UTC). Directorio de los trabajos:
-`/mnt/data/appdata/orbit/recordatorios/`. Reprogramados el **2026-11-22 20:24 UTC**, con el
-encendido definitivo ya hecho (config **63**, las cuatro claves en `live` desde las 20:22): el trabajo
-**52** es el chequeo del primer ciclo en vivo y los **53 a 64** son las 12 transiciones del calendario.
+`/mnt/data/appdata/orbit/recordatorios/`. El **2026-11-22 20:24 UTC**, con el encendido definitivo ya
+hecho (config **63**, las cuatro claves en `live` desde las 20:22), se programó el trabajo **52** (el
+chequeo del primer ciclo en vivo) y los **53 a 64** de seis fechas de transición. El **2026-11-24 05:00
+UTC** se completaron las dos fechas que faltaban con los trabajos **65 a 68**, así que hoy hay **16
+trabajos de transición, 53 a 68**, uno por cada una de las 8 fechas del calendario y por su día
+siguiente. La salida completa de `at -l` y de `at -c 65` a `at -c 68` está en
+`transiciones-at-completas.txt`.
 
 ## Las fechas, calculadas con `temporada.eventos`
 
@@ -35,11 +39,17 @@ Salida completa del motor:
 2027-10-01 entra_alta | Empieza la temporada alta.
 ```
 
-Coincide con el plan: **1 y 2 de enero, 8 y 9 de febrero y 1 y 2 de marzo de 2027**. Las tres
-transiciones que mueven bids o cambian la meta del juicio (`entra_baja`, `restaura`, `entra_alta`)
-vuelven a caer el 1 de mayo, el 1 de julio y el 1 de octubre dentro de esos 12 meses, así que también
-quedan programadas; `sale_alta` (1 dic y 1 may) y `prepara_alta` (10 sep) no están en la lista del plan y
-no se programan.
+Esas son las **8 fechas de transición** que devuelve el motor (`2027-05-01` trae dos eventos el mismo
+día y lleva un solo trabajo). El plan H.3 pide un trabajo a las 10:05 UTC del **día de cada transición
+del calendario y del día siguiente**, y `temporada.eventos` cuenta como transición cada evento que
+devuelve, incluidos `sale_alta` y `prepara_alta`: son las 8 fechas por 2, o sea **16 trabajos**.
+
+Una corrección sobre la lectura anterior. La primera versión de este archivo decía que `sale_alta` (1
+dic y 1 may) y `prepara_alta` (10 sep) no estaban en la lista del plan y no se programaban; eso dejó sin
+trabajo el 2026-12-01 y el 2027-09-10, y sus días siguientes son el 2026-12-02 y el 2027-09-11. El plan
+no excluye esos dos tipos: dice «cada transición del calendario», y `sale_alta` sí cambia algo real (la
+meta de ACoS vuelve a la normal) y `prepara_alta` abre la previa. Los cuatro se programaron el
+2026-11-24 sin tocar los 12 que ya estaban.
 
 ## Los trabajos
 
@@ -49,6 +59,8 @@ hora con ARREGLOS 03 D-E), todos con el mismo `primer-ciclo.sql` y `primer-ciclo
 | Fecha (UTC) | Qué es | Trabajo de `at` |
 | --- | --- | --- |
 | 2026-11-23 10:05 | primer ciclo en vivo (día siguiente al encendido) | 52 |
+| 2026-12-01 10:05 | `sale_alta` | 65 |
+| 2026-12-02 10:05 | día siguiente a `sale_alta` | 66 |
 | 2027-01-01 10:05 | `entra_baja` | 53 |
 | 2027-01-02 10:05 | día siguiente a la entrada | 54 |
 | 2027-02-08 10:05 | `restaura` (regreso) | 55 |
@@ -59,13 +71,15 @@ hora con ARREGLOS 03 D-E), todos con el mismo `primer-ciclo.sql` y `primer-ciclo
 | 2027-05-02 10:05 | día siguiente a la entrada | 60 |
 | 2027-07-01 10:05 | `restaura` (regreso) | 61 |
 | 2027-07-02 10:05 | día siguiente al regreso | 62 |
+| 2027-09-10 10:05 | `prepara_alta` | 67 |
+| 2027-09-11 10:05 | día siguiente a la previa | 68 |
 | 2027-10-01 10:05 | `entra_alta` | 63 |
 | 2027-10-02 10:05 | día siguiente al inicio de la alta | 64 |
 
-Los 13 corren el mismo `.sql` y `.sh` y la racha se calcula sola desde la config 63, así que el número
-del trabajo no depende del id de la config. El 52 es el único que depende del día del encendido: se
-programó el 2026-11-22 a las 20:24 UTC, con las claves ya en `live`, para el día siguiente a las 10:05
-UTC, después del ciclo de las 09:40.
+Los 16 corren el mismo `.sql` y `.sh` y la racha se calcula sola desde la config 63, así que el número
+del trabajo no depende del id de la config. El 52 dependía del día del encendido: se programó el
+2026-11-22 a las 20:24 UTC, con las claves ya en `live`, para el día siguiente a las 10:05 UTC, después
+del ciclo de las 09:40; ya se ejecutó el 2026-11-23 y por eso no aparece en `at -l`.
 
 El comando, repetido una vez por fecha:
 
@@ -73,14 +87,14 @@ El comando, repetido una vez por fecha:
 TZ=UTC at -M -t AAAAMMDDhhmm -f /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sh
 ```
 
-`atq` devuelve los 13 trabajos (52 a 64) en sus fechas. La copia de `at -c 52` (el primer ciclo en vivo)
+`atq` devuelve los 16 trabajos (53 a 68) en sus fechas. La copia de `at -c 52` (el primer ciclo en vivo)
 y de `at -c 53` (la primera transición), con el script completo que ejecuta cada trabajo, está en
-`at-c.txt`.
+`at-c.txt`; la de los cuatro nuevos (65 a 68) está en `transiciones-at-completas.txt`.
 
 Una nota sobre los números: `at` copia el contenido del script al programar el trabajo. La revisión del
 PR pidió correcciones al `.sh` y al `.sql`, y este bloque agregó el id de la config definitiva (63) a las
 cabeceras, así que los trabajos anteriores (40 a 51) se dieron de baja con `atrm` y se volvieron a
-programar con la versión final: los que quedan vigentes son los 52 a 64.
+programar con la versión final: los que quedan vigentes son los 53 a 68 (el 52 ya corrió).
 
 ## Qué hace el trabajo
 

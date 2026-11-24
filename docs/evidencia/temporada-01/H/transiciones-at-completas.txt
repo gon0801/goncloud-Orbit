@@ -1,0 +1,340 @@
+# TEMPORADA 01 H.3 — los 16 trabajos de `at` de las transiciones, completos
+
+Servidor: **goncloud** (reloj en UTC). Directorio de los trabajos:
+`/mnt/data/appdata/orbit/recordatorios/`. Este archivo completa `transiciones.txt`: ahi estan las 8
+fechas de transicion y sus 16 numeros de trabajo; aqui queda el estado del reloj, el `at -l` antes y
+despues, los comandos de alta y la salida completa de `at -c` de los cuatro trabajos que faltaban.
+
+## El fallo que cierra este archivo
+
+El calendario de `temporada.eventos` sobre la config **63** tiene **8 fechas de transicion** en los 12
+meses siguientes al encendido. El plan H.3 pide un trabajo por fecha y por el dia siguiente, o sea 16.
+En el servidor solo estaban los 12 de las seis fechas que se programaron el 2026-11-22: faltaban
+`2026-12-01`, `2026-12-02`, `2027-09-10` y `2027-09-11`, que son `sale_alta` y `prepara_alta` con su dia
+siguiente. El PR 747 agrego los cuatro (65 a 68) el **2026-11-24 05:00 UTC**.
+
+## Reloj del servidor antes de programar
+
+```
+$ ssh goncloud "date -u"
+Tue Nov 24 05:00:00 AM UTC 2026
+```
+
+## Las 8 fechas, calculadas con el motor (config 63)
+
+Se leyeron las claves guardadas de la config **63** en produccion con `lee_prod.sh` y se pasaron por
+`temporada.desde_settings` y `temporada.eventos` con la ventana del encendido (2026-11-22 a 2027-11-22),
+sin escribir ninguna fecha a mano:
+
+```
+$ echo "select jsonb_build_object('ads_temporada', settings->'ads_temporada', 'ads_temporada_amazon_mx', settings->>'ads_temporada_amazon_mx', 'ads_temporada_amazon_us', settings->>'ads_temporada_amazon_us')::text from config_version where id = 63" | bash docs/evidencia/arreglos-01/lee_prod.sh > settings-63.json
+$ PYTHONPATH=. uv run --frozen --python 3.12 python docs/evidencia/temporada-01/H/fechas.py < settings-63.json
+2026-12-01 sale_alta | La meta de ACoS regresa a la normal.
+2027-01-01 entra_baja | Empieza la temporada baja: Orbit baja todos los bids 30 %.
+2027-02-08 restaura | Empieza la preparación: los bids regresan a como estaban antes de la baja y Orbit reactiva las keywords que pausó durante la baja.
+2027-03-01 entra_alta | Empieza la temporada alta.
+2027-05-01 entra_baja | Empieza la temporada baja: Orbit baja todos los bids 30 %.
+2027-05-01 sale_alta | La meta de ACoS regresa a la normal.
+2027-07-01 restaura | Termina la baja: los bids regresan. Sigue un mes normal.
+2027-09-10 prepara_alta | Empieza la previa de la temporada alta; todavía no cambia nada.
+2027-10-01 entra_alta | Empieza la temporada alta.
+```
+
+Son 8 fechas distintas (`2027-05-01` trae dos eventos el mismo dia y lleva un solo trabajo). La config
+**63** es la vigente: no hay ninguna posterior (`select id from config_version where id >= 63` devuelve
+solo la 63) y no se toco para este arreglo.
+
+## Los `.sh` y `.sql` siguen siendo los de la config 63
+
+El `.sh` y el `.sql` del servidor coinciden byte a byte con los del repo y con el cuerpo que `at` copio
+en los trabajos que ya estaban (por ejemplo el 53):
+
+```
+$ sha256sum docs/evidencia/temporada-01/H/primer-ciclo.sh docs/evidencia/temporada-01/H/primer-ciclo.sql
+a40d7cc27ffb9813e0bf6ede43ac0576169e1a4671eb49ce246d4f7405ba6651 *docs/evidencia/temporada-01/H/primer-ciclo.sh
+a3d8958c6ee1d9051603de2456282ea04492ae6609826ed92f71749f2f752657 *docs/evidencia/temporada-01/H/primer-ciclo.sql
+$ ssh goncloud "sha256sum /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sh /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sql"
+a40d7cc27ffb9813e0bf6ede43ac0576169e1a4671eb49ce246d4f7405ba6651  /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sh
+a3d8958c6ee1d9051603de2456282ea04492ae6609826ed92f71749f2f752657  /mnt/data/appdata/orbit/recordatorios/primer-ciclo.sql
+```
+
+El cuerpo de cada trabajo nuevo, extraido de su `at -c`, da el mismo `sha256` que `primer-ciclo.sh`:
+
+```
+job 65 sha256 a40d7cc27ffb9813e0bf6ede43ac0576169e1a4671eb49ce246d4f7405ba6651
+job 66 sha256 a40d7cc27ffb9813e0bf6ede43ac0576169e1a4671eb49ce246d4f7405ba6651
+job 67 sha256 a40d7cc27ffb9813e0bf6ede43ac0576169e1a4671eb49ce246d4f7405ba6651
+job 68 sha256 a40d7cc27ffb9813e0bf6ede43ac0576169e1a4671eb49ce246d4f7405ba6651
+primer-ciclo.sh sha256 a40d7cc27ffb9813e0bf6ede43ac0576169e1a4671eb49ce246d4f7405ba6651
+```
+
+## `at -l` antes de programar (12 trabajos, faltan los cuatro)
+
+```
+$ ssh goncloud "TZ=UTC at -l"
+63	Fri Oct  1 10:05:00 2027 a root
+64	Sat Oct  2 10:05:00 2027 a root
+56	Tue Feb  9 10:05:00 2027 a root
+59	Sat May  1 10:05:00 2027 a root
+60	Sun May  2 10:05:00 2027 a root
+57	Mon Mar  1 10:05:00 2027 a root
+54	Sat Jan  2 10:05:00 2027 a root
+58	Tue Mar  2 10:05:00 2027 a root
+53	Fri Jan  1 10:05:00 2027 a root
+62	Fri Jul  2 10:05:00 2027 a root
+55	Mon Feb  8 10:05:00 2027 a root
+61	Thu Jul  1 10:05:00 2027 a root
+```
+
+No habia ningun otro trabajo ajeno en la cola; los 12 eran de este bloque. El 52 (el primer ciclo en
+vivo, 2026-11-23 10:05 UTC) ya se habia ejecutado y por eso no aparece.
+
+## Alta de los cuatro
+
+```
+$ ssh goncloud "cd /mnt/data/appdata/orbit/recordatorios && TZ=UTC at -M -t 202612011005 -f primer-ciclo.sh && TZ=UTC at -M -t 202612021005 -f primer-ciclo.sh && TZ=UTC at -M -t 202709101005 -f primer-ciclo.sh && TZ=UTC at -M -t 202709111005 -f primer-ciclo.sh"
+warning: commands will be executed using /bin/sh
+job 65 at Tue Dec  1 10:05:00 2026
+warning: commands will be executed using /bin/sh
+job 66 at Wed Dec  2 10:05:00 2026
+warning: commands will be executed using /bin/sh
+job 67 at Fri Sep 10 10:05:00 2027
+warning: commands will be executed using /bin/sh
+job 68 at Sat Sep 11 10:05:00 2027
+```
+
+## `at -l` despues de programar (16 trabajos de transicion, 53 a 68)
+
+```
+$ ssh goncloud "TZ=UTC at -l | sort -n"
+53	Fri Jan  1 10:05:00 2027 a root
+54	Sat Jan  2 10:05:00 2027 a root
+55	Mon Feb  8 10:05:00 2027 a root
+56	Tue Feb  9 10:05:00 2027 a root
+57	Mon Mar  1 10:05:00 2027 a root
+58	Tue Mar  2 10:05:00 2027 a root
+59	Sat May  1 10:05:00 2027 a root
+60	Sun May  2 10:05:00 2027 a root
+61	Thu Jul  1 10:05:00 2027 a root
+62	Fri Jul  2 10:05:00 2027 a root
+63	Fri Oct  1 10:05:00 2027 a root
+64	Sat Oct  2 10:05:00 2027 a root
+65	Tue Dec  1 10:05:00 2026 a root
+66	Wed Dec  2 10:05:00 2026 a root
+67	Fri Sep 10 10:05:00 2027 a root
+68	Sat Sep 11 10:05:00 2027 a root
+```
+
+## Salida completa de `at -c` de los cuatro trabajos nuevos
+
+Cada bloque trae el envoltorio que arma `at` (entorno del shell de alta) y el cuerpo del script, que es
+el mismo `primer-ciclo.sh` de la config 63.
+
+### at -c 65
+#!/bin/sh
+# atrun uid=0 gid=0
+# mail root -1
+umask 22
+TZ=UTC; export TZ
+PWD=/mnt/data/appdata/orbit/recordatorios; export PWD
+LOGNAME=root; export LOGNAME
+XDG_SESSION_TYPE=tty; export XDG_SESSION_TYPE
+HOME=/root; export HOME
+LANG=en_US.UTF-8; export LANG
+SSH_CONNECTION=10.13.13.4\ 59264\ 10.13.13.1\ 22; export SSH_CONNECTION
+XDG_SESSION_CLASS=user; export XDG_SESSION_CLASS
+USER=root; export USER
+SHLVL=1; export SHLVL
+XDG_SESSION_ID=217934; export XDG_SESSION_ID
+XDG_RUNTIME_DIR=/run/user/0; export XDG_RUNTIME_DIR
+SSH_CLIENT=10.13.13.4\ 59264\ 22; export SSH_CLIENT
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin; export PATH
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus; export DBUS_SESSION_BUS_ADDRESS
+OLDPWD=/root; export OLDPWD
+cd /mnt/data/appdata/orbit/recordatorios || {
+	 echo 'Execution directory inaccessible' >&2
+	 exit 1
+}
+#!/bin/sh
+# TEMPORADA 01 H.3: chequeo de los ciclos de la temporada en vivo. SOLO LECTURA.
+# Lo corre `at` un trabajo por fecha (ver transiciones.txt del repo).
+# Encendido definitivo: config_version 63 (2026-11-22 20:22:47 UTC), la primera con
+# las cuatro claves en live; el primer ciclo en vivo es el del 2026-11-23 09:40 UTC.
+# El .sql abre BEGIN READ ONLY y cierra con ROLLBACK, y psql entra con orbit_read
+# (ese rol solo puede SELECT). Si el chequeo falla, el aviso NO lleva el
+# diagnostico crudo: se queda en primer-ciclo.out, en el servidor.
+D=/mnt/data/appdata/orbit/recordatorios
+if docker exec -i orbit-db-1 psql -U orbit_read -d orbit -v ON_ERROR_STOP=1 -q -tA -F " | " \
+     < $D/primer-ciclo.sql > $D/primer-ciclo.out 2>&1; then
+  estado=$(tail -n 1 $D/primer-ciclo.out)
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>$estado</b>"
+    echo "<pre>"
+    sed -e "s/&/\&amp;/g" -e "s/</\&lt;/g" -e "s/>/\&gt;/g" $D/primer-ciclo.out
+    echo "</pre>"
+  } > $D/primer-ciclo.txt
+else
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>ERROR: el chequeo no corrio; el detalle queda en $D/primer-ciclo.out</b>"
+  } > $D/primer-ciclo.txt
+fi
+python3 $D/envia_recordatorio.py $D/primer-ciclo.txt >> $D/envios.log 2>&1
+
+### at -c 66
+#!/bin/sh
+# atrun uid=0 gid=0
+# mail root -1
+umask 22
+TZ=UTC; export TZ
+PWD=/mnt/data/appdata/orbit/recordatorios; export PWD
+LOGNAME=root; export LOGNAME
+XDG_SESSION_TYPE=tty; export XDG_SESSION_TYPE
+HOME=/root; export HOME
+LANG=en_US.UTF-8; export LANG
+SSH_CONNECTION=10.13.13.4\ 59264\ 10.13.13.1\ 22; export SSH_CONNECTION
+XDG_SESSION_CLASS=user; export XDG_SESSION_CLASS
+USER=root; export USER
+SHLVL=1; export SHLVL
+XDG_SESSION_ID=217934; export XDG_SESSION_ID
+XDG_RUNTIME_DIR=/run/user/0; export XDG_RUNTIME_DIR
+SSH_CLIENT=10.13.13.4\ 59264\ 22; export SSH_CLIENT
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin; export PATH
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus; export DBUS_SESSION_BUS_ADDRESS
+OLDPWD=/root; export OLDPWD
+cd /mnt/data/appdata/orbit/recordatorios || {
+	 echo 'Execution directory inaccessible' >&2
+	 exit 1
+}
+#!/bin/sh
+# TEMPORADA 01 H.3: chequeo de los ciclos de la temporada en vivo. SOLO LECTURA.
+# Lo corre `at` un trabajo por fecha (ver transiciones.txt del repo).
+# Encendido definitivo: config_version 63 (2026-11-22 20:22:47 UTC), la primera con
+# las cuatro claves en live; el primer ciclo en vivo es el del 2026-11-23 09:40 UTC.
+# El .sql abre BEGIN READ ONLY y cierra con ROLLBACK, y psql entra con orbit_read
+# (ese rol solo puede SELECT). Si el chequeo falla, el aviso NO lleva el
+# diagnostico crudo: se queda en primer-ciclo.out, en el servidor.
+D=/mnt/data/appdata/orbit/recordatorios
+if docker exec -i orbit-db-1 psql -U orbit_read -d orbit -v ON_ERROR_STOP=1 -q -tA -F " | " \
+     < $D/primer-ciclo.sql > $D/primer-ciclo.out 2>&1; then
+  estado=$(tail -n 1 $D/primer-ciclo.out)
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>$estado</b>"
+    echo "<pre>"
+    sed -e "s/&/\&amp;/g" -e "s/</\&lt;/g" -e "s/>/\&gt;/g" $D/primer-ciclo.out
+    echo "</pre>"
+  } > $D/primer-ciclo.txt
+else
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>ERROR: el chequeo no corrio; el detalle queda en $D/primer-ciclo.out</b>"
+  } > $D/primer-ciclo.txt
+fi
+python3 $D/envia_recordatorio.py $D/primer-ciclo.txt >> $D/envios.log 2>&1
+
+### at -c 67
+#!/bin/sh
+# atrun uid=0 gid=0
+# mail root -1
+umask 22
+TZ=UTC; export TZ
+PWD=/mnt/data/appdata/orbit/recordatorios; export PWD
+LOGNAME=root; export LOGNAME
+XDG_SESSION_TYPE=tty; export XDG_SESSION_TYPE
+HOME=/root; export HOME
+LANG=en_US.UTF-8; export LANG
+SSH_CONNECTION=10.13.13.4\ 59264\ 10.13.13.1\ 22; export SSH_CONNECTION
+XDG_SESSION_CLASS=user; export XDG_SESSION_CLASS
+USER=root; export USER
+SHLVL=1; export SHLVL
+XDG_SESSION_ID=217934; export XDG_SESSION_ID
+XDG_RUNTIME_DIR=/run/user/0; export XDG_RUNTIME_DIR
+SSH_CLIENT=10.13.13.4\ 59264\ 22; export SSH_CLIENT
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin; export PATH
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus; export DBUS_SESSION_BUS_ADDRESS
+OLDPWD=/root; export OLDPWD
+cd /mnt/data/appdata/orbit/recordatorios || {
+	 echo 'Execution directory inaccessible' >&2
+	 exit 1
+}
+#!/bin/sh
+# TEMPORADA 01 H.3: chequeo de los ciclos de la temporada en vivo. SOLO LECTURA.
+# Lo corre `at` un trabajo por fecha (ver transiciones.txt del repo).
+# Encendido definitivo: config_version 63 (2026-11-22 20:22:47 UTC), la primera con
+# las cuatro claves en live; el primer ciclo en vivo es el del 2026-11-23 09:40 UTC.
+# El .sql abre BEGIN READ ONLY y cierra con ROLLBACK, y psql entra con orbit_read
+# (ese rol solo puede SELECT). Si el chequeo falla, el aviso NO lleva el
+# diagnostico crudo: se queda en primer-ciclo.out, en el servidor.
+D=/mnt/data/appdata/orbit/recordatorios
+if docker exec -i orbit-db-1 psql -U orbit_read -d orbit -v ON_ERROR_STOP=1 -q -tA -F " | " \
+     < $D/primer-ciclo.sql > $D/primer-ciclo.out 2>&1; then
+  estado=$(tail -n 1 $D/primer-ciclo.out)
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>$estado</b>"
+    echo "<pre>"
+    sed -e "s/&/\&amp;/g" -e "s/</\&lt;/g" -e "s/>/\&gt;/g" $D/primer-ciclo.out
+    echo "</pre>"
+  } > $D/primer-ciclo.txt
+else
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>ERROR: el chequeo no corrio; el detalle queda en $D/primer-ciclo.out</b>"
+  } > $D/primer-ciclo.txt
+fi
+python3 $D/envia_recordatorio.py $D/primer-ciclo.txt >> $D/envios.log 2>&1
+
+### at -c 68
+#!/bin/sh
+# atrun uid=0 gid=0
+# mail root -1
+umask 22
+TZ=UTC; export TZ
+PWD=/mnt/data/appdata/orbit/recordatorios; export PWD
+LOGNAME=root; export LOGNAME
+XDG_SESSION_TYPE=tty; export XDG_SESSION_TYPE
+HOME=/root; export HOME
+LANG=en_US.UTF-8; export LANG
+SSH_CONNECTION=10.13.13.4\ 59264\ 10.13.13.1\ 22; export SSH_CONNECTION
+XDG_SESSION_CLASS=user; export XDG_SESSION_CLASS
+USER=root; export USER
+SHLVL=0; export SHLVL
+XDG_SESSION_ID=217934; export XDG_SESSION_ID
+XDG_RUNTIME_DIR=/run/user/0; export XDG_RUNTIME_DIR
+SSH_CLIENT=10.13.13.4\ 59264\ 22; export SSH_CLIENT
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin; export PATH
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus; export DBUS_SESSION_BUS_ADDRESS
+OLDPWD=/root; export OLDPWD
+cd /mnt/data/appdata/orbit/recordatorios || {
+	 echo 'Execution directory inaccessible' >&2
+	 exit 1
+}
+#!/bin/sh
+# TEMPORADA 01 H.3: chequeo de los ciclos de la temporada en vivo. SOLO LECTURA.
+# Lo corre `at` un trabajo por fecha (ver transiciones.txt del repo).
+# Encendido definitivo: config_version 63 (2026-11-22 20:22:47 UTC), la primera con
+# las cuatro claves en live; el primer ciclo en vivo es el del 2026-11-23 09:40 UTC.
+# El .sql abre BEGIN READ ONLY y cierra con ROLLBACK, y psql entra con orbit_read
+# (ese rol solo puede SELECT). Si el chequeo falla, el aviso NO lleva el
+# diagnostico crudo: se queda en primer-ciclo.out, en el servidor.
+D=/mnt/data/appdata/orbit/recordatorios
+if docker exec -i orbit-db-1 psql -U orbit_read -d orbit -v ON_ERROR_STOP=1 -q -tA -F " | " \
+     < $D/primer-ciclo.sql > $D/primer-ciclo.out 2>&1; then
+  estado=$(tail -n 1 $D/primer-ciclo.out)
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>$estado</b>"
+    echo "<pre>"
+    sed -e "s/&/\&amp;/g" -e "s/</\&lt;/g" -e "s/>/\&gt;/g" $D/primer-ciclo.out
+    echo "</pre>"
+  } > $D/primer-ciclo.txt
+else
+  {
+    echo "<b>[Orbit] Temporada en vivo - chequeo del ciclo ($(date -u '+%Y-%m-%d %H:%M') UTC)</b>"
+    echo "<b>ERROR: el chequeo no corrio; el detalle queda en $D/primer-ciclo.out</b>"
+  } > $D/primer-ciclo.txt
+fi
+python3 $D/envia_recordatorio.py $D/primer-ciclo.txt >> $D/envios.log 2>&1
+
