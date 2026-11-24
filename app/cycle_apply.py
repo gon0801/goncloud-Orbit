@@ -17,7 +17,7 @@ import datetime as dt
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 import psycopg
@@ -28,6 +28,7 @@ from app.ads.client import AdsClientError
 from app.ads.config import AdsConfigError, AdsCredentials
 from app.apply import Aplicador, DuenoDelClaimCambio
 from app.apply_cuota import CapSaturado
+from app.apply_estados import AccionCambio
 from app.db import tx_durable
 from app.lock import SQL_OWNER as _SQL_OWNER_LOCK
 from app.optimizer import goals as g
@@ -86,6 +87,7 @@ class _Reconciliacion:
     bids_confirmados: int = 0
     reversas_confirmadas: int = 0
     reversas_pendientes_de_lectura: int = 0
+    reversas_por_queue_id: dict = field(default_factory=dict)
 
 
 def _guard_apply(
@@ -229,7 +231,42 @@ def _fase_reconciliacion(
     cualquier error que no venga de la API, que abortan antes de comprometer
     decisiones en vez de decidir a ciegas."""
     if modo.modo != "live":
-        return _Reconciliacion(aplicador=None, notas={})
+        if not apply_cola.hay_reversas_pause_abiertas(conn, platform):
+            return _Reconciliacion(aplicador=None, notas={})
+        try:
+            fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
+            aplicador_lectura = fabrica(
+                conn,
+                platform=platform,
+                cycle_id_ejecutor=cycle_id_ejecutor,
+                owner=owner,
+                job_key=job_key,
+                tick=guard,
+            )
+            rec_rev = apply_cola.reconcilia_reversas_pause(
+                conn, aplicador_lectura, platform, tick=guard
+            )
+        except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+            conn.rollback()
+            return _Reconciliacion(
+                aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
+            )
+        conn.commit()
+        res_rev = rec_rev.resumen
+        return _Reconciliacion(
+            aplicador=None,
+            notas={
+                "reversas_reconciliadas": {
+                    "confirmadas": res_rev.confirmadas,
+                    "fallidas": res_rev.fallidas,
+                    "omitidas": res_rev.omitidas,
+                    "pendientes_de_lectura": res_rev.pendientes_de_lectura,
+                }
+            },
+            reversas_confirmadas=res_rev.confirmadas,
+            reversas_pendientes_de_lectura=res_rev.pendientes_de_lectura,
+            reversas_por_queue_id=dict(rec_rev.por_queue_id),
+        )
     try:
         fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
         aplicador = fabrica(
@@ -245,24 +282,14 @@ def _fase_reconciliacion(
             aplicador.ciclo_origen = origen
         reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
         confirmados, fallidos = apply.reconcilia_bids(conn, aplicador, platform)
-        excluir_q = (
-            frozenset(
-                int(q)
-                for r in apply_cola.resumes_del_ciclo(conn, origen)
-                if (q := r.inputs.get("queue_id")) is not None
-            )
-            if origen is not None
-            else frozenset()
-        )
-        res_rev = apply_cola.reconcilia_reversas_pause(
-            conn, aplicador, platform, excluir_queue_ids=excluir_q, tick=guard
-        )
+        rec_rev = apply_cola.reconcilia_reversas_pause(conn, aplicador, platform, tick=guard)
     except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
         conn.rollback()
         return _Reconciliacion(
             aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
         )
     conn.commit()
+    res_rev = rec_rev.resumen
     notas_rec: dict = {
         "bids_reconciliados": {"confirmados": confirmados, "fallidos": fallidos},
         "pausas_reconciliadas": {
@@ -288,6 +315,7 @@ def _fase_reconciliacion(
         bids_confirmados=confirmados,
         reversas_confirmadas=res_rev.confirmadas,
         reversas_pendientes_de_lectura=res_rev.pendientes_de_lectura,
+        reversas_por_queue_id=dict(rec_rev.por_queue_id),
     )
 
 
@@ -404,18 +432,36 @@ def _fase_apply(
             if res_cola.revalidaciones_economicas:
                 notas["revalidaciones_economicas"] = res_cola.revalidaciones_economicas
 
+            resumes_origen = apply_cola.resumes_del_ciclo(conn, origen)
             res_react = apply_cola.aplica_reactivaciones(
-                conn, aplicador, apply_cola.resumes_del_ciclo(conn, origen), tick=guard
+                conn,
+                aplicador,
+                resumes_origen,
+                tick=guard,
+                reconciliadas_en_corrida=reconciliacion.reversas_por_queue_id,
             )
             caps_saturados += res_react.caps_saturados
+            qids_origen = {
+                int(q) for r in resumes_origen if (q := r.inputs.get("queue_id")) is not None
+            }
+            extras_confirmadas = sum(
+                1
+                for qid, tr in reconciliacion.reversas_por_queue_id.items()
+                if qid not in qids_origen
+                and tr is not None
+                and tr.accion == AccionCambio.SELLAR_APLICADO
+            )
+            extras_pendientes = sum(
+                1
+                for qid, tr in reconciliacion.reversas_por_queue_id.items()
+                if qid not in qids_origen and (tr is None or tr.origen_incompleto)
+            )
             notas["reactivaciones"] = {
                 "confirmadas": res_react.confirmadas,
                 "fallidas": res_react.fallidas,
                 "sin_quota": res_react.sin_quota,
                 "omitidas": res_react.omitidas,
-                "pendientes_de_lectura": (
-                    res_react.pendientes_de_lectura + reconciliacion.reversas_pendientes_de_lectura
-                ),
+                "pendientes_de_lectura": res_react.pendientes_de_lectura + extras_pendientes,
             }
             total = (
                 res_bids.aplicadas
@@ -425,7 +471,7 @@ def _fase_apply(
                 + reconciliacion.negativas_confirmadas
                 + reconciliacion.pausas_confirmadas
                 + reconciliacion.bids_confirmados
-                + reconciliacion.reversas_confirmadas
+                + extras_confirmadas
             )
             with conn.transaction():
                 conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))

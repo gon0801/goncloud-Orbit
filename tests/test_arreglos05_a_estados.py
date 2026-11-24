@@ -130,11 +130,18 @@ def test_arreglos05_a_tabla_casilla_accion_y_estado_siguiente(
 
 def test_arreglos05_a_invariantes_globales_de_la_tabla():
     """Los cinco invariantes del bloque A valen sobre TODAS las casillas de la tabla."""
-    # 1. Lo incierto se lee antes de reenviar: ninguna casilla de INCIERTO envia.
+    # 1. Lo incierto se lee antes de reenviar: ninguna casilla de INCIERTO envia,
+    #    y ninguna casilla con intento abierto que no lo sella puede dejar el
+    #    origen completo (`origen_incompleto` obligatorio cuando `sella_intento` es False).
     for ev in EventoCambio:
         tr = decidir(E.INCIERTO, ev)
         assert tr.accion != A.ENVIAR, f"INCIERTO + {ev} no puede enviar"
+        if not tr.sella_intento:
+            assert tr.origen_incompleto is True, (
+                f"INCIERTO + {ev} sin sellar no puede dejar origen_incompleto=False"
+            )
     assert decidir(E.INCIERTO, V.NUEVO_HORARIO).accion == A.LEER_RESULTADO
+    assert decidir(E.INCIERTO, V.INTENTOS_AGOTADOS).accion == A.LEER_RESULTADO
     tr_5xx = decidir(E.INCIERTO, V.ERROR_5XX_O_RED)
     assert (tr_5xx.accion, tr_5xx.origen_incompleto, tr_5xx.sella_intento) == (
         A.MANTENER_INCIERTO,
@@ -332,6 +339,13 @@ def _violaciones_chequeo_dueno_unico(fuentes: dict[str, str]) -> list[str]:
                 f"{rel}: decision SQL con HAVING prohibida; "
                 "deriva el estado desde hechos con app.apply_estados"
             )
+        if rel in ("app/apply_cola_ejecuta.py", "app/cycle_apply.py") and (
+            "excluir_queue_ids" in texto
+        ):
+            errores.append(
+                f"{rel}: exclusion condicional `excluir_queue_ids` prohibida; "
+                "reconcilia_reversas_pause lee todo intento abierto de forma incondicional"
+            )
         arbol = ast.parse(texto)
         for nodo in ast.walk(arbol):
             if isinstance(nodo, ast.Assign):
@@ -347,6 +361,23 @@ def _violaciones_chequeo_dueno_unico(fuentes: dict[str, str]) -> list[str]:
                 errores.append(
                     f"{rel}: redefine es_rechazo_de_identidad; usa app.apply_estados.decidir"
                 )
+            elif (
+                isinstance(nodo, ast.FunctionDef)
+                and rel == "app/apply_cola_ejecuta.py"
+                and nodo.name == "aplica_reactivaciones"
+            ):
+                for stmt in nodo.body:
+                    if isinstance(stmt, ast.For):
+                        break
+                    if isinstance(stmt, ast.If) and any(
+                        isinstance(sub, ast.Return) for sub in ast.walk(stmt)
+                    ):
+                        test_src = ast.unparse(stmt.test)
+                        if "temporada." in test_src or test_src == "config is None":
+                            errores.append(
+                                f"{rel}: aplica_reactivaciones retorna por apagador de "
+                                "temporada antes de leer intentos abiertos"
+                            )
             elif isinstance(nodo, ast.Attribute) and nodo.attr == "estado_siguiente":
                 errores.append(
                     f"{rel}: ramifica por .estado_siguiente; los llamadores actuan solo "
@@ -396,13 +427,14 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
         "app/apply_harvest_reconciliacion.py",
         "app/apply_reconcilia.py",
         "app/apply_store.py",
+        "app/cycle_apply.py",
         "app/temporada_io.py",
     ]
     fuentes = {rel: (RAIZ / rel).read_text(encoding="utf-8") for rel in modulos}
     assert _violaciones_chequeo_dueno_unico(fuentes) == []
 
     # El chequeo muerde sobre muestras reales del codigo anterior (antes de migrar
-    # y de los dos defectos de integracion de la 7a pasada de Astra).
+    # y de los defectos de integracion de la 7a a 9a pasada de Astra).
     violaciones = _violaciones_chequeo_dueno_unico(
         {
             "app/apply_cola_ejecuta.py": (
@@ -412,7 +444,13 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
                 "RESULTADO_PAUSADA_TRAS_HABILITAR = 'omitida:pausada_tras_habilitar'\n"
                 "def _mal(tr, estado):\n"
                 "    return (tr.estado_siguiente, estado == apply.ESTADO_WIRE_ENABLED)\n"
+                "def aplica_reactivaciones(decisiones):\n"
+                "    if temporada.modo_desde_settings({}, 'us') != 'live':\n"
+                "        return []\n"
+                "    for d in decisiones:\n"
+                "        pass\n"
             ),
+            "app/cycle_apply.py": "x = {'excluir_queue_ids': set()}\n",
             "app/apply_reversa.py": (
                 "estado_inicial_desde_hechos(\n"
                 "    en_vuelo_ajeno=False,\n"
@@ -428,4 +466,4 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
             ),
         }
     )
-    assert len(violaciones) == 9
+    assert len(violaciones) == 11

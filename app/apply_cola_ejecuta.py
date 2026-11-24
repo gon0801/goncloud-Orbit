@@ -7,7 +7,7 @@ recibido por parametro o detras de `Aplicador._cliente()`.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -586,30 +586,42 @@ def resuelve_reversa_sin_sello(
     )
 
 
+@dataclass(frozen=True)
+class ReconciliacionReversas:
+    """Resultado de `reconcilia_reversas_pause`: resumen agregado y mapa
+    `queue_id -> Transicion | None` (`None` = error remoto al leer) de cada
+    fila abierta procesada en esta corrida."""
+
+    resumen: ResumenReactivacion = ResumenReactivacion()
+    por_queue_id: Mapping[int, Transicion | None] = ()  # type: ignore[assignment]
+
+
+def hay_reversas_pause_abiertas(conn: psycopg.Connection, platform: str) -> bool:
+    """True si existe al menos una reversa `pause` con intento abierto (solo SQL)."""
+    return conn.execute(_SQL_REVERSAS_PAUSE_ABIERTAS, (platform,)).fetchone() is not None
+
+
 def reconcilia_reversas_pause(
     conn: psycopg.Connection,
     aplicador: Aplicador,
     platform: str,
     *,
-    excluir_queue_ids: frozenset[int] = frozenset(),
     tick=None,
-) -> ResumenReactivacion:
-    """Concilia por LECTURA toda reversa `pause` con intento abierto en el
-    ledger, independientemente de la fecha, el tope de intentos o la
-    elegibilidad para un nuevo PUT (ARREGLOS 05 A, 8a pasada de Astra).
+) -> ReconciliacionReversas:
+    """Concilia por LECTURA de forma incondicional toda reversa `pause` con
+    intento abierto en el ledger, independientemente del origen, del dia, del
+    tope de intentos o de cualquier apagador (temporada o global) (ARREGLOS 05
+    A, 8a y 9a pasadas de Astra).
 
-    Corre en `_fase_reconciliacion` antes de decidir: un 3er PUT incierto del
-    ultimo horario UTC de ayer se lee y sella hoy sin emitir un 4o PUT ni
-    cobrar cuota. En un ejecutor de recuperacion, `excluir_queue_ids` omite
-    las filas que ya atendera `aplica_reactivaciones` del origen actual."""
+    Corre en `_fase_reconciliacion` antes de decidir: nunca cobra cuota ni
+    envia PUT; solo lee y sella segun `TABLA_TRANSICIONES`."""
     filas = [
-        FilaCola(*f)
-        for f in conn.execute(_SQL_REVERSAS_PAUSE_ABIERTAS, (platform,)).fetchall()
-        if f[0] not in excluir_queue_ids
+        FilaCola(*f) for f in conn.execute(_SQL_REVERSAS_PAUSE_ABIERTAS, (platform,)).fetchall()
     ]
     if not filas:
-        return ResumenReactivacion()
+        return ReconciliacionReversas(resumen=ResumenReactivacion(), por_queue_id={})
     confirmadas = fallidas = omitidas = pendientes_de_lectura = 0
+    por_queue_id: dict[int, Transicion | None] = {}
     for fila in filas:
         apply._tick(tick)
         with candado_reversa_pause(conn, fila.decision_id) as tomado:
@@ -630,24 +642,30 @@ def reconcilia_reversas_pause(
                         raise
                     _rollback_si_abierta(conn)
                     pendientes_de_lectura += 1
+                    por_queue_id[fila.id] = None
                     continue
                 if tr_lectura is not None:
+                    por_queue_id[fila.id] = tr_lectura
                     dc, df, do, dp = _contabiliza_transicion_reactivacion(tr_lectura)
                     confirmadas += dc
                     fallidas += df
                     omitidas += do
                     pendientes_de_lectura += dp
                 continue
+            por_queue_id[fila.id] = transicion
             dc, df, do, dp = _contabiliza_transicion_reactivacion(transicion)
             confirmadas += dc
             fallidas += df
             omitidas += do
             pendientes_de_lectura += dp
-    return ResumenReactivacion(
-        confirmadas=confirmadas,
-        fallidas=fallidas,
-        omitidas=omitidas,
-        pendientes_de_lectura=pendientes_de_lectura,
+    return ReconciliacionReversas(
+        resumen=ResumenReactivacion(
+            confirmadas=confirmadas,
+            fallidas=fallidas,
+            omitidas=omitidas,
+            pendientes_de_lectura=pendientes_de_lectura,
+        ),
+        por_queue_id=por_queue_id,
     )
 
 
@@ -693,12 +711,45 @@ def _elegible_para_put_reactivacion(
     return recuperacion.presupuesto_topado_de(presupuestos.get(entidad[1])) is not True
 
 
+def _contabiliza_ya_reconciliada(tr: Transicion | None) -> tuple[int, int, int, int] | None:
+    """Si la fila ya se reconcilio en `_fase_reconciliacion` de esta misma
+    corrida y NO quedo lista para reenviar (`CONTAR_INTENTO`), devuelve sus
+    deltas sin repetir la lectura; `None` si corresponde continuar a envio."""
+    if tr is None:
+        return (0, 0, 0, 1)
+    if tr.accion == AccionCambio.CONTAR_INTENTO:
+        return None
+    return _contabiliza_transicion_reactivacion(tr)
+
+
+def _contexto_reactivacion(conn: psycopg.Connection, platform: str):
+    """Carga el contexto de elegibilidad para nuevos PUT de reactivacion.
+    Los intentos abiertos se concilian siempre; este contexto solo condiciona ENVIAR."""
+    settings = settings_vigentes(conn)
+    config = (
+        temporada.desde_settings(settings)
+        if temporada.modo_desde_settings(settings, platform) == "live"
+        else None
+    )
+    if config is None:
+        return False, frozenset(), frozenset(), {}
+    topada = temporada.campana_topada_desde_settings(settings)
+    hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+    return (
+        True,
+        config.mantener_pausadas,
+        grupos_con_pausa_producto(conn, platform),
+        presupuestos_campanas_hoy(conn, platform, hoy, topada),
+    )
+
+
 def aplica_reactivaciones(
     conn: psycopg.Connection,
     aplicador: Aplicador,
     decisiones: list[DecisionResume],
     *,
     tick=None,
+    reconciliadas_en_corrida: Mapping[int, Transicion | None] | None = None,
 ) -> ResumenReactivacion:
     """Reactiva (resume) las pausas que el ciclo decidio reactivar consultando
     la tabla unica `app.apply_estados.TABLA_TRANSICIONES`.
@@ -711,29 +762,10 @@ def aplica_reactivaciones(
     if not decisiones:
         return ResumenReactivacion()
     platform = aplicador._platform
-    settings = settings_vigentes(conn)
-    # Los intentos abiertos se concilian por lectura incluso si temporada paso a
-    # shadow/off o quedo sin calendario: el apagador solo impide nuevos envios
-    # (ARREGLOS 05 A, 9a pasada de Astra).
-    config = (
-        temporada.desde_settings(settings)
-        if temporada.modo_desde_settings(settings, platform) == "live"
-        else None
-    )
-    temporada_en_vivo = config is not None
-    if temporada_en_vivo:
-        assert config is not None
-        mantener = config.mantener_pausadas
-        topada = temporada.campana_topada_desde_settings(settings)
-        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
-        grupos_pausa = grupos_con_pausa_producto(conn, platform)
-        presupuestos = presupuestos_campanas_hoy(conn, platform, hoy, topada)
-    else:
-        mantener = frozenset()
-        grupos_pausa = frozenset()
-        presupuestos = {}
+    temporada_en_vivo, mantener, grupos_pausa, presupuestos = _contexto_reactivacion(conn, platform)
     confirmadas = fallidas = sin_quota = omitidas = pendientes_de_lectura = 0
     caps_saturados: list[CapSaturado] = []
+    ya_reconciliadas = reconciliadas_en_corrida or {}
     for decision in decisiones:
         apply._tick(tick)
         queue_id = decision.inputs.get("queue_id")
@@ -741,6 +773,14 @@ def aplica_reactivaciones(
         if fila is None or fila.ad_entity_id != decision.ad_entity_id:
             omitidas += 1
             continue
+        if fila.id in ya_reconciliadas:
+            deltas = _contabiliza_ya_reconciliada(ya_reconciliadas[fila.id])
+            if deltas is not None:
+                confirmadas += deltas[0]
+                fallidas += deltas[1]
+                omitidas += deltas[2]
+                pendientes_de_lectura += deltas[3]
+                continue
         with candado_reversa_pause(conn, fila.decision_id) as tomado:
             hechos = _hechos_reversa(conn, fila.decision_id) if tomado else None
             estado = estado_inicial_desde_hechos(

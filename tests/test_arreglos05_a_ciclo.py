@@ -4348,3 +4348,118 @@ def test_arreglos05_a_reversa_abierta_se_concilia_aunque_temporada_pase_a_shadow
             ciclo.motivo_de_salto(conn, "amazon_us", hoy=ahora.astimezone(dt.UTC).date())
             is not None
         )
+
+
+@_skip_db
+def test_arreglos05_a_reversa_abierta_se_concilia_aunque_global_pase_a_shadow():
+    """Revision de Astra + coordinador (PR #746, 9a pasada): ni siquiera el
+    apagador GLOBAL (`shadow`) impide leer y sellar una reversa abierta. Con
+    una reversa abierta y la escalera global en `shadow`, la conciliacion previa
+    lee por LIST y sella el intento sin emitir PUT ni cobrar cuota."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import _config, _episodio, _pausa_baja, _pausado, estacion_dia
+
+    from app import temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_global_shadow_rev") as (conn, _extra):
+        ids = _semilla_live(conn)
+        hoja = ids["kw_pause"]
+        ahora = _reloj()
+        manana = ahora + dt.timedelta(days=1)
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausa, _q = _pausa_baja(
+            conn,
+            ciclo_id=ciclo_prev,
+            config_id=config_id,
+            hoja=hoja,
+            ahora=ahora,
+            episodio=cerrado,
+        )
+        _pausado(conn, hoja)
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        [pendiente] = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+            (
+                origen,
+                pendiente.ad_entity_id,
+                ahora,
+                config_id,
+                propuesta.data_observed_at,
+                propuesta.window_start,
+                propuesta.window_end,
+                json.dumps(propuesta.inputs),
+            ),
+        )
+
+        estado_remoto = {"9202": "PAUSED"}
+        puts_estado: list[dict] = []
+        lecturas: list[int] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                lecturas.append(1)
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": "9202", "state": estado_remoto["9202"]}]},
+                )
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_estado.append(obj)
+                estado_remoto["9202"] = "ENABLED"
+                return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        # Dia 1 en live: PUT incierto deja intento abierto.
+        h1 = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert h1.ciclo is not None and h1.ciclo.resume_of == origen
+        assert len(puts_estado) == 1
+        cuota_h1 = int(
+            conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0]
+        )
+
+        # Dia 2 con escalera global en shadow: lee y sella la reversa abierta
+        # por LIST sin enviar ningun PUT ni cobrar cuota.
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('global_shadow', %s)",
+            (json.dumps({**settings, "ads_optimizer_mode": "shadow"}),),
+        )
+        dia2 = _atiende(conn, factory=_directa(api), ahora=manana)
+        assert dia2.ciclo is not None and dia2.ciclo.status in ("done", "degraded")
+        assert len(puts_estado) == 1, "global en shadow no envia PUT"
+        assert len(lecturas) == 1, "concilia por LIST la reversa abierta incluso en global shadow"
+        assert (
+            int(conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0])
+            == cuota_h1
+        )
+        assert conn.execute(
+            "SELECT resultado, ack, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa'",
+            (pausa,),
+        ).fetchone() == ("ok", {"conciliado": True}, True)
+        assert (
+            conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (hoja,)
+            ).fetchone()[0]
+            == "ENABLED"
+        )
