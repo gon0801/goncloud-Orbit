@@ -722,7 +722,7 @@ def _reponer(args) -> int:
             return 0
         fallo = _primer_fallo(resultados)
         if fallo is not None:
-            raise Abortar(f"lote {args.reponer} detenido: {fallo}")
+            raise Abortar(f"lote {args.reponer} con fallos: {fallo}")
         _log("reconciliacion_final", lote=args.reponer, repuestas=len(resultados), ok=True)
     return 0
 
@@ -779,7 +779,7 @@ def _revertir(args) -> int:
             return 0
         fallo = _primer_fallo(resultados)
         if fallo is not None:
-            raise Abortar(f"lote {args.revertir_reposicion} detenido: {fallo}")
+            raise Abortar(f"lote {args.revertir_reposicion} con fallos: {fallo}")
         _log(
             "reconciliacion_final",
             lote=args.revertir_reposicion,
