@@ -22,12 +22,8 @@ La auditoria previa de 5adf1be0 no representa el estado actual.
    estructura son P2: se documentan como seguimiento y NO bloquean el cierre.
 8. Tope de 3 rondas totales de revision por PR/bloque (atendiendo ai-review y
    revisor asignado juntos; Devin no cuenta). Al cerrar la ronda 3 sin P0/P1
-   reales abiertos, se registran las notas P2 y se integra. Si sigue vivo un
-   P0/P1 real tras ronda 3, se lanza automaticamente 1 relevo con contexto
-   limpio y el modelo mas fuerte disponible distinto al implementador y al
-   revisor (max 2 rondas, aplicando principle-attack-the-premise); si aun queda
-   un P0/P1 real, se estaciona el PR en Draft para David y el coordinador sigue
-   con el siguiente trabajo independiente.
+   reales abiertos, se registran las notas P2 y se integra; si sigue vivo un
+   P0/P1 real, se escala a David en vez de abrir otra ronda.
 
 Pasa esta revision cuando no quedan bloqueos P0/P1 reales abiertos y las
 comprobaciones aplicables anteriores pasan en el mismo estado integrado.
