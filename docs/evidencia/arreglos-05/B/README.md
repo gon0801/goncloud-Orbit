@@ -14,6 +14,7 @@ de diseno, que no cambia. `B/` no tiene hermana en minusculas.
 | B.1 a B.3 | [rojo.txt](rojo.txt): las regresiones contra el codigo anterior. |
 | B.1 a B.3 | [previa.sql](previa.sql), [previa.sh](previa.sh) y [previa.txt](previa.txt): lectura previa de produccion, solo conteos, fechas y nombres de objetos. |
 | Vecinos | [vecinos.md](vecinos.md): cada grupo, su conteo y su linea base en el padre. |
+| Fase 2 | [despliegue.txt](despliegue.txt), [checklist.txt](checklist.txt) y [prueba-real.txt](prueba-real.txt): ensayo, despliegue, checklist, `N b` sobre el SHA integrado y lectura de solo lectura en produccion. |
 | Modelo | [../A/estados.md](../A/estados.md), seccion «Ampliacion del bloque B». |
 
 ## Entorno de esta PC
