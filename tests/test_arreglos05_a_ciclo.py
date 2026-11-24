@@ -2872,3 +2872,104 @@ def test_arreglos05_a_reversa_abierta_se_sella_aunque_cache_ya_este_enabled():
         ).fetchone()
         assert sello == ("ok", {"conciliado": True}, True), f"intento sin sellar: {sello}"
         assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None
+
+
+@_skip_db
+def test_arreglos05_a_reversa_pause_desplazada_durante_el_list_no_sella_ni_toca_cache():
+    """Revision de Astra del PR #746 (quinta pasada): en la ruta automatica,
+    `reversa_pause` validaba el claim antes del LIST, pero despues del LIST
+    sellaba el intento y actualizaba `ad_entity_state` sin volver a bloquear y
+    validar la fila del claim. Si un sucesor toma el claim con el LIST en vuelo,
+    el ejecutor desplazado no debe sellar ni sobreescribir la cache."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import _config, _episodio, _pausa_baja, _pausado, estacion_dia
+
+    from app import apply_cola, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_reversa_relevo_list") as (conn, extra):
+        ids = _semilla_live(conn)
+        hoja = ids["kw_pause"]
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausa, _q = _pausa_baja(
+            conn,
+            ciclo_id=ciclo_prev,
+            config_id=config_id,
+            hoja=hoja,
+            ahora=ahora,
+            episodio=cerrado,
+        )
+        _pausado(conn, hoja)
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        [pendiente] = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+            (
+                origen,
+                pendiente.ad_entity_id,
+                ahora,
+                config_id,
+                propuesta.data_observed_at,
+                propuesta.window_start,
+                propuesta.window_end,
+                json.dumps(propuesta.inputs),
+            ),
+        )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 1
+
+        puts_estado: list[dict] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_estado.append(obj)
+                return httpx.Response(207, json={"keywords": {"success": [obj]}})
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                # Relevo del claim mientras el LIST de verificacion esta en vuelo.
+                with extra() as conn_sucesor:
+                    conn_sucesor.execute(
+                        "UPDATE ads_optimizer_lock SET owner = 'sucesor' WHERE job_key = %s",
+                        (JOB_KEY,),
+                    )
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": "9202", "state": "ENABLED"}]},
+                )
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        res = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert res.ciclo is not None and res.ciclo.resume_of == origen
+        assert len(puts_estado) == 1
+        notas = json.loads(res.ciclo.notes)["apply"]
+        assert notas.get("apply_abortado_owner") is True, notas
+        assert conn.execute(
+            "SELECT resultado, finished_at FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa'",
+            (pausa,),
+        ).fetchone() == (None, None), "el ejecutor desplazado no sella el intento"
+        assert (
+            conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (hoja,)
+            ).fetchone()[0]
+            == "PAUSED"
+        ), "el ejecutor desplazado no sobreescribe la cache"

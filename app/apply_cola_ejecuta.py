@@ -244,6 +244,7 @@ def reversa_pause(
     *,
     tick=None,
     durable: bool = False,
+    cerca_dueno=None,
 ) -> bool | str:
     """Reversa del pause: reanudar keyword/target, readback y cache con lo leido.
 
@@ -255,7 +256,12 @@ def reversa_pause(
     `durable=True` (TEMPORADA 01 F) confirma el sello con `tx_durable`: en la
     fase de apply la conexion de produccion ya esta en INTRANS y un
     `conn.transaction()` seria un savepoint; un aborto posterior perderia el
-    sello de una habilitacion que Amazon si aplico y el ciclo la repetiria."""
+    sello de una habilitacion que Amazon si aplico y el ciclo la repetiria.
+
+    `cerca_dueno`, si se entrega (ruta automatica), bloquea y valida la fila
+    del claim dentro de la transaccion que sella y actualiza el cache: si un
+    sucesor tomo el claim con el LIST en vuelo, el ejecutor desplazado no sella
+    ni sobreescribe `ad_entity_state`."""
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return False
@@ -271,10 +277,13 @@ def reversa_pause(
         else:
             resp_http = cliente.reanudar_target(identidad[1])
     except apply.AdsApiErrorMutacion as exc:
-        apply._sella_ledger(
-            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-        )
-        conn.commit()
+        cierre = tx_durable(conn) if durable else conn.transaction()
+        with cierre:
+            if cerca_dueno is not None:
+                cerca_dueno()
+            apply._sella_ledger(
+                conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
+            )
         if apply.es_rechazo_de_identidad(exc):
             raise
         return False
@@ -293,6 +302,8 @@ def reversa_pause(
     )
     cierre = tx_durable(conn) if durable else conn.transaction()
     with cierre:
+        if cerca_dueno is not None:
+            cerca_dueno()
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         if estado is not None:
             conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
@@ -486,7 +497,12 @@ def aplica_reactivaciones(
                 caps_saturados.append(evento)
         try:
             reanudada = reversa_pause(
-                conn, _cliente_mutacion(aplicador), fila, tick=tick, durable=True
+                conn,
+                _cliente_mutacion(aplicador),
+                fila,
+                tick=tick,
+                durable=True,
+                cerca_dueno=aplicador.exige_dueno,
             )
         except AdsApiError as exc:
             if apply.es_rechazo_de_identidad(exc):
