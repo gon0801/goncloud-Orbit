@@ -19,24 +19,37 @@ from app.ads.client import AdsApiError
 from app.ads.sp_wire import id_de_ack
 from app.apply_cuota import DecisionBid
 from app.apply_estados import (
+    RESULTADO_NO_APLICADO,
+    RESULTADO_OK,
     TOPE_INTENTOS_CAMBIO,
     AccionCambio,
     EstadoCambio,
     EventoCambio,
+    Transicion,
     decidir,
+    envia_tras_lectura,
     estado_inicial_desde_hechos,
+    evento_desde_lectura_bid,
     transicion_desde_error,
 )
 from app.apply_store import (
     _KINDS_DECISORAS,
+    _ack_del_intento,
     _actualiza_cache,
     _bid_de_readback,
+    _guarda_ack,
     _identidad,
     _json_seguro,
     _ledger,
     _sella_ledger,
+    _sella_resultado,
     _tick,
+    bid_previo_comprobado,
+    estado_de_reversa,
+    hechos_reversa,
+    ultima_escritura_en_la_hoja,
 )
+from app.db import tx_durable
 
 if TYPE_CHECKING:
     from app.ads.write import AdsWriteClient
@@ -89,13 +102,6 @@ _SQL_PLATAFORMA_FILA = """
 SELECT platform::text FROM apply_queue WHERE id = %s
 """
 
-# Ultimo ack normal ok de la decision: unica fuente del negative_id para DELETE.
-_SQL_ACK_OK = """
-SELECT ack FROM apply_attempt
- WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok'
- ORDER BY seq DESC LIMIT 1
-"""
-
 _SQL_REVERSA_OK = """
 SELECT EXISTS (
     SELECT 1 FROM apply_attempt
@@ -109,17 +115,144 @@ def _reversa_ya_hecha(conn: psycopg.Connection, decision_id: int) -> bool:
     return conn.execute(_SQL_REVERSA_OK, (decision_id,)).fetchone()[0]
 
 
+# Fuente unica del negative_id: la confirmacion sellada de la decision. Un ACK
+# remoto trae `negativeKeywordId`; una confirmacion por LIST (ARREGLOS 05 B)
+# declara su fuente y trae el id en `keywordId`. El cuerpo de la API jamas lo
+# acepta.
+_SQL_RESUMEN_ACK = """
+SELECT platform_ack FROM decision_application WHERE decision_id = %s
+"""
+
+
+def _id_del_resumen(ack: object) -> str | None:
+    from app.apply_negative import FUENTE_LIST
+
+    if not isinstance(ack, dict):
+        return None
+    if ack.get("fuente") == FUENTE_LIST:
+        candidato = ack.get("keywordId")
+        if (
+            isinstance(candidato, str | int)
+            and not isinstance(candidato, bool)
+            and str(candidato).strip()
+        ):
+            return str(candidato)
+        return None
+    return id_de_ack(ack, "negativeKeywordId")
+
+
+# Sin resumen sellado, queda el ACK remoto del ultimo intento aplicado.
+_SQL_ACK_APLICADO = """
+SELECT ack FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok' AND ack IS NOT NULL
+ ORDER BY seq DESC LIMIT 1
+"""
+
+
 def _negative_id_del_ledger(conn: psycopg.Connection, decision_id: int) -> str:
-    """Resuelve el negative_id del ack del ultimo intento normal ok del ledger."""
-    fila = conn.execute(_SQL_ACK_OK, (decision_id,)).fetchone()
-    if fila is not None and isinstance(fila[0], dict):
-        negative_id = id_de_ack(fila[0], "negativeKeywordId")
-        if negative_id is not None:
-            return negative_id
+    """El id del negative aplicado de la decision, desde su confirmacion
+    durable: el resumen sellado (el ACK remoto de la creacion o la
+    confirmacion por LIST de un efecto reconciliado) y, sin resumen, el ACK
+    remoto del ultimo intento aplicado (ARREGLOS 05 B). No basta un
+    `resultado`: hace falta un id legible en el ACK."""
+    fila = conn.execute(_SQL_RESUMEN_ACK, (decision_id,)).fetchone()
+    negative_id = _id_del_resumen(fila[0] if fila is not None else None)
+    if negative_id is None:
+        fila = conn.execute(_SQL_ACK_APLICADO, (decision_id,)).fetchone()
+        negative_id = id_de_ack(fila[0], "negativeKeywordId") if fila is not None else None
+    if negative_id is not None:
+        return negative_id
     raise NegativeIdNoResoluble(
-        f"no se resolvio el negative_id de la decision {decision_id} desde el"
-        " ledger (sin intento normal resultado ok con ack legible)"
+        f"no se resolvio el negative_id de la decision {decision_id} desde su"
+        " confirmacion (sin platform_ack con id legible)"
     )
+
+
+def _lee_bid_vivo(cliente: AdsWriteClient, identidad: tuple[str, str]) -> Decimal | None:
+    """El bid que Amazon tiene ahora en la hoja. None = sin lectura legible."""
+    _, path, contenedor, param = _KINDS_DECISORAS[identidad[0]]
+    return _bid_de_readback(cliente, path, contenedor, param, identidad[1])
+
+
+def _confirma_reversa_bid_por_lectura(
+    conn: psycopg.Connection,
+    decision: DecisionBid,
+    identidad: tuple[str, str],
+    payload_bid: Callable[[str, str, Decimal], dict],
+    previo: Decimal,
+) -> bool:
+    """Amazon ya esta en el valor previo: la reversa queda hecha sin enviar
+    nada. La fila nace y se sella en la misma transaccion, con un ack que
+    declara su fuente."""
+    id_attempt = _ledger(
+        conn,
+        decision.id,
+        "reversa",
+        payload_bid(identidad[0], identidad[1], previo),
+        quota_cobrada=False,
+        bid_previo=previo,
+    )
+    if id_attempt is None:
+        return False
+    with tx_durable(conn):
+        _sella_ledger(
+            conn,
+            id_attempt,
+            # `sin_envio`: esta fila nace y se sello sin PUT. No es una
+            # escritura de Orbit y no prueba autoria de la puja vigente.
+            ack={
+                "conciliado": True,
+                "fuente": "readback",
+                "bid": str(previo),
+                "sin_envio": True,
+            },
+            resultado=RESULTADO_OK,
+        )
+        _actualiza_cache(conn, decision.ad_entity_id, previo)
+    return True
+
+
+def _aplica_lectura_reversa_bid(
+    conn: psycopg.Connection,
+    *,
+    intento_id: int,
+    ad_entity_id: int,
+    bid_vivo: Decimal | None,
+    destino: Decimal,
+    escritos: frozenset[Decimal],
+    ack_put: dict | None = None,
+    inmediata: bool = False,
+) -> Transicion:
+    """Camino unico para toda lectura de una reversa de bid: la inmediata
+    tras el PUT y la que resuelve un intento abierto antes de otro envio.
+
+    Clasifica con `evento_desde_lectura_bid`, consulta
+    `decidir(EstadoCambio.INCIERTO, evento)` y, cuando `sella_intento`, sella
+    el ledger y deja en el cache lo leido."""
+    transicion = decidir(
+        EstadoCambio.INCIERTO,
+        evento_desde_lectura_bid(bid_vivo, destino=destino, escritos=escritos),
+    )
+    if not transicion.sella_intento:
+        return transicion
+    if transicion.accion == AccionCambio.SELLAR_APLICADO:
+        resultado = RESULTADO_OK
+        ack = ack_put if ack_put is not None else {"conciliado": True, "fuente": "readback"}
+    elif transicion.accion == AccionCambio.CONTAR_INTENTO and not inmediata:
+        resultado, ack = RESULTADO_NO_APLICADO, ack_put
+    else:
+        resultado, ack = "fallo:divergencia_readback", ack_put
+    with tx_durable(conn):
+        if _ack_del_intento(conn, intento_id) is not None:
+            # El ACK del PUT ya se guardo al quedar pendiente de lectura. El
+            # trigger de 0002 solo admite escribirlo una vez: se conserva y se
+            # sella el resultado.
+            _sella_resultado(conn, intento_id, resultado)
+        else:
+            _sella_ledger(conn, intento_id, ack=ack, resultado=resultado)
+        if bid_vivo is not None:
+            _actualiza_cache(conn, ad_entity_id, bid_vivo)
+    return transicion
 
 
 def reversa_bid(
@@ -131,18 +264,79 @@ def reversa_bid(
     payload_bid: Callable[[str, str, Decimal], dict],
     bid_quantizado: Callable[[Decimal], Decimal],
     error_mutacion_cls: type[Exception],
+    solo_resolver: bool = False,
 ) -> bool:
-    """Reversa del bid: PUT con old_value, ledger tipo 'reversa' exento de quota,
-    readback y sello. No toca decision_application ni applied_count."""
-    if decision.old_value is None or decision.value_currency is None:
-        raise ValueError(
-            f"reversa de bid {decision.id}: exige old_value y value_currency (regla 7)"
+    """Reversa del bid: PUT con el bid que Orbit leyo en Amazon antes del PUT
+    aplicado, ledger tipo 'reversa' exento de quota, readback y sello. No
+    toca decision_application ni applied_count.
+
+    ARREGLOS 05 B. El valor al que se vuelve es `apply_attempt.bid_previo` del
+    intento aplicado. Solo una decision aplicada antes de 0095, sin esa
+    lectura, vuelve a `decision.old_value`, el unico valor registrado.
+    Un intento de reversa abierto se resuelve leyendo antes de otro envio.
+    Antes del PUT se relee la hoja: si el valor vivo no lo escribio Orbit (otra
+    mano lo movio despues), no se envia; si ya esta en el valor previo, se
+    confirma por lectura. El cache queda con LO LEIDO. Con `solo_resolver` solo
+    resuelve por lectura un intento abierto: nunca envia (el regreso del dueno
+    evalua su guarda antes de un envio nuevo)."""
+    if solo_resolver and hechos_reversa(conn, decision.id).intento_abierto_id is None:
+        return False
+    previo = bid_previo_comprobado(conn, decision.id, respaldo=decision.old_value)
+    if previo is None:
+        raise ReversaNoAplicada(
+            f"reversa de bid {decision.id}: sin bid leido antes del PUT ni old_value:"
+            " no hay valor al que volver y no se inventa (regla 3)"
         )
+    if decision.value_currency is None:
+        raise ValueError(f"reversa de bid {decision.id}: exige value_currency (regla 7)")
     identidad = _identidad(conn, decision.ad_entity_id)
     if identidad is None or identidad[0] not in _KINDS_DECISORAS:
         return False
-    payload = payload_bid(identidad[0], identidad[1], decision.old_value)
-    id_attempt = _ledger(conn, decision.id, "reversa", payload, quota_cobrada=False)
+    destino = bid_quantizado(previo)
+    # Solo la ultima escritura confirmada de Orbit en la hoja prueba que la
+    # puja vigente es suya (revision): un importe antiguo suyo que vuelve a la
+    # hoja lo puso otra mano. Si esa ultima escritura cuelga de una decision
+    # anterior a esta, no autoriza: un valor residual tampoco prueba autoria.
+    ultima = ultima_escritura_en_la_hoja(conn, decision.ad_entity_id, decision.id)
+    escritos = frozenset() if ultima is None else {bid_quantizado(ultima)}
+
+    transicion = decidir(estado_de_reversa(conn, decision.id), EventoCambio.NUEVO_HORARIO)
+    if transicion.accion == AccionCambio.LEER_RESULTADO:
+        abierto = hechos_reversa(conn, decision.id).intento_abierto_id
+        if abierto is not None:
+            vivo = _lee_bid_vivo(cliente, identidad)
+            resuelta = _aplica_lectura_reversa_bid(
+                conn,
+                intento_id=abierto,
+                ad_entity_id=decision.ad_entity_id,
+                bid_vivo=None if vivo is None else bid_quantizado(vivo),
+                destino=destino,
+                escritos=escritos,
+            )
+            if resuelta.accion != AccionCambio.CONTAR_INTENTO:
+                return resuelta.accion == AccionCambio.SELLAR_APLICADO
+            if solo_resolver:
+                return False
+        transicion = decidir(estado_de_reversa(conn, decision.id), EventoCambio.NUEVO_HORARIO)
+    if transicion.accion != AccionCambio.ENVIAR:
+        return False
+    vivo = _lee_bid_vivo(cliente, identidad)
+    evento = evento_desde_lectura_bid(
+        None if vivo is None else bid_quantizado(vivo), destino=destino, escritos=escritos
+    )
+    previa = decidir(EstadoCambio.PENDIENTE, evento)
+    if previa.accion == AccionCambio.SELLAR_APLICADO:
+        return _confirma_reversa_bid_por_lectura(conn, decision, identidad, payload_bid, destino)
+    if not envia_tras_lectura(EstadoCambio.PENDIENTE, evento):
+        return False
+    id_attempt = _ledger(
+        conn,
+        decision.id,
+        "reversa",
+        payload_bid(identidad[0], identidad[1], previo),
+        quota_cobrada=False,
+        bid_previo=vivo,
+    )
     if id_attempt is None:
         return False
     conn.commit()
@@ -150,34 +344,54 @@ def reversa_bid(
         _tick(tick)
         if identidad[0] == "keyword":
             resp_http = cliente.actualizar_bid_keyword(
-                identidad[1], decision.old_value, decision.value_currency
+                identidad[1], previo, decision.value_currency
             )
         else:
-            resp_http = cliente.actualizar_bid_target(
-                identidad[1], decision.old_value, decision.value_currency
-            )
+            resp_http = cliente.actualizar_bid_target(identidad[1], previo, decision.value_currency)
     except error_mutacion_cls as exc:
         _sella_ledger(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
+            raise
         return False
     ack = _json_seguro(resp_http)
     _tick(tick)
-    _, path, contenedor, param = _KINDS_DECISORAS[identidad[0]]
-    bid_leido = _bid_de_readback(cliente, path, contenedor, param, identidad[1])
-    esperado = bid_quantizado(decision.old_value)
-    confirmada = bid_leido is not None and bid_leido == esperado
-    resultado = (
-        "ok"
-        if confirmada
-        else ("fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid")
+    bid_leido = _lee_bid_vivo(cliente, identidad)
+    if bid_leido is None:
+        # El PUT ya salio y esta lectura no trae el bid: el efecto pudo
+        # aplicarse y quedaria sin verificar. Se conserva el ACK en el intento
+        # abierto y la proxima llamada lo resuelve leyendo, nunca con otro PUT.
+        # Sellarlo como fallo cerraria el intento y la guarda del regreso
+        # rechazaria la hoja por vigente: la racha se quedaria sin su regreso.
+        with tx_durable(conn):
+            if ack is not None:
+                _guarda_ack(conn, id_attempt, ack)
+        resuelta = _aplica_lectura_reversa_bid(
+            conn,
+            intento_id=id_attempt,
+            ad_entity_id=decision.ad_entity_id,
+            bid_vivo=None,
+            destino=destino,
+            escritos=escritos,
+            ack_put=ack,
+            inmediata=True,
+        )
+        return resuelta.accion == AccionCambio.SELLAR_APLICADO
+    resuelta = _aplica_lectura_reversa_bid(
+        conn,
+        intento_id=id_attempt,
+        ad_entity_id=decision.ad_entity_id,
+        bid_vivo=bid_quantizado(bid_leido),
+        destino=destino,
+        escritos=escritos,
+        ack_put=ack,
+        inmediata=True,
     )
-    with conn.transaction():
-        _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        if bid_leido is not None:
-            _actualiza_cache(conn, decision.ad_entity_id, bid_leido)
-    return confirmada
+    return resuelta.accion == AccionCambio.SELLAR_APLICADO
 
 
 def _confirmada_en_la_frontera_manual(accion) -> bool:
@@ -203,6 +417,7 @@ def reversa_manual(
     decision_id: int | None = None,
     queue_id: int | None = None,
     transport: httpx.BaseTransport | None = None,
+    solo_resolver: bool = False,
     cliente_reversa: Callable[..., AdsWriteClient],
     reversa_bid_fn: Callable[[psycopg.Connection, AdsWriteClient, DecisionBid], bool],
 ) -> dict:
@@ -210,6 +425,8 @@ def reversa_manual(
     y negative. Precondiciones antes de construir cliente o HTTP."""
     from app import apply_cola  # diferido: apply_cola importa apply
 
+    if solo_resolver and tipo != "bid":
+        raise ValueError("solo_resolver solo aplica a la reversa de bid")
     if tipo == "bid":
         if decision_id is None:
             raise ValueError("reversa de bid exige decision_id")
@@ -232,11 +449,22 @@ def reversa_manual(
             value_currency=fila[5],
             inputs=fila[6] or {},
         )
-        if decision.old_value is None or decision.value_currency is None:
+        # ARREGLOS 05 B: la reversa vuelve al bid que Orbit leyo en Amazon antes
+        # del PUT aplicado (o al old_value de la cache, si se aplico antes de
+        # 0095). Sin ningun valor al que volver no se construye el cliente.
+        if bid_previo_comprobado(conn, decision_id, respaldo=fila[3]) is None or fila[5] is None:
             raise ReversaNoAplicada(
-                f"decision {decision_id} sin old_value/moneda: nada que revertir (regla 7)"
+                f"decision {decision_id} sin bid leido antes del PUT ni old_value, o"
+                " sin moneda: no hay valor al que volver (regla 7)"
             )
-        confirmada = reversa_bid_fn(conn, cliente_reversa(fila[7], transport=transport), decision)
+        confirmada = _confirmada_en_la_frontera_manual(
+            lambda: reversa_bid_fn(
+                conn,
+                cliente_reversa(fila[7], transport=transport),
+                decision,
+                solo_resolver=solo_resolver,
+            )
+        )
         return {"tipo": "bid", "decision_id": decision_id, "confirmada": confirmada}
 
     if tipo in ("pause", "negative"):

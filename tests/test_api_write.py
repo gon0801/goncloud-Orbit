@@ -52,7 +52,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
-from app import apply, apply_ajustes, apply_regreso_dueno
+from app import apply, apply_ajustes, apply_cola_ejecuta, apply_regreso_dueno
 from app.ads.config import AdsCredentials
 from app.main import app
 
@@ -145,6 +145,14 @@ SQL93 = (
 ).read_text(encoding="utf-8")
 SQL94 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
+).read_text(encoding="utf-8")
+SQL95 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0095_arreglos05_evidencia_previa.sql"
+).read_text(encoding="utf-8")
+SQL96 = (
+    Path(__file__).resolve().parents[1]
+    / "migrations"
+    / "0096_arreglos05_regreso_destino_efectivo.sql"
 ).read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
@@ -507,6 +515,8 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL67)
         conn.execute(SQL93)
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
+        conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
+        conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
@@ -577,12 +587,30 @@ def _semilla_veto(conn) -> dict:
         ).fetchone()[0]
 
     def encola(dec_id, entidad, kind, term=None) -> int:
+        payload: object = "{}"
+        if kind == "negative":
+            # ARREGLOS 05 B: la fila de un negative trae el payload espejo del
+            # wire (como apply_cola._payload_term); la reversa lee su identidad.
+            grupo_ext, campana_ext = conn.execute(
+                "SELECT g.external_id, c.external_id FROM ad_entity g"
+                " JOIN ad_entity c ON c.id = g.parent_id WHERE g.id = %s",
+                (entidad,),
+            ).fetchone()
+            payload = Json(
+                {
+                    "adGroupId": grupo_ext,
+                    "campaignId": campana_ext,
+                    "keywordText": term,
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
+                }
+            )
         return conn.execute(
             "INSERT INTO apply_queue (platform, ad_entity_id, kind, search_term,"
             " decision_id, modo, estado, vence_el, request_payload)"
             " VALUES ('amazon_us', %s, %s, %s, %s, 'live', 'pending_veto',"
-            " now() + interval '48 hours', '{}'::jsonb) RETURNING id",
-            (entidad, kind, term, dec_id),
+            " now() + interval '48 hours', %s) RETURNING id",
+            (entidad, kind, term, dec_id, payload),
         ).fetchone()[0]
 
     def avanza(q, estado) -> None:
@@ -796,14 +824,18 @@ PERFIL_US_RAW = {
 }
 
 
-def _handler_reversas():
+def _handler_reversas(negativos_vivos: tuple[dict, ...] = ()):
     """Amazon mock del camino completo de reversa_manual con el shape REAL
     del probe 2.5: LWA + /v2/profiles (perfil US aceptado: MISMA resolucion
     del ciclo) + PUT envuelto en el contenedor del recurso (bid NUMERO) +
     readback por POST /list (el GET directo de entidad responde 403) +
-    delete v3 POST /sp/negativeKeywords/delete con filtro de ids."""
+    delete v3 POST /sp/negativeKeywords/delete con filtro de ids.
+
+    ARREGLOS 05 B: la reversa del negative relee su lista antes del DELETE;
+    `negativos_vivos` es lo que Amazon tiene y el delete lo archiva."""
     vistos: list[httpx.Request] = []
     remoto: dict[str, object] = {}
+    negativos: list[dict] = [dict(x) for x in negativos_vivos]
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -813,6 +845,10 @@ def _handler_reversas():
         if metodo == "GET" and path == "/v2/profiles":
             return httpx.Response(200, json=[PERFIL_US_RAW])
         body = json.loads(request.content) if request.content else {}
+        if metodo == "POST" and path == "/sp/negativeKeywords/list":
+            dentro = {str(x) for x in (body.get("adGroupIdFilter") or {}).get("include", [])}
+            filas = [x for x in negativos if not dentro or str(x["adGroupId"]) in dentro]
+            return httpx.Response(200, json={"negativeKeywords": filas, "totalResults": len(filas)})
         if metodo == "POST" and path.endswith("/list"):
             contenedor, campo = (
                 ("targetingClauses", "targetId")
@@ -839,6 +875,9 @@ def _handler_reversas():
             return httpx.Response(207, json={"ack": obj})
         if metodo == "POST" and path == "/sp/negativeKeywords/delete":
             nid = (body.get("negativeKeywordIdFilter") or {}).get("include", [None])[0]
+            for negativo in negativos:
+                if str(negativo["keywordId"]) == str(nid):
+                    negativo["state"] = "ARCHIVED"
             return httpx.Response(
                 207,
                 json={
@@ -942,8 +981,11 @@ def test_reversa_manual_bid_confirmada_y_no_aplicada(tmp_path, monkeypatch):
             " verify_ok, applied_cycle_id) VALUES (%s, now(), %s, true, %s)",
             (dec1, Json({"ok": True}), s["ciclo"]),
         )
-        handler, vistos, _remoto = _handler_reversas()
+        handler, vistos, remoto = _handler_reversas()
         _creds_fake(monkeypatch)
+        # ARREGLOS 05 B: la reversa relee la hoja antes del PUT; Amazon tiene
+        # el bid que Orbit aplico.
+        remoto["7201"] = {"bid": 0.88}
 
         resultado = apply.reversa_manual(
             conn, tipo="bid", decision_id=dec1, transport=httpx.MockTransport(handler)
@@ -974,7 +1016,10 @@ def test_reversa_manual_negative_resuelve_id_del_ledger(tmp_path, monkeypatch):
             " VALUES (%s, 1, 'normal', '{}'::jsonb, true, %s, 'ok', now())",
             (dec, Json({"negativeKeywordId": "n-77"})),
         )
-        handler, vistos, _r = _handler_reversas()
+        # ARREGLOS 05 B: la reversa relee antes del DELETE; el negativo propio
+        # vive en Amazon con la identidad de su fila de cola.
+        payload = apply_cola_ejecuta.fila_cola(conn, q).request_payload
+        handler, vistos, _r = _handler_reversas(({**payload, "keywordId": "n-77"},))
         _creds_fake(monkeypatch)
 
         resultado = apply.reversa_manual(
@@ -1049,7 +1094,10 @@ def test_reversa_negative_por_endpoint_borra_el_id_del_ledger_no_el_del_body(tmp
             " VALUES (%s, 1, 'normal', '{}'::jsonb, true, %s, 'ok', now())",
             (dec, Json({"negativeKeywordId": "n-propio-123"})),
         )
-        handler, vistos, _r = _handler_reversas()
+        # ARREGLOS 05 B: la reversa relee antes del DELETE; el negativo propio
+        # vive en Amazon con la identidad de su fila de cola.
+        payload = apply_cola_ejecuta.fila_cola(conn, q).request_payload
+        handler, vistos, _r = _handler_reversas(({**payload, "keywordId": "n-propio-123"},))
         # El endpoint NO recibe transport (produccion): la puerta de mock del
         # camino REAL es la construccion del cliente (_cliente_reversa).
         from app.ads.write import AdsWriteClient

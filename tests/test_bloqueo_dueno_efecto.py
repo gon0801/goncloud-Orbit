@@ -590,6 +590,8 @@ _MIGRACIONES_EXTRA_DUPLICADO_MOTOR = (
     "0061_bids02_campana_config.sql",
     "0067_bids02_campana_ajuste.sql",
     "0093_temporada01_episodio.sql",
+    # ARREGLOS 05 B: el intento del motor nace con su evidencia previa.
+    "0095_arreglos05_evidencia_previa.sql",
 )
 
 
@@ -602,10 +604,13 @@ def test_duplicado_del_motor_sella_ack_sin_id(monkeypatch):
         _grupo_id, grupo_ext, campana = _grupo(conn, "amazon_mx")
         _cola(conn, _grupo_id, "amazon_mx", "baño")
         fila_id = conn.execute("SELECT id FROM apply_queue").fetchone()[0]
+        # Espejo del wire real (enum UPPER), como lo encola apply_cola.
         payload = {
             "adGroupId": grupo_ext,
             "campaignId": campana,
             "keywordText": "baño",
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
         }
         conn.execute(
             "UPDATE apply_queue SET estado = 'released', request_payload = %s WHERE id = %s",
@@ -621,6 +626,11 @@ def test_duplicado_del_motor_sella_ack_sin_id(monkeypatch):
             vistos.append(request)
             if request.url.host == "api.amazon.com":
                 return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            if request.url.path == "/sp/negativeKeywords/list":
+                # ARREGLOS 05 B: lectura previa completa y vacia (la lista de
+                # Amazon todavia no muestra el duplicado), asi el POST sale y
+                # su rechazo por item se sella como antes.
+                return httpx.Response(200, json={"negativeKeywords": [], "totalResults": 0})
             if request.url.path == "/sp/negativeKeywords" and request.method == "POST":
                 return httpx.Response(
                     207,

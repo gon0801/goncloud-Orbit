@@ -154,3 +154,78 @@ Para cada nivel se demuestra cómo atrapa o impide una clase real de error ya re
 - **Hallazgos reales:** límites declarados que el código por sí solo no explica al operador ni a un mantenedor nuevo (Devin 16: diferencia entre frontera humana `decision_id=None` y corte automático; Devin 14: negativo del origen sin retirar cuando el DELETE compensatorio recibe 401/403; Devin 11: frontera manual devolviendo `confirmada=False` en vez de 500).
 - **Cómo apoya este nivel:** [`docs/APPLY.md`](../../../APPLY.md) §9.2 fija los estados, eventos, acciones, tabla, invariantes y límites del modelo en el contrato permanente del aplicador, y este documento deja trazabilidad completa entre los 40 hallazgos de revisión, su casilla y su prueba.
 - **Por qué solo como respaldo:** la documentación no previene bugs por sí sola; se usa únicamente para explicar las fronteras intencionales una vez que arquitectura, tipos, chequeo y pruebas ya impiden los fallos de la clase.
+
+## Ampliacion del bloque B (ARREGLOS 05 B)
+
+Lo de arriba describe la tabla como quedo al cerrar el bloque A (9 estados por
+12 eventos, 108 casillas) y se conserva como la historia de ese bloque. El
+bloque B ([`../B/resultado.md`](../B/resultado.md)) extendio LA MISMA tabla de
+[`app/apply_estados.py`](../../../../app/apply_estados.py) para modelar lo
+propio frente a lo ajeno y la intervencion manual posterior. Las 108 casillas
+del bloque A no cambiaron.
+
+### Tipos nuevos
+
+| Tipo | Nombre | Significado |
+|---|---|---|
+| Estado | `ajeno` | Terminal y absorbente. El ID propio del ACK no vive y queda exactamente un objeto vivo con su identidad bajo OTRO ID. No se adopta ni se toca. |
+| Estado | `movido_por_dueno` | Terminal y absorbente. El bid vivo no lo escribio Orbit: otra mano lo movio despues. |
+| Evento | `identidad_sustituida` | La lectura completa encontro un ajeno con la identidad del propio. |
+| Evento | `identidad_dudosa` | El ID propio vive con otra identidad, o hay dos o mas vivos con la esperada y ninguno es el propio. |
+| Evento | `cambio_manual_dueno` | El bid vivo no es el destino del cambio ni ningun bid que Orbit escribio en la hoja. |
+
+Con ellos: 11 estados por 15 eventos = 165 casillas. Dos clasificadores puros
+producen los eventos nuevos: `evento_desde_lectura_objeto` (el unico resolver
+de identidad) y `evento_desde_lectura_bid`. `envia_tras_lectura` traduce lo
+leido justo antes de enviar.
+
+### Las 57 casillas nuevas
+
+Banderas como arriba: `I` = `origen_incompleto`, `S` = `sella_intento`, `A` = `propaga_aborto`.
+
+| Evento | `pendiente` | `incierto` | `en_vuelo` | Terminales del bloque A | `ajeno` | `movido_por_dueno` |
+|---|---|---|---|---|---|---|
+| `identidad_sustituida` | `no_tocar` -> `ajeno` (`I`) | `sellar_terminal` -> `ajeno` (`S`) | `no_tocar` -> `en_vuelo` (`I`) | `no_tocar` -> mismo | `no_tocar` -> `ajeno` | `no_tocar` -> `movido_por_dueno` |
+| `identidad_dudosa` | `no_tocar` -> `pendiente` (`I`) | `mantener_incierto` -> `incierto` (`I`) | `no_tocar` -> `en_vuelo` (`I`) | `no_tocar` -> mismo | `no_tocar` -> `ajeno` | `no_tocar` -> `movido_por_dueno` |
+| `cambio_manual_dueno` | `no_tocar` -> `movido_por_dueno` (`I`) | `sellar_terminal` -> `movido_por_dueno` (`S`) | `no_tocar` -> `en_vuelo` (`I`) | `no_tocar` -> mismo | `no_tocar` -> `ajeno` | `no_tocar` -> `movido_por_dueno` |
+
+Y las filas de los dos estados nuevos para los 12 eventos del bloque A:
+`no_tocar` -> mismo estado, salvo `rechazo_identidad` y `dueno_desplazado`,
+que ordenan `abortar_fase` con `I`, sin `S` y con `A`.
+
+### Invariantes nuevos
+
+7. **Lo ajeno nunca se toca:** `ajeno` es absorbente, ninguna casilla con
+   `identidad_sustituida` envia y un intento abierto lo sella como terminal sin
+   confirmarlo. Lo dudoso queda pendiente: nada se sella y el origen sigue
+   incompleto.
+8. **Una puja que otra mano movio no se revierte:** `movido_por_dueno` es
+   absorbente y `cambio_manual_dueno` nunca ordena enviar ni confirmar.
+
+Los dos se recorren sobre toda la tabla en
+`test_arreglos05_a_invariantes_globales_de_la_tabla`.
+
+### Mapa `hallazgo -> casilla` del bloque B
+
+Los seis primeros no vinieron de un revisor: los destaparon las corridas de
+vecinos antes de empujar. Los tres siguientes son los P1 de la primera pasada de
+Astra (Devin duplico dos) y el ultimo, un P1 de Devin sobre la cabeza nueva.
+
+| Hallazgo | Casilla o clasificador | Prueba de regression |
+|---|---|---|
+| La lectura de vuelta de la cosecha trataba "no esta en Amazon" como "dudoso" y dejaba el job pendiente en vez de fallar. | `(PENDIENTE, NO_APLICADO_EN_AMAZON) -> NO_TOCAR -> PENDIENTE`, distinto de `(PENDIENTE, IDENTIDAD_DUDOSA) -> NO_TOCAR`; el llamador ramifica por accion y por evento leido. | `test_apply_harvest.py::test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada` |
+| La conciliacion de negatives hacia lo mismo: no reintentaba. | `(INCIERTO, NO_APLICADO_EN_AMAZON) -> CONTAR_INTENTO`. | `test_apply_harvest.py::test_reconcilia_negative_tope_cuenta_solo_normales_reversa_exenta` |
+| La reversa de bid rechazaba toda historia sin lectura previa y rompia el regreso del dueno. | `bid_previo_comprobado(..., respaldo=old_value)` y `(PENDIENTE, NUEVO_HORARIO) -> ENVIAR`. | `test_apply.py::test_regreso_del_dueno_*` |
+| La reversa de bid exigia que la hoja tuviera el valor de ESA decision, y el regreso revierte la primera de una racha. | `evento_desde_lectura_bid` con `escritos`: cada PUT propio que quedo `ok` y el destino de cada decision aplicada. | `test_arreglos05_a_estados.py::test_arreglos05_a_clasificadores_de_identidad_y_de_puja` |
+| Un apply que divergio dejaba en Amazon un valor que el ledger no guarda. | fuera de `_SQL_BIDS_ESCRITOS`: no es un valor escribible por Orbit. | `test_apply.py::test_divergencia_readback_sella_la_misma_etiqueta_en_apply_y_reversa` |
+| El resolver del `negative_id` no encontraba el id cuando el apply solo estaba en el ledger. | resumen sellado y, sin el, ACK del ultimo intento aplicado. | `test_api_write.py::test_reversa_manual_negative_resuelve_id_del_ledger` |
+| Astra: un job que cerraba fallido dejaba abierto el intento de creacion con su ACK, y la reversa de la 0095 abortaba. | Fuera de la tabla: `_falla_job` es el cierre unico del job y sella sus intentos abiertos en la misma transaccion. | `...cosecha_con_roster_imposible_sella_la_creacion_verificada`, `...cosecha_cerrada_sin_contexto_sella_la_creacion_con_ack`, `...cosecha_cerrada_por_ancestro_sella_la_creacion_con_ack` |
+| Astra: cualquier importe que Orbit hubiera escrito alguna vez en la hoja contaba como suyo. | `evento_desde_lectura_bid` con `escritos` = la ultima escritura confirmada en la hoja, si cuelga de la decision que se revierte o de una posterior; una de una decision anterior no autoriza. | `...un_importe_antiguo_de_orbit_no_autoriza_la_reversa` |
+| Astra: el regreso del dueno y `v_cambio_bid` seguian usando `old_value`. | Fuera de la tabla: `regreso_del_dueno` y la vista (0096) leen el destino efectivo. | `...el_regreso_usa_el_destino_efectivo_en_guarda_respuesta_e_historial`, `...migracion_del_historial_de_regreso_ida_reversa_e_ida` |
+| Devin: una reversa confirmada sin envio contaba como escritura de Orbit, y la ultima escritura se elegia por ID de decision. | `evento_desde_lectura_bid` con `escritos` = la ultima escritura real de Orbit, por hora. | `...una_reversa_confirmada_sin_envio_no_vuelve_propia_la_puja_del_dueno`, `...revertir_la_segunda_de_tres_no_bloquea_la_reversa_de_la_primera` |
+| Astra (pasada 2): la ultima escritura de la hoja de una decision ANTERIOR se omitia y su valor se atribuia a Orbit. | `ultima_escritura_en_la_hoja`: la ultima por hora, descartada cuando cuelga de una decision anterior a la que se revierte. | `...una_reversa_de_decision_anterior_sigue_siendo_la_ultima_escritura` |
+| Astra (pasada 2): un readback sin bid sellaba fallo y cerraba el intento de reversa. | Fuera de la tabla: el intento queda abierto con su ACK y la llamada siguiente lo sella al leer. | `...el_regreso_con_readback_sin_bid_se_resuelve_leyendo` |
+
+El chequeo estructural `_violaciones_chequeo_dueno_unico` cubrio ahora 15
+modulos (sumo `app/apply_negative.py` y `app/apply_harvest_contexto.py`) y
+prohibe fuera de `app/apply_estados.py` el literal `fallo:identidad_`.

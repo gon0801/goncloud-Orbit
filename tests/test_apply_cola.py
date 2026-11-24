@@ -125,6 +125,14 @@ SQL93 = (
 SQL94 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
 ).read_text(encoding="utf-8")
+SQL95 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0095_arreglos05_evidencia_previa.sql"
+).read_text(encoding="utf-8")
+SQL96 = (
+    Path(__file__).resolve().parents[1]
+    / "migrations"
+    / "0096_arreglos05_regreso_destino_efectivo.sql"
+).read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +163,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
+        conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
+        conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
         yield conn
     finally:
         if conn is not None:
@@ -413,6 +423,7 @@ def _handler_cortes(
     get_404: tuple[str, ...] = (),
     ack_negative_sin_id: bool = False,
     delete_rechazado: bool = False,
+    negativos_vivos: tuple[dict, ...] = (),
 ):
     """Handler MockTransport: el readback de estado vivo es el POST de LISTA
     con states del wire UPPER — ENABLED/PAUSED/ARCHIVED (probe 2.5, apply_attempt
@@ -422,8 +433,14 @@ def _handler_cortes(
     actualiza (el REQUEST ya viaja UPPER — sello 2026-08-27). Variante GK3:
     `get_404` hace que el LIST muera 404 (entidad muerta).
     `ack_negative_sin_id` sirve el 207 SIN id en success (CX4/GK6). Cuenta
-    TODOS los requests de la API (el token LWA va a api.amazon.com, fuera)."""
+    TODOS los requests de la API (el token LWA va a api.amazon.com, fuera).
+
+    ARREGLOS 05 B: el corte negative relee la lista de negatives antes del
+    POST y su reversa antes del DELETE, asi que la lista de negatives tiene
+    ruta propia: arranca vacia, recibe lo que el POST crea y archiva lo que
+    el delete retira."""
     remoto = {"7201": "ENABLED", "7202": "ENABLED"} | dict(estados or {})
+    negativos: list[dict] = [dict(x) for x in negativos_vivos]
     vistos: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -431,6 +448,10 @@ def _handler_cortes(
             return httpx.Response(200, json={"access_token": "fake-access-1", "expires_in": 3600})
         vistos.append(request)
         body = json.loads(request.content) if request.content else {}
+        if request.method == "POST" and request.url.path == "/sp/negativeKeywords/list":
+            dentro = {str(x) for x in (body.get("adGroupIdFilter") or {}).get("include", [])}
+            filas = [x for x in negativos if not dentro or str(x["adGroupId"]) in dentro]
+            return httpx.Response(200, json={"negativeKeywords": filas, "totalResults": len(filas)})
         if request.method == "POST" and request.url.path.endswith("/list"):
             if set(get_404) & set(remoto):
                 return httpx.Response(404, json={"message": "not found"})
@@ -454,6 +475,7 @@ def _handler_cortes(
             # apply_attempt 13): el id vive en el primer success.
             if ack_negative_sin_id:
                 return httpx.Response(207, json={"negativeKeywords": {"error": [], "success": []}})
+            negativos.append({**body["negativeKeywords"][0], "keywordId": "n-1"})
             return httpx.Response(
                 207,
                 json={
@@ -478,6 +500,8 @@ def _handler_cortes(
                         }
                     },
                 )
+            for negativo in negativos:
+                negativo["state"] = "ARCHIVED"
             return httpx.Response(
                 207,
                 json={
@@ -1906,7 +1930,21 @@ def test_reversa_negative_con_207_rechazado_no_sella_ok():
             term="zapato blanco",
             payload=_payload_negative("7101", "7001", "zapato blanco"),
         )
-        handler, _v = _handler_cortes(delete_rechazado=True)
+        # ARREGLOS 05 B: la reversa exige un efecto acreditado por el ledger y
+        # vivo en Amazon. Se siembra el apply (ACK con su id) y el objeto.
+        ack = {
+            "negativeKeywords": {
+                "error": [],
+                "success": [{"index": 0, "negativeKeywordId": "n-1"}],
+            }
+        }
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+            " ack, resultado, finished_at) VALUES (%s, 1, 'normal', %s, true, %s, 'ok', now())",
+            (dec, Json(_payload_negative("7101", "7001", "zapato blanco")), Json(ack)),
+        )
+        vivo = {**_payload_negative("7101", "7001", "zapato blanco"), "keywordId": "n-1"}
+        handler, _v = _handler_cortes(delete_rechazado=True, negativos_vivos=(vivo,))
 
         from app.apply_cola import fila_cola
 
@@ -1916,7 +1954,8 @@ def test_reversa_negative_con_207_rechazado_no_sella_ok():
 
         assert ok is False, "un 207 con error[] NO es una reversa confirmada"
         filas = conn.execute(
-            "SELECT tipo, resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+            "SELECT tipo, resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'",
+            (dec,),
         ).fetchall()
         assert filas == [
             (

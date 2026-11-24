@@ -2397,9 +2397,24 @@ def test_arreglos05_a_la_reversa_de_cosecha_propaga_el_rechazo_de_identidad(monk
             search_term="x",
             decision_id=decision,
         )
-        contexto = SimpleNamespace(destino_grupo="g")
+        # ARREGLOS 05 B: la reversa relee antes del primer DELETE y solo borra
+        # lo que el resolver ve vivo con su identidad, asi que la lista trae
+        # el negativo propio vivo. Las aserciones no cambian.
+        contexto = SimpleNamespace(destino_grupo="g", grupo_ext="o")
         aplicador = SimpleNamespace(_cliente=lambda: object())
-        argumentos = {"lista_completa_fn": lambda *_a: [], "reversa_delete_fn": rechaza}
+        propio_vivo = [
+            {
+                "keywordId": "n-1",
+                "adGroupId": "o",
+                "keywordText": "x",
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",
+            }
+        ]
+        argumentos = {
+            "lista_completa_fn": lambda *_a, **_k: propio_vivo,
+            "reversa_delete_fn": rechaza,
+        }
         with pytest.raises(AdsApiErrorMutacion, match="status=403"):
             apply_harvest_reversa._reversa_automatica(
                 conn,

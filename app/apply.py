@@ -103,7 +103,6 @@ from app.apply_reconcilia import (
     reconcilia_bids as _reconcilia_bids_impl,
 )
 from app.apply_reversa import (  # noqa: F401 - re-export estable
-    _SQL_ACK_OK,
     _SQL_DECISION_POR_ID,
     _SQL_PLATAFORMA_FILA,
     _SQL_RESUMEN_APLICADA,
@@ -165,6 +164,10 @@ from app.apply_store import (  # noqa: F401 - re-export estable
     _sella_resultado,
     _tick,
     _ya_aplicada,
+    bid_previo_comprobado,
+    estado_de_reversa,
+    hechos_reversa,
+    intento_normal_abierto,
     perfil_aceptado_de,
 )
 from app.db import tx_durable
@@ -209,6 +212,12 @@ _SQL_DUENO_CERCA = "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s FOR 
 def _bid_quantizado(bid: Decimal) -> Decimal:
     """Decimal quantizado con la MISMA fuente que el wire (`app.ads.write._bid_payload`)."""
     return Decimal(_bid_payload(bid))
+
+
+def bid_del_wire(bid: Decimal) -> Decimal:
+    """El bid como lo recibe Amazon (misma fuente que el envio). Puerta publica
+    para quien compara un valor vigente con el destino de una puja."""
+    return _bid_quantizado(bid)
 
 
 def _payload_bid(kind_entidad: str, external_id: str, bid: Decimal) -> dict:
@@ -478,7 +487,16 @@ class Aplicador:
             # La reserva (cuota y fila del ledger) nace solo del dueno del
             # claim: un owner vencido no deja intencion durable ni gasta cupo.
             _tick(self._tick_fn)
-            id_attempt = _ledger(self._conn, decision.id, "normal", payload, quota_cobrada=True)
+            # ARREGLOS 05 B: el bid leido antes del PUT nace con la fila. Es
+            # el valor al que la reversa vuelve.
+            id_attempt = _ledger(
+                self._conn,
+                decision.id,
+                "normal",
+                payload,
+                quota_cobrada=True,
+                bid_previo=leido,
+            )
             if id_attempt is None:
                 skips.append(MOTIVO_TOPE_INTENTOS)
                 registra_sin_aplicar(
@@ -731,8 +749,10 @@ def reversa_bid(
     decision: DecisionBid,
     *,
     tick: Callable[[], None] | None = None,
+    solo_resolver: bool = False,
 ) -> bool:
-    """Reversa del bid: PUT con old_value, ledger tipo 'reversa', readback y sello."""
+    """Reversa del bid: PUT con el bid leido antes del apply (ARREGLOS 05 B), ledger
+    tipo 'reversa', readback y sello. `solo_resolver` solo lee un intento abierto."""
     return _reversa_bid_impl(
         conn,
         cliente,
@@ -741,6 +761,7 @@ def reversa_bid(
         payload_bid=_payload_bid,
         bid_quantizado=_bid_quantizado,
         error_mutacion_cls=AdsApiErrorMutacion,
+        solo_resolver=solo_resolver,
     )
 
 
@@ -751,6 +772,7 @@ def reversa_manual(
     decision_id: int | None = None,
     queue_id: int | None = None,
     transport: httpx.BaseTransport | None = None,
+    solo_resolver: bool = False,
 ) -> dict:
     """Reversa MANUAL (regla 7, sellado 12): bid, pause o negative."""
     return _reversa_manual_impl(
@@ -759,6 +781,7 @@ def reversa_manual(
         decision_id=decision_id,
         queue_id=queue_id,
         transport=transport,
+        solo_resolver=solo_resolver,
         cliente_reversa=_cliente_reversa,
         reversa_bid_fn=reversa_bid,
     )

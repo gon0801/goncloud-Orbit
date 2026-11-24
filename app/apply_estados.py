@@ -1,4 +1,4 @@
-"""Modelo explicito de estados para cambios enviados a Amazon (ARREGLOS 05 A).
+"""Modelo explicito de estados para cambios enviados a Amazon (ARREGLOS 05 A y B).
 
 Un solo dueno y una sola tabla de datos (`TABLA_TRANSICIONES`) gobiernan que
 hacer ante cada resultado de Amazon, cambio del dueno, tope de intentos o
@@ -15,8 +15,9 @@ capa del motor puede importarlo sin ciclos.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 
 from app.ads.client import AdsApiError
@@ -35,6 +36,16 @@ RESULTADO_OK = "ok"
 RESULTADO_NO_APLICADO = "ok:no_aplicado"
 RESULTADO_PAUSADA_POR_DUENO = "omitida:pausada_tras_habilitar"
 RESULTADOS_TERMINALES_REVERSA = (RESULTADO_OK, RESULTADO_PAUSADA_POR_DUENO)
+# ARREGLOS 05 B: la lectura de vuelta encontro viva otra cosa donde estaba el
+# objeto propio. Prefijo que `estado_inicial_desde_hechos` lee como `AJENO`.
+RESULTADO_IDENTIDAD_SUSTITUIDA = "fallo:identidad_sustituida"
+
+# Estados del WIRE en las listas (sellado por probe 2.5, 2026-08-26). Fuente
+# unica: `apply_store` los re-exporta.
+# ARCHIVED = operativamente muerto: NO confirma entidad viva ni pause verificado.
+ESTADO_WIRE_ENABLED = "ENABLED"
+ESTADO_WIRE_PAUSED = "PAUSED"
+ESTADO_WIRE_ARCHIVED = "ARCHIVED"
 
 
 class EstadoCambio(StrEnum):
@@ -49,6 +60,8 @@ class EstadoCambio(StrEnum):
     ARCHIVADO = "archivado"
     SIN_IDENTIDAD = "sin_identidad"
     TOPE_INTENTOS = "tope_intentos"
+    AJENO = "ajeno"
+    MOVIDO_POR_DUENO = "movido_por_dueno"
 
     @property
     def es_terminal(self) -> bool:
@@ -63,6 +76,8 @@ _ESTADOS_TERMINALES = frozenset(
         EstadoCambio.ARCHIVADO,
         EstadoCambio.SIN_IDENTIDAD,
         EstadoCambio.TOPE_INTENTOS,
+        EstadoCambio.AJENO,
+        EstadoCambio.MOVIDO_POR_DUENO,
     }
 )
 
@@ -82,6 +97,9 @@ class EventoCambio(StrEnum):
     DUENO_DESPLAZADO = "dueno_desplazado"
     INTENTOS_AGOTADOS = "intentos_agotados"
     OPERACION_EN_CURSO = "operacion_en_curso"
+    IDENTIDAD_SUSTITUIDA = "identidad_sustituida"
+    IDENTIDAD_DUDOSA = "identidad_dudosa"
+    CAMBIO_MANUAL_DUENO = "cambio_manual_dueno"
 
 
 class AccionCambio(StrEnum):
@@ -178,6 +196,15 @@ def _construye_tabla() -> Mapping[tuple[EstadoCambio, EventoCambio], Transicion]
         ),
         (E.PENDIENTE, V.INTENTOS_AGOTADOS): T(A.NO_TOCAR, E.TOPE_INTENTOS),
         (E.PENDIENTE, V.OPERACION_EN_CURSO): T(A.NO_TOCAR, E.EN_VUELO, origen_incompleto=True),
+        # ARREGLOS 05 B: antes de enviar se relee. Lo que vive con la identidad
+        # propia bajo OTRO id es ajeno (no se adopta ni se toca); lo que no se
+        # puede atribuir queda pendiente; una puja que otra mano movio no se
+        # revierte.
+        (E.PENDIENTE, V.IDENTIDAD_SUSTITUIDA): T(A.NO_TOCAR, E.AJENO, origen_incompleto=True),
+        (E.PENDIENTE, V.IDENTIDAD_DUDOSA): T(A.NO_TOCAR, E.PENDIENTE, origen_incompleto=True),
+        (E.PENDIENTE, V.CAMBIO_MANUAL_DUENO): T(
+            A.NO_TOCAR, E.MOVIDO_POR_DUENO, origen_incompleto=True
+        ),
         # --- INCIERTO: intento abierto sin sello; exige lectura antes de reenviar ---
         (E.INCIERTO, V.NUEVO_HORARIO): T(A.LEER_RESULTADO, E.INCIERTO, origen_incompleto=True),
         (E.INCIERTO, V.OK_CONFIRMADO): T(A.SELLAR_APLICADO, E.APLICADO, sella_intento=True),
@@ -211,6 +238,16 @@ def _construye_tabla() -> Mapping[tuple[EstadoCambio, EventoCambio], Transicion]
         # antes de entrar en PENDIENTE y comprobar el tope de intentos.
         (E.INCIERTO, V.INTENTOS_AGOTADOS): T(A.LEER_RESULTADO, E.INCIERTO, origen_incompleto=True),
         (E.INCIERTO, V.OPERACION_EN_CURSO): T(A.NO_TOCAR, E.EN_VUELO, origen_incompleto=True),
+        # ARREGLOS 05 B: la lectura de un intento abierto atribuye el objeto.
+        # Sustituido o movido por el dueno: desenlace terminal, sellado, sin
+        # confirmar. Dudoso: sigue abierto, se relee el horario siguiente.
+        (E.INCIERTO, V.IDENTIDAD_SUSTITUIDA): T(A.SELLAR_TERMINAL, E.AJENO, sella_intento=True),
+        (E.INCIERTO, V.IDENTIDAD_DUDOSA): T(
+            A.MANTENER_INCIERTO, E.INCIERTO, origen_incompleto=True
+        ),
+        (E.INCIERTO, V.CAMBIO_MANUAL_DUENO): T(
+            A.SELLAR_TERMINAL, E.MOVIDO_POR_DUENO, sella_intento=True
+        ),
         # --- EN_VUELO: otra ruta tiene la exclusion activa sobre esta decision ---
         **{
             (E.EN_VUELO, ev): (
@@ -240,6 +277,19 @@ def decidir(estado: EstadoCambio, evento: EventoCambio) -> Transicion:
     return TABLA_TRANSICIONES[(estado, evento)]
 
 
+def envia_tras_lectura(estado: EstadoCambio, evento: EventoCambio) -> bool:
+    """Si, leido `evento` en Amazon justo antes del envio, corresponde ENVIAR.
+
+    Solo cuando la lectura dice que el cambio todavia no esta en Amazon
+    (`NO_APLICADO_EN_AMAZON`) y la tabla, consultada de nuevo con
+    `NUEVO_HORARIO`, ordena `ENVIAR`. Todo lo demas leido antes de enviar
+    (ya aplicado, ajeno, dudoso, movido por el dueno, sin lectura legible) se
+    atiende con la transicion de ese evento y nunca lleva a un envio."""
+    if evento != EventoCambio.NO_APLICADO_EN_AMAZON:
+        return False
+    return decidir(estado, EventoCambio.NUEVO_HORARIO).accion == AccionCambio.ENVIAR
+
+
 def estado_inicial_desde_hechos(
     *,
     en_vuelo_ajeno: bool,
@@ -255,7 +305,8 @@ def estado_inicial_desde_hechos(
     terminal. Prioridad fija:
     1. Otra ruta operando (`en_vuelo_ajeno`) -> `EN_VUELO` (ni concilia ni envia).
     2. Intento abierto sin sello -> `INCIERTO` (siempre se lee antes de mirar el tope).
-    3. Desenlace terminal sellado -> `APLICADO`, `PAUSADO_POR_DUENO` o `ARCHIVADO`.
+    3. Desenlace terminal sellado -> `APLICADO`, `PAUSADO_POR_DUENO`, `ARCHIVADO`
+       o `AJENO` (otro objeto ocupa hoy su identidad).
     4. Conteo de intentos >= `tope_intentos` -> `TOPE_INTENTOS`.
     5. En cualquier otro caso -> `PENDIENTE`.
     """
@@ -269,6 +320,8 @@ def estado_inicial_desde_hechos(
         return EstadoCambio.PAUSADO_POR_DUENO
     if isinstance(resultado_terminal, str) and resultado_terminal.startswith("fallo:entidad_"):
         return EstadoCambio.ARCHIVADO
+    if resultado_terminal == RESULTADO_IDENTIDAD_SUSTITUIDA:
+        return EstadoCambio.AJENO
     if intentos_totales >= tope_intentos:
         return EstadoCambio.TOPE_INTENTOS
     return EstadoCambio.PENDIENTE
@@ -347,3 +400,100 @@ def evento_desde_lectura_estado(
             return EventoCambio.PAUSA_MANUAL_DUENO
         return EventoCambio.NO_APLICADO_EN_AMAZON
     return EventoCambio.ENTIDAD_ARCHIVADA
+
+
+def _match_normal(item: dict) -> str:
+    return str(item.get("matchType", "")).casefold().replace("negative_", "")
+
+
+def evento_desde_lectura_objeto(
+    items: list[dict],
+    *,
+    id_propio: str | None,
+    ad_group: str,
+    texto: str,
+    match: str,
+    destino: str,
+) -> EventoCambio:
+    """Clasifica una lectura COMPLETA de lista respecto del objeto propio
+    (ARREGLOS 05 B). Es el unico resolver de identidad: lo usan la creacion, la
+    lectura de vuelta, la conciliacion y las tres reversas.
+
+    La identidad de un objeto es (adGroupId, keywordText, matchType). `destino`
+    es el cambio en curso: `"vivo"` cuando se creo o se conserva, `"ausente"`
+    cuando se retiro o se debe retirar. `id_propio` es el del ACK; `None`
+    cuando el intento no devolvio ninguno.
+
+    - El propio vive con su identidad: `OK_CONFIRMADO` si es el destino,
+      `NO_APLICADO_EN_AMAZON` si falta.
+    - El propio vive con OTRA identidad, o hay dos o mas vivos con la esperada
+      y ninguno es el propio: `IDENTIDAD_DUDOSA` (no se concluye nada).
+    - El propio no vive y queda exactamente uno vivo con la identidad esperada:
+      `IDENTIDAD_SUSTITUIDA` (es ajeno).
+    - Sin id propio, un vivo con la identidad cuenta como el efecto pedido.
+    - Nadie vive con la identidad: `OK_CONFIRMADO` si el destino es ausente;
+      si era vivir, `ENTIDAD_ARCHIVADA` cuando el propio aparece archivado y
+      `NO_APLICADO_EN_AMAZON` cuando no aparece.
+    """
+    match = match.casefold().replace("negative_", "")
+
+    def esperada(item: dict) -> bool:
+        return (
+            str(item.get("adGroupId")) == str(ad_group)
+            and item.get("keywordText") == texto
+            and _match_normal(item) == match
+        )
+
+    vivos = [x for x in items if str(x.get("state", "")).upper() != ESTADO_WIRE_ARCHIVED]
+    propio = (
+        next((x for x in items if str(x.get("keywordId")) == str(id_propio)), None)
+        if id_propio is not None
+        else None
+    )
+    if propio is not None and esperada(propio) and propio in vivos:
+        if destino == "vivo":
+            return EventoCambio.OK_CONFIRMADO
+        return EventoCambio.NO_APLICADO_EN_AMAZON
+    if propio is not None and propio in vivos:
+        return EventoCambio.IDENTIDAD_DUDOSA
+    ajenos = [x for x in vivos if esperada(x)]
+    if len(ajenos) > 1:
+        return EventoCambio.IDENTIDAD_DUDOSA
+    if id_propio is None:
+        if ajenos:
+            return (
+                EventoCambio.OK_CONFIRMADO
+                if destino == "vivo"
+                else EventoCambio.NO_APLICADO_EN_AMAZON
+            )
+        return (
+            EventoCambio.NO_APLICADO_EN_AMAZON if destino == "vivo" else EventoCambio.OK_CONFIRMADO
+        )
+    if ajenos:
+        return EventoCambio.IDENTIDAD_SUSTITUIDA
+    if destino == "ausente":
+        return EventoCambio.OK_CONFIRMADO
+    if propio is not None:
+        return EventoCambio.ENTIDAD_ARCHIVADA
+    return EventoCambio.NO_APLICADO_EN_AMAZON
+
+
+def evento_desde_lectura_bid(
+    bid_vivo: Decimal | None, *, destino: Decimal, escritos: Collection[Decimal]
+) -> EventoCambio:
+    """Clasifica el bid leido en Amazon respecto del cambio en curso de UNA
+    puja (ARREGLOS 05 B). Los valores llegan ya cuantizados al wire.
+
+    `destino` es el bid que el cambio deja. `escritos` son los bids que Orbit
+    escribio en esa hoja: el de la decision que se revierte y el de sus
+    decisiones posteriores (el regreso del dueno revierte la primera de una
+    racha aunque Orbit la haya movido despues). Sin lectura legible es
+    `ERROR_5XX_O_RED`. Un valor vivo que no es ninguno de esos lo puso otra
+    mano: `CAMBIO_MANUAL_DUENO`, y no se toca."""
+    if bid_vivo is None:
+        return EventoCambio.ERROR_5XX_O_RED
+    if bid_vivo == destino:
+        return EventoCambio.OK_CONFIRMADO
+    if bid_vivo in escritos:
+        return EventoCambio.NO_APLICADO_EN_AMAZON
+    return EventoCambio.CAMBIO_MANUAL_DUENO

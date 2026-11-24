@@ -13,19 +13,26 @@ from psycopg.types.json import Json
 from app import apply
 from app.ads.client import AdsApiError, AdsClientError
 from app.ads.sp_wire import id_de_ack as _id_de_ack
-from app.apply_estados import EstadoCambio, transicion_desde_error
+from app.apply_estados import (
+    AccionCambio,
+    EstadoCambio,
+    EventoCambio,
+    decidir,
+    envia_tras_lectura,
+    transicion_desde_error,
+)
 from app.apply_harvest_list import (
     ROLES_DISCOVERY,
     ListaIncompleta,
     PasoReversa,
-    _coincidencias,
     _Contexto,
-    _identidad,
     _Job,
     _job_de_fila,
     _lista_completa,
     _resultado_reversa_rechazada,
     _reversa_rechazada,
+    evento_de_identidad,
+    motivo_identidad,
 )
 from app.db import tx_durable
 
@@ -34,6 +41,10 @@ SELECT grp.external_id, cam.external_id
   FROM ad_entity grp
   JOIN ad_entity cam ON cam.id = grp.parent_id AND cam.kind = 'campaign'
  WHERE grp.id = %s
+"""
+
+_SQL_PADRE = """
+SELECT parent_id FROM ad_entity WHERE id = %s
 """
 
 _SQL_DECISION = """
@@ -355,30 +366,16 @@ def _reversa_confirmada(
     return fila is not None and fila[0] is True
 
 
-def _preexiste_provisional(
-    cliente, term: str, paso: PasoReversa, *, lista_completa_fn=_lista_completa
-) -> str:
-    try:
-        if paso.clase == "keyword":
-            items = lista_completa_fn(cliente, "/sp/keywords/list")
-        else:
-            items = lista_completa_fn(
-                cliente, "/sp/negativeKeywords/list", grupos=(str(paso.ad_group_ext),)
-            )
-    except ListaIncompleta:
-        return "stop-unknown"
-    vivas = {
-        str(x.get("keywordId"))
-        for x in items
-        if str(x.get("state", "")).upper() != apply.ESTADO_WIRE_ARCHIVED
-    }
-    if paso.objeto_id not in vivas:
-        return "omitir"
-    if paso.objeto_id in {
-        str(x.get("keywordId")) for x in _coincidencias(items, paso.ad_group_ext, term)
-    }:
-        return "proceder"
-    return "stop-discordante"
+def _propio_vivo(items: list[dict], id_propio: str, ad_group: str, texto: str, match: str) -> bool:
+    """True solo si el resolver ve vivo el objeto propio: su ID del ACK, con su
+    grupo, su texto y su match. Un booleano de creacion no autoriza nada solo
+    (ARREGLOS 05 B)."""
+    return (
+        evento_de_identidad(
+            items, id_propio=str(id_propio), ad_group=ad_group, texto=texto, match=match
+        )
+        == EventoCambio.OK_CONFIRMADO
+    )
 
 
 def ejecuta_reversa_harvest(
@@ -391,33 +388,37 @@ def ejecuta_reversa_harvest(
     reversa_confirmada_fn=_reversa_confirmada,
     lista_completa_fn=_lista_completa,
 ) -> tuple[bool, str]:
-    """Ejecuta el plan en orden canonico, con readback entre deletes y stop al fallo."""
-    omitidas: list[str] = []
+    """Ejecuta el plan en orden canonico, con readback entre deletes y stop al
+    primer paso que no se confirma.
+
+    ARREGLOS 05 B: cada paso relee antes de enviar y usa el mismo resolver que
+    la reversa automatica y la creacion. Solo sale un DELETE si el objeto
+    propio vive con su identidad bajo el id del plan. Si ya no vive, el paso
+    queda confirmado por lectura, sin HTTP. Sustituido o dudoso: pendiente, no
+    se toca nada y el orden sellado detiene el resto."""
     for paso in pasos:
         quien = paso.rol or paso.clase
         if reversa_confirmada_fn(conn, decision_id, paso.clase, paso.objeto_id):
             continue
-        if paso.provisional:
-            pre = _preexiste_provisional(cliente, term, paso, lista_completa_fn=lista_completa_fn)
-            if pre == "stop-unknown":
-                return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
-            if pre == "stop-discordante":
-                return (False, f"reversa: {quien} {paso.objeto_id} identidad discordante")
-            if pre == "omitir":
-                omitidas.append(paso.objeto_id)
-                continue
+        try:
+            items = _lee_paso(lista_completa_fn, cliente, paso)
+        except ListaIncompleta:
+            return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
+        evento = _evento_del_paso(items, term, paso)
+        transicion = decidir(EstadoCambio.PENDIENTE, evento)
+        if transicion.accion == AccionCambio.SELLAR_APLICADO:
+            if not _confirma_por_lectura(conn, decision_id, paso):
+                return (False, f"reversa: stop en {quien} {paso.objeto_id}")
+            continue
+        if not envia_tras_lectura(EstadoCambio.PENDIENTE, evento):
+            return (False, f"reversa: {quien} {paso.objeto_id} {motivo_identidad(evento)}")
         id_attempt, ack = _delete_reversa_pendiente(
             conn, cliente, decision_id, paso.clase, paso.objeto_id
         )
         if id_attempt is None or ack is None:
             return (False, f"reversa: stop en {quien} {paso.objeto_id}")
         try:
-            if paso.clase == "keyword":
-                items = lista_completa_fn(cliente, "/sp/keywords/list")
-            else:
-                items = lista_completa_fn(
-                    cliente, "/sp/negativeKeywords/list", grupos=(str(paso.ad_group_ext),)
-                )
+            items = _lee_paso(lista_completa_fn, cliente, paso)
         except ListaIncompleta:
             return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
         vivas = {
@@ -431,9 +432,50 @@ def ejecuta_reversa_harvest(
             return (False, f"reversa: {quien} {paso.objeto_id} sigue vivo")
         with tx_durable(conn):
             apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-    if omitidas:
-        return (True, f"reversa: ok (provisionales ausentes omitidas: {', '.join(omitidas)})")
     return (True, "reversa: ok")
+
+
+def _lee_paso(lista_completa_fn, cliente, paso: PasoReversa) -> list[dict]:
+    """Lectura estricta de la lista del paso: completa o `ListaIncompleta`."""
+    if paso.clase == "keyword":
+        return lista_completa_fn(cliente, "/sp/keywords/list")
+    return lista_completa_fn(cliente, "/sp/negativeKeywords/list", grupos=(str(paso.ad_group_ext),))
+
+
+def _evento_del_paso(items: list[dict], term: str, paso: PasoReversa) -> EventoCambio:
+    """El paso quiere al propio AUSENTE de Amazon."""
+    return evento_de_identidad(
+        items,
+        id_propio=paso.objeto_id,
+        ad_group=paso.ad_group_ext,
+        texto=term,
+        match="EXACT" if paso.clase == "keyword" else "NEGATIVE_EXACT",
+        destino="ausente",
+    )
+
+
+def _confirma_por_lectura(conn: psycopg.Connection, decision_id: int, paso: PasoReversa) -> bool:
+    """El propio ya no vive: el paso queda revertido sin enviar nada. La fila
+    nace y se sella en la misma transaccion, con un ack que declara su fuente
+    (no es un ACK remoto), asi la reanudacion no lo repite."""
+    filtro = "keywordIdFilter" if paso.clase == "keyword" else "negativeKeywordIdFilter"
+    id_attempt = apply._ledger(
+        conn,
+        decision_id,
+        "reversa",
+        {filtro: {"include": [str(paso.objeto_id)]}},
+        quota_cobrada=False,
+    )
+    if id_attempt is None:
+        return False
+    with tx_durable(conn):
+        apply._sella_ledger(
+            conn,
+            id_attempt,
+            ack={"conciliado": True, "fuente": "list", "leido": "ausente"},
+            resultado="ok",
+        )
+    return True
 
 
 def _reversa_automatica(
@@ -445,34 +487,45 @@ def _reversa_automatica(
     lista_completa_fn=_lista_completa,
     reversa_delete_fn=_reversa_delete,
 ) -> str:
-    """Reversa del fallo definitivo: borrar lo creado en orden sellado (keyword primero)."""
+    """Reversa del fallo definitivo: retirar lo que Orbit creo, en orden sellado
+    (keyword primero).
+
+    ARREGLOS 05 B: las lecturas estrictas van ANTES del primer delete y solo se
+    borra un objeto si el resolver lo ve vivo con su identidad bajo el ID del
+    ACK. Lo propio que ya no vive no lleva DELETE; lo ajeno nunca se toca. Una
+    lectura incompleta se propaga sin reversa parcial (ARREGLOS 04 B-C)."""
     cliente = aplicador._cliente()
     ext = dict(job.external_ids)
-    neg_id = ext.get("negative_id")
-    kw_id = ext.get("keyword_id")
-    keyword_propia = ext.get("keyword_creada") is True
-    negative_propia = ext.get("negative_creada") is True
-    if kw_id is None and keyword_propia:
-        kws = lista_completa_fn(cliente, "/sp/keywords/list")
-        propio = _identidad(kws, ctx.destino_grupo, job.search_term)
-        if propio is not None:
-            kw_id = propio.get("keywordId")
-    if neg_id is None and negative_propia:
-        items = lista_completa_fn(cliente, "/sp/negativeKeywords/list")
-        propio = _identidad(items, ctx.grupo_ext, job.search_term)
-        if propio is not None:
-            neg_id = propio.get("keywordId")
+    kw_id = ext.get("keyword_id") if ext.get("keyword_creada") is True else None
+    neg_id = ext.get("negative_id") if ext.get("negative_creada") is True else None
+    vivo_kw = kw_id is not None and _propio_vivo(
+        lista_completa_fn(cliente, "/sp/keywords/list"),
+        kw_id,
+        ctx.destino_grupo,
+        job.search_term,
+        "EXACT",
+    )
+    vivo_neg = neg_id is not None and _propio_vivo(
+        lista_completa_fn(cliente, "/sp/negativeKeywords/list"),
+        neg_id,
+        ctx.grupo_ext,
+        job.search_term,
+        "NEGATIVE_EXACT",
+    )
+    ausentes = [x for x, vivo in ((kw_id, vivo_kw), (neg_id, vivo_neg)) if x and not vivo]
     try:
         if (
             kw_id is not None
-            and keyword_propia
+            and vivo_kw
             and not reversa_delete_fn(conn, cliente, job.decision_id, "keyword", kw_id)
         ):
             return f"reversa: fallo borrando keyword {kw_id}"
-        if neg_id is None or not negative_propia:
+        if neg_id is None:
             if kw_id is None:
                 return "reversa: nada que borrar (sin keyword ni negativo)"
             return "reversa: keyword borrada; negativo no encontrado (nada mas que borrar)"
+        if not vivo_neg:
+            return f"reversa: ok (lo propio ya no vive en Amazon: {', '.join(ausentes)})"
         if not reversa_delete_fn(conn, cliente, job.decision_id, "negative", neg_id):
             return f"reversa: fallo borrando negativo {neg_id}"
         return "reversa: ok"

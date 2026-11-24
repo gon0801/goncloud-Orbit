@@ -648,7 +648,10 @@ al volver **UNA vez**: trigger acotado por columnas patrón
 `sku_cost_solo_cierra_vigencia` — solo la transición NULL→valor de esas
 columnas pasa; todo otro UPDATE/DELETE revienta. **Excepción deliberada**
 declarada en los invariantes de `tests/test_schema.py` (mismo trato que
-`decision_application` en 0001).
+`decision_application` en 0001). Desde ARREGLOS 05 B (migración `0095`) la
+fila nace además con su evidencia previa al envío, `bid_previo` y
+`ausencia_previa`; ver [Evidencia previa del
+ledger](#evidencia-previa-del-ledger-arreglos-05-b-migración-0095).
 *Cómo se audita*: invariante — intentos sin sello viejos entran a
 reconciliación; COUNT por decisión ≤ 3.
 
@@ -1126,3 +1129,83 @@ restaura el código antes de revertir migraciones, y el binario anterior corre
 contra este esquema. Límites conocidos con el binario anterior: no completa lo
 que un ejecutor dejó pendiente (queda visible en `v_decision_huerfana`) y no
 expira lo no intentado al cambiar de día.
+
+### Evidencia previa del ledger (ARREGLOS 05 B, migración `0095`)
+
+La reversa de una escritura tiene que saber qué había en Amazon antes de
+ella. Hasta esta migración ese dato no se guardaba: la de bid volvía al valor
+de la caché al decidir (`decision.old_value`) y un negative confirmado por
+LIST tras una respuesta perdida no podía atribuirse a Orbit. La `0095` lo
+conserva en el propio ledger, que es inmutable por diseño.
+
+Columnas nuevas (aditivas), nulas en toda la historia anterior:
+
+- `bid_previo NUMERIC(14,4) NULL` — el bid que Orbit leyó vivo en la hoja
+  ANTES del PUT de ese intento (la lectura fresca de TEMPORADA 01 E). Es el
+  único valor al que vuelve la reversa de bid. La moneda es la de la decisión
+  (`decision.value_currency`): una sola fuente. NULL en un PUT anterior a la
+  `0095` y en todo intento que no es de puja.
+- `ausencia_previa JSONB NULL` — evidencia de que una lectura COMPLETA de
+  lista no encontró viva una identidad (`adGroupId`, `keywordText`,
+  `matchType`) inmediatamente antes del POST de ese intento. Un negative que
+  aparece después de un POST de respuesta perdida solo se confirma como efecto
+  de Orbit si el intento abierto la trae.
+- Restricción `attempt_evidencia_previa_una`: a lo sumo una de las dos por
+  fila. Un PUT de puja conserva el bid leído; un POST de creación conserva la
+  identidad ausente.
+
+Inmutabilidad y permisos: el disparador `apply_attempt_solo_sella_resultado`
+(se reemplaza con el mismo texto más las dos columnas en su parte que nunca
+cambia) las agrega a lo que no se puede reescribir. `app_decide` no las
+actualiza: su UPDATE sigue siendo por columna (`ack`, `resultado`,
+`finished_at`), y el INSERT de toda la tabla ya cubre las columnas nuevas. No
+hay backfill: una fila anterior a la `0095` nace con ambas NULL, que es lo
+que se sabe de ella.
+
+Límites declarados:
+
+- **Autoría de la reconciliación.** Ausencia previa más aparición posterior no
+  prueba autoría absoluta frente a un creador externo concurrente. Por eso la
+  confirmación por LIST se marca `procedencia: efecto_reconciliado` en
+  `decision_application.platform_ack`, distinta de `creacion_propia` (ACK
+  remoto con su ID). La primera permite la reversa manual del efecto
+  inequívoco con su procedencia visible; nunca autoriza la limpieza automática
+  de harvest ni adopta un objeto preexistente.
+- **Historia sin lectura previa.** Una puja aplicada antes de la `0095` no
+  conserva el bid leído; al revertirse vuelve a `decision.old_value`, el único
+  valor registrado entonces, y la reversa relee la hoja antes de enviar igual.
+  En la lectura previa de producción ninguna decisión de puja aplicada carece
+  de `old_value` (503 de 503).
+
+Lectura previa de producción, solo conteos y nombres de objetos:
+`docs/evidencia/arreglos-05/B/previa.txt` (2026-11-24 UTC): 576 intentos,
+ninguno abierto; ningún negative confirmado por conciliación; la `0095` aún
+no aplicada.
+
+Reversa (`0095_reversa_arreglos05_evidencia_previa.sql`): aborta si hay un
+intento ABIERTO que ya lleva evidencia previa, porque sin la columna la
+conciliación no podría atribuir su efecto (el mensaje dice cómo salir). No
+borra ni reescribe intentos: los cerrados siguen, solo sin su evidencia.
+`tools/despliegue/rollback.sh` restaura el código antes de revertir
+migraciones, y el binario anterior corre contra este esquema. Límites
+conocidos con el binario anterior: confirma un negative por identidad sin
+evidencia previa, sobrescribe el ID del ACK con el que encuentre en la
+lectura de vuelta y revierte una puja al valor de la caché.
+
+### Historial del regreso del dueño (ARREGLOS 05 B, migración `0096`)
+
+`v_cambio_bid` informaba para cada regreso confirmado `decision.old_value`, el
+bid de la caché al decidir. La reversa vuelve al bid leído antes del PUT
+(`apply_attempt.bid_previo`), que puede diferir en el redondeo. La `0096`
+reemplaza la vista: la rama `regreso_del_dueno` publica como `bid_despues` el
+`bid` del payload del intento de reversa que quedó `ok` (lo que se envió y cuya
+lectura de vuelta confirmó), con respaldo en `decision.old_value` si el payload
+no trae un monto legible. `regreso_del_dueno` usa ese mismo valor en la guarda
+que impide bajar la puja y en su respuesta. Una reversa confirmada por lectura
+sin PUT lleva `ack.sin_envio` y no cuenta como escritura de Orbit para la
+autoría de la puja vigente. `CREATE OR REPLACE VIEW` conserva
+los privilegios de `0060`; no hay grants nuevos.
+
+Reversa (`0096_reversa_arreglos05_regreso_destino_efectivo.sql`): devuelve la
+definición de `0093`. Solo toca la vista; con el binario anterior a ARREGLOS 05
+B la reversa siempre escribe `old_value`, así que vuelve a coincidir.

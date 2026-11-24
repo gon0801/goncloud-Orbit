@@ -36,7 +36,22 @@ import psycopg
 from app import apply, biblioteca, temporada_io
 from app import apply_harvest as _ejecucion
 from app.ads.client import AdsApiError, AdsAuthError
-from app.apply_estados import EstadoCambio, transicion_desde_error
+from app.apply_estados import (
+    AccionCambio,
+    EstadoCambio,
+    EventoCambio,
+    decidir,
+    transicion_desde_error,
+)
+from app.apply_harvest_list import _coincidencias
+from app.apply_negative import (
+    FUENTE_LIST,
+    PROCEDENCIA_EFECTO_RECONCILIADO,
+    Identidad,
+    evento_de_la_lectura,
+)
+from app.apply_negative import ausencia_previa as evidencia_de_ausencia
+from app.apply_store import intento_normal_abierto
 from app.db import tx_durable
 from app.optimizer import cortes, harvest_destino, hygiene, windows
 
@@ -410,9 +425,45 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
         except (AdsApiError, AdsAuthError) as exc:
             _propaga_si_es_global(exc)
             continue  # lectura ambigua: proximo ciclo
-        propio = _ejecucion._identidad(items, grupo_ext, term)
-        if propio is not None:
-            ack = {"fuente": "list", "keywordId": propio.get("keywordId")}
+        # ARREGLOS 05 B: el resolver unico clasifica la lectura. Un negative
+        # vivo es efecto de Orbit solo si el intento abierto trae la ausencia
+        # previa durable; se confirma por LIST con su procedencia, sin
+        # falsificar un ACK remoto. Sin evidencia previa, con varios
+        # candidatos o con el id cambiado, queda pendiente para el ciclo
+        # siguiente. Sin intento propio no se adopta lo que vive.
+        abierto = intento_normal_abierto(conn, decision_id)
+        id_propio = (
+            _ejecucion._id_de_ack(abierto.ack, "negativeKeywordId")
+            if abierto is not None and abierto.ack
+            else None
+        )
+        identidad = Identidad(ad_group_id=str(grupo_ext), keyword_text=term)
+        evento = evento_de_la_lectura(
+            items, id_propio=id_propio, identidad=identidad, destino="vivo"
+        )
+        transicion = decidir(
+            EstadoCambio.INCIERTO if abierto is not None else EstadoCambio.PENDIENTE, evento
+        )
+        if transicion.accion == AccionCambio.MANTENER_INCIERTO or (
+            transicion.accion == AccionCambio.NO_TOCAR
+            and evento != EventoCambio.NO_APLICADO_EN_AMAZON
+        ):
+            continue  # dudoso, sustituido o en vuelo: pendiente, sin tocar nada
+        if transicion.accion == AccionCambio.SELLAR_APLICADO:
+            if abierto is None or abierto.ausencia_previa is None:
+                if abierto is None:
+                    _ejecucion._termina_cola(conn, q_id, "failed")
+                    fallidas += 1
+                continue
+            if abierto.ausencia_previa.get("identidad") != identidad.como_dict():
+                continue  # la evidencia previa es de otra identidad: pendiente
+            hallado = _coincidencias(items, grupo_ext, term)[0]
+            ack = {
+                "fuente": FUENTE_LIST,
+                "keywordId": hallado.get("keywordId"),
+                "procedencia": PROCEDENCIA_EFECTO_RECONCILIADO,
+                "identidad": abierto.ausencia_previa["identidad"],
+            }
             with tx_durable(conn):
                 _ejecucion._sella_pendientes(conn, decision_id, "ok:reconciliado")
                 apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
@@ -464,7 +515,14 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
             "matchType": "NEGATIVE_EXACT",
             "state": "ENABLED",
         }
-        id_attempt = apply._ledger(conn, decision_id, "normal", payload, quota_cobrada=False)
+        id_attempt = apply._ledger(
+            conn,
+            decision_id,
+            "normal",
+            payload,
+            quota_cobrada=False,
+            ausencia_previa=evidencia_de_ausencia(platform, identidad),
+        )
         if id_attempt is None:
             _ejecucion._termina_cola(conn, q_id, "failed")
             fallidas += 1
@@ -615,7 +673,11 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
         if motivo_gate is not None:
             with tx_durable(conn):
                 conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
-                _ejecucion._sella_pendientes(
+                # ARREGLOS 05 B: nadie retoma un job fallido, asi que el cierre
+                # resuelve sus intentos abiertos en la misma transaccion. Una
+                # creacion conserva su ACK y lleva este motivo: nadie la leyo en
+                # Amazon, no se dice aplicada.
+                _ejecucion._sella_abiertos_al_cerrar(
                     conn, job.decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED
                 )
                 if queue_id is not None:

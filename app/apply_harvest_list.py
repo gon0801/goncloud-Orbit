@@ -25,6 +25,7 @@ from app.ads.sp_wire import (
 from app.ads.sp_wire import (
     id_de_ack as _id_de_ack,  # noqa: F401 - re-export estable
 )
+from app.apply_estados import EventoCambio, evento_desde_lectura_objeto
 
 if TYPE_CHECKING:
     from app.apply import CapSaturado
@@ -334,6 +335,46 @@ def _solo_en_otro_ad_group(items: list[dict], ad_group_id: str, keyword_text: st
         if item.get("keywordText") == keyword_text:
             return True
     return False
+
+
+def evento_de_identidad(
+    items: list[dict],
+    *,
+    id_propio: str | None,
+    ad_group: str,
+    texto: str,
+    match: str,
+    destino: str = "vivo",
+) -> EventoCambio:
+    """El resolver unico de identidad (ARREGLOS 05 B) sobre una lectura
+    completa. `id_propio` es el del ACK, o None antes de crear."""
+    return evento_desde_lectura_objeto(
+        items,
+        id_propio=id_propio,
+        ad_group=ad_group,
+        texto=texto,
+        match=match,
+        destino=destino,
+    )
+
+
+def motivo_identidad(evento: EventoCambio) -> str:
+    """Lo que la lectura concluyo cuando NO autoriza tocar el objeto."""
+    if evento == EventoCambio.IDENTIDAD_SUSTITUIDA:
+        return "sustituida: vive otra con la misma identidad bajo otro id y no se toca"
+    if evento == EventoCambio.IDENTIDAD_DUDOSA:
+        return "identidad dudosa o discordante: no se concluye nada y no se toca"
+    return "la lectura no autoriza tocarlo"
+
+
+def ausencia_previa(plataforma: str, lectura: str, ad_group: str, texto: str, match: str) -> dict:
+    """Evidencia durable (0095): una lectura completa no encontro viva esa
+    identidad inmediatamente antes del POST."""
+    return {
+        "lectura": lectura,
+        "plataforma": plataforma,
+        "identidad": {"adGroupId": str(ad_group), "keywordText": texto, "matchType": match},
+    }
 
 
 def _reversa_rechazada(ack: dict, clave_id: str, objeto_id) -> bool:

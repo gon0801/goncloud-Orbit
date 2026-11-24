@@ -127,6 +127,14 @@ SQL48 = (
 SQL94 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
 ).read_text(encoding="utf-8")
+SQL95 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0095_arreglos05_evidencia_previa.sql"
+).read_text(encoding="utf-8")
+SQL96 = (
+    Path(__file__).resolve().parents[1]
+    / "migrations"
+    / "0096_arreglos05_regreso_destino_efectivo.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -231,6 +239,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
+        conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
+        conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         yield conn, conectar_extra
     finally:
