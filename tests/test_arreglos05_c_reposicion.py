@@ -137,6 +137,7 @@ class _Amazon:
         self.falla_delete: int | None = None
         self.pierde_post = False
         self.pierde_delete = False
+        self.delete_cuerpo_nulo = False
         self.post_cuerpo_nulo = False
         self.list_truncada = False
         self.total_declarado: int | None = None
@@ -191,6 +192,11 @@ class _Amazon:
             for objeto in self.keywords:
                 if str(objeto["keywordId"]) in ids:
                     objeto["state"] = "ARCHIVED"
+            if self.delete_cuerpo_nulo:
+                self.delete_cuerpo_nulo = False
+                return httpx.Response(
+                    207, content=b"null", headers={"content-type": "application/json"}
+                )
             if self.pierde_delete:
                 self.pierde_delete = False
                 raise httpx.ReadTimeout("archivada; respuesta perdida", request=request)
@@ -798,6 +804,32 @@ def test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar():
             "ok",
         ]
         assert _intentos(conn, fila)[0]["ack"]["status"] == 403, "el rechazo quedo durable"
+
+
+@_skip_db
+def test_arreglos05_c_reversa_con_ack_nulo_confirma_por_el_id_conocido():
+    """Un 207 con cuerpo null no bloquea la reversa: el ID propio sale de la
+    fila repuesta y la lectura confirma el archivado."""
+    with _db("orbit_c05_reversa_ack_nulo") as (conn, _extra):
+        fila, _viejo, texto = _semilla(conn)
+        _marca_repuesto(conn, fila, "k-1")
+        amazon = _Amazon([_vivo("k-1", texto)])
+        amazon.delete_cuerpo_nulo = True
+        resultados = archivar.revertir_reposicion(
+            conn,
+            lote="lote-c",
+            cliente=_cliente(amazon),
+            perfiles=PERFILES,
+            eliminar=_eliminar(amazon),
+            owner="cli-1",
+            ejecutar=True,
+            dormir=lambda _s: None,
+        )
+        assert [r.resultado for r in resultados] == ["revertido"], resultados
+        assert len(amazon.deletes) == 1
+        (intento,) = _intentos(conn, fila)
+        assert intento["resultado"] == "ok"
+        assert intento["ack"]["status"] == 207
 
 
 @_skip_db

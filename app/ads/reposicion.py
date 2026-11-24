@@ -488,6 +488,29 @@ def reponer_keyword(
     return resultados
 
 
+def _readback_reversa(
+    conn: psycopg.Connection,
+    fila: store.FilaArchivo,
+    intento: store.Intento,
+    cliente,
+    profile: int,
+) -> ResultadoReposicionKeyword:
+    """Verifica por el ID propio que la reversa archivo el objeto."""
+    items = _lee_keywords(cliente, profile)
+    if items is None:
+        return _pendiente(fila, "ACK e ID durables; readback no concluyente")
+    evento = est.evento_reposicion_desde_lectura(
+        items,
+        id_propio=str(fila.repuesto_external),
+        ad_group=fila.ad_group_external,
+        texto=fila.keyword_text,
+        match=fila.match_type,
+        destino="ausente",
+        abierto=True,
+    )
+    return _desenlace(conn, fila, intento, evento, tipo="reversa")
+
+
 def _revertir_fila(
     conn: psycopg.Connection,
     fila: store.FilaArchivo,
@@ -593,7 +616,14 @@ def _revertir_fila(
         with conn.transaction():
             store.guarda_ack(conn, intento.id, ack)
         conn.commit()
-        return _pendiente(fila, "ACK sin objeto legible: el intento sigue abierto")
+        # El ID a verificar sale de la fila repuesta, no del ACK: la lectura
+        # puede confirmar el archivado aunque la respuesta no sea un objeto.
+        if not store.renueva(conn, intento.id, owner, _lease()):
+            _trans(est.EstadoCambio.INCIERTO, est.EventoCambio.DUENO_DESPLAZADO)
+            raise AbortoFase(f"lease de {fila.keyword_external} perdido tras el DELETE")
+        conn.commit()
+        intento = store.abierto(conn, fila.id, "reversa") or intento
+        return _readback_reversa(conn, fila, intento, cliente, profile)
     with conn.transaction():
         if not store.guarda_ack_e_id(conn, intento.id, ack, str(fila.repuesto_external)):
             raise AbortoFase(f"el intento {intento.id} fue tomado por otro dueno")
@@ -603,19 +633,7 @@ def _revertir_fila(
         raise AbortoFase(f"lease de {fila.keyword_external} perdido tras el DELETE")
     conn.commit()
     intento = store.abierto(conn, fila.id, "reversa") or intento
-    items = _lee_keywords(cliente, profile)
-    if items is None:
-        return _pendiente(fila, "ACK e ID durables; readback no concluyente")
-    evento = est.evento_reposicion_desde_lectura(
-        items,
-        id_propio=str(fila.repuesto_external),
-        ad_group=fila.ad_group_external,
-        texto=fila.keyword_text,
-        match=fila.match_type,
-        destino="ausente",
-        abierto=True,
-    )
-    return _desenlace(conn, fila, intento, evento, tipo="reversa")
+    return _readback_reversa(conn, fila, intento, cliente, profile)
 
 
 def reconciliar_reposicion(

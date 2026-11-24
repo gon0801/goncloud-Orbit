@@ -61,3 +61,17 @@ E   app.apply_harvest_list.ListaIncompleta: truncado: totalResults 50 y llegaron
 
 En `afeecf11` el total solo se exige sin filtro; con filtro se conservan token
 y pertenencia al grupo, y la prueba cubre ambos casos con el mismo total.
+
+## 5. Reversa con 207 y cuerpo null (seguimiento Devin)
+
+En `afeecf11`, la reversa con un 207 y JSON null se quedaba en `pendiente`
+aunque el ID conocido ya estaba archivado. Rojo contra esa cabeza:
+
+```text
+$ pytest -q tests/test_arreglos05_c_reposicion.py -k ack_nulo_confirma
+E   AssertionError: ['pendiente'] == ['revertido']
+1 failed, 19 deselected
+```
+
+En la cabeza final el ACK ambiguo queda durable y la lectura por el ID propio
+confirma el archivado; si no concluye, el intento sigue abierto.
