@@ -2,7 +2,7 @@
 
 Bloque de implementacion, `lane: release`. Base: `master` en
 `d0ed286e6048d38db45abe49006a20f25d2b3cdf` (con BASE, A y B). Rama
-`arreglos-05/c`. Codigo verificado: `afeecf11`. Fecha: 2026-11-24
+`arreglos-05/c`. Codigo verificado: `3f8d1005`. Fecha: 2026-11-24
 (America/Vancouver). Contrato: seccion «C. Reposicion durable por fila» de
 [DISENO.md](../DISENO.md).
 
@@ -38,10 +38,10 @@ Bloque de implementacion, `lane: release`. Base: `master` en
 
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| C.1 | `N c` | `afeecf11` | 20 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el `MOTOR_SHA` anterior; la reversa `0097` aborta si hay intentos y nunca borra el historial. |
-| C.2 | `T writes test_11` | `afeecf11` | 1 passed, salida 0 | Un solo POST tras ACK y readback fallido; dos CLI no crean dos objetos; el objeto repuesto nace PAUSED. | Igual que C.1. |
-| C.2 | `N c` | `afeecf11` | 20 passed, salida 0 | Cobertura de crash antes/despues de POST, ACK y readback, rechazo 4xx, 5xx, 401/403, lectura truncada/omitida/duplicada y repeticion sin HTTP. | Igual que C.1. |
-| C.3 | `N c` | `afeecf11` | 20 passed, salida 0 | La reversa archiva solo `repuesto_external`; una caida no repite el DELETE; un rechazo definitivo permite otro intento registrado; el historial y la keyword original no se tocan. | Igual que C.1. |
+| C.1 | `N c` | `3f8d1005` | 21 passed, 0 omitidas, salida 0 | La intencion es visible antes del HTTP; el ACK/ID se guarda antes del readback; dos intentos abiertos de la misma operacion no coexisten; la migracion ida/reversa/ida corre con los roles reales. | `rollback.sh` con el `MOTOR_SHA` anterior; la reversa `0097` aborta si hay intentos y nunca borra el historial. |
+| C.2 | `T writes test_11` | `3f8d1005` | 1 passed, salida 0 | Un solo POST tras ACK y readback fallido; dos CLI no crean dos objetos; el objeto repuesto nace PAUSED. | Igual que C.1. |
+| C.2 | `N c` | `3f8d1005` | 21 passed, salida 0 | Cobertura de crash antes/despues de POST, ACK y readback, rechazo 4xx, 5xx, 401/403, lectura truncada/omitida/duplicada y repeticion sin HTTP. | Igual que C.1. |
+| C.3 | `N c` | `3f8d1005` | 21 passed, salida 0 | La reversa archiva solo `repuesto_external`; una caida no repite el DELETE; un rechazo definitivo permite otro intento registrado; el historial y la keyword original no se tocan. | Igual que C.1. |
 
 Comandos y salidas completos en [acepta.txt](acepta.txt), que genera
 [acepta.sh](acepta.sh). El SHA del encabezado de cada parte es el arbol
@@ -98,11 +98,11 @@ y del archivo en la misma transaccion.
 ## Rojo y verde
 
 [rojo.txt](rojo.txt): contra `d0ed286e`, `T writes test_11` falla con
-`posts: 2` y la misma corrida en `afeecf11` da `1 passed`. El padre no tiene
+`posts: 2` y la misma corrida en `3f8d1005` da `1 passed`. El padre no tiene
 `reponer_keyword` ni `revertir_reposicion`, no acepta
 `--revertir-reposicion` y no tiene la tabla `0097`.
 
-En `afeecf11`: `N c` 20 passed; `T writes test_11` 1 passed; modelo de estados
+En `3f8d1005`: `N c` 21 passed; `T writes test_11` 1 passed; modelo de estados
 181 passed.
 
 ## Lectura previa de produccion
@@ -171,7 +171,7 @@ Ninguno bloquea; requieren dos o mas fallos o una carrera.
 
 ## Revision
 
-Ronda 1 (Devin, informativo; `afeecf11`): cuatro hallazgos, tres corregidos con
+Ronda 1 (Devin, informativo; `3f8d1005`): cuatro hallazgos, tres corregidos con
 su regresion y uno de aislamiento anotado.
 
 - **P1, sonda del instalador.** La sonda usaba
@@ -206,7 +206,7 @@ su regresion y uno de aislamiento anotado.
 Pendiente la revision asignada (Astra u otro modelo distinto al
 implementador). `ai-review` es informativo y Devin no cuenta como compuerta.
 
-## Ronda 2 (Astra, revisor asignado, pasada 1; `afeecf11`)
+## Ronda 2 (Astra, revisor asignado, pasada 1; `3f8d1005`)
 
 Tres P1, corregidos con su prueba en rojo contra `6577a5eb`
 ([rojo-ronda2.txt](rojo-ronda2.txt)):
@@ -229,7 +229,7 @@ Tres P1, corregidos con su prueba en rojo contra `6577a5eb`
   `test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar` (403,
   credenciales corregidas, DELETE exitoso). Un 5xx sigue sin reenviar.
 
-## Ronda 3 (Devin, seguimiento del total filtrado; `afeecf11`)
+## Ronda 3 (Devin, seguimientos; `3f8d1005`)
 
 - **P1: `totalResults` en listas filtradas.** La validacion de total agregada
   en la ronda 2 se aplicaba tambien con `adGroupIdFilter`; Amazon puede contar
@@ -238,3 +238,8 @@ Tres P1, corregidos con su prueba en rojo contra `6577a5eb`
   token y pertenencia. Regresion: `test_arreglos05_c_total_solo_se_exige_sin_filtro`
   (mismo total, sin filtro falla; con filtro se acepta). Rojo contra
   `64e06ec8` en [rojo-ronda2.txt](rojo-ronda2.txt).
+- **P2 corregido: reversa con ACK ambiguo.** Un 207/200 con cuerpo null ya no
+  se queda en `pendiente`: el ACK queda durable y la lectura por el ID propio
+  confirma el archivado; si no concluye, sigue abierto. Regresion:
+  `test_arreglos05_c_reversa_con_ack_nulo_confirma_por_el_id_conocido` (rojo
+  contra `afeecf11`).
