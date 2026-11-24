@@ -1209,3 +1209,42 @@ los privilegios de `0060`; no hay grants nuevos.
 Reversa (`0096_reversa_arreglos05_regreso_destino_efectivo.sql`): devuelve la
 definición de `0093`. Solo toca la vista; con el binario anterior a ARREGLOS 05
 B la reversa siempre escribe `old_value`, así que vuelve a coincidir.
+
+### Ledger de reposicion de keywords (ARREGLOS 05 C, migracion `0097`)
+
+`keyword_reposicion_intento` registra cada intento de reponer una keyword
+archivada (`reponer`, crear otra PAUSED) y de revertir esa reposicion
+(`reversa`, archivar solo el ID repuesto propio). Cuelga de
+`keyword_archivo_manual(archivo_id)` y conserva:
+
+- `seq`: orden de los intentos de la fila, global entre ambos tipos.
+- `owner`, `lease_hasta`, `heartbeat_at`: lease por fila. Un sucesor solo toma
+  un intento vencido y lo CONCILIA por lectura; nunca emite otro POST.
+- `request_payload`: payload exacto enviado a Amazon, inmutable.
+- `ack`, `external_id`, `resultado`, `started_at`, `finished_at`: el ACK y el
+  ID se guardan antes del readback; `resultado` y `finished_at` se sellan una
+  sola vez. Un `resultado='ok'` exige ACK e ID; `finished_at` y `resultado`
+  viajan juntos.
+
+`UNIQUE (archivo_id, seq)` ordena la historia y el indice unico parcial
+`keyword_reposicion_intento_uno_abierto (archivo_id, tipo) WHERE finished_at IS
+NULL` impide dos intentos abiertos de la misma operacion: dos CLI no crean dos
+objetos. Los invariantes temporales (lease posterior al inicio, heartbeat
+dentro de `[started_at, now()]`, `finished_at` dentro de `[inicio, now()]`, sin
+des-sellar) viven en el trigger `keyword_reposicion_intento_invariantes`, con
+`now()` absoluto; no son CHECK. El trigger de fila prohibe DELETE y el de
+sentencia prohibe TRUNCATE: el down jamas borra intentos.
+
+Grants: `app_admin` INSERT y UPDATE solo por columna (`owner`, `lease_hasta`,
+`heartbeat_at`, `ack`, `external_id`, `resultado`, `finished_at`); `app_read`
+SELECT; `REVOKE SELECT` a `app_ingest` y `app_decide` (igual que `0066`/`0069`/
+`0078`).
+
+Lectura previa de produccion (2026-11-24 UTC, `docs/evidencia/arreglos-05/C/
+previa.txt`, rol `orbit_read`, transaccion `read_only`): `keyword_archivo_manual`
+con 0 filas, secuencia en 0, ningun FK apuntando a ella y la tabla nueva
+ausente. No hay backfill.
+
+Reversa (`0097_reversa_arreglos05_reposicion.sql`): aborta si la tabla tiene
+aunque sea un intento; solo un esquema sin historial puede retirar la tabla y
+su funcion.

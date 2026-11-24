@@ -18,20 +18,19 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections.abc import Collection
-from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
 
 import httpx
 import psycopg
 
-from app.ads import sp_wire
+from app.ads import archivar, sp_wire
 from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles
 from app.ceremonia import ErrorCeremonia, agrega_flags_ceremonia, valida_ceremonia
 from app.db import connect
-from app.optimizer.bid import PLATAFORMAS_MONEDA as MONEDA_POR_PLATAFORMA
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 install_scrub_filter(logging.getLogger())
@@ -39,12 +38,10 @@ install_scrub_filter(logging.getLogger())
 API = DEFAULT_BASE_URL
 LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
 VENDOR_KEYWORDS = "application/vnd.spkeyword.v3+json"
-MATCH_VALIDOS = frozenset({"EXACT", "PHRASE", "BROAD"})
 CLASIFICACIONES = ("peso_muerto", "gasto_sin_ventas", "con_ventas_previas")
 
 _ESTADO_VIVO = "ENABLED"
 _ESTADO_ARCHIVADO = "ARCHIVED"
-_ESTADO_REPUESTO = "PAUSED"
 
 _SQL_PLAN = """
 SELECT v.id, v.platform, v.kind, v.keyword_text, e.match_type, v.external_id,
@@ -101,22 +98,6 @@ UPDATE keyword_archivo_manual
 _SQL_SELLA_FAILED = """
 UPDATE keyword_archivo_manual
    SET estado = 'failed', ack = %s::jsonb, readback_estado = %s
- WHERE id = %s
-"""
-
-_SQL_REPONER = """
-SELECT id, ad_entity_id, platform, campaign_external, ad_group_external,
-       keyword_external, keyword_text, match_type, bid, bid_currency,
-       clasificacion, dias_sin_impresiones
-  FROM keyword_archivo_manual
- WHERE lote = %s AND estado = 'applied'
- ORDER BY id
-"""
-
-_SQL_SELLA_REPUESTO = """
-UPDATE keyword_archivo_manual
-   SET estado = 'repuesto', repuesto_at = now(),
-       repuesto_external = %s, repuesto_ack = %s::jsonb
  WHERE id = %s
 """
 
@@ -348,44 +329,6 @@ def _readback_keyword(
         if str(fila.get("keywordId")) == str(keyword_external):
             return fila
     return None
-
-
-def _id_creado_de_ack(ack: dict) -> str | None:
-    """keywordId del objeto creado segun el ack 207 (reusa `sp_wire.id_de_ack`)."""
-    return sp_wire.id_de_ack(ack.get("cuerpo"), "keywordId")
-
-
-def _bid_readback_cuadra(leido: dict | None, esperado: Decimal) -> bool:
-    """Compara el bid del LIST contra el del ledger cuantizado a 2 decimales."""
-    if not isinstance(leido, dict):
-        return False
-    crudo = leido.get("bid")
-    if crudo is None:
-        return False
-    try:
-        return Decimal(str(crudo)) == esperado.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
-    except (InvalidOperation, ValueError):
-        return False
-
-
-def _readback_reponer_cuadra(leido: dict | None, f: dict) -> bool:
-    """Valida el readback de la repuesta (PAUSED + identidad + bid)."""
-    return (
-        leido is not None
-        and leido.get("state") == _ESTADO_REPUESTO
-        and str(leido.get("keywordText")) == f["texto"]
-        and leido.get("matchType") == f["match"]
-        and str(leido.get("adGroupId")) == str(f["ad_group_external"])
-        and str(leido.get("campaignId")) == str(f["campaign_external"])
-        and _bid_readback_cuadra(leido, f["bid"])
-    )
-
-
-def _bid_wire(bid: Decimal) -> float:
-    """Bid cuantizado a 2 decimales para el payload JSON (sin aritmetica float)."""
-    if not isinstance(bid, Decimal):
-        raise TypeError(f"bid debe ser Decimal, no {type(bid).__name__}")
-    return float(bid.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN))
 
 
 def _lote_hoy() -> str:
@@ -657,32 +600,33 @@ def _reconciliar(
     return resumen
 
 
-def _detiene_reponer(lote: str, external_id: str, ack: dict, motivo: str, repuestas: int) -> None:
-    _log("reponer", external_id=external_id, ack=ack["cuerpo"], ok=False, motivo=motivo)
-    _log("lote_detenido", lote=lote, motivo=motivo, repuestas=repuestas)
-    raise Abortar(motivo)
+def _owner_cli() -> str:
+    return f"archiva_inertes:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
 
-def _fila_reponer(f: tuple) -> dict:
-    claves = (
-        "id",
-        "ad_entity_id",
-        "platform",
-        "campaign_external",
-        "ad_group_external",
-        "keyword_external",
-        "texto",
-        "match",
-        "bid",
-        "bid_currency",
-        "clasificacion",
-        "dias",
-    )
-    return dict(zip(claves, f, strict=False))
+def _resultados_log(evento: str, lote: str | None, resultados) -> None:
+    for r in resultados:
+        _log(
+            evento,
+            lote=lote,
+            fila=r.archivo_id,
+            external_id=r.keyword_external,
+            resultado=r.resultado,
+            detalle=r.detalle,
+            nuevo_external=r.external_id,
+        )
+
+
+def _primer_fallo(resultados) -> str | None:
+    ok = ("repuesto", "revertido", "ya_repuesto", "ya_revertido", "reintentable")
+    for r in resultados:
+        if r.resultado not in ok:
+            return f"{r.keyword_external}: {r.resultado} {r.detalle}".strip()
+    return None
 
 
 def _reconciliar_cmd(args) -> int:
-    """`--reconciliar [--lote X]`: solo LISTs + promociones del ledger."""
+    """`--reconciliar [--lote X]`: LISTs, promociones y conciliacion de intentos."""
     conn_admin = connect(_dsn_admin())
     try:
         cred = AdsCredentials.from_secrets_dir()
@@ -690,162 +634,158 @@ def _reconciliar_cmd(args) -> int:
         perfiles = _perfiles(cliente_lectura, plataformas=set())
         _log("perfiles", perfiles=perfiles)
         _reconciliar(conn_admin, cliente_lectura, perfiles, args.lote)
+        resultados = archivar.reconciliar_reposicion(
+            conn_admin,
+            lote=args.lote,
+            cliente=cliente_lectura,
+            perfiles=perfiles,
+            owner=_owner_cli(),
+        )
+        _resultados_log("reconciliar_reposicion", args.lote, resultados)
     finally:
         _cerrar(conn_admin)
     return 0
+
+
+def _mutar(args, modo: str) -> bool:
+    """Ceremonia comun de reponer/revertir. True solo con mutacion autorizada."""
+    try:
+        mutar = valida_ceremonia(
+            acepto=bool(args.acepto_mutacion_real),
+            go=args.go,
+            exige_go=True,
+            exige_huella=False,
+            exige_esperado=False,
+            rechaza_sin_acepto=False,
+        )
+    except ErrorCeremonia as exc:
+        raise Abortar(str(exc)) from exc
+    if not mutar:
+        _log(
+            "dry_run",
+            modo=modo,
+            lote=getattr(args, modo),
+            nota="sin --acepto-mutacion-real no se toca Amazon",
+        )
+    return mutar
 
 
 def _reponer(args) -> int:
     with contextlib.ExitStack() as stack:
         conn_admin = connect(_dsn_admin())
         stack.callback(_cerrar, conn_admin)
-
-        if args.acepto_mutacion_real:
-            cred_rec = AdsCredentials.from_secrets_dir()
-            cliente_rec = AdsClient(cred_rec)
-            _reconciliar(
+        if not _mutar(args, "reponer"):
+            resultados = archivar.reponer_keyword(
                 conn_admin,
-                cliente_rec,
-                _perfiles(cliente_rec, plataformas=set()),
-                args.reponer,
-            )
-        filas = [
-            _fila_reponer(f) for f in conn_admin.execute(_SQL_REPONER, (args.reponer,)).fetchall()
-        ]
-        conn_admin.commit()
-        if not filas:
-            raise Abortar(f"lote {args.reponer} sin filas 'applied': nada que reponer")
-        for f in filas:
-            print(
-                f"{f['platform']} | {f['campaign_external']} | {f['ad_group_external']} | "
-                f"{f['texto']} | {f['match']} | {f['keyword_external']} | "
-                f"bid={f['bid']} {f['bid_currency']}",
-                flush=True,
-            )
-        _log("plan_reponer", lote=args.reponer, candidatas=len(filas))
-
-        try:
-            mutar = valida_ceremonia(
-                acepto=bool(args.acepto_mutacion_real),
-                go=args.go,
-                exige_go=True,
-                exige_huella=False,
-                exige_esperado=False,
-                rechaza_sin_acepto=False,
-            )
-        except ErrorCeremonia as exc:
-            raise Abortar(str(exc)) from exc
-
-        if not mutar:
-            _log(
-                "dry_run",
-                modo="reponer",
                 lote=args.reponer,
-                candidatas=len(filas),
-                nota="sin --acepto-mutacion-real no se crea nada",
+                cliente=None,
+                perfiles={},
+                enviar=None,
+                owner=_owner_cli(),
+                ejecutar=False,
             )
+            _resultados_log("plan_reponer", args.reponer, resultados)
             return 0
-
         cred = AdsCredentials.from_secrets_dir()
         cliente_lectura = AdsClient(cred)
         http = stack.enter_context(
             httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         )
-
-        perfiles = _perfiles(cliente_lectura, plataformas={f["platform"] for f in filas})
+        perfiles = _perfiles(cliente_lectura, plataformas=set())
         _log("perfiles", perfiles=perfiles)
-        for f in filas:
-            if f["platform"] not in perfiles:
-                raise Abortar(f"sin perfil aceptado para {f['platform']} ({f['keyword_external']})")
-
-        for f in filas:
-            if f["match"] not in MATCH_VALIDOS:
-                motivo = (
-                    f"fila {f['id']} con match {f['match']!r} fuera de "
-                    f"{sorted(MATCH_VALIDOS)}: el lote se detiene"
-                )
-                _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=0)
-                raise Abortar(motivo)
-            if f["bid"] is None or f["bid_currency"] is None:
-                motivo = (
-                    f"fila {f['id']} ({f['keyword_external']}) sin bid en el "
-                    "ledger: no se inventa (regla 3), el lote se detiene"
-                )
-                _log(
-                    "reponer_sin_bid",
-                    fila=f["id"],
-                    external_id=f["keyword_external"],
-                    motivo=motivo,
-                )
-                _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=0)
-                raise Abortar(motivo)
-            if MONEDA_POR_PLATAFORMA.get(f["platform"]) != f["bid_currency"]:
-                motivo = (
-                    f"fila {f['id']}: moneda {f['bid_currency']!r} != "
-                    f"moneda de {f['platform']}: no se escribe (regla 4)"
-                )
-                _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=0)
-                raise Abortar(motivo)
-
         token = _token_lwa(cred, http)
 
-        repuestas = 0
-        for f in filas:
-            profile = perfiles[f["platform"]]
-            try:
-                ack = _post(
-                    http,
-                    token,
-                    cred,
-                    profile,
-                    "/sp/keywords",
-                    {
-                        "adGroupId": str(f["ad_group_external"]),
-                        "campaignId": str(f["campaign_external"]),
-                        "keywordText": f["texto"],
-                        "matchType": f["match"],
-                        "state": _ESTADO_REPUESTO,
-                        "bid": _bid_wire(f["bid"]),
-                    },
-                    envolver="keywords",
-                )
-            except Exception as exc:
-                ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
-            if not _ack_ok(ack):
-                motivo = (
-                    f"CREATE de {f['keyword_external']} rechazado "
-                    f"(status {ack.get('status')}): el lote se detiene"
-                )
-                _detiene_reponer(args.reponer, f["keyword_external"], ack, motivo, repuestas)
-            nuevo = _id_creado_de_ack(ack)
-            if nuevo is None:
-                motivo = (
-                    f"el ack del CREATE de {f['keyword_external']} no trae "
-                    "keywordId: sin id no hay readback, el lote se detiene"
-                )
-                _detiene_reponer(args.reponer, f["keyword_external"], ack, motivo, repuestas)
-            time.sleep(0.3)
-            leido = _readback_salvo(cliente_lectura, profile, nuevo)
-            cuadra = _readback_reponer_cuadra(leido, f)
-            _log(
-                "reponer",
-                external_id=f["keyword_external"],
-                nuevo_external=nuevo,
-                ack=ack["cuerpo"],
-                leido=leido,
-                ok=cuadra,
-            )
-            if not cuadra:
-                motivo = (
-                    f"readback de la repuesta {nuevo} no cuadra con el ledger "
-                    "(texto+match+grupo+campana+bid, PAUSED): el lote se detiene"
-                )
-                _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=repuestas)
-                raise Abortar(motivo)
-            _sella(conn_admin, _SQL_SELLA_REPUESTO, (nuevo, json.dumps(ack, default=str), f["id"]))
-            repuestas += 1
+        # La recuperacion del ledger de archivo sigue siendo parte de --reponer
+        # con mutacion: una fila failed archivada en Amazon se promueve antes
+        # de leer las filas reponibles.
+        _reconciliar(conn_admin, cliente_lectura, perfiles, args.reponer)
 
-        _log("reconciliacion_final", lote=args.reponer, repuestas=repuestas, ok=True)
+        def enviar(plataforma: str, profile: int, payload: dict) -> dict:
+            return _post(http, token, cred, profile, "/sp/keywords", payload, envolver="keywords")
+
+        try:
+            resultados = archivar.reponer_keyword(
+                conn_admin,
+                lote=args.reponer,
+                cliente=cliente_lectura,
+                perfiles=perfiles,
+                enviar=enviar,
+                owner=_owner_cli(),
+                ejecutar=True,
+                avisar=print,
+            )
+        except (archivar.ReposicionInvalida, archivar.AbortoFase) as exc:
+            raise Abortar(str(exc)) from exc
+        _resultados_log("reponer", args.reponer, resultados)
+        if not resultados:
+            _log("sin_candidatas", modo="reponer", lote=args.reponer, ok=True)
+            return 0
+        fallo = _primer_fallo(resultados)
+        if fallo is not None:
+            raise Abortar(f"lote {args.reponer} con fallos: {fallo}")
+        _log("reconciliacion_final", lote=args.reponer, repuestas=len(resultados), ok=True)
+    return 0
+
+
+def _revertir(args) -> int:
+    with contextlib.ExitStack() as stack:
+        conn_admin = connect(_dsn_admin())
+        stack.callback(_cerrar, conn_admin)
+        if not _mutar(args, "revertir_reposicion"):
+            resultados = archivar.revertir_reposicion(
+                conn_admin,
+                lote=args.revertir_reposicion,
+                cliente=None,
+                perfiles={},
+                eliminar=None,
+                owner=_owner_cli(),
+                ejecutar=False,
+            )
+            _resultados_log("plan_revertir", args.revertir_reposicion, resultados)
+            return 0
+        cred = AdsCredentials.from_secrets_dir()
+        cliente_lectura = AdsClient(cred)
+        http = stack.enter_context(
+            httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
+        )
+        perfiles = _perfiles(cliente_lectura, plataformas=set())
+        _log("perfiles", perfiles=perfiles)
+        token = _token_lwa(cred, http)
+
+        def eliminar(plataforma: str, profile: int, payload: dict) -> dict:
+            return _post(http, token, cred, profile, "/sp/keywords/delete", payload)
+
+        try:
+            resultados = archivar.revertir_reposicion(
+                conn_admin,
+                lote=args.revertir_reposicion,
+                cliente=cliente_lectura,
+                perfiles=perfiles,
+                eliminar=eliminar,
+                owner=_owner_cli(),
+                ejecutar=True,
+                avisar=print,
+            )
+        except (archivar.ReposicionInvalida, archivar.AbortoFase) as exc:
+            raise Abortar(str(exc)) from exc
+        _resultados_log("revertir_reposicion", args.revertir_reposicion, resultados)
+        if not resultados:
+            _log(
+                "sin_candidatas",
+                modo="revertir_reposicion",
+                lote=args.revertir_reposicion,
+                ok=True,
+            )
+            return 0
+        fallo = _primer_fallo(resultados)
+        if fallo is not None:
+            raise Abortar(f"lote {args.revertir_reposicion} con fallos: {fallo}")
+        _log(
+            "reconciliacion_final",
+            lote=args.revertir_reposicion,
+            revertidas=len(resultados),
+            ok=True,
+        )
     return 0
 
 
@@ -858,12 +798,15 @@ def main() -> int:
     ap.add_argument("--limite", type=int, default=None)
     agrega_flags_ceremonia(ap, con_huella=True, con_esperado=True)
     ap.add_argument("--reponer", default=None)
+    ap.add_argument("--revertir-reposicion", default=None)
     ap.add_argument("--reconciliar", action="store_true")
     ap.add_argument("--lote", default=None)
     args = ap.parse_args()
 
     if args.reconciliar:
         return _reconciliar_cmd(args)
+    if args.revertir_reposicion is not None:
+        return _revertir(args)
     if args.reponer is not None:
         return _reponer(args)
     conn_read = connect(_dsn_read())

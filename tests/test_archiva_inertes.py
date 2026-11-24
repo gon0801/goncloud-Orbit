@@ -36,9 +36,32 @@ import httpx
 import psycopg
 import pytest
 from psycopg import sql as pgsql
+from test_arreglos05_c_reposicion import (  # noqa: E402
+    PERFILES as PERFILES_C,
+)
+from test_arreglos05_c_reposicion import (
+    _Amazon as _AmazonC,
+)
+from test_arreglos05_c_reposicion import (
+    _cliente as _cliente_c,
+)
+from test_arreglos05_c_reposicion import (
+    _enviar as _enviar_c,
+)
+from test_arreglos05_c_reposicion import (
+    _red as _red_c,
+)
+from test_arreglos05_c_reposicion import (
+    _semilla as _semilla_c,
+)
+from test_arreglos05_c_reposicion import (
+    _vivo,
+)
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
-from app.ads import archivar_inertes as ar  # noqa: E402
+from app import apply_estados as est  # noqa: E402
+from app.ads import archivar, reposicion_store  # noqa: E402
+from app.ads import archivar_inertes as ar
 from app.ads.config import AdsCredentials  # noqa: E402
 from app.ads.structure import (  # noqa: E402
     EstructuraAds,
@@ -423,12 +446,12 @@ def test_migracion_0014_crea_el_ledger_con_grants_y_estados():
 
 
 def test_moneda_del_tool_iguala_la_de_la_capa_http():
-    """MONEDA_POR_PLATAFORMA no puede divergir del mapa canonico en
-    silencio (hallazgo de GLM): lo pinea este test. Import solo de
-    tests (el candado de test_architecture cubre app/ y tools/)."""
+    """La reposicion no puede divergir del mapa canonico de moneda del
+    escritor: lo pinea este test contra la fuente unica."""
     from app.ads.write import PLATAFORMA_MONEDA
+    from app.optimizer.bid import PLATAFORMAS_MONEDA
 
-    assert dict(PLATAFORMA_MONEDA) == ar.MONEDA_POR_PLATAFORMA
+    assert dict(PLATAFORMA_MONEDA) == PLATAFORMAS_MONEDA
 
 
 def test_modulo_no_importa_write_ni_apply():
@@ -745,123 +768,111 @@ def test_main_nulos_viajan_sin_convertirse_en_cero(monkeypatch, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_reponer_recrea_con_el_match_del_ledger_y_sella_repuesto(
-    monkeypatch,
-    capsys,
-):
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_reponer_recrea_con_el_match_del_ledger_y_sella_repuesto():
     """--reponer crea con {adGroupId, campaignId, keywordText, matchType
     del ledger (PHRASE, no el EXACT fijo del harvest), state PAUSED,
     bid} y sella repuesto_* con el external nuevo del ack."""
-    red = _RedFalsa(creates=[_ACK_CREATE_OK])
-    cliente = _ClienteFalso(
-        {
-            "kw-nuevo-1": [
-                _obj_kw(
-                    "kw-nuevo-1",
-                    "PAUSED",
-                    "arras de plata",
-                    "PHRASE",
-                    "ag-ext-5",
-                    bid=12.5,
-                    campaign="camp-ext-2",
-                )
-            ],
+    with _db_reposicion("orbit_rep_ok") as conn:
+        fila, _viejo, _texto = _semilla_c(
+            conn,
+            lote=LOTE,
+            plataforma="amazon_us",
+            moneda="USD",
+            bid="12.5000",
+            match="PHRASE",
+            texto="arras de plata",
+            campaign="camp-ext-2",
+            ad_group="ag-ext-5",
+        )
+        amazon = _AmazonC()
+        resultados = archivar.reponer_keyword(
+            conn,
+            lote=LOTE,
+            cliente=_cliente_c(amazon),
+            perfiles=PERFILES_C,
+            enviar=_enviar_c(amazon),
+            owner="test",
+            ejecutar=True,
+            dormir=lambda _s: None,
+        )
+        assert [r.resultado for r in resultados] == ["repuesto"]
+        cuerpo = amazon.posts[0]
+        assert cuerpo == {
+            "keywords": [
+                {
+                    "adGroupId": "ag-ext-5",
+                    "campaignId": "camp-ext-2",
+                    "keywordText": "arras de plata",
+                    "matchType": "PHRASE",
+                    "state": "PAUSED",
+                    "bid": 12.5,
+                }
+            ]
         }
-    )
-    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
-    _fakea_frontera(
-        monkeypatch,
-        _ConnFalsa(),
-        conn_admin,
-        cliente,
-        red,
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real", "--go", GO],
-    )
-    assert ar.main() == 0
-    creates = [p for p in red.pedidos if p.url.path == "/sp/keywords"]
-    assert len(creates) == 1
-    cuerpo = json.loads(creates[0].content.decode())
-    # Objeto envuelto en {"keywords": [...]}: sello del probe 2.5
-    # (objeto desnudo = 400). Hallazgo ALTA de grok en cross-review.
-    assert cuerpo == {
-        "keywords": [
-            {
-                "adGroupId": "ag-ext-5",
-                "campaignId": "camp-ext-2",
-                "keywordText": "arras de plata",
-                "matchType": "PHRASE",
-                "state": "PAUSED",
-                "bid": 12.5,
-            }
-        ]
-    }
-    interno = cuerpo["keywords"][0]
-    assert isinstance(interno["bid"], float), "el wire lleva numero (sello)"
-    ups = [u for u in conn_admin.updates if "'repuesto'" in u[0]]
-    assert len(ups) == 1
-    assert "kw-nuevo-1" in str(ups[0][1])
-    eventos = _eventos(capsys)
-    fin = [e for e in eventos if e["evento"] == "reconciliacion_final"]
-    assert len(fin) == 1 and fin[0]["repuestas"] == 1
+        assert isinstance(cuerpo["keywords"][0]["bid"], float), "el wire lleva numero (sello)"
+        estado, nuevo = conn.execute(
+            "SELECT estado, repuesto_external FROM keyword_archivo_manual WHERE id = %s",
+            (fila,),
+        ).fetchone()
+        assert (estado, nuevo) == ("repuesto", "k-1")
+        (intento,) = conn.execute(
+            "SELECT resultado, external_id FROM keyword_reposicion_intento WHERE archivo_id = %s",
+            (fila,),
+        ).fetchall()
+        assert (intento[0], intento[1]) == ("ok", "k-1")
 
 
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
 def test_reponer_sin_mutacion_es_dry_run(monkeypatch, capsys):
-    """--reponer sin --acepto-mutacion-real solo lista (cero HTTP)."""
-    red = _RedFalsa()
-    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
-    _fakea_frontera(
-        monkeypatch,
-        _ConnFalsa(),
-        conn_admin,
-        _ClienteFalso({}),
-        red,
-    )
-    monkeypatch.setattr(sys, "argv", ["archiva_inertes.py", "--reponer", LOTE])
-    assert ar.main() == 0
-    assert red.pedidos == []
-    assert conn_admin.commits >= 1, "la txn de lectura se cierra (PR #134)"
-    assert "kw-ext-11" in capsys.readouterr().out
+    """--reponer sin --acepto-mutacion-real solo lista (cero HTTP y cero
+    intenciones); el plan se imprime desde el ledger real."""
+    with _db_reposicion("orbit_rep_dry") as conn:
+        _semilla_c(conn, lote=LOTE)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", conn.info.dsn)
+        monkeypatch.setattr(sys, "argv", ["archiva_inertes.py", "--reponer", LOTE])
+        assert ar.main() == 0
+        assert conn.execute("SELECT count(*) FROM keyword_reposicion_intento").fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT estado FROM keyword_archivo_manual WHERE lote = %s", (LOTE,)
+            ).fetchone()[0]
+            == "applied"
+        )
+        assert "vieja-1" in capsys.readouterr().out
 
 
-def test_reponer_bid_null_aborta_fail_closed(monkeypatch, capsys):
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_reponer_bid_null_aborta_fail_closed():
     """Sin bid en el ledger no se inventa uno: la fila queda 'applied',
-    se declara y no sale HTTP."""
-    fila_sin_bid = (
-        101,
-        12,
-        "amazon_mx",
-        "camp-ext-2",
-        "ag-ext-5",
-        "kw-ext-12",
-        "arras de oro",
-        "PHRASE",
-        None,
-        None,
-        "peso_muerto",
-        None,
-    )
-    red = _RedFalsa()
-    conn_admin = _ConnFalsa(reponer=[fila_sin_bid])
-    _fakea_frontera(
-        monkeypatch,
-        _ConnFalsa(),
-        conn_admin,
-        _ClienteFalso({}),
-        red,
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real", "--go", GO],
-    )
-    with pytest.raises(ar.Abortar, match="[Bb]id"):
-        ar.main()
-    assert red.pedidos == [], "sin bid no hay create"
-    assert conn_admin.updates == [], "la fila sigue 'applied', sin sello falso"
+    no nace intento y no sale HTTP."""
+    with _db_reposicion("orbit_rep_null") as conn:
+        fila, _viejo, _texto = _semilla_c(conn, lote=LOTE, bid="1.0000")
+        conn.execute(
+            "UPDATE keyword_archivo_manual SET bid = NULL, bid_currency = NULL WHERE id = %s",
+            (fila,),
+        )
+        conn.commit()
+        amazon = _AmazonC()
+        with pytest.raises(archivar.ReposicionInvalida, match="sin bid"):
+            archivar.reponer_keyword(
+                conn,
+                lote=LOTE,
+                cliente=_cliente_c(amazon),
+                perfiles=PERFILES_C,
+                enviar=_enviar_c(amazon),
+                owner="test",
+                ejecutar=True,
+                dormir=lambda _s: None,
+            )
+        assert amazon.posts == [], "sin bid no hay create"
+        assert conn.execute("SELECT count(*) FROM keyword_reposicion_intento").fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT estado FROM keyword_archivo_manual WHERE id = %s", (fila,)
+            ).fetchone()[0]
+            == "applied"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1003,6 +1014,17 @@ def _db_ledger(prefijo):
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+SQL97 = (ROOT / "migrations" / "0097_arreglos05_reposicion.sql").read_text(encoding="utf-8")
+
+
+@contextmanager
+def _db_reposicion(prefijo):
+    """DB con el ledger madre (0014) y el ledger de reposicion (0097)."""
+    with _db_ledger(prefijo) as conn:
+        conn.execute(SQL97)
+        yield conn
 
 
 def _kw_ledger(conn):
@@ -1185,83 +1207,80 @@ def test_25_reponer_sin_go_aborta(monkeypatch):
         ar.main()
 
 
-def _fila_ledger_minima():
-    return {
-        "texto": "arras de plata",
-        "match": "PHRASE",
-        "ad_group_external": "ag-ext-5",
-        "campaign_external": "camp-ext-2",
-        "bid": Decimal("12.5000"),
-    }
+def _evento_repo(items, *, campaign="camp-ext-2", bid=Decimal("12.5"), estado="PAUSED"):
+    return est.evento_reposicion_desde_lectura(
+        items,
+        id_propio="kw-nuevo-1",
+        ad_group="ag-ext-5",
+        texto="arras de plata",
+        match="PHRASE",
+        destino="vivo",
+        campaign_esperada=campaign,
+        bid_esperado=bid,
+        estado_esperado=estado,
+    )
 
 
 def test_25_unidad_campana_distinta_no_cuadra():
-    """Rojo contra el codigo previo (sin la funcion): AttributeError."""
-    leido = _obj_kw("x", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, "camp-otra")
-    assert ar._readback_reponer_cuadra(leido, _fila_ledger_minima()) is False
+    """La campana leida debe ser la del payload; si no, no confirma."""
+    leido = _obj_kw(
+        "kw-nuevo-1", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, "camp-otra"
+    )
+    assert _evento_repo([leido]) == est.EventoCambio.IDENTIDAD_DUDOSA
 
 
 def test_25_unidad_bid_distinto_no_cuadra():
-    """Rojo contra el codigo previo (sin la funcion): AttributeError."""
-    leido = _obj_kw("x", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 99.0, "camp-ext-2")
-    assert ar._readback_reponer_cuadra(leido, _fila_ledger_minima()) is False
+    """El bid leido debe ser el del payload; si no, no confirma."""
+    leido = _obj_kw(
+        "kw-nuevo-1", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 99.0, "camp-ext-2"
+    )
+    assert _evento_repo([leido]) == est.EventoCambio.IDENTIDAD_DUDOSA
 
 
 def test_25_unidad_todo_cuadra():
-    """El caso bueno sella (pin contra un fail-closed demasiado bravo)."""
-    leido = _obj_kw("x", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, 123)
-    fila = _fila_ledger_minima()
-    fila["campaign_external"] = "123"  # campaignId INT del LIST pasa por str
-    assert ar._readback_reponer_cuadra(leido, fila) is True
+    """El caso bueno confirma (pin contra un fail-closed demasiado bravo)."""
+    leido = _obj_kw("kw-nuevo-1", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, 123)
+    assert _evento_repo([leido], campaign="123") == est.EventoCambio.OK_CONFIRMADO
 
 
-def test_25_readback_campana_distinta_detiene(monkeypatch):
-    """La repuesta en OTRA campana no se sella: el lote se detiene."""
-    red = _RedFalsa(creates=[_ACK_CREATE_OK])
-    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
-    _fakea_frontera(
-        monkeypatch, _ConnFalsa(), conn_admin, _cliente_repuesta(campaign="camp-otra"), red
+def test_25_readback_campana_distinta_detiene():
+    """La repuesta en OTRA campana no se confirma: queda dudosa, sin sello."""
+    leido = _obj_kw(
+        "kw-nuevo-1", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, "camp-otra"
     )
-    monkeypatch.setattr(sys, "argv", _argv_reponer("--go", GO))
-    with pytest.raises(ar.Abortar, match="no cuadra"):
-        ar.main()
-    assert [u for u in conn_admin.updates if "'repuesto'" in u[0]] == []
+    assert _evento_repo([leido]) == est.EventoCambio.IDENTIDAD_DUDOSA
 
 
-def test_25_readback_bid_distinto_detiene(monkeypatch):
-    """La repuesta con OTRO bid no se sella: el lote se detiene."""
-    red = _RedFalsa(creates=[_ACK_CREATE_OK])
-    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
-    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, _cliente_repuesta(bid=99.0), red)
-    monkeypatch.setattr(sys, "argv", _argv_reponer("--go", GO))
-    with pytest.raises(ar.Abortar, match="no cuadra"):
-        ar.main()
-    assert [u for u in conn_admin.updates if "'repuesto'" in u[0]] == []
+def test_25_readback_bid_distinto_detiene():
+    """La repuesta con OTRO bid no se confirma: queda dudosa, sin sello."""
+    leido = _obj_kw(
+        "kw-nuevo-1", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 99.0, "camp-ext-2"
+    )
+    assert _evento_repo([leido]) == est.EventoCambio.IDENTIDAD_DUDOSA
 
 
-def test_25_readback_enabled_no_cuadra(monkeypatch):
-    """La repuesta nace PAUSED: si Amazon la devuelve ENABLED, no cuadra.
-
-    Rojo contra el codigo previo (creaba y exigia ENABLED): gastaba sola."""
-    red = _RedFalsa(creates=[_ACK_CREATE_OK])
-    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
-    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, _cliente_repuesta("ENABLED"), red)
-    monkeypatch.setattr(sys, "argv", _argv_reponer("--go", GO))
-    with pytest.raises(ar.Abortar, match="no cuadra"):
-        ar.main()
-    assert [u for u in conn_admin.updates if "'repuesto'" in u[0]] == []
+def test_25_readback_enabled_no_cuadra():
+    """La repuesta nace PAUSED: si Amazon la devuelve ENABLED, queda dudosa."""
+    leido = _obj_kw(
+        "kw-nuevo-1", "ENABLED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, "camp-ext-2"
+    )
+    assert _evento_repo([leido]) == est.EventoCambio.IDENTIDAD_DUDOSA
 
 
 def test_25_bid_readback_unidad():
-    """Comparacion via str contra el wire cuantizado a 2; ausente o
-    ilegible = no cuadra (fail-closed)."""
-    assert ar._bid_readback_cuadra({"bid": 12.5}, Decimal("12.5000")) is True
-    assert ar._bid_readback_cuadra({"bid": "12.50"}, Decimal("12.5000")) is True
-    assert ar._bid_readback_cuadra({"bid": 12.51}, Decimal("12.5000")) is False
-    assert ar._bid_readback_cuadra({}, Decimal("12.5000")) is False
-    assert ar._bid_readback_cuadra({"bid": None}, Decimal("12.5000")) is False
-    assert ar._bid_readback_cuadra({"bid": "no-numero"}, Decimal("12.5000")) is False
-    assert ar._bid_readback_cuadra(None, Decimal("12.5000")) is False
+    """Comparacion numerica contra el wire cuantizado a 2; ausente o
+    ilegible = dudosa (fail-closed)."""
+
+    def objeto(bid):
+        return _obj_kw(
+            "kw-nuevo-1", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", bid, "camp-ext-2"
+        )
+
+    assert _evento_repo([objeto(12.5)]) == est.EventoCambio.OK_CONFIRMADO
+    assert _evento_repo([objeto("12.50")]) == est.EventoCambio.OK_CONFIRMADO
+    for leido in (objeto(12.51), objeto(None), objeto("no-numero")):
+        assert _evento_repo([leido]) == est.EventoCambio.IDENTIDAD_DUDOSA
+    assert _evento_repo([]) == est.EventoCambio.IDENTIDAD_DUDOSA
 
 
 def test_25_docs_declaran_irreversible():
@@ -1426,81 +1445,105 @@ def test_23_reconciliar_sin_perfil_aborta_sin_tocar():
     assert cliente.llamadas == [], "sin perfil ni se pregunta"
 
 
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
 def test_23_reponer_incluye_recuperadas_del_lote(monkeypatch, capsys):
     """--reponer con mutacion reconcilia su lote ANTES de leer `applied`:
     la failed recuperada se crea junto a la applied (2 CREATEs)."""
-    red = _RedFalsa(creates=[_ACK_CREATE_OK, _ACK_CREATE_OK_2])
-    cliente = _ClienteFalso(
-        {
-            "kw-ext-12": [_obj_kw("kw-ext-12", "ARCHIVED")],
-            # La 2.5 endurecio el readback de la repuesta: PAUSED (no gasta
-            # sola) + campana + bid contra el ledger. Este stub de la 2.3 lo
-            # adopta con los valores de _FILA_REPONER y _FILA_REPONER_2.
-            "kw-nuevo-1": [
-                _obj_kw(
-                    "kw-nuevo-1",
-                    "PAUSED",
-                    "arras de plata",
-                    "PHRASE",
-                    "ag-ext-5",
-                    bid=12.5,
-                    campaign="camp-ext-2",
-                )
-            ],
-            "kw-nuevo-2": [
-                _obj_kw(
-                    "kw-nuevo-2",
-                    "PAUSED",
-                    "collar rojo",
-                    "EXACT",
-                    "ag-ext-5",
-                    bid=9.0,
-                    campaign="camp-ext-2",
-                )
-            ],
-        }
-    )
-    conn_admin = _ConnFalsa(
-        reponer=[_FILA_REPONER, _FILA_REPONER_2], pendientes=[_PENDIENTE_FAILED]
-    )
-    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, cliente, red)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        # La 2.5 exige el literal del dueno tambien para reponer (H5:
-        # recrear es mutacion): este test de la 2.3 lo adopta.
-        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real", "--go", "repon"],
-    )
-    assert ar.main() == 0
-    promo = [u for u in conn_admin.updates if "'applied'" in u[0]]
-    assert len(promo) == 1, "la failed se promovio antes de leer applied"
-    creates = [p for p in red.pedidos if p.url.path == "/sp/keywords"]
-    assert len(creates) == 2, "applied + recuperada se crean"
-    eventos = _eventos(capsys)
-    fin = [e for e in eventos if e["evento"] == "reconciliacion_final"]
-    assert len(fin) == 1 and fin[0]["repuestas"] == 2
+    with _db_reposicion("orbit_rep_rec") as conn:
+        dsn = conn.info.dsn
+        _semilla_c(
+            conn,
+            lote=LOTE,
+            texto="arras de plata",
+            externo="vieja-1",
+            bid="12.5000",
+            match="PHRASE",
+            campaign="camp-ext-2",
+            ad_group="ag-ext-5",
+        )
+        fila2, ext2, txt2 = _semilla_c(
+            conn,
+            lote=LOTE,
+            texto="collar rojo",
+            externo="vieja-2",
+            bid="9.0000",
+            match="EXACT",
+            campaign="camp-ext-2",
+            ad_group="ag-ext-5",
+        )
+        conn.execute(
+            "UPDATE keyword_archivo_manual SET estado = 'failed', ack = NULL,"
+            " readback_estado = NULL WHERE id = %s",
+            (fila2,),
+        )
+        conn.commit()
+        amazon = _AmazonC([_vivo(ext2, txt2, "ARCHIVED")])
+        _red_c(monkeypatch, amazon, dsn)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real", "--go", "reponer"],
+        )
+        assert ar.main() == 0
+        assert len(amazon.posts) == 2, "applied + recuperada se crean"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM keyword_archivo_manual"
+                " WHERE lote = %s AND estado = 'repuesto'",
+                (LOTE,),
+            ).fetchone()[0]
+            == 2
+        )
 
 
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
 def test_23_reconciliar_cmd_solo_lee_amazon(monkeypatch, capsys):
-    """--reconciliar standalone no hace DELETE ni CREATE (cero POSTs mutantes)."""
-    red = _RedFalsa()
-    cliente = _ClienteFalso({"kw-ext-12": [_obj_kw("kw-ext-12", "ARCHIVED")]})
-    conn_admin = _ConnFalsa(pendientes=[_PENDIENTE_FAILED])
-    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, cliente, red)
-    monkeypatch.setattr(sys, "argv", ["archiva_inertes.py", "--reconciliar", "--lote", LOTE])
-    assert ar.main() == 0
-    assert red.pedidos == [], "sin token ni mutaciones: solo LISTs"
-    assert len([u for u in conn_admin.updates if "'applied'" in u[0]]) == 1
-    eventos = _eventos(capsys)
-    rec = [e for e in eventos if e["evento"] == "reconciliacion"]
-    assert len(rec) == 1 and rec[0]["recuperadas"] == 1
+    """--reconciliar standalone no hace DELETE ni CREATE (cero POSTs mutantes):
+    solo LISTs y el sello por lectura del intento abierto."""
+    with _db_reposicion("orbit_rep_rec_cmd") as conn:
+        dsn = conn.info.dsn
+        fila, ext, txt = _semilla_c(conn, lote=LOTE)
+        conn.execute(
+            "INSERT INTO keyword_reposicion_intento"
+            " (archivo_id, seq, tipo, owner, lease_hasta, request_payload)"
+            " VALUES (%s, 1, 'reponer', 'cli-a', now() + interval '5 min', '{}'::jsonb)",
+            (fila,),
+        )
+        conn.execute(
+            """UPDATE keyword_reposicion_intento SET ack = '{"ok": true}'::jsonb,
+                      external_id = 'k-1' WHERE archivo_id = %s""",
+            (fila,),
+        )
+        conn.execute(
+            "UPDATE keyword_reposicion_intento"
+            " SET lease_hasta = started_at + interval '1 millisecond'"
+            " WHERE archivo_id = %s",
+            (fila,),
+        )
+        conn.commit()
+        amazon = _AmazonC([_vivo("k-1", txt)])
+        _red_c(monkeypatch, amazon, dsn)
+        monkeypatch.setattr(sys, "argv", ["archiva_inertes.py", "--reconciliar", "--lote", LOTE])
+        assert ar.main() == 0
+        assert amazon.posts == [] and amazon.deletes == [], "sin mutaciones"
+        assert (
+            conn.execute(
+                "SELECT resultado FROM keyword_reposicion_intento WHERE archivo_id = %s",
+                (fila,),
+            ).fetchone()[0]
+            == "ok"
+        )
+        assert conn.execute(
+            "SELECT estado, repuesto_external FROM keyword_archivo_manual WHERE id = %s",
+            (fila,),
+        ).fetchone() == ("repuesto", "k-1")
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
 def test_23_promocion_corre_en_postgres_de_verdad():
     """El UPDATE de promocion + el SELECT de pendientes contra Postgres
     real: el CHECK de evidencia muerde sin ack/readback, y la fila
-    promovida la trae _SQL_REPONER (es reponible)."""
+    promovida la trae el selector de reposicion (es reponible)."""
     import psycopg
 
     raiz = Path(__file__).resolve().parents[1]
@@ -1554,8 +1597,8 @@ def test_23_promocion_corre_en_postgres_de_verdad():
             (json.dumps({"fuente": "reconciliar"}), "ARCHIVED", fila[0]),
         )
         conn.commit()
-        trae = conn.execute(ar._SQL_REPONER, ("lote23",)).fetchall()
-        assert len(trae) == 1 and trae[0][5] == "KW23", "recuperada = reponible"
+        trae = reposicion_store.filas_reponibles(conn, "lote23")
+        assert len(trae) == 1 and trae[0].keyword_external == "KW23", "recuperada = reponible"
     finally:
         conn.close()
         admin = psycopg.connect(_test_dsn(), autocommit=True)

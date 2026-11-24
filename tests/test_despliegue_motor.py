@@ -1114,6 +1114,50 @@ def test_arreglos05_b_la_migracion_del_bloque_entra_en_el_despliegue(tmp_path):
     assert "0095_reversa_arreglos05_evidencia_previa.sql" not in r.stdout
 
 
+def test_arreglos05_c_la_migracion_del_bloque_entra_en_el_despliegue(tmp_path):
+    """ARREGLOS 05 C: migraciones_de incluye la 0097 real del bloque, con su cabecera de sonda
+    y su reversa, y rechaza la ida sin esa reversa al lado."""
+    ida = ROOT / "migrations" / "0097_arreglos05_reposicion.sql"
+    reversa = ROOT / "migrations" / "0097_reversa_arreglos05_reposicion.sql"
+    assert ida.exists() and reversa.exists(), "falta la migracion 0097 o su reversa"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master")
+    _git(repo, "config", "core.autocrlf", "false")
+    (repo / "tools/despliegue").mkdir(parents=True)
+    shutil.copy(ROOT / "tools/despliegue/comun.sh", repo / "tools/despliegue/comun.sh")
+    migrations = repo / "migrations"
+    migrations.mkdir()
+    shutil.copy(ida, migrations / ida.name)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "arreglos05 c sin reversa")
+
+    sin_reversa = subprocess.run(
+        ["bash", "-c", ". tools/despliegue/comun.sh && migraciones_de HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "ORBIT_SIMULACION": "0"},
+    )
+    assert sin_reversa.returncode != 0, "sin reversa el instalador no debe listar la ida"
+    assert "reversa" in sin_reversa.stderr
+
+    shutil.copy(reversa, migrations / reversa.name)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "arreglos05 c")
+    r = subprocess.run(
+        ["bash", "-c", ". tools/despliegue/comun.sh && migraciones_de HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "ORBIT_SIMULACION": "0"},
+    )
+
+    assert r.returncode == 0, r.stderr
+    assert "0097_arreglos05_reposicion.sql	SELECT" in r.stdout
+    assert "0097_reversa_arreglos05_reposicion.sql" not in r.stdout
+
+
 def test_arreglos03_base_las_migraciones_del_plan_entran_en_el_despliegue(tmp_path):
     """ARREGLOS 03 BASE: migraciones_de incluye las migraciones *_arreglos03_* con
     cabecera y reversa sin perder las etiquetas ajenas (arreglos01, arreglos02),

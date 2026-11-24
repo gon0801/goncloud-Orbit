@@ -229,3 +229,27 @@ Astra (Devin duplico dos) y el ultimo, un P1 de Devin sobre la cabeza nueva.
 El chequeo estructural `_violaciones_chequeo_dueno_unico` cubrio ahora 15
 modulos (sumo `app/apply_negative.py` y `app/apply_harvest_contexto.py`) y
 prohibe fuera de `app/apply_estados.py` el literal `fallo:identidad_`.
+
+## Ampliacion del bloque C (ARREGLOS 05 C)
+
+El bloque C ([`../C/estados.md`](../C/estados.md)) no agrego estados. Sumo un
+evento, `rechazo_identidad_definitivo` (el 401/403 ya guardado en el ACK de un
+intento abierto), y sus 11 casillas: en `incierto` sella `rechazado` y permite
+otro intento registrado; en los demas estados aborta o no toca. La tabla pasa
+de 165 a 176 casillas (11 estados por 16 eventos). Sumo dos adaptadores de
+hechos en el mismo modulo:
+
+- `resultado_terminal_reposicion(resultado)`: un `fallo:rechazo` definitivo no
+  es terminal para la operacion del archivo; el archivo sigue en `applied` (o
+  en `repuesto` para la reversa) y admite otro intento registrado, con el
+  mismo `TOPE_INTENTOS_CAMBIO`.
+- `evento_reposicion_desde_lectura(...)`: sobre `evento_desde_lectura_objeto`
+  agrega que el ID propio omitido por una lectura completa, el duplicado o
+  preexistente, la campana/bid/estado que no cuadran con el payload y, en una
+  reversa abierta, el ID propio todavia vivo son `identidad_dudosa` (nada se
+  sella ni se reenvia). La omision nunca autoriza otro POST; el `fallo:rechazo`
+  se sella una vez y el siguiente intento se registra con `seq+1`.
+
+El chequeo estructural `_violaciones_chequeo_dueno_unico` ahora recorre tambien
+`app/ads/archivar.py` y `app/ads/reposicion.py`: ningun llamador de C ramifica
+por `.estado_siguiente` ni redefine los literales del modelo.

@@ -1,0 +1,45 @@
+# Rojo del bloque C contra el padre real
+
+Padre: `d0ed286e6048d38db45abe49006a20f25d2b3cdf` (master con BASE, A y B).
+Worktree aparte en modo detached sobre ese commit, mismo PG desechable y mismo
+transporte simulado. Los comandos se ejecutaron desde la raiz de ese checkout.
+
+## C.2: repetir la reposicion creaba otra keyword
+
+```text
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_11
+...
+>       assert result["posts"] == 1, result
+E       AssertionError: {'posts': 2, 'ledger': ('applied', None, None),
+    'outcomes': ['readback de la repuesta k-1 no cuadra...',
+                 'readback de la repuesta k-2 no cuadra...']}
+E       assert 2 == 1
+1 failed, 8 deselected
+```
+
+El padre envia dos CREATE: tras el ACK y el fallo del readback no conserva el
+ID, y la segunda corrida crea otra keyword. En la cabeza del bloque el mismo
+comando da `1 passed` (ver `acepta-1.txt`).
+
+## C.3: la reversa no existia
+
+```text
+$ python -c "from app.ads import archivar; print(hasattr(archivar, 'reponer_keyword'), hasattr(archivar, 'revertir_reposicion'))"
+False False
+
+$ python tools/archiva_inertes.py --revertir-reposicion lote-x
+archiva_inertes.py: error: unrecognized arguments: --revertir-reposicion lote-x
+rc=2
+```
+
+Sin `revertir_reposicion` ni bandera en la CLI no hay forma de archivar el ID
+repuesto propio. La cabeza del bloque la expone y la prueba
+`test_arreglos05_c_reversa_archiva_solo_el_id_propio_y_no_repite`.
+
+## C.1: la tabla no existia
+
+El padre no trae `migrations/0097_arreglos05_reposicion.sql`, por lo que
+`to_regclass('public.keyword_reposicion_intento')` es NULL y no hay secuencia,
+lease, indice unico ni sellos. La prueba de ida/reversa/ida no puede correr
+contra el padre; la cabeza del bloque la demuestra en
+`test_arreglos05_c_migracion_ida_reversa_e_ida_y_roles_reales`.

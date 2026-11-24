@@ -1,7 +1,7 @@
 """ARREGLOS 05 A: pruebas exhaustivas de la tabla `estado x evento` y chequeos `/correct`.
 
 Recorre TODAS las casillas de `app.apply_estados.TABLA_TRANSICIONES` (11 estados
-x 15 eventos = 165 casillas; ARREGLOS 05 B agrego 2 estados y 3 eventos),
+x 16 eventos = 176 casillas; ARREGLOS 05 B agrego 2 estados y 3 eventos, y C un evento),
 comprueba los invariantes de los bloques A y B sobre toda la tabla, valida los
 clasificadores puros y ejecuta los chequeos estructurales
 de `/correct` que impiden reintroducir la premisa rota (constantes, consultas
@@ -64,6 +64,7 @@ CASILLAS_ESPERADAS: dict[tuple[EstadoCambio, EventoCambio], tuple[AccionCambio, 
     (E.PENDIENTE, V.ERROR_4XX_DETERMINISTA): (A.SELLAR_RECHAZADO, E.RECHAZADO),
     (E.PENDIENTE, V.ERROR_5XX_O_RED): (A.MANTENER_INCIERTO, E.INCIERTO),
     (E.PENDIENTE, V.RECHAZO_IDENTIDAD): (A.ABORTAR_FASE, E.RECHAZADO),
+    (E.PENDIENTE, V.RECHAZO_IDENTIDAD_DEFINITIVO): (A.ABORTAR_FASE, E.PENDIENTE),
     (E.PENDIENTE, V.PAUSA_MANUAL_DUENO): (A.SELLAR_PAUSADO_DUENO, E.PAUSADO_POR_DUENO),
     (E.PENDIENTE, V.ENTIDAD_ARCHIVADA): (A.SELLAR_TERMINAL, E.ARCHIVADO),
     (E.PENDIENTE, V.ENTIDAD_SIN_IDENTIDAD): (A.SELLAR_TERMINAL, E.SIN_IDENTIDAD),
@@ -81,6 +82,7 @@ CASILLAS_ESPERADAS: dict[tuple[EstadoCambio, EventoCambio], tuple[AccionCambio, 
     (E.INCIERTO, V.ERROR_4XX_DETERMINISTA): (A.SELLAR_RECHAZADO, E.RECHAZADO),
     (E.INCIERTO, V.ERROR_5XX_O_RED): (A.MANTENER_INCIERTO, E.INCIERTO),
     (E.INCIERTO, V.RECHAZO_IDENTIDAD): (A.ABORTAR_FASE, E.INCIERTO),
+    (E.INCIERTO, V.RECHAZO_IDENTIDAD_DEFINITIVO): (A.SELLAR_RECHAZADO, E.RECHAZADO),
     (E.INCIERTO, V.PAUSA_MANUAL_DUENO): (A.SELLAR_PAUSADO_DUENO, E.PAUSADO_POR_DUENO),
     (E.INCIERTO, V.ENTIDAD_ARCHIVADA): (A.SELLAR_TERMINAL, E.ARCHIVADO),
     (E.INCIERTO, V.ENTIDAD_SIN_IDENTIDAD): (A.SELLAR_TERMINAL, E.SIN_IDENTIDAD),
@@ -123,7 +125,7 @@ def test_arreglos05_a_tabla_estados_completa_y_sin_ambiguedad():
     esperadas = set(itertools.product(EstadoCambio, EventoCambio))
     assert set(TABLA_TRANSICIONES.keys()) == esperadas
     assert set(CASILLAS_ESPERADAS.keys()) == esperadas
-    assert len(TABLA_TRANSICIONES) == len(EstadoCambio) * len(EventoCambio) == 165
+    assert len(TABLA_TRANSICIONES) == len(EstadoCambio) * len(EventoCambio) == 176
 
 
 @pytest.mark.parametrize(
@@ -190,6 +192,15 @@ def test_arreglos05_a_invariantes_globales_de_la_tabla():
         tr = decidir(estado, V.RECHAZO_IDENTIDAD)
         assert tr.accion == A.ABORTAR_FASE and tr.propaga_aborto is True
     assert decidir(E.INCIERTO, V.RECHAZO_IDENTIDAD).sella_intento is False
+    # Un 401/403 ya guardado en el ACK de un intento abierto es definitivo:
+    # se sella y admite otro intento registrado, sin tocar el 5xx incierto.
+    trans_def = decidir(E.INCIERTO, V.RECHAZO_IDENTIDAD_DEFINITIVO)
+    assert (
+        trans_def.accion,
+        trans_def.estado_siguiente,
+        trans_def.sella_intento,
+        trans_def.propaga_aborto,
+    ) == (A.SELLAR_RECHAZADO, E.RECHAZADO, True, False)
 
     # 5. Un dueno desplazado jamas sella en ningun estado.
     for estado in EstadoCambio:
@@ -627,6 +638,8 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
         "app/apply_store.py",
         "app/cycle_apply.py",
         "app/temporada_io.py",
+        "app/ads/archivar.py",
+        "app/ads/reposicion.py",
     ]
     fuentes = {rel: (RAIZ / rel).read_text(encoding="utf-8") for rel in modulos}
     assert _violaciones_chequeo_dueno_unico(fuentes) == []

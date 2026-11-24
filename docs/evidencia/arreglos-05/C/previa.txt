@@ -1,0 +1,54 @@
+# Lectura previa de ARREGLOS 05 C (solo SELECT). SHA d0ed286e6048d38db45abe49006a20f25d2b3cdf
+
+== momento_utc
+2026-11-24 16:41:29.541|orbit_read|on
+
+== tabla_madre_existe
+True
+
+== tabla_madre_columnas
+id:bigint, lote:text, ad_entity_id:bigint, platform:USER-DEFINED, campaign_external:text, ad_group_external:text, keyword_external:text, keyword_text:text, match_type:text, bid:numeric, bid_currency:USER-DEFINED, clasificacion:text, dias_sin_impresiones:integer, go_literal:text, intentado_at:timestamp with time zone, ack:jsonb, readback_estado:text, estado:text, repuesto_at:timestamp with time zone, repuesto_external:text, repuesto_ack:jsonb
+
+== tabla_madre_conteos
+0|0|0|0|0
+
+== tabla_madre_ids
+None|None|0|0
+
+== reposiciones_ya_marcadas
+0|0|0|0
+
+== lotes
+0|0
+
+== tabla_nueva_ausente
+True
+
+== indices_y_triggers
+indice:keyword_archivo_manual_pkey
+
+== privilegios_tabla
+app_admin|True|True|True|False
+app_decide|True|False|False|False
+app_ingest|True|False|False|False
+app_read|True|False|False|False
+
+== roles_servicio
+orbit_admin|False|True
+orbit_decide|False|False
+orbit_ingest|False|False
+orbit_jev|False|False
+orbit_read|True|False
+orbit_test|True|True
+orbit_wtest_14cc9500|False|True
+
+== secuencia
+1|0|1
+
+== sonda_0096
+True
+
+== referencias_a_la_madre
+0
+
+# bloques procesados: 14 de 14; con error: 0

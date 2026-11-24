@@ -1,9 +1,12 @@
 """Operaciones acotadas sobre product ads de Amazon Ads (lectura, pausa,
-reactivacion y recreacion con scope sellado).
+reactivacion y recreacion con scope sellado) y punto de entrada publico de la
+reposicion durable de keywords (ARREGLOS 05 C).
 
 Construye el escritor con el perfil unico aceptado del mercado y expone
 lecturas por id o por grupo, cambio de estado (PAUSED/ENABLED) y recreacion
-desde lineas de reversa para el retiro y el impulso.
+desde lineas de reversa para el retiro y el impulso. La implementacion del
+protocolo de reposicion vive en `app.ads.reposicion` (presupuesto de 900
+lineas); aqui se reexporta como `reponer_keyword` / `revertir_reposicion`.
 """
 
 from __future__ import annotations
@@ -14,6 +17,15 @@ from dataclasses import dataclass
 
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.reposicion import (  # noqa: F401 - punto de entrada publico de C
+    AbortoFase,
+    Enviar,
+    ReposicionInvalida,
+    ResultadoReposicionKeyword,
+    reconciliar_reposicion,
+    reponer_keyword,
+    revertir_reposicion,
+)
 from app.ads.sp_wire import (
     errores_de_ack as _errores_del_ack,
 )
