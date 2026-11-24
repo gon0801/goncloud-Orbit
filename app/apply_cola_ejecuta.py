@@ -15,14 +15,13 @@ from typing import TYPE_CHECKING
 import psycopg
 from psycopg import pq
 
-from app import apply, apply_harvest, apply_producto, biblioteca
+from app import apply, apply_producto
 from app.ads.client import AdsApiError
 from app.apply_cuota import CapSaturado
 from app.apply_estados import (
     RESULTADO_NO_APLICADO,
     RESULTADO_OK,
     RESULTADO_PAUSADA_POR_DUENO,
-    RESULTADOS_TERMINALES_REVERSA,
     AccionCambio,
     EstadoCambio,
     EventoCambio,
@@ -32,6 +31,11 @@ from app.apply_estados import (
     evento_desde_lectura_estado,
     transicion_desde_error,
 )
+from app.apply_negative import (
+    _ejecuta_negative,
+    reversa_negative,  # noqa: F401 - re-export estable
+)
+from app.apply_store import hechos_reversa as _hechos_reversa
 from app.db import settings_vigentes, tx_durable
 from app.lecturas_historia import presupuestos_campanas_hoy
 from app.optimizer import recuperacion, temporada
@@ -193,62 +197,6 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
     return "applied" if verify else "failed"
 
 
-def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola) -> str:
-    payload = fila.request_payload
-    id_attempt = apply._ledger(conn, fila.decision_id, "normal", payload, quota_cobrada=True)
-    if id_attempt is None:
-        _termina(conn, fila, "failed")
-        return "failed"
-    conn.commit()
-    try:
-        resp_http = _cliente_mutacion(aplicador).crear_negative_exacto(
-            payload["adGroupId"], payload["campaignId"], payload["keywordText"]
-        )
-    except apply.AdsApiErrorMutacion as exc:
-        with tx_durable(conn):
-            apply._sella_ledger(
-                conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-            )
-            _termina(conn, fila, "failed")
-        if transicion_desde_error(
-            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
-        ).propaga_aborto:
-            raise
-        return "failed"
-    ack = apply._json_seguro(resp_http)
-    verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
-    resultado = "ok" if verify else "fallo:ack_sin_id"
-    rastro_biblio: dict | None = None
-    grupo_biblio: int | None = None
-    with tx_durable(conn):
-        if verify:
-            grupo = biblioteca.grupo_de_ad_group(conn, fila.ad_entity_id)
-            if grupo is not None:
-                grupo_biblio = grupo[0]
-                rastro_biblio = biblioteca.registra_negative(
-                    conn,
-                    grupo_id=grupo[0],
-                    tipo_producto=grupo[1],
-                    platform=aplicador._platform,
-                    texto=fila.search_term,
-                    origen=f"grupo:{grupo[0]}/campana:{grupo[2]}/decision:{fila.decision_id}",
-                    decision_id=fila.decision_id,
-                )
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        aplicador.confirma_cercada(fila.decision_id, ack, verify)
-        _termina(conn, fila, "applied" if verify else "failed")
-    biblioteca.avisa_si_fallo(
-        "negative",
-        rastro_biblio,
-        plataforma=aplicador._platform,
-        grupo_id=grupo_biblio,
-        decision_id=fila.decision_id,
-        job_id=None,
-        texto=fila.search_term,
-    )
-    return "applied" if verify else "failed"
-
-
 def _ejecuta_rama(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, rama: str) -> str:
     if rama == "pause_hoja":
         return _ejecuta_pause(conn, aplicador, fila)
@@ -328,49 +276,6 @@ def reversa_pause(
     return transicion.accion == AccionCambio.SELLAR_APLICADO
 
 
-def reversa_negative(
-    conn: psycopg.Connection,
-    cliente,
-    fila: FilaCola,
-    negative_id: str | int,
-    *,
-    tick=None,
-) -> bool:
-    """Reversa del negative: POST /sp/negativeKeywords/delete con verificacion 207."""
-    payload = {"negativeKeywordIdFilter": {"include": [str(negative_id)]}}
-    id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
-    if id_attempt is None:
-        return False
-    conn.commit()
-    try:
-        resp_http = cliente.borrar_negative(negative_id)
-    except apply.AdsApiErrorMutacion as exc:
-        apply._sella_ledger(
-            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
-        )
-        conn.commit()
-        if transicion_desde_error(
-            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
-        ).propaga_aborto:
-            raise
-        return False
-    ack = apply._json_seguro(resp_http)
-    if tick is not None:
-        tick()
-    if apply_harvest._reversa_rechazada(ack, "negativeKeywordId", negative_id):
-        with conn.transaction():
-            apply._sella_ledger(
-                conn,
-                id_attempt,
-                ack=ack,
-                resultado=apply_harvest._resultado_reversa_rechazada(ack),
-            )
-        return False
-    with conn.transaction():
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-    return True
-
-
 # Lo que devuelve `reversa_pause` cuando la lectura de vuelta no trajo el estado
 # de la hoja: el intento queda abierto y la hoja pendiente de lectura.
 PENDIENTE_LECTURA = "pendiente_de_lectura"
@@ -399,55 +304,12 @@ SELECT q.id, q.kind, q.ad_entity_id, q.search_term, q.decision_id,
  ORDER BY q.id
 """
 
-_SQL_REVERSAS_DECISION = """
-SELECT id, started_at, resultado, finished_at
-  FROM apply_attempt
- WHERE decision_id = %s AND tipo = 'reversa'
- ORDER BY seq DESC
-"""
-
 _SQL_ESTADO_CACHE_PREVIO = """
 SELECT status, synced_at FROM ad_entity_state WHERE ad_entity_id = %s
 """
 
 _SQL_CANDADO_REVERSA_TOMAR = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
 _SQL_CANDADO_REVERSA_SOLTAR = "SELECT pg_advisory_unlock(hashtextextended(%s, 0))"
-
-
-@dataclass(frozen=True)
-class _HechosReversa:
-    """Hechos observables del ledger `apply_attempt` (tipo `reversa`) de una pausa."""
-
-    intento_abierto_id: int | None
-    iniciado_el: object | None
-    resultado_terminal: str | None
-    intentos_totales: int
-
-
-def _hechos_reversa(conn: psycopg.Connection, decision_id: int) -> _HechosReversa:
-    """Lee hechos del ledger sin logica de decision SQL: la tabla decide el estado."""
-    filas = conn.execute(_SQL_REVERSAS_DECISION, (decision_id,)).fetchall()
-    abierto = next(((f[0], f[1]) for f in filas if f[3] is None), None)
-    resultados = [f[2] for f in filas if f[2] is not None]
-    if RESULTADO_OK in resultados:
-        terminal: str | None = RESULTADO_OK
-    elif RESULTADO_PAUSADA_POR_DUENO in resultados:
-        terminal = RESULTADO_PAUSADA_POR_DUENO
-    else:
-        terminal = next(
-            (
-                r
-                for r in resultados
-                if r in RESULTADOS_TERMINALES_REVERSA or r.startswith("fallo:entidad_")
-            ),
-            None,
-        )
-    return _HechosReversa(
-        intento_abierto_id=abierto[0] if abierto is not None else None,
-        iniciado_el=abierto[1] if abierto is not None else None,
-        resultado_terminal=terminal,
-        intentos_totales=len(filas),
-    )
 
 
 @contextmanager

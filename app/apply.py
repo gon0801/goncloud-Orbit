@@ -103,7 +103,6 @@ from app.apply_reconcilia import (
     reconcilia_bids as _reconcilia_bids_impl,
 )
 from app.apply_reversa import (  # noqa: F401 - re-export estable
-    _SQL_ACK_OK,
     _SQL_DECISION_POR_ID,
     _SQL_PLATAFORMA_FILA,
     _SQL_RESUMEN_APLICADA,
@@ -165,6 +164,10 @@ from app.apply_store import (  # noqa: F401 - re-export estable
     _sella_resultado,
     _tick,
     _ya_aplicada,
+    bid_previo_comprobado,
+    estado_de_reversa,
+    hechos_reversa,
+    intento_normal_abierto,
     perfil_aceptado_de,
 )
 from app.db import tx_durable
@@ -478,7 +481,16 @@ class Aplicador:
             # La reserva (cuota y fila del ledger) nace solo del dueno del
             # claim: un owner vencido no deja intencion durable ni gasta cupo.
             _tick(self._tick_fn)
-            id_attempt = _ledger(self._conn, decision.id, "normal", payload, quota_cobrada=True)
+            # ARREGLOS 05 B: el bid leido antes del PUT nace con la fila. Es
+            # el valor al que la reversa vuelve.
+            id_attempt = _ledger(
+                self._conn,
+                decision.id,
+                "normal",
+                payload,
+                quota_cobrada=True,
+                bid_previo=leido,
+            )
             if id_attempt is None:
                 skips.append(MOTIVO_TOPE_INTENTOS)
                 registra_sin_aplicar(

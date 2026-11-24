@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -19,7 +20,21 @@ from app import temporada_io
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PerfilAds, evaluar_perfiles
-from app.apply_estados import TOPE_INTENTOS_CAMBIO as TOPE_INTENTOS
+from app.apply_estados import (
+    ESTADO_WIRE_ARCHIVED,  # noqa: F401 - re-export estable
+    ESTADO_WIRE_ENABLED,  # noqa: F401 - re-export estable
+    ESTADO_WIRE_PAUSED,  # noqa: F401 - re-export estable
+    RESULTADO_IDENTIDAD_SUSTITUIDA,
+    RESULTADO_OK,
+    RESULTADO_PAUSADA_POR_DUENO,
+    RESULTADOS_TERMINALES_REVERSA,
+    TOPE_INTENTOS_CAMBIO,
+    EstadoCambio,
+    estado_inicial_desde_hechos,
+)
+from app.apply_estados import (
+    TOPE_INTENTOS_CAMBIO as TOPE_INTENTOS,
+)
 from app.redaction import scrub
 
 if TYPE_CHECKING:
@@ -29,12 +44,6 @@ if TYPE_CHECKING:
 # filas): evita colgar el ciclo ante un nextToken infinito. Si la cuenta supera
 # este tope, una entidad mas alla aparece como ausente.
 TOPE_PAGINAS_READBACK = 20
-
-# Estados del WIRE en el readback por LIST (sellado por probe 2.5, 2026-08-26).
-# ARCHIVED = operativamente muerto: NO confirma entidad viva ni pause verificado.
-ESTADO_WIRE_ENABLED = "ENABLED"
-ESTADO_WIRE_PAUSED = "PAUSED"
-ESTADO_WIRE_ARCHIVED = "ARCHIVED"
 
 # (kind de la entidad) -> (metodo del write client, path del LIST de
 # readback, contenedor de la respuesta, campo del id para el cruce).
@@ -61,6 +70,16 @@ SELECT coalesce(max(seq), 0) FROM apply_attempt WHERE decision_id = %s
 _SQL_INSERT_LEDGER = """
 INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)
 VALUES (%s, %s, %s, %s, %s)
+RETURNING id
+"""
+
+# ARREGLOS 05 B (0095): la evidencia de lo leido en Amazon justo antes del
+# envio nace con la fila y no cambia. Un PUT de puja conserva el bid previo;
+# un POST de creacion conserva la identidad cuya ausencia demostro la lectura.
+_SQL_INSERT_LEDGER_CON_EVIDENCIA = """
+INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,
+                           bid_previo, ausencia_previa)
+VALUES (%s, %s, %s, %s, %s, %s, %s)
 RETURNING id
 """
 
@@ -114,6 +133,159 @@ _SQL_SELLA_RESULTADO = """
 UPDATE apply_attempt SET resultado = %s, finished_at = now() WHERE id = %s
 """
 
+# Los bids que Orbit dejo escritos en una hoja (ARREGLOS 05 B), con hechos
+# durables del ledger y nunca el cache (que la ingesta tambien sincroniza):
+# cada PUT suyo que quedo ok (apply o reversa anterior) y el destino de cada
+# decision de puja aplicada. Todo lo demas que viva en la hoja lo puso otra
+# mano, o Amazon lo cambio sin confirmar la aplicacion.
+_SQL_BIDS_ESCRITOS = """
+SELECT (a.request_payload->>'bid')::numeric FROM apply_attempt a
+  JOIN decision d ON d.id = a.decision_id AND d.kind = 'bid'
+ WHERE d.ad_entity_id = %s AND a.resultado = 'ok'
+   AND (a.request_payload->>'bid') ~ '^[0-9]+([.][0-9]+)?$'
+UNION
+SELECT d.new_value FROM decision d
+  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+ WHERE d.ad_entity_id = %s AND d.kind = 'bid' AND d.new_value IS NOT NULL
+"""
+
+
+def bids_escritos_por_orbit(conn: psycopg.Connection, ad_entity_id: int) -> frozenset[Decimal]:
+    """Los bids que Orbit escribio en una hoja, como montos (regla 4)."""
+    return frozenset(
+        f[0] for f in conn.execute(_SQL_BIDS_ESCRITOS, (ad_entity_id, ad_entity_id)).fetchall()
+    )
+
+
+# Hechos del ledger para las reversas de UNA decision (cualquier tipo).
+_SQL_REVERSAS_DECISION = """
+SELECT id, started_at, resultado, finished_at
+  FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'reversa'
+ ORDER BY seq DESC
+"""
+
+# El bid que Orbit leyo en Amazon antes del PUT de la decision que se va a
+# revertir (ARREGLOS 05 B). Solo el intento que quedo aplicado lo acredita.
+_SQL_BID_PREVIO_COMPROBADO = """
+SELECT bid_previo FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'normal' AND bid_previo IS NOT NULL
+   AND resultado IN ('ok', 'ok:reconciliado')
+ ORDER BY seq DESC
+ LIMIT 1
+"""
+
+
+@dataclass(frozen=True)
+class HechosReversa:
+    """Hechos observables del ledger `apply_attempt` (tipo `reversa`) de una
+    decision. Los lee `hechos_reversa`; el estado lo decide la tabla."""
+
+    intento_abierto_id: int | None
+    iniciado_el: object | None
+    resultado_terminal: str | None
+    intentos_totales: int
+
+
+def hechos_reversa(conn: psycopg.Connection, decision_id: int) -> HechosReversa:
+    """Lee hechos del ledger sin logica de decision SQL: la tabla decide el estado."""
+    filas = conn.execute(_SQL_REVERSAS_DECISION, (decision_id,)).fetchall()
+    abierto = next(((f[0], f[1]) for f in filas if f[3] is None), None)
+    resultados = [f[2] for f in filas if f[2] is not None]
+    if RESULTADO_OK in resultados:
+        terminal: str | None = RESULTADO_OK
+    elif RESULTADO_PAUSADA_POR_DUENO in resultados:
+        terminal = RESULTADO_PAUSADA_POR_DUENO
+    else:
+        terminal = next(
+            (
+                r
+                for r in resultados
+                if r in RESULTADOS_TERMINALES_REVERSA
+                or r == RESULTADO_IDENTIDAD_SUSTITUIDA
+                or r.startswith("fallo:entidad_")
+            ),
+            None,
+        )
+    return HechosReversa(
+        intento_abierto_id=abierto[0] if abierto is not None else None,
+        iniciado_el=abierto[1] if abierto is not None else None,
+        resultado_terminal=terminal,
+        intentos_totales=len(filas),
+    )
+
+
+def estado_de_reversa(
+    conn: psycopg.Connection, decision_id: int, *, en_vuelo_ajeno: bool = False
+) -> EstadoCambio:
+    """El estado actual de la reversa de una decision, derivado de su ledger."""
+    hechos = hechos_reversa(conn, decision_id)
+    return estado_inicial_desde_hechos(
+        en_vuelo_ajeno=en_vuelo_ajeno,
+        tiene_intento_abierto=hechos.intento_abierto_id is not None,
+        resultado_terminal=hechos.resultado_terminal,
+        intentos_totales=hechos.intentos_totales,
+        tope_intentos=TOPE_INTENTOS_CAMBIO,
+    )
+
+
+def bid_previo_comprobado(
+    conn: psycopg.Connection, decision_id: int, *, respaldo: Decimal | None = None
+) -> Decimal | None:
+    """A que bid vuelve la reversa de una puja (ARREGLOS 05 B).
+
+    El bid que Orbit leyo en Amazon justo antes del PUT aplicado, conservado en
+    el ledger desde 0095. Si la decision se aplico antes, ningun intento lo
+    conserva y se devuelve `respaldo` (`decision.old_value`, el unico valor
+    registrado entonces). None si no hay ninguno: la reversa no inventa
+    (regla 3). En ambos casos la reversa relee la hoja antes de enviar."""
+    fila = conn.execute(_SQL_BID_PREVIO_COMPROBADO, (decision_id,)).fetchone()
+    if fila is not None:
+        return fila[0]
+    return respaldo
+
+
+# El intento `normal` abierto de una decision, opcionalmente acotado a la
+# identidad del objeto que crea (adGroupId, keywordText, matchType del payload).
+_SQL_INTENTO_NORMAL_ABIERTO = """
+SELECT id, ack, ausencia_previa FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'normal' AND finished_at IS NULL
+   AND (%s::text IS NULL OR request_payload->>'adGroupId' = %s)
+   AND (%s::text IS NULL OR request_payload->>'keywordText' = %s)
+   AND (%s::text IS NULL OR request_payload->>'matchType' = %s)
+ ORDER BY seq DESC
+ LIMIT 1
+"""
+
+
+@dataclass(frozen=True)
+class IntentoAbierto:
+    """El intento `normal` que sigue sin sello: Amazon pudo haber aplicado el
+    cambio. `ack` es lo que ya se guardo sin sellar; `ausencia_previa` es la
+    evidencia durable previa al envio (None si nacio sin ella)."""
+
+    id: int
+    ack: dict | None
+    ausencia_previa: dict | None
+
+
+def intento_normal_abierto(
+    conn: psycopg.Connection, decision_id: int, *, identidad: dict | None = None
+) -> IntentoAbierto | None:
+    """El ultimo intento `normal` abierto de la decision, o None."""
+    ad_group = texto = match = None
+    if identidad is not None:
+        ad_group = str(identidad["adGroupId"])
+        texto = identidad["keywordText"]
+        match = identidad["matchType"]
+    fila = conn.execute(
+        _SQL_INTENTO_NORMAL_ABIERTO,
+        (decision_id, ad_group, ad_group, texto, texto, match, match),
+    ).fetchone()
+    if fila is None:
+        return None
+    return IntentoAbierto(id=fila[0], ack=fila[1], ausencia_previa=fila[2])
+
 
 def perfil_aceptado_de(
     credentials: AdsCredentials, platform: str, *, transport: httpx.BaseTransport | None = None
@@ -136,18 +308,36 @@ def _ledger(
     payload: dict,
     *,
     quota_cobrada: bool,
+    bid_previo: Decimal | None = None,
+    ausencia_previa: dict | None = None,
 ) -> int | None:
     """Nace la fila del ledger PRE-HTTP: seq = max(seq)+1 GLOBAL por
     decision_id. El TOPE 3 (sellado 10) cuenta SOLO intentos 'normal'.
+
+    `bid_previo` y `ausencia_previa` son la evidencia de la lectura viva previa
+    al envio (ARREGLOS 05 B); a lo sumo una viaja con la fila.
     """
     if tipo == "normal":
         count = conn.execute(_SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
         if count >= TOPE_INTENTOS:
             return None
     seq = conn.execute(_SQL_MAX_SEQ, (decision_id,)).fetchone()[0] + 1
+    if bid_previo is None and ausencia_previa is None:
+        return conn.execute(
+            _SQL_INSERT_LEDGER,
+            (decision_id, seq, tipo, Json(payload), quota_cobrada),
+        ).fetchone()[0]
     return conn.execute(
-        _SQL_INSERT_LEDGER,
-        (decision_id, seq, tipo, Json(payload), quota_cobrada),
+        _SQL_INSERT_LEDGER_CON_EVIDENCIA,
+        (
+            decision_id,
+            seq,
+            tipo,
+            Json(payload),
+            quota_cobrada,
+            bid_previo,
+            Json(ausencia_previa) if ausencia_previa is not None else None,
+        ),
     ).fetchone()[0]
 
 

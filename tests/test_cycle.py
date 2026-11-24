@@ -157,6 +157,9 @@ SQL93 = (
 SQL94 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
 ).read_text(encoding="utf-8")
+SQL95 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0095_arreglos05_evidencia_previa.sql"
+).read_text(encoding="utf-8")
 # ARREGLOS 01 J: la guarda de frescura de estructura lee el acta de listado
 # por plataforma (0051), no ad_entity_state.synced_at; sin la tabla TODO
 # ciclo con metricas revienta en TX2 al evaluar la guarda.
@@ -269,6 +272,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL67)
         conn.execute(SQL93)
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
+        conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         # ARREGLOS 01 J: acta de listado por plataforma (la guarda la lee).
         conn.execute(SQL51)
         yield conn, conectar_extra

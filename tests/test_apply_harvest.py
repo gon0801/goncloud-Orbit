@@ -152,6 +152,9 @@ SQL93 = (
 SQL94 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0094_arreglos05_ciclo_origen.sql"
 ).read_text(encoding="utf-8")
+SQL95 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0095_arreglos05_evidencia_previa.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -228,6 +231,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
+        conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         yield conn
     finally:
         if conn is not None:
@@ -504,11 +508,28 @@ def _job_en(conn, decision: int, entidad: int, fase: str, *, external_ids=None) 
 
 
 def _fila_ledger_abierta(conn, decision: int) -> None:
-    """Ledger sin sello: la fila de cola applying huerfana del negative."""
+    """Ledger sin sello: la fila de cola applying huerfana del negative.
+
+    ARREGLOS 05 B: desde 0095 todo intento de negative nace con la evidencia
+    de que su identidad no estaba viva antes del POST (`ausencia_previa`). Sin
+    ella la conciliacion no lo confirma como efecto de Orbit: queda pendiente."""
     conn.execute(
-        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
-        " VALUES (%s, 1, 'normal', '{}'::jsonb, true)",
-        (decision,),
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+        " ausencia_previa) VALUES (%s, 1, 'normal', '{}'::jsonb, true, %s)",
+        (
+            decision,
+            Json(
+                {
+                    "lectura": "/sp/negativeKeywords/list",
+                    "plataforma": "amazon_us",
+                    "identidad": {
+                        "adGroupId": ORIGEN_GRUPO,
+                        "keywordText": TERMINO,
+                        "matchType": "NEGATIVE_EXACT",
+                    },
+                }
+            ),
+        ),
     )
 
 
@@ -1485,7 +1506,19 @@ def test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada():
                 "keyword_creada": True,
             },
         )
+        # ARREGLOS 05 B: la reversa relee antes de borrar; el negativo propio
+        # vive en Amazon, asi que su DELETE procede.
         handler, vistos = _handler_harvest(
+            negatives=[
+                {
+                    "adGroupId": ORIGEN_GRUPO,
+                    "campaignId": ORIGEN_CAMPANA,
+                    "keywordId": "n-9",
+                    "keywordText": TERMINO,
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
+                }
+            ],
             keywords=[
                 {
                     "adGroupId": GRUPO_SENUELO,
@@ -1495,7 +1528,7 @@ def test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada():
                     "matchType": "EXACT",
                     "state": "ENABLED",
                 }
-            ]
+            ],
         )
 
         resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
@@ -1505,10 +1538,11 @@ def test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada():
         job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
         assert job == ("failed",)
         deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        # ARREGLOS 05 B: la keyword propia no aparece viva en la lectura, asi
+        # que no lleva DELETE; solo se retira el negativo propio, que si vive.
         assert [r.url.path for r in deletes] == [
-            "/sp/keywords/delete",
             "/sp/negativeKeywords/delete",
-        ], "reversa completa: keyword PRIMERO, negativo despues"
+        ], "el senuelo no se adopta ni se borra; lo propio vivo se retira"
         cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
         assert cola == "failed"
 
@@ -1967,9 +2001,9 @@ def test_reconcilia_pause_enabled_con_pause_propio_marca_reactivacion():
 @_skip_db
 def test_reversa_automatica_borra_la_keyword_aun_sin_negative_id():
     """GK1 (cola): el negative_id no se puede resolver (ack sin id y ausente
-    de la lista) → la keyword NACIDA se borra IGUAL (parcial: lo que nacio se
-    revierte). Regla 9: el retorno temprano viejo dejaba la exacta huerfana
-    en destino (0 DELETEs) y este test reventaria."""
+    de la lista). ARREGLOS 05 B: la reversa relee antes de borrar; si la
+    keyword propia tampoco aparece viva, no sale ningun DELETE a ciegas y el
+    job cierra fallido. Un `negative_creada` sin id no autoriza a borrar nada."""
     with _db_temporal("orbit_har_crneg") as conn:
         ids = _semilla(conn)
         dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
@@ -1989,8 +2023,8 @@ def test_reversa_automatica_borra_la_keyword_aun_sin_negative_id():
 
         assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
         deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
-        assert [r.url.path for r in deletes] == ["/sp/keywords/delete"], (
-            "la keyword nacida se borra aunque el negativo no se pueda resolver"
+        assert deletes == [], (
+            "ni la keyword que la lectura no ve viva ni un negativo sin id llevan DELETE"
         )
         job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
         assert job == ("failed",)
@@ -2140,8 +2174,8 @@ def test_paso_keyword_con_ack_sin_id_falla_y_revierte_solo_negative_propio():
                     "campaignId": ORIGEN_CAMPANA,
                     "keywordId": "n-9",
                     "keywordText": TERMINO,
-                    "matchType": "exact",
-                    "state": "enabled",
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
                 }
             ],
         )
@@ -2678,7 +2712,9 @@ def test_perdida_harvest_deja_cero_filas_y_la_cola_en_vetoed(monkeypatch):
 # ===========================================================================
 
 
-def _handler_lista_bc(modo: str, *, recurso: str = "negativeKeywords"):
+def _handler_lista_bc(modo: str, *, recurso: str = "negativeKeywords", otra: tuple[dict, ...] = ()):
+    """`otra`: objetos vivos en la lista que NO es el objetivo (ARREGLOS 05 B:
+    la reversa relee ambas antes de borrar)."""
     vistos: list[httpx.Request] = []
     llamadas = {"list": 0, "auth": 0}
     propio = {
@@ -2706,7 +2742,7 @@ def _handler_lista_bc(modo: str, *, recurso: str = "negativeKeywords"):
             ) or (recurso == "keywords" and path == "/sp/keywords/list")
             if not es_objetivo:
                 clave_otra = "negativeKeywords" if path.startswith("/sp/neg") else "keywords"
-                return httpx.Response(200, json={clave_otra: [], "totalResults": 0})
+                return httpx.Response(200, json={clave_otra: list(otra), "totalResults": len(otra)})
             llamadas["list"] += 1
             n = llamadas["list"]
             if modo == "missing":
@@ -2850,6 +2886,7 @@ def test_arreglos04_bc_reconciliacion_control_dos_paginas_confirma_sin_repost(mo
 
     from app import apply as apply_mod
     from app import apply_cola, apply_harvest, apply_harvest_reconciliacion
+    from app.apply_store import _SQL_INTENTO_NORMAL_ABIERTO
 
     conn = Mock()
     conn.transaction.side_effect = nullcontext
@@ -2859,6 +2896,23 @@ def test_arreglos04_bc_reconciliacion_control_dos_paginas_confirma_sin_repost(mo
             filas = [(77, 10, TERMINO, 99)]
         elif sql == apply_harvest._SQL_EXTERNALES:
             filas = [(ORIGEN_GRUPO, ORIGEN_CAMPANA)]
+        elif sql == _SQL_INTENTO_NORMAL_ABIERTO:
+            # ARREGLOS 05 B: el intento abierto de la fila trae su evidencia.
+            filas = [
+                (
+                    555,
+                    None,
+                    {
+                        "lectura": "/sp/negativeKeywords/list",
+                        "plataforma": "amazon_us",
+                        "identidad": {
+                            "adGroupId": ORIGEN_GRUPO,
+                            "keywordText": TERMINO,
+                            "matchType": "NEGATIVE_EXACT",
+                        },
+                    },
+                )
+            ]
         else:
             filas = []
         return SimpleNamespace(fetchall=lambda: filas, fetchone=lambda: filas[0] if filas else None)
@@ -3000,7 +3054,14 @@ def test_arreglos04_bc_reversa_automatica_lista_incompleta_cero_delete_y_job_pen
             },
         }
     }
-    ext_job = {"keyword_id": "k-7", "keyword_creada": True, "negative_creada": True}
+    # ARREGLOS 05 B: el negativo del job trae su id; sin el, un booleano solo
+    # no autoriza borrarlo ni siquiera leer su lista.
+    ext_job = {
+        "keyword_id": "k-7",
+        "keyword_creada": True,
+        "negative_id": "id-propio",
+        "negative_creada": True,
+    }
 
     def execute(sql, params=()):
         filas = []
@@ -3059,6 +3120,9 @@ def test_arreglos04_bc_reversa_automatica_lista_incompleta_cero_delete_y_job_pen
     assert resumen_trunc.harvest_huerfanas_cerradas == 0
     assert estado == {"job": "exact_created", "cola": "applying"}
 
+    # ARREGLOS 05 B: la reversa relee antes de borrar. El negativo propio
+    # vive con su identidad bajo el id del job y se retira; la keyword propia
+    # no aparece viva en la lectura y no lleva DELETE a ciegas.
     handler_ok, vistos_ok = _handler_lista_bc("control_dos_paginas", recurso="negativeKeywords")
     resumen_ok = apply_harvest_reconciliacion.reconcilia_harvest(
         conn, _aplicador(conn, handler_ok, 8), "amazon_us"
@@ -3069,7 +3133,6 @@ def test_arreglos04_bc_reversa_automatica_lista_incompleta_cero_delete_y_job_pen
         if r.url.path.endswith("/delete")
     ]
     assert deletes_ok == [
-        ("/sp/keywords/delete", {"keywordIdFilter": {"include": ["k-7"]}}),
         ("/sp/negativeKeywords/delete", {"negativeKeywordIdFilter": {"include": ["id-propio"]}}),
     ]
     assert (resumen_ok.jobs_done, resumen_ok.jobs_failed) == (0, 1)

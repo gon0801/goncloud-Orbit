@@ -37,7 +37,21 @@ from app.ads.sp_wire import (  # noqa: F401 - re-export estable
 from app.ads.sp_wire import (
     id_de_ack as _id_de_ack,
 )
-from app.apply_estados import EstadoCambio, transicion_desde_error
+from app.apply_estados import (
+    RESULTADO_IDENTIDAD_SUSTITUIDA,
+    AccionCambio,
+    EstadoCambio,
+    EventoCambio,
+    decidir,
+    envia_tras_lectura,
+    transicion_desde_error,
+)
+from app.apply_harvest_contexto import (  # noqa: F401 - re-export estable
+    _SQL_DESTINO_PERTENECE,
+    _contexto,
+    _contexto_congelado,
+    _goal_del_grupo,
+)
 from app.apply_harvest_hermanas import (  # noqa: F401 - re-export estable
     _SQL_ESTADO_COLA,
     _SQL_ROL_ORIGEN,
@@ -88,8 +102,11 @@ from app.apply_harvest_list import (  # noqa: F401 - re-export estable
     _texto_list_valido,
     _valida_pagina_list,
     _valida_token_list,
+    ausencia_previa,
     bid_efectivo,
     bid_sugerido,
+    evento_de_identidad,
+    motivo_identidad,
 )
 from app.apply_harvest_reversa import (  # noqa: F401 - re-export estable
     _SQL_ACKS_HERMANA,
@@ -98,13 +115,13 @@ from app.apply_harvest_reversa import (  # noqa: F401 - re-export estable
     _SQL_INTENTO_NORMAL_OBJETO,
     _SQL_INTENTOS_NORMAL_OK_NEGATIVE,
     _SQL_JOB_POR_ID,
+    _SQL_PADRE,
     _SQL_REVERSA_OK_KEYWORD,
     _SQL_REVERSA_OK_NEGATIVE,
     _SQL_ULTIMA_COLA,
     _SQL_VERIFY_OK,
     _delete_reversa_pendiente,
     _intento_normal_objeto,
-    _preexiste_provisional,
     _reversa_confirmada,
     _reversa_delete,
     plan_reversa_harvest,
@@ -112,9 +129,9 @@ from app.apply_harvest_reversa import (  # noqa: F401 - re-export estable
     reversa_harvest_completo,
     reversa_harvest_parcial,
 )
+from app.apply_store import intento_normal_abierto
 from app.db import tx_durable
-from app.optimizer import goals as g
-from app.optimizer import harvest_destino, hygiene
+from app.optimizer import harvest_destino
 
 if TYPE_CHECKING:
     from app.apply import Aplicador
@@ -163,18 +180,6 @@ UPDATE apply_queue SET estado = 'applying', applying_at = now()
 RETURNING id
 """
 
-_SQL_PADRE = """
-SELECT parent_id FROM ad_entity WHERE id = %s
-"""
-
-_SQL_DESTINO_PERTENECE = """
-SELECT 1
-  FROM ad_entity ag
-  JOIN ad_entity c ON c.id = ag.parent_id AND c.kind = 'campaign'
- WHERE ag.kind = 'ad_group'
-   AND ag.external_id = %s AND c.external_id = %s
-   AND ag.platform = %s::platform AND c.platform = %s::platform
-"""
 
 _SQL_SELLA_PENDIENTES = """
 UPDATE apply_attempt SET resultado = %s, finished_at = now()
@@ -197,113 +202,6 @@ def _nace_job(conn: psycopg.Connection, platform: str, fila) -> _Job:
         if fila_job is None:
             raise
     return _job_de_fila(fila_job)
-
-
-def _goal_del_grupo(conn: psycopg.Connection, platform: str, campaign_pk: int) -> g.Goal | None:
-    """Goal resuelto del GRUPO origen (precedencia campana > plataforma)."""
-    goals = [g.Goal(*f) for f in conn.execute(apply._SQL_GOALS_ENTIDAD, (platform, campaign_pk))]
-    goal_campana = next((x for x in goals if x.scope == "campaign"), None)
-    goal_plataforma = next((x for x in goals if x.scope != "campaign"), None)
-    return g.resuelve_goal(goal_campana, goal_plataforma)
-
-
-def _contexto(conn: psycopg.Connection, job: _Job) -> _Contexto:
-    """Origen, destino y default: del congelado F2 o del goal fresco."""
-    externos = conn.execute(_SQL_EXTERNALES, (job.ad_entity_id,)).fetchone()
-    if externos is None:
-        raise ValueError(MOTIVO_ENTIDAD_INCOMPLETA)
-    padre = conn.execute(_SQL_PADRE, (job.ad_entity_id,)).fetchone()
-    new_value, value_currency, inputs = conn.execute(_SQL_DECISION, (job.decision_id,)).fetchone()
-    congelado = ((inputs or {}).get("goal") or {}).get("harvest") or {}
-    if congelado.get("resuelto_por") in (
-        harvest_destino.RESUELTO_GRUPO,
-        harvest_destino.RESUELTO_EXCEPCION,
-        harvest_destino.RESUELTO_TERNA,
-    ):
-        return _contexto_congelado(
-            conn, job, padre, externos, new_value, value_currency, inputs, congelado
-        )
-    goal = _goal_del_grupo(conn, job.plataforma, padre[0]) if padre is not None else None
-    if goal is None or goal.harvest_campaign_id is None or goal.harvest_ad_group_id is None:
-        raise ValueError(MOTIVO_SIN_CONFIG)
-    if new_value is None:
-        raise ValueError(MOTIVO_BID_DEFAULT_FALTANTE)
-    if value_currency != goal.bid_currency:
-        raise ValueError(MOTIVO_MONEDA_INCOHERENTE)
-    if goal.harvest_ad_group_id == externos[0]:
-        raise ValueError(hygiene.MOTIVO_ORIGEN_ES_DESTINO)
-    floor, ceiling = g.resuelve_floor_ceiling(goal, goal.bid_currency)
-    return _Contexto(
-        plataforma=job.plataforma,
-        grupo_ext=externos[0],
-        campana_ext=externos[1],
-        destino_grupo=goal.harvest_ad_group_id,
-        destino_campana=goal.harvest_campaign_id,
-        default_bid=new_value,
-        moneda=value_currency,
-        floor=floor,
-        ceiling=ceiling,
-        resuelto_por=None,
-        grupo_id=None,
-    )
-
-
-def _contexto_congelado(
-    conn: psycopg.Connection,
-    job: _Job,
-    padre,
-    externos,
-    new_value,
-    value_currency,
-    inputs: dict,
-    congelado: dict,
-) -> _Contexto:
-    if new_value is None:
-        raise ValueError(MOTIVO_BID_DEFAULT_FALTANTE)
-    destino_campana = congelado.get("campaign_id")
-    destino_grupo = congelado.get("ad_group_id")
-    if not destino_campana or not destino_grupo:
-        raise ValueError(MOTIVO_SIN_CONFIG)
-    if value_currency != congelado.get("moneda"):
-        raise ValueError(MOTIVO_MONEDA_INCOHERENTE)
-    if (
-        congelado.get("resuelto_por")
-        in (
-            harvest_destino.RESUELTO_EXCEPCION,
-            harvest_destino.RESUELTO_TERNA,
-        )
-        and destino_grupo == externos[0]
-    ):
-        raise ValueError(hygiene.MOTIVO_ORIGEN_ES_DESTINO)
-    if congelado.get("resuelto_por") == harvest_destino.RESUELTO_GRUPO and padre is not None:
-        vigente = harvest_destino.resolver_destino(conn, job.plataforma, padre[0])
-        if not (
-            isinstance(vigente, harvest_destino.DestinoHarvest)
-            and vigente.resuelto_por == harvest_destino.RESUELTO_GRUPO
-            and vigente.campaign_external == destino_campana
-            and vigente.ad_group_external == destino_grupo
-        ):
-            raise ValueError(hygiene.MOTIVO_DESTINO_DESINCRONIZADO)
-    pertenece = conn.execute(
-        _SQL_DESTINO_PERTENECE,
-        (destino_grupo, destino_campana, job.plataforma, job.plataforma),
-    ).fetchone()
-    if pertenece is None:
-        raise ValueError(hygiene.MOTIVO_DESTINO_DESINCRONIZADO)
-    goal_congelado = inputs.get("goal") or {}
-    return _Contexto(
-        plataforma=job.plataforma,
-        grupo_ext=externos[0],
-        campana_ext=externos[1],
-        destino_grupo=destino_grupo,
-        destino_campana=destino_campana,
-        default_bid=new_value,
-        moneda=value_currency,
-        floor=Decimal(str(goal_congelado.get("bid_floor"))),
-        ceiling=Decimal(str(goal_congelado.get("bid_ceiling"))),
-        resuelto_por=congelado.get("resuelto_por"),
-        grupo_id=congelado.get("grupo_id"),
-    )
 
 
 def _avanza(conn: psycopg.Connection, job: _Job, fase: str | None, ids: dict | None = None) -> None:
@@ -467,15 +365,17 @@ def _paso_hermanas(
     )
 
 
-def _payload_keyword(ctx: _Contexto, term: str, bid: Decimal) -> dict:
-    return {
-        "adGroupId": ctx.destino_grupo,
-        "campaignId": ctx.destino_campana,
-        "keywordText": term,
-        "matchType": "EXACT",
-        "state": "ENABLED",
-        "bid": apply._bid_payload(bid),
-    }
+_IDENTIDAD_KW = "EXACT"
+_IDENTIDAD_NEG = "NEGATIVE_EXACT"
+_LISTA_NEG = "/sp/negativeKeywords/list"
+_LISTA_KW = "/sp/keywords/list"
+
+
+def _no_autoriza(evento: EventoCambio, quien: str) -> ListaIncompleta:
+    """La lectura no permite concluir: el job queda pendiente en su fase, sin
+    escritura, y el ciclo siguiente lo lee de nuevo (mismo tratamiento que una
+    lista incompleta)."""
+    return ListaIncompleta(f"ambiguo: {motivo_identidad(evento)} ({quien})")
 
 
 def _paso_negative(
@@ -485,14 +385,27 @@ def _paso_negative(
     ctx: _Contexto,
     queue_id: int | None,
 ) -> tuple[str, AlertaHarvest | None]:
-    """Fase pending -> negative_created."""
+    """Fase pending -> negative_created.
+
+    ARREGLOS 05 B: antes del POST una lectura completa demuestra que la
+    identidad no esta viva y esa evidencia nace con la fila del ledger. Si ya
+    vive uno con esa identidad es adoptado (nunca propio); si hay varios, o el
+    unico no se puede atribuir, el job queda pendiente sin escribir."""
     cliente = aplicador._cliente()
-    items = _lista_completa(cliente, "/sp/negativeKeywords/list")
-    propio = _identidad(items, ctx.grupo_ext, job.search_term)
-    if propio is not None:
+    items = _lista_completa(cliente, _LISTA_NEG)
+    evento = evento_de_identidad(
+        items,
+        id_propio=None,
+        ad_group=ctx.grupo_ext,
+        texto=job.search_term,
+        match=_IDENTIDAD_NEG,
+    )
+    transicion = decidir(EstadoCambio.PENDIENTE, evento)
+    if transicion.accion == AccionCambio.SELLAR_APLICADO:
+        adoptado = _coincidencias(items, ctx.grupo_ext, job.search_term)[0]
         procedencia = (
             "incierta"
-            if _intento_normal_objeto(conn, job, ctx.grupo_ext, "NEGATIVE_EXACT")
+            if _intento_normal_objeto(conn, job, ctx.grupo_ext, _IDENTIDAD_NEG)
             else False
         )
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
@@ -500,17 +413,28 @@ def _paso_negative(
             conn,
             job,
             "negative_created",
-            {"negative_id": propio.get("keywordId"), "negative_creada": procedencia},
+            {"negative_id": adoptado.get("keywordId"), "negative_creada": procedencia},
         )
         return "avanza", None
+    if not envia_tras_lectura(EstadoCambio.PENDIENTE, evento):
+        raise _no_autoriza(evento, f"negativo de origen {job.search_term}")
     payload = {
         "adGroupId": ctx.grupo_ext,
         "campaignId": ctx.campana_ext,
         "keywordText": job.search_term,
-        "matchType": "NEGATIVE_EXACT",
+        "matchType": _IDENTIDAD_NEG,
         "state": "ENABLED",
     }
-    id_attempt = apply._ledger(conn, job.decision_id, "normal", payload, quota_cobrada=True)
+    id_attempt = apply._ledger(
+        conn,
+        job.decision_id,
+        "normal",
+        payload,
+        quota_cobrada=True,
+        ausencia_previa=ausencia_previa(
+            job.plataforma, _LISTA_NEG, ctx.grupo_ext, job.search_term, _IDENTIDAD_NEG
+        ),
+    )
     if id_attempt is None:
         return _falla_job(conn, job, MOTIVO_TOPE_INTENTOS, queue_id=queue_id)
     conn.commit()
@@ -550,6 +474,17 @@ def _paso_negative(
     return "avanza", None
 
 
+def _payload_keyword(ctx: _Contexto, term: str, bid: Decimal) -> dict:
+    return {
+        "adGroupId": ctx.destino_grupo,
+        "campaignId": ctx.destino_campana,
+        "keywordText": term,
+        "matchType": _IDENTIDAD_KW,
+        "state": "ENABLED",
+        "bid": apply._bid_payload(bid),
+    }
+
+
 def _paso_keyword(
     conn: psycopg.Connection,
     aplicador,
@@ -557,15 +492,19 @@ def _paso_keyword(
     ctx: _Contexto,
     queue_id: int | None,
 ) -> tuple[str, AlertaHarvest | None]:
-    """Fase negative_created -> exact_created."""
+    """Fase negative_created -> exact_created.
+
+    ARREGLOS 05 B: el ID del ACK queda en el job y el ACK en el ledger ANTES de
+    la lectura de vuelta; el intento sigue abierto hasta que esa lectura lo
+    verifique. Una keyword preexistente unica se adopta (nunca propia)."""
     cliente = aplicador._cliente()
     if not job.external_ids.get("negative_id"):
-        items = _lista_completa(cliente, "/sp/negativeKeywords/list")
+        items = _lista_completa(cliente, _LISTA_NEG)
         propio = _identidad(items, ctx.grupo_ext, job.search_term)
         if propio is not None:
             procedencia = (
                 "incierta"
-                if _intento_normal_objeto(conn, job, ctx.grupo_ext, "NEGATIVE_EXACT")
+                if _intento_normal_objeto(conn, job, ctx.grupo_ext, _IDENTIDAD_NEG)
                 else False
             )
             _avanza(
@@ -582,20 +521,32 @@ def _paso_keyword(
             queue_id=queue_id,
             detalle="negative_id ausente: no se cosecha sin corte en origen (fail-closed)",
         )
-    kws = _lista_completa(cliente, "/sp/keywords/list")
-    encontrado = _identidad(kws, ctx.destino_grupo, job.search_term)
-    if encontrado is not None:
+    kws = _lista_completa(cliente, _LISTA_KW)
+    evento = evento_de_identidad(
+        kws,
+        id_propio=None,
+        ad_group=ctx.destino_grupo,
+        texto=job.search_term,
+        match=_IDENTIDAD_KW,
+    )
+    transicion = decidir(EstadoCambio.PENDIENTE, evento)
+    if transicion.accion == AccionCambio.SELLAR_APLICADO:
+        adoptada = _coincidencias(kws, ctx.destino_grupo, job.search_term)[0]
         procedencia = (
-            "incierta" if _intento_normal_objeto(conn, job, ctx.destino_grupo, "EXACT") else False
+            "incierta"
+            if _intento_normal_objeto(conn, job, ctx.destino_grupo, _IDENTIDAD_KW)
+            else False
         )
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
         _avanza(
             conn,
             job,
             "exact_created",
-            {"keyword_id": encontrado.get("keywordId"), "keyword_creada": procedencia},
+            {"keyword_id": adoptada.get("keywordId"), "keyword_creada": procedencia},
         )
         return "avanza", None
+    if not envia_tras_lectura(EstadoCambio.PENDIENTE, evento):
+        raise _no_autoriza(evento, f"keyword destino {job.search_term}")
     archivada = conn.execute(
         _SQL_ARCHIVO_APLICADO, (job.plataforma, ctx.destino_grupo, job.search_term)
     ).fetchone()
@@ -620,7 +571,16 @@ def _paso_keyword(
             conn, job, MOTIVO_BID_DEFAULT_FALTANTE, queue_id=queue_id, detalle=detalle
         )
     payload = _payload_keyword(ctx, job.search_term, bid)
-    id_attempt = apply._ledger(conn, job.decision_id, "normal", payload, quota_cobrada=False)
+    id_attempt = apply._ledger(
+        conn,
+        job.decision_id,
+        "normal",
+        payload,
+        quota_cobrada=False,
+        ausencia_previa=ausencia_previa(
+            job.plataforma, _LISTA_KW, ctx.destino_grupo, job.search_term, _IDENTIDAD_KW
+        ),
+    )
     if id_attempt is None:
         detalle = _reversa_automatica(conn, aplicador, job, ctx)
         return _falla_job(conn, job, MOTIVO_TOPE_INTENTOS, queue_id=queue_id, detalle=detalle)
@@ -656,10 +616,21 @@ def _paso_keyword(
             else " | ack sin keyword_id; procedencia no comprobada"
         )
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
+    # El ID del ACK es inmutable y queda durable antes del readback; el
+    # intento sigue abierto hasta que la lectura de vuelta lo verifique.
     with tx_durable(conn):
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
+        apply._guarda_ack(conn, id_attempt, ack)
         _avanza(conn, job, "exact_created", {"keyword_id": kw_id, "keyword_creada": True})
     return "avanza", None
+
+
+# Resultado con el que se sella el intento abierto cuando la lectura de vuelta
+# no encuentra viva la keyword propia bajo su identidad.
+_DESENLACE_LECTURA = {
+    EventoCambio.NO_APLICADO_EN_AMAZON: "fallo:keyword_ausente",
+    EventoCambio.ENTIDAD_ARCHIVADA: "fallo:entidad_archived",
+    EventoCambio.IDENTIDAD_SUSTITUIDA: RESULTADO_IDENTIDAD_SUSTITUIDA,
+}
 
 
 def _paso_readback(
@@ -669,16 +640,59 @@ def _paso_readback(
     ctx: _Contexto,
     queue_id: int | None,
 ) -> tuple[str, AlertaHarvest | None]:
-    """Fase exact_created -> done|failed|hermanas_negadas."""
+    """Fase exact_created -> done|failed|hermanas_negadas.
+
+    ARREGLOS 05 B: la lectura verifica el ID del ACK (el de `keyword_id`, que
+    no cambia) con su grupo, texto y match. Si lo que vive con esa identidad
+    es otro ID, es ajeno: no se adopta ni se borra. Si la lectura no permite
+    concluir, el job queda pendiente en esta fase. Lo propio ausente o
+    sustituido es fallo definitivo, con reversa automatica de lo propio vivo."""
     cliente = aplicador._cliente()
-    kws = _lista_completa(cliente, "/sp/keywords/list")
-    encontrado = _identidad(kws, ctx.destino_grupo, job.search_term)
-    if encontrado is None:
-        detalle = _reversa_automatica(conn, aplicador, job, ctx) + " | keyword ausente en destino"
+    kws = _lista_completa(cliente, _LISTA_KW)
+    kw_id = job.external_ids.get("keyword_id")
+    abierto = intento_normal_abierto(
+        conn,
+        job.decision_id,
+        identidad={
+            "adGroupId": ctx.destino_grupo,
+            "keywordText": job.search_term,
+            "matchType": _IDENTIDAD_KW,
+        },
+    )
+    evento = evento_de_identidad(
+        kws,
+        id_propio=kw_id,
+        ad_group=ctx.destino_grupo,
+        texto=job.search_term,
+        match=_IDENTIDAD_KW,
+    )
+    estado = EstadoCambio.INCIERTO if abierto is not None else EstadoCambio.PENDIENTE
+    transicion = decidir(estado, evento)
+    if transicion.accion == AccionCambio.MANTENER_INCIERTO or (
+        transicion.accion == AccionCambio.NO_TOCAR and evento != EventoCambio.NO_APLICADO_EN_AMAZON
+    ):
+        raise _no_autoriza(evento, f"keyword {kw_id} en {ctx.destino_grupo}")
+    if transicion.accion != AccionCambio.SELLAR_APLICADO:
+        if abierto is not None:
+            with tx_durable(conn):
+                apply._sella_ledger(
+                    conn, abierto.id, ack=abierto.ack, resultado=_DESENLACE_LECTURA[evento]
+                )
+        detalle = (
+            _reversa_automatica(conn, aplicador, job, ctx)
+            + " | "
+            + (
+                f"keyword propia {kw_id} ausente en destino"
+                if evento == EventoCambio.NO_APLICADO_EN_AMAZON
+                else motivo_identidad(evento)
+            )
+        )
         return _falla_job(conn, job, MOTIVO_KEYWORD_AUSENTE, queue_id=queue_id, detalle=detalle)
-    ack = {"fuente": "list", "keywordId": encontrado.get("keywordId")}
+    ack = {"fuente": "list", "keywordId": kw_id}
     if ctx.resuelto_por != harvest_destino.RESUELTO_GRUPO:
         with tx_durable(conn):
+            if abierto is not None:
+                apply._sella_ledger(conn, abierto.id, ack=abierto.ack, resultado="ok")
             _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
             _avanza(conn, job, "done")
             aplicador.confirma_cercada(job.decision_id, ack, True)
@@ -690,13 +704,15 @@ def _paso_readback(
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | roster imposible ({roster})"
         return _falla_job(conn, job, roster, queue_id=queue_id, detalle=detalle)
     with tx_durable(conn):
+        if abierto is not None:
+            apply._sella_ledger(conn, abierto.id, ack=abierto.ack, resultado="ok")
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
         _avanza(
             conn,
             job,
             "hermanas_negadas",
             {
-                "keyword_id": encontrado.get("keywordId"),
+                "keyword_id": kw_id,
                 "hermanas_objetivo": roster,
                 "hermanas": {},
                 "hermanas_ciclos": 0,

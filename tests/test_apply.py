@@ -129,6 +129,9 @@ SQL93 = (
 SQL94 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
 ).read_text(encoding="utf-8")
+SQL95 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0095_arreglos05_evidencia_previa.sql"
+).read_text(encoding="utf-8")
 
 
 def _fake_credentials() -> AdsCredentials:
@@ -170,6 +173,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
+        conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         yield conn
     finally:
         if conn is not None:
@@ -1555,24 +1559,29 @@ def test_divergencia_readback_sella_la_misma_etiqueta_en_apply_y_reversa():
     """QW1: la divergencia de readback sella SIEMPRE
     'fallo:divergencia_readback' — _ejecuta_mutacion y reversa_bid ponian
     'ok' con verify_ok False (la misma condicion con etiquetas distintas
-    segun el camino). Regla 9: contra el 'ok' viejo ambos asserts revientan."""
+    segun el camino). Regla 9: contra el 'ok' viejo ambos asserts revientan.
+
+    ARREGLOS 05 B: la reversa relee la hoja antes del PUT. Tras un apply que
+    divergio, el valor vivo (0.90) no es ninguno que Orbit escribio, asi que
+    la reversa no se envia a ciegas. La etiqueta unificada del camino de
+    reversa la prueba `test_arreglos05_b_reversa_de_bid_que_diverge_al_volver`."""
     with _db_temporal("orbit_apply_etq") as conn:
         ids = _semilla(conn)
         _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.00", new="0.85")
-        handler, _v = _handler_api({"7201": "1.00"}, desviado={"7201": "0.90"})
+        handler, vistos = _handler_api({"7201": "1.00"}, desviado={"7201": "0.90"})
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
 
         ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        puestas_del_apply = len(_puts(vistos))
         ok_reversa = reversa_bid(
             conn, _write_client(handler), bids_del_ciclo(conn, ids["ciclo_dec"])[0]
         )
 
-        assert ok_reversa is False, "la reversa tambien diverge (Amazon queda en 0.90)"
+        assert ok_reversa is False, "Amazon quedo en 0.90 y la reversa no se envia a ciegas"
+        assert len(_puts(vistos)) == puestas_del_apply, "la reversa no manda ningun PUT"
         filas = conn.execute("SELECT tipo, resultado FROM apply_attempt ORDER BY seq").fetchall()
-        assert [f[0] for f in filas] == ["normal", "reversa"]
-        assert all(f[1] == "fallo:divergencia_readback" for f in filas), (
-            "etiqueta UNIFICADA en ambos caminos"
-        )
+        assert [f[0] for f in filas] == ["normal"], "sin envio no nace intento de reversa"
+        assert filas[0][1] == "fallo:divergencia_readback"
 
 
 @_skip_db
@@ -2326,11 +2335,43 @@ def _db_m5(prefijo: str):
         yield conn
 
 
-def _handler_regreso(*, falla_put: bool = False):
+def _handler_regreso(conn=None, *, falla_put: bool = False):
     """Amazon mock del camino de regreso: LWA + /v2/profiles + PUT con bid
-    NUMERO + readback por POST /list (shape del probe 2.5)."""
+    NUMERO + readback por POST /list (shape del probe 2.5).
+
+    ARREGLOS 05 B: la reversa relee la hoja antes del PUT, asi que el doble
+    modela lo que Amazon tiene en cada hoja: su ultimo PUT mientras no haya
+    cambiado la ultima decision aplicada; si cambio, el destino de esa
+    decision; sin ninguna aplicada, el cache que dejo la prueba. Sin `conn`
+    arranca vacio (envio a ciegas)."""
     vistos: list[httpx.Request] = []
     remoto: dict[str, object] = {}
+    cache: dict[str, str] = {}
+    aplicada_al_put: dict[str, object] = {}
+    if conn is not None:
+        cache.update(
+            conn.execute(
+                "SELECT e.external_id::text, s.current_bid::text FROM ad_entity_state s"
+                " JOIN ad_entity e ON e.id = s.ad_entity_id WHERE s.current_bid IS NOT NULL"
+            ).fetchall()
+        )
+
+    def _ultima_aplicada(ext: str):
+        if conn is None:
+            return None
+        return conn.execute(
+            "SELECT d.id, d.new_value::text FROM decision d"
+            " JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE"
+            " JOIN ad_entity e ON e.id = d.ad_entity_id"
+            " WHERE e.external_id = %s AND d.kind = 'bid' ORDER BY d.id DESC LIMIT 1",
+            (ext,),
+        ).fetchone()
+
+    def _vivo(ext: str):
+        ultima = _ultima_aplicada(ext)
+        if ext in remoto and (ultima is None or ultima[0] == aplicada_al_put[ext]):
+            return remoto[ext]
+        return ultima[1] if ultima is not None else cache.get(ext)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -2345,6 +2386,8 @@ def _handler_regreso(*, falla_put: bool = False):
             body = json.loads(request.content)
             obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
             ext = str(obj.get("keywordId") or obj.get("targetId"))
+            ultima = _ultima_aplicada(ext)
+            aplicada_al_put[ext] = ultima[0] if ultima is not None else None
             remoto[ext] = obj["bid"]
             return httpx.Response(207, json={"ack": obj})
         if metodo == "POST" and path.endswith("/list"):
@@ -2353,7 +2396,10 @@ def _handler_regreso(*, falla_put: bool = False):
                 if path == "/sp/targets/list"
                 else ("keywords", "keywordId")
             )
-            filas = [{campo: ext, "bid": bid, "state": "ENABLED"} for ext, bid in remoto.items()]
+            filas = [
+                {campo: ext, "bid": _vivo(ext), "state": "ENABLED"}
+                for ext in sorted(set(cache) | set(remoto))
+            ]
             return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
         raise AssertionError(f"request inesperado: {metodo} {path}")
 
@@ -2446,7 +2492,7 @@ def test_regreso_del_dueno_revierte_la_primera_decision_de_la_racha(monkeypatch)
             "UPDATE ad_entity_state SET current_bid = 3.73 WHERE ad_entity_id = %s",
             (ids["kw"],),
         )
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
 
         hecho = regreso_del_dueno(
@@ -2519,7 +2565,7 @@ def test_regreso_del_dueno_ignora_los_movimientos_de_temporada(monkeypatch):
             "UPDATE ad_entity_state SET current_bid = 4.20 WHERE ad_entity_id = %s",
             (ids["kw"],),
         )
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
 
         hecho = regreso_del_dueno(
@@ -2556,7 +2602,7 @@ def test_regreso_del_dueno_con_vigente_por_encima_no_baja(monkeypatch):
             "UPDATE ad_entity_state SET current_bid = 12.00 WHERE ad_entity_id = %s",
             (ids["kw"],),
         )
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
 
         with pytest.raises(VigentePorEncima):
@@ -2579,7 +2625,7 @@ def test_regreso_del_dueno_sin_racha_levanta_sin_tocar_amazon(monkeypatch):
         s1 = _decision_bid(conn, ciclo_b, ids["config"], ids["kw"], old="8.00", new="9.00")
         _aplicada(conn, r1, ids["ciclo_ejec"], _R1_M5)
         _aplicada(conn, s1, ids["ciclo_ejec"], _R2_M5)
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
         transporte = httpx.MockTransport(handler)
 
@@ -2602,7 +2648,7 @@ def test_regreso_del_dueno_segundo_regreso_no_reescribe(monkeypatch):
         ciclo_a = _ciclo_live(conn)
         d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
         _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
         transporte = httpx.MockTransport(handler)
 
@@ -2624,7 +2670,7 @@ def test_regreso_del_dueno_tras_recorte_nuevo_revierte_el_recorte_nuevo(monkeypa
         ciclo_a = _ciclo_live(conn)
         d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
         _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
         transporte = httpx.MockTransport(handler)
 
@@ -2662,7 +2708,7 @@ def test_regreso_del_dueno_sin_confirmar_levanta_con_el_motivo(monkeypatch):
         ciclo_a = _ciclo_live(conn)
         d1 = _decision_bid(conn, ciclo_a, ids["config"], ids["kw"], old="9.74", new="5.00")
         _aplicada(conn, d1, ids["ciclo_ejec"], _R1_M5)
-        handler, _vistos = _handler_regreso(falla_put=True)
+        handler, _vistos = _handler_regreso(conn, falla_put=True)
         _creds_m5(monkeypatch)
 
         with pytest.raises(RegresoNoConfirmado) as exc:
@@ -2691,7 +2737,7 @@ def test_regreso_del_dueno_todas_con_n_viejo_no_escribe(monkeypatch):
         for hoja in hojas:
             _danada_m5(conn, ids, hoja, ingest, vieja="10.00", media="8.00", nueva="6.00")
         _metrica_m5(conn, ingest, hojas[0], dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
 
         with pytest.raises(ConfirmacionDesactualizada) as exc:
@@ -2729,7 +2775,7 @@ def test_regreso_del_dueno_todas_una_falla_no_detiene_a_las_demas(monkeypatch):
         )
         _danada_m5(conn, ids, hoja_b, ingest, vieja="12.00", media="9.00", nueva="7.00")
         _metrica_m5(conn, ingest, hoja_a, dt.date(2026, 10, 9), clics=0, pedidos=0, venta=None)
-        handler, vistos = _handler_regreso()
+        handler, vistos = _handler_regreso(conn)
         _creds_m5(monkeypatch)
 
         resultado = regreso_del_dueno_todas(
