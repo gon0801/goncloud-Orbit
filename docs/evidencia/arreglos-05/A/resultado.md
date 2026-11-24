@@ -31,10 +31,10 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 39 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 39 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 39 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 39 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 43 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 43 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 43 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 43 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -136,11 +136,18 @@ Dos correcciones, cada una con su rojo (registro en [review-rojo.txt](review-roj
 | Devin 14 | Con 400 en la keyword y 401/403 en el DELETE compensatorio, el rechazo se propagaba pero se saltaba el cierre del trabajo de cosecha: quedaba en `negative_created` y la recuperacion volvia a mandar el POST de creacion. | El trabajo se cierra como fallido antes de propagar, con el sello del DELETE conservado; el negativo del origen queda sin retirar (declarado). | `test_arreglos05_a_reversa_con_rechazo_de_identidad_cierra_el_job_y_no_repite_el_post` | `a48c14cc` |
 | Devin 15 | Si el LIST posterior al PUT de reactivacion omitia el estado, el intento se sellaba como fallo y el horario siguiente cobraba otro cupo y reenviaba el PUT sin comprobar nada. | Ese intento queda abierto y la hoja cuenta como pendiente de lectura: la recuperacion la lee antes de cobrar o reenviar. | `test_arreglos05_a_el_barrido_de_reactivaciones_lee_antes_de_reenviar` (dos hojas, dos horarios reales) | `cda75f72` |
 
+### Cuarta pasada (Astra)
+
+Dos correcciones P1 sobre `a8b3c7c1`, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Astra 11 | Con las lecturas previas exitosas y 403 en el PUT `/sp/productAds` (o en su readback posterior o previa interna), `archivar.pausar_anuncios` perdia el status HTTP y `_ejecuta_pendientes` absorbia la excepcion: `ejecuta_pause_producto` no veia el rechazo y el barrido enviaba el corte siguiente. | `ResultadoAnuncio` conserva `status_http` en la lectura previa y el PUT; `_ejecuta_pendientes` relanza `AdsApiError` ante 401/403 (tanto desde captura como desde `status_http`) dejando la intencion abierta para reconciliacion. | `test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente` (`put`, `readback`, `previa_interna`, sin sustituir `ejecuta_retiro`) | `d6c707a9` |
+| Astra 12 | En `aplica_reactivaciones`, un 5xx o error de red en `resuelve_reversa_sin_sello` o en `reversa_pause` dejaba el intento de reversa abierto pero solo sumaba `fallidas`: si era el ultimo trabajo, `cycle.py` marcaba completo el origen y el horario siguiente no abria ejecutor. | Ambas capturas cuentan `pendientes_de_lectura += 1` en vez de `fallidas += 1`. | `test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reenviar` (unico resume, PUT 500 + LIST 500 + lectura ENABLED en tres horarios reales) | `3ef8cf29` |
+
 ## Vecinos
 
-Lote de 30 archivos de ciclo, cron, apply, cola, harvest (con grupos hermanos),
-temporada, notificaciones, CLI, goals, fabrica y dashboard: 1089 pasan y 31
-fallan. Los 31 fallan igual en `149bf454` en este entorno (comprobado
+Lote de 34 archivos (los 30 de ciclo, cron, apply, cola, harvest con grupos hermanos, temporada, notificaciones, CLI, goals, fabrica y dashboard, mas los 4 de archivo/retiro/arquitectura tocados por Astra 11: `test_ads_archivar`, `test_retiro_anuncios`, `test_retiro_contrato`, `test_arq_bids_i`): **1222 pasan y 31 fallan** (1089 + 133). Los 31 fallan igual en `149bf454` en este entorno (comprobado
 ejecutandolos sobre un `git archive` del padre): `test_fabrica_f2_hermanas` x24
 (22 dan `temporada_efecto` inexistente y 2 son consecuencia de ese aborto; su banco
 no aplica la 0093), `test_harvest_destino` x3 (misma causa),

@@ -77,3 +77,14 @@ test_arreglos05_a_reversa_con_rechazo_de_identidad_cierra_el_job_y_no_repite_el_
   AssertionError: el job se cierra como fallido antes de propagar el rechazo
 test_arreglos05_a_el_barrido_de_reactivaciones_lee_antes_de_reenviar
   assert (0, 1) == (0, 0)
+
+# Cuarta pasada (Astra): rojo contra a8b3c7c1 (Hallazgo 1) y d6c707a9 (Hallazgo 2):
+test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente[put]
+  Failed: DID NOT RAISE AdsApiError
+test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente[readback]
+  Failed: DID NOT RAISE AdsApiError
+test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente[previa_interna]
+  Failed: DID NOT RAISE AdsApiError
+test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reenviar
+  AssertionError: assert (0, 1, 0) == (0, 0, 1)
+
