@@ -26,8 +26,8 @@ import psycopg
 
 from app import apply_estados as est
 from app.ads import reposicion_store as store
-from app.ads.client import AdsApiError
-from app.ads.sp_wire import errores_de_ack, id_de_ack
+from app.ads.client import AdsApiError, AdsAuthError
+from app.ads.sp_wire import ack_de_error, errores_de_ack, id_de_ack
 from app.redaction import scrub
 
 LISTA_KEYWORDS = "/sp/keywords/list"
@@ -375,6 +375,22 @@ def _reponer_fila(
         return _pendiente(fila, "el intento reclamado no se pudo releer")
     try:
         ack = enviar(fila.plataforma, profile, payload)
+    except AdsAuthError as exc:
+        # El refresh de LWA corre ANTES del POST: nada salio. El intento se
+        # sella no aplicado (cuenta cupo y permite reintento) y la fase se
+        # detiene: seguir abriria intentos para filas que jamas salieron.
+        _sella_resultado(
+            conn,
+            fila.id,
+            "reponer",
+            intento.id,
+            est.RESULTADO_NO_APLICADO,
+            ack_de_error(exc),
+        )
+        raise AbortoFase(
+            f"autenticacion de Amazon rechazada antes del envio ({fila.keyword_external}):"
+            " la fase se detiene y el intento queda no aplicado"
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - red/timeout: pudo aplicarse
         _trans(est.EstadoCambio.INCIERTO, est.EventoCambio.ERROR_5XX_O_RED)
         return _pendiente(fila, f"envio incierto: {scrub(str(exc))[:300]}")
@@ -589,6 +605,21 @@ def _revertir_fila(
         return _pendiente(fila, "el intento de reversa no se pudo releer")
     try:
         ack = eliminar(fila.plataforma, profile, _payload_reversa(fila))
+    except AdsAuthError as exc:
+        # Igual que en la reposicion: sin token no salio el DELETE. El intento
+        # se sella no aplicado y la fase se detiene antes de la fila siguiente.
+        _sella_resultado(
+            conn,
+            fila.id,
+            "reversa",
+            intento.id,
+            est.RESULTADO_NO_APLICADO,
+            ack_de_error(exc),
+        )
+        raise AbortoFase(
+            f"autenticacion de Amazon rechazada antes del DELETE ({fila.keyword_external}):"
+            " la fase se detiene y el intento queda no aplicado"
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - red/timeout: pudo aplicarse
         _trans(est.EstadoCambio.INCIERTO, est.EventoCambio.ERROR_5XX_O_RED)
         return _pendiente(fila, f"DELETE incierto: {scrub(str(exc))[:300]}")
