@@ -1,0 +1,27 @@
+# Acepta de ARREGLOS 05 C. SHA 363725177099732e2c6f79a22bc1a1ee632c5b59 (parte 3 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] esquema y ledger del aplicador
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
+........................................................................ [ 61%]
+.............................................                            [100%]
+117 passed in 24.24s
+resultado=ok
+
+### [CONTROL] selector del instalador: migraciones de ARREGLOS 05
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
+...                                                                      [100%]
+3 passed, 47 deselected in 4.25s
+resultado=ok
+
+### [ACEPTA] revision de secretos de los commits del bloque
+$ gitleaks detect --redact --no-banner --log-opts=d0ed286e6048d38db45abe49006a20f25d2b3cdf..HEAD
+[90m9:16AM[0m [32mINF[0m [1m2 commits scanned.[0m
+[90m9:16AM[0m [32mINF[0m [1mscanned ~127217 bytes (127.22 KB) in 225ms[0m
+[90m9:16AM[0m [32mINF[0m [1mno leaks found[0m
+resultado=ok
+
+# comandos que no pasaron: 0
