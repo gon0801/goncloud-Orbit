@@ -141,3 +141,9 @@ test_arreglos05_a_reversa_abierta_se_concilia_aunque_temporada_pase_a_shadow
   AssertionError: concilia por LIST ambos intentos abiertos (assert 0 == 2)
 test_arreglos05_a_reversa_abierta_se_concilia_aunque_global_pase_a_shadow
   AssertionError: concilia por LIST la reversa abierta incluso en global shadow (assert 0 == 1)
+
+# Octava pasada (Devin, shadow el mismo dia y off al dia siguiente): rojo contra f455b45a:
+test_arreglos05_a_reversa_abierta_en_shadow_el_mismo_dia_concilia_sin_completar_origen
+  AssertionError: concilia por LIST bajo el mismo claim (assert 0 == 1)
+test_arreglos05_a_reversa_abierta_en_off_tras_cambio_de_dia_concilia_sin_put_ni_cuota
+  AssertionError: concilia por LIST antes de cerrar skipped en off (assert 0 == 1)
