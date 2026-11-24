@@ -355,11 +355,20 @@ def reversa_negative(
 # de la hoja: el intento queda abierto y la hoja pendiente de lectura.
 PENDIENTE_LECTURA = "pendiente_de_lectura"
 
+# Resultado durable de una reversa abierta cuando la ingesta ya vio la hoja
+# ENABLED tras iniciar el intento y Amazon vuelve a mostrarla PAUSED (pausa
+# manual posterior del dueno): cierra sin atribuir `ok` al PUT ni reenviar.
+RESULTADO_PAUSADA_TRAS_HABILITAR = "omitida:pausada_tras_habilitar"
+
 _SQL_REVERSA_SIN_SELLO = """
-SELECT id FROM apply_attempt
+SELECT id, started_at FROM apply_attempt
  WHERE decision_id = %s AND tipo = 'reversa' AND finished_at IS NULL
  ORDER BY seq DESC
  LIMIT 1
+"""
+
+_SQL_ESTADO_CACHE_PREVIO = """
+SELECT status, synced_at FROM ad_entity_state WHERE ad_entity_id = %s
 """
 
 
@@ -375,8 +384,14 @@ def resuelve_reversa_abierta(
     05 A, revision): Amazon pudo habilitar la hoja aunque la respuesta se
     perdiera, y el cache seguira diciendo PAUSED.
 
-    None si no habia intento pendiente o si sigue PAUSED: en ese caso el
-    intento viejo se sella `ok:no_aplicado` y la reactivacion sigue su curso.
+    None si no habia intento pendiente o si sigue PAUSED sin haber sido vista
+    ENABLED tras iniciar el intento: en ese caso el intento viejo se sella
+    `ok:no_aplicado` y la reactivacion sigue su curso.
+    `pausada_manual` si Amazon dice PAUSED pero `ad_entity_state` ya registro
+    ENABLED con `synced_at >= started_at` (el dueno volvio a pausarla despues):
+    el intento se sella `omitida:pausada_tras_habilitar` sin atribuir `ok` al
+    PUT ni reenviar, y la pausa original queda excluida de futuras
+    reactivaciones.
     `ya_habilitada` si la lectura
     dice que la hoja ya esta ENABLED: el intento se sella `ok`, el unico exito
     que reconocen la reversa manual, temporada y la pausa propia, con
@@ -389,6 +404,8 @@ def resuelve_reversa_abierta(
     intento = conn.execute(_SQL_REVERSA_SIN_SELLO, (fila.decision_id,)).fetchone()
     if intento is None:
         return None
+    intento_id, iniciado_el = intento
+    cache_previo = conn.execute(_SQL_ESTADO_CACHE_PREVIO, (fila.ad_entity_id,)).fetchone()
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return "sin_identidad"
@@ -402,13 +419,24 @@ def resuelve_reversa_abierta(
     if estado == apply.ESTADO_WIRE_ENABLED:
         veredicto, resultado, ack = "ya_habilitada", "ok", {"conciliado": True}
     elif estado == apply.ESTADO_WIRE_PAUSED:
-        veredicto, resultado, ack = None, "ok:no_aplicado", None
+        habilitada_despues = (
+            cache_previo is not None
+            and cache_previo[0] == apply.ESTADO_WIRE_ENABLED
+            and cache_previo[1] is not None
+            and cache_previo[1] >= iniciado_el
+        )
+        if habilitada_despues:
+            veredicto = "pausada_manual"
+            resultado = RESULTADO_PAUSADA_TRAS_HABILITAR
+            ack = {"conciliado": True, "cache_previo": apply.ESTADO_WIRE_ENABLED}
+        else:
+            veredicto, resultado, ack = None, "ok:no_aplicado", None
     else:
         veredicto, resultado, ack = "archivada", f"fallo:entidad_{estado.lower()}", None
     with tx_durable(conn):
         if cerca_dueno is not None:
             cerca_dueno()
-        apply._sella_ledger(conn, intento[0], ack=ack, resultado=resultado)
+        apply._sella_ledger(conn, intento_id, ack=ack, resultado=resultado)
         conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
     return veredicto
 
@@ -480,11 +508,13 @@ def aplica_reactivaciones(
             pendientes_de_lectura += 1
             continue
         if veredicto is not None:
-            # La hoja se cuenta y se pasa: ya habilitada (por lectura), sin
-            # lectura conclusiva (sin cuota ni PUT: queda pendiente de leerla
-            # en otro horario) o cerrada sin reenviar (archivada, sin identidad).
+            # La hoja se cuenta y se pasa: ya habilitada (por lectura), pausada
+            # de nuevo por el dueno tras haberse visto habilitada (omitida sin
+            # reenviar), sin lectura conclusiva (pendiente de leerla en otro
+            # horario) o cerrada sin reenviar (archivada, sin identidad).
             confirmadas += veredicto == "ya_habilitada"
             fallidas += veredicto in ("archivada", "sin_identidad")
+            omitidas += veredicto == "pausada_manual"
             pendientes_de_lectura += veredicto == "inconclusa"
             continue
         if decision.ad_entity_id in mantener:
