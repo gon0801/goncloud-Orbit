@@ -114,9 +114,10 @@ test_arreglos05_a_tercer_horario_preserva_pausa_manual_cuando_otra_hoja_sigue_pe
 test_arreglos05_a_reversa_respeta_tope_de_tres_y_cuarto_horario_lee_sin_reenviar
   AssertionError: tope de 3 reversas por pausa: cero 4o PUT (assert 4 == 3)
 
-
-
-
-
-
-
+# Modelo explicito de estados y chequeo /correct: rojo contra cd95cc32 (antes de migrar):
+test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
+  AssertionError: 4 violaciones reales detectadas fuera de app/apply_estados.py:
+    - app/apply_cola_ejecuta.py: literal 'omitida:pausada_tras_habilitar' duplicado
+    - app/apply_cola_ejecuta.py: consulta ad hoc _SQL_REVERSA_TERMINAL prohibida
+    - app/apply_store.py: redefine STATUS_IDENTIDAD_RECHAZADA
+    - app/temporada_io.py: literal 'omitida:pausada_tras_habilitar' duplicado

@@ -25,16 +25,19 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
   desenlace auditable; no se borra nada.
 - Para mantenimiento: `atender_plataforma` (`app/cycle.py`) es la unica
   operacion de un horario. `_fase_reconciliacion` (nueva) y `_fase_apply`
-  viven en `app/cycle_apply.py`. La migracion es la `0094`.
+  viven en `app/cycle_apply.py`. El modelo explicito de estados y la tabla
+  unica `estado x evento` viven en `app/apply_estados.py` (mapa completo y
+  demostracion `/correct` en [estados.md](estados.md)). La migracion es la
+  `0094`.
 
 ## Fila por fila
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 51 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 51 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 51 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 51 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 163 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados; tabla completa `estado x evento` (108 casillas) y chequeo `/correct` en verde. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 163 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 163 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 163 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -159,6 +162,14 @@ Cuatro correcciones, cada una con su rojo (registro en [review-rojo.txt](review-
 | Devin 18 | Con un PUT automatico de reactivacion en vuelo, una peticion concurrente de `reversa_manual` podia leer `PAUSED` y sellar el intento del ciclo como `ok:no_aplicado`, haciendo fallar el trigger inmutable del ledger cuando el ciclo volvia con `ENABLED`. | Agrega `candado_reversa_pause` (`pg_try_advisory_lock` de sesion por `decision_id`, compartido entre `aplica_reactivaciones` y `reversa_manual`) que sobrevive al commit previo al PUT y se libera al cerrar o caer la conexion. | `test_arreglos05_a_reversa_manual_concurrente_no_cierra_put_automatico_en_vuelo` (dos conexiones y PUT detenido en vuelo) | `e34817ea` |
 | Astra 16 | En un origen con dos `resume`, si una hoja se sellaba como `omitida:pausada_tras_habilitar` (cache `PAUSED`) y otra quedaba pendiente de lectura, el tercer horario recargaba ambos `resume` y volvia a habilitar la primera deshaciendo la pausa manual. | Comprueba desenlaces terminales (`ok`, `omitida:pausada_tras_habilitar`) en `apply_attempt` bajo `candado_reversa_pause` antes de los filtros y del cobro de cuota. | `test_arreglos05_a_tercer_horario_preserva_pausa_manual_cuando_otra_hoja_sigue_pendiente` | `35859807` |
 | Astra 17 | Con tres PUT inciertos (500 sin aplicar) y LIST `PAUSED`, cada horario sellaba `ok:no_aplicado` y el ejecutor reutilizaba el mismo `resume`, superando el tope de tres intentos de reversa por pausa (`_ledger` solo limita `normal`). | Amplia `_SQL_REVERSA_TERMINAL` bajo `candado_reversa_pause` (tras leer el intento abierto y antes de cobrar cuota) con `OR count(*) >= apply.TOPE_INTENTOS` (3). | `test_arreglos05_a_reversa_respeta_tope_de_tres_y_cuarto_horario_lee_sin_reenviar` | `61d77db4` |
+
+### Modelo explicito de estados y tabla unica (`estado x evento`)
+
+Tras las seis pasadas de Astra y las siete de Devin, se sustituyeron los parches puntuales (`_SQL_REVERSA_TERMINAL` con `HAVING`, `RESULTADO_PAUSADA_TRAS_HABILITAR`, duplicaciones de `STATUS_IDENTIDAD_RECHAZADA`, `TOPE_INTENTOS` y `es_rechazo_de_identidad`, y las ramas de veredicto con strings sueltos) por un unico dueno puro en `app/apply_estados.py` (`EstadoCambio`, `EventoCambio`, `AccionCambio`, `Transicion`, `TABLA_TRANSICIONES` de 108 casillas, `decidir` y `estado_inicial_desde_hechos`), migrando los 13 modulos llamadores en una sola ola (`0bfeb854`).
+
+- Prueba exhaustiva de las 108 casillas, 6 invariantes globales y chequeo estructural `/correct`: `tests/test_arreglos05_a_estados.py` (112 passed; rojo previo a la migracion en [review-rojo.txt](review-rojo.txt)).
+- Mapa completo de los 34 hallazgos a su casilla y demostracion `/correct` por nivel (arquitectura > tipos > chequeo > prueba > docs): [estados.md](estados.md).
+- Contrato permanente del modelo: `docs/APPLY.md` §9.2.
 
 ## Vecinos
 

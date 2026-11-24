@@ -830,6 +830,73 @@ reciente de su plataforma lo muestran con `decisions_count` 0, y Salud no
 muestra el target de ese día. Pendiente de un bloque que toque esas pantallas
 y sus bancos de prueba.
 
+### 9.2 Modelo explícito de estados de un cambio enviado a Amazon (ARREGLOS 05 A)
+
+Todo cambio enviado a Amazon (puja, corte, pausa de producto, reversa de
+reactivación, reversa manual y desenlace de reversa de cosecha) comparte un
+único dueño de transiciones en `app/apply_estados.py`. Las reglas ya no se
+reparten en contadores ad hoc, flags locales ni consultas `HAVING` sobre el
+ledger: los ejecutores derivan el estado desde los hechos del ledger con
+`estado_inicial_desde_hechos(...)` y consultan la tabla pura
+`TABLA_TRANSICIONES` mediante `decidir(estado, evento)` (o sus atajos
+`transicion_desde_error` / `transicion_desde_status`).
+
+**Estados (`EstadoCambio`, 9):** `pendiente`, `en_vuelo` (exclusión de sesión
+activa en otra ruta vía `candado_reversa_pause`), `incierto` (intento abierto
+sin sello), y seis estados terminales: `aplicado`, `rechazado`,
+`pausado_por_dueno` (`RESULTADO_PAUSADA_POR_DUENO = 'omitida:pausada_tras_habilitar'`),
+`archivado`, `sin_identidad` y `tope_intentos` (`TOPE_INTENTOS_CAMBIO = 3`,
+re-exportado como `apply.TOPE_INTENTOS`). Prioridad fija al derivar el estado:
+`en_vuelo` > `incierto` > terminal > `tope_intentos` > `pendiente`.
+
+**Eventos (`EventoCambio`, 12):** `nuevo_horario`, `ok_confirmado`,
+`no_aplicado_en_amazon`, `error_4xx_determinista`, `error_5xx_o_red`,
+`rechazo_identidad` (401 persistente o 403), `pausa_manual_dueno` (caché vio
+`ENABLED` tras iniciar el intento y Amazon ahora muestra `PAUSED`),
+`entidad_archivada`, `entidad_sin_identidad`, `dueno_desplazado` (claim
+perdido o cerrojo indisponible), `intentos_agotados` y `operacion_en_curso`.
+
+**Acciones (`AccionCambio`, 10):** `enviar`, `leer_resultado`,
+`sellar_aplicado`, `sellar_rechazado`, `contar_intento`, `mantener_incierto`,
+`sellar_pausado_dueno`, `sellar_terminal`, `no_tocar` y `abortar_fase`. Cada
+casilla `(estado, evento)` devuelve una única `Transicion(accion,
+estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`.
+
+**Invariantes de la tabla** (probados sobre las 108 casillas en
+`tests/test_arreglos05_a_estados.py`):
+
+1. **Lo incierto se lee antes de reenviar:** ninguna casilla de `incierto`
+   emite `enviar`; ante `nuevo_horario` o `intentos_agotados` ordena
+   `leer_resultado`, y ante `error_5xx_o_red` conserva `incierto` con
+   `origen_incompleto=True` y `sella_intento=False`.
+2. **Tope único de 3 intentos por pausa:** `TOPE_INTENTOS_CAMBIO` (3) es la
+   única fuente para `apply.TOPE_INTENTOS`, `aplica_reactivaciones` y
+   `temporada_io.sql_pausas_de_baja`. Un tercer intento abierto se lee primero
+   antes de entrar a `tope_intentos` sin cobrar cuota ni emitir un cuarto PUT.
+3. **Lo pausado por el dueño no se reactiva:** `pausado_por_dueno` es
+   absorbente ante `nuevo_horario` (`no_tocar`) y nunca se sella como
+   `aplicado`.
+4. **Rechazo de identidad (401/403) aborta la fase:** en los 9 estados ordena
+   `abortar_fase` con `propaga_aborto=True`; ninguna mutación posterior sale.
+   En `incierto` no sella (`sella_intento=False`).
+5. **Dueño desplazado jamás sella:** en los 9 estados `dueno_desplazado`
+   ordena `abortar_fase` con `sella_intento=False` y `propaga_aborto=True`.
+6. **Operación en vuelo ajena no se toca:** en `en_vuelo`, ningún evento
+   ordinario concilia ni reenvía (`no_tocar`, `origen_incompleto=True`).
+
+**Límites del modelo:**
+- Las fronteras humanas explícitas (`reversa_manual` y `/api/fabrica/retiro/ejecutar`
+  con `AutorizacionHumana` / `decision_id=None`) consultan la tabla pero
+  traducen el rechazo a respuesta HTTP estructurada (`confirmada: false` o
+  resultado por anuncio) en vez de responder 500 o dejar una intención abierta
+  al vigía.
+- Si el 401/403 ocurre durante el DELETE compensatorio de una cosecha, el
+  trabajo se cierra fallido antes de propagar y el negativo de origen queda
+  sin retirar (consta en el detalle).
+- La tabla completa de 108 casillas, el mapa de los 34 hallazgos de revisión
+  a su casilla y la demostración por nivel `/correct` viven en
+  `docs/evidencia/arreglos-05/A/estados.md`.
+
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 
 ### 10.1 AUTH de escritura (sellado 18)
