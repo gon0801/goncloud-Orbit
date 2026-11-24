@@ -88,3 +88,8 @@ test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_
 test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reenviar
   AssertionError: assert (0, 1, 0) == (0, 0, 1)
 
+# Quinta pasada (Devin): rojo contra 1b9c3bca:
+test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia
+  app.ads.client.AdsApiError: status=403: {"code": "ACCESS_DENIED"}
+
+
