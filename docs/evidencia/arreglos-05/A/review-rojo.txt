@@ -92,9 +92,14 @@ test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reenviar
 test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia
   app.ads.client.AdsApiError: status=403: {"code": "ACCESS_DENIED"}
 
-# Quinta pasada (Astra): rojo contra 8cf5920c:
+# Quinta pasada (Astra): rojo contra 8cf5920c, 6c3fb3cf y f004c2e5:
 test_arreglos05_a_reversa_abierta_se_sella_aunque_cache_ya_este_enabled
   AssertionError: lee el estado vivo de Amazon para conciliar (assert 0 == 1)
+test_arreglos05_a_reversa_pause_desplazada_durante_el_list_no_sella_ni_toca_cache
+  AssertionError: assert None is True (apply_abortado_owner ausente; el desplazado sello y toco cache)
+test_arreglos05_a_reversa_manual_resuelve_intento_abierto_sin_reenviar_put
+  AssertionError: la segunda peticion resuelve por lectura y no manda otro PUT (assert 2 == 1)
+
 
 
 

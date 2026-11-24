@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 A. SHA e771227a4e502cc32db7d88a4112f2df98d94e22
+# Acepta de ARREGLOS 05 A. SHA c8658f387b7a66c4e17add11a2d78d9cd55f30d0
 # arbol con seguimiento limpio (sin contar este archivo de salida): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas de B.5 en el PATH: psql=si pg_dump=si flock=si
@@ -6,14 +6,14 @@
 
 ### [ACEPTA] A.1 y A.2 y A.3 y A.4: regresiones del bloque
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a
-.............................................                            [100%]
+...............................................                          [100%]
 ============================== warnings summary ===============================
 .venv\Lib\site-packages\fastapi\testclient.py:1
   C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-35\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-45 passed, 6092 deselected, 1 warning in 102.63s (0:01:42)
+47 passed, 6092 deselected, 1 warning in 101.85s (0:01:41)
 resultado=ok
 
 ### [ACEPTA] A.2: suite existente de ciclo, cron y locks
@@ -21,13 +21,13 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 48%]
 ........................................................................ [ 96%]
 ......                                                                   [100%]
-150 passed in 135.56s (0:02:15)
+150 passed in 125.86s (0:02:05)
 resultado=ok
 
 ### [ACEPTA] A.2: Ciclo 4 legado, conciliacion antes de decidir (CONTROL de BASE)
 $ uv run --frozen --python 3.12 python -B -m pytest -q -rs -p no:cacheprovider docs/evidencia/arreglos-2026-11-12/pruebas/ciclo/test_revision_ciclo.py -k reconciliacion_corre_despues_de_decidir
 .                                                                        [100%]
-1 passed, 4 deselected in 3.70s
+1 passed, 4 deselected in 3.12s
 resultado=ok
 
 ### [CONTROL] A.1: reproducciones legadas F1 a F4 promovidas (F5 es de ARREGLOS 02)
@@ -54,26 +54,26 @@ _____________ test_piso_aprendido_se_cruza_por_redondeo_de_amazon _____________
 E       TypeError: _paso() missing 1 required keyword-only argument: 'centavos'
 
 docs\evidencia\arreglos-2026-11-12\pruebas\ciclo\test_revision_ciclo.py:192: TypeError
-1 failed, 4 passed in 10.60s
+1 failed, 4 passed in 11.13s
 resultado=ok
 
 ### [CONTROL] A.3: control 01, la reconciliacion solo lee
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_01
 ....                                                                     [100%]
-4 passed, 5 deselected in 16.27s
+4 passed, 5 deselected in 15.80s
 resultado=ok
 
 ### [CONTROL] A.2: control del arnes de optimizer (corre_ciclo con la firma sellada)
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_control
 .                                                                        [100%]
-1 passed, 2 deselected in 4.50s
+1 passed, 2 deselected in 4.64s
 resultado=ok
 
 ### [ACEPTA] A.4: revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=149bf454..HEAD
-[90m5:31PM[0m [32mINF[0m [1m56 commits scanned.[0m
-[90m5:31PM[0m [32mINF[0m [1mscanned ~334648 bytes (334.65 KB) in 449ms[0m
-[90m5:31PM[0m [32mINF[0m [1mno leaks found[0m
+[90m5:41PM[0m [32mINF[0m [1m59 commits scanned.[0m
+[90m5:41PM[0m [32mINF[0m [1mscanned ~348658 bytes (348.66 KB) in 487ms[0m
+[90m5:41PM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0

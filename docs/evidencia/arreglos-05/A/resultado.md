@@ -31,10 +31,10 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 45 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 45 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 45 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 45 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 47 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 47 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 47 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 47 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -147,12 +147,14 @@ Dos correcciones P1 sobre `a8b3c7c1`, cada una con su rojo (registro en [review-
 
 ### Quinta pasada (Devin y Astra)
 
-Dos correcciones, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
+Cuatro correcciones, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
 
 | Hilo | Que fallaba | Correccion | Prueba | Commit |
 |---|---|---|---|---|
 | Devin 16 | En retiros humanos (`AutorizacionHumana`, `decision_id None`), propagar 401/403 desde `_ejecuta_pendientes` hacia que `/api/fabrica/retiro/ejecutar` respondiera 500 sin resultados por anuncio y dejaba la intencion abierta para que `reconcilia_intenciones` reenviara la pausa despues sin nueva confirmacion. | Restringe la propagacion de 401/403 en las dos ramas de `_ejecuta_pendientes` a retiros con `decision_id` (`AutorizacionDeDecision`); en retiros humanos se conserva el cierre como rechazado y la respuesta 200 por anuncio. | `test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia` (endpoint real `/api/fabrica/retiro/ejecutar` + `reconcilia_intenciones`) | `05ef26d3` |
 | Astra 13 | Si Amazon habilitaba la hoja, se perdia la respuesta al PUT y la ingesta actualizaba `ad_entity_state.status` a `ENABLED` antes del siguiente horario, el filtro por `PAUSED` en `aplica_reactivaciones` saltaba la fila: el intento abierto nunca se sellaba y el origen se marcaba completo. | Mueve `resuelve_reversa_sin_sello` antes de los filtros que solo condicionan un nuevo PUT (`mantener`, ancestros, modo, `PAUSED`, grupo en pausa, presupuesto topado), de modo que todo intento abierto se concilia por lectura sin cuota ni reenvio. | `test_arreglos05_a_reversa_abierta_se_sella_aunque_cache_ya_este_enabled` | `e771227a` |
+| Astra 14 | En la ruta automatica, `reversa_pause` comprobaba el claim antes del LIST pero sellaba el intento y actualizaba `ad_entity_state` sin volver a bloquear ni validar la fila del claim: si un sucesor tomaba el claim durante el LIST, el ejecutor desplazado escribia su lectura tardia. | Agrega `cerca_dueno` a `reversa_pause` (pasando `aplicador.exige_dueno` desde `aplica_reactivaciones`) y lo ejecuta dentro de la transaccion que sella y actualiza la cache. | `test_arreglos05_a_reversa_pause_desplazada_durante_el_list_no_sella_ni_toca_cache` | `f004c2e5` |
+| Astra 15 | Cuando el PUT manual salia y el LIST omitia el estado, `reversa_manual` devolvia `confirmada=False` dejando el intento abierto; una segunda peticion manual solo comprobaba `resultado='ok'` y volvia a crear intento y enviar el PUT aunque Amazon ya hubiera habilitado la hoja. | Extrae `resuelve_reversa_abierta` en `apply_cola_ejecuta` y consulta/sella el intento abierto por lectura tambien en `reversa_manual` (tipo `pause`) antes de llamar a `reversa_pause`. | `test_arreglos05_a_reversa_manual_resuelve_intento_abierto_sin_reenviar_put` | `c8658f38` |
 
 ## Vecinos
 
