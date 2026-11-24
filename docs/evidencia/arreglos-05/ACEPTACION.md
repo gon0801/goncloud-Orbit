@@ -128,14 +128,14 @@ no inventar `drive-ruido`. Productos, Settings y Resumen requieren además los
 casos adversos: el recorrido básico por sí solo no envía retiro ni reproduce una
 respuesta tardía. Actualizar fichas si cambian selectores o flujos.
 
-Registrar los resultados de la aceptación de 05 Z sobre el SHA integrado. Aplicar las Reglas de trabajo de AGENTS.md para revisión, pruebas y secretos.
+Registrar los resultados de la aceptación de 05 Z sobre el SHA integrado. Aplicar la política de revisión (tope de 3 rondas, P0/P1 vs P2) y la revisión de secretos de AGENTS.md.
 
 ## Veredicto Z
 
-Astra revisa **toda Orbit** en el cierre Z, con inventario de alcance,
+El revisor asignado (Astra u otro modelo distinto al implementador) revisa **toda Orbit** en el cierre Z, con inventario de alcance,
 fronteras y caminos; incluir código nuevo y vecinos. No basta volver verdes estas
 reproducciones. Registrar por hallazgo impacto, comando, evidencia, dueño y cierre.
-PASA solo sin bloqueos confirmados abiertos, con secretos, aceptación y UI del mismo
-estado integrado. Las notas estructurales siguen el criterio de AGENTS; no se
+PASA sin bloqueos P0/P1 reales abiertos (según `AGENTS.md`, tope de 3 rondas), con secretos, aceptación y UI del mismo
+estado integrado. Esquinas que requieren 2+ fallos encadenados y notas estructurales se registran como seguimiento P2 y no bloquean el pase; no se
 debilitan candados para lograr pase. Si K carece de fuente, se declara pendiente y
 no se afirma cerrado todo el legado. Los seguimientos operativos se acreditan aparte.

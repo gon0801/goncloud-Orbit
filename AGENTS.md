@@ -80,6 +80,15 @@ Si algo falla, averigua por qué, corrígelo y continúa. Si un intento repite e
 
 Si falta algo que solo yo pueda aportar, o hace falta una decisión fuera del encargo, avanza con el resto y dime qué ocurrió, qué intentaste y qué decisión concreta necesitas. Al cerrar, dime qué quedó hecho, cómo lo comprobaste y qué sigue pendiente.
 
+## Revisión de PRs y tope de rondas
+
+Esta política aplica en todos los repositorios de David y prevalece sobre cualquier plan, diseño, runbook o criterio previo que pida rondas infinitas o «cero esquinas reproducibles».
+
+- **Revisores:** `ai-review` en GitHub (informativo) más el revisor asignado al encargo (cualquier modelo distinto al implementador; por ejemplo Astra u otro). Devin no cuenta como compuerta ni abre rondas.
+- **Qué sí bloquea (P0/P1):** rompe lo pedido o la aceptación del bloque en uso real, falla de seguridad o fuga de secretos, o corrupción/pérdida de dinero o datos en operación normal o ante un fallo simple común.
+- **Qué NO bloquea (P2 — va a notas o seguimiento, nunca frena el merge):** esquinas que requieren 2 o más fallos o carreras encadenadas, defensas hipotéticas fuera de alcance, o preferencias de estilo/estructura.
+- **Tope de 3 rondas totales por PR:** los hallazgos de `ai-review` y del revisor asignado se atienden juntos en las mismas rondas (máximo 3). Al cerrar la ronda 3: si no quedan P0/P1 reales se anotan los P2 restantes y se integra; si sigue abierto un P0/P1 real, se detiene y se escala a David en vez de abrir otra ronda.
+
 ## Grafo de código y mapa de pantallas
 
 - Cuando exista `graphify-out/graph.json`, corre `graphify query "<pregunta>"` antes del primer grep, búsqueda o lectura de archivo para dudas del código, e incluye esta regla en todo prompt de subagente que explore código. Usa `graphify path "<A>" "<B>"` para relaciones y `graphify explain "<concepto>"` para conceptos puntuales. Después de modificar código, corre `graphify update .` para mantener el grafo al día.

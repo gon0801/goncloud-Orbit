@@ -286,13 +286,12 @@ La reversa de efectos y la reversa de despliegue son operaciones diferentes.
 ## Cierre y límites
 
 Todos los IDs tienen un owner en [COBERTURA.md](COBERTURA.md). Los comandos y el
-tratamiento de fixtures están en [ACEPTACION.md](ACEPTACION.md). En Z, Astra revisa **toda la app integrada**, incluyendo
+tratamiento de fixtures están en [ACEPTACION.md](ACEPTACION.md). En Z, el revisor asignado (Astra u otro modelo distinto al implementador) revisa **toda la app integrada**, incluyendo
 los nuevos caminos de temporada y vecinos de cada causa; no solo a los diffs.
 Los resultados de aceptación corresponden al SHA integrado. Registrar y resolver los errores de entorno o los casos omitidos.
 
-Las preferencias de estructura se separan de bloqueos con reproducción e impacto,
-según AGENTS. D1 no cambia política por este plan. Los seguimientos externos del
+Solo bloquean hallazgos P0/P1 reales (uso normal o fallo simple que rompe lo pedido, seguridad o dinero/datos), con tope de 3 rondas totales por PR según `AGENTS.md`. Esquinas de 2+ fallos encadenados y preferencias de estructura son P2 (seguimiento, no bloqueo). D1 no cambia política por este plan. Los seguimientos externos del
 inventario no se declaran hechos por integrar código; tampoco son automáticamente
 defectos de la app. Fuente fiscal insuficiente deja K abierto, no un cierre ficticio.
-Pase significa cero bloqueos confirmados pendientes dentro del alcance revisado,
+Pase significa cero bloqueos P0/P1 reales pendientes dentro del alcance revisado,
 con evidencia del mismo SHA; no certifica ausencia universal de bugs ni despliegue.
