@@ -376,7 +376,9 @@ SELECT status, synced_at FROM ad_entity_state WHERE ad_entity_id = %s
 _SQL_REVERSA_TERMINAL = """
 SELECT EXISTS (
     SELECT 1 FROM apply_attempt
-     WHERE decision_id = %s AND tipo = 'reversa' AND resultado IN ('ok', %s)
+     WHERE decision_id = %s AND tipo = 'reversa'
+     GROUP BY decision_id
+    HAVING bool_or(resultado IN ('ok', %s)) OR count(*) >= %s
 )
 """
 
@@ -587,11 +589,12 @@ def aplica_reactivaciones(
                 pendientes_de_lectura += veredicto == "inconclusa"
                 continue
             if conn.execute(
-                _SQL_REVERSA_TERMINAL, (fila.decision_id, RESULTADO_PAUSADA_TRAS_HABILITAR)
+                _SQL_REVERSA_TERMINAL,
+                (fila.decision_id, RESULTADO_PAUSADA_TRAS_HABILITAR, apply.TOPE_INTENTOS),
             ).fetchone()[0]:
-                # Desenlace terminal ya registrado (ok o pausa manual posterior):
-                # un ejecutor posterior que recarga todos los resumes del origen
-                # no vuelve a cobrar cuota ni enviar PUT.
+                # Desenlace terminal ya registrado (ok, pausa manual posterior o
+                # tope de 3 intentos de reversa): un ejecutor posterior que
+                # recarga todos los resumes del origen no cobra ni envia otro PUT.
                 omitidas += 1
                 continue
             if not _elegible_para_put_reactivacion(

@@ -3532,3 +3532,125 @@ def test_arreglos05_a_tercer_horario_preserva_pausa_manual_cuando_otra_hoja_sigu
             == "PAUSED"
         )
         assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None
+
+
+@_skip_db
+def test_arreglos05_a_reversa_respeta_tope_de_tres_y_cuarto_horario_lee_sin_reenviar():
+    """Revision de Astra del PR #746 (sexta pasada): si cada PUT de reactivacion
+    devuelve 500 sin aplicarse y el LIST siguiente confirma PAUSED, el intento
+    anterior se sella `ok:no_aplicado` y el ejecutor reutilizaba el mismo resume
+    superando el tope de 3 intentos de reversa por pausa (`_ledger` solo limita
+    `normal`). Bajo el candado y despues de leer el intento abierto, el cuarto
+    horario debe leer y sellar el tercer intento sin cobrar ni enviar un 4o PUT."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import _config, _episodio, _pausa_baja, _pausado, estacion_dia
+
+    from app import apply_cola, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_tope_tres_reversas") as (conn, _extra):
+        ids = _semilla_live(conn)
+        hoja = ids["kw_pause"]
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausa, _q = _pausa_baja(
+            conn,
+            ciclo_id=ciclo_prev,
+            config_id=config_id,
+            hoja=hoja,
+            ahora=ahora,
+            episodio=cerrado,
+        )
+        _pausado(conn, hoja)
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        [pendiente] = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+            (
+                origen,
+                pendiente.ad_entity_id,
+                ahora,
+                config_id,
+                propuesta.data_observed_at,
+                propuesta.window_start,
+                propuesta.window_end,
+                json.dumps(propuesta.inputs),
+            ),
+        )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 1
+
+        puts_estado: list[dict] = []
+        lecturas: list[int] = []
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                lecturas.append(len(lecturas) + 1)
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": "9202", "state": "PAUSED"}]},
+                )
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_estado.append(obj)
+                # 500 sin aplicarse en Amazon: la hoja sigue PAUSED.
+                return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        def cuota_pause() -> int:
+            return int(
+                conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0]
+            )
+
+        hoy = ahora.astimezone(dt.UTC).date()
+
+        # Horarios 1, 2 y 3: cada PUT devuelve 500 sin aplicarse.
+        for intento in (1, 2, 3):
+            res = _atiende(conn, factory=_directa(api), ahora=ahora)
+            assert res.ciclo is not None and res.ciclo.resume_of == origen
+            assert len(puts_estado) == intento
+            assert cuota_pause() == intento
+            assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is None
+
+        # Horario 4: lee el 3er intento, lo sella `ok:no_aplicado`, pero NO cobra ni envia 4o PUT.
+        h4 = _atiende(conn, factory=_directa(api), ahora=ahora)
+        assert h4.ciclo is not None and h4.ciclo.resume_of == origen
+        assert len(lecturas) == 3, "el cuarto horario lee el ultimo resultado"
+        assert len(puts_estado) == 3, "tope de 3 reversas por pausa: cero 4o PUT"
+        assert cuota_pause() == 3, "no cobra cuarta cuota al alcanzar el tope"
+        react4 = json.loads(h4.ciclo.notes)["apply"]["reactivaciones"]
+        assert (
+            react4["confirmadas"],
+            react4["omitidas"],
+            react4["fallidas"],
+            react4["pendientes_de_lectura"],
+        ) == (0, 1, 0, 0), react4
+        intentos = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausa,),
+        ).fetchall()
+        assert intentos == [
+            ("ok:no_aplicado", True),
+            ("ok:no_aplicado", True),
+            ("ok:no_aplicado", True),
+        ], intentos
+        assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None
