@@ -32,6 +32,7 @@ from app import (
     apply,
     apply_ajustes,
     apply_regreso_dueno,
+    apply_veto,
     bloqueo_dueno_efecto,
     config_write,
     familias,
@@ -40,7 +41,7 @@ from app import (
 )
 from app.api import ConexionLectura
 from app.campana_ajustes import _ajuste_de
-from app.db import OrbitDbError, connect, cursor_dict
+from app.db import OrbitDbError, connect
 from app.optimizer import goals as g
 from app.optimizer import productos
 from app.redaction import install_scrub_filter, register_secret
@@ -264,62 +265,31 @@ class CuerpoSettings(BaseModel):
     recuperacion_memoria_dias: Any = None
 
 
-# Transicion atomica del veto: el WHERE de estados ES la carrera contra el
-# claim del motor (released -> applying) y contra un segundo veto; rowcount 0
-# = alguien mas movio la fila y se relee para responder 404/409 honesto.
-# make_interval fija el vencimiento al reloj de la BASE (vence_el TSTZ).
-_SQL_VETO = """
-UPDATE apply_queue
-   SET estado = 'vetoed', vence_el = now() + make_interval(days => %s),
-       vetoed_at = now(), vetoed_by = %s
- WHERE id = %s AND estado IN ('pending_veto', 'released')
-RETURNING id, estado, vence_el, vetoed_at, vetoed_by
-"""
-
-# dict_row activo cuando se lee: la columna llega por nombre ("estado").
-_SQL_ESTADO_FILA = "SELECT estado FROM apply_queue WHERE id = %s"
-
-
 @router.post("/veto")
 def veto(
     _token: Annotated[str, Depends(exige_token)],
     conn: ConexionEscritura,
     cuerpo: CuerpoVeto,
 ) -> dict:
-    """Veta un corte de la cola: `vetoed` con actor, rastro y vence_el editable.
+    """Veta el EFECTO de un corte de la cola: `vetoed` con actor, rastro y
+    vence_el editable en TODAS las filas vetables de la misma clave.
 
     Corre con el DSN admin (el trigger de 0002 exige pg_has_role(current_user,
-    'app_admin')). pending_veto y released son vetables (released sigue
-    vetable mientras espera quota, r2 grok); applying es punto de no retorno
-    (409 en vuelo); los terminales son inmutables (409); inexistente 404."""
-    with cursor_dict(conn) as cur:
-        fila = cur.execute(_SQL_VETO, (cuerpo.dias, cuerpo.actor, cuerpo.queue_id)).fetchone()
-        if fila is None:
-            estado = cur.execute(_SQL_ESTADO_FILA, (cuerpo.queue_id,)).fetchone()
-            if estado is None:
-                raise HTTPException(status_code=404, detail=f"queue_id {cuerpo.queue_id} no existe")
-            # cursor dict_row local: la columna se lee por nombre (AS estado), jamas por indice
-            estado_fila = estado["estado"]
-            if estado_fila == "applying":
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"fila {cuerpo.queue_id} en vuelo (applying), no vetable: SOLO"
-                        " applying es punto de no retorno (sellado 4)"
-                    ),
-                )
-            raise HTTPException(
-                status_code=409,
-                detail=f"fila {cuerpo.queue_id} en estado terminal {estado_fila}: no vetable",
-            )
+    'app_admin')). Vetar una practica vencida detiene el corte real equivalente
+    que 0098 deja convivir; si el equivalente ya esta `applying` (punto de no
+    retorno) el veto es 409 y no toca nada. Los terminales son inmutables (409)
+    e inexistente 404. La transaccion y el vocabulario viven en
+    `app/apply_veto.py`."""
+    try:
+        resultado = apply_veto.veta_efecto(conn, cuerpo.queue_id, cuerpo.dias, cuerpo.actor)
+    except apply_veto.VetoNoEncontrado:
+        raise HTTPException(
+            status_code=404, detail=f"queue_id {cuerpo.queue_id} no existe"
+        ) from None
+    except apply_veto.VetoNoVetable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     conn.commit()
-    return {
-        "id": fila["id"],
-        "estado": fila["estado"],
-        "vence_el": fila["vence_el"].isoformat(),
-        "vetoed_at": fila["vetoed_at"].isoformat(),
-        "vetoed_by": fila["vetoed_by"],
-    }
+    return resultado
 
 
 # C.5: descarte de propuesta de campana (canal visible del runbook,

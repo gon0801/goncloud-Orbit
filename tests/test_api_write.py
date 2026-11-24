@@ -154,6 +154,9 @@ SQL96 = (
     / "migrations"
     / "0096_arreglos05_regreso_destino_efectivo.sql"
 ).read_text(encoding="utf-8")
+SQL98 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0098_arreglos05_indice_shadow.sql"
+).read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -517,6 +520,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
+        conn.execute(SQL98)  # 0098 (ARREGLOS 05 E): practica vencida y efecto live conviven
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
@@ -765,6 +769,97 @@ def test_veto_sobre_terminal_409_e_inexistente_404(tmp_path, monkeypatch):
             "/api/ads-optimizer/veto", json={"queue_id": 99999, "actor": "dueno"}, headers=cabecera
         )
         assert resp.status_code == 404
+
+
+def _practica_vencida(conn, kw: int, decision_id: int, *, vence: str = "-1 hour") -> int:
+    """Practica shadow vencida de una clave (la que 0098 deja de bloquear)."""
+    return conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, search_term, decision_id,"
+        " modo, estado, vence_el, request_payload)"
+        f" VALUES ('amazon_us', %s, 'pause', NULL, %s, 'shadow', 'pending_veto',"
+        f" now() + interval '{vence}', '{{}}'::jsonb) RETURNING id",
+        (kw, decision_id),
+    ).fetchone()[0]
+
+
+def _decision_en_ciclo_nuevo(conn, kw: int) -> int:
+    """Decision de pausa en su propio ciclo: `decision` es unica por
+    (cycle_id, ad_entity_id) y la practica necesita una decision distinta de la
+    del corte real."""
+    config = conn.execute("SELECT id FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[0]
+    ciclo = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs)"
+        " VALUES (%s, %s, 'pause', %s, now() - interval '40 days', CURRENT_DATE - 60,"
+        " CURRENT_DATE - 30, '{}'::jsonb) RETURNING id",
+        (ciclo, kw, config),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_arreglos05_e_veto_de_practica_detiene_el_corte_real_de_la_clave(tmp_path, monkeypatch):
+    """Devin P1: tras 0098 una practica vencida y un corte real conviven. Vetar
+    la PRACTICA debe vetar el corte real de la misma clave y el barrido no debe
+    enviar la mutacion."""
+    from app.apply_cola import libera_vencidos
+
+    with _db_con_rol_admin("orbit_w_e_veto_clave") as (conn, dsn_admin, _dsn_l):
+        s = _semilla_veto(conn)
+        q_sh = _practica_vencida(conn, s["kw"], _decision_en_ciclo_nuevo(conn, s["kw"]))
+        q_live = s["encola"](s["decision"]("pause", s["kw"]), s["kw"], "pause")
+        s["avanza"](q_live, "released")
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/veto",
+            json={"queue_id": q_sh, "actor": "dueno"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["estado"] == "vetoed"
+
+        filas = conn.execute(
+            "SELECT id, estado, vence_el > now() FROM apply_queue ORDER BY id"
+        ).fetchall()
+        assert {f[0] for f in filas} == {q_sh, q_live}
+        assert all(f[1] == "vetoed" and f[2] for f in filas), (
+            "la practica y el corte real quedan vetados y el bloqueo sigue vigente"
+        )
+        assert set(resp.json()["filas_vetadas"]) == {q_sh, q_live}
+        res = libera_vencidos(conn, "amazon_us", ahora=dt.datetime.now(dt.UTC), aplicador=object())
+        assert res.aplicadas == 0 and res.liberadas == 0, (
+            "el corte real vetado no vuelve a salir en el barrido"
+        )
+
+
+@_skip_db
+def test_arreglos05_e_veto_con_corte_equivalente_en_vuelo_409_sin_tocar(tmp_path, monkeypatch):
+    """Devin P1: si el corte real equivalente ya esta `applying` (punto de no
+    retorno), vetar la practica es 409 y no toca ninguna fila."""
+    with _db_con_rol_admin("orbit_w_e_veto_vuelo") as (conn, dsn_admin, _dsn_l):
+        s = _semilla_veto(conn)
+        q_sh = _practica_vencida(conn, s["kw"], _decision_en_ciclo_nuevo(conn, s["kw"]))
+        q_live = s["encola"](s["decision"]("pause", s["kw"]), s["kw"], "pause")
+        s["avanza"](q_live, "released")
+        s["avanza"](q_live, "applying")
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/veto",
+            json={"queue_id": q_sh, "actor": "dueno"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 409
+        assert "en vuelo" in resp.json()["detail"]
+        estados = dict(conn.execute("SELECT id, estado FROM apply_queue ORDER BY id").fetchall())
+        assert estados == {q_sh: "pending_veto", q_live: "applying"}, (
+            "el veto rechazado no toca ni la practica ni el corte en vuelo"
+        )
 
 
 # ---------------------------------------------------------------------------

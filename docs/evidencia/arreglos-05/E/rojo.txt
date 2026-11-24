@@ -35,3 +35,18 @@ INSERT de la decision real.
 Las otras tres pruebas del modulo (shadow vigente bloquea, live no terminal y
 veto vigente protegen, dos workers sin doble efecto live) ya pasaban en el
 padre porque 0002 ya cubria esos caminos; se conservan como vecinos del verde.
+
+## Ronda 1 de revision (Devin): el veto de la practica
+
+Hallazgo P1: tras 0098 una practica vencida y un corte real de la misma clave
+conviven; vetar la PRACTICA solo cambiaba su fila y el corte real seguia su
+camino. Rojo contra el endpoint anterior (`app/api_write.py` de `5d016e1f`,
+sin el arreglo), con las dos pruebas nuevas de `tests/test_api_write.py`:
+
+- `test_arreglos05_e_veto_de_practica_detiene_el_corte_real_de_la_clave`:
+  el endpoint responde 200 pero el corte real sigue sin vetar
+  (`AssertionError: la practica y el corte real quedan vetados...`).
+- `test_arreglos05_e_veto_con_corte_equivalente_en_vuelo_409_sin_tocar`:
+  el endpoint responde 200 en vez de 409 (`assert 200 == 409`).
+
+Resultado del rojo: 2 failed, 49 deselected.

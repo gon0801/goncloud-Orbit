@@ -43,6 +43,29 @@ esta en `E/estados.md`.
 | E.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e` | `64c29136` | 13 passed | shadow vencida no bloquea SELECT ni INSERT; live/veto vigente protegidos; migracion 0098 y su reversa | `0098_reversa_arreglos05_indice_shadow.sql` restaura el indice mixto de 0002 si no hay colisiones; con colisiones rehusa sin borrar filas |
 | E.2 | mismos `N e` mas vecinos: `tests/test_apply_cola.py`, `tests/test_apply_producto.py`, `tests/test_apply_harvest.py`, `tests/test_arreglos05_a_ciclo.py`, `tests/test_productos_io.py`, `tests/test_productos_pausa.py` | `64c29136` | verde (ver abajo) | mismo efecto con shadow vieja, vigente y live; dos workers con maximo un live no terminal; historial identico antes/despues | igual que E.1; el rollback de despliegue usa `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado |
 
+## Ronda 1 de revision (Devin): el veto es del efecto
+
+Devin reporto un P1 real: tras 0098 una practica vencida y un corte real de la
+misma clave conviven, y el endpoint de veto solo cambiaba la fila seleccionada.
+Vetar la practica daba confirmacion al dueno pero el corte real seguia su
+camino y podia aplicarse.
+
+Arreglo en `app/api_write.py` (el veto es del efecto, no de una fila):
+
+- identifica la clave `(platform, ad_entity_id, search_term)` de la fila
+  seleccionada (0002 garantiza que `search_term` determina la familia);
+- comprueba primero que no haya un corte equivalente en `applying` (punto de no
+  retorno): si lo hay, responde 409 y no toca nada;
+- veta TODAS las filas vetables (`pending_veto`/`released`) de la clave en una
+  sola sentencia, con el mismo `vence_el` y actor, y devuelve `filas_vetadas`;
+- vuelve a comprobar `applying` tras el UPDATE para cerrar la carrera con el
+  claim; si aparecio, revierte el veto entero (la dependency cierra sin commit).
+
+Pruebas nuevas en `tests/test_api_write.py` (rojo contra el endpoint anterior en
+`E/rojo.txt`): la practica vencida + corte real released → el veto deja ambas
+`vetoed` y `libera_vencidos` no envia nada; con el equivalente `applying` → 409
+y ninguna fila cambia.
+
 ## Foto de produccion (solo lectura)
 
 Comando: `bash docs/evidencia/arreglos-05/E/lee_previa.sh > E/previa.txt`
@@ -69,15 +92,15 @@ dos fallos son de comportamiento: la shadow vencida aparece en
 `apply_queue_clave_efecto_en_vuelo` (`UniqueViolation`). No hubo error de
 fixture, skip ni cero casos.
 
-Verde en `64c29136`: 13 passed de `N e` (12 regresiones de los modulos E mas la
-prueba del selector del instalador).
+Verde en la cabeza del bloque: 15 passed de `N e` (12 regresiones de los
+modulos E, 2 del veto por clave y la prueba del selector del instalador).
 
 ## Acepta (salida completa en `E/acepta.txt`, partes en `E/acepta-1..3.txt`)
 
-- Parte 1: `N e` = 13 passed; bloque A estados = 181 passed; arquitectura =
+- Parte 1: `N e` = 15 passed; bloque A estados = 181 passed; arquitectura =
   99 passed, 2 skipped (la omision declarada de la regla 99:2).
 - Parte 2: cola = 44 passed; producto y cosecha = 104 passed; ciclo A = 57
-  passed; productos = 43 passed.
+  passed; API de escritura y veto = 51 passed; productos = 43 passed.
 - Parte 3: esquema y ledger = 117 passed; selector del instalador (0098) = 1
   passed; temporada = 128 passed; gitleaks de `5223bfae..HEAD` = sin fugas.
 - Total: 0 comandos que no pasaron.
@@ -101,11 +124,12 @@ prueba del selector del instalador).
 
 - `migrations/0098_arreglos05_indice_shadow.sql` y
   `migrations/0098_reversa_arreglos05_indice_shadow.sql`.
-- `app/apply_cola.py` (SELECT de claves bloqueadas) y `app/productos_io.py`
-  (espejo del mismo predicado).
+- `app/apply_cola.py` (SELECT de claves bloqueadas), `app/productos_io.py`
+  (espejo del mismo predicado) y `app/api_write.py` (el veto es del efecto).
 - `tests/test_arreglos05_e_shadow.py`, `tests/test_arreglos05_e_migracion.py`,
-  `tests/test_apply_cola.py` (suma 0098 a su cadena) y `tests/test_despliegue_motor.py`
-  (selector de 0098).
+  `tests/test_apply_cola.py` (suma 0098 a su cadena),
+  `tests/test_api_write.py` (suma 0098 y las pruebas del veto por clave) y
+  `tests/test_despliegue_motor.py` (selector de 0098).
 - `docs/APPLY.md` (1.5, 2.2, 4.3, 9.2), `docs/DATABASE.md` y
   `docs/evidencia/arreglos-05/A/estados.md`.
 - Evidencia en `docs/evidencia/arreglos-05/E/`.
@@ -122,6 +146,12 @@ prueba del selector del instalador).
   conservador (bloquea, no adelanta) y no afecta al cambio de dia.
 - Se actualizo el espejo `productos_io._SQL_CLAVES_EN_VUELO` para no divergir de
   `apply_cola`; su prueba cubre shadow vencida, vigente e `ignora_practicas`.
+- Carrera veto vs. decision nueva: si un ciclo inserta una decision live de la
+  misma clave justo mientras el veto de la practica aun no ha comprometido, esa
+  fila nueva no queda vetada. El `SELECT` de claves la habria saltado con el
+  veto ya comprometido; para el instante intermedio el trigger no consulta
+  vetos. Es una carrera de dos eventos (P2); cerrarla del todo exigiria que el
+  trigger de INSERT tambien mirara vetos vigentes.
 
 ## Fallos previos de `master` en esta PC (no de este bloque)
 

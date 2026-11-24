@@ -117,6 +117,13 @@ como excluyentes por término (únicos parciales de 0001).
   `vetoed`, consultable; `vetoed_at`/`vetoed_by` dejan el rastro). Al
   vencer el veto, el motor **re-propone con datos frescos** (nueva decisión,
   nueva fila en cola) — el vencimiento NO reanima la fila vieja.
+- **El veto es del EFECTO, no de una fila (ARREGLOS 05 E)**: vetar cualquier
+  fila de una clave `(platform, ad_entity_id, familia, search_term)` veta en la
+  misma transición TODAS las filas vetables (`pending_veto`/`released`) de esa
+  clave con el mismo `vence_el` y actor. Así, con una práctica vencida y un
+  corte real conviviendo (0098), vetar la práctica detiene el corte real. Si
+  otra fila de la clave ya está `applying` (punto de no retorno), el veto
+  responde 409 y no toca nada.
 
 ### 1.5 Candados de schema (sellado 4)
 
@@ -247,8 +254,10 @@ insumos congelados de la decisión:
 
 `UPDATE apply_queue SET estado='applying' WHERE id=:id AND
 estado='released'` — cero filas = perdió la carrera (p.ej. un veto que
-llegó primero): releer y no aplicar. Carreras veto/claim testeadas: veto en
-`released` gana o pierde limpio; veto en `applying` → "en vuelo".
+llegó primero): releer y no aplicar. El veto por EFECTO (ARREGLOS 05 E) veta
+todas las filas vetables de la clave en una sola transición: gana o pierde
+limpio contra el claim de cualquiera de ellas; si alguna ya está `applying`,
+responde 409 "en vuelo" y no toca ninguna.
 
 ### 3.3 Reactivación manual y gracia 7d (sellado 17)
 

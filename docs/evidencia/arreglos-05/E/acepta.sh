@@ -127,7 +127,7 @@ echo "# herramientas en el PATH para recolectar con CI=1: psql=$(command -v psql
 echo "# PG: $("${UV[@]}" python -c 'import os,psycopg; c=psycopg.connect(os.environ["ORBIT_TEST_DSN"]); print(c.execute("select version()").fetchone()[0].split(",")[0], "|", c.execute("show server_version_num").fetchone()[0])' 2>&1)"
 
 # --- Parte 1: lo que pide la columna Acepta, el modelo y el bloque A ---
-en_parte 1 && corre ACEPTA "E.1 y E.2: N e, regresiones del bloque (shadow vencida/vigente/live, reversa y selector)" 13 \
+en_parte 1 && corre ACEPTA "E.1 y E.2: N e, regresiones del bloque (shadow vencida/vigente/live, reversa, veto y selector)" 15 \
   "${UV[@]}" bash "$comprobar" N e
 en_parte 1 && corre CONTROL "bloque A: modelo de estados completo (176 casillas), invariantes y clasificadores" 181 \
   "${UV[@]}" python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
@@ -142,6 +142,8 @@ en_parte 2 && corre CONTROL "producto y cosecha: cola, veto y aislamiento por fi
   tests/test_apply_producto.py tests/test_apply_harvest.py
 en_parte 2 && corre CONTROL "ciclo A: la cola se libera y encola bajo el mismo contrato" 57 \
   "${UV[@]}" python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
+en_parte 2 && corre CONTROL "API de escritura: el veto veta el efecto de la clave" 51 \
+  "${UV[@]}" python -B -m pytest -q -p no:cacheprovider tests/test_api_write.py
 en_parte 2 && corre CONTROL "productos y pausa de producto leen el mismo predicado" 40 \
   "${UV[@]}" python -B -m pytest -q -p no:cacheprovider \
   tests/test_productos_io.py tests/test_productos_pausa.py
