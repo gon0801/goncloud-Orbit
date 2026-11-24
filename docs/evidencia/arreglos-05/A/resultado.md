@@ -34,10 +34,10 @@ desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos
 
 | Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
 |---|---|---|---|---|
-| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 163 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados; tabla completa `estado x evento` (108 casillas) y chequeo `/correct` en verde. | No aplica (pruebas). |
-| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 163 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
-| A.3 | `N a`; `T writes test_01` | 0: 163 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
-| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 163 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 166 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados; tabla completa `estado x evento` (108 casillas) y chequeo `/correct` en verde. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 166 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 166 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 166 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
 
 Controles adicionales que el bloque conserva en verde: `T optimizer
 test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
@@ -167,8 +167,8 @@ Cuatro correcciones, cada una con su rojo (registro en [review-rojo.txt](review-
 
 Tras las seis pasadas de Astra y las siete de Devin, se sustituyeron los parches puntuales (`_SQL_REVERSA_TERMINAL` con `HAVING`, `RESULTADO_PAUSADA_TRAS_HABILITAR`, duplicaciones de `STATUS_IDENTIDAD_RECHAZADA`, `TOPE_INTENTOS` y `es_rechazo_de_identidad`, y las ramas de veredicto con strings sueltos) por un unico dueno puro en `app/apply_estados.py` (`EstadoCambio`, `EventoCambio`, `AccionCambio`, `Transicion`, `TABLA_TRANSICIONES` de 108 casillas, `decidir` y `estado_inicial_desde_hechos`), migrando los 13 modulos llamadores en una sola ola (`0bfeb854`).
 
-- Prueba exhaustiva de las 108 casillas, 6 invariantes globales y chequeo estructural `/correct`: `tests/test_arreglos05_a_estados.py` (112 passed; rojo previo a la migracion en [review-rojo.txt](review-rojo.txt)).
-- Mapa completo de los 34 hallazgos a su casilla y demostracion `/correct` por nivel (arquitectura > tipos > chequeo > prueba > docs): [estados.md](estados.md).
+- Prueba exhaustiva de las 108 casillas, 6 invariantes globales y chequeo estructural `/correct`: `tests/test_arreglos05_a_estados.py` (112 passed; rojo previo a la migracion y de la 7a pasada en [review-rojo.txt](review-rojo.txt)).
+- Mapa completo de los 36 hallazgos a su casilla y demostracion `/correct` por nivel (arquitectura > tipos > chequeo > prueba > docs): [estados.md](estados.md) (incluye Astra 18 y Astra 19 en `de4fce45`: llamadores actuan solo por `accion` y `estado_inicial_desde_hechos` exige los 4 hechos sin defaults).
 - Contrato permanente del modelo: `docs/APPLY.md` §9.2.
 
 ## Vecinos

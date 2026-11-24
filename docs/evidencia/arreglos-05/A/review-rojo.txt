@@ -121,3 +121,11 @@ test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
     - app/apply_cola_ejecuta.py: consulta ad hoc _SQL_REVERSA_TERMINAL prohibida
     - app/apply_store.py: redefine STATUS_IDENTIDAD_RECHAZADA
     - app/temporada_io.py: literal 'omitida:pausada_tras_habilitar' duplicado
+
+# Septima pasada (Astra sobre el modelo de estados): rojo contra a08c19c7:
+test_arreglos05_a_reversa_manual_respeta_archivado_sin_otro_put_ni_intento
+  AssertionError: no debe emitir otro PUT contra una entidad ARCHIVED (assert 2 == 1)
+test_arreglos05_a_reversa_manual_respeta_tope_de_tres_en_abierto_y_cerrados
+  AssertionError: tras CONTAR_INTENTO del 3er intento no debe enviar un 4o PUT (assert 4 == 3)
+test_arreglos05_a_segundo_ejecutor_solo_cuenta_confirmadas_de_esa_corrida
+  AssertionError: assert (2, 0, 0, 0) == (1, 1, 0, 0) (atribuia A de nuevo al 2o ejecutor)

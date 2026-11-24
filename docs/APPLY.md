@@ -884,6 +884,15 @@ estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`.
 6. **Operación en vuelo ajena no se toca:** en `en_vuelo`, ningún evento
    ordinario concilia ni reenvía (`no_tocar`, `origen_incompleto=True`).
 
+**Regla de integración de llamadores:** todo llamador pasa los cuatro hechos
+observables obligatorios a `estado_inicial_desde_hechos(...)` (sin defaults
+que descarten conteos) y ramifica exclusivamente por `transicion.accion`
+(nunca por `transicion.estado_siguiente`). En particular, solo `ENVIAR`
+autoriza emitir un PUT y solo `SELLAR_APLICADO` atribuye una confirmación al
+ejecutor en curso. El chequeo estructural `/correct` en
+`tests/test_arreglos05_a_estados.py` hace cumplir ambas reglas sobre los 13
+módulos llamadores.
+
 **Límites del modelo:**
 - Las fronteras humanas explícitas (`reversa_manual` y `/api/fabrica/retiro/ejecutar`
   con `AutorizacionHumana` / `decision_id=None`) consultan la tabla pero
