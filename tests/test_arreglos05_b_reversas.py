@@ -1303,6 +1303,42 @@ def test_arreglos05_b_revertir_la_segunda_de_tres_no_bloquea_la_reversa_de_la_pr
 
 
 @_skip_db
+def test_arreglos05_b_una_reversa_de_decision_anterior_sigue_siendo_la_ultima_escritura(
+    monkeypatch,
+):
+    """Dos recortes (1.00 a 0.85 y 0.85 a 0.70) y se revierte el primero a
+    1.00. Esa escritura cuelga de una decision con ID menor, pero es la ultima
+    efectiva de la hoja. El dueno vuelve a poner 0.70 a mano y pide revertir el
+    segundo: la puja no es de Orbit y no sale ningun PUT."""
+    with _db("orbit_b05_reversa_previa") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        amazon = _Amazon(bids={"7201": "1.00"})
+        ap = _aplicador_bid(conn, amazon, ids["ciclo_ejec"])
+        decisiones = []
+        for ciclo, (viejo, nuevo) in zip(
+            [ids["ciclo_dec"], _otro_ciclo_live(conn)],
+            [("1.00", "0.85"), ("0.85", "0.70")],
+            strict=True,
+        ):
+            decisiones.append(
+                _decision_bid(conn, ciclo, ids["config"], ids["kw"], old=viejo, new=nuevo)
+            )
+            ap.aplica_bids(apply.bids_del_ciclo(conn, ciclo), escalera_global="live")
+        assert amazon.bid() == Decimal("0.70")
+        _red_por(monkeypatch, amazon)
+        primera, segunda = decisiones
+
+        assert _reversa_bid_api(conn, primera)["confirmada"] is True
+        assert amazon.bid() == Decimal("1.00")
+        puestas = len(amazon.puestas())
+        amazon.bids["7201"] = "0.70"
+
+        assert _reversa_bid_api(conn, segunda)["confirmada"] is False, "0.70 lo puso el dueno"
+        assert len(amazon.puestas()) == puestas, "cero PUT: la ultima escritura fue 1.00"
+        assert amazon.bid() == Decimal("0.70")
+
+
+@_skip_db
 def test_arreglos05_b_una_reversa_confirmada_sin_envio_no_vuelve_propia_la_puja_del_dueno(
     monkeypatch,
 ):

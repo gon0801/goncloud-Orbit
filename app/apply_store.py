@@ -133,39 +133,46 @@ _SQL_SELLA_RESULTADO = """
 UPDATE apply_attempt SET resultado = %s, finished_at = now() WHERE id = %s
 """
 
-# La ultima escritura confirmada de Orbit en una hoja, desde la decision que
-# se revierte (ARREGLOS 05 B, revision): su apply, el de una decision
-# posterior o la reversa de cualquiera de ellas. Con hechos durables del
-# ledger y nunca el cache (que la ingesta tambien sincroniza). Solo ese valor
-# prueba que la puja vigente es de Orbit: un importe que Orbit escribio antes
-# de esa decision y que hoy vuelve a estar en la hoja lo puso otra mano.
+# La ultima escritura confirmada de Orbit en una hoja (ARREGLOS 05 B,
+# revision): su apply, el de cualquier decision de esa hoja o la reversa de
+# cualquiera de ellas. Con hechos durables del ledger y nunca el cache (que la
+# ingesta tambien sincroniza). Solo ese valor prueba que la puja vigente es de
+# Orbit: un importe que Orbit escribio antes y que hoy vuelve a estar en la
+# hoja lo puso otra mano.
 #
 # Las escrituras se ordenan por SU hora, no por el ID de la decision: una
 # reversa se atribuye a la decision que deshace (no nace una decision nueva),
 # asi que tras revertir la segunda de tres decisiones su escritura es la
 # ultima aunque su ID sea menor que el de la tercera.
 #
+# La ultima escritura de la hoja manda, tambien cuando cuelga de una decision
+# ANTERIOR a la que se revierte: si entre ella y hoy el dueno movio la puja,
+# comparar contra la ultima de la cadena (`d.id >=`) atribuiria al dueno un
+# valor que Orbit escribio antes. Pero una escritura de una decision anterior
+# tampoco autoriza: puede ser un importe residual y el valor vivo de hoy lo
+# pudo poner otra mano. Por eso `ultima_escritura_en_la_hoja` la descarta.
+#
 # Una reversa confirmada por lectura SIN envio (`ack.sin_envio`) no es una
 # escritura: la puja la puso otra mano. Un PUT cuya respuesta se perdio y se
 # confirmo leyendo si lo es.
 _MONTO_LEGIBLE = "^[0-9]+([.][0-9]+)?$"
 
-_SQL_ULTIMA_ESCRITURA_DESDE = f"""
-SELECT bid FROM (
+_SQL_ULTIMA_ESCRITURA_EN_LA_HOJA = f"""
+SELECT bid, decision_id FROM (
     SELECT (a.request_payload->>'bid')::numeric AS bid, a.started_at AS cuando,
-           1 AS es_intento, a.id AS orden
+           1 AS es_intento, a.id AS orden, a.decision_id
       FROM apply_attempt a
       JOIN decision d ON d.id = a.decision_id AND d.kind = 'bid'
-     WHERE d.ad_entity_id = %s AND d.id >= %s AND a.resultado = 'ok'
+     WHERE d.ad_entity_id = %s AND a.resultado = 'ok'
        AND (a.request_payload->>'bid') ~ '{_MONTO_LEGIBLE}'
        AND NOT COALESCE((a.ack->>'sin_envio')::boolean, FALSE)
     UNION
     -- Respaldo historico: aplicada y verificada sin intento en el ledger
     -- (anterior a el). confirmed_at es la hora en que el readback confirmo.
-    SELECT d.new_value, da.confirmed_at, 0, d.id
+    SELECT d.new_value, da.confirmed_at, 0, d.id, d.id
       FROM decision d
       JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
-     WHERE d.ad_entity_id = %s AND d.id >= %s AND d.kind = 'bid' AND d.new_value IS NOT NULL
+     WHERE d.ad_entity_id = %s AND d.kind = 'bid' AND d.new_value IS NOT NULL
        AND NOT EXISTS (
            SELECT 1 FROM apply_attempt x
             WHERE x.decision_id = d.id AND x.resultado = 'ok'
@@ -177,15 +184,17 @@ SELECT bid FROM (
 """
 
 
-def ultima_escritura_desde(
+def ultima_escritura_en_la_hoja(
     conn: psycopg.Connection, ad_entity_id: int, decision_id: int
 ) -> Decimal | None:
-    """El ultimo bid que Orbit dejo confirmado en la hoja con esa decision o
-    una posterior, como monto (regla 4). None si no hay ninguno."""
-    fila = conn.execute(
-        _SQL_ULTIMA_ESCRITURA_DESDE, (ad_entity_id, decision_id, ad_entity_id, decision_id)
-    ).fetchone()
-    return fila[0] if fila is not None else None
+    """El ultimo bid que Orbit dejo confirmado en la hoja, como monto (regla 4),
+    si esa escritura cuelga de la decision que se revierte o de una posterior.
+    None si no hay ninguna o si la ultima es de una decision anterior: entonces
+    el valor vivo no es atribuible a Orbit y no se inventa (regla 3)."""
+    fila = conn.execute(_SQL_ULTIMA_ESCRITURA_EN_LA_HOJA, (ad_entity_id, ad_entity_id)).fetchone()
+    if fila is None or fila[1] < decision_id:
+        return None
+    return fila[0]
 
 
 # Hechos del ledger para las reversas de UNA decision (cualquier tipo).

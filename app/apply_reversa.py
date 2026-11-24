@@ -44,7 +44,7 @@ from app.apply_store import (
     bid_previo_comprobado,
     estado_de_reversa,
     hechos_reversa,
-    ultima_escritura_desde,
+    ultima_escritura_en_la_hoja,
 )
 from app.db import tx_durable
 
@@ -284,10 +284,11 @@ def reversa_bid(
     if identidad is None or identidad[0] not in _KINDS_DECISORAS:
         return False
     destino = bid_quantizado(previo)
-    # Solo la ultima escritura confirmada desde esta decision prueba que la
-    # puja vigente es de Orbit (revision): un importe antiguo suyo que vuelve
-    # a la hoja lo puso otra mano.
-    ultima = ultima_escritura_desde(conn, decision.ad_entity_id, decision.id)
+    # Solo la ultima escritura confirmada de Orbit en la hoja prueba que la
+    # puja vigente es suya (revision): un importe antiguo suyo que vuelve a la
+    # hoja lo puso otra mano. Si esa ultima escritura cuelga de una decision
+    # anterior a esta, no autoriza: un valor residual tampoco prueba autoria.
+    ultima = ultima_escritura_en_la_hoja(conn, decision.ad_entity_id, decision.id)
     escritos = frozenset() if ultima is None else {bid_quantizado(ultima)}
 
     transicion = decidir(estado_de_reversa(conn, decision.id), EventoCambio.NUEVO_HORARIO)
