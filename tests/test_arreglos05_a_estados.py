@@ -627,6 +627,8 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
         "app/apply_store.py",
         "app/cycle_apply.py",
         "app/temporada_io.py",
+        "app/ads/archivar.py",
+        "app/ads/reposicion.py",
     ]
     fuentes = {rel: (RAIZ / rel).read_text(encoding="utf-8") for rel in modulos}
     assert _violaciones_chequeo_dueno_unico(fuentes) == []

@@ -39,6 +39,11 @@ RESULTADOS_TERMINALES_REVERSA = (RESULTADO_OK, RESULTADO_PAUSADA_POR_DUENO)
 # ARREGLOS 05 B: la lectura de vuelta encontro viva otra cosa donde estaba el
 # objeto propio. Prefijo que `estado_inicial_desde_hechos` lee como `AJENO`.
 RESULTADO_IDENTIDAD_SUSTITUIDA = "fallo:identidad_sustituida"
+# ARREGLOS 05 C: resultados propios de la reposicion de keywords. Un rechazo
+# definitivo no cierra la operacion del archivo: admite otro intento registrado
+# (con tope). El prefijo `fallo:entidad_` lo lee la derivacion como ARCHIVADO.
+RESULTADO_REPOSICION_RECHAZO = "fallo:rechazo"
+RESULTADO_REPOSICION_ENTIDAD_ARCHIVADA = "fallo:entidad_archivada"
 
 # Estados del WIRE en las listas (sellado por probe 2.5, 2026-08-26). Fuente
 # unica: `apply_store` los re-exporta.
@@ -332,6 +337,101 @@ def es_rechazo_de_identidad(exc: BaseException) -> bool:
     return isinstance(exc, AdsApiError) and exc.status in STATUS_IDENTIDAD_RECHAZADA
 
 
+def resultado_terminal_reposicion(resultado: str | None) -> str | None:
+    """Traduce el ultimo resultado de un intento de reposicion a lo que la tabla
+    considera terminal (ARREGLOS 05 C).
+
+    Un rechazo definitivo NO cierra la operacion del archivo: el archivo sigue
+    en `applied` (o en `repuesto` para la reversa) y admite otro intento
+    registrado, siempre que el conteo no agote el tope. Todo lo demas (`ok`,
+    `fallo:entidad_*`, identidad sustituida) si es terminal.
+    """
+    if resultado == RESULTADO_REPOSICION_RECHAZO:
+        return None
+    return resultado
+
+
+def evento_reposicion_desde_lectura(
+    items: list[dict],
+    *,
+    id_propio: str | None,
+    ad_group: str,
+    texto: str,
+    match: str,
+    destino: str,
+    campaign_esperada: str | None = None,
+    bid_esperado: Decimal | None = None,
+    estado_esperado: str | None = None,
+    abierto: bool = False,
+) -> EventoCambio:
+    """El resolver unico de identidad, con los hechos propios de la reposicion.
+
+    Sobre `evento_desde_lectura_objeto` agrega las reglas de la reposicion
+    (ARREGLOS 05 C):
+
+    - Si el intento tiene ID propio (ACK) y la lectura COMPLETA no trae ninguna
+      fila con ese ID, el evento es `IDENTIDAD_DUDOSA`: una omision nunca
+      autoriza otro POST. Lo mismo vale para el ID ausente de una reversa.
+    - Si el intento no tiene ID (ACK perdido) y la lectura encuentra viva una
+      identidad igual, es `IDENTIDAD_DUDOSA`: no se adopta un objeto que pudo
+      preexistir.
+    - Si el ID propio vive con su identidad pero hay mas de un vivo con esa
+      identidad, `IDENTIDAD_DUDOSA` (preexistente o duplicado).
+    - Si la lectura confirma el ID propio, campana y bid deben coincidir con el
+      payload exacto; si no, `IDENTIDAD_DUDOSA`.
+    - En una reversa ABIERTA, un objetivo que sigue vivo es incertidumbre
+      (`ERROR_5XX_O_RED`), nunca un "no aplicado" que autorice reenviar.
+    """
+    base = evento_desde_lectura_objeto(
+        items,
+        id_propio=id_propio,
+        ad_group=ad_group,
+        texto=texto,
+        match=match,
+        destino=destino,
+    )
+    if id_propio is None:
+        if destino == "vivo" and base == EventoCambio.OK_CONFIRMADO:
+            return EventoCambio.IDENTIDAD_DUDOSA
+        return base
+    propio = next(
+        (x for x in items if isinstance(x, dict) and str(x.get("keywordId")) == str(id_propio)),
+        None,
+    )
+    if propio is None:
+        return EventoCambio.IDENTIDAD_DUDOSA
+    if destino == "ausente" and str(propio.get("state", "")).upper() == ESTADO_WIRE_ARCHIVED:
+        # La reversa archivo SU id propio: un duplicado ajeno vivo con la misma
+        # identidad no impide confirmar que el objeto propio ya no vive.
+        return EventoCambio.OK_CONFIRMADO
+    if base == EventoCambio.NO_APLICADO_EN_AMAZON and destino == "ausente" and abierto:
+        return EventoCambio.ERROR_5XX_O_RED
+    if base != EventoCambio.OK_CONFIRMADO or destino != "vivo":
+        return base
+    match_norm = str(match).casefold().replace("negative_", "")
+    vivos = [
+        x
+        for x in items
+        if isinstance(x, dict)
+        and str(x.get("state", "")).upper() != ESTADO_WIRE_ARCHIVED
+        and _identidad_esperada(x, ad_group, texto, match_norm)
+    ]
+    if len(vivos) != 1:
+        return EventoCambio.IDENTIDAD_DUDOSA
+    if estado_esperado is not None and str(propio.get("state", "")).upper() != estado_esperado:
+        return EventoCambio.IDENTIDAD_DUDOSA
+    if campaign_esperada is not None and str(propio.get("campaignId")) != str(campaign_esperada):
+        return EventoCambio.IDENTIDAD_DUDOSA
+    if bid_esperado is not None:
+        try:
+            leido = Decimal(str(propio.get("bid"))).quantize(Decimal("0.01"))
+        except (ArithmeticError, ValueError):
+            return EventoCambio.IDENTIDAD_DUDOSA
+        if leido != Decimal(str(bid_esperado)).quantize(Decimal("0.01")):
+            return EventoCambio.IDENTIDAD_DUDOSA
+    return base
+
+
 def evento_desde_status(
     status: int | None,
     *,
@@ -406,6 +506,15 @@ def _match_normal(item: dict) -> str:
     return str(item.get("matchType", "")).casefold().replace("negative_", "")
 
 
+def _identidad_esperada(item: dict, ad_group: str, texto: str, match: str) -> bool:
+    """Misma identidad que el resolver: adGroupId, keywordText y match."""
+    return (
+        str(item.get("adGroupId")) == str(ad_group)
+        and item.get("keywordText") == texto
+        and _match_normal(item) == match
+    )
+
+
 def evento_desde_lectura_objeto(
     items: list[dict],
     *,
@@ -438,11 +547,7 @@ def evento_desde_lectura_objeto(
     match = match.casefold().replace("negative_", "")
 
     def esperada(item: dict) -> bool:
-        return (
-            str(item.get("adGroupId")) == str(ad_group)
-            and item.get("keywordText") == texto
-            and _match_normal(item) == match
-        )
+        return _identidad_esperada(item, ad_group, texto, match)
 
     vivos = [x for x in items if str(x.get("state", "")).upper() != ESTADO_WIRE_ARCHIVED]
     propio = (

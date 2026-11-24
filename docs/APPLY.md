@@ -881,7 +881,7 @@ reciente de su plataforma lo muestran con `decisions_count` 0, y Salud no
 muestra el target de ese día. Pendiente de un bloque que toque esas pantallas
 y sus bancos de prueba.
 
-### 9.2 Modelo explícito de estados de un cambio enviado a Amazon (ARREGLOS 05 A y B)
+### 9.2 Modelo explícito de estados de un cambio enviado a Amazon (ARREGLOS 05 A, B y C)
 
 Todo cambio enviado a Amazon (puja, corte, pausa de producto, reversa de
 reactivación, reversa manual, creación y lectura de vuelta de cosecha y
@@ -1020,10 +1020,28 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   `decision.old_value`. Un intento abierto se resuelve primero solo por
   lectura; la guarda vale solo para un envío nuevo, compara con el destino
   cuantizado y responde 409 si el vigente ya es el destino.
+- **Reposición durable por fila (ARREGLOS 05 C):** la creación de la keyword
+  repuesta y su reversa usan la MISMA tabla, sin estados ni eventos nuevos.
+  Dos adaptadores viven en `app/apply_estados.py`:
+  `resultado_terminal_reposicion` (un `fallo:rechazo` definitivo no cierra la
+  operación: el archivo sigue en `applied` o en `repuesto` y admite otro
+  intento registrado con el mismo tope de 3) y
+  `evento_reposicion_desde_lectura` (el ID del ACK omitido por una lectura
+  completa, un duplicado/preexistente, una campaña, un bid o un estado que no
+  cuadran con el payload son `identidad_dudosa`: nada se sella ni se reenvía;
+  en una reversa abierta, el ID propio todavía vivo es incertidumbre, no un
+  «no aplicado» que autorice otro DELETE). El ledger
+  `keyword_reposicion_intento` (migración `0097`) guarda la intención antes del
+  HTTP con su payload exacto, el ACK y el ID antes del readback y el sello una
+  sola vez; el índice único parcial y el lease por fila impiden dos intentos
+  abiertos y hacen que dos CLI no creen dos objetos. `app/ads/archivar.py`
+  expone `reponer_keyword` / `revertir_reposicion`; la implementación vive en
+  `app/ads/reposicion.py` por el presupuesto de 900 líneas.
 - La tabla completa (165 casillas desde ARREGLOS 05 B), el mapa de los
   hallazgos de revisión a su casilla y la demostración por nivel `/correct`
   viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del
-  bloque B, en `docs/evidencia/arreglos-05/B/resultado.md`.
+  bloque B, en `docs/evidencia/arreglos-05/B/resultado.md`; la del bloque C,
+  en `docs/evidencia/arreglos-05/C/estados.md`.
 
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 
