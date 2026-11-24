@@ -1,0 +1,127 @@
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+_________ test_arreglos05_d_fabrica_pausa_huerfanas_sigue_tras_un_503 _________
+
+    def test_arreglos05_d_fabrica_pausa_huerfanas_sigue_tras_un_503():
+        """Un 5xx en una campana no frena las demas pausas del lote.
+
+        El paso de la que fallo queda `failed` CON su external_id y su ACK incierto
+        (la conciliacion lo puede leer); las siguientes se intentan igual y el
+        residuo se informa al final, como antes del cliente protegido."""
+        from app import impulso_preview as io
+
+        estados = {"c-1": "ENABLED", "c-2": "ENABLED"}
+        pedidos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            pedidos.append(request)
+            if request.url.path.endswith("/list"):
+                pedido = json.loads(request.content)["campaignIdFilter"]["include"][0]
+                return httpx.Response(
+                    200, json={"campaigns": [{"campaignId": pedido, "state": estados[pedido]}]}
+                )
+            assert request.method == "PUT" and request.url.path == "/sp/campaigns"
+            campana = json.loads(request.content)["campaigns"][0]
+            if campana["campaignId"] == "c-1":
+                return httpx.Response(503, json={"code": "503"})
+            estados[campana["campaignId"]] = campana["state"]
+            return httpx.Response(207, json={"campaigns": {"success": [{}], "error": []}})
+
+        conn = _ConnPausaHuerfanas([("exact", "c-1"), ("auto", "c-2")])
+        pausador = io.PausadorFabrica(conn)
+        pausador._armado = (CRC, _Lector(handler), {"amazon_mx": 101})
+        pausador._ctxs["amazon_mx"] = fm._Ctx(_escritor(handler), _Lector(handler), 101, conn, "L1")
+        with pytest.raises(Exception, match="c-1"):
+            pausador.pausa_huerfanas("L1")
+
+        puts = [
+            json.loads(p.content)["campaigns"][0]["campaignId"] for p in pedidos if p.method == "PUT"
+        ]
+>       assert puts == ["c-1", "c-2"], "la segunda campana tambien se intenta"
+E       AssertionError: la segunda campana tambien se intenta
+E       assert ['c-1'] == ['c-1', 'c-2']
+E
+E         Right contains one more item: 'c-2'
+E         Use -v to get more diff
+
+tests\test_arreglos05_d_write.py:534: AssertionError
+__________ test_arreglos05_d_fabrica_lwa_rechazado_no_registra_lote ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000022D957F14C0>
+capsys = <_pytest.capture.CaptureFixture object at 0x0000022D957F0470>
+
+    def test_arreglos05_d_fabrica_lwa_rechazado_no_registra_lote(monkeypatch, capsys):
+        """Si LWA rechaza el preflight, no queda un lote que bloquee el reintento."""
+        huella = _huella(monkeypatch, capsys)
+        conn_admin = _ConnFabrica()
+
+        class _AmazonSinToken(_AmazonFabrica):
+            def __call__(self, request):
+                if "auth/o2/token" in str(request.url):
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                return super().__call__(request)
+
+        _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, _AmazonSinToken())
+        monkeypatch.setattr(sys, "argv", _args_go(huella))
+>       with pytest.raises(Exception, match="LWA"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'LWA'
+E         Actual message: 'campana category_exact (category_exact) INCERTO (status excepcion): Amazon pudo crear un ENABLED; no reintentar este POST; --desarmar solo pausa filas con external_id'
+
+tests\test_arreglos05_d_write.py:557: AssertionError
+---------------------------- Captured stdout call -----------------------------
+target: margen de la plataforma (se ajusta cada ciclo)
+category_exact: budget=150 bid=6.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=1
+category_phrase: budget=120 bid=5.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=3
+category_broad: budget=120 bid=4.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=3
+product_targeting: budget=120 bid=5.00 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=1
+auto_discovery: budget=150 bid=4.50 target=19.10 origen=margen_medido fuente_bid=manual procedencia=margen_minimo_grupo: 0.5 x 38.20 = 19.100 semillas=2
+publicacion=11 asin=B0AAAAAAAA seller_sku=SS-1 margen=38.20
+huella del conjunto: 0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9
+{"evento": "perfiles", "perfiles": {"amazon_mx": 101}}
+{"evento": "lote_detenido", "lote": "cli-0295601c1f334412d038cc39f6114e50585d675999e7a32b83c9f9c473bd52c9", "motivo": "campana category_exact (category_exact) INCERTO (status excepcion): Amazon pudo crear un ENABLED; no reintentar este POST; --desarmar solo pausa filas con external_id", "creadas": [], "conocidos": [], "nota": "resultado INCERTO: no reintentar POST; --desarmar solo pausa filas con external_id; verificar consola Amazon por nombre"}
+_________ test_arreglos05_d_reposicion_lwa_rechazado_detiene_la_fase __________
+
+    @_skip_db
+    def test_arreglos05_d_reposicion_lwa_rechazado_detiene_la_fase():
+        """Sin token no sale ningun POST: el intento se sella no_aplicado y la fase
+        se detiene antes de abrir el intento de la fila siguiente."""
+        from test_arreglos05_c_reposicion import PERFILES
+
+        from app import apply_estados as est
+
+        with _db("orbit_d_sin_token") as (conn, _extra):
+            fila1, _ext1, _t1 = _semilla(conn, texto="termino uno", externo="vieja-1")
+            fila2, _ext2, _t2 = _semilla(conn, texto="termino dos", externo="vieja-2")
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                if request.url.host == "api.amazon.com":
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                raise AssertionError(f"no debe salir HTTP de mutacion: {request.url}")
+
+            escritor = AdsWriteClient(
+                CRC,
+                platform="amazon_us",
+                profile_id=PERFILES["amazon_us"],
+                modo_confirmado="live",
+                transport=httpx.MockTransport(handler),
+                sleep=lambda _s: None,
+            )
+            enviar = archivar_inertes._enviar_keyword({"amazon_us": escritor})
+>           with pytest.raises(archivar.AbortoFase):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE AbortoFase
+
+tests\test_arreglos05_d_write.py:768: Failed
+---------------------------- Captured stdout call -----------------------------
+a reponer: 2
+  amazon_us | vieja-1 | pendiente
+  amazon_us | vieja-2 | pendiente
+=========================== short test summary info ===========================
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_fabrica_pausa_huerfanas_sigue_tras_un_503
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_fabrica_lwa_rechazado_no_registra_lote
+FAILED tests/test_arreglos05_d_write.py::test_arreglos05_d_reposicion_lwa_rechazado_detiene_la_fase
+3 failed in 7.77s

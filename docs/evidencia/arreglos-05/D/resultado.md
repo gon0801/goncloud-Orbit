@@ -2,8 +2,9 @@
 
 Bloque de implementacion, `lane: release`. Base: `master` en
 `7ef47542f5ab421359f049583b1bc7db95662079` (con BASE, A, B y C integrados y
-desplegados). Rama `arreglos-05/d`. Codigo verificado: `9acd2646`; pruebas y
-candados: `f946d329`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
+desplegados). Rama `arreglos-05/d`. Codigo verificado: `9acd2646` y las
+correcciones de la ronda 1 `d4e613b8`/`72c4ee29`; pruebas y candados:
+`f946d329` y `d4e613b8`. Fecha: 2026-11-24 (America/Vancouver). Contrato: seccion
 «D-E. Escritor unico y practicas vencidas» de [DISENO.md](../DISENO.md), solo
 la parte D.
 
@@ -47,10 +48,10 @@ la parte D.
 | Fila | Comando de Acepta | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
 | D.1 | `D/escritores.tsv` + `rg -n -e '_client[.]request' -e 'def _post' app tools` | `9acd2646` | Inventario con 22 callers; 5 nombres `_post*` revisados por semantica y solo dos eran transporte propio | Cada caller declara metodo, ruta, perfil, modo, ledger, confirmacion y reversa | Es documental |
-| D.2 | `N d` | `f946d329` | 19 passed, salida 0 | Perfil, metodo o ruta ajenos se deniegan antes del HTTP; cada mutacion tiene intencion previa; un error por item no sella ok | `rollback.sh` con el `MOTOR_SHA` desplegado; sin migracion que deshacer |
-| D.2 | `T writes test_11` | `f946d329` | 1 passed, salida 0 | El contrato de C sigue intacto por el transporte nuevo | Igual que D.2 |
-| D.3 | `N d` + suites de los duenos | `f946d329` | 19 passed; fabrica 192, API 113, impulso 114, archivo 47, product ads 136, aplicador 168 | Fabrica parcial, retiro, reactivacion, sonda (operaciones del cliente) y reposicion/reversa verificadas por su dueno | Igual que D.2 |
-| D.3 | `test_architecture.py` | `f946d329` | 99 passed, 2 skipped, salida 0 | El mapa de importadores del cliente de escritura quedo con dos entradas nuevas y su razon; presupuesto de 900 lineas intacto | Igual que D.2 |
+| D.2 | `N d` | `d4e613b8` | 22 passed, salida 0 | Perfil, metodo o ruta ajenos se deniegan antes del HTTP; cada mutacion tiene intencion previa; un error por item no sella ok | `rollback.sh` con el `MOTOR_SHA` desplegado; sin migracion que deshacer |
+| D.2 | `T writes test_11` | `d4e613b8` | 1 passed, salida 0 | El contrato de C sigue intacto por el transporte nuevo | Igual que D.2 |
+| D.3 | `N d` + suites de los duenos | `d4e613b8` | 22 passed; fabrica 192, API 113, impulso 114, archivo 47, product ads 136, aplicador 168 | Fabrica parcial, retiro, reactivacion, sonda (operaciones del cliente) y reposicion/reversa verificadas por su dueno | Igual que D.2 |
+| D.3 | `test_architecture.py` | `d4e613b8` | 99 passed, 2 skipped, salida 0 | El mapa de importadores del cliente de escritura quedo con dos entradas nuevas y su razon; presupuesto de 900 lineas intacto | Igual que D.2 |
 
 Comandos y salidas completos en [acepta.txt](acepta.txt) (partes 1 a 4 en
 `acepta-1.txt` a `acepta-4.txt`), que genera [acepta.sh](acepta.sh). El SHA del
@@ -128,6 +129,41 @@ failed, 6 passed**. Las aserciones visibles del impacto:
 
 En el SHA de pruebas `f946d329`: `N d` 19 passed, `T writes test_11` 1 passed,
 modelo de estados 181 passed, arquitectura 99 passed y 2 skipped.
+
+## Ronda 1 de revision (P1 corregidos)
+
+Dos P1 de Astra y dos hallazgos de Devin que comparten raiz con ellos; los
+cuatro se corrigieron con su regresion en rojo contra `acaf7da7`
+([rojo-ronda1.txt](rojo-ronda1.txt), 3 failed):
+
+- **P1, un 5xx al pausar frenaba el resto.** `_put_estado_campana` levantaba
+  ante 5xx o red, asi que `PausadorFabrica.pausa_huerfanas` moria antes de
+  sellar el paso y antes de pausar las demas campanas ENABLED del lote: las
+  otras seguian gastando y el paso quedaba sin `external_id`. Ahora devuelve
+  siempre el ACK canonico; el paso se sella `failed` con su ID y su ACK
+  incierto (la conciliacion lo lee) y el bucle sigue hasta informar el
+  residuo. `_motivo_put_fallido` distingue INCERTO de rechazo.
+  Regresion: `test_arreglos05_d_fabrica_pausa_huerfanas_sigue_tras_un_503`
+  (dos campanas, 503 en la primera y pausa confirmada en la segunda) y el
+  contrato de `test_r09r5_f05_put_timeout_declara_incierto`, que ahora lo
+  declara el dueno del ledger.
+- **P1, lote bloqueado sin haber escrito.** El token se pedia dentro de la
+  primera mutacion, despues de registrar el lote: un rechazo de LWA dejaba un
+  lote `failed` y la misma huella ya no se podia repetir. `mutar` ahora llama
+  `autenticar()` (preflight sin mutacion) despues de la ceremonia y antes del
+  `INSERT` del lote. Regresion:
+  `test_arreglos05_d_fabrica_lwa_rechazado_no_registra_lote` (sin fila de
+  lote; la misma orden pasa cuando LWA vuelve).
+- **P1, sin token la reposicion abria intentos y seguia.** `AdsAuthError` no
+  hereda de `AdsApiError`, asi que caia en el `except` generico: el intento
+  quedaba incierto y la fase seguia abriendo intentos de filas que jamas
+  salieron. Ahora el intento se sella `ok:no_aplicado` (cuenta cupo y admite
+  reintento) y la fase se detiene antes de la fila siguiente, en reposicion y
+  en reversa. Regresion:
+  `test_arreglos05_d_reposicion_lwa_rechazado_detiene_la_fase` (dos filas y
+  un rechazo de LWA: solo la primera abre intento).
+
+Recibo rehecho sobre `d4e613b8`: `N d` 22 y las cuatro partes en verde.
 
 ## Como se regresa
 

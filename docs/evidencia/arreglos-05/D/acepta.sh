@@ -140,7 +140,7 @@ echo "# herramientas en el PATH para recolectar con CI=1: psql=$(command -v psql
 echo "# PG: $(uv run --frozen --python 3.12 python -c 'import os,psycopg; c=psycopg.connect(os.environ["ORBIT_TEST_DSN"]); print(c.execute("select version()").fetchone()[0].split(",")[0], "|", c.execute("show server_version_num").fetchone()[0])' 2>&1)"
 
 # --- Parte 1: lo que pide la columna Acepta y el modelo ---
-en_parte 1 && corre ACEPTA "D.1 a D.3: N d, regresiones del bloque" 19 \
+en_parte 1 && corre ACEPTA "D.1 a D.3: N d, regresiones del bloque" 22 \
   uv run --frozen --python 3.12 bash "$comprobar" N d
 en_parte 1 && corre ACEPTA "D.2: contrato de reposicion de C (T writes test_11)" 1 \
   uv run --frozen --python 3.12 bash "$comprobar" T writes test_11

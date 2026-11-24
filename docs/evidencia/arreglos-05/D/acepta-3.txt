@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 D. SHA f946d32907628704bee0fcbe9654db33d1b05b5e (parte 3 de 4)
+# Acepta de ARREGLOS 05 D. SHA 72c4ee299d4331e688ef1237c57930dcce0d1740 (parte 3 de 4)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -14,7 +14,7 @@ resultado=ok
 ### [CONTROL] archivo manual de inertes y reposicion
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_archiva_inertes.py
 ...............................................                          [100%]
-47 passed in 12.78s
+47 passed in 12.56s
 resultado=ok
 
 ### [CONTROL] aplicador, cosecha y reversa
@@ -22,7 +22,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 42%]
 ........................................................................ [ 85%]
 ........................                                                 [100%]
-168 passed in 191.81s (0:03:11)
+168 passed in 185.95s (0:03:05)
 resultado=ok
 
 # comandos que no pasaron: 0
