@@ -246,9 +246,14 @@ def reversa_manual(
         platform = conn.execute(_SQL_PLATAFORMA_FILA, (queue_id,)).fetchone()[0]
         cliente = cliente_reversa(platform, transport=transport)
         if tipo == "pause":
-            confirmada = _confirmada_en_la_frontera_manual(
-                lambda: apply_cola.reversa_pause(conn, cliente, fila)
-            )
+
+            def _reversa_pause_manual() -> bool | str:
+                veredicto = apply_cola.resuelve_reversa_abierta(conn, cliente, fila)
+                if veredicto is not None:
+                    return veredicto == "ya_habilitada"
+                return apply_cola.reversa_pause(conn, cliente, fila)
+
+            confirmada = _confirmada_en_la_frontera_manual(_reversa_pause_manual)
             return {"tipo": "pause", "queue_id": queue_id, "confirmada": confirmada}
         negative_id = _negative_id_del_ledger(conn, fila.decision_id)
         confirmada = _confirmada_en_la_frontera_manual(

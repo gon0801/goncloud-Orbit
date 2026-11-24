@@ -2973,3 +2973,107 @@ def test_arreglos05_a_reversa_pause_desplazada_durante_el_list_no_sella_ni_toca_
             ).fetchone()[0]
             == "PAUSED"
         ), "el ejecutor desplazado no sobreescribe la cache"
+
+
+@_skip_db
+def test_arreglos05_a_reversa_manual_resuelve_intento_abierto_sin_reenviar_put():
+    """Revision de Astra del PR #746 (quinta pasada): cuando el PUT manual sale
+    y el LIST omite el estado, `reversa_manual` devuelve `confirmada=False` y
+    deja el intento abierto. Una segunda peticion manual debe consultar y
+    resolver el intento abierto por lectura antes de reenviar: si el segundo
+    LIST devuelve ENABLED, confirma y sella el intento con un unico PUT."""
+    from test_apply_cola import _reloj, _semilla
+    from test_cycle_apply import _db_temporal
+    from test_temporada01_f import _config, _pausa_baja, _pausado
+
+    from app import apply_reversa as manual
+    from tests.test_ads_write import _token_response, make_write_client
+
+    with _db_temporal("orbit_a05_reversa_manual_abierta") as (conn, _extra):
+        ids = _semilla(conn)
+        config_id, _settings = _config(conn)
+        pausa, fila = _pausa_baja(
+            conn, ciclo_id=ids["ciclo_dec"], config_id=config_id, hoja=ids["kw"], ahora=_reloj()
+        )
+        _pausado(conn, ids["kw"])
+        ext_kw = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (ids["kw"],)
+        ).fetchone()[0]
+
+        puts: list[dict] = []
+        modo = {"omite_list": True}
+        estado_remoto = {"estado": "PAUSED"}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts.append(obj)
+                estado_remoto["estado"] = obj["state"]
+                return httpx.Response(207, json={"keywords": {"success": [obj]}})
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                if modo["omite_list"]:
+                    return httpx.Response(200, json={"keywords": []})
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": ext_kw, "state": estado_remoto["estado"]}]},
+                )
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        def cliente_reversa(_platform, *, transport=None):
+            return make_write_client(handler, platform="amazon_us")
+
+        # Peticion 1: PUT habilita en Amazon, pero el LIST omite el estado.
+        r1 = manual.reversa_manual(
+            conn,
+            tipo="pause",
+            queue_id=fila,
+            cliente_reversa=cliente_reversa,
+            reversa_bid_fn=lambda *_a, **_k: True,
+        )
+        assert r1 == {"tipo": "pause", "queue_id": fila, "confirmada": False}
+        assert len(puts) == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_attempt"
+                " WHERE decision_id = %s AND tipo = 'reversa' AND finished_at IS NULL",
+                (pausa,),
+            ).fetchone()[0]
+            == 1
+        )
+
+        # Peticion 2: el segundo LIST devuelve ENABLED -> sella sin reenviar PUT.
+        modo["omite_list"] = False
+        r2 = manual.reversa_manual(
+            conn,
+            tipo="pause",
+            queue_id=fila,
+            cliente_reversa=cliente_reversa,
+            reversa_bid_fn=lambda *_a, **_k: True,
+        )
+        assert r2 == {"tipo": "pause", "queue_id": fila, "confirmada": True}
+        assert len(puts) == 1, "la segunda peticion resuelve por lectura y no manda otro PUT"
+        intentos = conn.execute(
+            "SELECT resultado, ack, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausa,),
+        ).fetchall()
+        assert intentos == [("ok", {"conciliado": True}, True)], intentos
+        assert (
+            conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+            ).fetchone()[0]
+            == "ENABLED"
+        )
+
+        # Peticion 3: ya sellada `ok`, rechaza como ya revertida (409).
+        with pytest.raises(manual.ReversaYaHecha):
+            manual.reversa_manual(
+                conn,
+                tipo="pause",
+                queue_id=fila,
+                cliente_reversa=cliente_reversa,
+                reversa_bid_fn=lambda *_a, **_k: True,
+            )
+        assert len(puts) == 1

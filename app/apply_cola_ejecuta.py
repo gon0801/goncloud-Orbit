@@ -363,8 +363,13 @@ SELECT id FROM apply_attempt
 """
 
 
-def resuelve_reversa_sin_sello(
-    conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, *, tick=None
+def resuelve_reversa_abierta(
+    conn: psycopg.Connection,
+    cliente,
+    fila: FilaCola,
+    *,
+    tick=None,
+    cerca_dueno=None,
 ) -> str | None:
     """Resuelve por LECTURA la reversa de esta fila que quedo sin sello (ARREGLOS
     05 A, revision): Amazon pudo habilitar la hoja aunque la respuesta se
@@ -379,7 +384,8 @@ def resuelve_reversa_sin_sello(
     `inconclusa` si la lectura no trae el estado
     de la hoja: no se sella nada y no se cobra ni se envia. `archivada` para
     cualquier otro estado: el intento se cierra sin reenviar y el cache toma lo
-    leido."""
+    leido. Si se entrega `cerca_dueno` (ruta automatica), valida el claim dentro
+    de la transaccion que sella y actualiza el cache."""
     intento = conn.execute(_SQL_REVERSA_SIN_SELLO, (fila.decision_id,)).fetchone()
     if intento is None:
         return None
@@ -388,7 +394,7 @@ def resuelve_reversa_sin_sello(
         return "sin_identidad"
     apply._tick(tick)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, identidad[1])
+    estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
     if estado is None:
         # Un LIST que omite la hoja o su estado no prueba nada: el intento
         # sigue abierto para la siguiente pasada, sin cuota ni PUT.
@@ -400,11 +406,22 @@ def resuelve_reversa_sin_sello(
     else:
         veredicto, resultado, ack = "archivada", f"fallo:entidad_{estado.lower()}", None
     with tx_durable(conn):
-        # Cerca del claim: el sello y el cache se escriben solo siendo dueno.
-        aplicador.exige_dueno()
+        if cerca_dueno is not None:
+            cerca_dueno()
         apply._sella_ledger(conn, intento[0], ack=ack, resultado=resultado)
         conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
     return veredicto
+
+
+def resuelve_reversa_sin_sello(
+    conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCola, *, tick=None
+) -> str | None:
+    """Version con cerca del claim para el barrido automatico de reactivaciones."""
+    if conn.execute(_SQL_REVERSA_SIN_SELLO, (fila.decision_id,)).fetchone() is None:
+        return None
+    return resuelve_reversa_abierta(
+        conn, aplicador._cliente(), fila, tick=tick, cerca_dueno=aplicador.exige_dueno
+    )
 
 
 def aplica_reactivaciones(
