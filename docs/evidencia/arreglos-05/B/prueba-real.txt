@@ -10,7 +10,7 @@
 ........................................                                 [100%]
 ============================== warnings summary ===============================
 .venv\Lib\site-packages\fastapi\testclient.py:1
-  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-37\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
@@ -64,5 +64,5 @@ $ SELECT count(*) AS filas_vista FROM v_cambio_bid
 - Ningun intento de apply_attempt quedo abierto hoy.
 - Las dos columnas de la 0095 existen y se consultan; la vista v_cambio_bid de
   la 0096 responde con 514 filas. Con minutos de vida, el binario nuevo aun no
-  tiene intentos con bid_previo ni ausencia_previa: esos conteos se pobaran con
+  tiene intentos con bid_previo ni ausencia_previa: esos conteos se poblaran con
   la primera puja o el primer negative que envie.
