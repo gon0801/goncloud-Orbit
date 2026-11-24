@@ -243,3 +243,19 @@ Tres P1, corregidos con su prueba en rojo contra `6577a5eb`
   confirma el archivado; si no concluye, sigue abierto. Regresion:
   `test_arreglos05_c_reversa_con_ack_nulo_confirma_por_el_id_conocido` (rojo
   contra `afeecf11`).
+
+## Fase 2
+
+Hecha el 2026-11-24. La integracion es `73ea8f901a3951dd1a74ac8aae1c47fb476e6e77` (merge del PR #755 en
+`master`); se desplego con `tools/despliegue/desplegar.sh` (ensayo de solo
+lectura OK, migracion `0097_arreglos05_reposicion.sql` aplicada) y el
+`checklist.sh` quedo verde. `N c` paso 21 en el SHA integrado y la lectura de
+solo lectura de produccion (`lee_prod.sh`, rol `orbit_read`) confirmo la tabla
+nueva con sus columnas, indice unico parcial, triggers y privilegios, con 0
+filas y 0 intentos abiertos. Recibos: [despliegue.txt](despliegue.txt),
+[checklist.txt](checklist.txt) y [prueba-real.txt](prueba-real.txt).
+
+**Reversa.** `rollback.sh` solo deshace lo anotado en
+`/mnt/data/appdata/orbit/despliegue/ultimo.env` para el `MOTOR_SHA`
+desplegado (`73ea8f901a3951dd1a74ac8aae1c47fb476e6e77`); no revierte al binario anterior por si solo. La reversa
+de la migracion `0097` aborta si la tabla conserva intentos.
