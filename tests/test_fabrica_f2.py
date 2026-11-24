@@ -83,7 +83,6 @@ ORDEN_F2 = (
     # ARREGLOS 05 B: el ledger conserva la evidencia previa al envio y los
     # caminos de cosecha la escriben (ausencia_previa).
     "0095_arreglos05_evidencia_previa.sql",
-    "0096_arreglos05_regreso_destino_efectivo.sql",
     # Nada de F2 depende de migraciones 0005-0012 ni 0020-0037 (verificado
     # por grep en A.2: no mencionan harvest_job/apply_attempt/goals/grupos).
 )
