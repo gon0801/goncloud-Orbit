@@ -100,6 +100,11 @@ test_arreglos05_a_reversa_pause_desplazada_durante_el_list_no_sella_ni_toca_cach
 test_arreglos05_a_reversa_manual_resuelve_intento_abierto_sin_reenviar_put
   AssertionError: la segunda peticion resuelve por lectura y no manda otro PUT (assert 2 == 1)
 
+# Sexta pasada (Devin): rojo contra f8a87b86:
+test_arreglos05_a_reversa_incierta_no_deshace_pausa_manual_posterior
+  AssertionError: no debe deshacer la pausa manual del dueno (assert 2 == 1)
+
+
 
 
 
