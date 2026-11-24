@@ -1,0 +1,52 @@
+# Acepta de ARREGLOS 05 B. SHA 5fbb78ef95e368ebbf13e3c6787df15470db31fa (parte 1 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [ACEPTA] B.1: T writes test_03, la cosecha y su reversa no archivan keyword ajena
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_03
+.                                                                        [100%]
+1 passed, 8 deselected in 5.76s
+resultado=ok
+
+### [ACEPTA] B.2: T writes test_10, el negative conciliado conserva reversa ejecutable
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T writes test_10
+.                                                                        [100%]
+1 passed, 8 deselected in 5.39s
+resultado=ok
+
+### [ACEPTA] B.1 a B.3: N b, regresiones del bloque
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N b
+..........................                                               [100%]
+============================== warnings summary ===============================
+fastapi\testclient.py:1
+  fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+26 passed, 6322 deselected, 1 warning in 34.90s
+resultado=ok
+
+### [ACEPTA] B.1: tabla de estados completa (165 casillas), invariantes y clasificadores
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
+........................................................................ [ 42%]
+........................................................................ [ 84%]
+..........................                                               [100%]
+170 passed in 1.71s
+resultado=ok
+
+### [CONTROL] bloque A: regresiones de ciclo
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
+.........................................................                [100%]
+57 passed in 100.70s (0:01:40)
+resultado=ok
+
+### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
+..............................................................ss........ [ 71%]
+.............................                                            [100%]
+99 passed, 2 skipped in 10.47s
+resultado=ok
+
+# comandos que no pasaron: 0

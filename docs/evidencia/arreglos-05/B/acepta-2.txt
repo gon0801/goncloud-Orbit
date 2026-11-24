@@ -1,0 +1,28 @@
+# Acepta de ARREGLOS 05 B. SHA 5fbb78ef95e368ebbf13e3c6787df15470db31fa (parte 2 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] apply (reversa de bid, regreso del dueno) y API de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply.py tests/test_api_write.py
+........................................................................ [ 63%]
+..........................................                               [100%]
+============================== warnings summary ===============================
+fastapi\testclient.py:1
+  fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+114 passed, 1 warning in 98.12s (0:01:38)
+resultado=ok
+
+### [CONTROL] cola, cosecha y reversa manual de cosecha
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply_cola.py tests/test_apply_harvest.py tests/test_reversa_harvest.py
+........................................................................ [ 48%]
+........................................................................ [ 97%]
+...                                                                      [100%]
+147 passed in 174.94s (0:02:54)
+resultado=ok
+
+# comandos que no pasaron: 0
