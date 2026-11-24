@@ -1,0 +1,68 @@
+# Prueba real despues del despliegue - ARREGLOS 05 B
+# Fecha: 2026-11-24 16:13-16:15 UTC
+# PR 751 merge y MOTOR_SHA: ae7626ba4c22ad5d09979b9fb5d7a115b0cc990f
+
+## 1. Repeticion de N b sobre el SHA integrado en el laboratorio
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N b
+# UTC_START=2026-11-24 16:13:59 UTC
+# HEAD=ae7626ba4c22ad5d09979b9fb5d7a115b0cc990f
+
+........................................                                 [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-37\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+40 passed, 6322 deselected, 1 warning in 38.53s
+EXIT=0
+
+## 2. Huella del codigo desplegado
+# De la salida de desplegar.sh y checklist.sh:
+#   md5 OK: 301 archivos (git archive del SHA contra el codigo subido)
+#   /health 200
+#   /mnt/data/appdata/orbit/despliegue/sha = ae7626ba4c22ad5d09979b9fb5d7a115b0cc990f
+#   migracion 0095_arreglos05_evidencia_previa.sql aplicada
+#   migracion 0096_arreglos05_regreso_destino_efectivo.sql aplicada
+# El detalle completo esta en despliegue.txt y checklist.txt.
+
+## 3. Lectura de solo lectura en produccion
+# Herramienta: docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read,
+# transaccion read_only). Solo conteos y esquema; ningun valor de negocio.
+# UTC=2026-11-24 16:14:40 UTC
+
+$ SELECT current_user, current_setting('server_version')
+orbit_read|16.15 (Debian 16.15-1.pgdg13+2)
+
+$ SELECT count(*) AS ciclos_hoy, count(decision_committed_at) AS con_sello
+  FROM optimizer_cycle
+  WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+2|2
+
+$ SELECT count(*) AS abiertos_hoy FROM apply_attempt
+  WHERE finished_at IS NULL
+    AND started_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+0
+
+$ SELECT count(*) AS columnas_0095 FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'apply_attempt'
+    AND column_name IN ('bid_previo', 'ausencia_previa')
+2
+
+$ SELECT count(*) FILTER (WHERE bid_previo IS NOT NULL) AS con_bid_previo,
+         count(*) FILTER (WHERE ausencia_previa IS NOT NULL) AS con_ausencia
+  FROM apply_attempt
+0|0
+
+$ SELECT count(*) AS filas_vista FROM v_cambio_bid
+514
+
+## 4. Lectura
+- Los 2 ciclos del dia (UTC) cerraron con su sello de TX3. Corrieron por cron
+  antes de este despliegue, con el binario del bloque A; el proximo horario usa
+  este.
+- Ningun intento de apply_attempt quedo abierto hoy.
+- Las dos columnas de la 0095 existen y se consultan; la vista v_cambio_bid de
+  la 0096 responde con 514 filas. Con minutos de vida, el binario nuevo aun no
+  tiene intentos con bid_previo ni ausencia_previa: esos conteos se pobaran con
+  la primera puja o el primer negative que envie.

@@ -314,5 +314,10 @@ el intento abierto y lo resuelve por lectura sin otro PUT. Regresiones:
 
 ## Fase 2
 
-Pendiente hasta el aviso del coordinador: despliegue, recibo y segundo PR de
-evidencia.
+Hecha el 2026-11-24. La integracion es `ae7626ba4c22ad5d09979b9fb5d7a115b0cc990f`;
+se desplego con `tools/despliegue/desplegar.sh` (ensayo de solo lectura OK y
+migraciones `0095` y `0096` aplicadas), el `checklist.sh` quedo verde, `N b`
+paso 40 en el SHA integrado y la lectura de solo lectura de produccion
+(`lee_prod.sh`, rol `orbit_read`) confirmo el esquema y los conteos del bloque.
+Recibos: [despliegue.txt](despliegue.txt), [checklist.txt](checklist.txt) y
+[prueba-real.txt](prueba-real.txt).
