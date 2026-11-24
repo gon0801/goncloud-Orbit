@@ -367,8 +367,10 @@ def test_ejecuta_orden_filas_y_readback():
         ).fetchall()
         assert filas == [("reversa", False, "ok")] * 4
         # Readback entre deletes: un LIST por clase tras cada delete.
+        # ARREGLOS 05 B: cada paso relee antes de su DELETE y confirma con su
+        # readback despues: dos LIST por paso.
         listas = [r for r in vistos if r.url.path.endswith("/list")]
-        assert len(listas) == 4, "un readback por delete antes de seguir"
+        assert len(listas) == 8, "una lectura antes de cada delete y su readback despues"
 
 
 @_skip_db
@@ -586,7 +588,10 @@ def test_readback_keyword_truncado_detiene_reversa():
     """Keywords LIST con `nextToken` vivo al tope durante la reversa: el
     delete ya salio pero sin readback concluyente no se confirma ni se
     sigue; la fila queda abierta para reintentar. Regla 9 (r1/F2): con
-    lectura truncada, concluir ausencia es borrar a ciegas."""
+    lectura truncada, concluir ausencia es borrar a ciegas.
+
+    ARREGLOS 05 B: la lectura previa al delete ve la keyword propia viva;
+    el LIST trunca recien en el readback, despues del delete."""
     import httpx as _httpx4
 
     from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_harvest
@@ -595,6 +600,7 @@ def test_readback_keyword_truncado_detiene_reversa():
         setup = _grupo_listo(conn)
         jid, dec, roles = _job_done_mixto(conn, setup)
         vistos: list = []
+        lecturas_kw = {"n": 0}
 
         def _kw_trunco(request):
             if request.url.host == "api.amazon.com":
@@ -602,6 +608,25 @@ def test_readback_keyword_truncado_detiene_reversa():
                     200, json={"access_token": "fake-access-kwtr", "expires_in": 3600}
                 )
             vistos.append(request)
+            if request.url.path == "/sp/keywords/list":
+                lecturas_kw["n"] += 1
+                if lecturas_kw["n"] == 1:
+                    return _httpx4.Response(
+                        200,
+                        json={
+                            "keywords": [
+                                {
+                                    "adGroupId": setup["roles"]["category_exact"]["ag_ext"],
+                                    "campaignId": setup["roles"]["category_exact"]["camp_ext"],
+                                    "keywordId": "k-9",
+                                    "keywordText": TERMINO_F2,
+                                    "matchType": "EXACT",
+                                    "state": "ENABLED",
+                                }
+                            ],
+                            "totalResults": 1,
+                        },
+                    )
             if request.url.path == "/sp/keywords/delete":
                 return _httpx4.Response(
                     200, json={"keywords": {"error": [], "success": [{"keywordId": "k-9"}]}}
@@ -831,7 +856,10 @@ def test_cli_readback_ambiguo_aborta_limpio(monkeypatch, capsys):
     """LIST ambiguo a mitad de reversa (r4): Abortar limpio con mensaje de
     reanudacion, no traceback. El delete ya enviado queda con fila abierta
     (reanudable con el mismo plan). Regla 9: sin el catch, el 5xx/red del
-    readback moria con traceback a mitad de reversa."""
+    readback moria con traceback a mitad de reversa.
+
+    ARREGLOS 05 B: la lectura previa al delete responde (la keyword propia
+    viva); el LIST falla recien en el readback, despues del delete."""
     from types import SimpleNamespace as _NS
 
     from app import apply as _apply_mod
@@ -857,7 +885,27 @@ def test_cli_readback_ambiguo_aborta_limpio(monkeypatch, capsys):
                 200, json={"keywords": {"error": [], "success": [{"keywordId": "k-1"}]}}
             )
 
+        lecturas = {"n": 0}
+
         def _list_roto(_path, _body):
+            lecturas["n"] += 1
+            if lecturas["n"] == 1:
+                return httpx.Response(
+                    200,
+                    json={
+                        "keywords": [
+                            {
+                                "adGroupId": setup["roles"]["category_exact"]["ag_ext"],
+                                "campaignId": setup["roles"]["category_exact"]["camp_ext"],
+                                "keywordId": "k-1",
+                                "keywordText": TERMINO_F2,
+                                "matchType": "EXACT",
+                                "state": "ENABLED",
+                            }
+                        ],
+                        "totalResults": 1,
+                    },
+                )
             raise _AdsApiError3("status=503 sin retry: POST https://fake/list")
 
         stub = _NS(borrar_keyword=_borrar_kw, borrar_negative=_borrar_kw, list_sellado=_list_roto)
@@ -1007,15 +1055,36 @@ def test_cli_auth_durante_delete_aborta_limpio(monkeypatch, capsys):
         n_pend = linea.split()[1]
         huella = linea.split("huella: ")[1]
 
+        # ARREGLOS 05 B: antes del delete hay una lectura previa legitima.
+        intento = {"borrado": False}
+
         def _auth_en_delete(_kid):
+            intento["borrado"] = True
             raise _AdsAuthError2("token LWA rechazado a mitad de reversa")
+
+        def _lista(_path, _body):
+            assert not intento["borrado"], "no deberia listar si el delete ya fallo"
+            return httpx.Response(
+                200,
+                json={
+                    "keywords": [
+                        {
+                            "adGroupId": setup["roles"]["category_exact"]["ag_ext"],
+                            "campaignId": setup["roles"]["category_exact"]["camp_ext"],
+                            "keywordId": "k-9",
+                            "keywordText": TERMINO_F2,
+                            "matchType": "EXACT",
+                            "state": "ENABLED",
+                        }
+                    ],
+                    "totalResults": 1,
+                },
+            )
 
         stub = _NS(
             borrar_keyword=_auth_en_delete,
             borrar_negative=_auth_en_delete,
-            list_sellado=lambda *_a, **_k: (_ for _ in ()).throw(
-                AssertionError("no deberia listar si el delete ya fallo")
-            ),
+            list_sellado=_lista,
         )
         monkeypatch.setattr(_apply_mod3, "_cliente_reversa", lambda platform, transport=None: stub)
         with pytest.raises(mod.Abortar, match="ambigua.*reanudar"):

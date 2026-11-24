@@ -138,12 +138,25 @@ def _id_del_resumen(ack: object) -> str | None:
     return id_de_ack(ack, "negativeKeywordId")
 
 
+# Sin resumen sellado, queda el ACK remoto del ultimo intento aplicado.
+_SQL_ACK_APLICADO = """
+SELECT ack FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok' AND ack IS NOT NULL
+ ORDER BY seq DESC LIMIT 1
+"""
+
+
 def _negative_id_del_ledger(conn: psycopg.Connection, decision_id: int) -> str:
     """El id del negative aplicado de la decision, desde su confirmacion
-    durable: el ACK remoto de la creacion o la confirmacion por LIST de un
-    efecto reconciliado (ARREGLOS 05 B). No se busca por `resultado`."""
+    durable: el resumen sellado (el ACK remoto de la creacion o la
+    confirmacion por LIST de un efecto reconciliado) y, sin resumen, el ACK
+    remoto del ultimo intento aplicado (ARREGLOS 05 B). No basta un
+    `resultado`: hace falta un id legible en el ACK."""
     fila = conn.execute(_SQL_RESUMEN_ACK, (decision_id,)).fetchone()
     negative_id = _id_del_resumen(fila[0] if fila is not None else None)
+    if negative_id is None:
+        fila = conn.execute(_SQL_ACK_APLICADO, (decision_id,)).fetchone()
+        negative_id = id_de_ack(fila[0], "negativeKeywordId") if fila is not None else None
     if negative_id is not None:
         return negative_id
     raise NegativeIdNoResoluble(
