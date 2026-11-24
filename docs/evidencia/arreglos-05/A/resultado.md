@@ -250,3 +250,43 @@ erroes; resultado en [previa.txt](previa.txt)):
   presencia. En este entorno sus 35 pruebas dan error al armar el repositorio
   de prueba; la del bloque (`test_arreglos05_a_la_migracion_del_bloque_entran_en_el_despliegue`)
   si corre y pasa porque no usa esas herramientas.
+
+## Fase 2: despliegue en produccion y verificacion post-despliegue
+
+Desplegado el 2026-11-24 entre 06:56 y 07:05 UTC desde el commit de fusion del
+PR #746 en `master`: `fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97` (`SHA_PREVIO`:
+`f07ab667d27a64c9293030c0633b808dfe5e8d1b`).
+
+- **Ensayo y despliegue** ([despliegue.txt](despliegue.txt)): `--ensayo` salio
+  0 (`== ENSAYO OK`, guardas `true|0|0|0|0`, unica migracion pendiente
+  `0094_arreglos05_ciclo_origen.sql`, ninguna clave cambia, bloque Orbit
+  canonico). El despliegue real respaldo en
+  `/mnt/data/appdata/orbit/despliegue/predeploy-20261124-065914`, aplico `0094`
+  (`0` ciclos de hoy sellados al momento del despliegue), verifico `md5 OK: 299
+  archivos`, reconstruyo y recreo `orbit-app-1` con `/health 200` y escribio
+  `fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97` en `despliegue/sha` (`EXIT=0`).
+- **Checklist** ([checklist.txt](checklist.txt)): `== CHECKLIST VERDE
+  fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97` (`EXIT=0`), `ESTADO=verificado` en
+  `ultimo.env`, migraciones `0076` a `0094` en verde, bloque Orbit canonico,
+  `refresh_estimacion.sh` identico y `/health 200`.
+- **Lecturas de solo lectura en produccion** ([lecturas.txt](lecturas.txt)):
+  sonda de `0094` en `True` via `lee_prod.sh`; columnas `decision_committed_at`
+  (`timestamp with time zone`, nullable) y `resume_of` (`bigint`, nullable) en
+  `optimizer_cycle`; `app_decide` con `UPDATE` solo en `decision_committed_at`
+  (`True`) y sin `UPDATE` en `resume_of` (`False`); trigger
+  `optimizer_cycle_0094_progreso` y check `decision_sin_aplicar_motivo_check`
+  con `vigencia_vencida`; huella SHA-256 de los 288 archivos de `/app/app` en
+  `orbit-app-1` identica al `git archive` de `fb9f7f0f`
+  (`2e3db7900509d41381a466e75512a9317ac7628f64631a98a87daac35daddcd0`); `/health`
+  200 `{"status":"ok"}`; bloque de cron `# === Orbit (` identico al canonico.
+- **Repeticion de `N a` y simbolos en contenedor**
+  ([prueba-real.txt](prueba-real.txt)): `uv run --frozen --python 3.12 bash
+  docs/evidencia/arreglos-05/comprobar.sh N a` sobre
+  `fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97` paso con `172 passed, 6092
+  deselected` (`EXIT=0`), y `desplegado.sh` confirmo presentes los simbolos del
+  bloque y ausentes los retirados en `orbit-app-1`.
+- **Lectura pendiente del primer ciclo real (09:40 UTC):** el primer ciclo real
+  con el binario nuevo corre a las 09:40 UTC (`amazon_us`) y 09:41 UTC
+  (`amazon_mx`). Esa lectura se hace despues de esa hora (no se espera aqui) y
+  debe confirmar `decision_committed_at` sellado en los ciclos de ese dia y
+  `resume_of` en `NULL` si no hubo interrupciones.

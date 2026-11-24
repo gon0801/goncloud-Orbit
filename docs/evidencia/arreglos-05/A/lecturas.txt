@@ -1,0 +1,87 @@
+# Lecturas de solo lectura en produccion - ARREGLOS 05 A
+# Fecha: 2026-11-24 07:03-07:05 UTC
+# PR 746 merge y MOTOR_SHA: fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97
+# Canal de base de datos: docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read, transaccion read_only)
+
+## 1. Sonda de migracion 0094 aplicada (lee_prod.sh)
+# SQL: cabecera -- sonda-aplicada de migrations/0094_arreglos05_ciclo_origen.sql
+True
+
+## 2. Columnas nuevas, permisos, trigger y check (lee_prod.sh)
+# SELECT column_name, data_type, is_nullable, column_default
+# FROM information_schema.columns
+# WHERE table_schema = 'public' AND table_name = 'optimizer_cycle'
+#   AND column_name IN ('decision_committed_at', 'resume_of')
+# ORDER BY column_name;
+decision_committed_at|timestamp with time zone|YES|None
+resume_of|bigint|YES|None
+
+# SELECT
+#   has_column_privilege('app_decide', 'public.optimizer_cycle', 'decision_committed_at', 'UPDATE'),
+#   has_column_privilege('app_decide', 'public.optimizer_cycle', 'resume_of', 'UPDATE'),
+#   (SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.optimizer_cycle'::regclass AND tgname = 'optimizer_cycle_0094_progreso'),
+#   (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.decision_sin_aplicar'::regclass AND conname = 'decision_sin_aplicar_motivo_check');
+True|False|optimizer_cycle_0094_progreso|CHECK ((motivo = ANY (ARRAY['modo_no_live'::text, 'ya_aplicada'::text, 'bid_incompleto'::text, 'entidad_no_decisora'::text, 'tope_intentos'::text, 'fuera_de_cap'::text, 'fallo_http'::text, 'sin_quota'::text, 'espera_target'::text, 'sin_respuesta'::text, 'perdida'::text, 'choque_clave'::text, 'espera_proteccion'::text, 'bid_cambiado_fuera'::text, 'vigencia_vencida'::text])))
+
+## 3. Ultimos ciclos en optimizer_cycle antes del primer ciclo real de las 09:40 UTC (lee_prod.sh)
+# SELECT id, platform, status, mode, started_at, finished_at, decision_committed_at, resume_of
+# FROM optimizer_cycle ORDER BY id DESC LIMIT 6;
+209|amazon_mx|done|live|2026-11-23 09:41:02.575264+00:00|2026-11-23 09:41:10.694223+00:00|None|None
+208|amazon_us|done|live|2026-11-23 09:40:02.845003+00:00|2026-11-23 09:40:09.270851+00:00|None|None
+207|amazon_mx|done|live|2026-11-22 20:15:47.003523+00:00|2026-11-22 20:15:54.742750+00:00|None|None
+206|amazon_us|done|live|2026-11-22 20:15:21.916527+00:00|2026-11-22 20:15:26.194223+00:00|None|None
+205|amazon_mx|done|live|2026-11-22 09:41:02.566126+00:00|2026-11-22 09:41:10.363343+00:00|None|None
+204|amazon_us|done|live|2026-11-22 09:40:02.950552+00:00|2026-11-22 09:40:07.712375+00:00|None|None
+
+## 4. Huella del codigo desplegado igual al SHA integrado
+# /mnt/data/appdata/orbit/despliegue/sha
+despliegue/sha=fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97
+sha_match=OK
+
+# /mnt/data/appdata/orbit/despliegue/ultimo.env
+MOTOR_SHA=fb9f7f0fc959f71f8008e6f2feeae60c14bc8c97
+ESTADO=guardas
+SHA_PREVIO=f07ab667d27a64c9293030c0633b808dfe5e8d1b
+CODIGO=predeploy-20261124-065914
+MIGRACION=0094_arreglos05_ciclo_origen.sql
+ESTADO=desplegado
+ESTADO=verificado
+
+# SHA-256 de la lista ordenada de md5 de los 288 archivos de app/ (git archive vs /app/app en orbit-app-1)
+local_app=288 2e3db7900509d41381a466e75512a9317ac7628f64631a98a87daac35daddcd0
+container_app=288 2e3db7900509d41381a466e75512a9317ac7628f64631a98a87daac35daddcd0
+container_app_match=OK
+
+## 5. /health
+# curl -sS -w '\nHTTP_CODE=%{http_code}\n' http://127.0.0.1:8010/health
+{"status":"ok"}
+HTTP_CODE=200
+
+## 6. Bloque de cron de Orbit (crontab de gon y cron_orbit revisa)
+# cron_orbit revisa
+bloque Orbit igual al canonico
+
+# Bloque "# === Orbit (" en crontab -u gon -l
+# === Orbit (ORBIT 03 / 4.2; tabla de horarios ingesta-01 A.4) ===
+# job_key=ingest:structure
+45 6 * * * /usr/local/bin/cron-avisa --nombre "Estructura de campañas" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli ingest structure' >> /mnt/data/appdata/orbit/logs/ingest-structure.log 2>&1
+# job_key=ingest:diario  A.2: metricas + productos + placements en UNA descarga (31 dias hasta el ultimo dia cerrado de MX y US por dentro, ARREGLOS 03 D-E; sin % en el crontab)
+10 8 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+# job_key=ingest:diario  reintento de las 10:40 (--solo-faltantes salta lo ya al dia)
+40 10 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+# job_key=ingest:diario  ultimo reintento del dia (13:15)
+15 13 * * * docker exec orbit-app-1 python -m app.cli ingest diario --solo-faltantes >> /mnt/data/appdata/orbit/logs/ingest-diario.log 2>&1
+# job_key=avisos-campana  BIDS 02 V.4 (dentro del bloque desde ingesta-01 A.4)
+5 9,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Avisos de campañas" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/avisos-campana.lock docker exec orbit-app-1 python -m app.cli avisos-campana' >> /mnt/data/appdata/orbit/logs/avisos-campana.log 2>&1
+# job_key=impulso-vigia  BIDS 02 I.3 (dentro del bloque desde ingesta-01 A.4)
+20 9,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Vigía de impulso" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/impulso-vigia.lock docker exec orbit-app-1 python -m app.cli impulso-vigia' >> /mnt/data/appdata/orbit/logs/impulso-vigia.log 2>&1
+# job_key=ads_optimizer:amazon_us
+40 9,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Optimizador de publicidad de Amazon Estados Unidos" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us' >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+# job_key=ads_optimizer:amazon_mx
+41 9,10,13,16 * * * /usr/local/bin/cron-avisa --nombre "Optimizador de publicidad de Amazon México" --cada 24 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx' >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+# job_key=jev-senales  JEV ADS 02 S.4 (dentro del bloque desde ingesta-01 A.4)
+30 9,21 * * * /usr/local/bin/cron-avisa --nombre "Señales de publicidad de JEV" --cada 24 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/jev-senales.lock docker exec orbit-app-1 python -m app.cli jev-senales --aplicar' >> /mnt/data/appdata/orbit/logs/jev-senales.log 2>&1
+# job_key=jev-vigia  CLARIDAD 01 B.5: avisa si Jev no corre hace mas de 13 h
+0 11 * * * /usr/local/bin/cron-avisa --nombre "Vigía de JEV" --cada 24 -- docker exec orbit-app-1 python -m app.cli jev-vigia >> /mnt/data/appdata/orbit/logs/jev-vigia.log 2>&1
+# job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
+*/10 10-12 * * * /usr/local/bin/cron-avisa --nombre "Salud de la publicidad" --cada 24 --tras 3 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli ads-salud' >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1

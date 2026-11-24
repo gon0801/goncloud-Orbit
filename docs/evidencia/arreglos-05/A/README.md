@@ -9,10 +9,11 @@ de diseno, que no cambia. `A/` no tiene hermana en minusculas.
 
 | Fila | Archivos |
 |---|---|
-| Todas | [resultado.md](resultado.md): fila por fila, rojo y verde, vecinos, decisiones, limites. |
+| Todas | [resultado.md](resultado.md): fila por fila, rojo y verde, vecinos, decisiones, limites y despliegue de Fase 2. |
 | A.1 a A.4 | Comandos y salidas en [acepta.txt](acepta.txt), que genera [acepta.sh](acepta.sh). |
-| A.1 | [rojo.txt](rojo.txt): las regresiones contra el codigo anterior. |
-| A.2, A.3, A.4 | [previa.sql](previa.sql), [previa.sh](previa.sh) y [previa.txt](previa.txt): lectura de produccion, solo conteos, fechas y nombres de objetos. |
+| A.1 | [rojo.txt](rojo.txt): las regresiones contra el codigo anterior; [estados.md](estados.md): mapa del modelo explicito de estados. |
+| A.2, A.3, A.4 | [previa.sql](previa.sql), [previa.sh](previa.sh) y [previa.txt](previa.txt): lectura previa de produccion, solo conteos, fechas y nombres de objetos. |
+| Fase 2 | [despliegue.txt](despliegue.txt) (`--ensayo` y despliegue real), [checklist.txt](checklist.txt), [lecturas.txt](lecturas.txt) (solo lectura en produccion) y [prueba-real.txt](prueba-real.txt) (`N a` en el SHA integrado y verificacion en contenedor). |
 
 ## Entorno de esta PC
 
