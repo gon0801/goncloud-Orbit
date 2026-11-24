@@ -122,6 +122,12 @@ SQL48 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0048_margen_familia.sql"
 ).read_text(encoding="utf-8")
 
+# ARREGLOS 05 A (0094): la TX3 del ciclo sella su compromiso y un ejecutor
+# lleva su origen; sin esta columna todo ciclo revienta con UndefinedColumn.
+SQL94 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
+).read_text(encoding="utf-8")
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -224,6 +230,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL62)  # 0062 (V.2): ads_placement_observation (lee_campanas en aviso)
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
+        conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         yield conn, conectar_extra
     finally:
@@ -435,7 +442,7 @@ def _fabrica_directa(handler):
 
 
 @_skip_db
-def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
+def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos, monkeypatch):
     """El zombie perdio el lock (el sucesor reclamo tras el TTL) y lo descubre
     en el ownership-check PRE-HTTP: aborta SIN nigun HTTP de mutacion (regla
     9: sin el check, el zombie habria hecho el PUT tambien — dos procesos
@@ -448,16 +455,21 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         _config_live_caps(conn)
         handler, vistos = _handler({"9201": "1.00", "9203": "1.00"})
 
-        def fabrica_zombie(conn, **kwargs):
-            # El zombie pierde el lease MIENTRAS corre (sucesor reclamo el
-            # lock tras el TTL): el owner de la fila ya NO es el nuestro.
+        tx3_original = ciclo._compromete_tx3
+
+        def tx3_y_pierde_el_lease(conn, *args, **kwargs):
+            # El zombie pierde el lease MIENTRAS corre (el sucesor reclamo el
+            # lock tras el TTL): el owner de la fila ya NO es el nuestro. Se
+            # pierde al comprometer sus decisiones: antes de eso la TX3 exige
+            # el claim (ARREGLOS 05 A) y no llegaba a comprometerse.
+            tx3_original(conn, *args, **kwargs)
             conn.execute(
                 "UPDATE ads_optimizer_lock SET owner = 'sucesor' WHERE job_key = %s", (JOB_KEY,)
             )
-            kwargs["transport"] = httpx.MockTransport(handler)
-            return ciclo._aplicador_real(conn, **kwargs)
 
-        res_z = _corre(conn, factory=fabrica_zombie, owner="zombie:1")
+        monkeypatch.setattr(ciclo, "_compromete_tx3", tx3_y_pierde_el_lease)
+
+        res_z = _corre(conn, factory=_fabrica_real_mock(handler), owner="zombie:1")
 
         # El zombie NO libero el lock del sucesor (liberacion por owner)
         assert (
@@ -481,6 +493,7 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         assert _mutaciones(vistos) == []
         assert [r.url.path for r in vistos] == ["/v2/profiles"]
 
+        monkeypatch.setattr(ciclo, "_compromete_tx3", tx3_original)
         # El sucesor reclama (TTL vencido) y aplica NORMAL
         conn.execute(
             "UPDATE ads_optimizer_lock SET heartbeat_at = now() - interval '31 minutes'"
@@ -565,15 +578,20 @@ def test_lease_perdido_a_medida_aborta_sin_http(secrets_falsos):
             == 2
         )
         # TEMPORADA 01 E: el aborto del segundo bid cae en su LECTURA FRESCA,
-        # antes de la cuota y del ledger: no nace ledger sin sello y la
-        # decision queda sin desenlace (el ciclo siguiente la re-decide).
+        # antes de la cuota y del ledger: no nace ledger por el y la decision
+        # queda sin desenlace (el ciclo siguiente la re-decide).
         assert conn.execute("SELECT count(*) FROM apply_attempt").fetchone()[0] == 1
+        # ARREGLOS 05 A: el dueno cambio mientras volaba la lectura de vuelta
+        # del PRIMER bid. Ese owner desplazado no sella (cerca del claim en la
+        # transaccion del sello): el intento queda sin sellar y sin resumen, y
+        # la conciliacion del sucesor lo resuelve leyendo.
         assert (
             conn.execute("SELECT count(*) FROM apply_attempt WHERE finished_at IS NULL").fetchone()[
                 0
             ]
-            == 0
-        )
+            == 1
+        ), "el dueno desplazado no sella el primer bid"
+        assert conn.execute("SELECT count(*) FROM decision_application").fetchone()[0] == 0
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from app import pantalla_productos as pp
 from app.ads import archivar
 from app.ads.client import AdsApiError
 from app.ads.config import AdsConfigError
+from app.apply_estados import EstadoCambio, transicion_desde_error, transicion_desde_status
 from app.dashboard_resumen import hoy_resumen
 from app.dia_cerrado import dia_local
 from app.redaction import scrub
@@ -404,6 +405,11 @@ def _ejecuta_pendientes(
         except ApplyAbortado:
             raise
         except Exception as exc:
+            if (
+                decision_id is not None
+                and transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto
+            ):
+                raise
             resultados.append(
                 ResultadoAnuncio(
                     ad_id,
@@ -415,6 +421,17 @@ def _ejecuta_pendientes(
             )
             continue
         detalle = res.detalle if res.detalle else res.resultado
+        if (
+            decision_id is not None
+            and transicion_desde_status(EstadoCambio.INCIERTO, res.status_http).propaga_aborto
+        ):
+            # Solo en cortes automaticos (AutorizacionDeDecision): el barrido
+            # aborta la fase y deja la intencion abierta (resuelve_intencion_de_decision
+            # solo lee y nunca reenvia). En retiros humanos (decision_id None)
+            # el rechazo explicito cierra la intencion y responde por anuncio.
+            error = AdsApiError(f"status={res.status_http}: {scrub(detalle)}")
+            error.status = res.status_http
+            raise error
         if res.resultado in ("pausado", "ya_estaba"):
             propio = _put_propio(res)
             rid = _sella_retiro(

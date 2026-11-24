@@ -67,6 +67,9 @@ class ResultadoAnuncio:
     # hasta agotar los reintentos (un 429 es rechazo sin procesar). Un 5xx,
     # red o timeout no lo es: la mutacion pudo aplicarse.
     rechazo: bool = False
+    # Estado HTTP cuando hubo AdsApiError en la lectura previa o en el PUT de
+    # `_cambiar_estado_anuncios`, para propagar 401/403 hasta el limite de fase.
+    status_http: int | None = None
 
 
 RESULTADOS = frozenset(
@@ -391,7 +394,10 @@ def _cambiar_estado_anuncios(
         # salio; el retiro conserva la intencion y el reintento retoma.
         detalle = f"previa caida ({exc}): PUT no enviado, se retoma"
         avisar(f"lectura previa caida: {exc}")
-        return [ResultadoAnuncio(ad_id, None, "sin_confirmar", detalle) for ad_id in ids]
+        return [
+            ResultadoAnuncio(ad_id, None, "sin_confirmar", detalle, status_http=exc.status)
+            for ad_id in ids
+        ]
     previos = {k: str(v["state"]) for k, v in filas.items()}
     avisar(f"lectura previa: {len(previos)} de {len(ids)} adIds existen en la cuenta")
 
@@ -431,6 +437,7 @@ def _cambiar_estado_anuncios(
 
     rechazos: dict[str, str] = {}
     inciertos: dict[str, str] = {}
+    statuses: dict[str, int | None] = {}
     for i, ad_id in enumerate(a_mutar, 1):
         try:
             escritor.cambiar_estado_product_ad(ad_id, destino)
@@ -440,6 +447,7 @@ def _cambiar_estado_anuncios(
             # 5xx, timeout y red son inciertos: el PUT pudo aplicarse
             # (y el readback puede ir atrasado); salen sin_confirmar.
             texto = str(getattr(exc, "cuerpo", "") or exc)[:300]
+            statuses[ad_id] = exc.status
             if _es_rechazo_explicito(exc):
                 rechazos[ad_id] = texto
             else:
@@ -453,17 +461,31 @@ def _cambiar_estado_anuncios(
         reversa = reversa_de_fila(filas[ad_id])
         rechazo = rechazos.get(ad_id)
         incierto = inciertos.get(ad_id)
+        status_http = statuses.get(ad_id)
         if posteriores.get(ad_id) == destino:
             detalle = f"quedo {destino} pese al rechazo del envio: {rechazo}" if rechazo else ""
             if incierto and not rechazo:
                 detalle = f"quedo {destino} pese al envio incierto: {incierto}"
-            resultados.append(ResultadoAnuncio(ad_id, previos[ad_id], verbo, detalle, reversa))
+            resultados.append(
+                ResultadoAnuncio(
+                    ad_id, previos[ad_id], verbo, detalle, reversa, status_http=status_http
+                )
+            )
         elif rechazo:
-            resultados.append(ResultadoAnuncio(ad_id, previos[ad_id], "fallo", rechazo, reversa))
+            resultados.append(
+                ResultadoAnuncio(
+                    ad_id, previos[ad_id], "fallo", rechazo, reversa, status_http=status_http
+                )
+            )
         elif incierto:
             resultados.append(
                 ResultadoAnuncio(
-                    ad_id, previos[ad_id], "sin_confirmar", f"envio incierto: {incierto}", reversa
+                    ad_id,
+                    previos[ad_id],
+                    "sin_confirmar",
+                    f"envio incierto: {incierto}",
+                    reversa,
+                    status_http=status_http,
                 )
             )
         else:

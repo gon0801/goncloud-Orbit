@@ -41,6 +41,9 @@ MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
 MOTIVO_ALCANCE_CAMBIO = "alcance_cambio"
+# Sin evaluacion de producto del ciclo que decide: no hay meta de producto
+# comprobable y la pausa economica no se resuelve con una evaluacion ajena.
+MOTIVO_SIN_EVALUACION_FRESCA = "sin_evaluacion_fresca"
 MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
 MOTIVO_ESPERA_PROTECCION = apply.MOTIVO_ESPERA_PROTECCION
 MOTIVO_PROTECCION_APAGADA = "proteccion_apagada"
@@ -212,7 +215,7 @@ def _producto_fresco(
         return (None, detalle)
     leida = economia_revalidacion_io.lee_evaluacion_ciclo(conn, cycle_id, platform, producto)
     if leida is None:
-        detalle["motivo"] = "sin_evaluacion_fresca"
+        detalle["motivo"] = MOTIVO_SIN_EVALUACION_FRESCA
         return (None, detalle)
     evaluacion_id, evaluacion = leida
     detalle.update(
@@ -300,8 +303,16 @@ def _target_pause_vigente_detalle(
     inputs: dict,
     ahora: dt.datetime,
     economia: str | None = None,
+    *,
+    evaluacion_fresca: bool = True,
 ) -> tuple[Decimal | None, str | None, dict]:
-    """Resuelve la cascada del ciclo aplicador con goal y cache frescos."""
+    """Resuelve la cascada del ciclo que decidio con goal y cache frescos.
+
+    `evaluacion_fresca` llega en False desde un ejecutor de recuperacion
+    (ARREGLOS 05 A): ese ciclo no decide ni evalua productos, y la evaluacion
+    del origen tiene horas (el producto pudo perder su costo vigente despues).
+    Una pausa decidida por margen de producto no se resuelve con ella: vuelve
+    sin target y `revalida_pause` la deja en espera del ciclo que si evalua."""
     detalle: dict = {}
     estado = conn.execute(_SQL_PAUSE_TARGET_STATE, (ad_entity_id,)).fetchone()
     notas_fila = conn.execute(_SQL_NOTAS_CICLO_APLICADOR, (cycle_id,)).fetchone()
@@ -341,6 +352,9 @@ def _target_pause_vigente_detalle(
             economia == productos.POLITICA_ECONOMIA
             and inputs.get("target_procedencia") == "margen_producto"
         ):
+            if not evaluacion_fresca:
+                detalle["producto"] = {"motivo": MOTIVO_SIN_EVALUACION_FRESCA}
+                return (None, None, detalle)
             grupo_fila = conn.execute(_SQL_PADRE, (ad_entity_id,)).fetchone()
             if grupo_fila is None:
                 return (None, None, detalle)
@@ -400,6 +414,8 @@ def _target_pause_vigente(
     ahora: dt.datetime | None = None,
     detalle: dict | None = None,
     economia: str | None = None,
+    *,
+    evaluacion_fresca: bool = True,
 ) -> tuple[Decimal | None, str | None]:
     target, procedencia, resolucion = _target_pause_vigente_detalle(
         conn,
@@ -409,6 +425,7 @@ def _target_pause_vigente(
         inputs,
         ahora or dt.datetime.now(dt.UTC),
         economia,
+        evaluacion_fresca=evaluacion_fresca,
     )
     if detalle is not None:
         detalle.update(resolucion)
@@ -516,15 +533,21 @@ def revalida_pause(
     ):
         return MOTIVO_ALCANCE_CAMBIO
     resolucion_economica: dict = {}
+    # ARREGLOS 05 A: el target es el del ciclo que DECIDIO (el origen), no el
+    # del ejecutor que revalida: un ejecutor de recuperacion no decide y sus
+    # notas no traen `target`. Su evaluacion de producto tampoco es vigente:
+    # solo cuenta como fresca la del ciclo que decide.
+    origen = getattr(aplicador, "ciclo_origen", aplicador.cycle_id_ejecutor)
     target, procedencia = target_vigente_fn(
         conn,
         platform,
         fila.ad_entity_id,
-        aplicador.cycle_id_ejecutor,
+        origen,
         decision[0],
         ahora,
         resolucion_economica,
         economia,
+        evaluacion_fresca=origen == aplicador.cycle_id_ejecutor,
     )
     if target is None and economica:
         espera = hay_goal_fn(conn, platform, fila.ad_entity_id)

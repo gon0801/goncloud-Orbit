@@ -36,6 +36,7 @@ import psycopg
 from app import apply, biblioteca, temporada_io
 from app import apply_harvest as _ejecucion
 from app.ads.client import AdsApiError, AdsAuthError
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.db import tx_durable
 from app.optimizer import cortes, harvest_destino, hygiene, windows
 
@@ -291,7 +292,8 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
         _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
         try:
             estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
-        except (AdsApiError, AdsAuthError):
+        except (AdsApiError, AdsAuthError) as exc:
+            _propaga_si_es_global(exc)
             continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
         if estado == apply.ESTADO_WIRE_PAUSED:
             ack = {"fuente": "list", "state": estado}
@@ -359,6 +361,16 @@ def _aprende_negative(
 
 # PLR0915: la matriz de reconciliacion de negativas es coherente en un solo
 # flujo (identidad, senuelo, reintento y registro en biblioteca al confirmar).
+def _propaga_si_es_global(exc: BaseException) -> None:
+    """Deja pasar un fallo ambiguo de ESTE trabajo (el ciclo siguiente lo
+    retoma) y propaga el de toda la corrida: Amazon rechazo la identidad o los
+    permisos con un 401/403. Detras de ese rechazo no sale ninguna mutacion
+    mas (ARREGLOS 05 A, revision). Un fallo del token de LWA sigue siendo
+    ambiguo, como fijo ARREGLOS 04 BC: el trabajo queda pendiente."""
+    if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+        raise exc
+
+
 def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
     conn: psycopg.Connection,
     aplicador,
@@ -395,7 +407,8 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
         grupo_ext, campana_ext = externos
         try:
             items = _ejecucion._lista_completa(cliente, "/sp/negativeKeywords/list")
-        except (AdsApiError, AdsAuthError):
+        except (AdsApiError, AdsAuthError) as exc:
+            _propaga_si_es_global(exc)
             continue  # lectura ambigua: proximo ciclo
         propio = _ejecucion._identidad(items, grupo_ext, term)
         if propio is not None:
@@ -465,9 +478,11 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
                     conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
                 )
                 _ejecucion._termina_cola(conn, q_id, "failed")
+            _propaga_si_es_global(exc)
             fallidas += 1
             continue
-        except (AdsApiError, AdsAuthError):
+        except (AdsApiError, AdsAuthError) as exc:
+            _propaga_si_es_global(exc)
             continue  # ambiguo: la fila sin sello ES el rastro
         ack = apply._json_seguro(resp)
         errores = _ejecucion._errores_de_ack(ack)
@@ -616,7 +631,8 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
                 continue
             try:
                 motivo = revalida_harvest(conn, platform, fila, dt.datetime.now(dt.UTC))
-            except (AdsApiError, AdsAuthError):
+            except (AdsApiError, AdsAuthError) as exc:
+                _propaga_si_es_global(exc)
                 continue
             if motivo is not None:
                 with tx_durable(conn):
@@ -640,7 +656,8 @@ def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas
                 continue  # un veto gano la carrera del claim: la cola manda
         try:
             estado, alerta = _ejecucion._continua_job(conn, aplicador, job, queue_id=queue_id)
-        except (AdsApiError, AdsAuthError):
+        except (AdsApiError, AdsAuthError) as exc:
+            _propaga_si_es_global(exc)
             continue
         if estado == "done":
             jobs_done += 1

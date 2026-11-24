@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 import psycopg
 
+from app.apply_estados import RESULTADOS_TERMINALES_REVERSA, TOPE_INTENTOS_CAMBIO
 from app.db import settings_vigentes
 from app.lecturas_historia import historia_de_hoja
 from app.optimizer import temporada
@@ -472,6 +473,7 @@ def sql_pausas_de_baja(
     bloques_join = f"\n{joins_extra.rstrip()}" if joins_extra.strip() else ""
     bloque_where = f"\n{where_extra.rstrip()}" if where_extra.strip() else ""
     bloque_order = f"\n{order_by.rstrip()}" if order_by.strip() else ""
+    terminales_sql = ", ".join(f"'{r}'" for r in RESULTADOS_TERMINALES_REVERSA)
     return (
         f"SELECT {select_cols}\n"
         "  FROM apply_queue q\n"
@@ -486,7 +488,8 @@ def sql_pausas_de_baja(
         "   AND NOT EXISTS (SELECT 1 FROM apply_attempt a\n"
         "                    WHERE a.decision_id = q.decision_id AND a.tipo = 'reversa'\n"
         "                    GROUP BY a.decision_id\n"
-        "                   HAVING bool_or(a.resultado = 'ok') OR count(*) >= 3)\n"
+        f"                   HAVING bool_or(a.resultado IN ({terminales_sql}))"
+        f" OR count(*) >= {TOPE_INTENTOS_CAMBIO})\n"
         "   AND NOT EXISTS (SELECT 1 FROM reactivacion_manual r\n"
         "                    WHERE r.ad_entity_id = q.ad_entity_id\n"
         "                      AND r.detectada_en > q.applied_at)\n"

@@ -11,6 +11,7 @@ import logging
 from datetime import datetime
 
 import psycopg
+from psycopg import sql
 
 from app.redaction import install_scrub_filter, scrub
 
@@ -110,3 +111,23 @@ def soltar_lock_con_advisory(conn: psycopg.Connection, job_key: str, owner: str)
         conn.execute(SQL_ADVISORY_SOLTAR, (job_key,)).fetchone()
     finally:
         liberar_lock(conn, job_key, owner)
+
+
+# Tope de espera de los cerrojos del claim (ARREGLOS 05 A, revision): una
+# conexion que quede con la transaccion abierta reteniendo la fila del claim
+# no puede colgar un horario. Quien no consigue el cerrojo a tiempo se trata
+# como si no fuera dueno: no claima, no compromete, no sella.
+TIEMPO_MAXIMO_CLAIM = "5s"
+TIEMPO_MAXIMO_LATIDO = "3s"
+
+
+def acota_espera_de_cerrojos(
+    conn: psycopg.Connection, tope: str = TIEMPO_MAXIMO_CLAIM, *, transaccional: bool = True
+) -> None:
+    """`lock_timeout` hasta el fin de la transaccion actual (`transaccional`,
+    para el claim, la TX3 y la cerca) o de la sesion (el latido)."""
+    conn.execute(
+        sql.SQL("SET {}lock_timeout = {}").format(
+            sql.SQL("LOCAL " if transaccional else ""), sql.Literal(tope)
+        )
+    )

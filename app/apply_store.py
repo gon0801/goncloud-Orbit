@@ -19,14 +19,11 @@ from app import temporada_io
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PerfilAds, evaluar_perfiles
+from app.apply_estados import TOPE_INTENTOS_CAMBIO as TOPE_INTENTOS
 from app.redaction import scrub
 
 if TYPE_CHECKING:
     from app.ads.write import AdsWriteClient
-
-# Tope de intentos por decision: "no existe 4o intento" es un COUNT verificable
-# contra el ledger (sellado 10 / brief §4.1).
-TOPE_INTENTOS = 3
 
 # Tope de paginas para readback por /list (page size v3 ~1000, cubre ~20k
 # filas): evita colgar el ciclo ante un nextToken infinito. Si la cuenta supera

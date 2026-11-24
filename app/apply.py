@@ -10,17 +10,25 @@ Este modulo es el UNICO importador de `app.ads.write` para el aplicador y
 re-exporta la superficie estable de `app.apply_cuota`, `app.apply_store`,
 `app.apply_reconcilia` y `app.apply_reversa`. Incluye la lectura fresca del bid
 antes del cupo y del PUT (TEMPORADA 01 E).
+
+Aislamiento por entidad (ARREGLOS 05 A.3): un fallo remoto de UNA puja
+(5xx, red o lectura ilegible) la deja incierta y no detiene a las demas pujas
+ni a las fases que siguen (cortes, reactivaciones). Los fallos globales
+(claim perdido, base indisponible, identidad o permisos invalidos) si
+detienen todas las mutaciones.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from decimal import Decimal
+from typing import Literal
 
 import httpx
 import psycopg
+from psycopg.errors import LockNotAvailable
 
-from app import temporada_io
+from app import lock, temporada_io
 from app.ads.client import AdsApiError as AdsApiError  # noqa: F401 - re-export estable
 from app.ads.config import AdsCredentials
 
@@ -59,7 +67,9 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     MOTIVO_SIN_QUOTA,
     MOTIVO_SIN_RESPUESTA,
     MOTIVO_TOPE_INTENTOS,
+    MOTIVO_VIGENCIA_VENCIDA,
     MOTIVO_YA_APLICADA,
+    MOTIVO_YA_INTENTADA,
     MOTIVOS_SIN_APLICAR,
     RESULTADO_ANCESTRO_NO_ENABLED,
     CapSaturado,
@@ -67,11 +77,13 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     ResultadoAplicador,
     _cap_de_config,
     bids_del_ciclo,
+    bids_recuperables,
     cap_desde_settings,
     consume_quota,
     consume_quota_y_sello,
     estado_quota,
     evento_cap_saturado,
+    expira_no_intentadas,
     gate_ancestros,
     hojas_con_bid_sin_sello,
     intentos_sin_sello,
@@ -80,6 +92,7 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     prioridad_bajo_cupo,
     registra_sin_aplicar,
 )
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_reconcilia import (  # noqa: F401 - re-export estable
     _SQL_INTENTOS_BID_AMBIGUOS_SIN_DESENLACE,
 )
@@ -175,6 +188,24 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
 """
 
 
+# Lo que le pasa a UNA mutacion de puja cuyo ledger ya nacio PRE-HTTP.
+# `incierta`: Amazon pudo aplicarla (5xx o red al enviar, o lectura de vuelta
+# ilegible tras un ack). Su fila queda sin sello y la decision sin desenlace
+# hasta que la conciliacion la resuelve con una lectura: JAMAS se vuelve a
+# enviar.
+DesenlaceBid = Literal["aplicada", "divergente", "rechazada", "incierta"]
+
+
+class DuenoDelClaimCambio(Exception):
+    """El sello encontro la fila del claim en manos de otro owner: este
+    proceso fue desplazado mientras esperaba una respuesta de Amazon (ARREGLOS
+    05 A). El intento queda sin sellar; lo trata igual que `ApplyAbortado`."""
+
+
+# Cerca del sello: la fila del claim bloqueada en la transaccion que sella.
+_SQL_DUENO_CERCA = "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s FOR UPDATE"
+
+
 def _bid_quantizado(bid: Decimal) -> Decimal:
     """Decimal quantizado con la MISMA fuente que el wire (`app.ads.write._bid_payload`)."""
     return Decimal(_bid_payload(bid))
@@ -238,6 +269,7 @@ class Aplicador:
         credentials: AdsCredentials | None = None,
         profile_id: str | int | None = None,
         guard_http: Callable[[], None] | None = None,
+        ciclo_origen: int | None = None,
     ) -> None:
         if platform not in PLATAFORMA_MONEDA:
             raise ValueError(
@@ -249,6 +281,10 @@ class Aplicador:
         self._profile_id = profile_id
         self._credentials = credentials
         self.cycle_id_ejecutor = cycle_id_ejecutor
+        # ARREGLOS 05 A: el ciclo cuyas notas y evaluaciones son el contexto de
+        # decision. Es el propio, salvo en un ejecutor de recuperacion, que
+        # completa las decisiones de otro ciclo y no decidio nada.
+        self.ciclo_origen = cycle_id_ejecutor if ciclo_origen is None else ciclo_origen
         self.owner = owner
         self.job_key = job_key
         self._tick_fn = tick
@@ -323,6 +359,7 @@ class Aplicador:
         descartadas: list[str] = []
         aplicadas = 0
         divergencias = 0
+        inciertos = 0
         caps_saturados: list[CapSaturado] = []
         lote_cortado_429 = False
         for decision in ordenadas:
@@ -340,7 +377,10 @@ class Aplicador:
             motivo_datos, identidad = self._guarda_de_datos(decision)
             if motivo_datos is not None:
                 skips.append(motivo_datos)
-                registra_sin_aplicar(self._conn, decision.id, self.cycle_id_ejecutor, motivo_datos)
+                if motivo_datos != MOTIVO_YA_INTENTADA:
+                    registra_sin_aplicar(
+                        self._conn, decision.id, self.cycle_id_ejecutor, motivo_datos
+                    )
                 continue
             assert identidad is not None  # sin motivo, _guarda_de_datos la devuelve
             if lote_cortado_429:
@@ -364,6 +404,8 @@ class Aplicador:
             try:
                 leido = self._readback(cliente, identidad)
             except AdsApiError as exc:
+                if transicion_desde_error(EstadoCambio.PENDIENTE, exc).propaga_aborto:
+                    raise
                 if exc.status == 429:
                     # Amazon esta limitando la ruta de lectura: el cliente ya
                     # agoto sus reintentos para ESTA puja. Repetir el LIST por
@@ -433,6 +475,9 @@ class Aplicador:
                 if evento is not None:
                     caps_saturados.append(evento)
             payload = _payload_bid(identidad[0], identidad[1], decision.new_value)
+            # La reserva (cuota y fila del ledger) nace solo del dueno del
+            # claim: un owner vencido no deja intencion durable ni gasta cupo.
+            _tick(self._tick_fn)
             id_attempt = _ledger(self._conn, decision.id, "normal", payload, quota_cobrada=True)
             if id_attempt is None:
                 skips.append(MOTIVO_TOPE_INTENTOS)
@@ -440,31 +485,39 @@ class Aplicador:
                     self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
                 )
                 continue
-            resultado_bid = self._ejecuta_mutacion(decision, identidad, id_attempt)
-            if resultado_bid is None:
-                skips.append(MOTIVO_FALLO_HTTP)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FALLO_HTTP
-                )
-            elif resultado_bid:
+            desenlace = self._ejecuta_mutacion(decision, identidad, id_attempt)
+            if desenlace == "aplicada":
                 aplicadas += 1
-            else:
+            elif desenlace == "divergente":
                 divergencias += 1
+            elif desenlace == "rechazada":
+                # Su desenlace fallo_http ya quedo escrito con el sello del intento.
+                skips.append(MOTIVO_FALLO_HTTP)
+            else:
+                inciertos += 1
         return ResultadoAplicador(
             orden=[d.id for d in ordenadas],
             aplicadas=aplicadas,
             descartadas=descartadas,
             skips=skips,
             divergencias=divergencias,
+            inciertos=inciertos,
             caps_saturados=tuple(caps_saturados),
         )
 
     def _guarda_de_datos(self, decision: DecisionBid) -> tuple[str | None, tuple[str, str] | None]:
         """Guardas LOCALES de datos previas al LIST (cero HTTP): bid completo,
-        entidad decisora y tope de intentos. Devuelve (motivo, identidad);
-        motivo None = la puja llega a la lectura fresca. Las comparten el lote
-        normal y el corte por 429 para que una puja descartable nunca quede
-        como `sin_respuesta`."""
+        entidad decisora, tope de intentos y, para una recuperacion, que la
+        decision no tenga ya un intento. Devuelve (motivo, identidad); motivo
+        None = la puja llega a la lectura fresca. Las comparten el lote normal
+        y el corte por 429 para que una puja descartable nunca quede como
+        `sin_respuesta`.
+
+        ARREGLOS 05 A.3: una decision con un intento `normal`, cierto o
+        incierto, no vuelve a salir por el aplicador (`ya_intentada`: etiqueta
+        en memoria, sin desenlace propio). Solo la conciliacion la resuelve,
+        leyendo; asi ni un 5xx ni un ejecutor de recuperacion repetiran la
+        misma mutacion."""
         if decision.new_value is None or decision.value_currency is None:
             return MOTIVO_BID_INCOMPLETO, None
         identidad = _identidad(self._conn, decision.ad_entity_id)
@@ -472,14 +525,32 @@ class Aplicador:
             return MOTIVO_ENTIDAD_NO_DECISORA, None
         # Verificar tope antes de cobrar quota para no quemar unidades en
         # decisiones agotadas (_ledger vuelve a verificar ante carreras).
-        if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (TOPE_INTENTOS):
+        intentos = self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0]
+        if intentos >= TOPE_INTENTOS:
             return MOTIVO_TOPE_INTENTOS, None
+        if intentos > 0:
+            return MOTIVO_YA_INTENTADA, None
+        # Campana y ad group ENABLED (misma fuente que la cola y los
+        # reconciliadores): al decidir ya se miraron; una recuperacion horas
+        # despues los vuelve a mirar.
+        if gate_ancestros(self._conn, decision.ad_entity_id) is not None:
+            return MOTIVO_ENTIDAD_NO_DECISORA, None
         return None, identidad
 
     def _ejecuta_mutacion(
         self, decision: DecisionBid, identidad: tuple[str, str], id_attempt: int
-    ) -> bool | None:
-        """Secuencia sellada de UNA mutacion cuyo ledger ya nacio PRE-HTTP."""
+    ) -> DesenlaceBid:
+        """Secuencia sellada de UNA mutacion cuyo ledger ya nacio PRE-HTTP.
+
+        Aislamiento por entidad (ARREGLOS 05 A.3): un fallo remoto de ESTA
+        puja (`AdsApiError`: 5xx, red o lectura de vuelta ilegible) la deja
+        `incierta` y no detiene a las demas ni a las fases que siguen. Su fila
+        del ledger queda SIN sello, que es el rastro de siempre (APPLY.md
+        §6.1): lo resuelve la conciliacion del ciclo siguiente con una
+        lectura, jamas otro envio. Los fallos globales (claim perdido, base
+        indisponible, identidad o permisos invalidos) siguen propagando. Se
+        sella solo con el claim todavia en poder de este owner: `_tick`
+        valida al dueno antes de cada sello."""
         self._conn.commit()
         cliente = self._cliente()
         try:
@@ -488,17 +559,55 @@ class Aplicador:
                 cliente, identidad, decision.new_value, decision.value_currency
             )
         except AdsApiErrorMutacion as exc:
-            _sella_ledger(
-                self._conn,
-                id_attempt,
-                ack=None,
-                resultado=f"fallo http {exc.status}: {exc.cuerpo}",
+            # Rechazo determinista (4xx con cuerpo): Amazon NO la aplico.
+            _tick(self._tick_fn)
+            transicion = transicion_desde_error(
+                EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
             )
-            self._conn.commit()
-            return None
+            identidad_o_permisos = transicion.propaga_aborto
+            with tx_durable(self._conn):
+                # Cerca del claim: el sello y el desenlace solo los escribe el
+                # dueno. Con el claim en manos de otro el intento queda abierto.
+                self.exige_dueno()
+                _sella_ledger(
+                    self._conn,
+                    id_attempt,
+                    ack=None,
+                    resultado=f"fallo http {exc.status}: {exc.cuerpo}",
+                )
+                # El desenlace va en la MISMA transaccion que el sello. Si el
+                # proceso cayera entre ambos, la recuperacion encontraria un
+                # intento sellado sin desenlace: no se reintenta, no se concilia
+                # ni vence, y la decision quedaria huerfana para siempre.
+                registra_sin_aplicar(
+                    self._conn,
+                    decision.id,
+                    self.cycle_id_ejecutor,
+                    MOTIVO_FALLO_HTTP,
+                    detalle=(
+                        {"http": str(exc.status), "fallo": "identidad_o_permisos"}
+                        if identidad_o_permisos
+                        else {"http": str(exc.status)}
+                    ),
+                )
+            if identidad_o_permisos:
+                # Fallo global: la fase aborta y no sale ninguna mutacion mas.
+                raise
+            return "rechazada"
+        except AdsApiError as exc:
+            if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+                raise
+            # Amazon pudo aplicarla: la fila queda sin sello (el rastro).
+            return "incierta"
         ack = _json_seguro(resp_http)
         _tick(self._tick_fn)
-        bid_leido = self._readback(cliente, identidad)
+        try:
+            bid_leido = self._readback(cliente, identidad)
+        except AdsApiError as exc:
+            if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+                # Fallo global: el intento queda abierto, sin sello.
+                raise
+            return "incierta"
         verify_ok = bid_leido is not None and bid_leido == _bid_quantizado(decision.new_value)
         resultado = (
             "ok"
@@ -507,14 +616,57 @@ class Aplicador:
                 "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
             )
         )
+        # La lectura de vuelta pudo tardar: el dueno se vuelve a validar al
+        # volver y, dentro del sello, con la fila del claim bloqueada.
+        _tick(self._tick_fn)
         with tx_durable(self._conn):
             _sella_ledger(self._conn, id_attempt, ack=ack, resultado=resultado)
-            _confirma_resumen(
-                self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor, leido=bid_leido
-            )
+            self.confirma_cercada(decision.id, ack, verify_ok, leido=bid_leido)
             if bid_leido is not None:
                 _actualiza_cache(self._conn, decision.ad_entity_id, bid_leido)
-        return verify_ok
+        return "aplicada" if verify_ok else "divergente"
+
+    def exige_dueno(self) -> None:
+        """Cerca del claim para el sello en curso (ARREGLOS 05 A).
+
+        Lee la fila del claim con FOR UPDATE dentro de la transaccion que
+        sella: el sello y cualquier cambio de dueno se ordenan, porque quien
+        claima actualiza esa misma fila. Si la fila nombra a otro owner, el
+        proceso fue desplazado mientras esperaba una respuesta y no sella: el
+        intento queda sin sellar y la conciliacion del sucesor lo resuelve.
+        Sin fila tampoco se sella: el claim se solto (este owner al terminar, o
+        un sucesor que lo tomo y lo solto entre el aviso anterior y la cerca),
+        asi que ya no es dueno de la ejecucion."""
+        # Cerca con tope: si otra transaccion retiene la fila y no la suelta a
+        # tiempo, el dueno no se puede probar y se trata como perdido.
+        lock.acota_espera_de_cerrojos(self._conn)
+        try:
+            fila = self._conn.execute(_SQL_DUENO_CERCA, (self.job_key,)).fetchone()
+        except LockNotAvailable as exc:
+            raise DuenoDelClaimCambio(
+                f"lock {self.job_key} retenido por otra transaccion: no se sella"
+            ) from exc
+        if fila is not None and fila[0] == self.owner:
+            return
+        raise DuenoDelClaimCambio(
+            f"lock {self.job_key} ya no es nuestro"
+            f" (owner: {fila[0] if fila is not None else 'sin fila'}): no se sella"
+        )
+
+    def confirma_cercada(
+        self,
+        decision_id: int,
+        ack: dict,
+        verify_ok: bool,
+        *,
+        leido: Decimal | None = None,
+    ) -> None:
+        """Confirma el resumen solo si el claim sigue en manos de este owner
+        (misma transaccion que el sello del ledger)."""
+        self.exige_dueno()
+        _confirma_resumen(
+            self._conn, decision_id, ack, verify_ok, self.cycle_id_ejecutor, leido=leido
+        )
 
     def _muta_bid(
         self,

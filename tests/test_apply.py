@@ -126,6 +126,9 @@ SQL67 = (
 SQL93 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
 ).read_text(encoding="utf-8")
+SQL94 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
+).read_text(encoding="utf-8")
 
 
 def _fake_credentials() -> AdsCredentials:
@@ -166,6 +169,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL61)  # 0061 (V.1): ads_campana_config
         conn.execute(SQL67)  # 0067 (V.3): campana_ajuste (tercera rama de la vista)
         conn.execute(SQL93)  # 0093 (TEMPORADA 01 B): episodia + bid_cambiado_fuera
+        conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         yield conn
     finally:
         if conn is not None:
@@ -2805,6 +2809,11 @@ def test_reconcilia_bids_reutiliza_cliente_entre_ambiguos_y_sin_sello(monkeypatc
             llamadas_cliente += 1
             return object()
 
+        def confirma_cercada(self, decision_id, *_a, **_k):
+            # ARREGLOS 05 A: la confirmacion pasa por la cerca del claim del
+            # aplicador; aqui solo se cuenta.
+            confirmaciones.append(decision_id)
+
     monkeypatch.setattr(apply_reconcilia, "gate_ancestros", lambda _c, _e: None)
     monkeypatch.setattr(apply_reconcilia, "_identidad", lambda _c, eid: ("keyword", str(eid)))
     monkeypatch.setattr(
@@ -2814,9 +2823,10 @@ def test_reconcilia_bids_reutiliza_cliente_entre_ambiguos_y_sin_sello(monkeypatc
     )
     monkeypatch.setattr(apply_reconcilia, "_ledger", lambda *_a, **_k: 99)
     monkeypatch.setattr(apply_reconcilia, "_sella_ledger", lambda *_a, **_k: None)
-    monkeypatch.setattr(apply_reconcilia, "_confirma_resumen", lambda *_a, **_k: None)
     monkeypatch.setattr(apply_reconcilia, "_actualiza_cache", lambda *_a, **_k: None)
+    confirmaciones: list = []
 
     confirmadas, fallidas = reconcilia_bids(_Conn(), _Aplicador(), "amazon_mx")
     assert (confirmadas, fallidas) == (2, 0)
+    assert len(confirmaciones) == 2, "cada resuelta se confirma una vez"
     assert llamadas_cliente == 1

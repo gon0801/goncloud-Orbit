@@ -1,0 +1,149 @@
+# Rojo de la revision automatica del PR #746 (cinco hilos de Devin)
+# Codigo antes de las correcciones: 92371a22 (cabeza con la que se abrio el PR).
+# Comando: comprobar.sh N a, solo las pruebas nuevas de los hilos.
+# Seis casos (el hilo 4 tiene dos variantes: con el aviso pre-HTTP y sin el).
+# El hilo 1 se escribio en dos pasos: el rojo de comportamiento es el segundo bloque.
+
+test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen
+  TypeError: _fase_reconciliacion() got an unexpected keyword argument 'origen'
+test_arreglos05_a_ejecutor_no_repite_decisiones_que_ya_tienen_desenlace
+  AssertionError: la puja con desenlace no se reevalua
+test_arreglos05_a_interrupcion_tras_tx3_abre_ejecutor_aunque_no_queden_huerfanas
+  AssertionError: quedan fases sin correr
+test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella[True]
+  AssertionError: el dueno desplazado no sella
+test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella[False]
+  AssertionError: el dueno desplazado no sella
+test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy
+  AssertionError: hoy se decide de nuevo; no se recuperan propuestas de ayer
+
+# Hilo 1, rojo de comportamiento (con el origen ya entregado al aplicador):
+test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen
+  AssertionError: la pausa economica pendiente del origen se completa en la recuperacion
+
+# Hilo 6, rojo sobre b76fff40 (lo destapo la correccion del hilo 1; se corrigio despues):
+test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen
+  AssertionError: la pausa no sale a Amazon sin una elegibilidad comprobable
+
+# Revision de Astra y sexto hilo de Devin: rojo sobre el codigo anterior a cada
+# correccion (b76fff40 mas los commits anteriores de esta lista).
+test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella[sin_fila-False]
+  AssertionError: el dueno desplazado no sella
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[401]
+  AssertionError: assert ('done' == 'degraded'
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[403]
+  AssertionError: assert ('done' == 'degraded'
+test_arreglos05_a_rechazo_de_identidad_no_se_aisla_por_fila
+  Failed: DID NOT RAISE AdsApiErrorMutacion
+test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
+  AssertionError: la hoja ya habilitada no se reenvia
+test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno
+  AssertionError: None
+
+# Setimo hilo de Devin, rojo sobre 0f30fc16 (lo destapo la correccion del 401/403):
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[401]
+  AssertionError: la puja rechazada se cierra
+test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones[403]
+  AssertionError: la puja rechazada se cierra
+
+# Ronda 3: rojo sobre la cabeza anterior a cada correccion (4d6f3f67 y los commits anteriores de esta ronda):
+test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote[antes]
+  AssertionError: assert 'done' == 'degraded'
+test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote[despues]
+  AssertionError: assert 'done' == 'degraded'
+test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar
+  AssertionError: ResumenReactivacion(confirmadas=2, fallidas=0, sin_quota=2, omitidas=0, caps_saturados=(CapSaturado(platform='amazon_us', kind='pause', used=5, cap=5),))
+test_arreglos05_a_rechazo_de_identidad_en_la_recuperacion_de_cosecha
+  Failed: DID NOT RAISE AdsApiErrorMutacion
+test_arreglos05_a_reversa_manual_con_rechazo_de_identidad_no_es_un_500
+  app.ads.write.AdsApiErrorMutacion: status=403: PUT /sp/keywords
+test_arreglos05_a_la_puja_rechazada_no_se_cierra_sin_el_claim
+  AssertionError: {'bids_reconciliados': {'confirmados': 0, 'fallidos': 0}, 'pausas_reconciliadas': {'confirmadas': 0, 'fallidas': 0}, '...'live': 3, 'shadow': 0, 'choques': 0}, 'apply_error': 'status=403: PUT https://advertising-ap
+
+# Tercera pasada: rojo contra afa60b58 (el de barrido, con el codigo de esa cabeza):
+test_arreglos05_a_reactivacion_pendiente_de_lectura_no_deja_completo_el_origen
+  AssertionError: queda una reactivacion por leer: el origen no se marca completo
+test_arreglos05_a_el_rechazo_de_una_puja_se_cierra_con_su_sello
+  AssertionError: el desenlace va con el sello
+test_arreglos05_a_la_pausa_de_producto_propaga_el_rechazo_de_identidad
+  Failed: DID NOT RAISE AdsApiError
+test_arreglos05_a_la_reversa_de_cosecha_propaga_el_rechazo_de_identidad
+  Failed: DID NOT RAISE AdsApiErrorMutacion
+test_arreglos05_a_barrido_pausa_de_producto_403_detiene_el_corte_siguiente
+  Failed: DID NOT RAISE AdsApiError
+
+# Cuarta pasada (Devin): rojo contra 487e0eaa:
+test_arreglos05_a_reversa_con_rechazo_de_identidad_cierra_el_job_y_no_repite_el_post
+  AssertionError: el job se cierra como fallido antes de propagar el rechazo
+test_arreglos05_a_el_barrido_de_reactivaciones_lee_antes_de_reenviar
+  assert (0, 1) == (0, 0)
+
+# Cuarta pasada (Astra): rojo contra a8b3c7c1 (Hallazgo 1) y d6c707a9 (Hallazgo 2):
+test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente[put]
+  Failed: DID NOT RAISE AdsApiError
+test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente[readback]
+  Failed: DID NOT RAISE AdsApiError
+test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente[previa_interna]
+  Failed: DID NOT RAISE AdsApiError
+test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reenviar
+  AssertionError: assert (0, 1, 0) == (0, 0, 1)
+
+# Quinta pasada (Devin): rojo contra 1b9c3bca:
+test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia
+  app.ads.client.AdsApiError: status=403: {"code": "ACCESS_DENIED"}
+
+# Quinta pasada (Astra): rojo contra 8cf5920c, 6c3fb3cf y f004c2e5:
+test_arreglos05_a_reversa_abierta_se_sella_aunque_cache_ya_este_enabled
+  AssertionError: lee el estado vivo de Amazon para conciliar (assert 0 == 1)
+test_arreglos05_a_reversa_pause_desplazada_durante_el_list_no_sella_ni_toca_cache
+  AssertionError: assert None is True (apply_abortado_owner ausente; el desplazado sello y toco cache)
+test_arreglos05_a_reversa_manual_resuelve_intento_abierto_sin_reenviar_put
+  AssertionError: la segunda peticion resuelve por lectura y no manda otro PUT (assert 2 == 1)
+
+# Sexta pasada (Devin): rojo contra f8a87b86:
+test_arreglos05_a_reversa_incierta_no_deshace_pausa_manual_posterior
+  AssertionError: no debe deshacer la pausa manual del dueno (assert 2 == 1)
+
+# Septima pasada (Devin): rojo contra 589b9e20:
+test_arreglos05_a_reversa_manual_concurrente_no_cierra_put_automatico_en_vuelo
+  AssertionError: confirmada True != False (y apply_attempt_solo_sella_resultado aborto apply)
+
+# Sexta pasada (Astra): rojo contra 049659ee y 35859807:
+test_arreglos05_a_tercer_horario_preserva_pausa_manual_cuando_otra_hoja_sigue_pendiente
+  AssertionError: assert ['9202', '9204', '9202'] == ['9202', '9204']
+test_arreglos05_a_reversa_respeta_tope_de_tres_y_cuarto_horario_lee_sin_reenviar
+  AssertionError: tope de 3 reversas por pausa: cero 4o PUT (assert 4 == 3)
+
+# Modelo explicito de estados y chequeo /correct: rojo contra cd95cc32 (antes de migrar):
+test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
+  AssertionError: 4 violaciones reales detectadas fuera de app/apply_estados.py:
+    - app/apply_cola_ejecuta.py: literal 'omitida:pausada_tras_habilitar' duplicado
+    - app/apply_cola_ejecuta.py: consulta ad hoc _SQL_REVERSA_TERMINAL prohibida
+    - app/apply_store.py: redefine STATUS_IDENTIDAD_RECHAZADA
+    - app/temporada_io.py: literal 'omitida:pausada_tras_habilitar' duplicado
+
+# Septima pasada (Astra sobre el modelo de estados): rojo contra a08c19c7:
+test_arreglos05_a_reversa_manual_respeta_archivado_sin_otro_put_ni_intento
+  AssertionError: no debe emitir otro PUT contra una entidad ARCHIVED (assert 2 == 1)
+test_arreglos05_a_reversa_manual_respeta_tope_de_tres_en_abierto_y_cerrados
+  AssertionError: tras CONTAR_INTENTO del 3er intento no debe enviar un 4o PUT (assert 4 == 3)
+test_arreglos05_a_segundo_ejecutor_solo_cuenta_confirmadas_de_esa_corrida
+  AssertionError: assert (2, 0, 0, 0) == (1, 1, 0, 0) (atribuia A de nuevo al 2o ejecutor)
+
+# Octava pasada (Astra, cambio de dia con 3er PUT incierto y ARCHIVED en primer LIST): rojo contra 0a634deb:
+test_arreglos05_a_tercer_put_incierto_al_cambio_de_dia_se_concilia_sin_cuarto_put
+  AssertionError: [('ok:no_aplicado', True), ('ok:no_aplicado', True), (None, False)] (3er intento seguia abierto el dia 2)
+test_arreglos05_a_reversa_manual_archivado_en_primer_list_un_solo_intento
+  AssertionError: dos peticiones manuales deben generar un solo PUT (assert 2 == 1)
+
+# Novena pasada (Astra, temporada o global pasados a shadow): rojo contra a08d5b13 y fdea6b3d:
+test_arreglos05_a_reversa_abierta_se_concilia_aunque_temporada_pase_a_shadow
+  AssertionError: concilia por LIST ambos intentos abiertos (assert 0 == 2)
+test_arreglos05_a_reversa_abierta_se_concilia_aunque_global_pase_a_shadow
+  AssertionError: concilia por LIST la reversa abierta incluso en global shadow (assert 0 == 1)
+
+# Octava pasada (Devin, shadow el mismo dia y off al dia siguiente): rojo contra f455b45a:
+test_arreglos05_a_reversa_abierta_en_shadow_el_mismo_dia_concilia_sin_completar_origen
+  AssertionError: concilia por LIST bajo el mismo claim (assert 0 == 1)
+test_arreglos05_a_reversa_abierta_en_off_tras_cambio_de_dia_concilia_sin_put_ni_cuota
+  AssertionError: concilia por LIST antes de cerrar skipped en off (assert 0 == 1)

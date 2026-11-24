@@ -366,8 +366,16 @@ def digest_ciclo(resumen: dict) -> str:
         f" {resumen['plataforma']}" + (f" [{modo}]" if modo else "") + f" — {resumen['status']}",
         f"decisiones: {resumen['decisions_count']}",
     ]
+    if resumen.get("resume_of") is not None:
+        # ARREGLOS 05 A: ejecutor de recuperacion; no decidio, completa un origen.
+        lineas.append(f"recupera las decisiones del ciclo #{resumen['resume_of']}")
     if "bids_aplicados" in apply:
         lineas.append(f"bids aplicados: {apply['bids_aplicados']}")
+    if apply.get("bids_inciertos"):
+        lineas.append(
+            f"bids inciertos: {apply['bids_inciertos']} (se resuelven con una lectura; "
+            "no se reenvian)"
+        )
     if "bids_descartados" in apply:
         lineas.append(f"bids fuera de cap hoy: {apply['bids_descartados']}")
     if "cortes_encolados" in apply:
@@ -581,14 +589,20 @@ def notifica_cortes_encolados(
         return False
 
 
-def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = None) -> bool:
-    """Digest del ciclo ejecutor al final del ciclo. False = fallo del canal."""
+def notifica_digest(
+    resumen: dict, *, transport: httpx.BaseTransport | None = None, con_contribucion: bool = True
+) -> bool:
+    """Digest del ciclo ejecutor al final del ciclo. False = fallo del canal.
+
+    `con_contribucion` False omite la linea de contribucion del dia: la usa el
+    digest de un ejecutor de recuperacion, que no repite el contexto que ya
+    mando el ciclo que decidio."""
     try:
         if not canal_activo():
             return True
         plataforma = resumen.get("plataforma")
         payload = resumen
-        if isinstance(plataforma, str):
+        if con_contribucion and isinstance(plataforma, str):
             contrib = notifica_contribucion.carga_contribucion_digest(plataforma)
             if contrib is not None:
                 payload = {**resumen, "contribucion": contrib}

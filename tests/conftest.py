@@ -32,6 +32,44 @@ def ahora_db(conn):
 
 
 @pytest.fixture(autouse=True)
+def _aplicador_de_prueba_nace_con_el_claim(monkeypatch):
+    """ARREGLOS 05 A: la cerca del sello exige la fila del claim, igual que el
+    ciclo la exige al construir el aplicador (toma el claim antes). Todo
+    `Aplicador` de prueba sobre una conexion real nace dueno de su claim
+    `(job_key, owner)`.
+
+    El claim se toma por una conexion PROPIA, corta y autocommit, y solo si la
+    conexion del aplicador no tiene una transaccion abierta: tomado dentro de
+    la transaccion de otra, el cerrojo de la fila se queda retenido y el latido
+    del ciclo (que va por otra conexion) se cuelga esperandolo. Con tope de
+    espera, para que un cerrojo ajeno falle la prueba en vez de colgarla."""
+    import psycopg
+    from psycopg import pq
+
+    from app import apply, cycle, lock
+
+    original = apply.Aplicador.__init__
+
+    def nace(self, conn, *args, **kwargs):
+        original(self, conn, *args, **kwargs)
+        if (
+            not isinstance(conn, psycopg.Connection)
+            or conn.info.transaction_status != pq.TransactionStatus.IDLE
+        ):
+            return
+        propia = cycle._abre_heartbeat(conn)
+        if propia is None:
+            return
+        try:
+            lock.acota_espera_de_cerrojos(propia, transaccional=False)
+            lock.claim_lock(propia, self.job_key, self.owner)
+        finally:
+            propia.close()
+
+    monkeypatch.setattr(apply.Aplicador, "__init__", nace)
+
+
+@pytest.fixture(autouse=True)
 def _canal_telegram_deshabilitado(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path_factory.mktemp("secrets_vacios")))
     monkeypatch.delenv("ORBIT_DSN_READ", raising=False)

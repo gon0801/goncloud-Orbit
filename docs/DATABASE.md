@@ -350,7 +350,11 @@ revienta con `ValueError`, jamás cae al default 55 en silencio (regla 3).
 solo para cerrarse, con UPDATE acotado por columna. `status` sellado por
 CHECK: `running` / `done` / `degraded` / `skipped` / `failed`. Un ciclo que no
 decidió nada también es un resultado auditable (las guardas dejan su motivo en
-`notes`). **Orbit NO tiene tabla `system_alerts`** (era del repo viejo): el
+`notes`). Desde ARREGLOS 05 A (migración `0094`) trae además
+`decision_committed_at` (sello único de la TX3) y `resume_of` (el ciclo de
+origen de un ejecutor de recuperación); ver [Recuperación del
+ciclo](#recuperación-del-ciclo-arreglos-05-a-migración-0094). **Orbit NO
+tiene tabla `system_alerts`** (era del repo viejo): el
 sustituto por ahora es `status='degraded'` + `notes`, y el digest diario de la
 Fase 3.
 *Cómo se audita*: invariante — ciclos sin cerrar viejos; `decisions_count`
@@ -1053,3 +1057,72 @@ por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +
   de `apply_quota_state`.
 - `REVOKE ALL … FROM PUBLIC` + default privileges de solo lectura: ningún rol
   futuro hereda escritura por accidente.
+
+### Recuperación del ciclo (ARREGLOS 05 A, migración `0094`)
+
+Un ciclo tiene dos clases de envelope, y las dos viven en `optimizer_cycle`:
+
+- **Origen** (`resume_of IS NULL`): dueño de sus decisiones. Corre claim →
+  conciliación → TX2 (snapshot y decisión) → TX3 → apply → cierre.
+- **Ejecutor de recuperación** (`resume_of = <origen>`): no decide
+  (`decisions_count = 0`); completa las decisiones pendientes del origen. Se
+  abre en un horario posterior cuando el origen tiene la TX3 comprometida y
+  alguna decisión live sin desenlace (apply que no terminó, proceso muerto
+  después de TX3). La referencia viaja también en `notes.resume_of`, que es
+  donde sobrevive a la reversa de la migración.
+
+Columnas nuevas (aditivas):
+
+- `decision_committed_at TIMESTAMPTZ NULL` — sello único de la TX3: la
+  transacción que inserta las decisiones, aunque sean cero. Se escribe en la MISMA sentencia que cierra el envelope
+como `done` o `degraded`, y lleva el reloj de la **decisión** de esa corrida
+(acotado al ahora de la base): el mismo que fecha las decisiones y rige su
+vigencia, para que un ciclo corrido con `--decided-at` de otro día no cuente
+como la decisión de hoy. NULL
+  significa que ese envelope nunca comprometió decisiones (murió antes de
+  TX3, falló, salió `skipped`, o es anterior a `0094`). Es la fuente única de
+  «hoy ya se decidió»: se retiró la heurística de 3 horas sobre `running` y
+  el atajo que trataba `degraded` como día cerrado.
+- `resume_of BIGINT NULL REFERENCES optimizer_cycle(id)` — solo se fija en el
+  INSERT; debe apuntar a un origen de la misma plataforma con TX3
+  comprometida y sin su propio `resume_of` (nunca una cadena).
+
+El origen guarda además `notes.apply.completo` cuando encolado, pujas,
+cortes y reactivaciones terminaron sin fallo; el plan del día abre un
+ejecutor si hay decisiones sin desenlace **o** si falta esa marca.
+
+El origen guarda además `notes.apply.completo` cuando encolado, pujas,
+cortes y reactivaciones terminaron sin fallo; el plan del día abre un
+ejecutor si hay decisiones sin desenlace **o** si falta esa marca.
+
+Disparador `optimizer_cycle_0094_progreso` (BEFORE INSERT OR UPDATE): el sello
+no nace en el INSERT, tiene una sola transición (NULL → valor), se escribe solo
+al cerrar como `done`/`degraded` con `finished_at`, y no es del futuro. Los ciclos anteriores a `0094` se cierran sin sello y
+siguen pasando: un rollback de código no los rompe.
+
+Permisos: `app_decide` gana `UPDATE (decision_committed_at)` y nada más. No
+hay grant sobre `resume_of` (se fija en el INSERT) ni ampliación del UPDATE
+general de la tabla.
+
+`decision_sin_aplicar` admite el motivo `vigencia_vencida` (mismo CHECK
+nombrado, `decision_sin_aplicar_motivo_check`): al cambiar el día de decisión,
+lo que nunca se intentó deja de ser elegible con desenlace auditable. No se
+borra la decisión ni se toca la que ya tiene un intento (esa solo la resuelve
+la conciliación, leyendo). Solo aplica a orígenes con sello: la historia
+anterior a `0094` conserva su clasificación (`sin_registro` en
+`v_decision_huerfana`).
+
+Día del despliegue: la migración sella, con su hora de cierre, únicamente los
+ciclos cerrados ese día (UTC) que traen evidencia de TX3 (estado `done` o
+`degraded`, `finished_at` y `decisions_count` igual a las filas de
+`decision`). Así el primer horario con el binario nuevo no vuelve a decidir un
+día ya decidido por el binario anterior. Lectura previa de producción y
+clasificación de la historia: `docs/evidencia/arreglos-05/A/previa.txt`.
+
+Reversa (`0094_reversa_arreglos05_ciclo_origen.sql`): aborta si ya hay
+desenlaces `vigencia_vencida` (restaurar el CHECK borraría historia); conserva
+ciclos, ejecutores y todas las filas de `apply_attempt`. `tools/despliegue/rollback.sh`
+restaura el código antes de revertir migraciones, y el binario anterior corre
+contra este esquema. Límites conocidos con el binario anterior: no completa lo
+que un ejecutor dejó pendiente (queda visible en `v_decision_huerfana`) y no
+expira lo no intentado al cambiar de día.

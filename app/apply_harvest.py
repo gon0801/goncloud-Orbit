@@ -30,12 +30,14 @@ from app import (
     biblioteca,
     notifica,
 )
+from app.ads.client import AdsApiError
 from app.ads.sp_wire import (  # noqa: F401 - re-export estable
     errores_de_ack as _errores_de_ack,
 )
 from app.ads.sp_wire import (
     id_de_ack as _id_de_ack,
 )
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_harvest_hermanas import (  # noqa: F401 - re-export estable
     _SQL_ESTADO_COLA,
     _SQL_ROL_ORIGEN,
@@ -372,21 +374,54 @@ def ejecuta_reversa_harvest(
     )
 
 
+# Un job cuya reversa automatica se interrumpe porque Amazon rechazo la identidad
+# o los permisos: se cierra como fallido con este motivo antes de propagar.
+MOTIVO_REVERSA_RECHAZADA = "reversa_rechazo_de_identidad"
+_SQL_COLA_APLICANDO_DEL_JOB = """
+SELECT id FROM apply_queue
+ WHERE decision_id = %s AND estado = 'applying'
+ ORDER BY id DESC
+ LIMIT 1
+"""
+
+
 def _reversa_automatica(
     conn: psycopg.Connection,
     aplicador,
     job: _Job,
     ctx: _Contexto,
 ) -> str:
-    """Reversa automatica tras fallo definitivo (wrapper que respeta parches)."""
-    return apply_harvest_reversa._reversa_automatica(
-        conn,
-        aplicador,
-        job,
-        ctx,
-        lista_completa_fn=_lista_completa,
-        reversa_delete_fn=_reversa_delete,
-    )
+    """Reversa automatica tras fallo definitivo (wrapper que respeta parches).
+
+    Si Amazon rechaza la identidad o los permisos durante la reversa (401/403),
+    el rechazo se propaga para detener el barrido, pero ANTES el job se cierra
+    como fallido: la creacion que fallo ya es definitiva y, si quedara en su
+    fase, la recuperacion volveria a intentar crear la keyword. El negativo del
+    origen queda sin retirar y consta en el detalle (ARREGLOS 05 A, revision)."""
+    try:
+        return apply_harvest_reversa._reversa_automatica(
+            conn,
+            aplicador,
+            job,
+            ctx,
+            lista_completa_fn=_lista_completa,
+            reversa_delete_fn=_reversa_delete,
+        )
+    except AdsApiError as exc:
+        if not transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+            raise
+        cola = conn.execute(_SQL_COLA_APLICANDO_DEL_JOB, (job.decision_id,)).fetchone()
+        _falla_job(
+            conn,
+            job,
+            MOTIVO_REVERSA_RECHAZADA,
+            queue_id=cola[0] if cola is not None else None,
+            detalle=(
+                "reversa interrumpida: Amazon rechazo la identidad o los permisos"
+                f" (http {getattr(exc, 'status', None)}); el negativo del origen queda sin retirar"
+            ),
+        )
+        raise
 
 
 def _termina_cola_si_applying(conn: psycopg.Connection, queue_id: int | None) -> None:
@@ -486,6 +521,10 @@ def _paso_negative(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
+            raise
         return _falla_job(
             conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=f"fallo http {exc.status}"
         )
@@ -595,6 +634,10 @@ def _paso_keyword(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
+            raise
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | fallo http {exc.status}"
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     ack = apply._json_seguro(resp)
@@ -638,7 +681,7 @@ def _paso_readback(
         with tx_durable(conn):
             _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
             _avanza(conn, job, "done")
-            apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
+            aplicador.confirma_cercada(job.decision_id, ack, True)
             if queue_id is not None:
                 _termina_cola(conn, queue_id, "applied")
         return "done", None
@@ -659,7 +702,7 @@ def _paso_readback(
                 "hermanas_ciclos": 0,
             },
         )
-        apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
+        aplicador.confirma_cercada(job.decision_id, ack, True)
         if queue_id is not None:
             _termina_cola(conn, queue_id, "applied")
         rastro_biblioteca = biblioteca.registra_keyword(

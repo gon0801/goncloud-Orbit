@@ -8,14 +8,17 @@ lectura sin acoplarse al cliente de escritura ni al nucleo de mutaciones.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
 import psycopg
+from psycopg import pq
 from psycopg.types.json import Json
 
 from app import temporada_io
+from app.db import tx_durable
 
 # CAMPANA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
 # bloquean reintentos y liberaciones. Definidos AQUI; apply/apply_cola/cycle
@@ -60,6 +63,16 @@ MOTIVO_ESPERA_PROTECCION = "espera_proteccion"
 # Orbit vio al decidir. Cero PUT del destino viejo; la hoja queda excluida del
 # episodio (temporada_exclusion) y el desenlace del efecto es mano_del_dueno.
 MOTIVO_BID_CAMBIADO_FUERA = "bid_cambiado_fuera"
+# ARREGLOS 05 A.3: la decision ordinaria es elegible solo el dia en que se
+# decidio. Al cambiar el dia, la que NUNCA se intento deja de ser elegible con
+# este desenlace auditable. La que ya tiene un intento no se toca: esa solo la
+# resuelve la conciliacion, leyendo.
+MOTIVO_VIGENCIA_VENCIDA = "vigencia_vencida"
+
+# Etiqueta de skip en memoria del aplicador (NO se persiste): la decision ya
+# tiene un intento normal, cierto o fallido, y el aplicador no la vuelve a
+# mandar. Su desenlace lo pone la conciliacion con una lectura fresca.
+MOTIVO_YA_INTENTADA = "ya_intentada"
 
 # ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
 # CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
@@ -83,6 +96,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_CHOQUE_CLAVE,
     MOTIVO_ESPERA_PROTECCION,
     MOTIVO_BID_CAMBIADO_FUERA,
+    MOTIVO_VIGENCIA_VENCIDA,
 )
 
 _SQL_SIN_APLICAR = """
@@ -117,6 +131,60 @@ def registra_sin_aplicar(
         (decision_id, cycle_id, motivo, Json(detalle) if detalle is not None else None),
     )
     temporada_io.cierra_efecto_sin_aplicar(conn, decision_id=decision_id, motivo=motivo)
+
+
+# ARREGLOS 05 A.3: decisiones de dias anteriores que nunca se intentaron. La
+# fuente de "sin desenlace" es la vista de auditoria (una sola definicion:
+# sin aplicacion, sin no-apply y sin fila en la cola). Solo origenes con
+# sello de TX3: las reglas nuevas no reclasifican la historia anterior a la
+# 0094, que conserva su `sin_registro`. Sin ningun intento normal: la decision
+# que salio a Amazon, cierto o incierto, solo la resuelve la conciliacion.
+_SQL_NO_INTENTADAS_VENCIDAS = """
+SELECT h.decision_id, h.cycle_id
+  FROM v_decision_huerfana h
+  JOIN decision d         ON d.id = h.decision_id
+  JOIN optimizer_cycle o  ON o.id = h.cycle_id
+ WHERE h.origen = 'huerfana'
+   AND h.platform = %s::platform
+   AND o.decision_committed_at IS NOT NULL
+   AND (d.decided_at AT TIME ZONE 'UTC')::date < %s::date
+   AND NOT EXISTS (SELECT 1 FROM apply_attempt a
+                    WHERE a.decision_id = h.decision_id AND a.tipo = 'normal')
+   AND NOT EXISTS (SELECT 1 FROM apply_queue q WHERE q.decision_id = h.decision_id)
+ ORDER BY h.decision_id
+"""
+
+
+def expira_no_intentadas(
+    conn: psycopg.Connection, platform: str, *, hoy: dt.date, cycle_id_ejecutor: int
+) -> int:
+    """Al cambiar el dia de decision, lo ordinario que nunca se intento deja de
+    ser elegible con motivo auditable (ARREGLOS 05 A.3). `hoy` es la fecha UTC
+    del reloj de la corrida. No borra decisiones ni promueve propuestas
+    shadow; el ciclo en curso decide de nuevo con datos frescos. Devuelve
+    cuantas dejaron de ser elegibles.
+
+    Deja la conexion como la recibio: sin autocommit, el SELECT abre una
+    transaccion y el `SET TRANSACTION ISOLATION LEVEL` de TX2, que viene
+    despues, revienta con ActiveSqlTransaction."""
+    estaba_idle = not conn.autocommit and conn.info.transaction_status == pq.TransactionStatus.IDLE
+    try:
+        filas = conn.execute(_SQL_NO_INTENTADAS_VENCIDAS, (platform, hoy)).fetchall()
+        if not filas:
+            return 0
+        with tx_durable(conn):
+            for decision_id, origen in filas:
+                registra_sin_aplicar(
+                    conn,
+                    decision_id,
+                    cycle_id_ejecutor,
+                    MOTIVO_VIGENCIA_VENCIDA,
+                    detalle={"origen": origen},
+                )
+        return len(filas)
+    finally:
+        if estaba_idle:
+            conn.rollback()
 
 
 # Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger
@@ -305,6 +373,10 @@ class ResultadoAplicador:
     descartadas: list[str]
     skips: list[str]
     divergencias: int = 0
+    # ARREGLOS 05 A.3: pujas cuyo PUT quedo incierto (5xx, red o lectura de
+    # vuelta ilegible). Su fila del ledger queda sin sello y la decision sin
+    # desenlace: la conciliacion del ciclo siguiente las resuelve leyendo.
+    inciertos: int = 0
     # Preflight 1.4 (D3d): los caps que ESTE lote llevo a su transicion
     # (used == cap) — viajan al ciclo para el aviso fail-silent. El consumo
     # rechazado por tope NO agrega (no es transicion).
@@ -318,10 +390,24 @@ SELECT id, ad_entity_id, old_value, new_value, value_currency, inputs
  ORDER BY id
 """
 
+# ARREGLOS 05 A: las pujas que un ejecutor de recuperacion puede completar.
+# Mismo criterio de "sin desenlace" que el plan del dia: sin aplicacion y sin
+# no-apply registrado. Una decision que ya tuvo desenlace sin intento
+# (modo_no_live, vigencia_vencida...) no se reevalua aunque sus condiciones
+# hayan cambiado desde entonces.
+_SQL_BIDS_SIN_DESENLACE = """
+SELECT id, ad_entity_id, old_value, new_value, value_currency, inputs
+   FROM decision
+  WHERE cycle_id = %s AND kind = 'bid'
+    AND NOT EXISTS (SELECT 1 FROM decision_application da
+                     WHERE da.decision_id = decision.id)
+    AND NOT EXISTS (SELECT 1 FROM decision_sin_aplicar sa
+                     WHERE sa.decision_id = decision.id)
+  ORDER BY id
+"""
 
-def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]:
-    """Las decisiones kind='bid' de un ciclo (los bids aplican en su ciclo;
-    los cortes van a la cola, sellado 1)."""
+
+def _decisions_de(filas) -> list[DecisionBid]:
     return [
         DecisionBid(
             id=fila[0],
@@ -331,8 +417,21 @@ def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]
             value_currency=fila[4],
             inputs=fila[5] or {},
         )
-        for fila in conn.execute(_SQL_BIDS_CICLO, (cycle_id,)).fetchall()
+        for fila in filas
     ]
+
+
+def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]:
+    """Las decisiones kind='bid' de un ciclo (los bids aplican en su ciclo;
+    los cortes van a la cola, sellado 1)."""
+    return _decisions_de(conn.execute(_SQL_BIDS_CICLO, (cycle_id,)).fetchall())
+
+
+def bids_recuperables(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]:
+    """Las decisiones kind='bid' de un ciclo que siguen sin desenlace: las
+    unicas que la fase de apply intenta. Recien decidido un ciclo es el lote
+    completo; en un ejecutor son solo las que falta completar."""
+    return _decisions_de(conn.execute(_SQL_BIDS_SIN_DESENLACE, (cycle_id,)).fetchall())
 
 
 # Clave de orden para gasto desconocido (regla 3): dentro de SU nivel, al

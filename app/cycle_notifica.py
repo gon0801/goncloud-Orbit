@@ -57,11 +57,16 @@ def _fase_notifica(
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
     aviso_temporada: str | None = None,
     tick: Callable[[], None] | None = None,
+    resume_of: int | None = None,
 ) -> dict:
     """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por ciclo con sus cortes
     + UN aviso por campana de grupo sin destino + UN aviso por cap de quota saturado
     + UN digest final. Devuelve la seccion notes['telegram'] con SOLO claves de lo
-    que fallo (regla 3); vacio = todo bien o canal deshabilitado."""
+    que fallo (regla 3); vacio = todo bien o canal deshabilitado.
+
+    Con `resume_of` el digest es de un ejecutor de recuperacion (ARREGLOS 05
+    A): nombra el ciclo de origen y no repite el contexto diario (la
+    contribucion) que ya mando el ciclo que decidio."""
     notas: dict[str, str] = {}
 
     def _latido() -> None:
@@ -131,6 +136,8 @@ def _fase_notifica(
         }
         if skips is not None:
             resumen["skips"] = skips
+        if resume_of is not None:
+            resumen["resume_of"] = resume_of
         emitir = False
         nuevo_ancla = None
         if target is not None:
@@ -139,7 +146,7 @@ def _fase_notifica(
             emitir, nuevo_ancla = notifica.decide_aviso_target(aplicado, target_ancla)
             if target_ancla is not None:
                 resumen["target_ancla"] = target_ancla
-        if not notifica.notifica_digest(resumen):
+        if not notifica.notifica_digest(resumen, con_contribucion=resume_of is None):
             notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
         elif emitir and target is not None:
             target["ultimo_avisado"] = nuevo_ancla

@@ -154,6 +154,9 @@ SQL67 = (
 SQL93 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0093_temporada01_episodio.sql"
 ).read_text(encoding="utf-8")
+SQL94 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0094_arreglos05_ciclo_origen.sql"
+).read_text(encoding="utf-8")
 # ARREGLOS 01 J: la guarda de frescura de estructura lee el acta de listado
 # por plataforma (0051), no ad_entity_state.synced_at; sin la tabla TODO
 # ciclo con metricas revienta en TX2 al evaluar la guarda.
@@ -265,6 +268,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL62)
         conn.execute(SQL67)
         conn.execute(SQL93)
+        conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         # ARREGLOS 01 J: acta de listado por plataforma (la guarda la lee).
         conn.execute(SQL51)
         yield conn, conectar_extra
@@ -1496,9 +1500,12 @@ _SQL_CYCLE = (
     "_SQL_MARGENES_FAMILIA",
     "_SQL_PAREJAS_CAMPANA_FAMILIA",
     "_SQL_TARGETS_PREVIOS",
-    # ingesta-01 A.3: la guarda del cron (ciclo cerrado hoy / running
-    # reciente) lee el ultimo ciclo del dia.
-    "_SQL_ULTIMO_CICLO_HOY",
+    # ARREGLOS 05 A: el origen de hoy (plan del dia, sin la heuristica de 3 h)
+    # y el cierre de TX3 con su sello.
+    "_SQL_ORIGEN_HOY",
+    "_SQL_CERRAR_TX3",
+    "_SQL_CLAIM_EN_TX3",
+    "_SQL_MARCA_APLICADO",
     "_SQL_TIENE_GRUPOS_FABRICA",
 )
 

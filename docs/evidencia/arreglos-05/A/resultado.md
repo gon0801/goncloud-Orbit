@@ -1,0 +1,252 @@
+# Resultado de ARREGLOS 05 A: completar un ciclo sin duplicar sus decisiones
+
+Bloque `A` de `plans/arreglos-05.md`. Base: `master` en
+`149bf454f9dbd2bca90c23f84c2ad1ea7537b34c` (merge de #745). Rama `arreglos-05/a`.
+Fecha: 2026-11-23 (America/Vancouver).
+
+El SHA del codigo aceptado es el de la cabecera de [acepta.txt](acepta.txt); la
+salida del rojo, en [rojo.txt](rojo.txt). Corridas sobre PostgreSQL 16.15
+desechable, con la API de Ads simulada (`httpx.MockTransport`) y secretos falsos.
+
+## Para el dueno y para quien mantendra el codigo
+
+- Un fallo de Amazon en una hoja ya no deja sin aplicar el resto del ciclo:
+  las otras pujas se intentan, los cortes vencidos se liberan y las
+  reactivaciones corren. La puja incierta no se repite: una lectura la
+  resuelve en el ciclo siguiente.
+- Si el apply no termina (fallo, proceso muerto despues de decidir), el
+  horario siguiente completa lo pendiente con un **ejecutor de recuperacion**:
+  no vuelve a decidir, no repite envios y no abre otro cupo.
+- El ciclo ya no decide a ciegas sobre una hoja cuya puja Amazon ya aplico:
+  la conciliacion corre antes de decidir.
+- Se retira la regla de 3 horas: un ciclo colgado no bloquea el horario
+  siguiente; manda el candado (claim).
+- Al cambiar el dia, lo que nunca se intento deja de ser elegible con un
+  desenlace auditable; no se borra nada.
+- Para mantenimiento: `atender_plataforma` (`app/cycle.py`) es la unica
+  operacion de un horario. `_fase_reconciliacion` (nueva) y `_fase_apply`
+  viven en `app/cycle_apply.py`. El modelo explicito de estados y la tabla
+  unica `estado x evento` viven en `app/apply_estados.py` (mapa completo y
+  demostracion `/correct` en [estados.md](estados.md)). La migracion es la
+  `0094`.
+
+## Fila por fila
+
+| Fila | Comando (salida completa en acepta.txt) | Resultado | Impacto | Reversa |
+|---|---|---|---|---|
+| A.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a` | 0, 172 passed | Otros objetos y fases progresan ante un fallo individual; ningun envio nuevo ni sello del owner vencido; cero decisiones y HTTP duplicados; tabla completa `estado x evento` (108 casillas) y chequeo `/correct` en verde. | No aplica (pruebas). |
+| A.2 | `N a`; `pytest tests/test_cycle.py tests/test_cycle_apply.py tests/test_cli.py tests/test_metricas_listas.py`; Ciclo 4 legado (`-k reconciliacion_corre_despues_de_decidir`) | 0: 172 passed; 0: 150 passed; 0: 1 passed | Una segunda conexion ve la TX3 comprometida incluso con lote valido vacio. La reproduccion que BASE dejo en rojo queda verde. | `0094_reversa_arreglos05_ciclo_origen.sql`. |
+| A.3 | `N a`; `T writes test_01` | 0: 172 passed; 0: 4 passed | Cero PUT de una puja incierta, sin un segundo cupo por recuperacion. La reconciliacion de bids sigue siendo solo lectura. | Codigo del bloque anterior. |
+| A.4 | `N a` (migracion ida, reversa e ida con el rol real); `gitleaks detect --log-opts=149bf454..HEAD` | 0: 172 passed; 0: no leaks found | El rollback conserva intentos y no vuelve a un binario incompatible. | `MOTOR_SHA=<sha> bash tools/despliegue/rollback.sh`. |
+
+Controles adicionales que el bloque conserva en verde: `T optimizer
+test_control` (1 passed) y las reproducciones legadas F1 a F4 (`4 passed, 1
+failed`: la que falla es F5, que pertenece a ARREGLOS 02 y no corre desde 02 B).
+
+## Rojo y verde de cada regresion
+
+Rojo en `ef93166d3de84620a233390c03ef21c366dfa0ff` (`app/`, `migrations/` y
+`tools/` identicos a `149bf454`): 10 fallidas por asercion y 1 pasada (el
+control de identidad, verde por diseno). Verde en el SHA de `acepta.txt`.
+
+| Prueba (`tests/test_arreglos05_a_ciclo.py`) | Rojo: lo que hacia el codigo anterior | Verde |
+|---|---|---|
+| `5xx_en_el_primer_bid_no_frena_el_segundo` | un 500 abortaba la fase (`apply_error`); la segunda puja nunca salia | las dos salen; la segunda se aplica; la incierta queda sin sello y sin reenviar |
+| `5xx_en_un_bid_no_frena_la_liberacion_de_cortes` | la pausa vencida seguia en `pending_veto` | se libera y se aplica en el mismo ciclo |
+| `degraded_por_apply_abre_un_ejecutor_en_el_siguiente_horario` | «ya hay un ciclo degraded hoy» | el horario siguiente abre un ejecutor (`resume_of`), aplica lo pendiente y no decide |
+| `lock_expirado_con_running_reciente_no_bloquea_el_horario` | «running iniciado hace menos de 3 h» | corre, decide de nuevo y el huerfano queda con rastro |
+| `caida_despues_de_tx3_abre_ejecutor_sin_decidir_de_nuevo` | no habia sello de TX3 | ejecutor del origen; encola los cortes que la caida dejo sin fila |
+| `concilia_antes_de_decidir` | el mismo ciclo saltaba la hoja como «bid en vuelo» y la confirmaba despues | concilia antes; la hoja se juzga desde el bid real |
+| `lote_valido_vacio_deja_tx3_comprometida` | sin sello | segunda conexion ve `decision_committed_at` |
+| `owner_vencido_con_respuesta_retenerida_no_sella_ni_repite` | el sucesor no podia completar lo pendiente | el owner vencido no sella ni manda mas; el sucesor concilia leyendo; cupo total 2 |
+| `al_dia_siguiente_concilia_y_vence_lo_no_intentado` | nada vencia | el ambiguo se concilia; lo no intentado queda `vigencia_vencida`; la historia sin sello no se toca |
+| `migracion_sello_y_origen_ida_reversa_e_ida` | faltaba la 0094 | sello de una transicion, origen solo en el INSERT, permiso por columna |
+| `fallo_de_identidad_detiene_todas_las_mutaciones` | control (verde antes) | sigue verde |
+
+El selector del instalador se cubre en
+`tests/test_despliegue_motor.py::test_arreglos05_a_la_migracion_del_bloque_entra_en_el_despliegue`.
+
+## Revision automatica del PR #746
+
+El revisor automatico abrio cinco hilos. Los cinco eran de grado bloqueante
+para lo que A promete y se corrigieron, cada uno con su prueba en rojo
+(`92371a22`, registro en [review-rojo.txt](review-rojo.txt)) y en verde, y su
+commit.
+
+| Hilo | Que fallaba | Correccion | Prueba nueva | Commit |
+|---|---|---|---|---|
+| 1 | Un ejecutor no decide, asi que sus notas no traen `target`: la revalidacion de una pausa economica quedaba en `espera_target` y el horario siguiente no la completaba. | El aplicador lleva `ciclo_origen` (el ciclo que decidio) y la revalidacion de pausas resuelve el target ahi. Intentos y confirmacion siguen del ejecutor. | `test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen` | `914424e5` |
+| 2 | El ejecutor cargaba todas las pujas del origen y reencolaba todo corte sin fila: reevaluaba decisiones ya cerradas sin intento (`modo_no_live`, `choque_clave`). | `bids_recuperables` y el encolado usan el mismo criterio de desenlace que el plan; se filtra al aplicar, despues de conciliar. | `test_arreglos05_a_ejecutor_no_repite_decisiones_que_ya_tienen_desenlace` | `06fde246` |
+| 3 | El plan solo abria ejecutor con alguna decision huerfana; la vista no ve reactivaciones ni cortes en cola, y esas fases quedaban sin correr. | El origen guarda `notes.apply.completo` cuando sus fases terminan; el plan abre ejecutor si falta o hay decisiones sin desenlace; el ejecutor marca el origen al terminar bien. | `test_arreglos05_a_interrumpido_tras_tx3_abre_ejecutor_sin_huerfanas` (en el rojo aparece con su nombre anterior) | `21a23178` |
+| 4 | El dueno se validaba antes de cada HTTP y no al volver: con el LIST de verificacion en vuelo, el dueno desplazado sellaba la puja. | Toda confirmacion pasa por `Aplicador.confirma_cercada`: la fila del claim se lee con `FOR UPDATE` dentro de la transaccion que sella; un dueno desplazado no sella. | `test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella`, con y sin aviso pre-HTTP | `f6333519` |
+| 5 | El sello iba con la hora de la base: un ciclo corrido con `--decided-at` de ayer y terminado hoy contaba como la decision de hoy y suprimia el origen de hoy. | El sello lleva el reloj de la decision (acotado al ahora de la base); el plan compara con el dia del reloj de la corrida. | `test_arreglos05_a_origen_decidido_con_reloj_de_ayer_no_cuenta_como_el_de_hoy` | `3c7693bb` |
+| 6 | La revalidacion tomaba del origen, ademas del target, su evaluacion de producto, que tiene horas: si el producto perdia su costo vigente, la recuperacion aplicaba la pausa al 4 % del origen. | Notas y economia separadas: en un ejecutor la evaluacion de producto no cuenta como fresca y una pausa por margen de producto queda en `espera_target`, fila `released` en cola. | `test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen` | `160612ce` |
+| 7 | Un 401/403 sellaba el intento de la puja y abortaba antes de registrar su desenlace: quedaba huerfana (tiene intento: no se reintenta, no se concilia, no vence) y el plan abria un ejecutor en cada horario. | El desenlace `fallo_http` se registra en la misma transaccion que el sello, antes de propagar; con los permisos restaurados, un solo ejecutor completa el resto. | Recuperacion en `test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones` | `fd811eee` |
+
+Pruebas existentes tocadas por estas correcciones: la del reconciliador que
+espiaba `_confirma_resumen` ahora cuenta las confirmaciones cercadas del
+aplicador (sigue exigiendo dos confirmaciones y un solo cliente).
+
+### Revision de Astra (gpt-6.2-astra)
+
+Cuatro comentarios P1 sobre `b76fff40`, corregidos cada uno con su prueba en
+rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde, y su commit.
+
+| Comentario | Que fallaba | Correccion | Prueba nueva | Commit |
+|---|---|---|---|---|
+| 1 | Sin fila del claim la cerca del sello dejaba sellar: si el sucesor tomaba y soltaba el claim, el dueno desplazado sellaba con una lectura vieja. | Sin fila no se es dueno: no se sella. | Variante `sin_fila` de `test_arreglos05_a_dueno_desplazado_durante_la_lectura_de_vuelta_no_sella` | `616c61a0` |
+| 2 | Un 401 o 403 de identidad o permisos se trataba como el rechazo de ESA hoja y el lote segui con la siguiente. | Fallo global en pujas, cortes, harvest, hermanas y reversas: el intento se sella con su rechazo y se propaga; los aisladores por fila dejan de tragarselo. | `test_arreglos05_a_rechazo_de_identidad_detiene_todas_las_mutaciones`, `test_arreglos05_a_rechazo_de_identidad_no_se_aisla_por_fila` | `a7d7df0e` |
+| 3 | Una reactivacion con la respuesta perdida cobraba cuota y reenviaba el PUT aunque Amazon ya habilito la hoja. | La reversa sin sello se resuelve por lectura antes de cobrar cuota y reenviar; el sello y el cache pasan por la cerca del claim. | `test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar` | `8de0d66f` |
+| 4 | La TX3 podia cerrar despues de que el sucesor tomo el claim y leyo el plan: dos origenes decidian el mismo dia. | Dentro de la TX3 se comprueba y bloquea la fila del claim antes de sellar. | `test_arreglos05_a_tx3_no_se_compromete_si_el_claim_cambio_de_dueno` (dos conexiones) | `9b178290` |
+| — | Sin `lock_timeout`, una conexion con la transaccion abierta reteniendo la fila del claim colgaba para siempre al latido, al claim, a la TX3 y a la cerca (lo destapo un cuelgue del lote de vecinos; diagnostico del coordinador). | Claim, TX3 y cerca esperan como mucho 5 s y tratan el cerrojo ocupado como claim no probado; el latido lleva 3 s y sigue siendo fail-open. | `test_arreglos05_a_ninguna_espera_del_claim_es_infinita` | `a8e10145` |
+
+Montaje de pruebas ajustado por estas correcciones: las de los hilos 1 y 6 toman
+el claim del ejecutor antes de su fase, porque la cerca exige la fila del claim.
+ La fixture autouse de `tests/conftest.py` hace ademas que todo aplicador de prueba
+nazca con el claim, tomado por una conexion propia y con tope (`ec543465`): tomado en la
+conexion del aplicador retenia el cerrojo y colgaba el latido del ciclo.
+
+### Ronda 3 (Astra y Devin, segunda pasada)
+
+Seis correcciones, cada una con su prueba en rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde, y su commit.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Astra 5 | El 403 o el 401 persistente en una LECTURA se trataba como fallo de ESA puja: el lote seguia con la siguiente. | El rechazo de identidad se reconoce en cualquier `AdsApiError` con 401/403 y se propaga en el LIST previo al PUT, el de verificacion, la revalidacion de cortes y los reconciliadores; el intento cuyo PUT salio queda abierto. | `test_arreglos05_a_rechazo_de_identidad_en_una_lectura_detiene_el_lote` | `6ee6a5fd` |
+| Astra 6, Devin 10 | Una reactivacion incierta se reenviaba aunque el LIST omitiera la hoja o dijera ARCHIVED. | Solo una lectura PAUSED autoriza el reenvio; sin estado el intento queda abierto sin cuota ni PUT; archivada se cierra sin reenviar. | `test_arreglos05_a_reversa_incierta_se_resuelve_por_lectura_antes_de_reenviar` | `7e3ae4a8` |
+| Devin 8 | El intento conciliado se sellaba `ok:reconciliado`, que la reversa manual, temporada y la pausa propia no leen. | Se sella `ok` con `conciliado` en el ack; la guarda de la reversa manual lo reconoce. | misma prueba, con la guarda de la reversa manual | `7e3ae4a8` |
+| Devin 9 | La recuperacion de cosecha trataba el 401/403 como ambiguo y el ciclo seguia mutando. | Se propaga en las seis capturas de la recuperacion; lo demas sigue ambiguo. | `test_arreglos05_a_rechazo_de_identidad_en_la_recuperacion_de_cosecha` | `213c3ad9` |
+| Devin 11 | Con 401/403 la reversa manual propagaba la excepcion y la API respondia 500. | En la frontera manual es un resultado: `confirmada: false`. Cobertura declarada: la prueba parchea las dos funciones de reversa y no ejercita los endpoints. | `test_arreglos05_a_reversa_manual_con_rechazo_de_identidad_no_es_un_500` | `5b42dba8` |
+| Devin 12 | En el camino del 401/403 el desenlace se escribia con el aviso previo del dueno, sin la cerca. | El cierre pasa por la cerca del claim dentro de la transaccion; sin claim el intento queda abierto. | `test_arreglos05_a_la_puja_rechazada_no_se_cierra_sin_el_claim` | `1cce20d4` |
+
+### Tercera pasada (Astra y Devin)
+
+Cuatro correcciones y sus pruebas de nivel de barrido, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Devin 13 | Una reactivacion incierta sin estado en la lectura contaba como fallo y el origen quedaba completo: ese dia nadie volvia a leerla. | Cuenta como pendiente de lectura y el cierre no marca completo el origen mientras quede alguna. | `test_arreglos05_a_reactivacion_pendiente_de_lectura_no_cierra_el_origen` | `a99097d3` |
+| Astra 10 | Con un 400 el desenlace lo escribia el llamador despues del sello; una caida entre ambos dejaba la puja huerfana. | El desenlace `fallo_http` va en la misma transaccion que el sello, para todo 4xx; el aborto global sigue siendo solo del 401/403. | `test_arreglos05_a_el_rechazo_de_una_puja_se_cierra_con_su_sello` | `9665191e` |
+| Astra 8 | Un 403 en el LIST previo de la pausa de producto devolia `pendiente` y el barrido seguia con el corte siguiente. | El intento queda pendiente y el rechazo sube hasta la fase. | unitaria y de barrido: `..._la_pausa_de_producto_propaga_el_rechazo_de_identidad`, `..._barrido_pausa_de_producto_403_detiene_el_corte_siguiente` | `80978ff4`, `a3fc579e` |
+| Astra 9 | Un 403 en el DELETE compensatorio de la cosecha sellaba el intento y la capa de arriba lo convertia en texto. | El sello se conserva y el rechazo sube por las dos capas. | `..._la_reversa_de_cosecha_propaga_el_rechazo_de_identidad` (dos capas) | `2c0c33d8`, `a3fc579e` |
+
+### Cuarta pasada (Devin)
+
+Dos correcciones, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Devin 14 | Con 400 en la keyword y 401/403 en el DELETE compensatorio, el rechazo se propagaba pero se saltaba el cierre del trabajo de cosecha: quedaba en `negative_created` y la recuperacion volvia a mandar el POST de creacion. | El trabajo se cierra como fallido antes de propagar, con el sello del DELETE conservado; el negativo del origen queda sin retirar (declarado). | `test_arreglos05_a_reversa_con_rechazo_de_identidad_cierra_el_job_y_no_repite_el_post` | `a48c14cc` |
+| Devin 15 | Si el LIST posterior al PUT de reactivacion omitia el estado, el intento se sellaba como fallo y el horario siguiente cobraba otro cupo y reenviaba el PUT sin comprobar nada. | Ese intento queda abierto y la hoja cuenta como pendiente de lectura: la recuperacion la lee antes de cobrar o reenviar. | `test_arreglos05_a_el_barrido_de_reactivaciones_lee_antes_de_reenviar` (dos hojas, dos horarios reales) | `cda75f72` |
+
+### Cuarta pasada (Astra)
+
+Dos correcciones P1 sobre `a8b3c7c1`, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Astra 11 | Con las lecturas previas exitosas y 403 en el PUT `/sp/productAds` (o en su readback posterior o previa interna), `archivar.pausar_anuncios` perdia el status HTTP y `_ejecuta_pendientes` absorbia la excepcion: `ejecuta_pause_producto` no veia el rechazo y el barrido enviaba el corte siguiente. | `ResultadoAnuncio` conserva `status_http` en la lectura previa y el PUT; `_ejecuta_pendientes` relanza `AdsApiError` ante 401/403 (tanto desde captura como desde `status_http`) dejando la intencion abierta para reconciliacion. | `test_arreglos05_a_barrido_pausa_de_producto_recorrido_real_403_detiene_el_corte_siguiente` (`put`, `readback`, `previa_interna`, sin sustituir `ejecuta_retiro`) | `d6c707a9` |
+| Astra 12 | En `aplica_reactivaciones`, un 5xx o error de red en `resuelve_reversa_sin_sello` o en `reversa_pause` dejaba el intento de reversa abierto pero solo sumaba `fallidas`: si era el ultimo trabajo, `cycle.py` marcaba completo el origen y el horario siguiente no abria ejecutor. | Ambas capturas cuentan `pendientes_de_lectura += 1` en vez de `fallidas += 1`. | `test_arreglos05_a_unico_resume_con_put_500_abre_ejecutor_y_lee_antes_de_reenviar` (unico resume, PUT 500 + LIST 500 + lectura ENABLED en tres horarios reales) | `3ef8cf29` |
+
+### Quinta pasada (Devin y Astra)
+
+Cuatro correcciones, cada una con su rojo (registro en [review-rojo.txt](review-rojo.txt)) y en verde.
+
+| Hilo | Que fallaba | Correccion | Prueba | Commit |
+|---|---|---|---|---|
+| Devin 16 | En retiros humanos (`AutorizacionHumana`, `decision_id None`), propagar 401/403 desde `_ejecuta_pendientes` hacia que `/api/fabrica/retiro/ejecutar` respondiera 500 sin resultados por anuncio y dejaba la intencion abierta para que `reconcilia_intenciones` reenviara la pausa despues sin nueva confirmacion. | Restringe la propagacion de 401/403 en las dos ramas de `_ejecuta_pendientes` a retiros con `decision_id` (`AutorizacionDeDecision`); en retiros humanos se conserva el cierre como rechazado y la respuesta 200 por anuncio. | `test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia` (endpoint real `/api/fabrica/retiro/ejecutar` + `reconcilia_intenciones`) | `05ef26d3` |
+| Astra 13 | Si Amazon habilitaba la hoja, se perdia la respuesta al PUT y la ingesta actualizaba `ad_entity_state.status` a `ENABLED` antes del siguiente horario, el filtro por `PAUSED` en `aplica_reactivaciones` saltaba la fila: el intento abierto nunca se sellaba y el origen se marcaba completo. | Mueve `resuelve_reversa_sin_sello` antes de los filtros que solo condicionan un nuevo PUT (`mantener`, ancestros, modo, `PAUSED`, grupo en pausa, presupuesto topado), de modo que todo intento abierto se concilia por lectura sin cuota ni reenvio. | `test_arreglos05_a_reversa_abierta_se_sella_aunque_cache_ya_este_enabled` | `e771227a` |
+| Astra 14 | En la ruta automatica, `reversa_pause` comprobaba el claim antes del LIST pero sellaba el intento y actualizaba `ad_entity_state` sin volver a bloquear ni validar la fila del claim: si un sucesor tomaba el claim durante el LIST, el ejecutor desplazado escribia su lectura tardia. | Agrega `cerca_dueno` a `reversa_pause` (pasando `aplicador.exige_dueno` desde `aplica_reactivaciones`) y lo ejecuta dentro de la transaccion que sella y actualiza la cache. | `test_arreglos05_a_reversa_pause_desplazada_durante_el_list_no_sella_ni_toca_cache` | `f004c2e5` |
+| Astra 15 | Cuando el PUT manual salia y el LIST omitia el estado, `reversa_manual` devolvia `confirmada=False` dejando el intento abierto; una segunda peticion manual solo comprobaba `resultado='ok'` y volvia a crear intento y enviar el PUT aunque Amazon ya hubiera habilitado la hoja. | Extrae `resuelve_reversa_abierta` en `apply_cola_ejecuta` y consulta/sella el intento abierto por lectura tambien en `reversa_manual` (tipo `pause`) antes de llamar a `reversa_pause`. | `test_arreglos05_a_reversa_manual_resuelve_intento_abierto_sin_reenviar_put` | `c8658f38` |
+| Devin 17 | Tras un PUT de reactivacion incierto, si la ingesta observaba `ENABLED` en `ad_entity_state` y luego el dueno volvia a pausar la keyword en Amazon, `resuelve_reversa_abierta` interpretaba el `PAUSED` posterior como `ok:no_aplicado`, sobreescribia la cache y reenviaba `PUT ENABLED` deshaciendo la pausa manual. | Conserva `(status, synced_at)` previos antes de conciliar: con `ENABLED` observado tras iniciar el intento (`synced_at >= started_at`) y `PAUSED` actual, sella `omitida:pausada_tras_habilitar` sin atribuir `ok` ni reenviar, y `temporada_io.sql_pausas_de_baja` excluye la pausa original de futuras reactivaciones. | `test_arreglos05_a_reversa_incierta_no_deshace_pausa_manual_posterior` | `4ce2211a` |
+| Devin 18 | Con un PUT automatico de reactivacion en vuelo, una peticion concurrente de `reversa_manual` podia leer `PAUSED` y sellar el intento del ciclo como `ok:no_aplicado`, haciendo fallar el trigger inmutable del ledger cuando el ciclo volvia con `ENABLED`. | Agrega `candado_reversa_pause` (`pg_try_advisory_lock` de sesion por `decision_id`, compartido entre `aplica_reactivaciones` y `reversa_manual`) que sobrevive al commit previo al PUT y se libera al cerrar o caer la conexion. | `test_arreglos05_a_reversa_manual_concurrente_no_cierra_put_automatico_en_vuelo` (dos conexiones y PUT detenido en vuelo) | `e34817ea` |
+| Astra 16 | En un origen con dos `resume`, si una hoja se sellaba como `omitida:pausada_tras_habilitar` (cache `PAUSED`) y otra quedaba pendiente de lectura, el tercer horario recargaba ambos `resume` y volvia a habilitar la primera deshaciendo la pausa manual. | Comprueba desenlaces terminales (`ok`, `omitida:pausada_tras_habilitar`) en `apply_attempt` bajo `candado_reversa_pause` antes de los filtros y del cobro de cuota. | `test_arreglos05_a_tercer_horario_preserva_pausa_manual_cuando_otra_hoja_sigue_pendiente` | `35859807` |
+| Astra 17 | Con tres PUT inciertos (500 sin aplicar) y LIST `PAUSED`, cada horario sellaba `ok:no_aplicado` y el ejecutor reutilizaba el mismo `resume`, superando el tope de tres intentos de reversa por pausa (`_ledger` solo limita `normal`). | Amplia `_SQL_REVERSA_TERMINAL` bajo `candado_reversa_pause` (tras leer el intento abierto y antes de cobrar cuota) con `OR count(*) >= apply.TOPE_INTENTOS` (3). | `test_arreglos05_a_reversa_respeta_tope_de_tres_y_cuarto_horario_lee_sin_reenviar` | `61d77db4` |
+
+### Modelo explicito de estados y tabla unica (`estado x evento`)
+
+Tras las seis pasadas de Astra y las siete de Devin, se sustituyeron los parches puntuales (`_SQL_REVERSA_TERMINAL` con `HAVING`, `RESULTADO_PAUSADA_TRAS_HABILITAR`, duplicaciones de `STATUS_IDENTIDAD_RECHAZADA`, `TOPE_INTENTOS` y `es_rechazo_de_identidad`, y las ramas de veredicto con strings sueltos) por un unico dueno puro en `app/apply_estados.py` (`EstadoCambio`, `EventoCambio`, `AccionCambio`, `Transicion`, `TABLA_TRANSICIONES` de 108 casillas, `decidir` y `estado_inicial_desde_hechos`), migrando los 13 modulos llamadores en una sola ola (`0bfeb854`).
+
+- Prueba exhaustiva de las 108 casillas, 6 invariantes globales y chequeo estructural `/correct`: `tests/test_arreglos05_a_estados.py` (112 passed; rojo previo a la migracion y de la 7a pasada en [review-rojo.txt](review-rojo.txt)).
+- Mapa completo de los 40 hallazgos a su casilla y demostracion `/correct` por nivel (arquitectura > tipos > chequeo > prueba > docs): [estados.md](estados.md) (incluye Astra 18-19 en `de4fce45`, Astra 20-21 en `649fbfc9`, Astra 22 en `fdea6b3d`/`f32f03ef`/`44fbed2f`, y Devin 19 en `75825d60`: la conciliacion previa es el primer paso de todo horario en `_atiende` bajo el claim).
+- Contrato permanente del modelo: `docs/APPLY.md` §9.2.
+
+## Vecinos
+
+Lote completo de 35 archivos (los 30 de ciclo, cron, apply, cola, harvest con grupos hermanos, temporada, notificaciones, CLI, goals, fabrica y dashboard, mas los 5 de archivo/retiro/fabrica/arquitectura tocados en las rondas de revision: `test_ads_archivar`, `test_retiro_anuncios`, `test_retiro_contrato`, `test_arq_bids_i`, `test_api_fabrica`): **1334 pasan y 31 fallan** (1089 + 133 + 112). Los 31 fallan igual en `149bf454` en este entorno (comprobado
+ejecutandolos sobre un `git archive` del padre): `test_fabrica_f2_hermanas` x24
+(22 dan `temporada_efecto` inexistente y 2 son consecuencia de ese aborto; su banco
+no aplica la 0093), `test_harvest_destino` x3 (misma causa),
+`test_notifica::test_avisar_campanas_*` x3 y
+`test_orbit07_m1::test_sombra_sin_target_aplica_la_proteccion_en_el_juicio_hipotetico`.
+No son de este bloque y no se corrigieron aqui.
+
+Pruebas existentes adaptadas al orden nuevo, sin quitar aserciones: el CLI y
+el cron espiaban `corre_ciclo` y ahora espian `atender_plataforma`; la regla de
+las 3 h se sustituye por la del claim; la prueba de la heuristica con conexion
+falsa se retira (su lugar lo toman las regresiones sobre base real); las de
+temporada B comprueban que la hoja se juzga desde el valor real una vez
+conciliada; la de harvest comprueba el rastro durable sin esperar que el error
+aborte el barrido.
+
+## Decisiones de diseno y diferencias con el contrato
+
+- **La puja incierta conserva el rastro de siempre.** Su fila del ledger queda
+  SIN sello (APPLY.md 6.1). Una version intermedia la sellaba como lectura
+  ambigua y rompia el control 01 del arnes de aceptacion, que esta fijado por
+  manifiesto. Lo unico que cambia es que ya no aborta el lote.
+- **`_fase_apply` conserva su firma** (`cycle_id`, `decided_at`, `guard`,
+  `aplicador_factory`): sin una conciliacion ya hecha la corre el mismo, como
+  siempre. El arnes la llama suelta. El ciclo le pasa la que corrio antes de
+  decidir (`origen`, `reconciliacion`).
+- **`corre_ciclo` se conserva**: siempre abre un origen nuevo y no consulta el
+  plan del dia. Lo usa el arnes de aceptacion y la corrida manual.
+- **D-1 cerrada.** La conciliacion ya corre antes de TX2 (diferencia D-1 de BASE).
+- **D-4 cerrada.** La primera migracion de 05 es la `0094`; `0093` sigue tomada
+  dos veces.
+- Firmas nuevas: `atender_plataforma`, `ResultadoAtencion`, `_PlanHoy`,
+  `_fase_reconciliacion`, `_Reconciliacion`, `_compromete_tx3`,
+  `expira_no_intentadas`, `DesenlaceBid`; `ResultadoCiclo.resume_of`;
+  `_fase_apply(origen, reconciliacion)`; `_fase_notifica(resume_of)`;
+  `notifica_digest(con_contribucion)`; `_abre_envelope(resume_of)`. Firmas
+  de BASE que no cambian: `aplica_bids`, `_confirma_resumen`,
+  `registra_sin_aplicar`, `aplica_reactivaciones`, `cadena_bid`.
+
+## Invariantes medidos en produccion antes de fijarlos
+
+Solo lectura (`previa.sh` sobre `previa.sql`, rol de lectura, 22 bloques, 0
+erroes; resultado en [previa.txt](previa.txt)):
+
+- 207 envelopes: 205 con evidencia de TX3 (175 live, 30 shadow), 2 `skipped`,
+  0 abiertos, 0 con conteo distinto. Por eso la migracion solo sella los
+  ciclos cerrados el dia del despliegue y no la historia.
+- 197 pujas de 2026-09-02 a 2026-09-25 estan sin desenlace y sin intento. Por
+  eso `vigencia_vencida` solo alcanza origenes con sello de TX3.
+- En las 2,923 decisiones `decided_at` cae el mismo dia UTC que el cierre.
+- `app_decide` no tiene UPDATE general sobre `optimizer_cycle`; solo cinco
+  columnas. La 0094 agrega una y nada mas.
+
+## Como se regresa
+
+1. Reversa de la migracion: `0094_reversa_arreglos05_ciclo_origen.sql`
+   aborta si ya hay desenlaces `vigencia_vencida`; conserva ciclos,
+   ejecutores y todas las filas de `apply_attempt`.
+2. `MOTOR_SHA=<sha del merge> bash tools/despliegue/rollback.sh` restaura el
+   codigo antes de revertir las migraciones. El binario anterior corre contra
+   el esquema nuevo: cierra sus ciclos sin sello y no conoce `resume_of`.
+3. El rollback conserva los intentos. Limites con el binario anterior: no
+   completa lo que un ejecutor dejo pendiente (visible en
+   `v_decision_huerfana`) y no expira lo no intentado al cambiar de dia.
+
+## Limites declarados
+
+- Una tormenta de 5xx en los PUT deja cada puja del lote incierta; todas se
+  concilian con lecturas en el ciclo siguiente.
+- Las pantallas de «ultimo ciclo» no distinguen ejecutores: mientras uno sea el
+  mas reciente lo muestran con 0 decisiones, y Salud no muestra el target de
+  ese dia. Pendiente de un bloque que toque esas pantallas y sus bancos.
+- `tests/test_despliegue_motor.py` (B.5) no es ejecutable en esta PC: los
+  accesos a `psql`, `pg_dump` y `flock` solo satisfacen su comprobacion de
+  presencia. En este entorno sus 35 pruebas dan error al armar el repositorio
+  de prueba; la del bloque (`test_arreglos05_a_la_migracion_del_bloque_entran_en_el_despliegue`)
+  si corre y pasa porque no usa esas herramientas.

@@ -15,8 +15,18 @@ from typing import TYPE_CHECKING
 import httpx
 import psycopg
 
+from app.ads.client import AdsApiError
 from app.ads.sp_wire import id_de_ack
 from app.apply_cuota import DecisionBid
+from app.apply_estados import (
+    TOPE_INTENTOS_CAMBIO,
+    AccionCambio,
+    EstadoCambio,
+    EventoCambio,
+    decidir,
+    estado_inicial_desde_hechos,
+    transicion_desde_error,
+)
 from app.apply_store import (
     _KINDS_DECISORAS,
     _actualiza_cache,
@@ -170,6 +180,22 @@ def reversa_bid(
     return confirmada
 
 
+def _confirmada_en_la_frontera_manual(accion) -> bool:
+    """Resultado de una reversa MANUAL. Un rechazo de identidad o permisos de
+    Amazon (401/403) es un resultado, `confirmada: false`: la API responde con
+    el cuerpo estructurado y no con un 500. El barrido automatico de
+    reactivaciones recibe el mismo error y lo propaga, porque detras de ese
+    rechazo no debe salir ninguna mutacion (ARREGLOS 05 A, revision). Los
+    demas errores de la API siguen propagandose."""
+    try:
+        # Una lectura sin estado (PENDIENTE_LECTURA) no confirma.
+        return accion() is True
+    except AdsApiError as exc:
+        if transicion_desde_error(EstadoCambio.PENDIENTE, exc).propaga_aborto:
+            return False
+        raise
+
+
 def reversa_manual(
     conn: psycopg.Connection,
     *,
@@ -228,10 +254,48 @@ def reversa_manual(
         platform = conn.execute(_SQL_PLATAFORMA_FILA, (queue_id,)).fetchone()[0]
         cliente = cliente_reversa(platform, transport=transport)
         if tipo == "pause":
-            confirmada = apply_cola.reversa_pause(conn, cliente, fila)
+
+            def _reversa_pause_manual() -> bool | str:
+                with apply_cola.candado_reversa_pause(conn, fila.decision_id) as tomado:
+                    hechos = apply_cola._hechos_reversa(conn, fila.decision_id) if tomado else None
+                    estado = estado_inicial_desde_hechos(
+                        en_vuelo_ajeno=not tomado,
+                        tiene_intento_abierto=(
+                            hechos.intento_abierto_id is not None if hechos else False
+                        ),
+                        resultado_terminal=hechos.resultado_terminal if hechos else None,
+                        intentos_totales=hechos.intentos_totales if hechos else 0,
+                        tope_intentos=TOPE_INTENTOS_CAMBIO,
+                    )
+                    if estado == EstadoCambio.APLICADO:
+                        raise ReversaYaHecha(fila.decision_id)
+                    transicion = decidir(estado, EventoCambio.NUEVO_HORARIO)
+                    if transicion.accion == AccionCambio.LEER_RESULTADO:
+                        tr_lectura = apply_cola.resuelve_reversa_abierta(conn, cliente, fila)
+                        if (
+                            tr_lectura is not None
+                            and tr_lectura.accion != AccionCambio.CONTAR_INTENTO
+                        ):
+                            return tr_lectura.accion == AccionCambio.SELLAR_APLICADO
+                        assert hechos is not None
+                        estado_post = estado_inicial_desde_hechos(
+                            en_vuelo_ajeno=False,
+                            tiene_intento_abierto=False,
+                            resultado_terminal=None,
+                            intentos_totales=hechos.intentos_totales,
+                            tope_intentos=TOPE_INTENTOS_CAMBIO,
+                        )
+                        transicion = decidir(estado_post, EventoCambio.NUEVO_HORARIO)
+                    if transicion.accion != AccionCambio.ENVIAR:
+                        return False
+                    return apply_cola.reversa_pause(conn, cliente, fila)
+
+            confirmada = _confirmada_en_la_frontera_manual(_reversa_pause_manual)
             return {"tipo": "pause", "queue_id": queue_id, "confirmada": confirmada}
         negative_id = _negative_id_del_ledger(conn, fila.decision_id)
-        confirmada = apply_cola.reversa_negative(conn, cliente, fila, negative_id)
+        confirmada = _confirmada_en_la_frontera_manual(
+            lambda: apply_cola.reversa_negative(conn, cliente, fila, negative_id)
+        )
         return {
             "tipo": "negative",
             "queue_id": queue_id,

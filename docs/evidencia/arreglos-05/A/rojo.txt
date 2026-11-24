@@ -1,0 +1,29 @@
+# SHA ef93166d3de84620a233390c03ef21c366dfa0ff (solo pruebas y evidencia: app/, migrations/ y tools/ son los de 149bf454)
+# Corrida del 2026-11-23 09:10 UTC. Salida 1. Sin errores, sin omisiones.
+# Preambulo del laboratorio de esta PC (B.5 exige psql, pg_dump y flock para recolectar con CI=1):
+#   unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL; export PATH="/c/Users/ehven/.local/share/orbit-lab/bin:$PATH"
+# Comando:
+#   uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N a
+
+test_arreglos05_a_5xx_en_el_primer_bid_no_frena_el_segundo
+  AssertionError: un 500 de una puja ya no aborta la fase de apply
+test_arreglos05_a_5xx_en_un_bid_no_frena_la_liberacion_de_cortes
+  AssertionError: un 500 de una puja ya no aborta la fase de apply
+test_arreglos05_a_degraded_por_apply_abre_un_ejecutor_en_el_siguiente_horario
+  AssertionError: el siguiente horario debe poder completar lo pendiente
+test_arreglos05_a_lock_expirado_con_running_reciente_no_bloquea_el_horario
+  AssertionError: un running huerfano con lock vencido no bloquea el horario
+test_arreglos05_a_caida_despues_de_tx3_abre_ejecutor_sin_decidir_de_nuevo
+  AssertionError: TX3 quedo comprometida
+test_arreglos05_a_concilia_antes_de_decidir
+  AssertionError: el mismo ciclo salta la hoja por 'bid en vuelo' y despues confirma ese bid
+test_arreglos05_a_lote_valido_vacio_deja_tx3_comprometida
+  AssertionError: TX3 comprometida aunque el lote valido este vacio
+test_arreglos05_a_owner_vencido_con_respuesta_retenerida_no_sella_ni_repite
+  AssertionError: quedan decisiones del origen por completar
+test_arreglos05_a_al_dia_siguiente_concilia_y_vence_lo_no_intentado
+  AssertionError: solo lo que nunca se intento vence, con motivo auditable
+test_arreglos05_a_migracion_sello_y_origen_ida_reversa_e_ida
+  AssertionError: falta la migracion 0094 o su reversa
+
+10 failed, 1 passed, 6091 deselected, 1 warning in 34.03s

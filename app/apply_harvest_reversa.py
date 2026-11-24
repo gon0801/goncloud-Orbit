@@ -13,6 +13,7 @@ from psycopg.types.json import Json
 from app import apply
 from app.ads.client import AdsApiError, AdsClientError
 from app.ads.sp_wire import id_de_ack as _id_de_ack
+from app.apply_estados import EstadoCambio, transicion_desde_error
 from app.apply_harvest_list import (
     ROLES_DISCOVERY,
     ListaIncompleta,
@@ -130,6 +131,12 @@ def _post_delete_reversa(
             conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
         )
         conn.commit()
+        if transicion_desde_error(
+            EstadoCambio.PENDIENTE, exc, es_mutacion_determinista=True
+        ).propaga_aborto:
+            # Identidad o permisos de toda la corrida: el sello del DELETE se
+            # conserva y el rechazo sube; no es un fallo de esta reversa.
+            raise
         return (None, None)
     except AdsApiError:
         if capturar_ambiguo:
@@ -470,4 +477,6 @@ def _reversa_automatica(
             return f"reversa: fallo borrando negativo {neg_id}"
         return "reversa: ok"
     except AdsClientError as exc:
+        if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+            raise
         return f"reversa: fallo ({exc})"

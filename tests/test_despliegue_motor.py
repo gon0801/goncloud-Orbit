@@ -1039,6 +1039,37 @@ def test_arreglos02_a_las_migraciones_del_plan_entran_en_el_despliegue(tmp_path)
     assert "0086_arreglos02_prueba.sql\tSELECT to_regclass" in r.stdout
 
 
+def test_arreglos05_a_la_migracion_del_bloque_entra_en_el_despliegue(tmp_path):
+    """ARREGLOS 05 A: migraciones_de incluye la 0094 real del bloque, con su cabecera de sonda
+    y su reversa, para que el despliegue la aplique en vez de saltarla."""
+    ida = ROOT / "migrations" / "0094_arreglos05_ciclo_origen.sql"
+    reversa = ROOT / "migrations" / "0094_reversa_arreglos05_ciclo_origen.sql"
+    assert ida.exists() and reversa.exists(), "falta la migracion 0094 o su reversa"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master")
+    _git(repo, "config", "core.autocrlf", "false")
+    (repo / "tools/despliegue").mkdir(parents=True)
+    shutil.copy(ROOT / "tools/despliegue/comun.sh", repo / "tools/despliegue/comun.sh")
+    migrations = repo / "migrations"
+    migrations.mkdir()
+    shutil.copy(ida, migrations / ida.name)
+    shutil.copy(reversa, migrations / reversa.name)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "arreglos05 a")
+
+    r = subprocess.run(
+        ["bash", "-c", ". tools/despliegue/comun.sh && migraciones_de HEAD"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "ORBIT_SIMULACION": "0"},
+    )
+
+    assert r.returncode == 0, r.stderr
+    assert "0094_arreglos05_ciclo_origen.sql\tSELECT CASE WHEN NOT EXISTS" in r.stdout
+
+
 def test_arreglos03_base_las_migraciones_del_plan_entran_en_el_despliegue(tmp_path):
     """ARREGLOS 03 BASE: migraciones_de incluye las migraciones *_arreglos03_* con
     cabecera y reversa sin perder las etiquetas ajenas (arreglos01, arreglos02),

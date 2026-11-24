@@ -5,7 +5,7 @@ UNITARIOS (sin Postgres): el CLI es un ENVOLTORIO DELGADO — cada subcomando
 invoca EXACTAMENTE el mismo camino que ya existe, asi que se prueba con
 monkeypatch al punto de entrada:
 
-1. `cycle` llama al MISMO orquestador (`app.cycle.corre_ciclo`) con el MISMO
+1. `cycle` llama al MISMO orquestador (`app.cycle.atender_plataforma`) con el MISMO
    job_key que el cron de 4.2 (`ads_optimizer:<platform>` — el claim del lock
    es compartido; UNA fuente: `app.cycle.job_key_de`).
 2. `ingest` delega a los mains de los pipelines de app/ads (structure y
@@ -69,15 +69,20 @@ class _FakeConn:
 
 
 def _captura(monkeypatch) -> dict:
-    """Monkeypatch de corre_ciclo: captura kwargs y devuelve un resultado."""
+    """Monkeypatch de atender_plataforma: captura la llamada y devuelve un ciclo."""
     capturado: dict = {}
 
-    def _fake(conn, **kwargs):
+    def _fake(conn, platform, **kwargs):
         capturado["conn"] = conn
-        capturado.update(kwargs)
-        return FALSO_RESULTADO
+        capturado["platform"] = platform
+        # El reloj llega como `ahora`; las pruebas lo siguen nombrando por el
+        # contrato que ya conocen.
+        capturado["decided_at"] = kwargs["ahora"]
+        capturado["owner"] = kwargs["owner"]
+        capturado["forzar"] = kwargs["forzar"]
+        return ciclo.ResultadoAtencion(FALSO_RESULTADO, None)
 
-    monkeypatch.setattr(ciclo, "corre_ciclo", _fake)
+    monkeypatch.setattr(ciclo, "atender_plataforma", _fake)
     monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
     return capturado
 
@@ -96,7 +101,7 @@ def test_cli_cycle_llama_al_mismo_orquestador(monkeypatch, capsys):
     )
 
     assert codigo == 0
-    # el MISMO orquestador (app.cycle.corre_ciclo), no una copia de la logica
+    # el MISMO orquestador (app.cycle.atender_plataforma), no una copia de la logica
     assert isinstance(capturado["conn"], _FakeConn)
     assert capturado["platform"] == "amazon_us"
     assert capturado["decided_at"] == dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
@@ -207,10 +212,10 @@ def test_cli_cycle_ocupado_sale_cero(monkeypatch, capsys):
     esta corriendo otro proceso (cron + manual coincidiendo). exit 0 para que
     el cron no almee por una condicion esperada de concurrencia."""
 
-    def _ocupado(conn, **kwargs):
+    def _ocupado(conn, platform, **kwargs):
         raise ciclo.CicloOcupado("lock vigente de otro owner para ads_optimizer:amazon_us")
 
-    monkeypatch.setattr(ciclo, "corre_ciclo", _ocupado)
+    monkeypatch.setattr(ciclo, "atender_plataforma", _ocupado)
     monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
     monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://orbit_decide:secreta@127.0.0.1:5432/orbit")
 
@@ -267,7 +272,11 @@ def test_cli_cycle_imprime_motivo_si_no_done(monkeypatch, capsys):
             notes='{"skips": {}, "motivo_skip": "escalera_off", "detalle": "escalera global off"}',
         )
 
-    monkeypatch.setattr(ciclo, "corre_ciclo", _skipped)
+    monkeypatch.setattr(
+        ciclo,
+        "atender_plataforma",
+        lambda conn, platform, **kwargs: ciclo.ResultadoAtencion(_skipped(conn, **kwargs), None),
+    )
     monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
     monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://orbit_decide:secreta@127.0.0.1:5432/orbit")
 
@@ -1006,3 +1015,37 @@ def test_cli_bids_forzar_y_help_sin_hack_en_cli(monkeypatch, capsys):
     assert recibido == [["--forzar"]]
     assert cli_bids.main_avisos_campana(["--help"]) == 0
     assert "--forzar" in capsys.readouterr().out
+
+
+def test_cli_cycle_sin_nada_que_abrir_imprime_el_motivo_y_sale_cero(monkeypatch, capsys):
+    """ARREGLOS 05 A: si hoy ya se decidio y no queda nada por completar, la
+    operacion no abre ciclo y devuelve el motivo. El CLI lo imprime y sale 0:
+    es la misma salida que daba el `motivo_de_salto` que consultaba por su
+    cuenta, sin volver a coordinar pasos."""
+    motivo = "cycle amazon_us: ya hay un ciclo done hoy; espera al siguiente horario"
+    monkeypatch.setattr(
+        ciclo,
+        "atender_plataforma",
+        lambda conn, platform, **kw: ciclo.ResultadoAtencion(None, motivo),
+    )
+    monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://orbit_decide:secreta@127.0.0.1:5432/orbit")
+
+    codigo = cli.main(["cycle", "--platform", "amazon_us"])
+
+    assert codigo == 0
+    out = capsys.readouterr().out
+    assert out.strip() == motivo
+    assert "cycle_id=" not in out
+
+
+def test_cli_cycle_forzar_llega_a_la_operacion(monkeypatch):
+    """ARREGLOS 05 A: `--forzar` sigue siendo la corrida manual que salta el
+    plan del dia; sin el flag, la operacion decide que toca."""
+    capturado = _captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://orbit_decide:secreta@127.0.0.1:5432/orbit")
+
+    assert cli.main(["cycle", "--platform", "amazon_us", "--forzar"]) == 0
+    assert capturado["forzar"] is True
+    assert cli.main(["cycle", "--platform", "amazon_us"]) == 0
+    assert capturado["forzar"] is False

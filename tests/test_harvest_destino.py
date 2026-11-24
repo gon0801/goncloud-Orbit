@@ -23,6 +23,7 @@ from test_cycle import (
     OWNER,
     SQL86,
     SQL92,
+    SQL94,
     _config_version,
     _estado,
     _metrica,
@@ -63,6 +64,7 @@ def db_f2_0092(prefijo: str):
     with db_f2(prefijo) as conn:
         conn.execute(SQL86)
         conn.execute(SQL92)
+        conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         yield conn
 
 

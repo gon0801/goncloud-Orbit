@@ -1,0 +1,114 @@
+# Lectura previa de ARREGLOS 05 A (solo SELECT). SHA 149bf454f9dbd2bca90c23f84c2ad1ea7537b34c
+
+== momento_utc
+2026-11-23 08:23:38.747501|orbit_read|on|160015
+
+== columnas_optimizer_cycle
+id:bigint, motor:text, mode:text, platform:USER-DEFINED, started_at:timestamp with time zone, finished_at:timestamp with time zone, decisions_count:integer, applied_count:integer, status:text, notes:text
+
+== indices_optimizer_cycle
+optimizer_cycle_pkey|CREATE UNIQUE INDEX optimizer_cycle_pkey ON public.optimizer_cycle USING btree (id)
+
+== disparadores_optimizer_cycle
+
+
+== roles_servicio
+app_admin|False
+app_decide|False
+app_ingest|False
+app_jev|False
+app_read|False
+orbit_admin|True
+orbit_decide|True
+orbit_ingest|True
+orbit_jev|True
+orbit_read|True
+orbit_test|True
+orbit_wtest_14cc9500|True
+
+== membresia_roles
+orbit_admin|app_admin
+orbit_admin|app_decide
+orbit_admin|app_jev
+orbit_decide|app_decide
+orbit_ingest|app_ingest
+orbit_jev|app_jev
+orbit_read|app_read
+orbit_test|app_admin
+orbit_test|app_decide
+orbit_test|app_ingest
+orbit_test|app_read
+orbit_test|orbit_wtest_14cc9500
+orbit_wtest_14cc9500|app_admin
+
+== privilegios_tabla_optimizer_cycle
+app_admin|SELECT|True
+app_decide|INSERT|True
+app_decide|SELECT|True
+app_ingest|SELECT|True
+app_read|SELECT|True
+orbit_admin|INSERT|True
+orbit_admin|SELECT|True
+orbit_decide|INSERT|True
+orbit_decide|SELECT|True
+orbit_ingest|SELECT|True
+orbit_read|SELECT|True
+
+== privilegios_columna_update_app_decide
+finished_at,decisions_count,applied_count,status,notes
+
+== envelopes_por_estado_y_cierre
+live|done|True|175|0
+off|skipped|True|2|0
+shadow|done|True|30|0
+
+== envelopes_clasificacion_tx3
+skipped|2|2026-08-23|2026-08-23
+tx3_con_evidencia|205|2026-08-24|2026-11-22
+
+== decisiones_mismo_dia_que_el_cierre
+2923|0|0|0
+
+== origenes_que_deciden_por_dia
+amazon_mx|64|3|4|94
+amazon_us|65|4|4|405
+
+== huerfanas_por_origen
+en_cola|negative|amazon_us|1|2026-11-21|2026-11-21|0|0
+sin_registro|bid|amazon_mx|82|2026-09-02|2026-09-25|0|0
+sin_registro|bid|amazon_us|115|2026-09-02|2026-09-25|0|0
+
+== huerfanas_posteriores_a_0044
+202|en_cola|negative|1|2026-11-21|0
+
+== huerfanas_sin_intento_sin_cola
+198|1|2026-09-02|2026-11-21
+
+== motivos_sin_aplicar
+fuera_de_cap|3|2026-09-30|2026-09-30
+modo_no_live|190|2026-09-26|2026-09-29
+
+== check_sin_aplicar
+decision_sin_aplicar_motivo_check|CHECK ((motivo = ANY (ARRAY['modo_no_live'::text, 'ya_aplicada'::text, 'bid_incompleto'::text, 'entidad_no_decisora'::text, 'tope_intentos'::text, 'fuera_de_cap'::text, 'fallo_http'::text, 'sin_quota'::text, 'espera_target'::text, 'sin_respuesta'::text, 'perdida'::text, 'choque_clave'::text, 'espera_proteccion'::text, 'bid_cambiado_fuera'::text])))
+
+== disparadores_sin_aplicar
+
+
+== funciones_solo_cierre
+anuncio_retiro_intencion_0069_solo_cierre
+estimacion_politica_solo_cierra_vigencia
+precio_goal_solo_cierra_vigencia
+sku_cost_solo_cierra_vigencia
+temporada_efecto_0093_solo_cierre
+temporada_episodio_0093_solo_cierre
+
+== applied_count_cuadra_por_ejecutor
+102|0
+
+== ciclos_aplicaron_sin_decidir
+4
+
+== ciclos_de_hoy
+
+
+# bloques procesados: 22 de 22; con error: 0
