@@ -133,28 +133,39 @@ _SQL_SELLA_RESULTADO = """
 UPDATE apply_attempt SET resultado = %s, finished_at = now() WHERE id = %s
 """
 
-# Los bids que Orbit dejo escritos en una hoja (ARREGLOS 05 B), con hechos
-# durables del ledger y nunca el cache (que la ingesta tambien sincroniza):
-# cada PUT suyo que quedo ok (apply o reversa anterior) y el destino de cada
-# decision de puja aplicada. Todo lo demas que viva en la hoja lo puso otra
-# mano, o Amazon lo cambio sin confirmar la aplicacion.
-_SQL_BIDS_ESCRITOS = """
-SELECT (a.request_payload->>'bid')::numeric FROM apply_attempt a
-  JOIN decision d ON d.id = a.decision_id AND d.kind = 'bid'
- WHERE d.ad_entity_id = %s AND a.resultado = 'ok'
-   AND (a.request_payload->>'bid') ~ '^[0-9]+([.][0-9]+)?$'
-UNION
-SELECT d.new_value FROM decision d
-  JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
- WHERE d.ad_entity_id = %s AND d.kind = 'bid' AND d.new_value IS NOT NULL
+# La ultima escritura confirmada de Orbit en una hoja, desde la decision que
+# se revierte (ARREGLOS 05 B, revision): su apply, el de una decision
+# posterior o la reversa de cualquiera de ellas. Con hechos durables del
+# ledger y nunca el cache (que la ingesta tambien sincroniza). Solo ese valor
+# prueba que la puja vigente es de Orbit: un importe que Orbit escribio antes
+# de esa decision y que hoy vuelve a estar en la hoja lo puso otra mano.
+_SQL_ULTIMA_ESCRITURA_DESDE = """
+SELECT bid FROM (
+    SELECT (a.request_payload->>'bid')::numeric AS bid, a.started_at AS cuando, d.id AS decision_id
+      FROM apply_attempt a
+      JOIN decision d ON d.id = a.decision_id AND d.kind = 'bid'
+     WHERE d.ad_entity_id = %s AND d.id >= %s AND a.resultado = 'ok'
+       AND (a.request_payload->>'bid') ~ '^[0-9]+([.][0-9]+)?$'
+    UNION
+    SELECT d.new_value, d.decided_at, d.id
+      FROM decision d
+      JOIN decision_application da ON da.decision_id = d.id AND da.verify_ok IS TRUE
+     WHERE d.ad_entity_id = %s AND d.id >= %s AND d.kind = 'bid' AND d.new_value IS NOT NULL
+) escritas
+ ORDER BY decision_id DESC, cuando DESC
+ LIMIT 1
 """
 
 
-def bids_escritos_por_orbit(conn: psycopg.Connection, ad_entity_id: int) -> frozenset[Decimal]:
-    """Los bids que Orbit escribio en una hoja, como montos (regla 4)."""
-    return frozenset(
-        f[0] for f in conn.execute(_SQL_BIDS_ESCRITOS, (ad_entity_id, ad_entity_id)).fetchall()
-    )
+def ultima_escritura_desde(
+    conn: psycopg.Connection, ad_entity_id: int, decision_id: int
+) -> Decimal | None:
+    """El ultimo bid que Orbit dejo confirmado en la hoja con esa decision o
+    una posterior, como monto (regla 4). None si no hay ninguno."""
+    fila = conn.execute(
+        _SQL_ULTIMA_ESCRITURA_DESDE, (ad_entity_id, decision_id, ad_entity_id, decision_id)
+    ).fetchone()
+    return fila[0] if fila is not None else None
 
 
 # Hechos del ledger para las reversas de UNA decision (cualquier tipo).

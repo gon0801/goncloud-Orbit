@@ -976,6 +976,40 @@ def test_arreglos05_b_cosecha_cuya_keyword_propia_fue_archivada_cierra_sin_borra
 
 
 @_skip_db
+def test_arreglos05_b_un_importe_antiguo_de_orbit_no_autoriza_la_reversa(monkeypatch):
+    """Orbit escribio 0.70 hace tiempo en la misma hoja. Despues aplico la
+    decision que se revierte (1.00 a 0.80) y el dueno puso 0.70 a mano. Ese
+    valor coincide con una escritura antigua de Orbit, pero no con la ultima
+    desde esa decision: es un cambio manual y la reversa no envia nada."""
+    with _db("orbit_b05_antiguo") as (conn, _extra):
+        ids = _semilla_bid(conn, mode_ciclo_dec="live")
+        otro_ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        amazon = _Amazon(bids={"7201": "0.90"})
+        vieja = _decision_bid(conn, otro_ciclo, ids["config"], ids["kw"], old="0.90", new="0.70")
+        ap = _aplicador_bid(conn, amazon, ids["ciclo_ejec"])
+        ap.aplica_bids(apply.bids_del_ciclo(conn, otro_ciclo), escalera_global="live")
+        assert amazon.bid() == Decimal("0.70") and _resumen(conn, vieja)[1] is True
+        amazon.bids["7201"] = "1.00"
+        dec = _decision_bid(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.00", new="2.00"
+        )
+        ap.aplica_bids(apply.bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        assert amazon.bid() == Decimal("2.00") and _resumen(conn, dec)[1] is True
+        _red_por(monkeypatch, amazon)
+        puestas = len(amazon.puestas())
+        amazon.bids["7201"] = "0.70"
+
+        resultado = _reversa_bid_api(conn, dec)
+
+        assert resultado["confirmada"] is False, "0.70 lo puso el dueno: cambio manual"
+        assert len(amazon.puestas()) == puestas, "cero PUT"
+        assert amazon.bid() == Decimal("0.70"), "el ajuste manual se conserva"
+        assert _ledger(conn, dec, "reversa") == [], "sin envio no nace intento de reversa"
+
+
+@_skip_db
 def test_arreglos05_b_reversa_de_bid_que_diverge_al_volver_sella_la_etiqueta_unificada(monkeypatch):
     """Control (ya pasaba en el padre; aqui conserva el contrato QW1 en el
     camino que sigue siendo alcanzable): si tras el PUT de reversa Amazon
