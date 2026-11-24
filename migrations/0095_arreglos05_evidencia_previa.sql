@@ -16,12 +16,14 @@
 --    finished_at). A lo sumo una de las dos viaja en cada fila: un PUT de puja
 --    no crea objetos y un POST de creacion no pisa una puja.
 --
--- No hay backfill: la foto de produccion (docs/evidencia/arreglos-05/BASE/
--- invariantes.md, 2026-11-23) trae 540 intentos cerrados y ninguno abierto;
--- las filas anteriores a esta migracion nacen con ambas NULL, que es lo que
--- se sabe de ellas. Una puja aplicada sin lectura previa guardada vuelve, al
--- revertirse, a decision.old_value: el unico valor registrado entonces
--- (limite declarado en docs/APPLY.md).
+-- No hay backfill: en la lectura previa de produccion (docs/evidencia/
+-- arreglos-05/B/previa.txt, 2026-11-24 UTC, rol de solo lectura) los 576
+-- intentos estan cerrados, ningun negative fue confirmado por conciliacion y
+-- ninguna decision de puja aplicada carece de old_value. Las filas anteriores
+-- a esta migracion nacen con ambas NULL, que es lo que se sabe de ellas. Una
+-- puja aplicada sin lectura previa guardada vuelve, al revertirse, a
+-- decision.old_value: el unico valor registrado entonces (limite declarado
+-- en docs/APPLY.md).
 --
 -- Sin BEGIN/COMMIT: tools/despliegue/desplegar.sh la aplica en una sola
 -- transaccion (psql -1). No re-runnable. Reversa:

@@ -79,9 +79,12 @@ class _Amazon:
 
     `pierde_respuesta` acepta la escritura en Amazon y pierde la respuesta
     (`negative` o `put_bid`): el caso que la conciliacion existe para
-    resolver. `al_list` corre dentro de cada LIST de keywords y
-    `al_crear_negative` dentro del POST de un negative. `list_truncada` sirve
-    un nextToken que nunca se agota."""
+    resolver. `al_list` corre dentro de cada LIST de keywords,
+    `al_crear_negative` dentro del POST de un negative y `al_put_bid` justo
+    despues de cada PUT de puja. `rechaza_lista` responde ese status a toda
+    lectura y `rechaza_put_bid` al PUT de puja; con `delete_negative` en
+    `pierde_respuesta` el DELETE del negative se aplica y se pierde la
+    respuesta. `list_truncada` sirve un nextToken que nunca se agota."""
 
     def __init__(self, *, negatives=(), keywords=(), bids=None):
         self.negatives: list[dict] = [dict(x) for x in negatives]
@@ -91,7 +94,10 @@ class _Amazon:
         self.pierde_respuesta: set[str] = set()
         self.al_list = None
         self.al_crear_negative = None
+        self.al_put_bid = None
         self.list_truncada = False
+        self.rechaza_lista: int | None = None
+        self.rechaza_put_bid: int | None = None
         self._seq = 0
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -102,6 +108,8 @@ class _Amazon:
         self.vistos.append(request)
         cuerpo = json.loads(request.content) if request.content else {}
         path = request.url.path
+        if path.endswith("/list") and self.rechaza_lista is not None:
+            return httpx.Response(self.rechaza_lista, json={"code": "ACCESS_DENIED"})
         if path == "/sp/negativeKeywords/list":
             if self.list_truncada:
                 return httpx.Response(200, json={"negativeKeywords": [], "nextToken": "misma"})
@@ -116,7 +124,10 @@ class _Amazon:
         if path == "/sp/keywords" and request.method == "POST":
             return self._crea(request, "keyword", cuerpo["keywords"][0])
         if path == "/sp/negativeKeywords/delete":
-            return self._borra(self.negatives, cuerpo)
+            respuesta = self._borra(self.negatives, cuerpo)
+            if "delete_negative" in self.pierde_respuesta:
+                raise httpx.ReadTimeout("borrado en Amazon; respuesta perdida", request=request)
+            return respuesta
         if path == "/sp/keywords/delete":
             return self._borra(self.keywords, cuerpo)
         if path == "/sp/keywords" and request.method == "PUT":
@@ -165,7 +176,11 @@ class _Amazon:
         )
 
     def _put(self, request: httpx.Request, objeto: dict) -> httpx.Response:
+        if self.rechaza_put_bid is not None:
+            return httpx.Response(self.rechaza_put_bid, json={"code": "ACCESS_DENIED"})
         self.bids[str(objeto["keywordId"])] = objeto["bid"]
+        if self.al_put_bid is not None:
+            self.al_put_bid(str(objeto["keywordId"]))
         if "put_bid" in self.pierde_respuesta:
             raise httpx.ReadTimeout("aplicada en Amazon; respuesta perdida", request=request)
         return httpx.Response(207, json={"keywords": {"success": [objeto], "error": []}})
@@ -867,6 +882,118 @@ def test_arreglos05_b_reversa_de_bid_incierta_que_no_aplico_se_lee_y_se_reenvia_
         assert (resultado["confirmada"], amazon.bid()) == (True, Decimal("1.00"))
         assert _pujas_de_reversa(amazon) == [Decimal("1.00"), Decimal("1.00")]
         assert [f["resultado"] for f in _ledger(conn, dec, "reversa")] == ["ok:no_aplicado", "ok"]
+
+
+@_skip_db
+@pytest.mark.parametrize("donde", ["lectura_previa", "put"])
+def test_arreglos05_b_rechazo_de_identidad_en_la_reversa_de_bid_es_un_resultado(monkeypatch, donde):
+    """Un 403 de Amazon durante la reversa manual de bid, en la lectura previa
+    o en el PUT, es un resultado de la frontera (`confirmada: false`), no un
+    500. Detras del rechazo no sale otra escritura."""
+    with _db(f"orbit_b05_rev_bid_403_{donde}") as (conn, _extra):
+        amazon = _Amazon(bids={"7201": "1.00"})
+        dec = _puja_aplicada(conn, amazon, viejo="1.00")
+        _red_por(monkeypatch, amazon)
+        puestas = len(amazon.puestas())
+        if donde == "lectura_previa":
+            amazon.rechaza_lista = 403
+        else:
+            amazon.rechaza_put_bid = 403
+
+        resultado = _reversa_bid_api(conn, dec)
+
+        assert resultado["confirmada"] is False
+        reversa = _ledger(conn, dec, "reversa")
+        if donde == "lectura_previa":
+            assert len(amazon.puestas()) == puestas, "sin lectura no sale el PUT"
+            assert reversa == [], "sin lectura concluyente no nace intento de reversa"
+        else:
+            assert len(amazon.puestas()) == puestas + 1, "solo el PUT rechazado: ninguno despues"
+            assert len(reversa) == 1 and reversa[0]["resultado"].startswith("fallo http 403")
+        assert amazon.bid() == Decimal("2.00"), "la puja aplicada no cambia"
+
+
+@_skip_db
+def test_arreglos05_b_reversa_del_negative_con_delete_perdido_se_resuelve_leyendo(monkeypatch):
+    """El DELETE del negative se aplica en Amazon y la respuesta se pierde. El
+    intento de reversa queda abierto; el intento siguiente lo resuelve leyendo,
+    sin otro DELETE."""
+    with _db("orbit_b05_rev_neg_perdida") as (conn, _extra):
+        ids, dec = _corte_negative(conn)
+        amazon = _Amazon()
+        _encolar_y_soltar(conn, amazon, ids)
+        qid, estado = _cola(conn, dec)
+        assert estado == "applied"
+        _red_por(monkeypatch, amazon)
+        amazon.pierde_respuesta.add("delete_negative")
+
+        with pytest.raises(AdsApiError):
+            _reversa_negative_api(conn, qid)
+        abierta = _ledger(conn, dec, "reversa")[0]
+        assert abierta["finished_at"] is None, "el intento queda abierto"
+        assert [x["state"] for x in amazon.negatives] == ["ARCHIVED"]
+        amazon.pierde_respuesta.clear()
+        mutaciones_antes = len(amazon.mutaciones())
+
+        assert _reversa_negative_api(conn, qid)["confirmada"] is True
+
+        assert len(amazon.borrados("negative")) == 1, "un solo DELETE en total"
+        assert len(amazon.mutaciones()) == mutaciones_antes, "el segundo intento no escribe"
+        sellada = _ledger(conn, dec, "reversa")[0]
+        assert (sellada["resultado"], sellada["ack"]["conciliado"]) == ("ok", True)
+        assert len(_ledger(conn, dec, "reversa")) == 1
+
+
+@_skip_db
+def test_arreglos05_b_cosecha_cuya_keyword_propia_fue_archivada_cierra_sin_borrar_ajenos():
+    """La keyword propia aparece ARCHIVED en la lectura de vuelta y nadie ocupa
+    su lugar: el intento se sella como archivado, el job cierra fallido y la
+    reversa retira solo el negativo propio. Ningun DELETE de keyword."""
+    with _db("orbit_b05_archivada") as (conn, _extra):
+        ids = _semilla_harvest(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"], TERMINO)
+        amazon = _Amazon()
+
+        def archiva() -> None:
+            for x in amazon.keywords:
+                if x["state"] == "ENABLED":
+                    x["state"] = "ARCHIVED"
+
+        amazon.al_list = archiva
+        _aplicar_cosecha(conn, amazon, ids, dec)
+
+        _jid, fase, ext = _job(conn, dec)
+        assert _intento_keyword(conn, dec)["resultado"] == "fallo:entidad_archived"
+        assert fase == "failed"
+        assert amazon.borrados("keyword") == []
+        assert amazon.borrados("negative") == [str(ext["negative_id"])]
+
+
+@_skip_db
+def test_arreglos05_b_reversa_de_bid_que_diverge_al_volver_sella_la_etiqueta_unificada(monkeypatch):
+    """Control (ya pasaba en el padre; aqui conserva el contrato QW1 en el
+    camino que sigue siendo alcanzable): si tras el PUT de reversa Amazon
+    queda en otro valor, el intento se sella `fallo:divergencia_readback`, la
+    misma etiqueta del apply, y la reversa no se da por buena."""
+    with _db("orbit_b05_rev_diverge") as (conn, _extra):
+        amazon = _Amazon(bids={"7201": "1.00"})
+        dec = _puja_aplicada(conn, amazon, viejo="1.00")
+        _red_por(monkeypatch, amazon)
+        puestas = len(amazon.puestas())
+
+        def amazon_deja_otro(_ext: str) -> None:
+            amazon.bids["7201"] = "1.50"
+
+        amazon.al_put_bid = amazon_deja_otro
+
+        resultado = _reversa_bid_api(conn, dec)
+
+        assert resultado["confirmada"] is False
+        assert amazon.puestas()[puestas:] == [Decimal("1.00")], "solo salio el PUT de reversa"
+        assert [f["resultado"] for f in _ledger(conn, dec, "reversa")] == [
+            "fallo:divergencia_readback"
+        ]
+        assert amazon.bid() == Decimal("1.50")
 
 
 # ---------------------------------------------------------------------------

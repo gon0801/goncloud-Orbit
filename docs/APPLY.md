@@ -288,6 +288,17 @@ jamás lo regala). No hay forma barata de distinguir "nunca salió" de
 "salió y no se selló" sin leer `started_at` contra el log de acceso — si
 ese poder se necesita, es decisión nueva del dueño.
 
+**Evidencia previa al envío (ARREGLOS 05 B, migración `0095`).** La fila nace
+además con lo que Orbit leyó en Amazon justo antes de enviar, y eso nunca
+cambia (lo sella el disparador, no el permiso): `bid_previo NUMERIC(14,4)`,
+el bid de la hoja antes de un PUT de puja (la lectura fresca de TEMPORADA
+01 E), y `ausencia_previa JSONB`, la identidad (ad group, texto y match) que
+una lectura COMPLETA de lista no encontró viva antes del POST de un
+negative. A lo sumo una de las dos por fila; `app_decide` no las actualiza.
+Sin lectura concluyente no nace el intento y no sale el envío. Un intento de
+creación puede además guardar su ACK antes del sello (`_guarda_ack`): la
+cosecha lo hace y verifica ese ID por lectura antes de sellar `ok`.
+
 ### 4.2 `decision_application` queda como RESUMEN
 
 - Su PK única (`decision_id`) se respeta: **reintentos = UPDATE del
@@ -536,10 +547,10 @@ matchType, state}`. La tarea 1.3 amplía `LIST_REQUEST_TYPES` con este path.
 | Cola `pending_veto` / `released` | NADA (no hay mutación en vuelo) | — | Sin acción: la ventana sigue su reloj (§1.4) |
 | Ledger sin sello — bid (los bids NO van a la cola, §1.1) | readback GET fresco (keyword / product_target por id externo) | plataforma/profile + entidad + `new_value` quantizado | GET == pedido → confirmar (sellar ledger §4, resumen, `applied_cycle_id`); GET != pedido → divergencia → `failed` (nunca reenvía: el único escritor de bids es `aplica_bids`; la hoja se decide de nuevo con el bid leído); GET ambiguo/5xx → `failed` SIN reintento (conserva su cobro) |
 | Cola `applying` huérfana — pause | GET fresco de estado | plataforma/profile + entidad | PAUSED → confirmar; ENABLED → `failed` y además, si "pause verificado propio + ENABLED vivo" → marcar `reactivacion_manual` (§3.3) |
-| Cola `applying` huérfana — negative | negativeKeywords list (evidencia arriba) | plataforma/profile + adGroupId destino + keywordText + matchType | Existe con identidad → confirmar; existe SOLO en otro ad group (señuelo) → NO confirma → `failed`; no existe → reintento (tope) o `failed` |
+| Cola `applying` huérfana — negative | negativeKeywords list (evidencia arriba) | plataforma/profile + adGroupId destino + keywordText + matchType | Desde ARREGLOS 05 B la lectura la clasifica el resolver único (`evento_desde_lectura_objeto`). Existe uno con identidad → confirmar por LIST **solo si el intento abierto trae su `ausencia_previa` de esa misma identidad**; el resumen guarda `platform_ack` con `fuente: list` y `procedencia: efecto_reconciliado`, sin fabricar un ACK remoto. Sin evidencia previa, con varios candidatos o con el ID del ACK sustituido → pendiente, nada se toca. Existe SOLO en otro ad group (señuelo) → `failed`. No existe → reintento (tope) o `failed`; el reintento nace con su evidencia |
 | `harvest_job` fase `pending` | negativeKeywords list del ad group ORIGEN | plataforma/profile + adGroupId origen + keyword_text + match_type | Negativo NO existe → reintentar el POST (seguro: la fuente confirma que no está; el job en vuelo bloquea duplicados); existe → avanzar a `negative_created` |
 | `harvest_job` fase `negative_created` | negativeKeywords list (origen) + keywords list (destino) | negativo origen + adGroupId DESTINO + keyword_text + match_type | Keyword destino existe → avanzar `exact_created`/`done`; no existe → reintentar POST keyword; **fallo definitivo → `failed` + reversa automática (delete del negativo) + alerta** (sellado 13) |
-| `harvest_job` fase `exact_created` | keywords list del destino | plataforma/profile + adGroupId destino + keyword_text + match_type | Existe → `done` (sellar resumen); no existe → `failed` → reversa (§7) + alerta |
+| `harvest_job` fase `exact_created` | keywords list del destino | plataforma/profile + adGroupId destino + keyword_text + match_type **y el `keyword_id` del ACK**, que no cambia | Desde ARREGLOS 05 B el ACK se guardó antes y el intento sigue abierto. El ID propio vive con su identidad → sellar `ok` y pasar a `done` / `hermanas_negadas`. Vive con OTRA identidad, o hay dos o más con la suya → identidad dudosa: pendiente, nada se escribe. No vive y queda exactamente uno con su identidad bajo OTRO ID → sustituido, es ajeno: no se adopta ni se borra; `failed` con reversa de lo propio vivo + alerta. No vive y no queda nadie → `failed` → reversa (§7) + alerta |
 | `harvest_job` fase `hermanas_negadas` (F2, solo `resuelto_por = grupo`; excepción/terna conserva `exact_created → done`) | Hasta dos barridos lógicos paginados por ciclo: negativeKeywords LIST previo y, si hubo POST, posterior a todos los intentos; ambos batched y filtrados por el roster congelado (`adGroupIdFilter` preservado en cada página); nunca uno por hermana | por hermana: plataforma/profile + adGroupId hermana + keyword_text + `NEGATIVE_EXACT`, ignorando `ARCHIVED` | Antes del primer POST ya están confirmados decisión, cola, cooldown, fase y `hermanas_objetivo`. En el barrido previo, existe viva → adoptada `{"negative_id": <id>, "creada": false}` salvo que haya intento propio abierto, caso en que se reconcilia como `creada=true`; ausente → ledger `tipo=hermana`, sin quota, POST; cada identidad recibe máximo un POST por ciclo y tres en total, siempre tras LIST que demuestre ausencia. El barrido posterior confirma todas las creadas. Truncación, token repetido o filtro ambiguo → fail-closed, cero POST. Rechazo/ack sin id/tope/gate → pendiente con motivo, nunca `failed` ni reversa. `TOPE_CICLOS_HERMANAS = 3`, inicial = ciclo 1; `hermanas_ciclos` incrementa una vez por invocación completa persistida, no por barrido, y un crash antes del sello no cuenta. Al tope → `done` con `hermanas_pendientes` + alerta veraz. Máximo 3 identidades objetivo: grupo menos exacta menos origen. |
 | Ledger sin sello — reversa / probe | El GET/list que corresponda al `tipo` | La misma identidad por kind | Resultado visible → sellar el ledger una vez (§4); ambiguo → `failed` |
 
@@ -589,7 +600,7 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
 
 | Mutación original | Reversa |
 |---|---|
-| bid | escribir `old_value` |
+| bid | volver al bid que Orbit leyó en Amazon antes del PUT (`apply_attempt.bid_previo`); solo una decisión aplicada antes de la 0095 vuelve a `old_value`, el único valor registrado entonces (§7, reversa de bid) |
 | pause | resume |
 | negative | delete del negativo |
 | harvest parcial (solo negativo creado) | delete del negativo |
@@ -624,6 +635,40 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
   la ventana** mata el job antes de que ejecute. Una marca de origen
   (p. ej. conservar el `keywordId` del ack propio y no adoptar ids ajenos
   salvo evidencia) es decisión nueva del dueño si el caso aparece.
+  **Cerrado por ARREGLOS 05 B:** el ID del ACK es inmutable y la reversa solo
+  borra un objeto si el resolver lo ve vivo con su identidad bajo ese ID. La
+  keyword creada a mano ya no puede adoptarse como propia ni borrarse.
+
+**Reversa sobre identidad comprobada (ARREGLOS 05 B).** Toda reversa —manual,
+automática y de hermanas— relee antes de escribir y usa el mismo resolver
+(`evento_desde_lectura_objeto`, `app/apply_estados.py`). Solo toca un objeto
+si lo ve vivo con su identidad (grupo, texto y match) bajo el ID del ACK
+propio. Un booleano de creación (`keyword_creada`, `negative_creada`,
+`creada`) solo no autoriza nada. Lo propio que ya no vive se confirma por
+lectura, sin HTTP, con una fila `reversa` sellada `ok` y `ack.conciliado`.
+Lo sustituido (otro ID con la misma identidad) o dudoso queda pendiente y
+sale cero DELETE ajeno: la reversa automática omite lo propio ausente y
+sigue con lo propio vivo; la manual detiene el orden sellado.
+
+**Reversa de bid (ARREGLOS 05 B).** Antes del PUT se relee la hoja. Si el
+valor vivo no lo escribió Orbit —no es un PUT suyo que quedó `ok` ni el
+destino de una decisión de puja suya aplicada— es un cambio manual posterior
+y no se envía (`confirmada: false`, cero PUT). Si ya es el valor previo, se
+confirma por lectura. Un intento de reversa abierto se resuelve leyendo
+antes de otro envío. Que Orbit haya movido la hoja después con una decisión
+propia no impide revertir: por eso el regreso del dueño sigue revirtiendo la
+primera decisión de una racha. Una decisión cuyo apply divergió no tiene un
+valor atribuible y no se revierte a ciegas.
+
+**Negative conciliado (ARREGLOS 05 B).** `EfectoReconciliado` es distinto de
+`CreacionPropia`: ausencia previa más aparición posterior no prueba autoría
+absoluta frente a un creador externo concurrente. Permite la reversa manual
+del efecto inequívoco, con su procedencia visible en
+`decision_application.platform_ack`; nunca autoriza la limpieza automática
+de harvest ni adopta un objeto preexistente. El ID de la reversa sale de la
+confirmación durable de la decisión (su resumen sellado y, sin este, el ACK
+remoto del último intento aplicado) y la procedencia, de la evidencia del
+ledger.
 
 ---
 
@@ -830,39 +875,58 @@ reciente de su plataforma lo muestran con `decisions_count` 0, y Salud no
 muestra el target de ese día. Pendiente de un bloque que toque esas pantallas
 y sus bancos de prueba.
 
-### 9.2 Modelo explícito de estados de un cambio enviado a Amazon (ARREGLOS 05 A)
+### 9.2 Modelo explícito de estados de un cambio enviado a Amazon (ARREGLOS 05 A y B)
 
 Todo cambio enviado a Amazon (puja, corte, pausa de producto, reversa de
-reactivación, reversa manual y desenlace de reversa de cosecha) comparte un
-único dueño de transiciones en `app/apply_estados.py`. Las reglas ya no se
+reactivación, reversa manual, creación y lectura de vuelta de cosecha y
+desenlace de reversa de cosecha) comparte un único dueño de transiciones en
+`app/apply_estados.py`. Las reglas ya no se
 reparten en contadores ad hoc, flags locales ni consultas `HAVING` sobre el
 ledger: los ejecutores derivan el estado desde los hechos del ledger con
 `estado_inicial_desde_hechos(...)` y consultan la tabla pura
 `TABLA_TRANSICIONES` mediante `decidir(estado, evento)` (o sus atajos
 `transicion_desde_error` / `transicion_desde_status`).
 
-**Estados (`EstadoCambio`, 9):** `pendiente`, `en_vuelo` (exclusión de sesión
+**Estados (`EstadoCambio`, 11):** `pendiente`, `en_vuelo` (exclusión de sesión
 activa en otra ruta vía `candado_reversa_pause`), `incierto` (intento abierto
-sin sello), y seis estados terminales: `aplicado`, `rechazado`,
+sin sello), y ocho estados terminales: `aplicado`, `rechazado`,
 `pausado_por_dueno` (`RESULTADO_PAUSADA_POR_DUENO = 'omitida:pausada_tras_habilitar'`),
-`archivado`, `sin_identidad` y `tope_intentos` (`TOPE_INTENTOS_CAMBIO = 3`,
-re-exportado como `apply.TOPE_INTENTOS`). Prioridad fija al derivar el estado:
-`en_vuelo` > `incierto` > terminal > `tope_intentos` > `pendiente`.
+`archivado`, `sin_identidad`, `tope_intentos` (`TOPE_INTENTOS_CAMBIO = 3`,
+re-exportado como `apply.TOPE_INTENTOS`) y, desde ARREGLOS 05 B, `ajeno`
+(otro objeto ocupa hoy la identidad del propio;
+`RESULTADO_IDENTIDAD_SUSTITUIDA = 'fallo:identidad_sustituida'`) y
+`movido_por_dueno` (otra mano movió la puja después). Prioridad fija al
+derivar el estado: `en_vuelo` > `incierto` > terminal (incluido `ajeno`) >
+`tope_intentos` > `pendiente`.
 
-**Eventos (`EventoCambio`, 12):** `nuevo_horario`, `ok_confirmado`,
+**Eventos (`EventoCambio`, 15):** `nuevo_horario`, `ok_confirmado`,
 `no_aplicado_en_amazon`, `error_4xx_determinista`, `error_5xx_o_red`,
 `rechazo_identidad` (401 persistente o 403), `pausa_manual_dueno` (caché vio
 `ENABLED` tras iniciar el intento y Amazon ahora muestra `PAUSED`),
 `entidad_archivada`, `entidad_sin_identidad`, `dueno_desplazado` (claim
-perdido o cerrojo indisponible), `intentos_agotados` y `operacion_en_curso`.
+perdido o cerrojo indisponible), `intentos_agotados`, `operacion_en_curso` y,
+desde ARREGLOS 05 B, `identidad_sustituida` (el ID propio no vive y queda
+exactamente un vivo con su identidad bajo OTRO ID), `identidad_dudosa` (el
+ID propio vive con otra identidad, o hay dos o más vivos con la esperada y
+ninguno es el propio) y `cambio_manual_dueno` (el bid vivo no lo escribió
+Orbit).
 
 **Acciones (`AccionCambio`, 10):** `enviar`, `leer_resultado`,
 `sellar_aplicado`, `sellar_rechazado`, `contar_intento`, `mantener_incierto`,
 `sellar_pausado_dueno`, `sellar_terminal`, `no_tocar` y `abortar_fase`. Cada
 casilla `(estado, evento)` devuelve una única `Transicion(accion,
-estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`.
+estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`. La
+tabla tiene 165 casillas (11 estados por 15 eventos).
 
-**Invariantes de la tabla** (probados sobre las 108 casillas en
+**Clasificadores puros (ARREGLOS 05 B).** `evento_desde_lectura_objeto` es el
+único resolver de identidad: crea, lee de vuelta, concilia y revierte con la
+misma regla (ID del ACK propio, grupo, texto y match). `evento_desde_lectura_bid`
+clasifica el bid vivo respecto de lo que Orbit escribió.
+`envia_tras_lectura` traduce lo leído justo antes de enviar: solo lleva a
+`enviar` cuando el cambio todavía no está en Amazon y la tabla, consultada de
+nuevo con `nuevo_horario`, lo ordena.
+
+**Invariantes de la tabla** (probados sobre las 165 casillas en
 `tests/test_arreglos05_a_estados.py`):
 
 1. **Lo incierto se lee antes de reenviar:** ninguna casilla de `incierto`
@@ -884,13 +948,20 @@ estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`.
 3. **Lo pausado por el dueño no se reactiva:** `pausado_por_dueno` es
    absorbente ante `nuevo_horario` (`no_tocar`) y nunca se sella como
    `aplicado`.
-4. **Rechazo de identidad (401/403) aborta la fase:** en los 9 estados ordena
+4. **Rechazo de identidad (401/403) aborta la fase:** en los 11 estados ordena
    `abortar_fase` con `propaga_aborto=True`; ninguna mutación posterior sale.
    En `incierto` no sella (`sella_intento=False`).
-5. **Dueño desplazado jamás sella:** en los 9 estados `dueno_desplazado`
+5. **Dueño desplazado jamás sella:** en los 11 estados `dueno_desplazado`
    ordena `abortar_fase` con `sella_intento=False` y `propaga_aborto=True`.
 6. **Operación en vuelo ajena no se toca:** en `en_vuelo`, ningún evento
    ordinario concilia ni reenvía (`no_tocar`, `origen_incompleto=True`).
+7. **Lo ajeno nunca se toca (ARREGLOS 05 B):** `ajeno` es absorbente, ninguna
+   casilla con `identidad_sustituida` envía y un intento abierto lo sella
+   como terminal sin confirmarlo. Lo dudoso queda pendiente: nada se sella y
+   el origen sigue incompleto.
+8. **Una puja que otra mano movió no se revierte (ARREGLOS 05 B):**
+   `movido_por_dueno` es absorbente y `cambio_manual_dueno` nunca ordena
+   enviar ni confirmar.
 
 **Regla de integración de llamadores:** todo llamador pasa los cuatro hechos
 observables obligatorios a `estado_inicial_desde_hechos(...)` (sin defaults
@@ -901,8 +972,9 @@ ejecutor en curso, y toda lectura de vuelta de reversa (inmediata tras PUT y
 de conciliación) pasa por el mismo clasificador `_aplica_lectura_reversa` +
 `TABLA_TRANSICIONES` para persistir desenlaces terminales (`fallo:entidad_*`)
 desde el primer LIST. El chequeo estructural `/correct` en
-`tests/test_arreglos05_a_estados.py` hace cumplir estas reglas sobre los 13
-módulos llamadores.
+`tests/test_arreglos05_a_estados.py` hace cumplir estas reglas sobre los 15
+módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
+`fallo:identidad_`.
 
 **Límites del modelo:**
 - Las fronteras humanas explícitas (`reversa_manual` y `/api/fabrica/retiro/ejecutar`
@@ -913,9 +985,23 @@ módulos llamadores.
 - Si el 401/403 ocurre durante el DELETE compensatorio de una cosecha, el
   trabajo se cierra fallido antes de propagar y el negativo de origen queda
   sin retirar (consta en el detalle).
-- La tabla completa de 108 casillas, el mapa de los 34 hallazgos de revisión
-  a su casilla y la demostración por nivel `/correct` viven en
-  `docs/evidencia/arreglos-05/A/estados.md`.
+- **Límite de autoría de la reconciliación (ARREGLOS 05 B):** ausencia previa
+  más aparición posterior no prueba autoría absoluta frente a un creador
+  externo concurrente. Por eso `EfectoReconciliado` (confirmación por LIST
+  con `procedencia: efecto_reconciliado`) es distinto de `CreacionPropia`
+  (ACK remoto con su ID): el primero permite la reversa manual del efecto
+  inequívoco con su procedencia visible y nunca autoriza la limpieza
+  automática de harvest ni adopta un objeto preexistente. En la cosecha, una
+  keyword que aparece tras un intento propio sin ACK se adopta como
+  `incierta` y no entra en el plan de reversa.
+- **Lo confirmado por lectura (ARREGLOS 05 B):** cuando una reversa encuentra
+  que lo propio ya no vive, nace una fila `reversa` sellada `ok` con
+  `ack.conciliado` y su `fuente`. Es un ack que declara su fuente, no un ACK
+  remoto; cuenta como reversa hecha y la reanudación no la repite.
+- La tabla completa (165 casillas desde ARREGLOS 05 B), el mapa de los
+  hallazgos de revisión a su casilla y la demostración por nivel `/correct`
+  viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del
+  bloque B, en `docs/evidencia/arreglos-05/B/resultado.md`.
 
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 

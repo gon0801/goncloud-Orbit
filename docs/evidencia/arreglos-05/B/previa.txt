@@ -1,0 +1,95 @@
+# Lectura previa de ARREGLOS 05 B (solo SELECT). SHA fa8a9ab53b595d3ef239060709ffe5aa272ab570
+
+== momento_utc
+2026-11-24 12:04:51.579317|orbit_read|on|160015
+
+== columnas_apply_attempt
+id:bigint, decision_id:bigint, seq:integer, tipo:text, request_payload:jsonb, quota_cobrada:boolean, started_at:timestamp with time zone, ack:jsonb, resultado:text, finished_at:timestamp with time zone
+
+== intentos_por_estado
+576|0|8|8
+
+== intentos_por_tipo_y_resultado
+normal|ok|531|0
+probe|fallo http 400|7|0
+probe|fallo http 403|1|0
+probe|ok|23|0
+reversa|ok|14|0
+
+== negatives_reconciliados
+0
+
+== negatives_reconciliados_por_cualquier_camino
+3|0|0
+
+== aplicaciones
+520|520|520|520
+
+== aplicaciones_negative_sin_ack_en_el_ledger
+0
+
+== pujas_aplicadas_sin_old_value
+503|0|0
+
+== reversas_de_puja
+11|11|0
+
+== cambios_bid_por_origen
+motor|489
+regreso_del_dueno|11
+regreso_por_desplome|14
+
+== harvest_jobs_por_fase
+done|11
+
+== harvest_jobs_autoria
+<sin clave>|<sin clave>|4
+true|true|7
+
+== lock
+0
+
+== disparadores_apply_attempt
+apply_attempt_append_only_truncate|CREATE TRIGGER apply_attempt_append_only_truncate BEFORE TRUNCATE ON public.apply_attempt FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion()
+apply_attempt_solo_sella_resultado|CREATE TRIGGER apply_attempt_solo_sella_resultado BEFORE DELETE OR UPDATE ON public.apply_attempt FOR EACH ROW EXECUTE FUNCTION apply_attempt_solo_sella_resultado()
+
+== funcion_ledger_menciona_evidencia
+apply_attempt_solo_sella_resultado|False
+
+== restricciones_apply_attempt
+apply_attempt_decision_id_fkey|FOREIGN KEY (decision_id) REFERENCES decision(id)
+apply_attempt_pkey|PRIMARY KEY (id)
+attempt_probe_sin_decision|CHECK (((tipo = 'probe'::text) OR (decision_id IS NOT NULL)))
+attempt_tipo_valido|CHECK ((tipo = ANY (ARRAY['normal'::text, 'reversa'::text, 'probe'::text, 'hermana'::text])))
+
+== privilegios_tabla_apply_attempt
+app_admin|True|False|False|False
+app_decide|True|True|False|False
+app_ingest|True|False|False|False
+app_read|True|False|False|False
+
+== privilegios_columna_app_decide
+id:INSERT, decision_id:INSERT, seq:INSERT, tipo:INSERT, request_payload:INSERT, quota_cobrada:INSERT, started_at:INSERT, ack:UPDATE:INSERT, resultado:UPDATE:INSERT, finished_at:UPDATE:INSERT
+
+== roles_servicio
+orbit_admin|True|app_admin
+orbit_admin|True|app_decide
+orbit_admin|True|app_jev
+orbit_decide|True|app_decide
+orbit_ingest|True|app_ingest
+orbit_jev|True|app_jev
+orbit_read|True|app_read
+orbit_test|True|app_admin
+orbit_test|True|app_decide
+orbit_test|True|app_ingest
+orbit_test|True|app_read
+orbit_test|True|orbit_wtest_14cc9500
+orbit_wtest_14cc9500|True|app_admin
+
+== sonda_0094
+True
+
+== sonda_0095
+False
+
+# bloques procesados: 22 de 22; con error: 0
