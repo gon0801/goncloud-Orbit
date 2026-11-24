@@ -667,30 +667,6 @@ def test_vendors_y_envolturas_por_path():
     assert set(fp.PATH_CREATE.values()) == set(fp.VENDOR_POR_PATH) == set(fp.ENVOLTURA_POR_PATH)
 
 
-# --- acks -----------------------------------------------------------------
-
-
-def test_id_creado_lee_success_anidado_o_plano():
-    plano = {
-        "status": 207,
-        "cuerpo": {"campaigns": {"success": [{"index": 0, "campaignId": "c1"}]}},
-    }
-    anidado = {"status": 207, "cuerpo": {"keywords": {"success": [{"keyword": {"keywordId": 9}}]}}}
-    assert fp.id_creado(plano, "campaignId") == "c1"
-    assert fp.id_creado(anidado, "keywordId") == "9"
-    assert (
-        fp.id_creado({"status": 207, "cuerpo": {"keywords": {"success": []}}}, "keywordId") is None
-    )
-    assert fp.id_creado({"status": 500, "cuerpo": {}}, "keywordId") is None
-
-
-def test_ack_ok_exige_2xx_sin_errores_207():
-    assert fp.ack_ok({"status": 207, "cuerpo": {"campaigns": {"success": [{}], "error": []}}})
-    assert not fp.ack_ok({"status": 207, "cuerpo": {"campaigns": {"error": [{"index": 0}]}}})
-    assert not fp.ack_ok({"status": 400, "cuerpo": {}})
-    assert fp.errores_207({"status": 207, "cuerpo": "no json"}) == [{"no_json": None}]
-
-
 # --- acoplamiento con la migracion 0018 (regla 2: un numero, una fuente) --
 
 

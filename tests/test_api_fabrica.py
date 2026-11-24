@@ -1816,7 +1816,7 @@ def test_i5_literales_y_campo_extra_422(escenario, monkeypatch):
     )
     assert r.status_code == 422, r.text
     escritor, _puts = _escritor(_fila("ad-i5", "ENABLED"))
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     r = cliente.post(
         "/api/fabrica/retiro/ejecutar",
         headers=HEADERS,
@@ -1887,7 +1887,7 @@ def test_r09r4_ap04_ejecutar_con_lote_propio_200(escenario, monkeypatch):
         },
     ).json()
     escritor, _puts = _escritor(_fila("ad-ap04", "ENABLED"))
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     r = cliente.post(
         "/api/fabrica/retiro/ejecutar",
         headers=HEADERS,
@@ -1922,7 +1922,7 @@ def test_r09r4_ap06_reponer_parcial_dice_cada_anuncio(escenario, monkeypatch):
         json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
     ).json()
     escritor, _puts = _escritor({**_fila("ad-ok6", "ENABLED"), **_fila("ad-bad6", "ENABLED")})
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     r = cliente.post(
         "/api/fabrica/retiro/ejecutar",
         headers=HEADERS,
@@ -1941,7 +1941,7 @@ def test_r09r4_ap06_reponer_parcial_dice_cada_anuncio(escenario, monkeypatch):
         {**_fila("ad-ok6", "PAUSED"), **_fila("ad-bad6", "PAUSED")},
         rechaza_put=frozenset({"ad-bad6"}),
     )
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor2)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor2)
     r = cliente.post(
         "/api/fabrica/retiro/reponer",
         headers=HEADERS,
@@ -1972,7 +1972,7 @@ def test_r09r4_ap08_ids_solo_abiertos(escenario, monkeypatch):
         json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
     ).json()
     escritor, _puts = _escritor({**_fila("ad-ok8", "ENABLED"), **_fila("ad-8b", "ENABLED")})
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     cuerpo = {
         "plataforma": "amazon_mx",
         "listing_ids": [lid],
@@ -2046,7 +2046,7 @@ def test_i5_ejecutar_parcial_dice_cada_anuncio(escenario, monkeypatch):
         json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
     ).json()
     escritor, _puts = _escritor({**_fila("ad-ok", "ENABLED"), **_fila("ad-bad", "ARCHIVED")})
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     r = cliente.post(
         "/api/fabrica/retiro/ejecutar",
         headers=HEADERS,
@@ -2094,7 +2094,7 @@ def test_i5_reponer_multiplataforma_422_sin_tocar_amazon(escenario, monkeypatch)
         )
     conn.commit()
 
-    def _no_debe_llamarse(platform):
+    def _no_debe_llamarse(platform, **_kw):
         raise AssertionError("no debe preparar escritor con mezcla")
 
     monkeypatch.setattr(archivar, "preparar_escritor", _no_debe_llamarse)
@@ -2153,7 +2153,7 @@ def test_i5_ejecutar_sin_sku_422_sin_put(escenario, monkeypatch):
         json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
     ).json()
     escritor, puts = _escritor(_fila("ad-h", "ENABLED"))
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     r = cliente.post(
         "/api/fabrica/retiro/ejecutar",
         headers=HEADERS,
@@ -2232,7 +2232,7 @@ def test_i5_retiro_sin_pedidos_conserva_impulso_vivo(escenario, monkeypatch):
     assert r.status_code == 200, r.text
     assert [a["ad_id_externo"] for a in r.json()["anuncios"]] == ["ad-bolsa"]
     escritor, puts = _escritor({**_fila("ad-bolsa", "ENABLED"), **_fila("ad-imp", "ENABLED")})
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     p = r.json()
     r2 = cliente.post(
         "/api/fabrica/retiro/ejecutar",
@@ -2324,7 +2324,7 @@ def test_i5_ejecutar_devuelve_retiro_ids(escenario, monkeypatch):
         json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
     ).json()
     escritor, _puts = _escritor(_fila("ad-a", "ENABLED"))
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor)
     r = cliente.post(
         "/api/fabrica/retiro/ejecutar",
         headers=HEADERS,
@@ -2374,7 +2374,6 @@ def test_i5_ejecutar_huella_vieja_409(escenario, monkeypatch):
 def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
     """R09 B12 (R5): lanzar con el ejecutor REAL crea las 2 campanas en
     Amazon (falso) y el impulso; con esperado=5 abortaria todo."""
-    from types import SimpleNamespace
 
     import httpx
     import psycopg
@@ -2383,6 +2382,7 @@ def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
     from app import fabrica_motor as fm
     from app import fabrica_registro as fr
     from app.ads.config import AdsCredentials
+    from app.ads.write import AdsWriteClient
 
     class _AmazonPausado(_Amazon):
         def __call__(self, request):
@@ -2417,11 +2417,8 @@ def test_i5_lanzar_con_ejecutor_real_200(escenario, monkeypatch):
     monkeypatch.setattr(fm, "evaluar_perfiles", lambda c: [_perfil()])
     monkeypatch.setattr(
         fm,
-        "httpx",
-        SimpleNamespace(
-            Client=lambda **kw: httpx.Client(transport=transporte),
-            Timeout=lambda **kw: None,
-        ),
+        "AdsWriteClient",
+        lambda *a, **kw: AdsWriteClient(*a, **{**kw, "transport": transporte}),
     )
     monkeypatch.setattr(fm.time, "sleep", lambda s: None)
     dsn = _test_dsn()
@@ -2575,7 +2572,7 @@ def test_i5_ejecutar_amazon_no_disponible_502(escenario, monkeypatch):
         AdsApiError("503 de Amazon"),
     ):
 
-        def _falla(platform, _exc=exc):
+        def _falla(platform, _exc=exc, **_kw):
             raise _exc
 
         monkeypatch.setattr(archivar, "preparar_escritor", _falla)
@@ -2906,7 +2903,7 @@ def test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia(escenario,
         raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
     escritor_403 = make_write_client(_handler_put_403, platform="amazon_mx")
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor_403)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor_403)
     plan = cliente.post(
         "/api/fabrica/retiro/plan",
         json={"plataforma": "amazon_mx", "listing_ids": [lid], "motivo": "sin_pedidos"},
@@ -2956,7 +2953,7 @@ def test_arreglos05_a_retiro_humano_put_403_cierra_y_vigia_no_reenvia(escenario,
         raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
     escritor_rb = make_write_client(_handler_readback_403, platform="amazon_mx")
-    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform: escritor_rb)
+    monkeypatch.setattr(archivar, "preparar_escritor", lambda platform, **_kw: escritor_rb)
     r2 = cliente.post(
         "/api/fabrica/retiro/ejecutar",
         headers=HEADERS,

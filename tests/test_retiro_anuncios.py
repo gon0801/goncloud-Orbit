@@ -994,7 +994,7 @@ def test_r09r4_ra30_reponer_sin_escritor_es_502(monkeypatch):
         _retira(conn, plan, go="go dueno", escritor=escritor)
         (ret,) = conn.execute("SELECT id FROM anuncio_retiro").fetchall()
 
-        def _caido(platform):
+        def _caido(platform, **_kw):
             raise ValueError("sin perfil unico")
 
         monkeypatch.setattr(archivar, "preparar_escritor", _caido)

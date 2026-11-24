@@ -30,7 +30,6 @@ import sys
 from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
-from types import SimpleNamespace
 
 import httpx
 import psycopg
@@ -69,6 +68,7 @@ from app.ads.structure import (  # noqa: E402
     PerfilAds,
     sync_structure,
 )
+from app.ads.write import AdsWriteClient  # noqa: E402
 
 LOTE = "inertes-2026-09-05"
 GO = "go lote de prueba"
@@ -278,7 +278,7 @@ class _RedFalsa:
         self.pedidos.append(request)
         url = str(request.url)
         if "api.amazon.com/auth/o2/token" in url:
-            return httpx.Response(200, json={"access_token": "token-falso"})
+            return httpx.Response(200, json={"access_token": "token-falso", "expires_in": 3600})
         if url.endswith("/sp/keywords/delete"):
             assert self.deletes, "DELETE inesperado (el lote debio detenerse)"
             status, cuerpo = self.deletes.pop(0)
@@ -338,11 +338,8 @@ def _fakea_frontera(monkeypatch, conn_read, conn_admin, cliente, red):
     transporte = httpx.MockTransport(red)
     monkeypatch.setattr(
         ar,
-        "httpx",
-        SimpleNamespace(
-            Client=lambda **kw: httpx.Client(transport=transporte),
-            Timeout=lambda **kw: None,
-        ),
+        "AdsWriteClient",
+        lambda *a, **kw: AdsWriteClient(*a, **{**kw, "transport": transporte}),
     )
     return transporte
 
@@ -454,10 +451,9 @@ def test_moneda_del_tool_iguala_la_de_la_capa_http():
     assert dict(PLATAFORMA_MONEDA) == PLATAFORMAS_MONEDA
 
 
-def test_modulo_no_importa_write_ni_apply():
-    """Candado local del test_architecture: el tool usa HTTP propio con
-    el sello v3, jamas el write client (un segundo dueno de la
-    mutacion)."""
+def test_modulo_muta_solo_por_el_cliente_protegido():
+    """Candado local del mapa de ARREGLOS 05 D: el tool usa el write client
+    (unico transporte mutante) y no rearma HTTP propio ni importa apply."""
     fuente = Path(ar.__file__).read_text(encoding="utf-8")
     arbol = ast.parse(fuente)
     imports = set()
@@ -466,9 +462,12 @@ def test_modulo_no_importa_write_ni_apply():
             imports.update(a.name for a in nodo.names)
         elif isinstance(nodo, ast.ImportFrom) and nodo.module:
             imports.add(nodo.module)
-    assert not any(i.startswith("app.ads.write") for i in imports)
+    assert any(i.startswith("app.ads.write") for i in imports), (
+        "las mutaciones salen por app.ads.write"
+    )
     assert not any(i.startswith("app.apply") for i in imports)
-    assert "app.ads.write" not in fuente and "app.apply" not in fuente
+    assert "httpx" not in imports, "sin transporte propio"
+    assert not hasattr(ar, "_post") and not hasattr(ar, "_token_lwa")
 
 
 # ---------------------------------------------------------------------------

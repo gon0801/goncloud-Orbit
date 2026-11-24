@@ -99,7 +99,7 @@ def test_preparar_escritor_para_si_la_cuenta_tiene_DOS_perfiles_del_pais(monkeyp
 
     construidos = _monta_perfiles(monkeypatch, [_perfil_crudo(111), _perfil_crudo(222)])
     with pytest.raises(ValueError, match="MAS DE UN perfil"):
-        mod.preparar_escritor("amazon_mx")
+        mod.preparar_escritor("amazon_mx", modo_confirmado="live")
     assert construidos == [], "no se construye escritor con la cuenta ambigua"
 
 
@@ -108,7 +108,7 @@ def test_preparar_escritor_sin_perfil_aceptado_no_construye_nada(monkeypatch):
 
     construidos = _monta_perfiles(monkeypatch, [_perfil_crudo(111, "US")])
     with pytest.raises(ValueError, match="EXACTAMENTE 1 perfil"):
-        mod.preparar_escritor("amazon_mx")
+        mod.preparar_escritor("amazon_mx", modo_confirmado="live")
     assert construidos == []
 
 
@@ -116,10 +116,24 @@ def test_preparar_escritor_sella_plataforma_y_perfil(monkeypatch):
     from app.ads import archivar as mod
 
     construidos = _monta_perfiles(monkeypatch, [_perfil_crudo(303030)])
-    assert mod.preparar_escritor("amazon_mx") == "ESCRITOR"
+    assert mod.preparar_escritor("amazon_mx", modo_confirmado="live") == "ESCRITOR"
     assert construidos[0]["platform"] == "amazon_mx"
     assert construidos[0]["profile_id"] == 303030
     assert construidos[0]["modo_confirmado"] == "live"
+
+
+def test_preparar_escritor_no_fabrica_el_modo(monkeypatch):
+    """ARREGLOS 05 D: el modo es del dueno; el helper no lo escribe solo."""
+    from app.ads import archivar as mod
+
+    construidos = _monta_perfiles(monkeypatch, [_perfil_crudo(303030)])
+    with pytest.raises(TypeError):
+        mod.preparar_escritor("amazon_mx")  # type: ignore[call-arg]
+    mod.preparar_escritor("amazon_mx", modo_confirmado="shadow")
+    assert construidos[-1]["modo_confirmado"] == "shadow", (
+        "el modo debe llegar tal cual del dueno: el rechazo real lo aplica el "
+        "constructor del cliente (test_arreglos05_d_preparar_escritor_exige_el_modo_autorizado)"
+    )
 
 
 # ---------------------------------------------------------------------------

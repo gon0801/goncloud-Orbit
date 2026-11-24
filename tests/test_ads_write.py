@@ -145,11 +145,16 @@ METODOS_PUBLICOS = {
     "reanudar_target",
     "crear_negative_exacto",
     "borrar_negative",
-    "crear_keyword_exacta",
+    "crear_keyword",
     "borrar_keyword",
     "crear_product_ad",
+    "crear_campana",
+    "crear_ad_group",
+    "crear_target_asin",
     "ajustar_campana",
+    "cambiar_estado_campana",
     "cambiar_estado_product_ad",
+    "close",
     "get_sellado",
     "list_sellado",
 }
@@ -266,7 +271,7 @@ CASOS_MUTACION = [
         id="borrar-negative",
     ),
     pytest.param(
-        "crear_keyword_exacta",
+        "crear_keyword",
         (31, 21, "zapato bueno", Decimal("10"), "MXN"),
         "POST",
         "/sp/keywords",
@@ -391,7 +396,7 @@ def test_payload_multi_objeto_rechazado():
     with pytest.raises(ValueError, match="unico objeto"):
         client.actualizar_bid_keyword([101, 102], Decimal("0.5"), "MXN")
     with pytest.raises(ValueError, match="unico objeto"):
-        client.crear_keyword_exacta(31, 21, {"a": 1}, Decimal("1"), "MXN")
+        client.crear_keyword(31, 21, {"a": 1}, Decimal("1"), "MXN")
     with pytest.raises(ValueError, match="unico objeto"):
         client.pausar_keyword((101, 102))
     assert requests_vistos == []
@@ -407,7 +412,7 @@ def test_payload_multi_objeto_rechazado():
     [
         ("PUT", "/sp/keywordsx"),  # metodo correcto, path inexistente
         ("PATCH", "/sp/keywords"),  # path correcto, metodo torcido
-        ("POST", "/sp/targets"),  # /sp/targets solo PUT en el allowlist
+        ("POST", "/sp/adGroups/list"),  # list de otra coleccion: no es create
         ("GET", "/sp/keywords"),  # GET sobre un path de mutacion
         ("DELETE", "/sp/campaigns"),  # par cualquiera fuera
         ("PUT", "/sp/keywords?x=1"),  # igualdad literal: query rompe el match
@@ -445,6 +450,10 @@ def test_allowlist_sellada_contenido_y_congelamiento():
         ("POST", "/sp/productAds"),
         ("PUT", "/sp/campaigns"),
         ("PUT", "/sp/productAds"),
+        # ARREGLOS 05 D: creaciones de la fabrica (sonda 2026-09-09).
+        ("POST", "/sp/campaigns"),
+        ("POST", "/sp/adGroups"),
+        ("POST", "/sp/targets"),
     }
     assert MUTATION_REQUEST_TYPES[("PUT", "/sp/keywords")] == ("application/vnd.spkeyword.v3+json")
     assert MUTATION_REQUEST_TYPES[("POST", "/sp/negativeKeywords/delete")] == (
@@ -680,7 +689,7 @@ def test_moneda_equivocada_revierta_antes_de_cualquier_http():
     with pytest.raises(MutationNotAllowedError, match="USD"):
         client_us.actualizar_bid_target(202, Decimal("0.5"), "MXN")
     with pytest.raises(MutationNotAllowedError, match="USD"):
-        client_us.crear_keyword_exacta(31, 21, "x", Decimal("1"), "MXN")
+        client_us.crear_keyword(31, 21, "x", Decimal("1"), "MXN")
 
     assert requests_vistos == []
 

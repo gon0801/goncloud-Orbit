@@ -250,6 +250,19 @@ PERMITIDOS_IMPORTAR_ADS_WRITE = {
         "El CLI importa tarde y queda fuera: el importador sigue siendo uno "
         "por camino"
     ),
+    "app/fabrica_motor.py": (
+        "ARREGLOS 05 D: el motor de la fabrica creaba con `httpx.Client` y su "
+        "propio token LWA fuera del guard; ahora sus creaciones y el PUT de "
+        "estado de campana salen por el cliente protegido. Conserva su "
+        "ceremonia y su ledger `fabrica_lote_paso`; el CLI y la API no tocan "
+        "el cliente"
+    ),
+    "app/ads/archivar_inertes.py": (
+        "ARREGLOS 05 D: el archivo manual, la reposicion y su reversa tenian "
+        "su propio `_post` con perfil y token a mano; ahora traducen su "
+        "payload durable al cliente protegido. El protocolo de la reposicion "
+        "(bloque C) sigue en app/ads/reposicion.py"
+    ),
 }
 
 
