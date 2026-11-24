@@ -232,6 +232,7 @@ def _fase_reconciliacion(
     decisiones en vez de decidir a ciegas."""
     if modo.modo != "live":
         if not apply_cola.hay_reversas_pause_abiertas(conn, platform):
+            conn.commit()
             return _Reconciliacion(aplicador=None, notas={})
         try:
             fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
