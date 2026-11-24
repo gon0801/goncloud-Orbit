@@ -268,6 +268,29 @@ def _desenlace(
     return _pendiente(fila, f"lectura no concluyente ({evento})")
 
 
+def _rechazo_definitivo(
+    conn: psycopg.Connection, fila: store.FilaArchivo, intento: store.Intento
+) -> ResultadoReposicionKeyword:
+    """Sella el 401/403 ya guardado en el ACK y deja la fila reintentable."""
+    trans = _trans(est.EstadoCambio.INCIERTO, est.EventoCambio.RECHAZO_IDENTIDAD_DEFINITIVO)
+    if trans.accion != est.AccionCambio.SELLAR_RECHAZADO:
+        raise AbortoFase(f"rechazo de identidad sin sello previsto en {fila.keyword_external}")
+    _sella_resultado(
+        conn,
+        fila.id,
+        intento.tipo,
+        intento.id,
+        est.RESULTADO_REPOSICION_RECHAZO,
+        intento.ack,
+    )
+    return ResultadoReposicionKeyword(
+        fila.id,
+        fila.keyword_external,
+        "reintentable",
+        "401/403 sellado: la operacion puede reintentarse",
+    )
+
+
 def _reconciliar(
     conn: psycopg.Connection,
     intento: store.Intento | None,
@@ -286,6 +309,8 @@ def _reconciliar(
         if not store.toma_intento(conn, intento.id, owner, _lease()):
             return _pendiente(fila, "otro CLI tomo el intento vencido")
         conn.commit()
+    if est.evento_desde_ack_identidad(intento.ack) is not None:
+        return _rechazo_definitivo(conn, fila, intento)
     items = _lee_keywords(cliente, profile)
     if items is None:
         return _pendiente(fila, "lectura no concluyente: el intento sigue abierto")
@@ -356,6 +381,9 @@ def _reponer_fila(
     ack = _ack_seguro(ack)
     status = ack.get("status")
     if status in est.STATUS_IDENTIDAD_RECHAZADA:
+        with conn.transaction():
+            store.guarda_ack(conn, intento.id, ack)
+        conn.commit()
         trans = _trans(est.EstadoCambio.INCIERTO, est.EventoCambio.RECHAZO_IDENTIDAD)
         if trans.propaga_aborto:
             raise AbortoFase(f"401/403 al reponer {fila.keyword_external}: aborta la fase")
@@ -529,6 +557,9 @@ def _revertir_fila(
     ack = _ack_seguro(ack)
     status = ack.get("status")
     if status in est.STATUS_IDENTIDAD_RECHAZADA:
+        with conn.transaction():
+            store.guarda_ack(conn, intento.id, ack)
+        conn.commit()
         trans = _trans(est.EstadoCambio.INCIERTO, est.EventoCambio.RECHAZO_IDENTIDAD)
         if trans.propaga_aborto:
             raise AbortoFase(f"401/403 al revertir {fila.keyword_external}: aborta la fase")

@@ -905,7 +905,7 @@ re-exportado como `apply.TOPE_INTENTOS`) y, desde ARREGLOS 05 B, `ajeno`
 derivar el estado: `en_vuelo` > `incierto` > terminal (incluido `ajeno`) >
 `tope_intentos` > `pendiente`.
 
-**Eventos (`EventoCambio`, 15):** `nuevo_horario`, `ok_confirmado`,
+**Eventos (`EventoCambio`, 16):** `nuevo_horario`, `ok_confirmado`,
 `no_aplicado_en_amazon`, `error_4xx_determinista`, `error_5xx_o_red`,
 `rechazo_identidad` (401 persistente o 403), `pausa_manual_dueno` (caché vio
 `ENABLED` tras iniciar el intento y Amazon ahora muestra `PAUSED`),
@@ -915,14 +915,16 @@ desde ARREGLOS 05 B, `identidad_sustituida` (el ID propio no vive y queda
 exactamente un vivo con su identidad bajo OTRO ID), `identidad_dudosa` (el
 ID propio vive con otra identidad, o hay dos o más vivos con la esperada y
 ninguno es el propio) y `cambio_manual_dueno` (el bid vivo no lo escribió
-Orbit).
+Orbit) y, desde ARREGLOS 05 C, `rechazo_identidad_definitivo` (el ACK
+durable de un intento abierto es un 401/403: Amazon no procesó la mutación y
+la operación puede reintentarse tras sellarlo).
 
 **Acciones (`AccionCambio`, 10):** `enviar`, `leer_resultado`,
 `sellar_aplicado`, `sellar_rechazado`, `contar_intento`, `mantener_incierto`,
 `sellar_pausado_dueno`, `sellar_terminal`, `no_tocar` y `abortar_fase`. Cada
 casilla `(estado, evento)` devuelve una única `Transicion(accion,
 estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`. La
-tabla tiene 165 casillas (11 estados por 15 eventos).
+tabla tiene 176 casillas (11 estados por 16 eventos).
 
 **Clasificadores puros (ARREGLOS 05 B).** `evento_desde_lectura_objeto` es el
 único resolver de identidad: crea, lee de vuelta, concilia y revierte con la
@@ -954,9 +956,13 @@ nuevo con `nuevo_horario`, lo ordena.
 3. **Lo pausado por el dueño no se reactiva:** `pausado_por_dueno` es
    absorbente ante `nuevo_horario` (`no_tocar`) y nunca se sella como
    `aplicado`.
-4. **Rechazo de identidad (401/403) aborta la fase:** en los 11 estados ordena
-   `abortar_fase` con `propaga_aborto=True`; ninguna mutación posterior sale.
-   En `incierto` no sella (`sella_intento=False`).
+4. **Rechazo de identidad (401/403) aborta la fase:** en los 11 estados
+   `rechazo_identidad` ordena `abortar_fase` con `propaga_aborto=True`; ninguna
+   mutación posterior sale. En `incierto` no sella (`sella_intento=False`).
+   `rechazo_identidad_definitivo`, que solo nace del 401/403 ya guardado en el
+   ACK de un intento abierto, sella `rechazado` en `incierto`
+   (`sella_intento=True`) y permite otro intento registrado; un 5xx o una
+   respuesta perdida siguen siendo inciertos y se leen antes de reenviar.
 5. **Dueño desplazado jamás sella:** en los 11 estados `dueno_desplazado`
    ordena `abortar_fase` con `sella_intento=False` y `propaga_aborto=True`.
 6. **Operación en vuelo ajena no se toca:** en `en_vuelo`, ningún evento
@@ -1021,7 +1027,8 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   lectura; la guarda vale solo para un envío nuevo, compara con el destino
   cuantizado y responde 409 si el vigente ya es el destino.
 - **Reposición durable por fila (ARREGLOS 05 C):** la creación de la keyword
-  repuesta y su reversa usan la MISMA tabla, sin estados ni eventos nuevos.
+  repuesta y su reversa usan la MISMA tabla, sin estados nuevos y con un solo
+  evento nuevo (`rechazo_identidad_definitivo`).
   Dos adaptadores viven en `app/apply_estados.py`:
   `resultado_terminal_reposicion` (un `fallo:rechazo` definitivo no cierra la
   operación: el archivo sigue en `applied` o en `repuesto` y admite otro
@@ -1037,7 +1044,7 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   abiertos y hacen que dos CLI no creen dos objetos. `app/ads/archivar.py`
   expone `reponer_keyword` / `revertir_reposicion`; la implementación vive en
   `app/ads/reposicion.py` por el presupuesto de 900 líneas.
-- La tabla completa (165 casillas desde ARREGLOS 05 B), el mapa de los
+- La tabla completa (176 casillas desde ARREGLOS 05 C), el mapa de los
   hallazgos de revisión a su casilla y la demostración por nivel `/correct`
   viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del
   bloque B, en `docs/evidencia/arreglos-05/B/resultado.md`; la del bloque C,

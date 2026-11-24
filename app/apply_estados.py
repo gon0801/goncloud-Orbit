@@ -96,6 +96,7 @@ class EventoCambio(StrEnum):
     ERROR_4XX_DETERMINISTA = "error_4xx_determinista"
     ERROR_5XX_O_RED = "error_5xx_o_red"
     RECHAZO_IDENTIDAD = "rechazo_identidad"
+    RECHAZO_IDENTIDAD_DEFINITIVO = "rechazo_identidad_definitivo"
     PAUSA_MANUAL_DUENO = "pausa_manual_dueno"
     ENTIDAD_ARCHIVADA = "entidad_archivada"
     ENTIDAD_SIN_IDENTIDAD = "entidad_sin_identidad"
@@ -185,6 +186,16 @@ def _construye_tabla() -> Mapping[tuple[EstadoCambio, EventoCambio], Transicion]
             sella_intento=True,
             propaga_aborto=True,
         ),
+        # ARREGLOS 05 C: el 401/403 ya quedo en el ACK durable de un intento
+        # abierto. Es un rechazo definitivo, distinto de un 5xx incierto: se
+        # sella y permite otro intento registrado en una fase posterior.
+        (E.PENDIENTE, V.RECHAZO_IDENTIDAD_DEFINITIVO): T(
+            A.ABORTAR_FASE,
+            E.PENDIENTE,
+            origen_incompleto=True,
+            sella_intento=False,
+            propaga_aborto=True,
+        ),
         (E.PENDIENTE, V.PAUSA_MANUAL_DUENO): T(
             A.SELLAR_PAUSADO_DUENO, E.PAUSADO_POR_DUENO, sella_intento=True
         ),
@@ -224,6 +235,9 @@ def _construye_tabla() -> Mapping[tuple[EstadoCambio, EventoCambio], Transicion]
             origen_incompleto=True,
             sella_intento=False,
             propaga_aborto=True,
+        ),
+        (E.INCIERTO, V.RECHAZO_IDENTIDAD_DEFINITIVO): T(
+            A.SELLAR_RECHAZADO, E.RECHAZADO, sella_intento=True
         ),
         (E.INCIERTO, V.PAUSA_MANUAL_DUENO): T(
             A.SELLAR_PAUSADO_DUENO, E.PAUSADO_POR_DUENO, sella_intento=True
@@ -335,6 +349,18 @@ def estado_inicial_desde_hechos(
 def es_rechazo_de_identidad(exc: BaseException) -> bool:
     """True si `exc` es un rechazo de identidad o permisos (401/403) en lectura o mutacion."""
     return isinstance(exc, AdsApiError) and exc.status in STATUS_IDENTIDAD_RECHAZADA
+
+
+def evento_desde_ack_identidad(ack: dict | None) -> EventoCambio | None:
+    """El ACK durable de un intento abierto es un 401/403 definitivo.
+
+    Amazon rechazo la identidad antes de procesar la mutacion: el intento se
+    puede sellar como rechazo y admitir otro intento registrado (ARREGLOS 05 C).
+    Un 5xx o una respuesta perdida no dejan ese ACK y siguen siendo inciertos.
+    """
+    if isinstance(ack, dict) and ack.get("status") in STATUS_IDENTIDAD_RECHAZADA:
+        return EventoCambio.RECHAZO_IDENTIDAD_DEFINITIVO
+    return None
 
 
 def resultado_terminal_reposicion(resultado: str | None) -> str | None:

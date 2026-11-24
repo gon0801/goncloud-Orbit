@@ -232,9 +232,12 @@ prohibe fuera de `app/apply_estados.py` el literal `fallo:identidad_`.
 
 ## Ampliacion del bloque C (ARREGLOS 05 C)
 
-El bloque C ([`../C/estados.md`](../C/estados.md)) **no** agrego estados,
-eventos ni casillas: las 165 del bloque B gobiernan tambien la reposicion de
-keywords. Sumo dos adaptadores de hechos en el mismo modulo:
+El bloque C ([`../C/estados.md`](../C/estados.md)) no agrego estados. Sumo un
+evento, `rechazo_identidad_definitivo` (el 401/403 ya guardado en el ACK de un
+intento abierto), y sus 11 casillas: en `incierto` sella `rechazado` y permite
+otro intento registrado; en los demas estados aborta o no toca. La tabla pasa
+de 165 a 176 casillas (11 estados por 16 eventos). Sumo dos adaptadores de
+hechos en el mismo modulo:
 
 - `resultado_terminal_reposicion(resultado)`: un `fallo:rechazo` definitivo no
   es terminal para la operacion del archivo; el archivo sigue en `applied` (o

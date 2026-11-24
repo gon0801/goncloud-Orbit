@@ -618,7 +618,7 @@ def _resultados_log(evento: str, lote: str | None, resultados) -> None:
 
 
 def _primer_fallo(resultados) -> str | None:
-    ok = ("repuesto", "revertido", "ya_repuesto", "ya_revertido")
+    ok = ("repuesto", "revertido", "ya_repuesto", "ya_revertido", "reintentable")
     for r in resultados:
         if r.resultado not in ok:
             return f"{r.keyword_external}: {r.resultado} {r.detalle}".strip()

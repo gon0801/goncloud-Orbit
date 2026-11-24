@@ -651,6 +651,51 @@ def test_arreglos05_c_rechazo_de_identidad_aborta_sin_sellar(status):
 
 
 @_skip_db
+def test_arreglos05_c_403_en_reversa_se_sella_y_permite_reintentar():
+    """El 403 del DELETE queda en el ACK durable; al vencer el lease, la
+    conciliacion lo sella como rechazo y la misma corrida envia el DELETE
+    valido. Un 5xx sigue sin reenviar (prueba vecina)."""
+    with _db("orbit_c05_403") as (conn, _extra):
+        fila, _viejo, texto = _semilla(conn)
+        _marca_repuesto(conn, fila, "k-1")
+        amazon = _Amazon([_vivo("k-1", texto)])
+        amazon.falla_delete = 403
+        with pytest.raises(archivar.AbortoFase):
+            archivar.revertir_reposicion(
+                conn,
+                lote="lote-c",
+                cliente=_cliente(amazon),
+                perfiles=PERFILES,
+                eliminar=_eliminar(amazon),
+                owner="cli-1",
+                ejecutar=True,
+                dormir=lambda _s: None,
+            )
+        (intento,) = _intentos(conn, fila)
+        assert intento["resultado"] is None and intento["finished_at"] is None
+        assert intento["ack"]["status"] == 403, "el rechazo quedo durable"
+
+        _vence_lease(conn, fila)
+        amazon.falla_delete = None
+        resultados = archivar.revertir_reposicion(
+            conn,
+            lote="lote-c",
+            cliente=_cliente(amazon),
+            perfiles=PERFILES,
+            eliminar=_eliminar(amazon),
+            owner="cli-2",
+            ejecutar=True,
+            dormir=lambda _s: None,
+        )
+        assert [r.resultado for r in resultados] == ["reintentable", "revertido"], resultados
+        assert len(amazon.deletes) == 2
+        assert [i["resultado"] for i in _intentos(conn, fila)] == [
+            est.RESULTADO_REPOSICION_RECHAZO,
+            "ok",
+        ]
+
+
+@_skip_db
 def test_arreglos05_c_reversa_archiva_solo_el_id_propio_y_no_repite():
     with _db("orbit_c05_reversa") as (conn, _extra):
         fila, viejo, texto = _semilla(conn)

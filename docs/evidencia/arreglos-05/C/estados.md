@@ -8,8 +8,9 @@ modulo; ninguna rama decide fuera de la tabla.
 
 ## Lo que se agrega y lo que no
 
-No se agregan estados ni eventos: los 11 estados y 15 eventos del bloque B
-cubren la reposicion. Se agregan en `app/apply_estados.py`:
+No se agregan estados: los 11 del bloque B cubren la reposicion. Se agrega un
+evento, `RECHAZO_IDENTIDAD_DEFINITIVO`, y sus 11 casillas (la tabla pasa de 165
+a 176). Se agregan en `app/apply_estados.py`:
 
 - `RESULTADO_REPOSICION_RECHAZO = "fallo:rechazo"`: un 4xx determinista del
   POST de creacion o del DELETE de reversa. No cierra la operacion del archivo:
@@ -22,6 +23,9 @@ cubren la reposicion. Se agregan en `app/apply_estados.py`:
   sellado a lo que `estado_inicial_desde_hechos` considera terminal. Un
   `fallo:rechazo` no es terminal; `ok`, `fallo:entidad_*` y
   `RESULTADO_IDENTIDAD_SUSTITUIDA` si lo son.
+- `evento_desde_ack_identidad(ack)`: si el ACK durable de un intento abierto
+  trae 401/403, devuelve `RECHAZO_IDENTIDAD_DEFINITIVO`; un 5xx o una respuesta
+  perdida no lo traen y siguen inciertos.
 - `evento_reposicion_desde_lectura(...)`: aplica el resolver unico
   `evento_desde_lectura_objeto` y agrega dos hechos de la reposicion:
   1. Si el ID propio del ACK no aparece en una lectura COMPLETA, el evento es
@@ -61,7 +65,8 @@ Cada camino termina en una accion de la tabla; el llamador ramifica solo por
 | 3a | Respuesta ok con ID | `INCIERTO` | `OK_CONFIRMADO` | `SELLAR_APLICADO` (intento `ok` y archivo `repuesto`, misma transaccion) |
 | 3b | 4xx determinista | `INCIERTO` | `ERROR_4XX_DETERMINISTA` | `SELLAR_RECHAZADO` (`fallo:rechazo`); la siguiente corrida deriva `PENDIENTE` y permite otro intento registrado |
 | 3c | 5xx, red o timeout sin saber si aplico | `INCIERTO` | `ERROR_5XX_O_RED` | `MANTENER_INCIERTO`; el intento queda abierto y la corrida siguiente lee antes de reenviar |
-| 3d | 401 o 403 en lectura o mutacion | `INCIERTO` | `RECHAZO_IDENTIDAD` | `ABORTAR_FASE` con `propaga_aborto=True`; ninguna ruta sigue enviando |
+| 3d | 401 o 403 en lectura o mutacion | `INCIERTO` | `RECHAZO_IDENTIDAD` | `ABORTAR_FASE` con `propaga_aborto=True`; el ACK 401/403 queda durable y ninguna ruta sigue enviando |
+| 3e | 401/403 ya guardado en el ACK de un intento abierto (credenciales corregidas, lease vencido) | `INCIERTO` | `RECHAZO_IDENTIDAD_DEFINITIVO` | `SELLAR_RECHAZADO -> RECHAZADO` con `sella_intento=True`: se sella el intento y se permite otro intento registrado; un 5xx sigue incierto |
 | 4a | Readback por ID que omite el keyword | `INCIERTO` | `IDENTIDAD_DUDOSA` | `MANTENER_INCIERTO`; cero mutaciones a ciegas y cero POST nuevo |
 | 4b | Lista parcial o truncada (lector estricto 04 B-C) | `INCIERTO` | `ERROR_5XX_O_RED` | `MANTENER_INCIERTO`; la lectura incompleta no prueba ausencia |
 | 4c | ID sustituido por un ajeno con la misma identidad | `INCIERTO` | `IDENTIDAD_SUSTITUIDA` | `SELLAR_TERMINAL -> AJENO`; no se adopta ni se toca |
@@ -90,3 +95,5 @@ Cada camino termina en una accion de la tabla; el llamador ramifica solo por
    identidad o historia a la keyword archivada original.
 7. Ninguna fila de `keyword_reposicion_intento` se borra; el down conserva el
    historial.
+8. Un 401/403 registrado en el ACK se sella como rechazo y permite reintentar;
+   un 5xx o una respuesta perdida no habilitan otro envio sin lectura.
