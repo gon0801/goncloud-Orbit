@@ -4,6 +4,11 @@ Migradas desde `.coderabbit.yaml` (`path_instructions`). Tono: directo y técnic
 
 Los documentos también se revisan. `docs/`, `plans/` y `docs/evidencia/` pueden traer contradicciones reales: números que no cuadran entre plan y spec, una cobertura invalidada que sigue declarada, o una dependencia que deja correr una fase antes de tiempo. Eso cuenta como hallazgo.
 
+## Severidad y esquinas encadenadas
+
+- **Critical / High:** solo bugs reales en uso normal o ante un fallo simple común (rompe lo pedido, seguridad/secretos, o corrupción/pérdida de dinero o datos).
+- **Medium / Low:** esquinas que requieren 2 o más fallos o carreras simultáneas encadenadas, defensas hipotéticas fuera de alcance, o mejoras estructurales. Nunca subir esas esquinas a High ni Critical.
+
 ## `migrations/**/*.sql`
 
 Son reglas innegociables del repo (`docs/CONTEXTO.md`). Cada violación es High como mínimo, nunca Low.

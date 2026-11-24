@@ -15,11 +15,21 @@ La auditoria previa de 5adf1be0 no representa el estado actual.
    basico no sustituye casos de errores de red, respuesta tardia y seleccion nueva.
 6. Revisar los caminos vecinos que compartan la causa de cada correccion:
    creacion/reintento/reversa, lectura fresca/cache, agregacion/reconstruccion.
-7. Cualquier hallazgo nuevo exige un caso reproducible y un impacto concreto.
-   Las preferencias de estructura se documentan aparte de bloqueos de producto,
-   conforme a AGENTS.md; partir archivos por longitud no cierra estos defectos.
+7. Cualquier hallazgo bloqueante (P0/P1) exige un caso reproducible con impacto
+   real en uso normal o ante un fallo simple comun (rompe lo pedido, seguridad/
+   secretos, o corrupcion/perdida de dinero o datos). Esquinas que requieren 2 o
+   mas fallos o carreras encadenadas, defensas hipoteticas y preferencias de
+   estructura son P2: se documentan como seguimiento y NO bloquean el cierre.
+8. Tope de 3 rondas totales de revision por PR/bloque (atendiendo ai-review y
+   revisor asignado juntos; Devin no cuenta). Al cerrar la ronda 3 sin P0/P1
+   reales abiertos, se registran las notas P2 y se integra; si sigue vivo un
+   P0/P1 real, se escala a David en vez de abrir otra ronda.
 
-Pasa esta revision cuando no quedan bloqueos confirmados abiertos y las
+Pasa esta revision cuando no quedan bloqueos P0/P1 reales abiertos y las
 comprobaciones aplicables anteriores pasan en el mismo estado integrado.
 Esto no certifica ausencia universal de bugs ni el despliegue en produccion.
-No se cambian los criterios retrospectivamente sin nueva evidencia explicada.
+
+Actualizacion 2026-11-24 por orden de David (evidencia: PR #746 del bloque A
+consumio ~24 h, 84 commits, 10+ rondas y 41 hallazgos por tratar esquinas de
+multiples fallos encadenados como bloqueos infinitos). Prevalece la politica de
+revision y tope de 3 rondas de AGENTS.md.
