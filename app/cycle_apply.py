@@ -84,6 +84,8 @@ class _Reconciliacion:
     negativas_confirmadas: int = 0
     pausas_confirmadas: int = 0
     bids_confirmados: int = 0
+    reversas_confirmadas: int = 0
+    reversas_pendientes_de_lectura: int = 0
 
 
 def _guard_apply(
@@ -243,27 +245,49 @@ def _fase_reconciliacion(
             aplicador.ciclo_origen = origen
         reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
         confirmados, fallidos = apply.reconcilia_bids(conn, aplicador, platform)
+        excluir_q = (
+            frozenset(
+                int(q)
+                for r in apply_cola.resumes_del_ciclo(conn, origen)
+                if (q := r.inputs.get("queue_id")) is not None
+            )
+            if origen is not None
+            else frozenset()
+        )
+        res_rev = apply_cola.reconcilia_reversas_pause(
+            conn, aplicador, platform, excluir_queue_ids=excluir_q, tick=guard
+        )
     except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
         conn.rollback()
         return _Reconciliacion(
             aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
         )
     conn.commit()
+    notas_rec: dict = {
+        "bids_reconciliados": {"confirmados": confirmados, "fallidos": fallidos},
+        "pausas_reconciliadas": {
+            "confirmadas": reconciliacion.pausas_confirmadas,
+            "fallidas": reconciliacion.pausas_fallidas,
+        },
+    }
+    if res_rev.confirmadas or res_rev.fallidas or res_rev.omitidas or res_rev.pendientes_de_lectura:
+        notas_rec["reversas_reconciliadas"] = {
+            "confirmadas": res_rev.confirmadas,
+            "fallidas": res_rev.fallidas,
+            "omitidas": res_rev.omitidas,
+            "pendientes_de_lectura": res_rev.pendientes_de_lectura,
+        }
     return _Reconciliacion(
         aplicador=aplicador,
-        notas={
-            "bids_reconciliados": {"confirmados": confirmados, "fallidos": fallidos},
-            "pausas_reconciliadas": {
-                "confirmadas": reconciliacion.pausas_confirmadas,
-                "fallidas": reconciliacion.pausas_fallidas,
-            },
-        },
+        notas=notas_rec,
         alertas=reconciliacion.alertas,
         caps_saturados=reconciliacion.caps_saturados,
         jobs_done=reconciliacion.jobs_done,
         negativas_confirmadas=reconciliacion.negativas_confirmadas,
         pausas_confirmadas=reconciliacion.pausas_confirmadas,
         bids_confirmados=confirmados,
+        reversas_confirmadas=res_rev.confirmadas,
+        reversas_pendientes_de_lectura=res_rev.pendientes_de_lectura,
     )
 
 
@@ -389,7 +413,9 @@ def _fase_apply(
                 "fallidas": res_react.fallidas,
                 "sin_quota": res_react.sin_quota,
                 "omitidas": res_react.omitidas,
-                "pendientes_de_lectura": res_react.pendientes_de_lectura,
+                "pendientes_de_lectura": (
+                    res_react.pendientes_de_lectura + reconciliacion.reversas_pendientes_de_lectura
+                ),
             }
             total = (
                 res_bids.aplicadas
@@ -399,6 +425,7 @@ def _fase_apply(
                 + reconciliacion.negativas_confirmadas
                 + reconciliacion.pausas_confirmadas
                 + reconciliacion.bids_confirmados
+                + reconciliacion.reversas_confirmadas
             )
             with conn.transaction():
                 conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))

@@ -3747,6 +3747,83 @@ def test_arreglos05_a_reversa_manual_respeta_archivado_sin_otro_put_ni_intento()
 
 
 @_skip_db
+def test_arreglos05_a_reversa_manual_archivado_en_primer_list_un_solo_intento():
+    """Revision de Astra (PR #746, 8a pasada): si el primer LIST inmediato tras
+    el PUT de `reversa_pause` devuelve ARCHIVED, la lectura inmediata pasa por
+    el mismo clasificador y tabla que la conciliacion, persiste el desenlace
+    terminal `fallo:entidad_archived` y una segunda peticion manual no envia
+    otro PUT ni crea un segundo intento."""
+    from test_apply_cola import _reloj, _semilla
+    from test_cycle_apply import _db_temporal
+    from test_temporada01_f import _config, _pausa_baja, _pausado
+
+    from app import apply_reversa as manual
+    from tests.test_ads_write import _token_response, make_write_client
+
+    with _db_temporal("orbit_a05_manual_arch_1list") as (conn, _extra):
+        ids = _semilla(conn)
+        config_id, _settings = _config(conn)
+        pausa, fila = _pausa_baja(
+            conn, ciclo_id=ids["ciclo_dec"], config_id=config_id, hoja=ids["kw"], ahora=_reloj()
+        )
+        _pausado(conn, ids["kw"])
+        ext_kw = conn.execute(
+            "SELECT external_id FROM ad_entity WHERE id = %s", (ids["kw"],)
+        ).fetchone()[0]
+
+        puts: list[dict] = []
+        lists: list[int] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts.append(obj)
+                return httpx.Response(207, json={"keywords": {"success": [obj]}})
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                lists.append(1)
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": ext_kw, "state": "ARCHIVED"}]},
+                )
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        def cliente_reversa(_platform, *, transport=None):
+            return make_write_client(handler, platform="amazon_us")
+
+        # Peticion 1: PUT sale y el primer LIST inmediato devuelve ARCHIVED.
+        r1 = manual.reversa_manual(
+            conn,
+            tipo="pause",
+            queue_id=fila,
+            cliente_reversa=cliente_reversa,
+            reversa_bid_fn=lambda *_a, **_k: True,
+        )
+        assert r1 == {"tipo": "pause", "queue_id": fila, "confirmada": False}
+        assert len(puts) == 1
+        assert len(lists) == 1
+
+        # Peticion 2: el desenlace terminal ya persistido bloquea otro PUT/intento.
+        r2 = manual.reversa_manual(
+            conn,
+            tipo="pause",
+            queue_id=fila,
+            cliente_reversa=cliente_reversa,
+            reversa_bid_fn=lambda *_a, **_k: True,
+        )
+        assert r2 == {"tipo": "pause", "queue_id": fila, "confirmada": False}
+        assert len(puts) == 1, "dos peticiones manuales deben generar un solo PUT"
+        assert len(lists) == 1, "no debe volver a leer una entidad ya archivada"
+        intentos = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausa,),
+        ).fetchall()
+        assert intentos == [("fallo:entidad_archived", True)], intentos
+
+
+@_skip_db
 def test_arreglos05_a_reversa_manual_respeta_tope_de_tres_en_abierto_y_cerrados():
     """Revision de Astra sobre el modelo de estados (PR #746): `reversa_manual`
     debe pasar los hechos reales (`intentos_totales`), reevaluar tras
@@ -3969,3 +4046,158 @@ def test_arreglos05_a_segundo_ejecutor_solo_cuenta_confirmadas_de_esa_corrida():
             "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (h2.ciclo.cycle_id,)
         ).fetchone()[0]
         assert applied_db == 1, "el segundo ejecutor solo atribuye B, no A de nuevo"
+
+
+@_skip_db
+def test_arreglos05_a_tercer_put_incierto_al_cambio_de_dia_se_concilia_sin_cuarto_put():
+    """Revision de Astra (PR #746, 8a pasada): si el 3er PUT de reactivacion
+    queda incierto en el ultimo horario UTC del dia, al dia siguiente el plan
+    abre un origen nuevo y el HAVING count(*) >= 3 de temporada_io excluye la
+    pausa de nuevos `resume`. La conciliacion previa al nuevo origen debe leer
+    y sellar ese 3er intento abierto (tanto si Amazon habilito como si siguio
+    PAUSED) sin emitir un 4o PUT ni cobrar cuota adicional."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import (
+        _config,
+        _episodio,
+        _nueva_kw,
+        _pausa_baja,
+        _pausado,
+        estacion_dia,
+    )
+
+    from app import apply_cola, temporada_io
+    from app.optimizer import temporada
+
+    with _db("orbit_a05_cambio_dia_rev3") as (conn, _extra):
+        ids = _semilla_live(conn)
+        a, b = ids["kw_pause"], _nueva_kw(conn, ids["ag"], "9204")
+        ahora = _reloj()
+        manana = ahora + dt.timedelta(days=1)
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        settings_cap = {**settings, "ads_apply_cap_amazon_us_pause": 10}
+        config_id = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES ('cap10', %s) RETURNING id",
+            (json.dumps(settings_cap),),
+        ).fetchone()[0]
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausas = {}
+        for hoja in (a, b):
+            pausa, _q = _pausa_baja(
+                conn,
+                ciclo_id=ciclo_prev,
+                config_id=config_id,
+                hoja=hoja,
+                ahora=ahora,
+                episodio=cerrado,
+            )
+            _pausado(conn, hoja)
+            pausas[hoja] = pausa
+        origen_dia1 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen_dia1),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        for pendiente in temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset()):
+            propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+            conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+                " data_observed_at, window_start, window_end, inputs)"
+                " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+                (
+                    origen_dia1,
+                    pendiente.ad_entity_id,
+                    ahora,
+                    config_id,
+                    propuesta.data_observed_at,
+                    propuesta.window_start,
+                    propuesta.window_end,
+                    json.dumps(propuesta.inputs),
+                ),
+            )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen_dia1)) == 2
+
+        estado_remoto = {"9202": "PAUSED", "9204": "PAUSED"}
+        puts_por_kw: dict[str, int] = {"9202": 0, "9204": 0}
+
+        def api(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                filas = [{"keywordId": k, "state": v} for k, v in sorted(estado_remoto.items())]
+                return httpx.Response(200, json={"keywords": filas})
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                kw = str(obj["keywordId"])
+                puts_por_kw[kw] += 1
+                # En el 3er intento del dia 1, 9202 si se habilita en Amazon
+                # aunque la respuesta sea 500; 9204 sigue PAUSED.
+                if kw == "9202" and puts_por_kw[kw] == 3:
+                    estado_remoto[kw] = "ENABLED"
+                return httpx.Response(500, json={"code": "INTERNAL_ERROR"})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        def cuota_pause() -> int:
+            return int(
+                conn.execute("SELECT coalesce(sum(used), 0) FROM apply_quota_state").fetchone()[0]
+            )
+
+        # Dia 1: 3 horarios con PUT 500; tras el 3o ambas tienen 3 intentos con
+        # el 3o abierto.
+        for intento in (1, 2, 3):
+            res = _atiende(conn, factory=_directa(api), ahora=ahora)
+            assert res.ciclo is not None and res.ciclo.resume_of == origen_dia1
+            assert puts_por_kw == {"9202": intento, "9204": intento}
+        cuota_dia1 = cuota_pause()
+        assert cuota_dia1 == 6
+
+        # Dia 2: abre un origen nuevo (no un ejecutor del dia 1). La
+        # conciliacion previa lee y sella los dos 3os intentos abiertos sin
+        # emitir un 4o PUT ni cobrar cuota adicional.
+        dia2 = _atiende(conn, factory=_directa(api), ahora=manana)
+        assert dia2.ciclo is not None and dia2.ciclo.resume_of is None
+        assert puts_por_kw == {"9202": 3, "9204": 3}, "cero 4o PUT al cambiar de dia"
+        assert cuota_pause() == cuota_dia1, "cero cuota adicional al conciliar"
+        assert apply_cola.resumes_del_ciclo(conn, dia2.ciclo.cycle_id) == []
+
+        intentos_a = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausas[a],),
+        ).fetchall()
+        intentos_b = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausas[b],),
+        ).fetchall()
+        assert intentos_a == [
+            ("ok:no_aplicado", True),
+            ("ok:no_aplicado", True),
+            ("ok", True),
+        ], intentos_a
+        assert intentos_b == [
+            ("ok:no_aplicado", True),
+            ("ok:no_aplicado", True),
+            ("ok:no_aplicado", True),
+        ], intentos_b
+        assert (
+            conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (a,)
+            ).fetchone()[0]
+            == "ENABLED"
+        )
+        assert (
+            conn.execute(
+                "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (b,)
+            ).fetchone()[0]
+            == "PAUSED"
+        )

@@ -352,6 +352,16 @@ def _violaciones_chequeo_dueno_unico(fuentes: dict[str, str]) -> list[str]:
                     f"{rel}: ramifica por .estado_siguiente; los llamadores actuan solo "
                     "segun transicion.accion"
                 )
+            elif isinstance(nodo, ast.Compare) and rel == "app/apply_cola_ejecuta.py":
+                nodos_cmp = [nodo.left, *nodo.comparators]
+                if any(
+                    isinstance(n, ast.Attribute) and n.attr == "ESTADO_WIRE_ENABLED"
+                    for n in nodos_cmp
+                ):
+                    errores.append(
+                        f"{rel}: compara directamente con ESTADO_WIRE_ENABLED; "
+                        "usa evento_desde_lectura_estado + decidir"
+                    )
             elif (
                 isinstance(nodo, ast.Call)
                 and isinstance(nodo.func, ast.Name)
@@ -400,7 +410,8 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
                 "    'SELECT 1 FROM apply_attempt GROUP BY 1 HAVING count(*) >= 3'\n"
                 ")\n"
                 "RESULTADO_PAUSADA_TRAS_HABILITAR = 'omitida:pausada_tras_habilitar'\n"
-                "def _mal(tr): return tr.estado_siguiente\n"
+                "def _mal(tr, estado):\n"
+                "    return (tr.estado_siguiente, estado == apply.ESTADO_WIRE_ENABLED)\n"
             ),
             "app/apply_reversa.py": (
                 "estado_inicial_desde_hechos(\n"
@@ -417,4 +428,4 @@ def test_arreglos05_a_chequeo_correct_dueno_unico_en_codigo_y_muerde_violaciones
             ),
         }
     )
-    assert len(violaciones) == 8
+    assert len(violaciones) == 9

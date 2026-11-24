@@ -314,27 +314,18 @@ def reversa_pause(
         tick()
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
     estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
-    if estado is None:
-        tr_sin_estado = decidir(
-            EstadoCambio.INCIERTO,
-            evento_desde_lectura_estado(None, destino=apply.ESTADO_WIRE_ENABLED),
-        )
-        if not tr_sin_estado.sella_intento:
-            return PENDIENTE_LECTURA
-    verify = estado == apply.ESTADO_WIRE_ENABLED
-    resultado = (
-        "ok"
-        if verify
-        else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
+    transicion = _aplica_lectura_reversa(
+        conn,
+        intento_id=id_attempt,
+        ad_entity_id=fila.ad_entity_id,
+        estado_vivo=estado,
+        ack_put=ack,
+        durable=durable,
+        cerca_dueno=cerca_dueno,
     )
-    cierre = tx_durable(conn) if durable else conn.transaction()
-    with cierre:
-        if cerca_dueno is not None:
-            cerca_dueno()
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
-        if estado is not None:
-            conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-    return verify
+    if transicion.accion == AccionCambio.MANTENER_INCIERTO:
+        return PENDIENTE_LECTURA
+    return transicion.accion == AccionCambio.SELLAR_APLICADO
 
 
 def reversa_negative(
@@ -389,6 +380,23 @@ SELECT id, started_at FROM apply_attempt
  WHERE decision_id = %s AND tipo = 'reversa' AND finished_at IS NULL
  ORDER BY seq DESC
  LIMIT 1
+"""
+
+_SQL_REVERSAS_PAUSE_ABIERTAS = """
+SELECT q.id, q.kind, q.ad_entity_id, q.search_term, q.decision_id,
+       q.request_payload, q.estado
+  FROM apply_queue q
+  JOIN ad_entity e ON e.id = q.ad_entity_id
+ WHERE q.platform = %s::platform
+   AND q.kind = 'pause'
+   AND e.kind IN ('keyword', 'product_target')
+   AND EXISTS (
+       SELECT 1 FROM apply_attempt a
+        WHERE a.decision_id = q.decision_id
+          AND a.tipo = 'reversa'
+          AND a.finished_at IS NULL
+   )
+ ORDER BY q.id
 """
 
 _SQL_REVERSAS_DECISION = """
@@ -466,6 +474,59 @@ def candado_reversa_pause(conn: psycopg.Connection, decision_id: int) -> Iterato
                 conn.commit()
 
 
+def _aplica_lectura_reversa(
+    conn: psycopg.Connection,
+    *,
+    intento_id: int,
+    ad_entity_id: int,
+    estado_vivo: str | None,
+    ack_put: dict | None = None,
+    cache_previo_estado: str | None = None,
+    cache_previo_posterior_al_intento: bool = False,
+    durable: bool = True,
+    cerca_dueno=None,
+) -> Transicion:
+    """Camino unico para toda lectura de vuelta de una reversa `pause`:
+    inmediata tras PUT (`reversa_pause`) y de conciliacion
+    (`resuelve_reversa_abierta`).
+
+    Clasifica `estado_vivo` con `evento_desde_lectura_estado`, consulta
+    `decidir(EstadoCambio.INCIERTO, evento)` y, cuando `sella_intento`, sella
+    el ledger y actualiza el cache bajo `cerca_dueno`. Un desenlace terminal
+    (`ARCHIVED` u otro estado no PAUSED/ENABLED) se persiste como
+    `fallo:entidad_<estado>` tanto en la lectura inmediata como en la
+    conciliacion."""
+    evento = evento_desde_lectura_estado(
+        estado_vivo,
+        destino=apply.ESTADO_WIRE_ENABLED,
+        cache_previo_estado=cache_previo_estado,
+        cache_previo_posterior_al_intento=cache_previo_posterior_al_intento,
+    )
+    transicion = decidir(EstadoCambio.INCIERTO, evento)
+    if not transicion.sella_intento:
+        return transicion
+    assert estado_vivo is not None  # toda transicion con sella_intento viene de lectura con estado
+    if transicion.accion == AccionCambio.SELLAR_APLICADO:
+        resultado = RESULTADO_OK
+        ack = ack_put if ack_put is not None else {"conciliado": True}
+    elif transicion.accion == AccionCambio.SELLAR_PAUSADO_DUENO:
+        resultado = RESULTADO_PAUSADA_POR_DUENO
+        ack = {"conciliado": True, "cache_previo": apply.ESTADO_WIRE_ENABLED}
+    elif transicion.accion == AccionCambio.CONTAR_INTENTO:
+        resultado = "fallo:divergencia_readback" if ack_put is not None else RESULTADO_NO_APLICADO
+        ack = ack_put
+    else:
+        resultado = f"fallo:entidad_{estado_vivo.lower()}"
+        ack = ack_put
+    cierre = tx_durable(conn) if durable else conn.transaction()
+    with cierre:
+        if cerca_dueno is not None:
+            cerca_dueno()
+        apply._sella_ledger(conn, intento_id, ack=ack, resultado=resultado)
+        conn.execute(_SQL_CACHE_ESTADO, (estado_vivo, ad_entity_id))
+    return transicion
+
+
 def resuelve_reversa_abierta(
     conn: psycopg.Connection,
     cliente,
@@ -502,31 +563,16 @@ def resuelve_reversa_abierta(
     posterior_al_intento = (
         cache_previo is not None and cache_previo[1] is not None and cache_previo[1] >= iniciado_el
     )
-    evento = evento_desde_lectura_estado(
-        estado,
-        destino=apply.ESTADO_WIRE_ENABLED,
+    return _aplica_lectura_reversa(
+        conn,
+        intento_id=intento_id,
+        ad_entity_id=fila.ad_entity_id,
+        estado_vivo=estado,
         cache_previo_estado=cache_previo[0] if cache_previo is not None else None,
         cache_previo_posterior_al_intento=posterior_al_intento,
+        durable=True,
+        cerca_dueno=cerca_dueno,
     )
-    transicion = decidir(EstadoCambio.INCIERTO, evento)
-    if not transicion.sella_intento:
-        return transicion
-    assert estado is not None  # toda transicion con sella_intento viene de lectura con estado
-    if transicion.accion == AccionCambio.SELLAR_APLICADO:
-        resultado, ack = RESULTADO_OK, {"conciliado": True}
-    elif transicion.accion == AccionCambio.SELLAR_PAUSADO_DUENO:
-        resultado = RESULTADO_PAUSADA_POR_DUENO
-        ack = {"conciliado": True, "cache_previo": apply.ESTADO_WIRE_ENABLED}
-    elif transicion.accion == AccionCambio.CONTAR_INTENTO:
-        resultado, ack = RESULTADO_NO_APLICADO, None
-    else:
-        resultado, ack = f"fallo:entidad_{estado.lower()}", None
-    with tx_durable(conn):
-        if cerca_dueno is not None:
-            cerca_dueno()
-        apply._sella_ledger(conn, intento_id, ack=ack, resultado=resultado)
-        conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-    return transicion
 
 
 def resuelve_reversa_sin_sello(
@@ -537,6 +583,71 @@ def resuelve_reversa_sin_sello(
         return None
     return resuelve_reversa_abierta(
         conn, aplicador._cliente(), fila, tick=tick, cerca_dueno=aplicador.exige_dueno
+    )
+
+
+def reconcilia_reversas_pause(
+    conn: psycopg.Connection,
+    aplicador: Aplicador,
+    platform: str,
+    *,
+    excluir_queue_ids: frozenset[int] = frozenset(),
+    tick=None,
+) -> ResumenReactivacion:
+    """Concilia por LECTURA toda reversa `pause` con intento abierto en el
+    ledger, independientemente de la fecha, el tope de intentos o la
+    elegibilidad para un nuevo PUT (ARREGLOS 05 A, 8a pasada de Astra).
+
+    Corre en `_fase_reconciliacion` antes de decidir: un 3er PUT incierto del
+    ultimo horario UTC de ayer se lee y sella hoy sin emitir un 4o PUT ni
+    cobrar cuota. En un ejecutor de recuperacion, `excluir_queue_ids` omite
+    las filas que ya atendera `aplica_reactivaciones` del origen actual."""
+    filas = [
+        FilaCola(*f)
+        for f in conn.execute(_SQL_REVERSAS_PAUSE_ABIERTAS, (platform,)).fetchall()
+        if f[0] not in excluir_queue_ids
+    ]
+    if not filas:
+        return ResumenReactivacion()
+    confirmadas = fallidas = omitidas = pendientes_de_lectura = 0
+    for fila in filas:
+        apply._tick(tick)
+        with candado_reversa_pause(conn, fila.decision_id) as tomado:
+            hechos = _hechos_reversa(conn, fila.decision_id) if tomado else None
+            estado = estado_inicial_desde_hechos(
+                en_vuelo_ajeno=not tomado,
+                tiene_intento_abierto=hechos.intento_abierto_id is not None if hechos else False,
+                resultado_terminal=hechos.resultado_terminal if hechos else None,
+                intentos_totales=hechos.intentos_totales if hechos else 0,
+                tope_intentos=apply.TOPE_INTENTOS,
+            )
+            transicion = decidir(estado, EventoCambio.NUEVO_HORARIO)
+            if transicion.accion == AccionCambio.LEER_RESULTADO:
+                try:
+                    tr_lectura = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
+                except AdsApiError as exc:
+                    if transicion_desde_error(EstadoCambio.INCIERTO, exc).propaga_aborto:
+                        raise
+                    _rollback_si_abierta(conn)
+                    pendientes_de_lectura += 1
+                    continue
+                if tr_lectura is not None:
+                    dc, df, do, dp = _contabiliza_transicion_reactivacion(tr_lectura)
+                    confirmadas += dc
+                    fallidas += df
+                    omitidas += do
+                    pendientes_de_lectura += dp
+                continue
+            dc, df, do, dp = _contabiliza_transicion_reactivacion(transicion)
+            confirmadas += dc
+            fallidas += df
+            omitidas += do
+            pendientes_de_lectura += dp
+    return ResumenReactivacion(
+        confirmadas=confirmadas,
+        fallidas=fallidas,
+        omitidas=omitidas,
+        pendientes_de_lectura=pendientes_de_lectura,
     )
 
 
