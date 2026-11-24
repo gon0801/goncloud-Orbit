@@ -22,15 +22,15 @@ $ CI=1 PYTHONPATH=.;tests python -B -m pytest -q -p no:cacheprovider --tb=line -
 FFFFFFFFFFFFF.FFFFFF.FF.F                                                [100%]
 ================================== FAILURES ===================================
 E   AssertionError: assert 'done' == 'failed'
-      
+
       - failed
       + done
 tests\test_arreglos05_b_reversas.py:329: AssertionError: assert 'done' == 'failed'
 E   AssertionError: dos_vivas
     assert ('done', 'k-2') == ('exact_created', 'k-2')
-      
+
       At index 0 diff: 'done' != 'exact_created'
-      
+
       Full diff:
         (
       -     'exact_created',
@@ -45,9 +45,9 @@ E   assert (True is False)
 tests\test_arreglos05_b_reversas.py:443: assert (True is False)
 E   AssertionError: lo que ya no vive no lleva DELETE
     assert ['k-9'] == []
-      
+
       Left contains one more item: 'k-9'
-      
+
       Full diff:
       - []
       + [
@@ -60,9 +60,9 @@ E   AssertionError: la evidencia previa nace con la fila del ledger
     assert 'ausencia_previa' in {'id': 1, 'ack': None, 'seq': 1, 'tipo': 'normal', ...}
 tests\test_arreglos05_b_reversas.py:572: AssertionError: la evidencia previa nace con la fila del ledger
 E   AssertionError: assert [{'negativeKe...XACT', ...}]}] == []
-      
+
       Left contains one more item: {'negativeKeywords': [{'adGroupId': '7101', 'campaignId': '7001', 'keywordText': 'termino malo', 'matchType': 'NEGATIVE_EXACT', ...}]}
-      
+
       Full diff:
       - []
       + [
@@ -81,9 +81,9 @@ E   AssertionError: assert [{'negativeKe...XACT', ...}]}] == []
 tests\test_arreglos05_b_reversas.py:595: AssertionError: assert [{'negativeKe...XACT', ...}]}] == []
 E   AssertionError: un objeto preexistente no se adopta ni se reenvia
     assert [{'negativeKe...XACT', ...}]}] == []
-      
+
       Left contains one more item: {'negativeKeywords': [{'adGroupId': '7101', 'campaignId': '7001', 'keywordText': 'termino malo', 'matchType': 'NEGATIVE_EXACT', ...}]}
-      
+
       Full diff:
       - []
       + [
@@ -116,9 +116,9 @@ E   AssertionError: el ledger conserva lo leido antes del PUT, no el bid de la c
     assert (None is not None)
 tests\test_arreglos05_b_reversas.py:791: AssertionError: el ledger conserva lo leido antes del PUT, no el bid de la cache (1.0040)
 E   AssertionError: assert [Decimal('1.0')] == [Decimal('1.01')]
-      
+
       At index 0 diff: Decimal('1.0') != Decimal('1.01')
-      
+
       Full diff:
         [
       -     Decimal('1.01'),
@@ -130,9 +130,9 @@ E   assert True is False
 tests\test_arreglos05_b_reversas.py:825: assert True is False
 E   AssertionError: un solo PUT de reversa
     assert [Decimal('1.0...ecimal('1.0')] == [Decimal('1.00')]
-      
+
       Left contains one more item: Decimal('1.0')
-      
+
       Full diff:
         [
       -     Decimal('1.00'),
@@ -142,9 +142,9 @@ E   AssertionError: un solo PUT de reversa
         ]
 tests\test_arreglos05_b_reversas.py:850: AssertionError: un solo PUT de reversa
 E   AssertionError: assert [None, 'ok'] == ['ok:no_aplicado', 'ok']
-      
+
       At index 0 diff: None != 'ok:no_aplicado'
-      
+
       Full diff:
         [
       -     'ok:no_aplicado',
@@ -161,7 +161,7 @@ E   AssertionError: un solo DELETE en total
      +      where borrados = <test_arreglos05_b_reversas._Amazon object at 0x000001F8400FEB40>.borrados
 tests\test_arreglos05_b_reversas.py:940: AssertionError: un solo DELETE en total
 E   AssertionError: assert 'ok' == 'fallo:entidad_archived'
-      
+
       - fallo:entidad_archived
       + ok
 tests\test_arreglos05_b_reversas.py:966: AssertionError: assert 'ok' == 'fallo:entidad_archived'
@@ -172,14 +172,14 @@ E   AssertionError: falta la migracion 0095 o su reversa
 tests\test_arreglos05_b_reversas.py:1041: AssertionError: falta la migracion 0095 o su reversa
 =========================== short test summary info ===========================
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_cosecha_no_adopta_keyword_sustituida_ni_la_borra - AssertionError: assert 'done' == 'failed'
-  
+
   - failed
   + done
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_cosecha_con_identidad_dudosa_queda_pendiente_sin_borrar - AssertionError: dos_vivas
 assert ('done', 'k-2') == ('exact_created', 'k-2')
-  
+
   At index 0 diff: 'done' != 'exact_created'
-  
+
   Full diff:
     (
   -     'exact_created',
@@ -191,9 +191,9 @@ assert '2026-11-24T12:20:35.833227+00:00' is None
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_manual_no_borra_keyword_sustituida_y_queda_pendiente - assert (True is False)
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_manual_confirma_por_lectura_lo_propio_ya_retirado - AssertionError: lo que ya no vive no lleva DELETE
 assert ['k-9'] == []
-  
+
   Left contains one more item: 'k-9'
-  
+
   Full diff:
   - []
   + [
@@ -203,9 +203,9 @@ FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_manual_no_
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_negative_guarda_la_ausencia_previa_antes_del_post - AssertionError: la evidencia previa nace con la fila del ledger
 assert 'ausencia_previa' in {'id': 1, 'ack': None, 'seq': 1, 'tipo': 'normal', ...}
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_lectura_previa_incompleta_no_autoriza_el_post - AssertionError: assert [{'negativeKe...XACT', ...}]}] == []
-  
+
   Left contains one more item: {'negativeKeywords': [{'adGroupId': '7101', 'campaignId': '7001', 'keywordText': 'termino malo', 'matchType': 'NEGATIVE_EXACT', ...}]}
-  
+
   Full diff:
   - []
   + [
@@ -223,9 +223,9 @@ FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_lectura_previa_inc
   + ]
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_negative_preexistente_no_se_envia_ni_se_borra - AssertionError: un objeto preexistente no se adopta ni se reenvia
 assert [{'negativeKe...XACT', ...}]}] == []
-  
+
   Left contains one more item: {'negativeKeywords': [{'adGroupId': '7101', 'campaignId': '7001', 'keywordText': 'termino malo', 'matchType': 'NEGATIVE_EXACT', ...}]}
-  
+
   Full diff:
   - []
   + [
@@ -252,9 +252,9 @@ FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_del_negati
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_la_puja_guarda_el_bid_leido_antes_del_put - AssertionError: el ledger conserva lo leido antes del PUT, no el bid de la cache (1.0040)
 assert (None is not None)
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_de_bid_vuelve_al_valor_leido_antes_del_put - AssertionError: assert [Decimal('1.0')] == [Decimal('1.01')]
-  
+
   At index 0 diff: Decimal('1.0') != Decimal('1.01')
-  
+
   Full diff:
     [
   -     Decimal('1.01'),
@@ -264,9 +264,9 @@ FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_de_bid_vue
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_de_bid_respeta_un_cambio_manual_posterior - assert True is False
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_de_bid_con_respuesta_perdida_no_duplica_el_put - AssertionError: un solo PUT de reversa
 assert [Decimal('1.0...ecimal('1.0')] == [Decimal('1.00')]
-  
+
   Left contains one more item: Decimal('1.0')
-  
+
   Full diff:
     [
   -     Decimal('1.00'),
@@ -275,9 +275,9 @@ assert [Decimal('1.0...ecimal('1.0')] == [Decimal('1.00')]
   +     Decimal('1.0'),
     ]
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_reversa_de_bid_incierta_que_no_aplico_se_lee_y_se_reenvia_una_vez - AssertionError: assert [None, 'ok'] == ['ok:no_aplicado', 'ok']
-  
+
   At index 0 diff: None != 'ok:no_aplicado'
-  
+
   Full diff:
     [
   -     'ok:no_aplicado',
@@ -291,7 +291,7 @@ assert 2 == 1
  +    where ['n-1', 'n-1'] = borrados('negative')
  +      where borrados = <test_arreglos05_b_reversas._Amazon object at 0x000001F8400FEB40>.borrados
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_cosecha_cuya_keyword_propia_fue_archivada_cierra_sin_borrar_ajenos - AssertionError: assert 'ok' == 'fallo:entidad_archived'
-  
+
   - fallo:entidad_archived
   + ok
 FAILED tests/test_arreglos05_b_reversas.py::test_arreglos05_b_migracion_evidencia_previa_ida_reversa_e_ida - AssertionError: falta la migracion 0095 o su reversa

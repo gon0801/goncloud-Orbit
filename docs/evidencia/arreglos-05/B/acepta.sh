@@ -118,7 +118,7 @@ corre() { # <ACEPTA|CONTROL> <nombre> <regla> <comando...>
 
 en_parte() { [[ $parte == 0 || $parte == "$1" ]]; }
 
-echo "# Acepta de ARREGLOS 05 B. SHA $(git rev-parse HEAD)$( ((parte)) && echo " (parte $parte de 3)") )"
+echo "# Acepta de ARREGLOS 05 B. SHA $(git rev-parse HEAD)$( ((parte)) && echo " (parte $parte de 3)")"
 echo "# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): $([[ -z $(git status --porcelain --untracked-files=no -- . ':(exclude)docs/evidencia/arreglos-05/B/acepta.txt' ':(exclude)docs/evidencia/arreglos-05/B/acepta-?.txt') ]] && echo si || echo NO)"
 echo "# variables PG* de destino o de servicio quitadas del entorno: $pg_quitadas"
 echo "# herramientas en el PATH para recolectar con CI=1: psql=$(command -v psql >/dev/null && echo si || echo no) pg_dump=$(command -v pg_dump >/dev/null && echo si || echo no) flock=$(command -v flock >/dev/null && echo si || echo no)"
