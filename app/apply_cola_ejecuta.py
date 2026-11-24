@@ -7,6 +7,8 @@ recibido por parametro o detras de `Aplicador._cliente()`.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -371,6 +373,33 @@ _SQL_ESTADO_CACHE_PREVIO = """
 SELECT status, synced_at FROM ad_entity_state WHERE ad_entity_id = %s
 """
 
+_SQL_CANDADO_REVERSA_TOMAR = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
+_SQL_CANDADO_REVERSA_SOLTAR = "SELECT pg_advisory_unlock(hashtextextended(%s, 0))"
+
+
+@contextmanager
+def candado_reversa_pause(conn: psycopg.Connection, decision_id: int) -> Iterator[bool]:
+    """Exclusion de sesion compartida por decision entre la reactivacion
+    automatica y la reversa manual (ARREGLOS 05 A, revision).
+
+    Sobrevive al `conn.commit()` previo al PUT y PostgreSQL la libera si la
+    conexion cae. No bloquea (`pg_try_advisory_lock`): si ya hay una reversa
+    activa sobre esa decision cede `False` para no conciliar ni reenviar sobre
+    un intento en vuelo."""
+    llave = f"orbit:reversa-pause:{decision_id}"
+    tomado = bool(conn.execute(_SQL_CANDADO_REVERSA_TOMAR, (llave,)).fetchone()[0])
+    if not conn.autocommit:
+        conn.commit()
+    try:
+        yield tomado
+    finally:
+        if tomado and not conn.closed:
+            if not conn.autocommit and conn.info.transaction_status == pq.TransactionStatus.INERROR:
+                conn.rollback()
+            conn.execute(_SQL_CANDADO_REVERSA_SOLTAR, (llave,))
+            if not conn.autocommit:
+                conn.commit()
+
 
 def resuelve_reversa_abierta(
     conn: psycopg.Connection,
@@ -492,79 +521,98 @@ def aplica_reactivaciones(
         if fila is None or fila.ad_entity_id != decision.ad_entity_id:
             omitidas += 1
             continue
-        # Resuelve cualquier intento `reversa` abierto por lectura ANTES de los
-        # filtros que solo condicionan un nuevo PUT: si Amazon habilito la hoja,
-        # se perdio la respuesta y la ingesta actualizo la cache a ENABLED (o
-        # cambio una guarda), el intento abierto debe sellarse sin reenviar.
-        try:
-            veredicto = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
-        except AdsApiError as exc:
-            if apply.es_rechazo_de_identidad(exc):
-                raise
-            # La lectura no alcanzo a resolver el intento anterior: sigue sin
-            # sello y pendiente de lectura; no se cobra ni se envia nada.
-            if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
-                conn.rollback()
-            pendientes_de_lectura += 1
-            continue
-        if veredicto is not None:
-            # La hoja se cuenta y se pasa: ya habilitada (por lectura), pausada
-            # de nuevo por el dueno tras haberse visto habilitada (omitida sin
-            # reenviar), sin lectura conclusiva (pendiente de leerla en otro
-            # horario) o cerrada sin reenviar (archivada, sin identidad).
-            confirmadas += veredicto == "ya_habilitada"
-            fallidas += veredicto in ("archivada", "sin_identidad")
-            omitidas += veredicto == "pausada_manual"
-            pendientes_de_lectura += veredicto == "inconclusa"
-            continue
-        if decision.ad_entity_id in mantener:
-            omitidas += 1
-            continue
-        if apply.gate_ancestros(conn, decision.ad_entity_id) is not None:
-            omitidas += 1
-            continue
-        if aplicador.modo_efectivo(conn, decision.ad_entity_id, escalera_global="live") != "live":
-            omitidas += 1
-            continue
-        entidad = conn.execute(_SQL_ENTIDAD_REACTIVACION, (decision.ad_entity_id,)).fetchone()
-        if entidad is None or entidad[2] != "PAUSED" or entidad[0] in grupos_pausa:
-            omitidas += 1
-            continue
-        presupuesto = presupuestos.get(entidad[1])
-        if recuperacion.presupuesto_topado_de(presupuesto) is True:
-            omitidas += 1
-            continue
-        usada, saturada = apply.consume_quota_y_sello(conn, platform, "pause")
-        if not usada:
-            sin_quota += 1
-            continue
-        if saturada:
-            evento = apply.evento_cap_saturado(conn, platform, "pause")
-            if evento is not None:
-                caps_saturados.append(evento)
-        try:
-            reanudada = reversa_pause(
-                conn,
-                _cliente_mutacion(aplicador),
-                fila,
-                tick=tick,
-                durable=True,
-                cerca_dueno=aplicador.exige_dueno,
-            )
-        except AdsApiError as exc:
-            if apply.es_rechazo_de_identidad(exc):
-                raise
-            # ARREGLOS 05 A.3: 5xx o red de ESTA reactivacion. Amazon pudo
-            # reanudarla; el intento `reversa` ya nacio y queda sin sellar,
-            # pendiente de lectura para que el horario siguiente abra ejecutor
-            # y concilie antes de reenviar. Los fallos globales siguen propagando.
-            if not conn.autocommit and conn.info.transaction_status != pq.TransactionStatus.IDLE:
-                conn.rollback()
-            pendientes_de_lectura += 1
-            continue
-        confirmadas += reanudada is True
-        pendientes_de_lectura += reanudada is PENDIENTE_LECTURA
-        fallidas += reanudada is False
+        with candado_reversa_pause(conn, fila.decision_id) as tomado:
+            if not tomado:
+                # Otra ruta (p.ej. reversa manual concurrente) ya esta operando
+                # sobre esta pausa: no se concilia ni reenvia sobre su envio en
+                # vuelo y queda pendiente de lectura para el siguiente horario.
+                pendientes_de_lectura += 1
+                continue
+            # Resuelve cualquier intento `reversa` abierto por lectura ANTES de
+            # los filtros que solo condicionan un nuevo PUT: si Amazon habilito
+            # la hoja, se perdio la respuesta y la ingesta actualizo la cache a
+            # ENABLED (o cambio una guarda), el intento abierto debe sellarse
+            # sin reenviar.
+            try:
+                veredicto = resuelve_reversa_sin_sello(conn, aplicador, fila, tick=tick)
+            except AdsApiError as exc:
+                if apply.es_rechazo_de_identidad(exc):
+                    raise
+                # La lectura no alcanzo a resolver el intento anterior: sigue
+                # sin sello y pendiente de lectura; no se cobra ni se envia nada.
+                if (
+                    not conn.autocommit
+                    and conn.info.transaction_status != pq.TransactionStatus.IDLE
+                ):
+                    conn.rollback()
+                pendientes_de_lectura += 1
+                continue
+            if veredicto is not None:
+                # La hoja se cuenta y se pasa: ya habilitada (por lectura),
+                # pausada de nuevo por el dueno tras haberse visto habilitada
+                # (omitida sin reenviar), sin lectura conclusiva (pendiente de
+                # leerla en otro horario) o cerrada sin reenviar (archivada,
+                # sin identidad).
+                confirmadas += veredicto == "ya_habilitada"
+                fallidas += veredicto in ("archivada", "sin_identidad")
+                omitidas += veredicto == "pausada_manual"
+                pendientes_de_lectura += veredicto == "inconclusa"
+                continue
+            if decision.ad_entity_id in mantener:
+                omitidas += 1
+                continue
+            if apply.gate_ancestros(conn, decision.ad_entity_id) is not None:
+                omitidas += 1
+                continue
+            if (
+                aplicador.modo_efectivo(conn, decision.ad_entity_id, escalera_global="live")
+                != "live"
+            ):
+                omitidas += 1
+                continue
+            entidad = conn.execute(_SQL_ENTIDAD_REACTIVACION, (decision.ad_entity_id,)).fetchone()
+            if entidad is None or entidad[2] != "PAUSED" or entidad[0] in grupos_pausa:
+                omitidas += 1
+                continue
+            presupuesto = presupuestos.get(entidad[1])
+            if recuperacion.presupuesto_topado_de(presupuesto) is True:
+                omitidas += 1
+                continue
+            usada, saturada = apply.consume_quota_y_sello(conn, platform, "pause")
+            if not usada:
+                sin_quota += 1
+                continue
+            if saturada:
+                evento = apply.evento_cap_saturado(conn, platform, "pause")
+                if evento is not None:
+                    caps_saturados.append(evento)
+            try:
+                reanudada = reversa_pause(
+                    conn,
+                    _cliente_mutacion(aplicador),
+                    fila,
+                    tick=tick,
+                    durable=True,
+                    cerca_dueno=aplicador.exige_dueno,
+                )
+            except AdsApiError as exc:
+                if apply.es_rechazo_de_identidad(exc):
+                    raise
+                # ARREGLOS 05 A.3: 5xx o red de ESTA reactivacion. Amazon pudo
+                # reanudarla; el intento `reversa` ya nacio y queda sin sellar,
+                # pendiente de lectura para que el horario siguiente abra
+                # ejecutor y concilie antes de reenviar. Los fallos globales
+                # siguen propagando.
+                if (
+                    not conn.autocommit
+                    and conn.info.transaction_status != pq.TransactionStatus.IDLE
+                ):
+                    conn.rollback()
+                pendientes_de_lectura += 1
+                continue
+            confirmadas += reanudada is True
+            pendientes_de_lectura += reanudada is PENDIENTE_LECTURA
+            fallidas += reanudada is False
     return ResumenReactivacion(
         confirmadas=confirmadas,
         fallidas=fallidas,

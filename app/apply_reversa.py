@@ -248,10 +248,15 @@ def reversa_manual(
         if tipo == "pause":
 
             def _reversa_pause_manual() -> bool | str:
-                veredicto = apply_cola.resuelve_reversa_abierta(conn, cliente, fila)
-                if veredicto is not None:
-                    return veredicto == "ya_habilitada"
-                return apply_cola.reversa_pause(conn, cliente, fila)
+                with apply_cola.candado_reversa_pause(conn, fila.decision_id) as tomado:
+                    if not tomado:
+                        return False
+                    if _reversa_ya_hecha(conn, fila.decision_id):
+                        raise ReversaYaHecha(fila.decision_id)
+                    veredicto = apply_cola.resuelve_reversa_abierta(conn, cliente, fila)
+                    if veredicto is not None:
+                        return veredicto == "ya_habilitada"
+                    return apply_cola.reversa_pause(conn, cliente, fila)
 
             confirmada = _confirmada_en_la_frontera_manual(_reversa_pause_manual)
             return {"tipo": "pause", "queue_id": queue_id, "confirmada": confirmada}

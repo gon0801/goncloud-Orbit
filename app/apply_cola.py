@@ -46,6 +46,7 @@ from app.apply_cola_ejecuta import (  # noqa: F401 - re-export estable
     _ejecuta_rama,
     _termina,
     aplica_reactivaciones,
+    candado_reversa_pause,
     fila_cola,
     grupos_con_pausa_producto,
     resuelve_reversa_abierta,

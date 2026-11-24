@@ -3215,3 +3215,154 @@ def test_arreglos05_a_reversa_incierta_no_deshace_pausa_manual_posterior():
             "la pausa original queda excluida de futuras reactivaciones"
         )
         assert ciclo.motivo_de_salto(conn, "amazon_us", hoy=hoy) is not None
+
+
+@_skip_db
+def test_arreglos05_a_reversa_manual_concurrente_no_cierra_put_automatico_en_vuelo():
+    """Revision de Devin del PR #746 (septima pasada): con el ciclo automatico
+    enviando un PUT de reactivacion (intento abierto ya commiteado y PUT en
+    vuelo hacia Amazon), una peticion concurrente de `reversa_manual` desde
+    otra conexion no debe conciliar ni sellar `ok:no_aplicado` sobre ese
+    intento en curso ni enviar otro PUT. Una exclusion compartida por decision
+    protege la operacion hasta el cierre del envio."""
+    from test_apply_cola import _reloj
+    from test_temporada01_f import _config, _episodio, _pausa_baja, _pausado, estacion_dia
+
+    from app import apply_cola, temporada_io
+    from app import apply_reversa as manual
+    from app.optimizer import temporada
+    from tests.test_ads_write import _token_response, make_write_client
+
+    with _db("orbit_a05_reversa_concurrencia") as (conn, extra):
+        ids = _semilla_live(conn)
+        hoja = ids["kw_pause"]
+        ahora = _reloj()
+        ciclo_prev = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        config_id, settings = _config(conn)
+        cerrado = _episodio(conn, config_id, ciclo_prev, ahora, cerrado=True)
+        pausa, q_id = _pausa_baja(
+            conn,
+            ciclo_id=ciclo_prev,
+            config_id=config_id,
+            hoja=hoja,
+            ahora=ahora,
+            episodio=cerrado,
+        )
+        _pausado(conn, hoja)
+        origen = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = %s,"
+            " decision_committed_at = %s, notes = '{}' WHERE id = %s",
+            (ahora, ahora, origen),
+        )
+        estacion = temporada.resuelve(temporada.desde_settings(settings), estacion_dia())
+        [pendiente] = temporada_io.reactivaciones_pendientes(conn, "amazon_us", frozenset())
+        propuesta = ciclo.pendiente_reactivacion(pendiente, estacion, decidido_el=ahora)
+        conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'resume', %s, %s, %s, %s, %s, %s)",
+            (
+                origen,
+                pendiente.ad_entity_id,
+                ahora,
+                config_id,
+                propuesta.data_observed_at,
+                propuesta.window_start,
+                propuesta.window_end,
+                json.dumps(propuesta.inputs),
+            ),
+        )
+        assert len(apply_cola.resumes_del_ciclo(conn, origen)) == 1
+
+        estado_remoto = {"9202": "PAUSED"}
+        put_en_vuelo = threading.Event()
+        manual_termino = threading.Event()
+        puts_ciclo: list[dict] = []
+        puts_manual: list[dict] = []
+        lists_manual: list[int] = []
+        resultado_manual: dict = {}
+        error_manual: list[BaseException] = []
+
+        def api_ciclo(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_ciclo.append(obj)
+                put_en_vuelo.set()
+                assert manual_termino.wait(timeout=10), "la peticion manual no corrio a tiempo"
+                estado_remoto["9202"] = obj["state"]
+                return httpx.Response(207, json={"keywords": {"success": [obj]}})
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": "9202", "state": estado_remoto["9202"]}]},
+                )
+            raise AssertionError(f"request inesperado ciclo: {request.method} {request.url.path}")
+
+        def api_manual(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "POST" and request.url.path == "/sp/keywords/list":
+                lists_manual.append(1)
+                return httpx.Response(
+                    200,
+                    json={"keywords": [{"keywordId": "9202", "state": estado_remoto["9202"]}]},
+                )
+            if request.method == "PUT" and request.url.path == "/sp/keywords":
+                obj = json.loads(request.content)["keywords"][0]
+                puts_manual.append(obj)
+                estado_remoto["9202"] = obj["state"]
+                return httpx.Response(207, json={"keywords": {"success": [obj]}})
+            raise AssertionError(f"request inesperado manual: {request.method} {request.url.path}")
+
+        def corre_manual():
+            try:
+                assert put_en_vuelo.wait(timeout=10), "el PUT del ciclo nunca entro en vuelo"
+                with extra() as conn_manual:
+                    resultado_manual["resp"] = manual.reversa_manual(
+                        conn_manual,
+                        tipo="pause",
+                        queue_id=q_id,
+                        cliente_reversa=lambda _p, *, transport=None: make_write_client(
+                            api_manual, platform="amazon_us"
+                        ),
+                        reversa_bid_fn=lambda *_a, **_k: True,
+                    )
+            except BaseException as exc:
+                error_manual.append(exc)
+            finally:
+                manual_termino.set()
+
+        hilo = threading.Thread(target=corre_manual)
+        hilo.start()
+        try:
+            res = _atiende(conn, factory=_directa(api_ciclo), ahora=ahora)
+        finally:
+            manual_termino.set()
+            hilo.join(timeout=10)
+
+        assert not error_manual, f"fallo inesperado en hilo manual: {error_manual}"
+        assert resultado_manual.get("resp") == {
+            "tipo": "pause",
+            "queue_id": q_id,
+            "confirmada": False,
+        }
+        assert puts_manual == [], "la ruta manual no reenvia mientras el ciclo esta en vuelo"
+        assert lists_manual == [], "la ruta manual no concilia mientras el ciclo esta en vuelo"
+        assert len(puts_ciclo) == 1
+        assert res.ciclo is not None and res.ciclo.status == "done"
+        notas = json.loads(res.ciclo.notes)["apply"]
+        assert "apply_error" not in notas, notas
+        assert notas["reactivaciones"]["confirmadas"] == 1
+        intentos = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt"
+            " WHERE decision_id = %s AND tipo = 'reversa' ORDER BY seq",
+            (pausa,),
+        ).fetchall()
+        assert intentos == [("ok", True)], intentos
