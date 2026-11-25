@@ -167,3 +167,92 @@ se ejecutan en el acepta del bloque por ser de otros modulos.
   primer lote harvest con un termino reobservado despues del despliegue es el que
   ejercita el camino nuevo en vivo; la evidencia de laboratorio lo cubre con PG16
   desechable.
+
+## Fase 2: despliegue y recibo
+
+- PR #765 integrado. `MOTOR_SHA=d0cdf1c110a965542239ae9bc1ae7f1e97d05d48`
+  (master), `SHA_PREVIO=96eddb992295616d183f7fac1707574e6682a5ad`.
+- Fecha: 2026-11-25 04:16-04:24 UTC.
+- Entorno: `env -i PATH=/ucrt64/bin:/usr/bin:/bin HOME=$HOME MOTOR_SHA=<sha>`.
+
+### Ensayo de solo lectura
+
+`MOTOR_SHA=d0cdf1c1... bash tools/despliegue/desplegar.sh --ensayo` (ver
+`despliegue.txt`):
+
+- Guardas libres (`alias|ciclos running|harvest en cola|harvest jobs|app.cli` =
+  `true|0|0|0|0`).
+- Migraciones 0076-0098 aplicadas, **ninguna pendiente**: G no trae DDL y la
+  `0098_arreglos05_indice_shadow.sql` sigue siendo la ultima.
+- `claves: ninguna cambia`; bloque de cron igual al canonico;
+  `refresh_estimacion.sh` ya es el de `d0cdf1c1`.
+- `== ENSAYO OK`.
+
+### Despliegue real
+
+`MOTOR_SHA=d0cdf1c1... bash tools/despliegue/desplegar.sh`:
+
+- Respaldo `predeploy-20261125-041646` completo.
+- Migraciones 0076-0098 `ya aplicada` (ninguna se ejecuto; G sin migracion).
+- `md5 OK: 304 archivos`; imagen construida aparte y contenedor recreado;
+  `/health 200`; `despliegue/sha = d0cdf1c110a965542239ae9bc1ae7f1e97d05d48`.
+- Cron igual al canonico; ninguna clave cambia.
+- `== DESPLEGADO d0cdf1c1... (checklist.sh lo pasa a verificado)`.
+
+### Checklist
+
+`MOTOR_SHA=d0cdf1c1... bash tools/despliegue/checklist.sh` (ver `checklist.txt`):
+
+- `== CHECKLIST VERDE d0cdf1c1...`: el SHA desplegado contiene `d0cdf1c1`; las
+  migraciones 0076-0098 aplicadas (la ultima, `0098_indice_shadow`); bloque de
+  cron canonico; `refresh_estimacion.sh` del SHA; `/health 200`.
+
+### Prueba real sobre el SHA integrado
+
+- `N g`: **4 passed** (6443 deselected).
+- `T optimizer test_13`: **1 passed** (2 deselected).
+- Huella (`huella-codigo.txt`): `md5_local = md5_servidor = md5_contenedor =
+  4a43e4d24a6484c24c034b757b837fc0` del archivo que cambia G
+  (`app/cycle_serializacion.py`); `sha_desplegado = d0cdf1c1`; el marcador
+  "comun a TODO termino" aparece en el contenedor.
+
+### Lectura RO de produccion (`previa-fase2.txt`)
+
+Rol `orbit_read`, transaccion `read_only`, via `lee_prod.sh`; 2026-11-25T04:22Z:
+
+- Esquema de ARREGLOS 05 (0094-0098) y del sello: las ocho comprobaciones en
+  `True`; `decision_dato_no_del_futuro`, `decision.data_observed_at` y el trigger
+  `decision_madurez_corte` presentes.
+- 179 live+done, 30 shadow+done y 2 off+skipped; 21 lotes mixtos.
+- `harvest`: 16 en total, **0 con insumo posterior**, **0 con sello en el futuro**,
+  0 con sello invalido. Esta es la medida correcta del sello.
+- El bloque `observaciones_ingeridas_posteriores` (45244 pares, 70 decisiones) es
+  contexto: cuenta observaciones **ingeridas** despues de la decision, no insumos
+  **leidos** con `observed_at > decided_at`; no prueba que el sello de `negative`
+  protegiera algo (nota P2 (a) de la revision).
+- `decision_dato_no_del_futuro`: 0 violaciones historicas.
+
+### Reversa
+
+G no agrega migracion, asi que no hay DDL que deshacer: la 0098 sigue siendo la
+ultima. `MOTOR_SHA=d0cdf1c110a965542239ae9bc1ae7f1e97d05d48 bash
+tools/despliegue/rollback.sh` deshace solo lo anotado en `ultimo.env` para ese
+SHA (codigo; las claves y el cron no cambiaron) y sale 0 sin deshacer con otro
+SHA. Antes de degradar, detener nuevas mutaciones y conciliar; la reversa de
+efectos y la de despliegue son operaciones distintas.
+
+### Seguimiento (P2) de la fase 2
+
+- (a) El bloque de reobservaciones de `previa.sql`/`estados.md` es contexto de
+  ingesta; la medida del sello es `harvest_insumo_posterior = 0` (ya anotado en el
+  cuerpo del PR #765). Ajuste de redaccion, sin cambio de codigo.
+- (b) `test_arreglos05_g_ventana_madura_intacta_y_trigger_vigente` podria afirmar
+  ademas que el mensaje del trigger contiene `maduracion`, no solo el sqlstate
+  `23514`. Mejora de prueba, fuera de este bloque.
+- (c) La raiz de fondo seria una lectura as-of (`observed_at <= decided_at`) en
+  `windows`; queda como diseno de seguimiento, fuera de este bloque.
+
+### Recibo
+
+`despliegue.txt`, `checklist.txt`, `prueba-real.txt`, `previa-fase2.txt` y
+`huella-codigo.txt` en esta carpeta.

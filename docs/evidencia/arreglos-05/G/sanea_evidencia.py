@@ -13,10 +13,11 @@ import pathlib
 import sys
 
 RAIZ = pathlib.Path(__file__).resolve().parent
-REPO = RAIZ.parents[4]
+REPO = RAIZ.parents[3]
 USUARIO = pathlib.Path.home().name
 
 prefijos = set(sys.argv[1:])
+prefijos.add(REPO.name)
 for forma in (str(REPO), REPO.as_posix(), str(REPO).replace("/", "\\")):
     prefijos.add(forma)
     prefijos.add(forma + "\\")

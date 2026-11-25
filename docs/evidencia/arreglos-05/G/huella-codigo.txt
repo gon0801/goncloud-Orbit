@@ -1,0 +1,10 @@
+# Huella del codigo desplegado - ARREGLOS 05 G
+# SHA integrado y desplegado: d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+# Archivo cambiado por G: app/cycle_serializacion.py
+
+md5_local=4a43e4d24a6484c24c034b757b837fc0
+md5_servidor=4a43e4d24a6484c24c034b757b837fc0
+md5_contenedor=4a43e4d24a6484c24c034b757b837fc0
+iguales=si
+sha_desplegado=d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+marcador_sello_comun_en_contenedor=1
