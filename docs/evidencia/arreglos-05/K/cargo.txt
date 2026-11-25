@@ -1,0 +1,120 @@
+# K/cargo.sql
+# generado: 2026-11-25T13:22:02Z
+# commit de la lectura: cfcd20be50ba775fec3a623d031dbbd8e535da65
+
+-- A. Filas de cargo en el libro, estimadas frente a reales [platform|filas|estimadas]
+amazon_mx|4140|325
+amazon_us|2365|108
+meli|2576|0
+
+-- A2. Comisiones referral_fee en v_ledger_cargo: reales y estimadas [platform|filas|estimadas|reales]
+amazon_mx|1745|18|1727
+amazon_us|663|3|660
+meli|1147|0|1147
+
+-- B. Tipos de cargo, moneda, signo y ventana [platform|currency|kind|fee_type|n|desde|hasta|total]
+amazon_mx|MXN|sale|(null)|1563|2026-01-01|2026-11-25|1868737.87
+amazon_mx|MXN|fee|ads|263|2026-03-07|2026-11-24|-128182.45
+amazon_mx|MXN|fee|fba_fee|615|2026-01-01|2026-11-23|-43123.11
+amazon_mx|MXN|fee|otros|115|2026-02-13|2026-11-22|-5861.94
+amazon_mx|MXN|fee|referral_fee|1905|2026-01-01|2026-11-25|-320948.52
+amazon_mx|MXN|fee|shipping_fee|974|2026-01-01|2026-11-23|-83073.96
+amazon_mx|MXN|fee|storage_fee|14|2026-01-08|2026-06-07|-9.52
+amazon_mx|MXN|refund|refund|82|2026-01-02|2026-11-24|-37819.79
+amazon_mx|MXN|withholding|isr_withheld|9|2026-03-13|2026-10-12|-29915.79
+amazon_mx|MXN|withholding|tax_withheld|1583|2026-01-01|2026-11-23|-127128.72
+amazon_us|MXN|sale|(null)|599|2026-01-01|2026-11-22|1457277.80
+amazon_us|MXN|fee|ads|262|2026-03-07|2026-11-24|-289553.09
+amazon_us|MXN|fee|referral_fee|727|2026-01-01|2026-11-22|-235055.71
+amazon_us|MXN|fee|shipping_fee|1290|2026-01-01|2026-11-22|-368402.87
+amazon_us|MXN|refund|refund|66|2026-02-08|2026-10-19|-42037.19
+amazon_us|MXN|withholding|isr_withheld|9|2026-03-13|2026-10-13|-27911.10
+amazon_us|MXN|withholding|tax_withheld|1014|2026-01-01|2026-11-21|-99242.97
+meli|MXN|sale|(null)|642|2026-01-03|2026-11-25|794029.63
+meli|MXN|fee|ads|283|2026-02-16|2026-11-25|-153444.46
+meli|MXN|fee|referral_fee|632|2026-01-03|2026-11-25|-152232.90
+meli|MXN|fee|shipping_fee|632|2026-01-03|2026-11-25|-52602.50
+meli|MXN|refund|refund|35|2026-01-10|2026-11-17|-40257.90
+meli|MXN|withholding|isr_withheld|635|2026-01-03|2026-11-25|-16873.54
+meli|MXN|withholding|tax_withheld|635|2026-01-03|2026-11-25|-53995.67
+
+-- C. Razon cobrada de la comision variable por pedido, solo cargos efectivos, por plataforma y mes [platform|currency|mes|pares|mediana|pmin|pmax]
+amazon_mx|MXN|2025-11-01|3|0.030000|0.029990|0.030000
+amazon_mx|MXN|2025-12-01|142|0.150000|0.140594|0.180000
+amazon_mx|MXN|2026-01-01|136|0.150000|0.140594|0.180000
+amazon_mx|MXN|2026-02-01|151|0.150000|0.142358|0.180000
+amazon_mx|MXN|2026-03-01|192|0.150000|0.139622|0.186002
+amazon_mx|MXN|2026-04-01|149|0.150000|0.140343|0.186002
+amazon_mx|MXN|2026-05-01|114|0.150000|0.139622|0.185996
+amazon_mx|MXN|2026-06-01|68|0.150000|0.139622|0.186814
+amazon_mx|MXN|2026-07-01|99|0.150000|0.139622|0.205416
+amazon_mx|MXN|2026-08-01|101|0.150000|0.139622|0.201452
+amazon_mx|MXN|2026-09-01|141|0.150000|0.138314|0.185996
+amazon_mx|MXN|2026-10-01|226|0.150000|0.139316|0.185999
+amazon_mx|MXN|2026-11-01|167|0.150000|0.138314|0.180010
+amazon_us|MXN|2025-11-01|2|0.027155|0.017985|0.036325
+amazon_us|MXN|2025-12-01|39|0.168364|0.154658|0.177301
+amazon_us|MXN|2026-01-01|52|0.171735|0.161066|0.194068
+amazon_us|MXN|2026-02-01|47|0.176747|0.152208|0.221345
+amazon_us|MXN|2026-03-01|73|0.150387|0.138796|0.201803
+amazon_us|MXN|2026-04-01|71|0.142486|0.102877|0.159158
+amazon_us|MXN|2026-05-01|51|0.129252|0.100465|0.161504
+amazon_us|MXN|2026-06-01|41|0.130756|0.098332|0.156672
+amazon_us|MXN|2026-07-01|57|0.130757|0.111546|0.159909
+amazon_us|MXN|2026-08-01|65|0.128106|0.103053|0.157797
+amazon_us|MXN|2026-09-01|60|0.129887|0.106459|0.161543
+amazon_us|MXN|2026-10-01|43|0.128490|0.095421|0.147199
+amazon_us|MXN|2026-11-01|35|0.128276|0.095118|0.142939
+meli|MXN|2025-03-01|29|0.195000|0.194992|0.195007
+meli|MXN|2025-04-01|74|0.195000|0.194992|0.343614
+meli|MXN|2025-05-01|64|0.195000|0.194992|0.195007
+meli|MXN|2025-06-01|37|0.195006|0.194993|0.467727
+meli|MXN|2025-07-01|39|0.195005|0.194993|0.467727
+meli|MXN|2025-08-01|51|0.195003|0.194993|0.195007
+meli|MXN|2025-09-01|57|0.195005|0.194993|0.467727
+meli|MXN|2025-10-01|54|0.195003|0.194993|0.195007
+meli|MXN|2025-11-01|70|0.195005|0.194993|0.195007
+meli|MXN|2025-12-01|40|0.195000|0.194992|0.195007
+meli|MXN|2026-01-01|13|0.195000|0.195000|0.195007
+meli|MXN|2026-02-01|45|0.195005|0.194983|0.195007
+meli|MXN|2026-03-01|75|0.195000|0.194993|0.195007
+meli|MXN|2026-04-01|93|0.195001|0.194993|0.195007
+meli|MXN|2026-05-01|49|0.195003|0.194996|0.195006
+meli|MXN|2026-06-01|35|0.195004|0.195000|0.195006
+meli|MXN|2026-07-01|75|0.195004|0.195000|0.195007
+meli|MXN|2026-08-01|40|0.195004|0.195000|0.195005
+meli|MXN|2026-09-01|50|0.195004|0.195000|0.195006
+meli|MXN|2026-10-01|81|0.195004|0.195000|0.195007
+meli|MXN|2026-11-01|76|0.195004|0.097502|0.195007
+
+-- D. Razon por pedido en la ventana, solo cargos efectivos; las estimadas se cuentan aparte [platform|pares_reales|p10|p50|p90|exactos_0150|exactos_0195|pedidos_solo_estimada]
+amazon_mx|534|0.150000|0.150000|0.150007|510|0|18
+amazon_us|53|0.111951|0.128276|0.135426|0|0|2
+meli|207|0.195000|0.195004|0.195005|0|206|0
+
+-- E. Razon cobrado/cotizado por producto en MXN: ventana comun, solo cargos efectivos y pedidos de un solo producto mapeado [platform|productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100|pedidos_descartados]
+amazon_mx|113|534|0.150000|0.129311|1.160005|1.105681|1.160057|110|0|0
+meli|10|43|0.195004|0.195004|1.000000|1.000000|1.000000|0|10|0
+
+-- F. Amazon US en su ventana: ventana comun, solo cargos efectivos y pedidos de un solo producto mapeado; cotizacion en USD y cargo en MXN [productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100|pedidos_descartados]
+24|53|0.128797|0.150000|0.858649|0.634122|0.940567|0|0|0
+
+-- G. Tres pedidos MX mayores de la ventana con la comision cobrada al 15%, sin identificador [venta|comision|tasa|razon|diferencia]
+2689.0000|403.3600|0.150004|1.160032|55.6454
+2689.0000|403.3600|0.150004|1.160032|55.6454
+2689.0000|403.3600|0.150004|1.160032|55.6454
+
+-- H. Amazon US por mes: venta, comision efectiva y retencion [mes|pares|venta|comision|tasa_comision|retencion|tasa_retencion]
+2025-11-01|2|5225.87|146.98|0.028125|0.00|0.000000
+2025-12-01|39|87877.23|14724.17|0.167554|7199.64|0.081928
+2026-01-01|52|118016.37|20448.98|0.173272|8814.67|0.074690
+2026-02-01|47|97259.07|17331.76|0.178202|7446.08|0.076559
+2026-03-01|73|163398.29|25539.95|0.156305|11991.31|0.073387
+2026-04-01|71|163262.42|22649.61|0.138731|11120.13|0.068112
+2026-05-01|51|125508.14|16382.13|0.130526|7721.80|0.061524
+2026-06-01|41|104714.84|13733.69|0.131153|6760.69|0.064563
+2026-07-01|57|146244.06|19137.64|0.130861|9919.61|0.067829
+2026-08-01|65|163600.01|21085.23|0.128883|10954.60|0.066960
+2026-09-01|60|155085.31|20286.75|0.130810|9940.42|0.064096
+2026-10-01|43|116858.06|15001.88|0.128377|8405.55|0.071930
+2026-11-01|35|94949.03|12171.44|0.128189|6168.11|0.064962

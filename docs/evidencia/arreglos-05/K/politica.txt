@@ -1,0 +1,12 @@
+# K/politica.sql
+# generado: 2026-11-25T13:22:54Z
+# commit de la lectura: cfcd20be50ba775fec3a623d031dbbd8e535da65
+
+-- A. Politicas por universo [universo|formula|label|settings|valid_from|valid_to]
+amazon_mx/fba|S3|amazon_mx_pf_rfc_valid_2026_01|{"isr_tasa": "0.025", "logistica": "0", "iva_divisor": "1.16", "precio_incluye_iva": true, "logistica_semantica": "L=0 solo porque logistica FBA esta incluida en fees Amazon", "retencion_iva_reconciliacion": "0.08", "fee_tax_amount_requiere_politica": true}|2026-01-01|2026-11-21
+amazon_mx/fba|S4|amazon_mx_fba_s4_caja_real_2026_11|{"isr_tasa": "0.025", "logistica": "0", "iva_divisor": "1.16", "precio_incluye_iva": true, "retencion_iva_tasa": "0.08", "logistica_semantica": "L=0 solo porque logistica FBA esta incluida en fees Amazon", "referral_fee_iva_multiplicador": "1.16", "fee_tax_amount_requiere_politica": true}|2026-11-21|None
+amazon_mx/fbm|S3|repricing02_fbm_mx|{"isr_tasa": "0.025", "logistica": "0", "iva_divisor": "1.16", "precio_incluye_iva": true, "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante", "retencion_iva_reconciliacion": "0.08", "fee_tax_amount_requiere_politica": true}|2026-10-15|2026-11-21
+amazon_mx/fbm|S4|amazon_mx_fbm_s4_caja_real_2026_11|{"isr_tasa": "0.025", "logistica": "0", "iva_divisor": "1.16", "precio_incluye_iva": true, "retencion_iva_tasa": "0.08", "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante", "referral_fee_iva_multiplicador": "1.16", "fee_tax_amount_requiere_politica": true}|2026-11-21|None
+amazon_us/fbm|S3|repricing02_fbm_us|{"isr_tasa": "0.0207", "logistica": "0", "iva_divisor": "1", "precio_incluye_iva": false, "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante", "retencion_iva_reconciliacion": "0.08", "fee_tax_amount_requiere_politica": true}|2026-10-15|None
+meli/meli|S3|repricing02_meli|{"isr_tasa": "0.025", "logistica": "0", "iva_divisor": "1.16", "precio_incluye_iva": true, "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante", "retencion_iva_reconciliacion": "0.08", "fee_tax_amount_requiere_politica": true}|2026-10-16|2026-11-21
+meli/meli|S4|meli_s4_caja_real_2026_11|{"isr_tasa": "0.025", "logistica": "0", "iva_divisor": "1.16", "precio_incluye_iva": true, "retencion_iva_tasa": "0.08", "logistica_semantica": "L sale de precio_envio_muestra, no de esta constante", "referral_fee_iva_multiplicador": "1", "fee_tax_amount_requiere_politica": true}|2026-11-21|None

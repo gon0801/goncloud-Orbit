@@ -1,0 +1,60 @@
+# K/escenario.sql
+# generado: 2026-11-25T13:22:31Z
+# commit de la lectura: cfcd20be50ba775fec3a623d031dbbd8e535da65
+
+-- A. Escenarios por plataforma, formula y estado [platform|formula|estado|n|desde|hasta]
+amazon_mx|S3|disponible|42174|2026-09-08|2026-11-21
+amazon_mx|S3|incompleta|861|2026-09-09|2026-11-25
+amazon_mx|S3|desactualizada|39781|2026-09-09|2026-11-21
+amazon_mx|S4|disponible|2830|2026-11-21|2026-11-25
+amazon_mx|S4|desactualizada|2260|2026-11-22|2026-11-25
+amazon_us|S3|disponible|7823|2026-10-16|2026-11-25
+amazon_us|S3|incompleta|223|2026-10-15|2026-11-25
+amazon_us|S3|desactualizada|10443|2026-10-16|2026-11-25
+meli|S3|disponible|1551|2026-10-17|2026-11-21
+meli|S3|incompleta|850|2026-10-17|2026-11-25
+meli|S3|desactualizada|3395|2026-10-17|2026-11-25
+meli|S4|disponible|262|2026-11-21|2026-11-25
+meli|S4|desactualizada|37|2026-11-22|2026-11-22
+
+-- B. Motivos registrados, incluida la abstencion impuesto_fee_pendiente [platform|formula|motivo|n]
+amazon_mx|S3|costo_desactualizado|38983
+amazon_mx|S4|costo_desactualizado|2260
+amazon_mx|S3|envio_sin_historia|242
+amazon_mx|S3|fee_ausente|158
+amazon_mx|S3|fee_http_429_agotado|1
+amazon_mx|S3|fee_incompatible|362
+amazon_mx|S4|fee_incompatible|1
+amazon_mx|S3|fee_item_InternalError|32
+amazon_mx|S3|oferta_ausente|582
+amazon_mx|S3|oferta_desactualizada|798
+amazon_us|S3|costo_desactualizado|8493
+amazon_us|S3|envio_sin_historia|222
+amazon_us|S3|fee_ausente|22
+amazon_us|S3|fee_incompatible|62
+amazon_us|S3|fx_ausente|7668
+amazon_us|S3|oferta_ausente|90
+amazon_us|S3|oferta_desactualizada|1950
+meli|S3|costo_ausente|175
+meli|S3|costo_desactualizado|54
+meli|S4|costo_desactualizado|37
+meli|S3|envio_sin_historia|84
+meli|S3|oferta_ausente|651
+meli|S3|oferta_desactualizada|3341
+
+-- C. S4: la comision estimada suma el 16% de ReferralFee una sola vez [escenarios|con_iva_ref|iva_ref_es_referral_x_016|fee_total_es_total_mas_iva]
+2830|2830|2830|2830
+
+-- D. MeLi S4: sin componente de impuesto sobre la comision [escenarios|con_iva_ref]
+262|0
+
+-- E. La comision estimada con S4 contra el cargo efectivo por producto en Amazon MX, ventana comun y pedidos de un solo producto mapeado [productos|pares|mediana_tasa_s4|mediana_razon|productos_a_1pct|productos_a_01pct|pedidos_descartados]
+113|534|0.150001|1.000004|110|110|0
+
+-- F. MeLi: la comision cotizada contra la cobrada por producto, ventana comun y pedidos de un solo producto mapeado [productos|pares|mediana_razon|productos_a_01pct|pedidos_descartados]
+10|43|1.000000|10|0
+
+-- G. Una cotizacion completa por plataforma [id|platform|canal|precio|currency|total|estimada_en|fee_details]
+105117|amazon_mx|fbm|1688.0000|MXN|218.2800|2026-11-25 12:51:48+00:00|[{"currency": "MXN", "fee_type": "ReferralFee", "final_fee": "218.2800", "fee_amount": "218.2800", "fee_promotion": "0.0000"}]
+105115|amazon_us|fbm|138.0000|USD|20.7000|2026-11-25 12:51:46+00:00|[{"currency": "USD", "fee_type": "ReferralFee", "final_fee": "20.7000", "fee_amount": "20.7000", "fee_promotion": "0.0000"}, {"currency": "USD", "fee_type": "PerItemFee", "final_fee": "0.0000", "fee_amount": "0.0000", "fee_promotion": "0.0000"}, {"currency": "USD", "fee_type": "VariableClosingFee", "final_fee": "0.0000", "fee_amount": "0.0000", "fee_promotion": "0.0000"}]
+105188|meli|meli|1489.0000|MXN|290.3600|2026-11-25 12:52:02.470929+00:00|[{"currency": "MXN", "fee_type": "SaleFee", "final_fee": "290.3600"}, {"currency": "MXN", "fee_type": "SaleFeeFixed", "final_fee": "0.0000"}, {"currency": "MXN", "fee_type": "ListingFee", "final_fee": "0.0000"}]
