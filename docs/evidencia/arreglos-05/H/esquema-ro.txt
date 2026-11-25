@@ -1,0 +1,64 @@
+# Esquema y huella de la fase 2 del bloque H (solo lectura)
+# MOTOR_SHA: 889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+# SHA local: 1833d6e5619434522b931552486e6ec88ff78d5e
+# Comando: bash docs/evidencia/arreglos-05/H/lee_esquema_ro.sh
+# Referencia previa al despliegue: H/previa.txt (2026-11-25 04:34 UTC)
+
+== momento
+2026-11-25 06:30:24.679688+00:00|160015
+
+== sonda_0099
+True|True
+
+== motivos_check
+CHECK ((motivo = ANY (ARRAY['modo_no_live'::text, 'ya_aplicada'::text, 'bid_incompleto'::text, 'entidad_no_decisora'::text, 'tope_intentos'::text, 'fuera_de_cap'::text, 'fallo_http'::text, 'sin_quota'::text, 'espera_target'::text, 'sin_respuesta'::text, 'perdida'::text, 'choque_clave'::text, 'espera_proteccion'::text, 'bid_cambiado_fuera'::text, 'vigencia_vencida'::text, 'tope_ciclo'::text])))
+
+== conteo_tablas
+98|97|27
+
+== historia_totales
+211|179|30|2|2927|503|11|531|14|193|520
+
+== historia_motivos
+modo_no_live|190
+fuera_de_cap|3
+
+== historia_maximos
+211|2026-11-24 09:41:02.462072+00:00|2927|2026-11-24 09:41:02.417658+00:00|576|2026-11-24 09:41:12.079982+00:00|2026-09-30 08:42:35.898004+00:00|2026-11-24 09:41:16.842972+00:00
+
+== historia_despues_del_despliegue
+0|0|0|0|0
+
+== tope_ciclo
+0|0|None
+
+== permisos_historia
+False|False|False|False|False
+
+# Huella del codigo desplegado
+
+## despliegue/sha en el servidor
+889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+
+## /health en el servidor (8010)
+200
+
+## md5 de los archivos que toca H (servidor)
+e598778e3b23000d3cdf544f5abc40e4  app/apply.py
+fa6690d18df10f452ec0feb9d48b154f  app/apply_cuota.py
+d160737320fcb68df6acef089406e91c  app/apply_estados.py
+
+## md5 de los mismos archivos en el arbol local (889fe5cac5a54178eff8f0562f6e418ecf6d4ef8)
+e598778e3b23000d3cdf544f5abc40e4 *app/apply.py
+fa6690d18df10f452ec0feb9d48b154f *app/apply_cuota.py
+d160737320fcb68df6acef089406e91c *app/apply_estados.py
+
+## simbolos de H dentro del contenedor vivo
+tope= 150
+motivo= tope_ciclo
+evento= cupo_ciclo_agotado
+estado= cupo_ciclo_agotado
+clasificador= True
+exenta= True
+
+# bloques procesados: 10 de 10; con error: 0

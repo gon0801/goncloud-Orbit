@@ -1,4 +1,4 @@
-host=Gon-PC dsn_laboratorio=si
+host=<host> dsn_laboratorio=si
 migraciones canonicas: 97 (ultima 0099_arreglos05_tope_ciclo.sql)
 tablas BASE con TODAS las migraciones: 98
 vistas con TODAS las migraciones: 27

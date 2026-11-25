@@ -1,0 +1,4 @@
+tablas BASE canonicas (desde cero): 98
+tablas BASE en produccion: 98
+solo en el canonico (0): -
+solo en produccion (0): -
