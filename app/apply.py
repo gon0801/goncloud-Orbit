@@ -66,12 +66,14 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     MOTIVO_PERDIDA,
     MOTIVO_SIN_QUOTA,
     MOTIVO_SIN_RESPUESTA,
+    MOTIVO_TOPE_CICLO,
     MOTIVO_TOPE_INTENTOS,
     MOTIVO_VIGENCIA_VENCIDA,
     MOTIVO_YA_APLICADA,
     MOTIVO_YA_INTENTADA,
     MOTIVOS_SIN_APLICAR,
     RESULTADO_ANCESTRO_NO_ENABLED,
+    TOPE_PUJAS_ORDINARIAS_CICLO,
     CapSaturado,
     DecisionBid,
     ResultadoAplicador,
@@ -91,8 +93,14 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     orden_bajo_cupo,
     prioridad_bajo_cupo,
     registra_sin_aplicar,
+    reserva_cupo_ciclo,
 )
-from app.apply_estados import EstadoCambio, transicion_desde_error
+from app.apply_estados import (
+    AccionCambio,
+    EstadoCambio,
+    transicion_de_reserva_cupo,
+    transicion_desde_error,
+)
 from app.apply_reconcilia import (  # noqa: F401 - re-export estable
     _SQL_INTENTOS_BID_AMBIGUOS_SIN_DESENLACE,
 )
@@ -472,12 +480,18 @@ class Aplicador:
                     _actualiza_cache(self._conn, decision.ad_entity_id, leido)
                 skips.append(MOTIVO_BID_CAMBIADO_FUERA)
                 continue
+            # ARREGLOS 05 H: tope de 150 pujas ORDINARIAS por ciclo de ORIGEN.
+            # Cuenta el ledger bajo el cerrojo del origen y es la MISMA
+            # transaccion que la intencion; las reversas no cuentan y la
+            # entrada/regreso de TEMPORADA quedan exentas por su marcador
+            # congelado. Solo `enviar` deja seguir al cupo diario y al ledger.
+            if not self._reserva_del_ciclo(decision):
+                descartadas.append(MOTIVO_TOPE_CICLO)
+                continue
             usada, saturada = consume_quota_y_sello(self._conn, self._platform, "bid")
             if not usada:
                 descartadas.append(MOTIVO_FUERA_DE_CAP)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FUERA_DE_CAP
-                )
+                self._descarta(decision, MOTIVO_FUERA_DE_CAP)
                 continue
             if saturada:
                 evento = evento_cap_saturado(self._conn, self._platform, "bid")
@@ -499,9 +513,7 @@ class Aplicador:
             )
             if id_attempt is None:
                 skips.append(MOTIVO_TOPE_INTENTOS)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
-                )
+                self._descarta(decision, MOTIVO_TOPE_INTENTOS)
                 continue
             desenlace = self._ejecuta_mutacion(decision, identidad, id_attempt)
             if desenlace == "aplicada":
@@ -522,6 +534,34 @@ class Aplicador:
             inciertos=inciertos,
             caps_saturados=tuple(caps_saturados),
         )
+
+    def _reserva_del_ciclo(self, decision: DecisionBid) -> bool:
+        """La reserva del tope de 150 pujas ordinarias del ciclo de ORIGEN.
+
+        Cuenta el ledger bajo el cerrojo de la fila del origen (misma
+        transaccion que la intencion) y consulta la tabla unica: solo `enviar`
+        deja seguir al cupo diario y al ledger. Si el tope ya esta agotado,
+        registra `tope_ciclo` con lo contado, suelta el cerrojo y devuelve
+        False; sin ese desenlace la decision quedaria huerfana del ciclo.
+        """
+        reserva = reserva_cupo_ciclo(self._conn, ciclo_origen=self.ciclo_origen, decision=decision)
+        if transicion_de_reserva_cupo(agotado=not reserva.permite).accion is AccionCambio.ENVIAR:
+            return True
+        self._descarta(
+            decision,
+            MOTIVO_TOPE_CICLO,
+            detalle={"usados": reserva.usados, "tope": reserva.tope},
+        )
+        return False
+
+    def _descarta(self, decision: DecisionBid, motivo: str, *, detalle: dict | None = None) -> None:
+        """Registra el desenlace de una puja que no se envia y CIERRA la
+        transaccion: queda durable y se sueltan los cerrojos tomados (el del
+        cupo del ciclo) antes de la siguiente lectura."""
+        registra_sin_aplicar(
+            self._conn, decision.id, self.cycle_id_ejecutor, motivo, detalle=detalle
+        )
+        self._conn.commit()
 
     def _guarda_de_datos(self, decision: DecisionBid) -> tuple[str | None, tuple[str, str] | None]:
         """Guardas LOCALES de datos previas al LIST (cero HTTP): bid completo,

@@ -919,19 +919,21 @@ ledger: los ejecutores derivan el estado desde los hechos del ledger con
 `TABLA_TRANSICIONES` mediante `decidir(estado, evento)` (o sus atajos
 `transicion_desde_error` / `transicion_desde_status`).
 
-**Estados (`EstadoCambio`, 11):** `pendiente`, `en_vuelo` (exclusión de sesión
+**Estados (`EstadoCambio`, 12):** `pendiente`, `en_vuelo` (exclusión de sesión
 activa en otra ruta vía `candado_reversa_pause`), `incierto` (intento abierto
-sin sello), y ocho estados terminales: `aplicado`, `rechazado`,
+sin sello), y nueve estados terminales: `aplicado`, `rechazado`,
 `pausado_por_dueno` (`RESULTADO_PAUSADA_POR_DUENO = 'omitida:pausada_tras_habilitar'`),
 `archivado`, `sin_identidad`, `tope_intentos` (`TOPE_INTENTOS_CAMBIO = 3`,
 re-exportado como `apply.TOPE_INTENTOS`) y, desde ARREGLOS 05 B, `ajeno`
 (otro objeto ocupa hoy la identidad del propio;
 `RESULTADO_IDENTIDAD_SUSTITUIDA = 'fallo:identidad_sustituida'`) y
-`movido_por_dueno` (otra mano movió la puja después). Prioridad fija al
-derivar el estado: `en_vuelo` > `incierto` > terminal (incluido `ajeno`) >
-`tope_intentos` > `pendiente`.
+`movido_por_dueno` (otra mano movió la puja después) y, desde ARREGLOS 05 H,
+`cupo_ciclo_agotado` (el ciclo de origen ya intentó sus 150 pujas ordinarias).
+Prioridad fija al derivar el estado: `en_vuelo` > `incierto` > terminal
+(incluido `ajeno`) > `tope_intentos` > `pendiente`; `cupo_ciclo_agotado` no se
+deriva de hechos de la decisión, se alcanza por el clasificador de la reserva.
 
-**Eventos (`EventoCambio`, 16):** `nuevo_horario`, `ok_confirmado`,
+**Eventos (`EventoCambio`, 17):** `nuevo_horario`, `ok_confirmado`,
 `no_aplicado_en_amazon`, `error_4xx_determinista`, `error_5xx_o_red`,
 `rechazo_identidad` (401 persistente o 403), `pausa_manual_dueno` (caché vio
 `ENABLED` tras iniciar el intento y Amazon ahora muestra `PAUSED`),
@@ -943,14 +945,16 @@ ID propio vive con otra identidad, o hay dos o más vivos con la esperada y
 ninguno es el propio) y `cambio_manual_dueno` (el bid vivo no lo escribió
 Orbit) y, desde ARREGLOS 05 C, `rechazo_identidad_definitivo` (el ACK
 durable de un intento abierto es un 401/403: Amazon no procesó la mutación y
-la operación puede reintentarse tras sellarlo).
+la operación puede reintentarse tras sellarlo) y, desde ARREGLOS 05 H,
+`cupo_ciclo_agotado` (hecho del ledger: el ciclo de origen llegó a 150
+intentos ordinarios).
 
 **Acciones (`AccionCambio`, 10):** `enviar`, `leer_resultado`,
 `sellar_aplicado`, `sellar_rechazado`, `contar_intento`, `mantener_incierto`,
 `sellar_pausado_dueno`, `sellar_terminal`, `no_tocar` y `abortar_fase`. Cada
 casilla `(estado, evento)` devuelve una única `Transicion(accion,
 estado_siguiente, origen_incompleto, sella_intento, propaga_aborto)`. La
-tabla tiene 176 casillas (11 estados por 16 eventos).
+tabla tiene 204 casillas (12 estados por 17 eventos).
 
 **Clasificadores puros (ARREGLOS 05 B).** `evento_desde_lectura_objeto` es el
 único resolver de identidad: crea, lee de vuelta, concilia y revierte con la
@@ -960,7 +964,7 @@ clasifica el bid vivo respecto de lo que Orbit escribió.
 `enviar` cuando el cambio todavía no está en Amazon y la tabla, consultada de
 nuevo con `nuevo_horario`, lo ordena.
 
-**Invariantes de la tabla** (probados sobre las 165 casillas en
+**Invariantes de la tabla** (probados sobre las 204 casillas en
 `tests/test_arreglos05_a_estados.py`):
 
 1. **Lo incierto se lee antes de reenviar:** ninguna casilla de `incierto`
@@ -1000,6 +1004,12 @@ nuevo con `nuevo_horario`, lo ordena.
 8. **Una puja que otra mano movió no se revierte (ARREGLOS 05 B):**
    `movido_por_dueno` es absorbente y `cambio_manual_dueno` nunca ordena
    enviar ni confirmar.
+9. **El tope del ciclo no envía (ARREGLOS 05 H):** con el cupo de 150 pujas
+   ordinarias agotado, `cupo_ciclo_agotado` ordena `no_tocar` en `pendiente`
+   (terminal `cupo_ciclo_agotado`) y `leer_resultado` en `incierto`; ninguna
+   casilla de ese evento emite `enviar`. El clasificador
+   `transicion_de_reserva_cupo` consulta la tabla: solo `ENVIAR` deja seguir
+   al cupo diario y a la intención durable.
 
 **Regla de integración de llamadores:** todo llamador pasa los cuatro hechos
 observables obligatorios a `estado_inicial_desde_hechos(...)` (sin defaults
@@ -1073,7 +1083,7 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   exige que `totalResults` cuadre con lo acumulado antes de aceptar ausencia
   (una pagina vacia con total pendiente no autoriza otro POST), y un 200/207
   con cuerpo JSON que no sea objeto no es rechazo: deja el intento abierto.
-- La tabla completa (176 casillas desde ARREGLOS 05 C), el mapa de los
+- La tabla completa (204 casillas desde ARREGLOS 05 H), el mapa de los
   hallazgos de revisión a su casilla y la demostración por nivel `/correct`
   viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del
   bloque B, en `docs/evidencia/arreglos-05/B/resultado.md`; la del bloque C,
@@ -1088,6 +1098,44 @@ live y trigger `apply_queue_clave_vigente` para la práctica shadow vigente) y
 la lee `apply_cola._SQL_CLAVES_BLOQUEADAS` (y su espejo en `productos_io`). Una
 práctica shadow vencida no bloquea y conserva su historia. El modelo por camino
 y el papel del índice están en `docs/evidencia/arreglos-05/E/estados.md`.
+
+### 9.3 Tope de 150 pujas ordinarias por ciclo (ARREGLOS 05 H)
+
+Para el dueño: un ciclo puede intentar hasta 150 pujas normales; una
+recuperación no reabre el cupo y una puja que no entra queda con su motivo
+auditable, sin frenar los cortes ni la temporada.
+
+- **Fuente única.** El cupo se cuenta del ledger `apply_attempt`
+  (`tipo='normal'`) sobre las decisiones `kind='bid'` del ciclo de **origen**
+  (`decision.cycle_id`, no el ejecutor) y la plataforma. No hay contador en
+  memoria ni tabla nueva: cada intento durable consume, incluido el incierto
+  (sin sello), el rechazado y el de una caída antes o después del HTTP. Las
+  reversas (`tipo='reversa'`) no cuentan.
+- **Reserva e intención en la misma transacción.** Antes del cupo diario, del
+  ledger y del PUT, `reserva_cupo_ciclo` (`app/apply_cuota.py`) bloquea la fila
+  del ciclo de origen (`SELECT … FOR UPDATE`, espera acotada y fallo cerrado si
+  no la consigue) y cuenta. El cerrojo se suelta en el `commit` que hace el
+  aplicador justo antes del HTTP, así que dos procesos del mismo origen se
+  serializan y el intento ya es visible para el segundo. La reserva que
+  encuentra 150 no gasta cupo diario ni abre otro ciclo: deja
+  `decision_sin_aplicar.motivo = 'tope_ciclo'` con `detalle = {usados, tope}`.
+- **TEMPORADA exenta por marcador congelado.** Solo la entrada y el regreso
+  (`inputs.motivo` en `entra_temporada_baja`/`sale_temporada_baja` **y**
+  `inputs.temporada_episodio_id` presente) no consultan el tope. Un ajuste a
+  media baja o un `Regresar` ordinario (Recupera) cuentan; si el marcador falta,
+  la puja cuenta como ordinaria. La prioridad de TEMPORADA (`orden_bajo_cupo`)
+  y el cupo diario siguen vigentes: `cap 0` o clave ausente frenan incluso la
+  entrada exenta.
+- **El modelo de estados.** El tope es un evento del ledger
+  (`cupo_ciclo_agotado`) con estado terminal propio en la tabla única (§9.2);
+  `transicion_de_reserva_cupo` consulta la tabla y solo `ENVIAR` deja seguir.
+  La migración `0099` agrega el motivo al CHECK cerrado de
+  `decision_sin_aplicar`; no hay DDL sobre intentos ni ciclos.
+
+Regresiones: `tests/test_arreglos05_h_tope_ciclo.py`,
+`tests/test_arreglos05_h_estados.py` y `tests/test_arreglos05_h_migracion.py`
+(`comprobar.sh N h`). Modelo por camino y foto de producción en
+`docs/evidencia/arreglos-05/H/`.
 
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 

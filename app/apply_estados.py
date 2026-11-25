@@ -67,6 +67,10 @@ class EstadoCambio(StrEnum):
     TOPE_INTENTOS = "tope_intentos"
     AJENO = "ajeno"
     MOVIDO_POR_DUENO = "movido_por_dueno"
+    # ARREGLOS 05 H: el ciclo de origen ya intento sus 150 pujas ordinarias.
+    # Terminal para esa decision: no se envia y su desenlace auditable es
+    # `decision_sin_aplicar.motivo = 'tope_ciclo'`.
+    CUPO_CICLO_AGOTADO = "cupo_ciclo_agotado"
 
     @property
     def es_terminal(self) -> bool:
@@ -83,6 +87,7 @@ _ESTADOS_TERMINALES = frozenset(
         EstadoCambio.TOPE_INTENTOS,
         EstadoCambio.AJENO,
         EstadoCambio.MOVIDO_POR_DUENO,
+        EstadoCambio.CUPO_CICLO_AGOTADO,
     }
 )
 
@@ -106,6 +111,9 @@ class EventoCambio(StrEnum):
     IDENTIDAD_SUSTITUIDA = "identidad_sustituida"
     IDENTIDAD_DUDOSA = "identidad_dudosa"
     CAMBIO_MANUAL_DUENO = "cambio_manual_dueno"
+    # ARREGLOS 05 H: hecho del ledger, hermano de `intentos_agotados`: el
+    # ciclo ORIGEN llego a su tope de pujas ordinarias.
+    CUPO_CICLO_AGOTADO = "cupo_ciclo_agotado"
 
 
 class AccionCambio(StrEnum):
@@ -221,6 +229,9 @@ def _construye_tabla() -> Mapping[tuple[EstadoCambio, EventoCambio], Transicion]
         (E.PENDIENTE, V.CAMBIO_MANUAL_DUENO): T(
             A.NO_TOCAR, E.MOVIDO_POR_DUENO, origen_incompleto=True
         ),
+        # ARREGLOS 05 H: el tope del ciclo no envia; la decision queda con su
+        # desenlace auditable (`tope_ciclo`) y no se reabre otro ciclo.
+        (E.PENDIENTE, V.CUPO_CICLO_AGOTADO): T(A.NO_TOCAR, E.CUPO_CICLO_AGOTADO),
         # --- INCIERTO: intento abierto sin sello; exige lectura antes de reenviar ---
         (E.INCIERTO, V.NUEVO_HORARIO): T(A.LEER_RESULTADO, E.INCIERTO, origen_incompleto=True),
         (E.INCIERTO, V.OK_CONFIRMADO): T(A.SELLAR_APLICADO, E.APLICADO, sella_intento=True),
@@ -267,6 +278,9 @@ def _construye_tabla() -> Mapping[tuple[EstadoCambio, EventoCambio], Transicion]
         (E.INCIERTO, V.CAMBIO_MANUAL_DUENO): T(
             A.SELLAR_TERMINAL, E.MOVIDO_POR_DUENO, sella_intento=True
         ),
+        # ARREGLOS 05 H: un intento ya abierto se lee, nunca se reenvia; el
+        # tope del ciclo no decide sobre el.
+        (E.INCIERTO, V.CUPO_CICLO_AGOTADO): T(A.LEER_RESULTADO, E.INCIERTO, origen_incompleto=True),
         # --- EN_VUELO: otra ruta tiene la exclusion activa sobre esta decision ---
         **{
             (E.EN_VUELO, ev): (
@@ -294,6 +308,19 @@ TABLA_TRANSICIONES: Mapping[tuple[EstadoCambio, EventoCambio], Transicion] = _co
 def decidir(estado: EstadoCambio, evento: EventoCambio) -> Transicion:
     """Funcion pura de decision sobre la tabla unica `estado x evento`."""
     return TABLA_TRANSICIONES[(estado, evento)]
+
+
+def transicion_de_reserva_cupo(*, agotado: bool) -> Transicion:
+    """La tabla decide si el cupo del ciclo deja enviar (ARREGLOS 05 H).
+
+    Con el tope agotado, un cambio pendiente no envia (`no_tocar` -> terminal
+    `cupo_ciclo_agotado`); con lugar, el envio sigue su camino normal
+    (`nuevo_horario` -> `enviar`). El llamador ramifica solo por
+    `transicion.accion`: `ENVIAR` es la unica que autoriza seguir al cupo
+    diario y a la intencion durable."""
+    if agotado:
+        return decidir(EstadoCambio.PENDIENTE, EventoCambio.CUPO_CICLO_AGOTADO)
+    return decidir(EstadoCambio.PENDIENTE, EventoCambio.NUEVO_HORARIO)
 
 
 def envia_tras_lectura(estado: EstadoCambio, evento: EventoCambio) -> bool:
