@@ -4,9 +4,9 @@
   D, E, F, G, H e I integrados y desplegados).
 - Rama: `arreglos-05/j`.
 - Modelo (escrito antes del commit de codigo): `J/estados.md`.
-- Cabeza de la implementacion: `73787dd8b8f986ddcf1899493fc6ee547d9cfe7c`
-  (codigo + regresiones + fixture).
-- Evidencia: el commit que contiene este archivo, sobre `73787dd8`.
+- Cabeza de la implementacion: `74e4aebe` (codigo + regresiones + fixture y
+  la correccion de revision).
+- Evidencia: el commit que contiene este archivo, sobre `74e4aebe`.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md:243-248` y la decision 5 de
   `docs/evidencia/arreglos-02/DISENO.md:417-432`.
 - Aviso del bloque: se retiraron caminos obsoletos comprobados, conservando los
@@ -27,6 +27,9 @@ Para quien mantiene:
   hoja. Desaparecieron `_pendiente_pause_apagada`, la rama `politica is None` de
   `_procesa_decisora`, la rama equivalente de `_juicio_hoja` y el modo shadow de
   la meta por producto con sus tres `decide_con` por hoja.
+- **Cosecha sin ancla congelada.** Aunque el motor de bids este apagado, la hoja
+  sigue resolviendo y guardando su target en `target_acos_ciclo`; la cosecha no
+  se queda con la ultima meta familiar. Solo se omite la decision de hoja.
 - **Historia intacta.** `decide_bid_era_bandas`, `_replay_hygiene` y las ramas de
   producto/temporada de `replay.py` no se tocaron. El fixture
   `tests/fixtures/arreglos05_j_pausa_historica.json` es una pausa real de
@@ -49,7 +52,7 @@ Para quien mantiene:
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| J.2 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N j` y `J/acepta.sh` partes 1-3 | `73787dd8` | `N j`: 5 passed. Acepta: parte 1 (N j, arquitectura 99+2s, estados 209, ciclo 53), parte 2 (politica/eras/cooldown/config 131, settings/API 77, economia 15), parte 3 (productos 117, proteccion 15, aplicador/F/G 65, UI 5, instalador 4). Cero comandos fallidos. | Sin politica no hay mutacion; meta shadow retirada; flag muerto retirado; replay, reversas, apagadores y pausa shadow conservados. | No hay DDL. Un binario anterior lee las mismas claves y decisiones; `tools/despliegue/rollback.sh` devuelve el binario previo. Los datos historicos no se reescriben. |
+| J.2 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N j` y `J/acepta.sh` partes 1-3 | `74e4aebe` | `N j`: 6 passed. Acepta: parte 1 (N j, arquitectura 99+2s, estados 209, ciclo 53), parte 2 (politica/eras/cooldown/config 131, settings/API 77, economia 15), parte 3 (productos 117, proteccion 15, aplicador/F/G 65, UI 5, instalador 4). Cero comandos fallidos. | Sin politica no hay mutacion; la meta por hoja se sigue guardando para la cosecha; meta shadow retirada; flag muerto retirado; replay, reversas, apagadores y pausa shadow conservados. | No hay DDL. Un binario anterior lee las mismas claves y decisiones; `tools/despliegue/rollback.sh` devuelve el binario previo. Los datos historicos no se reescriben. |
 
 ## Rojo y verde
 
@@ -66,7 +69,17 @@ passed**. Fallan:
 Los dos verdes del padre son controles de conservacion: politica ilegible ya
 abortaba y la pausa historica ya reproducia.
 
-Verde en `73787dd8`, en `J/verde.txt`: `N j` = **5 passed**.
+Verde en `74e4aebe`, en `J/verde.txt`: `N j` = **6 passed**.
+
+## Correccion de revision (Devin, ronda 1)
+
+Devin aviso que al apagar `ads_bid_politica` tambien se dejaba de escribir
+`target_acos_ciclo`, que la cosecha usa como ancla. Reproduccion:
+`test_arreglos05_j_sin_politica_conserva_el_target_para_cosecha` fallo en
+`73787dd8` con `assert 3 in {}`. Correccion en `74e4aebe`: la hoja resuelve y
+guarda su target antes del skip de `politica_apagada`; solo no crea decision.
+La misma prueba y `N j` (6 passed) quedan verdes; ciclo, target, G y proteccion
+pasan 92/92.
 
 ## Acepta (salida completa en `J/acepta-1.txt`, `-2.txt` y `-3.txt`)
 

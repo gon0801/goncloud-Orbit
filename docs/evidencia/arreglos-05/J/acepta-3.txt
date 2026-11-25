@@ -1,18 +1,18 @@
-# Acepta de ARREGLOS 05 J. SHA 73787dd8b8f986ddcf1899493fc6ee547d9cfe7c (parte 3 de 3)
-# arbol con seguimiento limpio: si
+# Acepta de ARREGLOS 05 J. SHA 74e4aebec3c6888e537222c1706f111fd3833201 (parte 3 de 3)
+# arbol con seguimiento limpio: NO
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu
 
 ### productos: lectura, meta live y pausa shadow
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_productos_io.py tests/test_productos_pausa.py tests/test_productos_meta_ciclo.py tests/test_productos_meta.py tests/test_pantalla_productos.py tests/test_ads_producto_ingesta.py
 ........................................................................ [ 61%]
 .............................................                            [100%]
-117 passed in 114.59s (0:01:54)
+117 passed in 115.08s (0:01:55)
 resultado=ok
 
 ### proteccion de venta: ciclo y cola
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_orbit07_m1.py
 ...............                                                          [100%]
-15 passed in 23.41s
+15 passed in 23.14s
 resultado=ok
 
 ### aplicador, target y bloques F/G
@@ -24,7 +24,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-65 passed, 1 warning in 121.66s (0:02:01)
+65 passed, 1 warning in 121.33s (0:02:01)
 resultado=ok
 
 ### UI de productos (render puro)
@@ -36,13 +36,13 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-5 passed, 95 deselected, 1 warning in 2.31s
+5 passed, 95 deselected, 1 warning in 2.29s
 resultado=ok
 
 ### selector del instalador: migraciones de ARREGLOS 05
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
 ....                                                                     [100%]
-4 passed, 47 deselected in 4.69s
+4 passed, 47 deselected in 4.75s
 resultado=ok
 
 # comandos que no pasaron: 0

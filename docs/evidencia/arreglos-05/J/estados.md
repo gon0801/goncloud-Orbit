@@ -32,8 +32,11 @@ de decisiones da 36 pausas y 2723 bids sin `inputs.politica` (2026-08-24 a
 hoja por la era bandas cuando falta `ads_bid_politica_<plataforma>`. Queda un
 solo camino vivo: `politica.decide(CasoHoja)` con `inputs.politica =
 niveles_v3`. Con la clave ausente o ilegible la hoja no muta: se cuenta
-`politica_apagada` y no se encola ninguna decision. Esto cumple la regla del
-contrato: configuracion ausente o ilegible nunca se convierte en permiso live.
+`politica_apagada` y no se encola ninguna decision. La meta por hoja SI se
+resuelve y se guarda en `target_acos_ciclo` antes del skip, porque la cosecha
+usa esa fila como ancla; apagar bids no debe congelar la meta familiar. Esto
+cumple la regla del contrato: configuracion ausente o ilegible nunca se
+convierte en permiso live.
 
 **Prueba de que la historia no depende de la rama.** El decoder historico vive
 en `app/optimizer/eras.py` (`_decide_v1`, `decide_bid_era_bandas`) y en
