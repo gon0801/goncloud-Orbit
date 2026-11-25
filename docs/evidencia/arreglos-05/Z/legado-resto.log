@@ -1,0 +1,693 @@
+....F...F.F..........................FF................................. [ 41%]
+................................................FFF..................... [ 83%]
+.....................F......                                             [100%]
+================================== FAILURES ===================================
+___________ test_a1_grupo_con_terna_null_postea_en_exacta_del_grupo ___________
+
+    @_skip_db
+    def test_a1_grupo_con_terna_null_postea_en_exacta_del_grupo():
+        with db_f2_0092("orbit_a1_grupo") as conn:
+            gpo, run = _base_ciclo(conn, con_goals=False)
+            _goal_plataforma_con_terna(conn)
+            _senuelo_exact(conn)
+            exacta = gpo["roles"]["category_exact"]
+            phrase = gpo["roles"]["category_phrase"]
+            _siembra_terminos(conn, run, phrase["ag"])
+            res = _corre(conn)
+            assert res.status in ("done", "degraded"), (
+                "en live sin credenciales la fase apply aborta fail-closed (degraded)"
+                " pero las decisiones y el encolado persisten"
+            )
+    
+            harvs = _harvests_de(conn, res.cycle_id)
+            assert len(harvs) == 1, "el harvest del grupo se decide aunque la terna sea NULL"
+            _id, _ent, term, new_value, moneda, inputs = harvs[0]
+            assert term == "buena yarda"
+            congelado = inputs["goal"]["harvest"]
+            assert congelado["campaign_id"] == exacta["camp_ext"]
+            assert congelado["ad_group_id"] == exacta["ag_ext"]
+            assert congelado["resuelto_por"] == "grupo"
+            assert congelado["grupo_id"] == gpo["grupo_id"]
+    
+            handler, vistos = _handler_harvest()
+>           res2 = libera_vencidos(
+                conn,
+                PLATFORM,
+                ahora=_ahora_liberar(),
+                aplicador=_aplicador_us(conn, handler, res.cycle_id),
+            )
+
+tests\test_harvest_destino.py:319: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x15a4f054a10>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+______ test_a1_terna_limpiada_tras_decidir_apply_y_replay_usan_congelado ______
+
+    @_skip_db
+    def test_a1_terna_limpiada_tras_decidir_apply_y_replay_usan_congelado():
+        with db_f2_0092("orbit_a1_limpia") as conn:
+            gpo, run = _base_ciclo(conn, con_terna=True)
+            exacta = gpo["roles"]["category_exact"]
+            phrase = gpo["roles"]["category_phrase"]
+            _siembra_terminos(conn, run, phrase["ag"])
+            res = _corre(conn)
+            harvs = _harvests_de(conn, res.cycle_id)
+            assert len(harvs) == 1
+            _id, _ent, _term, new_value, moneda, inputs = harvs[0]
+            assert new_value == Decimal("11.62")
+    
+            from app.goals_write import edita_goal
+    
+            # Estado post-D.2: la terna se limpia con bid intacto
+            # (harvest_limpia_destino, admitido por el trigger de 0038 en ORDEN_F2).
+            goal_ids = conn.execute(
+                "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = ANY(%s)",
+                ([par["camp"] for par in gpo["roles"].values()],),
+            ).fetchall()
+            assert len(goal_ids) == 5
+            for (goal_id,) in goal_ids:
+                fila = edita_goal(
+                    conn, goal_id, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC)
+                )
+                assert fila["harvest_campaign_id"] is None
+                assert fila["harvest_ad_group_id"] is None
+                assert fila["harvest_default_bid"] == "11.6200"
+    
+            handler, vistos = _handler_harvest()
+>           res2 = libera_vencidos(
+                conn,
+                PLATFORM,
+                ahora=_ahora_liberar(),
+                aplicador=_aplicador_us(conn, handler, res.cycle_id),
+            )
+
+tests\test_harvest_destino.py:471: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x15a4f16ecf0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+___________ test_a1_bid_congelado_viaja_al_post_tras_limpiar_terna ____________
+
+    @_skip_db
+    def test_a1_bid_congelado_viaja_al_post_tras_limpiar_terna():
+        with db_f2_0092("orbit_a1_bidmx") as conn:
+            gpo, run = _base_ciclo(conn, platform="amazon_mx", con_terna=True)
+            exacta = gpo["roles"]["category_exact"]
+            phrase = gpo["roles"]["category_phrase"]
+            _siembra_terminos_mx(conn, run, phrase["ag"])
+            res = _corre(conn, "amazon_mx")
+            assert res.status in ("done", "degraded"), (
+                "en live sin credenciales la fase apply aborta fail-closed (degraded)"
+                " pero las decisiones y el encolado persisten"
+            )
+            harvs = _harvests_de(conn, res.cycle_id)
+            assert len(harvs) == 1
+            assert harvs[0][3] == Decimal("11.62")
+    
+            from app.goals_write import edita_goal
+    
+            # Estado post-D.2 (ver el otro test de terna limpiada): bid intacto
+            # con el trigger real de 0038.
+            goal_ids = conn.execute(
+                "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = ANY(%s)",
+                ([par["camp"] for par in gpo["roles"].values()],),
+            ).fetchall()
+            assert len(goal_ids) == 5
+            for (goal_id,) in goal_ids:
+                fila = edita_goal(
+                    conn, goal_id, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC)
+                )
+                assert fila["harvest_default_bid"] == "11.6200"
+    
+            handler, vistos = _handler_harvest()
+            aplicador = Aplicador(
+                conn,
+                platform="amazon_mx",
+                profile_id=505050,
+                credentials=AdsCredentials(
+                    client_id="fake",
+                    client_secret="fake",
+                    refresh_token="fake",
+                ),
+                cycle_id_ejecutor=res.cycle_id,
+                owner="test:a1mx",
+                job_key="ads_optimizer:amazon_mx",
+                transport=httpx.MockTransport(handler),
+                sleep=lambda seconds: None,
+            )
+>           res2 = libera_vencidos(conn, "amazon_mx", ahora=_ahora_liberar(), aplicador=aplicador)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_harvest_destino.py:573: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x15a4f084f20>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+__________ test_revalidacion_harvest_respeta_target_del_goal[21.08] ___________
+
+target_congelado = '21.08'
+
+    @pytest.mark.parametrize("target_congelado", ["21.08", "100"])
+    def test_revalidacion_harvest_respeta_target_del_goal(target_congelado):
+        """ACoS 30 excede el target 21.08 aunque sea menor que el tope 35."""
+        ahora = dt.datetime(2026, 9, 25, tzinfo=dt.UTC)
+        fechas = tuple(dt.date(2026, 9, 9) + dt.timedelta(days=i) for i in range(7))
+        termino = windows.AgregadoTermino(
+            101,
+            "arras boda",
+            "MXN",
+            Decimal("300"),
+            Decimal("1000"),
+            30,
+            2,
+            7,
+            False,
+            ahora,
+        )
+        ventana = windows.TerminosCortes(101, fechas[0], fechas[-1], fechas, (termino,))
+        goal = (
+            "campaign",
+            100,
+            None,
+            Decimal("21.08"),
+            Decimal("1"),
+            Decimal("45"),
+            "MXN",
+            None,
+            None,
+            Decimal("11.62"),
+            True,
+            "live",
+        )
+        filas = {
+            apply_harvest._SQL_DECISION: [(None, None, {"target_acos_pct_usado": target_congelado})],
+            apply_harvest._SQL_PADRE: [(100,)],
+            # D.4: la revalida lee el external del origen para el resolutor;
+            # "301" != destino "201" (el escenario sigue siendo grupo valido).
+            apply_harvest._SQL_EXTERNALES: [("301", "300")],
+            apply._SQL_GOALS_ENTIDAD: [goal],
+            harvest_destino._SQL_GRUPO: [(1, "category_phrase", "200", "201")],
+            harvest_destino._SQL_EXCEPCION: [],
+            harvest_destino._SQL_GOALS: [goal],
+        }
+    
+        class Memoria:
+            def transaction(self):
+                return nullcontext()
+    
+            def execute(self, sql, params=()):
+                valores = filas[sql]
+    
+                class Filas:
+                    def __iter__(self):
+                        return iter(valores)
+    
+                    def fetchall(self):
+                        return valores
+    
+                    def fetchone(self):
+                        return valores[0] if valores else None
+    
+                return Filas()
+    
+        with (
+            patch.object(windows, "ventanas_evidencia_ad_group", return_value={}),
+            patch.object(windows, "terminos_cortes", return_value=ventana),
+            patch.object(hygiene, "keywords_campana_destino", return_value=frozenset()),
+            patch.object(hygiene, "keywords_exactas_por_grupo", return_value={}),
+        ):
+>           motivo = apply_harvest_reconciliacion.revalida_harvest(
+                Memoria(),
+                "amazon_mx",
+                apply_cola.FilaCola(1, "harvest", 101, "arras boda", 2, {}, "released"),
+                ahora,
+            )
+
+tests\test_d3_adversary.py:284: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_harvest_reconciliacion.py:240: in revalida_harvest
+    cerca_plat = temporada_io.cerca_plataforma(conn, platform, hoy_utc)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\temporada_io.py:659: in cerca_plataforma
+    if _config_live(conn, platform) is None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\temporada_io.py:612: in _config_live
+    crudo = settings_vigentes(conn)
+            ^^^^^^^^^^^^^^^^^^^^^^^
+app\db.py:129: in settings_vigentes
+    vigente = config_vigente(conn)
+              ^^^^^^^^^^^^^^^^^^^^
+app\db.py:115: in config_vigente
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <test_d3_adversary.test_revalidacion_harvest_respeta_target_del_goal.<locals>.Memoria object at 0x0000015A4F91EFC0>
+sql = 'SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1'
+params = ()
+
+    def execute(self, sql, params=()):
+>       valores = filas[sql]
+                  ^^^^^^^^^^
+E       KeyError: 'SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1'
+
+tests\test_d3_adversary.py:264: KeyError
+___________ test_revalidacion_harvest_respeta_target_del_goal[100] ____________
+
+target_congelado = '100'
+
+    @pytest.mark.parametrize("target_congelado", ["21.08", "100"])
+    def test_revalidacion_harvest_respeta_target_del_goal(target_congelado):
+        """ACoS 30 excede el target 21.08 aunque sea menor que el tope 35."""
+        ahora = dt.datetime(2026, 9, 25, tzinfo=dt.UTC)
+        fechas = tuple(dt.date(2026, 9, 9) + dt.timedelta(days=i) for i in range(7))
+        termino = windows.AgregadoTermino(
+            101,
+            "arras boda",
+            "MXN",
+            Decimal("300"),
+            Decimal("1000"),
+            30,
+            2,
+            7,
+            False,
+            ahora,
+        )
+        ventana = windows.TerminosCortes(101, fechas[0], fechas[-1], fechas, (termino,))
+        goal = (
+            "campaign",
+            100,
+            None,
+            Decimal("21.08"),
+            Decimal("1"),
+            Decimal("45"),
+            "MXN",
+            None,
+            None,
+            Decimal("11.62"),
+            True,
+            "live",
+        )
+        filas = {
+            apply_harvest._SQL_DECISION: [(None, None, {"target_acos_pct_usado": target_congelado})],
+            apply_harvest._SQL_PADRE: [(100,)],
+            # D.4: la revalida lee el external del origen para el resolutor;
+            # "301" != destino "201" (el escenario sigue siendo grupo valido).
+            apply_harvest._SQL_EXTERNALES: [("301", "300")],
+            apply._SQL_GOALS_ENTIDAD: [goal],
+            harvest_destino._SQL_GRUPO: [(1, "category_phrase", "200", "201")],
+            harvest_destino._SQL_EXCEPCION: [],
+            harvest_destino._SQL_GOALS: [goal],
+        }
+    
+        class Memoria:
+            def transaction(self):
+                return nullcontext()
+    
+            def execute(self, sql, params=()):
+                valores = filas[sql]
+    
+                class Filas:
+                    def __iter__(self):
+                        return iter(valores)
+    
+                    def fetchall(self):
+                        return valores
+    
+                    def fetchone(self):
+                        return valores[0] if valores else None
+    
+                return Filas()
+    
+        with (
+            patch.object(windows, "ventanas_evidencia_ad_group", return_value={}),
+            patch.object(windows, "terminos_cortes", return_value=ventana),
+            patch.object(hygiene, "keywords_campana_destino", return_value=frozenset()),
+            patch.object(hygiene, "keywords_exactas_por_grupo", return_value={}),
+        ):
+>           motivo = apply_harvest_reconciliacion.revalida_harvest(
+                Memoria(),
+                "amazon_mx",
+                apply_cola.FilaCola(1, "harvest", 101, "arras boda", 2, {}, "released"),
+                ahora,
+            )
+
+tests\test_d3_adversary.py:284: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_harvest_reconciliacion.py:240: in revalida_harvest
+    cerca_plat = temporada_io.cerca_plataforma(conn, platform, hoy_utc)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\temporada_io.py:659: in cerca_plataforma
+    if _config_live(conn, platform) is None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\temporada_io.py:612: in _config_live
+    crudo = settings_vigentes(conn)
+            ^^^^^^^^^^^^^^^^^^^^^^^
+app\db.py:129: in settings_vigentes
+    vigente = config_vigente(conn)
+              ^^^^^^^^^^^^^^^^^^^^
+app\db.py:115: in config_vigente
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <test_d3_adversary.test_revalidacion_harvest_respeta_target_del_goal.<locals>.Memoria object at 0x0000015A4F71BB90>
+sql = 'SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1'
+params = ()
+
+    def execute(self, sql, params=()):
+>       valores = filas[sql]
+                  ^^^^^^^^^^
+E       KeyError: 'SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1'
+
+tests\test_d3_adversary.py:264: KeyError
+____________ test_avisar_campanas_envia_una_clase_y_devuelve_salio ____________
+
+canal_ok = []
+
+    def test_avisar_campanas_envia_una_clase_y_devuelve_salio(canal_ok):
+        from app import notifica_campanas
+    
+        conn = _conn_campanas(
+            ubicaciones=[("fuera_de_amazon", Decimal("1735"), 1127, 0, Decimal("0"))],
+            settings=[({},)],
+        )
+        salieron = notifica_campanas.avisar_campanas(
+            conn, dt.date(2026, 10, 10), solo={("amazon_mx", "ubicacion_gasta_sin_vender")}
+        )
+>       assert salieron == {("amazon_mx", "ubicacion_gasta_sin_vender"): True}
+E       AssertionError: assert {} == {('amazon_mx'...ender'): True}
+E         
+E         Right contains 1 more item:
+E         {('amazon_mx', 'ubicacion_gasta_sin_vender'): True}
+E         Use -v to get more diff
+
+tests\test_notifica.py:1843: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  app.notifica_campanas:notifica_campanas.py:53 campanas: lectura de amazon_mx fallida: tuple index out of range
+______________ test_avisar_campanas_fallo_sigue_con_otras_clases ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000015A4D1E7920>
+
+    def test_avisar_campanas_fallo_sigue_con_otras_clases(monkeypatch):
+        from app import notifica_campanas
+    
+        hoy = dt.date(2026, 10, 10)
+        conn = _conn_campanas(
+            ubicaciones=[("fuera_de_amazon", Decimal("1735"), 1127, 0, Decimal("0"))],
+            settings=[({},)],
+            campanas=[(7, "Tope", 99, Decimal("100"), "MANUAL", None, None, None)],
+            gasto_diario=[(7, hoy - dt.timedelta(days=i), Decimal("90")) for i in range(1, 6)],
+            configs_hist=[(7, hoy - dt.timedelta(days=10), Decimal("100"))],
+        )
+        llamadas = []
+        resultados = iter([False, True])
+    
+        def _falso(texto):
+            llamadas.append(texto)
+            return next(resultados)
+    
+        monkeypatch.setattr(notifica, "_envia_texto", _falso)
+        salieron = notifica_campanas.avisar_campanas(
+            conn,
+            hoy,
+            solo={
+                ("amazon_mx", "ubicacion_gasta_sin_vender"),
+                ("amazon_mx", "campana_sin_presupuesto"),
+            },
+        )
+>       assert salieron == {
+            ("amazon_mx", "ubicacion_gasta_sin_vender"): False,
+            ("amazon_mx", "campana_sin_presupuesto"): True,
+        }
+E       AssertionError: assert {} == {('amazon_mx'...uesto'): True}
+E         
+E         Right contains 2 more items:
+E         {('amazon_mx', 'campana_sin_presupuesto'): True,
+E          ('amazon_mx', 'ubicacion_gasta_sin_vender'): False}
+E         Use -v to get more diff
+
+tests\test_notifica.py:1876: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  app.notifica_campanas:notifica_campanas.py:53 campanas: lectura de amazon_mx fallida: tuple index out of range
+_____________ test_avisar_campanas_lectura_us_fallida_no_tumba_mx _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000015A4D20D760>
+canal_ok = []
+caplog = <_pytest.logging.LogCaptureFixture object at 0x0000015A4D20CD70>
+
+    def test_avisar_campanas_lectura_us_fallida_no_tumba_mx(monkeypatch, canal_ok, caplog):
+        import app.pantalla_dinero as pd
+        from app import notifica_campanas
+        from app.pantalla_dinero import FilaUbicacion
+    
+        mx = FilaUbicacion(
+            ubicacion="fuera_de_amazon",
+            gasto=Decimal("1735"),
+            clics=1127,
+            pedidos=0,
+            venta=Decimal("0"),
+            cpc=None,
+            conversion_pct=None,
+            acos_pct=None,
+            parte_del_gasto_pct=None,
+            gasta_sin_vender=True,
+        )
+    
+        def _ubi(conn, *, plataforma, desde, hasta):
+            if plataforma == "amazon_us":
+                raise RuntimeError("lectura rota")
+            return (mx,)
+    
+        monkeypatch.setattr(pd, "lee_ubicaciones", _ubi)
+        monkeypatch.setattr(pd, "lee_campanas", lambda conn, **kwargs: ())
+        conn = _Conn9([[({},)], [({})], [({})]])
+        with caplog.at_level(logging.WARNING):
+            salieron = notifica_campanas.avisar_campanas(
+                conn,
+                dt.date(2026, 10, 10),
+                solo={
+                    ("amazon_us", "ubicacion_gasta_sin_vender"),
+                    ("amazon_mx", "ubicacion_gasta_sin_vender"),
+                },
+            )
+>       assert salieron == {("amazon_mx", "ubicacion_gasta_sin_vender"): True}
+E       AssertionError: assert {} == {('amazon_mx'...ender'): True}
+E         
+E         Right contains 1 more item:
+E         {('amazon_mx', 'ubicacion_gasta_sin_vender'): True}
+E         Use -v to get more diff
+
+tests\test_notifica.py:1918: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  app.notifica_campanas:notifica_campanas.py:53 campanas: lectura de amazon_us fallida: lectura rota
+WARNING  app.notifica_campanas:notifica_campanas.py:53 campanas: lectura de amazon_mx fallida: tuple index out of range
+______________ test_ingesta_meli_sin_cliente_salta_meli_y_sigue _______________
+
+tmp_path = WindowsPath('C:/Users/ehven/AppData/Local/Temp/tmp.gh5T0009vu/pytest-of-ehven/pytest-0/test_ingesta_meli_sin_cliente_0')
+
+    @_skip_sin_pg
+    def test_ingesta_meli_sin_cliente_salta_meli_y_sigue(tmp_path):
+        """CR-1: sin cliente MeLi, meli va a skip visible, no tumba ingesta.
+    
+        Jubila `test_ingesta_meli_sin_cliente_falla_cerrado`: un token roto
+        no detiene la estimacion Amazon (el aviso "solo Amazon" lo promete).
+        """
+        import sqlite3
+    
+        from app.estimacion_ingest import ejecutar_ingesta
+    
+        with _db() as conn:
+            pid = _producto(conn, "SKU-M3-A")
+            _publicacion(conn, "MLM1", [("SKU-M3-A", pid)])
+            snap = tmp_path / "bridge.db"
+            con = sqlite3.connect(snap)
+            con.execute(
+                "CREATE TABLE amazon_listing_prices (seller_sku TEXT, asin TEXT,"
+                " marketplace_id TEXT, marketplace_name TEXT, price REAL,"
+                " fulfillment_channel TEXT, fetched_at TEXT)"
+            )
+            con.commit()
+            con.close()
+            res = ejecutar_ingesta(conn, ruta_sqlite=snap, now_utc=NOW)
+            assert res.skip_reason == "1x meli_sin_cliente"
+            assert (res.ofertas_nuevas, res.fees_nuevos, res.escenarios_nuevos) == (0, 0, 0)
+            fila = conn.execute(
+                "SELECT ok, rows_skipped, skip_reason FROM ingest_run"
+                " WHERE source = 'bridge_estimacion_fees'"
+            ).fetchone()
+>           assert fila[0] is True
+E           assert False is True
+
+tests\test_precio02_escenario_meli.py:986: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_harvest_destino.py::test_a1_grupo_con_terna_null_postea_en_exacta_del_grupo
+FAILED tests/test_harvest_destino.py::test_a1_terna_limpiada_tras_decidir_apply_y_replay_usan_congelado
+FAILED tests/test_harvest_destino.py::test_a1_bid_congelado_viaja_al_post_tras_limpiar_terna
+FAILED tests/test_d3_adversary.py::test_revalidacion_harvest_respeta_target_del_goal[21.08]
+FAILED tests/test_d3_adversary.py::test_revalidacion_harvest_respeta_target_del_goal[100]
+FAILED tests/test_notifica.py::test_avisar_campanas_envia_una_clase_y_devuelve_salio
+FAILED tests/test_notifica.py::test_avisar_campanas_fallo_sigue_con_otras_clases
+FAILED tests/test_notifica.py::test_avisar_campanas_lectura_us_fallida_no_tumba_mx
+FAILED tests/test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue
+9 failed, 163 passed in 156.34s (0:02:36)

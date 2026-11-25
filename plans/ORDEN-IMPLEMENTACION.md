@@ -1,6 +1,6 @@
 # Orden de implementación de Orbit
 
-Actualizado el **18-nov-2026** tras el despliegue de ARREGLOS 03 en `819fe1ff`. La cola pendiente es **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**, en serie. El [ROADMAP](ROADMAP.md) conserva la historia y los seguimientos.
+Actualizado el **25-nov-2026** tras la evidencia del bloque Z de ARREGLOS 05. La cola pendiente **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05** quedó integrada: 04 desplegado en `f5dc86d5`, TEMPORADA desplegada y 05 con BASE y A-K integrados y Z publicado sobre `7b06778d`. El pase global de 05 queda **PARCIAL** mientras K siga abierto para Amazon US. El [ROADMAP](ROADMAP.md) conserva la historia y los seguimientos.
 
 `manifest.active = arreglos-04` indica a Agent Orchestrator el plan que comienza por BASE.
 
@@ -28,7 +28,7 @@ La igualdad del runtime **no prueba** por sí sola todas las migraciones aplicad
 |---|---|---|
 | 1 | [ARREGLOS 04](arreglos-04.md) | Pantallas, fábrica y bloqueos, después de 03. **B-C** cubre **02 completo**, incluida respuesta sin contenedor; nuevo **W-P** cubre **04** en retiro e impulso; **W-E** cubre **15** además de madurez; **W-D** cubre **16**. Conserva los demás bloques, incluido presupuesto alto con confirmación. |
 | 2 | [TEMPORADA 01](temporada-01.md) | Después de 04, orden interno I → A → B → C → D → P → E → F → G → H. Consume margen corregido por ARREGLOS 02, su redondeo/revisión y los contratos que dejan 03/04; G usa aviso y confirmación de presupuesto de 04 W-N. No reimplementar la base. |
-| 3 | [ARREGLOS 05](arreglos-05.md) | Preparado para Hermes. Empieza por **BASE después del cierre de TEMPORADA 01 H**. BASE; A ciclo; B reversas **03/10**; C reposición **11**; D frontera Ads; E shadow; F target **12**; G sello **13**; H tope 150; I settings; J modos; K fees; Z aceptación global. Revalidar el legado contra la base final de TEMPORADA. |
+| 3 | [ARREGLOS 05](arreglos-05.md) | **BASE y A-K integrados; Z publicado y PARCIAL.** BASE; A ciclo; B reversas **03/10**; C reposición **11**; D frontera Ads; E shadow; F target **12**; G sello **13**; H tope 150; I settings; J modos; K fees; Z aceptación global. Evidencia de cierre en `docs/evidencia/arreglos-05/Z/`: aceptación 31/31, regresiones N a-j y mapa UI. **K queda abierto para Amazon US** (impuesto sobre comisiones no adjudicable con la fuente actual), así que el plan no recibe pase global. |
 
 No quedan otros planes de implementación autorizada fuera de esta lista en el inventario. Los briefs y guías acompañan sus planes padres; no suman entregas independientes. Los conteos y dependencias internas se mantienen en cada plan, sin duplicarlos aquí.
 

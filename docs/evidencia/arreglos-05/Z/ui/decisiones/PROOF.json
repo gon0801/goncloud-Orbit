@@ -1,0 +1,31 @@
+{
+  "feature": "decisiones",
+  "entry_point": "nav /decisiones",
+  "base_url": "http://127.0.0.1:18010",
+  "action": "GET /decisiones (pagina 1) y GET /api/dashboard/decisiones",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=decisiones": true,
+    "h1_decisiones": true,
+    "en_esta_pagina": true,
+    "timeline_por_dia": true,
+    "filtro_tipo": true,
+    "total_2_decisiones": true,
+    "paginador": true,
+    "pagina_1_de_1": true,
+    "sin_rel_next": true,
+    "campana_a": true,
+    "target_25": true,
+    "old_1_00": true,
+    "new_0_88": true,
+    "neg_zapato": true,
+    "motive_acos": true,
+    "motive_term_sin_ventas": true,
+    "api_http_200": true,
+    "api_has_more_false": true,
+    "api_has_bid_campana_a": true,
+    "api_has_negative_zapato": true
+  },
+  "ok": true,
+  "evidence_dir": "/tmp/orbit-z/repo/.cursor/skills/verify-orbit/evidence/z-cierre/decisiones"
+}

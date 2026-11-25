@@ -1,0 +1,31 @@
+........................................................................ [ 12%]
+........................................................................ [ 25%]
+........................................................................ [ 37%]
+........................................................................ [ 50%]
+........................................................................ [ 62%]
+.......................................................................F [ 75%]
+........................................................................ [ 87%]
+......................................................................   [100%]
+================================== FAILURES ===================================
+________________ test_r4_g8_barrido_float_entra_a_subpaquetes _________________
+
+tmp_path = WindowsPath('C:/Users/ehven/AppData/Local/Temp/tmp.lgSXUbhsxm/pytest-of-ehven/pytest-0/test_r4_g8_barrido_float_entra0')
+
+    def test_r4_g8_barrido_float_entra_a_subpaquetes(tmp_path):
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "flotante.py").write_text("x = 0.5\ny = float(1)\n", encoding="utf-8")
+        fugas = _fugas_float(tmp_path)
+>       assert any("sub/flotante.py" in fuga and "literal" in fuga for fuga in fugas)
+E       assert False
+E        +  where False = any(<generator object test_r4_g8_barrido_float_entra_a_subpaquetes.<locals>.<genexpr> at 0x000001E6138398A0>)
+
+tests\test_precio_reglas.py:2187: AssertionError
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-49\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_precio_reglas.py::test_r4_g8_barrido_float_entra_a_subpaquetes
+1 failed, 573 passed, 1 warning in 297.64s (0:04:57)
