@@ -1,0 +1,37 @@
+# Rojo del bloque G contra el PADRE real.
+# Padre: 2825fb036be82d118acfeb4e53e07e490cdd4557 (master con BASE, A, B, C, D,
+# E y F integrados y desplegados). El codigo de app/ es el del padre y
+# tests/test_arreglos05_g_sello.py es el archivo FINAL del bloque (4 casos).
+#
+# Impacto: el harvest sin corte copia `data_observed_at` crudo; una reobservacion
+# posterior de un termino maduro deja la fila con dato del futuro, el CHECK
+# `decision_dato_no_del_futuro` rechaza la fila y el executemany de la TX3
+# revierte TODO el lote mixto (tambien pause/negative validos). La fila del
+# detalle confirma el sello crudo (data_observed_at 12:00:01 > decided_at 12:00:00).
+
+## T optimizer test_13 en el padre (reproduccion existente)
+
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_13
+        assert result["status"] == "done", result
+E       AssertionError: {'status': 'failed', 'constraint': 'decision_dato_no_del_futuro', 'persisted': 0}
+E       assert 'failed' == 'done'
+E         + failed
+docs\evidencia\arreglos-05\revision\test_accept_optimizer.py:33: AssertionError
+1 failed, 2 deselected in 9.63s
+
+## N g en el padre (regresiones nuevas del bloque)
+
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N g
+# Fila que revienta el lote (detalle del CHECK):
+E           psycopg.errors.CheckViolation: new row for relation "decision" violates check constraint "decision_dato_no_del_futuro"
+E           DETAIL:  Failing row contains (2, 1, 2, harvest, 2026-08-22 12:00:00+00, 1,
+E             2026-08-22 12:00:01+00, 2026-06-19, 2026-07-18, buena yarda, null, 0.7500, USD, ...)
+# Los cuatro casos terminan en la misma asercion nombrada:
+E           Failed: el lote mixto aborto por decision_dato_no_del_futuro: una reobservacion revirtio decisiones validas
+E           Failed: el lote mixto aborto por decision_dato_no_del_futuro: una reobservacion revirtio decisiones validas
+E           Failed: el lote mixto aborto por decision_dato_no_del_futuro: una reobservacion revirtio decisiones validas
+E           Failed: el lote mixto aborto por decision_dato_no_del_futuro: una reobservacion revirtio decisiones validas
+4 failed, 6443 deselected, 1 warning in 27.64s
+
+# Sin errores de import ni de fixture: los cuatro son fallos de comportamiento
+# del producto (el lote mixto se aborta) y nombran la causa.

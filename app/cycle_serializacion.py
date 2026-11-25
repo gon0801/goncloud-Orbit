@@ -364,9 +364,12 @@ def _pendiente_termino(
     }
     if corte is not None:
         inputs["corte"] = _corte_json(corte, evidencia, piso)
-        # sello bitemporal compartido con el motor de bids (1.3): la
-        # evidencia entra al max y el LEAST clampea a decided_at
-        data_observed = _sello_bitemporal(decided_at, data_observed, evidencia)
+    # sello bitemporal comun a TODO termino (negative y harvest): la evidencia
+    # (solo negative) entra al max y el LEAST clampea a decided_at. El harvest
+    # sin corte antes copiaba el observed_at crudo y una reobservacion posterior
+    # de un termino maduro violaba decision_dato_no_del_futuro, revirtiendo todo
+    # el lote mixto. El insumo real sigue intacto en inputs.termino.observed_at_max.
+    data_observed = _sello_bitemporal(decided_at, data_observed, evidencia)
     return _Pendiente(
         ad_entity_id=grupo_id,
         kind=resultado.kind,
