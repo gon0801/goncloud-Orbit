@@ -677,6 +677,11 @@ def _handler_estados(estados, llamadas):
             asin = request.url.params.get("Asins")
             cuerpo = estados[asin]["competitivo"]
         if isinstance(cuerpo, tuple) and cuerpo[0] == "status":
+            if len(cuerpo) == 3:
+                payload = cuerpo[2]
+                if isinstance(payload, str):
+                    return httpx.Response(cuerpo[1], text=payload)
+                return httpx.Response(cuerpo[1], json=payload)
             return httpx.Response(cuerpo[1], json={})
         if isinstance(cuerpo, tuple) and cuerpo[0] == "red":
             raise cuerpo[1]("corte de red simulado")
@@ -887,3 +892,128 @@ def test_cli_registra_pipeline():
         cwd=str(ROOT),
     )
     assert "spapi_pricing" in proc.stdout
+
+
+def test_es_asin_invalido_mp_exige_asin_y_codigo_exactos():
+    from app.spapi._ingesta import FalloHttp
+
+    cuerpo_ok = {
+        "errors": [
+            {
+                "code": "InvalidInput",
+                "message": "B0851T6TH9 is an invalid ASIN for marketplace A1AM78C64UM0Y8",
+                "details": "",
+            }
+        ]
+    }
+    assert pricing._es_asin_invalido_mp(
+        FalloHttp("pricing", "B0851T6TH9", 400, cuerpo=cuerpo_ok), "B0851T6TH9"
+    )
+    # Status distinto, otro ASIN, otro error o lista mixta -> False (fail-closed).
+    assert not pricing._es_asin_invalido_mp(
+        FalloHttp("pricing", "B0851T6TH9", 500, cuerpo=cuerpo_ok), "B0851T6TH9"
+    )
+    assert not pricing._es_asin_invalido_mp(
+        FalloHttp("pricing", "B0851T6TH9", 400, cuerpo=cuerpo_ok), "B0OTROASIN"
+    )
+    assert not pricing._es_asin_invalido_mp(
+        FalloHttp(
+            "pricing",
+            "B0851T6TH9",
+            400,
+            cuerpo={"errors": [{"code": "InvalidInput", "message": "MarketplaceId is invalid"}]},
+        ),
+        "B0851T6TH9",
+    )
+    assert not pricing._es_asin_invalido_mp(
+        FalloHttp(
+            "pricing",
+            "B0851T6TH9",
+            400,
+            cuerpo={
+                "errors": [
+                    cuerpo_ok["errors"][0],
+                    {"code": "QuotaExceeded", "message": "throttled"},
+                ]
+            },
+        ),
+        "B0851T6TH9",
+    )
+    assert not pricing._es_asin_invalido_mp(
+        FalloHttp("pricing", "B0851T6TH9", 400, cuerpo=None), "B0851T6TH9"
+    )
+
+
+@_skip_db
+def test_asin_400_invalid_asin_en_primeros_11_se_omite_y_pase_termina():
+    """Reproduccion del incidente prod 2026-11-23: 3 ASINs invalidos en #8/#10/#11 no abortan MX."""
+    llamadas: list = []
+    asins = [f"B0851000{i:02d}" for i in range(1, 13)]
+    invalidos = {asins[7], asins[9], asins[10]}
+    estados = {}
+    for asin in asins:
+        if asin in invalidos:
+            estados[asin] = {
+                "ofertas": (
+                    "status",
+                    400,
+                    {
+                        "errors": [
+                            {
+                                "code": "InvalidInput",
+                                "message": (
+                                    f"{asin} is an invalid ASIN for marketplace A1AM78C64UM0Y8"
+                                ),
+                                "details": "",
+                            }
+                        ]
+                    },
+                ),
+                "competitivo": _cuerpo_competitivo(),
+            }
+        else:
+            estados[asin] = _ok(asin, 120.0)
+    with db_pricing() as conn:
+        _sembrar_universo(conn, [("amazon_mx", a) for a in asins])
+        resultado = pricing.ejecutar_ingesta(
+            conn, _cliente_estados(estados, llamadas), platform="amazon_mx", ahora=AHORA
+        )
+        assert resultado.ok is True
+        assert resultado.escritas == 9
+        assert resultado.asins_vistos == 12
+        run = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run == (True, 9, 3, "3x asin_invalido_mp")
+
+
+@_skip_db
+def test_400_generico_no_se_enmascara_y_sigue_abortando_umbral():
+    """HTTP 400 global (no invalid ASIN) sigue contando como fallo y dispara el umbral."""
+    llamadas: list = []
+    asins = [f"B0851000{i:02d}" for i in range(1, 13)]
+    rotos = {asins[7], asins[9], asins[10]}
+    estados = {}
+    for asin in asins:
+        if asin in rotos:
+            estados[asin] = {
+                "ofertas": (
+                    "status",
+                    400,
+                    {"errors": [{"code": "InvalidInput", "message": "MarketplaceId is invalid"}]},
+                ),
+                "competitivo": _cuerpo_competitivo(),
+            }
+        else:
+            estados[asin] = _ok(asin, 120.0)
+    with db_pricing() as conn:
+        _sembrar_universo(conn, [("amazon_mx", a) for a in asins])
+        with pytest.raises(pricing.IngestaPricingError, match="umbral de fallos"):
+            pricing.ejecutar_ingesta(
+                conn, _cliente_estados(estados, llamadas), platform="amazon_mx", ahora=AHORA
+            )
+        run = conn.execute(
+            "SELECT ok, rows_written FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run == (False, 8)
