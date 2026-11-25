@@ -7,7 +7,7 @@ cd "$(dirname -- "$0")/../../../.."
 unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL
 
 : "${MOTOR_SHA:?falta MOTOR_SHA}"
-echo "# Huella de la fase 2 del bloque I. SHA integrado: $MOTOR_SHA; HEAD: $(git rev-parse HEAD)"
+echo "# Huella de la fase 2 del bloque I. SHA integrado y desplegado: $MOTOR_SHA"
 echo "# Fecha UTC: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo
 echo "archivo | md5_local | md5_host | md5_contenedor"
