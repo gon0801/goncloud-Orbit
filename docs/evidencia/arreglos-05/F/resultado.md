@@ -3,10 +3,10 @@
 - Base: `8a094228cd9704b35195000b83e37157527f887c` (master con BASE, A, B, C, D
   y E integrados y desplegados).
 - Rama: `arreglos-05/f`.
-- Cabeza de la implementacion: `a0db5ef9fa377012a5e247b19dc79fabf2140e9b`
+- Cabeza de la implementacion: `b44d30db7443b659442c11ca54c3b26bcac24cec`
   (modelo en `4bf03729`; primera implementacion en `5eb549f4`; evidencia en
   `edd48fae`).
-- Acepta corrida en `a0db5ef9fa377012a5e247b19dc79fabf2140e9b` con arbol
+- Acepta corrida en `b44d30db7443b659442c11ca54c3b26bcac24cec` con arbol
   limpio.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md`, seccion "F-G. Meta base y
   sello temporal" (parte F) e "Integracion con TEMPORADA y migraciones".
@@ -54,8 +54,8 @@ Para quien mantiene:
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `a0db5ef9` | `test_12`: 1 passed. `N f`: 9 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
-| F.2 | mismos comandos mas las pruebas de snapshot viejo, fraccion apagada, replay y recuperacion | `a0db5ef9` | 9 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; una fase apagada no borra el ancla; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
+| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `b44d30db` | `test_12`: 1 passed. `N f`: 9 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
+| F.2 | mismos comandos mas las pruebas de snapshot viejo, fraccion apagada, replay y recuperacion | `b44d30db` | 9 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; una fase apagada no borra el ancla; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
 
 Casos de `N f` (`tests/test_arreglos05_f_meta.py`):
 
