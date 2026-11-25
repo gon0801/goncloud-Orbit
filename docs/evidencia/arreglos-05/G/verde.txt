@@ -1,0 +1,10 @@
+# Verde del bloque G en la cabeza de implementacion.
+# Comandos y resultados (mismo arbol limpio):
+
+## N g (regresiones nuevas del bloque)
+# uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N g
+4 passed, 6443 deselected, 1 warning in 27.51s
+
+## T optimizer test_13 (reproduccion existente)
+# uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_13
+1 passed, 2 deselected in 9.49s
