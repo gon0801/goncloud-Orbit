@@ -232,7 +232,12 @@ class CuerpoSettings(BaseModel):
     base_config_version_id: int = Field(ge=1)
     target_manual_pct: Decimal | None = Field(default=None, gt=0)
     margen: CuerpoMargen | None = None
-    caps: dict[str, Annotated[int, Field(ge=0)] | None] | None = None
+    # Cuotas por kind (KINDS_QUOTA). El valor va CRUDO a proposito: el unico
+    # que decide si una cuota se puede guardar es
+    # `config_write.proxima_config` con `apply_cuota.cap_desde_settings`.
+    # Pydantic no debe convertir `true` en 1 ni `null` en omision; una llave
+    # ausente conserva el valor y una llave con null es invalida.
+    caps: dict[str, Any] | None = None
     ack_respaldo: bool = False
     # A3: confianzas del motor, opcionales (None = no tocar), en [0.50, 0.99].
     confianza_recorte: Decimal | None = Field(default=None, ge=0.5, le=0.99)

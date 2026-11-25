@@ -50,6 +50,28 @@ function guardarConfig(form) {
     return;
   }
 
+  // Una cuota viaja como entero o no viaja. `Number("1,000")` daria NaN y
+  // JSON.stringify lo convertiria en null: el servidor lo ignoraria y la
+  // pantalla diria Guardado. Se revisa el texto crudo antes de serializar y
+  // el backend vuelve a validar con el lector canonico de cuotas.
+  var cuotaMala = null;
+  ["bid", "pause", "negative", "harvest"].forEach(function (kind) {
+    var el = form.elements["cap_" + kind];
+    if (!el || !cambio(el)) return;
+    if (!/^[0-9]+$/.test(el.value.trim())) {
+      cuotaMala = cuotaMala || { kind: kind, texto: el.value.trim() };
+    }
+  });
+  if (cuotaMala) {
+    estado.textContent =
+      "Error: la cuota de " +
+      cuotaMala.kind +
+      " debe ser un numero entero sin comas ni decimales (llego " +
+      cuotaMala.texto +
+      ").";
+    return;
+  }
+
   var cuerpo = { base_config_version_id: baseId, ack_respaldo: !!ack };
   if (cambio(target)) cuerpo.target_manual_pct = target.value.trim();
   // A3: solo viaja lo cambiado (cambio), como texto (Decimal exacto).
@@ -86,7 +108,7 @@ function guardarConfig(form) {
   var caps = {};
   ["bid", "pause", "negative", "harvest"].forEach(function (kind) {
     var el = form.elements["cap_" + kind];
-    if (cambio(el)) caps[kind] = Number(el.value);
+    if (cambio(el)) caps[kind] = Number(el.value.trim());
   });
   if (Object.keys(caps).length) cuerpo.caps = caps;
 
