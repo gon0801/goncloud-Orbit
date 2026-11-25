@@ -127,6 +127,27 @@ corre() { # <ACEPTA|CONTROL> <nombre> <regla> <comando...>
   [[ -z $veredicto || $veredicto == ok ]] || fallos=$((fallos + 1))
 }
 
+# La revision de secretos no tiene resumen de pytest: exige salida 0 Y la
+# confirmacion explicita de gitleaks en su propia salida.
+corre_secretos() { # <rango>
+  local rango=$1 salida codigo veredicto
+  echo
+  echo "### [ACEPTA] revision de secretos de los commits del bloque"
+  echo "\$ gitleaks detect --redact --no-banner --log-opts=$rango"
+  salida=$(gitleaks detect --redact --no-banner --log-opts="$rango" 2>&1)
+  codigo=$?
+  printf '%s\n' "$salida"
+  if [[ $codigo != 0 ]]; then
+    veredicto="salida=$codigo"
+  elif [[ $salida == *"no leaks found"* ]]; then
+    veredicto=ok
+  else
+    veredicto="FALLO: la salida no confirma 'no leaks found'"
+  fi
+  echo "resultado=$veredicto"
+  [[ $veredicto == ok ]] || fallos=$((fallos + 1))
+}
+
 en_parte() { [[ $parte == 0 || $parte == "$1" ]]; }
 
 echo "# Acepta de ARREGLOS 05 F. SHA $(git rev-parse HEAD)$( ((parte)) && echo " (parte $parte de 3)")"
@@ -170,8 +191,7 @@ en_parte 3 && corre CONTROL "esquema: invariantes del ledger del ciclo" 88 \
 en_parte 3 && corre CONTROL "selector del instalador: migraciones de ARREGLOS 05 (F no agrega DDL)" 4 \
   uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider \
   tests/test_despliegue_motor.py -k "arreglos05"
-en_parte 3 && corre ACEPTA "revision de secretos de los commits del bloque" - \
-  gitleaks detect --redact --no-banner --log-opts=8a094228cd9704b35195000b83e37157527f887c..HEAD
+en_parte 3 && corre_secretos "8a094228cd9704b35195000b83e37157527f887c..HEAD"
 
 echo
 echo "# comandos que no pasaron: $fallos"

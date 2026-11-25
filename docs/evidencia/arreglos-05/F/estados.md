@@ -91,8 +91,8 @@ class _OverlayTemporada:
 @dataclass(frozen=True)
 class _BasePrevia:
     """Base convergente que deja un ciclo live anterior y su evidencia."""
-    valor: Decimal | None       # None = ausencia explicita
-    origen: str                 # 'ciclo:<id>' | 'setting' | 'ausencia'
+    valor: Decimal | None       # None = este ciclo no entrega base
+    origen: str                 # 'ciclo:<id>' | 'setting'
     cycle_id: int | None
 
 def _base_de_snapshot(target: dict) -> tuple[bool, Decimal | None]:
@@ -165,7 +165,7 @@ la resolucion de la meta, y su "tabla" es la de `_base_de_snapshot` y
 | 5 | Replay de una decision antigua | `decision.inputs` congelados (caso, `target_snapshot`, `target_acos_pct_usado`) y su `version` | la frozen de su fecha; el replay no consulta settings ni la base de hoy | `caso.temporada.meta_alta_pct` y `frontera` congelados | cero diferencias no previstas; filas sin la clave rejuegan con su era (`replay.py`) |
 | 6 | Recuperacion parcial (`resume_of`) | el origen live con `decision_committed_at` sigue siendo el ancla; el ejecutor cierra con `_SQL_CERRAR_ENVELOPE` (sin sello) y no decide | el lote nuevo ancla a la base del origen; el ejecutor no duplica decisiones ni abre otra base | el overlay lo fija el origen que decidio; el ejecutor no lo reescribe | `resume_of = origen`, `decisions_count = 0`, `base` del origen intacta |
 
-Antes de cada empuje se recorren los seis caminos a mano sobre diffs y pruebas.
+Antes de cada empuje se recorren los siete caminos a mano sobre diffs y pruebas.
 
 ## Versionado e historia
 
@@ -174,8 +174,10 @@ Antes de cada empuje se recorren los seis caminos a mano sobre diffs y pruebas.
   claves de medicion se conservan tal cual para los lectores vigentes
   (`api_common._target_vigente`, `cycle_notifica`, `apply_revalidacion`,
   `familias`, dashboard y el test externo `test_12`).
-- `notes.target.base = {valor, origen, cycle_id, version}`: la base convergente
-  y de donde salio. `valor = null` es ausencia explicita.
+- `notes.target.base = {valor, origen, cycle_id}`: la base convergente y de
+  donde salio. `valor = null` significa que ese ciclo no entrega base (el
+  peldano no aplico) y no borra la ultima base explicita. La `version` va en
+  `notes.target`, no dentro de `base`.
 - `notes.target.overlay = {version, modo, fase, estacion_dia, meta_alta_pct, aplica}`:
   el overlay estacional separado. `modo = null` significa Temporada sin
   configurar.
