@@ -1,6 +1,6 @@
 # K/cargo.sql
-# generado: 2026-11-25T13:16:05Z
-# commit de la lectura: 6b567c295621ea4ab20462cb503b8bee4c6a031a
+# generado: 2026-11-25T13:22:02Z
+# commit de la lectura: cfcd20be50ba775fec3a623d031dbbd8e535da65
 
 -- A. Filas de cargo en el libro, estimadas frente a reales [platform|filas|estimadas]
 amazon_mx|4140|325
@@ -92,14 +92,29 @@ amazon_mx|534|0.150000|0.150000|0.150007|510|0|18
 amazon_us|53|0.111951|0.128276|0.135426|0|0|2
 meli|207|0.195000|0.195004|0.195005|0|206|0
 
--- E. Razon cobrado/cotizado por producto, solo cargos efectivos, en MXN [platform|productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
-amazon_mx|168|1509|0.150000|0.129311|1.160000|1.134861|1.276003|163|0
-meli|13|72|0.195004|0.195004|1.000000|0.999978|1.000000|0|13
+-- E. Razon cobrado/cotizado por producto en MXN: ventana comun, solo cargos efectivos y pedidos de un solo producto mapeado [platform|productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100|pedidos_descartados]
+amazon_mx|113|534|0.150000|0.129311|1.160005|1.105681|1.160057|110|0|0
+meli|10|43|0.195004|0.195004|1.000000|1.000000|1.000000|0|10|0
 
--- F. Amazon US en su ventana, solo cargos efectivos: razon por producto con la cotizacion en USD y el cargo en MXN [productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
-24|53|0.128797|0.150000|0.858649|0.634122|0.940567|0|0
+-- F. Amazon US en su ventana: ventana comun, solo cargos efectivos y pedidos de un solo producto mapeado; cotizacion en USD y cargo en MXN [productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100|pedidos_descartados]
+24|53|0.128797|0.150000|0.858649|0.634122|0.940567|0|0|0
 
--- G. Un pedido MX con la comision cobrada al 15% y su diferencia contra la tasa cotizada 12.931% [order_id|venta|comision|tasa|razon|diferencia]
-701-6167430-7852254|2689.0000|403.3600|0.150004|1.160032|55.6454
-701-2934445-2283440|2689.0000|403.3600|0.150004|1.160032|55.6454
-701-7091239-6440216|2689.0000|403.3600|0.150004|1.160032|55.6454
+-- G. Tres pedidos MX mayores de la ventana con la comision cobrada al 15%, sin identificador [venta|comision|tasa|razon|diferencia]
+2689.0000|403.3600|0.150004|1.160032|55.6454
+2689.0000|403.3600|0.150004|1.160032|55.6454
+2689.0000|403.3600|0.150004|1.160032|55.6454
+
+-- H. Amazon US por mes: venta, comision efectiva y retencion [mes|pares|venta|comision|tasa_comision|retencion|tasa_retencion]
+2025-11-01|2|5225.87|146.98|0.028125|0.00|0.000000
+2025-12-01|39|87877.23|14724.17|0.167554|7199.64|0.081928
+2026-01-01|52|118016.37|20448.98|0.173272|8814.67|0.074690
+2026-02-01|47|97259.07|17331.76|0.178202|7446.08|0.076559
+2026-03-01|73|163398.29|25539.95|0.156305|11991.31|0.073387
+2026-04-01|71|163262.42|22649.61|0.138731|11120.13|0.068112
+2026-05-01|51|125508.14|16382.13|0.130526|7721.80|0.061524
+2026-06-01|41|104714.84|13733.69|0.131153|6760.69|0.064563
+2026-07-01|57|146244.06|19137.64|0.130861|9919.61|0.067829
+2026-08-01|65|163600.01|21085.23|0.128883|10954.60|0.066960
+2026-09-01|60|155085.31|20286.75|0.130810|9940.42|0.064096
+2026-10-01|43|116858.06|15001.88|0.128377|8405.55|0.071930
+2026-11-01|35|94949.03|12171.44|0.128189|6168.11|0.064962

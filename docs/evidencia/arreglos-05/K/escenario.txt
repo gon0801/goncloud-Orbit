@@ -1,6 +1,6 @@
 # K/escenario.sql
-# generado: 2026-11-25T13:16:31Z
-# commit de la lectura: 6b567c295621ea4ab20462cb503b8bee4c6a031a
+# generado: 2026-11-25T13:22:31Z
+# commit de la lectura: cfcd20be50ba775fec3a623d031dbbd8e535da65
 
 -- A. Escenarios por plataforma, formula y estado [platform|formula|estado|n|desde|hasta]
 amazon_mx|S3|disponible|42174|2026-09-08|2026-11-21
@@ -48,11 +48,11 @@ meli|S3|oferta_desactualizada|3341
 -- D. MeLi S4: sin componente de impuesto sobre la comision [escenarios|con_iva_ref]
 262|0
 
--- E. La comision estimada con S4 contra la cobrada, por producto en Amazon MX [productos|pares|mediana_tasa_s4|mediana_razon|productos_a_1pct|productos_a_01pct]
-168|1509|0.150001|1.000000|163|163
+-- E. La comision estimada con S4 contra el cargo efectivo por producto en Amazon MX, ventana comun y pedidos de un solo producto mapeado [productos|pares|mediana_tasa_s4|mediana_razon|productos_a_1pct|productos_a_01pct|pedidos_descartados]
+113|534|0.150001|1.000004|110|110|0
 
--- F. MeLi: la comision cotizada contra la cobrada, por producto [productos|mediana_razon|productos_a_01pct]
-13|1.000000|13
+-- F. MeLi: la comision cotizada contra la cobrada por producto, ventana comun y pedidos de un solo producto mapeado [productos|pares|mediana_razon|productos_a_01pct|pedidos_descartados]
+10|43|1.000000|10|0
 
 -- G. Una cotizacion completa por plataforma [id|platform|canal|precio|currency|total|estimada_en|fee_details]
 105117|amazon_mx|fbm|1688.0000|MXN|218.2800|2026-11-25 12:51:48+00:00|[{"currency": "MXN", "fee_type": "ReferralFee", "final_fee": "218.2800", "fee_amount": "218.2800", "fee_promotion": "0.0000"}]

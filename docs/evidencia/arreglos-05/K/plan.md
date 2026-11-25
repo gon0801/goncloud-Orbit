@@ -132,3 +132,23 @@ de IVA conocido de la moneda, es desconocido, no una tasa nueva.
   migracion aditiva numerada con `_reversa_`, sonda en las primeras 10 lineas,
   grants minimos, pruebas de ida y reversa con los roles reales, y `N k` con
   los cuatro casos pedidos por el plan.
+
+## Ajuste posterior a la revision (2026-11-25)
+
+La revision de la ronda 1 pidio dos reglas mas estrictas, y se aplicaron antes
+de publicar la cabeza final:
+
+- **Ventana comun.** La comparacion por producto limita las dos poblaciones a la
+  misma ventana (MX y MeLi desde 2026-09-01; US desde 2026-10-15). Antes, una
+  liquidacion de enero podia promediarse con una cotizacion de noviembre. Los
+  pedidos sin cotizacion contemporanea quedan fuera y se cuentan.
+- **Un producto mapeado.** Un pedido entra a la mediana por producto solo si
+  todas sus lineas estan mapeadas y apuntan al mismo producto; los descartados
+  se cuentan aparte. Antes, `min(product_id)` atribuia la comision del pedido
+  entero a un producto. En la ventana se descartaron 0.
+- **Cargos efectivos.** Se excluye la comision estimada y se cuenta aparte.
+- **Sin identificadores.** No se publican `order_id` en la evidencia.
+
+Con esas reglas, Amazon US no cumple el criterio de adjudicacion (su razon no es
+1.0000 ni el factor de IVA de la moneda), asi que se clasifica **desconocido** y
+K queda abierto para US, con tarea de evidencia. Amazon MX y MeLi si adjudican.

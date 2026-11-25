@@ -2,7 +2,7 @@
 
 - Base: `1191125c65841e8ec8d77448f7bbdcfeed29be1a` (master con BASE y A-J).
 - Rama: `arreglos-05/k`.
-- Lectura: 2026-11-25T13:11-13:16Z, rol `orbit_read`, transaccion `read_only`,
+- Lectura: 2026-11-25T13:21-13:23Z, rol `orbit_read`, transaccion `read_only`,
   por `docs/evidencia/arreglos-01/lee_prod.sh`.
 - Comando: `bash docs/evidencia/arreglos-05/K/lee_previa.sh`.
 - Salidas saneadas: `cotizacion.txt`, `cargo.txt`, `escenario.txt`,
@@ -33,8 +33,24 @@ estimadas se cuentan aparte (`cargo.txt`, bloque A2):
 | MeLi | 1,147 | 1,147 | 0 |
 
 En la ventana de comparacion, los pedidos cuyo unico `referral_fee` es una
-estimacion son 18 de 552 en Amazon MX, 2 de 55 en Amazon US y 0 de 207 en MeLi
+estimacion son 18 de 534 en Amazon MX, 2 de 53 en Amazon US y 0 de 207 en MeLi
 (`cargo.txt`, bloque D). No entran en ninguna tasa publicada.
+
+## Metodo de comparacion
+
+- **Ventana comun.** La comparacion por producto aplica a las dos poblaciones la
+  misma ventana: Amazon MX y MeLi desde 2026-09-01; Amazon US desde 2026-10-15.
+  Una liquidacion de enero no se mezcla con una cotizacion de noviembre: los
+  pedidos sin cotizacion contemporanea quedan fuera y se cuentan.
+- **Un producto mapeado.** Un pedido entra a la mediana por producto solo si
+  todas sus lineas de venta estan mapeadas y apuntan al mismo producto. Se
+  cuentan aparte los pedidos descartados por linea sin producto o por varios
+  productos (`cargo.txt`, bloques E y F; `escenario.txt`, bloques E y F). En la
+  ventana se descartaron 0 pedidos.
+- **Solo cargos efectivos.** La comision estimada no es un cargo y no entra en
+  ninguna tasa (`cargo.txt`, bloque A2).
+- **Sin identificadores.** Los ejemplos y las tasas no publican `order_id`; solo
+  importes y agregados.
 
 ## Cotizacion integra
 
@@ -68,51 +84,62 @@ estimacion son 18 de 552 en Amazon MX, 2 de 55 en Amazon US y 0 de 207 en MeLi
 - Tasa cobrada de la comision variable por pedido, solo cargos efectivos, en la
   ventana en que conviven cotizacion y cargo:
 
-| Plataforma | Moneda | Pedidos reales | p10 | p50 | p90 | Pedidos exactos | Solo estimada |
-|---|---|---|---|---|---|---|---|
-| Amazon MX | MXN | 534 | 0.150000 | 0.150000 | 0.150007 | 510 al 15.00% | 18 |
-| Amazon US | MXN | 53 | 0.111951 | 0.128276 | 0.135426 | 0 fuera de rango | 2 |
-| MeLi | MXN | 207 | 0.195000 | 0.195004 | 0.195005 | 206 al 19.50% | 0 |
+| Plataforma | Moneda | Pedidos reales | p10 | p50 | p90 | En 15.00% | En 19.50% | Solo estimada |
+|---|---|---|---|---|---|---|---|---|
+| Amazon MX | MXN | 534 | 0.150000 | 0.150000 | 0.150007 | 510 | 0 | 18 |
+| Amazon US | MXN | 53 | 0.111951 | 0.128276 | 0.135426 | 0 | 0 | 2 |
+| MeLi | MXN | 207 | 0.195000 | 0.195004 | 0.195005 | 0 | 206 | 0 |
+
+La columna "En 15.00%" y "En 19.50%" cuenta pedidos cuya razon cae en
+`[0.1499, 0.1501]` o `[0.1949, 0.1951]`; en Amazon US esa banda no aplica porque
+su razon no es 15%.
 
 - La mediana mensual de Amazon MX es `0.150000` en todos los meses desde
   2025-12 hasta 2026-11. La de MeLi es `0.195000` en todos los meses desde
-  2025-03. La de Amazon US baja de `0.168364` (2025-12) a `0.128273` (2026-11).
-- La venta de Amazon US se registra en MXN aunque la cotizacion este en USD. La
-  razon por pedido es adimensional y comparable, pero su base no es la misma
-  divisa; se trata abajo.
+  2025-03. La de Amazon US cambia de regimen: ver abajo.
+- La venta de Amazon US se registra en MXN aunque la cotizacion este en USD. Por
+  eso no se atribuye la diferencia a un tipo de cambio sin medirlo.
 
 ## Comparacion y diferencia
 
-Razon por producto: mediana de la tasa cobrada (solo cargos efectivos) dividida
-entre la mediana de la tasa cotizada, con al menos un par y una cotizacion del
+Razon por producto: mediana de la tasa cobrada (solo cargos efectivos, ventana
+comun, un producto mapeado) dividida entre la mediana de la tasa cotizada del
 mismo producto.
 
 | Plataforma | Moneda | Cotizado | Cobrado | Razon | Productos 1.16 | Productos 1.00 | Veredicto |
 |---|---|---|---|---|---|---|---|
-| Amazon MX | MXN | 0.129311 | 0.150000 | **1.160000** | 163 de 168 | 0 de 168 | separado |
-| MeLi | MXN | 0.195004 | 0.195004 | **1.000000** | 0 de 13 | 13 de 13 | incluido |
-| Amazon US | USD / MXN | 0.150000 | 0.128797 | 0.858649 | 0 de 24 | 0 de 24 | sin impuesto |
+| Amazon MX | MXN | 0.129311 | 0.150000 | **1.160005** | 110 de 113 | 0 de 113 | separado |
+| MeLi | MXN | 0.195004 | 0.195004 | **1.000000** | 0 de 10 | 10 de 10 | incluido |
+| Amazon US | USD / MXN | 0.150000 | 0.128797 | 0.858649 | 0 de 24 | 0 de 24 | **desconocido** |
 
-- Amazon MX: 168 productos y 1,509 pares. El rango de la razon es 1.134861 a
-  1.276003; la mediana y 163 de 168 productos caen en 1.16. La diferencia no es
-  una tasa supuesta: sale de dividir el cargo efectivo entre la cotizacion del
-  mismo producto.
-- MeLi: 13 productos y 72 pares. La razon es 1.000000 con rango 0.999978 a
+- Amazon MX: 113 productos y 534 pares en la ventana. El rango de la razon es
+  1.105681 a 1.160057; la mediana y 110 de 113 productos caen en 1.16. La
+  diferencia no es una tasa supuesta: sale de dividir el cargo efectivo entre la
+  cotizacion del mismo producto y del mismo periodo.
+- MeLi: 10 productos y 43 pares. La razon es 1.000000 con rango 1.000000 a
   1.000000; la cotizacion ya trae el mismo importe que se cobra.
-- Amazon US: la cotizacion esta en USD y el cargo en MXN. En la ventana hay 24
-  productos y 53 pares; la tasa cotizada es 0.150000 y la cobrada 0.128797, con
-  razon mediana 0.858649 y rango 0.634122 a 0.940567 (`cargo.txt`, bloque F).
-  Ningun producto cae en 1.16 ni en 1.00. El cargo queda por debajo de la
-  cotizacion: no hay un impuesto encima de la comision. La diferencia restante
-  es de categoria y de base de conversion, no fiscal, y queda anotada como
-  observacion.
+- Amazon US: **desconocido.** La razon por producto es 0.858649 con rango
+  0.634122 a 0.940567, ni 1.0000 ni 1.16 ni el factor de IVA de la moneda (USD
+  no tiene IVA), asi que el criterio de `plan.md` la marca como desconocida. Lo
+  unico que la fuente sostiene es que, en la ventana con cotizaciones (desde
+  2026-10-15), el cargo efectivo no supera la cotizacion: 0.128797 contra
+  0.150000.
+- La serie mensual de Amazon US (`cargo.txt`, bloque H) muestra dos regimenes en
+  la tasa de comision por pedido: `0.167554` (2025-12), `0.173272` (2026-01) y
+  `0.178202` (2026-02), compatibles con `15% x 1.16 = 0.174000`; y desde 2026-05
+  entre `0.128189` y `0.131153`. La tasa de retencion cambia en el mismo periodo
+  (`0.081928`, `0.074690`, `0.076559` al inicio; `0.061524` a `0.071930`
+  despues), cerca de `8% / 1.16 = 0.068966`. La fuente no permite determinar la
+  causa: no hay cotizaciones de esos meses y la liquidacion no separa un cargo
+  de impuesto sobre la comision. No se atribuye a categoria ni a conversion; es
+  una tarea de evidencia abierta.
 
-Diferencia en dinero, un pedido de Amazon MX (el mayor de la ventana con la
-comision exacta al 15%):
+Diferencia en dinero, tres pedidos de Amazon MX con la comision exacta al 15%
+(`cargo.txt`, bloque G; sin identificador):
 
-| Pedido | Venta MXN | Comision MXN | Tasa cobrada | Razon | Diferencia contra 12.931% |
-|---|---|---|---|---|---|
-| 701-6167430-7852254 | 2,689.0000 | 403.3600 | 0.150004 | 1.160032 | 55.6454 MXN |
+| Venta MXN | Comision MXN | Tasa cobrada | Razon | Diferencia contra 12.931% |
+|---|---|---|---|---|
+| 2,689.0000 | 403.3600 | 0.150004 | 1.160032 | 55.6454 MXN |
 
 `2,689.0000 x 0.129310 = 347.7146`; `403.3600 - 347.7146 = 55.6454`, que es el
 16.0% de la comision cotizada. La cotizacion no trae ese impuesto y el cargo
@@ -132,9 +159,9 @@ externo si lo cobra, ya dentro del 15%.
 - MeLi S4: 262 de 262 escenarios sin `fee_iva_referral`, con multiplicador `1`
   (`escenario.txt`, bloque D y `politica.txt`).
 - La comision estimada con S4 contra el cargo efectivo, por producto en Amazon
-  MX: 168 productos, 1,509 pares, tasa estimada mediana 0.150001, razon mediana
-  **1.000000**, 163 de 168 productos dentro del 0.1% (`escenario.txt`, bloque E).
-- MeLi: razon mediana 1.000000 y 13 de 13 productos dentro del 0.1%
+  MX: 113 productos, 534 pares, tasa estimada mediana 0.150001, razon mediana
+  **1.000004**, 110 de 113 productos dentro del 0.1% (`escenario.txt`, bloque E).
+- MeLi: razon mediana 1.000000 y 10 de 10 productos dentro del 0.1%
   (`escenario.txt`, bloque F).
 - Politica vigente desde 2026-11-21: `referral_fee_iva_multiplicador = 1.16` en
   `amazon_mx/fba` y `amazon_mx/fbm`; `1` en `meli/meli`; `iva_divisor = 1` y
@@ -150,22 +177,24 @@ externo si lo cobra, ya dentro del 15%.
   incorpora una sola vez con `referral_fee_iva_multiplicador = 1.16`.
 - **Incluido en la comision**: la comision de MeLi. La cotizacion y el cargo
   coinciden en 19.500% con razon 1.000000; el multiplicador `1` es correcto.
-- **Desconocido**: no queda ningun impuesto sobre comision sin adjudicar. Lo que
-  queda sin explicar es la diferencia no fiscal de Amazon US (cargo por debajo
-  de la cotizacion), que se anota como observacion y no como impuesto.
+- **Desconocido**: Amazon US. La fuente no permite adjudicar el impuesto sobre
+  la comision: la razon no es 1.00 ni 1.16, la serie cambia de regimen y no hay
+  cotizaciones de los meses altos. No se escribe 16% ni cero. K queda **abierto
+  para Amazon US** con la tarea de evidencia registrada.
 
 ## Limites de la fuente
 
 - La fuente demuestra el flujo de caja, no la acreditabilidad fiscal del IVA de
-  la comision. K no la necesita: la decision del dueno del 2026-11-13 y el
-  contrato S4 tratan el egreso como costo, y aqui solo se verifica que se
-  cuente una vez.
-- El `FBAFees` no es comision. Se midio para descartar un patron 1.16: la razon
-  cobrado/cotizado por producto tiene mediana 1.046875 y 0 de 65 productos en
-  1.16 (`cotizacion.txt`, bloque E). Su tratamiento queda fuera de K.
-- Las cotizaciones de Amazon US estan en USD y sus cargos en MXN. La
-  comparacion por razon es valida por ser adimensional, pero la diferencia no se
-  convierte a una tasa fiscal.
+  la comision. K no la necesita para MX y MeLi: la decision del dueno del
+  2026-11-13 y el contrato S4 tratan el egreso como costo, y aqui solo se
+  verifica que se cuente una vez.
+- El `FBAFees` no es comision. La migracion `0093` ya asento que llega con IVA;
+  se midio para descartar un patron 1.16 y no lo hay: la razon cobrado/cotizado
+  por producto tiene mediana 1.046875 y 0 de 65 productos en 1.16
+  (`cotizacion.txt`, bloque E). Su tratamiento queda fuera de K.
+- Las cotizaciones de Amazon US estan en USD y sus cargos en MXN. La comparacion
+  por razon es valida por ser adimensional, pero no se convierte en una tasa
+  fiscal ni se usa para atribuir la diferencia.
 - La foto es de un dia. El criterio no depende de un umbral elegido a mano: la
-  razon 1.16 sale de los importes y se repite en 163 de 168 productos de Amazon
+  razon 1.16 sale de los importes y se repite en 110 de 113 productos de Amazon
   MX.

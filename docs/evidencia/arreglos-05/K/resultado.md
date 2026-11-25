@@ -7,32 +7,37 @@
 - Aviso del bloque: la estimacion explica los componentes que pudo conciliar y
   conserva desconocido lo que la fuente no permite demostrar.
 - Evidencia: el commit que contiene este archivo.
-- Lectura de produccion: 2026-11-25T13:11-13:16Z, solo lectura, por
+- Lectura de produccion: 2026-11-25T13:21-13:23Z, solo lectura, por
   `docs/evidencia/arreglos-01/lee_prod.sh`.
 
-## Decision K.2: el bloque cierra sin cambio de calculo
+## Decision K.2: MX y MeLi adjudicados; Amazon US desconocido y K abierto en US
 
-La fuente externa adjudica la sospecha y descarta que falte un costo. Las tasas
-cobradas usan solo cargos efectivos: se excluye la comision estimada de los
-pedidos que aun no tienen liquidacion y se cuenta aparte (18 pedidos en Amazon
-MX, 2 en Amazon US y 0 en MeLi en la ventana).
+La fuente externa permite adjudicar Amazon MX y MeLi. En Amazon US no alcanza
+para adjudicar, y se conserva desconocido sin inventar tasa. Las tasas cobradas
+usan solo cargos efectivos, la ventana comun a las dos poblaciones y pedidos con
+todas sus lineas mapeadas al mismo producto; las estimadas y los pedidos sin par
+se cuentan aparte.
 
 - **Amazon MX: impuesto separado, ya incorporado una sola vez.** La cotizacion
   cobra `ReferralFee` al 12.931% y el cargo efectivo al 15.000%: la razon por
-  producto es 1.160000 y 163 de 168 productos caen en 1.16. La cotizacion no
+  producto es 1.160005 y 110 de 113 productos caen en 1.16. La cotizacion no
   trae `tax_amount`. La politica `S4` vigente desde 2026-11-21
   (`amazon_mx_fba_s4_caja_real_2026_11` y `..._fbm_...`) suma
   `ReferralFee x 0.16` una sola vez en `fee_iva_referral` y `fee_total`
   (2,830 de 2,830 escenarios). La comision estimada con S4 contra el cargo
-  efectivo da razon mediana 1.000000 y 163 de 168 productos dentro del 0.1%.
+  efectivo da razon mediana 1.000004 y 110 de 113 productos dentro del 0.1%.
 - **MeLi: impuesto incluido en la comision.** Cotizacion y cargo coinciden en
-  19.500% (razon 1.000000, 13 de 13 productos dentro del 0.1%). El multiplicador
+  19.500% (razon 1.000000, 10 de 10 productos dentro del 0.1%). El multiplicador
   `1` de `meli_s4_caja_real_2026_11` es correcto y los 262 escenarios S4 no
   tienen `fee_iva_referral`.
-- **Amazon US: sin impuesto sobre comisiones.** La cotizacion esta en USD y el
-  cargo en MXN; ningun producto cae en 1.16 y el cargo queda por debajo de la
-  cotizacion. La politica `amazon_us/fbm` usa `iva_divisor = 1` y
-  `precio_incluye_iva = false`.
+- **Amazon US: desconocido.** La razon por producto es 0.858649 con rango
+  0.634122 a 0.940567: ni 1.00 ni 1.16 ni el factor de IVA de una moneda sin
+  IVA. La serie mensual cambia de regimen (`0.167554` a `0.178202` entre
+  2025-12 y 2026-02; `0.128189` a `0.131153` desde 2026-05) y la retencion se
+  mueve en el mismo periodo. Lo unico que se sostiene es que, en la ventana con
+  cotizaciones, el cargo efectivo no supera la cotizacion (0.128797 contra
+  0.150000). No se atribuye a categoria ni a conversion. K queda **abierto para
+  Amazon US** con la tarea de evidencia registrada.
 - **`impuesto_fee_pendiente` no se disparo nunca** (0 casos en mas de 112 mil
   escenarios), porque ninguna cotizacion ha traido impuesto explicito. Se
   conserva la abstencion tal como esta.
@@ -40,12 +45,24 @@ MX, 2 en Amazon US y 0 en MeLi en la ventana).
 Detalle, importes y diferencia: `K/conciliacion.md`. Datos saneados:
 `K/cotizacion.txt`, `K/cargo.txt`, `K/escenario.txt` y `K/politica.txt`.
 
+## Tarea de evidencia abierta (Amazon US)
+
+Para cerrar US hace falta una fuente que hoy no esta:
+
+1. Cotizaciones de Product Fees de los meses 2025-12 a 2026-02, o el detalle de
+   Finances que permita comparar comision y precio de la misma venta.
+2. Confirmacion documental de si Amazon US cobra IVA sobre la comision a esta
+   cuenta y desde cuando. La liquidacion no trae un cargo separado de impuesto
+   sobre la comision y las cotizaciones empiezan el 2026-10-15.
+3. Con eso, decidir si el regimen alto es impuesto (separado) o base distinta.
+   Mientras tanto no se escribe 16% ni cero.
+
 ## Por que no hay `N k`
 
 La aceptacion del plan pide `N k` solo cuando cambia el calculo. Aqui no cambia:
 el impuesto de la comision ya esta incorporado una sola vez por la politica S4
-de la migracion `0093`, y MeLi y Amazon US no lo requieren. Los cuatro casos que
-`N k` cubriria ya tienen control vigente:
+de la migracion `0093` para MX, MeLi no lo requiere y US queda desconocido sin
+tocar la formula. Los cuatro casos que `N k` cubriria ya tienen control vigente:
 
 | Caso | Control vigente |
 |---|---|
@@ -61,7 +78,8 @@ formula. La version vigente sigue siendo la S4 de `0093`.
 
 Solo evidencia, sin codigo:
 
-- `docs/evidencia/arreglos-05/K/plan.md`: plan de adjudicacion previo.
+- `docs/evidencia/arreglos-05/K/plan.md`: plan de adjudicacion previo y ajuste
+  posterior a la revision.
 - `docs/evidencia/arreglos-05/K/conciliacion.md`: K.1.
 - `docs/evidencia/arreglos-05/K/resultado.md`: este archivo.
 - `docs/evidencia/arreglos-05/K/lee_previa.sh` y `cotizacion.sql`, `cargo.sql`,
@@ -102,11 +120,9 @@ archivos de evidencia. La politica S4 y el multiplicador siguen como estaban.
 
 ## Seguimiento (P2)
 
-- La diferencia no fiscal de Amazon US (cotizacion 15.000% contra cargo
-  12.8797% en la ventana) queda anotada, no adjudicada. Podria venir de la
-  categoria o de la base de conversion; no es un impuesto y no es un costo
-  omitido. Su dueno es la estimacion y la ingesta, no K.
-- 5 de 168 productos de Amazon MX caen fuera del 0.1% de la razon 1.16
+- 3 de 113 productos de Amazon MX caen fuera del 0.1% de la razon 1.16
   (promociones, cambios de categoria o devoluciones). No cambian la mediana.
+- El `FBAFees` no es comision y no muestra patron 1.16 (0 de 65 productos); la
+  migracion `0093` ya asento que llega con IVA.
 - `test_r4_g8_barrido_float_entra_a_subpaquetes` falla solo en Windows por el
   separador de ruta. Mejora de prueba para su dueno.

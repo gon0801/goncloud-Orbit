@@ -1,5 +1,8 @@
 -- K.1: el escenario de la estimacion y la politica vigente.
 -- Solo lectura. Un statement por marcador "-- ==".
+-- La comparacion de la comision estimada contra el cargo usa la misma ventana y
+-- el mismo filtro que el bloque de cargos: solo cargos efectivos y pedidos con
+-- todas sus lineas mapeadas al mismo producto.
 
 -- == A. Escenarios por plataforma, formula y estado [platform|formula|estado|n|desde|hasta]
 SELECT platform, formula_version, estado, count(*) AS n,
@@ -48,18 +51,30 @@ SELECT count(*) AS escenarios,
   FROM estimacion_escenario
  WHERE estado = 'disponible' AND formula_version = 'S4' AND platform = 'meli';
 
--- == E. La comision estimada con S4 contra la cobrada, por producto en Amazon MX [productos|pares|mediana_tasa_s4|mediana_razon|productos_a_1pct|productos_a_01pct]
-WITH cob AS (
-    SELECT v.product_id,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY c.fee / v.sale) AS tc,
+-- == E. La comision estimada con S4 contra el cargo efectivo por producto en Amazon MX, ventana comun y pedidos de un solo producto mapeado [productos|pares|mediana_tasa_s4|mediana_razon|productos_a_1pct|productos_a_01pct|pedidos_descartados]
+WITH v AS (
+    SELECT order_id,
+           sum(amount) AS sale,
+           count(DISTINCT product_id) FILTER (WHERE product_id IS NOT NULL) AS productos,
+           count(*) FILTER (WHERE product_id IS NULL) AS lineas_sin_producto,
+           min(product_id) AS product_id
+      FROM ledger_event
+     WHERE kind = 'sale' AND platform = 'amazon_mx' AND order_id IS NOT NULL
+       AND event_date >= DATE '2026-09-01'
+     GROUP BY 1
+), elegibles AS (
+    SELECT order_id, product_id, sale
+      FROM v
+     WHERE sale > 0 AND lineas_sin_producto = 0 AND productos = 1
+), descartes AS (
+    SELECT count(*) AS n
+      FROM v
+     WHERE NOT (lineas_sin_producto = 0 AND productos = 1)
+), cob AS (
+    SELECT e.product_id,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY c.fee / e.sale) AS tc,
            count(*) AS pares
-      FROM (
-            SELECT platform, order_id, min(product_id) AS product_id, sum(amount) AS sale
-              FROM ledger_event
-             WHERE kind = 'sale' AND order_id IS NOT NULL AND product_id IS NOT NULL
-               AND platform = 'amazon_mx'
-             GROUP BY 1, 2
-           ) v
+      FROM elegibles e
       JOIN (
             SELECT platform, order_id, sum(-amount) AS fee
               FROM v_ledger_cargo
@@ -67,9 +82,9 @@ WITH cob AS (
                AND platform = 'amazon_mx'
                AND split_part(coalesce(source_event_id, ''), '|', 2) <> 'fee_estimate'
              GROUP BY 1, 2
-           ) c ON c.platform = v.platform AND c.order_id = v.order_id
-     WHERE v.sale > 0 AND c.fee > 0
-     GROUP BY v.product_id
+           ) c ON c.platform = 'amazon_mx' AND c.order_id = e.order_id
+     WHERE c.fee > 0
+     GROUP BY 1
 ), cot AS (
     SELECT l.product_id,
            percentile_cont(0.5) WITHIN GROUP (
@@ -78,31 +93,44 @@ WITH cob AS (
       JOIN listing l ON l.id = f.listing_id,
            jsonb_array_elements(f.fee_details) d
      WHERE f.estado = 'success' AND d->>'fee_type' = 'ReferralFee'
-       AND f.platform = 'amazon_mx'
+       AND f.platform = 'amazon_mx' AND f.fees_estimated_at >= DATE '2026-09-01'
      GROUP BY l.product_id
 ), r AS (
-    SELECT cob.product_id, cob.pares, cob.tc, cot.tq_s4, cob.tc / cot.tq_s4 AS razon
+    SELECT cob.pares, cob.tc, cot.tq_s4, cob.tc / cot.tq_s4 AS razon
       FROM cob JOIN cot ON cot.product_id = cob.product_id
 )
 SELECT count(*) AS productos, sum(pares) AS pares,
        round(percentile_cont(0.5) WITHIN GROUP (ORDER BY tq_s4)::numeric, 6) AS mediana_tasa_s4,
        round(percentile_cont(0.5) WITHIN GROUP (ORDER BY razon)::numeric, 6) AS mediana_razon,
        count(*) FILTER (WHERE razon BETWEEN 0.99 AND 1.01) AS productos_a_1pct,
-       count(*) FILTER (WHERE razon BETWEEN 0.999 AND 1.001) AS productos_a_01pct
+       count(*) FILTER (WHERE razon BETWEEN 0.999 AND 1.001) AS productos_a_01pct,
+       (SELECT n FROM descartes) AS pedidos_descartados
   FROM r;
 
--- == F. MeLi: la comision cotizada contra la cobrada, por producto [productos|mediana_razon|productos_a_01pct]
-WITH cob AS (
-    SELECT v.product_id,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY c.fee / v.sale) AS tc,
+-- == F. MeLi: la comision cotizada contra la cobrada por producto, ventana comun y pedidos de un solo producto mapeado [productos|pares|mediana_razon|productos_a_01pct|pedidos_descartados]
+WITH v AS (
+    SELECT order_id,
+           sum(amount) AS sale,
+           count(DISTINCT product_id) FILTER (WHERE product_id IS NOT NULL) AS productos,
+           count(*) FILTER (WHERE product_id IS NULL) AS lineas_sin_producto,
+           min(product_id) AS product_id
+      FROM ledger_event
+     WHERE kind = 'sale' AND platform = 'meli' AND order_id IS NOT NULL
+       AND event_date >= DATE '2026-09-01'
+     GROUP BY 1
+), elegibles AS (
+    SELECT order_id, product_id, sale
+      FROM v
+     WHERE sale > 0 AND lineas_sin_producto = 0 AND productos = 1
+), descartes AS (
+    SELECT count(*) AS n
+      FROM v
+     WHERE NOT (lineas_sin_producto = 0 AND productos = 1)
+), cob AS (
+    SELECT e.product_id,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY c.fee / e.sale) AS tc,
            count(*) AS pares
-      FROM (
-            SELECT platform, order_id, min(product_id) AS product_id, sum(amount) AS sale
-              FROM ledger_event
-             WHERE kind = 'sale' AND order_id IS NOT NULL AND product_id IS NOT NULL
-               AND platform = 'meli'
-             GROUP BY 1, 2
-           ) v
+      FROM elegibles e
       JOIN (
             SELECT platform, order_id, sum(-amount) AS fee
               FROM v_ledger_cargo
@@ -110,9 +138,9 @@ WITH cob AS (
                AND platform = 'meli'
                AND split_part(coalesce(source_event_id, ''), '|', 2) <> 'fee_estimate'
              GROUP BY 1, 2
-           ) c ON c.platform = v.platform AND c.order_id = v.order_id
-     WHERE v.sale > 0 AND c.fee > 0
-     GROUP BY v.product_id
+           ) c ON c.platform = 'meli' AND c.order_id = e.order_id
+     WHERE c.fee > 0
+     GROUP BY 1
 ), cot AS (
     SELECT l.product_id,
            percentile_cont(0.5) WITHIN GROUP (
@@ -120,13 +148,18 @@ WITH cob AS (
       FROM estimacion_fee_observation f
       JOIN listing l ON l.id = f.listing_id,
            jsonb_array_elements(f.fee_details) d
-     WHERE f.estado = 'success' AND d->>'fee_type' = 'SaleFee' AND f.platform = 'meli'
+     WHERE f.estado = 'success' AND d->>'fee_type' = 'SaleFee'
+       AND f.platform = 'meli' AND f.fees_estimated_at >= DATE '2026-09-01'
      GROUP BY l.product_id
+), r AS (
+    SELECT cob.pares, cob.tc, cot.tq, cob.tc / cot.tq AS razon
+      FROM cob JOIN cot ON cot.product_id = cob.product_id
 )
-SELECT count(*) AS productos,
-       round(percentile_cont(0.5) WITHIN GROUP (ORDER BY cob.tc / cot.tq)::numeric, 6) AS mediana_razon,
-       count(*) FILTER (WHERE cob.tc / cot.tq BETWEEN 0.999 AND 1.001) AS productos_a_01pct
-  FROM cob JOIN cot ON cot.product_id = cob.product_id;
+SELECT count(*) AS productos, sum(pares) AS pares,
+       round(percentile_cont(0.5) WITHIN GROUP (ORDER BY razon)::numeric, 6) AS mediana_razon,
+       count(*) FILTER (WHERE razon BETWEEN 0.999 AND 1.001) AS productos_a_01pct,
+       (SELECT n FROM descartes) AS pedidos_descartados
+  FROM r;
 
 -- == G. Una cotizacion completa por plataforma [id|platform|canal|precio|currency|total|estimada_en|fee_details]
 SELECT id, platform, canal, quoted_price_amount, quoted_price_currency, total_fees,
