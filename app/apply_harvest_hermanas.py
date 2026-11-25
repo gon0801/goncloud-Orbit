@@ -66,7 +66,8 @@ def _roster_hermanas(conn: psycopg.Connection, job: _Job, ctx: _Contexto) -> dic
     if ctx.grupo_id is None:
         return MOTIVO_ENTIDAD_INCOMPLETA
     tipo = conn.execute(_SQL_TIPO_GRUPO, (ctx.grupo_id,)).fetchone()
-    if tipo is not None and tipo[0] == "impulso":
+    tipo_str = tipo[0] if tipo is not None else None
+    if tipo_str == "impulso":
         return {}
     por_rol = {r: (c, a) for r, c, a in conn.execute(_SQL_ROSTER, (ctx.grupo_id,)).fetchall()}
     padre = conn.execute(_SQL_PADRE, (job.ad_entity_id,)).fetchone()
@@ -81,6 +82,8 @@ def _roster_hermanas(conn: psycopg.Connection, job: _Job, ctx: _Contexto) -> dic
         if rol == rol_origen:
             continue
         if rol not in por_rol:
+            if tipo_str == "legado":
+                continue
             return MOTIVO_ENTIDAD_INCOMPLETA
         camp_ext, ag_ext = por_rol[rol]
         roster[rol] = {"campaign_id": camp_ext, "ad_group_id": ag_ext}
