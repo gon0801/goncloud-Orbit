@@ -40,5 +40,5 @@ RC=0
 RC=0
 === N k
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-6514 deselected, 1 warning in 16.76s
-RC=5
+9 passed, 6517 deselected, 1 warning in 4.87s
+RC=0

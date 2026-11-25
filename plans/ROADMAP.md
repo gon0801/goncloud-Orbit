@@ -1,6 +1,6 @@
 # ROADMAP maestro — Orbit
 
-Actualización vigente del **18-nov-2026**. ARREGLOS 03 quedó integrado y desplegado en `819fe1ff`. La [cola de implementación](ORDEN-IMPLEMENTACION.md) continúa con **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**. El manifiesto selecciona ARREGLOS 04.
+Actualización vigente del **25-nov-2026**. La cola completa **ARREGLOS 03 → ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05** quedó **cerrada, integrada y desplegada** (`c16c8c55`, aceptación integrada 31/31, regresiones N a–k 438/438, migración `0100` en producción). Ver [ORDEN-IMPLEMENTACION](ORDEN-IMPLEMENTACION.md); el manifiesto registra `arreglos-05` cerrado.
 
 Foto histórica conservada: **2026-11-05 09:00 UTC** (cierre de P01; base del 2026-11-04, America/Vancouver, con consultas de producción del
 2026-11-05 UTC), contra `master` **6bce3589** y los cierres de cada plan. Actualización incremental: la fila RESUMEN ADS 04 se comprobó contra `master` **9fb5a63f** (5-nov 03:22 UTC). Cierre de P01 registrado el **2026-11-05 09:00 UTC** con el resultado del job 10.
@@ -49,7 +49,7 @@ Salvo actualización expresa, cifras, modos y conteos de esta tabla conservan la
 
 ## Implementación pendiente
 
-La lista completa y su orden están en [ORDEN-IMPLEMENTACION](ORDEN-IMPLEMENTACION.md): **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05**. Los nuevos bloques de 03/04 y la propiedad final de los 14 hallazgos se mantienen allí y en [COBERTURA](../docs/evidencia/arreglos-05/COBERTURA.md). ARREGLOS 05 se diseña ahora y se ejecuta después de TEMPORADA; no espera a su final para redactarse.
+Ningún plan pendiente en la cola autorizada: **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05** quedaron cerrados, integrados y desplegados al **25-nov-2026** (`c16c8c55`). Ver cierre completo en [ORDEN-IMPLEMENTACION](ORDEN-IMPLEMENTACION.md) y [docs/evidencia/arreglos-05/Z/resultado.md](../docs/evidencia/arreglos-05/Z/resultado.md).
 
 ## Futuros sin implementación autorizada
 

@@ -9,24 +9,29 @@
 - Aviso del bloque: se publica el resultado de la revision completa del codigo
   integrado, con evidencia de cada cierre y los pendientes reales.
 
-## Actualizacion de cierre (2026-11-25): Bloque K-US adjudicado y cerrado
+## Actualizacion de cierre final (2026-11-25): Bloque K-US cerrado, 31/31 sobre `c16c8c55`, manifiesto y cola actualizados
 
 Con la lectura directa de solo lectura contra **Amazon SP-API Finances v2024** en USD nativo
 (`docs/evidencia/arreglos-05/K/finances_us_v2024.txt`), quedo adjudicado el unico pendiente
-de producto que mantenía el plan en `PARCIAL`:
+de producto que mantenia el plan en `PARCIAL`:
 
 - **Amazon US adjudicado (`1.16x` separado, `retencion_iva_tasa = 0`):** 164/164 items en
   USD nativo (2026-01, 2026-05 y 2026-10/11) y 531/531 pedidos historicos con FX exacto
   prueban `Commission = 15% Base + 16% Tax = 17.40%` sin excepcion.
-- **Implementacion:** migracion `migrations/0100_arreglos05_k_us_s4.sql` y su reversa
-  `migrations/0100_reversa_arreglos05_k_us_s4.sql` (unificando `amazon_us/fbm` en `S4` sin
-  duplicar formulas en `app/`), mas soporte de `amazon_us` y `--acotar-banda` en
-  `tools/reancle_goals_s4.py`.
-- **Regresiones `N k`:** `tests/test_arreglos05_k_impuesto_comision.py` (9 pruebas en PG16
-  cubriendo `TaxAmount` anidado, total inclusivo, impuesto separado, dato ausente, ida/reversa
-  `0100`, re-anclaje US y compuerta `S3 -> S4`), con **417/417** verdes junto a los vecinos
-  de estimacion, precios y arquitectura.
-- **Veredicto actualizado:** **PASA (Bloques BASE, A–K y Z completos)**, conservando
+- **Implementacion integrada y desplegada (`5caa67cd` / PR #775 y `c16c8c55` / PR #776):**
+  migracion `migrations/0100_arreglos05_k_us_s4.sql` y su reversa
+  `migrations/0100_reversa_arreglos05_k_us_s4.sql` aplicadas en produccion (`goncloud`,
+  `ESTADO=verificado`, `/health` `200`), 99/99 metas activas de `amazon_us` re-ancladas con
+  `tools/reancle_goals_s4.py --platform amazon_us --acotar-banda --lote reancle_s4_us_2026_11`,
+  y `spapi_pricing amazon_mx` corregido (335 ASINs observados, 7 invalidos omitidos).
+- **Aceptacion integrada (14 hallazgos + controles) sobre la version final `c16c8c55`:**
+  `comprobar.sh ALL` (`Z/acceptance.xml`, `Z/acceptance.log`): **31 passed, 0 failed, 0 errors,
+  0 skipped** en `27.49s` (`migraciones=98`, ultima `0100_arreglos05_k_us_s4.sql`).
+- **Regresiones `N k` sobre `c16c8c55`:** `comprobar.sh N k` (`Z/regresiones-k.log`,
+  `Z/regresiones.log`): **9 passed, `RC=0`** (438/438 verdes en `N a..k`).
+- **Manifiesto y cola actualizados:** `plans/manifest.json`, `plans/ORDEN-IMPLEMENTACION.md`,
+  `plans/ROADMAP.md` y `plans/arreglos-05.md`.
+- **Veredicto final:** **PASA (ARREGLOS 05 cerrado completo: BASE, A–K y Z)**, conservando
   explicitamente declarados los limites de alcance de Z.3 (`Z/review.md`) y los 15 P2 de
   seguimiento anteriores.
 

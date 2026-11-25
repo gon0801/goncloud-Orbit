@@ -1,4 +1,4 @@
-{"sha": "7b06778d376eb5631b0a2863beea6a90ab804da0", "python": "3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]", "root": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49", "apply_import": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\apply.py", "harvest_import": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\apply_harvest.py", "tools_import": "C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\tools\\archiva_inertes.py", "database": "thermo_writes_current"}
+{"sha": "c16c8c55da4ef29e91439bd2da210744018b4a5c", "python": "3.12.14 (main, Aug 25 2026, 13:50:33) [Clang 22.1.3 ]", "root": "/Users/dn/dev/goncloud-Orbit", "apply_import": "/Users/dn/dev/goncloud-Orbit/app/apply.py", "harvest_import": "/Users/dn/dev/goncloud-Orbit/app/apply_harvest.py", "tools_import": "/Users/dn/dev/goncloud-Orbit/tools/archiva_inertes.py", "database": "thermo_writes_current"}
 {"mode": "shadow", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}, "reactivaciones": {"confirmadas": 0, "fallidas": 0, "sin_quota": 0, "omitidas": 0, "pendientes_de_lectura": 0}}}
 .{"mode": "off", "enabled": true, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}, "reactivaciones": {"confirmadas": 0, "fallidas": 0, "sin_quota": 0, "omitidas": 0, "pendientes_de_lectura": 0}}}
 .{"mode": "live", "enabled": false, "puts_recovery": 0, "ledger": [["fallo:divergencia_readback"]], "phase": {"bids_reconciliados": {"confirmados": 0, "fallidos": 1}, "pausas_reconciliadas": {"confirmadas": 0, "fallidas": 0}, "cortes_encolados": {"live": 0, "shadow": 0, "choques": 0}, "bids_aplicados": 0, "bids_descartados": 0, "bids_divergentes": 0, "cortes_liberados": {"liberadas": 0, "aplicadas": 0, "fallidas": 0, "sin_quota": 0, "carreras_perdidas": 0, "espera_target": 0}, "reactivaciones": {"confirmadas": 0, "fallidas": 0, "sin_quota": 0, "omitidas": 0, "pendientes_de_lectura": 0}}}
@@ -8,29 +8,29 @@
 .{"fase": "failed", "external_ids": {"keyword_id": "k-2", "negative_id": "n-1", "keyword_creada": true, "negative_creada": true}, "ack_keyword": [[{"keywords": {"error": [], "success": [{"index": 0, "keywordId": "k-2"}]}}]], "deletes_keyword": [], "keywords_remote": [{"adGroupId": "6204", "campaignId": "6104", "keywordText": "termino hermana f2", "matchType": "EXACT", "state": "ARCHIVED", "bid": 1.0, "keywordId": "k-2"}, {"adGroupId": "6204", "campaignId": "6104", "keywordText": "termino hermana f2", "matchType": "EXACT", "state": "ENABLED", "bid": 1.0, "keywordId": "ajena"}]}
 .{"status": 200, "result": {"tipo": "negative", "queue_id": 1, "negative_id": "n-1", "confirmada": true}, "ledger": [["ok:reconciliado", null]], "summary": {"fuente": "list", "identidad": {"adGroupId": "7101", "matchType": "NEGATIVE_EXACT", "keywordText": "termino malo"}, "keywordId": "n-1", "procedencia": "efecto_reconciliado"}, "deletes": [{"negativeKeywordIdFilter": {"include": ["n-1"]}}]}
 .{"posts": 1, "ledger": ["applied", null, null], "outcomes": ["lote writes-lote con fallos: 7201: pendiente ACK e ID durables; readback no concluyente", "lote writes-lote con fallos: 7201: pendiente otro CLI tiene el lease vigente: no se toca"]}
-.MIGRACIONES COMPLETAS: 97 0099_arreglos05_tope_ciclo.sql
+.MIGRACIONES COMPLETAS: 98 0100_arreglos05_k_us_s4.sql
 jev-senales motivo=completa unidades=0 llamadas=0 fallos=0 senales=0 avisos=0
 .CLEANUP: thermo_ingest_current eliminada
-MIGRACIONES COMPLETAS: 97 0099_arreglos05_tope_ciclo.sql
+MIGRACIONES COMPLETAS: 98 0100_arreglos05_k_us_s4.sql
 .CLEANUP: thermo_ingest_current eliminada
-MIGRACIONES COMPLETAS: 97 0099_arreglos05_tope_ciclo.sql
+MIGRACIONES COMPLETAS: 98 0100_arreglos05_k_us_s4.sql
 catalogo meli: observadas=1 nuevos=0 actualizados=0 miembros=1 todos=1 alguno=0 ninguno=0 reconciliados=0 run=2 skips={'meli: scan truncado': 1}
 .CLEANUP: thermo_ingest_current eliminada
-MIGRACIONES COMPLETAS: 97 0099_arreglos05_tope_ciclo.sql
+MIGRACIONES COMPLETAS: 98 0100_arreglos05_k_us_s4.sql
 .CLEANUP: thermo_ingest_current eliminada
-MIGRACIONES COMPLETAS: 97 0099_arreglos05_tope_ciclo.sql
+MIGRACIONES COMPLETAS: 98 0100_arreglos05_k_us_s4.sql
 .CLEANUP: thermo_ingest_current eliminada
-.{'sha': '7b06778d376eb5631b0a2863beea6a90ab804da0', 'python': '3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]', 'repo': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49', 'imports': ['C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\cycle.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\optimizer\\replay.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\tests\\test_cycle.py']}
-{"database": "thermo_optimizer_current", "migrations": 97, "last": "0099_arreglos05_tope_ciclo.sql"}
-.{'sha': '7b06778d376eb5631b0a2863beea6a90ab804da0', 'python': '3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]', 'repo': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49', 'imports': ['C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\cycle.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\optimizer\\replay.py', 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\tests\\test_cycle.py']}
-{"database": "thermo_optimizer_current", "migrations": 97, "last": "0099_arreglos05_tope_ciclo.sql"}
-{"database": "thermo_optimizer_current", "migrations": 97, "last": "0099_arreglos05_tope_ciclo.sql"}
-.{"database": "thermo_optimizer_current", "migrations": 97, "last": "0099_arreglos05_tope_ciclo.sql"}
-.PG: thermo_pricing_current; migraciones=97; ultima=0099_arreglos05_tope_ciclo.sql
+.{'sha': 'c16c8c55da4ef29e91439bd2da210744018b4a5c', 'python': '3.12.14 (main, Aug 25 2026, 13:50:33) [Clang 22.1.3 ]', 'repo': '/Users/dn/dev/goncloud-Orbit', 'imports': ['/Users/dn/dev/goncloud-Orbit/app/cycle.py', '/Users/dn/dev/goncloud-Orbit/app/optimizer/replay.py', '/Users/dn/dev/goncloud-Orbit/tests/test_cycle.py']}
+{"database": "thermo_optimizer_current", "migrations": 98, "last": "0100_arreglos05_k_us_s4.sql"}
+.{'sha': 'c16c8c55da4ef29e91439bd2da210744018b4a5c', 'python': '3.12.14 (main, Aug 25 2026, 13:50:33) [Clang 22.1.3 ]', 'repo': '/Users/dn/dev/goncloud-Orbit', 'imports': ['/Users/dn/dev/goncloud-Orbit/app/cycle.py', '/Users/dn/dev/goncloud-Orbit/app/optimizer/replay.py', '/Users/dn/dev/goncloud-Orbit/tests/test_cycle.py']}
+{"database": "thermo_optimizer_current", "migrations": 98, "last": "0100_arreglos05_k_us_s4.sql"}
+{"database": "thermo_optimizer_current", "migrations": 98, "last": "0100_arreglos05_k_us_s4.sql"}
+.{"database": "thermo_optimizer_current", "migrations": 98, "last": "0100_arreglos05_k_us_s4.sql"}
+.PG: thermo_pricing_current; migraciones=98; ultima=0100_arreglos05_k_us_s4.sql
 07 estado alcanzable: PideCotizacion(precio=Importe(valor=Decimal('1037.45'), moneda='MXN'), intento=1) listing= 11
 07 cierre: corrida completa, persistencia y readback conservan metadatos
 Limpieza: eliminada solo thermo_pricing_current
-.PG: thermo_pricing_current; migraciones=97; ultima=0099_arreglos05_tope_ciclo.sql
+.PG: thermo_pricing_current; migraciones=98; ultima=0100_arreglos05_k_us_s4.sql
 07 estado alcanzable: PideCotizacion(precio=Importe(valor=Decimal('1037.45'), moneda='MXN'), intento=1) listing= 11
 07 cierre: corrida completa, persistencia y readback conservan metadatos
 Limpieza: eliminada solo thermo_pricing_current
@@ -42,18 +42,18 @@ PG: thermo_pricing_current; migraciones=11; ultima=0059_precio02_repara_retencio
 Limpieza: eliminada solo thermo_pricing_current
 .PG: thermo_pricing_current; migraciones=13; ultima=0090_arreglos03_error_cierra_por_observacion.sql
 Limpieza: eliminada solo thermo_pricing_current
-.PG: thermo_pricing_current; migraciones=97; ultima=0099_arreglos05_tope_ciclo.sql
+.PG: thermo_pricing_current; migraciones=98; ultima=0100_arreglos05_k_us_s4.sql
 Limpieza: eliminada solo thermo_pricing_current
-.PG: thermo_pricing_current; migraciones=97; ultima=0099_arreglos05_tope_ciclo.sql
+.PG: thermo_pricing_current; migraciones=98; ultima=0100_arreglos05_k_us_s4.sql
 Limpieza: eliminada solo thermo_pricing_current
-.PG: thermo_pricing_current; migraciones=97; ultima=0099_arreglos05_tope_ciclo.sql
+.PG: thermo_pricing_current; migraciones=98; ultima=0100_arreglos05_k_us_s4.sql
 Limpieza: eliminada solo thermo_pricing_current
-.{'sha_reportado': '7b06778d376eb5631b0a2863beea6a90ab804da0', 'repo': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49', 'python': '3.12.14 (main, Sep  1 2026, 14:17:39) [MSC v.1944 64 bit (AMD64)]', 'imports': {'app.main': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\main.py', 'app.pantalla_ruido': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\pantalla_ruido.py', 'app.ui_metricas': 'C:\\Users\\ehven\\.ao\\data\\worktrees\\goncloud-orbit\\goncloud-orbit-49\\app\\ui_metricas.py'}}
+.{'sha_reportado': 'c16c8c55da4ef29e91439bd2da210744018b4a5c', 'repo': '/Users/dn/dev/goncloud-Orbit', 'python': '3.12.14 (main, Aug 25 2026, 13:50:33) [Clang 22.1.3 ]', 'imports': {'app.main': '/Users/dn/dev/goncloud-Orbit/app/main.py', 'app.pantalla_ruido': '/Users/dn/dev/goncloud-Orbit/app/pantalla_ruido.py', 'app.ui_metricas': '/Users/dn/dev/goncloud-Orbit/app/ui_metricas.py'}}
 ......
-============================== warnings summary ===============================
+=============================== warnings summary ===============================
 docs/evidencia/arreglos-05/revision/test_accept_ui.py::test_04_retiro_no_envia_plan_borrado_tras_fallar_nueva_previa
-  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-49\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  /Users/dn/dev/goncloud-Orbit/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-31 passed, 1 warning in 112.73s (0:01:52)
+31 passed, 1 warning in 27.49s
