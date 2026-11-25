@@ -1,0 +1,162 @@
+# Acepta de ARREGLOS 05 H (cinco partes, corridas en serie sobre el PG desechable).
+# SHA e48a1075df56d7d92371adde0a16e7349fe607d0
+# Cada parte se corrio con: bash docs/evidencia/arreglos-05/H/acepta.sh <n> > .../H/acepta-<n>.txt
+
+================ parte 1 ================
+# Acepta de ARREGLOS 05 H. SHA e48a1075df56d7d92371adde0a16e7349fe607d0 (parte 1 de 5)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [ACEPTA] H.1 y H.2: N h, tope de 150, exencion, recuperacion, concurrencia, migracion
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N h
+.....................                                                    [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-45\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+21 passed, 6475 deselected, 1 warning in 35.35s
+resultado=ok
+
+### [ACEPTA] H.1: modelo de estados completo (204 casillas), invariantes y clasificadores
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
+........................................................................ [ 34%]
+........................................................................ [ 68%]
+.................................................................        [100%]
+209 passed in 1.50s
+resultado=ok
+
+### [CONTROL] bloque A: regresiones de ciclo
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
+.........................................................                [100%]
+57 passed in 101.16s (0:01:41)
+resultado=ok
+
+### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
+..............................................................ss........ [ 71%]
+.............................                                            [100%]
+99 passed, 2 skipped in 10.52s
+resultado=ok
+
+# comandos que no pasaron: 0
+
+================ parte 2 ================
+# Acepta de ARREGLOS 05 H. SHA e48a1075df56d7d92371adde0a16e7349fe607d0 (parte 2 de 5)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] aplicador de bids y ledger
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply.py
+.................................................................        [100%]
+65 passed in 52.55s
+resultado=ok
+
+### [CONTROL] cola de cortes y producto
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply_cola.py tests/test_apply_producto.py
+........................................................................ [ 96%]
+...                                                                      [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-45\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+75 passed, 1 warning in 75.37s (0:01:15)
+resultado=ok
+
+# comandos que no pasaron: 0
+
+================ parte 3 ================
+# Acepta de ARREGLOS 05 H. SHA e48a1075df56d7d92371adde0a16e7349fe607d0 (parte 3 de 5)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] cosecha, reversa manual y reposicion
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply_harvest.py tests/test_reversa_harvest.py tests/test_arreglos05_b_reversas.py tests/test_arreglos05_c_reposicion.py
+........................................................................ [ 44%]
+........................................................................ [ 88%]
+..................                                                       [100%]
+162 passed in 171.27s (0:02:51)
+resultado=ok
+
+### [CONTROL] cliente protegido, practica vencida, API y bloqueo del dueno
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_d_write.py tests/test_arreglos05_e_shadow.py tests/test_api_write.py tests/test_bloqueo_dueno_efecto.py
+........................................................................ [ 58%]
+...................................................                      [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-45\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+123 passed, 1 warning in 141.74s (0:02:21)
+resultado=ok
+
+# comandos que no pasaron: 0
+
+================ parte 4 ================
+# Acepta de ARREGLOS 05 H. SHA e48a1075df56d7d92371adde0a16e7349fe607d0 (parte 4 de 5)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] ciclo y temporada A-E
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_cycle_apply.py tests/test_cycle.py tests/test_temporada01_a.py tests/test_temporada01_b.py tests/test_temporada01_c.py tests/test_temporada01_d.py tests/test_temporada01_e.py
+........................................................................ [ 46%]
+........................................................................ [ 92%]
+...........                                                              [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-45\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+155 passed, 1 warning in 161.31s (0:02:41)
+resultado=ok
+
+### [CONTROL] temporada F-I, meta, sello, target y cooldown
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_temporada01_f.py tests/test_temporada01_g.py tests/test_temporada01_h.py tests/test_temporada01_i.py tests/test_arreglos05_f_meta.py tests/test_arreglos05_g_sello.py tests/test_cycle_target_ciclo.py tests/test_cycle_pause_cooldown.py
+........................................................................ [ 80%]
+..................                                                       [100%]
+90 passed in 166.76s (0:02:46)
+resultado=ok
+
+# comandos que no pasaron: 0
+
+================ parte 5 ================
+# Acepta de ARREGLOS 05 H. SHA e48a1075df56d7d92371adde0a16e7349fe607d0 (parte 5 de 5)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] esquema y ledger del aplicador
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
+........................................................................ [ 61%]
+.............................................                            [100%]
+117 passed in 23.71s
+resultado=ok
+
+### [CONTROL] selector del instalador y migracion del bloque E
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
+....                                                                     [100%]
+4 passed, 47 deselected in 5.02s
+resultado=ok
+
+### [ACEPTA] revision de secretos de los commits del bloque
+$ bash -c gitleaks detect --redact --no-banner --log-opts=c9d31d87fd8ad89fc0492df9bd15a5f68c6bc2f7..HEAD
+[90m9:32PM[0m [32mINF[0m [1m2 commits scanned.[0m
+[90m9:32PM[0m [32mINF[0m [1mscanned ~105322 bytes (105.32 KB) in 226ms[0m
+[90m9:32PM[0m [32mINF[0m [1mno leaks found[0m
+resultado=ok
+
+# comandos que no pasaron: 0

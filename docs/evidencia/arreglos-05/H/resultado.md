@@ -1,0 +1,230 @@
+# Resultado del bloque H: 150 pujas ordinarias por ciclo
+
+- Base: `c9d31d87fd8ad89fc0492df9bd15a5f68c6bc2f7` (master con BASE, A, B, C, D, E, F
+  y G integrados y desplegados).
+- Rama: `arreglos-05/h`.
+- Cabeza de la implementacion: `e48a1075df56d7d92371adde0a16e7349fe607d0`
+  (modelo y foto en `8716b563`).
+- Acepta corrida en `e48a1075` con arbol limpio (salida completa en
+  `acepta.txt`, partes en `acepta-1..5.txt`).
+
+- gitleaks de `c9d31d87..HEAD`: sin fugas (dentro de `acepta-5.txt`).
+- Contrato: `docs/evidencia/arreglos-05/DISENO.md`, seccion "H. Tope de 150
+  pujas ordinarias" e "Integracion con TEMPORADA y migraciones".
+- Aviso del bloque: cada ciclo puede intentar hasta 150 pujas normales; una
+  recuperacion no vuelve a abrir el cupo.
+- Modelo por camino: `H/estados.md` (escrito antes del primer commit de codigo).
+
+## Que cambia para el dueno y para quien mantiene
+
+Para el dueno: ningun ciclo puede mandar mas de 150 pujas ordinarias a Amazon.
+Si el lote trae mas, las ultimas quedan sin enviar con su motivo visible
+(`tope_ciclo`), el cupo diario deja de gastarse en ellas y los cortes y la
+temporada no se frenan. La entrada y el regreso de temporada nunca compiten por
+ese cupo, y una recuperacion del mismo dia no reabre otros 150.
+
+Para quien mantiene:
+
+- **Fuente unica.** `TOPE_PUJAS_ORDINARIAS_CICLO = 150` y
+  `reserva_cupo_ciclo` en `app/apply_cuota.py`. El conteo es un SELECT sobre el
+  ledger `apply_attempt` (`tipo='normal'`) unido a las decisiones `kind='bid'`
+  por `decision.cycle_id` (el ORIGEN, no el ejecutor) y la plataforma. No hay
+  contador nuevo ni tabla nueva.
+- **Reserva e intencion en la misma transaccion.** En `Aplicador.aplica_bids`,
+  `_reserva_del_ciclo` corre despues de la lectura fresca y antes del cupo
+  diario, del ledger y del PUT: bloquea la fila del ciclo de origen
+  (`SELECT … FOR UPDATE` con espera acotada), cuenta y, si hay lugar, deja que
+  la fila del ledger (la intencion) se comprometa en el mismo `commit` que el
+  aplicador hace antes del HTTP. El cerrojo serializa a dos procesos del mismo
+  origen y el intento ya es visible para el segundo.
+- **La decision sale de la tabla.** Evento `cupo_ciclo_agotado` y estado
+  terminal `cupo_ciclo_agotado` en `app/apply_estados.py`; el clasificador
+  `transicion_de_reserva_cupo` consulta la tabla y solo `ENVIAR` deja seguir.
+  La tabla pasa a 204 casillas (12 estados por 17 eventos).
+- **Consume lo intentado.** Cuentan el confirmado, el rechazado, el ambiguo
+  (sin sello) y el de una caida antes o despues del HTTP. Las reversas
+  (`tipo='reversa'`) no cuentan ni devuelven cupo.
+- **Exencion por marcador congelado.** `puja_exenta_del_cupo` solo exime
+  `inputs.motivo in (entra_temporada_baja, sale_temporada_baja)` con
+  `inputs.temporada_episodio_id` presente. `ajusta_temporada_baja` y los
+  `Regresar` ordinarios (Recupera) cuentan; sin marcador, la puja cuenta como
+  ordinaria. El cupo diario y la prioridad de TEMPORADA siguen vigentes.
+- **Motivo auditable y sin elusion.** La rechazada deja
+  `decision_sin_aplicar.motivo = 'tope_ciclo'` con `detalle = {usados, tope}` y
+  `cycle_id` del ejecutor en curso. Un ejecutor de recuperacion cuenta contra
+  el origen y el plan del dia no abre un segundo origen con TX3 comprometida.
+
+## Filas H.1 y H.2
+
+| Fila | Comando | SHA | Resultado | Impacto | Reversa |
+|---|---|---|---|---|---|
+| H.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N h` | `e48a1075` | 21 passed (`prueba-real.txt`); 151 elegibles -> 150 intentos y la 151 con `tope_ciclo`; 149 + ambigua = 150; 149 permiten el 150; rechazado y ambiguo sellado cuentan | reserva e intencion en la misma TX bajo cerrojo del origen; conteo del ledger; reversas fuera | migracion `0099_reversa_arreglos05_tope_ciclo.sql` (aborta con desenlaces `tope_ciclo`) y `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado |
+| H.2 | mismos comandos mas las pruebas de temporada, recuperacion, dos procesos y caidas | `e48a1075` | 21 passed (ver abajo el caso de cada una) | entrada/regreso exentos por marcador; recuperacion no concede otro cupo; dos procesos y caida pre/post HTTP nunca pasan de 150; cupo diario y prioridad TEMP intactos | igual que H.1 |
+
+Casos de `N h`:
+
+`tests/test_arreglos05_h_tope_ciclo.py` (14):
+
+1. `test_arreglos05_h_151_ordinarias_intentan_150_y_la_151_lleva_el_motivo`:
+   150 PUT, 150 filas del ledger, la 151 con `tope_ciclo`, `detalle` con
+   `{usados: 150, tope: 150}` y sin abrir otro ciclo.
+2. `test_arreglos05_h_149_confirmadas_mas_una_ambigua_agotan_el_cupo`: 149
+   selladas + 1 sin sello = 150; cero HTTP para la siguiente.
+3. `test_arreglos05_h_149_intentos_permiten_el_intento_150`: con 149 entra la
+   numero 150 y su fila nace antes del PUT.
+4. `test_arreglos05_h_intento_rechazado_y_ambiguo_sellado_tambien_cuentan`:
+   `fallo http 400` y `fallo:readback_ambiguo` consumen igual que el `ok`.
+5. `test_arreglos05_h_entrada_y_regreso_de_temporada_quedan_fuera_del_cupo`:
+   con el cupo agotado, entrada y regreso se envian; la ordinaria del lote no.
+6. `test_arreglos05_h_ajuste_y_recupera_ordinaria_cuentan`: ajuste a media baja
+   y `Regresar` por desplome no se envian con el cupo agotado.
+7. `test_arreglos05_h_recuperacion_no_concede_otro_cupo`: dos origenes, uno con
+   150 (el ejecutor no envia y su desenlace lleva el `cycle_id` del ejecutor) y
+   otro con 149 (el ejecutor completa el 150 contra el origen).
+8. `test_arreglos05_h_reversas_no_consumen_cupo`: 149 normales + 3 reversas
+   siguen dejando entrar la 150.
+9. `test_arreglos05_h_dos_procesos_no_superan_150`: dos conexiones, dos
+   aplicadores del mismo origen; un solo envio, un solo intento 150 y el otro
+   con `tope_ciclo`.
+10. `test_arreglos05_h_caida_antes_del_http_consume_cupo`: el intento queda
+    abierto tras la caida, cuenta, y la siguiente puja no entra.
+11. `test_arreglos05_h_caida_despues_del_http_tambien_consume_cupo`: con el PUT
+    ya salido y la lectura de vuelta caida, el 150 cuenta y la siguiente no.
+12. `test_arreglos05_h_cupo_diario_y_prioridad_de_temporada_siguen_vigentes`:
+    con cupo diario 1 entra la entrada de TEMPORADA y la ordinaria queda en
+    `fuera_de_cap` (no en el tope del ciclo).
+13. `test_arreglos05_h_cupo_diario_apagado_tambien_frena_la_exenta`: con cap 0
+    ni la entrada exenta se envia.
+14. `test_arreglos05_h_fuente_unica_del_tope_y_del_motivo`: constantes,
+    vocabulario y marcador de exencion.
+
+`tests/test_arreglos05_h_estados.py` (3): estado y evento nuevos, 204 casillas,
+ninguna casilla del cupo agotado envia y el clasificador consulta la tabla.
+`tests/test_arreglos05_h_migracion.py` (4): sonda e ida, reversa sin datos y
+re-ida, reversa que rehusa con desenlaces `tope_ciclo`, y roles reales
+(`app_decide` registra, `app_read` no).
+
+## Rojo y verde
+
+Rojo contra el padre real `c9d31d87`, en un worktree temporal con las pruebas
+finales copiadas (`H/rojo.txt`): **14 failed, 4 passed**. No hubo error de
+fixture, skip ni cero casos. Los cuatro verdes son controles que ya pasaban en
+el padre (149 permiten el 150, reversas no consumen, cupo diario con prioridad
+de temporada, cap 0). Los fallos son de comportamiento o de contrato:
+
+- `151 ... lleva_el_motivo`: `aplicadas=151` (no habia tope).
+- `149 ... ambigua`: `aplicadas=1` y `[] == ['tope_ciclo']`.
+- `entrada_y_regreso`: `3 == 2` (la ordinaria tambien se enviaba).
+- `dos_procesos` y caidas: `DuenoDelClaimCambio` / intentos de mas.
+- `fuente_unica`: `AttributeError` de las constantes nuevas.
+- migracion: falta `0099_...` y `CheckViolation` al insertar `tope_ciclo`.
+
+Verde en la cabeza `e48a1075`: `N h` = 21 passed; modelo completo = 209 passed.
+
+## Foto de produccion (solo lectura)
+
+Comando: `bash docs/evidencia/arreglos-05/H/lee_previa.sh > H/previa.txt`
+(rol `orbit_read`, transaccion `read_only`, via `lee_prod.sh`). Salida en
+`H/previa.txt` (2026-11-25 04:34 UTC, SHA del padre). Lo medido:
+
+- 211 ciclos: 179 live+done, 30 shadow+done y 2 off+skipped.
+- 100 ciclos con intentos bid normales; 503 intentos; **maximo 45 por ciclo**
+  (mediana 2, p90 10) y cero ciclos por encima de 50: hoy ningun ciclo se
+  acerca a 150.
+- 0 intentos ambiguos (ni sin sello ni `fallo:readback_ambiguo`).
+- 0 decisiones de entrada/regreso de temporada con intento (ni ajustes): la
+  exencion no cambia nada hoy.
+- 11 reversas en decisiones bid (no cuentan).
+- Motivos de `decision_sin_aplicar` en uso: `modo_no_live` (190) y
+  `fuera_de_cap` (3); ningun `tope_ciclo` previo.
+- El CHECK vivo es el de 0094 (15 motivos); `app_decide` puede INSERT en el
+  ledger, SELECT en el ciclo y UPDATE de `decision_committed_at`.
+
+Consecuencias: no hay backfill ni reescritura de historia; la migracion 0099
+solo amplia el vocabulario. El primer ciclo que supere 150 dejaria filas
+`tope_ciclo`; hasta hoy no hay ninguna.
+
+## Acepta (salida completa en `acepta.txt`, partes en `acepta-1..5.txt`)
+
+- Parte 1: `N h` = 21 passed; modelo de estados = 209 passed; bloque A ciclo =
+  57 passed; arquitectura = 99 passed, 2 skipped (la omision declarada 99:2).
+- Parte 2: aplicador de bids = 65 passed; cola y producto = 75 passed.
+- Parte 3: cosecha, reversas y reposicion = 162 passed; cliente protegido,
+  practica vencida, API y bloqueo del dueno = 123 passed.
+- Parte 4: ciclo y temporada A-E = 155 passed; temporada F-I, meta, sello,
+  target y cooldown = 90 passed.
+- Parte 5: esquema y ledger = 117 passed; selector del instalador = 4 passed;
+  gitleaks de `c9d31d87..HEAD` = sin fugas.
+- Total: 13 comandos, 0 que no pasaron.
+
+## Migracion
+
+`migrations/0099_arreglos05_tope_ciclo.sql` (numero libre en master; la ultima
+era `0098`). Es aditiva: solo re-crea el CHECK nombrado
+`decision_sin_aplicar_motivo_check` con `tope_ciclo` al final, deja comentarios
+y un DO que verifica que el CHECK conserva los motivos previos y que
+`app_decide` puede insertar. Cabecera `-- sonda-aplicada: <SELECT>` en la
+primera linea, sin BEGIN/COMMIT (el instalador la envuelve). No hay tabla,
+columna, indice ni grant nuevos: la fuente del cupo es el ledger existente. No
+se toca `0001` ni `0002`.
+
+Reversa `0099_reversa_arreglos05_tope_ciclo.sql`: aborta con
+`restrict_violation` si ya hay desenlaces `tope_ciclo` (no reescribe historia) y
+restaura la lista de 0094. Pruebas de ida, reversa, re-ida y roles reales en
+`tests/test_arreglos05_h_migracion.py`; el selector del instalador la descubre
+solo (`git ls-tree migrations/`) y el lote `-k arreglos05` sigue en 4 passed.
+
+## Reversa
+
+1. **Reversa de datos:** no hace falta; no se reescribe nada.
+2. **Reversa de migracion:** `0099_reversa_arreglos05_tope_ciclo.sql` (arriba).
+   Antes de revertir, el codigo nuevo debe dejar de escribir `tope_ciclo`; si
+   hay desenlaces, la reversa rehusa y se resuelven con el dueno.
+3. **Reversa de despliegue:** `MOTOR_SHA=<sha desplegado> bash
+   tools/despliegue/rollback.sh`. Solo deshace lo anotado en `ultimo.env` para
+   ese `MOTOR_SHA` y sale 0 sin deshacer con otro SHA. El binario anterior a H
+   no conoce `tope_ciclo`: contra el esquema con 0099 sigue corriendo (solo
+   enviaria mas de 150 hasta que se revierta el codigo).
+
+## Archivos cambiados
+
+- `app/apply_cuota.py`: `TOPE_PUJAS_ORDINARIAS_CICLO`, `MOTIVO_TOPE_CICLO`,
+  `MOTIVOS_TEMPORADA_EXENTOS`, `ReservaCiclo`, `CupoDelCicloNoReservable`,
+  `puja_exenta_del_cupo`, `reserva_cupo_ciclo`.
+- `app/apply.py`: `_reserva_del_ciclo`, `_descarta`; la reserva antes del cupo
+  diario y del ledger; commit del desenlace cuando una puja no se envia tras
+  tomar el cerrojo.
+- `app/apply_estados.py`: estado y evento `cupo_ciclo_agotado`,
+  `transicion_de_reserva_cupo`, casillas de la tabla.
+- `migrations/0099_arreglos05_tope_ciclo.sql` y su reversa.
+- `tests/test_arreglos05_h_tope_ciclo.py`, `tests/test_arreglos05_h_estados.py`,
+  `tests/test_arreglos05_h_migracion.py`; el conteo de casillas en
+  `tests/test_arreglos05_a_estados.py`; la cadena de `_db_temporal_d1` en
+  `tests/test_apply_schema.py`.
+- `docs/APPLY.md` (9.2 y nueva 9.3), `docs/DATABASE.md`,
+  `docs/evidencia/arreglos-05/A/estados.md` (ampliacion H).
+- Evidencia en `docs/evidencia/arreglos-05/H/`.
+
+## Fallos previos de `master` en esta PC (no de este bloque)
+
+Verificados contra el padre en un worktree temporal (`H/previos.txt`):
+
+- `tests/test_schema_docs.py::test_launch_doctor_mismo_conteo_que_esquema`:
+  `97 == 98` (el conteo declarado en Launch/Doctor no incluye la tabla de 0097).
+- `tests/test_despliegue_motor.py` completo: `cp: cannot stat 'app'` en el
+  servidor simulado (`fallo_1`); el selector `-k arreglos05` si pasa.
+- Los ya conocidos de la PC: `test_fabrica_f2_hermanas` x24,
+  `test_fabrica_f2_biblioteca` x16, `test_harvest_destino` x3,
+  `test_d3_adversary` x2, `test_notifica` x3, `test_orbit07_m1` x1 y
+  `test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue` x1.
+
+## Seguimiento (P2)
+
+- El cerrojo del origen se toma con `lock_timeout` de 5 s: si una conexion
+  queda con la transaccion abierta reteniendola, el lote de pujas de esa
+  corrida falla cerrado (`CupoDelCicloNoReservable` -> `apply_error`) y el
+  horario siguiente lo reintenta. No hay camino que envíe sin contar.
+- Los ciclos historicos anteriores a H siguen con su conteo real (maximo 45);
+  no se reclasifica nada ni se escribe `tope_ciclo` retroactivo.
+- La pantalla de Salud no muestra el motivo `tope_ciclo` todavia; el dato vive
+  en `decision_sin_aplicar` y lo puede pintar un bloque que toque Salud.

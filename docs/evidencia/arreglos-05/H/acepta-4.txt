@@ -1,0 +1,28 @@
+# Acepta de ARREGLOS 05 H. SHA e48a1075df56d7d92371adde0a16e7349fe607d0 (parte 4 de 5)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] ciclo y temporada A-E
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_cycle_apply.py tests/test_cycle.py tests/test_temporada01_a.py tests/test_temporada01_b.py tests/test_temporada01_c.py tests/test_temporada01_d.py tests/test_temporada01_e.py
+........................................................................ [ 46%]
+........................................................................ [ 92%]
+...........                                                              [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-45\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+155 passed, 1 warning in 161.31s (0:02:41)
+resultado=ok
+
+### [CONTROL] temporada F-I, meta, sello, target y cooldown
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_temporada01_f.py tests/test_temporada01_g.py tests/test_temporada01_h.py tests/test_temporada01_i.py tests/test_arreglos05_f_meta.py tests/test_arreglos05_g_sello.py tests/test_cycle_target_ciclo.py tests/test_cycle_pause_cooldown.py
+........................................................................ [ 80%]
+..................                                                       [100%]
+90 passed in 166.76s (0:02:46)
+resultado=ok
+
+# comandos que no pasaron: 0
