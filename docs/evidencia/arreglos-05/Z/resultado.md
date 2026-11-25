@@ -9,7 +9,28 @@
 - Aviso del bloque: se publica el resultado de la revision completa del codigo
   integrado, con evidencia de cada cierre y los pendientes reales.
 
-## Veredicto: PARCIAL
+## Actualizacion de cierre (2026-11-25): Bloque K-US adjudicado y cerrado
+
+Con la lectura directa de solo lectura contra **Amazon SP-API Finances v2024** en USD nativo
+(`docs/evidencia/arreglos-05/K/finances_us_v2024.txt`), quedo adjudicado el unico pendiente
+de producto que mantenía el plan en `PARCIAL`:
+
+- **Amazon US adjudicado (`1.16x` separado, `retencion_iva_tasa = 0`):** 164/164 items en
+  USD nativo (2026-01, 2026-05 y 2026-10/11) y 531/531 pedidos historicos con FX exacto
+  prueban `Commission = 15% Base + 16% Tax = 17.40%` sin excepcion.
+- **Implementacion:** migracion `migrations/0100_arreglos05_k_us_s4.sql` y su reversa
+  `migrations/0100_reversa_arreglos05_k_us_s4.sql` (unificando `amazon_us/fbm` en `S4` sin
+  duplicar formulas en `app/`), mas soporte de `amazon_us` y `--acotar-banda` en
+  `tools/reancle_goals_s4.py`.
+- **Regresiones `N k`:** `tests/test_arreglos05_k_impuesto_comision.py` (9 pruebas en PG16
+  cubriendo `TaxAmount` anidado, total inclusivo, impuesto separado, dato ausente, ida/reversa
+  `0100`, re-anclaje US y compuerta `S3 -> S4`), con **417/417** verdes junto a los vecinos
+  de estimacion, precios y arquitectura.
+- **Veredicto actualizado:** **PASA (Bloques BASE, A–K y Z completos)**, conservando
+  explicitamente declarados los limites de alcance de Z.3 (`Z/review.md`) y los 15 P2 de
+  seguimiento anteriores.
+
+## Veredicto: PARCIAL (historico sobre `7b06778d`, previo al cierre de K-US)
 
 Orbit queda aprobado en todo lo que depende de ARREGLOS 05, pero **el plan no
 recibe pase global porque K sigue abierto para Amazon US**. La fuente externa no

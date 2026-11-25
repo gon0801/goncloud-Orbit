@@ -1,12 +1,14 @@
 # ARREGLOS 05: ciclo, escrituras y cierre de la revisión completa
 
-Estado: **implementado; Z publicado con veredicto PARCIAL**. Fecha: 15-nov-2026;
-cierre Z el 25-nov-2026 sobre `7b06778d`. Base del diagnóstico:
+Estado: **implementado y cerrado (BASE, A–K y Z completos; K-US cerrado con `0100` + `N k` el 25-nov-2026)**. Fecha: 15-nov-2026;
+cierre Z inicial el 25-nov-2026 sobre `7b06778d` y cierre definitivo de Bloque K-US
+el 25-nov-2026 con evidencia directa de SP-API Finances v2024 (`K/finances_us_v2024.txt`),
+migración `0100_arreglos05_k_us_s4.sql` + reversa, `tools/reancle_goals_s4.py` (`--platform amazon_us`)
+y 9 regresiones `N k` en PG16. Base del diagnóstico:
 `ff03ed61f7a847ab190b1695c2efe8d785baa364`. La evidencia de cada bloque vive en
 `docs/evidencia/arreglos-05/<BLOQUE>/` y el cierre en
-`docs/evidencia/arreglos-05/Z/`: aceptación integrada 31/31, regresiones N a-j y
-mapa UI. **K queda abierto para Amazon US** (la fuente no permite demostrar el
-impuesto sobre comisiones), así que el plan no recibe pase global.
+`docs/evidencia/arreglos-05/Z/`: aceptación integrada 31/31, regresiones N a–k (438 casos) y
+mapa UI.
 Orden de integración: [ORDEN-IMPLEMENTACION.md](ORDEN-IMPLEMENTACION.md).
 Dependencias externas: ARREGLOS 03/04 ampliados y TEMPORADA 01 terminados; 01/02 ya
 están integrados. Al cerrar H de TEMPORADA, abrir BASE desde el master integrado. En el PR de BASE, actualizar `plans/manifest.json` a `active: arreglos-05`.

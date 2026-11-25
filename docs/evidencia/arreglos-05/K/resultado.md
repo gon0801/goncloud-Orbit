@@ -10,113 +10,117 @@
 - Lectura de produccion: 2026-11-25T13:21-13:23Z, solo lectura, por
   `docs/evidencia/arreglos-01/lee_prod.sh`.
 
-## Decision K.2: MX y MeLi adjudicados; Amazon US desconocido y K abierto en US
+## Decision K.2 (actualizada 2026-11-25): MX, MeLi y Amazon US adjudicados y cerrados
 
-La fuente externa permite adjudicar Amazon MX y MeLi. En Amazon US no alcanza
-para adjudicar, y se conserva desconocido sin inventar tasa. Las tasas cobradas
-usan solo cargos efectivos, la ventana comun a las dos poblaciones y pedidos con
-todas sus lineas mapeadas al mismo producto; las estimadas y los pedidos sin par
-se cuentan aparte.
+La fuente externa completa (incluyendo SP-API Finances v2024 en USD nativo para
+`ATVPDKIKX0DER`, `K/finances_us_v2024.txt`) adjudica las **tres plataformas**:
 
-- **Amazon MX: impuesto separado, ya incorporado una sola vez.** La cotizacion
-  cobra `ReferralFee` al 12.931% y el cargo efectivo al 15.000%: la razon por
-  producto es 1.160005 y 110 de 113 productos caen en 1.16. La cotizacion no
-  trae `tax_amount`. La politica `S4` vigente desde 2026-11-21
-  (`amazon_mx_fba_s4_caja_real_2026_11` y `..._fbm_...`) suma
-  `ReferralFee x 0.16` una sola vez en `fee_iva_referral` y `fee_total`
-  (2,830 de 2,830 escenarios). La comision estimada con S4 contra el cargo
-  efectivo da razon mediana 1.000004 y 110 de 113 productos dentro del 0.1%.
-- **MeLi: impuesto incluido en la comision.** Cotizacion y cargo coinciden en
-  19.500% (razon 1.000000, 10 de 10 productos dentro del 0.1%). El multiplicador
-  `1` de `meli_s4_caja_real_2026_11` es correcto y los 262 escenarios S4 no
-  tienen `fee_iva_referral`.
-- **Amazon US: desconocido.** La razon por producto es 0.858649 con rango
-  0.634122 a 0.940567: ni 1.00 ni 1.16 ni el factor de IVA de una moneda sin
-  IVA. La serie mensual cambia de regimen (`0.167554` a `0.178202` entre
-  2025-12 y 2026-02; `0.128189` a `0.131153` desde 2026-05) y la retencion se
-  mueve en el mismo periodo. Lo unico que se sostiene es que, en la ventana con
-  cotizaciones, el cargo efectivo no supera la cotizacion (0.128797 contra
-  0.150000). No se atribuye a categoria ni a conversion. K queda **abierto para
-  Amazon US** con la tarea de evidencia registrada.
-- **`impuesto_fee_pendiente` no se disparo nunca** (0 casos en mas de 112 mil
-  escenarios), porque ninguna cotizacion ha traido impuesto explicito. Se
-  conserva la abstencion tal como esta.
+- **Amazon MX: impuesto separado, incorporado una sola vez en S4 (`0093`).** La
+  cotizacion cobra `ReferralFee` al 12.931% y el cargo efectivo al 15.000%: razon
+  por producto 1.160005 (110/113 productos en 1.16). Politica S4 vigente con
+  `referral_fee_iva_multiplicador = 1.16`.
+- **MeLi: impuesto incluido en la comision (`0093`).** Cotizacion y cargo coinciden
+  en 19.500% (razon 1.000000, 10/10 productos). Multiplicador `1` correcto.
+- **Amazon US: impuesto separado, incorporado una sola vez en S4 (`0100`).**
+  Product Fees cotiza `ReferralFee` al `15.00%` sin `TaxAmount`. SP-API Finances
+  v2024 devuelve explicitamente `Commission = Base (15.00%) + Tax (16.00% sobre
+  Base) = 17.40%` en **164/164 items** (2026-01, 2026-05 y 2026-10/11, 0 anomalias)
+  y `531/531` pedidos historicos con FX exacto (`2025-12` a `2026-11`, mediana
+  `0.173985`). El valor previo `0.8586` era un artefacto de dividir `Commission`
+  entre `sale_gross = ItemPrice + Shipping + Tax`. `MarketplaceFacilitatorTax` es
+  sales tax de EE. UU. con efecto neto `$0.00 USD` (`retencion_iva_tasa = 0`).
+  `ShippingHB` ya entra con IVA incluido en `precio_envio_muestra`.
+- **`impuesto_fee_pendiente` se conserva intacto** (`fee_tax_amount_requiere_politica = true`):
+  si SP-API empieza a enviar `TaxAmount != 0`, el calculador abstiene para nunca
+  cobrar IVA dos veces.
 
-Detalle, importes y diferencia: `K/conciliacion.md`. Datos saneados:
+## Cambio de calculo y reversa (K.2 — Forma A + re-anclaje US)
+
+- **Migracion `migrations/0100_arreglos05_k_us_s4.sql`** y su reversa
+  **`migrations/0100_reversa_arreglos05_k_us_s4.sql`**: cierran `repricing02_fbm_us`
+  (`S3`) y siembran `amazon_us_fbm_s4_caja_real_2026_11` (`S4`) con
+  `referral_fee_iva_multiplicador = 1.16`, `retencion_iva_tasa = 0`,
+  `isr_tasa = 0.0207`, `iva_divisor = 1`, `precio_incluye_iva = false` y
+  `fee_tax_amount_requiere_politica = true`. Cero cambios de formula en `app/`:
+  `estimacion_venta`, `estimacion_reader`, `precio/objetivo`, `precio/reglas` y
+  `precio/compuerta_io` ya soportan `S4` y eximen la transicion `S3 -> S4` en
+  `fee_variable`.
+- **Re-anclaje de goals US (`tools/reancle_goals_s4.py`)**: se extiende
+  `--platform amazon_us` y la bandera explicita opt-in `--acotar-banda` (default
+  fail-closed) para preservar `P*` en los 99 goals activos de US (97 dentro de
+  banda `[0.10, 0.60]` con `|P*_S4 - P*_S3| <= $0.01`, y 2 en `12.06%` acotados
+  al piso `10.00%` cuyo `P*` sigue debajo de `p_actual = $48.00`), con reversa
+  exacta via `--revertir`.
+
+## Pruebas `N k` (rojo/verde)
+
+Archivo: `tests/test_arreglos05_k_impuesto_comision.py` (9 pruebas):
+
+- **Rojo contra `da380023` (master previo):** fallaron las pruebas de migracion
+  `0100` (`FileNotFoundError` / `falta 0100_arreglos05_k_us_s4.sql`) y re-anclaje US.
+- **Verde tras implementar `0100` y `reancle_goals_s4`:**
+  - `TaxAmount` anidado y top-level -> `impuesto_fee_pendiente`.
+  - Total inclusivo (`FinalFee` conciliado contra `fee_total`; desajuste -> `fee_incompatible`).
+  - Impuesto separado (`1.16` en US S4 conciliado al centavo contra muestras reales
+    de SP-API Finances v2024; `1.00` en MeLi; coherencia en `objetivo.paso` y `reglas.decidir`).
+  - Dato ausente (`fee_ausente`; `tax_amount = None` nunca tratado como cero).
+  - Migracion `0100` ida, sonda, reversa limpia, reversa con escenarios S4 y
+    re-aplicacion el mismo dia UTC en PG16 real.
+  - Re-anclaje US en PG16: preserva `P*`, fail-closed sin `--acotar-banda`, acota
+    con `--acotar-banda`, idempotente y reversible al centavo.
+  - Compuerta de precios en transicion `S3 -> S4` de `amazon_us/fbm`: pasa ante
+    `+16%` en `fee_variable` y retiene ante salto real de costo.
+  - Corrida conjunta en PG16: **417 passed** (`test_arreglos05_k_impuesto_comision.py`,
+    `test_estimacion_s4_caja_real.py`, `test_estimacion_venta.py`,
+    `test_estimacion_fees.py`, `test_precio_reglas.py`, `test_architecture.py`),
+    `ruff check` y `ruff format --check` limpios.
+
+Detalle y datos saneados: `K/conciliacion.md`, `K/finances_us_v2024.txt`,
 `K/cotizacion.txt`, `K/cargo.txt`, `K/escenario.txt` y `K/politica.txt`.
-
-## Tarea de evidencia abierta (Amazon US)
-
-Para cerrar US hace falta una fuente que hoy no esta:
-
-1. Cotizaciones de Product Fees de los meses 2025-12 a 2026-02, o el detalle de
-   Finances que permita comparar comision y precio de la misma venta.
-2. Confirmacion documental de si Amazon US cobra IVA sobre la comision a esta
-   cuenta y desde cuando. La liquidacion no trae un cargo separado de impuesto
-   sobre la comision y las cotizaciones empiezan el 2026-10-15.
-3. Con eso, decidir si el regimen alto es impuesto (separado) o base distinta.
-   Mientras tanto no se escribe 16% ni cero.
-
-## Por que no hay `N k`
-
-La aceptacion del plan pide `N k` solo cuando cambia el calculo. Aqui no cambia:
-el impuesto de la comision ya esta incorporado una sola vez por la politica S4
-de la migracion `0093` para MX, MeLi no lo requiere y US queda desconocido sin
-tocar la formula. Los cuatro casos que `N k` cubriria ya tienen control vigente:
-
-| Caso | Control vigente |
-|---|---|
-| `TaxAmount` anidado | `_tiene_tax_amount` recorre `included_fee_details` (`app/estimacion_venta.py:303`); `tests/test_estimacion_venta.py::test_tax_amount_anidado_impuesto_fee_pendiente` y `tests/test_precio_reglas.py` (1452, 2336) |
-| Total inclusivo | `_normalizar_detalle` exige `FinalFee = FeeAmount - FeePromotion` y `_validar_fee_detalles` exige `suma FinalFee == total`; si no, `fee_incompatible` |
-| Impuesto separado | `multiplicador_referral_fee` y `fee_variable_efectivo`; `_normalizar_fee` suma `ReferralFee x (mult - 1)` una vez; el motor de precios aplica `fee_variable_multiplicador` desde el mismo escenario (`app/precio/objetivo.py:214`, `app/precio/reglas.py:394`) |
-| Dato ausente | `fee_ausente`; `tax_amount` ausente queda `None`, nunca cero; `impuesto_fee_pendiente` solo con impuesto presente y distinto de cero |
-
-No se agrega migracion, version ni reversa porque no hay DDL ni cambio de
-formula. La version vigente sigue siendo la S4 de `0093`.
 
 ## Archivos cambiados
 
-Solo evidencia, sin codigo:
+Primera entrega (adjudicacion MX y MeLi, PR #773):
 
-- `docs/evidencia/arreglos-05/K/plan.md`: plan de adjudicacion previo y ajuste
-  posterior a la revision.
-- `docs/evidencia/arreglos-05/K/conciliacion.md`: K.1.
-- `docs/evidencia/arreglos-05/K/resultado.md`: este archivo.
-- `docs/evidencia/arreglos-05/K/lee_previa.sh` y `cotizacion.sql`, `cargo.sql`,
-  `escenario.sql`, `politica.sql`: lectura reproducible.
-- `docs/evidencia/arreglos-05/K/cotizacion.txt`, `cargo.txt`, `escenario.txt`,
-  `politica.txt`: salidas saneadas.
+- `docs/evidencia/arreglos-05/K/plan.md`, `conciliacion.md`, `resultado.md`,
+  `lee_previa.sh`, `{cotizacion,cargo,escenario,politica}.{sql,txt}`.
 
-No se toco `app/`, `tests/`, `migrations/`, `plans/` ni `plans/manifest.json`.
+Cierre Amazon US (2026-11-25, Forma A + re-anclaje US):
+
+- `migrations/0100_arreglos05_k_us_s4.sql`: cierra `repricing02_fbm_us` (`S3`) y
+  siembra `amazon_us_fbm_s4_caja_real_2026_11` (`S4`, `1.16`, `retencion_iva_tasa = 0`).
+- `migrations/0100_reversa_arreglos05_k_us_s4.sql`: reversa segura (borra limpio
+  si 0 escenarios `S4`; si existen escenarios `S4`, cierra hoy UTC y abre continuacion `S3`).
+- `tools/reancle_goals_s4.py`: soporte `--platform amazon_us` y bandera opt-in
+  `--acotar-banda` (default fail-closed; reversible via `--revertir`).
+- `tests/test_arreglos05_k_impuesto_comision.py`: 9 pruebas `N k` en PG16.
+- `docs/evidencia/arreglos-05/K/finances_us_v2024.txt`, `conciliacion.md`,
+  `resultado.md`, `Z/cobertura.tsv`, `Z/resultado.md` y `plans/arreglos-05.md`.
+
+No se toco `app/`: el calculador `S4`, `estimacion_reader`, `precio/objetivo`,
+`precio/reglas` y `precio/compuerta_io` ya implementan la formula y eximen la
+transicion `S3 -> S4`.
 
 ## Verificacion
 
-- `uv run --frozen --python 3.12 ruff check app tests tools`: `All checks
-  passed!`
-- `uv run --frozen --python 3.12 ruff format --check app tests tools`: `541
-  files already formatted`.
-- Vecinos de estimacion y precios que cubren el impuesto y el multiplicador
-  (`tests/test_estimacion_venta.py`, `tests/test_estimacion_fees.py`,
-  `tests/test_estimacion_s4_caja_real.py`, `tests/test_precio_reglas.py`):
-  **306 passed, 1 failed**.
-- El unico fallo es
-  `tests/test_precio_reglas.py::test_r4_g8_barrido_float_entra_a_subpaquetes`.
-  No es del bloque: `git diff --stat 1191125c -- app tests migrations` sale
-  vacio y el mismo test falla sobre el arbol de la base. Es un defecto de la
-  prueba en Windows: compara `"sub/flotante.py"` contra una ruta con `\`. En
-  Linux la ruta usa `/` y la prueba pasa. Se anota para su dueno; no se toca
-  aqui porque K no cambia codigo.
-- No se corrio la suite completa: el bloque es `lane: fast` y no toca codigo.
+- `uv run --frozen ruff check app tests tools`: `All checks passed!`
+- `uv run --frozen ruff format --check app tests tools`: `542 files already formatted`.
+- `ORBIT_TEST_DSN=... uv run --frozen --python 3.12 python -m pytest -q tests/test_arreglos05_k_impuesto_comision.py tests/test_estimacion_s4_caja_real.py tests/test_estimacion_venta.py tests/test_estimacion_fees.py tests/test_precio_reglas.py tests/test_architecture.py`: **417 passed** (0 fallos, 0 skips).
+- `pre-commit run --all-files`: gitleaks y guardas sin hallazgos.
 
 ## Reversa
 
-No hay DDL, ni migracion, ni binario nuevo. Revertir el PR quita solo los
-archivos de evidencia. La politica S4 y el multiplicador siguen como estaban.
+- Esquema/politica: `migrations/0100_reversa_arreglos05_k_us_s4.sql` (regresa
+  `amazon_us/fbm` a `S3` de inmediato sin borrar escenarios referenciados).
+- Metas `precio_goal` de US: `tools/reancle_goals_s4.py --revertir --platform amazon_us --lote reancle_s4_us_2026_11`
+  restaura las 99 metas exactas previas via `goals_write`.
 
 ## Fase 2
 
-`lane: fast`: este bloque no lleva despliegue propio. No se ejecuto
-`desplegar.sh` ni `checklist.sh` y no hay recibo de despliegue.
+Despliegue en `goncloud` con `tools/despliegue/desplegar.sh` y
+`tools/despliegue/checklist.sh`, seguido del re-anclaje reversible de las 99
+metas activas de `amazon_us` con `tools/reancle_goals_s4.py --platform amazon_us --acotar-banda --lote reancle_s4_us_2026_11`
+(precios conserva `precio_modo_global = shadow`).
 
 ## Seguimiento (P2)
 
