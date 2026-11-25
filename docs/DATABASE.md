@@ -596,10 +596,9 @@ suma `tope_ciclo`**: el ciclo de origen ya intentó sus 150 pujas ordinarias
 quedan exentas por su marcador congelado). No hay tabla ni contador nuevo; la
 reversa `0099_reversa_arreglos05_tope_ciclo.sql` aborta si ya hay desenlaces
 `tope_ciclo` y restaura la lista de 0094 sin tocar el ledger ni los ciclos.
-*Cómo se audita*: `SELECT * FROM decision_sin_aplicar WHERE motivo =
-'tope_ciclo'` (qué decisiones quedaron fuera del cupo y con qué `usados`).
 *Cómo se audita*: `SELECT * FROM decision_sin_aplicar WHERE cycle_id = …`
-(el no-apply del ciclo, motivo a motivo); la tabla alimenta la
+(el no-apply del ciclo, motivo a motivo; con `motivo = 'tope_ciclo'` se ve qué
+decisiones quedaron fuera del cupo y con qué `usados`); la tabla alimenta la
 exclusión de `v_decision_huerfana`.
 
 **`v_decision_huerfana`** (0044) — Decisiones aplicables (kinds espejo de
