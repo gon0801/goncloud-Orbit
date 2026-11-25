@@ -93,6 +93,22 @@ Controles y candados en el mismo SHA:
   files already formatted. Ningun modulo nuevo rompe el presupuesto de 900
   lineas.
 
+### Vecinos por causa
+
+| Grupo | Suites | Resultado |
+|---|---|---|
+| Ciclo, apply y reversa | `test_cycle`, `test_cycle_apply`, `test_cycle_pause_cooldown`, `test_cycle_target_ciclo`, `test_apply`, `test_apply_cola`, `test_apply_harvest`, `test_apply_producto`, `test_apply_schema` | 341 passed |
+| Temporada, estimacion, precios y API | `test_temporada01_a..i`, `test_estimacion_venta`, `test_estimacion_fees`, `test_estimacion_s4_caja_real`, `test_estimacion_aislamiento_fabrica`, `test_precio_reglas`, `test_api_dashboard`, `test_api_write` | 573 passed, 1 fallo |
+
+El unico fallo es `test_precio_reglas.py::test_r4_g8_barrido_float_entra_a_subpaquetes`,
+defecto de la prueba en Windows ya documentado por K: compara `"sub/flotante.py"`
+contra una ruta con `\`. En Linux la ruta usa `/` y la prueba pasa. No es del
+codigo de 05.
+
+Los 20 commits citados en `Z/cobertura.tsv` existen y son ancestros de
+`7b06778d`; la comprobacion se hizo con `git cat-file -e` y
+`git merge-base --is-ancestor`.
+
 ## Decision sobre los fallos previos de master en esta PC (Z.2)
 
 Se corrieron los archivos senalados sobre el SHA conjunto. Ninguno pertenece a la
