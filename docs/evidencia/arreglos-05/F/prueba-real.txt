@@ -1,0 +1,51 @@
+# Prueba real - ARREGLOS 05 F
+# SHA integrado: 96eddb992295616d183f7fac1707574e6682a5ad
+# Fecha: 2026-11-25 03:08 UTC
+
+# N f sobre el SHA integrado
+# SHA del arbol: 96eddb992295616d183f7fac1707574e6682a5ad
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N f
+
+..........                                                               [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-43\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+10 passed, 6433 deselected, 1 warning in 45.02s
+
+# T optimizer test_12
+.                                                                        [100%]
+1 passed, 2 deselected in 6.15s
+
+## Huella del codigo (detalle en huella-codigo.txt)
+# SHA local: 96eddb992295616d183f7fac1707574e6682a5ad
+96eddb992295616d183f7fac1707574e6682a5ad
+5c015c7f8b0a6965724fba4cb388a02a  app/cycle_target.py
+ddad817a0ba4fb0f023173dfa8dd814b  app/cycle_recorrido.py
+## md5 de los mismos archivos en el arbol local (96eddb99)
+5c015c7f8b0a6965724fba4cb388a02a *app/cycle_target.py
+ddad817a0ba4fb0f023173dfa8dd814b *app/cycle_recorrido.py
+version_snapshot=target_v2
+version_overlay=temporada_v1
+base_previa=True
+overlay_temporada=True
+md5 OK: 304 archivos
+
+## Lectura RO de produccion (detalle en previa-fase2.txt)
+== momento
+== esquema_0094_0098
+True|True|True|True|True|True|True|True
+== snapshots_target
+live|done|179|175|0
+off|skipped|2|0|0
+shadow|done|30|0|0
+== bases_live_por_plataforma
+amazon_mx|1|0|211
+amazon_us|1|0|210
+== ultimas_bases
+211|amazon_mx|done|None|None|None|None|margen_plataforma|23.17306872226423362668124810
+210|amazon_us|done|None|None|None|None|margen_plataforma|23.87387092262181318210778656
+== temporada_config
+ads_temporada|{'meses': ['baja', 'baja', 'alta', 'alta', 'baja', 'baja', 'normal', 'normal', 'normal', 'alta', 'alta', 'normal'], 'version': 'temporada_v1', 'fin_anticipado': None, 'dias_preparacion': 21, 'mult_cortes_baja': '2', 'mantener_pausadas': [], 'reduccion_baja_pct': '30', 'aumento_presupuesto_alta_pct': '25'}

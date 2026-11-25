@@ -1,0 +1,173 @@
+# Despliegue - ARREGLOS 05 F (PR 763 sobre master)
+# Fecha: 2026-11-25 03:08 UTC
+# PR 763 merge y MOTOR_SHA: 96eddb992295616d183f7fac1707574e6682a5ad
+# SHA_PREVIO: 4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5
+# Entorno limpio: env -i PATH=/ucrt64/bin:/usr/bin:/bin HOME=$HOME
+
+## 1. Ensayo de solo lectura (--ensayo)
+# Comando: MOTOR_SHA=96eddb992295616d183f7fac1707574e6682a5ad bash tools/despliegue/desplegar.sh --ensayo
+
+SHA_PREVIO=4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5
+guardas (alias|ciclos running|harvest en cola|harvest jobs|app.cli): true|0|0|0|0
+guardas: libres
+monotonia: hay que desplegar
+migracion aplicada: 0076_auto03_peldano_producto.sql
+migracion aplicada: 0077_auto03_evaluacion_producto.sql
+migracion aplicada: 0078_auto03_retiro_decision.sql
+migracion aplicada: 0079_auto03_vista_impulso.sql
+migracion aplicada: 0080_auto03_retiro_desde_ciclo.sql
+migracion aplicada: 0081_orbit07_proteccion_venta.sql
+migracion aplicada: 0082_claridad01_entidad_inerte.sql
+migracion aplicada: 0083_arreglos01_costos_sin_compuerta.sql
+migracion aplicada: 0084_arreglos01_impulso_desarmado.sql
+migracion aplicada: 0085_arreglos01_ledger_reatribucion.sql
+migracion aplicada: 0086_arreglos02_cargos.sql
+migracion aplicada: 0087_arreglos03_devoluciones_meli.sql
+migracion aplicada: 0088_arreglos03_ledger_original.sql
+migracion aplicada: 0089_arreglos03_reputacion_avisada.sql
+migracion aplicada: 0090_arreglos03_error_cierra_por_observacion.sql
+migracion aplicada: 0091_arreglos03_sin_precio_cap.sql
+migracion aplicada: 0092_temporada01_margen_vigente.sql
+migracion aplicada: 0093_estimacion_s4_caja_real_mx.sql
+migracion aplicada: 0093_temporada01_episodio.sql
+migracion aplicada: 0094_arreglos05_ciclo_origen.sql
+migracion aplicada: 0095_arreglos05_evidencia_previa.sql
+migracion aplicada: 0096_arreglos05_regreso_destino_efectivo.sql
+migracion aplicada: 0097_arreglos05_reposicion.sql
+migracion aplicada: 0098_arreglos05_indice_shadow.sql
+claves: ninguna cambia
+bloque Orbit igual al canonico
+/mnt/data/appdata/orbit/refresh_estimacion.sh ya es el de 96eddb992295616d183f7fac1707574e6682a5ad
+== ENSAYO OK
+
+## 2. Despliegue real
+# Comando: MOTOR_SHA=96eddb992295616d183f7fac1707574e6682a5ad bash tools/despliegue/desplegar.sh
+
+MOTOR_SHA=96eddb992295616d183f7fac1707574e6682a5ad SHA_PREVIO=4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5
+== (1) guardas (plazo comun 600s)
+guardas libres
+== (2) monotonia
+== (3) respaldo
+respaldo /mnt/data/appdata/orbit/despliegue/predeploy-20261125-030118 completo
+== (4) migraciones de la receta (*_auto03_*, *_orbit07_*, *_claridad01_*, *_arreglos01_*, *_arreglos02_*, *_arreglos03_*, *_temporada01_* y *_estimacion_s4_*)
+ya aplicada: 0076_auto03_peldano_producto.sql
+ya aplicada: 0077_auto03_evaluacion_producto.sql
+ya aplicada: 0078_auto03_retiro_decision.sql
+ya aplicada: 0079_auto03_vista_impulso.sql
+ya aplicada: 0080_auto03_retiro_desde_ciclo.sql
+ya aplicada: 0081_orbit07_proteccion_venta.sql
+ya aplicada: 0082_claridad01_entidad_inerte.sql
+ya aplicada: 0083_arreglos01_costos_sin_compuerta.sql
+ya aplicada: 0084_arreglos01_impulso_desarmado.sql
+ya aplicada: 0085_arreglos01_ledger_reatribucion.sql
+ya aplicada: 0086_arreglos02_cargos.sql
+ya aplicada: 0087_arreglos03_devoluciones_meli.sql
+ya aplicada: 0088_arreglos03_ledger_original.sql
+ya aplicada: 0089_arreglos03_reputacion_avisada.sql
+ya aplicada: 0090_arreglos03_error_cierra_por_observacion.sql
+ya aplicada: 0091_arreglos03_sin_precio_cap.sql
+ya aplicada: 0092_temporada01_margen_vigente.sql
+ya aplicada: 0093_estimacion_s4_caja_real_mx.sql
+ya aplicada: 0093_temporada01_episodio.sql
+ya aplicada: 0094_arreglos05_ciclo_origen.sql
+ya aplicada: 0095_arreglos05_evidencia_previa.sql
+ya aplicada: 0096_arreglos05_regreso_destino_efectivo.sql
+ya aplicada: 0097_arreglos05_reposicion.sql
+ya aplicada: 0098_arreglos05_indice_shadow.sql
+== (5) codigo de 96eddb992295616d183f7fac1707574e6682a5ad
+md5 OK: 304 archivos
+/mnt/data/appdata/orbit/refresh_estimacion.sh = tools/refresh_estimacion.sh de 96eddb992295616d183f7fac1707574e6682a5ad
+ Image orbit-app Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 482B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.33kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 ...
+
+#4 [internal] load metadata for ghcr.io/astral-sh/uv:0.11.11
+#4 DONE 0.6s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim-bookworm
+#3 DONE 0.7s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 199B done
+#5 DONE 0.0s
+
+#6 FROM ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a
+#6 resolve ghcr.io/astral-sh/uv:0.11.11@sha256:798712e57f879c5393777cbda2bb309b29fcdeb0532129d4b1c3125c5385975a 0.0s done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 5.08MB 0.1s done
+#7 DONE 0.1s
+
+#8 [stage-0  1/12] FROM docker.io/library/python:3.12-slim-bookworm@sha256:44cf1793efa7c7a476bb0f2cff81443f4a072c90c1cb127e2924933daa3e8c64
+#8 resolve docker.io/library/python:3.12-slim-bookworm@sha256:44cf1793efa7c7a476bb0f2cff81443f4a072c90c1cb127e2924933daa3e8c64 0.0s done
+#8 DONE 0.0s
+
+#9 [stage-0  2/12] COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
+#9 CACHED
+
+#10 [stage-0  3/12] WORKDIR /app
+#10 CACHED
+
+#11 [stage-0  4/12] COPY pyproject.toml uv.lock ./
+#11 CACHED
+
+#12 [stage-0  5/12] RUN uv sync --frozen --no-dev --no-install-project --no-cache
+#12 CACHED
+
+#13 [stage-0  6/12] COPY app ./app
+#13 DONE 0.1s
+
+#14 [stage-0  7/12] COPY tools/fabrica_campanas.py ./tools/fabrica_campanas.py
+#14 DONE 0.0s
+
+#15 [stage-0  8/12] COPY tools/jev_ads.py ./tools/jev_ads.py
+#15 DONE 0.0s
+
+#16 [stage-0  9/12] COPY tools/jev_fichas.py ./tools/jev_fichas.py
+#16 DONE 0.0s
+
+#17 [stage-0 10/12] COPY tools/precio_sonda.py ./tools/precio_sonda.py
+#17 DONE 0.0s
+
+#18 [stage-0 11/12] COPY tools/precio_cobertura.py ./tools/precio_cobertura.py
+#18 DONE 0.0s
+
+#19 [stage-0 12/12] COPY tools/auto03_verifica.py ./tools/auto03_verifica.py
+#19 DONE 0.0s
+
+#20 exporting to image
+#20 exporting layers
+#20 exporting layers 0.6s done
+#20 exporting manifest sha256:7c16131203eb57fc0244863cd870f03e97415f742729566c0937e0c0515d3c3c 0.0s done
+#20 exporting config sha256:f67efb93fbfc5aa4ff970c6c16d5099390f9d83c190de580263ad19fc6198c08 0.0s done
+#20 exporting attestation manifest sha256:be06aeda4615ef441016e1ca719e662792dccc7325d02936a5f93099b40dd13c 0.0s done
+#20 exporting manifest list sha256:ad33bf9560e0e8405c34a059130d95b83ffd0d9127101adf928bdbcb945d2207 0.0s done
+#20 naming to docker.io/library/orbit-app:latest done
+#20 unpacking to docker.io/library/orbit-app:latest 0.1s done
+#20 DONE 0.8s
+
+#21 resolving provenance for metadata file
+#21 DONE 0.0s
+ Image orbit-app Built
+imagen construida (el contenedor vivo no se toco)
+espero a que orbit-app-1 no tenga procesos app.cli (plazo 600s)
+ Container orbit-app-1 Recreate
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Starting
+ Container orbit-app-1 Started
+recreado; /health 200; /mnt/data/appdata/orbit/despliegue/sha = 96eddb992295616d183f7fac1707574e6682a5ad
+== (5b) bloque de cron de Orbit
+bloque Orbit igual al canonico
+el bloque Orbit ya era el canonico
+== (6) interruptores frente a SHA_PREVIO
+ninguna clave cambia
+== DESPLEGADO 96eddb992295616d183f7fac1707574e6682a5ad (checklist.sh lo pasa a verificado)

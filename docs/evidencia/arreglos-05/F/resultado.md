@@ -204,3 +204,52 @@ x1.
 - La meta efectiva por hoja sigue derivandose en `decide`; si un lector futuro
   necesita el numero efectivo debe leer `caso.temporada.meta_alta_pct` con
   `target_acos_pct_usado`, no reconstruirlo en el snapshot de ciclo.
+
+## Fase 2: despliegue y recibo
+
+- PR #763 integrado. `MOTOR_SHA=96eddb992295616d183f7fac1707574e6682a5ad`
+  (master), `SHA_PREVIO=4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5`.
+- Fecha del despliegue: 2026-11-25 03:0x UTC.
+- Ensayo solo lectura: guardas libres
+  (`alias|ciclos running|harvest en cola|harvest jobs|app.cli` =
+  `true|0|0|0|0`), 25 migraciones aplicadas incluidas 0094-0098, **ninguna
+  pendiente**, `claves: ninguna cambia`, bloque de cron igual al canonico.
+  `== ENSAYO OK`.
+- Despliegue real: `md5 OK: 304 archivos`, imagen construida sin tocar el
+  contenedor vivo, recreado, `/health 200`,
+  `despliegue/sha = 96eddb992295616d183f7fac1707574e6682a5ad`,
+  `== DESPLEGADO 96eddb99...`.
+- Checklist: **VERDE** `96eddb99...`: las 25 migraciones (la ultima, 0098),
+  bloque de cron canonico, `refresh_estimacion.sh` del SHA y `/health 200`.
+- `N f` sobre el SHA integrado: **10 passed**; `T optimizer test_12`:
+  **1 passed**.
+- Huella del codigo (`F/huella-codigo.txt`): `despliegue/sha` = 96eddb99;
+  `md5sum` de `app/cycle_target.py` y `app/cycle_recorrido.py` identico entre
+  servidor y arbol local; dentro del contenedor
+  `VERSION_SNAPSHOT=target_v2`, `VERSION_OVERLAY=temporada_v1`,
+  `_base_previa` y `_overlay_temporada` presentes.
+- Lectura RO de produccion (`F/previa-fase2.txt`, rol `orbit_read`,
+  `read_only`): esquema en 0094-0098 con las ocho comprobaciones en `True`;
+  179 live+done, 30 shadow+done y 2 off+skipped; 175 snapshots con
+  `notes.target` y **0 con `version`** (el primer ciclo posterior al despliegue
+  escribira `target_v2`); una base live comprometida por plataforma
+  (`amazon_mx` 211 = 23.17306872..., `amazon_us` 210 = 23.87387092...);
+  Temporada en `live` en MX y US y noviembre en alta (overlay 25 por defecto).
+- Reversa: no hay DDL que deshacer (F no trae migracion; la 0098 sigue siendo
+  la ultima). `MOTOR_SHA=96eddb992295616d183f7fac1707574e6682a5ad bash
+  tools/despliegue/rollback.sh` deshace solo lo anotado en `ultimo.env` para
+  ese SHA (codigo; las claves y el cron no cambiaron) y sale 0 sin deshacer con
+  otro SHA.
+- Recibo completo: `despliegue.txt`, `checklist.txt`, `prueba-real.txt`,
+  `huella-codigo.txt` y `previa-fase2.txt`.
+- Registro P2: las 7 notas del revisor quedaron anotadas en el cuerpo del PR
+  #763 (ya integrado), sin abrir rondas ni cambiar codigo.
+
+### Seguimiento (P2) de la fase 2
+
+- El primer ciclo tras el despliegue (09:40/09:41 UTC) es el que escribe el
+  primer snapshot `target_v2`; la lectura RO de arriba es previa a ese ciclo.
+- El resto de las notas P2 (LIMIT 200 compartido con shadow, comentario de
+  `cycle_target.py:90-91`, `_overlay_temporada` con `politica=None`,
+  `overlay.aplica` en shadow, `RAIZ.parents[4]` del saneador, rango de gitleaks
+  y la base live de `amazon_mx`) queda en el PR #763.

@@ -1,0 +1,33 @@
+# Lectura RO de produccion tras el despliegue del bloque F (solo SELECT). SHA 96eddb992295616d183f7fac1707574e6682a5ad
+
+== momento
+2026-11-25 03:06:10.412835|160015
+
+== esquema_0094_0098
+True|True|True|True|True|True|True|True
+
+== snapshots_target
+live|done|179|175|0
+off|skipped|2|0|0
+shadow|done|30|0|0
+
+== bases_live_por_plataforma
+amazon_mx|1|0|211
+amazon_us|1|0|210
+
+== ultimas_bases
+211|amazon_mx|done|None|None|None|None|margen_plataforma|23.17306872226423362668124810
+210|amazon_us|done|None|None|None|None|margen_plataforma|23.87387092262181318210778656
+209|amazon_mx|done|None|None|None|None|margen_plataforma|23.20307967806663851630230770
+208|amazon_us|done|None|None|None|None|margen_plataforma|23.97412932655443396629032656
+207|amazon_mx|done|None|None|None|None|margen_plataforma|23.19201313987196647242583925
+206|amazon_us|done|None|None|None|None|margen_plataforma|23.93458938922240577084112048
+205|amazon_mx|done|None|None|None|None|margen_plataforma|23.19201313987196647242583925
+204|amazon_us|done|None|None|None|None|margen_plataforma|23.93458938922240577084112048
+
+== temporada_config
+ads_temporada|{'meses': ['baja', 'baja', 'alta', 'alta', 'baja', 'baja', 'normal', 'normal', 'normal', 'alta', 'alta', 'normal'], 'version': 'temporada_v1', 'fin_anticipado': None, 'dias_preparacion': 21, 'mult_cortes_baja': '2', 'mantener_pausadas': [], 'reduccion_baja_pct': '30', 'aumento_presupuesto_alta_pct': '25'}
+ads_temporada_amazon_mx|live
+ads_temporada_amazon_us|live
+
+# bloques procesados: 6 de 6; con error: 0

@@ -1,0 +1,22 @@
+# Huella del codigo desplegado - ARREGLOS 05 F
+# SHA local: 96eddb992295616d183f7fac1707574e6682a5ad
+
+## despliegue/sha en el servidor
+96eddb992295616d183f7fac1707574e6682a5ad
+
+## md5 de los archivos que toca F (servidor)
+5c015c7f8b0a6965724fba4cb388a02a  app/cycle_target.py
+ddad817a0ba4fb0f023173dfa8dd814b  app/cycle_recorrido.py
+
+## md5 de los mismos archivos en el arbol local (96eddb99)
+5c015c7f8b0a6965724fba4cb388a02a *app/cycle_target.py
+ddad817a0ba4fb0f023173dfa8dd814b *app/cycle_recorrido.py
+
+## simbolos de F dentro del contenedor vivo
+version_snapshot=target_v2
+version_overlay=temporada_v1
+base_previa=True
+overlay_temporada=True
+
+## md5 del despliegue (linea del recibo real)
+md5 OK: 304 archivos
