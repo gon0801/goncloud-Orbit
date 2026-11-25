@@ -1,0 +1,49 @@
+# Lectura previa de produccion del bloque H (solo SELECT). SHA c9d31d87fd8ad89fc0492df9bd15a5f68c6bc2f7
+
+== momento
+2026-11-25 04:34:07.134526+00:00|160015
+
+== esquema_motivos
+CHECK ((motivo = ANY (ARRAY['modo_no_live'::text, 'ya_aplicada'::text, 'bid_incompleto'::text, 'entidad_no_decisora'::text, 'tope_intentos'::text, 'fuera_de_cap'::text, 'fallo_http'::text, 'sin_quota'::text, 'espera_target'::text, 'sin_respuesta'::text, 'perdida'::text, 'choque_clave'::text, 'espera_proteccion'::text, 'bid_cambiado_fuera'::text, 'vigencia_vencida'::text])))
+
+== ciclos
+ads_optimizer|live|done|179|211
+ads_optimizer|off|skipped|2|2
+ads_optimizer|shadow|done|30|32
+
+== intentos_bid_por_ciclo
+100|503|45|0|0|0|2|10
+
+== distribucion_top
+93|amazon_mx|live|done|45|False
+111|amazon_mx|live|done|34|False
+92|amazon_us|live|done|24|False
+38|amazon_mx|live|done|23|False
+73|amazon_mx|live|done|19|False
+54|amazon_mx|live|done|19|False
+110|amazon_us|live|done|17|False
+49|amazon_us|live|done|13|False
+68|amazon_us|live|done|12|False
+113|amazon_mx|live|done|11|False
+
+== ambiguos
+0|0|0|503
+
+== temporada_marcador
+503|0|0|0|0
+
+== decisiones_bid_temporada
+
+
+== intentos_por_tipo
+normal|503
+reversa|11
+
+== motivos_en_uso
+modo_no_live|190
+fuera_de_cap|3
+
+== roles
+True|True|True|True
+
+# bloques procesados: 11 de 11; con error: 0
