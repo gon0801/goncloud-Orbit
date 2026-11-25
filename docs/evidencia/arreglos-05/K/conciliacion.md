@@ -2,7 +2,7 @@
 
 - Base: `1191125c65841e8ec8d77448f7bbdcfeed29be1a` (master con BASE y A-J).
 - Rama: `arreglos-05/k`.
-- Lectura: 2026-11-25T13:21-13:23Z, rol `orbit_read`, transaccion `read_only`,
+- Lectura: 2026-11-25T13:28-13:30Z, rol `orbit_read`, transaccion `read_only`,
   por `docs/evidencia/arreglos-01/lee_prod.sh`.
 - Comando: `bash docs/evidencia/arreglos-05/K/lee_previa.sh`.
 - Salidas saneadas: `cotizacion.txt`, `cargo.txt`, `escenario.txt`,
@@ -51,6 +51,9 @@ estimacion son 18 de 534 en Amazon MX, 2 de 53 en Amazon US y 0 de 207 en MeLi
   ninguna tasa (`cargo.txt`, bloque A2).
 - **Sin identificadores.** Los ejemplos y las tasas no publican `order_id`; solo
   importes y agregados.
+- **Sin dato es NULL.** La retencion mensual de Amazon US se calcula solo sobre
+  pedidos con retencion observada; un mes sin dato queda `None`, nunca cero
+  (`cargo.txt`, bloque H).
 
 ## Cotizacion integra
 
@@ -127,12 +130,14 @@ mismo producto.
 - La serie mensual de Amazon US (`cargo.txt`, bloque H) muestra dos regimenes en
   la tasa de comision por pedido: `0.167554` (2025-12), `0.173272` (2026-01) y
   `0.178202` (2026-02), compatibles con `15% x 1.16 = 0.174000`; y desde 2026-05
-  entre `0.128189` y `0.131153`. La tasa de retencion cambia en el mismo periodo
-  (`0.081928`, `0.074690`, `0.076559` al inicio; `0.061524` a `0.071930`
-  despues), cerca de `8% / 1.16 = 0.068966`. La fuente no permite determinar la
-  causa: no hay cotizaciones de esos meses y la liquidacion no separa un cargo
-  de impuesto sobre la comision. No se atribuye a categoria ni a conversion; es
-  una tarea de evidencia abierta.
+  entre `0.128189` y `0.131153`. La tasa de retencion, calculada solo sobre los
+  pedidos con retencion observada (38 de 39 en 2025-12; 46 de 52 en 2026-01;
+  32 de 35 en 2026-11), cambia en el mismo periodo: `0.083292`, `0.084306` y
+  `0.086148` al inicio; `0.067829` a `0.075618` despues. Noviembre de 2025 no
+  tiene retencion observada y queda `None`, no cero. La fuente no permite
+  determinar la causa: no hay cotizaciones de esos meses y la liquidacion no
+  separa un cargo de impuesto sobre la comision. No se atribuye a categoria ni a
+  conversion; es una tarea de evidencia abierta.
 
 Diferencia en dinero, tres pedidos de Amazon MX con la comision exacta al 15%
 (`cargo.txt`, bloque G; sin identificador):

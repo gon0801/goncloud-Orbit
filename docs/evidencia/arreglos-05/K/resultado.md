@@ -7,7 +7,7 @@
 - Aviso del bloque: la estimacion explica los componentes que pudo conciliar y
   conserva desconocido lo que la fuente no permite demostrar.
 - Evidencia: el commit que contiene este archivo.
-- Lectura de produccion: 2026-11-25T13:21-13:23Z, solo lectura, por
+- Lectura de produccion: 2026-11-25T13:28-13:30Z, solo lectura, por
   `docs/evidencia/arreglos-01/lee_prod.sh`.
 
 ## Decision K.2: MX y MeLi adjudicados; Amazon US desconocido y K abierto en US

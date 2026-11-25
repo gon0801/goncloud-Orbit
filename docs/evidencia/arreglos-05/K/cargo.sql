@@ -241,7 +241,7 @@ SELECT round(v.sale, 4) AS venta, round(c.fee, 4) AS comision,
  ORDER BY v.sale DESC
  LIMIT 3;
 
--- == H. Amazon US por mes: venta, comision efectiva y retencion [mes|pares|venta|comision|tasa_comision|retencion|tasa_retencion]
+-- == H. Amazon US por mes: venta, comision efectiva y retencion observada; sin dato es NULL, no cero [mes|pares|venta|comision|tasa_comision|pedidos_con_retencion|retencion|tasa_retencion]
 WITH v AS (
     SELECT order_id, sum(amount) AS sale, min(event_date) AS fecha
       FROM ledger_event
@@ -264,8 +264,9 @@ SELECT date_trunc('month', v.fecha)::date AS mes, count(*) AS pares,
        round(sum(v.sale)::numeric, 2) AS venta,
        round(sum(c.fee)::numeric, 2) AS comision,
        round((sum(c.fee) / sum(v.sale))::numeric, 6) AS tasa_comision,
-       round(coalesce(sum(w.withheld), 0)::numeric, 2) AS retencion,
-       round((coalesce(sum(w.withheld), 0) / sum(v.sale))::numeric, 6) AS tasa_retencion
+       count(*) FILTER (WHERE w.withheld IS NOT NULL) AS pedidos_con_retencion,
+       round(sum(w.withheld)::numeric, 2) AS retencion,
+       round((sum(w.withheld) / sum(v.sale) FILTER (WHERE w.withheld IS NOT NULL))::numeric, 6) AS tasa_retencion
   FROM v
   JOIN c ON c.order_id = v.order_id
   LEFT JOIN w ON w.order_id = v.order_id

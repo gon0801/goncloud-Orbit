@@ -1,6 +1,6 @@
 # K/escenario.sql
-# generado: 2026-11-25T13:22:31Z
-# commit de la lectura: cfcd20be50ba775fec3a623d031dbbd8e535da65
+# generado: 2026-11-25T13:29:14Z
+# commit de la lectura: ce735252ddeb58cecf8323e376da2760f4bb4096
 
 -- A. Escenarios por plataforma, formula y estado [platform|formula|estado|n|desde|hasta]
 amazon_mx|S3|disponible|42174|2026-09-08|2026-11-21
