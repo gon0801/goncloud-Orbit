@@ -5,8 +5,9 @@
 - Rama: `arreglos-05/h`.
 - Cabeza de la implementacion: `e48a1075df56d7d92371adde0a16e7349fe607d0`
   (modelo y foto en `8716b563`).
-- Acepta corrida en `e48a1075` con arbol limpio (salida completa en
-  `acepta.txt`, partes en `acepta-1..5.txt`).
+- Acepta: partes 1 a 4 en `e48a1075` y parte 5 en `932eb679` (tras corregir el
+  conteo de la receta), todas con arbol limpio; el codigo de H no cambia entre
+  ambos. Salida completa en `acepta.txt`, partes en `acepta-1..5.txt`.
 
 - gitleaks de `c9d31d87..HEAD`: sin fugas (dentro de `acepta-5.txt`).
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md`, seccion "H. Tope de 150
