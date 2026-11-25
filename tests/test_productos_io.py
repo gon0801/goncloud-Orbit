@@ -336,44 +336,13 @@ def _ciclo(prefijo: str, *, meta: str | None, rompe_margen: bool = False, sin_ta
         return ids, res, decisiones, targets, evaluaciones
 
 
-def test_sombra_no_cambia_decisiones_y_un_error_sql_queda_en_notes():
-    _ids, base, dec_off, tgt_off, ev_off = _ciclo("orbit_auto03_off", meta=None)
-    ids, sombra, dec_sombra, tgt_sombra, ev_sombra = _ciclo("orbit_auto03_sh", meta="shadow")
-    _ids, roto, dec_roto, tgt_roto, ev_roto = _ciclo(
-        "orbit_auto03_roto", meta="shadow", rompe_margen=True
-    )
-    assert base.status == sombra.status == roto.status == "done"
-    assert dec_off and dec_sombra == dec_off and dec_roto == dec_off
-    assert tgt_sombra == tgt_off == tgt_roto
-    assert ev_off == [] and ev_roto == []
-    assert "productos" not in json.loads(base.notes)
-
-    notas = json.loads(sombra.notes)["productos"]
-    assert notas["modo_meta"] == "shadow" and "error" not in notas
-    assert notas["productos_evaluados"] == notas["con_meta"] == 1
-    assert notas["evaluaciones_guardadas"] == 1
-    assert notas["grupos_aptos"] == 1 and notas["hojas_bajo_grupo_apto"] == 1
-    [(_pid, meta_pct, resultado)] = ev_sombra
-    assert meta_pct == Decimal("10")
-    [hoja] = resultado["sombra_hojas"]
-    assert hoja["hoja_id"] == ids["kw"]
-    assert (hoja["target_actual"], hoja["procedencia_actual"]) == ("29.5", "margen_familia")
-    assert Decimal(hoja["target_con_meta"]) == 10
-    assert hoja["procedencia_con_meta"] == "margen_producto"
-    assert resultado["pausas"] == []
-
-    notas_roto = json.loads(roto.notes)["productos"]
-    assert notas_roto["error"].startswith("lectura: ")
-    assert "v_margen_producto" in notas_roto["error"]
-
-
 def test_evaluacion_unica_por_ciclo_producto_e_inmutable():
     with _db("orbit_auto03_inmutable") as conn:
         _mundo_familia(conn)
         vigente = conn.execute(
             "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
         ).fetchone()[0]
-        _config_version(conn, {**vigente, "ads_producto_meta_amazon_us": "shadow"})
+        _config_version(conn, {**vigente, "ads_producto_pausa_amazon_us": "shadow"})
         res = _corre(conn)
         fila = conn.execute(
             "SELECT id, cycle_id, platform, product_id, decided_at, politica, moneda, entrada,"
@@ -395,35 +364,6 @@ def test_evaluacion_unica_por_ciclo_producto_e_inmutable():
             )
         with pytest.raises(psycopg.errors.RestrictViolation, match="APPEND-ONLY"):
             conn.execute("DELETE FROM evaluacion_producto_ciclo WHERE id = %s", (fila[0],))
-
-
-def test_hoja_sin_target_actual_congela_el_veredicto_con_la_meta():
-    """h_cbb7cad0: sin target en la cascada actual la hoja se sigue saltando,
-    pero la sombra congela el veredicto que la meta de 10 habria dado."""
-    (
-        _ids,
-        base,
-        dec_off,
-        tgt_off,
-        _ev,
-    ) = _ciclo("orbit_auto03_st_off", meta=None, sin_target=True)
-    ids, sombra, dec_sombra, tgt_sombra, ev_sombra = _ciclo(
-        "orbit_auto03_st_sh", meta="shadow", sin_target=True
-    )
-    assert base.status == sombra.status == "done"
-    assert dec_sombra == dec_off and tgt_sombra == tgt_off
-    assert ids["kw"] not in tgt_sombra
-    assert json.loads(sombra.notes)["skips"]["entidad"]["sin_target"] == 1
-    assert "error" not in json.loads(sombra.notes)["productos"]
-    [(_pid, meta_pct, resultado)] = ev_sombra
-    assert meta_pct == Decimal("10")
-    [hoja] = resultado["sombra_hojas"]
-    assert hoja["hoja_id"] == ids["kw"]
-    assert (hoja["target_actual"], hoja["procedencia_actual"]) == (None, None)
-    assert hoja["veredicto_actual"] == {"tipo": "Mantener", "motivo": "sin_target"}
-    assert Decimal(hoja["target_con_meta"]) == 10
-    assert hoja["procedencia_con_meta"] == "margen_producto"
-    assert hoja["veredicto_con_meta"]["tipo"] in {"Mantener", "Mover", "Regresar", "Pausar"}
 
 
 def test_candidatos_a_pausa_y_anuncios_afectables():

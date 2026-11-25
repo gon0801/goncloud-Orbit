@@ -1,0 +1,57 @@
+## config vigente: modos, flags y economia (ultimas 3 versiones)
+63|2026-11-22 20:22:47.288691+00:00|live|niveles_v3|niveles_v3|live|live|shadow|shadow|producto_directo_v1|producto_directo_v1|true|economia_cambio_v2|economia_cambio_v2
+62|2026-11-22 20:22:42.035697+00:00|live|niveles_v3|niveles_v3|live|live|shadow|shadow|producto_directo_v1|producto_directo_v1|true|economia_cambio_v2|economia_cambio_v2
+61|2026-11-22 17:17:15.433156+00:00|live|niveles_v3|niveles_v3|live|live|shadow|shadow|producto_directo_v1|producto_directo_v1|true|economia_cambio_v2|economia_cambio_v2
+
+## temporada vigente
+live|live|true
+
+## decisiones historicas por era, motor y kind
+False|bid|bid|2723|2026-08-24|2026-10-10
+False|bid|pause|36|2026-08-24|2026-10-05
+False|hygiene|negative|54|2026-08-24|2026-11-21
+False|hygiene|harvest|16|2026-08-28|2026-10-29
+True|bid|bid|68|2026-10-12|2026-11-25
+True|bid|pause|2|2026-11-04|2026-11-09
+True|producto|pause|41|2026-11-08|2026-11-25
+
+## procedencia del target en decisiones de hoja
+goal_campana|bid|61|2026-09-19|2026-10-02
+margen_plataforma|bid|619|2026-09-04|2026-11-25
+margen_plataforma|pause|4|2026-09-19|2026-11-09
+(sin clave)|bid|2111|2026-08-24|2026-09-03
+(sin clave)|pause|75|2026-08-24|2026-11-25
+
+## config historica de los interruptores del bloque
+config_eco_mx|(ausente)|46
+config_eco_mx|producto_directo_v1|14
+config_eco_us|(ausente)|45
+config_eco_us|producto_directo_v1|15
+config_meta_mx|(ausente)|39
+config_meta_mx|live|19
+config_meta_mx|shadow|2
+config_meta_us|(ausente)|40
+config_meta_us|live|18
+config_meta_us|shadow|2
+config_pausa_mx|(ausente)|43
+config_pausa_mx|shadow|17
+config_pausa_us|(ausente)|44
+config_pausa_us|shadow|16
+config_pause_sin_cooldown|(ausente)|19
+config_pause_sin_cooldown|true|41
+config_pol_mx|(ausente)|23
+config_pol_mx|niveles_v3|37
+config_pol_us|(ausente)|24
+config_pol_us|niveles_v3|36
+cycle_modo_meta|live|42
+cycle_modo_meta|(sin productos)|171
+cycle_modo_pausa|shadow|40
+cycle_modo_pausa|(sin productos)|173
+
+## pause historica sin politica: metadatos (la muestra usada como fixture)
+2736|102|5892|2026-10-05 08:40:01.858222+00:00
+2361|70|4925|2026-09-19 08:40:01.984961+00:00
+774|15|4935|2026-08-28 03:14:30.950540+00:00
+
+## decisiones de pausa de producto por modo congelado
+shadow|41|2026-11-08|2026-11-25

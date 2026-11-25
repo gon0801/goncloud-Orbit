@@ -33,6 +33,7 @@ from test_apply_cola import (
 )
 from test_cycle import (
     DECIDED_AT,
+    _config_version,
     _corre,
     _decisions_de,
     _entidad,
@@ -49,11 +50,6 @@ from test_cycle import (
 from test_schema import _test_dsn
 
 from app import apply_cola, cli_productos
-from app import cycle as ciclo
-from app.optimizer import cortes as cortes_mod
-from app.optimizer import goals as g
-from app.optimizer import proteccion as subproteccion
-from app.optimizer import windows
 from app.optimizer.caso import EpisodioProteccion
 from app.proteccion_venta import CacheProteccion, lee_cache
 
@@ -85,48 +81,6 @@ def _used_pause(conn) -> int:
         ("ads_optimizer:amazon_us:pause",),
     ).fetchone()
     return fila[0] if fila is not None else 0
-
-
-@_skip_db
-def test_ciclo_con_venta_reciente_no_pausa_y_abre_episodio():
-    """El kw_pause maduro calificaria la pausa por umbral; el pedido de 08-20
-    la suprime, el juicio de la hoja sigue y el episodio queda persistido."""
-    with _db_ciclo("orbit_m1_ciclo") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_proteccion_venta": "proteccion_venta_v1"})
-        run = _run(conn)
-        # Cobertura completa de D-9..D-1 (08-13..08-21) con el pedido el 08-20.
-        for fecha in _fechas(dt.date(2026, 8, 20), dt.date(2026, 8, 21)):
-            _metrica_ciclo(
-                conn,
-                run,
-                ids["kw_pause"],
-                fecha,
-                _obs(fecha),
-                cost="0.10",
-                ad_revenue="0.10",
-                clicks=1,
-                orders=0,
-                impressions=10,
-            )
-        _metrica_ciclo(
-            conn,
-            run,
-            ids["kw_pause"],
-            dt.date(2026, 8, 20),
-            _obs(dt.date(2026, 8, 21)),
-            cost="0.10",
-            ad_revenue="1.00",
-            clicks=1,
-            orders=1,
-            impressions=10,
-        )
-
-        res = _corre(conn)
-
-        assert res.status == "done"
-        assert _pausa_de(conn, res.cycle_id, ids["kw_pause"]) == []
-        assert _episodios(conn, ids["kw_pause"]) == [(dt.date(2026, 8, 20), dt.date(2026, 8, 30))]
-        assert "venta_reciente" in res.notes
 
 
 def _run(conn) -> int:
@@ -759,120 +713,23 @@ def test_arreglos01_o_venta_en_el_hueco_detiene_la_pausa():
 
 
 @_skip_db
-def test_sombra_sin_target_aplica_la_proteccion_en_el_juicio_hipotetico():
-    """F1 (DeepSeek): el juicio hipotetico de una hoja sin target usa los
-    mismos insumos que el camino live. Con la regla activa y una venta
-    reciente, la pausa por umbral se suprime tambien en la sombra."""
-    with _db_ciclo("orbit_m1_sombra_sin_target") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_proteccion_venta": "proteccion_venta_v1"})
-        run = _run(conn)
-        for fecha in _fechas(dt.date(2026, 8, 20), dt.date(2026, 8, 21)):
-            _metrica_ciclo(
-                conn,
-                run,
-                ids["kw_pause"],
-                fecha,
-                _obs(fecha),
-                cost="0.10",
-                ad_revenue="0.10",
-                clicks=1,
-                orders=0,
-                impressions=10,
-            )
-        _metrica_ciclo(
-            conn,
-            run,
-            ids["kw_pause"],
-            dt.date(2026, 8, 20),
-            _obs(dt.date(2026, 8, 21)),
-            cost="0.10",
-            ad_revenue="1.00",
-            clicks=1,
-            orders=1,
-            impressions=10,
-        )
-        cache = lee_cache(conn, "amazon_us", DECIDED_AT)
-        evidencia = windows.ventanas_evidencia_ad_group(conn, "amazon_us", DECIDED_AT)
-        corte = cortes_mod.umbral_corte(evidencia.get(ids["ag"]), "pause")
-        goal = g.Goal(
-            scope="platform",
-            ad_entity_id=None,
-            platform="amazon_us",
-            target_acos_pct=Decimal("25"),
-            bid_floor=Decimal("0.40"),
-            bid_ceiling=Decimal("2.50"),
-            bid_currency="USD",
-            harvest_campaign_id=None,
-            harvest_ad_group_id=None,
-            harvest_default_bid=None,
-            enabled=True,
-            mode="shadow",
-        )
-
-        veredicto = ciclo._juicio_hoja(
-            conn,
-            goal.target_acos_pct,
-            platform="amazon_us",
-            goal=goal,
-            entidad_id=ids["kw_pause"],
-            ad_group_id=ids["ag"],
-            current_bid=Decimal("1.00"),
-            bid_currency="USD",
-            decided_at=DECIDED_AT,
-            corte_pause=corte,
-            pause_economica=False,
-            politica=None,
-            lecturas=None,
-            proteccion_cache=cache,
-        )
-
-        assert veredicto.kind is None
-        assert veredicto.motivo == subproteccion.MOTIVO_PROTEGIDA
-        assert veredicto.proteccion is not None
-        assert veredicto.proteccion.accion == "esperar"
-        assert veredicto.proteccion.ancla == dt.date(2026, 8, 20)
-        assert veredicto.proteccion.vence_el == dt.date(2026, 8, 30)
-
-
-@_skip_db
-def test_ciclo_sin_setting_conserva_la_pausa_historica_y_no_toca_episodios():
+def test_ciclo_sin_setting_conserva_la_pausa_y_no_toca_episodios():
     """Reversa de seleccion: sin `ads_proteccion_venta` la pausa por umbral
-    procede como antes, el freeze no lleva insumos M1 y el episodio persistido
-    no se borra ni se reescribe."""
+    procede, el freeze no lleva insumos M1 y el episodio persistido no se
+    borra ni se reescribe."""
     with _db_ciclo("orbit_m1_apagada") as (conn, _c):
-        ids = _siembra_maestra(conn)
-        run = _run(conn)
-        for fecha in _fechas(dt.date(2026, 8, 20), dt.date(2026, 8, 21)):
-            _metrica_ciclo(
-                conn,
-                run,
-                ids["kw_pause"],
-                fecha,
-                _obs(fecha),
-                cost="0.10",
-                ad_revenue="0.10",
-                clicks=1,
-                orders=0,
-                impressions=10,
-            )
-        _metrica_ciclo(
-            conn,
-            run,
-            ids["kw_pause"],
-            dt.date(2026, 8, 20),
-            _obs(dt.date(2026, 8, 21)),
-            cost="0.10",
-            ad_revenue="1.00",
-            clicks=1,
-            orders=1,
-            impressions=10,
-        )
+        kw = _siembra_venta_en_el_hueco(conn)
+        vigente = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        vigente.pop("ads_proteccion_venta", None)
+        _config_version(conn, vigente)
         conn.execute(
             "INSERT INTO proteccion_venta_reciente (platform, ad_entity_id, version,"
             " ancla, vence_el, abierta_el, observado_el) VALUES ('amazon_us', %s,"
             " 'proteccion_venta_v1', %s, %s, %s, %s)",
             (
-                ids["kw_pause"],
+                kw,
                 dt.date(2026, 8, 20),
                 dt.date(2026, 8, 30),
                 DECIDED_AT,
@@ -883,10 +740,10 @@ def test_ciclo_sin_setting_conserva_la_pausa_historica_y_no_toca_episodios():
         res = _corre(conn)
 
         assert res.status == "done"
-        pausas = _pausa_de(conn, res.cycle_id, ids["kw_pause"])
+        pausas = _pausa_de(conn, res.cycle_id, kw)
         assert pausas, "sin el setting la pausa por umbral procede"
-        assert pausas[0][1]["proteccion"] is None
-        assert _episodios(conn, ids["kw_pause"]) == [(dt.date(2026, 8, 20), dt.date(2026, 8, 30))]
+        assert pausas[0][1]["caso"]["pausa"]["proteccion"] is None
+        assert _episodios(conn, kw) == [(dt.date(2026, 8, 20), dt.date(2026, 8, 30))]
 
 
 @_skip_db

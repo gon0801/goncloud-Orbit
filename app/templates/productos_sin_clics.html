@@ -135,7 +135,7 @@
   <p data-decisiones-vacio>Todavía no hay un ciclo terminado en este mercado.</p>
   {% else %}
   <p data-decisiones-ciclo>
-    Ciclo {{ dp.cycle_id }} · {{ dp.decidido_el | fecha_hora }} · la meta está <strong>{{ dp.modo_meta_texto }}</strong>{% if dp.modo_meta == "shadow" %}: se calcula y no cambia ninguna puja{% endif %}.
+    Ciclo {{ dp.cycle_id }} · {{ dp.decidido_el | fecha_hora }} · la meta está <strong>{{ dp.modo_meta_texto }}</strong>.
   </p>
   {% if dp.error %}
   <p class="aviso" data-decisiones-error>El ciclo no pudo evaluar los productos: {{ dp.error }}</p>

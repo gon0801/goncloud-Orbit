@@ -10,7 +10,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from collections import defaultdict
-from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -19,12 +18,10 @@ import psycopg
 
 from app import productos_io, proteccion_venta
 from app.cycle_serializacion import _dec_str, _fecha_iso, _Pendiente
-from app.lecturas_caso import LecturasPlataforma
 from app.optimizer import bid, cortes, productos, windows
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.caso import BidVigente, InsumosPausa, InsumosProteccion
-from app.optimizer.politica import decide
+from app.optimizer.caso import InsumosPausa, InsumosProteccion
 from app.redaction import install_scrub_filter, scrub
 
 if TYPE_CHECKING:
@@ -184,61 +181,6 @@ def _insumos_pausa(
     return costo_piso, cortes_hoja, pausa
 
 
-def _juicio_hoja(
-    conn: psycopg.Connection,
-    target: Decimal,
-    *,
-    platform: str,
-    goal: g.Goal,
-    entidad_id: int,
-    ad_group_id: int,
-    current_bid: Decimal | None,
-    bid_currency: str | None,
-    decided_at: dt.datetime,
-    corte_pause: cortes.UmbralResuelto,
-    pause_economica: bool,
-    politica: str | None,
-    lecturas: LecturasPlataforma | None,
-    proteccion_cache: proteccion_venta.CacheProteccion | None = None,
-    equilibrio_acos_pct: Decimal | None = None,
-):
-    """AUTO-03 D.4: el veredicto que el camino de _procesa_decisora daria con
-    `target`, con los mismos insumos y sin escribir nada."""
-    floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
-    costo_piso, cortes_hoja, pausa = _insumos_pausa(
-        conn,
-        platform=platform,
-        entidad_id=entidad_id,
-        decided_at=decided_at,
-        corte_pause=corte_pause,
-        pause_economica=pause_economica,
-        proteccion_cache=proteccion_cache,
-    )
-    if politica is None:
-        return bid.decide_pause(
-            platform=platform,
-            bids=None,
-            cortes=cortes_hoja,
-            target_acos_pct=target,
-            umbral_pause=corte_pause.umbral,
-            cost_min=costo_piso,
-            policy_version=pausa.politica_economica,
-            proteccion=pausa.proteccion,
-        )
-    assert lecturas is not None  # _recorre_plataforma: politica => lecturas
-    return decide(
-        lecturas.caso(
-            conn,
-            hoja_id=entidad_id,
-            ad_group_id=ad_group_id,
-            bid=BidVigente(valor=current_bid, moneda=bid_currency, piso=floor, techo=ceiling),
-            target_acos_pct=target,
-            pausa=pausa,
-            equilibrio_acos_pct=equilibrio_acos_pct,
-        )
-    )
-
-
 def _evalua_productos(
     conn: psycopg.Connection,
     *,
@@ -369,91 +311,31 @@ def _anota_sombra(
     *,
     entidad_id: int,
     ad_group_id: int,
-    goal: g.Goal,
-    setting_target: Decimal | None,
-    margen_plataforma: Decimal | None,
-    target_margen_familia: Decimal | None,
-    previo: _PrevioHoja | None,
     meta_viva: _MetaHoja | None,
     target: Decimal | None,
     procedencia: str | None,
     actual,
-    decide_con: Callable[[Decimal, Decimal | None], object],
 ) -> None:
-    """AUTO-03 D.4 / F.2: congela la sombra de meta por producto para una hoja."""
-    if productos_ciclo is None:
+    """AUTO-03 F.2: congela la evaluacion live de la meta por producto.
+
+    ARREGLOS 05 J retiro el modo practica de la meta: sin `live` no hay
+    calculo hipotetico ni registro. La fila guardada sigue siendo la misma
+    (`sombra_hojas`) para que la pantalla y la historia no cambien."""
+    if productos_ciclo is None or productos_ciclo.modo_meta != "live":
         return
-    if productos_ciclo.modo_meta == "live":
-        if meta_viva is not None:
-            productos_ciclo.sombra[meta_viva.product_id].append(
-                _hoja_sombra(
-                    entidad_id,
-                    ad_group_id,
-                    target=target,
-                    procedencia=procedencia,
-                    meta=meta_viva.resolucion,
-                    target_meta=target,
-                    procedencia_meta=procedencia,
-                    actual=actual,
-                    con_meta=actual,
-                )
-            )
+    if meta_viva is None:
         return
-    if productos_ciclo.modo_meta != "shadow":
-        return
-    evaluacion = productos_ciclo.por_grupo.get(ad_group_id)
-    if evaluacion is None:
-        return
-    try:
-        meta = productos.meta_de_hoja(
-            evaluacion.meta,
-            ultimo=previo.target if previo is not None else None,
-            destino=target,
-            tiene_previo=previo is not None and previo.procedencia == "margen_producto",
-            version=productos_ciclo.modo_economia,
-        )
-        target_meta = g.cascada_target_acos(
-            goal.target_acos_pct,
-            setting_target,
-            margen_plataforma,
-            goal.scope,
-            target_margen_familia,
-            target_margen_producto=meta.aplicado,
-        )
-        procedencia_meta = g.peldano_target_acos(
-            goal.target_acos_pct,
-            goal.scope,
-            margen_plataforma,
-            setting_target,
-            target_margen_familia,
-            target_margen_producto=meta.aplicado,
-        )
-        margen = evaluacion.entrada.margen
-        equilibrio = (
-            margen.margen_neto_pct
-            if productos_ciclo.modo_economia == productos.POLITICA_ECONOMIA
-            and procedencia_meta == "margen_producto"
-            and meta.motivo is None
-            and isinstance(margen, g.MedicionMargen)
-            else None
-        )
-        con_meta = decide_con(target_meta, equilibrio) if target_meta is not None else None
-    except Exception as exc:
-        productos_ciclo.errores.append(
-            f"sombra hoja {entidad_id}: {scrub(str(exc)) or type(exc).__name__}"
-        )
-        return
-    productos_ciclo.sombra[evaluacion.producto.product_id].append(
+    productos_ciclo.sombra[meta_viva.product_id].append(
         _hoja_sombra(
             entidad_id,
             ad_group_id,
             target=target,
             procedencia=procedencia,
-            meta=meta,
-            target_meta=target_meta,
-            procedencia_meta=procedencia_meta,
+            meta=meta_viva.resolucion,
+            target_meta=target,
+            procedencia_meta=procedencia,
             actual=actual,
-            con_meta=con_meta,
+            con_meta=actual,
         )
     )
 

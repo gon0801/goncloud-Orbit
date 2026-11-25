@@ -468,7 +468,7 @@ def test_ciclo_en_practica_encola_la_pausa_shadow_y_nunca_la_libera():
 def test_pausa_apagada_evalua_sin_decidir():
     with _db("orbit_h6_apagada") as conn:
         _mundo_pausa(conn)
-        res = _ciclo(conn, ads_producto_meta_amazon_us="shadow")
+        res = _ciclo(conn, ads_producto_meta_amazon_us="live")
         assert json.loads(res.notes)["productos"]["modo_pausa"] == "off"
         assert _pausas_de(conn, res.cycle_id) == [] and _cola(conn) == []
         [resultado] = conn.execute(

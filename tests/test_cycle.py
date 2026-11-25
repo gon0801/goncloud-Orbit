@@ -749,7 +749,7 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         res = _corre(conn)
 
         assert res.status == "done"
-        assert res.decisions_count == 3
+        assert res.decisions_count == 2
         env = _envelope(conn, res.cycle_id)
         assert env[0] == "done"
         assert env[2] == res.notes
@@ -758,37 +758,10 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         filas = _decisions_de(conn, res.cycle_id)
         por = {(f[0], f[1], f[2]): f for f in filas}
 
-        # keyword kw_pause: PAUSE sobre la ventana de cortes, SIN dinero
-        pause_row = por[(ids["kw_pause"], "pause", None)]
-        assert pause_row[3] is None
-        assert pause_row[4] is None
-        assert pause_row[5] is None
-        assert (pause_row[6], pause_row[7]) == (INICIO_CORTES, FIN_CORTES)
-        assert pause_row[9]["motivo"] == "pause_umbral"
-        assert pause_row[9]["ventanas"]["cortes"]["cost"] == "45.0000"
-        assert pause_row[9]["ventanas"]["cortes"]["orders"] == 0
-        assert pause_row[9]["ventanas"]["cortes"]["clicks"] == 105
-        # CORTES 01 (1.3): pause TAMBIEN congela inputs.corte -- mismo shape
-        # que negative. El grupo es elegible (131/9/30) con expected
-        # 14.5555... -> bruto ceil(21.83) = 22, y el umbral FINAL del freeze
-        # es el PISO 100 (CORTES 03: 105 >= 100 y 45 >= 40 dispara; sin el
-        # piso el freeze diria 22)
-        assert pause_row[9]["corte"]["umbral_clicks_usado"] == 100
-        assert pause_row[9]["corte"]["elegible"] is True
-        assert pause_row[9]["corte"]["expected_clicks"] == "14.55555555555555555555555556"
-        assert pause_row[9]["corte"]["evidencia"]["clicks"] == 131
-        # CORTES 03 (cierre replay, decision del lead 2026-08-28): el motor
-        # de bids congela ADEMAS el piso de costo que consumio
-        # (cost_min_usado, string Decimal) -- replay fiel por construccion
-        assert pause_row[9]["corte"]["cost_min_usado"] == "40"
-        # CORTES 01 (1.4): el piso de cost ADAPTATIVO es SOLO del camino
-        # negative -- pause/bid NO congelan piso_cost_usado ni aov (quien no
-        # consumio el piso adaptativo, no lo congela; hallazgo reviewer 1.4;
-        # el cost_min_usado de arriba es el SELLADO de bid, no el adaptativo)
-        assert "piso_cost_usado" not in pause_row[9]["corte"]
-        assert "aov" not in pause_row[9]["corte"]
-        # sello bitemporal: LEAST(decided_at, max(obs cortes, evidencia))
-        assert pause_row[8] == _obs(FIN_CORTES)
+        # ARREGLOS 05 J: sin `ads_bid_politica` la hoja no muta; la PAUSE de
+        # la era bandas ya no existe. El freeze de la pausa viva se prueba en
+        # los tests con niveles_v3.
+        assert (ids["kw_pause"], "pause", None) not in por
         # termino NEGATIVE: con search_term y SIN dinero
         neg_row = por[(ids["ag"], "negative", "tortugas ninja calzas")]
         assert neg_row[3] is None and neg_row[4] is None and neg_row[5] is None
@@ -853,10 +826,10 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
 
         notes = json.loads(res.notes)
         assert notes["skips"] == {
-            "entidad": {"politica_apagada": 1},
+            "entidad": {"politica_apagada": 2},
             "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 3},
         }
-        assert notes["decisiones"] == {"pause": 1, "negative": 1, "harvest": 1}
+        assert notes["decisiones"] == {"negative": 1, "harvest": 1}
         assert notes["entidades"] == 2
         assert notes["ad_groups"] == 1
         assert notes["terminos"] == 7
@@ -899,7 +872,7 @@ def test_ciclo_harvest_no_duplica_texto_archivado_en_destino():
         assert harvests == [], "el texto archivado NO se vuelve a cosechar"
         notes = json.loads(res.notes)
         assert notes["skips"]["termino"]["harvest_duplicado"] == 1
-        assert notes["decisiones"] == {"pause": 1, "negative": 1}
+        assert notes["decisiones"] == {"negative": 1}
         assert notes["degradacion_live"] is None
 
         # lock liberado al terminar
@@ -1041,7 +1014,7 @@ def test_decisions_count_cuadra_contra_decision():
         real = conn.execute(
             "SELECT count(*) FROM decision WHERE cycle_id = %s", (res.cycle_id,)
         ).fetchone()[0]
-        assert res.decisions_count == real == 3
+        assert res.decisions_count == real == 2
         assert _envelope(conn, res.cycle_id)[1] == real
 
 
@@ -1445,7 +1418,7 @@ def test_gates_de_elegibilidad_sin_goal_mode_off_estado_y_cooldown():
 )
 def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
     with _db_temporal("orbit_ciclo_rr") as (conn, _c):
-        _siembra_maestra(conn)
+        _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"})
         capturado: dict[str, str] = {}
         original = w.ventana_cortes
 
@@ -1776,7 +1749,7 @@ def test_bitemporal_clamp_observed_at_futuro_a_decided_at():
         )
         res = _corre(conn)  # sin clamp: CheckViolation aborta TX3 aqui
         assert res.status == "done"
-        assert res.decisions_count == 3  # el ciclo completo sobrevivio (sin bid: apagado)
+        assert res.decisions_count == 2  # sin politica no hay bid ni pause
         neg = conn.execute(
             "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'negative'",
             (res.cycle_id,),
@@ -1925,7 +1898,7 @@ def test_piso_pause_100_en_el_freeze_del_ciclo():
     reventaria (la funcion pura ya vive en test_optimizer_cortes; esto
     testea el cableado por el ciclo)."""
     with _db_temporal("orbit_ciclo_piso") as (conn, _c):
-        _siembra_maestra(conn)
+        _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"})
         res = _corre(conn)
         assert res.status == "done"
         fila = conn.execute(
@@ -2219,7 +2192,7 @@ def test_camino_unico_negative_y_pause_por_la_misma_umbral_corte(monkeypatch):
     reventaria. El grupo maestro resuelve 'negative' (via _procesa_grupo)
     y 'pause' (via _procesa_decisora) con la evidencia del MISMO ag."""
     with _db_temporal("orbit_ciclo_unico") as (conn, _c):
-        ids = _siembra_maestra(conn)
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"})
         llamadas: list[tuple[str, int | None]] = []
         real = cortes.umbral_corte
 
@@ -2261,7 +2234,7 @@ def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
     CheckViolation). Con el sello bitemporal de 1.3 en TODA decision del
     motor de bids, el LEAST(decided_at, ...) clampea y el ciclo sobrevive."""
     with _db_temporal("orbit_ciclo_bip") as (conn, _c):
-        ids = _siembra_maestra(conn)
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"})
         run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
         futuro = dt.datetime(2026, 8, 24, 1, tzinfo=dt.UTC)  # > DECIDED_AT (08-22)
         # obs futura en la ventana de CORTES de kw_pause: SU pause decide, y
@@ -2279,7 +2252,7 @@ def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
         )
         res = _corre(conn)  # con codigo 1.2: CheckViolation aborta TX3 aqui
         assert res.status == "done"
-        assert res.decisions_count == 3  # sin bid: apagado
+        assert res.decisions_count == 3
         pause = conn.execute(
             "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'pause'",
             (res.cycle_id,),
@@ -2352,10 +2325,9 @@ def test_gate_campana_y_grupo_no_enabled():
         }
         # ninguna hoja gateada decide; el grupo de la campaña pausada tampoco
         assert con_decision.isdisjoint({kw_p, kw_g, kw_n, ag_p})
-        # la campaña ENABLED de la fixture maestra sigue viva: su pause
-        # decide igual que antes (el bid cae politica_apagada, no por gates)
-        assert ids["kw_pause"] in con_decision
-        assert ids["kw_bid"] not in con_decision
+        # ARREGLOS 05 J: sin politica la hoja no muta; ni el bid ni la pausa
+        # de la era bandas deciden ya.
+        assert con_decision.isdisjoint({ids["kw_pause"], ids["kw_bid"]})
 
 
 # ---------------------------------------------------------------------------
@@ -2434,12 +2406,12 @@ def test_ciclo_hoja_sin_impresiones_recientes_es_skip_entidad_inerte():
 
         res = _corre(conn)
         assert res.status == "done"
-        # 3 selladas de la maestra (sin bid: apagado); la inerte es skip,
-        # la viva pasa la guarda (cae politica_apagada, no inerte)
-        assert res.decisions_count == 3
+        # 2 selladas de la maestra (negative + harvest: sin politica no hay
+        # bid ni pause); la inerte es skip y la viva cae politica_apagada
+        assert res.decisions_count == 2
         skips = json.loads(res.notes)["skips"]
         assert skips["entidad"]["entidad_inerte"] == 1
-        assert skips["entidad"]["politica_apagada"] == 2
+        assert skips["entidad"]["politica_apagada"] == 3
         filas = _decisions_de(conn, res.cycle_id)
         por = {(f[0], f[1], f[2]) for f in filas}
         assert (inerte, "bid", None) not in por
@@ -2854,7 +2826,10 @@ def test_ciclo_lee_flag_economico_de_settings():
     for flag, espera_economica in ((True, True), (False, False)):
         with _db_temporal("orbit_c_flag_econ") as (conn, _c):
             ids = _siembra_maestra(conn)
-            settings = {"ads_optimizer_mode": "shadow"}
+            settings = {
+                "ads_optimizer_mode": "shadow",
+                "ads_bid_politica_amazon_us": "niveles_v3",
+            }
             if flag:
                 settings["ads_pause_economica"] = True
             _config_version(conn, settings)
@@ -2904,7 +2879,7 @@ def test_ciclo_lee_flag_economico_de_settings():
                 assert "pause_economica" not in motivos
                 for d in decisiones:
                     if d[1] in ("pause", "bid"):
-                        assert d[9]["economic_policy"]["version"] is None
+                        assert d[9]["caso"]["pausa"]["politica_economica"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -2987,22 +2962,20 @@ def _siembra_r9(conn) -> dict:
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_ciclo_clave_ausente_no_emite_bids_cuenta_politica_apagada():
-    """M.3: sin ads_bid_politica_<p> el ciclo no guarda ninguna decision
-    bid, cuenta cada hoja con politica_apagada y sigue guardando PAUSE,
-    negative y harvest."""
+    """M.3 + ARREGLOS 05 J: sin ads_bid_politica_<p> la hoja no muta. No hay
+    bid ni pause; el skip se cuenta y el harvest/negative sigue igual."""
     with _db_temporal("orbit_ciclo_m3off") as (conn, _c):
-        ids = _siembra_maestra(conn)
+        _siembra_maestra(conn)
         res = _corre(conn)
         assert res.status == "done"
         filas = _decisions_de(conn, res.cycle_id)
         kinds = {f[1] for f in filas}
-        assert "bid" not in kinds
-        assert kinds == {"pause", "negative", "harvest"}
-        assert res.decisions_count == 3
+        assert "bid" not in kinds and "pause" not in kinds
+        assert kinds == {"negative", "harvest"}
+        assert res.decisions_count == 2
         notes = json.loads(res.notes)
-        assert notes["decisiones"] == {"pause": 1, "negative": 1, "harvest": 1}
-        assert notes["skips"]["entidad"] == {"politica_apagada": 1}
-        assert (ids["kw_pause"], "pause", None) in {(f[0], f[1], f[2]) for f in filas}
+        assert notes["decisiones"] == {"negative": 1, "harvest": 1}
+        assert notes["skips"]["entidad"] == {"politica_apagada": 2}
 
 
 @pytest.mark.skipif(
@@ -3247,67 +3220,4 @@ def test_ciclo_decisora_que_abstiene_late(monkeypatch):
     )
     assert pendientes == []
     assert contadores.skips_entidad == {"esperando_efecto": 1}
-    assert latidos == [1]
-
-
-def _corre_apagada_con_pause(monkeypatch, *, cooldown: bool, tick):
-    """_procesa_decisora con la politica apagada y un pause decidido (el
-    cooldown de pause se parchea segun `cooldown`)."""
-    from types import SimpleNamespace
-
-    from app.optimizer import goals as g
-
-    monkeypatch.setattr(ciclo.windows, "ventana_cortes", lambda *_, **__: None)
-    monkeypatch.setattr(ciclo.bid, "decide_pause", lambda **_: SimpleNamespace(kind="pause"))
-    monkeypatch.setattr(ciclo.g, "en_cooldown", lambda *_a, **_k: cooldown)
-    goal = g.Goal(
-        scope="platform",
-        ad_entity_id=None,
-        platform="amazon_us",
-        target_acos_pct=Decimal("25"),
-        bid_floor=Decimal("0.40"),
-        bid_ceiling=Decimal("2.50"),
-        bid_currency="USD",
-        harvest_campaign_id=None,
-        harvest_ad_group_id=None,
-        harvest_default_bid=None,
-        enabled=True,
-        mode="shadow",
-    )
-    contadores = ciclo._Contadores()
-    pendientes: list = []
-    ciclo._procesa_decisora(
-        object(),
-        fila=(4925, 3927, 3926, Decimal("1.00"), "USD", "ENABLED", None, "ENABLED", "ENABLED"),
-        platform="amazon_us",
-        setting_target=None,
-        goals=(goal, {}),
-        modo="shadow",
-        decided_at=DECIDED_AT,
-        contadores=contadores,
-        pendientes=pendientes,
-        tick=tick,
-        evidencia_ad_groups={},
-        corte_pause_por_grupo={},
-        bloqueadas=set(),
-        inertes=set(),
-        margen_plataforma=None,
-        snapshot_margen={},
-        familias_ciclo=ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, DECIDED_AT.date(), None, {}),
-        pause_economica=False,
-        politica=None,
-        lecturas=None,
-    )
-    return pendientes, contadores
-
-
-def test_ciclo_apagada_con_cooldown_late_una_sola_vez(monkeypatch):
-    """R03-(d): el camino pause-apagada late una vez por entidad tambien
-    cuando el pause cae en cooldown (el tick de la rama sobraba)."""
-    latidos = []
-    pendientes, contadores = _corre_apagada_con_pause(
-        monkeypatch, cooldown=True, tick=lambda: latidos.append(1)
-    )
-    assert pendientes == []
-    assert contadores.skips_entidad == {"cooldown_7d": 1}
     assert latidos == [1]

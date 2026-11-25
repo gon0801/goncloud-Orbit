@@ -302,9 +302,10 @@ def _aplica_producto_modo(
     for tipo, modo in (producto_modo or {}).items():
         if tipo not in ("meta", "pausa"):
             raise SettingsInvalido(f"interruptor de producto desconocido: {tipo!r}")
-        if modo not in g.MODOS:
+        if modo != "off" and modo not in productos.MODOS_POR_TIPO[tipo]:
+            permitidos = " o ".join(productos.MODOS_POR_TIPO[tipo])
             raise SettingsInvalido(
-                f"modo de {tipo} por producto debe ser off, shadow o live, llego {modo!r}"
+                f"modo de {tipo} por producto debe ser off o {permitidos}, llego {modo!r}"
             )
         if tipo == "pausa" and modo == "live" and not enciende_pausa:
             raise SettingsInvalido(

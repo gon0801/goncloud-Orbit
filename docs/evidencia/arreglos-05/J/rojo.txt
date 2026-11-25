@@ -1,0 +1,24 @@
+# Rojo de J contra el padre real db9d2041c3250a145615b0249d8b809593c33a75
+# Comando: bash docs/evidencia/arreglos-05/comprobar.sh N j
+# Arbol: solo tests y evidencia sin commit; app en el padre.
+# Resultado: 3 failed, 2 passed, 6515 deselected.
+
+F.F.F
+
+1. test_arreglos05_j_sin_politica_no_muta_y_cuenta_el_skip
+   AssertionError: assert (4, 'pause') not in {(2, 'harvest'), (2, 'negative'), (4, 'pause')}
+   El padre seguia creando la PAUSE de la era bandas sin `ads_bid_politica`.
+
+2. test_arreglos05_j_meta_shadow_retirada_y_pausa_shadow_conservada
+   Failed: DID NOT RAISE ValueError
+   El padre aceptaba `ads_producto_meta_amazon_us = shadow`.
+
+3. test_arreglos05_j_ui_productos_no_anuncia_la_meta_en_practica
+   AssertionError: 'se calcula y no cambia ninguna puja' is contained in el HTML
+   El padre anunciaba el modo practica retirado en la pantalla de productos.
+
+Los dos verdes del padre son controles que deben seguir verdes:
+- test_arreglos05_j_politica_ilegible_aborta_sin_decisiones: el lector ya
+  lanzaba ValueError para un valor corrupto.
+- test_arreglos05_j_replay_pausa_historica_sin_politica: el decoder de la
+  pausa historica ya reproducia la decision 2736 de produccion.
