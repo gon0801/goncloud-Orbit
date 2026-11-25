@@ -18,7 +18,13 @@ from psycopg.rows import dict_row
 
 from app.cycle_serializacion import _dec_str, _fecha_iso, _ts
 from app.optimizer import goals as g
-from app.optimizer import productos
+from app.optimizer import productos, temporada
+
+# Version del objeto `notes.target` (ARREGLOS 05 F): la base convergente y el
+# overlay estacional viven SEPARADOS y cada uno declara su version. Un snapshot
+# sin `version` es de la era anterior y se lee con su semantica original.
+VERSION_SNAPSHOT = "target_v2"
+VERSION_OVERLAY = "temporada_v1"
 
 # ORBIT 06 2.3: medicion del margen, UNA fila por plataforma (la vista SOLO
 # MIDE; la resolucion es goals.resuelve_target_margen en Python).
@@ -77,27 +83,71 @@ SELECT SUM(m.ad_revenue), COUNT(DISTINCT m.metric_currency), MAX(m.metric_curren
    AND m.metric_date >= %s AND m.metric_date < %s
 """
 
-# Notas de ciclos previos (misma plataforma+motor, anteriores al actual).
+# Base y ancla de avisos de los ciclos ANTERIORES (ARREGLOS 05 F). La base
+# exige evidencia durable de TX3 (`decision_committed_at`, ciclo live): un
+# ciclo `degraded` tambien comprometio sus decisiones y es ancla, y el ejecutor
+# de recuperacion (`resume_of`) cierra sin sello y nunca lo es. El ancla del
+# aviso (`ultimo_avisado`) conserva la semantica previa y tambien mira los
+# ciclos cerrados `done` (incluidos los de practica).
 _SQL_NOTAS_PREVIAS = """
-SELECT mode, status, notes
-  FROM optimizer_cycle
- WHERE platform = %s::platform AND motor = 'ads_optimizer' AND id < %s
-   AND status = 'done'
- ORDER BY id DESC
+SELECT c.id, c.mode, c.decision_committed_at IS NOT NULL AS comprometida, c.notes
+  FROM optimizer_cycle c
+ WHERE c.platform = %s::platform
+   AND c.motor = 'ads_optimizer'
+   AND c.id < %s
+   AND (c.status = 'done' OR c.decision_committed_at IS NOT NULL)
+ ORDER BY c.id DESC
  LIMIT 200
 """
+
+
+@dataclass(frozen=True)
+class _OverlayTemporada:
+    """Overlay estacional del ciclo (ARREGLOS 05 F): la configuracion de
+    TEMPORADA congelada UNA vez. TEMPORADA conserva el dueno de sus umbrales,
+    de su fase y de su prioridad; aqui solo viaja al snapshot SEPARADA de la
+    base y a la lectura que arma `plat_t`."""
+
+    modo: str | None  # 'shadow' | 'live' | None = Temporada sin configurar
+    config: temporada.ConfigTemporada | None
+    estacion: temporada.Estacion | None
+    meta_alta_pct: Decimal | None
+
+    def snapshot(self) -> dict:
+        """Subobjeto `notes.target.overlay`: ausencia explicita cuando no hay
+        temporada configurada."""
+        return {
+            "version": VERSION_OVERLAY,
+            "modo": self.modo,
+            "fase": self.estacion.fase if self.estacion is not None else None,
+            "estacion_dia": _fecha_iso(self.estacion.dia) if self.estacion is not None else None,
+            "meta_alta_pct": _dec_str(self.meta_alta_pct),
+            "aplica": bool(self.estacion is not None and self.estacion.fase == "alta"),
+        }
+
+
+@dataclass(frozen=True)
+class _BasePrevia:
+    """Ancla de la base con la que arranca este ciclo y de donde salio
+    (ARREGLOS 05 F). `valor` None solo cuando no hay evidencia ni setting."""
+
+    valor: Decimal | None
+    origen: str  # 'ciclo:<id>' | 'setting'
+    cycle_id: int | None
 
 
 @dataclass(frozen=True)
 class _TargetCiclo:
     """El peldano a nivel ciclo (ORBIT 06 2.3, calculado UNA vez en TX2):
     valor que entra a las cascadas + snapshot para el freeze y notes.target
-    + ancla del ultimo aviso del digest (ultimo_avisado, D-2.3.14)."""
+    + ancla del ultimo aviso del digest (ultimo_avisado, D-2.3.14).
+    `overlay` es la configuracion estacional congelada (ARREGLOS 05 F)."""
 
     margen: Decimal | None
     snapshot: dict
     ancla: str | None
     margen_neto_pct: Decimal | None = None
+    overlay: _OverlayTemporada | None = None
 
 
 def _target_de_notas(notes) -> dict | None:
@@ -115,6 +165,69 @@ def _target_de_notas(notes) -> dict | None:
     return target if isinstance(target, dict) else None
 
 
+def _base_de_snapshot(target: dict) -> tuple[bool, Decimal | None]:
+    """(decide, valor) de UN `notes.target` (ARREGLOS 05 F).
+
+    Solo la base explicita acredita: el snapshot versionado cuyo `base.valor`
+    es el numero que entro a la cascada, o el snapshot viejo que YA era
+    inequivoco (`procedencia = margen_plataforma` y `target_aplicado`
+    presente). Un snapshot viejo con procedencia NULL (el ciclo rancio del
+    binario anterior) no aporta evidencia y jamas se reconstruye restando un
+    overlay supuesto: se conserva su semantica vieja (se sigue buscando) y la
+    ausencia explicita. `decide=False` = este snapshot no decide."""
+    base = target.get("base")
+    if target.get("version") == VERSION_SNAPSHOT and isinstance(base, dict):
+        valor = base.get("valor")
+        return (True, Decimal(str(valor)) if valor is not None else None)
+    if (
+        target.get("procedencia") == "margen_plataforma"
+        and target.get("target_aplicado") is not None
+    ):
+        return (True, Decimal(str(target["target_aplicado"])))
+    return (False, None)
+
+
+def _base_previa(filas, setting_target: Decimal | None) -> _BasePrevia:
+    """La base del ultimo ciclo live con decision comprometida, o el setting
+    (inicializacion ya aprobada) cuando no hay evidencia. `filas` son
+    (cycle_id, mode, comprometida, notes) del mas reciente al mas viejo.
+
+    Un ciclo cuya base es `null` (el peldano no aplico: `sin_fraccion`, o ya en
+    el destino) no acredita base y NO borra la anterior: se sigue buscando la
+    ultima base explicita, como hacia la semantica vieja, para que una fase
+    apagada no haga saltar la meta al reencenderse. Si ninguna la tiene, manda
+    el setting: la ausencia sigue visible en cada snapshot."""
+    for cycle_id, mode, comprometida, notes in filas:
+        if mode != "live" or not comprometida:
+            continue
+        target = _target_de_notas(notes)
+        if target is None:
+            continue
+        decide, valor = _base_de_snapshot(target)
+        if not decide or valor is None:
+            continue
+        return _BasePrevia(valor, f"ciclo:{cycle_id}", cycle_id)
+    return _BasePrevia(setting_target, "setting", None)
+
+
+def _overlay_temporada(settings: dict, platform: str, decided_at: dt.datetime) -> _OverlayTemporada:
+    """La configuracion estacional vigente de `platform`, leida UNA vez y sin
+    aportar ningun numero a la base. Ausente = modo None (no decide)."""
+    modo = temporada.modo_desde_settings(settings, platform)
+    if modo is None:
+        return _OverlayTemporada(None, None, None, None)
+    config = temporada.desde_settings(settings)
+    if config is None:
+        return _OverlayTemporada(None, None, None, None)
+    estacion = temporada.resuelve(config, decided_at.astimezone(dt.UTC).date())
+    return _OverlayTemporada(
+        modo,
+        config,
+        estacion,
+        temporada.meta_alta_desde_settings(settings, platform),
+    )
+
+
 def _resuelve_target_ciclo(
     conn: psycopg.Connection,
     *,
@@ -125,28 +238,23 @@ def _resuelve_target_ciclo(
     decided_at: dt.datetime,
 ) -> _TargetCiclo:
     """Lee la vista + notes previas (mismo snapshot TX2) y resuelve el
-    peldano con goals.resuelve_target_margen (D-2.3.2: UNA vez por ciclo)."""
+    peldano con goals.resuelve_target_margen (D-2.3.2: UNA vez por ciclo).
+
+    ARREGLOS 05 F: la base sale de `_base_previa` (ciclo live con decision
+    comprometida), no de la procedencia de la medicion, y el snapshot guarda
+    `base` y `overlay` por separado. `target_aplicado` sigue siendo el numero
+    que entra a la cascada (los lectores vigentes no cambian)."""
     with conn.cursor(row_factory=dict_row) as cur:
         fila = cur.execute(_SQL_TARGET_MARGEN, (platform,)).fetchone()
     previas = conn.execute(_SQL_NOTAS_PREVIAS, (platform, cycle_id)).fetchall()
-    ultimo: Decimal | None = None
     ancla: str | None = None
-    for mode, status, notes in previas:
+    for _, _, _, notes in previas:
         target = _target_de_notas(notes)
-        if target is None:
-            continue
-        if ancla is None and target.get("ultimo_avisado") is not None:
+        if target is not None and ancla is None and target.get("ultimo_avisado") is not None:
             ancla = target["ultimo_avisado"]
-        if (
-            ultimo is None
-            and mode == "live"
-            and status == "done"
-            and target.get("procedencia") == "margen_plataforma"
-            and target.get("target_aplicado") is not None
-        ):
-            ultimo = Decimal(target["target_aplicado"])
-    if ultimo is None:
-        ultimo = setting_target
+    base_previa = _base_previa(previas, setting_target)
+    ultimo = base_previa.valor
+    overlay = _overlay_temporada(settings, platform, decided_at)
     fraccion = g.fraccion_desde_settings(settings, platform)
     if fila is None:
         hoy = decided_at.astimezone(dt.UTC).date()
@@ -176,6 +284,13 @@ def _resuelve_target_ciclo(
     res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo, setting_target)
     procedencia = "margen_plataforma" if res.motivo is None else None
     snapshot = {
+        "version": VERSION_SNAPSHOT,
+        "base": {
+            "valor": _dec_str(res.aplicado),
+            "origen": base_previa.origen,
+            "cycle_id": base_previa.cycle_id,
+        },
+        "overlay": overlay.snapshot(),
         "procedencia": procedencia,
         "paso_politica": g.PASO_POLITICA,
         "motivo_abstencion": res.motivo,
@@ -200,6 +315,7 @@ def _resuelve_target_ciclo(
         snapshot,
         ancla,
         margen_neto_pct=medicion.margen_neto_pct if procedencia == "margen_plataforma" else None,
+        overlay=overlay,
     )
 
 

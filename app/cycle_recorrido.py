@@ -644,20 +644,25 @@ def _recorre_plataforma(
     rec_r = None
     topada_r = None
     if politica is not None:
-        modo_t = temporada.modo_desde_settings(settings, platform)
-        if modo_t is not None:
-            config_t = temporada.desde_settings(settings)
-            estacion = temporada.resuelve(config_t, decided_at.astimezone(dt.UTC).date())
-            estado_t = temporada_io.lee_estado(conn, platform, estacion.dia)
+        overlay = target_ciclo.overlay
+        modo_t = overlay.modo if overlay is not None else None
+        if overlay is not None and modo_t is not None:
+            # ARREGLOS 05 F: la configuracion estacional se resolvio UNA vez en
+            # `_resuelve_target_ciclo` y viaja congelada en el snapshot; aqui se
+            # reutiliza para el estado del dia (regla 2: un numero, una fuente).
+            assert overlay.config is not None and overlay.estacion is not None
+            estado_t = temporada_io.lee_estado(conn, platform, overlay.estacion.dia)
             estado_t = replace(
                 estado_t,
-                episodio=temporada_io.episodio_vigente_en_estacion(estado_t.episodio, estacion),
+                episodio=temporada_io.episodio_vigente_en_estacion(
+                    estado_t.episodio, overlay.estacion
+                ),
             )
             plat_t = temporada_io.TemporadaPlataforma(
-                estacion=estacion,
-                modo=modo_t,
-                config=config_t,
-                meta_alta_pct=temporada.meta_alta_desde_settings(settings, platform),
+                estacion=overlay.estacion,
+                modo=overlay.modo,
+                config=overlay.config,
+                meta_alta_pct=overlay.meta_alta_pct,
                 estado=estado_t,
             )
             contadores.temporada_plat = plat_t

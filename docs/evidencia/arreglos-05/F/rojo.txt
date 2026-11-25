@@ -1,0 +1,352 @@
+# Rojo de las regresiones del bloque F contra el PADRE real.
+# Padre: 8a094228cd9704b35195000b83e37157527f887c (master con BASE, A-E);
+# el codigo de app/ es el del padre y tests/test_arreglos05_f_meta.py es el
+# archivo FINAL del bloque (9 casos).
+# Comando: uv run --frozen --python 3.12 python -B -m pytest -q -rs \
+#   -p no:cacheprovider tests/test_arreglos05_f_meta.py
+# Impacto: la meta se congela (28.5, 28.5 en vez de 28.5, 28.0), el ciclo
+# degradado no es ancla (29.0 en vez de 28.5), la fraccion apagada no tiene
+# contrato de base y faltan las claves base/version/overlay.
+
+FFFFFFFFF                                                                [100%]
+================================== FAILURES ===================================
+_______________ test_arreglos05_f_base_avanza_con_ledger_rancio _______________
+
+    @_skip_db
+    def test_arreglos05_f_base_avanza_con_ledger_rancio():
+        """29 -> 28.5 -> 28: con el ledger vencido cada ciclo camina 0.5 hacia el
+        setting desde la base del ciclo anterior, no desde el ultimo snapshot con
+        procedencia 'margen_plataforma'. Antes del arreglo la secuencia era
+        29 -> 28.5 -> 28.5 (meta congelada)."""
+        with _db_temporal("orbit_f05_rancio") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            primero = _corre_f(conn)
+            assert primero.status == "done", primero.notes
+            inicial = _target_de(conn, primero.cycle_id)
+            assert Decimal(inicial["target_aplicado"]) == Decimal("29")
+            assert inicial["procedencia"] == "margen_plataforma"
+
+            _envejece_ledger(conn)
+            _config(conn, ads_target_acos_pct_amazon_us="28")
+            vistos = []
+            for _ in range(2):
+                res = _corre_f(conn)
+                assert res.status == "done", res.notes
+                target = _target_de(conn, res.cycle_id)
+                assert target["motivo_abstencion"] == "ledger_rancio"
+                assert target["convergiendo_a_setting"] is True
+                assert target["procedencia"] is None
+                vistos.append((res.cycle_id, target))
+
+            aplicados = [Decimal(cycle_target["target_aplicado"]) for _, cycle_target in vistos]
+>           assert aplicados == [Decimal("28.5"), Decimal("28.0")], (
+                "la base camina 0.5 por ciclo; no se congela en el ultimo snapshot sano"
+            )
+E           AssertionError: la base camina 0.5 por ciclo; no se congela en el ultimo snapshot sano
+E           assert [Decimal('28....cimal('28.5')] == [Decimal('28....cimal('28.0')]
+E
+E             At index 1 diff: Decimal('28.5') != Decimal('28.0')
+E             Use -v to get more diff
+
+tests\test_arreglos05_f_meta.py:200: AssertionError
+______________ test_arreglos05_f_overlay_alta_no_se_vuelve_base _______________
+
+    @_skip_db
+    def test_arreglos05_f_overlay_alta_no_se_vuelve_base():
+        """En temporada alta la meta del juicio es max(base, 25), pero la base
+        sigue siendo la convergente: el snapshot guarda las dos por separado y la
+        siguiente base sale de `base`, nunca del overlay."""
+        with _db_temporal("orbit_f05_alta") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            _temporada(conn, meses=_MESES_ALTA_AGOSTO, modo="live")
+            primero = _corre_f(conn)
+            assert primero.status == "done", primero.notes
+            inicial = _target_de(conn, primero.cycle_id)
+            assert Decimal(inicial["target_aplicado"]) == Decimal("29")
+
+            _envejece_ledger(conn)
+            _config(
+                conn,
+                ads_target_acos_pct_amazon_us="28",
+                ads_temporada={
+                    "version": "temporada_v1",
+                    "meses": list(_MESES_ALTA_AGOSTO),
+                    "reduccion_baja_pct": "30",
+                    "dias_preparacion": 21,
+                    "mult_cortes_baja": "2",
+                    "aumento_presupuesto_alta_pct": "25",
+                    "fin_anticipado": None,
+                    "mantener_pausadas": [],
+                },
+                ads_temporada_amazon_us="live",
+                ads_temporada_amazon_mx="live",
+            )
+            segundo = _corre_f(conn)
+            assert segundo.status == "done", segundo.notes
+            target = _target_de(conn, segundo.cycle_id)
+            assert Decimal(target["target_aplicado"]) == Decimal("28.5")
+            assert Decimal(target["target_aplicado"]) != Decimal("25"), (
+                "el overlay estacional no es la siguiente base"
+            )
+>           assert inicial["base"]["valor"] == "29.0"
+                   ^^^^^^^^^^^^^^^
+E           KeyError: 'base'
+
+tests\test_arreglos05_f_meta.py:264: KeyError
+_______________ test_arreglos05_f_salida_de_alta_retoma_la_base _______________
+
+    @_skip_db
+    def test_arreglos05_f_salida_de_alta_retoma_la_base():
+        """Al salir de la alta, el overlay deja de aplicar y la meta vuelve a la
+        base sin rampa ni numero inventado: la base del ciclo siguiente sigue
+        siendo la convergente del snapshot."""
+        with _db_temporal("orbit_f05_salida") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            _temporada(conn, meses=_MESES_ALTA_AGOSTO, modo="live")
+            primero = _corre_f(conn)
+            assert primero.status == "done", primero.notes
+>           base = _target_de(conn, primero.cycle_id)["base"]["valor"]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'base'
+
+tests\test_arreglos05_f_meta.py:291: KeyError
+_____________ test_arreglos05_f_practica_no_cambia_el_ancla_live ______________
+
+    @_skip_db
+    def test_arreglos05_f_practica_no_cambia_el_ancla_live():
+        """Un ciclo en practica (escalera shadow) congela su overlay pero no es
+        ancla: el siguiente ciclo live retoma la base del ultimo live
+        comprometido, no la del ciclo de practica."""
+        with _db_temporal("orbit_f05_practica") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            live1 = _corre_f(conn)
+            assert live1.status == "done", live1.notes
+
+            _config(
+                conn,
+                ads_optimizer_mode="shadow",
+                ads_target_acos_pct_amazon_us="26",
+            )
+            practica = _corre_f(conn)
+            assert practica.status == "done", practica.notes
+            target_practica = _target_de(conn, practica.cycle_id)
+
+            _config(conn, ads_optimizer_mode="live", ads_target_acos_pct_amazon_us="28")
+            live2 = _corre_f(conn)
+            assert live2.status == "done", live2.notes
+            target = _target_de(conn, live2.cycle_id)
+            assert Decimal(target["target_aplicado"]) == Decimal("28.5"), (
+                "la practica no mueve el ancla del ciclo live"
+            )
+>           assert _target_de(conn, live1.cycle_id)["base"]["valor"] == "29.0"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'base'
+
+tests\test_arreglos05_f_meta.py:335: KeyError
+________ test_arreglos05_f_snapshot_viejo_sin_base_conserva_semantica _________
+
+    @_skip_db
+    def test_arreglos05_f_snapshot_viejo_sin_base_conserva_semantica():
+        """Un snapshot v1 con procedencia NULL (el ciclo rancio del binario
+        anterior) no acredita base: se conserva la semantica vieja, la ausencia es
+        explicita y la inicializacion aprobada es el setting. Jamas se reconstruye
+        restando un overlay supuesto."""
+        with _db_temporal("orbit_f05_vieja") as (conn, _extra):
+            _mundo(conn, setting="28")
+            previo = _ciclo_previo(
+                conn,
+                {
+                    "target": {
+                        "procedencia": None,
+                        "motivo_abstencion": "ledger_rancio",
+                        "convergiendo_a_setting": True,
+                        "target_aplicado": "27",
+                    }
+                },
+            )
+            _envejece_ledger(conn)
+            res = _corre_f(conn)
+            assert res.status == "done", res.notes
+            target = _target_de(conn, res.cycle_id)
+            assert target["procedencia"] is None
+>           assert target["base"]["origen"] == "setting"
+                   ^^^^^^^^^^^^^^
+E           KeyError: 'base'
+
+tests\test_arreglos05_f_meta.py:371: KeyError
+________ test_arreglos05_f_snapshot_viejo_con_base_inequivoca_es_ancla ________
+
+    @_skip_db
+    def test_arreglos05_f_snapshot_viejo_con_base_inequivoca_es_ancla():
+        """La compatibilidad conserva la semantica original: un snapshot v1 cuyo
+        `procedencia` es 'margen_plataforma' y trae `target_aplicado` si acredita
+        base, y el ciclo nuevo lo declara con su origen."""
+        with _db_temporal("orbit_f05_v1") as (conn, _extra):
+            _mundo(conn, setting="28")
+            previo = _ciclo_previo(
+                conn,
+                {
+                    "target": {
+                        "procedencia": "margen_plataforma",
+                        "motivo_abstencion": None,
+                        "convergiendo_a_setting": False,
+                        "target_aplicado": "29",
+                    }
+                },
+            )
+            _envejece_ledger(conn)
+            res = _corre_f(conn)
+            assert res.status == "done", res.notes
+            target = _target_de(conn, res.cycle_id)
+>           assert target["base"]["valor"] == "28.5"
+                   ^^^^^^^^^^^^^^
+E           KeyError: 'base'
+
+tests\test_arreglos05_f_meta.py:407: KeyError
+____________ test_arreglos05_f_fraccion_apagada_no_borra_el_ancla _____________
+
+    @_skip_db
+    def test_arreglos05_f_fraccion_apagada_no_borra_el_ancla():
+        """Un ciclo sin fraccion no entrega base (`base.valor` nulo) pero no borra
+        la ultima base explicita: al reencender la fase la meta camina 0.5 desde
+        ahi y no salta al derivado. La ausencia queda visible en su snapshot."""
+        with _db_temporal("orbit_f05_fraccion") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            primero = _corre_f(conn)
+            assert primero.status == "done", primero.notes
+            assert Decimal(_target_de(conn, primero.cycle_id)["target_aplicado"]) == Decimal("29")
+
+            _config_version(
+                conn,
+                {
+                    "ads_optimizer_mode": "live",
+                    "ads_target_acos_pct_amazon_us": "29.5",
+                    "ads_bid_politica_amazon_us": "niveles_v3",
+                },
+            )
+            apagada = _corre_f(conn)
+            assert apagada.status == "done", apagada.notes
+            target_apagada = _target_de(conn, apagada.cycle_id)
+            assert target_apagada["motivo_abstencion"] == "sin_fraccion"
+>           assert target_apagada["base"]["valor"] is None
+                   ^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'base'
+
+tests\test_arreglos05_f_meta.py:434: KeyError
+_________________ test_arreglos05_f_replay_consume_su_version _________________
+
+    @_skip_db
+    def test_arreglos05_f_replay_consume_su_version():
+        """El replay re-decide con los inputs congelados de su fecha: cambiar la
+        configuracion (fraccion apagada, otra meta de alta, escalera off) no altera
+        el veredicto de una decision antigua. El snapshot declara su version."""
+        from app.optimizer.replay import reproduce
+
+        with _db_temporal("orbit_f05_replay") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            _temporada(conn, meses=_MESES_ALTA_AGOSTO, modo="live")
+            corrida = _corre_f(conn)
+            assert corrida.status == "done", corrida.notes
+            filas = [fila for fila in _decisions_de(conn, corrida.cycle_id) if fila[1] == "bid"]
+            assert filas
+            inputs = filas[0][9]
+            esperado = (filas[0][1], filas[0][4], filas[0][5])
+
+            # La configuracion de hoy cambia por completo: la fraccion del margen
+            # se apaga (clave ausente), la meta de alta baja a 10 y el motor global
+            # queda en off.
+            _config_version(
+                conn,
+                {
+                    "ads_optimizer_mode": "off",
+                    "ads_target_acos_pct_amazon_us": "45",
+                    "ads_bid_politica_amazon_us": "niveles_v3",
+                    "ads_temporada": {
+                        "version": "temporada_v1",
+                        "meses": list(_MESES_ALTA_AGOSTO),
+                        "reduccion_baja_pct": "30",
+                        "dias_preparacion": 21,
+                        "mult_cortes_baja": "2",
+                        "aumento_presupuesto_alta_pct": "25",
+                        "fin_anticipado": None,
+                        "mantener_pausadas": [],
+                    },
+                    "ads_temporada_amazon_us": "live",
+                    "ads_temporada_amazon_mx": "live",
+                    "ads_temporada_meta_alta_amazon_us": "10",
+                },
+            )
+            assert reproduce(inputs) == esperado, (
+                "el replay re-decide con su freeze, no con la configuracion de hoy"
+            )
+>           assert inputs["target_snapshot"]["version"] == "target_v2"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'version'
+
+tests\test_arreglos05_f_meta.py:501: KeyError
+____________ test_arreglos05_f_recuperacion_parcial_retoma_la_base ____________
+
+    @_skip_db
+    def test_arreglos05_f_recuperacion_parcial_retoma_la_base():
+        """Tras un apply parcial el origen sigue siendo el ancla: el ejecutor
+        ligado por `resume_of` no decide ni se sella, y el lote nuevo del dia
+        siguiente retoma la base del origen sin duplicar decisiones."""
+        from app import cycle as ciclo
+
+        with _db_temporal("orbit_f05_resume") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            origen = ciclo.corre_ciclo(
+                conn,
+                platform="amazon_us",
+                owner="f05:origen",
+                decided_at=DECIDED_AT,
+                heartbeat_cada=1,
+                aplicador_factory=_sin_perfil,
+            )
+            assert origen.status == "degraded", origen.notes
+
+            recuperacion = ciclo.atender_plataforma(
+                conn,
+                "amazon_us",
+                owner="f05:ejecutor",
+                ahora=DECIDED_AT,
+                heartbeat_cada=1,
+                aplicador_factory=_sin_perfil,
+            )
+            assert recuperacion.ciclo is not None, recuperacion.motivo
+            ejecutor = recuperacion.ciclo
+            assert ejecutor.resume_of == origen.cycle_id
+            assert ejecutor.decisions_count == 0
+            fila = conn.execute(
+                "SELECT decision_committed_at, notes FROM optimizer_cycle WHERE id = %s",
+                (ejecutor.cycle_id,),
+            ).fetchone()
+            assert fila[0] is None, "el ejecutor no compromete decisiones"
+            assert "target" not in json.loads(fila[1]), "el ejecutor no resuelve meta"
+            assert (
+                conn.execute(
+                    "SELECT count(*) FROM decision WHERE cycle_id = %s", (ejecutor.cycle_id,)
+                ).fetchone()[0]
+                == 0
+            )
+
+            siguiente = ciclo.corre_ciclo(
+                conn,
+                platform="amazon_us",
+                owner="f05:manana",
+                decided_at=DECIDED_AT + dt.timedelta(days=1),
+                heartbeat_cada=1,
+                aplicador_factory=_aplicador_de_prueba,
+            )
+            assert siguiente.status == "done", siguiente.notes
+            target = _target_de(conn, siguiente.cycle_id)
+>           assert Decimal(target["target_aplicado"]) == Decimal("28.5"), (
+                "el lote nuevo camina desde la base del origen"
+            )
+E           AssertionError: el lote nuevo camina desde la base del origen
+E           assert Decimal('29.0') == Decimal('28.5')
+E            +  where Decimal('29.0') = Decimal('29.0')
+E            +  and   Decimal('28.5') = Decimal('28.5')
+
+tests\test_arreglos05_f_meta.py:559: AssertionError
+9 failed in 27.65s
