@@ -69,6 +69,8 @@ if [[ $parte == 2 ]]; then
     $pytest tests/test_settings_escritura.py tests/test_api_write.py
   corre "economia conservada (auto03 y cambio v2)" \
     $pytest tests/test_economia_observada.py tests/test_orbit07_m2.py
+  corre "notificaciones: vecino migrado (sin los 3 rojos previos de master)" \
+    $pytest tests/test_notifica.py -k "not (avisar_campanas_envia_una_clase_y_devuelve_salio or avisar_campanas_fallo_sigue_con_otras_clases or avisar_campanas_lectura_us_fallida_no_tumba_mx)"
 fi
 
 if [[ $parte == 3 ]]; then

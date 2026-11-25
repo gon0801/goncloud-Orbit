@@ -52,7 +52,7 @@ Para quien mantiene:
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| J.2 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N j` y `J/acepta.sh` partes 1-3 | `74e4aebe` | `N j`: 6 passed. Acepta: parte 1 (N j, arquitectura 99+2s, estados 209, ciclo 53), parte 2 (politica/eras/cooldown/config 131, settings/API 77, economia 15), parte 3 (productos 117, proteccion 15, aplicador/F/G 65, UI 5, instalador 4). Cero comandos fallidos. | Sin politica no hay mutacion; la meta por hoja se sigue guardando para la cosecha; meta shadow retirada; flag muerto retirado; replay, reversas, apagadores y pausa shadow conservados. | No hay DDL. Un binario anterior lee las mismas claves y decisiones; `tools/despliegue/rollback.sh` devuelve el binario previo. Los datos historicos no se reescriben. |
+| J.2 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N j` y `J/acepta.sh` partes 1-3 | `74e4aebe` | `N j`: 6 passed. Acepta: parte 1 (N j, arquitectura 99+2s, estados 209, ciclo 53), parte 2 (politica/eras/cooldown/config 131, settings/API 77, economia 15, notificaciones 74), parte 3 (productos 117, proteccion 15, aplicador/F/G 65, UI 5, instalador 4). Cero comandos fallidos. | Sin politica no hay mutacion; la meta por hoja se sigue guardando para la cosecha; meta shadow retirada; flag muerto retirado; replay, reversas, apagadores y pausa shadow conservados. | No hay DDL. Un binario anterior lee las mismas claves y decisiones; `tools/despliegue/rollback.sh` devuelve el binario previo. Los datos historicos no se reescriben. |
 
 ## Rojo y verde
 
@@ -80,6 +80,17 @@ Devin aviso que al apagar `ads_bid_politica` tambien se dejaba de escribir
 guarda su target antes del skip de `politica_apagada`; solo no crea decision.
 La misma prueba y `N j` (6 passed) quedan verdes; ciclo, target, G y proteccion
 pasan 92/92.
+
+## Correccion de revision (notificaciones, ronda 2)
+
+El revisor aviso que `tests/test_notifica.py::test_ciclo_canal_ok_avisos_por_corte_y_digest_unico_sin_nota`
+sembraba `_siembra_maestra` sin politica y esperaba tres cortes con pausa. La
+prueba quedo migrada a `ads_bid_politica_amazon_us = niveles_v3`, como el resto
+de los vecinos que prueban la pausa viva. `test_notifica.py` completo da
+**74 passed, 3 failed**: los tres son los rojos previos de master declarados en
+el brief (`test_avisar_campanas_*`), ajenos a J. `J/notifica.txt` guarda esa
+corrida completa; `J/acepta.sh` parte 2 corre el archivo sin esos tres rojos
+previos y da 74 passed.
 
 ## Acepta (salida completa en `J/acepta-1.txt`, `-2.txt` y `-3.txt`)
 
@@ -153,6 +164,10 @@ existente.
 - `test_ui_productos.py` completo: 15 fallos por `WinError 206` (el comando de
   Node supera el limite de Windows), ya documentados en I. Los renders puros
   pasan.
+- `test_notifica.py` completo: 3 fallos previos de master en
+  `test_avisar_campanas_*` (`tuple index out of range` del mock de conexion),
+  declarados en el brief. El resto, 74 pruebas, pasa; la prueba migrada de J
+  esta entre ellas.
 - `test_despliegue_motor.py` completo: falla en el paso de respaldo del simulador
   con `cp: cannot stat 'app'` y en `awk` de Windows; no toca el codigo de J. El
   selector del plan (`-k arreglos05`) pasa 4/4.

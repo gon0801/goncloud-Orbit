@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 J. SHA 74e4aebec3c6888e537222c1706f111fd3833201 (parte 2 de 3)
+# Acepta de ARREGLOS 05 J. SHA dbf30a99787cf7f0a9684a2c68d731a0159f0933 (parte 2 de 3)
 # arbol con seguimiento limpio: NO
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu
 
@@ -12,7 +12,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-131 passed, 1 warning in 29.31s
+131 passed, 1 warning in 29.02s
 resultado=ok
 
 ### escritura de settings y API
@@ -25,13 +25,20 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-77 passed, 1 warning in 73.20s (0:01:13)
+77 passed, 1 warning in 73.05s (0:01:13)
 resultado=ok
 
 ### economia conservada (auto03 y cambio v2)
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_economia_observada.py tests/test_orbit07_m2.py
 ...............                                                          [100%]
-15 passed in 36.57s
+15 passed in 36.31s
+resultado=ok
+
+### notificaciones: vecino migrado (sin los 3 rojos previos de master)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_notifica.py -k not (avisar_campanas_envia_una_clase_y_devuelve_salio or avisar_campanas_fallo_sigue_con_otras_clases or avisar_campanas_lectura_us_fallida_no_tumba_mx)
+........................................................................ [ 97%]
+..                                                                       [100%]
+74 passed, 3 deselected in 27.04s
 resultado=ok
 
 # comandos que no pasaron: 0

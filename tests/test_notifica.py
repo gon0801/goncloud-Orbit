@@ -1112,7 +1112,7 @@ def test_ciclo_canal_ok_avisos_por_corte_y_digest_unico_sin_nota(canal_ok):
     """Canal OK: UN aviso por ciclo con sus cortes + UN digest al final; el
     ciclo 'done' SIN nota telegram."""
     with _db_temporal("orbit_notif_ok") as (conn, _extra):
-        _siembra_maestra(conn)
+        _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"})
         res = _corre(conn)
         assert res.status == "done"
         assert "telegram" not in json.loads(res.notes)
