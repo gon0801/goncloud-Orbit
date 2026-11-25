@@ -188,7 +188,104 @@ No se toco `app/apply_cuota.py` (el lector canonico se reutiliza), ni
   aunque el valor venga de la edicion. Es texto del lector canonico y se prefirio
   no duplicar mensajes; el dueno ve el rechazo igual.
 
-## Fase 2
+## Fase 2: despliegue y recibo
 
-Pendiente de la orden del coordinador tras integrar el PR. No se ejecuto
-despliegue ni recibo en esta fase.
+- PR #769 integrado. Merge `0244dc381c18b59b76112c68317738114d0b6ff8` en
+  `master`; el revisor aprobo `3d9fd18b` sin P0/P1.
+- `SHA_PREVIO=889fe5cac5a54178eff8f0562f6e418ecf6d4ef8` (bloque H).
+- Entorno limpio: `env -i PATH=/ucrt64/bin:/usr/bin:/bin HOME=$HOME`.
+- Fecha: 2026-11-25 (UTC). Respaldo: `predeploy-20261125-075842`.
+
+### Ensayo de solo lectura
+
+`MOTOR_SHA=0244dc38... bash tools/despliegue/desplegar.sh --ensayo`
+(`I/despliegue.txt`):
+
+- Guardas libres: `true|0|0|0|0`.
+- Monotonia: habia que desplegar; migraciones 0076-0099 **aplicadas**, ninguna
+  pendiente. I no agrega DDL: la `0099_arreglos05_tope_ciclo.sql` sigue siendo la
+  ultima.
+- `claves: ninguna cambia`; bloque de cron igual al canonico;
+  `refresh_estimacion.sh` ya era el del SHA.
+- `== ENSAYO OK`.
+
+### Despliegue real
+
+`MOTOR_SHA=0244dc38... bash tools/despliegue/desplegar.sh` (`I/despliegue.txt`):
+
+- Respaldo `predeploy-20261125-075842` completo.
+- Migraciones 0076-0099 `ya aplicada` (ninguna se ejecuto).
+- `md5 OK: 304 archivos`; imagen construida aparte y contenedor recreado;
+  `/health 200`; `despliegue/sha = 0244dc38...`.
+- Cron igual al canonico; ninguna clave cambia.
+- `== DESPLEGADO 0244dc38...`.
+
+### Checklist
+
+`MOTOR_SHA=0244dc38... bash tools/despliegue/checklist.sh` (`I/checklist.txt`):
+
+- `== CHECKLIST VERDE 0244dc38...`: SHA desplegado, migraciones 0076-0099
+  aplicadas (la ultima, `0099_arreglos05_tope_ciclo.sql`), bloque de cron
+  canonico, `refresh_estimacion.sh` del SHA y `/health 200`.
+
+### Prueba real sobre el SHA integrado
+
+`I/prueba-real.txt`:
+
+- `N i`: **19 passed** (6496 deselected).
+- Control 01X (`tests/test_config_write.py -k arreglos01_x`): **1 passed**.
+
+### Recorrido de Settings y caso adverso
+
+`I/ui-fase2.md` y `I/ui-fase2/`: `launch`, `doctor` (`ok true`),
+`drive-settings` (16 comprobaciones en `true`) y `cleanup` en WSL con el arbol
+del SHA integrado; el adverso con Edge real en Windows (`I/adverso-fase2.txt`)
+repite `1,000` -> error visible, cero POST, cero version nueva y el control con
+`7`.
+
+### Lectura RO de esquema y resultado
+
+`I/previa-fase2.txt` (rol `orbit_read`, `read_only`, via `lee_prod.sh`;
+2026-11-25T08:12Z):
+
+- `config_version`: columnas `id`, `created_at`, `label`, `settings` (JSONB);
+  triggers `config_append_only` y `config_append_only_truncate` con
+  `prohibir_mutacion()`.
+- Sonda de la 0099: `True` (el CHECK de `decision_sin_aplicar` admite
+  `tope_ciclo`).
+- 8 cuotas vigentes, todas `number` con `1000000`; 0 texto, 0 nulas, 0 ausentes.
+- 60 versiones de config (ids 2..63).
+
+### Huella del codigo desplegado
+
+`I/huella-codigo.txt`: los cuatro archivos que cambia I
+(`app/config_write.py`, `app/api_write.py`, `app/static/js/settings.js`,
+`app/templates/settings.html`) tienen el **mismo md5 en local, host y
+contenedor**. `sha_desplegado = 0244dc38...`, `ESTADO=verificado`,
+`/health 200` y las marcas del bloque (`_cap_entrante`, `cuota de`,
+`type="text" name="cap_`, `Cuotas por kind`) presentes en el contenedor.
+
+### Migracion y reversa
+
+- I no trae migracion; la 0099 sigue siendo la ultima aplicada. No hay DDL que
+  deshacer.
+- Reversa de despliegue: `MOTOR_SHA=0244dc381c18b59b76112c68317738114d0b6ff8
+  bash tools/despliegue/rollback.sh` deshace solo lo anotado en `ultimo.env`
+  para ese SHA (codigo, sin claves ni cron en esta corrida) y sale 0 sin
+  deshacer con otro SHA. La reversa de efectos y la de despliegue son
+  operaciones distintas.
+- Reversa de datos: no hace falta; no se reescribio ninguna `config_version`.
+
+### Seguimiento (P2) de la revision
+
+Las cinco notas del revisor quedaron en el cuerpo del PR #769, seccion
+"Seguimiento (P2)", sin commit: prueba de regresion del guard JS en la suite,
+mandar el texto ya validado en vez de `Number(...)`, `if valor is None`
+inalcanzable en `_cap_entrante`, caracteres corruptos en `I/previa.txt` linea 7
+y el mensaje heredado de `cap_desde_settings` / rechazo de `1000.0`.
+
+### Recibo
+
+`despliegue.txt`, `checklist.txt`, `prueba-real.txt`, `previa-fase2.txt`,
+`huella-codigo.txt`, `ui-fase2.md`, `ui-fase2/` y `adverso-fase2.txt` en esta
+carpeta.

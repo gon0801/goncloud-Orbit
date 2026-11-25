@@ -14,6 +14,11 @@ Base `a9885448`, rama `arreglos-05/i`, cabeza de implementacion `eb881707`.
 | `adverso.py`, `adverso.txt` | Caso adverso del formulario con Edge real (CDP): `1,000` no envia y muestra error. |
 | `ui.md`, `ui/` | `orbit-verify` launch/doctor/drive-settings/cleanup y sus archivos. |
 | `vecinos.md` | Suites vecinas, cobertura del contrato y fallos previos de esta PC. |
+| `despliegue.txt`, `checklist.txt` | Fase 2: ensayo, despliegue real y checklist de `0244dc38`. |
+| `prueba-real.txt` | `N i` y control 01X sobre el SHA integrado. |
+| `previa-fase2.sql`, `lee_fase2.sh`, `previa-fase2.txt` | RO de esquema, sonda 0099 y cuotas vigentes. |
+| `huella-codigo.sh`, `huella-codigo.txt` | md5 local/host/contenedor, SHA desplegado y marcas del bloque. |
+| `ui-fase2.md`, `ui-fase2/`, `adverso-fase2.txt` | Recorrido y adverso de la fase 2. |
 
 ## Comando principal
 

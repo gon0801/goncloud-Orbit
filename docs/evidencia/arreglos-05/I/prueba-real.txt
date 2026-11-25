@@ -1,0 +1,25 @@
+# Prueba real del bloque I sobre el SHA integrado 0244dc381c18b59b76112c68317738114d0b6ff8
+
+## N i
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N i
+
+...................                                                      [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <local>\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+19 passed, 6496 deselected, 1 warning in 29.04s
+
+## Control 01X
+$ CI=1 PYTHONPATH=.:tests uv run --frozen --python 3.12 python -m pytest -q tests/test_config_write.py -k arreglos01_x
+
+.                                                                        [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <local>\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 26 deselected, 1 warning in 1.08s

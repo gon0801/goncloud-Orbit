@@ -1,0 +1,35 @@
+# Lectura RO de la fase 2 del bloque I (solo SELECT). SHA 0244dc381c18b59b76112c68317738114d0b6ff8
+
+== momento
+2026-11-25 08:12:17.166335|160015
+
+== esquema_config_version
+id|bigint|NO
+created_at|timestamp with time zone|NO
+label|text|YES
+settings|jsonb|NO
+
+== triggers_config_version
+config_append_only|CREATE TRIGGER config_append_only BEFORE DELETE OR UPDATE ON public.config_version FOR EACH ROW EXECUTE FUNCTION prohibir_mutacion()
+config_append_only_truncate|CREATE TRIGGER config_append_only_truncate BEFORE TRUNCATE ON public.config_version FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion()
+
+== sonda_0099
+True
+
+== cuotas_vigentes
+amazon_mx|bid|True|1000000|number
+amazon_mx|harvest|True|1000000|number
+amazon_mx|negative|True|1000000|number
+amazon_mx|pause|True|1000000|number
+amazon_us|bid|True|1000000|number
+amazon_us|harvest|True|1000000|number
+amazon_us|negative|True|1000000|number
+amazon_us|pause|True|1000000|number
+
+== cuotas_por_tipo
+8|0|0|0|0
+
+== versiones
+60|2|63
+
+# bloques procesados: 7 de 7; con error: 0
