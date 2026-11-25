@@ -177,10 +177,49 @@ externo si lo cobra, ya dentro del 15%.
   incorpora una sola vez con `referral_fee_iva_multiplicador = 1.16`.
 - **Incluido en la comision**: la comision de MeLi. La cotizacion y el cargo
   coinciden en 19.500% con razon 1.000000; el multiplicador `1` es correcto.
-- **Desconocido**: Amazon US. La fuente no permite adjudicar el impuesto sobre
-  la comision: la razon no es 1.00 ni 1.16, la serie cambia de regimen y no hay
-  cotizaciones de los meses altos. No se escribe 16% ni cero. K queda **abierto
-  para Amazon US** con la tarea de evidencia registrada.
+- **Desconocido (cerrado en segunda lectura, ver seccion siguiente)**: en la primera
+  lectura sobre `ledger_event`, Amazon US quedo abierto porque `sale_gross` mezcla
+  `ItemPrice + Shipping + Tax` y oculta el desglose `Base/Tax` de `Commission`.
+
+## Ampliacion de fuente externa: adjudicacion de Amazon US (2026-11-25)
+
+Lectura directa de solo lectura contra **Amazon SP-API Finances v2024**
+(`GET /finances/2024-06-19/transactions?marketplaceId=ATVPDKIKX0DER`, moneda nativa USD) y
+conciliacion historica completa en `accounting.db` (`mode=ro`). Salida saneada sin
+`order_id` ni SKU en `K/finances_us_v2024.txt`.
+
+1. **Desglose directo en USD de SP-API Finances v2024 (sin tipo de cambio):**
+   - `2026-01-01` a `2026-02-01` (`n=52`): `Commission.Base / ProductCharges = 0.150000`,
+     `Commission.Tax / Base = 0.159887` (16%), `Commission.Total / Base = 1.159887`,
+     `Commission.Total / ProductCharges = 0.173983`, **0 anomalias**.
+   - `2026-05-01` a `2026-06-01` (`n=50`): `Base/Price = 0.150000`, `Tax/Base = 0.159887`,
+     `Total/Price = 0.173983`, **0 anomalias**.
+   - `2026-10-15` a `2026-11-25` (ventana comun con Orbit, `n=62`): `Base/Price = 0.150000`,
+     `Tax/Base = 0.159887`, `Total/Price = 0.173984`, **0 anomalias**.
+   - **164 de 164 items (100%)** cobran exactamente `15.00% Base + 16.00% Tax = 17.40%`
+     (`1.16x` de la cotizacion `ReferralFee` de Product Fees, que llega al `15.00%` sin
+     `TaxAmount`).
+2. **Conciliacion historica completa `2025-12` a `2026-11` (`n=531` con FX exacto):**
+   - `Commission_USD / ItemPrice_USD`: mediana `0.173985` (`1.159900x` de 15%), rango
+     `0.173865` a `0.174092`, **531/531 (100%)** en `[17.30%, 17.50%]`, 0 outliers.
+   - `ShippingHB_USD / ShippingPrice_USD`: mediana `0.174002` (`1.160014x`), `527/531` en
+     `[17.30%, 17.50%]`. `ShippingHB` ya entra con IVA incluido en `precio_envio_muestra`
+     desde el ledger (`app/precio/envio.py`).
+3. **Explicacion del artefacto `0.8586` y los aparentes "dos regimenes":**
+   - Nunca hubo cambio de regimen fiscal. `sale_gross` en `ledger_event` suma
+     `ItemPrice + ItemTax + ShippingPrice + ShippingTax`, mientras `referral_fee` solo guarda
+     `Commission` (sobre `ItemPrice`). Al subir `ShippingPrice` de `$8.99` (`2025-12`–`2026-03`)
+     a `$12.99` (`2026-04`) y `$30.00` (`2026-05`–`2026-11`), la fraccion `ItemPrice / Total`
+     bajo de `0.85` a `0.736`, haciendo que `Commission / sale_gross` bajara de `0.17` a
+     `0.128` (`0.174 x 0.736`).
+   - `tax_withheld` en Amazon US es `MarketplaceFacilitatorTax` (sales tax estatal de EE. UU.,
+     que se compensa contra `OurPriceTax + ShippingTax` a `$0.00 USD` netos para el vendedor).
+     Amazon US no retiene IVA mexicano (`retencion_iva_tasa = 0`).
+4. **Veredicto final para Amazon US:** **impuesto separado (1.16x), omitido en `S3` e
+   incorporado una sola vez mediante migracion `0100_arreglos05_k_us_s4.sql`** (politica `S4`
+   `amazon_us_fbm_s4_caja_real_2026_11` con `referral_fee_iva_multiplicador = 1.16`,
+   `retencion_iva_tasa = 0`, `isr_tasa = 0.0207`, `iva_divisor = 1`,
+   `precio_incluye_iva = false`, `fee_tax_amount_requiere_politica = true`).
 
 ## Limites de la fuente
 

@@ -1,0 +1,60 @@
+# Evidencia externa saneada: Amazon US (SP-API Finances v2024 + accounting.db)
+# Lectura solo lectura: 2026-11-25T16:00-16:05Z (sin order_id, SKU ni PII).
+#
+# Fuente 1: GET https://sellingpartnerapi-na.amazon.com/finances/2024-06-19/transactions
+#           marketplaceId=ATVPDKIKX0DER, transactionStatus=RELEASED, moneda nativa USD.
+#
+# Ejemplo de arbol de breakdowns devuelto por Amazon (Shipment 2026-11-25, redactado):
+#   Sales: 143.00 USD (ProductCharges: 118.00 USD, Shipping: 25.00 USD)
+#   Tax:     0.00 USD (OurPriceTax +13.28, ShippingTax +2.81,
+#                      MarketplaceFacilitatorTax-Principal -13.28,
+#                      MarketplaceFacilitatorTax-Shipping  -2.81)
+#   Expenses / AmazonFees: -24.88 USD
+#     Commission: -20.53 USD  ->  Base: -17.70 USD (15.00%), Tax: -2.83 USD (16.00% sobre Base)
+#     ShippingHB:  -4.35 USD  ->  Base:  -3.75 USD (15.00%), Tax: -0.60 USD (16.00% sobre Base)
+#
+# Resumen en tres ventanas de 2026 (USD nativo, sin conversion FX):
+#
+# Ventana                      | Items | Base/Price | Tax/Base | Tot/Base | Tot/Price | Anomalias
+# -----------------------------|-------|------------|----------|----------|-----------|----------
+# 2026-01-01 a 2026-02-01      |    52 |   0.150000 | 0.159887 | 1.159887 |  0.173983 |         0
+# 2026-05-01 a 2026-06-01      |    50 |   0.150000 | 0.159887 | 1.159887 |  0.173983 |         0
+# 2026-10-15 a 2026-11-25      |    62 |   0.150000 | 0.159887 | 1.159887 |  0.173984 |         0
+# TOTAL (3 ventanas)           |   164 |   0.150000 | 0.159887 | 1.159887 |  0.173984 |         0
+#
+# ShippingHB (comision sobre envio cobrado al comprador):
+#   2026-01: ShippingHB.Base/Shipping=0.150167, ShippingHB.Tax/Base=0.162963 (n=52, envio $8.99)
+#   2026-05: ShippingHB.Base/Shipping=0.150000, ShippingHB.Tax/Base=0.160000 (n=50, envio $30.00)
+#   2026-10/11: ShippingHB.Base/Shipping=0.150000, ShippingHB.Tax/Base=0.160000 (n=62, envio $25-$30)
+#
+# Fuente 2: Serie completa 2025-12 a 2026-11 en accounting.db (solo lectura, mode=ro),
+#           descomponiendo ItemPrice y ShippingPrice desde raw_payload y FX exacto del
+#           propio evento (MarketplaceFacilitatorTax-Principal / ItemTax):
+#
+# Mes     | n_ex | comm/sale_gr | Item/Tot | MedItem$ | MedShip$ | Comm$/Item$ (vs 15%)  | ShipHB$/Ship$
+# --------|------|--------------|----------|----------|----------|-----------------------|--------------
+# 2025-12 |   32 |       0.1675 |   0.8479 |  $118.00 |   $ 8.99 | 0.173982 (1.1599x)    | 0.174666 (n=32)
+# 2026-02 |   40 |       0.1770 |   0.8529 |  $118.00 |   $ 8.99 | 0.173982 (1.1599x)    | 0.174666 (n=40)
+# 2026-03 |   69 |       0.1503 |   0.8570 |  $115.20 |   $ 8.99 | 0.173985 (1.1599x)    | 0.174638 (n=69)
+# 2026-04 |   67 |       0.1411 |   0.8119 |  $106.20 |   $12.99 | 0.173998 (1.1600x)    | 0.173996 (n=67)
+# 2026-05 |   43 |       0.1285 |   0.7385 |  $111.78 |   $30.00 | 0.173987 (1.1599x)    | 0.173998 (n=43)
+# 2026-06 |   37 |       0.1302 |   0.7467 |  $115.20 |   $30.00 | 0.173987 (1.1599x)    | 0.173998 (n=37)
+# 2026-07 |   57 |       0.1292 |   0.7434 |  $115.20 |   $30.00 | 0.173986 (1.1599x)    | 0.173999 (n=57)
+# 2026-08 |   62 |       0.1281 |   0.7363 |  $115.20 |   $30.00 | 0.173985 (1.1599x)    | 0.174000 (n=62)
+# 2026-09 |   52 |       0.1294 |   0.7424 |  $115.20 |   $30.00 | 0.173983 (1.1599x)    | 0.173998 (n=52)
+# 2026-10 |   40 |       0.1277 |   0.7329 |  $115.20 |   $30.00 | 0.173986 (1.1599x)    | 0.173996 (n=40)
+# 2026-11 |   32 |       0.1280 |   0.7365 |  $115.20 |   $30.00 | 0.173990 (1.1599x)    | 0.173999 (n=32)
+#
+# TOTAL FX EXACTO: n=531, mediana=0.173985 (1.159900x de 15%), min=0.173865, max=0.174092.
+#   En [17.30%, 17.50%] (15% x 1.16): 531/531 (100.0%).
+#   En [14.90%, 15.10%] (15% x 1.00):   0/531 (  0.0%).
+#   Outliers (|ratio - 0.174| > 0.005): 0.
+#
+# Conclusion:
+#   - Product Fees cotiza ReferralFee al 15.00% sin TaxAmount.
+#   - SP-API Finances cobra 15.00% Base + 16.00% IVA (Tax) = 17.40% (1.16x) en 100% de pedidos.
+#   - El aparente cambio de regimen (0.17 -> 0.128) en ledger_event fue un artefacto de
+#     dividir Commission (sobre ItemPrice) entre sale_gross (ItemPrice + Shipping + Tax) cuando
+#     Shipping subio de $8.99 a $30.00 en mayo de 2026.
+#   - tax_withheld en Amazon US es MarketplaceFacilitatorTax (sales tax estatal de EE. UU.,
+#     neto $0.00 USD para el vendedor); Amazon US no retiene IVA mexicano (retencion_iva_tasa = 0).

@@ -52,6 +52,7 @@ _CREADO_POR_REANCLE = "reancle_s4"
 _CREADO_POR_REVERSA = "reancle_s4_reversa"
 _UNIVERSOS_POR_PLATAFORMA: dict[str, tuple[str, ...]] = {
     "amazon_mx": ("amazon_mx/fba", "amazon_mx/fbm"),
+    "amazon_us": ("amazon_us/fbm",),
     "meli": ("meli/meli",),
 }
 
@@ -81,6 +82,7 @@ class FilaReancle:
     p_star_s3: Decimal
     p_star_s4: Decimal
     fuera_de_banda: bool
+    acotado_a_banda: bool = False
 
 
 @dataclass(frozen=True)
@@ -207,8 +209,13 @@ def calcular_goal_equivalente_s4(
     )
 
 
-def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[FilaReancle], str]:
-    """Lee goals activos S3 de MX y su ultimo escenario S3; exige politica S4 activa."""
+def construir_plan_reancle(
+    conn,
+    *,
+    plataformas: tuple[str, ...],
+    acotar_banda: bool = False,
+) -> tuple[list[FilaReancle], str]:
+    """Lee goals activos S3 y su ultimo escenario S3; exige politica S4 activa."""
     tasas_por_universo = _cargar_politicas_s4(conn, plataformas=plataformas)
     minimo, maximo = banda_desde_settings(config_vigente_settings(conn))
     filas_db = conn.execute(
@@ -283,6 +290,28 @@ def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[
             tasas_s4=tasas_s4,
         )
         fuera = not (minimo <= goal_s4 <= maximo)
+        acotado = False
+        if fuera and acotar_banda:
+            goal_s4 = max(minimo, min(maximo, goal_s4)).quantize(
+                _CUATRO_DECIMALES, rounding=ROUND_HALF_UP
+            )
+            divisor_fiscal = tasas_s4.iva_divisor if tasas_s4.precio_incluye_iva else Decimal("1")
+            ref_s4 = (Decimal(fee_var_raw) / p_actual) * tasas_s4.referral_fee_iva_multiplicador
+            tasa_ret_s4 = (tasas_s4.isr_tasa + tasas_s4.retencion_iva_tasa) / divisor_fiscal
+            p_star_s4 = techo_centavo(
+                precio_estrella(
+                    costo,
+                    Decimal(fee_fijo),
+                    envio,
+                    tasa_ret_s4,
+                    goal_s4,
+                    Decimal("1"),
+                    False,
+                    ref_s4,
+                )
+            )
+            fuera = False
+            acotado = True
         plan.append(
             FilaReancle(
                 goal_id=goal_id,
@@ -299,9 +328,13 @@ def construir_plan_reancle(conn, *, plataformas: tuple[str, ...]) -> tuple[list[
                 p_star_s3=p_star_s3,
                 p_star_s4=p_star_s4,
                 fuera_de_banda=fuera,
+                acotado_a_banda=acotado,
             )
         )
-        partes_huella.append(f"{goal_id}:{listing_id}:{platform}:{mode}:{goal_s3}->{goal_s4}")
+        marca = ":acotado" if acotado else ""
+        partes_huella.append(
+            f"{goal_id}:{listing_id}:{platform}:{mode}:{goal_s3}->{goal_s4}{marca}"
+        )
 
     huella = hashlib.sha256("|".join(partes_huella).encode()).hexdigest()[:16]
     return plan, huella
@@ -433,13 +466,18 @@ def aplicar_reversa_reancle(
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Re-ancla o revierte goals activos de Mexico (S3 <-> S4) preservando P*."
+        description="Re-ancla o revierte goals activos (S3 <-> S4) preservando P*."
     )
     parser.add_argument(
         "--platform",
-        choices=("amazon_mx", "meli", "todas"),
+        choices=("amazon_mx", "amazon_us", "meli", "todas"),
         default="todas",
-        help="Plataforma MX a evaluar (default: todas).",
+        help="Plataforma a evaluar (default: todas).",
+    )
+    parser.add_argument(
+        "--acotar-banda",
+        action="store_true",
+        help="Acota a [min, max] de precio_goal los goals S4 que caen fuera de banda.",
     )
     parser.add_argument(
         "--revertir",
@@ -466,7 +504,9 @@ def main(argv: list[str] | None = None) -> int:
     if not dsn:
         print("ERROR: ORBIT_DSN_ADMIN no esta en el entorno", file=sys.stderr)
         return 2
-    plataformas = ("amazon_mx", "meli") if args.platform == "todas" else (args.platform,)
+    plataformas = (
+        ("amazon_mx", "amazon_us", "meli") if args.platform == "todas" else (args.platform,)
+    )
     try:
         with connect(dsn, autocommit=True) as conn:
             if args.revertir:
@@ -495,18 +535,23 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"REVERTIDO goals_restaurados={n} lote={args.lote}_reversa")
                 return 0
 
-            plan, huella = construir_plan_reancle(conn, plataformas=plataformas)
+            plan, huella = construir_plan_reancle(
+                conn, plataformas=plataformas, acotar_banda=args.acotar_banda
+            )
             print(
                 "goal_id|listing_id|platform|canal|sku|mode|goal_s3%|goal_s4%|delta_pts|"
                 "p_actual|p_star_s3|p_star_s4|banda"
             )
             for f in plan:
                 delta = (f.goal_s4 - f.goal_s3) * Decimal("100")
+                estado_banda = (
+                    "FUERA" if f.fuera_de_banda else ("ACOTADO" if f.acotado_a_banda else "ok")
+                )
                 print(
                     f"{f.goal_id}|{f.listing_id}|{f.platform}|{f.canal}|{f.seller_sku}|"
                     f"{f.mode}|{_fmt_pct(f.goal_s3)}|{_fmt_pct(f.goal_s4)}|{delta:+.2f}|"
                     f"{f.p_actual:.2f}|{f.p_star_s3:.2f}|{f.p_star_s4:.2f}|"
-                    f"{'FUERA' if f.fuera_de_banda else 'ok'}"
+                    f"{estado_banda}"
                 )
             print(f"RESUMEN total={len(plan)} huella={huella}")
             mutar = valida_ceremonia(
