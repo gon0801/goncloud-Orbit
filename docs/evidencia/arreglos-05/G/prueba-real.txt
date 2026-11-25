@@ -1,0 +1,68 @@
+# Prueba real despues del despliegue - ARREGLOS 05 G
+# Fecha: 2026-11-25 04:22-04:24 UTC
+# PR 765 merge y MOTOR_SHA: d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+
+## 1. Repeticion de N g sobre el SHA integrado en el laboratorio
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N g
+# HEAD=d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+
+....                                                                     [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout><checkout>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 6443 deselected, 1 warning in 27.19s
+
+## 2. Reproduccion existente T optimizer test_13 sobre el SHA integrado
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_13
+
+.                                                                        [100%]
+1 passed, 2 deselected in 9.45s
+
+## 3. Huella del codigo desplegado
+# md5 local == servidor == contenedor del archivo que G cambia; sha desplegado.
+# Huella del codigo desplegado - ARREGLOS 05 G
+# SHA integrado y desplegado: d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+# Archivo cambiado por G: app/cycle_serializacion.py
+
+md5_local=4a43e4d24a6484c24c034b757b837fc0
+md5_servidor=4a43e4d24a6484c24c034b757b837fc0
+md5_contenedor=4a43e4d24a6484c24c034b757b837fc0
+iguales=si
+sha_desplegado=d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+marcador_sello_comun_en_contenedor=1
+
+## 4. Lectura de solo lectura en produccion
+# Herramienta: docs/evidencia/arreglos-01/lee_prod.sh (orbit_read, read_only).
+
+# Lectura RO de produccion tras el despliegue del bloque G (solo SELECT). SHA d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+
+== momento
+2026-11-25 04:22:15.433822|160015
+
+== esquema_arreglos05
+True|True|True|True|True|True|True|True
+
+== sello_harvest
+True|True|True
+
+== lotes_por_estado_modo
+live|done|179
+off|skipped|2
+shadow|done|30
+
+== lotes_mixtos
+21|23|141|143
+
+== decisiones_harvest_sello
+16|0|0|0
+
+== observaciones_ingeridas_posteriores
+45244|70
+
+== sello_violaciones_historicas
+0
+
+# bloques procesados: 8 de 8; con error: 0

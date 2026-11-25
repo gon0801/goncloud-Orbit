@@ -1,0 +1,29 @@
+# Lectura RO de produccion tras el despliegue del bloque G (solo SELECT). SHA d0cdf1c110a965542239ae9bc1ae7f1e97d05d48
+
+== momento
+2026-11-25 04:22:15.433822|160015
+
+== esquema_arreglos05
+True|True|True|True|True|True|True|True
+
+== sello_harvest
+True|True|True
+
+== lotes_por_estado_modo
+live|done|179
+off|skipped|2
+shadow|done|30
+
+== lotes_mixtos
+21|23|141|143
+
+== decisiones_harvest_sello
+16|0|0|0
+
+== observaciones_ingeridas_posteriores
+45244|70
+
+== sello_violaciones_historicas
+0
+
+# bloques procesados: 8 de 8; con error: 0
