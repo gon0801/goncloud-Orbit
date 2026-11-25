@@ -1,0 +1,5 @@
+# Vecinos extra de ciclo verificados ademas del acepta del bloque G.
+# Codigo identico a d0b831ef (la cabeza de evidencia solo agrega documentos).
+# tests/test_cycle_apply.py tests/test_cycle_pause_cooldown.py tests/test_cycle_target_ciclo.py
+.................................................                        [100%]
+49 passed in 89.30s (0:01:29)

@@ -91,6 +91,9 @@ Verde en la cabeza `d0b831ef`, en `G/verde.txt`: `N g` = 4 passed;
 - Parte 3: temporada = 128 passed; optimizer = 254 passed; esquema y esquema del
   aplicador = 117 passed; bloques B a E = 94 passed; selector del instalador
   (G no agrega DDL) = 4 passed; gitleaks de `2825fb03..d0b831ef` = sin fugas.
+- Vecinos extra de ciclo verificados aparte en `G/vecinos-ciclo.txt`:
+  `test_cycle_apply`, `test_cycle_pause_cooldown` y `test_cycle_target_ciclo`
+  = 49 passed (codigo identico a `d0b831ef`).
 - Total: 0 comandos que no pasaron.
 
 ## Foto de produccion (solo lectura)
