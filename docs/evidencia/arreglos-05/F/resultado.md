@@ -3,12 +3,12 @@
 - Base: `8a094228cd9704b35195000b83e37157527f887c` (master con BASE, A, B, C, D
   y E integrados y desplegados).
 - Rama: `arreglos-05/f`.
-- Cabeza de la implementacion: `b44d30db7443b659442c11ca54c3b26bcac24cec`
+- Cabeza de la implementacion: `142b1ba98c3e72e103922b3ce92012f78aed533e`
   (modelo en `4bf03729`; primera implementacion en `5eb549f4`; evidencia en
   `edd48fae`).
-- Acepta corrida en `b44d30db7443b659442c11ca54c3b26bcac24cec` con arbol
-  limpio. Los commits posteriores (`43dd5e64`, `fbb81d7c`) solo agregan
-  evidencia y un docstring; el codigo es el mismo.
+- Acepta corrida en `142b1ba98c3e72e103922b3ce92012f78aed533e` con arbol
+  limpio. Los commits posteriores al acepta solo agregan
+  evidencia y docstrings; el codigo es el mismo.
 - gitleaks de `8a094228..HEAD`: sin fugas.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md`, seccion "F-G. Meta base y
   sello temporal" (parte F) e "Integracion con TEMPORADA y migraciones".
@@ -56,8 +56,8 @@ Para quien mantiene:
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `b44d30db` | `test_12`: 1 passed. `N f`: 9 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
-| F.2 | mismos comandos mas las pruebas de snapshot viejo, fraccion apagada, replay y recuperacion | `b44d30db` | 9 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; una fase apagada no borra el ancla; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
+| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `142b1ba9` | `test_12`: 1 passed. `N f`: 9 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
+| F.2 | mismos comandos mas las pruebas de snapshot viejo, fraccion apagada, replay y recuperacion | `142b1ba9` | 9 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; una fase apagada no borra el ancla; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
 
 Casos de `N f` (`tests/test_arreglos05_f_meta.py`):
 

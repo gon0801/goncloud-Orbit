@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 F. SHA b44d30db7443b659442c11ca54c3b26bcac24cec (parte 3 de 3)
+# Acepta de ARREGLOS 05 F. SHA 142b1ba98c3e72e103922b3ce92012f78aed533e (parte 3 de 3)
 # base del bloque: 8a094228cd9704b35195000b83e37157527f887c
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
@@ -15,7 +15,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-128 passed, 1 warning in 119.58s (0:01:59)
+128 passed, 1 warning in 115.99s (0:01:55)
 resultado=ok
 
 ### [CONTROL] tablero y ciclo de apply: lectores de la meta congelada
@@ -28,27 +28,27 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-133 passed, 1 warning in 95.74s (0:01:35)
+133 passed, 1 warning in 97.37s (0:01:37)
 resultado=ok
 
 ### [CONTROL] esquema: invariantes del ledger del ciclo
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py
 ........................................................................ [ 79%]
 ...................                                                      [100%]
-91 passed in 4.01s
+91 passed in 3.42s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migraciones de ARREGLOS 05 (F no agrega DDL)
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
 ....                                                                     [100%]
-4 passed, 47 deselected in 4.93s
+4 passed, 47 deselected in 4.92s
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=8a094228cd9704b35195000b83e37157527f887c..HEAD
-[90m6:09PM[0m [32mINF[0m [1m7 commits scanned.[0m
-[90m6:09PM[0m [32mINF[0m [1mscanned ~111290 bytes (111.29 KB) in 228ms[0m
-[90m6:09PM[0m [32mINF[0m [1mno leaks found[0m
+[90m6:25PM[0m [32mINF[0m [1m13 commits scanned.[0m
+[90m6:25PM[0m [32mINF[0m [1mscanned ~118617 bytes (118.62 KB) in 236ms[0m
+[90m6:25PM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0

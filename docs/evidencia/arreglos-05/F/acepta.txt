@@ -1,8 +1,8 @@
-# Acepta de ARREGLOS 05 F. SHA b44d30db7443b659442c11ca54c3b26bcac24cec
+# Acepta de ARREGLOS 05 F. SHA 142b1ba98c3e72e103922b3ce92012f78aed533e
 # Consolidado de las tres partes del mismo lanzador, corridas en serie
 # sobre este SHA (cada parte queda tambien en acepta-1..3.txt).
 
-# Acepta de ARREGLOS 05 F. SHA b44d30db7443b659442c11ca54c3b26bcac24cec (parte 1 de 3)
+# Acepta de ARREGLOS 05 F. SHA 142b1ba98c3e72e103922b3ce92012f78aed533e (parte 1 de 3)
 # base del bloque: 8a094228cd9704b35195000b83e37157527f887c
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
@@ -12,7 +12,7 @@
 ### [ACEPTA] F.1: T optimizer test_12, base 29/28.5/28 con ledger rancio
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12
 .                                                                        [100%]
-1 passed, 2 deselected in 6.43s
+1 passed, 2 deselected in 6.65s
 resultado=ok
 
 ### [ACEPTA] F.1 y F.2: N f, regresiones del bloque (base, overlay, practica, snapshot viejo, fraccion apagada, replay, recuperacion)
@@ -24,7 +24,7 @@ $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N f
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-9 passed, 6433 deselected, 1 warning in 41.75s
+9 passed, 6433 deselected, 1 warning in 41.78s
 resultado=ok
 
 ### [CONTROL] bloque A: modelo de estados completo, invariantes y clasificadores (181 casillas)
@@ -32,18 +32,18 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 39%]
 ........................................................................ [ 79%]
 .....................................                                    [100%]
-181 passed in 1.45s
+181 passed in 1.43s
 resultado=ok
 
 ### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
 ..............................................................ss........ [ 71%]
 .............................                                            [100%]
-99 passed, 2 skipped in 10.64s
+99 passed, 2 skipped in 10.57s
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 F. SHA b44d30db7443b659442c11ca54c3b26bcac24cec (parte 2 de 3)
+# Acepta de ARREGLOS 05 F. SHA 142b1ba98c3e72e103922b3ce92012f78aed533e (parte 2 de 3)
 # base del bloque: 8a094228cd9704b35195000b83e37157527f887c
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
@@ -54,7 +54,7 @@ resultado=ok
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_cycle.py tests/test_cycle_target_ciclo.py tests/test_target_margen.py
 ........................................................................ [ 70%]
 ..............................                                           [100%]
-102 passed in 133.81s (0:02:13)
+102 passed in 132.20s (0:02:12)
 resultado=ok
 
 ### [CONTROL] aplicador: ledger, cola, cosecha, producto, esquema y API de escritura
@@ -70,11 +70,11 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-291 passed, 1 warning in 283.73s (0:04:43)
+291 passed, 1 warning in 282.33s (0:04:42)
 resultado=ok
 
 # comandos que no pasaron: 0
-# Acepta de ARREGLOS 05 F. SHA b44d30db7443b659442c11ca54c3b26bcac24cec (parte 3 de 3)
+# Acepta de ARREGLOS 05 F. SHA 142b1ba98c3e72e103922b3ce92012f78aed533e (parte 3 de 3)
 # base del bloque: 8a094228cd9704b35195000b83e37157527f887c
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
@@ -91,7 +91,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-128 passed, 1 warning in 119.58s (0:01:59)
+128 passed, 1 warning in 115.99s (0:01:55)
 resultado=ok
 
 ### [CONTROL] tablero y ciclo de apply: lectores de la meta congelada
@@ -104,27 +104,27 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-133 passed, 1 warning in 95.74s (0:01:35)
+133 passed, 1 warning in 97.37s (0:01:37)
 resultado=ok
 
 ### [CONTROL] esquema: invariantes del ledger del ciclo
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py
 ........................................................................ [ 79%]
 ...................                                                      [100%]
-91 passed in 4.01s
+91 passed in 3.42s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migraciones de ARREGLOS 05 (F no agrega DDL)
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
 ....                                                                     [100%]
-4 passed, 47 deselected in 4.93s
+4 passed, 47 deselected in 4.92s
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=8a094228cd9704b35195000b83e37157527f887c..HEAD
-[90m6:09PM[0m [32mINF[0m [1m7 commits scanned.[0m
-[90m6:09PM[0m [32mINF[0m [1mscanned ~111290 bytes (111.29 KB) in 228ms[0m
-[90m6:09PM[0m [32mINF[0m [1mno leaks found[0m
+[90m6:25PM[0m [32mINF[0m [1m13 commits scanned.[0m
+[90m6:25PM[0m [32mINF[0m [1mscanned ~118617 bytes (118.62 KB) in 236ms[0m
+[90m6:25PM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0
