@@ -19,7 +19,9 @@ la politica S4, pero US queda desconocido y no se escribe 16% ni cero. Este
 bloque no marca K como terminado ni suaviza ese pendiente.
 
 No hay ningun P0/P1 real abierto de ARREGLOS 05 en la aceptacion ni en los
-recorridos. Las esquinas y la deuda de fixtures de otros planes van a
+recorridos. La revision independiente de Z.3 (Claude Opus 5.5, distinto al
+implementador) no encontro ningun P0/P1 en el alcance revisado de `7b06778d`:
+`Z/review.md`. Las esquinas y la deuda de fixtures de otros planes van a
 "Seguimiento (P2)".
 
 ## Aceptacion integrada (Z.2)
@@ -185,15 +187,74 @@ para US y no como cierre.
   `ai-review`). Por eso la compuerta de comportamiento de este cierre es la
   aceptacion en PG16 de Z.2, no un job de CI.
 
+## Revision global (Z.3)
+
+Informe completo y verbatim en `Z/review.md`.
+
+- Revisor: Claude Opus 5.5, sesion independiente `goncloud-orbit-50`, distinto
+  al implementador. Fecha 2026-11-25, solo lectura, sin ejecutar pruebas.
+- SHA revisado: `7b06778d`.
+- Alcance: unos 23 mil lineas de los modulos mutantes; ciclo y recuperacion (A),
+  pujas y cupo 150 (H), identidad y reversas (B), reposicion (C), escritor unico
+  (D), cola y veto (E), meta base (F), sello (G), TEMPORADA, Ajustes (I) y modos
+  (J), fronteras de redaccion, Jev, fabrica y estimacion para K.
+- **P0/P1: ninguno.** Contraste y refuto la clase de defecto que domino el plan
+  (camino que no pasa por la tabla de estados, guarda que se adelanta a una
+  lectura, ID o valor que se pierde) en 13 hipotesis.
+- **P2: 15**, listados abajo como seguimiento, sin commit.
+- Veredicto del revisor: **PARCIAL**. El codigo A-J y los controles cumplen sus
+  contratos; K sigue abierto para Amazon US y eso impide el pase global.
+- El revisor no corrio la aceptacion; el implementador la corrio sobre el mismo
+  SHA (`Z/acceptance.xml`) y lo anota en `Z/review.md` sin tocar el veredicto.
+
 ## Pendientes
 
 1. **K abierto para Amazon US**: hace falta una fuente que demuestre el impuesto
    sobre comisiones en US. Mientras tanto el veredicto global es PARCIAL.
-2. **Revision global Z.3**: la ejecuta el revisor asignado, distinto al
-   implementador (Astra o el alterno que anuncie el coordinador). `Z/review.md`
-   recibe alcance, hallazgos P0/P1 frente a P2 y veredicto. Hasta que exista, no
-   se declara PASA.
+2. **Revision global Z.3**: hecha por Claude Opus 5.5 (sesion `goncloud-orbit-50`),
+   distinto al implementador. Cero P0/P1; 15 P2 en seguimiento. Informe en
+   `Z/review.md`. No abre rondas de correccion porque no hay P0/P1 reales.
 3. **Deuda de fixture P2** de los 49 casos de la tabla anterior, en los planes
    duenos de esos archivos.
 4. Despliegue: este bloque es `lane: fast` y no despliega; el despliegue se
    acredita aparte.
+
+## Seguimiento (P2)
+
+Los 15 hallazgos P2 del revisor, sin commit y sin reclasificar. Ninguno es
+P0/P1 segun `AGENTS.md`; el detalle con archivo y linea esta en `Z/review.md`.
+
+1. `cycle_target.py:71`: el ancla por hoja de familia y grupo filtra
+   `status='done'`; un ciclo `degraded` con TX3 comprometida no ancla la rampa.
+   F solo corrigio la base de plataforma. Frena convergencia, sin perdida de
+   dinero.
+2. `apply.py:426-454`: un 5xx en la lectura fresca o un 429 dejan pujas con
+   `sin_respuesta`; el ejecutor no las reintenta el mismo dia. Un dia de retraso.
+3. `apply_cola.py:587-607`: el rollback de `_aisla_fila` tambien descarta los
+   descartes de filas anteriores aun no comprometidos; se reevaluan despues.
+4. `apply_cola.py:756`: si se pierde la carrera del claim despues de cobrar la
+   cuota, esa unidad se pierde. Anterior a este plan.
+5. `apply_cola.py:424-428`: el `choque_clave` se atribuye al ciclo de origen y no
+   al ejecutor. Solo auditoria.
+6. `migrations/0098:106`: una practica shadow vigente bloquea el alta live de la
+   misma clave hasta 48 h. Coincide con el comportamiento previo.
+7. `cycle.py:172-185`: el plan toma el ultimo origen del dia; un shadow forzado
+   tras un live con pendientes no abre ejecutor. Requiere `--forzar`.
+8. `cli.py` y `cycle.py:1094`: `--forzar` abre un segundo origen con otro cupo de
+   150. Es manual y documentado.
+9. `apply_harvest.py:574`: tras un 5xx en el POST, la keyword creada se adopta
+   como incierta y la reversa no la borra. Conservador; dos eventos.
+10. `apply_reconcilia.py:222-234`: un HTTP tardio tras perder el lease puede
+    chocar con el sello del sucesor. Dos fallos encadenados; declarado en
+    `DISENO.md`.
+11. `apply_regreso_dueno.py`: el regreso manual corre fuera del claim del ciclo;
+    con un PUT simultaneo gana por ultima escritura.
+12. `apply.py:660-668`: si falla el readback de una puja no se guarda el ACK.
+    Solo se pierde evidencia de auditoria.
+13. `tests/test_notifica.py:1843`, `:1876`, `:1918`: tres pruebas rojas previas;
+    el fake `_Conn9` tiene respuestas en orden fijo desalineadas. No hay
+    evidencia de ruta real rota.
+14. `tests/test_precio_reglas.py::test_r4_g8_barrido_float_entra_a_subpaquetes`:
+    falla solo en Windows por el separador de ruta (declarado en K).
+15. K-MX: 3 de 113 productos fuera del 0.1% de la razon 1.16; no cambia la
+    mediana.
