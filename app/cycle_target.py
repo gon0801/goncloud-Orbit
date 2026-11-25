@@ -128,8 +128,8 @@ class _OverlayTemporada:
 
 @dataclass(frozen=True)
 class _BasePrevia:
-    """Base convergente con la que arranca este ciclo y de donde salio
-    (ARREGLOS 05 F). `valor` None = ausencia explicita en el ultimo ciclo."""
+    """Ancla de la base con la que arranca este ciclo y de donde salio
+    (ARREGLOS 05 F). `valor` None solo cuando no hay evidencia ni setting."""
 
     valor: Decimal | None
     origen: str  # 'ciclo:<id>' | 'setting'
