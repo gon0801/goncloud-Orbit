@@ -1,0 +1,88 @@
+# Prueba real despues del despliegue - ARREGLOS 05 E
+# Fecha: 2026-11-25 00:26-00:30 UTC
+# PR 761 merge y MOTOR_SHA: 4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5
+
+## 1. Repeticion de N e sobre el SHA integrado en el laboratorio
+# Comando: uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e
+# HEAD=4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5
+
+................                                                         [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <repo>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+16 passed, 6417 deselected, 1 warning in 31.05s
+
+## 2. Huella del codigo desplegado
+# De la salida de desplegar.sh y checklist.sh:
+#   md5 OK: 304 archivos (git archive del SHA contra el codigo subido)
+#   /health 200
+#   /mnt/data/appdata/orbit/despliegue/sha = 4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5
+#   migracion 0098_arreglos05_indice_shadow.sql aplicada
+# Huella local de app/ en 4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5 (docs/evidencia/arreglos-05/BASE/huella_codigo.py):
+#   {"archivos": 284, "sha256_conjunto": "f66f2d85fd2502bd39a2f7c25ee6de6cc9a954cbdd2fcab8f6db548ef95f05ec"}
+# El detalle completo esta en despliegue.txt y checklist.txt.
+
+## 3. Lectura de solo lectura en produccion
+# Herramienta: docs/evidencia/arreglos-01/lee_prod.sh (rol orbit_read,
+# transaccion read_only). Solo esquema, conteos y banderas.
+
+# Lectura RO de produccion tras el despliegue del bloque E. SHA 4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5
+
+== momento
+2026-11-25 00:26:00|orbit_read|on|58
+
+== indices
+apply_queue_ad_entity_id_idx|CREATE INDEX apply_queue_ad_entity_id_idx ON public.apply_queue USING btree (ad_entity_id)
+apply_queue_decision_id_idx|CREATE INDEX apply_queue_decision_id_idx ON public.apply_queue USING btree (decision_id)
+apply_queue_live_efecto_unico|CREATE UNIQUE INDEX apply_queue_live_efecto_unico ON public.apply_queue USING btree (platform, ad_entity_id, familia, search_term) NULLS NOT DISTINCT WHERE ((modo = 'live'::text) AND (estado <> ALL (ARRAY['applied'::text, 'failed'::text, 'vetoed'::text, 'discarded'::text])))
+apply_queue_pkey|CREATE UNIQUE INDEX apply_queue_pkey ON public.apply_queue USING btree (id)
+
+== triggers
+apply_queue_clave_vigente
+apply_queue_nace_pending_veto
+apply_queue_sella_transiciones
+
+== funcion_0098
+True|True|True
+
+== sonda_0098
+True
+
+== colas_por_modo_estado
+live|applied|17
+live|discarded|3
+live|vetoed|2
+shadow|discarded|3
+shadow|pending_veto|31
+shadow|vetoed|2
+
+== practicas_shadow
+36|31|31|0
+
+== practicas_vencidas_historia
+31|2026-11-10 08:40:02|2026-11-10 08:40:02|2026-11-08 08:40:06|2026-11-08 08:40:06
+
+== claves_no_terminales_duplicadas
+0
+
+# bloques procesados: 9 de 9; con error: 0
+
+## 4. Lectura
+- La migracion 0098 quedo aplicada: la sonda da True, el indice
+  apply_queue_live_efecto_unico existe, el indice mixto de 0002 ya no esta y el
+  trigger apply_queue_clave_vigente esta presente.
+- La funcion del trigger trae las tres piezas del bloque: vigencia por
+  vence_el, comprobacion de VETO vigente al alta y candado asesor
+  pg_advisory_xact_lock.
+- Las 31 practicas shadow vencidas siguen en la cola (shadow pending_veto = 31,
+  las 31 con vence_el <= now()), con el mismo minimo/maximo de vencimiento y
+  encolado que la foto previa (2026-11-10 08:40:02 / 2026-11-08 08:40:06): no se
+  borro ni promociono ninguna. Solo dejan de bloquear.
+- No hay claves con mas de una fila no terminal (0): la reversa de 0098 podria
+  restaurar el indice mixto en esta foto; si el veto/alta crea convivencia
+  despues, debe rehusar.
+- 58 filas en apply_queue, las mismas que la foto previa; /health 200 y md5 OK
+  de 304 archivos.

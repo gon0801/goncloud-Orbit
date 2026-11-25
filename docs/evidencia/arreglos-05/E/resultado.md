@@ -179,6 +179,30 @@ instalador).
   INSERT comprueba un `vetoed` vigente y comparte con el veto un candado asesor
   por clave, asi que una decision calculada antes del veto no entra despues.
 
+## Fase 2: despliegue y recibo
+
+- PR #761 integrado. `MOTOR_SHA=4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5`
+  (master), `SHA_PREVIO=8c58f5483b62abbc2253f6e102a3ca7cd5ff46d6`.
+- Ensayo solo lectura: guardas libres, 0098 pendiente, ninguna clave cambia.
+- Despliegue real: `aplicada: 0098_arreglos05_indice_shadow.sql`,
+  `md5 OK: 304 archivos`, `/health 200`,
+  `despliegue/sha = 4f44c07d...`.
+- Checklist: **VERDE** `4f44c07d...`; la sonda de 0098 da `t`.
+- `N e` sobre el SHA integrado: **16 passed**.
+- Lectura RO de produccion (`lee_prod.sh`, `orbit_read`, `read_only`):
+  - indice `apply_queue_live_efecto_unico` presente; indice mixto de 0002
+    ausente; trigger `apply_queue_clave_vigente` presente;
+  - funcion del trigger con las tres piezas: `vence_el`, `VETO vigente` y
+    `pg_advisory_xact_lock`;
+  - 31 practicas shadow `pending_veto`, las 31 vencidas, con el mismo
+    minimo/maximo de vencimiento y encolado que la foto previa: no se borro ni
+    promociono ninguna; solo dejan de bloquear;
+  - 58 filas en `apply_queue`, 0 claves con mas de una fila no terminal.
+- Reversa: `rollback.sh` solo deshace lo anotado en `ultimo.env` para este
+  `MOTOR_SHA` y nunca restaura el binario anterior por su cuenta; la reversa de
+  0098 rehusa restaurar el indice mixto si hay colisiones y no borra filas.
+- Recibo completo: `despliegue.txt`, `checklist.txt` y `prueba-real.txt`.
+
 ## Fallos previos de `master` en esta PC (no de este bloque)
 
 `test_fabrica_f2_hermanas` x24, `test_fabrica_f2_biblioteca` x16,
