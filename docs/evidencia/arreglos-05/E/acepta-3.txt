@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 E. SHA 4b79de0e96598f24ff2d060c166482e3cca6d4a1 (parte 3 de 3)
+# Acepta de ARREGLOS 05 E. SHA 297b7ce2f3e17ee3168f7b42453c1ba2ac08079e (parte 3 de 3)
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
 # herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
@@ -8,13 +8,13 @@
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
 ........................................................................ [ 61%]
 .............................................                            [100%]
-117 passed in 23.55s
+117 passed in 23.79s
 resultado=ok
 
 ### [CONTROL] selector del instalador: migracion 0098, sonda y reversa
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05_e
 .                                                                        [100%]
-1 passed, 50 deselected in 2.31s
+1 passed, 50 deselected in 2.36s
 resultado=ok
 
 ### [CONTROL] temporada conserva prioridad y reactivaciones
@@ -27,14 +27,14 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-128 passed, 1 warning in 116.23s (0:01:56)
+128 passed, 1 warning in 117.19s (0:01:57)
 resultado=ok
 
 ### [ACEPTA] revision de secretos de los commits del bloque
 $ gitleaks detect --redact --no-banner --log-opts=5223bfae1e85fee2d2d956962563ee030113e333..HEAD
-[90m3:47PM[0m [32mINF[0m [1m4 commits scanned.[0m
-[90m3:47PM[0m [32mINF[0m [1mscanned ~98267 bytes (98.27 KB) in 227ms[0m
-[90m3:47PM[0m [32mINF[0m [1mno leaks found[0m
+[90m4:13PM[0m [32mINF[0m [1m6 commits scanned.[0m
+[90m4:13PM[0m [32mINF[0m [1mscanned ~115059 bytes (115.06 KB) in 249ms[0m
+[90m4:13PM[0m [32mINF[0m [1mno leaks found[0m
 resultado=ok
 
 # comandos que no pasaron: 0

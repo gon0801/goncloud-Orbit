@@ -3,8 +3,8 @@
 - Base: `5223bfae1e85fee2d2d956962563ee030113e333` (master con BASE, A, B, C y D
   integrados y desplegados).
 - Rama: `arreglos-05/e`.
-- Cabeza de la implementacion (ronda 1 de revision): `4b79de0e96598f24ff2d060c166482e3cca6d4a1`.
-  Primera cabeza del bloque: `64c29136`.
+- Cabeza de la implementacion (ronda 2 de revision): `297b7ce2f3e17ee3168f7b42453c1ba2ac08079e`.
+  Ronda 1: `4b79de0e`. Primera cabeza del bloque: `64c29136`.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md` seccion "D-E. Escritor unico
   y practicas vencidas" (parte E) e "Integracion con TEMPORADA y migraciones".
 - Aviso del bloque: una propuesta de practica vencida deja de congelar la
@@ -41,8 +41,8 @@ esta en `E/estados.md`.
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| E.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e` | `4b79de0e` + ronda 2 | 16 passed | shadow vencida no bloquea SELECT ni INSERT; live/veto vigente protegidos; migracion 0098 y su reversa; el veto de la practica veta el corte real y bloquea el alta posterior | `0098_reversa_arreglos05_indice_shadow.sql` restaura el indice mixto de 0002 si no hay colisiones; con colisiones rehusa sin borrar filas |
-| E.2 | mismos `N e` mas vecinos: `tests/test_apply_cola.py`, `tests/test_apply_producto.py`, `tests/test_apply_harvest.py`, `tests/test_arreglos05_a_ciclo.py`, `tests/test_api_write.py`, `tests/test_productos_io.py`, `tests/test_productos_pausa.py` | `4b79de0e` | verde (ver abajo) | mismo efecto con shadow vieja, vigente y live; dos workers con maximo un live no terminal; historial identico antes/despues; veto por efecto | igual que E.1; el rollback de despliegue usa `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado |
+| E.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e` | `297b7ce2` | 16 passed | shadow vencida no bloquea SELECT ni INSERT; live/veto vigente protegidos; migracion 0098 y su reversa; el veto de la practica veta el corte real y bloquea el alta posterior | `0098_reversa_arreglos05_indice_shadow.sql` restaura el indice mixto de 0002 si no hay colisiones; con colisiones rehusa sin borrar filas |
+| E.2 | mismos `N e` mas vecinos: `tests/test_apply_cola.py`, `tests/test_apply_producto.py`, `tests/test_apply_harvest.py`, `tests/test_arreglos05_a_ciclo.py`, `tests/test_api_write.py`, `tests/test_productos_io.py`, `tests/test_productos_pausa.py` | `297b7ce2` | verde (ver abajo) | mismo efecto con shadow vieja, vigente y live; dos workers con maximo un live no terminal; historial identico antes/despues; veto por efecto y alta bloqueada | igual que E.1; el rollback de despliegue usa `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado |
 
 ## Ronda 1 de revision (Devin): el veto es del efecto
 
