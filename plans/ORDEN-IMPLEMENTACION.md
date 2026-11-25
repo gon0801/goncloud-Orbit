@@ -1,8 +1,8 @@
 # Orden de implementación de Orbit
 
-Actualizado el **25-nov-2026** tras la evidencia del bloque Z de ARREGLOS 05. La cola pendiente **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05** quedó integrada: 04 desplegado en `f5dc86d5`, TEMPORADA desplegada y 05 con BASE y A-K integrados y Z publicado sobre `7b06778d`. El pase global de 05 queda **PARCIAL** mientras K siga abierto para Amazon US. El [ROADMAP](ROADMAP.md) conserva la historia y los seguimientos.
+Actualizado el **25-nov-2026** tras el cierre final del bloque Z de ARREGLOS 05 sobre `c16c8c55`. La cola completa **ARREGLOS 04 → TEMPORADA 01 → ARREGLOS 05** quedó **cerrada, integrada y desplegada**: 04 desplegado en `f5dc86d5`, TEMPORADA desplegada en `f07ab667`, y 05 cerrado completo (`BASE`, `A–K` y `Z`) en `5caa67cd` / `c16c8c55` con aceptación integrada **31/31**, regresiones **N a–k (438/438)** y migración `0100` (S4 Amazon US) aplicada en producción. **No quedan planes de implementación pendientes en esta cola.** El [ROADMAP](ROADMAP.md) conserva la historia y los seguimientos operativos.
 
-`manifest.active = arreglos-04` indica a Agent Orchestrator el plan que comienza por BASE.
+`manifest.active = arreglos-05` marca el último plan cerrado de la cola; no iniciar otro plan sin nueva autorización y brief.
 
 Fuentes: [inventario completo](../docs/evidencia/arreglos-05/inventario/inventario.md), [inventario JSON](../docs/evidencia/arreglos-05/inventario/inventario.json) y [matriz final de cobertura](../docs/evidencia/arreglos-05/COBERTURA.md). El inventario conserva la foto de origen; las asignaciones finales de esta cola y de COBERTURA prevalecen sobre sus propuestas anteriores. Esos artefactos y el plan ARREGLOS 05 se incorporan en la misma entrega documental; sus enlaces no acreditan implementación.
 
@@ -22,13 +22,13 @@ El lead comprobó en solo lectura que los **202 archivos de runtime** de `app/` 
 
 La igualdad del runtime **no prueba** por sí sola todas las migraciones aplicadas, crons, configuración ni efectos en Amazon/MeLi. Revisar las actas residuales en el bloque BASE del plan que las necesita; no usar su ausencia documental para reiniciar planes entregados. Las fotografías históricas de modos no sustituyen una lectura vigente.
 
-## Todos los planes pendientes de implementación
+## Todos los planes de la cola (cerrados al 25-nov-2026)
 
-| Orden | Plan | Alcance pendiente y dependencias |
+| Orden | Plan | Estado final y evidencia |
 |---|---|---|
-| 1 | [ARREGLOS 04](arreglos-04.md) | Pantallas, fábrica y bloqueos, después de 03. **B-C** cubre **02 completo**, incluida respuesta sin contenedor; nuevo **W-P** cubre **04** en retiro e impulso; **W-E** cubre **15** además de madurez; **W-D** cubre **16**. Conserva los demás bloques, incluido presupuesto alto con confirmación. |
-| 2 | [TEMPORADA 01](temporada-01.md) | Después de 04, orden interno I → A → B → C → D → P → E → F → G → H. Consume margen corregido por ARREGLOS 02, su redondeo/revisión y los contratos que dejan 03/04; G usa aviso y confirmación de presupuesto de 04 W-N. No reimplementar la base. |
-| 3 | [ARREGLOS 05](arreglos-05.md) | **BASE y A-K integrados; Z publicado y PARCIAL.** BASE; A ciclo; B reversas **03/10**; C reposición **11**; D frontera Ads; E shadow; F target **12**; G sello **13**; H tope 150; I settings; J modos; K fees; Z aceptación global. Evidencia de cierre en `docs/evidencia/arreglos-05/Z/`: aceptación 31/31, regresiones N a-j y mapa UI. **K queda abierto para Amazon US** (impuesto sobre comisiones no adjudicable con la fuente actual), así que el plan no recibe pase global. |
+| 1 | [ARREGLOS 04](arreglos-04.md) | **CERRADO y desplegado (`f5dc86d5`).** Pantallas, fábrica y bloqueos; **B-C** cerró **02**, **W-P** cerró **04**, **W-E** cerró **15** y **W-D** cerró **16**. |
+| 2 | [TEMPORADA 01](temporada-01.md) | **CERRADO y desplegado (`f07ab667`).** Bloques I → A → B → C → D → P → E → F → G → H y olas OLA1–OLA3. |
+| 3 | [ARREGLOS 05](arreglos-05.md) | **CERRADO y desplegado (`5caa67cd` / `c16c8c55`).** `BASE`, `A–K` y `Z` completos: 14 hallazgos + controles verdes **31/31** en `c16c8c55`, regresiones **N a–k (438/438)**, mapa UI verificado, K-US adjudicado con SP-API Finances v2024 (`164/164` ítems USD: `15% + 16% IVA = 17.40%`), migración `0100` aplicada en producción y 99 metas US re-ancladas. Evidencia en `docs/evidencia/arreglos-05/Z/`. |
 
 No quedan otros planes de implementación autorizada fuera de esta lista en el inventario. Los briefs y guías acompañan sus planes padres; no suman entregas independientes. Los conteos y dependencias internas se mantienen en cada plan, sin duplicarlos aquí.
 

@@ -248,7 +248,7 @@
     {
       "name": "arreglos-05",
       "path": "plans/arreglos-05.md",
-      "description": "ARREGLOS 05 - BASE y A-K integrados y Z publicado sobre 7b06778d (docs/evidencia/arreglos-05/Z). Aceptacion integrada 31/31, regresiones N a-j verdes y mapa UI sin fallo de producto. Veredicto PARCIAL: K queda abierto para Amazon US porque la fuente no permite demostrar el impuesto sobre comisiones; MX y MeLi adjudicados con la politica S4. El plan no recibe pase global hasta adjudicar US."
+      "description": "ARREGLOS 05 — CERRADO Y DESPLEGADO 2026-11-25 (PR #775 5caa67cd, PR #776 c16c8c55). BASE, A-K y Z completos: aceptacion integrada 31/31 (14 hallazgos + controles) sobre c16c8c55, 438/438 regresiones N a-k verdes, mapa UI verificado y 0 P0/P1. K-US adjudicado con SP-API Finances v2024 (164/164 items USD: 15% Base + 16% IVA = 17.40%), migracion 0100 (S4) aplicada en produccion y 99 metas US re-ancladas. Evidencia en docs/evidencia/arreglos-05/Z/."
     }
   ],
   "active": "arreglos-05"
