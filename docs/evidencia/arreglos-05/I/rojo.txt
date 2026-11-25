@@ -1,0 +1,88 @@
+.F......F.FF.......                                                      [100%]
+================================== FAILURES ===================================
+__ test_arreglos05_i_proxima_config_rechaza_cuota_que_no_puede_guardar[None] __
+
+mala = None
+
+    @pytest.mark.parametrize("mala", [None, True, False, 1.5, "1.5", "1,000", "-1"])
+    def test_arreglos05_i_proxima_config_rechaza_cuota_que_no_puede_guardar(mala):
+        """`null`, booleanos, fracciones y texto ilegible se rechazan; ademas con
+        una edicion valida al lado, para que el rechazo no sea una edicion vacia."""
+        base = _base_settings()
+>       with pytest.raises(config_write.SettingsInvalido):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE SettingsInvalido
+
+tests\test_arreglos05_i_cuotas.py:102: Failed
+_________ test_arreglos05_i_proxima_config_normaliza_el_entero_valido _________
+
+    def test_arreglos05_i_proxima_config_normaliza_el_entero_valido():
+        """Un entero valido se guarda con la forma canonica de la config ("7"), no
+        con el texto de entrada ("007")."""
+        nuevo, cambios = config_write.proxima_config(
+            _base_settings(), PLAT, caps={"bid": "007"}
+        )
+>       assert nuevo[CLAVE_CAP_BID] == "7"
+E       AssertionError: assert '007' == '7'
+E
+E         - 7
+E         + 007
+
+tests\test_arreglos05_i_cuotas.py:114: AssertionError
+______ test_arreglos05_i_api_null_explicito_en_cuota_rechaza_sin_version ______
+
+tmp_path = WindowsPath('C:/Users/ehven/AppData/Local/Temp/tmp.bWXThxGhQq/pytest-of-ehven/pytest-0/test_arreglos05_i_api_null_exp0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002ACBB4456A0>
+
+    @_skip_db
+    def test_arreglos05_i_api_null_explicito_en_cuota_rechaza_sin_version(tmp_path, monkeypatch):
+        with _db_con_rol_admin("orbit_i_null") as (conn, dsn_admin, _dsn_l):
+            base = _siembra(conn)
+            cliente = _cliente(tmp_path, monkeypatch, dsn_admin)
+            resp = cliente.post(
+                URL,
+                json={
+                    "base_config_version_id": base,
+                    "target_manual_pct": "25",
+                    "caps": {"bid": None},
+                },
+                headers={"x-orbit-token": TOKEN},
+            )
+>           assert resp.status_code == 422, resp.text
+E           AssertionError: {"config_version_id":2,"created":true,"label":"settings UI ┬╖ settings-ui ┬╖ 2026-11-25 ┬╖ amazon_us: target manual 20 -> 25"}
+E           assert 200 == 422
+E            +  where 200 = <Response [200 OK]>.status_code
+
+tests\test_arreglos05_i_cuotas.py:148: AssertionError
+_________ test_arreglos05_i_api_booleano_en_cuota_rechaza_sin_version _________
+
+tmp_path = WindowsPath('C:/Users/ehven/AppData/Local/Temp/tmp.bWXThxGhQq/pytest-of-ehven/pytest-0/test_arreglos05_i_api_booleano0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002ACB96EABD0>
+
+    @_skip_db
+    def test_arreglos05_i_api_booleano_en_cuota_rechaza_sin_version(tmp_path, monkeypatch):
+        with _db_con_rol_admin("orbit_i_bool") as (conn, dsn_admin, _dsn_l):
+            base = _siembra(conn)
+            cliente = _cliente(tmp_path, monkeypatch, dsn_admin)
+            resp = cliente.post(
+                URL,
+                json={
+                    "base_config_version_id": base,
+                    "target_manual_pct": "25",
+                    "caps": {"bid": True},
+                },
+                headers={"x-orbit-token": TOKEN},
+            )
+>           assert resp.status_code == 422, resp.text
+E           AssertionError: {"config_version_id":2,"created":true,"label":"settings UI ┬╖ settings-ui ┬╖ 2026-11-25 ┬╖ amazon_us: target manual 20 -> 25, cap bid 10 -> 1"}
+E           assert 200 == 422
+E            +  where 200 = <Response [200 OK]>.status_code
+
+tests\test_arreglos05_i_cuotas.py:169: AssertionError
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 failed, 15 passed, 6496 deselected, 1 warning in 29.63s

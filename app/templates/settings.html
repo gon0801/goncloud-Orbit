@@ -264,7 +264,7 @@
       <legend>Caps diarios</legend>
       {% for kind, valor in p.caps.items() %}
       <label>{{ kind | etiqueta("kind") }}
-        <input type="number" name="cap_{{ kind }}" min="0" step="1" value="{{ valor or '' }}">
+        <input type="text" name="cap_{{ kind }}" inputmode="numeric" value="{{ valor or '' }}">
       </label>
       {% endfor %}
     </fieldset>

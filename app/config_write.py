@@ -190,6 +190,24 @@ def _aplica_precio_universo(nuevo: dict, cambios: list[str], entrante: Mapping) 
     nuevo["precio_modo_universo"] = fusionado
 
 
+def _cap_entrante(platform: str, kind: str, cap) -> int:
+    """Cuota de la EDICION, no de la config vigente.
+
+    Unico camino: `cap_desde_settings` decide que forma se puede guardar.
+    `null` explicito se rechaza (la forma de conservar el valor es omitir la
+    llave); un entero valido vuelve como int canonico para escribirlo igual en
+    toda la base (`"7"`, no `"007"`)."""
+    if cap is None:
+        raise SettingsInvalido(f"cap {kind} llego null: omite la cuota para conservar su valor")
+    try:
+        valor = cap_desde_settings({clave_cap(platform, kind): cap}, platform, kind)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+    if valor is None:
+        raise SettingsInvalido(f"cap {kind} llego null: omite la cuota para conservar su valor")
+    return valor
+
+
 def _decimal_acos_resumen(canal: str, crudo) -> Decimal | None:
     """Valida el porcentaje opcional del Resumen (> 0 y <= 1000). None/"" limpia."""
     if crudo is None or (isinstance(crudo, str) and crudo.strip() == ""):
@@ -547,7 +565,7 @@ def proxima_config(
     target_manual_pct: Decimal | None = None,
     margen_habilitado: bool | None = None,
     fraccion: Decimal | None = None,
-    caps: Mapping[str, int | None] | None = None,
+    caps: Mapping[str, object] | None = None,
     ack_respaldo: bool = False,
     confianza_recorte: Decimal | None = None,
     confianza_subida: Decimal | None = None,
@@ -581,6 +599,9 @@ def proxima_config(
     Las selecciones ORBIT 07 (`proteccion_venta`, `economia_producto`,
     `economia_cambio`) usan `off` para quitar la clave; una edicion que no
     cambia nada es invalida (una fila identica seria un rastro que miente).
+    Las cuotas (`caps`) pasan por `_cap_entrante`/`cap_desde_settings`: omitir
+    una llave conserva su valor, `null` explicito, booleanos, fracciones y
+    texto ilegible se rechazan, y un entero valido se escribe canonicalizado.
     TEMPORADA 01 A: la tarjeta «Temporadas de venta» es global (se guarda
     igual desde cualquier plataforma) y trae `temporada`, `campana_topada`,
     `temporada_modo` (par MX/US) y `meta_alta` (par MX/US); la subida rapida
@@ -658,12 +679,11 @@ def proxima_config(
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
             raise SettingsInvalido(f"cap desconocido {kind!r}: los kinds son {KINDS_QUOTA}")
-        if cap is None:
-            continue
+        valor = _cap_entrante(platform, kind, cap)
         k_cap = clave_cap(platform, kind)
-        if nuevo.get(k_cap) != str(cap):
-            cambios.append(f"cap {kind} {_antes(nuevo.get(k_cap))} -> {cap}")
-            nuevo[k_cap] = str(cap)
+        if nuevo.get(k_cap) != str(valor):
+            cambios.append(f"cap {kind} {_antes(nuevo.get(k_cap))} -> {valor}")
+            nuevo[k_cap] = str(valor)
 
     if not cambios:
         raise EdicionVacia("edicion vacia: nada que cambiar")

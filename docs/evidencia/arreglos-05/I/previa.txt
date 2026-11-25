@@ -1,0 +1,31 @@
+# Lectura previa de produccion del bloque I (solo SELECT). SHA eb8817077ae7ecd25f3ca706b6aba1cdda8e0417
+
+== momento
+2026-11-25 07:09:10.820054|160015
+
+== config_vigente
+63|2026-11-22 20:22:47.288691+00:00|settings UI ┬╖ settings-ui ┬╖ 2026-11-22 ┬╖ amazon_us: subida rapida shadow -> live
+
+== cuotas_vigentes
+amazon_mx|bid|True|1000000|number
+amazon_mx|harvest|True|1000000|number
+amazon_mx|negative|True|1000000|number
+amazon_mx|pause|True|1000000|number
+amazon_us|bid|True|1000000|number
+amazon_us|harvest|True|1000000|number
+amazon_us|negative|True|1000000|number
+amazon_us|pause|True|1000000|number
+
+== cuotas_por_tipo
+8|0|0|0|0
+
+== cuotas_fuera_de_rango
+0
+
+== cuotas_historicas_rotas
+0|0|0|0|440
+
+== versiones
+60|2|63
+
+# bloques procesados: 7 de 7; con error: 0

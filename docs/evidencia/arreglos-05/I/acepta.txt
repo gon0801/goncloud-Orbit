@@ -1,0 +1,108 @@
+# Acepta de ARREGLOS 05 I. SHA eb8817077ae7ecd25f3ca706b6aba1cdda8e0417 (parte 1 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [ACEPTA] I.1: N i, cuotas rechazadas sin version y entero valido con snapshot
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N i
+...................                                                      [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+19 passed, 6496 deselected, 1 warning in 29.41s
+resultado=ok
+
+### [CONTROL] 01X: la meta manual de Settings vive en la banda
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_config_write.py -k arreglos01_x
+.                                                                        [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 26 deselected, 1 warning in 1.08s
+resultado=ok
+
+### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
+..............................................................ss........ [ 71%]
+.............................                                            [100%]
+99 passed, 2 skipped in 10.38s
+resultado=ok
+
+# comandos que no pasaron: 0
+﻿# Acepta de ARREGLOS 05 I. SHA eb8817077ae7ecd25f3ca706b6aba1cdda8e0417 (parte 2 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] configuracion: proxima_config, guarda_config y settings de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_config_write.py tests/test_settings_escritura.py
+....................................................                     [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+52 passed, 1 warning in 45.43s
+resultado=ok
+
+### [CONTROL] endpoint de escritura completo (auth, veto, goals, settings, temporada)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_api_write.py
+....................................................                     [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+52 passed, 1 warning in 55.30s
+resultado=ok
+
+# comandos que no pasaron: 0
+﻿# Acepta de ARREGLOS 05 I. SHA eb8817077ae7ecd25f3ca706b6aba1cdda8e0417 (parte 3 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] dashboard: snapshot de settings y procedencia
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_api_dashboard.py
+........................................................................ [ 88%]
+.........                                                                [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+81 passed, 1 warning in 58.42s
+resultado=ok
+
+### [CONTROL] UI aplicable: settings, configuracion y caps
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_ui.py -k settings or config or cap
+......................                                                   [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\ehven\.ao\data\worktrees\goncloud-orbit\goncloud-orbit-46\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+22 passed, 76 deselected, 1 warning in 4.30s
+resultado=ok
+
+### [ACEPTA] revision de secretos de los commits del bloque
+$ gitleaks detect --redact --no-banner --log-opts=a9885448ee04a1fe38a3be25c69c13985e140c76..HEAD
+[90m11:14PM[0m [32mINF[0m [1m2 commits scanned.[0m
+[90m11:14PM[0m [32mINF[0m [1mscanned ~21095 bytes (21.09 KB) in 220ms[0m
+[90m11:14PM[0m [32mINF[0m [1mno leaks found[0m
+resultado=ok
+
+# comandos que no pasaron: 0
