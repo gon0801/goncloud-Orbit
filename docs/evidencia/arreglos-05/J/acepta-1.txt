@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 J. SHA 74e4aebec3c6888e537222c1706f111fd3833201 (parte 1 de 3)
+# Acepta de ARREGLOS 05 J. SHA 55568efac021202d67c8b91865324587855d1a15 (parte 1 de 3)
 # arbol con seguimiento limpio: NO
 # PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu
 
@@ -11,14 +11,14 @@ $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N j
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-6 passed, 6508 deselected, 1 warning in 22.26s
+6 passed, 6508 deselected, 1 warning in 22.44s
 resultado=ok
 
 ### arquitectura: presupuesto por modulo
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
 ..............................................................ss........ [ 71%]
 .............................                                            [100%]
-99 passed, 2 skipped in 10.53s
+99 passed, 2 skipped in 10.50s
 resultado=ok
 
 ### modelo de estados del bloque A
@@ -26,13 +26,13 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 34%]
 ........................................................................ [ 68%]
 .................................................................        [100%]
-209 passed in 1.38s
+209 passed in 1.37s
 resultado=ok
 
 ### ciclo: golden, gates, replay, politica apagada
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_cycle.py
 .....................................................                    [100%]
-53 passed in 74.85s (0:01:14)
+53 passed in 76.30s (0:01:16)
 resultado=ok
 
 # comandos que no pasaron: 0

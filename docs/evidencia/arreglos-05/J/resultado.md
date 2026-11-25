@@ -4,9 +4,9 @@
   D, E, F, G, H e I integrados y desplegados).
 - Rama: `arreglos-05/j`.
 - Modelo (escrito antes del commit de codigo): `J/estados.md`.
-- Cabeza de la implementacion: `74e4aebe` (codigo + regresiones + fixture y
-  la correccion de revision).
-- Evidencia: el commit que contiene este archivo, sobre `74e4aebe`.
+- Cabeza de la implementacion: `55568efa` (codigo + regresiones + fixture y
+  las correcciones de revision).
+- Evidencia: el commit que contiene este archivo, sobre `55568efa`.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md:243-248` y la decision 5 de
   `docs/evidencia/arreglos-02/DISENO.md:417-432`.
 - Aviso del bloque: se retiraron caminos obsoletos comprobados, conservando los
@@ -52,7 +52,7 @@ Para quien mantiene:
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| J.2 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N j` y `J/acepta.sh` partes 1-3 | `74e4aebe` | `N j`: 6 passed. Acepta: parte 1 (N j, arquitectura 99+2s, estados 209, ciclo 53), parte 2 (politica/eras/cooldown/config 131, settings/API 77, economia 15, notificaciones 74), parte 3 (productos 117, proteccion 15, aplicador/F/G 65, UI 5, instalador 4). Cero comandos fallidos. | Sin politica no hay mutacion; la meta por hoja se sigue guardando para la cosecha; meta shadow retirada; flag muerto retirado; replay, reversas, apagadores y pausa shadow conservados. | No hay DDL. Un binario anterior lee las mismas claves y decisiones; `tools/despliegue/rollback.sh` devuelve el binario previo. Los datos historicos no se reescriben. |
+| J.2 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N j` y `J/acepta.sh` partes 1-3 | `55568efa` | `N j`: 6 passed. Acepta: parte 1 (N j, arquitectura 99+2s, estados 209, ciclo 53), parte 2 (politica/eras/cooldown/config 131, settings/API 77, economia 15, notificaciones 74), parte 3 (productos 117, proteccion 15, aplicador/F/G 65, UI 5, instalador 4). Cero comandos fallidos. | Sin politica no hay mutacion; la meta por hoja se sigue guardando para la cosecha; meta shadow retirada; flag muerto retirado; replay, reversas, apagadores y pausa shadow conservados. | No hay DDL. Un binario anterior lee las mismas claves y decisiones; `tools/despliegue/rollback.sh` devuelve el binario previo. Los datos historicos no se reescriben. |
 
 ## Rojo y verde
 
@@ -69,7 +69,7 @@ passed**. Fallan:
 Los dos verdes del padre son controles de conservacion: politica ilegible ya
 abortaba y la pausa historica ya reproducia.
 
-Verde en `74e4aebe`, en `J/verde.txt`: `N j` = **6 passed**.
+Verde en `55568efa`, en `J/verde.txt`: `N j` = **6 passed**.
 
 ## Correccion de revision (Devin, ronda 1)
 
