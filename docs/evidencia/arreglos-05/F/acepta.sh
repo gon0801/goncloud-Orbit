@@ -135,7 +135,7 @@ echo "# PG: $(uv run --frozen --python 3.12 python -c 'import os,psycopg; c=psyc
 # --- Parte 1: lo que pide la columna Acepta y el modelo ---
 en_parte 1 && corre ACEPTA "F.1: T optimizer test_12, base 29/28.5/28 con ledger rancio" 1 \
   uv run --frozen --python 3.12 bash "$comprobar" T optimizer test_12
-en_parte 1 && corre ACEPTA "F.1 y F.2: N f, regresiones del bloque (base, overlay, practica, snapshot viejo, replay, recuperacion)" 8 \
+en_parte 1 && corre ACEPTA "F.1 y F.2: N f, regresiones del bloque (base, overlay, practica, snapshot viejo, fraccion apagada, replay, recuperacion)" 9 \
   uv run --frozen --python 3.12 bash "$comprobar" N f
 en_parte 1 && corre CONTROL "bloque A: modelo de estados completo, invariantes y clasificadores (181 casillas)" 181 \
   uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py

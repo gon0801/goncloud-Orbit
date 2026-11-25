@@ -408,6 +408,47 @@ def test_arreglos05_f_snapshot_viejo_con_base_inequivoca_es_ancla():
         assert target["base"]["origen"] == f"ciclo:{previo}"
 
 
+@_skip_db
+def test_arreglos05_f_fraccion_apagada_no_borra_el_ancla():
+    """Un ciclo sin fraccion no entrega base (`base.valor` nulo) pero no borra
+    la ultima base explicita: al reencender la fase la meta camina 0.5 desde
+    ahi y no salta al derivado. La ausencia queda visible en su snapshot."""
+    with _db_temporal("orbit_f05_fraccion") as (conn, _extra):
+        _mundo(conn, setting="29.5")
+        primero = _corre_f(conn)
+        assert primero.status == "done", primero.notes
+        assert Decimal(_target_de(conn, primero.cycle_id)["target_aplicado"]) == Decimal("29")
+
+        _config_version(
+            conn,
+            {
+                "ads_optimizer_mode": "live",
+                "ads_target_acos_pct_amazon_us": "29.5",
+                "ads_bid_politica_amazon_us": "niveles_v3",
+            },
+        )
+        apagada = _corre_f(conn)
+        assert apagada.status == "done", apagada.notes
+        target_apagada = _target_de(conn, apagada.cycle_id)
+        assert target_apagada["motivo_abstencion"] == "sin_fraccion"
+        assert target_apagada["base"]["valor"] is None
+        assert target_apagada["target_aplicado"] is None
+        filas = conn.execute(
+            "SELECT target_acos_pct, procedencia FROM target_acos_ciclo WHERE cycle_id = %s",
+            (apagada.cycle_id,),
+        ).fetchall()
+        assert filas == [(Decimal("29.5"), "setting_plataforma")]
+
+        _config(conn, ads_optimizer_mode="live", ads_target_acos_pct_amazon_us="28")
+        vuelta = _corre_f(conn)
+        assert vuelta.status == "done", vuelta.notes
+        objetivo = _target_de(conn, vuelta.cycle_id)
+        assert Decimal(objetivo["target_aplicado"]) == Decimal("28.5"), (
+            "reencender la fraccion no inventa margen fresco: camina desde el ancla"
+        )
+        assert objetivo["base"]["origen"] == f"ciclo:{primero.cycle_id}"
+
+
 # ---------------------------------------------------------------------------
 # F.2: replay de decisiones antiguas y lote nuevo tras recuperacion parcial
 # ---------------------------------------------------------------------------

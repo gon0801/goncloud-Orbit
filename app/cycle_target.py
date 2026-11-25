@@ -132,7 +132,7 @@ class _BasePrevia:
     (ARREGLOS 05 F). `valor` None = ausencia explicita en el ultimo ciclo."""
 
     valor: Decimal | None
-    origen: str  # 'ciclo:<id>' | 'setting' | 'ausencia'
+    origen: str  # 'ciclo:<id>' | 'setting'
     cycle_id: int | None
 
 
@@ -190,17 +190,20 @@ def _base_de_snapshot(target: dict) -> tuple[bool, Decimal | None]:
 def _base_previa(filas, setting_target: Decimal | None) -> _BasePrevia:
     """La base del ultimo ciclo live con decision comprometida, o el setting
     (inicializacion ya aprobada) cuando no hay evidencia. `filas` son
-    (cycle_id, notes) del mas reciente al mas viejo. Un ciclo cuyo snapshot
-    declara ausencia de base corta la busqueda: no se revive una base vieja."""
+    (cycle_id, notes) del mas reciente al mas viejo.
+
+    Un ciclo cuya base es `null` (el peldano no aplico: `sin_fraccion`, o ya en
+    el destino) no acredita base y NO borra la anterior: se sigue buscando la
+    ultima base explicita, como hacia la semantica vieja, para que una fase
+    apagada no haga saltar la meta al reencenderse. Si ninguna la tiene, manda
+    el setting: la ausencia sigue visible en cada snapshot."""
     for cycle_id, notes in filas:
         target = _target_de_notas(notes)
         if target is None:
             continue
         decide, valor = _base_de_snapshot(target)
-        if not decide:
+        if not decide or valor is None:
             continue
-        if valor is None:
-            return _BasePrevia(None, "ausencia", cycle_id)
         return _BasePrevia(valor, f"ciclo:{cycle_id}", cycle_id)
     return _BasePrevia(setting_target, "setting", None)
 

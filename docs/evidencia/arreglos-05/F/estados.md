@@ -123,8 +123,11 @@ resolver la configuracion estacional.
   (`ultimo`) sale de `_base_previa`, que solo considera ciclos
   `motor = 'ads_optimizer' AND mode = 'live' AND decision_committed_at IS NOT
   NULL AND id < cycle_id`; cada fila decide una sola vez:
-  - `notes.target.version = target_v2` con `base` dict: base = `base.valor`
-    (puede ser `null`, ausencia explicita, y entonces se deja de buscar);
+  - `notes.target.version = target_v2` con `base` dict: base = `base.valor`.
+    `valor = null` significa que ese ciclo no entrego base (el peldano no
+    aplico); no acredita base y la busqueda sigue con el anterior, para que una
+    fase apagada no haga saltar la meta al reencenderse; el `null` queda
+    visible en su propio snapshot;
   - snapshot viejo (sin `version`) con `procedencia = margen_plataforma` y
     `target_aplicado` no nulo: base = `target_aplicado` (semantica original,
     byte a byte la del codigo anterior);
@@ -157,7 +160,8 @@ la resolucion de la meta, y su "tabla" es la de `_base_de_snapshot` y
 | 1 | Ciclo normal con ledger fresco | ultimo ciclo live con `decision_committed_at`; su `notes.target.base.valor` (v2) o su `procedencia`+`target_aplicado` (v1) | `res.aplicado` del peldano margen_plataforma, con procedencia `margen_plataforma` | `overlay` de la config vigente (modo, fase, estacion, `meta_alta_pct`) | `notes.target.version = target_v2` con `base` y `overlay`; `target_aplicado` sigue siendo la base para los lectores actuales |
 | 2 | Ledger rancio con overlay de alta 25 | la base del ciclo anterior aunque su `procedencia` sea `null`: el ciclo rancio sella `base.valor` en su TX3 | 29 -> 28.5 -> 28: cada ciclo converge 0.5 hacia el setting desde la base del anterior; el 25 de alta NO entra | fase `alta`, `meta_alta_pct = 25`, `aplica = true` | `base.valor` = 29, 28.5, 28; `overlay.meta_alta_pct = 25` separado; `target_aplicado` = base |
 | 3 | Practica (temporada/global shadow) en medio | solo ciclos `mode = 'live'` son ancla; un ciclo shadow no aporta (misma regla que antes) | no cambia por la practica; el siguiente live ancla al ultimo live comprometido | la practica registra su `overlay` en su propio snapshot, sin tocar el ancla live | `base` del ciclo live intacta; `overlay.modo = 'shadow'` en el ciclo de practica |
-| 4 | Snapshot viejo sin base inequivoca | v1 con `procedencia = null` o `target_aplicado = null` no decide; se conserva la semantica vieja (seguir buscando) y la ausencia | la del ultimo snapshot v1 inequivoca; si no hay, `setting` (inicializacion ya aprobada) | el del ciclo actual | sin reconstruir por resta ni `efectivo - overlay`; `base.origen = 'setting'` o `'ciclo:<id>'`, nunca un numero inferido |
+| 4 | Snapshot viejo sin base inequivoca | v1 con `procedencia = null` o `target_aplicado = null` no decide; se conserva la semantica vieja (seguir buscando) y la ausencia | la del ultimo snapshot v1 inequivoca; si no hay, `setting` (inicializacion ya aprobada). Un ciclo con `base.valor = null` no borra el ancla anterior | el del ciclo actual | sin reconstruir por resta ni `efectivo - overlay`; `base.origen = 'setting'` o `'ciclo:<id>'`, nunca un numero inferido |
+| 4b | Fraccion apagada (`sin_fraccion`) y reencendida | el ciclo apagado sella `base.valor = null` y su hoja recibe el setting; el ciclo siguiente camina 0.5 desde la ultima base explicita | la ultima base explicita, no el derivado (no inventa margen fresco) | el del ciclo actual | `base.valor = null` visible en el ciclo apagado; `target_aplicado` nulo ahi |
 | 5 | Replay de una decision antigua | `decision.inputs` congelados (caso, `target_snapshot`, `target_acos_pct_usado`) y su `version` | la frozen de su fecha; el replay no consulta settings ni la base de hoy | `caso.temporada.meta_alta_pct` y `frontera` congelados | cero diferencias no previstas; filas sin la clave rejuegan con su era (`replay.py`) |
 | 6 | Recuperacion parcial (`resume_of`) | el origen live con `decision_committed_at` sigue siendo el ancla; el ejecutor cierra con `_SQL_CERRAR_ENVELOPE` (sin sello) y no decide | el lote nuevo ancla a la base del origen; el ejecutor no duplica decisiones ni abre otra base | el overlay lo fija el origen que decidio; el ejecutor no lo reescribe | `resume_of = origen`, `decisions_count = 0`, `base` del origen intacta |
 

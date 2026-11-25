@@ -1,15 +1,14 @@
 # Rojo de las regresiones del bloque F contra el PADRE real.
-# Padre: 8a094228cd9704b35195000b83e37157527f887c (master con BASE, A-E).
-# Codigo de app/ en el estado del padre; solo se agregaron las pruebas
-# nuevas tests/test_arreglos05_f_meta.py (SHA del arbol: 4bf03729).
+# Padre: 8a094228cd9704b35195000b83e37157527f887c (master con BASE, A-E);
+# el codigo de app/ es el del padre y tests/test_arreglos05_f_meta.py es el
+# archivo FINAL del bloque (9 casos).
 # Comando: uv run --frozen --python 3.12 python -B -m pytest -q -rs \
 #   -p no:cacheprovider tests/test_arreglos05_f_meta.py
 # Impacto: la meta se congela (28.5, 28.5 en vez de 28.5, 28.0), el ciclo
-# degradado no es ancla (29.0 en vez de 28.5) y faltan base/version/overlay.
+# degradado no es ancla (29.0 en vez de 28.5), la fraccion apagada no tiene
+# contrato de base y faltan las claves base/version/overlay.
 
-# DSN presente: si
-# SHA 4bf037290d39ca750ef9f737c6e4038c22530e71
-FFFFFFFF                                                                 [100%]
+FFFFFFFFF                                                                [100%]
 ================================== FAILURES ===================================
 _______________ test_arreglos05_f_base_avanza_con_ledger_rancio _______________
 
@@ -49,7 +48,7 @@ E
 E             At index 1 diff: Decimal('28.5') != Decimal('28.0')
 E             Use -v to get more diff
 
-tests\test_arreglos05_f_meta.py:201: AssertionError
+tests\test_arreglos05_f_meta.py:200: AssertionError
 ______________ test_arreglos05_f_overlay_alta_no_se_vuelve_base _______________
 
     @_skip_db
@@ -204,6 +203,36 @@ ________ test_arreglos05_f_snapshot_viejo_con_base_inequivoca_es_ancla ________
 E           KeyError: 'base'
 
 tests\test_arreglos05_f_meta.py:407: KeyError
+____________ test_arreglos05_f_fraccion_apagada_no_borra_el_ancla _____________
+
+    @_skip_db
+    def test_arreglos05_f_fraccion_apagada_no_borra_el_ancla():
+        """Un ciclo sin fraccion no entrega base (`base.valor` nulo) pero no borra
+        la ultima base explicita: al reencender la fase la meta camina 0.5 desde
+        ahi y no salta al derivado. La ausencia queda visible en su snapshot."""
+        with _db_temporal("orbit_f05_fraccion") as (conn, _extra):
+            _mundo(conn, setting="29.5")
+            primero = _corre_f(conn)
+            assert primero.status == "done", primero.notes
+            assert Decimal(_target_de(conn, primero.cycle_id)["target_aplicado"]) == Decimal("29")
+
+            _config_version(
+                conn,
+                {
+                    "ads_optimizer_mode": "live",
+                    "ads_target_acos_pct_amazon_us": "29.5",
+                    "ads_bid_politica_amazon_us": "niveles_v3",
+                },
+            )
+            apagada = _corre_f(conn)
+            assert apagada.status == "done", apagada.notes
+            target_apagada = _target_de(conn, apagada.cycle_id)
+            assert target_apagada["motivo_abstencion"] == "sin_fraccion"
+>           assert target_apagada["base"]["valor"] is None
+                   ^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'base'
+
+tests\test_arreglos05_f_meta.py:434: KeyError
 _________________ test_arreglos05_f_replay_consume_su_version _________________
 
     @_skip_db
@@ -254,7 +283,7 @@ _________________ test_arreglos05_f_replay_consume_su_version _________________
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E           KeyError: 'version'
 
-tests\test_arreglos05_f_meta.py:460: KeyError
+tests\test_arreglos05_f_meta.py:501: KeyError
 ____________ test_arreglos05_f_recuperacion_parcial_retoma_la_base ____________
 
     @_skip_db
@@ -319,5 +348,5 @@ E           assert Decimal('29.0') == Decimal('28.5')
 E            +  where Decimal('29.0') = Decimal('29.0')
 E            +  and   Decimal('28.5') = Decimal('28.5')
 
-tests\test_arreglos05_f_meta.py:518: AssertionError
-8 failed in 23.36s
+tests\test_arreglos05_f_meta.py:559: AssertionError
+9 failed in 27.65s

@@ -38,7 +38,9 @@ Para quien mantiene:
   `overlay = {version, modo, fase, estacion_dia, meta_alta_pct, aplica}`.
   `target_aplicado` sigue siendo el numero que entra a la cascada, asi que
   `api_common`, `cycle_notifica`, `apply_revalidacion`, `familias`, el tablero y
-  el test externo `test_12` no cambian.
+  el test externo `test_12` no cambian. `base.valor` nulo (peldano que no
+  aplica, p. ej. `sin_fraccion`) queda visible pero no borra el ancla anterior:
+  apagar la fraccion y reencenderla no hace saltar la meta.
 - **Una lectura estacional por ciclo.** La configuracion de TEMPORADA se resuelve
   una vez en `cycle_target._overlay_temporada` y `cycle_recorrido` arma `plat_t`
   con ella (antes se leia dos veces). TEMPORADA conserva el dueno de sus
@@ -51,8 +53,8 @@ Para quien mantiene:
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `5eb549f4` | `test_12`: 1 passed. `N f`: 8 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
-| F.2 | mismos comandos mas las pruebas de snapshot viejo, replay y recuperacion | `5eb549f4` | 8 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
+| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `5eb549f4` | `test_12`: 1 passed. `N f`: 9 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
+| F.2 | mismos comandos mas las pruebas de snapshot viejo, fraccion apagada, replay y recuperacion | `5eb549f4` | 9 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; una fase apagada no borra el ancla; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
 
 Casos de `N f` (`tests/test_arreglos05_f_meta.py`):
 
@@ -69,10 +71,14 @@ Casos de `N f` (`tests/test_arreglos05_f_meta.py`):
    snapshot rancio.
 6. `test_arreglos05_f_snapshot_viejo_con_base_inequivoca_es_ancla`: v1 con
    `procedencia=margen_plataforma` y `target_aplicado=29` si es ancla (28.5).
-7. `test_arreglos05_f_replay_consume_su_version`: con la fraccion apagada, la
+7. `test_arreglos05_f_fraccion_apagada_no_borra_el_ancla`: el ciclo
+   `sin_fraccion` sella `base.valor` nulo y su hoja recibe el setting; al
+   reencender, la meta camina desde la ultima base (28.5) y no salta al
+   derivado.
+8. `test_arreglos05_f_replay_consume_su_version`: con la fraccion apagada, la
    meta de alta en 10 y la escalera en off, `reproduce` da el mismo veredicto; el
    freeze declara `target_v2`.
-8. `test_arreglos05_f_recuperacion_parcial_retoma_la_base`: el ejecutor no decide
+9. `test_arreglos05_f_recuperacion_parcial_retoma_la_base`: el ejecutor no decide
    ni se sella; el lote del dia siguiente ancla al origen (28.5, no 29).
 
 ## Foto de produccion (solo lectura)
@@ -103,21 +109,21 @@ Consecuencias del invariante:
 
 ## Rojo y verde
 
-Rojo contra el padre real, en `F/rojo.txt`: 8 failed. No hubo error de fixture,
+Rojo contra el padre real, en `F/rojo.txt`: 9 failed. No hubo error de fixture,
 skip ni cero casos. Los fallos son de comportamiento o del contrato nuevo:
 
 - `test_arreglos05_f_base_avanza_con_ledger_rancio`: `[28.5, 28.5] !=
   [28.5, 28.0]` (la meta se congela).
 - `test_arreglos05_f_recuperacion_parcial_retoma_la_base`: `29.0 != 28.5` (el
   ciclo `degraded` con TX3 comprometida no era ancla y manda el setting).
-- Los otros seis: `KeyError` de `base`/`version`, el contrato versionado que
+- Los otros siete: `KeyError` de `base`/`version`, el contrato versionado que
   aun no existia.
 
-Verde en la cabeza: `N f` = 8 passed; `T optimizer test_12` = 1 passed.
+Verde en la cabeza: `N f` = 9 passed; `T optimizer test_12` = 1 passed.
 
 ## Acepta (salida completa en `F/acepta.txt`, partes en `F/acepta-1..3.txt`)
 
-- Parte 1: `T optimizer test_12` = 1 passed; `N f` = 8 passed; bloque A estados
+- Parte 1: `T optimizer test_12` = 1 passed; `N f` = 9 passed; bloque A estados
   = 181 passed; arquitectura = 99 passed, 2 skipped (la omision declarada de la
   regla 99:2).
 - Parte 2: ciclo y target = 102 passed; aplicador (apply, cola, cosecha,
