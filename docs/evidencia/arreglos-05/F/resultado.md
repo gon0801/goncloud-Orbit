@@ -209,7 +209,7 @@ x1.
 
 - PR #763 integrado. `MOTOR_SHA=96eddb992295616d183f7fac1707574e6682a5ad`
   (master), `SHA_PREVIO=4f44c07dd7b8d3ff358febb7527e2a4c363a3ac5`.
-- Fecha del despliegue: 2026-11-25 03:0x UTC.
+- Fecha del despliegue: 2026-11-25 03:08 UTC.
 - Ensayo solo lectura: guardas libres
   (`alias|ciclos running|harvest en cola|harvest jobs|app.cli` =
   `true|0|0|0|0`), 25 migraciones aplicadas incluidas 0094-0098, **ninguna
