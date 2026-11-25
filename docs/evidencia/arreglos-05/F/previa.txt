@@ -1,0 +1,42 @@
+# Lectura previa de produccion del bloque F (solo SELECT). SHA 8a094228cd9704b35195000b83e37157527f887c
+
+== momento
+2026-11-25 00:36:01.242076|160015
+
+== snapshots_por_modo_estado
+live|done|179|175
+off|skipped|2|0
+shadow|done|30|0
+
+== target_por_procedencia
+margen_plataforma|(sin clave)|175|175
+
+== base_inequivoca_v1
+175
+
+== snapshots_versionados
+0
+
+== ciclos_live_con_decision_comprometida
+2|2|0|0
+
+== ultimas_bases_live
+210|amazon_us|done|True|margen_plataforma|23.87387092262181318210778656|None
+208|amazon_us|done|False|margen_plataforma|23.97412932655443396629032656|None
+206|amazon_us|done|False|margen_plataforma|23.93458938922240577084112048|None
+204|amazon_us|done|False|margen_plataforma|23.93458938922240577084112048|None
+202|amazon_us|done|False|margen_plataforma|23.92517062867206762788511776|None
+200|amazon_us|done|False|margen_plataforma|23.67988730337312435817382256|None
+198|amazon_us|done|False|margen_plataforma|23.29898566201939223024134360|None
+196|amazon_us|done|False|margen_plataforma|23.29712877709031904288753440|None
+194|amazon_us|done|False|margen_plataforma|23.08311686657659625020608288|None
+192|amazon_us|done|False|margen_plataforma|23.23444203217964435456197440|None
+190|amazon_us|done|False|margen_plataforma|23.32535485505608621991852552|None
+188|amazon_us|done|False|margen_plataforma|23.19022045842764319401997016|None
+
+== temporada_config
+ads_temporada|{'meses': ['baja', 'baja', 'alta', 'alta', 'baja', 'baja', 'normal', 'normal', 'normal', 'alta', 'alta', 'normal'], 'version': 'temporada_v1', 'fin_anticipado': None, 'dias_preparacion': 21, 'mult_cortes_baja': '2', 'mantener_pausadas': [], 'reduccion_baja_pct': '30', 'aumento_presupuesto_alta_pct': '25'}
+ads_temporada_amazon_mx|live
+ads_temporada_amazon_us|live
+
+# bloques procesados: 8 de 8; con error: 0
