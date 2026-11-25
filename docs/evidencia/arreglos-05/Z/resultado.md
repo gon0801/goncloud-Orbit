@@ -24,6 +24,33 @@ implementador) no encontro ningun P0/P1 en el alcance revisado de `7b06778d`:
 `Z/review.md`. Las esquinas y la deuda de fixtures de otros planes van a
 "Seguimiento (P2)".
 
+El veredicto es PARCIAL por **dos motivos**, y ambos quedan escritos:
+
+1. **K-US sin adjudicar.** La fuente no permite demostrar el impuesto sobre
+   comisiones en Amazon US. Es el pendiente que impide el pase global del plan.
+2. **Limites de alcance de la revision Z.3.** El revisor declara fuera de su
+   alcance, y este informe no los presenta como revisados:
+   - la logica pura de `app/optimizer/` (`politica.py`, `temporada.py`,
+     `replay.py`);
+   - Repricing (`app/precio/`), MeLi (catalogo y precio de mercado), reputacion y
+     SP-API;
+   - el pipeline de estimacion y la ingesta;
+   - UI y JS (`productos.js`, pantallas) y `tools/despliegue/*.sh`;
+   - las migraciones 0095 a 0097 y 0099, conocidas solo por evidencia y por el
+     codigo que las usa;
+   - la cosecha de hermanas y su reversa automatica en detalle,
+     `archivar_inertes` y `retiro_anuncios`;
+   - las filas de `COBERTURA.md` de 03 y 04 (IDs 02, 04, 05, 06, 07, 14, 15 y 16);
+     de ellas el revisor solo miro S1.
+
+   Esos limites **no se convierten en P0/P1**: son cobertura declarada. Su
+   comprobacion se apoya en la aceptacion integrada y en la evidencia de su plan,
+   no en la revision independiente, y asi se anota en `Z/cobertura.tsv`.
+
+Los P2 13 y 14 del informe (`test_avisar_campanas_*` y el fallo de Windows en
+`test_precio_reglas`) son fallos previos ya declarados por este bloque; no son
+hallazgos nuevos de Z.
+
 ## Aceptacion integrada (Z.2)
 
 ```bash
