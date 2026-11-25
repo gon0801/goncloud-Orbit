@@ -1,0 +1,10 @@
+{
+  "run_id": "i-cuotas-fase2",
+  "ok": true,
+  "pid": 546294,
+  "port": 18010,
+  "base_url": "http://127.0.0.1:18010",
+  "cmdline": "/tmp/orbit-i2/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 18010 ",
+  "health": "{\"status\":\"ok\"}",
+  "fallos": []
+}

@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "base": "http://127.0.0.1:18010",
+  "db": "orbit_verify_i_cuotas_fase2win",
+  "checks": {
+    "pagina_settings": true,
+    "cap_es_texto": true,
+    "cap_conserva_texto": true,
+    "error_visible": true,
+    "cero_post": true,
+    "sin_version_nueva": true,
+    "sin_recarga": true,
+    "texto_error": "Error: la cuota de bid debe ser un numero entero sin comas ni decimales (llego 1,000).",
+    "cuota_valida_intenta_post": true,
+    "cuota_valida_sin_error_del_navegador": true,
+    "estado_cuota_valida": "Error: escrituras no disponibles: configuracion de token incompleta"
+  }
+}

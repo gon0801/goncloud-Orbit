@@ -1,0 +1,27 @@
+# Huella de la fase 2 del bloque I. SHA integrado: 0244dc381c18b59b76112c68317738114d0b6ff8; HEAD: 082760f83329306291d6c27c2f1cd9325f77af9c
+# Fecha UTC: 2026-11-25T08:23:36Z
+
+archivo | md5_local | md5_host | md5_contenedor
+app/config_write.py | 36f3443fc459864243ba822745c8a1d0 | 36f3443fc459864243ba822745c8a1d0 | 36f3443fc459864243ba822745c8a1d0
+app/api_write.py | e7561ace5a25b57fb941a6e2037c25e8 | e7561ace5a25b57fb941a6e2037c25e8 | e7561ace5a25b57fb941a6e2037c25e8
+app/static/js/settings.js | 83aae840329410ce8fa6c744bb7c689c | 83aae840329410ce8fa6c744bb7c689c | 83aae840329410ce8fa6c744bb7c689c
+app/templates/settings.html | a7a80045aee40c7ff8a78d8379f56e05 | a7a80045aee40c7ff8a78d8379f56e05 | a7a80045aee40c7ff8a78d8379f56e05
+
+sha_desplegado | 0244dc381c18b59b76112c68317738114d0b6ff8
+
+# ultimo.env (solo estado y cambios)
+MOTOR_SHA=0244dc381c18b59b76112c68317738114d0b6ff8
+ESTADO=guardas
+SHA_PREVIO=889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+CODIGO=predeploy-20261125-075842
+ESTADO=desplegado
+ESTADO=verificado
+
+# marcas del bloque I dentro del contenedor
+settings.js cuota=1
+settings.html cap_text=1
+config_write _cap_entrante=3
+api_write cuota_cruda=1
+
+# health
+200

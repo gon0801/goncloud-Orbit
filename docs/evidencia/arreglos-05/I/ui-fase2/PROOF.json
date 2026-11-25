@@ -1,0 +1,26 @@
+{
+  "feature": "settings",
+  "entry_point": "nav /settings",
+  "base_url": "http://127.0.0.1:18010",
+  "action": "GET /settings y GET /api/dashboard/settings",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=settings": true,
+    "h1_settings": true,
+    "h2_settings": true,
+    "nav_aria_current": true,
+    "token_input": true,
+    "plataforma_us": true,
+    "peldano_goal_plataforma": true,
+    "target_25": true,
+    "sin_goals_campana": true,
+    "api_http_200": true,
+    "api_modo_shadow": true,
+    "api_us_target_25": true,
+    "api_us_peldano": true,
+    "api_goal_plataforma_us": true,
+    "api_sin_goal_campana": true
+  },
+  "ok": true,
+  "evidence_dir": "/tmp/orbit-i2/.cursor/skills/verify-orbit/evidence/i-cuotas-fase2/settings"
+}
