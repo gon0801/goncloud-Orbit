@@ -7,7 +7,9 @@
   (modelo en `4bf03729`; primera implementacion en `5eb549f4`; evidencia en
   `edd48fae`).
 - Acepta corrida en `b44d30db7443b659442c11ca54c3b26bcac24cec` con arbol
-  limpio.
+  limpio. Los commits posteriores (`43dd5e64`, `fbb81d7c`) solo agregan
+  evidencia y un docstring; el codigo es el mismo.
+- gitleaks de `8a094228..fbb81d7c`: sin fugas.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md`, seccion "F-G. Meta base y
   sello temporal" (parte F) e "Integracion con TEMPORADA y migraciones".
 - Aviso del bloque: la meta sigue acercandose a su destino cuando el libro esta
